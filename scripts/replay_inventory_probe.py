@@ -53,6 +53,8 @@ WHAT THE SCHEMA SAYS (read at main c51324d):
   graded row." A game's closing is void, listed with the label and left out of closing and all four, when none of its
   closing rows' recorded starts (their utc_date) is within the rule of the kickoff and its latest closing row is
   re-dated by the rule (src/walters/redated.py void_label). A latest row whose start cannot be compared is not void.
+  A latest row recorded at the provider's placeholder kickoff (04:00:00Z) reads "void: placeholder kickoff" instead
+  (addendum 109 item 2 Q2): one void state, the two labels counted apart.
 
 THE KEYS (printed): a graded game = matches.status FINISHED with home_score and away_score, kickoff (matches.utc_date)
 in [--since, --until). Before kickoff = julianday(the stamp) < julianday(matches.utc_date) (the stamp as stored, any
@@ -80,7 +82,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from src.walters.close import CAPTURE_SESSION  # noqa: E402  (the close's own session window, read, never restated)
-from src.walters.redated import closing_starts, void_label  # noqa: E402  (addendum 107 item A2: the one rule)
+from src.walters.redated import closing_starts, void_counts, void_label  # noqa: E402  (addendum 107 item A2)
 
 SINCE = "2026-09-20"
 CHUNK = 500
@@ -100,7 +102,8 @@ KEYS = ("graded = matches.status FINISHED with home_score and away_score, kickof
         "captured_at, complete = every leg stored (not the Kalshi grading close) · closing file = "
         "<exports>/closing_*.json closing.match_ids (else predictions[].match_id); a game with no closing row's "
         "utc_date within DESK_CLOCK_DRIFT of its kickoff and its latest re-dated is void: re-dated, never a closing "
-        "(addendum 107 item A2)")
+        "(addendum 107 item A2); void: placeholder kickoff when that latest row was recorded at 04:00:00Z "
+        "(addendum 109 item 2)")
 
 
 def db_path(arg: str | None) -> Path:
@@ -397,7 +400,8 @@ def report(inv: dict, form: str, since: str, until: str, exports: Path, echo=pri
              + (f"{g['settled_markets']} games" if inv["settled_table"] else "NO such table in this database"))
         echo(f"  closing file ({exports}/, by match id): {g['closing']} games")
         echo(f"  all four (a stored prediction + book history + kalshi history + a closing file): {g['all_four']}")
-        echo(f"  closing void: re-dated (left out of closing and all four): {g['closing_redated']} games")
+        echo(f"  closing void (games left out of closing and all four): "
+             f"{void_counts(lab for _, lab in g['redated'])}")
         for i, lab in g["redated"]:
             echo(f"    match {i}: {lab}")
     js = {name: {k: (v if not isinstance(v, dict) else {"games": v["games"], "complete": v["complete"],

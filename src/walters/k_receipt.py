@@ -297,8 +297,9 @@ def eligible_calls(L: dict, since: datetime = K_WINDOW_FROM, until: datetime = K
 
 
 def redated_calls(L: dict, since: datetime = K_WINDOW_FROM, until: datetime = K_WINDOW_TO) -> list[dict]:
-    """The calls in the window that would have been eligible but the Cockpit voided as re-dated:
-    out of every tally here. A void shadow or parlay leg was never in the reconciliation."""
+    """The calls in the window that would have been eligible but the Cockpit voided as re-dated (or as a placeholder
+    kickoff, the same void state under its own label: addendum 109 item 2 Q2): out of every tally here. A void
+    shadow or parlay leg was never in the reconciliation."""
     return [c for c in L.get("calls") or []
             if _real_call(c) and c.get("void_redated") and _in_window(c, since, until)]
 
@@ -361,6 +362,8 @@ def reconcile(L: dict, since: datetime = K_WINDOW_FROM, until: datetime = K_WIND
             "funnel": {"eligible": len(rows),
                        "cost_recorded": sum(1 for r in rows if r["cost_recorded"]),
                        "matched": tally["MATCHED"]},
+            # addendum 109 item 2: eligible calls the Cockpit paired with a result by the ±1-day join (no match id)
+            "legacy_join": sum(1 for c in elig if c.get("legacy_join")),
             "ledger": {"fills": len(fills), "system_matched": len(matched_fills),
                        "matched_in_window": len(inside), "matched_outside_window": len(outside),
                        "matched_redated": sum(1 for f in matched_fills if f.get("call_id") in void_ids),
@@ -382,6 +385,7 @@ def reconcile(L: dict, since: datetime = K_WINDOW_FROM, until: datetime = K_WIND
 
 def format_fills(L: dict, since: datetime = K_WINDOW_FROM, until: datetime = K_WINDOW_TO) -> list[str]:
     from src.walters.ledger_fills import executed_positions
+    from src.walters.redated import void_counts
     rec = reconcile(L, since, until)
     ex = executed_positions(L)
     in_window = {r["call_id"] for r in rec["rows"]}          # the same cohort as the reconciliation (Codex on #297)
@@ -392,7 +396,7 @@ def format_fills(L: dict, since: datetime = K_WINDOW_FROM, until: datetime = K_W
     out = [f"FILLS · ledger export: {lg['fills']} fills · books " +
            " · ".join(f"{k} {v}" for k, v in rec["books"].items()),
            (f"  system_matched in window: {lg['matched_in_window']} (outside window {lg['matched_outside_window']}"
-            + (f"; on a call void: re-dated {lg['matched_redated']}" if lg["matched_redated"] else "")
+            + (f"; on a void call {lg['matched_redated']}" if lg["matched_redated"] else "")
             + f") · qty {lg['qty']} · opening fees ${lg['open_fees']:.2f} · fees ${lg['fees']:.2f}"
               f" · realised P&L pre-fee ${lg['pnl_pre']:+.2f} net ${lg['pnl_net']:+.2f}"),
            "  opening-fee class: " + " · ".join(f"{k} {v}" for k, v in lg["fee_classes"].items() if v),
@@ -427,10 +431,12 @@ def format_fills(L: dict, since: datetime = K_WINDOW_FROM, until: datetime = K_W
     out.append("  " + " · ".join(f"{k} {t[k]}" for k in DISPOSITIONS)
                + " (UNATTEMPTED / ATTEMPTED_UNFILLED need order records the ledger does not carry)")
     rd = redated_calls(L, since, until)          # addendum 106 item 4: counted here, out of every tally above
-    out.append(f"  void: re-dated {len(rd)} (out of the reconciliation and the CLV)")
+    out.append(f"  void: {void_counts(c['void_redated'] for c in rd)} (out of the reconciliation and the CLV)")
     for c in rd:
         out.append(f"- VOID {c.get('sport')} {c.get('game')} · {c.get('call_type')} {c.get('pick')} · "
                    f"{c['void_redated']}")
+    out.append(f"  legacy join {rec['legacy_join']} of the eligible calls (paired with its result by the "
+               "Cockpit's ±1-day team join: no match id, logged before the field; addendum 109 item 2)")
     for r in rec["rows"]:
         line = (f"- {r['disposition']:<11} {r['sport']} {r['game']} · {r['day']} · {r['call_type']} "
                 f"{r['pick']} · {r['units']}u · {r['why']}")

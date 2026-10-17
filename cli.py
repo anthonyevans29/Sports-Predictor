@@ -4986,12 +4986,15 @@ def export_nfl_results_cmd(days_back, match_ids):
         print(f"  {_vs_line(prec.get('vs_close'))}")
     rows_all = (doc.get("results") or []) + (pre.get("results") or [])
     _redated_lines(rows_all)
-    # addendum 106 item 4: a re-dated row is in the file and out of both records
-    rd_ids = {r["match_id"] for r in rows_all if r.get("redated")}
+    # addendum 106 item 4: a re-dated row is in the file and out of both records (addendum 109 item 2 Q2: a
+    # placeholder kickoff reads its own label)
+    from src.walters.redated import PLACEHOLDER_LABEL
+    rd_ids = {r["match_id"]: ("void: placeholder kickoff" if r["redated"] == PLACEHOLDER_LABEL else "void: re-dated")
+              for r in rows_all if r.get("redated")}
     live_ids = {r["match_id"] for r in doc.get("results") or []}
     pre_ids = {r["match_id"] for r in pre.get("results") or []}
     for mid in match_ids:
-        print(f"match {mid}: " + ("IN the file (void: re-dated, out of every record)" if mid in rd_ids else
+        print(f"match {mid}: " + (f"IN the file ({rd_ids[mid]}, out of every record)" if mid in rd_ids else
                                   "IN the file (season record)" if mid in live_ids else
                                   "IN the file (pre-live, not in the season record)" if mid in pre_ids
                                   else "NOT in the file"))
@@ -8669,9 +8672,11 @@ def find_team_cmd(name_fragment: str):
 
 def _redated_lines(rows) -> None:
     """VOID: RE-DATED (ARCHITECT 2026-10-17, addendum 106 item 4): the results rows void as re-dated, counted on a line
-    of their own and named. Each stays in the file (the Cockpit grades the fresh call from it), out of every tally."""
+    of their own and named. Each stays in the file (the Cockpit grades the fresh call from it), out of every tally.
+    A placeholder kickoff (addendum 109 item 2 Q2) is the same void state under its own label, counted apart."""
+    from src.walters.redated import void_counts
     rd = [r for r in rows if r.get("redated")]
-    print(f"  void: re-dated {len(rd)} (kept in the file, out of every tally above)")
+    print(f"  void: {void_counts(r['redated'] for r in rd)} (kept in the file, out of every tally above)")
     for r in rd:
         print(f"    match {r.get('match_id')} {r.get('away_team')} @ {r.get('home_team')}: {r['redated']}")
 

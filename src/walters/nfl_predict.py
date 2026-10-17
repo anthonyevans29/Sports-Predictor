@@ -462,7 +462,7 @@ def grade_nfl(days_back: int | None = None, progress=None, exports_dir: str = "e
 
     from src.db.database import session_scope
     from src.db.schema import Match, MatchStatus, Odds, Prediction, Sport
-    from src.walters.redated import closing_starts, void_label
+    from src.walters.redated import closing_starts, void_counts, void_label
     from src.walters.value import MarketSnapshot
 
     def report(msg):
@@ -558,7 +558,7 @@ def grade_nfl(days_back: int | None = None, progress=None, exports_dir: str = "e
                       if vg else ""))
         if live["games"] == 0 and pre["games"] == 0:
             if redated:                           # addendum 106 item 4: every game re-dated, still named and counted
-                report(f"  ── void: re-dated {len(redated)} (out of every line here)")
+                report(f"  ── void: {void_counts(redated)} (out of every line here)")
                 for x in redated:
                     report(f"     {x}")
             return {"ok": False, "reason": "no finished NFL games with predictions in window",
@@ -592,7 +592,7 @@ def grade_nfl(days_back: int | None = None, progress=None, exports_dir: str = "e
                f"(n={len(vclvs)} anchored; {n - len(vclvs)} unanchored — no pre-kickoff book snapshot) · "
                f"value-shadow cohort {summary['mean_value_shadow_clv_pp']}pp (n={len(vshadow)}) · "
                f"anchor after prediction: {anchor_after}/{len(vclvs)}")
-        report(f"  ── void: re-dated {len(redated)} (out of every line here)")
+        report(f"  ── void: {void_counts(redated)} (out of every line here)")     # addendum 109 item 2 Q2
         for x in redated:
             report(f"     {x}")
         if pre["games"]:

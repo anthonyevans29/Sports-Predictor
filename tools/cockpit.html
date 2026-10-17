@@ -302,7 +302,7 @@ function normalize(doc){
       if(f.status && f.status!=="scheduled") continue;
       const mk=f.market||{}; const fair=mk.fair_prob||{};
       out.push({game:`${_t(f.away_team||"?")} @ ${_t(f.home_team||"?")}`,
-        home:f.home_team||"?",away:f.away_team||"?",
+        home:f.home_team||"?",away:f.away_team||"?",match_id:f.match_id??null,   // addendum 109 item 2: the call's id
         pick:null,prob:null,mkt:null,twoSided:false,
         mktHasDraw:fair.DRAW!=null,kal:(f.input_quality||{}).kalshi||null,sport,
         when:(f.utc_date||"").slice(0,16).replace("T"," "),utc:f.utc_date||"",
@@ -336,7 +336,8 @@ function normalize(doc){
     for(const k of ["HOME","DRAW","AWAY"]) if(probs[k]!=null&&probs[k]>best){best=probs[k];pick=k;}
     const _t=n=>n&&n.length>18?n.slice(0,16)+"…":n;
     out.push({game:`${_t(away)} @ ${_t(home)}`,
-      home,away,pick,prob:best,mkt:market[pick]??null,
+      home,away,match_id:p.match_id??null,   // addendum 109 item 2: a Desk call is identified by its match id + kickoff
+      pick,prob:best,mkt:market[pick]??null,
       twoSided:market.HOME!=null&&market.AWAY!=null,
       mktHasDraw:market.DRAW!=null,kal,sport,
       when:(p.utc_date||"").slice(0,16).replace("T"," "),utc:p.utc_date||"",
@@ -816,14 +817,17 @@ function upsertCalls(L,fresh,opts){
 }
 // addendum 106 item 4: a re-log reopens a call void as re-dated (its kickoff is the fresh capture's); the label goes
 // with the status, and the next results intake decides again
-function reopened(c){ if(c.status==="open") delete c.void_redated; return c; }
+function reopened(c){ if(c.status==="open"){ delete c.void_redated; delete c.legacy_join; } return c; }
 // ... except a parlay leg void as re-dated whose ticket has settled without it (a ticket settles once; its legs only
 // reach "graded" there): that ticket's history, never reopened, regraded or re-settled
 function settledVoidLeg(L,c){ return c.call_type==="parlay_leg"&&!!c.void_redated
   &&L.calls.some(x=>x.parlay_id===c.parlay_id&&x.status==="graded"); }
+// ADDENDUM 109 ITEM 2 (ARCHITECT 2026-10-17): "a Desk call is identified by its match id and its recorded kickoff, not
+// by a ±1-day join": every call carries the file row's match_id (null: the row had none) beside its kickoff, and the
+// ledger JSON export carries both (it is the stored ledger).
 function baseCall(r,logDate){
   return {log_date:logDate,sport:r.sport,game:`${r.away} @ ${r.home}`,home:r.home,away:r.away,
-    kickoff:r.utc||null,three_way:!!r.threeWay,status:"open",quarantine:rowQuar(r),
+    match_id:r.match_id??null,kickoff:r.utc||null,three_way:!!r.threeWay,status:"open",quarantine:rowQuar(r),
     captured_at:new Date().toISOString(),qb_listed:(r.qbs||[]).slice(),
     stage:r.stage??null};
 }
@@ -1073,8 +1077,9 @@ function outcomesFromDoc(doc){
     if(hs!=null&&as!=null) winner=hs>as?"HOME":hs<as?"AWAY":"DRAW";
     else if(res) winner={H:"HOME",A:"AWAY",D:"DRAW"}[String(res).toUpperCase()]||null;
     const st=String(status||"finished").toLowerCase();
-    if(["cancelled","canceled","abandoned","void"].includes(st)) out.push({sport,home,away,date,void:true});
-    else if(st==="finished"&&winner) out.push({sport,home,away,date,winner,hs,as,close:close||null});
+    const match_id=o.match_id??null;                 // addendum 109 item 2: a call pairs by it
+    if(["cancelled","canceled","abandoned","void"].includes(st)) out.push({sport,match_id,home,away,date,void:true});
+    else if(st==="finished"&&winner) out.push({sport,match_id,home,away,date,winner,hs,as,close:close||null});
   };
   // P0-3 (#208): each outcome carries its CLOSE (q_close per side) when the file
   // has one: results exports' graded.close_fair (close_1x2, the ruled close);
@@ -1139,29 +1144,48 @@ function dayDiff(a,b){
 // call's kickoff is the start it was called at; a result's date is the match's current utc_date. More than the hour
 // (exactly 1h is not void); a date with no clock on either side is not compared. The Python rule:
 // src/walters/redated.py redated_label (same text).
+// PLACEHOLDER (addendum 109 item 2 Q2): "A row whose recorded kickoff was the 04:00Z placeholder is "void: placeholder
+// kickoff", excluded from every tally the same way." One void state (void_redated), two labels; a placeholder kickoff
+// that did not move is graded as before. The placeholder is src/ingestion/placeholder.py is_placeholder_kickoff's
+// (04:00:00Z, midnight US Eastern), mirrored here (parity: scripts/cockpit_redated_verify.py).
 const REDATED_DRIFT_MS=3600000;   // desk_policy.DESK_CLOCK_DRIFT (1h)
+const PLACEHOLDER_LABEL="void: placeholder kickoff";
+function isPlaceholderKickoff(s){
+  if(!/T\d\d:\d\d/.test(String(s||""))) return false;
+  const t=utcMs(s); if(!isFinite(t)) return false;
+  const d=new Date(t); return d.getUTCHours()===4&&d.getUTCMinutes()===0&&d.getUTCSeconds()===0;
+}
 function redatedLabel(recorded,current){
   const clock=x=>/T\d\d:\d\d/.test(String(x||""));
   if(!clock(recorded)||!clock(current)) return null;
   const a=utcMs(recorded), b=utcMs(current);
   if(!isFinite(a)||!isFinite(b)||Math.abs(b-a)<=REDATED_DRIFT_MS) return null;
+  if(isPlaceholderKickoff(recorded)) return PLACEHOLDER_LABEL;
   const t=ms=>new Date(ms).toISOString().slice(0,16).replace("T"," ")+"Z";
   return `void: re-dated ${t(a)} → ${t(b)}`;
 }
+// the void calls counted by label (src/walters/redated.py void_counts, same text)
+function voidCounts(L){ const v=L.calls.filter(c=>c.void_redated), p=v.filter(c=>c.void_redated===PLACEHOLDER_LABEL).length;
+  return `re-dated ${v.length-p} · placeholder kickoff ${p}`; }
 // INTL calls (ARCHITECT 2026-10-07 addendum 3, item C): "graded on the 90-MINUTE result, never on a score that
 // includes extra time or penalties". Only an INTL results file (export-intl-results: actual = the 90-minute
 // score; games without one are listed there as ungraded) may grade them: a fixtures file's score includes extra
 // time, so a UNL fixture finished AET/PEN would grade on the later score. An INTL call without one stays open.
+// PAIRING (ARCHITECT 2026-10-17, addendum 109 item 2): "grading pairs a call to a result by match_id". A call with a
+// match id pairs with the result row of that id and no other (no team-name or ±1-day join): a call whose id is in no
+// loaded row stays open. A call without one ("Calls that predate the field (this season's existing ledger rows) are
+// paired as today by the ±1-day join and flagged "legacy join"") takes the join below; gradeLedger flags it.
 function findOutcome(c,outs){
+  const intl=o=>c.sport!=="INTL"||o.sport==="INTL";
+  const one=hit=>{ const same=hit.filter(o=>o.sport===c.sport), pool=same.length?same:hit;
+    return pool.length===1?pool[0]:null; };         // ambiguous → stays open
+  if(c.match_id!=null) return one(outs.filter(o=>o.match_id!=null&&String(o.match_id)===String(c.match_id)&&intl(o)));
   const cd=(c.kickoff||c.log_date||"").slice(0,10);
-  const near=outs.filter(o=>dayDiff(cd,(o.date||"").slice(0,10))<=1&&(c.sport!=="INTL"||o.sport==="INTL"));
+  const near=outs.filter(o=>dayDiff(cd,(o.date||"").slice(0,10))<=1&&intl(o));
   for(const cmp of [(x,y)=>x===y,(x,y)=>normTeam(x)===normTeam(y)]){   // exact first, then normalized
     const hit=near.filter(o=>cmp(o.home,c.home)&&cmp(o.away,c.away));
     if(!hit.length) continue;
-    const same=hit.filter(o=>o.sport===c.sport);
-    const pool=same.length?same:hit;
-    if(pool.length===1) return pool[0];
-    return null;                                   // ambiguous → stays open
+    return one(hit);
   }
   return null;
 }
@@ -1233,8 +1257,12 @@ function gradeLedger(L,outs){
       continue; }
     if(settledVoidLeg(L,c)) continue;
     const o=findOutcome(c,outs); if(!o) continue;
+    // addendum 109 item 2: a call with no match id was paired by the ±1-day team join ("legacy join", shown)
+    if(c.match_id==null) c.legacy_join=true; else delete c.legacy_join;
     // addendum 106 item 4: a result whose start moved more than the hour from the call's kickoff voids the call (no
-    // result, status "void", out of every tally); the fresh call at the new start is graded here as any other
+    // result, status "void", out of every tally); the fresh call at the new start is graded here as any other.
+    // Addendum 109 item 2: "whatever the join window" (by id, a move of days voids too); a placeholder kickoff that
+    // moved reads "void: placeholder kickoff"
     const rd=redatedLabel(c.kickoff,o.date);
     if(rd){ c.void_redated=rd; c.status="void"; continue; }
     if(c.void_redated){ delete c.void_redated; c.status="open"; }
@@ -1288,8 +1316,8 @@ $("resultsFile").addEventListener("change",async e=>{
   }
   $("modelRecord").textContent=recs.join("\n");      // addendum 63 item 3: the win rate never without its line
   const L=loadLedger(); const n=gradeLedger(L,outs); const np=harvestPicks(L,picks); const dd=saveLedger(L);
-  const open=L.calls.filter(c=>c.status==="open").length, nv=L.calls.filter(c=>c.void_redated).length;
-  $("ledgerNote").textContent=`${outs.length} finished results read · ${n} calls/tickets graded · ${open} still open (unmatched listed below) · void: re-dated ${nv} (listed below, out of every tally) · stored predictions: ${picks.length} read, ${np} new (fills re-matched).`
+  const open=L.calls.filter(c=>c.status==="open").length, lj=L.calls.filter(c=>c.legacy_join).length;
+  $("ledgerNote").textContent=`${outs.length} finished results read · ${n} calls/tickets graded · ${open} still open (unmatched listed below) · void: ${voidCounts(L)} (listed below, out of every tally) · legacy join ${lj} (no match id: the ±1-day team join, listed below) · stored predictions: ${picks.length} read, ${np} new (fills re-matched).`
     +dedupeNote(dd)+(storageOK?"":" ⚠ browser storage unavailable — Export the ledger to keep it.");
   renderLedger();
 });
@@ -1508,7 +1536,8 @@ function pnlBlock(L){
     `Quarantine counterfactual (shadow, NOT staked): n ${cf.n} · notional staked ${fmt(cf.staked)} · net ${cf.net>=0?"+":""}${fmt(cf.net)} · hit ${cf.hit==null?"—":fmt(cf.hit,1)+"%"}`,
     `Value-side counterfactual (v1.2 candidate shadow, NOT staked): n ${vf.n} · notional staked ${fmt(vf.staked)} · net ${vf.net>=0?"+":""}${fmt(vf.net)} · hit ${vf.hit==null?"—":fmt(vf.hit,1)+"%"} · promotion review at ${VALUE.reviewN} graded (${Math.min(vf.n,VALUE.reviewN)}/${VALUE.reviewN}), version bump only`,
     `Open calls: ${L.calls.filter(c=>c.status==="open"&&!c.result).length} unmatched (listed in the Cockpit)`,
-    `Void: re-dated ${L.calls.filter(c=>c.void_redated).length} (out of every line above; the fresh call on the new date is the graded one)`,
+    `Void: ${voidCounts(L)} (out of every line above; the fresh call on the new date is the graded one)`,
+    `Legacy join: ${L.calls.filter(c=>c.legacy_join).length} call(s) paired with their result by the ±1-day team join (no match id: logged before the field; addendum 109 item 2)`,
     bShadowLine(L,bets),
     auditLine(),
     ...realizedLines(L),
@@ -1538,10 +1567,15 @@ function renderLedger(){
   const open=L.calls.filter(c=>c.status==="open"&&!c.result);
   const waiting=L.calls.filter(c=>c.status==="open"&&c.result).length;
   const vr=L.calls.filter(c=>c.void_redated);       // addendum 106 item 4: listed with the label, out of every tally
+  const LJ=" · <b>legacy join</b>", side=c=>esc(c.pick==="HOME"?c.home:c.pick==="AWAY"?c.away:c.pick);
   const voidHTML=vr.length?`<div class="note" id="voidRedated"><b>${vr.length} call(s) void</b> (out of every tally; the fresh call on the new date is the graded one):`
-    +vr.map(c=>`<br>${esc(c.log_date)} · ${esc(c.sport)} · ${esc(c.game)} · ${esc(c.pick==="HOME"?c.home:c.pick==="AWAY"?c.away:c.pick)} · ${esc(c.engine)} ${esc(c.call_type)} · <b>${esc(c.void_redated)}</b>`).join("")+"</div>":"";
+    +vr.map(c=>`<br>${esc(c.log_date)} · ${esc(c.sport)} · ${esc(c.game)} · ${side(c)} · ${esc(c.engine)} ${esc(c.call_type)} · <b>${esc(c.void_redated)}</b>${c.legacy_join?LJ:""}`).join("")+"</div>":"";
+  // addendum 109 item 2: the calls paired with a result by the ±1-day team join (no match id), listed with the flag
+  const lj=L.calls.filter(c=>c.legacy_join&&!c.void_redated);
+  const legacyHTML=lj.length?`<div class="note" id="legacyJoin"><b>${lj.length} call(s) legacy join</b> (no match id: paired with their result by the ±1-day team join, as before the field):`
+    +lj.map(c=>`<br>${esc(c.log_date)} · ${esc(c.sport)} · ${esc(c.game)} · ${side(c)} · ${esc(c.engine)} ${esc(c.call_type)} · ${esc(c.result||c.status)}${LJ}`).join("")+"</div>":"";
   const px=v=>v==null?"—":(+v).toFixed(3), hm=s=>s?String(s).slice(5,16).replace("T"," "):"";
-  $("openList").innerHTML=voidHTML+(waiting?`<div class="note">${waiting} parlay leg(s) graded, ticket awaiting its other legs.</div>`:"")+(open.length?`<div class="tablewrap"><table><thead><tr><th>Logged</th><th>Kickoff</th><th>Sport</th><th>Game</th><th>Pick</th><th>Engine</th><th>Type</th><th>Units</th><th>Claim</th><th>Execution</th><th>Order / fill</th><th></th></tr></thead><tbody>`
+  $("openList").innerHTML=voidHTML+legacyHTML+(waiting?`<div class="note">${waiting} parlay leg(s) graded, ticket awaiting its other legs.</div>`:"")+(open.length?`<div class="tablewrap"><table><thead><tr><th>Logged</th><th>Kickoff</th><th>Sport</th><th>Game</th><th>Pick</th><th>Engine</th><th>Type</th><th>Units</th><th>Claim</th><th>Execution</th><th>Order / fill</th><th></th></tr></thead><tbody>`
     +open.map(c=>{const early=c.exec_mode==="operator_early";
       const canExec=!early&&!isShadow(c)&&!kickedOff({utc:c.kickoff},Date.now());
       return `<tr><td>${esc(c.log_date)}</td><td>${esc((c.kickoff||"").slice(0,16).replace("T"," "))}</td><td>${esc(c.sport)}</td><td>${esc(c.game)}</td><td>${esc(c.pick==="HOME"?c.home:c.pick==="AWAY"?c.away:c.pick)}</td><td>${esc(c.engine)}</td><td>${esc(c.call_type)}</td><td>${esc(c.units)}</td>`

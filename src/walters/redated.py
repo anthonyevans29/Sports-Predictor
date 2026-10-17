@@ -10,6 +10,13 @@ The recorded start is a closing row's utc_date (the run export's row, kept uncha
 the current one is matches.utc_date. "More than" the hour, as the ruling words it: exactly DESK_CLOCK_DRIFT apart is not
 void (the Desk's own hold, addendum 83 item 2, is "at or more than"). A start that is missing, unparseable or a date
 with no clock is not compared. The Cockpit grades with the same rule in JS (tools/cockpit.html redatedLabel).
+
+ARCHITECT 2026-10-17 10:15 ET (addendum 109 item 2), verbatim in part: "a Desk call is identified by its match id and
+its recorded kickoff, not by a ±1-day join." The closing rows here are already read by match id (closing_starts), never
+by a join. Q2: "A row whose recorded kickoff was the 04:00Z placeholder is "void: placeholder kickoff", excluded from
+every tally the same way." The placeholder is the code's one definition (src/ingestion/placeholder.py
+is_placeholder_kickoff, 04:00:00Z); one void state, two labels: a placeholder start that moved more than the hour reads
+PLACEHOLDER_LABEL instead of the re-dated label, and one that did not move is graded as before.
 """
 from __future__ import annotations
 
@@ -18,8 +25,10 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 
+from src.ingestion.placeholder import is_placeholder_kickoff
 from src.walters import desk_policy
 
+PLACEHOLDER_LABEL = "void: placeholder kickoff"     # addendum 109 item 2 Q2, the exact text
 CLOSING_GLOB = "closing_*.json"     # addendum 40 item 2: <exports>/closing_<FAMILY>_<start>.json; host/ is never read
 _CLOCK = re.compile(r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}")
 _STAMP = re.compile(r"_(\d{4}-\d{2}-\d{2}T\d{4})Z\.json$")
@@ -43,11 +52,22 @@ def as_utc(v) -> datetime | None:
 
 def redated_label(recorded_start, current_utc) -> str | None:
     """The ruling's label, "void: re-dated 2026-10-17 00:00Z → 2026-10-18 21:00Z", when the two starts differ by more
-    than desk_policy.DESK_CLOCK_DRIFT; else None (within the hour, or either side not compared)."""
+    than desk_policy.DESK_CLOCK_DRIFT; PLACEHOLDER_LABEL instead when the recorded start is the provider's placeholder
+    (addendum 109 item 2 Q2); else None (within the hour, or either side not compared)."""
     old, new = as_utc(recorded_start), as_utc(current_utc)
     if old is None or new is None or abs(new - old) <= desk_policy.DESK_CLOCK_DRIFT:
         return None
+    if is_placeholder_kickoff(old):
+        return PLACEHOLDER_LABEL
     return f"void: re-dated {old:%Y-%m-%d %H:%M}Z → {new:%Y-%m-%d %H:%M}Z"
+
+
+def void_counts(labels) -> str:
+    """The void rows counted by label (one void state, two labels: addendum 109 item 2 Q2), "re-dated N · placeholder
+    kickoff M", over labels or lines that end with one ("match 50548 ...: <label>")."""
+    labels = [str(x) for x in labels if x]
+    p = sum(1 for x in labels if x.endswith(PLACEHOLDER_LABEL))
+    return f"re-dated {len(labels) - p} · placeholder kickoff {p}"
 
 
 def closing_starts(exports_dir) -> dict:

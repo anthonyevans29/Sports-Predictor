@@ -1401,7 +1401,7 @@ def results_tally(days: int = 30, out_path: str = "RESULTS.md", report=None, exp
     from src.walters.close import close_age_line
     from src.walters.vs_close import line as _vs_line
     _ages: list = []            # (sport label, close_age_summary) for each sport that reports a close (#382)
-    from src.walters.redated import closing_starts, void_label
+    from src.walters.redated import closing_starts, void_counts, void_label
     closing = closing_starts(exports_dir)["rows"]
     with session_scope() as s:
         cutoff = utc_now_naive() - timedelta(days=days)
@@ -1425,7 +1425,7 @@ def results_tally(days: int = 30, out_path: str = "RESULTS.md", report=None, exp
             redated = [f"match {m.id} {m.away_team.name if m.away_team else '?'} @ "
                        f"{m.home_team.name if m.home_team else '?'}: {labels[m.id]}" for _, m in rows if m.id in labels]
             rows = [(oc, m) for oc, m in rows if m.id not in labels]
-            void_line = (f"- Void: re-dated {len(redated)} (out of every line above): " + "; ".join(redated) + "\n"
+            void_line = (f"- Void: {void_counts(redated)} (out of every line above): " + "; ".join(redated) + "\n"
                          if redated else "")
             n = len(rows)
             if not n:
@@ -1501,7 +1501,7 @@ def results_tally(days: int = 30, out_path: str = "RESULTS.md", report=None, exp
                        if r.get("mean_value_side_clv_pp") is not None else
                        "- Mean model-close divergence (value side): — (no games with a pre-kickoff book snapshot yet)\n")
                     + (close_age_line(nfl_age) if nfl_age is not None else "")
-                    + (f"- Void: re-dated {r['redated']} (out of every line above): "
+                    + (f"- Void: {void_counts(r.get('redated_rows') or [])} (out of every line above): "
                        + "; ".join(r.get("redated_rows") or []) + "\n" if r.get("redated") else "")
                     + (f"\n### NFL pre-live (before 2026-09-22; never pooled)\n\n"
                        f"- Sides: {pl['hits']}/{pl['decided']} · pushes {pl['pushes']}\n"
@@ -1509,7 +1509,7 @@ def results_tally(days: int = 30, out_path: str = "RESULTS.md", report=None, exp
                        if pl.get("games") else ""))
             elif r.get("redated"):                # addendum 106 item 4: every game re-dated, named as MLB/Soccer do
                 lines.append(f"## NFL (live since Week 3, 2026-09-22)\n\nNo graded games in window.\n\n"
-                             f"- Void: re-dated {r['redated']} (out of every line above): "
+                             f"- Void: {void_counts(r.get('redated_rows') or [])} (out of every line above): "
                              + "; ".join(r.get("redated_rows") or []) + "\n")
         except Exception:
             lines.append("## NFL (live since Week 3, 2026-09-22)\n\nGrade unavailable.\n")

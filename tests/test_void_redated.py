@@ -89,6 +89,35 @@ def test_the_rule_reads_the_desks_constant(monkeypatch):
     assert rd.redated_label(tb_cle_tonight()["utc_date"], NEW_START) == LABEL
 
 
+# ---- addendum 109 item 2: by match id, whatever the join window; the placeholder's own label -----------------------
+
+PLACEHOLDER = "void: placeholder kickoff"
+MOVED_3D = "void: re-dated 2026-10-15 23:00Z → 2026-10-18 23:00Z"
+
+
+def test_a_game_moved_three_days_is_void_whatever_the_join_window():
+    """Q1: "VOIDS it when |recorded kickoff − final kickoff| > the clock hold, whatever the join window" (the Cockpit's
+    ±1-day team join never found such a result; the rule has no window)."""
+    assert rd.redated_label("2026-10-15T23:00:00", "2026-10-18T23:00:00") == MOVED_3D
+    assert rd.redated_label("2026-10-15T23:00:00", "2026-10-25T23:00:00").endswith("→ 2026-10-25 23:00Z")
+
+
+def test_a_placeholder_kickoff_that_moved_reads_its_own_label_and_one_that_did_not_is_graded():
+    """Q2: "A row whose recorded kickoff was the 04:00Z placeholder is "void: placeholder kickoff", excluded from every
+    tally the same way." The placeholder is the code's one definition (src/ingestion/placeholder.py), not a copy."""
+    from src.ingestion import placeholder
+    assert rd.PLACEHOLDER_LABEL == PLACEHOLDER and rd.is_placeholder_kickoff is placeholder.is_placeholder_kickoff
+    assert placeholder.is_placeholder_kickoff(datetime(2026, 10, 17, 4, 0))
+    assert rd.redated_label("2026-10-17T04:00:00", "2026-10-17T23:30:00") == PLACEHOLDER        # moved to the real time
+    assert rd.redated_label("2026-10-17T00:00:00-04:00", "2026-10-17T23:30:00") == PLACEHOLDER  # midnight ET = 04:00Z
+    assert rd.redated_label("2026-10-17T04:00:00", "2026-10-17T04:00:00") is None   # never moved: graded as today
+    assert rd.redated_label("2026-10-17T04:00:00", "2026-10-17T05:00:00") is None   # within the hold: graded
+    assert rd.redated_label("2026-10-17T04:00:01", "2026-10-17T23:30:00").startswith("void: re-dated ")  # not 04:00:00
+    assert rd.redated_label("2026-10-17T23:30:00", "2026-10-18T04:00:00").startswith("void: re-dated ")  # onto it
+    assert rd.void_counts([LABEL, PLACEHOLDER, f"match 1 A @ B: {PLACEHOLDER}", None]) == \
+        "re-dated 1 · placeholder kickoff 2"
+
+
 # ---- the closing files --------------------------------------------------------------------------------------------
 
 def test_the_fresh_closing_on_the_new_date_is_the_graded_row(tmp_path):
@@ -105,6 +134,22 @@ def test_the_fresh_closing_on_the_new_date_is_the_graded_row(tmp_path):
     cs = rd.closing_starts(ex)
     assert [st for _, st in cs["rows"][50548]] == ["2026-10-17T00:00:00", "2026-10-18T21:00:00"]
     assert rd.void_label(cs["rows"][50548], NEW_START) is None                # the fresh closing is graded
+
+
+def test_50548_is_paired_by_its_match_id_never_by_its_teams_or_time(tmp_path):
+    """Addendum 109 item 2 (a)/(b), the 50548 case by match id: the closing row (match_id 50548, recorded
+    2026-10-17T00:00:00, the run's export row) against the match's 2026-10-18 21:00:00 is void with the label; a closing
+    row of ANOTHER match (same teams, at the new start) never stands for it; 50548's own fresh closing is graded."""
+    ex = tmp_path / "exports"
+    p = write_closing(ex, OLD_START, [tb_cle_tonight()])
+    row = json.loads(p.read_text())["predictions"][0]
+    assert (row["match_id"], row["utc_date"]) == (50548, "2026-10-17T00:00:00")   # the closing row carries both
+    write_closing(ex, NEW_START, [{**fresh_50548(), "match_id": 50549}])         # same teams, the new hour, not 50548
+    cs = rd.closing_starts(ex)["rows"]
+    assert rd.void_label(cs[50548], "2026-10-18 21:00:00") == LABEL
+    assert rd.void_label(cs[50549], "2026-10-18 21:00:00") is None
+    write_closing(ex, NEW_START + timedelta(minutes=5), [fresh_50548()])
+    assert rd.void_label(rd.closing_starts(ex)["rows"][50548], "2026-10-18 21:00:00") is None
 
 
 def test_the_latest_closing_decides_and_a_start_not_compared_never_voids():
@@ -213,6 +258,24 @@ def test_unmoved_games_read_exactly_as_before(iso_db, tmp_path):
     assert (before["record"]["games"], before["count"]) == (2, 2)
 
 
+def test_a_game_moved_three_days_leaves_the_mlb_export_by_match_id(iso_db, tmp_path):
+    """Addendum 109 item 2: the case the Cockpit's ±1-day join missed. The closing row (recorded 10-15 23:00Z) and the
+    match (now 10-18 23:00Z) share a match id, so the row is void however far it moved."""
+    from src.db.database import session_scope
+    with session_scope() as s:
+        c = _comp(s, Sport.MLB, "MLB")
+        _game(s, c, Sport.MLB, 50560, "New York Yankees", "Boston Red Sox", datetime(2026, 10, 18, 23, 0), 4, 2, 0.58)
+        _game(s, c, Sport.MLB, 50547, "Los Angeles Dodgers", "Milwaukee Brewers", MIL_LAD_START, 1, 4, 0.40)
+    write_closing(tmp_path / "ex", datetime(2026, 10, 15, 23, 0),
+                  [{"match_id": 50560, "home_team": "New York Yankees", "away_team": "Boston Red Sox",
+                    "utc_date": "2026-10-15T23:00:00"}])
+    write_closing(tmp_path / "ex", MIL_LAD_START, [mil_lad()])
+    doc = _mlb_export(tmp_path / "ex")
+    rows = {r["match_id"]: r for r in doc["results"]}
+    assert rows[50560]["redated"] == MOVED_3D and "redated" not in rows[50547]
+    assert (doc["count"], doc["record"]["games"], doc["record"]["redated"]) == (2, 1, 1)
+
+
 def test_export_results_prints_the_count_and_names_the_row(iso_db, tmp_path):
     from click.testing import CliRunner
 
@@ -224,7 +287,7 @@ def test_export_results_prints_the_count_and_names_the_row(iso_db, tmp_path):
     assert res.exit_code == 0, res.output
     out = res.output.splitlines()
     assert any("top-pick 0/0" in x for x in out)                              # out of the record
-    i = out.index("  void: re-dated 1 (kept in the file, out of every tally above)")
+    i = out.index("  void: re-dated 1 · placeholder kickoff 0 (kept in the file, out of every tally above)")
     assert out[i + 1] == f"    match 50548 Tampa Bay Rays @ Cleveland Guardians: {LABEL}"
     assert json.load(open(tmp_path / "m.json"))["results"][0]["redated"] == LABEL
 
@@ -237,8 +300,8 @@ def test_results_md_mlb_section_leaves_the_game_out_and_names_it(iso_db, tmp_pat
     results_tally(days=36500, out_path=str(out), exports_dir=str(tmp_path / "ex"))
     txt = out.read_text()
     assert "## MLB\n\n- Sides: **1/1** (100.0%)\n- vs close: 1 game · " in txt
-    assert (f"- Void: re-dated 1 (out of every line above): match 50548 Tampa Bay Rays @ Cleveland Guardians: "
-            f"{LABEL}\n") in txt
+    assert (f"- Void: re-dated 1 · placeholder kickoff 0 (out of every line above): match 50548 Tampa Bay Rays @ "
+            f"Cleveland Guardians: {LABEL}\n") in txt
     results_tally(days=36500, out_path=str(out), exports_dir=str(tmp_path / "none"))
     txt = out.read_text()
     assert "## MLB\n\n- Sides: **2/2** (100.0%)\n" in txt and "Void: re-dated" not in txt
@@ -280,13 +343,14 @@ def test_nfl_file_grade_and_results_md_leave_the_redated_game_out(iso_db, tmp_pa
     g = grade_nfl(days_back=None, progress=lines.append, exports_dir=ex)
     assert (g["games"], g["decided"], g["hits"], g["redated"]) == (1, 1, 0, 1)   # ONE RECORD DEFINITION (2026-10-06)
     assert g["vs_close"] == rec["vs_close"]
-    i = lines.index("  ── void: re-dated 1 (out of every line here)")
+    i = lines.index("  ── void: re-dated 1 · placeholder kickoff 0 (out of every line here)")
     assert lines[i + 1] == f"     match 70001 Buffalo Bills @ Kansas City Chiefs: {FLEX}"
     out = tmp_path / "RESULTS.md"
     results_tally(days=36500, out_path=str(out), exports_dir=ex)
     txt = out.read_text()
     assert "## NFL (live since Week 3, 2026-09-22)\n\n- Sides: **0/1** (0.0%) · pushes 0" in txt
-    assert f"- Void: re-dated 1 (out of every line above): match 70001 Buffalo Bills @ Kansas City Chiefs: {FLEX}\n" in txt
+    assert (f"- Void: re-dated 1 · placeholder kickoff 0 (out of every line above): match 70001 Buffalo Bills @ "
+            f"Kansas City Chiefs: {FLEX}\n") in txt
 
 
 def test_export_nfl_results_prints_the_count(iso_db, tmp_path):
@@ -298,7 +362,7 @@ def test_export_nfl_results_prints_the_count(iso_db, tmp_path):
     res = CliRunner().invoke(cli.cli, ["export-nfl-results"])
     assert res.exit_code == 0, res.output
     out = res.output.splitlines()
-    i = out.index("  void: re-dated 1 (kept in the file, out of every tally above)")
+    i = out.index("  void: re-dated 1 · placeholder kickoff 0 (kept in the file, out of every tally above)")
     assert out[i + 1] == f"    match 70001 Buffalo Bills @ Kansas City Chiefs: {FLEX}"
     assert any(x.startswith("window: season_to_date season 2026") and "games 1 · top-pick hits 0/1" in x for x in out)
 
@@ -323,7 +387,7 @@ def test_export_nfl_results_match_receipt_and_pre_live_line_leave_a_redated_row_
     assert res.exit_code == 0, res.output
     out = res.output.splitlines()
     assert "pre-live (never pooled): games 0 · hits 0/0 · pushes 0" in out    # the record's games, not the row count
-    i = out.index("  void: re-dated 2 (kept in the file, out of every tally above)")
+    i = out.index("  void: re-dated 2 · placeholder kickoff 0 (kept in the file, out of every tally above)")
     assert out[i + 2] == ("    match 70003 New York Giants @ Dallas Cowboys: "
                           "void: re-dated 2026-09-13 17:00Z → 2026-09-13 20:25Z")
     assert out[-4:] == ["match 70001: IN the file (void: re-dated, out of every record)",
@@ -351,14 +415,52 @@ def test_nfl_grade_names_the_void_rows_when_every_game_in_the_window_is_redated(
     g = grade_nfl(days_back=None, progress=lines.append)
     assert g == {"ok": False, "reason": "no finished NFL games with predictions in window", "redated": 1,
                  "redated_rows": [named]}
-    assert lines == ["  ── void: re-dated 1 (out of every line here)", f"     {named}"]
+    assert lines == ["  ── void: re-dated 1 · placeholder kickoff 0 (out of every line here)", f"     {named}"]
     res = CliRunner().invoke(cli.cli, ["nfl-grade"])
     assert res.exit_code == 0, res.output
-    assert "── void: re-dated 1 (out of every line here)" in res.output and "70001" in res.output
+    assert "── void: re-dated 1 · placeholder kickoff 0 (out of every line here)" in res.output
+    assert "70001" in res.output
     out = tmp_path / "RESULTS.md"
     results_tally(days=36500, out_path=str(out))
     assert (f"## NFL (live since Week 3, 2026-09-22)\n\nNo graded games in window.\n\n"
-            f"- Void: re-dated 1 (out of every line above): {named}\n") in out.read_text()
+            f"- Void: re-dated 1 · placeholder kickoff 0 (out of every line above): {named}\n") in out.read_text()
+
+
+def test_a_placeholder_kickoff_that_moved_leaves_the_nfl_file_grade_and_console_under_its_own_label(iso_db, tmp_path):
+    """Addendum 109 item 2 Q2: a closing row recorded at the 04:00Z placeholder whose game kicked off at 23:30Z reads
+    "void: placeholder kickoff" and leaves every record the same way; an unmoved placeholder is graded as today."""
+    from click.testing import CliRunner
+
+    import cli
+    from src.db.database import session_scope
+    from src.walters.nfl_predict import export_nfl_results, grade_nfl
+    with session_scope() as s:
+        c = _comp(s, Sport.NFL, "NFL")
+        _game(s, c, Sport.NFL, 70010, "Denver Broncos", "Las Vegas Raiders", datetime(2026, 10, 17, 23, 30), 24, 17,
+              0.62, outcome=False, week=7)                                   # recorded at the placeholder, moved
+        _game(s, c, Sport.NFL, 70011, "Arizona Cardinals", "Seattle Seahawks", datetime(2026, 10, 18, 4, 0), 20, 23,
+              0.55, outcome=False, week=7)                                   # recorded at 04:00Z and kicked off then
+    write_closing(tmp_path / "exports", datetime(2026, 10, 17, 3, 0),
+                  [{"match_id": 70010, "home_team": "Denver Broncos", "away_team": "Las Vegas Raiders",
+                    "utc_date": "2026-10-17T04:00:00"},
+                   {"match_id": 70011, "home_team": "Arizona Cardinals", "away_team": "Seattle Seahawks",
+                    "utc_date": "2026-10-18T04:00:00"}], fam="NFL")
+    doc = json.load(open(export_nfl_results(out_dir=str(tmp_path / "exports"))))
+    rows = {r["match_id"]: r for r in doc["results"]}
+    assert rows[70010]["redated"] == PLACEHOLDER and "redated" not in rows[70011]
+    assert (doc["record"]["games"], doc["record"]["decided"], doc["record"]["redated"]) == (1, 1, 1)
+    lines = []
+    g = grade_nfl(days_back=None, progress=lines.append)
+    assert (g["games"], g["redated"]) == (1, 1)
+    i = lines.index("  ── void: re-dated 0 · placeholder kickoff 1 (out of every line here)")
+    assert lines[i + 1] == f"     match 70010 Las Vegas Raiders @ Denver Broncos: {PLACEHOLDER}"
+    res = CliRunner().invoke(cli.cli, ["export-nfl-results", "--match", "70010", "--match", "70011"])
+    assert res.exit_code == 0, res.output
+    out = res.output.splitlines()
+    i = out.index("  void: re-dated 0 · placeholder kickoff 1 (kept in the file, out of every tally above)")
+    assert out[i + 1] == f"    match 70010 Las Vegas Raiders @ Denver Broncos: {PLACEHOLDER}"
+    assert out[-2:] == ["match 70010: IN the file (void: placeholder kickoff, out of every record)",
+                        "match 70011: IN the file (season record)"]
 
 
 # ---- INTL ----------------------------------------------------------------------------------------------------------
@@ -410,24 +512,25 @@ def test_the_k_receipt_leaves_a_redated_call_out_and_counts_it():
     from tests.test_k_track_receipt import HI, LO, _ledger
     L = _ledger()
     base = "\n".join(K.format_fills(L, LO, HI))
-    assert "  void: re-dated 0 (out of the reconciliation and the CLV)" in base
+    assert "  void: re-dated 0 · placeholder kickoff 0 (out of the reconciliation and the CLV)" in base
     never = copy.deepcopy(L)                                # a void call never eligible is not counted as leaving
     never["calls"][3]["void_redated"] = FLEX                # c4: a value shadow, units 0, in the window
     never["calls"].append({**never["calls"][1], "id": "c7", "call_type": "parlay_leg", "parlay_id": "P-1",
                            "units": 0.25, "status": "void", "void_redated": FLEX})
     txt = "\n".join(K.format_fills(never, LO, HI))
-    assert "  void: re-dated 0 (out of the reconciliation and the CLV)" in txt and "- VOID" not in txt
+    assert "  void: re-dated 0 · placeholder kickoff 0 (out of the reconciliation and the CLV)" in txt
+    assert "- VOID" not in txt
     assert K.reconcile(never, LO, HI)["funnel"] == K.reconcile(L, LO, HI)["funnel"]
     L["calls"].append({**L["calls"][1], "id": "c6", "game": "Bills @ Jets", "home": "New York Jets",
                        "away": "Buffalo Bills", "status": "void", "void_redated": FLEX})
     rec = K.reconcile(L, LO, HI)
     assert "c6" not in {r["call_id"] for r in rec["rows"]} and rec["funnel"]["eligible"] == 3
     txt = K.format_fills(L, LO, HI)
-    i = txt.index("  void: re-dated 1 (out of the reconciliation and the CLV)")
+    i = txt.index("  void: re-dated 1 · placeholder kickoff 0 (out of the reconciliation and the CLV)")
     assert txt[i + 1] == f"- VOID NFL Bills @ Jets · straight HOME · {FLEX}"
     L["calls"][0]["void_redated"] = LABEL                   # the matched call itself: its fill is neither in nor out
     txt = "\n".join(K.format_fills(L, LO, HI))
-    assert "system_matched in window: 0 (outside window 0; on a call void: re-dated 1) · qty 0" in txt
+    assert "system_matched in window: 0 (outside window 0; on a void call 1) · qty 0" in txt
     assert "no executed positions" in txt
 
 
@@ -435,19 +538,53 @@ def test_the_value_shadow_receipt_leaves_a_redated_shadow_out_and_counts_it():
     import scripts.value_shadow_receipt as vsr
     from tests.test_value_shadow_receipt import call, kept, run
     out0, _ = run(kept())
-    assert "void: re-dated 0 (out of every total and the n/30; the fresh call on the new date is the graded row)" in out0
+    assert ("void: re-dated 0 · placeholder kickoff 0 (out of every total and the n/30; the fresh call on the new "
+            "date is the graded row)") in out0
     L = kept()
     c = call(L, "Green Bay Packers")                        # the kept ledger's open shadow
     c.update(status="void", void_redated=LABEL)
     out, res = run(L)
     assert ("  all value shadows: n 4 · graded 4 · record won 2 · lost 1 · push 1 · void 0 · ungraded 0 · units net "
             "+0.8801u over 4 settled (notional 1u)") in out
-    i = out.index("void: re-dated 1 (out of every total and the n/30; the fresh call on the new date is the graded row)")
+    i = out.index("void: re-dated 1 · placeholder kickoff 0 (out of every total and the n/30; the fresh call on the "
+                  "new date is the graded row)")
     assert out[i + 1].endswith(f" · NFL · Minnesota Vikings @ Green Bay Packers · HOME (Green Bay Packers) · edge "
                                f"+7.0pp (claim) · no close · {LABEL} · 0.25u")
     js = json.loads(out[-1].removeprefix("VALUE-SHADOW-RECEIPT "))
     assert js["void_redated"] == 1 and js["n_of_30"] == "4 of 30" and js["all"]["n"] == 4
     assert vsr.read(copy.deepcopy(L))["void_redated"][0]["outcome"] == LABEL
+
+
+def test_the_ports_count_a_placeholder_void_apart_and_a_legacy_join_on_its_own_line():
+    """Addendum 109 item 2: one void state (void_redated), two labels counted apart; a call the Cockpit paired by the
+    ±1-day team join (no match id) carries legacy_join and is counted, never regraded. Fills carry no match id, so
+    the ports still fit a fill to its call by game, side and day."""
+    from src.walters import k_receipt as K
+    from tests.test_k_track_receipt import HI, LO, _ledger
+    from tests.test_value_shadow_receipt import call, kept, run
+    L = _ledger()
+    L["calls"].append({**L["calls"][1], "id": "c8", "game": "Bills @ Jets", "home": "New York Jets",
+                       "away": "Buffalo Bills", "status": "void", "void_redated": PLACEHOLDER})
+    L["calls"][0]["legacy_join"] = True
+    rec = K.reconcile(L, LO, HI)
+    assert rec["legacy_join"] == 1 and rec["funnel"]["eligible"] == 3
+    txt = K.format_fills(L, LO, HI)
+    i = txt.index("  void: re-dated 0 · placeholder kickoff 1 (out of the reconciliation and the CLV)")
+    assert txt[i + 1] == f"- VOID NFL Bills @ Jets · straight HOME · {PLACEHOLDER}"
+    assert txt[i + 2] == ("  legacy join 1 of the eligible calls (paired with its result by the Cockpit's ±1-day team "
+                          "join: no match id, logged before the field; addendum 109 item 2)")
+    V = kept()
+    call(V, "Green Bay Packers").update(status="void", void_redated=PLACEHOLDER)
+    graded = next(c for c in V["calls"] if c.get("call_type") == "value_shadow" and c.get("status") == "graded")
+    graded["legacy_join"] = True
+    out, _ = run(V)
+    assert ("void: re-dated 0 · placeholder kickoff 1 (out of every total and the n/30; the fresh call on the new "
+            "date is the graded row)") in out
+    assert sum(1 for x in out if x.endswith(" · legacy join")) == 1
+    assert ("legacy join 1 (paired with its result by the Cockpit's ±1-day team join: no match id, logged before the "
+            "field; addendum 109 item 2)") in out
+    js = json.loads(out[-1].removeprefix("VALUE-SHADOW-RECEIPT "))
+    assert (js["void_redated"], js["legacy_join"], js["all"]["n"]) == (1, 1, 4)
 
 
 # ---- the replay inventory -------------------------------------------------------------------------------------------
@@ -492,7 +629,7 @@ def test_the_replay_inventory_counts_a_closing_only_at_the_games_own_start(tmp_p
     i = out.index("MLB: graded 2")
     assert out[i + 6].endswith("/, by match id): 1 games")
     assert out[i + 7] == "  all four (a stored prediction + book history + kalshi history + a closing file): 1"
-    assert out[i + 8] == "  closing void: re-dated (left out of closing and all four): 1 games"
+    assert out[i + 8] == "  closing void (games left out of closing and all four): re-dated 1 · placeholder kickoff 0"
     assert out[i + 9] == f"    match 50548: {LABEL}"
     js = json.loads(out[-1].removeprefix("REPLAY-INVENTORY "))
     assert js["closing_redated"] == 1
@@ -503,8 +640,25 @@ def test_the_replay_inventory_counts_a_closing_only_at_the_games_own_start(tmp_p
     out = run()
     i = out.index("MLB: graded 2")
     assert out[i + 6].endswith("/, by match id): 2 games") and out[i + 7].endswith(": 2")
-    assert out[i + 8] == "  closing void: re-dated (left out of closing and all four): 0 games"
+    assert out[i + 8] == "  closing void (games left out of closing and all four): re-dated 0 · placeholder kickoff 0"
     assert json.loads(out[-1].removeprefix("REPLAY-INVENTORY "))["closing_redated"] == 0
+
+
+def test_the_replay_inventory_counts_a_placeholder_closing_under_its_own_label(tmp_path, capsys):
+    """Addendum 109 item 2 Q2: a closing whose latest row was recorded at the 04:00Z placeholder, its game played at
+    another time, is the same void (out of closing and all four) under "void: placeholder kickoff", counted apart."""
+    import scripts.replay_inventory_probe as rip
+    db, ex = tmp_path / "throwaway.db", tmp_path / "exports"
+    _replay_db(db)
+    write_closing(ex, OLD_START, [tb_cle_tonight()])
+    write_closing(ex, MIL_LAD_START - timedelta(hours=21), [{**mil_lad(), "utc_date": "2026-10-15T04:00:00"}])
+    assert rip.main(["--db", str(db), "--exports", str(ex), "--since", "2026-10-10", "--until", "2026-10-20"]) == 0
+    out = capsys.readouterr().out.splitlines()
+    i = out.index("MLB: graded 2")
+    assert out[i + 6].endswith("/, by match id): 0 games") and out[i + 7].endswith(": 0")
+    assert out[i + 8] == "  closing void (games left out of closing and all four): re-dated 1 · placeholder kickoff 1"
+    assert out[i + 9:i + 11] == [f"    match 50547: {PLACEHOLDER}", f"    match 50548: {LABEL}"]
+    assert json.loads(out[-1].removeprefix("REPLAY-INVENTORY "))["closing_redated"] == 2
 
 
 def test_the_rule_reads_the_files_a_closing_run_writes():

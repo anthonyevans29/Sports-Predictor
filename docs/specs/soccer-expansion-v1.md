@@ -118,7 +118,7 @@ confirmation section at the end of `src/walters/soccer_expansion.py`. The declar
     model differs, progress prints it; the read does not move. RULED (Q1, addendum 16 item 1, verbatim): "The read is priced by the candidate as gated: the run record's rho and elo_goal_coeff, on the gate's own walk. A later production change does not move it.";
   - predict-then-update. Only the frozen cohort is scored.
   - `confirmation_scoring=True` (Codex P1s on #373, rounds 1 and 2): the walk applies the substitution rule through
-    ONE predicate, `soccer_expansion.unscoreable` (the intl code's rule, unchanged).
+    ONE predicate, `soccer_expansion.unscoreable` (this experiment's own predicate, above).
     - A row it would release (e.g. AWD / WO, or AET / PEN, without a stored 90-minute score) is neither scored nor
       walked: it never updates Elo or the prior.
     - A finished non-FT row with a stored 90-minute score is scored AND walked on that score, never the

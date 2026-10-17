@@ -5532,7 +5532,7 @@ def intl_elo_confirm_cmd(freeze_cohort, substitute, record, ruling, no_fetch):
                                "the cohort is stored yet; sync the schedule")
                     continue
                 reg.substitute_cohort_fixture(ie.EID_V2, f["id"], rep["id"], d["reason"], {
-                    "status": f["status"], "status_raw": f["status_raw"], "unscoreable": True,  # incl. STALE_ORPHAN
+                    "status": f["status"], "status_raw": f["status_raw"], "unscoreable": True,
                     "kickoff": iso(f["kickoff"]),
                     "replacement_kickoff": iso(rep["kickoff"]), "replacement_code": rep["code"]})
                 click.echo(f"  SUBSTITUTED: {f['id']} ({d['reason']}, {iso(f['kickoff'])}) -> {rep['id']} "

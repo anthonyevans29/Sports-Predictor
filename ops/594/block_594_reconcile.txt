@@ -1,0 +1,2159 @@
+: "#594 reconciliation read, READ-ONLY. HOW TO RUN: save this file anywhere, cd to the checkout root, then: bash block_594_reconcile.txt 2>&1 | tee ~/rec594_STAMP.txt (STAMP: the UTC time, e.g. 20261019T1400Z; give the path you saved it to). It can also be pasted whole into bash or zsh at the checkout root. Settings go before bash (REC594_PY=./venv/bin/python bash ...) or are exported before a paste: REC594_PY, REC594_CUT, REC594_FOUR, REC594_LEDGER, REC594_STRICT (the notes say what each does)."
+REC594_TEE=/dev/null
+if [ -t 1 ]; then REC594_TEE="$HOME/rec594_$(date -u +%Y%m%dT%H%M%SZ).txt"; fi
+{
+if [ ! -f cli.py ] || [ ! -f config.py ] || [ ! -d src/walters ]; then
+echo "REFUSED: run this from the checkout root. cli.py, config.py and src/walters are not in $(pwd)"
+else
+if [ "$REC594_TEE" = /dev/null ]; then
+echo "#594 reconciliation read: READ-ONLY. Its output is not a terminal, so it writes no file of its own: run it as bash block_594_reconcile.txt 2>&1 | tee ~/rec594_<UTC stamp>.txt from the checkout root, and your tee keeps the console"
+else
+echo "#594 reconciliation read: READ-ONLY. Its output is a terminal (pasted, or run without a tee), so the console is also kept as $REC594_TEE"
+fi
+export REC594_LIB='
+import os, re, sys, json, glob, time, sqlite3, hashlib, subprocess, datetime as D
+from pathlib import Path
+RULED_CUT = "2026-10-16 23:25:59"
+RULED_ISO = "2026-10-16T23:25:59Z"
+RULED_EPOCH = 1792193159
+BEFORE_LABEL = "before the ruled cutoff (outside addendum 130 2(e)\x27s window: for the architect)"
+IDS = (50548, 50550)
+PAIR_S = ("50548", "50550")
+EV161 = "KXMLBGAME-26OCT161800TBCLE"
+EV172 = "KXMLBGAME-26OCT172000TBCLE"
+EVENTS = (EV161, EV172)
+TICKERS = tuple(e + s for e in EVENTS for s in ("-TB", "-CLE"))
+BELONGS = {EV161: 50550, EV172: 50548}
+REPO = Path.cwd().resolve()
+DATA = REPO / "data"
+TICK_RE = re.compile(r"KXMLBGAME-26OCT1(?:61800|72000)TBCLE")
+WIDE_RE = re.compile(r"(?:^|(?<=[^\w.])|(?<=\D\.))505(?:48|50)(?=$|[^\w.]|\.(?:$|\D))")
+STRICT = os.environ.get("REC594_STRICT") == "1"
+STANCE = ("SQLite sidecars: the DB is opened mode=ro as ro_connect does (deploy/hosting/sp_common.py:260-263), plus PRAGMA query_only=ON added by this block. As for every ro_connect reader, "
+          "SQLite may leave its -wal/-shm sidecars beside a WAL file (deploy/hosting/coverage_map.py:108-109, the stance of the morning python cli.py coverage line); "
+          "[Z1] reports what changed. REC594_STRICT=1 refuses instead whenever the DB is in WAL mode with a sidecar missing. STRICT now: " + str(STRICT))
+TICK_RB = re.compile(TICK_RE.pattern.encode())
+WIDE_RB = re.compile(WIDE_RE.pattern.encode())
+
+ISO_RE = re.compile(r"(\d{4}-\d{2}-\d{2})[T ](\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?\s*(Z|z|[+-]\d{2}:?\d{2})?$")
+DAY_RE = re.compile(r"\d{4}-\d{2}-\d{2}$")
+
+def iso_epoch(t, naive_utc=True):
+    if t is None or str(t).strip() == "":
+        return None, None, "no time"
+    raw = str(t).strip()
+    if DAY_RE.match(raw):
+        return D.datetime.fromisoformat(raw + "T00:00:00+00:00").timestamp(), raw, "a date: read as its 00:00Z"
+    m = ISO_RE.match(raw)
+    if not m:
+        return None, raw, "unparsed"
+    day, hh, mi, ss, frac, off = m.groups()
+    txt = day + "T" + hh + ":" + mi + ":" + ss + ("." + (frac + "000000")[:6] if frac else "")
+    if off in ("Z", "z"):
+        txt, note = txt + "+00:00", "Z"
+    elif off:
+        o = off.replace(":", "")
+        txt, note = txt + o[:3] + ":" + o[3:], "offset " + off
+    elif naive_utc:
+        note = "no offset (naive UTC, as the app and the DB write it)"
+    else:
+        return None, raw, "no reliable time (no Z or offset in the text)"
+    try:
+        dt = D.datetime.fromisoformat(txt)
+    except ValueError:
+        return None, raw, "unparsed"
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=D.timezone.utc)
+    return dt.timestamp(), raw, note
+
+def txt_epoch(t):
+    if t is None or DAY_RE.match(str(t).strip()):
+        return None
+    e = iso_epoch(t)[0]
+    if e is not None:
+        return e
+    s = str(t).strip().replace("T", " ").rstrip("Z")
+    try:
+        e = D.datetime.strptime(s[:19], "%Y-%m-%d %H:%M:%S").replace(tzinfo=D.timezone.utc).timestamp()
+    except ValueError:
+        return None
+    if len(s) > 20 and s[19] == "." and s[20:].isdigit():
+        e += float("0." + s[20:])
+    return e
+
+CUT, CUT_NOTE = RULED_CUT, "the ruled cutoff (ARCHITECT addendum 130 item 2(e): since Friday 23:25Z; the Issue names 23:25:59)"
+_ce = (os.environ.get("REC594_CUT") or "").strip()
+if _ce:
+    _e = txt_epoch(_ce)
+    if _e is None or len(_ce.replace("T", " ").rstrip("Z")) != 19:
+        CUT_NOTE = "REC594_CUT=" + _ce + " NOT UNDERSTOOD (want YYYY-MM-DDTHH:MM:SSZ, UTC): the ruled cutoff is used"
+    elif int(_e) == RULED_EPOCH:
+        CUT_NOTE = "REC594_CUT equals the ruled cutoff"
+    else:
+        CUT = D.datetime.fromtimestamp(int(_e), D.timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+        CUT_NOTE = ("OVERRIDE REC594_CUT=" + _ce + ": " + ("WIDER than the ruled window; every item before " + RULED_ISO + " is labelled " + BEFORE_LABEL
+                    if _e < RULED_EPOCH else "NARROWER than the ruled window; items from " + RULED_ISO + " up to it are NOT in the main pass (the -pre pass lists them)"))
+CUT_ISO = CUT.replace(" ", "T") + "Z"
+CUT_EPOCH = int(txt_epoch(CUT))
+
+def lab_epoch(e):
+    return BEFORE_LABEL if (e is not None and e < RULED_EPOCH) else ""
+
+def lab_txt(t):
+    return lab_epoch(txt_epoch(t))
+
+def rw(t):
+    e = txt_epoch(t)
+    return "no time" if e is None else ("BEFORE (outside addendum 130 2(e)\x27s window)" if e < RULED_EPOCH else "inside")
+
+def sqlite_lib():
+    try:
+        import _sqlite3
+        lib = getattr(_sqlite3, "__file__", "built into the interpreter")
+    except ImportError:
+        lib = "unknown"
+    return "SQLite " + sqlite3.sqlite_version + " | sqlite module " + str(lib) + " | interpreter " + sys.executable
+
+def named_four():
+    v = (os.environ.get("REC594_FOUR") or "").strip()
+    if not v:
+        return None
+    try:
+        return sorted({int(x) for x in v.replace(" ", "").split(",") if x})
+    except ValueError:
+        return "REC594_FOUR=" + v + " NOT UNDERSTOOD (want comma-separated row ids)"
+
+def current_ids(con, mids):
+    ids = sorted({int(i) for i in mids if i is not None})
+    out = set()
+    if not ids:
+        return out
+    cur = con.execute("SELECT s.id, s.match_id, s.selection, s.captured_at FROM odds_snapshots s JOIN matches m ON m.id = s.match_id "
+                      "WHERE s.source = ? AND s.match_id IN (" + ",".join("?" * len(ids)) + ") AND s.captured_at IS NOT NULL "
+                      "AND (m.utc_date IS NULL OR s.captured_at < m.utc_date) ORDER BY s.match_id, s.selection, s.captured_at DESC, s.id DESC",
+                      ["kalshi"] + ids)
+    newest = {}
+    for i, mid, sel, cap in cur.fetchall():
+        newest.setdefault((mid, sel), cap)
+        if cap == newest[(mid, sel)]:
+            out.add(i)
+    return out
+
+def parse_env_file(path):
+    out = {}
+    try:
+        text = Path(path).read_text()
+    except (OSError, UnicodeDecodeError):
+        return out
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        k, v = line.split("=", 1)
+        k = k.strip()
+        if k.startswith("export "):
+            k = k[7:].strip()
+        v = v.strip()
+        if len(v) >= 2 and v[0] == v[-1] and v[0] in ("\x22", "\x27"):
+            v = v[1:-1]
+        out[k] = v
+    return out
+
+def setting(name):
+    v = os.environ.get(name)
+    if v is None:
+        v = parse_env_file(os.environ.get("SP_HOST_ENV", "/etc/sports-predictor/host.env")).get(name)
+    if v is None:
+        v = parse_env_file(REPO / ".env").get(name)
+    return v
+
+def db_path():
+    url, src = os.environ.get("DATABASE_URL"), "environment"
+    if not url:
+        url, src = parse_env_file(REPO / ".env").get("DATABASE_URL"), "the checkout .env"
+    if not url:
+        url, src = "sqlite:///./data/sports.db", "default (config.py:46)"
+    if not url.startswith("sqlite:///"):
+        return None, url.split("://")[0] + "://...", src
+    p = Path(url[len("sqlite:///"):])
+    return (p if p.is_absolute() else (REPO / p).resolve()), url, src
+
+def under_data(p):
+    rp = Path(os.path.realpath(str(p)))
+    return rp == DATA or DATA in rp.parents
+
+def is_wal(p):
+    try:
+        with open(str(p), "rb") as f:
+            h = f.read(100)
+    except OSError:
+        return None
+    return len(h) >= 20 and h[:16] == b"SQLite format 3\x00" and h[18] == 2
+
+def signature():
+    p = db_path()[0]
+    if p is None:
+        return {"db": None}
+    out = {"db": str(p)}
+    for suf in ("", "-wal", "-shm", "-journal"):
+        try:
+            st = os.stat(str(p) + suf)
+            out[p.name + suf] = [st.st_size] if suf == "-shm" else [st.st_size, round(st.st_mtime, 3)]
+        except OSError:
+            out[p.name + suf] = None
+    try:
+        out["dir_entries"] = sorted(os.listdir(str(p.parent)))
+    except OSError:
+        out["dir_entries"] = None
+    return out
+
+def open_ro():
+    p, url, src = db_path()
+    if p is None:
+        return None, "absent: DATABASE_URL is not a SQLite URL (" + url + ")"
+    if not p.is_file():
+        return None, "absent: no DB file at " + str(p)
+    miss = [p.name + s for s in ("-wal", "-shm") if not os.path.exists(str(p) + s)]
+    wal = is_wal(p)
+    lost = " and ".join(miss) + (" were" if len(miss) > 1 else " was")
+    if wal and miss and STRICT:
+        return None, ("not opened (REC594_STRICT=1): the DB is in WAL mode and " + lost + " not beside it, so a read-only open would let SQLite "
+                      "create it beside the DB (Linux-built SQLite) or fail (Apple SQLite, deploy/hosting/sp_common.py:300-305). Nothing was opened "
+                      "or created. Unset REC594_STRICT for the repo default (open mode=ro as every ro_connect reader does, coverage_map.py:108-109), "
+                      "or run it while an app process holds the DB open (a clean close of the app removes both sidecars)")
+    uri = p.resolve().as_uri() + "?mode=ro"
+    con = None
+    try:
+        con = sqlite3.connect(uri, uri=True, timeout=60)
+        con.execute("PRAGMA query_only = ON")
+        con.execute("SELECT count(*) FROM sqlite_master").fetchone()
+    except sqlite3.Error as e:
+        if con is not None:
+            con.close()
+        why = "unreadable read-only (" + uri + "): " + type(e).__name__ + ": " + str(e)
+        if wal and miss:
+            why += (" | the DB is in WAL mode and " + lost + " not beside it: Apple SQLite cannot open such a file mode=ro (deploy/hosting/sp_common.py:300-305). "
+                    "Nothing was read. Which way to read it is the architect\x27s call, not taken here: run it while an app process holds the DB open, or read "
+                    "a fresh .backup copy opened as the repo opens copies (sp_common.copy_connect, mode=ro&immutable=1, sp_common.py:316-322), labelled a copy with its sha256")
+        return None, why
+    note = (" | " + lost + " not beside the WAL DB before this open: SQLite may create " + ("them" if len(miss) > 1 else "it") + " now, as for every ro_connect reader ([Z1] names " + ("them" if len(miss) > 1 else "it") + ")") if (wal and miss) else ""
+    return con, uri + " + PRAGMA query_only=ON" + note
+
+def hdr(tag, title):
+    print()
+    print("==== [" + tag + "] " + title + " ====")
+    sys.stdout.flush()
+
+def cnt(tag, text):
+    print("[" + tag + "] count: " + text)
+    sys.stdout.flush()
+
+def jl(o):
+    return json.dumps(o, default=str)
+
+def utc(ts):
+    return D.datetime.fromtimestamp(ts, D.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+def event_of(t):
+    return str(t).rsplit("-", 1)[0] if t and "-" in str(t) else None
+
+def g(o, *ks):
+    for k in ks:
+        o = o.get(k) if isinstance(o, dict) else None
+    return o
+
+def guarded(tag, fn):
+    try:
+        fn()
+    except Exception as e:
+        print("[" + tag + "] ERROR " + type(e).__name__ + ": " + str(e))
+        cnt(tag, "error (section stopped; the error above is the receipt)")
+
+def event_rows(con):
+    cur = con.execute("SELECT s.id, s.match_id, s.selection, s.market, s.market_ticker, s.captured_at, s.yes_bid, s.yes_ask "
+                      "FROM odds_snapshots s WHERE s.source = ? AND substr(s.market_ticker, 1, 27) IN (?, ?) ORDER BY s.captured_at, s.id",
+                      ("kalshi", EV161 + "-", EV172 + "-"))
+    names = [d[0] for d in cur.description]
+    out = []
+    for r in cur.fetchall():
+        d = dict(zip(names, r))
+        d["belongs_to"] = BELONGS.get(event_of(d["market_ticker"]))
+        d["crossed"] = d["match_id"] != d["belongs_to"]
+        out.append(d)
+    return out
+
+def four_of(rows):
+    out, warn = [], []
+    for t in TICKERS:
+        c = [r for r in rows if r["crossed"] and r["match_id"] in IDS and r["market_ticker"] == t
+             and str(r["captured_at"]).replace("T", " ")[:19] == RULED_CUT]
+        if not c:
+            warn.append(t + ": no crossed row on 50548/50550 captured in the ruled second " + RULED_CUT + " (a rounded Issue time? see the 23:24-23:28 list)")
+            continue
+        top = max(str(r["captured_at"]) for r in c)
+        n = sorted([r for r in c if str(r["captured_at"]) == top], key=lambda r: r["id"])
+        if len(n) > 1:
+            warn.append(t + ": %d rows tie at %s (ids %s): the architect names which" % (len(n), top, [r["id"] for r in n]))
+        out += n
+    return out, warn
+'
+REC594_PYX="${REC594_PY:-}"
+if [ -z "$REC594_PYX" ]; then
+if [ -x ./venv/bin/python ]; then
+REC594_PYX=./venv/bin/python
+elif [ -x ./.venv/bin/python ]; then
+REC594_PYX=./.venv/bin/python
+else
+REC594_PYX=python3
+fi
+fi
+export REC594_PYX
+REC594_PYOK=no
+if command -v "$REC594_PYX" >/dev/null 2>&1 && "$REC594_PYX" -I -c "import sys; sys.exit(0 if sys.version_info >= (3, 8) else 3)" >/dev/null 2>&1; then
+REC594_PYOK=yes
+fi
+if [ "$REC594_PYOK" = yes ]; then
+REC594_BEFORE=$("$REC594_PYX" -I -c 'import os; exec(os.environ["REC594_LIB"]); print(json.dumps(signature()))')
+export REC594_BEFORE
+"$REC594_PYX" -I - <<'EOF'
+import os; exec(os.environ["REC594_LIB"])
+print("#594 RECONCILIATION READ (read-only), ARCHITECT addendum 130 item 2(e)")
+print("now:", D.datetime.now(D.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), "| checkout:", REPO, "| python", sys.version.split()[0])
+print("interpreter for parts D, C and F:", os.environ.get("REC594_PYX"), "(REC594_PY, else ./venv/bin/python, else ./.venv/bin/python, else python3; parts D and F need only the standard library, Python 3.8 or later)")
+try:
+    head = subprocess.run(["git", "-C", str(REPO), "log", "-1", "--format=%h %cI %s"], capture_output=True, text=True, timeout=60).stdout.strip()
+except Exception as e:
+    head = "unknown: " + type(e).__name__
+print("checkout HEAD:", head or "unknown")
+print("ruled cutoff:", RULED_ISO, "| cutoff in use:", CUT_ISO, "|", CUT_NOTE)
+print("DB text compared:", repr(CUT), "(captured_at is stored as naive UTC text, space separator) | file mtime cutoff epoch:", CUT_EPOCH)
+print("ruled crossing (#594): legs of", EV161, "belong to 50550; legs of", EV172, "belong to 50548")
+print("labels: a row, leg, close, file, receipt, call or fill dated before", RULED_ISO, "carries the label", repr(BEFORE_LABEL),
+      "or a ruled_window column/field (inside / BEFORE / spans the ruled cutoff / no time) in D0 (first captures, the four, the 23:24-23:28 list), D2-D11, D13, C2-C4F, C6 and every F section;"
+      " not labelled because they carry no read time: D1 (kickoffs, identity), D12 (counts), C1 (current tickers), C5 (game start times; the closing files are dated in [F3]),"
+      " and the lines of F5 and F7 (dated by their file)")
+print(STANCE)
+if os.environ.get("REC594_OPEN_ANYWAY"):
+    print("REC594_OPEN_ANYWAY is no longer read (round 3): the default opens as every ro_connect reader does; REC594_STRICT=1 refuses")
+print("code cited at main eae386b; tools/cockpit.html citations are the REPO copy (the live Cockpit is a separately published artifact, CLAUDE.md)")
+
+hdr("D0", "the DB: path, open mode, SQLite sidecars before any open; every crossed row over all time; the four rows and their exact captured_at")
+p, url, src = db_path()
+print("DATABASE_URL:", url, "| from:", src, "| resolved as deploy/hosting/sp_common.py:232-241 resolves it")
+print("part D reads with:", sqlite_lib())
+print("before this block opened anything:", os.environ.get("REC594_BEFORE"))
+print("WAL mode (DB header byte 18 = 2):", is_wal(p) if p else None)
+con, how = open_ro()
+print("open:", how)
+TB, KCOL, ER, FOUR = set(), False, [], []
+if con is not None:
+    print("PRAGMA query_only =", con.execute("PRAGMA query_only").fetchone()[0], "| journal_mode =", con.execute("PRAGMA journal_mode").fetchone()[0], "| sqlite", sqlite3.sqlite_version)
+    TB = {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+    KCOL = "odds_snapshots" in TB and any(r[1] == "market_ticker" for r in con.execute("PRAGMA table_info(odds_snapshots)"))
+    print("odds_snapshots.market_ticker present:", KCOL)
+    if "odds_snapshots" in TB:
+        print("captured_at text form of the Kalshi rows of 50548/50550 (match_id, length, char 11, n):",
+              con.execute("SELECT match_id, length(captured_at), substr(captured_at, 11, 1), COUNT(*) FROM odds_snapshots WHERE source = 'kalshi' AND match_id IN (50548, 50550) GROUP BY 1, 2, 3").fetchall())
+    if KCOL:
+        ER = event_rows(con)
+        cr = [r for r in ER if r["crossed"]]
+        by = {}
+        for r in cr:
+            k = (r["match_id"], r["market_ticker"])
+            c = str(r["captured_at"])
+            b = by.setdefault(k, [c, c, 0])
+            b[0], b[1], b[2] = min(b[0], c), max(b[1], c), b[2] + 1
+        print("crossed rows over ALL time, every game (crossed = the row's game is not the ruled home of its ticker's event), per (match_id, ticker): first capture | last capture | rows")
+        for (mid, t), (a, z, n) in sorted(by.items(), key=lambda kv: (kv[1][0], str(kv[0]))):
+            print("  %s | %s | %s | %s | %d%s" % (mid, t, a, z, n, ("  [first capture " + BEFORE_LABEL + "]") if lab_txt(a) else ""))
+        first = min((str(r["captured_at"]) for r in cr if r["captured_at"] is not None), default=None)
+        print("first crossed capture over all time:", first, "|", ("BEFORE the ruled cutoff: [D3] lists those rows, [D13] classes them, the -pre passes of part F list their readers, labelled"
+                                                              if first and lab_txt(first) else "not before the ruled cutoff: the -pre passes of part F have an empty window"))
+        FOUR, warn = four_of(ER)
+        print("THE FOUR (per ticker, the newest crossed row on 50548/50550 captured in the ruled second 23:25:59: the ids the reviewed command names):")
+        for r in FOUR:
+            print("  id %s | on %s | %s | %s | captured_at %r | bid %s ask %s | event belongs to %s | ruled_window %s" % (r["id"], r["match_id"], r["selection"], r["market_ticker"], r["captured_at"], r["yes_bid"], r["yes_ask"], r["belongs_to"], rw(r["captured_at"])))
+        for w in warn:
+            print("  WARNING:", w)
+        near = [r for r in ER if r["match_id"] in IDS and r["market_ticker"] in TICKERS and "2026-10-16 23:24:00" <= str(r["captured_at"]).replace("T", " ") < "2026-10-16 23:28:00"]
+        print("rows of the four tickers on 50548/50550 captured 23:24:00-23:28:00Z, exact text (a rounded Issue time shows here; id, match, ticker, captured_at, ruled_window):", [(r["id"], r["match_id"], r["market_ticker"], r["captured_at"], rw(r["captured_at"])) for r in near])
+    else:
+        print("no ticker column: no row names an event, so neither the crossed rows nor the four can be named by ticker")
+if con is None:
+    cnt("D0", "absent (not opened; every [D*] and [C*] section prints not run)")
+elif not KCOL:
+    cnt("D0", "1 DB opened read-only; no ticker column (no crossed row can be named)")
+else:
+    cnt("D0", "1 DB opened read-only; %d crossed rows over all time (%d before the ruled cutoff); the four found: %d (ids %s)" % (
+        len([r for r in ER if r["crossed"]]), len([r for r in ER if r["crossed"] and lab_txt(r["captured_at"])]), len(FOUR), [r["id"] for r in FOUR]))
+
+def fetch(sql, params=()):
+    cur = con.execute(sql, params)
+    names = [d[0] for d in cur.description]
+    return names, [dict(zip(names, r)) for r in cur.fetchall()]
+
+def table(names, rows):
+    print(" | ".join(names))
+    for r in rows:
+        print(" | ".join("NULL" if r.get(n) is None else str(r.get(n)) for n in names))
+
+def need(tag, *tables):
+    if con is None:
+        print("not run: the DB was not opened (the reason is in [D0])")
+        cnt(tag, "absent")
+        return False
+    miss = [t for t in tables if t not in TB]
+    if miss:
+        print("absent: table(s) not in this DB:", miss)
+        cnt(tag, "absent")
+        return False
+    return True
+
+TK = "s.market_ticker" if KCOL else "NULL"
+
+def d1():
+    hdr("D1", "matches 50548 / 50550: identity and the stored kickoff every leg reader keys on (src/db/schema.py:139-174)")
+    if not need("D1", "matches"):
+        return
+    names, rows = fetch("SELECT m.id, m.sport, co.code AS competition, m.season, m.stage, m.utc_date, m.status, m.status_raw, "
+                        "at.name AS away, ht.name AS home, m.away_score, m.home_score, m.external_ids "
+                        "FROM matches m LEFT JOIN competitions co ON co.id = m.competition_id "
+                        "LEFT JOIN teams at ON at.id = m.away_team_id LEFT JOIN teams ht ON ht.id = m.home_team_id "
+                        "WHERE m.id IN (50548, 50550) ORDER BY m.id")
+    for r in rows:
+        try:
+            r["gamePk"] = (json.loads(r["external_ids"]) or {}).get("mlb_stats_api")
+        except Exception:
+            r["gamePk"] = "unparsed"
+    table(names[:-1] + ["gamePk", "external_ids"], rows)
+    cnt("D1", "%d rows" % len(rows))
+
+def kalshi_rows(since):
+    cond = " OR substr(s.market_ticker, 1, 27) IN (?, ?)" if KCOL else ""
+    params = ([EV161 + "-", EV172 + "-"] if KCOL else []) + [CUT]
+    names, rows = fetch("SELECT s.id, s.match_id, s.market, s.selection, " + TK + " AS market_ticker, s.devig_prob, s.yes_bid, s.yes_ask, "
+                        "s.n_books, s.line, s.captured_at, m.utc_date AS kickoff_now, (s.captured_at < m.utc_date) AS pre_kickoff "
+                        "FROM odds_snapshots s LEFT JOIN matches m ON m.id = s.match_id "
+                        "WHERE s.source = 'kalshi' AND (s.match_id IN (50548, 50550)" + cond + ") "
+                        "AND replace(s.captured_at, 'T', ' ') " + (">=" if since else "<") + " ? "
+                        "ORDER BY s.captured_at, s.match_id, s.selection, s.id", params)
+    for r in rows:
+        ev = event_of(r["market_ticker"])
+        r["event_belongs_to"] = BELONGS.get(ev, "other event" if ev else "untickered")
+        r["crossed"] = (r["match_id"] != BELONGS[ev]) if ev in BELONGS else None
+        r["ruled_window"] = "BEFORE (outside addendum 130 2(e)'s window)" if lab_txt(r["captured_at"]) else "inside"
+    return names + ["event_belongs_to", "crossed", "ruled_window"], rows
+
+def kalshi_summary(tag, rows, before=False):
+    by = {}
+    for r in rows:
+        k = (r["match_id"], r["market_ticker"])
+        by[k] = by.get(k, 0) + 1
+    print("by (match_id, ticker):", sorted(((str(a), str(b), n) for (a, b), n in by.items())))
+    cr = [r for r in rows if r["crossed"]]
+    if before and cr:
+        print("WARNING: %d crossed row(s) captured before the cutoff in use; earliest %s. Readers of those legs fall before the main windows of [F0]-[F18]: "
+              "the -pre passes list them, labelled %s. Whether they move is a scope question for the architect ([D13])."
+              % (len(cr), min(str(r["captured_at"]) for r in cr), BEFORE_LABEL))
+    cnt(tag, "%d rows (%d crossed by the ruling, %d untickered, %d on other events, %d before the ruled cutoff)" % (
+        len(rows), len(cr), sum(1 for r in rows if r["market_ticker"] is None),
+        sum(1 for r in rows if r["event_belongs_to"] == "other event"), sum(1 for r in rows if r["ruled_window"] != "inside")))
+
+def d2():
+    hdr("D2", "odds_snapshots Kalshi rows on 50548/50550, or carrying either event on any game, captured at/after the cutoff in use " + CUT_ISO + ": every ticker (writer src/ingestion/kalshi_sync.py:66-82; ticker src/db/database.py:128-137)")
+    if not need("D2", "odds_snapshots", "matches"):
+        return
+    names, rows = kalshi_rows(True)
+    table(names, rows)
+    kalshi_summary("D2", rows)
+
+def d3():
+    hdr("D3", "the same Kalshi rows captured BEFORE the cutoff in use (expected non-empty: 161800 legs sat on 50548 from Friday morning, see the notes; a leg older than the cutoff can still be a current leg)")
+    if not need("D3", "odds_snapshots", "matches"):
+        return
+    names, rows = kalshi_rows(False)
+    table(names, rows)
+    kalshi_summary("D3", rows, before=True)
+
+def d4():
+    hdr("D4", "current legs as every reader takes them: per game and side the newest Kalshi row before the stored kickoff, ties kept (SQL of src/walters/kalshi_legs.py:81-85; export.py:193-206 keeps the first row)")
+    if not need("D4", "odds_snapshots", "matches"):
+        return
+    names, rows = fetch("SELECT s.match_id, s.selection, " + TK + " AS market_ticker, s.captured_at, s.id, s.yes_bid, s.yes_ask, s.devig_prob, m.utc_date AS kickoff_now "
+                        "FROM odds_snapshots s JOIN matches m ON m.id = s.match_id WHERE s.source = 'kalshi' AND s.match_id IN (50548, 50550) "
+                        "AND s.captured_at IS NOT NULL AND (m.utc_date IS NULL OR s.captured_at < m.utc_date) "
+                        "ORDER BY s.match_id, s.selection, s.captured_at DESC, s.id DESC")
+    newest, cur = {}, []
+    for r in rows:
+        k = (r["match_id"], r["selection"])
+        newest.setdefault(k, r["captured_at"])
+        if r["captured_at"] == newest[k]:
+            r["event_belongs_to"] = BELONGS.get(event_of(r["market_ticker"]), "?")
+            r["ruled_window"] = rw(r["captured_at"])
+            cur.append(r)
+    table(names + ["event_belongs_to", "ruled_window"], cur)
+    cnt("D4", "%d current legs (%d captured before the ruled cutoff)" % (len(cur), sum(1 for r in cur if r["ruled_window"].startswith("BEFORE"))))
+
+def d5():
+    hdr("D5", "every game that holds a Kalshi row of either event, any time (input of kalshi_legs.homes_of, kalshi_legs.py:95-114)")
+    if not need("D5", "odds_snapshots"):
+        return
+    if not KCOL:
+        print("absent: odds_snapshots.market_ticker is not in this DB (migrate_kalshi_ticker.py not run): no row names an event")
+        cnt("D5", "absent")
+        return
+    names, rows = fetch("SELECT s.match_id, s.market_ticker, COUNT(*) AS n, MIN(s.captured_at) AS first_at, MAX(s.captured_at) AS last_at, m.utc_date AS kickoff_now "
+                        "FROM odds_snapshots s LEFT JOIN matches m ON m.id = s.match_id WHERE s.source = 'kalshi' "
+                        "AND substr(s.market_ticker, 1, 27) IN (?, ?) GROUP BY s.match_id, s.market_ticker ORDER BY s.market_ticker, s.match_id",
+                        (EV161 + "-", EV172 + "-"))
+    for r in rows:
+        a, z = lab_txt(r["first_at"]), lab_txt(r["last_at"])
+        r["ruled_window"] = ("BEFORE (outside addendum 130 2(e)'s window)" if z else ("spans the ruled cutoff (first capture BEFORE it)" if a else "inside"))
+    table(names + ["ruled_window"], rows)
+    cnt("D5", "%d rows (%d games; %d rows wholly before the ruled cutoff, %d spanning it)" % (
+        len(rows), len({r["match_id"] for r in rows}), sum(1 for r in rows if r["ruled_window"].startswith("BEFORE")), sum(1 for r in rows if r["ruled_window"].startswith("spans"))))
+
+def d6():
+    hdr("D6", "kalshi_settled_markets for the four tickers, the two events or the two games (writer src/ingestion/kalshi_history.py:531; insert-once, schema.py:1245-1281)")
+    print("tables present:", sorted(t for t in ("kalshi_settled_markets", "kalshi_settled_markets_migration") if t in TB))
+    if not need("D6", "kalshi_settled_markets"):
+        return
+    have = {r[1] for r in con.execute("PRAGMA table_info(kalshi_settled_markets)")}
+    want = ["id", "ticker", "event_ticker", "series", "side", "match_id", "yes_sub_title", "kalshi_result", "close_time", "settled_time",
+            "source", "fetched_at", "last_ts", "last_bid", "last_ask", "last_mid", "candles_6h", "candles_two_sided", "gaps", "notes"]
+    print("absent columns:", [c for c in want if c not in have])
+    sel = ", ".join(c if c in have else "NULL AS " + c for c in want)
+    names, rows = fetch("SELECT " + sel + " FROM kalshi_settled_markets WHERE ticker IN (?, ?, ?, ?) OR event_ticker IN (?, ?) "
+                        "OR match_id IN (50548, 50550) ORDER BY ticker", TICKERS + EVENTS)
+    for r in rows:
+        ev = r["event_ticker"] or event_of(r["ticker"])
+        r["event_belongs_to"] = BELONGS.get(ev, "other event")
+        r["crossed"] = (r["match_id"] != BELONGS[ev]) if (ev in BELONGS and r["match_id"] is not None) else None
+        r["ruled_window_fetched_at"] = rw(r["fetched_at"])
+        r["ruled_window_close_time"] = rw(r["close_time"])
+    table(names + ["event_belongs_to", "crossed", "ruled_window_fetched_at", "ruled_window_close_time"], rows)
+    cnt("D6", "%d rows (%d crossed, %d placed nowhere, %d fetched before the ruled cutoff)" % (
+        len(rows), sum(1 for r in rows if r["crossed"]), sum(1 for r in rows if r["match_id"] is None), sum(1 for r in rows if r["ruled_window_fetched_at"].startswith("BEFORE"))))
+
+def d7():
+    hdr("D7", "odds table 1X2 rows (books), the first input of the grading close (src/walters/close.py:228-234); grouped by capture minute")
+    if not need("D7", "odds", "matches"):
+        return
+    names, rows = fetch("SELECT o.match_id, COALESCE(o.source, '(null)') AS source, substr(replace(o.captured_at, 'T', ' '), 1, 16) AS capture_minute, "
+                        "COUNT(*) AS n_rows, COUNT(DISTINCT o.bookmaker) AS books, group_concat(DISTINCT o.selection) AS selections, "
+                        "SUM(o.captured_at < m.utc_date) AS pre_kickoff_rows, MIN(o.captured_at) AS first_at, MAX(o.captured_at) AS last_at, m.utc_date AS kickoff_now "
+                        "FROM odds o JOIN matches m ON m.id = o.match_id WHERE o.match_id IN (50548, 50550) AND o.market = '1X2' "
+                        "GROUP BY o.match_id, o.source, capture_minute ORDER BY o.match_id, capture_minute")
+    for r in rows:
+        a, z = lab_txt(r["first_at"]), lab_txt(r["last_at"])
+        r["ruled_window"] = ("BEFORE (outside addendum 130 2(e)'s window)" if z else ("spans the ruled cutoff (first capture BEFORE it)" if a else rw(r["first_at"])))
+    table(names + ["ruled_window"], rows)
+    k = con.execute("SELECT COUNT(*) FROM odds WHERE match_id IN (50548, 50550) AND (source = 'kalshi' OR lower(bookmaker) LIKE '%kalshi%')").fetchone()[0]
+    print("Kalshi rows in the odds table for the two games (expected 0; no Kalshi writer targets odds):", k)
+    cnt("D7", "%d rows in %d capture groups (%d groups wholly before the ruled cutoff, %d spanning it)" % (
+        sum(r["n_rows"] for r in rows), len(rows), sum(1 for r in rows if r["ruled_window"].startswith("BEFORE")), sum(1 for r in rows if r["ruled_window"].startswith("spans"))))
+
+def d8():
+    hdr("D8", "book-consensus odds_snapshots 1X2 rows (source NULL or not kalshi), the second input of the grading close (close.py:127-153, 235-243); and whether the kalshi_only branch is reachable")
+    if not need("D8", "odds_snapshots", "matches"):
+        return
+    names, rows = fetch("SELECT s.id, s.match_id, COALESCE(s.source, '(null)') AS source, s.selection, s.devig_prob, s.n_books, s.captured_at, "
+                        "(s.captured_at < m.utc_date) AS pre_kickoff FROM odds_snapshots s JOIN matches m ON m.id = s.match_id "
+                        "WHERE s.match_id IN (50548, 50550) AND s.market = '1X2' AND COALESCE(s.source, '') <> 'kalshi' ORDER BY s.match_id, s.captured_at, s.selection")
+    for r in rows:
+        r["ruled_window"] = rw(r["captured_at"])
+    table(names + ["ruled_window"], rows)
+    for mid in IDS:
+        o, ob = con.execute("SELECT COUNT(*), SUM(replace(o.captured_at, 'T', ' ') < ?) FROM odds o JOIN matches m ON m.id = o.match_id WHERE o.match_id = ? AND o.market = '1X2' "
+                            "AND o.captured_at IS NOT NULL AND o.captured_at < m.utc_date", (RULED_CUT, mid)).fetchone()
+        b = sum(1 for r in rows if r["match_id"] == mid and r["pre_kickoff"])
+        bb = sum(1 for r in rows if r["match_id"] == mid and r["pre_kickoff"] and r["ruled_window"].startswith("BEFORE"))
+        print("match %d: pre-kickoff odds 1X2 rows %d (%d captured before the ruled cutoff), pre-kickoff book snapshot rows %d (%d captured before the ruled cutoff) -> kalshi_only branch reachable (close.py:242-243): %s"
+              % (mid, o, ob or 0, b, bb, "yes" if (o == 0 and b == 0) else "no (a book capture exists; the close is books or UNPRICED, never Kalshi; the verdict counts every pre-kickoff capture, before the ruled cutoff too, as close.py does)"))
+    cnt("D8", "%d rows (%d captured before the ruled cutoff)" % (len(rows), sum(1 for r in rows if r["ruled_window"].startswith("BEFORE"))))
+
+def d9():
+    hdr("D9", "predictions (current rows; model only, no Kalshi value: the MLB market blend reads the odds table, training.py:1356-1366)")
+    if not need("D9", "predictions"):
+        return
+    names, rows = fetch("SELECT id, match_id, model_version, computed_at, home_win_prob, away_win_prob, best_value_market, best_value_selection, "
+                        "best_value_edge_pct, recommended_unit_size, factor_breakdown FROM predictions WHERE match_id IN (50548, 50550) ORDER BY match_id, id")
+    for r in rows:
+        try:
+            r["market_blend"] = jl((json.loads(r["factor_breakdown"]) or {}).get("market_blend"))
+        except Exception:
+            r["market_blend"] = "unparsed"
+        r["ruled_window"] = rw(r["computed_at"])
+    table(names[:-1] + ["market_blend", "ruled_window"], rows)
+    cnt("D9", "%d rows (%d computed before the ruled cutoff)" % (len(rows), sum(1 for r in rows if r["ruled_window"].startswith("BEFORE"))))
+
+def d10():
+    hdr("D10", "prediction_history (append-only model series; pins which model number each export since the cutoff paired with the legs; src/db/database.py:268-297)")
+    if not need("D10", "prediction_history"):
+        return
+    names, rows = fetch("SELECT id, match_id, model_version, computed_at, home_win_prob, away_win_prob, recorded_at, "
+                        "(replace(recorded_at, 'T', ' ') >= ?) AS since_cutoff_in_use, (replace(recorded_at, 'T', ' ') >= ?) AS since_ruled_cutoff "
+                        "FROM prediction_history WHERE match_id IN (50548, 50550) ORDER BY match_id, recorded_at, id", (CUT, RULED_CUT))
+    for r in rows:
+        r["ruled_window"] = rw(r["recorded_at"])
+    table(names + ["ruled_window"], rows)
+    cnt("D10", "%d rows (%d recorded since the cutoff in use; %d since the RULED cutoff)" % (
+        len(rows), sum(1 for r in rows if r["since_cutoff_in_use"]), sum(1 for r in rows if r["since_ruled_cutoff"])))
+
+def d11():
+    hdr("D11", "prediction_outcomes of the two games: the stored grade, CLV and close (writer training.py:1578-1601; backfill 1605-1645; clv-restate --apply clv_restate.py:203-206)")
+    if not need("D11", "prediction_outcomes", "predictions"):
+        return
+    names, rows = fetch("SELECT po.id, po.prediction_id, p.match_id, p.model_version, p.computed_at, p.home_win_prob, p.away_win_prob, po.evaluated_at, "
+                        "po.actual_result, po.actual_home_score, po.actual_away_score, po.top_pick_hit, po.log_loss, po.clv, po.closing_price, "
+                        "po.closing_bookmaker, po.notes FROM prediction_outcomes po JOIN predictions p ON p.id = po.prediction_id "
+                        "WHERE p.match_id IN (50548, 50550) ORDER BY p.match_id, po.id")
+    for r in rows:
+        top = "HOME" if (r["home_win_prob"] or 0) >= (r["away_win_prob"] or 0) else "AWAY"
+        pt = r["home_win_prob"] if top == "HOME" else r["away_win_prob"]
+        r["top_pick"] = top
+        r["close_fair_of_top_at_grade"] = round(pt - r["clv"], 4) if (pt is not None and r["clv"] is not None) else None
+        r["ruled_window"] = rw(r["evaluated_at"])
+    table(names + ["top_pick", "close_fair_of_top_at_grade", "ruled_window"], rows)
+    cnt("D11", "%d rows (%d graded kalshi_only; %d evaluated before the ruled cutoff)" % (
+        len(rows), sum(1 for r in rows if r["closing_bookmaker"] == "kalshi_only"), sum(1 for r in rows if r["ruled_window"].startswith("BEFORE"))))
+
+def d12():
+    hdr("D12", "inventory: every table with a match_id column (rows of each game; rows whose text names either event) and every table with a ticker column (rows naming either event)")
+    if not need("D12"):
+        return
+    checked, shown = 0, 0
+    for t in sorted(TB):
+        cs = con.execute('PRAGMA table_info("%s")' % t).fetchall()
+        names = [c[1] for c in cs]
+        tick = [n for n in names if "ticker" in n.lower()]
+        if "match_id" not in names and not tick:
+            continue
+        checked += 1
+        line = {"table": t}
+        if "match_id" in names:
+            for mid in IDS:
+                line[str(mid)] = con.execute('SELECT COUNT(*) FROM "%s" WHERE match_id = ?' % t, (mid,)).fetchone()[0]
+            txt = [c[1] for c in cs if any(k in (c[2] or "").upper() for k in ("CHAR", "TEXT", "JSON", "CLOB"))]
+            if txt:
+                cond = " OR ".join('"%s" LIKE ? OR "%s" LIKE ?' % (c, c) for c in txt)
+                line["pair_rows_naming_an_event"] = con.execute('SELECT COUNT(*) FROM "%s" WHERE match_id IN (50548, 50550) AND (%s)' % (t, cond),
+                                                                ["%26OCT161800TBCLE%", "%26OCT172000TBCLE%"] * len(txt)).fetchone()[0]
+        if tick:
+            cond = " OR ".join('"%s" LIKE ? OR "%s" LIKE ?' % (c, c) for c in tick)
+            line["rows_with_a_ticker_of_either_event"] = con.execute('SELECT COUNT(*) FROM "%s" WHERE %s' % (t, cond),
+                                                                     [EV161 + "%", EV172 + "%"] * len(tick)).fetchone()[0]
+        if any(v for k, v in line.items() if k != "table"):
+            print(jl(line))
+            shown += 1
+    cnt("D12", "%d tables carry rows of the pair or of either event (%d tables with a match_id or ticker column checked)" % (shown, checked))
+
+def d13():
+    hdr("D13", "scope questions for the architect (surfaced, NOT decided): every crossed row of either event by class, against the RULED cutoff " + RULED_ISO)
+    if not need("D13", "odds_snapshots"):
+        return
+    if not KCOL:
+        print("absent: no ticker column, so no row can be classed by its event")
+        cnt("D13", "absent")
+        return
+    f = {r["id"] for r in FOUR}
+    cr = [r for r in ER if r["crossed"]]
+    a = [r for r in cr if r["id"] in f]
+    b = [r for r in cr if r["id"] not in f and r["match_id"] in IDS and not lab_txt(r["captured_at"])]
+    c = [r for r in cr if r["match_id"] in IDS and lab_txt(r["captured_at"])]
+    d = [r for r in cr if r["match_id"] not in IDS]
+    ok = [r for r in ER if not r["crossed"] and not lab_txt(r["captured_at"])]
+    cids = current_ids(con, {r["match_id"] for r in ER})
+
+    def show(label, rows, cur=False):
+        print(label + ": %d" % len(rows))
+        for r in rows:
+            print("   ", (r["id"], r["match_id"], r["selection"], r["market_ticker"], str(r["captured_at"])),
+                  ("| current leg: " + ("YES (the newest pre-kickoff row of its game and side, [D4])" if r["id"] in cids else "no (an older row; the guard reads current legs only)")) if cur else "",
+                  ("[" + BEFORE_LABEL + "]") if lab_txt(r["captured_at"]) else "")
+    show("(a) the four: the ids the ruled command names", a)
+    show("(b) crossed rows on 50548/50550 at/after the ruled cutoff BEYOND the four (the ruling names four rows: re-point these too?)", b)
+    show("(c) crossed rows on 50548/50550 captured " + BEFORE_LABEL, c)
+    show("(d) crossed rows on OTHER games, any time (e.g. Game 3's row, BACKLOG.md:633 #476; the guard reads them while they are a current leg there)", d, cur=True)
+    others = sorted({r["match_id"] for r in ER if r["match_id"] not in IDS})
+    for mid in others:
+        print("  other game holding an event of the pair: scope question (surfaced, not decided): match", mid)
+        mm = con.execute("SELECT m.utc_date, m.status, at.name, ht.name FROM matches m LEFT JOIN teams at ON at.id = m.away_team_id "
+                         "LEFT JOIN teams ht ON ht.id = m.home_team_id WHERE m.id = ?", (mid,)).fetchone()
+        print("    match:", ("kickoff %s | %s | %s @ %s" % mm) if mm else "absent from matches")
+        legs = con.execute("SELECT s.id, s.selection, " + TK + ", s.captured_at, s.yes_bid, s.yes_ask FROM odds_snapshots s WHERE s.source = 'kalshi' AND s.match_id = ? "
+                           "ORDER BY s.selection, s.captured_at DESC, s.id DESC", (mid,)).fetchall()
+        cl = [x for x in legs if x[0] in cids]
+        print("    current legs (id, side, ticker, captured_at, bid, ask, event owner, ruled_window):",
+              [x + (BELONGS.get(event_of(x[2]), "other event" if event_of(x[2]) else "untickered"), rw(x[3])) for x in cl] or "none (no Kalshi row before its stored kickoff)")
+        gr = con.execute("SELECT po.id, po.evaluated_at, po.clv, po.closing_price, po.closing_bookmaker FROM prediction_outcomes po JOIN predictions p "
+                         "ON p.id = po.prediction_id WHERE p.match_id = ?", (mid,)).fetchall() if {"prediction_outcomes", "predictions"} <= TB else None
+        print("    stored grade (outcome id, evaluated_at, clv, closing_price, closing_bookmaker):",
+              ([g + (rw(g[1]),) for g in gr] or "none") if gr is not None else "absent (no prediction_outcomes table)",
+              "| its grading close and the HOME leg that priced it: [C6]")
+    show("(e) correctly placed rows of either event at/after the ruled cutoff (a row that is a CURRENT leg trips the addendum-37 guard on both games until the re-point; an older one does not)", ok, cur=True)
+    cnt("D13", "%d crossed rows: %d the four, %d beyond the four since the cutoff, %d before the cutoff, %d on other games (%d other games); %d correct rows since the cutoff (%d current legs)" % (
+        len(cr), len(a), len(b), len(c), len(d), len(others), len(ok), sum(1 for r in ok if r["id"] in cids)))
+
+for tag, fn in (("D1", d1), ("D2", d2), ("D3", d3), ("D4", d4), ("D5", d5), ("D6", d6), ("D7", d7), ("D8", d8), ("D9", d9), ("D10", d10), ("D11", d11), ("D12", d12), ("D13", d13)):
+    guarded(tag, fn)
+if con is not None:
+    con.close()
+EOF
+"$REC594_PYX" -B - <<'EOF'
+import os; exec(os.environ["REC594_LIB"])
+hdr("C0", "the repo's own read code over a read-only connection (pure reads; the app engine src.db.database is never imported; no cli.py)")
+print("part C interpreter:", os.environ.get("REC594_PYX"), "(REC594_PY, else ./venv/bin/python, else ./.venv/bin/python, else python3) |", sqlite_lib())
+con, how = open_ro()
+S, KCOL = None, False
+if con is None:
+    print("not run:", how)
+else:
+    try:
+        import sqlalchemy
+        from sqlalchemy import create_engine, select
+        from sqlalchemy.orm import Session
+        from sqlalchemy.pool import NullPool
+        from types import SimpleNamespace as NS
+        from src.db.schema import Match, Odds, OddsSnapshot, Prediction, PredictionOutcome
+        from src.walters import close as CL, kalshi_legs as KL, clv_restate as CR, redated as RD
+
+        def _creator():
+            c2, h2 = open_ro()
+            if c2 is None:
+                raise RuntimeError(h2)
+            return c2
+        ENG = create_engine("sqlite://", creator=_creator, poolclass=NullPool)
+        S = Session(ENG, autoflush=False)
+        KCOL = KL.has_tickers(con)
+        print("open:", how, "| SQLAlchemy", sqlalchemy.__version__, "| python", sys.version.split()[0], "| ticker column:", KCOL)
+    except Exception as e:
+        print("not run: the repo code did not import with this python (" + type(e).__name__ + ": " + str(e) + "); set REC594_PY=<the app python> and run it again (or paste it again)")
+        S = None
+print("app engine imported (src.db.database):", "src.db.database" in sys.modules, "| config imported:", "config" in sys.modules)
+cnt("C0", "ready" if S is not None else "absent")
+
+def close_summary(cl):
+    if cl is None:
+        return None
+    out = {k: cl.get(k) for k in ("source", "reference", "books", "books_quoted", "captured_at", "fair", "missing", "overround") if k in cl}
+    if cl.get("captured_at") is not None:
+        out["ruled_window"] = rw(cl.get("captured_at"))
+    if cl.get("kalshi"):
+        out["kalshi"] = {k: cl["kalshi"].get(k) for k in ("bid", "ask", "mid", "spread_c")}
+    return out
+
+def clv_of(pred, cl):
+    top = CR._top(pred)
+    new, price, book = None, None, None
+    if top and CL.priced(cl) and top in cl["fair"]:
+        p = {"HOME": pred.home_win_prob, "DRAW": pred.draw_prob, "AWAY": pred.away_win_prob}[top]
+        new = p - cl["fair"][top]
+        best = cl["best"].get(top)
+        if best:
+            book, price = best
+        elif cl.get("source") == "kalshi_only" and cl["fair"][top] > 0:
+            book, price = "kalshi_only", round(1 / cl["fair"][top], 4)
+    return top, new, price, book
+
+def ready(tag):
+    if S is None:
+        print("not run:", "the DB was not opened (the reason is in [D0] and [C0])" if con is None else "the repo code did not import (see [C0])")
+        cnt(tag, "absent")
+        return False
+    return True
+
+def c1():
+    hdr("C1", "addendum-37 guard now: kalshi_legs.current_tickers / homes_of / mismatched (src/walters/kalshi_legs.py:71-129), the guard every leg reader calls")
+    if not ready("C1"):
+        return
+    if not KCOL:
+        print("absent: odds_snapshots.market_ticker is not in this DB; current_tickers selects it, and the guard answers nothing without tickers (kalshi_legs.py:117-118)")
+        cnt("C1", "absent")
+        return
+    cur = KL.current_tickers(con, IDS)
+    n = 0
+    for mid in IDS:
+        legs = cur.get(mid) or {}
+        if not legs:
+            print(mid, "no current Kalshi leg (none captured before the stored kickoff)")
+        for sel in sorted(legs):
+            ts = sorted(legs[sel], key=str)
+            print(mid, sel, ts, "| event belongs to:", [BELONGS.get(KL.event_of(t), "?") for t in ts])
+            n += 1
+    homes = KL.homes_of(con, EVENTS)
+    for ev in EVENTS:
+        print("homes_of", ev, "->", sorted(homes.get(ev, ())), "| ruled home:", BELONGS[ev])
+    mm = KL.mismatched(con, IDS)
+    print("mismatched(50548, 50550):", mm or "{} (no game flagged: every guarded reader takes these legs as a valid pair)")
+    cnt("C1", "%d current legs; %d games flagged mismatched" % (n, len(mm)))
+
+def c2():
+    hdr("C2", "the grading close each game gets NOW: close.grading_close + grading_close_block (close.py:212-304), what export-results and results-tally recompute on every run (export.py:961-966, 1452-1456)")
+    if not ready("C2"):
+        return
+    n = 0
+    for mid in IDS:
+        m = S.get(Match, mid)
+        if m is None:
+            print(mid, "absent from matches")
+            continue
+        cl = CL.grading_close(S, m)
+        blk = CL.grading_close_block(S, m)
+        n += 1
+        print(jl({"match_id": mid, "kickoff_now": m.utc_date, "status": getattr(m.status, "name", m.status), "priced": CL.priced(cl),
+                  "grading_close": close_summary(cl), "results_row_close_block": blk}))
+        legs = close_legs(m, cl)
+        if legs is not None:
+            print("  priced from the newest pre-kickoff two-sided HOME leg(s); priced_the_close marks the row close.py keeps (max() keeps the first in session order: close.py:189-198, over grading_close's unordered query, close.py:235-246):", jl(legs))
+    cnt("C2", "%d games with a close computed" % n)
+
+def close_legs(m, cl, rows=None):
+    if cl is None or cl.get("source") != "kalshi_only":
+        return None
+    if rows is None:
+        rows = list(S.execute(select(OddsSnapshot).where(OddsSnapshot.match_id == m.id, CL.kalshi_close_market_filter(OddsSnapshot))).scalars())
+    pre = [x for x in rows if x.source == "kalshi" and x.selection == "HOME" and x.captured_at is not None and x.market in CL.KALSHI_CLOSE_MARKETS
+           and (m.utc_date is None or x.captured_at < m.utc_date) and x.yes_bid is not None and x.yes_ask is not None]
+    if not pre:
+        return []
+    k = max(pre, key=lambda x: x.captured_at)
+    tk = dict(con.execute("SELECT id, " + ("market_ticker" if KCOL else "NULL") + " FROM odds_snapshots WHERE match_id = ?", (m.id,)).fetchall())
+    return [{"id": x.id, "ticker": getattr(x, "ticker", None) or tk.get(x.id), "captured_at": str(x.captured_at), "ruled_window": rw(x.captured_at), "bid": x.yes_bid, "ask": x.yes_ask,
+             "event_belongs_to": BELONGS.get(event_of(getattr(x, "ticker", None) or tk.get(x.id)), "?"), "priced_the_close": x is k}
+            for x in pre if x.captured_at == k.captured_at]
+
+def c3():
+    hdr("C3", "stored grade vs the close recomputed now (clv_restate._close_for, clv_restate.py:103-125; the dry-run arithmetic of restate 176-206, nothing written) and the results-tally cohort (export.py:1437-1450)")
+    if not ready("C3"):
+        return
+    rows = S.execute(select(PredictionOutcome, Prediction, Match).join(Prediction, Prediction.id == PredictionOutcome.prediction_id)
+                     .join(Match, Match.id == Prediction.match_id).where(Match.id.in_(IDS)).order_by(Match.id, PredictionOutcome.id)).all()
+    for oc, pred, m in rows:
+        odds_rows = list(S.execute(select(Odds).where(Odds.match_id == m.id, Odds.market == "1X2")).scalars())
+        snaps = list(S.execute(select(OddsSnapshot).where(OddsSnapshot.match_id == m.id, CL.kalshi_close_market_filter(OddsSnapshot))).scalars())
+        cl = CR._close_for(odds_rows, snaps, m)
+        top, new, price, book = clv_of(pred, cl)
+        would = new is not None and (oc.clv is None or abs(new - oc.clv) > 1e-6 or (price is not None and price != oc.closing_price))
+        snaps_nk = list(S.execute(select(OddsSnapshot).where(OddsSnapshot.market == "1X2", OddsSnapshot.source != "kalshi",
+                                                             OddsSnapshot.match_id == m.id)).scalars())
+        print(jl({"match_id": m.id, "outcome_id": oc.id, "prediction_id": pred.id, "top_pick": top,
+                  "stored": {"clv": oc.clv, "closing_price": oc.closing_price, "closing_bookmaker": oc.closing_bookmaker, "evaluated_at": oc.evaluated_at,
+                             "ruled_window_evaluated_at": rw(oc.evaluated_at)},
+                  "recomputed_now": {"clv": new, "closing_price": price, "closing_bookmaker": book, "close": close_summary(cl)},
+                  "clv_restate_apply_would_rewrite": would, "results_tally_cohort": CR.clv_cohort(oc, pred, m, odds_rows, snaps_nk)}))
+    cnt("C3", "%d stored outcomes" % len(rows))
+
+def pre(t, m):
+    return t is not None and (m.utc_date is None or t < m.utc_date)
+
+def whatif(tag, title, only):
+    hdr(tag, title)
+    if not ready(tag):
+        return
+    if not KCOL:
+        print("not run: odds_snapshots.market_ticker absent; nothing can be re-pointed by ticker")
+        cnt(tag, "absent")
+        return
+    ms = {mid: S.get(Match, mid) for mid in IDS}
+    if any(v is None for v in ms.values()):
+        print("not run: a game is absent from matches")
+        cnt(tag, "absent")
+        return
+    if only is not None and not only:
+        print("not run: the four were not found in the ruled second (see the WARNING lines in [D0]); the architect names the ids")
+        cnt(tag, "absent")
+        return
+    tick = dict(con.execute("SELECT id, market_ticker FROM odds_snapshots WHERE source = 'kalshi' AND match_id IN (50548, 50550)").fetchall())
+    snaps = list(S.execute(select(OddsSnapshot).where(OddsSnapshot.match_id.in_(IDS))).scalars())
+    cols = ("id", "match_id", "market", "selection", "devig_prob", "line", "n_books", "captured_at", "source", "yes_bid", "yes_ask")
+    moved, wi = [], []
+    for x in snaps:
+        d = {c: getattr(x, c) for c in cols}
+        d["ticker"] = tick.get(x.id) if x.source == "kalshi" else None
+        ev = KL.event_of(d["ticker"])
+        if x.source == "kalshi" and ev in BELONGS and BELONGS[ev] != x.match_id and (only is None or x.id in only):
+            to = BELONGS[ev]
+            moved.append({"id": x.id, "from": x.match_id, "to": to, "ticker": d["ticker"], "captured_at": str(x.captured_at), "ruled_window": rw(x.captured_at),
+                          "bid": x.yes_bid, "ask": x.yes_ask, "pre_kickoff_on_from": pre(x.captured_at, ms[x.match_id]), "pre_kickoff_on_to": pre(x.captured_at, ms[to])})
+            d["match_id"] = to
+        wi.append(NS(**d))
+    if only is not None:
+        miss = sorted(set(only) - {r["id"] for r in moved})
+        if miss:
+            print("WARNING: ids named but not moved (not a crossed Kalshi row of the pair):", miss)
+    print("rows this what-if re-points: %d" % len(moved))
+    for r in moved:
+        flip = ""
+        if r["pre_kickoff_on_from"] != r["pre_kickoff_on_to"]:
+            flip = " | CHANGES STATUS: " + ("after the start of its old game, a PRE-KICKOFF leg of the new one" if r["pre_kickoff_on_to"] else "pre-kickoff on its old game, AFTER the start of the new one")
+        print("  " + jl(r) + flip)
+    cur, curd = {}, {}
+    for mid, m in ms.items():
+        k = [x for x in wi if x.source == "kalshi" and x.match_id == mid and pre(x.captured_at, m)]
+        legs, legd = {}, {}
+        for sel in sorted({x.selection for x in k}):
+            t = max(x.captured_at for x in k if x.selection == sel)
+            top = sorted([x for x in k if x.selection == sel and x.captured_at == t], key=lambda x: -x.id)
+            legs[sel] = {x.ticker for x in top}
+            legd[sel] = [{"id": x.id, "ticker": x.ticker, "captured_at": str(x.captured_at), "ruled_window": rw(x.captured_at), "bid": x.yes_bid, "ask": x.yes_ask,
+                          "event_belongs_to": BELONGS.get(KL.event_of(x.ticker), "?")} for x in top]
+        cur[mid], curd[mid] = legs, legd
+    evs = {e for legs in cur.values() for ts in legs.values() for e in (KL.event_of(t) for t in ts) if e}
+    homes = {e: set(v) - set(IDS) for e, v in KL.homes_of(con, evs).items()}
+    for mid, legs in cur.items():
+        for ts in legs.values():
+            for t in ts:
+                if KL.event_of(t):
+                    homes.setdefault(KL.event_of(t), set()).add(mid)
+    mm = {mid: KL.judge(legs, homes, mid) for mid, legs in cur.items()}
+    mm = {k: v for k, v in mm.items() if v}
+    for mid, m in ms.items():
+        odds_rows = list(S.execute(select(Odds).where(Odds.match_id == mid, Odds.market == "1X2")).scalars())
+        mine = [x for x in wi if x.match_id == mid]
+        outcomes = CL.outcomes_for(m.sport)
+        cl = CL.close_1x2(odds_rows, m.utc_date, outcomes) if odds_rows else None
+        leg = None
+        if CL.priced(cl):
+            cl["source"], cl["reference"] = "odds", "books"
+        else:
+            book = [x for x in mine if x.source != "kalshi" and x.market == "1X2"]
+            sn = CL.close_from_snapshots(book, m.utc_date, outcomes)
+            if sn is not None:
+                sn["reference"] = "books"
+                cl = sn
+            elif cl is None and not any(pre(x.captured_at, m) for x in book) and mid not in mm:
+                ko = CL.close_from_kalshi(mine, m.utc_date, outcomes)
+                if ko is not None:
+                    cl = ko
+                    leg = close_legs(m, ko, mine)
+        print(jl({"match_id": mid, "kickoff_now": m.utc_date, "what_if_current_legs": curd[mid], "what_if_guard": mm.get(mid) or "pair (not flagged)",
+                  "what_if_close": close_summary(cl) if CL.priced(cl) else ("UNPRICED: " + jl(close_summary(cl))),
+                  "what_if_close_leg": leg,
+                  "what_if_close_minutes_before_start": CL.minutes_before_start(cl["captured_at"], m.utc_date) if CL.priced(cl) else None}))
+        for oc, pred in S.execute(select(PredictionOutcome, Prediction).join(Prediction, Prediction.id == PredictionOutcome.prediction_id)
+                                  .where(Prediction.match_id == mid)).all():
+            top, new, price, bk = clv_of(pred, cl)
+            print("  outcome", oc.id, "| stored clv", oc.clv, oc.closing_bookmaker, oc.closing_price, "| what-if clv", new, bk, price)
+    cnt(tag, "%d rows re-pointed in memory (ids %s; %d captured before the ruled cutoff); %d games flagged by the guard after it" % (
+        len(moved), [r["id"] for r in moved], sum(1 for r in moved if r["ruled_window"].startswith("BEFORE")), len(mm)))
+
+def c4():
+    whatif("C4", "WHAT-IF A, IN MEMORY ONLY (nothing written): EVERY crossed Kalshi row of 50548/50550 re-pointed by its ticker to the ruled game (wider than the ruling: for comparison), then the guard and the grading close as close.py computes them", None)
+
+def c4f():
+    ids, warn, nf = [], [], named_four()
+    if S is not None and KCOL:
+        four, warn = four_of(event_rows(con))
+        ids = [r["id"] for r in four]
+    ties = [w for w in warn if " tie at " in w]
+    if isinstance(nf, list):
+        title = "ONLY THE ROWS NAMED BY REC594_FOUR " + str(nf) + " (the [D0] four were " + str(ids) + ")"
+        ids = nf
+    elif ties:
+        title = ("THE TIED CANDIDATES " + str(ids) + ": NOT FOUR. WARNING " + " / ".join(ties) + ". This preview moves every tied id, so it is NOT the ruled command; "
+                 "once the architect names the four, set REC594_FOUR=<id,id,id,id> and run it again")
+    else:
+        title = "ONLY THE FOUR rows the ruled command names " + str(ids) + " (newest crossed row of each ticker at the ruled 23:25:59 capture)"
+    if isinstance(nf, str):
+        title += " | " + nf + ": ignored"
+    whatif("C4F", "WHAT-IF B, IN MEMORY ONLY (nothing written): " + title + ", then the same guard and close", ids)
+
+def c6():
+    hdr("C6", "other games holding a row of either event (scope question, surfaced and NOT decided): the guard, the stored grade and the grading close with the HOME leg that priced it")
+    if not ready("C6"):
+        return
+    if not KCOL:
+        print("absent: odds_snapshots.market_ticker is not in this DB; no row names an event")
+        cnt("C6", "absent")
+        return
+    others = sorted({r["match_id"] for r in event_rows(con) if r["match_id"] not in IDS})
+    for mid in others:
+        m = S.get(Match, mid)
+        if m is None:
+            print(mid, "absent from matches")
+            continue
+        legs = KL.current_tickers(con, [mid]).get(mid) or {}
+        mm = KL.mismatched(con, [mid])
+        cl = CL.grading_close(S, m)
+        print(jl({"match_id": mid, "label": "other game holding an event of the pair: scope question", "kickoff_now": m.utc_date,
+                  "status": getattr(m.status, "name", m.status), "current_legs": {k: sorted(v, key=str) for k, v in legs.items()},
+                  "guard": mm.get(mid) or "pair (not flagged)", "priced": CL.priced(cl), "grading_close": close_summary(cl), "close_leg": close_legs(m, cl)}))
+        for oc, pred in S.execute(select(PredictionOutcome, Prediction).join(Prediction, Prediction.id == PredictionOutcome.prediction_id)
+                                  .where(Prediction.match_id == mid)).all():
+            print("  stored outcome", oc.id, "| clv", oc.clv, oc.closing_bookmaker, oc.closing_price, "| evaluated_at", oc.evaluated_at, rw(oc.evaluated_at))
+    cnt("C6", "%d other games" % len(others))
+
+def c5():
+    hdr("C5", "the re-dated void each results row gets from the closing files (src/walters/redated.py:73-129: exports/closing_*.json, top level only)")
+    if not ready("C5"):
+        return
+    cs = RD.closing_starts("exports")
+    print("closing files read:", cs["files"], "| unreadable:", cs["unreadable"])
+    for mid in IDS:
+        m = S.get(Match, mid)
+        rows = cs["rows"].get(mid)
+        lab = RD.void_label(rows, m.utc_date) if m is not None else None
+        print(mid, "closing rows (run start, recorded start):", [(str(a), b) for a, b in (rows or [])], "| kickoff now:",
+              m.utc_date if m is not None else None, "| results-row label:", lab or "none (graded and tallied)")
+    cnt("C5", "%d closing files read" % cs["files"])
+
+for tag, fn in (("C1", c1), ("C2", c2), ("C3", c3), ("C4", c4), ("C4F", c4f), ("C5", c5), ("C6", c6)):
+    guarded(tag, fn)
+if S is not None:
+    S.rollback()
+    S.close()
+    ENG.dispose()
+if con is not None:
+    con.close()
+print("app engine imported (src.db.database) at the end:", "src.db.database" in sys.modules)
+EOF
+"$REC594_PYX" -I - <<'EOF'
+import os; exec(os.environ["REC594_LIB"])
+SEEN, COMMITS = {}, []
+RK = ("kalshi_bid", "kalshi_ask", "exec_cost_taker", "exec_cost_maker", "away_bid", "away_ask", "exec_cost_taker_away",
+      "exec_cost_maker_away", "fee_series", "kalshi_home_norm", "venue_gap_pp", "venue_flag", "late_news_flag")
+DK = ("engine", "call", "units", "cls", "tier", "pick", "model_p", "market_ref", "reference", "edge_pp", "pass_kind", "tags", "reasons", "reason",
+      "shadow_units", "exec", "order", "kalshi_only_hold", "kickoff_clock", "value_shadow", "venue")
+GK = ("top_pick_hit", "clv", "closing_price", "close_reference", "close_kalshi", "close_fair", "close_at",
+      "close_minutes_before_start", "close_books", "close_source")
+TEAMS = re.compile(r"Rays|Guardians|Tampa|Cleveland")
+DAYS = ("2026-10-16", "2026-10-17", "2026-10-18", "2026-10-19")
+TEAM_STRONG = re.compile(r"\b(?:Rays|Guardians)\b")
+TEAM_TB = re.compile(r"\b(?:Tampa Bay|Tampa|TB)\b")
+TEAM_CLE = re.compile(r"\b(?:Cleveland|CLE)\b")
+MLB_CTX = re.compile(r"(?:^|(?<=[^A-Za-z]))(?:MLB|mlb|Mlb)(?=$|[^A-Za-z])|KXMLBGAME|[Bb]aseball")
+DATE_RE = re.compile(r"(?:^|(?<=\D))(20\d\d-\d\d-\d\d)(?=$|\D)")
+ID_LESS = re.compile(r"mlb-actionable|desk-rescore|venue|quote-age|k-track")
+NEWEST_CLOSING = [None]
+
+def team_line(s, ctx):
+    s = str(s)
+    if not (TEAM_STRONG.search(s) or (TEAM_TB.search(s) and TEAM_CLE.search(s) and MLB_CTX.search(str(ctx)))):
+        return False
+    ds = DATE_RE.findall(s)
+    return (not ds) or any(x in DAYS for x in ds)
+
+def hit_line(s, ctx, host=False):
+    s = str(s)
+    return bool(TICK_RE.search(s)) or (not host and bool(WIDE_RE.search(s))) or team_line(s, ctx)
+
+hdr("W0", "the windows of part F: the main pass from the cutoff in use; a -pre pass from the first crossed capture up to it (computed on a read-only open)")
+print("ruled cutoff:", RULED_ISO, "| cutoff in use:", CUT_ISO, "|", CUT_NOTE)
+print("part F reads with:", sqlite_lib())
+print("text sweeps (F0, F9 page/tail text, F10, F12) match a game by id (laptop paths), by ticker, or by TEAM: Rays or Guardians; or both of Tampa Bay/Tampa/TB and Cleveland/CLE "
+      "with MLB context in the file, receipt or run; a line that carries dates must carry one of", ", ".join(DAYS))
+FIRST_TXT, FIRST_EPOCH, PAIRROWS, PRE_WHY = None, None, None, ""
+con, how = open_ro()
+print("open:", how)
+if con is None:
+    PRE_WHY = "the DB was not opened, so the first crossed capture is unknown (set REC594_CUT to widen the main pass by hand; it is labelled)"
+else:
+    try:
+        kcol = any(r[1] == "market_ticker" for r in con.execute("PRAGMA table_info(odds_snapshots)"))
+        PAIRROWS = [dict(zip(("id", "match_id", "selection", "market_ticker", "captured_at"), r)) for r in con.execute(
+            "SELECT id, match_id, selection, " + ("market_ticker" if kcol else "NULL") + ", captured_at FROM odds_snapshots "
+            "WHERE source = 'kalshi' AND match_id IN (50548, 50550)")]
+        if kcol:
+            cr = [r for r in event_rows(con) if r["crossed"] and r["captured_at"] is not None]
+            if cr:
+                FIRST_TXT = min(str(r["captured_at"]) for r in cr)
+                FIRST_EPOCH = txt_epoch(FIRST_TXT)
+            else:
+                PRE_WHY = "no crossed row in the DB"
+        else:
+            PRE_WHY = "no ticker column: no crossed row can be named"
+    except Exception as e:
+        PRE_WHY = "the read failed (" + type(e).__name__ + ": " + str(e) + ")"
+    finally:
+        con.close()
+if FIRST_EPOCH is not None and int(FIRST_EPOCH) >= CUT_EPOCH:
+    PRE_WHY = "the first crossed capture " + FIRST_TXT + " is not before the cutoff in use " + CUT_ISO
+
+def W(lo, hi, is_pre):
+    return {"lo": lo, "hi": hi, "lo_iso": utc(lo), "hi_iso": utc(hi) if hi is not None else None, "pre": is_pre}
+MAIN = W(CUT_EPOCH, None, False)
+PRE = W(int(FIRST_EPOCH), CUT_EPOCH, True) if (FIRST_EPOCH is not None and int(FIRST_EPOCH) < CUT_EPOCH) else None
+print("first crossed capture:", FIRST_TXT)
+print("main pass: [" + MAIN["lo_iso"] + ", now)")
+print("-pre pass:", ("[" + PRE["lo_iso"] + ", " + PRE["hi_iso"] + "); every item dated before " + RULED_ISO + " is labelled " + BEFORE_LABEL) if PRE else "empty: " + PRE_WHY)
+cnt("W0", "%d windows (main%s)" % (2 if PRE else 1, ", -pre" if PRE else "; -pre empty"))
+
+class UB(float):
+    pass
+
+def inwin(e, w):
+    if e is None:
+        return True
+    if isinstance(e, UB):
+        return e >= w["lo"]
+    return e >= w["lo"] and (w["hi"] is None or e < w["hi"])
+
+def inwin_iso(ts, w):
+    return ts >= w["lo_iso"] and (w["hi_iso"] is None or ts < w["hi_iso"])
+
+def wtag(tag, w):
+    return tag + ("-pre" if w["pre"] else "")
+
+def wtitle(title, w):
+    return title + (" | -PRE PASS [" + w["lo_iso"] + ", " + w["hi_iso"] + "): items dated before " + RULED_ISO + " are " + BEFORE_LABEL if w["pre"] else " | since " + w["lo_iso"])
+
+def blab(e):
+    x = lab_epoch(e)
+    return (" [" + x + "]") if x else ""
+
+def is_host(p):
+    return "/host/" in "/" + str(p).replace(os.sep, "/")
+
+def rd(p):
+    with open(p, "rb") as f:
+        return f.read()
+
+MIRROR = os.path.realpath(setting("SP_EXPORTS_MIRROR_DIR") or str(REPO / "logs" / "exports-mirror"))
+GIT_ROOTS = [(MIRROR, None, "the mirror clone"), (os.path.realpath(str(REPO)), ("docs/receipts", "RESULTS.md"), "the checkout")]
+GD, RI, FW = {}, {}, {}
+SQUASH_SUBJ = "weekly squash"
+
+def git_run(root, *a):
+    r = subprocess.run(["git", "-c", "core.quotePath=false", "-C", root] + list(a), capture_output=True, timeout=900)
+    return r.stdout.decode("utf-8", "replace") if r.returncode == 0 else None
+
+def rec_info(root):
+    if root in RI:
+        return RI[root]
+    rec, subj, roots = set(), {}, []
+    for line in (git_run(root, "log", "--all", "--reflog", "--format=%x01%ct %H %P%x02%s") or "").splitlines():
+        if not line.startswith("\x01"):
+            continue
+        head, _, s = line[1:].partition("\x02")
+        f = head.split()
+        if len(f) < 2 or not f[0].isdigit():
+            continue
+        subj[f[1]] = s
+        if s.startswith(SQUASH_SUBJ):
+            rec.add(f[1])
+        if len(f) == 2:
+            roots.append((int(f[0]), f[1]))
+    if roots:
+        first = min(roots)[1]
+        rec |= {h for _, h in roots if h != first}
+    sp = git_run(root, "rev-parse", "--git-path", "shallow")
+    if sp and sp.strip():
+        q = sp.strip() if os.path.isabs(sp.strip()) else os.path.join(root, sp.strip())
+        try:
+            rec |= {x for x in open(q).read().split() if x}
+        except OSError:
+            pass
+    RI[root] = {"rec": rec, "subj": subj, "roots": len(roots)}
+    return RI[root]
+
+def first_writes(root, spec):
+    key = (root, spec)
+    if key in FW:
+        return FW[key]
+    rec = rec_info(root)["rec"]
+    out, early, ct, sha = {}, {}, None, None
+    for line in (git_run(root, "log", "--all", "--reflog", "--no-renames", "--raw", "--no-abbrev", "--format=%x01%ct %H", "--", *list(spec or ())) or "").splitlines():
+        if line.startswith("\x01"):
+            f = line[1:].split()
+            ct, sha = (int(f[0]), f[1]) if (len(f) == 2 and f[0].isdigit()) else (None, None)
+        elif line.startswith(":") and "\t" in line and ct is not None:
+            meta, path = line.split("\t", 1)
+            f = meta.split()
+            if len(f) >= 5 and f[4][:1] in ("A", "M", "T"):
+                k = (path, f[3])
+                tgt = early if sha in rec else out
+                if k not in tgt or ct < tgt[k][0]:
+                    tgt[k] = (ct, sha)
+    FW[key] = (out, early)
+    return FW[key]
+
+def doc_time(p):
+    if not str(p).endswith(".json"):
+        return None
+    try:
+        d = json.loads(rd(p))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(d, dict):
+        return None
+    for k, v in (("exported_at", d.get("exported_at")), ("desk_meta.as_of", g(d, "desk_meta", "as_of"))):
+        e, raw, _ = iso_epoch(v)
+        if e is not None:
+            return e, k, raw
+    return None
+
+def git_info(root, spec):
+    key = (root, spec)
+    if key in GD:
+        return GD[key]
+    info = {"ok": False, "why": "not a git clone"}
+    try:
+        top = git_run(root, "rev-parse", "--show-toplevel")
+        if top is not None and os.path.realpath(top.strip()) == root:
+            ps = ["--"] + list(spec or ())
+            tree, last, ct, sha = {}, {}, None, None
+            for ent in (git_run(root, "ls-tree", "-r", "-z", "HEAD", *ps) or "").split("\x00"):
+                if "\t" in ent:
+                    meta, path = ent.split("\t", 1)
+                    f = meta.split()
+                    if len(f) >= 3 and f[1] == "blob":
+                        tree[path] = f[2]
+            for line in (git_run(root, "log", "--topo-order", "--no-renames", "--format=%x01%ct %H", "--name-only", "HEAD", *ps) or "").splitlines():
+                if line.startswith("\x01"):
+                    f = line[1:].split()
+                    ct, sha = (int(f[0]), f[1]) if (len(f) == 2 and f[0].isdigit()) else (None, None)
+                elif line and ct is not None and line not in last:
+                    last[line] = (ct, sha)
+            ri = rec_info(root)
+            info = {"ok": True, "tree": tree, "last": last, "rec": ri["rec"], "subj": ri["subj"]}
+    except Exception as e:
+        info = {"ok": False, "why": type(e).__name__ + ": " + str(e)}
+    GD[key] = info
+    return info
+
+def blob_id(b, n):
+    h = hashlib.sha256() if n == 64 else hashlib.sha1()
+    h.update(b"blob " + str(len(b)).encode() + b"\x00")
+    h.update(b)
+    return h.hexdigest()
+
+DT = {}
+
+def dated(p):
+    st = os.stat(p)
+    k = (os.path.realpath(p), st.st_mtime, st.st_size)
+    if k not in DT:
+        DT[k] = dated_(p)
+    return DT[k]
+
+def dated_(p):
+    mt = os.path.getmtime(p)
+    rp = os.path.realpath(p)
+    for root, spec, label in GIT_ROOTS:
+        if not rp.startswith(root + os.sep):
+            continue
+        rel = os.path.relpath(rp, root).replace(os.sep, "/")
+        if spec and not any(rel == s or rel.startswith(s + "/") for s in spec):
+            return mt, None
+        info = git_info(root, spec)
+        if not info["ok"]:
+            return mt, "dated by mtime (" + label + ": git unreadable, " + info["why"] + ")"
+        want = info["tree"].get(rel)
+        if want is None:
+            return mt, "dated by mtime (not in " + label + "\x27s HEAD)"
+        try:
+            same = blob_id(rd(p), len(want)) == want
+        except OSError:
+            same = False
+        if not same:
+            return mt, "dated by mtime (differs from " + label + "\x27s HEAD)"
+        ct, sha = info["last"].get(rel) or (None, None)
+        if ct is None:
+            return mt, "dated by mtime (no commit found in " + label + ")"
+        mtn = "mtime " + utc(mt) + ", which a checkout or pull can reset"
+        if sha in info["rec"]:
+            sq = ("re-committed by the weekly squash " if info["subj"].get(sha, "").startswith(SQUASH_SUBJ) else "re-committed by a root commit (orphan or shallow boundary) ") + sha[:10] + " " + utc(ct) + " in " + label
+            try:
+                fwm, erm = first_writes(root, spec)
+                fw, er = fwm.get((rel, want)), erm.get((rel, want))
+            except Exception as e:
+                fw, er, sq = None, None, sq + " (the --all --reflog read failed: " + type(e).__name__ + ")"
+            ub = min(ct, er[0]) if er is not None else ct
+            if fw is not None and fw[0] <= ct:
+                return fw[0], "dated by its first commit of these bytes " + utc(fw[0]) + " (" + fw[1][:10] + ", reachable through --all --reflog; " + sq + "; " + mtn + ")"
+            dt = doc_time(p)
+            if dt is not None and dt[0] <= ub:
+                return dt[0], "dated by the document\x27s own " + dt[1] + " " + dt[2] + " = " + utc(dt[0]) + " (" + sq + "; no earlier commit of these bytes reachable; " + mtn + ")"
+            return UB(ub), ("undatable (squashed): " + sq + "; no earlier commit of these bytes is reachable through --all --reflog and the file carries no exported_at or desk_meta.as_of"
+                            " at or before it, so its date is unknown, at or before " + utc(ub) + " (the earliest squash or root commit holding these bytes): listed in every pass whose window starts at or before that (both passes for a squash after the cutoff), "
+                            "never silently inside the window (" + mtn + ")")
+        return ct, "dated by its last commit " + utc(ct) + " in " + label + " (" + mtn + ("; the mtime is " + BEFORE_LABEL if lab_epoch(mt) and not lab_epoch(ct) else "") + ")"
+    return mt, None
+
+def listing(patterns, exclude=None):
+    seen, out = set(), []
+    for pat in patterns:
+        for q in sorted(glob.glob(os.path.expanduser(pat), recursive=True)):
+            rp = os.path.realpath(q)
+            if rp in seen or under_data(q) or not os.path.isfile(q) or (exclude and exclude(q)):
+                continue
+            seen.add(rp)
+            out.append(q)
+    return out
+
+def name(x):
+    return x.get("name") if isinstance(x, dict) else x
+
+def row_extract(r):
+    d = r.get("desk") if isinstance(r.get("desk"), dict) else {}
+    out = {"match_id": r.get("match_id"), "utc_date": r.get("utc_date"), "status": r.get("status"),
+           "game": "%s @ %s" % (name(r.get("away_team")), name(r.get("home_team"))),
+           "kalshi_legs": r.get("kalshi_legs"), "market.kalshi": g(r, "market", "kalshi"),
+           "market.bookmaker_count": g(r, "market", "bookmaker_count"), "kalshi": r.get("kalshi"),
+           "input_quality.kalshi": g(r, "input_quality", "kalshi"), "line_move.kalshi": g(r, "line_move", "venues", "kalshi"),
+           "outcome": {k: g(r, "outcome", k) for k in ("clv_pp", "closing_price", "closing_bookmaker")} if isinstance(r.get("outcome"), dict) else None,
+           "desk": {k: d[k] for k in DK if k in d} or None, "model.desk": g(r, "model", "desk"), "desk_venue": r.get("desk_venue")}
+    out.update({k: r[k] for k in RK if r.get(k) is not None})
+    return {k: v for k, v in out.items() if v not in (None, {}, [])}
+
+def results_extract(r):
+    return {"match_id": r.get("match_id"), "date": r.get("date"), "redated": r.get("redated"), "actual": r.get("actual"),
+            "top_pick": g(r, "predicted", "top_pick"), "graded": {k: g(r, "graded", k) for k in GK}}
+
+def tbcle_leg(leg):
+    return (str(leg.get("sport") or "").upper() == "MLB" and str(leg.get("kickoff") or "")[:10] in DAYS
+            and bool(TEAMS.search(" ".join(str(leg.get(k) or "") for k in ("game", "home", "away")))))
+
+def doc_rows(p, d):
+    host = is_host(p)
+    if not isinstance(d, dict):
+        return "other", {}, []
+    if isinstance(d.get("results"), list):
+        hits = [r for r in d["results"] if isinstance(r, dict) and (TICK_RE.search(jl(r)) or (not host and r.get("match_id") in IDS))]
+        rec = d.get("record") or {}
+        head = {"exported_at": d.get("exported_at"), "start_date": d.get("start_date"), "record.games": rec.get("games"),
+                "record.vs_close": rec.get("vs_close"), "record.redated": rec.get("redated")}
+        return "results", head, [results_extract(r) for r in hits]
+    if d.get("kind") == "desk_parlays_v1":
+        out = []
+        for i, t in enumerate(d.get("tickets") or [], 1):
+            for leg in t.get("legs") or []:
+                if not isinstance(leg, dict):
+                    continue
+                by_tick = bool(TICK_RE.search(jl(leg)))
+                by_team = (not by_tick) and (leg.get("match_id") in IDS or tbcle_leg(leg))
+                if by_tick or by_team:
+                    out.append({"ticket": i, "units": t.get("units"), "signature": t.get("signature"), "market_p": t.get("market_p"),
+                                "edge_pp": t.get("edge_pp"), "matched_by": "ticker" if by_tick else "teams + kickoff (no crossed ticker on its order line)", "leg": leg})
+        return "parlays", {"as_of": g(d, "desk_meta", "as_of"), "files": d.get("files")}, out
+    rows = d.get("predictions") or d.get("fixtures")
+    if isinstance(rows, list):
+        head = {"exported_at": d.get("exported_at"), "desk_as_of": g(d, "desk_meta", "as_of"),
+                "kalshi_leg_guard": g(d, "desk_meta", "kalshi_leg_guard"), "closing": d.get("closing")}
+        out = []
+        for r in rows:
+            if isinstance(r, dict) and (TICK_RE.search(jl(r)) or (not host and r.get("match_id") in IDS)):
+                x = row_extract(r)
+                if host:
+                    x["host_ids"] = "host DB match id: a different numbering"
+                out.append(x)
+        return "rows", head, out
+    return "other", {}, []
+
+def scan(tag, title, patterns, w, exclude=None):
+    tag = wtag(tag, w)
+    hdr(tag, wtitle(title, w))
+    fs = listing(patterns, exclude)
+    dts = {p: dated(p) for p in fs}
+    new = [p for p in fs if inwin(dts[p][0], w)]
+    nout = len(fs) - len(new)
+    nfiles = nrows = bad = same = 0
+    for p in new:
+        try:
+            b = rd(p)
+        except OSError as e:
+            print("UNREADABLE", p, e)
+            bad += 1
+            continue
+        h = hashlib.sha256(b).hexdigest()
+        mt, how = dts[p]
+        when = ("| " + how) if how else ("| mtime " + utc(mt))
+        if h in SEEN and SEEN[h] != p:
+            if TICK_RB.search(b) or WIDE_RB.search(b):
+                print("=", p, when, "| same bytes as", SEEN[h], "(rows not repeated)" + blab(mt))
+                same += 1
+            continue
+        SEEN.setdefault(h, p)
+        try:
+            d = json.loads(b)
+        except ValueError as e:
+            print("UNREADABLE (not JSON)", p, e)
+            bad += 1
+            continue
+        kind, head, rows = doc_rows(p, d)
+        if not rows:
+            continue
+        nfiles += 1
+        nrows += len(rows)
+        print("FILE", p, when, "| sha256", h[:12], "|", kind, "|", jl({k: v for k, v in head.items() if v is not None}) + blab(mt))
+        for r in rows:
+            print("  ROW", jl(r))
+    cnt(tag, "%d rows in %d files (%d files in the window read, %d outside it not read, %d same-bytes copies, %d unreadable; %d dated by a commit, not mtime; "
+        "%d dated by the document\x27s own time after a squash; %d undatable (squashed) in this window, listed in every pass starting at or before its squash)"
+        % (nrows, nfiles, len(new), nout, same, bad, sum(1 for p in fs if dts[p][1] and dts[p][1].startswith(("dated by its last commit", "dated by its first commit"))),
+           sum(1 for p in fs if dts[p][1] and dts[p][1].startswith("dated by the document")), sum(1 for p in new if isinstance(dts[p][0], UB))))
+
+def f0(w):
+    tag = wtag("F0", w)
+    hdr(tag, wtitle("sweep: every file changed in the window that names 50548/50550 (any form, laptop paths), either event, or the pair by team (exports/, logs/, docs/receipts/, RESULTS.md, the mirror clone, receipts, window state, /tmp/sp_pack_* and packs named by migrate receipts); data/ and .git are never read; host/ paths list on ticker or team hits only; git-tracked files are dated by their last commit", w))
+    roots = ["exports", "logs", "docs/receipts", "RESULTS.md"]
+    for extra in (setting("SP_EXPORTS_MIRROR_DIR"), setting("SP_RECEIPTS"), setting("SP_WINDOW_STATE")):
+        if extra:
+            roots.append(extra)
+    roots += sorted(glob.glob("/tmp/sp_pack_*")) + [x for x, _ in migrate_packs()]
+    seen, hits = set(), []
+    scanned = old = big = sq = nteamf = nund = 0
+    for root in roots:
+        paths = [root] if os.path.isfile(root) else []
+        for a, ds, fs in os.walk(root):
+            ds[:] = [x for x in ds if x != ".git" and not under_data(os.path.join(a, x))]
+            paths += [os.path.join(a, f) for f in fs]
+        for p in paths:
+            rp = os.path.realpath(p)
+            if rp in seen or under_data(p):
+                continue
+            seen.add(rp)
+            try:
+                st = os.stat(p)
+                de, how = dated(p)
+            except OSError:
+                continue
+            if not inwin(de, w):
+                old += 1
+                continue
+            if st.st_size > 300000000:
+                big += 1
+                print("skipped (over 300 MB):", p)
+                continue
+            try:
+                with open(p, "rb") as fh:
+                    head = fh.read(16)
+            except OSError as e:
+                print("UNREADABLE", p, e)
+                continue
+            if head == b"SQLite format 3\x00":
+                sq += 1
+                print("skipped (a SQLite file: only its 16-byte header was read, never opened as a DB; backups and packs are listed in [F18]):", p)
+                continue
+            try:
+                b = rd(p)
+            except OSError as e:
+                print("UNREADABLE", p, e)
+                continue
+            scanned += 1
+            host = is_host(p)
+            nt, ni = len(TICK_RB.findall(b)), len(WIDE_RB.findall(b))
+            nm = 0
+            if len(b) < 50000000:
+                txt = b.decode("utf-8", "replace")
+                ctx = p + "\n" + txt
+                nm = sum(1 for x in txt.splitlines() if team_line(x, ctx))
+            if nt or (ni and not host) or nm:
+                hits.append(p)
+                nteamf += 1 if (nm and not nt and not (ni and not host)) else 0
+                nund += 1 if isinstance(de, UB) else 0
+                print(("undatable (squashed), at or before " + utc(de)) if isinstance(de, UB) else utc(de), "ticker hits %5d | id hits %5d | team lines %5d |" % (nt, ni, nm), p,
+                      ("[host: listed on its ticker or team hits; its ids are another numbering, its legs the host DB\x27s: MANUAL 4]" if host else ""),
+                      ("[" + how + "]" if how else "") + blab(de))
+    cnt(tag, "%d files with hits (%d by team lines only; %d undatable (squashed), listed in every pass starting at or before its squash; %d files in the window scanned, %d outside it not read, %d over 300 MB, %d SQLite files skipped)" % (len(hits), nteamf, nund, scanned, old, big, sq))
+
+def f5():
+    hdr("F5", "RESULTS.md (results-tally, export.py:1364-1520: grading_close_block per MLB row 1452-1456; vs-close line, close age, cohorts, Void line)")
+    p = "RESULTS.md"
+    if not os.path.isfile(p):
+        print("absent:", p)
+        cnt("F5", "absent")
+        return
+    lines = open(p, encoding="utf-8", errors="replace").read().splitlines()
+    mt, how = dated(p)
+    print(how or ("mtime " + utc(mt)), "| written since the cutoff in use:", ("unknown (undatable (squashed), at or before " + utc(mt) + ")") if isinstance(mt, UB) else mt >= CUT_EPOCH, blab(mt),
+          "(RESULTS.md is git-tracked: a clean copy is dated by its last commit, since a checkout or pull sets the mtime)")
+    n, in_mlb = 0, False
+    for i, l in enumerate(lines):
+        if l.startswith("## "):
+            in_mlb = l.startswith("## MLB")
+        if i < 3 or in_mlb or WIDE_RE.search(l) or TICK_RE.search(l):
+            print("%4d: %s" % (i + 1, l))
+            n += 1
+    cnt("F5", "%d lines" % n)
+
+def f7():
+    hdr("F7", "window pager state (sp_window_page.py:66-99 snapshot keyed str(match_id); t90 = the card's t90_signatures dict, :415, :437; overwritten each run)")
+    sp = setting("SP_WINDOW_STATE") or str(Path(setting("SP_RECEIPTS") or (REPO / "logs" / "receipts.jsonl")).with_name("window_state.json"))
+    if not os.path.isfile(sp):
+        print("absent:", sp)
+        cnt("F7", "absent")
+        return
+    d = json.loads(rd(sp))
+    mt = os.path.getmtime(sp)
+    print("file", sp, "| mtime", utc(mt), "| updated", d.get("updated"), blab(mt))
+    n = 0
+    for k in PAIR_S:
+        v = (d.get("games") or {}).get(k)
+        print(k, jl(v))
+        n += 1 if v else 0
+    t = d.get("t90")
+    if isinstance(t, dict):
+        t90 = {k: v for k, v in t.items() if str(k) in PAIR_S}
+    elif isinstance(t, list):
+        t90 = [x for x in t if WIDE_RE.search(jl(x))]
+    else:
+        t90 = None
+    print("t90 signatures of the pair (injury/lineup digests, no Kalshi value):", jl(t90) if t90 else "none")
+    cnt("F7", "%d entries; %d t90 signatures" % (n, len(t90 or [])))
+
+def stale_join(entries):
+    out = []
+    for x, read in entries:
+        if not isinstance(x, dict) or x.get("price") not in (None, "kalshi"):
+            continue
+        cap = str(x.get("captured_at") or "").replace("T", " ").rstrip("Z")[:19]
+        mid, sel = x.get("match_id"), x.get("leg")
+        if PAIRROWS is None:
+            rows = "DB not opened (see [W0])"
+        else:
+            rows = [[r["id"], r["market_ticker"], ("untickered" if not event_of(r["market_ticker"]) else ("CROSSED" if BELONGS.get(event_of(r["market_ticker"])) != r["match_id"] else "ruled home"))]
+                    for r in PAIRROWS if r["match_id"] == mid and (sel is None or r["selection"] == sel or r["market_ticker"] == sel)
+                    and str(r["captured_at"]).replace("T", " ")[:19] == cap]
+        out.append({"match_id": mid, "leg": sel, "captured_at": x.get("captured_at"), "ruled_window": rw(x.get("captured_at")), "read_by_desk": x.get("read_by_desk", read), "rows_at_that_second": rows})
+    return out
+
+MP = []
+
+def migrate_packs():
+    if MP:
+        return MP[0]
+    out, seen = [], set()
+    rp = setting("SP_RECEIPTS") or str(REPO / "logs" / "receipts.jsonl")
+    try:
+        lines = open(rp, encoding="utf-8", errors="replace").read().splitlines() if os.path.isfile(rp) else []
+    except OSError:
+        lines = []
+    for l in lines:
+        try:
+            r = json.loads(l)
+        except ValueError:
+            continue
+        if isinstance(r, dict) and r.get("kind") == "migrate" and r.get("pack"):
+            pk = os.path.expanduser(str(r["pack"]))
+            if pk not in seen and not under_data(pk):
+                seen.add(pk)
+                out.append((pk, str(r.get("ts") or "")))
+    MP.append(out)
+    return out
+
+def f9(w):
+    tag = wtag("F9", w)
+    hdr(tag, wtitle("receipts.jsonl: closing runs (covers, desk_rows, stale / stale_legs_not_read joined to the stored rows, backup, export, closing_file, page), window_page (freshen_needed, deltas), freshen (games), steps and chains naming a game, an event or an affected export (closing.py:1640-1840; sp_window_page.py:443-449; sp_run.py:412; sp_run.py:317-345, 523-562)", w))
+    if not w["pre"]:
+        print("not read here: the HOST receipts.jsonl and window_state.json (the window chain and its freshens run on the host): host side, outside this block ([Z2])")
+    rp = setting("SP_RECEIPTS") or str(REPO / "logs" / "receipts.jsonl")
+    if not os.path.isfile(rp):
+        print("absent:", rp)
+        cnt(tag, "absent")
+        return
+    lk = ("covers", "desk_rows", "stale", "stale_legs_not_read", "missing", "stale_starters", "moved", "called_off", "books", "freshen_needed")
+    xf = re.compile(r"mlb_MLB_|closing_MLB_|desk_parlays_|window_24h")
+    n = inside = bad = 0
+    for i, l in enumerate(open(rp, encoding="utf-8", errors="replace"), 1):
+        try:
+            r = json.loads(l)
+        except ValueError:
+            bad += 1
+            continue
+        if not isinstance(r, dict):
+            continue
+        ts = str(r.get("ts") or "")
+        if not inwin_iso(ts, w):
+            continue
+        inside += 1
+        if r.get("kind") == "closing" and not w["pre"] and (NEWEST_CLOSING[0] is None or ts > NEWEST_CLOSING[0]):
+            NEWEST_CLOSING[0] = ts
+        xs = [x for x in (r.get("exports") or []) if xf.search(str(x))]
+        mig = r.get("kind") == "migrate" and bool(r.get("pack"))
+        if not (TICK_RE.search(l) or WIDE_RE.search(l) or xs or mig or team_line(l, l)):
+            continue
+        out = {k: r.get(k) for k in ("ts", "host", "kind", "unit", "chain", "run_id", "family", "start", "start_et", "attempt", "run_start", "triggered_by",
+                                     "exit", "failed", "refused", "ran", "skipped", "paged", "first_run", "pack", "db_sha256") if r.get(k) is not None}
+        if mig:
+            out["pack_note"] = "a migration pack holds a copy of the DB: listed in [F18], its exports in [F17]"
+        out["line"] = i
+        if lab_txt(ts):
+            out["window"] = BEFORE_LABEL
+        for k in lk:
+            v = [x for x in (r.get(k) or []) if isinstance(x, dict) and (x.get("match_id") in IDS or str(x.get("id")) in PAIR_S)] if isinstance(r.get(k), list) else []
+            if v:
+                out[k] = v
+        if isinstance(r.get("games"), list):
+            v = [x for x in r["games"] if str(x) in PAIR_S]
+            if v:
+                out["games"] = v
+        for k in ("deltas", "reasons"):
+            if r.get(k) is not None:
+                out[k] = r[k]
+        if isinstance(r.get("backup"), dict):
+            out["backup"] = {k: r["backup"].get(k) for k in ("file", "taken", "ok", "sha256") if k in r["backup"]}
+        lc = r.get("last_calls")
+        if isinstance(lc, dict):
+            v = {k: lc[k] for k in lc if str(k) in PAIR_S}
+            if v:
+                out["last_calls"] = v
+        for k in ("export", "export_written", "export_moved_to", "closing_file", "step", "command"):
+            if r.get(k) is not None:
+                out[k] = r[k]
+        if isinstance(r.get("steps"), list):
+            out["steps"] = [[s.get("step"), s.get("exit")] for s in r["steps"] if isinstance(s, dict)]
+        if xs:
+            out["exports"] = xs
+        pg = [x for x in str(g(r, "page", "text") or "").splitlines() if hit_line(x, l)]
+        tails = []
+        for st in (r.get("steps") or []) if isinstance(r.get("steps"), list) else []:
+            t = st.get("tail") if isinstance(st, dict) else None
+            tails += t if isinstance(t, list) else str(t or "").splitlines()
+        t = r.get("tail")
+        tails += t if isinstance(t, list) else str(t or "").splitlines()
+        tl = [str(x) for x in tails if hit_line(x, l)]
+        if pg:
+            out["page_lines"] = pg
+        if tl:
+            out["tail_lines"] = tl
+        sj = stale_join([(x, True) for x in (out.get("stale") or [])] + [(x, False) for x in (out.get("stale_legs_not_read") or [])])
+        if sj:
+            out["stale_joined_to_rows"] = sj
+        print(jl(out))
+        n += 1
+    cnt(tag, "%d receipt lines (%d lines in the window read, %d unparsable lines)" % (n, inside, bad))
+
+def f10():
+    hdr("F10", "closing-watch console logs/closing_watch.log and .err (scripts/setup_closing_watch.sh:162-165): the pair\x27s game blocks whole, decided by the header\x27s [match N] "
+        "(closing.py:1019-1039 summary_block: the header carries [match N], the kalshi-only hold line does not); another game\x27s block only when a line in it carries a ticker of either event "
+        "or a pair id, labelled; a block ends at a blank line, the next block or the run\x27s page / closing-file / mirror / status lines (closing.py:1792-1803, 1847-1853, 1949); "
+        "lines outside blocks naming a game, an event or the pair by team; each with its run header (no per-line time; every time; a header whose target start is before the ruled cutoff is labelled)")
+    cut_et = D.datetime.fromtimestamp(RULED_EPOCH - 4 * 3600, D.timezone.utc).strftime("%Y-%m-%d %H:%M")
+    hre = re.compile(r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}) ET")
+    mre = re.compile(r"\[match (\d+)\]")
+    blk = "\u2500\u2500 "
+    ends = ("--- ", "=== ", "\u00b7 ", "\u2713 ", "\u2717 ")
+    st = {"n": 0, "pair": 0, "team": 0, "other": 0, "other_quiet": 0}
+
+    def show(i, l, hdr_, tail=""):
+        if hdr_ and hdr_ is not st.get("shown"):
+            print("%6d: %s" % hdr_)
+            st["shown"] = hdr_
+        print("%6d: %s" % (i, l[:400]) + tail)
+        st["n"] += 1
+
+    def flush(b):
+        if b is None:
+            return
+        if b["kind"] == "other" and not b["hit"]:
+            st["other_quiet"] += 1
+            return
+        st[b["kind"]] += 1
+        lab = {"pair": "   [pair block: match %s]" % b["mid"],
+               "team": "   [pair block by team: the header carries no [match N]]",
+               "other": "   [another game (match %s): printed because a line in it carries a ticker of either event or a pair id]" % b["mid"]}[b["kind"]]
+        for k, (i, l) in enumerate(b["lines"]):
+            show(i, l, b["hdr"], lab if k == 0 else "")
+    for p in ("logs/closing_watch.log", "logs/closing_watch.err"):
+        if not os.path.isfile(p):
+            print("absent:", p)
+            continue
+        print("file", p, "| mtime", utc(os.path.getmtime(p)))
+        last_hdr, cur = None, None
+        st["shown"] = None
+        for i, l in enumerate(open(p, encoding="utf-8", errors="replace"), 1):
+            l = l.rstrip("\n")
+            ctx = last_hdr[1] if last_hdr else ""
+            s = l.lstrip()
+            if cur is not None and (s == "" or s.startswith(blk) or l.startswith(ends) or "=== closing-run" in l):
+                flush(cur)
+                cur = None
+            if "=== closing-run" in l:
+                m = hre.search(l)
+                last_hdr = (i, l + ("  [target start " + m.group(1) + " ET is before the ruled cutoff (" + cut_et + " EDT): a run " + BEFORE_LABEL + "]" if m and m.group(1) < cut_et else ""))
+                continue
+            if s.startswith(blk):
+                m = mre.search(l)
+                if m:
+                    mid = int(m.group(1))
+                    kind = "pair" if mid in IDS else "other"
+                else:
+                    mid, kind = None, ("team" if hit_line(l, ctx) else "other")
+                cur = {"kind": kind, "mid": mid, "hdr": last_hdr, "lines": [(i, l)], "hit": bool(TICK_RE.search(l) or WIDE_RE.search(l))}
+                continue
+            if cur is not None:
+                cur["lines"].append((i, l))
+                cur["hit"] = cur["hit"] or bool(TICK_RE.search(l) or WIDE_RE.search(l))
+                continue
+            if hit_line(l, ctx):
+                show(i, l, last_hdr, "" if TICK_RE.search(l) or WIDE_RE.search(l) else "   [matched by team]")
+        flush(cur)
+    cnt("F10", "%d lines (%d pair blocks printed whole by [match 50548/50550], %d by team on a header with no match id; %d other games\x27 blocks printed, labelled, "
+        "because they carry a ticker of either event or a pair id; %d other games\x27 blocks not printed)" % (st["n"], st["pair"], st["team"], st["other"], st["other_quiet"]))
+
+def f11(w):
+    tag = wtag("F11", w)
+    hdr(tag, wtitle("Kalshi replay payloads logs/kalshi_replay_<stamp>.json (kalshi_replay.py:70-94): what Kalshi quoted for the four tickers; no match id. The payload is Kalshi\x27s quote, not a read of our rows: "
+                    "the replay CONSOLE is what compared the stored legs, crossed rows included (kalshi_replay.py:97-128, _main_legs), and it is not stored: [Z2], MANUAL 5", w))
+    fs = [p for p in listing(["logs/kalshi_replay_*.json"]) if inwin(os.path.getmtime(p), w)]
+    n = 0
+    for p in fs:
+        d = json.loads(rd(p))
+        for ser, b in (d.get("series") or {}).items():
+            for m in (b or {}).get("markets") or []:
+                if any(str(m.get("ticker") or "").startswith(e) for e in EVENTS):
+                    o = {"file": p, "fetched_at": (b or {}).get("fetched_at") or d.get("fetched_at"), "series": ser}
+                    o.update({k: m.get(k) for k in ("ticker", "event_ticker", "status", "yes_bid_dollars", "yes_ask_dollars", "last_price_dollars", "close_time", "expected_expiration_time")})
+                    print(jl(o) + blab(os.path.getmtime(p)))
+                    n += 1
+    cnt(tag, "%d markets in %d payload files in the window" % (n, len(fs)))
+
+def f12(w):
+    tag = wtag("F12", w)
+    hdr(tag, wtitle("docs/receipts files written in the window that name a game, an event or the pair by team (desk-rescore, mlb-actionable, venue/quote-age, k-track receipts), and every receipt "
+                    "of a reader whose output can name no match id (mlb-actionable, desk-rescore, venue, quote-age, k-track in the name: [Z2]; e.g. mlb-actionable counts 50550\x27s kalshi_only close among "
+                    "\x27close is not a book close\x27 and names no game, src/walters/mlb_actionable.py:162-165, 192-193, 286-288; a k-track-receipt --out file\x27s LADDERS part aggregates every "
+                    "Kalshi ladder per sport and names no game, src/walters/k_receipt.py:149-168, 218-243); a git-tracked receipt is dated by its last commit (its mtime can be the checkout or pull time)", w))
+    n = nf = nless = 0
+    for a, ds, fs in os.walk("docs/receipts"):
+        for f in sorted(fs):
+            p = os.path.join(a, f)
+            de, how = dated(p)
+            if not inwin(de, w):
+                continue
+            try:
+                lines = open(p, encoding="utf-8", errors="replace").read().splitlines()
+            except OSError as e:
+                print("UNREADABLE", p, e)
+                continue
+            ctx = p + "\n" + "\n".join(lines)
+            hit = [(i, l) for i, l in enumerate(lines, 1) if hit_line(l, ctx)]
+            idless = bool(ID_LESS.search(f))
+            if hit or idless:
+                nf += 1
+                nless += 1 if (idless and not hit) else 0
+                print("file", p, "| " + (how or ("mtime " + utc(de))) + blab(de),
+                      "| an id-less reader\x27s receipt (by its name): it may have read the crossed legs without naming a game ([Z2])" if idless else "")
+                for i, l in hit[:30]:
+                    print("%6d: %s" % (i, l[:400]) + ("" if TICK_RE.search(l) or WIDE_RE.search(l) else "   [matched by team]"))
+                n += len(hit)
+    cnt(tag, "%d lines in %d files (%d id-less receipts listed by name only)" % (n, nf, nless))
+
+F15LOG = []
+
+def f15(w):
+    tag = wtag("F15", w)
+    hdr(tag, wtitle("the exports mirror clone's git history: every version of every JSON file committed in the window (overwritten bytes survive only here); read-only git", w))
+    md = Path(setting("SP_EXPORTS_MIRROR_DIR") or (REPO / "logs" / "exports-mirror"))
+    if not md.is_dir():
+        print("absent:", md)
+        cnt(tag, "absent")
+        return
+
+    def git(*a):
+        try:
+            r = subprocess.run(["git", "-C", str(md)] + list(a), capture_output=True, timeout=900)
+        except Exception as e:
+            return None, type(e).__name__
+        return (r.stdout if r.returncode == 0 else None), r.stderr.decode(errors="replace").strip()
+    top, err = git("rev-parse", "--show-toplevel")
+    if top is None or Path(top.decode().strip()).resolve() != md.resolve():
+        print("absent: not its own git clone (rev-parse:", (top or b"").decode().strip() or err, ")")
+        cnt(tag, "absent")
+        return
+    sh, _ = git("rev-parse", "--is-shallow-repository")
+    if not F15LOG:
+        F15LOG.append(git("log", "--all", "--reflog", "--no-renames", "--raw", "--no-abbrev", "--format=C %H %ct %cI"))
+    out, err = F15LOG[0]
+    if out is None:
+        print("git log failed:", err)
+        cnt(tag, "error")
+        return
+    ri = rec_info(os.path.realpath(str(md)))
+    rec = ri["rec"]
+    commits, ents, cur = [], [], None
+    for line in out.decode(errors="replace").splitlines():
+        if line.startswith("C "):
+            parts = line.split(" ")
+            try:
+                cur = (int(parts[2]), parts[3] if len(parts) > 3 else "?", parts[1][:10], parts[1])
+                commits.append(cur)
+            except (IndexError, ValueError):
+                cur = None
+        elif line.startswith(":") and cur and "\t" in line:
+            meta, path = line.split("\t", 1)
+            f = meta.split()
+            if len(f) >= 5 and f[4][:1] in ("A", "M", "T") and path.endswith(".json"):
+                ents.append((cur, path, f[3]))
+    fw, er15 = {}, {}
+    for c, path, b in ents:
+        tgt = er15 if c[3] in rec else fw
+        if (path, b) not in tgt or c[0] < tgt[(path, b)][0]:
+            tgt[(path, b)] = c
+    ncommits = 0
+    for c in commits:
+        if inwin(c[0], w):
+            ncommits += 1
+            if not w["pre"]:
+                COMMITS.append(c[:3])
+    blobs, nre, nund = {}, 0, 0
+    for c, path, b in ents:
+        if c[3] in rec:
+            f0_ = fw.get((path, b))
+            if f0_ is not None and f0_[0] <= c[0]:
+                nre += 1 if inwin(c[0], w) else 0
+                continue
+            if er15.get((path, b)) is not c or not inwin(UB(c[0]), w):
+                continue
+            blobs.setdefault(b, []).append((c[0], c[1], c[2], path, "undatable (squashed): re-committed by " + ("the weekly squash " if ri["subj"].get(c[3], "").startswith(SQUASH_SUBJ) else "a root commit ") + c[2] + " " + c[1]
+                                            + "; no earlier commit of these bytes reachable through --all --reflog: date unknown, at or before it; listed in every pass starting at or before it"))
+            nund += 1
+        elif inwin(c[0], w):
+            blobs.setdefault(b, []).append((c[0], c[1], c[2], path, ""))
+    print("clone:", md, "| shallow:", (sh or b"?").decode().strip(), "| commits in the window:", ncommits, "| JSON blobs written:", len(blobs),
+          "| squash or root re-commits (exports_mirror.py:234-244) of bytes first written earlier, not counted as writes in this window:", nre,
+          "| undatable (squashed) entries in this pass (listed in every pass starting at or before their squash):", nund)
+    seenx, nrows, nblobs = {}, 0, 0
+    for h, where in sorted(blobs.items(), key=lambda kv: min(kv[1])):
+        b, err = git("cat-file", "blob", h)
+        if b is None:
+            print("UNREADABLE blob", h, err)
+            continue
+        if not (TICK_RB.search(b) or WIDE_RB.search(b)):
+            continue
+        try:
+            d = json.loads(b)
+        except ValueError:
+            continue
+        first = min(where)
+        kind, head, rows = doc_rows(first[3], d)
+        if not rows:
+            continue
+        nblobs += 1
+        for r in rows:
+            key = jl(r)
+            if key in seenx:
+                seenx[key][1] += 1
+                continue
+            seenx[key] = [first, 1]
+            nrows += 1
+            print(first[1], first[2], first[3], "| blob", h[:10], "| in", len(where), "path(s) |", kind, "|", key + ((" [" + first[4] + "]") if first[4] else blab(first[0])))
+    for key, (first, k) in seenx.items():
+        if k > 1:
+            print("the row first seen at", first[1], first[3], "recurs unchanged in", k - 1, "later version(s)")
+    cnt(tag, "%d distinct rows in %d blobs (%d commits, %d JSON blobs in the window; %d squash re-commits of earlier bytes not counted as writes here; %d undatable (squashed) entries in this pass, listed in every pass starting at or before their squash)" % (
+        nrows, nblobs, ncommits, len(blobs), nre, nund))
+
+def latest_of(o, fields, naive_utc=True):
+    ep, nr = [], []
+    for f in fields:
+        v = o.get(f) if isinstance(o, dict) else None
+        if v is None:
+            continue
+        e, raw, note = iso_epoch(v, naive_utc)
+        if e is not None:
+            ep.append((e, f, raw))
+        elif note.startswith("no reliable"):
+            nr.append(f + " " + str(raw))
+    tail = (" | no reliable time (no Z or offset in the text, not read as UTC): " + ", ".join(nr)) if nr else ""
+    if not ep:
+        return None, tail
+    top = max(e for e, _, _ in ep)
+    return top, " | dated by " + ", ".join(f + " (raw " + raw + ")" for e, f, raw in ep if e == top) + " = " + utc(top) + blab(top) + tail
+
+TS_IN = re.compile(r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d\d:?\d\d)?")
+
+def f16():
+    hdr("F16", "Cockpit ledger export bd_ledger_v1_<date>.json (calls incl. value shadows, claim/execution fields and reprices, close_ref; fills; REPO copy of tools/cockpit.html at main: "
+        "763-772 localStorage, 901-905 baseCall, 916-932 stampTiming, 1782-1787 export, 2205-2208 fills opened/closed copied raw from the CSV; the live Cockpit is a separately published artifact, CLAUDE.md) "
+        "and Kalshi fill CSVs in ~/Downloads. A call is dated by the latest of captured_at, claim_at, executed_at, reprices[].at, close_ref.close_at (clvBlock 1319, set at grading 1337, 1358) and graded_date (1357; a date: its 00:00Z); "
+        "times are read with their Z or UTC offset and converted to UTC, the raw text printed beside it; a fill or CSV time with neither is no reliable time, never read as UTC")
+    pats = [os.environ.get("REC594_LEDGER") or "", "~/Downloads/bd_ledger_v1_*.json", "~/Desktop/bd_ledger_v1_*.json", "bd_ledger_v1_*.json", "exports/bd_ledger_v1_*.json"]
+    fs = listing([x for x in pats if x])
+    ck = ("id", "match_id", "kickoff", "game", "home", "away", "sport", "log_date", "captured_at", "call_type", "engine", "pick", "units",
+          "shadow_units", "reference", "venue_hint", "model_p", "market_p", "claim_at", "claim_model_p", "claim_market_p", "claim_exec_cost", "claim_exec_cost_maker",
+          "exec_mode", "executed_at", "exec_market_p", "exec_cost", "exec_cost_maker", "kalshi_exec_cost",
+          "kalshi_exec_cost_maker", "kalshi_join_bid", "close_ref", "result", "status", "graded_date", "void_redated", "legacy_join")
+    n = 0
+    if not fs:
+        print("absent: no ledger export found (export one from the LIVE Cockpit, then set REC594_LEDGER=<path> and run it again); a zero here is not zero calls")
+    newest = max((os.path.getmtime(p) for p in fs), default=None)
+    for p in fs:
+        try:
+            d = json.loads(rd(p))
+        except (OSError, ValueError) as e:
+            print("UNREADABLE", p, e)
+            continue
+        mt = os.path.getmtime(p)
+        print("file", p, "| mtime", utc(mt) + blab(mt), "| calls", len(d.get("calls") or []), "| fills", len(d.get("fills") or []))
+        for c in d.get("calls") or []:
+            if not isinstance(c, dict):
+                continue
+            s = jl(c)
+            team = str(c.get("sport") or "").upper() == "MLB" and str(c.get("kickoff") or "")[:10] in DAYS and bool(TEAMS.search(" ".join(str(c.get(k) or "") for k in ("game", "home", "away"))))
+            if c.get("match_id") in IDS or TICK_RE.search(s) or team:
+                why = ""
+                if c.get("match_id") is None:
+                    why = " | no match id: an MLB TB/CLE call in the window"
+                elif c.get("match_id") not in IDS:
+                    why = " | host or other id (%s): an MLB TB/CLE call in the window" % c.get("match_id")
+                rp = [x for x in (c.get("reprices") or []) if isinstance(x, dict)]
+                cand = dict(c)
+                for i, x in enumerate(rp):
+                    cand["reprices[%d].at" % i] = x.get("at")
+                cand["close_ref.close_at"] = g(c, "close_ref", "close_at")
+                _, lab = latest_of(cand, ["captured_at", "claim_at", "executed_at"] + ["reprices[%d].at" % i for i in range(len(rp))] + ["close_ref.close_at", "graded_date"])
+                ce = iso_epoch(cand["close_ref.close_at"])[0]
+                if ce is not None and ce >= RULED_EPOCH:
+                    lab += " | its close_ref.close_at " + str(cand["close_ref.close_at"]) + " is inside the ruled window: the grade read a close from the window ([C2], [F4])"
+                print("  CALL", jl({k: c.get(k) for k in ck if c.get(k) is not None}) + why + (lab or " | no time on the call"))
+                for i, x in enumerate(rp):
+                    re_, raw_, _ = iso_epoch(x.get("at"))
+                    print("    REPRICE %d" % i, jl(x) + ((" | at (raw " + raw_ + ") = " + utc(re_) + blab(re_)) if re_ is not None else " | no time on the reprice"))
+                n += 1
+        for f in d.get("fills") or []:
+            if isinstance(f, dict) and TICK_RE.search(str(f.get("ticker"))):
+                _, lab = latest_of(f, ["opened", "closed"], naive_utc=False)
+                print("  FILL", jl(f) + (lab or " | no time on the fill"))
+                n += 1
+    if newest is not None:
+        nc = NEWEST_CLOSING[0]
+        if newest < RULED_EPOCH:
+            print("[F16] WARNING: the newest ledger export (" + utc(newest) + ") predates the ruled cutoff: every call logged since is invisible here")
+        elif nc and newest < (txt_epoch(nc) or 0):
+            print("[F16] WARNING: the newest ledger export (" + utc(newest) + ") predates the newest closing-run receipt (" + nc + ", [F9]): calls logged since are invisible here")
+        print("[F16] the export is the Cockpit\x27s localStorage ledger at download time (cockpit.html:1782-1787, repo copy): for a current read, export a fresh one (Export ledger, or Copy ledger (JSON)) "
+              "from the LIVE Cockpit artifact, then set REC594_LEDGER=<path> and run it again")
+    csvs = 0
+    for p in listing(["~/Downloads/*.csv"]):
+        try:
+            if os.path.getsize(p) > 50000000:
+                continue
+            hit = [l.rstrip("\n") for l in open(p, encoding="utf-8", errors="replace") if TICK_RE.search(l)]
+        except OSError as e:
+            print("UNREADABLE", p, e)
+            continue
+        if hit:
+            csvs += 1
+            mt = os.path.getmtime(p)
+            print("csv", p, "| mtime", utc(mt) + blab(mt))
+            for l in hit[:50]:
+                tt = [(iso_epoch(x, False), x) for x in TS_IN.findall(l)]
+                ok = [(r[0], x) for r, x in tt if r[0] is not None]
+                nr = [x for r, x in tt if r[0] is None]
+                s = l[:400]
+                if ok:
+                    e, x = max(ok)
+                    s += " | latest time in the line (raw " + x + ") = " + utc(e) + blab(e)
+                else:
+                    s += " | no reliable time in the line" if nr else " | no time in the line"
+                if nr:
+                    s += " | %d time(s) with no Z or offset, not read as UTC: %s" % (len(nr), ", ".join(nr[:4]))
+                print("  ", s)
+            n += len(hit)
+    print("[F16] open orders / positions / settlements on the four tickers: NOT READABLE FROM FILES (the CSV import needs a realized-P&L column, so the CSV holds closed positions only: cockpit.html:1884-1888, 2187-2192, repo copy): MANUAL 3 in [Z2]")
+    cnt("F16", "%d calls/fills/csv lines (%d ledger files, %d csv files with the tickers); open orders/positions: manual" % (n, len(fs), csvs))
+
+def f18(w):
+    tag = wtag("F18", w)
+    bd = setting("SP_BACKUP_DIR")
+    folders = [(Path(bd or "~/backups").expanduser(), "laptop", "closing.py:568-571 backup_folder: SP_BACKUP_DIR or ~/backups"),
+               (Path(bd or "~/backups/sports-predictor").expanduser(), "laptop", "sp_backup.py:30-31 backup_dir: SP_BACKUP_DIR or ~/backups/sports-predictor (sp_run.py:521-535 chain backups, sp_deploy.py:316-329)"),
+               (Path("~/sp-backups").expanduser(), "host", "pull_backup.py:62 --dest default ~/sp-backups: the HOST\x27s nightly .backup pulled to the laptop (host ids; hosting-h1.md:40, 115)")]
+    hdr(tag, wtitle("backups and migration-pack DBs, listed by name, mtime, size and .sha256 sidecar, NEVER opened: " + "; ".join(str(f) + " (" + why + ")" for f, _, why in folders)
+                    + "; /tmp/sp_pack_*/sports.db and every pack a migrate receipt names (sp_migrate.py:79, --out any path :187; packs carry sports.db :35)", w))
+    cands, seenf, nf = [], set(), 0
+    for folder, role, why in folders:
+        rf = os.path.realpath(str(folder))
+        if rf in seenf:
+            continue
+        seenf.add(rf)
+        if under_data(folder):
+            print("refused: the backup folder", folder, "is under data/ (law 5); not listed")
+        elif folder.is_dir():
+            nf += 1
+            cands += [(p, role) for p in sorted(folder.iterdir()) if p.name.startswith("sports_") and ".db" in p.name and ".sha256" not in p.name and p.is_file()]
+        else:
+            print("absent:", folder)
+    packs, seenp = [], set()
+    for q in sorted(glob.glob("/tmp/sp_pack_*/sports.db")) + [os.path.join(x, "sports.db") for x, _ in migrate_packs()]:
+        if os.path.realpath(q) not in seenp and os.path.isfile(q) and not under_data(q):
+            seenp.add(os.path.realpath(q))
+            packs.append((Path(q), "pack"))
+    for x, ts in migrate_packs():
+        if not os.path.isfile(os.path.join(x, "sports.db")):
+            print("a migrate receipt (" + ts + ") names the pack", x, "but its sports.db is not there (moved or removed): not listed")
+    allf = cands + packs
+    shown = 0
+    for p, role in allf:
+        st = os.stat(str(p))
+        if not inwin(st.st_mtime, w):
+            continue
+        shown += 1
+        side = "none"
+        if role == "pack":
+            try:
+                side = "MANIFEST.json sha256 " + str(((json.loads(rd(str(p.parent / "MANIFEST.json"))).get("files") or {}).get("sports.db")))
+            except (OSError, ValueError):
+                side = "no readable MANIFEST.json"
+        else:
+            hp = Path(str(p) + ".sha256")
+            if hp.is_file():
+                side = ".sha256 " + (hp.read_text(errors="replace").split() or ["(empty)"])[0]
+        kind = "set aside (a failed backup)" if ".failed-" in p.name else ("partial (never finished)" if p.name.endswith(".partial") else
+                                                                          ("pack" if role == "pack" else ("HOST DB copy (host ids; its own legs of both events): MANUAL 4" if role == "host" else "backup")))
+        tail = blab(st.st_mtime) if lab_epoch(st.st_mtime) else (" [at/after the ruled cutoff; a failed or unfinished copy, not a restore point]" if kind.startswith(("set aside", "partial"))
+                                                                  else (" [at/after the ruled cutoff: the host\x27s rows, not touched by the laptop re-point]" if role == "host"
+                                                                        else " [taken at/after the ruled cutoff: it holds the crossed rows; a restore or a pack install re-crosses them]"))
+        print("%s | %s | %d bytes | %s | %s%s" % (utc(st.st_mtime), p, st.st_size, kind, side, tail))
+    if not w["pre"]:
+        def newest(lim):
+            b = [p for p, role in cands if role == "laptop" and ".failed-" not in p.name and not p.name.endswith(".partial") and os.stat(str(p)).st_mtime < lim]
+            return max(b, key=lambda p: os.stat(str(p)).st_mtime) if b else None
+        r1 = newest(RULED_EPOCH)
+        r2 = newest(FIRST_EPOCH) if FIRST_EPOCH is not None else None
+        print("reference point (the newest backup taken before the ruled cutoff: the 23:25Z closing run's own when it took one, [F9] backup; it holds no row captured at/after 23:25:59Z, and every crossed row captured before it, [D0]):",
+              ("%s | %s" % (r1, utc(os.stat(str(r1)).st_mtime))) if r1 else "none found")
+        print("the newest backup before the first crossed capture (holds no crossed row of either event):", ("%s | %s" % (r2, utc(os.stat(str(r2)).st_mtime))) if r2 else "none found" if FIRST_EPOCH is not None else "unknown (see [W0])")
+        print("rollback point: the .backup taken just before the re-point (law 5). This block takes none. Reference points are laptop backups only (never a host copy).")
+    cnt(tag, "%d backup/pack DB files in the window (%d in %d folders and %d packs in all; none opened)" % (shown, len(cands), nf, len(packs)))
+
+def z1():
+    hdr("Z1", "after: the DB file and its sidecars again (unchanged = this block created and wrote nothing beside the DB)")
+    before = json.loads(os.environ.get("REC594_BEFORE") or "null") or {}
+    after = signature()
+    print("before:", jl(before))
+    print("after: ", jl(after))
+    if before == after:
+        cnt("Z1", "unchanged")
+        return
+    diff = sorted(k for k in set(before) | set(after) if before.get(k) != after.get(k))
+    nm = Path(after.get("db") or "x").name
+    made = [nm + s for s in ("-wal", "-shm") if before.get(nm + s) is None and after.get(nm + s) is not None]
+    dir_new = sorted(set(after.get("dir_entries") or []) - set(before.get("dir_entries") or []))
+    wal = nm + "-wal"
+    wal_after = (after.get(wal) or [0])[0]
+    frames = wal in made and wal_after > 0
+    own = (not STRICT) and made and not frames and set(diff) <= set(made) | {"dir_entries"} and dir_new == sorted(made)
+    if own:
+        print("changed keys:", diff, "| created by this block\x27s own read-only open: SQLite left", made, "beside the WAL DB, as for every ro_connect reader "
+              "(deploy/hosting/coverage_map.py:108-109); the -wal is 0 bytes (a read-only connection writes no WAL frame) and the DB file itself is unchanged (size and mtime above). "
+              "Repo stance, flagged for the architect (law 5): see the notes")
+    elif frames:
+        print("changed keys:", diff, "| another process committed %d bytes of WAL frames during the read (a -wal this block\x27s own read-only open creates is 0 bytes; under WAL a commit lands "
+              "in the -wal, not the DB file, so parts D, C and F may have read different states): paste again (or run the file again)" % wal_after)
+    else:
+        wb, wa = (before.get(wal) or [None])[0], (after.get(wal) or [None])[0]
+        grew = (" (the -wal went from %s to %s bytes: another process committed or checkpointed)" % (wb, wa)) if (wb is not None and wa is not None and wb != wa) else ""
+        print("changed keys:", diff, "| a change in the DB or -wal size or mtime means another process (closing-watch, a chain) wrote meanwhile" + grew + ": paste again (or run the file again)")
+    cnt("Z1", "%d changed%s" % (len(diff), " (only the sidecars this block\x27s own mode=ro open created)" if own else
+                                (" (another process committed %d bytes of WAL frames during the read: paste again, or run the file again)" % wal_after if frames
+                                 else " (another process wrote during the read: paste again, or run the file again)")))
+
+def z2():
+    hdr("Z2", "readers with no stored output of their own (console, in-memory, remote or host only), and readers whose stored output names no match id: where their effect is read above, and the MANUAL steps")
+    rs = [
+        ("evaluate + M11b backfill", "src/walters/training.py:1508-1510, 1578-1601, 1605-1645", "stored in prediction_outcomes: [D11], recomputed [C3]"),
+        ("clv-restate (dry-run rolls back)", "src/walters/clv_restate.py:103-125, 145-210", "[C3]"),
+        ("grading close / results close block", "src/walters/close.py:212-304", "[C2]; files [F4], [F5]"),
+        ("the Desk annotate (kalshi_legs, exec, ORDER LINE, kalshi_only_hold, kickoff_clock)", "src/walters/desk_policy.py:886-932, 1538-1650, 1683-1724", "files [F1], [F2], [F3], [F8], [F14], [F15]"),
+        ("closing price_captures / stale_prices / desk_read_legs", "deploy/hosting/closing.py:838-857, 926-984", "receipts [F9] (stale joined to rows), console [F10] (pair blocks whole, closing.py:1019-1033)"),
+        ("window card build + line_move", "src/walters/window.py:117-220; src/walters/line_move.py:106-120", "[F6], [F13], [F14], [F15]"),
+        ("window pager snapshot and freshen requests", "deploy/hosting/sp_window_page.py:70-99, 443-449; deploy/hosting/sp_run.py:412", "[F7]; receipts [F9] (laptop only)"),
+        ("vs-close blocks (calibration, web route)", "src/walters/vs_close.py:150-155; calibration.py:159-160; src/web/routes/predictions.py:281-298", "same close as [C2]"),
+        ("k-track-receipt: every pre-kickoff Kalshi ladder captured in --since/--until through the guard (the default window ends 2026-10-08, k_receipt.py:31-32: only a --since/--until run reaches the pair)",
+         "cli.py:1802-1842; src/walters/k_receipt.py:149-168, 218-243",
+         "--out writes a receipt anywhere (e.g. docs/receipts/k-track-<date>.md) whose LADDERS part aggregates per sport and names no game: listed by name in [F12] (id-less) when under docs/receipts; console: MANUAL 5"),
+        ("kalshi-disagreement, coverage", "cli.py:5897ff; deploy/hosting/coverage_map.py", "kalshi-disagreement: console only, MANUAL 5; coverage reads no Kalshi row (its kalshi matches are KALSHI_CAPTURE_ONLY, a league list: coverage_map.py:22, 73, 125, 282)"),
+        ("mlb-actionable-receipt: grading_close on every graded MLB game; 50550's kalshi_only close counts under 'close is not a book close'", "cli.py:1754-1773; src/walters/mlb_actionable.py:162-165, 192-193, 286-288, 329-333", "receipt docs/receipts/mlb-actionable-<stamp>.md names NO game: listed by name in [F12]; console: MANUAL 5"),
+        ("desk-rescore: rows by game (teams), exec costs from the export's Kalshi quotes", "cli.py:5171-5191, 5226", "receipt docs/receipts/desk-rescore-<stamp>.md: [F12] (team lines; listed by name too)"),
+        ("venue-calls-receipt: VENUE calls of the --desk exports (exports/host too) and the ledger's venue_edge claims", "cli.py:1939-1946", "console, or --out anywhere: [F12] when under docs/receipts; MANUAL 5"),
+        ("quote-age-report: the --desk exports' book-reference rows", "cli.py:2001-2006", "console, or --out anywhere: [F12] when under docs/receipts; MANUAL 5"),
+        ("kalshi-replay CONSOLE: compares the stored legs by ticker, crossed rows included", "cli.py:7884-7895; src/ingestion/kalshi_replay.py:97-128 (_main_legs)", "console only: MANUAL 5; the payload it keeps is Kalshi's quote [F11], not this comparison"),
+        ("close-probe: prints grading_close for one match", "cli.py:2040-2068", "console only: MANUAL 5; the same close as [C2]"),
+        ("replay_inventory_probe: the pair's Kalshi rows and kalshi_legs.mismatched", "scripts/replay_inventory_probe.py:314-317", "console only: MANUAL 5; the same guard as [C1]"),
+        ("history readers of every capture, pre-cutoff legs included", "mlb-odds-timing (cli.py:3685; src/walters/mlb_odds_timing.py:97-99, kalshi_first = min captured_at); src/walters/line_move.py:106-117; scripts/kalshi_leg_audit.py", "console only: MANUAL 5; their rows are [D0], [D3], [D13]; their files in the -pre passes"),
+        ("value shadows and fills", "Cockpit localStorage bd_ledger_v1 (tools/cockpit.html:763-772, 901-905, 916-932 at main, REPO copy; the live page is a separate artifact); src/walters/ledger_fills.py", "[F16] (only as fresh as the export)"),
+        ("kalshi-history", "src/ingestion/kalshi_history.py:531", "kalshi_settled_markets [D6]"),
+        ("backups and migration packs", "deploy/hosting/closing.py:568-645; deploy/hosting/sp_backup.py:30-31; deploy/hosting/pull_backup.py:62; deploy/hosting/sp_migrate.py:35, 64, 79, 187", "[F18] (listed, never opened); pack exports [F17]"),
+        ("compare_exports: the laptop-vs-host compare a release tag waits on", "deploy/exports-mirror/compare.yml:24-52; deploy/hosting/compare_exports.py:88-90 (TS_KEY masks *_at, ts, timestamp, generated*, captured*, as_of; MASKED match_id, git_sha)", "a GitHub commit status on Sports-Predictor-exports, not stored locally: MANUAL 1"),
+        ("cutover-readiness (runs on the HOST: cutover_readiness.py:36-40, ARCHITECT addendum 128 item 1(a))", "deploy/hosting/cutover_readiness.py:85-94 (CAPTURE_ROW_FIELDS at :88: market, kalshi, kalshi_legs, kalshi_exec, desk, ... = capture timing); cli.py:9148", "console only: MANUAL 2"),
+        ("Kalshi portfolio: resting orders, open positions, settlements", "Kalshi itself (the Cockpit CSV import needs a realized-P&L column: tools/cockpit.html:1884-1888, 2187-2192, REPO copy)", "not readable from files: MANUAL 3; [F16]"),
+        ("the host DB and its readers (its own legs of these events on host ids; host TB@CLE row 47684)", "deploy/hosting/chains.py:246-251 (WINDOW_KALSHI sync-kalshi in the host window chain); docs/ledger/entries/2026-10-16-desk-clock-hold.md:3", "not read here; the re-point touches the laptop DB only; host copies by ticker or team [F0], [F13], [F14], [F15]; host DB copies in ~/sp-backups [F18]: MANUAL 4"),
+    ]
+    for r in rs:
+        print(" | ".join(r))
+    ms = [
+        "MANUAL 1 (compare_exports): on github.com/anthonyevans29/Sports-Predictor-exports, list the compare_exports commit status (state and description) of every commit of 2026-10-16..2026-10-18 and paste them with this console. Laptop-only crossing reads DIVERGENT there; a host crossed the same way reads CLEAN, so a CLEAN verdict does not clear the crossing. The local clone's commits in the main window: "
+        + (", ".join("%s %s" % (c[2], c[1]) for c in COMMITS) if COMMITS else "none listed (see [F15])"),
+        "MANUAL 2 (cutover-readiness): the readout runs on the HOST, over ssh in the Thursday evening block (ARCHITECT addendum 128 item 1(a); cutover_readiness.py:36-40 at main). Paste the console of any HOST run since " + CUT_ISO + ", or of the architect's laptop-form dry read (--receipts FILE --fullseason-list FILE), if one exists. Its classifier files every market / kalshi / kalshi_legs / kalshi_exec / desk diff as capture timing (explained), so a pass there does not clear the crossing either.",
+        "MANUAL 3 (Kalshi portfolio): in the Kalshi portfolio, list resting orders, open positions and settlements on " + ", ".join(TICKERS) + " and paste them with this console. Nothing in the files can show them; a blank here is not a zero.",
+        "MANUAL 4 (host): the host DB stores its own legs of both events on host ids, and the Cockpit default host view reads them; ~/sp-backups holds copies of it ([F18]). A separate read-only host read (scripts/kalshi_leg_audit.py, plus [D2]/[D5] by ticker on the host DB) is needed before the host card is trusted; it is not part of this block.",
+        "MANUAL 5 (consoles): paste the scrollback of any of these run since " + CUT_ISO + ": kalshi-replay, close-probe --match 50548 or 50550, scripts/replay_inventory_probe.py, kalshi-disagreement, mlb-actionable-receipt, venue-calls-receipt, quote-age-report, "
+        "k-track-receipt (with any --out file it wrote outside docs/receipts), mlb-odds-timing, scripts/kalshi_leg_audit.py. Each read the stored legs (crossed rows included) and keeps no file this block can read, or keeps one that names no game.",
+    ]
+    for m in ms:
+        print(m)
+    cnt("Z2", "%d readers listed; %d manual steps printed (paste their results with this console)" % (len(rs), len(ms)))
+
+guarded("F0", lambda: f0(MAIN))
+guarded("F1", lambda: scan("F1", "MLB slate exports exports/mlb_MLB_<date>.json (export-predictions, cli.py:9046-9055; legs export.py:183-215; row 443-488; desk block with --desk or SP_DESK_CALLS=1)",
+                           ["exports/mlb_*.json"], MAIN, exclude=lambda q: "_results_" in os.path.basename(q)))
+guarded("F2", lambda: scan("F2", "closing-run exports logs/<run_id>.mlb_MLB_<NY date>.json (always --desk; closing.py:1329-1342, chains.py:365)", ["logs/*.mlb_MLB_*.json"], MAIN))
+guarded("F3", lambda: scan("F3", "closing files exports/closing_MLB_<start>.json and kept earlier copies logs/<run_id>.closing_MLB_<start>.json (closing.py:1361-1452)",
+                           ["exports/closing_MLB_*.json", "logs/*.closing_MLB_*.json"], MAIN))
+guarded("F4", lambda: scan("F4", "results exports exports/mlb_MLB_results_<date>.json (export-results, cli.py:8690-8735; graded.clv/closing_price stored, close_* recomputed, export.py:1049-1051)",
+                           ["exports/mlb_MLB_results_*.json", "exports/mlb_results_*.json"], MAIN))
+guarded("F5", f5)
+guarded("F6", lambda: scan("F6", "window card exports/window_24h.json (window.py:117-230; fixture row export.py:1140-1255)", ["exports/window_24h*.json"], MAIN))
+guarded("F7", f7)
+guarded("F8", lambda: scan("F8", "Desk parlay tickets exports/desk_parlays_<date>.json (cli.py:5124-5150; desk_policy.py:1419-1440, 1727-1761): legs by ticker, or MLB TB/CLE legs by teams + kickoff (legs carry no match id)", ["exports/desk_parlays_*.json"], MAIN))
+guarded("F9", lambda: f9(MAIN))
+guarded("F10", f10)
+guarded("F11", lambda: f11(MAIN))
+guarded("F12", lambda: f12(MAIN))
+guarded("F13", lambda: scan("F13", "host exports pulled to exports/host/ (host DB ids: rows matched by ticker only; pull_exports.py)", ["exports/host/*.json"], MAIN))
+md = setting("SP_EXPORTS_MIRROR_DIR") or str(REPO / "logs" / "exports-mirror")
+guarded("F14", lambda: scan("F14", "exports mirror working tree " + md + " (<role>/<date>/ and <role>/latest/; exports_mirror.py:187-231; host/ rows by ticker only). Each file is dated by its last commit "
+                            "in the clone, since every push resets the tree (exports_mirror.py:170-175: fetch, checkout -B, reset --hard) and so sets host files' mtimes; an uncommitted or changed file by its mtime. "
+                            "When the last commit is the host's weekly squash (exports_mirror.py:234-244, one orphan commit; deploy/hosting/systemd/sp-exports-squash.timer:7, Sun 06:10 UTC) or another root commit, the file is dated by "
+                            "its first commit of the same bytes reachable through --all --reflog, else by its own exported_at / desk_meta.as_of, else it is undatable (squashed): its date is unknown, at or before the squash, and it is listed in every pass starting at or before that (both passes for the 10-18 06:10Z squash)",
+                            [md + "/*/*/*.json"], MAIN))
+guarded("F15", lambda: f15(MAIN))
+guarded("F16", f16)
+PACK_EXPORTS = ["/tmp/sp_pack_*/exports/**/*.json"] + [glob.escape(x) + "/exports/**/*.json" for x, _ in migrate_packs()]
+guarded("F17", lambda: scan("F17", "sp_migrate pack copies of exports/, recursive (sp_migrate.py:62-69 copies exports/ with rglob, host/ included): /tmp/sp_pack_*/exports and every pack a migrate receipt names", PACK_EXPORTS, MAIN))
+guarded("F18", lambda: f18(MAIN))
+hdr("PRE", "the -pre pass: the file, receipt, git and backup sections again for [first crossed capture, cutoff in use); every item dated before " + RULED_ISO + " is labelled " + BEFORE_LABEL)
+if PRE is None:
+    print("not run:", PRE_WHY)
+    cnt("PRE", ("absent (" + PRE_WHY + ")") if FIRST_EPOCH is None and "not opened" in PRE_WHY else "0 sections (window empty: " + PRE_WHY + ")")
+else:
+    print("window: [" + PRE["lo_iso"] + ", " + PRE["hi_iso"] + ") | first crossed capture", FIRST_TXT)
+    cnt("PRE", "15 sections follow, each tagged -pre")
+    guarded("F0-pre", lambda: f0(PRE))
+    guarded("F1-pre", lambda: scan("F1", "MLB slate exports exports/mlb_MLB_<date>.json", ["exports/mlb_*.json"], PRE, exclude=lambda q: "_results_" in os.path.basename(q)))
+    guarded("F2-pre", lambda: scan("F2", "closing-run exports logs/<run_id>.mlb_MLB_<NY date>.json", ["logs/*.mlb_MLB_*.json"], PRE))
+    guarded("F3-pre", lambda: scan("F3", "closing files exports/closing_MLB_<start>.json and logs/<run_id>.closing_MLB_<start>.json", ["exports/closing_MLB_*.json", "logs/*.closing_MLB_*.json"], PRE))
+    guarded("F4-pre", lambda: scan("F4", "results exports exports/mlb_MLB_results_<date>.json", ["exports/mlb_MLB_results_*.json", "exports/mlb_results_*.json"], PRE))
+    guarded("F6-pre", lambda: scan("F6", "window card exports/window_24h.json", ["exports/window_24h*.json"], PRE))
+    guarded("F8-pre", lambda: scan("F8", "Desk parlay tickets exports/desk_parlays_<date>.json", ["exports/desk_parlays_*.json"], PRE))
+    guarded("F9-pre", lambda: f9(PRE))
+    guarded("F11-pre", lambda: f11(PRE))
+    guarded("F12-pre", lambda: f12(PRE))
+    guarded("F13-pre", lambda: scan("F13", "host exports exports/host/ (ticker only)", ["exports/host/*.json"], PRE))
+    guarded("F14-pre", lambda: scan("F14", "exports mirror working tree " + md + " (dated by last commit; after a squash by the first commit of the same bytes, else the document\x27s own time, else undatable and listed here too)", [md + "/*/*/*.json"], PRE))
+    guarded("F15-pre", lambda: f15(PRE))
+    guarded("F17-pre", lambda: scan("F17", "sp_migrate pack copies of exports/, recursive", PACK_EXPORTS, PRE))
+    guarded("F18-pre", lambda: f18(PRE))
+guarded("Z1", z1)
+guarded("Z2", z2)
+print()
+print("END #594 reconciliation read (read-only). The whole console, from the first line to this one, is the receipt (the tee file holds it).")
+EOF
+else
+echo "#594 RECONCILIATION READ (read-only), ARCHITECT addendum 130 item 2(e): NOT RUN"
+echo "now: $(date -u +%Y-%m-%dT%H:%M:%SZ) | checkout: $(pwd) | ruled cutoff: 2026-10-16T23:25:59Z"
+echo "no usable interpreter: $REC594_PYX (REC594_PY, else ./venv/bin/python, else ./.venv/bin/python, else python3) is not on PATH or is not Python 3.8 or later. Nothing was opened or read."
+for REC594_T in D0 D1 D2 D3 D4 D5 D6 D7 D8 D9 D10 D11 D12 D13 C0 C1 C2 C3 C4 C4F C5 C6 W0 F0 F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 F14 F15 F16 F17 F18 PRE Z1 Z2; do
+echo ""
+echo "==== [$REC594_T] NOT RUN: no usable interpreter ===="
+echo "[$REC594_T] count: absent (no usable interpreter $REC594_PYX; set REC594_PY=<a Python 3.8 or later, e.g. ./venv/bin/python, which part C also needs for its SQLAlchemy> and run it again)"
+done
+echo ""
+echo "END #594 reconciliation read (read-only): NOT RUN, no usable interpreter. 45 sections printed absent."
+fi
+fi
+} 2>&1 | tee "$REC594_TEE"

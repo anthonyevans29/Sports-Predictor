@@ -210,13 +210,14 @@ details.sig pre{max-height:220px;margin:6px 0 0}
 <div id="ledgerView" hidden>
   <div class="card">
     <h2 style="margin-top:0">Ledger <span class="note">bd_ledger_v1 · this browser only · fair-odds P&amp;L, pre-fee</span></h2>
+    <div class="note" id="ledgerExportsLine" style="margin-bottom:8px" title="ARCHITECT 2026-10-18, addendum 125 item 4 (#544): no --desk export reads a ledger summary; counts_source default 0 is the permanent reading and the postseason half-unit cap that keys on it stays ON">exports read no ledger summary; postseason rows are sized at half until v1.2</div>
     <div class="row">
       <div><label>Results files / finished fixtures (JSON — same intake for both)</label><br>
         <input type="file" id="resultsFile" accept=".json" multiple></div>
     </div>
     <div class="row" style="margin-top:10px">
       <button id="exportLedgerBtn" class="ghost">Export ledger (JSON)</button>
-      <button id="exportSummaryBtn" class="ghost" title="Graded-call counts for the export's Desk (F1): save as exports/ledger_summary.json">Export ledger summary</button>
+      <button id="exportSummaryBtn" class="ghost" title="Graded-call counts, for reading here: the summary feeds nothing outside this page. No --desk export reads it (ARCHITECT 2026-10-18, addendum 125 item 4, #544)">Export ledger summary (feeds nothing outside this page)</button>
       <label class="ghost" style="display:inline-flex;align-items:center;gap:6px">Import ledger
         <input type="file" id="importLedgerFile" accept=".json"></label>
       <button id="copyPnlBtn">Copy P&amp;L block</button>
@@ -1748,11 +1749,11 @@ $("exportLedgerBtn").addEventListener("click",()=>{
   setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},0);
   $("ledgerNote").textContent="Export started — if no file appears (downloads can be blocked in this view), use Copy ledger (JSON).";
 });
-// LEDGER SUMMARY (F1, ARCHITECT 2026-10-01): the graded-call counts the
-// export's Python Desk needs (postseason / value-shadow / kalshi-only n/30),
-// plus graded counts per rule tag. Saved beside the exports as
-// exports/ledger_summary.json, the export reads it when present (else 0, the
-// cautious default). Counts only: no positions, no prices.
+// LEDGER SUMMARY (F1, ARCHITECT 2026-10-01): the graded-call counts
+// (postseason / value-shadow / kalshi-only n/30), plus graded counts per
+// rule tag. It feeds nothing outside this page: no --desk export reads a
+// ledger summary (ARCHITECT 2026-10-18, addendum 125 item 4, #544); every
+// export reads the default 0. Counts only: no positions, no prices.
 function ledgerSummary(){
   const per={};
   for(const c of loadLedger().calls){ if(!c.result||c.void_redated) continue;
@@ -1767,7 +1768,7 @@ $("exportSummaryBtn").addEventListener("click",()=>{
   a.download="ledger_summary.json"; document.body.appendChild(a); a.click();
   setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},0);
   box.hidden=false; box.value=txt;
-  $("ledgerNote").textContent="Ledger summary exported (also in the box below) — save it as exports/ledger_summary.json beside the exports.";
+  $("ledgerNote").textContent="Ledger summary exported (also in the box below). It feeds nothing outside this page: no --desk export reads it (#544).";
 });
 // Clipboard-export fallback: the embedded view can block downloads, so the
 // same JSON goes to the clipboard — and, when the clipboard is refused too,

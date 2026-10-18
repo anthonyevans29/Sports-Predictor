@@ -18,7 +18,9 @@ desk_parlays file and loaded into a non-UTC browser. Checks, per scenario:
 then: a tampered desk.call is shown as the file says; a legacy (desk-less)
 file is REFUSED with "export with --desk" and nothing of it renders; no
 parlays file -> no tickets, and the card says so; a policy-version mismatch
-is flagged.
+is flagged; the Ledger card shows exactly the line "exports read no ledger
+summary; postseason rows are sized at half until v1.2" (#544, ARCHITECT
+2026-10-18, addendum 125 item 4).
 
     python3 scripts/cockpit_render_verify.py
 
@@ -64,6 +66,8 @@ STATE = """(()=>{
     policyFns: ["computeCall","valueSide","venueEdge","kalshiOnlyRef","execEdgeHTML","execFacts","deskCostFor","execEdgePP"].filter(f=>typeof window[f]==="function"),
   };})()"""
 
+
+LEDGER_CARD_LINE = "exports read no ledger summary; postseason rows are sized at half until v1.2"   # #544, verbatim
 
 NO_EXEC = {"edge": None, "cost": None, "basis": None, "taker": None, "join": None, "note": None}
 
@@ -170,6 +174,14 @@ def main():
         vm["nfl.json"]["desk_meta"]["policy_version"] = "v9.9"
         page, V = load(vm, sc["counts"])
         check("file policy version ≠ Cockpit: flagged", "file policy v9.9 ≠ Cockpit v1.1" in V["summary"], V["summary"][-160:])
+        # #544 (ARCHITECT 2026-10-18, addendum 125 item 4): the Ledger card shows the one line, exactly
+        page.click("#tabLedger")
+        card_line = page.evaluate("""(()=>{const c=document.querySelector('#ledgerView > .card');
+          const el=c&&c.querySelector('#ledgerExportsLine');
+          return el?{text:el.textContent,shown:!!el.offsetParent}:null;})()""")
+        check("Ledger card shows 'exports read no ledger summary; postseason rows are sized at half until v1.2'",
+              card_line is not None and card_line["shown"]
+              and card_line["text"] == LEDGER_CARD_LINE, json.dumps(card_line))
         page.context.close()
         check("no page errors", not errors, "; ".join(errors[:3]))
         browser.close()

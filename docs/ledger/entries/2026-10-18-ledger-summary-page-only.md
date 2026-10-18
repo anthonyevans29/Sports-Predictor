@@ -1,0 +1,32 @@
+**2026-10-18 — #544 ruled: no `--desk` export reads a ledger summary. The Cockpit's summary button, a new line on its Ledger card and docs/CLI.md now say so (#588).**
+- **Ruling (ARCHITECT 2026-10-18 08:20 ET, addendum 125 item 4), verbatim, in full:** "CODE SLOT C — two small ones in one PR (S): #458 as ruled in 112 item 10 (the window page keys QB news by provider player id, name display only; the test uses two same-name players); and #544, RULED now: no --desk export will ever read a ledger summary — the ledger lives in the browser and the exports are written by machines that have no browser. The counts stay in the Cockpit; `counts_source: default 0 (no ledger summary)` is the permanent reading and the postseason half-unit cap that keys on it stays ON as the conservative default (it binds only MLB postseason rows this season; the January NFL question is #86's, with the v1.2 bump). #544 becomes a limitation (label from the fixed set), docs/CLI.md and the button's text say the summary feeds nothing outside the page, and the Cockpit's Ledger card shows one line: "exports read no ledger summary; postseason rows are sized at half until v1.2". Nothing else changes; no new file path."
+- **The finding (#544, the law-1 read of 2026-10-15):**
+  - The graded counts are computed only by the Cockpit, over its own ledger in the browser.
+  - The summary that would carry them into an export is a browser download. Nothing saves it into `exports/`.
+  - So every desk file read "default 0 (no ledger summary)": all 109 in the exports mirror, including the 16 dated closing files of 10-10 to 10-15.
+  - #544 is relabelled `class:limitation`. Its reopening condition is the ruling, verbatim.
+- **Built (#588; repo copy only; live page republished on the operator's word):**
+  - **The Ledger card** shows one line under its heading (`#ledgerExportsLine`): "exports read no ledger summary; postseason rows are sized at half until v1.2". Its tooltip cites the ruling.
+  - **The button** reads "Export ledger summary (feeds nothing outside this page)".
+    - Its help text: "Graded-call counts, for reading here: the summary feeds nothing outside this page. No --desk export reads it (ARCHITECT 2026-10-18, addendum 125 item 4, #544)". It used to say "save as exports/ledger_summary.json".
+    - The note after a click: "Ledger summary exported (also in the box below). It feeds nothing outside this page: no --desk export reads it (#544)." It used to say "save it as exports/ledger_summary.json beside the exports".
+    - The code comment above `ledgerSummary()` said the export reads the file when saved beside the exports. It now says what the button says.
+    - The download itself is unchanged: same content, same file name.
+  - **docs/CLI.md:**
+    - The `--desk` exports row: no `--desk` export reads a ledger summary (the ruling's first sentence quoted). Every one reads `counts_source` "default 0 (no ledger summary)" permanently. The postseason half-unit cap keyed on it stays ON as the conservative default: a non-PASS `postseason` row is capped at half the base unit while `postseason_graded` reads under 30, so postseason rows are sized at half until v1.2. The button feeds nothing outside the page, and the summary is not saved into `exports/`.
+    - The `desk-parlays` row: its counts read the same default.
+  - **The check:** scripts/cockpit_render_verify.py opens the Ledger tab and asserts the card shows the line, exactly and visibly. Against the page before this change it fails (no such line).
+- **Not changed (as ruled: "Nothing else changes; no new file path"):**
+  - `src/walters/desk_policy.py`: `COUNT_KEYS`, `read_ledger_summary`, `maybe_annotate`, `SP_LEDGER_SUMMARY` and the default path `exports/ledger_summary.json`.
+  - `cli.py desk-parlays --ledger-summary`.
+  - The postseason cap and every Desk rule.
+  - The desk golden (`tests/golden/desk_js_v1_1.json.gz`).
+- **Open for the architect:**
+  1. The reader stays. An export would still read a summary saved at `exports/ledger_summary.json`, or one that `SP_LEDGER_SUMMARY` names. Nothing writes either, no example env sets the variable, and the page no longer asks for the save, so the permanent reading rests on that. Taking the reader out would be a `desk_policy` change; it is not made here.
+  2. Text that still describes the old flow, not changed here:
+     - the `desk_policy` module docstring, RULED DEFAULTS (1): "is read when present, so the host's files carry real counts after cutover". `desk_policy` is out of this PR's scope.
+     - the `cli.py desk-parlays --ledger-summary` help: "Default: exports/ledger_summary.json if present, else 0". It is true of the code.
+     - the `scripts/value_shadow_receipt.py` docstring: the law-1 read of 10-15 ("the page asks the operator to save it by hand"), true when it was written.
+     - the `scripts/cockpit_desk_files.py` docstring: "the page's own ledgerSummary(), exactly the operator flow". This is the verifier harness.
+- **Other docs:** no runbook, hosting-h1 or README passage tells the operator to save the summary into `exports/` (a grep of the repository).
+- **Ledger:** Refs #544. It is an accepted limit (`class:limitation`) and stays open; this PR does not close it.

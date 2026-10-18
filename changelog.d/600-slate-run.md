@@ -1,4 +1,4 @@
-## 2026-10-18 (#PRNUM: slate-run — ARCHITECT addendum 126 items 1-2; #590)
+## 2026-10-18 (#600: slate-run — ARCHITECT addendum 126 items 1-2; #590)
 - Addendum 126 items 1-2 (ARCHITECT 2026-10-18 08:30 ET), verbatim:
   > 1. THE RULE, VERBATIM (operator): "We need predictions generated ahead of the first game of every game day with a sync, no matter whether it's on the host or laptop. If it's not on the HOST, you need to alert me to run these things manually." Adopted as doctrine. Today's two misses are the receipt: NFL had 12 rows in the database since Thursday and no file until block_1018_nfl_slate.txt (08:30 ET); MLB has its row and no file (block_1018_mlb_slate.txt, 13:30–14:30 ET, VPN mode). Yesterday's PL slate was the same class. The coverage command said "rows present" and was right; "rows" is not the deliverable — a FILE with Desk calls, on the mirror, before the first kickoff, is.
   >

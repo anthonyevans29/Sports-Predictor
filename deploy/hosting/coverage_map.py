@@ -91,6 +91,9 @@ competition: the newest exports file of that family's slate kind that covers EVE
 its exported_at and its PLAY/PASS counts; else "NO SLATE FILE — slate run due HH:MM ET" (or, where the watch is not
 the machine, "— run block"). Its gap line in capitals: "NFL: 12 GAMES, ROWS 12, NO SLATE FILE". `coverage --json`
 carries it; the Today tab shows it first."
+    This module builds the line and returns it from coverage() as each competition's `slate`. The `--json` flag is the
+    Today tab's (#589, PR #595; addendum 128 item 5: this PR first, that one after): its coverage_v1 document writes
+    coverage()'s dict generically (every datetime ISO-8601 Z), so `slate` rides in it once both are on main.
     The slate kind is the family's export_glob (closing.FAMILIES: mlb_MLB_*.json, nfl_predictions_*.json,
     soccer_PL_*.json, the names the slate stage and the prematch chains write; a closing file never matches). A file
     counts when it carries the Desk's calls (desk_meta) and a desk row for every game of the day (the competition's

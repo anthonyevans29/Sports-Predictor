@@ -325,6 +325,43 @@ def test_a_file_missing_a_game_of_the_day_fails_and_is_not_pushed(box, monkeypat
     assert [p["match_id"] for p in json.loads((box.repo / NFL_FILE).read_text())["predictions"]] == [601]
 
 
+def test_a_game_the_slates_own_sync_adds_to_the_day_must_be_in_the_file(box, monkeypatch):
+    """Codex on #600 (P1): the file must hold a desk row for every game of the day not yet started (item 2(b): "covers
+    EVERY game of the day by match id"), the day re-read after the steps synced it. A game the opening sync-matches
+    adds to the day (a postponed game re-dated into it, as 50548 was) is required too: a file without it fails the
+    attempt, and the next attempt's steps name it. Before the fix the check kept only the games read before the steps,
+    so this attempt succeeded, the day's slate was done, and coverage showed NO SLATE FILE all day."""
+    import sqlite3
+    from tests.test_closing_runs import _ts
+    the_day(box, monkeypatch)
+    inner = box.fake_step
+
+    def sync_adds_603(argv, run_id):
+        if argv[0] == "sync-matches":
+            con = sqlite3.connect(c.db_path())
+            con.execute("INSERT OR IGNORE INTO teams VALUES (91, 'Denver'), (92, 'Denver Visitors')")
+            con.execute("INSERT OR IGNORE INTO matches VALUES (603, 2, ?, 'SCHEDULED', 91, 92)",
+                        (_ts(et(16, 25)),))
+            con.commit()
+            con.close()
+        return inner(argv, run_id)
+    monkeypatch.setattr(mc, "run_step", sync_adds_603)
+    assert tick(et(7, 0)) == mc.NOTIFIED
+    (s,) = slates()
+    assert s["failed"] == "missing from export" and [m["match_id"] for m in s["missing"]] == [603]
+    assert box.notes == [f"SLATE NFL FAILED: missing from export ({NFL_FILE}): match 603 — RUN BY HAND: {BLOCK} · "
+                         f"attempt 1/3\n{MACHINE}"]
+    assert box.pushes == [] and slate_pages(box) == []
+    # the next attempt reads the day again: its steps name 603, and a file with its desk row ends the day
+    box.docs["NFL"] = dp.annotate({"sport": "nfl", "predictions": nfl_rows() + [
+        row(603, "Denver", 0.50, fair_h=0.50, bid=0.49, ask=0.50, minutes=9 * 60 + 25, comp="NFL",
+            series="KXNFLGAME", now=BASE)]}, now=BASE)
+    assert tick(et(7, 5)) == 0
+    assert [(r["attempt"], r["exit"]) for r in slates()] == [(1, 1), (2, 0)]
+    assert box.steps[6][0] == "sync-matches" and box.steps[6][-1] == "601,602,603"
+    assert slates()[-1]["rows"] == 3
+
+
 def test_a_file_without_desk_calls_fails(box, monkeypatch):
     the_day(box, monkeypatch)
     box.docs["NFL"] = {"sport": "nfl", "predictions": nfl_rows()}                # exported without --desk

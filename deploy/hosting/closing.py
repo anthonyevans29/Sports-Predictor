@@ -2597,7 +2597,10 @@ def _slate(rec: dict, fam: str, day: date, covers: list[dict], folder: Path, hel
         return
     done = held + timedelta(seconds=time.time() - t0)
     rec["completed_at"] = iso_z(done)
-    missing = missing_from_export(doc, covers, done, day_games(fam, day))   # re-read: the steps synced the schedule
+    # every game of the day, re-read (the steps synced the schedule): a game the sync added to the day is required too
+    # (item 2(b): "covers EVERY game of the day by match id"; Codex on #600), and the next attempt's steps name it
+    games = day_games(fam, day)
+    missing = missing_from_export(doc, games, done, games)
     if missing:
         rec["failed"] = "missing from export"
         rec["missing"] = missing

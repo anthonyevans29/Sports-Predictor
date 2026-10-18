@@ -73,8 +73,10 @@ THE SLATE RUN (ARCHITECT 2026-10-18, addendum 126 item 2(a), #590; the section "
 tick runs a SLATE stage per family for the tick's ET day: due at the day's first kickoff minus 150 minutes, or at the
 first tick after 06:00 ET when that is later; one run per family per day (a success, or three attempts), decided from
 its own receipts (kind "slate"; misses kind "slate_miss"), which no closing reader reads. It runs the closing chain's
-steps as resolve_steps resolves them for the day's games, its export sent to the family's slate file in exports/, then
-the mirror push, then one page: "SLATE <FAMILY> <YYYY-MM-DD>: <N> rows · PLAY <p> · PASS <q> · exports/<file>". A
+steps as resolve_steps resolves them for the day's games, its export kept under logs/ as a closing's is and linked into
+the family's slate file in exports/ once its checks pass (addendum 133 item 3(a): a failed attempt leaves nothing in
+exports/), then the mirror push, then one page: "SLATE <FAMILY> <YYYY-MM-DD>: <N> row(s) · PLAY <p> · PASS <q> ·
+exports/<file>". A
 failure pages "SLATE <FAMILY> FAILED: <step command> — RUN BY HAND: block_<MMDD>_<family>_slate.txt · attempt k/3".
 The closings, their groups, steps and files are unchanged.
 """
@@ -1457,20 +1459,12 @@ def write_closing_file(doc: dict, name: str, mtime: float | None = None) -> dict
                 return {"file": rel, "error": f"exists: logs/{kept.name} is already taken; the earlier closing "
                                               "file cannot be moved and stands"}
             replaced = {"file": rel, "sha256": _sha256(dest), "run_id": old_run, "kept_as": f"logs/{kept.name}"}
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        tmp.write_text(json.dumps(doc, indent=2))
-        if mtime is not None:
-            os.utime(tmp, (mtime, mtime))
-        if kept is not None:
-            kept.parent.mkdir(parents=True, exist_ok=True)
-            os.link(dest, kept)               # refuses an existing name: the earlier file is never overwritten
-            try:
-                os.replace(tmp, dest)
-            except OSError:
-                kept.unlink()                 # the earlier file still stands at its own name
-                raise
-        else:
-            os.replace(tmp, dest)
+
+        def fill(t: Path) -> None:
+            t.write_text(json.dumps(doc, indent=2))
+            if mtime is not None:
+                os.utime(t, (mtime, mtime))
+        place_file(dest, fill, kept)
         return {"file": rel, "sha256": _sha256(dest), **({"replaced": replaced} if replaced else {})}
     except (OSError, SystemExit, TypeError, ValueError) as e:
         try:
@@ -1478,6 +1472,27 @@ def write_closing_file(doc: dict, name: str, mtime: float | None = None) -> dict
         except OSError:
             pass
         return {"file": rel, "error": c.redact(f"{type(e).__name__}: {e}")[:300]}
+
+
+def place_file(dest: Path, fill, kept: Path | None = None) -> None:
+    """The closing file's write (addendum 40 item 2; addendum 41 item 3), the one path the slate's file takes too
+    (addendum 133 item 3(a): "the way the closing writes its closing file (a hard link, then the rename over the
+    name)"): the new file takes a temporary name beside `dest` (`fill(tmp)` puts it there: the closing writes its
+    document, the slate hard-links its kept export), the earlier file, where `kept` names where, is kept first by a
+    hard link, then the rename over the name. Raises on any failure, the temporary name removed by the caller."""
+    tmp = dest.with_name(f".{dest.name}.tmp")
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    fill(tmp)
+    if kept is not None:
+        kept.parent.mkdir(parents=True, exist_ok=True)
+        os.link(dest, kept)                   # refuses an existing name: the earlier file is never overwritten
+        try:
+            os.replace(tmp, dest)
+        except OSError:
+            kept.unlink()                     # the earlier file still stands at its own name
+            raise
+    else:
+        os.replace(tmp, dest)
 
 
 def resolve_steps(fam: str, start: datetime, covers: list[dict], run_start: datetime,
@@ -2193,15 +2208,18 @@ def worse(a: int, b: int) -> int:
 #   - Decided from the receipts (kind "slate"), never from memory: one success, or three attempts, ends the day for the
 #     family. A refusal and a superseded run are neither (380.4, as for a closing).
 #   - The steps are the closing chain's own, resolved by resolve_steps for the day's games not started (a closing's
-#     covers stand in), its export step sent to the slate file (`--out exports/<slate file>`; SOCCER adds the window
-#     its prematch chain prices, `--start`/`--end`). The chain lock is the closing's (acquire_lock): a slate and a
-#     closing never run at once.
-#   - After the steps: the file written by this run, carrying the Desk's calls, with a row for every game of the day
-#     not started when the steps finished; then the mirror push; then one page. Any of them failing is a failed
-#     attempt, paged with the RUN BY HAND line. The file the export wrote stays in exports/ where the export put it,
-#     as a prematch chain's does: this run pushes only once its checks pass, but a page that fails after that push
-#     has already pushed the file, and a file a failed attempt leaves in exports/ goes to the mirror with this
-#     machine's next push (the next closing's or slate's: the mirror copies every top-level exports/*.json).
+#     covers stand in), word for word: the export step keeps the closing's own `--out logs/<run id>.<slate file
+#     name>` (addendum 133 item 3(a); SOCCER adds the window its prematch chain prices, `--start`/`--end`, and nothing
+#     else). The chain lock is the closing's (acquire_lock): a slate and a closing never run at once.
+#   - After the steps: the kept file written by this run, carrying the Desk's calls, with a row for every game of the
+#     day not started when the steps finished; then the kept file linked into exports/<slate file> the way the closing
+#     writes its closing file (place_file: a hard link, then the rename over the name; `slate_file` {file, sha256};
+#     the logs/ copy stays); then the mirror push; then one page. Any of them failing is a failed attempt, paged with
+#     the RUN BY HAND line. STAGING (ARCHITECT 2026-10-18, addendum 133 item 3(a), the closing's doctrine of addendum
+#     40 item 2, "a failed run leaves no call behind"): "A failed attempt leaves nothing in exports/ and nothing
+#     reaches the mirror; an earlier good file of the same name (Saturday's soccer window file, on Sunday) is never
+#     replaced by a half-synced one. A page that fails after the push: the file stands (it passed) and the attempt is
+#     failed as built (the retry re-runs the steps and replaces it again)."
 #   - The closings first (item 2(a): "The closing runs at T-35 are unchanged"): a slate does not start while a closing
 #     the watch will still run, for any family of the tick, has its T-35 within SLATE_GUARD_MIN minutes or already
 #     past (closing_ahead), and its wait for the chain lock ends SLATE_GUARD_MIN minutes before that T-35. So held, it
@@ -2283,17 +2301,50 @@ def slate_file(fam: str, day: date) -> str:
 
 def slate_steps(fam: str, day: date, covers: list[dict], run_start: datetime, run_id: str) -> list[list[str]]:
     """Item 2(a): "the family's prematch steps exactly as the closing run resolves them": resolve_steps for the day's
-    games (`covers`), its export step (the chain's last: `--desk --out {export_out}`) sent to the slate file in
-    exports/ instead of logs/; SOCCER's adds the window its prematch chain prices."""
+    games (`covers`), word for word. Addendum 133 item 3(a): "The slate's export step keeps the closing's own `--out
+    logs/<run id>.<slate file name>` exactly as resolve_steps gives it (SOCCER still gains its `--start`/`--end`
+    window; nothing else is inserted)": SOCCER's export adds the window its prematch chain prices, before its --out."""
     first = min(g["start"] for g in covers)
     steps = [list(s) for s in resolve_steps(fam, first, covers, run_start, run_id)]
-    exp = steps[-1]
-    i = exp.index("--out")
-    exp[i + 1] = f"{SLATE_DIR}/{slate_file(fam, day)}"
     if fam == "SOCCER":
+        exp = steps[-1]
+        i = exp.index("--out")
         s, e = soccer_window(day)
         exp[i:i] = ["--start", s, "--end", e]
     return steps
+
+
+def link_slate_file(kept: str, name: str) -> dict:
+    """Addendum 133 item 3(a): once the checks pass, "the run links the kept file into `exports/<slate file>` the way
+    the closing writes its closing file (a hard link, then the rename over the name; receipted `slate_file` {file,
+    sha256}; the logs/ copy stays)". place_file, the closing file's own write: the kept export (`kept`, the export
+    step's logs/<run id>.<name>) hard-linked to the temporary name beside exports/<name>, then the rename over the name
+    (an earlier file of that name is replaced whole, never written into). {file, sha256} or {file, error}; on an error
+    exports/ is as it was."""
+    rel = f"{SLATE_DIR}/{name}"
+    dest = c.REPO / SLATE_DIR / name
+    tmp = dest.with_name(f".{name}.tmp")
+    src = c.REPO / kept
+
+    def fill(t: Path) -> None:
+        if t.exists() or t.is_symlink():
+            t.unlink()                        # a temporary name a crashed run left: never this run's file
+        os.link(src, t)
+    try:
+        c.refuse_under_data(dest.parent)
+        place_file(dest, fill)
+        return {"file": rel, "sha256": _sha256(dest)}
+    except (OSError, SystemExit) as e:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+        return {"file": rel, "error": c.redact(f"{type(e).__name__}: {e}")[:300]}
+
+
+def rows_text(n) -> str:
+    """Addendum 133 item 3(c): "The declared text is `<N> row(s)` by count": 1 row, 2 rows."""
+    return f"{n} row" + ("" if n == 1 else "s")
 
 
 def slate_calls(doc: dict) -> tuple[int, dict]:
@@ -2315,12 +2366,13 @@ def calls_text(calls: dict) -> str:
 
 
 def slate_page_text(fam: str, day: date, rows: int, calls: dict, file: str, late: dict | None) -> tuple[str, str]:
-    """Item 2(a)'s page, the declared text: "SLATE <FAMILY> <YYYY-MM-DD>: <N> rows · PLAY <p> · PASS <q> ·
-    exports/<file>"; a late run (_slate_late: the first tick that found the slate due, the earliest queued_at of the
-    day's slate and slate_miss receipts, came more than one cadence after the due time, the laptop asleep) says so on
-    the next line, with the minutes and that tick; the machine's line last (addendum 45).
+    """Item 2(a)'s page, the declared text: "SLATE <FAMILY> <YYYY-MM-DD>: <N> row(s) · PLAY <p> · PASS <q> ·
+    exports/<file>" (addendum 133 item 3(c): `1 row` on a one-game day, rows_text); a late run (_slate_late: the first
+    tick that found the slate due, the earliest queued_at of the day's slate and slate_miss receipts, came more than one
+    cadence after the due time, the laptop asleep) says so on the next line, with the minutes and that tick; the
+    machine's line last (addendum 45).
     Returns (title, body)."""
-    lines = [f"SLATE {fam} {day.isoformat()}: {rows} rows · {calls_text(calls)} · {file}"]
+    lines = [f"SLATE {fam} {day.isoformat()}: {rows_text(rows)} · {calls_text(calls)} · {file}"]
     if late:
         lines.append(f"LATE {late['minutes']} min: due {et(late['due'])[11:]}, run {et(late['tick'])[11:]}")
     lines.append(machine_line())
@@ -2513,7 +2565,7 @@ def _slate_rec(base: dict, fam: str, day: date, attempt: int, at: datetime, tick
     late_s, late = _slate_late(fam, day.isoformat(), tick_at, due_at)
     return ({**base, "ran_at": iso_z(at), "late_minutes": max(0, int(late_s // 60)), "late": late is not None,
              "attempt": attempt, "covers": _covers_rec(covers), "file": f"{SLATE_DIR}/{slate_file(fam, day)}",
-             "rows": None, "calls": None, "backup": None, "steps": [], "push": None, "exit": 1}, late)
+             "export": None, "rows": None, "calls": None, "backup": None, "steps": [], "push": None, "exit": 1}, late)
 
 
 def _slate_refuse(why: str, fam: str, day: date, base: dict) -> int:
@@ -2539,10 +2591,12 @@ def _slate_what(rec: dict) -> str:
     if rec.get("step"):
         return rec["step"]
     return {"backup": f"backup ({(rec.get('backup') or {}).get('error') or 'not taken'})",
-            "export not written": f"export not written ({rec.get('file')})",
-            "export carries no desk calls": f"{rec.get('file')} carries no desk calls",
-            "missing from export": f"missing from export ({rec.get('file')}): match "
+            "export not written": f"export not written ({rec.get('export')})",
+            "export carries no desk calls": f"{rec.get('export')} carries no desk calls",
+            "missing from export": f"missing from export ({rec.get('export')}): match "
                                    + ", ".join(str(m["match_id"]) for m in rec.get("missing") or []),
+            "slate file": f"{rec.get('file')} not linked ("
+                          + str((rec.get("slate_file") or {}).get("error") or "?").split(":")[0] + ")",
             "push": f"mirror push (exit {(rec.get('push') or {}).get('exit')})",
             "page": f"page (ntfy did not accept it in {PAGE_TRIES} tries)"}.get(
         f, f"{f}" + (f" ({rec['error']})" if rec.get("error") else ""))
@@ -2564,9 +2618,12 @@ def _slate(rec: dict, fam: str, day: date, covers: list[dict], folder: Path, hel
         return
     steps = slate_steps(fam, day, covers, held, rec["run_id"])
     rec["planned_steps"] = len(steps)
-    out_dir = c.REPO / SLATE_DIR
-    c.refuse_under_data(out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
+    # addendum 133 item 3(a): the export step writes resolve_steps' own --out, logs/<run id>.<name> (the closing's
+    # export_candidates); nothing reaches exports/ until the checks below pass
+    rec["export"] = steps[-1][steps[-1].index("--out") + 1]
+    logs = c.REPO / "logs"
+    c.refuse_under_data(logs)
+    logs.mkdir(parents=True, exist_ok=True)
     for i, st in enumerate(steps, 1):
         line = f"python cli.py {' '.join(st)}"
         print(f"\n=== [{fam} slate {i}/{len(steps)}] {line}", flush=True)
@@ -2585,12 +2642,12 @@ def _slate(rec: dict, fam: str, day: date, covers: list[dict], folder: Path, hel
             rec["failed"] = f"step {i}" + (" (reported failure, exit 0)" if said else "")
             rec["step"] = line
             return
-    path = c.REPO / rec["file"]
+    path = c.REPO / rec["export"]
     if not (path.is_file() and path.stat().st_mtime >= wall0):
         rec["failed"] = "export not written"
         return
     raw = path.read_bytes()
-    rec["export_written"] = {"file": rec["file"], "sha256": hashlib.sha256(raw).hexdigest()}
+    rec["export_written"] = {"file": rec["export"], "sha256": hashlib.sha256(raw).hexdigest()}
     doc = json.loads(raw)
     if not doc.get("desk_meta"):
         rec["failed"] = "export carries no desk calls"
@@ -2606,6 +2663,15 @@ def _slate(rec: dict, fam: str, day: date, covers: list[dict], folder: Path, hel
         rec["missing"] = missing
         return
     rec["rows"], rec["calls"] = slate_calls(doc)
+    # addendum 133 item 3(a): the checks passed: the kept file is linked into exports/<slate file> (the closing file's
+    # write: a hard link, then the rename over the name), THEN the push, THEN the page
+    rec["slate_file"] = link_slate_file(rec["export"], Path(rec["file"]).name)
+    if rec["slate_file"].get("error"):
+        rec["failed"] = "slate file"
+        print(f"✗ slate file NOT linked: {rec['slate_file']['error']} — nothing pushed or paged; exports/ as it "
+              "was")
+        return
+    print(f"· slate file: {rec['file']} (linked from {rec['export']}, sha256 {rec['slate_file']['sha256'][:12]})")
     rec["push"] = push_mirror("slate")
     print(f"· exports mirror ({mirror_role()}, slate): exit {rec['push']['exit']} {' | '.join(rec['push']['tail'])}")
     if rec["push"].get("exit") != 0:
@@ -2673,8 +2739,8 @@ def _slate_under_lock(fam: str, day: date, base: dict, folder: Path, held: datet
             slate_failure_text(fam, day, _slate_what(rec), rec["attempt"]), fam, title=f"{fam} slate")
         print(f"✗ slate {fam} {day_s} FAILED ({rec.get('failed')}) — attempt {rec['attempt']}/{MAX_ATTEMPTS}")
     else:
-        print(f"✓ slate {fam} {day_s}: {rec['file']} · {rec['rows']} rows · {calls_text(rec['calls'])} · pushed · "
-              "page accepted")
+        print(f"✓ slate {fam} {day_s}: {rec['file']} · {rows_text(rec['rows'])} · {calls_text(rec['calls'])} · "
+              "pushed · page accepted")
     rec["seconds"] = round(time.time() - t0, 1)
     c.append_receipt(rec)
     return 0 if rec["exit"] == 0 else NOTIFIED

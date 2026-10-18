@@ -350,10 +350,13 @@ Which machine runs item 5's readout (ARCHITECT 2026-10-18, addendum 128 item 1(a
    - **The slate stage (ARCHITECT 2026-10-18, addendum 126 item 2(a), #590).** The same tick, after its closings, runs
      each of its families' slate once a US Eastern day: due at the day's first kickoff minus 150 minutes, or at the first
      tick after 06:00 ET when that is later, but never inside 15 minutes of a closing's T-35 (the closing runs first,
-     the slate on a later tick). It runs the closing chain's steps for the day's games with the export
-     `--desk` sent to the family's slate file in `exports/` (`nfl_predictions_<date>.json`,
-     `soccer_PL_<start>_to_<end>.json`), pushes the mirror and pages `SLATE <FAMILY> <date>: <N> rows · PLAY <p> · PASS
-     <q> · exports/<file>`; a failure pages `SLATE <FAMILY> FAILED: <step command> — RUN BY HAND:
+     the slate on a later tick). It runs the closing chain's steps for the day's games, the export `--desk` kept
+     under `logs/` as a closing's is (`--out logs/<run id>.<name>`); once its checks pass, the kept file is linked into
+     the family's slate file in `exports/` (`nfl_predictions_<date>.json`, `soccer_PL_<start>_to_<end>.json`; a hard
+     link, then the rename over the name, as the closing writes its closing file), then it pushes the mirror and pages
+     `SLATE <FAMILY> <date>: <N> row(s) · PLAY <p> · PASS <q> · exports/<file>`. A failed attempt leaves nothing in
+     `exports/` and nothing reaches the mirror (addendum 133 item 3(a)): Saturday's soccer window file stands on Sunday
+     until a Sunday slate passes. A failure pages `SLATE <FAMILY> FAILED: <step command> — RUN BY HAND:
      block_<MMDD>_<family>_slate.txt · attempt k/3`, three attempts a day. A family the machine refuses (MLB on the
      host) writes no slate and pages nothing; `python cli.py coverage` names its block (`NO SLATE FILE — run block …`).
      The host's fixed-time prematch timers are the cutover PR's to retire (item 2(d)); this step does not touch them.

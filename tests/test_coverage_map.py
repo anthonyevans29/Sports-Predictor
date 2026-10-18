@@ -844,6 +844,52 @@ def test_a_file_that_cannot_be_parsed_or_has_no_desk_calls_is_skipped_with_its_r
     assert gaps(out) == ["NFL: 2 GAMES, ROWS 2, NO SLATE FILE"]
 
 
+def results_doc(name, ids, day):
+    """A results export as `export-results` writes it (src/walters/export.py export_results: exported_at, git_sha,
+    sport, start_date, end_date, competition_code, count, record, totals_pulse, results; no predictions), under the
+    name the cli gives it, exports/<sport>_<code>_results_<date>.json: the same family glob as the slate kind."""
+    sport, code = ("mlb", "MLB") if name.startswith("mlb_") else ("soccer", "PL")
+    rows = [{"match_id": i, "date": f"{day}T23:05:00", "away_team": "Away", "home_team": "Home",
+             "predicted": {"top_pick": "home_win", "top_pick_prob": 0.55, "home_win_prob": 0.55, "draw_prob": None,
+                           "away_win_prob": 0.45, "projected_total": 8.5, "over_under_line": 8.5, "over_prob": 0.5},
+             "actual": {"home_score": 4, "away_score": 2, "total_runs": 6, "result": "H"},
+             "graded": {"top_pick_hit": True, "total_correct": True, "total_error": -2.5, "log_loss": 0.6,
+                        "brier_score": 0.2, "clv": None, "closing_price": None}} for i in ids]
+    doc = {"exported_at": f"{day}T12:00:00Z", "git_sha": "abc1234", "sport": sport,
+           "start_date": f"{day}T08:00:00", "end_date": f"{day}T08:00:00", "competition_code": code,
+           "count": len(rows), "record": {"games": len(rows), "hits": len(rows), "vs_close": None, "redated": []},
+           "totals_pulse": None, "results": rows}
+    p = c.REPO / "exports" / name
+    p.write_text(json.dumps(doc))
+    return p
+
+
+def test_a_results_export_beside_the_slate_file_is_another_kind_never_skipped(env):
+    """ARCHITECT 2026-10-18, addendum 133 item 3(b): "A file of the glob with no `predictions` list is another kind:
+    not a candidate, never listed as skipped (last_calls reads the same glob and passes such a file in silence).
+    `skipped` is for a predictions export that cannot be parsed or has no desk calls, as built." The architect's
+    repro: mlb_MLB_results_2026-10-17.json beside mlb_MLB_2026-10-18.json, and soccer_PL_results_<date>.json beside
+    the PL slate file (today's mirror folder holds both)."""
+    make_db(env, [(50550, "MLB", "2026-10-18 17:05", "SCHEDULED"), (401, "PL", "2026-10-18 13:00", "SCHEDULED")],
+            [(50550, "mlb_v2", "2026-10-18 12:30"), (401, "v22", "2026-10-18 12:30")])
+    slate_doc("mlb_MLB_2026-10-18.json", [50550], "2026-10-18T13:00:00Z")
+    slate_doc("soccer_PL_2026-10-17_to_2026-10-20.json", [401], "2026-10-18T13:00:00Z")
+    results_doc("mlb_MLB_results_2026-10-17.json", [50549], "2026-10-17")
+    results_doc("soccer_PL_results_2026-10-17.json", [400], "2026-10-17")
+    out = run("--date", "2026-10-18")[1]
+    assert out[out.index(line_of(out, "MLB")) + 1] == (
+        "MLB SLATE · exports/mlb_MLB_2026-10-18.json · exported 2026-10-18 09:00 ET · PLAY 0 · PASS 1")
+    assert out[out.index(line_of(out, "PL")) + 1] == ("PL SLATE · exports/soccer_PL_2026-10-17_to_2026-10-20.json · "
+                                                      "exported 2026-10-18 09:00 ET · PLAY 0 · PASS 1")
+    assert not any("skipped" in x for x in out) and out[-1] == "GAPS: none"
+    comps = {x["code"]: x["slate"] for x in cm.coverage(datetime(2026, 10, 18).date(), NOW)["competitions"]}
+    assert comps["MLB"]["skipped"] == comps["PL"]["skipped"] == []
+    # alone, the results file is no candidate either: no slate file, and still nothing skipped
+    (c.REPO / "exports" / "mlb_MLB_2026-10-18.json").unlink()
+    out = run("--date", "2026-10-18")[1]
+    assert out[out.index(line_of(out, "MLB")) + 1] == "MLB SLATE · NO SLATE FILE — slate run due 10:35 ET"
+
+
 def test_where_this_machine_refuses_the_family_the_line_names_the_block(env, monkeypatch):
     monkeypatch.setenv("SP_SKIP_FAMILIES", "NFL")
     make_db(env, NFL_DAY, NFL_ROWS)

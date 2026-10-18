@@ -97,7 +97,11 @@ carries it; the Today tab shows it first."
     soccer_PL_*.json, the names the slate stage and the prematch chains write; a closing file never matches). A file
     counts when it carries the Desk's calls (desk_meta) and a desk row for every game of the day (the competition's
     games, VOID ones aside); the newest by its own exported_at wins. A file that cannot be parsed, or one with no desk
-    calls, is skipped with its reason on the line, never counted (law 4); a file whose name dates it more than
+    calls, is skipped with its reason on the line, never counted (law 4). ARCHITECT 2026-10-18, addendum 133 item 3(b):
+    "A file of the glob with no `predictions` list is another kind: not a candidate, never listed as skipped (last_calls
+    reads the same glob and passes such a file in silence). `skipped` is for a predictions export that cannot be parsed
+    or has no desk calls, as built" (the results exports, mlb_MLB_results_<date>.json and soccer_PL_results_<date>.json,
+    share the family globs and sit in exports/ every day). A file whose name dates it more than
     SLATE_SCAN_BACK_DAYS before the day, or after the day after, cannot hold the day and is not read. The counts are the
     file's (closing.slate_calls, as the slate page counts them). No file: the slate stage's due time (closing.slate_due);
     where this machine refuses the family (closing._family_refusal), the block to run (closing.slate_block). The gap is
@@ -534,6 +538,8 @@ def slate_view(fam: str, games: list[dict], day: date, refused: str | None, expo
             continue                  # named for another week: it cannot hold the day
         try:
             doc = json.loads(p.read_text(encoding="utf-8"))
+            if isinstance(doc, dict) and not isinstance(doc.get("predictions"), list):
+                continue              # another kind (a results export): no candidate, never skipped (addendum 133 3(b))
             at = cl.parse_utc(doc["exported_at"])
             have = {r.get("match_id") for r in doc["predictions"] if r.get("desk")}
         except (OSError, ValueError, KeyError, TypeError, AttributeError) as e:

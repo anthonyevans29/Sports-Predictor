@@ -64,6 +64,12 @@ class NormalizedMatch:
     full_time_result: Result | None = None
     venue: str | None = None
     referee: str | None = None
+    # THE SERIES FIELDS (ARCHITECT 2026-10-18, addendum 130 item 2(b); #476, #478): statsapi's own seriesGameNumber,
+    # gamesInSeries, seriesDescription and rescheduledFrom for THIS game, keyed by the matches column each is stored
+    # in (src.db.database.SERIES_COLUMNS), None where the game's entry has none. None for the whole field = the
+    # adapter reads no series fields (every adapter but statsapi, the api-sports fallback included): nothing is
+    # written for the row.
+    series: dict | None = None
 
 
 @dataclass

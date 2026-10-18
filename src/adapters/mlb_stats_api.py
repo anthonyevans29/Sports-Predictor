@@ -67,6 +67,49 @@ _STATUS_MAP = {
 _PREGAME_STATES = frozenset({"S", "P", "PW"})
 
 
+# THE SERIES FIELDS (ARCHITECT 2026-10-18, addendum 130 item 2(b), verbatim: "DATA NOW, so the 2027 rule has it and
+# so the reconciliation below has a receipt: the laptop's statsapi sync stores `seriesGameNumber`, `gamesInSeries`,
+# `seriesDescription` and `rescheduledFrom` on the match row (additive columns by the unmapped pattern, like #588's;
+# migration by hand after the backup). Code: one small PR, data only, no reader changes its behaviour.")
+# Each game's own schedule entry, field by field; a field the entry does not give, or gives in a shape this does not
+# read (a number that is not a whole number, an empty text, a time with no zone), is None: never filled from another
+# game or guessed (law 4). rescheduledFrom is stored as ISO-8601 UTC with a Z, "%Y-%m-%dT%H:%M:%SZ".
+def _whole(v) -> int | None:
+    if isinstance(v, bool):
+        return None
+    if isinstance(v, int):
+        return v
+    if isinstance(v, str) and v.strip().isascii() and v.strip().isdigit():
+        return int(v.strip())
+    return None
+
+
+def _text(v) -> str | None:
+    return v.strip() if isinstance(v, str) and v.strip() else None
+
+
+def _iso_z(v) -> str | None:
+    if not isinstance(v, str) or not v.strip():
+        return None
+    try:
+        t = datetime.fromisoformat(v.strip().replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if t.tzinfo is None:                                    # a time with no zone is not read as UTC
+        return None
+    return t.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def series_fields(game: dict) -> dict:
+    """{matches column: value | None} from one statsapi schedule game (src.db.database.SERIES_COLUMNS)."""
+    return {
+        "series_game_number": _whole(game.get("seriesGameNumber")),
+        "games_in_series": _whole(game.get("gamesInSeries")),
+        "series_description": _text(game.get("seriesDescription")),
+        "rescheduled_from": _iso_z(game.get("rescheduledFrom")),
+    }
+
+
 # Competition code → (api_filter, name, type, season_format)
 _COMPETITIONS: dict[str, dict] = {
     "MLB": {
@@ -538,6 +581,7 @@ class MLBStatsAPIAdapter(DataAdapter):
             full_time_result=result,
             venue=venue,
             referee=None,
+            series=series_fields(game),
         )
 
     # ------------------------------------------------------------------

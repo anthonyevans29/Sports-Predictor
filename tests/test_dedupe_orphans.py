@@ -21,14 +21,15 @@ CODE = "OR1"
 NOW = utc_now_naive().replace(microsecond=0)
 
 
-@pytest.fixture(autouse=True, scope="module")
-def _cleanup():
-    yield
+def _drop_world():
+    """Every row the OR1 world holds (odds, matches, teams, the competition), so the next build starts clean."""
     with session_scope() as s:
-        cids = [c.id for c in s.execute(select(Competition).where(Competition.code.in_((CODE, "OR2")))).scalars()]
+        cids = [c.id for c in s.execute(select(Competition).where(Competition.code == CODE)).scalars()]
         mids = [m.id for m in s.execute(select(Match).where(Match.competition_id.in_(cids))).scalars()]
         s.query(Odds).filter(Odds.match_id.in_(mids)).delete(synchronize_session=False)
         s.query(Match).filter(Match.id.in_(mids)).delete(synchronize_session=False)
+        s.query(Team).filter(Team.name.like(f"{CODE} T%")).delete(synchronize_session=False)
+        s.query(Competition).filter(Competition.id.in_(cids)).delete(synchronize_session=False)
 
 
 def _nm(h, a, sid, when, status=MatchStatus.SCHEDULED):
@@ -97,8 +98,28 @@ def _row(mid):
         return None if m is None else {"status": m.status, "ext": dict(m.external_ids or {}), "utc": m.utc_date}
 
 
-def test_orphans_dry_run_plans_every_case_and_writes_nothing():
-    ids, prov = IDS, PROV
+@pytest.fixture
+def world():
+    """#515: a fresh OR1 world for each test that reads it (ids, provider), dropped after. No test reads the
+    state another test's --apply left behind, so each one passes alone, in the file, and in any order."""
+    init_db()
+    _drop_world()
+    _, ids, prov = _world()
+    yield ids, prov
+    _drop_world()
+
+
+@pytest.fixture
+def applied(world):
+    """The world after the --apply (the apply test's own call): the orphan is STALE_ORPHAN and three rows carry
+    their old ids in _prev. The apply summary and the fixtures export read this state."""
+    ids, prov = world
+    md.orphans(CODE, prov, apply=True, now=NOW)
+    return ids, prov
+
+
+def test_orphans_dry_run_plans_every_case_and_writes_nothing(world):
+    ids, prov = world
     r = md.orphans(CODE, prov, now=NOW)
     act = {p["id"]: p["action"] for p in r["plan"]}
     assert act[ids["relink"]] == "relink" and act[ids["orphan"]] == "orphan"
@@ -113,32 +134,33 @@ def test_orphans_dry_run_plans_every_case_and_writes_nothing():
     assert _row(ids["relink"])["ext"] == {SRC: "22194"}
 
 
-def test_orphans_apply_merges_relinks_marks_and_never_deletes_an_orphan():
-    r = md.orphans(CODE, PROV, apply=True, now=NOW)
+def test_orphans_apply_merges_relinks_marks_and_never_deletes_an_orphan(world):
+    ids, prov = world
+    r = md.orphans(CODE, prov, apply=True, now=NOW)
     assert r["applied_counts"] == {"merge": 2, "relink": 1, "orphan": 1}, r
-    rl = _row(IDS["relink"])                                      # Georgia@Alabama -> its live id
+    rl = _row(ids["relink"])                                      # Georgia@Alabama -> its live id
     assert rl["ext"][SRC] == "23194" and rl["ext"][f"{SRC}_prev"] == ["22194"]
     assert rl["ext"][f"{SRC}_rekeys"][0]["via"] == "orphan-relink"
     assert rl["utc"] == (NOW - timedelta(days=1) + timedelta(hours=3))
-    keep = _row(IDS["twin_old"])                                  # stale was the older row: takes the live id
+    keep = _row(ids["twin_old"])                                  # stale was the older row: takes the live id
     assert keep["ext"][SRC] == "23100" and "22100" in keep["ext"][f"{SRC}_prev"]
-    assert _row(IDS["twin_new"]) is None
-    live = _row(IDS["live_old"])                                  # stale was the newer row: live keeps its own
+    assert _row(ids["twin_new"]) is None
+    live = _row(ids["live_old"])                                  # stale was the newer row: live keeps its own
     assert live["ext"][SRC] == "23200" and "22200" in live["ext"][f"{SRC}_prev"]
-    assert live["utc"] == NOW + timedelta(days=3) and _row(IDS["stale_new"]) is None
+    assert live["utc"] == NOW + timedelta(days=3) and _row(ids["stale_new"]) is None
     with session_scope() as s:                                    # odds re-pointed, never deleted
         assert s.execute(select(func.count()).select_from(Odds).where(
-            Odds.match_id.in_([IDS["twin_old"], IDS["live_old"]]))).scalar() == 2
-    orph = _row(IDS["orphan"])
+            Odds.match_id.in_([ids["twin_old"], ids["live_old"]]))).scalar() == 2
+    orph = _row(ids["orphan"])
     assert orph["status"] == MatchStatus.STALE_ORPHAN and f"{SRC}_orphaned_at" in orph["ext"]
     for k in ("broken", "resync", "swapped"):
-        assert _row(IDS[k])["status"] == MatchStatus.SCHEDULED
+        assert _row(ids[k])["status"] == MatchStatus.SCHEDULED
     b, a = r["before"], r["after"]
     assert a["rows"] == b["rows"] - 2 and a["stale_orphans"] == 1 and a["carry_prev"] == b["carry_prev"] + 3
     assert a["rekeys_by_via"] == {"orphan-relink": 1, "orphan-merge": 2}       # both merge directions logged
 
 
-def test_apply_summary_reports_state_when_nothing_is_left_to_merge(capsys):
+def test_apply_summary_reports_state_when_nothing_is_left_to_merge(applied, capsys):
     from cli import _dedupe_state_lines
     r = md.run(CODE, apply=False)
     assert r["pairs"] == 0 and r["before"]["carry_prev"] >= 3
@@ -148,44 +170,24 @@ def test_apply_summary_reports_state_when_nothing_is_left_to_merge(capsys):
     assert "nothing to merge" in out and "already carry api_american_football_prev" in out
 
 
-def test_fixtures_export_drops_stale_orphans(tmp_path):
+def test_fixtures_export_drops_stale_orphans(applied, tmp_path):
     from src.walters.export import export_fixtures
+    ids, _ = applied
     rc = {}
     doc = json.loads(open(export_fixtures(CODE, out_dir=str(tmp_path), receipts=rc,
                                           start=(NOW - timedelta(days=2)).strftime("%Y-%m-%d"),
                                           end=(NOW + timedelta(days=5)).strftime("%Y-%m-%d"))).read())
-    assert IDS["orphan"] not in [f["match_id"] for f in doc["fixtures"]]
+    assert ids["orphan"] not in [f["match_id"] for f in doc["fixtures"]]
     assert rc["stale_orphans_excluded"] == 1
 
 
-IDS: dict = {}
-PROV = None
-
-
-@pytest.fixture(autouse=True, scope="module")
-def _shared():
-    global PROV
-    _, ids, prov = _world_once()
-    IDS.update(ids)
-    PROV = prov
-    yield
-
-
-_ONCE: dict = {}
-
-
-def _world_once():
-    if not _ONCE:
-        _ONCE["w"] = _world()
-    return _ONCE["w"]
-
-
-def test_cli_orphans_dry_run_prints_the_receipt(monkeypatch):
+def test_cli_orphans_dry_run_prints_the_receipt(monkeypatch, world):
     from click.testing import CliRunner
 
     import src.adapters.api_american_football as aaf
     from cli import cli
-    monkeypatch.setattr(aaf, "APIAmericanFootballAdapter", lambda: PROV)
+    _, prov = world
+    monkeypatch.setattr(aaf, "APIAmericanFootballAdapter", lambda: prov)
     monkeypatch.setenv("SP_ODDS_FOOTBALL_RPM", "600000")
     res = CliRunner().invoke(cli, ["dedupe-matches", "--competition", CODE, "--orphans"])
     assert res.exit_code == 0, res.output

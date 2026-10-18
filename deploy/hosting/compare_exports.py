@@ -50,8 +50,11 @@ date/time stamp removed): the dated coverage_<date>.json and the latest copy
 coverage.json are both kind coverage. A machine-state file in the window is
 never opened: it is not a `·` or `✗` line, not in the compared or the
 one-side count, and cannot make a verdict (a folder holding only it is
-NO-COVERAGE). One line, always printed, names its presence per side. The
---since window and the header's settled count treat it like any dated file.
+NO-COVERAGE). One line, always printed, names its presence per side among
+the files --glob and the window select (one they leave out reads no there and
+is counted as not matched or settled; the Action's *.json and --since 0
+select the whole folder). The --since window and the header's settled count
+treat it like any dated file.
 cutover_readiness.compare_day (criterion (a)) applies the same rule.
 """
 from __future__ import annotations

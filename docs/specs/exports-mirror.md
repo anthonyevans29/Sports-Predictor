@@ -35,7 +35,11 @@ date yet. The full report is in the run's step summary.
 Machine state (#592 RULED, ARCHITECT 2026-10-18, addendum 128 item 3): "the compare treats kind `coverage` as "machine state": listed by presence on each side (one side, both sides, neither), never compared for content, never DIVERGENT, never counted toward or against criterion (a). Printed as its own line ("machine-state files: coverage laptop yes / host no")." The day's coverage
 file travels as every kind does, dated and latest (`<role>/<date>/coverage_<date>.json` and
 `<role>/latest/coverage.json`; option 3, the latest copy only, was declined: "the dated file is the day's
-record"), and the compare never opens either copy: each is listed on that one line, never a verdict.
+record"), and the compare never opens either copy. The Action compares the dated folders only, so it lists
+the dated copy on that one line, never a verdict; the latest copy is the same kind and is listed the same way
+when latest/ folders are compared by hand. The Action runs the comparator the last push shipped (each push
+copies its own machine's `compare_exports.py` into `tools/`), so the rule holds there only once both writers
+run code that carries it.
 
 ## Operator setup (once)
 

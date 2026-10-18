@@ -148,3 +148,35 @@ def test_the_kind_is_the_mirrors_kind():
         assert ce.kind_of(n) == em.kind_of(n), n
     assert [n for n in names if ce.machine_state_kind(n)] == [COV, "coverage.json", "coverage_2026-10-03.json"]
     assert ce.MACHINE_STATE_KINDS == ("coverage",)
+
+
+def test_the_docs_name_the_dated_copy_for_the_daily_compare():
+    """#589 review: the mirror's Action compares the newest dated folder both writers hold (`laptop/$d` vs `host/$d`)
+    and never latest/, so the daily compare lists the dated copy only; the latest copy is the same kind and is listed
+    the same way when latest/ folders are compared by hand. The docs had said the daily compare lists both copies."""
+    action = (ROOT / "deploy" / "exports-mirror" / "compare.yml").read_text()
+    assert 'python tools/compare_exports.py "laptop/$d" "host/$d" --since 0' in action
+    assert "grep -E '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'" in action and "/latest" not in action
+    cli, spec = (" ".join((ROOT / "docs" / f).read_text().split()) for f in ("CLI.md", "specs/exports-mirror.md"))
+    assert "the daily compare lists both copies" not in cli
+    assert "each is listed on that one line" not in spec
+    for doc in (cli, spec):
+        assert "lists the dated copy" in doc
+        assert "listed the same way when latest/ folders are compared by hand" in doc
+
+
+def test_presence_is_read_among_the_files_the_glob_and_the_window_select(tmp_path, capsys):
+    """Pins the line's scope AS BUILT (#589 review; open for the architect in the ledger entry: presence read from the
+    whole side folder, or the line labelled with its scope). The line names presence among the files the compare
+    selects: a coverage file the --glob or the --since window leaves out reads `no` there and is counted on the tally
+    (not matched) or the header (settled) instead. The Action's flags (*.json, --since 0) select the whole folder."""
+    lap = {FIX: [GAME], COV: LAPTOP_COV, "coverage_2026-10-12.json": LAPTOP_COV}
+    rc, out = run(tmp_path, capsys, lap, {FIX: [GAME]}, "--glob", "fixtures*")
+    assert rc == ce.EXIT_CLEAN and ms_lines(out) == ["machine-state files: coverage laptop no / host no"]
+    assert "not matched by fixtures*: laptop 2, host 0 (e.g. coverage_2026-10-12.json, coverage_2026-10-19.json)" in out
+    la, ho = sides(tmp_path / "w", lap, {FIX: [GAME]})
+    assert ce.main([str(la), str(ho), "--today", "2026-10-25"]) == ce.EXIT_NO_COVERAGE
+    out = capsys.readouterr().out
+    assert ms_lines(out) == ["machine-state files: coverage laptop no / host no"] and "3 outside the window" in out
+    rc, out = run(tmp_path / "a", capsys, lap, {FIX: [GAME]})
+    assert rc == ce.EXIT_CLEAN and ms_lines(out) == ["machine-state files: coverage laptop yes / host no"]

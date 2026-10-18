@@ -844,6 +844,10 @@ venv/bin/python deploy/hosting/pull_backup.py --host sp-vps-1   # receipt: ✓ p
     `match_id`, which is machine-local. It prints rows present on one side
     only BY NAME, and compares fields only between matched rows.
   - Otherwise the divergence needs a BACKLOG entry.
+  - **Machine state (#592 RULED, ARCHITECT 2026-10-18, addendum 128 item 3):** the day's coverage file
+    (kind coverage: `coverage_<date>.json`, and `coverage.json` in latest/) is never compared and never a
+    divergence: the comparator lists it by presence on one line, `machine-state files: coverage laptop
+    yes|no / host yes|no`, and it is never counted toward or against criterion (a).
 - Only **laptop** exports go to the Cockpit this week (H0-17). Host
   exports are comparison-only.
 

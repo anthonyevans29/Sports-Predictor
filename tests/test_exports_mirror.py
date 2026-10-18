@@ -243,6 +243,47 @@ def test_zero_compared_is_no_coverage_never_clean(tmp_path):
     assert got["state"] == "error" and "NO COVERAGE" in got["desc"], got
 
 
+def test_the_shipped_action_lists_coverage_as_machine_state_never_divergent(tmp_path):
+    """#592 RULED (ARCHITECT 2026-10-18, addendum 128 item 3): "the compare treats kind `coverage` as "machine
+    state": listed by presence on each side (one side, both sides, neither), never compared for content, never
+    DIVERGENT [...] Dated and latest copies both travel". Both writers push one identical fixtures file; the laptop
+    alone, then both with different content, push coverage_<date>.json. Both copies travel (dated and latest), and
+    the SHIPPED tool in a clean checkout of the mirror (no sp_common, no exports_mirror) posts CLEAN each time."""
+    remote = _remote(tmp_path)
+    body = '[{"utc_date":"2026-10-03T23:00Z","home_team":"A","away_team":"B","p":0.5}]'
+    lap_cov = '{"kind": "coverage_v1", "now": "2026-10-03T12:00:00Z", "competitions": [{"groups": [{"state": "ahead"}]}]}'
+    host_cov = '{"kind": "coverage_v1", "now": "2026-10-03T18:40:00Z", "competitions": [{"groups": [{"state": "due"}]}]}'
+    host_ex = _exports(tmp_path / "host", [("fixtures_NHL_2026-10-03.json", TODAY, body)])
+    assert em.push("host", host_ex, "t", remote, tmp_path / "host_clone", today=TODAY)["pushed"]
+    lap_ex = _exports(tmp_path / "laptop", [("fixtures_NHL_2026-10-03.json", TODAY, body),
+                                            ("coverage_2026-10-03.json", TODAY, lap_cov)])
+    assert em.push("laptop", lap_ex, "t", remote, tmp_path / "laptop_clone", today=TODAY)["pushed"]
+    co, files = _tree(remote, tmp_path)
+    assert {"laptop/2026-10-03/coverage_2026-10-03.json", "laptop/latest/coverage.json"} <= set(files)
+    env = {k: v for k, v in os.environ.items() if k not in ("PYTHONPATH", "SP_WRITER_OF_RECORD")}
+
+    def cli(*args):
+        return subprocess.run([sys.executable, "tools/compare_exports.py", *args], cwd=co, env=env,
+                              capture_output=True, text=True)
+
+    r = cli("laptop/2026-10-03", "host/2026-10-03", "--since", "0")                       # one side
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "machine-state files: coverage laptop yes / host no" in r.stdout.splitlines()
+    assert "only on laptop" not in r.stdout and r.stdout.strip().endswith("VERDICT: CLEAN")
+    assert _run_action(co, tmp_path) == {"date": "2026-10-03", "state": "success", "desc": "CLEAN · 2026-10-03"}
+    host_ex2 = _exports(tmp_path / "host2", [("fixtures_NHL_2026-10-03.json", TODAY, body),
+                                             ("coverage_2026-10-03.json", TODAY, host_cov)])
+    assert em.push("host", host_ex2, "t", remote, tmp_path / "host_clone", today=TODAY)["pushed"]
+    co, files = _tree(remote, tmp_path)
+    assert {"host/2026-10-03/coverage_2026-10-03.json", "host/latest/coverage.json"} <= set(files)
+    for folder in ("2026-10-03", "latest"):                                              # both, content differs
+        r = cli(f"laptop/{folder}", f"host/{folder}", "--since", "0")
+        assert r.returncode == 0, r.stdout + r.stderr
+        assert "machine-state files: coverage laptop yes / host yes" in r.stdout.splitlines()
+        assert "✗" not in r.stdout and r.stdout.strip().endswith("VERDICT: CLEAN")
+    assert _run_action(co, tmp_path)["state"] == "success"
+
+
 def test_first_push_after_failed_attempts_is_not_nothing_changed(tmp_path):
     """ARCHITECT 2026-10-03 (host): the remote was set in host.env before the deploy key worked, so the chain
     hook's pushes COMMITTED in the working clone and failed to push. The hand-run "first" push then compared

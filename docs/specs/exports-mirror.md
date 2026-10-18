@@ -32,6 +32,11 @@ The Action compares the newest date that BOTH writers have pushed and posts comm
 `compare_exports`: success = clean, failure = DIVERGENT, pending = one side has not pushed that
 date yet. The full report is in the run's step summary.
 
+Machine state (#592 RULED, ARCHITECT 2026-10-18, addendum 128 item 3): "the compare treats kind `coverage` as "machine state": listed by presence on each side (one side, both sides, neither), never compared for content, never DIVERGENT, never counted toward or against criterion (a). Printed as its own line ("machine-state files: coverage laptop yes / host no")." The day's coverage
+file travels as every kind does, dated and latest (`<role>/<date>/coverage_<date>.json` and
+`<role>/latest/coverage.json`; option 3, the latest copy only, was declined: "the dated file is the day's
+record"), and the compare never opens either copy: each is listed on that one line, never a verdict.
+
 ## Operator setup (once)
 
 1. **GitHub (Anthony):** create the PRIVATE repo `anthonyevans29/Sports-Predictor-exports`, empty.

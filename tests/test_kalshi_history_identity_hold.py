@@ -7,7 +7,7 @@ of its own per test): 50546 = Game 3, played 2026-10-15; 50550 = played 2026-10-
 26OCT161800TBCLE settled 2026-10-18 03:20Z, Tampa Bay yes; 26OCT172000TBCLE settles after tonight's game (its result
 here is a placeholder: no test reads it)."""
 import sqlite3
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 import requests
@@ -55,7 +55,8 @@ def candles_at(kickoff, bid="0.45", ask="0.46", n=5):
 
 class Fake(KalshiAdapter):
     """The exchange as the tests write it: the cutoff, an empty historical list, the live settled list, the open list
-    and one candle reply per market (by ticker); `fail` answers a candle call with an HTTP status."""
+    and one candle reply per market (by ticker); `fail` answers a candle call with an HTTP status, raises an exception
+    given there (a transport error), or answers "no list" with a 200 that holds no candles list."""
 
     def __init__(self, settled=(), opened=(), candles=None, fail=None):
         super().__init__()
@@ -75,6 +76,10 @@ class Fake(KalshiAdapter):
         if path.endswith("/candlesticks"):
             t = path.rsplit("/", 2)[-2]
             if t in self.fail:
+                if isinstance(self.fail[t], Exception):
+                    raise self.fail[t]
+                if self.fail[t] == "no list":
+                    return {"ticker": t}
                 resp = requests.Response()
                 resp.status_code = self.fail[t]
                 raise requests.HTTPError(response=resp)
@@ -218,6 +223,42 @@ def test_an_earlier_event_still_open_holds_the_later_one_unsettled(alcs):
            f"{E17}-CLE, {E17}-TB" in out
     assert fake.open_calls() == [{"series_ticker": S, "status": "open", "limit": kh.PAGE_LIMIT}]
     assert all(not r["ticker"].startswith(E16) for r in run.rows)                     # an open market is never stored
+
+
+@pytest.mark.parametrize("days, why, binds", [
+    (10, "out of step", True),                    # the bound's edge: 10 days before binds
+    (11, "out of step", False),                   # 11 does not
+    (30, "out of step", False),                   # a regular-season rainout's shape, a month before: holds nothing now
+    (10, "unsettled", True),
+    (11, "unsettled", False),
+], ids=["out-of-step-10d-binds", "out-of-step-11d-not", "rainout-30d-not", "unsettled-10d-binds", "unsettled-11d-not"])
+def test_an_earlier_event_binds_only_within_ten_days_before(alcs, days, why, binds):
+    """Addendum 132 item 3(c), THE BOUND ON "EARLIER-DATED": "an earlier event of the pair binds only when its ticker
+    date is within 10 days before the event's date. A series never spans more than that (a seven-game series runs nine
+    days); a regular-season rainout in May would otherwise hold every later event of the pair for the season." The
+    earlier event here is a rainout's shape: its game was played the next day, so it is out of step on its own date
+    (or, the other half, it is still listed open). 26OCT161800TBCLE is in step (50547 on 10-16), so only the older
+    event can hold 26OCT172000TBCLE: at 10 days it binds, at 11 and at 30 it does not, and 26OCT172000TBCLE is placed by
+    date on 50550."""
+    seed({G2: (TB, CLE, K2, "finished")})
+    d0 = date(2026, 10, 17) - timedelta(days=days)
+    e0 = f"{S}-{d0:%y%b%d}".upper() + "1810TBCLE"
+    seed({50600 + days: (TB, CLE, datetime(d0.year, d0.month, d0.day, 23, 10) + timedelta(days=1), "finished")})
+    old = (event(e0, "", "2026-10-25T03:00:00Z", None, status="active") if why == "unsettled"
+           else event(e0, "yes", f"{d0 + timedelta(days=2)}T03:00:00Z", f"{d0 + timedelta(days=2)}T03:05:00Z"))
+    fake = Fake(settled=SETTLED15 + SETTLED16 + SETTLED17 + ([] if why == "unsettled" else old),
+                opened=old if why == "unsettled" else [])
+    run, out = go(fake, dry_run=True, since=date(2026, 10, 17))
+    got = {r["ticker"]: r for r in run.rows}
+    assert set(got) == {f"{E17}-TB", f"{E17}-CLE"}
+    if binds:
+        assert all((r["match_id"], r["side"]) == (None, None) and r["notes"].startswith(hold(e0, why))
+                   for r in got.values())
+        assert run.held_new == 2 and any(ln.startswith(f"  ⏸ {E17}: {hold(e0, why)} (") for ln in out)
+    else:
+        assert (got[f"{E17}-TB"]["match_id"], got[f"{E17}-TB"]["side"]) == (G4, "AWAY")
+        assert (got[f"{E17}-CLE"]["match_id"], got[f"{E17}-CLE"]["side"]) == (G4, "HOME")
+        assert run.held_new == 0 and not any(ln.startswith("  ⏸ ") for ln in out)
 
 
 def test_the_receipt_s_lines(alcs):
@@ -446,6 +487,39 @@ def test_a_new_clock_row_is_not_placed_on_a_side_a_date_placed_row_holds(alcs):
            "refused" in out
 
 
+E17B = f"{S}-26OCT172010TBCLE"                   # a second event of the pair dated 10-17 (20:10 ET): by date on 50550
+
+
+def test_a_stored_row_enters_the_claims_rule_by_its_stored_side_never_by_its_date(alcs):
+    """Addendum 132 item 3(b): "The in-run claims rule reads a STORED row by its stored (match_id, side), never by
+    re-placing it by date. ... Stored rows enter the claims rule as stored; only the run's new markets and the held rows
+    it places are placed by date." 26OCT172000TBCLE is placed by ruling on 50548 (X); its ticker date would place it on
+    50550 (Y). Run 2 lists it again beside two new events: 26OCT172010TBCLE, placed by date on Y, is placed there (the
+    stored row's date is not read, so it claims nothing on Y); 26OCT181708TBCLE, placed by date on X, is refused on the
+    sides the stored row holds as stored. The ruled rows are not moved; no side of any game carries two rows."""
+    _monday(alcs)
+    for sfx in ("TB", "CLE"):
+        assert place(f"{E17}-{sfx}", G5)[0]["written"]
+    seed({G2: (TB, CLE, K2, "finished")})        # 26OCT161800TBCLE in step on 10-16: nothing earlier holds the new events
+    before = rows()
+    fake = Fake(settled=SETTLED15 + SETTLED16 + SETTLED17 + SETTLED18
+                + event(E17B, "yes", "2026-10-18T03:30:00Z", "2026-10-18T03:35:00Z"),
+                candles={f"{E17B}-TB": candles_at(K4, "0.52", "0.54")})
+    run, out = go(fake, now=datetime(2026, 10, 20, 12, 0))
+    got = rows()
+    assert {k: v for k, v in _claims().items() if len(v) > 1} == {}
+    for sfx, side in (("TB", "AWAY"), ("CLE", "HOME")):
+        assert got[f"{E17}-{sfx}"] == before[f"{E17}-{sfx}"]                  # the ruled row, as stored
+        assert (got[f"{E17B}-{sfx}"]["match_id"], got[f"{E17B}-{sfx}"]["side"]) == (G4, side)      # Y: placed
+        assert (got[f"{E18}-{sfx}"]["match_id"], got[f"{E18}-{sfx}"]["side"]) == (None, None)      # X: refused
+        assert got[f"{E18}-{sfx}"]["notes"].startswith(f"refused by the matcher: {km.TWO_CLAIMS}")
+    assert got[f"{E17B}-TB"]["last_bid"] == 0.52
+    assert run.refused == {km.TWO_CLAIMS: 2}
+    assert f"  ✗ match {G5} AWAY: stored on {E17}-TB (nothing already placed is moved); {E18}-TB claims it too: " \
+           "refused" in out
+    assert not any(f"{E17B}-TB" in ln and "claim" in ln for ln in out)
+
+
 # ---- the claims rule on a date-only series: NCAA's Friday-dated twins (addendum 130 item 3(b)) ----------------------
 
 N16, N17 = "KXNCAAFGAME-26OCT16FLATEX", "KXNCAAFGAME-26OCT17FLATEX"     # the day-off twin; the own-date event
@@ -515,6 +589,25 @@ def test_a_date_only_side_a_ruled_row_holds_still_refuses(db):
     assert run.refused == {km.TWO_CLAIMS: 2}
     assert f"  ✗ match {NG} AWAY: stored on {N16}-FLA (nothing already placed is moved); {N17}-FLA claims it too: " \
            "refused" in out
+
+
+def test_a_date_only_stored_row_listed_again_still_refuses_its_side(db):
+    """The stored row read as stored (addendum 132 item 3(b)) keeps a date-only series as main has it where the two
+    agree: run 2 lists both twins (no window), the stored day-off twin 26OCT16FLATEX on the Saturday game's sides, so
+    the own-date event 26OCT17FLATEX, placed by date there, is refused (main refused it by the twin's date placement,
+    the same game) and the stored twin is not moved."""
+    from datetime import date
+    seed({NG: ("Florida Gators", "Texas Longhorns", NK, "finished")}, code="NCAA", sport="NFL")
+    ncaa_go(Fake(settled=ncaa(N16) + ncaa(N17)), until=date(2026, 10, 16))
+    before = rows()
+    run, out = ncaa_go(Fake(settled=ncaa(N16) + ncaa(N17)))
+    got = rows()
+    assert {k: v for k, v in _claims().items() if len(v) > 1} == {}
+    for sfx in ("FLA", "TEX"):
+        assert got[f"{N16}-{sfx}"] == before[f"{N16}-{sfx}"]
+        assert (got[f"{N17}-{sfx}"]["match_id"], got[f"{N17}-{sfx}"]["side"]) == (None, None)
+        assert got[f"{N17}-{sfx}"]["notes"].startswith(f"refused by the matcher: {km.TWO_CLAIMS}")
+    assert run.refused == {km.TWO_CLAIMS: 2} and run.already == 2
 
 
 def test_a_row_refused_for_another_reason_is_not_read_again(alcs):
@@ -606,15 +699,50 @@ def test_the_later_run_holds_26oct172000_still_and_the_third_use_places_it_on_50
     assert rows() == got and run.already == 6
 
 
-def test_a_candle_failure_keeps_the_placement_and_says_so(alcs):
+CANDLES16 = f"series/{S}/markets/{E16}-TB/candlesticks"
+
+
+def refused_for_now(why, retries=0):
+    """place-held's one line on a candle call that fails for now (addendum 132 item 3(a))."""
+    return (f"REFUSED: the candle call {CANDLES16} failed ({why}; 429 retries: {retries}): nothing is written (the "
+            "quote lands with the placement or the placement does not land, addendum 132 item 3(a)); run it again")
+
+
+@pytest.mark.parametrize("fail, why, n", [
+    (503, "status 503", 1),                                                            # a 5xx
+    (408, "status 408", 1),                                                            # a 408
+    (requests.ConnectionError("connection reset"), "ConnectionError: connection reset", 1),     # a transport error
+    (429, "status 429", 3),                                                            # a third 429
+    ("no list", "no 'candlesticks' list", 1),                                          # an answer with no list
+], ids=["5xx", "408", "transport", "third-429", "no-list"])
+def test_a_candle_call_that_fails_for_now_writes_nothing(alcs, waits, fail, why, n):
+    """Addendum 132 item 3(a): "`place-held` after a candle call that fails (a 5xx, a 408, a transport error, a third
+    429, an answer with no list): WRITE NOTHING, say why, exit 2 — the operator re-runs. ... "fetches its candles then"
+    means the quote lands with the placement or the placement does not land. (The ingest's own rule for the same
+    failures is store-nothing; the command follows it.)" The row stays exactly as stored, and the refusal names the
+    call and the failure; a dry run refuses the same."""
+    before = _monday(alcs)
+    fake = Fake(fail={f"{E16}-TB": fail})
+    with pytest.raises(ValueError) as e:
+        place(f"{E16}-TB", G4, fake=fake)
+    assert str(e.value) == refused_for_now(why, n - 1)
+    assert rows() == before and [p for p, _ in fake.calls] == [CANDLES16] * n and waits == [2, 5][:n - 1]
+    with pytest.raises(ValueError) as dry:
+        place(f"{E16}-TB", G4, fake=Fake(fail={f"{E16}-TB": fail}), dry_run=True)
+    assert str(dry.value) == str(e.value) and rows() == before
+
+
+def test_a_candle_call_refused_for_good_keeps_the_placement_with_no_quote(alcs):
+    """Not in 132 item 3(a)'s list: a 4xx other than 408 / 429 (the exchange refuses for good, _refused_for_good). The
+    ingest stores such a market with a null quote and the status in notes; place-held keeps that, as built."""
     _monday(alcs)
-    res, out = place(f"{E16}-TB", G4, fake=Fake(fail={f"{E16}-TB": 503}))
+    res, out = place(f"{E16}-TB", G4, fake=Fake(fail={f"{E16}-TB": 404}))
     r = rows()[f"{E16}-TB"]
-    assert (r["match_id"], r["side"], r["last_ts"], r["last_bid"]) == (G4, "AWAY", None, None)
-    assert r["notes"].endswith(f"; placed by ruling: {RULING}; candle call failed at placement (status 503): no quote; "
+    assert (r["match_id"], r["side"], r["last_ts"], r["last_bid"]) == (G4, "AWAY", None, None) and res["written"]
+    assert r["notes"].endswith(f"; placed by ruling: {RULING}; candle call failed at placement (status 404): no quote; "
                                "the placement stands")
-    assert any(ln.startswith(f"  ✗ candles: series/{S}/markets/{E16}-TB/candlesticks failed (status 503): the "
-                             "placement stands with no quote") for ln in out)
+    assert any(ln.startswith(f"  ✗ candles: {CANDLES16} failed (status 404): the placement stands with no quote")
+               for ln in out)
 
 
 def test_a_429_at_placement_is_asked_again(alcs, waits):
@@ -795,6 +923,22 @@ def test_the_command_needs_a_backup_to_write_and_takes_one(alcs, tmp_path, monke
     assert rows()[f"{E16}-TB"]["match_id"] == G4
     again = CliRunner().invoke(cli.cli, args + ["--backup", good])
     assert again.exit_code == 2 and "is already placed on match" in again.output
+
+
+def test_the_command_exits_2_on_a_candle_call_that_fails_for_now(alcs, tmp_path, monkeypatch):
+    """132 item 3(a) at the command: a 5xx on the candle call, dry or with a verified backup, ends in the one REFUSED
+    line and exit 2, and the row is as stored: the operator re-runs."""
+    import cli
+    before = _monday(alcs)
+    fake = Fake(fail={f"{E16}-TB": 503})
+    monkeypatch.setattr(KalshiAdapter, "_get", lambda self, path, params=None: fake._get(path, params))
+    args = ["kalshi-history", "place-held", "--ticker", f"{E16}-TB", "--match-id", str(G4), "--ruling", RULING]
+    good = _backup(str(alcs), str(tmp_path / "good.backup"))
+    for extra in (["--dry-run"], ["--backup", good]):
+        res = CliRunner().invoke(cli.cli, args + extra)
+        assert res.exit_code == 2, res.output
+        assert res.output.splitlines()[-1] == refused_for_now("status 503")
+        assert rows() == before
 
 
 def test_the_pull_keeps_its_invocation_and_its_options_stay_off_the_subcommand(alcs, monkeypatch):

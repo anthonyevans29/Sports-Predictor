@@ -1256,11 +1256,12 @@ class KalshiSettledMarket(Base):
     Created by migrate_kalshi_settled_markets.py.
 
     THE IDENTITY HOLD (ARCHITECT 2026-10-18, addendum 127 item 3(c)): on a clock series a market can be HELD, kept
-    with match_id null and "identity hold: earlier event <ticker> of the pair unsettled/out of step" in notes. "The one
-    exception to 'inserted once'": a later run places a held row in place when its hold clears (match_id, side,
-    source, fetched_at, the quote; notes appended). The ruled re-place, `kalshi-history place-held` (addendum 130 item
-    2(c)), writes the same columns on one row with match_id null and a hold or refusal note. Nothing writes a row that
-    has a match_id: nothing already placed is moved.
+    with match_id null and "identity hold: earlier event <ticker> of the pair unsettled/out of step" in notes (an
+    earlier event dated within 10 days before it, addendum 132 item 3(c)). "The one exception to 'inserted once'": a
+    later run places a held row in place when its hold clears (match_id, side, source, fetched_at, the quote; notes
+    appended). The ruled re-place, `kalshi-history place-held` (addendum 130 item 2(c)), writes the same columns on
+    one row with match_id null and a hold or refusal note, and nothing when its candle call fails for now (addendum
+    132 item 3(a)). Nothing writes a row that has a match_id: nothing already placed is moved.
     """
 
     __tablename__ = "kalshi_settled_markets"

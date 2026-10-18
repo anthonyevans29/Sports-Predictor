@@ -7982,8 +7982,10 @@ def kalshi_history_place_held_cmd(ticker, match_id, ruling, backup_path, dry_run
     command, never a guess by the ingest." Refuses unless the row exists with match_id null and a hold or refusal
     note, the match exists in the series' own competition, its two teams are the event's two names one each, the
     side can be told (the market's yes team against the match's home and away), and no other row of the series holds
-    that side of that match. The candles are read on the match's kickoff by the ingest's own call; a candle failure
-    leaves the placement, with a null quote, and says so. Prints the row before and after. Writes that one row of
+    that side of that match. The candles are read on the match's kickoff by the ingest's own call; a candle call that
+    fails for now (a 5xx, a 408, a transport error, a third 429, an answer with no list) writes nothing and exits 2
+    (addendum 132 item 3(a): run it again); one the exchange refuses for good (a 4xx other than 408 / 429) leaves the
+    placement, with a null quote, and says so. Prints the row before and after. Writes that one row of
     kalshi_settled_markets and nothing else; needs --backup unless --dry-run."""
     from src.db.schema import KalshiSettledMarket as _K
     from src.ingestion.kalshi_history import place_held

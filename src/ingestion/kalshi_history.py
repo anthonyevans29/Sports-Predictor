@@ -30,20 +30,24 @@ How it reads, so the receipt can be checked against it:
   events, as one place() call reads it (two markets claiming one side of one game are both refused), and across the
   stored rows of the series: a market the run would write (a new row, or a stored held row whose hold cleared)
   placed on a side a stored row holds under another ticker is refused under the same reason, and the stored row is
-  not moved (place_held refuses the same: two settled markets are never stored on one side of one game). That read
-  of the stored rows covers a market whose ticker carries a clock (the identity hold's series; KXMLBGAME of the
-  five), and, on any series, a side a row placed by ruling holds (its notes carry RULED_NOTE, "placed by ruling: ").
-  Otherwise a date-only series (NFL, NHL, NCAA, the soccer series) is placed as main places it, run by run: a
-  day-off twin stored by one run (NCAA's Friday-dated 26OCT16 events) and its own-date event placed on the same
-  sides by a later run both stand; that case is the NCAA date-keyed tiebreak's (addendum 130 item 3(b)). Four
-  refusals of the live sync are
-  conditions of an open market and cannot hold for a settled one, so they are not read: in play (every settled game
-  has started: `now` is set before any game), no price and the spread guard (a settled market's quote is its
-  candles', read below), and the run's window (the window here is --since/--until, applied above). Each event is
-  placed alone, so "behind an event out of step" (a rule between open events) never fires; the identity hold (below)
-  is this path's own rule for a clock series. Every other refusal is the matcher's own, under its own reason. A
-  refused market is stored with match_id and side null and the reason in notes, never guessed, and the refusals are
-  listed at the end of the run by reason, as the replay lists them.
+  not moved (place_held refuses the same: two settled markets are never stored on one side of one game). A stored
+  row is read by its stored (match_id, side), never placed by date again (ARCHITECT 2026-10-18, addendum 132 item
+  3(b): "Stored rows enter the claims rule as stored; only the run's new markets and the held rows it places are
+  placed by date"): a stored row listed in the run is placed with its event (so the event is placed on all its
+  legs), but its date placement is read by nothing. That read of the stored rows covers a market whose ticker
+  carries a clock (the identity hold's series; KXMLBGAME of the five), a side a row placed by ruling holds (its
+  notes carry RULED_NOTE, "placed by ruling: "), and, on any series, a side a stored row listed in range holds (the
+  rows main's claims rule read across the events, there by their date). Otherwise a date-only series (NFL, NHL,
+  NCAA, the soccer series) is placed as main places it, run by run: a day-off twin stored by one run (NCAA's
+  Friday-dated 26OCT16 events) and its own-date event placed on the same sides by a later run that does not list
+  the twin both stand; that case is the NCAA date-keyed tiebreak's (addendum 130 item 3(b)). Four refusals of the
+  live sync are conditions of an open market and cannot hold for a settled one, so they are not read: in play (every
+  settled game has started: `now` is set before any game), no price and the spread guard (a settled market's quote
+  is its candles', read below), and the run's window (the window here is --since/--until, applied above). Each event
+  is placed alone, so "behind an event out of step" (a rule between open events) never fires; the identity hold
+  (below) is this path's own rule for a clock series. Every other refusal is the matcher's own, under its own
+  reason. A refused market is stored with match_id and side null and the reason in notes, never guessed, and the
+  refusals are listed at the end of the run by reason, as the replay lists them.
 - Kickoff for the window: the stored game's kickoff when matched; when unmatched, the ticker's date-and-time when the
   ticker carries a clock (the MLB shape); else no candles are fetched and notes says so. Candles:
   /historical/markets/{ticker}/candlesticks for a historical market, /series/{series}/markets/{ticker}/candlesticks for
@@ -84,9 +88,17 @@ How it reads, so the receipt can be checked against it:
     only, never placed or stored, and a cut in that list stores nothing, as for the others. An event listed settled
     (in either list, or stored) is settled. An event between close and settlement (status closed) is in no list read,
     so it holds nothing under either half (out of step reads only the events the run knows of), and a later event of
-    its pair is placed by date: open for the architect (the list's status for a closed market is in no kept payload).
+    its pair is placed by date. RULED (addendum 132 item 4(e)): listing the series' closed markets too, for the hold
+    only, is its OWN small follow-up PR, not a hold on #598 (Issue #603; the list's status for a closed market is in
+    no kept payload).
   - Earlier-dated events are every event of the pair the run knows of: both settled lists whole (not only the
-    markets inside --since/--until), the stored rows of the series, and the open list.
+    markets inside --since/--until), the stored rows of the series, and the open list. THE BOUND (ARCHITECT
+    2026-10-18 13:55 ET, addendum 132 item 3(c)), verbatim: "an earlier event of the pair binds only when its ticker
+    date is within 10 days before the event's date. A series never spans more than that (a seven-game series runs
+    nine days); a regular-season rainout in May would otherwise hold every later event of the pair for the season.
+    Inside the bound, held rows that the hold never releases are placed by ruling — that is the cost this season;
+    #478's 2027 lane (the series-game-number key, with seriesGameNumber stored from now) retires the manual step"
+    (HOLD_BOUND_DAYS: 10 days before binds, 11 does not).
   - The hold, like the matcher's "behind" (addendum 55 item 3), is for a market that would otherwise have been placed:
     a market refused for a reason of its own keeps that reason. A held market claims no game (the claims rule reads
     the rest). Its notes carry the ruled reason; no candles are fetched for it (the ticker's clock identifies nothing
@@ -170,6 +182,9 @@ HOLD_NOTE = "identity hold: earlier event {event} of the pair {why}"
 HOLD_UNSETTLED, HOLD_OUT_OF_STEP = "unsettled", "out of step"
 _HOLD_RX = re.compile(r"(?:^|; )identity hold: earlier event (\S+) of the pair (unsettled|out of step)(?=;|$)")
 HOLD_NO_CANDLES = "no candles fetched: identity hold (its candles are read when it is placed)"
+# THE BOUND ON "EARLIER-DATED" (ARCHITECT 2026-10-18 13:55 ET, addendum 132 item 3(c)): "an earlier event of the pair
+# binds only when its ticker date is within 10 days before the event's date" (0 < days <= 10 binds; 11 does not)
+HOLD_BOUND_DAYS = 10
 HOLD_MARK = "  ⏸ "                                       # a held event's console line
 # what placing a stored held row writes (the one exception to "inserted once"); nothing else of the row moves
 REPLACE_COLS = ("match_id", "side", "source", "fetched_at", "last_ts", "last_bid", "last_ask", "last_mid", "candles_6h",
@@ -441,10 +456,11 @@ def _event_key(mks: list[dict], is_tie) -> tuple | None:
 def identity_holds(targets, known: dict, unsettled: set, games: list, is_tie=None) -> dict:
     """THE IDENTITY HOLD (addendum 127 item 3(c), the module docstring): {event: (earlier event, why, words)} for each
     event of `targets` (event tickers) that has an earlier-dated event of the same two names, among `known` ({event:
-    its markets}: the settled lists whole, the stored rows, the open list), that is unsettled (in `unsettled`, events
-    the exchange lists open) or out of step on its own date. The earliest such event is named. Out of step is the
-    matcher's own rule, read by kalshi_match.behind_out_of_step with `now` before every game: an earlier event E0 is
-    out of step exactly when behind_out_of_step marks a later event of its pair behind it in a run of the two alone.
+    its markets}: the settled lists whole, the stored rows, the open list), dated within HOLD_BOUND_DAYS before it
+    (addendum 132 item 3(c)), that is unsettled (in `unsettled`, events the exchange lists open) or out of step on its
+    own date. The earliest such event is named. Out of step is the matcher's own rule, read by
+    kalshi_match.behind_out_of_step with `now` before every game: an earlier event E0 is out of step exactly when
+    behind_out_of_step marks a later event of its pair behind it in a run of the two alone.
     No network and no database of its own: `games` is the stored games of the earlier events' days, or a loader
     called once with the earlier events' markets (kalshi_sync.stored_games' span)."""
     is_tie = is_tie or (lambda m: False)
@@ -482,6 +498,8 @@ def identity_holds(targets, known: dict, unsettled: set, games: list, is_tie=Non
         for d0, e0 in by_pair.get(pair, []):
             if d0 >= day:
                 break
+            if (day - d0).days > HOLD_BOUND_DAYS:
+                continue                 # more than 10 days before: it binds nothing (addendum 132 item 3(c))
             if e0 in unsettled:
                 held[ev] = (e0, HOLD_UNSETTLED, "the exchange lists it open")
                 break
@@ -492,12 +510,16 @@ def identity_holds(targets, known: dict, unsettled: set, games: list, is_tie=Non
     return held
 
 
-def place_events(markets: list[dict], games: list, is_tie, holds: dict | None = None) -> tuple[dict, dict, list]:
+def place_events(markets: list[dict], games: list, is_tie, holds: dict | None = None,
+                 stored: frozenset = frozenset()) -> tuple[dict, dict, list]:
     """{ticker: (game id, kickoff, side)} placed, {ticker: reason} refused, the matcher's lines. Each event is placed
     alone, on the stored games of its own days (kalshi_match.day_span, as kalshi_sync.stored_games loads them).
     `holds` ({event: (earlier event, why, words)}, identity_holds): an event held there keeps no placement: each market
     of it that the matcher placed is refused under the hold's reason, before the claims rule reads (a market the
-    matcher refused keeps its own reason, as for "behind", addendum 55 item 3); its line is in the lines."""
+    matcher refused keeps its own reason, as for "behind", addendum 55 item 3); its line is in the lines.
+    `stored` (the tickers of stored rows, the held rows the run places excepted): placed with their event, so the event
+    is placed on all its legs, but never placed by date themselves (ARCHITECT 2026-10-18, addendum 132 item 3(b)): they
+    are left out of `placed` and of the claims rule here, and run_history reads them by their stored (match_id, side)."""
     holds = holds or {}
     by_event: dict[str, list[dict]] = {}
     for m in markets:
@@ -514,7 +536,8 @@ def place_events(markets: list[dict], games: list, is_tie, holds: dict | None = 
             if ev in holds:
                 held_here.append(mk.get(KEYS["ticker"]))
                 continue
-            placed[mk.get(KEYS["ticker"])] = (mid, by_id[mid].utc_date, side)
+            if mk.get(KEYS["ticker"]) not in stored:        # a stored row is read as stored (addendum 132 item 3(b))
+                placed[mk.get(KEYS["ticker"])] = (mid, by_id[mid].utc_date, side)
         why.update(res.why)
         lines.extend(res.lines)
         if held_here:
@@ -703,14 +726,18 @@ def run_history(series: str, *, since: date | None = None, until: date | None = 
                 holds = identity_holds(targets, known, open_evs,
                                        lambda mks: stored_games(rs, [comp_id], mks), is_tie)
             games = stored_games(rs, [comp_id], [m for _, m in in_range])
-            placed, why, lines = place_events([m for _, m in in_range], games, is_tie, holds)
-            # the claims rule read across the stored rows too: a market this run would write (a new row, or a stored
-            # held row whose hold cleared) placed on a side a stored row of the series holds under another ticker is
-            # refused, under the matcher's reason, and the stored row is not moved (place_held refuses the same: two
-            # settled markets are never stored on one side of one game). Its scope: a market whose ticker carries a
-            # clock (the identity hold's series), or a side a row placed by ruling holds (RULED_NOTE). A date-only
-            # series' date placements are read as main reads them: a day-off twin across runs is the NCAA tiebreak's
-            # (addendum 130 item 3(b))
+            # a stored row listed in range enters the claims rule as stored, never placed by date (addendum 132 item
+            # 3(b)); only the run's new markets and the held rows it places are placed by date
+            listed = ({m.get(KEYS["ticker"]) for _, m in in_range} & stored) - set(held_stored)
+            placed, why, lines = place_events([m for _, m in in_range], games, is_tie, holds, frozenset(listed))
+            # the claims rule read across the stored rows too, each by its stored (match_id, side): a market this run
+            # would write (a new row, or a stored held row whose hold cleared) placed on a side a stored row of the
+            # series holds under another ticker is refused, under the matcher's reason, and the stored row is not moved
+            # (place_held refuses the same: two settled markets are never stored on one side of one game). Its scope: a
+            # market whose ticker carries a clock (the identity hold's series), a side a row placed by ruling holds
+            # (RULED_NOTE), or a side a stored row listed in range holds (the rows main's claims rule read across the
+            # events, there by their date). A date-only series' other stored rows are read as main reads them: a
+            # day-off twin across runs is the NCAA tiebreak's (addendum 130 item 3(b))
             taken: dict[tuple, set] = {}
             ruled = set()
             for t, _, _, mid, notes, side in mine:
@@ -721,7 +748,7 @@ def run_history(series: str, *, since: date | None = None, until: date | None = 
             clock = {m.get(KEYS["ticker"]) for _, m in in_range if km.ticker_stamp(m)[1] is not None}
             for t, (mid, _, side) in list(placed.items()):
                 others = taken.get((mid, side), set()) - {t}
-                if others and (t not in stored or t in held_stored) and (t in clock or others & ruled):
+                if others and (t not in stored or t in held_stored) and (t in clock or others & (ruled | listed)):
                     del placed[t]
                     why[t] = km.TWO_CLAIMS
                     run.claimed_by[t] = (f"{mid} {side}", sorted(others))
@@ -906,13 +933,18 @@ def place_held(ticker: str, match_id: int, ruling: str, *, dry_run: bool = False
     yes_sub_title) fit the match's two teams one each (kalshi_match.fit, the matcher's own fit); the side can be told
     (the market's yes team, yes_sub_title, against the fit's home name; a Tie leg is DRAW); and no other stored row of
     the series already holds that side of that match. Then the candles, on the match's stored kickoff, by the ingest's
-    own call (candle_call; a 429 is asked again as the ingest asks it): the quote is the candles' (window_stats); a
-    candle call that fails, or a window that cannot be read, leaves the placement with a null quote and says so in
-    notes and on the console (the quote stored before, read on the ticker's clock, is not this kickoff's). Notes: the
-    stored notes, then "placed by ruling: <ruling>", then what the candles said. fetched_at becomes the placement's
-    time. `guard` (the CLI's backup check) is called once every refusal has been read, before the candle call, and
-    never under dry_run. dry_run makes every read, the candle call included, prints what would be written, writes
-    nothing. Returns {"before": row, "after": row, "written": bool}."""
+    own call (candle_call; a 429 is asked again as the ingest asks it): the quote is the candles' (window_stats). A
+    candle call that fails for now (a 5xx, a 408, a transport error, a third 429, an answer with no list) writes
+    nothing and refuses, naming the call and the failure (ARCHITECT 2026-10-18, addendum 132 item 3(a): ""fetches its
+    candles then" means the quote lands with the placement or the placement does not land"; the operator re-runs). A
+    candle call the exchange refuses for good (a 4xx other than 408 / 429, _refused_for_good: the ingest stores that
+    market with a null quote and the status in notes), or a window that cannot be read, leaves the placement with a
+    null quote and says so in notes and on the console (the quote stored before, read on the ticker's clock, is not
+    this kickoff's). Notes: the stored notes, then "placed by ruling: <ruling>", then what the candles said. fetched_at
+    becomes the placement's time. `guard` (the CLI's backup check) is called once every refusal has been read, before
+    the candle call, and never under dry_run. dry_run makes every read, the candle call included, prints what would be
+    written, writes nothing (and refuses as the write would on a candle call that fails for now). Returns {"before":
+    row, "after": row, "written": bool}."""
     from sqlalchemy import inspect, select
 
     from src.adapters.kalshi import KalshiAdapter
@@ -1010,6 +1042,12 @@ def place_held(ticker: str, match_id: int, ruling: str, *, dry_run: bool = False
         candles = data.get(KEYS["candles"]) if data else None
         if not isinstance(candles, list):
             why = why or f"no '{KEYS['candles']}' list"
+            if not _refused_for_good(why):
+                # a failure for now (a 5xx, a 408, a transport error, a third 429, an answer with no list) writes
+                # nothing (ARCHITECT 2026-10-18, addendum 132 item 3(a)), as the ingest stores nothing on it
+                raise ValueError(f"REFUSED: the candle call {path} failed ({why}; 429 retries: {calls.retries_429}): "
+                                 "nothing is written (the quote lands with the placement or the placement does not "
+                                 "land, addendum 132 item 3(a)); run it again")
             cnote = f"candle call failed at placement ({why}): no quote; the placement stands"
             echo(f"  ✗ candles: {path} failed ({why}): the placement stands with no quote "
                  f"(429 retries: {calls.retries_429})")

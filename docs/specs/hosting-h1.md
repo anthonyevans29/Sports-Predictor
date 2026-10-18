@@ -692,13 +692,15 @@ sudo systemctl enable --now sp-mlb-history.timer && echo sp-mlb-history.timer | 
 
 **T9. TERMINAL (host): the full-season competition list (H0-12).**
 Generate it from the DB (read-only); never type it from memory. The command writes the list to a temp file, prints
-it, then installs it over the list (owner root, group sp, mode 0640, as `install.sh` installs the example):
+it, then installs it over the list (owner root, group sp, mode 0640, as `install.sh` installs the example). It runs
+in a subshell whose EXIT trap removes the temp file, so the block's exit status is the failing step's when the query,
+the print or the install fails (the list then stays as it was), and 0 only when the list was installed:
 ```
-t=$(mktemp) && sqlite3 -readonly /opt/sports-predictor/data/sports.db \
+( t=$(mktemp) && trap 'rm -f "$t"' EXIT && sqlite3 -readonly /opt/sports-predictor/data/sports.db \
  "SELECT c.code || '|' || m.season FROM matches m JOIN competitions c ON c.id = m.competition_id
   WHERE m.utc_date BETWEEN datetime('now','-30 days') AND datetime('now','+30 days') AND c.code NOT LIKE 'MLB%'
   GROUP BY c.code, m.season ORDER BY c.code;" > "$t" \
- && cat "$t" && sudo install -o root -g sp -m 0640 "$t" /etc/sports-predictor/fullseason.list; rm -f "$t"
+ && cat "$t" && sudo install -o root -g sp -m 0640 "$t" /etc/sports-predictor/fullseason.list )
 ```
 Paste the list as the receipt. Delete any line you do not want synced
 weekly. If the list is missing or empty, the chain fails loudly.

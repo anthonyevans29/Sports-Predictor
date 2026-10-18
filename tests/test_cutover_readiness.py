@@ -406,6 +406,17 @@ def test_t9_hosting_h1_block_installs_over_the_list_and_a_rerun_never_doubles(tm
         assert r.stdout.splitlines() == ["NFL|2026", "PL|2026/27"]    # printed: the receipt
         assert lst.read_text().splitlines() == ["NFL|2026", "PL|2026/27"]
     assert sorted(p.name for p in tmp_path.iterdir()) == ["bin", "fullseason.list", "sports.db"]
+    # a failing step fails the block (before: `; rm -f "$t"` made every run exit 0), the list stays as it was, and the
+    # temp file is still removed (the subshell's EXIT trap)
+    good = lst.read_text()
+    for name, text in (("install", "#!/bin/sh\nexit 7\n"), ("sqlite3", "#!/bin/sh\nexit 5\n")):
+        keep = (bin_ / name).read_text()
+        (bin_ / name).write_text(text)
+        r = subprocess.run(["bash", "-c", script], capture_output=True, text=True, env=env, timeout=60)
+        (bin_ / name).write_text(keep)
+        assert r.returncode == (7 if name == "install" else 5), (name, r.returncode, r.stderr)
+        assert lst.read_text() == good
+        assert sorted(p.name for p in tmp_path.iterdir()) == ["bin", "fullseason.list", "sports.db"]
     assert "tee " not in block and block.count("/etc/sports-predictor/fullseason.list") == 1
     inst = [ln for ln in (ROOT / "deploy" / "hosting" / "install.sh").read_text().splitlines()
             if "etc/fullseason.list.example" in ln]

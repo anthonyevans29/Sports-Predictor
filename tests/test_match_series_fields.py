@@ -100,8 +100,10 @@ def test_a_shape_it_does_not_read_is_none_never_guessed():
     from src.adapters.mlb_stats_api import series_fields
     assert series_fields({"seriesGameNumber": "5", "gamesInSeries": " 7 ", "seriesDescription": "  World Series ",
                           "rescheduledFrom": "2026-10-16T20:00:00-04:00"}) == {
-        "series_game_number": 5, "games_in_series": 7, "series_description": "World Series",
+        "series_game_number": None, "games_in_series": None,              # a number is never read from text
+        "series_description": "  World Series ",                          # a text is stored as given, never trimmed
         "rescheduled_from": "2026-10-17T00:00:00Z"}                       # an offset is read as its UTC time
+    assert series_fields({"rescheduledFrom": " 2026-10-17T00:00:00Z "})["rescheduled_from"] is None
     assert series_fields({"rescheduledFrom": "2026-10-17T00:00Z"})["rescheduled_from"] == "2026-10-17T00:00:00Z"
     for bad in ({"seriesGameNumber": True, "gamesInSeries": 7.0, "seriesDescription": "   ",
                  "rescheduledFrom": "2026-10-17T00:00:00"},               # no zone: not read as UTC

@@ -71,28 +71,24 @@ _PREGAME_STATES = frozenset({"S", "P", "PW"})
 # so the reconciliation below has a receipt: the laptop's statsapi sync stores `seriesGameNumber`, `gamesInSeries`,
 # `seriesDescription` and `rescheduledFrom` on the match row (additive columns by the unmapped pattern, like #588's;
 # migration by hand after the backup). Code: one small PR, data only, no reader changes its behaviour.")
-# Each game's own schedule entry, field by field; a field the entry does not give, or gives in a shape this does not
-# read (a number that is not a whole number, an empty text, a time with no zone), is None: never filled from another
-# game or guessed (law 4). rescheduledFrom is stored as ISO-8601 UTC with a Z, "%Y-%m-%dT%H:%M:%SZ".
+# Each game's own schedule entry, field by field, read as the entry gives it: a number is never read from text and a
+# text is never trimmed. A field the entry does not give, or gives in a shape this does not read (a number given as
+# text or as a decimal, a true/false, an empty or blank text, a time with no zone or with spaces around it), is None:
+# never filled from another game or guessed (law 4). rescheduledFrom is stored as ISO-8601 UTC with a Z,
+# "%Y-%m-%dT%H:%M:%SZ".
 def _whole(v) -> int | None:
-    if isinstance(v, bool):
-        return None
-    if isinstance(v, int):
-        return v
-    if isinstance(v, str) and v.strip().isascii() and v.strip().isdigit():
-        return int(v.strip())
-    return None
+    return v if isinstance(v, int) and not isinstance(v, bool) else None
 
 
 def _text(v) -> str | None:
-    return v.strip() if isinstance(v, str) and v.strip() else None
+    return v if isinstance(v, str) and v.strip() else None
 
 
 def _iso_z(v) -> str | None:
-    if not isinstance(v, str) or not v.strip():
+    if not isinstance(v, str) or not v:
         return None
     try:
-        t = datetime.fromisoformat(v.strip().replace("Z", "+00:00"))
+        t = datetime.fromisoformat(v.replace("Z", "+00:00"))
     except ValueError:
         return None
     if t.tzinfo is None:                                    # a time with no zone is not read as UTC

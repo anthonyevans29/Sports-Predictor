@@ -874,11 +874,13 @@ def test_the_slate_line_reads_the_watchs_slate_receipts(env):
     make_db(env, NFL_DAY, NFL_ROWS)
     gap = ["NFL: 2 GAMES, ROWS 2, NO SLATE FILE"]
     receipt(kind="slate_miss", family="NFL", date="2026-10-18", reason="the chain lock was held")
-    receipt(kind="slate", family="NFL", date="2026-10-18", exit=0, held="closing NFL 09:30 ET (T-35 08:55 ET) is "
-            "inside the 15-minute guard")
+    receipt(kind="slate", family="NFL", date="2026-10-18", exit=0, queued_at="2026-10-18T12:41:00Z",
+            held="closing NFL 09:30 ET (T-35 08:55 ET) is inside the 15-minute guard")
     receipt(kind="slate", family="NFL", date="2026-10-17", attempt=1, exit=1, failed="step 1")     # another day
+    # the day's newest slate receipt is the hold: the line says so (the slate waits for a closing)
     assert _nfl_slate_line() == ("NFL SLATE · NO SLATE FILE — slate run due 07:00 ET (missed (the chain lock was "
-                                 "held): the watch keeps trying)", gap)
+                                 "held): the watch keeps trying; held since 08:41 ET (closing NFL 09:30 ET (T-35 08:55 "
+                                 "ET) is inside the 15-minute guard): the slate runs after it)", gap)
     receipt(kind="slate", family="NFL", date="2026-10-18", attempt=1, exit=1, failed="step 6")
     receipt(kind="slate", family="NFL", date="2026-10-18", exit=0, superseded=True, why="1 attempts")
     assert _nfl_slate_line() == ("NFL SLATE · NO SLATE FILE — slate run due 07:00 ET (attempt 1 of 3 failed (step 6): "
@@ -908,6 +910,12 @@ def test_a_successful_slate_no_file_holds_every_game_names_the_block(env, monkey
         ["NFL: 2 GAMES, ROWS 2, NO SLATE FILE"])
     c.receipts_path().unlink()
     receipt(kind="slate_miss", family="NFL", date="2026-10-18", reason=cl.SLATE_ALL_STARTED)
+    # 602 (13:00 ET) is still unstarted at 10:30 ET (re-dated after the miss): the watch decides from the schedule, not
+    # from the miss, and slates it on its next tick, so the line keeps the due time and says the miss
+    assert _nfl_slate_line()[0] == ("NFL SLATE · NO SLATE FILE — slate run due 07:00 ET (missed (every game of the day "
+                                    "had started): the watch keeps trying)")
+    assert not cm.coverage(datetime(2026, 10, 18).date(), utc("2026-10-18 14:30"))["competitions"][0]["slate"]["done"]
+    monkeypatch.setattr(cl, "clock", lambda: utc("2026-10-18 17:30"))            # 13:30 ET: every game started
     assert _nfl_slate_line()[0] == ("NFL SLATE · NO SLATE FILE — run block block_1018_nfl_slate.txt (missed: every game "
                                     "of the day had started: the watch runs it no more)")
 

@@ -644,13 +644,144 @@ def test_the_closing_ahead_and_the_guard(box, monkeypatch):
 
 
 def test_the_dry_run_says_a_slate_is_held(box, monkeypatch, capsys):
-    """12:15 ET, MLB's slate due since 10:35 and not run: NFL's 13:00 closing (T-35 12:25) is inside the guard."""
+    """12:15 ET, MLB's slate due since 10:35 and not run: NFL's 13:00 closing (T-35 12:25) is inside the guard. The
+    MLB slate checks its own feed first (a feed that does not answer is its miss, at once), then holds."""
     the_day(box, monkeypatch)
     assert mc.watch(dry_run=True, now=et(12, 15), families=("NFL", "MLB")) == 0
     out = capsys.readouterr().out
-    assert ("SLATE MLB 2026-10-18: first kickoff 13:05 ET · due 10:35 ET · success no · attempts 0/3 → held: closing "
-            "NFL 13:00 ET (T-35 12:25 ET) is inside the 15-minute guard") in out
+    assert ("SLATE MLB 2026-10-18: first kickoff 13:05 ET · due 10:35 ET · success no · attempts 0/3 → would check the "
+            "MLB feed, then held: closing NFL 13:00 ET (T-35 12:25 ET) is inside the 15-minute guard") in out
     assert receipts() == [] and box.steps == []
+
+
+def test_the_dry_run_leaves_out_the_closing_its_own_tick_runs_first(box, monkeypatch, capsys):
+    """MLB's first pitch 14:50 ET (its slate due 12:20), NFL's 13:00 closing due at 12:25. The dry run at 12:25 plans
+    that closing, which the tick runs before its slates, so the closing holds nothing in the slate's plan: "would RUN"
+    after it, as the same tick then does for real (the closing, then the slate)."""
+    clk = moving_day(box, monkeypatch, NFL_TWO + [(701, "MLB", et(14, 50), "Underhill")], mlb_first_pitch=et(14, 50))
+    drive(clk, ("MLB", "NFL"), et(12, 20), et(12, 24))                 # the MLB slate held at 12:20
+    capsys.readouterr()
+    clk.t = et(12, 25)
+    assert mc.watch(dry_run=True, families=("MLB", "NFL")) == 0
+    out = capsys.readouterr().out
+    assert "would start closing-run --family NFL --start 2026-10-18T17:00:00Z" in out
+    assert ("SLATE MLB 2026-10-18: first kickoff 14:50 ET · due 12:20 ET · success no · attempts 0/3 → after this "
+            "tick's closings: would check the MLB feed, then would RUN") in out
+    n = len(receipts())
+    mc.watch(families=("MLB", "NFL"))                                   # the same tick, for real
+    assert [(r["kind"], r["family"], r.get("held"), r["exit"]) for r in receipts()[n:]
+            if (r["kind"], r["family"]) in (("closing", "NFL"), ("slate", "MLB"))] == [
+        ("closing", "NFL", None, 0), ("slate", "MLB", None, 0)]
+
+
+# ============================================================ a closing that cannot start holds no slate ==
+# An MLB closing whose feed does not answer is a miss on every tick, never a run (watch(), A6): it must not hold
+# another family's slate (at 1efcacd it chained the hold through every MLB group of the day, and an on-time MNF slate
+# missed its day, its only page at kickoff).
+
+D19 = date(2026, 10, 19)                                   # a Monday (EDT, UTC-4)
+MNF_MLB = [(18, 35), (18, 40), (19, 5), (19, 10), (19, 40), (20, 5), (20, 10), (20, 40)]
+SERIES = {"MLB": "KXMLBGAME", "NFL": "KXNFLGAME"}
+
+
+def busy_day(box, monkeypatch, day, games, feed, slate=True):
+    """`day` from midnight ET on the moving clock (STEP_S a step): `games` (match_id, comp, start (aware), home), each
+    family's export as its steps write it (a PLAY row per game); `feed(t)`: the MLB feed's answer at clock time t."""
+    base = et(0, 0, day)
+    db = box.tmp / "busy.db"
+    make_db(db, [(mid, comp, int((st - base).total_seconds() // 60), "SCHEDULED", home)
+                 for mid, comp, st, home in games], now=base)
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{db}")
+    box.db = db
+    rows = {}
+    for mid, comp, st, home in games:
+        rows.setdefault(comp, []).append(row(mid, home, 0.62, fair_h=0.55, bid=0.54, ask=0.55, comp=comp,
+                                             series=SERIES[comp], now=base,
+                                             minutes=int((st - base).total_seconds() // 60)))
+    for comp, rs in rows.items():
+        box.docs[comp] = dp.annotate({"sport": comp.lower(), "predictions": rs}, now=base)
+    if slate:
+        box.slate_on()
+    clk = Clock(base)
+    monkeypatch.setattr(mc, "clock", lambda: clk.t)
+    monkeypatch.setattr(mc, "time", clk)
+    monkeypatch.setattr(mc, "feed_answers", lambda: feed(clk.t))
+    inner = box.fake_step
+
+    def timed_step(argv, run_id):
+        out = inner(argv, run_id)
+        clk.t += timedelta(seconds=STEP_S)
+        return out
+    monkeypatch.setattr(mc, "run_step", timed_step)
+    return clk
+
+
+def mnf():
+    return [(700 + i, "MLB", et(h, m, D19), f"Town{i}") for i, (h, m) in enumerate(MNF_MLB)] + [
+        (607, "NFL", et(20, 15, D19), "Monday")]
+
+
+def vpn_from_1730(t):
+    return (True, "HTTP 200") if t < et(17, 30, D19) else (False, "URLError")
+
+
+@pytest.mark.parametrize("slate", [True, False], ids=["slate-on", "slate-off"])
+def test_an_mlb_closing_the_feed_cannot_start_holds_no_slate(box, monkeypatch, slate):
+    """MNF 20:15 ET (its slate due 17:45) and MLB from 18:35 to 20:40 (the first group's T-35, 18:00, inside the guard
+    at 17:45); the MLB feed answers until 17:30, then the VPN is on. The NFL slate runs at 17:45, on time: the MLB
+    closings it would wait for are misses, never runs. The MLB slate ran at 16:05 while the feed answered. The
+    closings and the closing misses are the same with the slate stage on or off (the pin: the closings unchanged)."""
+    clk = busy_day(box, monkeypatch, D19, mnf(), vpn_from_1730, slate=slate)
+    drive(clk, ("MLB", "NFL", "SOCCER"), et(15, 0, D19), et(21, 0, D19))
+    assert [(r["family"], r["start"], r["queued_at"], r["exit"]) for r in runs()] == [
+        ("NFL", "2026-10-20T00:15:00Z", "2026-10-19T23:40:00Z", 0)]                  # T-35, as without a slate
+    assert sorted((r["family"], r["start"], r["reason"][:16]) for r in receipts() if r["kind"] == "closing_miss") == [
+        ("MLB", mc.iso_z(et(h, m, D19)), why) for h, m in MNF_MLB        # each MLB start: the feed, then inside T-5
+        for why in ("feed unreachable", "inside T-5 when ")]
+    if not slate:
+        assert slates("NFL") == slates("MLB") == [] and box.pushes == ["closing"]
+        return
+    assert [(x["queued_at"], x.get("ran_at"), x["exit"], x.get("late"), x.get("held")) for x in slates("NFL")] == [
+        ("2026-10-19T21:45:00Z", "2026-10-19T21:45:00Z", 0, False, None)]          # 17:45 ET, no hold
+    assert [(x["queued_at"], x["exit"]) for x in slates("MLB")] == [("2026-10-19T20:05:00Z", 0)]
+    assert misses("NFL") == misses("MLB") == []
+    assert [p["body"].splitlines()[0] for p in box.pages if p["title"] == "NFL slate 2026-10-19"] == [
+        "SLATE NFL 2026-10-19: 1 rows · PLAY 1 · PASS 0 · exports/nfl_predictions_2026-10-19.json"]
+
+
+def test_an_mlb_slate_checks_its_own_feed_before_the_guard(box, monkeypatch):
+    """The MLB slate due since 10:35, its 13:05 closing's T-35 (12:30) inside the guard at 12:20, the feed down: the
+    slate's own feed check comes first, so the miss pages RUN BY HAND at once, not a silent hold until the feed comes
+    back."""
+    the_day(box, monkeypatch)
+    box.feed = (False, "URLError")
+    assert tick(et(12, 20), ("MLB",)) == mc.NOTIFIED
+    assert [m["reason"] for m in misses("MLB")] == ["feed unreachable"] and slates("MLB") == []
+    assert box.notes == ["SLATE MLB 2026-10-18 MISSED: MLB feed unreachable: VPN on, Tailscale off — RUN BY HAND: "
+                         f"block_1018_mlb_slate.txt · the watch keeps trying\n{MACHINE}"]
+
+
+def test_the_guard_probes_the_feed_once_and_only_for_an_mlb_closing_that_would_hold(box, monkeypatch, capsys):
+    """slate_ahead: an NFL slate with an MLB closing inside the guard probes the feed once; answered, the MLB closing
+    holds it; unanswered, the NFL closing ahead (20:15, T-35 19:40) is the one read. No probe when nothing MLB is
+    near. The dry run (no network) says both ways."""
+    clk = busy_day(box, monkeypatch, D19, mnf(), vpn_from_1730)
+    calls, answers = [], [(True, "HTTP 200")]
+    monkeypatch.setattr(mc, "feed_answers", lambda: calls.append(clk.t) or answers[0])
+    a = mc.slate_ahead(("MLB", "NFL"), et(17, 45, D19))
+    assert (a["family"], a["start"], len(calls)) == ("MLB", et(18, 35, D19), 1)    # answered: the MLB closing holds
+    answers[0] = (False, "URLError")
+    a = mc.slate_ahead(("MLB", "NFL"), et(17, 45, D19))
+    assert (a["family"], a["start"], len(calls)) == ("NFL", et(20, 15, D19), 2)    # unanswered: the NFL closing
+    assert mc.slate_ahead(("MLB", "NFL"), et(17, 0, D19))["family"] == "MLB" and len(calls) == 2   # 18:00 not near
+    assert mc.slate_ahead(("MLB", "NFL"), et(17, 45, D19), feed=False)["family"] == "NFL" and len(calls) == 2
+    assert mc.slate_ahead(("MLB", "NFL"), et(17, 45, D19), feed=True)["family"] == "MLB" and len(calls) == 2
+    clk.t = et(17, 45, D19)
+    assert mc.watch(dry_run=True, families=("MLB", "NFL")) == 0
+    assert ("SLATE NFL 2026-10-19: first kickoff 20:15 ET · due 17:45 ET · success no · attempts 0/3 → held if the MLB "
+            "feed answers: closing MLB 18:35 ET (T-35 18:00 ET) is inside the 15-minute guard; if it does not, would "
+            "RUN") in capsys.readouterr().out
+    assert len(calls) == 2 and receipts() == []
 
 
 # ================================================================================ the receipt's declared keys ==
@@ -674,7 +805,54 @@ def test_every_attempt_receipt_carries_the_declared_keys(box, monkeypatch, path)
     assert tick(et(7, 0)) == (0 if path == "success" else mc.NOTIFIED)
     (s,) = slates()
     assert DECLARED <= set(s), sorted(DECLARED - set(s))
+    # the rest as the ledger says: export_written once the file is read, page once a page is tried, seconds on every
+    # attempt but a lock error, step only when a step command failed
+    assert {k: k in s for k in ("export_written", "page", "seconds", "step")} == {
+        "success": {"export_written": True, "page": True, "seconds": True, "step": False},
+        "step": {"export_written": False, "page": False, "seconds": True, "step": True},
+        "not written": {"export_written": False, "page": False, "seconds": True, "step": False},
+        "lock": {"export_written": False, "page": False, "seconds": False, "step": False}}[path]
     if path == "lock":
         assert (s["failed"], s["attempt"], s["ran_at"], s["late"], s["late_minutes"], s["rows"], s["calls"]) == (
             "lock", 1, "2026-10-18T11:00:00Z", False, 0, None, None)
         assert [x["match_id"] for x in s["covers"]] == [601, 602] and s["error"].startswith("PermissionError")
+
+
+ITEM_2C = {"family", "date", "rows", "calls", "file", "exit"}
+
+
+@pytest.mark.parametrize("line", ["held", "refused", "superseded"])
+def test_the_lines_that_are_no_attempt_carry_the_item_2c_keys_too(box, monkeypatch, line):
+    """Item 2(c): "`kind: "slate"` lines beside the closing lines, with family, date, rows, calls, file, exit": a hold,
+    a refusal and a superseded run carry them as well (rows and calls null: nothing was written)."""
+    if line == "held":
+        clk = moving_day(box, monkeypatch, NFL_TWO)
+        drive(clk, ("NFL",), et(12, 24), et(12, 24))                   # the 13:00 closing's T-35 is a minute off
+    else:
+        the_day(box, monkeypatch)
+        if line == "refused":
+            monkeypatch.setenv("SP_SKIP_FAMILIES", "NFL")
+        else:
+            real = mc.acquire_lock
+
+            @contextlib.contextmanager
+            def lk(timeout):
+                c.append_receipt({"kind": "slate", "family": "NFL", "date": "2026-10-18", "exit": 0})
+                with real(timeout):
+                    yield
+            monkeypatch.setattr(mc, "acquire_lock", lk)
+        tick(et(7, 0))
+    (s,) = [x for x in slates() if x.get(line)]
+    assert ITEM_2C <= set(s), sorted(ITEM_2C - set(s))
+    assert (s["rows"], s["calls"]) == (None, None)
+
+
+def test_the_help_text_shows_the_declared_block_name_whole():
+    """`closing-watch --help` quotes the failure page; click joins a wrapped docstring line with a space, so the block
+    name (block_<MMDD>_<family>_slate.txt, as the page sends it) must sit whole on one source line."""
+    from click.testing import CliRunner
+
+    import cli
+    out = CliRunner().invoke(cli.cli, ["closing-watch", "--help"], terminal_width=200).output
+    assert ("SLATE <FAMILY> FAILED: <step> — RUN BY HAND: block_<MMDD>_<family>_slate.txt · attempt k/3"
+            in " ".join(out.split()))

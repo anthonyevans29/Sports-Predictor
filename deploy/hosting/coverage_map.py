@@ -103,9 +103,12 @@ carries it; the Today tab shows it first."
     to run it by hand (item 1). coverage() carries it as `slate` on the competition. exports/ is read, never written.
     Item 2(c), "the morning page reads them as it reads the closing lines": with no file, the line reads the watch's
     slate receipts (kind slate and slate_miss, as closing.slate_state reads them). Where the watch runs no slate that
-    day (a success, three attempts, or every game started) the line names the block, "— run block <block> (<why>: the
-    watch runs it no more)"; else the due time, with a failed attempt ("attempt k of 3 failed (<failed>): the watch
-    tries again") or a miss ("missed (<reason>): the watch keeps trying") in brackets.
+    day (a success, three attempts, or every game started: the every-game-started miss counts only while no game of
+    the day is still unstarted, since a game re-dated later into the day is slated on the watch's next tick) the line
+    names the block, "— run block <block> (<why>: the watch runs it no more)"; else the due time, with a failed attempt
+    ("attempt k of 3 failed (<failed>): the watch tries again"), a miss ("missed (<reason>): the watch keeps trying")
+    or a hold, when the day's newest slate receipt is the hold ("held since HH:MM ET (<the closing it waits for>): the
+    slate runs after it"), in brackets.
 
 Read-only: the DB is opened mode=ro (sp_common.ro_connect: a missing file is refused, never created), plus
 docs/roadmap.json, docs/registry/experiments.json, the watch's schedule inputs (chains.py, closing.py) and its receipt
@@ -486,9 +489,11 @@ SLATE_SCAN_BACK_DAYS = 8      # export-nfl-predictions --week looks 8 days ahead
 _NAME_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
 
 
-def slate_view(fam: str, games: list[dict], day: date, refused: str | None, exports=None) -> dict:
+def slate_view(fam: str, games: list[dict], day: date, refused: str | None, exports=None,
+               now: datetime | None = None) -> dict:
     """The SLATE line's data for one LIVE competition (addendum 126 item 2(b), the module docstring's rule): {family,
-    file: exports/<name> or None, exported_at, rows, calls, due, block, refused, skipped: [(name, why)]}. Read-only."""
+    file: exports/<name> or None, exported_at, rows, calls, due, block, refused, skipped: [(name, why)]}, and what the
+    watch's slate receipts say (slate_receipts; `now` judges a game unstarted). Read-only."""
     ex = Path(exports) if exports is not None else c.REPO / cl.SLATE_DIR
     ids = {g["match_id"] for g in games}
     out = {"family": fam, "file": None, "exported_at": None, "rows": None, "calls": None,
@@ -523,22 +528,26 @@ def slate_view(fam: str, games: list[dict], day: date, refused: str | None, expo
     if best:
         out["exported_at"], out["file"] = best[0], f"{cl.SLATE_DIR}/{best[1].name}"
         out["rows"], out["calls"] = cl.slate_calls(best[2])
-    out.update(slate_receipts(fam, day))
+    out.update(slate_receipts(fam, day, games, now))
     return out
 
 
-def slate_receipts(fam: str, day: date) -> dict:
+def slate_receipts(fam: str, day: date, games: list[dict] | None = None, now: datetime | None = None) -> dict:
     """What the watch's slate receipts say of the family's day (addendum 126 item 2(c): "the morning page reads them as
     it reads the closing lines"), read as closing.slate_state reads them: {attempts, success, last_failed (the newest
     failed attempt's `failed`), succeeded ({file, at} of the newest success), misses (the day's slate_miss reasons, in
-    order), done (the watch runs no slate that day: a success, three attempts, or every game started), unread}."""
-    out = {"attempts": 0, "success": False, "last_failed": None, "succeeded": None, "misses": [], "done": False,
-           "unread": None}
+    order), held ({why, at} when the day's newest slate receipt is a hold: the slate waits for a closing), done (the
+    watch runs no slate that day: a success, three attempts, or every game started), unread}. The every-game-started
+    miss is done only while no game of `games` is unstarted at `now` (the watch decides from the schedule, not from
+    the miss: a game re-dated later into the day is slated on its next tick); without them, as the miss says."""
+    out = {"attempts": 0, "success": False, "last_failed": None, "succeeded": None, "misses": [], "held": None,
+           "done": False, "unread": None}
     day_s = day.isoformat()
     try:
         runs = cl._slate_attempts(fam, day_s)
-        misses = [r.get("reason") for r in cl.receipts((cl.SLATE_MISS_KIND,))
-                  if r.get("family") == fam and r.get("date") == day_s and r.get("reason")]
+        mine = [r for r in cl.receipts((cl.SLATE_KIND, cl.SLATE_MISS_KIND))
+                if r.get("family") == fam and r.get("date") == day_s]
+        misses = [r.get("reason") for r in mine if r.get("kind") == cl.SLATE_MISS_KIND and r.get("reason")]
     except OSError as e:
         out["unread"] = f"the watch's receipts cannot be read: {type(e).__name__}"
         return out
@@ -552,7 +561,15 @@ def slate_receipts(fam: str, day: date) -> dict:
             at = None                 # law 4: an unreadable time is shown as none
         out["succeeded"] = {"file": ok[-1].get("file"), "at": at}
     out["misses"] = list(dict.fromkeys(misses))
-    out["done"] = bool(ok) or len(runs) >= cl.MAX_ATTEMPTS or cl.SLATE_ALL_STARTED in out["misses"]
+    if mine and mine[-1].get("kind") == cl.SLATE_KIND and mine[-1].get("held"):
+        try:
+            at = cl.parse_utc(mine[-1].get("queued_at"))
+        except (TypeError, ValueError):
+            at = None                 # law 4: an unreadable time is shown as none
+        out["held"] = {"why": mine[-1]["held"], "at": at}
+    unstarted = games is not None and now is not None and any(not cl.started(g, now) for g in games)
+    out["done"] = (bool(ok) or len(runs) >= cl.MAX_ATTEMPTS
+                   or (cl.SLATE_ALL_STARTED in out["misses"] and not unstarted))
     return out
 
 
@@ -598,7 +615,7 @@ def coverage(day: date | None = None, now: datetime | None = None, roadmap_path=
             finished = [g["match_id"] for g in mine if g["match_id"] in v["finished"] and not cl.started(g, now)
                         and g["match_id"] not in shown]    # its run is no done line of the day
             closing_unread = v["unread"]
-        slate = (slate_view(fam, mine, day, refused) if fam and st["status"] == "LIVE" and mine else None)
+        slate = (slate_view(fam, mine, day, refused, now=now) if fam and st["status"] == "LIVE" and mine else None)
         comps.append({"code": code, "games": [g["match_id"] for g in mine], "void": [(g["match_id"], g["status"])
                                                                                    for g in void],
                       "status": st["status"], "status_label": st["label"], "status_from": st["from"],
@@ -694,6 +711,9 @@ def slate_line(x: dict) -> str | None:
                          "again")
         if s.get("misses"):
             notes.append(f"missed ({', '.join(s['misses'])}): the watch keeps trying")
+        if s.get("held"):
+            at = f" since {cl.et(s['held']['at'])[11:]}" if s["held"].get("at") else ""
+            notes.append(f"held{at} ({s['held']['why']}): the slate runs after it")
         if s.get("unread"):
             notes.append(s["unread"])
         if notes:

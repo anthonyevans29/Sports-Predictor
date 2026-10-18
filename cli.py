@@ -9120,12 +9120,12 @@ def closing_watch_cmd(families, dry_run):
     T-5, at most three per start time) it starts closing-run for it, covering the games within the 10 minutes after
     it (MLB: after checking the MLB feed answers). Otherwise exit 0, silent. Then THE SLATE STAGE (ARCHITECT
     2026-10-18, addendum 126 item 2(a)): per family, once a US Eastern day, due at the first kickoff minus 150 minutes
-    or the first tick after 06:00 ET when later (never inside 15 minutes of a closing's T-35: the closing runs first),
-    the closing chain's steps for the day's games with the export --desk
+    or the first tick after 06:00 ET when later (never inside 15 minutes of the T-35 of a closing that can start: the
+    closing runs first), the closing chain's steps for the day's games with the export --desk
     sent to the family's slate file in exports/, the mirror push, and one page ("SLATE <FAMILY> <date>: <N> rows ·
-    PLAY <p> · PASS <q> · exports/<file>"; a failure: "SLATE <FAMILY> FAILED: <step> — RUN BY HAND: block_<MMDD>_
-    <family>_slate.txt · attempt k/3"). Exit: 0 success, 2 a refusal, 3 a failure or miss already receipted and
-    notified, 1 what it could not report. (= python deploy/hosting/closing.py watch)"""
+    PLAY <p> · PASS <q> · exports/<file>"; a failure: "SLATE <FAMILY> FAILED: <step> — RUN BY HAND:
+    block_<MMDD>_<family>_slate.txt · attempt k/3"). Exit: 0 success, 2 a refusal, 3 a failure or miss already
+    receipted and notified, 1 what it could not report. (= python deploy/hosting/closing.py watch)"""
     argv = ["watch"] + [x for f in families for x in ("--family", f.upper())] + (["--dry-run"] if dry_run else [])
     raise SystemExit(_closing().main(argv))
 

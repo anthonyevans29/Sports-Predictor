@@ -30,7 +30,7 @@ the host has run a full day on a tag carrying #246 with desk calls emitted, (c) 
 | Mon 10-19 evening | the P8 rehearsal on the host (Tailscale): one `closing-run --family NFL` by hand | section 0, The host closing-watch rehearsal |
 | by Wed 10-21 | v1.5.0, the release ritual as docs/RELEASES.md | section 0, Host on a release tag |
 | Thu 10-22 | the host runs on v1.5.0: criterion (b)'s full day with desk calls; the parity harness on that tag: criterion (c) | section 0, Readiness readout (b), (c) |
-| Thu 10-22 evening | `cli.py cutover-readiness` on the laptop; its GO / NOT-YET lines pasted to the architect | section 0, Readiness readout |
+| Thu 10-22 evening | `cli.py cutover-readiness` on the laptop; its GO / NOT-YET lines pasted to the architect | section 0, Readiness readout. Note: that section is labelled TERMINAL (host). On the laptop, pass the host's receipts with `--receipts FILE` and the host's list with `--fullseason-list FILE`, or criteria (b) and (T9) read the laptop's own (`--receipts` defaults to this checkout's receipts, (T9) to this machine's `SP_FULLSEASON_LIST`). Which machine runs it is open question 1 on #587. |
 | Fri 10-23 morning | the architect's ruling: cutover Monday 10-26, or named reasons and the 10-30 fallback | |
 | Mon 10-26, 09:00–11:00 ET (fallback 10-30) | the cutover: section 1, step by step, each step's receipt pasted before the next | section 1 |
 

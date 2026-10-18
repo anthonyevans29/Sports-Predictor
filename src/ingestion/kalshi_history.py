@@ -27,8 +27,11 @@ How it reads, so the receipt can be checked against it:
 - Matching, per event: the event's markets go through the shared matcher (kalshi_match.place: the same fit, the same
   pins, the same refusals) against the stored games of the series' own competition on the event's days, loaded as
   the syncs load them (kalshi_sync.stored_games' span, kalshi_match.day_span); the claims rule is read across the
-  events, as one place() call reads it (two markets claiming one side of one game are both refused). Four refusals
-  of the live sync are
+  events, as one place() call reads it (two markets claiming one side of one game are both refused), and across the
+  stored rows of the series: a market the run would write (a new row, or a stored held row whose hold cleared)
+  placed on a side a stored row holds under another ticker is refused under the same reason, and the stored row is
+  not moved (place_held refuses the same: two settled markets are never stored on one side of one game). Four
+  refusals of the live sync are
   conditions of an open market and cannot hold for a settled one, so they are not read: in play (every settled game
   has started: `now` is set before any game), no price and the spread guard (a settled market's quote is its
   candles', read below), and the run's window (the window here is --since/--until, applied above). Each event is
@@ -74,7 +77,9 @@ How it reads, so the receipt can be checked against it:
     so a run that lists any clock ticker also lists the series' open markets (/markets?status=open, the call the live
     sync makes, KalshiAdapter.open_markets_for_series), paged as the other lists are; they are read for the hold
     only, never placed or stored, and a cut in that list stores nothing, as for the others. An event listed settled
-    (in either list, or stored) is settled. An event between close and settlement (status closed) is in no list read.
+    (in either list, or stored) is settled. An event between close and settlement (status closed) is in no list read,
+    so it holds nothing under either half (out of step reads only the events the run knows of), and a later event of
+    its pair is placed by date: open for the architect (the list's status for a closed market is in no kept payload).
   - Earlier-dated events are every event of the pair the run knows of: both settled lists whole (not only the
     markets inside --since/--until), the stored rows of the series, and the open list.
   - The hold, like the matcher's "behind" (addendum 55 item 3), is for a market that would otherwise have been placed:
@@ -83,10 +88,12 @@ How it reads, so the receipt can be checked against it:
     about a game that moved, addendum 127 item 3(a)): they are read when it is placed.
   - The one exception to "inserted once": a stored row with match_id null whose notes carry the hold's reason is read
     again by every run that lists it inside --since/--until. When the run places it (the hold has cleared and the
-    matcher places it), its match_id, side, source, fetched_at and quote are written, its candles fetched then on the
-    stored kickoff, and "hold cleared <run time>: placed by the ingest" is appended to its notes. A held row the run
-    holds again, or whose hold has cleared but the matcher refuses, is left exactly as stored. A row with a match_id,
-    and a row refused for any other reason, is never read again.
+    matcher places it, on a side no stored row holds), its match_id, side, source, fetched_at and quote are written,
+    its candles fetched then on the stored kickoff, and "hold cleared <run time>: placed by the ingest" is appended to
+    its notes. The write reads the row and its side again, as place_held does: a row no longer held, or a side another
+    row of the series took since the run read the table, is not written. A held row the run holds again, or whose
+    hold has cleared but the matcher refuses (a stored row holding its side included), is left exactly as stored. A
+    row with a match_id, and a row refused for any other reason, is never read again.
   A held row the hold never releases is placed only by a ruling: `kalshi-history place-held` (place_held below).
 - --max-calls (default 300; the probe's whole run was 241): every call counts. At the cap the run stops cleanly: what
   it holds is stored (unless --dry-run), and it prints where it stopped (the list and its cursor, or the market whose
@@ -361,7 +368,8 @@ class Run:
     held_still: int = 0                                      # stored held rows the run holds again (left as stored)
     held_refused: list = field(default_factory=list)         # stored held rows: hold cleared, the matcher refuses
     replaced: list = field(default_factory=list)             # stored held rows placed (the one exception)
-    replace_skipped: list = field(default_factory=list)      # a held row that changed before the write: left
+    replace_skipped: list = field(default_factory=list)      # (ticker, why): a held row not written at the write
+    claimed_by: dict = field(default_factory=dict)           # ticker -> ("<match> <side>", the stored rows holding it)
 
 
 def list_source(calls: Calls, run: Run, source: str, path: str, params: dict, series: str) -> list[dict]:
@@ -661,9 +669,9 @@ def run_history(series: str, *, since: date | None = None, until: date | None = 
             if has_table:
                 K = KalshiSettledMarket
                 stored = set(rs.execute(select(K.ticker)).scalars())
-                mine = rs.execute(select(K.ticker, K.event_ticker, K.yes_sub_title, K.match_id, K.notes)
+                mine = rs.execute(select(K.ticker, K.event_ticker, K.yes_sub_title, K.match_id, K.notes, K.side)
                                   .where(K.series == series)).all()
-            held_stored = {t: notes for t, _, _, mid, notes in mine if is_held(mid, notes)}
+            held_stored = {t: notes for t, _, _, mid, notes, _ in mine if is_held(mid, notes)}
             holds = {}
             targets = {km.event_of(m) for _, m in in_range if km.ticker_stamp(m)[1] is not None}
             if targets:
@@ -674,7 +682,7 @@ def run_history(series: str, *, since: date | None = None, until: date | None = 
                 for m in uniq:
                     known.setdefault(km.event_of(m), []).append(m)
                     settled_evs.add(km.event_of(m))
-                for t, ev, yst, _, _ in mine:
+                for t, ev, yst, _, _, _ in mine:
                     if t not in seen:
                         ev = ev or km.event_of({"ticker": t})
                         known.setdefault(ev, []).append({"ticker": t, "event_ticker": ev, "yes_sub_title": yst})
@@ -689,6 +697,22 @@ def run_history(series: str, *, since: date | None = None, until: date | None = 
                                        lambda mks: stored_games(rs, [comp_id], mks), is_tie)
             games = stored_games(rs, [comp_id], [m for _, m in in_range])
             placed, why, lines = place_events([m for _, m in in_range], games, is_tie, holds)
+            # the claims rule read across the stored rows too: a market this run would write (a new row, or a stored
+            # held row whose hold cleared) placed on a side a stored row of the series holds under another ticker is
+            # refused, under the matcher's reason, and the stored row is not moved (place_held refuses the same: two
+            # settled markets are never stored on one side of one game)
+            taken: dict[tuple, set] = {}
+            for t, _, _, mid, _, side in mine:
+                if mid is not None:
+                    taken.setdefault((mid, side), set()).add(t)
+            for t, (mid, _, side) in list(placed.items()):
+                others = taken.get((mid, side), set()) - {t}
+                if others and (t not in stored or t in held_stored):
+                    del placed[t]
+                    why[t] = km.TWO_CLAIMS
+                    run.claimed_by[t] = (f"{mid} {side}", sorted(others))
+                    lines.append(f"  ✗ match {mid} {side}: stored on {', '.join(sorted(others))} (nothing already "
+                                 f"placed is moved); {t} claims it too: refused")
             run.refused_lines = [ln for ln in lines if not ln.startswith(HOLD_MARK)]
             run.hold_lines = [ln for ln in lines if ln.startswith(HOLD_MARK)]
 
@@ -755,12 +779,25 @@ def run_history(series: str, *, since: date | None = None, until: date | None = 
     if not dry_run and (run.rows or run.replaced):
         with session_scope() as sess:
             sess.add_all(KalshiSettledMarket(**r) for r in run.rows)
+            K = KalshiSettledMarket
             for r in list(run.replaced):
-                obj = sess.execute(select(KalshiSettledMarket)
-                                   .where(KalshiSettledMarket.ticker == r["ticker"])).scalar_one_or_none()
+                sess.flush()                                 # the rows added and placed above are read too
+                obj = sess.execute(select(K).where(K.ticker == r["ticker"])).scalar_one_or_none()
                 if obj is None or not is_held(obj.match_id, obj.notes):
                     run.replaced.remove(r)
-                    run.replace_skipped.append(r["ticker"])
+                    run.replace_skipped.append((r["ticker"], "no longer a held row at the write (placed or changed "
+                                                             "since it was read)"))
+                    continue
+                # the side read again at the write, as place_held reads it: a row of the series that took it after
+                # the run read the table keeps it, and the held row is left as it is
+                held_by = sess.execute(select(K.ticker).where(K.series == series, K.match_id == r["match_id"],
+                                                              K.side == r["side"], K.ticker != r["ticker"])
+                                       ).scalars().all()
+                if held_by:
+                    run.replaced.remove(r)
+                    run.replace_skipped.append((r["ticker"], f"match {r['match_id']} {r['side']} is held by "
+                                                             f"{', '.join(sorted(held_by))} at the write (two settled "
+                                                             "markets are never stored on one side of one game)"))
                     continue
                 for c in REPLACE_COLS:
                     setattr(obj, c, r[c])
@@ -804,9 +841,11 @@ def _receipt(run: Run, calls: Calls, echo) -> None:
         for ln in run.hold_lines:
             echo(ln)
         for t, why in run.held_refused:
-            echo(f"    {t}: hold cleared; refused by the matcher: {why}")
-        for t in run.replace_skipped:
-            echo(f"  ✗ {t}: no longer a held row at the write (placed or changed since it was read): left as it is")
+            echo(f"    {t}: hold cleared; refused by the matcher: {why}"
+                 + (f" (match {run.claimed_by[t][0]} is stored on {', '.join(run.claimed_by[t][1])})"
+                    if t in run.claimed_by else ""))
+        for t, why in run.replace_skipped:
+            echo(f"  ✗ {t}: {why}: left as it is")
     if run.refused:
         echo("  refused by the matcher, by reason (kept with match_id null):")
         for r, n in sorted(run.refused.items(), key=lambda x: (-x[1], x[0])):

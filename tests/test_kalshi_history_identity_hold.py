@@ -322,6 +322,99 @@ def test_a_held_row_held_again_or_refused_once_cleared_is_left_as_stored(alcs):
     assert f"    {E17}-TB: hold cleared; refused by the matcher: {km.NO_GAME_ON_DATE}" in out
 
 
+G2 = 50547                                       # a TB@CLE game on 10-16 18:00 ET: 26OCT161800TBCLE in step
+K2 = datetime(2026, 10, 16, 22, 0)
+E18 = f"{S}-26OCT181708TBCLE"                    # 17:08 ET 10-18 = 21:08Z, 50548's kickoff
+SETTLED18 = event(E18, "yes", "2026-10-19T01:40:00Z", "2026-10-19T01:45:00Z")
+
+
+def _claims():
+    on = {}
+    for t, r in rows().items():
+        if r["match_id"] is not None:
+            on.setdefault((r["match_id"], r["side"]), []).append(t)
+    return on
+
+
+def test_a_cleared_held_row_is_not_placed_on_a_side_a_ruled_row_holds(alcs):
+    """The claims rule reads the stored rows too (verifier P2 on this PR): run 1 holds 26OCT172000TBCLE and
+    26OCT181708TBCLE behind 26OCT161800TBCLE, open; a ruling places 26OCT172000TBCLE on 50548; run 2 lists
+    26OCT161800TBCLE settled, in step on 10-16, so 26OCT181708TBCLE's hold clears and by date it goes to 50548, the
+    sides the ruled rows hold. It is refused under the matcher's claims rule and left as stored (still a held row);
+    the ruled rows are not moved; no side of any game carries two rows."""
+    seed({G2: (TB, CLE, K2, "finished")})
+    go(Fake(settled=SETTLED15 + SETTLED17 + SETTLED18, opened=OPEN16))
+    assert all(kh.is_held(r["match_id"], r["notes"]) for t, r in rows().items() if t.startswith((E17, E18)))
+    place(f"{E17}-TB", G5)
+    place(f"{E17}-CLE", G5)
+    before = rows()
+    fake = Fake(settled=SETTLED15 + SETTLED16 + SETTLED17 + SETTLED18)
+    run, out = go(fake, now=datetime(2026, 10, 20, 12, 0))
+    got = rows()
+    assert {k: v for k, v in _claims().items() if len(v) > 1} == {}
+    for sfx, side in (("TB", "AWAY"), ("CLE", "HOME")):
+        assert got[f"{E18}-{sfx}"] == before[f"{E18}-{sfx}"]                  # left as stored: still a held row
+        assert got[f"{E17}-{sfx}"] == before[f"{E17}-{sfx}"]                  # the ruled row is not moved
+        assert (got[f"{E17}-{sfx}"]["match_id"], got[f"{E17}-{sfx}"]["side"]) == (G5, side)
+        assert (got[f"{E16}-{sfx}"]["match_id"], got[f"{E16}-{sfx}"]["side"]) == (G2, side)   # new, in step
+    assert not run.replaced
+    assert sorted(run.held_refused) == [(f"{E18}-CLE", km.TWO_CLAIMS), (f"{E18}-TB", km.TWO_CLAIMS)]
+    assert f"    {E18}-TB: hold cleared; refused by the matcher: {km.TWO_CLAIMS} (match {G5} AWAY is stored on " \
+           f"{E17}-TB)" in out
+    assert not any(t.startswith(E18) for t in fake.candle_calls())             # nothing of it read or written
+
+
+def test_a_new_row_is_not_placed_on_a_side_a_ruled_row_holds(alcs):
+    """The same rule for a market listed for the first time: 26OCT181708TBCLE first listed in run 2, placed by date on
+    50548, whose sides the ruled rows of 26OCT172000TBCLE hold. It is stored refused, under the matcher's claims
+    rule, and the refusal names the stored row."""
+    seed({G2: (TB, CLE, K2, "finished")})
+    go(Fake(settled=SETTLED15 + SETTLED17, opened=OPEN16))
+    place(f"{E17}-TB", G5)
+    place(f"{E17}-CLE", G5)
+    before = rows()
+    run, out = go(Fake(settled=SETTLED15 + SETTLED16 + SETTLED17 + SETTLED18), now=datetime(2026, 10, 20, 12, 0))
+    got = rows()
+    assert {k: v for k, v in _claims().items() if len(v) > 1} == {}
+    for sfx in ("TB", "CLE"):
+        r = got[f"{E18}-{sfx}"]
+        assert (r["match_id"], r["side"]) == (None, None)
+        assert r["notes"].startswith(f"refused by the matcher: {km.TWO_CLAIMS}")
+        assert got[f"{E17}-{sfx}"] == before[f"{E17}-{sfx}"]
+    assert run.refused[km.TWO_CLAIMS] == 2
+    assert f"  ✗ match {G5} AWAY: stored on {E17}-TB (nothing already placed is moved); {E18}-TB claims it too: " \
+           "refused" in out
+
+
+def test_the_write_reads_the_side_again(alcs):
+    """At the write a re-placed held row is checked again, as place-held checks it: a side another row of the series
+    took after the run read the table (here during the candle calls) is not written over; the held row is left as it
+    is, and the receipt says why."""
+    from src.db.database import session_scope
+    from src.db.schema import KalshiSettledMarket
+    redate(G5, datetime(2026, 10, 17, 0, 0))
+    go(Fake(settled=SETTLED15 + SETTLED17, opened=OPEN16))
+    before = rows()
+
+    class Race(Fake):
+        def _get(self, path, params=None):
+            if path.endswith(f"/{E17}-TB/candlesticks"):
+                with session_scope() as s:
+                    s.add(KalshiSettledMarket(ticker=f"{S}-26OCT171900TBCLE-TB", event_ticker=f"{S}-26OCT171900TBCLE",
+                                              series=S, side="AWAY", match_id=G4, yes_sub_title="Tampa Bay",
+                                              source="live", fetched_at=NOW, notes="placed by ruling: test"))
+            return super()._get(path, params)
+    run, out = go(Race(settled=SETTLED15 + SETTLED16 + SETTLED17), now=datetime(2026, 10, 20, 12, 0))
+    got = rows()
+    assert got[f"{E17}-TB"] == before[f"{E17}-TB"]
+    assert (got[f"{E17}-CLE"]["match_id"], got[f"{E17}-CLE"]["side"]) == (G4, "HOME")
+    assert run.replace_skipped == [(f"{E17}-TB", f"match {G4} AWAY is held by {S}-26OCT171900TBCLE-TB at the write "
+                                                 "(two settled markets are never stored on one side of one game)")]
+    assert f"  ✗ {E17}-TB: match {G4} AWAY is held by {S}-26OCT171900TBCLE-TB at the write (two settled markets are " \
+           "never stored on one side of one game): left as it is" in out
+    assert {k: v for k, v in _claims().items() if len(v) > 1} == {}
+
+
 def test_a_row_refused_for_another_reason_is_not_read_again(alcs):
     """Only a held row is the exception: 26OCT161800TBCLE, refused "no game of the pair on the ticker's date", stays
     so although 50548 is now dated 10-16 and the matcher would place it there."""

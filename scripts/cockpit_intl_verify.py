@@ -32,7 +32,7 @@ from datetime import datetime, timedelta, timezone
 
 # #591, addendum 128 item 4: the role pin, before anything that reads the role is imported (the header says why)
 os.environ["SP_EXPORTS_MIRROR_ROLE"] = "laptop"
-os.environ["SP_HOST_ENV"] = os.path.join(tempfile.mkdtemp(prefix="cockpit-intl-role-"), "no-host.env")
+os.environ["SP_HOST_ENV"] = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".no-host.env")  # never created
 
 from playwright.sync_api import sync_playwright  # noqa: E402
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))

@@ -56,3 +56,18 @@ def test_the_intl_verifier_header_says_it_pins_the_role():
 def load_doc() -> str:
     import ast
     return ast.get_docstring(ast.parse(VERIFY.read_text(encoding="utf-8"))) or ""
+
+
+def test_the_role_pin_creates_nothing(tmp_path, monkeypatch):
+    """The pin names a host.env that does not exist and creates nothing to name it (tests/conftest.py's no-host.env
+    is never created either). Before: every import of the verifier made an empty cockpit-intl-role-* directory under
+    the temp dir, and nothing removed it."""
+    import os
+    import tempfile
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))            # where mkdtemp would put one
+    monkeypatch.delenv("SP_EXPORTS_MIRROR_ROLE", raising=False)
+    monkeypatch.delenv("SP_HOST_ENV", raising=False)                   # recorded: put back after the test
+    load_verifier(monkeypatch)
+    assert [p.name for p in tmp_path.iterdir() if p.name.startswith("cockpit-intl-role-")] == []
+    assert os.environ["SP_HOST_ENV"] and not os.path.exists(os.environ["SP_HOST_ENV"])
+    assert dp.role_reading() == ("laptop", "laptop")

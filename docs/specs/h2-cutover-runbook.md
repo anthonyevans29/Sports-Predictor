@@ -30,7 +30,7 @@ the host has run a full day on a tag carrying #246 with desk calls emitted, (c) 
 | Mon 10-19 evening | the P8 rehearsal on the host (Tailscale): one `closing-run --family NFL` by hand | section 0, The host closing-watch rehearsal |
 | by Wed 10-21 | v1.5.0, the release ritual as docs/RELEASES.md | section 0, Host on a release tag |
 | Thu 10-22 | the host runs on v1.5.0: criterion (b)'s full day with desk calls; the parity harness on that tag: criterion (c) | section 0, Readiness readout (b), (c) |
-| Thu 10-22 evening | `cli.py cutover-readiness` on the HOST, over ssh in the Thursday evening block (addendum 128 item 1(a); addendum 113 item 5 said the laptop); its GO / NOT-YET lines pasted to the architect | section 0, Readiness readout, TERMINAL (host): (b) and (T9) read the host's own receipts and list, with no option passed. The laptop form (`--receipts FILE --fullseason-list FILE`) is for the architect's dry reads only. |
+| Thu 10-22 evening | `cli.py cutover-readiness` on the HOST, over ssh in the Thursday evening block (addendum 128 item 1(a); addendum 113 item 5 said the laptop); its GO / NOT-YET lines pasted to the architect | section 0, Readiness readout, TERMINAL (host): (b) and (T9) read the host's own receipts and list, run without `--receipts` or `--fullseason-list` (pass `--named FILE` when a day is operator-named). The laptop form (`--receipts FILE --fullseason-list FILE`) is for the architect's dry reads only. |
 | Fri 10-23 morning | the architect's ruling: cutover Monday 10-26, or named reasons and the 10-30 fallback | |
 | Mon 10-26, 09:00–11:00 ET (fallback 10-30) | the cutover: section 1, step by step, each step's receipt pasted before the next | section 1 |
 
@@ -120,9 +120,10 @@ Which machine runs item 5's readout (ARCHITECT 2026-10-18, addendum 128 item 1(a
   rows is #569's twin-row shape. The chain's first real run is its own timer, Sun 10-25 06:00Z — the morning page
   that day carries its receipt, and Friday's cutover ruling is GO only conditional on it (an added condition; the
   frozen criteria are not loosened)."
-  - Why: `/etc/sports-predictor/fullseason.list` on the host is still the installed example (comment lines only), so
-    `weekly-fullseason` refused ("lists no competitions") on 10-04, 10-11 and 10-18, paged each time; the host has
-    never done a full-season resync (hosting-h1.md step T9 was never run).
+  - Why: until 10-18 `/etc/sports-predictor/fullseason.list` on the host was the installed example (comment lines
+    only), so `weekly-fullseason` refused ("lists no competitions") on 10-04, 10-11 and 10-18, paged each time
+    (hosting-h1.md step T9 had never been run). block_1018_t9_host.txt's one run on 10-18 wrote its 26 lines
+    (addendum 128 item 4). The host's first full-season resync is the chain's first real run (the close, below).
   - TERMINAL (host), Tailscale: the architect's block `block_1018_t9_host.txt`. It writes one host config file and
     opens the DB read-only. Receipt: paste its whole console: the generated list, the file as written (no MLB line),
     and the dry run, one `python cli.py sync-matches --competition <C> --season <S>` per line of the file
@@ -140,7 +141,8 @@ Which machine runs item 5's readout (ARCHITECT 2026-10-18, addendum 128 item 1(a
   ```
   sudo -u sp venv/bin/python cli.py cutover-readiness
   ```
-  On the host no option is passed: (b) reads the host's own receipts and (T9) the host's own list (the file
+  On the host, run it without `--receipts` or `--fullseason-list` (pass `--named FILE` when a day is
+  operator-named): (b) reads the host's own receipts and (T9) the host's own list (the file
   host.env's `SP_FULLSEASON_LIST` names). It reads the exports mirror's working clone (`logs/exports-mirror`, or
   `--mirror DIR`) and runs the parity harness on the host's tag in a scratch git worktree.
   - **The laptop form, for the architect's dry reads only** (addendum 128 item 1(a)): TERMINAL (laptop),
@@ -171,7 +173,9 @@ Which machine runs item 5's readout (ARCHITECT 2026-10-18, addendum 128 item 1(a
     item 3(a)): it prints `⚠ MLB line(s) listed: <CODE|SEASON>, …` and the last line names it,
     `(T9) MLB line(s) on the list: MLB|2026`. ARCHITECT 2026-10-18, addendum 128 item 1(b), verbatim: "AN MLB LINE ON
     THE HOST'S LIST BINDS: NOT-YET, with the line named. The ruling excluded MLB; a list that carries it is wrong, and
-    a readout that prints a warning and says GO is softer than the rule."
+    a readout that prints a warning and says GO is softer than the rule." MLB lines are named once the list parses:
+    an UNPARSEABLE list is NOT-YET on its own and names no MLB line (the one parser refuses the file at its first bad
+    line); fix the line, and the next run names them.
   - Last line: `GO — …` or `NOT-YET — <each unmet criterion>`. Exit 0 / 1.
   - The tool names only identical, capture timing (market / Kalshi / price
     fields and the Desk fields that follow them, on matched rows) and the

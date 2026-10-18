@@ -490,3 +490,62 @@ def test_the_runbook_runs_the_readout_on_the_host_and_labels_the_laptop_form():
     sec0 = rb[rb.index("- **Readiness readout (#85"):rb.index("- **Host on a release tag.**")]
     assert ruling in " ".join(sec0.split())
     assert "- **The laptop form, for the architect's dry reads only** (addendum 128 item 1(a))" in sec0
+
+
+def cli_row() -> str:
+    rows = [ln for ln in (ROOT / "docs" / "CLI.md").read_text().splitlines() if ln.startswith("| `cutover-readiness` ")]
+    assert len(rows) == 1
+    return rows[0]
+
+
+def test_the_host_readout_leaves_out_only_the_laptop_options_and_keeps_named():
+    """Addendum 128 item 1(a) names the laptop form (`--receipts FILE --fullseason-list FILE`) as the architect's dry
+    reads only; it says nothing about the host run's other options. A compare day that needs operator naming is named
+    in the --named file (addendum 113 item 1, quoted on the runbook: "operator-named with evidence in the --named
+    file"), on the host too. Before: the schedule's Thursday row, section 0 and docs/CLI.md told the operator to pass
+    "no option" on the host, and docs/CLI.md credited that to 1(a)."""
+    rb = (ROOT / "docs" / "specs" / "h2-cutover-runbook.md").read_text()
+    rows = [ln for ln in rb.splitlines() if ln.startswith("| Thu 10-22 evening |")]
+    sec0 = rb[rb.index("- **Readiness readout (#85"):rb.index("- **Host on a release tag.**")]
+    host = "without `--receipts` or `--fullseason-list` (pass `--named FILE` when a day is operator-named)"
+    assert len(rows) == 1
+    for where in (rows[0], " ".join(sec0.split()), cli_row()):
+        assert "no option" not in where and host in where
+
+
+def test_t9_an_unparseable_list_is_not_yet_on_its_own_and_its_mlb_lines_are_named_once_it_parses(
+        no_settings, monkeypatch, capsys):
+    """The one parser (sp_run.fullseason_resolve) refuses the file at its first bad line, so a list that carries an
+    MLB line and a line the chain cannot parse reads UNPARSEABLE, NOT-YET on its own, and names no MLB line: naming
+    it would take a second parser, which fullseason_state rules out (whether it should is the architect's; the
+    ledger entry asks). Once the list parses, the MLB line binds, named (addendum 128 item 1(b)). Before: the docs
+    said an MLB line binds, named, with no word on a list that does not parse."""
+    lst = no_settings / "fullseason.list"
+    lst.write_text("MLB|2026\nNFL\n")
+    monkeypatch.setenv("SP_FULLSEASON_LIST", str(lst))
+    rc, t9, last = readout(no_settings, capsys)
+    assert t9[1:] == [f"    fullseason list: UNPARSEABLE → NOT-YET · {lst} line 2: 'NFL' is not CODE|SEASON "
+                      f"(weekly-fullseason fails on this line too)"]
+    assert rc == 1 and last.endswith(" · (T9) fullseason list UNPARSEABLE") and "MLB" not in last
+    lst.write_text("MLB|2026\nNFL|2026\n")                             # the parse fixed: the MLB line binds, named
+    rc, t9, last = readout(no_settings, capsys)
+    assert rc == 1 and last.endswith(" · (T9) MLB line(s) on the list: MLB|2026")
+    rb = (ROOT / "docs" / "specs" / "h2-cutover-runbook.md").read_text()
+    bullet = rb[rb.index("  - **(T9)** an ADDED binding condition"):rb.index("  - Last line: `GO — …`")]
+    said = "MLB lines are named once the list parses: an UNPARSEABLE list is NOT-YET on its own"
+    for doc in (cr.__doc__, bullet, cli_row()):
+        assert said in " ".join(doc.split())
+
+
+def test_the_runbook_t9_why_is_in_the_past_beside_the_run_once_bullet():
+    """Addendum 128 item 4: "block_1018_t9_host.txt is NEVER re-run; today's one run wrote the 26 lines once". The
+    T9 item's Why says what the host's file was until that run, dated, beside the Run-once bullet that records it.
+    Before: it read "is still the installed example" and "step T9 was never run", one bullet above that record."""
+    rb = (ROOT / "docs" / "specs" / "h2-cutover-runbook.md").read_text()
+    t9 = rb[rb.index("- **T9: the weekly full-season list"):rb.index("- **Readiness readout (#85")]
+    why = " ".join(t9[t9.index("  - Why: "):t9.index("  - TERMINAL (host), Tailscale:")].split())
+    assert "is still the installed example" not in why and "was never run" not in why
+    assert why.startswith("- Why: until 10-18 `/etc/sports-predictor/fullseason.list` on the host was the installed "
+                          "example (comment lines only)")
+    assert "block_1018_t9_host.txt's one run on 10-18 wrote its 26 lines (addendum 128 item 4)" in why
+    assert "  - Run once: the block is NEVER re-run (ARCHITECT 2026-10-18, addendum 128 item 4" in t9

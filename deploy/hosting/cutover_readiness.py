@@ -25,7 +25,10 @@ Prints, in order:
       (sp_run.fullseason_resolve), "fullseason list: N competitions" or
       NOT-YET with the reason; an MLB line on the list binds: NOT-YET, with
       the line named (MLB is excluded by ruling, addendum 122 item 3(a);
-      ARCHITECT 2026-10-18, addendum 128 item 1(b));
+      ARCHITECT 2026-10-18, addendum 128 item 1(b)). MLB lines are named
+      once the list parses: an UNPARSEABLE list is NOT-YET on its own and
+      names no MLB line (the one parser refuses the file at its first bad
+      line);
   then one line: GO or NOT-YET, with every unmet criterion named.
 
 Which machine runs it (ARCHITECT 2026-10-18, addendum 128 item 1(a)): the

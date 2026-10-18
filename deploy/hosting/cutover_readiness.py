@@ -6,7 +6,8 @@ readout of the RULED cutover criteria (ARCHITECT 2026-10-02, verbatim):
 emitted, (c) parity harness green on that tag — earliest Oct 8 stands."
 
     cutover_readiness.py [--mirror DIR] [--receipts FILE] [--named FILE]
-                         [--no-parity] [--today YYYY-MM-DD]
+                         [--no-parity] [--fullseason-list FILE]
+                         [--today YYYY-MM-DD]
     python cli.py cutover-readiness …          (the same, from the CLI)
 
 Prints, in order:
@@ -19,9 +20,10 @@ Prints, in order:
       scratch git worktree outside the checkout;
   (T9) the weekly full-season list, an ADDED binding condition (ARCHITECT
       2026-10-18, addendum 122 item 3(b); the frozen (a)-(c) unchanged): the
-      file SP_FULLSEASON_LIST names (or --fullseason-list FILE), counted by
-      the chain's own parser, "fullseason list: N competitions" or NOT-YET
-      with the reason; MLB lines printed, not binding;
+      file SP_FULLSEASON_LIST names (or --fullseason-list FILE), counted
+      through the chain's own parser and formatting
+      (sp_run.fullseason_resolve), "fullseason list: N competitions" or
+      NOT-YET with the reason; MLB lines printed, not binding;
   then one line: GO or NOT-YET, with every unmet criterion named.
 
 Class naming (h2-cutover-runbook.md section 2) is CONSERVATIVE (law 4). The
@@ -59,7 +61,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import compare_exports as ce  # noqa: E402
 import sp_common as c  # noqa: E402
-import sp_run  # noqa: E402  (T9: the weekly-fullseason chain's own list parser)
+import sp_run  # noqa: E402  (T9: the weekly-fullseason chain's own list parser and formatting)
 
 EARLIEST = date(2026, 10, 8)            # "earliest Oct 8 stands"
 STREAK = 5                              # "(a) 5 consecutive morning compares"
@@ -351,17 +353,21 @@ def mlb_code(code: str) -> bool:
     return u == "MLB" or u.startswith("MLB_")
 
 
-def fullseason_state(path: str | None) -> dict:
+def fullseason_state(path: str | None, today: date | None = None, source: str = "SP_FULLSEASON_LIST") -> dict:
     """The weekly-fullseason chain's list as the chain would resolve it (ARCHITECT 2026-10-18, addendum 122
-    item 3(b)): the competitions come from sp_run.fullseason_entries, the parser fullseason_steps builds its
-    steps with, never a second one. `state` is "ok" with N >= 1 competitions, or what makes it NOT-YET (law 4:
-    a missing setting, a missing or unreadable file, a line the chain cannot parse, zero competitions; nothing
-    unreadable reads as ok). `mlb` names the MLB lines: printed, never binding (the architect rules whether it
-    binds)."""
+    item 3(b)): the competitions come from sp_run.fullseason_resolve, the path resolve() runs weekly-fullseason
+    through (the one parser, then the chain's str.format with `today`'s date variables, as the timer runs it with
+    no --set), never a second one. `state` is "ok" with N >= 1 competitions, or what makes it NOT-YET (law 4:
+    a missing setting or an empty --fullseason-list, a missing or unreadable file, a line the chain cannot parse or
+    fill, zero competitions; nothing unreadable reads as ok). `source` is where `path` came from, and the NOT SET
+    reason names it. `mlb` names the MLB lines: printed, never binding (the architect rules whether it binds)."""
     out = {"path": path, "state": None, "entries": [], "mlb": [], "why": None}
     if not path:
-        out.update(state="NOT SET", why="SP_FULLSEASON_LIST is not set on this machine (host.env carries it on "
-                                        "the host; elsewhere pass the host's file with --fullseason-list FILE)")
+        why = ("--fullseason-list was given an empty path (pass the host's file with --fullseason-list FILE, or "
+               "leave the option out to read SP_FULLSEASON_LIST)" if source == "--fullseason-list" else
+               "SP_FULLSEASON_LIST is not set on this machine (host.env carries it on the host; elsewhere pass the "
+               "host's file with --fullseason-list FILE)")
+        out.update(state="NOT SET", why=why)
         return out
     try:
         exists = Path(path).exists()             # fullseason_steps' own test: absent = refused
@@ -372,16 +378,17 @@ def fullseason_state(path: str | None) -> dict:
         out.update(state="MISSING", why="the file does not exist (hosting-h1.md step T9 writes it)")
         return out
     try:
-        entries = sp_run.fullseason_entries(path)
+        steps = sp_run.fullseason_resolve(path, sp_run.date_vars(today or datetime.now(timezone.utc).date()))
     except UnicodeDecodeError as e:
         out.update(state="UNREADABLE", why=f"unreadable (UnicodeDecodeError: {e})")
         return out
-    except ValueError as e:                      # a line the chain cannot parse: the chain fails on it too
+    except (KeyError, ValueError, IndexError) as e:  # a line the chain cannot parse or fill: it fails on it too
         out.update(state="UNPARSEABLE", why=f"{e} (weekly-fullseason fails on this line too)")
         return out
     except OSError as e:
         out.update(state="UNREADABLE", why=f"unreadable ({type(e).__name__}: {e})")
         return out
+    entries = [(st[2], st[4]) for st in steps]   # sync-matches --competition CODE --season SEASON, as resolved
     out["entries"] = [f"{code}|{season}" for code, season in entries]
     out["mlb"] = [f"{code}|{season}" for code, season in entries if mlb_code(code)]
     if not entries:
@@ -504,8 +511,9 @@ def main(argv=None) -> int:
     # (T9) ARCHITECT 2026-10-18, addendum 122 item 3(b): "fullseason list: N competitions" or "EMPTY → NOT-YET"
     fp = a.fullseason_list if a.fullseason_list is not None else c.setting("SP_FULLSEASON_LIST")
     src = "--fullseason-list" if a.fullseason_list is not None else "SP_FULLSEASON_LIST"
-    print(f"\n(T9) WEEKLY FULL-SEASON LIST — {src}: {fp or 'not set'}")
-    fs = fullseason_state(fp)
+    shown = fp or ("(empty path)" if a.fullseason_list is not None else "not set")
+    print(f"\n(T9) WEEKLY FULL-SEASON LIST — {src}: {shown}")
+    fs = fullseason_state(fp, today, src)
     if fs["state"] == "ok":
         print(f"    fullseason list: {len(fs['entries'])} competitions — {' · '.join(fs['entries'])}")
     else:

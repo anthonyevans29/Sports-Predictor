@@ -695,12 +695,13 @@ Generate it from the DB (read-only); never type it from memory:
 ```
 sqlite3 -readonly /opt/sports-predictor/data/sports.db \
  "SELECT c.code || '|' || m.season FROM matches m JOIN competitions c ON c.id = m.competition_id
-  WHERE m.utc_date BETWEEN datetime('now','-30 days') AND datetime('now','+30 days')
+  WHERE m.utc_date BETWEEN datetime('now','-30 days') AND datetime('now','+30 days') AND c.code NOT LIKE 'MLB%'
   GROUP BY c.code, m.season ORDER BY c.code;" | sudo tee -a /etc/sports-predictor/fullseason.list
 ```
 Paste the list as the receipt. Delete any line you do not want synced
 weekly. If the list is missing or empty, the chain fails loudly.
-**MLB is left out (ARCHITECT 2026-10-18, addendum 122 item 3(a)):** "MLB is excluded by ruling: MLB is a laptop
+**MLB is left out (ARCHITECT 2026-10-18, addendum 122 item 3(a)):** the query's `AND c.code NOT LIKE 'MLB%'`
+drops every MLB code (`MLB`, `MLB_SPRING`). "MLB is excluded by ruling: MLB is a laptop
 duty to the season's last game; a host api-sports whole-season MLB write beside the laptop's statsapi rows is
 #569's twin-row shape." T9 is a pre-cutover item, binding (h2-cutover-runbook.md section 0, block
 `block_1018_t9_host.txt`); `cutover-readiness` reads the list (#586).

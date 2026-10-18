@@ -146,10 +146,12 @@ The plan's dated items (addendum 113, "WHAT STILL HAS TO HAPPEN, DATED"), verbat
   - **(c)** `scripts/desk_parity_verify.py` on the tag's own code.
   - **(T9)** an ADDED binding condition (ARCHITECT 2026-10-18, addendum 122 item 3(b); the frozen (a)-(c) are
     unchanged): the file `SP_FULLSEASON_LIST` names (host.env), or the host's file passed with
-    `--fullseason-list FILE` elsewhere, counted by the chain's own parser (`sp_run.fullseason_entries`, the one
-    `weekly-fullseason` resolves its steps with). `fullseason list: N competitions — <CODE|SEASON> · …`, or
-    `fullseason list: EMPTY → NOT-YET`. The setting not set, the file missing or unreadable, or a line the chain
-    cannot parse are also NOT-YET, each with its reason (law 4). An MLB line prints with a `⚠`, not binding: MLB is
+    `--fullseason-list FILE` elsewhere, counted through the chain's own path (`sp_run.fullseason_resolve`: the
+    parser, then the str.format `weekly-fullseason` fills its steps with). `fullseason list: N competitions —
+    <CODE|SEASON> · …`, or `fullseason list: EMPTY → NOT-YET`. The setting not set (or `--fullseason-list` given an
+    empty path), the file missing or unreadable, or a line the chain cannot parse or fill (no `|`, an empty code or
+    season, a brace str.format cannot fill: the chain refuses each at resolve) are also NOT-YET, each with its reason
+    (law 4). An MLB line prints with a `⚠`, not binding: MLB is
     excluded by ruling (addendum 122 item 3(a)), and whether a listed MLB line binds is the architect's ruling.
   - Last line: `GO — …` or `NOT-YET — <each unmet criterion>`. Exit 0 / 1.
   - The tool names only identical, capture timing (market / Kalshi / price

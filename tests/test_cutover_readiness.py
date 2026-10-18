@@ -261,18 +261,98 @@ def test_t9_unreadable_or_unparseable_is_never_ok(no_settings, monkeypatch, caps
         sp_run.fullseason_steps()
 
 
-def test_t9_count_is_fullseason_steps_own_resolution(no_settings, monkeypatch):
-    """One parser: the readout's competitions are exactly the steps weekly-fullseason resolves from the same file
-    (blank lines, indented comments, padding round '|', a repeated line, a '|' inside the season)."""
+def test_t9_count_is_fullseason_steps_own_resolution(no_settings, monkeypatch, capsys):
+    """One parser, one formatting: the readout's competitions are exactly the steps weekly-fullseason resolves from the
+    same file (blank lines, indented comments, padding round '|', a repeated line, a '|' inside the season, a doubled
+    brace the chain's str.format turns into one), and a brace the chain cannot fill fails both: resolve() raises,
+    the readout reads UNPARSEABLE with the chain's own message (before: the readout counted it, ok)."""
     lst = no_settings / "fullseason.list"
-    lst.write_text("# head\n\n   # indented comment\nPL|2026/27\n BL1 |  2026/27 \nNFL|2026\nPL|2026/27\nX|a|b\n")
+    lst.write_text("# head\n\n   # indented comment\nPL|2026/27\n BL1 |  2026/27 \nNFL|2026\nPL|2026/27\nX|a|b\n"
+                   "Y|{{b}}\n")
     monkeypatch.setenv("SP_FULLSEASON_LIST", str(lst))
     steps = sp_run.fullseason_steps()
     assert steps == sp_run.resolve("weekly-fullseason", {}, cr.date(2026, 10, 25))
     st = cr.fullseason_state(c.setting("SP_FULLSEASON_LIST"))
-    assert st["state"] == "ok" and len(st["entries"]) == len(steps) == 5
+    assert st["state"] == "ok" and len(st["entries"]) == len(steps) == 6
     assert st["entries"] == [f"{s[2]}|{s[4]}" for s in steps]
-    assert st["entries"] == ["PL|2026/27", "BL1|2026/27", "NFL|2026", "PL|2026/27", "X|a|b"]
+    assert st["entries"] == ["PL|2026/27", "BL1|2026/27", "NFL|2026", "PL|2026/27", "X|a|b", "Y|{b}"]
+    # a brace the chain cannot fill: str.format's KeyError, ValueError, IndexError (and an attribute it cannot read)
+    for bad, err in (("NFL|{season}", "KeyError"), ("NFL|2026}", "ValueError"), ("NFL|{0}", "IndexError"),
+                     ("{today.x}|2026", "AttributeError")):
+        lst.write_text(f"PL|2026/27\n{bad}\n")
+        with pytest.raises((KeyError, ValueError, IndexError, AttributeError)) as ei:
+            sp_run.resolve("weekly-fullseason", {}, cr.date(2026, 10, 25))
+        assert str(ei.value).startswith(f"{lst} line 2: {bad!r} ") and err in str(ei.value)
+        st = cr.fullseason_state(str(lst), cr.date(2026, 10, 22))
+        assert st["state"] == "UNPARSEABLE" and st["entries"] == []
+        assert st["why"] == f"{ei.value} (weekly-fullseason fails on this line too)"
+    lst.write_text("PL|2026/27\nNFL|{season}\n")
+    rc, t9, last = readout(no_settings, capsys)
+    assert t9[1].startswith(f"    fullseason list: UNPARSEABLE → NOT-YET · {lst} line 2: 'NFL|{{season}}' ")
+    assert t9[1].endswith("(weekly-fullseason fails on this line too)") and "KeyError" in t9[1]
+    assert rc == 1 and "(T9) fullseason list UNPARSEABLE" in last
+
+
+@pytest.mark.parametrize("line, which", [("|2026", "code"), ("NFL|", "season"), ("|", "code and season"),
+                                         ("  |  2026 ", "code"), (" NFL |   ", "season")])
+def test_t9_an_empty_code_or_season_is_unparseable_and_the_chain_refuses_it(no_settings, monkeypatch, capsys,
+                                                                           line, which):
+    """Law 4: a line whose code or season is empty once stripped names no competition. Before, it was counted
+    ("N competitions", not binding) and the chain ran `sync-matches --competition  --season 2026`, a step bound to
+    fail; now the chain refuses it at resolve, as it does a line without '|', and the readout reads UNPARSEABLE
+    through the one parser."""
+    lst = no_settings / "fullseason.list"
+    lst.write_text(f"PL|2026/27\n{line}\n")
+    monkeypatch.setenv("SP_FULLSEASON_LIST", str(lst))
+    with pytest.raises(ValueError) as ei:
+        sp_run.resolve("weekly-fullseason", {}, cr.date(2026, 10, 25))
+    assert str(ei.value) == f"{lst} line 2: {line.strip()!r} is not CODE|SEASON (empty {which})"
+    rc, t9, last = readout(no_settings, capsys)
+    assert t9[1] == f"    fullseason list: UNPARSEABLE → NOT-YET · {ei.value} (weekly-fullseason fails on this line too)"
+    assert rc == 1 and "(T9) fullseason list UNPARSEABLE" in last
+
+
+def test_t9_hosting_h1_query_writes_no_mlb_line():
+    """hosting-h1.md T9's copy-paste query, run as written on a synthetic DB: every competition-season inside
+    +-30 days EXCEPT MLB (ARCHITECT 2026-10-18, addendum 122 item 3(a): "writes every line EXCEPT MLB")."""
+    import re
+    import sqlite3
+    doc = (ROOT / "docs" / "specs" / "hosting-h1.md").read_text()
+    t9 = doc[doc.index("**T9. TERMINAL (host)"):doc.index("**T10. TERMINAL (host)")]
+    sql = re.search(r'"(SELECT .*?;)"', t9, re.S).group(1)
+    con = sqlite3.connect(":memory:")
+    con.executescript("CREATE TABLE competitions (id INTEGER PRIMARY KEY, code TEXT);"
+                      "CREATE TABLE matches (id INTEGER PRIMARY KEY, competition_id INTEGER, season TEXT,"
+                      " utc_date TEXT);"
+                      "INSERT INTO competitions VALUES (1, 'PL'), (2, 'NFL'), (3, 'MLB'), (4, 'MLB_SPRING'),"
+                      " (5, 'NHL');")
+    for cid, season, off in ((1, "2026/27", "+2 days"), (2, "2026", "-3 days"), (3, "2026", "+1 days"),
+                             (4, "2026", "-5 days"), (5, "2026", "+90 days")):
+        con.execute("INSERT INTO matches (competition_id, season, utc_date) VALUES (?, ?, datetime('now', ?))",
+                    (cid, season, off))
+    assert [r[0] for r in con.execute(sql)] == ["NFL|2026", "PL|2026/27"]
+
+
+def test_module_usage_names_every_option():
+    """The module docstring's usage block names every option main() takes (the hidden --today aside)."""
+    import re
+    src = Path(cr.__file__).read_text()
+    usage = cr.__doc__[:cr.__doc__.index("Prints, in order:")]
+    opts = [o for o in re.findall(r'add_argument\("(--[a-z-]+)"', src) if o != "--today"]
+    assert "--fullseason-list" in opts and [o for o in opts if f"[{o}" not in usage] == []
+
+
+def test_t9_an_empty_fullseason_list_option_names_the_option(no_settings, monkeypatch, capsys):
+    """An empty --fullseason-list overrides a set SP_FULLSEASON_LIST: NOT-YET, and the reason names the option, not
+    the setting."""
+    lst = no_settings / "fullseason.list"
+    lst.write_text("PL|2026/27\n")
+    monkeypatch.setenv("SP_FULLSEASON_LIST", str(lst))
+    rc, t9, last = readout(no_settings, capsys, "--fullseason-list", "")
+    assert t9[0] == "(T9) WEEKLY FULL-SEASON LIST — --fullseason-list: (empty path)"
+    assert t9[1].startswith("    fullseason list: NOT SET → NOT-YET · --fullseason-list was given an empty path")
+    assert "SP_FULLSEASON_LIST is not set" not in t9[1]
+    assert rc == 1 and "(T9) fullseason list NOT SET" in last
 
 
 def test_t9_mlb_lines_are_reported_not_binding(no_settings, monkeypatch, capsys):

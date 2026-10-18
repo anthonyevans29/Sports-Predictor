@@ -1,6 +1,6 @@
 ## 2026-10-18 (#PRNUM: kalshi-476-regression — ARCHITECT addendum 127 items 3(a) and 3(b); tests only; Refs #476)
 - The rulings, verbatim. Addendum 127 item 3(a): "(a) NO MLB MATCHER CHANGE (Branch 1). The out-of-step rule refused the one market a clock key would have misplaced; the cost is the one ruled on 10-12 ("while Kalshi has not settled yesterday's market of a pair, today's is refused"). Branch 2 is not built in any case: its own warning paragraph is decisive — a clock fixed at market creation identifies nothing about a game that moved. Refusals are never turned into guesses." Item 3(b): "(b) REGRESSION TESTS, a tests-only PR: the Saturday set verbatim (2 no-game-on-date + 2 behind), states A1 and A2, the Sunday shape (2 in play), the Friday control (4 placed), the ALCS tests unchanged — today's answers pinned whatever the receipt says."
-- tests/test_kalshi_476_regression.py (new, 9 tests). Each test:
+- tests/test_kalshi_476_regression.py (new, 8 tests). Each test:
   - runs the real `python cli.py sync-kalshi` (the MLB closing's step 6, no dates) in process through click, on a scratch SQLite DB of its own;
   - replaces only the HTTP fetch (`KalshiAdapter._get`) and the sync's clock (`kalshi_sync.utc_now_naive`), and widens the console so that no line wraps;
   - seeds rows 50546, 50548 and 50550 (Tampa Bay Rays at Cleveland Guardians) as #476's cause read defines them;
@@ -10,8 +10,7 @@
   - **The Saturday set** (the cause read's state B: 50548 moved to Sunday 21:00Z), at each of the three closing receipts' step-6 clocks (23:34:24Z, 23:36:21Z, 23:38:20Z): `matched 0 · unmatched 4 (of which ambiguous 0) · in-play skipped 0`.
     - 26OCT161800TBCLE is refused "no game of the pair on the ticker's date" (2) and 26OCT172000TBCLE "behind an event of the same two names out of step" (2), each with main's line.
     - The MATCHED ZERO alarm prints. The step exits 0 and nothing is stored, so 50550's newest legs are still Friday's.
-    - Served in the other order, the counts and both lines are the same.
-  - **State A1** (50548 unmoved): 2 in play + 2 behind, the behind line giving the run's day as its only reason; `matched 0 · unmatched 2 · in-play skipped 2`.
+  - **State A1** (50548 unmoved): 2 in play + 2 behind, the behind line giving the run's day as its only reason; `matched 0 · unmatched 2 (of which ambiguous 0) · in-play skipped 2`.
   - **State A2** (50548 postponed): the Saturday set's answer, with one unstarted game in the window.
   - **The Sunday shape** (2026-10-18 11:37:58Z, 26OCT172000TBCLE alone, its TB leg at 0.54/0.55), with 50550 finished or still scheduled: 2 in play. The sample line and the summary line are main's own of that morning, byte for byte.
 - tests/fixtures/kalshi_476/ (new):

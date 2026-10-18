@@ -34,8 +34,8 @@ refuses Kalshi's host, so every field here comes from a console line.
     Saturday set.
   - Sunday 11:37:58Z: 26OCT172000TBCLE alone, per the replay's "2 open markets in 1 events".
 - **The order** in which Kalshi serves the markets on Saturday is not in the consoles. The fixture's order is by event
-  date, each event's TB leg first, as Kalshi served Sunday's event (main's sample line is its TB leg). One test serves
-  them the other way round.
+  date, each event's TB leg first, as Kalshi served Sunday's event (main's sample line is its TB leg). No test serves
+  another order: that is beyond addendum 127 item 3(b), and the ledger entry lists it for the architect.
 - **The rows and main's four Friday legs:** match, side, ticker and capture time, as the replay lists them. Their
   prices are stand-ins that no test reads.
 - **The clocks:**

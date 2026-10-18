@@ -252,24 +252,6 @@ def test_the_saturday_set_is_two_no_game_on_the_date_and_two_behind(db, monkeypa
     nothing_new_stored(db)
 
 
-def test_the_saturday_set_in_the_other_order_gives_the_same_answer(db, monkeypatch):
-    """Kalshi's order of Saturday's four markets is not in the receipts: served the other way round, the counts and
-    both refusal lines are the same; only their order on the console follows the events'."""
-    seed(db, Z("2026-10-18T21:00"))
-    code, lines, calls = sync(monkeypatch, markets({E16, E17})[::-1], SATURDAY[0])
-    ran_clean(code, lines, calls)
-    assert lines[lines.index("  refused, by reason:"):] == [
-        "  refused, by reason:",
-        "       2  behind an event of the same two names out of step",
-        "       2  no game of the pair on the ticker's date",
-        BEHIND_BOTH,
-        NO_GAME_E16,
-        alarm(4, 2),
-        "✓ Kalshi: 0 prices stored",
-        summary(4, 0, 4, 0, 0)]
-    nothing_new_stored(db)
-
-
 # --------------------------------------------------------------------------------------------- states A1 and A2 --
 
 def test_state_a1_unmoved_is_two_in_play_and_two_behind(db, monkeypatch):

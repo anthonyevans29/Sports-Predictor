@@ -112,3 +112,36 @@ def test_cli_date_to_covers_the_whole_utc_day(monkeypatch):
     CliRunner().invoke(cli.cli, ["sync-kalshi", "--date-from", "2026-10-01", "--date-to", "2026-10-02"])
     assert seen["lo"] == datetime(2026, 10, 1)
     assert seen["hi"] > datetime(2026, 10, 2, 23, 59) and seen["hi"] < datetime(2026, 10, 3)
+
+
+def test_night_game_after_utc_midnight_is_inside_the_window_step(monkeypatch):
+    """#175 (ARCHITECT 2026-10-17 10:40 ET, addendum 112 item 8), RULED: "the step's window ends at {tomorrow}+1 day".
+    A window run on UTC day D at 23:05Z; first pitch 00:30Z on D+1 (20:30 ET on D). The window's MLB step,
+    `sync-kalshi --date-from D --date-to D+1`, stores both legs on the game. The Issue's window (`--date-to` read
+    as midnight, before #205) ended at D+1 00:00Z: there the same markets are refused as outside the run's window."""
+    from click.testing import CliRunner
+    import cli
+    from src.ingestion import kalshi_match as km
+    from src.ingestion import kalshi_sync
+    day = datetime(2073, 10, 6)
+    now = day + timedelta(hours=23, minutes=5)
+    kick = day + timedelta(days=1, minutes=30)
+    mid = _game("Ipgw Wolves", "Ipgv Vipers", kick)
+    mks = _markets(_stamp(kick) + "IPGVIPGW", kick.strftime("%Y-%m-%dT%H:%M:%SZ"), "Ipgv Vipers", "Ipgw Wolves",
+                   "Ipgv", "Ipgw")
+    monkeypatch.setattr(kalshi_sync, "utc_now_naive", lambda: now)
+    monkeypatch.setattr(KalshiAdapter, "status", lambda self: {"trading_active": True})
+    monkeypatch.setattr(KalshiAdapter, "sports_filters", lambda self: {})
+    monkeypatch.setattr(KalshiAdapter, "game_series_markets", lambda self: mks)
+    with session_scope() as s:                       # the Issue's window: hi = D+1 00:00Z
+        comp_ids = [s.execute(select(Competition.id).where(Competition.code == "MLB")).scalar_one()]
+        games = kalshi_sync.stored_games(s, comp_ids, mks)
+        old = km.place(mks, games, now=now, lo=day, hi=day + timedelta(days=1),
+                       implied_prob=KalshiAdapter.implied_prob)
+    assert not old.placed and old.refused[km.OUTSIDE_WINDOW] == 2, old
+    r = CliRunner().invoke(cli.cli, ["sync-kalshi", "--date-from", "2073-10-06", "--date-to", "2073-10-07"])
+    assert r.exit_code == 0, r.output
+    with session_scope() as s:
+        sel = {x.selection for x in s.execute(select(OddsSnapshot).where(
+            OddsSnapshot.match_id == mid, OddsSnapshot.source == "kalshi")).scalars()}
+    assert sel == {"HOME", "AWAY"}, r.output

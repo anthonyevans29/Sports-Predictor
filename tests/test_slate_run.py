@@ -906,8 +906,9 @@ def test_an_mlb_closing_the_feed_cannot_start_never_holds_a_slate_past_a_kickoff
 def test_the_dry_run_of_that_tick_says_what_it_does(box, monkeypatch, capsys):
     """The 14:25 tick above, planned. Its SOCCER closing runs first and makes no probe, so the slate stage has no feed
     answer when it ends: the plan says both ways, and names the edge where the slate is held with no probe (the tick's
-    closings ending from 14:29, the MLB T-35 less one cadence, inside the last FEED_TIMEOUT_S + 2 s before a tick).
-    The same tick for real, the feed down, runs the slate after the closing, at 14:29:30."""
+    closings ending inside the last FEED_TIMEOUT_S + 2 s before a tick that could start the MLB closing, one at or
+    after its T-35, 14:30: next_tick). The same tick for real, the feed down, runs the slate after the closing, at
+    14:29:30."""
     clk = busy_day(box, monkeypatch, D23, pl_wednesday(), vpn_on)
     drive(clk, ALL, et(14, 12, D23), et(14, 24, D23))
     capsys.readouterr()
@@ -915,8 +916,8 @@ def test_the_dry_run_of_that_tick_says_what_it_does(box, monkeypatch, capsys):
     assert mc.watch(dry_run=True, families=ALL) == 0
     assert ("SLATE SOCCER 2026-09-23: first kickoff 14:30 ET · due 12:00 ET · success no · attempts 0/3 → after this "
             "tick's closings: held if the MLB feed answers: closing MLB 15:05 ET (T-35 14:30 ET) is inside the "
-            "15-minute guard; if it does not, would RUN (held with no probe if they end from 14:29 ET within 10 s of "
-            "a tick)\n") in capsys.readouterr().out
+            "15-minute guard; if it does not, would RUN (held with no probe if they end within 10 s before a tick at "
+            "or after 14:30 ET)\n") in capsys.readouterr().out
     n = len(receipts())
     mc.watch(families=ALL)                                             # the same tick, for real
     assert [(r["kind"], r["family"], r.get("held"), r.get("ran_at")) for r in receipts()[n:]
@@ -924,25 +925,36 @@ def test_the_dry_run_of_that_tick_says_what_it_does(box, monkeypatch, capsys):
         ("closing", "SOCCER", None, None), ("slate", "SOCCER", None, "2026-09-23T18:29:30Z")]
 
 
-@pytest.mark.parametrize("sec, held", [(0, False), (55, True)], ids=["a-probe-fits", "a-probe-could-cross-12:30"])
+@pytest.mark.parametrize("tick_s, now_s, held", [(0, 0, False), (55, 55, False), (0, 55, True)],
+                         ids=["a-probe-fits", "a-55-phase-tick", "a-probe-could-cross-12:30"])
 def test_a_tick_with_no_closing_probes_for_the_mlb_closing_due_next_unless_the_probe_could_cost_it(
-        box, monkeypatch, capsys, sec, held):
+        box, monkeypatch, capsys, tick_s, now_s, held):
     """12:29 ET, the NFL 13:00 closing done, the MLB 13:05 closing due at 12:30 (by the next tick), the NFL slate due
-    since 07:00 and not run, the feed down. At 12:29:00 one probe (FEED_TIMEOUT_S, plus 2 s) cannot reach 12:30: the
-    plan says both ways, and the tick probes once, finds the feed down and runs the slate (the closing it would wait for
-    cannot start). At 12:29:55 a probe could carry the tick past 12:30, that closing's T-35: held with no probe, as the
-    plan says (bde0017 held at 12:29:00 too)."""
+    since 07:00 and not run, the feed down; the laptop's ticks (the tests' role), StartInterval 60 s from the tick's
+    start. A tick started at 12:29:00: one probe (FEED_TIMEOUT_S, plus 2 s) cannot reach its next firing, 12:30:00, the
+    first that could start that closing: the plan says both ways, and the tick probes once, finds the feed down and runs
+    the slate (the closing it would wait for cannot start). A tick at 12:29:55 (a laptop loaded on :55): its next firing
+    is 12:30:55, the first that could start that closing, so a probe to 12:30:05 costs it nothing: the same (the d035851
+    arm held here, by the next whole minute, 12:30, where this laptop has no firing). The tick started at 12:29:00 with
+    its slate stage reached at 12:29:55 (the stage called as watch() calls it, `now` its start): a probe could carry the
+    watch past its 12:30:00 firing, that closing's T-35: held with no probe, and no probe at all. The dry run plans the
+    tick's slate stage at the tick's own time (no closing of its own), so it says both ways for that tick too."""
     the_day(box, monkeypatch)
     c.append_receipt({"kind": "closing", "family": "NFL", "start": "2026-10-18T17:00:00Z", "exit": 0,
                       "covers": [{"match_id": 602, "start": "2026-10-18T17:00:00Z"}]})
-    t = et(12, 29) + timedelta(seconds=sec)
-    assert mc.watch(dry_run=True, now=t, families=("NFL", "MLB")) == 0
+    t0, t = et(12, 29) + timedelta(seconds=tick_s), et(12, 29) + timedelta(seconds=now_s)
+    assert mc.watch(dry_run=True, now=t0, families=("NFL", "MLB")) == 0
     why = "closing MLB 13:05 ET (T-35 12:30 ET) is inside the 15-minute guard"
-    plan = f"held: {why}" if held else f"held if the MLB feed answers: {why}; if it does not, would RUN"
+    plan = f"held if the MLB feed answers: {why}; if it does not, would RUN"
     assert (f"SLATE NFL 2026-10-18: first kickoff 09:30 ET · due 07:00 ET · success no · attempts 0/3 → {plan}\n"
             in capsys.readouterr().out)
     box.feed = (False, "URLError")
-    tick(t, ("NFL", "MLB"))
+    if t0 == t:
+        tick(t, ("NFL", "MLB"))
+    else:
+        fp: dict = {}
+        for fam in ("NFL", "MLB"):            # watch()'s slate stage, reached at t in the tick started at t0
+            mc.slate_watch(fam, t0, t, families=("NFL", "MLB"), feed_probe=fp)
     (s,) = slates()
     assert (s.get("held"), box.feed_calls) == ((why, 0) if held else (None, 1))
     assert held or (s["exit"], [x["match_id"] for x in s["covers"]]) == (0, [602])
@@ -987,6 +999,68 @@ def test_on_the_laptops_phase_a_slate_probe_never_costs_the_next_closing_its_tic
         ("SOCCER", "2026-09-23T19:00:00Z", "2026-09-23T18:25:17Z", 0),
         ("MLB", "2026-09-23T19:05:00Z", "2026-09-23T18:30:21Z", 0)]
     assert [p for p in probes if et(14, 25, D23) < p < et(14, 30, D23) + timedelta(seconds=17)] == []
+
+
+@pytest.mark.parametrize("probe_s", [3, 8], ids=["probe-3s", "probe-8s"])
+@pytest.mark.parametrize("up", [False, True], ids=["feed-down", "feed-up"])
+@pytest.mark.parametrize("slate", [True, False], ids=["slate-on", "slate-off"])
+def test_on_the_laptops_phase_a_probe_that_cannot_cost_the_closing_a_tick_keeps_the_slates_kickoff(
+        box, monkeypatch, slate, up, probe_s):
+    """The #590 review at d035851: the kickoff case above on the laptop's ticks at :52 (from 14:12:52; launchd keeps its
+    load phase). Each step takes 38.8 s and each MLB feed probe `probe_s`. The 14:25:52 tick's SOCCER 15:00 closing ends
+    at 14:29:44.8 with the MLB 15:05 closing due at 14:30 and no feed answer. This laptop's firings are 14:29:52 and
+    14:30:52, and the first that could start that closing (at or after its T-35) is 14:30:52, which no probe from
+    14:29:44.8 can reach, so the slate stage probes once. Feed down: the SOCCER slate runs then, with both PL games. At
+    d035851 it was held with no probe at 14:29:44.8 (by the 14:29:52 firing) and again on the 14:29:52 tick (by the next
+    whole minute, 14:30, where this laptop has no firing), and with a 3 s probe ran at 14:30:55 with [522] only (51e3057
+    and the verifiers' prototype ran it at 14:29:47 with [521, 522]). Feed up: the guard holds the slate, and the MLB
+    closing is queued on the 14:30:52 firing after its own probe, as with no slate stage."""
+    clk = busy_day(box, monkeypatch, D23, pl_wednesday(), vpn_on, slate=slate)
+    inner, probes = box.fake_step, []
+
+    def timed_step(argv, run_id):
+        out = inner(argv, run_id)
+        clk.t += timedelta(seconds=38.8)
+        return out
+
+    def slow_feed():
+        probes.append(clk.t)
+        clk.t += timedelta(seconds=probe_s)
+        return (True, "HTTP 200") if up else (False, "URLError")
+    monkeypatch.setattr(mc, "run_step", timed_step)
+    monkeypatch.setattr(mc, "feed_answers", slow_feed)
+    drive_launchd(clk, ALL, et(14, 12, D23) + timedelta(seconds=52), et(14, 40, D23))
+    soccer = [("SOCCER", "2026-09-23T18:30:00Z", "2026-09-23T18:12:52Z", 0),
+              ("SOCCER", "2026-09-23T19:00:00Z", "2026-09-23T18:25:52Z", 0)]
+    if up:                            # the 14:30:52 firing, then the closing's own probe
+        mlb = ("MLB", "2026-09-23T19:05:00Z", "2026-09-23T18:30:55Z" if probe_s == 3 else "2026-09-23T18:31:00Z", 0)
+        assert [(r["family"], r["start"], r["queued_at"], r["exit"]) for r in runs()][:3] == soccer + [mlb]
+        return
+    assert [(r["family"], r["start"], r["queued_at"], r["exit"]) for r in runs()] == soccer
+    assert [(r["family"], r["start"], r["reason"]) for r in receipts() if r["kind"] == "closing_miss"] == [
+        ("MLB", "2026-09-23T19:05:00Z", "feed unreachable")]
+    if not slate:
+        return
+    end = et(14, 29, D23) + timedelta(seconds=44.8)                    # the 14:25:52 tick's closing ends
+    (s,) = [x for x in slates("SOCCER") if not x.get("held")]
+    assert (s["exit"], s["ran_at"], [x["match_id"] for x in s["covers"]]) == (
+        0, (end + timedelta(seconds=probe_s)).strftime("%Y-%m-%dT%H:%M:%SZ"), [521, 522])
+    assert [p for p in probes if et(14, 25, D23) <= p < et(14, 30, D23)] == [end]       # the one probe
+
+
+def test_next_tick_is_the_first_firing_that_could_start_the_closing_on_this_machines_cadence(box, monkeypatch):
+    """next_tick(tick_at, now, at): this machine's first firing after `now` at or after `at` (the closing's T-35). The
+    laptop (StartInterval 60 s, its phase the tick's start): from a tick at 14:25:52, at 14:29:44.8, the firings are
+    14:29:52 and 14:30:52; with the T-35 at 14:30 the first that could start the closing is 14:30:52. The host (its
+    timer on every minute's :00): 14:30:00. With no `at`, or one already past, the first firing after `now`; with the
+    T-35 at 14:31:01, 14:31:52 and 14:32:00."""
+    s = timedelta(seconds=1)
+    tick_at, now, at = et(14, 25, D23) + 52 * s, et(14, 29, D23) + 44.8 * s, et(14, 30, D23)
+    assert [mc.next_tick(tick_at, now, a) for a in (None, at, at - 10 * 60 * s, at + 61 * s)] == [
+        tick_at + 240 * s, tick_at + 300 * s, tick_at + 240 * s, tick_at + 360 * s]
+    monkeypatch.setenv("SP_EXPORTS_MIRROR_ROLE", "host")
+    assert [mc.next_tick(tick_at, now, a) for a in (None, at, at - 10 * 60 * s, at + 61 * s)] == [
+        at, at, at, at + 120 * s]
 
 
 # ================================================================================ the receipt's declared keys ==

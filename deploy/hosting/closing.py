@@ -2215,10 +2215,11 @@ def worse(a: int, b: int) -> int:
 #     HAND miss at once; but a closing due by the next tick holds the slate first, with no probe, where a probe could
 #     not release it or could cost that closing its T-35 (_hold_unprobed: a closing with no feed; an MLB closing the
 #     tick's answer says starts; with no answer, a closing with no feed due by the next tick too, or one probe that
-#     could reach the next tick, the host's next minute or the laptop's next launchd firing, next_tick). An MLB
-#     closing with no answer otherwise gets the one probe, so with the feed down it holds nothing (a hold for it lost a
-#     slate a kickoff at bde0017). The slate stage probes the feed at most once a tick, and not at all when the tick's
-#     closings already did: their answer is the tick's (_tick_feed).
+#     could reach the first tick that could start that closing, the first of this machine's ticks after the probe's
+#     start at or after its T-35: the host's whole minutes, the laptop's launchd phase, next_tick). An MLB closing with
+#     no answer otherwise gets the one probe, so with the feed down it holds nothing (a hold for it lost a slate a
+#     kickoff at bde0017, and on the laptop's phase at d035851). The slate stage probes the feed at most once a tick,
+#     and not at all when the tick's closings already did: their answer is the tick's (_tick_feed).
 #   - Late (item 2(d): "a laptop asleep at the due time means the first tick after waking"): judged on the first tick
 #     that found the slate due, the earliest queued_at of the day's slate and slate_miss receipts (a hold's, a miss's
 #     and a refusal's included). A run held by a closing, or delayed by a miss, on a tick that came on time is not
@@ -2409,14 +2410,22 @@ def _tick_feed(feed_probe: dict | None) -> tuple[bool, str]:
     return ok, detail
 
 
-def next_tick(tick_at: datetime, now: datetime) -> datetime:
-    """The earliest the watch's next tick can start after `now`, on either machine: the next whole minute (the host's
-    timer fires every minute at :00) or the laptop's next launchd firing, a whole number of cadences after this tick's
+def next_tick(tick_at: datetime, now: datetime, at: datetime | None = None) -> datetime:
+    """The first tick of this machine's watch after `now` that could start a closing whose T-35 is `at` (None: the
+    first tick after `now`): the first firing after `now` at or after `at`, on this machine's cadence (mirror_role).
+    The host's timer fires every minute at :00; the laptop's launchd job a whole number of cadences after this tick's
     start `tick_at` (StartInterval keeps the phase it was loaded with, and a firing while the watch runs is missed:
-    launchd.plist(5)). The tests' ticks start on the minute, where the two are one."""
-    minute = now.replace(second=0, microsecond=0) + timedelta(minutes=1)
-    k = int((now - tick_at).total_seconds() // WATCH_CADENCE_S) + 1
-    return min(minute, tick_at + timedelta(seconds=k * WATCH_CADENCE_S))
+    launchd.plist(5)). A firing before `at` cannot start that closing, so a probe that costs the watch that firing
+    does not delay the closing (the #590 review at d035851: the next firing of either cadence, the whole minute
+    included, held a slate on the laptop where no probe could delay the closing, and a feed-down slate lost a kickoff
+    that 51e3057 caught). A machine with no role refuses every run before its steps (_role_refusal) and is read as the
+    laptop. The tests' ticks start on the minute, where the two cadences are one."""
+    cad = timedelta(seconds=WATCH_CADENCE_S)
+    origin = now.replace(second=0, microsecond=0) if mirror_role() == "host" else tick_at
+    k = (now - origin) // cad + 1                   # the first firing after `now`
+    if at is not None:
+        k = max(k, -((origin - at) // cad))         # and at or after `at` (the ceiling of its cadences from origin)
+    return origin + k * cad
 
 
 def _hold_unprobed(near: dict, fams: tuple[str, ...], tick_at: datetime, now: datetime, known: bool | None) -> bool:
@@ -2427,15 +2436,16 @@ def _hold_unprobed(near: dict, fams: tuple[str, ...], tick_at: datetime, now: da
     feed says (a family with no feed), or the tick's answer (`known`: its closings' probe or an earlier slate's) says
     it starts; not when that answer says it cannot (a miss: it holds nothing, slate_ahead). With no answer: held when
     a closing of a family with no feed is due by the next tick too (the slate is held whatever a probe says), or when
-    one probe (FEED_PROBE_MAX_S) could reach the next tick (next_tick); else the slate stage probes once (_tick_feed)
-    and the guard reads that answer. No network."""
+    one probe (FEED_PROBE_MAX_S) could reach the first tick that could start `near` (next_tick: this machine's first
+    firing after `now` at or after `near`'s T-35; a probe that costs the watch an earlier firing costs that closing
+    nothing); else the slate stage probes once (_tick_feed) and the guard reads that answer. No network."""
     if not FAMILIES[near["family"]]["feed"]:
         return True
     if known is not None:
         return bool(known)
     other = closing_ahead(tuple(f for f in fams if not FAMILIES[f]["feed"]), now)
     return bool((other and other["run_at"] <= now + timedelta(seconds=WATCH_CADENCE_S))
-                or now + timedelta(seconds=FEED_PROBE_MAX_S) >= next_tick(tick_at, now))
+                or now + timedelta(seconds=FEED_PROBE_MAX_S) >= next_tick(tick_at, now, near["run_at"]))
 
 
 def slate_ahead(fams: tuple[str, ...], now: datetime, feed: bool | None = None,
@@ -2683,8 +2693,8 @@ def slate_watch(fam: str, tick_at: datetime, now: datetime | None = None, dry_ru
     --dry-run prints the plan and touches nothing (no network: an MLB closing ahead is shown both ways); `planned`:
     the (family, start) closings the dry run's tick runs first, which hold no slate in the plan, though one after them
     may (`would RUN if they end before HH:MM ET, else held: …`); after closings with no MLB feed answer, an MLB
-    closing ahead adds when it holds with no probe (`(held with no probe if they end from HH:MM ET within N s of a
-    tick)`)."""
+    closing ahead adds when it holds with no probe (`(held with no probe if they end within N s before a tick at or
+    after HH:MM ET)`, that closing's T-35: _hold_unprobed's bound, next_tick)."""
     tick_at = utc(tick_at)
     now = utc(now or tick_at)
     fams = tuple(families or (fam,))
@@ -2718,10 +2728,12 @@ def slate_watch(fam: str, tick_at: datetime, now: datetime | None = None, dry_ru
                      and _hold_unprobed(ahead, fams, tick_at, tick_at, None))
         # the tick's own closings answer for the feed when one is an MLB closing (watch() probes before it); else the
         # slate stage has no answer when they end, and an MLB closing due by the next tick then holds the slate with no
-        # probe if they end from its T-35 less one cadence, inside FEED_PROBE_MAX_S of a tick
+        # probe if they end inside FEED_PROBE_MAX_S before a tick that could start it, one at or after its T-35
+        # (next_tick: the first such tick on this machine's cadence)
         answered = any(FAMILIES[f]["feed"] and not _family_refusal(f) for f, _ in planned)
-        edge = (f" (held with no probe if they end from {et(ahead['run_at'] - cad)[11:]} within {FEED_PROBE_MAX_S} s "
-                "of a tick)" if planned and not answered and ahead and FAMILIES[ahead["family"]]["feed"] else "")
+        edge = (f" (held with no probe if they end within {FEED_PROBE_MAX_S} s before a tick at or after "
+                f"{et(ahead['run_at'])[11:]})"
+                if planned and not answered and ahead and FAMILIES[ahead["family"]]["feed"] else "")
         # the tick's own closings take time, up to SLATE_GUARD_MIN each (the guard's bound on a chain's hold of the
         # lock): a closing whose T-35 is inside the guard when they end holds the slate then, so no plain RUN
         later = bool(planned and ahead and not near and ahead["run_at"] <= tick_at + guard * (1 + len(planned)))

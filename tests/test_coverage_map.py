@@ -31,11 +31,28 @@ from src.walters import registry as reg  # noqa: E402
 NOW = datetime(2026, 10, 17, 12, 10, tzinfo=timezone.utc)          # Saturday 08:10 ET
 DAY = "2026-10-17"
 COMPS = {"MLB": 1, "NFL": 2, "PL": 3, "NHL": 4, "UNL": 5, "NCAA": 6, "SA": 7, "CL": 8, "EL1": 9, "EFL": 10,
-         "UEL": 11, "BL1": 12, "FL1": 13, "ELC": 14, "EL2": 15, "CZE": 16, "SCO": 17}
-# model_versions as the ORM stores it (the sport column holds the enum's name): the two production rows the predict
-# path resolves (training.MODEL_FAMILIES); NFL has none (predict-nfl writes nfl_predict.MODEL_VERSION)
-MODELS = (("MLB", "mlb_pythag_negbin", "v2", "production"), ("SOCCER", "soccer_elo_poisson", "v22", "production"),
-          ("SOCCER", "soccer_elo_poisson", "v21", "shelved"))
+         "UEL": 11, "BL1": 12, "FL1": 13, "ELC": 14, "EL2": 15, "CZE": 16, "SCO": 17, "NED": 18, "FAC": 19,
+         "QQQ": 20}
+
+
+def params(*pot) -> str:
+    """A soccer row's parameters JSON as the trainer writes it, as far as the pot goes (addendum 118 item 4):
+    `contexts`, one scoring context per competition code of the stream it trained on (training._train_fresh_soccer)."""
+    from src.models.poisson import CompetitionScoringContext
+    return json.dumps({"poisson": {}, "contexts": {code: CompetitionScoringContext().as_dict() for code in pot}})
+
+
+# The scratch pot of the production soccer row: PL (LIVE), ELC (MARKET-ONLY), EL2 (SHADOW by its scratch lane), and
+# NED, FAC that nothing else names (POT). EL1, CZE, SCO and CL are outside it (the UNKNOWN tests); the shelved v21's
+# stale pot names EL1, and a shelved row is no model.
+POT = ("PL", "ELC", "EL2", "NED", "FAC")
+NOT_IN_POT = "not in the training pot of production soccer_elo_poisson v22"
+# model_versions as the ORM stores it (the sport column holds the enum's name; parameters the JSON column's text): the
+# two production rows the predict path resolves (training.MODEL_FAMILIES); NFL has none (predict-nfl writes
+# nfl_predict.MODEL_VERSION). The MLB row keeps no contexts (training._train_fresh_mlb).
+MODELS = (("MLB", "mlb_pythag_negbin", "v2", "production", json.dumps({"baseball_config": {}, "trained_on_games": 1})),
+          ("SOCCER", "soccer_elo_poisson", "v22", "production", params(*POT)),
+          ("SOCCER", "soccer_elo_poisson", "v21", "shelved", params(*POT, "EL1")))
 
 
 def _ts(dt):
@@ -46,9 +63,10 @@ def utc(s):
     return datetime.fromisoformat(s).replace(tzinfo=timezone.utc)
 
 
-def make_db(path: Path, games, preds=(), wal: bool = False, models=MODELS) -> None:
+def make_db(path: Path, games, preds=(), wal: bool = False, models=MODELS, parameters: bool = True) -> None:
     """games: (match_id, competition, UTC start 'YYYY-MM-DD HH:MM', status); preds: (match_id, model, UTC computed);
-    models: model_versions rows (sport, model_family, version, status), None for no table at all.
+    models: model_versions rows (sport, model_family, version, status[, parameters]), None for no table at all;
+    parameters: False for a model_versions table without that column.
     wal: the file in WAL mode, as src/db/database.py leaves the real DB (the mode persists in the file)."""
     con = sqlite3.connect(path)
     if wal:
@@ -68,9 +86,13 @@ def make_db(path: Path, games, preds=(), wal: bool = False, models=MODELS) -> No
                     (mid, mv, _ts(utc(at))))
     if models is not None:
         con.execute("CREATE TABLE model_versions(id INTEGER PRIMARY KEY, sport VARCHAR(6), model_family VARCHAR(64),"
-                    " version VARCHAR(64), status VARCHAR(32))")
-        con.executemany("INSERT INTO model_versions(sport, model_family, version, status) VALUES (?, ?, ?, ?)",
-                        models)
+                    " version VARCHAR(64), status VARCHAR(32)" + (", parameters JSON)" if parameters else ")"))
+        if parameters:
+            con.executemany("INSERT INTO model_versions(sport, model_family, version, status, parameters) VALUES "
+                            "(?, ?, ?, ?, ?)", [(*m, None)[:5] for m in models])
+        else:
+            con.executemany("INSERT INTO model_versions(sport, model_family, version, status) VALUES (?, ?, ?, ?)",
+                            [m[:4] for m in models])
     con.commit()
     con.close()
 
@@ -225,21 +247,27 @@ def test_live_is_a_closing_family_and_the_model_its_predict_step_resolves(env, m
     assert out[-1] == "GAPS: none"
 
 
-@pytest.mark.parametrize("models, why", [
-    ((("SOCCER", "soccer_elo_poisson", "v22", "shelved"),), "no production soccer_elo_poisson row in model_versions"),
-    ((("SOCCER", "soccer_elo_poisson", "v22", "production"), ("SOCCER", "soccer_elo_poisson", "v23", "production")),
-     "2 production soccer_elo_poisson rows in model_versions (the predict path resolves exactly one)"),
-    (None, "model_versions cannot be read (OperationalError: no such table: model_versions)"),
+@pytest.mark.parametrize("models, why, pot_why", [
+    ((("SOCCER", "soccer_elo_poisson", "v22", "shelved", params(*POT)),),
+     "no production soccer_elo_poisson row in model_versions",
+     "no training pot read (no production soccer_elo_poisson row; no production mlb_pythag_negbin row)"),
+    ((("SOCCER", "soccer_elo_poisson", "v22", "production", params(*POT)),
+      ("SOCCER", "soccer_elo_poisson", "v23", "production", params(*POT))),
+     "2 production soccer_elo_poisson rows in model_versions (the predict path resolves exactly one)",
+     "no training pot read (2 production soccer_elo_poisson rows; no production mlb_pythag_negbin row)"),
+    (None, "model_versions cannot be read (OperationalError: no such table: model_versions)",
+     "no training pot read (model_versions cannot be read (OperationalError: no such table: model_versions))"),
 ], ids=["no-production-row", "two-production-rows", "no-table"])
-def test_a_closing_family_without_a_live_model_is_not_live(env, models, why):
-    """Not LIVE, the reason on the line, and the derivation goes on: PL is in no lane and no market-only set, so
+def test_a_closing_family_without_a_live_model_is_not_live(env, models, why, pot_why):
+    """Not LIVE, the reason on the line, and the derivation goes on: PL is in no lane and no market-only set, and the
+    pot is read from the same rows the predict path could not resolve (none, two, no table: no pot, law 4), so
     UNKNOWN, named once in the gaps and no gap judged. Its closing groups still print (the watch runs them anyway)."""
     make_db(env, [(401, "PL", "2026-10-17 14:00", "SCHEDULED")], models=models)
     rc, out = run("--date", DAY)
     assert rc == 0
     pl = line_of(out, "PL")
     assert (f"· UNKNOWN (closing family SOCCER, but {why}; no roadmap lane names PL; in none of the code's "
-            "market-only sets) ·") in pl
+            f"market-only sets; {pot_why}) ·") in pl
     assert pl.endswith("· closing: T-35 09:25 ET [401] → exports/closing_SOCCER_2026-10-17T1400Z.json")
     assert gaps(out) == ["MODEL STATUS UNKNOWN: PL — no gap is judged for it (its line gives the reason)"]
 
@@ -354,11 +382,12 @@ def test_unknown_only_when_none_applies(env):
     rc, out = run("--date", DAY)
     assert rc == 0
     assert ("· UNKNOWN (no closing family covers EL1; no roadmap lane names EL1; in none of the code's market-only "
-            "sets) · rows: none · without rows: 704 ·") in line_of(out, "EL1")       # unknown: the rows still shown
+            f"sets; {NOT_IN_POT}) · rows: none · without rows: 704 ·") in line_of(out, "EL1")  # the rows still shown
     assert ("· UNKNOWN (no closing family covers CZE; roadmap lane ghost: confirming; registry id ghost-v1 is not in "
-            "the registry; in none of the code's market-only sets) ·") in line_of(out, "CZE")
+            f"the registry; in none of the code's market-only sets; {NOT_IN_POT}) ·") in line_of(out, "CZE")
     assert ("· UNKNOWN (no closing family covers SCO; roadmap lane split: confirming; registry split-v4: closed (the "
-            "lane and the registry disagree); in none of the code's market-only sets) ·") in line_of(out, "SCO")
+            f"lane and the registry disagree); in none of the code's market-only sets; {NOT_IN_POT}) ·"
+            ) in line_of(out, "SCO")
     assert gaps(out) == [
         "MODEL STATUS UNKNOWN: CZE, EL1, SCO — no gap is judged for them (each line gives the reason)"]
     assert [x.split(" · ")[0] for x in out[1:-2]] == ["UNL", "CZE", "EL1", "SCO"]
@@ -380,27 +409,215 @@ def test_an_unreadable_roadmap_judges_no_shadow_never_a_guess(env):
     assert "· LIVE (closing family SOCCER; production soccer_elo_poisson v22) ·" in line_of(out, "PL")
 
 
+# ------------------------------------------------------------------------------- POT (addendum 118 item 4) --
+# "the POT status for coverage (the eight training-pot competitions print "POT (training data only)" from the model's
+# pot configuration, not a typed list — small PR)"
+
+def pot_line(code):
+    return (f"· POT (training data only) (no roadmap lane names {code}; in none of the code's market-only sets; in the "
+            f"training pot of production soccer_elo_poisson v22) · rows: none (none expected: POT) · closing: none (no "
+            f"closing family covers {code})")
+
+
+def test_the_pot_competitions_print_pot_from_the_models_pot_configuration(env):
+    """NED and FAC: no closing family, no lane, no market-only set, and in the production soccer row's pot (its
+    parameters' contexts): POT, the ruling's words. EL1 is in the shelved v21's pot only, and a shelved row is no
+    model: UNKNOWN. POT prints before UNKNOWN; no prediction rows are expected and no gap is judged: the UNKNOWN line
+    names EL1 alone."""
+    make_db(env, [(901, "NED", "2026-10-17 12:30", "SCHEDULED"), (902, "FAC", "2026-10-17 14:00", "SCHEDULED"),
+                  (704, "EL1", "2026-10-17 14:00", "SCHEDULED")])
+    rc, out = run("--date", DAY)
+    assert rc == 0
+    assert line_of(out, "NED") == "NED · 1 game " + pot_line("NED")
+    assert line_of(out, "FAC") == "FAC · 1 game " + pot_line("FAC")
+    assert f"· UNKNOWN (no closing family covers EL1; no roadmap lane names EL1; in none of the code's market-only " \
+           f"sets; {NOT_IN_POT}) ·" in line_of(out, "EL1")
+    assert [x.split(" · ")[0] for x in out[1:-2]] == ["FAC", "NED", "EL1"]                  # POT, then UNKNOWN
+    assert gaps(out) == ["MODEL STATUS UNKNOWN: EL1 — no gap is judged for it (its line gives the reason)"]
+    st = {x["code"]: (x["status"], x["status_label"]) for x in cm.coverage(datetime(2026, 10, 17).date(), NOW)[
+        "competitions"]}
+    assert st == {"FAC": ("POT", "POT (training data only)"), "NED": ("POT", "POT (training data only)"),
+                  "EL1": ("UNKNOWN", "UNKNOWN")}
+    assert cm.STATUSES == ("LIVE", "SHADOW", "MARKET-ONLY", "POT", "UNKNOWN") and "POT" in cm.NO_ROWS_EXPECTED
+
+
+def test_the_pot_follows_the_configuration_never_a_typed_list(env):
+    """The pot is the production row's own: a code nothing in the code names (QQQ) prints POT once the row's contexts
+    hold it, and NED prints UNKNOWN once they do not. Nothing else changed."""
+    games = [(901, "NED", "2026-10-17 12:30", "SCHEDULED"), (903, "QQQ", "2026-10-17 15:00", "SCHEDULED")]
+    make_db(env, games)
+    out = run("--date", DAY)[1]
+    assert line_of(out, "NED") == "NED · 1 game " + pot_line("NED")
+    assert "· UNKNOWN (no closing family covers QQQ; no roadmap lane names QQQ;" in line_of(out, "QQQ")
+    env.unlink()
+    models = [MODELS[0], ("SOCCER", "soccer_elo_poisson", "v22", "production", params("PL", "QQQ"))]
+    make_db(env, games, models=models)
+    out = run("--date", DAY)[1]
+    assert line_of(out, "QQQ") == "QQQ · 1 game " + pot_line("QQQ")
+    assert (f"· UNKNOWN (no closing family covers NED; no roadmap lane names NED; in none of the code's market-only "
+            f"sets; {NOT_IN_POT}) ·") in line_of(out, "NED")
+
+
+def test_a_pot_competition_that_is_live_shadow_or_market_only_stays_so(env):
+    """PL, EL2 and ELC are all in the scratch pot: LIVE, SHADOW and MARKET-ONLY win where they apply (PL stays LIVE,
+    with its gap; EL2 SHADOW v3; ELC MARKET-ONLY), POT only where none does."""
+    make_db(env, [(401, "PL", "2026-10-17 14:00", "SCHEDULED"), (702, "EL2", "2026-10-17 14:00", "SCHEDULED"),
+                  (801, "ELC", "2026-10-17 14:00", "SCHEDULED"), (901, "NED", "2026-10-17 12:30", "SCHEDULED")])
+    rc, out = run("--date", DAY)
+    assert rc == 0
+    assert "· LIVE (closing family SOCCER; production soccer_elo_poisson v22) ·" in line_of(out, "PL")
+    assert "· SHADOW v3 (roadmap lane el2: confirming; registry el2-elo-v3: confirming) ·" in line_of(out, "EL2")
+    assert (f"· MARKET-ONLY ({EXPANSION_SETS}; roadmap lane leagues: to declare, no shadow export scheduled for ELC "
+            "(chains.py)) ·") in line_of(out, "ELC")
+    assert line_of(out, "NED") == "NED · 1 game " + pot_line("NED")
+    assert [x.split(" · ")[0] for x in out[1:-2]] == ["PL", "EL2", "ELC", "NED"]            # the status order
+    assert gaps(out) == ["PL: 1 GAME, 0 PREDICTION ROWS — soccer-prematch has not run"]    # the LIVE gap only
+
+
+def test_no_gap_is_judged_for_a_pot_competition(env):
+    """A POT competition with no rows is no gap; one that holds rows (a hand-run predict) shows them and the games
+    without, and still no gap."""
+    make_db(env, [(901, "NED", "2026-10-17 12:30", "SCHEDULED"), (904, "NED", "2026-10-17 15:00", "SCHEDULED")],
+            [(901, "v22", "2026-10-17 10:00")])
+    rc, out = run("--date", DAY)
+    assert rc == 0
+    assert ("· POT (training data only) (no roadmap lane names NED; in none of the code's market-only sets; in the "
+            "training pot of production soccer_elo_poisson v22) · rows: v22 1 (latest 2026-10-17 06:00 ET) · without "
+            "rows: 904 ·") in line_of(out, "NED")
+    assert out[-1] == "GAPS: none"
+
+
+@pytest.mark.parametrize("models, columns, why", [
+    ([MODELS[0], ("SOCCER", "soccer_elo_poisson", "v22", "production", "{not json")], True,
+     "no training pot read (production soccer_elo_poisson v22: its parameters cannot be read; production "
+     "mlb_pythag_negbin v2: no contexts in its parameters)"),
+    ([MODELS[0], ("SOCCER", "soccer_elo_poisson", "v22", "production", None)], True,
+     "no training pot read (production soccer_elo_poisson v22: no contexts in its parameters; production "
+     "mlb_pythag_negbin v2: no contexts in its parameters)"),
+    (MODELS, False, "no training pot read (model_versions cannot be read (OperationalError: no such column: "
+                    "parameters))"),
+], ids=["parameters-unreadable", "no-contexts", "no-parameters-column"])
+def test_a_pot_that_cannot_be_read_is_no_pot(env, models, columns, why):
+    """Law 4: parameters that cannot be read, a row with no contexts, a table without the column: no pot, never a
+    guessed one. NED is UNKNOWN with the reason; PL's LIVE is read apart and stands."""
+    make_db(env, [(901, "NED", "2026-10-17 12:30", "SCHEDULED"), (401, "PL", "2026-10-17 14:00", "SCHEDULED")],
+            [(401, "v22", "2026-10-17 10:00")], models=models, parameters=columns)
+    rc, out = run("--date", DAY)
+    assert rc == 0
+    assert (f"· UNKNOWN (no closing family covers NED; no roadmap lane names NED; in none of the code's market-only "
+            f"sets; {why}) ·") in line_of(out, "NED")
+    assert "· LIVE (closing family SOCCER; production soccer_elo_poisson v22) ·" in line_of(out, "PL")
+
+
+def test_the_pot_is_the_one_the_trainer_writes(tmp_path, monkeypatch):
+    """The pot configuration is the trainer's own record (law 1): train_fresh(SOCCER) on a real-schema scratch DB (its
+    session_scope pointed there; nothing else is touched) writes `contexts` keyed by every competition of the finished
+    stream (training._load_finished_matches: every finished soccer match with both scores, no list of codes), here
+    TPA (a league), TPB (a cup) and PL. Promoted, the coverage map reads that row: TPA and TPB print POT, PL stays LIVE,
+    and TPC, whose only game is the day's, is in no pot."""
+    from contextlib import contextmanager
+
+    from sqlalchemy import create_engine, select, update
+    from sqlalchemy.orm import sessionmaker
+
+    from src.db.schema import Base, Competition, Match, MatchStatus, ModelVersion, Sport, Team
+    from src.walters import training
+    db = tmp_path / "trained.db"
+    eng = create_engine(f"sqlite:///{db}")
+    Base.metadata.create_all(eng)
+    maker = sessionmaker(bind=eng, expire_on_commit=False)
+
+    @contextmanager
+    def scope():
+        s = maker()
+        try:
+            yield s
+            s.commit()
+        finally:
+            s.close()
+
+    monkeypatch.setattr(training, "session_scope", scope)
+    with scope() as s:
+        comps = {code: Competition(sport=Sport.SOCCER, code=code, name=code, area="Testland", type=kind)
+                 for code, kind in (("TPA", "LEAGUE"), ("TPB", "CUP"), ("PL", "LEAGUE"), ("TPC", "LEAGUE"))}
+        teams = [Team(sport=Sport.SOCCER, name=f"club {i}") for i in range(4)]
+        s.add_all([*comps.values(), *teams])
+        s.flush()
+        k = 0
+        for code in ("TPA", "TPB", "PL"):
+            for h, a in ((0, 1), (2, 3), (1, 2), (3, 0)):
+                k += 1
+                s.add(Match(sport=Sport.SOCCER, competition_id=comps[code].id, season="2025/26",
+                            utc_date=datetime(2026, 3, 1 + k, 15), status=MatchStatus.FINISHED,
+                            home_team_id=teams[h].id, away_team_id=teams[a].id, home_score=k % 3, away_score=1))
+        for mid, code in ((9001, "TPA"), (9002, "TPB"), (9003, "PL"), (9004, "TPC")):
+            s.add(Match(id=mid, sport=Sport.SOCCER, competition_id=comps[code].id, season="2026/27",
+                        utc_date=datetime(2026, 10, 17, 14), status=MatchStatus.SCHEDULED,
+                        home_team_id=teams[0].id, away_team_id=teams[1].id))
+    version = training.train_fresh(Sport.SOCCER).version
+    with scope() as s:
+        mv = s.execute(select(ModelVersion).where(ModelVersion.version == version)).scalar_one()
+        assert set(mv.parameters["contexts"]) == {"TPA", "TPB", "PL"}          # the finished stream's competitions
+        s.execute(update(ModelVersion).where(ModelVersion.id == mv.id).values(status="production"))
+    eng.dispose()
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{db}")
+    monkeypatch.setenv("SP_RECEIPTS", str(tmp_path / "receipts.jsonl"))
+    monkeypatch.setattr(c, "HOST_ENV", tmp_path / "no-host.env")
+    monkeypatch.setattr(c, "_DOTENV_CACHE", {})
+    monkeypatch.setattr(cl, "clock", lambda: NOW)
+    rc, out = run("--date", DAY)
+    assert rc == 0
+    pot = f"in the training pot of production soccer_elo_poisson {version}"
+    for code in ("TPA", "TPB"):
+        assert f"· POT (training data only) (no roadmap lane names {code}; in none of the code's market-only sets; " \
+               f"{pot}) ·" in line_of(out, code)
+    assert f"· LIVE (closing family SOCCER; production soccer_elo_poisson {version}) ·" in line_of(out, "PL")
+    assert (f"; in none of the code's market-only sets; not in the training pot of production soccer_elo_poisson "
+            f"{version}) ·") in line_of(out, "TPC")
+    assert line_of(out, "TPC").split(" · ")[2].startswith("UNKNOWN (")
+
+
+def test_every_predict_step_names_a_competition_a_closing_family_covers():
+    """POT expects no rows (law 1): every `predict` step in chains.py names a competition a closing family covers
+    (MLB, PL), and `predict-nfl` names none (NFL's family); so no chain predicts a competition that is only in the
+    pot."""
+    covered = {code for fam in cl.FAMILIES.values() for code in fam["comps"]}
+    steps = [s for ch in cm.CHAINS.values() for s in ch.get("steps") or [] if s and s[0] in cm.PREDICT_COMMANDS]
+    assert steps
+    for s in steps:
+        named = [s[i + 1] for i, a in enumerate(s[:-1]) if a == "--competition"]
+        assert (s[0] == "predict-nfl" and not named) or (named and set(named) <= covered), s
+
+
 RULED = {   # addendum 111 item 2's examples, on the tracked roadmap and registry and the code as it stands
     "MLB": ("LIVE", "LIVE"), "PL": ("LIVE", "LIVE"), "NFL": ("LIVE", "LIVE"),
     "NHL": ("MARKET-ONLY", "MARKET-ONLY · shadow v7"), "UNL": ("MARKET-ONLY", "MARKET-ONLY · shadow v2"),
     "PD": ("MARKET-ONLY", "MARKET-ONLY · shadow v1"), "NCAA": ("MARKET-ONLY", "MARKET-ONLY"),
     **{c: ("MARKET-ONLY", "MARKET-ONLY") for c in ("CL", "EFL", "UEL", "SA", "BL1", "FL1", "ELC")},
-    "EL1": ("UNKNOWN", "UNKNOWN"),
+    # addendum 118 item 4: a pot competition none of the three holds is POT; one outside the pot stays UNKNOWN
+    "EL1": ("POT", "POT (training data only)"), "QQQ": ("UNKNOWN", "UNKNOWN"),
 }
+# the production soccer row's pot here: every soccer competition above but QQQ (the ruled ones keep their status)
+RULED_POT = ("PL", "ELC", "EL1", "CL", "EFL", "UEL", "PD", "SA", "BL1", "FL1")
 
 
 def test_the_real_files_and_code_derive_the_ruled_statuses(tmp_path, monkeypatch):
     """On the tracked roadmap and registry, the code's own sets and chains, and the two production rows the predict
-    path would resolve (MLB v2, PL v22): the ruling's statuses, word for word, on the ruling's day (no machine
-    setting: nhl-daily's season gate is chains.py's date)."""
+    path would resolve (MLB v2, PL v22, its pot RULED_POT): the ruling's statuses, word for word, on the ruling's day
+    (no machine setting: nhl-daily's season gate is chains.py's date)."""
     monkeypatch.setattr(c, "HOST_ENV", tmp_path / "no-host.env")
     monkeypatch.setattr(c, "_DOTENV_CACHE", {})
     monkeypatch.delenv("SP_NHL_ACTIVE_FROM", raising=False)
     lanes, entries, unread = cm.read_ledgers()
     assert unread is None
     prod = {("mlb", "mlb_pythag_negbin"): ["v2"], ("soccer", "soccer_elo_poisson"): ["v22"]}
-    got = {code: cm.model_status(code, lanes, entries, prod, day=NOW.date()) for code in RULED}
+    pot = cm.training_pot({("mlb", "mlb_pythag_negbin"): [("v2", "{}")],
+                           ("soccer", "soccer_elo_poisson"): [("v22", params(*RULED_POT))]})
+    got = {code: cm.model_status(code, lanes, entries, prod, day=NOW.date(), pot=pot) for code in RULED}
     assert {code: (s["status"], s["label"]) for code, s in got.items()} == RULED, got
+    assert got["EL1"]["from"] == ("no roadmap lane names EL1; in none of the code's market-only sets; in the training "
+                                  "pot of production soccer_elo_poisson v22")
+    assert got["QQQ"]["from"].endswith(f"in none of the code's market-only sets; {NOT_IN_POT}")
     assert got["PL"]["from"] == "closing family SOCCER; production soccer_elo_poisson v22"
     assert got["MLB"]["from"] == "closing family MLB; production mlb_pythag_negbin v2"
     assert got["UNL"]["from"].endswith("roadmap lane unl: confirming; registry intl-elo-v2: confirming")
@@ -423,7 +640,11 @@ def test_the_market_only_sets_are_the_codes_own():
     assert frozenset().union(*sets.values()) == {"NHL", "NCAA", "UNL", "CL", "EFL", "UEL", "EL", "PD", "SA", "BL1",
                                                  "FL1", "ELC"}
     src = inspect.getsource(cm)
-    assert not re.search(r'"(NHL|NCAA|UNL|CL|EFL|UEL|PD|SA|BL1|FL1|ELC|MLB|NFL|PL)"', src)   # no competition named
+    # no competition named, the pot's included (addendum 118 item 4: "not a typed list"): every code the adapters map
+    from src.adapters import api_football
+    codes = {*api_football._CODE_TO_LEAGUE_ID, "NHL", "NCAA", "MLB", "NFL"}
+    named = sorted(code for code in codes if re.search(rf"""["']{re.escape(code)}["']""", src))
+    assert named == [], named
 
 
 def test_the_shadow_exports_are_the_clis_own():

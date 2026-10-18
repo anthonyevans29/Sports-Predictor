@@ -1,0 +1,27 @@
+**2026-10-17 — RULED (ARCHITECT 2026-10-17 19:55 ET, addendum 118 item 4): `python cli.py coverage` prints `POT (training data only)` for a training-pot competition that no other status holds, read from the model's pot configuration (#PRNUM).**
+- **Ruling (verbatim):** "the POT status for coverage (the eight training-pot competitions print "POT (training data only)" from the model's pot configuration, not a typed list — small PR)"
+- **Context:** the status derivation ruled in addendum 111 items 1-2 (#576: LIVE / SHADOW / MARKET-ONLY / UNKNOWN, derived from code, UNKNOWN only when none applies). POT goes in before UNKNOWN.
+- **The pot configuration, read from the code (law 1).** The code holds no list of the pot's competitions.
+  - `training._train_fresh_soccer` (training.py:140) trains on `_load_finished_matches` (training.py:1846-1861): every soccer match that is FINISHED and has both scores, with no competition filter. BACKLOG 2026-08-27 already says so: "training pot is code-agnostic". The pot is whatever the DB held when the row was trained.
+  - The model's own record of that pot is its production row's parameters `contexts`. `by_comp` collects every competition code in that stream (training.py:188-190). The trainer fits a scoring context for each one (training.py:195-217) and stores them all (`"contexts": {k: v.as_dict() for k, v in contexts.items()}`, training.py:250).
+  - coverage reads that field (`coverage_map.training_pot`) from the one production row of each `training.MODEL_FAMILIES` family, the row `_current_production_version` resolves. It uses its own SELECT on `model_versions.parameters`, separate from the LIVE read. The MLB row keeps no `contexts`, so it contributes no pot.
+  - A competition synced after the row was trained is in no pot until a `soccer-refresh` retrains the row.
+  - No production row, more than one, parameters that cannot be read, or no `contexts` all mean no pot (law 4). The reason goes on the UNKNOWN line.
+- **Where the code puts a competition in the pot.** Each competition enters through `_load_finished_matches`, then `by_comp`, then `contexts`; its type also picks the Elo ladder (training.py:163-168):
+  - LEAGUE: the league Elo and `team_to_league` (training.py:224-229): EL1, EL2, and the nine feeders NED, POR, BEL, SCO, TUR, AUT, SUI, GRE, CZE (api_football `_CODE_TO_META`).
+  - CUP or INTL: the cup Elo: FAC (CUP) and WC (INTL).
+- **The eight:** the code cannot name them, because the pot is the production row's data and this PR does not read the DB (law 5). The architect's count of eight cannot be reproduced from code.
+  - From the ledger, the v22 pot (2026-09-21) is 16,546 matches over 24 competitions: the 15 of the 2026-09-19 expansion entry ("DB now spans 15 competitions / 5 countries") plus the nine feeders. It includes WC (BACKLOG 2026-09-19: v22 "pyramid + Euro + WC history").
+  - Under today's code, PL is LIVE; ELC, PD (· shadow v1), SA, BL1, FL1, CL, EFL and UEL are MARKET-ONLY. Those keep their status.
+  - So the pot competitions that printed UNKNOWN and now print POT are EL1, EL2, FAC, WC and the nine feeders. That is 13, plus CS or UECL if the row holds them, and not eight.
+  - A day's map names only the competitions with games that day, so a morning that showed eight UNKNOWN lines is consistent with this.
+  - The operator's read-only check on the laptop: `sqlite3 'file:data/sports.db?mode=ro' "SELECT j.key FROM model_versions m, json_each(m.parameters, '\$.contexts') j WHERE m.status='production' AND m.model_family='soccer_elo_poisson'"`.
+- **As built (#PRNUM):**
+  - `POT_LABEL = "POT (training data only)"`, the ruling's words.
+  - `STATUSES = LIVE, SHADOW, MARKET-ONLY, POT, UNKNOWN`, the print order.
+  - `NO_ROWS_EXPECTED` gains POT: `rows: none (none expected: POT)`, no gap judged, and the `MODEL STATUS UNKNOWN` line no longer names it.
+  - LIVE, SHADOW and MARKET-ONLY win where they apply. A pot competition that is live stays LIVE (PL); one that is market-only stays MARKET-ONLY (ELC, CL, PD).
+  - UNKNOWN's reasons gain the pot's: `not in the training pot of production soccer_elo_poisson v22`, or `no training pot read (…)`.
+  - POT expects no rows because every `predict` step in chains.py names a competition that a closing family covers (MLB, PL), and `predict-nfl` names none. A test pins this.
+  - coverage_map.py names no competition. The source test checks every code the football adapter maps.
+- **Docs:** docs/CLI.md, the `coverage` row. The coverage_map.py docstring quotes the ruling and gives the POT row of the status table.

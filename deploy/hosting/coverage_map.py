@@ -23,6 +23,10 @@ in the registry (MLB, PL, NFL); SHADOW if a roadmap lane naming it is "confirmin
 UNKNOWN only when none applies. A competition can be both SHADOW and MARKET-ONLY (NHL): print "MARKET-ONLY · shadow
 v7"."
 
+THE POT STATUS (ARCHITECT 2026-10-17 19:55 ET, addendum 118 item 4), verbatim:
+"the POT status for coverage (the eight training-pot competitions print "POT (training data only)" from the model's pot
+configuration, not a typed list — small PR)"
+
     closing.py's own pieces, never re-implemented: a game's day is its America/New_York date (closing.ny_date, the
     date A1 gives a first pitch); VOID statuses are no game (closing.VOID); the closing groups are closing.groups() on
     closing.due()'s own inputs (the stored games plus the unpaged called-off ones, closing.with_called_off, less the
@@ -74,17 +78,29 @@ v7"."
                    export._MARKET_ONLY_REASON (the market-only fixtures file's NHL, NCAA, UNL) and cup_coeff.EXAM_COMPS
                    (the cup track's competitions, market-only until its gate passes; EL is the adapter's alias for
                    UEL). SHADOW and MARKET-ONLY both: `MARKET-ONLY · shadow <tag>`.
+      POT          none of the three above holds it, and it is in a production model's training pot (addendum 118 item
+                   4), printed `POT (training data only)`. Read from the model's pot configuration, never a list of
+                   codes: the one production row of each family of training.MODEL_FAMILIES (as
+                   _current_production_version reads it), its parameters' `contexts`, the scoring context the trainer
+                   fits for every competition of the finished stream it trained on (training._train_fresh_soccer:
+                   by_comp over _load_finished_matches, every finished soccer match with both scores). The code holds no
+                   list of the pot's competitions: the pot is what the DB held when the row was trained, so a
+                   competition synced since is in no pot until a soccer-refresh retrains the row. No production row,
+                   more than one, parameters that cannot be read or no `contexts`: no pot from that family, the reason
+                   kept for UNKNOWN. A pot competition that is LIVE (PL), SHADOW or MARKET-ONLY stays so.
       UNKNOWN      none applies (law 4), with every reason: no closing family or no live model, no lane names it or
-                   none qualifies, in none of the market-only sets. A roadmap or registry that cannot be read judges no
-                   shadow (MARKET-ONLY still holds from code, the line says the shadow was not judged).
+                   none qualifies, in none of the market-only sets, not in the training pot (or why no pot was read). A
+                   roadmap or registry that cannot be read judges no shadow (MARKET-ONLY still holds from code, the line
+                   says the shadow was not judged).
 
     The gaps (capitals): a LIVE competition with a game that has no prediction row. Zero rows names the slate chain
     whose model step writes them ("— soccer-prematch has not run"), derived from chains.py: the closing chain's step
     whose command writes prediction rows (PREDICT_COMMANDS), found word for word in a chain that is neither a closing
-    nor a freshen chain; no chain found, no hint. No chain runs a predict step for a SHADOW or MARKET-ONLY competition
-    (its shadow, if any, prices in its own export), so no row is expected and no gap is claimed. A LIVE competition
-    whose family this machine refuses (MLB on the host: a laptop duty) claims no gap either; its line shows the
-    refusal. UNKNOWN competitions are named once, in capitals, with no gap judged for them.
+    nor a freshen chain; no chain found, no hint. No chain runs a predict step for a SHADOW, MARKET-ONLY or POT
+    competition (its shadow, if any, prices in its own export; a POT competition's games train the model, and every
+    predict step in chains.py names a competition a closing family covers), so no row is expected and no gap is
+    claimed. A LIVE competition whose family this machine refuses (MLB on the host: a laptop duty) claims no gap
+    either; its line shows the refusal. UNKNOWN competitions are named once, in capitals, with no gap judged for them.
 
 Read-only: the DB is opened mode=ro (sp_common.ro_connect: a missing file is refused, never created), plus
 docs/roadmap.json, docs/registry/experiments.json, the watch's schedule inputs (chains.py, closing.py) and its receipt
@@ -97,6 +113,7 @@ from __future__ import annotations
 
 import argparse
 import importlib
+import json
 import re
 import sqlite3
 import sys
@@ -108,8 +125,9 @@ import closing as cl  # noqa: E402
 import sp_common as c  # noqa: E402
 from chains import CHAINS, CLOSING_FAMILIES, EXPANSION_CODES, FRESHEN_FAMILY, KALSHI_CAPTURE_ONLY  # noqa: E402
 
-STATUSES = ("LIVE", "SHADOW", "MARKET-ONLY", "UNKNOWN")       # the order the lines are printed in
-NO_ROWS_EXPECTED = ("SHADOW", "MARKET-ONLY")
+STATUSES = ("LIVE", "SHADOW", "MARKET-ONLY", "POT", "UNKNOWN")       # the order the lines are printed in
+NO_ROWS_EXPECTED = ("SHADOW", "MARKET-ONLY", "POT")
+POT_LABEL = "POT (training data only)"                                # addendum 118 item 4, word for word
 # The two cli commands whose code writes prediction rows (law 1, read 2026-10-17: Prediction rows are constructed only
 # in src/walters/training.py, reached by `predict`, and src/walters/nfl_predict.py, reached by `predict-nfl`; a test
 # pins both. The web UI's per-match refresh and admin predict job reach training.generate_predictions too; no chain
@@ -140,10 +158,12 @@ def day_bounds(day: date) -> tuple[datetime, datetime]:
     return lo, hi
 
 
-def read_day(day: date) -> tuple[list[dict], dict, dict | str]:
+def read_day(day: date) -> tuple[list[dict], dict, dict | str, dict | str]:
     """The day's stored games (every competition, closing.schedule's shape plus `comp`; VOID ones included, marked),
-    {match_id: [(model_version, computed_at)]} for them, and the production model rows {(sport, model_family):
-    [version]} (or why model_versions could not be read). One read-only connection; nothing else is read."""
+    {match_id: [(model_version, computed_at)]} for them, the production model rows {(sport, model_family):
+    [version]} (or why model_versions could not be read), and the same rows with their parameters {(sport,
+    model_family): [(version, parameters)]} for the training pot (or why they could not be read; read apart, so a pot
+    that cannot be read never costs a LIVE). One read-only connection; nothing else is read."""
     lo, hi = day_bounds(day)
     fmt = "%Y-%m-%d %H:%M:%S"
     try:
@@ -189,11 +209,18 @@ def read_day(day: date) -> tuple[list[dict], dict, dict | str]:
                 prod.setdefault((sp, fam), []).append(ver)
         except sqlite3.Error as e:    # law 4: no live model is read from a table that cannot be read
             prod = f"model_versions cannot be read ({type(e).__name__}: {e})"
+        pots: dict | str = {}
+        try:                          # the model's pot configuration (addendum 118 item 4): the rows' parameters
+            for sp, fam, ver, raw in con.execute("SELECT lower(sport), model_family, version, parameters FROM "
+                                                 "model_versions WHERE status = 'production' ORDER BY id").fetchall():
+                pots.setdefault((sp, fam), []).append((ver, raw))
+        except sqlite3.Error as e:    # law 4: no pot is read from a table that cannot be read
+            pots = f"model_versions cannot be read ({type(e).__name__}: {e})"
     except sqlite3.Error as e:
         raise Refused(f"the DB at {p} cannot be read: {type(e).__name__}: {e}") from None
     finally:
         con.close()
-    return games, preds, prod
+    return games, preds, prod, pots
 
 
 # ------------------------------------------------------------------------------------------- the status --
@@ -268,6 +295,41 @@ def market_only_sets() -> list[tuple[str, frozenset]]:
             ("cup_coeff.EXAM_COMPS", frozenset(EXAM_COMPS))]
 
 
+def training_pot(rows) -> tuple[dict, str]:
+    """The model's pot configuration (addendum 118 item 4), read from the production rows, never a list of codes:
+    ({competition code: [the production rows whose training pot holds it]}, what an UNKNOWN line says of a code in no
+    pot). Each family of training.MODEL_FAMILIES, its one production row as _current_production_version resolves it;
+    its pot is its parameters' `contexts`, the scoring context the trainer fits for every competition code of the
+    finished stream it trained on (training._train_fresh_soccer: by_comp over _load_finished_matches, then
+    `"contexts": {k: ... for k in contexts}`). No row, more than one, parameters that cannot be read, or no contexts:
+    no pot from that family (law 4), the reason kept."""
+    from src.walters.training import MODEL_FAMILIES
+    if isinstance(rows, str):
+        return {}, f"no training pot read ({rows})"
+    pot: dict = {}
+    notes = []
+    for sport, fam in MODEL_FAMILIES.items():
+        got = rows.get((sport.value, fam), [])
+        if len(got) != 1:
+            notes.append(f"no production {fam} row" if not got else f"{len(got)} production {fam} rows")
+            continue
+        ver, raw = got[0]
+        try:                          # the JSON column as SQLite stores it: text
+            params = json.loads(raw) if isinstance(raw, (str, bytes)) else raw
+        except ValueError:
+            notes.append(f"production {fam} {ver}: its parameters cannot be read")
+            continue
+        ctx = params.get("contexts") if isinstance(params, dict) else None
+        if not isinstance(ctx, dict) or not ctx:
+            notes.append(f"production {fam} {ver}: no contexts in its parameters")
+            continue
+        for code in ctx:
+            pot.setdefault(str(code), []).append(f"production {fam} {ver}")
+    if pot:
+        return pot, f"not in the training pot of {', '.join(sorted({s for v in pot.values() for s in v}))}"
+    return pot, f"no training pot read ({'; '.join(notes)})"
+
+
 def scheduled_shadows() -> list[dict]:
     """The shadow exports a chain runs (chains.py), each {chain, command, model: the code's id for its model, comps:
     the competitions the chain's steps name}. An operator-only chain has no timer: no schedule."""
@@ -336,10 +398,11 @@ def shadow_of(code: str, lanes: list[dict], entries: dict, day: date) -> tuple[s
 
 
 def model_status(code: str, lanes: list[dict], entries: dict, prod, unread: str | None = None,
-                 day: date | None = None) -> dict:
-    """{status: LIVE | SHADOW | MARKET-ONLY | UNKNOWN, label: as printed, from: where it was read, shadow: the shadow's
-    tag or None}, in the ruled order (addendum 111 item 2), on `day` (default today, ET). The table is the module
-    docstring's."""
+                 day: date | None = None, pot: tuple[dict, str] | None = None) -> dict:
+    """{status: LIVE | SHADOW | MARKET-ONLY | POT | UNKNOWN, label: as printed, from: where it was read, shadow: the
+    shadow's tag or None}, in the ruled order (addendum 111 item 2; POT before UNKNOWN, addendum 118 item 4), on `day`
+    (default today, ET); `pot` is training_pot()'s (None: no pot read). The table is the module docstring's."""
+    pot_codes, not_in_pot = pot if pot is not None else ({}, "no training pot read")
     fam = family_of(code)
     if fam:
         model, src = live_model(fam, prod)
@@ -360,8 +423,14 @@ def model_status(code: str, lanes: list[dict], entries: dict, prod, unread: str 
     if market:
         return {"status": "MARKET-ONLY", "label": "MARKET-ONLY",
                 "from": "; ".join(([why_not_live] if fam else []) + [", ".join(market), why]), "shadow": None}
+    if code in pot_codes:             # addendum 118 item 4: none of the three, in a production model's training pot
+        return {"status": "POT", "label": POT_LABEL,
+                "from": "; ".join(([why_not_live] if fam else []) + [
+                    why, "in none of the code's market-only sets",
+                    f"in the training pot of {', '.join(pot_codes[code])}"]), "shadow": None}
     return {"status": "UNKNOWN", "label": "UNKNOWN",
-            "from": "; ".join([why_not_live, why, "in none of the code's market-only sets"]), "shadow": None}
+            "from": "; ".join([why_not_live, why, "in none of the code's market-only sets", not_in_pot]),
+            "shadow": None}
 
 
 def writer_chains(fam: str) -> list[str]:
@@ -465,14 +534,15 @@ def coverage(day: date | None = None, now: datetime | None = None, roadmap_path=
     cannot be read."""
     now = cl.utc(now or cl.clock())
     day = day or cl.ny_date(now)
-    games, preds, prod = read_day(day)
+    games, preds, prod, pots = read_day(day)
     lanes, entries, unread = read_ledgers(roadmap_path, registry_path)
+    pot = training_pot(pots)          # the model's pot configuration, read once
     views: dict = {}                  # family -> watch_groups(), read once per family
     comps: list[dict] = []
     for code in sorted({g["comp"] for g in games}):
         mine = [g for g in games if g["comp"] == code and not g["void"]]
         void = [g for g in games if g["comp"] == code and g["void"]]
-        st = model_status(code, lanes, entries, prod, unread, day)
+        st = model_status(code, lanes, entries, prod, unread, day, pot)
         by_model: dict = {}
         for g in mine:
             for mv, at in preds.get(g["match_id"], []):

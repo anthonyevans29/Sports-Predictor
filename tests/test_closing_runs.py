@@ -996,6 +996,7 @@ def test_380_2_uninstall_removes_both_watches(tmp_path):
     hits = subprocess.run(["git", "-C", str(ROOT), "grep", "-l", "setup_closing_watch"],
                           capture_output=True, text=True).stdout.split()
     assert all(h.endswith(".md") or h in ("scripts/setup_closing_watch.sh", "tests/test_closing_runs.py",
+                                          "tests/test_host_watch_after_flip.py",  # reads the script's text only
                                           "cli.py") for h in hits), hits          # nothing installs itself
 
 

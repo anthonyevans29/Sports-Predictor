@@ -97,7 +97,11 @@ def environment_file(p: Path, monkeypatch) -> None:
 def flip_writer(p: Path, monkeypatch) -> dict:
     """The flip's first half, sp_cutover.py's own `flip` step, unchanged: SP_WRITER_OF_RECORD=host in host.env."""
     monkeypatch.setattr(sp_cutover, "_euid", lambda: 1000)               # in-process (CI may run as root)
-    monkeypatch.delenv("SP_WRITER_OF_RECORD", raising=False)             # step_flip sets it here; undone after
+    # step_flip writes os.environ["SP_WRITER_OF_RECORD"] itself (sp_cutover.py, after its write), outside monkeypatch.
+    # A bare delenv of an absent variable records no undo, so that write would outlive the test; setenv first records
+    # the prior state (absent or a value), and teardown puts it back.
+    monkeypatch.setenv("SP_WRITER_OF_RECORD", "laptop")
+    monkeypatch.delenv("SP_WRITER_OF_RECORD")
     ctx = sp_cutover.Ctx(pack=None, timers_file=p.parent / "timers.enabled",
                          runner=lambda argv: (1, "no systemctl in this test"), cutover_id="pack_20261026T1300")
     rec = sp_cutover.step_flip(ctx)
@@ -357,16 +361,79 @@ def _stores(tree: ast.AST, name: str) -> list[tuple[str, int]]:
     return out
 
 
+FENCE_OFF = ("base_v11", "host_fence_rule_off")    # desk_policy's two context managers that turn the switch off
+SKIP_PARTS = {"tests", ".claude", ".git", "venv", ".venv", "node_modules"}
+
+
+def _tracked(*pathspec: str) -> list[str]:
+    """The tracked files (git ls-files): untracked files, and the worktrees under the main checkout's .claude/,
+    never count."""
+    out = subprocess.run(["git", "-C", str(ROOT), "ls-files", "-z", "--", *pathspec], capture_output=True, text=True,
+                         check=True).stdout.split("\0")
+    return [f for f in out if f and (ROOT / f).is_file()]
+
+
+def _production() -> list[Path]:
+    return [ROOT / f for f in _tracked("*.py") if not (SKIP_PARTS & set(Path(f).parts))]
+
+
+def _ident(node) -> str | None:
+    return node.id if isinstance(node, ast.Name) else node.attr if isinstance(node, ast.Attribute) else None
+
+
+def _fence_entries(tree: ast.AST) -> set[str]:
+    """The ways to turn the switch off without assigning it: a call to either context manager (f() or x.f()), a method
+    call on the switch (HOST_FENCE_RULE.update(...)), a call handed the switch (setitem(HOST_FENCE_RULE, ...)), an
+    import of any of the three names, and any of them as a string in code (getattr(dp, "base_v11"))."""
+    bare = {id(n.value) for n in ast.walk(tree) if isinstance(n, ast.Expr)}          # docstrings run nothing
+    out = set()
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Call):
+            name = _ident(n.func)
+            if name in FENCE_OFF:
+                out.add(f"{name}()")
+            if isinstance(n.func, ast.Attribute) and _ident(n.func.value) == SWITCH:
+                out.add(f"{SWITCH}.{n.func.attr}()")
+            if any(_ident(a) == SWITCH for a in [*n.args, *(k.value for k in n.keywords)]):
+                out.add(f"{name}({SWITCH})")
+        elif isinstance(n, ast.ImportFrom):
+            out |= {f"import {a.name}" for a in n.names if a.name in (*FENCE_OFF, SWITCH)}
+        elif isinstance(n, ast.Constant) and n.value in (*FENCE_OFF, SWITCH) and id(n) not in bare:
+            out.add(repr(n.value))
+    return out
+
+
+def _imports(tree: ast.AST) -> set[str]:
+    return ({a.name.split(".")[0] for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
+            | {n.module.split(".")[0] for n in ast.walk(tree)
+               if isinstance(n, ast.ImportFrom) and n.module and not n.level})
+
+
+def _named_in_code(tree: ast.AST, stems: set[str]) -> set[str]:
+    """Which of `stems` this file imports or names in a string its code uses (a path it runs); not a docstring."""
+    bare = {id(n.value) for n in ast.walk(tree) if isinstance(n, ast.Expr)}
+    strings = [n.value for n in ast.walk(tree) if isinstance(n, ast.Constant) and isinstance(n.value, str)
+               and id(n) not in bare]
+    return (_imports(tree) & stems) | {s for s in stems if any(re.search(rf"\b{s}\b", x) for x in strings)}
+
+
 def test_c_one_switch_the_cutover_pr_turns_off_and_nothing_else_lifts_the_fence():
     """(c) What #580's identity test (test_desk_host_fence.py::test_the_switch_the_cutover_pr_turns_off_is_the_one_
     the_fence_reads) does not pin: there is ONE switch for the cutover PR to turn off. Of desk_policy's policy switches
     (NAME = {"on": bool}) exactly one is the fence's, HOST_FENCE_RULE, and it is the only one the fence's read path
     (host_fenced, role_reading, machine_role, _env_file) names; that path names no other setting than the role and the
-    two env files, and no WRITER string. The fence is checked in one place, first in _desk_call. HOST_FENCE_RULE is
-    written nowhere in the production code but its own definition and desk_policy's two context managers that put it
-    back (base_v11 for the frozen golden, host_fence_rule_off for comparisons): no script, chain, unit or cutover step
-    turns it, so in production it is off only when the source line says so — the cutover PR's line. The desk_meta key
-    the runbook's after-flip check reads (host_fence_rule) is that switch."""
+    two env files, and no WRITER string. The fence is checked in one place, first in _desk_call. In the tracked
+    production code HOST_FENCE_RULE is assigned nowhere but its own definition and desk_policy's two context managers
+    that turn it off and put it back (base_v11 for the frozen golden, host_fence_rule_off for comparisons); no code
+    calls a method on it, is handed it, or imports it. The context managers are entered only by four verify/battery
+    scripts (scripts/cockpit_btrack_verify.py, cockpit_desk_files.py, cockpit_window_verify.py, desk_battery.py; each
+    base_v11). Neither they nor any script importing them is imported or run by cli.py, src/, deploy/ (chains.py,
+    closing.py and the units included) or the laptop's setup scripts, but one: cutover-readiness
+    (deploy/hosting/cutover_readiness.py) runs the parity harness, scripts/desk_parity_verify.py (desk_battery's
+    base_v11), as a child process in a scratch worktree of a release tag with a scratch DB, criterion (c). So in
+    production the switch is off only by the source line, the cutover PR's line: none of the context managers is
+    entered on an export, chain, closing or deploy path. The desk_meta key the runbook's after-flip check reads
+    (host_fence_rule) is that switch."""
     src = Path(dp.__file__).read_text()
     tree = ast.parse(src)
     switches = _switches(tree)
@@ -389,18 +456,36 @@ def test_c_one_switch_the_cutover_pr_turns_off_and_nothing_else_lifts_the_fence(
     assert sorted({w for w, _ in _stores(tree, SWITCH)}) == ["<module>", "base_v11", "host_fence_rule_off"]
     assert [ln for w, ln in _stores(tree, SWITCH) if w == "<module>"] == [switches[SWITCH]]
     assert re.search(r'"host_fence_rule": HOST_FENCE_RULE\["on"\]', src)
-    production = [p for p in ROOT.rglob("*.py") if not ({"tests", ".claude", ".git", "venv", ".venv", "node_modules"}
-                                                        & set(p.relative_to(ROOT).parts))]
+    production = _production()
     assert len(production) > 50
-    writers = {}
-    for p in production:
-        text = p.read_text(encoding="utf-8", errors="replace")
-        if SWITCH not in text:
-            continue
-        stores = _stores(ast.parse(text), SWITCH)
-        if stores:
-            writers[str(p.relative_to(ROOT))] = sorted({w for w, _ in stores})
+    trees = {str(p.relative_to(ROOT)): ast.parse(p.read_text(encoding="utf-8", errors="replace")) for p in production}
+    writers = {f: sorted({w for w, _ in _stores(t, SWITCH)}) for f, t in trees.items() if _stores(t, SWITCH)}
     assert writers == {"src/walters/desk_policy.py": ["<module>", "base_v11", "host_fence_rule_off"]}
+    entries = {f: sorted(_fence_entries(t)) for f, t in trees.items() if _fence_entries(t)}
+    assert entries == {f"scripts/{s}.py": ["base_v11()"] for s in (
+        "cockpit_btrack_verify", "cockpit_desk_files", "cockpit_window_verify", "desk_battery")}
+    # who enters them, and every script that imports one of those (to the end of the chain)
+    helpers = {Path(f).stem for f in entries}
+    scripts = {Path(f).stem: t for f, t in trees.items() if Path(f).parent == Path("scripts")}
+    reach = set(helpers)
+    while more := {s for s, t in scripts.items() if s not in reach and _imports(t) & reach}:
+        reach |= more
+    assert {"desk_parity_verify", "desk_golden_capture", "cockpit_render_verify"} <= reach
+    # the export, chain, closing and deploy paths: cli.py, src/, deploy/ (python, units, shell, env files), and the
+    # laptop's setup scripts (its launchd jobs)
+    paths = [f for f in _tracked("cli.py", "src", "deploy", "scripts/setup_*.sh") if not f.endswith(".md")]
+    assert "deploy/hosting/chains.py" in paths and "deploy/hosting/closing.py" in paths and len(paths) > 150
+    direct, named = {}, {}
+    for f in paths:
+        text = (ROOT / f).read_text(encoding="utf-8", errors="replace")
+        if hit := {s for s in helpers if re.search(rf"\b{s}\b", text)}:         # the four, even in a docstring
+            direct[f] = sorted(hit)
+        hit = _named_in_code(trees[f], reach) if f in trees else {s for s in reach if re.search(rf"\b{s}\b", text)}
+        if hit:
+            named[f] = sorted(hit)
+    assert direct == {}
+    assert named == {"deploy/hosting/cutover_readiness.py": ["desk_parity_verify"]}     # parity_on(): a child process
+    assert "desk_parity_verify" not in _imports(trees["deploy/hosting/cutover_readiness.py"])  # on a scratch worktree
 
 
 def test_c_a_fresh_process_on_the_flipped_host_reads_the_switch_from_the_source_and_is_still_fenced(box, monkeypatch):
@@ -408,8 +493,8 @@ def test_c_a_fresh_process_on_the_flipped_host_reads_the_switch_from_the_source_
     the source line, not this process's state. On the host after sp_cutover's own flip (host.env: writer host, role
     host; SP_WRITER_OF_RECORD=host in the environment, as the unit loads it), a fresh process runs the runbook's own
     HOST FENCE CHECK command (section 0, before step 4's flip) and prints {'on': True} today, and a soccer row there is
-    PASS host_fence with desk_meta.host_fence_rule true: the flip alone does not lift the fence. Only the cutover PR's
-    line does (the runbook's check then prints {'on': False})."""
+    PASS host_fence with desk_meta.host_fence_rule true: the flip alone does not lift the fence. In production only the
+    cutover PR's line does (what test (c) pins; the runbook's check then prints {'on': False})."""
     p = host_env(box, monkeypatch)
     flip_writer(p, monkeypatch)
     environment_file(p, monkeypatch)

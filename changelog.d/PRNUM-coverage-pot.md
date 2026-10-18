@@ -4,18 +4,20 @@
   - No production row, more than one, parameters that cannot be read, or no `contexts` all mean no pot (law 4). The reason goes on the UNKNOWN line, e.g. `no training pot read (production soccer_elo_poisson v22: its parameters cannot be read; …)`.
   - The pot is read with its own SELECT on `model_versions` (its `parameters`), separate from the LIVE read, so a pot that cannot be read never costs a LIVE. Still read-only: the DB is opened mode=ro and every statement is a SELECT.
   - Precedence: LIVE, SHADOW and MARKET-ONLY win where they apply. A pot competition that is live stays LIVE (PL), and ELC stays MARKET-ONLY. POT applies only where none of them does, and UNKNOWN only where nothing applies. Print order: LIVE, SHADOW, MARKET-ONLY, POT, UNKNOWN.
+  - SHADOW ranks above POT, so POT needs the shadow judged. With the roadmap or the registry unreadable, a pot competition prints UNKNOWN (law 4), its line ending `in the training pot of production soccer_elo_poisson v22, but POT ranks below SHADOW, which was not judged`, and the `MODEL STATUS UNKNOWN` line names it. MARKET-ONLY still holds from code, as before.
   - A POT line reads `POT (training data only) (no roadmap lane names NED; in none of the code's market-only sets; in the training pot of production soccer_elo_poisson v22) · rows: none (none expected: POT) · closing: none (…)`.
   - POT expects no prediction rows (`NO_ROWS_EXPECTED`): every `predict` step in chains.py names a competition that a closing family covers. No gap is judged for a POT competition, and the `MODEL STATUS UNKNOWN` line no longer names it.
   - UNKNOWN's reasons now include the pot's: `not in the training pot of production soccer_elo_poisson v22`, or why no pot was read.
   - coverage_map.py still names no competition. The source test now checks every code the football adapter maps, plus NHL, NCAA, MLB and NFL.
 - docs/CLI.md: the `coverage` row gains POT, and UNKNOWN's reasons gain the pot's.
-- tests/test_coverage_map.py (64 tests; was 55):
+- tests/test_coverage_map.py (66 tests; was 55):
   - the scratch production soccer row carries a pot (PL, ELC, EL2, NED, FAC); a shelved row's stale pot naming EL1 counts for nothing;
   - NED and FAC print POT, word for word, before UNKNOWN, with no gap judged and no UNKNOWN line naming them;
   - the pot follows the row: a code nothing in the code names (QQQ) prints POT once the row's `contexts` hold it, and NED prints UNKNOWN once they do not;
   - PL stays LIVE (with its gap), EL2 stays SHADOW v3 and ELC stays MARKET-ONLY, all three in the pot;
   - a POT competition that holds rows shows them, with no gap;
   - parameters that cannot be read, a row with no `contexts`, and a table without the column are each no pot, the reason on the line, and PL's LIVE stands;
+  - with the roadmap, or the registry, unreadable, EL2 (SHADOW v3 when both read) and NED are UNKNOWN, never POT, and the UNKNOWN line names both;
   - end to end on a real-schema scratch DB: `train_fresh(SOCCER)` writes `contexts` for exactly the finished stream's competitions; once promoted, coverage prints those competitions POT, PL LIVE, and a competition with no finished match UNKNOWN;
   - every predict step in chains.py names a closing-family competition;
   - the tracked files' ruled statuses with a pot (EL1 POT, a code outside the pot UNKNOWN);

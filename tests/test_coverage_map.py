@@ -487,6 +487,27 @@ def test_no_gap_is_judged_for_a_pot_competition(env):
     assert out[-1] == "GAPS: none"
 
 
+@pytest.mark.parametrize("broken, unread", [
+    ("roadmap", "the roadmap cannot be read: "), ("registry", "the registry cannot be read: JSONDecodeError")])
+def test_a_pot_competition_whose_shadow_was_not_judged_is_unknown_never_pot(env, broken, unread):
+    """Law 4: SHADOW ranks above POT, so with the roadmap or the registry unreadable no pot competition is POT. EL2
+    (in the pot, SHADOW v3 when both read) and NED (in the pot, no lane when the roadmap reads) are UNKNOWN, the line
+    naming the pot, and the UNKNOWN line names them. ELC stays MARKET-ONLY from the code, as before."""
+    (rm.ROADMAP_PATH if broken == "roadmap" else Path(reg.LEDGER)).write_text("{not json")
+    make_db(env, [(702, "EL2", "2026-10-17 14:00", "SCHEDULED"), (901, "NED", "2026-10-17 12:30", "SCHEDULED"),
+                  (801, "ELC", "2026-10-17 14:00", "SCHEDULED")])
+    rc, out = run("--date", DAY)
+    assert rc == 0
+    for code in ("EL2", "NED"):
+        got = line_of(out, code)
+        assert f"{code} · 1 game · UNKNOWN (no closing family covers {code}; shadow not judged: {unread}" in got
+        assert ("; in none of the code's market-only sets; in the training pot of production soccer_elo_poisson v22, "
+                "but POT ranks below SHADOW, which was not judged) · rows: none · without rows: ") in got
+    assert "· MARKET-ONLY (" in line_of(out, "ELC")
+    assert gaps(out) == [
+        "MODEL STATUS UNKNOWN: EL2, NED — no gap is judged for them (each line gives the reason)"]
+
+
 @pytest.mark.parametrize("models, columns, why", [
     ([MODELS[0], ("SOCCER", "soccer_elo_poisson", "v22", "production", "{not json")], True,
      "no training pot read (production soccer_elo_poisson v22: its parameters cannot be read; production "

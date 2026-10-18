@@ -87,7 +87,9 @@ configuration, not a typed list — small PR)"
                    list of the pot's competitions: the pot is what the DB held when the row was trained, so a
                    competition synced since is in no pot until a soccer-refresh retrains the row. No production row,
                    more than one, parameters that cannot be read or no `contexts`: no pot from that family, the reason
-                   kept for UNKNOWN. A pot competition that is LIVE (PL), SHADOW or MARKET-ONLY stays so.
+                   kept for UNKNOWN. A pot competition that is LIVE (PL), SHADOW or MARKET-ONLY stays so. SHADOW ranks
+                   above POT, so a roadmap or registry that cannot be read leaves a pot competition UNKNOWN (law 4), the
+                   line naming its pot and that SHADOW was not judged.
       UNKNOWN      none applies (law 4), with every reason: no closing family or no live model, no lane names it or
                    none qualifies, in none of the market-only sets, not in the training pot (or why no pot was read). A
                    roadmap or registry that cannot be read judges no shadow (MARKET-ONLY still holds from code, the line
@@ -423,13 +425,15 @@ def model_status(code: str, lanes: list[dict], entries: dict, prod, unread: str 
     if market:
         return {"status": "MARKET-ONLY", "label": "MARKET-ONLY",
                 "from": "; ".join(([why_not_live] if fam else []) + [", ".join(market), why]), "shadow": None}
-    if code in pot_codes:             # addendum 118 item 4: none of the three, in a production model's training pot
+    in_pot = f"in the training pot of {', '.join(pot_codes[code])}" if code in pot_codes else None
+    if in_pot and not unread:         # addendum 118 item 4: none of the three, in a production model's training pot
         return {"status": "POT", "label": POT_LABEL,
                 "from": "; ".join(([why_not_live] if fam else []) + [
-                    why, "in none of the code's market-only sets",
-                    f"in the training pot of {', '.join(pot_codes[code])}"]), "shadow": None}
+                    why, "in none of the code's market-only sets", in_pot]), "shadow": None}
+    # law 4: SHADOW ranks above POT, so a pot competition whose shadow was not judged is UNKNOWN, never POT
     return {"status": "UNKNOWN", "label": "UNKNOWN",
-            "from": "; ".join([why_not_live, why, "in none of the code's market-only sets", not_in_pot]),
+            "from": "; ".join([why_not_live, why, "in none of the code's market-only sets",
+                               f"{in_pot}, but POT ranks below SHADOW, which was not judged" if in_pot else not_in_pot]),
             "shadow": None}
 
 

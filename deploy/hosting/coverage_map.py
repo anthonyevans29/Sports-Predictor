@@ -107,8 +107,9 @@ carries it; the Today tab shows it first."
     the day is still unstarted, since a game re-dated later into the day is slated on the watch's next tick) the line
     names the block, "— run block <block> (<why>: the watch runs it no more)"; else the due time, with a failed attempt
     ("attempt k of 3 failed (<failed>): the watch tries again"), a miss ("missed (<reason>): the watch keeps trying")
-    or a hold, when the day's newest slate receipt is the hold ("held since HH:MM ET (<the closing it waits for>): the
-    slate runs after it"), in brackets.
+    or a hold, when the day's newest slate receipt is the hold and the closing it names is one the watch will still run
+    (closing.closing_open: a hold for a closing done, started, inside T-5 or out of attempts is stale and not shown)
+    ("held since HH:MM ET (<the closing it waits for>): the slate runs after it"), in brackets.
 
 Read-only: the DB is opened mode=ro (sp_common.ro_connect: a missing file is refused, never created), plus
 docs/roadmap.json, docs/registry/experiments.json, the watch's schedule inputs (chains.py, closing.py) and its receipt
@@ -532,14 +533,30 @@ def slate_view(fam: str, games: list[dict], day: date, refused: str | None, expo
     return out
 
 
+def _hold_open(rec: dict, now: datetime | None) -> bool:
+    """A slate's hold receipt still says what the slate waits for at `now`: the closing it names (`closing`: family,
+    start) is one the watch will still run (closing.closing_open, closing_ahead's own test: its start more than five
+    minutes off, no success, under three attempts). A hold for a closing done, started, inside T-5 or out of attempts
+    is stale (the #590 review's feed-down note: "the slate runs after it" about a closing long done). Without `now`,
+    or with a closing that cannot be read (law 4), as the receipt says."""
+    clo = rec.get("closing") or {}
+    if now is None:
+        return True
+    try:
+        return cl.closing_open(clo["family"], cl.parse_utc(clo["start"]), now)
+    except (KeyError, TypeError, ValueError, OSError):
+        return True
+
+
 def slate_receipts(fam: str, day: date, games: list[dict] | None = None, now: datetime | None = None) -> dict:
     """What the watch's slate receipts say of the family's day (addendum 126 item 2(c): "the morning page reads them as
     it reads the closing lines"), read as closing.slate_state reads them: {attempts, success, last_failed (the newest
     failed attempt's `failed`), succeeded ({file, at} of the newest success), misses (the day's slate_miss reasons, in
-    order), held ({why, at} when the day's newest slate receipt is a hold: the slate waits for a closing), done (the
-    watch runs no slate that day: a success, three attempts, or every game started), unread}. The every-game-started
-    miss is done only while no game of `games` is unstarted at `now` (the watch decides from the schedule, not from
-    the miss: a game re-dated later into the day is slated on its next tick); without them, as the miss says."""
+    order), held ({why, at} when the day's newest slate receipt is a hold whose closing the watch will still run at
+    `now`: the slate waits for it; _hold_open), done (the watch runs no slate that day: a success, three attempts, or
+    every game started), unread}. The every-game-started miss is done only while no game of `games` is unstarted at
+    `now` (the watch decides from the schedule, not from the miss: a game re-dated later into the day is slated on its
+    next tick); without them, as the miss says."""
     out = {"attempts": 0, "success": False, "last_failed": None, "succeeded": None, "misses": [], "held": None,
            "done": False, "unread": None}
     day_s = day.isoformat()
@@ -561,7 +578,8 @@ def slate_receipts(fam: str, day: date, games: list[dict] | None = None, now: da
             at = None                 # law 4: an unreadable time is shown as none
         out["succeeded"] = {"file": ok[-1].get("file"), "at": at}
     out["misses"] = list(dict.fromkeys(misses))
-    if mine and mine[-1].get("kind") == cl.SLATE_KIND and mine[-1].get("held"):
+    if (mine and mine[-1].get("kind") == cl.SLATE_KIND and mine[-1].get("held")
+            and _hold_open(mine[-1], now)):
         try:
             at = cl.parse_utc(mine[-1].get("queued_at"))
         except (TypeError, ValueError):

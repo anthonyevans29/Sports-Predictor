@@ -2212,10 +2212,13 @@ def worse(a: int, b: int) -> int:
 #     answer, an MLB closing is a miss on every tick, never a run (A6), so when an MLB closing would hold a slate the
 #     feed's answer is read and, unanswered, the guard reads the other families' closings only (slate_ahead). The
 #     slate's own feed (an MLB slate's) is checked before the guard, so a feed that does not answer pages its RUN BY
-#     HAND miss at once; but a closing due by the next tick holds the slate first, with no probe (the probe's seconds,
-#     after the tick's closings, could carry the next tick past that closing's T-35), unless it is an MLB closing
-#     this tick's own closings found the feed down for. The slate stage probes the feed at most once a tick, and not
-#     at all when the tick's closings already did: their answer is the tick's (_tick_feed).
+#     HAND miss at once; but a closing due by the next tick holds the slate first, with no probe, where a probe could
+#     not release it or could cost that closing its T-35 (_hold_unprobed: a closing with no feed; an MLB closing the
+#     tick's answer says starts; with no answer, a closing with no feed due by the next tick too, or one probe that
+#     could reach the next tick, the host's next minute or the laptop's next launchd firing, next_tick). An MLB
+#     closing with no answer otherwise gets the one probe, so with the feed down it holds nothing (a hold for it lost a
+#     slate a kickoff at bde0017). The slate stage probes the feed at most once a tick, and not at all when the tick's
+#     closings already did: their answer is the tick's (_tick_feed).
 #   - Late (item 2(d): "a laptop asleep at the due time means the first tick after waking"): judged on the first tick
 #     that found the slate due, the earliest queued_at of the day's slate and slate_miss receipts (a hold's, a miss's
 #     and a refusal's included). A run held by a closing, or delayed by a miss, on a tick that came on time is not
@@ -2233,6 +2236,7 @@ SLATE_MISS_KIND = "slate_miss"
 SLATE_LEAD_MIN = 150                 # item 2(a): due at the first kickoff of the day minus 150 minutes
 SLATE_NOT_BEFORE_ET = (6, 0)         # item 2(a): "or at the watch's first tick after 06:00 ET when that is later"
 WATCH_CADENCE_S = 60                 # the watch's tick (launchd INTERVAL_S=60; the host timer, every minute)
+FEED_PROBE_MAX_S = FEED_TIMEOUT_S + 2   # the longest one MLB feed probe is allowed for: its timeout, plus 2 s
 SLATE_LOCK_WAIT_S = 5 * 60           # a slate waits this long for the chain lock, then misses (the watch keeps trying)
 # No slate starts with a closing's T-35 this close: more than twice the longest any chain has held the chain lock
 # ("In twelve days no chain held the lock, or waited for it, longer than seven minutes", addendum 45 P6), so a slate
@@ -2358,9 +2362,19 @@ def record_slate_miss(fam: str, day: date, reason: str, detail: str | None = Non
                              **({"due": iso_z(due_at)} if due_at else {}), "notified": res})
 
 
+def closing_open(fam: str, start: datetime, now: datetime) -> bool:
+    """A closing the watch will still run at `now` (closing_ahead's test; coverage reads it for a slate's hold): its
+    start more than NO_ATTEMPT_INSIDE_MIN away (inside T-5 or started, no attempt starts: a miss, no chain) and no
+    success or three attempts (superseded under the lock: no chain). Reads the receipts; no network."""
+    if minutes_to(start, now) < NO_ATTEMPT_INSIDE_MIN:
+        return False
+    st = closing_state(fam, iso_z(start))
+    return not (st["success"] or st["attempts"] >= MAX_ATTEMPTS)
+
+
 def closing_ahead(fams: tuple[str, ...], now: datetime, skip: frozenset = frozenset()) -> dict | None:
     """The closing the watch will run next among `fams` (due()'s groups, as watch() forms them): the earliest group
-    whose start is still more than NO_ATTEMPT_INSIDE_MIN away and that has no success or three attempts, its T-35
+    still open (closing_open: its start more than NO_ATTEMPT_INSIDE_MIN away, no success or three attempts), its T-35
     (`run_at`) possibly already past. A family this machine refuses is none (its closing is refused at once, no
     chain), nor one whose schedule cannot be read. `skip`: (family, start) pairs left out (the dry run's: the closings
     the tick itself runs before its slates). {family, start, run_at} or None. No network."""
@@ -2371,13 +2385,10 @@ def closing_ahead(fams: tuple[str, ...], now: datetime, skip: frozenset = frozen
         try:
             gr = due(f, now)["groups"]
             for g in gr:
-                if minutes_to(g["start"], now) < NO_ATTEMPT_INSIDE_MIN:
-                    continue              # inside T-5 or started: no attempt starts (a miss, no chain)
                 if (f, g["start"]) in skip:
                     continue              # the tick runs it first (dry run)
-                st = closing_state(f, iso_z(g["start"]))
-                if st["success"] or st["attempts"] >= MAX_ATTEMPTS:
-                    continue              # superseded under the lock: no chain
+                if not closing_open(f, g["start"], now):
+                    continue              # inside T-5 or started (a miss), or superseded under the lock: no chain
                 run_at = g["start"] - timedelta(minutes=RUN_LEAD_MIN)
                 if best is None or run_at < best["run_at"]:
                     best = {"family": f, "start": g["start"], "run_at": run_at}
@@ -2396,6 +2407,35 @@ def _tick_feed(feed_probe: dict | None) -> tuple[bool, str]:
     if feed_probe is not None:
         feed_probe.update(ok=ok, detail=detail)
     return ok, detail
+
+
+def next_tick(tick_at: datetime, now: datetime) -> datetime:
+    """The earliest the watch's next tick can start after `now`, on either machine: the next whole minute (the host's
+    timer fires every minute at :00) or the laptop's next launchd firing, a whole number of cadences after this tick's
+    start `tick_at` (StartInterval keeps the phase it was loaded with, and a firing while the watch runs is missed:
+    launchd.plist(5)). The tests' ticks start on the minute, where the two are one."""
+    minute = now.replace(second=0, microsecond=0) + timedelta(minutes=1)
+    k = int((now - tick_at).total_seconds() // WATCH_CADENCE_S) + 1
+    return min(minute, tick_at + timedelta(seconds=k * WATCH_CADENCE_S))
+
+
+def _hold_unprobed(near: dict, fams: tuple[str, ...], tick_at: datetime, now: datetime, known: bool | None) -> bool:
+    """Whether `near`, a closing due by the next tick (its T-35 within WATCH_CADENCE_S of `now`), holds the slate with
+    no probe of the slate stage's own. Two #590 review findings bound it: a probe after the tick's closings could carry
+    the next tick past that closing's T-35 (bde0017); and a hold for an MLB closing the feed cannot start costs the
+    slate a tick, perhaps a kickoff (51e3057 probed there, and caught it). Held when the closing starts whatever the
+    feed says (a family with no feed), or the tick's answer (`known`: its closings' probe or an earlier slate's) says
+    it starts; not when that answer says it cannot (a miss: it holds nothing, slate_ahead). With no answer: held when
+    a closing of a family with no feed is due by the next tick too (the slate is held whatever a probe says), or when
+    one probe (FEED_PROBE_MAX_S) could reach the next tick (next_tick); else the slate stage probes once (_tick_feed)
+    and the guard reads that answer. No network."""
+    if not FAMILIES[near["family"]]["feed"]:
+        return True
+    if known is not None:
+        return bool(known)
+    other = closing_ahead(tuple(f for f in fams if not FAMILIES[f]["feed"]), now)
+    return bool((other and other["run_at"] <= now + timedelta(seconds=WATCH_CADENCE_S))
+                or now + timedelta(seconds=FEED_PROBE_MAX_S) >= next_tick(tick_at, now))
 
 
 def slate_ahead(fams: tuple[str, ...], now: datetime, feed: bool | None = None,
@@ -2637,11 +2677,14 @@ def slate_watch(fam: str, tick_at: datetime, now: datetime | None = None, dry_ru
     reads the clock for each run); a run is late when the first tick that found it due came more than one cadence
     after the due time (_slate_late). `families`: the tick's families, whose closings a slate never delays
     (slate_ahead: held inside SLATE_GUARD_MIN of the T-35 of a closing that can start, its lock wait ending there;
-    held with no probe by a closing due by the next tick). `feed_probe`: the tick's MLB feed answer ({ok, detail},
-    watch()'s, shared by the tick's slates: _tick_feed); None, one probe of its own when it needs one.
+    held with no probe by a closing due by the next tick where a probe could not release it or could cost it its T-35,
+    _hold_unprobed). `feed_probe`: the tick's MLB feed answer ({ok, detail}, watch()'s, shared by the tick's slates:
+    _tick_feed); None, one probe of its own when it needs one.
     --dry-run prints the plan and touches nothing (no network: an MLB closing ahead is shown both ways); `planned`:
     the (family, start) closings the dry run's tick runs first, which hold no slate in the plan, though one after them
-    may (`would RUN if they end before HH:MM ET, else held: …`)."""
+    may (`would RUN if they end before HH:MM ET, else held: …`); after closings with no MLB feed answer, an MLB
+    closing ahead adds when it holds with no probe (`(held with no probe if they end from HH:MM ET within N s of a
+    tick)`)."""
     tick_at = utc(tick_at)
     now = utc(now or tick_at)
     fams = tuple(families or (fam,))
@@ -2667,9 +2710,18 @@ def slate_watch(fam: str, tick_at: datetime, now: datetime | None = None, dry_ru
         live = [g for g in games if not started(g, tick_at)]
         ahead = closing_ahead(fams, tick_at, skip=planned)    # the tick's own closings run first: they hold nothing
         near = bool(ahead and ahead["run_at"] <= tick_at + guard)
-        # a closing due by the next tick holds the slate with no probe (below); a tick with no closing of its own to
-        # run has no feed answer that could release it
-        quiet = bool(not planned and ahead and ahead["run_at"] <= tick_at + timedelta(seconds=WATCH_CADENCE_S))
+        cad = timedelta(seconds=WATCH_CADENCE_S)
+        # a closing due by the next tick holds the slate with no probe where a probe could not release it or could cost
+        # that closing its T-35 (_hold_unprobed, as below); a tick with no closing of its own has no feed answer, and
+        # is judged at its own time
+        quiet = bool(not planned and ahead and ahead["run_at"] <= tick_at + cad
+                     and _hold_unprobed(ahead, fams, tick_at, tick_at, None))
+        # the tick's own closings answer for the feed when one is an MLB closing (watch() probes before it); else the
+        # slate stage has no answer when they end, and an MLB closing due by the next tick then holds the slate with no
+        # probe if they end from its T-35 less one cadence, inside FEED_PROBE_MAX_S of a tick
+        answered = any(FAMILIES[f]["feed"] and not _family_refusal(f) for f, _ in planned)
+        edge = (f" (held with no probe if they end from {et(ahead['run_at'] - cad)[11:]} within {FEED_PROBE_MAX_S} s "
+                "of a tick)" if planned and not answered and ahead and FAMILIES[ahead["family"]]["feed"] else "")
         # the tick's own closings take time, up to SLATE_GUARD_MIN each (the guard's bound on a chain's hold of the
         # lock): a closing whose T-35 is inside the guard when they end holds the slate then, so no plain RUN
         later = bool(planned and ahead and not near and ahead["run_at"] <= tick_at + guard * (1 + len(planned)))
@@ -2679,10 +2731,10 @@ def slate_watch(fam: str, tick_at: datetime, now: datetime | None = None, dry_ru
             alt = closing_ahead(tuple(f for f in fams if not FAMILIES[f]["feed"]), tick_at, skip=planned)
             hold = (f"held if the MLB feed answers: {_hold_why(ahead)}; if it does not, "
                     + (f"held: {_hold_why(alt)}" if alt and alt["run_at"] <= tick_at + guard else
-                       "MISSED (the feed)" if FAMILIES[fam]["feed"] else "would RUN"))
+                       ("MISSED (the feed)" if FAMILIES[fam]["feed"] else "would RUN") + edge))
         elif later:
             hold = (f"would RUN if they end before {et(ahead['run_at'] - guard)[11:]}, else held"
-                    + (" if the MLB feed answers" if FAMILIES[ahead["family"]]["feed"] else "")
+                    + (" if the MLB feed answers" + edge if FAMILIES[ahead["family"]]["feed"] else "")
                     + f": {_hold_why(ahead)}")
         else:
             hold = f"held: {_hold_why(ahead)}" if near else None
@@ -2714,13 +2766,14 @@ def slate_watch(fam: str, tick_at: datetime, now: datetime | None = None, dry_ru
                           text=f"SLATE {fam} {day.isoformat()} MISSED: {SLATE_ALL_STARTED} — no slate run",
                           queued_at=tick_at, due_at=due_at)
         return NOTIFIED
-    # A closing due by the next tick holds the slate with no probe of the slate's own: the probe's seconds, after the
-    # tick's closings, could carry the next tick past that closing's T-35 (the #590 review's probe-delay finding). An
-    # MLB closing this tick found the feed down for holds nothing (it starts nothing: slate_ahead, with that answer);
-    # one the tick has no answer for holds this tick, and the next tick's closing loop probes the feed before it.
+    # A closing due by the next tick holds the slate with no probe of the slate's own where the probe could not release
+    # it or could cost that closing its T-35 (_hold_unprobed: the #590 review's probe-delay finding at 51e3057). An MLB
+    # closing the tick has no feed answer for is otherwise probed for once here, below (an MLB slate's own check, or the
+    # guard's): with the feed down it starts nothing and holds nothing (the feed-down finding at bde0017, where a held
+    # slate lost a kickoff).
     near = closing_ahead(fams, now)
     if (near and near["run_at"] <= now + timedelta(seconds=WATCH_CADENCE_S)
-            and not (FAMILIES[near["family"]]["feed"] and (feed_probe or {}).get("ok") is False)):
+            and _hold_unprobed(near, fams, tick_at, now, (feed_probe or {}).get("ok"))):
         record_slate_hold(fam, day, base, near)
         return 0
     feed = None

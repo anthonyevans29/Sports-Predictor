@@ -689,12 +689,14 @@ def test_the_dry_run_leaves_out_the_closing_its_own_tick_runs_first(box, monkeyp
 
 D19 = date(2026, 10, 19)                                   # a Monday (EDT, UTC-4)
 MNF_MLB = [(18, 35), (18, 40), (19, 5), (19, 10), (19, 40), (20, 5), (20, 10), (20, 40)]
-SERIES = {"MLB": "KXMLBGAME", "NFL": "KXNFLGAME"}
+SERIES = {"MLB": "KXMLBGAME", "NFL": "KXNFLGAME", "PL": "KXEPLGAME"}
+FAMILY_OF = {"PL": "SOCCER"}                               # a competition whose family has another name
 
 
 def busy_day(box, monkeypatch, day, games, feed, slate=True):
     """`day` from midnight ET on the moving clock (STEP_S a step): `games` (match_id, comp, start (aware), home), each
-    family's export as its steps write it (a PLAY row per game); `feed(t)`: the MLB feed's answer at clock time t."""
+    family's export as its steps write it (a PLAY row per MLB or NFL game, a three-way row per PL game); `feed(t)`: the
+    MLB feed's answer at clock time t."""
     base = et(0, 0, day)
     db = box.tmp / "busy.db"
     make_db(db, [(mid, comp, int((st - base).total_seconds() // 60), "SCHEDULED", home)
@@ -703,11 +705,12 @@ def busy_day(box, monkeypatch, day, games, feed, slate=True):
     box.db = db
     rows = {}
     for mid, comp, st, home in games:
-        rows.setdefault(comp, []).append(row(mid, home, 0.62, fair_h=0.55, bid=0.54, ask=0.55, comp=comp,
-                                             series=SERIES[comp], now=base,
-                                             minutes=int((st - base).total_seconds() // 60)))
-    for comp, rs in rows.items():
-        box.docs[comp] = dp.annotate({"sport": comp.lower(), "predictions": rs}, now=base)
+        k = {"comp": comp, "series": SERIES[comp], "now": base, "minutes": int((st - base).total_seconds() // 60)}
+        rows.setdefault(FAMILY_OF.get(comp, comp), []).append(
+            row(mid, home, 0.40, fair_h=0.39, fair_d=0.30, draw=0.30, bid=0.38, ask=0.39, **k) if comp == "PL" else
+            row(mid, home, 0.62, fair_h=0.55, bid=0.54, ask=0.55, **k))
+    for fam, rs in rows.items():
+        box.docs[fam] = dp.annotate({"sport": fam.lower(), "predictions": rs}, now=base)
     if slate:
         box.slate_on()
     clk = Clock(base)
@@ -851,6 +854,139 @@ def test_a_held_ticks_probe_never_carries_the_next_closing_past_its_t35(box, mon
         (s,) = [x for x in slates(fam) if not x.get("held")]
         assert s["exit"] == 0 and mc.parse_utc(s["ran_at"]) >= mc.parse_utc(runs("MLB")[0]["page"]["at"])
     assert misses("MLB") == misses("SOCCER") == []
+
+
+# ===================================== an MLB closing the feed cannot start never costs a slate its first kickoff ==
+# The #590 review's feed-down finding at bde0017: the no-probe hold above held a slate for an MLB closing the tick had
+# no feed answer for, so with the feed down it held the slate one tick for a closing that could not start, and the slate
+# could lose a kickoff that 51e3057 caught. A closing due by the next tick now holds a slate with no probe only when no
+# probe could release it or a probe could cost that closing its T-35 (closing._hold_unprobed); otherwise the slate
+# stage probes the feed once, as at 51e3057.
+
+ALL = ("MLB", "NFL", "SOCCER")
+
+
+def pl_wednesday():
+    """Wed 2026-09-23: PL 14:30 and 15:00 ET (closings T-35 13:55 and 14:25), MLB 15:05 and 19:05 ET (T-35 14:30 and
+    18:30)."""
+    return [(521, "PL", et(14, 30, D23), "Villa"), (522, "PL", et(15, 0, D23), "Newcastle"),
+            (701, "MLB", et(15, 5, D23), "Underhill"), (702, "MLB", et(19, 5, D23), "Clearwater")]
+
+
+def vpn_on(t):
+    return False, "URLError"
+
+
+@pytest.mark.parametrize("slate", [True, False], ids=["slate-on", "slate-off"])
+def test_an_mlb_closing_the_feed_cannot_start_never_holds_a_slate_past_a_kickoff(box, monkeypatch, slate):
+    """The VPN on all day (the MLB feed never answers); the laptop wakes at 14:12 ET with the SOCCER slate due since
+    12:00. 14:12 runs the PL 14:30 closing late; 14:25 runs the 15:00 one, which ends at 14:29:30 with the MLB 15:05
+    closing due by the next tick. That closing cannot start, and one probe from 14:29:30 cannot carry the tick past
+    14:30, so the slate stage probes once (the MLB slate's own check; the SOCCER slate's guard reads its answer) and the
+    SOCCER slate runs at 14:29:30 with both PL games. At bde0017 it was held with no probe to 14:30, and the 14:30
+    kickoff (521) was lost from it. The closings and their misses are the same with the slate stage on or off."""
+    clk = busy_day(box, monkeypatch, D23, pl_wednesday(), vpn_on, slate=slate)
+    probes = []
+    monkeypatch.setattr(mc, "feed_answers", lambda: probes.append(clk.t) or vpn_on(clk.t))
+    drive(clk, ALL, et(14, 12, D23), et(14, 40, D23))
+    assert [(r["family"], r["start"], r["queued_at"], r["exit"]) for r in runs()] == [
+        ("SOCCER", "2026-09-23T18:30:00Z", "2026-09-23T18:12:00Z", 0),
+        ("SOCCER", "2026-09-23T19:00:00Z", "2026-09-23T18:25:00Z", 0)]
+    assert [(r["family"], r["start"], r["reason"]) for r in receipts() if r["kind"] == "closing_miss"] == [
+        ("MLB", "2026-09-23T19:05:00Z", "feed unreachable")]
+    if not slate:
+        assert slates("SOCCER") == slates("MLB") == []
+        return
+    (s,) = [x for x in slates("SOCCER") if not x.get("held")]
+    assert (s["exit"], s["ran_at"], [x["match_id"] for x in s["covers"]]) == (0, "2026-09-23T18:29:30Z", [521, 522])
+    assert [p for p in probes if et(14, 25, D23) <= p < et(14, 30, D23)] == [et(14, 29, D23) + timedelta(seconds=30)]
+    assert [m["reason"] for m in misses("MLB")] == ["feed unreachable"] and misses("SOCCER") == []
+
+
+def test_the_dry_run_of_that_tick_says_what_it_does(box, monkeypatch, capsys):
+    """The 14:25 tick above, planned. Its SOCCER closing runs first and makes no probe, so the slate stage has no feed
+    answer when it ends: the plan says both ways, and names the edge where the slate is held with no probe (the tick's
+    closings ending from 14:29, the MLB T-35 less one cadence, inside the last FEED_TIMEOUT_S + 2 s before a tick).
+    The same tick for real, the feed down, runs the slate after the closing, at 14:29:30."""
+    clk = busy_day(box, monkeypatch, D23, pl_wednesday(), vpn_on)
+    drive(clk, ALL, et(14, 12, D23), et(14, 24, D23))
+    capsys.readouterr()
+    clk.t = et(14, 25, D23)
+    assert mc.watch(dry_run=True, families=ALL) == 0
+    assert ("SLATE SOCCER 2026-09-23: first kickoff 14:30 ET · due 12:00 ET · success no · attempts 0/3 → after this "
+            "tick's closings: held if the MLB feed answers: closing MLB 15:05 ET (T-35 14:30 ET) is inside the "
+            "15-minute guard; if it does not, would RUN (held with no probe if they end from 14:29 ET within 10 s of "
+            "a tick)\n") in capsys.readouterr().out
+    n = len(receipts())
+    mc.watch(families=ALL)                                             # the same tick, for real
+    assert [(r["kind"], r["family"], r.get("held"), r.get("ran_at")) for r in receipts()[n:]
+            if (r["kind"], r["family"]) in (("closing", "SOCCER"), ("slate", "SOCCER"))] == [
+        ("closing", "SOCCER", None, None), ("slate", "SOCCER", None, "2026-09-23T18:29:30Z")]
+
+
+@pytest.mark.parametrize("sec, held", [(0, False), (55, True)], ids=["a-probe-fits", "a-probe-could-cross-12:30"])
+def test_a_tick_with_no_closing_probes_for_the_mlb_closing_due_next_unless_the_probe_could_cost_it(
+        box, monkeypatch, capsys, sec, held):
+    """12:29 ET, the NFL 13:00 closing done, the MLB 13:05 closing due at 12:30 (by the next tick), the NFL slate due
+    since 07:00 and not run, the feed down. At 12:29:00 one probe (FEED_TIMEOUT_S, plus 2 s) cannot reach 12:30: the
+    plan says both ways, and the tick probes once, finds the feed down and runs the slate (the closing it would wait for
+    cannot start). At 12:29:55 a probe could carry the tick past 12:30, that closing's T-35: held with no probe, as the
+    plan says (bde0017 held at 12:29:00 too)."""
+    the_day(box, monkeypatch)
+    c.append_receipt({"kind": "closing", "family": "NFL", "start": "2026-10-18T17:00:00Z", "exit": 0,
+                      "covers": [{"match_id": 602, "start": "2026-10-18T17:00:00Z"}]})
+    t = et(12, 29) + timedelta(seconds=sec)
+    assert mc.watch(dry_run=True, now=t, families=("NFL", "MLB")) == 0
+    why = "closing MLB 13:05 ET (T-35 12:30 ET) is inside the 15-minute guard"
+    plan = f"held: {why}" if held else f"held if the MLB feed answers: {why}; if it does not, would RUN"
+    assert (f"SLATE NFL 2026-10-18: first kickoff 09:30 ET · due 07:00 ET · success no · attempts 0/3 → {plan}\n"
+            in capsys.readouterr().out)
+    box.feed = (False, "URLError")
+    tick(t, ("NFL", "MLB"))
+    (s,) = slates()
+    assert (s.get("held"), box.feed_calls) == ((why, 0) if held else (None, 1))
+    assert held or (s["exit"], [x["match_id"] for x in s["covers"]]) == (0, [602])
+
+
+def drive_launchd(clk, fams, t0, t1):
+    """Ticks as launchd fires the laptop's watch (its job's StartInterval, 60 s): every minute from t0, the phase it
+    was loaded with; a firing while the watch runs is missed (launchd.plist(5): "If the job is running during an
+    interval firing, that interval firing will likewise be missed")."""
+    k = 0
+    while t0 + timedelta(minutes=k) <= t1:
+        clk.t = t0 + timedelta(minutes=k)
+        mc.watch(families=fams)
+        k = int((clk.t - t0).total_seconds() // 60) + 1
+
+
+@pytest.mark.parametrize("slate", [True, False], ids=["slate-on", "slate-off"])
+def test_on_the_laptops_phase_a_slate_probe_never_costs_the_next_closing_its_tick(box, monkeypatch, slate):
+    """The laptop's ticks fall at :17 (launchd keeps its load phase; the host's timer fires on the minute). PL 15:00 ET
+    (T-35 14:25), MLB 15:05 (T-35 14:30); the feed answers, in 4 s; each step takes 49.5 s. The 14:25:17 tick's SOCCER
+    closing ends at 14:30:14 with the MLB closing overdue: a slate probe then (to 14:30:18) would make launchd miss its
+    14:30:17 firing and queue that closing at 14:31:21 (the next whole minute, 14:31, is not the laptop's next tick).
+    Held with no probe, the MLB closing is queued at 14:30:21, as with no slate stage."""
+    clk = busy_day(box, monkeypatch, D23, [g for g in pl_wednesday() if g[0] in (522, 701, 702)],
+                   lambda t: (True, "HTTP 200"), slate=slate)
+    inner, probes = box.fake_step, []
+
+    def timed_step(argv, run_id):
+        out = inner(argv, run_id)
+        clk.t += timedelta(seconds=49.5)
+        return out
+
+    def slow_feed():
+        probes.append(clk.t)
+        clk.t += timedelta(seconds=4)
+        return True, "HTTP 200"
+    monkeypatch.setattr(mc, "run_step", timed_step)
+    monkeypatch.setattr(mc, "feed_answers", slow_feed)
+    t0 = et(14, 20, D23) + timedelta(seconds=17)
+    drive_launchd(clk, ALL, t0, et(14, 40, D23))
+    assert [(r["family"], r["start"], r["queued_at"], r["exit"]) for r in runs()][:2] == [
+        ("SOCCER", "2026-09-23T19:00:00Z", "2026-09-23T18:25:17Z", 0),
+        ("MLB", "2026-09-23T19:05:00Z", "2026-09-23T18:30:21Z", 0)]
+    assert [p for p in probes if et(14, 25, D23) < p < et(14, 30, D23) + timedelta(seconds=17)] == []
 
 
 # ================================================================================ the receipt's declared keys ==

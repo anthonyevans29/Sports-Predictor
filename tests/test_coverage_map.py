@@ -927,6 +927,39 @@ def test_the_hold_note_names_the_closing_the_slate_waits_for_now(env, monkeypatc
         utc("2026-10-18 12:41"))                                   # the first tick that found it due
 
 
+@pytest.mark.parametrize("read, runs, kept", [
+    ("12:50", (), True),                       # 08:50 ET: the 09:30 closing still ahead, the slate waits for it
+    ("13:10", (0,), False),                    # 09:10 ET: that closing ran: the hold is stale
+    ("13:10", (1, 1, 1), False),               # 09:10 ET: three failed attempts: it never runs again
+    ("13:26", (), False),                      # 09:26 ET: inside T-5, no attempt starts (a miss): it holds nothing
+    ("13:31", (), False)],                     # 09:31 ET: started
+    ids=["ahead", "done", "three-attempts", "inside-t5", "started"])
+def test_a_hold_drops_out_once_its_closing_is_no_longer_ahead(env, monkeypatch, read, runs, kept):
+    """The #590 review's feed-down note: the day's newest slate receipt is a hold, written at 08:41 ET for the 09:30
+    closing (T-35 08:55). The line carries it only while that closing is one the watch will still run at the read
+    (closing.closing_open, closing_ahead's own test: its start more than five minutes off, no success, under three
+    attempts); a stale or unrunnable hold drops out, never "the slate runs after it" about a closing done, missed or
+    started."""
+    make_db(env, [(601, "NFL", "2026-10-18 13:30", "SCHEDULED"), (602, "NFL", "2026-10-18 17:00", "SCHEDULED")],
+            NFL_ROWS)
+    s = utc("2026-10-18 13:30")
+    cl.record_slate_hold("NFL", datetime(2026, 10, 18).date(), {
+        "kind": "slate", "family": "NFL", "date": "2026-10-18", "trigger": "watch", "due": "2026-10-18T11:00:00Z",
+        "run_id": "x", "queued_at": "2026-10-18T12:41:00Z"},
+        {"family": "NFL", "start": s, "run_at": s - timedelta(minutes=cl.RUN_LEAD_MIN)})
+    for i, rc in enumerate(runs):
+        receipt(family="NFL", run_id=f"20261018T12{55 + i}00Z-nfl-closing", start="2026-10-18T13:30:00Z", exit=rc,
+                covers=[{"match_id": 601, "start": "2026-10-18T13:30:00Z"}])
+    monkeypatch.setattr(cl, "clock", lambda: utc(f"2026-10-18 {read}"))
+    (line,) = [x for x in run("--date", "2026-10-18")[1] if x.startswith("NFL SLATE · ")]
+    assert line == "NFL SLATE · NO SLATE FILE — slate run due 07:00 ET" + (
+        " (held since 08:41 ET (closing NFL 09:30 ET (T-35 08:55 ET) is inside the 15-minute guard): the slate runs "
+        "after it)" if kept else "")
+    (nfl,) = [x for x in cm.coverage(datetime(2026, 10, 18).date(), utc(f"2026-10-18 {read}"))["competitions"]
+              if x["code"] == "NFL"]
+    assert bool(nfl["slate"]["held"]) is kept
+
+
 def test_a_successful_slate_no_file_holds_every_game_names_the_block(env, monkeypatch):
     """A slate that ran after the first kickoff (the laptop asleep) succeeded on the games not started; no file holds
     every game of the day by match id (item 2(b)), so the gap stands, and the line says the watch's run succeeded and

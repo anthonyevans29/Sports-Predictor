@@ -281,6 +281,10 @@ def test_the_receipts_table_shows_the_slate_lines():
           "calls": {"PLAY": 1, "PASS": 11}, "exit": 0, "late": True, "late_minutes": 47}
     assert sp_receipts.key_line(ok) == f"NFL 2026-10-18 slate {NFL_FILE}: 12 rows, PLAY 1, PASS 11; LATE 47 min"
     assert not sp_receipts.failed(ok)
+    # addendum 133 item 3(c): "`1 row` on a one-game day [...] The declared text is `<N> row(s)` by count" (the
+    # receipts table's slate key line reads as the page does)
+    one = {**ok, "rows": 1, "calls": {"PLAY": 0, "PASS": 1}, "late": False}
+    assert sp_receipts.key_line(one) == f"NFL 2026-10-18 slate {NFL_FILE}: 1 row, PLAY 0, PASS 1"
     bad = {**ok, "exit": 1, "failed": "step 6", "attempt": 2}
     assert sp_receipts.key_line(bad) == "NFL 2026-10-18 slate attempt 2 FAILED: step 6" and sp_receipts.failed(bad)
     miss = {"kind": "slate_miss", "family": "MLB", "date": "2026-10-18", "reason": "feed unreachable"}
@@ -389,6 +393,12 @@ def test_a_failed_push_fails_the_attempt_and_pages_no_slate(box, monkeypatch):
     assert tick(et(7, 0)) == mc.NOTIFIED
     assert slates()[0]["failed"] == "push" and box.pushes == ["slate"] and slate_pages(box) == []
     assert box.notes == [f"SLATE NFL FAILED: mirror push (exit 1) — RUN BY HAND: {BLOCK} · attempt 1/3\n{MACHINE}"]
+    # As built, in addendum 133 item 3(a)'s order (the link, THEN the push, THEN the page): the push comes after the
+    # link, so a push that fails leaves the checked file standing in exports/ (the docs say so). Whether a failed push
+    # must restore exports/ is unruled: open for the architect (#600's ledger entry), nothing built for it.
+    s = slates()[0]
+    assert s["slate_file"] == {"file": NFL_FILE, "sha256": s["export_written"]["sha256"]}
+    assert os.path.samefile(box.repo / NFL_FILE, box.repo / NFL_KEPT.format(s["run_id"]))
 
 
 def test_a_page_ntfy_does_not_accept_is_a_failed_attempt(box, monkeypatch):
@@ -531,6 +541,39 @@ def test_a_slate_file_that_cannot_be_linked_is_a_failed_attempt_and_nothing_is_p
     assert sorted(x.name for x in (box.repo / "exports").iterdir()) == [Path(NFL_FILE).name]   # no temporary name
 
 
+def test_a_second_slate_with_the_same_run_id_is_refused_and_never_opens_the_kept_export(box, monkeypatch):
+    """#442 (ARCHITECT 2026-10-12, addendum 44 item 8): "A run whose export path already exists does not start: a
+    receipted refusal before any step, as R4 and R5 are. Nothing a run kept is opened for writing a second time." The
+    slate's export is the closing's own kept path (addendum 133 item 3(a): `--out logs/<run id>.<slate file name>`),
+    and two watch processes entering in one UTC second share the run id <now>-nfl-slate. Attempt 1 passes its checks,
+    is linked and pushed, and its page fails (the file stands). The second, under the lock, finds its kept path taken:
+    a receipted refusal (notified, as every refusal but the family's), no attempt, no step; exports/<slate file> is
+    still attempt 1's file, never rewritten in place by a half-synced export. The next tick (a new run id) retries."""
+    the_day(box, monkeypatch)
+    box.page_ok = False
+    assert tick(et(7, 0)) == mc.NOTIFIED                       # attempt 1: linked, pushed, the page fails
+    (s1,) = slates()
+    assert s1["failed"] == "page" and s1["slate_file"]["sha256"] == s1["export_written"]["sha256"]
+    f = box.repo / NFL_FILE
+    kept = NFL_KEPT.format(s1["run_id"])
+    good = f.read_bytes()
+    box.page_ok = True
+    box.docs["NFL"] = {**box.docs["NFL"], "predictions": box.docs["NFL"]["predictions"][:1]}       # 602 missing
+    n_steps, n_pushes = len(box.steps), len(box.pushes)
+    assert tick(et(7, 0)) == 2                                 # the same second: the same run id
+    s2 = slates()[-1]
+    why = (f"the export path {kept} already exists (a run of this family entered in the same second, run id "
+           f"{s1['run_id']}): nothing a run kept is opened for writing a second time")
+    assert (s2["run_id"], s2["exit"], s2["refused"]) == (s1["run_id"], 2, why) and "attempt" not in s2
+    assert len(box.steps) == n_steps and len(box.pushes) == n_pushes               # no step, no push
+    assert f.read_bytes() == good and os.path.samefile(f, box.repo / kept)          # exports/ as attempt 1 left it
+    assert mc.slate_state("NFL", "2026-10-18") == {"success": False, "attempts": 1}
+    assert box.notes[-1] == f"SLATE NFL 2026-10-18 REFUSED: {why} — RUN BY HAND: {BLOCK}\n{MACHINE}"
+    assert tick(et(7, 1)) == mc.NOTIFIED                       # a new run id: attempt 2 runs (602 still missing)
+    s3 = slates()[-1]
+    assert (s3["attempt"], s3["failed"]) == (2, "missing from export") and f.read_bytes() == good
+
+
 @pytest.mark.parametrize("n, words", [(1, "1 row"), (2, "2 rows")])
 def test_the_page_counts_rows_by_number(box, n, words):
     """Addendum 133 item 3(c) (item 11): "`1 row` on a one-game day [...] The declared text is `<N> row(s)` by count;
@@ -599,8 +642,28 @@ def test_dry_run_prints_the_slate_plan_and_touches_nothing(box, monkeypatch, cap
     out = capsys.readouterr().out
     assert "→ would RUN" in out
     assert f"6. python cli.py export-nfl-predictions --desk --out {NFL_KEPT.format('RUN')}" in out
+    # the run's own order after the steps (addendum 133 item 3(a)): the kept export linked into exports/<slate file>
+    # once its checks pass, THEN the push, THEN the page; the plan names the exports/ file, as the closing's names its
+    # closing file
+    assert (f"    then, once its checks pass: {NFL_KEPT.format('RUN')} linked into {NFL_FILE} · then the mirror push "
+            "(--label slate) · then the page") in out
     assert receipts() == [] and box.steps == box.pages == box.notes == box.pushes == []
     assert not (box.repo / NFL_FILE).exists() and not (box.tmp / "backups").exists()
+
+
+def test_the_dry_run_names_the_soccer_window_file_the_run_links(box, monkeypatch, capsys):
+    """Addendum 133 item 7: the dry run after the pull is the first slate plan's receipt on the console. SOCCER's kept
+    name is the day's (soccer_PL_<day>.json) and its exports/ file the round's window file it replaces (Saturday's, on
+    Sunday): the plan names both."""
+    the_day(box, monkeypatch, games=DAY + [(801, "PL", 300, "SCHEDULED", "Villa")])      # 12:00 ET: due 09:30 ET
+    assert mc.watch(dry_run=True, now=et(9, 30), families=("SOCCER",)) == 0
+    out = capsys.readouterr().out
+    assert "--desk --start 2026-10-17 --end 2026-10-20 --out logs/RUN.soccer_PL_2026-10-18.json" in out
+    assert ("    then, once its checks pass: logs/RUN.soccer_PL_2026-10-18.json linked into "
+            "exports/soccer_PL_2026-10-17_to_2026-10-20.json · then the mirror push (--label slate) · then the page"
+            ) in out
+    assert receipts() == [] and box.steps == box.pages == box.notes == box.pushes == []
+    assert list((box.repo / "exports").iterdir()) == []
 
 
 # ============================================================================================ the pure parts ==

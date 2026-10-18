@@ -18,6 +18,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import closing as cl  # noqa: E402
 import sp_common as c  # noqa: E402
 
 
@@ -73,7 +74,8 @@ def key_line(r: dict) -> str:
         if r.get("failed"):
             return f"{head} slate attempt {r.get('attempt')} FAILED: {r['failed']}"
         calls = r.get("calls") or {}
-        return (f"{head} slate {r.get('file')}: {r.get('rows')} rows, PLAY {calls.get('PLAY', 0)}, PASS "
+        # addendum 133 item 3(c): `<N> row(s)` by count (`1 row` on a one-game day), as the page reads
+        return (f"{head} slate {r.get('file')}: {cl.rows_text(r.get('rows'))}, PLAY {calls.get('PLAY', 0)}, PASS "
                 f"{calls.get('PASS', 0)}" + (f"; LATE {r.get('late_minutes')} min" if r.get("late") else ""))
     if k == "slate_miss":
         return f"{r.get('family')} {r.get('date')} slate MISSED: {r.get('reason')}"

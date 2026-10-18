@@ -74,9 +74,9 @@ tick runs a SLATE stage per family for the tick's ET day: due at the day's first
 first tick after 06:00 ET when that is later; one run per family per day (a success, or three attempts), decided from
 its own receipts (kind "slate"; misses kind "slate_miss"), which no closing reader reads. It runs the closing chain's
 steps as resolve_steps resolves them for the day's games, its export kept under logs/ as a closing's is and linked into
-the family's slate file in exports/ once its checks pass (addendum 133 item 3(a): a failed attempt leaves nothing in
-exports/), then the mirror push, then one page: "SLATE <FAMILY> <YYYY-MM-DD>: <N> row(s) · PLAY <p> · PASS <q> ·
-exports/<file>". A
+the family's slate file in exports/ once its checks pass (addendum 133 item 3(a): a failure at a step, a check or
+the link leaves nothing in exports/; a push or a page that fails comes after the link, and the file stands), then
+the mirror push, then one page: "SLATE <FAMILY> <YYYY-MM-DD>: <N> row(s) · PLAY <p> · PASS <q> · exports/<file>". A
 failure pages "SLATE <FAMILY> FAILED: <step command> — RUN BY HAND: block_<MMDD>_<family>_slate.txt · attempt k/3".
 The closings, their groups, steps and files are unchanged.
 """
@@ -2219,7 +2219,11 @@ def worse(a: int, b: int) -> int:
 #     40 item 2, "a failed run leaves no call behind"): "A failed attempt leaves nothing in exports/ and nothing
 #     reaches the mirror; an earlier good file of the same name (Saturday's soccer window file, on Sunday) is never
 #     replaced by a half-synced one. A page that fails after the push: the file stands (it passed) and the attempt is
-#     failed as built (the retry re-runs the steps and replaces it again)."
+#     failed as built (the retry re-runs the steps and replaces it again)." As built in the ruled order (the link,
+#     THEN the push, THEN the page), "leaves nothing in exports/" holds for a failure at a step, a check or the link.
+#     A push that fails comes after the link, so its checked file stands in exports/ as a page failure's does; the
+#     ruling names only the page, and whether a failed push must restore exports/ is open for the architect (#600's
+#     ledger entry; nothing is built for it).
 #   - The closings first (item 2(a): "The closing runs at T-35 are unchanged"): a slate does not start while a closing
 #     the watch will still run, for any family of the tick, has its T-35 within SLATE_GUARD_MIN minutes or already
 #     past (closing_ahead), and its wait for the chain lock ends SLATE_GUARD_MIN minutes before that T-35. So held, it
@@ -2723,6 +2727,14 @@ def _slate_under_lock(fam: str, day: date, base: dict, folder: Path, held: datet
                           text=f"SLATE {fam} {day_s} MISSED: {SLATE_ALL_STARTED} — no slate run",
                           queued_at=tick_at, due_at=due_at)
         return NOTIFIED
+    # #442 (addendum 44 item 8): "A run whose export path already exists does not start: a receipted refusal before
+    # any step [...] Nothing a run kept is opened for writing a second time." The slate's export is the closing's own
+    # kept path (addendum 133 item 3(a)), the same name slate_steps gives it; two watch processes entering in one UTC
+    # second share the run id, and the second would write in place into the first's kept file (after a link, the
+    # exports/ file too). Under the lock, before the backup and every step; a refusal, no attempt.
+    why = _export_path_refusal(fam, min(g["start"] for g in covers), held, base["run_id"])
+    if why:
+        return _slate_refuse(why, fam, day, base)
     # late is the first tick that found the slate due (a retry, a hold or a miss on time is not the laptop asleep)
     rec, late = _slate_rec(base, fam, day, st["attempts"] + 1, held, tick_at, due_at, covers)
     print(f"=== slate {fam} {day_s} · due {et(due_at)} · {len(covers)} game(s) · attempt {rec['attempt']}"
@@ -2830,8 +2842,14 @@ def slate_watch(fam: str, tick_at: datetime, now: datetime | None = None, dry_ru
         print(f"{head}: first kickoff {et(first)[11:]} · due {et(due_at)[11:]} · success "
               f"{'yes' if st['success'] else 'no'} · attempts {st['attempts']}/{MAX_ATTEMPTS} → {tag}")
         if live and "would RUN" in tag:
-            for i, s in enumerate(slate_steps(fam, day, live, tick_at, "RUN"), 1):
+            steps = slate_steps(fam, day, live, tick_at, "RUN")
+            for i, s in enumerate(steps, 1):
                 print(f"    {i}. python cli.py {' '.join(s)}")
+            # the run's order after the steps (addendum 133 item 3(a)): the plan names the exports/ file the kept
+            # export is linked into (SOCCER's is the round's window file, not the kept name), as the closing's names
+            # its closing file
+            print(f"    then, once its checks pass: {steps[-1][steps[-1].index('--out') + 1]} linked into "
+                  f"{SLATE_DIR}/{slate_file(fam, day)} · then the mirror push (--label slate) · then the page")
         return 0
     if tick_at < due_at or st["success"] or st["attempts"] >= MAX_ATTEMPTS:
         return 0

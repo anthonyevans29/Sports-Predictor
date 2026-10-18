@@ -354,9 +354,11 @@ Which machine runs item 5's readout (ARCHITECT 2026-10-18, addendum 128 item 1(a
      under `logs/` as a closing's is (`--out logs/<run id>.<name>`); once its checks pass, the kept file is linked into
      the family's slate file in `exports/` (`nfl_predictions_<date>.json`, `soccer_PL_<start>_to_<end>.json`; a hard
      link, then the rename over the name, as the closing writes its closing file), then it pushes the mirror and pages
-     `SLATE <FAMILY> <date>: <N> row(s) · PLAY <p> · PASS <q> · exports/<file>`. A failed attempt leaves nothing in
-     `exports/` and nothing reaches the mirror (addendum 133 item 3(a)): Saturday's soccer window file stands on Sunday
-     until a Sunday slate passes. A failure pages `SLATE <FAMILY> FAILED: <step command> — RUN BY HAND:
+     `SLATE <FAMILY> <date>: <N> row(s) · PLAY <p> · PASS <q> · exports/<file>`. A failure at a step, a check or the
+     link leaves nothing in `exports/` and nothing reaches the mirror (addendum 133 item 3(a)): Saturday's soccer
+     window file stands on Sunday until a Sunday slate passes. A push or a page that fails comes after the link, so
+     the checked file stands in `exports/` (the page case as ruled; the push case as built, open for the architect).
+     A failure pages `SLATE <FAMILY> FAILED: <step command> — RUN BY HAND:
      block_<MMDD>_<family>_slate.txt · attempt k/3`, three attempts a day. A family the machine refuses (MLB on the
      host) writes no slate and pages nothing; `python cli.py coverage` names its block (`NO SLATE FILE — run block …`).
      The host's fixed-time prematch timers are the cutover PR's to retire (item 2(d)); this step does not touch them.

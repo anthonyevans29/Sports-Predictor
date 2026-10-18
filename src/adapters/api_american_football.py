@@ -199,7 +199,9 @@ class APIAmericanFootballAdapter(DataAdapter):
         for item in data.get("response") or []:
             # response items are either flat team dicts or {"team": {...}}
             t = item.get("team") if isinstance(item.get("team"), dict) else item
-            # #358 / addendum 44 item 3: the provider sends some names HTML-escaped ("Hawai&#x27;i")
+            # #358 / addendum 44 item 3: the provider sends some names HTML-escaped ("Hawai&#x27;i"). Addendum 112
+            # item 5: this is the one place this provider's team names enter (sync_teams -> _upsert_team writes only
+            # what list_teams returns), and a stored row is found by its provider id, never by its name.
             tid, name = t.get("id"), html.unescape(t.get("name") or "")
             if tid is None or not name:
                 continue

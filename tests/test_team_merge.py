@@ -363,3 +363,96 @@ def test_a_lineup_carrying_a_merged_rows_recorded_id_is_kept(monkeypatch):
     with session_scope() as s:
         got = {(x.team_id, x.player_name) for x in s.query(Lineup).filter(Lineup.match_id == mid)}
     assert got == {(hid, "Home Keeper"), (aid, "Away Keeper")}
+
+
+# ============================================ addendum 112 item 5 + addendum 115 item 1: the unescape at ingest ==
+# ARCHITECT 2026-10-17 10:40 ET, addendum 112 item 5: "... with the HTML-unescape fixed at ingest so it cannot recur."
+# ARCHITECT 2026-10-17 11:30 ET, addendum 115 item 1: "The merge moves 1744's nine 2026 games onto 1385 and carries
+# provider id 901 into 1385's external_ids beside 59, so both provider ids resolve to one row from then on; the
+# HTML-unescape at ingest stops a third row. `merge-teams` runs as built."
+# The service runs on the scratch file (its session_scope is pointed there with SessionLocal's settings): the real
+# adapter parses the payload, the real sync_teams writes it. Never the shared test DB, never data/.
+
+RECEIPT_ESCAPED = "Hawai&#x27;i"            # the stored name of team 1744, provider id 901 (the #426 receipt)
+
+
+def _service_on(eng, monkeypatch, response):
+    from contextlib import contextmanager
+
+    from sqlalchemy.orm import sessionmaker
+
+    import src.ingestion.service as service
+    from src.adapters.api_american_football import APIAmericanFootballAdapter
+    maker = sessionmaker(bind=eng, autoflush=False, future=True, expire_on_commit=False)    # SessionLocal's settings
+
+    @contextmanager
+    def scope():
+        s = maker()
+        try:
+            yield s
+            s.commit()
+        except Exception:
+            s.rollback()
+            raise
+        finally:
+            s.close()
+    monkeypatch.setattr(service, "session_scope", scope)
+    ad = APIAmericanFootballAdapter()
+    calls = []
+
+    def get(path, params=None):
+        calls.append((path, dict(params or {})))
+        return response
+    monkeypatch.setattr(ad, "_get", get)
+    return service.IngestionService(ad), calls
+
+
+def _rows(con):
+    return [(r[0], r[1], json.loads(r[2])) for r in con.execute("SELECT id, name, external_ids FROM teams ORDER BY id")]
+
+
+def test_the_receipts_escaped_name_is_stored_unescaped_and_a_second_sync_makes_no_row(db, monkeypatch):
+    path, eng = db
+    with Session(eng) as s:
+        s.add(Competition(sport=Sport.NFL, code="NCAA", name="NCAA", area="USA", type="LEAGUE"))
+        s.commit()
+    svc, calls = _service_on(eng, monkeypatch, {"response": [{"id": 901, "name": RECEIPT_ESCAPED, "code": "HAW"}]})
+    r1 = svc.sync_teams("NCAA", "2026")
+    assert calls == [("teams", {"league": 2, "season": 2026})]         # the NCAA /teams listing sync-teams reads
+    assert (r1.created, r1.updated) == (1, 0)
+    con = con_of(path)
+    [(tid, name, ext)] = _rows(con)
+    assert name == "Hawai'i" and ext == {SRC: "901"}
+    assert tm.entity_names(con) == {}                                   # no stored name carries an entity
+    r2 = svc.sync_teams("NCAA", "2026")                                  # the same provider id, escaped again
+    assert (r2.created, r2.updated) == (0, 1)
+    assert _rows(con) == [(tid, "Hawai'i", {SRC: "901"})]                # found by its id: one row, no other
+    assert con.execute("SELECT season FROM competition_teams WHERE team_id = ?", (tid,)).fetchall() == [("2026",)]
+
+
+def test_the_two_rows_resync_by_provider_id_and_after_the_merge_both_ids_find_the_kept_row(db, monkeypatch):
+    path, eng = db
+    keep, other = hawaii(eng)                     # keep "Hawai'i" (59), other "Hawai&#x27;i" (901): the laptop's shape
+    con = con_of(path)
+    n0 = con.execute("SELECT COUNT(*) FROM teams").fetchone()[0]
+    listing = {"response": [{"id": 901, "name": RECEIPT_ESCAPED}, {"id": 59, "name": "Hawai'i"}]}
+    svc, _ = _service_on(eng, monkeypatch, listing)
+    r = svc.sync_teams("NCAA", "2026")
+    assert (r.created, r.updated) == (0, 2)                              # each row found by its own provider id
+    assert con.execute("SELECT COUNT(*) FROM teams").fetchone()[0] == n0
+    names = {tid: (name, ext) for tid, name, ext in _rows(con)}
+    assert names[keep] == ("Hawai'i", {SRC: "59"}) and names[other] == ("Hawai'i", {SRC: "901"})
+    assert [(c["keep"]["id"], c["other"]["id"]) for c in tm.plan(con)["candidates"]] == [(keep, other)]
+    res = tm.apply(con, "2026-10-17T12:00:00", [(keep, other)])          # merge-teams as built
+    assert [(m["keep"], m["other"]) for m in res["merged"]] == [(keep, other)] and not res["refused"]
+    ext = json.loads(con.execute("SELECT external_ids FROM teams WHERE id = ?", (keep,)).fetchone()[0])
+    assert ext[SRC] == "59" and ext[f"{SRC}_also"] == ["901"]            # 901 beside 59 on the kept row
+    assert con.execute("SELECT COUNT(*) FROM matches WHERE ? IN (home_team_id, away_team_id)",
+                       (keep,)).fetchone()[0] == 4                       # the other row's games moved onto it
+    r = svc.sync_teams("NCAA", "2026")                                   # both ids again, 901 still escaped
+    assert (r.created, r.updated) == (0, 2)
+    assert con.execute("SELECT COUNT(*) FROM teams").fetchone()[0] == n0 - 1      # no third row, and no second
+    ext = json.loads(con.execute("SELECT external_ids FROM teams WHERE id = ?", (keep,)).fetchone()[0])
+    assert ext[SRC] == "59" and ext[f"{SRC}_also"] == ["901"]            # found by 901, its own id stays 59
+    assert con.execute("SELECT name FROM teams WHERE id = ?", (keep,)).fetchone()[0] == "Hawai'i"
+    assert tm.plan(con)["candidates"] == []

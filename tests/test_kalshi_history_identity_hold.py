@@ -299,6 +299,11 @@ def test_a_held_row_is_placed_by_a_later_run_once_the_hold_clears(alcs):
     assert (got[f"{E16}-TB"]["match_id"], got[f"{E16}-TB"]["side"]) == (G5, "AWAY")             # new, in step
     assert len(run.replaced) == 2 and run.already == 2 and len(run.rows) == 2          # 26OCT151800 skipped
     assert any("stored held rows placed, the hold cleared 2" in ln for ln in out)
+    # the null totals count every row the run writes, the placed held rows included (Codex review on #598: they read
+    # run.rows only, so the cleared -CLE row stored with no quote went uncounted): 26OCT161800's two new rows have no
+    # candles, and 26OCT172000-CLE has none two-sided
+    assert "  rows with last_ts null (no two-sided candle before kickoff, or no candles): 3" in out
+    assert "  rows with settled_time null: 0" in out
     run3, _ = go(Fake(settled=SETTLED15 + SETTLED16 + SETTLED17), now=datetime(2026, 10, 21, 12, 0))
     assert rows() == got and run3.already == 6 and not run3.replaced
 

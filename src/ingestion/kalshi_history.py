@@ -875,9 +875,10 @@ def _receipt(run: Run, calls: Calls, echo) -> None:
              f"with no quote; {len(run.candle_failed) - run.candle_refused} not stored: the next run asks again)")
         for t, why in run.candle_failed:
             echo(f"    {t}: {why}")
-    nolast = sum(1 for r in run.rows if r["last_ts"] is None)
+    written = run.rows + run.replaced      # every row the run writes: new rows and stored held rows placed in place
+    nolast = sum(1 for r in written if r["last_ts"] is None)
     echo(f"  rows with last_ts null (no two-sided candle before kickoff, or no candles): {nolast}")
-    echo(f"  rows with settled_time null: {sum(1 for r in run.rows if r['settled_time'] is None)}")
+    echo(f"  rows with settled_time null: {sum(1 for r in written if r['settled_time'] is None)}")
     if run.dry_run:
         for r in run.rows:
             echo(f"    {row_line(r)}")

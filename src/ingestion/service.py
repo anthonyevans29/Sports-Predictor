@@ -983,6 +983,7 @@ class IngestionService:
         # Wipe and replace this team's injuries
         s.query(Injury).filter(Injury.team_id == team.id).delete()
         kept = 0
+        player_ids: list = []         # #458: (row, provider player id), written after the flush
         for inj in injuries:
             pname = inj.get("player_name")
             if not pname or not str(pname).strip():
@@ -1006,7 +1007,7 @@ class IngestionService:
                 except (ValueError, AttributeError):
                     pass  # keep on parse failure
 
-            s.add(Injury(
+            row = Injury(
                 team_id=team.id,
                 player_name=str(pname).strip(),
                 player_position=inj.get("player_position"),
@@ -1015,9 +1016,19 @@ class IngestionService:
                 fixture_source_id=inj.get("fixture_source_id"),
                 source=self.source,
                 refreshed_at=now,
-            ))
+            )
+            s.add(row)
+            if inj.get("player_source_id") is not None:
+                player_ids.append((row, inj["player_source_id"]))
             result.created += 1
             kept += 1
+        # THE PROVIDER PLAYER ID (ARCHITECT 2026-10-17, addendum 112 item 10, #458): "key by provider player id,
+        # name as display only". The column is unmapped (the ORDER LINE note): stored by guarded Core SQL after the
+        # flush, a no-op until migrate_injury_player_source_id.py has run.
+        if player_ids:
+            from src.db.database import write_injury_player_ids
+            s.flush()
+            write_injury_player_ids(s, [(r.id, pid) for r, pid in player_ids])
         log.debug("team %d (%s): kept %d active injuries", team.id, team.name, kept)
 
     def sync_lineups(

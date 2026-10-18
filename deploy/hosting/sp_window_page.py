@@ -25,7 +25,11 @@ run. The delta classes:
                  (F1 desk on the export; 2026-10-01)
     qb_news      an injured QB's status changed (#192, ruling 2026-10-01): ONE
                  news item PER PLAYER, listing every game that team plays in the
-                 window; never one page per game
+                 window; never one page per game. A player is keyed by his
+                 team and his provider id, the name is display only (#458,
+                 addendum 112 item 10; the key ruled by addendum 117 item 3); an
+                 item with no provider id is keyed by team and name as before
+                 and its page line says "no provider id"
 PAGE CONTENT (architect 2026-10-01, F2 slice 1): every page line and digest
 row reads "competition · away @ home · kickoff ET · model pick prob (tier) ·
 reference (books, or Kalshi when kalshi-only) · edge · Desk call/units when the
@@ -91,10 +95,49 @@ def snapshot(card: dict) -> dict:
             "desk_edge": desk.get("edge_pp") if desk else None,
             "call": desk.get("call"), "units": desk.get("units"), "pass_kind": desk.get("pass_kind"),
             "fair": fair or None, "kalshi_home": r.get("kalshi_home_norm"),
-            "qbs": {f"{q.get('team_id')}|{q.get('player')}": {"team": q.get("team"), "player": q.get("player"),
-                                                              "status": q.get("status") or ""}
-                    for q in (r.get("qb_news") or [])}}
+            "qbs": _qbs(r.get("qb_news"))}
     return out
+
+
+def _qbs(items) -> dict:
+    """One game's QB news, keyed (ARCHITECT 2026-10-17, addendum 112 item 10, #458): "key by provider player id,
+    name as display only". THE KEY (ARCHITECT 2026-10-17, addendum 117 item 3): "#458 — the key is (team id, provider
+    player id). The ruling named the provider id to replace the name; a player listed on two teams' reports in one
+    window (a trade, a provider error) is two entries, and collapsing them would hide one."
+    An item with a provider id is keyed `id:<team_id>|<id>`. An item with none (a row stored before
+    migrate_injury_player_source_id.py, or an entry the feed listed with no id) is keyed `<team_id>|<name>`, the key
+    every item had before, so a state written before this change reads the same. The `id:` prefix keeps the two
+    forms apart (a team id is a number, never `id:`); `name_key` (`<team_id>|<name>`) rides on every entry, which is
+    how _rekey finds a player's id key from his name key. Items that share a key (items with no id: same team, same
+    name; or one id listed twice on one team's report) are never one overwriting the other (law 4): one entry holds
+    all their statuses, sorted, and counts them (`n`), so a change in any of them is a change of the entry."""
+    groups: dict = {}
+    for q in items or []:
+        name_key = f"{q.get('team_id')}|{q.get('player')}"
+        pid = q.get("player_id")
+        pid = str(pid) if pid is not None and str(pid).strip() else None
+        groups.setdefault(f"id:{q.get('team_id')}|{pid}" if pid else name_key, []).append((q, name_key, pid))
+    out = {}
+    for k, qs in groups.items():
+        q, name_key, pid = qs[0]
+        sts = sorted(x.get("status") or "" for x, _, _ in qs)
+        out[k] = {"team": q.get("team"), "player": q.get("player"),
+                  "status": sts[0] if len(sts) == 1 else " / ".join(v or "listed" for v in sts),
+                  # `last`: the last item's status in the card's order, the one status the pager kept before #458
+                  "statuses": sts, "last": qs[-1][0].get("status") or "",
+                  "player_id": pid, "name_key": name_key, "n": len(qs)}
+    return out
+
+
+def _fold(side: dict, keys: list, name_key: str) -> dict:
+    """#458: id-keyed entries of one team and name, folded into one name-level entry (every status, sorted), so a
+    change across the key change is one line, never silent."""
+    es = [side.pop(j) for j in keys]
+    sts = sorted(st for e in es for st in (e.get("statuses") or [e.get("status") or ""]))
+    return {"team": es[0].get("team"), "player": es[0].get("player"),
+            "status": sts[0] if len(sts) == 1 else " / ".join(v or "listed" for v in sts), "statuses": sts,
+            "player_id": ",".join(str(e.get("player_id")) for e in es), "name_key": name_key, "n": len(sts),
+            "ids": set().union(*(e["ids"] for e in es)), "games": [g for e in es for g in e["games"]]}
 
 
 def _move_text(lm) -> str | None:
@@ -148,17 +191,81 @@ def _players(games: dict) -> dict:
     return out
 
 
+def _rekey(was: dict, now: dict) -> dict:
+    """#458, the key change, so that a key change is never news and a change is never hidden by it. Mutates `was`
+    and `now`.
+    - A player keyed by name on one side (a state written before this change, or a row stored with no provider
+      id) and by provider id on the other is carried to his id key (`id:<team_id>|<id>`, the same team) when
+      exactly one id-keyed entry of that team and name is on the other side and no name-keyed one. The id keys are
+      found by the `name_key` each entry carries, never by parsing a key.
+    - Two or more id-keyed entries of that team and name against one name-keyed entry (the case #458 names): the
+      players cannot be told apart across the change. If their statuses are the name entry's (the same statuses,
+      sorted; for a state written before this change, which kept one status, that status among theirs), it is a
+      baseline: no delta this run, listed in the receipt's `qb_rekey`, and from the next run each is compared by
+      his own id. Otherwise the ids are folded into one name-level entry and the change pages as one line.
+    - A state written before this change (no `n`: one status, the last item's) against an entry that now holds two
+      or more id-less items under the same key is a baseline when its status is the new entry's last item's: the
+      exact case the pager before this change was silent on too. Otherwise it pages."""
+    carried, baseline, skip = [], [], set()
+    for a, b in ((was, now), (now, was)):
+        ids_by_name: dict = {}
+        for k, e in b.items():
+            if k.startswith("id:"):
+                ids_by_name.setdefault(e.get("name_key"), []).append(k)
+        for k in [k for k in a if not k.startswith("id:")]:
+            # the old state's one entry (no `n`) against a merged id-less entry: a baseline only where the pager
+            # before this change was silent too (its status is the new last item's). Only (was, now) can match:
+            # this code always writes `n`.
+            if (k in b and "n" not in a[k] and (b[k].get("n") or 1) > 1
+                    and (a[k].get("status") or "") == (b[k].get("last") or "")):
+                skip.add(k)
+                baseline.append(k)
+                continue
+            js = ids_by_name.get(k) or []
+            if not js or k in b:
+                continue
+            if len(js) > 1:
+                theirs = sorted((b[j].get("status") or "") for j in js)
+                mine = a[k]
+                same = (sorted(mine.get("statuses") or []) == theirs if "n" in mine
+                        else (mine.get("status") or "") in theirs)
+                if same:
+                    skip.update([k, *js])
+                    baseline.append(k)
+                else:
+                    b[k] = _fold(b, js, k)
+            elif js[0] not in a:
+                a[js[0]] = {**a.pop(k), "name_key": k}
+                carried.append(k)
+    return {"carried": carried, "baseline": baseline, "skip": skip}
+
+
+def qb_rekey(prev: dict, cur: dict) -> dict:
+    """The receipt of the key change (#458): how many players were carried from a name key to their provider id,
+    and the names held as a baseline (see _rekey)."""
+    if not any("qbs" in g for g in prev.values()):
+        return {"carried": 0, "baseline": []}
+    rk = _rekey(_players(prev), _players(cur))
+    return {"carried": len(rk["carried"]), "baseline": sorted(rk["baseline"])}
+
+
 def qb_deltas(prev: dict, cur: dict) -> list[dict]:
     """#192: one delta per PLAYER whose QB injury status appeared, changed or
     cleared, however many games his team has in the window. A change is news
     only on a game that was already on the card (a game entering or leaving
     the window is not news). Silent until the previous state carries QB data
-    (no flood on the upgrade)."""
+    (no flood on the upgrade). #458: a player is his team and his provider id
+    (_qbs; addendum 117 item 3), so one id on two teams' reports is two
+    players, each paged on his own team's games; a change of key is not news
+    (_rekey)."""
     if not any("qbs" in g for g in prev.values()):
         return []
     was, now = _players(prev), _players(cur)
+    skip = _rekey(was, now)["skip"]
     out = []
     for k in sorted(set(was) | set(now)):
+        if k in skip:
+            continue
         a, b = was.get(k), now.get(k)
         if a and b and a["status"] == b["status"]:
             continue
@@ -167,6 +274,7 @@ def qb_deltas(prev: dict, cur: dict) -> list[dict]:
             continue
         q = b or a
         out.append({"cls": "qb_news", "id": k, "g": cur[stayed[0]], "player": q["player"], "team": q["team"],
+                    "by_name": not q.get("player_id"), "n": q.get("n") or 1,
                     "was": a["status"] if a else None, "now": b["status"] if b else None,
                     "games": [cur[mid] for mid in sorted(stayed)]})
     return out
@@ -254,7 +362,11 @@ def line(d: dict) -> str:
         what = f"LINE MOVE inside T-3h: {g.get('line_move')}: {g.get('late_news')} freshen triggered"
     elif cls == "qb_news":
         st = lambda v: "off the list" if v is None else (v or "listed")
-        head = f"QB NEWS {d['team']} {d['player']}: {st(d['was'])} -> {st(d['now'])} · {len(d['games'])} game(s)"
+        # #458: the name is display only; an item keyed by name says so (law 4: labelled), and so does one that
+        # holds more than one entry
+        tags = (["no provider id"] if d.get("by_name") else []) + ([f"{d['n']} entries"] if d.get("n", 1) > 1 else [])
+        who = f"{d['team']} {d['player']}" + (f" ({', '.join(tags)})" if tags else "")
+        head = f"QB NEWS {who}: {st(d['was'])} -> {st(d['now'])} · {len(d['games'])} game(s)"
         return head + "".join(f"\n  ↳ {row_text(x)}" for x in d["games"])
     elif cls == "model":
         p = was or {}
@@ -302,6 +414,7 @@ def run(card_path: Path, now_utc: datetime | None = None) -> dict:
     first_run = not state
     cur, cur_t90 = snapshot(card), card.get("t90_signatures") or {}
     ds = [] if first_run else deltas(state.get("games", {}), cur, state.get("t90", {}), cur_t90)
+    rekey = {"carried": 0, "baseline": []} if first_run else qb_rekey(state.get("games", {}), cur)   # #458
     quiet = QUIET[0] <= et.hour < QUIET[1]
     # QUARANTINE-CLASS (exempt from quiet hours, high priority): quarantine flips
     # and, by ruling 2026-09-29 on #65, line moves — early European kickoffs put
@@ -329,6 +442,7 @@ def run(card_path: Path, now_utc: datetime | None = None) -> dict:
     counts = {k: sum(1 for d in ds if d["cls"] == k) for k in CLASSES}
     rec = {"kind": "window_page", "exit": 0, "games": len(cur), "first_run": first_run,
            "deltas": counts, "quiet_hours": quiet, "suppressed": suppressed,
+           "qb_rekey": rekey,
            "paged": paged, "digest": did_digest,
            "freshen_needed": [{"id": d["id"], "sport": d["g"]["sport"],
                                "competition": d["g"]["competition"], "reason": d["cls"]}

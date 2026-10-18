@@ -953,6 +953,13 @@ class Injury(Base):
     fixture_source_id: Mapped[str | None] = mapped_column(String(64))  # which fixture this applies to (if any)
     source: Mapped[str] = mapped_column(String(64), default="api_football")
     refreshed_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now_naive, index=True)
+    # NOT MAPPED (ARCHITECT 2026-10-17, addendum 112 item 10, #458: "key by provider player id, name as display
+    # only"): injuries.player_source_id, the provider's own player id (american football `response[].player.id`),
+    # added by migrate_injury_player_source_id.py. It follows the ORDER LINE note of 2026-10-04 (odds_snapshots
+    # above), as addendum 35 item 2 ruled for odds.source_updated_at: every chain reads this table (the window card
+    # hourly, sync-injuries and the NFL export in the closing chain), and a mapped column breaks every query on a
+    # DB that has not migrated. Written and read by guarded Core SQL only when the column exists:
+    # src.db.database.write_injury_player_ids / read_injury_player_ids.
 
     __table_args__ = (Index("ix_injury_team_refreshed", "team_id", "refreshed_at"),)
 

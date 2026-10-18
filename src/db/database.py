@@ -148,6 +148,41 @@ def read_kalshi_tickers(session, ids) -> dict:
     return {i: t for i, t in session.execute(q, {"ids": ids}) if t}
 
 
+# PROVIDER PLAYER ID (ARCHITECT 2026-10-17, addendum 112 item 10, #458): "key by provider player id, name as display
+# only". injuries.player_source_id is unmapped (the ORDER LINE note; schema.py Injury): written after the flush and
+# read by guarded Core SQL, only when the column exists. Before migrate_injury_player_source_id.py nothing is written
+# and every reader gets no id. The existence check is per call, never cached (as has_kalshi_ticker).
+def has_injury_player_id() -> bool:
+    """injuries.player_source_id exists (migrate_injury_player_source_id.py ran). One PRAGMA per call."""
+    from sqlalchemy import inspect
+    try:
+        return "player_source_id" in {c["name"] for c in inspect(_engine).get_columns("injuries")}
+    except Exception:
+        return False
+
+
+def write_injury_player_ids(session, pairs) -> int:
+    """Store the provider's player id on injuries rows after a flush. `pairs` = [(injury_id, provider id | None)];
+    None or empty is left NULL. A no-op (0) until the migration has added the column."""
+    rows = [{"i": i, "p": str(p)} for i, p in pairs if i is not None and p is not None and str(p).strip()]
+    if not rows or not has_injury_player_id():
+        return 0
+    from sqlalchemy import text
+    session.execute(text("UPDATE injuries SET player_source_id = :p WHERE id = :i"), rows)
+    return len(rows)
+
+
+def read_injury_player_ids(session, ids) -> dict:
+    """{injury_id: provider player id} for the given ids that carry one; {} before the migration."""
+    ids = sorted({i for i in ids if i is not None})
+    if not ids or session is None or not has_injury_player_id():
+        return {}
+    from sqlalchemy import bindparam, text
+    q = text("SELECT id, player_source_id FROM injuries WHERE id IN :ids").bindparams(
+        bindparam("ids", expanding=True))
+    return {i: str(p) for i, p in session.execute(q, {"ids": ids}) if p is not None and str(p).strip()}
+
+
 # SOURCE TIME (ARCHITECT 2026-10-09, addendum 32 item 4; addendum 35 item 2, RULED): odds.source_updated_at and
 # odds_snapshots.source_updated_at "follow the ORDER LINE note of 2026-10-04 in schema.py: not mapped in the ORM,
 # written and read by guarded Core SQL, and only when the column exists. A pull or a deploy before the migration

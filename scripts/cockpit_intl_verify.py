@@ -11,6 +11,14 @@ Over a SYNTHETIC intl production file (sport "intl", annotated by the Python Des
 
     python3 scripts/cockpit_intl_verify.py
 
+THE MACHINE ROLE IS PINNED (#591; ARCHITECT 2026-10-18, addendum 128 item 4): this verifier sets
+SP_EXPORTS_MIRROR_ROLE=laptop for its own process, whatever the shell, the checkout's .env or the machine says, and
+points SP_HOST_ENV at a path that does not exist, so no host.env decides first (desk_policy.role_reading reads host.env,
+then the environment, then the checkout's .env): the way tests/conftest.py pins the role. It checks the laptop's Desk.
+Since the host fence (#410), a role that cannot be read is fenced: with no role set (no .env: a fresh clone, CI, a
+cloud container) every INTL row read PASS host_fence and 3/8 checks failed. The Python Desk annotates the files in this
+process; the Chromium it launches inherits the pinned environment, and the page itself reads no role.
+
 Writes nothing to the repo; no DB. Needs Playwright + Chromium.
 """
 import functools
@@ -22,7 +30,11 @@ import tempfile
 import threading
 from datetime import datetime, timedelta, timezone
 
-from playwright.sync_api import sync_playwright
+# #591, addendum 128 item 4: the role pin, before anything that reads the role is imported (the header says why)
+os.environ["SP_EXPORTS_MIRROR_ROLE"] = "laptop"
+os.environ["SP_HOST_ENV"] = os.path.join(tempfile.mkdtemp(prefix="cockpit-intl-role-"), "no-host.env")
+
+from playwright.sync_api import sync_playwright  # noqa: E402
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import cockpit_desk_files as cdf  # noqa: E402
 

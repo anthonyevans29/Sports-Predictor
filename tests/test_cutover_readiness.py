@@ -334,6 +334,7 @@ def test_t9_a_half_str_format_leaves_empty_and_a_leading_bom(no_settings, monkey
     rc, t9, last = readout(no_settings, capsys)
     assert "\ufeff" not in "\n".join(t9) and st["mlb"] == ["MLB|2026"]
     assert any(ln.startswith("    ⚠ MLB line(s) listed: MLB|2026 ") for ln in t9)
+    assert last.endswith(" · (T9) MLB line(s) on the list: MLB|2026")             # addendum 128 item 1(b): it binds
 
 
 def test_t9_hosting_h1_query_writes_no_mlb_line():
@@ -355,6 +356,61 @@ def test_t9_hosting_h1_query_writes_no_mlb_line():
         con.execute("INSERT INTO matches (competition_id, season, utc_date) VALUES (?, ?, datetime('now', ?))",
                     (cid, season, off))
     assert [r[0] for r in con.execute(sql)] == ["NFL|2026", "PL|2026/27"]
+
+
+def test_t9_hosting_h1_block_installs_over_the_list_and_a_rerun_never_doubles(tmp_path):
+    """#593 (ARCHITECT 2026-10-18, addendum 128 item 4: "the docs fix as proposed (write to a temp file, print,
+    install over the list)"): hosting-h1.md T9's copy-paste block, run as written over the installed example, then
+    run again (sqlite3, sudo and install stubbed on PATH; the DB and the list pointed into tmp_path; the temp file in
+    TMPDIR=tmp_path). Before: `| sudo tee -a` kept the example's lines under the generated ones, and a second run wrote
+    every line again, so the chain would sync each competition twice. After: each run prints the list and installs it
+    over the file, which holds each line once, and the temp file is gone; the install's owner, group and mode are
+    install.sh's own for that file (law 1: read, not assumed)."""
+    import os
+    import re
+    import sqlite3
+    import subprocess
+    doc = (ROOT / "docs" / "specs" / "hosting-h1.md").read_text()
+    t9 = doc[doc.index("**T9. TERMINAL (host)"):doc.index("**T10. TERMINAL (host)")]
+    block = re.search(r"```\n(.*?)```", t9, re.S).group(1)
+    db, lst, bin_ = tmp_path / "sports.db", tmp_path / "fullseason.list", tmp_path / "bin"
+    con = sqlite3.connect(db)
+    con.executescript("CREATE TABLE competitions (id INTEGER PRIMARY KEY, code TEXT);"
+                      "CREATE TABLE matches (id INTEGER PRIMARY KEY, competition_id INTEGER, season TEXT,"
+                      " utc_date TEXT);"
+                      "INSERT INTO competitions VALUES (1, 'PL'), (2, 'NFL'), (3, 'MLB');"
+                      "INSERT INTO matches (competition_id, season, utc_date) VALUES"
+                      " (1, '2026/27', datetime('now', '+2 days')), (2, '2026', datetime('now', '-3 days')),"
+                      " (3, '2026', datetime('now', '+1 days'));")
+    con.commit()
+    con.close()
+    bin_.mkdir()
+    stubs = {"sqlite3": (f"#!{sys.executable}\nimport sqlite3, sys\n"
+                         "a = [x for x in sys.argv[1:] if x != '-readonly']\n"
+                         "con = sqlite3.connect('file:' + a[0] + '?mode=ro', uri=True)\n"
+                         "for r in con.execute(a[1]):\n    print('|'.join(map(str, r)))\n"),
+             "sudo": '#!/bin/sh\nexec "$@"\n',
+             "install": '#!/bin/sh\n# install [-o U -g G -m M] SRC DST: the copy over DST (no chown here)\n'
+                        'for a in "$@"; do s=$d; d=$a; done\ncp "$s" "$d"\n'}
+    for name, text in stubs.items():
+        (bin_ / name).write_text(text)
+        (bin_ / name).chmod(0o755)
+    script = (block.replace("/opt/sports-predictor/data/sports.db", str(db))
+              .replace("/etc/sports-predictor/fullseason.list", str(lst)))
+    assert str(db) in script and str(lst) in script
+    lst.write_text(EXAMPLE.read_text())                                # what install.sh puts there
+    env = {**os.environ, "PATH": f"{bin_}{os.pathsep}{os.environ.get('PATH', '')}", "TMPDIR": str(tmp_path)}
+    for _ in range(2):                                                 # the first run, then a re-run
+        r = subprocess.run(["bash", "-c", script], capture_output=True, text=True, env=env, timeout=60)
+        assert r.returncode == 0, r.stderr
+        assert r.stdout.splitlines() == ["NFL|2026", "PL|2026/27"]    # printed: the receipt
+        assert lst.read_text().splitlines() == ["NFL|2026", "PL|2026/27"]
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["bin", "fullseason.list", "sports.db"]
+    assert "tee " not in block and block.count("/etc/sports-predictor/fullseason.list") == 1
+    inst = [ln for ln in (ROOT / "deploy" / "hosting" / "install.sh").read_text().splitlines()
+            if "etc/fullseason.list.example" in ln]
+    flags = re.search(r" install (-o \S+ -g \S+ -m \d+) etc/fullseason\.list\.example ", inst[0]).group(1)
+    assert len(inst) == 1 and f"sudo install {flags} " in block
 
 
 def test_module_usage_names_every_option():
@@ -379,17 +435,22 @@ def test_t9_an_empty_fullseason_list_option_names_the_option(no_settings, monkey
     assert rc == 1 and "(T9) fullseason list NOT SET" in last
 
 
-def test_t9_mlb_lines_are_reported_not_binding(no_settings, monkeypatch, capsys):
-    """MLB is excluded from the host's list by ruling (addendum 122 item 3(a)). Built: printed, not binding; the
-    architect rules whether it binds (the ledger entry asks)."""
+def test_t9_an_mlb_line_on_the_list_binds_not_yet_with_the_line_named(no_settings, monkeypatch, capsys):
+    """MLB is excluded from the host's list by ruling (addendum 122 item 3(a)). ARCHITECT 2026-10-18, addendum 128
+    item 1(b): "AN MLB LINE ON THE HOST'S LIST BINDS: NOT-YET, with the line named. The ruling excluded MLB; a list
+    that carries it is wrong, and a readout that prints a warning and says GO is softer than the rule." Before: the
+    line printed with a ⚠ and nothing reached the unmet list. One condition: every MLB line, named, in the last line."""
     lst = no_settings / "fullseason.list"
     lst.write_text("NFL|2026\nMLB|2026\nmlb_spring|2026\nPL|2026/27\n")
     monkeypatch.setenv("SP_FULLSEASON_LIST", str(lst))
     rc, t9, last = readout(no_settings, capsys)
     assert t9[1] == "    fullseason list: 4 competitions — NFL|2026 · MLB|2026 · mlb_spring|2026 · PL|2026/27"
-    assert t9[2].startswith("    ⚠ MLB line(s) listed: MLB|2026, mlb_spring|2026 — MLB is excluded by ruling "
-                            "(addendum 122 item 3(a)); printed, not binding")
-    assert "(T9)" not in last
+    assert t9[2] == ("    ⚠ MLB line(s) listed: MLB|2026, mlb_spring|2026 — MLB is excluded by ruling (addendum 122 "
+                     "item 3(a)); an MLB line binds: NOT-YET (addendum 128 item 1(b))")
+    assert rc == 1 and last.startswith("NOT-YET — ")
+    assert last.endswith(" · (T9) MLB line(s) on the list: MLB|2026, mlb_spring|2026")
+    assert [u for u in last.split(" · ") if u.startswith("(T9)")] == [
+        "(T9) MLB line(s) on the list: MLB|2026, mlb_spring|2026"]      # the list itself is ok: only the MLB lines bind
     # every competition code the MLB adapter exposes reads as an MLB line; no other listed code does
     from src.adapters.mlb_stats_api import _COMPETITIONS
     assert _COMPETITIONS and all(cr.mlb_code(k) for k in _COMPETITIONS)
@@ -397,11 +458,35 @@ def test_t9_mlb_lines_are_reported_not_binding(no_settings, monkeypatch, capsys)
 
 
 def test_t9_fullseason_list_option_reads_the_named_file(no_settings, monkeypatch, capsys):
-    """Run away from the host (the laptop's readout, addendum 113 item 5): the host's file passed by name wins over
-    the machine's setting, and the line names where it came from."""
+    """Run away from the host (the laptop form, for the architect's dry reads only: ARCHITECT 2026-10-18, addendum 128
+    item 1(a)): the host's file passed by name wins over the machine's setting, and the line names where it came
+    from."""
     lst = no_settings / "host-fullseason.list"
     lst.write_text("PL|2026/27\nNFL|2026\n")
     monkeypatch.setenv("SP_FULLSEASON_LIST", str(EXAMPLE))
     rc, t9, last = readout(no_settings, capsys, "--fullseason-list", str(lst))
     assert t9[0] == f"(T9) WEEKLY FULL-SEASON LIST — --fullseason-list: {lst}"
     assert t9[1] == "    fullseason list: 2 competitions — PL|2026/27 · NFL|2026" and "(T9)" not in last
+
+
+def test_the_runbook_runs_the_readout_on_the_host_and_labels_the_laptop_form():
+    """ARCHITECT 2026-10-18, addendum 128 item 1(a), verbatim: "WHICH MACHINE RUNS `cutover-readiness`: the HOST, over
+    ssh in the Thursday evening block, so (b) and (T9) read the host's own receipts and list; the laptop form
+    (`--receipts FILE --fullseason-list FILE`) is for my dry reads only and is labelled as such on the page." The
+    schedule's Thursday evening row and section 0's readout say so; addendum 113 item 5's quote stays verbatim."""
+    rb = (ROOT / "docs" / "specs" / "h2-cutover-runbook.md").read_text()
+    ruling = ("WHICH MACHINE RUNS `cutover-readiness`: the HOST, over ssh in the Thursday evening block, so (b) and (T9) "
+              "read the host's own receipts and list; the laptop form (`--receipts FILE --fullseason-list FILE`) is for "
+              "my dry reads only and is labelled as such on the page.")
+    rows = [ln for ln in rb.splitlines() if ln.startswith("| Thu 10-22 evening |")]
+    assert len(rows) == 1
+    what, where = rows[0].split(" | ")[1:3]
+    assert "on the HOST, over ssh in the Thursday evening block" in what and "on the laptop" not in what
+    assert "for the architect's dry reads only" in where and "open question" not in where
+    sched = rb[rb.index("## The 2026-10 schedule"):rb.index("## 0. Before the ruling day")]
+    quoted = " ".join(" ".join(x[2:] for x in sched.splitlines() if x.startswith("> ")).split())
+    assert "5. Thu 10-22 evening: `cli.py cutover-readiness` on the laptop; its GO / NOT-YET lines pasted to me." in quoted
+    assert f"(a) {ruling}" in quoted
+    sec0 = rb[rb.index("- **Readiness readout (#85"):rb.index("- **Host on a release tag.**")]
+    assert ruling in " ".join(sec0.split())
+    assert "- **The laptop form, for the architect's dry reads only** (addendum 128 item 1(a))" in sec0

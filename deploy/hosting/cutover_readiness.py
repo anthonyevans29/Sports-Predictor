@@ -23,8 +23,16 @@ Prints, in order:
       file SP_FULLSEASON_LIST names (or --fullseason-list FILE), counted
       through the chain's own parser and formatting
       (sp_run.fullseason_resolve), "fullseason list: N competitions" or
-      NOT-YET with the reason; MLB lines printed, not binding;
+      NOT-YET with the reason; an MLB line on the list binds: NOT-YET, with
+      the line named (MLB is excluded by ruling, addendum 122 item 3(a);
+      ARCHITECT 2026-10-18, addendum 128 item 1(b));
   then one line: GO or NOT-YET, with every unmet criterion named.
+
+Which machine runs it (ARCHITECT 2026-10-18, addendum 128 item 1(a)): the
+HOST, over ssh in the Thursday evening block, so (b) and (T9) read the host's
+own receipts and list. The laptop form (--receipts FILE --fullseason-list
+FILE, the host's two files read on the laptop) is for the architect's dry
+reads only.
 
 Class naming (h2-cutover-runbook.md section 2) is CONSERVATIVE (law 4). The
 tool names only what it can prove from the two files:
@@ -360,7 +368,8 @@ def fullseason_state(path: str | None, today: date | None = None, source: str = 
     no --set), never a second one. `state` is "ok" with N >= 1 competitions, or what makes it NOT-YET (law 4:
     a missing setting or an empty --fullseason-list, a missing or unreadable file, a line the chain cannot parse or
     fill, zero competitions; nothing unreadable reads as ok). `source` is where `path` came from, and the NOT SET
-    reason names it. `mlb` names the MLB lines: printed, never binding (the architect rules whether it binds)."""
+    reason names it. `mlb` names the MLB lines; main() binds on them: NOT-YET, with the lines named (ARCHITECT
+    2026-10-18, addendum 128 item 1(b))."""
     out = {"path": path, "state": None, "entries": [], "mlb": [], "why": None}
     if not path:
         why = ("--fullseason-list was given an empty path (pass the host's file with --fullseason-list FILE, or "
@@ -405,13 +414,15 @@ def main(argv=None) -> int:
     ap.add_argument("--mirror", type=Path,
                     default=Path(os.environ.get("SP_EXPORTS_MIRROR_DIR") or c.REPO / "logs" / "exports-mirror"),
                     help="a clone of Sports-Predictor-exports (default: the mirror's working clone)")
-    ap.add_argument("--receipts", type=Path, default=None, help="the HOST's receipts.jsonl (default: this checkout's)")
+    ap.add_argument("--receipts", type=Path, default=None,
+                    help="the HOST's receipts.jsonl (default: this checkout's; the laptop form, for the architect's dry "
+                         "reads only: on the host, leave it out)")
     ap.add_argument("--named", type=Path, default=None,
                     help='JSON {"YYYY-MM-DD": "<class>: <evidence>"} naming a compare\'s UNNAMED lines')
     ap.add_argument("--no-parity", action="store_true", help="skip (c); it then reads NOT RUN")
     ap.add_argument("--fullseason-list", default=None, metavar="FILE",
                     help="the HOST's fullseason.list for (T9) (default: the file the SP_FULLSEASON_LIST setting "
-                         "names)")
+                         "names; the laptop form, for the architect's dry reads only: on the host, leave it out)")
     ap.add_argument("--today", default=None, help=argparse.SUPPRESS)
     a = ap.parse_args(argv)
     now = datetime.now(timezone.utc)
@@ -519,9 +530,10 @@ def main(argv=None) -> int:
     else:
         print(f"    fullseason list: {fs['state']} → NOT-YET · {fs['why']}")
         unmet.append(f"(T9) fullseason list {fs['state']}")
-    if fs["mlb"]:
+    if fs["mlb"]:     # ARCHITECT 2026-10-18, addendum 128 item 1(b): "AN MLB LINE ON THE HOST'S LIST BINDS: NOT-YET"
         print(f"    ⚠ MLB line(s) listed: {', '.join(fs['mlb'])} — MLB is excluded by ruling (addendum 122 item 3(a)); "
-              f"printed, not binding (whether it binds is the architect's ruling)")
+              f"an MLB line binds: NOT-YET (addendum 128 item 1(b))")
+        unmet.append(f"(T9) MLB line(s) on the list: {', '.join(fs['mlb'])}")
     elif fs["state"] == "ok":
         print("    MLB lines: none (MLB is excluded by ruling, addendum 122 item 3(a))")
 

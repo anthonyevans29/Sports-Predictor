@@ -37,6 +37,25 @@ Exhibit 1 ruling (2026-09-28):
 - A third explained class, CODE-VERSION SKEW, is available only with its
   guard: both files carry the producing `git_sha` and the comparator names the
   mismatch. A file missing its SHA cannot claim the class (law 4).
+
+MACHINE STATE (#592 RULED, ARCHITECT 2026-10-18, addendum 128 item 3,
+verbatim): "a coverage file is MACHINE STATE by nature — each machine's own
+view of the day, with `now`, `due` vs `ahead`, `started` — and can never be a
+divergence. Option 1, as a KIND rule: the compare treats kind `coverage` as
+"machine state": listed by presence on each side (one side, both sides,
+neither), never compared for content, never DIVERGENT, never counted toward or
+against criterion (a). Printed as its own line ("machine-state files: coverage
+laptop yes / host no")." The kind is the exports mirror's (the name with its
+date/time stamp removed): the dated coverage_<date>.json and the latest copy
+coverage.json are both kind coverage. A machine-state file in the window is
+never opened: it is not a `·` or `✗` line, not in the compared or the
+one-side count, and cannot make a verdict (a folder holding only it is
+NO-COVERAGE). One line, always printed, names its presence per side among
+the files --glob and the window select (one they leave out reads no there and
+is counted as not matched or settled; the Action's *.json and --since 0
+select the whole folder). The --since window and the header's settled count
+treat it like any dated file.
+cutover_readiness.compare_day (criterion (a)) applies the same rule.
 """
 from __future__ import annotations
 
@@ -70,6 +89,35 @@ TS_KEY = re.compile(r"(_at$|^ts$|timestamp|^generated|^captured|^as_of)", re.I)
 # machine-local or reported separately — never a field diff
 MASKED = {"match_id", "git_sha"}
 KICKOFF, HOME, AWAY = ("utc_date", "kickoff", "date"), ("home_team", "home"), ("away_team", "away")
+
+# MACHINE STATE (ARCHITECT 2026-10-18, addendum 128 item 3; the module docstring quotes it): the kinds listed by
+# presence, never compared. The kind rule is exports_mirror.kind_of's, copied because this file ships alone
+# (tools/compare_exports.py has neither sp_common nor exports_mirror); tests/test_compare_exports_machine_state.py pins
+# the copy to the mirror's.
+MACHINE_STATE_KINDS = ("coverage",)
+_STAMP = re.compile(r"_?\d{4}-\d{2}-\d{2}(?:[T_]\d{2}:?\d{2}(?::?\d{2})?Z?)?")      # exports_mirror.STAMP
+
+
+def kind_of(name: str) -> str:
+    """exports_mirror.kind_of: the name with its date/time stamp removed (coverage_2026-10-19.json -> coverage,
+    coverage.json -> coverage, fixtures_EFL_2026-10-01_to_2026-10-07.json -> fixtures_EFL)."""
+    stem = name.rsplit(".", 1)[0]
+    stem = _STAMP.sub("", stem).replace("_to", "")
+    return re.sub(r"__+", "_", stem).strip("_") or stem
+
+
+def machine_state_kind(name: str) -> str | None:
+    """The file's kind when it is machine state (addendum 128 item 3), else None."""
+    k = kind_of(name)
+    return k if k in MACHINE_STATE_KINDS else None
+
+
+def machine_state_line(laptop_names, host_names) -> str:
+    """The ruled line, by presence on each side: "machine-state files: coverage laptop yes / host no"."""
+    def yn(names, kind):
+        return "yes" if any(machine_state_kind(n) == kind for n in names) else "no"
+    return "machine-state files: " + " · ".join(
+        f"{k} laptop {yn(laptop_names, k)} / host {yn(host_names, k)}" for k in MACHINE_STATE_KINDS)
 
 
 NAME_DATE = re.compile(r"(\d{4}-\d{2}-\d{2})")
@@ -209,6 +257,10 @@ def _main(argv=None) -> int:
     la = {n: p for n, p in la_all.items() if in_window(n, a.since, today)}
     ho = {n: p for n, p in ho_all.items() if in_window(n, a.since, today)}
     settled = len(set(la_all) | set(ho_all)) - len(set(la) | set(ho))
+    # addendum 128 item 3: a machine-state file leaves the comparison here, listed by presence and never opened
+    ms_line = machine_state_line(la, ho)
+    la = {n: p for n, p in la.items() if not machine_state_kind(n)}
+    ho = {n: p for n, p in ho.items() if not machine_state_kind(n)}
     wor = writer_of_record()
     print(f"writer of record: {wor or 'UNKNOWN (SP_WRITER_OF_RECORD unset/invalid)'} — canonical side: "
           f"{wor or '?'}" + (f"; divergences are read as the {'host' if wor == 'laptop' else 'laptop'} "
@@ -254,6 +306,7 @@ def _main(argv=None) -> int:
     other = {side: sorted(f.name for f in d.iterdir() if f.is_file() and f.name not in names)
              for side, d, names in (("laptop", a.laptop, la_all), ("host", a.host, ho_all))}
     one_side = len(set(la) ^ set(ho))
+    print(ms_line)
     print(f"\ncoverage: {compared} JSON file(s) compared ({a.glob}) · {one_side} on one side only · "
           f"{settled} outside the window · not matched by {a.glob}: laptop {len(other['laptop'])}, "
           f"host {len(other['host'])}" + (f" (e.g. {', '.join((other['laptop'] + other['host'])[:3])})"

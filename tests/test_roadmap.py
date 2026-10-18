@@ -133,6 +133,39 @@ def test_today_defaults_to_the_machines_local_date():
     assert f"today {date.today().isoformat()}" in out.output.splitlines()[0]
 
 
+def test_lanes_data_is_the_print_as_data_with_no_eta_for_an_undated_lane(tmp_path):
+    """ARCHITECT 2026-10-18, addendum 125 item 2(a) (#589): `coverage --json` carries "the lanes of docs/roadmap.json
+    with their competitions, status and dated ETAs, read as `cli.py roadmap` reads them (no new source of truth; if a
+    lane carries no date it prints "no ETA")". lanes_data() is load() and the print's own lane_lines(): each lane's
+    two lines are the print's, in its order; the ETA is "earliest live <date>", or "no ETA" where earliest_live is
+    null; the next step is the print's (done steps skipped, overdue counted); a lane with no competitions reads null."""
+    day = date(2026, 10, 18)
+    printed = _cli("--today", day.isoformat()).output.splitlines()
+    got = rm.lanes_data(day)
+    real = _real()["lanes"]
+    assert [g["lane"] for g in got] == [ln["lane"] for ln in real]
+    heads = [i for i, ln in enumerate(printed) if " · #" in ln and not ln.startswith(" ")]
+    assert [(printed[i], printed[i + 1].strip()) for i in heads] == [(g["line"], g["next_line"]) for g in got]
+    for g, ln in zip(got, real):
+        assert (g["title"], g["issue"], g["state"], g["competitions"]) == (ln["title"], ln["issue"], ln["state"],
+                                                                          ln.get("competitions"))
+        assert g["eta"] == (f"earliest live {ln['earliest_live']}" if ln["earliest_live"] else "no ETA")
+    assert {g["lane"] for g in got if g["eta"] == "no ETA"} == {"leagues", "nfl-qb", "mlb-pitchers"}
+    ncaa = next(g for g in got if g["lane"] == "ncaa")           # its first two steps are done: the third is next
+    assert ncaa["next"] == {"what": _lane(_real(), "ncaa")["steps"][2]["what"], "owner": "calendar",
+                            "due": "2026-11-08", "when": "in 21 days"}
+    doc = _real()
+    _lane(doc, "unl")["state"] = "live"
+    for st in _lane(doc, "unl")["steps"]:
+        st["done"] = {"date": "2026-11-12", "receipt": "the confirmation record"}
+    del _lane(doc, "pd")["competitions"]
+    one = {g["lane"]: g for g in rm.lanes_data(day, path=_write(tmp_path, doc))}
+    assert (one["unl"]["next"], one["unl"]["next_line"], one["unl"]["overdue"]) == (None, "next: none (live)", 0)
+    assert one["pd"]["competitions"] is None
+    with pytest.raises(rm.RoadmapError):                          # the print's refusal, never a guessed lane
+        rm.lanes_data(day, path=_write(tmp_path, _broken(lambda d: _lane(d, "pd").__setitem__("title", "")), "b.json"))
+
+
 def test_a_today_that_is_not_a_real_date_exits_2():
     out = _cli("--today", "2026-02-30")
     assert out.exit_code == 2 and "not a real date" in out.output

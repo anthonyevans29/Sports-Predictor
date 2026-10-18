@@ -13,7 +13,9 @@ emitted, (c) parity harness green on that tag — earliest Oct 8 stands."
 Prints, in order:
   (a) the compare streak: per date the exports mirror holds from BOTH writers
       (laptop/<date> vs host/<date>, the commit-status Action's own pairing),
-      the verdict and the classes named for every divergent line;
+      the verdict and the classes named for every divergent line, and the
+      compare's machine-state line (kind coverage by presence, never counted
+      toward or against (a): ARCHITECT 2026-10-18, addendum 128 item 3);
   (b) the host's tag, days on it, whether it carries #246, and the desk calls
       emitted per chain (from the chain receipts + the mirrored host files);
   (c) the parity harness (scripts/desk_parity_verify.py) run ON THAT TAG, in a
@@ -119,9 +121,16 @@ def classify_line(line: str) -> str | None:
 
 def compare_day(lap: Path, host: Path) -> dict:
     """Compare laptop/<date> with host/<date> as the mirror Action does
-    (--since 0, every *.json) and name each divergent line's class."""
+    (--since 0, every *.json) and name each divergent line's class. A
+    machine-state file (kind coverage; ARCHITECT 2026-10-18, addendum 128
+    item 3: "never counted toward or against criterion (a)") is listed by
+    presence in `machine_state`, the compare's own line, and never opened:
+    not compared, not unnamed, not a verdict."""
     la = {p.name: p for p in lap.glob("*.json")}
     ho = {p.name: p for p in host.glob("*.json")}
+    machine_state = ce.machine_state_line(la, ho)
+    la = {n: p for n, p in la.items() if not ce.machine_state_kind(n)}
+    ho = {n: p for n, p in ho.items() if not ce.machine_state_kind(n)}
     files, classes, unnamed, compared = [], Counter(), [], 0
     for name in sorted(set(la) | set(ho)):
         if name not in la or name not in ho:
@@ -155,7 +164,8 @@ def compare_day(lap: Path, host: Path) -> dict:
         verdict = "CLEAN"
     else:
         verdict = "DIVERGENT"
-    return {"verdict": verdict, "compared": compared, "classes": dict(classes), "unnamed": unnamed}
+    return {"verdict": verdict, "compared": compared, "classes": dict(classes), "unnamed": unnamed,
+            "machine_state": machine_state}
 
 
 def mirror_dates(mirror: Path) -> tuple[list[str], list[str]]:
@@ -467,6 +477,7 @@ def main(argv=None) -> int:
             cls = " · ".join(f"{k} {v}" for k, v in sorted(r["classes"].items())) or "—"
             print(f"    {'✓' if r['counts'] else '✗'} {r['date']}  {r['verdict']:<11} {r['compared']} compared · "
                   f"classes: {cls} · {r['how']}")
+            print(f"        {r['machine_state']}")       # addendum 128 item 3: listed, never counted
             for ln in r["unnamed"][:8]:
                 print(f"        UNNAMED {ln[:160]}")
             if len(r["unnamed"]) > 8:

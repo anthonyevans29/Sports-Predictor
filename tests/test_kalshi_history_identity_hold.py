@@ -726,6 +726,30 @@ def test_place_held_refuses_a_side_another_row_holds(alcs):
         place(f"{E17}-TB", G4)
 
 
+def test_place_held_reads_the_side_again_in_its_write(alcs):
+    """Codex review on #598: the side check ran before the candle call, and the write re-checked only the ticker. Here
+    another row takes 50550 AWAY while place-held reads the candles (a second place-held, or a history run): the write
+    reads the side again in its own transaction and refuses, and nothing is written."""
+    from src.db.database import session_scope
+    from src.db.schema import KalshiSettledMarket
+    before = _monday(alcs)
+
+    class Race(Fake):
+        def _get(self, path, params=None):
+            if path.endswith(f"/{E16}-TB/candlesticks"):
+                with session_scope() as s:
+                    s.add(KalshiSettledMarket(ticker=f"{S}-26OCT171900TBCLE-TB", event_ticker=f"{S}-26OCT171900TBCLE",
+                                              series=S, side="AWAY", match_id=G4, yes_sub_title="Tampa Bay",
+                                              source="live", fetched_at=NOW, notes="placed by ruling: test"))
+            return super()._get(path, params)
+    with pytest.raises(ValueError, match=f"REFUSED: match {G4} AWAY was taken by {S}-26OCT171900TBCLE-TB before the "
+                                         "write: two settled markets are never stored on one side of one game; nothing "
+                                         "is written"):
+        place(f"{E16}-TB", G4, fake=Race())
+    assert rows()[f"{E16}-TB"] == before[f"{E16}-TB"]
+    assert {k: v for k, v in _claims().items() if len(v) > 1} == {}
+
+
 def test_place_held_reads_the_held_row_s_sides_on_the_match_s_own_home_and_away(alcs):
     """The side is the market's yes team against the match's home and away: on a match stored the other way round
     (Cleveland away), Tampa Bay's leg is HOME."""

@@ -1032,6 +1032,13 @@ def place_held(ticker: str, match_id: int, ruling: str, *, dry_run: bool = False
         obj = sess.execute(select(K).where(K.ticker == ticker)).scalar_one_or_none()
         if obj is None or obj.match_id is not None:
             raise ValueError(f"REFUSED: {ticker} changed before the write (placed or gone): nothing is written")
+        # the side is read again in the write's own transaction: another place-held, or a history run, may have taken
+        # it while the candles were read (two settled markets are never stored on one side of one game)
+        clash = sess.execute(select(K.ticker).where(K.series == before["series"], K.match_id == match_id,
+                                                    K.side == side, K.ticker != ticker)).scalars().all()
+        if clash:
+            raise ValueError(f"REFUSED: match {match_id} {side} was taken by {', '.join(sorted(clash))} before the "
+                             "write: two settled markets are never stored on one side of one game; nothing is written")
         for c in REPLACE_COLS:
             setattr(obj, c, after[c])
     echo(f"  ✓ placed: {ticker} on match {match_id} {side} (one row written)")

@@ -57,6 +57,10 @@ OPTIONAL_LANE_KEYS only lists it): a non-empty list of competition codes as the 
 print does not show it; `python cli.py coverage` reads it (a lane names a competition through it, never through its
 prose). The base check compares dates and moved lines only, so adding it moves nothing.
 
+THE COVERAGE FILE (ARCHITECT 2026-10-18, addendum 125 item 2(a), #589): `python cli.py coverage --json` carries the
+lanes as the print reads them: lanes_data() is load() and the print's own lane_lines(), as data, with "no ETA" where a
+lane's earliest_live is null. No second reader of the file.
+
 Addendum 61 item 5: "#494 is in: a milestone with no due_on key is refused, named." And: "One day is singular: 'in 1
 day', 'OVERDUE 1 day', '(+1 more step overdue)'. Addendum 59 5(e) named the pattern, not the grammar."
 
@@ -291,6 +295,51 @@ def when(due: date, today: date) -> str:
     return f"in {_days(n)}" if n > 0 else f"OVERDUE {_days(-n)}"
 
 
+def lane_lines(ln: dict, today: date) -> tuple[str, str, int]:
+    """One lane as the print writes it: its line (title, Issue, state, earliest live, record against the close), its
+    next-step line, and how many of its steps are overdue. report() and lanes_data() both read a lane through it."""
+    el = ln["earliest_live"] or "not set"
+    head = f"{ln['title']} · #{ln['issue']} · {ln['state']} · earliest live {el} · vs close: {ln['vs_close']}"
+    late = overdue_steps(ln, today)
+    nx = next_step(ln)
+    if nx is None:
+        return head, f"  next: none ({ln['state']})", len(late)
+    j, st = nx
+    more = len([k for k in late if k != j])
+    tail = f" (+{more} more step{'' if more == 1 else 's'} overdue)" if more else ""
+    return (head, f"  next: {st['what']} · {st['owner']} · due {st['due']} · {when(real_date(st['due']), today)}{tail}",
+            len(late))
+
+
+NO_ETA = "no ETA"                          # addendum 125 item 2(a): "if a lane carries no date it prints "no ETA""
+
+
+def lanes_data(today: date, path: Path | None = None) -> list[dict]:
+    """The lanes as `python cli.py roadmap` reads them (load(): the same file, validated; lane_lines(): the same
+    lines), as data, for `coverage --json` (ARCHITECT 2026-10-18, addendum 125 item 2(a): "the lanes of
+    docs/roadmap.json with their competitions, status and dated ETAs, read as `cli.py roadmap` reads them (no new
+    source of truth; if a lane carries no date it prints "no ETA")"). Per lane, in the file's order: its id, title,
+    Issue, competitions (null where the lane carries none), state, earliest_live (the date, or null), eta (the ETA to
+    live: "earliest live <date>" as the print words it, or "no ETA" where earliest_live is null), its next step
+    (what, owner, due, when as the print counts it from `today`; null when every step is done), its overdue count, and
+    the print's own two lines. The milestones are not lanes and are not read. RoadmapError when the file does not
+    validate, as for the print."""
+    doc = load(path)
+    out = []
+    for ln in doc["lanes"]:
+        head, nxt, late = lane_lines(ln, today)
+        step = next_step(ln)
+        out.append({"lane": ln["lane"], "title": ln["title"], "issue": ln["issue"],
+                    "competitions": list(ln["competitions"]) if "competitions" in ln else None,
+                    "state": ln["state"], "earliest_live": ln["earliest_live"],
+                    "eta": f"earliest live {ln['earliest_live']}" if ln["earliest_live"] else NO_ETA,
+                    "next": None if step is None else {
+                        "what": step[1]["what"], "owner": step[1]["owner"], "due": step[1]["due"],
+                        "when": when(real_date(step[1]["due"]), today)},
+                    "overdue": late, "line": head, "next_line": nxt.strip()})
+    return out
+
+
 def report(today: date, path: Path | None = None, taxonomy_path: Path | None = None) -> tuple[list[str], int]:
     """The print's lines and the overdue count. RoadmapError (naming the entry) when a file does not validate."""
     p = Path(path or ROADMAP_PATH)
@@ -303,20 +352,9 @@ def report(today: date, path: Path | None = None, taxonomy_path: Path | None = N
     lines = [f"ROADMAP {p.name} · today {today.isoformat()} · {len(doc['lanes'])} model lanes"]
     overdue = 0
     for ln in doc["lanes"]:
-        el = ln["earliest_live"] or "not set"
-        lines.append(f"{ln['title']} · #{ln['issue']} · {ln['state']} · earliest live {el} · "
-                     f"vs close: {ln['vs_close']}")
-        late = overdue_steps(ln, today)
-        overdue += len(late)
-        nx = next_step(ln)
-        if nx is None:
-            lines.append(f"  next: none ({ln['state']})")
-            continue
-        j, st = nx
-        more = len([k for k in late if k != j])
-        tail = f" (+{more} more step{'' if more == 1 else 's'} overdue)" if more else ""
-        lines.append(f"  next: {st['what']} · {st['owner']} · due {st['due']} · "
-                     f"{when(real_date(st['due']), today)}{tail}")
+        head, nxt, late = lane_lines(ln, today)
+        lines += [head, nxt]
+        overdue += late
     dated = [m for m in tax["milestones"] if m.get("due_on")]
     lines.append(f"MILESTONES ({tp.parent.name}/{tp.name}, those with a due_on)")
     for m in dated:

@@ -1138,3 +1138,331 @@ def test_the_predict_commands_are_the_writers_of_prediction_rows():
     assert cm.PREDICT_COMMANDS == ("predict", "predict-nfl")
     assert "generate_predictions(" in inspect.getsource(cli.cli.commands["predict"].callback)
     assert "predict_nfl(" in inspect.getsource(cli.cli.commands["predict-nfl"].callback)
+
+
+# ------------------------------------------------------------------- --json (addendum 125 item 2(a), #589) --
+# ARCHITECT 2026-10-18, addendum 125 item 2(a), verbatim: "`python cli.py coverage --json [--out PATH]` writes the dict
+# `deploy/hosting/coverage_map.coverage()` already returns (date, now, competitions[], gaps[]; datetimes ISO-8601 Z),
+# under `kind: "coverage_v1"`, plus `roadmap`: the lanes of docs/roadmap.json with their competitions, status and dated
+# ETAs, read as `cli.py roadmap` reads them (no new source of truth; if a lane carries no date it prints "no ETA").
+# Default --out exports/coverage_<date>.json; [...] Read-only as today: mode=ro, no provider call, exit 0 whatever the
+# gaps."
+
+PIN_NOW = utc("2026-10-17 13:40")
+PIN_GAMES = [(401, "PL", "2026-10-17 14:00", "SCHEDULED"), (402, "PL", "2026-10-17 14:00", "SCHEDULED"),
+             (403, "PL", "2026-10-17 16:30", "SCHEDULED"), (404, "PL", "2026-10-17 16:30", "POSTPONED"),
+             (405, "PL", "2026-10-17 11:30", "FINISHED"), (301, "NFL", "2026-10-17 17:00", "SCHEDULED"),
+             (501, "NHL", "2026-10-17 23:00", "SCHEDULED"), (601, "NCAA", "2026-10-17 16:00", "SCHEDULED"),
+             (704, "EL1", "2026-10-17 14:00", "SCHEDULED"), (702, "EL2", "2026-10-17 14:00", "SCHEDULED")]
+PIN_PREDS = [(401, "v22", "2026-10-17 10:00"), (402, "v22", "2026-10-17 10:00"), (405, "v22", "2026-10-10 11:00")]
+PIN_RUN = "20261017T132500Z-soccer-closing"
+# The text output of origin/main (92c2442) on the pin day, captured BEFORE this change: every status, a void game, a
+# started game, a done run with its closing file, a group ahead, the three kinds of gap. Byte for byte. With the slate
+# run (#600, merged after this): the same day as #600's own head (4a54cd2) prints it before --json, byte for byte (its
+# header names the slate files read, and each LIVE competition gains its SLATE line and its slate gap).
+PIN_TEXT = [
+    "COVERAGE 2026-10-17 ET · 6 competitions · 9 games · now 2026-10-17 09:40 ET · read-only (the DB mode=ro, the "
+    "closing-watch schedule and receipts, the slate files in exports/): no row written, no export written, no provider "
+    "call",
+    "NFL · 1 game · LIVE (closing family NFL; predict-nfl writes nfl_predict.MODEL_VERSION nfl_elo_v1) · rows: none · "
+    "without rows: 301 · closing: T-35 12:25 ET [301] → exports/closing_NFL_2026-10-17T1700Z.json",
+    "NFL SLATE · NO SLATE FILE — slate run due 10:30 ET",
+    "PL · 4 games (+1 void, not counted: 404 POSTPONED) · LIVE (closing family SOCCER; production soccer_elo_poisson "
+    "v22) · rows: v22 3 (computed 2026-10-10 07:00 ET to 2026-10-17 06:00 ET) · without rows: 403 · closing: started "
+    "405; T-35 09:25 ET [401, 402] done (run 20261017T132500Z-soccer-closing, 0); closing file "
+    "exports/closing_SOCCER_2026-10-17T1400Z.json; T-35 11:55 ET [403] → exports/closing_SOCCER_2026-10-17T1630Z.json",
+    "PL SLATE · NO SLATE FILE — slate run due 06:00 ET",
+    "EL2 · 1 game · SHADOW v3 (roadmap lane el2: confirming; registry el2-elo-v3: confirming) · rows: none (none "
+    "expected: SHADOW) · closing: none (no closing family covers EL2)",
+    "NCAA · 1 game · MARKET-ONLY (export._MARKET_ONLY_REASON; roadmap lane ncaa: declared, no shadow export scheduled "
+    "for NCAA (chains.py)) · rows: none (none expected: MARKET-ONLY) · closing: none (no closing family covers NCAA)",
+    "NHL · 1 game · MARKET-ONLY · shadow v7 (export._MARKET_ONLY_REASON; roadmap lane nhl: to declare; chain nhl-daily "
+    "runs export-nhl-predictions (nhl_elo_v7_xg_margin_no_na)) · rows: none (none expected: MARKET-ONLY) · closing: "
+    "none (no closing family covers NHL)",
+    "EL1 · 1 game · UNKNOWN (no closing family covers EL1; no roadmap lane names EL1; in none of the code's market-only "
+    "sets) · rows: none · without rows: 704 · closing: none (no closing family covers EL1)",
+    "GAPS:",
+    "NFL: 1 GAME, 0 PREDICTION ROWS — nfl-predict has not run",
+    "NFL: 1 GAME, ROWS 0, NO SLATE FILE",
+    "PL: 4 GAMES, 3 PREDICTION ROWS, NONE FOR 403",
+    "PL: 4 GAMES, ROWS 3, NO SLATE FILE",
+    "MODEL STATUS UNKNOWN: EL1 — no gap is judged for it (its line gives the reason)",
+]
+PIN_GAPS = PIN_TEXT[PIN_TEXT.index("GAPS:") + 1:]
+PIN_LINES = [x for x in PIN_TEXT[1:PIN_TEXT.index("GAPS:")] if " SLATE · " not in x]     # the competitions' own lines
+ISO_Z = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z")
+
+
+@pytest.fixture
+def pin(env, monkeypatch):
+    monkeypatch.setattr(cl, "clock", lambda: PIN_NOW)
+    make_db(env, PIN_GAMES, PIN_PREDS)
+    receipt(family="SOCCER", run_id=PIN_RUN, trigger="watch", start="2026-10-17T14:00:00Z", exit=0,
+            covers=[{"match_id": 401, "start": "2026-10-17T14:00:00Z"},
+                    {"match_id": 402, "start": "2026-10-17T14:00:00Z"}],
+            closing_file={"file": "exports/closing_SOCCER_2026-10-17T1400Z.json"})
+    return env
+
+
+def test_without_json_the_text_output_is_unchanged_byte_for_byte(pin):
+    """The ruling adds a file; the console stays as main prints it (pinned from main's own run, above)."""
+    rc, out = run("--date", DAY)
+    assert (rc, out) == (0, PIN_TEXT)
+
+
+def _datetimes(v, path="$"):
+    """Every string in the document that reads as a timestamp, with its path (the *_et fields are the line's words in
+    ET, written as the console writes them, not datetimes)."""
+    if isinstance(v, dict):
+        return [x for k, w in v.items() if not str(k).endswith("_et") for x in _datetimes(w, f"{path}.{k}")]
+    if isinstance(v, list):
+        return [x for i, w in enumerate(v) for x in _datetimes(w, f"{path}[{i}]")]
+    return [(path, v)] if isinstance(v, str) and re.match(r"[0-9]{4}-[0-9]{2}-[0-9]{2}[T ][0-9]{2}:", v) else []
+
+
+def test_json_writes_the_kind_the_coverage_dict_and_iso_z_datetimes(pin, tmp_path):
+    out = tmp_path / "out" / "coverage.json"
+    rc, lines = run("--date", DAY, "--json", "--out", str(out))
+    assert rc == 0                                                  # exit 0 whatever the gaps (three here)
+    doc = json.loads(out.read_text(encoding="utf-8"))
+    assert doc["kind"] == "coverage_v1"
+    cov = cm.coverage(datetime(2026, 10, 17).date(), PIN_NOW)
+    assert (doc["date"], doc["now"], doc["now_et"]) == (DAY, "2026-10-17T13:40:00Z", "2026-10-17 09:40 ET")
+    assert doc["gaps"] == cov["gaps"] == PIN_GAPS
+    assert [x["code"] for x in doc["competitions"]] == [x["code"] for x in cov["competitions"]]
+    # the dict coverage() returns, every key and value, with each datetime as ISO-8601 Z (the additions beside it)
+    added = {"line", "games_text", "rows_text", "without_rows_text", "closing_text", "closing_tail"}
+    for xd, x in zip(doc["competitions"], cov["competitions"]):
+        assert set(xd) - added == set(x), x["code"]
+        bare = json.loads(json.dumps({k: xd[k] for k in x}))
+        for g in bare["groups"]:
+            assert set(g) >= {"run_lead", "run_at_et", "text"}
+            for k in ("run_lead", "run_at_et", "text"):
+                del g[k]
+        for m in bare["rows"]:
+            del m["computed_et"]
+        assert bare == cm._plain(x)
+    pl = next(x for x in doc["competitions"] if x["code"] == "PL")
+    assert pl["games"] == [405, 401, 402, 403] and pl["void"] == [[404, "POSTPONED"]] and pl["started"] == [405]
+    assert pl["rows"][0]["computed"] == {"401": "2026-10-17T10:00:00Z", "402": "2026-10-17T10:00:00Z",
+                                         "405": "2026-10-10T11:00:00Z"}
+    assert (pl["rows"][0]["earliest"], pl["rows"][0]["latest"]) == ("2026-10-10T11:00:00Z", "2026-10-17T10:00:00Z")
+    assert [(g["state"], g["start"], g["run_at"], g["match_ids"]) for g in pl["groups"]] == [
+        ("done", "2026-10-17T14:00:00Z", "2026-10-17T13:25:00Z", [401, 402]),
+        ("ahead", "2026-10-17T16:30:00Z", "2026-10-17T15:55:00Z", [403])]
+    stamps = _datetimes(doc)
+    assert stamps and all(ISO_Z.fullmatch(v) for _, v in stamps), [s for s in stamps if not ISO_Z.fullmatch(s[1])]
+    # the line's own words beside the data, so a reader computes nothing (the Cockpit's Today tab)
+    assert [x["line"] for x in doc["competitions"]] == PIN_LINES
+    assert (pl["games_text"], pl["rows_text"], pl["without_rows_text"]) == (
+        "4 games (+1 void, not counted: 404 POSTPONED)",
+        "rows: v22 3 (computed 2026-10-10 07:00 ET to 2026-10-17 06:00 ET)", "without rows: 403")
+    assert pl["closing_text"] == "closing: " + PIN_LINES[1].split(" · closing: ", 1)[1]
+    assert pl["rows"][0]["computed_et"] == "computed 2026-10-10 07:00 ET to 2026-10-17 06:00 ET"
+    assert [(g["run_lead"], g["run_at_et"], g["text"]) for g in pl["groups"]] == [
+        ("T-35", "09:25 ET", f"T-35 09:25 ET [401, 402] done (run {PIN_RUN}, 0); closing file "
+                             "exports/closing_SOCCER_2026-10-17T1400Z.json"),
+        ("T-35", "11:55 ET", "T-35 11:55 ET [403] → exports/closing_SOCCER_2026-10-17T1630Z.json")]
+    nhl = next(x for x in doc["competitions"] if x["code"] == "NHL")
+    assert (nhl["status_label"], nhl["without_rows_text"]) == ("MARKET-ONLY · shadow v7", None)
+    assert pl["closing_tail"] is None and nhl["closing_tail"] is None      # a group left to run; no closing family
+    # the console: the same lines, the header naming the one file written, then the file's line
+    assert lines[0] == PIN_TEXT[0].replace("no export written", f"one export written ({out}, --json)")
+    assert lines[1:-1] == PIN_TEXT[1:]
+    assert lines[-1] == (f"COVERAGE JSON: {out} written (kind coverage_v1: the map above as data, 6 competitions, 5 "
+                         f"gap lines, roadmap {len(LANES)} lanes)")
+
+
+def test_json_carries_the_closing_tail_none_left_to_run_when_every_group_is_done(pin, tmp_path):
+    """#589 review: the line's "none left to run" is appended outside any group's text (_closing_clause), so a reader
+    rebuilding the closing section from groups / started / finished lost it. The file carries it as data,
+    `closing_tail`, from the one function the line uses (_closing_tail): "none left to run", or null where the clause
+    says no such thing (a group left to run, no closing family, refused here, receipts not shown)."""
+    receipt(family="SOCCER", run_id="20261017T155500Z-soccer-closing", trigger="watch", start="2026-10-17T16:30:00Z",
+            exit=0, covers=[{"match_id": 403, "start": "2026-10-17T16:30:00Z"}],
+            closing_file={"file": "exports/closing_SOCCER_2026-10-17T1630Z.json"})
+    out = tmp_path / "c.json"
+    rc, lines = run("--date", DAY, "--json", "--out", str(out))
+    assert rc == 0
+    by = {x["code"]: x for x in json.loads(out.read_text())["competitions"]}
+    pl = by["PL"]
+    assert [g["state"] for g in pl["groups"]] == ["done", "done"]
+    assert pl["closing_tail"] == "none left to run"
+    assert pl["closing_text"].endswith("; none left to run") and not any("none left to run" in g["text"]
+                                                                           for g in pl["groups"])
+    assert pl["line"] == next(ln for ln in lines if ln.startswith("PL · "))     # the printed line, unchanged
+    assert by["NFL"]["closing_tail"] is None                                    # its group is still ahead
+    assert (by["NHL"]["closing_tail"], by["NHL"]["closing_text"]) == (None, "closing: none (no closing family covers "
+                                                                         "NHL)")
+    # the text output's clause is the same function's: no group at all also ends "none left to run" (started games)
+    x = dict(pl, groups=[], started=[405], finished=[], refused=None, closing_unread=None, family="SOCCER")
+    assert cm._closing_tail(x) == "none left to run"
+    assert cm._closing_tail(dict(x, refused="SP_SKIP_FAMILIES")) is None
+    assert cm._closing_tail(dict(x, closing_unread="the watch's receipts cannot be read: OSError")) is None
+
+
+def test_json_roadmap_is_the_lanes_as_roadmap_reads_them_and_no_eta_where_undated(pin, tmp_path):
+    """`roadmap`: src/roadmap.lanes_data on the coverage day, the lanes in the file's order with their competitions,
+    state and ETA ("earliest live <date>", or "no ETA" where the lane carries none), and the print's own lines."""
+    lanes = json.loads(rm.ROADMAP_PATH.read_text())["lanes"]
+    lanes[0]["earliest_live"] = "2026-12-01"                       # one dated lane among undated ones
+    rm.ROADMAP_PATH.write_text(json.dumps({"lanes": lanes}))
+    out = tmp_path / "c.json"
+    assert run("--date", DAY, "--json", "--out", str(out))[0] == 0
+    road = json.loads(out.read_text())["roadmap"]
+    assert road == rm.lanes_data(datetime(2026, 10, 17).date())
+    assert [(r["lane"], r["competitions"], r["state"], r["eta"]) for r in road] == [
+        (ln["lane"], ln.get("competitions"), ln["state"], "earliest live 2026-12-01" if i == 0 else "no ETA")
+        for i, ln in enumerate(lanes)]
+    assert road[0]["earliest_live"] == "2026-12-01" and road[1]["earliest_live"] is None
+    assert road[-1]["competitions"] is None                         # the prose lane names none: null, never guessed
+    assert road[0]["next"] == {"what": "a step", "owner": "architect", "due": "2026-11-01", "when": "in 15 days"}
+    from cli import cli
+    printed = CliRunner().invoke(cli, ["roadmap", "--today", DAY])
+    assert printed.exit_code == 0, printed.output                   # the scratch roadmap, the real taxonomy
+    for r in road:
+        assert r["line"] in printed.output.splitlines() and f"  {r['next_line']}" in printed.output.splitlines()
+
+
+def test_json_with_a_roadmap_that_cannot_be_read_gives_null_and_the_reason(pin, tmp_path):
+    """Law 4: no lane is guessed. The map is still written (its statuses say the shadow was not judged), exit 0."""
+    rm.ROADMAP_PATH.write_text("{not json")
+    out = tmp_path / "c.json"
+    rc, lines = run("--date", DAY, "--json", "--out", str(out))
+    assert rc == 0
+    doc = json.loads(out.read_text())
+    assert doc["roadmap"] is None
+    assert doc["roadmap_unread"].startswith(f"the roadmap cannot be read: the roadmap {rm.ROADMAP_PATH}: cannot be "
+                                            "read as JSON")
+    assert "shadow not judged" in next(x for x in doc["competitions"] if x["code"] == "NHL")["status_from"]
+    assert lines[-1].endswith(f"roadmap null ({doc['roadmap_unread']}))")
+
+
+def test_json_default_out_is_exports_coverage_of_the_coverage_day(env, monkeypatch, tmp_path):
+    """Default --out exports/coverage_<date>.json, relative to the working directory as every export is; the date is
+    the coverage day (--date, else today in US Eastern: 02:30Z on 10-18 is 10-17 ET). The mirror maps the name to
+    latest/coverage.json (tests/test_exports_mirror.py)."""
+    work = tmp_path / "work"
+    work.mkdir()
+    monkeypatch.chdir(work)
+    make_db(env, [(401, "PL", "2026-10-17 14:00", "SCHEDULED")])
+    assert run("--date", "2026-10-17", "--json")[0] == 0
+    monkeypatch.setattr(cl, "clock", lambda: utc("2026-10-18 02:30"))
+    assert run("--json")[0] == 0
+    assert sorted(p.name for p in (work / "exports").iterdir()) == ["coverage_2026-10-17.json"]
+    assert json.loads((work / "exports" / "coverage_2026-10-17.json").read_text())["now"] == "2026-10-18T02:30:00Z"
+    assert cm.default_out(datetime(2026, 10, 19).date()) == "exports/coverage_2026-10-19.json"
+    assert not (work / "data").exists()
+
+
+def test_json_refusals_write_no_file(env, monkeypatch, tmp_path):
+    """--out without --json, an --out under data/, a DB that cannot be read: exit 2, and no file is written."""
+    work = tmp_path / "work"
+    work.mkdir()
+    monkeypatch.chdir(work)
+    assert run("--date", DAY, "--out", "x.json") == (2, [
+        "COVERAGE REFUSED: --out needs --json (the text output writes no file)"])
+    assert run("--date", DAY, "--json", "--out", "y.json")[0] == 2          # no DB yet: refused, nothing created
+    assert not env.exists() and list(work.iterdir()) == []
+    make_db(env, [(401, "PL", "2026-10-17 14:00", "SCHEDULED")])
+    rc, out = run("--date", DAY, "--json", "--out", "data/coverage.json")
+    assert rc == 2 and out[0].startswith("COVERAGE REFUSED: --out data/coverage.json is under ")
+    assert "(law 5: nothing is created under data/)" in out[0]
+    assert not (work / "data").exists()
+    assert cm._out_refusal(c.REPO / "data" / "x.json") is not None                # the checkout's data/ too
+
+
+def test_json_an_out_at_the_top_of_exports_must_be_named_as_kind_coverage(env, monkeypatch, tmp_path):
+    """#592's rule is a KIND rule (addendum 128 item 3): the compare lists kind coverage as machine state and never
+    compares it. A coverage_v1 document written at the top of exports/ under another kind's name (exports/today.json:
+    kind 'today') would be pushed, compared on its clock-dependent fields and read DIVERGENT (Codex review on #595), so
+    it is refused, exit 2, nothing written. The kind's own names pass, and so does any name outside exports/'s top."""
+    work = tmp_path / "work"
+    work.mkdir()
+    monkeypatch.chdir(work)
+    make_db(env, [(401, "PL", "2026-10-17 14:00", "SCHEDULED")])
+    rc, out = run("--date", DAY, "--json", "--out", "exports/today.json")
+    assert rc == 2 and out[0].startswith("COVERAGE REFUSED: --out exports/today.json is a top-level exports/ file "
+                                         "the mirror pushes as kind 'today', not 'coverage'")
+    assert not (work / "exports").exists()
+    assert cm._out_refusal(c.REPO / "exports" / "fixtures_PL_2026-10-17.json") is not None    # the checkout's too
+    for ok in ("exports/coverage_2026-10-17.json", "exports/coverage.json", "exports/sub/today.json", "today.json"):
+        assert cm._out_refusal(Path(ok)) is None, ok
+    assert run("--date", DAY, "--json", "--out", "exports/coverage.json")[0] == 0
+
+
+def test_json_a_file_that_cannot_be_written_exits_2_and_leaves_no_partial(env, monkeypatch, tmp_path):
+    make_db(env, [(401, "PL", "2026-10-17 14:00", "SCHEDULED")])
+    (tmp_path / "taken").write_text("a file where the folder would be")
+    rc, out = run("--date", DAY, "--json", "--out", str(tmp_path / "taken" / "c.json"))
+    assert rc == 2 and out[0].startswith(f"COVERAGE REFUSED: --out {tmp_path / 'taken' / 'c.json'} cannot be written")
+    target = tmp_path / "ok" / "c.json"
+    import json as _json                                            # the writer's own json.dump
+    boom = {"n": 0}
+
+    def failing_dump(*a, **k):
+        boom["n"] += 1
+        raise OSError("disk full")
+    monkeypatch.setattr(_json, "dump", failing_dump)
+    rc, out = run("--date", DAY, "--json", "--out", str(target))
+    assert (rc, boom["n"]) == (2, 1) and "disk full" in out[0]
+    assert list((tmp_path / "ok").iterdir()) == []                  # no half-written file, no temporary left
+
+
+@pytest.mark.parametrize("wal", [False, True], ids=["rollback-journal", "wal"])
+def test_json_opens_no_write_transaction_and_makes_no_provider_call(env, monkeypatch, wal, tmp_path):
+    """The no-write test above, with --json: the DB opened mode=ro, SELECTs only, its bytes unchanged, no network, no
+    ORM session; the only new file is the --out file."""
+    make_db(env, [(401, "PL", "2026-10-17 14:00", "SCHEDULED"), (501, "NHL", "2026-10-17 23:00", "SCHEDULED")],
+            [(401, "v22", "2026-10-17 10:00")], wal=wal)
+    outdir = tmp_path / "exports-here"
+    outdir.mkdir()
+    before = hashlib.sha256(env.read_bytes()).hexdigest()
+    listing = sorted(p.name for p in env.parent.iterdir())
+    real, opened, statements = sqlite3.connect, [], []
+
+    def watched(target, *a, **k):
+        con = real(target, *a, **k)
+        opened.append((str(target), k.get("uri")))
+        con.set_trace_callback(statements.append)
+        return con
+
+    def no_net(*a, **k):
+        raise AssertionError("coverage made a network call")
+
+    def no_session(*a, **k):
+        raise AssertionError("coverage opened an ORM session (a write path)")
+
+    monkeypatch.setattr(sqlite3, "connect", watched)
+    monkeypatch.setattr(socket, "create_connection", no_net)
+    monkeypatch.setattr(socket.socket, "connect", no_net)
+    import cli
+    import src.db.database as dbm
+    monkeypatch.setattr(cli, "session_scope", no_session)
+    monkeypatch.setattr(dbm, "session_scope", no_session)
+    rc, out = run("--date", DAY, "--json", "--out", str(outdir / "coverage_2026-10-17.json"))
+    assert rc == 0 and out[-1].startswith("COVERAGE JSON: ")
+    assert opened and all(t.endswith("?mode=ro") and u is True for t, u in opened), opened
+    assert statements and all(s.lstrip().upper().startswith("SELECT") for s in statements), statements
+    assert hashlib.sha256(env.read_bytes()).hexdigest() == before
+    new = {p.name for p in env.parent.iterdir()} - set(listing)
+    assert new <= ({env.name + "-wal", env.name + "-shm"} if wal else set()), new
+    sidecar = env.parent / (env.name + "-wal")
+    assert not sidecar.exists() or sidecar.stat().st_size == 0
+    assert sorted(p.name for p in outdir.iterdir()) == ["coverage_2026-10-17.json"]
+
+
+def test_json_carries_a_status_coverage_adds_later_generically(pin, tmp_path, monkeypatch):
+    """_plain is generic: a field or status coverage() gains later (the POT branch: status POT, label "POT (training
+    data only)") rides into the file as it is, never dropped or translated."""
+    real = cm.coverage
+
+    def with_pot(*a, **k):
+        cov = real(*a, **k)
+        cov["competitions"][0].update(status="POT", status_label="POT (training data only)", pot={"from": {"x"}})
+        return cov
+    monkeypatch.setattr(cm, "coverage", with_pot)
+    out = tmp_path / "c.json"
+    assert run("--date", DAY, "--json", "--out", str(out))[0] == 0
+    x = json.loads(out.read_text())["competitions"][0]
+    assert (x["status"], x["status_label"], x["pot"]) == ("POT", "POT (training data only)", {"from": ["x"]})

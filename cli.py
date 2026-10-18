@@ -9195,7 +9195,12 @@ def roadmap_cmd(today_s):
 @cli.command("coverage")
 @click.option("--date", "date_s", default=None, metavar="YYYY-MM-DD",
               help="The day to cover, by each game's US Eastern date. Default: today in US Eastern.")
-def coverage_cmd(date_s):
+@click.option("--json", "as_json", is_flag=True, default=False,
+              help="Also write the map as a coverage_v1 document (addendum 125 item 2(a)): coverage() with every "
+                   "datetime ISO-8601 Z, plus the roadmap's lanes as `roadmap` reads them.")
+@click.option("--out", "out_path", default=None, metavar="PATH",
+              help="With --json: the file to write. Default: exports/coverage_<date>.json (the coverage day).")
+def coverage_cmd(date_s, as_json, out_path):
     """THE DAY'S COVERAGE (ARCHITECT 2026-10-17 09:30 ET, addendum 107 item C7; amended by addendum 111 items 1-2): the
     first step of every morning block. One line per competition with games that day (by the US Eastern date, as the
     closing watch dates a first pitch): the games; the status in the ruled order, LIVE (a closing family and the model
@@ -9212,12 +9217,17 @@ def coverage_cmd(date_s):
     12 GAMES, ROWS 12, NO SLATE FILE". Read-only: the DB opened mode=ro,
     exports/ read, no row or export written, no provider call. Exit 0 whatever the gaps (it never stops a chain); a
     --date that is not real or a DB that cannot be read exits 2.
+    --json [--out PATH] (ARCHITECT 2026-10-18, addendum 125 item 2(a), #589) also writes the map as data, kind
+    coverage_v1 (default exports/coverage_<date>.json; the Cockpit's Today tab reads it): coverage() with every datetime
+    ISO-8601 Z, the line's own words beside it, and `roadmap`, the lanes as `roadmap` reads them ("no ETA" where a lane
+    has no earliest_live; null and `roadmap_unread` when the roadmap cannot be read). The only file it writes; never
+    under data/. Without --json the output is unchanged.
     (= python deploy/hosting/coverage_map.py)"""
     import sys as _sys
     from pathlib import Path as _P
     _sys.path.insert(0, str(_P(__file__).resolve().parent / "deploy" / "hosting"))
     import coverage_map as _cm
-    rc = _cm.run(date_s, echo=click.echo)
+    rc = _cm.run(date_s, echo=click.echo, as_json=as_json, out=out_path)
     if rc:
         raise SystemExit(rc)
 

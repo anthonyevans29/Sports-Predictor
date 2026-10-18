@@ -155,7 +155,10 @@ Which machine runs item 5's readout (ARCHITECT 2026-10-18, addendum 128 item 1(a
     only one writer pushed is pending only when it is TODAY (the declared
     clock: the morning push may not have run yet); an older one is OVERDUE
     and the streak reads 0, as it does when the newest common date is more
-    than a day old.
+    than a day old. A machine-state file (kind coverage, the day's
+    `coverage --json` file) is listed by presence on its own line under the
+    date and never counted toward or against (a) (ARCHITECT 2026-10-18,
+    addendum 128 item 3).
   - **(b)** the host's tag, days on it, `carries #246`, and desk calls per
     chain (chain receipts' exports, read from `host/<date>/` in the mirror).
     A full day = a UTC day wholly on the tag with at least one chain that
@@ -404,6 +407,11 @@ the paste):
 | WAIVER W1 | see below | ruled waiver |
 | WAIVER W2 | see below | RATIFIED for MLB only (2026-10-01) |
 | MLB laptop duty (addendum 45) | after the flip, an MLB prediction file on the laptop only | ARCHITECT 2026-10-12, addendum 45 item 4: the laptop is the record for MLB predictions to the season's last game |
+
+**Machine state is not a class (#592 RULED, ARCHITECT 2026-10-18, addendum 128 item 3):** "the compare treats kind `coverage` as "machine state": listed by presence on each side (one side, both sides, neither), never compared for content, never DIVERGENT, never counted toward or against criterion (a). Printed as its own line ("machine-state files: coverage laptop yes / host no")."
+The day's `coverage_<date>.json` (and the latest copy `coverage.json`) is never a `·` or `✗` line, so
+nothing is claimed for it in the paste; the comparator prints `machine-state files: coverage laptop
+yes|no / host yes|no` on its own line, before the `coverage:` tally.
 
 **Not allowed:** model probabilities that differ on a matched row with no
 new input on the host side (results, injuries, lineups). The host now

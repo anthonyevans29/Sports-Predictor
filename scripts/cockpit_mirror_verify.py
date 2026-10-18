@@ -10,6 +10,9 @@ host/latest with a desk file, a legacy (no-desk) predictions file and a non-JSON
   sent as a Bearer header; the default repo is Sports-Predictor-exports;
 - the desk file loads through the same path as picked files; the file without
   desk blocks is refused (F1c); non-JSON entries are not fetched;
+- a load of host/latest/coverage.json alone (the Today tab's coverage_v1 file,
+  #589) leaves the slate and its note says what THAT load did: the coverage
+  file, and no refusal carried over from the load before it;
 - a 401 reports "token rejected" and loads nothing.
 
     python3 scripts/cockpit_mirror_verify.py
@@ -44,6 +47,10 @@ NFL = {"sport": "nfl", "rehearsal": False, "predictions": [
      "market": {"bookmaker_count": 7, "fair_prob": {"HOME": 0.58, "AWAY": 0.42}},
      "market_divergence_pp": 6.0, "quarantine": False,
      "input_quality": {"book_odds": 7, "injuries": {"home": {"qb_listed": []}, "away": {"qb_listed": []}}}}]}
+
+
+COV = {"kind": "coverage_v1", "date": NOW.strftime("%Y-%m-%d"), "now": NOW.strftime("%Y-%m-%dT%H:%M:%SZ"),
+       "now_et": "", "competitions": [], "gaps": [], "roadmap": [], "roadmap_unread": None}
 
 
 def main():
@@ -91,6 +98,15 @@ def main():
         check("desk file loaded through the normal path; the non-desk file refused (F1c)",
               "Loaded 2 file(s)" in note and "1 without desk blocks refused" in note
               and page.evaluate("rows.length") == 1, note)
+        # a coverage-only load (#589 review): the note is this load's, never the previous load's refusals
+        files.clear()
+        files["coverage.json"] = json.dumps(COV)
+        page.click("#mirrorBtn")
+        page.wait_for_function("document.getElementById('mirrorNote').textContent.startsWith('Loaded 1 file')")
+        note = page.inner_text("#mirrorNote")
+        check("a coverage-only load: the note names the coverage file and no refusal (the load before it refused one); "
+              "the slate stays", "refused" not in note and "coverage" in note and page.evaluate("rows.length") == 1
+              and page.evaluate("document.getElementById('todaySummary').textContent").startswith("COVERAGE"), note)
         status["code"] = 401
         page.click("#mirrorBtn")
         page.wait_for_function("document.getElementById('mirrorNote').textContent.includes('401')")

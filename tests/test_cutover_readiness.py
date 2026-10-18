@@ -560,3 +560,71 @@ def test_the_runbook_t9_why_is_in_the_past_beside_the_run_once_bullet():
                           "example (comment lines only)")
     assert "block_1018_t9_host.txt's one run on 10-18 wrote its 26 lines (addendum 128 item 4)" in why
     assert "  - Run once: the block is NEVER re-run (ARCHITECT 2026-10-18, addendum 128 item 4" in t9
+
+
+# ------------------------------------------------- (a) and the machine-state kind (#592, addendum 128 item 3)
+# ARCHITECT 2026-10-18, addendum 128 item 3: "the compare treats kind `coverage` as "machine state": listed by presence
+# on each side (one side, both sides, neither), never compared for content, never DIVERGENT, never counted toward or
+# against criterion (a). Printed as its own line ("machine-state files: coverage laptop yes / host no")."
+
+def coverage_file(mirror, side, d, now, state, name=None):
+    p = mirror / side / d
+    p.mkdir(parents=True, exist_ok=True)
+    (p / (name or f"coverage_{d}.json")).write_text(json.dumps(
+        {"kind": "coverage_v1", "date": d, "now": now, "now_et": now,
+         "competitions": [{"code": "NFL", "started": [] if state == "ahead" else [1, 2],
+                           "groups": [{"state": state}]}], "gaps": []}))
+
+
+def test_compare_day_lists_coverage_by_presence_and_never_counts_it(tmp_path):
+    day(tmp_path, "2026-10-05")
+    base = cr.compare_day(tmp_path / "laptop" / "2026-10-05", tmp_path / "host" / "2026-10-05")
+    assert base["verdict"] == "CLEAN" and base["compared"] == 1
+    assert base["machine_state"] == "machine-state files: coverage laptop no / host no"
+    coverage_file(tmp_path, "laptop", "2026-10-05", "2026-10-05T12:00:00Z", "ahead")      # one side
+    one = cr.compare_day(tmp_path / "laptop" / "2026-10-05", tmp_path / "host" / "2026-10-05")
+    assert one["machine_state"] == "machine-state files: coverage laptop yes / host no"
+    assert {k: one[k] for k in ("verdict", "compared", "classes", "unnamed")} == \
+        {k: base[k] for k in ("verdict", "compared", "classes", "unnamed")}
+    coverage_file(tmp_path, "host", "2026-10-05", "2026-10-05T18:40:00Z", "due")          # both, different content
+    both = cr.compare_day(tmp_path / "laptop" / "2026-10-05", tmp_path / "host" / "2026-10-05")
+    assert both["machine_state"] == "machine-state files: coverage laptop yes / host yes"
+    assert {k: both[k] for k in ("verdict", "compared", "classes", "unnamed")} == \
+        {k: base[k] for k in ("verdict", "compared", "classes", "unnamed")}
+
+
+def test_criterion_a_is_unchanged_by_coverage_files(tmp_path, capsys):
+    """The five-day streak reads the same with the coverage files as without: one side on some days, both sides
+    with different content on others, the latest copy's name on one. A day whose only JSON is a coverage file is
+    no coverage, never a counted compare (never counted toward (a) either)."""
+    days = ("2026-10-04", "2026-10-05", "2026-10-06", "2026-10-07", "2026-10-08")
+    plain, with_cov = tmp_path / "plain", tmp_path / "cov"
+    for d in days:
+        day(plain, d)
+        day(with_cov, d)
+    coverage_file(with_cov, "laptop", "2026-10-04", "2026-10-04T12:00:00Z", "ahead")
+    coverage_file(with_cov, "host", "2026-10-05", "2026-10-05T12:00:00Z", "due")
+    for d in ("2026-10-06", "2026-10-07"):
+        coverage_file(with_cov, "laptop", d, f"{d}T12:00:00Z", "ahead")
+        coverage_file(with_cov, "host", d, f"{d}T18:40:00Z", "due")
+    coverage_file(with_cov, "laptop", "2026-10-08", "2026-10-08T12:00:00Z", "ahead", name="coverage.json")
+    keep = ("date", "verdict", "compared", "classes", "unnamed", "counts", "how")
+    a, b = cr.streak(plain, {}, cr.date(2026, 10, 8)), cr.streak(with_cov, {}, cr.date(2026, 10, 8))
+    assert a["run"] == b["run"] == 5
+    assert [{k: r.get(k) for k in keep} for r in a["days"]] == [{k: r.get(k) for k in keep} for r in b["days"]]
+    assert [r["machine_state"].split(": ", 1)[1] for r in b["days"]] == [
+        "coverage laptop yes / host no", "coverage laptop yes / host yes", "coverage laptop yes / host yes",
+        "coverage laptop no / host yes", "coverage laptop yes / host no"]
+    rp = receipts(tmp_path, [{"ts": "2026-10-05T10:00:00Z", "release": "v1.2.2", "kind": "deploy"}])
+    cr.main(["--mirror", str(with_cov), "--receipts", str(rp), "--no-parity", "--today", "2026-10-08"])
+    out = capsys.readouterr().out
+    assert "    streak: 5/5 consecutive" in out and "UNNAMED" not in out
+    assert "        machine-state files: coverage laptop yes / host yes" in out
+    # only coverage files on a day: nothing compared, so NO-COVERAGE breaks the streak as any empty day does
+    only = tmp_path / "only"
+    coverage_file(only, "laptop", "2026-10-08", "2026-10-08T12:00:00Z", "ahead")
+    coverage_file(only, "host", "2026-10-08", "2026-10-08T18:40:00Z", "due")
+    r = cr.compare_day(only / "laptop" / "2026-10-08", only / "host" / "2026-10-08")
+    assert r["verdict"] == "NO-COVERAGE" and r["compared"] == 0 and not r["unnamed"]
+    s = cr.streak(only, {}, cr.date(2026, 10, 8))
+    assert s["run"] == 0 and not s["days"][0]["counts"]

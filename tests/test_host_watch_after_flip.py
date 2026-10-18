@@ -511,14 +511,14 @@ def _reaching(scripts: dict[str, _Record], reach: set[str]) -> set[str]:
     return {s for s, r in scripts.items() if s not in reach and (r.imports & reach or _named_in_code(r, reach, words))}
 
 
-def test_c_one_switch_the_cutover_pr_turns_off_and_nothing_else_lifts_the_fence():
+def test_c_one_switch_the_cutover_pr_turns_off_and_the_pinned_routes_stay_shut():
     """(c) What #580's identity test (test_desk_host_fence.py::test_the_switch_the_cutover_pr_turns_off_is_the_one_
-    the_fence_reads) does not pin: there is ONE switch for the cutover PR to turn off, and nothing else lifts the
-    fence. Of desk_policy's policy switches (NAME = {"on": bool}) exactly one is the fence's, HOST_FENCE_RULE, and it
+    the_fence_reads) does not pin: there is ONE switch for the cutover PR to turn off, and the routes below that
+    could lift the fence beside it are pinned shut (and only those: see the end). Of desk_policy's policy switches (NAME = {"on": bool}) exactly one is the fence's, HOST_FENCE_RULE, and it
     is the only one the fence's read path (host_fenced, role_reading, machine_role, _env_file) names. Each of the four
     reads exactly the desk_policy module-level names it reads today (READ_PATH; _globals_read: every name it loads
     that nothing in it binds and that is a desk_policy global, or no builtin; an imported module, os or io, counts),
-    so no other setting (a constant, a helper that reads the environment, a bool) joins the path; its string constants
+    so a new name read on the path (a constant, a helper that reads the environment, a bool) fails it; its strings
     hold no WRITER and no upper-case key but SP_HOST_ENV. The fence is checked in one place, first in _desk_call. In
     the tracked production Python files HOST_FENCE_RULE is assigned nowhere but its own definition and desk_policy's
     two context managers that turn it off and put it back (base_v11 for the frozen golden, host_fence_rule_off for
@@ -543,7 +543,10 @@ def test_c_one_switch_the_cutover_pr_turns_off_and_nothing_else_lifts_the_fence(
     switch, nor either context manager, nor a fence input. So in production the switch is off only by the source
     line, the cutover PR's line: outside desk_policy, no file on an export, chain, closing or deploy path references
     the switch, either context manager or a fence input, or imports or runs a script that reaches a context manager.
-    The desk_meta key the runbook's after-flip check reads (host_fence_rule) is that switch."""
+    The desk_meta key the runbook's after-flip check reads (host_fence_rule) is that switch. Not pinned here: another
+    file rebinding role_reading's own inputs (_env_file, HOST_ENV_DEFAULT, DOTENV, ROLE_ENV, ROLES), and edits inside
+    desk_policy beyond the references above (a second module-level rebinding of a fence input, or _desk_call setting
+    the fence's answer aside); those are read in review."""
     src = Path(dp.__file__).read_text()
     tree = ast.parse(src)
     switches = _switches(tree)
@@ -557,7 +560,7 @@ def test_c_one_switch_the_cutover_pr_turns_off_and_nothing_else_lifts_the_fence(
                and isinstance(n.value, str)]
     assert not [s for s in strings if "WRITER" in s.upper()]
     assert {s for s in strings if re.fullmatch(r"[A-Z][A-Z0-9_]+", s)} == {"SP_HOST_ENV"}      # host.env's path
-    assert {f: _globals_read(fns[f], vars(dp)) for f in path} == READ_PATH      # exactly: no hidden setting joins it
+    assert {f: _globals_read(fns[f], vars(dp)) for f in path} == READ_PATH      # exactly: a new name read fails it
     assert dp.ROLE_ENV == "SP_EXPORTS_MIRROR_ROLE"
     calls =[f for f, fn in fns.items() if any(isinstance(n, ast.Call) and getattr(n.func, "id", None) == "host_fenced"
                                                 for n in ast.walk(fn))]

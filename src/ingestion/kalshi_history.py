@@ -30,7 +30,12 @@ How it reads, so the receipt can be checked against it:
   events, as one place() call reads it (two markets claiming one side of one game are both refused), and across the
   stored rows of the series: a market the run would write (a new row, or a stored held row whose hold cleared)
   placed on a side a stored row holds under another ticker is refused under the same reason, and the stored row is
-  not moved (place_held refuses the same: two settled markets are never stored on one side of one game). Four
+  not moved (place_held refuses the same: two settled markets are never stored on one side of one game). That read
+  of the stored rows covers a market whose ticker carries a clock (the identity hold's series; KXMLBGAME of the
+  five), and, on any series, a side a row placed by ruling holds (its notes carry RULED_NOTE, "placed by ruling: ").
+  Otherwise a date-only series (NFL, NHL, NCAA, the soccer series) is placed as main places it, run by run: a
+  day-off twin stored by one run (NCAA's Friday-dated 26OCT16 events) and its own-date event placed on the same
+  sides by a later run both stand; that case is the NCAA date-keyed tiebreak's (addendum 130 item 3(b)). Four
   refusals of the live sync are
   conditions of an open market and cannot hold for a settled one, so they are not read: in play (every settled game
   has started: `now` is set before any game), no price and the spread guard (a settled market's quote is its
@@ -170,6 +175,8 @@ HOLD_MARK = "  ⏸ "                                       # a held event's cons
 REPLACE_COLS = ("match_id", "side", "source", "fetched_at", "last_ts", "last_bid", "last_ask", "last_mid", "candles_6h",
                 "candles_two_sided", "gaps", "raw_first_candle", "notes")
 REFUSED_NOTE = "refused by the matcher: "
+# what place_held appends to a row it places (addendum 130 item 2(c)); the claims rule reads it on a date-only series
+RULED_NOTE = "placed by ruling: "
 
 
 _FRACTION = re.compile(r"\.(\d+)")
@@ -700,14 +707,21 @@ def run_history(series: str, *, since: date | None = None, until: date | None = 
             # the claims rule read across the stored rows too: a market this run would write (a new row, or a stored
             # held row whose hold cleared) placed on a side a stored row of the series holds under another ticker is
             # refused, under the matcher's reason, and the stored row is not moved (place_held refuses the same: two
-            # settled markets are never stored on one side of one game)
+            # settled markets are never stored on one side of one game). Its scope: a market whose ticker carries a
+            # clock (the identity hold's series), or a side a row placed by ruling holds (RULED_NOTE). A date-only
+            # series' date placements are read as main reads them: a day-off twin across runs is the NCAA tiebreak's
+            # (addendum 130 item 3(b))
             taken: dict[tuple, set] = {}
-            for t, _, _, mid, _, side in mine:
+            ruled = set()
+            for t, _, _, mid, notes, side in mine:
                 if mid is not None:
                     taken.setdefault((mid, side), set()).add(t)
+                    if RULED_NOTE in (notes or ""):
+                        ruled.add(t)
+            clock = {m.get(KEYS["ticker"]) for _, m in in_range if km.ticker_stamp(m)[1] is not None}
             for t, (mid, _, side) in list(placed.items()):
                 others = taken.get((mid, side), set()) - {t}
-                if others and (t not in stored or t in held_stored):
+                if others and (t not in stored or t in held_stored) and (t in clock or others & ruled):
                     del placed[t]
                     why[t] = km.TWO_CLAIMS
                     run.claimed_by[t] = (f"{mid} {side}", sorted(others))
@@ -972,7 +986,7 @@ def place_held(ticker: str, match_id: int, ruling: str, *, dry_run: bool = False
     if not dry_run and not ready:
         raise ValueError(f"REFUSED: {TABLE} is not migrated (no migration marker {MIGRATION_MARKER}): nothing is "
                          "written; --dry-run reads without it")
-    if len("; ".join(x for x in (before["notes"], f"placed by ruling: {ruling}") if x)) + 200 > 2000:
+    if len("; ".join(x for x in (before["notes"], f"{RULED_NOTE}{ruling}") if x)) + 200 > 2000:
         raise ValueError("REFUSED: the notes would pass the column's 2000 characters: shorten the ruling; nothing is "
                          "written")
     echo(f"kalshi-history place-held {ticker} → match {match_id} · "
@@ -1005,7 +1019,7 @@ def place_held(ticker: str, match_id: int, ruling: str, *, dry_run: bool = False
             echo(f"  candles: {path} from {kickoff - timedelta(hours=WINDOW_H):%Y-%m-%d %H:%M}Z to "
                  f"{before['close_time']:%Y-%m-%d %H:%M}Z: {len(candles)} candle(s) · 429 retries: "
                  f"{calls.retries_429}")
-    after["notes"] = "; ".join(x for x in (before["notes"], f"placed by ruling: {ruling}", cnote) if x)
+    after["notes"] = "; ".join(x for x in (before["notes"], f"{RULED_NOTE}{ruling}", cnote) if x)
     if len(after["notes"]) > 2000:
         raise ValueError(f"REFUSED: the notes would run to {len(after['notes'])} characters, past the column's 2000: "
                          "shorten the ruling; nothing is written")

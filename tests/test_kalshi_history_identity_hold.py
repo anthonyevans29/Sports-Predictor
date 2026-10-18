@@ -415,6 +415,103 @@ def test_the_write_reads_the_side_again(alcs):
     assert {k: v for k, v in _claims().items() if len(v) > 1} == {}
 
 
+def test_a_new_clock_row_is_not_placed_on_a_side_a_date_placed_row_holds(alcs):
+    """The claims rule's scope, its clock half: on a clock series a stored row refuses a new market on its side however
+    it was placed. Here 26OCT172000TBCLE is stored on 50548 as a date placement would store it (no ruling in its
+    notes); 26OCT181708TBCLE, first listed in run 2 and placed by date on 50548, is stored refused."""
+    from src.db.database import session_scope
+    from src.db.schema import KalshiSettledMarket
+    seed({G2: (TB, CLE, K2, "finished")})
+    go(Fake(settled=SETTLED15 + SETTLED16))
+    with session_scope() as s:
+        for sfx, side in (("TB", "AWAY"), ("CLE", "HOME")):
+            s.add(KalshiSettledMarket(ticker=f"{E17}-{sfx}", event_ticker=E17, series=S, side=side, match_id=G5,
+                                      yes_sub_title={"TB": "Tampa Bay", "CLE": "Cleveland"}[sfx], source="live",
+                                      fetched_at=datetime(2026, 10, 19, 6, 0), notes=None))
+    before = rows()
+    run, out = go(Fake(settled=SETTLED15 + SETTLED16 + SETTLED17 + SETTLED18), now=datetime(2026, 10, 20, 12, 0))
+    got = rows()
+    assert {k: v for k, v in _claims().items() if len(v) > 1} == {}
+    for sfx in ("TB", "CLE"):
+        assert (got[f"{E18}-{sfx}"]["match_id"], got[f"{E18}-{sfx}"]["side"]) == (None, None)
+        assert got[f"{E18}-{sfx}"]["notes"].startswith(f"refused by the matcher: {km.TWO_CLAIMS}")
+        assert got[f"{E17}-{sfx}"] == before[f"{E17}-{sfx}"]
+    assert run.refused == {km.TWO_CLAIMS: 2}
+    assert f"  ✗ match {G5} AWAY: stored on {E17}-TB (nothing already placed is moved); {E18}-TB claims it too: " \
+           "refused" in out
+
+
+# ---- the claims rule on a date-only series: NCAA's Friday-dated twins (addendum 130 item 3(b)) ----------------------
+
+N16, N17 = "KXNCAAFGAME-26OCT16FLATEX", "KXNCAAFGAME-26OCT17FLATEX"     # the day-off twin; the own-date event
+NG = 2001                                                                   # Florida at Texas, Saturday 10-17
+NK = datetime(2026, 10, 17, 19, 30)
+
+
+def ncaa(ev):
+    """One NCAA event's two legs as the 52 refused rows' pairs settled: Saturday evening, the Saturday game's result."""
+    return [market(ev, "FLA", "Florida", "no", "2026-10-18T03:00:00Z", "2026-10-18T03:10:00Z"),
+            market(ev, "TEX", "Texas", "yes", "2026-10-18T03:00:00Z", "2026-10-18T03:10:00Z")]
+
+
+def ncaa_go(fake, **kw):
+    out = []
+    run = kh.run_history("KXNCAAFGAME", echo=out.append, adapter=fake, now=kw.pop("now", NOW), **kw)
+    return run, out
+
+
+def test_a_date_only_series_places_the_own_date_event_across_runs_as_main_does(db):
+    """The claims rule's scope (a verifier's P2 on this branch, reproduced): it reads a stored row's side only on a
+    clock series or where a ruled row holds the side, so a date-only series stays as main has it. Run 1 (--until
+    2026-10-16) stores the day-off twin 26OCT16FLATEX, placed by date on the Saturday game; run 2 (--since 2026-10-17)
+    lists the own-date event 26OCT17FLATEX, which addendum 130 item 3(b) says keeps its sides. It is placed there, as
+    main places it; nothing is refused and no claims line is printed. That leaves the twins on one side of one game
+    across the runs, main's state: the day-off twin is the NCAA tiebreak PR's (130 item 3(b)), not this one's."""
+    from datetime import date
+    seed({NG: ("Florida Gators", "Texas Longhorns", NK, "finished")}, code="NCAA", sport="NFL")
+    fake = Fake(settled=ncaa(N16) + ncaa(N17))
+    ncaa_go(fake, until=date(2026, 10, 16))
+    assert {t: (r["match_id"], r["side"]) for t, r in rows().items()} == {f"{N16}-FLA": (NG, "AWAY"),
+                                                                           f"{N16}-TEX": (NG, "HOME")}
+    run, out = ncaa_go(Fake(settled=ncaa(N16) + ncaa(N17)), since=date(2026, 10, 17))
+    got = rows()
+    for sfx, side in (("FLA", "AWAY"), ("TEX", "HOME")):
+        assert (got[f"{N17}-{sfx}"]["match_id"], got[f"{N17}-{sfx}"]["side"]) == (NG, side)
+        assert "refused" not in (got[f"{N17}-{sfx}"]["notes"] or "")
+    assert run.refused == {} and run.claimed_by == {} and len(run.rows) == 2
+    assert not any(" stored on " in ln or "identity hold" in ln for ln in out)
+    assert {k: sorted(v) for k, v in _claims().items()} == {(NG, "AWAY"): [f"{N16}-FLA", f"{N17}-FLA"],
+                                                            (NG, "HOME"): [f"{N16}-TEX", f"{N17}-TEX"]}
+
+
+def test_a_date_only_side_a_ruled_row_holds_still_refuses(db):
+    """The claims rule's scope, its ruled half: on a date-only series a side that a row placed by ruling holds
+    (place-held, addendum 130 item 2(c); the NCAA re-match comes by it, 130 item 3(b)) is never taken by the ingest
+    beside it. Run 1 stores 26OCT16FLATEX refused (the game not yet stored); a ruling places it on the game; run 2
+    lists 26OCT17FLATEX, placed by date on the same sides: it is stored refused under the matcher's claims rule, the
+    ruled rows are not moved, and no side of the game carries two rows."""
+    from datetime import date
+    seed({}, code="NCAA", sport="NFL")                                      # the competition, no game yet
+    ncaa_go(Fake(settled=ncaa(N16) + ncaa(N17)), until=date(2026, 10, 16))
+    assert all(r["match_id"] is None and r["notes"].startswith("refused by the matcher: ") for r in rows().values())
+    seed({NG: ("Florida Gators", "Texas Longhorns", NK, "finished")}, code="NCAA", sport="NFL")
+    for sfx in ("FLA", "TEX"):
+        res, _ = place(f"{N16}-{sfx}", NG)
+        assert res["written"]
+    before = rows()
+    run, out = ncaa_go(Fake(settled=ncaa(N16) + ncaa(N17)), since=date(2026, 10, 17))
+    got = rows()
+    assert {k: v for k, v in _claims().items() if len(v) > 1} == {}
+    for sfx, side in (("FLA", "AWAY"), ("TEX", "HOME")):
+        assert (got[f"{N17}-{sfx}"]["match_id"], got[f"{N17}-{sfx}"]["side"]) == (None, None)
+        assert got[f"{N17}-{sfx}"]["notes"].startswith(f"refused by the matcher: {km.TWO_CLAIMS}")
+        assert got[f"{N16}-{sfx}"] == before[f"{N16}-{sfx}"]
+        assert (got[f"{N16}-{sfx}"]["match_id"], got[f"{N16}-{sfx}"]["side"]) == (NG, side)
+    assert run.refused == {km.TWO_CLAIMS: 2}
+    assert f"  ✗ match {NG} AWAY: stored on {N16}-FLA (nothing already placed is moved); {N17}-FLA claims it too: " \
+           "refused" in out
+
+
 def test_a_row_refused_for_another_reason_is_not_read_again(alcs):
     """Only a held row is the exception: 26OCT161800TBCLE, refused "no game of the pair on the ticker's date", stays
     so although 50548 is now dated 10-16 and the matcher would place it there."""

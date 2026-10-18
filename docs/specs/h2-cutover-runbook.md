@@ -15,6 +15,50 @@ Labels follow hosting-h1.md: **TERMINAL (laptop)**, **TERMINAL (host)**.
 
 ---
 
+## The 2026-10 schedule
+
+ARCHITECT 2026-10-17 10:55 ET, addendum 113, "THE CUTOVER PLAN: the laptop's producer duties move to the host;
+target Monday 2026-10-26, fallback 10-30". These are the plan's dates as it states them. They date the steps on this
+page and change none of them: each step is done as sections 0 to 3 write it. The frozen criteria are unchanged
+(ARCHITECT 2026-10-02, verbatim): "cutover when (a) 5 consecutive morning compares show only explained classes, (b)
+the host has run a full day on a tag carrying #246 with desk calls emitted, (c) parity harness green on that tag."
+
+| When (addendum 113) | What | On this page |
+|---|---|---|
+| Sun 10-18 → Thu 10-22 | the five morning compares: criterion (a) | section 0, Readiness readout (a) |
+| Sun 10-18 | the dry run on the laptop (any mode, no host); receipt to the architect | section 0, Dry run |
+| Mon 10-19 evening | the P8 rehearsal on the host (Tailscale): one `closing-run --family NFL` by hand | section 0, The host closing-watch rehearsal |
+| by Wed 10-21 | v1.5.0, the release ritual as docs/RELEASES.md | section 0, Host on a release tag |
+| Thu 10-22 | the host runs on v1.5.0: criterion (b)'s full day with desk calls; the parity harness on that tag: criterion (c) | section 0, Readiness readout (b), (c) |
+| Thu 10-22 evening | `cli.py cutover-readiness` on the laptop; its GO / NOT-YET lines pasted to the architect | section 0, Readiness readout |
+| Fri 10-23 morning | the architect's ruling: cutover Monday 10-26, or named reasons and the 10-30 fallback | |
+| Mon 10-26, 09:00–11:00 ET (fallback 10-30) | the cutover: section 1, step by step, each step's receipt pasted before the next | section 1 |
+
+The plan's dated items (addendum 113, "WHAT STILL HAS TO HAPPEN, DATED"), verbatim:
+
+> 1. Sun 10-18 → Thu 10-22: the five morning compares. Each morning's Tailscale block already runs compare_exports;
+> a day counts when every divergent line is identical / capture timing / code-version skew, or operator-named with
+> evidence in the --named file. Sunday's is the first with both machines on tagged-or-newer code paths. I read each
+> one in the morning page; a day that needs a BACKLOG entry is a day lost from the streak.
+> 2. Sun 10-18 (laptop, any mode, no host): the dry run — `sp_cutover.py run --dry-run --scratch <DIR>` on a scratch
+> pack (runbook section 0). Receipt to me. Block from me tomorrow.
+> 3. Mon 10-19 evening (host, Tailscale): the P8 rehearsal — one host `closing-run --family NFL --start <the MNF start
+> the laptop's watch paged>`; its page is a second page, the operator acts on the laptop's; I read the receipt and
+> duration. Block from me Monday.
+> 4. By Wed 10-21: v1.5.0. The tag carries this week's merges — the host fence (#410), the void-re-dated rule (#574),
+> the coverage command (#576), the migration guard (#524) and whatever else is in by Tuesday night. Release ritual as
+> docs/RELEASES.md (--cleanup=verbatim). The host runs Thursday 10-22 on it: that is criterion (b)'s full day with desk
+> calls; the parity harness runs on that tag Thursday: criterion (c).
+> 5. Thu 10-22 evening: `cli.py cutover-readiness` on the laptop; its GO / NOT-YET lines pasted to me. Fri 10-23
+> morning: my ruling — cutover Monday 10-26, or named reasons and the 10-30 fallback.
+> 6. Mon 10-26 morning, 09:00–11:00 ET (no soccer that day; NFL only in the evening; the host's 13:05Z window tick is
+> the first one to run on the new database): the runbook's section 1, step by step, labelled TERMINAL (laptop) /
+> TERMINAL (host), each step's receipt pasted before the next. Backup first on both machines. The laptop's watch
+> uninstalled at step 1; the host's watch is already a timer. After `receipt`: the laptop is the console — blocks,
+> Cockpit, MLB closings only (its DB is written by the MLB chains and nothing else, per the ruling).
+
+---
+
 ## 0. Before the ruling day
 
 - **Dry run (any day, no host needed).** TERMINAL (laptop), from the repo

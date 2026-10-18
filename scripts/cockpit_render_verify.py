@@ -9,7 +9,11 @@ counts pinned) is annotated by the Python Desk (export --desk) plus its
 desk_parlays file and loaded into a non-UTC browser. Checks, per scenario:
   - every Desk structure the Cockpit RENDERS (calls with their exec facts,
     value shadows, venue, parlay tickets) equals the DELETED JS Desk's last
-    known outputs (tests/golden/desk_js_v1_1.json.gz) — rendered == computed;
+    known outputs (tests/golden/desk_js_v1_1.json.gz) — rendered == computed
+    (one amendment by ruling, #181, addendum 112 item 9 + addendum 117
+    item 2: the golden's eight pre-gate NHL PASS rows read units 0 / cls
+    "pass" where the JS wrote 0.5 / "caution", without the big-edge caution
+    reason and tag; nothing else moved, the capture metadata untouched);
   - the policy functions no longer exist in the page;
 then: a tampered desk.call is shown as the file says; a legacy (desk-less)
 file is REFUSED with "export with --desk" and nothing of it renders; no

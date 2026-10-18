@@ -11,6 +11,12 @@ pinned), the 600-slate parlay fuzz and the toFixed sample — row for row,
 every field, floats exact. No browser. tests/test_desk_golden.py runs the
 same check in CI.
 
+One amendment by ruling (#181, ARCHITECT 2026-10-17, addendum 112 item 9 and
+addendum 117 item 2): the golden's eight pre-gate NHL PASS rows with edge >=
+15pp read units 0 / cls "pass" (the JS wrote 0.5 / "caution") and carry
+neither the big-edge caution reason nor its tag; nothing else moved, and the
+capture metadata is untouched.
+
     python3 scripts/desk_parity_verify.py
 """
 import os

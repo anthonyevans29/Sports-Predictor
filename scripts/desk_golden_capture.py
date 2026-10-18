@@ -7,6 +7,9 @@ the seeded battery (scripts/desk_battery.py) with the clock and counts pinned
 in a non-UTC browser, plus the 600-slate parlay fuzz and the toFixed sample,
 and writes tests/golden/desk_js_v1_1.json. After F1c the JS no longer
 exists; this script stays only as the record of how the golden was made.
+The golden carries one amendment by ruling since (#181, addendum 112 item 9 and
+addendum 117 item 2: eight pre-gate PASS rows read units 0 / cls "pass", without
+the big-edge caution reason and tag); a re-capture would undo it.
 
     git show <pre-F1c commit>:tools/cockpit.html > /tmp/cockpit_pre_f1c.html
     python3 scripts/desk_golden_capture.py --cockpit /tmp/cockpit_pre_f1c.html

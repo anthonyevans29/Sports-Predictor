@@ -1250,10 +1250,17 @@ class KalshiSettledMarket(Base):
     `kalshi-history` (src/ingestion/kalshi_history.py), which writes this table and nothing else: no odds snapshot,
     no close used by grading, no prediction row. Nothing reads it as a close until a later ruling says so.
 
-    One row per market ticker (unique), inserted once and never updated or deleted by the ingest. A market the shared
+    One row per market ticker (unique), inserted once and never deleted by the ingest. A market the shared
     matcher refuses is kept with match_id and side null and the refusal reason in notes, never guessed. Prices are
     the exchange's own (dollars, 0..1), read by each candle shape's own keys; a null price is never filled.
     Created by migrate_kalshi_settled_markets.py.
+
+    THE IDENTITY HOLD (ARCHITECT 2026-10-18, addendum 127 item 3(c)): on a clock series a market can be HELD, kept
+    with match_id null and "identity hold: earlier event <ticker> of the pair unsettled/out of step" in notes. "The one
+    exception to 'inserted once'": a later run places a held row in place when its hold clears (match_id, side,
+    source, fetched_at, the quote; notes appended). The ruled re-place, `kalshi-history place-held` (addendum 130 item
+    2(c)), writes the same columns on one row with match_id null and a hold or refusal note. Nothing writes a row that
+    has a match_id: nothing already placed is moved.
     """
 
     __tablename__ = "kalshi_settled_markets"

@@ -119,7 +119,24 @@ def env(tmp_path, monkeypatch):
     monkeypatch.setattr(rm, "ROADMAP_PATH", road)
     monkeypatch.setattr(reg, "LEDGER", str(ledger))
     monkeypatch.setattr(cl, "clock", lambda: NOW)
+    repo = tmp_path / "repo"                                        # the SLATE line reads <repo>/exports (#590)
+    (repo / "exports").mkdir(parents=True)
+    monkeypatch.setattr(c, "REPO", repo)
     return db
+
+
+def slate_doc(name, ids, exported_at, calls=None, desk=True, repo=None):
+    """A family slate file in the scratch exports/ (the shape export-predictions --desk writes: exported_at,
+    predictions with a desk block each, desk_meta): `calls` {match_id: call}, PASS by default."""
+    calls = calls or {}
+    doc = {"exported_at": exported_at, "count": len(ids),
+           "predictions": [{"match_id": i, **({"desk": {"call": calls.get(i, "PASS")}} if desk else {})}
+                           for i in ids]}
+    if desk:
+        doc["desk_meta"] = {"policy_version": "v1.1"}
+    p = (repo or c.REPO) / "exports" / name
+    p.write_text(json.dumps(doc))
+    return p
 
 
 def run(*args):
@@ -143,6 +160,7 @@ def gaps(out):
 def test_a_day_with_rows(env):
     make_db(env, [(50548, "MLB", "2026-10-18 00:00", "SCHEDULED"), (50549, "MLB", "2026-10-17 20:05", "SCHEDULED")],
             [(50548, "mlb_v2", "2026-10-17 11:02"), (50549, "mlb_v2", "2026-10-17 11:30")])
+    slate_doc("mlb_MLB_2026-10-17.json", [50548, 50549], "2026-10-17T11:35:00Z", {50549: "PLAY"})   # #590
     rc, out = run("--date", DAY)
     assert rc == 0
     assert out[0].startswith(f"COVERAGE {DAY} ET · 1 competition · 2 games · now 2026-10-17 08:10 ET")
@@ -151,6 +169,8 @@ def test_a_day_with_rows(env):
     assert "· LIVE (closing family MLB; production mlb_pythag_negbin v2) ·" in mlb     # the predict path's model
     assert "· rows: mlb_v2 2 (computed 2026-10-17 07:02 ET to 2026-10-17 07:30 ET) ·" in mlb    # computed_at in ET
     assert "· without rows: none ·" in mlb
+    assert out[out.index(mlb) + 1] == ("MLB SLATE · exports/mlb_MLB_2026-10-17.json · exported 2026-10-17 07:35 ET · "
+                                       "PLAY 1 · PASS 1")
     assert out[-1] == "GAPS: none"
 
 
@@ -165,7 +185,7 @@ def test_an_old_row_is_never_hidden_behind_a_fresh_one(env):
     assert rc == 0
     assert ("· rows: v22 4 (computed 2026-10-10 07:00 ET to 2026-10-17 07:00 ET) · without rows: none ·"
             in line_of(out, "PL"))
-    assert out[-1] == "GAPS: none"
+    assert gaps(out) == ["PL: 4 GAMES, ROWS 4, NO SLATE FILE"]          # rows are not the deliverable (#590)
     m = cm.coverage(datetime(2026, 10, 17).date(), NOW)["competitions"][0]["rows"][0]
     assert (m["earliest"], m["latest"]) == (utc("2026-10-10 11:00"), utc("2026-10-17 11:00"))
     assert m["computed"] == {401: utc("2026-10-17 11:00"), 402: utc("2026-10-17 11:00"), 403: utc("2026-10-17 11:00"),
@@ -186,8 +206,11 @@ def test_a_day_with_a_gap(env):
     assert "· rows: none · without rows: 401, 402, 403, 404 ·" in pl
     assert gaps(out) == [
         "MLB: 2 GAMES, 1 PREDICTION ROW, NONE FOR 50549",                   # partial: the games named, no hint
+        "MLB: 2 GAMES, ROWS 1, NO SLATE FILE",                              # addendum 126 item 2(b) (#590)
         "NFL: 1 GAME, 0 PREDICTION ROWS — nfl-predict has not run",
+        "NFL: 1 GAME, ROWS 0, NO SLATE FILE",
         "PL: 4 GAMES, 0 PREDICTION ROWS — soccer-prematch has not run",     # the spec's example, word for word
+        "PL: 4 GAMES, ROWS 0, NO SLATE FILE",
     ]
 
 
@@ -222,7 +245,7 @@ def test_live_is_a_closing_family_and_the_model_its_predict_step_resolves(env, m
     assert "· LIVE (closing family SOCCER; production soccer_elo_poisson v22) ·" in line_of(out, "PL")
     assert ("· LIVE (closing family NFL; predict-nfl writes nfl_predict.MODEL_VERSION nfl_elo_v1) ·"
             in line_of(out, "NFL"))
-    assert out[-1] == "GAPS: none"
+    assert gaps(out) == ["NFL: 1 GAME, ROWS 1, NO SLATE FILE", "PL: 1 GAME, ROWS 1, NO SLATE FILE"]     # #590
 
 
 @pytest.mark.parametrize("models, why", [
@@ -726,8 +749,10 @@ def test_a_closing_file_not_written_is_said_on_the_done_line(env, monkeypatch, f
 
 def test_a_family_this_machine_refuses_shows_the_refusal_and_claims_no_gap(env, monkeypatch):
     """The host (host.env: SP_SKIP_FAMILIES=MLB) runs no MLB chain and its watch refuses MLB's start times
-    (closing._family_refusal): MLB's line names the refusal in place of its groups, and no gap sends the operator to a
-    chain this machine never runs. A family not refused keeps its gap."""
+    (closing._family_refusal): MLB's line names the refusal in place of its groups, and no prediction-row gap sends the
+    operator to a chain this machine never runs. A family not refused keeps its gap. The SLATE gap is claimed for MLB
+    all the same, its SLATE line naming the block to run (addendum 126 items 1 and 2(b): "If it's not on the HOST, you
+    need to alert me to run these things manually")."""
     monkeypatch.setenv("SP_SKIP_FAMILIES", "MLB")
     make_db(env, [(50548, "MLB", "2026-10-18 00:00", "SCHEDULED"), (50549, "MLB", "2026-10-17 20:05", "SCHEDULED"),
                   (401, "PL", "2026-10-17 14:00", "SCHEDULED")])
@@ -738,7 +763,10 @@ def test_a_family_this_machine_refuses_shows_the_refusal_and_claims_no_gap(env, 
             "50548 ·" in mlb)
     assert mlb.endswith("· closing: refused here (laptop only: SP_SKIP_FAMILIES names MLB here (the host cannot reach "
                         "the MLB feed))")
-    assert gaps(out) == ["PL: 1 GAME, 0 PREDICTION ROWS — soccer-prematch has not run"]
+    assert out[out.index(mlb) + 1] == "MLB SLATE · NO SLATE FILE — run block block_1017_mlb_slate.txt"
+    assert gaps(out) == ["MLB: 2 GAMES, ROWS 0, NO SLATE FILE",
+                         "PL: 1 GAME, 0 PREDICTION ROWS — soccer-prematch has not run",
+                         "PL: 1 GAME, ROWS 0, NO SLATE FILE"]
     assert cm.coverage(datetime(2026, 10, 17).date(), NOW)["competitions"][0]["groups"] == []
 
 
@@ -750,6 +778,96 @@ def test_receipts_that_cannot_be_read_show_no_groups(env, monkeypatch, tmp_path)
     rc, out = run("--date", DAY)
     assert rc == 0
     assert line_of(out, "PL").endswith("· closing: not shown (the watch's receipts cannot be read: IsADirectoryError)")
+
+
+# ------------------------------------------------------------------------------- the SLATE line (#590) --
+# ARCHITECT 2026-10-18, addendum 126 item 2(b): "`coverage` gains a SLATE line per LIVE competition: the newest exports
+# file of that family's slate kind that covers EVERY game of the day by match id, with its exported_at and its
+# PLAY/PASS counts; else "NO SLATE FILE — slate run due HH:MM ET" (or, where the watch is not the machine, "— run
+# block"). Its gap line in capitals: "NFL: 12 GAMES, ROWS 12, NO SLATE FILE". `coverage --json` carries it".
+
+NFL_DAY = [(601, "NFL", "2026-10-18 13:30", "SCHEDULED"), (602, "NFL", "2026-10-18 17:00", "SCHEDULED")]
+NFL_ROWS = [(601, "nfl_elo_v1", "2026-10-17 23:00"), (602, "nfl_elo_v1", "2026-10-17 23:00")]
+
+
+def test_the_slate_line_both_ways_and_the_no_slate_gap(env):
+    """No file: "NO SLATE FILE — slate run due 07:00 ET" (09:30 ET less 150 minutes) and the gap in capitals; a file
+    covering one of the two games is no slate file; the file covering both is named with its exported_at and counts."""
+    make_db(env, NFL_DAY, NFL_ROWS)
+    rc, out = run("--date", "2026-10-18")
+    assert rc == 0
+    nfl = line_of(out, "NFL")
+    assert out[out.index(nfl) + 1] == "NFL SLATE · NO SLATE FILE — slate run due 07:00 ET"
+    assert gaps(out) == ["NFL: 2 GAMES, ROWS 2, NO SLATE FILE"]                     # the ruling's form
+    slate_doc("nfl_predictions_2026-10-17.json", [601], "2026-10-17T23:05:00Z")     # one of the two: not counted
+    assert gaps(run("--date", "2026-10-18")[1]) == ["NFL: 2 GAMES, ROWS 2, NO SLATE FILE"]
+    slate_doc("nfl_predictions_2026-10-18.json", [601, 602, 603], "2026-10-18T11:02:00Z", {601: "PLAY"})
+    rc, out = run("--date", "2026-10-18")
+    assert out[out.index(line_of(out, "NFL")) + 1] == (
+        "NFL SLATE · exports/nfl_predictions_2026-10-18.json · exported 2026-10-18 07:02 ET · PLAY 1 · PASS 2")
+    assert out[-1] == "GAPS: none"
+    s = cm.coverage(datetime(2026, 10, 18).date(), NOW)["competitions"][0]["slate"]
+    assert (s["file"], s["exported_at"], s["rows"], s["calls"], s["due"], s["block"], s["refused"], s["skipped"]) == (
+        "exports/nfl_predictions_2026-10-18.json", utc("2026-10-18 11:02"), 3, {"PLAY": 1, "PASS": 2},
+        utc("2026-10-18 11:00"), "block_1018_nfl_slate.txt", None, [])
+
+
+def test_the_newest_covering_file_wins_and_other_calls_are_named(env):
+    """PL's slate kind (soccer_PL_*.json): of the files covering both games the newest by exported_at; a newer file
+    covering one game is not it. A LADDER is named on its own, never folded into PLAY or PASS. Due floor: a 07:30 ET
+    kickoff is due at 06:00 ET."""
+    make_db(env, [(401, "PL", "2026-10-17 11:30", "SCHEDULED"), (402, "PL", "2026-10-17 16:30", "SCHEDULED")],
+            [(401, "v22", "2026-10-17 06:00"), (402, "v22", "2026-10-17 06:00")])
+    assert "PL SLATE · NO SLATE FILE — slate run due 06:00 ET" in run("--date", DAY)[1]
+    slate_doc("soccer_PL_2026-10-16_to_2026-10-19.json", [401, 402], "2026-10-16T09:00:00Z", {401: "PLAY"})
+    slate_doc("soccer_PL_2026-10-17_to_2026-10-20.json", [401, 402, 403], "2026-10-17T09:00:00Z",
+              {401: "PLAY", 402: "LADDER"})
+    slate_doc("soccer_PL_2026-10-17.json", [401], "2026-10-17T10:00:00Z")
+    out = run("--date", DAY)[1]
+    assert out[out.index(line_of(out, "PL")) + 1] == (
+        "PL SLATE · exports/soccer_PL_2026-10-17_to_2026-10-20.json · exported 2026-10-17 05:00 ET · PLAY 1 · PASS 1 · "
+        "LADDER 1")
+    assert out[-1] == "GAPS: none"
+
+
+def test_a_file_that_cannot_be_parsed_or_has_no_desk_calls_is_skipped_with_its_reason(env):
+    """Law 4: never counted, the reason on the line. A file named for another week cannot hold the day and is not
+    read."""
+    make_db(env, NFL_DAY, NFL_ROWS)
+    (c.REPO / "exports" / "nfl_predictions_2026-10-18.json").write_text("{not json")
+    slate_doc("nfl_predictions_2026-10-17.json", [601, 602], "2026-10-17T23:05:00Z", desk=False)
+    (c.REPO / "exports" / "nfl_predictions_2026-09-01.json").write_text("{not json either")    # another week
+    out = run("--date", "2026-10-18")[1]
+    assert out[out.index(line_of(out, "NFL")) + 1] == (
+        "NFL SLATE · NO SLATE FILE — slate run due 07:00 ET · skipped: nfl_predictions_2026-10-17.json (no desk calls); "
+        "nfl_predictions_2026-10-18.json (cannot be parsed: JSONDecodeError)")
+    assert gaps(out) == ["NFL: 2 GAMES, ROWS 2, NO SLATE FILE"]
+
+
+def test_where_this_machine_refuses_the_family_the_line_names_the_block(env, monkeypatch):
+    monkeypatch.setenv("SP_SKIP_FAMILIES", "NFL")
+    make_db(env, NFL_DAY, NFL_ROWS)
+    out = run("--date", "2026-10-18")[1]
+    assert out[out.index(line_of(out, "NFL")) + 1] == "NFL SLATE · NO SLATE FILE — run block block_1018_nfl_slate.txt"
+    assert gaps(out) == ["NFL: 2 GAMES, ROWS 2, NO SLATE FILE"]
+
+
+def test_only_a_live_competition_has_a_slate_line_and_exports_are_never_written(env):
+    make_db(env, NFL_DAY + [(501, "NHL", "2026-10-18 23:00", "SCHEDULED")], NFL_ROWS)
+    f = slate_doc("nfl_predictions_2026-10-18.json", [601, 602], "2026-10-18T11:02:00Z")
+    before = (sorted(p.name for p in f.parent.iterdir()), f.read_bytes(), f.stat().st_mtime)
+    out = run("--date", "2026-10-18")[1]
+    assert not any(x.startswith("NHL SLATE") for x in out) and sum(" SLATE · " in x for x in out) == 1
+    assert cm.coverage(datetime(2026, 10, 18).date(), NOW)["competitions"][1]["slate"] is None    # NHL
+    assert (sorted(p.name for p in f.parent.iterdir()), f.read_bytes(), f.stat().st_mtime) == before
+
+
+def test_a_slate_file_the_watch_wrote_is_read_as_the_slate_kind():
+    """The slate stage's file name for each family matches the family's slate kind (export_glob), the glob the SLATE
+    line reads."""
+    import fnmatch
+    for fam, d in cl.FAMILIES.items():
+        assert fnmatch.fnmatch(cl.slate_file(fam, datetime(2026, 10, 18).date()), d["export_glob"])
 
 
 # ------------------------------------------------------------------------------------------------ the day --
@@ -874,7 +992,7 @@ def test_the_hint_is_derived_from_chains_py():
 def test_no_writer_found_no_hint(env, monkeypatch):
     monkeypatch.setattr(cm, "writer_chains", lambda fam: [])
     make_db(env, [(401, "PL", "2026-10-17 14:00", "SCHEDULED")])
-    assert gaps(run("--date", DAY)[1]) == ["PL: 1 GAME, 0 PREDICTION ROWS"]
+    assert gaps(run("--date", DAY)[1]) == ["PL: 1 GAME, 0 PREDICTION ROWS", "PL: 1 GAME, ROWS 0, NO SLATE FILE"]
 
 
 def test_the_predict_commands_are_the_writers_of_prediction_rows():

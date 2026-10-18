@@ -344,6 +344,15 @@ Which machine runs item 5's readout (ARCHITECT 2026-10-18, addendum 128 item 1(a
      on the host) nor the card topic took goes once through the operator topic, and its receipt names the channel
      that took it (addendum 47 item 7(a)).
      A reboot ends the tick that is running; the next tick retries (#408 item 4).
+   - **The slate stage (ARCHITECT 2026-10-18, addendum 126 item 2(a), #590).** The same tick, after its closings, runs
+     each of its families' slate once a US Eastern day: due at the day's first kickoff minus 150 minutes, or at the first
+     tick after 06:00 ET when that is later. It runs the closing chain's steps for the day's games with the export
+     `--desk` sent to the family's slate file in `exports/` (`nfl_predictions_<date>.json`,
+     `soccer_PL_<start>_to_<end>.json`), pushes the mirror and pages `SLATE <FAMILY> <date>: <N> rows · PLAY <p> · PASS
+     <q> · exports/<file>`; a failure pages `SLATE <FAMILY> FAILED: <step command> — RUN BY HAND:
+     block_<MMDD>_<family>_slate.txt · attempt k/3`, three attempts a day. A family the machine refuses (MLB on the
+     host) writes no slate and pages nothing; `python cli.py coverage` names its block (`NO SLATE FILE — run block …`).
+     The host's fixed-time prematch timers are the cutover PR's to retire (item 2(d)); this step does not touch them.
    - **"was" restarts on the host.** The host's first page computes each game's last call from the host's
      receipts and the host's `exports/` only; it does not use what the laptop last paged. The first host page
      for a game the laptop paged before the flip can lack its `was`, or show one from the file the pack carried.

@@ -68,6 +68,15 @@ Receipts: kind "closing" (one line per run, success, failure, refusal or superse
 feed unreachable; the lock held into T-5; a due start time first seen inside T-5), once per start time and reason. The autopilot places nothing and
 never opens Kalshi's trading API. --dry-run touches nothing: no step, no backup, no receipt, no push, no page, no
 network.
+
+THE SLATE RUN (ARCHITECT 2026-10-18, addendum 126 item 2(a), #590; the section "slate" below): after its closings, each
+tick runs a SLATE stage per family for the tick's ET day: due at the day's first kickoff minus 150 minutes, or at the
+first tick after 06:00 ET when that is later; one run per family per day (a success, or three attempts), decided from
+its own receipts (kind "slate"; misses kind "slate_miss"), which no closing reader reads. It runs the closing chain's
+steps as resolve_steps resolves them for the day's games, its export sent to the family's slate file in exports/, then
+the mirror push, then one page: "SLATE <FAMILY> <YYYY-MM-DD>: <N> rows · PLAY <p> · PASS <q> · exports/<file>". A
+failure pages "SLATE <FAMILY> FAILED: <step command> — RUN BY HAND: block_<MMDD>_<family>_slate.txt · attempt k/3".
+The closings, their groups, steps and files are unchanged.
 """
 from __future__ import annotations
 
@@ -199,6 +208,25 @@ def schedule_window(now: datetime, hours: int = SCHEDULE_HOURS) -> tuple[datetim
 def schedule(fam: str, now: datetime, hours: int = SCHEDULE_HOURS) -> list[dict]:
     """The family's stored schedule around `now`, read-only (mode=ro). No network. Status is the stored enum name."""
     lo, hi = schedule_window(now, hours)
+    return _stored_games(fam, lo, hi)
+
+
+def day_bounds(day: date) -> tuple[datetime, datetime]:
+    """[lo, hi) in UTC: midnight to midnight in America/New_York (23 or 25 hours on a clock change)."""
+    nxt = day + timedelta(days=1)
+    return (datetime(day.year, day.month, day.day, tzinfo=NY).astimezone(timezone.utc),
+            datetime(nxt.year, nxt.month, nxt.day, tzinfo=NY).astimezone(timezone.utc))
+
+
+def day_games(fam: str, day: date) -> list[dict]:
+    """The family's stored games of one US Eastern day (ny_date, as A1 dates a first pitch), schedule()'s shape,
+    read-only. VOID statuses are no game."""
+    lo, hi = day_bounds(day)
+    return [g for g in _stored_games(fam, lo, hi) if ny_date(g["start"]) == day]
+
+
+def _stored_games(fam: str, lo: datetime, hi: datetime) -> list[dict]:
+    """The family's stored games starting in [lo, hi), read-only (mode=ro), VOID ones dropped."""
     fmt = "%Y-%m-%d %H:%M:%S"
     comps = FAMILIES[fam]["comps"]
     con = c.ro_connect(c.db_path())
@@ -1531,14 +1559,15 @@ def failure_text(fam: str, start: str | None, failed: str | None = None, refused
     return t
 
 
-def notify_failure(text: str, fam: str = "") -> dict:
+def notify_failure(text: str, fam: str = "", title: str | None = None) -> dict:
     """Best effort, both channels: the result is recorded in the receipt and changes nothing else.
     ARCHITECT 2026-10-12, addendum 47 item 7(a): "A failure, a miss or a refusal that neither the screen nor the card
     topic took goes once through the operator topic, as sp_notify's page does, and its receipt names the channel
     that took it. The watch's exit status does not change." On the host the screen posts nothing (not macOS), so an
     unset or malformed card topic, or a card page ntfy did not accept, would otherwise reach nobody. `channel`: the
-    channel(s) that took it ("card", "screen", "card+screen", "operator"), or None."""
-    title = f"{fam} closing".strip()
+    channel(s) that took it ("card", "screen", "card+screen", "operator"), or None. `title`: the slate stage's
+    notices pass "<FAMILY> slate"; every closing notice keeps "<FAMILY> closing"."""
+    title = title or f"{fam} closing".strip()
     text = f"{text}\n{machine_line()}"           # addendum 45: every closing page ends naming the machine
     try:
         res = notify(text, title=title)
@@ -2061,7 +2090,8 @@ def watch(dry_run: bool = False, now: datetime | None = None, families: tuple[st
     and notified; 1 what the process could not report itself (an unhandled error also ends it non-zero).
     `now` (tests) fixes the tick's time for every run; else each queued run reads clock() when it starts (Codex on
     #385: the time spent running earlier closings in the same tick counts toward the next run's T-5 / started
-    checks and its T-minus)."""
+    checks and its T-minus). Then the slate stage of every family (slate_watch, addendum 126 item 2(a)); its exit
+    joins the tick's by worse()."""
     fixed_now = now
     now = utc(now or clock())
     fams = tuple(f.upper() for f in (families or tuple(FAMILIES)))
@@ -2099,6 +2129,8 @@ def watch(dry_run: bool = False, now: datetime | None = None, families: tuple[st
                   + f"start closing-run --family {fam} --start {iso_z(s)}")
         if not todo:
             print("  would do nothing (exit 0, silent)")
+        for fam in fams:              # the slate stage (addendum 126 item 2(a)): its plan, nothing run
+            slate_watch(fam, now, dry_run=True)
         return 0
     rc = 0
     inside_why = "inside T-5 when the watch saw it: no attempt starts inside T-5"
@@ -2122,6 +2154,11 @@ def watch(dry_run: bool = False, now: datetime | None = None, families: tuple[st
                 continue
         r = run(family=fam, start=start, trigger="watch", now=clock() if fixed_now is None else utc(fixed_now))
         rc = worse(rc, r)
+    # THE SLATE RUN (ARCHITECT 2026-10-18, addendum 126 item 2(a)): after the tick's closings, which keep their T-35
+    # (a closing is the row that counts; the slate is the morning file). `now` is the tick's time, which judges a
+    # late run; each slate run reads the clock when it starts, as each closing does.
+    for fam in fams:
+        rc = worse(rc, slate_watch(fam, now, clock() if fixed_now is None else utc(fixed_now)))
     return rc
 
 
@@ -2133,6 +2170,415 @@ _EXIT_RANK = {0: 0, 2: 1, NOTIFIED: 2}
 
 def worse(a: int, b: int) -> int:
     return max((a, b), key=lambda x: _EXIT_RANK.get(x, 3))
+
+
+# -------------------------------------------------------------------------------------------------- slate --
+# THE SLATE RUN (ARCHITECT 2026-10-18, addendum 126 items 1-2; #590). Item 1, the operator's rule (verbatim): "We
+# need predictions generated ahead of the first game of every game day with a sync, no matter whether it's on the host
+# or laptop. If it's not on the HOST, you need to alert me to run these things manually." Item 2(a) (verbatim): "The
+# closing watch [...] gains a SLATE stage per closing family per ET game day: due at the first kickoff of the day minus
+# 150 minutes, or at the watch's first tick after 06:00 ET when that is later; one run per family per day; it runs the
+# family's prematch steps exactly as the closing run resolves them (sync-matches for the day's ids, odds,
+# injuries/pitchers/lineups as the family has them, Kalshi, predict, then the slate export WITH --desk to the family's
+# slate file in exports/ [...] never the closing's logs/ path), pushes the mirror, and PAGES, card and phone [...] A
+# failed step pages "SLATE NFL FAILED: <step> — RUN BY HAND: block …" the way a closing failure pages today, attempts 3
+# like the closing. The closing runs at T-35 are unchanged; the slate is the morning file, the closing is the row that
+# counts".
+#   - Decided from the receipts (kind "slate"), never from memory: one success, or three attempts, ends the day for the
+#     family. A refusal and a superseded run are neither (380.4, as for a closing).
+#   - The steps are the closing chain's own, resolved by resolve_steps for the day's games not started (a closing's
+#     covers stand in), its export step sent to the slate file (`--out exports/<slate file>`; SOCCER adds the window
+#     its prematch chain prices, `--start`/`--end`). The chain lock is the closing's (acquire_lock): a slate and a
+#     closing never run at once.
+#   - After the steps: the file written by this run, carrying the Desk's calls, with a row for every game of the day
+#     not started when the steps finished; then the mirror push; then one page. Any of them failing is a failed
+#     attempt, paged with the RUN BY HAND line; the file the export wrote stays where the export put it, as the
+#     prematch chain's does, and this run pushes nothing.
+#   - Misses (kind "slate_miss", once per family, day and reason, notified; not an attempt): the MLB feed unreachable
+#     (A6, as the watch checks it before a closing; the watch keeps trying), the chain lock held through the wait
+#     (the watch keeps trying), and a day whose every game had started before a slate ran (nothing left to slate).
+#   - The family refusal (SP_SKIP_FAMILIES, MLB on the host) is receipted once per family, day and reason and pages
+#     nothing (#590 (d)): that machine is not the slate's, and `coverage` names the block to run. The other refusals
+#     are receipted and notified once per family, day and reason (reading 7, as for a closing).
+SLATE_KIND = "slate"
+SLATE_MISS_KIND = "slate_miss"
+SLATE_LEAD_MIN = 150                 # item 2(a): due at the first kickoff of the day minus 150 minutes
+SLATE_NOT_BEFORE_ET = (6, 0)         # item 2(a): "or at the watch's first tick after 06:00 ET when that is later"
+WATCH_CADENCE_S = 60                 # the watch's tick (launchd INTERVAL_S=60; the host timer, every minute)
+SLATE_LOCK_WAIT_S = 5 * 60           # a slate waits this long for the chain lock, then misses (the watch keeps trying)
+SLATE_DIR = "exports"
+NO_DESK_CALL = "no desk call"        # a row the Desk gave no call (the export's rows with no probabilities)
+SLATE_SHOWN_CALLS = ("PLAY", "PASS")  # always on the page; any other call kind follows only when it occurs
+
+
+def slate_due(first: datetime, day: date) -> datetime:
+    """Item 2(a): the first kickoff of the day minus 150 minutes, or 06:00 ET when that is later."""
+    floor = datetime(day.year, day.month, day.day, *SLATE_NOT_BEFORE_ET, tzinfo=NY).astimezone(timezone.utc)
+    return max(utc(first) - timedelta(minutes=SLATE_LEAD_MIN), floor)
+
+
+def slate_block(fam: str, day: date) -> str:
+    """The operator's block for the day's slate by hand (addendum 126 item 1: block_1018_nfl_slate.txt)."""
+    return f"block_{day:%m%d}_{fam.lower()}_slate.txt"
+
+
+def soccer_window(day: date) -> tuple[str, str]:
+    """The window soccer-prematch's export prices (`--start {sat} --end {sat_plus3}`, sp_run.date_vars), for the round
+    holding `day`: a Saturday to Tuesday day is the round of the Saturday on or before it (the Friday and Saturday run's
+    own window, soccer_PL_2026-10-17_to_2026-10-20.json for 10-17 to 10-20); a Wednesday to Friday day takes the
+    midweek override's form, `--set sat=<day> --set sat_plus3=<day + 3>` (chains.py)."""
+    back = (day.weekday() - 5) % 7    # days since the Saturday on or before the day
+    if back <= 3:
+        v = sp_run.date_vars(day - timedelta(days=back))
+    else:
+        v = {"sat": day.isoformat(), "sat_plus3": (day + timedelta(days=3)).isoformat()}
+    return v["sat"], v["sat_plus3"]
+
+
+def slate_file(fam: str, day: date) -> str:
+    """The family's slate file in exports/, the name its prematch chain's export writes (the family's export_glob, so
+    last_calls and coverage read it as the slate kind): MLB mlb_MLB_<day>.json (export-predictions --date <day>), NFL
+    nfl_predictions_<day>.json, SOCCER soccer_PL_<start>_to_<end>.json (soccer_window)."""
+    stamp = "{}_to_{}".format(*soccer_window(day)) if fam == "SOCCER" else day.isoformat()
+    return FAMILIES[fam]["export_glob"].replace("*", stamp)
+
+
+def slate_steps(fam: str, day: date, covers: list[dict], run_start: datetime, run_id: str) -> list[list[str]]:
+    """Item 2(a): "the family's prematch steps exactly as the closing run resolves them": resolve_steps for the day's
+    games (`covers`), its export step (the chain's last: `--desk --out {export_out}`) sent to the slate file in
+    exports/ instead of logs/; SOCCER's adds the window its prematch chain prices."""
+    first = min(g["start"] for g in covers)
+    steps = [list(s) for s in resolve_steps(fam, first, covers, run_start, run_id)]
+    exp = steps[-1]
+    i = exp.index("--out")
+    exp[i + 1] = f"{SLATE_DIR}/{slate_file(fam, day)}"
+    if fam == "SOCCER":
+        s, e = soccer_window(day)
+        exp[i:i] = ["--start", s, "--end", e]
+    return steps
+
+
+def slate_calls(doc: dict) -> tuple[int, dict]:
+    """(rows, {call: count}) of an export: every row counted once, by its desk block's call (PLAY, PASS, and any other
+    kind the Desk gives, e.g. soccer's LADDER), a row with no desk block under NO_DESK_CALL. PLAY and PASS are always
+    present."""
+    rows = doc.get("predictions") or []
+    calls = {k: 0 for k in SLATE_SHOWN_CALLS}
+    for r in rows:
+        k = str((r.get("desk") or {}).get("call") or NO_DESK_CALL)
+        calls[k] = calls.get(k, 0) + 1
+    return len(rows), calls
+
+
+def calls_text(calls: dict) -> str:
+    """"PLAY p · PASS q", then each other kind with a count, by name: a LADDER is never folded into PLAY or PASS."""
+    return " · ".join([f"{k} {calls.get(k, 0)}" for k in SLATE_SHOWN_CALLS]
+                      + [f"{k} {n}" for k, n in sorted(calls.items()) if k not in SLATE_SHOWN_CALLS and n])
+
+
+def slate_page_text(fam: str, day: date, rows: int, calls: dict, file: str, late: dict | None) -> tuple[str, str]:
+    """Item 2(a)'s page, the declared text: "SLATE <FAMILY> <YYYY-MM-DD>: <N> rows · PLAY <p> · PASS <q> ·
+    exports/<file>"; a late run (#590: the day's first attempt came more than one cadence after the due time, the
+    laptop asleep) says so on the next line, with the minutes and that tick; the machine's line last (addendum 45).
+    Returns (title, body)."""
+    lines = [f"SLATE {fam} {day.isoformat()}: {rows} rows · {calls_text(calls)} · {file}"]
+    if late:
+        lines.append(f"LATE {late['minutes']} min: due {et(late['due'])[11:]}, run {et(late['tick'])[11:]}")
+    lines.append(machine_line())
+    return f"{fam} slate {day.isoformat()}", "\n".join(lines)
+
+
+def slate_failure_text(fam: str, day: date, what: str, attempt: int) -> str:
+    """The closing failure notice's shape (failure_text): what failed, the attempt out of three, and on the third that
+    no further attempt runs; notify_failure adds the machine's line."""
+    t = f"SLATE {fam} FAILED: {what} — RUN BY HAND: {slate_block(fam, day)} · attempt {attempt}/{MAX_ATTEMPTS}"
+    return t + (" · no further attempt will run today" if attempt >= MAX_ATTEMPTS else "")
+
+
+def _slate_attempts(fam: str, day_s: str) -> list[dict]:
+    """The slate runs of a family's day: refusals and superseded runs are neither (380.4, as _attempts)."""
+    return [r for r in receipts((SLATE_KIND,)) if r.get("family") == fam and r.get("date") == day_s
+            and not r.get("refused") and not r.get("superseded")]
+
+
+def slate_state(fam: str, day_s: str) -> dict:
+    """For one family and ET day, from the receipts: a successful slate? how many attempts?"""
+    runs = _slate_attempts(fam, day_s)
+    return {"success": any(r.get("exit") == 0 for r in runs), "attempts": len(runs)}
+
+
+def record_slate_miss(fam: str, day: date, reason: str, detail: str | None = None,
+                      text: str | None = None) -> dict | None:
+    """kind slate_miss: a slate that did not run, receipted and notified once per family, day and reason (B6's rule
+    for a closing miss). Not an attempt. Already receipted: nothing written or posted (None)."""
+    if any(r.get("family") == fam and r.get("date") == day.isoformat() and r.get("reason") == reason
+           for r in receipts((SLATE_MISS_KIND,))):
+        return None
+    text = text or f"SLATE {fam} {day.isoformat()} MISSED: {reason} — RUN BY HAND: {slate_block(fam, day)}"
+    res = notify_failure(text, fam, title=f"{fam} slate")
+    return c.append_receipt({"kind": SLATE_MISS_KIND, "family": fam, "date": day.isoformat(), "reason": reason,
+                             **({"detail": detail} if detail else {}), "notified": res})
+
+
+def _slate_refuse(why: str, fam: str, day: date, base: dict) -> int:
+    """A receipted refusal (exit 2), once per family, day and reason. The family refusal pages nothing (#590 (d));
+    every other refusal is notified, as a closing's is (reading 7)."""
+    if any(r.get("family") == fam and r.get("date") == day.isoformat() and r.get("refused") == why
+           for r in receipts((SLATE_KIND,))):
+        return 2
+    rec = {**base, "exit": 2, "refused": why, "steps": [], "file": None, "push": None}
+    if why != _family_refusal(fam):
+        rec["failure_notification"] = notify_failure(
+            f"SLATE {fam} {day.isoformat()} REFUSED: {why} — RUN BY HAND: {slate_block(fam, day)}", fam,
+            title=f"{fam} slate")
+    print(f"✗ slate {fam} {day.isoformat()} REFUSED: {why}")
+    c.append_receipt(rec)
+    return 2
+
+
+def _slate_what(rec: dict) -> str:
+    """The failure notice's <step command>: the failing step's command line as the receipt records it, else what
+    failed after the steps."""
+    f = rec.get("failed")
+    if rec.get("step"):
+        return rec["step"]
+    return {"backup": f"backup ({(rec.get('backup') or {}).get('error') or 'not taken'})",
+            "export not written": f"export not written ({rec.get('file')})",
+            "export carries no desk calls": f"{rec.get('file')} carries no desk calls",
+            "missing from export": f"missing from export ({rec.get('file')}): match "
+                                   + ", ".join(str(m["match_id"]) for m in rec.get("missing") or []),
+            "push": f"mirror push (exit {(rec.get('push') or {}).get('exit')})",
+            "page": f"page (ntfy did not accept it in {PAGE_TRIES} tries)"}.get(
+        f, f"{f}" + (f" ({rec['error']})" if rec.get("error") else ""))
+
+
+def _slate(rec: dict, fam: str, day: date, covers: list[dict], folder: Path, held: datetime, t0: float,
+           wall0: float, late: dict | None) -> None:
+    """The slate run's body. The caller holds the chain lock and writes the receipt line afterwards, still under it."""
+    today_ny = ny_date(held)
+    have = todays_backup(folder, today_ny)
+    if have:
+        rec["backup"] = {"file": str(have), "taken": False}
+        print(f"· backup dated {today_ny}: {have}")
+    else:
+        rec["backup"] = take_backup(folder, today_ny)
+    if rec["backup"].get("taken") and not rec["backup"].get("ok"):
+        rec["failed"] = "backup"                  # 380.3, as a closing: no step runs
+        print(f"✗ backup failed: {rec['backup'].get('error')} — no step runs")
+        return
+    steps = slate_steps(fam, day, covers, held, rec["run_id"])
+    rec["planned_steps"] = len(steps)
+    out_dir = c.REPO / SLATE_DIR
+    c.refuse_under_data(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    for i, st in enumerate(steps, 1):
+        line = f"python cli.py {' '.join(st)}"
+        print(f"\n=== [{fam} slate {i}/{len(steps)}] {line}", flush=True)
+        rc, tail, dur = run_step(st, rec["run_id"])
+        srec = {"step": i, "command": line, "exit": rc, "seconds": round(dur, 1)}
+        said = reported_failure(st, tail) if rc == 0 else None
+        if said:                      # exit 0, but the step said it failed (Codex on #370)
+            srec["detected_failure"] = said
+        empty = empty_answers(st, tail)
+        if empty:                     # addendum 40 item 4
+            srec["empty_answers"] = empty
+        if rc != 0:
+            srec["tail"] = tail[-3:]
+        rec["steps"].append(srec)
+        if rc != 0 or said:
+            rec["failed"] = f"step {i}" + (" (reported failure, exit 0)" if said else "")
+            rec["step"] = line
+            return
+    path = c.REPO / rec["file"]
+    if not (path.is_file() and path.stat().st_mtime >= wall0):
+        rec["failed"] = "export not written"
+        return
+    raw = path.read_bytes()
+    rec["export_written"] = {"file": rec["file"], "sha256": hashlib.sha256(raw).hexdigest()}
+    doc = json.loads(raw)
+    if not doc.get("desk_meta"):
+        rec["failed"] = "export carries no desk calls"
+        return
+    done = held + timedelta(seconds=time.time() - t0)
+    rec["completed_at"] = iso_z(done)
+    missing = missing_from_export(doc, covers, done, day_games(fam, day))   # re-read: the steps synced the schedule
+    if missing:
+        rec["failed"] = "missing from export"
+        rec["missing"] = missing
+        return
+    rec["rows"], rec["calls"] = slate_calls(doc)
+    rec["push"] = push_mirror("slate")
+    print(f"· exports mirror ({mirror_role()}, slate): exit {rec['push']['exit']} {' | '.join(rec['push']['tail'])}")
+    if rec["push"].get("exit") != 0:
+        rec["failed"] = "push"
+        return
+    title, body = slate_page_text(fam, day, rec["rows"], rec["calls"], rec["file"], late)
+    print(f"\n--- page ---\n{body}\n---")
+    tries = []
+    for n in range(1, PAGE_TRIES + 1):
+        try:
+            ph = page_phone(title, body, "default")
+        except Exception as e:  # noqa: BLE001
+            ph = {"accepted": False, "error": type(e).__name__}
+        tries.append(ph)
+        if ph.get("accepted") is True:
+            break
+        if n < PAGE_TRIES:
+            page_sleep(PAGE_RETRY_S)
+    rec["page"] = {"title": title, "priority": "default", "text": body, "phone": ph, "tries": len(tries),
+                   "at": iso_z(held + timedelta(seconds=time.time() - t0))}
+    if ph.get("accepted") is not True:
+        rec["page"]["phone_tries"] = tries
+        rec["failed"] = "page"
+        return
+    try:
+        scr = notify(body, title=title)
+    except Exception as e:  # noqa: BLE001
+        scr = {"posted": False, "error": f"{type(e).__name__}: {e}"[:200]}
+    rec["page"]["screen"] = {"posted": scr.get("posted"),
+                             **({"skipped": scr["skipped"]} if scr.get("skipped") else {}),
+                             **({"error": scr["error"]} if scr.get("error") else {})}
+    rec["exit"] = 0
+
+
+def _slate_under_lock(fam: str, day: date, base: dict, folder: Path, held: datetime, tick_at: datetime,
+                      due_at: datetime) -> int:
+    """380.4 for the slate: under the lock the receipts are read again (a success or three attempts by then: superseded,
+    neither an attempt nor a refusal, nothing run or posted), the day's games re-read, and the attempt numbered."""
+    day_s = day.isoformat()
+    st = slate_state(fam, day_s)
+    if st["success"] or st["attempts"] >= MAX_ATTEMPTS:
+        c.append_receipt({**base, "superseded": True, "exit": 0, "lock_at": iso_z(held),
+                          "why": "a successful slate" if st["success"] else f"{st['attempts']} attempts"})
+        return 0
+    covers = [g for g in day_games(fam, day) if not started(g, held)]
+    if not covers:
+        record_slate_miss(fam, day, "every game of the day had started",
+                          text=f"SLATE {fam} {day_s} MISSED: every game of the day had started — no slate run")
+        return NOTIFIED
+    first_tick = utc(tick_at)         # late is the day's first attempt's tick (a retry is not the laptop asleep)
+    for r in _slate_attempts(fam, day_s):
+        try:
+            first_tick = min(first_tick, parse_utc(r["queued_at"]))
+        except (KeyError, TypeError, ValueError):
+            continue
+    late_s = (first_tick - due_at).total_seconds()
+    late = ({"minutes": int(late_s // 60), "due": due_at, "tick": first_tick} if late_s > WATCH_CADENCE_S
+            else None)
+    rec = {**base, "ran_at": iso_z(held), "late_minutes": max(0, int(late_s // 60)), "late": late is not None,
+           "attempt": st["attempts"] + 1, "covers": _covers_rec(covers), "file": f"{SLATE_DIR}/{slate_file(fam, day)}",
+           "rows": None, "calls": None, "backup": None, "steps": [], "push": None, "exit": 1}
+    print(f"=== slate {fam} {day_s} · due {et(due_at)} · {len(covers)} game(s) · attempt {rec['attempt']}"
+          + (f" · LATE {late['minutes']} min" if late else ""), flush=True)
+    t0 = time.time()
+    wall0 = _WALL() - 1.0             # the file must be written by this run's own step (1s: coarse mtimes)
+    try:
+        _slate(rec, fam, day, covers, folder, held, t0, wall0, late)
+    except Exception as e:  # noqa: BLE001 - the receipt line is written either way
+        rec["failed"] = rec.get("failed") or "error"
+        rec["error"] = c.redact(f"{type(e).__name__}: {e}")[:300]
+    if rec["exit"] != 0:
+        rec["failure_notification"] = notify_failure(
+            slate_failure_text(fam, day, _slate_what(rec), rec["attempt"]), fam, title=f"{fam} slate")
+        print(f"✗ slate {fam} {day_s} FAILED ({rec.get('failed')}) — attempt {rec['attempt']}/{MAX_ATTEMPTS}")
+    else:
+        print(f"✓ slate {fam} {day_s}: {rec['file']} · {rec['rows']} rows · {calls_text(rec['calls'])} · pushed · "
+              "page accepted")
+    rec["seconds"] = round(time.time() - t0, 1)
+    c.append_receipt(rec)
+    return 0 if rec["exit"] == 0 else NOTIFIED
+
+
+def slate_watch(fam: str, tick_at: datetime, now: datetime | None = None, dry_run: bool = False) -> int:
+    """The slate stage of one family at the watch's tick `tick_at` (item 2(a)). Decides from the stored schedule and
+    the receipts, no network: the family's games of the tick's ET day; due at slate_due(); nothing before it, nothing
+    after a success or three attempts. Exit as a closing's (0, 2 a refusal, NOTIFIED a failure or miss). `now`: when
+    the run starts (the watch reads the clock for each run); a run is late when the tick came more than one cadence
+    after the due time (judged on the day's first attempt: a retry after an on-time failure is not late). --dry-run
+    prints the plan and touches nothing."""
+    tick_at = utc(tick_at)
+    now = utc(now or tick_at)
+    day = ny_date(tick_at)
+    head = f"  SLATE {fam} {day.isoformat()}"
+    try:
+        games = day_games(fam, day)
+    except (FileNotFoundError, sqlite3.Error) as e:
+        if dry_run:
+            print(f"{head}: no stored schedule ({type(e).__name__}) — would do nothing")
+        return 0
+    if not games:
+        if dry_run:
+            print(f"{head}: no game that day — nothing to run")
+        return 0
+    first = min(g["start"] for g in games)
+    due_at = slate_due(first, day)
+    st = slate_state(fam, day.isoformat())
+    folder = backup_folder()
+    if dry_run:
+        why = next((w for w in (chk() for chk in refusal_checks(fam, folder)) if w), None)
+        live = [g for g in games if not started(g, tick_at)]
+        tag = ("done (a successful slate)" if st["success"] else
+               f"done ({st['attempts']} attempts)" if st["attempts"] >= MAX_ATTEMPTS else
+               f"not yet (due {et(due_at)[11:]})" if tick_at < due_at else
+               f"would be REFUSED ({why})" if why else
+               "every game has started: a miss" if not live else
+               ("would check the MLB feed, then " if FAMILIES[fam]["feed"] else "") + "would RUN")
+        print(f"{head}: first kickoff {et(first)[11:]} · due {et(due_at)[11:]} · success "
+              f"{'yes' if st['success'] else 'no'} · attempts {st['attempts']}/{MAX_ATTEMPTS} → {tag}")
+        if live and tag.endswith("would RUN"):
+            for i, s in enumerate(slate_steps(fam, day, live, tick_at, "RUN"), 1):
+                print(f"    {i}. python cli.py {' '.join(s)}")
+        return 0
+    if tick_at < due_at or st["success"] or st["attempts"] >= MAX_ATTEMPTS:
+        return 0
+    base = {"kind": SLATE_KIND, "family": fam, "date": day.isoformat(),
+            "run_id": f"{now:%Y%m%dT%H%M%SZ}-{fam.lower()}-slate", "trigger": "watch", "due": iso_z(due_at),
+            "queued_at": iso_z(tick_at)}
+    for check in refusal_checks(fam, folder):
+        why = check()
+        if why:
+            return _slate_refuse(why, fam, day, base)
+    if not any(not started(g, now) for g in games):
+        record_slate_miss(fam, day, "every game of the day had started",
+                          text=f"SLATE {fam} {day.isoformat()} MISSED: every game of the day had started — no slate "
+                               "run")
+        return NOTIFIED
+    if FAMILIES[fam]["feed"]:         # A6, as the watch checks it before a closing: one miss a day, then silence
+        ok, detail = feed_answers()
+        if not ok:
+            record_slate_miss(fam, day, "feed unreachable", detail=detail,
+                              text=f"SLATE {fam} {day.isoformat()} MISSED: {FEED_MISS_TEXT} — RUN BY HAND: "
+                                   f"{slate_block(fam, day)} · the watch keeps trying")
+            return NOTIFIED
+    t_entry = time.time()
+    entered = False
+    try:
+        with acquire_lock(SLATE_LOCK_WAIT_S):
+            entered = True
+            held = now + timedelta(seconds=time.time() - t_entry)
+            return _slate_under_lock(fam, day, base, folder, held, tick_at, due_at)
+    except TimeoutError:
+        if entered:
+            raise
+        record_slate_miss(fam, day, "the chain lock was held", detail=f"waited {SLATE_LOCK_WAIT_S}s",
+                          text=f"SLATE {fam} {day.isoformat()} MISSED: the chain lock was held through the "
+                               f"{SLATE_LOCK_WAIT_S / 60:g}-minute wait — RUN BY HAND: {slate_block(fam, day)} · the "
+                               "watch keeps trying")
+        return NOTIFIED
+    except Exception as e:  # noqa: BLE001 - a lock that cannot be taken is a failed attempt, receipted (as a closing)
+        if entered:
+            raise
+        rec = {**base, "attempt": st["attempts"] + 1, "file": f"{SLATE_DIR}/{slate_file(fam, day)}", "steps": [],
+               "push": None, "exit": 1, "failed": "lock", "error": c.redact(f"{type(e).__name__}: {e}")[:300]}
+        try:
+            rec["failure_notification"] = notify_failure(
+                slate_failure_text(fam, day, f"the chain lock ({rec['error']})", rec["attempt"]), fam,
+                title=f"{fam} slate")
+            c.append_receipt(rec)
+        except Exception as e2:  # noqa: BLE001 - the receipt store itself is not writable: the console says so
+            print(f"✗ the failed slate could not be receipted either: {type(e2).__name__}")
+            return 1                  # P3: not reported by the process, so the unit's failure path reports it
+        return NOTIFIED
 
 
 # ---------------------------------------------------------------------------------- setup checks (380.2) --

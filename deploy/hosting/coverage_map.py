@@ -86,21 +86,39 @@ v7"."
     whose family this machine refuses (MLB on the host: a laptop duty) claims no gap either; its line shows the
     refusal. UNKNOWN competitions are named once, in capitals, with no gap judged for them.
 
+THE SLATE LINE (ARCHITECT 2026-10-18, addendum 126 item 2(b), #590), verbatim: "`coverage` gains a SLATE line per LIVE
+competition: the newest exports file of that family's slate kind that covers EVERY game of the day by match id, with
+its exported_at and its PLAY/PASS counts; else "NO SLATE FILE — slate run due HH:MM ET" (or, where the watch is not
+the machine, "— run block"). Its gap line in capitals: "NFL: 12 GAMES, ROWS 12, NO SLATE FILE". `coverage --json`
+carries it; the Today tab shows it first."
+    The slate kind is the family's export_glob (closing.FAMILIES: mlb_MLB_*.json, nfl_predictions_*.json,
+    soccer_PL_*.json, the names the slate stage and the prematch chains write; a closing file never matches). A file
+    counts when it carries the Desk's calls (desk_meta) and a desk row for every game of the day (the competition's
+    games, VOID ones aside); the newest by its own exported_at wins. A file that cannot be parsed, or one with no desk
+    calls, is skipped with its reason on the line, never counted (law 4); a file whose name dates it more than
+    SLATE_SCAN_BACK_DAYS before the day, or after the day after, cannot hold the day and is not read. The counts are the
+    file's (closing.slate_calls, as the slate page counts them). No file: the slate stage's due time (closing.slate_due);
+    where this machine refuses the family (closing._family_refusal), the block to run (closing.slate_block). The gap is
+    claimed for every LIVE competition with no slate file, a refused family's included: that is the operator's alert
+    to run it by hand (item 1). coverage() carries it as `slate` on the competition. exports/ is read, never written.
+
 Read-only: the DB is opened mode=ro (sp_common.ro_connect: a missing file is refused, never created), plus
 docs/roadmap.json, docs/registry/experiments.json, the watch's schedule inputs (chains.py, closing.py) and its receipt
 log (sp_common.receipts_path(): SP_RECEIPTS or logs/receipts.jsonl, read as closing.receipts reads it; no file is no
 receipt) and the settings _family_refusal and sp_run.active_from read. No row, no export, no receipt is written; no
-provider call. SQLite itself may leave its -wal/-shm sidecars beside a WAL file, as for every ro_connect reader. Exit 0
+provider call; the family slate files in exports/ are read (the SLATE line), never written. SQLite itself may leave
+its -wal/-shm sidecars beside a WAL file, as for every ro_connect reader. Exit 0
 whatever the gaps (it never stops a chain); a date that is not real or a DB that cannot be read exits 2.
 """
 from __future__ import annotations
 
 import argparse
 import importlib
+import json
 import re
 import sqlite3
 import sys
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -134,10 +152,9 @@ class Refused(RuntimeError):
 # ------------------------------------------------------------------------------------------------ the day --
 
 def day_bounds(day: date) -> tuple[datetime, datetime]:
-    """[lo, hi) in UTC: midnight to midnight in America/New_York (23 or 25 hours on a clock change)."""
-    lo = datetime.combine(day, time(0), tzinfo=cl.NY).astimezone(timezone.utc)
-    hi = datetime.combine(day + timedelta(days=1), time(0), tzinfo=cl.NY).astimezone(timezone.utc)
-    return lo, hi
+    """[lo, hi) in UTC: midnight to midnight in America/New_York (23 or 25 hours on a clock change): closing.day_bounds,
+    the day the slate stage reads."""
+    return cl.day_bounds(day)
 
 
 def read_day(day: date) -> tuple[list[dict], dict, dict | str]:
@@ -460,6 +477,50 @@ def watch_groups(fam: str, games: list[dict], day: date, now: datetime) -> dict:
     return {"groups": out, "finished": covered, "unread": None}
 
 
+SLATE_SCAN_BACK_DAYS = 8      # export-nfl-predictions --week looks 8 days ahead: an older name cannot hold the day
+_NAME_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
+
+
+def slate_view(fam: str, games: list[dict], day: date, refused: str | None, exports=None) -> dict:
+    """The SLATE line's data for one LIVE competition (addendum 126 item 2(b), the module docstring's rule): {family,
+    file: exports/<name> or None, exported_at, rows, calls, due, block, refused, skipped: [(name, why)]}. Read-only."""
+    ex = Path(exports) if exports is not None else c.REPO / cl.SLATE_DIR
+    ids = {g["match_id"] for g in games}
+    out = {"family": fam, "file": None, "exported_at": None, "rows": None, "calls": None,
+           "due": cl.slate_due(min(g["start"] for g in games), day), "block": cl.slate_block(fam, day),
+           "refused": refused, "skipped": []}
+    try:
+        paths = sorted(ex.glob(cl.FAMILIES[fam]["export_glob"])) if ex.is_dir() else []
+    except OSError as e:
+        out["skipped"].append((f"{cl.SLATE_DIR}/", f"cannot be listed: {type(e).__name__}"))
+        paths = []
+    best = None
+    for p in paths:
+        m = _NAME_DATE.search(p.name)
+        try:
+            named = date.fromisoformat(m.group(0)) if m else None
+        except ValueError:
+            named = None
+        if named and not day - timedelta(days=SLATE_SCAN_BACK_DAYS) <= named <= day + timedelta(days=1):
+            continue                  # named for another week: it cannot hold the day
+        try:
+            doc = json.loads(p.read_text(encoding="utf-8"))
+            at = cl.parse_utc(doc["exported_at"])
+            have = {r.get("match_id") for r in doc["predictions"] if r.get("desk")}
+        except (OSError, ValueError, KeyError, TypeError, AttributeError) as e:
+            out["skipped"].append((p.name, f"cannot be parsed: {type(e).__name__}"))
+            continue                  # law 4: never counted
+        if not doc.get("desk_meta"):
+            out["skipped"].append((p.name, "no desk calls"))
+            continue
+        if ids <= have and (best is None or (at, p.name) > (best[0], best[1].name)):
+            best = (at, p, doc)
+    if best:
+        out["exported_at"], out["file"] = best[0], f"{cl.SLATE_DIR}/{best[1].name}"
+        out["rows"], out["calls"] = cl.slate_calls(best[2])
+    return out
+
+
 def coverage(day: date | None = None, now: datetime | None = None, roadmap_path=None, registry_path=None) -> dict:
     """The day's coverage map: what the lines print, as data (the morning page's source). Refused when the DB
     cannot be read."""
@@ -502,6 +563,7 @@ def coverage(day: date | None = None, now: datetime | None = None, roadmap_path=
             finished = [g["match_id"] for g in mine if g["match_id"] in v["finished"] and not cl.started(g, now)
                         and g["match_id"] not in shown]    # its run is no done line of the day
             closing_unread = v["unread"]
+        slate = (slate_view(fam, mine, day, refused) if fam and st["status"] == "LIVE" and mine else None)
         comps.append({"code": code, "games": [g["match_id"] for g in mine], "void": [(g["match_id"], g["status"])
                                                                                    for g in void],
                       "status": st["status"], "status_label": st["label"], "status_from": st["from"],
@@ -509,7 +571,7 @@ def coverage(day: date | None = None, now: datetime | None = None, roadmap_path=
                       "rows": sorted(by_model.values(), key=lambda m: m["model_version"]),
                       "without_rows": [g["match_id"] for g in mine if not preds.get(g["match_id"])],
                       "writers": writer_chains(fam) if fam else [], "groups": groups, "started": started,
-                      "finished": finished, "closing_unread": closing_unread})
+                      "finished": finished, "closing_unread": closing_unread, "slate": slate})
     comps.sort(key=lambda x: (STATUSES.index(x["status"]), x["code"]))
     return {"date": day, "now": now, "competitions": comps, "gaps": gap_lines(comps)}
 
@@ -518,15 +580,17 @@ def gap_lines(comps: list[dict]) -> list[str]:
     """The gaps, in capitals (the spec's example: "PL: 4 GAMES, 0 PREDICTION ROWS — soccer-prematch has not run")."""
     out = []
     for x in comps:
-        if x["status"] != "LIVE" or x.get("refused") or not x["without_rows"]:
-            continue                  # refused here: its line names the refusal, the rows are another machine's
         rows = sum(m["rows"] for m in x["rows"])
-        line = f"{x['code']}: {_n(len(x['games']), 'GAME')}, {_n(rows, 'PREDICTION ROW')}"
-        if len(x["without_rows"]) < len(x["games"]):
-            line += f", NONE FOR {', '.join(map(str, x['without_rows']))}"
-        elif x["writers"]:
-            line += f" — {' or '.join(x['writers'])} has not run"
-        out.append(line)
+        # refused here: its line names the refusal, the rows are another machine's
+        if x["status"] == "LIVE" and not x.get("refused") and x["without_rows"]:
+            line = f"{x['code']}: {_n(len(x['games']), 'GAME')}, {_n(rows, 'PREDICTION ROW')}"
+            if len(x["without_rows"]) < len(x["games"]):
+                line += f", NONE FOR {', '.join(map(str, x['without_rows']))}"
+            elif x["writers"]:
+                line += f" — {' or '.join(x['writers'])} has not run"
+            out.append(line)
+        if x.get("slate") and not x["slate"]["file"]:    # addendum 126 item 2(b), a refused family's too (item 1)
+            out.append(f"{x['code']}: {_n(len(x['games']), 'GAME')}, ROWS {rows}, NO SLATE FILE")
     unknown = [x["code"] for x in comps if x["status"] == "UNKNOWN"]
     if unknown:
         one = len(unknown) == 1
@@ -565,6 +629,22 @@ def _group_text(g: dict, day: date) -> str:
     return f"{head} → {g['file']}" + (" (due now)" if g["state"] == "due" else "")
 
 
+def slate_line(x: dict) -> str | None:
+    """The competition's SLATE line (addendum 126 item 2(b)), or None (not LIVE)."""
+    s = x.get("slate")
+    if not s:
+        return None
+    if s["file"]:
+        t = f"{s['file']} · exported {cl.et(s['exported_at'])} · {cl.calls_text(s['calls'])}"
+    elif s["refused"]:
+        t = f"NO SLATE FILE — run block {s['block']}"
+    else:
+        t = f"NO SLATE FILE — slate run due {cl.et(s['due'])[11:]}"
+    if s["skipped"]:
+        t += " · skipped: " + "; ".join(f"{n} ({why})" for n, why in s["skipped"])
+    return f"{x['code']} SLATE · {t}"
+
+
 def comp_line(x: dict, day: date) -> str:
     """One competition's line."""
     parts = [x["code"], _n(len(x["games"]), "game")
@@ -601,11 +681,14 @@ def lines(cov: dict) -> list[str]:
     day, comps = cov["date"], cov["competitions"]
     n = sum(len(x["games"]) for x in comps)
     out = [f"COVERAGE {day.isoformat()} ET · {_n(len(comps), 'competition')} · {_n(n, 'game')} · now "
-           f"{cl.et(cov['now'])} · read-only (the DB mode=ro, the closing-watch schedule and receipts): no row "
-           "written, no export written, no provider call"]
+           f"{cl.et(cov['now'])} · read-only (the DB mode=ro, the closing-watch schedule and receipts, the slate "
+           "files in exports/): no row written, no export written, no provider call"]
     if not comps:
         out.append("no stored game that day")
-    out += [comp_line(x, day) for x in comps]
+    for x in comps:
+        out.append(comp_line(x, day))
+        if slate_line(x):
+            out.append(slate_line(x))
     out += ["GAPS:", *cov["gaps"]] if cov["gaps"] else ["GAPS: none"]
     return out
 

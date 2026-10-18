@@ -312,6 +312,30 @@ def test_t9_an_empty_code_or_season_is_unparseable_and_the_chain_refuses_it(no_s
     assert rc == 1 and "(T9) fullseason list UNPARSEABLE" in last
 
 
+def test_t9_a_half_str_format_leaves_empty_and_a_leading_bom(no_settings, monkeypatch, capsys):
+    """The empty-half refusal holds after the chain's str.format too ("NFL|{today:.0}" formats to an empty season:
+    before, the chain ran `--season ` and the readout counted "NFL|"), and a hand-edited file's leading UTF-8 BOM
+    never rides into the first code (before: the readout printed an invisible "<BOM>MLB|2026" beside "MLB lines:
+    none", and the chain ran `--competition <BOM>MLB`)."""
+    lst = no_settings / "fullseason.list"
+    monkeypatch.setenv("SP_FULLSEASON_LIST", str(lst))
+    lst.write_text("PL|2026/27\nNFL|{today:.0}\n")
+    with pytest.raises(ValueError) as ei:
+        sp_run.resolve("weekly-fullseason", {}, cr.date(2026, 10, 25))
+    assert str(ei.value) == f"{lst} line 2: 'NFL|{{today:.0}}' is not CODE|SEASON (empty season after str.format)"
+    rc, t9, last = readout(no_settings, capsys)
+    assert t9[1] == f"    fullseason list: UNPARSEABLE → NOT-YET · {ei.value} (weekly-fullseason fails on this line too)"
+    assert rc == 1 and "(T9) fullseason list UNPARSEABLE" in last
+    lst.write_bytes(b"\xef\xbb\xbfMLB|2026\nNFL|2026\n")
+    steps = sp_run.resolve("weekly-fullseason", {}, cr.date(2026, 10, 25))
+    assert [s[2] for s in steps] == ["MLB", "NFL"]
+    st = cr.fullseason_state(str(lst), cr.date(2026, 10, 22))
+    assert st["state"] == "ok" and st["entries"] == ["MLB|2026", "NFL|2026"]
+    rc, t9, last = readout(no_settings, capsys)
+    assert "\ufeff" not in "\n".join(t9) and st["mlb"] == ["MLB|2026"]
+    assert any(ln.startswith("    ⚠ MLB line(s) listed: MLB|2026 ") for ln in t9)
+
+
 def test_t9_hosting_h1_query_writes_no_mlb_line():
     """hosting-h1.md T9's copy-paste query, run as written on a synthetic DB: every competition-season inside
     +-30 days EXCEPT MLB (ARCHITECT 2026-10-18, addendum 122 item 3(a): "writes every line EXCEPT MLB")."""

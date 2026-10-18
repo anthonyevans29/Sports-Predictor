@@ -66,9 +66,10 @@ def fullseason_entries(p) -> list[tuple[int, str, str, str]]:
     neither blank nor a '#' comment, in file order, split on the first '|' and each half stripped, braces as written.
     A read error raises as it always did; a line without '|', or whose code or season is empty once stripped
     ("|2026", "NFL|", "|"), raises ValueError naming the file and the line: the chain refuses it at resolve instead of
-    running a step bound to fail."""
+    running a step bound to fail. Read as utf-8-sig, so a hand-edited file's leading BOM never rides into the first
+    code (str.strip keeps U+FEFF)."""
     out = []
-    for n, line in enumerate(Path(p).read_text().splitlines(), 1):
+    for n, line in enumerate(Path(p).read_text(encoding="utf-8-sig").splitlines(), 1):
         line = line.strip()
         if not line or line.startswith("#"):
             continue
@@ -89,14 +90,20 @@ def fullseason_resolve(p, v: dict) -> list[list[str]]:
     it (ARCHITECT 2026-10-18, addendum 122 item 3(b)), so a line the readout counts is a line the chain runs, and a
     line the chain fails on the readout reads UNPARSEABLE. Raises ValueError naming the file and line for a line the
     parser refuses (fullseason_entries) and for a brace str.format cannot fill ("NFL|{season}": KeyError; a lone '}':
-    ValueError; "{0}": IndexError; "{today.x}": AttributeError), the error's type and text in the message."""
+    ValueError; "{0}": IndexError; "{today.x}": AttributeError), the error's type and text in the message, and for a
+    code or season that str.format leaves empty ("NFL|{today:.0}"), as the parser refuses an empty half."""
     out = []
     for n, line, code, season in fullseason_entries(p):
         try:
-            out.append(format_step(["sync-matches", "--competition", code, "--season", season], v))
+            st = format_step(["sync-matches", "--competition", code, "--season", season], v)
         except (KeyError, ValueError, IndexError, AttributeError, TypeError) as e:
             raise ValueError(f"{p} line {n}: {line!r} does not resolve: its braces fail the chain's str.format "
                              f"({type(e).__name__}: {e})") from e
+        if not st[2].strip() or not st[4].strip():
+            which = ("code and season" if not st[2].strip() and not st[4].strip()
+                     else "code" if not st[2].strip() else "season")
+            raise ValueError(f"{p} line {n}: {line!r} is not CODE|SEASON (empty {which} after str.format)")
+        out.append(st)
     return out
 
 

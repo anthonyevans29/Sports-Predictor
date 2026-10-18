@@ -86,12 +86,28 @@ v7"."
     whose family this machine refuses (MLB on the host: a laptop duty) claims no gap either; its line shows the
     refusal. UNKNOWN competitions are named once, in capitals, with no gap judged for them.
 
+THE JSON FILE (ARCHITECT 2026-10-18 08:20 ET, addendum 125 item 2(a), #589), verbatim:
+"`python cli.py coverage --json [--out PATH]` writes the dict `deploy/hosting/coverage_map.coverage()` already returns
+(date, now, competitions[], gaps[]; datetimes ISO-8601 Z), under `kind: "coverage_v1"`, plus `roadmap`: the lanes of
+docs/roadmap.json with their competitions, status and dated ETAs, read as `cli.py roadmap` reads them (no new source of
+truth; if a lane carries no date it prints "no ETA"). Default --out exports/coverage_<date>.json; the morning block's
+existing `coverage` line gains `--json`; the mirror carries it (laptop/latest/coverage.json, host/latest after the
+cutover). Read-only as today: mode=ro, no provider call, exit 0 whatever the gaps."
+    document() is that dict, generically made JSON-ready (_plain: a field coverage() gains later rides along), plus
+    the line's own words for what a reader must not compute (the Cockpit's Today tab: viewer, not engine) and the
+    roadmap's lanes from src/roadmap.lanes_data (roadmap.load() and the print's own lane_lines(), on the coverage day;
+    a lane whose earliest_live is null reads "no ETA"); a roadmap that cannot be read gives `roadmap: null` and
+    `roadmap_unread` (law 4). The date in the default name is the coverage day; the file is written whole (beside its
+    name, then moved into place), never under data/. The printed lines are the same, the header saying the one file
+    was written, and one line after the gaps names it. Without --json the output is unchanged, byte for byte.
+
 Read-only: the DB is opened mode=ro (sp_common.ro_connect: a missing file is refused, never created), plus
 docs/roadmap.json, docs/registry/experiments.json, the watch's schedule inputs (chains.py, closing.py) and its receipt
 log (sp_common.receipts_path(): SP_RECEIPTS or logs/receipts.jsonl, read as closing.receipts reads it; no file is no
-receipt) and the settings _family_refusal and sp_run.active_from read. No row, no export, no receipt is written; no
-provider call. SQLite itself may leave its -wal/-shm sidecars beside a WAL file, as for every ro_connect reader. Exit 0
-whatever the gaps (it never stops a chain); a date that is not real or a DB that cannot be read exits 2.
+receipt) and the settings _family_refusal and sp_run.active_from read. No row and no receipt is written, and no export
+but the --json file; no provider call. SQLite itself may leave its -wal/-shm sidecars beside a WAL file, as for every
+ro_connect reader. Exit 0 whatever the gaps (it never stops a chain); a date that is not real, a DB that cannot be read,
+an --out without --json, an --out under data/ or a --json file that cannot be written exits 2, and writes no file.
 """
 from __future__ import annotations
 
@@ -535,13 +551,19 @@ def gap_lines(comps: list[dict]) -> list[str]:
     return out
 
 
-def _computed(m: dict) -> str:
-    """A model's computed_at in ET: the range when its rows differ (an old row is never hidden behind a fresh one)."""
+def _computed_text(m: dict) -> str:
+    """A model's computed_at in ET: the range when its rows differ (an old row is never hidden behind a fresh one);
+    "" when no row's computed_at could be read."""
     if not m["latest"]:
         return ""
     if m["earliest"] != m["latest"]:
-        return f" (computed {cl.et(m['earliest'])} to {cl.et(m['latest'])})"
-    return f" (latest {cl.et(m['latest'])})"
+        return f"computed {cl.et(m['earliest'])} to {cl.et(m['latest'])}"
+    return f"latest {cl.et(m['latest'])}"
+
+
+def _computed(m: dict) -> str:
+    t = _computed_text(m)
+    return f" ({t})" if t else ""
 
 
 def _group_text(g: dict, day: date) -> str:
@@ -565,44 +587,61 @@ def _group_text(g: dict, day: date) -> str:
     return f"{head} → {g['file']}" + (" (due now)" if g["state"] == "due" else "")
 
 
+def _games_text(x: dict) -> str:
+    """The games clause: the count, and the void games named (not counted)."""
+    return _n(len(x["games"]), "game") + (
+        f" (+{len(x['void'])} void, not counted: " + ", ".join(f"{m} {s}" for m, s in x["void"]) + ")"
+        if x["void"] else "")
+
+
+def _rows_clauses(x: dict) -> tuple[str, str | None]:
+    """The rows clause and the without-rows clause (None where the line leaves it out: no row and none expected)."""
+    if x["rows"]:
+        rows = "rows: " + ", ".join(f"{m['model_version']} {m['rows']}" + _computed(m) for m in x["rows"])
+    else:
+        rows = f"rows: none (none expected: {x['status']})" if x["status"] in NO_ROWS_EXPECTED else "rows: none"
+    if x["rows"] or x["status"] not in NO_ROWS_EXPECTED:
+        return rows, "without rows: " + (", ".join(map(str, x["without_rows"])) or "none")
+    return rows, None
+
+
+def _closing_clause(x: dict, day: date) -> str:
+    """The closing clause: no family, refused here, not shown, or the day's groups."""
+    if not x["family"]:
+        return f"closing: none (no closing family covers {x['code']})"
+    if x["refused"]:
+        return f"closing: refused here ({x['refused']})"
+    if x["closing_unread"]:
+        return f"closing: not shown ({x['closing_unread']})"
+    runs = [_group_text(g, day) for g in x["groups"]]
+    # left to run: a group the watch will run or record a miss for (a done one: tried again, or a miss)
+    if not any(g["state"] != "done" or g["next"] in ("again", "miss") for g in x["groups"]):
+        runs.append("none left to run")
+    if x["finished"]:
+        runs.insert(0, f"a closing finished with {', '.join(map(str, x['finished']))}")
+    if x["started"]:
+        runs.insert(0, f"started {', '.join(map(str, x['started']))}")
+    return "closing: " + "; ".join(runs)
+
+
 def comp_line(x: dict, day: date) -> str:
     """One competition's line."""
-    parts = [x["code"], _n(len(x["games"]), "game")
-             + (f" (+{len(x['void'])} void, not counted: " + ", ".join(f"{m} {s}" for m, s in x["void"]) + ")"
-                if x["void"] else ""),
-             f"{x['status_label']} ({x['status_from']})"]
-    if x["rows"]:
-        parts.append("rows: " + ", ".join(f"{m['model_version']} {m['rows']}" + _computed(m) for m in x["rows"]))
-    else:
-        parts.append(f"rows: none (none expected: {x['status']})" if x["status"] in NO_ROWS_EXPECTED else
-                     "rows: none")
-    if x["rows"] or x["status"] not in NO_ROWS_EXPECTED:
-        parts.append("without rows: " + (", ".join(map(str, x["without_rows"])) or "none"))
-    if not x["family"]:
-        parts.append(f"closing: none (no closing family covers {x['code']})")
-    elif x["refused"]:
-        parts.append(f"closing: refused here ({x['refused']})")
-    elif x["closing_unread"]:
-        parts.append(f"closing: not shown ({x['closing_unread']})")
-    else:
-        runs = [_group_text(g, day) for g in x["groups"]]
-        # left to run: a group the watch will run or record a miss for (a done one: tried again, or a miss)
-        if not any(g["state"] != "done" or g["next"] in ("again", "miss") for g in x["groups"]):
-            runs.append("none left to run")
-        if x["finished"]:
-            runs.insert(0, f"a closing finished with {', '.join(map(str, x['finished']))}")
-        if x["started"]:
-            runs.insert(0, f"started {', '.join(map(str, x['started']))}")
-        parts.append("closing: " + "; ".join(runs))
+    rows, without = _rows_clauses(x)
+    parts = [x["code"], _games_text(x), f"{x['status_label']} ({x['status_from']})", rows]
+    if without is not None:
+        parts.append(without)
+    parts.append(_closing_clause(x, day))
     return " · ".join(parts)
 
 
-def lines(cov: dict) -> list[str]:
+def lines(cov: dict, wrote: str | None = None) -> list[str]:
+    """The printed lines. `wrote`: the one file `--json` wrote (its header says so); None, the text output as ever."""
     day, comps = cov["date"], cov["competitions"]
     n = sum(len(x["games"]) for x in comps)
     out = [f"COVERAGE {day.isoformat()} ET · {_n(len(comps), 'competition')} · {_n(n, 'game')} · now "
            f"{cl.et(cov['now'])} · read-only (the DB mode=ro, the closing-watch schedule and receipts): no row "
-           "written, no export written, no provider call"]
+           "written, " + ("no export written" if wrote is None else f"one export written ({wrote}, --json)")
+           + ", no provider call"]
     if not comps:
         out.append("no stored game that day")
     out += [comp_line(x, day) for x in comps]
@@ -610,9 +649,99 @@ def lines(cov: dict) -> list[str]:
     return out
 
 
-def run(date_s: str | None = None, echo=print, now: datetime | None = None) -> int:
-    """The command: the lines, exit 0; a date that is not real, or a DB that cannot be read, exits 2."""
+# --------------------------------------------------------------------------------------- the JSON file --
+# ARCHITECT 2026-10-18, addendum 125 item 2(a), #589: `coverage --json [--out PATH]` writes the dict coverage()
+# returns under kind coverage_v1, every datetime ISO-8601 Z, plus the roadmap's lanes as `cli.py roadmap` reads them.
+
+KIND = "coverage_v1"
+
+
+def default_out(day: date) -> str:
+    """exports/coverage_<date>.json, the coverage day's date (the exports mirror maps its kind to latest/coverage.json:
+    exports_mirror.kind_of strips the date)."""
+    return f"{cl.CLOSING_FILE_DIR}/coverage_{day.isoformat()}.json"
+
+
+def _plain(v):
+    """JSON-ready, generically (a field coverage() gains later rides along): a datetime is ISO-8601 Z (closing.iso_z),
+    a date YYYY-MM-DD, a tuple a list, a set a sorted list, a dict's keys text (a match id key becomes "401")."""
+    if isinstance(v, datetime):
+        return cl.iso_z(v)
+    if isinstance(v, date):
+        return v.isoformat()
+    if isinstance(v, dict):
+        return {str(k): _plain(x) for k, x in v.items()}
+    if isinstance(v, (list, tuple)):
+        return [_plain(x) for x in v]
+    if isinstance(v, (set, frozenset)):
+        return [_plain(x) for x in sorted(v, key=str)]
+    return v
+
+
+def document(cov: dict, roadmap_path=None) -> dict:
+    """The coverage_v1 document: {"kind": "coverage_v1", **coverage() with every datetime ISO-8601 Z}, plus what the
+    printed lines say in the line's own words, so a reader shows it without computing it (the Cockpit's Today tab,
+    F1c: viewer, not engine): `now_et`; per competition `line` (its printed line), `games_text`, `rows_text`,
+    `without_rows_text` (null where the line leaves it out) and `closing_text` (its clauses); per prediction model
+    `computed_et` (its computed_at in ET, as the line prints it; null when none could be read); per closing group
+    `run_lead` ("T-35"), `run_at_et` (the run time in ET, with its date when not the day's) and `text` (the group as
+    the line prints it). Then `roadmap`: lanes_data() on the coverage day (roadmap.load() and the print's own lines;
+    "no ETA" where a lane's earliest_live is null), or null with `roadmap_unread` saying why (law 4: never a guessed
+    lane)."""
     from src import roadmap as rm
+    day = cov["date"]
+    doc = {"kind": KIND, **_plain(cov), "now_et": cl.et(cov["now"])}
+    for xd, x in zip(doc["competitions"], cov["competitions"]):
+        rows, without = _rows_clauses(x)
+        xd.update(line=comp_line(x, day), games_text=_games_text(x), rows_text=rows, without_rows_text=without,
+                  closing_text=_closing_clause(x, day))
+        for md, m in zip(xd["rows"], x["rows"]):
+            md["computed_et"] = _computed_text(m) or None
+        for gd, g in zip(xd["groups"], x["groups"]):
+            gd.update(run_lead=f"T-{cl.RUN_LEAD_MIN}", run_at_et=_run_time(g["start"], day), text=_group_text(g, day))
+    try:
+        doc["roadmap"], doc["roadmap_unread"] = rm.lanes_data(day, roadmap_path), None
+    except rm.RoadmapError as e:
+        doc["roadmap"], doc["roadmap_unread"] = None, f"the roadmap cannot be read: {e}"
+    return doc
+
+
+def _out_refusal(p: Path) -> str | None:
+    """Law 5: nothing is ever created under data/ (the checkout's, or the working directory's)."""
+    t = p.resolve()
+    for data in {(c.REPO / "data").resolve(), (Path.cwd() / "data").resolve()}:
+        if t == data or data in t.parents:
+            return f"--out {p} is under {data} (law 5: nothing is created under data/)"
+    return None
+
+
+def write_document(doc: dict, out: Path) -> None:
+    """The one file: written beside its final name, then moved into place (never a half-written file under exports/,
+    which the mirror pushes). OSError when it cannot be written."""
+    import json
+    import os
+    out.parent.mkdir(parents=True, exist_ok=True)
+    tmp = out.with_name(f".{out.name}.{os.getpid()}.tmp")    # hidden, and not *.json: the mirror never takes it
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(doc, f, ensure_ascii=False, indent=2)
+            f.write("\n")
+        os.replace(tmp, out)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
+
+
+def run(date_s: str | None = None, echo=print, now: datetime | None = None, as_json: bool = False,
+        out: str | None = None) -> int:
+    """The command: the lines, exit 0; a date that is not real, or a DB that cannot be read, exits 2. `as_json`
+    (--json) also writes the coverage_v1 document to `out` (--out; default exports/coverage_<date>.json), the lines
+    then saying so; an --out without --json, an --out under data/ or a file that cannot be written exits 2, and on a
+    refusal no file is written. The gaps never change the exit."""
+    from src import roadmap as rm
+    if out is not None and not as_json:
+        echo("COVERAGE REFUSED: --out needs --json (the text output writes no file)")
+        return 2
     day = None
     if date_s is not None:
         day = rm.real_date(date_s)
@@ -624,18 +753,39 @@ def run(date_s: str | None = None, echo=print, now: datetime | None = None) -> i
     except Refused as e:
         echo(f"COVERAGE REFUSED: {e}")
         return 2
-    for line in lines(cov):
+    wrote = None
+    if as_json:
+        wrote = out or default_out(cov["date"])
+        why = _out_refusal(Path(wrote))
+        if why:
+            echo(f"COVERAGE REFUSED: {why}")
+            return 2
+        doc = document(cov)
+        try:
+            write_document(doc, Path(wrote))
+        except OSError as e:
+            echo(f"COVERAGE REFUSED: --out {wrote} cannot be written ({type(e).__name__}: {e})")
+            return 2
+    for line in lines(cov, wrote):
         echo(line)
+    if as_json:
+        road = (f"roadmap {len(doc['roadmap'])} lanes" if doc["roadmap"] is not None
+                else f"roadmap null ({doc['roadmap_unread']})")
+        echo(f"COVERAGE JSON: {wrote} written (kind {KIND}: the map above as data, "
+             f"{_n(len(doc['competitions']), 'competition')}, {_n(len(doc['gaps']), 'gap line')}, {road})")
     return 0
 
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="coverage_map.py", description="The day's coverage (= python cli.py coverage)")
     ap.add_argument("--date", default=None, help="YYYY-MM-DD, by each game's US Eastern date (default: today, ET)")
+    ap.add_argument("--json", action="store_true", dest="as_json",
+                    help="also write the map as a coverage_v1 document (addendum 125 item 2(a))")
+    ap.add_argument("--out", default=None, help="with --json: the file (default exports/coverage_<date>.json)")
     a = ap.parse_args(argv)
     if str(c.REPO) not in sys.path:
         sys.path.insert(0, str(c.REPO))
-    return run(a.date)
+    return run(a.date, as_json=a.as_json, out=a.out)
 
 
 if __name__ == "__main__":

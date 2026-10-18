@@ -22,9 +22,28 @@ is flagged; the Ledger card shows exactly the line "exports read no ledger
 summary; postseason rows are sized at half until v1.2" (#544, ARCHITECT
 2026-10-18, addendum 125 item 4).
 
+TODAY (ARCHITECT 2026-10-18, addendum 125 item 2(c), #589): "scripts/
+cockpit_render_verify.py extended to load the file and assert the tiles'
+counts equal the file's". A coverage_v1 file is written by the REAL command,
+`python cli.py coverage --json`, on a SCRATCH database (scripts/
+cockpit_coverage_file.py: the ORM's schema in a temporary folder; never
+data/), then loaded through the file picker:
+  - the Today tab: one tile per competition, in the file's order; each tile's
+    games count and status label equal the file's; the gaps lines equal the
+    file's `gaps`; the ETAs strip has one line per roadmap lane with the file's
+    ETA ("no ETA" included); a group to run carries a countdown that moves with
+    the page clock, a done group none; the page title is "Cockpit";
+  - a coverage file loaded after a slate leaves the slate as it was (rows, the
+    Desk table, the summary), and a slate loaded after a coverage file leaves
+    the tiles as they were;
+  - a status the file adds later ("POT", label "POT (training data only)")
+    renders as its label; markup in a file string is shown as text, never run;
+    a file whose roadmap is null shows its reason.
+
     python3 scripts/cockpit_render_verify.py
 
-Writes nothing to the repo; no DB. Needs Playwright + Chromium.
+Writes nothing to the repo; the scratch DB lives in a temporary folder.
+Needs Playwright + Chromium.
 """
 import functools
 import http.server
@@ -38,6 +57,7 @@ import threading
 from playwright.sync_api import sync_playwright
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import cockpit_coverage_file as ccf  # noqa: E402
 import cockpit_desk_files as cdf  # noqa: E402
 import desk_battery as b  # noqa: E402
 
@@ -70,6 +90,146 @@ STATE = """(()=>{
 LEDGER_CARD_LINE = "exports read no ledger summary; postseason rows are sized at half until v1.2"   # #544, verbatim
 
 NO_EXEC = {"edge": None, "cost": None, "basis": None, "taker": None, "join": None, "note": None}
+
+TODAY = """(()=>{
+  const q=(el,s)=>el.querySelector(s);
+  return {
+    shown: !document.getElementById("todayView").hidden,
+    summary: document.getElementById("todaySummary").textContent,
+    tiles: [...document.querySelectorAll("#todayTiles .tile")].map(t=>({code:t.dataset.code,status:t.dataset.status,
+      games:+q(t,".tgames").dataset.games,gamesText:q(t,".tgames").textContent,label:q(t,".slabel").textContent,
+      groups:[...t.querySelectorAll(".grp")].map(g=>({state:g.dataset.state,
+        countdown:q(g,".countdown")?q(g,".countdown").textContent:null}))})),
+    gaps: [...document.querySelectorAll("#todayGaps .gapline")].map(e=>e.textContent),
+    gapsText: document.getElementById("todayGaps").textContent,
+    etas: [...document.querySelectorAll("#todayEtas .eta")].map(e=>({lane:e.dataset.lane,eta:q(e,".etav").textContent})),
+    etasText: document.getElementById("todayEtas").textContent,
+    rows: rows.length, calls: deskCalls.length, slateRows: document.querySelectorAll("#slate tbody tr").length,
+    deskSummary: document.getElementById("summary").textContent, title: document.title,
+    pwned: window.__pwned===1,
+  };})()"""
+
+
+def _cd_seconds(text):
+    """'T-35 in 1h 05m 07s' -> 3907; None when not a countdown."""
+    import re
+    m = re.fullmatch(r"T-35 in (\d+)h (\d\d)m (\d\d)s", text or "")
+    return int(m[1]) * 3600 + int(m[2]) * 60 + int(m[3]) if m else None
+
+
+def today_checks(browser, url, tmp, errors, load, slate_files, counts):
+    """Addendum 125 item 2(c): the Today tab against a coverage_v1 file the real command wrote on a scratch DB."""
+    from datetime import datetime, timedelta, timezone
+    cov = ccf.make(tempfile.mkdtemp(dir=tmp))
+    t0 = datetime.now(timezone.utc).replace(microsecond=0)
+    doc = cov["doc"] or {}
+    print("[today: coverage --json on a scratch DB]")
+    check("`coverage --json` on the scratch DB: exit 0, kind coverage_v1",
+          cov["rc"] == 0 and doc.get("kind") == "coverage_v1", (cov["console"].strip().splitlines() or [""])[-1][:200])
+    comps = doc.get("competitions") or []
+
+    def fresh(clock=None):
+        page = browser.new_context(timezone_id="America/New_York").new_page()
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        if clock:
+            page.clock.install(time=clock)
+        page.goto(url)
+        return page
+
+    def put(page, paths):
+        page.set_input_files("#predFile", paths)
+        page.wait_for_function("document.getElementById('todaySummary').textContent.startsWith('COVERAGE')")
+        return page.evaluate(TODAY)
+
+    page = fresh(t0)
+    T = put(page, [cov["path"]])
+    check("a coverage file alone opens the Today tab; the page title is \"Cockpit\"",
+          T["shown"] and T["title"] == "Cockpit", f"{T['shown']} {T['title']!r}")
+    check(f"tiles == the file's competitions, in its order ({len(comps)})",
+          [t["code"] for t in T["tiles"]] == [x["code"] for x in comps] and len(comps) >= 4,
+          json.dumps([t["code"] for t in T["tiles"]]))
+    check("each tile's games count == len(games) in the file",
+          [t["games"] for t in T["tiles"]] == [len(x["games"]) for x in comps]
+          and all(t["gamesText"] == f"{len(x['games'])} game{'' if len(x['games']) == 1 else 's'}"
+                  for t, x in zip(T["tiles"], comps)),
+          json.dumps([(t["code"], t["games"], t["gamesText"]) for t in T["tiles"]]))
+    check("each tile's status label == the file's status_label, word for word (LIVE, MARKET-ONLY · shadow v7, ...)",
+          [t["label"] for t in T["tiles"]] == [x["status_label"] for x in comps],
+          json.dumps([t["label"] for t in T["tiles"]]))
+    check(f"the gaps lines == the file's gaps ({len(doc.get('gaps') or [])})",
+          T["gaps"] == doc.get("gaps") and len(T["gaps"]) >= 2, json.dumps(T["gaps"])[:240])
+    lanes = doc.get("roadmap") or []
+    check(f"the ETAs strip: one line per roadmap lane, the file's ETA ({len(lanes)} lanes, "
+          f"{sum(1 for ln in lanes if ln['eta'] == 'no ETA')} 'no ETA')",
+          [(e["lane"], e["eta"]) for e in T["etas"]] == [(ln["lane"], ln["eta"]) for ln in lanes]
+          and any(ln["eta"] == "no ETA" for ln in lanes), json.dumps(T["etas"])[:240])
+    groups = [g for t in T["tiles"] for g in t["groups"]]
+    ahead = [g for g in groups if g["state"] not in ("done", "started")]
+    done = [g for g in groups if g["state"] == "done"]
+    check("a group to run shows a live countdown to its T-35; a done group shows none",
+          ahead and all(_cd_seconds(g["countdown"]) for g in ahead) and done
+          and all(g["countdown"] is None for g in done), json.dumps(groups)[:240])
+    page.clock.pause_at(t0 + timedelta(minutes=1))               # the page's clock held, then moved by hand
+    left = lambda S: [_cd_seconds(g["countdown"]) for t in S["tiles"] for g in t["groups"]  # noqa: E731
+                      if g["state"] not in ("done", "started")]
+    a = left(page.evaluate(TODAY))
+    page.clock.run_for(61000)
+    z = left(page.evaluate(TODAY))
+    check("the countdowns move with the page clock (61 s later, 61 s less)",
+          a and len(a) == len(z) and all(x is not None and y is not None and x - y == 61 for x, y in zip(a, z)),
+          f"{a} -> {z}")
+    page.context.close()
+
+    # a slate, then the coverage file alone: the slate is never reset
+    page, S = load(slate_files, counts)
+    before = page.evaluate(TODAY)
+    T = put(page, [cov["path"]])
+    check("coverage loaded after a slate: the slate is untouched (rows, Desk calls, table rows, summary)",
+          (T["rows"], T["calls"], T["slateRows"], T["deskSummary"]) == (before["rows"], before["calls"],
+                                                                       before["slateRows"], before["deskSummary"])
+          and before["rows"] > 0 and len(T["tiles"]) == len(comps),
+          f"rows {before['rows']}->{T['rows']} · calls {before['calls']}->{T['calls']}")
+    page.context.close()
+
+    # the coverage file, then a slate: the tiles are never reset
+    page = fresh()
+    page.clock.set_fixed_time(b.GOLDEN_NOW)
+    page.goto(url)
+    page.evaluate(f"localStorage.setItem('bd_ledger_v1', {json.dumps(json.dumps(b.seeded_ledger(counts)))})")
+    page.goto(url)
+    first = put(page, [cov["path"]])
+    page.set_input_files("#predFile", cdf.write(tempfile.mkdtemp(dir=tmp), slate_files))
+    page.wait_for_function("document.getElementById('summary').textContent.includes('rows')")
+    T = page.evaluate(TODAY)
+    check("a slate loaded after the coverage file: the tiles, gaps and ETAs are untouched, the slate loads",
+          (T["tiles"], T["gaps"], T["etas"], T["summary"]) == (first["tiles"], first["gaps"], first["etas"],
+                                                              first["summary"]) and T["rows"] > 0,
+          f"tiles {len(first['tiles'])}->{len(T['tiles'])} · rows {T['rows']}")
+    page.context.close()
+
+    # a status the file adds later, markup in a file string, a roadmap the command could not read
+    odd = json.loads(json.dumps(doc))
+    pot = json.loads(json.dumps(comps[-1]))
+    pot.update(code="SA", status="POT", status_label="POT (training data only)",
+               status_from="<img src=x onerror=\"window.__pwned=1\">")
+    odd["competitions"].append(pot)
+    odd["gaps"] = odd["gaps"] + ["<b>X</b>: 1 GAME, 0 PREDICTION ROWS"]
+    odd["roadmap"], odd["roadmap_unread"] = None, "the roadmap cannot be read: docs/roadmap.json: lane 1: no title"
+    p = os.path.join(tempfile.mkdtemp(dir=tmp), "coverage_odd.json")
+    with open(p, "w", encoding="utf-8") as f:
+        json.dump(odd, f)
+    page = fresh(datetime.now(timezone.utc))
+    T = put(page, [p])
+    last = T["tiles"][-1] if T["tiles"] else {}
+    check("a status the file adds later renders as its label (POT (training data only)), uncomputed",
+          (last.get("code"), last.get("status"), last.get("label")) == ("SA", "POT", "POT (training data only)"),
+          json.dumps(last)[:200])
+    check("markup in a file string is shown as text, never run",
+          not T["pwned"] and T["gaps"][-1] == "<b>X</b>: 1 GAME, 0 PREDICTION ROWS", T["gaps"][-1:])
+    check("roadmap null: the ETAs strip shows the file's reason, no lane guessed",
+          T["etas"] == [] and "roadmap not read: the roadmap cannot be read" in T["etasText"], T["etasText"][:160])
+    page.context.close()
+    return cov
 
 
 def display_rule(js, docs):
@@ -183,6 +343,7 @@ def main():
               card_line is not None and card_line["shown"]
               and card_line["text"] == LEDGER_CARD_LINE, json.dumps(card_line))
         page.context.close()
+        today_checks(browser, url, tmp, errors, load, files, sc["counts"])
         check("no page errors", not errors, "; ".join(errors[:3]))
         browser.close()
     srv.shutdown()

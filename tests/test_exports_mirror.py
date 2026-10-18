@@ -67,6 +67,27 @@ def test_kinds_and_plan():
     assert pl["latest"] == {"host/latest/nhl_shadow.json": "nhl_shadow_2026-10-03_1600.json"}
 
 
+def test_the_coverage_file_is_mirrored_dated_and_as_latest_coverage(tmp_path):
+    """ARCHITECT 2026-10-18, addendum 125 item 2(a) (#589): "the mirror carries it (laptop/latest/coverage.json,
+    host/latest after the cutover)". coverage_<date>.json (`coverage --json`'s default name) is a kind like any other:
+    its dated folder (the file's UTC mtime, as for every file) and latest/coverage.json, the newest day's file. The
+    writer's hidden temporary (.coverage_<date>.json.<pid>.tmp) is never taken. No mirror code changed for it."""
+    import coverage_map as cm
+    assert em.kind_of(Path(cm.default_out(date(2026, 10, 3))).name) == "coverage"
+    pl = em.plan([("coverage_2026-10-02.json", _mt(date(2026, 10, 2))),
+                  ("coverage_2026-10-03.json", _mt(date(2026, 10, 3))),
+                  (".coverage_2026-10-03.json.4242.tmp", _mt(date(2026, 10, 3)))], "laptop", TODAY)
+    assert set(pl["dated"]) == {"laptop/2026-10-02/coverage_2026-10-02.json",
+                                "laptop/2026-10-03/coverage_2026-10-03.json"}
+    assert pl["latest"] == {"laptop/latest/coverage.json": "coverage_2026-10-03.json"}
+    ex = _exports(tmp_path, [("coverage_2026-10-03.json", date(2026, 10, 3), '{"kind": "coverage_v1"}')])
+    remote = _remote(tmp_path)
+    r = em.push("host", ex, "t", remote, tmp_path / "clone", today=TODAY)
+    assert r["pushed"] and r["copied"] == 2
+    _, tree = _tree(remote, tmp_path)
+    assert {"host/2026-10-03/coverage_2026-10-03.json", "host/latest/coverage.json"} <= set(tree)
+
+
 def test_host_and_laptop_push_retention_latest_and_tools(tmp_path):
     remote = _remote(tmp_path)
     ex = _exports(tmp_path, [("fixtures_NHL_2026-10-03.json", TODAY, '{"a":1}'),

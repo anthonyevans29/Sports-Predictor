@@ -10,7 +10,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Betting Desk — B1 Shadow</title>
+<title>Cockpit</title>
 <style>
 :root{
   box-sizing:border-box;
@@ -93,21 +93,44 @@ details.sig pre{max-height:220px;margin:6px 0 0}
 .summary{font-size:14px;margin:6px 0}
   .orderline{font-size:12px;user-select:all;padding:1px 4px;border:1px solid var(--line,#ccc);border-radius:3px}
   div.order{margin-top:3px}
+/* TODAY (addendum 125 item 2(b), #589): the coverage_v1 file, rendered as the file gives it */
+.tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(300px,100%),1fr));gap:10px;margin-bottom:12px}
+.tile{background:var(--card);border:1px solid var(--line);border-left:4px solid var(--line);border-radius:10px;
+  padding:10px 12px;font-size:13px;min-width:0;overflow-wrap:anywhere}
+.tile[data-status="LIVE"]{border-left-color:var(--accent)}
+.tile[data-status="SHADOW"]{border-left-color:var(--warn)}
+.tile[data-status="MARKET-ONLY"]{border-left-color:var(--pass)}
+.tile[data-status="UNKNOWN"]{border-left-color:var(--danger)}
+.tile .thead{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:baseline}
+.tile .tcode{font-weight:700;font-size:16px}
+.tile .slabel{font-weight:700;margin-top:2px}
+.tile .sec{margin-top:7px}
+.tile .lab{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.03em;margin-right:4px}
+.grp{margin-top:5px;padding-top:5px;border-top:1px dashed var(--line)}
+.gstate{display:inline-block;padding:0 5px;border:1px solid currentColor;border-radius:3px;font-size:10px;
+  font-weight:600;text-transform:uppercase;letter-spacing:.02em}
+.grp[data-state="done"] .gstate{color:var(--accent)}
+.grp[data-state="due"] .gstate,.grp[data-state="inside"] .gstate{color:var(--danger)}
+.countdown{font-variant-numeric:tabular-nums;font-weight:600}
+.gapline{color:var(--danger);font-weight:700;white-space:pre-wrap;overflow-wrap:anywhere}
+.eta{padding:5px 0;border-bottom:1px solid var(--line);overflow-wrap:anywhere}
+.eta:last-child{border-bottom:0}
 </style>
 </head>
 <body>
-<h1>Cockpit <span class="chip">card + desk + ledger + next 24h · policy v1.1</span></h1>
+<h1>Cockpit <span class="chip">card + desk + ledger + next 24h + today · policy v1.1</span></h1>
 <div class="row" style="margin-bottom:10px">
   <button id="tabCard" class="ghost">Card</button>
   <button id="tabDesk">Desk</button>
   <button id="tabLedger" class="ghost">Ledger</button>
   <button id="tabNext" class="ghost">Next 24h</button>
+  <button id="tabToday" class="ghost">Today</button>
 </div>
 <div class="sub">Deterministic policy-as-code over the day's export file. Files stay in this page; the optional audit sends only the summarized slate to Claude. Tune the knobs until the calls match the incumbent layer, then the divergence closes.</div>
 
 <div class="card">
   <div class="row">
-    <div><label>Predictions exports (JSON — select ALL of today's files, any sports)</label><br>
+    <div><label>Predictions exports (JSON — select ALL of today's files, any sports; coverage_&lt;date&gt;.json feeds the Today tab)</label><br>
       <input type="file" id="predFile" accept=".json" multiple></div>
     <div><label>GPT feedback (optional, .txt — for side-by-side reading)</label><br>
       <input type="file" id="gptFile" accept=".txt,.md"></div>
@@ -205,6 +228,20 @@ details.sig pre{max-height:220px;margin:6px 0 0}
   <div class="tablewrap"><table id="nextTable" hidden><thead><tr>
     <th>Kickoff</th><th>Sport</th><th>Game</th><th>Model</th><th>Book fair</th><th>Kalshi</th>
     <th>Edge</th><th>Tier</th><th>Flags</th><th>Engine</th></tr></thead><tbody></tbody></table></div>
+</div>
+
+<!-- TODAY (ARCHITECT 2026-10-18, addendum 125 item 2(b), #589): the day's coverage map and the roadmap's ETAs, from
+     the coverage_v1 file `python cli.py coverage --json` writes. A viewer, not an engine (F1c): every label, count,
+     time and line is the file's; the page's own clock drives only the T-35 countdowns. Repo copy only: the live
+     Cockpit is republished on the operator's word. -->
+<div id="todayView" hidden>
+  <div class="card">
+    <div id="todaySummary" class="summary">No coverage file loaded.</div>
+    <div class="note">Load <code>exports/coverage_&lt;date&gt;.json</code> (<code>python cli.py coverage --json</code>; <code>latest/coverage.json</code> on the exports mirror) with the file picker above, alone or with the day's files. Rendered as the file gives it, in its order; nothing is recomputed here. Loading it never clears the loaded slate, and a slate loaded after it never clears it.</div>
+  </div>
+  <div class="card" id="todayGaps" hidden></div>
+  <div class="tiles" id="todayTiles"></div>
+  <div class="card" id="todayEtas" hidden></div>
 </div>
 
 <div id="ledgerView" hidden>
@@ -2507,9 +2544,121 @@ function renderParlays(ranked,card,out){
   }).join("");
 }
 
+// ---------------------------------------------------------------------
+// TODAY (ARCHITECT 2026-10-18, addendum 125 item 2(b), #589), verbatim: "tools/cockpit.html gains a fifth tab,
+// "Today", fed by that file through the existing intake (`loadDocs`: a `coverage_v1` document takes its own path
+// like `desk_parlays_v1`, and it never resets the loaded slate — a coverage file alone must not blank `rows`). It
+// renders, in the file's own order (LIVE, SHADOW, MARKET-ONLY, UNKNOWN): one tile per competition — the games count,
+// the status label as the file gives it (PREDICTION for LIVE, with the model; MARKET-ONLY; SHADOW with its tag;
+// UNKNOWN with its reasons), the writer chains, the prediction rows by model with computed_at, then the closing
+// groups: T-35 in ET, the match ids, the file name, and the state (done with run id and exit / due with a live
+// countdown / started with no group). The gaps in capitals at the top, exactly the file's `gaps` lines. Below the
+// tiles, the ETAs strip from `roadmap`: one line per lane, competition · status · ETA. Nothing is computed in the page
+// that the file does not carry (the F1c principle: viewer, not engine). The page's own clock is used only for the
+// countdowns."
+// The coverage document is held apart from the slate: takeCoverage() lifts every coverage_v1 file out of a load
+// BEFORE the slate path runs, so a load of coverage files alone returns with rows, shadow rows, tickets and refusals
+// untouched, and a slate load never clears coverageDoc (only a newer coverage file replaces it). Every label, count,
+// time and line is the file's own, escaped; statuses render generically by their label (a status the file adds later
+// renders the same way, uncoloured). The page's clock drives the countdowns to each group's run time (`run_at`).
+let coverageDoc=null, coverageName="", coverageNote="", todayTimer=null;
+function takeCoverage(fs){
+  const rest=[], got=[];
+  for(const f of fs){
+    let doc=null;
+    try{ doc=JSON.parse(f.text); }catch(e){ rest.push(f); continue; }   // the slate path reports a file it cannot read
+    if(doc&&typeof doc==="object"&&doc.kind==="coverage_v1") got.push({name:f.name,doc}); else rest.push(f);
+  }
+  if(got.length){
+    // several in one load: the newest by the file's own date, then its now (ISO strings compare as text)
+    got.sort((a,b)=>String(a.doc.date??"").localeCompare(String(b.doc.date??""))
+      ||String(a.doc.now??"").localeCompare(String(b.doc.now??"")));
+    const pick=got[got.length-1];
+    coverageDoc=pick.doc; coverageName=pick.name;
+    coverageNote=got.length>1?` · ${got.length} coverage files in this load: showing the newest (${got.slice(0,-1).map(g=>g.name).join(", ")} not shown)`:"";
+  }
+  return {rest,taken:got.length};
+}
+function countdownText(ms,lead){
+  if(!(ms>0)) return `${lead} passed`;
+  const s=Math.floor(ms/1000), h=Math.floor(s/3600), m=Math.floor(s%3600/60), x=s%60;
+  return `${lead} in ${h}h ${String(m).padStart(2,"0")}m ${String(x).padStart(2,"0")}s`;
+}
+function tickToday(){
+  const now=Date.now();
+  document.querySelectorAll("#todayTiles [data-run-at]").forEach(el=>{
+    const t=utcMs(el.dataset.runAt);
+    el.textContent=isFinite(t)?countdownText(t-now,el.dataset.lead||"run"):"run time unreadable";
+  });
+}
+function todayIds(a){ return (Array.isArray(a)?a:[]).map(v=>String(v??"")).join(", "); }
+function todayGroupHTML(g){
+  const st=String(g.state??"");
+  let h=`<div class="grp" data-state="${esc(st)}"><span class="gstate">${esc(st)}</span> `
+    +`<b>${esc(g.run_lead)} ${esc(g.run_at_et)}</b> <span class="gids">[${esc(todayIds(g.match_ids))}]</span>`;
+  if(st==="done") h+=` · run <code>${esc(g.run_id)}</code>, exit ${esc(g.exit)}`
+    +(g.file_failed?` · <span class="caution">closing file NOT written</span>`:"");
+  if(st!=="done"&&g.run_at) h+=` · <span class="countdown" data-run-at="${esc(g.run_at)}" data-lead="${esc(g.run_lead||"run")}"></span>`;
+  // the group as the coverage line prints it: the file name (or why there is none) and what the watch does next
+  return h+`<div class="note gtext">${esc(g.text)}</div></div>`;
+}
+function todayTileHTML(x){
+  const games=Array.isArray(x.games)?x.games:[], n=games.length;
+  const rws=Array.isArray(x.rows)?x.rows:[], groups=Array.isArray(x.groups)?x.groups:[];
+  const writers=Array.isArray(x.writers)?x.writers:[], started=Array.isArray(x.started)?x.started:[];
+  const finished=Array.isArray(x.finished)?x.finished:[], voids=Array.isArray(x.void)?x.void:[];
+  let h=`<div class="tile" data-code="${esc(x.code)}" data-status="${esc(x.status)}">`
+    +`<div class="thead"><span class="tcode">${esc(x.code)}</span>`
+    +`<span class="tgames" data-games="${n}">${n} game${n===1?"":"s"}</span></div>`
+    +(voids.length?`<div class="note">void, not counted: ${esc(voids.map(v=>Array.isArray(v)?v.join(" "):String(v??"")).join(", "))}</div>`:"")
+    +`<div class="slabel">${esc(x.status_label)}</div><div class="note">${esc(x.status_from)}</div>`
+    +`<div class="sec"><span class="lab">writer chains</span>${writers.length?esc(writers.join(", ")):"none"}</div>`
+    +`<div class="sec">`;
+  // the rows by model with their computed_at; with none, the line's own words ("rows: none (none expected: …)")
+  h+=rws.length?`<span class="lab">prediction rows</span>`+rws.map(m=>`<div class="mrow"><b>${esc(m.model_version)}</b> `
+      +`${esc(m.rows)} row${m.rows===1?"":"s"}`+(m.computed_et?` · ${esc(m.computed_et)}`:"")+`</div>`).join("")
+    :esc(x.rows_text);
+  if(x.without_rows_text) h+=`<div class="note">${esc(x.without_rows_text)}</div>`;
+  h+=`</div><div class="sec">`;
+  // no family, refused here, receipts unread or no group: the line's own closing clause ("closing: …")
+  if(!x.family||x.refused||x.closing_unread||!groups.length) h+=esc(x.closing_text);
+  else{
+    h+=`<span class="lab">closing</span>`;
+    if(started.length) h+=`<div class="grp" data-state="started"><span class="gstate">started</span> [${esc(todayIds(started))}] — no group</div>`;
+    if(finished.length) h+=`<div class="note">a closing finished with ${esc(todayIds(finished))}</div>`;
+    h+=groups.map(todayGroupHTML).join("");
+  }
+  return h+`</div><details class="sig"><summary>console line</summary><pre>${esc(x.line)}</pre></details></div>`;
+}
+function renderToday(){
+  const d=coverageDoc;
+  if(!d){ $("todaySummary").textContent="No coverage file loaded."; $("todayGaps").hidden=true;
+    $("todayTiles").innerHTML=""; $("todayEtas").hidden=true; return; }
+  const comps=Array.isArray(d.competitions)?d.competitions:[];
+  $("todaySummary").textContent=`COVERAGE ${d.date??"?"} ET · now ${d.now_et??d.now??"?"} · ${comps.length} competition${comps.length===1?"":"s"} · ${coverageName}`
+    +(Array.isArray(d.competitions)?"":" · ⚠ the file carries no competitions list")+coverageNote;
+  const gaps=Array.isArray(d.gaps)?d.gaps:[];
+  $("todayGaps").hidden=false;
+  $("todayGaps").innerHTML=gaps.length?`<h2 style="margin-top:0">GAPS:</h2>`+gaps.map(g=>`<div class="gapline">${esc(g)}</div>`).join("")
+    :`<h2 style="margin:0">GAPS: none</h2>`;
+  $("todayTiles").innerHTML=comps.length?comps.map(todayTileHTML).join(""):`<div class="note">no stored game that day</div>`;
+  $("todayEtas").hidden=false;
+  if(!Array.isArray(d.roadmap)) $("todayEtas").innerHTML=`<h2 style="margin-top:0">ETAs</h2>`
+    +`<div class="caution">roadmap not read: ${esc(d.roadmap_unread??"the file carries no roadmap")}</div>`;
+  else $("todayEtas").innerHTML=`<h2 style="margin-top:0">ETAs <span class="note">the roadmap's lanes, as <code>python cli.py roadmap</code> reads them</span></h2>`
+    +d.roadmap.map(l=>`<div class="eta" data-lane="${esc(l.lane)}" title="${esc(l.line)}"><b>${esc(Array.isArray(l.competitions)&&l.competitions.length?l.competitions.join(", "):l.title)}</b>`
+      +` · ${esc(l.state)} · <span class="etav">${esc(l.eta)}</span><div class="note">${esc(l.next_line)}</div></div>`).join("");
+  tickToday();
+  if(!todayTimer) todayTimer=setInterval(tickToday,1000);
+}
+
 // One load path for picked files and the exports mirror (F2.5): [{name, text}].
 async function loadDocs(fs){
   if(!fs.length)return;
+  const cov=takeCoverage(fs);            // TODAY (#589): coverage_v1 files leave the batch first, on their own path
+  if(cov.taken) renderToday();
+  fs=cov.rest;
+  if(!fs.length){ setTab("today"); return; }   // a coverage file alone: the loaded slate is never reset
   rows=[]; shadowRows=[]; fileParlays=null; refusedFiles=[]; const sports=new Set();
   for(const f of fs){
     try{const doc=JSON.parse(f.text);
@@ -2715,16 +2864,19 @@ function setTab(mode){
   $("deskView").hidden=mode!=="desk";
   $("ledgerView").hidden=mode!=="ledger";
   $("nextView").hidden=mode!=="next";
+  $("todayView").hidden=mode!=="today";
   $("tabCard").className=mode==="card"?"":"ghost";
   $("tabDesk").className=mode==="desk"?"":"ghost";
   $("tabLedger").className=mode==="ledger"?"":"ghost";
   $("tabNext").className=mode==="next"?"":"ghost";
+  $("tabToday").className=mode==="today"?"":"ghost";
   if(mode==="ledger") renderLedger();
 }
 $("tabCard").addEventListener("click",()=>setTab("card"));
 $("tabDesk").addEventListener("click",()=>setTab("desk"));
 $("tabLedger").addEventListener("click",()=>setTab("ledger"));
 $("tabNext").addEventListener("click",()=>setTab("next"));
+$("tabToday").addEventListener("click",()=>setTab("today"));
 setTab("desk");
 
 (async()=>{

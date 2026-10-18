@@ -33,6 +33,9 @@ Layout written by a push (role = host or laptop):
   <role>/latest/<kind>.json    the newest file per kind (kind = the name with its
                                date/time stamp removed), rewritten each push
   tools/compare_exports.py     + .github/workflows/compare.yml (the verdict Action)
+The day's coverage file (`coverage --json`, exports/coverage_<date>.json; ARCHITECT 2026-10-18, addendum 125 item 2(a):
+"the mirror carries it (laptop/latest/coverage.json, host/latest after the cutover)") is a kind like any other:
+<role>/<date>/coverage_<date>.json and <role>/latest/coverage.json, by the rule above (tests/test_exports_mirror.py).
 Dated folders older than RETENTION_DAYS are deleted. COPIES only: exports/ is
 never modified. Subdirectories of exports/ (raw provider caches) are not mirrored.
 """

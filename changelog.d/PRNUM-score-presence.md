@@ -1,4 +1,4 @@
-## 2026-10-17 (#582: score-presence — #493, ARCHITECT addendum 81 item 3, addendum 112 item 4, addendum 116 item 4)
+## 2026-10-17 (#PRNUM: score-presence — #493, ARCHITECT addendum 81 item 3, addendum 112 item 4, addendum 116 item 4)
 - src/adapters/api_sports_status.py (new): the status rule both api-sports game adapters read.
   - `provider_short` reads the provider's short as sent, BEFORE any `NS` default.
   - `no_status` is True when there is none: the block missing, null or empty, its short null or empty, or the literal text `None` (addendum 116 item 4 (4): the same as absent).

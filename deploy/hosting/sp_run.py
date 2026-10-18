@@ -55,18 +55,30 @@ def date_vars(today: date) -> dict:
     }
 
 
+def fullseason_entries(p) -> list[tuple[str, str]]:
+    """The competitions a full-season list names, as the weekly-fullseason chain resolves them: one
+    (code, season) per line that is neither blank nor a '#' comment, in file order, split on the first '|'
+    and each half stripped. The ONE parser: cutover-readiness counts the list with it (ARCHITECT 2026-10-18,
+    addendum 122 item 3(b)), so the readout and the chain cannot drift. A read error raises as it always did;
+    a line without '|' raises ValueError naming the line."""
+    out = []
+    for n, line in enumerate(Path(p).read_text().splitlines(), 1):
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if "|" not in line:
+            raise ValueError(f"{p} line {n}: {line!r} is not CODE|SEASON")
+        code, season = (x.strip() for x in line.split("|", 1))
+        out.append((code, season))
+    return out
+
+
 def fullseason_steps() -> list[list[str]]:
     p = c.setting("SP_FULLSEASON_LIST")
     if not p or not Path(p).exists():
         raise SystemExit("✗ weekly-fullseason: SP_FULLSEASON_LIST missing — refusing to "
                          "guess the competition list (see hosting-h1.md step T9).")
-    steps = []
-    for line in Path(p).read_text().splitlines():
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        code, season = (x.strip() for x in line.split("|", 1))
-        steps.append(["sync-matches", "--competition", code, "--season", season])
+    steps = [["sync-matches", "--competition", code, "--season", season] for code, season in fullseason_entries(p)]
     if not steps:
         raise SystemExit(f"✗ weekly-fullseason: {p} lists no competitions.")
     return steps

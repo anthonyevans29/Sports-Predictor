@@ -163,3 +163,141 @@ def test_newer_one_sided_date_blocks_the_older_streak_unless_it_is_todays_pendin
     assert cr.main(["--mirror", str(mirror), "--receipts", str(rp), "--no-parity", "--today", "2026-10-10"]) == 1
     last = capsys.readouterr().out.strip().splitlines()[-1]
     assert last.startswith("NOT-YET") and "(a) streak 0/5 (overdue one-sided 2026-10-09)" in last
+
+
+# ---------------------------------------------------------------- (T9) the weekly full-season list
+# ARCHITECT 2026-10-18, addendum 122 item 3(b): "`cutover-readiness` gains a readout line from SP_FULLSEASON_LIST —
+# "fullseason list: N competitions" or "EMPTY → NOT-YET" (one more binding condition on the readout [...])".
+
+import pytest  # noqa: E402
+
+import sp_common as c  # noqa: E402
+import sp_run  # noqa: E402
+
+EXAMPLE = ROOT / "deploy" / "hosting" / "etc" / "fullseason.list.example"
+
+
+@pytest.fixture
+def no_settings(tmp_path, monkeypatch):
+    """SP_FULLSEASON_LIST from nowhere but the test: no environment value, no host.env, no checkout .env."""
+    monkeypatch.delenv("SP_FULLSEASON_LIST", raising=False)
+    monkeypatch.setattr(c, "HOST_ENV", tmp_path / "no-host.env")
+    monkeypatch.setattr(c, "_DOTENV_CACHE", {})
+    return tmp_path
+
+
+def readout(tmp_path, capsys, *extra):
+    """cr.main with (a)-(c) unmet the cheap way (no mirror, no receipts, no parity); returns (exit, T9 lines,
+    last line)."""
+    rc = cr.main(["--mirror", str(tmp_path / "no-mirror"), "--receipts", str(tmp_path / "no-receipts.jsonl"),
+                  "--no-parity", "--today", "2026-10-18", *extra])
+    out = capsys.readouterr().out.strip().splitlines()
+    i = next(n for n, ln in enumerate(out) if ln.startswith("(T9) WEEKLY FULL-SEASON LIST"))
+    t9 = [ln for ln in out[i:-1] if ln.strip()]
+    return rc, t9, out[-1]
+
+
+def test_t9_populated_list_counts_its_competitions_and_does_not_bind(no_settings, monkeypatch, capsys):
+    lst = no_settings / "fullseason.list"
+    lst.write_text("# generated from the host DB, read-only (T9)\n\nPL|2026/27\n  NFL | 2026  \nNHL|2026\n")
+    monkeypatch.setenv("SP_FULLSEASON_LIST", str(lst))
+    rc, t9, last = readout(no_settings, capsys)
+    assert t9[0] == f"(T9) WEEKLY FULL-SEASON LIST — SP_FULLSEASON_LIST: {lst}"
+    assert t9[1] == "    fullseason list: 3 competitions — PL|2026/27 · NFL|2026 · NHL|2026"
+    assert t9[2] == "    MLB lines: none (MLB is excluded by ruling, addendum 122 item 3(a))"
+    assert rc == 1 and last.startswith("NOT-YET") and "(T9)" not in last      # (a)-(c) unmet here; T9 is not
+
+
+def test_t9_the_installed_example_reads_empty_not_yet(no_settings, monkeypatch, capsys):
+    """The host's file today: the installed example, comment lines only (addendum 122 item 3)."""
+    monkeypatch.setenv("SP_FULLSEASON_LIST", str(EXAMPLE))
+    rc, t9, last = readout(no_settings, capsys)
+    assert t9[1] == "    fullseason list: EMPTY → NOT-YET · the file lists no competitions (blank and '#' lines only)"
+    assert rc == 1 and "(T9) fullseason list EMPTY" in last
+    with pytest.raises(SystemExit, match="lists no competitions"):       # the chain refuses the same file
+        sp_run.fullseason_steps()
+
+
+def test_t9_missing_setting_and_missing_file_are_not_yet_with_the_reason(no_settings, monkeypatch, capsys):
+    rc, t9, last = readout(no_settings, capsys)
+    assert t9[0] == "(T9) WEEKLY FULL-SEASON LIST — SP_FULLSEASON_LIST: not set"
+    assert t9[1].startswith("    fullseason list: NOT SET → NOT-YET · SP_FULLSEASON_LIST is not set on this machine")
+    assert rc == 1 and "(T9) fullseason list NOT SET" in last
+    with pytest.raises(SystemExit, match="SP_FULLSEASON_LIST missing"):
+        sp_run.fullseason_steps()
+    monkeypatch.setenv("SP_FULLSEASON_LIST", str(no_settings / "absent.list"))
+    rc, t9, last = readout(no_settings, capsys)
+    assert t9[1] == "    fullseason list: MISSING → NOT-YET · the file does not exist (hosting-h1.md step T9 writes it)"
+    assert "(T9) fullseason list MISSING" in last
+    with pytest.raises(SystemExit, match="SP_FULLSEASON_LIST missing"):
+        sp_run.fullseason_steps()
+
+
+def test_t9_unreadable_or_unparseable_is_never_ok(no_settings, monkeypatch, capsys):
+    """Law 4: a file the readout cannot read, or a line the chain cannot parse, is NOT-YET, never a count."""
+    d = no_settings / "a-directory"
+    d.mkdir()
+    monkeypatch.setenv("SP_FULLSEASON_LIST", str(d))
+    rc, t9, last = readout(no_settings, capsys)
+    assert t9[1].startswith("    fullseason list: UNREADABLE → NOT-YET · unreadable (IsADirectoryError")
+    assert "(T9) fullseason list UNREADABLE" in last
+    lst = no_settings / "fullseason.list"
+    lst.write_text("PL|2026/27\n")
+    monkeypatch.setenv("SP_FULLSEASON_LIST", str(lst))
+
+    def denied(self, *a, **k):
+        raise PermissionError(13, "Permission denied", str(self))
+    with monkeypatch.context() as m:                    # root reads a 0000 file, so the denial is simulated
+        m.setattr(cr.Path, "read_text", denied)
+        rc, t9, last = readout(no_settings, capsys)
+    assert t9[1].startswith("    fullseason list: UNREADABLE → NOT-YET · unreadable (PermissionError")
+    assert "(T9) fullseason list UNREADABLE" in last
+    lst.write_text("PL|2026/27\nNFL 2026\n")
+    rc, t9, last = readout(no_settings, capsys)
+    assert t9[1] == (f"    fullseason list: UNPARSEABLE → NOT-YET · {lst} line 2: 'NFL 2026' is not CODE|SEASON "
+                     f"(weekly-fullseason fails on this line too)")
+    assert "(T9) fullseason list UNPARSEABLE" in last
+    with pytest.raises(ValueError, match="line 2: 'NFL 2026' is not CODE|SEASON"):
+        sp_run.fullseason_steps()
+
+
+def test_t9_count_is_fullseason_steps_own_resolution(no_settings, monkeypatch):
+    """One parser: the readout's competitions are exactly the steps weekly-fullseason resolves from the same file
+    (blank lines, indented comments, padding round '|', a repeated line, a '|' inside the season)."""
+    lst = no_settings / "fullseason.list"
+    lst.write_text("# head\n\n   # indented comment\nPL|2026/27\n BL1 |  2026/27 \nNFL|2026\nPL|2026/27\nX|a|b\n")
+    monkeypatch.setenv("SP_FULLSEASON_LIST", str(lst))
+    steps = sp_run.fullseason_steps()
+    assert steps == sp_run.resolve("weekly-fullseason", {}, cr.date(2026, 10, 25))
+    st = cr.fullseason_state(c.setting("SP_FULLSEASON_LIST"))
+    assert st["state"] == "ok" and len(st["entries"]) == len(steps) == 5
+    assert st["entries"] == [f"{s[2]}|{s[4]}" for s in steps]
+    assert st["entries"] == ["PL|2026/27", "BL1|2026/27", "NFL|2026", "PL|2026/27", "X|a|b"]
+
+
+def test_t9_mlb_lines_are_reported_not_binding(no_settings, monkeypatch, capsys):
+    """MLB is excluded from the host's list by ruling (addendum 122 item 3(a)). Built: printed, not binding; the
+    architect rules whether it binds (the ledger entry asks)."""
+    lst = no_settings / "fullseason.list"
+    lst.write_text("NFL|2026\nMLB|2026\nmlb_spring|2026\nPL|2026/27\n")
+    monkeypatch.setenv("SP_FULLSEASON_LIST", str(lst))
+    rc, t9, last = readout(no_settings, capsys)
+    assert t9[1] == "    fullseason list: 4 competitions — NFL|2026 · MLB|2026 · mlb_spring|2026 · PL|2026/27"
+    assert t9[2].startswith("    ⚠ MLB line(s) listed: MLB|2026, mlb_spring|2026 — MLB is excluded by ruling "
+                            "(addendum 122 item 3(a)); printed, not binding")
+    assert "(T9)" not in last
+    # every competition code the MLB adapter exposes reads as an MLB line; no other listed code does
+    from src.adapters.mlb_stats_api import _COMPETITIONS
+    assert _COMPETITIONS and all(cr.mlb_code(k) for k in _COMPETITIONS)
+    assert not any(cr.mlb_code(k) for k in ("PL", "NFL", "NHL", "NCAA", "UEL", "CL", "ELC", "MLS", "MLBX"))
+
+
+def test_t9_fullseason_list_option_reads_the_named_file(no_settings, monkeypatch, capsys):
+    """Run away from the host (the laptop's readout, addendum 113 item 5): the host's file passed by name wins over
+    the machine's setting, and the line names where it came from."""
+    lst = no_settings / "host-fullseason.list"
+    lst.write_text("PL|2026/27\nNFL|2026\n")
+    monkeypatch.setenv("SP_FULLSEASON_LIST", str(EXAMPLE))
+    rc, t9, last = readout(no_settings, capsys, "--fullseason-list", str(lst))
+    assert t9[0] == f"(T9) WEEKLY FULL-SEASON LIST — --fullseason-list: {lst}"
+    assert t9[1] == "    fullseason list: 2 competitions — PL|2026/27 · NFL|2026" and "(T9)" not in last

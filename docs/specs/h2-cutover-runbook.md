@@ -106,6 +106,23 @@ The plan's dated items (addendum 113, "WHAT STILL HAS TO HAPPEN, DATED"), verbat
   minutes, and the watch allows thirty. A closing run meets the hourly chain only where its T-35 falls between
   five and twelve past the hour, a kickoff at about a quarter to, and then it waits for it. The units with no run
   in the read are read once they have run; they do not hold the enable."
+- **T9: the weekly full-season list — "fullseason.list non-empty, dry run printed" (PRE-CUTOVER ITEM, binding;
+  ARCHITECT 2026-10-18, addendum 122 item 3; #586).** The ruling, verbatim: "(a) T9 is a PRE-CUTOVER ITEM, binding:
+  block_1018_t9_host.txt (Tailscale) generates the list from the host DB read-only, prints it, writes every line
+  EXCEPT MLB, prints the file, then runs the chain's dry run (resolved commands only). MLB is excluded by ruling: MLB
+  is a laptop duty to the season's last game; a host api-sports whole-season MLB write beside the laptop's statsapi
+  rows is #569's twin-row shape. The chain's first real run is its own timer, Sun 10-25 06:00Z — the morning page
+  that day carries its receipt, and Friday's cutover ruling is GO only conditional on it (an added condition; the
+  frozen criteria are not loosened)."
+  - Why: `/etc/sports-predictor/fullseason.list` on the host is still the installed example (comment lines only), so
+    `weekly-fullseason` refused ("lists no competitions") on 10-04, 10-11 and 10-18, paged each time; the host has
+    never done a full-season resync (hosting-h1.md step T9 was never run).
+  - TERMINAL (host), Tailscale: the architect's block `block_1018_t9_host.txt`. It writes one host config file and
+    opens the DB read-only. Receipt: paste its whole console: the generated list, the file as written (no MLB line),
+    and the dry run, one `python cli.py sync-matches --competition <C> --season <S>` per line of the file
+    (`sudo -u sp venv/bin/python deploy/hosting/sp_run.py weekly-fullseason --dry-run`, hosting-h1.md T10).
+  - The readout reads it: `cutover-readiness` prints `(T9) WEEKLY FULL-SEASON LIST` (below).
+  - The close: the receipt of the chain's first real run, its own timer, Sun 10-25 06:00Z, on that morning's page.
 - **Readiness readout (#85, ARCHITECT lane 2 2026-10-04).** TERMINAL (host),
   read-only:
   ```
@@ -127,6 +144,13 @@ The plan's dated items (addendum 113, "WHAT STILL HAS TO HAPPEN, DATED"), verbat
     COMPLETED (an explicit integer exit 0, nothing refused, every counted step
     run), none failed (a missing exit is a failure), desk rows emitted.
   - **(c)** `scripts/desk_parity_verify.py` on the tag's own code.
+  - **(T9)** an ADDED binding condition (ARCHITECT 2026-10-18, addendum 122 item 3(b); the frozen (a)-(c) are
+    unchanged): the file `SP_FULLSEASON_LIST` names (host.env), or the host's file passed with
+    `--fullseason-list FILE` elsewhere, counted by the chain's own parser (`sp_run.fullseason_entries`, the one
+    `weekly-fullseason` resolves its steps with). `fullseason list: N competitions — <CODE|SEASON> · …`, or
+    `fullseason list: EMPTY → NOT-YET`. The setting not set, the file missing or unreadable, or a line the chain
+    cannot parse are also NOT-YET, each with its reason (law 4). An MLB line prints with a `⚠`, not binding: MLB is
+    excluded by ruling (addendum 122 item 3(a)), and whether a listed MLB line binds is the architect's ruling.
   - Last line: `GO — …` or `NOT-YET — <each unmet criterion>`. Exit 0 / 1.
   - The tool names only identical, capture timing (market / Kalshi / price
     fields and the Desk fields that follow them, on matched rows) and the

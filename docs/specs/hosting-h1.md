@@ -700,6 +700,10 @@ sqlite3 -readonly /opt/sports-predictor/data/sports.db \
 ```
 Paste the list as the receipt. Delete any line you do not want synced
 weekly. If the list is missing or empty, the chain fails loudly.
+**MLB is left out (ARCHITECT 2026-10-18, addendum 122 item 3(a)):** "MLB is excluded by ruling: MLB is a laptop
+duty to the season's last game; a host api-sports whole-season MLB write beside the laptop's statsapi rows is
+#569's twin-row shape." T9 is a pre-cutover item, binding (h2-cutover-runbook.md section 0, block
+`block_1018_t9_host.txt`); `cutover-readiness` reads the list (#586).
 
 **T10. TERMINAL (host): dry-run receipts.**
 Resolved commands only; nothing executes:

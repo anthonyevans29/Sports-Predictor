@@ -9149,9 +9149,11 @@ def mlb_closing_watch_cmd(dry_run):
 @click.pass_context
 def cutover_readiness_cmd(ctx):
     """#85 CUTOVER READINESS (read-only): the compare streak, the host's tag and
-    desk calls per chain, parity on that tag, then GO / NOT-YET against the
-    ruled criteria. Options pass through to deploy/hosting/cutover_readiness.py
-    (--mirror, --receipts, --named, --no-parity)."""
+    desk calls per chain, parity on that tag, the weekly full-season list (T9,
+    addendum 122 item 3(b)), then GO / NOT-YET against the ruled criteria and
+    the added T9 condition. Options pass through to
+    deploy/hosting/cutover_readiness.py (--mirror, --receipts, --named,
+    --no-parity, --fullseason-list)."""
     import sys as _sys
     from pathlib import Path as _P
     _sys.path.insert(0, str(_P(__file__).resolve().parent / "deploy" / "hosting"))

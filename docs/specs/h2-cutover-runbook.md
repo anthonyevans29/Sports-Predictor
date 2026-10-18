@@ -15,6 +15,50 @@ Labels follow hosting-h1.md: **TERMINAL (laptop)**, **TERMINAL (host)**.
 
 ---
 
+## The 2026-10 schedule
+
+ARCHITECT 2026-10-17 10:55 ET, addendum 113, "THE CUTOVER PLAN: the laptop's producer duties move to the host;
+target Monday 2026-10-26, fallback 10-30". These are the plan's dates as it states them. They date the steps on this
+page and change none of them: each step is done as sections 0 to 3 write it. The frozen criteria are unchanged
+(ARCHITECT 2026-10-02, verbatim): "cutover when (a) 5 consecutive morning compares show only explained classes, (b)
+the host has run a full day on a tag carrying #246 with desk calls emitted, (c) parity harness green on that tag."
+
+| When (addendum 113) | What | On this page |
+|---|---|---|
+| Sun 10-18 → Thu 10-22 | the five morning compares: criterion (a) | section 0, Readiness readout (a) |
+| Sun 10-18 | the dry run on the laptop (any mode, no host); receipt to the architect | section 0, Dry run |
+| Mon 10-19 evening | the P8 rehearsal on the host (Tailscale): one `closing-run --family NFL` by hand | section 0, The host closing-watch rehearsal |
+| by Wed 10-21 | v1.5.0, the release ritual as docs/RELEASES.md | section 0, Host on a release tag |
+| Thu 10-22 | the host runs on v1.5.0: criterion (b)'s full day with desk calls; the parity harness on that tag: criterion (c) | section 0, Readiness readout (b), (c) |
+| Thu 10-22 evening | `cli.py cutover-readiness` on the laptop; its GO / NOT-YET lines pasted to the architect | section 0, Readiness readout. Note: that section is labelled TERMINAL (host). On the laptop, pass the host's receipts with `--receipts FILE` and the host's list with `--fullseason-list FILE`, or criteria (b) and (T9) read the laptop's own (`--receipts` defaults to this checkout's receipts, (T9) to this machine's `SP_FULLSEASON_LIST`). Which machine runs it is an open question for the architect (#587: the host-watch ledger entry's first question, the full-season entry's question 2). |
+| Fri 10-23 morning | the architect's ruling: cutover Monday 10-26, or named reasons and the 10-30 fallback | |
+| Mon 10-26, 09:00–11:00 ET (fallback 10-30) | the cutover: section 1, step by step, each step's receipt pasted before the next | section 1 |
+
+The plan's dated items (addendum 113, "WHAT STILL HAS TO HAPPEN, DATED"), verbatim:
+
+> 1. Sun 10-18 → Thu 10-22: the five morning compares. Each morning's Tailscale block already runs compare_exports;
+> a day counts when every divergent line is identical / capture timing / code-version skew, or operator-named with
+> evidence in the --named file. Sunday's is the first with both machines on tagged-or-newer code paths. I read each
+> one in the morning page; a day that needs a BACKLOG entry is a day lost from the streak.
+> 2. Sun 10-18 (laptop, any mode, no host): the dry run — `sp_cutover.py run --dry-run --scratch <DIR>` on a scratch
+> pack (runbook section 0). Receipt to me. Block from me tomorrow.
+> 3. Mon 10-19 evening (host, Tailscale): the P8 rehearsal — one host `closing-run --family NFL --start <the MNF start
+> the laptop's watch paged>`; its page is a second page, the operator acts on the laptop's; I read the receipt and
+> duration. Block from me Monday.
+> 4. By Wed 10-21: v1.5.0. The tag carries this week's merges — the host fence (#410), the void-re-dated rule (#574),
+> the coverage command (#576), the migration guard (#524) and whatever else is in by Tuesday night. Release ritual as
+> docs/RELEASES.md (--cleanup=verbatim). The host runs Thursday 10-22 on it: that is criterion (b)'s full day with desk
+> calls; the parity harness runs on that tag Thursday: criterion (c).
+> 5. Thu 10-22 evening: `cli.py cutover-readiness` on the laptop; its GO / NOT-YET lines pasted to me. Fri 10-23
+> morning: my ruling — cutover Monday 10-26, or named reasons and the 10-30 fallback.
+> 6. Mon 10-26 morning, 09:00–11:00 ET (no soccer that day; NFL only in the evening; the host's 13:05Z window tick is
+> the first one to run on the new database): the runbook's section 1, step by step, labelled TERMINAL (laptop) /
+> TERMINAL (host), each step's receipt pasted before the next. Backup first on both machines. The laptop's watch
+> uninstalled at step 1; the host's watch is already a timer. After `receipt`: the laptop is the console — blocks,
+> Cockpit, MLB closings only (its DB is written by the MLB chains and nothing else, per the ruling).
+
+---
+
 ## 0. Before the ruling day
 
 - **Dry run (any day, no host needed).** TERMINAL (laptop), from the repo
@@ -62,6 +106,23 @@ Labels follow hosting-h1.md: **TERMINAL (laptop)**, **TERMINAL (host)**.
   minutes, and the watch allows thirty. A closing run meets the hourly chain only where its T-35 falls between
   five and twelve past the hour, a kickoff at about a quarter to, and then it waits for it. The units with no run
   in the read are read once they have run; they do not hold the enable."
+- **T9: the weekly full-season list — "fullseason.list non-empty, dry run printed" (PRE-CUTOVER ITEM, binding;
+  ARCHITECT 2026-10-18, addendum 122 item 3; #586).** The ruling, verbatim: "(a) T9 is a PRE-CUTOVER ITEM, binding:
+  block_1018_t9_host.txt (Tailscale) generates the list from the host DB read-only, prints it, writes every line
+  EXCEPT MLB, prints the file, then runs the chain's dry run (resolved commands only). MLB is excluded by ruling: MLB
+  is a laptop duty to the season's last game; a host api-sports whole-season MLB write beside the laptop's statsapi
+  rows is #569's twin-row shape. The chain's first real run is its own timer, Sun 10-25 06:00Z — the morning page
+  that day carries its receipt, and Friday's cutover ruling is GO only conditional on it (an added condition; the
+  frozen criteria are not loosened)."
+  - Why: `/etc/sports-predictor/fullseason.list` on the host is still the installed example (comment lines only), so
+    `weekly-fullseason` refused ("lists no competitions") on 10-04, 10-11 and 10-18, paged each time; the host has
+    never done a full-season resync (hosting-h1.md step T9 was never run).
+  - TERMINAL (host), Tailscale: the architect's block `block_1018_t9_host.txt`. It writes one host config file and
+    opens the DB read-only. Receipt: paste its whole console: the generated list, the file as written (no MLB line),
+    and the dry run, one `python cli.py sync-matches --competition <C> --season <S>` per line of the file
+    (`sudo -u sp venv/bin/python deploy/hosting/sp_run.py weekly-fullseason --dry-run`, hosting-h1.md T10).
+  - The readout reads it: `cutover-readiness` prints `(T9) WEEKLY FULL-SEASON LIST` (below).
+  - The close: the receipt of the chain's first real run, its own timer, Sun 10-25 06:00Z, on that morning's page.
 - **Readiness readout (#85, ARCHITECT lane 2 2026-10-04).** TERMINAL (host),
   read-only:
   ```
@@ -83,6 +144,15 @@ Labels follow hosting-h1.md: **TERMINAL (laptop)**, **TERMINAL (host)**.
     COMPLETED (an explicit integer exit 0, nothing refused, every counted step
     run), none failed (a missing exit is a failure), desk rows emitted.
   - **(c)** `scripts/desk_parity_verify.py` on the tag's own code.
+  - **(T9)** an ADDED binding condition (ARCHITECT 2026-10-18, addendum 122 item 3(b); the frozen (a)-(c) are
+    unchanged): the file `SP_FULLSEASON_LIST` names (host.env), or the host's file passed with
+    `--fullseason-list FILE` elsewhere, counted through the chain's own path (`sp_run.fullseason_resolve`: the
+    parser, then the str.format `weekly-fullseason` fills its steps with). `fullseason list: N competitions —
+    <CODE|SEASON> · …`, or `fullseason list: EMPTY → NOT-YET`. The setting not set (or `--fullseason-list` given an
+    empty path), the file missing or unreadable, or a line the chain cannot parse or fill (no `|`, an empty code or
+    season, a brace str.format cannot fill: the chain refuses each at resolve) are also NOT-YET, each with its reason
+    (law 4). An MLB line prints with a `⚠`, not binding: MLB is
+    excluded by ruling (addendum 122 item 3(a)), and whether a listed MLB line binds is the architect's ruling.
   - Last line: `GO — …` or `NOT-YET — <each unmet criterion>`. Exit 0 / 1.
   - The tool names only identical, capture timing (market / Kalshi / price
     fields and the Desk fields that follow them, on matched rows) and the

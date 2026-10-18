@@ -55,18 +55,66 @@ def date_vars(today: date) -> dict:
     }
 
 
-def fullseason_steps() -> list[list[str]]:
+def format_step(st: list[str], v: dict) -> list[str]:
+    """One chain step with its placeholders filled ({today}, {sat}, ... and any --set key): str.format on every
+    argument. resolve() fills every chain's steps with it."""
+    return [a.format(**v) for a in st]
+
+
+def fullseason_entries(p) -> list[tuple[int, str, str, str]]:
+    """The list's ONE parser: (line number, stripped line, code, season) per line of a full-season list that is
+    neither blank nor a '#' comment, in file order, split on the first '|' and each half stripped, braces as written.
+    A read error raises as it always did; a line without '|', or whose code or season is empty once stripped
+    ("|2026", "NFL|", "|"), raises ValueError naming the file and the line: the chain refuses it at resolve instead of
+    running a step bound to fail. Read as utf-8-sig, so a hand-edited file's leading BOM never rides into the first
+    code (str.strip keeps U+FEFF)."""
+    out = []
+    for n, line in enumerate(Path(p).read_text(encoding="utf-8-sig").splitlines(), 1):
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if "|" not in line:
+            raise ValueError(f"{p} line {n}: {line!r} is not CODE|SEASON")
+        code, season = (x.strip() for x in line.split("|", 1))
+        if not code or not season:
+            which = "code and season" if not code and not season else "code" if not code else "season"
+            raise ValueError(f"{p} line {n}: {line!r} is not CODE|SEASON (empty {which})")
+        out.append((n, line, code, season))
+    return out
+
+
+def fullseason_resolve(p, v: dict) -> list[list[str]]:
+    """weekly-fullseason's steps for the list at `p`, filled as resolve() fills every chain's steps: one
+    `sync-matches --competition CODE --season SEASON` per line, through format_step with `v`. The ONE path from the
+    file to the commands: resolve() runs weekly-fullseason through it and cutover-readiness counts the list through
+    it (ARCHITECT 2026-10-18, addendum 122 item 3(b)), so a line the readout counts is a line the chain runs, and a
+    line the chain fails on the readout reads UNPARSEABLE. Raises ValueError naming the file and line for a line the
+    parser refuses (fullseason_entries) and for a brace str.format cannot fill ("NFL|{season}": KeyError; a lone '}':
+    ValueError; "{0}": IndexError; "{today.x}": AttributeError), the error's type and text in the message, and for a
+    code or season that str.format leaves empty ("NFL|{today:.0}"), as the parser refuses an empty half."""
+    out = []
+    for n, line, code, season in fullseason_entries(p):
+        try:
+            st = format_step(["sync-matches", "--competition", code, "--season", season], v)
+        except (KeyError, ValueError, IndexError, AttributeError, TypeError) as e:
+            raise ValueError(f"{p} line {n}: {line!r} does not resolve: its braces fail the chain's str.format "
+                             f"({type(e).__name__}: {e})") from e
+        if not st[2].strip() or not st[4].strip():
+            which = ("code and season" if not st[2].strip() and not st[4].strip()
+                     else "code" if not st[2].strip() else "season")
+            raise ValueError(f"{p} line {n}: {line!r} is not CODE|SEASON (empty {which} after str.format)")
+        out.append(st)
+    return out
+
+
+def fullseason_steps(v: dict | None = None) -> list[list[str]]:
+    """weekly-fullseason's steps from the file SP_FULLSEASON_LIST names, filled with `v` (default: today's date
+    variables); refuses a missing setting or file, and a list with no competitions."""
     p = c.setting("SP_FULLSEASON_LIST")
     if not p or not Path(p).exists():
         raise SystemExit("✗ weekly-fullseason: SP_FULLSEASON_LIST missing — refusing to "
                          "guess the competition list (see hosting-h1.md step T9).")
-    steps = []
-    for line in Path(p).read_text().splitlines():
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        code, season = (x.strip() for x in line.split("|", 1))
-        steps.append(["sync-matches", "--competition", code, "--season", season])
+    steps = fullseason_resolve(p, date_vars(c.utc_now().date()) if v is None else v)
     if not steps:
         raise SystemExit(f"✗ weekly-fullseason: {p} lists no competitions.")
     return steps
@@ -166,12 +214,14 @@ def window_steps(now) -> list[list[str]]:
 
 def resolve(name: str, overrides: dict, today: date, now=None) -> list[list[str]]:
     chain = CHAINS[name]
+    v = {**date_vars(today), **overrides}
     if chain.get("window_plan"):
         steps = window_steps(now or c.utc_now().replace(tzinfo=None))
+    elif chain.get("fullseason"):
+        return fullseason_steps(v)      # filled by fullseason_resolve, the path cutover-readiness counts through
     else:
-        steps = fullseason_steps() if chain.get("fullseason") else chain["steps"]
-    v = {**date_vars(today), **overrides}
-    return [[a.format(**v) for a in st] for st in steps]
+        steps = chain["steps"]
+    return [format_step(st, v) for st in steps]
 
 
 def metered_skip(cmd: str, today: date) -> bool:

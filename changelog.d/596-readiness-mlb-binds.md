@@ -1,4 +1,4 @@
-## 2026-10-18 (#PRNUM: readiness-mlb-binds — an MLB line on the host's list binds NOT-YET; the readout runs on the host; the intl verifier pins its role; hosting-h1 T9 installs over the list; ARCHITECT addendum 128 items 1(a), 1(b), 4; Refs #591, #593)
+## 2026-10-18 (#596: readiness-mlb-binds — an MLB line on the host's list binds NOT-YET; the readout runs on the host; the intl verifier pins its role; hosting-h1 T9 installs over the list; ARCHITECT addendum 128 items 1(a), 1(b), 4; Refs #591, #593)
 - **Rulings (ARCHITECT 2026-10-18 10:00 ET, addendum 128), verbatim:**
 
 > (a) WHICH MACHINE RUNS `cutover-readiness`: the HOST, over ssh in the Thursday evening block, so (b) and (T9) read the host's own receipts and list; the laptop form (`--receipts FILE --fullseason-list FILE`) is for my dry reads only and is labelled as such on the page.

@@ -15,12 +15,14 @@
   - Under today's code, PL is LIVE; ELC, PD (· shadow v1), SA, BL1, FL1, CL, EFL and UEL are MARKET-ONLY. Those keep their status.
   - So the pot competitions that printed UNKNOWN and now print POT are EL1, EL2, FAC, WC and the nine feeders. That is 13, plus CS or UECL if the row holds them, and not eight.
   - A day's map names only the competitions with games that day, so a morning that showed eight UNKNOWN lines is consistent with this.
+  - **The first live morning (ARCHITECT 2026-10-18 07:50 ET, addendum 120 item 2), verbatim:** "four UNKNOWN (AUT, NED, SCO, TUR) = the training pot — the POT status follow-up stands for Code." All four are feeders in the pot. On this branch each prints POT. So "the eight" reads as one day's UNKNOWN lines, the pot competitions with games that day. The code prints POT for every pot competition that holds no other status, whatever the day.
   - The operator's read-only check on the laptop: `sqlite3 'file:data/sports.db?mode=ro' "SELECT j.key FROM model_versions m, json_each(m.parameters, '\$.contexts') j WHERE m.status='production' AND m.model_family='soccer_elo_poisson'"`.
 - **As built (#PRNUM):**
   - `POT_LABEL = "POT (training data only)"`, the ruling's words.
   - `STATUSES = LIVE, SHADOW, MARKET-ONLY, POT, UNKNOWN`, the print order.
   - `NO_ROWS_EXPECTED` gains POT: `rows: none (none expected: POT)`, no gap judged, and the `MODEL STATUS UNKNOWN` line no longer names it.
   - LIVE, SHADOW and MARKET-ONLY win where they apply. A pot competition that is live stays LIVE (PL); one that is market-only stays MARKET-ONLY (ELC, CL, PD).
+  - SHADOW ranks above POT, so POT needs the shadow judged. With the roadmap or the registry unreadable, a pot competition prints UNKNOWN (law 4), its line naming its pot and that SHADOW was not judged.
   - UNKNOWN's reasons gain the pot's: `not in the training pot of production soccer_elo_poisson v22`, or `no training pot read (…)`.
   - POT expects no rows because every `predict` step in chains.py names a competition that a closing family covers (MLB, PL), and `predict-nfl` names none. A test pins this.
   - coverage_map.py names no competition. The source test checks every code the football adapter maps.

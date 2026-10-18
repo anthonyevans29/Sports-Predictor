@@ -196,3 +196,19 @@ def test_null_list_entries_are_labelled_not_read_and_a_null_competition_is_named
     err = _node(_today_js() + """let m=null; try{ todayTileHTML(null,0); }catch(e){ m=e.message; }
       console.log(JSON.stringify(m));""")
     assert err == "competitions[0] is null, not a competition entry"
+
+
+def test_array_list_entries_are_labelled_not_read_and_an_array_competition_is_named():
+    """Codex review on #595: an array is typeof "object" in JavaScript, so an array entry passed todayEntry and
+    rendered as a blank tile or undefined fields. An array is no entry: labelled "not read" in a tile's rows or groups
+    and in the roadmap, and an array competition throws, named, as a null one does."""
+    x = dict(COV["competitions"][0], rows=[[1, 2], *COV["competitions"][0]["rows"]],
+             groups=[*COV["competitions"][0]["groups"], ["T-35"]])
+    t = _tile(x)
+    assert "rows[0] not read: [1,2]" in t and 'groups[2] not read: [&quot;T-35&quot;]' in t
+    assert "<b>v22</b> 1 row" in t and "run <code>R1</code>, exit 0" in t
+    eta = _node(_today_js() + """console.log(JSON.stringify(todayEtaHTML(["nhl"],1)));""")
+    assert "roadmap[1] not read: [&quot;nhl&quot;]" in eta
+    err = _node(_today_js() + """let m=null; try{ todayTileHTML([],0); }catch(e){ m=e.message; }
+      console.log(JSON.stringify(m));""")
+    assert err == "competitions[0] is [], not a competition entry"

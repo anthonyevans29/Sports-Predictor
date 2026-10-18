@@ -2595,7 +2595,7 @@ function tickToday(){
   });
 }
 function todayIds(a){ return (Array.isArray(a)?a:[]).map(v=>String(v??"")).join(", "); }
-function todayEntry(v){ return v!==null&&typeof v==="object"; }
+function todayEntry(v){ return v!==null&&typeof v==="object"&&!Array.isArray(v); }   // an array is no entry: "not read"
 function todayShown(v){ return JSON.stringify(v)??String(v); }
 function todayUnread(where,v){ return `<div class="note caution unread">${esc(where)} not read: ${esc(todayShown(v))}</div>`; }
 function todayGroupHTML(g,i){

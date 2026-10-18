@@ -721,11 +721,20 @@ def document(cov: dict, roadmap_path=None) -> dict:
 
 
 def _out_refusal(p: Path) -> str | None:
-    """Law 5: nothing is ever created under data/ (the checkout's, or the working directory's)."""
+    """Law 5: nothing is ever created under data/ (the checkout's, or the working directory's). And a file at the top
+    of exports/ (the checkout's, or the working directory's), which the exports mirror pushes, must be named as kind
+    `coverage` (exports_mirror.kind_of): the compare lists that kind as machine state and never compares it (#592,
+    addendum 128 item 3), so a coverage_v1 document under another kind's name would be compared and read DIVERGENT."""
+    import exports_mirror as em
     t = p.resolve()
     for data in {(c.REPO / "data").resolve(), (Path.cwd() / "data").resolve()}:
         if t == data or data in t.parents:
             return f"--out {p} is under {data} (law 5: nothing is created under data/)"
+    for ex in {(c.REPO / "exports").resolve(), (Path.cwd() / "exports").resolve()}:
+        if t.parent == ex and t.name.endswith(em.SUFFIXES) and em.kind_of(t.name) != "coverage":
+            return (f"--out {p} is a top-level exports/ file the mirror pushes as kind {em.kind_of(t.name)!r}, not "
+                    f"'coverage' (#592: only kind coverage is machine state, never compared): name it "
+                    f"coverage_<date>.json, or write it outside exports/")
     return None
 
 

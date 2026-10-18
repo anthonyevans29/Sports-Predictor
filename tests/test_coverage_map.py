@@ -1114,6 +1114,25 @@ def test_json_refusals_write_no_file(env, monkeypatch, tmp_path):
     assert cm._out_refusal(c.REPO / "data" / "x.json") is not None                # the checkout's data/ too
 
 
+def test_json_an_out_at_the_top_of_exports_must_be_named_as_kind_coverage(env, monkeypatch, tmp_path):
+    """#592's rule is a KIND rule (addendum 128 item 3): the compare lists kind coverage as machine state and never
+    compares it. A coverage_v1 document written at the top of exports/ under another kind's name (exports/today.json:
+    kind 'today') would be pushed, compared on its clock-dependent fields and read DIVERGENT (Codex review on #595), so
+    it is refused, exit 2, nothing written. The kind's own names pass, and so does any name outside exports/'s top."""
+    work = tmp_path / "work"
+    work.mkdir()
+    monkeypatch.chdir(work)
+    make_db(env, [(401, "PL", "2026-10-17 14:00", "SCHEDULED")])
+    rc, out = run("--date", DAY, "--json", "--out", "exports/today.json")
+    assert rc == 2 and out[0].startswith("COVERAGE REFUSED: --out exports/today.json is a top-level exports/ file "
+                                         "the mirror pushes as kind 'today', not 'coverage'")
+    assert not (work / "exports").exists()
+    assert cm._out_refusal(c.REPO / "exports" / "fixtures_PL_2026-10-17.json") is not None    # the checkout's too
+    for ok in ("exports/coverage_2026-10-17.json", "exports/coverage.json", "exports/sub/today.json", "today.json"):
+        assert cm._out_refusal(Path(ok)) is None, ok
+    assert run("--date", DAY, "--json", "--out", "exports/coverage.json")[0] == 0
+
+
 def test_json_a_file_that_cannot_be_written_exits_2_and_leaves_no_partial(env, monkeypatch, tmp_path):
     make_db(env, [(401, "PL", "2026-10-17 14:00", "SCHEDULED")])
     (tmp_path / "taken").write_text("a file where the folder would be")

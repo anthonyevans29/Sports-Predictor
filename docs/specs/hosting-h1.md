@@ -691,20 +691,32 @@ sudo systemctl enable --now sp-mlb-history.timer && echo sp-mlb-history.timer | 
   every metered step is skipped until you choose.
 
 **T9. TERMINAL (host): the full-season competition list (H0-12).**
-Generate it from the DB (read-only); never type it from memory:
+Generate it from the DB (read-only); never type it from memory. The command writes the list to a temp file, prints
+it, then installs it over the list (owner root, group sp, mode 0640, as `install.sh` installs the example). It runs
+in a subshell whose EXIT trap removes the temp file, so the block's exit status is the failing step's when the query,
+the print or the install fails (the list then stays as it was), and 0 only when the list was installed:
 ```
-sqlite3 -readonly /opt/sports-predictor/data/sports.db \
+( t=$(mktemp) && trap 'rm -f "$t"' EXIT && sqlite3 -readonly /opt/sports-predictor/data/sports.db \
  "SELECT c.code || '|' || m.season FROM matches m JOIN competitions c ON c.id = m.competition_id
   WHERE m.utc_date BETWEEN datetime('now','-30 days') AND datetime('now','+30 days') AND c.code NOT LIKE 'MLB%'
-  GROUP BY c.code, m.season ORDER BY c.code;" | sudo tee -a /etc/sports-predictor/fullseason.list
+  GROUP BY c.code, m.season ORDER BY c.code;" > "$t" \
+ && cat "$t" && sudo install -o root -g sp -m 0640 "$t" /etc/sports-predictor/fullseason.list )
 ```
 Paste the list as the receipt. Delete any line you do not want synced
 weekly. If the list is missing or empty, the chain fails loudly.
+**Install over the list, never append (#593; ARCHITECT 2026-10-18, addendum 128 item 4: "the docs fix as proposed
+(write to a temp file, print, install over the list)"):** until #593 this step ended `| sudo tee -a`, which kept the
+installed example's comment lines and, on a second run, wrote every line again, so the chain would sync each
+competition twice. The install replaces the file, the example's comment header with it (nothing reads it).
+**T9 runs once (ARCHITECT 2026-10-18, addendum 128 item 4, verbatim):** "OPERATOR: block_1018_t9_host.txt is NEVER
+re-run; today's one run wrote the 26 lines once, and a second run would double them and the chain would sync each
+competition twice. If the list ever needs regenerating, I write a fresh block that installs over the file."
 **MLB is left out (ARCHITECT 2026-10-18, addendum 122 item 3(a)):** the query's `AND c.code NOT LIKE 'MLB%'`
 drops every MLB code (`MLB`, `MLB_SPRING`). "MLB is excluded by ruling: MLB is a laptop
 duty to the season's last game; a host api-sports whole-season MLB write beside the laptop's statsapi rows is
 #569's twin-row shape." T9 is a pre-cutover item, binding (h2-cutover-runbook.md section 0, block
-`block_1018_t9_host.txt`); `cutover-readiness` reads the list (#586).
+`block_1018_t9_host.txt`); `cutover-readiness` reads the list (#586), and an MLB line on it binds: NOT-YET, with
+the line named (ARCHITECT 2026-10-18, addendum 128 item 1(b)).
 
 **T10. TERMINAL (host): dry-run receipts.**
 Resolved commands only; nothing executes:

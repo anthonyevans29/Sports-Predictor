@@ -2218,7 +2218,7 @@ def worse(a: int, b: int) -> int:
 #     could reach the first tick that could start that closing, the first of this machine's ticks after the probe's
 #     start at or after its T-35: the host's whole minutes, the laptop's launchd phase, next_tick). An MLB closing with
 #     no answer otherwise gets the one probe, so with the feed down it holds nothing (a hold for it lost a slate a
-#     kickoff at bde0017, and on the laptop's phase at d035851). The slate stage probes the feed at most once a tick,
+#     kickoff at c789cc1, and on the laptop's phase at f04460b). The slate stage probes the feed at most once a tick,
 #     and not at all when the tick's closings already did: their answer is the tick's (_tick_feed).
 #   - Late (item 2(d): "a laptop asleep at the due time means the first tick after waking"): judged on the first tick
 #     that found the slate due, the earliest queued_at of the day's slate and slate_miss receipts (a hold's, a miss's
@@ -2416,9 +2416,9 @@ def next_tick(tick_at: datetime, now: datetime, at: datetime | None = None) -> d
     The host's timer fires every minute at :00; the laptop's launchd job a whole number of cadences after this tick's
     start `tick_at` (StartInterval keeps the phase it was loaded with, and a firing while the watch runs is missed:
     launchd.plist(5)). A firing before `at` cannot start that closing, so a probe that costs the watch that firing
-    does not delay the closing (the #590 review at d035851: the next firing of either cadence, the whole minute
+    does not delay the closing (the #590 review at f04460b: the next firing of either cadence, the whole minute
     included, held a slate on the laptop where no probe could delay the closing, and a feed-down slate lost a kickoff
-    that 51e3057 caught). A machine with no role refuses every run before its steps (_role_refusal) and is read as the
+    that cb1261d caught). A machine with no role refuses every run before its steps (_role_refusal) and is read as the
     laptop. The tests' ticks start on the minute, where the two cadences are one."""
     cad = timedelta(seconds=WATCH_CADENCE_S)
     origin = now.replace(second=0, microsecond=0) if mirror_role() == "host" else tick_at
@@ -2431,8 +2431,8 @@ def next_tick(tick_at: datetime, now: datetime, at: datetime | None = None) -> d
 def _hold_unprobed(near: dict, fams: tuple[str, ...], tick_at: datetime, now: datetime, known: bool | None) -> bool:
     """Whether `near`, a closing due by the next tick (its T-35 within WATCH_CADENCE_S of `now`), holds the slate with
     no probe of the slate stage's own. Two #590 review findings bound it: a probe after the tick's closings could carry
-    the next tick past that closing's T-35 (bde0017); and a hold for an MLB closing the feed cannot start costs the
-    slate a tick, perhaps a kickoff (51e3057 probed there, and caught it). Held when the closing starts whatever the
+    the next tick past that closing's T-35 (c789cc1); and a hold for an MLB closing the feed cannot start costs the
+    slate a tick, perhaps a kickoff (cb1261d probed there, and caught it). Held when the closing starts whatever the
     feed says (a family with no feed), or the tick's answer (`known`: its closings' probe or an earlier slate's) says
     it starts; not when that answer says it cannot (a miss: it holds nothing, slate_ahead). With no answer: held when
     a closing of a family with no feed is due by the next tick too (the slate is held whatever a probe says), or when
@@ -2779,9 +2779,9 @@ def slate_watch(fam: str, tick_at: datetime, now: datetime | None = None, dry_ru
                           queued_at=tick_at, due_at=due_at)
         return NOTIFIED
     # A closing due by the next tick holds the slate with no probe of the slate's own where the probe could not release
-    # it or could cost that closing its T-35 (_hold_unprobed: the #590 review's probe-delay finding at 51e3057). An MLB
+    # it or could cost that closing its T-35 (_hold_unprobed: the #590 review's probe-delay finding at cb1261d). An MLB
     # closing the tick has no feed answer for is otherwise probed for once here, below (an MLB slate's own check, or the
-    # guard's): with the feed down it starts nothing and holds nothing (the feed-down finding at bde0017, where a held
+    # guard's): with the feed down it starts nothing and holds nothing (the feed-down finding at c789cc1, where a held
     # slate lost a kickoff).
     near = closing_ahead(fams, now)
     if (near and near["run_at"] <= now + timedelta(seconds=WATCH_CADENCE_S)

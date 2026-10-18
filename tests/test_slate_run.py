@@ -684,7 +684,7 @@ def test_the_dry_run_leaves_out_the_closing_its_own_tick_runs_first(box, monkeyp
 
 # ============================================================ a closing that cannot start holds no slate ==
 # An MLB closing whose feed does not answer is a miss on every tick, never a run (watch(), A6): it must not hold
-# another family's slate (at 1efcacd it chained the hold through every MLB group of the day, and an on-time MNF slate
+# another family's slate (at b9df40c it chained the hold through every MLB group of the day, and an on-time MNF slate
 # missed its day, its only page at kickoff).
 
 D19 = date(2026, 10, 19)                                   # a Monday (EDT, UTC-4)
@@ -809,7 +809,7 @@ def test_a_held_ticks_probe_never_carries_the_next_closing_past_its_t35(box, mon
     SOCCER and MLB slates due (12:30, 12:35). Each step takes 49.5 s and each MLB feed probe 3 s; the feed answers. The
     14:25 tick's SOCCER closing ends at 14:29:57 with both slates held by the MLB 15:05 closing, due at 14:30: held with
     no probe, so the 14:30 tick starts on time and its own probe queues that closing at 14:30:03, T-35.0, as with no
-    slate stage (at 51e3057 two slate probes carried that tick to 14:30:03 and the closing to 14:31:03, T-34.0). From
+    slate stage (at cb1261d two slate probes carried that tick to 14:30:03 and the closing to 14:31:03, T-34.0). From
     14:25 the one probe is the closing's; the MLB slate after it reads that answer. Each closing the slates waited for
     is receipted once, the newest naming the one they waited for last."""
     base = et(0, 0, D23)
@@ -857,11 +857,11 @@ def test_a_held_ticks_probe_never_carries_the_next_closing_past_its_t35(box, mon
 
 
 # ===================================== an MLB closing the feed cannot start never costs a slate its first kickoff ==
-# The #590 review's feed-down finding at bde0017: the no-probe hold above held a slate for an MLB closing the tick had
+# The #590 review's feed-down finding at c789cc1: the no-probe hold above held a slate for an MLB closing the tick had
 # no feed answer for, so with the feed down it held the slate one tick for a closing that could not start, and the slate
-# could lose a kickoff that 51e3057 caught. A closing due by the next tick now holds a slate with no probe only when no
+# could lose a kickoff that cb1261d caught. A closing due by the next tick now holds a slate with no probe only when no
 # probe could release it or a probe could cost that closing its T-35 (closing._hold_unprobed); otherwise the slate
-# stage probes the feed once, as at 51e3057.
+# stage probes the feed once, as at cb1261d.
 
 ALL = ("MLB", "NFL", "SOCCER")
 
@@ -883,7 +883,7 @@ def test_an_mlb_closing_the_feed_cannot_start_never_holds_a_slate_past_a_kickoff
     12:00. 14:12 runs the PL 14:30 closing late; 14:25 runs the 15:00 one, which ends at 14:29:30 with the MLB 15:05
     closing due by the next tick. That closing cannot start, and one probe from 14:29:30 cannot carry the tick past
     14:30, so the slate stage probes once (the MLB slate's own check; the SOCCER slate's guard reads its answer) and the
-    SOCCER slate runs at 14:29:30 with both PL games. At bde0017 it was held with no probe to 14:30, and the 14:30
+    SOCCER slate runs at 14:29:30 with both PL games. At c789cc1 it was held with no probe to 14:30, and the 14:30
     kickoff (521) was lost from it. The closings and their misses are the same with the slate stage on or off."""
     clk = busy_day(box, monkeypatch, D23, pl_wednesday(), vpn_on, slate=slate)
     probes = []
@@ -934,7 +934,7 @@ def test_a_tick_with_no_closing_probes_for_the_mlb_closing_due_next_unless_the_p
     start. A tick started at 12:29:00: one probe (FEED_TIMEOUT_S, plus 2 s) cannot reach its next firing, 12:30:00, the
     first that could start that closing: the plan says both ways, and the tick probes once, finds the feed down and runs
     the slate (the closing it would wait for cannot start). A tick at 12:29:55 (a laptop loaded on :55): its next firing
-    is 12:30:55, the first that could start that closing, so a probe to 12:30:05 costs it nothing: the same (the d035851
+    is 12:30:55, the first that could start that closing, so a probe to 12:30:05 costs it nothing: the same (the f04460b
     arm held here, by the next whole minute, 12:30, where this laptop has no firing). The tick started at 12:29:00 with
     its slate stage reached at 12:29:55 (the stage called as watch() calls it, `now` its start): a probe could carry the
     watch past its 12:30:00 firing, that closing's T-35: held with no probe, and no probe at all. The dry run plans the
@@ -1006,13 +1006,13 @@ def test_on_the_laptops_phase_a_slate_probe_never_costs_the_next_closing_its_tic
 @pytest.mark.parametrize("slate", [True, False], ids=["slate-on", "slate-off"])
 def test_on_the_laptops_phase_a_probe_that_cannot_cost_the_closing_a_tick_keeps_the_slates_kickoff(
         box, monkeypatch, slate, up, probe_s):
-    """The #590 review at d035851: the kickoff case above on the laptop's ticks at :52 (from 14:12:52; launchd keeps its
+    """The #590 review at f04460b: the kickoff case above on the laptop's ticks at :52 (from 14:12:52; launchd keeps its
     load phase). Each step takes 38.8 s and each MLB feed probe `probe_s`. The 14:25:52 tick's SOCCER 15:00 closing ends
     at 14:29:44.8 with the MLB 15:05 closing due at 14:30 and no feed answer. This laptop's firings are 14:29:52 and
     14:30:52, and the first that could start that closing (at or after its T-35) is 14:30:52, which no probe from
     14:29:44.8 can reach, so the slate stage probes once. Feed down: the SOCCER slate runs then, with both PL games. At
-    d035851 it was held with no probe at 14:29:44.8 (by the 14:29:52 firing) and again on the 14:29:52 tick (by the next
-    whole minute, 14:30, where this laptop has no firing), and with a 3 s probe ran at 14:30:55 with [522] only (51e3057
+    f04460b it was held with no probe at 14:29:44.8 (by the 14:29:52 firing) and again on the 14:29:52 tick (by the next
+    whole minute, 14:30, where this laptop has no firing), and with a 3 s probe ran at 14:30:55 with [522] only (cb1261d
     and the verifiers' prototype ran it at 14:29:47 with [521, 522]). Feed up: the guard holds the slate, and the MLB
     closing is queued on the 14:30:52 firing after its own probe, as with no slate stage."""
     clk = busy_day(box, monkeypatch, D23, pl_wednesday(), vpn_on, slate=slate)

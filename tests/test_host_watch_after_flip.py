@@ -24,6 +24,7 @@ restoring context managers, a line of code a fresh process reads whatever host.e
 Every side effect is the box's (tests/test_closing_runs.py): a scratch schedule in a throwaway DB under tmp_path, no
 real step, page, push or network."""
 import ast
+import builtins
 import contextlib
 import gc
 import json
@@ -345,8 +346,46 @@ def _names(fn: ast.FunctionDef) -> set[str]:
     return {n.id for n in ast.walk(fn) if isinstance(n, ast.Name)}
 
 
+def _globals_read(fn: ast.FunctionDef, module: dict) -> set[str]:
+    """The module-level names `fn` reads: every name it loads (in it, its lambdas and its nested defs) that nothing in
+    it binds (a parameter, an assignment, a local import, an `except ... as`; a `global` name stays the module's), and
+    that is one of `module`'s globals or no builtin (a name only globals() could bind). An imported module (os, io) is
+    one."""
+    loads, bound, declared = set(), set(), set()
+    for n in ast.walk(fn):
+        if isinstance(n, ast.Name):
+            (loads if type(n.ctx) is ast.Load else bound).add(n.id)
+        elif isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+            a = n.args
+            bound.update(x.arg for x in (*a.posonlyargs, *a.args, *a.kwonlyargs, a.vararg, a.kwarg) if x)
+            if n is not fn and not isinstance(n, ast.Lambda):
+                bound.add(n.name)
+        elif isinstance(n, ast.ClassDef):
+            bound.add(n.name)
+        elif isinstance(n, (ast.Import, ast.ImportFrom)):
+            bound.update((x.asname or x.name).split(".")[0] for x in n.names)
+        elif isinstance(n, ast.ExceptHandler) and n.name:
+            bound.add(n.name)
+        elif isinstance(n, ast.Global):
+            declared.update(n.names)
+    return {x for x in loads - (bound - declared) if x in module or not hasattr(builtins, x)}
+
+
+# The fence's read path: each function -> the desk_policy module-level names it reads (_globals_read), exactly.
+READ_PATH = {
+    "host_fenced": {SWITCH, "HOST_FENCE_SPORTS", "role_reading", "HOST_FENCE_REASON", "HOST_ENV_UNREADABLE",
+                    "HOST_FENCE_UNREADABLE_REASON", "HOST_FENCE_UNSET_REASON"},
+    "role_reading": {"_env_file", "os", "HOST_ENV_DEFAULT", "DOTENV", "HOST_ENV_UNREADABLE", "ROLE_ENV", "ROLES"},
+    "machine_role": {"role_reading"},
+    "_env_file": {"io", "HOST_ENV_UNREADABLE"},
+}
 REFS = ("base_v11", "host_fence_rule_off", SWITCH)  # the switch, and desk_policy's two context managers that turn it off
-REFS_IN_A_STRING = re.compile(rf"\b({'|'.join(REFS)})\b")
+# The fence's other inputs: the functions that decide, and the values host_fenced reads besides the switch. A file that
+# rebinds one (dp.host_fenced = lambda r: None; dp.HOST_FENCE_SPORTS = ()) lifts the fence with the switch still on.
+FENCE_INPUTS = ("host_fenced", "role_reading", "machine_role", "HOST_FENCE_SPORTS", "HOST_FENCE_REASON",
+                "HOST_FENCE_UNREADABLE_REASON", "HOST_FENCE_UNSET_REASON", "HOST_ENV_UNREADABLE")
+WATCHED = frozenset(REFS) | frozenset(FENCE_INPUTS)                  # and below: any of them as a word
+WATCHED_IN_A_STRING = re.compile(rf"\b({'|'.join(sorted(WATCHED, key=len, reverse=True))})\b")
 DESK_POLICY = "src/walters/desk_policy.py"
 SKIP_PARTS = {"tests", ".claude", ".git", "venv", ".venv", "node_modules"}
 
@@ -369,6 +408,7 @@ def _ident(node) -> str | None:
 
 class _Record(NamedTuple):
     refs: set[tuple[str, str]]       # (function, how) for every reference to one of REFS (see _record)
+    inputs: set[tuple[str, str]]     # the same for every reference to one of FENCE_INPUTS
     stores: list[tuple[str, int]]    # where the switch is written: (function, line)
     imports: set[str]                # every dotted part of every import, and every name a `from` import takes
     strings: list[str]               # the string constants the code uses; a bare string statement (a docstring) is not
@@ -380,10 +420,12 @@ def _record(tree: ast.AST) -> _Record:
     dp.host_fence_rule_off) and a write through one (rule = dp.HOST_FENCE_RULE) count where they are taken; how is
     the name, NAME["on"] when it is subscripted ["on"], or "NAME =" when it is assigned to; also "import NAME" for an
     import that takes one (a dotted part, an imported name or an `as` name), and 'NAME' for one in a string the code
-    uses. stores: where the switch is written (NAME = ..., NAME[...] = ..., x.NAME = ..., x.NAME[...] = ...; a tuple
-    target's elements too). imports: every dotted part of `import a.b` and of `from a.b import c` (relative ones
-    too), and every name a `from` import takes (`from scripts import x`, `from . import x`)."""
-    refs, stores, imports, strings = set(), [], set(), []
+    uses. inputs: the same, for FENCE_INPUTS (dp.host_fenced = ... is "host_fenced ="; setattr(dp, "host_fenced", ...)
+    is 'host_fenced'). stores: where the switch is written (NAME = ..., NAME[...] = ..., x.NAME = ...,
+    x.NAME[...] = ...; a tuple target's elements too). imports: every dotted part of `import a.b` and of
+    `from a.b import c` (relative ones too), and every name a `from` import takes (`from scripts import x`,
+    `from . import x`)."""
+    refs, inputs, stores, imports, strings = set(), set(), [], set(), []
     bare, on = set(), set()                  # ids: the value of a bare expression statement; a value subscripted ["on"]
     stack = [(tree, "<module>")]
     pop, push = stack.pop, stack.append
@@ -392,15 +434,16 @@ def _record(tree: ast.AST) -> _Record:
         kind = type(n)
         if kind is ast.Name or kind is ast.Attribute:
             name = n.id if kind is ast.Name else n.attr
-            if name in REFS:
+            if name in WATCHED:
                 how = f'{name}["on"]' if id(n) in on else f"{name} =" if type(n.ctx) is ast.Store else name
-                refs.add((where, how))
+                (refs if name in REFS else inputs).add((where, how))
             if kind is ast.Name:
                 continue                     # no child but its ctx
         elif kind is ast.Constant:
             if type(n.value) is str and id(n) not in bare:
                 strings.append(n.value)
-                refs |= {(where, repr(x)) for x in REFS_IN_A_STRING.findall(n.value)}
+                for x in WATCHED_IN_A_STRING.findall(n.value):
+                    (refs if x in REFS else inputs).add((where, repr(x)))
             continue                         # no child
         elif kind is ast.Expr:
             bare.add(id(n.value))
@@ -412,7 +455,9 @@ def _record(tree: ast.AST) -> _Record:
             for a in n.names:
                 taken += [*(a.name.split(".") if kind is ast.Import else [a.name]), a.asname]
             imports.update(x for x in taken if x)
-            refs |= {(where, f"import {x}") for x in taken if x in REFS}
+            for x in taken:
+                if x in WATCHED:
+                    (refs if x in REFS else inputs).add((where, f"import {x}"))
             continue                         # its children are aliases, read above
         elif kind is ast.Assign or kind is ast.AugAssign or kind is ast.AnnAssign:
             for t in (n.targets if kind is ast.Assign else [n.target]):
@@ -429,7 +474,7 @@ def _record(tree: ast.AST) -> _Record:
                         push((x, where))
             elif isinstance(v, ast.AST):
                 push((v, where))
-    return _Record(refs, stores, imports, strings)
+    return _Record(refs, inputs, stores, imports, strings)
 
 
 @contextlib.contextmanager
@@ -459,41 +504,60 @@ def _named_in_code(rec: _Record, stems: set[str], words: re.Pattern) -> set[str]
     return (rec.imports & stems) | set(words.findall("\0".join(rec.strings)))
 
 
+def _reaching(scripts: dict[str, _Record], reach: set[str]) -> set[str]:
+    """The scripts outside `reach` that import one in it or name one in a string their code uses (_named_in_code):
+    subprocess.run([sys.executable, "scripts/desk_battery.py"]), importlib.import_module("scripts.desk_battery")."""
+    words = _words(reach)
+    return {s for s, r in scripts.items() if s not in reach and (r.imports & reach or _named_in_code(r, reach, words))}
+
+
 def test_c_one_switch_the_cutover_pr_turns_off_and_nothing_else_lifts_the_fence():
     """(c) What #580's identity test (test_desk_host_fence.py::test_the_switch_the_cutover_pr_turns_off_is_the_one_
-    the_fence_reads) does not pin: there is ONE switch for the cutover PR to turn off. Of desk_policy's policy switches
-    (NAME = {"on": bool}) exactly one is the fence's, HOST_FENCE_RULE, and it is the only one the fence's read path
-    (host_fenced, role_reading, machine_role, _env_file) names; that path names no other setting than the role and the
-    two env files, and no WRITER string. The fence is checked in one place, first in _desk_call. In the tracked
-    production code HOST_FENCE_RULE is assigned nowhere but its own definition and desk_policy's two context managers
-    that turn it off and put it back (base_v11 for the frozen golden, host_fence_rule_off for comparisons). Every
-    reference counts (_record: a name or an attribute, so an alias or a write through one too; an import; a string the
-    code uses). In desk_policy the switch is referenced only as its definition and as HOST_FENCE_RULE["on"] (in
-    host_fenced, annotate's desk_meta and the two context managers): no alias, no method call, never handed on; and
-    neither context manager is referenced in its code. No other tracked production file references the switch, and
-    only four verify/battery scripts reference a context manager (scripts/cockpit_btrack_verify.py,
-    cockpit_desk_files.py, cockpit_window_verify.py, desk_battery.py; each dp.base_v11). Neither they nor any script
-    importing them (any dotted part of an import, or a name a `from` import takes) is imported or named in a string
-    the code uses (a path it runs) by cli.py, src/, deploy/ (chains.py, closing.py and the units included) or the
-    laptop's setup scripts, and the four are not named there at all, but one: cutover-readiness
-    (deploy/hosting/cutover_readiness.py) runs the parity harness, scripts/desk_parity_verify.py (desk_battery's
-    base_v11), as a child process in a scratch worktree of a release tag with a scratch DB, criterion (c); it does not
-    import it. So in production the switch is off only by the source line, the cutover PR's line: outside desk_policy,
-    no file on an export, chain, closing or deploy path references the switch or either context manager, or imports
-    a script that does. The desk_meta key the runbook's after-flip check reads (host_fence_rule) is that switch."""
+    the_fence_reads) does not pin: there is ONE switch for the cutover PR to turn off, and nothing else lifts the
+    fence. Of desk_policy's policy switches (NAME = {"on": bool}) exactly one is the fence's, HOST_FENCE_RULE, and it
+    is the only one the fence's read path (host_fenced, role_reading, machine_role, _env_file) names. Each of the four
+    reads exactly the desk_policy module-level names it reads today (READ_PATH; _globals_read: every name it loads
+    that nothing in it binds and that is a desk_policy global, or no builtin; an imported module, os or io, counts),
+    so no other setting (a constant, a helper that reads the environment, a bool) joins the path; its string constants
+    hold no WRITER and no upper-case key but SP_HOST_ENV. The fence is checked in one place, first in _desk_call. In
+    the tracked production Python files HOST_FENCE_RULE is assigned nowhere but its own definition and desk_policy's
+    two context managers that turn it off and put it back (base_v11 for the frozen golden, host_fence_rule_off for
+    comparisons). Every reference counts (_record: a name or an attribute, so an alias or a write through one too; an
+    import; a string the code uses). In desk_policy the switch is referenced only as its definition and as
+    HOST_FENCE_RULE["on"] (in host_fenced, annotate's desk_meta and the two context managers): no alias, no method
+    call, never handed on; and neither context manager is referenced in its code. No other tracked production Python
+    file references the switch, and only four verify/battery scripts reference a context manager
+    (scripts/cockpit_btrack_verify.py, cockpit_desk_files.py, cockpit_window_verify.py, desk_battery.py; each
+    dp.base_v11). The fence's other inputs (FENCE_INPUTS: host_fenced, role_reading, machine_role, HOST_FENCE_SPORTS,
+    the three reasons and HOST_ENV_UNREADABLE), which a file could rebind to lift the fence with the switch still on
+    (dp.host_fenced = lambda r: None; dp.HOST_FENCE_SPORTS = ()), are referenced by no tracked production Python file
+    but desk_policy, counted the same way in the same walk. A script reaches a context manager when it is one of the
+    four, or imports one that reaches (any dotted part of an import, or a name a `from` import takes), or names one in
+    a string its code uses (a path it runs as a child process, a module importlib loads), to the end of the chain (30
+    scripts today). No reaching script is imported or named in a string the code uses by cli.py, config.py (cli.py
+    imports it), src/, deploy/ (chains.py, closing.py and the units included) or the laptop's setup scripts, and the
+    four are not named there at all, but one: cutover-readiness (deploy/hosting/cutover_readiness.py) runs the parity
+    harness, scripts/desk_parity_verify.py (desk_battery's base_v11), as a child process in a scratch worktree of a
+    release tag with a scratch DB, criterion (c); it does not import it. The files on those paths that are not Python
+    (the units, timers, shell scripts and env files), read word by word, name no reaching script, and neither the
+    switch, nor either context manager, nor a fence input. So in production the switch is off only by the source
+    line, the cutover PR's line: outside desk_policy, no file on an export, chain, closing or deploy path references
+    the switch, either context manager or a fence input, or imports or runs a script that reaches a context manager.
+    The desk_meta key the runbook's after-flip check reads (host_fence_rule) is that switch."""
     src = Path(dp.__file__).read_text()
     tree = ast.parse(src)
     switches = _switches(tree)
     assert [s for s in switches if "FENCE" in s] == [SWITCH] and dp.HOST_FENCE_RULE == {"on": True}
     fns = _functions(tree)
-    path = ("host_fenced", "role_reading", "machine_role", "_env_file")
+    path = tuple(READ_PATH)
+    assert path == ("host_fenced", "role_reading", "machine_role", "_env_file")
     assert {s for f in path for s in _names(fns[f]) & set(switches)} == {SWITCH}
     assert _names(fns["host_fenced"]) & set(switches) == {SWITCH}
     strings = [n.value for f in path for n in ast.walk(fns[f]) if isinstance(n, ast.Constant)
                and isinstance(n.value, str)]
     assert not [s for s in strings if "WRITER" in s.upper()]
     assert {s for s in strings if re.fullmatch(r"[A-Z][A-Z0-9_]+", s)} == {"SP_HOST_ENV"}      # host.env's path
-    assert {"ROLE_ENV", "HOST_ENV_DEFAULT", "DOTENV"} <= _names(fns["role_reading"])          # the role, the files
+    assert {f: _globals_read(fns[f], vars(dp)) for f in path} == READ_PATH      # exactly: no hidden setting joins it
     assert dp.ROLE_ENV == "SP_EXPORTS_MIRROR_ROLE"
     calls =[f for f, fn in fns.items() if any(isinstance(n, ast.Call) and getattr(n.func, "id", None) == "host_fenced"
                                                 for n in ast.walk(fn))]
@@ -521,27 +585,37 @@ def test_c_one_switch_the_cutover_pr_turns_off_and_nothing_else_lifts_the_fence(
     refs = {f: sorted({how for _, how in r.refs}) for f, r in records.items() if r.refs and f != DESK_POLICY}
     assert refs == {f"scripts/{s}.py": ["base_v11"] for s in (
         "cockpit_btrack_verify", "cockpit_desk_files", "cockpit_window_verify", "desk_battery")}
-    # who references them, and every script that imports one of those (to the end of the chain)
+    inputs = {f: sorted(r.inputs) for f, r in records.items() if r.inputs and f != DESK_POLICY}
+    assert set(FENCE_INPUTS) == READ_PATH["host_fenced"] - {SWITCH} | {"host_fenced", "machine_role"}
+    assert inputs == {}                                                 # the fence's other inputs: desk_policy's own
+    # who references them, and every script that imports one of those or names one in a string its code uses (a
+    # path it runs as a child process, a module importlib loads), to the end of the chain
     helpers = {Path(f).stem for f in refs}
-    scripts = {Path(f).stem: r.imports for f, r in records.items() if Path(f).parent == Path("scripts")}
+    scripts = {Path(f).stem: r for f, r in records.items() if Path(f).parent == Path("scripts")}
     reach = set(helpers)
-    while more := {s for s, imports in scripts.items() if s not in reach and imports & reach}:
+    while more := _reaching(scripts, reach):
         reach |= more
     assert {"desk_parity_verify", "desk_golden_capture", "cockpit_render_verify"} <= reach
-    # the export, chain, closing and deploy paths: cli.py, src/, deploy/ (python, units, shell, env files), and the
-    # laptop's setup scripts (its launchd jobs)
-    paths = [f for f in _tracked("cli.py", "src", "deploy", "scripts/setup_*.sh") if not f.endswith(".md")]
-    assert "deploy/hosting/chains.py" in paths and "deploy/hosting/closing.py" in paths and len(paths) > 150
+    # the export, chain, closing and deploy paths: cli.py and config.py (which it imports), src/, deploy/ (python,
+    # units, timers, shell, env files), and the laptop's setup scripts (its launchd jobs)
+    paths = [f for f in _tracked("cli.py", "config.py", "src", "deploy", "scripts/setup_*.sh") if not f.endswith(".md")]
+    assert {"config.py", "deploy/hosting/chains.py", "deploy/hosting/closing.py"} <= set(paths) and len(paths) > 150
     four, reached = _words(helpers), _words(reach)
-    direct, named = {}, {}
+    direct, named, loose = {}, {}, {}
     for f in paths:
         text = texts[f] if f in texts else (ROOT / f).read_text(encoding="utf-8", errors="replace")
         if hit := set(four.findall(text)):                              # the four, even in a docstring
             direct[f] = sorted(hit)
-        hit = _named_in_code(records[f], reach, reached) if f in records else set(reached.findall(text))
+        if f in records:
+            hit = _named_in_code(records[f], reach, reached)
+        else:                                                           # no AST (a unit, a timer, a shell script, an
+            hit = set(reached.findall(text))                            # env file): every word of it counts
+            if seen := set(WATCHED_IN_A_STRING.findall(text)):          # the switch, a context manager, a fence input
+                loose[f] = sorted(seen)
         if hit:
             named[f] = sorted(hit)
     assert direct == {}
+    assert loose == {}
     assert named == {"deploy/hosting/cutover_readiness.py": ["desk_parity_verify"]}     # parity_on(): a child process
     assert "desk_parity_verify" not in records["deploy/hosting/cutover_readiness.py"].imports  # on a scratch worktree
 
@@ -552,7 +626,14 @@ def test_c_a_fresh_process_on_the_flipped_host_reads_the_switch_from_the_source_
     host; SP_WRITER_OF_RECORD=host in the environment, as the unit loads it), a fresh process runs the runbook's own
     HOST FENCE CHECK command (section 0, before step 4's flip) and prints {'on': True} today, and a soccer row there is
     PASS host_fence with desk_meta.host_fence_rule true: the flip alone does not lift the fence. In production only the
-    cutover PR's line does (what test (c) pins; the runbook's check then prints {'on': False})."""
+    cutover PR's line does (the runbook's check then prints {'on': False}). Test (c) pins that: the switch is written
+    nowhere but its definition and desk_policy's two context managers; the fence's read path reads exactly the
+    desk_policy names it reads today; outside desk_policy no tracked production Python file references the switch or a
+    fence input, and only four verify/battery scripts reference a context manager; no script that reaches one (by
+    import, or by naming it in a string its code uses) is imported or named by cli.py, config.py, src/, deploy/ or the
+    laptop's setup scripts, the parity harness that cutover-readiness runs in a scratch worktree excepted; and the
+    non-Python files on those paths (units, timers, shell scripts, env files) name no reaching script, nor the switch,
+    a context manager or a fence input."""
     p = host_env(box, monkeypatch)
     flip_writer(p, monkeypatch)
     environment_file(p, monkeypatch)

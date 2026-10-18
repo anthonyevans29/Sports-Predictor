@@ -346,7 +346,8 @@ Which machine runs item 5's readout (ARCHITECT 2026-10-18, addendum 128 item 1(a
      A reboot ends the tick that is running; the next tick retries (#408 item 4).
    - **The slate stage (ARCHITECT 2026-10-18, addendum 126 item 2(a), #590).** The same tick, after its closings, runs
      each of its families' slate once a US Eastern day: due at the day's first kickoff minus 150 minutes, or at the first
-     tick after 06:00 ET when that is later. It runs the closing chain's steps for the day's games with the export
+     tick after 06:00 ET when that is later, but never inside 15 minutes of a closing's T-35 (the closing runs first,
+     the slate on a later tick). It runs the closing chain's steps for the day's games with the export
      `--desk` sent to the family's slate file in `exports/` (`nfl_predictions_<date>.json`,
      `soccer_PL_<start>_to_<end>.json`), pushes the mirror and pages `SLATE <FAMILY> <date>: <N> rows · PLAY <p> · PASS
      <q> · exports/<file>`; a failure pages `SLATE <FAMILY> FAILED: <step command> — RUN BY HAND:

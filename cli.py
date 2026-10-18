@@ -9120,7 +9120,8 @@ def closing_watch_cmd(families, dry_run):
     T-5, at most three per start time) it starts closing-run for it, covering the games within the 10 minutes after
     it (MLB: after checking the MLB feed answers). Otherwise exit 0, silent. Then THE SLATE STAGE (ARCHITECT
     2026-10-18, addendum 126 item 2(a)): per family, once a US Eastern day, due at the first kickoff minus 150 minutes
-    or the first tick after 06:00 ET when later, the closing chain's steps for the day's games with the export --desk
+    or the first tick after 06:00 ET when later (never inside 15 minutes of a closing's T-35: the closing runs first),
+    the closing chain's steps for the day's games with the export --desk
     sent to the family's slate file in exports/, the mirror push, and one page ("SLATE <FAMILY> <date>: <N> rows ·
     PLAY <p> · PASS <q> · exports/<file>"; a failure: "SLATE <FAMILY> FAILED: <step> — RUN BY HAND: block_<MMDD>_
     <family>_slate.txt · attempt k/3"). Exit: 0 success, 2 a refusal, 3 a failure or miss already receipted and
@@ -9207,7 +9208,8 @@ def coverage_cmd(date_s):
     4 GAMES, 0 PREDICTION ROWS — soccer-prematch has not run"). Under each LIVE competition its SLATE line
     (addendum 126 item 2(b)): the newest exports/ file of the family's slate kind holding every game of the day, its
     exported_at and PLAY/PASS counts, else "NO SLATE FILE — slate run due HH:MM ET" ("— run block <block>" where this
-    machine refuses the family) and the gap "NFL: 12 GAMES, ROWS 12, NO SLATE FILE". Read-only: the DB opened mode=ro,
+    machine refuses the family, or where the watch's slate receipts say it runs no slate that day) and the gap "NFL:
+    12 GAMES, ROWS 12, NO SLATE FILE". Read-only: the DB opened mode=ro,
     exports/ read, no row or export written, no provider call. Exit 0 whatever the gaps (it never stops a chain); a
     --date that is not real or a DB that cannot be read exits 2.
     (= python deploy/hosting/coverage_map.py)"""

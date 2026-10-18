@@ -68,6 +68,8 @@ def key_line(r: dict) -> str:
             return f"{head} slate refused: {r['refused']}"
         if r.get("superseded"):
             return f"{head} slate superseded ({r.get('why')})"
+        if r.get("held"):             # held for a closing (no attempt): the slate runs after it
+            return f"{head} slate held: {r['held']}"
         if r.get("failed"):
             return f"{head} slate attempt {r.get('attempt')} FAILED: {r['failed']}"
         calls = r.get("calls") or {}

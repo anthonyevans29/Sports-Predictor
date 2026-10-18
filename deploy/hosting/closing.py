@@ -2130,7 +2130,7 @@ def watch(dry_run: bool = False, now: datetime | None = None, families: tuple[st
         if not todo:
             print("  would do nothing (exit 0, silent)")
         for fam in fams:              # the slate stage (addendum 126 item 2(a)): its plan, nothing run
-            slate_watch(fam, now, dry_run=True)
+            slate_watch(fam, now, dry_run=True, families=fams)
         return 0
     rc = 0
     inside_why = "inside T-5 when the watch saw it: no attempt starts inside T-5"
@@ -2156,9 +2156,10 @@ def watch(dry_run: bool = False, now: datetime | None = None, families: tuple[st
         rc = worse(rc, r)
     # THE SLATE RUN (ARCHITECT 2026-10-18, addendum 126 item 2(a)): after the tick's closings, which keep their T-35
     # (a closing is the row that counts; the slate is the morning file). `now` is the tick's time, which judges a
-    # late run; each slate run reads the clock when it starts, as each closing does.
+    # late run; each slate run reads the clock when it starts, as each closing does, and does not start while a
+    # closing of any of the tick's families is due or about to be (closing_ahead, SLATE_GUARD_MIN).
     for fam in fams:
-        rc = worse(rc, slate_watch(fam, now, clock() if fixed_now is None else utc(fixed_now)))
+        rc = worse(rc, slate_watch(fam, now, clock() if fixed_now is None else utc(fixed_now), families=fams))
     return rc
 
 
@@ -2192,8 +2193,20 @@ def worse(a: int, b: int) -> int:
 #     closing never run at once.
 #   - After the steps: the file written by this run, carrying the Desk's calls, with a row for every game of the day
 #     not started when the steps finished; then the mirror push; then one page. Any of them failing is a failed
-#     attempt, paged with the RUN BY HAND line; the file the export wrote stays where the export put it, as the
-#     prematch chain's does, and this run pushes nothing.
+#     attempt, paged with the RUN BY HAND line. The file the export wrote stays in exports/ where the export put it,
+#     as a prematch chain's does: this run pushes only once its checks pass, but a page that fails after that push
+#     has already pushed the file, and a file a failed attempt leaves in exports/ goes to the mirror with this
+#     machine's next push (the next closing's or slate's: the mirror copies every top-level exports/*.json).
+#   - The closings first (item 2(a): "The closing runs at T-35 are unchanged"): a slate does not start while a closing
+#     the watch will still run, for any family of the tick, has its T-35 within SLATE_GUARD_MIN minutes or already
+#     past (closing_ahead), and its wait for the chain lock ends SLATE_GUARD_MIN minutes before that T-35. So held, it
+#     runs on a later tick, after the closing; the day's first hold is receipted (kind "slate", `held`: neither an
+#     attempt nor a refusal). One watch process runs one thing at a time: a slate started inside that window would
+#     keep the closing's tick from starting until it finished.
+#   - Late (item 2(d): "a laptop asleep at the due time means the first tick after waking"): judged on the first tick
+#     that found the slate due, the earliest queued_at of the day's slate and slate_miss receipts (a hold's, a miss's
+#     and a refusal's included). A run held by a closing, or delayed by a miss, on a tick that came on time is not
+#     late.
 #   - Misses (kind "slate_miss", once per family, day and reason, notified; not an attempt): the MLB feed unreachable
 #     (A6, as the watch checks it before a closing; the watch keeps trying), the chain lock held through the wait
 #     (the watch keeps trying), and a day whose every game had started before a slate ran (nothing left to slate).
@@ -2206,9 +2219,14 @@ SLATE_LEAD_MIN = 150                 # item 2(a): due at the first kickoff of th
 SLATE_NOT_BEFORE_ET = (6, 0)         # item 2(a): "or at the watch's first tick after 06:00 ET when that is later"
 WATCH_CADENCE_S = 60                 # the watch's tick (launchd INTERVAL_S=60; the host timer, every minute)
 SLATE_LOCK_WAIT_S = 5 * 60           # a slate waits this long for the chain lock, then misses (the watch keeps trying)
+# No slate starts with a closing's T-35 this close: more than twice the longest any chain has held the chain lock
+# ("In twelve days no chain held the lock, or waited for it, longer than seven minutes", addendum 45 P6), so a slate
+# that starts outside it has finished before the closing's tick is due.
+SLATE_GUARD_MIN = 15
 SLATE_DIR = "exports"
 NO_DESK_CALL = "no desk call"        # a row the Desk gave no call (the export's rows with no probabilities)
 SLATE_SHOWN_CALLS = ("PLAY", "PASS")  # always on the page; any other call kind follows only when it occurs
+SLATE_ALL_STARTED = "every game of the day had started"     # the miss after which the watch runs no slate that day
 
 
 def slate_due(first: datetime, day: date) -> datetime:
@@ -2296,9 +2314,9 @@ def slate_failure_text(fam: str, day: date, what: str, attempt: int) -> str:
 
 
 def _slate_attempts(fam: str, day_s: str) -> list[dict]:
-    """The slate runs of a family's day: refusals and superseded runs are neither (380.4, as _attempts)."""
+    """The slate runs of a family's day: refusals, superseded runs and holds are none (380.4, as _attempts)."""
     return [r for r in receipts((SLATE_KIND,)) if r.get("family") == fam and r.get("date") == day_s
-            and not r.get("refused") and not r.get("superseded")]
+            and not r.get("refused") and not r.get("superseded") and not r.get("held")]
 
 
 def slate_state(fam: str, day_s: str) -> dict:
@@ -2308,16 +2326,92 @@ def slate_state(fam: str, day_s: str) -> dict:
 
 
 def record_slate_miss(fam: str, day: date, reason: str, detail: str | None = None,
-                      text: str | None = None) -> dict | None:
+                      text: str | None = None, queued_at: datetime | None = None,
+                      due_at: datetime | None = None) -> dict | None:
     """kind slate_miss: a slate that did not run, receipted and notified once per family, day and reason (B6's rule
-    for a closing miss). Not an attempt. Already receipted: nothing written or posted (None)."""
+    for a closing miss). Not an attempt. Already receipted: nothing written or posted (None). `queued_at` (the tick
+    that found it) and `due`: the first miss of a reason is the first tick that saw it, which judges late."""
     if any(r.get("family") == fam and r.get("date") == day.isoformat() and r.get("reason") == reason
            for r in receipts((SLATE_MISS_KIND,))):
         return None
     text = text or f"SLATE {fam} {day.isoformat()} MISSED: {reason} — RUN BY HAND: {slate_block(fam, day)}"
     res = notify_failure(text, fam, title=f"{fam} slate")
     return c.append_receipt({"kind": SLATE_MISS_KIND, "family": fam, "date": day.isoformat(), "reason": reason,
-                             **({"detail": detail} if detail else {}), "notified": res})
+                             **({"detail": detail} if detail else {}),
+                             **({"queued_at": iso_z(queued_at)} if queued_at else {}),
+                             **({"due": iso_z(due_at)} if due_at else {}), "notified": res})
+
+
+def closing_ahead(fams: tuple[str, ...], now: datetime) -> dict | None:
+    """The closing the watch will run next among `fams` (due()'s groups, as watch() forms them): the earliest group
+    whose start is still more than NO_ATTEMPT_INSIDE_MIN away and that has no success or three attempts, its T-35
+    (`run_at`) possibly already past. A family this machine refuses is none (its closing is refused at once, no
+    chain), nor one whose schedule cannot be read. {family, start, run_at} or None. No network."""
+    best = None
+    for f in fams:
+        if _family_refusal(f):
+            continue
+        try:
+            gr = due(f, now)["groups"]
+            for g in gr:
+                if minutes_to(g["start"], now) < NO_ATTEMPT_INSIDE_MIN:
+                    continue              # inside T-5 or started: no attempt starts (a miss, no chain)
+                st = closing_state(f, iso_z(g["start"]))
+                if st["success"] or st["attempts"] >= MAX_ATTEMPTS:
+                    continue              # superseded under the lock: no chain
+                run_at = g["start"] - timedelta(minutes=RUN_LEAD_MIN)
+                if best is None or run_at < best["run_at"]:
+                    best = {"family": f, "start": g["start"], "run_at": run_at}
+        except (FileNotFoundError, sqlite3.Error):
+            continue
+    return best
+
+
+def _hold_why(ahead: dict, lock: bool = False) -> str:
+    """Why a slate is held: the closing ahead, by its start and its T-35 in ET."""
+    clo = f"closing {ahead['family']} {et(ahead['start'])[11:]} (T-{RUN_LEAD_MIN} {et(ahead['run_at'])[11:]})"
+    return (f"the chain lock was held into the {SLATE_GUARD_MIN}-minute guard before {clo}" if lock
+            else f"{clo} is inside the {SLATE_GUARD_MIN}-minute guard")
+
+
+def record_slate_hold(fam: str, day: date, base: dict, ahead: dict, why: str | None = None) -> None:
+    """A slate held for a closing (no step, no page; neither an attempt nor a refusal): the day's first hold is
+    receipted (kind slate, `held`), as the first tick that found the slate due; later holds write nothing."""
+    if any(r.get("family") == fam and r.get("date") == day.isoformat() and r.get("held")
+           for r in receipts((SLATE_KIND,))):
+        return
+    why = why or _hold_why(ahead)
+    print(f"· slate {fam} {day.isoformat()} held: {why} (the slate runs after it)")
+    c.append_receipt({**base, "held": why, "closing": {"family": ahead["family"], "start": iso_z(ahead["start"]),
+                                                       "run_at": iso_z(ahead["run_at"])},
+                      "steps": [], "file": None, "push": None, "exit": 0})
+
+
+def _slate_late(fam: str, day_s: str, tick_at: datetime, due_at: datetime) -> tuple[float, dict | None]:
+    """Item 2(d): the first tick that found the day's slate due (the earliest queued_at of its slate and slate_miss
+    receipts, or this tick); late when it came more than one cadence after the due time (the laptop asleep).
+    (seconds after the due time, {minutes, due, tick} or None)."""
+    first = utc(tick_at)
+    for r in receipts((SLATE_KIND, SLATE_MISS_KIND)):
+        if r.get("family") != fam or r.get("date") != day_s:
+            continue
+        try:
+            first = min(first, parse_utc(r["queued_at"]))
+        except (KeyError, TypeError, ValueError):
+            continue
+    late_s = (first - utc(due_at)).total_seconds()
+    return late_s, ({"minutes": int(late_s // 60), "due": utc(due_at), "tick": first} if late_s > WATCH_CADENCE_S
+                    else None)
+
+
+def _slate_rec(base: dict, fam: str, day: date, attempt: int, at: datetime, tick_at: datetime, due_at: datetime,
+               covers: list[dict]) -> tuple[dict, dict | None]:
+    """An attempt's receipt line before it runs, every declared key present (item 2(c): family, date, rows, calls,
+    file, exit), exit 1 until it succeeds; and its late (or None)."""
+    late_s, late = _slate_late(fam, day.isoformat(), tick_at, due_at)
+    return ({**base, "ran_at": iso_z(at), "late_minutes": max(0, int(late_s // 60)), "late": late is not None,
+             "attempt": attempt, "covers": _covers_rec(covers), "file": f"{SLATE_DIR}/{slate_file(fam, day)}",
+             "rows": None, "calls": None, "backup": None, "steps": [], "push": None, "exit": 1}, late)
 
 
 def _slate_refuse(why: str, fam: str, day: date, base: dict) -> int:
@@ -2453,21 +2547,12 @@ def _slate_under_lock(fam: str, day: date, base: dict, folder: Path, held: datet
         return 0
     covers = [g for g in day_games(fam, day) if not started(g, held)]
     if not covers:
-        record_slate_miss(fam, day, "every game of the day had started",
-                          text=f"SLATE {fam} {day_s} MISSED: every game of the day had started — no slate run")
+        record_slate_miss(fam, day, SLATE_ALL_STARTED,
+                          text=f"SLATE {fam} {day_s} MISSED: {SLATE_ALL_STARTED} — no slate run",
+                          queued_at=tick_at, due_at=due_at)
         return NOTIFIED
-    first_tick = utc(tick_at)         # late is the day's first attempt's tick (a retry is not the laptop asleep)
-    for r in _slate_attempts(fam, day_s):
-        try:
-            first_tick = min(first_tick, parse_utc(r["queued_at"]))
-        except (KeyError, TypeError, ValueError):
-            continue
-    late_s = (first_tick - due_at).total_seconds()
-    late = ({"minutes": int(late_s // 60), "due": due_at, "tick": first_tick} if late_s > WATCH_CADENCE_S
-            else None)
-    rec = {**base, "ran_at": iso_z(held), "late_minutes": max(0, int(late_s // 60)), "late": late is not None,
-           "attempt": st["attempts"] + 1, "covers": _covers_rec(covers), "file": f"{SLATE_DIR}/{slate_file(fam, day)}",
-           "rows": None, "calls": None, "backup": None, "steps": [], "push": None, "exit": 1}
+    # late is the first tick that found the slate due (a retry, a hold or a miss on time is not the laptop asleep)
+    rec, late = _slate_rec(base, fam, day, st["attempts"] + 1, held, tick_at, due_at, covers)
     print(f"=== slate {fam} {day_s} · due {et(due_at)} · {len(covers)} game(s) · attempt {rec['attempt']}"
           + (f" · LATE {late['minutes']} min" if late else ""), flush=True)
     t0 = time.time()
@@ -2489,15 +2574,18 @@ def _slate_under_lock(fam: str, day: date, base: dict, folder: Path, held: datet
     return 0 if rec["exit"] == 0 else NOTIFIED
 
 
-def slate_watch(fam: str, tick_at: datetime, now: datetime | None = None, dry_run: bool = False) -> int:
+def slate_watch(fam: str, tick_at: datetime, now: datetime | None = None, dry_run: bool = False,
+                families: tuple[str, ...] | None = None) -> int:
     """The slate stage of one family at the watch's tick `tick_at` (item 2(a)). Decides from the stored schedule and
     the receipts, no network: the family's games of the tick's ET day; due at slate_due(); nothing before it, nothing
     after a success or three attempts. Exit as a closing's (0, 2 a refusal, NOTIFIED a failure or miss). `now`: when
-    the run starts (the watch reads the clock for each run); a run is late when the tick came more than one cadence
-    after the due time (judged on the day's first attempt: a retry after an on-time failure is not late). --dry-run
-    prints the plan and touches nothing."""
+    the run starts (the watch reads the clock for each run); a run is late when the first tick that found it due came
+    more than one cadence after the due time (_slate_late). `families`: the tick's families, whose closings a slate
+    never delays (closing_ahead: held inside SLATE_GUARD_MIN of a closing's T-35, its lock wait ending there).
+    --dry-run prints the plan and touches nothing."""
     tick_at = utc(tick_at)
     now = utc(now or tick_at)
+    fams = tuple(families or (fam,))
     day = ny_date(tick_at)
     head = f"  SLATE {fam} {day.isoformat()}"
     try:
@@ -2514,14 +2602,17 @@ def slate_watch(fam: str, tick_at: datetime, now: datetime | None = None, dry_ru
     due_at = slate_due(first, day)
     st = slate_state(fam, day.isoformat())
     folder = backup_folder()
+    guard = timedelta(minutes=SLATE_GUARD_MIN)
     if dry_run:
         why = next((w for w in (chk() for chk in refusal_checks(fam, folder)) if w), None)
         live = [g for g in games if not started(g, tick_at)]
+        ahead = closing_ahead(fams, tick_at)
         tag = ("done (a successful slate)" if st["success"] else
                f"done ({st['attempts']} attempts)" if st["attempts"] >= MAX_ATTEMPTS else
                f"not yet (due {et(due_at)[11:]})" if tick_at < due_at else
                f"would be REFUSED ({why})" if why else
                "every game has started: a miss" if not live else
+               f"held: {_hold_why(ahead)}" if ahead and ahead["run_at"] <= tick_at + guard else
                ("would check the MLB feed, then " if FAMILIES[fam]["feed"] else "") + "would RUN")
         print(f"{head}: first kickoff {et(first)[11:]} · due {et(due_at)[11:]} · success "
               f"{'yes' if st['success'] else 'no'} · attempts {st['attempts']}/{MAX_ATTEMPTS} → {tag}")
@@ -2539,38 +2630,55 @@ def slate_watch(fam: str, tick_at: datetime, now: datetime | None = None, dry_ru
         if why:
             return _slate_refuse(why, fam, day, base)
     if not any(not started(g, now) for g in games):
-        record_slate_miss(fam, day, "every game of the day had started",
-                          text=f"SLATE {fam} {day.isoformat()} MISSED: every game of the day had started — no slate "
-                               "run")
+        record_slate_miss(fam, day, SLATE_ALL_STARTED,
+                          text=f"SLATE {fam} {day.isoformat()} MISSED: {SLATE_ALL_STARTED} — no slate run",
+                          queued_at=tick_at, due_at=due_at)
         return NOTIFIED
+    # The closings first (item 2(a): "The closing runs at T-35 are unchanged"): one watch process runs one thing at a
+    # time, so a slate started inside SLATE_GUARD_MIN of a closing's T-35 would keep that closing's tick from starting.
+    ahead = closing_ahead(fams, now)
+    if ahead and ahead["run_at"] <= now + guard:
+        record_slate_hold(fam, day, base, ahead)
+        return 0
     if FAMILIES[fam]["feed"]:         # A6, as the watch checks it before a closing: one miss a day, then silence
         ok, detail = feed_answers()
         if not ok:
             record_slate_miss(fam, day, "feed unreachable", detail=detail,
                               text=f"SLATE {fam} {day.isoformat()} MISSED: {FEED_MISS_TEXT} — RUN BY HAND: "
-                                   f"{slate_block(fam, day)} · the watch keeps trying")
+                                   f"{slate_block(fam, day)} · the watch keeps trying", queued_at=tick_at,
+                              due_at=due_at)
             return NOTIFIED
+    # the wait for the lock ends SLATE_GUARD_MIN before the next closing's T-35: a slate that gets the lock then has
+    # finished before that closing is due (a waiting slate never takes the lock ahead of a due closing)
+    wait = float(SLATE_LOCK_WAIT_S)
+    if ahead:
+        wait = min(wait, (ahead["run_at"] - guard - now).total_seconds())
     t_entry = time.time()
     entered = False
     try:
-        with acquire_lock(SLATE_LOCK_WAIT_S):
+        with acquire_lock(wait):
             entered = True
             held = now + timedelta(seconds=time.time() - t_entry)
             return _slate_under_lock(fam, day, base, folder, held, tick_at, due_at)
     except TimeoutError:
         if entered:
             raise
+        if wait < SLATE_LOCK_WAIT_S:  # the wait ended for the closing, not the full five minutes: a hold, no miss
+            record_slate_hold(fam, day, base, ahead, why=_hold_why(ahead, lock=True))
+            return 0
         record_slate_miss(fam, day, "the chain lock was held", detail=f"waited {SLATE_LOCK_WAIT_S}s",
                           text=f"SLATE {fam} {day.isoformat()} MISSED: the chain lock was held through the "
                                f"{SLATE_LOCK_WAIT_S / 60:g}-minute wait — RUN BY HAND: {slate_block(fam, day)} · the "
-                               "watch keeps trying")
+                               "watch keeps trying", queued_at=tick_at, due_at=due_at)
         return NOTIFIED
     except Exception as e:  # noqa: BLE001 - a lock that cannot be taken is a failed attempt, receipted (as a closing)
         if entered:
             raise
-        rec = {**base, "attempt": st["attempts"] + 1, "file": f"{SLATE_DIR}/{slate_file(fam, day)}", "steps": [],
-               "push": None, "exit": 1, "failed": "lock", "error": c.redact(f"{type(e).__name__}: {e}")[:300]}
         try:
+            at = now + timedelta(seconds=time.time() - t_entry)
+            rec, _ = _slate_rec(base, fam, day, st["attempts"] + 1, at, tick_at, due_at,
+                                [g for g in games if not started(g, at)])
+            rec.update({"failed": "lock", "error": c.redact(f"{type(e).__name__}: {e}")[:300]})
             rec["failure_notification"] = notify_failure(
                 slate_failure_text(fam, day, f"the chain lock ({rec['error']})", rec["attempt"]), fam,
                 title=f"{fam} slate")

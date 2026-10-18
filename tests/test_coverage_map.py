@@ -862,6 +862,64 @@ def test_only_a_live_competition_has_a_slate_line_and_exports_are_never_written(
     assert (sorted(p.name for p in f.parent.iterdir()), f.read_bytes(), f.stat().st_mtime) == before
 
 
+def _nfl_slate_line():
+    out = run("--date", "2026-10-18")[1]
+    return out[out.index(line_of(out, "NFL")) + 1], gaps(out)
+
+
+def test_the_slate_line_reads_the_watchs_slate_receipts(env):
+    """Item 2(c): "the morning page reads them as it reads the closing lines". No file: a miss the watch keeps trying
+    and a failed attempt keep the due time and say so; three attempts name the block, the watch running it no more.
+    A hold, a refusal and a superseded run are no attempt (closing.slate_state). The gap stands either way."""
+    make_db(env, NFL_DAY, NFL_ROWS)
+    gap = ["NFL: 2 GAMES, ROWS 2, NO SLATE FILE"]
+    receipt(kind="slate_miss", family="NFL", date="2026-10-18", reason="the chain lock was held")
+    receipt(kind="slate", family="NFL", date="2026-10-18", exit=0, held="closing NFL 09:30 ET (T-35 08:55 ET) is "
+            "inside the 15-minute guard")
+    receipt(kind="slate", family="NFL", date="2026-10-17", attempt=1, exit=1, failed="step 1")     # another day
+    assert _nfl_slate_line() == ("NFL SLATE · NO SLATE FILE — slate run due 07:00 ET (missed (the chain lock was "
+                                 "held): the watch keeps trying)", gap)
+    receipt(kind="slate", family="NFL", date="2026-10-18", attempt=1, exit=1, failed="step 6")
+    receipt(kind="slate", family="NFL", date="2026-10-18", exit=0, superseded=True, why="1 attempts")
+    assert _nfl_slate_line() == ("NFL SLATE · NO SLATE FILE — slate run due 07:00 ET (attempt 1 of 3 failed (step 6): "
+                                 "the watch tries again; missed (the chain lock was held): the watch keeps trying)", gap)
+    receipt(kind="slate", family="NFL", date="2026-10-18", attempt=2, exit=1, failed="step 6")
+    receipt(kind="slate", family="NFL", date="2026-10-18", attempt=3, exit=1, failed="missing from export")
+    assert _nfl_slate_line() == ("NFL SLATE · NO SLATE FILE — run block block_1018_nfl_slate.txt (3 attempts, the last "
+                                 "failed (missing from export): the watch runs it no more)", gap)
+    s = cm.coverage(datetime(2026, 10, 18).date(), NOW)["competitions"][0]["slate"]
+    assert (s["attempts"], s["success"], s["last_failed"], s["misses"], s["done"], s["unread"]) == (
+        3, False, "missing from export", ["the chain lock was held"], True, None)
+    assert cl.slate_state("NFL", "2026-10-18") == {"success": False, "attempts": 3}             # the watch's own read
+
+
+def test_a_successful_slate_no_file_holds_every_game_names_the_block(env, monkeypatch):
+    """A slate that ran after the first kickoff (the laptop asleep) succeeded on the games not started; no file holds
+    every game of the day by match id (item 2(b)), so the gap stands, and the line says the watch's run succeeded and
+    runs no more, never "slate run due" a time long past. Every game started before a slate ran: the same."""
+    make_db(env, [(601, "NFL", "2026-10-18 13:30", "LIVE"), (602, "NFL", "2026-10-18 17:00", "SCHEDULED")], NFL_ROWS)
+    monkeypatch.setattr(cl, "clock", lambda: utc("2026-10-18 14:30"))
+    slate_doc("nfl_predictions_2026-10-18.json", [602], "2026-10-18T13:41:00Z")
+    receipt(kind="slate", family="NFL", date="2026-10-18", attempt=1, exit=0, ran_at="2026-10-18T13:40:00Z",
+            completed_at="2026-10-18T13:41:00Z", file="exports/nfl_predictions_2026-10-18.json")
+    assert _nfl_slate_line() == (
+        "NFL SLATE · NO SLATE FILE — run block block_1018_nfl_slate.txt (a successful slate at 09:41 ET "
+        "(exports/nfl_predictions_2026-10-18.json), but no file holds every game of the day: the watch runs it no more)",
+        ["NFL: 2 GAMES, ROWS 2, NO SLATE FILE"])
+    c.receipts_path().unlink()
+    receipt(kind="slate_miss", family="NFL", date="2026-10-18", reason=cl.SLATE_ALL_STARTED)
+    assert _nfl_slate_line()[0] == ("NFL SLATE · NO SLATE FILE — run block block_1018_nfl_slate.txt (missed: every game "
+                                    "of the day had started: the watch runs it no more)")
+
+
+def test_slate_receipts_that_cannot_be_read_are_said(env, monkeypatch, tmp_path):
+    (tmp_path / "receipts-folder").mkdir()
+    monkeypatch.setenv("SP_RECEIPTS", str(tmp_path / "receipts-folder"))
+    make_db(env, NFL_DAY, NFL_ROWS)
+    assert _nfl_slate_line()[0] == ("NFL SLATE · NO SLATE FILE — slate run due 07:00 ET (the watch's receipts cannot "
+                                    "be read: IsADirectoryError)")
+
+
 def test_a_slate_file_the_watch_wrote_is_read_as_the_slate_kind():
     """The slate stage's file name for each family matches the family's slate kind (export_glob), the glob the SLATE
     line reads."""

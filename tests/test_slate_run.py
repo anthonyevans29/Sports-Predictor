@@ -278,18 +278,24 @@ def test_the_receipts_table_shows_the_slate_lines():
     assert sp_receipts.key_line(bad) == "NFL 2026-10-18 slate attempt 2 FAILED: step 6" and sp_receipts.failed(bad)
     miss = {"kind": "slate_miss", "family": "MLB", "date": "2026-10-18", "reason": "feed unreachable"}
     assert sp_receipts.key_line(miss) == "MLB 2026-10-18 slate MISSED: feed unreachable" and sp_receipts.failed(miss)
+    held = {"kind": "slate", "family": "MLB", "date": "2026-10-18", "exit": 0,
+            "held": "closing NFL 13:00 ET (T-35 12:25 ET) is inside the 15-minute guard"}
+    assert sp_receipts.key_line(held) == ("MLB 2026-10-18 slate held: closing NFL 13:00 ET (T-35 12:25 ET) is inside "
+                                          "the 15-minute guard") and not sp_receipts.failed(held)
 
 
 # ============================================================================================ the run's edges ==
 
 def test_mlb_feed_unreachable_is_one_miss_then_the_slate_runs_when_it_answers(box, monkeypatch):
     """A6, as the watch checks it before an MLB closing: the feed unreachable is a miss, receipted and notified once
-    for the day, not an attempt; the watch keeps trying silently and runs the slate when the feed answers."""
+    for the day, not an attempt; the watch keeps trying silently and runs the slate when the feed answers. Not late
+    (item 2(d), the laptop asleep): the watch ticked at 10:35, the due time; the miss's receipt carries that tick."""
     the_day(box, monkeypatch)
     box.feed = (False, "URLError")
     assert tick(et(10, 34), ("MLB",)) == 0 and box.feed_calls == 0               # 13:05 - 150 = 10:35: not yet
     assert tick(et(10, 35), ("MLB",)) == mc.NOTIFIED and tick(et(10, 36), ("MLB",)) == mc.NOTIFIED
     assert [m["reason"] for m in misses("MLB")] == ["feed unreachable"] and slates("MLB") == [] and box.steps == []
+    assert (misses("MLB")[0]["queued_at"], misses("MLB")[0]["due"]) == ("2026-10-18T14:35:00Z", "2026-10-18T14:35:00Z")
     assert box.notes == ["SLATE MLB 2026-10-18 MISSED: MLB feed unreachable: VPN on, Tailscale off — RUN BY HAND: "
                          f"block_1018_mlb_slate.txt · the watch keeps trying\n{MACHINE}"]
     box.feed = (True, "HTTP 200")
@@ -300,9 +306,9 @@ def test_mlb_feed_unreachable_is_one_miss_then_the_slate_runs_when_it_answers(bo
                                         "2026-10-18 --date-to 2026-10-18 --match-ids 701")
     assert s["steps"][-1]["command"] == ("python cli.py export-predictions --sport mlb --competition MLB --date "
                                          "2026-10-18 --desk --out exports/mlb_MLB_2026-10-18.json")
+    assert (s["late"], s["late_minutes"]) == (False, 0)                         # first tick 10:35: on time
     assert slate_pages(box, "MLB")[0]["body"].splitlines() == [
-        "SLATE MLB 2026-10-18: 1 rows · PLAY 0 · PASS 1 · exports/mlb_MLB_2026-10-18.json",
-        "LATE 2 min: due 10:35 ET, run 10:37 ET", MACHINE]
+        "SLATE MLB 2026-10-18: 1 rows · PLAY 0 · PASS 1 · exports/mlb_MLB_2026-10-18.json", MACHINE]
 
 
 def test_a_file_missing_a_game_of_the_day_fails_and_is_not_pushed(box, monkeypatch):
@@ -314,6 +320,9 @@ def test_a_file_missing_a_game_of_the_day_fails_and_is_not_pushed(box, monkeypat
     assert box.notes == [f"SLATE NFL FAILED: missing from export ({NFL_FILE}): match 602 — RUN BY HAND: {BLOCK} · "
                          f"attempt 1/3\n{MACHINE}"]
     assert box.pushes == [] and slate_pages(box) == []
+    # the file the export wrote stays in exports/ (as a prematch chain's): this run pushed nothing, the machine's next
+    # push carries it (docs/CLI.md)
+    assert [p["match_id"] for p in json.loads((box.repo / NFL_FILE).read_text())["predictions"]] == [601]
 
 
 def test_a_file_without_desk_calls_fails(box, monkeypatch):
@@ -334,12 +343,15 @@ def test_a_failed_push_fails_the_attempt_and_pages_no_slate(box, monkeypatch):
 
 
 def test_a_page_ntfy_does_not_accept_is_a_failed_attempt(box, monkeypatch):
+    """The push comes before the page (item 2(a): "pushes the mirror, and PAGES"): a page ntfy does not accept fails
+    the attempt after the file is on the mirror, as docs/CLI.md says."""
     the_day(box, monkeypatch)
     box.page_ok = False
     assert tick(et(7, 0)) == mc.NOTIFIED
     s = slates()[0]
     assert s["failed"] == "page" and s["page"]["tries"] == 3 and box.sleeps == [10, 10]
     assert s["failure_notification"]["text"].startswith("SLATE NFL FAILED: page (ntfy did not accept it in 3 tries)")
+    assert s["push"]["exit"] == 0 and box.pushes == ["slate"] and (box.repo / NFL_FILE).is_file()
 
 
 def test_the_slate_waits_for_the_chain_lock_and_a_lock_held_through_the_wait_is_one_miss(box, monkeypatch):
@@ -356,7 +368,10 @@ def test_the_slate_waits_for_the_chain_lock_and_a_lock_held_through_the_wait_is_
     assert len(box.notes) == 1 and box.notes[0].startswith("SLATE NFL 2026-10-18 MISSED: the chain lock was held "
                                                            "through the ")
     assert box.notes[0].endswith(f"-minute wait — RUN BY HAND: {BLOCK} · the watch keeps trying\n{MACHINE}")
+    assert misses()[0]["queued_at"] == "2026-10-18T11:00:00Z"
     assert tick(et(7, 2)) == 0 and slates()[0]["exit"] == 0 and not any(box.lock_seen)
+    # not late: the watch ticked at 07:00, the due time (the miss's tick), and the run came two minutes on
+    assert (slates()[0]["late"], slates()[0]["late_minutes"]) == (False, 0) and slate_pages(box)[0]["body"] == PAGE
 
 
 def test_superseded_under_the_lock_runs_nothing(box, monkeypatch):
@@ -458,3 +473,208 @@ def test_the_closing_constants_are_unchanged():
     assert (mc.RUN_LEAD_MIN, mc.COVER_MIN, mc.PAGE_BY_MIN, mc.NO_ATTEMPT_INSIDE_MIN, mc.MAX_ATTEMPTS) == (35, 10, 30, 5, 3)
     assert mc.failure_text("NFL", "2026-10-11T17:00:00Z", failed="step 3", attempt=1) == (
         "Closing NFL 2026-10-11 13:00 ET: FAILED: step 3 · attempt 1/3")
+
+
+# ==================================================================== the closings first, on a moving clock ==
+# Item 2(a): "The closing runs at T-35 are unchanged." One watch process runs one thing at a time: the units start the
+# next tick at the next whole minute after a tick ends (launchd, the host's oneshot timer). These tests run the real
+# watch() on its production path (no fixed `now`: clock() per run) with a clock that each step moves 45 seconds, slate
+# and closing steps alike, and pin that a slate never delays a closing past its T-35 nor its page past T-30.
+
+class Clock:
+    def __init__(self, t):
+        self.t = t
+
+    def time(self):
+        return self.t.timestamp()
+
+    def sleep(self, s):
+        self.t += timedelta(seconds=s)
+
+
+STEP_S = 45
+
+
+def moving_day(box, monkeypatch, games, mlb_first_pitch=None):
+    """Sunday 2026-10-18 from midnight ET: `games` (match_id, comp, start (aware), home); the NFL and MLB exports as
+    the steps write them; the clock moved STEP_S by every step."""
+    base = et(0, 0)
+    db = box.tmp / "moving.db"
+    make_db(db, [(mid, comp, int((st - base).total_seconds() // 60), "SCHEDULED", home)
+                 for mid, comp, st, home in games], now=base)
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{db}")
+    box.db = db
+    k = {"comp": "NFL", "series": "KXNFLGAME", "now": base}
+    box.docs["NFL"] = dp.annotate({"sport": "nfl", "predictions": [
+        row(601, "London", 0.62, fair_h=0.55, bid=0.54, ask=0.55, minutes=9 * 60 + 30, **k),
+        row(602, "Buffalo", 0.52, fair_h=0.515, bid=0.51, ask=0.52, minutes=13 * 60, **k)]}, now=base)
+    if mlb_first_pitch:
+        box.docs["MLB"] = dp.annotate({"sport": "mlb", "predictions": [
+            row(701, "Underhill", 0.52, fair_h=0.51, bid=0.50, ask=0.51,
+                minutes=int((mlb_first_pitch - base).total_seconds() // 60), now=base)]}, now=base)
+    box.slate_on()
+    clk = Clock(base)
+    monkeypatch.setattr(mc, "clock", lambda: clk.t)
+    monkeypatch.setattr(mc, "time", clk)
+    inner = box.fake_step
+
+    def timed_step(argv, run_id):
+        out = inner(argv, run_id)
+        clk.t += timedelta(seconds=STEP_S)
+        return out
+    monkeypatch.setattr(mc, "run_step", timed_step)
+    return clk
+
+
+def drive(clk, fams, t0, t1):
+    """Ticks as the units fire them: the next whole minute after a tick ends."""
+    clk.t = t0
+    while clk.t <= t1:
+        start = clk.t
+        mc.watch(families=fams)
+        clk.t = (clk.t.replace(second=0, microsecond=0) + timedelta(minutes=1)) if clk.t > start else (
+            start + timedelta(minutes=1))
+
+
+def fake_lock(monkeypatch, clk, held_from, held_to):
+    """Another process holds the chain lock [held_from, held_to) on the moving clock; a wait past its timeout raises
+    TimeoutError when the timeout has passed (as sp_common.db_lock)."""
+    @contextlib.contextmanager
+    def lock(timeout_s):
+        if held_from <= clk.t < held_to:
+            wait = (held_to - clk.t).total_seconds()
+            if timeout_s is not None and wait > timeout_s:
+                clk.t += timedelta(seconds=timeout_s)
+                raise TimeoutError("held")
+            clk.t = held_to
+        yield
+    monkeypatch.setattr(mc, "acquire_lock", lock)
+
+
+def closing_1300():
+    (r,) = [x for x in runs("NFL") if x["start"] == "2026-10-18T17:00:00Z"]
+    start = mc.parse_utc(r["start"])
+    return r, (start - mc.parse_utc(r["queued_at"])).total_seconds() / 60, (
+        start - mc.parse_utc(r["page"]["at"])).total_seconds() / 60
+
+
+NFL_TWO = [(601, "NFL", et(9, 30), "London"), (602, "NFL", et(13, 0), "Buffalo")]
+
+
+def test_a_slate_due_minutes_before_another_familys_closing_waits_for_it(box, monkeypatch):
+    """MLB's first pitch 14:50 ET: its slate is due at 12:20. NFL's 13:00 kickoff: its closing at 12:25. One watch for
+    both. The slate is held (12:25 is inside the 15-minute guard), the closing is queued at 12:25 and paged by T-30,
+    then the slate runs. Not late: the watch ticked at 12:20 (the hold's receipt carries that tick)."""
+    clk = moving_day(box, monkeypatch, NFL_TWO + [(701, "MLB", et(14, 50), "Underhill")], mlb_first_pitch=et(14, 50))
+    drive(clk, ("MLB", "NFL"), et(12, 0), et(13, 0))
+    r, t_queued, t_page = closing_1300()
+    assert (r["exit"], r["queued_at"], t_queued) == (0, "2026-10-18T16:25:00Z", 35.0) and t_page >= mc.PAGE_BY_MIN
+    (h,) = [x for x in slates("MLB") if x.get("held")]
+    assert (h["queued_at"], h["closing"]) == ("2026-10-18T16:20:00Z", {
+        "family": "NFL", "start": "2026-10-18T17:00:00Z", "run_at": "2026-10-18T16:25:00Z"})
+    assert h["held"] == "closing NFL 13:00 ET (T-35 12:25 ET) is inside the 15-minute guard"
+    (s,) = [x for x in slates("MLB") if not x.get("held")]
+    assert s["exit"] == 0 and mc.parse_utc(s["ran_at"]) >= mc.parse_utc(r["page"]["at"]) and s["late"] is False
+    assert mc.slate_state("MLB", "2026-10-18") == {"success": True, "attempts": 1}           # a hold is no attempt
+    assert misses("MLB") == []
+
+
+def test_a_late_wake_runs_the_due_closing_first_then_the_slate(box, monkeypatch):
+    """Item 2(d)'s case: the laptop's first tick after waking is 12:24 ET; the slate was due at 07:00 and the 13:00
+    closing is due at 12:25. The tick at 12:24 holds the slate; the closing is queued at 12:25 and paged by T-30; the
+    slate follows it, late by the minutes from 07:00 to the first tick, 12:24."""
+    clk = moving_day(box, monkeypatch, NFL_TWO)
+    drive(clk, ("NFL",), et(12, 24), et(13, 0))
+    r, t_queued, t_page = closing_1300()
+    assert (r["exit"], t_queued) == (0, 35.0) and t_page >= mc.PAGE_BY_MIN
+    (s,) = [x for x in slates() if not x.get("held")]
+    assert s["exit"] == 0 and mc.parse_utc(s["ran_at"]) >= mc.parse_utc(r["page"]["at"])
+    assert (s["late"], s["late_minutes"], [x["match_id"] for x in s["covers"]]) == (True, 324, [602])
+    assert slate_pages(box)[0]["body"].splitlines()[1] == "LATE 324 min: due 07:00 ET, run 12:24 ET"
+
+
+def test_a_slate_waiting_on_a_held_lock_never_takes_it_ahead_of_a_due_closing(box, monkeypatch):
+    """Another process holds the chain lock 12:18 to 12:24 ET; MLB's slate is due at 12:20, NFL's closing at 12:25. The
+    slate does not queue for the lock inside the guard: the closing takes it at 12:25 and pages by T-30."""
+    clk = moving_day(box, monkeypatch, NFL_TWO + [(701, "MLB", et(14, 50), "Underhill")], mlb_first_pitch=et(14, 50))
+    fake_lock(monkeypatch, clk, et(12, 18), et(12, 24))
+    drive(clk, ("MLB", "NFL"), et(12, 15), et(13, 0))
+    r, t_queued, t_page = closing_1300()
+    assert (r["exit"], t_queued) == (0, 35.0) and t_page >= mc.PAGE_BY_MIN
+    (s,) = [x for x in slates("MLB") if not x.get("held")]
+    assert s["exit"] == 0 and mc.parse_utc(s["ran_at"]) >= mc.parse_utc(r["page"]["at"]) and misses("MLB") == []
+
+
+def test_the_slates_wait_for_the_lock_ends_at_the_guard_a_hold_not_a_miss(box, monkeypatch):
+    """MLB's first pitch 14:37 ET (its slate due 12:07); NFL's closing at 12:25; the chain lock held 12:00 to 12:20.
+    At 12:07 the closing is 18 minutes off, outside the guard, so the slate waits for the lock, but only until 12:10
+    (15 minutes before 12:25), not the five minutes: a hold, receipted, no miss and no notice. The closing runs on
+    time, the slate after it."""
+    clk = moving_day(box, monkeypatch, NFL_TWO + [(701, "MLB", et(14, 37), "Underhill")], mlb_first_pitch=et(14, 37))
+    fake_lock(monkeypatch, clk, et(12, 0), et(12, 20))
+    drive(clk, ("MLB", "NFL"), et(12, 7), et(13, 0))
+    r, t_queued, t_page = closing_1300()
+    assert (r["exit"], t_queued) == (0, 35.0) and t_page >= mc.PAGE_BY_MIN
+    (h,) = [x for x in slates("MLB") if x.get("held")]
+    assert h["queued_at"] == "2026-10-18T16:07:00Z" and h["held"] == (
+        "the chain lock was held into the 15-minute guard before closing NFL 13:00 ET (T-35 12:25 ET)")
+    assert misses("MLB") == [] and not any("MISSED" in n or "FAILED" in n for n in box.notes)
+    (s,) = [x for x in slates("MLB") if not x.get("held")]
+    assert s["exit"] == 0 and mc.parse_utc(s["ran_at"]) >= mc.parse_utc(r["page"]["at"]) and s["late"] is False
+
+
+def test_the_closing_ahead_and_the_guard(box, monkeypatch):
+    """closing_ahead: the earliest closing the watch will still run among the tick's families, by its T-35, past ones
+    included while the start is more than five minutes off; none for a family this machine refuses, inside T-5, or
+    with a success. The dry run says the slate is held."""
+    the_day(box, monkeypatch)
+    a = mc.closing_ahead(("NFL", "MLB"), et(7, 0))
+    assert (a["family"], a["start"], a["run_at"]) == ("NFL", et(9, 30), et(8, 55))
+    assert mc.closing_ahead(("MLB",), et(8, 0))["run_at"] == et(12, 30)                    # 13:05 - 35
+    assert mc.closing_ahead(("MLB",), et(7, 0)) is None          # due()'s schedule window: 6 hours, 13:05 is beyond
+    assert mc.closing_ahead(("NFL",), et(9, 0))["start"] == et(9, 30)                      # past T-35, outside T-5
+    assert mc.closing_ahead(("NFL",), et(9, 26))["start"] == et(13, 0)                     # 09:30 inside T-5
+    monkeypatch.setenv("SP_SKIP_FAMILIES", "NFL")
+    assert mc.closing_ahead(("NFL",), et(7, 0)) is None
+    monkeypatch.delenv("SP_SKIP_FAMILIES")
+    c.append_receipt({"kind": "closing", "family": "NFL", "start": "2026-10-18T13:30:00Z", "exit": 0,
+                      "covers": [{"match_id": 601, "start": "2026-10-18T13:30:00Z"}]})
+    assert mc.closing_ahead(("NFL",), et(8, 56))["start"] == et(13, 0)                     # 09:30 has its success
+    assert mc.SLATE_GUARD_MIN == 15
+
+
+def test_the_dry_run_says_a_slate_is_held(box, monkeypatch, capsys):
+    """12:15 ET, MLB's slate due since 10:35 and not run: NFL's 13:00 closing (T-35 12:25) is inside the guard."""
+    the_day(box, monkeypatch)
+    assert mc.watch(dry_run=True, now=et(12, 15), families=("NFL", "MLB")) == 0
+    out = capsys.readouterr().out
+    assert ("SLATE MLB 2026-10-18: first kickoff 13:05 ET · due 10:35 ET · success no · attempts 0/3 → held: closing "
+            "NFL 13:00 ET (T-35 12:25 ET) is inside the 15-minute guard") in out
+    assert receipts() == [] and box.steps == []
+
+
+# ================================================================================ the receipt's declared keys ==
+
+DECLARED = {"kind", "family", "date", "run_id", "trigger", "due", "queued_at", "ran_at", "late_minutes", "late",
+            "attempt", "covers", "file", "rows", "calls", "backup", "steps", "push", "exit"}
+
+
+@pytest.mark.parametrize("path", ["success", "step", "not written", "lock"])
+def test_every_attempt_receipt_carries_the_declared_keys(box, monkeypatch, path):
+    """Item 2(c): "`kind: "slate"` lines [...] with family, date, rows, calls, file, exit": every attempt's line carries
+    the same keys, a lock that cannot be taken (anything but a timeout) included."""
+    the_day(box, monkeypatch)
+    if path == "step":
+        box.fail_cmd["predict-nfl"] = (1, ["boom"])
+    elif path == "not written":
+        box.fail_cmd["export-nfl-predictions"] = (0, ["ok"])                     # exit 0, no file
+    elif path == "lock":
+        monkeypatch.setattr(mc, "acquire_lock",
+                            lambda t: (_ for _ in ()).throw(PermissionError("lock dir not writable")))
+    assert tick(et(7, 0)) == (0 if path == "success" else mc.NOTIFIED)
+    (s,) = slates()
+    assert DECLARED <= set(s), sorted(DECLARED - set(s))
+    if path == "lock":
+        assert (s["failed"], s["attempt"], s["ran_at"], s["late"], s["late_minutes"], s["rows"], s["calls"]) == (
+            "lock", 1, "2026-10-18T11:00:00Z", False, 0, None, None)
+        assert [x["match_id"] for x in s["covers"]] == [601, 602] and s["error"].startswith("PermissionError")

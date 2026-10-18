@@ -101,6 +101,11 @@ carries it; the Today tab shows it first."
     where this machine refuses the family (closing._family_refusal), the block to run (closing.slate_block). The gap is
     claimed for every LIVE competition with no slate file, a refused family's included: that is the operator's alert
     to run it by hand (item 1). coverage() carries it as `slate` on the competition. exports/ is read, never written.
+    Item 2(c), "the morning page reads them as it reads the closing lines": with no file, the line reads the watch's
+    slate receipts (kind slate and slate_miss, as closing.slate_state reads them). Where the watch runs no slate that
+    day (a success, three attempts, or every game started) the line names the block, "— run block <block> (<why>: the
+    watch runs it no more)"; else the due time, with a failed attempt ("attempt k of 3 failed (<failed>): the watch
+    tries again") or a miss ("missed (<reason>): the watch keeps trying") in brackets.
 
 Read-only: the DB is opened mode=ro (sp_common.ro_connect: a missing file is refused, never created), plus
 docs/roadmap.json, docs/registry/experiments.json, the watch's schedule inputs (chains.py, closing.py) and its receipt
@@ -518,6 +523,36 @@ def slate_view(fam: str, games: list[dict], day: date, refused: str | None, expo
     if best:
         out["exported_at"], out["file"] = best[0], f"{cl.SLATE_DIR}/{best[1].name}"
         out["rows"], out["calls"] = cl.slate_calls(best[2])
+    out.update(slate_receipts(fam, day))
+    return out
+
+
+def slate_receipts(fam: str, day: date) -> dict:
+    """What the watch's slate receipts say of the family's day (addendum 126 item 2(c): "the morning page reads them as
+    it reads the closing lines"), read as closing.slate_state reads them: {attempts, success, last_failed (the newest
+    failed attempt's `failed`), succeeded ({file, at} of the newest success), misses (the day's slate_miss reasons, in
+    order), done (the watch runs no slate that day: a success, three attempts, or every game started), unread}."""
+    out = {"attempts": 0, "success": False, "last_failed": None, "succeeded": None, "misses": [], "done": False,
+           "unread": None}
+    day_s = day.isoformat()
+    try:
+        runs = cl._slate_attempts(fam, day_s)
+        misses = [r.get("reason") for r in cl.receipts((cl.SLATE_MISS_KIND,))
+                  if r.get("family") == fam and r.get("date") == day_s and r.get("reason")]
+    except OSError as e:
+        out["unread"] = f"the watch's receipts cannot be read: {type(e).__name__}"
+        return out
+    ok = [r for r in runs if r.get("exit") == 0]
+    out["attempts"], out["success"] = len(runs), bool(ok)
+    out["last_failed"] = next((r.get("failed") or "error" for r in reversed(runs) if r.get("exit") != 0), None)
+    if ok:
+        try:
+            at = cl.parse_utc(ok[-1].get("completed_at") or ok[-1].get("ran_at"))
+        except (TypeError, ValueError):
+            at = None                 # law 4: an unreadable time is shown as none
+        out["succeeded"] = {"file": ok[-1].get("file"), "at": at}
+    out["misses"] = list(dict.fromkeys(misses))
+    out["done"] = bool(ok) or len(runs) >= cl.MAX_ATTEMPTS or cl.SLATE_ALL_STARTED in out["misses"]
     return out
 
 
@@ -629,6 +664,17 @@ def _group_text(g: dict, day: date) -> str:
     return f"{head} → {g['file']}" + (" (due now)" if g["state"] == "due" else "")
 
 
+def _slate_done_why(s: dict) -> str:
+    """Why the watch runs no slate today, from its receipts (closing._slate_under_lock's own words)."""
+    if s["success"]:
+        ok = s["succeeded"] or {}
+        at = f" at {cl.et(ok['at'])[11:]}" if ok.get("at") else ""
+        return f"a successful slate{at} ({ok.get('file')}), but no file holds every game of the day"
+    if s["attempts"] >= cl.MAX_ATTEMPTS:
+        return f"{s['attempts']} attempts, the last failed ({s['last_failed']})"
+    return f"missed: {cl.SLATE_ALL_STARTED}"
+
+
 def slate_line(x: dict) -> str | None:
     """The competition's SLATE line (addendum 126 item 2(b)), or None (not LIVE)."""
     s = x.get("slate")
@@ -638,8 +684,20 @@ def slate_line(x: dict) -> str | None:
         t = f"{s['file']} · exported {cl.et(s['exported_at'])} · {cl.calls_text(s['calls'])}"
     elif s["refused"]:
         t = f"NO SLATE FILE — run block {s['block']}"
+    elif s.get("done"):               # the watch runs no slate today: the block is the operator's (item 2(b))
+        t = f"NO SLATE FILE — run block {s['block']} ({_slate_done_why(s)}: the watch runs it no more)"
     else:
         t = f"NO SLATE FILE — slate run due {cl.et(s['due'])[11:]}"
+        notes = []
+        if s.get("attempts"):
+            notes.append(f"attempt {s['attempts']} of {cl.MAX_ATTEMPTS} failed ({s['last_failed']}): the watch tries "
+                         "again")
+        if s.get("misses"):
+            notes.append(f"missed ({', '.join(s['misses'])}): the watch keeps trying")
+        if s.get("unread"):
+            notes.append(s["unread"])
+        if notes:
+            t += f" ({'; '.join(notes)})"
     if s["skipped"]:
         t += " · skipped: " + "; ".join(f"{n} ({why})" for n, why in s["skipped"])
     return f"{x['code']} SLATE · {t}"

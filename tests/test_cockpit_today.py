@@ -52,10 +52,40 @@ def test_loaddocs_lifts_coverage_out_before_the_slate_is_reset():
     """The coverage path runs first; a load of coverage files alone returns before `rows=[]`; the slate's reset never
     touches coverageDoc."""
     body = _fn(_html(), "loadDocs")
-    take, ret, reset = body.index("takeCoverage(fs)"), body.index('if(!fs.length){ setTab("today"); return; }'), \
+    take, ret, reset = body.index("takeCoverage(fs)"), body.index('if(!fs.length){ setTab("today"); return did; }'), \
         body.index("rows=[]; shadowRows=[]; fileParlays=null; refusedFiles=[];")
     assert take < ret < reset
     assert "coverageDoc" not in body[reset:]
+
+
+def test_loaddocs_isolates_the_coverage_render_so_the_slate_path_always_runs():
+    """#589 review: renderToday() throwing on a damaged file stopped the whole load, and the slate picked with it was
+    silently not loaded. The render sits in a try/catch whose catch writes the error into the Today summary
+    (todayFailed); nothing between the render and the slate path can return early but the coverage-only return."""
+    html = _html()
+    body = _fn(html, "loadDocs")
+    guarded = "if(cov.taken){ try{ renderToday(); }catch(e){ did.coverageError=(e&&e.message)||String(e); " \
+              "todayFailed(did.coverageError); } }"
+    assert guarded in body and body.count("renderToday()") == 1
+    assert body.index(guarded) < body.index('if(!fs.length){ setTab("today"); return did; }')
+    failed = _fn(html, "todayFailed")
+    assert '$("todaySummary").textContent=' in failed and '$("todayTiles").innerHTML=""' in failed
+
+
+def test_loaddocs_returns_what_this_load_did_and_the_mirror_note_is_built_from_it():
+    """#589 review: the mirror note read the global refusedFiles after loadDocs, and a coverage-only load returns
+    before refusedFiles is reset, so the note reported an earlier load's refusals. loadDocs returns this load's
+    {coverage, coverageError, slate, refused} on every return path; the note reads only that."""
+    html = _html()
+    body = _fn(html, "loadDocs")
+    assert body.startswith("async function loadDocs(fs){\n"
+                           "  const did={coverage:0,coverageError:null,slate:false,refused:[]};")
+    returns = re.findall(r"return[^;]*;", body)
+    assert returns and all(r == "return did;" for r in returns), returns
+    assert body.count("did.refused=refusedFiles.slice();") == 2       # the parse-error return and the end
+    mirror = _fn(html, "loadLatestFromHost")
+    assert "const did=await loadDocs(docs);" in mirror and "refusedFiles" not in mirror
+    assert "did.refused.length" in mirror and "did.coverage" in mirror
 
 
 def _node(script):
@@ -69,8 +99,9 @@ def _node(script):
 
 def _today_js():
     html = _html()
-    fns = "\n".join(_fn(html, n) for n in ("esc", "takeCoverage", "countdownText", "todayIds", "todayGroupHTML",
-                                           "todayTileHTML"))
+    fns = "\n".join(_fn(html, n) for n in ("esc", "takeCoverage", "countdownText", "todayIds", "todayEntry",
+                                           "todayShown", "todayUnread", "todayGroupHTML", "todayTileHTML",
+                                           "todayEtaHTML"))
     return 'let coverageDoc=null, coverageName="", coverageNote="";\n' + fns
 
 
@@ -128,3 +159,40 @@ def test_a_tile_renders_the_files_words_escaped_with_a_countdown_only_on_a_group
                                       (0, "T-35 passed"), (-5000, "T-35 passed")])
 def test_the_countdown_text(ms, text):
     assert _node(_today_js() + f"console.log(JSON.stringify(countdownText({ms},'T-35')));") == text
+
+
+def _tile(x):
+    return _node(_today_js() + f"""console.log(JSON.stringify(todayTileHTML({json.dumps(x)}, 0)));""")
+
+
+def test_a_tile_shows_the_files_closing_tail_none_left_to_run_when_every_group_is_done():
+    """#589 review: the page rebuilt the closing section from groups / started / finished and dropped the line's
+    "none left to run", which _closing_clause appends outside any group's text. The file carries it as data
+    (`closing_tail`, coverage_map.document()) and the tile renders it, deriving nothing (F1c)."""
+    done = dict(COV["competitions"][0], groups=[COV["competitions"][0]["groups"][1]], closing_tail="none left to run")
+    body = _tile(done).split("<details")[0]                          # outside the console-line expander
+    assert '<div class="note ctail">none left to run</div>' in body
+    assert body.index("run <code>R1</code>") < body.index("none left to run")
+    assert 'class="ctail"' not in _tile(dict(COV["competitions"][0], closing_tail=None))
+    # no group at all: the line's own closing clause, which already carries it, and no second copy
+    nogroup = dict(COV["competitions"][0], groups=[], closing_tail="none left to run",
+                   closing_text="closing: started 401, 402; none left to run")
+    t = _tile(nogroup).split("<details")[0]
+    assert t.count("none left to run") == 1 and "closing: started 401, 402; none left to run" in t
+
+
+def test_null_list_entries_are_labelled_not_read_and_a_null_competition_is_named():
+    """#589 review: a null entry in a tile's rows or groups, or in the roadmap, crashed the render (m.model_version,
+    g.state, l.lane). Each is labelled "not read" where it stands; a competition entry that is not an object is no
+    tile, so todayTileHTML throws, named (loadDocs writes it into the Today summary)."""
+    x = dict(COV["competitions"][0], rows=[None, *COV["competitions"][0]["rows"]],
+             groups=[*COV["competitions"][0]["groups"], None])
+    t = _tile(x)
+    assert "rows[0] not read: null" in t and "groups[2] not read: null" in t
+    assert "<b>v22</b> 1 row" in t and "run <code>R1</code>, exit 0" in t     # the readable entries still render
+    eta = _node(_today_js() + """console.log(JSON.stringify([todayEtaHTML(null,3), todayEtaHTML({lane:"nhl",
+      title:"NHL",state:"to declare",eta:"no ETA",competitions:["NHL"],next_line:"n"},0)]));""")
+    assert "roadmap[3] not read: null" in eta[0] and 'data-lane="nhl"' in eta[1] and "no ETA" in eta[1]
+    err = _node(_today_js() + """let m=null; try{ todayTileHTML(null,0); }catch(e){ m=e.message; }
+      console.log(JSON.stringify(m));""")
+    assert err == "competitions[0] is null, not a competition entry"

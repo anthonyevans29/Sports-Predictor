@@ -4,9 +4,11 @@ file written by the REAL command, `python cli.py coverage --json --out PATH`, on
 ORM's own schema (src/db/schema.py, Base.metadata.create_all) in a temporary folder. Never data/: DATABASE_URL,
 SP_RECEIPTS and SP_HOST_ENV all point inside the folder, so neither the operator's DB, the watch's receipts nor
 host.env is read. The day is TOMORROW in US Eastern (every closing group is ahead of the page's clock, so each one
-carries a countdown), with one closing run already receipted for it (a done group).
+carries a countdown), with one closing run already receipted for it (a done group). `all_done=True` (--all-done)
+receipts a run for every closing group of the day as well (PL's and NFL's tiles then hold done groups only, and the
+line's closing clause ends "none left to run").
 
-    python3 scripts/cockpit_coverage_file.py [DIR]     # prints the console and the file's path
+    python3 scripts/cockpit_coverage_file.py [DIR] [--all-done]     # prints the console and the file's path
 
 The scratch day: PL (LIVE: one production soccer_elo_poisson row; two games with rows, one without, one postponed),
 NFL (LIVE: predict-nfl; no rows, a gap), NHL (MARKET-ONLY, shadow v7 where nhl-daily runs), NCAA (MARKET-ONLY) and
@@ -69,18 +71,27 @@ def build_db(path: Path, noon: datetime) -> dict:
     return out
 
 
-def make(folder: str | None = None, now: datetime | None = None) -> dict:
-    """Build the scratch DB and run the real command on it. {path, doc, console, day, rc}."""
+def _receipt(fam: str, run_id: str, start: str, ids: list[int]) -> str:
+    """closing.run's receipt line for one successful run (read-only by the command)."""
+    return json.dumps({"kind": "closing", "family": fam, "run_id": run_id, "trigger": "watch", "start": start,
+                       "exit": 0, "covers": [{"match_id": i, "start": start} for i in ids],
+                       "closing_file": {"file": f"exports/closing_{fam}_{start[:13]}{start[14:16]}Z.json"}}) + "\n"
+
+
+def make(folder: str | None = None, now: datetime | None = None, all_done: bool = False) -> dict:
+    """Build the scratch DB and run the real command on it. {path, doc, console, day, rc}. `all_done`: every closing
+    group of the day has a successful run receipted (none left to run)."""
     d = Path(folder or tempfile.mkdtemp(prefix="coverage-scratch-"))
     d.mkdir(parents=True, exist_ok=True)
     day, noon = scratch_day(now)
     db = d / "scratch.db"
     build_db(db, noon)
-    start = (noon + timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M:%SZ")
-    (d / "receipts.jsonl").write_text(json.dumps({                       # closing.run's receipt line, read-only
-        "kind": "closing", "family": "SOCCER", "run_id": "scratch-soccer-closing", "trigger": "watch",
-        "start": start, "exit": 0, "covers": [{"match_id": 401, "start": start}, {"match_id": 402, "start": start}],
-        "closing_file": {"file": f"exports/closing_SOCCER_{start[:13]}{start[14:16]}Z.json"}}) + "\n")
+    at = lambda h: (noon + timedelta(hours=h)).strftime("%Y-%m-%dT%H:%M:%SZ")  # noqa: E731
+    lines = [_receipt("SOCCER", "scratch-soccer-closing", at(2), [401, 402])]
+    if all_done:
+        lines += [_receipt("SOCCER", "scratch-soccer-closing-2", at(4.5), [403]),
+                  _receipt("NFL", "scratch-nfl-closing", at(5), [301])]
+    (d / "receipts.jsonl").write_text("".join(lines))
     out = d / f"coverage_{day.isoformat()}.json"
     env = {**os.environ, "DATABASE_URL": f"sqlite:///{db}", "SP_RECEIPTS": str(d / "receipts.jsonl"),
            "SP_HOST_ENV": str(d / "no-host.env")}
@@ -93,7 +104,8 @@ def make(folder: str | None = None, now: datetime | None = None) -> dict:
 
 
 if __name__ == "__main__":
-    res = make(sys.argv[1] if len(sys.argv) > 1 else None)
+    args = [a for a in sys.argv[1:] if a != "--all-done"]
+    res = make(args[0] if args else None, all_done="--all-done" in sys.argv[1:])
     print(res["console"], end="")
     print(f"exit {res['rc']} · {res['path']}")
     sys.exit(res["rc"])

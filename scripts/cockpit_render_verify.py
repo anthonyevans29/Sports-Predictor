@@ -38,7 +38,14 @@ data/), then loaded through the file picker:
     the tiles as they were;
   - a status the file adds later ("POT", label "POT (training data only)")
     renders as its label; markup in a file string is shown as text, never run;
-    a file whose roadmap is null shows its reason.
+    a file whose roadmap is null shows its reason;
+  - a slate and a coverage file in ONE load: null entries in a tile's lists
+    (rows, groups) and in the roadmap are labelled "not read" and the slate
+    loads; a damaged coverage file (a null competition entry) shows its error
+    in the Today summary, no tile, and the slate picked with it still loads;
+  - a file whose groups are all done (`--all-done`: every closing group
+    receipted): each tile shows the file's own `closing_tail` ("none left to
+    run"), never derived in the page.
 
     python3 scripts/cockpit_render_verify.py
 
@@ -99,7 +106,9 @@ TODAY = """(()=>{
     tiles: [...document.querySelectorAll("#todayTiles .tile")].map(t=>({code:t.dataset.code,status:t.dataset.status,
       games:+q(t,".tgames").dataset.games,gamesText:q(t,".tgames").textContent,label:q(t,".slabel").textContent,
       groups:[...t.querySelectorAll(".grp")].map(g=>({state:g.dataset.state,
-        countdown:q(g,".countdown")?q(g,".countdown").textContent:null}))})),
+        countdown:q(g,".countdown")?q(g,".countdown").textContent:null})),
+      tail:q(t,".ctail")?q(t,".ctail").textContent:null})),
+    unread: [...document.querySelectorAll("#todayView .unread")].map(e=>e.textContent),
     gaps: [...document.querySelectorAll("#todayGaps .gapline")].map(e=>e.textContent),
     gapsText: document.getElementById("todayGaps").textContent,
     etas: [...document.querySelectorAll("#todayEtas .eta")].map(e=>({lane:e.dataset.lane,eta:q(e,".etav").textContent})),
@@ -205,6 +214,61 @@ def today_checks(browser, url, tmp, errors, load, slate_files, counts):
           (T["tiles"], T["gaps"], T["etas"], T["summary"]) == (first["tiles"], first["gaps"], first["etas"],
                                                               first["summary"]) and T["rows"] > 0,
           f"tiles {len(first['tiles'])}->{len(T['tiles'])} · rows {T['rows']}")
+    page.context.close()
+
+    # a slate and a coverage file in ONE load (#589 review): the coverage path never stops the slate path
+    slate = before
+
+    def one_load(cov_doc, name):
+        page = browser.new_context(timezone_id="America/New_York").new_page()
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.clock.set_fixed_time(b.GOLDEN_NOW)
+        page.goto(url)
+        page.evaluate(f"localStorage.setItem('bd_ledger_v1', {json.dumps(json.dumps(b.seeded_ledger(counts)))})")
+        page.goto(url)
+        page.set_input_files("#predFile", cdf.write(tempfile.mkdtemp(dir=tmp), {**slate_files, name: cov_doc}))
+        try:
+            page.wait_for_function("document.getElementById('summary').textContent.includes('rows')", timeout=15000)
+        except Exception:  # noqa: BLE001 — the slate never loaded: the check below says so
+            pass
+        return page, page.evaluate(TODAY)
+
+    nulls = json.loads(json.dumps(doc))
+    tgt = next(x for x in nulls["competitions"] if x.get("groups") and x.get("rows"))
+    tgt["rows"].insert(0, None)
+    tgt["groups"].append(None)
+    nulls["roadmap"] = list(nulls.get("roadmap") or []) + [None]
+    page, T = one_load(nulls, "coverage_nulls.json")
+    check("a slate and a coverage file with null list entries (rows, groups, roadmap) in ONE load: the slate loads, "
+          "every tile renders, each null entry labelled 'not read'",
+          (T["rows"], T["calls"], T["slateRows"]) == (slate["rows"], slate["calls"], slate["slateRows"])
+          and [t["code"] for t in T["tiles"]] == [x["code"] for x in comps] and T["summary"].startswith("COVERAGE")
+          and len(T["unread"]) == 3 and all("not read" in u for u in T["unread"]),
+          f"rows {T['rows']}/{slate['rows']} · tiles {len(T['tiles'])} · {T['summary'][:80]!r} · {T['unread']}")
+    page.context.close()
+    broken = json.loads(json.dumps(doc))
+    broken["competitions"] = [None] + broken["competitions"]
+    page, T = one_load(broken, "coverage_broken.json")
+    check("a slate and a damaged coverage file (competitions[0] null) in ONE load: the slate loads; the Today summary "
+          "shows the error, no tile",
+          (T["rows"], T["calls"], T["slateRows"]) == (slate["rows"], slate["calls"], slate["slateRows"])
+          and "coverage_broken.json not rendered" in T["summary"] and "competitions[0]" in T["summary"]
+          and T["tiles"] == [], f"rows {T['rows']}/{slate['rows']} · {T['summary'][:200]!r}")
+    page.context.close()
+
+    # every closing group done: the file's closing_tail ("none left to run") on the tile, not derived by the page
+    done_all = ccf.make(tempfile.mkdtemp(dir=tmp), all_done=True)
+    dd = done_all["doc"] or {}
+    dcomps = dd.get("competitions") or []
+    page = fresh(datetime.now(timezone.utc))
+    T = put(page, [done_all["path"]])
+    tails = [(x["code"], x.get("closing_tail")) for x in dcomps]
+    check("a file whose groups are all done: each tile shows the file's closing_tail ('none left to run' on PL and "
+          "NFL), as the file gives it",
+          done_all["rc"] == 0 and [(t["code"], t["tail"]) for t in T["tiles"]] == tails
+          and dict(tails).get("PL") == dict(tails).get("NFL") == "none left to run"
+          and all(g["state"] == "done" for t in T["tiles"] for g in t["groups"]),
+          json.dumps([(t["code"], t["tail"]) for t in T["tiles"]]))
     page.context.close()
 
     # a status the file adds later, markup in a file string, a roadmap the command could not read

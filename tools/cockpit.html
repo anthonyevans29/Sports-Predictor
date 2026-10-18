@@ -2561,6 +2561,9 @@ function renderParlays(ranked,card,out){
 // untouched, and a slate load never clears coverageDoc (only a newer coverage file replaces it). Every label, count,
 // time and line is the file's own, escaped; statuses render generically by their label (a status the file adds later
 // renders the same way, uncoloured). The page's clock drives the countdowns to each group's run time (`run_at`).
+// A damaged file (#589 review): an entry of a tile's lists or of the roadmap that is not an object is labelled
+// "not read" where it stands; a competition entry that is not an object is no tile, so renderToday throws, named, and
+// loadDocs writes the error into the Today summary (todayFailed) and loads the slate picked with it as ever.
 let coverageDoc=null, coverageName="", coverageNote="", todayTimer=null;
 function takeCoverage(fs){
   const rest=[], got=[];
@@ -2592,7 +2595,11 @@ function tickToday(){
   });
 }
 function todayIds(a){ return (Array.isArray(a)?a:[]).map(v=>String(v??"")).join(", "); }
-function todayGroupHTML(g){
+function todayEntry(v){ return v!==null&&typeof v==="object"; }
+function todayShown(v){ return JSON.stringify(v)??String(v); }
+function todayUnread(where,v){ return `<div class="note caution unread">${esc(where)} not read: ${esc(todayShown(v))}</div>`; }
+function todayGroupHTML(g,i){
+  if(!todayEntry(g)) return todayUnread(`groups[${i}]`,g);
   const st=String(g.state??"");
   let h=`<div class="grp" data-state="${esc(st)}"><span class="gstate">${esc(st)}</span> `
     +`<b>${esc(g.run_lead)} ${esc(g.run_at_et)}</b> <span class="gids">[${esc(todayIds(g.match_ids))}]</span>`;
@@ -2602,7 +2609,10 @@ function todayGroupHTML(g){
   // the group as the coverage line prints it: the file name (or why there is none) and what the watch does next
   return h+`<div class="note gtext">${esc(g.text)}</div></div>`;
 }
-function todayTileHTML(x){
+function todayTileHTML(x,i){
+  // a competition entry that is not an object is no tile: the file is damaged where the page draws it, so the page
+  // says so (loadDocs writes it into the Today summary) and invents nothing
+  if(!todayEntry(x)) throw new Error(`competitions[${i}] is ${todayShown(x)}, not a competition entry`);
   const games=Array.isArray(x.games)?x.games:[], n=games.length;
   const rws=Array.isArray(x.rows)?x.rows:[], groups=Array.isArray(x.groups)?x.groups:[];
   const writers=Array.isArray(x.writers)?x.writers:[], started=Array.isArray(x.started)?x.started:[];
@@ -2615,7 +2625,8 @@ function todayTileHTML(x){
     +`<div class="sec"><span class="lab">writer chains</span>${writers.length?esc(writers.join(", ")):"none"}</div>`
     +`<div class="sec">`;
   // the rows by model with their computed_at; with none, the line's own words ("rows: none (none expected: …)")
-  h+=rws.length?`<span class="lab">prediction rows</span>`+rws.map(m=>`<div class="mrow"><b>${esc(m.model_version)}</b> `
+  h+=rws.length?`<span class="lab">prediction rows</span>`+rws.map((m,j)=>!todayEntry(m)?todayUnread(`rows[${j}]`,m)
+      :`<div class="mrow"><b>${esc(m.model_version)}</b> `
       +`${esc(m.rows)} row${m.rows===1?"":"s"}`+(m.computed_et?` · ${esc(m.computed_et)}`:"")+`</div>`).join("")
     :esc(x.rows_text);
   if(x.without_rows_text) h+=`<div class="note">${esc(x.without_rows_text)}</div>`;
@@ -2627,6 +2638,8 @@ function todayTileHTML(x){
     if(started.length) h+=`<div class="grp" data-state="started"><span class="gstate">started</span> [${esc(todayIds(started))}] — no group</div>`;
     if(finished.length) h+=`<div class="note">a closing finished with ${esc(todayIds(finished))}</div>`;
     h+=groups.map(todayGroupHTML).join("");
+    // the clause's words outside any group's text ("none left to run"), as the file carries them (closing_tail)
+    if(x.closing_tail) h+=`<div class="note ctail">${esc(x.closing_tail)}</div>`;
   }
   return h+`</div><details class="sig"><summary>console line</summary><pre>${esc(x.line)}</pre></details></div>`;
 }
@@ -2646,20 +2659,39 @@ function renderToday(){
   if(!Array.isArray(d.roadmap)) $("todayEtas").innerHTML=`<h2 style="margin-top:0">ETAs</h2>`
     +`<div class="caution">roadmap not read: ${esc(d.roadmap_unread??"the file carries no roadmap")}</div>`;
   else $("todayEtas").innerHTML=`<h2 style="margin-top:0">ETAs <span class="note">the roadmap's lanes, as <code>python cli.py roadmap</code> reads them</span></h2>`
-    +d.roadmap.map(l=>`<div class="eta" data-lane="${esc(l.lane)}" title="${esc(l.line)}"><b>${esc(Array.isArray(l.competitions)&&l.competitions.length?l.competitions.join(", "):l.title)}</b>`
-      +` · ${esc(l.state)} · <span class="etav">${esc(l.eta)}</span><div class="note">${esc(l.next_line)}</div></div>`).join("");
+    +d.roadmap.map(todayEtaHTML).join("");
   tickToday();
   if(!todayTimer) todayTimer=setInterval(tickToday,1000);
 }
+function todayEtaHTML(l,i){
+  if(!todayEntry(l)) return todayUnread(`roadmap[${i}]`,l);
+  return `<div class="eta" data-lane="${esc(l.lane)}" title="${esc(l.line)}"><b>${esc(Array.isArray(l.competitions)&&l.competitions.length?l.competitions.join(", "):l.title)}</b>`
+    +` · ${esc(l.state)} · <span class="etav">${esc(l.eta)}</span><div class="note">${esc(l.next_line)}</div></div>`;
+}
+// A coverage file renderToday could not draw: the error in the Today summary, nothing half-drawn and nothing of an
+// earlier file left under it.
+function todayFailed(msg){
+  $("todaySummary").textContent=`⚠ coverage file ${coverageName} not rendered: ${msg}`+coverageNote;
+  $("todayGaps").innerHTML=""; $("todayGaps").hidden=true;
+  $("todayTiles").innerHTML="";
+  $("todayEtas").innerHTML=""; $("todayEtas").hidden=true;
+}
 
-// One load path for picked files and the exports mirror (F2.5): [{name, text}].
+// One load path for picked files and the exports mirror (F2.5): [{name, text}]. Returns what THIS load did (#589
+// review): {coverage: the coverage_v1 files it took, coverageError: why the Today tab could not draw the one shown
+// (null when it did), slate: whether the slate path ran, refused: the files it refused without desk blocks}.
 async function loadDocs(fs){
-  if(!fs.length)return;
+  const did={coverage:0,coverageError:null,slate:false,refused:[]};
+  if(!fs.length)return did;
   const cov=takeCoverage(fs);            // TODAY (#589): coverage_v1 files leave the batch first, on their own path
-  if(cov.taken) renderToday();
+  did.coverage=cov.taken;
+  // a coverage file the page cannot draw never stops the load: its error goes to the Today summary and the slate
+  // picked with it loads as ever (#589 review)
+  if(cov.taken){ try{ renderToday(); }catch(e){ did.coverageError=(e&&e.message)||String(e); todayFailed(did.coverageError); } }
   fs=cov.rest;
-  if(!fs.length){ setTab("today"); return; }   // a coverage file alone: the loaded slate is never reset
+  if(!fs.length){ setTab("today"); return did; }   // a coverage file alone: the loaded slate is never reset
   rows=[]; shadowRows=[]; fileParlays=null; refusedFiles=[]; const sports=new Set();
+  did.slate=true;
   for(const f of fs){
     try{const doc=JSON.parse(f.text);
       if(doc.kind==="desk_parlays_v1"){ fileParlays=doc; continue; }   // F1b: tickets file
@@ -2671,7 +2703,7 @@ async function loadDocs(fs){
       if(rr.some(r=>!r.fileDesk)){ refusedFiles.push(f.name); continue; }
       rr.forEach(r=>sports.add(r.sport));
       rows=rows.concat(rr);}
-    catch(err){$("summary").textContent=`Could not parse ${f.name}: ${err.message}`;return;}
+    catch(err){$("summary").textContent=`Could not parse ${f.name}: ${err.message}`; did.refused=refusedFiles.slice(); return did;}
   }
   sportLabel=Array.from(sports).join("+");
   policy();
@@ -2684,6 +2716,8 @@ async function loadDocs(fs){
     +(storageOK?"":" ⚠ browser storage unavailable — Export the ledger to keep it."); renderLedger(); }
   setTab(true);
   $("askCard").hidden=!sampleNS;
+  did.refused=refusedFiles.slice();
+  return did;
 }
 $("predFile").addEventListener("change",async e=>{
   const fs=Array.from(e.target.files); if(!fs.length)return;
@@ -2715,8 +2749,11 @@ async function loadLatestFromHost(){
     const docs=await Promise.all(list.map(async x=>{
       const q=await fetch(`${api}/${encodeURIComponent(x.name)}`,{headers:{...hdr,Accept:"application/vnd.github.raw+json"}});
       return {name:`host/latest/${x.name}`,text:q.ok?await q.text():"{}"};}));
-    await loadDocs(docs);
-    $("mirrorNote").textContent=`Loaded ${docs.length} file(s) from ${repo} host/latest`+(refusedFiles.length?` · ${refusedFiles.length} without desk blocks refused`:"");
+    const did=await loadDocs(docs);      // the note is THIS load's (#589 review): never an earlier load's refusals
+    $("mirrorNote").textContent=`Loaded ${docs.length} file(s) from ${repo} host/latest`
+      +(did.coverage?` · ${did.coverage} coverage file${did.coverage===1?"":"s"} on the Today tab`
+        +(did.coverageError?` (not rendered: ${did.coverageError})`:""):"")
+      +(did.refused.length?` · ${did.refused.length} without desk blocks refused`:"");
   }catch(e){ $("mirrorNote").textContent=`Fetch failed: ${(e&&e.message)||e}`; }
 }
 $("mirrorBtn").addEventListener("click",loadLatestFromHost);

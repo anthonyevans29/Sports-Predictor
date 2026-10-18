@@ -973,7 +973,7 @@ def test_json_writes_the_kind_the_coverage_dict_and_iso_z_datetimes(pin, tmp_pat
     assert doc["gaps"] == cov["gaps"] == PIN_TEXT[-3:]
     assert [x["code"] for x in doc["competitions"]] == [x["code"] for x in cov["competitions"]]
     # the dict coverage() returns, every key and value, with each datetime as ISO-8601 Z (the additions beside it)
-    added = {"line", "games_text", "rows_text", "without_rows_text", "closing_text"}
+    added = {"line", "games_text", "rows_text", "without_rows_text", "closing_text", "closing_tail"}
     for xd, x in zip(doc["competitions"], cov["competitions"]):
         assert set(xd) - added == set(x), x["code"]
         bare = json.loads(json.dumps({k: xd[k] for k in x}))
@@ -1007,11 +1007,40 @@ def test_json_writes_the_kind_the_coverage_dict_and_iso_z_datetimes(pin, tmp_pat
         ("T-35", "11:55 ET", "T-35 11:55 ET [403] → exports/closing_SOCCER_2026-10-17T1630Z.json")]
     nhl = next(x for x in doc["competitions"] if x["code"] == "NHL")
     assert (nhl["status_label"], nhl["without_rows_text"]) == ("MARKET-ONLY · shadow v7", None)
+    assert pl["closing_tail"] is None and nhl["closing_tail"] is None      # a group left to run; no closing family
     # the console: the same lines, the header naming the one file written, then the file's line
     assert lines[0] == PIN_TEXT[0].replace("no export written", f"one export written ({out}, --json)")
     assert lines[1:-1] == PIN_TEXT[1:]
     assert lines[-1] == (f"COVERAGE JSON: {out} written (kind coverage_v1: the map above as data, 6 competitions, 3 "
                          f"gap lines, roadmap {len(LANES)} lanes)")
+
+
+def test_json_carries_the_closing_tail_none_left_to_run_when_every_group_is_done(pin, tmp_path):
+    """#589 review: the line's "none left to run" is appended outside any group's text (_closing_clause), so a reader
+    rebuilding the closing section from groups / started / finished lost it. The file carries it as data,
+    `closing_tail`, from the one function the line uses (_closing_tail): "none left to run", or null where the clause
+    says no such thing (a group left to run, no closing family, refused here, receipts not shown)."""
+    receipt(family="SOCCER", run_id="20261017T155500Z-soccer-closing", trigger="watch", start="2026-10-17T16:30:00Z",
+            exit=0, covers=[{"match_id": 403, "start": "2026-10-17T16:30:00Z"}],
+            closing_file={"file": "exports/closing_SOCCER_2026-10-17T1630Z.json"})
+    out = tmp_path / "c.json"
+    rc, lines = run("--date", DAY, "--json", "--out", str(out))
+    assert rc == 0
+    by = {x["code"]: x for x in json.loads(out.read_text())["competitions"]}
+    pl = by["PL"]
+    assert [g["state"] for g in pl["groups"]] == ["done", "done"]
+    assert pl["closing_tail"] == "none left to run"
+    assert pl["closing_text"].endswith("; none left to run") and not any("none left to run" in g["text"]
+                                                                           for g in pl["groups"])
+    assert pl["line"] == next(ln for ln in lines if ln.startswith("PL · "))     # the printed line, unchanged
+    assert by["NFL"]["closing_tail"] is None                                    # its group is still ahead
+    assert (by["NHL"]["closing_tail"], by["NHL"]["closing_text"]) == (None, "closing: none (no closing family covers "
+                                                                         "NHL)")
+    # the text output's clause is the same function's: no group at all also ends "none left to run" (started games)
+    x = dict(pl, groups=[], started=[405], finished=[], refused=None, closing_unread=None, family="SOCCER")
+    assert cm._closing_tail(x) == "none left to run"
+    assert cm._closing_tail(dict(x, refused="SP_SKIP_FAMILIES")) is None
+    assert cm._closing_tail(dict(x, closing_unread="the watch's receipts cannot be read: OSError")) is None
 
 
 def test_json_roadmap_is_the_lanes_as_roadmap_reads_them_and_no_eta_where_undated(pin, tmp_path):

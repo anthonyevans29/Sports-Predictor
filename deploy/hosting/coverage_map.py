@@ -605,6 +605,19 @@ def _rows_clauses(x: dict) -> tuple[str, str | None]:
     return rows, None
 
 
+def _closing_tail(x: dict) -> str | None:
+    """The closing clause's last words, outside any group's text: "none left to run" where the day's groups leave the
+    watch nothing to run or record (left to run: a group the watch will run or record a miss for; a done one: tried
+    again, or a miss), None where the clause says no such thing (no family, refused here, not shown, or a group left
+    to run). One function for the line and the coverage_v1 file (`closing_tail`), so the Cockpit renders the file's
+    words without deriving them (#589, F1c)."""
+    if not x["family"] or x["refused"] or x["closing_unread"]:
+        return None
+    if any(g["state"] != "done" or g["next"] in ("again", "miss") for g in x["groups"]):
+        return None
+    return "none left to run"
+
+
 def _closing_clause(x: dict, day: date) -> str:
     """The closing clause: no family, refused here, not shown, or the day's groups."""
     if not x["family"]:
@@ -614,9 +627,9 @@ def _closing_clause(x: dict, day: date) -> str:
     if x["closing_unread"]:
         return f"closing: not shown ({x['closing_unread']})"
     runs = [_group_text(g, day) for g in x["groups"]]
-    # left to run: a group the watch will run or record a miss for (a done one: tried again, or a miss)
-    if not any(g["state"] != "done" or g["next"] in ("again", "miss") for g in x["groups"]):
-        runs.append("none left to run")
+    tail = _closing_tail(x)
+    if tail:
+        runs.append(tail)
     if x["finished"]:
         runs.insert(0, f"a closing finished with {', '.join(map(str, x['finished']))}")
     if x["started"]:
@@ -682,8 +695,9 @@ def document(cov: dict, roadmap_path=None) -> dict:
     """The coverage_v1 document: {"kind": "coverage_v1", **coverage() with every datetime ISO-8601 Z}, plus what the
     printed lines say in the line's own words, so a reader shows it without computing it (the Cockpit's Today tab,
     F1c: viewer, not engine): `now_et`; per competition `line` (its printed line), `games_text`, `rows_text`,
-    `without_rows_text` (null where the line leaves it out) and `closing_text` (its clauses); per prediction model
-    `computed_et` (its computed_at in ET, as the line prints it; null when none could be read); per closing group
+    `without_rows_text` (null where the line leaves it out), `closing_text` (its clauses) and `closing_tail` (the
+    clause's words outside any group's text: "none left to run", or null where the clause has none); per prediction
+    model `computed_et` (its computed_at in ET, as the line prints it; null when none could be read); per closing group
     `run_lead` ("T-35"), `run_at_et` (the run time in ET, with its date when not the day's) and `text` (the group as
     the line prints it). Then `roadmap`: lanes_data() on the coverage day (roadmap.load() and the print's own lines;
     "no ETA" where a lane's earliest_live is null), or null with `roadmap_unread` saying why (law 4: never a guessed
@@ -694,7 +708,7 @@ def document(cov: dict, roadmap_path=None) -> dict:
     for xd, x in zip(doc["competitions"], cov["competitions"]):
         rows, without = _rows_clauses(x)
         xd.update(line=comp_line(x, day), games_text=_games_text(x), rows_text=rows, without_rows_text=without,
-                  closing_text=_closing_clause(x, day))
+                  closing_text=_closing_clause(x, day), closing_tail=_closing_tail(x))
         for md, m in zip(xd["rows"], x["rows"]):
             md["computed_et"] = _computed_text(m) or None
         for gd, g in zip(xd["groups"], x["groups"]):

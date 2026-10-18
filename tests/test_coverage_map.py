@@ -12,7 +12,7 @@ import re
 import socket
 import sqlite3
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -893,6 +893,38 @@ def test_the_slate_line_reads_the_watchs_slate_receipts(env):
     assert (s["attempts"], s["success"], s["last_failed"], s["misses"], s["done"], s["unread"]) == (
         3, False, "missing from export", ["the chain lock was held"], True, None)
     assert cl.slate_state("NFL", "2026-10-18") == {"success": False, "attempts": 3}             # the watch's own read
+
+
+def test_the_hold_note_names_the_closing_the_slate_waits_for_now(env, monkeypatch):
+    """Two closings back to back (#590 review): the laptop's first tick at 08:41 ET holds the NFL slate for the 09:30
+    closing (T-35 08:55); the 08:50 tick holds it for the same closing and writes nothing; that closing runs at 08:55;
+    the 09:00 tick holds the slate again, for the 09:42 closing (T-35 09:07, outside the 09:30 group's cover). The
+    watch receipts each closing it waits for once (closing.record_slate_hold), so the line names the one it waits for
+    now, never the closing whose run is done on the line above it. Late still counts from the first tick, 08:41."""
+    make_db(env, [(601, "NFL", "2026-10-18 13:30", "SCHEDULED"), (603, "NFL", "2026-10-18 13:42", "SCHEDULED"),
+                  (602, "NFL", "2026-10-18 17:00", "SCHEDULED")], NFL_ROWS)
+    base = {"kind": "slate", "family": "NFL", "date": "2026-10-18", "trigger": "watch", "due": "2026-10-18T11:00:00Z"}
+    day = datetime(2026, 10, 18).date()
+
+    def hold(tick, start):
+        s = utc(f"2026-10-18 {start}")
+        cl.record_slate_hold("NFL", day, {**base, "run_id": "x", "queued_at": f"2026-10-18T{tick}:00Z"},
+                             {"family": "NFL", "start": s, "run_at": s - timedelta(minutes=cl.RUN_LEAD_MIN)})
+    hold("12:41", "13:30")
+    hold("12:50", "13:30")                                         # the same closing: nothing written
+    receipt(family="NFL", run_id="20261018T125500Z-nfl-closing", start="2026-10-18T13:30:00Z", exit=0,
+            covers=[{"match_id": 601, "start": "2026-10-18T13:30:00Z"}])
+    hold("13:00", "13:42")
+    monkeypatch.setattr(cl, "clock", lambda: utc("2026-10-18 13:01"))
+    out = run("--date", "2026-10-18")[1]
+    assert "T-35 08:55 ET [601] done (run 20261018T125500Z-nfl-closing, 0)" in line_of(out, "NFL")
+    assert out[out.index(line_of(out, "NFL")) + 1] == (
+        "NFL SLATE · NO SLATE FILE — slate run due 07:00 ET (held since 09:00 ET (closing NFL 09:42 ET (T-35 09:07 "
+        "ET) is inside the 15-minute guard): the slate runs after it)")
+    assert [r["closing"]["start"] for r in cl.receipts((cl.SLATE_KIND,)) if r.get("held")] == [
+        "2026-10-18T13:30:00Z", "2026-10-18T13:42:00Z"]
+    assert cl._slate_late("NFL", "2026-10-18", utc("2026-10-18 13:20"), utc("2026-10-18 11:00"))[1]["tick"] == (
+        utc("2026-10-18 12:41"))                                   # the first tick that found it due
 
 
 def test_a_successful_slate_no_file_holds_every_game_names_the_block(env, monkeypatch):

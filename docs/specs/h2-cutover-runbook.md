@@ -360,12 +360,14 @@ Which machine runs item 5's readout (ARCHITECT 2026-10-18, addendum 128 item 1(a
      133 item 4, amended by addendum 137 item 2(4), `LATE_MIN` = 5; the receipt keeps the exact seconds). At most one
      slate runs a tick (addendum 134 item 1(ii); the soonest first unstarted kickoff first, read when the slate stage
      starts, a family retrying a failed slate last): the next family's runs on a later tick, so the host unit's
-     45-minute bound holds a tick's closings and one chain. A slate still held with no 15 minutes left before its
+     45-minute bound holds a tick's closings and one chain; "the slate runs on a later tick unless its kickoff comes
+     first, and then its page says so" (addendum 138 item 3(b)). A slate still held with no 15 minutes left before its
      family's first unstarted kickoff pages `SLATE <FAMILY> <date> HELD for <closing> — RUN BY HAND: <block>` once; a
      slate deferred by the one-run rule with no 15 minutes left pages `SLATE <FAMILY> <date> HELD for the <FAMILY2>
      slate (one slate run per tick) — RUN BY HAND: <block>` (addendum 137 item 2(5)), the two pages once per family and
      day between them, each sent after the tick's slate stage, cut at 57 s, and only where it ends before the first
-     tick that could start the closing ahead. A failure at a step, a check or the
+     tick that could start the closing the watch runs next, a feed-down MLB closing included (addendum 138 item
+     3(c)). A failure at a step, a check or the
      link leaves nothing in `exports/` and nothing reaches the mirror (addendum 133 item 3(a)): Saturday's soccer
      window file stands on Sunday until a Sunday slate passes. A push or a page that fails comes after the link, so
      the checked file stands in `exports/` (both as ruled: addendum 133 item 3(a) for the page, addendum 134 item

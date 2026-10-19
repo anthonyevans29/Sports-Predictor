@@ -1771,3 +1771,43 @@ def test_the_slate_order_is_read_when_the_stage_starts(box, monkeypatch):
     assert mc.parse_utc(n["queued_at"]) == et(12, 0) and mc.parse_utc(n["ran_at"]) < mc.parse_utc(s["ran_at"])
     assert [x["deferred"] for x in slates("SOCCER") if x.get("held")] == ["NFL"]
     assert mc.parse_utc(n["ran_at"]) < et(12, 35) and mc.parse_utc(s["ran_at"]) < et(15, 0)
+
+
+# =================================== slate follow-up 3: ARCHITECT 2026-10-19, addendum 138 item 3(c), #613's P2 ==
+
+FEED_DOWN_PAGE = [(602, "NFL", et(12, 28), "Buffalo"), (601, "NFL", et(13, 0), "London"),
+                  (701, "MLB", et(12, 51), "Underhill")]
+
+
+def test_a_stage_page_is_bounded_by_the_next_closing_a_feed_down_mlb_closing_included(box, monkeypatch):
+    """Addendum 138 item 3(c), verbatim: "the HELD page's bound is tested against `slate_ahead`'s closing (an MLB
+    closing the feed did not answer for left out): RULED, test against `closing_ahead` (feed-down MLB closings
+    included). The invariant is that no page costs a closing its T-35". The 12:15 ET tick: the feed is down (its probe
+    takes 8 s), so slate_ahead leaves the MLB 12:51 closing (T-35 12:16) out and holds the NFL slate for the NFL 13:00
+    closing (T-35 12:25), with 13 minutes left before the 12:28 kickoff: the HELD page is owed. The MLB slate misses
+    (feed unreachable) and pages, 30 s. Against the NFL 12:25 closing the HELD page's 57 s bound fit, so it went out
+    (30 s more) and the 12:16 tick, where the feed answers again, was lost: the MLB closing queued at 12:17, T-34.
+    Against closing_ahead's MLB 12:16 closing it waits, and the MLB closing is queued at 12:16:00, T-35."""
+    clk = busy_day(box, monkeypatch, D18, FEED_DOWN_PAGE, lambda t: (True, "HTTP 200"))
+    up = et(12, 16)
+
+    def feed():
+        if clk.t >= up:
+            return True, "HTTP 200"
+        clk.t += timedelta(seconds=8)                 # a feed that does not answer: its timeout
+        return False, "URLError"
+    monkeypatch.setattr(mc, "feed_answers", feed)
+    real = mc.notify_failure
+
+    def slow(*a, **k):
+        clk.t += timedelta(seconds=30)
+        return real(*a, **k)
+    monkeypatch.setattr(mc, "notify_failure", slow)
+    clk.t = et(11, 53)                                # the NFL 12:28 closing at its T-35, on its own
+    assert mc.run(family="NFL", start="2026-10-18T16:28:00Z", trigger="watch", now=clk.t) == 0
+    drive(clk, ("MLB", "NFL"), et(12, 15), et(12, 17))
+    (r,) = [x for x in runs("MLB") if x["start"] == "2026-10-18T16:51:00Z"]
+    assert r["queued_at"] == "2026-10-18T16:16:00Z"
+    held = [x for x in slates() if x.get("held")]
+    assert held and held[0]["held"].startswith("closing NFL 13:00 ET") and "held_page" not in held[0]
+    assert [m["reason"] for m in misses("MLB")] == ["feed unreachable"]

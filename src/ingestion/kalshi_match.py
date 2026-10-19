@@ -17,11 +17,17 @@ series whose ticker carries no clock time that is the whole time gate: occurrenc
 and there it places nothing and refuses nothing. Inside the one pair, a game on the ticker's own date takes the market
 before a game a day off; where the date cannot separate two games of the pair, the event's markets are refused. Where
 the ticker carries a clock time, the time gate stays as built, inside the one pair." Two stored rows of one pair on the
-ticker's own date (a placeholder and a second row) refuse the event under a reason of their own, naming the rows
-dedupe-matches has to merge. On a clock ticker with no game number (addendum 52 item 4, below) the line says instead
-"two games of the pair that day; the clock does not separate them" (ARCHITECT 2026-10-17, addendum 104 item 2: a real
-doubleheader, two rows hours apart, is two games); rows at one kickoff minute keep the dedupe words (one game stored
-twice, addendum 105, #569), named in the same line when both hold.
+ticker's own date (a placeholder and a second row) refuse the event under a reason of their own, naming the rows.
+"dedupe-matches has to merge them" belongs ONLY where rows share a kickoff minute, on every ticker form (ARCHITECT
+2026-10-19, addendum 136 item 3; addendum 140 item 2, option (b)). Rows at different minutes: where the ticker carries
+the game number (G1, G2), "two games of the pair that day; the G1/G2 suffix is not read (#478)" (no merge is suggested
+for a doubleheader); on a date-only ticker with none, "two games or a placeholder beside the real kickoff (<HH:MM> and
+<HH:MM> ET): dedupe-matches's dry run says which; not merged from here" (addendum 140 item 2: the receipt cannot tell
+the two apart, so it describes and points at the command's own dry run). On a clock ticker with no game number
+(addendum 52 item 4, below) the line says instead "two games of the pair that day; the clock does not separate them"
+(ARCHITECT 2026-10-17, addendum 104 item 2: a real doubleheader, two rows hours apart, is two games); rows at one
+kickoff minute keep the dedupe words (one game stored twice, addendum 105, #569), named in the same line when both
+hold.
 
 Addendum 52 item 4 (2026-10-12), replacing the day rule's last sentence above: "Where the ticker carries a clock time
 and no game number, the event's game is the one game of the pair whose stored kickoff, read in US Eastern, falls on
@@ -334,20 +340,43 @@ def behind_out_of_step(by_event: dict, games: list, *, now: datetime, is_tie, im
     return lines
 
 
-def _clock_rows_what(own) -> str:
+def _clock_rows_what(own, doubleheader="two games of the pair that day; the clock does not separate them") -> str:
     """The two-rows line's words on a clock ticker with no game number. ARCHITECT 2026-10-17, addendum 104 item 2: for
     a real doubleheader (two rows hours apart) it says "two games of the pair that day; the clock does not separate
     them", not dedupe. Rows at one kickoff minute are one game stored twice (addendum 105, #569), so they keep the
-    dedupe words; where both hold, the line names each."""
+    dedupe words; where both hold, the line names each. `doubleheader`: the words for rows at different minutes
+    (_date_rows_what's, on a date-only ticker)."""
     by_minute: dict = {}
     for g, _ in own:
         by_minute.setdefault(g.utc_date.replace(second=0, microsecond=0), []).append(g.id)
     twins = [ids for ids in by_minute.values() if len(ids) > 1]
     if not twins:
-        return "two games of the pair that day; the clock does not separate them"
+        return doubleheader
     dup = "; ".join(f"rows {', '.join(str(i) for i in ids)} share one kickoff minute: dedupe-matches has to merge them"
                     for ids in twins)
-    return dup if len(by_minute) == 1 else f"two games of the pair that day; the clock does not separate them; {dup}"
+    return dup if len(by_minute) == 1 else f"{doubleheader}; {dup}"
+
+
+def _date_rows_what(own, ev: str | None, ticker: str | None) -> str:
+    """The two-rows line's words on a date-only ticker. ARCHITECT 2026-10-19, addendum 136 item 3: the suffix
+    "dedupe-matches has to merge them" was printed on true doubleheaders (`KXMLBGAME-25JUL26CLEKCG2: 2 stored rows of
+    one pair on 2025-07-26 (ids 8242, 8243)`, kickoffs 14:40 and 19:15 ET); "The suffix belongs ONLY where rows share
+    a kickoff minute [...] A doubleheader reads "two games of the pair that day; the G1/G2 suffix is not read (#478)"
+    and no merge is suggested." Read for a ticker that carries the game number (G1, G2: a doubleheader by the
+    ticker's own word). ARCHITECT 2026-10-19, addendum 140 item 2, option (b), on a date-only ticker with none: "rows
+    of the pair at different minutes get the DECLARED TEXT, the suffix after "refused; ": `two games or a placeholder
+    beside the real kickoff (<HH:MM> and <HH:MM> ET): dedupe-matches's dry run says which; not merged from here`.
+    Where both hold (two rows at one minute and a third at another) the line names each, as _clock_rows_what does."
+    The reason (same item): "a receipt that instructs a merge on rows it cannot tell apart is destructive guidance
+    (dedupe-matches writes); a receipt that describes and points at the command's own dry run costs a read." The
+    minutes are the rows' kickoff minutes in US Eastern, earliest first (three or more read "A, B and C")."""
+    if re.search(r"G\d$", ev or "") or re.search(r"G\d-", ticker or ""):
+        return _clock_rows_what(own, "two games of the pair that day; the G1/G2 suffix is not read (#478)")
+    hm = [m.replace(tzinfo=UTC).astimezone(ET).strftime("%H:%M")
+          for m in sorted({g.utc_date.replace(second=0, microsecond=0) for g, _ in own})]
+    at = hm[0] if len(hm) == 1 else f"{', '.join(hm[:-1])} and {hm[-1]}"
+    return _clock_rows_what(own, f"two games or a placeholder beside the real kickoff ({at} ET): dedupe-matches's dry "
+                                 "run says which; not merged from here")
 
 
 def place(markets: list[dict], games: list, *, now: datetime, lo: datetime, hi: datetime,
@@ -401,7 +430,7 @@ def place(markets: list[dict], games: list, *, now: datetime, lo: datetime, hi: 
             continue
         pair_games = sorted(top, key=lambda x: x[0].utc_date)
 
-        def two_rows(own, what="dedupe-matches has to merge them"):
+        def two_rows(own, what):
             refuse(live, TWO_ROWS)
             res.lines.append(f"  ✗ {ev}: {len(own)} stored rows of one pair on {day} (ids "
                              f"{', '.join(str(g.id) for g, _ in own)}): refused; {what}")
@@ -411,7 +440,7 @@ def place(markets: list[dict], games: list, *, now: datetime, lo: datetime, hi: 
         if clock is None:
             own = [x for x in pair_games if et_day(x[0].utc_date) == day]
             if len(own) > 1:
-                two_rows(own)
+                two_rows(own, _date_rows_what(own, ev, live[0].get("ticker")))
                 continue
             chosen = own or pair_games
             if len(chosen) != 1:

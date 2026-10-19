@@ -808,7 +808,7 @@ def test_place_held_places_26oct161800_on_50550_and_reads_its_candles_then(alcs)
     assert cle["last_ts"] is None and cle["notes"].endswith("; no two-sided candle at or before kickoff")
     assert fake.candle_calls() == {f"{E16}-TB": {"start_ts": _ts(datetime(2026, 10, 17, 18, 8)),
                                                  "end_ts": _ts(datetime(2026, 10, 18, 3, 18)), "period_interval": 1}}
-    assert [p for p, _ in fake.calls] == [f"series/{S}/markets/{E16}-TB/candlesticks"]
+    assert [p for p, _ in fake.calls] == ["historical/cutoff", f"series/{S}/markets/{E16}-TB/candlesticks"]
     assert tb["fetched_at"] == datetime(2026, 10, 18, 15, 0) and res["written"]
     assert {t: r for t, r in got.items() if not t.startswith(E16)} == {t: r for t, r in before.items()
                                                                        if not t.startswith(E16)}
@@ -868,10 +868,48 @@ def test_a_candle_call_that_fails_for_now_writes_nothing(alcs, waits, fail, why,
     with pytest.raises(ValueError) as e:
         place(f"{E16}-TB", G4, fake=fake)
     assert str(e.value) == refused_for_now(why, n - 1)
-    assert rows() == before and [p for p, _ in fake.calls] == [CANDLES16] * n and waits == [2, 5][:n - 1]
+    assert rows() == before and [p for p, _ in fake.calls] == ["historical/cutoff"] + [CANDLES16] * n
+    assert waits == [2, 5][:n - 1]
     with pytest.raises(ValueError) as dry:
         place(f"{E16}-TB", G4, fake=Fake(fail={f"{E16}-TB": fail}), dry_run=True)
     assert str(dry.value) == str(e.value) and rows() == before
+
+
+def test_place_held_asks_the_candles_where_the_cutoff_serves_them_now(alcs):
+    """#599 item 2 (Codex on #598; ARCHITECT addendum 136 item 3: "place-held's candle endpoint by the cutoff"): the
+    stored source is the list the market came from when it was fetched, and the cutoff moves on. place-held reads the
+    cutoff (one call) and asks the candles of the endpoint that serves the market now: settled before the cutoff,
+    historical/. The source written is the one used. A cutoff that cannot be read writes nothing."""
+    before = _monday(alcs)
+    assert before[f"{E16}-TB"]["source"] == "live"
+
+    class Moved(Fake):
+        def _get(self, path, params=None):
+            if path == "historical/cutoff":
+                self.calls.append((path, dict(params or {})))
+                return {"market_settled_ts": "2026-10-18T12:00:00Z"}         # after the 10-17 settlement
+            return super()._get(path, params)
+    hist = [{"end_period_ts": c["end_period_ts"], "yes_bid": {"close": "0.47"}, "yes_ask": {"close": "0.48"}}
+            for c in candles_at(K4)]                               # the historical shape's own keys
+    fake = Moved(candles={f"{E16}-TB": hist})
+    res, out = place(f"{E16}-TB", G4, fake=fake)
+    assert [p for p, _ in fake.calls] == ["historical/cutoff", f"historical/markets/{E16}-TB/candlesticks"]
+    r = rows()[f"{E16}-TB"]
+    assert (r["source"], r["last_bid"], r["match_id"]) == ("historical", 0.47, G4) and res["written"]
+    assert any("cutoff market_settled_ts: 2026-10-18T12:00:00Z" in ln and "candles from historical (stored live)" in ln
+               for ln in out), out
+
+    class NoCut(Fake):
+        def _get(self, path, params=None):
+            if path == "historical/cutoff":
+                resp = requests.Response()
+                resp.status_code = 503
+                raise requests.HTTPError(response=resp)
+            return super()._get(path, params)
+    with pytest.raises(ValueError, match=r"REFUSED: the cutoff \(historical/cutoff\) could not be read \(status 503; "
+                                         r"429 retries: 0\): the candle endpoint cannot be told; nothing is written"):
+        place(f"{E16}-CLE", G4, fake=NoCut())
+    assert rows()[f"{E16}-CLE"] == before[f"{E16}-CLE"]
 
 
 def test_a_candle_call_refused_for_good_keeps_the_placement_with_no_quote(alcs):
@@ -931,7 +969,7 @@ def test_the_guard_runs_once_every_refusal_is_read_and_before_the_candle_call(al
             order.append("call")
             return super()._get(path, params)
     place(f"{E16}-TB", G4, fake=Spy(), guard=lambda: order.append("guard"))
-    assert order == ["guard", "call"]
+    assert order == ["guard", "call", "call"]                    # the cutoff, then the candle call
     with pytest.raises(ValueError):
         place(f"{E16}-TB", G4, guard=lambda: order.append("guard again"))       # already placed: refused first
     assert "guard again" not in order
@@ -1018,6 +1056,62 @@ def test_place_held_reads_the_side_again_in_its_write(alcs):
         place(f"{E16}-TB", G4, fake=Race())
     assert rows()[f"{E16}-TB"] == before[f"{E16}-TB"]
     assert {k: v for k, v in _claims().items() if len(v) > 1} == {}
+
+
+def test_a_new_row_reads_its_side_again_at_the_write(alcs):
+    """#599 item 1 (Codex on #598; ARCHITECT addendum 136 item 3: "the new-row write re-check"): the run read the
+    stored claims once, when it planned, and only the stored held rows it placed read the side again at the write.
+    Here a place-held commits a row on 50546 AWAY while the run reads the candles of its new row for that side: the
+    write reads the side again in its own transaction, in the plan's scope, and the new row is written unplaced, as a
+    refused row with no quote (its candles were that match's), named on the receipt. Nothing is ever stored twice on
+    one side of one game."""
+    from src.db.database import session_scope
+    from src.db.schema import KalshiSettledMarket
+
+    class Race(Fake):
+        def _get(self, path, params=None):
+            if path.endswith(f"/{E15}-TB/candlesticks"):
+                with session_scope() as s:
+                    s.add(KalshiSettledMarket(ticker=f"{S}-26OCT151810TBCLE-TB", event_ticker=f"{S}-26OCT151810TBCLE",
+                                              series=S, side="AWAY", match_id=G3, yes_sub_title="Tampa Bay",
+                                              source="live", fetched_at=NOW, notes=f"{kh.RULED_NOTE}test"))
+            return super()._get(path, params)
+    run, out = go(Race(settled=SETTLED15, candles={f"{E15}-TB": candles_at(K3), f"{E15}-CLE": candles_at(K3)}))
+    got = rows()
+    tb, cle = got[f"{E15}-TB"], got[f"{E15}-CLE"]
+    assert (tb["match_id"], tb["side"], tb["last_bid"], tb["last_ts"]) == (None, None, None, None)
+    assert tb["notes"] == (f"refused by the matcher: two markets claim one side of one game (match {G3} AWAY held by "
+                           f"{S}-26OCT151810TBCLE-TB at the write)")
+    assert (cle["match_id"], cle["side"]) == (G3, "HOME") and cle["last_bid"] == 0.45      # the other side stands
+    assert run.write_refused == [(f"{E15}-TB", f"match {G3} AWAY held by {S}-26OCT151810TBCLE-TB at the write")]
+    # the totals by reason count it, as the table stores it (Codex on #618: the receipt matched the DB only without it)
+    assert run.refused == {"two markets claim one side of one game": 1}
+    assert "        1  two markets claim one side of one game" in out
+    assert f"  ✗ {E15}-TB: match {G3} AWAY held by {S}-26OCT151810TBCLE-TB at the write: written unplaced, refused " \
+           "by the matcher: two markets claim one side of one game (a ruling can place it)" in out
+    assert {k: v for k, v in _claims().items() if len(v) > 1} == {}
+
+
+def test_place_held_reads_the_event_as_the_history_path_does_when_event_ticker_is_null(alcs):
+    """#599 item 3 (Codex on #598, ARCHITECT addendum 136 item 3: "the sibling read by `event_ticker or
+    event_of(ticker)`"): the column is nullable. A sibling stored with no event_ticker was missed, and a row with none
+    read every null-event row of every series ("the stored rows of event None name ..."). The event is the history
+    path's own, `event_ticker or event_of(ticker)`, for the row and for its siblings."""
+    from sqlalchemy import update
+
+    from src.db.database import session_scope
+    from src.db.schema import KalshiSettledMarket as K
+    _monday(alcs)
+    with session_scope() as s:                                    # the sibling stored with no event_ticker
+        s.execute(update(K).where(K.ticker == f"{E16}-CLE").values(event_ticker=None))
+    res, _ = place(f"{E16}-TB", G4)
+    assert res["written"] and (res["after"]["match_id"], res["after"]["side"]) == (G4, "AWAY")
+    with session_scope() as s:                                    # and the row itself with none
+        s.execute(update(K).where(K.ticker == f"{E16}-CLE").values(event_ticker=None))
+        s.add(K(ticker="KXOTHER-26OCT16X-A", event_ticker=None, series="KXOTHER", yes_sub_title="Elsewhere",
+                source="live", fetched_at=NOW, notes=None))     # a null-event row of another series: never read
+    res, _ = place(f"{E16}-CLE", G4)
+    assert res["written"] and (res["after"]["match_id"], res["after"]["side"]) == (G4, "HOME")
 
 
 def test_place_held_reads_the_held_row_s_sides_on_the_match_s_own_home_and_away(alcs):

@@ -1020,6 +1020,28 @@ def test_place_held_reads_the_side_again_in_its_write(alcs):
     assert {k: v for k, v in _claims().items() if len(v) > 1} == {}
 
 
+def test_place_held_reads_the_event_as_the_history_path_does_when_event_ticker_is_null(alcs):
+    """#599 item 3 (Codex on #598, ARCHITECT addendum 136 item 3: "the sibling read by `event_ticker or
+    event_of(ticker)`"): the column is nullable. A sibling stored with no event_ticker was missed, and a row with none
+    read every null-event row of every series ("the stored rows of event None name ..."). The event is the history
+    path's own, `event_ticker or event_of(ticker)`, for the row and for its siblings."""
+    from sqlalchemy import update
+
+    from src.db.database import session_scope
+    from src.db.schema import KalshiSettledMarket as K
+    _monday(alcs)
+    with session_scope() as s:                                    # the sibling stored with no event_ticker
+        s.execute(update(K).where(K.ticker == f"{E16}-CLE").values(event_ticker=None))
+    res, _ = place(f"{E16}-TB", G4)
+    assert res["written"] and (res["after"]["match_id"], res["after"]["side"]) == (G4, "AWAY")
+    with session_scope() as s:                                    # and the row itself with none
+        s.execute(update(K).where(K.ticker == f"{E16}-CLE").values(event_ticker=None))
+        s.add(K(ticker="KXOTHER-26OCT16X-A", event_ticker=None, series="KXOTHER", yes_sub_title="Elsewhere",
+                source="live", fetched_at=NOW, notes=None))     # a null-event row of another series: never read
+    res, _ = place(f"{E16}-CLE", G4)
+    assert res["written"] and (res["after"]["match_id"], res["after"]["side"]) == (G4, "HOME")
+
+
 def test_place_held_reads_the_held_row_s_sides_on_the_match_s_own_home_and_away(alcs):
     """The side is the market's yes team against the match's home and away: on a match stored the other way round
     (Cleveland away), Tampa Bay's leg is HOME."""

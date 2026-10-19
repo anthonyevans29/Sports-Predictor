@@ -1017,7 +1017,13 @@ def place_held(ticker: str, match_id: int, ruling: str, *, dry_run: bool = False
         home, away = g.home_team.name, g.away_team.name
         status = str(getattr(g.status, "value", g.status))
         kickoff = g.utc_date
-        sibs = rs.execute(select(K.ticker, K.yes_sub_title).where(K.event_ticker == before["event_ticker"])).all()
+        # the event as the history path derives it (#599 item 3: the column is nullable): a row with no event_ticker
+        # reads its own ticker's event, and the siblings are the series' rows of that event read the same way
+        ev = before["event_ticker"] or km.event_of({"ticker": ticker})
+        sibs = [(t, yst) for t, yst, e in rs.execute(
+                    select(K.ticker, K.yes_sub_title, K.event_ticker).where(
+                        K.series == before["series"], (K.event_ticker == ev) | K.event_ticker.is_(None))).all()
+                if (e or km.event_of({"ticker": t})) == ev]
         is_tie = adapter.is_tie_market if soccer else (lambda m: False)
         names = []
         for t, yst in sibs:
@@ -1025,7 +1031,7 @@ def place_held(ticker: str, match_id: int, ruling: str, *, dry_run: bool = False
             if nm and not is_tie({"ticker": t, "yes_sub_title": yst}) and nm not in names:
                 names.append(nm)
         if len(names) != 2:
-            raise ValueError(f"REFUSED: the stored rows of event {before['event_ticker']} name {names or 'no team'}: "
+            raise ValueError(f"REFUSED: the stored rows of event {ev} name {names or 'no team'}: "
                              "the event's two names are needed to read the match's teams")
         f = km.fit((names[0], names[1]), home, away)
         if f is None:

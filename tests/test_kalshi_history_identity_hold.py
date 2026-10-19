@@ -1058,6 +1058,37 @@ def test_place_held_reads_the_side_again_in_its_write(alcs):
     assert {k: v for k, v in _claims().items() if len(v) > 1} == {}
 
 
+def test_a_new_row_reads_its_side_again_at_the_write(alcs):
+    """#599 item 1 (Codex on #598; ARCHITECT addendum 136 item 3: "the new-row write re-check"): the run read the
+    stored claims once, when it planned, and only the stored held rows it placed read the side again at the write.
+    Here a place-held commits a row on 50546 AWAY while the run reads the candles of its new row for that side: the
+    write reads the side again in its own transaction, in the plan's scope, and the new row is written unplaced, as a
+    refused row with no quote (its candles were that match's), named on the receipt. Nothing is ever stored twice on
+    one side of one game."""
+    from src.db.database import session_scope
+    from src.db.schema import KalshiSettledMarket
+
+    class Race(Fake):
+        def _get(self, path, params=None):
+            if path.endswith(f"/{E15}-TB/candlesticks"):
+                with session_scope() as s:
+                    s.add(KalshiSettledMarket(ticker=f"{S}-26OCT151810TBCLE-TB", event_ticker=f"{S}-26OCT151810TBCLE",
+                                              series=S, side="AWAY", match_id=G3, yes_sub_title="Tampa Bay",
+                                              source="live", fetched_at=NOW, notes=f"{kh.RULED_NOTE}test"))
+            return super()._get(path, params)
+    run, out = go(Race(settled=SETTLED15, candles={f"{E15}-TB": candles_at(K3), f"{E15}-CLE": candles_at(K3)}))
+    got = rows()
+    tb, cle = got[f"{E15}-TB"], got[f"{E15}-CLE"]
+    assert (tb["match_id"], tb["side"], tb["last_bid"], tb["last_ts"]) == (None, None, None, None)
+    assert tb["notes"] == (f"refused by the matcher: two markets claim one side of one game (match {G3} AWAY held by "
+                           f"{S}-26OCT151810TBCLE-TB at the write)")
+    assert (cle["match_id"], cle["side"]) == (G3, "HOME") and cle["last_bid"] == 0.45      # the other side stands
+    assert run.write_refused == [(f"{E15}-TB", f"match {G3} AWAY held by {S}-26OCT151810TBCLE-TB at the write")]
+    assert f"  ✗ {E15}-TB: match {G3} AWAY held by {S}-26OCT151810TBCLE-TB at the write: written unplaced, refused " \
+           "by the matcher: two markets claim one side of one game (a ruling can place it)" in out
+    assert {k: v for k, v in _claims().items() if len(v) > 1} == {}
+
+
 def test_place_held_reads_the_event_as_the_history_path_does_when_event_ticker_is_null(alcs):
     """#599 item 3 (Codex on #598, ARCHITECT addendum 136 item 3: "the sibling read by `event_ticker or
     event_of(ticker)`"): the column is nullable. A sibling stored with no event_ticker was missed, and a row with none

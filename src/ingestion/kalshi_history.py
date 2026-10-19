@@ -400,6 +400,7 @@ class Run:
     held_refused: list = field(default_factory=list)         # stored held rows: hold cleared, the matcher refuses
     replaced: list = field(default_factory=list)             # stored held rows placed (the one exception)
     replace_skipped: list = field(default_factory=list)      # (ticker, why): a held row not written at the write
+    write_refused: list = field(default_factory=list)        # (ticker, why): a new row written unplaced at the write
     claimed_by: dict = field(default_factory=dict)           # ticker -> ("<match> <side>", the stored rows holding it)
 
 
@@ -851,8 +852,29 @@ def run_history(series: str, *, since: date | None = None, until: date | None = 
     # is still a held row: nothing with a match_id is ever moved)
     if not dry_run and (run.rows or run.replaced):
         with session_scope() as sess:
-            sess.add_all(KalshiSettledMarket(**r) for r in run.rows)
             K = KalshiSettledMarket
+            # #599 item 1 (ARCHITECT 2026-10-19, addendum 136 item 3: "the new-row write re-check"): a new placed row
+            # reads its side again in the write's own transaction, in the plan's own scope (a clock ticker, or a side a
+            # row placed by ruling holds): a place-held that committed after the run read the table keeps the side,
+            # and the new row is written unplaced, as a refused row (no quote: its candles were this match's), so a
+            # ruling can place it later
+            for r in run.rows:
+                if r["match_id"] is None:
+                    continue
+                holders = sess.execute(select(K.ticker, K.notes).where(
+                    K.series == series, K.match_id == r["match_id"], K.side == r["side"],
+                    K.ticker != r["ticker"])).all()
+                clock_t = km.ticker_stamp({"ticker": r["ticker"], "event_ticker": r["event_ticker"]})[1] is not None
+                if holders and (clock_t or any(RULED_NOTE in (n or "") for _, n in holders)):
+                    by = ", ".join(sorted(t for t, _ in holders))
+                    what = f"match {r['match_id']} {r['side']} held by {by} at the write"
+                    run.write_refused.append((r["ticker"], what))
+                    r.update(match_id=None, side=None, last_ts=None, last_bid=None, last_ask=None, last_mid=None,
+                             candles_6h=None, candles_two_sided=None, gaps=None, raw_first_candle=None,
+                             notes="; ".join(x for x in (f"{REFUSED_NOTE}{km.TWO_CLAIMS} ({what})",
+                                                         *[n for n in (r["notes"] or "").split("; ")
+                                                           if n and n.startswith("result as read")]) if x))
+            sess.add_all(KalshiSettledMarket(**r) for r in run.rows)
             for r in list(run.replaced):
                 sess.flush()                                 # the rows added and placed above are read too
                 obj = sess.execute(select(K).where(K.ticker == r["ticker"])).scalar_one_or_none()
@@ -919,6 +941,8 @@ def _receipt(run: Run, calls: Calls, echo) -> None:
                     if t in run.claimed_by else ""))
         for t, why in run.replace_skipped:
             echo(f"  ✗ {t}: {why}: left as it is")
+    for t, why in run.write_refused:                 # #599 item 1: the side taken between the plan and the write
+        echo(f"  ✗ {t}: {why}: written unplaced, refused by the matcher: {km.TWO_CLAIMS} (a ruling can place it)")
     if run.refused:
         echo("  refused by the matcher, by reason (kept with match_id null):")
         for r, n in sorted(run.refused.items(), key=lambda x: (-x[1], x[0])):

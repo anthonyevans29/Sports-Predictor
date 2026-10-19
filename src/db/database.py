@@ -231,22 +231,33 @@ SOURCE_TIME_TABLES = ("odds", "odds_snapshots")
 _STORE_FMT = "%Y-%m-%d %H:%M:%S.%f"          # the ORM's SQLite DateTime storage form
 
 
-def has_source_time(table: str) -> bool:
-    """<table>.source_updated_at exists (migrate_odds_source_updated_at.py ran). One PRAGMA per call."""
+def has_source_time(table: str, bind=None) -> bool:
+    """<table>.source_updated_at exists (migrate_odds_source_updated_at.py ran). One PRAGMA per call, on `bind` (the
+    session's own engine or connection: the database the read or write will run on) or, without one, the app's
+    engine."""
     if table not in SOURCE_TIME_TABLES:
         return False
     from sqlalchemy import inspect
     try:
-        return "source_updated_at" in {c["name"] for c in inspect(_engine).get_columns(table)}
+        return "source_updated_at" in {c["name"] for c in inspect(bind if bind is not None else _engine)
+                                       .get_columns(table)}
     except Exception:
         return False
+
+
+def _bind_of(session):
+    """The engine or connection a Session (or a Connection) runs on; None when it cannot be read."""
+    try:
+        return session.get_bind() if hasattr(session, "get_bind") else session
+    except Exception:
+        return None
 
 
 def write_source_times(session, table: str, pairs) -> int:
     """Store the provider's source time on rows of `table` after a flush. `pairs` = [(row_id, naive UTC
     datetime | None)]; None is left NULL. A no-op (0) until the migration has added the column."""
     rows = [{"i": i, "t": t.strftime(_STORE_FMT)} for i, t in pairs if i is not None and t is not None]
-    if not rows or not has_source_time(table):
+    if not rows or not has_source_time(table, _bind_of(session)):
         return 0
     from sqlalchemy import text
     session.execute(text(f"UPDATE {table} SET source_updated_at = :t WHERE id = :i"), rows)
@@ -276,7 +287,7 @@ def attach_source_times(session, rows) -> list:
     for t, rs in by_table.items():
         vals: dict = {}
         ids = sorted({r.id for r in rs if getattr(r, "id", None) is not None})
-        if ids and session is not None and has_source_time(t):
+        if ids and session is not None and has_source_time(t, _bind_of(session)):
             from sqlalchemy import bindparam, text
             q = text(f"SELECT id, source_updated_at FROM {t} WHERE id IN :ids").bindparams(
                 bindparam("ids", expanding=True))

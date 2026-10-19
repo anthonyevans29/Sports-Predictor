@@ -353,7 +353,7 @@ def grade(days: int = 30, export_dir: str = "exports", now: datetime | None = No
 
     from src.db.database import session_scope
     from src.db.schema import Match, MatchStatus, Odds
-    from src.walters.close import close_1x2, outcomes_for, priced
+    from src.walters.close import KALSHI_SOURCES, close_1x2, outcomes_for, priced, stale_book_close
     from src.walters.nfl_predict import _book_anchor, value_side_grade
     from src.walters.vs_close import block
 
@@ -361,6 +361,7 @@ def grade(days: int = 30, export_dir: str = "exports", now: datetime | None = No
     calls = last_calls(export_dir)
     hits, lls, briers, clvs, vclvs, lines = [], [], [], [], [], []
     pairs = []                         # addendum 64 item 2: (model p, close p) of the outcome, games with a close
+    kalshi_fed = 0                     # of those, the closes a Kalshi mid priced (the stale-book rule)
     graded = unpriced = unanchored = ties = no_result = identity_mismatch = 0
     with session_scope() as s:
         for mid, c in sorted(calls.items(), key=lambda kv: kv[1].get("utc_date") or ""):
@@ -392,15 +393,19 @@ def grade(days: int = 30, export_dir: str = "exports", now: datetime | None = No
             briers.append((p - y) ** 2)
             odds = list(s.execute(select(Odds).where(Odds.match_id == m.id, Odds.market == "1X2")).scalars())
             cl = close_1x2(odds, m.utc_date, outcomes_for(m.sport))
+            # addendum 137 item 4 ("every family, applied where a stamp exists"): NCAA odds carry the NFL writer's stamp
+            cl = stale_book_close(s, m, cl)
             close_h = cl["fair"].get("HOME", 0) if priced(cl) else None
             clv = None
             if close_h is not None:
                 clv = (p if pick_home else 1 - p) - (close_h if pick_home else 1 - close_h)
                 clvs.append(clv)
                 # ARCHITECT 2026-10-13 (addendum 64 item 2): the hit rate carries the line against the close, per the
-                # shadow's own close (close_1x2 on the odds table), over the same graded games that have one
+                # shadow's own close (close_1x2 on the odds table, then the stale-book rule, addendum 137 item 4), over
+                # the same graded games that have one
                 side = "HOME" if y else "AWAY"
                 pairs.append((p if y else 1 - p, cl["fair"][side]))
+                kalshi_fed += cl.get("source") in KALSHI_SOURCES
             else:
                 unpriced += 1
             anchor_h, _ = _book_anchor(s, m)
@@ -421,7 +426,8 @@ def grade(days: int = 30, export_dir: str = "exports", now: datetime | None = No
     return {"graded": graded, "calls_on_file": len(calls), "ties_skipped": ties, "no_result": no_result,
             "identity_mismatch": identity_mismatch,
             "hit_rate": round(sum(hits) / len(hits), 4) if hits else None,
-            "vs_close": block(pairs),
+            # the line names the closes a Kalshi mid priced, as every results file's block does (addendum 137 item 4)
+            "vs_close": {**block(pairs), "kalshi_only_closes": kalshi_fed},
             "log_loss": round(sum(lls) / len(lls), 4) if lls else None,
             "brier": round(sum(briers) / len(briers), 4) if briers else None,
             "priced": len(clvs), "unpriced": unpriced,

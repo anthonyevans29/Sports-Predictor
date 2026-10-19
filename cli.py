@@ -2070,13 +2070,20 @@ def close_probe_cmd(match_id):
             console.print(f"[green]grading close: PRICED from {cl.get('source')} at {cl['captured_at']}Z · "
                           f"books {cl['books']} · fair "
                           + " ".join(f"{k} {v:.4f}" for k, v in cl["fair"].items()) + "[/green]")
-            if cl.get("source") == "kalshi_only":
+            if cl.get("source") in ("kalshi_only", "kalshi"):
                 kq = cl["kalshi"]
-                print(f"  reference=kalshi_only (no book session pre-kickoff): HOME bid {kq['bid']:.2f} ask "
+                why = ("no book session pre-kickoff" if cl["source"] == "kalshi_only" else
+                       f"the book stamp {cl['book_stamp_age_h']:.2f} h before kickoff; the book close at "
+                       f"{cl['book_captured_at']}Z replaced")
+                print(f"  reference={cl['source']} ({why}): HOME bid {kq['bid']:.2f} ask "
                       f"{kq['ask']:.2f} → mid {kq['mid']:.4f} · spread {kq['spread_c']}c · {kq['ruling']}")
+            elif cl.get("book_stamp_age_h") is not None:     # addendum 137 item 4: the book stamp's age, labelled
+                print(f"  book stamp {cl['book_stamp']}Z, {cl['book_stamp_age_h']:.2f} h before kickoff"
+                      + (f" · {cl['stale_unswitched']}" if cl.get("stale_unswitched") else ""))
         else:
             console.print("[yellow]grading close: UNPRICED[/yellow]"
-                          + (f" · missing {cl['missing']}" if cl else " · no pre-kickoff capture"))
+                          + (f" · {cl['stale_book']}" if cl and cl.get("stale_book") else
+                             f" · missing {cl['missing']}" if cl else " · no pre-kickoff capture"))
         oc = s.execute(_sel(PredictionOutcome).join(Prediction).where(
             Prediction.match_id == m.id)).scalars().first()
         if oc is not None:

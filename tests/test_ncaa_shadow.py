@@ -235,7 +235,8 @@ def test_grade_reads_the_last_row_before_kickoff(mine, tmp_path):
         # shadow's own close (the odds table's 1.7 / 2.25, home won on the CFBD score)
         from src.walters.vs_close import block
         fair_h = (1 / 1.7) / (1 / 1.7 + 1 / 2.25)
-        assert r["vs_close"] == block([(p, fair_h)]) and r["vs_close"]["games"] == 1
+        # the line names the closes a Kalshi mid priced (the stale-book rule, addendum 137 item 4): none here
+        assert r["vs_close"] == {**block([(p, fair_h)]), "kalshi_only_closes": 0} and r["vs_close"]["games"] == 1
         # Codex on #344: a reused match id (different teams / kickoff in the artifact) is never graded against it
         doc = json.loads(sorted(ex.glob("ncaa_shadow_*.json"))[-1].read_text())
         doc["predictions"][0]["home_team"] = "Someone Else"

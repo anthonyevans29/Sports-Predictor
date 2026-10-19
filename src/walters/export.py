@@ -1397,7 +1397,12 @@ def results_tally(days: int = 30, out_path: str = "RESULTS.md", report=None, exp
              "CLOSE CONTRACT (#207): a book counts only with a complete same-session outcome set "
              "(soccer HOME/DRAW/AWAY, others HOME/AWAY), de-vigged per book then averaged. A stored "
              "divergence the contract reproduces is VERIFIED; any other stored value is RETAINED-LEGACY and is "
-             "reported separately, never pooled into the headline._\n"]
+             "reported separately, never pooled into the headline. STALE BOOK CLOSE (ARCHITECT 2026-10-19, "
+             "addendum 137 item 4): a graded game whose book quote carries a provider stamp more than 24 hours "
+             "before kickoff grades against the Kalshi two-sided mid captured in the same last pre-kickoff session "
+             "(the row says close_reference kalshi, with the stamp's age in hours; unpriced when that session "
+             "holds no two-sided Kalshi quote within the 2c cap); a NULL or absent stamp keeps the book close. A "
+             "stamp is stored for NFL (and NCAA) book odds only._\n"]
     from src.walters.close import close_age_line
     from src.walters.vs_close import line as _vs_line
     _ages: list = []            # (sport label, close_age_summary) for each sport that reports a close (#382)

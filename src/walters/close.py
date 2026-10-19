@@ -149,7 +149,9 @@ def close_from_snapshots(snaps, before: datetime | None, outcomes: tuple[str, ..
             return {"fair": {k: legs[k].devig_prob / tot for k in outcomes}, "books": n,
                     "books_quoted": n, "captured_at": t, "best": {}, "rows": [],
                     "outcomes": tuple(outcomes), "missing": {}, "overround": None,
-                    "source": "snapshot"}
+                    "source": "snapshot",
+                    # the legs it priced, whose provider stamp the stale-book rule reads (addendum 137 item 4)
+                    "stamp_rows": [legs[k] for k in outcomes]}
     return None
 
 
@@ -209,6 +211,120 @@ def close_from_kalshi(snaps, before: datetime | None, outcomes: tuple[str, ...])
                        "ruling": KALSHI_ONLY_GRADE_RULING}}
 
 
+# THE STALE BOOK CLOSE (ARCHITECT 2026-10-19, addendum 137 item 4, #614; the close contract #207 gains one rule),
+# verbatim: "FOR A GRADED GAME WHOSE BOOK QUOTE CARRIES A PROVIDER STAMP MORE THAN 24 HOURS BEFORE KICKOFF, THE
+# RECORDED CLOSE IS THE KALSHI TWO-SIDED MID CAPTURED IN THE SAME LAST PRE-KICKOFF SESSION, and the row says so
+# (`close_reference: kalshi`, with the book stamp's age in hours beside it [...]). A NULL or absent stamp keeps the
+# book close (unknown is not stale: law 4 labels it, it does not switch it) until the stamp is stored. Scope: every
+# family, applied where a stamp exists — which today is NFL."
+STALE_BOOK_H = 24
+STALE_BOOK_RULING = ("ARCHITECT 2026-10-19, addendum 137 item 4: a graded game whose book quote carries a provider "
+                     "stamp more than 24 hours before kickoff grades against the Kalshi two-sided mid captured in the "
+                     "same last pre-kickoff session")
+KALSHI_SOURCES = ("kalshi_only", "kalshi")    # the closes priced from a Kalshi mid (the 2026-10-05 ruling's, this one's)
+
+
+def _naive_utc(t: datetime) -> datetime:
+    return t.astimezone(timezone.utc).replace(tzinfo=None) if t.tzinfo else t
+
+
+def book_stamp(cl, session=None) -> datetime | None:
+    """The provider stamp of a priced BOOK close: the oldest `source_updated_at` (src.timeutil.oldest_source_time: a
+    row without one makes the whole close's stamp unknown) over the rows it priced: the complete books' outcome rows
+    of its session (close_1x2's `rows`, the books not in `missing`), or the legs of its snapshot session
+    (close_from_snapshots' `stamp_rows`). Read through attach_source_times (the column is not mapped; before the
+    migration every row reads None). None: unknown."""
+    if not priced(cl) or cl.get("source") in KALSHI_SOURCES:
+        return None
+    rows = cl.get("stamp_rows")
+    if rows is None:
+        out = set(cl.get("outcomes") or ())
+        rows = [o for o in cl.get("rows") or ()
+                if o.bookmaker not in (cl.get("missing") or {}) and o.selection in out]
+    if not rows:
+        return None
+    from src.db.database import attach_source_times
+    from src.timeutil import oldest_source_time
+    if session is None:
+        from sqlalchemy.orm import object_session
+        session = next((x for x in (object_session(r) for r in rows if hasattr(r, "__table__")) if x), None)
+    return oldest_source_time(attach_source_times(session, rows))
+
+
+def stamp_age_hours(stamp: datetime | None, kickoff: datetime | None) -> float | None:
+    """Hours from the book's provider stamp to the stored kickoff (Match.utc_date); None when either is unknown."""
+    if stamp is None or kickoff is None:
+        return None
+    return (_naive_utc(kickoff) - _naive_utc(stamp)).total_seconds() / 3600
+
+
+def session_kalshi(snaps, book_at: datetime | None, before: datetime | None, outcomes: tuple[str, ...]) -> dict | None:
+    """The Kalshi two-sided mid CAPTURED IN THE SAME SESSION as a book close captured at `book_at`: of the Kalshi rows
+    captured within CAPTURE_SESSION of `book_at` (either side; one closing run writes the book, then Kalshi, seconds
+    apart) and before `before`, close_from_kalshi's close: the newest two-sided HOME capture, its mid under the 2c
+    spread cap ("a wide Kalshi mid is not a reference anywhere", 2026-10-05). A two-way board only. None when the
+    session holds no such quote (none, one-sided, wider than the cap)."""
+    if book_at is None:
+        return None
+    at = _naive_utc(book_at)
+    near = [x for x in snaps if getattr(x, "source", None) == "kalshi" and x.captured_at is not None
+            and abs(_naive_utc(x.captured_at) - at) <= CAPTURE_SESSION]
+    return close_from_kalshi(near, before, outcomes)
+
+
+def stale_book_close(s, match, cl, snaps=None) -> dict | None:
+    """Addendum 137 item 4 on a priced BOOK close `cl` of `match` (the odds table's session or a book snapshot's).
+    Every return carries `book_stamp` and `book_stamp_age_h` (None: unknown):
+      - the stamp unknown (NULL, absent, before the migration), or not MORE than STALE_BOOK_H before the stored
+        kickoff: `cl` itself, the book close (law 4 labels an unknown stamp, it does not switch it);
+      - a three-way board: `cl` itself, the book close, `stale_unswitched` saying why (the rule names a two-sided
+        mid; Kalshi's three-way legs have no derived price, close_from_kalshi);
+      - else the Kalshi close of the same session (session_kalshi over the game's Kalshi rows, the mismatched-legs
+        guard first, addendum 37 item 3): source and reference "kalshi", captured_at the Kalshi capture's, `kalshi`
+        {bid, ask, mid, spread_c, ruling}, `book_fair` and `book_captured_at` the book close it replaces;
+      - or, the session holding no two-sided Kalshi quote within the cap: UNPRICED (`fair` None), `stale_book`
+        saying why. The stale book is not the close and no other quote is substituted (the #207 rule: never a
+        partial or a stand-in price).
+    `snaps`: the game's snapshot rows when the caller has them (Kalshi rows are read from them), else read here."""
+    if not priced(cl) or cl.get("source") in KALSHI_SOURCES:
+        return cl
+    stamp = book_stamp(cl, s)
+    age = stamp_age_hours(stamp, match.utc_date)
+    cl["book_stamp"], cl["book_stamp_age_h"] = stamp, age
+    if age is None or age <= STALE_BOOK_H:
+        return cl
+    if tuple(cl.get("outcomes") or ()) != BINARY:
+        cl["stale_unswitched"] = "three-way board: the rule names a two-sided Kalshi mid; none is derived for it"
+        return cl
+    if snaps is None:
+        from sqlalchemy import select
+
+        from src.db.schema import OddsSnapshot
+        snaps = list(s.execute(select(OddsSnapshot).where(
+            OddsSnapshot.match_id == match.id, OddsSnapshot.source == "kalshi",
+            OddsSnapshot.market.in_(KALSHI_CLOSE_MARKETS))).scalars())
+    from src.walters.kalshi_legs import guard_snaps
+    kal, mismatched = guard_snaps([x for x in snaps if getattr(x, "source", None) == "kalshi"], s)
+    ko = session_kalshi(kal, cl["captured_at"], match.utc_date, cl["outcomes"])
+    if ko is None:
+        why = (f"the game's Kalshi legs are mismatched ({', '.join(mismatched)}; addendum 37 item 3: no close from "
+               "mismatched legs)" if mismatched else
+               f"no two-sided Kalshi quote within the {_spread_cap()}c cap in the book close's session")
+        return {"fair": None, "books": cl["books"], "books_quoted": cl.get("books_quoted", cl["books"]),
+                "captured_at": cl["captured_at"], "best": {}, "rows": [], "outcomes": cl["outcomes"], "missing": {},
+                "source": cl.get("source"), "reference": None, "book_stamp": stamp, "book_stamp_age_h": age,
+                "stale_book": f"book stamp {age:.2f} h before kickoff; {why}"}
+    ko["kalshi"]["ruling"] = STALE_BOOK_RULING
+    ko.update(source="kalshi", reference="kalshi", book_stamp=stamp, book_stamp_age_h=age,
+              book_fair=dict(cl["fair"]), book_captured_at=cl["captured_at"])
+    return ko
+
+
+def _spread_cap() -> int:
+    from src.walters.desk_policy import KALSHI_ONLY
+    return KALSHI_ONLY["maxSpreadC"]
+
+
 def grading_close(s, match) -> dict | None:
     """THE close for grading a finished match: the odds table's last
     pre-kickoff session under the contract; when that cannot price (no
@@ -219,9 +335,14 @@ def grading_close(s, match) -> dict | None:
     Kalshi capture does, the Kalshi mid, labelled reference=kalshi_only
     (ARCHITECT 2026-10-05). A book session that exists but cannot price (an
     incomplete outcome set) stays UNPRICED: the ruling covers absent books only.
+    A priced book close (odds or snapshot) then meets THE STALE BOOK RULE
+    (ARCHITECT 2026-10-19, addendum 137 item 4, stale_book_close): its
+    provider stamp more than 24 hours before kickoff, the close is the Kalshi
+    two-sided mid of the same session ("source"/"reference" "kalshi"), or
+    UNPRICED when that session holds none; an unknown stamp keeps the book.
     Returns a priced close (with "source": "odds" | "snapshot" | "kalshi_only"
-    and "reference": "books" | "kalshi_only") or the odds-table result / None,
-    so callers keep using priced()."""
+    | "kalshi" and "reference": "books" | "kalshi_only" | "kalshi") or the
+    odds-table result / None, so callers keep using priced()."""
     from sqlalchemy import select
 
     from src.db.schema import Odds, OddsSnapshot
@@ -231,14 +352,14 @@ def grading_close(s, match) -> dict | None:
     cl = close_1x2(odds, match.utc_date, outcomes) if odds else None
     if priced(cl):
         cl["source"], cl["reference"] = "odds", "books"
-        return cl
+        return stale_book_close(s, match, cl)          # addendum 137 item 4
     snaps = list(s.execute(select(OddsSnapshot).where(
         OddsSnapshot.match_id == match.id, kalshi_close_market_filter(OddsSnapshot))).scalars())
     book_snaps = [x for x in snaps if x.source != "kalshi" and x.market == "1X2"]
     sn = close_from_snapshots(book_snaps, match.utc_date, outcomes)
     if sn is not None:
         sn["reference"] = "books"
-        return sn
+        return stale_book_close(s, match, sn, snaps)   # addendum 137 item 4
     if cl is None and not any(x.captured_at is not None and (match.utc_date is None or x.captured_at < match.utc_date)
                               for x in book_snaps):
         from src.walters.kalshi_legs import guard_snaps
@@ -255,8 +376,9 @@ CLOSE_SOURCE = "close_1x2: last pre-kickoff capture session, complete books de-v
 def minutes_before_start(captured_at: datetime | None, start: datetime | None) -> int | None:
     """`close_minutes_before_start` (ARCHITECT addendum 31 item 3, #382): whole minutes, ROUNDED DOWN,
     from the close's capture (`close_at`) to the stored start (`Match.utc_date`); None when either is
-    missing. It is the AGE OF OUR CAPTURE, not of the quote (#348): the provider's own quote time is not
-    stored, so a fresh capture of an unchanged book still reads young."""
+    missing. It is the AGE OF OUR CAPTURE, not of the quote (#348): a fresh capture of an unchanged book still reads
+    young. The quote's own time, where the provider gives one (NFL since addendum 32), is the book stamp the
+    stale-book rule reads (stale_book_close, `close_book_stamp_age_h`)."""
     if captured_at is None or start is None:
         return None
     if (captured_at.tzinfo is None) != (start.tzinfo is None):          # compare naive UTC with naive UTC
@@ -283,25 +405,49 @@ def close_age_line(a: dict) -> str:
     return head + f"median {med} min, largest {a['max']} min before start (n={a['n']})\n"
 
 
-def grading_close_block(s, match) -> dict:
-    """close_block's shape from THE grading close (odds → snapshot → kalshi_only),
-    plus `close_reference` ("books" | "kalshi_only" | None) — the results rows'
-    per-side close for entry-price CLV, so a row graded against the Kalshi mid
-    says so (ARCHITECT 2026-10-05). Carries close_minutes_before_start (#382)
-    beside close_at: the age of our capture, not of the quote (#348)."""
-    cl = grading_close(s, match)
+KALSHI_ONLY_SOURCE = ("kalshi_only: mid of the last two-sided pre-kickoff Kalshi HOME quote (no book session "
+                      "pre-kickoff; ARCHITECT 2026-10-05)")
+STALE_BOOK_SOURCE = ("kalshi: mid of the two-sided Kalshi HOME quote captured in the book close's session (the book "
+                     "quote's provider stamp more than 24 h before kickoff; ARCHITECT 2026-10-19, addendum 137 item 4)")
+
+
+def graded_block(cl, kickoff: datetime | None) -> dict:
+    """The results row's close block from a grading close `cl` (grading_close's, or a family grader's close after
+    stale_book_close): {close_fair, close_at, close_minutes_before_start, close_books, close_source,
+    close_reference ("books" | "kalshi_only" | "kalshi" | None), close_book_stamp_age_h}, plus `close_kalshi` on a
+    Kalshi close and `close_stale_book` (why) on a close the stale-book rule left unpriced. ARCHITECT 2026-10-19,
+    addendum 137 item 4: "the row says so (`close_reference: kalshi`, with the book stamp's age in hours beside
+    it)"; the age is carried on every row (None: no close, or the stamp unknown), in hours to two places."""
+    age = (cl or {}).get("book_stamp_age_h")
+    age = round(age, 2) if age is not None else None
     if not priced(cl):
         return {"close_fair": None, "close_at": None, "close_minutes_before_start": None,
-                "close_books": cl["books"] if cl else 0, "close_source": CLOSE_SOURCE, "close_reference": None}
-    src = CLOSE_SOURCE if cl.get("source") != "kalshi_only" else (
-        "kalshi_only: mid of the last two-sided pre-kickoff Kalshi HOME quote (no book session pre-kickoff; "
-        "ARCHITECT 2026-10-05)")
-    return {"close_fair": {k: round(v, 4) for k, v in cl["fair"].items()},
-            "close_at": cl["captured_at"].isoformat() if cl["captured_at"] else None,
-            "close_minutes_before_start": minutes_before_start(cl["captured_at"], match.utc_date),
-            "close_books": cl["books"], "close_source": src, "close_reference": cl.get("reference", "books"),
-            **({"close_kalshi": {k: cl["kalshi"][k] for k in ("bid", "ask", "mid", "spread_c")}}
-               if cl.get("source") == "kalshi_only" else {})}
+                "close_books": cl["books"] if cl else 0, "close_source": CLOSE_SOURCE, "close_reference": None,
+                "close_book_stamp_age_h": age,
+                **({"close_stale_book": cl["stale_book"]} if cl and cl.get("stale_book") else {})}
+    src = {"kalshi_only": KALSHI_ONLY_SOURCE, "kalshi": STALE_BOOK_SOURCE}.get(cl.get("source"), CLOSE_SOURCE)
+    out = {"close_fair": {k: round(v, 4) for k, v in cl["fair"].items()},
+           "close_at": cl["captured_at"].isoformat() if cl["captured_at"] else None,
+           "close_minutes_before_start": minutes_before_start(cl["captured_at"], kickoff),
+           "close_books": cl["books"], "close_source": src, "close_reference": cl.get("reference", "books"),
+           "close_book_stamp_age_h": age}
+    if cl.get("source") in KALSHI_SOURCES:
+        out["close_kalshi"] = {k: cl["kalshi"][k] for k in ("bid", "ask", "mid", "spread_c")}
+        if cl.get("source") == "kalshi":            # the book close it replaced, for the record's audit
+            out["close_kalshi"]["book_fair"] = {k: round(v, 4) for k, v in cl["book_fair"].items()}
+            out["close_kalshi"]["book_at"] = cl["book_captured_at"].isoformat() if cl["book_captured_at"] else None
+    if cl.get("stale_unswitched"):
+        out["close_stale_unswitched"] = cl["stale_unswitched"]
+    return out
+
+
+def grading_close_block(s, match) -> dict:
+    """close_block's shape from THE grading close (odds → snapshot → kalshi_only, the stale-book rule on a book
+    close), plus `close_reference` ("books" | "kalshi_only" | "kalshi" | None) — the results rows' per-side close for
+    entry-price CLV, so a row graded against a Kalshi mid says so (ARCHITECT 2026-10-05; 2026-10-19, addendum 137
+    item 4) — and `close_book_stamp_age_h` (graded_block). Carries close_minutes_before_start (#382) beside close_at:
+    the age of our capture, not of the quote (#348)."""
+    return graded_block(grading_close(s, match), match.utc_date)
 
 
 def close_block(rows, kickoff: datetime | None, sport) -> dict:

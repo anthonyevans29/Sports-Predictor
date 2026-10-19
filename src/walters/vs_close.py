@@ -125,14 +125,16 @@ def pair_from_row(row: dict) -> tuple[float, float] | None:
 
 def block_from_rows(rows, seed: int = SEED, resamples: int = RESAMPLES) -> dict:
     """The block over a results file's rows: every decided row with a close, as pair_from_row reads it. Rows that
-    carry the grading close's reference (MLB, PL: books or the Kalshi-only mid, ARCHITECT 2026-10-05) also say how
-    many of the closes fed were the Kalshi-only mid, so the line never hides which close it read."""
+    carry the grading close's reference (MLB, PL, NFL: books, the Kalshi-only mid, ARCHITECT 2026-10-05, or the
+    session's Kalshi mid for a stale book stamp, 2026-10-19 addendum 137 item 4) also say how many of the closes fed
+    were a Kalshi mid (`kalshi_only_closes`: "the `kalshi_only_closes` count in the record block already exists for
+    this"), so the line never hides which close it read."""
     rows = list(rows)
     fed = [(r, p) for r, p in ((r, pair_from_row(r)) for r in rows) if p is not None]
     out = block([p for _, p in fed], seed, resamples)
     if any("close_reference" in (r.get("graded") or {}) for r in rows):
         out["kalshi_only_closes"] = sum(1 for r, _ in fed if (r.get("graded") or {}).get("close_reference")
-                                        == "kalshi_only")
+                                        in ("kalshi_only", "kalshi"))
     return out
 
 

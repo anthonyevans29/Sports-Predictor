@@ -16,4 +16,4 @@
 - tests/fixtures/kalshi_476/ (new):
   - tbcle_markets.json holds the four markets' public fields and the one quote that the operator's relayed replay carries.
   - README.md says what is copied from the consoles and what the tests write themselves: stand-in quotes, which events are open at each clock, the order, the clocks.
-- Not changed: every production file, `src/ingestion/kalshi_match.py` included; tests/test_kalshi_matcher_day_rule.py (the ALCS tests, unchanged: 111 passed).
+- Not changed: every production file, `src/ingestion/kalshi_match.py` included; tests/test_kalshi_matcher_day_rule.py (the ALCS tests, unchanged: 114 passed on main 1e355f8).

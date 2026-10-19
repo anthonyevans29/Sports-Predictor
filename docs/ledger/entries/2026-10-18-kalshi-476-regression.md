@@ -9,7 +9,7 @@
   - **The fixture**, tests/fixtures/kalshi_476/tbcle_markets.json, carries public market fields only, from the operator's relayed replay of 2026-10-18 11:37:58Z. These are the four tickers, the event's two names, and the TB leg's title and quote from main's sample line.
     - The quotes of the other legs are stand-ins. The MLB path reads only that a leg has a price.
     - The README lists what is copied and what is written.
-  - **Unchanged:** every production file (`git diff --stat origin/main` shows only tests/ and the two fragments), and the ALCS tests (tests/test_kalshi_matcher_day_rule.py, 111 passed).
+  - **Unchanged:** every production file (`git diff --stat origin/main` shows only tests/ and the two fragments), and the ALCS tests (tests/test_kalshi_matcher_day_rule.py, 114 passed on main 1e355f8).
 - **The answers pinned, each as main prints it:**
   - **Friday control** (2026-10-16 23:25:59Z): `matched 4 · unmatched 0 (of which ambiguous 0) · in-play skipped 0`. It stores main's four legs on main's rows (50548 ← 26OCT161800TBCLE-TB/-CLE as AWAY/HOME, 50550 ← 26OCT172000TBCLE-TB/-CLE), captured 2026-10-16 23:25:59.203319.
   - **Saturday set** (state B, at 23:34:24Z, 23:36:21Z and 23:38:20Z, the three receipts' step 6): `matched 0 · unmatched 4 (of which ambiguous 0) · in-play skipped 0`; refused 2 "no game of the pair on the ticker's date", 2 "behind an event of the same two names out of step"; the MATCHED ZERO alarm with 2 unstarted games; 0 prices stored. The two lines:

@@ -1447,12 +1447,14 @@ def test_one_slate_run_per_tick_the_next_familys_runs_on_the_next_tick(box, monk
     count; the next family's slate runs on the next tick, a minute later), so a tick is bounded as before plus one
     chain". The 10:30 tick runs the MLB slate (the tick's first family); the NFL slate, due on the same tick, is
     receipted once as waiting (no step, no attempt, no page) and runs on the 10:31 tick, on time (one cadence). The
-    dry run says so."""
+    dry run says so, both ways: the MLB slate checks its feed first, and unanswered it misses (no run), so the NFL
+    slate would run on this tick."""
     two_at_1300(box, monkeypatch)
     assert mc.watch(dry_run=True, now=et(10, 30), families=("MLB", "NFL")) == 0
     plan = [ln for ln in capsys.readouterr().out.splitlines() if ln.startswith("  SLATE ")]
     assert plan[0].endswith("→ would check the MLB feed, then would RUN")
-    assert plan[1].endswith("→ would RUN on a later tick (one slate run per tick: MLB's first)")
+    assert plan[1].endswith("→ would RUN on a later tick (one slate run per tick: MLB's first; on this tick if the "
+                            "MLB feed does not answer)")
     assert receipts() == [] and box.steps == []
     assert tick(et(10, 30), ("MLB", "NFL")) == 0
     (m,) = slates("MLB")
@@ -1526,12 +1528,16 @@ def test_the_page_counts_the_days_games_and_the_rows_beyond_it(box, monkeypatch)
     """Addendum 133 item 4, item 8: "N, PLAY and PASS count the DAY's games (rows whose match id is a game of the ET
     day); rows beyond the day follow as `· +<k> beyond the day` when k > 0 (the NFL 36-hour window, the soccer
     round)". Sunday's file carries Monday night's game too: the page counts Sunday's game and says +1; the receipt
-    keeps the day's counts and k."""
+    keeps the day's counts and k. A row of a game of the day called off (604, POSTPONED) is no game and not beyond
+    the day."""
     the_day(box, monkeypatch, games=[(602, "NFL", 360, "SCHEDULED", "Buffalo"),
-                                     (603, "NFL", 34 * 60, "SCHEDULED", "Monday")])    # 2026-10-19 17:00 ET
+                                     (603, "NFL", 34 * 60, "SCHEDULED", "Monday"),     # 2026-10-19 17:00 ET
+                                     (604, "NFL", 420, "POSTPONED", "Called")])
     box.docs["NFL"] = dp.annotate({"sport": "nfl", "predictions": [
         nfl_rows()[1], row(603, "Monday", 0.62, fair_h=0.55, bid=0.54, ask=0.55, minutes=34 * 60, comp="NFL",
-                           series="KXNFLGAME", now=BASE)]}, now=BASE)
+                           series="KXNFLGAME", now=BASE),
+        row(604, "Called", 0.62, fair_h=0.55, bid=0.54, ask=0.55, minutes=420, comp="NFL", series="KXNFLGAME",
+            now=BASE)]}, now=BASE)
     assert tick(et(10, 30)) == 0
     (s,) = slates()
     assert (s["rows"], s["calls"], s["beyond_day"]) == (1, {"PLAY": 0, "PASS": 1}, 1)

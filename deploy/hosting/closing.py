@@ -227,8 +227,15 @@ def day_games(fam: str, day: date) -> list[dict]:
     return [g for g in _stored_games(fam, lo, hi) if ny_date(g["start"]) == day]
 
 
-def _stored_games(fam: str, lo: datetime, hi: datetime) -> list[dict]:
-    """The family's stored games starting in [lo, hi), read-only (mode=ro), VOID ones dropped."""
+def day_void_ids(fam: str, day: date) -> set:
+    """The match ids of the family's games of one US Eastern day whose stored status is VOID (called off), read-only.
+    A row of one is no game of the day and none beyond it (beyond_day)."""
+    lo, hi = day_bounds(day)
+    return {g["match_id"] for g in _stored_games(fam, lo, hi, void=True) if ny_date(g["start"]) == day}
+
+
+def _stored_games(fam: str, lo: datetime, hi: datetime, void: bool = False) -> list[dict]:
+    """The family's stored games starting in [lo, hi), read-only (mode=ro), VOID ones dropped (`void`: only those)."""
     fmt = "%Y-%m-%d %H:%M:%S"
     comps = FAMILIES[fam]["comps"]
     con = c.ro_connect(c.db_path())
@@ -244,7 +251,7 @@ def _stored_games(fam: str, lo: datetime, hi: datetime) -> list[dict]:
         con.close()
     return [{"match_id": i, "start": parse_utc(d), "status": str(s or "").upper(), "home": h, "away": a,
              "home_team_id": hid, "away_team_id": aid}
-            for i, d, s, h, a, hid, aid in rows if str(s or "").upper() not in VOID]
+            for i, d, s, h, a, hid, aid in rows if (str(s or "").upper() in VOID) == void]
 
 
 def started(g: dict, now: datetime) -> bool:
@@ -2247,9 +2254,9 @@ def worse(a: int, b: int) -> int:
 #     replaced by a half-synced one. A page that fails after the push: the file stands (it passed) and the attempt is
 #     failed as built (the retry re-runs the steps and replaces it again)." As built in the ruled order (the link,
 #     THEN the push, THEN the page), "leaves nothing in exports/" holds for a failure at a step, a check or the link.
-#     A push that fails comes after the link, so its checked file stands in exports/ as a page failure's does; the
-#     ruling names only the page, and whether a failed push must restore exports/ is open for the architect (#600's
-#     ledger entry; nothing is built for it).
+#     A push that fails comes after the link, so its checked file stands in exports/ as a page failure's does: RULED
+#     (ARCHITECT 2026-10-18, addendum 134 item 1(i)): "a PUSH that fails after the link: the checked file stands in
+#     exports/ (it passed; the next push carries it; the retry replaces it) — no restore, as built."
 #   - The closings first (item 2(a): "The closing runs at T-35 are unchanged"): a slate does not start while a closing
 #     the watch will still run, for any family of the tick, has its T-35 within SLATE_GUARD_MIN minutes or already
 #     past (closing_ahead), and its wait for the chain lock ends SLATE_GUARD_MIN minutes before that T-35. So held, it
@@ -2281,7 +2288,8 @@ def worse(a: int, b: int) -> int:
 #   - At most ONE slate RUN per tick (ARCHITECT 2026-10-18, addendum 134 item 1(ii), #606 item 1): "a slate that holds,
 #     misses or is superseded does not count; the next family's slate runs on the next tick, a minute later), so a tick
 #     is bounded as before plus one chain; the bound itself does not move" (the host unit's TimeoutStartSec=45min). A
-#     slate due after the tick's run is receipted once a day as a hold (record_slate_deferred).
+#     slate due after the tick's run is receipted once a day as a hold (record_slate_deferred). The families go in
+#     slate_order: the soonest first unstarted kickoff of the day takes the tick, a family retrying a failed slate last.
 #   - Misses (kind "slate_miss", once per family, day and reason, notified; not an attempt): the MLB feed unreachable
 #     (A6, as the watch checks it before a closing; the watch keeps trying), the chain lock held through the wait
 #     (the watch keeps trying), and a day whose every game had started before a slate ran (nothing left to slate).
@@ -2404,10 +2412,12 @@ def slate_calls(doc: dict, ids=None) -> tuple[int, dict]:
     return len(rows), calls
 
 
-def beyond_day(doc: dict, ids) -> int:
+def beyond_day(doc: dict, ids, void=frozenset()) -> int:
     """Item 8: the export's rows whose match id is no game of the ET day (`ids`): the NFL 36-hour window, the soccer
-    round. They follow the counts as `· +<k> beyond the day` when k > 0 (beyond_text)."""
-    return sum(1 for r in doc.get("predictions") or [] if r.get("match_id") not in ids)
+    round. They follow the counts as `· +<k> beyond the day` when k > 0 (beyond_text). A row of a game of the day
+    called off (`void`, day_void_ids) is neither: no game, and not beyond the day."""
+    return sum(1 for r in doc.get("predictions") or [] if r.get("match_id") not in ids
+               and r.get("match_id") not in void)
 
 
 def beyond_text(k) -> str:
@@ -2786,7 +2796,7 @@ def _slate(rec: dict, fam: str, day: date, covers: list[dict], folder: Path, hel
         return
     ids = {g["match_id"] for g in games}      # item 8: the counts are the ET day's games; the rest follow as +k
     rec["rows"], rec["calls"] = slate_calls(doc, ids)
-    rec["beyond_day"] = beyond_day(doc, ids)
+    rec["beyond_day"] = beyond_day(doc, ids, day_void_ids(fam, day))
     # addendum 133 item 3(a): the checks passed: the kept file is linked into exports/<slate file> (the closing file's
     # write: a hard link, then the rename over the name), THEN the push, THEN the page
     rec["slate_file"] = link_slate_file(rec["export"], Path(rec["file"]).name)
@@ -2834,8 +2844,9 @@ def _slate_under_lock(fam: str, day: date, base: dict, folder: Path, held: datet
                       due_at: datetime, tick: dict | None = None) -> int:
     """380.4 for the slate: under the lock the receipts are read again (a success or three attempts by then: superseded,
     neither an attempt nor a refusal, nothing run or posted), the day's games re-read, and the attempt numbered. An
-    attempt is the tick's one slate run (`tick`, watch()'s: addendum 134 item 1(ii)); a supersession, the every-game-
-    started miss and the #442 refusal are none."""
+    attempt here is the tick's one slate run (`tick`, watch()'s: addendum 134 item 1(ii)); a supersession, the every-
+    game-started miss and the #442 refusal are none. A lock that cannot be taken (slate_watch's lock failure) is a
+    failed attempt but not the tick's run: no chain ran, so the bound is not touched."""
     day_s = day.isoformat()
     st = slate_state(fam, day_s)
     if st["success"] or st["attempts"] >= MAX_ATTEMPTS:
@@ -2889,16 +2900,19 @@ def slate_watch(fam: str, tick_at: datetime, now: datetime | None = None, dry_ru
     the receipts, no network but the MLB feed probe (A6: an MLB slate's own, or an MLB closing's that would hold it):
     the family's games of the tick's ET day; due at slate_due(); nothing before it, nothing after a success or three
     attempts. Exit as a closing's (0, 2 a refusal, NOTIFIED a failure or miss). `now`: when the run starts (the watch
-    reads the clock for each run); a run is late when the first tick that found it due came more than one cadence
-    after the due time (_slate_late). `families`: the tick's families, whose closings a slate never delays
+    reads the clock for each run, and again after the stage's own probes); a run is late when its start (ran_at, in
+    whole seconds) is more than one cadence after the due time, whatever held it (_slate_late: a slate deferred or held
+    one tick normally reads `LATE 1 min`). `families`: the tick's families, whose closings a slate never delays
     (slate_ahead: held inside SLATE_GUARD_MIN of the T-35 of a closing that can start, its lock wait ending there;
     held with no probe by a closing due by the next tick where a probe could not release it or could cost it its T-35,
     _hold_unprobed). `feed_probe`: the tick's MLB feed answer ({ok, detail}, watch()'s, shared by the tick's slates:
     _tick_feed); None, one probe of its own when it needs one. `tick`: watch()'s per-tick record of its one slate run
     (ARCHITECT 2026-10-18, addendum 134 item 1(ii): "at most ONE slate RUN per tick (a slate that holds, misses or is
     superseded does not count; the next family's slate runs on the next tick, a minute later)"): once a slate of the
-    tick has run (`ran`, its family), a slate that would start waits for the next tick, nothing receipted (its holds,
-    misses and refusals still read this tick); None (a direct call), no bound.
+    tick has run (`ran`, its family), a slate that would start waits for a later tick, receipted once a day as a hold
+    (record_slate_deferred: `held`, `deferred`; its holds, misses and refusals still read this tick); watch() takes the
+    families in slate_order, so the tick's run goes to the soonest first kickoff and a retrying family comes last;
+    None (a direct call), no bound.
     --dry-run prints the plan and touches nothing (no network: an MLB closing ahead is shown both ways); `planned`:
     the (family, start) closings the dry run's tick runs first, which hold no slate in the plan, though one after them
     may (`would RUN if they end before HH:MM ET, else held: …`); after closings with no MLB feed answer, an MLB
@@ -2970,10 +2984,14 @@ def slate_watch(fam: str, tick_at: datetime, now: datetime | None = None, dry_ru
                ("after this tick's closings: " if planned else "") + pre + (hold or "would RUN"))
         if "would RUN" in tag and tick is not None:   # one slate run per tick (addendum 134 item 1(ii)), in slate_order
             if tick.get("ran"):
+                # the run before it checks the MLB feed first: unanswered, that slate misses (no run) and the next
+                # family's runs this tick
+                both = tick.pop("if_feed", False)
                 tag = tag.replace("would RUN", f"would RUN on a later tick (one slate run per tick: {tick['ran']}'s "
-                                               "first)", 1)
+                                               "first" + ("; on this tick if the MLB feed does not answer" if both
+                                                          else "") + ")", 1)
             else:
-                tick["ran"] = fam
+                tick["ran"], tick["if_feed"] = fam, bool(pre)
         print(f"{head}: first kickoff {et(first)[11:]} · due {et(due_at)[11:]} · success "
               f"{'yes' if st['success'] else 'no'} · attempts {st['attempts']}/{MAX_ATTEMPTS} → {tag}")
         if live and "would RUN" in tag:

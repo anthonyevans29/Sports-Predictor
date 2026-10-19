@@ -357,13 +357,15 @@ Which machine runs item 5's readout (ARCHITECT 2026-10-18, addendum 128 item 1(a
      `SLATE <FAMILY> <date>: <N> row(s) · PLAY <p> · PASS <q> · exports/<file>` (the ET day's games; `· +<k> beyond
      the day` before the file when the export carries more; `LATE <m> min: due HH:MM ET, first tick HH:MM ET, run
      HH:MM ET` on the next line when it starts more than a minute after its due time, whatever held it: addendum 133
-     item 4). At most one slate runs a tick (addendum 134 item 1(ii)): the next family's runs on the next tick, so the
+     item 4). At most one slate runs a tick (addendum 134 item 1(ii); the soonest first kickoff first, a family retrying a
+     failed slate last): the next family's runs on a later tick, so the
      host unit's 45-minute bound holds a tick's closings and one chain. A slate still held with no 15 minutes left
      before its family's first unstarted kickoff pages `SLATE <FAMILY> <date> HELD for <closing> — RUN BY HAND:
      <block>` once. A failure at a step, a check or the
      link leaves nothing in `exports/` and nothing reaches the mirror (addendum 133 item 3(a)): Saturday's soccer
      window file stands on Sunday until a Sunday slate passes. A push or a page that fails comes after the link, so
-     the checked file stands in `exports/` (the page case as ruled; the push case as built, open for the architect).
+     the checked file stands in `exports/` (both as ruled: addendum 133 item 3(a) for the page, addendum 134 item
+     1(i) for the push, "it passed; the next push carries it; the retry replaces it — no restore, as built").
      A failure pages `SLATE <FAMILY> FAILED: <step command> — RUN BY HAND:
      block_<MMDD>_<family>_slate.txt · attempt k/3`, three attempts a day. A family the machine refuses (MLB on the
      host) writes no slate and pages nothing; `python cli.py coverage` names its block (`NO SLATE FILE — run block …`).

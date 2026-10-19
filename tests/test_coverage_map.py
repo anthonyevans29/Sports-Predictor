@@ -1032,7 +1032,8 @@ def test_a_successful_slate_no_file_holds_every_game_names_the_block(env, monkey
     f.unlink()                        # no file holds the day's games: the watch's success is said, the gap claimed
     assert _nfl_slate_line() == (
         "NFL SLATE · NO SLATE FILE — run block block_1018_nfl_slate.txt (a successful slate at 09:41 ET "
-        "(exports/nfl_predictions_2026-10-18.json), but no file holds every game of the day: the watch runs it no more)",
+        "(exports/nfl_predictions_2026-10-18.json), but no file of the day holds every game of the day: the watch runs it "
+        "no more)",
         ["NFL: 2 GAMES, ROWS 2, NO SLATE FILE"])
     c.receipts_path().unlink()
     receipt(kind="slate_miss", family="NFL", date="2026-10-18", reason=cl.SLATE_ALL_STARTED)
@@ -1089,6 +1090,44 @@ def test_an_older_file_is_named_on_the_block_lines_too(env, monkeypatch):
         "MLB SLATE · NO SLATE FILE — run block block_1018_mlb_slate.txt (newest exports/mlb_MLB_2026-10-17.json "
         "exported 2026-10-17 10:00 ET, not today's)")
     assert gaps(out) == ["MLB: 1 GAME, ROWS 0, NO SLATE FILE"]
+
+
+def _raw_doc(name, rows, exported_at):
+    """A slate file with rows as given: (match_id, call), call None for a row with no desk block."""
+    doc = {"exported_at": exported_at, "count": len(rows), "desk_meta": {"policy_version": "v1.1"},
+           "predictions": [{"match_id": i, **({"desk": {"call": k}} if k else {})} for i, k in rows]}
+    (c.REPO / "exports" / name).write_text(json.dumps(doc))
+
+
+def test_which_file_stands_and_what_it_counts(env, monkeypatch):
+    """The file of the day that holds the most of the day's games stands, of the same reach the newest: a re-export
+    after a kickoff leaves the started game out, and the morning file still holds it. A row of a game of the day
+    called off (VOID) is no game and not beyond the day. A file stands: no older file is named. A file exported after
+    the day is neither the day's nor an older one. `started before it` names the games the file has no row for."""
+    make_db(env, NFL_DAY[:1] + [(602, "NFL", "2026-10-18 17:00", "SCHEDULED"),
+                                (603, "NFL", "2026-10-18 17:00", "POSTPONED")], NFL_ROWS)
+    monkeypatch.setattr(cl, "clock", lambda: utc("2026-10-18 14:30"))
+    _raw_doc("nfl_predictions_2026-10-18.json", [(601, "PASS"), (602, "PASS"), (603, "PASS"), (699, "PASS")],
+             "2026-10-18T10:00:00Z")
+    _raw_doc("nfl_predictions_2026-10-18_re.json", [(602, "PLAY")], "2026-10-18T14:00:00Z")
+    _raw_doc("nfl_predictions_2026-10-17.json", [(601, "PASS"), (602, "PASS")], "2026-10-17T14:00:00Z")
+    _raw_doc("nfl_predictions_2026-10-19.json", [(601, "PASS"), (602, "PASS")], "2026-10-19T12:00:00Z")
+    assert _nfl_slate_line() == ("NFL SLATE · exports/nfl_predictions_2026-10-18.json · exported 2026-10-18 06:00 ET · "
+                                 "PLAY 0 · PASS 2 · +1 beyond the day", [])
+    nfl = cm.coverage(datetime(2026, 10, 18).date(), utc("2026-10-18 14:30"))["competitions"][0]["slate"]
+    assert (nfl["beyond"], nfl["older"], nfl["started_before"]) == (1, None, [])
+    (c.REPO / "exports" / "nfl_predictions_2026-10-18.json").unlink()
+    # the re-export alone: it holds 602, unstarted at 10:00 ET; 601 had started and has no row in it
+    assert _nfl_slate_line()[0] == ("NFL SLATE · exports/nfl_predictions_2026-10-18_re.json · exported 2026-10-18 "
+                                    "10:00 ET · PLAY 1 · PASS 0 · started before it: 601")
+    # a row of 601 with no desk block: the file holds it, so it is not named as left out
+    _raw_doc("nfl_predictions_2026-10-18_re.json", [(601, None), (602, "PLAY")], "2026-10-18T14:00:00Z")
+    assert _nfl_slate_line()[0] == ("NFL SLATE · exports/nfl_predictions_2026-10-18_re.json · exported 2026-10-18 "
+                                    "10:00 ET · PLAY 1 · PASS 0 · no desk call 1")
+    (c.REPO / "exports" / "nfl_predictions_2026-10-18_re.json").unlink()
+    # no file of the day: the older one is the newest exported BEFORE the day, never Monday's file
+    assert _nfl_slate_line()[0] == ("NFL SLATE · NO SLATE FILE — slate run due 07:00 ET (newest "
+                                    "exports/nfl_predictions_2026-10-17.json exported 2026-10-17 10:00 ET, not today's)")
 
 
 def test_slate_receipts_that_cannot_be_read_are_said(env, monkeypatch, tmp_path):

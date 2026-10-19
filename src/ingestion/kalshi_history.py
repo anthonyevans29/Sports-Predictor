@@ -35,8 +35,13 @@ How it reads, so the receipt can be checked against it:
   2026-10-18, addendum 132 item 3(b): "Stored rows enter the claims rule as stored; only the run's new markets and
   the held rows it places are placed by date"; addendum 134 item 3, option (ii): "only a stored row that HAS a
   placement enters the claims rule by its stored (match_id, side); a refused stored row keeps its date claim in the
-  across-events rule, as on main"): a placed stored row listed in the run is placed with its event (so the event is
-  placed on all its legs), but its date placement is read by nothing. A refused stored row has no stored side: it
+  across-events rule, as on main"; addendum 137 item 1, option (c): "A placed stored row NOT placed by ruling claims
+  both its stored side and the side its date names; a row placed by ruling claims its stored side only, so 3(b)'s
+  motivating case stands. The principle that decides it: this head's refusals must be a superset of main's, the one
+  designed exception being a ruled row."): a placed stored row listed in the run is placed with its event (so the
+  event is placed on all its legs) and is never placed or moved itself; one placed by ruling claims only its stored
+  side (its date placement is read by nothing), and every other also claims the side its date names, in the
+  across-events rule, as on main. A refused stored row has no stored side: it
   is placed by date with its event and claims there, as main has it, and is never written again (a stored refusal is
   never turned into a placement by a later run). That read of the stored rows covers a market whose ticker carries a
   clock (the identity hold's series; KXMLBGAME of the five), a side a row placed by ruling holds (its notes carry
@@ -521,13 +526,15 @@ def place_events(markets: list[dict], games: list, is_tie, holds: dict | None = 
     `holds` ({event: (earlier event, why, words)}, identity_holds): an event held there keeps no placement: each market
     of it that the matcher placed is refused under the hold's reason, before the claims rule reads (a market the
     matcher refused keeps its own reason, as for "behind", addendum 55 item 3); its line is in the lines.
-    `stored` (the tickers of stored rows that hold a placement; a held or refused stored row has none): placed with
-    their event, so the event is placed on all its legs, but never placed by date themselves (ARCHITECT 2026-10-18,
-    addendum 132 item 3(b); addendum 134 item 3, option (ii)): they are left out of `placed` and of the claims rule
-    here, and run_history reads them by their stored (match_id, side). A refused stored row is placed by date and
-    claims here, as on main; run_history never writes it again. `stored_on` ({(match_id, side): [tickers]}, those
-    stored rows' stored sides): a side two or more markets claim here that one of them holds is named on the claims
-    line, `; stored on <ticker> (nothing already placed is moved)`, so the receipt names every claimant."""
+    `stored` (the tickers of stored rows placed BY RULING, listed in range): placed with their event, so the event is
+    placed on all its legs, but never placed by date themselves (ARCHITECT 2026-10-18, addendum 132 item 3(b);
+    addendum 134 item 3, option (ii); addendum 137 item 1, option (c): "a row placed by ruling claims its stored side
+    only"): they are left out of `placed` and of the claims rule here, and run_history reads them by their stored
+    (match_id, side). Every other stored row, placed or refused, is placed by date and claims here, as on main (a
+    placed one also claims its stored side in run_history's read, option (c)); run_history never writes it again.
+    `stored_on` ({(match_id, side): [tickers]}, the stored sides of the placed stored rows listed in range): a side
+    two or more markets claim here that one of them holds is named on the claims line, `; stored on <ticker> (nothing
+    already placed is moved)`, so the line names the stored row that holds it, which is not moved."""
     holds = holds or {}
     by_event: dict[str, list[dict]] = {}
     for m in markets:
@@ -736,17 +743,25 @@ def run_history(series: str, *, since: date | None = None, until: date | None = 
                 holds = identity_holds(targets, known, open_evs,
                                        lambda mks: stored_games(rs, [comp_id], mks), is_tie)
             games = stored_games(rs, [comp_id], [m for _, m in in_range])
-            # a stored row listed in range that HAS a placement enters the claims rule as stored, never placed by date
+            # a stored row listed in range that HAS a placement enters the claims rule by its stored (match_id, side)
             # (addendum 132 item 3(b), option (ii) by addendum 134 item 3); a refused or held stored row has no stored
-            # side and keeps its date claim in the across-events rule, as on main
+            # side and keeps its date claim in the across-events rule, as on main. ARCHITECT 2026-10-19, addendum 137
+            # item 1, option (c): "A placed stored row NOT placed by ruling claims both its stored side and the side its
+            # date names; a row placed by ruling claims its stored side only, so 3(b)'s motivating case stands. The
+            # principle that decides it: this head's refusals must be a superset of main's, the one designed exception
+            # being a ruled row." So only a ruled row is left out of the date claims (`ruled_listed`); every other
+            # placed stored row is placed by date here too, as on main, and never written again
             with_side = {t for t, _, _, mid, _, _ in mine if mid is not None}
             listed = {m.get(KEYS["ticker"]) for _, m in in_range} & with_side
+            ruled_listed = {t for t, _, _, mid, notes, _ in mine if t in listed and RULED_NOTE in (notes or "")}
             stored_on: dict[tuple, list] = {}
             for t, _, _, mid, _, side in mine:
                 if t in listed:
                     stored_on.setdefault((mid, side), []).append(t)
-            placed, why, lines = place_events([m for _, m in in_range], games, is_tie, holds, frozenset(listed),
-                                              stored_on)
+            placed, why, lines = place_events([m for _, m in in_range], games, is_tie, holds,
+                                              frozenset(ruled_listed), stored_on)
+            for t in listed - ruled_listed:   # a date claim only: a placed stored row is never placed, nor moved
+                placed.pop(t, None)
             # the claims rule read across the stored rows too, each by its stored (match_id, side): a market this run
             # would write (a new row, or a stored held row whose hold cleared) placed on a side a stored row of the
             # series holds under another ticker is refused, under the matcher's reason, and the stored row is not moved

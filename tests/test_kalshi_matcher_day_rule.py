@@ -278,6 +278,33 @@ def test_a_doubleheader_with_one_game_stored_twice_names_both():
                          "50542, 50598 share one kickoff minute: dedupe-matches has to merge them"]
 
 
+CLEKC_G2 = event("25JUL26CLEKCG2", [("CLE", "Cleveland"), ("KC", "Kansas City")], series="KXMLBGAME")
+
+
+def test_a_doubleheader_on_a_date_only_ticker_with_a_game_number_suggests_no_merge():
+    """ARCHITECT 2026-10-19, addendum 136 item 3: "the suffix "dedupe-matches has to merge them" printed on true
+    doubleheaders — e.g. `KXMLBGAME-25JUL26CLEKCG2: 2 stored rows of one pair on 2025-07-26 (ids 8242, 8243)` where
+    the kickoffs are 14:40 and 19:15 ET. The suffix belongs ONLY where rows share a kickoff minute [...] A doubleheader
+    reads "two games of the pair that day; the G1/G2 suffix is not read (#478)" and no merge is suggested." The
+    refusal and its reason do not change; rows at one minute keep the dedupe words, named beside it."""
+    g1 = game(8242, "Cleveland Guardians", "Kansas City Royals", Z("2025-07-26T18:40"))   # 14:40 ET
+    g2 = game(8243, "Cleveland Guardians", "Kansas City Royals", Z("2025-07-26T23:15"))   # 19:15 ET
+    res = run(CLEKC_G2, [g1, g2], now=Z("2025-07-26T12:00"))
+    assert not res.placed and res.refused == {km.TWO_ROWS: 2}
+    assert res.lines == ["  ✗ KXMLBGAME-25JUL26CLEKCG2: 2 stored rows of one pair on 2025-07-26 (ids 8242, 8243): "
+                         "refused; two games of the pair that day; the G1/G2 suffix is not read (#478)"]
+    twin = game(8244, "Cleveland Guardians", "Kansas City Royals", Z("2025-07-26T23:15"))  # 8243 stored twice
+    res = run(CLEKC_G2, [g1, g2, twin], now=Z("2025-07-26T12:00"))
+    assert res.lines == ["  ✗ KXMLBGAME-25JUL26CLEKCG2: 3 stored rows of one pair on 2025-07-26 (ids 8242, 8243, "
+                         "8244): refused; two games of the pair that day; the G1/G2 suffix is not read (#478); rows "
+                         "8243, 8244 share one kickoff minute: dedupe-matches has to merge them"]
+    res = run(CLEKC_G2, [g2, twin], now=Z("2025-07-26T12:00"))
+    assert res.lines[0].endswith("refused; rows 8243, 8244 share one kickoff minute: dedupe-matches has to merge them")
+    # a date-only ticker with no game number keeps the dedupe words, as built (the college placeholder case above)
+    plain = event("25JUL26CLEKC", [("CLE", "Cleveland"), ("KC", "Kansas City")], series="KXMLBGAME")
+    assert run(plain, [g1, g2], now=Z("2025-07-26T12:00")).lines[0].endswith("refused; dedupe-matches has to merge them")
+
+
 def test_main_s_gate_matched_none_of_the_nlcs_markets():
     """The receipt the ruling asks for: main's time gate (2h of the clock or 5h of occurrence) admits no game."""
     from datetime import timedelta

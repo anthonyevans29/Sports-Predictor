@@ -334,20 +334,34 @@ def behind_out_of_step(by_event: dict, games: list, *, now: datetime, is_tie, im
     return lines
 
 
-def _clock_rows_what(own) -> str:
+def _clock_rows_what(own, doubleheader="two games of the pair that day; the clock does not separate them") -> str:
     """The two-rows line's words on a clock ticker with no game number. ARCHITECT 2026-10-17, addendum 104 item 2: for
     a real doubleheader (two rows hours apart) it says "two games of the pair that day; the clock does not separate
     them", not dedupe. Rows at one kickoff minute are one game stored twice (addendum 105, #569), so they keep the
-    dedupe words; where both hold, the line names each."""
+    dedupe words; where both hold, the line names each. `doubleheader`: the words for rows at different minutes
+    (_date_rows_what's, on a date-only ticker with a game number)."""
     by_minute: dict = {}
     for g, _ in own:
         by_minute.setdefault(g.utc_date.replace(second=0, microsecond=0), []).append(g.id)
     twins = [ids for ids in by_minute.values() if len(ids) > 1]
     if not twins:
-        return "two games of the pair that day; the clock does not separate them"
+        return doubleheader
     dup = "; ".join(f"rows {', '.join(str(i) for i in ids)} share one kickoff minute: dedupe-matches has to merge them"
                     for ids in twins)
-    return dup if len(by_minute) == 1 else f"two games of the pair that day; the clock does not separate them; {dup}"
+    return dup if len(by_minute) == 1 else f"{doubleheader}; {dup}"
+
+
+def _date_rows_what(own, ev: str | None, ticker: str | None) -> str:
+    """The two-rows line's words on a date-only ticker. ARCHITECT 2026-10-19, addendum 136 item 3: the suffix
+    "dedupe-matches has to merge them" was printed on true doubleheaders (`KXMLBGAME-25JUL26CLEKCG2: 2 stored rows of
+    one pair on 2025-07-26 (ids 8242, 8243)`, kickoffs 14:40 and 19:15 ET); "The suffix belongs ONLY where rows share
+    a kickoff minute [...] A doubleheader reads "two games of the pair that day; the G1/G2 suffix is not read (#478)"
+    and no merge is suggested." Read for a ticker that carries the game number (G1, G2: a doubleheader by the
+    ticker's own word); a date-only ticker with none keeps the dedupe words, as built (a placeholder row beside the
+    real one at another minute is one game stored twice, e.g. a college placeholder: no college doubleheader exists)."""
+    if not (re.search(r"G\d$", ev or "") or re.search(r"G\d-", ticker or "")):
+        return "dedupe-matches has to merge them"
+    return _clock_rows_what(own, "two games of the pair that day; the G1/G2 suffix is not read (#478)")
 
 
 def place(markets: list[dict], games: list, *, now: datetime, lo: datetime, hi: datetime,
@@ -411,7 +425,7 @@ def place(markets: list[dict], games: list, *, now: datetime, lo: datetime, hi: 
         if clock is None:
             own = [x for x in pair_games if et_day(x[0].utc_date) == day]
             if len(own) > 1:
-                two_rows(own)
+                two_rows(own, _date_rows_what(own, ev, live[0].get("ticker")))
                 continue
             chosen = own or pair_games
             if len(chosen) != 1:

@@ -930,8 +930,10 @@ def document(cov: dict, roadmap_path=None) -> dict:
     """The coverage_v1 document: {"kind": "coverage_v1", **coverage() with every datetime ISO-8601 Z}, plus what the
     printed lines say in the line's own words, so a reader shows it without computing it (the Cockpit's Today tab,
     F1c: viewer, not engine): `now_et`; per competition `line` (its printed line), `games_text`, `rows_text`,
-    `without_rows_text` (null where the line leaves it out), `closing_text` (its clauses) and `closing_tail` (the
-    clause's words outside any group's text: "none left to run", or null where the clause has none); per prediction
+    `without_rows_text` (null where the line leaves it out), `closing_text` (its clauses), `closing_tail` (the
+    clause's words outside any group's text: "none left to run", or null where the clause has none) and `slate_line`
+    (its SLATE line as printed, `<CODE> SLATE · …`, or null where it has none: not LIVE; #606 item 2, the Today tile
+    shows it first); per prediction
     model `computed_et` (its computed_at in ET, as the line prints it; null when none could be read); per closing group
     `run_lead` ("T-35"), `run_at_et` (the run time in ET, with its date when not the day's) and `text` (the group as
     the line prints it). Then `roadmap`: lanes_data() on the coverage day (roadmap.load() and the print's own lines;
@@ -943,7 +945,7 @@ def document(cov: dict, roadmap_path=None) -> dict:
     for xd, x in zip(doc["competitions"], cov["competitions"]):
         rows, without = _rows_clauses(x)
         xd.update(line=comp_line(x, day), games_text=_games_text(x), rows_text=rows, without_rows_text=without,
-                  closing_text=_closing_clause(x, day), closing_tail=_closing_tail(x))
+                  closing_text=_closing_clause(x, day), closing_tail=_closing_tail(x), slate_line=slate_line(x))
         for md, m in zip(xd["rows"], x["rows"]):
             md["computed_et"] = _computed_text(m) or None
         for gd, g in zip(xd["groups"], x["groups"]):
@@ -959,17 +961,26 @@ def _out_refusal(p: Path) -> str | None:
     """Law 5: nothing is ever created under data/ (the checkout's, or the working directory's). And a file at the top
     of exports/ (the checkout's, or the working directory's), which the exports mirror pushes, must be named as kind
     `coverage` (exports_mirror.kind_of): the compare lists that kind as machine state and never compares it (#592,
-    addendum 128 item 3), so a coverage_v1 document under another kind's name would be compared and read DIVERGENT."""
+    addendum 128 item 3), so a coverage_v1 document under another kind's name would be compared and read DIVERGENT.
+    #597 (the #595 follow-up): a path that names no file (`.`, `/`) is refused, never a traceback (item 1); and each
+    rule is checked on the lexical path as well as the resolved one (item 2): the write replaces a symlink already at
+    the name with a regular file there, so a link that resolves outside data/ or exports/ never gets the file past
+    either rule."""
+    import os
     import exports_mirror as em
-    t = p.resolve()
-    for data in {(c.REPO / "data").resolve(), (Path.cwd() / "data").resolve()}:
-        if t == data or data in t.parents:
-            return f"--out {p} is under {data} (law 5: nothing is created under data/)"
-    for ex in {(c.REPO / "exports").resolve(), (Path.cwd() / "exports").resolve()}:
-        if t.parent == ex and t.name.endswith(em.SUFFIXES) and em.kind_of(t.name) != "coverage":
-            return (f"--out {p} is a top-level exports/ file the mirror pushes as kind {em.kind_of(t.name)!r}, not "
-                    f"'coverage' (#592: only kind coverage is machine state, never compared): name it "
-                    f"coverage_<date>.json, or write it outside exports/")
+    if p.name in ("", ".", ".."):
+        return f"--out {p} names no file"
+    targets = {Path(os.path.abspath(p)), p.resolve()}      # where the file lands, and where a link there points
+    bases = (c.REPO, Path.cwd())
+    for t in targets:
+        for data in {d for b in bases for d in (Path(os.path.abspath(b / "data")), (b / "data").resolve())}:
+            if t == data or data in t.parents:
+                return f"--out {p} is under {data} (law 5: nothing is created under data/)"
+        for ex in {e for b in bases for e in (Path(os.path.abspath(b / "exports")), (b / "exports").resolve())}:
+            if t.parent == ex and t.name.endswith(em.SUFFIXES) and em.kind_of(t.name) != "coverage":
+                return (f"--out {p} is a top-level exports/ file the mirror pushes as kind {em.kind_of(t.name)!r}, "
+                        f"not 'coverage' (#592: only kind coverage is machine state, never compared): name it "
+                        f"coverage_<date>.json, or write it outside exports/")
     return None
 
 

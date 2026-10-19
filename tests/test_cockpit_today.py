@@ -212,3 +212,25 @@ def test_array_list_entries_are_labelled_not_read_and_an_array_competition_is_na
     err = _node(_today_js() + """let m=null; try{ todayTileHTML([],0); }catch(e){ m=e.message; }
       console.log(JSON.stringify(m));""")
     assert err == "competitions[0] is [], not a competition entry"
+
+
+def test_the_slate_line_comes_first_on_the_tile_in_the_files_words():
+    """#606 item 2 (addendum 134 item 1: "the Today tile renders `slate` first: the Today-tab follow-up PR, approved as
+    Code proposes"; addendum 126 item 2(b): "the Today tab shows it first"). The tile shows the file's own SLATE line
+    (`slate_line`, coverage_map.document) before every other section, NO SLATE FILE marked as the gap it is; a
+    competition with none (not LIVE), or a file written before the key, shows no slate line: nothing is derived (F1c)."""
+    base = COV["competitions"][0]
+    ok = dict(base, slate_line="PL SLATE · exports/soccer_PL_2026-10-17_to_2026-10-20.json · exported 2026-10-18 "
+                               "06:31 ET · PLAY 0 · PASS 1 · +1 beyond the day",
+              slate={"file": "exports/soccer_PL_2026-10-17_to_2026-10-20.json"})
+    t = _tile(ok)
+    body = t.split("<details")[0]
+    assert '<div class="sec slate" data-slate="file">PL SLATE · exports/soccer_PL_2026-10-17_to_2026-10-20.json' in t
+    assert body.index("PL SLATE") < body.index("void, not counted") < body.index('class="slabel"')
+    gap = dict(base, slate_line="PL SLATE · NO SLATE FILE — slate run due 06:30 ET (newest exports/x.json exported "
+                                "2026-10-17 05:00 ET, not today's)", slate={"file": None})
+    assert '<div class="sec slate caution" data-slate="none">PL SLATE · NO SLATE FILE — slate run due 06:30 ET' in _tile(gap)
+    assert 'class="sec slate' not in _tile(dict(base, slate_line=None, slate=None))
+    assert 'class="sec slate' not in _tile(base)                     # a file written before the key: none shown
+    esc_t = _tile(dict(base, slate_line="PL SLATE · <script>y()</script>", slate={"file": "f"}))
+    assert "<script>y()" not in esc_t and "&lt;script&gt;y()&lt;/script&gt;" in esc_t

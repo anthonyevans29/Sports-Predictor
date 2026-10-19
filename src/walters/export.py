@@ -1453,8 +1453,11 @@ def results_tally(days: int = 30, out_path: str = "RESULTS.md", report=None, exp
                     [m.id for _, m in rows]))).scalars():
                 odds_by.setdefault(o.match_id, []).append(o)
             from src.db.schema import OddsSnapshot as _Snp
+            from src.walters.close import kalshi_close_market_filter
             snaps_by: dict = {}
-            for x in s.execute(select(_Snp).where(_Snp.market == "1X2", _Snp.source != "kalshi",
+            # #615 (comment 6270315541): every 1X2 snapshot plus Kalshi's two-way ML rows, as clv_restate.restate()
+            # loads them, so a close priced from a Kalshi mid (kalshi_only, or the stale-book rule's kalshi) is read
+            for x in s.execute(select(_Snp).where(kalshi_close_market_filter(_Snp),
                                                   _Snp.match_id.in_([m.id for _, m in rows]))).scalars():
                 snaps_by.setdefault(x.match_id, []).append(x)
             coh = {"verified": [], "legacy": []}

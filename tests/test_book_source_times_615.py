@@ -116,7 +116,9 @@ def test_one_unknown_row_the_close_priced_makes_the_snapshot_unknown(iso):
         _mlb_store_odds(s, m, _mlb_rows(ko, b2_away=None))
         mid = m.id
     odds, snaps = _stored(mid)
-    assert [t for bk, sel, t in odds if (bk, sel) == ("bk2", "AWAY")] == [None]
+    h = lambda n: ko - timedelta(hours=n)
+    assert odds == [("bk1", "AWAY", h(30)), ("bk1", "HOME", h(30)), ("bk2", "AWAY", None), ("bk2", "HOME", h(40)),
+                    ("bk3", "HOME", h(50))]                     # each row its own: bk2 HOME keeps 40 h beside its None
     assert {t for _, t in snaps} == {None}                      # unknown is never read as fresh (addendum 32 item 3)
 
 
@@ -147,6 +149,25 @@ def test_a_row_type_without_the_field_stores_unknown(iso):
         mid = m.id
     odds, snaps = _stored(mid)
     assert {t for *_, t in odds} == {None} and {t for _, t in snaps} == {None}
+
+
+@pytest.mark.parametrize("shape", ["one-sided", "totals-only"])
+def test_a_board_with_no_snapshot_still_stamps_each_row(iso, shape):
+    """No complete book (one side quoted, or no 1X2 at all): no snapshot is appended, each odds row keeps its own."""
+    from src.db.database import session_scope
+    from src.ingestion.service import _mlb_store_odds
+    ko = _now() + timedelta(days=2)
+    h = lambda n: ko - timedelta(hours=n)
+    tot = [NS(market="TOTALS", selection=sel, bookmaker="bk1", price_decimal=1.9, line=8.5, source_updated_at=h(n))
+           for sel, n in (("OVER", 11), ("UNDER", 12))]
+    one = [NS(market="1X2", selection="HOME", bookmaker="bk1", price_decimal=1.8, line=None, source_updated_at=h(10))]
+    rows = (one + tot) if shape == "one-sided" else tot
+    with session_scope() as s:
+        m = _match(s, f"mlb-{shape}", ko)
+        assert _mlb_store_odds(s, m, rows) == (len(rows), False)
+        mid = m.id
+    odds, snaps = _stored(mid)
+    assert sorted(t for *_, t in odds) == sorted(r.source_updated_at for r in rows) and snaps == []
 
 
 def test_the_odds_close_and_the_snapshot_close_read_one_stamp(iso):
@@ -233,6 +254,24 @@ def test_the_pl_sync_stores_the_stamps_and_a_stale_three_way_close_keeps_its_boo
     assert g["close_stale_unswitched"] == cl["stale_unswitched"]
 
 
+@pytest.mark.parametrize("shape", ["one-sided", "totals-only"])
+def test_a_pl_board_with_no_snapshot_still_stamps_each_row(iso, shape):
+    from src.db.database import session_scope
+    from src.ingestion.service import IngestionService
+    ko, at = _now() + timedelta(days=2), _now()
+    h = lambda n: ko - timedelta(hours=n)
+    no = lambda sel, market, n: NormalizedOdds(match_source_id="g1", source="fakeodds", bookmaker="bk1",
+                                               market=market, selection=sel, price_decimal=2.0, captured_at=at,
+                                               source_updated_at=h(n))
+    ou = [no("OVER", "OU_2.5", 11), no("UNDER", "OU_2.5", 12)]
+    rows = ([no("HOME", "1X2", 10)] + ou[:1]) if shape == "one-sided" else ou
+    with session_scope() as s:
+        mid = _match(s, f"pl-{shape}", ko, sport=Sport.SOCCER, code="PL", ext={"fakeodds": "g1"}).id
+    assert IngestionService(_FakeSoccerOdds(rows)).sync_odds("PL").created == 1
+    odds, snaps = _stored(mid)
+    assert sorted(t for *_, t in odds) == sorted(r.source_updated_at for r in rows) and snaps == []
+
+
 @pytest.mark.parametrize("iso", ["absent"], indirect=True)
 def test_without_the_columns_the_pl_sync_writes_its_rows_and_snapshots_and_nothing_else(iso):
     from src.db.database import session_scope
@@ -264,12 +303,21 @@ def test_a_fresh_pl_stamp_keeps_the_book_close_with_no_label(iso):
 
 # ------------------------------------------------- results-tally: a Kalshi-mid close is VERIFIED (comment 6270315541) ----
 
+def _graded(s, m, p, close_fair):
+    from src.db.schema import Prediction, PredictionOutcome, Result
+    pr = Prediction(match_id=m.id, model_version="st-probe", home_win_prob=p, draw_prob=None, away_win_prob=1 - p)
+    s.add(pr)
+    s.flush()
+    s.add(PredictionOutcome(prediction_id=pr.id, actual_result=Result.HOME, actual_home_score=5, actual_away_score=2,
+                            top_pick_hit=True, log_loss=0.4, clv=p - close_fair))
+
+
 def _graded_mlb(s, key, ko, p, *, book_stamp_h=None):
     """A finished, predicted MLB game whose stored divergence is p minus the Kalshi mid 0.605 (bid 0.60, ask 0.61, five
     seconds after the book session): with two books stamped `book_stamp_h` hours before first pitch (the stale-book
     close), or with no book capture at all (book_stamp_h None: the 2026-10-05 kalshi_only close)."""
     from src.db.database import write_source_times
-    from src.db.schema import Odds, OddsSnapshot, Prediction, PredictionOutcome, Result
+    from src.db.schema import Odds, OddsSnapshot
     m = _match(s, key, ko, status="FINISHED")
     book_at = ko - timedelta(minutes=35)
     if book_stamp_h is not None:
@@ -283,11 +331,18 @@ def _graded_mlb(s, key, ko, p, *, book_stamp_h=None):
     for sel, bid, ask in (("HOME", 0.60, 0.61), ("AWAY", 0.39, 0.40)):
         s.add(OddsSnapshot(match_id=m.id, market="ML", selection=sel, devig_prob=0.5, n_books=1, captured_at=at,
                            source="kalshi", yes_bid=bid, yes_ask=ask))
-    pr = Prediction(match_id=m.id, model_version="st-probe", home_win_prob=p, draw_prob=None, away_win_prob=1 - p)
-    s.add(pr)
-    s.flush()
-    s.add(PredictionOutcome(prediction_id=pr.id, actual_result=Result.HOME, actual_home_score=5, actual_away_score=2,
-                            top_pick_hit=True, log_loss=0.4, clv=p - 0.605))
+    _graded(s, m, p, 0.605)
+
+
+def _graded_mlb_snapshot(s, key, ko, p):
+    """A finished MLB game with no odds rows and no Kalshi rows: one complete pre-first-pitch book snapshot session
+    (0.58 / 0.42), the close the tally still reads from the book snapshots."""
+    from src.db.schema import OddsSnapshot
+    m = _match(s, key, ko, status="FINISHED")
+    for sel, dp in (("HOME", 0.58), ("AWAY", 0.42)):
+        s.add(OddsSnapshot(match_id=m.id, market="1X2", selection=sel, devig_prob=dp, n_books=2,
+                           captured_at=ko - timedelta(minutes=30), source="api_baseball"))
+    _graded(s, m, p, 0.58)
 
 
 def test_results_tally_reads_the_kalshi_rows_so_a_kalshi_mid_close_is_verified(iso):
@@ -297,9 +352,12 @@ def test_results_tally_reads_the_kalshi_rows_so_a_kalshi_mid_close_is_verified(i
     with session_scope() as s:
         _graded_mlb(s, "rt-stale", ko, 0.70, book_stamp_h=32.0)           # the stale-book rule's kalshi close
         _graded_mlb(s, "rt-konly", ko + timedelta(hours=1), 0.65)        # the kalshi_only close
+        _graded_mlb_snapshot(s, "rt-snap", ko + timedelta(hours=2), 0.66)  # a book snapshot close, read as before
     out = iso / "RESULTS.md"
     results_tally(days=30, out_path=str(out))
-    mlb = out.read_text().split("## MLB", 1)[1].split("\n## ", 1)[0]
-    want = ((0.70 - 0.605) + (0.65 - 0.605)) / 2 * 100
-    assert f"- Mean model-close divergence, verified close: {want:+.2f}pp (n=2)" in mlb
+    txt = out.read_text()
+    mlb = txt.split("## MLB", 1)[1].split("\n## ", 1)[0]
+    want = ((0.70 - 0.605) + (0.65 - 0.605) + (0.66 - 0.58)) / 3 * 100
+    assert f"- Mean model-close divergence, verified close: {want:+.2f}pp (n=3)" in mlb
     assert "Retained-legacy" not in mlb
+    assert "it reproduces and counts as VERIFIED (#615)" in txt and "close_reference kalshi_only" in txt

@@ -11,13 +11,18 @@ for a game's odds: one per game, neither our fetch time nor the fixture's. It is
 read as the newest that any quote in the answer can be; a quote may be older. It
 is stored and shown as source_updated_at and described in those words, never as
 the time of a quote. A row without it has an unknown source time, and unknown is
-never read as fresh." Only sync-odds-football (american football: NFL + NCAA)
-fills it; every other source stays NULL. No backfill: the old rows' source
-times were never kept. Additive and idempotent; never deletes or rewrites.
+never read as fresh." The book odds syncs write it (sync-odds-football; since
+#615, addendum 137 item 4, also sync-odds: MLB's _mlb_store_odds and the
+per-match sync_odds), and a row gets a value only where its adapter carries the
+provider's update time: today american football's response[].update
+(sync-odds-football, or sync-odds --competition NFL|NCAA). Every other source
+stays NULL until its adapter reads its provider's field from a kept answer
+(#615, Law 1). No backfill: the old rows' source times were never kept.
+Additive and idempotent; never deletes or rewrites.
 
 RUN ORDER (ARCHITECT 2026-10-09, addendum 35 item 2): any order. The two columns
-are NOT mapped in the ORM (the ORDER LINE note in schema.py): sync-odds-football
-writes them by guarded Core SQL only when they exist, and every reader shows null
+are NOT mapped in the ORM (the ORDER LINE note in schema.py): the odds syncs
+write them by guarded Core SQL only when they exist, and every reader shows null
 until then, so a pull or a deploy before this script keeps working. Run by hand,
 after the daily .backup (law 5).
 
@@ -74,8 +79,9 @@ def main() -> int:
             for src, n, nw, last in rows:
                 nw = int(nw or 0)
                 print(f"  {table:<15} {src:<24} {n:>8} {nw:>8} {n - nw:>8}  {last or '—'}")
-    print("with = 0 = no sync-odds-football since migrating (pre-migration rows stay NULL; no backfill: "
-          "their source times were never kept). Only api_american_football rows are ever filled.")
+    print("with = 0 = no american-football odds sync since migrating (pre-migration rows stay NULL; no backfill: "
+          "their source times were never kept). A row is filled only where its adapter carries the provider's "
+          "update time: today api_american_football's.")
     return 0
 
 

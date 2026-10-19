@@ -2620,6 +2620,9 @@ function todayTileHTML(x,i){
   let h=`<div class="tile" data-code="${esc(x.code)}" data-status="${esc(x.status)}">`
     +`<div class="thead"><span class="tcode">${esc(x.code)}</span>`
     +`<span class="tgames" data-games="${n}">${n} game${n===1?"":"s"}</span></div>`
+    // the SLATE line first on the tile (addendum 126 item 2(b): "the Today tab shows it first"; #606 item 2), the
+    // file's own words (slate_line); NO SLATE FILE is the gap, shown as one. A file without the key shows none (F1c)
+    +(x.slate_line?`<div class="sec slate${String(x.slate_line).includes("NO SLATE FILE")?" caution":""}" data-slate="${esc(x.slate&&x.slate.file?"file":"none")}">${esc(x.slate_line)}</div>`:"")
     +(voids.length?`<div class="note">void, not counted: ${esc(voids.map(v=>Array.isArray(v)?v.join(" "):String(v??"")).join(", "))}</div>`:"")
     +`<div class="slabel">${esc(x.status_label)}</div><div class="note">${esc(x.status_from)}</div>`
     +`<div class="sec"><span class="lab">writer chains</span>${writers.length?esc(writers.join(", ")):"none"}</div>`

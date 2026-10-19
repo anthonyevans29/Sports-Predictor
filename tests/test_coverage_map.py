@@ -1376,7 +1376,7 @@ def test_json_writes_the_kind_the_coverage_dict_and_iso_z_datetimes(pin, tmp_pat
     assert doc["gaps"] == cov["gaps"] == PIN_GAPS
     assert [x["code"] for x in doc["competitions"]] == [x["code"] for x in cov["competitions"]]
     # the dict coverage() returns, every key and value, with each datetime as ISO-8601 Z (the additions beside it)
-    added = {"line", "games_text", "rows_text", "without_rows_text", "closing_text", "closing_tail"}
+    added = {"line", "games_text", "rows_text", "without_rows_text", "closing_text", "closing_tail", "slate_line"}
     for xd, x in zip(doc["competitions"], cov["competitions"]):
         assert set(xd) - added == set(x), x["code"]
         bare = json.loads(json.dumps({k: xd[k] for k in x}))
@@ -1534,6 +1534,59 @@ def test_json_an_out_at_the_top_of_exports_must_be_named_as_kind_coverage(env, m
     for ok in ("exports/coverage_2026-10-17.json", "exports/coverage.json", "exports/sub/today.json", "today.json"):
         assert cm._out_refusal(Path(ok)) is None, ok
     assert run("--date", DAY, "--json", "--out", "exports/coverage.json")[0] == 0
+
+
+def test_json_an_out_that_names_no_file_is_refused_not_a_traceback(env, monkeypatch, tmp_path):
+    """#597 item 1 (Codex on #595): `--out .` and `--out /` name no file; `out.with_name(...)` raised ValueError before
+    the write's try, so the command ended in a traceback. Now COVERAGE REFUSED, exit 2, nothing written."""
+    work = tmp_path / "work"
+    work.mkdir()
+    monkeypatch.chdir(work)
+    make_db(env, [(401, "PL", "2026-10-17 14:00", "SCHEDULED")])
+    for bad in (".", "/", ".."):
+        assert run("--date", DAY, "--json", "--out", bad) == (2, [f"COVERAGE REFUSED: --out {bad} names no file"]), bad
+    assert list(work.iterdir()) == []
+
+
+def test_json_a_symlink_at_the_name_is_judged_where_the_file_lands(env, monkeypatch, tmp_path):
+    """#597 item 2 (Codex on #595): the rules were checked on the resolved path only, so a symlink already at the name
+    that points outside got past them, and the write then replaced the link itself with a regular file there: a
+    coverage_v1 file at exports/today.json (kind 'today', compared and read DIVERGENT, #592), or a file created at a
+    path under data/ (law 5). Both paths are checked now, the lexical and the resolved; the link is left as it was."""
+    work = tmp_path / "work"
+    (work / "exports").mkdir(parents=True)
+    (work / "data").mkdir()                                       # a throwaway scratch folder of the test, not the DB's
+    monkeypatch.chdir(work)
+    make_db(env, [(401, "PL", "2026-10-17 14:00", "SCHEDULED")])
+    outside = tmp_path / "outside.json"
+    (work / "exports" / "today.json").symlink_to(outside)
+    (work / "data" / "c.json").symlink_to(outside)
+    rc, out = run("--date", DAY, "--json", "--out", "exports/today.json")
+    assert rc == 2 and out[0].startswith("COVERAGE REFUSED: --out exports/today.json is a top-level exports/ file "
+                                         "the mirror pushes as kind 'today', not 'coverage'")
+    rc, out = run("--date", DAY, "--json", "--out", "data/c.json")
+    assert rc == 2 and out[0].startswith("COVERAGE REFUSED: --out data/c.json is under ")
+    assert (work / "exports" / "today.json").is_symlink() and (work / "data" / "c.json").is_symlink()
+    assert not outside.exists()
+    # a link elsewhere that points INTO data/ is refused too (the resolved path), as before
+    (tmp_path / "elsewhere").mkdir()
+    (tmp_path / "elsewhere" / "c.json").symlink_to(work / "data" / "d.json")
+    assert cm._out_refusal(tmp_path / "elsewhere" / "c.json") is not None
+
+
+def test_the_json_carries_each_competitions_slate_line_in_the_lines_own_words(env, monkeypatch, tmp_path):
+    """#606 item 2: the Today tile shows the SLATE line first, so the file carries it (`slate_line`), word for word as
+    the console prints it under the competition's line; null where the competition has none (not LIVE)."""
+    make_db(env, NFL_DAY + [(50, "SA", "2026-10-18 13:00", "SCHEDULED")], NFL_ROWS)
+    monkeypatch.setattr(cl, "clock", lambda: utc("2026-10-18 10:00"))
+    out = tmp_path / "cov.json"
+    rc, lines = run("--date", "2026-10-18", "--json", "--out", str(out))
+    assert rc == 0
+    doc = json.loads(out.read_text())
+    by = {x["code"]: x for x in doc["competitions"]}
+    assert by["NFL"]["slate_line"] == "NFL SLATE · NO SLATE FILE — slate run due 07:00 ET"
+    assert lines[lines.index(by["NFL"]["line"]) + 1] == by["NFL"]["slate_line"]
+    assert by["SA"]["slate_line"] is None
 
 
 def test_json_a_file_that_cannot_be_written_exits_2_and_leaves_no_partial(env, monkeypatch, tmp_path):

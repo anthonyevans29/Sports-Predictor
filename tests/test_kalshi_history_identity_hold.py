@@ -610,6 +610,80 @@ def test_a_date_only_stored_row_listed_again_still_refuses_its_side(db):
     assert run.refused == {km.TWO_CLAIMS: 2} and run.already == 2
 
 
+# ---- a refused stored row keeps its date claim (addendum 134 item 3: 132 item 3(b) is option (ii)) ------------------
+# "only a stored row that HAS a placement enters the claims rule by its stored (match_id, side); a refused stored row
+# keeps its date claim in the across-events rule, as on main. R1, R2 and R6 come in as regression tests." Read as
+# worded (option (i)), a refused stored row claimed nothing, and each of these runs turned a refusal into a placement.
+
+SETTLED17B = event(E17B, "no", "2026-10-18T03:30:00Z", "2026-10-18T03:35:00Z")
+
+
+def _refused_two_claims(r):
+    return (r["match_id"], r["side"]) == (None, None) and r["notes"].startswith(f"refused by the matcher: "
+                                                                                f"{km.TWO_CLAIMS}")
+
+
+def test_r1_a_cleared_held_row_beside_a_refused_stored_claimant_stays_refused(alcs):
+    """R1, no failure needed. Run 1 holds 26OCT172000TBCLE (26OCT161800TBCLE listed open). Run 2: the hold clears, and
+    it and the new 26OCT172010TBCLE both claim 50550 by date: both refused, the held row left as stored. Run 3, the same
+    lists and nothing changed: the stored, refused 26OCT172010TBCLE still claims 50550 by its date, so the held row is
+    refused again and nothing is written (as worded, run 3 placed the held row on 50550 alone)."""
+    redate(G5, datetime(2026, 10, 17, 0, 0))                      # 26OCT161800TBCLE in step on 10-16
+    go(Fake(settled=SETTLED15 + SETTLED17, opened=OPEN16))
+    assert all(kh.is_held(r["match_id"], r["notes"]) for t, r in rows().items() if t.startswith(f"{E17}-"))
+    lists = SETTLED15 + SETTLED16 + SETTLED17 + SETTLED17B
+    run2, _ = go(Fake(settled=lists), now=datetime(2026, 10, 20, 12, 0))
+    after2 = rows()
+    for sfx in ("TB", "CLE"):
+        assert kh.is_held(after2[f"{E17}-{sfx}"]["match_id"], after2[f"{E17}-{sfx}"]["notes"])
+        assert _refused_two_claims(after2[f"{E17B}-{sfx}"])
+    assert sorted(run2.held_refused) == [(f"{E17}-CLE", km.TWO_CLAIMS), (f"{E17}-TB", km.TWO_CLAIMS)]
+    fake3 = Fake(settled=lists)
+    run3, _ = go(fake3, now=datetime(2026, 10, 21, 12, 0))
+    assert rows() == after2 and run3.replaced == [] and not fake3.candle_calls()
+    assert sorted(run3.held_refused) == [(f"{E17}-CLE", km.TWO_CLAIMS), (f"{E17}-TB", km.TWO_CLAIMS)]
+    assert {k: v for k, v in _claims().items() if len(v) > 1} == {}
+
+
+def test_r2_a_leg_left_by_a_failed_candle_call_is_refused_on_the_next_run(alcs):
+    """R2. Run 1: 26OCT172000TBCLE and 26OCT172010TBCLE both claim 50550: all four legs refused, and the TB leg of the
+    second event is not stored (its candle call answers 503; the next run asks again). Run 2, no failure: that leg is
+    refused beside its stored claimant, as run 1 refused it (as worded, it was placed on 50550 AWAY alone, half an
+    event)."""
+    lists = SETTLED17 + SETTLED17B
+    go(Fake(settled=lists, fail={f"{E17B}-TB": 503}))
+    after1 = rows()
+    assert f"{E17B}-TB" not in after1
+    assert all(_refused_two_claims(after1[t]) for t in (f"{E17}-TB", f"{E17}-CLE", f"{E17B}-CLE"))
+    run2, _ = go(Fake(settled=lists), now=datetime(2026, 10, 20, 12, 0))
+    got = rows()
+    assert _refused_two_claims(got[f"{E17B}-TB"])
+    assert {t: r for t, r in got.items() if t != f"{E17B}-TB"} == after1
+    assert run2.refused == {km.TWO_CLAIMS: 1} and len(run2.rows) == 1
+    assert _claims() == {}                                        # no leg of either event placed
+
+
+def test_r6_a_day_off_twin_listed_beside_its_refused_own_date_event_is_refused(db):
+    """R6, NCAA, no cap and no failure. Run 1 (--since 2026-10-17) lists the own-date event 26OCT17FLATEX before the
+    Saturday game is synced: stored refused, no game. The game is synced; run 2 (no window) lists the day-off twin
+    26OCT16FLATEX new beside it. The stored own-date event, refused, still claims the Saturday game by its date, so the
+    twin is refused, as main refuses it (as worded, the twin was placed on the Saturday game: the misplacement addendum
+    130 item 3(b) names)."""
+    seed({}, code="NCAA", sport="NFL")                                      # the competition, no game yet
+    ncaa_go(Fake(settled=ncaa(N16) + ncaa(N17)), since=date(2026, 10, 17))
+    after1 = rows()
+    assert sorted(after1) == [f"{N17}-FLA", f"{N17}-TEX"]
+    assert all(r["match_id"] is None and r["notes"].startswith("refused by the matcher: ") for r in after1.values())
+    seed({NG: ("Florida Gators", "Texas Longhorns", NK, "finished")}, code="NCAA", sport="NFL")
+    run2, _ = ncaa_go(Fake(settled=ncaa(N16) + ncaa(N17)))
+    got = rows()
+    for sfx in ("FLA", "TEX"):
+        assert _refused_two_claims(got[f"{N16}-{sfx}"])
+        assert got[f"{N17}-{sfx}"] == after1[f"{N17}-{sfx}"]
+    assert run2.refused == {km.TWO_CLAIMS: 2} and run2.already == 2
+    assert _claims() == {}                                        # neither twin placed
+
+
 def test_a_row_refused_for_another_reason_is_not_read_again(alcs):
     """Only a held row is the exception: 26OCT161800TBCLE, refused "no game of the pair on the ticker's date", stays
     so although 50548 is now dated 10-16 and the matcher would place it there."""

@@ -949,7 +949,8 @@ def _receipt(run: Run, calls: Calls, echo) -> None:
 
 # ---- THE RULED RE-PLACE (ARCHITECT 2026-10-18 10:10 ET, addendum 130 item 2(c)) ------------------------------------
 
-PLACE_HELD_CALLS = 3                     # one candle call and the two 429 retries of addendum 104 item 2
+PLACE_HELD_CALLS = 6                     # the cutoff and one candle call, each with the two 429 retries of addendum
+                                         # 104 item 2 (#599 item 2: the endpoint is read by the cutoff at placement)
 
 
 def place_held(ticker: str, match_id: int, ruling: str, *, dry_run: bool = False, adapter=None, echo=print,
@@ -1075,7 +1076,25 @@ def place_held(ticker: str, match_id: int, ruling: str, *, dry_run: bool = False
         cnote = f"at placement: {nok}"
         echo(f"  candles: {nok}; the placement stands with no quote")
     else:
-        path, params = candle_call(before["series"], before["source"], ticker, kickoff, before["close_time"])
+        # #599 item 2 (ARCHITECT 2026-10-19, addendum 136 item 3: "place-held's candle endpoint by the cutoff"): the
+        # stored source is the list the market came from at fetch time; the cutoff moves on, so a row stored `live`
+        # can be behind it by its placement. The cutoff is read now (one call, as the ingest's run starts with it) and
+        # the endpoint is the row's settled_time against it; the source written is the one used. A cutoff that cannot
+        # be read writes nothing (the quote lands with the placement or the placement does not land, 132 item 3(a)).
+        cut, cwhy = calls.get("historical/cutoff")
+        cutoff = parse_ts(cut.get(KEYS["cutoff"])) if cut else None
+        if cutoff is None:
+            why_cut = cwhy or f"no readable {KEYS['cutoff']}"
+            raise ValueError(f"REFUSED: the cutoff (historical/cutoff) could not be read ({why_cut}; 429 retries: "
+                             f"{calls.retries_429}): the candle endpoint cannot be told; nothing is written; run it "
+                             "again")
+        settled = before["settled_time"]
+        source = before["source"] if settled is None else ("historical" if settled < cutoff else "live")
+        after["source"] = source
+        echo(f"  cutoff {KEYS['cutoff']}: {cut.get(KEYS['cutoff'])} · settled "
+             + (f"{settled:%Y-%m-%d %H:%M:%S}Z" if settled else "null (the stored source stands)")
+             + f" · candles from {source}" + ("" if source == before["source"] else f" (stored {before['source']})"))
+        path, params = candle_call(before["series"], source, ticker, kickoff, before["close_time"])
         data, why = calls.get(path, params)
         candles = data.get(KEYS["candles"]) if data else None
         if not isinstance(candles, list):
@@ -1090,7 +1109,7 @@ def place_held(ticker: str, match_id: int, ruling: str, *, dry_run: bool = False
             echo(f"  ✗ candles: {path} failed ({why}): the placement stands with no quote "
                  f"(429 retries: {calls.retries_429})")
         else:
-            after.update(window_stats(candles, kickoff, before["source"]))
+            after.update(window_stats(candles, kickoff, source))
             cnote = (f"candles read at placement on match {match_id}'s kickoff"
                      + ("; no two-sided candle at or before kickoff" if after["last_ts"] is None else ""))
             echo(f"  candles: {path} from {kickoff - timedelta(hours=WINDOW_H):%Y-%m-%d %H:%M}Z to "

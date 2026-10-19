@@ -808,7 +808,7 @@ def test_place_held_places_26oct161800_on_50550_and_reads_its_candles_then(alcs)
     assert cle["last_ts"] is None and cle["notes"].endswith("; no two-sided candle at or before kickoff")
     assert fake.candle_calls() == {f"{E16}-TB": {"start_ts": _ts(datetime(2026, 10, 17, 18, 8)),
                                                  "end_ts": _ts(datetime(2026, 10, 18, 3, 18)), "period_interval": 1}}
-    assert [p for p, _ in fake.calls] == [f"series/{S}/markets/{E16}-TB/candlesticks"]
+    assert [p for p, _ in fake.calls] == ["historical/cutoff", f"series/{S}/markets/{E16}-TB/candlesticks"]
     assert tb["fetched_at"] == datetime(2026, 10, 18, 15, 0) and res["written"]
     assert {t: r for t, r in got.items() if not t.startswith(E16)} == {t: r for t, r in before.items()
                                                                        if not t.startswith(E16)}
@@ -868,10 +868,48 @@ def test_a_candle_call_that_fails_for_now_writes_nothing(alcs, waits, fail, why,
     with pytest.raises(ValueError) as e:
         place(f"{E16}-TB", G4, fake=fake)
     assert str(e.value) == refused_for_now(why, n - 1)
-    assert rows() == before and [p for p, _ in fake.calls] == [CANDLES16] * n and waits == [2, 5][:n - 1]
+    assert rows() == before and [p for p, _ in fake.calls] == ["historical/cutoff"] + [CANDLES16] * n
+    assert waits == [2, 5][:n - 1]
     with pytest.raises(ValueError) as dry:
         place(f"{E16}-TB", G4, fake=Fake(fail={f"{E16}-TB": fail}), dry_run=True)
     assert str(dry.value) == str(e.value) and rows() == before
+
+
+def test_place_held_asks_the_candles_where_the_cutoff_serves_them_now(alcs):
+    """#599 item 2 (Codex on #598; ARCHITECT addendum 136 item 3: "place-held's candle endpoint by the cutoff"): the
+    stored source is the list the market came from when it was fetched, and the cutoff moves on. place-held reads the
+    cutoff (one call) and asks the candles of the endpoint that serves the market now: settled before the cutoff,
+    historical/. The source written is the one used. A cutoff that cannot be read writes nothing."""
+    before = _monday(alcs)
+    assert before[f"{E16}-TB"]["source"] == "live"
+
+    class Moved(Fake):
+        def _get(self, path, params=None):
+            if path == "historical/cutoff":
+                self.calls.append((path, dict(params or {})))
+                return {"market_settled_ts": "2026-10-18T12:00:00Z"}         # after the 10-17 settlement
+            return super()._get(path, params)
+    hist = [{"end_period_ts": c["end_period_ts"], "yes_bid": {"close": "0.47"}, "yes_ask": {"close": "0.48"}}
+            for c in candles_at(K4)]                               # the historical shape's own keys
+    fake = Moved(candles={f"{E16}-TB": hist})
+    res, out = place(f"{E16}-TB", G4, fake=fake)
+    assert [p for p, _ in fake.calls] == ["historical/cutoff", f"historical/markets/{E16}-TB/candlesticks"]
+    r = rows()[f"{E16}-TB"]
+    assert (r["source"], r["last_bid"], r["match_id"]) == ("historical", 0.47, G4) and res["written"]
+    assert any("cutoff market_settled_ts: 2026-10-18T12:00:00Z" in ln and "candles from historical (stored live)" in ln
+               for ln in out), out
+
+    class NoCut(Fake):
+        def _get(self, path, params=None):
+            if path == "historical/cutoff":
+                resp = requests.Response()
+                resp.status_code = 503
+                raise requests.HTTPError(response=resp)
+            return super()._get(path, params)
+    with pytest.raises(ValueError, match=r"REFUSED: the cutoff \(historical/cutoff\) could not be read \(status 503; "
+                                         r"429 retries: 0\): the candle endpoint cannot be told; nothing is written"):
+        place(f"{E16}-CLE", G4, fake=NoCut())
+    assert rows()[f"{E16}-CLE"] == before[f"{E16}-CLE"]
 
 
 def test_a_candle_call_refused_for_good_keeps_the_placement_with_no_quote(alcs):
@@ -931,7 +969,7 @@ def test_the_guard_runs_once_every_refusal_is_read_and_before_the_candle_call(al
             order.append("call")
             return super()._get(path, params)
     place(f"{E16}-TB", G4, fake=Spy(), guard=lambda: order.append("guard"))
-    assert order == ["guard", "call"]
+    assert order == ["guard", "call", "call"]                    # the cutoff, then the candle call
     with pytest.raises(ValueError):
         place(f"{E16}-TB", G4, guard=lambda: order.append("guard again"))       # already placed: refused first
     assert "guard again" not in order

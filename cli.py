@@ -9182,7 +9182,8 @@ def closing_watch_cmd(families, dry_run):
     and the file stands), the mirror push, and one page ("SLATE <FAMILY> <date>: <N> row(s) · PLAY <p> · PASS <q> ·
     exports/<file>"; a failure: "SLATE <FAMILY> FAILED: <step> — RUN BY HAND: block_<MMDD>_<family>_slate.txt ·
     attempt k/3"; a run starting more than five minutes after its due time adds "LATE <m> min: …", addendum 137 item
-    2(4)). At most one slate RUN a tick (addendum 134 item 1(ii)). A slate still held with no 15 minutes left before
+    2(4)). At most one slate RUN a tick (addendum 134 item 1(ii)): the slate runs on a later tick unless its kickoff
+    comes first, and then its page says so (addendum 138 item 3(b)). A slate still held with no 15 minutes left before
     its family's first unstarted kickoff pages once ("SLATE <FAMILY> <date> HELD for <closing> — RUN BY HAND:
     <block>", addendum 133 item 4); a slate deferred by the one-run rule with none left, the same way ("SLATE
     <FAMILY> <date> HELD for the <FAMILY2> slate (one slate run per tick) — RUN BY HAND: <block>", addendum 137 item

@@ -100,14 +100,15 @@ def test_nfl_file_grade_and_results_md_carry_one_line(iso_db, tmp_path):
     now = utc_now_naive()
     _nfl_world(now)
     doc = json.load(open(export_nfl_results(out_dir=str(tmp_path / "x"))))
-    want = vc.block([(0.70, FAIR_H), (0.35, FAIR_A)])
+    # every NFL row carries close_reference (addendum 137 item 4), so each block counts the closes a Kalshi mid priced
+    want = {**vc.block([(0.70, FAIR_H), (0.35, FAIR_A)]), "kalshi_only_closes": 0}
     rec = doc["record"]
     assert rec["vs_close"] == want
     assert want["games"] == 2 and want["model_beat_close"] == 1
     assert want["model_log_loss"] == round((-math.log(0.70) - math.log(0.35)) / 2, 4)
     assert want["close_log_loss"] == round((-math.log(FAIR_H) - math.log(FAIR_A)) / 2, 4)
     assert rec["by_week"]["6"]["vs_close"] == want                   # the week's win rate carries its own line
-    assert doc["pre_live"]["record"]["vs_close"] == vc.block([(0.60, FAIR_H)])
+    assert doc["pre_live"]["record"]["vs_close"] == {**vc.block([(0.60, FAIR_H)]), "kalshi_only_closes": 0}
     lines = []
     r = grade_nfl(days_back=None, progress=lines.append)
     assert r["vs_close"] == rec["vs_close"]                              # ONE RECORD DEFINITION (2026-10-06)

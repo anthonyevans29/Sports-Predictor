@@ -24,8 +24,8 @@ from __future__ import annotations
 
 from collections import Counter, defaultdict
 
-from src.walters.close import (CAPTURE_SESSION, close_1x2, close_from_kalshi, close_from_snapshots,
-                               kalshi_close_market_filter, outcomes_for, priced)
+from src.walters.close import (CAPTURE_SESSION, KALSHI_SOURCES, close_1x2, close_from_kalshi, close_from_snapshots,
+                               kalshi_close_market_filter, outcomes_for, priced, stale_book_close)
 
 LINE_MARKETS_HINT = ("TOTALS", "SPREADS", "OU_", "SPREAD")
 
@@ -104,17 +104,19 @@ def _close_for(odds_rows, snaps, match):
     """grading_close (src/walters/close.py) over pre-fetched rows: the odds
     table's contract close, else the last complete pre-kickoff book snapshot,
     else — only when NO pre-kickoff book capture exists at all — the Kalshi
-    mid of a two-sided capture (reference=kalshi_only, ARCHITECT 2026-10-05).
-    `snaps` may carry Kalshi rows; book and Kalshi rows are split here."""
+    mid of a two-sided capture (reference=kalshi_only, ARCHITECT 2026-10-05);
+    a priced book close meets the stale-book rule (stale_book_close, addendum
+    137 item 4) as grading_close's does. `snaps` may carry Kalshi rows; book
+    and Kalshi rows are split here."""
     oc_ = outcomes_for(match.sport)
     cl = close_1x2(odds_rows, match.utc_date, oc_) if odds_rows else None
-    if priced(cl):
-        return cl
     snaps = list(snaps or [])
+    if priced(cl):
+        return stale_book_close(None, match, cl, snaps)
     book = [x for x in snaps if getattr(x, "source", None) != "kalshi" and getattr(x, "market", None) == "1X2"]
     sn = close_from_snapshots(book, match.utc_date, oc_)
     if sn is not None:
-        return sn
+        return stale_book_close(None, match, sn, snaps)
     if cl is None and not any(x.captured_at is not None and (match.utc_date is None or x.captured_at < match.utc_date)
                               for x in book):
         from src.walters.kalshi_legs import guard_snaps
@@ -179,8 +181,8 @@ def restate(apply: bool = False) -> dict:
                 best = cl["best"].get(top)
                 if best:
                     book, price = best
-                elif cl.get("source") == "kalshi_only" and cl["fair"][top] > 0:    # labelled (2026-10-05)
-                    book, price = "kalshi_only", round(1 / cl["fair"][top], 4)
+                elif cl.get("source") in KALSHI_SOURCES and cl["fair"][top] > 0:    # labelled (2026-10-05; 137 item 4)
+                    book, price = cl["source"], round(1 / cl["fair"][top], 4)
             old = oc.clv
             if old is None and new is None:
                 continue

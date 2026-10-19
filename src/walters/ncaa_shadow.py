@@ -353,7 +353,7 @@ def grade(days: int = 30, export_dir: str = "exports", now: datetime | None = No
 
     from src.db.database import session_scope
     from src.db.schema import Match, MatchStatus, Odds
-    from src.walters.close import close_1x2, outcomes_for, priced
+    from src.walters.close import close_1x2, outcomes_for, priced, stale_book_close
     from src.walters.nfl_predict import _book_anchor, value_side_grade
     from src.walters.vs_close import block
 
@@ -392,6 +392,8 @@ def grade(days: int = 30, export_dir: str = "exports", now: datetime | None = No
             briers.append((p - y) ** 2)
             odds = list(s.execute(select(Odds).where(Odds.match_id == m.id, Odds.market == "1X2")).scalars())
             cl = close_1x2(odds, m.utc_date, outcomes_for(m.sport))
+            # addendum 137 item 4 ("every family, applied where a stamp exists"): NCAA odds carry the NFL writer's stamp
+            cl = stale_book_close(s, m, cl)
             close_h = cl["fair"].get("HOME", 0) if priced(cl) else None
             clv = None
             if close_h is not None:

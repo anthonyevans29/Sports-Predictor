@@ -495,6 +495,7 @@ def grade_nfl(days_back: int | None = None, progress=None, exports_dir: str = "e
         anchor_after = 0
         pre_lines = []
         live_pairs, pre_pairs = [], []        # addendum 63 item 3: decided games with a close
+        kalshi_fed = {"live": 0, "pre": 0}    # of those, the closes a Kalshi mid priced (addendum 137 item 4)
         closing, redated = closing_starts(exports_dir)["rows"], []
         for pred, m in s.execute(q).all():
             lab = void_label(closing.get(m.id), m.utc_date)
@@ -517,13 +518,19 @@ def grade_nfl(days_back: int | None = None, progress=None, exports_dir: str = "e
             mark = "PUSH" if tie else ("HIT " if hit else "miss")
             odds_rows = list(s.execute(select(Odds).where(
                 Odds.match_id == m.id, Odds.market == "1X2")).scalars())
-            from src.walters.close import close_1x2, minutes_before_start, outcomes_for, priced
+            from src.walters.close import (KALSHI_SOURCES, close_1x2, minutes_before_start, outcomes_for, priced,
+                                           stale_book_close)
             _cl = close_1x2(odds_rows, m.utc_date, outcomes_for(m.sport))   # #167 + #207 contract
+            # ARCHITECT 2026-10-19, addendum 137 item 4: a book quote stamped more than 24 h before kickoff grades
+            # against the Kalshi two-sided mid of the same session (or is unpriced); the results file reads the same
+            _cl = stale_book_close(s, m, _cl)
             if not tie and priced(_cl):
                 # addendum 63 item 3: the outcome's probability by the model and by the close, as the results
-                # file's rows carry them (close_block's four-place fair), so the grade and the file read alike
+                # file's rows carry them (graded_block's four-place fair), so the grade and the file read alike
                 side = "HOME" if y == 1 else "AWAY"
                 (pre_pairs if is_pre else live_pairs).append((p if y == 1 else 1 - p, round(_cl["fair"][side], 4)))
+                if _cl.get("source") in KALSHI_SOURCES:   # the record's kalshi_only_closes, as the file counts it
+                    kalshi_fed["pre" if is_pre else "live"] += 1
             if is_pre:
                 pre_lines.append(f"  {m.away_team.name[:14]:14} @ {m.home_team.name[:15]:15} "
                                  f"{m.away_score:>2}-{m.home_score:<2} model_H={p:.3f} {mark}")
@@ -567,6 +574,9 @@ def grade_nfl(days_back: int | None = None, progress=None, exports_dir: str = "e
         from src.walters.close import close_age_summary
         from src.walters.vs_close import block, line
         vs_live, vs_pre = block(live_pairs), block(pre_pairs)
+        # every NFL results row carries close_reference (graded_block), so the file's blocks always count the closes
+        # a Kalshi mid priced (vs_close.block_from_rows); the grade's say the same
+        vs_live["kalshi_only_closes"], vs_pre["kalshi_only_closes"] = kalshi_fed["live"], kalshi_fed["pre"]
         summary = {"ok": True, "live_since": f"{NFL_LIVE_SINCE:%Y-%m-%d}",
                    **live,
                    # ARCHITECT 2026-10-13 (addendum 63 item 3): the record against the close, beside the win rate
@@ -695,8 +705,9 @@ def export_nfl_results(days_back: int | None = None, out_dir: str = "exports") -
             close_h = None
             odds_rows = list(s.execute(select(Odds).where(
                 Odds.match_id == m.id, Odds.market == "1X2")).scalars())
-            from src.walters.close import close_1x2, close_block, outcomes_for, priced
+            from src.walters.close import close_1x2, graded_block, outcomes_for, priced, stale_book_close
             _cl = close_1x2(odds_rows, m.utc_date, outcomes_for(m.sport))   # #167 + #207 contract
+            _cl = stale_book_close(s, m, _cl)      # addendum 137 item 4 (grade_nfl reads the same close)
             if priced(_cl):
                 close_h = _cl["fair"].get("HOME", 0)
             clv = None
@@ -720,8 +731,9 @@ def export_nfl_results(days_back: int | None = None, out_dir: str = "exports") -
                            "log_loss": round(-(y * math.log(max(p, 1e-12))
                                                + (1 - y) * math.log(max(1 - p, 1e-12))), 4),
                            "close_home_prob": round(close_h, 4) if close_h is not None else None,
-                           # P0-3 (#208): q_close per side for entry-price CLV on ledger positions
-                           **close_block(odds_rows, m.utc_date, m.sport),
+                           # P0-3 (#208): q_close per side for entry-price CLV on ledger positions; the close's
+                           # reference and its book stamp's age (addendum 137 item 4: "the row says so")
+                           **graded_block(_cl, m.utc_date),
                            "clv": round(clv, 4) if clv is not None else None,
                            # value side (additive, rulings 2026-09-29): null when unanchored
                            "value_side": vg["side"] if vg else None,

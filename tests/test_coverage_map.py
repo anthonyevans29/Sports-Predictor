@@ -25,6 +25,7 @@ import closing as cl  # noqa: E402
 import coverage_map as cm  # noqa: E402
 import sp_common as c  # noqa: E402
 
+import cli  # noqa: E402,F401  #604: src.db.database binds its engine at its first import; here, under conftest's DB
 from src import roadmap as rm  # noqa: E402
 from src.walters import registry as reg  # noqa: E402
 

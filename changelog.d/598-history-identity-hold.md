@@ -22,7 +22,7 @@
   - The write takes `--backup PATH` (the dedupe-matches gate, `_verify_backup`: the backup's `kalshi_settled_markets` count must equal the live DB's). `--dry-run` makes every read and writes nothing.
 - cli.py: `kalshi-history` becomes a click group that runs the pull when called with no subcommand. Every existing invocation (`kalshi-history --series S [--since] [--until] [--dry-run] [--max-calls N]`) is unchanged. `--series` is checked by hand ("Missing option '--series'.", exit 2), and the pull's options given in front of `place-held` are refused.
 - src/db/schema.py: the KalshiSettledMarket docstring states the exception, the 10-day bound and place-held (nothing written on a candle call that fails for now). No column changes and no migration.
-- docs/CLI.md: the `kalshi-history` row (the hold, the 10-day bound, a stored row read as stored) and a `kalshi-history place-held` row (exit 2 on a candle call that fails for now).
+- docs/CLI.md: the `kalshi-history` row (the hold, the 10-day bound, a placed stored row read as stored, a refused one keeping its date claim) and a `kalshi-history place-held` row (exit 2 on a candle call that fails for now).
 - tests/test_kalshi_history_identity_hold.py (new, 51):
   - The hold on the TBCLE pair (out of step; unsettled), the receipt's lines, a date-only series untouched, a placed row never moved.
   - A held row placed by a later run once its hold clears; held again or cleared-but-refused left as stored; a row refused for another reason not read again; the open list cut short stores nothing.

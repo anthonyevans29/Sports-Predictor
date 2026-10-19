@@ -183,6 +183,45 @@ def read_injury_player_ids(session, ids) -> dict:
     return {i: str(p) for i, p in session.execute(q, {"ids": ids}) if p is not None and str(p).strip()}
 
 
+# THE SERIES FIELDS (ARCHITECT 2026-10-18, addendum 130 item 2(b); #476, #478): "the laptop's statsapi sync stores
+# `seriesGameNumber`, `gamesInSeries`, `seriesDescription` and `rescheduledFrom` on the match row (additive columns by
+# the unmapped pattern, like #588's; migration by hand after the backup)". matches.series_game_number,
+# games_in_series, series_description and rescheduled_from are unmapped (the ORDER LINE note; schema.py Match):
+# written after the flush by guarded Core SQL, only when all four exist. Before migrate_match_series_fields.py nothing
+# is written. Data only: no reader. The existence check is per call, never cached (as has_kalshi_ticker), and is made
+# on the writing session's own connection.
+SERIES_COLUMNS = ("series_game_number", "games_in_series", "series_description", "rescheduled_from")
+
+
+def has_match_series(conn=None) -> bool:
+    """matches carries all four series columns (migrate_match_series_fields.py ran). One PRAGMA per call, on `conn`
+    when given (the writing session's connection), else the app's engine."""
+    from sqlalchemy import inspect
+    try:
+        return set(SERIES_COLUMNS) <= {c["name"] for c in inspect(conn if conn is not None else _engine)
+                                       .get_columns("matches")}
+    except Exception:
+        return False
+
+
+def write_match_series(session, pairs) -> int:
+    """Store each game's own series fields on its match row after a flush. `pairs` = [(match_id, {column: value |
+    None})]: every one of the four columns is written for the row from that row's own dict, NULL where the game's
+    entry gave none (never a value from another game). A row named twice keeps the last pair (the sync's order: the
+    same listing entry its status and kickoff were last written from). A no-op (0) until the migration has added the
+    columns. Returns the rows written."""
+    last: dict = {}
+    for i, fields in pairs:
+        if i is not None and fields is not None:
+            last[i] = {"i": i, **{c: fields.get(c) for c in SERIES_COLUMNS}}
+    if not last or not has_match_series(session.connection()):
+        return 0
+    from sqlalchemy import text
+    session.execute(text("UPDATE matches SET " + ", ".join(f"{c} = :{c}" for c in SERIES_COLUMNS)
+                         + " WHERE id = :i"), list(last.values()))
+    return len(last)
+
+
 # SOURCE TIME (ARCHITECT 2026-10-09, addendum 32 item 4; addendum 35 item 2, RULED): odds.source_updated_at and
 # odds_snapshots.source_updated_at "follow the ORDER LINE note of 2026-10-04 in schema.py: not mapped in the ORM,
 # written and read by guarded Core SQL, and only when the column exists. A pull or a deploy before the migration

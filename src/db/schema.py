@@ -172,6 +172,15 @@ class Match(Base):
     venue: Mapped[str | None] = mapped_column(String(128))
     referee: Mapped[str | None] = mapped_column(String(128))
     external_ids: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    # NOT MAPPED (ARCHITECT 2026-10-18, addendum 130 item 2(b): "additive columns by the unmapped pattern, like
+    # #588's"): matches.series_game_number (INTEGER), games_in_series (INTEGER), series_description (VARCHAR(64)) and
+    # rescheduled_from (VARCHAR(32), ISO-8601 UTC "%Y-%m-%dT%H:%M:%SZ"): statsapi's seriesGameNumber, gamesInSeries,
+    # seriesDescription and rescheduledFrom for the game, NULL where its entry has none, on rows the laptop's statsapi
+    # sync wrote after the migration (every other source, and every row before it, stays NULL; no backfill). Added by
+    # migrate_match_series_fields.py. It follows the ORDER LINE note of 2026-10-04 (odds_snapshots below), as #588 did
+    # for injuries.player_source_id: every chain reads `matches`, and a mapped column breaks every query on a DB that
+    # has not migrated. Written by guarded Core SQL only when the columns exist (src.db.database.write_match_series);
+    # data only, read by nothing.
 
     competition: Mapped[Competition] = relationship(back_populates="matches")
     home_team: Mapped[Team] = relationship(foreign_keys=[home_team_id], back_populates="home_matches")

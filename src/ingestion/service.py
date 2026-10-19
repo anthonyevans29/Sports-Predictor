@@ -371,15 +371,29 @@ class IngestionService:
                 _cache["__placeholder_window__"] = comp.code in PLACEHOLDER_REKEY_COMPETITIONS
             total = len(matches)
             step = max(1, total // 10)  # report ~10 times through the loop
+            series_rows = []            # (the row written, that listing entry's own series fields)
             for i, nm in enumerate(matches, 1):
                 _m = self._upsert_match(s, nm, comp, result, cache=_cache)
                 if held_ids is not None and _m is not None and _m.id is not None:
                     held_ids.add(_m.id)
+                if _m is not None and nm.series is not None:
+                    series_rows.append((_m, nm.series))
                 if i % step == 0 or i == total:
                     pct = int(i / total * 100) if total else 100
                     _report(f"  …{i}/{total} ({pct}%) — "
                             f"created {result.created}, updated {result.updated}, "
                             f"skipped {result.skipped}")
+            # THE SERIES FIELDS (ARCHITECT 2026-10-18, addendum 130 item 2(b)): "the laptop's statsapi sync stores
+            # `seriesGameNumber`, `gamesInSeries`, `seriesDescription` and `rescheduledFrom` on the match row". Only
+            # the statsapi adapter fills nm.series (the api-sports fallback never reaches this method). The columns
+            # are unmapped (the ORDER LINE note): stored by guarded Core SQL after the flush, each row from its own
+            # entry, a no-op until migrate_match_series_fields.py has run. Data only: nothing reads them.
+            if series_rows:
+                from src.db.database import write_match_series
+                s.flush()
+                n = write_match_series(s, [(m.id, f) for m, f in series_rows])
+                log.info("sync_matches(%s): series fields stored on %d row(s)%s", competition_code, n,
+                         "" if n else " (none: migrate_match_series_fields.py not run)")
         _sk = getattr(result, "_skipped_ids", None)
         if _sk:
             log.warning(

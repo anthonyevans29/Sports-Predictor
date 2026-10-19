@@ -137,7 +137,12 @@ def test_two_stored_rows_of_one_pair_on_the_date_refuse_the_event_and_name_the_r
     placeholder = game(40001, "South Carolina State", "Charleston Southern", Z("2026-10-10T22:00"))
     res = run(SCSTCHSO, [SCST_CHSO, placeholder], now=Z("2026-10-10T11:52"))
     assert not res.placed and res.refused == {km.TWO_ROWS: 2}
-    assert any("32817" in ln and "40001" in ln and "dedupe-matches" in ln for ln in res.lines), res.lines
+    # ARCHITECT 2026-10-19, addendum 140 item 2, option (b): "The college placeholder case keeps its refusal
+    # unchanged; only its words change, and its test's expectation with them." No merge is instructed on rows at two
+    # minutes: the line describes and points at dedupe-matches's own dry run.
+    assert res.lines == ["  ✗ KXNCAAFGAME-26OCT10SCSTCHSO: 2 stored rows of one pair on 2026-10-10 (ids 32817, 40001): "
+                         "refused; two games or a placeholder beside the real kickoff (12:00 and 18:00 ET): "
+                         "dedupe-matches's dry run says which; not merged from here"]
 
 
 def test_the_own_date_takes_the_market_before_a_day_off_and_two_days_off_are_refused():
@@ -300,9 +305,62 @@ def test_a_doubleheader_on_a_date_only_ticker_with_a_game_number_suggests_no_mer
                          "8243, 8244 share one kickoff minute: dedupe-matches has to merge them"]
     res = run(CLEKC_G2, [g2, twin], now=Z("2025-07-26T12:00"))
     assert res.lines[0].endswith("refused; rows 8243, 8244 share one kickoff minute: dedupe-matches has to merge them")
-    # a date-only ticker with no game number keeps the dedupe words, as built (the college placeholder case above)
-    plain = event("25JUL26CLEKC", [("CLE", "Cleveland"), ("KC", "Kansas City")], series="KXMLBGAME")
-    assert run(plain, [g1, g2], now=Z("2025-07-26T12:00")).lines[0].endswith("refused; dedupe-matches has to merge them")
+
+
+PLAIN_CLEKC = event("25JUL26CLEKC", [("CLE", "Cleveland"), ("KC", "Kansas City")], series="KXMLBGAME")
+
+
+def test_a_date_only_ticker_with_no_game_number_gets_the_declared_text_and_no_merge():
+    """ARCHITECT 2026-10-19, addendum 140 item 2, OPTION (b): "the words "dedupe-matches has to merge them" belong ONLY
+    where rows share a kickoff minute, on every ticker form. On a date-only ticker with no game number, rows of the
+    pair at different minutes get the DECLARED TEXT, the suffix after "refused; ": `two games or a placeholder beside
+    the real kickoff (<HH:MM> and <HH:MM> ET): dedupe-matches's dry run says which; not merged from here`. Where both
+    hold (two rows at one minute and a third at another) the line names each, as _clock_rows_what does." The refusal
+    and its reason do not change."""
+    g1 = game(8242, "Cleveland Guardians", "Kansas City Royals", Z("2025-07-26T18:40"))   # 14:40 ET
+    g2 = game(8243, "Cleveland Guardians", "Kansas City Royals", Z("2025-07-26T23:15"))   # 19:15 ET
+    twin = game(8244, "Cleveland Guardians", "Kansas City Royals", Z("2025-07-26T23:15"))  # 8243 stored twice
+    res = run(PLAIN_CLEKC, [g1, g2], now=Z("2025-07-26T12:00"))
+    assert not res.placed and res.refused == {km.TWO_ROWS: 2}
+    assert res.lines == ["  ✗ KXMLBGAME-25JUL26CLEKC: 2 stored rows of one pair on 2025-07-26 (ids 8242, 8243): "
+                         "refused; two games or a placeholder beside the real kickoff (14:40 and 19:15 ET): "
+                         "dedupe-matches's dry run says which; not merged from here"]
+    res = run(PLAIN_CLEKC, [g1, g2, twin], now=Z("2025-07-26T12:00"))           # both hold: the line names each
+    assert not res.placed and res.refused == {km.TWO_ROWS: 2}
+    assert res.lines == ["  ✗ KXMLBGAME-25JUL26CLEKC: 3 stored rows of one pair on 2025-07-26 (ids 8242, 8243, 8244): "
+                         "refused; two games or a placeholder beside the real kickoff (14:40 and 19:15 ET): "
+                         "dedupe-matches's dry run says which; not merged from here; rows 8243, 8244 share one kickoff "
+                         "minute: dedupe-matches has to merge them"]
+    res = run(PLAIN_CLEKC, [g2, twin], now=Z("2025-07-26T12:00"))               # one minute only: the dedupe words
+    assert res.lines == ["  ✗ KXMLBGAME-25JUL26CLEKC: 2 stored rows of one pair on 2025-07-26 (ids 8243, 8244): "
+                         "refused; rows 8243, 8244 share one kickoff minute: dedupe-matches has to merge them"]
+    night = game(8245, "Cleveland Guardians", "Kansas City Royals", Z("2025-07-27T01:05"))  # 21:05 ET, same ET date
+    res = run(PLAIN_CLEKC, [g1, g2, night], now=Z("2025-07-26T12:00"))          # three minutes: "A, B and C"
+    assert res.lines[0].endswith("refused; two games or a placeholder beside the real kickoff (14:40, 19:15 and "
+                                 "21:05 ET): dedupe-matches's dry run says which; not merged from here")
+
+
+def test_the_merge_words_are_printed_only_where_rows_share_a_kickoff_minute_on_every_ticker_form():
+    """Addendum 140 item 2: "the words "dedupe-matches has to merge them" belong ONLY where rows share a kickoff minute,
+    on every ticker form." Each form, rows at two minutes and then two of them at one: the merge words name exactly
+    the rows of the shared minute, never a row alone at its minute."""
+    forms = [
+        (LADMIL, ("Los Angeles Dodgers", "Milwaukee Brewers"), "2026-10-12", "2026-10-12T12:00"),   # clock, no number
+        (CLEKC_G2, ("Cleveland Guardians", "Kansas City Royals"), "2025-07-26", "2025-07-26T12:00"),  # date, G2
+        (PLAIN_CLEKC, ("Cleveland Guardians", "Kansas City Royals"), "2025-07-26", "2025-07-26T12:00"),  # date only
+        (SCSTCHSO, ("South Carolina State", "Charleston Southern"), "2026-10-10", "2026-10-10T11:52"),  # college
+    ]
+    for mks, (away, home), day, now in forms:
+        a = game(70001, away, home, Z(f"{day}T17:00"))
+        b = game(70002, away, home, Z(f"{day}T23:00"))
+        c = game(70003, away, home, Z(f"{day}T23:00"))
+        apart = run(mks, [a, b], now=Z(now))
+        assert apart.refused == {km.TWO_ROWS: 2} and len(apart.lines) == 1, (mks[0]["ticker"], apart.lines)
+        assert "has to merge" not in apart.lines[0], apart.lines
+        both = run(mks, [a, b, c], now=Z(now))
+        assert both.lines[0].endswith("; rows 70002, 70003 share one kickoff minute: dedupe-matches has to merge "
+                                      "them"), both.lines
+        assert both.lines[0].count("has to merge") == 1
 
 
 def test_main_s_gate_matched_none_of_the_nlcs_markets():

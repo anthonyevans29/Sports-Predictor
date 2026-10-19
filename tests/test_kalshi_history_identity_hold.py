@@ -1084,6 +1084,9 @@ def test_a_new_row_reads_its_side_again_at_the_write(alcs):
                            f"{S}-26OCT151810TBCLE-TB at the write)")
     assert (cle["match_id"], cle["side"]) == (G3, "HOME") and cle["last_bid"] == 0.45      # the other side stands
     assert run.write_refused == [(f"{E15}-TB", f"match {G3} AWAY held by {S}-26OCT151810TBCLE-TB at the write")]
+    # the totals by reason count it, as the table stores it (Codex on #618: the receipt matched the DB only without it)
+    assert run.refused == {"two markets claim one side of one game": 1}
+    assert "        1  two markets claim one side of one game" in out
     assert f"  ✗ {E15}-TB: match {G3} AWAY held by {S}-26OCT151810TBCLE-TB at the write: written unplaced, refused " \
            "by the matcher: two markets claim one side of one game (a ruling can place it)" in out
     assert {k: v for k, v in _claims().items() if len(v) > 1} == {}

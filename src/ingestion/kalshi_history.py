@@ -869,6 +869,7 @@ def run_history(series: str, *, since: date | None = None, until: date | None = 
                     by = ", ".join(sorted(t for t, _ in holders))
                     what = f"match {r['match_id']} {r['side']} held by {by} at the write"
                     run.write_refused.append((r["ticker"], what))
+                    run.refused[km.TWO_CLAIMS] += 1          # in the totals by reason, as the row is stored (Codex)
                     r.update(match_id=None, side=None, last_ts=None, last_bid=None, last_ask=None, last_mid=None,
                              candles_6h=None, candles_two_sided=None, gaps=None, raw_first_candle=None,
                              notes="; ".join(x for x in (f"{REFUSED_NOTE}{km.TWO_CLAIMS} ({what})",

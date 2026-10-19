@@ -1,4 +1,4 @@
-## 2026-10-18 (#PRNUM: kalshi-476-regression — ARCHITECT addendum 127 items 3(a) and 3(b); tests only; Refs #476)
+## 2026-10-18 (#624: kalshi-476-regression — ARCHITECT addendum 127 items 3(a) and 3(b); tests only; Refs #476)
 - The rulings, verbatim. Addendum 127 item 3(a): "(a) NO MLB MATCHER CHANGE (Branch 1). The out-of-step rule refused the one market a clock key would have misplaced; the cost is the one ruled on 10-12 ("while Kalshi has not settled yesterday's market of a pair, today's is refused"). Branch 2 is not built in any case: its own warning paragraph is decisive — a clock fixed at market creation identifies nothing about a game that moved. Refusals are never turned into guesses." Item 3(b): "(b) REGRESSION TESTS, a tests-only PR: the Saturday set verbatim (2 no-game-on-date + 2 behind), states A1 and A2, the Sunday shape (2 in play), the Friday control (4 placed), the ALCS tests unchanged — today's answers pinned whatever the receipt says."
 - tests/test_kalshi_476_regression.py (new, 8 tests). Each test:
   - runs the real `python cli.py sync-kalshi` (the MLB closing's step 6, no dates) in process through click, on a scratch SQLite DB of its own;

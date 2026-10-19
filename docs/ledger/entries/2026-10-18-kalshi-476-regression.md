@@ -1,7 +1,7 @@
-**2026-10-18 — #476: today's answers of the real MLB Kalshi sync on the TB @ CLE series are pinned as regression tests: the Saturday set, states A1 and A2, the Sunday shape and the Friday control. No matcher change (#PRNUM; Refs #476).**
+**2026-10-18 — #476: today's answers of the real MLB Kalshi sync on the TB @ CLE series are pinned as regression tests: the Saturday set, states A1 and A2, the Sunday shape and the Friday control. No matcher change (#624; Refs #476).**
 - **Ruling (ARCHITECT 2026-10-18 09:58 ET, addendum 127 item 3(a)), verbatim:** "(a) NO MLB MATCHER CHANGE (Branch 1). The out-of-step rule refused the one market a clock key would have misplaced; the cost is the one ruled on 10-12 ("while Kalshi has not settled yesterday's market of a pair, today's is refused"). Branch 2 is not built in any case: its own warning paragraph is decisive — a clock fixed at market creation identifies nothing about a game that moved. Refusals are never turned into guesses."
 - **Ruling (addendum 127 item 3(b)), verbatim:** "(b) REGRESSION TESTS, a tests-only PR: the Saturday set verbatim (2 no-game-on-date + 2 behind), states A1 and A2, the Sunday shape (2 in play), the Friday control (4 placed), the ALCS tests unchanged — today's answers pinned whatever the receipt says."
-- **Built (#PRNUM; tests only):**
+- **Built (#624; tests only):**
   - **The new file**, tests/test_kalshi_476_regression.py, holds 8 tests.
     - **How each runs:** the real `python cli.py sync-kalshi`, in process through click, on a scratch SQLite DB of its own. Only the HTTP fetch and the sync's clock are replaced, as the cause read's two reviewers did.
     - **The rows:** 50546 FINISHED 2026-10-15 17:00Z; 50550 at 2026-10-18 00:08Z (00:00Z on Friday); 50548 in each state.

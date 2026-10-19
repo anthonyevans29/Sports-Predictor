@@ -684,6 +684,24 @@ def test_r6_a_day_off_twin_listed_beside_its_refused_own_date_event_is_refused(d
     assert _claims() == {}                                        # neither twin placed
 
 
+def test_the_claims_line_names_a_stored_claimant_beside_two_new_ones(db):
+    """A verifier's P2 on a17a133 (T33's shape): a placed stored row is left out of the in-run claims (132 item 3(b)),
+    so when two new markets claim its side the matcher's line counted only them. Run 1 stores 26OCT17FLATEX-FLA on the
+    Saturday game (its TEX leg's candle call answers 503, so it is not stored). Run 2 lists the day-off twin, the
+    own-date event and a Sunday-dated twin: the two new FLA legs are refused, and the line names the stored one."""
+    N18 = "KXNCAAFGAME-26OCT18FLATEX"
+    seed({NG: ("Florida Gators", "Texas Longhorns", NK, "finished")}, code="NCAA", sport="NFL")
+    ncaa_go(Fake(settled=ncaa(N17), fail={f"{N17}-TEX": 503}))
+    assert {t: (r["match_id"], r["side"]) for t, r in rows().items()} == {f"{N17}-FLA": (NG, "AWAY")}
+    before = rows()
+    run, out = ncaa_go(Fake(settled=ncaa(N16) + ncaa(N17) + ncaa(N18)))
+    got = rows()
+    assert got[f"{N17}-FLA"] == before[f"{N17}-FLA"]                            # the stored row, not moved
+    assert {k: v for k, v in _claims().items() if len(v) > 1} == {}
+    assert f"  ✗ match {NG} AWAY: 2 markets of 2 events claim it ({N16}-FLA, {N18}-FLA): all refused; stored on " \
+           f"{N17}-FLA (nothing already placed is moved)" in out
+
+
 def test_a_row_refused_for_another_reason_is_not_read_again(alcs):
     """Only a held row is the exception: 26OCT161800TBCLE, refused "no game of the pair on the ticker's date", stays
     so although 50548 is now dated 10-16 and the matcher would place it there."""

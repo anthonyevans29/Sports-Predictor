@@ -90,6 +90,7 @@ import re
 import sqlite3
 import subprocess
 import sys
+import threading
 import time
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -2181,18 +2182,24 @@ def watch(dry_run: bool = False, now: datetime | None = None, families: tuple[st
         r = run(family=fam, start=start, trigger="watch", now=clock() if fixed_now is None else utc(fixed_now))
         rc = worse(rc, r)
     # THE SLATE RUN (ARCHITECT 2026-10-18, addendum 126 item 2(a)): after the tick's closings, which keep their T-35
-    # (a closing is the row that counts; the slate is the morning file). `now` is the tick's time, which judges a
-    # late run; each slate run reads the clock when it starts, as each closing does, and does not start while a
+    # (a closing is the row that counts; the slate is the morning file). `now` is the tick's time (the ET day, the due
+    # test, the first tick and queued_at); a run is late by its own start (ran_at, _slate_late). Each slate run reads
+    # the clock when it starts, as each closing does, and does not start while a
     # closing of any of the tick's families is due or about to be (closing_ahead, SLATE_GUARD_MIN). The slate stage
     # probes the MLB feed at most once a tick, none when this tick's closings already did (feed_probe). At most ONE
     # slate RUN per tick (ARCHITECT 2026-10-18, addendum 134 item 1(ii), #606 item 1: "a slate that holds, misses or is
     # superseded does not count; the next family's slate runs on the next tick, a minute later"), so a tick is bounded
     # as before plus one chain (the host unit's TimeoutStartSec=45min does not move): slate_tick names the family whose
     # slate ran.
+    # The families are ordered when the stage starts, after the tick's closings (#613 P1-3: ordered at the tick's start,
+    # a family whose first game kicked off during those closings still sorted first). The stage's pages (the HELD page,
+    # the deferral page) go out after the whole stage, each against a clock read again (#613 P1-1: send_slate_page).
     slate_tick: dict = {}
-    for fam in slate_order(fams, now):
+    for fam in slate_order(fams, clock() if fixed_now is None else utc(fixed_now)):
         rc = worse(rc, slate_watch(fam, now, clock() if fixed_now is None else utc(fixed_now), families=fams,
                                    feed_probe=feed_probe, tick=slate_tick))
+    for page in slate_tick.get("pages", []):
+        rc = worse(rc, send_slate_page(page, clock() if fixed_now is None else utc(fixed_now)))
     return rc
 
 
@@ -2201,8 +2208,10 @@ def slate_order(fams: tuple[str, ...], now: datetime) -> tuple[str, ...]:
     (the #602 review's P1 on 9c04c7f: in the fixed MLB, NFL, SOCCER order a later kickoff took the tick ahead of a
     sooner one, and a family retrying a failed attempt took every tick, and slates that ran on main never ran): the
     families with no failed attempt today first, then those retrying one; within each, the soonest first unstarted
-    kickoff of the ET day first; a family with no game left, or no schedule to read, last. Reads the schedule and the
-    receipts; no network."""
+    kickoff of the ET day first, a family with no game left last; a family whose schedule cannot be read after all of
+    them. `now`: when the stage starts (watch() reads the clock after the tick's closings, #613 P1-3: ordered at the
+    tick's start, a family whose first game kicked off during those closings still sorted first; the dry run passes the
+    tick's time). Reads the schedule and the receipts; no network."""
     day = ny_date(now)
     far = datetime.max.replace(tzinfo=timezone.utc)
 
@@ -2278,8 +2287,10 @@ def worse(a: int, b: int) -> int:
 #   - Late (ARCHITECT 2026-10-18, addendum 133 item 4, item 3): "`LATE <m> min: due HH:MM ET, first tick HH:MM ET, run
 #     HH:MM ET`, where <m> counts from the due time to the run's start (ran_at) — the operator reads how late the FILE
 #     is — and the line prints whenever the run's start is more than one cadence after the due time, whatever held it;
-#     `first tick` says whether the laptop slept." The first tick is the earliest queued_at of the day's slate and
-#     slate_miss receipts (a hold's, a miss's and a refusal's included; item 2(d)).
+#     `first tick` says whether the laptop slept." Amended (ARCHITECT 2026-10-19, addendum 137 item 2(4)): "the LATE
+#     line prints when the run's start is more than FIVE minutes after the due time (LATE_MIN = 5; the receipt keeps
+#     the exact seconds)" (`late_seconds`). The first tick is the earliest queued_at of the day's slate and slate_miss
+#     receipts (a hold's, a miss's and a refusal's included; item 2(d)).
 #   - The HELD page (addendum 133 item 4, item 2): "`SLATE <FAMILY> <date> HELD for <closing> — RUN BY HAND: <block>`,
 #     once per family and day, when a slate is still held with no SLATE_GUARD_MIN window left before its family's first
 #     UNSTARTED kickoff" (record_slate_hold).
@@ -2313,9 +2324,15 @@ SLATE_DIR = "exports"
 NO_DESK_CALL = "no desk call"        # a row the Desk gave no call (the export's rows with no probabilities)
 SLATE_SHOWN_CALLS = ("PLAY", "PASS")  # always on the page; any other call kind follows only when it occurs
 SLATE_ALL_STARTED = "every game of the day had started"     # the miss after which the watch runs no slate that day
-# The longest notify_failure is allowed for: the screen (osascript, 15 s), the card topic (ntfy, 20 s) and the operator
-# topic when neither took it (ntfy, 20 s), plus 2 s. A HELD page goes out only where it cannot cost a closing its tick.
+# The bound on a slate stage page's send (the HELD page, the deferral page): the screen (osascript, 15 s), the card topic
+# (ntfy, 20 s) and the operator topic when neither took it (ntfy, 20 s), plus 2 s. The channels' own timeouts are per
+# socket operation, not per call (#613 P1-2: an ntfy answering in pieces 15 s apart took notify_failure to 60 s), so the
+# send itself is cut at this bound (_bounded_notify), and a page goes out only where the bound ends before the first tick
+# that could start the closing ahead: a page never costs a closing its tick.
 NOTIFY_MAX_S = 15 + 20 + 20 + 2
+# ARCHITECT 2026-10-19, addendum 137 item 2(4): "the LATE line prints when the run's start is more than FIVE minutes after
+# the due time (LATE_MIN = 5; the receipt keeps the exact seconds); a one-tick deferral or hold is not late."
+LATE_MIN = 5
 
 
 def slate_due(first: datetime, day: date) -> datetime:
@@ -2436,8 +2453,8 @@ def slate_page_text(fam: str, day: date, rows: int, calls: dict, file: str, late
     """Item 2(a)'s page, the declared text: "SLATE <FAMILY> <YYYY-MM-DD>: <N> row(s) · PLAY <p> · PASS <q> ·
     exports/<file>" (addendum 133 item 3(c): `1 row` on a one-game day, rows_text). N and the calls count the ET day's
     games (addendum 133 item 4, item 8), and the rows beyond the day follow the counts, `· +<k> beyond the day` when
-    k > 0 (`beyond`, beyond_text). A late run (_slate_late: the run's start more than one cadence after the due time,
-    whatever held it) says so on the next line, the declared text of addendum 133 item 4, item 3: `LATE <m> min: due
+    k > 0 (`beyond`, beyond_text). A late run (_slate_late: the run's start more than LATE_MIN after the due time,
+    whatever held it; addendum 137 item 2(4)) says so on the next line, the declared text of addendum 133 item 4, item 3: `LATE <m> min: due
     HH:MM ET, first tick HH:MM ET, run HH:MM ET` (the first tick: the earliest queued_at of the day's slate and
     slate_miss receipts, which says whether the laptop slept); the machine's line last (addendum 45).
     Returns (title, body)."""
@@ -2605,65 +2622,128 @@ def held_page_text(fam: str, day: date, ahead: dict) -> str:
     return f"SLATE {fam} {day.isoformat()} HELD for {_closing_text(ahead)} — RUN BY HAND: {slate_block(fam, day)}"
 
 
+def deferred_page_text(fam: str, day: date, ran: str) -> str:
+    """ARCHITECT 2026-10-19, addendum 137 item 2(5), the declared text: `SLATE <FAMILY> <date> HELD for the <FAMILY2>
+    slate (one slate run per tick) — RUN BY HAND: <block>`."""
+    return (f"SLATE {fam} {day.isoformat()} HELD for the {ran} slate (one slate run per tick) — RUN BY HAND: "
+            f"{slate_block(fam, day)}")
+
+
+def _page_owed(fam: str, day: date, games: list[dict] | None, now: datetime | None) -> bool:
+    """A HELD page (addendum 133 item 4, item 2) or a deferral page (addendum 137 item 2(5)) is owed: none sent for the
+    family's day yet (`held_page` on a slate receipt: once per family and day, the two pages together), and no
+    SLATE_GUARD_MIN window left before the family's first game of the day (`games`) not started at `now`."""
+    if games is None or now is None:
+        return False
+    day_s = day.isoformat()
+    if any(r.get("held_page") for r in receipts((SLATE_KIND,)) if r.get("family") == fam and r.get("date") == day_s):
+        return False
+    live = [g["start"] for g in games if not started(g, now)]
+    return bool(live) and min(live) <= utc(now) + timedelta(minutes=SLATE_GUARD_MIN)
+
+
+def _bounded_notify(text: str, fam: str) -> dict:
+    """notify_failure, cut at NOTIFY_MAX_S of wall clock (#613 P1-2: the channels' timeouts are per socket operation,
+    so a slow ntfy took notify_failure to 60 s on the host and the next closing to T-34). The send runs in a daemon
+    thread joined for the bound: still running then, the tick goes on and the notification says it was cut (the send
+    may still end while the process lives; it ends with the process)."""
+    out: dict = {}
+
+    def send():
+        out["n"] = notify_failure(text, fam, title=f"{fam} slate")
+    th = threading.Thread(target=send, name=f"{fam}-slate-page", daemon=True)
+    th.start()
+    th.join(NOTIFY_MAX_S)
+    return out["n"] if "n" in out else {"text": text, "cut_at_bound_s": NOTIFY_MAX_S}
+
+
+def send_slate_page(p: dict, now: datetime) -> int:
+    """One page of the slate stage (a HELD page or a deferral page), sent at `now`: watch() sends the tick's pages after
+    the whole slate stage (#613 P1-1: a page sent mid-stage reserved only its own send, and a later family's page in the
+    same tick then cost the next closing its T-35), each against a clock read again. It goes out only where its bound
+    ends before this machine's first tick that could start the closing ahead (`ahead`: next_tick from the tick's start
+    `tick_at`; no closing ahead, no test). Sent: receipted on the hold's (or deferral's) line as `held_page` {text,
+    notified}, exit NOTIFIED. Not sent: it waits for a later tick, the line receipted as a plain hold when the hold is
+    not yet (`seen`), exit 0."""
+    fam, day_s, ahead = p["fam"], p["day"].isoformat(), p["ahead"]
+    if ahead is None or utc(now) + timedelta(seconds=NOTIFY_MAX_S) < next_tick(utc(p["tick_at"]), utc(now),
+                                                                             ahead["run_at"]):
+        c.append_receipt({**p["line"], "held_page": {"text": p["text"], "notified": _bounded_notify(p["text"], fam)}})
+        print(f"✗ {p['text']}")
+        return NOTIFIED
+    print(f"· slate {fam} {day_s}: the HELD page waits for a later tick ({_closing_text(ahead)} is due before a page "
+          "could end)")
+    if not p["seen"]:
+        c.append_receipt(p["line"])
+    return 0
+
+
+def _queue_or_send(p: dict, tick: dict | None, now: datetime) -> int:
+    """A page owed: queued for the end of the tick's slate stage (watch()), or sent now on a direct call (no tick)."""
+    if tick is not None:
+        tick.setdefault("pages", []).append(p)
+        return 0
+    return send_slate_page(p, now)
+
+
 def record_slate_hold(fam: str, day: date, base: dict, ahead: dict, why: str | None = None,
                       games: list[dict] | None = None, now: datetime | None = None,
-                      tick_at: datetime | None = None) -> int:
+                      tick_at: datetime | None = None, tick: dict | None = None) -> int:
     """A slate held for a closing (no step; neither an attempt nor a refusal): receipted (kind slate, `held`) once per
     family, day and closing it waits for (that closing's family and start), so the day's newest hold names the
     closing the slate waits for now (coverage's SLATE line reads it); later holds for the same closing write nothing.
     The hold's queued_at is the tick's (_slate_late's first tick); the run it delays is late by its start.
     THE HELD PAGE (ARCHITECT 2026-10-18, addendum 133 item 4, item 2): "`SLATE <FAMILY> <date> HELD for <closing> — RUN
     BY HAND: <block>`, once per family and day, when a slate is still held with no SLATE_GUARD_MIN window left before
-    its family's first UNSTARTED kickoff": the family's first game of the day (`games`) not started at `now` kicks off
-    within SLATE_GUARD_MIN, so no slate can run before it. Notified (card and phone, as a miss) and receipted on the
-    hold's line (`held_page`: the text and the notification), written then even when the hold for that closing is
-    already receipted. The page goes out only where it cannot cost a closing its tick (the #602 review's P1 on
-    9c04c7f: a slow page on the no-probe hold carried the next closing from T-35 to T-34): when this machine's first tick
-    that could start the closing the slate waits for (`ahead`, the earliest closing that can start; next_tick from
-    `tick_at`) comes more than NOTIFY_MAX_S after `now`. Otherwise it waits, nothing receipted for it, and the next held
-    tick sends it (the same test). Exit NOTIFIED when the page goes out, else 0."""
+    its family's first UNSTARTED kickoff" (_page_owed). Notified (card and phone, as a miss) and receipted on the
+    hold's line (`held_page`), written then even when the hold for that closing is already receipted. It is sent after
+    the tick's whole slate stage, against its bound (send_slate_page; on a direct call with no `tick`, at once): it
+    never costs a closing its tick. Exit NOTIFIED when the page goes out here, else 0 (a queued page's exit is the
+    stage's)."""
     day_s = day.isoformat()
     mine = [r for r in receipts((SLATE_KIND,)) if r.get("family") == fam and r.get("date") == day_s]
     key = (ahead["family"], iso_z(ahead["start"]))
     seen = any(r.get("held") and ((r.get("closing") or {}).get("family"), (r.get("closing") or {}).get("start")) == key
                for r in mine)
-    page = None
-    if games is not None and now is not None and not any(r.get("held_page") for r in mine):
-        live = [g["start"] for g in games if not started(g, now)]
-        if live and min(live) <= utc(now) + timedelta(minutes=SLATE_GUARD_MIN):
-            if utc(now) + timedelta(seconds=NOTIFY_MAX_S) < next_tick(utc(tick_at or now), utc(now), ahead["run_at"]):
-                page = held_page_text(fam, day, ahead)
-            else:
-                print(f"· slate {fam} {day_s}: the HELD page waits for a later tick ({_closing_text(ahead)} is due "
-                      f"before a page could end)")
-    if seen and not page:
+    owed = _page_owed(fam, day, games, now)
+    if seen and not owed:
         return 0
     why = why or _hold_why(ahead)
     print(f"· slate {fam} {day_s} held: {why} (the slate runs after it)")
     rec = {**base, "held": why, "closing": {"family": ahead["family"], "start": iso_z(ahead["start"]),
                                             "run_at": iso_z(ahead["run_at"])},
            "steps": [], "file": None, "rows": None, "calls": None, "push": None, "exit": 0}
-    if page:
-        rec["held_page"] = {"text": page, "notified": notify_failure(page, fam, title=f"{fam} slate")}
-        print(f"✗ {page}")
+    if owed:
+        return _queue_or_send({"fam": fam, "day": day, "line": rec, "seen": seen, "ahead": ahead,
+                               "text": held_page_text(fam, day, ahead), "tick_at": tick_at or now}, tick, now)
     c.append_receipt(rec)
-    return NOTIFIED if page else 0
+    return 0
 
 
-def record_slate_deferred(fam: str, day: date, base: dict, ran: str) -> int:
+def record_slate_deferred(fam: str, day: date, base: dict, ran: str, games: list[dict] | None = None,
+                          now: datetime | None = None, tick_at: datetime | None = None, ahead: dict | None = None,
+                          tick: dict | None = None) -> int:
     """A slate due on a tick whose one slate run another family's slate took (ARCHITECT 2026-10-18, addendum 134 item
     1(ii): "at most ONE slate RUN per tick [...] the next family's slate runs on the next tick, a minute later"): no
     step, neither an attempt nor a refusal. Receipted once per family and day as a hold (`held`, with `deferred`: the
     family that ran), so the LATE line's first tick is the tick that first found the slate due (_slate_late) and
-    coverage's SLATE line shows the wait. Exit 0."""
+    coverage's SLATE line shows the wait. THE DEFERRAL PAGE (ARCHITECT 2026-10-19, addendum 137 item 2(5)): "a slate
+    deferred by the one-run rule with no 15-minute window left before its family's first unstarted kickoff PAGES, by
+    the HELD page's mechanism and bound, with the deferral as its reason" (deferred_page_text; _page_owed: once per
+    family and day with the HELD page; send_slate_page against `ahead`, the closing ahead if any). Exit 0 (a queued
+    page's exit is the stage's)."""
     day_s = day.isoformat()
     why = f"one slate run per tick: the {ran} slate ran this tick (a later tick runs it)"
     print(f"· slate {fam} {day_s} held: {why}")
-    if any(r.get("family") == fam and r.get("date") == day_s and r.get("deferred")
-           for r in receipts((SLATE_KIND,))):
-        return 0
-    c.append_receipt({**base, "held": why, "deferred": ran, "steps": [], "file": None, "rows": None, "calls": None,
-                      "push": None, "exit": 0})
+    seen = any(r.get("family") == fam and r.get("date") == day_s and r.get("deferred")
+               for r in receipts((SLATE_KIND,)))
+    line = {**base, "held": why, "deferred": ran, "steps": [], "file": None, "rows": None, "calls": None,
+            "push": None, "exit": 0}
+    if _page_owed(fam, day, games, now):
+        return _queue_or_send({"fam": fam, "day": day, "line": line, "seen": seen, "ahead": ahead,
+                               "text": deferred_page_text(fam, day, ran), "tick_at": tick_at or now}, tick, now)
+    if not seen:
+        c.append_receipt(line)
     return 0
 
 
@@ -2671,10 +2751,11 @@ def _slate_late(fam: str, day_s: str, tick_at: datetime, due_at: datetime,
                 ran_at: datetime) -> tuple[float, dict | None]:
     """ARCHITECT 2026-10-18, addendum 133 item 4, item 3: "<m> counts from the due time to the run's start (ran_at) —
     the operator reads how late the FILE is — and the line prints whenever the run's start is more than one cadence
-    after the due time, whatever held it; `first tick` says whether the laptop slept." The run's start is read in
-    whole seconds, as its receipt's ran_at keeps it (a tick one cadence after the due time is on time). The first tick:
-    the earliest queued_at of the day's slate and slate_miss receipts, or this tick (item 2(d)).
-    (seconds after the due time, {minutes, due, tick, run} or None)."""
+    after the due time, whatever held it; `first tick` says whether the laptop slept." Amended by addendum 137 item
+    2(4): "the LATE line prints when the run's start is more than FIVE minutes after the due time (LATE_MIN = 5; the
+    receipt keeps the exact seconds); a one-tick deferral or hold is not late." The run's start is read in whole
+    seconds, as its receipt's ran_at keeps it. The first tick: the earliest queued_at of the day's slate and slate_miss
+    receipts, or this tick (item 2(d)). (seconds after the due time, {minutes, due, tick, run} or None)."""
     run = parse_utc(iso_z(ran_at))
     first = utc(tick_at)
     for r in receipts((SLATE_KIND, SLATE_MISS_KIND)):
@@ -2686,7 +2767,7 @@ def _slate_late(fam: str, day_s: str, tick_at: datetime, due_at: datetime,
             continue
     late_s = (run - utc(due_at)).total_seconds()
     return late_s, ({"minutes": int(late_s // 60), "due": utc(due_at), "tick": first, "run": run}
-                    if late_s > WATCH_CADENCE_S else None)
+                    if late_s > LATE_MIN * 60 else None)
 
 
 def _slate_rec(base: dict, fam: str, day: date, attempt: int, at: datetime, tick_at: datetime, due_at: datetime,
@@ -2695,6 +2776,7 @@ def _slate_rec(base: dict, fam: str, day: date, attempt: int, at: datetime, tick
     file, exit), exit 1 until it succeeds; and its late (or None)."""
     late_s, late = _slate_late(fam, day.isoformat(), tick_at, due_at, at)
     return ({**base, "ran_at": iso_z(at), "late_minutes": max(0, int(late_s // 60)), "late": late is not None,
+             "late_seconds": int(late_s),                       # addendum 137 item 2(4): the exact seconds
              "attempt": attempt, "covers": _covers_rec(covers), "file": f"{SLATE_DIR}/{slate_file(fam, day)}",
              "export": None, "rows": None, "calls": None, "beyond_day": None, "backup": None, "steps": [], "push": None,
              "exit": 1}, late)
@@ -2901,8 +2983,8 @@ def slate_watch(fam: str, tick_at: datetime, now: datetime | None = None, dry_ru
     the family's games of the tick's ET day; due at slate_due(); nothing before it, nothing after a success or three
     attempts. Exit as a closing's (0, 2 a refusal, NOTIFIED a failure or miss). `now`: when the run starts (the watch
     reads the clock for each run, and again after the stage's own probes); a run is late when its start (ran_at, in
-    whole seconds) is more than one cadence after the due time, whatever held it (_slate_late: a slate deferred or held
-    one tick normally reads `LATE 1 min`). `families`: the tick's families, whose closings a slate never delays
+    whole seconds) is more than LATE_MIN (five minutes) after the due time, whatever held it (_slate_late, addendum 137
+    item 2(4): "a one-tick deferral or hold is not late"; the receipt keeps the exact seconds). `families`: the tick's families, whose closings a slate never delays
     (slate_ahead: held inside SLATE_GUARD_MIN of the T-35 of a closing that can start, its lock wait ending there;
     held with no probe by a closing due by the next tick where a probe could not release it or could cost it its T-35,
     _hold_unprobed). `feed_probe`: the tick's MLB feed answer ({ok, detail}, watch()'s, shared by the tick's slates:
@@ -2911,8 +2993,9 @@ def slate_watch(fam: str, tick_at: datetime, now: datetime | None = None, dry_ru
     superseded does not count; the next family's slate runs on the next tick, a minute later)"): once a slate of the
     tick has run (`ran`, its family), a slate that would start waits for a later tick, receipted once a day as a hold
     (record_slate_deferred: `held`, `deferred`; its holds, misses and refusals still read this tick); watch() takes the
-    families in slate_order, so the tick's run goes to the soonest first kickoff and a retrying family comes last;
-    None (a direct call), no bound.
+    families in slate_order when the stage starts (after the tick's closings, #613 P1-3), so the tick's run goes to
+    the soonest first unstarted kickoff and a retrying family comes last; the stage's pages go out after it
+    (send_slate_page, #613 P1-1). None (a direct call), no bound; a page owed is sent at once.
     --dry-run prints the plan and touches nothing (no network: an MLB closing ahead is shown both ways); `planned`:
     the (family, start) closings the dry run's tick runs first, which hold no slate in the plan, though one after them
     may (`would RUN if they end before HH:MM ET, else held: …`); after closings with no MLB feed answer, an MLB
@@ -3026,7 +3109,7 @@ def slate_watch(fam: str, tick_at: datetime, now: datetime | None = None, dry_ru
     near = closing_ahead(fams, now)
     if (near and near["run_at"] <= now + timedelta(seconds=WATCH_CADENCE_S)
             and _hold_unprobed(near, fams, tick_at, now, (feed_probe or {}).get("ok"))):
-        return record_slate_hold(fam, day, base, near, games=games, now=now, tick_at=tick_at)
+        return record_slate_hold(fam, day, base, near, games=games, now=now, tick_at=tick_at, tick=tick)
     feed = None
     if FAMILIES[fam]["feed"]:         # A6, as the watch checks it before a closing: one miss a day, then silence.
         feed, detail = _tick_feed(feed_probe)   # Before the guard: unanswered, it pages RUN BY HAND at once
@@ -3044,10 +3127,12 @@ def slate_watch(fam: str, tick_at: datetime, now: datetime | None = None, dry_ru
     # LATE line reads): `now` is when they ended
     now = now + timedelta(seconds=time.time() - t_stage)
     if ahead and ahead["run_at"] <= now + guard:
-        return record_slate_hold(fam, day, base, ahead, games=games, now=now, tick_at=tick_at)
-    # at most one slate RUN per tick (addendum 134 item 1(ii)): after the tick's one, the next waits for the next tick
+        return record_slate_hold(fam, day, base, ahead, games=games, now=now, tick_at=tick_at, tick=tick)
+    # at most one slate RUN per tick (addendum 134 item 1(ii)): after the tick's one, the next waits for a later tick
+    # (record_slate_deferred; its page, addendum 137 item 2(5), with no window left before its first kickoff)
     if tick is not None and tick.get("ran"):
-        return record_slate_deferred(fam, day, base, tick["ran"])
+        return record_slate_deferred(fam, day, base, tick["ran"], games=games, now=now, tick_at=tick_at, ahead=ahead,
+                                     tick=tick)
     # the wait for the lock ends SLATE_GUARD_MIN before the next closing's T-35: a slate that gets the lock then has
     # finished before that closing is due (a waiting slate never takes the lock ahead of a due closing)
     wait = float(SLATE_LOCK_WAIT_S)
@@ -3066,7 +3151,7 @@ def slate_watch(fam: str, tick_at: datetime, now: datetime | None = None, dry_ru
         if wait < SLATE_LOCK_WAIT_S:  # the wait ended for the closing, not the full five minutes: a hold, no miss
             at = now + timedelta(seconds=time.time() - t_entry)
             return record_slate_hold(fam, day, base, ahead, why=_hold_why(ahead, lock=True), games=games, now=at,
-                                     tick_at=tick_at)
+                                     tick_at=tick_at, tick=tick)
         record_slate_miss(fam, day, "the chain lock was held", detail=f"waited {SLATE_LOCK_WAIT_S}s",
                           text=f"SLATE {fam} {day.isoformat()} MISSED: the chain lock was held through the "
                                f"{SLATE_LOCK_WAIT_S / 60:g}-minute wait — RUN BY HAND: {slate_block(fam, day)} · the "

@@ -879,19 +879,25 @@ def test_the_slates_wait_for_the_lock_ends_at_the_guard_a_hold_not_a_miss(box, m
     """MLB's first pitch 14:37 ET (its slate due 12:07); NFL's closing at 12:25; the chain lock held 12:00 to 12:20.
     At 12:07 the closing is 18 minutes off, outside the guard, so the slate waits for the lock, but only until 12:10
     (15 minutes before 12:25), not the five minutes: a hold, receipted, no miss and no notice. The closing runs on
-    time, the slate after it (late by its start: addendum 133 item 4, item 3)."""
+    time, the slates after it (late by their start: addendum 133 item 4, item 3), one a tick (addendum 134 item 1(ii)):
+    the NFL slate first (13:00, the sooner first unstarted kickoff: slate_order), the MLB slate on a later tick."""
     clk = moving_day(box, monkeypatch, NFL_TWO + [(701, "MLB", et(14, 37), "Underhill")], mlb_first_pitch=et(14, 37))
     fake_lock(monkeypatch, clk, et(12, 0), et(12, 20))
     drive(clk, ("MLB", "NFL"), et(12, 7), et(13, 0))
     r, t_queued, t_page = closing_1300()
     assert (r["exit"], t_queued) == (0, 35.0) and t_page >= mc.PAGE_BY_MIN
-    (h,) = [x for x in slates("MLB") if x.get("held")]
+    (h,) = [x for x in slates("MLB") if x.get("held") and not x.get("deferred")]
     assert h["queued_at"] == "2026-10-18T16:07:00Z" and h["held"] == (
-        "the chain lock was held into the 15-minute guard before closing NFL 13:00 ET (T-35 12:25 ET)")
+        "closing NFL 13:00 ET (T-35 12:25 ET) is inside the 15-minute guard")      # NFL's slate waited for the lock
+    (hn,) = [x for x in slates() if x.get("held")]
+    assert hn["held"] == "the chain lock was held into the 15-minute guard before closing NFL 13:00 ET (T-35 12:25 ET)"
     assert misses("MLB") == [] and not any("MISSED" in n or "FAILED" in n for n in box.notes)
+    (n,) = [x for x in slates() if not x.get("held")]
+    (d,) = [x for x in slates("MLB") if x.get("deferred")]
     (s,) = [x for x in slates("MLB") if not x.get("held")]
-    assert s["exit"] == 0 and mc.parse_utc(s["ran_at"]) >= mc.parse_utc(r["page"]["at"])
-    assert (s["ran_at"], s["late"], s["late_minutes"]) == ("2026-10-18T16:29:30Z", True, 22)
+    assert n["exit"] == 0 and mc.parse_utc(n["ran_at"]) >= mc.parse_utc(r["page"]["at"])
+    assert (n["ran_at"], d["deferred"], d["queued_at"]) == ("2026-10-18T16:29:30Z", "NFL", "2026-10-18T16:25:00Z")
+    assert (s["exit"], s["ran_at"], s["late"], s["late_minutes"]) == (0, "2026-10-18T16:35:00Z", True, 28)
 
 
 def test_the_closing_ahead_and_the_guard(box, monkeypatch):
@@ -932,7 +938,9 @@ def test_the_dry_run_leaves_out_the_closing_its_own_tick_runs_first(box, monkeyp
     after it, as the same tick then does for real (the closing, then the slate). With a second NFL closing 17 minutes
     after it (13:17, T-35 12:42, outside the 13:00 group's cover) the plan says no plain RUN: the slate runs if the
     13:00 closing ends before 12:27 (12:42 less the guard), else it is held; the same tick's closing ends at 12:29:30,
-    and the slate is held for 13:17."""
+    and the slate is held for 13:17. One slate run a tick (addendum 134 item 1(ii)), the NFL slate first (its 13:00 game
+    is the sooner first unstarted kickoff: slate_order): with no second closing the plan says the MLB slate runs on a
+    later tick, and the real tick runs the NFL slate and receipts the MLB slate's wait."""
     games = NFL_TWO + ([(603, "NFL", et(13, 17), "Third")] if second else []) + [(701, "MLB", et(14, 50), "Underhill")]
     clk = moving_day(box, monkeypatch, games, mlb_first_pitch=et(14, 50))
     drive(clk, ("MLB", "NFL"), et(12, 20), et(12, 24))                 # the MLB slate held at 12:20
@@ -941,8 +949,9 @@ def test_the_dry_run_leaves_out_the_closing_its_own_tick_runs_first(box, monkeyp
     assert mc.watch(dry_run=True, families=("MLB", "NFL")) == 0
     out = capsys.readouterr().out
     assert "would start closing-run --family NFL --start 2026-10-18T17:00:00Z" in out
-    plan = ("would RUN if they end before 12:27 ET, else held: closing NFL 13:17 ET (T-35 12:42 ET) is inside the "
-            "15-minute guard" if second else "would RUN")
+    plan = ("would RUN on a later tick (one slate run per tick: NFL's first) if they end before 12:27 ET, else held: "
+            "closing NFL 13:17 ET (T-35 12:42 ET) is inside the 15-minute guard" if second
+            else "would RUN on a later tick (one slate run per tick: NFL's first)")
     assert (f"SLATE MLB 2026-10-18: first kickoff 14:50 ET · due 12:20 ET · success no · attempts 0/3 → after this "
             f"tick's closings: would check the MLB feed, then {plan}\n") in out
     n = len(receipts())
@@ -950,7 +959,8 @@ def test_the_dry_run_leaves_out_the_closing_its_own_tick_runs_first(box, monkeyp
     assert [(r["kind"], r["family"], r.get("held"), r["exit"]) for r in receipts()[n:]
             if (r["kind"], r["family"]) in (("closing", "NFL"), ("slate", "MLB"))] == [
         ("closing", "NFL", None, 0),
-        ("slate", "MLB", "closing NFL 13:17 ET (T-35 12:42 ET) is inside the 15-minute guard" if second else None, 0)]
+        ("slate", "MLB", "closing NFL 13:17 ET (T-35 12:42 ET) is inside the 15-minute guard" if second else
+         "one slate run per tick: the NFL slate ran this tick (a later tick runs it)", 0)]
 
 
 # ============================================================ a closing that cannot start holds no slate ==
@@ -1083,7 +1093,8 @@ def test_a_held_ticks_probe_never_carries_the_next_closing_past_its_t35(box, mon
     slate stage (at cb1261d two slate probes carried that tick to 14:30:03 and the closing to 14:31:03, T-34.0). From
     14:25 the one probe is the closing's; the MLB slate after it reads that answer. Each closing the slates waited for
     is receipted once, the newest naming the one they waited for last. One slate run per tick (addendum 134 item
-    1(ii)): the MLB slate runs on the tick after its closing, the SOCCER slate on the next (receipted once, deferred)."""
+    1(ii)): the SOCCER slate (15:00, the sooner first unstarted kickoff: slate_order) runs on the tick after the MLB
+    closing, the MLB slate on a later tick (its wait receipted once), with its own feed check."""
     base = et(0, 0, D23)
     games = [(521, "PL", 15 * 60, "Villa"), (701, "MLB", 15 * 60 + 5, "Underhill"),
              (702, "MLB", 19 * 60 + 5, "Clearwater")]
@@ -1118,7 +1129,7 @@ def test_a_held_ticks_probe_never_carries_the_next_closing_past_its_t35(box, mon
     assert [(r["family"], r["start"], r["queued_at"], r["exit"]) for r in runs()] == [
         ("SOCCER", "2026-09-23T19:00:00Z", "2026-09-23T18:25:00Z", 0),
         ("MLB", "2026-09-23T19:05:00Z", "2026-09-23T18:30:03Z", 0)]            # each queued at T-35.0
-    assert [p for p in probes if p >= et(14, 25, D23)] == [et(14, 30, D23)]    # the MLB closing's own probe only
+    assert [p for p in probes if et(14, 25, D23) <= p < et(14, 40, D23)] == [et(14, 30, D23)]   # the closing's own
     for fam in ("MLB", "SOCCER"):
         assert [(x["queued_at"], x["closing"]["family"], x["closing"]["start"]) for x in slates(fam)
                 if x.get("held") and not x.get("deferred")] == [
@@ -1127,12 +1138,13 @@ def test_a_held_ticks_probe_never_carries_the_next_closing_past_its_t35(box, mon
         (s,) = [x for x in slates(fam) if not x.get("held")]
         assert s["exit"] == 0 and mc.parse_utc(s["ran_at"]) >= mc.parse_utc(runs("MLB")[0]["page"]["at"])
     (m,) = [x for x in slates("MLB") if not x.get("held")]
-    (d,) = [x for x in slates("SOCCER") if x.get("deferred")]
+    (d,) = [x for x in slates("MLB") if x.get("deferred")]
     (so,) = [x for x in slates("SOCCER") if not x.get("held")]
-    assert not any(x.get("deferred") for x in slates("MLB")) and d["deferred"] == "MLB"
-    assert d["held"] == "one slate run per tick: the MLB slate ran this tick (the next tick runs it)"
-    assert m["queued_at"] == d["queued_at"] < so["queued_at"]                   # the next tick after the MLB run
-    assert mc.parse_utc(so["ran_at"]) >= mc.parse_utc(m["ran_at"]) + timedelta(seconds=10 * 49.5)
+    assert not any(x.get("deferred") for x in slates("SOCCER")) and d["deferred"] == "SOCCER"
+    assert d["held"] == "one slate run per tick: the SOCCER slate ran this tick (a later tick runs it)"
+    assert so["queued_at"] == d["queued_at"] < m["queued_at"]                   # the tick after the SOCCER run
+    assert mc.parse_utc(m["ran_at"]) >= mc.parse_utc(so["ran_at"]) + timedelta(seconds=6 * 49.5)
+    assert [p for p in probes if p >= et(14, 40, D23)] == [mc.parse_utc(m["queued_at"])]  # the MLB slate's own check
     assert misses("MLB") == misses("SOCCER") == []
 
 
@@ -1440,14 +1452,14 @@ def test_one_slate_run_per_tick_the_next_familys_runs_on_the_next_tick(box, monk
     assert mc.watch(dry_run=True, now=et(10, 30), families=("MLB", "NFL")) == 0
     plan = [ln for ln in capsys.readouterr().out.splitlines() if ln.startswith("  SLATE ")]
     assert plan[0].endswith("→ would check the MLB feed, then would RUN")
-    assert plan[1].endswith("→ would RUN on the next tick (one slate run per tick: MLB's first)")
+    assert plan[1].endswith("→ would RUN on a later tick (one slate run per tick: MLB's first)")
     assert receipts() == [] and box.steps == []
     assert tick(et(10, 30), ("MLB", "NFL")) == 0
     (m,) = slates("MLB")
     (d,) = slates()
     assert (m["exit"], m["attempt"]) == (0, 1) and len(slate_pages(box, "MLB")) == 1
     assert (d["held"], d["deferred"], d["queued_at"], d["exit"]) == (
-        "one slate run per tick: the MLB slate ran this tick (the next tick runs it)", "MLB", "2026-10-18T14:30:00Z",
+        "one slate run per tick: the MLB slate ran this tick (a later tick runs it)", "MLB", "2026-10-18T14:30:00Z",
         0)
     assert mc.slate_state("NFL", "2026-10-18") == {"success": False, "attempts": 0}            # no attempt
     assert slate_pages(box) == [] and not any(s[0].startswith("export-nfl") for s in box.steps)
@@ -1456,7 +1468,7 @@ def test_one_slate_run_per_tick_the_next_familys_runs_on_the_next_tick(box, monk
     assert (s["exit"], s["attempt"], s["late"], s["late_minutes"]) == (0, 1, False, 1)
     assert slate_pages(box)[0]["body"] == f"SLATE NFL 2026-10-18: 1 row · PLAY 0 · PASS 1 · {NFL_FILE}\n{MACHINE}"
     assert sp_receipts.key_line(d) == ("NFL 2026-10-18 slate held: one slate run per tick: the MLB slate ran this tick "
-                                       "(the next tick runs it)") and not sp_receipts.failed(d)
+                                       "(a later tick runs it)") and not sp_receipts.failed(d)
 
 
 def test_a_slate_that_misses_or_holds_does_not_take_the_ticks_run(box, monkeypatch):
@@ -1534,3 +1546,65 @@ def test_the_late_line_names_the_due_time_the_first_tick_and_the_run():
     late = {"minutes": 47, "due": et(7, 0), "tick": et(7, 40), "run": et(7, 47)}
     _, body = mc.slate_page_text("NFL", D18, 2, {"PLAY": 1, "PASS": 1}, NFL_FILE, late)
     assert body.splitlines()[1] == "LATE 47 min: due 07:00 ET, first tick 07:40 ET, run 07:47 ET"
+
+
+# ========================================= the #602 review's two P1s on 9c04c7f: the closings first, every slate due ==
+
+def test_a_held_page_never_costs_the_next_closing_its_tick(box, monkeypatch):
+    """The review's repro: the laptop's first tick is 12:17 ET and runs the MLB 12:38 closing; the slate stage then holds
+    the MLB slate with no probe for the NFL 13:00 closing (T-35 12:25, due by the next tick), and MLB's first unstarted
+    pitch is 13 minutes off, so the HELD page is owed. A page that took ntfy's 20 s there carried the NFL closing to
+    12:26 and its page past T-30. The page goes out only where it cannot cost a closing its tick
+    (record_slate_hold: NOTIFY_MAX_S before the first tick that could start the closing), so the NFL closing is queued
+    at 12:25:00 as with no slate stage. On the tick after the closing the MLB slate is no longer held (no closing is
+    ahead) and runs before its 12:38 first pitch, so no HELD page is owed: none went out."""
+    clk = moving_day(box, monkeypatch, [(602, "NFL", et(13, 0), "Buffalo"), (701, "MLB", et(12, 38), "Underhill")],
+                     mlb_first_pitch=et(12, 38))
+    real = mc.page_phone
+
+    def slow_page(*a, **k):
+        clk.t += timedelta(seconds=20)
+        return real(*a, **k)
+    monkeypatch.setattr(mc, "page_phone", slow_page)
+    drive(clk, ("MLB", "NFL"), et(12, 17), et(12, 40))
+    r, t_queued, t_page = closing_1300()
+    assert (r["queued_at"], t_queued) == ("2026-10-18T16:25:00Z", 35.0) and t_page >= mc.PAGE_BY_MIN
+    assert not any(x.get("held_page") for x in slates("MLB")) and not any("HELD" in n for n in box.notes)
+    (s,) = [x for x in slates("MLB") if not x.get("held")]
+    assert s["exit"] == 0 and mc.parse_utc(r["page"]["at"]) <= mc.parse_utc(s["ran_at"]) < et(12, 38)
+
+
+PL_MLB_NFL = [(401, "PL", et(12, 45), "Villa"), (701, "MLB", et(12, 50), "Underhill"),
+              (702, "MLB", et(16, 10), "Clearwater"), (602, "NFL", et(13, 0), "Buffalo")]
+
+
+def test_one_slate_run_a_tick_goes_to_the_soonest_kickoff_and_every_slate_runs(box, monkeypatch):
+    """The review's day (a): the laptop wakes at 12:15 ET with PL 12:45, MLB 12:50 and NFL 13:00 all due. In the fixed
+    MLB, NFL, SOCCER order the NFL slate took a tick ahead of the PL one, and the SOCCER slate missed its kickoff. In
+    slate_order (the soonest first unstarted kickoff first) each slate runs before its first game, the closings as on
+    main."""
+    clk = busy_day(box, monkeypatch, D18, PL_MLB_NFL, lambda t: (True, "HTTP 200"))
+    drive(clk, ("MLB", "NFL", "SOCCER"), et(12, 15), et(13, 1))
+    for fam, first in (("SOCCER", et(12, 45)), ("MLB", et(12, 50)), ("NFL", et(13, 0))):
+        ok = [x for x in slates(fam) if x.get("exit") == 0 and not x.get("held")]
+        assert len(ok) == 1 and mc.parse_utc(ok[0]["ran_at"]) < first, fam
+    assert all(m["reason"] != mc.SLATE_ALL_STARTED for m in receipts() if m["kind"] == "slate_miss")
+
+
+def test_a_family_retrying_a_failed_slate_does_not_take_every_tick(box, monkeypatch):
+    """The review's day (c): NFL 13:00, PL 13:00, MLB 14:00, the laptop wakes at 12:30 ET and the MLB slate's export
+    fails three times (its capture-weather step, MLB's own). A retry goes after the slates with no failed attempt
+    (slate_order), so the NFL and SOCCER slates run between the MLB attempts, before their kickoffs."""
+    clk = busy_day(box, monkeypatch, D18, [(602, "NFL", et(13, 0), "Buffalo"), (401, "PL", et(13, 0), "Villa"),
+                                           (701, "MLB", et(14, 0), "Underhill")], lambda t: (True, "HTTP 200"))
+    box.fail_cmd["capture-weather"] = (1, ["boom"])
+    drive(clk, ("MLB", "NFL", "SOCCER"), et(12, 30), et(13, 1))
+    for fam in ("NFL", "SOCCER"):
+        ok = [x for x in slates(fam) if x.get("exit") == 0 and not x.get("held")]
+        assert len(ok) == 1 and mc.parse_utc(ok[0]["ran_at"]) < et(13, 0), fam
+    assert mc.slate_order(("MLB", "NFL", "SOCCER"), et(12, 59))[-1] == "MLB"     # the retrying family goes last
+
+
+def test_the_slate_order():
+    """Unit: no failed attempt first, then the soonest first unstarted kickoff; the tick's own families only."""
+    assert inspect.signature(mc.slate_order).parameters.keys() == {"fams", "now"}

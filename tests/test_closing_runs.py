@@ -289,6 +289,11 @@ def box(tmp_path, monkeypatch):
     monkeypatch.setattr(mc, "page_sleep", lambda sec: b.sleeps.append(sec))           # B2: no real wait
     monkeypatch.setattr(mc, "push_mirror", lambda label="closing": b.pushes.append(label) or {"exit": 0,
                                                                                         "tail": ["pushed"]})
+    # THE SLATE STAGE (addendum 126 item 2(a), #590) is off in these closing tests, whose ticks fall on days the slate
+    # is already due: tests/test_slate_run.py turns it on (b.slate_on()) and pins the closings unchanged beside it.
+    real_slate = mc.slate_watch
+    monkeypatch.setattr(mc, "slate_watch", lambda *a, **k: 0)
+    b.slate_on = lambda: monkeypatch.setattr(mc, "slate_watch", real_slate)
     real_append = c.append_receipt
 
     def watched_append(rec):

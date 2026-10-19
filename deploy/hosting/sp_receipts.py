@@ -18,6 +18,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import closing as cl  # noqa: E402
 import sp_common as c  # noqa: E402
 
 
@@ -62,6 +63,22 @@ def key_line(r: dict) -> str:
                 + ("; closing file NOT WRITTEN" if r.get("closing_file_failed") else ""))
     if k == "closing_miss":
         return f"{r.get('family')} {r.get('start')} MISSED: {r.get('reason')}"
+    if k == "slate":                  # addendum 126 item 2(a) (#590): the slate run's line
+        head = f"{r.get('family')} {r.get('date')}"
+        if r.get("refused"):
+            return f"{head} slate refused: {r['refused']}"
+        if r.get("superseded"):
+            return f"{head} slate superseded ({r.get('why')})"
+        if r.get("held"):             # held for a closing (no attempt): the slate runs after it
+            return f"{head} slate held: {r['held']}"
+        if r.get("failed"):
+            return f"{head} slate attempt {r.get('attempt')} FAILED: {r['failed']}"
+        calls = r.get("calls") or {}
+        # addendum 133 item 3(c): `<N> row(s)` by count (`1 row` on a one-game day), as the page reads
+        return (f"{head} slate {r.get('file')}: {cl.rows_text(r.get('rows'))}, PLAY {calls.get('PLAY', 0)}, PASS "
+                f"{calls.get('PASS', 0)}" + (f"; LATE {r.get('late_minutes')} min" if r.get("late") else ""))
+    if k == "slate_miss":
+        return f"{r.get('family')} {r.get('date')} slate MISSED: {r.get('reason')}"
     if k == "deploy":
         return (f"{r.get('from_release') or r.get('from_sha')} -> {r.get('to_release') or r.get('to_sha')}"
                 f" ({r.get('to_sha')})")
@@ -73,8 +90,9 @@ def failed(r: dict) -> bool:
     miss, and a closing whose push failed after its page. The page went out, but the mirror is what the compare and
     the Cockpit read, and it is short of that file until the next push." Addendum 48 item 5 (#459): "A closing
     whose file was not written counts as failing in the receipts table, and its key line says so. It is the failed
-    push's case and worse: no later push carries a file that was never written." """
-    return (r.get("kind") in ("failure", "closing_miss") or (r.get("exit") not in (0, None))
+    push's case and worse: no later push carries a file that was never written." A slate miss (addendum 126, #590)
+    counts as failing, as a closing miss does; a slate run's failure has exit 1 and a refusal exit 2."""
+    return (r.get("kind") in ("failure", "closing_miss", "slate_miss") or (r.get("exit") not in (0, None))
             or (r.get("kind") == "closing" and bool(r.get("push_failed") or r.get("closing_file_failed"))))
 
 
@@ -128,7 +146,7 @@ def table(rs: list[dict]) -> str:
             what = f"{r.get('run_id', '').split('-', 1)[-1]} #{r.get('step')}"
         elif r.get("kind") in ("backup", "page", "failure", "boot", "deploy"):
             what = r["kind"] + (f":{r['backup_kind']}" if r.get("backup_kind") else "")
-        elif r.get("kind") in ("closing", "closing_miss"):
+        elif r.get("kind") in ("closing", "closing_miss", "slate", "slate_miss"):
             what = f"{r['kind']}:{r.get('family')}"
         b = backup_sha(r)
         ex = "—" if r.get("exit") is None else str(r.get("exit"))

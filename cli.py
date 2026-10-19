@@ -9118,9 +9118,16 @@ def closing_watch_cmd(families, dry_run):
     sp-closing-watch.timer for NFL and SOCCER, shipped held, addendum 45).
     No network to decide: per family, the earliest unstarted start time not yet closed; at T-35 (no attempt inside
     T-5, at most three per start time) it starts closing-run for it, covering the games within the 10 minutes after
-    it (MLB: after checking the MLB feed answers). Otherwise exit 0, silent. Exit: 0 success, 2 a refusal, 3 a
-    failure or miss already receipted and notified, 1 what it could not report. (= python deploy/hosting/closing.py
-    watch)"""
+    it (MLB: after checking the MLB feed answers). Otherwise exit 0, silent. Then THE SLATE STAGE (ARCHITECT
+    2026-10-18, addendum 126 item 2(a)): per family, once a US Eastern day, due at the first kickoff minus 150 minutes
+    or the first tick after 06:00 ET when later (never inside 15 minutes of the T-35 of a closing that can start: the
+    closing runs first), the closing chain's steps for the day's games, the export --desk kept under logs/ as a
+    closing's is and, once its checks pass, linked into the family's slate file in exports/ (addendum 133 item 3(a): a
+    failure at a step, a check or the link leaves nothing in exports/; a failed push or page comes after the link,
+    and the file stands), the mirror push, and one page ("SLATE <FAMILY> <date>: <N> row(s) · PLAY <p> · PASS <q> ·
+    exports/<file>"; a failure: "SLATE <FAMILY> FAILED: <step> — RUN BY HAND: block_<MMDD>_<family>_slate.txt ·
+    attempt k/3"). Exit: 0 success, 2 a refusal, 3 a failure or miss already
+    receipted and notified, 1 what it could not report. (= python deploy/hosting/closing.py watch)"""
     argv = ["watch"] + [x for f in families for x in ("--family", f.upper())] + (["--dry-run"] if dry_run else [])
     raise SystemExit(_closing().main(argv))
 
@@ -9205,9 +9212,13 @@ def coverage_cmd(date_s, as_json, out_path):
     range when the rows differ), and the games with none; the closing runs done today ("done (run <run_id>,
     <exit>)", from the watch's receipt log) and the groups the watch will run (closing.due's own inputs; T-35 in ET,
     the match ids) with the file each lands in (exports/closing_<FAMILY>_<start>.json). Then the gaps in capitals ("PL:
-    4 GAMES, 0 PREDICTION ROWS — soccer-prematch has not run"). Read-only: the DB opened mode=ro, no row or export
-    written, no provider call. Exit 0 whatever the gaps (it never stops a chain); a --date that is not real or a DB that
-    cannot be read exits 2.
+    4 GAMES, 0 PREDICTION ROWS — soccer-prematch has not run"). Under each LIVE competition its SLATE line
+    (addendum 126 item 2(b)): the newest exports/ file of the family's slate kind holding every game of the day, its
+    exported_at and PLAY/PASS counts, else "NO SLATE FILE — slate run due HH:MM ET" ("— run block <block>" where this
+    machine refuses the family, or where the watch's slate receipts say it runs no slate that day) and the gap "NFL:
+    12 GAMES, ROWS 12, NO SLATE FILE". Read-only: the DB opened mode=ro,
+    exports/ read, no row or export written, no provider call. Exit 0 whatever the gaps (it never stops a chain); a
+    --date that is not real or a DB that cannot be read exits 2.
     --json [--out PATH] (ARCHITECT 2026-10-18, addendum 125 item 2(a), #589) also writes the map as data, kind
     coverage_v1 (default exports/coverage_<date>.json; the Cockpit's Today tab reads it): coverage() with every datetime
     ISO-8601 Z, the line's own words beside it, and `roadmap`, the lanes as `roadmap` reads them ("no ETA" where a lane

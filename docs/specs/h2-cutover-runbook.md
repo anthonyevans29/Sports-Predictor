@@ -354,7 +354,13 @@ Which machine runs item 5's readout (ARCHITECT 2026-10-18, addendum 128 item 1(a
      under `logs/` as a closing's is (`--out logs/<run id>.<name>`); once its checks pass, the kept file is linked into
      the family's slate file in `exports/` (`nfl_predictions_<date>.json`, `soccer_PL_<start>_to_<end>.json`; a hard
      link, then the rename over the name, as the closing writes its closing file), then it pushes the mirror and pages
-     `SLATE <FAMILY> <date>: <N> row(s) · PLAY <p> · PASS <q> · exports/<file>`. A failure at a step, a check or the
+     `SLATE <FAMILY> <date>: <N> row(s) · PLAY <p> · PASS <q> · exports/<file>` (the ET day's games; `· +<k> beyond
+     the day` before the file when the export carries more; `LATE <m> min: due HH:MM ET, first tick HH:MM ET, run
+     HH:MM ET` on the next line when it starts more than a minute after its due time, whatever held it: addendum 133
+     item 4). At most one slate runs a tick (addendum 134 item 1(ii)): the next family's runs on the next tick, so the
+     host unit's 45-minute bound holds a tick's closings and one chain. A slate still held with no 15 minutes left
+     before its family's first unstarted kickoff pages `SLATE <FAMILY> <date> HELD for <closing> — RUN BY HAND:
+     <block>` once. A failure at a step, a check or the
      link leaves nothing in `exports/` and nothing reaches the mirror (addendum 133 item 3(a)): Saturday's soccer
      window file stands on Sunday until a Sunday slate passes. A push or a page that fails comes after the link, so
      the checked file stands in `exports/` (the page case as ruled; the push case as built, open for the architect).

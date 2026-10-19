@@ -792,7 +792,9 @@ NFL_ROWS = [(601, "nfl_elo_v1", "2026-10-17 23:00"), (602, "nfl_elo_v1", "2026-1
 
 def test_the_slate_line_both_ways_and_the_no_slate_gap(env):
     """No file: "NO SLATE FILE — slate run due 07:00 ET" (09:30 ET less 150 minutes) and the gap in capitals; a file
-    covering one of the two games is no slate file; the file covering both is named with its exported_at and counts."""
+    covering one of the two games is no slate file; the file covering both is named with its exported_at and counts,
+    the day's games only, the row beyond the day following (addendum 133 item 4, item 8: "N, PLAY and PASS count the
+    DAY's games [...] rows beyond the day follow as `· +<k> beyond the day` when k > 0")."""
     make_db(env, NFL_DAY, NFL_ROWS)
     rc, out = run("--date", "2026-10-18")
     assert rc == 0
@@ -804,18 +806,21 @@ def test_the_slate_line_both_ways_and_the_no_slate_gap(env):
     slate_doc("nfl_predictions_2026-10-18.json", [601, 602, 603], "2026-10-18T11:02:00Z", {601: "PLAY"})
     rc, out = run("--date", "2026-10-18")
     assert out[out.index(line_of(out, "NFL")) + 1] == (
-        "NFL SLATE · exports/nfl_predictions_2026-10-18.json · exported 2026-10-18 07:02 ET · PLAY 1 · PASS 2")
+        "NFL SLATE · exports/nfl_predictions_2026-10-18.json · exported 2026-10-18 07:02 ET · PLAY 1 · PASS 1 · +1 "
+        "beyond the day")
     assert out[-1] == "GAPS: none"
     s = cm.coverage(datetime(2026, 10, 18).date(), NOW)["competitions"][0]["slate"]
-    assert (s["file"], s["exported_at"], s["rows"], s["calls"], s["due"], s["block"], s["refused"], s["skipped"]) == (
-        "exports/nfl_predictions_2026-10-18.json", utc("2026-10-18 11:02"), 3, {"PLAY": 1, "PASS": 2},
+    assert (s["file"], s["exported_at"], s["rows"], s["calls"], s["beyond"], s["started_before"], s["older"], s["due"],
+            s["block"], s["refused"], s["skipped"]) == (
+        "exports/nfl_predictions_2026-10-18.json", utc("2026-10-18 11:02"), 2, {"PLAY": 1, "PASS": 1}, 1, [], None,
         utc("2026-10-18 11:00"), "block_1018_nfl_slate.txt", None, [])
 
 
 def test_the_newest_covering_file_wins_and_other_calls_are_named(env):
     """PL's slate kind (soccer_PL_*.json): of the files covering both games the newest by exported_at; a newer file
-    covering one game is not it. A LADDER is named on its own, never folded into PLAY or PASS. Due floor: a 07:30 ET
-    kickoff is due at 06:00 ET."""
+    covering one game is not it. A LADDER is named on its own, never folded into PLAY or PASS; the counts are the day's
+    games, the round's row beyond the day following (addendum 133 item 4, item 8). Due floor: a 07:30 ET kickoff is
+    due at 06:00 ET."""
     make_db(env, [(401, "PL", "2026-10-17 11:30", "SCHEDULED"), (402, "PL", "2026-10-17 16:30", "SCHEDULED")],
             [(401, "v22", "2026-10-17 06:00"), (402, "v22", "2026-10-17 06:00")])
     assert "PL SLATE · NO SLATE FILE — slate run due 06:00 ET" in run("--date", DAY)[1]
@@ -825,8 +830,8 @@ def test_the_newest_covering_file_wins_and_other_calls_are_named(env):
     slate_doc("soccer_PL_2026-10-17.json", [401], "2026-10-17T10:00:00Z")
     out = run("--date", DAY)[1]
     assert out[out.index(line_of(out, "PL")) + 1] == (
-        "PL SLATE · exports/soccer_PL_2026-10-17_to_2026-10-20.json · exported 2026-10-17 05:00 ET · PLAY 1 · PASS 1 · "
-        "LADDER 1")
+        "PL SLATE · exports/soccer_PL_2026-10-17_to_2026-10-20.json · exported 2026-10-17 05:00 ET · PLAY 1 · PASS 0 · "
+        "LADDER 1 · +1 beyond the day")
     assert out[-1] == "GAPS: none"
 
 
@@ -946,7 +951,8 @@ def test_the_hold_note_names_the_closing_the_slate_waits_for_now(env, monkeypatc
     closing (T-35 08:55); the 08:50 tick holds it for the same closing and writes nothing; that closing runs at 08:55;
     the 09:00 tick holds the slate again, for the 09:42 closing (T-35 09:07, outside the 09:30 group's cover). The
     watch receipts each closing it waits for once (closing.record_slate_hold), so the line names the one it waits for
-    now, never the closing whose run is done on the line above it. Late still counts from the first tick, 08:41."""
+    now, never the closing whose run is done on the line above it. The first tick stays 08:41, the LATE line's `first
+    tick` (addendum 133 item 4, item 3); late runs from the due time to the run's start."""
     make_db(env, [(601, "NFL", "2026-10-18 13:30", "SCHEDULED"), (603, "NFL", "2026-10-18 13:42", "SCHEDULED"),
                   (602, "NFL", "2026-10-18 17:00", "SCHEDULED")], NFL_ROWS)
     base = {"kind": "slate", "family": "NFL", "date": "2026-10-18", "trigger": "watch", "due": "2026-10-18T11:00:00Z"}
@@ -969,8 +975,10 @@ def test_the_hold_note_names_the_closing_the_slate_waits_for_now(env, monkeypatc
         "ET) is inside the 15-minute guard): the slate runs after it)")
     assert [r["closing"]["start"] for r in cl.receipts((cl.SLATE_KIND,)) if r.get("held")] == [
         "2026-10-18T13:30:00Z", "2026-10-18T13:42:00Z"]
-    assert cl._slate_late("NFL", "2026-10-18", utc("2026-10-18 13:20"), utc("2026-10-18 11:00"))[1]["tick"] == (
-        utc("2026-10-18 12:41"))                                   # the first tick that found it due
+    late_s, late = cl._slate_late("NFL", "2026-10-18", utc("2026-10-18 13:20"), utc("2026-10-18 11:00"),
+                                  utc("2026-10-18 13:21"))
+    assert (late_s, late) == (8460.0, {"minutes": 141, "due": utc("2026-10-18 11:00"), "tick": utc("2026-10-18 12:41"),
+                                       "run": utc("2026-10-18 13:21")})   # the first tick that found it due: 08:41
 
 
 @pytest.mark.parametrize("read, runs, kept", [
@@ -1007,14 +1015,20 @@ def test_a_hold_drops_out_once_its_closing_is_no_longer_ahead(env, monkeypatch, 
 
 
 def test_a_successful_slate_no_file_holds_every_game_names_the_block(env, monkeypatch):
-    """A slate that ran after the first kickoff (the laptop asleep) succeeded on the games not started; no file holds
-    every game of the day by match id (item 2(b)), so the gap stands, and the line says the watch's run succeeded and
-    runs no more, never "slate run due" a time long past. Every game started before a slate ran: the same."""
+    """A slate that ran after the first kickoff (the laptop asleep) succeeded on the games not started. Its file counts
+    (addendum 133 item 4, item 4: "the SLATE line counts a file that holds every game of the day UNSTARTED at its
+    exported_at, and names the ones left out on the line (`· started before it: <ids>`); no gap is claimed for a
+    started game"). With no file that holds every game unstarted at its export the gap stands, and the line says the
+    watch's run succeeded and runs no more, never "slate run due" a time long past. Every game started before a slate
+    ran: the same."""
     make_db(env, [(601, "NFL", "2026-10-18 13:30", "LIVE"), (602, "NFL", "2026-10-18 17:00", "SCHEDULED")], NFL_ROWS)
     monkeypatch.setattr(cl, "clock", lambda: utc("2026-10-18 14:30"))
-    slate_doc("nfl_predictions_2026-10-18.json", [602], "2026-10-18T13:41:00Z")
+    f = slate_doc("nfl_predictions_2026-10-18.json", [602], "2026-10-18T13:41:00Z")
     receipt(kind="slate", family="NFL", date="2026-10-18", attempt=1, exit=0, ran_at="2026-10-18T13:40:00Z",
             completed_at="2026-10-18T13:41:00Z", file="exports/nfl_predictions_2026-10-18.json")
+    assert _nfl_slate_line() == ("NFL SLATE · exports/nfl_predictions_2026-10-18.json · exported 2026-10-18 09:41 ET · "
+                                 "PLAY 0 · PASS 1 · started before it: 601", [])
+    f.unlink()                        # no file holds the day's games: the watch's success is said, the gap claimed
     assert _nfl_slate_line() == (
         "NFL SLATE · NO SLATE FILE — run block block_1018_nfl_slate.txt (a successful slate at 09:41 ET "
         "(exports/nfl_predictions_2026-10-18.json), but no file holds every game of the day: the watch runs it no more)",
@@ -1029,6 +1043,51 @@ def test_a_successful_slate_no_file_holds_every_game_names_the_block(env, monkey
     monkeypatch.setattr(cl, "clock", lambda: utc("2026-10-18 17:30"))            # 13:30 ET: every game started
     assert _nfl_slate_line()[0] == ("NFL SLATE · NO SLATE FILE — run block block_1018_nfl_slate.txt (missed: every game "
                                     "of the day had started: the watch runs it no more)")
+
+
+def test_the_days_slate_file_is_one_exported_on_the_et_day(env, monkeypatch):
+    """Addendum 133 item 4, item 5: "the day's SLATE file is a file EXPORTED ON THE ET DAY. An older file never stands
+    as the day's slate, whatever it covers [...] With only such a file the line reads `NO SLATE FILE — slate run due
+    HH:MM ET (newest exports/<file> exported <ET>, not today's)` and the gap is claimed." Saturday's soccer window file
+    holds Sunday's PL game: on Sunday it is last sync's, named, and the gap stands; Sunday's own export stands."""
+    make_db(env, [(401, "PL", "2026-10-18 13:00", "SCHEDULED")], [(401, "v22", "2026-10-17 10:00")])
+    monkeypatch.setattr(cl, "clock", lambda: utc("2026-10-18 12:00"))
+    slate_doc("soccer_PL_2026-10-17_to_2026-10-20.json", [401, 402], "2026-10-17T09:00:00Z")
+    out = run("--date", "2026-10-18")[1]
+    assert out[out.index(line_of(out, "PL")) + 1] == (
+        "PL SLATE · NO SLATE FILE — slate run due 06:30 ET (newest exports/soccer_PL_2026-10-17_to_2026-10-20.json "
+        "exported 2026-10-17 05:00 ET, not today's)")
+    assert gaps(out) == ["PL: 1 GAME, ROWS 1, NO SLATE FILE"]
+    pl = cm.coverage(datetime(2026, 10, 18).date(), utc("2026-10-18 12:00"))["competitions"][0]["slate"]
+    assert (pl["file"], pl["older"]) == (None, {"file": "exports/soccer_PL_2026-10-17_to_2026-10-20.json",
+                                                "exported_at": utc("2026-10-17 09:00")})
+    # the watch's notes follow the older file's, in the same brackets
+    receipt(kind="slate_miss", family="SOCCER", date="2026-10-18", reason="the chain lock was held")
+    out = run("--date", "2026-10-18")[1]
+    assert out[out.index(line_of(out, "PL")) + 1] == (
+        "PL SLATE · NO SLATE FILE — slate run due 06:30 ET (newest exports/soccer_PL_2026-10-17_to_2026-10-20.json "
+        "exported 2026-10-17 05:00 ET, not today's; missed (the chain lock was held): the watch keeps trying)")
+    # Sunday's own run rewrites the window file: exported on the day, it stands (the counts are the day's game, +1)
+    slate_doc("soccer_PL_2026-10-17_to_2026-10-20.json", [401, 402], "2026-10-18T10:31:00Z")
+    out = run("--date", "2026-10-18")[1]
+    assert out[out.index(line_of(out, "PL")) + 1] == (
+        "PL SLATE · exports/soccer_PL_2026-10-17_to_2026-10-20.json · exported 2026-10-18 06:31 ET · PLAY 0 · PASS 1 · "
+        "+1 beyond the day")
+    assert out[-1] == "GAPS: none"
+
+
+def test_an_older_file_is_named_on_the_block_lines_too(env, monkeypatch):
+    """Where this machine refuses the family, or the watch runs no slate that day, the older file is named the same
+    way, first in the brackets."""
+    monkeypatch.setenv("SP_SKIP_FAMILIES", "MLB")
+    make_db(env, [(50548, "MLB", "2026-10-18 21:08", "SCHEDULED")])
+    monkeypatch.setattr(cl, "clock", lambda: utc("2026-10-18 12:00"))
+    slate_doc("mlb_MLB_2026-10-17.json", [50548], "2026-10-17T14:00:00Z")
+    out = run("--date", "2026-10-18")[1]
+    assert out[out.index(line_of(out, "MLB")) + 1] == (
+        "MLB SLATE · NO SLATE FILE — run block block_1018_mlb_slate.txt (newest exports/mlb_MLB_2026-10-17.json "
+        "exported 2026-10-17 10:00 ET, not today's)")
+    assert gaps(out) == ["MLB: 1 GAME, ROWS 0, NO SLATE FILE"]
 
 
 def test_slate_receipts_that_cannot_be_read_are_said(env, monkeypatch, tmp_path):

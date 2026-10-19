@@ -734,7 +734,12 @@ def export_nfl_results(days_back: int | None = None, out_dir: str = "exports") -
                            # P0-3 (#208): q_close per side for entry-price CLV on ledger positions; the close's
                            # reference and its book stamp's age (addendum 137 item 4: "the row says so")
                            **graded_block(_cl, m.utc_date),
-                           "clv": round(clv, 4) if clv is not None else None,
+                           # ARCHITECT 2026-10-19 (addendum 137 item 3, #612): model p minus close fair on the pick
+                           # (p >= 0.5 picks HOME), a fraction (0.0453 = +4.53pp), on the row's close above (the book,
+                           # or the session's Kalshi mid by the stale-book rule); NOT a closing-line value (close
+                           # minus entry is the Cockpit P&L's, on fills)
+                           "model_close_divergence": round(clv, 4) if clv is not None else None,
+                           "clv": round(clv, 4) if clv is not None else None,   # the alias, through v1.5.0
                            # value side (additive, rulings 2026-09-29): null when unanchored
                            "value_side": vg["side"] if vg else None,
                            "value_side_clv": round(vg["value_side_clv"], 4) if vg else None,

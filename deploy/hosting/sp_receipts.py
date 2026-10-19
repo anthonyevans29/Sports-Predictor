@@ -69,14 +69,17 @@ def key_line(r: dict) -> str:
             return f"{head} slate refused: {r['refused']}"
         if r.get("superseded"):
             return f"{head} slate superseded ({r.get('why')})"
-        if r.get("held"):             # held for a closing (no attempt): the slate runs after it
-            return f"{head} slate held: {r['held']}"
+        if r.get("held"):             # held for a closing, or for the tick's one slate run (no attempt)
+            page = (r.get("held_page") or {}).get("text")    # addendum 133 item 4, item 2: the HELD page, when sent
+            return f"{head} slate held: {r['held']}" + (f"; HELD page: {page}" if page else "")
         if r.get("failed"):
             return f"{head} slate attempt {r.get('attempt')} FAILED: {r['failed']}"
         calls = r.get("calls") or {}
         # addendum 133 item 3(c): `<N> row(s)` by count (`1 row` on a one-game day), as the page reads
+        # addendum 133 item 4, item 8: the day's counts, the rows beyond the day after them, as the page reads
         return (f"{head} slate {r.get('file')}: {cl.rows_text(r.get('rows'))}, PLAY {calls.get('PLAY', 0)}, PASS "
-                f"{calls.get('PASS', 0)}" + (f"; LATE {r.get('late_minutes')} min" if r.get("late") else ""))
+                f"{calls.get('PASS', 0)}" + (f"; +{r['beyond_day']} beyond the day" if r.get("beyond_day") else "")
+                + (f"; LATE {r.get('late_minutes')} min" if r.get("late") else ""))
     if k == "slate_miss":
         return f"{r.get('family')} {r.get('date')} slate MISSED: {r.get('reason')}"
     if k == "deploy":

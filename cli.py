@@ -9126,7 +9126,9 @@ def closing_watch_cmd(families, dry_run):
     failure at a step, a check or the link leaves nothing in exports/; a failed push or page comes after the link,
     and the file stands), the mirror push, and one page ("SLATE <FAMILY> <date>: <N> row(s) · PLAY <p> · PASS <q> ·
     exports/<file>"; a failure: "SLATE <FAMILY> FAILED: <step> — RUN BY HAND: block_<MMDD>_<family>_slate.txt ·
-    attempt k/3"). Exit: 0 success, 2 a refusal, 3 a failure or miss already
+    attempt k/3"). At most one slate RUN a tick (addendum 134 item 1(ii)). A slate still held with no 15 minutes left
+    before its family's first unstarted kickoff pages once ("SLATE <FAMILY> <date> HELD for <closing> — RUN BY HAND:
+    <block>", addendum 133 item 4). Exit: 0 success, 2 a refusal, 3 a failure, a miss or a HELD page already
     receipted and notified, 1 what it could not report. (= python deploy/hosting/closing.py watch)"""
     argv = ["watch"] + [x for f in families for x in ("--family", f.upper())] + (["--dry-run"] if dry_run else [])
     raise SystemExit(_closing().main(argv))
@@ -9213,8 +9215,10 @@ def coverage_cmd(date_s, as_json, out_path):
     <exit>)", from the watch's receipt log) and the groups the watch will run (closing.due's own inputs; T-35 in ET,
     the match ids) with the file each lands in (exports/closing_<FAMILY>_<start>.json). Then the gaps in capitals ("PL:
     4 GAMES, 0 PREDICTION ROWS — soccer-prematch has not run"). Under each LIVE competition its SLATE line
-    (addendum 126 item 2(b)): the newest exports/ file of the family's slate kind holding every game of the day, its
-    exported_at and PLAY/PASS counts, else "NO SLATE FILE — slate run due HH:MM ET" ("— run block <block>" where this
+    (addendum 126 item 2(b), amended by addendum 133 item 4): the exports/ file of the family's slate kind exported on
+    the ET day that holds every game of the day unstarted at its exported_at (the ones started before it named), the
+    one holding the most of the day's games, then the newest; its exported_at and the day's PLAY/PASS counts (rows
+    beyond the day as "+<k> beyond the day"), else "NO SLATE FILE — slate run due HH:MM ET" ("— run block <block>" where this
     machine refuses the family, or where the watch's slate receipts say it runs no slate that day) and the gap "NFL:
     12 GAMES, ROWS 12, NO SLATE FILE". Read-only: the DB opened mode=ro,
     exports/ read, no row or export written, no provider call. Exit 0 whatever the gaps (it never stops a chain); a

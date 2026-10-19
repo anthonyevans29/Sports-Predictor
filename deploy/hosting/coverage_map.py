@@ -95,15 +95,34 @@ carries it; the Today tab shows it first."
     tab's, #589, below) writes coverage()'s dict generically (every datetime ISO-8601 Z), so `slate` rides in it.
     The slate kind is the family's export_glob (closing.FAMILIES: mlb_MLB_*.json, nfl_predictions_*.json,
     soccer_PL_*.json, the names the slate stage and the prematch chains write; a closing file never matches). A file
-    counts when it carries the Desk's calls (desk_meta) and a desk row for every game of the day (the competition's
-    games, VOID ones aside); the newest by its own exported_at wins. A file that cannot be parsed, or one with no desk
+    counts when it carries the Desk's calls (desk_meta), a row for at least one game of the day, a desk row for every
+    game of the day (the competition's games, VOID ones aside) unstarted at its exported_at (item 4 below), and was
+    exported on the ET day (item 5 below); of those, the one holding the most of the day's games stands, then the
+    newest by its own exported_at (a re-export after a kickoff leaves the started game out, and the morning file still
+    holds it). A row of a VOID game of the day is no game, and not beyond the day. A file that cannot be parsed, or one with no desk
     calls, is skipped with its reason on the line, never counted (law 4). ARCHITECT 2026-10-18, addendum 133 item 3(b):
     "A file of the glob with no `predictions` list is another kind: not a candidate, never listed as skipped (last_calls
     reads the same glob and passes such a file in silence). `skipped` is for a predictions export that cannot be parsed
     or has no desk calls, as built" (the results exports, mlb_MLB_results_<date>.json and soccer_PL_results_<date>.json,
     share the family globs and sit in exports/ every day). A file whose name dates it more than
-    SLATE_SCAN_BACK_DAYS before the day, or after the day after, cannot hold the day and is not read. The counts are the
-    file's (closing.slate_calls, as the slate page counts them). No file: the slate stage's due time (closing.slate_due);
+    SLATE_SCAN_BACK_DAYS before the day, or after the day after, cannot hold the day and is not read.
+    THE SLATE LINE'S FOLLOW-UP (ARCHITECT 2026-10-18, addendum 133 item 4; #602), verbatim:
+    item 4: "(a), the follow-up PR: the SLATE line counts a file that holds every game of the day UNSTARTED at its
+    exported_at, and names the ones left out on the line (`· started before it: <ids>`); no gap is claimed for a
+    started game (nothing can run for it); the page's own LATE line is the record of the miss." A game counts as
+    unstarted at a file's exported_at when its stored kickoff is after it (its status now is no reading of then: a
+    game finished since was unstarted when an earlier file was written).
+    item 5: "the day's SLATE file is a file EXPORTED ON THE ET DAY. An older file never stands as the day's slate,
+    whatever it covers — the operator's rule is a sync on game day, and Saturday's window file on Sunday, or Sunday's
+    NFL file on Monday night, is last sync's. With only such a file the line reads `NO SLATE FILE — slate run due HH:MM
+    ET (newest exports/<file> exported <ET>, not today's)` and the gap is claimed." `older` is the newest file that
+    would count but for its export day (the same tests: desk calls, every game of the day unstarted at its exported_at);
+    it is named on every NO SLATE FILE line, first in its brackets.
+    item 8: "N, PLAY and PASS count the DAY's games (rows whose match id is a game of the ET day); rows beyond the day
+    follow as `· +<k> beyond the day` when k > 0 (the NFL 36-hour window, the soccer round). LADDER by name and `no
+    desk call <n>` stand as built." The counts are closing.slate_calls over the competition's games of the day, as the
+    slate page counts them (every call kind by name over the same rows); `beyond` is k.
+    No file: the slate stage's due time (closing.slate_due);
     where this machine refuses the family (closing._family_refusal), the block to run (closing.slate_block). The gap is
     claimed for every LIVE competition with no slate file, a refused family's included: that is the operator's alert
     to run it by hand (item 1). coverage() carries it as `slate` on the competition. exports/ is read, never written.
@@ -513,13 +532,17 @@ _NAME_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
 
 
 def slate_view(fam: str, games: list[dict], day: date, refused: str | None, exports=None,
-               now: datetime | None = None) -> dict:
+               now: datetime | None = None, void=frozenset()) -> dict:
     """The SLATE line's data for one LIVE competition (addendum 126 item 2(b), the module docstring's rule): {family,
-    file: exports/<name> or None, exported_at, rows, calls, due, block, refused, skipped: [(name, why)]}, and what the
-    watch's slate receipts say (slate_receipts; `now` judges a game unstarted). Read-only."""
+    file: exports/<name> or None, exported_at, rows, calls, beyond (rows beyond the day), started_before (the day's
+    games the file leaves out, started before its exported_at), older ({file, exported_at}: the newest file that would
+    count but was exported before the ET day, or None; None when a file stands), due, block, refused, skipped: [(name,
+    why)]}, and what the watch's slate receipts say (slate_receipts; `now` judges a game unstarted). `void`: the match
+    ids of the competition's games of the day called off (a row of one is no game, and not beyond the day). Read-only."""
     ex = Path(exports) if exports is not None else c.REPO / cl.SLATE_DIR
     ids = {g["match_id"] for g in games}
-    out = {"family": fam, "file": None, "exported_at": None, "rows": None, "calls": None,
+    out = {"family": fam, "file": None, "exported_at": None, "rows": None, "calls": None, "beyond": None,
+           "started_before": [], "older": None,
            "due": cl.slate_due(min(g["start"] for g in games), day), "block": cl.slate_block(fam, day),
            "refused": refused, "skipped": []}
     try:
@@ -542,17 +565,35 @@ def slate_view(fam: str, games: list[dict], day: date, refused: str | None, expo
                 continue              # another kind (a results export): no candidate, never skipped (addendum 133 3(b))
             at = cl.parse_utc(doc["exported_at"])
             have = {r.get("match_id") for r in doc["predictions"] if r.get("desk")}
+            held = {r.get("match_id") for r in doc["predictions"]}
         except (OSError, ValueError, KeyError, TypeError, AttributeError) as e:
             out["skipped"].append((p.name, f"cannot be parsed: {type(e).__name__}"))
             continue                  # law 4: never counted
         if not doc.get("desk_meta"):
             out["skipped"].append((p.name, "no desk calls"))
             continue
-        if ids <= have and (best is None or (at, p.name) > (best[0], best[1].name)):
-            best = (at, p, doc)
+        # item 4: every game of the day unstarted at the file's exported_at (its kickoff after it) has a desk row; a
+        # file with no row for any game of the day holds none of its slate (a file exported after every kickoff that
+        # holds only tomorrow's games, say), whatever that test says
+        if not ids & held or not {g["match_id"] for g in games if g["start"] > at} <= have:
+            continue
+        if cl.ny_date(at) > day:      # exported after the ET day: no slate of it, and no older file of it either
+            continue
+        if cl.ny_date(at) < day:      # item 5: exported before the ET day, it never stands as the day's slate
+            if out["older"] is None or (at, p.name) > (out["older"]["exported_at"], Path(out["older"]["file"]).name):
+                out["older"] = {"file": f"{cl.SLATE_DIR}/{p.name}", "exported_at": at}
+            continue
+        # the file that holds the most of the day's games stands (a re-export after a kickoff leaves the started game
+        # out: the morning file still holds it); of the same reach, the newest
+        key = (len(ids & held), at, p.name)
+        if best is None or key > best[0]:
+            best = (key, p, doc, held)
     if best:
-        out["exported_at"], out["file"] = best[0], f"{cl.SLATE_DIR}/{best[1].name}"
-        out["rows"], out["calls"] = cl.slate_calls(best[2])
+        out["exported_at"], out["file"] = best[0][1], f"{cl.SLATE_DIR}/{best[1].name}"
+        out["rows"], out["calls"] = cl.slate_calls(best[2], ids)      # item 8: the day's games
+        out["beyond"] = cl.beyond_day(best[2], ids, void)
+        out["started_before"] = sorted(ids - best[3])                 # item 4: no row in it, started before it
+        out["older"] = None           # named on NO SLATE FILE lines only
     out.update(slate_receipts(fam, day, games, now))
     return out
 
@@ -657,7 +698,8 @@ def coverage(day: date | None = None, now: datetime | None = None, roadmap_path=
             finished = [g["match_id"] for g in mine if g["match_id"] in v["finished"] and not cl.started(g, now)
                         and g["match_id"] not in shown]    # its run is no done line of the day
             closing_unread = v["unread"]
-        slate = (slate_view(fam, mine, day, refused, now=now) if fam and st["status"] == "LIVE" and mine else None)
+        slate = (slate_view(fam, mine, day, refused, now=now, void={g["match_id"] for g in void})
+                 if fam and st["status"] == "LIVE" and mine else None)
         comps.append({"code": code, "games": [g["match_id"] for g in mine], "void": [(g["match_id"], g["status"])
                                                                                    for g in void],
                       "status": st["status"], "status_label": st["label"], "status_from": st["from"],
@@ -734,7 +776,7 @@ def _slate_done_why(s: dict) -> str:
     if s["success"]:
         ok = s["succeeded"] or {}
         at = f" at {cl.et(ok['at'])[11:]}" if ok.get("at") else ""
-        return f"a successful slate{at} ({ok.get('file')}), but no file holds every game of the day"
+        return f"a successful slate{at} ({ok.get('file')}), but no file of the day holds every game of the day"
     if s["attempts"] >= cl.MAX_ATTEMPTS:
         return f"{s['attempts']} attempts, the last failed ({s['last_failed']})"
     return f"missed: {cl.SLATE_ALL_STARTED}"
@@ -745,15 +787,21 @@ def slate_line(x: dict) -> str | None:
     s = x.get("slate")
     if not s:
         return None
+    old = s.get("older")              # addendum 133 item 4, item 5: the newest file of an earlier ET day, named
+    older = (f"newest {old['file']} exported {cl.et(old['exported_at'])}, not today's" if old else None)
     if s["file"]:
-        t = f"{s['file']} · exported {cl.et(s['exported_at'])} · {cl.calls_text(s['calls'])}"
+        t = (f"{s['file']} · exported {cl.et(s['exported_at'])} · {cl.calls_text(s['calls'])}"
+             f"{cl.beyond_text(s.get('beyond'))}")
+        if s.get("started_before"):   # item 4: counted without them; no gap is claimed for a started game
+            t += f" · started before it: {', '.join(map(str, s['started_before']))}"
     elif s["refused"]:
-        t = f"NO SLATE FILE — run block {s['block']}"
+        t = f"NO SLATE FILE — run block {s['block']}" + (f" ({older})" if older else "")
     elif s.get("done"):               # the watch runs no slate today: the block is the operator's (item 2(b))
-        t = f"NO SLATE FILE — run block {s['block']} ({_slate_done_why(s)}: the watch runs it no more)"
+        t = (f"NO SLATE FILE — run block {s['block']} (" + (f"{older}; " if older else "")
+             + f"{_slate_done_why(s)}: the watch runs it no more)")
     else:
         t = f"NO SLATE FILE — slate run due {cl.et(s['due'])[11:]}"
-        notes = []
+        notes = [older] if older else []
         if s.get("attempts"):
             notes.append(f"attempt {s['attempts']} of {cl.MAX_ATTEMPTS} failed ({s['last_failed']}): the watch tries "
                          "again")

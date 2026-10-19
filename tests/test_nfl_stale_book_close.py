@@ -191,7 +191,10 @@ def test_mismatched_kalshi_legs_are_no_close_here_either(iso, monkeypatch):
         mid = _world(s, "mism", ko).id
     monkeypatch.setattr(kalshi_legs, "mismatched", lambda conn, ids: {i: ["KXNFLGAME-X"] for i in ids})
     cl = _close(mid)
-    assert not priced(cl) and cl["stale_book"]
+    # the row names the cause: the in-cap quote was there, refused for its legs (not "no two-sided quote")
+    assert not priced(cl) and cl["stale_book"] == ("book stamp 32.00 h before kickoff; the game's Kalshi legs are "
+                                                   "mismatched (KXNFLGAME-X; addendum 37 item 3: no close from "
+                                                   "mismatched legs)")
 
 
 def test_a_three_way_board_keeps_its_book_close_and_says_why(iso):
@@ -345,8 +348,8 @@ def test_the_restate_receipt_prints_both_records_and_writes_nothing(iso, capsys)
     # BEFORE: the four books; AFTER: the stale one is the Kalshi mid and the stale one with no Kalshi is out
     assert "  BEFORE  vs close: 4 games" in out and "  AFTER   vs close: 3 games" in out
     assert out.count("· 1 of the closes the Kalshi-only mid") == 2                    # the season and week 6, AFTER
-    assert ("switched to the session's Kalshi mid 1 · unpriced (no two-sided Kalshi quote within the cap in that "
-            "session) 1") in out
+    assert ("more than 24 h before kickoff 2 · switched to the session's Kalshi mid 1 · unpriced (no two-sided Kalshi "
+            "quote within the cap in that session, or mismatched legs) 1") in out
     assert "rows whose close changed: 2" in out and "| kalshi | 0.605 |" in out and "| UNPRICED | None |" in out
     assert hashlib.sha256(db.read_bytes()).hexdigest() == before_hash                 # the DB content untouched
     assert list(ex.iterdir()) == []                                                    # nothing written beside it
@@ -383,3 +386,61 @@ def test_the_column_check_reads_the_database_the_query_runs_on(iso, tmp_path, mo
     cl = _close(mid)
     assert cl["book_stamp"] is None and cl["fair"]["HOME"] == pytest.approx(BOOK_H, abs=1e-4)
     migrated.dispose()
+
+
+def _receipt_mod():
+    import importlib.util
+    from pathlib import Path
+    spec = importlib.util.spec_from_file_location(
+        "nfl_close_restate_receipt", Path(__file__).resolve().parent.parent / "scripts" / "nfl_close_restate_receipt.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_the_receipt_leaves_a_void_row_out_of_its_tally_and_names_it(iso, capsys):
+    """A re-dated row (its closing row an hour and more from its current start) leaves every record (addendum 106
+    item 4): the rule's tally and the changed-rows table read the rows the records read, and name the void ones."""
+    import json as _json
+
+    from src.db.database import session_scope
+    ko = _ko()
+    with session_scope() as s:
+        _season(s, ko)
+        void_id = _world(s, "w-void", ko + timedelta(hours=4)).id      # stale, Kalshi in session: would switch
+    ex = iso / "exports"
+    ex.mkdir()
+    (ex / "closing_NFL_x.json").write_text(_json.dumps({"predictions": [
+        {"match_id": void_id, "utc_date": (ko - timedelta(days=1)).isoformat()}]}))
+    assert _receipt_mod().main(["--db", str(iso / "iso.db"), "--exports", str(ex)]) == 0
+    out = capsys.readouterr().out
+    assert "1 closing files read" in out
+    assert "the rule over 4 graded rows (season and pre-live; void rows out)" in out
+    assert "switched to the session's Kalshi mid 1 ·" in out and f"void (re-dated) rows, out of every record and of the tally above: {void_id}" in out
+    assert f"| {void_id} |" not in out
+
+
+def test_the_receipt_refuses_when_the_db_changes_between_its_passes(iso, capsys, monkeypatch):
+    """ONE DB STATE: a commit by another connection between the BEFORE and AFTER passes is a change the rule did not
+    make; the receipt reads data_version before and after, and refuses."""
+    import sqlite3
+
+    from src.db.database import session_scope
+    from src.walters import nfl_predict
+    ko = _ko()
+    with session_scope() as s:
+        _season(s, ko)
+    ex = iso / "exports"
+    ex.mkdir()
+    real = nfl_predict.grade_nfl
+    db = iso / "iso.db"
+
+    def grade_then_write(*a, **k):
+        out = real(*a, **k)
+        with sqlite3.connect(db) as c:                 # a chain writing meanwhile (another connection commits)
+            c.execute("UPDATE matches SET venue = 'moved' WHERE id = (SELECT MIN(id) FROM matches)")
+        return out
+    monkeypatch.setattr(nfl_predict, "grade_nfl", grade_then_write)
+    assert _receipt_mod().main(["--db", str(db), "--exports", str(ex)]) == 3
+    out = capsys.readouterr().out
+    assert out.startswith("REFUSED: the DB changed during the receipt") and "BEFORE  vs close" not in out

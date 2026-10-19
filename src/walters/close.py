@@ -304,14 +304,16 @@ def stale_book_close(s, match, cl, snaps=None) -> dict | None:
             OddsSnapshot.match_id == match.id, OddsSnapshot.source == "kalshi",
             OddsSnapshot.market.in_(KALSHI_CLOSE_MARKETS))).scalars())
     from src.walters.kalshi_legs import guard_snaps
-    kal, _ = guard_snaps([x for x in snaps if getattr(x, "source", None) == "kalshi"], s)
+    kal, mismatched = guard_snaps([x for x in snaps if getattr(x, "source", None) == "kalshi"], s)
     ko = session_kalshi(kal, cl["captured_at"], match.utc_date, cl["outcomes"])
     if ko is None:
+        why = (f"the game's Kalshi legs are mismatched ({', '.join(mismatched)}; addendum 37 item 3: no close from "
+               "mismatched legs)" if mismatched else
+               f"no two-sided Kalshi quote within the {_spread_cap()}c cap in the book close's session")
         return {"fair": None, "books": cl["books"], "books_quoted": cl.get("books_quoted", cl["books"]),
                 "captured_at": cl["captured_at"], "best": {}, "rows": [], "outcomes": cl["outcomes"], "missing": {},
                 "source": cl.get("source"), "reference": None, "book_stamp": stamp, "book_stamp_age_h": age,
-                "stale_book": (f"book stamp {age:.2f} h before kickoff; no two-sided Kalshi quote within the "
-                               f"{_spread_cap()}c cap in the book close's session")}
+                "stale_book": f"book stamp {age:.2f} h before kickoff; {why}"}
     ko["kalshi"]["ruling"] = STALE_BOOK_RULING
     ko.update(source="kalshi", reference="kalshi", book_stamp=stamp, book_stamp_age_h=age,
               book_fair=dict(cl["fair"]), book_captured_at=cl["captured_at"])

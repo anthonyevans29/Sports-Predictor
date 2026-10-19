@@ -66,15 +66,23 @@ def report(docs: dict, grades: dict) -> list[str]:
                    f"{g.get('mean_value_side_clv_pp')}pp (n={g.get('value_side_n')}) · value-shadow "
                    f"{g.get('mean_value_shadow_clv_pp')}pp (n={g.get('value_shadow_n')}) · close capture age "
                    f"{g.get('close_minutes_before_start')}")
-    rb, ra = _rows(docs["BEFORE"]), _rows(docs["AFTER"])
-    ages = [((r["graded"] or {}).get("close_book_stamp_age_h")) for r in ra.values()]
-    refs = [((r["graded"] or {}).get("close_reference")) for r in ra.values()]
-    stale = sum(1 for x in ages if x is not None and x > 24)
-    out.append(f"the rule over {len(ra)} graded rows: stamp known {sum(x is not None for x in ages)} · unknown "
-               f"(NULL, absent, no close) {sum(x is None for x in ages)} · more than 24 h before kickoff {stale} · "
-               f"switched to the session's Kalshi mid {refs.count('kalshi')} · unpriced (no two-sided Kalshi quote "
-               f"within the cap in that session) {sum(1 for r in ra.values() if r['graded'].get('close_stale_book'))}"
-               f" · three-way kept {sum(1 for r in ra.values() if r['graded'].get('close_stale_unswitched'))}")
+    rb, ra_all = _rows(docs["BEFORE"]), _rows(docs["AFTER"])
+    # the rule's tally and the table over the rows the records read: a void (re-dated) row leaves every record
+    # (addendum 106 item 4), so it is named on its own line, not counted here
+    void = sorted(m for m, r in ra_all.items() if r.get("redated"))
+    ra = {m: r for m, r in ra_all.items() if not r.get("redated")}
+    g = [r["graded"] or {} for r in ra.values()]
+    switched = sum(1 for x in g if x.get("close_reference") == "kalshi")
+    unpriced = sum(1 for x in g if x.get("close_stale_book"))
+    kept3 = sum(1 for x in g if x.get("close_stale_unswitched"))
+    known = sum(1 for x in g if x.get("close_book_stamp_age_h") is not None)
+    out.append(f"the rule over {len(ra)} graded rows (season and pre-live; void rows out): stamp known {known} · "
+               f"unknown (NULL, absent, no close) {len(ra) - known} · more than 24 h before kickoff "
+               f"{switched + unpriced + kept3} · switched to the session's Kalshi mid {switched} · unpriced (no "
+               f"two-sided Kalshi quote within the cap in that session, or mismatched legs) {unpriced} · three-way "
+               f"kept {kept3}")
+    if void:
+        out.append(f"void (re-dated) rows, out of every record and of the tally above: {', '.join(map(str, void))}")
     changed = [m for m in ra if (ra[m]["graded"].get("close_fair") != (rb.get(m) or {}).get("graded", {}).get("close_fair"))]
     out.append(f"rows whose close changed: {len(changed)}")
     out.append("| match | wk | kickoff (UTC) | game | stamp age h | BEFORE close HOME | AFTER | AFTER close HOME | "
@@ -119,22 +127,39 @@ def main(argv=None) -> int:
                                          expire_on_commit=False)
     tmp = Path(tempfile.mkdtemp(prefix="nfl614-"))
     docs, grades = {}, {}
+    # ONE DB STATE: the passes read separate transactions, so the receipt reads SQLite's data_version on its own
+    # mode=ro connection before and after them; a commit by any other connection in between changes it, and the
+    # receipt then refuses (nothing printed but the refusal). The closing files are copied once, then into each pass.
+    import sqlite3
+    probe = sqlite3.connect(f"{db.as_uri()}?mode=ro", uri=True)
+    version = probe.execute("PRAGMA data_version").fetchone()[0]
+    src = tmp / "closings"
+    src.mkdir()
+    closings = sorted(ex.glob("closing_*.json"))
+    for f in closings:
+        shutil.copy2(f, src / f.name)
     try:
         for name, rule in (("BEFORE", False), ("AFTER", True)):
             d = tmp / name.lower()
             d.mkdir()
-            for f in ex.glob("closing_*.json"):
+            for f in src.iterdir():
                 shutil.copy2(f, d / f.name)
             close_mod.stale_book_close = saved[2] if rule else (lambda s, m, cl, snaps=None: cl)
             docs[name] = json.load(open(export_nfl_results(out_dir=str(d))))
             grades[name] = grade_nfl(days_back=None, exports_dir=str(d))
+        moved = probe.execute("PRAGMA data_version").fetchone()[0] != version
     finally:
         database._engine, database.SessionLocal, close_mod.stale_book_close = saved
         eng.dispose()
+        probe.close()
         shutil.rmtree(tmp, ignore_errors=True)
+    if moved:
+        print("REFUSED: the DB changed during the receipt (a write landed between its passes), so BEFORE and AFTER "
+              "are not one DB state: run it again when no chain is writing")
+        return 3
     print(f"NFL close BEFORE / AFTER (addendum 137 item 4) · read-only: db {db.name} (mode=ro), "
-          f"{len(list(ex.glob('closing_*.json')))} closing files read · BEFORE = main's close (close_1x2), "
-          "AFTER = as built")
+          f"{len(closings)} closing files read · BEFORE = main's close (close_1x2), AFTER = as built · one DB state "
+          "(data_version unchanged across the passes)")
     for ln in report(docs, grades):
         print(ln)
     return 0

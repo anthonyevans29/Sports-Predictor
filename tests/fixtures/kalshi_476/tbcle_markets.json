@@ -1,0 +1,37 @@
+{
+ "markets": [
+  {
+   "event_ticker": "KXMLBGAME-26OCT161800TBCLE",
+   "ticker": "KXMLBGAME-26OCT161800TBCLE-TB",
+   "title": "Tampa Bay wins",
+   "yes_sub_title": "Tampa Bay"
+  },
+  {
+   "event_ticker": "KXMLBGAME-26OCT161800TBCLE",
+   "ticker": "KXMLBGAME-26OCT161800TBCLE-CLE",
+   "title": "Cleveland wins",
+   "yes_sub_title": "Cleveland"
+  },
+  {
+   "event_ticker": "KXMLBGAME-26OCT172000TBCLE",
+   "ticker": "KXMLBGAME-26OCT172000TBCLE-TB",
+   "title": "Tampa Bay wins",
+   "yes_sub_title": "Tampa Bay"
+  },
+  {
+   "event_ticker": "KXMLBGAME-26OCT172000TBCLE",
+   "ticker": "KXMLBGAME-26OCT172000TBCLE-CLE",
+   "title": "Cleveland wins",
+   "yes_sub_title": "Cleveland"
+  }
+ ],
+ "quotes": {
+  "2026-10-18T11:37:58Z": {
+   "KXMLBGAME-26OCT172000TBCLE-TB": {
+    "last_price_dollars": "0.5500",
+    "yes_ask_dollars": "0.5500",
+    "yes_bid_dollars": "0.5400"
+   }
+  }
+ }
+}

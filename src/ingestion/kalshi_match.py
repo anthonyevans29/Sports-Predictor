@@ -18,7 +18,9 @@ and there it places nothing and refuses nothing. Inside the one pair, a game on 
 before a game a day off; where the date cannot separate two games of the pair, the event's markets are refused. Where
 the ticker carries a clock time, the time gate stays as built, inside the one pair." Two stored rows of one pair on the
 ticker's own date (a placeholder and a second row) refuse the event under a reason of their own, naming the rows
-dedupe-matches has to merge. On a clock ticker with no game number (addendum 52 item 4, below) the line says instead
+dedupe-matches has to merge; where the ticker carries the game number (G1, G2) and the rows are at different minutes,
+"two games of the pair that day; the G1/G2 suffix is not read (#478)" (ARCHITECT 2026-10-19, addendum 136 item 3:
+no merge is suggested for a doubleheader). On a clock ticker with no game number (addendum 52 item 4, below) the line says instead
 "two games of the pair that day; the clock does not separate them" (ARCHITECT 2026-10-17, addendum 104 item 2: a real
 doubleheader, two rows hours apart, is two games); rows at one kickoff minute keep the dedupe words (one game stored
 twice, addendum 105, #569), named in the same line when both hold.

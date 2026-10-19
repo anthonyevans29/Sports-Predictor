@@ -7911,21 +7911,37 @@ def kalshi_replay_cmd(only, from_file):
     kr.replay(payload, progress=click.echo)
 
 
-@cli.command("kalshi-history")
-@click.option("--series", required=True, help="One Kalshi game series per run (e.g. KXMLBGAME), as the syncs read it.")
+@cli.group("kalshi-history", invoke_without_command=True)
+@click.option("--series", default=None, help="One Kalshi game series per run (e.g. KXMLBGAME), as the syncs read it.")
 @click.option("--since", default=None, help="Keep the markets whose game day is on or after this date (YYYY-MM-DD).")
 @click.option("--until", default=None, help="Keep the markets whose game day is on or before this date (YYYY-MM-DD).")
 @click.option("--dry-run", is_flag=True, help="Make every read and print what would be stored; write nothing.")
 @click.option("--max-calls", default=300, type=click.IntRange(min=1), show_default=True,
               help="Calls to the exchange in all; the run stops cleanly at the cap and prints where it stopped.")
-def kalshi_history_cmd(series, since, until, dry_run, max_calls):
+@click.pass_context
+def kalshi_history_cmd(ctx, series, since, until, dry_run, max_calls):
     """KALSHI SETTLED-MARKET HISTORY (ARCHITECT 2026-10-14, addendum 67 item 1; #519). Lists the series' settled
     markets (historical and live-settled, public endpoints, no key), places each event with the shared matcher on
     the stored games, reads each market's one-minute candles from six hours before kickoff to its close, and stores
     one row per market in kalshi_settled_markets: the last two-sided quote at or before kickoff and its counts. It
     writes that table and nothing else; nothing reads it as a close until a later ruling. Refused markets are kept
-    with match_id null and the reason in notes."""
+    with match_id null and the reason in notes. THE IDENTITY HOLD (ARCHITECT 2026-10-18, addendum 127 item 3(c)): on
+    a clock series, an event whose pair has an earlier-dated event that is unsettled (listed open) or out of step on
+    its own date is kept with match_id null and the hold's reason, and a later run places it when the hold clears;
+    nothing already placed is moved. `kalshi-history place-held` is the ruled re-place (addendum 130 item 2(c))."""
     from datetime import date as _date
+
+    from click.core import ParameterSource
+
+    if ctx.invoked_subcommand is not None:
+        given = [f"--{n.replace('_', '-')}" for n in ("series", "since", "until", "dry_run", "max_calls")
+                 if ctx.get_parameter_source(n) is not ParameterSource.DEFAULT]
+        if given:
+            raise click.UsageError(f"{', '.join(given)} belong to the pull (`kalshi-history --series S ...`); "
+                                   f"`{ctx.invoked_subcommand}` takes its own options after its name")
+        return
+    if not series:
+        raise click.UsageError("Missing option '--series'.")
 
     from src.ingestion.kalshi_history import run_history
     from src.walters.venue_quote_age import Refused
@@ -7944,6 +7960,45 @@ def kalshi_history_cmd(series, since, until, dry_run, max_calls):
         raise SystemExit(2)
     try:
         run_history(series.strip(), since=lo, until=hi, dry_run=dry_run, max_calls=max_calls, echo=click.echo)
+    except (ValueError, Refused) as e:
+        click.echo(str(e) if str(e).startswith("REFUSED") else f"REFUSED: {e}")
+        raise SystemExit(2)
+
+
+@kalshi_history_cmd.command("place-held")
+@click.option("--ticker", required=True, help="The stored market's ticker (one per run), e.g. "
+                                               "KXMLBGAME-26OCT161800TBCLE-TB.")
+@click.option("--match-id", "match_id", required=True, type=int, help="The match the ruling names.")
+@click.option("--ruling", required=True, help='The ruling that places it, e.g. "ARCHITECT 2026-10-18, addendum 130 '
+                                              'item 2(c)"; appended to the row\'s notes.')
+@click.option("--backup", "backup_path", default=None,
+              help="Required unless --dry-run: a .backup file taken just before (integrity checked; its "
+                   "kalshi_settled_markets count must equal the live DB's), as dedupe-matches has it.")
+@click.option("--dry-run", is_flag=True, help="Make every read (the candle call included), print the row before and "
+                                              "after; write nothing.")
+def kalshi_history_place_held_cmd(ticker, match_id, ruling, backup_path, dry_run):
+    """THE RULED RE-PLACE (ARCHITECT 2026-10-18, addendum 130 item 2(c)): "sets match_id and side on a row that has
+    match_id null and the hold/refusal note, appends the ruling to its note, and fetches its candles then — a reviewed
+    command, never a guess by the ingest." Refuses unless the row exists with match_id null and a hold or refusal
+    note, the match exists in the series' own competition, its two teams are the event's two names one each, the
+    side can be told (the market's yes team against the match's home and away), and no other row of the series holds
+    that side of that match. The candles are read on the match's kickoff by the ingest's own call; a candle call that
+    fails for now (a 5xx, a 408, a transport error, a third 429, an answer with no list) writes nothing and exits 2
+    (addendum 132 item 3(a): run it again); one the exchange refuses for good (a 4xx other than 408 / 429) leaves the
+    placement, with a null quote, and says so. Prints the row before and after. Writes that one row of
+    kalshi_settled_markets and nothing else; needs --backup unless --dry-run."""
+    from src.db.schema import KalshiSettledMarket as _K
+    from src.ingestion.kalshi_history import place_held
+    from src.walters.venue_quote_age import Refused
+
+    if not dry_run and not backup_path:
+        raise click.UsageError("REFUSED [check: --backup given]: place-held writes, so it needs --backup PATH (a "
+                               ".backup file taken just before; law 5); --dry-run reads without it.")
+
+    def _guard():
+        _verify_backup(backup_path, "kalshi_settled_markets", _K)
+    try:
+        place_held(ticker, match_id, ruling, dry_run=dry_run, echo=click.echo, guard=_guard)
     except (ValueError, Refused) as e:
         click.echo(str(e) if str(e).startswith("REFUSED") else f"REFUSED: {e}")
         raise SystemExit(2)

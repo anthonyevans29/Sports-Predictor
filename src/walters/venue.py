@@ -37,8 +37,9 @@ STALE_BOOK_FLAG = "STALE-BOOK?"
 # Model: order fee = round(N x rate x M x P(1-P) x 100) / 100 for an order of
 # N contracts; the per-contract cost is P + order fee / N. The Desk assumes N
 # = the unit's contract count at the row's price, PROVISIONAL 10 until the
-# B-track sizes units (K_ORDER_CONTRACTS). K-TRACK: INFORMATIONAL UNTIL THE
-# EXECUTABLE-EDGE RULING.
+# B-track sizes units (K_ORDER_CONTRACTS). K-TRACK: BINDING (ARCHITECT
+# 2026-10-20, addendum 146 item 1(i)): desk.exec.edge_pp is the number the
+# PLAY floor applies to.
 # ---------------------------------------------------------------------------
 KALSHI_FEE_RATE = 0.07      # taker rate: VERIFIED 2026-09-29 (rounding: see above)
 KALSHI_MAKER_RATE = 0.0175  # maker rate: the same published schedule
@@ -53,7 +54,7 @@ K_ORDER_CONTRACTS = 10      # #88: N for the Desk's cost (PROVISIONAL until the 
 # one ever appears.
 ROUNDING_MODES = ("ceil", "nearest", "floor", "bankers")
 KALSHI_FEE_ROUNDING = "nearest"   # ADOPTED 2026-09-30: re-fit 542/548 = 98.9% (#134)
-K_TRACK_NOTE = "K-track: informational until the executable-edge ruling"
+K_TRACK_NOTE = "K-track: binding (ARCHITECT 2026-10-20, addendum 146 item 1)"
 
 # #93 RESOLVED (architect 2026-09-30, from Kalshi's fee schedule): the game
 # series' multipliers M. Game series (NFL/NHL/EPL/UCL/NCAAF): M=1 for taker

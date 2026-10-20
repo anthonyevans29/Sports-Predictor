@@ -47,10 +47,13 @@ def utc(s):
     return datetime.fromisoformat(s).replace(tzinfo=timezone.utc)
 
 
-def make_db(path: Path, games, preds=(), wal: bool = False, models=MODELS) -> None:
+def make_db(path: Path, games, preds=(), wal: bool = False, models=MODELS, kalshi=None) -> None:
     """games: (match_id, competition, UTC start 'YYYY-MM-DD HH:MM', status); preds: (match_id, model, UTC computed);
     models: model_versions rows (sport, model_family, version, status), None for no table at all.
-    wal: the file in WAL mode, as src/db/database.py leaves the real DB (the mode persists in the file)."""
+    wal: the file in WAL mode, as src/db/database.py leaves the real DB (the mode persists in the file).
+    kalshi: None for no odds_snapshots table (every caller before addendum 146 item 5(a)), else the stored Kalshi quotes
+    (match_id, market, selection, UTC captured 'YYYY-MM-DD HH:MM', yes_bid, yes_ask[, market_ticker]); a ticker on any
+    row adds the market_ticker column (migrate_kalshi_ticker.py's)."""
     con = sqlite3.connect(path)
     if wal:
         con.execute("PRAGMA journal_mode=WAL")
@@ -72,6 +75,18 @@ def make_db(path: Path, games, preds=(), wal: bool = False, models=MODELS) -> No
                     " version VARCHAR(64), status VARCHAR(32))")
         con.executemany("INSERT INTO model_versions(sport, model_family, version, status) VALUES (?, ?, ?, ?)",
                         models)
+    if kalshi is not None:
+        tickers = any(len(k) > 6 for k in kalshi)
+        con.execute("CREATE TABLE odds_snapshots(id INTEGER PRIMARY KEY, match_id INT, market TEXT, selection TEXT, "
+                    "devig_prob REAL, captured_at DATETIME, source TEXT, yes_bid REAL, yes_ask REAL"
+                    + (", market_ticker TEXT" if tickers else "") + ")")
+        for k in kalshi:
+            mid, market, sel, at, bid, ask = k[:6]
+            vals = [mid, market, sel, None if bid is None or ask is None else (bid + ask) / 2, _ts(utc(at)), "kalshi",
+                    bid, ask] + ([k[6] if len(k) > 6 else None] if tickers else [])
+            con.execute(f"INSERT INTO odds_snapshots(match_id, market, selection, devig_prob, captured_at, source, "
+                        f"yes_bid, yes_ask{', market_ticker' if tickers else ''}) VALUES "
+                        f"({', '.join('?' * len(vals))})", vals)
     con.commit()
     con.close()
 
@@ -419,7 +434,9 @@ def test_unknown_only_when_none_applies(env):
             "lane and the registry disagree); in none of the code's market-only sets) ·") in line_of(out, "SCO")
     assert gaps(out) == [
         "MODEL STATUS UNKNOWN: CZE, EL1, SCO — no gap is judged for them (each line gives the reason)"]
-    assert [x.split(" · ")[0] for x in out[1:-2]] == ["UNL", "CZE", "EL1", "SCO"]
+    # UNL is MARKET-ONLY · shadow v9: its PAPER header and line follow its line (addendum 146 item 5(a))
+    assert [x.split(" · ")[0] for x in out[1:-2] if " SLATE · " not in x] == ["UNL", "CZE", "EL1", "SCO"]
+    assert out[2].startswith(f"UNL {PAPER_HEAD} · 1 game · ") and out[3].startswith("UNL SLATE · PAPER · 701 ")
 
 
 def test_an_unreadable_roadmap_judges_no_shadow_never_a_guess(env):
@@ -938,13 +955,20 @@ def test_where_this_machine_refuses_the_family_the_line_names_the_block(env, mon
     assert gaps(out) == ["NFL: 2 GAMES, ROWS 2, NO SLATE FILE"]
 
 
-def test_only_a_live_competition_has_a_slate_line_and_exports_are_never_written(env):
+def test_a_live_competition_has_a_slate_line_a_market_only_one_a_paper_line_and_exports_are_never_written(env):
+    """The ruling's addition (ARCHITECT 2026-10-20, addendum 146 item 5(a)): NHL, MARKET-ONLY, now has its PAPER header
+    and one PAPER line, never a slate (no gap is claimed); the slate file is read, never written."""
     make_db(env, NFL_DAY + [(501, "NHL", "2026-10-18 23:00", "SCHEDULED")], NFL_ROWS)
     f = slate_doc("nfl_predictions_2026-10-18.json", [601, 602], "2026-10-18T11:02:00Z")
     before = (sorted(p.name for p in f.parent.iterdir()), f.read_bytes(), f.stat().st_mtime)
     out = run("--date", "2026-10-18")[1]
-    assert not any(x.startswith("NHL SLATE") for x in out) and sum(" SLATE · " in x for x in out) == 1
-    assert cm.coverage(datetime(2026, 10, 18).date(), NOW)["competitions"][1]["slate"] is None    # NHL
+    nhl = [x for x in out if x.startswith("NHL SLATE")]
+    assert nhl == [f"NHL {PAPER_HEAD} · 1 game · {PAPER_NOT_READ} · shadow 0 of 1",
+                   f"NHL SLATE · PAPER · 501 Away @ Home 19:00 ET · Kalshi: not read (the DB has no odds_snapshots "
+                   f"table) · {NO_SHADOW}"]
+    assert sum(" SLATE · " in x for x in out) == 3
+    x = cm.coverage(datetime(2026, 10, 18).date(), NOW)["competitions"][1]                      # NHL
+    assert x["code"] == "NHL" and x["slate"] is None and x["paper"]["label"] == "PAPER, never a call"
     assert (sorted(p.name for p in f.parent.iterdir()), f.read_bytes(), f.stat().st_mtime) == before
 
 
@@ -1338,11 +1362,18 @@ PIN_RUN = "20261017T132500Z-soccer-closing"
 # The text output of origin/main (92c2442) on the pin day, captured BEFORE this change: every status, a void game, a
 # started game, a done run with its closing file, a group ahead, the three kinds of gap. Byte for byte. With the slate
 # run (#600, merged after this): the same day as #600's own head (4a54cd2) prints it before --json, byte for byte (its
-# header names the slate files read, and each LIVE competition gains its SLATE line and its slate gap).
+# header names the slate files read, and each LIVE competition gains its SLATE line and its slate gap). With the PAPER
+# line (ARCHITECT 2026-10-20, addendum 146 item 5(a), the ruling's addition): the header names the shadow files read,
+# and each MARKET-ONLY competition (NCAA, NHL) gains its PAPER header and one PAPER line per game; this scratch DB has no
+# odds_snapshots table, so Kalshi is not read, and no shadow file is in exports/.
+PAPER_NOT_READ = "Kalshi not read (the DB has no odds_snapshots table)"
+PAPER_HEAD = ("SLATE · PAPER, never a call (market-only: no ledger, no P&L, no position; ARCHITECT 2026-10-20, addendum "
+              "146 item 5(a))")
+NO_SHADOW = "shadow: none (no shadow row before kickoff in exports/)"
 PIN_TEXT = [
     "COVERAGE 2026-10-17 ET · 6 competitions · 9 games · now 2026-10-17 09:40 ET · read-only (the DB mode=ro, the "
-    "closing-watch schedule and receipts, the slate files in exports/): no row written, no export written, no provider "
-    "call",
+    "closing-watch schedule and receipts, the slate and shadow files in exports/): no row written, no export written, "
+    "no provider call",
     "NFL · 1 game · LIVE (closing family NFL; predict-nfl writes nfl_predict.MODEL_VERSION nfl_elo_v1) · rows: none · "
     "without rows: 301 · closing: T-35 12:25 ET [301] → exports/closing_NFL_2026-10-17T1700Z.json",
     "NFL SLATE · NO SLATE FILE — slate run due 10:30 ET",
@@ -1355,9 +1386,13 @@ PIN_TEXT = [
     "expected: SHADOW) · closing: none (no closing family covers EL2)",
     "NCAA · 1 game · MARKET-ONLY (export._MARKET_ONLY_REASON; roadmap lane ncaa: declared, no shadow export scheduled "
     "for NCAA (chains.py)) · rows: none (none expected: MARKET-ONLY) · closing: none (no closing family covers NCAA)",
+    f"NCAA {PAPER_HEAD} · 1 game · {PAPER_NOT_READ} · shadow 0 of 1",
+    f"NCAA SLATE · PAPER · 601 Away @ Home 12:00 ET · Kalshi: not read (the DB has no odds_snapshots table) · {NO_SHADOW}",
     "NHL · 1 game · MARKET-ONLY · shadow v7 (export._MARKET_ONLY_REASON; roadmap lane nhl: to declare; chain nhl-daily "
     "runs export-nhl-predictions (nhl_elo_v7_xg_margin_no_na)) · rows: none (none expected: MARKET-ONLY) · closing: "
     "none (no closing family covers NHL)",
+    f"NHL {PAPER_HEAD} · 1 game · {PAPER_NOT_READ} · shadow 0 of 1",
+    f"NHL SLATE · PAPER · 501 Away @ Home 19:00 ET · Kalshi: not read (the DB has no odds_snapshots table) · {NO_SHADOW}",
     "EL1 · 1 game · UNKNOWN (no closing family covers EL1; no roadmap lane names EL1; in none of the code's market-only "
     "sets) · rows: none · without rows: 704 · closing: none (no closing family covers EL1)",
     "GAPS:",
@@ -1410,7 +1445,8 @@ def test_json_writes_the_kind_the_coverage_dict_and_iso_z_datetimes(pin, tmp_pat
     assert doc["gaps"] == cov["gaps"] == PIN_GAPS
     assert [x["code"] for x in doc["competitions"]] == [x["code"] for x in cov["competitions"]]
     # the dict coverage() returns, every key and value, with each datetime as ISO-8601 Z (the additions beside it)
-    added = {"line", "games_text", "rows_text", "without_rows_text", "closing_text", "closing_tail", "slate_line"}
+    added = {"line", "games_text", "rows_text", "without_rows_text", "closing_text", "closing_tail", "slate_line",
+             "paper_lines"}                                          # paper_lines: addendum 146 item 5(a)
     for xd, x in zip(doc["competitions"], cov["competitions"]):
         assert set(xd) - added == set(x), x["code"]
         bare = json.loads(json.dumps({k: xd[k] for k in x}))
@@ -1610,7 +1646,9 @@ def test_json_a_symlink_at_the_name_is_judged_where_the_file_lands(env, monkeypa
 
 def test_the_json_carries_each_competitions_slate_line_in_the_lines_own_words(env, monkeypatch, tmp_path):
     """#606 item 2: the Today tile shows the SLATE line first, so the file carries it (`slate_line`), word for word as
-    the console prints it under the competition's line; null where the competition has none (not LIVE)."""
+    the console prints it under the competition's line; null where the competition has none (neither LIVE nor
+    MARKET-ONLY). SA is MARKET-ONLY: its slate_line is its PAPER header (addendum 146 item 5(a), the ruling's
+    addition), and its slate stays null (no gap)."""
     make_db(env, NFL_DAY + [(50, "SA", "2026-10-18 13:00", "SCHEDULED")], NFL_ROWS)
     monkeypatch.setattr(cl, "clock", lambda: utc("2026-10-18 10:00"))
     out = tmp_path / "cov.json"
@@ -1620,7 +1658,9 @@ def test_the_json_carries_each_competitions_slate_line_in_the_lines_own_words(en
     by = {x["code"]: x for x in doc["competitions"]}
     assert by["NFL"]["slate_line"] == "NFL SLATE · NO SLATE FILE — slate run due 07:00 ET"
     assert lines[lines.index(by["NFL"]["line"]) + 1] == by["NFL"]["slate_line"]
-    assert by["SA"]["slate_line"] is None
+    assert by["SA"]["slate_line"] == f"SA {PAPER_HEAD} · 1 game · {PAPER_NOT_READ} · shadow 0 of 1"
+    assert by["SA"]["slate"] is None and lines[lines.index(by["SA"]["line"]) + 1] == by["SA"]["slate_line"]
+    assert doc["gaps"] == ["NFL: 2 GAMES, ROWS 2, NO SLATE FILE"]                    # the gaps: unchanged
 
 
 def test_json_a_file_that_cannot_be_written_exits_2_and_leaves_no_partial(env, monkeypatch, tmp_path):
@@ -1698,3 +1738,495 @@ def test_json_carries_a_status_coverage_adds_later_generically(pin, tmp_path, mo
     assert run("--date", DAY, "--json", "--out", str(out))[0] == 0
     x = json.loads(out.read_text())["competitions"][0]
     assert (x["status"], x["status_label"], x["pot"]) == ("POT", "POT (training data only)", {"from": ["x"]})
+
+
+# ---------------------------------------------------------- THE PAPER LINE (addendum 146 item 5(a)) --
+# ARCHITECT 2026-10-20 09:59 ET, addendum 146 item 5(a), verbatim: "(a) coverage's SLATE line for a market-only
+# competition carries, per game, the Kalshi mid (two-way, or the three-way mids) and, where a shadow export exists for
+# the day, the shadow's pick and value side with their divergence against the mid, labelled PAPER and never a call. NHL
+# today has a shadow (v7, FAILED gate); CL and NCAA have none and show the market line only."
+
+NHL_GAME = [(501, "NHL", "2026-10-17 23:00", "SCHEDULED")]                    # 19:00 ET, the clock at 08:10 ET
+TWO_WAY = [(501, "ML", "HOME", "2026-10-17 11:58", 0.54, 0.55), (501, "ML", "AWAY", "2026-10-17 11:58", 0.45, 0.46)]
+V7_VERDICT = "FAILED 0.6885 vs 0.6866"
+
+
+def nhl_shadow_file(rows, exported_at="2026-10-16T16:00:00", name="nhl_shadow_2026-10-16_1600.json"):
+    """A shadow export in nhl_shadow.export's doc shape (the fit block made, no fallback): its rows are the fixtures row
+    plus the shadow's keys."""
+    doc = {"sport": "nhl", "engine": "model_shadow", "model_version": V7, "gate_verdict": V7_VERDICT,
+           "reference_model": {"model_version": "nhl_elo_v1", "gate_verdict": "FAILED"},
+           "contains_predictions": False, "exported_at": exported_at, "window_hours": 36, "note": "shadow",
+           "fit": {"xg_model": "frozen 2023-24", "goal_margin_fallbacks": 0}, "skipped": {}, "count": len(rows),
+           "predictions": rows}
+    (c.REPO / "exports" / name).write_text(json.dumps(doc))
+
+
+def shadow_row(mid, home_p, utc_date="2026-10-17T23:00:00", home="Home", away="Away"):
+    return {"match_id": mid, "home_team": home, "away_team": away, "utc_date": utc_date, "competition": "X",
+            "engine": "model_shadow", "model_version": V7, "gate_verdict": V7_VERDICT,
+            "prediction": {"home_win_prob": home_p, "away_win_prob": round(1 - home_p, 4),
+                           "top_pick": "home_win" if home_p >= 0.5 else "away_win"}}
+
+
+def paper_of(out, code):
+    return [x for x in out if x.startswith(f"{code} SLATE")]
+
+
+def test_paper_nhl_the_two_way_mid_and_the_v7_shadow(env):
+    make_db(env, NHL_GAME, kalshi=TWO_WAY)
+    nhl_shadow_file([shadow_row(501, 0.60)])
+    rc, out = run("--date", DAY)
+    assert rc == 0
+    assert paper_of(out, "NHL") == [
+        f"NHL {PAPER_HEAD} · 1 game · Kalshi mid 1 of 1 · shadow 1 of 1",
+        "NHL SLATE · PAPER · 501 Away @ Home 19:00 ET · Kalshi mid HOME 0.545 / AWAY 0.455 (bid 0.54, ask 0.55, 1c; "
+        f"captured 2026-10-17 07:58 ET) · shadow {V7} ({V7_VERDICT}; exported 2026-10-16 12:00 ET): pick HOME 0.600 "
+        "(+5.5pp vs mid); value side HOME (+5.5pp)"]
+    assert out.index(paper_of(out, "NHL")[0]) == out.index(line_of(out, "NHL")) + 1
+    assert out[-1] == "GAPS: none"                                             # PAPER never claims a gap
+
+
+def test_paper_the_pick_and_the_value_side_can_differ(env):
+    make_db(env, NHL_GAME, kalshi=[(501, "ML", "HOME", "2026-10-17 11:58", 0.59, 0.61)])     # mid 0.60, 2c
+    nhl_shadow_file([shadow_row(501, 0.55)])
+    line = paper_of(run("--date", DAY)[1], "NHL")[1]
+    assert line.endswith("pick HOME 0.550 (-5.0pp vs mid); value side AWAY (+5.0pp)")
+    assert "Kalshi mid HOME 0.600 / AWAY 0.400 (bid 0.59, ask 0.61, 2c; " in line
+
+
+def test_paper_ncaa_with_a_quote_and_no_shadow_shows_the_market_line_only(env):
+    make_db(env, [(601, "NCAA", "2026-10-17 16:00", "SCHEDULED")],
+            kalshi=[(601, "ML", "HOME", "2026-10-17 10:00", 0.30, 0.31)])
+    assert paper_of(run("--date", DAY)[1], "NCAA") == [
+        f"NCAA {PAPER_HEAD} · 1 game · Kalshi mid 1 of 1 · shadow 0 of 1",
+        "NCAA SLATE · PAPER · 601 Away @ Home 12:00 ET · Kalshi mid HOME 0.305 / AWAY 0.695 (bid 0.30, ask 0.31, 1c; "
+        f"captured 2026-10-17 06:00 ET) · {NO_SHADOW}"]
+
+
+CL_LEGS = [(801, "1X2", "HOME", "2026-10-17 11:58", 0.44, 0.45), (801, "1X2", "AWAY", "2026-10-17 11:58", 0.27, 0.28)]
+
+
+@pytest.mark.parametrize("draw,head,mids", [
+    ((0.27, 0.28), "Kalshi mid 1 of 1",
+     "Kalshi mids HOME 0.445 / DRAW 0.275 / AWAY 0.275 (raw per leg, not normalized, display only; sum 0.995; captured "
+     "2026-10-17 07:58 ET)"),
+    ((0.27, 0.30), "Kalshi mid 0 of 1",
+     "Kalshi mids HOME 0.445 / DRAW — / AWAY 0.275 (raw per leg, not normalized, display only; sum —; captured "
+     "2026-10-17 07:58 ET)")], ids=["three-legs-1c", "draw-3c-wide"])
+def test_paper_cl_three_way_mids(env, draw, head, mids):
+    make_db(env, [(801, "CL", "2026-10-17 19:00", "SCHEDULED")],
+            kalshi=CL_LEGS + [(801, "1X2", "DRAW", "2026-10-17 11:58", *draw)])
+    assert paper_of(run("--date", DAY)[1], "CL") == [
+        f"CL {PAPER_HEAD} · 1 game · {head} · shadow 0 of 1",
+        f"CL SLATE · PAPER · 801 Away @ Home 15:00 ET · {mids} · {NO_SHADOW}"]
+
+
+@pytest.mark.parametrize("quotes", [
+    [(501, "ML", "HOME", "2026-10-17 11:58", 0.52, 0.55), (501, "ML", "HOME", "2026-10-17 10:00", 0.54, 0.55)],
+    [(501, "ML", "HOME", "2026-10-17 11:58", 0.54, None), (501, "ML", "AWAY", "2026-10-17 11:58", 0.45, 0.46)],
+], ids=["3c-wide-older-1c-never-substituted", "bid-only-home"])
+def test_paper_no_two_sided_quote_within_the_cap_is_no_mid(env, quotes):
+    make_db(env, NHL_GAME, kalshi=quotes)
+    out = run("--date", DAY)[1]
+    assert paper_of(out, "NHL")[0].endswith("· Kalshi mid 0 of 1 · shadow 0 of 1")
+    assert " · Kalshi: no mid (no two-sided pre-kickoff quote within the 2c cap) · " in paper_of(out, "NHL")[1]
+
+
+def test_paper_no_row_for_the_game_is_no_quote_stored(env):
+    make_db(env, NHL_GAME, kalshi=[(999, "ML", "HOME", "2026-10-17 11:58", 0.54, 0.55)])
+    assert " · Kalshi: no quote stored · " in paper_of(run("--date", DAY)[1], "NHL")[1]
+
+
+def test_paper_legs_of_two_events_are_mismatched_and_show_no_mid(env):
+    make_db(env, NHL_GAME, kalshi=[(501, "ML", "HOME", "2026-10-17 11:58", 0.54, 0.55, "KXNHLGAME-26OCT17AAABBB-BBB"),
+                                   (501, "ML", "AWAY", "2026-10-17 11:58", 0.45, 0.46, "KXNHLGAME-26OCT17CCCDDD-CCC")])
+    nhl_shadow_file([shadow_row(501, 0.60)])
+    line = paper_of(run("--date", DAY)[1], "NHL")[1]
+    assert (" · Kalshi: mismatched legs (KXNHLGAME-26OCT17AAABBB, KXNHLGAME-26OCT17CCCDDD): no mid (addendum 37 item 3)"
+            " · ") in line
+    assert line.endswith("pick HOME 0.600 (no mid: no divergence); value side not judged (no mid)")
+
+
+def test_paper_a_shadow_after_kickoff_is_never_used_and_another_games_row_is_not_shown(env):
+    make_db(env, NHL_GAME + [(502, "NHL", "2026-10-17 23:30", "SCHEDULED")], kalshi=TWO_WAY)
+    nhl_shadow_file([shadow_row(501, 0.60)], exported_at="2026-10-17T23:05:00", name="nhl_shadow_2026-10-17_2305.json")
+    nhl_shadow_file([shadow_row(502, 0.58, utc_date="2026-10-17T23:30:00", home="Other Home")])
+    lines = paper_of(run("--date", DAY)[1], "NHL")
+    assert lines[0].endswith("· Kalshi mid 1 of 2 · shadow 0 of 2")
+    assert lines[1].endswith(f"· {NO_SHADOW}")                                  # exported after its puck drop
+    assert lines[2].endswith("· Kalshi: no quote stored · shadow: row names Away @ Other Home, not this game: not shown")
+
+
+def test_paper_a_started_game_shows_its_last_pre_kickoff_quote(env, monkeypatch):
+    monkeypatch.setattr(cl, "clock", lambda: utc("2026-10-17 23:20"))
+    make_db(env, NHL_GAME, kalshi=TWO_WAY + [(501, "ML", "HOME", "2026-10-17 23:10", 0.80, 0.81)])   # in play: never
+    line = paper_of(run("--date", DAY)[1], "NHL")[1]
+    assert line.startswith("NHL SLATE · PAPER · 501 Away @ Home 19:00 ET (started) · Kalshi mid HOME 0.545 / ")
+
+
+def test_paper_only_market_only_competitions_and_never_an_all_void_day(env):
+    make_db(env, [(702, "EL2", "2026-10-17 14:00", "SCHEDULED"), (704, "EL1", "2026-10-17 14:00", "SCHEDULED"),
+                  (401, "PL", "2026-10-17 14:00", "SCHEDULED"), (601, "NCAA", "2026-10-17 16:00", "CANCELLED")],
+            kalshi=[(i, "ML", "HOME", "2026-10-17 11:00", 0.5, 0.51) for i in (702, 704, 401, 601)])
+    out = run("--date", DAY)[1]
+    assert not [x for x in out if " SLATE · PAPER" in x]
+    cov = cm.coverage(datetime(2026, 10, 17).date(), NOW)
+    assert {x["code"]: x["paper"] for x in cov["competitions"]} == {"PL": None, "EL2": None, "NCAA": None, "EL1": None}
+
+
+def _keys(v):
+    if isinstance(v, dict):
+        return set(v) | {k for w in v.values() for k in _keys(w)}
+    if isinstance(v, list):
+        return {k for w in v for k in _keys(w)}
+    return set()
+
+
+def test_paper_json_carries_paper_and_paper_lines_in_the_lines_own_words(env, tmp_path):
+    make_db(env, NHL_GAME + [(601, "NCAA", "2026-10-17 16:00", "SCHEDULED")], kalshi=TWO_WAY)
+    nhl_shadow_file([shadow_row(501, 0.60)])
+    out = tmp_path / "cov.json"
+    rc, lines = run("--date", DAY, "--json", "--out", str(out))
+    assert rc == 0
+    doc = json.loads(out.read_text())
+    for x in doc["competitions"]:
+        assert x["status"] == "MARKET-ONLY" and x["slate"] is None
+        assert x["slate_line"] == paper_of(lines, x["code"])[0] and x["paper_lines"] == paper_of(lines, x["code"])[1:]
+        assert x["paper"]["label"] == "PAPER, never a call" and x["paper"]["ruling"] == "ARCHITECT 2026-10-20, addendum 146 item 5(a)"
+        assert not {"call", "units", "order"} & _keys(x["paper"])
+    nhl = next(x for x in doc["competitions"] if x["code"] == "NHL")["paper"]["games"][0]
+    assert (nhl["board"], nhl["kalshi"]["fair"]["HOME"], nhl["kalshi"]["captured_at"], nhl["start"]) == \
+        ("two-way", 0.545, "2026-10-17T11:58:00Z", "2026-10-17T23:00:00Z")
+    assert (nhl["shadow"]["model_version"], nhl["shadow"]["exported_at"], nhl["shadow"]["value_side"]) == \
+        (V7, "2026-10-16T16:00:00Z", "HOME")
+    stamps = _datetimes(doc)
+    assert stamps and all(ISO_Z.fullmatch(v) for _, v in stamps), [s for s in stamps if not ISO_Z.fullmatch(s[1])]
+
+
+@pytest.mark.parametrize("wal", [False, True], ids=["rollback-journal", "wal"])
+def test_paper_reads_odds_snapshots_read_only(env, monkeypatch, wal):
+    """With odds_snapshots stored (and its ticker column, so the legs guard reads): the DB opened mode=ro, every statement
+    a SELECT except exactly the guard's PRAGMA table_info(odds_snapshots), its bytes unchanged, no network, no ORM
+    session. (The no-write test above reads a DB with no such table: no PRAGMA runs there.) The shadow read is read-only
+    too: a shadow export in exports/ is shown, a decoy under exports/host/ (another game's row and other probabilities)
+    is never read, and every file under exports/ keeps its name, bytes and mtime."""
+    make_db(env, NHL_GAME + [(401, "PL", "2026-10-17 14:00", "SCHEDULED")], [(401, "v22", "2026-10-17 10:00")],
+            wal=wal, kalshi=[(501, "ML", "HOME", "2026-10-17 11:58", 0.54, 0.55, "KXNHLGAME-26OCT17AAABBB-BBB"),
+                             (501, "ML", "AWAY", "2026-10-17 11:58", 0.45, 0.46, "KXNHLGAME-26OCT17AAABBB-AAA")])
+    nhl_shadow_file([shadow_row(501, 0.60)])
+    host = c.REPO / "exports" / "host"
+    host.mkdir()
+    (host / "nhl_shadow_2026-10-17_0900.json").write_text(json.dumps(
+        {"engine": "model_shadow", "model_version": V7, "gate_verdict": V7_VERDICT, "exported_at": "2026-10-17T09:00:00",
+         "predictions": [shadow_row(501, 0.80)]}))
+
+    def listing():
+        ex = c.REPO / "exports"
+        return sorted((str(q.relative_to(ex)), q.is_dir(), b"" if q.is_dir() else q.read_bytes(), q.stat().st_mtime_ns)
+                      for q in [ex, *ex.rglob("*")])           # a folder's mtime moves when a file is made in it
+    files_before = listing()
+    before = hashlib.sha256(env.read_bytes()).hexdigest()
+    real, opened, statements = sqlite3.connect, [], []
+
+    def watched(target, *a, **k):
+        con = real(target, *a, **k)
+        opened.append((str(target), k.get("uri")))
+        con.set_trace_callback(statements.append)
+        return con
+
+    def refuse(*a, **k):
+        raise AssertionError("coverage made a network call or opened an ORM session")
+
+    monkeypatch.setattr(sqlite3, "connect", watched)
+    monkeypatch.setattr(socket, "create_connection", refuse)
+    monkeypatch.setattr(socket.socket, "connect", refuse)
+    import src.db.database as dbm
+    monkeypatch.setattr(sys.modules["cli"], "session_scope", refuse)
+    monkeypatch.setattr(dbm, "session_scope", refuse)
+    rc, out = run("--date", DAY)
+    assert rc == 0 and paper_of(out, "NHL")[0].endswith("· Kalshi mid 1 of 1 · shadow 1 of 1")
+    assert paper_of(out, "NHL")[1].endswith(f"shadow {V7} ({V7_VERDICT}; exported 2026-10-16 12:00 ET): pick HOME 0.600 "
+                                            "(+5.5pp vs mid); value side HOME (+5.5pp)")      # exports/, never host/
+    assert listing() == files_before
+    assert len(opened) == 2 and all(t.endswith("?mode=ro") and u is True for t, u in opened), opened
+    other = [x for x in statements if not x.lstrip().upper().startswith("SELECT")]
+    assert other == ["PRAGMA table_info(odds_snapshots)"], other
+    assert any("FROM odds_snapshots" in x for x in statements)
+    assert hashlib.sha256(env.read_bytes()).hexdigest() == before
+
+
+def test_paper_lines_never_carry_a_call_an_order_or_units(env):
+    make_db(env, NHL_GAME + [(801, "CL", "2026-10-17 19:00", "SCHEDULED")],
+            kalshi=TWO_WAY + CL_LEGS + [(801, "1X2", "DRAW", "2026-10-17 11:58", 0.27, 0.28)])
+    nhl_shadow_file([shadow_row(501, 0.60)])
+    paper = [x for x in run("--date", DAY)[1] if " SLATE · PAPER" in x]
+    assert len(paper) == 4
+    for x in paper:
+        assert "PLAY" not in x and "BUY" not in x and not re.search(r"\d+(\.\d+)?u\b", x), x
+
+
+def test_paper_a_started_three_way_game_shows_its_last_pre_kickoff_legs(env, monkeypatch):
+    """R21 on a three-way board: CL 801 LIVE at 19:30Z; its legs at 11:58Z and an in-play HOME quote at 19:20Z (never
+    used: each leg reads its last two-sided quote before kickoff)."""
+    monkeypatch.setattr(cl, "clock", lambda: utc("2026-10-17 19:30"))
+    make_db(env, [(801, "CL", "2026-10-17 19:00", "LIVE")],
+            kalshi=CL_LEGS + [(801, "1X2", "DRAW", "2026-10-17 11:58", 0.27, 0.28),
+                              (801, "1X2", "HOME", "2026-10-17 19:20", 0.80, 0.81)])
+    line = paper_of(run("--date", DAY)[1], "CL")[1]
+    assert line.startswith("CL SLATE · PAPER · 801 Away @ Home 15:00 ET (started) · Kalshi mids HOME 0.445 / DRAW "
+                           "0.275 / AWAY 0.275 (raw per leg, not normalized, display only; sum 0.995; captured "
+                           "2026-10-17 07:58 ET)")
+
+
+def test_paper_a_mixed_board_is_not_read(env):
+    """ML HOME/AWAY and a 1X2 DRAW row stored for one game: never read as either board."""
+    make_db(env, NHL_GAME, kalshi=TWO_WAY + [(501, "1X2", "DRAW", "2026-10-17 11:58", 0.20, 0.21)])
+    lines = paper_of(run("--date", DAY)[1], "NHL")
+    assert lines[0].endswith("· Kalshi mid 0 of 1 · shadow 0 of 1")
+    assert " · Kalshi: ML and 1X2 rows both stored: not read · " in lines[1]
+
+
+def test_paper_a_game_two_shadow_exports_hold_is_not_shown(env):
+    import src.walters.ncaa_shadow as ns
+    make_db(env, NHL_GAME, kalshi=TWO_WAY)
+    nhl_shadow_file([shadow_row(501, 0.60)])
+    doc = {"engine": "model_shadow", "competition": "NCAA", "exported_at": "2026-10-16T16:00:00",
+           "predictions": [shadow_row(501, 0.62)]}
+    (c.REPO / "exports" / f"{ns.FILE_PREFIX}2026-10-16_1600.json").write_text(json.dumps(doc))
+    lines = paper_of(run("--date", DAY)[1], "NHL")
+    assert lines[0].endswith("· Kalshi mid 1 of 1 · shadow 0 of 1")
+    assert lines[1].endswith(" · shadow: two shadow exports hold it: not shown")
+
+
+def test_paper_a_shadow_export_that_cannot_be_read_is_named(env):
+    """A shadow file that is a JSON list: the module's last_calls raises; its shadows are not read, named."""
+    make_db(env, NHL_GAME, kalshi=TWO_WAY)
+    nhl_shadow_file([shadow_row(501, 0.60)])
+    (c.REPO / "exports" / "nhl_shadow_2026-10-16_1700.json").write_text("[1, 2]")
+    lines = paper_of(run("--date", DAY)[1], "NHL")
+    assert lines[0].endswith("· Kalshi mid 1 of 1 · shadow not read (nhl_shadow: AttributeError)")
+    assert lines[1].endswith(" · shadow: not read (nhl_shadow: AttributeError)")
+
+
+def test_paper_a_row_with_no_pick_is_not_shown(env):
+    make_db(env, NHL_GAME, kalshi=TWO_WAY)
+    r = shadow_row(501, 0.60)
+    del r["prediction"]["top_pick"]
+    nhl_shadow_file([r])
+    assert paper_of(run("--date", DAY)[1], "NHL")[1].endswith(" · shadow: the row carries no pick: not shown")
+
+
+MALFORMED = {"prediction-a-list": ("prediction", ["junk"]), "prediction-text": ("prediction", "n/a"),
+             "prob-text": ("home_win_prob", "0.6"), "prob-nan": ("home_win_prob", float("nan")),
+             "top-pick-a-list": ("top_pick", ["home_win"])}
+
+
+@pytest.mark.parametrize("key,value", list(MALFORMED.values()), ids=list(MALFORMED))
+def test_paper_a_malformed_shadow_row_is_not_shown_and_the_page_stays_whole(env, key, value):
+    """Law 4 and "it never stops a chain": one shadow row stored with a value of the wrong kind (json writes NaN by
+    default) reads "the row cannot be read: not shown"; the LIVE PL line and the GAPS print exactly as with a good row,
+    exit 0."""
+    make_db(env, NHL_GAME + [(401, "PL", "2026-10-17 14:00", "SCHEDULED")], [(401, "v22", "2026-10-17 10:00")],
+            kalshi=TWO_WAY)
+    nhl_shadow_file([shadow_row(501, 0.60)])
+    rc, good = run("--date", DAY)
+    assert rc == 0
+    r = shadow_row(501, 0.60)
+    if key == "prediction":
+        r["prediction"] = value
+    else:
+        r["prediction"][key] = value
+    nhl_shadow_file([r])
+    rc, out = run("--date", DAY)
+    assert rc == 0
+    assert line_of(out, "PL") == line_of(good, "PL") and gaps(out) == gaps(good)
+    assert [x for x in out if x.startswith("PL ")] == [x for x in good if x.startswith("PL ")]
+    assert paper_of(out, "NHL")[0].endswith("· Kalshi mid 1 of 1 · shadow 0 of 1")
+    assert paper_of(out, "NHL")[1].endswith(" · shadow: the row cannot be read: not shown")
+
+
+def test_paper_a_quote_that_cannot_be_read_is_not_shown_and_the_page_stays_whole(env):
+    """A stored yes_bid that is text (SQLite does not enforce the column's type): that game's Kalshi part reads "cannot
+    be read (ValueError): not shown"; the other game and the LIVE PL line print whole, exit 0."""
+    make_db(env, NHL_GAME + [(502, "NHL", "2026-10-17 23:30", "SCHEDULED"),
+                             (401, "PL", "2026-10-17 14:00", "SCHEDULED")], [(401, "v22", "2026-10-17 10:00")],
+            kalshi=[(502, "ML", "HOME", "2026-10-17 11:58", 0.54, 0.55)])
+    con = sqlite3.connect(env)
+    con.execute("INSERT INTO odds_snapshots(match_id, market, selection, captured_at, source, yes_bid, yes_ask) VALUES "
+                "(501, 'ML', 'HOME', ?, 'kalshi', '0.54x', 0.55)", (_ts(utc("2026-10-17 11:58")),))
+    con.commit()
+    con.close()
+    rc, out = run("--date", DAY)
+    assert rc == 0
+    lines = paper_of(out, "NHL")
+    assert lines[0].endswith("· 2 games · Kalshi mid 1 of 2 · shadow 0 of 2")
+    assert " 501 Away @ Home 19:00 ET · Kalshi: cannot be read (ValueError): not shown · " in lines[1]
+    assert " 502 Away @ Home 19:30 ET · Kalshi mid HOME 0.545 / " in lines[2]
+    assert line_of(out, "PL").startswith("PL · 1 game · LIVE")
+
+
+def test_paper_a_capture_time_that_cannot_be_read_says_so(env):
+    """A stored Kalshi row whose captured_at is "garbage" is no quote before kickoff: a game left with no mid by it
+    reads "Kalshi: cannot be read (a capture time cannot be read): not shown", never "no two-sided pre-kickoff quote";
+    a game that still has a readable quote shows its mid; every other line and the GAPS are unchanged, exit 0."""
+    make_db(env, NHL_GAME + [(502, "NHL", "2026-10-17 23:30", "SCHEDULED"),
+                             (401, "PL", "2026-10-17 14:00", "SCHEDULED")], [(401, "v22", "2026-10-17 10:00")],
+            kalshi=[(502, "ML", "HOME", "2026-10-17 11:58", 0.54, 0.55)])
+    rc, good = run("--date", DAY)
+    assert rc == 0 and " 501 Away @ Home 19:00 ET · Kalshi: no quote stored · " in paper_of(good, "NHL")[1]
+    con = sqlite3.connect(env)
+    for mid in (501, 502):
+        con.execute("INSERT INTO odds_snapshots(match_id, market, selection, captured_at, source, yes_bid, yes_ask) "
+                    "VALUES (?, 'ML', 'HOME', 'garbage', 'kalshi', 0.60, 0.61)", (mid,))
+    con.commit()
+    con.close()
+    rc, out = run("--date", DAY)
+    assert rc == 0
+    lines = paper_of(out, "NHL")
+    assert " 501 Away @ Home 19:00 ET · Kalshi: cannot be read (a capture time cannot be read): not shown · " in lines[1]
+    assert lines[2] == paper_of(good, "NHL")[2]                       # 502: its readable quote's mid, as before
+    assert lines[0] == paper_of(good, "NHL")[0]
+    assert line_of(out, "PL") == line_of(good, "PL") and gaps(out) == gaps(good)
+
+
+def test_paper_book_rows_in_odds_snapshots_never_make_a_board_mixed(env):
+    """The real odds_snapshots holds book rows (market 1X2, another source) beside Kalshi's ML rows: only source kalshi
+    is read, so the NHL board stays two-way with its mid."""
+    make_db(env, NHL_GAME, kalshi=TWO_WAY)
+    con = sqlite3.connect(env)
+    con.execute("INSERT INTO odds_snapshots(match_id, market, selection, devig_prob, captured_at, source) VALUES "
+                "(501, '1X2', 'HOME', 0.55, '2026-10-17 11:00:00.000000', 'consensus')")
+    con.commit()
+    con.close()
+    line = paper_of(run("--date", DAY)[1], "NHL")[1]
+    assert " · Kalshi mid HOME 0.545 / AWAY 0.455 (bid 0.54, ask 0.55, 1c; captured 2026-10-17 07:58 ET) · " in line
+
+
+def test_paper_a_row_whose_away_team_differs_is_not_shown(env):
+    make_db(env, NHL_GAME, kalshi=TWO_WAY)
+    nhl_shadow_file([shadow_row(501, 0.60, away="Other")])
+    assert paper_of(run("--date", DAY)[1], "NHL")[1].endswith(" · shadow: row names Other @ Home, not this game: not "
+                                                              "shown")
+
+
+def unl_file(rows, exported_at="2026-10-16T16:00:00"):
+    """A UNL shadow export (intl_shadow's doc shape) in the scratch exports/."""
+    doc = {"sport": "unl", "engine": "model_shadow", "model_version": "intl-elo-v2", "gate_verdict": "PASS",
+           "contains_predictions": False, "exported_at": exported_at, "window_hours": 36, "note": "n", "fit": {},
+           "count": len(rows), "predictions": rows}
+    (c.REPO / "exports" / "unl_shadow_2026-10-16_1600.json").write_text(json.dumps(doc))
+
+
+def unl_row(mid, ph, pd, pa, top):
+    pred = {"home_win_prob": ph, "away_win_prob": pa, "top_pick": top}
+    if pd is not None:
+        pred["draw_prob"] = pd
+    return {"match_id": mid, "home_team": "Home", "away_team": "Away", "utc_date": "2026-10-17T18:45:00",
+            "engine": "model_shadow", "model_version": "intl-elo-v2", "gate_verdict": "PASS", "prediction": pred}
+
+
+UNL_LEGS = [(901, "1X2", "HOME", "2026-10-17 11:58", 0.40, 0.41), (901, "1X2", "DRAW", "2026-10-17 11:58", 0.29, 0.30),
+            (901, "1X2", "AWAY", "2026-10-17 11:00", 0.30, 0.31)]
+
+
+def test_paper_three_way_legs_captured_apart_read_oldest_to_newest_and_a_draw_pick(env):
+    """UNL 901: the AWAY leg captured an hour before the other two (the range reads oldest first); a three-way shadow
+    picking DRAW is judged on all three legs."""
+    make_db(env, [(901, "UNL", "2026-10-17 18:45", "SCHEDULED")], kalshi=UNL_LEGS)
+    unl_file([unl_row(901, 0.33, 0.36, 0.31, "draw")])
+    lines = paper_of(run("--date", DAY)[1], "UNL")
+    assert lines[0].endswith("· 1 game · Kalshi mid 1 of 1 · shadow 1 of 1")
+    assert ("Kalshi mids HOME 0.405 / DRAW 0.295 / AWAY 0.305 (raw per leg, not normalized, display only; sum 1.005; "
+            "captured 2026-10-17 07:00 ET to 2026-10-17 07:58 ET)") in lines[1]
+    assert lines[1].endswith("pick DRAW 0.360 (+6.5pp vs mid); value side DRAW (+6.5pp)")
+
+
+def test_paper_a_two_way_shadow_on_a_three_way_board_is_never_judged(env):
+    """A shadow row with no draw_prob against UNL's three legs: never judged on two of the three, and no divergence (a
+    two-way p against a raw three-way mid is not comparable)."""
+    make_db(env, [(901, "UNL", "2026-10-17 18:45", "SCHEDULED")], kalshi=UNL_LEGS)
+    unl_file([unl_row(901, 0.50, None, 0.50, "home_win")])
+    line = paper_of(run("--date", DAY)[1], "UNL")[1]
+    assert line.endswith("pick HOME 0.500 (a two-way prediction on a three-way board: no divergence); value side not "
+                         "judged (a two-way prediction on a three-way board)"), line
+
+
+@pytest.mark.parametrize("home_p,tail", [
+    (0.5454, "pick HOME 0.545 (+0.0pp vs mid); value side none (no side above its mid by 0.05pp or more, the printed "
+             "precision)"),
+    (0.5455, "pick HOME 0.545 (+0.1pp vs mid); value side HOME (+0.1pp)")], ids=["0.04pp", "0.05pp"])
+def test_paper_the_value_side_is_judged_at_the_printed_precision(env, home_p, tail):
+    """nhl_shadow rounds to 4 dp; against the 0.545 mid a side 0.04pp above prints +0.0pp and is no value side (said
+    so), never "value side HOME (+0.0pp)"; 0.05pp prints +0.1pp and is one."""
+    make_db(env, NHL_GAME, kalshi=TWO_WAY)
+    nhl_shadow_file([shadow_row(501, home_p)])
+    line = paper_of(run("--date", DAY)[1], "NHL")[1]
+    assert line.endswith(tail), line
+
+
+def test_paper_one_games_shadow_part_raising_leaves_the_page_whole(env, monkeypatch):
+    """The per-game guard: whatever one game's shadow part raises (here IndexError, what a NaN probability raised in
+    shadow_view before it read only finite numbers) reads "cannot be read (<Error>): not shown" for that game only."""
+    from src.walters import paper
+
+    def boom(pred, fair):
+        raise IndexError("list index out of range")
+    monkeypatch.setattr(paper, "shadow_view", boom)
+    make_db(env, NHL_GAME + [(401, "PL", "2026-10-17 14:00", "SCHEDULED")], [(401, "v22", "2026-10-17 10:00")],
+            kalshi=TWO_WAY)
+    nhl_shadow_file([shadow_row(501, 0.60)])
+    rc, out = run("--date", DAY)
+    assert rc == 0 and line_of(out, "PL").startswith("PL · 1 game · LIVE")
+    assert paper_of(out, "NHL")[1].endswith(" · shadow: cannot be read (IndexError): not shown")
+
+
+def test_paper_a_wide_home_quote_and_an_unreadable_away_row_keep_the_caps_reason(env):
+    """Two-way: the HOME leg's last quote is 3c wide (no mid by the cap); an AWAY ML row, which the mid never reads
+    (close_from_kalshi reads the HOME leg), has an unreadable captured_at. The true reason is still the cap, never
+    "a capture time cannot be read"."""
+    nomid = "Kalshi: no mid (no two-sided pre-kickoff quote within the 2c cap)"
+    make_db(env, NHL_GAME, kalshi=[(501, "ML", "HOME", "2026-10-17 11:58", 0.53, 0.56),
+                                   (501, "ML", "AWAY", "2026-10-17 11:58", 0.44, 0.47)])
+    assert nomid in paper_of(run("--date", DAY)[1], "NHL")[1]
+    con = sqlite3.connect(env)
+    con.execute("INSERT INTO odds_snapshots(match_id, market, selection, captured_at, source, yes_bid, yes_ask) "
+                "VALUES (501, 'ML', 'AWAY', 'garbage', 'kalshi', 0.45, 0.46)")
+    con.commit()
+    con.close()
+    line = paper_of(run("--date", DAY)[1], "NHL")[1]
+    assert nomid in line and "a capture time cannot be read" not in line, line
+
+
+def test_paper_a_three_way_shadow_on_a_three_way_board_with_a_leg_unpriced(env):
+    """UNL: DRAW 3c wide (no mid). Coverage passes every leg of the board (None for the unpriced one), so a three-way
+    shadow is "not judged (a leg has no mid)", never a shape mismatch, and its pick keeps its divergence."""
+    make_db(env, [(901, "UNL", "2026-10-17 18:45", "SCHEDULED")],
+            kalshi=[(901, "1X2", "HOME", "2026-10-17 11:58", 0.40, 0.41),
+                    (901, "1X2", "DRAW", "2026-10-17 11:58", 0.28, 0.31),
+                    (901, "1X2", "AWAY", "2026-10-17 11:58", 0.30, 0.31)])
+    unl_file([unl_row(901, 0.45, 0.25, 0.30, "home_win")])
+    line = paper_of(run("--date", DAY)[1], "UNL")[1]
+    assert line.endswith("pick HOME 0.450 (+4.5pp vs mid); value side not judged (a leg has no mid)"), line
+
+
+def test_paper_a_three_way_board_with_an_unreadable_draw_capture_time_says_so(env):
+    """Three-way (verifier1 C1): every leg of the board is read, so a DRAW 1X2 row whose captured_at is "garbage" on a
+    game left with no mid (HOME and AWAY each 3c wide) reads "a capture time cannot be read", never the cap's reason;
+    the two-way rule (only the HOME leg's time counts) is not applied to a three-way board."""
+    nomid = "Kalshi: no mid (no two-sided pre-kickoff quote within the 2c cap)"
+    make_db(env, [(801, "CL", "2026-10-17 19:00", "SCHEDULED")],
+            kalshi=[(801, "1X2", "HOME", "2026-10-17 11:58", 0.43, 0.46),
+                    (801, "1X2", "AWAY", "2026-10-17 11:58", 0.26, 0.29)])
+    rc, good = run("--date", DAY)
+    assert rc == 0 and nomid in paper_of(good, "CL")[1]
+    con = sqlite3.connect(env)
+    con.execute("INSERT INTO odds_snapshots(match_id, market, selection, captured_at, source, yes_bid, yes_ask) "
+                "VALUES (801, '1X2', 'DRAW', 'garbage', 'kalshi', 0.27, 0.28)")
+    con.commit()
+    con.close()
+    rc, out = run("--date", DAY)
+    assert rc == 0
+    line = paper_of(out, "CL")[1]
+    assert " 801 Away @ Home 15:00 ET · Kalshi: cannot be read (a capture time cannot be read): not shown · " in line
+    assert nomid not in line and paper_of(out, "CL")[0] == paper_of(good, "CL")[0]

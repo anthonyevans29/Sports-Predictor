@@ -11,6 +11,7 @@ from sqlalchemy import select
 from src.db.database import init_db, session_scope
 from src.db.schema import Competition, Match, MatchStatus, OddsSnapshot, Prediction, Sport, Team
 from src.walters.export import export_predictions
+from src.walters import venue
 from src.timeutil import utc_now_naive
 
 
@@ -54,7 +55,7 @@ def test_mlb_and_soccer_rows_carry_home_contract_exec_cost():
     mlb = {r["match_id"]: r for r in json.loads(export_predictions(
         sport=Sport.MLB, start_date=lo, end_date=hi, competition_code="KXMLB"))["predictions"]}
     assert (mlb[two]["kalshi_bid"], mlb[two]["kalshi_ask"], mlb[two]["exec_cost_taker"]) == (0.54, 0.56, 0.577)   # #88: per fill, nearest (was 0.58)
-    assert mlb[two]["k_track"].startswith("K-track: informational")
+    assert mlb[two]["k_track"] == venue.K_TRACK_NOTE
     assert (mlb[one]["kalshi_bid"], mlb[one]["kalshi_ask"], mlb[one]["exec_cost_taker"]) == (None, None, None)
     sc = {r["match_id"]: r for r in json.loads(export_predictions(
         sport=Sport.SOCCER, start_date=lo, end_date=hi, competition_code="KXSOC"))["predictions"]}

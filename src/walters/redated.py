@@ -17,6 +17,10 @@ by a join. Q2: "A row whose recorded kickoff was the 04:00Z placeholder is "void
 every tally the same way." The placeholder is the code's one definition (src/ingestion/placeholder.py
 is_placeholder_kickoff, 04:00:00Z); one void state, two labels: a placeholder start that moved more than the hour reads
 PLACEHOLDER_LABEL instead of the re-dated label, and one that did not move is graded as before.
+
+closing_rows is the one reader of the closing files: each row whole, with its run start and its closing family (the
+exec cohorts of results-tally read the Desk's calls from it, ARCHITECT 2026-10-20, addendum 146 item 1(v));
+closing_starts is its projection to (run start, recorded start), unchanged.
 """
 from __future__ import annotations
 
@@ -70,32 +74,59 @@ def void_counts(labels) -> str:
     return f"re-dated {len(labels) - p} · placeholder kickoff {p}"
 
 
-def closing_starts(exports_dir) -> dict:
-    """The closing rows by match id, read from <exports_dir>/closing_*.json (the host's copies under host/ carry the
-    host's match ids: never read): {"rows": {match id: [(run start, recorded start), ...] oldest run first},
-    "files": n read, "unreadable": [names]}. The run start is the closing block's start, else the file name's stamp
-    (a row with neither sorts oldest). An unreadable file is counted, never fatal. Writes nothing."""
+_FAMILY = re.compile(r"closing_([A-Z]+)_")
+
+
+def closing_rows(exports_dir) -> dict:
+    """The closing files' rows by match id, read from <exports_dir>/closing_*.json (the host's copies under host/ carry
+    the host's match ids: never read; the glob does not recurse): {"rows": {match id: [(run start, family, row),
+    ...] oldest run first}, "files": n read, "unreadable": [names], "runs": (first, last) run start, or None when no
+    file gives one, "families": [the families the files read name, sorted]}. The run start is the closing block's
+    start, else the file name's stamp (a row with neither sorts oldest). The family is the closing block's, else the
+    name's segment (closing_<FAMILY>_...), else None. Each row is the export's row as the closing file holds it. An
+    unreadable file is counted, never fatal. Writes nothing."""
     d = Path(exports_dir)
     rows: dict[int, list] = {}
-    files, bad = 0, []
+    files, bad, runs, fams = 0, [], [], set()
     for p in sorted(d.glob(CLOSING_GLOB)) if d.is_dir() else []:
         try:
             doc = json.loads(p.read_text())
             preds = [r for r in doc.get("predictions") or [] if isinstance(r, dict)]
-            run = as_utc((doc.get("closing") or {}).get("start"))
+            block = doc.get("closing") or {}
+            run = as_utc(block.get("start"))
+            fam = block.get("family")
         except (OSError, ValueError, AttributeError, TypeError):
             bad.append(p.name)
             continue
         stamp = _STAMP.search(p.name)
         if run is None and stamp:
             run = datetime.strptime(stamp.group(1), "%Y-%m-%dT%H%M")
+        if not isinstance(fam, str) or not fam:
+            named = _FAMILY.match(p.name)
+            fam = named.group(1) if named else None
         files += 1
+        if run is not None:
+            runs.append(run)
+        if fam:
+            fams.add(fam)
         for r in preds:
             if isinstance(r.get("match_id"), int) and not isinstance(r.get("match_id"), bool):
-                rows.setdefault(r["match_id"], []).append((run, r.get("utc_date")))
+                rows.setdefault(r["match_id"], []).append((run, fam, r))
     for v in rows.values():
         v.sort(key=lambda x: (x[0] is not None, x[0] or datetime.min))
-    return {"rows": rows, "files": files, "unreadable": bad}
+    return {"rows": rows, "files": files, "unreadable": bad, "runs": (min(runs), max(runs)) if runs else None,
+            "families": sorted(fams)}
+
+
+def closing_starts(exports_dir) -> dict:
+    """The closing rows by match id, read from <exports_dir>/closing_*.json (the host's copies under host/ carry the
+    host's match ids: never read): {"rows": {match id: [(run start, recorded start), ...] oldest run first},
+    "files": n read, "unreadable": [names]}. The run start is the closing block's start, else the file name's stamp
+    (a row with neither sorts oldest). An unreadable file is counted, never fatal. Writes nothing. closing_rows'
+    projection: the same files, rows and order."""
+    cr = closing_rows(exports_dir)
+    return {"rows": {mid: [(run, r.get("utc_date")) for run, _, r in v] for mid, v in cr["rows"].items()},
+            "files": cr["files"], "unreadable": cr["unreadable"]}
 
 
 def void_label(rows, current_utc) -> str | None:

@@ -151,10 +151,11 @@ ADAPTER_READS = (
     "errors",                                         # _get raises on a non-empty errors field
 )
 #: addendum 32 item 5, read from the code (law 1):
-#: APIFootballAdapter.list_odds (src/adapters/api_football.py:356-425): response[] -> bookmakers[] -> name (no id),
-#: bets[] -> name ("Match Winner" / "Goals Over/Under"), values[] -> value/odd. Nothing else.
+#: APIFootballAdapter.list_odds (src/adapters/api_football.py): response[] -> bookmakers[] -> name (no id),
+#: bets[] -> name ("Match Winner" / "Goals Over/Under"), values[] -> value/odd; and response[].update, stored as
+#: source_updated_at on every row of that response (#615, ARCHITECT 2026-10-20, addendum 147 item 1).
 _SOCCER_READS = (
-    "response", "response[]", "response[].bookmakers", "response[].bookmakers[]",
+    "response", "response[]", "response[].update", "response[].bookmakers", "response[].bookmakers[]",
     "response[].bookmakers[].name",
     "response[].bookmakers[].bets", "response[].bookmakers[].bets[]", "response[].bookmakers[].bets[].name",
     "response[].bookmakers[].bets[].values", "response[].bookmakers[].bets[].values[]",

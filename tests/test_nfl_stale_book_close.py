@@ -259,7 +259,8 @@ def test_results_md_names_the_rule(iso):
 # ------------------------------------------------------ grading_close (every family where a stamp exists) ----
 
 def test_grading_close_and_the_clv_restate_apply_the_same_rule(iso):
-    """export.export_results' grading_close (MLB, PL: no stamp is stored for them today, so it is inert there) and
+    """export.export_results' grading_close (MLB: its answer carries no stamp, #628, so it is inert there; PL: stamped
+    since #615, where a three-way board keeps its book close, labelled) and
     clv_restate's copy of it switch the same stale book close, and the results block says so."""
     from src.db.database import session_scope
     from src.db.schema import Match, Odds, OddsSnapshot

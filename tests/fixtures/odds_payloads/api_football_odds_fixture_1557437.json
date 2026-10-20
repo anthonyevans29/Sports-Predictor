@@ -1,0 +1,57 @@
+{
+  "get": "odds",
+  "parameters": {
+    "fixture": "1557437"
+  },
+  "errors": [],
+  "results": 1,
+  "paging": {
+    "current": 1,
+    "total": 1
+  },
+  "response": [
+    {
+      "league": {
+        "id": 39,
+        "name": "Premier League",
+        "country": "England",
+        "logo": "https://media.api-sports.io/football/leagues/39.png",
+        "flag": "https://media.api-sports.io/flags/gb-eng.svg",
+        "season": 2026
+      },
+      "fixture": {
+        "id": 1557437,
+        "timezone": "UTC",
+        "date": "2026-10-24T14:00:00+00:00",
+        "timestamp": 1792850400
+      },
+      "update": "2026-10-19T16:35:22+00:00",
+      "bookmakers": [
+        {
+          "id": 8,
+          "name": "Bet365",
+          "bets": [
+            {
+              "id": 1,
+              "name": "Match Winner",
+              "values": [
+                {
+                  "value": "Home",
+                  "odd": "1.36"
+                },
+                {
+                  "value": "Draw",
+                  "odd": "4.75"
+                },
+                {
+                  "value": "Away",
+                  "odd": "7.50"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -166,14 +166,35 @@ def _mlb_store_odds(s, match, rows) -> tuple[int, bool] | None:
         o = Odds(match_id=match.id, market=ow.market, selection=ow.selection,
                  bookmaker=ow.bookmaker, price_decimal=ow.price_decimal, line=ow.line,
                  source="api_baseball", captured_at=now)
+        o.source_updated_at = getattr(ow, "source_updated_at", None)   # the provider's own time (#615); None = unknown
         s.add(o)
         fresh.append(o)
     cl = close_1x2(fresh, None, BINARY)
+    snap_rows = []
     if priced(cl):
         for sel, prob in cl["fair"].items():
-            s.add(OddsSnapshot(match_id=match.id, market="1X2", selection=sel, devig_prob=prob,
-                               line=None, n_books=cl["books"], captured_at=now, source="api_baseball"))
+            sn = OddsSnapshot(match_id=match.id, market="1X2", selection=sel, devig_prob=prob,
+                              line=None, n_books=cl["books"], captured_at=now, source="api_baseball")
+            s.add(sn)
+            snap_rows.append(sn)
+    _write_book_source_times(s, fresh, snap_rows, cl)
     return len(fresh), priced(cl)
+
+
+def _write_book_source_times(s, fresh, snap_rows, cl) -> None:
+    """SOURCE TIME on a book sync's rows (ARCHITECT 2026-10-19, addendum 137 item 4, #615: "both syncs write
+    `source_updated_at` from the provider's own update field, as `sync-odds-football` does, no backfill"). Each odds
+    row gets the time its own provider row carries (the plain attribute set at construction; None = unknown); each
+    appended snapshot gets the oldest over the rows the close priced (close.priced_rows, the set book_stamp reads; one
+    unknown row makes it unknown). Written by guarded Core SQL after a flush (addendum 35 item 2): the columns are
+    unmapped, so a database that has not run migrate_odds_source_updated_at.py writes nothing to the field."""
+    from src.db.database import write_source_times
+    from src.timeutil import oldest_source_time
+    from src.walters.close import priced_rows
+    src_upd = oldest_source_time(priced_rows(cl)) if snap_rows else None
+    s.flush()
+    write_source_times(s, "odds", [(o.id, getattr(o, "source_updated_at", None)) for o in fresh])
+    write_source_times(s, "odds_snapshots", [(sn.id, src_upd) for sn in snap_rows])
 
 
 class IngestionService:
@@ -387,7 +408,8 @@ class IngestionService:
             # `seriesGameNumber`, `gamesInSeries`, `seriesDescription` and `rescheduledFrom` on the match row". Only
             # the statsapi adapter fills nm.series (the api-sports fallback never reaches this method). The columns
             # are unmapped (the ORDER LINE note): stored by guarded Core SQL after the flush, each row from its own
-            # entry, a no-op until migrate_match_series_fields.py has run. Data only: nothing reads them.
+            # entry, a no-op until migrate_match_series_fields.py has run. Data only here: the one reader is
+            # retire-orphans' receipt (2) (addendum 146 item 3(a)(2); src.db.database.read_match_series).
             if series_rows:
                 from src.db.database import write_match_series
                 s.flush()
@@ -858,15 +880,20 @@ class IngestionService:
                         captured_at=no.captured_at,
                         source=self.source,
                     )
+                    o.source_updated_at = getattr(no, "source_updated_at", None)   # the provider's own time (#615)
                     s.add(o)
                     fresh.append(o)
                 cl = close_1x2(fresh, None, outcomes_for(match.sport))   # #207: complete books only
+                snap_rows = []
                 if priced(cl):
                     stamp = cl["captured_at"]
                     for sel, prob in cl["fair"].items():
-                        s.add(OddsSnapshot(match_id=match.id, market="1X2", selection=sel,
-                                           devig_prob=prob, line=None, n_books=cl["books"],
-                                           captured_at=stamp, source=self.source))
+                        sn = OddsSnapshot(match_id=match.id, market="1X2", selection=sel,
+                                          devig_prob=prob, line=None, n_books=cl["books"],
+                                          captured_at=stamp, source=self.source)
+                        s.add(sn)
+                        snap_rows.append(sn)
+                _write_book_source_times(s, fresh, snap_rows, cl)
                 result.created += 1
         log.info("sync_odds(%s): %s", competition_code, result)
         return result

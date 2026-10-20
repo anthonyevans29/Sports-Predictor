@@ -234,3 +234,22 @@ def test_the_slate_line_comes_first_on_the_tile_in_the_files_words():
     assert 'class="sec slate' not in _tile(base)                     # a file written before the key: none shown
     esc_t = _tile(dict(base, slate_line="PL SLATE · <script>y()</script>", slate={"file": "f"}))
     assert "<script>y()" not in esc_t and "&lt;script&gt;y()&lt;/script&gt;" in esc_t
+
+
+def test_a_day_whose_only_game_is_a_stale_orphan_shows_no_slate_due():
+    """#568 (ARCHITECT 2026-10-20, addendum 146 item 3(c)): "the Today tile stops showing a slate due for it". The
+    coverage_v1 file's MLB entry for a day whose only game is retired (the entry coverage writes,
+    tests/test_coverage_map.py: no game, the row void, `slate` and `slate_line` null): the tile shows the void game
+    named and no slate section. Nothing in the page changes; it draws the file's own words (F1c)."""
+    mlb = {"code": "MLB", "games": [], "void": [[50555, "STALE_ORPHAN"]], "status": "LIVE", "status_label": "LIVE",
+           "status_from": "closing family MLB; production mlb_pythag_negbin v2", "shadow": None, "family": "MLB",
+           "refused": None, "rows": [], "without_rows": [], "writers": ["mlb-preslate"], "groups": [], "started": [],
+           "finished": [], "closing_unread": None, "slate": None,
+           "line": "MLB · 0 games (+1 void, not counted: 50555 STALE_ORPHAN) · LIVE (closing family MLB; production "
+                   "mlb_pythag_negbin v2) · rows: none · without rows: none · closing: none left to run",
+           "games_text": "0 games (+1 void, not counted: 50555 STALE_ORPHAN)", "rows_text": "rows: none",
+           "without_rows_text": "without rows: none", "closing_text": "closing: none left to run",
+           "closing_tail": "none left to run", "slate_line": None}
+    t = _tile(mlb)
+    assert "void, not counted: 50555 STALE_ORPHAN" in t
+    assert 'class="sec slate' not in t and "SLATE" not in t and 'class="countdown"' not in t

@@ -180,7 +180,8 @@ class Match(Base):
     # migrate_match_series_fields.py. It follows the ORDER LINE note of 2026-10-04 (odds_snapshots below), as #588 did
     # for injuries.player_source_id: every chain reads `matches`, and a mapped column breaks every query on a DB that
     # has not migrated. Written by guarded Core SQL only when the columns exist (src.db.database.write_match_series);
-    # data only, read by nothing.
+    # read by one thing: retire-orphans' receipt (2) (ARCHITECT 2026-10-20, addendum 146 item 3(a)(2);
+    # src.db.database.read_match_series, src.ingestion.mlb_orphans). No export, Desk, matcher or card reads them.
 
     competition: Mapped[Competition] = relationship(back_populates="matches")
     home_team: Mapped[Team] = relationship(foreign_keys=[home_team_id], back_populates="home_matches")
@@ -269,9 +270,11 @@ class Odds(Base):
     # MLB from API-Baseball) and replace odds per-source idempotently.
     source: Mapped[str | None] = mapped_column(String(32), index=True)
     # SOURCE TIME (ARCHITECT 2026-10-09, addendum 32 items 3-4): odds.source_updated_at, the provider's own
-    # time for the game's odds (american football response[].update), naive UTC: the newest that any quote in
-    # the answer can be; a quote may be older; never the time of a quote. NULL = unknown, never fresh (every
-    # other source, and every row written before migrate_odds_source_updated_at.py; no backfill).
+    # time for the game's odds (american football's response[].update, and api-football's since #615), naive UTC:
+    # the newest that any quote in the answer can be; a quote may be older; never the time of a quote. NULL =
+    # unknown, never fresh (every source whose answer carries no update time: MLB's api-baseball, #628, and
+    # hockey; every row written before migrate_odds_source_updated_at.py; no backfill). Written by the book odds
+    # syncs from the adapter's row (sync-odds-football; sync-odds since #615).
     # NOT MAPPED (ARCHITECT 2026-10-09, addendum 35 item 2: "follow the ORDER LINE note of 2026-10-04 in
     # schema.py: not mapped in the ORM, written and read by guarded Core SQL, and only when the column
     # exists"): src.db.database.write_source_times / attach_source_times.
@@ -318,8 +321,9 @@ class OddsSnapshot(Base):
     yes_bid: Mapped[float | None] = mapped_column(Float)
     yes_ask: Mapped[float | None] = mapped_column(Float)
     # SOURCE TIME (ARCHITECT 2026-10-09, addendum 32 item 4): odds_snapshots.source_updated_at, on a book
-    # consensus snapshot sync-odds-football appends, the provider's update time of the rows it was built from
-    # (the oldest where they differ; NULL when any is unknown). NULL = unknown, never fresh. Added by
+    # consensus snapshot a book odds sync appends (sync-odds-football; sync-odds since #615, the rows its close
+    # priced, close.priced_rows), the provider's update time of the rows it was built from (the oldest where they
+    # differ; NULL when any is unknown). NULL = unknown, never fresh. Added by
     # migrate_odds_source_updated_at.py. NOT MAPPED (addendum 35 item 2), like market_ticker below.
     # ORDER LINE (ARCHITECT 2026-10-04): odds_snapshots.market_ticker (added by
     # migrate_kalshi_ticker.py) is deliberately NOT mapped here. The ORM names

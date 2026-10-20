@@ -761,3 +761,13 @@ def test_the_match_id_lookup_for_soccer_and_mlb(tmp_path, monkeypatch, capsys):
         P.game_for_match("mlb", 3)
     with pytest.raises(P.Refused, match="is competition 'PL', not MLB"):
         P.game_for_match("mlb", 1)
+
+
+def test_the_soccer_read_set_carries_the_update_field_list_odds_stores():
+    """#615 (addendum 147 item 1): APIFootballAdapter.list_odds reads response[].update as source_updated_at, so the
+    probe never reports it as dropped on the kept soccer answer."""
+    payload = json.loads((ROOT / "tests" / "fixtures" / "odds_payloads"
+                          / "api_football_odds_fixture_1557437.json").read_text())
+    assert "response[].update" not in P.dropped(P.walk(payload), "soccer")
+    verdict = [x for x in P.report(payload, sport="soccer") if x.startswith("VERDICT")]
+    assert verdict and "response[].update" not in verdict[0]

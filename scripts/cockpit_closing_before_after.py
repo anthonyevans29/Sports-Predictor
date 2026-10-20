@@ -24,9 +24,20 @@ THE OPERATOR'S FILL FIGURES STAY OUT OF THE REPO (ARCHITECT 2026-10-20, addendum
 fills (figures stay out of the repo)"), and R15 pastes this output in the PR body: pnlBlock's REALIZED block (the
 page's realizedLines: real money, fees included, from the imported fills: staked, fees, pre-fee, net, the average fill,
 the fee per dollar, the fills-based exposure in dollars) prints as ONE line naming its line count, on both sides and in
-the DIFF. --with-realized prints it whole, for the operator's own console only. Every other line prints as the page
-writes it: none of them carries a dollar figure from the fills (the EXECUTED-POSITION CLV lines are the close minus the
-fill entry in pp, the timing lines prices, the ledger line a count of fills).
+the DIFF. The Closing CLV line (#431 R17: the closing ask minus the operator's fill entries, in cents, with R16's
+counts against the page's limits; the page's own closingClvLine(L), read as realizedLines is) is withheld the same way
+by default, as ONE line naming it: it is fill-derived, and on the operator's ledger with the 10-10..10-19 closings it
+would repeat the two-week read (ARCHITECT 2026-10-20, addendum 148 item 1(i): "The two-week read stays the one in
+addendum 146 item 1(c), from my reading of the operator's fills, never in the repo"). That withholding is PROPOSED under
+addendum 148 item 1(i) and runs against 1(j)'s "everything else R15 names prints in full": escalated to the architect
+(#632). If the architect rules it prints, the PR-body run adds --with-closing-clv, which prints the line whole and keeps
+REALIZED withheld. Both withheld blocks are still compared for the DIFF, which says whether a line of theirs moved
+without printing it. --with-realized prints both whole (it implies --with-closing-clv), for the operator's own console
+only. Both fail closed: a page whose REALIZED block, or whose own Closing CLV line, cannot be found in pnlBlock prints
+no pnlBlock line (one line says so); a page without closingClvLine (main's) prints pnlBlock as before, unless a line
+of it still carries the Closing CLV head. Every other line prints as the page writes it: none of them carries a
+dollar figure from the fills (the EXECUTED-POSITION CLV lines are the close minus the fill entry in pp, the timing
+lines prices, the ledger line a count of fills).
 
 One clock: both pages read the same instant (the run's start, fixed with Playwright's clock), so pnlBlock's dates and
 the week window are the same on both sides; the machine's timezone is the operator's browser's.
@@ -54,7 +65,10 @@ With a day's slates loaded first (that day's --desk exports and tickets file, as
         --slates exports/mlb_MLB_2026-10-19.json exports/nfl_predictions_2026-10-19.json \
         exports/desk_parlays_2026-10-19.json --closings exports/closing_*.json --base origin/main
 
-Add --with-realized only for a run read on the operator's own console, never for the PR body's paste.
+If the architect rules the Closing CLV line prints (its withholding is proposed under addendum 148 item 1(i), against
+1(j)'s "everything else R15 names prints in full"; escalated, #632), the PR body's run adds --with-closing-clv (the
+line whole, REALIZED still withheld). Add --with-realized only for a run read on the operator's own console, never for
+the PR body's paste (it prints the REALIZED block and the Closing CLV line whole).
 
 Needs Playwright + Chromium (as the cockpit_*_verify scripts) and git.
 """
@@ -77,6 +91,17 @@ URL = "http://cockpit.invalid/cockpit.html"           # served from memory: no f
 SECTIONS = ("loads", "ledger", "pnlBlock", "ledgerSummary", "settledBets", "NOT EXECUTED")
 REALIZED_HIDDEN = ("REALIZED: {n} line(s), not printed: fill figures stay out of the repo (addendum 146 item 1); "
                    "--with-realized prints them for the operator's own console")
+# #431 R17's line in pnlBlock: the page's own closingClvLine(L) (SNAP's "closing"), withheld by equality with it. Its
+# withholding is PROPOSED under addendum 148 item 1(i), against 1(j)'s "everything else R15 names prints in full";
+# escalated (#632). The head is read only on a page without closingClvLine, to fail closed as REALIZED's word does
+CLOSING_HEAD = "Closing CLV (close − entry; + = beat the close)"
+CLOSING_HIDDEN = ("Closing CLV: 1 line, not printed: fill-derived (withholding proposed under addendum 148 item 1(i), "
+                  "escalated, #632); --with-closing-clv prints it whole")
+CLOSING_UNFOUND = ("pnlBlock not printed: its Closing CLV line could not be told apart (fill-derived: withheld unless "
+                   "--with-closing-clv, proposed, #632)")
+CLOSING_NOTE = ("its withholding is PROPOSED under addendum 148 item 1(i) and runs against 1(j)'s \"everything else R15 "
+                "names prints in full\": escalated (#632); if the architect rules it prints, the PR-body run adds "
+                "--with-closing-clv")
 
 # the page's state after the loads, in its own words
 SNAP = r"""()=>{ renderLedger(); const L=loadLedger(), bets=settledBets(L), real=bets.filter(b=>!b.shadow);
@@ -87,7 +112,8 @@ SNAP = r"""()=>{ renderLedger(); const L=loadLedger(), bets=settledBets(L), real
   const list=el?el.innerHTML.split("<br>").map(h=>{ const d=document.createElement("div"); d.innerHTML=h;
     return d.textContent; }):null;
   const s=ledgerSummary(); delete s.generated_at;
-  return {pnl:pnlBlock(L),realized:typeof realizedLines==="function"?realizedLines(L):null,summary:s,
+  return {pnl:pnlBlock(L),realized:typeof realizedLines==="function"?realizedLines(L):null,
+    closing:typeof closingClvLine==="function"?closingClvLine(L):null,summary:s,
     audit:{...lastAudit},ne,neLine,list,calls:L.calls.length,ids:L.calls.map(c=>c.id),
     marked:L.calls.filter(c=>c.not_executed).length,fills:(L.fills||[]).length,
     bets:{settled:bets.length,real:real.length,shadow:bets.length-real.length,byEngine:by(real,b=>b.engine),
@@ -174,12 +200,21 @@ def run_side(browser, html: str, now: datetime, ledger_text: str, slates: list, 
     return out
 
 
-def pnl_lines(s: dict, with_realized: bool) -> list:
-    """pnlBlock's lines, its REALIZED block (the page's realizedLines, found in place) as one line naming its line count
-    unless --with-realized (addendum 146 item 1). A page whose block cannot be told apart prints no pnlBlock line."""
-    lines, block = s["pnl"].split("\n"), s.get("realized")
+def pnl_lines(s: dict, with_realized: bool = False, with_closing_clv: bool = False) -> list:
+    """pnlBlock's lines: its REALIZED block (the page's realizedLines, found in place) as one line naming its line count
+    unless --with-realized (addendum 146 item 1), and its Closing CLV line (#431 R17: the page's closingClvLine, found
+    by equality) as one line naming it unless --with-closing-clv or --with-realized (proposed under addendum 148 item
+    1(i), against 1(j); escalated, #632). Both fail closed: a page whose REALIZED block, or whose own Closing CLV line,
+    cannot be told apart prints no pnlBlock line; a page without closingClvLine (main's) carries no such line."""
+    lines, block, closing = s["pnl"].split("\n"), s.get("realized"), s.get("closing")
     if with_realized:
         return lines
+    if not with_closing_clv:
+        # the page's own line, by equality; a page without closingClvLine (main's) carries no line with its head
+        apart = closing in lines if closing is not None else not any(x.startswith(CLOSING_HEAD) for x in lines)
+        if not apart:
+            return [CLOSING_UNFOUND]
+        lines = [CLOSING_HIDDEN if x == closing else x for x in lines]
     if not block:
         return lines if not any(x.startswith("REALIZED") for x in lines) else [
             "pnlBlock not printed: its REALIZED lines could not be told apart (fill figures stay out of the repo)"]
@@ -189,7 +224,24 @@ def pnl_lines(s: dict, with_realized: bool) -> list:
     return ["pnlBlock not printed: its REALIZED lines could not be told apart (fill figures stay out of the repo)"]
 
 
-def sections(s: dict, with_realized: bool = False) -> dict:
+def withheld_diff(got: dict, with_realized: bool = False, with_closing_clv: bool = False) -> list:
+    """The DIFF's lines for the blocks withheld: each still compared BEFORE -> AFTER, never printed (the REALIZED block
+    unless --with-realized, addendum 146 item 1; the Closing CLV line, the page's closingClvLine, unless
+    --with-closing-clv or --with-realized: proposed, #632). A side that did not finish compares as moved."""
+    both = all("fatal" not in got[side] for side in ("BEFORE", "AFTER"))
+    same_r = both and got["BEFORE"].get("realized") == got["AFTER"].get("realized")
+    same_c = both and got["BEFORE"].get("closing") == got["AFTER"].get("closing")
+    out = []
+    if not with_realized:
+        out.append("[REALIZED, not printed] " + ("no line moved" if same_r else
+                                                 "a line moved (read it with --with-realized on the operator's own console)"))
+    if not (with_realized or with_closing_clv):
+        out.append("[Closing CLV, not printed] " + ("no line moved" if same_c else
+                                                    "a line moved (read it with --with-closing-clv)"))
+    return out
+
+
+def sections(s: dict, with_realized: bool = False, with_closing_clv: bool = False) -> dict:
     """{section: [lines]} as printed."""
     b, a, ne = s["bets"], s["audit"], s["ne"]
     gone = len(set(s["ids0"]) - set(s["ids"]))
@@ -198,7 +250,7 @@ def sections(s: dict, with_realized: bool = False) -> dict:
         "ledger": [f"calls: {s['calls0']} after the import · {s['calls']} after the loads (none deleted, every call id "
                    f"of the import still there: {'yes' if not gone else f'NO, {gone} id(s) gone'}) · fills {s['fills']}"
                    f" · marked NOT EXECUTED {s['marked']}"],
-        "pnlBlock": pnl_lines(s, with_realized),
+        "pnlBlock": pnl_lines(s, with_realized, with_closing_clv),
         "ledgerSummary": json.dumps(s["summary"], indent=1, sort_keys=True, ensure_ascii=False).split("\n"),
         "settledBets": [
             f"settled {b['settled']} (real {b['real']} · shadow {b['shadow']})",
@@ -219,10 +271,17 @@ def main(argv=None) -> int:
     ap.add_argument("--slates", nargs="+", default=[], help="slate --desk files loaded first (optional)")
     ap.add_argument("--base", default="origin/main", help="BEFORE: tools/cockpit.html at this ref (git show)")
     ap.add_argument("--head", default=None, help="AFTER: tools/cockpit.html at this ref (default: the working tree)")
+    ap.add_argument("--with-closing-clv", action="store_true",
+                    help="print pnlBlock's Closing CLV line (#431 R17, fill-derived) whole, REALIZED still withheld. "
+                         "Its default withholding is PROPOSED under addendum 148 item 1(i) and runs against 1(j)'s "
+                         "\"everything else R15 names prints in full\": escalated (#632); if the architect rules it "
+                         "prints, the PR-body run adds this flag")
     ap.add_argument("--with-realized", action="store_true",
-                    help="print pnlBlock's REALIZED (real-money) lines whole: the operator's own console only, never "
-                         "the PR body (addendum 146 item 1)")
+                    help="print pnlBlock's REALIZED (real-money) lines whole, and its Closing CLV line (implies "
+                         "--with-closing-clv): the operator's own console only, never the PR body (addendum 146 item 1; "
+                         "addendum 148 item 1(j))")
     a = ap.parse_args(argv)
+    a.with_closing_clv = a.with_closing_clv or a.with_realized              # --with-realized prints both whole
     ledger_text, L = read_json(Path(a.ledger).expanduser(), "--ledger")
     if ledger_text is None:
         return refuse(L)
@@ -278,18 +337,20 @@ def main(argv=None) -> int:
           f"slates: {', '.join(f['name'] for f in files['--slates']) or 'none'} · "
           f"closings ({len(files['--closings'])}): {', '.join(f['name'] for f in files['--closings'])}")
     print(f"one clock for both pages: {now.strftime('%Y-%m-%dT%H:%M:%SZ')}; each in a fresh browser context")
-    print("REALIZED (real-money) lines: " + ("printed whole (--with-realized: the operator's own console only)"
-                                            if a.with_realized else "one line each side, not printed (addendum 146 item 1)"))
+    print("REALIZED (real-money) lines: "
+          + ("printed whole (--with-realized: the operator's own console only)" if a.with_realized
+             else "each block printed as one line naming its line count, never whole (addendum 146 item 1; APPROVED, "
+                  "addendum 148 item 1(j))"))
+    print("Closing CLV line: "
+          + (f"printed whole ({'--with-realized' if a.with_realized else '--with-closing-clv'})" if a.with_closing_clv
+             else "printed as one line naming it, never whole") + "; " + CLOSING_NOTE)
     printed = {}
-    # the withheld REALIZED blocks are still compared, so the DIFF sees a real-money line that moved without printing it
-    both = all("fatal" not in got[side] for side in ("BEFORE", "AFTER"))
-    same = both and got["BEFORE"].get("realized") == got["AFTER"].get("realized")
     for side in ("BEFORE", "AFTER"):
         print(f"\n=== {side} ===")
         if "fatal" in got[side]:
             print(f"  the page did not finish: {got[side]['fatal']}")
             continue
-        printed[side] = sections(got[side], a.with_realized)
+        printed[side] = sections(got[side], a.with_realized, a.with_closing_clv)
         for name in SECTIONS:
             print(f"-- {name}")
             for line in printed[side][name]:
@@ -304,9 +365,9 @@ def main(argv=None) -> int:
             print(f"[{name}]" + ("" if moved else " no line moved"))
             for x in moved:
                 print(f"  {x[0]} {x[1:]}")
-        if not a.with_realized:
-            print("[REALIZED, not printed] " + ("no line moved" if same else "a line moved (read it with --with-realized"
-                                                                              " on the operator's own console)"))
+        # the withheld blocks are still compared, so the DIFF sees a line of theirs that moved without printing it
+        for line in withheld_diff(got, a.with_realized, a.with_closing_clv):
+            print(line)
     errs = [f"{side}: {e}" for side in got for e in got[side]["errors"]]
     print("\npage errors: " + ("; ".join(errs) if errs else "none"))
     return 1 if errs else 0

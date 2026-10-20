@@ -71,6 +71,25 @@ A position carries TWO timestamps.
 - A parlay ticket executes as a whole.
 - Quarantine shadows are never executed; they are not placed.
 
+**The order (#431 R16, ARCHITECT 2026-10-20, addendum 146 item 1(iv)).** "the
+ledger stores the page's ORDERED size and limit beside the FILLED size and
+entry".
+- Every PLAY, LADDER and VENUE claim stores the page's order line copy-exact as
+  `kalshi_order`: `{ticker, side, limit, contracts, unit}` (the limit in
+  dollars, the contracts for the call's whole units), or `{why}` when the page
+  wrote no order. A shadow and a ticket leg store null. A VENUE call stores the
+  order only on a market-only row (the venue table's read); a VENUE call on a
+  model row stores null.
+- `claim_order` is frozen at the first capture. `exec_order` follows every
+  re-log, as `exec_market_p` does, and **Execute now** locks it. On a claim from
+  before R16 (no `kalshi_order` key) Execute now writes no `exec_order`, so the
+  claim stays legacy (part of the legacy proposal, escalated, #632).
+- They are written at claim, never at save. A claim from before R16 carries
+  none and is never backfilled.
+- Each stored closing page (`meta.closings`) keeps its orders by call key
+  (`orders`) and the closing row's Kalshi legs (`legs`, the closing quote R17
+  reads).
+
 **Doctrine.** Claim early, execute at close. The one exception is an operator
 who explicitly executes early on a large, input-stable edge (no QB listed),
 recorded as such. The Cockpit flags an early execution on a QB-listed game as
@@ -90,6 +109,40 @@ changes.**
   operator_early): n, average claim p, average exec p, drift pp,
   net@claim, net@exec, and exec − claim.
 - Over time this measures whether early or late execution earns more.
+- A **Closing CLV** line follows the executed-position CLV block (#431 R17,
+  ARCHITECT 2026-10-20, addendum 146 item 1(iv): "each position carries entry
+  minus the closing ask on its pick (true CLV, in cents) and the P&L view sums
+  it beside the P&L"; the sign CORRECTED by addendum 148 item 1(b): "ask minus
+  entry, + = bought below the close"):
+  `Closing CLV (close − entry; + = beat the close) (addendum 146 item 1(iv) R17, #431): P position(s), F fill(s) · sum ±S.Sc · mean ±M.Mc per position · graded G · open O — read against the closing page X, the slate page Y, outside any page Z · L legacy claim(s) carry no stored order (claimed before R16) · N with no stored closing page · A ambiguous · U on a contract the page does not quote (not priced) · Q with no closing quote stored · R16: K fill(s) above their page's limit (max +X.Xc) · V over the ordered size · W partial`.
+  - Every segment, in that order. The L, N, A, U and Q segments print only
+    when their count is above 0. "(max +X.Xc)" prints only when K is above 0.
+    The sum and the mean read "none" when no position is priced. With no
+    position (P = 0) the line ends after "mean none per position".
+  - The figures are cents to one decimal, signed: rounded first, then "+" on
+    zero and above, so a blend at the close prints +0.0c, never -0.0c (as
+    clvLines prints a zero, "+0.00pp").
+  - The legacy segment (L) is the builder's addition, outside the ruled shape:
+    **proposed, escalated to the architect** (#632).
+  - A position (addendum 148 item 1(d)) is a straight, VENUE or LADDER call,
+    open or graded, marked or not, with a matched Kalshi CSV fill. Tickets,
+    shadows, void calls and a manual Record fill (1(h)) are not positions.
+  - Its CLV (1(c), 1(f)) is qty-weighted over its fills, in cents, pre-fee: the
+    stored closing page's ask on the held contract (the leg whose ticker is the
+    fill's; YES its ask, NO 1 − its bid) minus the fill's entry. It is null
+    unless every fill prices.
+  - The sum and the mean read the priced positions. A position is not priced
+    when no stored closing page covers it, when two do ("ambiguous", never
+    guessed, law 4), when a fill's contract is not on the page, or when the page
+    was stored before its quotes were (1(i): no backfill). Each case is counted
+    on the line.
+  - Its order (1(e)) is the closing page's whenever one is stored for the call,
+    else the slate's (`exec_order`), else none ("outside any page"). A claim
+    from before R16 is counted as legacy, never as outside any page (part of
+    the legacy proposal, escalated, #632).
+  - R16's flags (1(g)) are counted, never left out of the CLV: fills above
+    their page's limit (the largest excess in cents), positions over the
+    ordered size, and partial positions.
 
 **Pre-rule positions.** These carry no claim. They stay null and are labelled
 ("claim unknown … excluded, never backfilled"; law 4).

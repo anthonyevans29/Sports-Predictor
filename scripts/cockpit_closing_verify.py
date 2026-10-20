@@ -242,9 +242,19 @@ def stripped(stored):
     return [{k: v for k, v in c.items() if k != "not_executed"} for c in json.loads(stored)["calls"]]
 
 
-def no_id(stored):
+# #431 R16 (ARCHITECT 2026-10-20, addendum 146 item 1(iv)): every claim stores the page's order at claim (kalshi_order,
+# claim_order) and at execution (exec_order); R17: every normalized row keeps its Kalshi legs (kLegs). Fields the base
+# page never wrote, set aside in (d) and checked present on every head call
+R16_FIELDS = ("kalshi_order", "claim_order", "exec_order")
+
+
+def no_id(stored, aside=("id",)):
     L = json.loads(stored)
-    return {"meta": L["meta"], "calls": [{k: v for k, v in c.items() if k != "id"} for c in L["calls"]]}
+    return {"meta": L["meta"], "calls": [{k: v for k, v in c.items() if k not in aside} for c in L["calls"]]}
+
+
+def no_legs(rows):
+    return [{k: v for k, v in r.items() if k != "kLegs"} for r in json.loads(rows)]
 
 
 def r4_id(c, pick):
@@ -425,22 +435,29 @@ def run(pages, D, slate, results, base):
         intake(p, results, AT_RESULTS)
         side[label] = (one, two, p.evaluate(SNAP))
     b, h = side["base"], side["head"]
-    check("the Desk summary, the rows and the Desk calls of the load", all(
-        b[i]["summary"] == h[i]["summary"] and b[i]["rows"] == h[i]["rows"] and b[i]["desk"] == h[i]["desk"]
-        for i in (0, 1)), h[0]["summary"][:120])
+    check("the Desk summary, the rows (R17's kLegs set aside) and the Desk calls of the load", all(
+        b[i]["summary"] == h[i]["summary"] and json.loads(b[i]["rows"]) == no_legs(h[i]["rows"])
+        and b[i]["desk"] == h[i]["desk"] for i in (0, 1)), h[0]["summary"][:120])
     check("the load notes (first load, reload) and the intake note", all(b[i]["logNote"] == h[i]["logNote"]
                                                                           for i in (0, 1))
           and b[2]["ledgerNote"] == h[2]["ledgerNote"], h[1]["logNote"][:120])
     ne0 = ("Not executed (addendum 40 item 2, #431): 0 claim(s) the closing page did not repeat (0 position(s), 0 "
            "ticket(s) settled) — out of the P&L, the sizing gate and the graded n/30 counts; marked, never deleted.")
+    cc0 = ("Closing CLV (close − entry; + = beat the close) (addendum 146 item 1(iv) R17, #431): 0 position(s),"
+           " 0 fill(s) · sum none · mean none per position")
     hp = h[2]["pnl"].split("\n")
-    check("the P&L block, its Not executed line (reading 0) set aside, and ledgerSummary",
-          ne0 in hp and "\n".join(x for x in hp if x != ne0) == b[2]["pnl"]
+    ci = hp.index(cc0) if cc0 in hp else -1
+    hp = hp[:ci] + hp[ci + 2:] if ci >= 0 and hp[ci + 1:ci + 2] == [""] else hp
+    check("the P&L block, its Not executed line (reading 0) and its Closing CLV line (R17, none) set aside, and"
+          " ledgerSummary", ci >= 0 and ne0 in hp and "\n".join(x for x in hp if x != ne0) == b[2]["pnl"]
           and b[2]["ledgerSummary"] == h[2]["ledgerSummary"] and b[2]["bets"] == h[2]["bets"], "")
-    same = all(no_id(b[i]["stored"]) == no_id(h[i]["stored"]) for i in (0, 1, 2))
+    aside = ("id",) + R16_FIELDS
+    same = all(no_id(b[i]["stored"], aside) == no_id(h[i]["stored"], aside) for i in (0, 1, 2)) and all(
+        all(k in c for k in R16_FIELDS) for c in json.loads(h[2]["stored"])["calls"])
     ids = [(x["id"], y["id"], y["pick"]) for x, y in zip(json.loads(b[2]["stored"])["calls"],
                                                        json.loads(h[2]["stored"])["calls"])]
-    check("the stored ledger, the call id set aside; each id differs only by the pick R4 adds to callKey",
+    check("the stored ledger, the call id and R16's order fields (on every call) set aside; each id differs only by"
+          " the pick R4 adds to callKey",
           same and ids and all(old == r4_id(c, None) and new == r4_id(c, pick)
                                for (old, new, pick), c in zip(ids, json.loads(h[2]["stored"])["calls"])),
           f"{len(ids)} calls · e.g. {ids[0][0]!r} → {ids[0][1]!r}")

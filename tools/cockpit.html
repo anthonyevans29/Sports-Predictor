@@ -350,6 +350,7 @@ function normalize(doc){
           bookmaker_count:mk.bookmaker_count},live:false,
         marketOnly:true,tier:null,fileDesk:f.desk||null,deskMeta:doc.desk_meta||null,
         exportedAt:(doc.desk_meta&&doc.desk_meta.as_of)||doc.exported_at||null,   // auto-claim clock (2026-10-03)
+        kLegs:f.kalshi_legs??null,   // #431 R17 (addendum 146 item 1(iv)): the row's Kalshi legs (a closing page's)
         kalProb:kalFromFixture(f.kalshi,fair),threeWay:fair.DRAW!=null});
     }
     return out;
@@ -411,6 +412,7 @@ function normalize(doc){
           if(un.length)bits.push("position unresolved: "+un.length);}
         return bits.join(" · ");})(),
       tier:pr.tier||null,fileDesk:p.desk||null,deskMeta:doc.desk_meta||null,
+      kLegs:p.kalshi_legs??null,   // #431 R17 (addendum 146 item 1(iv)): {HOME|AWAY|DRAW: {ticker, bid, ask}}
       exportedAt:(doc.desk_meta&&doc.desk_meta.as_of)||doc.exported_at||null});
   }
   return out;
@@ -948,12 +950,14 @@ function stampTiming(pos,fresh,isNew){
   if(isNew){ pos.claim_at=at; pos.claim_market_p=fresh.market_p??null; pos.claim_model_p=fresh.model_p??null;
     pos.claim_exec_cost=fresh.kalshi_exec_cost??null;       // K2: Kalshi ask+fee (taker) at claim (away pick: the NO side, #89; null: none quoted / soccer away / DRAW)
     pos.claim_exec_cost_maker=fresh.kalshi_exec_cost_maker??null;   // #93: join bid + maker fee at claim
+    pos.claim_order=fresh.kalshi_order??null;                 // #431 R16: the page's order at claim, frozen
     pos.exec_mode="close_default"; }
   if(pos.exec_mode!=="operator_early"){
     pos.exec_mode=pos.exec_mode||"close_default";
     pos.executed_at=at; pos.exec_market_p=fresh.market_p??null;
     pos.exec_cost=fresh.kalshi_exec_cost??null;               // K2: … and at execution
-    pos.exec_cost_maker=fresh.kalshi_exec_cost_maker??null; }  // #93: maker cost at execution
+    pos.exec_cost_maker=fresh.kalshi_exec_cost_maker??null;   // #93: maker cost at execution
+    pos.exec_order=fresh.kalshi_order??null; }                // R16: … and the order of the page it follows
   return pos;
 }
 function execP(c){return c.exec_market_p??c.market_p;}
@@ -1056,7 +1060,7 @@ const CLOSING_MARK_RULES={   // #431 escalations (comment 6290951464): PROPOSED 
   execLeZeroAllFamilies:true,          // esc 9: exec<=0 reads every family whose row carries desk.exec.edge_pp (false = only MLB/NFL, the CLOSING_HOLDS families)
   ownCapture:"skip",                   // esc 4: a closing row's NOT-REPEATED PLAY is not auto-captured ("mark" = capture and mark it even though claim_at==as_of)
   missingGame:"per_game",              // esc 11: a game an earlier page carries and a later page lacks keeps the earlier page ("whole_page" alternative)
-  csvFillExempt:true,                  // esc 12: a Kalshi CSV fill exempts a call from the mark when matchFill, R7's unmarked preference applied, still lands it on that call
+  csvFillExempt:true,                  // esc 12: RULED as built (addendum 148 item 1(a)): a Kalshi CSV fill exempts a call from the mark when matchFill, R7's unmarked preference applied, still lands it on that call
   importIdCollision:"rekey",           // esc 1 (R4): incoming call whose id a local call holds under a different pick takes the new-format id (callKey), old kept as id_imported ("refuse" alternative)
 };
 const NE_FLAG="not executed (#431)";
@@ -1137,6 +1141,25 @@ function closingCalls(r){
   const ven=r.fileDesk?fileVenue(r):{eligible:false}; if(ven.eligible) s.add(`venue_edge|straight|${ven.side}`);
   return s;
 }
+// #431 R16 (ARCHITECT 2026-10-20, addendum 146 item 1(iv), verbatim): "the ledger stores the page's ORDERED size and
+// limit beside the FILLED size and entry". An order line as the ledger keeps it: the page's ticker, side, limit (dollars)
+// and contracts with its unit basis, or {why} when the page wrote no order (desk_policy.order_line); null when the row
+// carries no order block. Copy-exact, never a lookup (ORDER LINE, 2026-10-04)
+function orderOf(o){
+  if(!o||typeof o!=="object") return null;
+  return o.text?{ticker:o.ticker??null,side:o.side??null,limit:o.limit??null,contracts:o.contracts??null,
+    unit:o.unit??null}:{why:o.why??null};
+}
+// R16, the closing side: the order behind each staked call of the page's set (closingCalls), by its key: a PLAY's or a
+// LADDER's desk.order; a VENUE call's on a market-only row, as the venue table reads it; a shadow carries none
+function closingOrders(r,calls){
+  const d=r.fileDesk||{}, out={};
+  for(const k of calls){ const [eng,type]=k.split("|");
+    const o=eng==="venue_edge"?(r.marketOnly?orderOf(d.order):null)
+      :type==="straight"||type==="ladder"?orderOf(d.order):null;
+    if(o) out[k]=o; }
+  return out;
+}
 // The page's own words for the game (closing.py call_text and page_text): "PASS", or "<CALL> <team> <u>u", then the
 // shadows; a PLAY its page does not repeat says under which hold it is no bet
 function closingCallText(r){
@@ -1150,18 +1173,23 @@ function closingCallText(r){
 }
 // This load's closing pages, from the stamped rows: one per file and run (file|run_id|as_of: two runs of one start
 // arriving under one name are two pages, verify_cockpit #6), each game with its call set and its words, in the stored
-// record's shape (putPage)
+// record's shape (putPage). #431 R16/R17 (addendum 146 item 1(iv)): each game also keeps the row's Kalshi legs (the
+// closing quote R17 prices a fill against) and the page's orders by call key (R16), both copy-exact
 function closingPages(rs){
   const by=new Map();
   for(const r of rs){ const c=r.closing; if(!c) continue;
     const pk=`${c.file}|${c.run_id}|${c.as_of}`;
     if(!by.has(pk)) by.set(pk,{family:c.family,start:c.start,run_id:c.run_id,as_of:c.as_of,file:c.file,
       desk_meta:r.deskMeta||null,games:{}});
+    const calls=[...closingCalls(r)].sort();
     by.get(pk).games[[r.sport,r.home,r.away,r.utc||""].join("|")]={sport:r.sport,home:r.home,away:r.away,
-      kickoff:r.utc||null,calls:[...closingCalls(r)].sort(),text:closingCallText(r),run_id:c.run_id,as_of:c.as_of,file:c.file};
+      kickoff:r.utc||null,calls,text:closingCallText(r),run_id:c.run_id,as_of:c.as_of,file:c.file,
+      legs:plainCopy(r.kLegs,null),orders:closingOrders(r,calls)};
   }
   return [...by.values()];
 }
+// A stored page's legs and orders (R16/R17): a JSON copy of a plain object, else the given empty value
+function plainCopy(x,empty){ return x&&typeof x==="object"&&!Array.isArray(x)?JSON.parse(JSON.stringify(x)):empty; }
 // R2: one game by sport, home and away, kickoffs within DESK_CLOCK_DRIFT, inclusive (redatedLabel's hour)
 function sameGame(a,b){ const x=utcMs(a.kickoff), y=utcMs(b.kickoff);
   return a.sport===b.sport&&a.home===b.home&&a.away===b.away&&isFinite(x)&&isFinite(y)&&Math.abs(x-y)<=REDATED_DRIFT_MS; }
@@ -1232,9 +1260,10 @@ function closingGameOK(g){ return !!g&&typeof g==="object"&&typeof g.sport==="st
   &&typeof g.away==="string"&&!!g.kickoff&&Array.isArray(g.calls)&&g.run_id!=null; }
 // R8/R9: one page (this load's, or a stored record an import brings) into L.meta.closings["<family>|<start>"] =
 // {family, start, pages:{<run_id>:{as_of,file}}, games:{"<sport>|<home>|<away>|<utc>":{sport,home,away,kickoff,calls,
-// text,run_id,as_of,file}}}. Per game: a stored entry of the same game from a page as new or newer stands (an older
-// page never overwrites; a byte copy, the same run, is one page); else the page's entry replaces it. A page no game
-// points at is dropped.
+// text,run_id,as_of,file,legs,orders}}}. Per game: a stored entry of the same game from a page as new or newer stands
+// (an older page never overwrites; a byte copy, the same run, is one page); else the page's entry replaces it. A page
+// no game points at is dropped. legs and orders (R16/R17) are optional: a record without them stores null and {} (a
+// page stored before them reads "no closing quote stored", never priced from anything else: addendum 148 item 1(i))
 function putPage(L,p){
   L.meta=L.meta||{}; L.meta.closings=L.meta.closings||{};
   const k=`${p.family}|${p.start}`;
@@ -1246,7 +1275,7 @@ function putPage(L,p){
     if(olds.some(([,o])=>pageCmp(o,g)>=0)){kept++;continue;}
     for(const [ok] of olds) delete cur.games[ok];
     cur.games[gk]={sport:g.sport,home:g.home,away:g.away,kickoff:g.kickoff,calls:g.calls.slice(),text:g.text??null,
-      run_id:g.run_id,as_of:g.as_of??null,file:g.file??null};
+      run_id:g.run_id,as_of:g.as_of??null,file:g.file??null,legs:plainCopy(g.legs,null),orders:plainCopy(g.orders,{})};
     took++;
   }
   // esc 11: "per_game", a game the later page lacks keeps the earlier page's entry; "whole_page", the newest page of
@@ -1490,6 +1519,8 @@ function snapshotCalls(now,opts){
         kalshi_exec_cost:lad?null:(addn?(("order_cost" in fx)?fx.order_cost:(fx.cost??null)):execCostFor(r,r.pick)),   // the EMITTED order
         kalshi_exec_cost_maker:lad?null:(addn?fx.maker_cost??null:makerCostFor(r,r.pick)),
         kalshi_join_bid:lad?null:(addn?fx.join_price??null:((joinBidFor(r,r.pick)||{}).price??null)),
+        // #431 R16 (addendum 146 item 1(iv)): the page's ORDER, copy-exact (a LADDER's is NO on HOME), or {why}
+        kalshi_order:orderOf(r.fileDesk&&r.fileDesk.order),
         venue_hint:x.kalOnly?"kalshi":"books",reference:x.kalOnly?"kalshi_only":"books",rules:x.tags});
     } else if(isQuarShadow(x,r)){
       add(r,{...baseCall(r,dOf(r)),pick:r.pick,tier:r.tier||"—",engine:"model_edge",
@@ -1500,6 +1531,7 @@ function snapshotCalls(now,opts){
         kalshi_exec_cost:(r.fileDesk.exec&&r.fileDesk.exec.doctrine)?(r.fileDesk.exec.cost??null):execCostFor(r,r.pick),
         kalshi_exec_cost_maker:(r.fileDesk.exec&&r.fileDesk.exec.doctrine)?(r.fileDesk.exec.maker_cost??null)
           :makerCostFor(r,r.pick),venue_hint:x.kalOnly?"kalshi":"books",reference:x.kalOnly?"kalshi_only":"books",
+        kalshi_order:null,   // R16: a shadow is never filled (addendum 148 item 1(d)); no order
         rules:x.tags});
     }
   }
@@ -1511,6 +1543,7 @@ function snapshotCalls(now,opts){
       // #87 v1.1 files: the file's executable cost at the shadow's own 0.25u order (Codex on #303)
       kalshi_exec_cost:v.fileExec&&v.fileExec.doctrine?(v.fileExec.cost??null):execCostFor(r,v.side),
       kalshi_exec_cost_maker:v.fileExec&&v.fileExec.doctrine?(v.fileExec.maker_cost??null):makerCostFor(r,v.side),
+      kalshi_order:null,   // R16: never staked, never filled
       top_pick:r.pick,venue_hint:"books",rules:v.tags.slice()});
   }
   // parlays: model_edge only (frozen). Auto-claimed too (ARCHITECT 2026-10-03: "the
@@ -1529,7 +1562,8 @@ function snapshotCalls(now,opts){
         call_type:"parlay_leg",parlay_id:pid,units:0.25,model_p:l.prob,market_p:xc!=null?xc:l.mkt,
         // fair_p is the SERIALIZED leg's own fair (the row a ticket was built from), never a re-matched row's
         ...(xc!=null?{fair_p:((t.fairs||[])[j]!==undefined?t.fairs[j]:l.mkt),price_basis:"executable (ask + taker fee)"}:{}),
-        venue_hint:"books",rules:["parlay 0.25u"],...(t.bShadow?{b_shadow_cut:t.bShadow}:{})});
+        venue_hint:"books",rules:["parlay 0.25u"],kalshi_order:null,   // R16: a ticket is not a position (R5)
+        ...(t.bShadow?{b_shadow_cut:t.bShadow}:{})});
     }
   }
   for(const {r,v} of deskVenue){
@@ -1541,6 +1575,8 @@ function snapshotCalls(now,opts){
       // indicative probability rides along as kalshi_p
       call_type:"straight",units:VENUE.units,model_p:v.bookP,market_p:v.execCost!=null?v.execCost:v.kalP,
       ...(v.execCost!=null?{kalshi_p:v.kalP,price_basis:"executable (ask + taker fee)"}:{}),
+      // R16: a VENUE call's order is a market-only row's desk.order, as the venue table reads it
+      kalshi_order:r.marketOnly?orderOf(r.fileDesk&&r.fileDesk.order):null,
       venue_hint:"kalshi",divergence_pp:+v.divPP.toFixed(2),rules});
   }
   return out;
@@ -2073,6 +2109,86 @@ function clvLines(L){
     seriesStats("quoted taker edge @ re-log",ref("quoted_edge_relog")),
     "The stored per-game \"CLV\" (model p − close) is now labelled model-close divergence (RESULTS.md); it is not these."];
 }
+// #431 R16/R17 (ARCHITECT 2026-10-20, addendum 146 item 1(iv), verbatim): "R16 the ledger stores the page's ORDERED size
+// and limit beside the FILLED size and entry; R17 each position carries entry minus the closing ask on its pick (true
+// CLV, in cents) and the P&L view sums it beside the P&L. This is the income statement's CLV column". The sign as
+// CORRECTED (addendum 148 item 1(b)): "ask minus entry, + = bought below the close, the direction the page's existing
+// CLV lines already use". Addendum 148 item 1, each default accepted: (c) per position, qty-weighted; (d) every filled
+// straight, VENUE or LADDER position matched to a call, open included (tickets and parlays are not positions, R5;
+// shadows are never filled); (e) the closing page's order whenever one is stored for the game, else the slate's; (f)
+// the held contract's ask, by the fill's ticker and side, and a fill on a contract the page does not quote counted, not
+// priced; (g) over the ordered size, above the limit, outside any page: flagged and counted, never left out of the CLV;
+// (h) a manual Record fill is not a position; (i) no backfill: a stored page with no closing quote is counted, never
+// priced from anything else. Pure. One entry per call with a system_matched Kalshi CSV fill (qty > 0, entry known),
+// marked or not (R10 is the mark's business). cover: "page" (one stored game covers the call, sameGame), "none" or
+// "ambiguous" (two: never guessed, law 4; neither page's order nor quote is read). ordered: the covering page's order
+// for the call's key (page "closing"), else the call's exec_order (page "slate": the page it last followed), else null
+// (page null: outside any page; legacy when the call was claimed before R16 stored an order). filled: contracts (Σ qty),
+// entry (qty-weighted, dollars), fills (n). Per fill the held contract's closing ask: the stored leg whose ticker is the
+// fill's; YES its ask, NO 1 − its bid (desk_policy.order_line prices NO so). clv_c: Σ qty·(ask − entry) / Σ qty × 100,
+// cents, pre-fee, null unless EVERY fill prices (fee_adj's all-or-nothing); quote names why it is null. R16's flags
+// against a limit and size the order carries: above_limit_c (the largest entry − limit, cents, when > 0) and the fills
+// above it, over_size (Σ qty > contracts), partial (Σ qty < contracts)
+function closingPositions(L){
+  const ix=closingIndex((L.meta||{}).closings);
+  const calls=new Map(L.calls.filter(c=>!isShadow(c)&&c.call_type!=="parlay_leg"&&!c.void_redated
+    &&(c.status==="graded"||c.status==="open")).map(c=>[c.id,c]));
+  const by=new Map();
+  for(const f of classifyFills(L)){
+    if(f.book!=="system_matched"||!f.call_id||!(f.qty>0)||f.entry==null) continue;
+    const c=calls.get(f.call_id); if(!c) continue;
+    if(!by.has(c.id)) by.set(c.id,{c,fills:[]});
+    by.get(c.id).fills.push(f);
+  }
+  const T=t=>String(t??"").trim().toUpperCase(), cents=x=>+(x*100).toFixed(4);
+  return [...by.values()].map(({c,fills})=>{
+    const hits=coverOf(ix,c), g=hits.length===1?hits[0].g:null;
+    const cover=g?"page":hits.length?"ambiguous":"none";
+    const po=g&&g.orders?g.orders[`${c.engine}|${c.call_type}|${c.pick}`]:null;
+    const legacy=!po&&cover!=="ambiguous"&&!("exec_order" in c);
+    const ordered=cover==="ambiguous"?null:po||c.exec_order||null;
+    const page=cover==="ambiguous"?null:po?"closing":c.exec_order?"slate":null;
+    const qty=fills.reduce((a,f)=>a+f.qty,0), entry=fills.reduce((a,f)=>a+f.qty*f.entry,0)/qty;
+    const legs=g&&g.legs&&typeof g.legs==="object"?Object.values(g.legs):null;
+    const asks=fills.map(f=>{ if(!legs) return null;
+      const leg=legs.find(x=>x&&x.ticker&&T(x.ticker)===T(f.ticker)), sd=String(f.side||"").toLowerCase();
+      if(!leg) return null;
+      if(sd==="yes") return leg.ask!=null?+leg.ask:null;
+      if(sd==="no") return leg.bid!=null?+(1-leg.bid).toFixed(4):null;
+      return null; });
+    const quote=cover!=="page"?(cover==="none"?"no_page":"ambiguous"):!legs?"no_quote"
+      :asks.some(a=>a==null)?"unpriced":"priced";
+    const clv_c=quote==="priced"?fills.reduce((a,f,i)=>a+f.qty*(asks[i]-f.entry),0)/qty*100:null;
+    const lim=ordered&&typeof ordered.limit==="number"?ordered.limit:null;
+    const over=lim==null?[]:fills.map(f=>cents(f.entry-lim)).filter(x=>x>0);
+    const n=ordered&&typeof ordered.contracts==="number"?ordered.contracts:null;
+    return {id:c.id,c,status:c.status,cover,page,legacy,ordered,filled:{contracts:qty,entry,fills:fills.length},
+      asks,quote,clv_c,above_limit_c:over.length?Math.max(...over):null,above_fills:over.length,
+      over_size:n!=null&&qty>n,partial:n!=null&&qty<n};
+  });
+}
+// R17's line in the P&L view, after the executed-position CLV block (its own line: clvLines' window, the Kickoff audit
+// and Not executed lines keep their places). The sum and the mean read the priced positions; every position is
+// counted, and the segments name where each was read and why one is not priced
+function closingClvLine(L){
+  const ps=closingPositions(L), pr=ps.filter(p=>p.clv_c!=null), n=q=>ps.filter(q).length;
+  // c1 rounds first, then signs: a blend at the close (-2.8e-15) prints +0.0c as clvLines prints a zero (+0.00pp)
+  const sum=pr.reduce((a,p)=>a+p.clv_c,0), c1=x=>{ const v=+x.toFixed(1)||0; return `${v>=0?"+":""}${v.toFixed(1)}c`; };
+  const above=ps.reduce((a,p)=>a+p.above_fills,0), mx=ps.filter(p=>p.above_limit_c!=null).map(p=>p.above_limit_c);
+  const seg=(k,t)=>k?` · ${k} ${t}`:"";
+  return `Closing CLV (close − entry; + = beat the close) (addendum 146 item 1(iv) R17, #431): ${ps.length} position(s),`
+    +` ${ps.reduce((a,p)=>a+p.filled.fills,0)} fill(s) · sum ${pr.length?c1(sum):"none"}`
+    +` · mean ${pr.length?c1(sum/pr.length):"none"} per position`
+    +(ps.length?` · graded ${n(p=>p.status==="graded")} · open ${n(p=>p.status==="open")}`
+      +` — read against the closing page ${n(p=>p.page==="closing")}, the slate page ${n(p=>p.page==="slate")},`
+      +` outside any page ${n(p=>p.page==null&&!p.legacy&&p.cover!=="ambiguous")}`
+      +seg(n(p=>p.legacy),"legacy claim(s) carry no stored order (claimed before R16)")
+      +seg(n(p=>p.quote==="no_page"),"with no stored closing page")+seg(n(p=>p.quote==="ambiguous"),"ambiguous")
+      +seg(n(p=>p.quote==="unpriced"),"on a contract the page does not quote (not priced)")
+      +seg(n(p=>p.quote==="no_quote"),"with no closing quote stored")
+      +` · R16: ${above} fill(s) above their page's limit${mx.length?` (max ${c1(Math.max(...mx))})`:""}`
+      +` · ${n(p=>p.over_size)} over the ordered size · ${n(p=>p.partial)} partial`:"");
+}
 function pnlBlock(L){
   const bets=settledBets(L), real=bets.filter(b=>!b.shadow), shad=bets.filter(b=>b.shadow);
   const today=localDate(), wkStart=localDate(new Date(Date.now()-6*86400000));
@@ -2092,6 +2208,7 @@ function pnlBlock(L){
     section("ALL-TIME",real), "",
     ...timingLines(real), "",
     ...clvLines(L), "",
+    closingClvLine(L), "",
     `Quarantine counterfactual (shadow, NOT staked): n ${cf.n} · notional staked ${fmt(cf.staked)} · net ${cf.net>=0?"+":""}${fmt(cf.net)} · hit ${cf.hit==null?"—":fmt(cf.hit,1)+"%"}`,
     `Value-side counterfactual (v1.2 candidate shadow, NOT staked): n ${vf.n} · notional staked ${fmt(vf.staked)} · net ${vf.net>=0?"+":""}${fmt(vf.net)} · hit ${vf.hit==null?"—":fmt(vf.hit,1)+"%"} · promotion review at ${VALUE.reviewN} graded (${Math.min(vf.n,VALUE.reviewN)}/${VALUE.reviewN}), version bump only`,
     `Open calls: ${L.calls.filter(c=>c.status==="open"&&!c.result).length} unmatched (listed in the Cockpit)`,
@@ -2222,6 +2339,8 @@ function executeEarly(id){
     x.exec_mode="operator_early"; x.executed_at=at; x.exec_market_p=x.market_p??null;
     x.exec_cost=x.kalshi_exec_cost??null;                    // K2: the current Kalshi ask+fee, locked with it
     x.exec_cost_maker=x.kalshi_exec_cost_maker??null;        // #93: and the maker cost
+    // #431 R16: and the order it was placed from; a claim from before R16 (no kalshi_order key) stays legacy
+    if("kalshi_order" in x) x.exec_order=x.kalshi_order??null;
     const edge=(x.model_p!=null&&x.market_p!=null)?+((x.model_p-x.market_p)*100).toFixed(1):null;
     x.early_inputs={edge_pp:edge,qb_listed:(x.qb_listed||[]).slice(),quarantine:!!x.quarantine,
       marker_pp:EARLY_MARKER_PP,below_marker:edge==null?null:edge<EARLY_MARKER_PP};

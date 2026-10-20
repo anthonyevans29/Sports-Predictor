@@ -13,6 +13,12 @@ closing page did not repeat, marked by the Cockpit's own markClosings from store
 pages (never hand-set): R7's unmarked preference (a straight pair in both orders,
 a ladder pair under a composite NO, kickoffs drifting within R2's hour) and R10
 (a marked claim keeps its fill and its executed position), Cockpit and port alike.
+#431 R16/R17 (ARCHITECT 2026-10-20, addendum 146 item 1(iv); addendum 148 item 1):
+the Cockpit's closingPositions against ledger_fills.closing_positions on the same
+stored ledger, every field of every position (its pages stored through the page's
+own putPage: a page with legs, YES and NO fills, an unpriced ticker, a slate-only
+order, a page stored without legs, a ladder's NO on HOME, a {why} order, two
+covering pages), and the K-track receipt's line carries the Cockpit's cents.
 Writes nothing to the repo; no DB. Needs Playwright + Chromium.
 Run:  python3 scripts/ledger_fills_parity_verify.py
 """
@@ -30,13 +36,14 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 sys.path.insert(0, os.path.join(ROOT, "scripts"))
 import cockpit_fills_verify as F  # noqa: E402  (fixture: LEDGER, FILLS, HDR)
+from src.walters import k_receipt as K  # noqa: E402
 from src.walters import ledger_fills as P  # noqa: E402
 
 CHECKS = []
 
 
-def _fill(fid, ticker, side, title):
-    return {"id": fid, "ticker": ticker, "side": side, "qty": 2, "entry": 0.5, "exit": 1.0, "staked": 1.0,
+def _fill(fid, ticker, side, title, qty=2, entry=0.5):
+    return {"id": fid, "ticker": ticker, "side": side, "qty": qty, "entry": entry, "exit": 1.0, "staked": qty * entry,
             "fees": 0.04, "open_fee": 0.04, "close_fee": 0, "pnl_pre": 1.0, "pnl_net": 0.96, "title": title}
 
 
@@ -143,6 +150,81 @@ NE["pages"] = [
 NE_MARKED = ["dr-m", "ld-m", "pa-m", "pb-m", "r10"]
 
 
+# #431 R16/R17 (ARCHITECT 2026-10-20, addendum 146 item 1(iv), verbatim: "R16 the ledger stores the page's ORDERED size
+# and limit beside the FILLED size and entry; R17 each position carries entry minus the closing ask on its pick (true
+# CLV, in cents)"; the sign CORRECTED by addendum 148 item 1(b): "ask minus entry, + = bought below the close"). Each
+# game's stored page carries the closing row's Kalshi legs and the page's orders by call key as closingPages writes them
+# (legs {HOME|AWAY|DRAW: {ticker, bid, ask}}; orders {"<engine>|<call_type>|<pick>": {ticker, side, limit, contracts,
+# unit} | {why}}) and goes in through the page's own putPage; a call's exec_order is the slate's order, as stampTiming
+# keeps it. Kansas City at home to Buffalo on five dates (KC and BUF the codes the fills above already fit), a ladder.
+_KC = ("NFL", "Kansas City Chiefs", "Buffalo Bills", "HOME")
+_U = "1u = 10 contracts (SP_UNIT_USD unset)"
+
+
+def _tk(day, side="KC", t=""):
+    """A KXNFLGAME ticker of a Buffalo @ Kansas City date ("26DEC06"); t a timed ticker's ET HHMM."""
+    return f"KXNFLGAME-{day}{t}BUFKC-{side}"
+
+
+def _ord(ticker, side, limit, contracts):
+    return {"ticker": ticker, "side": side, "limit": limit, "contracts": contracts, "unit": _U}
+
+
+def _kc_legs(day, bid, ask):
+    """The two legs as the export writes a two-way game's: AWAY the complement of HOME."""
+    return {"HOME": {"ticker": _tk(day), "bid": bid, "ask": ask},
+            "AWAY": {"ticker": _tk(day, "BUF"), "bid": round(1 - ask, 2), "ask": round(1 - bid, 2)}}
+
+
+def _quoted(pg, legs=None, orders=None):
+    """The page `pg` (_page) whose one game carries legs and orders, as closingPages stores them."""
+    (g,) = pg["games"].values()
+    g.update({"legs": legs, "orders": orders or {}})
+    return pg
+
+
+_EVE = "KXEPLGAME-26DEC05FULEVE-EVE"                      # the Everton (home) leg: an AWAY ladder buys NO on it
+R17C = {"calls": [
+    dict(F.call("r17a", *_KC, kick="2026-12-06T18:00:00"), exec_order=_ord(_tk("26DEC06"), "YES", 0.52, 8)),
+    dict(F.call("r17b", *_KC, kick="2026-12-13T18:00:00"), exec_order=_ord(_tk("26DEC13"), "YES", 0.53, 5)),
+    dict(F.call("r17c", *_KC, kick="2026-12-20T18:00:00"), exec_order=_ord(_tk("26DEC20"), "YES", 0.50, 12)),
+    dict(F.call("r17d", *_KC, kick="2026-12-27T18:00:00"), exec_order=_ord(_tk("26DEC27"), "YES", 0.55, 5)),
+    dict(F.call("r17e", "SOCCER", "Everton", "Fulham", "AWAY", ct="ladder", units=0.5, kick="2026-12-05T15:00:00"),
+         exec_order=None),
+    dict(F.call("r17f", *_KC, kick="2027-01-03T18:00:00"), exec_order=None),
+    dict(F.call("r17g", *_KC, kick="2027-01-10T18:00:00"), exec_order=_ord(_tk("27JAN10"), "YES", 0.50, 5)),
+], "fills": [
+    _fill("x-17a", _tk("26DEC06"), "yes", "Kansas City wins — Buffalo", 4, 0.55),       # YES on KC at 55c, ask 53c
+    _fill("x-17a2", _tk("26DEC06", "BUF"), "no", "Buffalo wins — Kansas City", 6, 0.50),  # NO on BUF: 1 − its 47c bid
+    _fill("x-17b", _tk("26DEC13"), "yes", "Kansas City wins — Buffalo", 3, 0.50),
+    _fill("x-17b2", _tk("26DEC13", t="1300"), "yes", "Kansas City wins — Buffalo", 2, 0.51),  # a ticker not on the page
+    _fill("x-17c", _tk("26DEC20"), "yes", "Kansas City wins — Buffalo", 5, 0.52),       # no stored page: the slate's
+    _fill("x-17d", _tk("26DEC27"), "yes", "Kansas City wins — Buffalo", 5, 0.55),       # a page stored without legs
+    _fill("x-17e", _EVE, "no", "Everton wins — Fulham", 5, 0.58),                         # the ladder's NO on HOME
+    _fill("x-17f", _tk("27JAN03"), "yes", "Kansas City wins — Buffalo", 5, 0.50),       # the page wrote no order
+    _fill("x-17g", _tk("27JAN10"), "yes", "Kansas City wins — Buffalo", 5, 0.50),       # two covering pages
+]}
+_C = R17C["calls"]
+_PLAY = ["model_edge|straight|HOME"]
+R17C["pages"] = [
+    _quoted(_page("NFL", _C[0], "2026-12-06T18:00:00Z", "2026-12-06T17:25:00Z", _PLAY),
+            _kc_legs("26DEC06", 0.52, 0.53), {"model_edge|straight|HOME": _ord(_tk("26DEC06"), "YES", 0.53, 8)}),
+    _quoted(_page("NFL", _C[1], "2026-12-13T18:00:00Z", "2026-12-13T17:25:00Z", _PLAY),
+            _kc_legs("26DEC13", 0.52, 0.53), {"model_edge|straight|HOME": _ord(_tk("26DEC13"), "YES", 0.53, 5)}),
+    _page("NFL", _C[3], "2026-12-27T18:00:00Z", "2026-12-27T17:25:00Z", _PLAY),   # no legs, no orders
+    _quoted(_page("SOCCER", _C[4], "2026-12-05T15:00:00Z", "2026-12-05T14:25:00Z", ["model_edge|ladder|AWAY"]),
+            {"HOME": {"ticker": _EVE, "bid": 0.40, "ask": 0.41}}, {"model_edge|ladder|AWAY": _ord(_EVE, "NO", 0.60, 5)}),
+    _quoted(_page("NFL", _C[5], "2027-01-03T18:00:00Z", "2027-01-03T17:25:00Z", _PLAY),
+            _kc_legs("27JAN03", 0.52, 0.53), {"model_edge|straight|HOME": {"why": "no Kalshi ticker on file"}}),
+    _quoted(_page("NFL", _C[6], "2027-01-10T18:00:00Z", "2027-01-10T17:25:00Z", _PLAY),
+            _kc_legs("27JAN10", 0.52, 0.53)),
+    _quoted(_page("NFL", _C[6], "2027-01-10T18:30:00Z", "2027-01-10T17:55:00Z", _PLAY),   # within the hour: two
+            _kc_legs("27JAN10", 0.50, 0.51)),
+]
+R17_FIELDS = ("id", "status", "cover", "page", "legacy", "ordered", "filled", "asks", "quote", "clv_c", "above_limit_c",
+              "above_fills", "over_size", "partial")
+
+
 def check(label, ok, detail=""):
     CHECKS.append(ok)
     print(f"  {'PASS' if ok else 'FAIL'}  {label}" + (f"  — {detail}" if detail else ""))
@@ -201,6 +283,17 @@ def main():
             localStorage.setItem('bd_ledger_v1', JSON.stringify(L));
             return {live: marked(live), alt: marked(L), s1, s2, fixed,
                     restored: CLOSING_MARK_RULES.csvFillExempt}; }""", NE)
+        # #431 R16/R17: the pages go in through the page's own putPage (legs and orders copied as it copies them, a
+        # record without them stored as null and {}), the ledger stored as is (enforceLedger left out, as above); the
+        # Cockpit's closingPositions, its line and its c1 (the line's own cents format) read on the stored ledger
+        page.evaluate("""(x) => { const L = loadLedger(); L.calls.push(...x.calls); L.fills.push(...x.fills);
+            for (const p of x.pages) putPage(L, p);
+            localStorage.setItem('bd_ledger_v1', JSON.stringify(L)); }""", R17C)
+        jcp = page.evaluate("""(() => { const L = loadLedger(), ps = closingPositions(L);
+            return {ps: ps.map(({c, ...p}) => p), line: closingClvLine(L),
+                    c1: Object.fromEntries(ps.filter(p => p.clv_c != null)
+                      .map(p => { const v = +p.clv_c.toFixed(1) || 0;
+                        return [p.id, `${v >= 0 ? "+" : ""}${v.toFixed(1)}c`]; }))}; })()""")
         L = page.evaluate("loadLedger()")
         js = page.evaluate("classifyFills(loadLedger())")
         jpos = page.evaluate("executedPositions(loadLedger()).pos.map(p => ({id: p.c.id, clv: p.clv, "
@@ -300,6 +393,66 @@ def main():
           "Cockpit and port alike", bool(stored["r10"].get("not_executed")) and r10 is not None and "r10" in pmap
           and abs(r10["clv"] - 0.12) < 1e-9 and abs(pmap["r10"]["clv"] - 0.12) < 1e-9
           and abs(r10["fee_adj"] - 0.10) < 1e-9 and abs(pmap["r10"]["fee_adj"] - 0.10) < 1e-9, str(r10))
+    # #431 R16/R17 (addendum 146 item 1(iv); addendum 148 item 1): every field of every position, Cockpit and port
+    jps = [{k: p.get(k) for k in R17_FIELDS} for p in jcp["ps"]]
+    pps = [{k: p[k] for k in R17_FIELDS} for p in P.closing_positions(L)]
+    check(f"R17: the same positions in the same order, Cockpit and port ({len(jps)})",
+          [p["id"] for p in jps] == [p["id"] for p in pps] and len(jps) > 0,
+          f"js {[p['id'] for p in jps]} py {[p['id'] for p in pps]}")
+    pm = {p["id"]: p for p in pps}
+    for jp in jps:
+        pp = pm.get(jp["id"])
+        diff = {k: (jp[k], pp and pp[k]) for k in R17_FIELDS if pp is None or jp[k] != pp[k]}
+        check(f"R17 {jp['id']}: cover {jp['cover']} · read against {jp['page'] or 'no page'}"
+              + (" (legacy)" if jp["legacy"] else "") + f" · {jp['quote']}"
+              + (f" · {jcp['c1'][jp['id']]}" if jp["id"] in jcp["c1"] else "") + " · every field equal",
+              not diff, str(diff))
+    J = {p["id"]: p for p in jps}
+
+    def r4(x):
+        return None if x is None else round(x, 4)
+    a = J["r17a"]
+    check("R17 (b)(c)(e)(f)(g): a page with legs, a YES fill at 55c and a NO on the opponent at 50c (1 − its 47c bid): "
+          "asks 0.53 each, +1.0c qty-weighted; R16 reads the closing page's order (0.53 × 8), not the slate's: 1 fill "
+          "+2.0c above the limit, over the ordered size", a["asks"] == [0.53, 0.53] and r4(a["clv_c"]) == 1.0
+          and a["page"] == "closing" and a["ordered"] == _ord(_tk("26DEC06"), "YES", 0.53, 8)
+          and (a["above_limit_c"], a["above_fills"], a["over_size"], a["partial"]) == (2.0, 1, True, False), str(a))
+    b = J["r17b"]
+    check("R17 (f): a fill on a ticker the page does not quote: counted, not priced (the position's CLV null)",
+          b["asks"] == [0.53, None] and b["quote"] == "unpriced" and b["clv_c"] is None, str(b))
+    c = J["r17c"]
+    check("R17 (e): no stored page: the slate's order (exec_order) is read, the CLV not priced; R16 flags it",
+          (c["cover"], c["page"], c["quote"], c["clv_c"]) == ("none", "slate", "no_page", None)
+          and (c["above_limit_c"], c["above_fills"], c["partial"]) == (2.0, 1, True), str(c))
+    d = J["r17d"]
+    check("R17 (i): a page stored without legs (putPage keeps null and {}): no closing quote stored, never priced; the "
+          "slate's order read", (d["cover"], d["page"], d["quote"], d["clv_c"]) == ("page", "slate", "no_quote", None),
+          str(d))
+    e = J["r17e"]
+    check("R17 (f): a LADDER's NO on HOME: 1 − the HOME leg's 40c bid, a 58c fill: +2.0c; its order NO 0.60 × 5",
+          e["asks"] == [0.6] and r4(e["clv_c"]) == 2.0 and e["ordered"] == _ord(_EVE, "NO", 0.6, 5)
+          and not (e["above_fills"] or e["over_size"] or e["partial"]), str(e))
+    f = J["r17f"]
+    check("R16: a page that wrote no order: {why} read against the closing page, no R16 flag; the CLV still priced",
+          f["ordered"] == {"why": "no Kalshi ticker on file"} and f["page"] == "closing" and r4(f["clv_c"]) == 3.0
+          and (f["above_limit_c"], f["over_size"], f["partial"]) == (None, False, False), str(f))
+    g = J["r17g"]
+    check("R17 (j) / law 4: two stored pages cover the claim: ambiguous, neither page's order nor quote read",
+          (g["cover"], g["page"], g["ordered"], g["quote"], g["clv_c"]) == ("ambiguous", None, None, "ambiguous", None),
+          str(g))
+    check("R16: a claim from before R16 (no exec_order key) is legacy, Cockpit and port alike",
+          sum(p["legacy"] for p in jps) == sum(p["legacy"] for p in pps) > 0)
+    head = f"{len(pps)} position(s), {sum(p['filled']['fills'] for p in pps)} fill(s) · "
+    check(f"R17: the Cockpit's line counts the port's positions and fills ({head.strip(' ·')})", head in jcp["line"],
+          jcp["line"])
+    kl = K.closing_clv_lines(L, set())
+    priced = [i for i in J if J[i]["clv_c"] is not None]
+    st = {x["id"]: x for x in L["calls"]}
+    ok = len(kl) == len(priced) == 3 and all(
+        sum(f"{st[i]['game']} · {st[i]['kickoff'][:10]} · {st[i]['call_type']} {st[i]['pick']} · {jcp['c1'][i]} · "
+            "filled " in x for x in kl) == 1 for i in priced)
+    check("R17: the K-track receipt prints ONE line per priced position, each with the Cockpit's cents", ok,
+          "\n".join(kl))
     n = sum(CHECKS)
     print(f"\n{n}/{len(CHECKS)} checks passed")
     return 0 if n == len(CHECKS) else 1

@@ -44,12 +44,25 @@ GAMES = {301: ("Buffalo", 0.62, 0.55, 0.54, 0.55),   # PLAY, exec +5.3pp: no hol
          303: ("Tampa", 0.60, 0.70, 0.69, 0.70)}     # value shadow, AWAY
 
 
-def _nfl(**p_home):
-    rows = [row(mid, home, p_home.get(home, p), fair_h=fh, bid=b, ask=a, comp="NFL", series="KXNFLGAME",
-                now=CLOSE_AT, minutes=35) for mid, (home, p, fh, b, a) in GAMES.items()]
+def tick(home, side="HOME"):
+    """#431 R17: a Kalshi game ticker the fill matcher parses for "<home> Visitors @ <home>" on 2026-10-19
+    (KXNFLGAME-26OCT19<away code><home code>-<side code>; Denver: KXNFLGAME-26OCT19DVDEN-DEN, DVDEN below)."""
+    away, hc = home[0] + "V", home[:3].upper()
+    return f"KXNFLGAME-26OCT19{away}{hc}-{hc if side == 'HOME' else away}"
+
+
+def _nfl(quotes=None, ticked=False, **p_home):
+    """quotes {home: (bid, ask)} moves a game's Kalshi quotes; ticked gives every leg a ticker the matcher parses
+    (R17)."""
+    rows = [row(mid, home, p_home.get(home, p), fair_h=fh, bid=(quotes or {}).get(home, (b, a))[0],
+                ask=(quotes or {}).get(home, (b, a))[1], comp="NFL", series="KXNFLGAME", now=CLOSE_AT, minutes=35)
+            for mid, (home, p, fh, b, a) in GAMES.items()]
     rows[1]["input_quality"] = {"injuries": {"home": {"count": 2, "qb_listed": ["H. Quarterback"]},
                                              "away": {"count": 1, "qb_listed": []}}}
     rows[2]["input_quality"] = {"injuries": {"home": {"count": 2, "qb_listed": []}, "away": {"count": 0, "qb_listed": []}}}
+    for r in rows if ticked else []:
+        for side, leg in r["kalshi_legs"].items():
+            leg["ticker"] = tick(r["home_team"], side)
     return rows
 
 
@@ -57,13 +70,13 @@ def _annotate(rows, at, src="parameter"):
     return dp.annotate({"sport": "nfl", "predictions": copy.deepcopy(rows)}, now=at, counts_source=src)
 
 
-def slate(**p_home):
+def slate(quotes=None, ticked=False, **p_home):
     """The morning slate at 12:00Z; Denver a PLAY there (p 0.60)."""
-    return _annotate(_nfl(**{"Denver": 0.60, **p_home}), SLATE_AT)
+    return _annotate(_nfl(quotes, ticked, **{"Denver": 0.60, **p_home}), SLATE_AT)
 
 
-def closing(at=CLOSE_AT, run=RUN, ids=None, src=DEFAULT_SRC, **p_home):
-    doc = _annotate(_nfl(**p_home), at, src)
+def closing(at=CLOSE_AT, run=RUN, ids=None, src=DEFAULT_SRC, quotes=None, ticked=False, **p_home):
+    doc = _annotate(_nfl(quotes, ticked, **p_home), at, src)
     return mc.closing_doc(doc, "NFL", START, run, ids or [r["match_id"] for r in doc["predictions"]], [])
 
 
@@ -157,7 +170,7 @@ SWITCHES = '''const CLOSING_MARK_RULES={   // #431 escalations (comment 62909514
   execLeZeroAllFamilies:true,          // esc 9: exec<=0 reads every family whose row carries desk.exec.edge_pp (false = only MLB/NFL, the CLOSING_HOLDS families)
   ownCapture:"skip",                   // esc 4: a closing row's NOT-REPEATED PLAY is not auto-captured ("mark" = capture and mark it even though claim_at==as_of)
   missingGame:"per_game",              // esc 11: a game an earlier page carries and a later page lacks keeps the earlier page ("whole_page" alternative)
-  csvFillExempt:true,                  // esc 12: a Kalshi CSV fill exempts a call from the mark when matchFill, R7's unmarked preference applied, still lands it on that call
+  csvFillExempt:true,                  // esc 12: RULED as built (addendum 148 item 1(a)): a Kalshi CSV fill exempts a call from the mark when matchFill, R7's unmarked preference applied, still lands it on that call
   importIdCollision:"rekey",           // esc 1 (R4): incoming call whose id a local call holds under a different pick takes the new-format id (callKey), old kept as id_imported ("refuse" alternative)
 };'''
 READ_SITES = {"execUnknown": "holdRead", "writtenRuleFrom": "holdRead", "qb": "holdRead", "bothHolds": "holdRead",
@@ -451,7 +464,10 @@ T_out({before,n:L.calls.length,note:T_note(),marks:T_marks(L),den:den.not_execut
     assert st["games"]["NFL|Tampa|Tampa Visitors|2026-10-19T17:00:00"] == {
         "sport": "NFL", "home": "Tampa", "away": "Tampa Visitors", "kickoff": "2026-10-19T17:00:00",
         "calls": ["model_edge|value_shadow|AWAY"], "text": "PASS · value shadow Tampa Visitors 0.25u", "run_id": RUN,
-        "as_of": "2026-10-19T16:25:00Z", "file": CLOSING_NAME}
+        "as_of": "2026-10-19T16:25:00Z", "file": CLOSING_NAME,
+        # #431 R16/R17 (addendum 146 item 1(iv)): the row's Kalshi legs, copy-exact; the page's orders (a shadow: none)
+        "legs": {"HOME": {"ticker": "KXNFLGAME-26OCT11-TAMH", "bid": 0.69, "ask": 0.7},
+                 "AWAY": {"ticker": "KXNFLGAME-26OCT11-TAMA", "bid": 0.3, "ask": 0.31}}, "orders": {}}
     assert got["next"] == ("Not executed (addendum 40 item 2, #431): 3 claim(s) the closing page did not repeat (0"
                            " position(s), 0 ticket(s) settled) — out of the P&L, the sizing gate and the graded n/30"
                            " counts; marked, never deleted.")
@@ -1637,3 +1653,459 @@ def test_the_laptop_control_sits_beside_the_host_control_which_is_unchanged_and_
     assert 'Accept:"application/vnd.github.raw+json"' in fn and "p.split(\"/\").map(encodeURIComponent).join(\"/\")" in fn
     assert "days=[utcDay(t-86400000),utcDay(t)]" in fn
     assert _fn(html, "utcDay") == "function utcDay(ms){ return new Date(ms).toISOString().slice(0,10); }"
+
+
+# ------------------------------------------------------------------------------------------------ R16 and R17 --
+# ARCHITECT 2026-10-20, addendum 146 item 1(iv), verbatim: "R16 the ledger stores the page's ORDERED size and limit
+# beside the FILLED size and entry; R17 each position carries entry minus the closing ask on its pick (true CLV, in
+# cents) and the P&L view sums it beside the P&L". The sign CORRECTED (addendum 148 item 1(b)): "ask minus entry, + =
+# bought below the close, the direction the page's existing CLV lines already use ... the line names its direction:
+# "Closing CLV (close − entry; + = beat the close)"". Addendum 148 item 1(c)-(i): each default accepted.
+
+ORDER_KEYS = ("ticker", "side", "limit", "contracts", "unit")
+CLV_HEAD = "Closing CLV (close − entry; + = beat the close) (addendum 146 item 1(iv) R17, #431): "
+CLV_NONE = CLV_HEAD + "0 position(s), 0 fill(s) · sum none · mean none per position"
+UNIT10 = "1u = 10 contracts (SP_UNIT_USD unset)"
+
+
+def _order(doc, home):
+    """The page's order for `home`'s pick as R16 stores it: the file's desk.order, its five fields, copy-exact."""
+    o = next(r for r in doc["predictions"] if r["home_team"] == home)["desk"]["order"]
+    return {k: o[k] for k in ORDER_KEYS}
+
+
+def _legs(doc, home):
+    return next(r for r in doc["predictions"] if r["home_team"] == home)["kalshi_legs"]
+
+
+# A synthetic ledger's pieces (pure reads of closingPositions): a stored game G(home, {...}) with its Kalshi legs at a
+# HOME bid/ask (the AWAY leg the two-way complement, as tests/test_closing_runs.row writes it), an order O, a fill F
+R17_JS = r'''
+const TICK=(h,s)=>{ const a=h[0]+"V", c=h.slice(0,3).toUpperCase(); return `KXNFLGAME-26OCT19${a}${c}-${s==="AWAY"?a:c}`; };
+const LEGS=(h,b,a)=>({HOME:{ticker:TICK(h),bid:b,ask:a},AWAY:{ticker:TICK(h,"AWAY"),bid:+(1-a).toFixed(2),ask:+(1-b).toFixed(2)}});
+const O=(ticker,side,limit,contracts)=>({ticker,side,limit,contracts,unit:"1u = 10 contracts (SP_UNIT_USD unset)"});
+const G=(h,o)=>({sport:"NFL",home:h,away:h+" Visitors",kickoff:"2026-10-19T17:00:00",calls:["model_edge|straight|HOME"],
+  text:`PLAY ${h} 1u`,run_id:"20261019T162500Z-nfl",as_of:"2026-10-19T16:25:00Z",file:"closing_NFL_2026-10-19T1700Z.json",
+  legs:LEGS(h,0.52,0.53),orders:{"model_edge|straight|HOME":O(TICK(h),"YES",0.53,10)},...(o||{})});
+const PUT=(L,games,start)=>putPage(L,{family:"NFL",start:start||"2026-10-19T17:00:00Z",
+  games:Object.fromEntries(games.map(g=>[`${g.sport}|${g.home}|${g.away}|${g.kickoff}`,g]))});
+const F=(id,ticker,side,qty,entry)=>({id,ticker,side,qty,entry,title:""});
+const R4=x=>x==null?null:+x.toFixed(4);
+const PJ=ps=>ps.map(p=>({id:p.id,status:p.status,cover:p.cover,page:p.page,legacy:p.legacy,ordered:p.ordered,
+  filled:{...p.filled,entry:R4(p.filled.entry)},asks:p.asks,quote:p.quote,clv:R4(p.clv_c),above:R4(p.above_limit_c),
+  above_fills:p.above_fills,over:p.over_size,partial:p.partial}));
+const RUN17=(calls,fills,games,more)=>{ const L={meta:{},calls,fills}; if(games) PUT(L,games); if(more) more(L);
+  return {ps:PJ(closingPositions(L)),line:closingClvLine(L)}; };
+'''
+
+
+def test_r16_r17_the_stored_page_keeps_the_rows_legs_and_its_orders_copy_exact_and_a_resave_is_byte_identical(tmp_path):
+    """Per stored game: `legs`, the closing row's Kalshi legs as the export carries them (normalize keeps them on the
+    row, kLegs), and `orders`, the page's order by call key for each staked call it repeats (R16), the five fields of
+    its desk.order; a shadow, and a PLAY the page does not repeat, carry none. A re-save and a reload of the same page
+    write the same bytes."""
+    C = closing(ticked=True)
+    got = _node(tmp_path, r'''
+const ne=storeClosings(T_pages(C,CN)), s1=T_stored(); saveLedger(loadLedger()); const s2=T_stored();
+storeClosings(T_pages(C,CN));
+const g=Object.values(loadLedger().meta.closings["NFL|2026-10-19T17:00:00Z"].games);
+T_out({same:s1===s2&&T_stored()===s1,kept:ne.took,
+  by:Object.fromEntries(g.map(x=>[x.home,{calls:x.calls,legs:x.legs,orders:x.orders,keys:Object.keys(x)}]))});''',
+                C=C, CN=CLOSING_NAME)
+    assert got["same"] is True and got["kept"] == 6
+    by = got["by"]
+    assert by["Buffalo"]["calls"] == ["model_edge|straight|HOME"]
+    assert by["Buffalo"]["orders"] == {"model_edge|straight|HOME": _order(C, "Buffalo")}
+    assert _order(C, "Buffalo")["ticker"] == tick("Buffalo") and _order(C, "Buffalo")["side"] == "YES"
+    for home in ("Buffalo", "Miami", "Dallas", "Denver", "Newark", "Tampa"):
+        assert by[home]["legs"] == _legs(C, home), home
+        assert by[home]["keys"] == ["sport", "home", "away", "kickoff", "calls", "text", "run_id", "as_of", "file",
+                                    "legs", "orders"]
+    for home in ("Miami", "Dallas", "Denver", "Newark", "Tampa"):     # not repeated, PASS, the two shadows
+        assert by[home]["orders"] == {}, home
+
+
+def test_r16_closing_orders_by_kind_a_why_only_order_and_the_venue_tables_own_read(tmp_path):
+    """closingOrders: a PLAY's and a LADDER's desk.order (a LADDER's is NO on HOME as desk_policy.order_line writes
+    it); a VENUE call's only on a market-only row (renderVenue's read); a page that wrote no order stores {why}; a row
+    with no order block and a shadow store nothing."""
+    got = _node(tmp_path, r'''
+const ord={ticker:"T",side:"NO",limit:0.6,limit_basis:"take at the ask (spread 1c)",contracts:5,unit:"1u = 10 contracts (SP_UNIT_USD unset)",
+  text:"BUY NO T @ 0.60 × 5",why:null};
+const why={ticker:null,side:null,limit:null,limit_basis:null,contracts:null,unit:"u",text:null,why:"no Kalshi ticker on file for the HOME leg"};
+const R=(d,mo)=>({fileDesk:d,marketOnly:!!mo});
+T_out({play:closingOrders(R({order:ord}),["model_edge|straight|HOME","model_edge|value_shadow|AWAY"]),
+  ladder:closingOrders(R({order:ord}),["model_edge|ladder|AWAY"]),
+  why:closingOrders(R({order:why}),["model_edge|straight|HOME"]),
+  venue:closingOrders(R({order:ord},true),["venue_edge|straight|HOME"]),
+  venueModel:closingOrders(R({order:ord}),["venue_edge|straight|HOME"]),
+  none:closingOrders(R({order:null}),["model_edge|straight|HOME"]),
+  shadow:closingOrders(R({order:ord}),["model_edge|quarantine_shadow|HOME"])});''')
+    full = {"ticker": "T", "side": "NO", "limit": 0.6, "contracts": 5, "unit": UNIT10}
+    assert got["play"] == {"model_edge|straight|HOME": full} and got["ladder"] == {"model_edge|ladder|AWAY": full}
+    assert got["why"] == {"model_edge|straight|HOME": {"why": "no Kalshi ticker on file for the HOME leg"}}
+    assert got["venue"] == {"venue_edge|straight|HOME": full}
+    assert got["venueModel"] == got["none"] == got["shadow"] == {}
+
+
+def test_r16_claim_order_is_frozen_exec_order_follows_the_closing_relog_and_an_early_execution_locks_it(tmp_path):
+    """R16, the slate side: every claim stores kalshi_order (the row's desk.order: PLAY, LADDER, VENUE; null on a
+    shadow and a ticket leg), claim_order frozen at the first capture and exec_order following each re-log, as the
+    exec_* fields do; an early execution locks it (executeEarly sets it): the order the call follows at that moment,
+    the closing page's after a closing re-log moved it, never its claim's. Written at claim, never at save. A page that
+    wrote no order is stored as {why}."""
+    S, C2 = slate(ticked=True), closing(at=LATER_AT, run=RUN2, ticked=True, quotes={"Buffalo": (0.55, 0.56)})
+    got = _node(tmp_path, r'''
+const B=L=>L.calls.find(c=>c.home==="Buffalo"&&c.call_type==="straight");
+const pick=c=>({kalshi_order:c.kalshi_order,claim_order:c.claim_order,exec_order:c.exec_order});
+await loadDocs([T_doc(SN,S)]);
+const s0=JSON.parse(T_stored()).calls, at=pick(B(loadLedger()));
+await loadDocs([T_doc("closing_NFL_2026-10-19T1700Z_b.json",C2)]);
+const relog=pick(B(loadLedger()));
+T_reset(); await loadDocs([T_doc(SN,S)]); executeEarly(B(loadLedger()).id);
+await loadDocs([T_doc("closing_NFL_2026-10-19T1700Z_b.json",C2)]);
+const early=pick(B(loadLedger()));
+T_reset(); await loadDocs([T_doc(SN,S)]); await loadDocs([T_doc("closing_NFL_2026-10-19T1700Z_b.json",C2)]);
+const note=executeEarly(B(loadLedger()).id), late=pick(B(loadLedger()));
+T_reset(); const P=JSON.parse(JSON.stringify(S)), b=P.predictions.find(r=>r.home_team==="Buffalo");
+b.desk.order={...b.desk.order,ticker:null,side:null,limit:null,contracts:null,text:null,why:"no Kalshi ticker on file"};
+await loadDocs([T_doc(SN,P)]);
+T_out({at,relog,early,late,note:note.slice(0,16),why:pick(B(loadLedger())),
+  shadows:s0.filter(c=>c.call_type!=="straight").map(c=>[c.call_type,c.kalshi_order,c.claim_order,c.exec_order]),
+  every:s0.every(c=>"kalshi_order" in c&&"claim_order" in c&&"exec_order" in c)});''',
+                S=S, C2=C2, SN=SLATE_NAME)
+    slate_o, close_o = _order(S, "Buffalo"), _order(C2, "Buffalo")
+    assert slate_o != close_o and close_o["limit"] == 0.56
+    assert got["at"] == {"kalshi_order": slate_o, "claim_order": slate_o, "exec_order": slate_o}
+    assert got["relog"] == {"kalshi_order": close_o, "claim_order": slate_o, "exec_order": close_o}
+    assert got["early"] == {"kalshi_order": close_o, "claim_order": slate_o, "exec_order": slate_o}
+    assert got["note"] == "Executed EARLY ("               # after the re-log: the closing page's order is locked
+    assert got["late"] == {"kalshi_order": close_o, "claim_order": slate_o, "exec_order": close_o}
+    w = {"why": "no Kalshi ticker on file"}
+    assert got["why"] == {"kalshi_order": w, "claim_order": w, "exec_order": w}
+    assert got["every"] is True and got["shadows"] and all(x[1:] == [None, None, None] for x in got["shadows"])
+    html = _html()
+    assert 'rules:["parlay 0.25u"],kalshi_order:null' in _fn(html, "snapshotCalls")       # a ticket leg: no order
+    assert "kalshi_order:r.marketOnly?orderOf(r.fileDesk&&r.fileDesk.order):null" in _fn(html, "snapshotCalls")
+    assert "x.exec_order=x.kalshi_order??null;" in _fn(html, "executeEarly")
+    for f in ("saveLedger", "markClosings", "putPage"):                    # written at claim, never at save
+        assert "exec_order" not in _fn(html, f) and "claim_order" not in _fn(html, f), f
+
+
+def test_r16_a_claim_from_before_r16_executed_early_stays_legacy_never_outside_any_page(tmp_path):
+    """Execute now on a claim made before R16 (no kalshi_order key: the slate it followed stored none), with no re-log
+    after it, writes no exec_order: the claim stays legacy, counted "legacy claim(s)", never "outside any page" (a
+    false (g) flag). A claim made after R16 whose page wrote no order block (kalshi_order null) executed early locks
+    exec_order null: outside any page. The port reads the same keys (ledger_fills.closing_positions)."""
+    from src.walters import ledger_fills as LF
+    got = _node(tmp_path, R17_JS + r'''
+const f=[F("a",TICK("Denver"),"yes",10,0.55)], keys=c=>["kalshi_order","claim_order","exec_order"].filter(k=>k in c);
+const run=o=>{ T_reset(); T_seed([T_mk("Denver",{id:"D",...o})]); const note=executeEarly("D");
+  const L=loadLedger(); L.fills=f; saveLedger(L); const M=loadLedger(), c=M.calls[0];
+  return {note:note.slice(0,16),mode:c.exec_mode,keys:keys(c),exec_order:"exec_order" in c?c.exec_order:"absent",line:closingClvLine(M),L:M}; };
+T_out({pre:run({}),post:run({kalshi_order:null,claim_order:null,exec_order:null})});''')
+    pre, post = got["pre"], got["post"]
+    assert pre["note"] == post["note"] == "Executed EARLY (" and pre["mode"] == post["mode"] == "operator_early"
+    assert pre["keys"] == [] and pre["exec_order"] == "absent"                     # nothing written: still legacy
+    assert pre["line"] == (CLV_HEAD + "1 position(s), 1 fill(s) · sum none · mean none per position · graded 0 · open 1"
+                           " — read against the closing page 0, the slate page 0, outside any page 0 · 1 legacy claim(s)"
+                           " carry no stored order (claimed before R16) · 1 with no stored closing page · R16: 0 fill(s)"
+                           " above their page's limit · 0 over the ordered size · 0 partial")
+    assert post["keys"] == ["kalshi_order", "claim_order", "exec_order"] and post["exec_order"] is None
+    assert "outside any page 1 · 1 with no stored closing page" in post["line"] and "legacy" not in post["line"]
+    (pp,), (qp,) = LF.closing_positions(pre["L"]), LF.closing_positions(post["L"])
+    assert (pp["legacy"], pp["page"], qp["legacy"], qp["page"]) == (True, None, False, None)
+    assert 'if("kalshi_order" in x) x.exec_order=x.kalshi_order??null;' in _fn(_html(), "executeEarly")
+
+
+def test_r17_the_held_contracts_closing_ask_and_the_ruled_sign(tmp_path):
+    """(f) the held contract's ask, by the fill's ticker and side: YES on the pick's leg its ask; NO on the opponent
+    1 − its bid (desk_policy.order_line prices NO so), rounded to 4 dp (against an AWAY bid of 0.43 it is 0.57, never
+    0.5700000000000001); a ladder's NO on HOME the same; a ticker the page does not quote
+    is counted, not priced; a stored leg's ticker padded and in lower case still matches (trimmed, upper case). (b)
+    the sign: close − entry, + = beat the close: a 55c fill against a 53c closing ask prints -2.0c, a 53c fill against
+    55c +2.0c; a blend at the close prints +0.0c, never -0.0c. (c) qty-weighted: 4@0.55 + 6@0.53 against 0.53 is
+    -0.8c; one unpriced fill leaves the position unpriced (null), counted."""
+    got = _node(tmp_path, R17_JS + r'''
+const D=()=>[T_mk("Denver",{id:"D",exec_order:null})];
+const lad={...T_mk("Arsenal",{id:"L",sport:"SOCCER",away:"Chelsea",game:"Chelsea @ Arsenal",three_way:true,
+  call_type:"ladder",pick:"AWAY",units:0.5,kickoff:"2026-10-19T19:00:00"})};
+const ARS="KXEPLGAME-26OCT19CHEARS-ARS";
+const LG={sport:"SOCCER",home:"Arsenal",away:"Chelsea",kickoff:"2026-10-19T19:00:00",calls:["model_edge|ladder|AWAY"],
+  text:"LADDER Chelsea 0.5u",run_id:"R",as_of:"2026-10-19T18:25:00Z",file:"f",legs:{HOME:{ticker:ARS,bid:0.40,ask:0.41}},
+  orders:{"model_edge|ladder|AWAY":O(ARS,"NO",0.60,5)}};
+T_out({yes55:RUN17(D(),[F("a",TICK("Denver"),"yes",10,0.55)],[G("Denver")]),
+  yes53:RUN17(D(),[F("a",TICK("Denver"),"yes",10,0.53)],[G("Denver",{legs:LEGS("Denver",0.54,0.55)})]),
+  noOpp:RUN17(D(),[F("a",TICK("Denver","AWAY"),"no",10,0.50)],[G("Denver")]),
+  no43:RUN17(D(),[F("a",TICK("Denver","AWAY"),"no",10,0.50)],[G("Denver",{legs:LEGS("Denver",0.56,0.57)})]),
+  ladder:RUN17([lad],[F("a",ARS,"no",5,0.58)],null,L=>putPage(L,{family:"SOCCER",start:"2026-10-19T19:00:00Z",games:{x:LG}})),
+  qty:RUN17(D(),[F("a",TICK("Denver"),"yes",4,0.55),F("b",TICK("Denver"),"yes",6,0.53)],[G("Denver")]),
+  oneOff:RUN17(D(),[F("a",TICK("Denver"),"yes",4,0.55),F("b","KXNFLGAME-26OCT191300DVDEN-DEN","yes",6,0.53)],[G("Denver")]),
+  offPage:RUN17(D(),[F("a",TICK("Denver"),"yes",10,0.55)],[G("Denver",{legs:{HOME:{ticker:"KXNFLGAME-26OCT11-DENH",bid:0.52,ask:0.53}}})]),
+  // the page's T: a stored leg's ticker padded and lower case still matches the fill's (the port's lc case)
+  lc:RUN17(D(),[F("a",TICK("Denver"),"yes",10,0.55)],[G("Denver",{legs:{HOME:{ticker:"  "+TICK("Denver").toLowerCase()+"  ",bid:0.52,ask:0.53}}})]),
+  // a blend at the close: 5@0.28 + 5@0.32 against a 30c ask is (5×(0.30−0.28) + 5×(0.30−0.32)) / 10 × 100 = 0 in
+  // cents, -2.8e-15 in floating point: c1 rounds first, so the line prints +0.0c (clvLines' zero is "+0.00pp")
+  zero:RUN17(D(),[F("a",TICK("Denver"),"yes",5,0.28),F("b",TICK("Denver"),"yes",5,0.32)],[G("Denver",{legs:LEGS("Denver",0.29,0.30)})])});''')
+    zero = got.pop("zero")
+    assert zero["ps"][0]["quote"] == "priced" and zero["ps"][0]["clv"] == 0          # R4 of -2.8e-15
+    assert zero["line"].startswith(CLV_HEAD + "1 position(s), 2 fill(s) · sum +0.0c · mean +0.0c per position")
+    assert "-0.0c" not in zero["line"]
+    zr = _node(tmp_path, R17_JS + r'''
+const L={meta:{},calls:[T_mk("Denver",{id:"D",exec_order:null})],
+  fills:[F("a",TICK("Denver"),"yes",5,0.28),F("b",TICK("Denver"),"yes",5,0.32)]};
+PUT(L,[G("Denver",{legs:LEGS("Denver",0.29,0.30)})]); T_out(closingPositions(L)[0].clv_c);''')
+    assert -1e-9 < zr < 0                                       # the raw value is the negative zero the line rounds
+    p = {k: v["ps"] for k, v in got.items()}
+    assert all(len(v) == 1 for v in p.values()), p
+    assert p["yes55"][0]["asks"] == [0.53] and p["yes55"][0]["clv"] == -2.0 and p["yes55"][0]["quote"] == "priced"
+    assert p["yes53"][0]["asks"] == [0.55] and p["yes53"][0]["clv"] == 2.0
+    assert got["yes55"]["line"].startswith(CLV_HEAD + "1 position(s), 1 fill(s) · sum -2.0c · mean -2.0c per position")
+    assert got["yes53"]["line"].startswith(CLV_HEAD + "1 position(s), 1 fill(s) · sum +2.0c · mean +2.0c per position")
+    assert p["noOpp"][0]["asks"] == [0.53] and p["noOpp"][0]["clv"] == 3.0          # 1 − the AWAY leg's bid 0.47
+    assert p["no43"][0]["asks"] == [0.57] and p["no43"][0]["clv"] == 7.0    # 1 − 0.43 is 0.5700000000000001 unrounded
+    assert p["ladder"][0] == {"id": "L", "status": "open", "cover": "page", "page": "closing", "legacy": False,
+                              "ordered": {"ticker": ARS_TICK, "side": "NO", "limit": 0.6, "contracts": 5,
+                                          "unit": UNIT10},
+                              "filled": {"contracts": 5, "entry": 0.58, "fills": 1}, "asks": [0.6], "quote": "priced",
+                              "clv": 2.0, "above": None, "above_fills": 0, "over": False, "partial": False}
+    assert p["qty"][0]["clv"] == -0.8 and p["qty"][0]["filled"] == {"contracts": 10, "entry": 0.538, "fills": 2}
+    assert p["oneOff"][0]["asks"] == [0.53, None] and p["oneOff"][0]["quote"] == "unpriced"
+    assert p["oneOff"][0]["clv"] is None
+    assert p["offPage"][0]["asks"] == [None] and p["offPage"][0]["quote"] == "unpriced"
+    assert p["lc"][0]["asks"] == [0.53] and p["lc"][0]["quote"] == "priced" and p["lc"][0]["clv"] == -2.0
+    for k in ("oneOff", "offPage"):
+        assert got[k]["line"].startswith(CLV_HEAD + f"1 position(s), {2 if k == 'oneOff' else 1} fill(s) · sum none ·"
+                                         " mean none per position") \
+            and " · 1 on a contract the page does not quote (not priced) · " in got[k]["line"], k
+
+
+ARS_TICK = "KXEPLGAME-26OCT19CHEARS-ARS"
+
+
+def test_r17_no_stored_page_two_covering_pages_and_a_page_with_no_quote_are_counted_never_priced(tmp_path):
+    """No stored closing page: counted, not priced, the order read from the slate (exec_order), or none (a claim from
+    before R16 stored no order: legacy, never "outside any page"). Two covering pages (two starts within the hour):
+    ambiguous, never guessed (law 4), neither page's order nor quote read. (i) a page stored before this build (no
+    legs): "no closing quote stored", never priced from anything else; its order stays readable."""
+    got = _node(tmp_path, R17_JS + r'''
+const sl=O(TICK("Denver"),"YES",0.52,10), f=[F("a",TICK("Denver"),"yes",10,0.55)];
+T_out({slate:RUN17([T_mk("Denver",{id:"D",exec_order:sl})],f,null),
+  legacy:RUN17([T_mk("Denver",{id:"D"})],f,null),
+  two:RUN17([T_mk("Denver",{id:"D",exec_order:sl})],f,[G("Denver")],L=>PUT(L,[G("Denver",{kickoff:"2026-10-19T17:30:00"})],"2026-10-19T17:30:00Z")),
+  noQuote:RUN17([T_mk("Denver",{id:"D",exec_order:sl})],f,null,L=>{ const g=G("Denver"); delete g.legs; delete g.orders; PUT(L,[g]); })});''')
+    p = {k: v["ps"][0] for k, v in got.items()}
+    assert (p["slate"]["cover"], p["slate"]["page"], p["slate"]["quote"], p["slate"]["clv"]) == \
+        ("none", "slate", "no_page", None)
+    assert p["slate"]["ordered"] == {"ticker": DVDEN, "side": "YES", "limit": 0.52, "contracts": 10, "unit": UNIT10}
+    assert p["slate"]["above"] == 3.0 and p["slate"]["above_fills"] == 1             # R16 reads the slate's limit
+    assert (p["legacy"]["page"], p["legacy"]["legacy"], p["legacy"]["ordered"], p["legacy"]["quote"]) == \
+        (None, True, None, "no_page")
+    assert (p["two"]["cover"], p["two"]["page"], p["two"]["ordered"], p["two"]["quote"], p["two"]["clv"]) == \
+        ("ambiguous", None, None, "ambiguous", None)
+    assert (p["noQuote"]["cover"], p["noQuote"]["quote"], p["noQuote"]["page"], p["noQuote"]["clv"]) == \
+        ("page", "no_quote", "slate", None)                                          # stored as legs null, orders {}
+    assert got["legacy"]["line"] == (CLV_HEAD + "1 position(s), 1 fill(s) · sum none · mean none per position · graded 0"
+                                     " · open 1 — read against the closing page 0, the slate page 0, outside any page 0"
+                                     " · 1 legacy claim(s) carry no stored order (claimed before R16) · 1 with no stored"
+                                     " closing page · R16: 0 fill(s) above their page's limit · 0 over the ordered size"
+                                     " · 0 partial")
+    assert " · 1 ambiguous · " in got["two"]["line"] and "outside any page 0 · 1 ambiguous" in got["two"]["line"]
+    assert " · 1 with no closing quote stored · " in got["noQuote"]["line"]
+
+
+def test_r17_which_positions_open_and_graded_marked_or_not_never_a_shadow_a_ticket_a_void_or_a_manual_fill(tmp_path):
+    """(d) every filled straight, VENUE or LADDER position matched to a call, open included, marked or not (a mark is
+    R10's business); a shadow is never filled, a ticket leg is no position (R5), a void (re-dated) call is out, and a
+    manual Record fill is not a position ((h); its contracts box is Issue #634). The filters read the call's kind and
+    its void label, never only whether matchFill handed it a fill (the port's Reno and Provo cases): a value shadow
+    carrying units (isShadow reads call_type value_shadow; matchFill takes any non-quarantine call with units > 0) and a
+    void label on a graded row are no positions. A fill with qty 0, and one with no entry (set in the ledger directly,
+    not through the CSV import), are not read: Denver's position is its one 10@0.55 fill."""
+    got = _node(tmp_path, R17_JS + r'''
+const NE={flag:"not executed (#431)",closing:{family:"NFL",start:"s",run_id:"R",as_of:"a",file:"f"},closing_call:{text:"PASS",calls:[]}};
+const f=h=>F(h,TICK(h),"yes",10,0.55), hs=["Denver","Buffalo","Miami","Dallas","Newark","Tampa","Albany","Reno","Provo"];
+const calls=[T_mk("Denver",{status:"graded",result:"win"}),T_mk("Buffalo",{not_executed:NE}),
+  T_mk("Miami",{engine:"venue_edge",tier:"shadow"}),T_mk("Dallas",{call_type:"quarantine_shadow",units:0,shadow_units:0.5}),
+  T_mk("Newark",{call_type:"parlay_leg",parlay_id:"P-2026-10-19-X",units:0.25}),T_mk("Tampa",{void_redated:"re-dated",status:"void"}),
+  T_mk("Albany",{order_type:"limit",fill_price:0.55,fill_recorded_at:"2026-10-19T13:00:00.000Z"}),
+  T_mk("Reno",{call_type:"value_shadow",units:0.25}),T_mk("Provo",{void_redated:"re-dated",status:"graded"})];
+const fills=["Denver","Buffalo","Miami","Dallas","Newark","Tampa","Reno","Provo"].map(f)
+  .concat([F("Denver-q0",TICK("Denver"),"yes",0,0.40),F("Denver-null",TICK("Denver"),"yes",5,null)]);
+const L={meta:{},calls,fills}, by=Object.fromEntries(classifyFills(L).map(x=>[x.id,x.call_id||null]));
+const r=RUN17(calls,fills,hs.map(h=>G(h)));
+T_out({ps:r.ps.map(p=>[p.id.split("|")[1],p.status]),den:r.ps[0].filled,line:r.line,
+  matched:["Reno","Provo","Denver-q0","Denver-null"].map(k=>[k,!!by[k]&&by[k]===calls.find(c=>c.home===k.split("-")[0]).id]),
+  isShadow:isShadow(calls[7])});''')
+    assert got["ps"] == [["Denver Visitors @ Denver", "graded"], ["Buffalo Visitors @ Buffalo", "open"],
+                         ["Miami Visitors @ Miami", "open"]]
+    # matchFill hands each of these its call; closingPositions' own filters leave them out
+    assert got["matched"] == [["Reno", True], ["Provo", True], ["Denver-q0", True], ["Denver-null", True]]
+    assert got["isShadow"] is True
+    assert got["den"] == {"contracts": 10, "entry": 0.55, "fills": 1}                # the qty-0 and no-entry fills unread
+    assert got["line"].startswith(CLV_HEAD + "3 position(s), 3 fill(s) · ")
+
+
+def test_r17_the_line_the_1c_shape_and_every_count_it_names(tmp_path):
+    """The P&L view's line, verbatim shape (addendum 148 item 1): the positions and fills, the sum and the mean per
+    position over the priced ones, graded and open, where each order was read ((e): the closing page, the slate page,
+    outside any page), why one is not priced, and R16's flags ((g): above the limit, over the ordered size, partial,
+    flagged and counted, never left out of the CLV). The 1(c) shape: two fills 2c above their page's limit, one
+    partial, one over size. (e) pinned both ways: Denver's slate order (0.50 x 12) differs from its stored closing
+    order (0.53 x 10), and the closing order is read. R16's count and its max pinned: Fresno has two fills above the
+    limit by different amounts and Gilroy a third excess, so the line's K counts fills (not positions), each position
+    keeps its largest excess, and the line names the largest of those.
+
+    Every number by hand (G's legs: HOME bid 0.52 ask 0.53; G's order: YES 0.53 x 10):
+      Denver  10@0.55, ask .53: clv (.53-.55)x100 = -2.0; above .55-.53 = 2.0c (1 fill); 10 = 10 ordered
+              (the slate's 0.50 x 12 would read 5.0c above and partial)
+      Buffalo  6@0.55: clv -2.0; above 2.0c (1 fill); 6 < 10: partial
+      Miami   12@0.50, ask .50 (legs 0.49/0.50, no page order: the slate's 0.50 x 10): clv 0.0; above 0; 12 > 10: over
+      Dallas   5@0.39, ask .41 (no page order, exec_order null: outside any page): clv +2.0
+      Newark  two covering pages (17:00Z and 17:30Z): ambiguous, not priced
+      Tampa   a page with legs null: no closing quote stored; 10@0.70 against its 0.70 limit: above 0
+      Albany  no stored page, the slate's 0.60 x 3: 3@0.60, above 0, 3 = 3
+      Lowell  no stored page and no exec_order key: legacy
+      Camden  a ticker the page does not quote (the 13:00 ET ticker): unpriced; 10@0.45 against 0.45: above 0
+      Fresno  5@0.54 + 5@0.56: entry (5x.54 + 5x.56)/10 = 0.55; clv (5x(.53-.54) + 5x(.53-.56))/10 x100
+              = (-0.05 - 0.15)/10 x100 = -2.0; above [1.0, 3.0]: max 3.0c, 2 fills (min 1.0c); 10 = 10
+      Gilroy  10@0.54: clv -1.0; above 1.0c (1 fill)
+    The line: 11 positions; fills 9 + 3 = 12; priced Denver, Buffalo, Miami, Dallas, Fresno, Gilroy: sum -2.0 - 2.0
+    + 0.0 + 2.0 - 2.0 - 1.0 = -5.0c, mean -5.0/6 = -0.83 -> -0.8c; graded 1 (Denver), open 10; closing page 6
+    (Denver, Buffalo, Tampa, Camden, Fresno, Gilroy), slate page 2 (Miami, Albany), outside any page 1 (Dallas), legacy
+    1 (Lowell), no stored closing page 2 (Albany, Lowell), ambiguous 1, not quoted 1 (Camden), no quote 1 (Tampa).
+    R16: fills above 1 + 1 + 2 + 1 = 5 (positions above: 4); max over the positions' maxima [2.0, 2.0, 3.0, 1.0] =
+    +3.0c (each position's min instead: max [2.0, 2.0, 1.0, 1.0] = 2.0; the line's min instead: 1.0); over 1
+    (Miami); partial 1 (Buffalo)."""
+    got = _node(tmp_path, R17_JS + r'''
+const sl=(h,lim,n)=>O(TICK(h),"YES",lim,n);
+const calls=[T_mk("Denver",{status:"graded",result:"win",exec_order:sl("Denver",0.50,12)}),T_mk("Buffalo",{exec_order:null}),
+  T_mk("Miami",{exec_order:sl("Miami",0.50,10)}),T_mk("Dallas",{exec_order:null}),T_mk("Newark",{exec_order:null}),
+  T_mk("Tampa",{exec_order:null}),T_mk("Albany",{exec_order:sl("Albany",0.60,3)}),T_mk("Lowell"),T_mk("Camden",{exec_order:null}),
+  T_mk("Fresno",{exec_order:null}),T_mk("Gilroy",{exec_order:null})];
+const fills=[F("1",TICK("Denver"),"yes",10,0.55),F("2",TICK("Buffalo"),"yes",6,0.55),F("3",TICK("Miami"),"yes",12,0.50),
+  F("4",TICK("Dallas"),"yes",5,0.39),F("5",TICK("Newark"),"yes",10,0.55),F("6",TICK("Tampa"),"yes",10,0.70),
+  F("7",TICK("Albany"),"yes",3,0.60),F("8",TICK("Lowell"),"yes",10,0.50),F("9","KXNFLGAME-26OCT191300CVCAM-CAM","yes",10,0.45),
+  F("10",TICK("Fresno"),"yes",5,0.54),F("11",TICK("Fresno"),"yes",5,0.56),F("12",TICK("Gilroy"),"yes",10,0.54)];
+const games=[G("Denver"),G("Buffalo"),G("Miami",{legs:LEGS("Miami",0.49,0.50),orders:{}}),
+  G("Dallas",{legs:LEGS("Dallas",0.40,0.41),orders:{}}),G("Newark"),
+  G("Tampa",{legs:null,orders:{"model_edge|straight|HOME":O(TICK("Tampa"),"YES",0.70,10)}}),
+  G("Camden",{orders:{"model_edge|straight|HOME":O(TICK("Camden"),"YES",0.45,10)}}),G("Fresno"),G("Gilroy")];
+const r=RUN17(calls,fills,games,L=>PUT(L,[G("Newark",{kickoff:"2026-10-19T17:30:00"})],"2026-10-19T17:30:00Z"));
+T_out({line:r.line,by:Object.fromEntries(r.ps.map(p=>[p.id.split("|")[1].split(" @ ")[1],
+  [p.page,p.quote,p.clv,p.above,p.above_fills,p.over,p.partial]])),
+  den:r.ps.find(p=>p.id.includes("@ Denver")).ordered});''')
+    assert got["by"] == {"Denver": ["closing", "priced", -2.0, 2.0, 1, False, False],
+                         "Buffalo": ["closing", "priced", -2.0, 2.0, 1, False, True],
+                         "Miami": ["slate", "priced", 0.0, None, 0, True, False],
+                         "Dallas": [None, "priced", 2.0, None, 0, False, False],
+                         "Newark": [None, "ambiguous", None, None, 0, False, False],
+                         "Tampa": ["closing", "no_quote", None, None, 0, False, False],
+                         "Albany": ["slate", "no_page", None, None, 0, False, False],
+                         "Lowell": [None, "no_page", None, None, 0, False, False],
+                         "Camden": ["closing", "unpriced", None, None, 0, False, False],
+                         "Fresno": ["closing", "priced", -2.0, 3.0, 2, False, False],
+                         "Gilroy": ["closing", "priced", -1.0, 1.0, 1, False, False]}
+    assert got["den"] == {"ticker": DVDEN, "side": "YES", "limit": 0.53, "contracts": 10, "unit": UNIT10}
+    assert got["line"] == (CLV_HEAD + "11 position(s), 12 fill(s) · sum -5.0c · mean -0.8c per position · graded 1"
+                           " · open 10 — read against the closing page 6, the slate page 2, outside any page 1 · 1 legacy"
+                           " claim(s) carry no stored order (claimed before R16) · 2 with no stored closing page"
+                           " · 1 ambiguous · 1 on a contract the page does not quote (not priced) · 1 with no closing"
+                           " quote stored · R16: 5 fill(s) above their page's limit (max +3.0c) · 1 over the ordered size"
+                           " · 1 partial")
+
+
+def test_r17_the_line_sits_after_the_clv_block_outside_its_window_and_the_audit_lines_keep_their_place(tmp_path):
+    """One line in pnlBlock, after the sections and the executed-position CLV block, outside clvLines' ten-line window
+    (scripts/cockpit_clv_verify.py slices ten from "EXECUTED-POSITION CLV"); the Kickoff audit line is still followed
+    by the Not executed line (the receipt test above), and neither function changed for it."""
+    got = _node(tmp_path, r'''
+await loadDocs([T_doc(SN,S)]); await loadDocs([T_doc(CN,C)]);
+const L=loadLedger(), pnl=pnlBlock(L).split("\n"), i=pnl.findIndex(l=>l.startsWith("EXECUTED-POSITION CLV")),
+  k=pnl.findIndex(l=>l.startsWith("Closing CLV")), a=pnl.findIndex(l=>l.startsWith("Kickoff audit (#178)"));
+T_out({i,k,n:clvLines(L).length,line:pnl[k],blank:[pnl[k-1],pnl[k+1]],next:pnl[a+1].slice(0,13),
+  window:pnl.slice(i,i+10).some(l=>l.startsWith("Closing CLV"))});''', **_docs())
+    assert got["line"] == CLV_NONE and got["blank"] == ["", ""] and got["k"] == got["i"] + got["n"] + 1
+    assert got["window"] is False and got["next"] == "Not executed "
+    html = _html()
+    for f in ("auditLine", "notExecutedLine", "clvLines", "executedPositions"):
+        assert "closingPositions" not in _fn(html, f) and "R17" not in _fn(html, f), f
+    assert "...clvLines(L), \"\",\n    closingClvLine(L), \"\",\n" in _fn(html, "pnlBlock")
+    for f in ("closingPositions", "closingClvLine", "closingOrders", "orderOf"):  # READ_SITES unchanged: no switch read
+        assert "CLOSING_MARK_RULES" not in _fn(html, f), f
+
+
+def test_r17_a_later_page_replaces_the_legs_an_older_never_overwrites_and_it_survives_a_reload_and_an_import(tmp_path):
+    """R9 carries legs and orders with their game: the 16:40Z page's quotes replace the 16:25Z page's, a load of the
+    older page again changes nothing. The line reads the stored ledger alone: the same after a reload with no file
+    loaded, and after an import into an empty ledger (mergeClosings)."""
+    S, C1 = slate(ticked=True), closing(ticked=True)
+    C2 = closing(at=LATER_AT, run=RUN2, ticked=True, quotes={"Buffalo": (0.55, 0.56)})
+    got = _node(tmp_path, r'''
+const leg=()=>Object.values(loadLedger().meta.closings["NFL|2026-10-19T17:00:00Z"].games).find(g=>g.home==="Buffalo");
+await loadDocs([T_doc(SN,S)]); await loadDocs([T_doc(CN,C1)]); const one=leg();
+await loadDocs([T_doc("closing_NFL_2026-10-19T1700Z_b.json",C2)]); const two=leg();
+await loadDocs([T_doc(CN,C1)]); const three=leg();
+const L=loadLedger(); L.fills=[{id:"F1",ticker:TK,side:"yes",qty:10,entry:0.55,title:""}]; saveLedger(L);
+T_out({one:[one.legs,one.orders],two:[two.legs,two.orders],three:[three.legs,three.orders],line:closingClvLine(loadLedger()),
+  stored:T_stored()});''', S=S, C1=C1, C2=C2, SN=SLATE_NAME, CN=CLOSING_NAME, TK=tick("Buffalo"))
+    k = "model_edge|straight|HOME"
+    assert got["one"] == [_legs(C1, "Buffalo"), {k: _order(C1, "Buffalo")}]
+    assert got["two"] == got["three"] == [_legs(C2, "Buffalo"), {k: _order(C2, "Buffalo")}]
+    assert got["line"].startswith(CLV_HEAD + "1 position(s), 1 fill(s) · sum +1.0c · mean +1.0c per position · graded 0"
+                                  " · open 1 — read against the closing page 1, the slate page 0, outside any page 0")
+    again = _node(tmp_path, r'''
+localStorage.setItem(LEDGER_KEY,ST); const reload=closingClvLine(loadLedger());
+T_reset(); importLedgerDoc(JSON.parse(ST));
+T_out({reload,imported:closingClvLine(loadLedger()),rows:rows.length});''', ST=got["stored"])
+    assert again == {"reload": got["line"], "imported": got["line"], "rows": 0}
+
+
+def test_r16_r17_the_docs_name_the_order_fields_the_stored_quotes_and_the_line():
+    """The P&L organ spec names R16's fields (a VENUE call on a model row stores null, as snapshotCalls writes it) and
+    R17's line written out whole, every segment in the page's order, the legacy segment marked proposed and escalated;
+    the mirror runbook says the stored pages carry their legs and orders, that only a page stored by this build is
+    priced, and that a 10-10..10-19 closing loaded after the merge is priced, its floor escalated (none built)."""
+    spec = " ".join((ROOT / "docs" / "specs" / "cockpit-v04-pnl-organ.md").read_text(encoding="utf-8").split())
+    assert "**The order (#431 R16, ARCHITECT 2026-10-20, addendum 146 item 1(iv)).**" in spec
+    assert "`kalshi_order`" in spec and "`claim_order` is frozen at the first capture. `exec_order` follows" in spec
+    assert "a VENUE call on a model row stores null." in spec
+    assert "kalshi_order:r.marketOnly?orderOf(r.fileDesk&&r.fileDesk.order):null" in _fn(_html(), "snapshotCalls")
+    full = ("`" + CLV_HEAD + "P position(s), F fill(s) · sum ±S.Sc · mean ±M.Mc per position · graded G · open O — read"
+            " against the closing page X, the slate page Y, outside any page Z · L legacy claim(s) carry no stored order"
+            " (claimed before R16) · N with no stored closing page · A ambiguous · U on a contract the page does not"
+            " quote (not priced) · Q with no closing quote stored · R16: K fill(s) above their page's limit (max +X.Xc)"
+            " · V over the ordered size · W partial`")
+    assert full in spec
+    # every segment is the page's own words, in the page's order: (closingClvLine's text, the template's text)
+    segs = [("position(s),", "position(s),"), ("fill(s) · sum", "fill(s) · sum"),
+            ("per position", "per position"), (" · graded ", " · graded "), (" · open ", " · open "),
+            ("— read against the closing page", "— read against the closing page"),
+            ("the slate page", "the slate page"), ("outside any page", "outside any page"),
+            ('"legacy claim(s) carry no stored order (claimed before R16)"',
+             "legacy claim(s) carry no stored order (claimed before R16)"),
+            ('"with no stored closing page"', "with no stored closing page"),
+            (',"ambiguous")', " ambiguous · "),
+            ('"on a contract the page does not quote (not priced)"', "on a contract the page does not quote (not priced)"),
+            ('"with no closing quote stored"', "with no closing quote stored"),
+            ("R16: ${above} fill(s) above their page's limit", "R16: K fill(s) above their page's limit"),
+            ("(max ${", "(max +"), ("over the ordered size", "over the ordered size"), ("partial`", "W partial")]
+    body = _fn(_html(), "closingClvLine")
+    at = [(body.find(a), full.find(b)) for a, b in segs]
+    assert all(i >= 0 and j >= 0 for i, j in at), list(zip(segs, at))
+    assert [i for i, _ in at] == sorted(i for i, _ in at) and [j for _, j in at] == sorted(j for _, j in at), at
+    assert "The legacy segment (L) is the builder's addition, outside the ruled shape: **proposed, escalated to the" \
+        " architect** (#632)." in spec
+    assert ("Execute now writes no `exec_order`, so the claim stays legacy (part of the legacy proposal, escalated,"
+            " #632).") in spec
+    assert ("A claim from before R16 is counted as legacy, never as outside any page (part of the legacy proposal,"
+            " escalated, #632).") in spec
+    assert '"ask minus entry, + = bought below the close"' in spec
+    doc = " ".join((ROOT / "docs" / "specs" / "exports-mirror.md").read_text(encoding="utf-8").split())
+    assert ("Each stored game also keeps the closing row's Kalshi legs and the page's orders by call key (`legs`,"
+            " `orders`; #431 R16/R17") in doc
+    assert ("R17 prices a position only from a page stored by this build: a page stored before it carries no legs, and"
+            " its positions are counted \"no closing quote stored\", never priced from anything else (addendum 148 item"
+            " 1(i)). A closing file of 10-10..10-19 loaded after the merge IS priced: the page cannot tell that load from"
+            " a backfill. Whether to floor it is escalated to the architect (#632 body); no floor is built.") in doc
+    assert "nothing is backfilled" not in doc

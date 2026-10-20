@@ -125,6 +125,12 @@ listing order decides which row stands, the notes, or the stored pages and their
 ledger that holds no claim on its games from before its page finds nothing there to mark; the load note, and the
 control's note, say how many covered games hold no claim from before their page. Export ledger (JSON) → Import
 ledger on the published page carries the marks and the pages that set them (`meta.closings`); each call follows the
-side whose page for its start is newer (R9).
+side whose page for its start is newer (R9). Each stored game also keeps the closing row's Kalshi legs and the page's
+orders by call key (`legs`, `orders`; #431 R16/R17, ARCHITECT 2026-10-20, addendum 146 item 1(iv)), so the P&L view's
+Closing CLV line reads the stored ledger alone, with no file loaded. R17 prices a position only from a page stored by
+this build: a page stored before it carries no legs, and its positions are counted "no closing quote stored", never
+priced from anything else (addendum 148 item 1(i)). A closing file of 10-10..10-19 loaded after the merge IS priced:
+the page cannot tell that load from a backfill. Whether to floor it is escalated to the architect (#632 body); no
+floor is built.
 **Version skew (#431 R4, esc 2, proposed):** Until the published page carries this build, do not import a ledger
 exported from the local page into the published page.

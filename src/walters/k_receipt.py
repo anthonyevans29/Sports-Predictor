@@ -398,6 +398,43 @@ def reconcile(L: dict, since: datetime = K_WINDOW_FROM, until: datetime = K_WIND
                       for b in ("system_matched", "system_pick_unlogged", "off_book_sports", "fun")}}
 
 
+def closing_clv_lines(L: dict, in_window: set) -> list[str]:
+    """#431 R16/R17 (ARCHITECT 2026-10-20, addendum 146 item 1(iv), verbatim: "R16 the ledger stores the page's
+    ORDERED size and limit beside the FILLED size and entry; R17 each position carries entry minus the closing ask on
+    its pick (true CLV, in cents)"; the sign as CORRECTED by addendum 148 item 1(b): "ask minus entry, + = bought below
+    the close"). ONE line per PRICED position of the Cockpit's closingPositions (ledger_fills.closing_positions):
+    close − entry in cents, printed as the Cockpit's Closing CLV line prints it, beside the filled size and entry, the
+    held contracts' closing asks, and the order it was read against with R16's flags. Each its own line, never
+    appended to another (the lines around it are pinned). A position not priced (no stored page, ambiguous, a contract
+    the page does not quote, no closing quote stored) prints nothing here: the Cockpit's line counts it. A position
+    outside the reconciliation's cohort (in_window) is printed and says so."""
+    from src.walters.desk_policy import js_fixed
+    from src.walters.ledger_fills import closing_positions
+
+    def c1(x):     # the Cockpit's c1: v=+x.toFixed(1)||0, then `${v>=0?"+":""}${v.toFixed(1)}c` (never "-0.0c")
+        v = float(js_fixed(x, 1)) or 0.0
+        return ("+" if v >= 0 else "") + js_fixed(v, 1) + "c"
+    out = []
+    for p in sorted((p for p in closing_positions(L) if p["clv_c"] is not None),
+                    key=lambda p: (_call_day(p["c"]), str(p["id"]))):
+        c, o, fl = p["c"], p["ordered"], p["filled"]
+        if isinstance(o, dict) and "why" in o and "ticker" not in o:      # orderOf's {why}: the page wrote no order
+            order = f"no order on the {p['page']} page ({o.get('why') or '?'})"
+        elif isinstance(o, dict):
+            order = f"ordered {o.get('contracts')} @ {o.get('limit')} {o.get('side')} (the {p['page']} page)"
+        else:
+            order = "no order read (" + ("claimed before R16" if p["legacy"] else "outside any page") + ")"
+        flags = ([f"{p['above_fills']} fill(s) above the limit (max {c1(p['above_limit_c'])})"]
+                 if p["above_limit_c"] is not None else []) \
+            + (["over the ordered size"] if p["over_size"] else []) + (["partial"] if p["partial"] else [])
+        out.append(f"- CLOSING CLV (#431 R17, close − entry; + = beat the close) {c.get('sport')} {c.get('game')} · "
+                   f"{_call_day(c)} · {c.get('call_type')} {c.get('pick')} · {c1(p['clv_c'])} · filled {fl['contracts']}"
+                   f" @ {fl['entry']:.4f} ({fl['fills']} fill(s); closing ask {', '.join(map(str, p['asks']))}) · "
+                   + order + (" · R16: " + " · ".join(flags) if flags else "")
+                   + ("" if p["id"] in in_window else " · outside the window"))
+    return out
+
+
 def format_fills(L: dict, since: datetime = K_WINDOW_FROM, until: datetime = K_WINDOW_TO) -> list[str]:
     from src.walters.ledger_fills import executed_positions, not_executed_closing
     from src.walters.redated import void_counts
@@ -443,6 +480,7 @@ def format_fills(L: dict, since: datetime = K_WINDOW_FROM, until: datetime = K_W
         out.append(f"  {len(outside)} executed position(s) outside the window, excluded from the CLV above")
     if ex["unpriced"]:
         out.append(f"  {ex['unpriced']} matched call(s) whose held contract is not priceable at the close")
+    out += closing_clv_lines(L, in_window)       # #431 R17: lines of their own, after the block's last line
     t = rec["tally"]
     out.append(f"CALL-TO-FILL RECONCILIATION (#75, adopted) · eligible calls {since:%Y-%m-%d} → "
                f"{until:%Y-%m-%d} (exclusive): {rec['funnel']['eligible']} · cost recorded "

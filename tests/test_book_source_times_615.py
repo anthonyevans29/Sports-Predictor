@@ -461,3 +461,66 @@ def test_the_cohort_receipt_prints_before_and_after_from_one_db_state(iso, capsy
     assert not any("Retained-legacy" in x for x in after)
     assert mod.main(["--db", str(iso / "missing.db"), "--exports", str(iso / "exports")]) == 2   # never created
     assert not (iso / "missing.db").exists()
+
+
+def test_the_cohort_receipt_refuses_when_the_db_changes_between_its_passes(iso, capsys, monkeypatch):
+    """The data_version guard: a commit landing between BEFORE and AFTER (a chain writing) is refused, exit 3, and
+    nothing is printed as a receipt."""
+    import importlib.util
+    import sqlite3
+    from src.db.database import session_scope
+    from src.walters import export
+    ko = _now() - timedelta(days=2)
+    with session_scope() as s:
+        _graded_mlb(s, "rc-konly", ko, 0.65)
+        _graded_mlb_snapshot(s, "rc-snap", ko + timedelta(hours=2), 0.66)
+    (iso / "exports").mkdir()
+    db = iso / "iso.db"
+    real, calls = export.results_tally, []
+
+    def tally_then_write(*a, **k):
+        out = real(*a, **k)
+        if not calls:                                   # a chain commits between BEFORE and AFTER
+            with sqlite3.connect(db) as c:
+                c.execute("UPDATE matches SET venue = 'moved' WHERE id = (SELECT MIN(id) FROM matches)")
+        calls.append(1)
+        return out
+    monkeypatch.setattr(export, "results_tally", tally_then_write)
+    spec = importlib.util.spec_from_file_location(
+        "rtc", Path(__file__).resolve().parent.parent / "scripts" / "results_tally_cohort_receipt.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    assert mod.main(["--db", str(db), "--exports", str(iso / "exports")]) == 3
+    out = capsys.readouterr().out
+    assert out.startswith("REFUSED: the DB changed during the receipt") and "## MLB" not in out and len(calls) == 2
+
+
+def test_the_cohort_receipt_holds_one_clock_and_leaves_grading_close_as_main_runs_it(iso, capsys, monkeypatch):
+    """BEFORE narrows only the cohort split's snapshots (clv_cohort), so grading_close keeps the Kalshi rows as main
+    reads them; both passes cut the window at one instant; every patched global is restored."""
+    import importlib.util
+    from src.db.database import session_scope
+    from src.walters import clv_restate, export
+    ko = _now() - timedelta(days=2)
+    with session_scope() as s:
+        _graded_mlb(s, "rc-konly", ko, 0.65)
+    (iso / "exports").mkdir()
+    real, nows, kinds = export.results_tally, [], []
+
+    def spy(*a, **k):
+        nows.append(export.utc_now_naive())
+        from src.walters.close import grading_close_block
+        from src.db.schema import Match
+        with session_scope() as s:
+            kinds.append(grading_close_block(s, s.query(Match).one())["close_reference"])
+        return real(*a, **k)
+    monkeypatch.setattr(export, "results_tally", spy)
+    before = (clv_restate.clv_cohort, export.utc_now_naive)
+    spec = importlib.util.spec_from_file_location(
+        "rtc", Path(__file__).resolve().parent.parent / "scripts" / "results_tally_cohort_receipt.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    assert mod.main(["--db", str(iso / "iso.db"), "--exports", str(iso / "exports")]) == 0
+    assert len(nows) == 2 and nows[0] == nows[1]
+    assert kinds == ["kalshi_only", "kalshi_only"]          # main's grading_close in BEFORE too
+    assert (clv_restate.clv_cohort, export.utc_now_naive) == before

@@ -3,11 +3,16 @@
 "The MLB verified/legacy counts move on the day it merges: the read-only before/after of RESULTS.md's MLB cohort line
 from the laptop DB goes in the PR body before merge, as #619's did."
 
-One run, one DB state, both cohort splits: `results_tally` writes RESULTS.md twice into a scratch directory, once with
-main's snapshot read (1X2 snapshots, Kalshi rows left out: a close priced from a Kalshi mid never reproduces, so its
-stored divergence reads retained-legacy) and once as built (`kalshi_close_market_filter`: every 1X2 snapshot plus
-Kalshi's two-way ML rows, as `clv-restate` reads them). Printed: each section's cohort lines (MLB, Soccer (PL)),
-BEFORE then AFTER, and the section's Sides line, which the change never moves.
+One run, one DB state, one clock, both cohort splits: `results_tally` writes RESULTS.md twice into a scratch
+directory, once with main's snapshot read (1X2 snapshots, Kalshi rows left out: a close priced from a Kalshi mid never
+reproduces, so its stored divergence reads retained-legacy) and once as built (`kalshi_close_market_filter`: every 1X2
+snapshot plus Kalshi's two-way ML rows, as `clv-restate` reads them). Printed: each section's cohort lines (MLB,
+Soccer (PL)), BEFORE then AFTER, and the section's Sides line, which the change never moves.
+
+BEFORE narrows only what the cohort split reads: `clv_cohort` is handed the snapshots main's SQL kept (market 1X2,
+source set and not kalshi; AFTER's set is a superset of it), so `grading_close` and every other line of the file run
+as they do on main. Both passes read one `now` (export's clock is held for the run), so a game at the window's edge
+cannot fall in one pass and out of the other.
 
 READ-ONLY: the DB file is opened with a mode=ro URI (a missing file is refused, never created), as
 scripts/nfl_close_restate_receipt.py opens it; the exports dir is read (its closing files void re-dated rows) and
@@ -64,18 +69,26 @@ def main(argv=None) -> int:
     os.environ.setdefault("DATABASE_URL", f"sqlite:///{db.as_posix()}")   # before src is imported: never ./data
     import sqlite3
 
-    from sqlalchemy import and_, create_engine
+    from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
 
     from src.db import database
-    from src.walters import close as close_mod
-    from src.walters.export import results_tally
+    from src.walters import clv_restate
+    from src.walters import export as export_mod
     eng = create_engine(f"sqlite:///file:{db.as_posix()}?mode=ro&uri=true",
                         connect_args={"uri": True, "check_same_thread": False})
-    saved = (database._engine, database.SessionLocal, close_mod.kalshi_close_market_filter)
+    saved = (database._engine, database.SessionLocal, clv_restate.clv_cohort, export_mod.utc_now_naive)
     database._engine = eng
     database.SessionLocal = sessionmaker(bind=eng, autoflush=False, autocommit=False, future=True,
                                          expire_on_commit=False)
+    now = saved[3]()
+    export_mod.utc_now_naive = lambda: now            # one clock: both passes cut the window at the same instant
+
+    def main_read(oc, pred, m, odds, snaps=()):
+        # BEFORE: the snapshots main's SQL kept, `_Snp.market == "1X2", _Snp.source != "kalshi"` (export.py before
+        # #615; SQL's != drops a NULL source too)
+        return saved[2](oc, pred, m, odds, [x for x in snaps if x.market == "1X2" and x.source is not None
+                                            and x.source != "kalshi"])
     tmp = Path(tempfile.mkdtemp(prefix="sp615-"))
     texts = {}
     # ONE DB STATE, as #619's receipt: SQLite's data_version on a mode=ro connection before and after both passes
@@ -83,15 +96,13 @@ def main(argv=None) -> int:
     version = probe.execute("PRAGMA data_version").fetchone()[0]
     try:
         for name, built in (("BEFORE", False), ("AFTER", True)):
-            # BEFORE: main's read, `_Snp.market == "1X2", _Snp.source != "kalshi"` (export.py before #615)
-            close_mod.kalshi_close_market_filter = saved[2] if built else (
-                lambda S: and_(S.market == "1X2", S.source != "kalshi"))
+            clv_restate.clv_cohort = saved[2] if built else main_read   # results_tally imports it at call time
             out = tmp / f"RESULTS_{name}.md"
-            results_tally(days=a.days, out_path=str(out), exports_dir=str(ex))
+            export_mod.results_tally(days=a.days, out_path=str(out), exports_dir=str(ex))
             texts[name] = out.read_text()
         moved = probe.execute("PRAGMA data_version").fetchone()[0] != version
     finally:
-        database._engine, database.SessionLocal, close_mod.kalshi_close_market_filter = saved
+        database._engine, database.SessionLocal, clv_restate.clv_cohort, export_mod.utc_now_naive = saved
         eng.dispose()
         probe.close()
         shutil.rmtree(tmp, ignore_errors=True)
@@ -100,8 +111,8 @@ def main(argv=None) -> int:
               "are not one DB state: run it again when no chain is writing")
         return 3
     print(f"RESULTS.md divergence cohorts BEFORE / AFTER (#615, addendum 147 item 3) · read-only: db {db.name} "
-          f"(mode=ro), window {a.days} days · BEFORE = main's snapshot read (Kalshi rows left out), AFTER = as built "
-          "(kalshi_close_market_filter) · one DB state")
+          f"(mode=ro), window {a.days} days · BEFORE = main's snapshot read for the cohort split (Kalshi rows left "
+          "out), AFTER = as built (kalshi_close_market_filter) · one DB state, one clock")
     b, af = section_lines(texts["BEFORE"]), section_lines(texts["AFTER"])
     for title in list(dict.fromkeys([*b, *af])):
         print(f"## {title}")

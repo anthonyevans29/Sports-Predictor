@@ -29,8 +29,8 @@ after the daily .backup (law 5).
 
 Receipt: per table and source, the rows that carry source_updated_at and the
 rows that do not. Right after migrating every row is NULL; after the next
-sync-odds-football, re-run this script (a no-op for the schema) and the
-api_american_football rows show the field.
+sync-odds-football or soccer sync-odds, re-run this script (a no-op for the
+schema) and the api_american_football / api_football rows show the field.
 
 Usage:
     python migrate_odds_source_updated_at.py
@@ -80,9 +80,10 @@ def main() -> int:
             for src, n, nw, last in rows:
                 nw = int(nw or 0)
                 print(f"  {table:<15} {src:<24} {n:>8} {nw:>8} {n - nw:>8}  {last or '—'}")
-    print("with = 0 = no american-football odds sync since migrating (pre-migration rows stay NULL; no backfill: "
-          "their source times were never kept). A row is filled only where its adapter carries the provider's "
-          "update time: today api_american_football's and api_football's.")
+    print("with = 0 on an api_american_football or api_football row = no odds sync of that source since migrating "
+          "(sync-odds-football / sync-odds); on every other source it is always 0, because their answers carry no "
+          "update time (MLB #628, hockey). Pre-migration rows stay NULL; no backfill: their source times were never "
+          "kept.")
     return 0
 
 

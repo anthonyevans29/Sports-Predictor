@@ -18,13 +18,14 @@ from __future__ import annotations
 from pathlib import Path
 
 
-def refuse_missing_db(engine) -> bool:
+def refuse_missing_db(engine, what: str = "a migration") -> bool:
     """True, after printing the refusal, when there is no database file at the engine's configured path.
 
     The path is the engine's own URL, the file the SQLite driver would open: `settings.database_url` for the app's
     engine (src/db/database.py), a relative path resolved against the working directory as SQLite resolves it. An
     in-memory SQLite URL has no file and is refused too. A non-SQLite URL passes: no file to check, and connecting to
-    a server never creates its database."""
+    a server never creates its database. `what` names the caller in the refusal (retire-orphans, #568, reads the
+    DB the same way and refuses the same way)."""
     url = engine.url
     if url.get_backend_name() != "sqlite":
         return False
@@ -32,5 +33,5 @@ def refuse_missing_db(engine) -> bool:
     path = Path(db).resolve() if db and db != ":memory:" else None
     if path is not None and path.is_file():
         return False
-    print(f"no database at {path or ':memory:'}; a migration never creates one — law 5")
+    print(f"no database at {path or ':memory:'}; {what} never creates one — law 5")
     return True

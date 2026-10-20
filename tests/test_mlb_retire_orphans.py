@@ -280,6 +280,21 @@ def test_a_scheduled_row_with_a_score_is_no_candidate_and_only_past_rows_print(d
             "past its start · a score is stored (3-None)") in mo.lines(r)
 
 
+def test_no_database_file_is_refused_and_never_created(tmp_path, monkeypatch):
+    """Law 5: the dry run is run from a worktree of the branch with the laptop checkout as the working directory; an
+    engine whose file is not there (a wrong cwd, a DATABASE_URL naming another path) is refused, exit 2, with no
+    provider call, and no file or directory is created (the engine's connect hooks would make both)."""
+    import src.db.database as dbm
+    missing = tmp_path / "nowhere" / "sports.db"
+    eng = create_engine(f"sqlite:///{missing}", future=True)
+    monkeypatch.setattr(dbm, "_engine", eng)
+    monkeypatch.delenv("SP_SKIP_FAMILIES", raising=False)
+    stats = Stats(schedule(*entries()))
+    rc, out = cli_run(monkeypatch, stats)
+    assert rc == 2 and out.startswith(f"no database at {missing.resolve()}; retire-orphans never creates one")
+    assert stats.calls == [] and not missing.exists() and not missing.parent.exists()
+    eng.dispose()
+
 def test_a_season_that_is_not_digits_is_refused_with_no_call(db, monkeypatch):
     import cli
     stats = Stats(schedule(*entries()))

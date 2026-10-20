@@ -632,7 +632,8 @@ def retire_orphans_cmd(competition_code, season, apply, backup_path, match_ids):
     after the MLB sync, never inside the watch (no chain or closing step runs it). Candidates: the season's SCHEDULED
     postseason rows (stage F/D/L/W) with no score. One provider call per run (the season's postseason schedule).
     Refusals, each exit 2 with no provider call and nothing written: a competition other than MLB; the host's
-    api-sports fallback engaged; a --season that is not digits; --apply without --backup or without --match-ids (or
+    api-sports fallback engaged; a --season that is not digits; no database file at the configured path (law 5: never
+    created); --apply without --backup or without --match-ids (or
     --match-ids without --apply); the backup check; a DB behind the code. MLB not stored: exit 1, no provider call.
     The readings: src/ingestion/mlb_orphans.py."""
     from sqlalchemy.exc import OperationalError as _OpErr
@@ -650,6 +651,10 @@ def retire_orphans_cmd(competition_code, season, apply, backup_path, match_ids):
         raise SystemExit(2)
     if not str(season).strip().isdigit():
         raise click.UsageError(f"--season takes the stored MLB season, e.g. 2026 (got {season!r})")
+    from src.db.database import get_engine as _get_engine
+    from src.db.migrate_guard import refuse_missing_db as _refuse_missing_db
+    if _refuse_missing_db(_get_engine(), "retire-orphans"):   # law 5: a dry run from a worktree never creates a DB
+        raise SystemExit(2)
     named = _match_ids_opt(match_ids)
     if named is not None and not apply:
         raise click.UsageError("REFUSED: --match-ids names the rows to retire and is read only with --apply. The dry "

@@ -612,8 +612,9 @@ function koLine(r,held){
 // postseason calls are graded in this ledger (sized model_edge calls:
 // straight + ladder). stage null = unknown: labelled, never guessed.
 const POSTSEASON={reviewN:30};
+// #431 R10: a claim its closing page did not repeat (not_executed) is out of the four n/30 counts, as a void call is
 function gradedCount(pred){
-  try{ return loadLedger().calls.filter(c=>c.result&&!c.void_redated&&pred(c)).length; }catch(e){ return 0; }
+  try{ return loadLedger().calls.filter(c=>c.result&&!c.void_redated&&!c.not_executed&&pred(c)).length; }catch(e){ return 0; }
 }
 function postseasonGraded(){
   return gradedCount(c=>c.stage==="postseason"&&c.engine==="model_edge"
@@ -789,6 +790,9 @@ function labelLegacy(L){
 function saveLedger(L){
   const d=enforceLedger(L);
   markAudit(L);
+  // #431 R8 (addendum 145 item 3(b)): the NOT EXECUTED marks are re-applied on every save from the stored closing
+  // pages, as markAudit is, after the collapse (the surviving copy of a position is the one marked)
+  d.marks=markClosings(L);
   window.__ledgerMem=L;   // in-page fallback when storage is blocked
   try{ localStorage.setItem(LEDGER_KEY,JSON.stringify(L)); storageOK=true; }
   catch(e){ storageOK=false; }
@@ -800,7 +804,12 @@ function localDate(d){d=d||new Date();
 // parlay slot so a straight, a venue call and a parlay leg on one game are
 // distinct instruments that never overwrite each other. Identity is always
 // RECOMPUTED from the fields, never trusted from a stored/imported id.
-function callKey(c){return [c.sport,c.game,c.log_date,c.engine,c.call_type,c.parlay_id||""].join("|");}
+// THE PICK (ARCHITECT 2026-10-20, addendum 145 item 3(b) R4): "the pick joins callKey for ALL calls. The unit of
+// account is the position (the 2026-09-28 ruling on #49; instKey already carries the pick), and a same-day pick flip
+// is two claims, never one". Stored calls are not re-keyed: the index is rebuilt from the fields on every load and
+// c.id stays (a fresh call takes its key as its id once, in upsertCalls). An imported call whose id a local call of
+// another pick already holds never shares it (upsertCalls, by the switch importIdCollision).
+function callKey(c){return [c.sport,c.game,c.log_date,c.engine,c.call_type,c.pick,c.parlay_id||""].join("|");}
 // POSITION identity (architect ruling 2026-09-28 on #49): the ledger's unit of
 // account is the position — game, side, bet type — not the log event. A
 // re-log on any day updates that position's price context and never creates
@@ -843,10 +852,10 @@ function dedupeNote(d){
 // one; an open one never downgrades graded.
 function upsertCalls(L,fresh,opts){
   opts=opts||{};
-  const idx=new Map(), pos=new Map();
+  const idx=new Map(), pos=new Map(), ids=new Map();
   L.calls.forEach((c,i)=>{ const k=callKey(c); if(!idx.has(k)) idx.set(k,i);
-    const p=instKey(c); if(!pos.has(p)) pos.set(p,i); });
-  let added=0,updated=0,kept=0,repriced=0;
+    const p=instKey(c); if(!pos.has(p)) pos.set(p,i); if(c.id!=null&&!ids.has(c.id)) ids.set(c.id,c); });
+  let added=0,updated=0,kept=0,repriced=0,rekeyed=0; const refusedIds=[];
   // addendum 114 item 1 ("never substituted into the ticket"), on a later-day re-log of a stored ticket: a fresh leg that
   // misses the position index because its game moved more than the hour (movedLeg) is that leg's moved game, never a
   // ticket of its own (P-<day2>-<the same signature>). Its stored leg: the same game, pick and ticket signature, and the
@@ -867,15 +876,28 @@ function upsertCalls(L,fresh,opts){
         ...(cur.parlay_id?{parlay_id:cur.parlay_id}:{}),last_logged:c.log_date},c,false);
       reopened(L.calls[i]); repriced++; continue; }
     if(!idx.has(k)){
-      idx.set(k,L.calls.length); pos.set(instKey(c),L.calls.length);
+      // R4, esc 1 (#431): two ledgers written before the pick joined the key that part on a same-day flip hold the two
+      // positions under one id, and an id is a join key (Record fill, Execute now, the fills, the ports). An incoming
+      // call whose id a local call of another pick holds is re-keyed to its own key (the old id kept as id_imported) or
+      // refused, named in the import note
+      if(opts.incoming){ const h=ids.get(c.id);
+        if(h&&h.pick!==c.pick){ if(CLOSING_MARK_RULES.importIdCollision==="refuse"){refusedIds.push(c);continue;}
+          c.id_imported=c.id; c.id=k; rekeyed++; } }
+      idx.set(k,L.calls.length); pos.set(instKey(c),L.calls.length); if(!ids.has(c.id)) ids.set(c.id,c);
       L.calls.push(opts.relog?stampTiming(c,c,true):c); added++; continue; }
     const i=idx.get(k), cur=L.calls[i];
     if((cur.status==="graded"||pushedLeg(cur)||movedLeg(cur,c))&&c.status!=="graded"){kept++;}   // graded history is never rewritten
-    else if(opts.incoming&&JSON.stringify(cur)===JSON.stringify({...c,id:cur.id})){kept++;}
-    else if(opts.incoming){L.calls[i]={...c,id:cur.id};updated++;}
+    // #431 R8: a difference in the NOT EXECUTED mark alone is no update (saveLedger re-derives the mark from the pages)
+    else if(opts.incoming&&JSON.stringify(unmarked(cur))===JSON.stringify(unmarked(incomingAs(cur,c)))){kept++;}
+    else if(opts.incoming){L.calls[i]=incomingAs(cur,c);updated++;}
     else {L.calls[i]=reopened(stampTiming({...cur,...c,id:cur.id},c,false));updated++;}
   }
-  return {added,updated,kept,repriced};
+  return {added,updated,kept,repriced,rekeyed,refusedIds};
+}
+// An incoming call over the local one of its key: the local id stands; a call re-keyed on an earlier import (R4) keeps
+// the id it came with as id_imported, so importing the same ledger again changes nothing
+function incomingAs(cur,c){
+  return {...c,id:cur.id,...(cur.id_imported!=null&&c.id===cur.id_imported?{id_imported:cur.id_imported}:{})};
 }
 // addendum 106 item 4: a re-log reopens a call void as re-dated (its kickoff is the fresh capture's); the label goes
 // with the status, and the next results intake decides again. A parlay leg the legacy join already graded (its ticket
@@ -971,6 +993,9 @@ function markAudit(L){
     else if(c.tz_audit) delete c.tz_audit; }
 }
 let lastAudit={flagged:0,fallback:0,excluded:0,legNotPlay:0};
+// #431 R10: the settled positions and tickets the NOT EXECUTED mark took out of settledBets (kept apart from lastAudit,
+// whose four keys scripts/cockpit_ledger_audit_verify.py reads whole)
+let lastNotExec={positions:0,tickets:0};
 // PARLAY-LEG AUDIT (ARCHITECT 2026-10-01, #183). Before the #183 fix,
 // buildParlays could take legs from PASS rows when a fixtures file loaded
 // first. The ledger never stored a leg's Desk call, so the check needs the
@@ -984,7 +1009,8 @@ const LEG_FLAG="leg not a play (#183)";
 function exportDay(r){ const t=utcMs(r.exportedAt); return isFinite(t)?localDate(new Date(t)):null; }
 function auditParlayLegs(){
   const L=loadLedger(), at=new Date().toISOString(), byGame=new Map();
-  for(const x of deskCalls){ const r=x.r, k=[r.sport,r.home,r.away,r.utc].join("|");
+  // #431 R12: "#183 keeps reading the file that built the ticket": the loaded rows less a closing page's (legAuditCalls)
+  for(const x of legAuditCalls()){ const r=x.r, k=[r.sport,r.home,r.away,r.utc].join("|");
     if(!byGame.has(k)) byGame.set(k,[]); byGame.get(k).push({x,day:exportDay(r)}); }
   let checked=0,notPlay=0,unchecked=0; const tickets=new Set();
   for(const c of L.calls){ if(c.call_type!=="parlay_leg") continue;
@@ -996,6 +1022,332 @@ function auditParlayLegs(){
   const dd=saveLedger(L);
   return `Parlay-leg audit (#183): ${checked} leg(s) checked against the export(s) loaded for their log day · `
     +`${notPlay} ${LEG_FLAG} → ${tickets.size} ticket(s) excluded from the P&L · ${unchecked} unchecked (no same-day export loaded) · marked, never deleted.`+dedupeNote(dd);
+}
+// ---------------------------------------------------------------------
+// CLOSING MARKS (#431; ARCHITECT 2026-10-11, addendum 40 item 2, fourth paragraph, verbatim): "In the ledger a
+// position is executed where its closing file calls it. A claim that the closing page does not repeat was not
+// executed: it stays in the ledger as a claim, marked, and it leaves the P&L and the counts that gate sizing. A shadow
+// follows the same rule." Built as RULED (ARCHITECT 2026-10-20, addendum 145 item 3(b), R2–R14):
+//  R2 a closing game is a claim's game by sport, home and away, kickoffs within DESK_CLOCK_DRIFT (1 h, inclusive);
+//     no machine-local id is compared (sameGame).
+//  R3 a claim made strictly before the page's as_of is marked; one after it is not; a legacy claim with no
+//     claim_at/captured_at is not marked, and the line counts those on covered games.
+//  R5 a ticket's leg on a covered game the page does not repeat is marked and the ticket leaves the P&L (closings carry
+//     no tickets); a ticket with a recorded fill or an execution record is never marked (R7).
+//  R6 "by the hold's kind": a PLAY held for a PLACEMENT STEP is repeated by its page; a PLAY held under a rule that ENDS
+//     IN NO BET (the QB hold on the picked team's starter; exec <= 0) is not (holdRead, on closing.py's CLOSING_HOLDS).
+//  R7 operator-early executions and recorded fills are never marked ("executed early, not repeated").
+//  R8 each start's page calls are stored in L.meta.closings and the mark re-applied on every save (saveLedger), as
+//     markAudit is; an import is covered the same way.
+//  R9 a later page of the same start recomputes that start's marks, sets new ones and clears a mark it repeats; an
+//     older page never overwrites; on import a call follows the side whose stored page for that start is newer.
+//  R10 out of settledBets and gradedCount; kept in executedPositions and clvLines (the claim-against-close read).
+//  R11 automatic on load, after autoClaim: "a closing document marks"; shown and logged, no button.
+// Nothing is deleted: a mark is the field not_executed on the call; every stored field stays as it was.
+// ESCALATED SWITCHES: one object, each switch read in exactly one place.
+const CLOSING_MARK_RULES={   // #431 escalations (comment 6290951464): PROPOSED values, awaiting the architect's ruling
+  execUnknown:"not_repeated",          // esc 5: exec block or edge_pp null on a PLAY  ("repeated" is the alternative)
+  writtenRuleFrom:"2026-10-18T04:00:00Z", // esc 6: pages with as_of before this read the OLD rule (every exec<4 PLAY repeated, incl <=0 and unknown)
+  qb:"picked_side",                    // esc 7: QB-tagged NFL PLAY: picked side's qb_listed non-empty OR picked side's injury list unread (count 0) -> not repeated; opponent-only -> repeated. Alternatives "all_repeated" | "all_not_repeated"
+  bothHolds:"any_not",                 // esc 8
+  execLeZeroAllFamilies:true,          // esc 9: exec<=0 reads every family whose row carries desk.exec.edge_pp (false = only MLB/NFL, the CLOSING_HOLDS families)
+  ownCapture:"skip",                   // esc 4: a closing row's NOT-REPEATED PLAY is not auto-captured ("mark" = capture and mark it even though claim_at==as_of)
+  missingGame:"per_game",              // esc 11: a game an earlier page carries and a later page lacks keeps the earlier page ("whole_page" alternative)
+  csvFillExempt:true,                  // esc 12: a Kalshi CSV fill matching the call's game and side exempts it from the mark (R7)
+  importIdCollision:"rekey",           // esc 1 (R4): incoming call whose id a local call holds under a different pick takes the new-format id (callKey), old kept as id_imported ("refuse" alternative)
+};
+const NE_FLAG="not executed (#431)";
+// The mark (a contract the Python ports read: src/walters/ledger_fills.py, k_receipt.py, scripts/value_shadow_receipt.py):
+// c.not_executed={flag, closing:{family,start,run_id,as_of,file} (the page whose game decided it), closing_call:{text,
+// calls} (the page's own words and its call set for that game)}. No clock field: a re-save writes the same bytes.
+function unmarked(c){ const {not_executed,...x}=c; return x; }
+// A closing file's rows carry its identity (R1/R8): the family and start of its closing block, its run id, the as_of
+// of its desk_meta (the export's own clock) and the file it came in. normalize is unchanged.
+function stampClosing(rr,doc,name){
+  const c=doc&&doc.closing;
+  if(!c||typeof c!=="object"||!c.family||!c.start) return;
+  const as_of=(doc.desk_meta&&doc.desk_meta.as_of)||doc.exported_at||null;
+  for(const r of rr) r.closing={family:c.family,start:c.start,run_id:c.run_id||null,as_of,file:name};
+}
+// R12: every loaded row but a closing page's, in load order: the rows a ticket is built from and #183 reads
+let ticketRows=[];
+function slateRows(rs){ return rs.filter(r=>!r.closing); }
+function legAuditCalls(){ return ticketRows.filter(r=>!r.marketOnly).map(r=>({r,...fileCall(r)})); }
+// R6, on the kinds of deploy/hosting/closing.py CLOSING_HOLDS (hold_for): (1) a PLAY with exec edge under 4pp, unknown
+// included, MLB and NFL, "paste to the architect before placing"; (2) an NFL PLAY tagged "QB-flagged half units" or "QB
+// unread half units", "QB: paste to the architect before placing". Each kind is classified: the placement step (the
+// old rule's paste; the written rule's 0 < exec < 4 cohort, which is placed) is repeated; exec <= 0 under the written
+// rule and the QB hold on the picked team end in no bet, not repeated. The exec edge read is the file's RAW
+// desk.exec.edge_pp (the number hold_for tests; the page prints it rounded). {cls, why}: why names each no-bet reason.
+const QB_HOLD_TAGS=["QB-flagged half units","QB unread half units"];
+function holdRead(r){
+  const d=r.fileDesk||{}, cl=r.closing||{}, why=[], kinds=[];
+  if(d.call!=="PLAY") return {cls:"repeated",why};
+  const e=d.exec&&d.exec.edge_pp!=null?+d.exec.edge_pp:null;
+  const old=utcMs(cl.as_of)<utcMs(CLOSING_MARK_RULES.writtenRuleFrom);   // the old rule: every exec < 4 a paste step
+  const held=(cl.family==="MLB"||cl.family==="NFL")&&(e==null||e<4);      // the hold's own families and test
+  if(held||(e!=null&&e<=0&&CLOSING_MARK_RULES.execLeZeroAllFamilies)){
+    if(old) kinds.push("repeated");
+    else if(e==null){ const k=CLOSING_MARK_RULES.execUnknown; kinds.push(k); if(k==="not_repeated") why.push("exec unknown (no executable quote)"); }
+    else if(e<=0){ kinds.push("not_repeated"); why.push(`exec ${e.toFixed(1)}pp ≤ 0 (the written rule)`); }
+    else kinds.push("repeated");
+  }
+  if(cl.family==="NFL"&&(d.tags||[]).some(t=>QB_HOLD_TAGS.includes(t))){
+    const q=CLOSING_MARK_RULES.qb;
+    if(q==="all_repeated") kinds.push("repeated");
+    else if(q==="all_not_repeated"){ kinds.push("not_repeated"); why.push("the QB hold"); }
+    else{                                            // "picked_side": the picked team's own injury block (rawIQ)
+      const side=d.pick==="HOME"?"home":d.pick==="AWAY"?"away":null, inj=side?(((r.rawIQ||{}).injuries||{})[side]||{}):{};
+      const listed=Array.isArray(inj.qb_listed)?inj.qb_listed:[];
+      if(listed.length){ kinds.push("not_repeated"); why.push(`the QB hold: ${listed.join(", ")} listed for the picked team`); }
+      else if(inj.count===0){ kinds.push("not_repeated"); why.push("the QB hold: the picked team's injury list unread"); }
+      else kinds.push("repeated");
+    }
+  }
+  const not=kinds.filter(k=>k==="not_repeated").length;
+  const cls=!not?"repeated":CLOSING_MARK_RULES.bothHolds==="all_not"&&not<kinds.length?"repeated":"not_repeated";
+  return {cls,why:cls==="not_repeated"?why:[]};
+}
+function holdClass(r){ return holdRead(r).cls; }
+// esc 4 (R3 x R6): the closing's own capture of a PLAY its page does not repeat. "skip": never claimed (snapshotCalls
+// counts it); "mark": claimed, and markClosings marks it although its claim time is the page's own as_of
+function ownCaptureSkips(){ return CLOSING_MARK_RULES.ownCapture==="skip"; }
+// The page's call set for a game, "engine|call_type|pick": snapshotCalls' own mapping without the kickoff test (the
+// page called it). A PLAY only when repeated (R6); the quarantine shadow by its tag alone, as the page tests it
+// (closing.py is_quarantine_shadow; isQuarShadow's r.quar fallback is never the page's); a market-only row, venue only.
+function closingCalls(r){
+  const s=new Set(), d=r.fileDesk||{}, pick=d.pick||r.pick;
+  if(!r.marketOnly){
+    if(d.call==="PLAY"&&holdClass(r)==="repeated") s.add(`model_edge|straight|${pick}`);
+    if(d.call==="LADDER") s.add(`model_edge|ladder|${pick}`);
+    if(fileQuar(r)) s.add(`model_edge|quarantine_shadow|${pick}`);
+    const v=r.fileDesk?fileValue(r):null; if(v) s.add(`model_edge|value_shadow|${v.side}`);
+  }
+  const ven=r.fileDesk?fileVenue(r):{eligible:false}; if(ven.eligible) s.add(`venue_edge|straight|${ven.side}`);
+  return s;
+}
+// The page's own words for the game (closing.py call_text and page_text): "PASS", or "<CALL> <team> <u>u", then the
+// shadows; a PLAY its page does not repeat says under which hold it is no bet
+function closingCallText(r){
+  const d=r.fileDesk||{}, team=s=>s==="HOME"?r.home:s==="AWAY"?r.away:s==="DRAW"?"Draw":(s||"-");
+  const u=x=>`${Number((+(x||0)).toPrecision(6))}u`, h=holdRead(r);
+  let t=d.call==="PLAY"||d.call==="LADDER"?`${d.call} ${team(d.pick)} ${u(d.units)}`:String(d.call||"-");
+  if(h.cls==="not_repeated") t+=` — not a bet under ${h.why.join(" · ")} (#431 R6)`;
+  if(fileQuar(r)) t+=` · quarantine shadow ${team(d.pick)} ${u(d.shadow_units)}`;
+  if(d.value_shadow) t+=` · value shadow ${team(d.value_shadow.side)} ${u(d.value_shadow.units)}`;
+  return t;
+}
+// This load's closing pages, from the stamped rows: one per file, each game with its call set and its words, in the
+// stored record's shape (putPage)
+function closingPages(rs){
+  const by=new Map();
+  for(const r of rs){ const c=r.closing; if(!c) continue;
+    if(!by.has(c.file)) by.set(c.file,{family:c.family,start:c.start,run_id:c.run_id,as_of:c.as_of,file:c.file,
+      desk_meta:r.deskMeta||null,games:{}});
+    by.get(c.file).games[[r.sport,r.home,r.away,r.utc||""].join("|")]={sport:r.sport,home:r.home,away:r.away,
+      kickoff:r.utc||null,calls:[...closingCalls(r)].sort(),text:closingCallText(r),run_id:c.run_id,as_of:c.as_of,file:c.file};
+  }
+  return [...by.values()];
+}
+// R2: one game by sport, home and away, kickoffs within DESK_CLOCK_DRIFT, inclusive (redatedLabel's hour)
+function sameGame(a,b){ const x=utcMs(a.kickoff), y=utcMs(b.kickoff);
+  return a.sport===b.sport&&a.home===b.home&&a.away===b.away&&isFinite(x)&&isFinite(y)&&Math.abs(x-y)<=REDATED_DRIFT_MS; }
+// R1/R9's order of two pages: desk_meta.as_of, then the run id ("%Y%m%dT%H%M%SZ-<chain>"); 0 = the same page
+function pageCmp(a,b){ const x=utcMs(a.as_of), y=utcMs(b.as_of);
+  if(isFinite(x)!==isFinite(y)) return isFinite(x)?1:-1;
+  if(isFinite(x)&&x!==y) return x>y?1:-1;
+  const p=String(a.run_id??""), q=String(b.run_id??"");
+  return p===q?0:p>q?1:-1; }
+function closingGameOK(g){ return !!g&&typeof g==="object"&&typeof g.sport==="string"&&typeof g.home==="string"
+  &&typeof g.away==="string"&&!!g.kickoff&&Array.isArray(g.calls)&&g.run_id!=null; }
+// R8/R9: one page (this load's, or a stored record an import brings) into L.meta.closings["<family>|<start>"] =
+// {family, start, pages:{<run_id>:{as_of,file}}, games:{"<sport>|<home>|<away>|<utc>":{sport,home,away,kickoff,calls,
+// text,run_id,as_of,file}}}. Per game: a stored entry of the same game from a page as new or newer stands (an older
+// page never overwrites; a byte copy, the same run, is one page); else the page's entry replaces it. A page no game
+// points at is dropped.
+function putPage(L,p){
+  L.meta=L.meta||{}; L.meta.closings=L.meta.closings||{};
+  const k=`${p.family}|${p.start}`;
+  const cur=L.meta.closings[k]||(L.meta.closings[k]={family:p.family,start:p.start,pages:{},games:{}});
+  let took=0,kept=0,refused=0;
+  for(const [gk,g] of Object.entries(p.games||{})){
+    if(!closingGameOK(g)){refused++;continue;}
+    const olds=Object.entries(cur.games).filter(([,o])=>sameGame(o,g));
+    if(olds.some(([,o])=>pageCmp(o,g)>=0)){kept++;continue;}
+    for(const [ok] of olds) delete cur.games[ok];
+    cur.games[gk]={sport:g.sport,home:g.home,away:g.away,kickoff:g.kickoff,calls:g.calls.slice(),text:g.text??null,
+      run_id:g.run_id,as_of:g.as_of??null,file:g.file??null};
+    took++;
+  }
+  // esc 11: "per_game", a game the later page lacks keeps the earlier page's entry; "whole_page", the newest page of
+  // the start stands for the whole start
+  if(CLOSING_MARK_RULES.missingGame==="whole_page"){
+    const top=Object.values(cur.games).reduce((a,g)=>!a||pageCmp(g,a)>0?g:a,null);
+    for(const [gk,g] of Object.entries(cur.games)) if(pageCmp(g,top)<0) delete cur.games[gk];
+  }
+  const pages={}; for(const g of Object.values(cur.games)) if(!(g.run_id in pages)) pages[g.run_id]={as_of:g.as_of,file:g.file};
+  cur.pages=pages;
+  if(!Object.keys(cur.games).length) delete L.meta.closings[k];
+  return {took,kept,refused};
+}
+// R8/R9 on import: the incoming ledger's stored records, page by page through putPage (the newer page stands)
+function mergeClosings(L,inc){
+  let took=0,kept=0,refused=0;
+  for(const p of Object.values((inc&&inc.meta&&inc.meta.closings)||{})){
+    if(!p||typeof p!=="object"||!p.family||!p.start||!p.games||typeof p.games!=="object"){refused++;continue;}
+    const r=putPage(L,p); took+=r.took; kept+=r.kept; refused+=r.refused; }
+  return {took,kept,refused};
+}
+// The stored games by sport, home and away; a call's covering games are those of them sameGame keeps
+function closingIndex(all){ const ix=new Map();
+  for(const [k,p] of Object.entries(all||{})) for(const g of Object.values(p.games||{})){
+    const t=[g.sport,g.home,g.away].join("|"); if(!ix.has(t)) ix.set(t,[]); ix.get(t).push({k,p,g}); }
+  return ix; }
+function coverOf(ix,c){ return (ix.get([c.sport,c.home,c.away].join("|"))||[]).filter(h=>sameGame(c,h.g)); }
+// esc 12 (R7): the calls a Kalshi CSV fill matches by game and side, by matchFill's own candidate rule with every mark
+// set aside (the group the fill would go to: matchFill names it whole when it is a tie)
+function csvFilledIds(L){
+  const ids=new Set(), calls=(L.calls||[]).map(unmarked);
+  for(const f of L.fills||[]){ const g=f.ticker?{...f,...parseTicker(f.ticker)}:f;
+    if(g.kind!=="sport") continue;
+    const m=matchFill({...g,...sideFields(g,g.title,g.side)},calls,[]);
+    if(m.book==="system_matched") for(const id of m.ambiguous_calls||[m.call_id]) ids.add(id); }
+  return ids;
+}
+function markKey(m){ const c=m&&m.closing; return c&&typeof c==="object"?`${c.family}|${c.start}`:String(c||""); }
+// R8: every mark re-derived from the stored pages, on every save. Per call (any status; a void call is left as it is):
+// no covering game = not covered (a mark whose page is stored is cleared, one whose page is not stored is kept and
+// counted, as it came); two covering games = never guessed (law 4), counted; no claim time = legacy, counted (R3); a
+// claim at or after the page's as_of is not marked (R3), but for "mark" (esc 4) the closing's own capture of a PLAY it
+// does not repeat; a call the page calls is repeated; an executed-early or filled call or ticket is never marked (R7);
+// every other call, a ticket's leg included (R5), is marked with the page that decided it.
+let lastMarks=null;
+function markClosings(L){
+  const S={covered:0,marked:0,newly:0,cleared:0,repeated:0,exempt:0,later:0,legacy:0,ambiguous:0,orphan:0};
+  const all=(L.meta&&L.meta.closings)||{};
+  if(!Object.keys(all).length){ S.orphan=L.calls.filter(c=>c.not_executed&&!c.void_redated).length; return (lastMarks=S); }
+  const ix=closingIndex(all); let csv=null;
+  const executed=c=>c.exec_mode==="operator_early"||c.fill_recorded_at!=null
+    ||(CLOSING_MARK_RULES.csvFillExempt&&(csv=csv||csvFilledIds(L)).has(c.id));
+  const tix=new Set(L.calls.filter(c=>c.parlay_id&&(c.exec_mode==="operator_early"||c.fill_recorded_at!=null))
+    .map(c=>c.parlay_id));                            // a ticket is one position: one leg executed exempts it whole
+  for(const c of L.calls){
+    if(c.void_redated) continue;
+    const had=!!c.not_executed, hits=coverOf(ix,c);
+    let mark=null;
+    if(hits.length!==1){
+      if(hits.length>1) S.ambiguous++;
+      if(had&&!all[markKey(c.not_executed)]){ S.orphan++; continue; }
+    } else {
+      S.covered++;
+      const {p,g}=hits[0], t=utcMs(c.claim_at??c.captured_at), asOf=utcMs(g.as_of);
+      const repeated=(g.calls||[]).includes(`${c.engine}|${c.call_type}|${c.pick}`);
+      if(!isFinite(t)) S.legacy++;
+      else if(t>=asOf&&!(t===asOf&&!repeated&&c.claim_source==="auto"&&!ownCaptureSkips())) S.later++;
+      else if(repeated) S.repeated++;
+      else if(executed(c)||(c.parlay_id&&tix.has(c.parlay_id))) S.exempt++;
+      else{ S.marked++;
+        mark={flag:NE_FLAG,closing:{family:p.family,start:p.start,run_id:g.run_id,as_of:g.as_of,file:g.file},
+          closing_call:{text:g.text,calls:(g.calls||[]).slice()}}; }
+    }
+    if(mark){ if(!had) S.newly++; if(JSON.stringify(c.not_executed)!==JSON.stringify(mark)) c.not_executed=mark; }
+    else if(had){ delete c.not_executed; S.cleared++; }
+  }
+  return (lastMarks=S);
+}
+// R11: called by loadDocs after autoClaim with this load's pages: each stored, then the save re-derives every mark
+function storeClosings(pages){
+  if(!pages.length) return null;
+  const L=loadLedger(); let took=0,kept=0,refused=0;
+  for(const p of pages){ const r=putPage(L,p); took+=r.took; kept+=r.kept; refused+=r.refused; }
+  const dd=saveLedger(L);
+  return {pages:new Set(pages.map(p=>`${p.family}|${p.start}|${p.run_id}`)).size,took,kept,refused,...dd.marks,dd,
+    noClaim:closingNoClaim(L,pages),
+    files:pages.map(p=>({file:p.file,family:p.family,start:p.start,run_id:p.run_id,as_of:p.as_of,
+      counts_source:(p.desk_meta||{}).counts_source??null,counts:(p.desk_meta||{}).counts||null}))};
+}
+// R14: the covered games of this load's pages that hold no claim from before their stored page in this ledger, and
+// how many of those a slate row of this load called
+function closingNoClaim(L,pages){
+  const seen=new Set(), all=(L.meta&&L.meta.closings)||{}; let games=0,none=0,called=0;
+  for(const p of pages){ const st=all[`${p.family}|${p.start}`]; if(!st) continue;
+    for(const g of Object.values(p.games||{})){
+      const hit=Object.entries(st.games).find(([,o])=>sameGame(o,g)); if(!hit) continue;
+      const id=`${p.family}|${p.start}|${hit[0]}`; if(seen.has(id)) continue;
+      seen.add(id); games++;
+      const o=hit[1], asOf=utcMs(o.as_of);
+      if(L.calls.some(c=>!c.void_redated&&sameGame(c,o)&&utcMs(c.claim_at??c.captured_at)<asOf)) continue;
+      none++;
+      if(ticketRows.some(r=>sameGame({sport:r.sport,home:r.home,away:r.away,kickoff:r.utc},o)&&utcMs(r.exportedAt)<asOf
+        &&slateCalled(r))) called++;
+    } }
+  return {games,none,called};
+}
+// what autoClaim claims from a row (snapshotCalls)
+function slateCalled(r){ const d=r.fileDesk||{};
+  if(fileVenue(r).eligible) return true;
+  return !r.marketOnly&&(d.call==="PLAY"||d.call==="LADDER"||isQuarShadow(fileCall(r),r)||!!d.value_shadow); }
+// R11 + R14: the load note's closing segment (exact text)
+function closingMarkNote(ne,notBet){
+  if(!ne) return "";
+  return ` · closing: ${ne.pages} page(s) read · ${ne.took} game(s) stored · ${ne.kept} kept (the stored page is newer or the same)`
+    +` · ${ne.marked} claim(s) marked NOT EXECUTED (the page did not repeat them; ${ne.newly} new, ${ne.cleared} cleared by a later page)`
+    +` · ${ne.repeated} repeated · ${ne.exempt} executed early or filled, not repeated (never marked)`
+    +(ne.legacy?` · ${ne.legacy} legacy claim(s) on covered games carry no claim time (not marked)`:"")
+    +(ne.ambiguous?` · ${ne.ambiguous} claim(s) on a game two closing pages cover (not marked, never guessed)`:"")
+    +(ne.orphan?` · ${ne.orphan} mark(s) whose closing page is not stored here (kept as they came)`:"")
+    +(notBet?` · ${notBet} closing PLAY(s) not a bet, not claimed`:"")
+    +(ne.refused?` · ${ne.refused} closing game(s) refused (not a closing game)`:"")
+    +noClaimNote(ne.noClaim)+countsSourceNote(ne.files);
+}
+// R14 (a): a covered game no claim from before its page sits on (the ⚠ when a slate row of this load called it)
+function noClaimNote(n){
+  if(!n||!n.none) return "";
+  return ` · ${n.called?"⚠ ":""}${n.none} of ${n.games} covered game(s) hold no claim from before their page in this browser's ledger: nothing there to mark. A local Cockpit keeps its own ledger: import the ledger, then load.`;
+}
+// R14 (b), ARCHITECT 2026-10-19 addendum 144 item 4: a closing file whose Desk read the default counts, beside this
+// ledger's own (in the note only; never in the #psProgress/#vsProgress/#koProgress counters)
+function countsSourceNote(files){
+  const d=(files||[]).filter(f=>/^default 0/.test(String(f.counts_source||"")));
+  if(!d.length) return "";
+  const src=[...new Set(d.map(f=>f.counts_source))].join("; "), c=d[0].counts||{};
+  return ` · the closing file(s) read counts_source "${src}": their Desk sized with postseason ${c.postseason_graded??0}`
+    +` · value shadow ${c.value_shadow_graded??0} · kalshi-only ${c.kalshi_only_graded??0} (no export reads a ledger summary, #544)`
+    +` — this ledger's own counts: postseason ${postseasonGraded()}/${POSTSEASON.reviewN} · value shadow ${valueShadowGraded()}/${VALUE.reviewN}`
+    +` · kalshi-only ${kalshiOnlyGraded()}/${KALSHI_ONLY.reviewN} (NOT EXECUTED claims left out).`;
+}
+// A save's own mark changes (the stored pages re-applied), for the notes of the paths that save (no silent changes)
+function marksNote(m){
+  return m&&(m.newly||m.cleared)?` · NOT EXECUTED (#431): ${m.newly} claim(s) newly marked · ${m.cleared} mark(s) cleared by the stored closing pages`:"";
+}
+// R11: the load note. With no closing loaded it is the auto-claim note as it was; autoClaim returns null when the
+// load holds no desk call (the closing segment then leads)
+function loadLogNote(ac,ne){
+  const t=(ac?`Auto-claimed ${ac.claimed} call(s) at their file's as_of — ${ac.added} new · `
+    +`${ac.repriced+ac.updated} position(s) repriced · ${ac.again} already claimed from this file · ${ac.older} older than the ledger (kept)`
+    +` · ${ac.started} past kickoff at as_of (not claimed). "Re-log at T-60" refreshes prices.`+dedupeNote(ac.dd)+marksNote(ac.dd&&ac.dd.marks):"")
+    +closingMarkNote(ne,ac?ac.notBet:0)+(ne?dedupeNote(ne.dd):"")
+    +(storageOK?"":" ⚠ browser storage unavailable — Export the ledger to keep it.");
+  return ac?t:t.replace(/^ · /,"");
+}
+// R4/R8/R9: the import note's segments
+function closingImportNote(mc,m){
+  if(!mc.took&&!mc.kept&&!mc.refused&&!(m&&(m.newly||m.cleared))) return "";
+  return ` · closings: ${mc.took} page game(s) taken (newer) · ${mc.kept} kept · ${m?m.marked:0} claim(s) marked NOT EXECUTED after the merge`
+    +(mc.refused?` · ${mc.refused} closing record(s) or game(s) refused (not a closings record)`:"");
+}
+function idCollisionNote(r){
+  return (r.rekeyed?` · R4 (#431): ${r.rekeyed} incoming call(s) re-keyed (a local call of another pick holds their id; the old id kept as id_imported)`:"")
+    +(r.refusedIds.length?` · R4 (#431): ${r.refusedIds.length} incoming call(s) refused (a local call of another pick holds their id): `
+      +r.refusedIds.map(c=>`${c.game} ${c.engine} ${c.call_type} ${c.pick} (${c.id})`).join(", "):"");
+}
+// R10/R11: the P&L block's line (after the kickoff audit's)
+function notExecutedLine(L){
+  const n=L.calls.filter(c=>c.not_executed).length, ix=closingIndex((L.meta||{}).closings);
+  const legacy=L.calls.filter(c=>!c.void_redated&&!isFinite(utcMs(c.claim_at??c.captured_at))&&coverOf(ix,c).length===1).length;
+  return `Not executed (addendum 40 item 2, #431): ${n} claim(s) the closing page did not repeat (${lastNotExec.positions} position(s), ${lastNotExec.tickets} ticket(s) settled)`
+    +` — out of the P&L, the sizing gate and the graded n/30 counts; marked, never deleted.`
+    +(legacy?` · ${legacy} legacy claim(s) on covered games carry no claim time and are not marked`:"");
 }
 // Capture window (multi-week fix, 2026-09-28): a call is captured only
 // BEFORE its kickoff. A multi-day/week file loaded after some games started
@@ -1025,13 +1377,15 @@ function snapshotCalls(now,opts){
   const dOf=r=>auto?localDate(new Date(asOfMs(r))):d;
   const add=(r,c)=>{ if(auto){ c.captured_at=new Date(asOfMs(r)).toISOString(); c.claim_as_of=r.exportedAt||null;
     c.claim_source="auto"; } out.push(c); };
-  lastCapture={started:0,noKickoff:0};
+  lastCapture={started:0,noKickoff:0,notBet:0};
   const live=r=>{ if(kickedOff(r,clk(r))){lastCapture.started++;return false;}
     if(!isFinite(utcMs(r.utc))) lastCapture.noKickoff++;
     return true; };
   for(const x of deskCalls){
     const r=x.r;
     if((x.call==="PLAY"||x.call==="LADDER"||isQuarShadow(x,r))&&!live(r)) continue;
+    // #431 esc 4 (R3 x R6): a closing row's PLAY its page does not repeat is no bet: never claimed, counted
+    if(x.call==="PLAY"&&r.closing&&holdClass(r)==="not_repeated"&&ownCaptureSkips()){lastCapture.notBet++;continue;}
     if(x.call==="PLAY"||x.call==="LADDER"){
       const lad=x.call==="LADDER";
       const mp=lad?(r.probsAll[r.pick]??0)+(r.probsAll.DRAW??0):r.prob;
@@ -1120,7 +1474,7 @@ function autoClaim(){
     fresh.push(c);
   }
   const r=upsertCalls(L,fresh,{relog:true}); L.meta.auto_claims=[...seen]; const dd=saveLedger(L);
-  return {...r,claimed:fresh.length,again,older,started:lastCapture.started,dd};
+  return {...r,claimed:fresh.length,again,older,started:lastCapture.started,notBet:lastCapture.notBet,dd};
 }
 $("logBtn").addEventListener("click",()=>{
   const L=loadLedger(); const fresh=snapshotCalls();
@@ -1128,7 +1482,8 @@ $("logBtn").addEventListener("click",()=>{
   const byEng={}; fresh.forEach(c=>{const k=c.engine+(c.call_type==="quarantine_shadow"?" (shadow)":c.call_type==="value_shadow"?" (value shadow)":"");byEng[k]=(byEng[k]||0)+1;});
   $("logNote").textContent=`Logged ${fresh.length} entries (${Object.entries(byEng).map(([k,n])=>`${k} ${n}`).join(" · ")||"none"}) — `
     +`${r.added} new · ${r.updated} updated · ${r.kept} already graded (kept) · ${r.repriced} positions from an earlier day repriced (not duplicated)`
-    +` · ${lastCapture.started} past kickoff (not captured)`+(lastCapture.noKickoff?` · ${lastCapture.noKickoff} with no kickoff time`:"")+"."
+    +` · ${lastCapture.started} past kickoff (not captured)`+(lastCapture.noKickoff?` · ${lastCapture.noKickoff} with no kickoff time`:"")
+    +(lastCapture.notBet?` · ${lastCapture.notBet} closing PLAY(s) not a bet, not claimed (#431)`:"")+"."
     +dedupeNote(dd)
     +(storageOK?"":" ⚠ browser storage unavailable — Export the ledger to keep it.");
   renderLedger();
@@ -1419,7 +1774,7 @@ $("resultsFile").addEventListener("change",async e=>{
   const open=L.calls.filter(c=>c.status==="open").length, lj=L.calls.filter(c=>c.legacy_join).length,
     im=L.calls.filter(c=>c.id_mismatch).length;
   $("ledgerNote").textContent=`${outs.length} finished results read · ${n} calls/tickets graded · ${open} still open (unmatched listed below) · void: ${voidCounts(L)} (listed below, out of every tally except an every-leg-moved ticket's push) · legacy join ${lj} (no match id: the ±1-day team join, listed below) · id mismatch ${im} (match id on another game: counted, never graded) · stored predictions: ${picks.length} read, ${np} new (fills re-matched).`
-    +dedupeNote(dd)+(storageOK?"":" ⚠ browser storage unavailable — Export the ledger to keep it.");
+    +dedupeNote(dd)+marksNote(dd.marks)+(storageOK?"":" ⚠ browser storage unavailable — Export the ledger to keep it.");
   renderLedger();
 });
 
@@ -1427,7 +1782,7 @@ $("resultsFile").addEventListener("change",async e=>{
 // REPORTS — settled bets (a parlay ticket counts once), by dimension.
 // ---------------------------------------------------------------------
 function settledBets(L){
-  const bets=[], seen=new Set(); lastAudit={flagged:0,fallback:0,excluded:0,legNotPlay:0};
+  const bets=[], seen=new Set(); lastAudit={flagged:0,fallback:0,excluded:0,legNotPlay:0}; lastNotExec={positions:0,tickets:0};
   const tally=a=>{ if(!a.flagged) return; lastAudit.flagged++; if(a.excluded) lastAudit.excluded++; else lastAudit.fallback++; };
   for(const c of L.calls){
     // a ticket whose every leg moved settled as a push on its void legs (status void, ticket_result "push"): addendum 115
@@ -1437,6 +1792,8 @@ function settledBets(L){
       if(seen.has(c.parlay_id)) continue; seen.add(c.parlay_id);
       const all=L.calls.filter(x=>x.parlay_id===c.parlay_id);
       const legs=all.filter(x=>!x.void_redated);   // addendum 114 item 1: a void leg is a push, removed from the ticket
+      // #431 R5/R10/R12: a ticket with a leg its closing page did not repeat leaves the P&L; this check runs before #183's
+      if(all.some(l=>l.not_executed)){lastNotExec.tickets++; continue;}
       if(legs.some(l=>l.leg_check&&l.leg_check.status==="not_play")){lastAudit.legNotPlay++; continue;}   // #183: out of the P&L
       const au=new Map(legs.map(l=>[l,auditCall(l)]));
       const flagged=legs.some(l=>au.get(l).flagged);
@@ -1459,6 +1816,7 @@ function settledBets(L){
         claim_p:null,exec_p:null,tz:flagged,bShadow:(named.find(l=>l.b_shadow_cut)||{}).b_shadow_cut||null});
       continue;
     }
+    if(c.not_executed){lastNotExec.positions++; continue;}   // #431 R10: not executed, out of the P&L (marked, kept)
     const a=auditCall(c); tally(a);
     if(a.excluded) continue;                        // no pre-kickoff price: out of the P&L, never deleted
     const sh=isShadow(c), u=sh?(c.shadow_units||0):c.units;
@@ -1647,6 +2005,7 @@ function pnlBlock(L){
     `Legacy join: ${L.calls.filter(c=>c.legacy_join).length} call(s) paired with their result by the ±1-day team join (no match id: logged before the field; addendum 109 item 2; those graded before the match-id pairing included, labelled, never re-graded: addendum 114 item 2)`,
     bShadowLine(L,bets),
     auditLine(),
+    notExecutedLine(L),
     ...realizedLines(L),
     `Sizing gate: model_edge ${real.filter(b=>b.engine==="model_edge").length}/50 · venue_edge ${real.filter(b=>b.engine==="venue_edge").length}/50 graded before any sizing proposal`,
     "Non-claims: EV-realization proxy, not cash; venue_edge graded vs stored Kalshi prob until K-track bid/ask + fees; policy changes only via audit-backed version bump."
@@ -1661,6 +2020,7 @@ function renderLedger(){
       +`net <b class="${a.net>=0?"play":"caution"}">${a.net>=0?"+":""}${fmt(a.net)}u</b> · ROI ${a.roi==null?"—":fmt(a.roi,1)+"%"} · hit ${a.hit==null?"—":fmt(a.hit,1)+"%"}`
       +` <span class="note">(fair-odds P&amp;L, pre-fee)</span>`
       +(lastAudit.flagged||lastAudit.legNotPlay?`<div class="caution" id="tzAudit">⚠ ${esc(auditLine())}</div>`:"")
+      +(lastNotExec.positions||lastNotExec.tickets?`<div class="caution" id="notExecLine">⚠ ${esc(notExecutedLine(L))}</div>`:"")
       +(()=>{const d=enforceLedger(JSON.parse(JSON.stringify(L)));   // dry run on a copy
         return d.total?`<div class="caution">⚠ ${d.total} duplicate(s) in the stored ledger (same key ${d.exact} · re-logged on a later day ${d.relogged} · fills ${d.fills}) — totals above include them; press Dedupe ledger.</div>`:"";})()
     : "No calls logged yet.";
@@ -1695,13 +2055,24 @@ function renderLedger(){
   const idmHTML=im.length?`<div class="note" id="idMismatch"><b>${im.length} call(s) id mismatch</b> (a loaded result row carries the call's match id for another game: match ids are machine-local; counted, never graded):`
     +im.map(c=>`<br>${esc(c.log_date)} · ${esc(c.sport)} · ${esc(c.game)} · ${side(c)} · ${esc(c.engine)} ${esc(c.call_type)} · match ${esc(c.match_id)} · ${esc(c.status)}`).join("")+"</div>":"";
   const px=v=>v==null?"—":(+v).toFixed(3), hm=s=>s?String(s).slice(5,16).replace("T"," "):"";
-  $("openList").innerHTML=voidHTML+legacyHTML+idmHTML+(waiting?`<div class="note">${waiting} parlay leg(s) graded, ticket awaiting its other legs.</div>`:"")+(open.length?`<div class="tablewrap"><table><thead><tr><th>Logged</th><th>Kickoff</th><th>Sport</th><th>Game</th><th>Pick</th><th>Engine</th><th>Type</th><th>Units</th><th>Claim</th><th>Execution</th><th>Order / fill</th><th></th></tr></thead><tbody>`
+  // #431 R11 ("The mark is shown and logged"): the claims a closing page did not repeat, each beside the page's own
+  // words; out of the P&L and the graded counts, never deleted, the claim's own numbers kept
+  const neCalls=L.calls.filter(c=>c.not_executed);
+  const neHTML=neCalls.length?`<div class="note" id="notExecuted"><b>${neCalls.length} claim(s) not executed</b> (the closing page did not repeat them: out of the P&L and the graded counts, marked, never deleted; the claim's own numbers stay):`
+    +neCalls.map(c=>{const m=c.not_executed, cl=(m&&m.closing)||{};
+      return `<br>${esc(c.log_date)} · ${esc(c.sport)} · ${esc(c.game)} · ${side(c)} · ${esc(c.engine)} ${esc(c.call_type)} · claim ${px(c.claim_market_p)} ${esc(hm(c.claim_at))} · <b>NOT EXECUTED</b> · closing ${esc(cl.family)} ${esc(cl.start)}: ${esc(((m&&m.closing_call)||{}).text)} · ${esc(c.result||c.status)}`;}).join("")+"</div>":"";
+  // R7: no Execute now and no Record fill on a marked call, nor on any leg of its ticket (executeEarly and recordFill
+  // act on every open leg of a ticket)
+  const neTix=new Set(neCalls.filter(c=>c.parlay_id).map(c=>c.parlay_id));
+  $("openList").innerHTML=voidHTML+neHTML+legacyHTML+idmHTML+(waiting?`<div class="note">${waiting} parlay leg(s) graded, ticket awaiting its other legs.</div>`:"")+(open.length?`<div class="tablewrap"><table><thead><tr><th>Logged</th><th>Kickoff</th><th>Sport</th><th>Game</th><th>Pick</th><th>Engine</th><th>Type</th><th>Units</th><th>Claim</th><th>Execution</th><th>Order / fill</th><th></th></tr></thead><tbody>`
     +open.map(c=>{const early=c.exec_mode==="operator_early";
-      const canExec=!early&&!isShadow(c)&&!kickedOff({utc:c.kickoff},Date.now());
+      const locked=!!c.not_executed||(!!c.parlay_id&&neTix.has(c.parlay_id));
+      const canExec=!early&&!locked&&!isShadow(c)&&!kickedOff({utc:c.kickoff},Date.now());
       return `<tr><td>${esc(c.log_date)}</td><td>${esc((c.kickoff||"").slice(0,16).replace("T"," "))}</td><td>${esc(c.sport)}</td><td>${esc(c.game)}</td><td>${esc(c.pick==="HOME"?c.home:c.pick==="AWAY"?c.away:c.pick)}</td><td>${esc(c.engine)}</td><td>${esc(c.call_type)}</td><td>${esc(c.units)}</td>`
       +`<td>${c.claim_at?`${px(c.claim_market_p)}${c.claim_exec_cost!=null?` <span class="note">k ${px(c.claim_exec_cost)}</span>`:""} <span class="note">${esc(hm(c.claim_at))}</span>`:'<span class="note">unknown (pre-rule)</span>'}</td>`
-      +`<td>${auditCall(c).flagged?`<b class="caution">${TZ_FLAG}</b> `:""}${c.leg_check&&c.leg_check.status==="not_play"?`<b class="caution">${LEG_FLAG}</b> `:""}${c.exec_mode?`${early?"<b>early</b>":"at close"} ${px(execP(c))}${c.exec_cost!=null?` <span class="note">k ${px(c.exec_cost)}</span>`:""} <span class="note">${esc(hm(c.executed_at))}</span>`:'<span class="note">—</span>'}</td>`
-      +`<td>${c.order_type?`${esc(c.order_type)} @ ${px(c.fill_price)}`:""}${!isShadow(c)
+      +`<td>${c.not_executed?'<b class="caution">NOT EXECUTED</b> ':""}${auditCall(c).flagged?`<b class="caution">${TZ_FLAG}</b> `:""}${c.leg_check&&c.leg_check.status==="not_play"?`<b class="caution">${LEG_FLAG}</b> `:""}${c.exec_mode?`${early?"<b>early</b>":"at close"} ${px(execP(c))}${c.exec_cost!=null?` <span class="note">k ${px(c.exec_cost)}</span>`:""} <span class="note">${esc(hm(c.executed_at))}</span>`:'<span class="note">—</span>'}</td>`
+      +`<td>${c.order_type?`${esc(c.order_type)} @ ${px(c.fill_price)}`:""}${locked?' <span class="note">not executed (#431): no fill to record</span>'
+          :!isShadow(c)
           // No default: a row without a Kalshi ladder shows "—", never a suggested
           // order (architect 2026-09-30: "limit 0.59" sat on every Week 5 row).
           ?` <select class="fillType" data-id="${esc(c.id)}"><option value="">—</option><option value="limit">limit</option><option value="market">market</option></select>`
@@ -1793,7 +2164,7 @@ $("exportLedgerBtn").addEventListener("click",()=>{
 // export reads the default 0. Counts only: no positions, no prices.
 function ledgerSummary(){
   const per={};
-  for(const c of loadLedger().calls){ if(!c.result||c.void_redated) continue;
+  for(const c of loadLedger().calls){ if(!c.result||c.void_redated||c.not_executed) continue;   // #431 R10
     for(const t of (c.rules&&c.rules.length?c.rules:["(no rule tag)"])) per[t]=(per[t]||0)+1; }
   return {kind:"bd_ledger_summary_v1",generated_at:new Date().toISOString(),policy_version:POLICY_VERSION,
     counts:{postseason_graded:postseasonGraded(),value_shadow_graded:valueShadowGraded(),
@@ -1826,10 +2197,13 @@ function importLedgerDoc(inc){
   let nf=0;
   if(Array.isArray(inc.fills)){ L.fills=L.fills||[]; const have=new Set(L.fills.map(x=>x.id));
     inc.fills.forEach(x=>{ if(x&&x.id&&!have.has(x.id)){L.fills.push(x);have.add(x.id);nf++;} }); }
+  // #431 R8/R9: the incoming stored closing pages, game by game (the newer page stands, an older one never overwrites);
+  // the save then re-derives every mark, so each call follows the newer page of its start
+  const mc=mergeClosings(L,inc);
   const dd=saveLedger(L);
   $("ledgerNote").textContent=`Imported ${inc.calls.length} calls: ${r.added} new · ${r.updated} updated · ${r.kept} unchanged/kept`
-    +` (merged by key; graded entries never downgraded)${nf?` · ${nf} Kalshi fills added`:""}`+dedupeNote(dd)
-    +(storageOK?"":" ⚠ browser storage unavailable — Export the ledger to keep it.");
+    +` (merged by key; graded entries never downgraded)${nf?` · ${nf} Kalshi fills added`:""}`+closingImportNote(mc,dd.marks)+idCollisionNote(r)
+    +dedupeNote(dd)+(storageOK?"":" ⚠ browser storage unavailable — Export the ledger to keep it.");
   renderLedger();
 }
 $("importLedgerFile").addEventListener("change",async e=>{
@@ -1848,7 +2222,7 @@ $("importPastedBtn").addEventListener("click",()=>{
 // Repair: collapse duplicates already in storage (e.g. from before the key
 // was enforced on every path) and say exactly how many went.
 $("legAuditBtn").addEventListener("click",()=>{
-  $("ledgerNote").textContent=deskCalls.length?auditParlayLegs()
+  $("ledgerNote").textContent=legAuditCalls().length?auditParlayLegs()
     :"Load the export files of the day(s) to check first (Desk tab), then press Audit parlay legs.";
   renderLedger();
 });
@@ -2113,7 +2487,11 @@ function matchFill(fx,calls,picks){
     // A LADDER is executed as NO on the other side (desk order line: an AWAY ladder = NO on HOME = X2), so a
     // composite NO matches a real ladder call whose pick is the opposite side, and never a straight.
     const opp={HOME:"AWAY",AWAY:"HOME"}[fx.no_on_role];
-    const lad=startNearest(fx,cands).filter(c=>c.call_type==="ladder"&&c.pick===opp&&(c.units||0)>0);
+    const lad0=startNearest(fx,cands).filter(c=>c.call_type==="ladder"&&c.pick===opp&&(c.units||0)>0);
+    // #431 R7 (addendum 145 item 3(b)): "matchFill prefers an unmarked call of the same game and side": a claim its
+    // closing page did not repeat takes a fill only when no other call of the group is there; the tie flag lists the
+    // chosen group alone (ledger_fills.match_fill moves with it)
+    const ladU=lad0.filter(c=>!c.not_executed), lad=ladU.length?ladU:lad0;
     if(lad.length){ const c=lad[0];
       return {book:"system_matched",category:`${c.engine} · ${c.tier} (ladder: NO on ${fx.no_on})`,engine:c.engine,
               tier:c.tier,call_id:c.id,...(lad.length>1?{ambiguous_calls:lad.map(x=>x.id)}:{})}; }
@@ -2144,7 +2522,8 @@ function matchFill(fx,calls,picks){
   // and those more than 3h off drop out when any is within 3h; no time (or no kickoff) keeps the old order.
   const near3h=startNearest(fx,cands);
   const agree=near3h.filter(sideAgrees);
-  const real=agree.filter(c=>c.call_type!=="quarantine_shadow"&&(c.units||0)>0);
+  const real0=agree.filter(c=>c.call_type!=="quarantine_shadow"&&(c.units||0)>0);
+  const realU=real0.filter(c=>!c.not_executed), real=realU.length?realU:real0;   // #431 R7: an unmarked call first
   // several real calls still tied (e.g. an untimed doubleheader): the first is taken, the tie is FLAGGED with
   // every candidate (parity with the receipt port, Codex on #299)
   if(real.length){ const c=real[0];
@@ -2468,7 +2847,7 @@ $("kalshiCsvFile").addEventListener("change",async e=>{
   const f=e.target.files[0]; if(!f)return;
   try{ const L=loadLedger(); const r=importKalshiCSV(await f.text(),L); const dd=saveLedger(L);
     $("ledgerNote").textContent=`Kalshi CSV: ${r.added} fills added, ${r.dup} duplicates skipped · columns mapped: ${r.mapped.join(", ")}`
-      +(r.unmapped.length?` · not found: ${r.unmapped.join(", ")}`:"")+dedupeNote(dd)+(storageOK?"":" ⚠ browser storage unavailable — Export the ledger to keep it.");
+      +(r.unmapped.length?` · not found: ${r.unmapped.join(", ")}`:"")+dedupeNote(dd)+marksNote(dd.marks)+(storageOK?"":" ⚠ browser storage unavailable — Export the ledger to keep it.");
     renderLedger();
   }catch(err){ $("ledgerNote").textContent="Kalshi CSV import failed: "+err.message; }
   e.target.value="";
@@ -2490,7 +2869,8 @@ function parlaysFromFile(){
   if(!fileParlays){ parlayNote="no desk_parlays file loaded — run desk-parlays on these exports and load its file"; return []; }
   const out=[]; let miss=0;
   for(const t of fileParlays.tickets||[]){
-    const legs=(t.legs||[]).map(l=>rows.find(r=>!r.marketOnly&&r.sport===l.sport&&r.home===l.home&&r.away===l.away
+    // #431 R12: a leg is matched in the rows of the file that built the ticket, never a closing page's (ticketRows)
+    const legs=(t.legs||[]).map(l=>ticketRows.find(r=>!r.marketOnly&&r.sport===l.sport&&r.home===l.home&&r.away===l.away
       &&(r.utc||null)===(l.kickoff||null)&&r.pick===l.pick));
     if(!legs.length||legs.some(x=>!x)){miss++;continue;}
     out.push({legs,sports:t.sports,pm:t.model_p,pk:t.market_p,edge:t.edge??t.edge_pp/100,bShadow:t.b_shadow||null,
@@ -2693,7 +3073,7 @@ async function loadDocs(fs){
   if(cov.taken){ try{ renderToday(); }catch(e){ did.coverageError=(e&&e.message)||String(e); todayFailed(did.coverageError); } }
   fs=cov.rest;
   if(!fs.length){ setTab("today"); return did; }   // a coverage file alone: the loaded slate is never reset
-  rows=[]; shadowRows=[]; fileParlays=null; refusedFiles=[]; const sports=new Set();
+  rows=[]; shadowRows=[]; fileParlays=null; refusedFiles=[]; ticketRows=[]; const sports=new Set();
   did.slate=true;
   for(const f of fs){
     try{const doc=JSON.parse(f.text);
@@ -2704,19 +3084,25 @@ async function loadDocs(fs){
       // is REFUSED whole — the Cockpit never computes policy. model_shadow
       // and desk_parlays files keep their own paths (above).
       if(rr.some(r=>!r.fileDesk)){ refusedFiles.push(f.name); continue; }
+      stampClosing(rr,doc,f.name);       // #431: a closing file's rows carry its family, start, run id, as_of and file
       rr.forEach(r=>sports.add(r.sport));
       rows=rows.concat(rr);}
     catch(err){$("summary").textContent=`Could not parse ${f.name}: ${err.message}`; did.refused=refusedFiles.slice(); return did;}
   }
+  // #431 R12: the rows a ticket is built from and #183 reads (every row but a closing page's), before policy builds
+  // the tickets; R8: this load's closing pages, read from the stamped rows
+  ticketRows=slateRows(rows);
+  const cpages=closingPages(rows);
   sportLabel=Array.from(sports).join("+");
   policy();
   renderCard();
   renderShadow();
   const ac=autoClaim();
-  if(ac){ $("logNote").textContent=`Auto-claimed ${ac.claimed} call(s) at their file's as_of — ${ac.added} new · `
-    +`${ac.repriced+ac.updated} position(s) repriced · ${ac.again} already claimed from this file · ${ac.older} older than the ledger (kept)`
-    +` · ${ac.started} past kickoff at as_of (not claimed). "Re-log at T-60" refreshes prices.`+dedupeNote(ac.dd)
-    +(storageOK?"":" ⚠ browser storage unavailable — Export the ledger to keep it."); renderLedger(); }
+  // #431 R11, "a closing document marks": after autoClaim, this load's pages are stored and the save re-derives
+  // every mark; shown and logged (loadLogNote: with no closing loaded, the auto-claim note as it was)
+  const ne=storeClosings(cpages);
+  did.closings=did.closings||{}; did.closings.marks=ne;
+  if(ac||ne){ $("logNote").textContent=loadLogNote(ac,ne); renderLedger(); }
   setTab(true);
   $("askCard").hidden=!sampleNS;
   did.refused=refusedFiles.slice();

@@ -15,7 +15,13 @@ parlay_id?, units, model_p, market_p, venue_hint (books|kalshi),
 quarantine, status (open|graded), result? (win|loss|push|void),
 units_returned?, graded_date?}]}. MANDATORY Export/Import ledger
 buttons (JSON). Idempotency: keyed on (sport, game, log_date) —
-re-logging updates, never duplicates.
+re-logging updates, never duplicates. [As built and amended: the key
+is (sport, game, log_date, engine, call_type, pick, parlay slot); the
+pick joined it by ARCHITECT 2026-10-20, addendum 145 item 3(b) R4:
+"The unit of account is the position (the 2026-09-28 ruling on #49;
+instKey already carries the pick), and a same-day pick flip is two
+claims, never one". Stored calls keep their ids; the index is rebuilt
+from the fields on every load (#431).]
 2. CAPTURE: "Log today's calls" on the Desk tab snapshots every
 PLAY and LADDER row plus parlay tickets (legs share parlay_id) at
 displayed units/prices. SHADOW ENTRIES: NFL quarantine PASSes log

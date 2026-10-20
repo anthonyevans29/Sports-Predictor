@@ -53,6 +53,18 @@ def is_shadow(c: dict) -> bool:
     return c.get("call_type") in ("quarantine_shadow", "value_shadow")
 
 
+def not_executed_closing(c: dict) -> str:
+    """The closing that marked a call not executed (#431, ARCHITECT 2026-10-20, addendum 145 item 3(b) R13), as the
+    receipts print it: "closing <family> <start>: <the page's words>". The mark is the Cockpit's contract
+    {flag, closing: {family, start, run_id, as_of, file}, closing_call: {text, calls}}; a key it lacks reads "?",
+    and a mark of another shape reads the same way, never a crash."""
+    m = c.get("not_executed")
+    m = m if isinstance(m, dict) else {}
+    cl = m["closing"] if isinstance(m.get("closing"), dict) else {}
+    cc = m["closing_call"] if isinstance(m.get("closing_call"), dict) else {}
+    return f"closing {cl.get('family') or '?'} {cl.get('start') or '?'}: {cc.get('text') or '?'}"
+
+
 def parse_ticker(t) -> dict:
     t = str(t or "").strip().upper()
     if t.startswith("KXMVE"):
@@ -338,6 +350,8 @@ def match_fill(fx: dict, calls: list, picks: list) -> dict:
         opp = {"HOME": "AWAY", "AWAY": "HOME"}.get(fx.get("no_on_role"))
         lad = [c for c in _start_nearest(fx, cands)
                if c.get("call_type") == "ladder" and c.get("pick") == opp and (c.get("units") or 0) > 0]
+        # R7 (ARCHITECT 2026-10-20, addendum 145 item 3(b), #431): an unmarked ladder first, as for the straight below
+        lad = [c for c in lad if not c.get("not_executed")] or lad
         if lad:
             c = lad[0]
             out = {"book": "system_matched", "category": f"{c.get('engine')} · {c.get('tier')} (ladder: NO on "
@@ -378,6 +392,9 @@ def match_fill(fx: dict, calls: list, picks: list) -> dict:
                 "plausible": True}
     agree = [c for c in _start_nearest(fx, cands) if side_agrees(c)]
     real = [c for c in agree if c.get("call_type") != "quarantine_shadow" and (c.get("units") or 0) > 0]
+    # R7 (ARCHITECT 2026-10-20, addendum 145 item 3(b), #431): a call a closing page did not repeat
+    # (not_executed) yields the fill to an unmarked call of the same game and side; a marked call alone keeps it
+    real = [c for c in real if not c.get("not_executed")] or real
     if real:
         c = real[0]
         out = {"book": "system_matched", "category": f"{c.get('engine')} · {c.get('tier')}",
@@ -385,6 +402,8 @@ def match_fill(fx: dict, calls: list, picks: list) -> dict:
         # PARITY: the Cockpit takes the first agreeing call, so the receipt does too (its numbers must
         # match the Cockpit's). When MORE THAN ONE real call fits (e.g. an MLB doubleheader, same teams
         # and day), the attribution is ambiguous: flagged and listed, never silent (Codex on #297).
+        # The list covers only the group the fill went to (R7): a marked claim beside the unmarked call
+        # that took the fill is no tie, in the ladder branch above as here.
         if len(real) > 1:
             out["ambiguous_calls"] = [x.get("id") for x in real]
         return out
@@ -462,7 +481,9 @@ def held_contract_fair(f: dict, c: dict, fair: dict):
 def executed_positions(L: dict, fills: list[dict] | None = None) -> dict:
     """executedPositions: per graded, non-shadow, non-parlay call with a close, qty-weighted over its
     system_matched fills: clv = close fair of the held contract − entry; fee_adj = clv − open fee/contract.
-    A call the Cockpit voided as re-dated (void_redated, ARCHITECT 2026-10-17, addendum 106 item 4) is never one."""
+    A call the Cockpit voided as re-dated (void_redated, ARCHITECT 2026-10-17, addendum 106 item 4) is never one.
+    A call a closing page did not repeat (not_executed, #431) still is: addendum 145 item 3(b) R10 keeps it in
+    executedPositions and clvLines, the claim-against-close read."""
     graded = {c.get("id"): c for c in (L.get("calls") or [])
               if c.get("status") == "graded" and c.get("close_ref") and not is_shadow(c)
               and c.get("call_type") != "parlay_leg" and not c.get("void_redated")}

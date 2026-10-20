@@ -103,3 +103,13 @@ says so.
 **The ledger is per origin.** The local page has its own localStorage, so its own ledger and token. Move the
 ledger with "Export ledger (JSON)" → "Import ledger", and keep the same `--port` so the local origin stays the
 same between runs.
+
+**Closings: import the ledger, then load (#431, ARCHITECT 2026-10-20, addendum 145 item 3(b) R14).** The closing
+control marks NOT EXECUTED the claims a closing page did not repeat, and it can mark only the claims this origin's
+ledger holds. In the local page, first Import ledger (the published page's Export ledger (JSON)), then press the
+control. The other way round, the page's rows replace the slate rows of its games before anything is claimed, so
+the earlier claims never reach this ledger and nothing is marked; the control's note says how many covered games
+hold no claim from before their page. Export ledger (JSON) → Import ledger on the published page carries the marks
+and the pages that set them (`meta.closings`); each call follows the side whose page for its start is newer (R9).
+**Version skew (#431 R4, esc 2, proposed):** Until the published page carries this build, do not import a ledger
+exported from the local page into the published page.

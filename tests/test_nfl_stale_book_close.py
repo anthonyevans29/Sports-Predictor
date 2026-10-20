@@ -245,7 +245,7 @@ def test_the_nfl_file_and_the_grade_read_one_close_and_count_the_kalshi_closes(i
     # the pick divergence moves with the close: home picks all three, against 0.605 (Kalshi) and the book twice
     assert r["mean_clv_pp"] == pytest.approx(((0.70 - 0.605) + (0.65 - BOOK_H) + (0.60 - BOOK_H)) / 3 * 100, abs=0.01)
     assert any(x == f"  ── {vc.line(want)}" for x in lines)
-    assert vc.line(want).endswith(" · 1 of the closes the Kalshi-only mid")
+    assert vc.line(want).endswith(" · 1 of the closes a Kalshi mid")
 
 
 def test_results_md_names_the_rule(iso):
@@ -347,7 +347,7 @@ def test_the_restate_receipt_prints_both_records_and_writes_nothing(iso, capsys)
     assert "read-only: db iso.db (mode=ro)" in out and str(iso) not in out          # no path is printed
     # BEFORE: the four books; AFTER: the stale one is the Kalshi mid and the stale one with no Kalshi is out
     assert "  BEFORE  vs close: 4 games" in out and "  AFTER   vs close: 3 games" in out
-    assert out.count("· 1 of the closes the Kalshi-only mid") == 2                    # the season and week 6, AFTER
+    assert out.count("· 1 of the closes a Kalshi mid") == 2                    # the season and week 6, AFTER
     assert ("more than 24 h before kickoff 2 · switched to the session's Kalshi mid 1 · unpriced (no two-sided Kalshi "
             "quote within the cap in that session, or mismatched legs) 1") in out
     assert "rows whose close changed: 2" in out and "| kalshi | 0.605 |" in out and "| UNPRICED | None |" in out

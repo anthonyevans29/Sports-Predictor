@@ -1188,7 +1188,7 @@ function vsCloseLine(b){
   const k=b.kalshi_only_closes||0;
   return `vs close: ${n} game${n===1?"":"s"} · model ${b.model_log_loss.toFixed(4)} · close ${b.close_log_loss.toFixed(4)}`
     +` · close − model ${sg(b.close_minus_model)} (${interval}) · model beat the close ${b.model_beat_close}/${n}`
-    +(k?` · ${k} of the closes the Kalshi-only mid`:"");
+    +(k?` · ${k} of the closes a Kalshi mid`:"");
 }
 function recordLines(doc,name){
   const rec=doc&&doc.record; if(!rec) return [];

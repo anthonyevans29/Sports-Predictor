@@ -88,7 +88,7 @@ def line(b: dict | None) -> str:
     k = b.get("kalshi_only_closes") or 0
     return (f"vs close: {n} game{'' if n == 1 else 's'} · model {b['model_log_loss']:.4f} · close "
             f"{b['close_log_loss']:.4f} · close − model {b['close_minus_model']:+.4f} ({interval}) · model beat the "
-            f"close {b['model_beat_close']}/{n}" + (f" · {k} of the closes the Kalshi-only mid" if k else ""))
+            f"close {b['model_beat_close']}/{n}" + (f" · {k} of the closes a Kalshi mid" if k else ""))
 
 
 #: the outcome letters every results row uses, to the close's side names

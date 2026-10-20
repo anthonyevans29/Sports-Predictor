@@ -167,7 +167,7 @@ def test_a_kalshi_only_close_is_counted_and_named_in_the_line():
             for ref in ("books", "kalshi_only", "kalshi_only")]
     b = vc.block_from_rows(rows)
     assert b["games"] == 3 and b["kalshi_only_closes"] == 2
-    assert vc.line(b).endswith(" · 2 of the closes the Kalshi-only mid")
+    assert vc.line(b).endswith(" · 2 of the closes a Kalshi mid")
 
 
 def test_pl_results_file_reads_the_draw_leg(iso_db):

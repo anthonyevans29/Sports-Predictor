@@ -1,0 +1,73 @@
+match 9239 -> provider game id 1557437
+ODDS PAYLOAD PROBE · PL · the endpoint sync-odds --competition <soccer code> uses (APIFootballAdapter.list_odds, provider id key 'api_football') · 2026-10-20T14:03:01Z
+GET https://v3.football.api-sports.io/odds?fixture=1557437 -> HTTP 200 · x-ratelimit-requests-remaining 7352
+league verified from the payload: PL (39)
+FIELDS (35 key paths; [] = list element; EVERY list element scanned; up to 3 sample(s) printed per path)
+  get  [str] x1  e.g. "odds"
+  parameters  [object] x1
+  parameters.fixture  [str] x1  e.g. "1557437"
+  errors  [list] len=0 x1
+  results  [int] x1  e.g. 1
+  paging  [object] x1
+  paging.current  [int] x1  e.g. 1
+  paging.total  [int] x1  e.g. 1
+  response  [list] len=1 x1
+  response[]  [object] x1
+  response[].league  [object] x1
+  response[].league.id  [int] x1  e.g. 39
+  response[].league.name  [str] x1  e.g. "Premier League"
+  response[].league.country  [str] x1  e.g. "England"
+  response[].league.logo  [str] x1  e.g. "https://media.api-sports.io/football/leagues/39.png"
+  response[].league.flag  [str] x1  e.g. "https://media.api-sports.io/flags/gb-eng.svg"
+  response[].league.season  [int] x1  e.g. 2026
+  response[].fixture  [object] x1
+  response[].fixture.id  [int] x1  e.g. 1557437
+  response[].fixture.timezone  [str] x1  e.g. "UTC"
+  response[].fixture.date  [str] x1  e.g. "2026-10-24T14:00:00+00:00"
+  response[].fixture.timestamp  [int] x1  e.g. 1792850400
+  response[].update  [str] x1  e.g. "2026-10-19T16:35:22+00:00"
+  response[].bookmakers  [list] len=10 x1
+  response[].bookmakers[]  [object] x10
+  response[].bookmakers[].id  [int] x10  e.g. 7 | 8 | 2
+  response[].bookmakers[].name  [str] x10  e.g. "William Hill" | "Bet365" | "Marathonbet"
+  response[].bookmakers[].bets  [list] len=70 x10
+  response[].bookmakers[].bets[]  [object] x290
+  response[].bookmakers[].bets[].id  [int] x290  e.g. 1 | 2 | 3
+  response[].bookmakers[].bets[].name  [str] x290  e.g. "Match Winner" | "Home/Away" | "Second Half Winner"
+  response[].bookmakers[].bets[].values  [list] len=121 x290
+  response[].bookmakers[].bets[].values[]  [object] x2456
+  response[].bookmakers[].bets[].values[].value  [int/str] x2456  e.g. "Home" | "Draw" | "Away"
+  response[].bookmakers[].bets[].values[].odd  [str] x2456  e.g. "1.40" | "4.50" | "7.50"
+TIME-LIKE KEY NAMES (update/time/date/last/stamp/modif/created/fetched/as_of/ts, on the keys present):
+  response[].fixture.date  e.g. "2026-10-24T14:00:00+00:00"
+  response[].fixture.timestamp  e.g. 1792850400
+  response[].fixture.timezone  e.g. "UTC"
+  response[].update  e.g. "2026-10-19T16:35:22+00:00"
+DATE-TIME-LOOKING VALUES (any key):
+  response[].fixture.date  e.g. "2026-10-24T14:00:00+00:00"
+  response[].update  e.g. "2026-10-19T16:35:22+00:00"
+ADAPTER: APIFootballAdapter.list_odds reads 13 of these paths; 22 present and DROPPED:
+  get
+  paging
+  paging.current
+  paging.total
+  parameters
+  parameters.fixture
+  response[].bookmakers[].bets[].id
+  response[].bookmakers[].id
+  response[].fixture
+  response[].fixture.date
+  response[].fixture.id
+  response[].fixture.timestamp
+  response[].fixture.timezone
+  response[].league
+  response[].league.country
+  response[].league.flag
+  response[].league.id
+  response[].league.logo
+  response[].league.name
+  response[].league.season
+  response[].update
+  results
+VERDICT (this payload): a time-like field is present and dropped by the adapter: response[].fixture.date, response[].fixture.timestamp, response[].fixture.timezone, response[].update — whether it is the QUOTE's own time (vs the response's or the fixture's) is for the ruling
+raw payload written: exports/probe_pl.json

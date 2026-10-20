@@ -8001,7 +8001,8 @@ def kalshi_history_cmd(ctx, series, since, until, dry_run, max_calls):
     with match_id null and the reason in notes. THE IDENTITY HOLD (ARCHITECT 2026-10-18, addendum 127 item 3(c)): on
     a clock series, an event whose pair has an earlier-dated event that is unsettled (listed open) or out of step on
     its own date is kept with match_id null and the hold's reason, and a later run places it when the hold clears;
-    nothing already placed is moved. `kalshi-history place-held` is the ruled re-place (addendum 130 item 2(c))."""
+    nothing already placed is moved. `kalshi-history place-held` is the ruled re-place (addendum 130 item 2(c));
+    `kalshi-history place-chain` places an anchored chain of held rows (addendum 148 item 2)."""
     from datetime import date as _date
 
     from click.core import ParameterSource
@@ -8072,6 +8073,67 @@ def kalshi_history_place_held_cmd(ticker, match_id, ruling, backup_path, dry_run
         _verify_backup(backup_path, "kalshi_settled_markets", _K)
     try:
         place_held(ticker, match_id, ruling, dry_run=dry_run, echo=click.echo, guard=_guard)
+    except (ValueError, Refused) as e:
+        click.echo(str(e) if str(e).startswith("REFUSED") else f"REFUSED: {e}")
+        raise SystemExit(2)
+
+
+@kalshi_history_cmd.command("place-chain")
+@click.option("--anchor", default=None, help="The anchor's event ticker (an event out of step on its own date, ruled "
+                                             "into place on both legs by place-held), e.g. KXMLBGAME-26OCT161800TBCLE.")
+@click.option("--ruling", default=None, help="The anchor's own ruling, as its rows' notes carry it after "
+                                             "'placed by ruling: '; appended to each row the chain places.")
+@click.option("--backup", "backup_path", default=None,
+              help="Required unless --dry-run (or --list): a .backup file taken just before (integrity checked; its "
+                   "kalshi_settled_markets count must equal the live DB's), as place-held has it.")
+@click.option("--dry-run", is_flag=True, help="Make every read (the candle calls included), print the chain and each "
+                                              "row it would place; write nothing.")
+@click.option("--list", "list_mode", is_flag=True, help="READ-ONLY listing with --series: each held row by the event "
+                                                        "its note names; no network call, nothing written.")
+@click.option("--series", default=None, help="With --list only: the series to list (e.g. KXMLBGAME).")
+def kalshi_history_place_chain_cmd(anchor, ruling, backup_path, dry_run, list_mode, series):
+    """THE ANCHORED CHAIN (ARCHITECT 2026-10-20, addendum 148 item 2; #630): from one anchor (an event out of step on
+    its own date, ruled into place on both legs on one match), the pair's later events, within ten days, up to the
+    first that ENDs the chain (in step, refused, mixed legs, held behind another event, or naming the anchor
+    unsettled). Each event takes the first unused game of the pair from the anchor's clock (the anchor's match used by
+    it); a ruled event is counted on its own match. A member (every row held, naming the anchor out of step) is placed
+    on that game when each row passes the clock check (within MAX_TICK_DRIFT, 2h, and no other unused game within 2h)
+    or the settlement bracket (settled after the game's kickoff and before the next game's, the game finished with a
+    stored winner, the leg's result agreeing), a result mismatch refusing under both; one that passes neither stays
+    held and the chain stops. The table and the stored games only: no exchange call finds the chain. Each row is
+    placed as place-held places it (the candles read then; the notes: stored, "placed by ruling: <the anchor's
+    ruling>", "placed by the chain of <anchor> [k]: <by clock | by settlement>", the candles' note); a candle call
+    that fails for now writes nothing (all or nothing), exit 2. One transaction. --list --series S is the read-only
+    listing the anchors are ruled from."""
+    from src.db.schema import KalshiSettledMarket as _K
+    from src.ingestion.kalshi_history import list_chains, place_chain
+    from src.walters.venue_quote_age import Refused
+
+    if list_mode:
+        given = [f for f, v in (("--anchor", anchor), ("--ruling", ruling), ("--backup", backup_path),
+                                ("--dry-run", dry_run)) if v]
+        if given:
+            raise click.UsageError(f"{', '.join(given)} do not go with --list: the listing is read-only (no network "
+                                   "call, nothing written) and takes --series S alone")
+        if not series:
+            raise click.UsageError("--list needs --series S (e.g. KXMLBGAME)")
+    else:
+        if series:
+            raise click.UsageError("--series goes with --list only: a chain's series is its anchor's")
+        if not anchor or not ruling:
+            raise click.UsageError("place-chain needs --anchor EVENT and --ruling \"<the anchor's ruling>\" (or --list "
+                                   "--series S, the read-only listing)")
+        if not dry_run and not backup_path:
+            raise click.UsageError("REFUSED [check: --backup given]: place-chain writes, so it needs --backup PATH (a "
+                                   ".backup file taken just before; law 5); --dry-run reads without it.")
+
+    def _guard():
+        _verify_backup(backup_path, "kalshi_settled_markets", _K)
+    try:
+        if list_mode:
+            list_chains(series, echo=click.echo)
+        else:
+            place_chain(anchor, ruling, dry_run=dry_run, echo=click.echo, guard=_guard)
     except (ValueError, Refused) as e:
         click.echo(str(e) if str(e).startswith("REFUSED") else f"REFUSED: {e}")
         raise SystemExit(2)

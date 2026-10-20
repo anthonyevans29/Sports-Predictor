@@ -106,6 +106,25 @@ def series_fields(game: dict) -> dict:
     }
 
 
+# RETIRE-ORPHANS, RECEIPT (1) (ARCHITECT 2026-10-20, addendum 146 item 3(a)(1): "the row's provider id is absent from
+# the provider's answer for a window that covers its date (the strict read's own evidence, one call)"). The ids are
+# read from the answer as given: every dates[].games[] entry's gamePk (gameId where it has none), formed as the stored
+# id is (_parse_game's source_id). An entry whose id is None or blank is dropped (it names no stored row). Not
+# _parse_game's output and not the sync's `held`: those also drop an entry with no team id, a bad date or teams not
+# stored, and such an entry still LISTS its game here (the conservative read: a listed game is never absent).
+def listed_game_pks(data) -> list[str]:
+    """Every game id the /schedule answer `data` lists, in its order (src.ingestion.mlb_orphans' receipt 1)."""
+    out = []
+    dates = data.get("dates") if isinstance(data, dict) else None
+    for block in dates if isinstance(dates, list) else []:
+        games = block.get("games") if isinstance(block, dict) else None
+        for g in games if isinstance(games, list) else []:
+            pk = g.get("gamePk", g.get("gameId")) if isinstance(g, dict) else None
+            if pk is not None and str(pk).strip():
+                out.append(str(pk))
+    return out
+
+
 # Competition code → (api_filter, name, type, season_format)
 _COMPETITIONS: dict[str, dict] = {
     "MLB": {
@@ -231,6 +250,17 @@ class MLBStatsAPIAdapter(DataAdapter):
                 if parsed is not None:
                     out.append(parsed)
         return out
+
+    def postseason_params(self, season: str, game_types) -> dict:
+        """The params of the season's postseason schedule, no dates (the precedent: cli.py mlb-time-audit, the whole
+        postseason in one GET). `game_types`: the postseason gameTypes (src.ingestion.mlb_apisports.POSTSEASON_TYPES)."""
+        return {"sportId": _SPORT_ID_MLB, "gameType": ",".join(game_types),
+                "season": self._season_to_year(str(season))}
+
+    def postseason_answer(self, season: str, game_types) -> dict:
+        """The season's postseason schedule in ONE GET (retire-orphans' receipt 1, addendum 146 item 3(a)(1)), the
+        answer as given. Raises on any HTTP error (_get); nothing is parsed here (listed_game_pks reads the ids)."""
+        return self._get("schedule", params=self.postseason_params(season, game_types))
 
     def get_match_stats(self, match_source_id: str) -> list[NormalizedMatchStats]:
         """
@@ -521,6 +551,11 @@ class MLBStatsAPIAdapter(DataAdapter):
             return None
 
         status_block = game.get("status") or {}
+        # status_raw (ARCHITECT 2026-10-20, addendum 146 item 3(b)): "The statsapi adapter stores codedGameState
+        # verbatim in status_raw on every row it writes, as the api-football, api-hockey and api-sports paths do
+        # (NormalizedMatch.status_raw)." Read before the "S" default below, as api_hockey and api_football read theirs:
+        # a code the entry does not give, or gives as anything but a non-blank text, is None (_text), never "S".
+        raw_state = status_block.get("codedGameState")
         coded_state = status_block.get("codedGameState", "S")
         status = _STATUS_MAP.get(coded_state, MatchStatus.SCHEDULED)
 
@@ -564,6 +599,7 @@ class MLBStatsAPIAdapter(DataAdapter):
             season=season,
             utc_date=utc_date,
             status=status,
+            status_raw=_text(raw_state),
             home_team_source_id=str(home_team["id"]),
             away_team_source_id=str(away_team["id"]),
             source=self.source_name,

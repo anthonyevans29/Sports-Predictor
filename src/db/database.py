@@ -188,8 +188,10 @@ def read_injury_player_ids(session, ids) -> dict:
 # the unmapped pattern, like #588's; migration by hand after the backup)". matches.series_game_number,
 # games_in_series, series_description and rescheduled_from are unmapped (the ORDER LINE note; schema.py Match):
 # written after the flush by guarded Core SQL, only when all four exist. Before migrate_match_series_fields.py nothing
-# is written. Data only: no reader. The existence check is per call, never cached (as has_kalshi_ticker), and is made
-# on the writing session's own connection.
+# is written. The one reader: retire-orphans' receipt (2) (ARCHITECT 2026-10-20, addendum 146 item 3(a)(2), "the
+# series arithmetic from the #605 fields"; src.ingestion.mlb_orphans, by read_match_series). No export, Desk, matcher
+# or card reads them. The existence check is per call, never cached (as has_kalshi_ticker), and is made on the
+# session's own connection.
 SERIES_COLUMNS = ("series_game_number", "games_in_series", "series_description", "rescheduled_from")
 
 
@@ -220,6 +222,24 @@ def write_match_series(session, pairs) -> int:
     session.execute(text("UPDATE matches SET " + ", ".join(f"{c} = :{c}" for c in SERIES_COLUMNS)
                          + " WHERE id = :i"), list(last.values()))
     return len(last)
+
+
+def read_match_series(session, ids) -> dict | None:
+    """{match_id: {column: value | None}} for the given ids, the four SERIES_COLUMNS as stored (retire-orphans'
+    receipt (2), addendum 146 item 3(a)(2)); an id with no row is left out. None until the migration has added the
+    columns (the caller says so: no receipt, law 4). Read by guarded Core SQL on the session's own connection, the IN
+    list chunked."""
+    if not has_match_series(session.connection()):
+        return None
+    from sqlalchemy import bindparam, text
+    ids = sorted({i for i in ids if i is not None})
+    q = text("SELECT id, " + ", ".join(SERIES_COLUMNS) + " FROM matches WHERE id IN :ids").bindparams(
+        bindparam("ids", expanding=True))
+    out: dict = {}
+    for k in range(0, len(ids), 500):
+        for i, *vals in session.execute(q, {"ids": ids[k:k + 500]}):
+            out[i] = dict(zip(SERIES_COLUMNS, vals))
+    return out
 
 
 # SOURCE TIME (ARCHITECT 2026-10-09, addendum 32 item 4; addendum 35 item 2, RULED): odds.source_updated_at and

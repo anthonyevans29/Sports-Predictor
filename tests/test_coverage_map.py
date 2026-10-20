@@ -215,6 +215,40 @@ def test_a_day_with_a_gap(env):
     ]
 
 
+def test_a_stale_orphan_is_void_like_cancelled_and_the_slate_is_due_for_the_days_games(env):
+    """#568 (ARCHITECT 2026-10-20, addendum 146 item 3(c)): "The coverage map marks a STALE_ORPHAN row as VOID like
+    CANCELLED (closing.py's VOID set already has it)". Already so in code (closing.VOID, read_day's "void"); pinned
+    here: the retired row is named void and not counted, it forms no closing group, and the SLATE line is due for the
+    day's other game only (19:08 ET less 150 minutes, never 13:05 ET's 10:35)."""
+    assert "STALE_ORPHAN" in cl.VOID and "CANCELLED" in cl.VOID
+    make_db(env, [(50548, "MLB", "2026-10-17 23:08", "SCHEDULED"), (50555, "MLB", "2026-10-17 17:05", "STALE_ORPHAN")],
+            [(50548, "mlb_v2", "2026-10-17 11:02")])
+    rc, out = run("--date", DAY)
+    assert rc == 0
+    mlb = line_of(out, "MLB")
+    assert "· 1 game (+1 void, not counted: 50555 STALE_ORPHAN) ·" in mlb
+    assert mlb.endswith("· closing: T-35 18:33 ET [50548] → exports/closing_MLB_2026-10-17T2308Z.json")
+    assert out[out.index(mlb) + 1] == "MLB SLATE · NO SLATE FILE — slate run due 16:38 ET"
+    assert gaps(out) == ["MLB: 1 GAME, ROWS 1, NO SLATE FILE"]
+
+
+@pytest.mark.parametrize("status", ["STALE_ORPHAN", "CANCELLED"])
+def test_a_day_whose_only_game_is_void_has_no_slate_line_and_no_slate_gap(env, tmp_path, status):
+    """#568 (addendum 146 item 3(c)): "the Today tile stops showing a slate due for it". A LIVE MLB day whose only game
+    is retired reads as one whose only game is cancelled: no SLATE line, no NO SLATE FILE gap, no closing group, and
+    the coverage_v1 file carries `slate` and `slate_line` null (the tile draws only the file's slate_line)."""
+    make_db(env, [(50555, "MLB", "2026-10-17 23:08", status)], [(50555, "mlb_v2", "2026-10-17 11:02")])
+    out_file = tmp_path / "cov.json"
+    rc, out = run("--date", DAY, "--json", "--out", str(out_file))
+    assert rc == 0
+    assert out[1] == (f"MLB · 0 games (+1 void, not counted: 50555 {status}) · LIVE (closing family MLB; production "
+                      "mlb_pythag_negbin v2) · rows: none · without rows: none · closing: none left to run")
+    assert not any(" SLATE · " in x for x in out) and out[2] == "GAPS: none"
+    mlb = json.loads(out_file.read_text())["competitions"][0]
+    assert (mlb["games"], mlb["void"], mlb["groups"], mlb["slate"], mlb["slate_line"]) == (
+        [], [[50555, status]], [], None, None)
+
+
 def test_a_market_only_sport(env):
     """MARKET-ONLY from the code (export._MARKET_ONLY_REASON names NHL and NCAA), never from a lane's state; NHL's
     shadow (v7, run by nhl-daily) rides on the same line. No prediction rows expected, so no gap is claimed."""

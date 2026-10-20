@@ -406,6 +406,20 @@ def _verify_backup(backup_path: str | None, table: str, model) -> str:
     return str(bp)
 
 
+def _schema_refusal(e):
+    # ARCHITECT 2026-10-05: refuse with the remedy, never a traceback; the transaction rolled back.
+    # #279 review (Codex P2): ONLY a missing table / column is "behind the code"; a locked or
+    # read-only DB, disk I/O and the rest keep their own diagnostic (re-raised as they are).
+    # Module level since #568 (dedupe-matches and retire-orphans), unchanged.
+    msg = str(getattr(e, "orig", e)).lower()
+    if not any(k in msg for k in ("no such table", "no such column", "has no column named")):
+        raise e
+    click.echo(f"REFUSED: the live DB is behind the code ({str(getattr(e, 'orig', e))[:160]}). Nothing was "
+               "written (the transaction rolled back). Run `python cli.py init-db` (additive: creates "
+               "missing tables; NEVER --force), or the pending migrate_*.py, then re-run.")
+    raise SystemExit(2)
+
+
 @cli.command("dedupe-matches")
 @click.option("--competition", "competition_code", required=True)
 @click.option("--source", default="api_american_football", show_default=True)
@@ -437,18 +451,6 @@ def dedupe_matches_cmd(competition_code, source, apply, backup_path, sample, orp
     if apply:
         _verify_backup(backup_path, "matches", _M)
     md.SKIPPED_ABSENT.clear()
-
-    def _schema_refusal(e):
-        # ARCHITECT 2026-10-05: refuse with the remedy, never a traceback; the transaction rolled back.
-        # #279 review (Codex P2): ONLY a missing table / column is "behind the code"; a locked or
-        # read-only DB, disk I/O and the rest keep their own diagnostic (re-raised as they are).
-        msg = str(getattr(e, "orig", e)).lower()
-        if not any(k in msg for k in ("no such table", "no such column", "has no column named")):
-            raise e
-        click.echo(f"REFUSED: the live DB is behind the code ({str(getattr(e, 'orig', e))[:160]}). Nothing was "
-                   "written (the transaction rolled back). Run `python cli.py init-db` (additive: creates "
-                   "missing tables; NEVER --force), or the pending migrate_*.py, then re-run.")
-        raise SystemExit(2)
 
     if orphans:
         try:
@@ -607,6 +609,70 @@ def _dedupe_orphans(competition_code, source, apply, sample):
         for x in r["refused_at_apply"][:20]:
             click.echo(f"  REFUSED id {x['id']}: {x['why']}")
     _dedupe_state_lines(r, source)
+
+
+@cli.command("retire-orphans")
+@click.option("--competition", "competition_code", required=True,
+              help="MLB only (statsapi, the laptop's MLB path); any other is refused.")
+@click.option("--season", required=True, help="The season as stored, e.g. 2026.")
+@click.option("--apply", is_flag=True, help="RETIRE the named rows planned retire (default: dry run, writes nothing).")
+@click.option("--backup", "backup_path", default=None,
+              help="Required with --apply: a .backup file taken just before (integrity checked; its matches count "
+                   "must equal the live DB's), as dedupe-matches has it.")
+@click.option("--match-ids", "match_ids", default=None,
+              help="Required with --apply, read only with it: the stored match ids to retire, comma-separated, as "
+                   "the dry run planned them. Only the named rows whose fresh plan is retire are written; a named "
+                   "row planned otherwise is REFUSED and stays SCHEDULED.")
+def retire_orphans_cmd(competition_code, season, apply, backup_path, match_ids):
+    """RETIRE-ORPHANS FOR MLB (ARCHITECT 2026-10-20, addendum 146 item 3(a); #568): "a SCHEDULED MLB row becomes
+    STALE_ORPHAN on TWO receipts, both printed per row: (1) the row's provider id is absent from the provider's answer
+    for a window that covers its date (the strict read's own evidence, one call), and (2) the series arithmetic from
+    the #605 fields shows the series decided before this row's game number [...] Either receipt missing -> the row
+    stays SCHEDULED (law 4). Never CANCELLED: the provider said nothing." Explicit, dry run first, in the morning block
+    after the MLB sync, never inside the watch (no chain or closing step runs it). Candidates: the season's SCHEDULED
+    postseason rows (stage F/D/L/W) with no score. One provider call per run (the season's postseason schedule).
+    Refusals, each exit 2 with no provider call and nothing written: a competition other than MLB; the host's
+    api-sports fallback engaged; a --season that is not digits; no database file at the configured path (law 5: never
+    created); --apply without --backup or without --match-ids (or
+    --match-ids without --apply); the backup check; a DB behind the code. MLB not stored: exit 1, no provider call.
+    The readings: src/ingestion/mlb_orphans.py."""
+    from sqlalchemy.exc import OperationalError as _OpErr
+
+    from src.db.schema import Match as _M
+    from src.ingestion import mlb_orphans as mo
+
+    if competition_code.upper() != mo.COMPETITION:
+        click.echo(f"REFUSED: retire-orphans reads statsapi: MLB only (got {competition_code}). Nothing was read "
+                   "or written.")
+        raise SystemExit(2)
+    if _mlb_fallback(mo.COMPETITION):
+        click.echo("REFUSED: retire-orphans reads statsapi (the laptop's MLB path); this machine syncs MLB from the "
+                   "api-sports fallback (SP_SKIP_FAMILIES names MLB). Nothing was read or written.")
+        raise SystemExit(2)
+    if not str(season).strip().isdigit():
+        raise click.UsageError(f"--season takes the stored MLB season, e.g. 2026 (got {season!r})")
+    from src.db.database import get_engine as _get_engine
+    from src.db.migrate_guard import refuse_missing_db as _refuse_missing_db
+    if _refuse_missing_db(_get_engine(), "retire-orphans"):   # law 5: a dry run from a worktree never creates a DB
+        raise SystemExit(2)
+    named = _match_ids_opt(match_ids)
+    if named is not None and not apply:
+        raise click.UsageError("REFUSED: --match-ids names the rows to retire and is read only with --apply. The dry "
+                               "run plans every candidate.")
+    if apply:
+        # addendum 146 item 3(a): "explicit, dry run first"; the rows are named as merge-teams names its pairs
+        if not named:
+            raise click.UsageError("REFUSED: --apply without --match-ids. Name each row the dry run planned retire: "
+                                   "--match-ids ID,ID. Only the named rows are written.")
+        _verify_backup(backup_path, "matches", _M)
+    try:
+        r = mo.run(str(season).strip(), _adapter_for_competition(mo.COMPETITION), apply=apply, named=named)
+    except ValueError as e:
+        raise click.ClickException(str(e))
+    except _OpErr as e:
+        _schema_refusal(e)
+    for ln in mo.lines(r):
+        click.echo(ln)
 
 
 @cli.command("clv-restate")

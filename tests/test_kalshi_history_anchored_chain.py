@@ -498,7 +498,11 @@ def test_the_list_runs_from_the_anchor_s_clock_so_a_later_makeup_leaves_each_mem
                       f"2026-09-03 13:10 ET finished; 60005 2026-09-05 19:10 ET finished [used by {e1}]")
 
 
-def test_a_second_team_row_of_one_club_in_the_list_refuses(alcs):
+@pytest.mark.parametrize("club, how", [
+    (TB, "merge-teams first"),
+    ("Tampa Bay Devil Rays", "another club's game fits the names (a namesake): rule the events by place-held")],
+    ids=["a-second-row-of-one-club", "a-namesake-club"])
+def test_a_second_team_row_of_one_club_in_the_list_refuses(alcs, club, how):
     """Game 6 stored under a second "Tampa Bay Rays" team row (team rows are keyed by provider; merge-teams exists for
     this), and E17 settled after Game 6's kickoff (its settlement could be Game 6's). The list is the games the
     anchor's two names fit one each (the design's section 2, kalshi_match.fit), so Game 6 is in it, and the fitted
@@ -508,13 +512,13 @@ def test_a_second_team_row_of_one_club_in_the_list_refuses(alcs):
     from src.db.schema import Match, Sport, Team
     seed({G6: (CLE, TB, K6, "scheduled")})
     with session_scope() as s:
-        dup = Team(sport=Sport["MLB"], name=TB)
+        dup = Team(sport=Sport["MLB"], name=club)
         s.add(dup)
         s.flush()
         s.get(Match, G6).home_team_id = dup.id
         tb, cle = s.get(Match, G4).away_team_id, s.get(Match, G4).home_team_id
         pairs = {tuple(sorted((tb, cle))): f"{G4} {TB} at {CLE}, {G5} {TB} at {CLE}",
-                 tuple(sorted((cle, dup.id))): f"{G6} {CLE} at {TB}"}
+                 tuple(sorted((cle, dup.id))): f"{G6} {CLE} at {club}"}
     go(Fake(settled=SETTLED15 + SETTLED16 + SETTLED17 + SETTLED19))
     for sfx in ("TB", "CLE"):
         kh.place_held(f"{E16}-{sfx}", G4, RULING, adapter=Fake(), echo=lambda s: None, now=datetime(2026, 10, 19, 15))
@@ -528,8 +532,7 @@ def test_a_second_team_row_of_one_club_in_the_list_refuses(alcs):
     assert str(e.value) == ("REFUSED: the games the names Cleveland / Tampa Bay fit one each (kalshi_match.fit: match "
                             f"{G4}, the anchor's, and the list from its clock through 2026-10-27) are of 2 pairs of "
                             "teams (" + "; ".join(f"teams {a}/{b}: {gs}" for (a, b), gs in sorted(pairs.items()))
-                            + f"): the matcher refuses such an event ({km.PAIR_TIE}); merge-teams first; nothing is "
-                            "placed")
+                            + f"): the matcher refuses such an event ({km.PAIR_TIE}); {how}; nothing is placed")
     assert rows() == before and not fake.calls
     assert placed_on(f"{E17}-TB") == (None, None)
 

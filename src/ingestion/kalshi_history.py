@@ -1474,14 +1474,17 @@ def _plan_chain(rs, anchor: str, ruling: str, adapter) -> dict:
     for g in sorted({g.id: g for g in (m, *stored)}.values(), key=lambda g: (g.utc_date, g.id)):
         by_pair.setdefault(frozenset((g.home_team_id, g.away_team_id)), []).append(g)
     if len(by_pair) > 1:
+        # merge-teams pairs only team rows whose names are equal: a pair whose clubs carry other names is a namesake
+        same = len({frozenset((gs[0].home_team.name, gs[0].away_team.name)) for gs in by_pair.values()}) == 1
+        how = ("merge-teams first" if same else
+               "another club's game fits the names (a namesake): rule the events by place-held")
         raise ValueError(f"REFUSED: the games the names {names[0]} / {names[1]} fit one each (kalshi_match.fit: match "
                          f"{mid}, the anchor's, and the list from its clock through {last_day}) are of {len(by_pair)} "
                          "pairs of teams ("
                          + "; ".join(f"teams {'/'.join(str(i) for i in sorted(p))}: "
                                      + ", ".join(f"{g.id} {g.away_team.name} at {g.home_team.name}" for g in gs)
                                      for p, gs in sorted(by_pair.items(), key=lambda x: sorted(x[0])))
-                         + f"): the matcher refuses such an event ({km.PAIR_TIE}); merge-teams first; nothing is "
-                         "placed")
+                         + f"): the matcher refuses such an event ({km.PAIR_TIE}); {how}; nothing is placed")
     by_minute: dict = {}
     for g in stored:
         by_minute.setdefault(g.utc_date.replace(second=0, microsecond=0), []).append(g.id)
@@ -1673,8 +1676,8 @@ def place_chain(anchor: str, ruling: str, *, dry_run: bool = False, adapter=None
 
     The table and the stored games only, no exchange call to find the chain (Q11). Every refusal of the plan (ValueError
     "REFUSED: ...": the anchor, the list, two rows the chain would place on one side of one game, the notes cap) is read
-    before anything is printed; the backup check, a candle call that fails for now and the write's re-reads refuse after
-    the plan's lines are printed, and write nothing. Each row placed is placed as place_held places it (its lines, the
+    before anything is printed; the backup check, the cutoff that cannot be read, a candle call that fails for now and the
+    write's re-reads refuse after the plan's lines are printed, and write nothing. Each row placed is placed as place_held places it (its lines, the
     candles read then on the game's kickoff, the cutoff read once for the chain), its notes the stored notes, then
     "placed by ruling: <A's ruling>", then "placed by the chain of <A> [k]: <how>", then what the candles said (the
     2000-character cap). A candle call that fails for now on any row writes nothing (all or nothing). The write is one

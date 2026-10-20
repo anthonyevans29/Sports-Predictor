@@ -270,10 +270,11 @@ class Odds(Base):
     # MLB from API-Baseball) and replace odds per-source idempotently.
     source: Mapped[str | None] = mapped_column(String(32), index=True)
     # SOURCE TIME (ARCHITECT 2026-10-09, addendum 32 items 3-4): odds.source_updated_at, the provider's own
-    # time for the game's odds (american football response[].update), naive UTC: the newest that any quote in
-    # the answer can be; a quote may be older; never the time of a quote. NULL = unknown, never fresh (every
-    # source whose adapter carries no update time, and every row written before migrate_odds_source_updated_at.py;
-    # no backfill). Written by the book odds syncs from the adapter's row (sync-odds-football; sync-odds since #615).
+    # time for the game's odds (american football's response[].update, and api-football's since #615), naive UTC:
+    # the newest that any quote in the answer can be; a quote may be older; never the time of a quote. NULL =
+    # unknown, never fresh (every source whose answer carries no update time: MLB's api-baseball, #628, and
+    # hockey; every row written before migrate_odds_source_updated_at.py; no backfill). Written by the book odds
+    # syncs from the adapter's row (sync-odds-football; sync-odds since #615).
     # NOT MAPPED (ARCHITECT 2026-10-09, addendum 35 item 2: "follow the ORDER LINE note of 2026-10-04 in
     # schema.py: not mapped in the ORM, written and read by guarded Core SQL, and only when the column
     # exists"): src.db.database.write_source_times / attach_source_times.

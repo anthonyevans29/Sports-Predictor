@@ -1411,7 +1411,8 @@ def results_tally(days: int = 30, out_path: str = "RESULTS.md", report=None, exp
              "before kickoff grades against the Kalshi two-sided mid captured in the same last pre-kickoff session "
              "(the row says close_reference kalshi, with the stamp's age in hours; unpriced when that session "
              "holds no two-sided Kalshi quote within the 2c cap); a NULL or absent stamp keeps the book close. A "
-             "stamp is stored for NFL (and NCAA) book odds only._\n"]
+             "stamp is stored for NFL, NCAA and soccer book odds (soccer since #615; a three-way board keeps its book "
+             "close, labelled); MLB's odds answer carries none (#628), so an MLB book close is never switched._\n"]
     from src.walters.close import close_age_line
     from src.walters.vs_close import line as _vs_line
     _ages: list = []            # (sport label, close_age_summary) for each sport that reports a close (#382)

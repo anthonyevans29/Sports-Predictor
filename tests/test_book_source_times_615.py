@@ -11,7 +11,9 @@ priced from a Kalshi mid reproduces its stored value and is VERIFIED, not retain
 
 The stamp columns are unmapped (addendum 35 item 2): the fixture adds them to the isolated DB and points the column
 check (database._engine) at it, as migrate_odds_source_updated_at.py would; `absent` leaves them out."""
-from datetime import timedelta
+import json
+from datetime import datetime, timedelta
+from pathlib import Path
 from types import SimpleNamespace as NS
 
 import pytest
@@ -361,3 +363,101 @@ def test_results_tally_reads_the_kalshi_rows_so_a_kalshi_mid_close_is_verified(i
     assert f"- Mean model-close divergence, verified close: {want:+.2f}pp (n=3)" in mlb
     assert "Retained-legacy" not in mlb
     assert "it reproduces and counts as VERIFIED (#615)" in txt and "close_reference kalshi_only" in txt
+
+
+# ------------------------------------------- the soccer adapter: response[].update (addendum 147 item 1, law 1) ----
+
+FIXTURE = Path(__file__).parent / "fixtures" / "odds_payloads" / "api_football_odds_fixture_1557437.json"
+KEPT_UPDATE = datetime(2026, 10, 19, 16, 35, 22)          # "2026-10-19T16:35:22+00:00", the kept answer's own update
+
+
+def _soccer_adapter(monkeypatch, answer):
+    from src.adapters import api_football
+    ad = api_football.APIFootballAdapter(api_key="test-key")
+    monkeypatch.setattr(ad, "_get", lambda path, params=None: answer)
+    return ad
+
+
+def test_the_soccer_adapter_reads_the_answers_update_onto_every_row(monkeypatch):
+    answer = json.loads(FIXTURE.read_text())
+    rows = _soccer_adapter(monkeypatch, answer).list_odds("1557437")
+    assert [(r.market, r.selection, r.price_decimal) for r in rows] == [("1X2", "HOME", 1.36), ("1X2", "DRAW", 4.75),
+                                                                       ("1X2", "AWAY", 7.5)]
+    assert {r.source_updated_at for r in rows} == {KEPT_UPDATE}
+    assert all(r.captured_at != KEPT_UPDATE for r in rows)               # never our clock
+
+
+@pytest.mark.parametrize("update", [None, "", "2026-10-19T16:35:22", 1792850400, "not a time"])
+def test_an_absent_or_unreadable_update_stores_unknown(monkeypatch, update):
+    """parse_source_updated_at's pins (tests/test_odds_source_updated_at.py): absent, offset-less, an epoch integer or
+    unparseable -> None, never the fixture's date, never our clock."""
+    answer = json.loads(FIXTURE.read_text())
+    if update is None:
+        answer["response"][0].pop("update")
+    else:
+        answer["response"][0]["update"] = update
+    rows = _soccer_adapter(monkeypatch, answer).list_odds("1557437")
+    assert len(rows) == 3 and {r.source_updated_at for r in rows} == {None}
+
+
+def test_the_kept_answer_through_sync_odds_stamps_rows_and_snapshots_and_labels_the_stale_board(iso, monkeypatch):
+    """The answer's update is 117.4 h before the fixture's kickoff: the PL book close stays, labelled (addendum 140 item
+    3 reading (4); addendum 147 item 4: "a three-way board keeps its book close labelled, never a Kalshi mid")."""
+    from src.adapters import api_football
+    from src.db.database import session_scope
+    from src.db.schema import Match
+    from src.ingestion import service as svc
+    from src.walters.close import graded_block, grading_close, priced
+    fetched = datetime(2026, 10, 20, 14, 3, 1)
+    monkeypatch.setattr(api_football, "utc_now_naive", lambda: fetched)
+    monkeypatch.setattr(svc, "utc_now_naive", lambda: fetched)
+    ko = datetime(2026, 10, 24, 14, 0)                                    # the answer's fixture.date
+    with session_scope() as s:
+        mid = _match(s, "pl-kept", ko, sport=Sport.SOCCER, code="PL", ext={"api_football": "1557437"}).id
+    r = svc.IngestionService(_soccer_adapter(monkeypatch, json.loads(FIXTURE.read_text()))).sync_odds("PL")
+    assert r.created == 1
+    odds, snaps = _stored(mid)
+    assert {t for *_, t in odds} == {KEPT_UPDATE} and len(odds) == 3
+    assert snaps == [("AWAY", KEPT_UPDATE), ("DRAW", KEPT_UPDATE), ("HOME", KEPT_UPDATE)]
+    with session_scope() as s:
+        cl = grading_close(s, s.get(Match, mid))
+    assert priced(cl) and cl.get("source") != "kalshi" and cl["stale_unswitched"].startswith("three-way board")
+    g = graded_block(cl, ko)
+    assert g["close_reference"] == "books" and g["close_book_stamp_age_h"] == round((ko - KEPT_UPDATE).total_seconds()
+                                                                                     / 3600, 2)
+
+
+def test_the_baseball_adapter_reads_no_update_field():
+    """Addendum 147 item 2: api-baseball's odds answer carries no quote-time field (its only time-like keys are the
+    game's own start), so the MLB half is NOT built and nothing is substituted; MLB rows store NULL."""
+    import inspect
+    from src.adapters import api_baseball
+    assert "source_updated_at" not in inspect.getsource(api_baseball)
+
+
+def test_the_cohort_receipt_prints_before_and_after_from_one_db_state(iso, capsys):
+    """scripts/results_tally_cohort_receipt.py (addendum 147 item 3): main's read leaves the Kalshi-only close's
+    divergence in retained-legacy; as built it reproduces and is verified. The DB is opened mode=ro."""
+    import importlib.util
+    from src.db.database import session_scope
+    ko = _now() - timedelta(days=2)
+    with session_scope() as s:
+        _graded_mlb(s, "rc-konly", ko, 0.65)                                       # the kalshi_only close
+        _graded_mlb_snapshot(s, "rc-snap", ko + timedelta(hours=2), 0.66)          # a book snapshot close
+    (iso / "exports").mkdir()
+    spec = importlib.util.spec_from_file_location(
+        "rtc", Path(__file__).resolve().parent.parent / "scripts" / "results_tally_cohort_receipt.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    assert mod.main(["--db", str(iso / "iso.db"), "--exports", str(iso / "exports")]) == 0
+    out = capsys.readouterr().out.splitlines()
+    mlb = out[out.index("## MLB") + 1:]
+    before = [x for x in mlb if x.strip().startswith("BEFORE")]
+    after = [x for x in mlb if x.strip().startswith("AFTER")]
+    assert any("verified close: +8.00pp (n=1)" in x for x in before)
+    assert any("Retained-legacy" in x and "(n=1)" in x for x in before)
+    want = ((0.65 - 0.605) + (0.66 - 0.58)) / 2 * 100
+    assert any(f"verified close: {want:+.2f}pp (n=2)" in x for x in after)
+    assert not any("Retained-legacy" in x for x in after)
+    assert mod.main(["--db", str(iso / "missing.db"), "--exports", str(iso / "exports")]) == 2   # never created
+    assert not (iso / "missing.db").exists()

@@ -14,10 +14,11 @@ the time of a quote. A row without it has an unknown source time, and unknown is
 never read as fresh." The book odds syncs write it (sync-odds-football; since
 #615, addendum 137 item 4, also sync-odds: MLB's _mlb_store_odds and the
 per-match sync_odds), and a row gets a value only where its adapter carries the
-provider's update time: today american football's response[].update
-(sync-odds-football, or sync-odds --competition NFL|NCAA). Every other source
-stays NULL until its adapter reads its provider's field from a kept answer
-(#615, Law 1). No backfill: the old rows' source times were never kept.
+provider's update time: american football's response[].update
+(sync-odds-football, or sync-odds --competition NFL|NCAA) and api-football's
+(sync-odds for every soccer code; #615, addendum 147 item 1, read from a kept
+answer, Law 1). MLB's api-baseball answer carries none (#628) and its rows stay
+NULL, as hockey's do. No backfill: the old rows' source times were never kept.
 Additive and idempotent; never deletes or rewrites.
 
 RUN ORDER (ARCHITECT 2026-10-09, addendum 35 item 2): any order. The two columns
@@ -81,7 +82,7 @@ def main() -> int:
                 print(f"  {table:<15} {src:<24} {n:>8} {nw:>8} {n - nw:>8}  {last or '—'}")
     print("with = 0 = no american-football odds sync since migrating (pre-migration rows stay NULL; no backfill: "
           "their source times were never kept). A row is filled only where its adapter carries the provider's "
-          "update time: today api_american_football's.")
+          "update time: today api_american_football's and api_football's.")
     return 0
 
 

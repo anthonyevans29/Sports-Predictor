@@ -28,7 +28,7 @@ The readings built here (each stated in the PR for the architect):
     every row, or two values; a gis under 1, or even (a best-of-N is odd: an even N lets both sides reach needed, a
     tie); the series columns not migrated; a LIVE game of the series; a FINISHED game without a decided score; two
     FINISHED rows of one gamePk or one game number; more FINISHED games than gis; a side past needed; two FINISHED games
-    sharing the latest start; a clinch (the latest FINISHED game) the other side won; a clinch whose stored game number
+    sharing the latest start; two FINISHED games on one ET day (one game stored twice); a clinch (the latest FINISHED game) the other side won; a clinch whose stored game number
     is not k, the count of FINISHED games (above k: a FINISHED game of the series is not stored; below: more FINISHED
     rows than its number); with no stored clinch number, a FINISHED row storing a number of k or more (a FINISHED
     game not stored; with no number stored on any FINISHED row such a gap cannot be seen). DECIDED: a side has `needed` wins over the k FINISHED games and the series ended before this
@@ -185,6 +185,15 @@ def receipt_two(m, rows: list, fields: dict | None, name) -> dict:
     clinch = [x for x in fin if x.utc_date == last]
     if len(clinch) > 1:
         return no(f"two FINISHED games share the latest start ({', '.join(str(x.id) for x in clinch)})")
+    # a postseason series plays one game a day: two FINISHED rows of it on one ET day are one game stored twice (a
+    # re-keyed gamePk, a row from another source, neither carrying a game number) whose win the count would take
+    # twice, so an undecided series could read decided (#631 review)
+    by_day: dict = {}
+    for x in fin:
+        by_day.setdefault(x.utc_date.replace(tzinfo=timezone.utc).astimezone(NY).date(), []).append(x.id)
+    day = sorted((d, sorted(ids)) for d, ids in by_day.items() if len(ids) > 1)
+    if day:
+        return no(f"two FINISHED games on one day ({day[0][0]} ET: {', '.join(map(str, day[0][1]))})")
     c = clinch[0]
     leader = next(t for t, n in wins.items() if n == top)   # one side: gis odd and k <= gis, so 2 * needed > k
     if (c.home_team_id if c.home_score > c.away_score else c.away_team_id) != leader:

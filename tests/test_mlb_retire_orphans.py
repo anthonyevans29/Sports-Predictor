@@ -558,8 +558,13 @@ def test_receipt_two_missing_keeps_the_row(db, change, why):
     (lambda db: (drop_row(db, 50546), set_series(50551, series_game_number=None),
                  seed([(50562, 849897, "2026-10-21T00:08", "SCHEDULED", CLE, TB, None, None, "L", 6, 7, ALCS)])),
      (50555, 50562), "a FINISHED game of the series is not stored (game 5 FINISHED before the clinch, 5 FINISHED)"),
+    (lambda db: (update(50550, away_score=3, home_score=7), update(50548, away_score=6, home_score=1),
+                 update(50551, status="SCHEDULED", home_score=None, away_score=None),
+                 seed([(50570, 849870, "2026-10-18T22:08", "FINISHED", TB, CLE, 6, 1, "L", None, 7, ALCS)])),
+     (50555,), "two FINISHED games on one day (2026-10-18 ET: 50548, 50570)"),
 ], ids=["k-over-gis", "shared-latest-start", "tied-3-3-clinch-other-side", "tied-3-3-clinch-first-side",
-        "clinch-game-not-stored", "more-finished-than-clinch-number", "no-clinch-number-a-finished-game-missing"])
+        "clinch-game-not-stored", "more-finished-than-clinch-number", "no-clinch-number-a-finished-game-missing",
+        "an-earlier-game-stored-twice"])
 def test_receipt_two_refuses_a_count_or_a_clinch_the_stored_rows_cannot_carry(db, change, mids, why):
     """The count of FINISHED games and the clinch row must agree with the series: more FINISHED than gis, an even gis
     (both sides can reach needed: a tie), two FINISHED games at the latest start, or a clinch whose stored game number

@@ -11,6 +11,9 @@ grading, no prediction row is touched; grading keeps reading what it reads today
                                  [--max-calls N]
     python cli.py kalshi-history place-held --ticker TICKER --match-id N --ruling "<addendum>"
                                  (--backup PATH | --dry-run)      # the ruled re-place, addendum 130 item 2(c)
+    python cli.py kalshi-history place-chain --anchor EVENT --ruling "<the anchor's ruling>"
+                                 (--backup PATH | --dry-run)      # the anchored chain, addendum 148 item 2
+    python cli.py kalshi-history place-chain --list --series S    # its read-only listing (no network, no write)
 
 How it reads, so the receipt can be checked against it:
 - The cutoff first (/historical/cutoff, one call), printed. Then both lists of the series, paged by cursor alone (no
@@ -120,7 +123,8 @@ How it reads, so the receipt can be checked against it:
     row of the series took since the run read the table, is not written. A held row the run holds again, or whose
     hold has cleared but the matcher refuses (a stored row holding its side included), is left exactly as stored. A
     row with a match_id, and a row refused for any other reason, is never read again.
-  A held row the hold never releases is placed only by a ruling: `kalshi-history place-held` (place_held below).
+  A held row the hold never releases is placed only by a ruling: `kalshi-history place-held` (place_held below),
+  or, behind an anchor ruled into place, by `kalshi-history place-chain` (place_chain below; addendum 148 item 2).
 - --max-calls (default 300; the probe's whole run was 241): every call counts. At the cap the run stops cleanly: what
   it holds is stored (unless --dry-run), and it prints where it stopped (the list and its cursor, or the market whose
   candles it would have fetched next).
@@ -1007,7 +1011,7 @@ def place_held(ticker: str, match_id: int, ruling: str, *, dry_run: bool = False
 
     from src.adapters.kalshi import KalshiAdapter
     from src.db.database import session_scope
-    from src.db.schema import Competition, KalshiSettledMarket as K, Match
+    from src.db.schema import KalshiSettledMarket as K
     from src.timeutil import utc_now_naive
     from src.walters.venue_quote_age import readonly_session
 
@@ -1031,55 +1035,7 @@ def place_held(ticker: str, match_id: int, ruling: str, *, dry_run: bool = False
         if not (_HOLD_RX.search(notes) or REFUSED_NOTE in notes):
             raise ValueError(f"REFUSED: {ticker} carries no identity hold and no refusal in its notes "
                              f"({notes or 'none'!r}): only a held or refused row is placed by ruling")
-        comp_code, soccer = competition_for(before["series"], adapter)
-        comp_id = (rs.execute(select(Competition.id).where(Competition.code == comp_code)).scalar_one_or_none()
-                   if comp_code else None)
-        g = rs.get(Match, match_id)
-        if g is None:
-            raise ValueError(f"REFUSED: no match {match_id}: nothing is placed")
-        if comp_id is None or g.competition_id != comp_id:
-            raise ValueError(f"REFUSED: match {match_id} is not a game of {before['series']}'s own competition "
-                             f"({comp_code or 'none'}): nothing is placed")
-        home, away = g.home_team.name, g.away_team.name
-        status = str(getattr(g.status, "value", g.status))
-        kickoff = g.utc_date
-        # the event as the history path derives it (#599 item 3: the column is nullable): a row with no event_ticker
-        # reads its own ticker's event, and the siblings are the series' rows of that event read the same way
-        ev = before["event_ticker"] or km.event_of({"ticker": ticker})
-        sibs = [(t, yst) for t, yst, e in rs.execute(
-                    select(K.ticker, K.yes_sub_title, K.event_ticker).where(
-                        K.series == before["series"], (K.event_ticker == ev) | K.event_ticker.is_(None))).all()
-                if (e or km.event_of({"ticker": t})) == ev]
-        is_tie = adapter.is_tie_market if soccer else (lambda m: False)
-        names = []
-        for t, yst in sibs:
-            nm = (yst or "").strip()
-            if nm and not is_tie({"ticker": t, "yes_sub_title": yst}) and nm not in names:
-                names.append(nm)
-        if len(names) != 2:
-            raise ValueError(f"REFUSED: the stored rows of event {ev} name {names or 'no team'}: "
-                             "the event's two names are needed to read the match's teams")
-        f = km.fit((names[0], names[1]), home, away)
-        if f is None:
-            raise ValueError(f"REFUSED: match {match_id}'s teams ({away} at {home}) are not the event's two names "
-                             f"({names[0]}, {names[1]}) one each: nothing is placed")
-        home_name = f[1]
-        yes = (before["yes_sub_title"] or "").strip()
-        if is_tie({"ticker": ticker, "yes_sub_title": before["yes_sub_title"]}):
-            side = "DRAW"
-        elif yes not in names:
-            raise ValueError(f"REFUSED: {ticker}'s yes team {yes!r} is neither of the event's names {names}: the side "
-                             "cannot be told")
-        elif home_name is None:
-            raise ValueError(f"REFUSED: the names {names} cannot tell home from away on match {match_id} ({away} at "
-                             f"{home}): the side cannot be told")
-        else:
-            side = "HOME" if yes == home_name else "AWAY"
-        taken = rs.execute(select(K.ticker).where(K.series == before["series"], K.match_id == match_id,
-                                                  K.side == side, K.ticker != ticker)).scalars().all()
-        if taken:
-            raise ValueError(f"REFUSED: match {match_id} {side} is already held by {', '.join(sorted(taken))}: two "
-                             "settled markets are never stored on one side of one game")
+        tg = _ruled_target(rs, before, match_id, adapter)
     if not dry_run and not ready:
         raise ValueError(f"REFUSED: {TABLE} is not migrated (no migration marker {MIGRATION_MARKER}): nothing is "
                          "written; --dry-run reads without it")
@@ -1089,13 +1045,113 @@ def place_held(ticker: str, match_id: int, ruling: str, *, dry_run: bool = False
     echo(f"kalshi-history place-held {ticker} → match {match_id} · "
          f"{'DRY RUN: nothing is written' if dry_run else f'writes this one row of {TABLE}'} · ruling: {ruling}")
     echo(f"  before: {row_line(before)}")
-    echo(f"  match {match_id}: {away} at {home} · kickoff {kickoff:%Y-%m-%d %H:%M}Z ({km.et_text(kickoff)}) · "
-         f"{status} · the event's names {names[0]} / {names[1]} fit it one each: {yes} is {side}")
+    echo(_target_line(tg))
     if not dry_run and guard is not None:
         guard()
-    after = dict(before, match_id=match_id, side=side, fetched_at=at, last_ts=None, last_bid=None, last_ask=None,
-                 last_mid=None, candles_6h=None, candles_two_sided=None, gaps=None, raw_first_candle=None)
     calls = Calls(adapter, PLACE_HELD_CALLS)
+    after = _placed_after(before, tg, at, (f"{RULED_NOTE}{ruling}",), calls, lambda: _read_cutoff(calls), echo)
+    echo(f"  after:  {row_line(after)}")
+    if dry_run:
+        echo("  DRY RUN: nothing written")
+        return {"before": before, "after": after, "written": False}
+    with session_scope() as sess:
+        _write_placed(sess, before, after)
+    echo(f"  ✓ placed: {ticker} on match {match_id} {tg['side']} (one row written)")
+    return {"before": before, "after": after, "written": True}
+
+
+def _ruled_target(rs, before: dict, match_id: int, adapter) -> dict:
+    """place_held's reads of the match a stored row is placed on, every refusal of them its own (ValueError
+    "REFUSED: ..."): the match exists and is a game of the series' own competition; the event's two names (its stored
+    rows' yes_sub_title, the event read as the history path reads it) fit the match's two teams one each
+    (kalshi_match.fit); the side can be told (the market's yes team against the fit's home name; a Tie leg is DRAW);
+    and no other stored row of the series already holds that side of that match. The anchored chain reads its members
+    by the same function. Returns what the console prints and the write needs."""
+    from sqlalchemy import select
+
+    from src.db.schema import Competition, KalshiSettledMarket as K, Match
+    ticker = before["ticker"]
+    comp_code, soccer = competition_for(before["series"], adapter)
+    comp_id = (rs.execute(select(Competition.id).where(Competition.code == comp_code)).scalar_one_or_none()
+               if comp_code else None)
+    g = rs.get(Match, match_id)
+    if g is None:
+        raise ValueError(f"REFUSED: no match {match_id}: nothing is placed")
+    if comp_id is None or g.competition_id != comp_id:
+        raise ValueError(f"REFUSED: match {match_id} is not a game of {before['series']}'s own competition "
+                         f"({comp_code or 'none'}): nothing is placed")
+    home, away = g.home_team.name, g.away_team.name
+    status = str(getattr(g.status, "value", g.status))
+    kickoff = g.utc_date
+    # the event as the history path derives it (#599 item 3: the column is nullable): a row with no event_ticker
+    # reads its own ticker's event, and the siblings are the series' rows of that event read the same way
+    ev = before["event_ticker"] or km.event_of({"ticker": ticker})
+    sibs = [(t, yst) for t, yst, e in rs.execute(
+                select(K.ticker, K.yes_sub_title, K.event_ticker).where(
+                    K.series == before["series"], (K.event_ticker == ev) | K.event_ticker.is_(None))).all()
+            if (e or km.event_of({"ticker": t})) == ev]
+    is_tie = adapter.is_tie_market if soccer else (lambda m: False)
+    names = []
+    for t, yst in sibs:
+        nm = (yst or "").strip()
+        if nm and not is_tie({"ticker": t, "yes_sub_title": yst}) and nm not in names:
+            names.append(nm)
+    if len(names) != 2:
+        raise ValueError(f"REFUSED: the stored rows of event {ev} name {names or 'no team'}: "
+                         "the event's two names are needed to read the match's teams")
+    f = km.fit((names[0], names[1]), home, away)
+    if f is None:
+        raise ValueError(f"REFUSED: match {match_id}'s teams ({away} at {home}) are not the event's two names "
+                         f"({names[0]}, {names[1]}) one each: nothing is placed")
+    home_name = f[1]
+    yes = (before["yes_sub_title"] or "").strip()
+    if is_tie({"ticker": ticker, "yes_sub_title": before["yes_sub_title"]}):
+        side = "DRAW"
+    elif yes not in names:
+        raise ValueError(f"REFUSED: {ticker}'s yes team {yes!r} is neither of the event's names {names}: the side "
+                         "cannot be told")
+    elif home_name is None:
+        raise ValueError(f"REFUSED: the names {names} cannot tell home from away on match {match_id} ({away} at "
+                         f"{home}): the side cannot be told")
+    else:
+        side = "HOME" if yes == home_name else "AWAY"
+    taken = rs.execute(select(K.ticker).where(K.series == before["series"], K.match_id == match_id,
+                                              K.side == side, K.ticker != ticker)).scalars().all()
+    if taken:
+        raise ValueError(f"REFUSED: match {match_id} {side} is already held by {', '.join(sorted(taken))}: two "
+                         "settled markets are never stored on one side of one game")
+    return {"match_id": match_id, "home": home, "away": away, "status": status, "kickoff": kickoff, "names": names,
+            "yes": yes, "side": side}
+
+
+def _target_line(tg: dict) -> str:
+    """place_held's match line."""
+    return (f"  match {tg['match_id']}: {tg['away']} at {tg['home']} · kickoff {tg['kickoff']:%Y-%m-%d %H:%M}Z "
+            f"({km.et_text(tg['kickoff'])}) · {tg['status']} · the event's names {tg['names'][0]} / {tg['names'][1]} "
+            f"fit it one each: {tg['yes']} is {tg['side']}")
+
+
+def _read_cutoff(calls: Calls) -> tuple[str, datetime]:
+    """(the cutoff as sent, read) at placement, one call (#599 item 2); one that cannot be read writes nothing."""
+    cut, cwhy = calls.get("historical/cutoff")
+    cutoff = parse_ts(cut.get(KEYS["cutoff"])) if cut else None
+    if cutoff is None:
+        why_cut = cwhy or f"no readable {KEYS['cutoff']}"
+        raise ValueError(f"REFUSED: the cutoff (historical/cutoff) could not be read ({why_cut}; 429 retries: "
+                         f"{calls.retries_429}): the candle endpoint cannot be told; nothing is written; run it "
+                         "again")
+    return cut.get(KEYS["cutoff"]), cutoff
+
+
+def _placed_after(before: dict, tg: dict, at: datetime, parts: tuple, calls: Calls, cutoff_of, echo) -> dict:
+    """place_held's placement of one stored row on tg's match: the row as written (match_id, side, fetched_at, the
+    candles read then, on the match's stored kickoff, and the notes: the stored notes, then `parts` (the ruling part,
+    and the anchored chain's own part after it), then what the candles said). Prints place_held's candle lines.
+    `cutoff_of()` gives (the cutoff as sent, read): place_held reads it here; the anchored chain once for its rows.
+    A candle call that fails for now refuses (ValueError) and nothing is written (addendum 132 item 3(a))."""
+    ticker, match_id, kickoff = before["ticker"], tg["match_id"], tg["kickoff"]
+    after = dict(before, match_id=match_id, side=tg["side"], fetched_at=at, last_ts=None, last_bid=None, last_ask=None,
+                 last_mid=None, candles_6h=None, candles_two_sided=None, gaps=None, raw_first_candle=None)
     nok = _window_problem(kickoff, before["close_time"])
     if nok:
         cnote = f"at placement: {nok}"
@@ -1106,17 +1162,11 @@ def place_held(ticker: str, match_id: int, ruling: str, *, dry_run: bool = False
         # can be behind it by its placement. The cutoff is read now (one call, as the ingest's run starts with it) and
         # the endpoint is the row's settled_time against it; the source written is the one used. A cutoff that cannot
         # be read writes nothing (the quote lands with the placement or the placement does not land, 132 item 3(a)).
-        cut, cwhy = calls.get("historical/cutoff")
-        cutoff = parse_ts(cut.get(KEYS["cutoff"])) if cut else None
-        if cutoff is None:
-            why_cut = cwhy or f"no readable {KEYS['cutoff']}"
-            raise ValueError(f"REFUSED: the cutoff (historical/cutoff) could not be read ({why_cut}; 429 retries: "
-                             f"{calls.retries_429}): the candle endpoint cannot be told; nothing is written; run it "
-                             "again")
+        raw_cut, cutoff = cutoff_of()
         settled = before["settled_time"]
         source = before["source"] if settled is None else ("historical" if settled < cutoff else "live")
         after["source"] = source
-        echo(f"  cutoff {KEYS['cutoff']}: {cut.get(KEYS['cutoff'])} · settled "
+        echo(f"  cutoff {KEYS['cutoff']}: {raw_cut} · settled "
              + (f"{settled:%Y-%m-%d %H:%M:%S}Z" if settled else "null (the stored source stands)")
              + f" · candles from {source}" + ("" if source == before["source"] else f" (stored {before['source']})"))
         path, params = candle_call(before["series"], source, ticker, kickoff, before["close_time"])
@@ -1140,26 +1190,672 @@ def place_held(ticker: str, match_id: int, ruling: str, *, dry_run: bool = False
             echo(f"  candles: {path} from {kickoff - timedelta(hours=WINDOW_H):%Y-%m-%d %H:%M}Z to "
                  f"{before['close_time']:%Y-%m-%d %H:%M}Z: {len(candles)} candle(s) · 429 retries: "
                  f"{calls.retries_429}")
-    after["notes"] = "; ".join(x for x in (before["notes"], f"{RULED_NOTE}{ruling}", cnote) if x)
+    after["notes"] = "; ".join(x for x in (before["notes"], *parts, cnote) if x)
     if len(after["notes"]) > 2000:
         raise ValueError(f"REFUSED: the notes would run to {len(after['notes'])} characters, past the column's 2000: "
                          "shorten the ruling; nothing is written")
-    echo(f"  after:  {row_line(after)}")
-    if dry_run:
-        echo("  DRY RUN: nothing written")
-        return {"before": before, "after": after, "written": False}
+    return after
+
+
+def _write_placed(sess, before: dict, after: dict, *, held_only: bool = False) -> None:
+    """place_held's write of one placed row, in the caller's transaction: the row read again (gone, or placed since,
+    refuses; with `held_only`, as the anchored chain writes, a row that is no longer a HELD row refuses, as
+    run_history's write reads it, KH is_held), and its side read again (another row of the series that took it while
+    the candles were read refuses: two settled markets are never stored on one side of one game). A refusal is a
+    ValueError, and the caller's transaction writes nothing."""
+    from sqlalchemy import select
+
+    from src.db.schema import KalshiSettledMarket as K
+    ticker, match_id, side = before["ticker"], after["match_id"], after["side"]
+    obj = sess.execute(select(K).where(K.ticker == ticker)).scalar_one_or_none()
+    if held_only:
+        if obj is None or not is_held(obj.match_id, obj.notes):
+            raise ValueError(f"REFUSED: {ticker} changed before the write (no longer a held row: placed, gone or its "
+                             "notes changed): nothing is written")
+    elif obj is None or obj.match_id is not None:
+        raise ValueError(f"REFUSED: {ticker} changed before the write (placed or gone): nothing is written")
+    # the side is read again in the write's own transaction: another place-held, or a history run, may have taken
+    # it while the candles were read (two settled markets are never stored on one side of one game)
+    clash = sess.execute(select(K.ticker).where(K.series == before["series"], K.match_id == match_id,
+                                                K.side == side, K.ticker != ticker)).scalars().all()
+    if clash:
+        raise ValueError(f"REFUSED: match {match_id} {side} was taken by {', '.join(sorted(clash))} before the "
+                         "write: two settled markets are never stored on one side of one game; nothing is written")
+    for c in REPLACE_COLS:
+        setattr(obj, c, after[c])
+
+
+# ---- THE ANCHORED CHAIN (ARCHITECT 2026-10-20 12:56 ET, addendum 148 item 2; #630) ------------------------------------
+# The design posted on #630 (addendum 146 item 4), RULED on its twelve questions by addendum 148 item 2, verbatim in
+# part: "Q1 after A's ticker clock, M used by A: yes. Q3 STOP: yes. Q4 yes to both (the storage definition of IN STEP;
+# MAX_TICK_DRIFT 2h inclusive plus the time tie). Q5 the fourth note part after the ruling part: yes. Q6 END: yes. Q7
+# "out of step" only: yes. Q8 N1 and N2: accept both. Q10 yes. Q11 the table only, no exchange call: yes. Q12 the
+# listing mode in the same PR, its console in the body: yes. Q2 and Q9, the change: a shift-capable check IS wanted,
+# because the shifted chain is the case the rule exists for (E17 on 50548 is the ALCS's own example, and every
+# rainout-then-doubleheader pattern is a shift). A member PLACES on the count's game when EITHER check passes, and a
+# result mismatch refuses under both: (a) the clock check as designed: |kickoff − ticker clock| ≤ MAX_TICK_DRIFT and no
+# other unused game within 2h; or (b) the settlement bracket: the row's settled_time is after the count's game's
+# kickoff and before the kickoff of the pair's next game in the list (or no next game within N1's window), the target
+# is FINISHED with a stored winner, and the leg's kalshi_result agrees with that winner. The bracket is the shifted
+# event's own evidence that it settled on that game and no other. A member that passes neither stays held and the chain
+# STOPs (Q3). The dry run prints which check placed each row ("by clock 0.1h" or "by settlement +2.9h, before <next id>
+# <ET>")."
+
+CHAIN_NOTE = "placed by the chain of {anchor} [{k}]: {how}"   # the note's fourth part, after the ruling part (Q5)
+_RULED_RX = re.compile(r"(?:^|; )placed by ruling: (.*?)(?=; |$)")
+
+
+@dataclass(frozen=True)
+class _Game:
+    """A stored game of the pair as the chain reads it (read in the session, printed after it)."""
+    id: int
+    utc_date: datetime
+    status: str                  # the stored status, lowercased: scheduled / live / finished (is_game rows only)
+    winner: str | None           # HOME / AWAY of a FINISHED game, from full_time_result and the scores; None when
+                                 # neither is stored, or when the two disagree (law 4)
+
+
+def _as_game(g) -> _Game:
+    st = str(getattr(g.status, "value", g.status) or "").lower()
+    winner = None
+    if st == "finished":
+        by_result = {"H": "HOME", "A": "AWAY"}.get(getattr(g.full_time_result, "value", g.full_time_result))
+        hs, aw = g.home_score, g.away_score
+        by_score = None if hs is None or aw is None or hs == aw else ("HOME" if hs > aw else "AWAY")
+        winner = None if (by_result and by_score and by_result != by_score) else (by_result or by_score)
+    return _Game(g.id, g.utc_date, st, winner)
+
+
+def _ev(r: dict) -> str:
+    """A stored row's event, as the history path derives it (#599 item 3)."""
+    return r["event_ticker"] or km.event_of({"ticker": r["ticker"]})
+
+
+def _mks(rows: list[dict]) -> list[dict]:
+    """Stored rows as the matcher reads an event's markets (ticker, event, yes team)."""
+    return [{"ticker": r["ticker"], "event_ticker": _ev(r), "yes_sub_title": r["yes_sub_title"]} for r in rows]
+
+
+def _h(td: timedelta) -> str:
+    return f"{abs(td.total_seconds()) / 3600:.1f}h"
+
+
+def _signed_h(td: timedelta) -> str:
+    return ("+" if td >= timedelta(0) else "-") + _h(td)
+
+
+def _refusal(notes: str) -> str:
+    return (notes or "").split(REFUSED_NOTE, 1)[-1].split("; ", 1)[0]
+
+
+def _row_state(r: dict) -> tuple[str, str]:
+    """(kind, words) of one stored row for the chain: ruled (placed by ruling), ingest (placed by the ingest: IN STEP,
+    the storage definition, addendum 148 item 2 Q4), held (is_held), refused (the matcher's refusal), none."""
+    notes = r["notes"] or ""
+    if r["match_id"] is not None:
+        if RULED_NOTE in notes:
+            return "ruled", f"ruled on {r['match_id']} {r['side']}"
+        return "ingest", f"placed by the ingest on {r['match_id']} {r['side']}"
+    m = _HOLD_RX.search(notes)
+    if m:
+        return "held", f"held, names {m.group(1)} {m.group(2)}"
+    if REFUSED_NOTE in notes:
+        return "refused", f"refused: {_refusal(notes)}"
+    return "none", "unplaced, with no hold and no refusal in its notes"
+
+
+def _chain_kind(rows: list[dict], anchor: str) -> tuple[str, str | None, int | None]:
+    """(member | counted | end, the END's words, the ruled match) of one chain event (the design's section 2, as
+    ruled): IN STEP (a row placed by the ingest) ENDs; every row placed by ruling on one match is COUNTED; every row
+    held, each naming the anchor out of step (N2; Q7), is a MEMBER; held behind another event, or naming the anchor
+    unsettled, ENDs; every row refused ENDs (Q6); anything else is mixed legs and ENDs."""
+    kinds = [_row_state(r)[0] for r in rows]
+    if "ingest" in kinds:
+        ids = sorted({r["match_id"] for r in rows if _row_state(r)[0] == "ingest"})
+        return "end", f"in step (placed by the ingest on {', '.join(str(i) for i in ids)})", None
+    if all(k == "ruled" for k in kinds):
+        ids = sorted({r["match_id"] for r in rows})
+        if len(ids) == 1:
+            return "counted", None, ids[0]
+        return "end", f"mixed legs (ruled on {', '.join(str(i) for i in ids)})", None
+    if all(k == "held" for k in kinds):
+        named = [_HOLD_RX.search(r["notes"] or "") for r in rows]
+        for m in named:
+            if m.group(1) != anchor:
+                return "end", f"held behind {m.group(1)} ({m.group(2)})", None
+        for m in named:
+            if m.group(2) != HOLD_OUT_OF_STEP:
+                return "end", f"names {anchor} {m.group(2)}", None
+        return "member", None, None
+    if all(k == "refused" for k in kinds):
+        return "end", f"refused: {'; '.join(sorted({_refusal(r['notes']) for r in rows}))}", None
+    return "end", "mixed legs (" + ", ".join(sorted({_row_state(r)[0] for r in rows})) + ")", None
+
+
+def _carries_ruling(notes: str | None, ruling: str) -> bool:
+    """The row's notes carry `placed by ruling: <ruling>` whole: after the start or "; ", before "; " or the end."""
+    return bool(re.search(r"(?:^|; )" + re.escape(f"{RULED_NOTE}{ruling}") + r"(?=; |$)", notes or ""))
+
+
+def _out_of_step(ev: str, mks: list[dict], games: list, is_tie) -> str | None:
+    """The identity hold's own read of `ev` (identity_holds: out of step on its own date as
+    kalshi_match.behind_out_of_step reads it, `now` before every game), the matcher's words or None. identity_holds
+    reads an earlier event against a later one of its pair, so the read is made against `ev`'s own markets dated a day
+    on, a probe for this read and nothing else (it is never stored, listed or placed). A numbered event (G1, G2) is
+    never out of step; `games` is the stored games of `ev`'s days."""
+    m = km._STAMP.search(ev + "X")
+    day = km.ticker_stamp({"ticker": ev, "event_ticker": ev})[0]
+    if not m or day is None:
+        return None
+    d1 = day + timedelta(days=1)
+    probe = f"{ev[:m.start()]}-{d1:%y}{km._MONTHS[d1.month - 1]}{d1:%d}{m.group(4) or ''}{ev[m.end():]}"
+    pmks = [{"ticker": f"{probe}-{mk['ticker'].rsplit('-', 1)[-1]}", "event_ticker": probe,
+             "yes_sub_title": mk["yes_sub_title"]} for mk in mks]
+    held = identity_holds({probe}, {ev: mks, probe: pmks}, set(), games, is_tie).get(probe)
+    return held[2] if held and held[0] == ev and held[1] == HOLD_OUT_OF_STEP else None
+
+
+def _chain_row(r: dict, g: _Game | None, verdict: str) -> str:
+    """One stored row of a chain event, as the dry run prints it (the design's section 3, per row)."""
+    st = r["settled_time"]
+    settled = (f"{st:%Y-%m-%d %H:%M:%S}Z" if st else "-") + (f" ({_signed_h(st - g.utc_date)})" if st and g else "")
+    winner = f" · winner {g.winner or 'not stored'}" if g else ""
+    return (f"    {r['ticker']} · {_row_state(r)[1]} · result {r['kalshi_result'] or '-'}{winner} · settled {settled} · "
+            f"{verdict}")
+
+
+def _plan_chain(rs, anchor: str, ruling: str, adapter) -> dict:
+    """The chain of `anchor` read from the table and the stored games (no network): every refusal (ValueError
+    "REFUSED: ..."), the console's lines, and the rows the chain places. The design's sections 1, 2 and 5 as ruled
+    (addendum 148 item 2)."""
+    from sqlalchemy import select
+
+    from src.db.schema import Competition, KalshiSettledMarket as K, Match
+    from src.ingestion.kalshi_sync import stored_games
+
+    cols = K.__table__.c.keys()
+
+    def as_rows(q):
+        return sorted(({c: getattr(o, c) for c in cols} for o in rs.execute(q).scalars()), key=lambda r: r["ticker"])
+
+    a_rows = [r for r in as_rows(select(K).where((K.event_ticker == anchor) | K.event_ticker.is_(None)))
+              if _ev(r) == anchor]
+    if not a_rows:
+        raise ValueError(f"REFUSED: no row of {TABLE} is of event {anchor!r}: nothing is placed")
+    series = sorted({r["series"] for r in a_rows})
+    if len(series) != 1:
+        raise ValueError(f"REFUSED: the rows of {anchor} are of {len(series)} series ({', '.join(series)}): "
+                         "nothing is placed")
+    series = series[0]
+    comp_code, soccer = competition_for(series, adapter)
+    comp_id = (rs.execute(select(Competition.id).where(Competition.code == comp_code)).scalar_one_or_none()
+               if comp_code else None)
+    if comp_id is None:
+        raise ValueError(f"REFUSED: {series}'s competition ({comp_code or 'none'}) is not in the DB: nothing is "
+                         "placed")
+    is_tie = adapter.is_tie_market if soccer else (lambda m: False)
+    # THE ANCHOR: every row placed by ruling, on one match M, by the ruling --ruling names
+    for r in a_rows:
+        if _row_state(r)[0] != "ruled":
+            raise ValueError(f"REFUSED: {anchor} is not placed by ruling on every row ({r['ticker']}: "
+                             f"{_row_state(r)[1]}): a chain is anchored on an event ruled into place on both legs "
+                             "(kalshi-history place-held); nothing is placed")
+    ids = sorted({r["match_id"] for r in a_rows})
+    if len(ids) != 1:
+        raise ValueError(f"REFUSED: the rows of {anchor} are ruled on {len(ids)} matches "
+                         f"({', '.join(str(i) for i in ids)}): a chain is anchored on one match; nothing is placed")
+    for r in a_rows:
+        if not _carries_ruling(r["notes"], ruling):
+            raise ValueError(f"REFUSED: {r['ticker']} does not carry 'placed by ruling: {ruling}' (its ruling: "
+                             f"{'; '.join(_RULED_RX.findall(r['notes'] or '')) or 'none'}): --ruling names the "
+                             "anchor's own ruling; nothing is placed")
+    a_mks = _mks(a_rows)
+    key = _event_key(a_mks, is_tie)
+    if key is None:
+        raise ValueError(f"REFUSED: {anchor} is outside the identity hold's rule (an event of two names whose ticker "
+                         "carries a clock): no chain; nothing is placed")
+    pair, a_day = key
+    a_clock = km.ticker_stamp(a_mks[0])[1]
+    mid = ids[0]
+    m = rs.get(Match, mid)
+    if m is None:
+        raise ValueError(f"REFUSED: no match {mid} (the anchor's): nothing is placed")
+    if m.competition_id != comp_id:
+        raise ValueError(f"REFUSED: match {mid}, the anchor's, is not a game of {series}'s own competition "
+                         f"({comp_code}): nothing is placed")
+    m_status = str(getattr(m.status, "value", m.status))
+    if not km.is_game(m):
+        raise ValueError(f"REFUSED: match {mid}, the anchor's, is {m_status}: not a game (addendum 50 item 6(c)), so "
+                         "the count cannot read from it; nothing is placed")
+    words = _out_of_step(anchor, a_mks, stored_games(rs, [comp_id], a_mks), is_tie)
+    if words is None:
+        raise ValueError(f"REFUSED: {anchor} is not out of step on its own date (the identity hold's read: a game of "
+                         f"its pair on {a_day}, or a numbered event): a chain is anchored on the out-of-step event; "
+                         "nothing is placed")
+    a_side = ", ".join(f"{r['ticker']} {r['side']}" for r in a_rows)
+    head = [f"  anchor {anchor} · clock {km.et_text(a_clock)} · out of step: {words} · ruled on match {mid}: "
+            f"{m.away_team.name} at {m.home_team.name} · kickoff {m.utc_date:%Y-%m-%d %H:%M}Z "
+            f"({km.et_text(m.utc_date)}) · {m_status} · {a_side}"]
+
+    # THE PAIR'S EVENTS, in chain order (the hold's: ticker date, then event ticker), from the table only (Q11)
+    by_ev: dict[str, list[dict]] = {}
+    for r in as_rows(select(K).where(K.series == series)):
+        by_ev.setdefault(_ev(r), []).append(r)
+    info = {ev: _event_key(_mks(rws), is_tie) for ev, rws in by_ev.items()}
+    after_a = sorted((inf[1], ev) for ev, inf in info.items() if inf and inf[0] == pair and (inf[1], ev) > (a_day,
+                                                                                                          anchor))
+    # THE CHAIN: the events after A up to, not including, the first that ENDs it, within N1 (1-10 days after A; a twin
+    # on A's own date is next in chain order and is read, Q6)
+    chain, end = [], None
+    for d, ev in after_a:
+        if (d - a_day).days > HOLD_BOUND_DAYS:
+            break
+        kind, why, ruled_on = _chain_kind(by_ev[ev], anchor)
+        if kind == "end":
+            end = (len(chain) + 1, ev, why)
+            break
+        chain.append((len(chain) + 1, ev, kind, ruled_on))
+    chain_evs = {ev for _, ev, _, _ in chain}
+
+    # THE LIST: the pair's games (the design's section 2: the anchor's two names fitted one each by kalshi_match.fit,
+    # as place-held fits its match; rows that are games, any status) from A's ticker clock (Q1) through N1's window
+    # and a day (a member on its tenth day can take the next day's game). The fitted games, M with them, of more than
+    # one pair of teams refuse, as the matcher refuses PAIR_TIE: a second team row of one club is not told apart here
+    last_day = a_day + timedelta(days=HOLD_BOUND_DAYS + 1)
+    hi = (datetime.combine(last_day + timedelta(days=1), datetime.min.time(), tzinfo=km.ET)
+          .astimezone(km.UTC).replace(tzinfo=None))
+    names = km._names(a_mks, a_mks[0], is_tie)
+    stored = sorted((g for g in rs.execute(select(Match).where(
+        Match.competition_id == comp_id, Match.utc_date >= a_clock, Match.utc_date < hi)).scalars()
+        if g.utc_date and g.home_team and g.away_team and km.is_game(g)
+        and km.fit((names[0], names[1]), g.home_team.name, g.away_team.name) is not None),
+        key=lambda g: (g.utc_date, g.id))
+    by_pair: dict = {}
+    for g in sorted({g.id: g for g in (m, *stored)}.values(), key=lambda g: (g.utc_date, g.id)):
+        by_pair.setdefault(frozenset((g.home_team_id, g.away_team_id)), []).append(g)
+    if len(by_pair) > 1:
+        raise ValueError(f"REFUSED: the games the names {names[0]} / {names[1]} fit one each (kalshi_match.fit: match "
+                         f"{mid}, the anchor's, and the list from its clock through {last_day}) are of {len(by_pair)} "
+                         "pairs of teams ("
+                         + "; ".join(f"teams {'/'.join(str(i) for i in sorted(p))}: "
+                                     + ", ".join(f"{g.id} {g.away_team.name} at {g.home_team.name}" for g in gs)
+                                     for p, gs in sorted(by_pair.items(), key=lambda x: sorted(x[0])))
+                         + f"): the matcher refuses such an event ({km.PAIR_TIE}); merge-teams first; nothing is "
+                         "placed")
+    by_minute: dict = {}
+    for g in stored:
+        by_minute.setdefault(g.utc_date.replace(second=0, microsecond=0), []).append(g.id)
+    twins = [i for i in by_minute.values() if len(i) > 1]
+    if twins:
+        raise ValueError("REFUSED: " + "; ".join(f"rows {', '.join(str(i) for i in t)} share one kickoff minute: "
+                                                 "dedupe-matches has to merge them" for t in twins)
+                         + ": the count cannot tell them apart; nothing is placed")
+    games = [_as_game(g) for g in stored]
+    nxt = {g.id: (games[i + 1] if i + 1 < len(games) else None) for i, g in enumerate(games)}
+    # M is used by A; a game a stored row outside the chain holds a side of is used by its holder
+    used = {mid: anchor}
+    for ev in sorted(by_ev):
+        if ev != anchor and ev not in chain_evs:
+            for r in by_ev[ev]:
+                if r["match_id"] is not None:
+                    used.setdefault(r["match_id"], ev)
+    head.append(f"  games after {anchor}'s clock through {last_day}: "
+                + ("; ".join(f"{g.id} {km.et_text(g.utc_date)} {g.status}"
+                             + (f" [used by {used[g.id]}]" if g.id in used else "") for g in games) or "none"))
+
+    # THE COUNT: each chain event in order takes the first unused game; a ruled event is counted on its own match
+    taken, stopped, events = set(used), None, []
+    for k, ev, kind, ruled_on in chain:
+        rows = by_ev[ev]
+        clock = km.ticker_stamp(_mks(rows)[0])[1]
+        out = {"k": k, "event": ev, "kind": kind, "game": None, "lines": [], "place": [], "verdicts": {}}
+        events.append(out)
+        lines = out["lines"]
+        if stopped is not None:
+            lines.append(f"  [{k}] {ev} · clock {km.et_text(clock)} · not counted: the chain stopped at [{stopped}]")
+            for r in rows:
+                v = (f"counted: ruled on {ruled_on}; not read: the chain stopped at [{stopped}]" if kind == "counted"
+                     else f"stays held: the chain stopped at [{stopped}]")
+                out["verdicts"][r["ticker"]] = v
+                lines.append(_chain_row(r, None, v))
+            continue
+        free = [g for g in games if g.id not in taken]
+        g = free[0] if free else None
+        out["game"] = g
+        lines.append(f"  [{k}] {ev} · clock {km.et_text(clock)} · "
+                     + (f"count's game {g.id} {km.et_text(g.utc_date)} {g.status} · {_h(g.utc_date - clock)}" if g
+                        else "count's game: none left in the list"))
+        if kind == "counted":
+            if g is not None and g.id == ruled_on:
+                v = f"counted: ruled on {ruled_on}; the count's game agrees"
+                taken.add(g.id)
+            else:
+                v = (f"counted: ruled on {ruled_on}; the count's game is "
+                     + (f"{g.id}" if g else "none (the list has no game left)") + ": the chain stops")
+                stopped = k
+            for r in rows:
+                out["verdicts"][r["ticker"]] = v
+                lines.append(_chain_row(r, g, v))
+            continue
+        # a MEMBER: placed on the count's game when every row passes (a) the clock check or (b) the settlement
+        # bracket, a result mismatch refusing under both (addendum 148 item 2); else it stays held and the chain STOPs
+        fails: dict[str, str] = {}
+        plans: dict[str, tuple] = {}
+        if g is None:
+            for r in rows:
+                fails[r["ticker"]] = "no game of the pair left in the list"
+        elif g.status not in ("scheduled", "finished"):
+            for r in rows:
+                fails[r["ticker"]] = f"game {g.id} is {g.status}"
+        else:
+            gap = abs(g.utc_date - clock)
+            tie = [o for o in free[1:] if abs(o.utc_date - clock) <= km.MAX_TICK_DRIFT]
+            clock_why = (None if gap <= km.MAX_TICK_DRIFT and not tie
+                         else f"by clock {_h(g.utc_date - clock)} > {_h(km.MAX_TICK_DRIFT)} (MAX_TICK_DRIFT)"
+                         if gap > km.MAX_TICK_DRIFT
+                         else f"by clock: the clock also fits {tie[0].id} {km.et_text(tie[0].utc_date)}")
+            nx = nxt[g.id]
+            for r in rows:
+                t = r["ticker"]
+                try:
+                    tg = _ruled_target(rs, r, g.id, adapter)
+                except ValueError as e:
+                    fails[t] = str(e).replace("REFUSED: ", "", 1)
+                    continue
+                side, res, st = tg["side"], r["kalshi_result"], r["settled_time"]
+                if g.winner is not None and res in ("yes", "no") and (res == "yes") != (g.winner == side):
+                    fails[t] = f"result {res}, {side} {'won' if g.winner == side else 'lost'}"
+                    continue
+                if clock_why is None:
+                    plans[t] = (r, tg, f"by clock {_h(g.utc_date - clock)}")
+                    continue
+                if g.status != "finished":
+                    b_why = f"game {g.id} is {g.status}, not finished"
+                elif g.winner is None:
+                    b_why = f"no winner stored for game {g.id}"
+                elif res not in ("yes", "no"):
+                    b_why = "no result stored for the leg"
+                elif st is None:
+                    b_why = "no settled_time"
+                elif not st > g.utc_date:
+                    b_why = f"settled {st:%Y-%m-%d %H:%M:%S}Z, not after game {g.id}'s kickoff"
+                elif nx is not None and not st < nx.utc_date:
+                    b_why = (f"settled {st:%Y-%m-%d %H:%M:%S}Z, not before the next game {nx.id}'s kickoff "
+                             f"{km.et_text(nx.utc_date)}")
+                else:
+                    b_why = None
+                if b_why is None:
+                    plans[t] = (r, tg, f"by settlement {_signed_h(st - g.utc_date)}, "
+                                + (f"before {nx.id} {km.et_text(nx.utc_date)}" if nx
+                                   else f"no next game of the pair through {last_day}"))
+                else:
+                    fails[t] = f"{clock_why}; by settlement: {b_why}"
+        if fails:
+            stopped = k
+            for r in rows:
+                v = ("stays held: " + (fails.get(r["ticker"]) or "the event is placed on all its legs or on none")
+                     + "; the chain stops")
+                out["verdicts"][r["ticker"]] = v
+                lines.append(_chain_row(r, g, v))
+            continue
+        taken.add(g.id)
+        for r in rows:
+            row, tg, how = plans[r["ticker"]]
+            v = f"PLACE {tg['side']} {how}"
+            out["verdicts"][r["ticker"]] = v
+            item = {"line": _chain_row(r, g, v), "before": row, "tg": tg, "k": k,
+                    "part": CHAIN_NOTE.format(anchor=anchor, k=k, how=how)}
+            lines.append(item)
+            out["place"].append(item)
+    # two rows the chain places on one side of one game (an event with a third leg naming one of its two names): the
+    # write's own clash read does not see an earlier row of the same transaction (autoflush is off), so the plan
+    # refuses; place-held, one row a call, is untouched
+    on_side: dict = {}
+    for it in (it for e in events for it in e["place"]):
+        on_side.setdefault((it["tg"]["match_id"], it["tg"]["side"]), []).append(it["before"]["ticker"])
+    twice = {k: ts for k, ts in on_side.items() if len(ts) > 1}
+    if twice:
+        what = "; ".join(f"match {gid} {sd} would be taken by {len(ts)} rows ({', '.join(sorted(ts))})"
+                         for (gid, sd), ts in sorted(twice.items()))
+        raise ValueError(f"REFUSED: {what}: two settled markets are never stored on one side of one game; nothing is "
+                         "placed")
+    tail = []
+    if end is not None:
+        k, ev, why = end
+        tail.append(f"  [{k}] {ev} · clock {km.et_text(km.ticker_stamp(_mks(by_ev[ev])[0])[1])} · END: {why}")
+        tail += [_chain_row(r, None, f"END: {why}") for r in by_ev[ev]]
+    # held rows naming A that the chain does not read
+    outside = []
+    for ev in sorted(by_ev, key=lambda e: (info[e][1] if info.get(e) else date.min, e)):
+        if ev in chain_evs:
+            continue
+        hits = [r["ticker"] for r in by_ev[ev] if is_held(r["match_id"], r["notes"])
+                and _HOLD_RX.search(r["notes"]).group(1) == anchor]
+        if not hits:
+            continue
+        inf = info.get(ev)
+        if end is not None and ev == end[1]:
+            why = f"the END at [{end[0]}]: {end[2]}"
+        elif inf is None:
+            why = "its stored rows are not two legs of a clock event: not read (an event the table does not hold "
+            why += "whole is invisible to the count)"
+        elif inf[0] != pair:
+            why = f"not of {anchor}'s pair"
+        elif (inf[1], ev) <= (a_day, anchor):
+            why = f"not after {anchor} in chain order"
+        elif (inf[1] - a_day).days > HOLD_BOUND_DAYS:
+            why = f"{(inf[1] - a_day).days} days after {anchor}: past N1's {HOLD_BOUND_DAYS}"
+        else:
+            why = f"after the END at [{end[0]}]" if end else "outside the chain"
+        outside.append(f"{', '.join(hits)} ({why})")
+    if outside:
+        tail.append(f"  held rows naming {anchor} outside the chain: {'; '.join(outside)}")
+    return {"anchor": anchor, "series": series, "head": head, "events": events, "tail": tail, "end": end,
+            "stopped": stopped, "untaken": [g.id for g in games if g.id not in taken]}
+
+
+def place_chain(anchor: str, ruling: str, *, dry_run: bool = False, adapter=None, echo=print,
+                now: datetime | None = None, guard=None) -> dict:
+    """`kalshi-history place-chain --anchor EVENT --ruling R (--backup PATH | --dry-run)`, THE ANCHORED CHAIN (ARCHITECT
+    2026-10-20, addendum 148 item 2, on the design of #630; the block above quotes it). From one anchor A (an event out
+    of step on its own date, ruled into place on both legs by place-held on one match M), the chain is the pair's events
+    after A in the hold's chain order, within N1 (1-10 days after A), up to the first that ENDs it: an event IN STEP (a
+    row placed by the ingest), refused, of mixed legs, held behind another event, or naming A unsettled. The list is the
+    pair's games from A's ticker clock, the games A's two names fit one each (kalshi_match.fit, as place-held fits its
+    match; fitted games, M with them, of more than one pair of teams refuse, as the matcher refuses PAIR_TIE), M used by
+    A and a game a stored row outside the chain holds a side of used by its holder; each chain event in order takes the
+    first unused game. A ruled event is counted on its own match, and the chain stops where that is not the count's
+    game. A MEMBER (every row held, naming A out of step, N2) is placed on the count's game when each of its rows passes
+    (a) the clock check (|kickoff − ticker clock| <= MAX_TICK_DRIFT and no other unused game within 2h) or (b) the
+    settlement bracket (settled after the game's kickoff and before the next game's in the list, or no next game in it;
+    the game FINISHED with a stored winner; the leg's kalshi_result agrees), a result mismatch refusing under both; the
+    game must be SCHEDULED or FINISHED (a LIVE one holds). A member that passes neither stays held and the chain STOPs.
+
+    The table and the stored games only, no exchange call to find the chain (Q11). Every refusal of the plan (ValueError
+    "REFUSED: ...": the anchor, the list, two rows the chain would place on one side of one game, the notes cap) is read
+    before anything is printed; the backup check, a candle call that fails for now and the write's re-reads refuse after
+    the plan's lines are printed, and write nothing. Each row placed is placed as place_held places it (its lines, the
+    candles read then on the game's kickoff, the cutoff read once for the chain), its notes the stored notes, then
+    "placed by ruling: <A's ruling>", then "placed by the chain of <A> [k]: <how>", then what the candles said (the
+    2000-character cap). A candle call that fails for now on any row writes nothing (all or nothing). The write is one
+    transaction, each row read again as a held row and its side read again. `guard` (the CLI's backup check) is called
+    once, after every refusal of the plan is read and before the first candle call, and only when there is a row to
+    write; never under dry_run. dry_run makes every read, the candle calls included, and writes nothing. A chain with no
+    member prints and returns (exit 0). Returns {"plan", "placed": [rows as written], "written": bool}."""
+    from sqlalchemy import inspect
+
+    from src.adapters.kalshi import KalshiAdapter
+    from src.db.database import session_scope
+    from src.timeutil import utc_now_naive
+    from src.walters.venue_quote_age import readonly_session
+
+    anchor, ruling = (anchor or "").strip(), " ".join((ruling or "").split())
+    if not ruling:
+        raise ValueError("REFUSED: --ruling is empty: the chain names the anchor's own ruling")
+    if not anchor:
+        raise ValueError("REFUSED: --anchor is empty: the chain is read from one anchor event")
+    adapter = adapter or KalshiAdapter()
+    at = now or utc_now_naive()
+    with readonly_session() as rs:
+        if not inspect(rs.get_bind()).has_table(TABLE):
+            raise ValueError(f"REFUSED: {TABLE} does not exist: no row to place")
+        ready = migrated(rs)
+        plan = _plan_chain(rs, anchor, ruling, adapter)
+    if not dry_run and not ready:
+        raise ValueError(f"REFUSED: {TABLE} is not migrated (no migration marker {MIGRATION_MARKER}): nothing is "
+                         "written; --dry-run reads without it")
+    items = [it for ev in plan["events"] for it in ev["place"]]
+    for it in items:
+        if len("; ".join(x for x in (it["before"]["notes"], f"{RULED_NOTE}{ruling}", it["part"]) if x)) + 200 > 2000:
+            raise ValueError(f"REFUSED: the notes of {it['before']['ticker']} would pass the column's 2000 characters: "
+                             "nothing is written")
+    echo(f"kalshi-history place-chain {anchor} · "
+         + ("DRY RUN: nothing is written" if dry_run else f"writes the chain's rows of {TABLE}, in one transaction")
+         + f" · ruling: {ruling}")
+    for ln in plan["head"]:
+        echo(ln)
+    if items and not dry_run and guard is not None:
+        guard()
+    calls = Calls(adapter, 3 * (1 + len(items)))         # the cutoff, then one candle call per row, each with the two
+    cut: list = []                                        # 429 retries of addendum 104 item 2 (PLACE_HELD_CALLS, per row)
+
+    def cutoff_of():
+        if not cut:
+            cut.append(_read_cutoff(calls))
+        return cut[0]
+
+    def sub(s):
+        echo(f"    {s}")
+    placed = []
+    for ev in plan["events"]:
+        for ln in ev["lines"]:
+            if isinstance(ln, str):
+                echo(ln)
+                continue
+            echo(ln["line"])
+            before, tg = ln["before"], ln["tg"]
+            sub(f"  before: {row_line(before)}")
+            sub(_target_line(tg))
+            after = _placed_after(before, tg, at, (f"{RULED_NOTE}{ruling}", ln["part"]), calls, cutoff_of, sub)
+            sub(f"  after:  {row_line(after)}")
+            placed.append((ln, after))
+    for ln in plan["tail"]:
+        echo(ln)
+    members = [ev for ev in plan["events"] if ev["kind"] == "member"]
+    held = sum(1 for ev in members for v in ev["verdicts"].values() if v.startswith("stays held"))
+    closing = (f"  chain: {len(plan['events'])} event(s) · {len(members)} member(s) · {len(items)} row(s) to place · "
+               f"{held} stay held · games no event took: {', '.join(str(i) for i in plan['untaken']) or 'none'} · "
+               f"calls {calls.made} of {calls.cap}")
+    if dry_run or not items:
+        echo(closing + (" · DRY RUN: nothing written" if dry_run else " · nothing to place: nothing written"))
+        return {"plan": plan, "placed": [a for _, a in placed], "written": False}
+    echo(closing)
     with session_scope() as sess:
-        obj = sess.execute(select(K).where(K.ticker == ticker)).scalar_one_or_none()
-        if obj is None or obj.match_id is not None:
-            raise ValueError(f"REFUSED: {ticker} changed before the write (placed or gone): nothing is written")
-        # the side is read again in the write's own transaction: another place-held, or a history run, may have taken
-        # it while the candles were read (two settled markets are never stored on one side of one game)
-        clash = sess.execute(select(K.ticker).where(K.series == before["series"], K.match_id == match_id,
-                                                    K.side == side, K.ticker != ticker)).scalars().all()
-        if clash:
-            raise ValueError(f"REFUSED: match {match_id} {side} was taken by {', '.join(sorted(clash))} before the "
-                             "write: two settled markets are never stored on one side of one game; nothing is written")
-        for c in REPLACE_COLS:
-            setattr(obj, c, after[c])
-    echo(f"  ✓ placed: {ticker} on match {match_id} {side} (one row written)")
-    return {"before": before, "after": after, "written": True}
+        for ln, after in placed:
+            _write_placed(sess, ln["before"], after, held_only=True)
+    for ln, after in placed:
+        echo(f"  ✓ placed: {after['ticker']} on match {after['match_id']} {after['side']} (the chain of {anchor} "
+             f"[{ln['k']}])")
+    echo(f"  ✓ written: {len(placed)} row(s) of {TABLE}, in one transaction")
+    return {"plan": plan, "placed": [a for _, a in placed], "written": True}
+
+
+def list_chains(series: str, *, adapter=None, echo=print) -> dict:
+    """`kalshi-history place-chain --list --series S` (ARCHITECT 2026-10-20, addendum 148 item 2, Q12: "the listing
+    mode in the same PR, its console in the body: yes"): READ-ONLY, from the table and the stored games; no network
+    call, no --ruling, nothing written. Each held row of the series, by the earlier event its note names (that event's
+    state in the table: refused, ruled (with its ruling, the --ruling a chain from it names), placed by the ingest,
+    held, mixed legs, not stored) and its clock, with the held event's rows (why, result, settled) and the pair's games
+    on its day (the matcher's day rule, its date and a day either side) with kickoff, status, the gap from its clock
+    and the stored rows holding each. Anchors are ruled from it. Returns {"held_rows", "held_events", "named": {E0:
+    state}}."""
+    from sqlalchemy import inspect, select
+
+    from src.adapters.kalshi import KalshiAdapter
+    from src.db.schema import Competition, KalshiSettledMarket as K
+    from src.ingestion.kalshi_sync import stored_games
+    from src.walters.venue_quote_age import readonly_session
+
+    series = (series or "").strip()
+    adapter = adapter or KalshiAdapter()
+    comp_code, soccer = competition_for(series, adapter)
+    if comp_code is None:
+        raise ValueError(f"REFUSED: {series} is not a series the syncs read (venue.KALSHI_SERIES_BY_COMPETITION, "
+                         "KalshiAdapter.SOCCER_GAME_SERIES): nothing is listed")
+    is_tie = adapter.is_tie_market if soccer else (lambda m: False)
+    with readonly_session() as rs:
+        if not inspect(rs.get_bind()).has_table(TABLE):
+            raise ValueError(f"REFUSED: {TABLE} does not exist: no held row to list")
+        comp_id = rs.execute(select(Competition.id).where(Competition.code == comp_code)).scalar_one_or_none()
+        if comp_id is None:
+            raise ValueError(f"REFUSED: competition {comp_code} (of {series}) is not in the DB: nothing is listed")
+        cols = K.__table__.c.keys()
+        by_ev: dict[str, list[dict]] = {}
+        for o in rs.execute(select(K).where(K.series == series)).scalars():
+            r = {c: getattr(o, c) for c in cols}
+            by_ev.setdefault(_ev(r), []).append(r)
+        holders: dict[int, set] = {}
+        for ev, rws in by_ev.items():
+            rws.sort(key=lambda r: r["ticker"])
+            for r in rws:
+                if r["match_id"] is not None:
+                    holders.setdefault(r["match_id"], set()).add(ev)
+        held_evs = {ev: [r for r in rws if is_held(r["match_id"], r["notes"])] for ev, rws in by_ev.items()}
+        held_evs = {ev: hs for ev, hs in held_evs.items() if hs}
+        near = {}
+        for ev in held_evs:
+            mks = _mks(by_ev[ev])
+            names = km._names(mks, mks[0], is_tie)
+            day = km.ticker_stamp(mks[0])[0]
+            fits = (km._best_fits(names, day, stored_games(rs, [comp_id], mks))
+                    if len(names) == 2 and day is not None else [])
+            near[ev] = sorted(((g.id, g.utc_date, str(getattr(g.status, "value", g.status))) for g, _ in fits),
+                              key=lambda x: (x[1], x[0]))
+    by_e0: dict[str, list[str]] = {}
+    for ev, hs in held_evs.items():
+        for e0 in sorted({_HOLD_RX.search(r["notes"]).group(1) for r in hs}):
+            by_e0.setdefault(e0, []).append(ev)
+
+    def day_of(ev):
+        return km.ticker_stamp({"ticker": ev, "event_ticker": ev})
+
+    def state(e0):
+        rws = by_ev.get(e0)
+        if not rws:
+            return "not stored", "not stored in the table"
+        kinds = {_row_state(r)[0] for r in rws}
+        if kinds == {"ruled"} and len({r["match_id"] for r in rws}) == 1:
+            rulings = sorted({x for r in rws for x in _RULED_RX.findall(r["notes"] or "")})
+            legs = ", ".join(f"{r['ticker']} {r['side']}" for r in rws)
+            return "ruled", f"ruled on {rws[0]['match_id']} ({legs}) · placed by ruling: {' | '.join(rulings)}"
+        if kinds == {"ingest"}:
+            return "placed", f"placed by the ingest on {', '.join(sorted({str(r['match_id']) for r in rws}))}"
+        if kinds == {"refused"}:
+            return "refused", f"refused: {'; '.join(sorted({_refusal(r['notes']) for r in rws}))}"
+        if kinds == {"held"}:
+            return "held", "held: " + "; ".join(sorted({_row_state(r)[1] for r in rws}))
+        return "mixed", "mixed legs: " + "; ".join(f"{r['ticker']} {_row_state(r)[1]}" for r in rws)
+
+    echo(f"kalshi-history place-chain --list {series} ({comp_code}) · READ-ONLY: no network call, nothing written")
+    named = {}
+    for e0 in sorted(by_e0, key=lambda e: (day_of(e)[0] or date.min, e)):
+        kind, words = state(e0)
+        named[e0] = kind
+        echo(f"  E0 {e0} · clock {km.et_text(day_of(e0)[1])} · {words}")
+        for ev in sorted(by_e0[e0], key=lambda e: (day_of(e)[0] or date.min, e)):
+            clock = km.ticker_stamp(_mks(by_ev[ev])[0])[1]
+            rws = "; ".join(
+                f"{r['ticker']} {_HOLD_RX.search(r['notes']).group(2)} result {r['kalshi_result'] or '-'} settled "
+                + (f"{r['settled_time']:%Y-%m-%d %H:%M:%S}Z" if r["settled_time"] else "-")
+                for r in held_evs[ev] if _HOLD_RX.search(r["notes"]).group(1) == e0)
+            echo(f"    held {ev} · clock {km.et_text(clock)} · {rws}")
+            echo("      the pair's games on its day: "
+                 + ("; ".join(f"{gid} {km.et_text(ko)} {st}" + (f" ({_signed_h(ko - clock)})" if clock else "")
+                              + (f" · held by {', '.join(sorted(holders[gid]))}" if gid in holders else "")
+                              for gid, ko, st in near[ev]) or "none stored"))
+    n_rows = sum(len(hs) for hs in held_evs.values())
+    tally = Counter(named.values())
+    echo(f"  held rows: {n_rows} in {len(held_evs)} event(s) · events they name: {len(named)} ("
+         + ", ".join(f"{k} {tally.get(k, 0)}" for k in ("refused", "ruled", "placed", "held", "mixed", "not stored"))
+         + ") · READ-ONLY: nothing written")
+    return {"held_rows": n_rows, "held_events": len(held_evs), "named": named}

@@ -180,7 +180,8 @@ class Match(Base):
     # migrate_match_series_fields.py. It follows the ORDER LINE note of 2026-10-04 (odds_snapshots below), as #588 did
     # for injuries.player_source_id: every chain reads `matches`, and a mapped column breaks every query on a DB that
     # has not migrated. Written by guarded Core SQL only when the columns exist (src.db.database.write_match_series);
-    # data only, read by nothing.
+    # read by one thing: retire-orphans' receipt (2) (ARCHITECT 2026-10-20, addendum 146 item 3(a)(2);
+    # src.db.database.read_match_series, src.ingestion.mlb_orphans). No export, Desk, matcher or card reads them.
 
     competition: Mapped[Competition] = relationship(back_populates="matches")
     home_team: Mapped[Team] = relationship(foreign_keys=[home_team_id], back_populates="home_matches")

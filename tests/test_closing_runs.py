@@ -2386,3 +2386,26 @@ def test_442_an_export_moved_out_of_exports_never_replaces_a_kept_file(box):
     assert (box.repo / "logs" / "RID.x.json").read_text() == "kept"
     assert (box.repo / "exports" / "x.json").read_text() == "new" and "export_moved_to" not in rec
     assert rec["export_move_error"].startswith("logs/RID.x.json already exists"), rec
+
+
+# ================================================================ #568: a retired row (addendum 146 item 3(c)) ==
+
+def test_568_a_day_whose_only_mlb_row_is_a_stale_orphan_forms_no_closing_and_no_slate(box, capsys):
+    """Addendum 146 item 3(c): "The coverage map marks a STALE_ORPHAN row as VOID like CANCELLED (closing.py's VOID
+    set already has it)". Already so in code (VOID, _stored_games); pinned here on the watch's own reads: the day's
+    only MLB row, retired by retire-orphans, forms no closing group (due), is a void id of the day, and the slate stage
+    finds no game that day. As SCHEDULED it forms its group (the control)."""
+    con = sqlite3.connect(box.db)
+    con.execute("DELETE FROM matches WHERE competition_id = 1 AND id != 101")
+    con.commit()
+    con.close()
+    day = mc.ny_date(NOW)
+    assert [[x["match_id"] for x in g["games"]] for g in mc.due("MLB", NOW)["groups"]] == [[101]]   # SCHEDULED: the control
+    set_status(box.db, 101, "STALE_ORPHAN")
+    d = mc.due("MLB", NOW)
+    assert (d["games"], d["groups"], d["due"]) == ([], [], [])
+    assert mc.day_games("MLB", day) == [] and mc.day_void_ids("MLB", day) == {101}
+    box.slate_on()                                                   # the real slate stage (box stubs it out)
+    capsys.readouterr()
+    assert mc.slate_watch("MLB", NOW, dry_run=True) == 0
+    assert capsys.readouterr().out == f"  SLATE MLB {day.isoformat()}: no game that day — nothing to run\n"

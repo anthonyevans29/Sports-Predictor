@@ -387,7 +387,8 @@ class IngestionService:
             # `seriesGameNumber`, `gamesInSeries`, `seriesDescription` and `rescheduledFrom` on the match row". Only
             # the statsapi adapter fills nm.series (the api-sports fallback never reaches this method). The columns
             # are unmapped (the ORDER LINE note): stored by guarded Core SQL after the flush, each row from its own
-            # entry, a no-op until migrate_match_series_fields.py has run. Data only: nothing reads them.
+            # entry, a no-op until migrate_match_series_fields.py has run. Data only here: the one reader is
+            # retire-orphans' receipt (2) (addendum 146 item 3(a)(2); src.db.database.read_match_series).
             if series_rows:
                 from src.db.database import write_match_series
                 s.flush()

@@ -31,6 +31,7 @@ CLOSE_AT = datetime(2026, 10, 19, 16, 25, tzinfo=timezone.utc)
 LATER_AT = datetime(2026, 10, 19, 16, 40, tzinfo=timezone.utc)
 START = CLOSE_AT + timedelta(minutes=35)                            # every game kicks off at 17:00Z
 RUN, RUN2 = "20261019T162500Z-nfl", "20261019T164000Z-nfl"
+RUN_SAME_AS_OF = "20261019T162600Z-nfl"                           # a later run whose Desk read the same as_of
 CLOSING_NAME = "closing_NFL_2026-10-19T1700Z.json"
 SLATE_NAME = "nfl_predictions_2026-10-19.json"
 DEFAULT_SRC = "default 0 (no ledger summary)"
@@ -156,7 +157,7 @@ SWITCHES = '''const CLOSING_MARK_RULES={   // #431 escalations (comment 62909514
   execLeZeroAllFamilies:true,          // esc 9: exec<=0 reads every family whose row carries desk.exec.edge_pp (false = only MLB/NFL, the CLOSING_HOLDS families)
   ownCapture:"skip",                   // esc 4: a closing row's NOT-REPEATED PLAY is not auto-captured ("mark" = capture and mark it even though claim_at==as_of)
   missingGame:"per_game",              // esc 11: a game an earlier page carries and a later page lacks keeps the earlier page ("whole_page" alternative)
-  csvFillExempt:true,                  // esc 12: a Kalshi CSV fill matching the call's game and side exempts it from the mark (R7)
+  csvFillExempt:true,                  // esc 12: a Kalshi CSV fill exempts a call from the mark when matchFill, R7's unmarked preference applied, still lands it on that call
   importIdCollision:"rekey",           // esc 1 (R4): incoming call whose id a local call holds under a different pick takes the new-format id (callKey), old kept as id_imported ("refuse" alternative)
 };'''
 READ_SITES = {"execUnknown": "holdRead", "writtenRuleFrom": "holdRead", "qb": "holdRead", "bothHolds": "holdRead",
@@ -250,6 +251,27 @@ T_out({n1,n2:document.getElementById("ledgerNote").textContent,
         assert got["n1"] == ("Imported 1 calls: 0 new · 0 updated · 0 unchanged/kept (merged by key; graded entries never"
                              " downgraded) · R4 (#431): 1 incoming call(s) refused (a local call of another pick holds"
                              f" their id): Chelsea @ Arsenal model_edge value_shadow AWAY ({old})")
+
+
+def test_r4_upsertcalls_returns_its_four_keys_and_the_rekey_pair_only_on_an_import_id_collision(tmp_path):
+    """upsertCalls' result keeps the four keys every caller read before #431 on a plain re-log and an import with no
+    collision; rekeyed and refusedIds join it only when an incoming id is held by a local call of another pick
+    (reverify P3 #4: cockpit_redated_verify was the only reader of this before)."""
+    got = _node(tmp_path, r'''
+const OLD="SOCCER|Chelsea @ Arsenal|2026-10-19|model_edge|value_shadow|";
+const c=(pick,id)=>({log_date:"2026-10-19",sport:"SOCCER",game:"Chelsea @ Arsenal",home:"Arsenal",away:"Chelsea",
+  kickoff:"2026-10-20T19:00:00",three_way:true,status:"open",pick,engine:"model_edge",call_type:"value_shadow",units:0,
+  shadow_units:0.25,market_p:0.3,captured_at:"2026-10-19T12:00:00.000Z",...(id?{id}:{})});
+let L={meta:{},calls:[]};
+const relog=Object.keys(upsertCalls(L,[c("DRAW")],{relog:true}));
+const again=Object.keys(upsertCalls(L,[c("DRAW")],{relog:true}));
+const plain=Object.keys(upsertCalls(L,[c("HOME")],{incoming:true}));
+L={meta:{},calls:[c("DRAW",OLD)]};
+const coll=upsertCalls(L,[c("AWAY",OLD)],{incoming:true});
+T_out({relog,again,plain,coll:Object.keys(coll),rekeyed:coll.rekeyed,refused:coll.refusedIds});''')
+    four = ["added", "updated", "kept", "repriced"]
+    assert got["relog"] == four and got["again"] == four and got["plain"] == four
+    assert got["coll"] == four + ["rekeyed", "refusedIds"] and got["rekeyed"] == 1 and got["refused"] == []
 
 
 # -------------------------------------------------------------------------------------------------------- R6 --
@@ -500,6 +522,66 @@ T_out({after:run([T_mk("Denver",{claim_at:"2026-10-19T16:30:00.000Z",captured_at
     assert "legacy" not in got["after"]["line"]
 
 
+def test_r3_a_page_with_no_as_of_marks_nothing_and_the_claims_on_its_games_are_counted(tmp_path):
+    """R3 asks "strictly before the closing's as_of"; a page whose as_of does not read cannot establish it (law 4:
+    conservative unknowns): its games mark nothing, before or after, and the note counts the claims (only when there
+    are any)."""
+    got = _node(tmp_path, r'''
+const P=JSON.parse(JSON.stringify(C)); delete P.desk_meta.as_of; delete P.exported_at;
+const run=(calls,doc)=>{ T_seed(calls); const ne=storeClosings(T_pages(doc,CN));
+  return {marked:ne.marked,later:ne.later,noAsOf:ne.noAsOf,note:closingMarkNote(ne,0),marks:T_marks(loadLedger())}; };
+T_out({asOf:T_pages(P,CN)[0].as_of,
+  before:run([T_mk("Denver")],P),
+  after:run([T_mk("Denver",{claim_at:"2026-10-19T18:30:00.000Z",captured_at:"2026-10-19T18:30:00.000Z"})],P),
+  read:run([T_mk("Denver")],C)});''', **_docs())
+    assert got["asOf"] is None
+    for k in ("before", "after"):
+        assert [got[k]["marked"], got[k]["later"], got[k]["noAsOf"], got[k]["marks"]] == [0, 0, 1, {}], k
+        assert (" · 1 claim(s) on a covered game whose closing page carries no as_of (not marked: before or after the"
+                " page cannot be read, law 4)") in got[k]["note"]
+    assert [got["read"]["marked"], got["read"]["noAsOf"]] == [1, 0] and "no as_of" not in got["read"]["note"]
+
+
+def test_a_claim_two_starts_pages_cover_is_ambiguous_its_mark_lifted_and_counted_under_ambiguous_only(tmp_path):
+    """Law 4: a call whose game two starts' pages cover (kickoffs within the hour of both) is never guessed: not marked,
+    counted as ambiguous. A mark it carried is lifted and counted there, never as "cleared by a later page"."""
+    got = _node(tmp_path, r'''
+T_seed([T_mk("Denver")]);
+const ne1=storeClosings(T_pages(C,CN)), m1=T_marks(loadLedger());
+const P=JSON.parse(JSON.stringify(C)); P.closing.start="2026-10-19T17:30:00Z"; P.closing.run_id="20261019T165500Z-nfl";
+P.desk_meta.as_of="2026-10-19T16:55:00Z"; P.predictions.forEach(r=>{ r.utc_date="2026-10-19T17:30:00Z"; });
+const ne2=storeClosings(T_pages(P,"c2.json"));
+T_out({m1,ne1:[ne1.marked,ne1.ambiguous],ne2:[ne2.marked,ne2.ambiguous,ne2.cleared,ne2.covered],m2:T_marks(loadLedger()),
+  note:closingMarkNote(ne2,0)});''', **_docs())
+    assert got["m1"] == {"Denver|straight|HOME": RUN} and got["ne1"] == [1, 0]
+    assert got["ne2"] == [0, 1, 0, 0] and got["m2"] == {}
+    assert ("0 claim(s) marked NOT EXECUTED (the page did not repeat them; 0 new, 0 cleared by a later page)"
+            in got["note"])
+    assert " · 1 claim(s) on a game two closing pages cover (not marked, never guessed)" in got["note"]
+
+
+def test_a_mark_whose_page_is_not_stored_is_kept_and_counted_and_one_whose_page_is_stored_is_lifted(tmp_path):
+    """A call carrying a mark whose closing page this ledger does not store (a calls-only import, or a page another
+    browser holds) keeps it as it came, counted as an orphan, with or without stored pages; a mark whose page is stored
+    but no longer covers the call's game is lifted (counted cleared)."""
+    got = _node(tmp_path, r'''
+const NE=(start)=>({flag:"not executed (#431)",closing:{family:"NFL",start,run_id:"R0",as_of:"2026-10-12T16:25:00Z",
+  file:"f"},closing_call:{text:"PASS",calls:[]}});
+const old=T_mk("Albany",{kickoff:"2026-10-12T17:00:00",log_date:"2026-10-12",not_executed:NE("2026-10-12T17:00:00Z")});
+T_seed([old]); const s0=saveLedger(loadLedger()).marks, k0=!!loadLedger().calls[0].not_executed;
+T_seed([old,T_mk("Denver")]); const ne=storeClosings(T_pages(C,CN)), L=loadLedger();
+const moved=T_mk("Albany",{not_executed:NE("2026-10-19T17:00:00Z")});
+T_seed([moved]); const ne3=storeClosings(T_pages(C,CN));
+T_out({s0:[s0.orphan,s0.marked],k0,ne:[ne.orphan,ne.marked,ne.cleared],note:closingMarkNote(ne,0),
+  kept:L.calls.map(c=>[c.home,c.not_executed?c.not_executed.closing.start:null]),
+  moved:[ne3.orphan,ne3.cleared,!!loadLedger().calls[0].not_executed]});''', **_docs())
+    assert got["s0"] == [1, 0] and got["k0"] is True
+    assert got["ne"] == [1, 1, 0]
+    assert got["kept"] == [["Albany", "2026-10-12T17:00:00Z"], ["Denver", "2026-10-19T17:00:00Z"]]
+    assert " · 1 mark(s) whose closing page is not stored here (kept as they came)" in got["note"]
+    assert got["moved"] == [0, 1, False]
+
+
 # ------------------------------------------------------------------------------------------------------- esc 4 --
 
 @pytest.mark.parametrize("mode", ["skip", "mark"])
@@ -510,15 +592,24 @@ def test_esc4_the_closings_own_no_bet_play_is_never_counted_executed(tmp_path, m
 T_rules({ownCapture:MODE});
 await loadDocs([T_doc(CN,C)]);
 const L=loadLedger();
-T_out({calls:L.calls.map(c=>c.home).sort(),marks:T_marks(L),note:T_note(),bets:(settledBets(L),lastNotExec)});''',
+const note=T_note();
+for(const c of L.calls){ c.status="graded"; c.result="win"; c.graded_date="2026-10-20"; c.units_returned=+(c.units*1.9).toFixed(4);
+  if(isShadow(c)) c.shadow_returned=+((c.shadow_units||0)*1.9).toFixed(4); }
+saveLedger(L); const G=loadLedger(), bets=settledBets(G);
+T_out({calls:L.calls.map(c=>c.home).sort(),marks:T_marks(G),note,bets:bets.map(b=>b.call_type),ne:{...lastNotExec}});''',
                 MODE=mode, **_docs())
+    # every claim graded a win: the settled bets are Buffalo's straight and the two shadows in either mode, so a PLAY its
+    # closing page does not repeat never reaches the P&L; "mark" holds it out as not executed (lastNotExec)
+    assert got["bets"] == ["straight", "quarantine_shadow", "value_shadow"]
     if mode == "skip":
         assert got["calls"] == ["Buffalo", "Newark", "Tampa"] and got["marks"] == {}
         assert " · 2 closing PLAY(s) not a bet, not claimed" in got["note"]
+        assert got["ne"] == {"positions": 0, "tickets": 0, "voidLeg": 0}
     else:
         assert got["calls"] == ["Buffalo", "Dallas", "Miami", "Newark", "Tampa"]
         assert got["marks"] == {"Miami|straight|HOME": RUN, "Dallas|straight|HOME": RUN}
         assert "not a bet, not claimed" not in got["note"]
+        assert got["ne"] == {"positions": 2, "tickets": 0, "voidLeg": 0}
     # no claim from before the page anywhere in this ledger (R14 (a)); no slate row in the load, so no ⚠
     assert got["note"].endswith(" · 6 of 6 covered game(s) hold no claim from before their page in this browser's"
                                 " ledger: nothing there to mark. A local Cockpit keeps its own ledger: import the ledger,"
@@ -545,9 +636,9 @@ const run=early=>{ T_seed([leg("Denver"),leg("Albany",early?{exec_mode:"operator
   return {marks:T_marks(L),exempt:ne.exempt,bets:bets.map(b=>b.call_type),ne:{...lastNotExec}}; };
 T_out({plain:run(false),executed:run(true)});''', **_docs())
     assert got["plain"] == {"marks": {"Denver|parlay_leg|HOME": RUN}, "exempt": 0, "bets": ["straight"],
-                            "ne": {"positions": 0, "tickets": 1}}
+                            "ne": {"positions": 0, "tickets": 1, "voidLeg": 0}}
     assert got["executed"] == {"marks": {}, "exempt": 1, "bets": ["parlay", "straight"],
-                               "ne": {"positions": 0, "tickets": 0}}
+                               "ne": {"positions": 0, "tickets": 0, "voidLeg": 0}}
 
 
 DVDEN = "KXNFLGAME-26OCT19DVDEN-DEN"                   # YES on Denver (home): the Denver straight's game and side
@@ -571,6 +662,34 @@ T_out({exempt:ne.exempt,marked:ne.marked,note:closingMarkNote(ne,0)});''', CASE=
     assert f" · {got['exempt']} executed early or filled, not repeated (never marked)" in got["note"]
 
 
+@pytest.mark.parametrize("case", ["venue_repeated", "venue_repeated_alternative", "both_marked"])
+def test_r7_esc12_a_csv_fill_exempts_only_a_marked_call_it_still_lands_on(tmp_path, case):
+    """esc 12 under R7 (verify_cockpit #1): the marks come first, without the CSV exemption; matchFill then runs over
+    the calls carrying them (R7: "matchFill prefers an unmarked call of the same game and side"), and only a marked call
+    the fill still lands on is exempt. The morning model straight on Denver HOME and a venue straight on the same side;
+    the closing page says PASS on the model and calls the venue straight; one Kalshi fill on Denver YES: the fill is
+    the venue call's, so the claim the page did not repeat stays marked ("it leaves the P&L", addendum 40 item 2), with
+    the switch at either value. The page calling neither: the fill's tie group is all marked, so both are exempt."""
+    got = _node(tmp_path, r'''
+if(CASE==="venue_repeated_alternative") T_rules({csvFillExempt:false});
+const model=T_mk("Denver",{id:"MODEL"}), ven=T_mk("Denver",{id:"VENUE",engine:"venue_edge",tier:"shadow"});
+T_seed([model,ven]); const L0=loadLedger(); L0.fills=[{id:"F1",ticker:TK,side:"yes",qty:10,entry:0.5,title:""}]; saveLedger(L0);
+const P=JSON.parse(JSON.stringify(C));
+if(CASE!=="both_marked") P.predictions.find(r=>r.home_team==="Denver").desk.venue={eligible:true,side:"HOME",div_pp:6,
+  book_p:0.5,kalshi_p:0.56};
+const pages=T_pages(P,CN), ne=storeClosings(pages), L=loadLedger(), f=classifyFills(L)[0];
+T_out({calls:Object.values(pages[0].games).find(g=>g.home==="Denver").calls,marked:ne.marked,exempt:ne.exempt,
+  repeated:ne.repeated,marks:L.calls.map(c=>[c.id,!!c.not_executed]),fill:[f.call_id,f.ambiguous_calls||null]});''',
+                CASE=case, TK=DVDEN, **_docs())
+    if case == "both_marked":
+        assert got["calls"] == [] and [got["marked"], got["exempt"], got["repeated"]] == [0, 2, 0]
+        assert got["marks"] == [["MODEL", False], ["VENUE", False]] and got["fill"] == ["MODEL", ["MODEL", "VENUE"]]
+    else:
+        assert got["calls"] == ["venue_edge|straight|HOME"]
+        assert [got["marked"], got["exempt"], got["repeated"]] == [1, 0, 1]
+        assert got["marks"] == [["MODEL", True], ["VENUE", False]] and got["fill"] == ["VENUE", None]
+
+
 def test_r7_matchfill_prefers_an_unmarked_call_straight_and_ladder_and_flags_only_the_chosen_group(tmp_path):
     """R7: "matchFill prefers an unmarked call of the same game and side". A marked claim and the closing's own
     executed call on one side: the fill goes to the unmarked call, with no tie flag, in either order; two unmarked
@@ -590,6 +709,46 @@ T_out({first:m([M,U]),second:m([U,M]),tie:m([U,U2]),alone:m([M]),
     assert got["first"] == ["U", None] and got["second"] == ["U", None]
     assert got["tie"] == ["U", ["U", "U2"]] and got["alone"] == ["M", None]
     assert got["composite"] is True and got["ladder"] == [["LU", None], ["LU", None], ["LM", None]]
+
+
+# R7 x R2 (verify_ports #1): the timed tickers of the drift cases, and the calls (ledger_fills.match_fill takes the same,
+# tests/test_closing_mark_ports.py)
+DRIFT_MLB = "KXMLBGAME-26SEP291305NYYBOS-BOS"          # 13:05 ET = 17:05Z, YES on Boston (home)
+DRIFT_EPL = "KXEPLGAME-26OCT191500CHEARS-ARS"          # 15:00 ET = 19:00Z, NO on Arsenal (home): an AWAY ladder's order
+
+
+def test_r7_the_unmarked_call_of_the_same_game_takes_the_fill_when_kickoffs_drift_within_the_hour(tmp_path):
+    """R7 under R2: "matchFill prefers an unmarked call of the same game and side", and R2 counts kickoffs within
+    DESK_CLOCK_DRIFT (1 h, inclusive) as one game. The marked claim sits at the ticker's start (17:05Z) and the unmarked
+    call 5 minutes later: the nearest start's group is all marked, so the unmarked call within the hour of it takes the
+    fill, in either order; at exactly the hour too; past the hour it is another game and the marked call keeps the fill.
+    Two unmarked calls within the hour are still a tie (flagged); the 3h doubleheader rule stands (an unmarked call
+    within the hour of the marked one but past 3h of the ticker's start never takes it); the composite ladder branch
+    the same."""
+    got = _node(tmp_path, r'''
+const B={log_date:"2026-09-29",sport:"MLB",game:"New York Yankees @ Boston Red Sox",home:"Boston Red Sox",
+  away:"New York Yankees",status:"open",pick:"HOME",tier:"lean",call_type:"straight",units:1};
+const NE={flag:"x"}, M={...B,id:"m",engine:"model_edge",kickoff:"2026-09-29T17:05:00",not_executed:NE};
+const U=(k,id)=>({...B,id:id||"u",engine:"venue_edge",kickoff:k});
+const F={id:"f",ticker:MLB,side:"yes",qty:3,entry:0.55,title:"Boston wins — New York Yankees"};
+const run=calls=>{ const f=classifyFills({calls,fills:[F]})[0]; return [f.call_id,f.ambiguous_calls||null]; };
+const both=k=>[run([M,U(k)]),run([U(k),M])];
+const LB={log_date:"2026-10-19",sport:"SOCCER",game:"Chelsea @ Arsenal",home:"Arsenal",away:"Chelsea",three_way:true,
+  status:"open",pick:"AWAY",tier:"lean",engine:"model_edge",call_type:"ladder",units:0.5};
+const LM={...LB,id:"lm",kickoff:"2026-10-19T19:00:00",not_executed:NE}, LU={...LB,id:"lu",kickoff:"2026-10-19T19:15:00"};
+const FL={id:"n",ticker:EPL,side:"no",qty:2,entry:0.5,title:"Arsenal wins — Chelsea"};
+const lrun=calls=>{ const f=classifyFills({calls,fills:[FL]})[0]; return [f.call_id,f.ambiguous_calls||null,!!f.composite]; };
+T_out({drift5:both("2026-09-29T17:10:00"),before:both("2026-09-29T16:05:00"),hour:both("2026-09-29T18:05:00"),
+  past:both("2026-09-29T18:06:00"),same:both("2026-09-29T17:05:00"),
+  tie:run([M,U("2026-09-29T17:10:00","u1"),U("2026-09-29T17:20:00","u2")]),
+  far:run([{...M,kickoff:"2026-09-29T19:35:00"},U("2026-09-29T20:20:00")]),
+  ladder:[lrun([LM,LU]),lrun([LU,LM]),lrun([LM])]});''', MLB=DRIFT_MLB, EPL=DRIFT_EPL)
+    for k in ("drift5", "before", "hour", "same"):
+        assert got[k] == [["u", None], ["u", None]], k
+    assert got["past"] == [["m", None], ["m", None]]
+    assert got["tie"] == ["u1", ["u1", "u2"]]
+    assert got["far"] == ["m", None]
+    assert got["ladder"] == [["lu", None, True], ["lu", None, True], ["lm", None, True]]
 
 
 def test_r7_execute_now_and_record_fill_are_hidden_on_a_marked_call_and_every_leg_of_its_ticket(tmp_path):
@@ -665,6 +824,41 @@ T_out({m1,m2,n2,m3:T_marks(L),n3:T_note(),pages:Object.keys(L.meta.closings["NFL
     assert " · 0 game(s) stored · 6 kept (the stored page is newer or the same)" in got["n3"]
 
 
+def test_r9_two_runs_with_one_as_of_order_by_the_run_id_in_either_load_order(tmp_path):
+    """R1/R9's order of two pages is desk_meta.as_of, then the run id ("%Y%m%dT%H%M%SZ-<chain>"): two runs of one start
+    whose Desk read the same as_of, the later run calling Denver PLAY. Either load order ends with the later run's
+    page stored for every game and Denver unmarked; the same run again is one page (0)."""
+    later = closing(run=RUN_SAME_AS_OF, Denver=0.60)
+    got = _node(tmp_path, r'''
+const order=async(...ds)=>{ T_reset(); await loadDocs([T_doc(SN,S)]); for(const d of ds) await loadDocs([d]);
+  const L=loadLedger(); return {marks:T_marks(L),pages:Object.keys(L.meta.closings["NFL|2026-10-19T17:00:00Z"].pages)}; };
+const a=T_doc(CN,C), b=T_doc("closing_NFL_2026-10-19T1700Z_b.json",C2);
+const pa=T_pages(C,CN)[0], pb=T_pages(C2,"b.json")[0];
+T_out({ab:await order(a,b),ba:await order(b,a),cmp:[pageCmp(pb,pa),pageCmp(pa,pb),pageCmp(pa,{...pa}),pa.as_of===pb.as_of]});''',
+                C2=later, **_docs())
+    marks = {"Miami|straight|HOME": RUN_SAME_AS_OF, "Dallas|straight|HOME": RUN_SAME_AS_OF}
+    assert got["ab"] == got["ba"] == {"marks": marks, "pages": [RUN_SAME_AS_OF]}
+    assert got["cmp"] == [1, -1, 0, True]
+
+
+def test_closing_pages_of_one_name_but_two_runs_in_one_load_stay_two_pages(tmp_path):
+    """closingPages keys a page on its file, run and as_of (verify_cockpit #6): two runs of one start arriving under one
+    file name in one load are two pages, and the newer one (16:40Z, Denver PLAY) stands for Denver whatever the
+    order."""
+    later = closing(at=LATER_AT, run=RUN2, Denver=0.60)
+    got = _node(tmp_path, r'''
+const res=[];
+for(const ds of [[C2,C],[C,C2]]){ T_reset(); await loadDocs([T_doc(SN,S)]);
+  const rr=ds.flatMap(d=>{ const r=normalize(d); stampClosing(r,d,CN); return r; }), pages=closingPages(rr);
+  storeClosings(pages);
+  res.push({n:pages.length,runs:pages.map(p=>p.run_id),den:Object.values(pages[0].games).find(g=>g.home==="Denver").run_id,
+    marks:T_marks(loadLedger())}); }
+T_out(res);''', C2=later, **_docs())
+    marks = {"Miami|straight|HOME": RUN2, "Dallas|straight|HOME": RUN2}
+    assert got == [{"n": 2, "runs": [RUN2, RUN], "den": RUN2, "marks": marks},
+                   {"n": 2, "runs": [RUN, RUN2], "den": RUN, "marks": marks}]
+
+
 def test_r9_on_import_a_call_follows_the_side_whose_stored_page_is_newer(tmp_path):
     """R9: on import, each call follows the side whose stored page for its start is newer, in either direction."""
     later = closing(at=LATER_AT, run=RUN2, Denver=0.60)
@@ -725,12 +919,55 @@ T_out({counts:[postseasonGraded(),valueShadowGraded(),kalshiOnlyGraded(),intlGra
     assert got["counts"] == [1, 1, 1, 1]
     assert got["sum"] == {"postseason_graded": 1, "value_shadow_graded": 1, "kalshi_only_graded": 1, "intl_graded": 1}
     assert got["rules"] == ["intl U", "ko U", "ps U", "vs U"]
-    assert got["bets"] == 4 and got["ne"] == {"positions": 4, "tickets": 0}
+    assert got["bets"] == 4 and got["ne"] == {"positions": 4, "tickets": 0, "voidLeg": 0}
     assert got["gate"] == "Sizing gate: model_edge 3/50 · venue_edge 0/50 graded before any sizing proposal"
     assert got["line"].startswith("Not executed (addendum 40 item 2, #431): 4 claim(s) the closing page did not repeat"
                                   " (4 position(s), 0 ticket(s) settled)")
     assert f'<div class="caution" id="notExecLine">⚠ {got["line"].replace("&", "&amp;")}</div>' in got["totals"]
     assert "<b>3</b> settled bets" in got["totals"] and got["progress"] == "graded 1/30"   # the value shadow: not real
+
+
+def test_a_marked_call_later_voided_as_re_dated_is_listed_void_only_and_its_ticket_stays_locked(tmp_path):
+    """markClosings leaves a void_redated call as it is, so a call marked and then re-dated keeps its mark. The NOT
+    EXECUTED count (the P&L line) and the #notExecuted list leave it out, as k_receipt.not_executed_calls and
+    value_shadow_receipt do (verify_ports #2): it is listed void only. The ticket lock (no Execute now / Record fill on a
+    ticket with a marked leg) is unchanged."""
+    got = _node(tmp_path, r'''
+const NE={flag:"not executed (#431)",closing:{family:"NFL",start:"2026-10-19T17:00:00Z",run_id:"R",as_of:"2026-10-19T16:25:00Z",
+  file:"f"},closing_call:{text:"PASS",calls:[]}};
+const V="void: re-dated 2026-10-19 17:00Z → 2026-10-20 17:00Z";
+const leg=(home,o)=>T_mk(home,{call_type:"parlay_leg",parlay_id:"P-2026-10-19-T",units:0.25,tier:"parlay",...(o||{})});
+T_seed([T_mk("Denver",{not_executed:NE}),T_mk("Buffalo",{status:"void",void_redated:V,not_executed:NE}),
+  leg("Miami",{status:"void",void_redated:V,not_executed:NE}),leg("Albany")]);
+renderLedger(); const L=loadLedger(); settledBets(L);
+const h=document.getElementById("openList").innerHTML;
+T_out({line:notExecutedLine(L),list:(h.match(/<div class="note" id="notExecuted">.*?<\/div>/)||[""])[0],
+  albany:L.calls.find(c=>c.home==="Albany").id,fill:[...h.matchAll(/fillBtn" data-id="([^"]+)"/g)].map(x=>x[1]),
+  locked:(h.match(/not executed \(#431\): no fill to record/g)||[]).length,marks:L.calls.filter(c=>c.not_executed).length});''')
+    assert got["marks"] == 3                                    # nothing is deleted: the void calls keep their marks
+    assert got["line"].startswith("Not executed (addendum 40 item 2, #431): 1 claim(s) the closing page did not repeat")
+    assert got["list"].startswith('<div class="note" id="notExecuted"><b>1 claim(s) not executed</b>')
+    assert "Denver Visitors @ Denver" in got["list"] and "Buffalo" not in got["list"] and "Miami" not in got["list"]
+    assert got["locked"] == 2 and got["albany"] not in got["fill"]     # Denver and the ticket's open leg, as before
+
+
+def test_a_settled_ticket_held_out_only_by_a_void_marked_leg_is_named_on_the_line(tmp_path):
+    """A ticket whose only marked leg was later re-dated (void) stays out of the P&L (R5) while the void leg is listed
+    void only; the NOT EXECUTED line names the held-out ticket instead of reading "0 claim(s) ... 1 ticket(s) settled"
+    with nothing beside it (reverify P3 #2)."""
+    got = _node(tmp_path, r'''
+const NE={flag:"not executed (#431)",closing:{family:"NFL",start:"2026-10-19T17:00:00Z",run_id:"R",as_of:"2026-10-19T16:25:00Z",
+  file:"f"},closing_call:{text:"PASS",calls:[]}};
+const V="void: re-dated 2026-10-19 17:00Z → 2026-10-20 17:00Z";
+const leg=(home,o)=>T_mk(home,{call_type:"parlay_leg",parlay_id:"P-2026-10-19-T",units:0.25,tier:"parlay",...(o||{})});
+T_seed([leg("Miami",{status:"void",void_redated:V,not_executed:NE,ticket_result:"win",units_returned:0.6}),
+  leg("Albany",{status:"graded",result:"win",ticket_result:"win",units_returned:0.6,graded_date:"2026-10-19"})]);
+const L=loadLedger(), bets=settledBets(L);
+T_out({bets:bets.length,ne:{...lastNotExec},line:notExecutedLine(L)});''')
+    assert got["bets"] == 0 and got["ne"] == {"positions": 0, "tickets": 1, "voidLeg": 1}
+    assert got["line"].startswith("Not executed (addendum 40 item 2, #431): 0 claim(s) the closing page did not repeat"
+                                  " (0 position(s), 1 ticket(s) settled)")
+    assert got["line"].endswith(" · 1 ticket(s) held out by a leg marked before it was re-dated (void)")
 
 
 def test_r10_executed_positions_and_clv_lines_keep_a_marked_call(tmp_path):
@@ -796,7 +1033,7 @@ T_out({n1,n2,marks:d1.closings.marks,lead:loadLogNote(null,ne)});''', **_docs())
 def test_r12_the_not_executed_check_runs_before_183s_and_183_reads_the_file_that_built_the_ticket():
     html = _html()
     sb = _fn(html, "settledBets")
-    assert sb.index("if(all.some(l=>l.not_executed)){lastNotExec.tickets++; continue;}") \
+    assert sb.index("if(all.some(l=>l.not_executed)){lastNotExec.tickets++; if(all.every(l=>!l.not_executed||l.void_redated))") \
         < sb.index('l.leg_check.status==="not_play"')
     assert sb.index("if(c.not_executed){lastNotExec.positions++; continue;}") < sb.index("const a=auditCall(c); tally(a);")
     assert "legAuditCalls()" in _fn(html, "auditParlayLegs") and "deskCalls" not in _fn(html, "auditParlayLegs")
@@ -821,7 +1058,7 @@ T_out({check:L.calls.filter(c=>c.call_type==="parlay_leg").map(c=>[c.home,c.leg_
   ne:{...lastNotExec},audit:{...lastAudit},legRows:legAuditCalls().map(x=>x.r.closing?"closing":"slate")});''',
                 **_docs())
     assert got["check"] == [["Denver", "play"], ["Albany", None]]
-    assert got["ne"] == {"positions": 0, "tickets": 1}
+    assert got["ne"] == {"positions": 0, "tickets": 1, "voidLeg": 0}
     assert got["audit"] == {"flagged": 0, "fallback": 0, "excluded": 0, "legNotPlay": 0}   # lastAudit's four keys only
     assert set(got["legRows"]) == {"slate"}
 
@@ -850,7 +1087,15 @@ T_out({n,n3:T_note()});''', C3=summary, **_docs())
 def test_r14_the_runbook_names_the_order_and_the_version_skew_line():
     doc = " ".join((ROOT / "docs" / "specs" / "exports-mirror.md").read_text(encoding="utf-8").split())
     assert "**Closings: import the ledger, then load (#431, ARCHITECT 2026-10-20, addendum 145 item 3(b) R14).**" in doc
-    assert "In the local page, first Import ledger (the published page's Export ledger (JSON)), then press the" in doc
+    # COMMIT 1 (verify_cockpit #3): closing files come in through the file picker or Load latest from host; no laptop
+    # control is named before the commit that adds it
+    assert ("A closing file loaded into the Cockpit (the file picker, or Load latest from host) marks NOT EXECUTED the"
+            " claims its page did not repeat") in doc
+    assert ("In the local page, first Import ledger (the published page's Export ledger (JSON)), then load the closing"
+            " files.") in doc
+    assert "the load note says how many covered games hold no claim from before their page" in doc
+    para = doc[doc.index("**Closings: import the ledger"):doc.index("**Version skew")]
+    assert "control" not in para and "laptop" not in para and "replace the slate rows" not in para
     assert ("Until the published page carries this build, do not import a ledger exported from the local page into the"
             " published page.") in doc
     spec = " ".join((ROOT / "docs" / "specs" / "cockpit-v04-pnl-organ.md").read_text(encoding="utf-8").split())

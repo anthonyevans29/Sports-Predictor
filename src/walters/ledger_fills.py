@@ -333,6 +333,45 @@ def _start_nearest(fx: dict, cands: list) -> list:
     return [c for c in within if dist(c) == m]
 
 
+# The Cockpit's REDATED_DRIFT_MS (tools/cockpit.html; desk_policy.DESK_CLOCK_DRIFT, 1 h, inclusive) in seconds: R2's
+# one game (ARCHITECT 2026-10-20, addendum 145 item 3(b)), read by _unmarked_first
+REDATED_DRIFT_S = 3600
+
+
+def _kickoff_ts(c: dict):
+    """A call's kickoff as epoch seconds (UTC when it names no zone), as _start_nearest reads it; None when absent or
+    unreadable."""
+    from datetime import datetime, timezone
+    k = c.get("kickoff")
+    if not k:
+        return None
+    try:
+        kt = datetime.fromisoformat(k[:-1] + "+00:00" if k.endswith(("Z", "z")) else k)
+    except ValueError:
+        return None
+    return (kt.replace(tzinfo=timezone.utc) if kt.tzinfo is None else kt).timestamp()
+
+
+def _unmarked_first(fx: dict, cands: list, group: list, keep) -> list:
+    """unmarkedFirst (#431 R7 under R2, verify_ports #1): R2 counts kickoffs within DESK_CLOCK_DRIFT (REDATED_DRIFT_S,
+    inclusive) as one game, so "an unmarked call of the same game and side" can sit minutes off the nearest start.
+    The group the nearest start chose (the calls the fill would take) keeps its unmarked calls first; when every one is
+    marked, the unmarked calls passing `keep` among the candidates within _start_nearest's 3h whose kickoff is within
+    the hour of one of the group's take the fill instead. The 3h doubleheader rule and the tie flag (the chosen group,
+    listed whole) stand as they were. A line-for-line port: the Cockpit's matchFill moves with it."""
+    from datetime import datetime, timezone
+    u = [c for c in group if not c.get("not_executed")]
+    if u or not group:
+        return u or group
+    if not fx.get("start"):
+        return group
+    t0 = datetime.fromisoformat(fx["start"]).replace(tzinfo=timezone.utc).timestamp()
+    ks = [k for k in (_kickoff_ts(c) for c in group) if k is not None]
+    same = [c for c in cands if not c.get("not_executed") and keep(c) and (k := _kickoff_ts(c)) is not None
+            and abs(k - t0) <= 3 * 3600 and any(abs(k - x) <= REDATED_DRIFT_S for x in ks)]
+    return same or group
+
+
 def match_fill(fx: dict, calls: list, picks: list) -> dict:
     if fx.get("kind") != "sport":
         return {"book": "fun", "category": fx.get("category")}
@@ -348,10 +387,12 @@ def match_fill(fx: dict, calls: list, picks: list) -> dict:
         # a LADDER is executed as NO on the other side (desk order line: AWAY ladder = NO on HOME = X2): a
         # composite NO matches a real ladder call whose pick is the opposite side, never a straight (Codex on #299)
         opp = {"HOME": "AWAY", "AWAY": "HOME"}.get(fx.get("no_on_role"))
-        lad = [c for c in _start_nearest(fx, cands)
-               if c.get("call_type") == "ladder" and c.get("pick") == opp and (c.get("units") or 0) > 0]
-        # R7 (ARCHITECT 2026-10-20, addendum 145 item 3(b), #431): an unmarked ladder first, as for the straight below
-        lad = [c for c in lad if not c.get("not_executed")] or lad
+
+        def is_lad(c):
+            return c.get("call_type") == "ladder" and c.get("pick") == opp and (c.get("units") or 0) > 0
+        # R7 (ARCHITECT 2026-10-20, addendum 145 item 3(b), #431): an unmarked ladder of the game (R2's hour) first, as
+        # for the straight below
+        lad = _unmarked_first(fx, cands, [c for c in _start_nearest(fx, cands) if is_lad(c)], is_lad)
         if lad:
             c = lad[0]
             out = {"book": "system_matched", "category": f"{c.get('engine')} · {c.get('tier')} (ladder: NO on "
@@ -391,10 +432,13 @@ def match_fill(fx: dict, calls: list, picks: list) -> dict:
         return {"book": "off_book_sports", "category": "stored prediction exists but the side disagrees",
                 "plausible": True}
     agree = [c for c in _start_nearest(fx, cands) if side_agrees(c)]
-    real = [c for c in agree if c.get("call_type") != "quarantine_shadow" and (c.get("units") or 0) > 0]
+
+    def is_real(c):
+        return c.get("call_type") != "quarantine_shadow" and (c.get("units") or 0) > 0
     # R7 (ARCHITECT 2026-10-20, addendum 145 item 3(b), #431): a call a closing page did not repeat
-    # (not_executed) yields the fill to an unmarked call of the same game and side; a marked call alone keeps it
-    real = [c for c in real if not c.get("not_executed")] or real
+    # (not_executed) yields the fill to an unmarked call of the same game (R2's hour) and side; a marked call alone
+    # keeps it
+    real = _unmarked_first(fx, cands, [c for c in agree if is_real(c)], lambda c: side_agrees(c) and is_real(c))
     if real:
         c = real[0]
         out = {"book": "system_matched", "category": f"{c.get('engine')} · {c.get('tier')}",

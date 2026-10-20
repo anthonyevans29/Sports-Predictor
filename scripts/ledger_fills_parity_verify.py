@@ -8,12 +8,18 @@ the COCKPIT's classifyFills / executedPositions in Chromium and the Python port
 on the SAME ledger, field by field: book, call_id, backed_role, backed,
 no_on_role, fee class; per position qty, entry CLV and fee-adj edge. One call is
 graded with a close so the CLV path is exercised. Any difference is a FAIL.
+#431 (ARCHITECT 2026-10-20, addendum 145 item 3(b); verify_ports #4): claims a
+closing page did not repeat, marked by the Cockpit's own markClosings from stored
+pages (never hand-set): R7's unmarked preference (a straight pair in both orders,
+a ladder pair under a composite NO, kickoffs drifting within R2's hour) and R10
+(a marked claim keeps its fill and its executed position), Cockpit and port alike.
 Writes nothing to the repo; no DB. Needs Playwright + Chromium.
 Run:  python3 scripts/ledger_fills_parity_verify.py
 """
 import functools
 import http.server
 import os
+import re
 import sys
 import tempfile
 import threading
@@ -74,6 +80,69 @@ FIELDS = ("book", "call_id", "backed_role", "backed", "no_on_role", "fee_class_o
           "ambiguous_calls")
 
 
+# #431 R7/R10 (ARCHITECT 2026-10-20, addendum 145 item 3(b); verify_ports #4, read_ports.md). Each game has its closing
+# page, stored as putPage keeps it in L.meta.closings; the page calls the venue straight (repeated) and not the model's
+# claim, so the Cockpit's own markClosings marks the claim. A mark is never hand-set: saveLedger re-derives every mark
+# from the stored pages (R8), so a fixture mark without its page is not a state the Cockpit keeps.
+def _claim(c, at):
+    """A call claimed at `at` (claim_at, which R3 reads against the page's as_of)."""
+    return dict(c, log_date=at[:10], claim_at=at, captured_at=at)
+
+
+def _graded(c, home_fair):
+    return dict(c, status="graded", result="win", graded_date=c["kickoff"][:10],
+                close_ref={"version": "p0-3 v2", "q_close": home_fair,
+                           "fair": {"HOME": home_fair, "AWAY": round(1 - home_fair, 4)}})
+
+
+def _page(fam, c, start, as_of, calls, text="PASS"):
+    """The stored page for call c's game (closingPages' record shape; closing.py's run id and file name)."""
+    run = re.sub(r"[-:]", "", as_of) + "-" + {"MLB": "mlb", "NFL": "nfl", "SOCCER": "soccer"}[fam] + "-closing"
+    name = f"closing_{fam}_{start[:13]}{start[14:16]}Z.json"
+    g = {"sport": c["sport"], "home": c["home"], "away": c["away"], "kickoff": start, "calls": calls, "text": text,
+         "run_id": run, "as_of": as_of, "file": name}
+    return {"family": fam, "start": start, "run_id": run, "as_of": as_of, "file": name,
+            "games": {"|".join((c["sport"], c["home"], c["away"], start)): g}}
+
+
+_BOS = ("MLB", "Boston Red Sox", "New York Yankees", "HOME")
+_VEN = {"engine": "venue_edge", "tier": "shadow", "units": 0.25}
+NE = {"calls": [
+    # a straight pair, the marked claim first (the order that once handed it the fill); both graded with a close
+    _graded(_claim(F.call("pa-m", *_BOS, kick="2026-10-01T17:05:00"), "2026-10-01T12:00:00.000Z"), 0.6),
+    _graded(_claim(F.call("pa-u", *_BOS, **_VEN, kick="2026-10-01T17:05:00"), "2026-10-01T12:00:00.000Z"), 0.6),
+    # the same pair, the unmarked call first
+    _claim(F.call("pb-u", *_BOS, **_VEN, kick="2026-10-03T17:05:00"), "2026-10-03T12:00:00.000Z"),
+    _claim(F.call("pb-m", *_BOS, kick="2026-10-03T17:05:00"), "2026-10-03T12:00:00.000Z"),
+    # R2's hour: the marked claim at the ticker's start, the unmarked call 5 minutes later (verify_ports #1)
+    _claim(F.call("dr-m", *_BOS, kick="2026-10-05T17:05:00"), "2026-10-05T12:00:00.000Z"),
+    _claim(F.call("dr-u", *_BOS, **_VEN, kick="2026-10-05T17:10:00"), "2026-10-05T12:00:00.000Z"),
+    # a ladder pair: the morning claim (marked) and one claimed after the page (R3: not marked), kickoff 30 min on
+    _claim(F.call("ld-m", "SOCCER", "Everton", "Fulham", "AWAY", ct="ladder", kick="2026-11-21T15:00:00"),
+           "2026-11-21T09:00:00.000Z"),
+    _claim(F.call("ld-u", "SOCCER", "Everton", "Fulham", "AWAY", ct="ladder", kick="2026-11-21T15:30:00"),
+           "2026-11-21T14:00:00.000Z"),
+    # R10: a marked claim alone on its game and side, graded with a close, its own Kalshi fill
+    _graded(_claim(F.call("r10", "NFL", "Tampa Bay Buccaneers", "Green Bay Packers", "HOME",
+                          kick="2026-10-18T17:00:00"), "2026-10-18T12:00:00.000Z"), 0.62),
+], "fills": [
+    _fill("x-pa", "KXMLBGAME-26OCT011305NYYBOS-BOS", "yes", "Boston wins — New York Y"),
+    _fill("x-pb", "KXMLBGAME-26OCT031305NYYBOS-BOS", "yes", "Boston wins — New York Y"),
+    _fill("x-dr", "KXMLBGAME-26OCT051305NYYBOS-BOS", "yes", "Boston wins — New York Y"),   # 13:05 ET = 17:05Z
+    _fill("x-ld", "KXEPLGAME-26NOV21FULEVE-EVE", "no", "Everton wins — Fulham"),          # NO on HOME: an AWAY ladder
+    _fill("x-r10", "KXNFLGAME-26OCT18GBTB-TB", "yes", "Tampa Bay wins — Green Bay"),
+]}
+_VENUE_HOME = ["venue_edge|straight|HOME"]
+NE["pages"] = [
+    _page("MLB", NE["calls"][0], "2026-10-01T17:05:00Z", "2026-10-01T15:05:00Z", _VENUE_HOME),
+    _page("MLB", NE["calls"][2], "2026-10-03T17:05:00Z", "2026-10-03T15:05:00Z", _VENUE_HOME),
+    _page("MLB", NE["calls"][4], "2026-10-05T17:05:00Z", "2026-10-05T15:05:00Z", _VENUE_HOME),
+    _page("SOCCER", NE["calls"][6], "2026-11-21T15:00:00Z", "2026-11-21T13:00:00Z", []),
+    _page("NFL", NE["calls"][8], "2026-10-18T17:00:00Z", "2026-10-18T15:00:00Z", []),
+]
+NE_MARKED = ["dr-m", "ld-m", "pa-m", "pb-m", "r10"]
+
+
 def check(label, ok, detail=""):
     CHECKS.append(ok)
     print(f"  {'PASS' if ok else 'FAIL'}  {label}" + (f"  — {detail}" if detail else ""))
@@ -115,6 +184,23 @@ def main():
             Object.assign(c, {status: 'graded', result: 'win', graded_date: '2026-09-28',
               close_ref: {version: 'p0-3 v2', q_close: 0.62, fair: {HOME: 0.62, AWAY: 0.38}}});
             localStorage.setItem('bd_ledger_v1', JSON.stringify(L)); }""")
+        # #431 R7/R10: the pages go in through the page's own putPage and the marks come from its own markClosings
+        # (saveLedger's step; enforceLedger is left out, as above, so the tied ladders lg1/lg2 stay two). esc 12 at its
+        # proposed value (csvFillExempt true) lifts the mark of a claim a Kalshi CSV fill lands on, so R10's marked
+        # claim with its own fill is the ledger the alternative (false) keeps: that one is stored and compared, the
+        # proposed value's marks read on a copy (switches set as tests/test_cockpit_closing_marks.py's T_rules does)
+        ne = page.evaluate("""(x) => { const L = loadLedger(); L.calls.push(...x.calls); L.fills.push(...x.fills);
+            for (const p of x.pages) putPage(L, p);
+            const marked = M => M.calls.filter(c => c.not_executed).map(c => c.id).sort();
+            const live = JSON.parse(JSON.stringify(L)), s1 = markClosings(live), DEF = {...CLOSING_MARK_RULES};
+            let s2, fixed;
+            try { CLOSING_MARK_RULES.csvFillExempt = false; s2 = markClosings(L);
+              const again = JSON.parse(JSON.stringify(L)); markClosings(again);
+              fixed = JSON.stringify(again.calls) === JSON.stringify(L.calls); }
+            finally { Object.assign(CLOSING_MARK_RULES, DEF); }
+            localStorage.setItem('bd_ledger_v1', JSON.stringify(L));
+            return {live: marked(live), alt: marked(L), s1, s2, fixed,
+                    restored: CLOSING_MARK_RULES.csvFillExempt}; }""", NE)
         L = page.evaluate("loadLedger()")
         js = page.evaluate("classifyFills(loadLedger())")
         jpos = page.evaluate("executedPositions(loadLedger()).pos.map(p => ({id: p.c.id, clv: p.clv, "
@@ -173,6 +259,47 @@ def main():
         fa = "—" if jp["fee_adj"] is None else f"{jp['fee_adj'] * 100:+.4f}pp"
         check(f"position {jp['id']}: entry CLV {jp['clv'] * 100:+.4f}pp · fee-adj {fa}",
               ok, "" if ok else f"py {pp and (pp['clv'], pp['fee_adj'], pp['fee_status'])}")
+    # #431 (ARCHITECT 2026-10-20, addendum 145 item 3(b)): R7 "matchFill prefers an unmarked call of the same game and
+    # side; ledger_fills.match_fill moves with it", R10 "kept in executedPositions"
+    s1, s2 = ne["s1"], ne["s2"]
+    check("#431: the Cockpit's own markClosings marks the claims the stored pages did not repeat (esc 12's "
+          "alternative, the ledger compared): 5 marked, 3 repeated, 1 claimed after its page",
+          ne["alt"] == NE_MARKED and [s2["marked"], s2["repeated"], s2["later"], s2["exempt"]] == [5, 3, 1, 0],
+          f"{ne['alt']} {s2}")
+    check("#431 R8: the stored marks are markClosings' fixed point (a re-save writes them unchanged); the switch is "
+          "back at its proposed value", ne["fixed"] is True and ne["restored"] is True)
+    check("esc 12 as proposed (csvFillExempt true) under R7 (verify_cockpit #1): only R10's claim, the one its fill "
+          "still lands on, is exempt; the claims whose fills R7 hands to the unmarked call stay marked",
+          ne["live"] == [i for i in NE_MARKED if i != "r10"] and [s1["marked"], s1["exempt"]] == [4, 1],
+          f"{ne['live']} {s1}")
+    stored = {c["id"]: c for c in L["calls"]}
+    lines = {i: P.not_executed_closing(stored[i]) for i in NE_MARKED}
+    want = {i: f"closing {p['family']} {p['start']}: PASS"
+            for i, p in zip(("pa-m", "pb-m", "dr-m", "ld-m", "r10"), NE["pages"])}
+    check("R13: each mark markClosings wrote reads whole through ledger_fills.not_executed_closing (no '?')",
+          lines == want, str({i: v for i, v in lines.items() if v != want[i]}))
+
+    def got(fid):
+        return [(x[fid].get("call_id"), x[fid].get("ambiguous_calls")) for x in (by, jsby)]
+    check("R7: a marked and an unmarked straight of one game and side, the marked claim first: the fill is the "
+          "unmarked call's, no tie flag (Cockpit and port)", got("x-pa") == [("pa-u", None)] * 2, str(got("x-pa")))
+    check("R7: the same pair, the unmarked call first: the unmarked call's, no tie flag",
+          got("x-pb") == [("pb-u", None)] * 2, str(got("x-pb")))
+    check("R7: a composite NO goes to the unmarked ladder of the game (claimed after its page), never the marked "
+          "morning claim; no tie flag", got("x-ld") == [("ld-u", None)] * 2
+          and by["x-ld"].get("composite") and jsby["x-ld"].get("composite"), str(got("x-ld")))
+    check("R7 under R2 (verify_ports #1): the marked claim at the ticker's 17:05Z start, the unmarked call 5 min on: "
+          "the unmarked call's, no tie flag", got("x-dr") == [("dr-u", None)] * 2, str(got("x-dr")))
+    check("R7: a marked claim alone on its game and side keeps its fill", got("x-r10") == [("r10", None)] * 2,
+          str(got("x-r10")))
+    jids = {jp["id"] for jp in jpos}
+    check("R7 x R10: of the graded pair, the executed position is the unmarked call's; the marked claim holds none "
+          "(Cockpit and port)", "pa-u" in jids and "pa-u" in pmap and "pa-m" not in jids and "pa-m" not in pmap)
+    r10 = next((jp for jp in jpos if jp["id"] == "r10"), None)
+    check("R10: the marked claim stays in executedPositions with its fill: entry CLV +12.00pp, fee-adj +10.00pp, "
+          "Cockpit and port alike", bool(stored["r10"].get("not_executed")) and r10 is not None and "r10" in pmap
+          and abs(r10["clv"] - 0.12) < 1e-9 and abs(pmap["r10"]["clv"] - 0.12) < 1e-9
+          and abs(r10["fee_adj"] - 0.10) < 1e-9 and abs(pmap["r10"]["fee_adj"] - 0.10) < 1e-9, str(r10))
     n = sum(CHECKS)
     print(f"\n{n}/{len(CHECKS)} checks passed")
     return 0 if n == len(CHECKS) else 1

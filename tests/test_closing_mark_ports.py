@@ -10,6 +10,7 @@ and closing_call.text, a missing key printing "?", and never crash on a mark of 
 import copy
 import json
 
+from src.walters import desk_policy
 from src.walters import k_receipt as K
 from src.walters import ledger_fills as P
 from tests.test_k_track_receipt import HI, LO, _ledger
@@ -91,6 +92,48 @@ def test_two_unmarked_calls_still_tie_and_a_marked_call_alone_keeps_its_fill_and
     assert g["call_id"] == "c1"                                              # no unmarked candidate: the marked call
     (p,) = P.executed_positions(M)["pos"]                                    # R10: kept in executedPositions
     assert p["c"]["id"] == "c1" and abs(p["clv"] * 100 - 4.0) < 1e-9
+
+
+# R7 x R2 (verify_ports #1): the drift cases of tests/test_cockpit_closing_marks.py, through the port
+DRIFT_BASE = {"log_date": "2026-09-29", "sport": "MLB", "game": "New York Yankees @ Boston Red Sox",
+              "home": "Boston Red Sox", "away": "New York Yankees", "status": "open", "pick": "HOME", "tier": "lean",
+              "call_type": "straight", "units": 1}
+DRIFT_FILL = {"id": "f", "ticker": "KXMLBGAME-26SEP291305NYYBOS-BOS", "side": "yes", "qty": 3, "entry": 0.55,
+              "title": "Boston wins — New York Yankees"}                  # 13:05 ET = 17:05Z, YES on Boston (home)
+
+
+def _drift(calls, fill=DRIFT_FILL):
+    (f,) = P.classify_fills({"calls": calls, "fills": [fill]})
+    return [f.get("call_id"), f.get("ambiguous_calls")]
+
+
+def test_match_fill_prefers_the_unmarked_call_of_the_same_game_when_kickoffs_drift_within_the_hour():
+    """R7 under R2: kickoffs within DESK_CLOCK_DRIFT (1 h, inclusive) are one game, so when every real call of the
+    nearest start's group is marked, the unmarked side-agreeing call within the hour of it takes the fill (probe
+    r7drift.py: the marked claim at 17:05Z, the unmarked call at 17:10Z, the fill went to the marked one). Either
+    order; at exactly the hour; past it, another game; two unmarked calls within the hour still tie; the 3h
+    doubleheader rule stands; the ladder too."""
+    assert P.REDATED_DRIFT_S == desk_policy.DESK_CLOCK_DRIFT.total_seconds() == 3600
+    m = {**DRIFT_BASE, "id": "m", "engine": "model_edge", "kickoff": "2026-09-29T17:05:00",
+         "not_executed": copy.deepcopy(MARK)}
+
+    def u(k, i="u"):
+        return {**DRIFT_BASE, "id": i, "engine": "venue_edge", "kickoff": k}
+    for k in ("2026-09-29T17:10:00", "2026-09-29T16:05:00", "2026-09-29T18:05:00", "2026-09-29T17:05:00"):
+        assert _drift([m, u(k)]) == _drift([u(k), m]) == ["u", None], k
+    assert _drift([m, u("2026-09-29T18:06:00")]) == _drift([u("2026-09-29T18:06:00"), m]) == ["m", None]
+    assert _drift([m, u("2026-09-29T17:10:00", "u1"), u("2026-09-29T17:20:00", "u2")]) == ["u1", ["u1", "u2"]]
+    # the 3h doubleheader rule stands: within the hour of the marked call, but past 3h of the ticker's start
+    assert _drift([{**m, "kickoff": "2026-09-29T19:35:00"}, u("2026-09-29T20:20:00")]) == ["m", None]
+    lb = {"log_date": "2026-10-19", "sport": "SOCCER", "game": "Chelsea @ Arsenal", "home": "Arsenal",
+          "away": "Chelsea", "three_way": True, "status": "open", "pick": "AWAY", "tier": "lean",
+          "engine": "model_edge", "call_type": "ladder", "units": 0.5}
+    lm = {**lb, "id": "lm", "kickoff": "2026-10-19T19:00:00", "not_executed": copy.deepcopy(MARK)}
+    lu = {**lb, "id": "lu", "kickoff": "2026-10-19T19:15:00"}
+    fl = {"id": "n", "ticker": "KXEPLGAME-26OCT191500CHEARS-ARS", "side": "no", "qty": 2, "entry": 0.5,
+          "title": "Arsenal wins — Chelsea"}                              # 15:00 ET = 19:00Z, NO on Arsenal
+    assert _drift([lm, lu], fl) == _drift([lu, lm], fl) == ["lu", None]
+    assert _drift([lm], fl) == ["lm", None]
 
 
 def test_the_composite_ladder_branch_prefers_the_unmarked_ladder():
@@ -211,3 +254,56 @@ def test_a_ledger_whose_only_value_shadow_is_marked_is_not_read_as_none():
     assert not any(o.startswith("VALUE SHADOWS: none") for o in out)
     assert res["rows"] == [] and len(res["not_executed"]) == 1
     assert out[-2].startswith("n/30: the policy card's counter (every value shadow with a result) 0 of 30")
+
+
+# ---- R13: the cross-language contract -----------------------------------------------------------------------------
+
+def test_r13_the_mark_the_cockpit_writes_reads_back_whole_through_the_three_ports(tmp_path):
+    """R13, the contract pinned across the two languages (SPEC_V2: "A cross-language test builds a mark through the
+    Cockpit's own markClosings under node and feeds the ledger to the three ports"). The page's own loadDocs takes the
+    morning slate, then its closing (Tampa at the books' price: the page calls no value shadow there); the stored
+    ledger is dumped as the Export writes it and read by ledger_fills, k_receipt and value_shadow_receipt. Each port's
+    line is exactly "closing {family} {start}: {text}" from the mark the page wrote, never a "?" (a key the port did not
+    find, the shape drifted). A Kalshi fill on a marked claim keeps it an executed position (R10). Skipped without
+    node (the page runs under it, as tests/test_cockpit_closing_marks.py)."""
+    from datetime import datetime
+
+    import scripts.value_shadow_receipt as vsr
+    from tests.test_cockpit_closing_marks import CLOSING_NAME, DVDEN, SLATE_NAME, _node, closing, slate
+    L = _node(tmp_path, r'''
+await loadDocs([T_doc(SN,S)]); await loadDocs([T_doc(CN,C)]);
+T_out(JSON.parse(T_stored()));''', S=slate(), C=closing(Tampa=0.70), SN=SLATE_NAME, CN=CLOSING_NAME)
+    marked = [c for c in L["calls"] if c.get("not_executed")]
+    assert sorted((c["home"], c["call_type"], c["pick"]) for c in marked) == [
+        ("Dallas", "straight", "HOME"), ("Denver", "straight", "HOME"), ("Miami", "straight", "HOME"),
+        ("Tampa", "value_shadow", "AWAY")]
+    lines = {}
+    for c in marked:
+        m = c["not_executed"]
+        assert set(m) == {"flag", "closing", "closing_call"} and m["flag"] == "not executed (#431)"
+        assert set(m["closing"]) == {"family", "start", "run_id", "as_of", "file"}
+        assert set(m["closing_call"]) == {"text", "calls"}
+        want = f"closing {m['closing']['family']} {m['closing']['start']}: {m['closing_call']['text']}"
+        assert "?" not in want and want.startswith("closing NFL 2026-10-19T17:00:00Z: ")
+        assert P.not_executed_closing(c) == want                                 # ledger_fills
+        lines[c["id"]] = want
+    k = K.format_fills(L, datetime(2026, 10, 18), datetime(2026, 10, 21))      # k_receipt
+    ks = [x for x in k if x.startswith("- NOT EXECUTED ")]
+    assert k[k.index(ks[0]) - 1].startswith("  not executed: 3 (#431")
+    assert sorted(ks) == sorted(f"- NOT EXECUTED {c['sport']} {c['game']} · {c['call_type']} {c['pick']} · "
+                                f"{lines[c['id']]}" for c in marked if c["call_type"] == "straight")
+    out = []                                                                   # value_shadow_receipt
+    res = vsr.report(copy.deepcopy(L), "bd_ledger_v1_xlang.json", echo=out.append)
+    (tampa,) = [c for c in marked if c["call_type"] == "value_shadow"]
+    (vl,) = [o for o in out if o.endswith(" · NOT EXECUTED · " + lines[tampa["id"]])]
+    assert "Tampa Visitors @ Tampa" in vl and [r["id"] for r in res["not_executed"]] == [tampa["id"]]
+    assert not any("?" in o for o in out + k if "NOT EXECUTED" in o)
+    # R10 through the port: a fill on the marked Denver claim, graded with a close, stays an executed position
+    den = next(c for c in marked if c["home"] == "Denver")
+    den.update(status="graded", result="win", units_returned=1.9, graded_date="2026-10-19",
+               close_ref={"version": "p0-3 v2", "q_close": 0.55, "fair": {"HOME": 0.55, "AWAY": 0.45}})
+    L["fills"] = [{"id": "F1", "ticker": DVDEN, "side": "yes", "qty": 10, "entry": 0.5, "title": "", "open_fee": 0.02}]
+    (f,) = P.classify_fills(L)
+    assert f["call_id"] == den["id"] and not f.get("ambiguous_calls")
+    (p,) = P.executed_positions(L)["pos"]
+    assert p["c"]["id"] == den["id"] and abs(p["clv"] * 100 - 5.0) < 1e-9

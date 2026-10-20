@@ -1251,17 +1251,19 @@ class _Game:
     id: int
     utc_date: datetime
     status: str                  # the stored status, lowercased: scheduled / live / finished (is_game rows only)
-    winner: str | None           # HOME / AWAY of a FINISHED game, from full_time_result and the scores; None when
-                                 # neither is stored, or when the two disagree (law 4)
+    winner: str | None           # HOME / AWAY / DRAW of a FINISHED game, from full_time_result and the scores; None
+                                 # when neither is stored, or when the two disagree (law 4). DRAW is the stored
+                                 # outcome a leg's result is checked against (a soccer TIE leg, both legs of a tie);
+                                 # it is not a winner for the settlement bracket (b)
 
 
 def _as_game(g) -> _Game:
     st = str(getattr(g.status, "value", g.status) or "").lower()
     winner = None
     if st == "finished":
-        by_result = {"H": "HOME", "A": "AWAY"}.get(getattr(g.full_time_result, "value", g.full_time_result))
+        by_result = {"H": "HOME", "A": "AWAY", "D": "DRAW"}.get(getattr(g.full_time_result, "value", g.full_time_result))
         hs, aw = g.home_score, g.away_score
-        by_score = None if hs is None or aw is None or hs == aw else ("HOME" if hs > aw else "AWAY")
+        by_score = None if hs is None or aw is None else "HOME" if hs > aw else "AWAY" if aw > hs else "DRAW"
         winner = None if (by_result and by_score and by_result != by_score) else (by_result or by_score)
     return _Game(g.id, g.utc_date, st, winner)
 
@@ -1567,7 +1569,8 @@ def _plan_chain(rs, anchor: str, ruling: str, adapter) -> dict:
                     continue
                 side, res, st = tg["side"], r["kalshi_result"], r["settled_time"]
                 if g.winner is not None and res in ("yes", "no") and (res == "yes") != (g.winner == side):
-                    fails[t] = f"result {res}, {side} {'won' if g.winner == side else 'lost'}"
+                    fails[t] = (f"result {res}, the game was drawn" if g.winner == "DRAW" and side != "DRAW"
+                                else f"result {res}, {side} {'won' if g.winner == side else 'lost'}")
                     continue
                 if clock_why is None:
                     plans[t] = (r, tg, f"by clock {_h(g.utc_date - clock)}")
@@ -1576,6 +1579,8 @@ def _plan_chain(rs, anchor: str, ruling: str, adapter) -> dict:
                     b_why = f"game {g.id} is {g.status}, not finished"
                 elif g.winner is None:
                     b_why = f"no winner stored for game {g.id}"
+                elif g.winner == "DRAW":
+                    b_why = f"a draw stored for game {g.id}, not a winner (the ruling's (b) reads a stored winner)"
                 elif res not in ("yes", "no"):
                     b_why = "no result stored for the leg"
                 elif st is None:

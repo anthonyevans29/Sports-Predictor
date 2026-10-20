@@ -48,7 +48,7 @@ def finish(gid, home, away):
     with session_scope() as s:
         g = s.get(Match, gid)
         g.status, g.home_score, g.away_score = MatchStatus.FINISHED, home, away
-        g.full_time_result = Result.HOME if home > away else Result.AWAY
+        g.full_time_result = Result.HOME if home > away else Result.AWAY if away > home else Result.DRAW
 
 
 def set_status(gid, status, clear=False):
@@ -362,6 +362,43 @@ def test_a_result_mismatch_refuses_under_a(alcs):
     assert v[f"{E19}-TB"] == "stays held: result yes, HOME lost; the chain stops"
     assert v[f"{E19}-CLE"] == "stays held: result no, AWAY won; the chain stops"
     assert not res["placed"]
+
+
+def test_a_drawn_game_is_checked_under_a(alcs):
+    """50551 stored as a draw (full_time_result D, 2-2: a soccer TIE, or a tie): the draw is the stored outcome, so
+    Tampa Bay's leg that settled yes is a result mismatch under (a) too, and the event stays held on all its legs."""
+    _e17_by_hand(alcs)
+    finish(G6, 2, 2)
+    res, _ = chain()
+    v = verdicts(res)
+    assert v[f"{E19}-TB"] == "stays held: result yes, the game was drawn; the chain stops"
+    assert v[f"{E19}-CLE"] == "stays held: the event is placed on all its legs or on none; the chain stops"
+    assert not res["placed"]
+
+
+def test_a_drawn_game_never_places_under_b(alcs):
+    """50548 stored as a draw and both of E17's legs settled no (they agree with the draw): (b) reads a stored winner,
+    and a draw is not one, so E17 stays held (whether a draw counts is the architect's; the build holds)."""
+    world(alcs)
+    finish(G5, 3, 3)
+    for sfx in ("TB", "CLE"):
+        edit(f"{E17}-{sfx}", kalshi_result="no")
+    res, out = chain()
+    assert verdicts(res)[f"{E17}-TB"] == (
+        f"stays held: by clock 21.1h > 2.0h (MAX_TICK_DRIFT); by settlement: a draw stored for game {G5}, not a "
+        "winner (the ruling's (b) reads a stored winner); the chain stops")
+    assert any(ln.startswith(f"    {E17}-TB · ") and " · winner DRAW · " in ln for ln in out)
+    assert not res["placed"]
+
+
+@pytest.mark.parametrize("result, home, away, outcome", [
+    ("D", 2, 2, "DRAW"), (None, 1, 1, "DRAW"), ("D", 2, 1, None), ("H", 1, 1, None), ("A", 0, 3, "AWAY")])
+def test_the_stored_outcome_reads_a_draw(result, home, away, outcome):
+    """_as_game: a stored D or level scores read as DRAW; a result and scores that disagree store none (law 4)."""
+    from types import SimpleNamespace
+    g = SimpleNamespace(id=1, utc_date=AT, status="finished", full_time_result=result, home_score=home,
+                        away_score=away)
+    assert kh._as_game(g).winner == outcome
 
 
 def test_the_time_tie_holds_a_member(alcs):

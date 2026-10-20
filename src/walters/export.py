@@ -1046,7 +1046,11 @@ def export_results(
                                     if (actual_total is not None and proj_total is not None) else None),
                     "log_loss": oc.log_loss,
                     "brier_score": oc.brier_score,
-                    "clv": oc.clv,                       # stored model-close divergence (P0-3 #208 label)
+                    # ARCHITECT 2026-10-19 (addendum 137 item 3, #612): the stored model-close divergence (RESULTS.md:
+                    # VERIFIED or RETAINED-LEGACY), model p minus close fair on the pick, a fraction (0.0453 =
+                    # +4.53pp); NOT a closing-line value (close minus entry is the Cockpit P&L's, on fills)
+                    "model_close_divergence": oc.clv,
+                    "clv": oc.clv,                       # the alias, through v1.5.0 (the morning-run consumer reads it)
                     "closing_price": oc.closing_price,
                     **_close_block(s, m),                # q_close per side for entry-price CLV (#208)
                 },

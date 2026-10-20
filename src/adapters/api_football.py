@@ -364,8 +364,15 @@ class APIFootballAdapter(DataAdapter):
 
         Costs 1 API request per fixture. Use sparingly — the CLI gates this
         behind a `--limit` flag like sync-stats does.
+
+        SOURCE TIME (ARCHITECT 2026-10-20, addendum 147 item 1, #615, read from the kept answer of fixture 1557437):
+        "the field is `response[].update`, one per fixture answer, an ISO-8601 string with an offset [...] the same
+        name and shape as the american-football adapter's `response[].update` [...] Parse it with the same
+        parse_source_updated_at". Every row of the answer carries it as source_updated_at (None when absent or
+        unreadable, never our clock); the odds sync stores it.
         """
         from datetime import datetime
+        from src.adapters.api_american_football import parse_source_updated_at
         from src.adapters.normalized import NormalizedOdds
 
         data = self._get("odds", params={"fixture": match_source_id})
@@ -373,6 +380,7 @@ class APIFootballAdapter(DataAdapter):
         captured_at = utc_now_naive()
 
         for response_item in data.get("response", []):
+            src_upd = parse_source_updated_at(response_item.get("update"))
             for bookmaker_block in response_item.get("bookmakers", []):
                 bm_name = bookmaker_block.get("name", "unknown")
                 for bet in bookmaker_block.get("bets", []):
@@ -395,6 +403,7 @@ class APIFootballAdapter(DataAdapter):
                                 selection=sel,
                                 price_decimal=price,
                                 captured_at=captured_at,
+                                source_updated_at=src_upd,
                             ))
                     elif market_name == "Goals Over/Under":
                         for value in bet.get("values", []):
@@ -421,6 +430,7 @@ class APIFootballAdapter(DataAdapter):
                                 selection=sel,
                                 price_decimal=price,
                                 captured_at=captured_at,
+                                source_updated_at=src_upd,
                             ))
         return out
 

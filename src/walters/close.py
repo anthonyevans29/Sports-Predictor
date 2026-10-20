@@ -228,6 +228,18 @@ def _naive_utc(t: datetime) -> datetime:
     return t.astimezone(timezone.utc).replace(tzinfo=None) if t.tzinfo else t
 
 
+def priced_rows(cl) -> list:
+    """The rows a book close priced: the legs of its snapshot session (close_from_snapshots' `stamp_rows`), else the
+    complete books' outcome rows of its session (close_1x2's `rows`, the books not in `missing`). The set book_stamp
+    reads and the odds syncs stamp a snapshot from (#615), so the two paths of one close read one stamp."""
+    rows = cl.get("stamp_rows")
+    if rows is None:
+        out = set(cl.get("outcomes") or ())
+        rows = [o for o in cl.get("rows") or ()
+                if o.bookmaker not in (cl.get("missing") or {}) and o.selection in out]
+    return rows
+
+
 def book_stamp(cl, session=None) -> datetime | None:
     """The provider stamp of a priced BOOK close: the oldest `source_updated_at` (src.timeutil.oldest_source_time: a
     row without one makes the whole close's stamp unknown) over the rows it priced: the complete books' outcome rows
@@ -236,11 +248,7 @@ def book_stamp(cl, session=None) -> datetime | None:
     migration every row reads None). None: unknown."""
     if not priced(cl) or cl.get("source") in KALSHI_SOURCES:
         return None
-    rows = cl.get("stamp_rows")
-    if rows is None:
-        out = set(cl.get("outcomes") or ())
-        rows = [o for o in cl.get("rows") or ()
-                if o.bookmaker not in (cl.get("missing") or {}) and o.selection in out]
+    rows = priced_rows(cl)
     if not rows:
         return None
     from src.db.database import attach_source_times

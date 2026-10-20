@@ -1397,16 +1397,22 @@ def results_tally(days: int = 30, out_path: str = "RESULTS.md", report=None, exp
              "Soccer divergence before 2026-10-01 was computed on an AVERAGE of every stored capture (the "
              "general odds sync appended) and is re-stated by `clv-restate --apply`. MLB keeps one "
              "capture per game (replace-on-sync); it differs only where that capture landed after "
-             "first pitch (M11 rollover games), which is now unpriced, never an in-game 'close'. "
+             "first pitch (M11 rollover games): that capture is never an in-game 'close'; with no pre-kickoff "
+             "book session such a game grades against the mid of the last two-sided pre-pitch Kalshi quote within "
+             "the 2c cap (close_reference kalshi_only, ARCHITECT 2026-10-05), and is unpriced otherwise. "
              "CLOSE CONTRACT (#207): a book counts only with a complete same-session outcome set "
              "(soccer HOME/DRAW/AWAY, others HOME/AWAY), de-vigged per book then averaged. A stored "
              "divergence the contract reproduces is VERIFIED; any other stored value is RETAINED-LEGACY and is "
-             "reported separately, never pooled into the headline. STALE BOOK CLOSE (ARCHITECT 2026-10-19, "
+             "reported separately, never pooled into the headline. A divergence stored against a close priced "
+             "from a Kalshi mid (kalshi_only, or the stale-book rule's kalshi below) is read from Kalshi's two-way "
+             "rows; it reproduces and counts as VERIFIED (#615); a three-way board never takes a Kalshi close. "
+             "STALE BOOK CLOSE (ARCHITECT 2026-10-19, "
              "addendum 137 item 4): a graded game whose book quote carries a provider stamp more than 24 hours "
              "before kickoff grades against the Kalshi two-sided mid captured in the same last pre-kickoff session "
              "(the row says close_reference kalshi, with the stamp's age in hours; unpriced when that session "
              "holds no two-sided Kalshi quote within the 2c cap); a NULL or absent stamp keeps the book close. A "
-             "stamp is stored for NFL (and NCAA) book odds only._\n"]
+             "stamp is stored for NFL, NCAA and soccer book odds (soccer since #615; a three-way board keeps its book "
+             "close, labelled); MLB's odds answer carries none (#628), so an MLB book close is never switched._\n"]
     from src.walters.close import close_age_line
     from src.walters.vs_close import line as _vs_line
     _ages: list = []            # (sport label, close_age_summary) for each sport that reports a close (#382)
@@ -1453,8 +1459,11 @@ def results_tally(days: int = 30, out_path: str = "RESULTS.md", report=None, exp
                     [m.id for _, m in rows]))).scalars():
                 odds_by.setdefault(o.match_id, []).append(o)
             from src.db.schema import OddsSnapshot as _Snp
+            from src.walters.close import kalshi_close_market_filter
             snaps_by: dict = {}
-            for x in s.execute(select(_Snp).where(_Snp.market == "1X2", _Snp.source != "kalshi",
+            # #615 (comment 6270315541): every 1X2 snapshot plus Kalshi's two-way ML rows, as clv_restate.restate()
+            # loads them, so a close priced from a Kalshi mid (kalshi_only, or the stale-book rule's kalshi) is read
+            for x in s.execute(select(_Snp).where(kalshi_close_market_filter(_Snp),
                                                   _Snp.match_id.in_([m.id for _, m in rows]))).scalars():
                 snaps_by.setdefault(x.match_id, []).append(x)
             coh = {"verified": [], "legacy": []}

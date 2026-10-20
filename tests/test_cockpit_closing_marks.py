@@ -161,7 +161,7 @@ SWITCHES = '''const CLOSING_MARK_RULES={   // #431 escalations (comment 62909514
   importIdCollision:"rekey",           // esc 1 (R4): incoming call whose id a local call holds under a different pick takes the new-format id (callKey), old kept as id_imported ("refuse" alternative)
 };'''
 READ_SITES = {"execUnknown": "holdRead", "writtenRuleFrom": "holdRead", "qb": "holdRead", "bothHolds": "holdRead",
-              "execLeZeroAllFamilies": "holdRead", "ownCapture": "ownCaptureSkips", "missingGame": "putPage",
+              "execLeZeroAllFamilies": "holdRead", "ownCapture": "ownCaptureSkips", "missingGame": "wholePageStands",
               "csvFillExempt": "markClosings", "importIdCollision": "upsertCalls"}
 
 
@@ -171,6 +171,9 @@ def test_the_switches_are_one_object_at_the_proposed_values_each_read_in_one_pla
     for key, site in READ_SITES.items():
         assert html.count(f"CLOSING_MARK_RULES.{key}") == 1, key
         assert f"CLOSING_MARK_RULES.{key}" in _fn(html, site), (key, site)
+    # COMMIT 2: esc 11's one read serves the stored pages and this load's rows alike (R1 under the same rule as R9)
+    assert all("wholePageStands()" in _fn(html, f) for f in ("putPage", "closingDedupe"))
+    assert html.count("wholePageStands()") == 3                # its definition and the two callers
 
 
 # -------------------------------------------------------------------------------------------------------- R4 --
@@ -990,21 +993,28 @@ T_out({pos:ep.pos.map(p=>p.c.id),mine:c.id,line:clvLines(L).find(l=>/graded call
 
 def test_r11_loaddocs_stamps_in_the_loop_takes_the_pages_before_policy_and_marks_after_autoclaim():
     """R11: automatic on load, after autoClaim. The rows are stamped in the loop (after the F1c refusal, before they
-    join `rows`); ticketRows and the pages are taken after the loop and before policy() and autoClaim(); the pages are
-    stored (and the marks re-derived) after autoClaim; did.closings is set after the literal; the four returns and the
-    two refused copies stand (tests/test_cockpit_today.py)."""
+    join `rows`); ticketRows and the pages are taken after the loop, then the dedupe (COMMIT 2, R1: so #183 reads the
+    ticket's own file and every page is stored), all before policy() and autoClaim(); the pages are stored (and the
+    marks re-derived) after autoClaim; did.closings is set after the literal; the four returns and the two refused
+    copies stand (tests/test_cockpit_today.py)."""
     body = _fn(_html(), "loadDocs")
     refuse, stamp, concat = (body.index("if(rr.some(r=>!r.fileDesk)){ refusedFiles.push(f.name); continue; }"),
                              body.index("stampClosing(rr,doc,f.name);"), body.index("rows=rows.concat(rr);"))
     assert refuse < stamp < concat
-    tr, cp, lab, pol, ac, st, note = (body.index("ticketRows=slateRows(rows);"),
-                                      body.index("const cpages=closingPages(rows);"), body.index("sportLabel="),
-                                      body.index("policy();"), body.index("const ac=autoClaim();"),
-                                      body.index("const ne=storeClosings(cpages);"),
-                                      body.index('$("logNote").textContent=loadLogNote(ac,ne);'))
-    assert concat < tr < cp < lab < pol < ac < st < note
-    assert "rows=[]; shadowRows=[]; fileParlays=null; refusedFiles=[]; ticketRows=[];" in body
+    tr, cp, dd, lab, pol, ac, st, note = (body.index("ticketRows=slateRows(rows);"),
+                                          body.index("const cpages=closingPages(rows);"),
+                                          body.index("const cd=closingDedupe(rows); rows=cd.rows;"),
+                                          body.index("sportLabel="), body.index("policy();"),
+                                          body.index("const ac=autoClaim();"),
+                                          body.index("const ne=storeClosings(cpages);"),
+                                          body.index('$("logNote").textContent=loadLogNote(ac,ne);'))
+    assert concat < tr < cp < dd < lab < pol < ac < st < note
+    assert body.count("closingDedupe(") == 1 and body.count("closingPages(") == 1
+    assert "rows=[]; shadowRows=[]; fileParlays=null; refusedFiles=[]; ticketRows=[]; closingLoad=null;" in body
+    assert dd < body.index("closingLoad={files:cd.files,superseded:cd.superseded,partly:cd.partly,copies:cd.copies,"
+                           "slateRowsDropped:cd.slateRowsDropped};") < lab
     assert "did.closings" not in body[:body.index("\n", body.index("const did="))] and body.index("did.closings") > st
+    assert "did.closings={...closingLoad,marks:ne};" in body
     assert re.findall(r"return[^;]*;", body) == ["return did;"] * 4
     assert body.count("did.refused=refusedFiles.slice();") == 2
     assert "if(ac||ne){" in body
@@ -1068,9 +1078,10 @@ T_out({check:L.calls.filter(c=>c.call_type==="parlay_leg").map(c=>[c.home,c.leg_
 def test_r14_a_covered_game_with_no_earlier_claim_is_named_with_the_warning_when_a_slate_of_the_load_called_it(tmp_path):
     """R14 (a): "the control's note when the ledger has no claim on a covered game, and the runbook line "import the
     ledger, then load"". The closing loaded first claims Buffalo and the two shadows at its own as_of; the slate and the
-    closing loaded together then find their slate claims older than the ledger: three covered games hold no claim from
-    before their page, and a slate row of this load called each (⚠). A closing whose counts_source is the ledger
-    summary's prints no 144 note."""
+    closing loaded together then claim nothing from the slate (COMMIT 2, R1: the closing file's row stands over the
+    slate row of each of its games, so no slate row of a covered game reaches the Desk): all six covered games hold no
+    claim from before their page, and a slate row of this load called each (⚠: ticketRows is taken before the
+    dedupe). A closing whose counts_source is the ledger summary's prints no 144 note."""
     summary = closing(src="ledger summary bd_ledger_summary.json generated 2026-10-19T10:00:00Z")
     got = _node(tmp_path, r'''
 await loadDocs([T_doc(CN,C)]);
@@ -1078,7 +1089,7 @@ await loadDocs([T_doc(SN,S),T_doc(CN,C)]);
 const n=T_note(); T_reset();
 await loadDocs([T_doc(CN,C3)]);
 T_out({n,n3:T_note()});''', C3=summary, **_docs())
-    assert got["n"].endswith(" · ⚠ 3 of 6 covered game(s) hold no claim from before their page in this browser's ledger:"
+    assert got["n"].endswith(" · ⚠ 6 of 6 covered game(s) hold no claim from before their page in this browser's ledger:"
                              " nothing there to mark. A local Cockpit keeps its own ledger: import the ledger, then load."
                              + COUNTS_NOTE)
     assert "counts_source" not in got["n3"] and got["n3"].endswith("import the ledger, then load.")
@@ -1087,18 +1098,542 @@ T_out({n,n3:T_note()});''', C3=summary, **_docs())
 def test_r14_the_runbook_names_the_order_and_the_version_skew_line():
     doc = " ".join((ROOT / "docs" / "specs" / "exports-mirror.md").read_text(encoding="utf-8").split())
     assert "**Closings: import the ledger, then load (#431, ARCHITECT 2026-10-20, addendum 145 item 3(b) R14).**" in doc
-    # COMMIT 1 (verify_cockpit #3): closing files come in through the file picker or Load latest from host; no laptop
-    # control is named before the commit that adds it
-    assert ("A closing file loaded into the Cockpit (the file picker, or Load latest from host) marks NOT EXECUTED the"
-            " claims its page did not repeat") in doc
-    assert ("In the local page, first Import ledger (the published page's Export ledger (JSON)), then load the closing"
-            " files.") in doc
-    assert "the load note says how many covered games hold no claim from before their page" in doc
-    para = doc[doc.index("**Closings: import the ledger"):doc.index("**Version skew")]
-    assert "control" not in para and "laptop" not in para and "replace the slate rows" not in para
+    # COMMIT 2: the paragraph names the control it now has ("import the ledger, then load the closings with Load
+    # closings + latest from laptop"), the folders it reads as the mirror writes them, and R1 verbatim
+    assert ("A closing file loaded into the Cockpit (the file picker, Load latest from host, or Load closings + latest"
+            " from laptop) marks NOT EXECUTED the claims its page did not repeat") in doc
+    assert ("In the local page, import the ledger, then load the closings with Load closings + latest from laptop: first"
+            " Import ledger (the published page's Export ledger (JSON)), then press the control.") in doc
+    assert ("`laptop/latest/*.json`, the newest file of every kind (its `closing_<FAMILY>.json` is a copy of a dated"
+            " file and is not fetched), and the `closing_*.json` files of `laptop/<yesterday UTC>` and"
+            " `laptop/<today UTC>` (a dated folder is the file's UTC mtime day") in doc
+    assert ('R1: "the closing file\'s row stands over any slate row for its games; among pages of one family and start'
+            ' the newest desk_meta.as_of wins. A rule by kind, never by the listing\'s order."') in doc
+    assert "the load note, and the control's note, say how many covered games hold no claim from before their page" in doc
+    # COMMIT 2 fix round: the parse stop, the standing-row rule, the partly superseded count and the order-free store
+    assert ('a file that does not parse stops the load there, and the note says "load stopped" with the parse message,'
+            ' never "Loaded"') in doc
+    assert ("a slate row leaves only against a closing row that stands; the Desk summary says how many slate rows were"
+            " replaced, how many files a later page superseded (no row of theirs stands) and how many it partly"
+            " superseded (some games stand)") in doc
+    assert ("A copy of a page listed under two names is read once under its smallest name, and the pages are stored"
+            " newest first, so no listing order decides which row stands, the notes, or the stored pages and their"
+            " marks.") in doc
+    assert '"Load latest from host" fails ("Fetch failed"), and so does "Load closings + latest from laptop"' in doc
     assert ("Until the published page carries this build, do not import a ledger exported from the local page into the"
             " published page.") in doc
     spec = " ".join((ROOT / "docs" / "specs" / "cockpit-v04-pnl-organ.md").read_text(encoding="utf-8").split())
     assert "Idempotency: keyed on (sport, game, log_date) — re-logging updates, never duplicates." in spec   # verbatim
     assert "is (sport, game, log_date, engine, call_type, pick, parlay slot); the pick joined it by ARCHITECT" \
            " 2026-10-20, addendum 145 item 3(b) R4" in spec
+
+
+# ================================================================================ COMMIT 2: the dedupe and the control --
+# R1 (ARCHITECT 2026-10-20, addendum 145 item 3(b), verbatim): "the closing file's row stands over any slate row for its
+# games; among pages of one family and start the newest desk_meta.as_of wins. A rule by kind, never by the listing's
+# order." R2 for rows: same sport, home and away, kickoffs within DESK_CLOCK_DRIFT (1 h). R14: "the control's note when
+# the ledger has no claim on a covered game, and the runbook line "import the ledger, then load"".
+
+SUMMARY_SLATE = ("NFL · 6 rows → 4 play · 0 ladder · 2 pass (0 no reference · 1 below floor · 1 other) · 1 value shadow"
+                 " (not staked) · desk: rendered from file (as of 2026-10-19T12:00:00Z)")
+DEDUPE_NOTE = " · closing: 1 file(s) (NFL 2026-10-19T17:00:00Z) · 6 slate row(s) replaced by their closing row · 0 superseded by a later page"
+
+
+def slate_moved():
+    """The morning slate with Buffalo's Kalshi quote at 0.50/0.51 (its closing page quotes 0.54/0.55): two exec prices."""
+    rows = _nfl(Denver=0.60)
+    rows[0] = row(301, "Buffalo", 0.62, fair_h=0.55, bid=0.50, ask=0.51, comp="NFL", series="KXNFLGAME", now=CLOSE_AT,
+                  minutes=35)
+    return _annotate(rows, SLATE_AT)
+
+
+def test_r1_the_closing_row_stands_over_the_slate_row_and_its_exec_price_wins_in_either_file_order(tmp_path):
+    """The Codex P1 of the original declaration: with the slate and its closing in one load, the closing exec price wins
+    over the slate's in EITHER listing order, and the Desk holds one row per game. Both orders end with the same rows
+    (every one the closing page's), the same Desk summary and a byte-identical stored ledger; Buffalo's claim carries
+    the closing page's exec cost, never the slate's. The slate rows stay in ticketRows (R12)."""
+    got = _node(tmp_path, r'''
+const run=async(...ds)=>{ T_reset(); const did=await loadDocs(ds), L=loadLedger();
+  const buf=L.calls.find(c=>c.home==="Buffalo"&&c.call_type==="straight");
+  return {n:rows.length,closing:rows.every(r=>r.closing&&r.closing.file===CN),games:rows.map(r=>r.home),
+    exec:rows.find(r=>r.home==="Buffalo").fileDesk.exec.cost,desk:deskCalls.length,bufK:buf.claim_exec_cost,
+    bufAt:buf.claim_at,tickets:ticketRows.map(r=>r.closing?"closing":"slate"),
+    summary:document.getElementById("summary").textContent,
+    closings:{files:did.closings.files,superseded:did.closings.superseded,copies:did.closings.copies,
+      slateRowsDropped:did.closings.slateRowsDropped},stored:T_stored()}; };
+const a=await run(T_doc(SN,M),T_doc(CN,C)), b=await run(T_doc(CN,C),T_doc(SN,M));
+const k=d=>normalize(d).find(r=>r.home==="Buffalo").fileDesk.exec.cost;
+T_out({a,b,closingK:k(C),slateK:k(M)});''', M=slate_moved(), **_docs())
+    a, b = got["a"], got["b"]
+    assert got["closingK"] != got["slateK"]
+    for x in (a, b):
+        assert x["n"] == x["desk"] == 6 and x["closing"] is True
+        assert sorted(x["games"]) == ["Buffalo", "Dallas", "Denver", "Miami", "Newark", "Tampa"]
+        assert x["exec"] == x["bufK"] == got["closingK"] and x["bufAt"] == "2026-10-19T16:25:00.000Z"
+        assert x["tickets"] == ["slate"] * 6
+        assert x["closings"] == {"files": [{"file": CLOSING_NAME, "family": "NFL", "start": "2026-10-19T17:00:00Z",
+                                            "run_id": RUN, "as_of": "2026-10-19T16:25:00Z"}],
+                                 "superseded": [], "copies": 0, "slateRowsDropped": 6}
+    assert a["summary"] == b["summary"] and a["summary"].endswith(
+        " · desk: rendered from file (as of 2026-10-19T16:25:00Z)" + DEDUPE_NOTE)
+    assert a["games"] == b["games"] and a["stored"] == b["stored"]
+
+
+def test_r1_uncovered_slate_rows_stay_a_byte_copy_is_one_page_and_the_note_follows_the_refusals(tmp_path):
+    """A closing page carrying Buffalo and Denver only: those two slate rows leave, the other four stay. The same page
+    under two names is one page (counted once, its rows once). The Desk summary's closing line follows the refusals'."""
+    two = closing(ids=[301, 304])
+    got = _node(tmp_path, r'''
+await loadDocs([T_doc(SN,S),T_doc(CN,C2)]);
+const one={rows:rows.map(r=>[r.home,r.closing?"closing":"slate"]),summary:document.getElementById("summary").textContent};
+const LEG={...S,predictions:S.predictions.map(p=>{ const {desk,...x}=p; return x; })};
+const did=await loadDocs([T_doc("legacy.json",LEG),T_doc(SN,S),T_doc(CN,C),T_doc("copy_"+CN,C)]);
+T_out({one,rows:rows.length,from:[...new Set(rows.map(r=>r.closing.file))],copies:did.closings.copies,
+  files:did.closings.files.length,summary:document.getElementById("summary").textContent});''', C2=two, **_docs())
+    assert got["one"]["rows"] == [["Miami", "slate"], ["Dallas", "slate"], ["Newark", "slate"], ["Tampa", "slate"],
+                                  ["Buffalo", "closing"], ["Denver", "closing"]]
+    assert got["one"]["summary"].endswith(" · closing: 1 file(s) (NFL 2026-10-19T17:00:00Z) · 2 slate row(s) replaced by"
+                                          " their closing row · 0 superseded by a later page")
+    assert got["rows"] == 6 and got["from"] == [CLOSING_NAME] and got["copies"] == 1 and got["files"] == 1
+    assert got["summary"].endswith(" · ⚠ REFUSED 1 file(s) without desk blocks (legacy.json) — export with --desk"
+                                   + DEDUPE_NOTE + " · 1 copy(ies) of a page read once")
+
+
+@pytest.mark.parametrize("order", ["older_first", "newer_first"])
+def test_r1_among_pages_of_one_game_the_newest_page_stands_and_the_older_is_superseded(tmp_path, order):
+    """Two pages of one start in one load (16:25Z, then 16:40Z calling Denver PLAY): every game's row is the 16:40Z
+    page's, whichever file is listed first; the 16:25Z file is named superseded; the stored page is the newer."""
+    later = closing(at=LATER_AT, run=RUN2, Denver=0.60)
+    got = _node(tmp_path, r'''
+const a=T_doc(CN,C), b=T_doc("closing_b.json",C2);
+const did=await loadDocs([T_doc(SN,S),...(ORDER==="older_first"?[a,b]:[b,a])]);
+T_out({runs:[...new Set(rows.map(r=>r.closing.run_id))],n:rows.length,sup:did.closings.superseded,
+  files:did.closings.files.map(f=>f.run_id),summary:document.getElementById("summary").textContent,
+  den:rows.find(r=>r.home==="Denver").fileDesk.call,marks:T_marks(loadLedger())});''', ORDER=order, C2=later,
+                **_docs())
+    assert got["runs"] == [RUN2] and got["n"] == 6 and got["sup"] == [CLOSING_NAME] and got["den"] == "PLAY"
+    assert sorted(got["files"]) == sorted([RUN, RUN2])
+    assert got["summary"].endswith(" · closing: 2 file(s) (NFL 2026-10-19T17:00:00Z) · 6 slate row(s) replaced by"
+                                   " their closing row · 1 superseded by a later page")
+    assert got["marks"] == {}           # nothing claimed before either page in this ledger (the slate rows left)
+
+
+@pytest.mark.parametrize("mode", ["per_game", "whole_page"])
+def test_r1_a_game_the_later_page_lacks_follows_esc11_on_the_desk_as_in_the_ledger(tmp_path, mode):
+    """esc 11, read once (wholePageStands) for the Desk and the ledger. The 16:40Z page carries Denver alone. "per_game":
+    Denver's row is the later page's and the other five games keep the 16:25Z page's rows; "whole_page": the later page
+    stands for the start, so the other five games are no page's and their slate rows stay. The stored pages agree.
+    P3-4: "superseded" counts only a file no row of which stands; per_game leaves 5 of the 16:25Z page's 6 rows standing,
+    so it is named "partly superseded (some games stand)"; whole_page leaves none, so it is superseded."""
+    later = closing(at=LATER_AT, run=RUN2, ids=[304], Denver=0.60)
+    got = _node(tmp_path, r'''
+T_rules({missingGame:MODE});
+const did=await loadDocs([T_doc(SN,S),T_doc("closing_b.json",C2),T_doc(CN,C)]);
+const st=loadLedger().meta.closings["NFL|2026-10-19T17:00:00Z"];
+T_out({rows:rows.map(r=>[r.home,r.closing?r.closing.run_id:"slate"]).sort(),sup:did.closings.superseded,
+  partly:did.closings.partly,dropped:did.closings.slateRowsDropped,
+  stored:Object.values(st.games).map(g=>[g.home,g.run_id]).sort(),summary:document.getElementById("summary").textContent});''',
+                MODE=mode, C2=later, **_docs())
+    head = " · closing: 2 file(s) (NFL 2026-10-19T17:00:00Z) · "
+    if mode == "per_game":
+        want = sorted([["Buffalo", RUN], ["Miami", RUN], ["Dallas", RUN], ["Denver", RUN2], ["Newark", RUN],
+                       ["Tampa", RUN]])
+        assert {k: v for k, v in got.items() if k != "summary"} == {"rows": want, "sup": [], "partly": [CLOSING_NAME],
+                                                                    "dropped": 6, "stored": want}
+        assert got["summary"].endswith(head + "6 slate row(s) replaced by their closing row · 0 superseded by a later"
+                                       " page · 1 partly superseded (some games stand)")
+    else:
+        assert got["rows"] == sorted([["Buffalo", "slate"], ["Miami", "slate"], ["Dallas", "slate"], ["Denver", RUN2],
+                                      ["Newark", "slate"], ["Tampa", "slate"]])
+        assert got["sup"] == [CLOSING_NAME] and got["partly"] == [] and got["dropped"] == 1
+        assert got["stored"] == [["Denver", RUN2]]
+        assert got["summary"].endswith(head + "1 slate row(s) replaced by their closing row · 1 superseded by a later"
+                                       " page")
+
+
+# The dedupe on synthetic rows (pure): {sport, home, away, utc, closing}
+DEDUPE_JS = r'''
+const R=(id,utc,cl,o)=>({id,sport:"NFL",home:"Denver",away:"Denver Visitors",utc,closing:cl||null,...(o||{})});
+const P=(file,as_of,run_id,start)=>({family:"NFL",start:start||"2026-10-19T17:00:00Z",run_id,as_of,file});
+const K=res=>res.rows.map(r=>r.id);
+'''
+
+
+def test_r2_for_rows_a_closing_row_covers_a_slate_row_within_the_hour_and_not_beyond(tmp_path):
+    """R2 for rows: a slate row whose kickoff is within the hour of a closing row's (inclusive) is the same game and
+    leaves; beyond the hour, or another sport, home or away, or no kickoff at all, it stays (law 4: never guessed). Two
+    closing rows of one game an hour apart: the newer page's stands; beyond the hour both stand (two games)."""
+    got = _node(tmp_path, DEDUPE_JS + r'''
+const p1=P("c1.json","2026-10-19T16:25:00Z","r1");
+const slate=[R("s18",  "2026-10-19T18:00:00"),R("s16",  "2026-10-19T16:00:00"),R("s1801","2026-10-19T18:01:00"),
+  R("s1559","2026-10-19T15:59:00"),R("sNHL","2026-10-19T17:00:00",null,{sport:"NHL"}),
+  R("sAway","2026-10-19T17:00:00",null,{away:"Other"}),R("sNone","")];
+const a=closingDedupe([...slate,R("c","2026-10-19T17:00:00",p1)]);
+const p2=P("c2.json","2026-10-19T16:40:00Z","r2","2026-10-19T17:40:00Z");
+const b=closingDedupe([R("c1","2026-10-19T17:00:00",p1),R("c2","2026-10-19T18:00:00",p2)]);
+const c=closingDedupe([R("c1","2026-10-19T17:00:00",p1),R("c2","2026-10-19T18:01:00",p2)]);
+T_out({a:K(a),dropped:a.slateRowsDropped,b:K(b),bsup:b.superseded,c:K(c),csup:c.superseded});''')
+    assert got == {"a": ["s1801", "s1559", "sNHL", "sAway", "sNone", "c"], "dropped": 2,
+                   "b": ["c2"], "bsup": ["c1.json"], "c": ["c1", "c2"], "csup": []}
+
+
+def test_r1_a_rule_by_kind_never_by_the_listings_order_every_permutation_keeps_the_same_rows(tmp_path):
+    """"A rule by kind, never by the listing's order": every order of two slate rows, two pages of one game, a byte copy
+    of the newer page and an uncovered slate row keeps the same rows and says the same counts. A copy (one page) keeps
+    ONE name, its smallest (P3-1): the standing row is c2.json's in every order, never c2copy.json's, and the pages
+    read are named and ordered alike (newest first, then the name)."""
+    got = _node(tmp_path, DEDUPE_JS + r'''
+const p1=P("c1.json","2026-10-19T16:25:00Z","r1"), p2=P("c2.json","2026-10-19T16:40:00Z","r2"), p2c=P("c2copy.json","2026-10-19T16:40:00Z","r2");
+const base=[R("s1","2026-10-19T17:00:00"),R("s2","2026-10-19T17:30:00"),R("c1","2026-10-19T17:00:00",p1),
+  R("c2","2026-10-19T17:00:00",p2),R("c2copy","2026-10-19T17:00:00",p2c),R("far","2026-10-20T17:00:00")];
+const perms=a=>a.length<2?[a]:a.flatMap((x,i)=>perms([...a.slice(0,i),...a.slice(i+1)]).map(p=>[x,...p]));
+const seen=new Set();
+for(const order of perms(base)){ const r=closingDedupe(order);
+  seen.add(JSON.stringify([K(r).sort(),r.files.map(f=>f.file),r.superseded,r.partly,r.copies,r.slateRowsDropped,
+    closingNote(r)])); }
+T_out({n:perms(base).length,seen:[...seen]});''')
+    assert got["n"] == 720
+    assert got["seen"] == [json.dumps([["c2", "far"], ["c2.json", "c1.json"], ["c1.json"], [], 1, 2,
+                                       " · closing: 2 file(s) (NFL 2026-10-19T17:00:00Z) · 2 slate row(s) replaced by"
+                                       " their closing row · 1 superseded by a later page · 1 copy(ies) of a page read"
+                                       " once"], separators=(",", ":"), ensure_ascii=False)]
+
+
+def test_r1_a_slate_row_leaves_only_against_a_standing_closing_row_never_a_superseded_one(tmp_path):
+    """P3-2: a kickoff that moved between two pages of one start. The 16:25Z page has the game at 17:50, the 16:40Z page
+    at 17:00: one game (50 minutes apart), the newer page's row stands. A slate row at 18:30 is within the hour of the
+    superseded 17:50 row only: it stays on the Desk (the ledger, which stores only the newer page's 17:00 entry, does
+    not cover it either); a slate row at 17:30 is within the hour of the standing row and leaves. Either order."""
+    got = _node(tmp_path, DEDUPE_JS + r'''
+const p1=P("c1.json","2026-10-19T16:25:00Z","r1"), p2=P("c2.json","2026-10-19T16:40:00Z","r2");
+const base=[R("s1830","2026-10-19T18:30:00"),R("s1730","2026-10-19T17:30:00"),R("c1750","2026-10-19T17:50:00",p1),
+  R("c1700","2026-10-19T17:00:00",p2)];
+T_out([base,[...base].reverse()].map(o=>{ const r=closingDedupe(o);
+  return {rows:K(r).sort(),dropped:r.slateRowsDropped,sup:r.superseded,partly:r.partly}; }));''')
+    want = {"rows": ["c1700", "s1830"], "dropped": 1, "sup": ["c1.json"], "partly": []}
+    assert got == [want, want]
+
+
+def test_r1_a_kickoff_moved_twice_leaves_the_desk_the_games_the_ledger_stores(tmp_path):
+    """Re-verify P3: three pages of one start move one game's kickoff twice (18:30, then 17:50, then 17:00): each pair
+    of neighbours within the hour, the first and last 90 minutes apart. Taken newest first (pageOrder), as storeClosings
+    stores them, the 17:00 row stands, the 17:50 row is its game and leaves, and the 18:30 row (not within the hour of
+    the standing 17:00 row) stands too: the Desk keeps the rows the ledger stores, in any listing order."""
+    got = _node(tmp_path, DEDUPE_JS + r'''
+const p1=P("c1.json","2026-10-19T16:05:00Z","r1"), p2=P("c2.json","2026-10-19T16:15:00Z","r2"),
+  p3=P("c3.json","2026-10-19T16:25:00Z","r3");
+const base=[R("c1830","2026-10-19T18:30:00",p1),R("c1750","2026-10-19T17:50:00",p2),R("c1700","2026-10-19T17:00:00",p3)];
+const orders=[base,[...base].reverse(),[base[1],base[0],base[2]]];
+const G=(run,ko)=>({sport:"NFL",home:"Denver",away:"Denver Visitors",kickoff:ko,calls:[],text:"PASS",run_id:run});
+const page=(p,ko)=>({family:"NFL",start:p.start,run_id:p.run_id,as_of:p.as_of,file:p.file,desk_meta:{},
+  games:{["NFL|Denver|Denver Visitors|"+ko]:{...G(p.run_id,ko),as_of:p.as_of,file:p.file}}});
+T_reset(); T_seed([]); storeClosings([page(p1,"2026-10-19T18:30:00"),page(p2,"2026-10-19T17:50:00"),
+  page(p3,"2026-10-19T17:00:00")]);
+const stored=Object.values(loadLedger().meta.closings["NFL|2026-10-19T17:00:00Z"].games).map(g=>g.kickoff.slice(11,16)).sort();
+T_out({desk:orders.map(o=>K(closingDedupe(o)).sort()),stored});''')
+    assert got["desk"] == [["c1700", "c1830"]] * 3 and got["stored"] == ["17:00", "18:30"]
+
+def test_r1_two_runs_of_one_start_with_one_as_of_the_higher_run_id_stands_in_either_order(tmp_path):
+    """P3-3: R1/R9's order is desk_meta.as_of, THEN the run id. Two runs of one start whose Desk read one as_of: the
+    later run (the higher run id) stands for the game in either listing order, the earlier is superseded, and the slate
+    row leaves against it; the pages read are listed newest first. (Comparing as_of alone would keep both rows.)"""
+    got = _node(tmp_path, DEDUPE_JS + r'''
+const p1=P("c1.json","2026-10-19T16:25:00Z",RUN), p2=P("c2.json","2026-10-19T16:25:00Z",RUN_SAME);
+const base=[R("s","2026-10-19T17:00:00"),R("c1","2026-10-19T17:00:00",p1),R("c2","2026-10-19T17:00:00",p2)];
+T_out([base,[...base].reverse()].map(o=>{ const r=closingDedupe(o);
+  return {rows:K(r),sup:r.superseded,files:r.files.map(f=>f.run_id),dropped:r.slateRowsDropped,note:closingNote(r)}; }));''',
+                RUN=RUN, RUN_SAME=RUN_SAME_AS_OF)
+    want = {"rows": ["c2"], "sup": ["c1.json"], "files": [RUN_SAME_AS_OF, RUN], "dropped": 1,
+            "note": " · closing: 2 file(s) (NFL 2026-10-19T17:00:00Z) · 1 slate row(s) replaced by their closing row"
+                    " · 1 superseded by a later page"}
+    assert got == [want, want]
+
+
+def test_r1_no_listing_order_reaches_the_stored_ledger_a_copy_keeps_its_smallest_name(tmp_path):
+    """P3-1: storeClosings stores this load's pages newest first (pageCmp), then by file name; a byte copy of one page
+    listed under two names keeps ONE name, its smallest, in closingDedupe's files, the Desk rows, the stored page and
+    every mark's closing.file. The slate, then the copies as [a, b] or [b, a]: byte-identical stored ledgers, notes and
+    summaries. Two pages of one start (16:25Z, 16:40Z) after the slate, in either order: the same load note ("6 game(s)
+    stored · 6 kept": the newer page first, the older kept out game by game) and the same stored bytes."""
+    got = _node(tmp_path, r'''
+const A="laptop/2026-10-19/"+CN, B="laptop/2026-10-18/"+CN;
+const run=async ds=>{ T_reset(); await loadDocs([T_doc(SN,S)]); const did=await loadDocs(ds), L=loadLedger();
+  const st=L.meta.closings["NFL|2026-10-19T17:00:00Z"];
+  return {stored:T_stored(),note:T_note(),summary:document.getElementById("summary").textContent,
+    files:did.closings.files.map(f=>f.file),rows:[...new Set(rows.map(r=>r.closing.file))],
+    pages:Object.values(st.pages).map(p=>p.file),
+    marks:[...new Set(L.calls.filter(c=>c.not_executed).map(c=>c.not_executed.closing.file))]}; };
+const ab=await run([T_doc(A,C),T_doc(B,C)]), ba=await run([T_doc(B,C),T_doc(A,C)]);
+const p1=await run([T_doc(CN,C),T_doc("closing_b.json",C2)]), p2=await run([T_doc("closing_b.json",C2),T_doc(CN,C)]);
+T_out({ab,ba,p1,p2,B});''', C2=closing(at=LATER_AT, run=RUN2, Denver=0.60), **_docs())
+    ab, ba, p1, p2 = got["ab"], got["ba"], got["p1"], got["p2"]
+    assert ab == ba
+    assert ab["files"] == ab["rows"] == ab["pages"] == ab["marks"] == [got["B"]]
+    assert " · closing: 1 page(s) read · 6 game(s) stored · 6 kept (the stored page is newer or the same) · 3 claim(s)" \
+           in ab["note"] and ab["summary"].endswith(" · 1 copy(ies) of a page read once")
+    assert p1 == p2 and p1["files"] == ["closing_b.json", CLOSING_NAME]
+    assert " · closing: 2 page(s) read · 6 game(s) stored · 6 kept (the stored page is newer or the same) · " in p1["note"]
+    assert p1["pages"] == p1["rows"] == ["closing_b.json"]
+
+
+def test_with_no_closing_file_the_rows_and_every_note_are_todays(tmp_path):
+    """No closing file in the load: closingDedupe hands the very rows back, the Desk summary and the load note are
+    byte for byte today's (the strings origin/main prints for this slate), and did.closings says nothing was read."""
+    got = _node(tmp_path, r'''
+const same=closingDedupe(normalize(S)), arr=normalize(S);
+const did=await loadDocs([T_doc(SN,S)]);
+T_out({identity:closingDedupe(arr).rows===arr,same:[same.files,same.superseded,same.copies,same.slateRowsDropped],
+  summary:document.getElementById("summary").textContent,note:T_note(),closings:did.closings,
+  line:closingNote(did.closings)});''', **_docs())
+    assert got["identity"] is True and got["same"] == [[], [], 0, 0]
+    assert got["summary"] == SUMMARY_SLATE
+    assert got["note"] == ("Auto-claimed 6 call(s) at their file's as_of — 6 new · 0 position(s) repriced · 0 already"
+                           " claimed from this file · 0 older than the ledger (kept) · 0 past kickoff at as_of (not"
+                           " claimed). \"Re-log at T-60\" refreshes prices.")
+    assert got["closings"] == {"files": [], "superseded": [], "partly": [], "copies": 0, "slateRowsDropped": 0,
+                               "marks": None}
+    assert got["line"] == ""
+
+
+def test_the_desk_summary_carries_the_closing_line_after_the_refusals_at_both_returns():
+    html = _html()
+    ds = _fn(html, "deskSourceNote")
+    assert "if(!rows.length) return refusedNote()+closingNote(closingLoad);" in ds
+    assert ds.count("refusedNote()+closingNote(closingLoad)") == 2 and ds.count("closingNote(") == 2
+    assert "let closingLoad=null;" in html
+
+
+# ------------------------------------------------------------------------------------------------ the control --
+
+API = "https://api.github.com/repos/anthonyevans29/Sports-Predictor-exports/contents/"
+# fetch stubbed: every request recorded (URL, Accept, Authorization); a path not routed answers 404, "throw" throws
+FETCH = r'''
+const API="https://api.github.com/repos/anthonyevans29/Sports-Predictor-exports/contents/", T_req=[];
+function T_route(map){ globalThis.fetch=async(url,o)=>{ T_req.push([url,o.headers.Accept,o.headers.Authorization]);
+  const r=map[url.startsWith(API)?url.slice(API.length):url];
+  if(r===undefined) return {ok:false,status:404,json:async()=>({message:"Not Found"}),text:async()=>"{}"};
+  if(r==="throw") throw new Error("network down");
+  const st=r.status||200, b=r.body;
+  return {ok:st>=200&&st<300,status:st,json:async()=>b,text:async()=>typeof b==="string"?b:JSON.stringify(b)}; }; }
+const T_file=n=>({type:"file",name:n});
+const T_mirror=()=>document.getElementById("mirrorNote").textContent;
+document.getElementById("mirrorToken").value="github_pat_TEST";
+'''
+LAPTOP_NOTE = "Loaded 3 file(s) from anthonyevans29/Sports-Predictor-exports laptop: 1 closing file(s) of 2026-10-18, 2026-10-19 UTC"
+MLB_START = datetime(2026, 10, 19, 23, 0, tzinfo=timezone.utc)
+
+
+def mlb_closing():
+    """An MLB closing page (start 23:00Z, Clearwater PLAY): a real document, so a fetch that failed and were loaded
+    anyway would put an MLB row on the Desk (the 500 route's body)."""
+    at = MLB_START - timedelta(minutes=35)
+    doc = dp.annotate({"sport": "mlb", "predictions": [row(401, "Clearwater", 0.60, fair_h=0.53, bid=0.51, ask=0.52,
+                                                           now=at)]}, now=at, counts_source="parameter")
+    return mc.closing_doc(doc, "MLB", MLB_START, "20261019T222500Z-mlb", [401], [])
+
+
+def _control_docs():
+    return {**_docs(), "CM": mlb_closing()}
+
+
+def _routes_js():
+    return r'''
+const LEG={...S,predictions:S.predictions.map(p=>{ const {desk,...x}=p; return x; })};
+const ROUTES={"laptop/latest":{body:[T_file("nfl_predictions.json"),T_file("closing_NFL.json"),T_file("RESULTS.md"),
+    {type:"dir",name:"sub.json"},T_file("window 24h.json")]},
+  "laptop/2026-10-19":{body:[T_file(CN),T_file("closing_MLB_2026-10-19T2300Z.json"),T_file("nfl_predictions_2026-10-19.json")]},
+  "laptop/latest/nfl_predictions.json":{body:JSON.stringify(S)},"laptop/latest/window%2024h.json":{body:JSON.stringify(LEG)},
+  ["laptop/2026-10-19/"+CN]:{body:JSON.stringify(C)},
+  "laptop/2026-10-19/closing_MLB_2026-10-19T2300Z.json":{status:500,body:JSON.stringify(CM)},
+  "laptop/latest/closing_NFL.json":{body:JSON.stringify(C)}};
+'''
+
+
+def test_the_laptop_control_requests_exactly_latest_and_the_two_utc_day_folders_and_names_what_it_did_not_load(tmp_path):
+    """The control lists laptop/latest (JSON files only; its closing_* copy, a non-JSON file and a folder never
+    fetched) and laptop/<yesterday UTC> and laptop/<today UTC> (2026-10-18 and 2026-10-19 at 16:30Z; closing_*.json
+    only), then fetches each file raw, every path segment encoded. The 2026-10-18 folder answers 404: named, not
+    fatal. The MLB closing answers 500 (with a real MLB page as its body: loaded, it would put an MLB row on the Desk):
+    named and never loaded. One load: the closing row stands over the slate's; the note is this load's, R14's line
+    included (the ledger holds no claim from before the page: ⚠, the slate called)."""
+    got = _node(tmp_path, FETCH + _routes_js() + r'''
+T_route(ROUTES);
+await loadClosingsFromLaptop(Date.now());
+T_out({req:T_req,note:T_mirror(),rows:rows.map(r=>[r.home,r.closing?r.closing.file:"slate"]),
+  sports:[...new Set(rows.map(r=>r.sport))],token:localStorage.getItem("bd_mirror_token"),
+  input:document.getElementById("mirrorToken").value,logNote:T_note()});''', **_control_docs())
+    lst, raw, auth = "application/vnd.github+json", "application/vnd.github.raw+json", "Bearer github_pat_TEST"
+    assert got["req"] == [[API + "laptop/latest", lst, auth], [API + "laptop/2026-10-18", lst, auth],
+                          [API + "laptop/2026-10-19", lst, auth],
+                          [API + "laptop/latest/nfl_predictions.json", raw, auth],
+                          [API + "laptop/latest/window%2024h.json", raw, auth],
+                          [API + "laptop/2026-10-19/" + CLOSING_NAME, raw, auth],
+                          [API + "laptop/2026-10-19/closing_MLB_2026-10-19T2300Z.json", raw, auth]]
+    assert got["note"] == (LAPTOP_NOTE + " · 2 newest of the other kinds · laptop/2026-10-18: no folder yet"
+                           " · 1 not fetched, not loaded: laptop/2026-10-19/closing_MLB_2026-10-19T2300Z.json (GitHub 500)"
+                           + DEDUPE_NOTE + " · 0 claim(s) marked NOT EXECUTED (0 new, 0 cleared by a later page)"
+                           " · 1 without desk blocks refused · ⚠ 6 of 6 covered game(s) hold no claim from before their"
+                           " page in this browser's ledger: nothing there to mark. A local Cockpit keeps its own ledger:"
+                           " import the ledger, then load.")
+    assert got["rows"] == [[h, "laptop/2026-10-19/" + CLOSING_NAME] for h in
+                           ("Buffalo", "Miami", "Dallas", "Denver", "Newark", "Tampa")]
+    assert got["sports"] == ["NFL"] and got["token"] == "github_pat_TEST" and got["input"] == ""
+    assert got["logNote"].endswith(COUNTS_NOTE)                 # the 144 note rides the load note, as for any load
+
+
+def test_the_laptop_control_after_import_the_ledger_marks_the_claims_the_page_did_not_repeat(tmp_path):
+    """The runbook's order, "import the ledger, then load": a ledger that already holds the slate's claims (12:00Z)
+    loads the laptop's closings and the page marks Denver, Miami and Dallas; no R14 line (every covered game holds a
+    claim from before its page)."""
+    got = _node(tmp_path, FETCH + _routes_js() + r'''
+await loadDocs([T_doc(SN,S)]); const A=JSON.parse(T_stored()); T_reset(); importLedgerDoc(A);
+T_route(ROUTES);
+await loadClosingsFromLaptop(Date.now());
+T_out({note:T_mirror(),marks:T_marks(loadLedger())});''', **_control_docs())
+    assert got["marks"] == {"Miami|straight|HOME": RUN, "Dallas|straight|HOME": RUN, "Denver|straight|HOME": RUN}
+    assert got["note"].endswith(DEDUPE_NOTE + " · 3 claim(s) marked NOT EXECUTED (3 new, 0 cleared by a later page)"
+                                " · 1 without desk blocks refused")
+
+
+@pytest.mark.parametrize("case", ["latest401", "latest403", "latest404", "day403", "day500", "network"])
+def test_the_laptop_control_aborts_on_a_rejected_token_or_an_unreadable_listing_and_loads_nothing(tmp_path, case):
+    """laptop/latest not ok aborts as the host control does (401/403 "token rejected / no read access", else
+    "laptop/latest not found"); a day folder not ok but 404 aborts too; a listing that throws reads "Fetch failed".
+    Nothing is fetched beyond the listing and nothing loads: the slate loaded before stays, the ledger as it was."""
+    got = _node(tmp_path, FETCH + _routes_js() + r'''
+await loadDocs([T_doc(SN,S)]); const before=T_stored(), rows0=JSON.stringify(rows);
+const R2={...ROUTES};
+if(CASE==="latest401") R2["laptop/latest"]={status:401,body:{}};
+if(CASE==="latest403") R2["laptop/latest"]={status:403,body:{}};
+if(CASE==="latest404") delete R2["laptop/latest"];
+if(CASE==="day403") R2["laptop/2026-10-18"]={status:403,body:{}};
+if(CASE==="day500") R2["laptop/2026-10-19"]={status:500,body:{}};
+if(CASE==="network") R2["laptop/latest"]="throw";
+T_route(R2);
+await loadClosingsFromLaptop(Date.now());
+T_out({note:T_mirror(),fetched:T_req.filter(x=>x[1]==="application/vnd.github.raw+json").length,
+  same:T_stored()===before&&JSON.stringify(rows)===rows0});''', CASE=case, **_control_docs())
+    want = {"latest401": "GitHub 401 — token rejected / no read access",
+            "latest403": "GitHub 403 — token rejected / no read access",
+            "latest404": "GitHub 404 — laptop/latest not found",
+            "day403": "GitHub 403 — token rejected / no read access",
+            "day500": "GitHub 500 — laptop/2026-10-19 could not be listed",
+            "network": "Fetch failed: network down"}[case]
+    assert got == {"note": want, "fetched": 0, "same": True}
+
+
+def test_the_laptop_control_names_a_file_fetch_that_throws_and_its_note_is_this_loads_only(tmp_path):
+    """#589: the note is built from THIS load's did. A file-picker load refused a file and stored a closing; the
+    control's load then reads latest alone (both day folders 404, a file fetch throwing): its note names no refusal, no
+    closing line, no mark and no R14 line from the load before, only what it did."""
+    got = _node(tmp_path, FETCH + _routes_js() + r'''
+await loadDocs([T_doc("legacy.json",LEG),T_doc(SN,S),T_doc(CN,C)]);
+T_route({"laptop/latest":{body:[T_file("nfl_predictions.json"),T_file("bad.json")]},
+  "laptop/latest/nfl_predictions.json":{body:JSON.stringify(S)},"laptop/latest/bad.json":"throw"});
+await loadClosingsFromLaptop(Date.now());
+T_out({note:T_mirror(),rows:rows.length,closing:rows.some(r=>r.closing),
+  summary:document.getElementById("summary").textContent});''', **_control_docs())
+    assert got["note"] == ("Loaded 1 file(s) from anthonyevans29/Sports-Predictor-exports laptop: 0 closing file(s) of"
+                           " 2026-10-18, 2026-10-19 UTC · 1 newest of the other kinds · laptop/2026-10-18: no folder yet"
+                           " · laptop/2026-10-19: no folder yet · 1 not fetched, not loaded: laptop/latest/bad.json"
+                           " (network down)")
+    assert got["rows"] == 6 and got["closing"] is False and got["summary"] == SUMMARY_SLATE
+
+
+def test_the_laptop_control_when_every_file_fetch_fails_keeps_the_desk_and_claims_nothing(tmp_path):
+    """Every listed file answers 500, each with its real body: nothing is handed to loadDocs, so the Desk keeps the slate
+    loaded before (its rows and summary), the ledger is as it was (nothing claimed, nothing marked), and the note names
+    every file that did not fetch."""
+    got = _node(tmp_path, FETCH + _routes_js() + r'''
+await loadDocs([T_doc(SN,S)]); const before=T_stored(), rows0=JSON.stringify(rows), sum0=document.getElementById("summary").textContent;
+const R2={...ROUTES}; for(const k of Object.keys(R2)) if(/\.json$/.test(k)) R2[k]={status:500,body:R2[k].body};
+T_route(R2);
+await loadClosingsFromLaptop(Date.now());
+T_out({note:T_mirror(),same:T_stored()===before&&JSON.stringify(rows)===rows0,
+  summary:document.getElementById("summary").textContent===sum0,rows:rows.length,closing:rows.some(r=>r.closing)});''',
+                **_control_docs())
+    assert got == {"note": "Loaded 0 file(s) from anthonyevans29/Sports-Predictor-exports laptop: 0 closing file(s) of"
+                           " 2026-10-18, 2026-10-19 UTC · 0 newest of the other kinds · laptop/2026-10-18: no folder yet"
+                           " · 4 not fetched, not loaded: laptop/latest/nfl_predictions.json (GitHub 500),"
+                           " laptop/latest/window 24h.json (GitHub 500), laptop/2026-10-19/" + CLOSING_NAME
+                           + " (GitHub 500), laptop/2026-10-19/closing_MLB_2026-10-19T2300Z.json (GitHub 500)",
+                   "same": True, "summary": True, "rows": 6, "closing": False}
+
+
+def test_the_laptop_control_says_the_load_stopped_when_a_fetched_file_does_not_parse(tmp_path):
+    """#431 commit 2 review (P3-5): a file that answers 200 but is not JSON stops loadDocs at "Could not parse" (#summary
+    names it). The control's note says so from THIS load's did (did.parseError, #589), never "Loaded": nothing after it
+    was loaded, so nothing is claimed or marked and the closing page is never stored. The stop is that load's, never a
+    global's: a next load whose every file fetch fails hands loadDocs nothing (#summary still shows the parse message)
+    and its note reads "Loaded 0 file(s)"; a good load after it reads "Loaded" too."""
+    got = _node(tmp_path, FETCH + _routes_js() + r'''
+await loadDocs([T_doc(SN,S)]); const before=T_stored();
+let why=""; try{ JSON.parse(BAD); }catch(e){ why=e.message; }
+T_route({"laptop/latest":{body:[T_file("broken.json"),T_file("nfl_predictions.json")]},
+  "laptop/latest/broken.json":{body:BAD},"laptop/latest/nfl_predictions.json":{body:JSON.stringify(S)},
+  "laptop/2026-10-19":{body:[T_file(CN)]},["laptop/2026-10-19/"+CN]:{body:JSON.stringify(C)}});
+await loadClosingsFromLaptop(Date.now());
+const one={note:T_mirror(),summary:document.getElementById("summary").textContent,same:T_stored()===before};
+T_route({"laptop/latest":{body:[T_file("nfl_predictions.json")]},"laptop/latest/nfl_predictions.json":{status:500,body:"{}"}});
+await loadClosingsFromLaptop(Date.now());
+const two={note:T_mirror(),summary:document.getElementById("summary").textContent};
+T_route({"laptop/latest":{body:[T_file("nfl_predictions.json")]},"laptop/latest/nfl_predictions.json":{body:JSON.stringify(S)}});
+await loadClosingsFromLaptop(Date.now());
+T_out({one,why,two,three:T_mirror()});''', BAD="{not json", **_control_docs())
+    msg = "Could not parse laptop/latest/broken.json: " + got["why"]
+    assert got["one"] == {"note": f"load stopped: {msg}; no Desk file of this load was loaded (nothing claimed or"
+                                  " marked)", "summary": msg, "same": True}
+    assert got["two"]["summary"] == msg and got["two"]["note"].startswith(
+        "Loaded 0 file(s) from anthonyevans29/Sports-Predictor-exports laptop: ")
+    assert got["three"].startswith("Loaded 1 file(s) from anthonyevans29/Sports-Predictor-exports laptop: ")
+
+
+LOAD_LATEST_FROM_HOST = r'''async function loadLatestFromHost(){
+  const typed=$("mirrorToken").value.trim(), repo=$("mirrorRepo").value.trim()||MIRROR_REPO_DEFAULT;
+  if(typed){ lsSet(MIRROR_TOKEN_KEY,typed); $("mirrorToken").value=""; $("mirrorToken").placeholder="token saved in this browser"; }
+  lsSet(MIRROR_REPO_KEY,repo);
+  const tok=lsGet(MIRROR_TOKEN_KEY);
+  if(!tok){ $("mirrorNote").textContent="Paste a read-only token first."; return; }
+  const api=`https://api.github.com/repos/${repo}/contents/host/latest`;
+  const hdr={Authorization:`Bearer ${tok}`,"X-GitHub-Api-Version":"2022-11-28"};
+  try{
+    const r=await fetch(api,{headers:{...hdr,Accept:"application/vnd.github+json"}});
+    if(!r.ok){ $("mirrorNote").textContent=`GitHub ${r.status} — ${r.status===401||r.status===403?"token rejected / no read access":"host/latest not found"}`; return; }
+    const list=(await r.json()).filter(x=>x.type==="file"&&x.name.endsWith(".json"));
+    const docs=await Promise.all(list.map(async x=>{
+      const q=await fetch(`${api}/${encodeURIComponent(x.name)}`,{headers:{...hdr,Accept:"application/vnd.github.raw+json"}});
+      return {name:`host/latest/${x.name}`,text:q.ok?await q.text():"{}"};}));
+    const did=await loadDocs(docs);      // the note is THIS load's (#589 review): never an earlier load's refusals
+    $("mirrorNote").textContent=`Loaded ${docs.length} file(s) from ${repo} host/latest`
+      +(did.coverage?` · ${did.coverage} coverage file${did.coverage===1?"":"s"} on the Today tab`
+        +(did.coverageError?` (not rendered: ${did.coverageError})`:""):"")
+      +(did.refused.length?` · ${did.refused.length} without desk blocks refused`:"");
+  }catch(e){ $("mirrorNote").textContent=`Fetch failed: ${(e&&e.message)||e}`; }
+}'''
+
+
+def test_the_laptop_control_sits_beside_the_host_control_which_is_unchanged_and_its_note_reads_only_its_did():
+    """The button beside #mirrorBtn, the same token, repo and note; loadLatestFromHost byte for byte as on origin/main
+    (scripts/cockpit_mirror_verify.py and tests/test_cockpit_today.py pin its behaviour); the new function after it,
+    wired after its wiring; #589's rule: the note is built from this load's did, never a global."""
+    html = _html()
+    assert ('<button id="mirrorBtn">Load latest from host</button>\n'
+            '      <button id="mirrorLaptopBtn">Load closings + latest from laptop</button>\n'
+            '      <span class="note" id="mirrorNote"></span></div>') in html
+    assert _fn(html, "loadLatestFromHost") == LOAD_LATEST_FROM_HOST
+    host, laptop = html.index("async function loadLatestFromHost("), html.index("async function loadClosingsFromLaptop(")
+    wire_h = html.index('$("mirrorBtn").addEventListener("click",loadLatestFromHost);')
+    wire_l = html.index('$("mirrorLaptopBtn").addEventListener("click",()=>loadClosingsFromLaptop(Date.now()));')
+    assert host < wire_h < laptop < wire_l
+    fn = _fn(html, "loadClosingsFromLaptop")
+    assert fn.count("loadDocs(") == 1 and "const did=await loadDocs(docs);" in fn
+    for glob in ("refusedFiles", "closingLoad", "lastNotExec", "lastCapture", "rows.", "ticketRows", '$("summary")'):
+        assert glob not in fn, glob
+    assert "if(did.parseError){" in fn and ("`load stopped: ${did.parseError}; no Desk file of this load was loaded"
+                                            " (nothing claimed or marked)`") in fn
+    assert "did.refused.length" in fn and "did.coverage" in fn and "closingNote(dc)" in fn \
+        and "noClaimNote(m&&m.noClaim)" in fn and "const dc=did.closings||{}, m=dc.marks" in fn
+    assert '!x.name.startsWith("closing_")' in fn and r"/^closing_.*\.json$/.test(x.name)" in fn
+    assert 'Accept:"application/vnd.github.raw+json"' in fn and "p.split(\"/\").map(encodeURIComponent).join(\"/\")" in fn
+    assert "days=[utcDay(t-86400000),utcDay(t)]" in fn
+    assert _fn(html, "utcDay") == "function utcDay(ms){ return new Date(ms).toISOString().slice(0,10); }"

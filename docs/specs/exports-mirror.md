@@ -21,6 +21,7 @@ only (F1c). Receipt: tonight's 16:00 nhl-daily run visible in the repo within a 
 | Weekly squash | `sp-exports-squash.timer` (Sun 06:10 UTC) | one orphan commit, force-pushed; a no-op until configured |
 | Verdict Action | `deploy/exports-mirror/compare.yml` | shipped into the mirror by every push as `.github/workflows/compare.yml`, with `tools/compare_exports.py` |
 | Cockpit control | `tools/cockpit.html` "Load latest from host" | GitHub contents API → `host/latest/*.json` → the normal load path (F1c refuses files without desk blocks) |
+| Cockpit control | `tools/cockpit.html` "Load closings + latest from laptop" (#431) | GitHub contents API → `laptop/latest/*.json` except `closing_*`, plus the `closing_*.json` of `laptop/<yesterday UTC>` and `laptop/<today UTC>` → one load (a closing file's row stands over the slate row of its game, R1; the pages mark, R11) |
 
 Layout in the mirror: `host/<YYYY-MM-DD>/<file>` and `laptop/<YYYY-MM-DD>/<file>`, with the date
 taken from the file's UTC mtime. Only top-level `exports/*.json|*.md` are mirrored; subfolders
@@ -89,8 +90,8 @@ run code that carries it.
 `host: nhl-daily step N …` in the mirror within a minute, and the step receipts carry `kind: mirror, exit 0`.
 
 **Published artifact: the CSP blocks api.github.com (confirmed by the architect, 2026-10-04).** In the
-published Cockpit, "Load latest from host" fails ("Fetch failed"); the file picker still works there.
-To use the control, run the Cockpit locally:
+published Cockpit, "Load latest from host" fails ("Fetch failed"), and so does "Load closings + latest from
+laptop"; the file picker still works there. To use the controls, run the Cockpit locally:
 
 ```
 python scripts/cockpit_local.py --html ~/Downloads/cockpit.html   # a saved copy of the published artifact
@@ -105,11 +106,25 @@ ledger with "Export ledger (JSON)" → "Import ledger", and keep the same `--por
 same between runs.
 
 **Closings: import the ledger, then load (#431, ARCHITECT 2026-10-20, addendum 145 item 3(b) R14).** A closing
-file loaded into the Cockpit (the file picker, or Load latest from host) marks NOT EXECUTED the claims its page did
-not repeat, and it can mark only the claims this origin's ledger holds. In the local page, first Import ledger (the
-published page's Export ledger (JSON)), then load the closing files. A closing loaded into a ledger that holds no
-claim on its games from before its page finds nothing there to mark; the load note says how many covered games hold
-no claim from before their page. Export ledger (JSON) → Import ledger on the published page carries the marks and
-the pages that set them (`meta.closings`); each call follows the side whose page for its start is newer (R9).
+file loaded into the Cockpit (the file picker, Load latest from host, or Load closings + latest from laptop) marks
+NOT EXECUTED the claims its page did not repeat, and it can mark only the claims this origin's ledger holds. In the
+local page, import the ledger, then load the closings with Load closings + latest from laptop: first Import ledger
+(the published page's Export ledger (JSON)), then press the control. It reads the laptop's side of the mirror as
+the mirror writes it: `laptop/latest/*.json`, the newest file of every kind (its `closing_<FAMILY>.json` is a copy of
+a dated file and is not fetched), and the `closing_*.json` files of `laptop/<yesterday UTC>` and
+`laptop/<today UTC>` (a dated folder is the file's UTC mtime day, so a closing run's file lands in the UTC day it
+ran). A day folder the laptop has not pushed yet is named in the note, not fatal; a file that does not fetch is
+named and never loaded; a file that does not parse stops the load there, and the note says "load stopped" with the
+parse message, never "Loaded". In any load, R1: "the closing file's row stands over any slate row for its games;
+among pages of one family and start the newest desk_meta.as_of wins. A rule by kind, never by the listing's order."
+Per game (R2: sport, home and away, kickoffs within the hour) the newest page's row is the Desk's, and a slate row
+leaves only against a closing row that stands; the Desk summary says how many slate rows were replaced, how many files
+a later page superseded (no row of theirs stands) and how many it partly superseded (some games stand). A copy of a
+page listed under two names is read once under its smallest name, and the pages are stored newest first, so no
+listing order decides which row stands, the notes, or the stored pages and their marks. A closing loaded into a
+ledger that holds no claim on its games from before its page finds nothing there to mark; the load note, and the
+control's note, say how many covered games hold no claim from before their page. Export ledger (JSON) → Import
+ledger on the published page carries the marks and the pages that set them (`meta.closings`); each call follows the
+side whose page for its start is newer (R9).
 **Version skew (#431 R4, esc 2, proposed):** Until the published page carries this build, do not import a ledger
 exported from the local page into the published page.

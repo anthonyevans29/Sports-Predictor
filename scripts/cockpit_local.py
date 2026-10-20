@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """
 LOCAL COCKPIT LAUNCHER (ARCHITECT 2026-10-04): the published artifact's CSP
-blocks api.github.com, so "Load latest from host" cannot run there. Served from
-this machine, the same page can reach the GitHub contents API.
+blocks api.github.com, so neither mirror control runs there: "Load latest from
+host" (host/latest) nor "Load closings + latest from laptop" (#431: laptop/latest
+and the closing files of laptop/<yesterday UTC> and laptop/<today UTC>). Served
+from this machine, the same page can reach the GitHub contents API.
 
     python scripts/cockpit_local.py [--html PATH] [--port 8765] [--no-browser]
 

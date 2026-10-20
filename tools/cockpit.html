@@ -140,6 +140,7 @@ details.sig pre{max-height:220px;margin:6px 0 0}
       <input type="password" id="mirrorToken" placeholder="github_pat_…" autocomplete="off" style="width:16em">
       <input type="text" id="mirrorRepo" placeholder="owner/repo" style="width:18em">
       <button id="mirrorBtn">Load latest from host</button>
+      <button id="mirrorLaptopBtn">Load closings + latest from laptop</button>
       <span class="note" id="mirrorNote"></span></div>
   </div>
 </div>
@@ -727,12 +728,12 @@ function policy(){
 
 // F1b: where the Desk came from — the file (rendered) or the browser (legacy).
 function deskSourceNote(){
-  if(!rows.length) return refusedNote();
+  if(!rows.length) return refusedNote()+closingNote(closingLoad);
   const metas=rows.filter(r=>r.deskMeta).map(r=>r.deskMeta);
   const asof=[...new Set(metas.map(m=>m.as_of))].join(", ");
   const vers=[...new Set(metas.map(m=>m.policy_version))].filter(v=>v!==POLICY_VERSION);
   return ` · desk: rendered from file (as of ${asof})`
-    +(vers.length?` · ⚠ file policy ${vers.join(",")} ≠ Cockpit ${POLICY_VERSION}`:"")+refusedNote();
+    +(vers.length?` · ⚠ file policy ${vers.join(",")} ≠ Cockpit ${POLICY_VERSION}`:"")+refusedNote()+closingNote(closingLoad);
 }
 let refusedFiles=[];
 function refusedNote(){
@@ -1073,6 +1074,8 @@ function stampClosing(rr,doc,name){
 }
 // R12: every loaded row but a closing page's, in load order: the rows a ticket is built from and #183 reads
 let ticketRows=[];
+// R1: this load's dedupe (closingDedupe, less its rows), for the Desk summary's line (closingNote)
+let closingLoad=null;
 function slateRows(rs){ return rs.filter(r=>!r.closing); }
 function legAuditCalls(){ return ticketRows.filter(r=>!r.marketOnly).map(r=>({r,...fileCall(r)})); }
 // R6, on the kinds of deploy/hosting/closing.py CLOSING_HOLDS (hold_for): (1) a PLAY with exec edge under 4pp, unknown
@@ -1114,6 +1117,12 @@ function holdClass(r){ return holdRead(r).cls; }
 // esc 4 (R3 x R6): the closing's own capture of a PLAY its page does not repeat. "skip": never claimed (snapshotCalls
 // counts it); "mark": claimed, and markClosings marks it although its claim time is the page's own as_of
 function ownCaptureSkips(){ return CLOSING_MARK_RULES.ownCapture==="skip"; }
+// esc 11: "per_game", a game an earlier page carries and a later page of its start lacks keeps the earlier page;
+// "whole_page", the newest page of a start stands for the whole start. One read for the stored pages (putPage) and
+// for this load's rows (closingDedupe), so within ONE load the Desk and the ledger follow one rule. Across loads they
+// may differ: a load of an older page shows its rows on the Desk while the ledger keeps the newer page it already
+// stores (putPage: an older page never overwrites), and the ledger never reprices backwards (autoClaim)
+function wholePageStands(){ return CLOSING_MARK_RULES.missingGame==="whole_page"; }
 // The page's call set for a game, "engine|call_type|pick": snapshotCalls' own mapping without the kickoff test (the
 // page called it). A PLAY only when repeated (R6); the quarantine shadow by its tag alone, as the page tests it
 // (closing.py is_quarantine_shadow; isQuarShadow's r.quar fallback is never the page's); a market-only row, venue only.
@@ -1162,6 +1171,63 @@ function pageCmp(a,b){ const x=utcMs(a.as_of), y=utcMs(b.as_of);
   if(isFinite(x)&&x!==y) return x>y?1:-1;
   const p=String(a.run_id??""), q=String(b.run_id??"");
   return p===q?0:p>q?1:-1; }
+// This load's pages in one order whatever the listing's: the newest first (pageCmp), then the file name (code-unit
+// order). storeClosings stores them in it and closingDedupe names them by it, so a copy of a page keeps its smallest
+// name and no listing order decides which row stands, the notes, or the stored pages and their marks
+function pageOrder(a,b){ return pageCmp(b,a)||(a.file<b.file?-1:a.file>b.file?1:0); }
+// R1 (ARCHITECT 2026-10-20, addendum 145 item 3(b), verbatim): "the closing file's row stands over any slate row for
+// its games; among pages of one family and start the newest desk_meta.as_of wins. A rule by kind, never by the
+// listing's order." R2 for rows: one game by sport, home and away, kickoffs within the hour (sameGame). Per game a
+// closing row of this load covers, the newest page's row stands (pageCmp: as_of, then the run id); every older closing
+// row of it leaves the Desk, and so does every slate row within the hour of a row that STANDS (never one only a
+// superseded row reaches: a kickoff that moved between two pages of a start); they stay in ticketRows and the pages,
+// taken before it (#183 and the tickets read the file that built them, R12; every page is stored, R8). A copy of a page
+// (its family, start, run and as_of again, under another name or the same) is read once, under ONE name, its smallest
+// (pageOrder); esc 11 is putPage's (wholePageStands). Pure: the rows that stand, in load order; the pages read (a copy
+// once, in pageOrder); the files no row of which stands (superseded) and those only some rows of which stand (partly);
+// the copies; the slate rows dropped. A load with no closing row gets its rows back as they came.
+function closingDedupe(rs){
+  const cl=rs.filter(r=>r.closing);
+  if(!cl.length) return {rows:rs,files:[],superseded:[],partly:[],copies:0,slateRowsDropped:0};
+  const g=r=>({sport:r.sport,home:r.home,away:r.away,kickoff:r.utc}), pid=c=>[c.family,c.start,c.run_id,c.as_of].join("|");
+  const name=new Map();                    // each page's one name: the smallest it was listed under
+  for(const r of cl){ const k=pid(r.closing), f=r.closing.file; if(!name.has(k)||f<name.get(k)) name.set(k,f); }
+  const files=[...name].map(([k,file])=>{ const c=cl.find(r=>pid(r.closing)===k).closing;
+    return {file,family:c.family,start:c.start,run_id:c.run_id,as_of:c.as_of}; }).sort(pageOrder);
+  const copies=new Set(cl.filter(r=>r.closing.file!==name.get(pid(r.closing))).map(r=>r.closing.file)).size;
+  // a copy: the same page's row of the same game under a smaller name, or under the same name earlier in this load
+  const uniq=cl.filter((r,i)=>!cl.some((o,j)=>j!==i&&pid(o.closing)===pid(r.closing)&&sameGame(g(o),g(r))
+    &&(o.closing.file<r.closing.file||(o.closing.file===r.closing.file&&j<i))));
+  let stand=uniq;
+  if(wholePageStands()){ const top=new Map(), sk=c=>`${c.family}|${c.start}`;
+    for(const r of stand){ const t=top.get(sk(r.closing)); if(!t||pageCmp(r.closing,t)>0) top.set(sk(r.closing),r.closing); }
+    stand=stand.filter(r=>pageCmp(r.closing,top.get(sk(r.closing)))===0); }
+  // per game, the newest page's row (R1); a later page of another start counts too (one row per game on the Desk).
+  // Taken newest first (pageOrder), as storeClosings stores them: a row stands unless a row already standing is its
+  // game, so a kickoff moved twice across three pages leaves the Desk what the ledger stores
+  const keep=new Set();
+  for(const r of [...stand].sort((x,y)=>pageOrder(x.closing,y.closing))) if(![...keep].some(o=>sameGame(g(o),g(r)))) keep.add(r);
+  const kept=[...keep];
+  let dropped=0;
+  const out=rs.filter(r=>{ if(r.closing) return keep.has(r);
+    if(kept.some(o=>sameGame(g(o),g(r)))){ dropped++; return false; }
+    return true; });
+  // per page: superseded when no row of it stands, partly when some do and some do not
+  const sup=new Set(), partly=new Set();
+  for(const f of files){ const mine=uniq.filter(r=>pid(r.closing)===pid(f)), n=mine.filter(r=>keep.has(r)).length;
+    if(!n) sup.add(f.file); else if(n<mine.length) partly.add(f.file); }
+  return {rows:out,files,superseded:[...sup],partly:[...partly],copies,slateRowsDropped:dropped};
+}
+// R1's line, after the refusals on the Desk summary (deskSourceNote: this load's closingLoad) and in the laptop control's
+// note (that load's did.closings); nothing when the load held no closing file. "superseded" counts the files no row of
+// which stands; a file only some of whose games a later page took is "partly superseded"
+function closingNote(cd){
+  if(!cd||!(cd.files||[]).length) return "";
+  return ` · closing: ${cd.files.length} file(s) (${[...new Set(cd.files.map(f=>`${f.family} ${f.start}`))].join(", ")})`
+    +` · ${cd.slateRowsDropped} slate row(s) replaced by their closing row · ${cd.superseded.length} superseded by a later page`
+    +((cd.partly||[]).length?` · ${cd.partly.length} partly superseded (some games stand)`:"")
+    +(cd.copies?` · ${cd.copies} copy(ies) of a page read once`:"");
+}
 function closingGameOK(g){ return !!g&&typeof g==="object"&&typeof g.sport==="string"&&typeof g.home==="string"
   &&typeof g.away==="string"&&!!g.kickoff&&Array.isArray(g.calls)&&g.run_id!=null; }
 // R8/R9: one page (this load's, or a stored record an import brings) into L.meta.closings["<family>|<start>"] =
@@ -1185,7 +1251,7 @@ function putPage(L,p){
   }
   // esc 11: "per_game", a game the later page lacks keeps the earlier page's entry; "whole_page", the newest page of
   // the start stands for the whole start
-  if(CLOSING_MARK_RULES.missingGame==="whole_page"){
+  if(wholePageStands()){
     const top=Object.values(cur.games).reduce((a,g)=>!a||pageCmp(g,a)>0?g:a,null);
     for(const [gk,g] of Object.entries(cur.games)) if(pageCmp(g,top)<0) delete cur.games[gk];
   }
@@ -1273,15 +1339,19 @@ function markClosings(L){
   });
   return S;
 }
-// R11: called by loadDocs after autoClaim with this load's pages: each stored, then the save re-derives every mark
+// R11: called by loadDocs after autoClaim with this load's pages: each stored, then the save re-derives every mark.
+// Stored in pageOrder, never the listing's: the newest page first (an older one is then kept out game by game), and a
+// copy of a page under two names stores its smallest (the stored page and every mark name it), so the stored pages,
+// their marks and the note are the same in any listing order (meta.auto_claims and the Desk's row order still follow
+// the load's, as autoClaim and the loop always have)
 function storeClosings(pages){
   if(!pages.length) return null;
-  const L=loadLedger(); let took=0,kept=0,refused=0;
-  for(const p of pages){ const r=putPage(L,p); took+=r.took; kept+=r.kept; refused+=r.refused; }
+  const L=loadLedger(), ps=[...pages].sort(pageOrder); let took=0,kept=0,refused=0;
+  for(const p of ps){ const r=putPage(L,p); took+=r.took; kept+=r.kept; refused+=r.refused; }
   const dd=saveLedger(L);
-  return {pages:new Set(pages.map(p=>`${p.family}|${p.start}|${p.run_id}`)).size,took,kept,refused,...dd.marks,dd,
-    noClaim:closingNoClaim(L,pages),
-    files:pages.map(p=>({file:p.file,family:p.family,start:p.start,run_id:p.run_id,as_of:p.as_of,
+  return {pages:new Set(ps.map(p=>`${p.family}|${p.start}|${p.run_id}`)).size,took,kept,refused,...dd.marks,dd,
+    noClaim:closingNoClaim(L,ps),
+    files:ps.map(p=>({file:p.file,family:p.family,start:p.start,run_id:p.run_id,as_of:p.as_of,
       counts_source:(p.desk_meta||{}).counts_source??null,counts:(p.desk_meta||{}).counts||null}))};
 }
 // R14: the covered games of this load's pages that hold no claim from before their stored page in this ledger, and
@@ -3105,7 +3175,8 @@ function todayFailed(msg){
 
 // One load path for picked files and the exports mirror (F2.5): [{name, text}]. Returns what THIS load did (#589
 // review): {coverage: the coverage_v1 files it took, coverageError: why the Today tab could not draw the one shown
-// (null when it did), slate: whether the slate path ran, refused: the files it refused without desk blocks}.
+// (null when it did), slate: whether the slate path ran, refused: the files it refused without desk blocks}, and
+// parseError when a file did not parse: the message #summary shows, the load stopped there (#431).
 async function loadDocs(fs){
   const did={coverage:0,coverageError:null,slate:false,refused:[]};
   if(!fs.length)return did;
@@ -3116,7 +3187,7 @@ async function loadDocs(fs){
   if(cov.taken){ try{ renderToday(); }catch(e){ did.coverageError=(e&&e.message)||String(e); todayFailed(did.coverageError); } }
   fs=cov.rest;
   if(!fs.length){ setTab("today"); return did; }   // a coverage file alone: the loaded slate is never reset
-  rows=[]; shadowRows=[]; fileParlays=null; refusedFiles=[]; ticketRows=[]; const sports=new Set();
+  rows=[]; shadowRows=[]; fileParlays=null; refusedFiles=[]; ticketRows=[]; closingLoad=null; const sports=new Set();
   did.slate=true;
   for(const f of fs){
     try{const doc=JSON.parse(f.text);
@@ -3130,12 +3201,17 @@ async function loadDocs(fs){
       stampClosing(rr,doc,f.name);       // #431: a closing file's rows carry its family, start, run id, as_of and file
       rr.forEach(r=>sports.add(r.sport));
       rows=rows.concat(rr);}
-    catch(err){$("summary").textContent=`Could not parse ${f.name}: ${err.message}`; did.refused=refusedFiles.slice(); return did;}
+    catch(err){did.parseError=`Could not parse ${f.name}: ${err.message}`; $("summary").textContent=did.parseError;
+      did.refused=refusedFiles.slice(); return did;}
   }
   // #431 R12: the rows a ticket is built from and #183 reads (every row but a closing page's), before policy builds
   // the tickets; R8: this load's closing pages, read from the stamped rows
   ticketRows=slateRows(rows);
   const cpages=closingPages(rows);
+  // #431 R1/R2: the closing file's row stands over any slate row for its games, the newest page's row of each game;
+  // after ticketRows and the pages are taken, before the Desk is built (policy) and claimed (autoClaim)
+  const cd=closingDedupe(rows); rows=cd.rows;
+  closingLoad={files:cd.files,superseded:cd.superseded,partly:cd.partly,copies:cd.copies,slateRowsDropped:cd.slateRowsDropped};
   sportLabel=Array.from(sports).join("+");
   policy();
   renderCard();
@@ -3144,7 +3220,7 @@ async function loadDocs(fs){
   // #431 R11, "a closing document marks": after autoClaim, this load's pages are stored and the save re-derives
   // every mark; shown and logged (loadLogNote: with no closing loaded, the auto-claim note as it was)
   const ne=storeClosings(cpages);
-  did.closings=did.closings||{}; did.closings.marks=ne;
+  did.closings={...closingLoad,marks:ne};
   if(ac||ne){ $("logNote").textContent=loadLogNote(ac,ne); renderLedger(); }
   setTab(true);
   $("askCard").hidden=!sampleNS;
@@ -3189,6 +3265,61 @@ async function loadLatestFromHost(){
   }catch(e){ $("mirrorNote").textContent=`Fetch failed: ${(e&&e.message)||e}`; }
 }
 $("mirrorBtn").addEventListener("click",loadLatestFromHost);
+// THE LAPTOP CONTROL (#431, the declaration's (e); ARCHITECT 2026-10-20, addendum 145 item 3(b) R1, R11, R14): "Load
+// closings + latest from laptop" reads the laptop's side of the mirror as deploy/hosting/exports_mirror.py writes it:
+// laptop/latest/<kind>.json, the newest file of every kind (its closing_<FAMILY>.json is a copy of a dated file and is
+// never fetched), and the closing files of laptop/<yesterday UTC> and laptop/<today UTC> (a dated folder is the
+// file's UTC mtime day). One load: the closing file's row stands over the slate's (closingDedupe, R1) and the pages
+// mark (R11). A day folder not pushed yet is named, never fatal; a file that does not fetch is named and never loaded
+// (no "{}" stand-in); a file that does not parse stops the load and the note says so. The note is THIS load's (#589
+// review), with R14's line when a covered game holds no claim from before its page (noClaimNote). The token, repo and
+// note are the host control's; loadLatestFromHost is unchanged.
+function utcDay(ms){ return new Date(ms).toISOString().slice(0,10); }
+async function loadClosingsFromLaptop(now){
+  const typed=$("mirrorToken").value.trim(), repo=$("mirrorRepo").value.trim()||MIRROR_REPO_DEFAULT;
+  if(typed){ lsSet(MIRROR_TOKEN_KEY,typed); $("mirrorToken").value=""; $("mirrorToken").placeholder="token saved in this browser"; }
+  lsSet(MIRROR_REPO_KEY,repo);
+  const tok=lsGet(MIRROR_TOKEN_KEY);
+  if(!tok){ $("mirrorNote").textContent="Paste a read-only token first."; return; }
+  const t=isFinite(now)?now:Date.now(), days=[utcDay(t-86400000),utcDay(t)];
+  const api=`https://api.github.com/repos/${repo}/contents`, at=p=>`${api}/${p.split("/").map(encodeURIComponent).join("/")}`;
+  const hdr={Authorization:`Bearer ${tok}`,"X-GitHub-Api-Version":"2022-11-28"}, list={...hdr,Accept:"application/vnd.github+json"};
+  const denied=s=>s===401||s===403;
+  try{
+    const r=await fetch(at("laptop/latest"),{headers:list});
+    if(!r.ok){ $("mirrorNote").textContent=`GitHub ${r.status} — ${denied(r.status)?"token rejected / no read access":"laptop/latest not found"}`; return; }
+    const latest=(await r.json()).filter(x=>x.type==="file"&&x.name.endsWith(".json")&&!x.name.startsWith("closing_"))
+      .map(x=>`laptop/latest/${x.name}`);
+    const closings=[], noDay=[];
+    for(const d of days){
+      const q=await fetch(at(`laptop/${d}`),{headers:list});
+      if(q.status===404){ noDay.push(d); continue; }
+      if(!q.ok){ $("mirrorNote").textContent=`GitHub ${q.status} — ${denied(q.status)?"token rejected / no read access":`laptop/${d} could not be listed`}`; return; }
+      for(const x of await q.json()) if(x.type==="file"&&/^closing_.*\.json$/.test(x.name)) closings.push(`laptop/${d}/${x.name}`);
+    }
+    const got=await Promise.all([...latest,...closings].map(async p=>{
+      try{ const q=await fetch(at(p),{headers:{...hdr,Accept:"application/vnd.github.raw+json"}});
+        return q.ok?{name:p,text:await q.text()}:{name:p,why:`GitHub ${q.status}`}; }
+      catch(e){ return {name:p,why:(e&&e.message)||String(e)}; } }));
+    const docs=got.filter(x=>x.why==null), failed=got.filter(x=>x.why!=null);
+    const did=await loadDocs(docs);      // the note is THIS load's (#589 review): never an earlier load's
+    // a file that does not parse stops loadDocs there (#summary names it): nothing after it loaded, so never "Loaded"
+    if(did.parseError){ $("mirrorNote").textContent=`load stopped: ${did.parseError}; no Desk file of this load was loaded (nothing claimed or marked)`
+      +(failed.length?` · ${failed.length} not fetched, not loaded: ${failed.map(x=>`${x.name} (${x.why})`).join(", ")}`:""); return; }
+    const dc=did.closings||{}, m=dc.marks, k=docs.filter(x=>closings.includes(x.name)).length;
+    $("mirrorNote").textContent=`Loaded ${docs.length} file(s) from ${repo} laptop: ${k} closing file(s) of ${days.join(", ")} UTC`
+      +` · ${docs.length-k} newest of the other kinds`
+      +noDay.map(d=>` · laptop/${d}: no folder yet`).join("")
+      +(failed.length?` · ${failed.length} not fetched, not loaded: ${failed.map(x=>`${x.name} (${x.why})`).join(", ")}`:"")
+      +closingNote(dc)
+      +(m?` · ${m.marked} claim(s) marked NOT EXECUTED (${m.newly} new, ${m.cleared} cleared by a later page)`:"")
+      +(did.coverage?` · ${did.coverage} coverage file${did.coverage===1?"":"s"} on the Today tab`
+        +(did.coverageError?` (not rendered: ${did.coverageError})`:""):"")
+      +(did.refused.length?` · ${did.refused.length} without desk blocks refused`:"")
+      +noClaimNote(m&&m.noClaim);
+  }catch(e){ $("mirrorNote").textContent=`Fetch failed: ${(e&&e.message)||e}`; }
+}
+$("mirrorLaptopBtn").addEventListener("click",()=>loadClosingsFromLaptop(Date.now()));
 
 let gameReads={};
 async function perGameAudit(){

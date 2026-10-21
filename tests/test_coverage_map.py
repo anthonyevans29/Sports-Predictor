@@ -2255,6 +2255,29 @@ def test_paper_a_shadow_row_for_another_kickoff_is_not_shown(env, recorded, tail
     assert lines[0].endswith("· shadow 1 of 1" if tail.startswith("shadow nhl") else "· shadow 0 of 1"), lines[0]
 
 
+@pytest.mark.parametrize("exported,tail", [
+    ("2026-10-17T23:15:00", "shadow: exported at or after the current kickoff (an in-play row): not shown"),
+    ("2026-10-17T23:00:00", "shadow: exported at or after the current kickoff (an in-play row): not shown"),
+    ("2026-10-17T22:45:00", f"shadow {V7} ({V7_VERDICT}; exported 2026-10-17 18:45 ET): pick HOME 0.700 (+15.5pp vs "
+                            "mid); value side HOME (+15.5pp)"),
+    ("2026-10-17T19:15:00-04:00", "shadow: exported at or after the current kickoff (an in-play row): not shown"),
+], ids=["exported-after-the-current-start", "exported-at-the-current-start", "exported-before-it-shown",
+        "an-offset-compared-as-utc"])
+def test_paper_a_shadow_row_exported_at_or_after_the_current_kickoff_is_not_shown(env, exported, tail):
+    """Codex round 2 P2 on #640: NHL 501 now at 2026-10-17 23:00Z; the row's recorded kickoff is 23:30Z (30 minutes
+    apart: the same kickoff by the re-dated rule) and nhl_shadow.last_calls keeps a row exported before that RECORDED
+    kickoff, so a row exported at 23:15Z, after the game's CURRENT start, printed as its shadow. Now a row exported at
+    or after the current start is not shown (compared as UTC: 19:15 -04:00 is 23:15Z); exported 22:45Z it is shown."""
+    make_db(env, NHL_GAME, kalshi=TWO_WAY)
+    nhl_shadow_file([shadow_row(501, 0.70, utc_date="2026-10-17T23:30:00")], exported_at=exported,
+                    name="nhl_shadow_2026-10-17_2315.json")
+    from src.walters import nhl_shadow
+    assert 501 in nhl_shadow.last_calls(str(c.REPO / "exports"))      # last_calls keeps it (before 23:30Z)
+    lines = paper_of(run("--date", DAY)[1], "NHL")
+    assert lines[1].endswith(f" · {tail}"), lines[1]
+    assert lines[0].endswith("· shadow 1 of 1" if tail.startswith("shadow nhl") else "· shadow 0 of 1"), lines[0]
+
+
 def test_paper_one_shadow_module_failing_hides_only_its_own_competitions(env):
     """Codex round 1 P2 on #640: an unreadable NHL shadow file (a JSON list: nhl_shadow.last_calls raises) hid UNL's
     valid intl_shadow row too ("shadow not read (nhl_shadow: AttributeError)" on every competition). Now the failure

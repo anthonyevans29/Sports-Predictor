@@ -367,6 +367,74 @@ def capture_mismatched(rows, tickers: dict, match_id, homes: dict | None = None)
     return judge(by_side, homes or {}, match_id)
 
 
+# ----------------------------------------------------------------------------- the two-way close's row --
+
+def _kalshi_close_pre(rows, before: datetime | None) -> list:
+    """close.close_from_kalshi's candidate rows, its filters mirrored (src/walters/close.py close_from_kalshi's `pre`):
+    source kalshi, selection HOME, a stored capture time before `before`, market in close.KALSHI_CLOSE_MARKETS, yes
+    bid and yes ask both stored."""
+    return [x for x in rows
+            if getattr(x, "source", None) == "kalshi" and x.selection == "HOME" and x.captured_at is not None
+            and getattr(x, "market", None) in _close.KALSHI_CLOSE_MARKETS
+            and (before is None or x.captured_at < before)
+            and getattr(x, "yes_bid", None) is not None and getattr(x, "yes_ask", None) is not None]
+
+
+def kalshi_close_row(rows, before: datetime | None):
+    """The exact HOME row close.close_from_kalshi(rows, before, BINARY) reads (Codex round 2 P1 on #640, R47): its
+    filters (_kalshi_close_pre) and its `max(pre, key=captured_at)`, so the first of a tie in `rows` order, as max
+    keeps it; None when it reads none. The row read, whether or not its quote then passes the bounds and the 2c cap
+    (failing them, close_from_kalshi gives no close; no older quote is substituted). close.py is not changed; a test
+    pins that this row and close_from_kalshi's close agree on the same rows."""
+    pre = _kalshi_close_pre(rows, before)
+    return max(pre, key=lambda x: x.captured_at) if pre else None
+
+
+def kalshi_close_read(rows, before: datetime | None) -> list:
+    """[] when close_from_kalshi reads no row; else the row it reads (kalshi_close_row) first, then every other
+    candidate HOME row tied with it at that capture time (all judged, as kalshi_legs judges legs tied at one capture,
+    Codex on #414: "whichever a reader keeps, all are judged")."""
+    k = kalshi_close_row(rows, before)
+    if k is None:
+        return []
+    return [k, *(x for x in _kalshi_close_pre(rows, before) if x is not k and x.captured_at == k.captured_at)]
+
+
+def close_row_mismatched(read, tickers: dict, current: dict | None, match_id,
+                         homes: dict | None = None) -> list[str] | None:
+    """The events, when they are mismatched, of the HOME row(s) the two-way close reads (`read`, kalshi_close_read)
+    together with each side's newest leg (`current`: the game's {selection: set of tickers} from
+    kalshi_legs.current_tickers, the ruled guard's current legs, unchanged): kalshi_legs.judge, unchanged, on the
+    union (Codex round 2 P1 on #640, R47: the guard passed the newest legs while close_from_kalshi read an older
+    two-sided HOME quote of another event). Each read row's ticker from `tickers` (capture_tickers, by row id); a row
+    with no stored ticker names no event (addendum 37 item 3: "Legs with no stored ticker are read as before"). `homes`
+    (kalshi_legs.homes_of over their events) carries the ruled second clause, "that event's current legs sit on no
+    other game". None when the close reads no row, or when they read as a set."""
+    if not read:
+        return None
+    from src.walters.kalshi_legs import judge
+    by_side = {sel: set(ts) for sel, ts in (current or {}).items()}
+    by_side.setdefault("HOME", set()).update(tickers.get(getattr(x, "id", None)) for x in read)
+    return judge(by_side, homes or {}, match_id)
+
+
+def two_way_legs(s, games, snaps: dict) -> tuple[dict, dict, dict]:
+    """(tickers, current, homes) for close_row_mismatched over `games` (a session's Match rows; `snaps` their stored
+    rows by match id): the market_ticker of every row the two-way close reads (kalshi_close_read; capture_tickers, by
+    row id), each game's newest legs (kalshi_legs.current_tickers, unchanged) and kalshi_legs.homes_of over all their
+    events. ({}, {}, {}) with the legs guard off or before migrate_kalshi_ticker.py (every leg reads as untickered, as
+    kalshi_legs reads it). Read-only."""
+    from src.walters import kalshi_legs
+    ids = [m.id for m in games]
+    if not ids or not kalshi_legs.GUARD["on"] or not kalshi_legs.has_tickers(s):
+        return {}, {}, {}
+    tickers = capture_tickers(s, [x.id for m in games for x in kalshi_close_read(snaps.get(m.id, []), m.utc_date)])
+    current = kalshi_legs.current_tickers(s, ids)
+    events = {kalshi_legs.event_of(t) for t in tickers.values()}
+    events |= {kalshi_legs.event_of(t) for legs in current.values() for ts in legs.values() for t in ts}
+    return tickers, current, kalshi_legs.homes_of(s, events)
+
+
 def favourite_3(fair: dict) -> str:
     """The favourite on a three-way close (addendum 150 item 4): the side with the largest normalized probability, the
     draw included; EVEN on an exact tie at the top (in n and the log-loss, outside the favourite's record, as R27).
@@ -467,10 +535,12 @@ def close_record(days: int, now: datetime | None = None) -> dict:
     """{code: record}, each record naming its close kind (`kind`); the two kinds never pool. The FINISHED games of
     the last `days` days on the kickoff in this machine's DB.
     NHL and NCAA (TWO_WAY_RECORD), as built: each game scored against close.close_from_kalshi (the kalshi_only close,
-    called directly: books are not read) after the mismatched-legs guard (kalshi_legs.mismatched), in this order of
-    exclusion: a three-way board (the rule is two-way only), no decided result (or an NCAA tie, a data defect),
-    mismatched legs, no Kalshi close. Scored: the log-loss of the outcome that happened (vs_close.log_loss) and the
-    favourite (cup_exam.favorite on the close; EVEN counts in n and the log-loss, outside the favourite's record).
+    called directly: books are not read) after the mismatched-legs guard (kalshi_legs.mismatched, each side's newest
+    leg), then the HOME row the close reads judged with those newest legs (close_row_mismatched: Codex round 2 P1 on
+    #640, R47; close.py unchanged), in this order of exclusion: a three-way board (the rule is two-way only), no
+    decided result (or an NCAA tie, a data defect), mismatched legs, no Kalshi close. Scored: the log-loss of the
+    outcome that happened (vs_close.log_loss) and the favourite (cup_exam.favorite on the close; EVEN counts in n and
+    the log-loss, outside the favourite's record).
     CL always, and each other market-only three-way competition (three_way_comps, soccer in this DB) whose window
     holds a stored Kalshi 1X2 leg: three_way_close (addendum 150), _score_three's order of exclusion, the log-loss on
     the normalized three-way probabilities, favourite_3 (the draw included, flagged), the overround and the close
@@ -507,10 +577,14 @@ def close_record(days: int, now: datetime | None = None) -> dict:
                     x.source == "kalshi" and x.market == "1X2" for v in snaps.values() for x in v):
                 continue                       # no stored Kalshi three-way leg in the window: nothing printed
             mism = kalshi_legs.mismatched(s, ids) if ids else {}
-            tickers = (capture_tickers(s, [x.id for v in snaps.values() for x in v
-                                           if x.source == "kalshi" and x.market == "1X2"]) if three else {})
-            homes = (kalshi_legs.homes_of(s, {kalshi_legs.event_of(t) for t in tickers.values()})
-                     if tickers else {})                       # the ruled guard's second clause (Codex on #640)
+            current: dict = {}
+            if three:
+                tickers = capture_tickers(s, [x.id for v in snaps.values() for x in v
+                                              if x.source == "kalshi" and x.market == "1X2"])
+                homes = (kalshi_legs.homes_of(s, {kalshi_legs.event_of(t) for t in tickers.values()})
+                         if tickers else {})                   # the ruled guard's second clause (Codex on #640)
+            else:                                              # the rows the two-way close reads (Codex round 2)
+                tickers, current, homes = two_way_legs(s, games, snaps)
             rec = _empty(len(games), KIND_THREE if three else KIND_TWO)
             for m in games:
                 if three:
@@ -526,7 +600,11 @@ def close_record(days: int, now: datetime | None = None) -> dict:
                 if m.id in mism:
                     rec["mismatched"] += 1
                     continue
-                cl = _close.close_from_kalshi(snaps.get(m.id, []), m.utc_date, _close.BINARY)
+                cs = snaps.get(m.id, [])
+                if close_row_mismatched(kalshi_close_read(cs, m.utc_date), tickers, current.get(m.id), m.id, homes):
+                    rec["mismatched"] += 1     # the row the close reads names another event: no close (R47)
+                    continue
+                cl = _close.close_from_kalshi(cs, m.utc_date, _close.BINARY)
                 if cl is None:
                     rec["no_close"] += 1
                     continue

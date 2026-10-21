@@ -600,6 +600,10 @@ def _paper_shadow(r: dict | None, g: dict, kalshi: dict | None) -> tuple[dict | 
         at = cl.parse_utc(r["exported_at"])
     except (KeyError, TypeError, ValueError):
         return None, "its exported_at cannot be read: not shown"
+    # last_calls keeps a row written before its RECORDED kickoff; within the re-dated rule's hour that can be after the
+    # game's CURRENT start (Codex round 2 P2 on #640): a row exported at or after it is an in-play row, compared as UTC
+    if redated.as_utc(at) >= redated.as_utc(g["start"]):
+        return None, "exported at or after the current kickoff (an in-play row): not shown"
     pred = r.get("prediction")
     pred = {} if pred is None else pred
     if paper.unreadable(pred):

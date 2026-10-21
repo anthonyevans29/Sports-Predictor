@@ -209,7 +209,10 @@
           "what": "Step A: the timing probe run on the CL matchday, the laptop awake 10:30am to 3:00pm ET, its receipt to me the same evening",
           "owner": "operator",
           "due": "2026-10-20",
-          "done": null
+          "done": {
+            "date": "2026-10-20",
+            "receipt": "#106 comment 6299554002: the summary lines (9 fixtures, 63 polls, 63 HTTP 200; confirmed lineups absent at T-30, eleven per side at T-15); the console stays in the laptop's logs (ARCHITECT 2026-10-20 15:28 ET, addendum 149 item 1)"
+          }
         },
         {
           "what": "Step A, UEL: the timing probe run on the UEL matchday (--competition UEL, the same polls), the laptop awake from T-130 of the first kickoff, its receipt to me the same evening",

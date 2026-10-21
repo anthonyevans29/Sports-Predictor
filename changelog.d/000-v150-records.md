@@ -1,0 +1,5 @@
+## 2026-10-21 (#000: v150-records — ARCHITECT addendum 149 items 1-5; records only, no code)
+- docs/roadmap.json: the cups lane's step 4 (Step A, CL, due 2026-10-20) is done 2026-10-20, receipt #106 comment 6299554002 (ARCHITECT 2026-10-20 15:28 ET, addendum 149 item 1: "roadmap: the step is done 2026-10-20"). No date moves; the next step is UEL Step A (2026-10-22).
+- The ledger entry (docs/ledger/entries/2026-10-21-v150-records.md) records addendum 149 items 1-5 verbatim: the CL Step A rulings (a)-(d); the anchors ruled and placed on the laptop (held rows 34 -> 0; the five scalar E0s refused; the four twin E0s waiting on #569); the findings filed as #636, #637 and #638, with 3(b) on #569; Code's PR order; the 10-20 receipts; and where the 2026-10-21 morning block's retire receipts go (#568 and #631 comments, addendum 152 item 4(c)).
+- Labels: the ad-hoc `track:K2` label was removed from #630 and #635 (#630 carries `track:K`); the empty label is the operator's to delete.
+- The v1.5.0 compile follows as its own PR: CI admits a compile only as a pure fold (scripts/ledger_fragments.py `check_pr`).

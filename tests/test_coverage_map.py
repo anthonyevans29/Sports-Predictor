@@ -2230,3 +2230,69 @@ def test_paper_a_three_way_board_with_an_unreadable_draw_capture_time_says_so(en
     line = paper_of(out, "CL")[1]
     assert " 801 Away @ Home 15:00 ET · Kalshi: cannot be read (a capture time cannot be read): not shown · " in line
     assert nomid not in line and paper_of(out, "CL")[0] == paper_of(good, "CL")[0]
+
+
+# ---- Codex round 1 on #640: the shadow row's kickoff (P2) and one module's failure (P2) ---------------------------
+
+@pytest.mark.parametrize("recorded,tail", [
+    ("2026-10-15T23:00:00", "shadow: the row is for another kickoff (re-dated): not shown"),
+    ("2026-10-17T22:00:00", f"shadow {V7} ({V7_VERDICT}; exported 2026-10-15 12:00 ET): pick HOME 0.700 (+15.5pp vs "
+                            "mid); value side HOME (+15.5pp)"),
+    ("2026-10-17T21:59:00", "shadow: the row is for another kickoff (re-dated): not shown"),
+    ("2026-10-17", "shadow: the row's kickoff cannot be read: not shown"),
+    ("soon", "shadow: the row's kickoff cannot be read: not shown"),
+], ids=["re-dated-2-days", "exactly-the-hour-shown", "61-minutes", "a-date-with-no-clock", "unreadable"])
+def test_paper_a_shadow_row_for_another_kickoff_is_not_shown(env, recorded, tail):
+    """Codex round 1 P2 on #640 (R17): NHL 501 now at 2026-10-17 23:00Z; a row recorded for another kickoff (the
+    probe's 2026-10-15 23:00Z, exported 2026-10-15 16:00Z) printed "pick HOME 0.700 (+15.5pp vs mid)" as this game's
+    shadow. The re-dated rule is redated.redated_label's (more than desk_policy.DESK_CLOCK_DRIFT apart; exactly the
+    hour apart is the same kickoff); a recorded kickoff that cannot be read is not shown either, with its reason."""
+    make_db(env, NHL_GAME, kalshi=TWO_WAY)
+    nhl_shadow_file([shadow_row(501, 0.70, utc_date=recorded)], exported_at="2026-10-15T16:00:00",
+                    name="nhl_shadow_2026-10-15_1600.json")
+    lines = paper_of(run("--date", DAY)[1], "NHL")
+    assert lines[1].endswith(f" · {tail}"), lines[1]
+    assert lines[0].endswith("· shadow 1 of 1" if tail.startswith("shadow nhl") else "· shadow 0 of 1"), lines[0]
+
+
+def test_paper_one_shadow_module_failing_hides_only_its_own_competitions(env):
+    """Codex round 1 P2 on #640: an unreadable NHL shadow file (a JSON list: nhl_shadow.last_calls raises) hid UNL's
+    valid intl_shadow row too ("shadow not read (nhl_shadow: AttributeError)" on every competition). Now the failure
+    is tracked per module: NHL's header and games say so; UNL's row is shown."""
+    make_db(env, NHL_GAME + [(901, "UNL", "2026-10-17 18:45", "SCHEDULED")], kalshi=TWO_WAY + UNL_LEGS)
+    nhl_shadow_file([shadow_row(501, 0.60)])
+    (c.REPO / "exports" / "nhl_shadow_2026-10-16_1700.json").write_text("[1, 2]")
+    unl_file([unl_row(901, 0.33, 0.36, 0.31, "draw")])
+    out = run("--date", DAY)[1]
+    nhl, unl = paper_of(out, "NHL"), paper_of(out, "UNL")
+    assert nhl[0].endswith("· Kalshi mid 1 of 1 · shadow not read (nhl_shadow: AttributeError)")
+    assert nhl[1].endswith(" · shadow: not read (nhl_shadow: AttributeError)")
+    assert unl[0].endswith("· 1 game · Kalshi mid 1 of 1 · shadow 1 of 1"), unl[0]
+    assert unl[1].endswith("pick DRAW 0.360 (+6.5pp vs mid); value side DRAW (+6.5pp)"), unl[1]
+
+
+def test_paper_the_intl_module_failing_never_hides_the_nhl_shadow(env):
+    """The reverse: an unreadable UNL shadow file hides UNL's shadow only; NHL's v7 row is shown."""
+    make_db(env, NHL_GAME + [(901, "UNL", "2026-10-17 18:45", "SCHEDULED")], kalshi=TWO_WAY + UNL_LEGS)
+    nhl_shadow_file([shadow_row(501, 0.60)])
+    (c.REPO / "exports" / "unl_shadow_2026-10-16_1700.json").write_text("[1, 2]")
+    out = run("--date", DAY)[1]
+    assert paper_of(out, "UNL")[0].endswith("· shadow not read (intl_shadow: AttributeError)")
+    assert paper_of(out, "NHL")[0].endswith("· Kalshi mid 1 of 1 · shadow 1 of 1")
+    assert paper_of(out, "NHL")[1].endswith("pick HOME 0.600 (+5.5pp vs mid); value side HOME (+5.5pp)")
+
+
+def test_paper_each_shadow_modules_competitions_are_read_from_its_own_code():
+    """paper.shadow_comps names every module of SHADOW_EXPORTS, and each one's competitions are the ones its own export
+    reads (law 1): nhl_shadow.build_rows' Competition.code literal (the module has no constant), intl_shadow.build_rows'
+    stream (intl_elo.STREAM_CODES less FRIENDLY), ncaa_shadow.COMPETITION, soccer_expansion.LEAGUES."""
+    from src.walters import intl_elo, intl_shadow, ncaa_shadow, nhl_shadow, paper, soccer_expansion
+    comps = paper.shadow_comps()
+    assert set(comps) == {mod for mod, _ in cm.SHADOW_EXPORTS.values()}
+    assert 'Competition.code == "NHL"' in inspect.getsource(nhl_shadow.build_rows) and \
+        comps["src.walters.nhl_shadow"] == frozenset({"NHL"})
+    assert "codes = [c for c in ie.STREAM_CODES if c != ie.FRIENDLY]" in inspect.getsource(intl_shadow.build_rows)
+    assert comps["src.walters.intl_shadow"] == frozenset(c for c in intl_elo.STREAM_CODES if c != intl_elo.FRIENDLY)
+    assert "UNL" in comps["src.walters.intl_shadow"]
+    assert comps["src.walters.ncaa_shadow"] == frozenset({ncaa_shadow.COMPETITION})
+    assert comps["src.walters.soccer_expansion"] == frozenset(soccer_expansion.LEAGUES)

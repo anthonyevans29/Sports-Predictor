@@ -129,6 +129,21 @@ def leg_mids(rows, before: datetime | None) -> dict:
 
 # ------------------------------------------------------------------------------------------- the shadow --
 
+def shadow_comps() -> dict[str, frozenset]:
+    """{shadow module: the competitions its shadow export writes rows for}, read from each module's own code (law 1),
+    so coverage's PAPER line hides only a failed module's competitions (Codex round 1 P2 on #640): nhl_shadow.build_rows'
+    `Competition.code == "NHL"` (the module keeps it as a literal, no constant), intl_shadow.build_rows' stream
+    (intl_elo.STREAM_CODES less FRIENDLY), ncaa_shadow.COMPETITION, soccer_expansion.LEAGUES. The keys are
+    coverage_map.SHADOW_EXPORTS' modules (a test pins both)."""
+    from src.walters import intl_elo as ie
+    from src.walters.ncaa_shadow import COMPETITION
+    from src.walters.soccer_expansion import LEAGUES
+    return {"src.walters.nhl_shadow": frozenset({"NHL"}),
+            "src.walters.intl_shadow": frozenset(c for c in ie.STREAM_CODES if c != ie.FRIENDLY),
+            "src.walters.ncaa_shadow": frozenset({COMPETITION}),
+            "src.walters.soccer_expansion": frozenset(LEAGUES)}
+
+
 PROB_KEYS = ("home_win_prob", "draw_prob", "away_win_prob")
 
 
@@ -272,6 +287,20 @@ def three_way_close(rows, before: datetime | None) -> dict | None:
     return _three_way(rows, before)[0]
 
 
+def _last_full(rows, before: datetime | None) -> tuple[dict, datetime | None]:
+    """({captured_at: {leg: [rows]}}, the LAST capture before `before` in which all three legs are two-sided, or None):
+    the capture three_way_close reads (rows: source kalshi, market 1X2, a leg of LEGS, a stored capture time before the
+    kickoff; one capture is one stored captured_at, matched exactly)."""
+    caps: dict = {}
+    for x in rows:
+        if (getattr(x, "source", None) == "kalshi" and getattr(x, "market", None) == "1X2"
+                and getattr(x, "selection", None) in LEGS and x.captured_at is not None
+                and (before is None or x.captured_at < before)):
+            caps.setdefault(x.captured_at, {}).setdefault(x.selection, []).append(x)
+    full = [t for t, legs in caps.items() if all(any(_two_sided(r) for r in legs.get(k, ())) for k in LEGS)]
+    return caps, (max(full) if full else None)
+
+
 def _three_way(rows, before: datetime | None) -> tuple[dict | None, str | None]:
     """(three_way_close's close, None), or (None, the UNPRICED key of the cause): "unpriced_none" (no capture before
     kickoff with all three legs two-sided), "unpriced_cap" (the last full capture has a leg over the 2c cap),
@@ -283,16 +312,9 @@ def _three_way(rows, before: datetime | None) -> tuple[dict | None, str | None]:
 
     from src.walters.desk_policy import KALSHI_ONLY, js_round
     from src.walters.export import _summarize_kalshi
-    caps: dict = {}
-    for x in rows:
-        if (getattr(x, "source", None) == "kalshi" and getattr(x, "market", None) == "1X2"
-                and getattr(x, "selection", None) in LEGS and x.captured_at is not None
-                and (before is None or x.captured_at < before)):
-            caps.setdefault(x.captured_at, {}).setdefault(x.selection, []).append(x)
-    full = [t for t, legs in caps.items() if all(any(_two_sided(r) for r in legs.get(k, ())) for k in LEGS)]
-    if not full:
+    caps, t = _last_full(rows, before)
+    if t is None:
         return None, "unpriced_none"
-    t = max(full)
     q: dict = {}
     for k in LEGS:
         got = {_quote(r) for r in caps[t][k] if _two_sided(r)}
@@ -310,6 +332,39 @@ def _three_way(rows, before: datetime | None) -> tuple[dict | None, str | None]:
         return None, "unpriced_other"
     return {"fair": {k: v["prob"][k] for k in LEGS}, "overround": v["raw_sum"], "captured_at": t, "kalshi": q,
             "kind": KIND_THREE, "source": "kalshi_three_way"}, None
+
+
+def capture_tickers(conn, ids) -> dict:
+    """{odds_snapshots.id: market_ticker} for the stored rows `ids`, read by SQL by row id (the ticker column is
+    unmapped: kalshi_legs reads it so, on a Session or a sqlite3 connection, kalshi_legs._rows); {} when the legs guard
+    is off or before migrate_kalshi_ticker.py (no ticker column: every leg reads as untickered, as kalshi_legs reads
+    it). Read-only."""
+    from src.walters import kalshi_legs
+    ids = sorted({int(i) for i in ids if i is not None})
+    if not kalshi_legs.GUARD["on"] or not ids or not kalshi_legs.has_tickers(conn):
+        return {}
+    out: dict = {}
+    for k in range(0, len(ids), _IN_CHUNK):
+        chunk = ids[k:k + _IN_CHUNK]
+        for i, tic in kalshi_legs._rows(conn, f"SELECT id, market_ticker FROM odds_snapshots WHERE id IN "
+                                              f"({','.join('?' * len(chunk))})", chunk):
+            out[i] = tic
+    return out
+
+
+def capture_mismatched(rows, tickers: dict, match_id, homes: dict | None = None) -> list[str] | None:
+    """The events of the ONE capture a three-way close reads (Codex round 1 P1 on #640, R47), when its legs name more
+    than one: kalshi_legs.judge, unchanged (its event-of-ticker rule, kalshi_legs.event_of), on `rows`, every stored
+    HOME / DRAW / AWAY row of that capture (_last_full's; all of a leg's rows in it judged, as kalshi_legs judges legs
+    tied at one capture), each row's ticker from `tickers` (capture_tickers, by row id). A row with no stored ticker
+    names no event (addendum 37 item 3: "Legs with no stored ticker are read as before"). `homes`
+    (kalshi_legs.homes_of over the capture's events) carries the ruled second clause, "that event's current legs sit
+    on no other game": a capture of one event whose current legs belong to another game is mismatched too. Else None."""
+    from src.walters.kalshi_legs import judge
+    by_side: dict = {}
+    for x in rows:
+        by_side.setdefault(x.selection, set()).add(tickers.get(getattr(x, "id", None)))
+    return judge(by_side, homes or {}, match_id)
 
 
 def favourite_3(fair: dict) -> str:
@@ -366,10 +421,12 @@ def three_way_comps() -> tuple[str, ...]:
                         - set(CLOSE_RECORD_COMPS)))
 
 
-def _score_three(rec: dict, m, snaps, mism: dict) -> None:
+def _score_three(rec: dict, m, snaps, mism: dict, tickers: dict | None = None, homes: dict | None = None) -> None:
     """One game of a three-way competition, in this order of exclusion: no decided 90-minute result
     (intl_shadow.result_90, unchanged: the _90 score columns, else a FT row's score; a knockout decided in extra time
-    or on penalties is its 90-minute result), mismatched legs, unpriced (no three-way close)."""
+    or on penalties is its 90-minute result), mismatched legs (each side's newest leg, kalshi_legs.mismatched as ruled,
+    then the legs of the capture the close reads, capture_mismatched: Codex round 1 P1 on #640, R47; no close is formed
+    from legs of two events), unpriced (no three-way close)."""
     from src.walters.intl_shadow import OUTCOME_SIDE, result_90
     from src.walters.vs_close import log_loss
     res = result_90(m)
@@ -378,6 +435,11 @@ def _score_three(rec: dict, m, snaps, mism: dict) -> None:
         return
     if m.id in mism:
         rec["mismatched"] += 1
+        return
+    caps, t = _last_full(snaps, m.utc_date)        # the capture the close reads (none: unpriced, below)
+    if t is not None and capture_mismatched([r for legs in caps[t].values() for r in legs], tickers or {}, m.id,
+                                            homes):
+        rec["mismatched"] += 1             # its legs name two events: no close, never priced (Codex on #640, R47)
         return
     cl, why = _three_way(snaps, m.utc_date)
     if cl is None:
@@ -445,10 +507,14 @@ def close_record(days: int, now: datetime | None = None) -> dict:
                     x.source == "kalshi" and x.market == "1X2" for v in snaps.values() for x in v):
                 continue                       # no stored Kalshi three-way leg in the window: nothing printed
             mism = kalshi_legs.mismatched(s, ids) if ids else {}
+            tickers = (capture_tickers(s, [x.id for v in snaps.values() for x in v
+                                           if x.source == "kalshi" and x.market == "1X2"]) if three else {})
+            homes = (kalshi_legs.homes_of(s, {kalshi_legs.event_of(t) for t in tickers.values()})
+                     if tickers else {})                       # the ruled guard's second clause (Codex on #640)
             rec = _empty(len(games), KIND_THREE if three else KIND_TWO)
             for m in games:
                 if three:
-                    _score_three(rec, m, snaps.get(m.id, []), mism)
+                    _score_three(rec, m, snaps.get(m.id, []), mism, tickers, homes)
                     continue
                 if tuple(_close.outcomes_for(m.sport)) != _close.BINARY:
                     rec["three_way"] += 1

@@ -169,7 +169,10 @@ gate); CL and NCAA have none and show the market line only."
     whose legs are mismatched (kalshi_legs.mismatched, addendum 37 item 3) shows no mid. A started game shows its last
     pre-kickoff quote, tagged (started). The shadow is the last row any shadow export wrote before kickoff (each shadow
     module's own last_calls over exports/, the grade's semantics), with its exported_at; a row whose teams are not the
-    game's, or a game two shadow exports hold, is not shown. The value side is the side with the largest model p - mid
+    game's, a row recorded for another kickoff (its utc_date more than desk_policy.DESK_CLOCK_DRIFT from the game's
+    current start: redated.redated_label, the re-dated rule) or with a kickoff that cannot be read, or a game two
+    shadow exports hold, is not shown; a shadow module whose files cannot be read hides only its own competitions'
+    shadows (paper.shadow_comps), never another module's rows (Codex round 1 on #640). The value side is the side with the largest model p - mid
     above zero (the pick's own side eligible; judged at the printed precision, so a side under 0.05pp above its mid is
     none, said so; on a three-way prediction judged only with all three legs priced; a prediction whose legs are not
     the board's is never judged and carries no divergence); a divergence is (model p - mid) x 100 in pp. A game left
@@ -520,18 +523,20 @@ def read_paper(ids) -> dict:
     return out
 
 
-def shadow_rows() -> tuple[dict, str | None]:
-    """({match_id: the last shadow row written before its kickoff, or None where two shadow exports hold it}, why the
-    shadow exports could not be read or None): each shadow module's own last_calls over exports/ (SHADOW_EXPORTS'
-    modules, each once). Read-only."""
+def shadow_rows() -> tuple[dict, dict]:
+    """({match_id: the last shadow row written before its kickoff, or None where two shadow exports hold it},
+    {module: "<name>: <Error>"} for each shadow module whose files could not be read): each shadow module's own
+    last_calls over exports/ (SHADOW_EXPORTS' modules, each once). A module that fails is tracked on its own (Codex
+    round 1 P2 on #640): it hides its own competitions' shadows only (paper_view), never another module's rows.
+    Read-only."""
     out: dict = {}
     held: dict = {}
-    why = []
+    failed: dict = {}
     for mod in dict.fromkeys(m for m, _ in SHADOW_EXPORTS.values()):
         try:
             calls = importlib.import_module(mod).last_calls(str(c.REPO / cl.SLATE_DIR))
         except (OSError, ValueError, AttributeError, TypeError, KeyError) as e:
-            why.append(f"{mod.rsplit('.', 1)[1]}: {type(e).__name__}")
+            failed[mod] = f"{mod.rsplit('.', 1)[1]}: {type(e).__name__}"
             continue
         for mid, r in calls.items():
             held.setdefault(mid, []).append(mod)
@@ -539,7 +544,17 @@ def shadow_rows() -> tuple[dict, str | None]:
     for mid, mods in held.items():
         if len(mods) > 1:
             out[mid] = None           # not shown: two shadow exports hold it
-    return out, ("; ".join(why) if why else None)
+    return out, failed
+
+
+def shadow_unread(code: str, failed: dict) -> str | None:
+    """Why the competition's shadows are not read: the failures of the modules whose competitions hold it
+    (paper.shadow_comps, from each module's own code), "; "-joined; a failed module whose competitions are not known
+    hides every competition's (law 4: never a false "none"). None when every module of the competition was read."""
+    from src.walters import paper
+    comps = paper.shadow_comps()
+    why = [w for mod, w in failed.items() if mod not in comps or code in comps[mod]]
+    return "; ".join(why) if why else None
 
 
 def _paper_kalshi(rows: list, mism, start: datetime) -> tuple[str | None, dict | None, str | None]:
@@ -572,9 +587,15 @@ def _paper_kalshi(rows: list, mism, start: datetime) -> tuple[str | None, dict |
 
 def _paper_shadow(r: dict | None, g: dict, kalshi: dict | None) -> tuple[dict | None, str | None]:
     """(the shadow part, why there is none) for one game's shadow row."""
-    from src.walters import paper
+    from src.walters import paper, redated
     if (r.get("home_team"), r.get("away_team")) != (g["home"], g["away"]):
         return None, f"row names {r.get('away_team')} @ {r.get('home_team')}, not this game: not shown"
+    # the row's recorded kickoff against the game's current start, by the re-dated rule (redated.redated_label: more
+    # than desk_policy.DESK_CLOCK_DRIFT apart; Codex round 1 P2 on #640, R17): a row for another kickoff is not shown
+    if redated.as_utc(r.get("utc_date")) is None:
+        return None, "the row's kickoff cannot be read: not shown"
+    if redated.redated_label(r.get("utc_date"), g["start"]):
+        return None, "the row is for another kickoff (re-dated): not shown"
     try:
         at = cl.parse_utc(r["exported_at"])
     except (KeyError, TypeError, ValueError):
@@ -600,7 +621,8 @@ def paper_view(x: dict, by_id: dict, kal: dict, shadows: tuple, now: datetime) -
     shadow_unread, games: [{match_id, away, home, start, started, board, kalshi, kalshi_why, mismatched, shadow,
     shadow_why}]}. Every datetime aware UTC; no raw shadow or export row is copied in."""
     from src.walters import paper
-    rows_by, unread = shadows
+    rows_by, failed = shadows
+    unread = shadow_unread(x["code"], failed)          # only this competition's modules (Codex round 1 on #640)
     out = {"label": paper.PAPER_LABEL, "ruling": paper.PAPER_RULING, "kalshi_unread": kal["unread"],
            "shadow_unread": unread, "games": []}
     for mid in x["games"]:

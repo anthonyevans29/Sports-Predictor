@@ -419,3 +419,122 @@ def test_a_market_only_code_stored_as_another_sport_is_not_printed():
     _game(1201, "UNL", 1, 0, hs90=1, aw90=0, raw="FT")
     _legs(1201, A)
     assert "UNL" not in paper.close_record(30, now=NOW)
+
+
+# ---- Codex round 1 P1 on #640 (R47): the tickers of the capture the close reads ------------------------------------
+
+def _tickers(mid, t0, t1):
+    """What migrate_kalshi_ticker.py adds, then each leg's market_ticker: t0 for the two-sided capture (yes_bid stored),
+    t1 for the bid-less one; {selection: ticker or None}."""
+    from sqlalchemy import text
+
+    from src.db.database import session_scope
+    with session_scope() as s:
+        s.execute(text("ALTER TABLE odds_snapshots ADD COLUMN market_ticker VARCHAR(64)"))
+        for cond, tick in (("yes_bid IS NOT NULL", t0), ("yes_bid IS NULL", t1)):
+            for sel, v in tick.items():
+                s.execute(text(f"UPDATE odds_snapshots SET market_ticker = :v WHERE match_id = :m AND selection = :s "
+                               f"AND {cond}"), {"v": v, "m": mid, "s": sel})
+
+
+E1 = {"HOME": "KXUCLGAME-26OCT18AAABBB-AAA", "DRAW": "KXUCLGAME-26OCT18AAABBB-TIE", "AWAY": "KXUCLGAME-26OCT18AAABBB-BBB"}
+
+
+@pytest.mark.parametrize("t0,want", [
+    ({"HOME": E1["HOME"], "DRAW": "KXUCLGAME-26OCT18CCCDDD-TIE", "AWAY": "KXUCLGAME-26OCT18CCCDDD-DDD"},
+     {"n": 0, "mismatched": 1, "unpriced": 0}),
+    (E1, {"n": 1, "mismatched": 0, "unpriced": 0}),
+    ({**E1, "DRAW": None}, {"n": 1, "mismatched": 0, "unpriced": 0}),
+], ids=["the-capture-read-names-two-events", "one-event", "one-event-and-an-untickered-leg"])
+def test_the_capture_the_close_reads_is_judged_for_mismatched_legs(t0, want):
+    """Codex round 1 P1 on #640 (R47, verifier1's probe): CL 1301, T0 = KO-3h a full capture within the cap, T1 = KO-30m
+    bid-less legs all of event AAABBB (each side's newest leg: kalshi_legs.mismatched passes them). Before the fix the
+    close read T0 whatever its tickers (n=1, mismatched 0, legs of two events priced). Now the close's own capture is
+    judged by kalshi_legs.judge on its three rows' market_ticker (read by SQL by row id): two events -> "mismatched
+    legs", no close; one event -> priced; an untickered leg names no event (kalshi_legs: "Legs with no stored ticker
+    are read as before")."""
+    from src.db.database import session_scope
+    from src.walters import kalshi_legs
+    _comps()
+    _game(1301, "CL", 1, 0, hs90=1, aw90=0, raw="FT")
+    _legs(1301, A, at=T0)
+    for sel in ("HOME", "DRAW", "AWAY"):
+        _kal(1301, sel, None, 0.50, T1, market="1X2")
+    _tickers(1301, t0, E1)
+    with session_scope() as s:
+        assert kalshi_legs.mismatched(s, [1301]) == {}            # the newest legs name one event: the guard passes
+    line, unpriced, r = _three()
+    assert {k: r[k] for k in want} == want
+    if want["mismatched"]:
+        assert line == f"- CL · {KIND3} · close log-loss — · favourite — · n=0 · finished 1; left out: mismatched legs 1"
+        assert unpriced == unpriced_line("CL", 0, 0) and r["rows"] == []
+    else:
+        assert r["rows"][0]["captured_at"] == T0
+
+
+def test_an_older_capture_naming_two_events_is_not_the_capture_read():
+    """The check is on the capture the close reads, never an older one: T0 (two events) is not read when T1 is a full
+    capture of one event within the cap."""
+    from sqlalchemy import text
+
+    from src.db.database import session_scope
+    _comps()
+    _game(1302, "CL", 1, 0, hs90=1, aw90=0, raw="FT")
+    _legs(1302, A, at=T0)
+    _legs(1302, B, at=T1)
+    with session_scope() as s:
+        s.execute(text("ALTER TABLE odds_snapshots ADD COLUMN market_ticker VARCHAR(64)"))
+        s.execute(text("UPDATE odds_snapshots SET market_ticker = 'KXUCLGAME-26OCT18AAABBB-' || selection "
+                       "WHERE match_id = 1302"))
+        s.execute(text("UPDATE odds_snapshots SET market_ticker = 'KXUCLGAME-26OCT18CCCDDD-TIE' WHERE match_id = 1302 "
+                       "AND selection = 'DRAW' AND yes_bid = 0.27"))
+    r = paper.close_record(30, now=NOW)["CL"]
+    assert (r["n"], r["mismatched"], r["unpriced"], r["rows"][0]["captured_at"]) == (1, 0, 0, T1)
+
+
+def test_a_capture_read_naming_two_events_is_mismatched_before_its_cap_is_judged():
+    """The order of exclusion holds on the capture read: mismatched legs before unpriced. T0, the last full capture,
+    names two events and its DRAW is 3c wide: "mismatched legs", never "the last full capture has a leg over the 2c
+    cap" (nothing is judged from legs of two events, addendum 37 item 3)."""
+    _comps()
+    _game(1303, "CL", 1, 0, hs90=1, aw90=0, raw="FT")
+    _legs(1303, {**A, "DRAW": (0.26, 0.29)}, at=T0)
+    for sel in ("HOME", "DRAW", "AWAY"):
+        _kal(1303, sel, None, 0.50, T1, market="1X2")
+    _tickers(1303, {"HOME": E1["HOME"], "DRAW": "KXUCLGAME-26OCT18CCCDDD-TIE", "AWAY": "KXUCLGAME-26OCT18CCCDDD-DDD"},
+             E1)
+    r = paper.close_record(30, now=NOW)["CL"]
+    assert (r["n"], r["mismatched"], r["unpriced"], r["unpriced_cap"]) == (0, 1, 0, 0)
+
+
+def test_a_capture_of_one_event_whose_current_legs_sit_on_another_game_is_mismatched():
+    """The ruled guard's second clause on the capture read (addendum 37 item 3: "that event's current legs sit on no
+    other game"; verifier on Codex round 1, #640): CL 1402's last full capture T0 is all of event CCCDDD, whose CURRENT
+    legs sit on CL 1403; 1402's newest legs (T1, bid-less) are all of AAABBB, so kalshi_legs.mismatched passes both
+    games. Before this check 1402 was priced from 1403's contracts; now it is "mismatched legs" and 1403 is priced."""
+    from sqlalchemy import text
+
+    from src.db.database import session_scope
+    from src.walters import kalshi_legs
+    e2 = {"HOME": "KXUCLGAME-26OCT18CCCDDD-CCC", "DRAW": "KXUCLGAME-26OCT18CCCDDD-TIE",
+          "AWAY": "KXUCLGAME-26OCT18CCCDDD-DDD"}
+    _comps()
+    _game(1402, "CL", 1, 0, hs90=1, aw90=0, raw="FT")
+    _legs(1402, A, at=T0)
+    for sel in ("HOME", "DRAW", "AWAY"):
+        _kal(1402, sel, None, 0.50, T1, market="1X2")
+    _game(1403, "CL", 0, 1, hs90=0, aw90=1, raw="FT")
+    _legs(1403, B, at=T1)
+    with session_scope() as s:
+        s.execute(text("ALTER TABLE odds_snapshots ADD COLUMN market_ticker VARCHAR(64)"))
+        for mid, at, tick in ((1402, T0, e2), (1403, T1, e2), (1402, T1, E1)):
+            for sel, t in tick.items():
+                n = s.execute(text("UPDATE odds_snapshots SET market_ticker = :v WHERE match_id = :m AND selection = :s "
+                                   "AND substr(captured_at, 1, 19) = :t"),
+                              {"v": t, "m": mid, "s": sel, "t": at.strftime("%Y-%m-%d %H:%M:%S")}).rowcount
+                assert n == 1, (mid, sel, at, n)
+    with session_scope() as s:
+        assert kalshi_legs.mismatched(s, [1402, 1403]) == {}     # each side's newest legs pass the ruled guard
+    r = paper.close_record(30, now=NOW)["CL"]
+    assert (r["n"], r["mismatched"], r["unpriced"]) == (1, 1, 0)
+    assert [x["match_id"] for x in r["rows"]] == [1403]

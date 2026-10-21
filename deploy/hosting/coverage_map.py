@@ -151,10 +151,41 @@ cutover). Read-only as today: mode=ro, no provider call, exit 0 whatever the gap
     name, then moved into place), never under data/. The printed lines are the same, the header saying the one file
     was written, and one line after the gaps names it. Without --json the output is unchanged, byte for byte.
 
+THE PAPER LINE (ARCHITECT 2026-10-20, addendum 146 item 5(a)), verbatim: "5. PAPER LANE for market-only competitions
+(ruled 08:20 ET today, on the operator's "track them as if live"). No model number means no pick; nothing from this
+lane enters the ledger, the P&L or the Cockpit positions; the Desk's call stays PASS noref. Two read-only pieces,
+small, one PR after item 3 or riding (v): (a) coverage's SLATE line for a market-only competition carries, per game,
+the Kalshi mid (two-way, or the three-way mids) and, where a shadow export exists for the day, the shadow's pick and
+value side with their divergence against the mid, labelled PAPER and never a call. NHL today has a shadow (v7, FAILED
+gate); CL and NCAA have none and show the market line only."
+    As built (no competition is named here: the scope is the status): every competition whose status is MARKET-ONLY
+    (the label MARKET-ONLY or MARKET-ONLY · shadow <tag>) with a game of the day that is not VOID gets a SLATE header,
+    "<CODE> SLATE · PAPER, never a call (...)", and one PAPER line per game, in game order; LIVE, SHADOW-only and
+    UNKNOWN competitions get none, nor does an all-void day. `slate` stays None for them, so no gap is claimed: PAPER
+    never claims a gap. The board is read from the stored Kalshi market (src/walters/paper.py board_of: ML two-way,
+    1X2 three-way). Two-way: the mid is close.close_from_kalshi's own (the HOME leg's last two-sided quote before
+    kickoff, its mid, AWAY = 1 - mid, the 2c cap; an older quote is never substituted). Three-way: each leg's raw
+    mid under the same filters, never normalized, with their sum: display only, never a close or a reference. A game
+    whose legs are mismatched (kalshi_legs.mismatched, addendum 37 item 3) shows no mid. A started game shows its last
+    pre-kickoff quote, tagged (started). The shadow is the last row any shadow export wrote before kickoff (each shadow
+    module's own last_calls over exports/, the grade's semantics), with its exported_at; a row whose teams are not the
+    game's, a row recorded for another kickoff (its utc_date more than desk_policy.DESK_CLOCK_DRIFT from the game's
+    current start: redated.redated_label, the re-dated rule) or with a kickoff that cannot be read, or a game two
+    shadow exports hold, is not shown; a shadow module whose files cannot be read hides only its own competitions'
+    shadows (paper.shadow_comps), never another module's rows (Codex round 1 on #640). The value side is the side with the largest model p - mid
+    above zero (the pick's own side eligible; judged at the printed precision, so a side under 0.05pp above its mid is
+    none, said so; on a three-way prediction judged only with all three legs priced; a prediction whose legs are not
+    the board's is never judged and carries no divergence); a divergence is (model p - mid) x 100 in pp. A game left
+    with no mid by a stored capture time that cannot be parsed says so. coverage() carries it as `paper` on the
+    competition, and the --json file adds `paper_lines`; `slate_line` is the header.
+
 Read-only: the DB is opened mode=ro (sp_common.ro_connect: a missing file is refused, never created), plus
 docs/roadmap.json, docs/registry/experiments.json, the watch's schedule inputs (chains.py, closing.py) and its receipt
 log (sp_common.receipts_path(): SP_RECEIPTS or logs/receipts.jsonl, read as closing.receipts reads it; no file is no
-receipt) and the settings _family_refusal and sp_run.active_from read. No row and no receipt is written, and no export
+receipt) and the settings _family_refusal and sp_run.active_from read. The PAPER line reads the stored Kalshi quotes
+(odds_snapshots) on a second mode=ro connection, once per run and only when a MARKET-ONLY competition has games; the
+legs guard's PRAGMA table_info(odds_snapshots) is its one statement that is not a SELECT, and it reads only. It reads
+the shadow exports in exports/ through each shadow module's last_calls. No row and no receipt is written, and no export
 but the --json file; no provider call; the family slate files in exports/ are read (the SLATE line), never written.
 SQLite itself may leave its -wal/-shm sidecars beside a WAL file, as for every ro_connect reader. Exit 0 whatever the
 gaps (it never stops a chain); a date that is not real, a DB that cannot be read, an --out without --json, an --out
@@ -170,6 +201,7 @@ import sqlite3
 import sys
 from datetime import date, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import closing as cl  # noqa: E402
@@ -441,6 +473,257 @@ def writer_chains(fam: str) -> list[str]:
             if name not in skip and any(s in model for s in ch.get("steps") or [])]
 
 
+# ------------------------------------------------------------------------------- the PAPER line (5(a)) --
+# ARCHITECT 2026-10-20, addendum 146 item 5(a): per game of a MARKET-ONLY competition, the Kalshi mid and the shadow's
+# pick and value side with their divergence against it, labelled PAPER and never a call (the module docstring).
+
+TWO_SHADOWS = "two shadow exports hold it"
+# What a stored value of the wrong kind raises inside one game's PAPER read: that game's part reads "cannot be read
+# (<Error>): not shown" and the rest of coverage prints whole (law 4; coverage never stops a chain)
+_UNREADABLE = (TypeError, ValueError, AttributeError, KeyError, IndexError)
+
+
+def read_paper(ids) -> dict:
+    """The stored Kalshi quotes of the games `ids`, on a second mode=ro connection (as read_day opens it), closed in
+    finally: {"rows": {match_id: [SimpleNamespace(source, market, selection, captured_at (aware UTC), yes_bid,
+    yes_ask, bad_time)]}, "mismatched": {match_id: [events]} (kalshi_legs.mismatched on this connection, the one
+    helper), "unread": None, or why nothing could be read (law 4)}. A stored capture time that cannot be parsed is kept
+    as captured_at None with bad_time True: no quote before any kickoff, and a game left with no mid by it says so
+    (_paper_kalshi). No table: "the DB has no odds_snapshots table", and nothing else runs (no PRAGMA)."""
+    from src.walters import kalshi_legs
+    out: dict = {"rows": {}, "mismatched": {}, "unread": None}
+    ids = sorted({int(i) for i in ids})
+    try:
+        con = c.ro_connect(c.db_path())
+    except (ValueError, FileNotFoundError, sqlite3.Error) as e:
+        out["unread"] = f"odds_snapshots cannot be read ({type(e).__name__}: {e})"
+        return out
+    try:
+        if not con.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'odds_snapshots'").fetchone():
+            out["unread"] = "the DB has no odds_snapshots table"
+            return out
+        for k in range(0, len(ids), _IN_CHUNK):
+            part = ids[k:k + _IN_CHUNK]
+            for mid, market, sel, at, bid, ask in con.execute(
+                    "SELECT match_id, market, selection, captured_at, yes_bid, yes_ask FROM odds_snapshots WHERE "
+                    f"source = 'kalshi' AND match_id IN ({','.join('?' * len(part))})", part).fetchall():
+                bad = False
+                try:
+                    cap = cl.parse_utc(at) if at is not None else None
+                except (TypeError, ValueError):
+                    cap, bad = None, True     # law 4: an unreadable capture time is no quote before any kickoff
+                out["rows"].setdefault(mid, []).append(SimpleNamespace(
+                    source="kalshi", market=market, selection=sel, captured_at=cap, yes_bid=bid, yes_ask=ask,
+                    bad_time=bad))
+        out["mismatched"] = kalshi_legs.mismatched(con, ids)
+    except sqlite3.Error as e:
+        out.update(rows={}, mismatched={}, unread=f"odds_snapshots cannot be read ({type(e).__name__}: {e})")
+    finally:
+        con.close()
+    return out
+
+
+def shadow_rows() -> tuple[dict, dict]:
+    """({match_id: the last shadow row written before its kickoff, or None where two shadow exports hold it},
+    {module: "<name>: <Error>"} for each shadow module whose files could not be read): each shadow module's own
+    last_calls over exports/ (SHADOW_EXPORTS' modules, each once). A module that fails is tracked on its own (Codex
+    round 1 P2 on #640): it hides its own competitions' shadows only (paper_view), never another module's rows.
+    Read-only."""
+    out: dict = {}
+    held: dict = {}
+    failed: dict = {}
+    for mod in dict.fromkeys(m for m, _ in SHADOW_EXPORTS.values()):
+        try:
+            calls = importlib.import_module(mod).last_calls(str(c.REPO / cl.SLATE_DIR))
+        except (OSError, ValueError, AttributeError, TypeError, KeyError) as e:
+            failed[mod] = f"{mod.rsplit('.', 1)[1]}: {type(e).__name__}"
+            continue
+        for mid, r in calls.items():
+            held.setdefault(mid, []).append(mod)
+            out[mid] = r
+    for mid, mods in held.items():
+        if len(mods) > 1:
+            out[mid] = None           # not shown: two shadow exports hold it
+    return out, failed
+
+
+def shadow_unread(code: str, failed: dict) -> str | None:
+    """Why the competition's shadows are not read: the failures of the modules whose competitions hold it
+    (paper.shadow_comps, from each module's own code), "; "-joined; a failed module whose competitions are not known
+    hides every competition's (law 4: never a false "none"). None when every module of the competition was read."""
+    from src.walters import paper
+    comps = paper.shadow_comps()
+    why = [w for mod, w in failed.items() if mod not in comps or code in comps[mod]]
+    return "; ".join(why) if why else None
+
+
+def _paper_kalshi(rows: list, mism, start: datetime) -> tuple[str | None, dict | None, str | None]:
+    """(board, the Kalshi part, why there is none) for one game."""
+    from src.walters import paper
+    if mism:
+        return paper.board_of(rows), None, f"mismatched legs ({', '.join(mism)}): no mid (addendum 37 item 3)"
+    board = paper.board_of(rows)
+    if board is None:
+        return None, None, "no quote stored"
+    if board == "mixed":
+        return board, None, "ML and 1X2 rows both stored: not read"
+    nomid = "no mid (no two-sided pre-kickoff quote within the 2c cap)"
+    # a stored quote whose time cannot be read: its own reason, only for a row the mid reads (two-way: the HOME leg)
+    if any(getattr(r, "bad_time", False) and (board != "two-way" or r.selection == "HOME") for r in rows):
+        nomid = "cannot be read (a capture time cannot be read): not shown"
+    if board == "two-way":
+        k = paper.two_way_mid(rows, start)
+        if k is None:
+            return board, None, nomid
+        q = k["kalshi"]
+        return board, {"fair": dict(k["fair"]), "bid": q["bid"], "ask": q["ask"], "spread_c": q["spread_c"],
+                       "captured_at": k["captured_at"]}, None
+    legs = paper.leg_mids(rows, start)
+    if not any(legs.values()):
+        return board, None, nomid
+    mids = [v["mid"] for v in legs.values() if v]
+    return board, {"legs": legs, "sum": sum(mids) if all(legs.values()) else None}, None
+
+
+def _paper_shadow(r: dict | None, g: dict, kalshi: dict | None) -> tuple[dict | None, str | None]:
+    """(the shadow part, why there is none) for one game's shadow row."""
+    from src.walters import paper, redated
+    if (r.get("home_team"), r.get("away_team")) != (g["home"], g["away"]):
+        return None, f"row names {r.get('away_team')} @ {r.get('home_team')}, not this game: not shown"
+    # the row's recorded kickoff against the game's current start, by the re-dated rule (redated.redated_label: more
+    # than desk_policy.DESK_CLOCK_DRIFT apart; Codex round 1 P2 on #640, R17): a row for another kickoff is not shown
+    if redated.as_utc(r.get("utc_date")) is None:
+        return None, "the row's kickoff cannot be read: not shown"
+    if redated.redated_label(r.get("utc_date"), g["start"]):
+        return None, "the row is for another kickoff (re-dated): not shown"
+    try:
+        at = cl.parse_utc(r["exported_at"])
+    except (KeyError, TypeError, ValueError):
+        return None, "its exported_at cannot be read: not shown"
+    # last_calls keeps a row written before its RECORDED kickoff; within the re-dated rule's hour that can be after the
+    # game's CURRENT start (Codex round 2 P2 on #640): a row exported at or after it is an in-play row, compared as UTC
+    if redated.as_utc(at) >= redated.as_utc(g["start"]):
+        return None, "exported at or after the current kickoff (an in-play row): not shown"
+    pred = r.get("prediction")
+    pred = {} if pred is None else pred
+    if paper.unreadable(pred):
+        return None, "the row cannot be read: not shown"
+    fair = None
+    if kalshi and "fair" in kalshi:
+        fair = kalshi["fair"]
+    elif kalshi and "legs" in kalshi:
+        fair = {k: (v["mid"] if v else None) for k, v in kalshi["legs"].items()}    # every leg of the board named
+    v = paper.shadow_view(pred, fair)
+    if v["pick"] is None or v["pick_p"] is None:
+        return None, "the row carries no pick: not shown"
+    return {"model_version": r.get("model_version"), "gate_verdict": r.get("gate_verdict"), "exported_at": at,
+            **v}, None
+
+
+def paper_view(x: dict, by_id: dict, kal: dict, shadows: tuple, now: datetime) -> dict:
+    """The PAPER data of one MARKET-ONLY competition (the module docstring's rule): {label, ruling, kalshi_unread,
+    shadow_unread, games: [{match_id, away, home, start, started, board, kalshi, kalshi_why, mismatched, shadow,
+    shadow_why}]}. Every datetime aware UTC; no raw shadow or export row is copied in."""
+    from src.walters import paper
+    rows_by, failed = shadows
+    unread = shadow_unread(x["code"], failed)          # only this competition's modules (Codex round 1 on #640)
+    out = {"label": paper.PAPER_LABEL, "ruling": paper.PAPER_RULING, "kalshi_unread": kal["unread"],
+           "shadow_unread": unread, "games": []}
+    for mid in x["games"]:
+        g = by_id[mid]
+        d = {"match_id": mid, "away": g["away"], "home": g["home"], "start": g["start"], "started": cl.started(g, now),
+             "board": None, "kalshi": None, "kalshi_why": None, "mismatched": None, "shadow": None, "shadow_why": None}
+        if kal["unread"]:
+            d["kalshi_why"] = f"not read ({kal['unread']})"
+        else:
+            d["mismatched"] = kal["mismatched"].get(mid) or None
+            try:
+                d["board"], d["kalshi"], d["kalshi_why"] = _paper_kalshi(kal["rows"].get(mid, []), d["mismatched"],
+                                                                         g["start"])
+            except _UNREADABLE as e:
+                d["board"], d["kalshi"], d["kalshi_why"] = None, None, f"cannot be read ({type(e).__name__}): not shown"
+        if unread:
+            d["shadow_why"] = f"not read ({unread})"
+        elif mid not in rows_by:
+            d["shadow_why"] = f"none (no shadow row before kickoff in {cl.SLATE_DIR}/)"
+        elif rows_by[mid] is None:
+            d["shadow_why"] = f"{TWO_SHADOWS}: not shown"
+        else:
+            try:
+                d["shadow"], d["shadow_why"] = _paper_shadow(rows_by[mid], g, d["kalshi"])
+            except _UNREADABLE as e:
+                d["shadow"], d["shadow_why"] = None, f"cannot be read ({type(e).__name__}): not shown"
+        out["games"].append(d)
+    return out
+
+
+def _priced(d: dict) -> bool:
+    """A game with a Kalshi mid: two-way with its mid, or three-way with all three leg mids."""
+    k = d["kalshi"]
+    return bool(k) and ("fair" in k or all(k["legs"].values()))
+
+
+def paper_header(x: dict) -> str:
+    """The MARKET-ONLY competition's SLATE header (addendum 146 item 5(a))."""
+    p = x["paper"]
+    n = len(p["games"])
+    kal = (f"Kalshi not read ({p['kalshi_unread']})" if p["kalshi_unread"]
+           else f"Kalshi mid {sum(1 for d in p['games'] if _priced(d))} of {n}")
+    sh = (f"shadow not read ({p['shadow_unread']})" if p["shadow_unread"]
+          else f"shadow {sum(1 for d in p['games'] if d['shadow'])} of {n}")
+    return (f"{x['code']} SLATE · {p['label']} (market-only: no ledger, no P&L, no position; {p['ruling']}) · "
+            f"{_n(n, 'game')} · {kal} · {sh}")
+
+
+def _f3(v) -> str:
+    return "—" if v is None else f"{v:.3f}"
+
+
+def _kalshi_text(d: dict) -> str:
+    k = d["kalshi"]
+    if not k:
+        return f"Kalshi: {d['kalshi_why']}"
+    if "fair" in k:
+        m = k["fair"]["HOME"]
+        return (f"Kalshi mid HOME {m:.3f} / AWAY {1 - m:.3f} (bid {k['bid']:.2f}, ask {k['ask']:.2f}, "
+                f"{k['spread_c']:g}c; captured {cl.et(k['captured_at'])})")
+    legs = k["legs"]
+    caps = sorted(v["captured_at"] for v in legs.values() if v)
+    when = cl.et(caps[0]) + (f" to {cl.et(caps[-1])}" if caps[-1] != caps[0] else "")
+    s = f"sum {k['sum']:.3f}" if k["sum"] is not None else "sum —"
+    return ("Kalshi mids " + " / ".join(f"{sel} {_f3((legs.get(sel) or {}).get('mid'))}" for sel in legs)
+            + f" (raw per leg, not normalized, display only; {s}; captured {when})")
+
+
+def _shadow_text(d: dict) -> str:
+    from src.walters import paper
+    v = d["shadow"]
+    if not v:
+        return f"shadow: {d['shadow_why']}"
+    head = f"shadow {v['model_version']} ({v['gate_verdict']}; exported {cl.et(v['exported_at'])}): "
+    differ = paper.board_differs(v["value_why"])             # the prediction is not the board's shape: not judged
+    div = (f"({v['pick_div_pp']:+.1f}pp vs mid)" if v["pick_div_pp"] is not None
+           else f"({v['value_why']}: no divergence)" if differ else "(no mid: no divergence)")
+    pick = f"pick {v['pick']} {v['pick_p']:.3f} {div}"
+    if v["value_side"]:
+        val = f"value side {v['value_side']} ({v['value_div_pp']:+.1f}pp)"
+    elif v["value_why"] in ("no mid", "a leg has no mid") or differ:
+        val = f"value side not judged ({v['value_why']})"
+    else:
+        val = f"value side none ({v['value_why']})"
+    return f"{head}{pick}; {val}"
+
+
+def paper_lines(x: dict) -> list[str]:
+    """The MARKET-ONLY competition's PAPER lines, one per game in game order ([] for any other competition)."""
+    p = x.get("paper")
+    if not p:
+        return []
+    return [f"{x['code']} SLATE · PAPER · {d['match_id']} {d['away']} @ {d['home']} {cl.et(d['start'])[11:]}"
+            + (" (started)" if d["started"] else "") + f" · {_kalshi_text(d)} · {_shadow_text(d)}"
+            for d in p["games"]]
+
+
 # ------------------------------------------------------------------------------------------- the report --
 
 def _n(k: int, word: str) -> str:
@@ -709,6 +992,16 @@ def coverage(day: date | None = None, now: datetime | None = None, roadmap_path=
                       "writers": writer_chains(fam) if fam else [], "groups": groups, "started": started,
                       "finished": finished, "closing_unread": closing_unread, "slate": slate})
     comps.sort(key=lambda x: (STATUSES.index(x["status"]), x["code"]))
+    # THE PAPER LINE (addendum 146 item 5(a)): every MARKET-ONLY competition with games; read once, only then
+    paper_comps = [x for x in comps if x["status"] == "MARKET-ONLY" and x["games"]]
+    kal = shadows = None
+    if paper_comps:
+        kal = read_paper([i for x in paper_comps for i in x["games"]])
+        shadows = shadow_rows()
+    by_id = {g["match_id"]: g for g in games}
+    paper_codes = {x["code"] for x in paper_comps}
+    for x in comps:
+        x["paper"] = paper_view(x, by_id, kal, shadows, now) if x["code"] in paper_codes else None
     return {"date": day, "now": now, "competitions": comps, "gaps": gap_lines(comps)}
 
 
@@ -783,7 +1076,10 @@ def _slate_done_why(s: dict) -> str:
 
 
 def slate_line(x: dict) -> str | None:
-    """The competition's SLATE line (addendum 126 item 2(b)), or None (not LIVE)."""
+    """The competition's SLATE line (addendum 126 item 2(b)); a MARKET-ONLY competition's PAPER header (addendum 146
+    item 5(a)); or None (neither LIVE nor MARKET-ONLY)."""
+    if x.get("paper"):
+        return paper_header(x)
     s = x.get("slate")
     if not s:
         return None
@@ -885,14 +1181,16 @@ def lines(cov: dict, wrote: str | None = None) -> list[str]:
     n = sum(len(x["games"]) for x in comps)
     out = [f"COVERAGE {day.isoformat()} ET · {_n(len(comps), 'competition')} · {_n(n, 'game')} · now "
            f"{cl.et(cov['now'])} · read-only (the DB mode=ro, the closing-watch schedule and receipts, the slate "
-           "files in exports/): no row written, " + ("no export written" if wrote is None else f"one export written "
-                                                     f"({wrote}, --json)") + ", no provider call"]
+           "and shadow files in exports/): no row written, " + ("no export written" if wrote is None else
+                                                                f"one export written ({wrote}, --json)")
+           + ", no provider call"]
     if not comps:
         out.append("no stored game that day")
     for x in comps:
         out.append(comp_line(x, day))
         if slate_line(x):
             out.append(slate_line(x))
+        out += paper_lines(x)
     out += ["GAPS:", *cov["gaps"]] if cov["gaps"] else ["GAPS: none"]
     return out
 
@@ -931,9 +1229,10 @@ def document(cov: dict, roadmap_path=None) -> dict:
     printed lines say in the line's own words, so a reader shows it without computing it (the Cockpit's Today tab,
     F1c: viewer, not engine): `now_et`; per competition `line` (its printed line), `games_text`, `rows_text`,
     `without_rows_text` (null where the line leaves it out), `closing_text` (its clauses), `closing_tail` (the
-    clause's words outside any group's text: "none left to run", or null where the clause has none) and `slate_line`
-    (its SLATE line as printed, `<CODE> SLATE · …`, or null where it has none: not LIVE; #606 item 2, the Today tile
-    shows it first); per prediction
+    clause's words outside any group's text: "none left to run", or null where the clause has none), `slate_line`
+    (its SLATE line as printed, `<CODE> SLATE · …`, or null where it has none: neither LIVE nor MARKET-ONLY; #606
+    item 2, the Today tile shows it first; a MARKET-ONLY competition's is its PAPER header, addendum 146 item 5(a))
+    and `paper_lines` (its PAPER lines as printed, one per game; [] where it has none); per prediction
     model `computed_et` (its computed_at in ET, as the line prints it; null when none could be read); per closing group
     `run_lead` ("T-35"), `run_at_et` (the run time in ET, with its date when not the day's) and `text` (the group as
     the line prints it). Then `roadmap`: lanes_data() on the coverage day (roadmap.load() and the print's own lines;
@@ -945,7 +1244,8 @@ def document(cov: dict, roadmap_path=None) -> dict:
     for xd, x in zip(doc["competitions"], cov["competitions"]):
         rows, without = _rows_clauses(x)
         xd.update(line=comp_line(x, day), games_text=_games_text(x), rows_text=rows, without_rows_text=without,
-                  closing_text=_closing_clause(x, day), closing_tail=_closing_tail(x), slate_line=slate_line(x))
+                  closing_text=_closing_clause(x, day), closing_tail=_closing_tail(x), slate_line=slate_line(x),
+                  paper_lines=paper_lines(x))
         for md, m in zip(xd["rows"], x["rows"]):
             md["computed_et"] = _computed_text(m) or None
         for gd, g in zip(xd["groups"], x["groups"]):

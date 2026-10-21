@@ -470,7 +470,7 @@ def _build_row(
     # quotes + fee-adjusted executable cost, as the NFL and fixtures exports
     # carry since K1, so the Desk's exec-edge / join-bid columns work for MLB
     # and soccer too. Only where Kalshi is two-sided (the full outcome set),
-    # else null. Informational until the executable-edge ruling.
+    # else null. K-track: binding (ARCHITECT 2026-10-20, addendum 146 item 1).
     # #93 ruling (2026-09-30): taker AND maker costs, per the series' M.
     from src.walters.venue import KALSHI_EXEC_NULL, kalshi_exec
     _home = (kalshi or {}).get("HOME")
@@ -1240,7 +1240,7 @@ def _fixture_row(s, m, competition_code: str, labels, counts: dict) -> dict:
         "market": market,
         "kalshi": kalshi,
         # K-track (K1, additive): home-side quotes + executable cost,
-        # two-sided Kalshi only (informational until the ruling).
+        # two-sided Kalshi only (K-track: binding, addendum 146 item 1).
         # #93 ruling (2026-09-30): taker AND maker costs, per the series' M.
         # #89: away (NO-side) costs only on a two-way market; a soccer fixture
         # is 1X2 (NO on HOME = draw-or-away), so its away fields stay null.
@@ -1373,7 +1373,20 @@ def results_tally(days: int = 30, out_path: str = "RESULTS.md", report=None, exp
     close_minutes_before_start, with n; `report` (a callable) receives the
     same figures, one line per sport, for the console. A game void by its
     closing rows in `exports_dir` (ARCHITECT 2026-10-17, addendum 106 item 4)
-    leaves every line of its section, which then names it on a line of its own."""
+    leaves every line of its section, which then names it on a line of its own.
+    The EXEC COHORTS section (ARCHITECT 2026-10-20, addendum 146 item 1(v);
+    src/walters/exec_cohorts.py) counts the PLAY calls of this machine's
+    closing files on disk per closing family by desk.exec.edge_pp (exec >= 4,
+    0 < exec < 4 split QB-clean / QB-tagged, exec <= 0, exec unknown), with
+    W-L-P and notional units at desk.exec.cost, and the pre-registered cohort's
+    n=30 line; one console line. THE CLOSE'S RECORD (addendum 146 item 5(b);
+    src/walters/paper.py) scores the FINISHED games of the window (log-loss,
+    the favourite's record, n, each exclusion counted), PAPER, never a call:
+    NHL and NCAA on the kalshi_only two-way close; CL, and each other
+    market-only three-way competition with a stored Kalshi 1X2 leg, on the
+    three-way close of addendum 150 (one capture, normalized, the 90-minute
+    result, unpriced games on their own line by cause); every line names its close
+    kind and the two never pool; one console line."""
     import math
     from datetime import datetime, timedelta
 
@@ -1405,7 +1418,8 @@ def results_tally(days: int = 30, out_path: str = "RESULTS.md", report=None, exp
              "divergence the contract reproduces is VERIFIED; any other stored value is RETAINED-LEGACY and is "
              "reported separately, never pooled into the headline. A divergence stored against a close priced "
              "from a Kalshi mid (kalshi_only, or the stale-book rule's kalshi below) is read from Kalshi's two-way "
-             "rows; it reproduces and counts as VERIFIED (#615); a three-way board never takes a Kalshi close. "
+             "rows; it reproduces and counts as VERIFIED (#615); a three-way board never takes a Kalshi grading "
+             "close (the PAPER record's three-way close, addendum 150, is its own). "
              "STALE BOOK CLOSE (ARCHITECT 2026-10-19, "
              "addendum 137 item 4): a graded game whose book quote carries a provider stamp more than 24 hours "
              "before kickoff grades against the Kalshi two-sided mid captured in the same last pre-kickoff session "
@@ -1416,6 +1430,7 @@ def results_tally(days: int = 30, out_path: str = "RESULTS.md", report=None, exp
     from src.walters.close import close_age_line
     from src.walters.vs_close import line as _vs_line
     _ages: list = []            # (sport label, close_age_summary) for each sport that reports a close (#382)
+    _console: list = []         # addendum 146 items 1(v) and 5(b): one console line each, after the close ages
     from src.walters.redated import closing_starts, void_counts, void_label
     closing = closing_starts(exports_dir)["rows"]
     with session_scope() as s:
@@ -1531,6 +1546,15 @@ def results_tally(days: int = 30, out_path: str = "RESULTS.md", report=None, exp
                              + "; ".join(r.get("redated_rows") or []) + "\n")
         except Exception:
             lines.append("## NFL (live since Week 3, 2026-09-22)\n\nGrade unavailable.\n")
+    # EXEC COHORTS (ARCHITECT 2026-10-20, addendum 146 item 1(v)): the closing files' PLAY calls by exec edge, per
+    # closing family, read-only, so the n=30 read of item 1(i) is automatic
+    try:
+        from src.walters import exec_cohorts as _xc
+        _xt = _xc.tally(exports_dir)
+        lines.append(_xc.section(_xt, exports_dir))
+        _console.append(_xc.console_line(_xt))
+    except Exception:
+        lines.append("## EXEC COHORTS — PLAY calls by exec edge, per closing family\n\nGrade unavailable.\n")
     # NHL SHADOW (architect 2026-09-30): the failed reference model's live CLV,
     # in its own section, never a record line beside the live sports.
     try:
@@ -1544,6 +1568,17 @@ def results_tally(days: int = 30, out_path: str = "RESULTS.md", report=None, exp
         lines.append(_unl_section(days))
     except Exception:
         lines.append("## UNL — SHADOW, CONFIRMATION WINDOW\n\nGrade unavailable.\n")
+    # THE CLOSE'S RECORD (ARCHITECT 2026-10-20, addendum 146 item 5(b)): the market-only competitions on their two
+    # close kinds, never pooled: the kalshi_only two-way close (NHL, NCAA) and the three-way Kalshi close of addendum
+    # 150 (CL and the other market-only three-way competitions); the bar a college or cup candidate is scored
+    # against; PAPER, never a call
+    try:
+        from src.walters import paper as _paper
+        _rec = _paper.close_record(days)
+        lines.append(_paper.close_record_section(_rec, days))
+        _console.append(_paper.close_record_console(_rec, days))
+    except Exception:
+        lines.append("## THE CLOSE'S RECORD — market-only, PAPER\n\nGrade unavailable.\n")
     lines.append("\nDeep detail: `BACKLOG.md`. Change history: `CHANGELOG.md`.\n")
     with open(out_path, "w") as f:
         f.write("\n".join(lines))
@@ -1552,4 +1587,6 @@ def results_tally(days: int = 30, out_path: str = "RESULTS.md", report=None, exp
         for label, a in _ages:
             report(f"  {label}: " + (f"median {a['median']:g} min · largest {a['max']} min · n={a['n']}"
                                      if a["n"] else "no close in window (n=0)"))
+        for x in _console:
+            report(x)
     return out_path

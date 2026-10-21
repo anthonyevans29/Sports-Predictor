@@ -26,7 +26,7 @@ from tests.test_record_vs_close import iso_db  # noqa: F401  (a fixture: a throw
 pytestmark = pytest.mark.usefixtures("iso_db")
 
 KIND3 = "close: kalshi three-way (one capture, normalized)"
-OTHER = ("the last full capture fails the close's other checks {c} (a leg stored twice with two quotes, a quote that is "
+OTHER = ("last capture fails the close's other checks {c} (a leg stored twice with two quotes, a quote that is "
          "not a number, a crossed or out-of-range quote, or no normalized sum; no older capture substituted)")
 T1 = KO - timedelta(minutes=30)                  # one capture (one sync run's captured_at)
 T0 = KO - timedelta(hours=3)                     # an earlier capture
@@ -55,12 +55,14 @@ def _three(code="CL"):
     return lines[i], lines[i + 1], rec[code]
 
 
-def unpriced_line(code, a, b, c=0):
+def unpriced_line(code, a, b, c=0, i=0):
     """The competition's unpriced line (addendum 150 item 2), its close kind named (item 1), the count split by cause
-    (both verifiers' P2-1): a = no full capture before kickoff, b = the last full capture has a leg over the cap (the
-    strict reading, R42), c = the third cause, printed only when it counts a game."""
-    line = (f"  - {code} · close: kalshi three-way · unpriced {a + b + c}: no capture before kickoff with all three legs "
-            f"two-sided {a}; the last full capture has a leg over the 2c cap {b} (no older capture substituted)")
+    as ruled (R42 (b), addendum 151 item 1: "last capture incomplete", "last capture over the cap", "no capture"): a =
+    no capture before kickoff holds a leg, b = the last capture has a leg over the cap, c = the fourth cause, printed
+    only when it counts a game, i = the last capture misses a leg or holds a one-sided one."""
+    line = (f"  - {code} · close: kalshi three-way · unpriced {a + b + c + i}: last capture incomplete {i} (a leg "
+            f"missing or one-sided; no older capture substituted); last capture over the cap {b} (no older capture "
+            f"substituted); no capture {a}")
     return line + (f"; {OTHER.format(c=c)}" if c else "")
 
 
@@ -121,12 +123,14 @@ def test_the_last_full_capture_over_the_cap_is_no_close_and_an_older_one_is_neve
     [_row("HOME", 0.50, 0.51), _row("AWAY", 0.20, 0.21)],                     # the later capture misses a leg
     [_row("HOME", 0.50, 0.51), _row("DRAW", 0.25, None), _row("AWAY", 0.20, 0.21)],   # one leg one-sided
 ], ids=["missing-leg", "one-sided-leg"])
-def test_a_capture_without_all_three_legs_two_sided_is_skipped(later):
-    """A later capture whose legs are not all two-sided is not "such a capture": the last FULL capture (T0) is the
-    close."""
+def test_a_later_incomplete_capture_ends_the_search_and_no_older_capture_is_substituted(later):
+    """R42 RULED (b) (ARCHITECT 2026-10-20 19:54 ET, addendum 151 item 1): "a later capture holding any of the game's
+    legs ENDs the search, and no older capture is substituted". T0 is a full capture within the cap; T1, later, misses a
+    leg or holds a one-sided one: no close, counted "last capture incomplete" (before the ruling T0 was the close)."""
     rows = [_row(k, *v, at=T0) for k, v in A.items()] + later
-    cl = paper.three_way_close(rows, KO)
-    assert cl["captured_at"] == T0 and cl["fair"] == {"HOME": 0.4527, "DRAW": 0.2736, "AWAY": 0.2736}
+    assert paper.three_way_close(rows, KO) is None
+    assert paper._three_way(rows, KO) == (None, "unpriced_incomplete")
+    assert paper.three_way_close(rows[:3], KO)["captured_at"] == T0          # T0 alone forms one
 
 
 def test_the_close_reads_only_kalshi_1x2_legs_before_kickoff():
@@ -206,8 +210,9 @@ def test_the_draw_favourite_is_counted_and_flagged_and_an_exact_top_tie_is_even(
 
 
 def test_unpriced_games_are_counted_on_their_own_line_and_mismatched_legs_before_them():
-    """707: two legs only (unpriced, never formed from two); 708: its last full capture 3c wide (unpriced); 709: no
-    leg stored (unpriced); 710: legs of two events (mismatched legs, addendum 37 item 3)."""
+    """707: two legs only (unpriced: last capture incomplete, never formed from two); 708: its last capture 3c wide
+    (unpriced); 709: no leg stored (unpriced: no capture); 710: legs of two events (mismatched legs, addendum 37 item
+    3)."""
     from sqlalchemy import text
 
     from src.db.database import session_scope
@@ -225,7 +230,7 @@ def test_unpriced_games_are_counted_on_their_own_line_and_mismatched_legs_before
                        "AND selection <> 'HOME'"))
     line, unpriced, rec = _three()
     assert line == (f"- CL · {KIND3} · close log-loss — · favourite — · n=0 · finished 4; left out: mismatched legs 1")
-    assert unpriced == unpriced_line("CL", 2, 1)            # 707 and 709: no full capture; 708: its last one 3c wide
+    assert unpriced == unpriced_line("CL", 1, 1, i=1)       # 709: no capture; 708: 3c wide; 707: incomplete
 
 
 def test_another_market_only_three_way_competition_appears_only_with_kalshi_1x2_legs():
@@ -282,31 +287,30 @@ def test_the_desks_grading_close_is_untouched_on_a_three_way_board():
 
 @pytest.mark.parametrize("rows,why", [
     ([], "unpriced_none"),                                                                      # no leg stored
-    ([_row("HOME", 0.45, 0.46), _row("AWAY", 0.27, 0.28)], "unpriced_none"),                   # two legs only
-    ([_row("HOME", 0.45, 0.46), _row("DRAW", 0.27, 0.28), _row("AWAY", 0.27, 0.28, at=T0)],   # two captures
-     "unpriced_none"),
+    ([_row("HOME", 0.45, 0.46), _row("AWAY", 0.27, 0.28)], "unpriced_incomplete"),             # two legs only
+    ([_row("HOME", 0.45, 0.46), _row("DRAW", 0.27, 0.28), _row("AWAY", 0.27, 0.28, at=T0)],   # two captures: the
+     "unpriced_incomplete"),                                                                    # last misses AWAY
     ([_row(k, *v, at=T0) for k, v in A.items()]                                    # an older full capture within the
-     + [_row("HOME", 0.45, 0.46), _row("DRAW", 0.26, 0.29), _row("AWAY", 0.27, 0.28)],    # cap; the last one 3c wide
+     + [_row("HOME", 0.45, 0.46), _row("DRAW", 0.26, 0.29), _row("AWAY", 0.27, 0.28)],    # cap; the last 3c wide
      "unpriced_cap"),
     ([_row("HOME", 0.45, 0.46), _row("DRAW", 0.29, 0.28), _row("AWAY", 0.27, 0.28)], "unpriced_other"),   # crossed
     ([_row("HOME", 0.45, 0.46), _row("DRAW", "x", 0.28), _row("AWAY", 0.27, 0.28)], "unpriced_other"),    # text
     ([_row("HOME", 0.45, 0.46), _row("DRAW", 0.27, 0.28), _row("DRAW", 0.26, 0.27), _row("AWAY", 0.27, 0.28)],
      "unpriced_other"),                                                                         # two quotes, one leg
     ([_row(k, 0.0, 0.00008) for k in ("HOME", "DRAW", "AWAY")], "unpriced_other"),           # no normalized sum
-], ids=["no-leg", "two-legs", "two-captures", "last-full-over-the-cap", "crossed", "not-a-number", "two-quotes",
+], ids=["no-leg", "two-legs", "two-captures", "last-over-the-cap", "crossed", "not-a-number", "two-quotes",
         "no-normalized-sum"])
 def test_the_cause_of_no_close_is_named_and_which_games_get_a_close_is_unchanged(rows, why):
-    """_three_way names the cause; three_way_close is its close, None on each of these (no behaviour change)."""
+    """_three_way names the cause (the ruled three, R42 (b), and the fourth); three_way_close is None on each."""
     assert paper._three_way(rows, KO) == (None, why)
     assert paper.three_way_close(rows, KO) is None
 
 
 def test_the_unpriced_line_splits_its_count_by_cause_so_every_printed_reason_is_true():
-    """Both verifiers' P2-1. 721: a full capture within the cap at T0, and the last full capture (T1) with its DRAW 3c
-    wide: unpriced by the strict reading (R42), counted as "the last full capture has a leg over the 2c cap", never as
-    "no capture before kickoff with all three legs two-sided" (T0 is one). 722: two legs only; 723: no leg stored;
-    724: its legs over two captures: no full capture, counted as such. Then 725, its only full capture's DRAW crossed:
-    the third cause, printed only when it counts a game."""
+    """Both verifiers' P2-1, by the ruled causes (R42 (b), addendum 151 item 1). 721: a full capture within the cap at
+    T0, and the last capture (T1) with its DRAW 3c wide: "last capture over the cap" (T0 is never substituted). 722: two
+    legs only, and 724: its legs over two captures, the last missing AWAY: "last capture incomplete"; 723: no leg
+    stored: "no capture". Then 725, its only capture's DRAW crossed: the fourth cause, printed only when it counts."""
     _comps()
     for mid in (721, 722, 723, 724):
         _game(mid, "CL", 1, 0, hs90=1, aw90=0, raw="FT")
@@ -316,17 +320,19 @@ def test_the_unpriced_line_splits_its_count_by_cause_so_every_printed_reason_is_
     _legs(724, {"HOME": (0.45, 0.46), "DRAW": (0.27, 0.28)})
     _legs(724, {"AWAY": (0.27, 0.28)}, at=T0)
     line, unpriced, rec = _three()
-    assert unpriced == ("  - CL · close: kalshi three-way · unpriced 4: no capture before kickoff with all three legs "
-                        "two-sided 3; the last full capture has a leg over the 2c cap 1 (no older capture substituted)")
-    assert (rec["unpriced"], rec["unpriced_none"], rec["unpriced_cap"], rec["unpriced_other"]) == (4, 3, 1, 0)
+    assert unpriced == ("  - CL · close: kalshi three-way · unpriced 4: last capture incomplete 2 (a leg missing or "
+                        "one-sided; no older capture substituted); last capture over the cap 1 (no older capture "
+                        "substituted); no capture 1")
+    assert (rec["unpriced"], rec["unpriced_incomplete"], rec["unpriced_none"], rec["unpriced_cap"],
+            rec["unpriced_other"]) == (4, 2, 1, 1, 0)
     assert line.endswith(" · n=0 · finished 4; left out: none")
     _game(725, "CL", 1, 0, hs90=1, aw90=0, raw="FT")
     _legs(725, {"HOME": (0.45, 0.46), "DRAW": (0.29, 0.28), "AWAY": (0.27, 0.28)})
     _, unpriced, rec = _three()
-    assert unpriced == unpriced_line("CL", 3, 1, 1) == (
-        "  - CL · close: kalshi three-way · unpriced 5: no capture before kickoff with all three legs two-sided 3; the "
-        "last full capture has a leg over the 2c cap 1 (no older capture substituted); the last full capture fails the "
-        "close's other checks 1 (a leg stored twice with two quotes, a quote that is not a number, a crossed or "
+    assert unpriced == unpriced_line("CL", 1, 1, 1, i=2) == (
+        "  - CL · close: kalshi three-way · unpriced 5: last capture incomplete 2 (a leg missing or one-sided; no older "
+        "capture substituted); last capture over the cap 1 (no older capture substituted); no capture 1; last capture "
+        "fails the close's other checks 1 (a leg stored twice with two quotes, a quote that is not a number, a crossed or "
         "out-of-range quote, or no normalized sum; no older capture substituted)")
     assert rec["unpriced"] == 5
     assert paper.close_record_console(paper.close_record(30, now=NOW), 30).endswith("CL n=0 (unpriced 5)")
@@ -365,10 +371,11 @@ def test_a_leg_stored_twice_one_quote_two_sided_reads_the_two_sided_quote():
 
 def test_captures_a_second_or_a_microsecond_apart_are_never_combined():
     """One capture is one stored captured_at exactly (R43): AWAY a second, or a microsecond, after HOME and DRAW is
-    another capture, so no capture holds all three legs (V18: captures grouped by the minute)."""
+    another capture, so no capture holds all three legs (V18: captures grouped by the minute): the last, AWAY's, is
+    incomplete (R42 (b))."""
     for d in (timedelta(seconds=1), timedelta(microseconds=1)):
         rows = [_row("HOME", 0.45, 0.46), _row("DRAW", 0.27, 0.28), _row("AWAY", 0.27, 0.28, at=T1 + d)]
-        assert paper._three_way(rows, KO) == (None, "unpriced_none"), d
+        assert paper._three_way(rows, KO) == (None, "unpriced_incomplete"), d
 
 
 def test_a_full_capture_after_kickoff_leaves_the_game_unpriced():
@@ -440,19 +447,16 @@ def _tickers(mid, t0, t1):
 E1 = {"HOME": "KXUCLGAME-26OCT18AAABBB-AAA", "DRAW": "KXUCLGAME-26OCT18AAABBB-TIE", "AWAY": "KXUCLGAME-26OCT18AAABBB-BBB"}
 
 
-@pytest.mark.parametrize("t0,want", [
-    ({"HOME": E1["HOME"], "DRAW": "KXUCLGAME-26OCT18CCCDDD-TIE", "AWAY": "KXUCLGAME-26OCT18CCCDDD-DDD"},
-     {"n": 0, "mismatched": 1, "unpriced": 0}),
-    (E1, {"n": 1, "mismatched": 0, "unpriced": 0}),
-    ({**E1, "DRAW": None}, {"n": 1, "mismatched": 0, "unpriced": 0}),
-], ids=["the-capture-read-names-two-events", "one-event", "one-event-and-an-untickered-leg"])
-def test_the_capture_the_close_reads_is_judged_for_mismatched_legs(t0, want):
-    """Codex round 1 P1 on #640 (R47, verifier1's probe): CL 1301, T0 = KO-3h a full capture within the cap, T1 = KO-30m
-    bid-less legs all of event AAABBB (each side's newest leg: kalshi_legs.mismatched passes them). Before the fix the
-    close read T0 whatever its tickers (n=1, mismatched 0, legs of two events priced). Now the close's own capture is
-    judged by kalshi_legs.judge on its three rows' market_ticker (read by SQL by row id): two events -> "mismatched
-    legs", no close; one event -> priced; an untickered leg names no event (kalshi_legs: "Legs with no stored ticker
-    are read as before")."""
+@pytest.mark.parametrize("t0", [
+    {"HOME": E1["HOME"], "DRAW": "KXUCLGAME-26OCT18CCCDDD-TIE", "AWAY": "KXUCLGAME-26OCT18CCCDDD-DDD"},
+    E1,
+    {**E1, "DRAW": None},
+], ids=["the-older-capture-names-two-events", "one-event", "one-event-and-an-untickered-leg"])
+def test_a_later_bid_less_capture_ends_the_search_whatever_the_older_captures_tickers(t0):
+    """R42 RULED (b), addendum 151 item 1, on Codex round 1's P1 case (R47): CL 1301, T0 = KO-3h a full capture within
+    the cap, T1 = KO-30m bid-less legs of event AAABBB. The last capture holding a leg is T1, one-sided: no close, "last
+    capture incomplete", whatever T0's tickers; T0 (two events or one) is never read (before the ruling it was the
+    close's capture, and the guard on it was the round-1 fix)."""
     from src.db.database import session_scope
     from src.walters import kalshi_legs
     _comps()
@@ -463,6 +467,25 @@ def test_the_capture_the_close_reads_is_judged_for_mismatched_legs(t0, want):
     _tickers(1301, t0, E1)
     with session_scope() as s:
         assert kalshi_legs.mismatched(s, [1301]) == {}            # the newest legs name one event: the guard passes
+    _, unpriced, r = _three()
+    assert (r["n"], r["mismatched"], r["unpriced"], r["unpriced_incomplete"]) == (0, 0, 1, 1)
+    assert unpriced == unpriced_line("CL", 0, 0, i=1) and r["rows"] == []
+
+
+@pytest.mark.parametrize("t0,want", [
+    ({"HOME": E1["HOME"], "DRAW": "KXUCLGAME-26OCT18CCCDDD-TIE", "AWAY": "KXUCLGAME-26OCT18CCCDDD-DDD"},
+     {"n": 0, "mismatched": 1, "unpriced": 0}),
+    (E1, {"n": 1, "mismatched": 0, "unpriced": 0}),
+    ({**E1, "DRAW": None}, {"n": 1, "mismatched": 0, "unpriced": 0}),
+], ids=["the-capture-read-names-two-events", "one-event", "one-event-and-an-untickered-leg"])
+def test_the_capture_the_close_reads_is_judged_for_mismatched_legs(t0, want):
+    """The capture the close reads (here T0, the only one) is judged by kalshi_legs.judge on its rows' market_ticker
+    (read by SQL by row id): two events -> "mismatched legs", no close; one event -> priced; an untickered leg names no
+    event (kalshi_legs: "Legs with no stored ticker are read as before")."""
+    _comps()
+    _game(1301, "CL", 1, 0, hs90=1, aw90=0, raw="FT")
+    _legs(1301, A, at=T0)
+    _tickers(1301, t0, {})
     line, unpriced, r = _three()
     assert {k: r[k] for k in want} == want
     if want["mismatched"]:
@@ -494,15 +517,13 @@ def test_an_older_capture_naming_two_events_is_not_the_capture_read():
 
 def test_a_capture_read_naming_two_events_is_mismatched_before_its_cap_is_judged():
     """The order of exclusion holds on the capture read: mismatched legs before unpriced. T0, the last full capture,
-    names two events and its DRAW is 3c wide: "mismatched legs", never "the last full capture has a leg over the 2c
-    cap" (nothing is judged from legs of two events, addendum 37 item 3)."""
+    names two events and its DRAW is 3c wide: "mismatched legs", never "last capture over the cap" (nothing is judged
+    from legs of two events, addendum 37 item 3)."""
     _comps()
     _game(1303, "CL", 1, 0, hs90=1, aw90=0, raw="FT")
     _legs(1303, {**A, "DRAW": (0.26, 0.29)}, at=T0)
-    for sel in ("HOME", "DRAW", "AWAY"):
-        _kal(1303, sel, None, 0.50, T1, market="1X2")
     _tickers(1303, {"HOME": E1["HOME"], "DRAW": "KXUCLGAME-26OCT18CCCDDD-TIE", "AWAY": "KXUCLGAME-26OCT18CCCDDD-DDD"},
-             E1)
+             {})
     r = paper.close_record(30, now=NOW)["CL"]
     assert (r["n"], r["mismatched"], r["unpriced"], r["unpriced_cap"]) == (0, 1, 0, 0)
 
@@ -511,7 +532,8 @@ def test_a_capture_of_one_event_whose_current_legs_sit_on_another_game_is_mismat
     """The ruled guard's second clause on the capture read (addendum 37 item 3: "that event's current legs sit on no
     other game"; verifier on Codex round 1, #640): CL 1402's last full capture T0 is all of event CCCDDD, whose CURRENT
     legs sit on CL 1403; 1402's newest legs (T1, bid-less) are all of AAABBB, so kalshi_legs.mismatched passes both
-    games. Before this check 1402 was priced from 1403's contracts; now it is "mismatched legs" and 1403 is priced."""
+    games. Before the round-1 check 1402 was priced from 1403's contracts; under R42 RULED (b) (addendum 151 item 1)
+    1402's last capture is T1, bid-less: "last capture incomplete", never priced from T0; 1403 is priced."""
     from sqlalchemy import text
 
     from src.db.database import session_scope
@@ -536,5 +558,5 @@ def test_a_capture_of_one_event_whose_current_legs_sit_on_another_game_is_mismat
     with session_scope() as s:
         assert kalshi_legs.mismatched(s, [1402, 1403]) == {}     # each side's newest legs pass the ruled guard
     r = paper.close_record(30, now=NOW)["CL"]
-    assert (r["n"], r["mismatched"], r["unpriced"]) == (1, 1, 0)
+    assert (r["n"], r["mismatched"], r["unpriced"], r["unpriced_incomplete"]) == (1, 0, 1, 1)
     assert [x["match_id"] for x in r["rows"]] == [1403]

@@ -28,10 +28,13 @@ CLEAN = "0 < exec < 4, QB inputs clean (the pre-registered cohort)"
 QB = "0 < exec < 4, QB-flagged or unread (outside the cohort)"
 LE0 = "exec <= 0 (no bet under the exec-hold rule of 2026-10-18; notional)"
 UNK = "exec unknown (no exec edge on the row)"
-POOL = "- The pre-registered cohort, every family on this machine, closing runs from 2026-10-18 ET: graded"
-BEFORE = "not counted (before the rule of 2026-10-18)"
-CONSOLE = ("exec cohorts ({n} closing files on disk): the pre-registered 0 < exec < 4 cohort, closing runs from "
-           "2026-10-18 ET, graded {k} of 30 ({tail}) · not counted (before the rule of 2026-10-18) {b}")
+POOL = ("- The pre-registered cohort, every family on this machine, closing runs from the pre-registration "
+        "(2026-10-19 07:40 ET): graded")
+BEFORE = "before pre-registration, not counted"
+CONSOLE = ("exec cohorts ({n} closing files on disk): the pre-registered 0 < exec < 4 cohort, closing runs from the "
+           "pre-registration (2026-10-19 07:40 ET), graded {k} of 30 ({tail}) · before pre-registration, not counted "
+           "{b}")
+LATE = datetime(2026, 10, 19, 11, 40)   # a closing run at the pre-registration (07:40 ET, naive UTC): counted (R41)
 
 
 # ---- the pure pieces ----------------------------------------------------------------------------------------------
@@ -158,7 +161,7 @@ FAMILIES_TEXT = (
     f"- SOCCER · {LE0}: PLAY 0\n"
     f"- SOCCER · {UNK}: PLAY 0\n"
     "- SOCCER · left out: none\n"
-    f"{POOL} 1 of 30 — not read before n=30 · {BEFORE} 0\n")
+    f"{POOL} 0 of 30 — not read before n=30 · {BEFORE} 1\n")
 
 
 def test_one_file_per_family_the_whole_section(tmp_path):
@@ -166,12 +169,13 @@ def test_one_file_per_family_the_whole_section(tmp_path):
     with no exec edge (open: unknown; nothing settled, so its units read "units —", never a +0.00u breakeven), a LADDER
     (left out) and a PASS (not a call). NFL: a QB-flagged 0-4 hit (+0.5 x
     (1/0.6 - 1) = +0.33, outside the cohort line) and a 20-20 tie (a push, 0u, out of W+L). SOCCER: a HOME PLAY on a
-    1-1 draw is a loss (-1.00u). Only the MLB clean miss is graded in the cohort."""
+    1-1 draw is a loss (-1.00u). Only the MLB clean miss is graded in the cohort; its run (2026-10-18 22:25Z) is before
+    the pre-registration (R41 RULED, addendum 151 item 2): printed beside the counter, never counted."""
     ex = _families(tmp_path)
     t = xc.tally(ex)
     assert xc.section(t, ex) == FAMILIES_TEXT.format(ex=ex)
-    assert t["cohort_graded"] == 1 and t["families"] == ["MLB", "NFL", "SOCCER"]
-    assert xc.console_line(t) == CONSOLE.format(n=3, k=1, tail="not read before n=30", b=0)
+    assert (t["cohort_graded"], t["cohort_before"]) == (0, 1) and t["families"] == ["MLB", "NFL", "SOCCER"]
+    assert xc.console_line(t) == CONSOLE.format(n=3, k=0, tail="not read before n=30", b=1)
 
 
 def test_closing_starts_is_closing_rows_projection(tmp_path):
@@ -218,7 +222,7 @@ def test_a_game_in_two_files_counts_once_the_newest_runs_row(tmp_path):
     txt = _section(ex)
     assert "- MLB · exec >= 4: PLAY 0\n" in txt
     assert f"- MLB · {CLEAN}: PLAY 1 · W-L-P 1-0-0 · +0.50u · open 0 · void 0\n" in txt
-    assert "graded 1 of 30" in txt
+    assert "graded 0 of 30" in txt and f"{BEFORE} 1" in txt           # counted once; its run is before (R41)
 
 
 def test_a_redated_game_is_left_out_and_named_and_the_fresh_row_is_graded(tmp_path):
@@ -308,7 +312,7 @@ def test_the_n30_line(tmp_path, n, line):
     for i in range(n):
         _match(1700 + i, "MLB", f"H{i}", f"A{i}", hs=1 + (i % 2) * 3, aw=2)
         rows.append(row(1700 + i, f"H{i}", f"A{i}", desk(edge=1.5)))
-    write_closing(tmp_path / "exports", KO - timedelta(minutes=35), rows)
+    write_closing(tmp_path / "exports", LATE, rows)               # a run from the pre-registration on: counted
     t = xc.tally(tmp_path / "exports")
     assert xc.section(t, tmp_path / "exports").endswith(line)
     assert t["cohort_graded"] == n
@@ -338,7 +342,7 @@ def test_bad_rows_read_as_unknown_and_never_blank_the_section(tmp_path):
     out, said = tmp_path / "R.md", []
     results_tally(days=36500, out_path=str(out), report=said.append, exports_dir=str(ex))
     assert "## EXEC COHORTS — PLAY calls by exec edge, per closing family\n\nGrade unavailable." not in out.read_text()
-    assert CONSOLE.format(n=1, k=1, tail="not read before n=30", b=0) in said
+    assert CONSOLE.format(n=1, k=0, tail="not read before n=30", b=1) in said      # its run is before (R41)
 
 
 def test_a_void_with_no_exec_cost_settles_at_zero_never_unpriced(tmp_path):
@@ -446,27 +450,30 @@ def test_a_file_whose_block_names_no_family_takes_it_from_its_name(tmp_path):
     assert "- NFL · exec >= 4: PLAY 1 · W-L-P 1-0-0 · +0.50u · open 0 · void 0\n" in xc.section(t, tmp_path / "exports")
 
 
-# ---- the n=30 counter starts at the rule of 2026-10-18 (a reading for the architect, R41) ---------------------------
+# ---- the n=30 counter starts at the PRE-REGISTRATION (R41 RULED, ARCHITECT 2026-10-20 19:54 ET, addendum 151 item 2)
 
-def test_the_counter_counts_closing_runs_from_the_rule_and_prints_the_earlier_ones_beside_it(tmp_path):
-    """1(i): the cohort of "the written exec-hold rule of 2026-10-18", "READ at n=30 graded ..., never earlier". Three
-    clean 0-4 PLAYs graded: one whose closing run started 2026-10-17 22:25Z (10-17 ET), one at 2026-10-18 03:59Z (still
-    10-17 23:59 ET) and one at 04:00Z (10-18 00:00 ET). The counter counts the last only; the two earlier rows print
-    beside it, never counted; the MLB line (the record) keeps all three."""
+def test_the_counter_counts_closing_runs_from_the_pre_registration_and_prints_the_earlier_ones_beside_it(tmp_path):
+    """R41 RULED (addendum 151 item 2): "the PRE-REGISTRATION, addendum 136 item 5(iv), 2026-10-19 07:40 ET ... the rows
+    before it ... print beside the counter as 'before pre-registration, not counted'". Four clean 0-4 PLAYs graded,
+    their closing runs at 2026-10-18 04:00Z (the rule's own date, 10-18 00:00 ET: counted before the ruling, now not),
+    2026-10-19 03:59Z, 2026-10-19 11:39Z (07:39 ET) and 11:40Z (07:40 ET). The counter counts the last only; the three
+    earlier rows print beside it; the MLB line (the record) keeps all four."""
     _comps()
     ex = tmp_path / "exports"
-    for mid, ko in ((2300, datetime(2026, 10, 17, 23, 0)), (2301, datetime(2026, 10, 18, 4, 34)),
-                    (2302, datetime(2026, 10, 18, 4, 35))):
+    for mid, run in ((2300, datetime(2026, 10, 18, 4, 0)), (2301, datetime(2026, 10, 19, 3, 59)),
+                     (2302, datetime(2026, 10, 19, 11, 39)), (2303, datetime(2026, 10, 19, 11, 40))):
+        ko = run + timedelta(minutes=35)
         _match(mid, "MLB", f"H{mid}", f"A{mid}", ko=ko, hs=1, aw=4)
-        write_closing(ex, ko - timedelta(minutes=35), [row(mid, f"H{mid}", f"A{mid}", desk(edge=2.0), ko=ko)])
-    assert xc.COUNTED_FROM == datetime(2026, 10, 18, 4, 0)            # 2026-10-18 00:00 ET (EDT), naive UTC
+        write_closing(ex, run, [row(mid, f"H{mid}", f"A{mid}", desk(edge=2.0), ko=ko)])
+    assert xc.COUNTED_FROM == datetime(2026, 10, 19, 11, 40)          # 2026-10-19 07:40 ET (EDT), naive UTC
+    assert xc.RULING_R41.startswith("2. R41, the n=30 counter's start: the PRE-REGISTRATION, addendum 136 item 5(iv)")
     assert xc.RULING_RULE_OF_1018.startswith("The written exec-hold rule of 2026-10-18 stands verbatim: ")
     t = xc.tally(ex)
-    assert (t["cohort_graded"], t["cohort_before"], t["cohort_undated"]) == (1, 2, 0)
+    assert (t["cohort_graded"], t["cohort_before"], t["cohort_undated"]) == (1, 3, 0)
     txt = xc.section(t, ex)
-    assert f"- MLB · {CLEAN}: PLAY 3 · W-L-P 0-3-0 · -1.50u · open 0 · void 0\n" in txt
-    assert txt.endswith(f"{POOL} 1 of 30 — not read before n=30 · {BEFORE} 2\n")
-    assert xc.console_line(t) == CONSOLE.format(n=3, k=1, tail="not read before n=30", b=2)
+    assert f"- MLB · {CLEAN}: PLAY 4 · W-L-P 0-4-0 · -2.00u · open 0 · void 0\n" in txt
+    assert txt.endswith(f"{POOL} 1 of 30 — not read before n=30 · {BEFORE} 3\n")
+    assert xc.console_line(t) == CONSOLE.format(n=4, k=1, tail="not read before n=30", b=3)
 
 
 def test_a_row_with_no_run_start_is_not_counted_and_named(tmp_path):
@@ -492,8 +499,8 @@ def test_the_n30_reached_line_carries_the_earlier_rows_beside_it():
                                      f"here) · {BEFORE} 4")
 
 
-def test_n30_is_never_reached_on_rows_before_the_rule():
-    """1 counted + 29 before the rule is 30 graded rows, but only 1 counts: never "n=30 reached" ("never earlier",
+def test_n30_is_never_reached_on_rows_before_the_pre_registration():
+    """1 counted + 29 before the pre-registration is 30 graded rows, but only 1 counts: never "n=30 reached" ("never earlier",
     146 1(i)), on the section's line and on the console."""
     assert xc.pooled_line(1, 29) == f"{POOL} 1 of 30 — not read before n=30 · {BEFORE} 29"
     t = {"files": 3, "cohort_graded": 1, "cohort_before": 29, "cohort_undated": 0}

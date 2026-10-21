@@ -243,14 +243,22 @@ def shadow_view(pred: dict, fair: dict | None) -> dict:
 # ------------------------------------------------------------------------------------- the three-way close --
 
 # Why a game has no three-way close, one count per cause, so every printed reason is true of the games it counts
-# (the strict reading, R42: a game whose last full capture has a leg over the cap is unpriced even where an older
-# full capture within the cap exists). The first two always print; the third prints only when it counts a game (R43:
-# a leg stored twice, a non-number and a crossed quote cannot arise from one sync-kalshi-soccer run today).
-UNPRICED = (("unpriced_none", "no capture before kickoff with all three legs two-sided {k}"),
-            ("unpriced_cap", "the last full capture has a leg over the 2c cap {k} (no older capture substituted)"),
-            ("unpriced_other", "the last full capture fails the close's other checks {k} (a leg stored twice with two "
-                               "quotes, a quote that is not a number, a crossed or out-of-range quote, or no "
-                               "normalized sum; no older capture substituted)"))
+# (R42 RULED (b), ARCHITECT 2026-10-20 19:54 ET, addendum 151 item 1: the close is the LAST capture before kickoff that
+# holds any leg of the game; a later capture holding any of its legs ends the search, and no older capture is
+# substituted). The ruled three always print; the fourth prints only when it counts a game (R43: a leg stored twice, a
+# non-number and a crossed quote cannot arise from one sync-kalshi-soccer run today).
+RULING_R42 = ("1. R42, the three-way close's strict reading: (b). The close is the LAST capture before kickoff that holds "
+              "any leg of the game; it forms a close only when that capture holds all three legs two-sided within the 2c "
+              "cap; a later capture holding any of the game's legs ENDs the search, and no older capture is substituted. "
+              "A run that stored no row is invisible, as you say; the unpriced line counts by cause (\"last capture "
+              "incomplete\", \"last capture over the cap\", \"no capture\"). The wider market never gets an older close.")
+UNPRICED = (("unpriced_incomplete", "last capture incomplete {k} (a leg missing or one-sided; no older capture "
+                                    "substituted)"),
+            ("unpriced_cap", "last capture over the cap {k} (no older capture substituted)"),
+            ("unpriced_none", "no capture {k}"),
+            ("unpriced_other", "last capture fails the close's other checks {k} (a leg stored twice with two quotes, "
+                               "a quote that is not a number, a crossed or out-of-range quote, or no normalized sum; no "
+                               "older capture substituted)"))
 
 
 def _quote(x) -> tuple[float, float] | None:
@@ -274,9 +282,10 @@ def three_way_close(rows, before: datetime | None) -> dict | None:
     `captured_at=now`), so the legs are grouped by that value exactly and legs of different captures are never
     combined. The stored vocabulary is HOME / DRAW / AWAY (the Tie leg is placed as DRAW, kalshi_match.place). Rows
     read: source kalshi, market 1X2, a stored capture time before `before` (the kickoff).
-    The close: the LAST capture before kickoff in which all three legs are two-sided (yes bid and yes ask both
-    stored); a capture missing a leg, or holding a leg with one side only, is skipped. If any leg of that capture
-    fails close_from_kalshi's checks (0 <= bid <= ask <= 1, ask > 0, bid < 1; both read as numbers; one quote per
+    The close (R42 RULED (b), addendum 151 item 1): the LAST capture before kickoff that holds any leg of the game;
+    it forms a close only when that capture holds all three legs two-sided (yes bid and yes ask both stored): a later
+    capture holding any of the game's legs ends the search, missing a leg or holding a one-sided one (no close; no
+    older capture is substituted). If any leg of that capture fails close_from_kalshi's checks (0 <= bid <= ask <= 1, ask > 0, bid < 1; both read as numbers; one quote per
     leg, never a guess between two) or is wider than the 2c cap (desk_policy.KALSHI_ONLY["maxSpreadC"] on js_round of
     the cents, close_from_kalshi's arithmetic), there is no close and no older capture is substituted (the two-way
     rule's shape; the strict reading of "the last such capture").
@@ -287,24 +296,23 @@ def three_way_close(rows, before: datetime | None) -> dict | None:
     return _three_way(rows, before)[0]
 
 
-def _last_full(rows, before: datetime | None) -> tuple[dict, datetime | None]:
-    """({captured_at: {leg: [rows]}}, the LAST capture before `before` in which all three legs are two-sided, or None):
-    the capture three_way_close reads (rows: source kalshi, market 1X2, a leg of LEGS, a stored capture time before the
-    kickoff; one capture is one stored captured_at, matched exactly)."""
+def _last_capture(rows, before: datetime | None) -> tuple[dict, datetime | None]:
+    """({captured_at: {leg: [rows]}}, the LAST capture before `before` that holds any leg of the game, or None): the
+    capture three_way_close reads (R42 RULED (b); rows: source kalshi, market 1X2, a leg of LEGS, a stored capture time
+    before the kickoff; one capture is one stored captured_at, matched exactly). A run that stored no row is invisible."""
     caps: dict = {}
     for x in rows:
         if (getattr(x, "source", None) == "kalshi" and getattr(x, "market", None) == "1X2"
                 and getattr(x, "selection", None) in LEGS and x.captured_at is not None
                 and (before is None or x.captured_at < before)):
             caps.setdefault(x.captured_at, {}).setdefault(x.selection, []).append(x)
-    full = [t for t, legs in caps.items() if all(any(_two_sided(r) for r in legs.get(k, ())) for k in LEGS)]
-    return caps, (max(full) if full else None)
+    return caps, (max(caps) if caps else None)
 
 
 def _three_way(rows, before: datetime | None) -> tuple[dict | None, str | None]:
     """(three_way_close's close, None), or (None, the UNPRICED key of the cause): "unpriced_none" (no capture before
-    kickoff with all three legs two-sided), "unpriced_cap" (the last full capture has a leg over the 2c cap),
-    "unpriced_other" (the last full capture fails close_from_kalshi's other checks: a leg stored twice with two quotes,
+    kickoff holds a leg of the game), "unpriced_incomplete" (the last capture misses a leg or holds a one-sided one),
+    "unpriced_cap" (the last capture has a leg over the 2c cap), "unpriced_other" (the last capture fails close_from_kalshi's other checks: a leg stored twice with two quotes,
     a quote that is not a number, a crossed or out-of-range quote; or _summarize_kalshi forms no normalized sum). The
     legs are judged in LEGS order and the first that fails names the cause; which games get a close is
     three_way_close's rule, unchanged."""
@@ -312,9 +320,11 @@ def _three_way(rows, before: datetime | None) -> tuple[dict | None, str | None]:
 
     from src.walters.desk_policy import KALSHI_ONLY, js_round
     from src.walters.export import _summarize_kalshi
-    caps, t = _last_full(rows, before)
+    caps, t = _last_capture(rows, before)
     if t is None:
         return None, "unpriced_none"
+    if not all(any(_two_sided(r) for r in caps[t].get(k, ())) for k in LEGS):
+        return None, "unpriced_incomplete"  # the last capture ends the search: no older capture substituted (R42 (b))
     q: dict = {}
     for k in LEGS:
         got = {_quote(r) for r in caps[t][k] if _two_sided(r)}
@@ -324,7 +334,7 @@ def _three_way(rows, before: datetime | None) -> tuple[dict | None, str | None]:
         if not (0.0 <= bid <= ask <= 1.0) or ask <= 0.0 or bid >= 1.0:
             return None, "unpriced_other"  # close_from_kalshi's bounds; no older capture substituted
         if js_round((ask - bid) * 100) > KALSHI_ONLY["maxSpreadC"]:
-            return None, "unpriced_cap"    # the last full capture fails the cap: no close; no older one substituted
+            return None, "unpriced_cap"    # the last capture fails the cap: no close; no older one substituted
         q[k] = {"bid": bid, "ask": ask, "mid": (bid + ask) / 2, "spread_c": round((ask - bid) * 100, 1)}
     v = _summarize_kalshi(None, {k: SimpleNamespace(devig_prob=q[k]["mid"], captured_at=t) for k in LEGS},
                           three_way=True)
@@ -355,7 +365,7 @@ def capture_tickers(conn, ids) -> dict:
 def capture_mismatched(rows, tickers: dict, match_id, homes: dict | None = None) -> list[str] | None:
     """The events of the ONE capture a three-way close reads (Codex round 1 P1 on #640, R47), when its legs name more
     than one: kalshi_legs.judge, unchanged (its event-of-ticker rule, kalshi_legs.event_of), on `rows`, every stored
-    HOME / DRAW / AWAY row of that capture (_last_full's; all of a leg's rows in it judged, as kalshi_legs judges legs
+    HOME / DRAW / AWAY row of that capture (_last_capture's; all of a leg's rows in it judged, as kalshi_legs judges legs
     tied at one capture), each row's ticker from `tickers` (capture_tickers, by row id). A row with no stored ticker
     names no event (addendum 37 item 3: "Legs with no stored ticker are read as before"). `homes`
     (kalshi_legs.homes_of over the capture's events) carries the ruled second clause, "that event's current legs sit
@@ -504,7 +514,7 @@ def _score_three(rec: dict, m, snaps, mism: dict, tickers: dict | None = None, h
     if m.id in mism:
         rec["mismatched"] += 1
         return
-    caps, t = _last_full(snaps, m.utc_date)        # the capture the close reads (none: unpriced, below)
+    caps, t = _last_capture(snaps, m.utc_date)        # the capture the close reads (none: unpriced, below)
     if t is not None and capture_mismatched([r for legs in caps[t].values() for r in legs], tickers or {}, m.id,
                                             homes):
         rec["mismatched"] += 1             # its legs name two events: no close, never priced (Codex on #640, R47)
@@ -641,7 +651,8 @@ def _reasons(r: dict, reasons=REASONS) -> str:
 
 def unpriced_line(code: str, r: dict) -> str:
     """A three-way competition's unpriced games on a line of their own (addendum 150 item 2), its close kind named
-    (item 1), split by cause (UNPRICED): the first two causes always, the third only when it counts a game."""
+    (item 1), split by cause (UNPRICED): the ruled three always (addendum 151 item 1), the fourth only when it counts a
+    game."""
     why = [t.format(k=r.get(key, 0)) for key, t in UNPRICED if key != "unpriced_other" or r.get(key)]
     return f"  - {code} · close: {KIND_THREE_NAME} · unpriced {r['unpriced']}: " + "; ".join(why)
 
@@ -676,9 +687,10 @@ def close_record_section(rec: dict, days: int) -> str:
              "before kickoff within the 2c spread cap (src/walters/close.py close_from_kalshi); the favourite is the "
              "side the close prices above the other. close: "
              f"{KIND_THREE} (CL, and each other market-only three-way competition with a stored Kalshi 1X2 leg in the "
-             "window; ARCHITECT 2026-10-20, addendum 150): the last capture before kickoff in which all three legs "
-             "(HOME, DRAW, AWAY) are two-sided; a leg of it wider than the 2c cap leaves the game with no close (no "
-             "older capture is substituted, legs of different captures are never combined); the three mids "
+             "window; ARCHITECT 2026-10-20, addendum 150; R42 ruled (b), addendum 151 item 1): the last capture before "
+             "kickoff that holds any leg of the game, a close only when it holds all three legs (HOME, DRAW, AWAY) "
+             "two-sided within the 2c cap (a later capture holding any leg ends the search; no older capture is "
+             "substituted, legs of different captures are never combined); the three mids "
              "sum-normalized to 1 as the export forms the venue fair (export._summarize_kalshi), their raw sum the "
              "overround; scored on the 90-minute result (intl_shadow.result_90: 90 minutes plus stoppage, a knockout "
              "decided in extra time or on penalties is its 90-minute result); the favourite is the largest of the "

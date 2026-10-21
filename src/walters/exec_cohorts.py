@@ -26,10 +26,10 @@ As built (each reading is the conservative one, law 4; the PR body lists them fo
   two-way score is a push; a three-way board reads full_time_result, else the scores); anything else is open. A row
   whose teams are not the DB match's is left out (match ids are machine-local), as is a match id this DB lacks.
 - Read-only: one session, nothing written; no verdict is computed (the n=30 read is the architect's).
-- The n=30 counter starts at the rule (a reading for the architect, R41): it counts only the pre-registered cohort's
-  graded rows whose closing run starts on or after 2026-10-18 00:00 ET (RULE_OF_1018); the earlier graded rows of the
-  same cell print beside it, "not counted (before the rule of 2026-10-18)", and a row with no run start is not counted
-  either (named when there is one). The per-family lines keep every row: they are the record.
+- The n=30 counter starts at the PRE-REGISTRATION (R41 RULED, ARCHITECT 2026-10-20 19:54 ET, addendum 151 item 2):
+  it counts only the pre-registered cohort's graded rows whose closing run starts on or after 2026-10-19 07:40 ET
+  (PRE_REGISTERED, addendum 136 item 5(iv)); the earlier graded rows of the same cell print beside it, "before
+  pre-registration, not counted", and a row with no run start is not counted either (named when there is one). The per-family lines keep every row: they are the record.
 """
 from __future__ import annotations
 
@@ -47,18 +47,20 @@ RULING_V = ("(v) results-tally gains an \"exec cohorts\" block per closing famil
 QB_TAGS = ("QB-flagged half units", desk_policy.INJURY_EMPTY_TAG)      # desk_policy's two QB tags, verbatim
 VOID = (MatchStatus.CANCELLED, MatchStatus.POSTPONED, MatchStatus.STALE_ORPHAN)   # closing.VOID, by name
 READ_AT_N = 30
-# The n=30 counter's start, a reading for the architect (R41). 1(i) names the cohort as the one the rule of 2026-10-18
-# pre-registers and reads it at n=30, never earlier (RULING_RULE_OF_1018, verbatim); addendum 136 item 5(iv): "The exec
-# cohort "0 < exec < 4, half units" (the written rule of 10-18) is graded on its own from here". Built at the rule's
-# date (2026-10-18 00:00 ET): only closing runs that start on or after it count toward n=30; 136 5(iv)'s later start
-# would count fewer rows.
+# The n=30 counter's start, R41 RULED (RULING_R41, verbatim): the pre-registration, addendum 136 item 5(iv),
+# 2026-10-19 07:40 ET. Only closing runs that start on or after it count toward n=30; 1(i)'s rule of 2026-10-18
+# (RULING_RULE_OF_1018, verbatim) remains the behaviour.
+RULING_R41 = ("2. R41, the n=30 counter's start: the PRE-REGISTRATION, addendum 136 item 5(iv), 2026-10-19 07:40 ET. A "
+              "pre-registered cohort counts from the moment it was registered, not from the rule that defined it; the "
+              "rows before it (the three of 146 item 1(b)) print beside the counter as \"before pre-registration, not "
+              "counted\". The written exec-hold rule of 10-18 remains the behaviour; the count is the cohort's.")
 RULING_RULE_OF_1018 = ("The written exec-hold rule of 2026-10-18 stands verbatim: exec <= 0 -> no bet; 0 < exec < 4 -> "
                        "the Desk's half units stand when the QB inputs are clean, as the pre-registered cohort; it is "
                        "READ at n=30 graded (the same bar as the value shadows, #86), never earlier.")
-RULE_OF_1018 = datetime(2026, 10, 18, tzinfo=ZoneInfo("America/New_York"))
-COUNTED_FROM = as_utc(RULE_OF_1018)                   # 2026-10-18 04:00, naive UTC: the closing runs' own clock
-COUNTED_FROM_TEXT = "closing runs from 2026-10-18 ET"
-BEFORE_TEXT = "not counted (before the rule of 2026-10-18)"
+PRE_REGISTERED = datetime(2026, 10, 19, 7, 40, tzinfo=ZoneInfo("America/New_York"))
+COUNTED_FROM = as_utc(PRE_REGISTERED)                 # 2026-10-19 11:40, naive UTC: the closing runs' own clock
+COUNTED_FROM_TEXT = "closing runs from the pre-registration (2026-10-19 07:40 ET)"
+BEFORE_TEXT = "before pre-registration, not counted"
 
 GE4, MID, LE0, UNKNOWN = "exec >= 4", "0 < exec < 4", "exec <= 0", "exec unknown"
 MID_QB = "0 < exec < 4, QB"              # the cell key of the QB-tagged half of MID (outside the cohort)
@@ -212,7 +214,7 @@ def tally(exports_dir) -> dict:
             c = cells.setdefault((fam, key), _cell())
             c["plays"] += 1
             c[{"win": "w", "loss": "l", "push": "p", "void": "void", "open": "open"}[res]] += 1
-            if key == MID and res in ("win", "loss"):                       # the n=30 counter: from the rule on
+            if key == MID and res in ("win", "loss"):            # the n=30 counter: from the pre-registration on
                 run = e[0]
                 pooled["undated" if run is None else "graded" if run >= COUNTED_FROM else "before"] += 1
             if res != "open":
@@ -263,7 +265,7 @@ def _not_counted(before: int, undated: int) -> str:
 
 def pooled_line(k: int, before: int = 0, undated: int = 0) -> str:
     """The n=30 line of the pre-registered cohort, every family on this machine (never across machines): the counter
-    from the rule of 2026-10-18 on, and beside it the graded rows it does not count (R41)."""
+    from the pre-registration on (R41 RULED), and beside it the graded rows it does not count."""
     head = f"- The pre-registered cohort, every family on this machine, {COUNTED_FROM_TEXT}: graded {k}"
     if k >= READ_AT_N:
         return (f"{head}: n={READ_AT_N} reached — for the architect's read (no verdict is computed here)"

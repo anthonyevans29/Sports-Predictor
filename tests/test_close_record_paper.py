@@ -223,10 +223,10 @@ def test_the_whole_section_and_the_console():
         "kalshi_only two-way (NHL, NCAA): the mid of the last two-sided Kalshi HOME quote before kickoff within the 2c "
         "spread cap (src/walters/close.py close_from_kalshi); the favourite is the side the close prices above the "
         "other. close: kalshi three-way (one capture, normalized) (CL, and each other market-only three-way "
-        "competition with a stored Kalshi 1X2 leg in the window; ARCHITECT 2026-10-20, addendum 150): the last capture "
-        "before kickoff in which all three legs (HOME, DRAW, AWAY) are two-sided; a leg of it wider than the 2c cap "
-        "leaves the game with no close (no older capture is substituted, legs of different captures are never "
-        "combined); the three mids sum-normalized to 1 as the export forms the venue fair (export._summarize_kalshi), "
+        "competition with a stored Kalshi 1X2 leg in the window; ARCHITECT 2026-10-20, addendum 150; R42 ruled (b), "
+        "addendum 151 item 1): the last capture before kickoff that holds any leg of the game, a close only when it "
+        "holds all three legs (HOME, DRAW, AWAY) two-sided within the 2c cap (a later capture holding any leg ends the "
+        "search; no older capture is substituted, legs of different captures are never combined); the three mids sum-normalized to 1 as the export forms the venue fair (export._summarize_kalshi), "
         "their raw sum the overround; scored on the 90-minute result (intl_shadow.result_90: 90 minutes plus "
         "stoppage, a knockout decided in extra time or on penalties is its 90-minute result); the favourite is the "
         "largest of the three, the draw included and flagged; a game left with no close is counted unpriced on its own "
@@ -238,8 +238,8 @@ def test_the_whole_section_and_the_console():
         "- NCAA · close: kalshi_only two-way · close log-loss — · favourite — · n=0 · finished 0; left out: none\n"
         "- CL · close: kalshi three-way (one capture, normalized) · close log-loss — · favourite — · n=0 · finished 0; "
         "left out: none\n"
-        "  - CL · close: kalshi three-way · unpriced 0: no capture before kickoff with all three legs two-sided 0; the "
-        "last full capture has a leg over the 2c cap 0 (no older capture substituted)\n")
+        "  - CL · close: kalshi three-way · unpriced 0: last capture incomplete 0 (a leg missing or one-sided; no older "
+        "capture substituted); last capture over the cap 0 (no older capture substituted); no capture 0\n")
     assert paper.close_record_console(rec, 30) == ("the close's record (PAPER; 30 days): kalshi_only two-way: NHL n=0 · "
                                                    "NCAA n=0; kalshi three-way (one capture, normalized): CL n=0 "
                                                    "(unpriced 0)")

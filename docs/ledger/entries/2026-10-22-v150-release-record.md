@@ -1,0 +1,5 @@
+**2026-10-22 — RECORD: v1.5.0 tagged on d15b998 by the operator; release Issue #647 (docs/RELEASES.md step 4).**
+- **The tag:** annotated `v1.5.0`, tag object `358777b00f6d39de1a92f97052f3756d9b89e5c1`, tagger stamp 2026-10-22 13:24:24Z, on `d15b9981edfa74379dd01089f7de23db51353d45` (the #645 merge: the ledger compile ffe4097 over 1552e8c). Cut and pushed by the operator (addendum 152 item 4(b): "the tag is the operator's, never Code's").
+- **Receipt (the tag message):** 715 lines, 44 beginning with `#` (the header and 43 `## ` headings): `--cleanup=verbatim` held (#557). Identical to `python3 scripts/release_notes.py --to d15b998…` (regenerated read-only at the tagged commit, exit 0) except one trailing blank line; no AMENDED line.
+- **#647:** the notes in four parts (body plus three comments, 43 headings in all). The compare verdict and the architect's tag ruling were not pasted to Code; they and the host's deploy receipt go on #647 as comments.
+- **Next (addendum 153 item 3):** "#641's follow-up and the #569 cause read; the dedupe PR after the cause; #632 when its receipts are in."

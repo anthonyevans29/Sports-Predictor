@@ -88,6 +88,7 @@ its compare verdict.
 | Tag | Cut (UTC) | Commit | Tag object | Release Issue |
 |---|---|---|---|---|
 | `v1.4.0` | 2026-10-16 14:18:21Z | `684462e3d5078ff2c906db73362a220917bf1fcb` | `253bacd00327446936cdb16ea37a76deafc20ff1` | #556 |
+| `v1.5.0` | 2026-10-22 13:24:24Z | `d15b9981edfa74379dd01089f7de23db51353d45` | `358777b00f6d39de1a92f97052f3756d9b89e5c1` | #647 |
 
 - **v1.4.0** (ARCHITECT 2026-10-16, addendum 87). The commit is the ledger
   compile over 53a0e83, the #551 merge over c546168.
@@ -100,6 +101,16 @@ its compare verdict.
   - The full notes are in #556: `python3 scripts/release_notes.py --to
     684462e3d5078ff2c906db73362a220917bf1fcb` (105 sections since v1.3.0,
     no AMENDED line).
+- **v1.5.0** (the operator's tag, addendum 152 item 4(b) and addendum 153
+  item 3). The commit is the #645 merge: the ledger compile ffe4097 (43
+  changelog sections, 47 ledger entries) over 1552e8c.
+  - The first tag cut with `--cleanup=verbatim`. Its message keeps the
+    header and all 43 `## ` section headings (44 lines beginning with `#`).
+    It matches `python3 scripts/release_notes.py --to
+    d15b9981edfa74379dd01089f7de23db51353d45` line for line, plus one
+    trailing blank line. No AMENDED line.
+  - #647 carries the notes (in four parts); the compare verdict and the
+    host's deploy receipt follow there.
 
 ## Hotfix path
 A hotfix gets a patch tag (`vX.Y.Z+1`) through the same ritual. There is no

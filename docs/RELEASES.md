@@ -101,19 +101,25 @@ its compare verdict.
   - The full notes are in #556: `python3 scripts/release_notes.py --to
     684462e3d5078ff2c906db73362a220917bf1fcb` (105 sections since v1.3.0,
     no AMENDED line).
-- **v1.5.0** (the operator's tag, addendum 152 item 4(b) and addendum 153
-  item 3). The commit is the #645 merge: the ledger compile ffe4097 (43
-  changelog sections, 47 ledger entries) over 1552e8c.
-  - The first tag cut with `--cleanup=verbatim`. Its message keeps the
-    header and all 43 `## ` section headings (44 lines beginning with `#`).
-    It matches `python3 scripts/release_notes.py --to
-    d15b9981edfa74379dd01089f7de23db51353d45` line for line, plus one
-    trailing blank line. No AMENDED line.
-  - Deployed on the host at 13:40Z, both new migrations run after it
-    (`migrate_injury_player_source_id.py`, `migrate_match_series_fields.py`;
-    the operator's report, #647 comment 6342231688).
-  - #647 carries the notes (in four parts); the compare verdict and the
-    deploy console follow there.
+- **v1.5.0** (ARCHITECT 2026-10-22, addendum 154 item 1). The commit is the
+  #645 merge: the ledger compile ffe4097 (43 changelog sections, 47 ledger
+  entries) over 1552e8c. The tag was cut by the operator.
+  - **Compare:** day 4 of 5, ruled PASS for the release gate (09:30 ET). The
+    tool read DIVERGENT on 3 files, every divergence in an allowed class:
+    code-version skew (the host on v1.4.0, the laptop on ancestors of
+    d15b998) and capture timing. There was no data or logic disagreement.
+  - **The tag message:** the first tag cut with `--cleanup=verbatim`. It
+    keeps the header and all 43 `## ` section headings (44 lines beginning
+    with `#`; the v1.4.0 lesson closed). It matches `python3
+    scripts/release_notes.py --to d15b9981edfa74379dd01089f7de23db51353d45`
+    line for line, plus one trailing blank line. No AMENDED line.
+  - **Deploy:** on the host at 13:40:09Z (v1.4.0 -> v1.5.0, 176 files, exit
+    0). Both new migrations ran under one lock after backup
+    `sports_2026-10-22_134012.db` (integrity ok): `migrate_injury_player_source_id.py`,
+    then `migrate_match_series_fields.py`.
+  - **Day 5:** Friday's compare, with both sides on d15b998, goes here when
+    it lands.
+  - #647 carries the notes (in four parts) and addendum 154 item 1 verbatim.
 
 ## Hotfix path
 A hotfix gets a patch tag (`vX.Y.Z+1`) through the same ritual. There is no

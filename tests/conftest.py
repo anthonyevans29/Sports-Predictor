@@ -12,6 +12,9 @@ _TMP = Path(tempfile.mkdtemp(prefix="sp-tests-"))
 os.environ["DATABASE_URL"] = f"sqlite:///{_TMP / 'test.db'}"
 os.environ.setdefault("API_FOOTBALL_KEY", "test-dummy")
 os.environ["OPEN_BROWSER"] = "false"
+# sync-teams / sync-matches take the chains' DB lock (#569): a test's sync locks a file under the throwaway dir, never
+# the checkout's logs/db.lock; a test that names its own lock sets SP_LOCK (monkeypatch), which wins
+os.environ.setdefault("SP_LOCK", str(_TMP / "db.lock"))
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 

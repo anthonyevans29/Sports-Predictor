@@ -82,6 +82,10 @@ log = logging.getLogger(__name__)
 # definition (src/ingestion/placeholder.py, also the receipt script's). NFL is untouched: no receipt for how
 # the provider marks an unannounced NFL time.
 REKEY_SOURCES = frozenset({"api_american_football"})
+# The sources whose upsert looks a provider id up across the sport's rows, not the competition's (#569 RULED,
+# ARCHITECT 2026-10-21, addendum 153 item 2: "The statsapi upsert looks a gamePk up across the sport's rows, not the
+# competition's"): a gamePk is one game whatever competition row holds it, so a sync never creates a second row for it.
+SPORT_WIDE_SOURCES = frozenset({"mlb_stats_api"})
 REKEY_WINDOW_H = 12
 PLACEHOLDER_REKEY_COMPETITIONS = frozenset({"NCAA"})
 
@@ -374,13 +378,14 @@ class IngestionService:
             _cache: dict[str, Match] = {}
             _src = matches[0].source if matches else ""
             _pairs: dict[tuple[int, int], list[Match]] = {}
-            for _m in s.execute(
-                select(Match).where(Match.competition_id == comp.id)
-            ).scalars():
+            # a SPORT_WIDE_SOURCES id is looked up across the sport's rows (#569); the re-key index stays the
+            # competition's own
+            _scope = (Match.sport == comp.sport) if _src in SPORT_WIDE_SOURCES else (Match.competition_id == comp.id)
+            for _m in s.execute(select(Match).where(_scope)).scalars():
                 _sid = (_m.external_ids or {}).get(_src)
                 if _sid:
                     _cache[_sid] = _m
-                if _src in REKEY_SOURCES:
+                if _src in REKEY_SOURCES and _m.competition_id == comp.id:
                     _pairs.setdefault((_m.home_team_id, _m.away_team_id), []).append(_m)
                     for _old in ((_m.external_ids or {}).get(f"{_src}_prev") or []):
                         _cache.setdefault("__prev__", {}).setdefault(str(_old), []).append(_m)

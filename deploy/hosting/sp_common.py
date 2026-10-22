@@ -208,24 +208,41 @@ def append_receipt(rec: dict) -> dict:
     return line
 
 
+# Set in this process's environment while db_lock is held (#569, ARCHITECT 2026-10-21, addendum 153 item 2): every
+# step a holder runs inherits os.environ (sp_run's Popen, closing's runs), so a cli sync run as a step knows its run
+# already holds the lock and never waits on it; a sync run by hand takes the lock itself (cli._sync_lock).
+HELD_ENV = "SP_DB_LOCK_HELD"
+
+
 @contextmanager
-def db_lock(timeout_s: float = 3 * 3600):
-    """Exclusive flock so no two chains/backups write SQLite at once."""
+def db_lock(timeout_s: float = 3 * 3600, on_wait=None):
+    """Exclusive flock so no two chains/backups write SQLite at once. While held, HELD_ENV names the lock file in
+    os.environ (restored after). `on_wait(path)` is called once when the lock is held elsewhere at the first try."""
     p = lock_path()
     p.parent.mkdir(parents=True, exist_ok=True)
     with open(p, "a+") as f:
         deadline = time.monotonic() + timeout_s
+        waited = False
         while True:
             try:
                 fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
                 break
             except BlockingIOError:
+                if not waited and on_wait is not None:
+                    on_wait(p)
+                waited = True
                 if time.monotonic() > deadline:
                     raise TimeoutError(f"DB lock {p} not acquired in {timeout_s:.0f}s")
                 time.sleep(5)
+        prev = os.environ.get(HELD_ENV)
+        os.environ[HELD_ENV] = str(p)
         try:
             yield
         finally:
+            if prev is None:
+                os.environ.pop(HELD_ENV, None)
+            else:
+                os.environ[HELD_ENV] = prev
             fcntl.flock(f, fcntl.LOCK_UN)
 
 

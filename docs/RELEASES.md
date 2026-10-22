@@ -71,15 +71,26 @@ The ritual for every tag, v1.0.0 and hotfixes included, with no exceptions:
 4. **The ledger records the release.** Open an Issue labelled `release`
    (plus track:H, class:lane, sport:all, size:S) on the per-release
    milestone `vX.Y.Z`. Paste the notes and the compare verdict into it.
-5. **Deploy on the host:**
+5. **Deploy on the host** (ARCHITECT 2026-10-22, addendum 154 item 2), in two
+   calls. The recommended first call is the dry run: it fetches, names the
+   target and prints the plan, and changes nothing.
    ```
-   sudo -u sp venv/bin/python deploy/hosting/sp_deploy.py
+   sudo -u sp venv/bin/python deploy/hosting/sp_deploy.py --tag vX.Y.Z --dry-run
    ```
-   The deploy receipt names the from and to releases and any new
-   `migrate_*.py` files. Run those by hand, after a backup.
-   A migration with no DB file at the configured path refuses ("no database
-   at <path>; a migration never creates one — law 5"), exit 1, and writes
-   nothing (addendum 112 item 1, #524).
+   1. The deploy: `sudo -u sp venv/bin/python deploy/hosting/sp_deploy.py
+      [--tag vX.Y.Z]` (default: the latest tag). Its receipt names the from
+      and to releases and any new `migrate_*.py` files.
+   2. The migration command the deploy prints, verbatim. It runs as the
+      service user with host.env loaded and holds one DB lock across the
+      daily backup and every migration, in order.
+   - Never pass `--run-migrations` to the deploy call itself. It runs ONLY
+     the migrations (it returns before the checkout) and validates the names
+     against the CURRENT checkout. On the old release a new file "is not a
+     migrate_*.py file": refused, nothing changed (v1.5.0's first attempt,
+     2026-10-22).
+   - A migration with no DB file at the configured path refuses ("no database
+     at <path>; a migration never creates one — law 5"), exit 1, and writes
+     nothing (addendum 112 item 1, #524).
 
 ## Release record
 One line per tag, from v1.4.0 on. Each release's Issue carries its notes and

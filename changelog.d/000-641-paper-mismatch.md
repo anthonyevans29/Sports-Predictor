@@ -1,0 +1,10 @@
+## 2026-10-22 (#000: 641-paper-mismatch — ARCHITECT addendum 152 item 4(a), #641 items 1 and 2; read-only report code)
+- **#641 item 2 RULED** ("the three-way PAPER check judges as the two-way one does — the newest legs are passed into capture_mismatched, so a capture whose event no game's current legs carry is mismatched, not priced"): `paper.capture_mismatched` takes `current` (each side's newest legs, `kalshi_legs.current_tickers`) and judges it together with the capture read; `close_record`'s three-way branch reads the newest legs and `homes_of` over both sets of events.
+  - The case it changes: a CL game whose last 1X2 capture is all of one event that no game's current legs carry, while its newest legs are all of another. It was priced (`{'n': 1, 'mismatched': 0}`); it is now "mismatched legs".
+- **#641 item 1 APPROVED** ("judge the rows a PAPER mid reads with close_row_mismatched; a hit prints "mismatched legs ... no mid""): coverage's PAPER line judges the row(s) its mid reads with each side's newest legs before showing it.
+  - Two-way: `paper.kalshi_close_read`'s HOME row(s). Three-way: `paper.leg_mids_read` (new), each leg's newest two-sided row and its ties.
+  - `read_paper` reads each row's id and market_ticker (only with the legs guard on and the ticker column present), each game's newest legs and `homes_of`.
+  - Codex's round-2 shape on #640 (501's older two-sided HOME quote of 502's event) now prints `Kalshi: mismatched legs (<events>): no mid (addendum 37 item 3)` instead of 502's contract.
+- `paper.close_row_mismatched` judges each read row on its own selection (the HOME rows of the two-way close as before).
+- Tests: the item 2 case on close_record and on `capture_mismatched` alone; coverage's two-way (Codex's shape) and three-way cases, and the same rows on one event shown as before. The read-only test's PRAGMA check allows the second read-only `PRAGMA table_info(odds_snapshots)` (read_paper's own ticker check).
+- docs/CLI.md: the coverage PAPER line's and results-tally's mismatched-legs rules.

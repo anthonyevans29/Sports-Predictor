@@ -485,13 +485,16 @@ _UNREADABLE = (TypeError, ValueError, AttributeError, KeyError, IndexError)
 
 def read_paper(ids) -> dict:
     """The stored Kalshi quotes of the games `ids`, on a second mode=ro connection (as read_day opens it), closed in
-    finally: {"rows": {match_id: [SimpleNamespace(source, market, selection, captured_at (aware UTC), yes_bid,
+    finally: {"rows": {match_id: [SimpleNamespace(id, source, market, selection, captured_at (aware UTC), yes_bid,
     yes_ask, bad_time)]}, "mismatched": {match_id: [events]} (kalshi_legs.mismatched on this connection, the one
-    helper), "unread": None, or why nothing could be read (law 4)}. A stored capture time that cannot be parsed is kept
+    helper), "legs": (tickers, current, homes) for paper.close_row_mismatched on the row(s) a mid reads (#641 item 1:
+    each stored row's market_ticker by row id, each game's newest legs, kalshi_legs.homes_of over all their events;
+    ({}, {}, {}) with the legs guard off or no ticker column, as kalshi_legs reads it), "unread": None, or why nothing
+    could be read (law 4)}. A stored capture time that cannot be parsed is kept
     as captured_at None with bad_time True: no quote before any kickoff, and a game left with no mid by it says so
     (_paper_kalshi). No table: "the DB has no odds_snapshots table", and nothing else runs (no PRAGMA)."""
     from src.walters import kalshi_legs
-    out: dict = {"rows": {}, "mismatched": {}, "unread": None}
+    out: dict = {"rows": {}, "mismatched": {}, "legs": ({}, {}, {}), "unread": None}
     ids = sorted({int(i) for i in ids})
     try:
         con = c.ro_connect(c.db_path())
@@ -502,22 +505,32 @@ def read_paper(ids) -> dict:
         if not con.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'odds_snapshots'").fetchone():
             out["unread"] = "the DB has no odds_snapshots table"
             return out
+        legs_on = kalshi_legs.GUARD["on"] and kalshi_legs.has_tickers(con)
+        tic = "market_ticker" if legs_on else "NULL"
+        tickers: dict = {}
         for k in range(0, len(ids), _IN_CHUNK):
             part = ids[k:k + _IN_CHUNK]
-            for mid, market, sel, at, bid, ask in con.execute(
-                    "SELECT match_id, market, selection, captured_at, yes_bid, yes_ask FROM odds_snapshots WHERE "
-                    f"source = 'kalshi' AND match_id IN ({','.join('?' * len(part))})", part).fetchall():
+            for rid, mid, market, sel, at, bid, ask, ticker in con.execute(
+                    f"SELECT id, match_id, market, selection, captured_at, yes_bid, yes_ask, {tic} FROM odds_snapshots "
+                    f"WHERE source = 'kalshi' AND match_id IN ({','.join('?' * len(part))})", part).fetchall():
+                if ticker is not None:
+                    tickers[rid] = ticker
                 bad = False
                 try:
                     cap = cl.parse_utc(at) if at is not None else None
                 except (TypeError, ValueError):
                     cap, bad = None, True     # law 4: an unreadable capture time is no quote before any kickoff
                 out["rows"].setdefault(mid, []).append(SimpleNamespace(
-                    source="kalshi", market=market, selection=sel, captured_at=cap, yes_bid=bid, yes_ask=ask,
+                    id=rid, source="kalshi", market=market, selection=sel, captured_at=cap, yes_bid=bid, yes_ask=ask,
                     bad_time=bad))
         out["mismatched"] = kalshi_legs.mismatched(con, ids)
+        if legs_on and ids:                  # the rows a mid reads, judged with each side's newest legs (#641 item 1)
+            current = kalshi_legs.current_tickers(con, ids)
+            events = {kalshi_legs.event_of(x) for x in tickers.values()}
+            events |= {kalshi_legs.event_of(x) for legs in current.values() for ts in legs.values() for x in ts}
+            out["legs"] = (tickers, current, kalshi_legs.homes_of(con, events))
     except sqlite3.Error as e:
-        out.update(rows={}, mismatched={}, unread=f"odds_snapshots cannot be read ({type(e).__name__}: {e})")
+        out.update(rows={}, mismatched={}, legs=({}, {}, {}), unread=f"odds_snapshots cannot be read ({type(e).__name__}: {e})")
     finally:
         con.close()
     return out
@@ -557,11 +570,17 @@ def shadow_unread(code: str, failed: dict) -> str | None:
     return "; ".join(why) if why else None
 
 
-def _paper_kalshi(rows: list, mism, start: datetime) -> tuple[str | None, dict | None, str | None]:
-    """(board, the Kalshi part, why there is none) for one game."""
+def _paper_kalshi(rows: list, mism, start: datetime, legs: tuple = ({}, {}, {}),
+                  match_id=None) -> tuple[str | None, dict | None, str | None]:
+    """(board, the Kalshi part, why there is none) for one game. Mismatched legs show no mid: each side's newest legs
+    (`mism`, kalshi_legs.mismatched), then the row(s) the mid reads judged with them (paper.close_row_mismatched on
+    `legs`, read_paper's; kalshi_close_read on a two-way board, leg_mids_read on a three-way one), RULED (ARCHITECT
+    2026-10-21, addendum 152 item 4(a), #641 item 1): "judge the rows a PAPER mid reads with close_row_mismatched; a
+    hit prints "mismatched legs ... no mid"."""
     from src.walters import paper
+    nomatch = "mismatched legs ({}): no mid (addendum 37 item 3)"
     if mism:
-        return paper.board_of(rows), None, f"mismatched legs ({', '.join(mism)}): no mid (addendum 37 item 3)"
+        return paper.board_of(rows), None, nomatch.format(", ".join(mism))
     board = paper.board_of(rows)
     if board is None:
         return None, None, "no quote stored"
@@ -571,6 +590,11 @@ def _paper_kalshi(rows: list, mism, start: datetime) -> tuple[str | None, dict |
     # a stored quote whose time cannot be read: its own reason, only for a row the mid reads (two-way: the HOME leg)
     if any(getattr(r, "bad_time", False) and (board != "two-way" or r.selection == "HOME") for r in rows):
         nomid = "cannot be read (a capture time cannot be read): not shown"
+    tickers, current, homes = legs
+    read = paper.kalshi_close_read(rows, start) if board == "two-way" else paper.leg_mids_read(rows, start)
+    bad = paper.close_row_mismatched(read, tickers, current.get(match_id), match_id, homes)
+    if bad:
+        return board, None, nomatch.format(", ".join(bad))
     if board == "two-way":
         k = paper.two_way_mid(rows, start)
         if k is None:
@@ -639,7 +663,8 @@ def paper_view(x: dict, by_id: dict, kal: dict, shadows: tuple, now: datetime) -
             d["mismatched"] = kal["mismatched"].get(mid) or None
             try:
                 d["board"], d["kalshi"], d["kalshi_why"] = _paper_kalshi(kal["rows"].get(mid, []), d["mismatched"],
-                                                                         g["start"])
+                                                                         g["start"], kal.get("legs", ({}, {}, {})),
+                                                                         mid)
             except _UNREADABLE as e:
                 d["board"], d["kalshi"], d["kalshi_why"] = None, None, f"cannot be read ({type(e).__name__}): not shown"
         if unread:

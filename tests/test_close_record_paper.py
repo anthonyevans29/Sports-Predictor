@@ -410,7 +410,7 @@ def test_an_untickered_row_read_names_no_event():
     _tick(*_codex_game(701, None))
     when, verdict, tickers = _verdict(701)
     assert (when, verdict, list(tickers.values())) == ([OLD], None, [None])
-    assert paper.close_row_mismatched([type("Row", (), {"id": 1})()], {}, {"HOME": {E1["HOME"]}}, 701,
+    assert paper.close_row_mismatched([type("Row", (), {"id": 1, "selection": "HOME"})()], {}, {"HOME": {E1["HOME"]}}, 701,
                                       {"KXNHLGAME-26OCT18AAABBB": {701}}) is None
     assert _line("NHL") == (f"- NHL: close log-loss {-math.log(0.605):.4f} · favourite 2/2 (100.0%) · n=2 · finished 2; "
                             "left out: none")

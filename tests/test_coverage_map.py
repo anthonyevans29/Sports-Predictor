@@ -1848,6 +1848,56 @@ def test_paper_legs_of_two_events_are_mismatched_and_show_no_mid(env):
     assert line.endswith("pick HOME 0.600 (no mid: no divergence); value side not judged (no mid)")
 
 
+AB, CD = "KXNHLGAME-26OCT17AAABBB", "KXNHLGAME-26OCT17CCCDDD"
+
+
+def test_paper_the_older_home_quote_the_mid_reads_is_judged_with_the_newest_legs(env):
+    """#641 item 1 RULED (ARCHITECT 2026-10-21, addendum 152 item 4(a)): "judge the rows a PAPER mid reads with
+    close_row_mismatched; a hit prints "mismatched legs ... no mid"." Codex's round-2 shape on #640: 501's newest legs
+    (11:58, HOME bid-less) are all of AAABBB, so kalshi_legs.mismatched passes it, and the mid falls back to the older
+    two-sided HOME quote (10:00) of CCCDDD, whose current legs sit on 502. Before: 501 printed 502's contract as its mid
+    (HOME 0.605 / AWAY 0.395, captured 06:00 ET; the header read "Kalshi mid 2 of 2"). Now: no mid; 502 is unchanged."""
+    make_db(env, NHL_GAME + [(502, "NHL", "2026-10-17 23:30", "SCHEDULED")], kalshi=[
+        (501, "ML", "HOME", "2026-10-17 11:58", None, 0.55, f"{AB}-BBB"),
+        (501, "ML", "AWAY", "2026-10-17 11:58", 0.45, 0.46, f"{AB}-AAA"),
+        (501, "ML", "HOME", "2026-10-17 10:00", 0.60, 0.61, f"{CD}-DDD"),
+        (502, "ML", "HOME", "2026-10-17 11:58", 0.60, 0.61, f"{CD}-DDD"),
+        (502, "ML", "AWAY", "2026-10-17 11:58", 0.39, 0.40, f"{CD}-CCC")])
+    lines = paper_of(run("--date", DAY)[1], "NHL")
+    assert lines[0].endswith("· Kalshi mid 1 of 2 · shadow 0 of 2")
+    assert f" · Kalshi: mismatched legs ({AB}, {CD}): no mid (addendum 37 item 3) · " in lines[1]
+    assert " · Kalshi mid HOME 0.605 / AWAY 0.395 (bid 0.60, ask 0.61, 1c; " in lines[2]
+
+
+def test_paper_a_three_way_leg_the_mids_read_from_another_event_shows_no_mid(env):
+    """#641 item 1 on a three-way board: CL 801's newest legs (11:58) are all of event XXXYYY, the DRAW's bid-less, so
+    leg_mids reads the DRAW's older two-sided quote (10:00) of event ZZZWWW: "mismatched legs ... no mid", never a
+    DRAW mid from another event's contract."""
+    xy, zw = "KXUCLGAME-26OCT17XXXYYY", "KXUCLGAME-26OCT17ZZZWWW"
+    make_db(env, [(801, "CL", "2026-10-17 19:00", "SCHEDULED")], kalshi=[
+        (801, "1X2", "HOME", "2026-10-17 11:58", 0.44, 0.45, f"{xy}-XXX"),
+        (801, "1X2", "AWAY", "2026-10-17 11:58", 0.27, 0.28, f"{xy}-YYY"),
+        (801, "1X2", "DRAW", "2026-10-17 11:58", None, 0.28, f"{xy}-TIE"),
+        (801, "1X2", "DRAW", "2026-10-17 10:00", 0.27, 0.28, f"{zw}-TIE")])
+    lines = paper_of(run("--date", DAY)[1], "CL")
+    assert lines[0].endswith("· Kalshi mid 0 of 1 · shadow 0 of 1")
+    assert f" · Kalshi: mismatched legs ({xy}, {zw}): no mid (addendum 37 item 3) · " in lines[1]
+
+
+def test_paper_a_mid_read_from_the_newest_legs_event_is_shown_as_before(env):
+    """The same rows on one event: the mids read are judged and pass, so the line is as before (two-way and
+    three-way)."""
+    make_db(env, NHL_GAME + [(801, "CL", "2026-10-17 19:00", "SCHEDULED")], kalshi=[
+        (501, "ML", "HOME", "2026-10-17 11:58", 0.54, 0.55, f"{AB}-BBB"),
+        (501, "ML", "AWAY", "2026-10-17 11:58", 0.45, 0.46, f"{AB}-AAA"),
+        *((*x, f"KXUCLGAME-26OCT17XXXYYY-{x[2]}") for x in CL_LEGS),
+        (801, "1X2", "DRAW", "2026-10-17 11:58", 0.27, 0.28, "KXUCLGAME-26OCT17XXXYYY-TIE")])
+    out = run("--date", DAY)[1]
+    assert paper_of(out, "NHL")[0].endswith("· Kalshi mid 1 of 1 · shadow 0 of 1")
+    assert paper_of(out, "CL")[1].startswith("CL SLATE · PAPER · 801 Away @ Home 15:00 ET · Kalshi mids HOME 0.445 / "
+                                             "DRAW 0.275 / AWAY 0.275 ")
+
+
 def test_paper_a_shadow_after_kickoff_is_never_used_and_another_games_row_is_not_shown(env):
     make_db(env, NHL_GAME + [(502, "NHL", "2026-10-17 23:30", "SCHEDULED")], kalshi=TWO_WAY)
     nhl_shadow_file([shadow_row(501, 0.60)], exported_at="2026-10-17T23:05:00", name="nhl_shadow_2026-10-17_2305.json")
@@ -1951,7 +2001,9 @@ def test_paper_reads_odds_snapshots_read_only(env, monkeypatch, wal):
     assert listing() == files_before
     assert len(opened) == 2 and all(t.endswith("?mode=ro") and u is True for t, u in opened), opened
     other = [x for x in statements if not x.lstrip().upper().startswith("SELECT")]
-    assert other == ["PRAGMA table_info(odds_snapshots)"], other
+    # read-only PRAGMAs only: the ticker column is checked by kalshi_legs.mismatched and, for the rows a mid reads, by
+    # read_paper (#641 item 1), each a PRAGMA table_info, never a write
+    assert other and set(other) == {"PRAGMA table_info(odds_snapshots)"}, other
     assert any("FROM odds_snapshots" in x for x in statements)
     assert hashlib.sha256(env.read_bytes()).hexdigest() == before
 

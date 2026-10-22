@@ -109,8 +109,11 @@ its compare verdict.
     It matches `python3 scripts/release_notes.py --to
     d15b9981edfa74379dd01089f7de23db51353d45` line for line, plus one
     trailing blank line. No AMENDED line.
+  - Deployed on the host at 13:40Z, both new migrations run after it
+    (`migrate_injury_player_source_id.py`, `migrate_match_series_fields.py`;
+    the operator's report, #647 comment 6342231688).
   - #647 carries the notes (in four parts); the compare verdict and the
-    host's deploy receipt follow there.
+    deploy console follow there.
 
 ## Hotfix path
 A hotfix gets a patch tag (`vX.Y.Z+1`) through the same ritual. There is no

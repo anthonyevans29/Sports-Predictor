@@ -1,4 +1,4 @@
-## 2026-10-22 (#000: 641-paper-mismatch — ARCHITECT addendum 152 item 4(a), #641 items 1 and 2; read-only report code)
+## 2026-10-22 (#649: 641-paper-mismatch — ARCHITECT addendum 152 item 4(a), #641 items 1 and 2; read-only report code)
 - **#641 item 2 RULED** ("the three-way PAPER check judges as the two-way one does — the newest legs are passed into capture_mismatched, so a capture whose event no game's current legs carry is mismatched, not priced"): `paper.capture_mismatched` takes `current` (each side's newest legs, `kalshi_legs.current_tickers`) and judges it together with the capture read; `close_record`'s three-way branch reads the newest legs and `homes_of` over both sets of events.
   - The case it changes: a CL game whose last 1X2 capture is all of one event that no game's current legs carry, while its newest legs are all of another. It was priced (`{'n': 1, 'mismatched': 0}`); it is now "mismatched legs".
 - **#641 item 1 APPROVED** ("judge the rows a PAPER mid reads with close_row_mismatched; a hit prints "mismatched legs ... no mid""): coverage's PAPER line judges the row(s) its mid reads with each side's newest legs before showing it.

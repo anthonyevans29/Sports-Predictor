@@ -1592,6 +1592,35 @@ def intl_venue_resolve_cmd(save_dir, venues_dir, aliases_path, plan_only, max_ca
     click.echo(f"  RULE: {iv.RESOLVE_RULE}")
 
 
+@cli.command("intl-venue-override")
+@click.option("--apply", "apply_", is_flag=True, help="Write the re-derived neutral_v3 (take the .backup first). "
+              "Without it nothing is written: the receipt only.")
+@click.option("--provider-check", is_flag=True, help="Also ask the provider's /venues?id for every overridden venue "
+              "(one call each) and print its answer as served; saves nothing.")
+def intl_venue_override_cmd(apply_, provider_check):
+    """VENUE-COUNTRY OVERRIDE (ARCHITECT 2026-10-23, addendum 160 item 2): re-derives neutral_v3 for every
+    intl_match_venue row at a venue id in intl_venues.VENUE_COUNTRY_OVERRIDES (2618 -> Andorra; 3989 -> unknown),
+    from the row's stored venue and home countries, and prints the receipt: every row whose neutral_v3 changes, by
+    competition-season, the confirmation cohort's fixtures among them named (more than two: STOP, to the architect).
+    The stored venue_country stays the provider's; the rule names the override. Dry run unless --apply."""
+    from src.ingestion import intl_venues as iv
+
+    if provider_check:
+        from src.adapters.api_football import APIFootballAdapter
+        try:
+            client = APIFootballAdapter()
+        except ValueError as e:
+            click.echo(f"REFUSED: {e}")
+            raise SystemExit(2)
+        for vid in sorted(iv.VENUE_COUNTRY_OVERRIDES):
+            served = (client._get("venues", {"id": vid}) or {}).get("response") or []
+            click.echo(f"PROVIDER /venues?id={vid} (as served, today): "
+                       + ("; ".join(f"id {v.get('id')} · {v.get('name')} · {v.get('city')} · {v.get('country')}"
+                                    for v in served) or "nothing served"))
+    for line in iv.rederive_lines(iv.rederive(apply=apply_)):
+        click.echo(line)
+
+
 @cli.command("intl-elo-backtest")
 @click.option("--preflight", is_flag=True, help="Data checks only (stream, splits, RULE CHECK); scores nothing, records nothing.")
 @click.option("--candidate", type=click.Choice(["v1", "v2"]), default="v1", show_default=True,

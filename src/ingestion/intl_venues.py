@@ -18,6 +18,14 @@ run on the laptop as an ingest step before v2's run; derived, labelled."
 --plan prints the call count and stops. --max-calls refuses an over-budget
 plan. --venues-dir saves (and on a re-run replays) the /venues responses.
 Never touches data/. Upsert; never deletes.
+
+VENUE-COUNTRY OVERRIDES (ARCHITECT 2026-10-23, addendum 160 item 2, verbatim in part: "(a) a venue-country override,
+keyed by venue id, with the evidence line and the ruling date, applied by the venue ingest when it derives neutral_v3
+(never a hand edit of rows; the override is code, reviewed, and the re-derivation is receipted per row changed)"):
+VENUE_COUNTRY_OVERRIDES below. derive() is the one derivation: sync() and rederive() (`intl-venue-override`) call it,
+and resolve() honours the same table. The stored venue_country stays the provider's ("law 4 kept: the stored value is
+the provider's; the correction is explicit and keyed"); the row's `rule` names the override it was derived under, so
+the flag from the provider's country alone stays computable (provider_flag) for the read reported both ways (item 3).
 """
 from __future__ import annotations
 
@@ -35,6 +43,44 @@ NEUTRAL_V3_RULE = ("intl-neutral-v3 (ARCHITECT 2026-10-02; intl-elo-v2): neutral
 
 class VenueError(RuntimeError):
     pass
+
+
+OVERRIDE_RULING = "ARCHITECT 2026-10-23, addendum 160 item 2"
+OVERRIDE_TAG = "VENUE-COUNTRY OVERRIDE"
+# venue id -> the country neutral_v3 is derived from (None = unknown: neutral_v3 NULL, law 4), the ruling date and the
+# evidence line. Applied to every game at that venue, never to a row by hand.
+VENUE_COUNTRY_OVERRIDES: dict[int, dict] = {
+    2618: {"country": "Andorra", "ruled": "2026-10-23",
+           "evidence": "Andorra's national stadium; the provider serves venue_country \"Spain\" on every Andorra home "
+                       "game since 2023 (eight rows read: UEFA_EURO_Q 2023, UNL 2024, FRIENDLIES_INT 2024, UNL "
+                       "2026-09-24 31801), so neutral_v3 read TRUE on Andorra's home games"},
+    3989: {"country": None, "ruled": "2026-10-23",
+           "evidence": "served \"Ukraine\" on Finland's two March-2022 friendlies (42923, 42957): the same class, "
+                       "host unverified; unknown pending a receipt of the provider's /venues answer for 3989 today"},
+}
+
+
+def override_note(vid: int) -> str:
+    o = VENUE_COUNTRY_OVERRIDES[vid]
+    return (f"{OVERRIDE_TAG}: venue {vid} -> {o['country'] or 'unknown (neutral_v3 NULL)'} ({OVERRIDE_RULING}, "
+            f"ruled {o['ruled']})")
+
+
+def provider_flag(venue_country, home_country) -> bool | None:
+    """neutral_v3 from the provider's venue country as stored, no override (the "stored flags" side of item 3)."""
+    from src.ingestion.intl_history import norm_city
+    a, b = norm_city(venue_country), norm_city(home_country)
+    return None if a is None or b is None else a != b
+
+
+def derive(vid, venue_country, home_country) -> tuple[bool | None, str]:
+    """(neutral_v3, rule) for one row: NEUTRAL_V3_RULE on the provider's venue country, or, for a venue id in
+    VENUE_COUNTRY_OVERRIDES, on the override's country (None -> unknown) with the override named in the rule."""
+    if vid is not None and vid in VENUE_COUNTRY_OVERRIDES:
+        o = VENUE_COUNTRY_OVERRIDES[vid]
+        flag = None if o["country"] is None else provider_flag(o["country"], home_country)
+        return flag, f"{NEUTRAL_V3_RULE} · {override_note(vid)}"
+    return provider_flag(venue_country, home_country), NEUTRAL_V3_RULE
 
 
 def _slug(country: str) -> str:
@@ -62,7 +108,7 @@ def sync(save_dir: str, venues_dir: str | None = None, plan_only: bool = False, 
 
     from src.db.database import session_scope
     from src.db.schema import Competition, IntlMatchVenue, Match, Team
-    from src.ingestion.intl_history import CODE_BY_NAME, norm_city
+    from src.ingestion.intl_history import CODE_BY_NAME
 
     root = root or os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     for d in (save_dir, venues_dir):
@@ -118,16 +164,115 @@ def sync(save_dir: str, venues_dir: str | None = None, plan_only: bool = False, 
     with session_scope() as s:
         for mid, vid, hc in rows:
             vc = venue_country.get(vid) if vid is not None else None
-            a, b = norm_city(vc), norm_city(hc)
-            flag = None if a is None or b is None else a != b
-            r = s.get(IntlMatchVenue, mid) or IntlMatchVenue(match_id=mid, rule=NEUTRAL_V3_RULE)
-            r.venue_id, r.venue_country, r.home_country, r.neutral_v3, r.rule = vid, vc, hc, flag, NEUTRAL_V3_RULE
+            flag, rule = derive(vid, vc, hc)                 # addendum 160 item 2: the keyed override, if any
+            r = s.get(IntlMatchVenue, mid) or IntlMatchVenue(match_id=mid, rule=rule)
+            r.venue_id, r.venue_country, r.home_country, r.neutral_v3, r.rule = vid, vc, hc, flag, rule
             s.add(r)
             out["unknown" if flag is None else "neutral" if flag else "home"] += 1
+            if rule != NEUTRAL_V3_RULE:
+                out["venue_country_override"] += 1
             if vid is not None and vid not in venue_country:
                 out["venue_not_in_any_queried_country"] += 1
     return {"plan": plan, "calls": calls, "venue_keys": dict(keys), "venues_resolved": len(venue_country),
             "neutral_v3": dict(out)}
+
+
+def _cohort_ids(s) -> tuple[set[int] | None, str]:
+    """The intl-elo-v2 confirmation cohort (frozen, else provisional), as intl_shadow reads it; (None, why) when the
+    registry cannot give it. Never depends on results."""
+    try:
+        from src.walters import intl_elo as ie
+        from src.walters import intl_shadow as sh
+        from src.walters import registry as reg
+        e = reg.get(ie.EID_V2)
+        if e is None:
+            return None, f"{ie.EID_V2} not in the registry"
+        co = sh.cohort(e, s)
+        return set(co["ids"]), f"{co['state']} ({len(co['ids'])} of {co['n_games']})"
+    except Exception as err:  # noqa: BLE001 - the receipt says why, the rows still print
+        return None, f"not read: {type(err).__name__}: {err}"
+
+
+def rederive(apply: bool = False, cohort_ids: set[int] | None = None) -> dict:
+    """THE RE-DERIVATION (addendum 160 item 2(a)(b)): every intl_match_venue row at an overridden venue id, or whose
+    rule names an override that is no longer in the table, re-derived by derive() from its stored venue country and
+    home country (the inputs the ingest stored; nothing is fetched). A row changes when its neutral_v3 or its rule
+    does. `apply` False: nothing written (the receipt only). The receipt (b): "every row whose neutral_v3 changes, by
+    competition-season, with the cohort fixtures among them named." `cohort_ids` None: read from the registry."""
+    from sqlalchemy import or_, select
+
+    from src.db.database import session_scope
+    from src.db.schema import Competition, IntlMatchVenue, Match, Team
+
+    out = {"rows_read": 0, "flag_changed": [], "rule_only": 0, "unchanged": 0, "applied": apply}
+    with session_scope() as s:
+        if cohort_ids is None:
+            cohort_ids, out["cohort"] = _cohort_ids(s)
+        else:
+            out["cohort"] = f"given ({len(cohort_ids)})"
+        q = (select(IntlMatchVenue, Match, Competition.code)
+             .join(Match, Match.id == IntlMatchVenue.match_id)
+             .join(Competition, Competition.id == Match.competition_id)
+             .where(or_(IntlMatchVenue.venue_id.in_(list(VENUE_COUNTRY_OVERRIDES)),
+                        IntlMatchVenue.rule.contains(OVERRIDE_TAG)))
+             .order_by(Match.utc_date, Match.id))
+        names = {}
+        for v, m, code in s.execute(q).all():
+            out["rows_read"] += 1
+            flag, rule = derive(v.venue_id, v.venue_country, v.home_country)
+            if flag == v.neutral_v3 and rule == v.rule:
+                out["unchanged"] += 1
+                continue
+            if flag == v.neutral_v3:
+                out["rule_only"] += 1
+            else:
+                for tid in (m.home_team_id, m.away_team_id):
+                    if tid not in names:
+                        t = s.get(Team, tid)
+                        names[tid] = t.name if t else str(tid)
+                out["flag_changed"].append({
+                    "match_id": m.id, "code": code, "season": m.season, "kickoff": m.utc_date,
+                    "home": names[m.home_team_id], "away": names[m.away_team_id], "venue_id": v.venue_id,
+                    "venue_country": v.venue_country, "home_country": v.home_country, "before": v.neutral_v3,
+                    "after": flag, "cohort": cohort_ids is not None and m.id in cohort_ids})
+            if apply:
+                v.neutral_v3, v.rule = flag, rule
+        if not apply:
+            s.rollback()
+    out["cohort_known"] = cohort_ids is not None
+    return out
+
+
+def _flag(v) -> str:
+    return "unknown" if v is None else "neutral" if v else "home"
+
+
+def rederive_lines(r: dict) -> list[str]:
+    L = [f"INTL-VENUE-OVERRIDE ({OVERRIDE_RULING}){'' if r['applied'] else ' · DRY RUN: nothing written'} · "
+         f"overrides {len(VENUE_COUNTRY_OVERRIDES)}:"]
+    for vid, o in sorted(VENUE_COUNTRY_OVERRIDES.items()):
+        L.append(f"  - venue {vid} -> {o['country'] or 'unknown (neutral_v3 NULL)'} · ruled {o['ruled']} · evidence: "
+                 f"{o['evidence']}")
+    changed = r["flag_changed"]
+    n_cohort = sum(1 for x in changed if x["cohort"])
+    L.append(f"  rows at an overridden venue (or under a lapsed override) {r['rows_read']} · neutral_v3 changes "
+             f"{len(changed)} · rule text only {r['rule_only']} · unchanged {r['unchanged']} · the confirmation "
+             f"cohort: {r['cohort']} · cohort fixtures among the changes "
+             + (str(n_cohort) if r["cohort_known"] else "UNKNOWN (cohort not read)"))
+    by: dict = {}
+    for x in changed:
+        by.setdefault((x["code"], x["season"]), []).append(x)
+    for (code, season), xs in sorted(by.items(), key=lambda kv: (str(kv[0][0]), str(kv[0][1]))):
+        L.append(f"  {code} {season}: {len(xs)}")
+        for x in xs:
+            L.append(f"    - match {x['match_id']} · {x['kickoff']:%Y-%m-%d} · {x['home']} v {x['away']} · venue "
+                     f"{x['venue_id']} (provider: {x['venue_country'] or 'none'}) · home country "
+                     f"{x['home_country'] or 'unknown'} · neutral_v3 {_flag(x['before'])} -> {_flag(x['after'])}"
+                     + (" · COHORT FIXTURE" if x["cohort"] else ""))
+    if r["cohort_known"] and n_cohort > 2:
+        L.append(f"  STOP: {n_cohort} cohort fixtures move (more than two): to the architect before the read "
+                 "(addendum 160 item 3)")
+    return L
 
 
 # ---------------------------------------------------------------------------
@@ -235,7 +380,8 @@ def resolve(save_dir: str, venues_dir: str, aliases: dict | None = None, plan_on
             reasons["venue id outside the route-B catalog"] += 1
         else:
             reasons["venue country not served"] += 1
-    need = sorted({r["venue_id"] for r in rows if r["venue_id"] is not None and r["venue_id"] not in cat})
+    need = sorted({r["venue_id"] for r in rows if r["venue_id"] is not None and r["venue_id"] not in cat
+                   and r["venue_id"] not in VENUE_COUNTRY_OVERRIDES})       # an overridden venue is never fetched
     to_fetch = [v for v in need if not os.path.exists(os.path.join(venues_dir, f"venue_id_{v}.json"))]
     plan = {"v3_rows": total, "v3_known": known_v3, "v3_unknown": len(rows), "reasons": dict(reasons),
             "route_a_ids": len(need), "route_a_calls": len(to_fetch)}
@@ -264,7 +410,11 @@ def resolve(save_dir: str, venues_dir: str, aliases: dict | None = None, plan_on
     with session_scope() as s:
         for r in rows:
             vc, src, why = None, None, None
-            if r["venue_id"] is not None and r["venue_id"] in cat and cat[r["venue_id"]].get("country"):
+            if r["venue_id"] is not None and r["venue_id"] in VENUE_COUNTRY_OVERRIDES:   # addendum 160 item 2
+                vc, src = VENUE_COUNTRY_OVERRIDES[r["venue_id"]]["country"], "override"
+                if vc is None:
+                    why = f"venue-country override: host unverified ({OVERRIDE_RULING})"
+            elif r["venue_id"] is not None and r["venue_id"] in cat and cat[r["venue_id"]].get("country"):
                 vc = cat[r["venue_id"]]["country"]
                 src = "venues_by_id" if os.path.exists(os.path.join(venues_dir, f"venue_id_{r['venue_id']}.json")) \
                     else "venues_by_country"

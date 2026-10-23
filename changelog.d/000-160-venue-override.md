@@ -1,0 +1,4 @@
+## 2026-10-23 (#000: 160-venue-override — ARCHITECT addendum 160 item 2; UNL, before the 11-12 read)
+- A venue-country override keyed by venue id, `intl_venues.VENUE_COUNTRY_OVERRIDES`: 2618 -> Andorra and 3989 -> unknown, each entry with its evidence line and the ruling date.
+- `intl-venue-sync` applies it whenever it derives neutral_v3; `intl-venue-resolve` never resolves an overridden-unknown venue back. The stored venue_country stays the provider's, and the row's rule names the override.
+- `intl-venue-override [--apply] [--provider-check]` re-derives the rows at an overridden venue from their stored countries. Its receipt lists every row whose neutral_v3 changes, by competition-season, with the confirmation cohort's fixtures named, and prints STOP above two. It is a dry run unless `--apply`; `--provider-check` prints the provider's /venues?id answer for each overridden venue.

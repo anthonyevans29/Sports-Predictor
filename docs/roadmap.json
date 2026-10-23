@@ -86,6 +86,12 @@
           }
         },
         {
+          "what": "the 2023 ingest with the week field, its census by --preflight read by me",
+          "owner": "code",
+          "due": "2026-11-01",
+          "done": null
+        },
+        {
           "what": "the 500th both-FBS regular-season game of 2026 is final and labelled (274 were at the run of 2026-10-09)",
           "owner": "calendar",
           "due": "2026-11-08",
@@ -133,20 +139,20 @@
           }
         },
         {
-          "what": "a read-only receipt per league of the 2026/27 games FINISHED with a three-way close under addendum 150's rule (R42(b): one capture, all three legs, normalized), and the close's own log-loss on them (the bar's denominator); the same read for the games still to come this season that already hold a capture",
+          "what": "a read-only receipt per league of the 2026/27 games FINISHED with a three-way close under addendum 150's rule (R42(b): one capture, all three legs, normalized), and the close's own log-loss on them (the bar's denominator); the same read for the games still to come this season that already hold a capture; with it (addendum 158 item 2(a)(b)) the parity receipt per league (the shadow's probabilities for this season's finished games equal the expansion gate's walk, row for row) and the capture quality per league and weekday",
           "owner": "code",
           "due": "2026-10-30",
           "done": null
         },
         {
-          "what": "the candidate declared per league: soccer_elo_poisson's current constants, trained to 2025/26, frozen (no retuning on 2026/27), with the pre-registered window (the first 60 FINISHED 2026/27 games per league with a three-way close, counted from the declaration) and the bar written before any result: the candidate's log-loss below the close's on that window, a tie a rejection (CONTRIBUTING law 3); the lane's state becomes declared",
+          "what": "the candidate declared per league: soccer_elo_poisson's current constants, trained to 2025/26, frozen (no retuning on 2026/27), with the pre-registered window (the first 60 FINISHED 2026/27 games per league with a three-way close, counted from the declaration) and the bar written before any result: the candidate's log-loss below the close's on that window, a tie a rejection (CONTRIBUTING law 3); each league declared on its own when its parity receipt and cohort reader are in hand and receipt 4(a) is read, no earlier than 10-30 and no later than 11-06, its window counted from its own declaration (addendum 158 item 2(c); a declaration before 11-06 is a moved line); the lane's state becomes declared",
           "owner": "architect",
           "due": "2026-11-06",
           "done": null
         }
       ],
       "earliest_live": null,
-      "live_needs": "addendum 155 item 4: a PASS on the pre-registered window (the candidate's log-loss below the Kalshi three-way close's on the first 60 FINISHED 2026/27 games per league with a three-way close, counted from the declaration; a tie a rejection), read when the 60th game of a league is final (a calendar step: its date accrues), then a confirmation of 60 more; earliest_live is set by the confirmation, never by a date. SA, BL1, FL1 and ELC stay MARKET-ONLY throughout.",
+      "live_needs": "addendum 155 item 4: a PASS on the pre-registered window (the candidate's log-loss below the Kalshi three-way close's on the first 60 FINISHED 2026/27 games per league with a three-way close, counted from the declaration; a tie a rejection), read when the 60th game of a league is final (a calendar step: its date accrues), then a confirmation of 60 more qualifying games at the same bar, independently per league (addendum 158 item 2(a)); earliest_live is set by the confirmation, never by a date. SA, BL1, FL1 and ELC stay MARKET-ONLY throughout.",
       "vs_close": "behind. The closing market beat the candidate by 0.042 (SA), 0.042 (BL1), 0.026 (FL1) and 0.028 (ELC) of log-loss on the test seasons.",
       "moved": []
     },
@@ -254,7 +260,7 @@
           "done": null
         },
         {
-          "what": "Step B: the as-of lineup ingest for the exam set (sync-lineups-history --competition CL|UEL|EFL|FAC --season YYYY, the existing lineups table), its PR with the dry-run receipt",
+          "what": "Step B: the LIVE T-15 observation store (addendum 158 item 3(a); the history ingest is done, #538, kept out of every price by #541): per fixture the scheduled poll time and the actual observation time, eleven team-mapped starters per side, the first complete observation preserved and every later correction appended (never replaced), explicit rows for failed, partial or late observations; the T-35 inputs and forecast of a declared candidate kept apart from the T-15 label; its PR",
           "owner": "code",
           "due": "2026-10-29",
           "done": null

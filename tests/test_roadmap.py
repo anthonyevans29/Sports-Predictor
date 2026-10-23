@@ -152,8 +152,8 @@ def test_lanes_data_is_the_print_as_data_with_no_eta_for_an_undated_lane(tmp_pat
         assert g["eta"] == (f"earliest live {ln['earliest_live']}" if ln["earliest_live"] else "no ETA")
     assert {g["lane"] for g in got if g["eta"] == "no ETA"} == {"leagues", "nfl-qb", "mlb-pitchers"}
     ncaa = next(g for g in got if g["lane"] == "ncaa")           # its first two steps are done: the third is next
-    assert ncaa["next"] == {"what": _lane(_real(), "ncaa")["steps"][2]["what"], "owner": "calendar",
-                            "due": "2026-11-08", "when": "in 21 days"}
+    assert ncaa["next"] == {"what": _lane(_real(), "ncaa")["steps"][2]["what"], "owner": "code",   # the 2023 ingest
+                            "due": "2026-11-01", "when": "in 14 days"}                          # (addendum 158 1(a))
     doc = _real()
     _lane(doc, "unl")["state"] = "live"
     for st in _lane(doc, "unl")["steps"]:
@@ -228,8 +228,8 @@ BROKEN = [
      lambda d: [_lane(d, "cups").__setitem__("state", "blocked")] +
      [st.__setitem__("done", {"date": "2026-10-14", "receipt": "r"}) for st in _lane(d, "cups")["steps"]],
      "lane 'cups': state 'blocked' and no step left to do"),
-    ("due dates never go backwards", lambda d: _lane(d, "ncaa")["steps"][3].__setitem__("due", "2026-11-07"),
-     "lane 'ncaa' step 4: due 2026-11-07 goes backwards from step 3's 2026-11-08"),
+    ("due dates never go backwards", lambda d: _lane(d, "ncaa")["steps"][4].__setitem__("due", "2026-11-07"),
+     "lane 'ncaa' step 5: due 2026-11-07 goes backwards from step 4's 2026-11-08"),
     ("earliest_live not before the last step's due", lambda d: _lane(d, "nhl").__setitem__("earliest_live", "2027-01-20"),
      "lane 'nhl': earliest_live 2027-01-20 is before the last step's due date 2027-01-21"),
     ("every moved line has its six parts",

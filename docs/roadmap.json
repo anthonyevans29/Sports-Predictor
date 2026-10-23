@@ -298,7 +298,10 @@
           "what": "its run, the receipt to me",
           "owner": "operator",
           "due": "2026-10-23",
-          "done": null
+          "done": {
+            "date": "2026-10-23",
+            "receipt": "#427 comment 6367734110 (addendum 157 item 10, the Summary lines; the console stays in logs/nfl_qb_probe_2026-10-23.txt)"
+          }
         },
         {
           "what": "my ruling: a candidate declared, or a written no",

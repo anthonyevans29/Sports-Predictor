@@ -560,3 +560,48 @@ def test_a_capture_of_one_event_whose_current_legs_sit_on_another_game_is_mismat
     r = paper.close_record(30, now=NOW)["CL"]
     assert (r["n"], r["mismatched"], r["unpriced"], r["unpriced_incomplete"]) == (1, 0, 1, 1)
     assert [x["match_id"] for x in r["rows"]] == [1403]
+
+
+def test_a_capture_whose_event_no_games_current_legs_carry_is_mismatched_when_the_newest_legs_are_another_events():
+    """#641 item 2 RULED (ARCHITECT 2026-10-21, addendum 152 item 4(a)): "the three-way PAPER check judges as the
+    two-way one does — the newest legs are passed into capture_mismatched, so a capture whose event no game's current
+    legs carry is mismatched, not priced." CL 1501: its last 1X2 capture (T0, within the cap) is all of event AAABBB;
+    each side's newest stored leg (T1, Kalshi rows of another market) is all of event CCCDDD, so kalshi_legs.mismatched
+    passes it and no game's current legs carry AAABBB. Judged on its own the capture was priced (n=1, #641's
+    {'n': 1, 'mismatched': 0}); judged with the newest legs it is "mismatched legs", no close."""
+    from sqlalchemy import text
+
+    from src.db.database import session_scope
+    from src.walters import kalshi_legs
+    _comps()
+    _game(1501, "CL", 1, 0, hs90=1, aw90=0, raw="FT")
+    _legs(1501, A, at=T0)
+    for sel, (bid, ask) in A.items():
+        _kal(1501, sel, bid, ask, T1, market="ML")
+    e2 = {"HOME": "KXUCLGAME-26OCT18CCCDDD-CCC", "DRAW": "KXUCLGAME-26OCT18CCCDDD-TIE",
+          "AWAY": "KXUCLGAME-26OCT18CCCDDD-DDD"}
+    with session_scope() as s:
+        s.execute(text("ALTER TABLE odds_snapshots ADD COLUMN market_ticker VARCHAR(64)"))
+        for market, tick in (("1X2", E1), ("ML", e2)):
+            for sel, t in tick.items():
+                s.execute(text("UPDATE odds_snapshots SET market_ticker = :v WHERE match_id = 1501 AND selection = :s "
+                               "AND market = :k"), {"v": t, "s": sel, "k": market})
+    with session_scope() as s:
+        assert kalshi_legs.mismatched(s, [1501]) == {}            # the newest legs name one event: the guard passes
+        assert kalshi_legs.homes_of(s, {"KXUCLGAME-26OCT18AAABBB"}) == {"KXUCLGAME-26OCT18AAABBB": set()}
+    line, unpriced, r = _three()
+    assert (r["n"], r["mismatched"], r["unpriced"], r["rows"]) == (0, 1, 0, [])
+    assert line == f"- CL · {KIND3} · close log-loss — · favourite — · n=0 · finished 1; left out: mismatched legs 1"
+    assert unpriced == unpriced_line("CL", 0, 0)
+
+
+def test_capture_mismatched_judges_the_newest_legs_with_the_capture_and_alone_as_before():
+    """capture_mismatched with `current` (#641 item 2): the union of the capture's legs and each side's newest legs is
+    judged by kalshi_legs.judge, unchanged; without `current` it judges the capture alone, as before."""
+    rows = [SimpleNamespace(id=i, selection=k) for i, k in enumerate(("HOME", "DRAW", "AWAY"), 1)]
+    tickers = {i: E1[k] for i, k in enumerate(("HOME", "DRAW", "AWAY"), 1)}
+    other = {"HOME": {"KXUCLGAME-26OCT18CCCDDD-CCC"}}
+    assert paper.capture_mismatched(rows, tickers, 1501) is None
+    assert paper.capture_mismatched(rows, tickers, 1501, {}, {k: {v} for k, v in E1.items()}) is None
+    assert paper.capture_mismatched(rows, tickers, 1501, {}, other) == ["KXUCLGAME-26OCT18AAABBB",
+                                                                        "KXUCLGAME-26OCT18CCCDDD"]

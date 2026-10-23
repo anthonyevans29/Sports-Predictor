@@ -1,4 +1,4 @@
-## 2026-10-22 (#000: 569-sync-cause — ARCHITECT addendum 153 item 2, #569's cause lane; the dedupe is its own PR after this one)
+## 2026-10-22 (#650: 569-sync-cause — ARCHITECT addendum 153 item 2, #569's cause lane; the dedupe is its own PR after this one)
 - **#569 RULED (the cause), verbatim:** "The statsapi upsert looks a gamePk up across the sport's rows, not the competition's, and a run holds the DB lock the host's chains hold (the laptop's syncs today take none)."
 - src/ingestion/service.py: `SPORT_WIDE_SOURCES = {"mlb_stats_api"}`. sync_matches' prefetch reads the sport's rows for a statsapi sync, so a gamePk stored on any MLB row is updated, never created again. Every other source's lookup stays the competition's own; the re-key index (api_american_football) is unchanged.
   - Receipt: one gamePk (849818) stored on a second MLB competition's row; main's sync creates a second row (`created=1`, rows 50546 and 50547); with the change it updates 50546 (`created=0 updated=1`).

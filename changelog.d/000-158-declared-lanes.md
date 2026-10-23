@@ -7,3 +7,4 @@
 - docs/roadmap.json, lane cups: Step B (code, 10-29) reads as the LIVE T-15 observation store. The history ingest it named is done (#538, #541).
 - Issues #655 and #656: the domestic successor lanes (restrained calibration by league; opponent-adjusted attack and defence), no date.
 - Every roadmap edit is made in place, and no date moves.
+- ARCHITECT addendum 159 (the shadow lanes) recorded. docs/specs/h2-cutover-runbook.md section 1 step 5 gains the UNL cohort post-check (item 1): the host's `intl-elo-confirm` read must name the same 60 cohort ids and the same labelled count as the laptop's, and a difference blocks the UNL record step.

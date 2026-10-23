@@ -1,4 +1,4 @@
-## 2026-10-23 (#000: 158-declared-lanes — ARCHITECT addendum 158 items 1(a), 2, 3(a) and 4; records only, no code)
+## 2026-10-23 (#000: 158-declared-lanes — ARCHITECT addendum 158 items 1(a), 2, 3(a) and 4; with 159 and 160 item 1: records, and the ruled home-abroad list in desk_policy)
 - docs/roadmap.json, lane ncaa: a step, the 2023 ingest with the week field and its census by --preflight read by the architect (code, due 2026-11-01).
 - docs/roadmap.json, lane leagues:
   - The receipt step (code, 10-30) names the parity receipt and the capture quality it carries.

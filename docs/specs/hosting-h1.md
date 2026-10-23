@@ -990,9 +990,15 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
   production = tags; docs/RELEASES.md). TERMINAL (host):
   `sudo -u sp venv/bin/python deploy/hosting/sp_deploy.py [--tag vX.Y.Z]`.
   It checks out the latest `vX.Y.Z` tag (detached) — never `main` — and
-  refuses when no tag exists. It lists any new `migrate_*.py`. For those:
-  first `systemctl start sp-backup.service`, then run each migration by
-  hand. Every receipt line names the running tag.
+  refuses when no tag exists. It lists any new `migrate_*.py` and prints the
+  one command that runs them: copy it verbatim (as the service user, host.env
+  loaded, `sp_deploy.py --expect <sha> --run-migrations <names>`). That
+  command holds ONE DB lock across the daily backup and every migration, in
+  order, stopping at the first failure; a migration run on its own takes no
+  lock, so a timer could interleave (ARCHITECT 2026-10-22, addendum 154 item 2;
+  docs/RELEASES.md step 5: the dry run first, then the deploy, then the printed
+  command). Never pass `--run-migrations` to the deploy call itself. Every
+  receipt line names the running tag.
   - When `requirements.txt`, or a file it includes with `-r`/`-c`, changed in
     the range, or this host's last successful install (recorded in
     the venv, which survives log rotation) was not of exactly the target's

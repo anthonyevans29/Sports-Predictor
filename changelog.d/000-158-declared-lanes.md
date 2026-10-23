@@ -8,3 +8,4 @@
 - Issues #655 and #656: the domestic successor lanes (restrained calibration by league; opponent-adjusted attack and defence), no date.
 - Every roadmap edit is made in place, and no date moves.
 - ARCHITECT addendum 159 (the shadow lanes) recorded. docs/specs/h2-cutover-runbook.md section 1 step 5 gains the UNL cohort post-check (item 1): the host's `intl-elo-confirm` read must name the same 60 cohort ids and the same labelled count as the laptop's, and a difference blocks the UNL record step.
+- ARCHITECT addendum 160 item 1: `desk_policy.INTL_HOME_ABROAD` is the ruled list, Ukraine, Belarus and Israel, with the ruling quoted beside it. The semantics are unchanged: an unknown venue with a listed home side is never a call. Items 2 and 3 are recorded; item 2's venue-country override is its own PR.

@@ -91,9 +91,16 @@ STARTED_REASON = "started - never a new call"
 #   (5) needs no code: venue_edge never prices a model row, and a market-only UNL fixture reads "single venue".
 #   The graded count is `intl_graded` in the ledger summary; absent = 0 (cautious: half units).
 INTL = {"callComps": ("UNL",), "halfUntilGraded": 30, "reviewN": 30}
-# (3) The home-abroad list is ruled BY NAME from `intl-home-abroad-receipt`. EMPTY until that ruling: no name is
-# assumed here (law 4). Names are the export's home_team strings.
-INTL_HOME_ABROAD: frozenset = frozenset()
+# (3) The home-abroad list is ruled BY NAME from `intl-home-abroad-receipt`. Names are the export's home_team strings.
+# RULED (ARCHITECT 2026-10-23, addendum 160 item 1, from the receipt logs/home-abroad-2026-10-23.md, run
+# 2026-10-23T17:09:58Z), verbatim: "INTL_HOME_ABROAD = {"Ukraine", "Belarus", "Israel"}. Evidence: Ukraine 14 of 15
+# known venues abroad (Poland 7, Slovakia 3, Czechia 2, Germany 2); Belarus 16 of 18 (Hungary 12, Serbia 4); Israel 6
+# of 12, every abroad game in one host country (Hungary 6) — listed on the single-host pattern, not the share. The rule
+# for later windows: a UNL member enters at 10 or more known venues and 75% or more abroad, OR a single-host pattern
+# (every abroad game in one country, 6 or more); never on fewer than 6 known; re-read at each confirmation window from
+# a fresh receipt. Kosovo (0 of 9) and Russia (0 of 8, suspended) are not listed. Non-UNL teams [...] are not listed:
+# the INTL policy calls UNL only. [...] semantics unchanged: unknown venue + listed home on the list = never a call."
+INTL_HOME_ABROAD: frozenset = frozenset({"Ukraine", "Belarus", "Israel"})
 INTL_COUNT_KEY = "intl_graded"
 # soccer-expansion-v1 (ARCHITECT 2026-10-07): "A pinned series never makes a league live." Their Kalshi series are
 # captured (deploy/hosting/chains.py KALSHI_CAPTURE_ONLY) and the window card spans every competition, so the venue

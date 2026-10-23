@@ -45,7 +45,8 @@ def desk(*rows, counts=None, sport="intl"):
 def test_intl_block_is_the_soccer_block_with_qnever():
     assert dp.POLICY["INTL"] == {**dp.POLICY["SOCCER"], "qNever": True}
     assert dp.INTL["callComps"] == ("UNL",) and dp.INTL["halfUntilGraded"] == 30
-    assert dp.INTL_HOME_ABROAD == frozenset()              # ruled BY NAME from receipt (c); nothing assumed
+    # ruled BY NAME from receipt (c): ARCHITECT 2026-10-23, addendum 160 item 1
+    assert dp.INTL_HOME_ABROAD == frozenset({"Ukraine", "Belarus", "Israel"})
 
 
 def test_unl_play_is_half_units_until_30_graded_then_full():
@@ -73,7 +74,13 @@ def test_cnl_rows_are_predictions_without_a_call():
 
 def test_unknown_venue_and_home_abroad_side_is_never_a_call(monkeypatch):
     (d,), _ = desk(row(flag="unknown"), counts={"intl_graded": 30})
-    assert d["call"] == "PLAY"                                 # the list is empty until ruled
+    assert d["call"] == "PLAY"                                 # Probeland is not on the ruled list
+    for name in ("Ukraine", "Belarus", "Israel"):              # the ruled names (addendum 160 item 1)
+        (ruled, known), _ = desk(row(home=name, flag="unknown"), row(home=name, flag="home"), counts={"intl_graded": 30})
+        assert ruled["pass_kind"] == "venue_unknown" and known["call"] == "PLAY"
+    for name in ("Kosovo", "Russia", "Andorra", "Finland"):    # read and not listed (addendum 160 items 1-2)
+        (d,), _ = desk(row(home=name, flag="unknown"), counts={"intl_graded": 30})
+        assert d["call"] == "PLAY"
     monkeypatch.setattr(dp, "INTL_HOME_ABROAD", frozenset({"Probeland"}))
     (u, k, other), _ = desk(row(flag="unknown"), row(flag="home"), row(home="Elsewhere", flag="unknown"),
                             counts={"intl_graded": 30})

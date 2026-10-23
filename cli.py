@@ -57,21 +57,20 @@ def _sync_lock(fn):
     chains hold (the laptop's syncs today take none)". sync-teams and sync-matches run under sp_common.db_lock, the
     chains' own flock (SP_LOCK, else logs/db.lock), so a sync run by hand never overlaps a chain's or a closing run's
     writes (two overlapping runs each created a row for one gamePk: #569's twins). A sync run as a step of a run that
-    already holds it (sp_common.HELD_ENV in the environment, set by db_lock and inherited by every step) takes no
-    second lock: it would wait on its own run. Waiting prints one line."""
+    already holds it (sp_common.lock_held_by_caller: HELD_ENV names an ancestor's pid, set by db_lock and inherited by
+    every step) takes no second lock: it would wait on its own run. Waiting prints one line. The service takes the
+    same lock at its own write boundary (service._db_lock), so the admin UI's sync jobs hold it too (Codex on #650);
+    here it also covers the MLB api-sports fallback, which does not go through the service."""
     import functools
 
     @functools.wraps(fn)
     def run(*a, **k):
-        import os
         import sys as _sys
         from pathlib import Path as _P
         _sys.path.insert(0, str(_P(__file__).resolve().parent / "deploy" / "hosting"))
         import sp_common as _spc
-        if os.environ.get(_spc.HELD_ENV):
-            return fn(*a, **k)
-        with _spc.db_lock(on_wait=lambda p: print(f"… waiting for the DB lock {p} (a chain or closing run holds it)",
-                                                  flush=True)):
+        with _spc.sync_lock(on_wait=lambda p: print(f"… waiting for the DB lock {p} (a chain or closing run holds it)",
+                                                    flush=True)):
             return fn(*a, **k)
     return run
 

@@ -86,6 +86,22 @@ REKEY_SOURCES = frozenset({"api_american_football"})
 # ARCHITECT 2026-10-21, addendum 153 item 2: "The statsapi upsert looks a gamePk up across the sport's rows, not the
 # competition's"): a gamePk is one game whatever competition row holds it, so a sync never creates a second row for it.
 SPORT_WIDE_SOURCES = frozenset({"mlb_stats_api"})
+
+
+def _db_lock():
+    """The chains' DB lock around a sync's writes (#569 RULED, ARCHITECT 2026-10-21, addendum 153 item 2: "a run
+    holds the DB lock the host's chains hold"), at the service, the boundary every sync entry shares: the cli's
+    sync-teams / sync-matches and the admin UI's job threads (Codex P1 on #650). sp_common.sync_lock: a no-op when the
+    caller already holds it (the cli command, or a chain step whose run holds it). The provider fetch runs before it;
+    the prefetch and every write run under it, so two syncs never prefetch before each other's commit."""
+    import sys
+    from pathlib import Path
+    hosting = str(Path(__file__).resolve().parents[2] / "deploy" / "hosting")
+    if hosting not in sys.path:
+        sys.path.insert(0, hosting)
+    import sp_common
+    return sp_common.sync_lock(on_wait=lambda p: log.warning("sync: waiting for the DB lock %s (a chain or "
+                                                             "closing run holds it)", p))
 REKEY_WINDOW_H = 12
 PLACEHOLDER_REKEY_COMPETITIONS = frozenset({"NCAA"})
 
@@ -258,7 +274,7 @@ class IngestionService:
     def sync_teams(self, competition_code: str, season: str | None = None) -> SyncResult:
         teams = self.adapter.list_teams(competition_code, season)
         result = SyncResult()
-        with session_scope() as s:
+        with _db_lock(), session_scope() as s:
             comp = self._get_competition(s, competition_code)
             if not comp:
                 log.warning(
@@ -362,7 +378,7 @@ class IngestionService:
         _report(f"Fetched {len(matches)} matches. Writing to DB…")
 
         result = SyncResult()
-        with session_scope() as s:
+        with _db_lock(), session_scope() as s:
             comp = self._get_competition(s, competition_code)
             if not comp:
                 log.warning(

@@ -16,6 +16,7 @@ import re
 import socket
 import sqlite3
 import subprocess
+import threading
 import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -208,42 +209,77 @@ def append_receipt(rec: dict) -> dict:
     return line
 
 
-# Set in this process's environment while db_lock is held (#569, ARCHITECT 2026-10-21, addendum 153 item 2): every
-# step a holder runs inherits os.environ (sp_run's Popen, closing's runs), so a cli sync run as a step knows its run
-# already holds the lock and never waits on it; a sync run by hand takes the lock itself (cli._sync_lock).
+# Set in this process's environment while db_lock is held (#569, ARCHITECT 2026-10-21, addendum 153 item 2), as
+# "<pid>:<lock file>": every step a holder runs inherits os.environ (sp_run's Popen, closing's runs), so a sync run as
+# a step of a run that holds the lock knows it (the pid is an ancestor's) and never waits on it; a sync run by hand,
+# or from the admin UI's job threads, takes the lock itself (sync_lock). The pid keeps a sibling THREAD of the holder
+# from reading the marker as its own (Codex P1 on #650): in the holder's own process only the holding thread skips.
 HELD_ENV = "SP_DB_LOCK_HELD"
+_PROCESS_LOCK = threading.Lock()   # threads of one process wait on each other here, then on the flock
+_HELD = threading.local()          # .depth > 0 in the thread holding db_lock
+
+
+def lock_held_by_caller() -> bool:
+    """True when this thread holds db_lock, or an ancestor process does (HELD_ENV names another pid)."""
+    if getattr(_HELD, "depth", 0):
+        return True
+    v = os.environ.get(HELD_ENV) or ""
+    return bool(v) and v.split(":", 1)[0] != str(os.getpid())
+
+
+@contextmanager
+def sync_lock(on_wait=None):
+    """db_lock for a sync (#569): taken unless the caller already holds it (lock_held_by_caller), when it is a
+    no-op; a second lock there would wait on its own run."""
+    if lock_held_by_caller():
+        yield
+        return
+    with db_lock(on_wait=on_wait):
+        yield
 
 
 @contextmanager
 def db_lock(timeout_s: float = 3 * 3600, on_wait=None):
-    """Exclusive flock so no two chains/backups write SQLite at once. While held, HELD_ENV names the lock file in
-    os.environ (restored after). `on_wait(path)` is called once when the lock is held elsewhere at the first try."""
+    """Exclusive flock so no two chains/backups write SQLite at once; threads of one process take it in turn. While
+    held, HELD_ENV is "<pid>:<lock file>" in os.environ (restored after). `on_wait(path)` is called once when the lock
+    is held elsewhere at the first try."""
     p = lock_path()
     p.parent.mkdir(parents=True, exist_ok=True)
-    with open(p, "a+") as f:
-        deadline = time.monotonic() + timeout_s
-        waited = False
-        while True:
+    deadline = time.monotonic() + timeout_s
+    waited = False
+    if not _PROCESS_LOCK.acquire(blocking=False):
+        if on_wait is not None:
+            on_wait(p)
+        waited = True
+        if not _PROCESS_LOCK.acquire(timeout=max(0.0, timeout_s)):
+            raise TimeoutError(f"DB lock {p} not acquired in {timeout_s:.0f}s")
+    try:
+        with open(p, "a+") as f:
+            while True:
+                try:
+                    fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError:
+                    if not waited and on_wait is not None:
+                        on_wait(p)
+                    waited = True
+                    if time.monotonic() > deadline:
+                        raise TimeoutError(f"DB lock {p} not acquired in {timeout_s:.0f}s")
+                    time.sleep(5)
+            prev = os.environ.get(HELD_ENV)
+            os.environ[HELD_ENV] = f"{os.getpid()}:{p}"
+            _HELD.depth = getattr(_HELD, "depth", 0) + 1
             try:
-                fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                break
-            except BlockingIOError:
-                if not waited and on_wait is not None:
-                    on_wait(p)
-                waited = True
-                if time.monotonic() > deadline:
-                    raise TimeoutError(f"DB lock {p} not acquired in {timeout_s:.0f}s")
-                time.sleep(5)
-        prev = os.environ.get(HELD_ENV)
-        os.environ[HELD_ENV] = str(p)
-        try:
-            yield
-        finally:
-            if prev is None:
-                os.environ.pop(HELD_ENV, None)
-            else:
-                os.environ[HELD_ENV] = prev
-            fcntl.flock(f, fcntl.LOCK_UN)
+                yield
+            finally:
+                _HELD.depth -= 1
+                if prev is None:
+                    os.environ.pop(HELD_ENV, None)
+                else:
+                    os.environ[HELD_ENV] = prev
+                fcntl.flock(f, fcntl.LOCK_UN)
+    finally:
+        _PROCESS_LOCK.release()
 
 
 def db_path() -> Path:

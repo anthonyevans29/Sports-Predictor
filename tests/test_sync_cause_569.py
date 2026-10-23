@@ -84,12 +84,73 @@ def test_db_lock_marks_the_environment_while_held_and_restores_it(monkeypatch, t
     monkeypatch.setenv("SP_LOCK", str(tmp_path / "db.lock"))
     monkeypatch.delenv(c.HELD_ENV, raising=False)
     with c.db_lock():
-        assert os.environ[c.HELD_ENV] == str(tmp_path / "db.lock")
-    assert c.HELD_ENV not in os.environ
+        assert os.environ[c.HELD_ENV] == f"{os.getpid()}:{tmp_path / 'db.lock'}"
+        assert c.lock_held_by_caller()
+    assert c.HELD_ENV not in os.environ and not c.lock_held_by_caller()
     monkeypatch.setenv(c.HELD_ENV, "outer")
     with c.db_lock():
-        assert os.environ[c.HELD_ENV] == str(tmp_path / "db.lock")
+        assert os.environ[c.HELD_ENV] == f"{os.getpid()}:{tmp_path / 'db.lock'}"
     assert os.environ[c.HELD_ENV] == "outer"
+
+
+def test_an_ancestors_marker_means_held_and_a_sibling_threads_does_not(monkeypatch, tmp_path):
+    """Codex P1 on #650: the marker is process-wide, so it names the holder's pid. A step of a chain sees its
+    ancestor's pid: held, no second lock. In the holder's own process, only the holding thread skips; another
+    thread (the admin UI's job threads) waits its turn."""
+    import threading
+    monkeypatch.setenv("SP_LOCK", str(tmp_path / "db.lock"))
+    monkeypatch.setenv(c.HELD_ENV, f"{os.getpid() + 100000}:/elsewhere/db.lock")
+    assert c.lock_held_by_caller()
+    monkeypatch.delenv(c.HELD_ENV)
+    seen, order = {}, []
+    inside, release = threading.Event(), threading.Event()
+
+    def holder():
+        with c.sync_lock():
+            order.append("A in")
+            inside.set()
+            release.wait(5)
+            order.append("A out")
+
+    def other():
+        seen["held"] = c.lock_held_by_caller()
+        with c.sync_lock():
+            order.append("B in")
+
+    a = threading.Thread(target=holder)
+    a.start()
+    assert inside.wait(5)
+    b = threading.Thread(target=other)
+    b.start()
+    b.join(0.5)
+    assert b.is_alive() and seen["held"] is False and order == ["A in"]     # B waits on A's lock
+    release.set()
+    a.join(5)
+    b.join(5)
+    assert order == ["A in", "A out", "B in"]
+
+
+def test_the_service_takes_the_lock_so_the_admin_jobs_do(fresh_db, monkeypatch, tmp_path):
+    """Codex P1 on #650: src/web/routes/admin.py calls IngestionService.sync_matches directly, in a job thread. The
+    lock is at the service: a sync through it takes it (and a sync inside the cli's lock takes no second one)."""
+    from src.ingestion.service import IngestionService
+    monkeypatch.setenv("SP_LOCK", str(tmp_path / "db.lock"))
+    monkeypatch.delenv(c.HELD_ENV, raising=False)
+    _two_mlb_comps()
+    taken = []
+    real = c.db_lock
+
+    def spy(**k):
+        taken.append(k)
+        return real(**k)
+
+    monkeypatch.setattr(c, "db_lock", spy)
+    payload = schedule(game(849818, "2026-10-15T22:08:00Z", "F", TB, CLE, 2, 3))
+    IngestionService(_adapter(payload)).sync_matches("MLB", date_from="2026-10-15", date_to="2026-10-16")
+    assert len(taken) == 1
+    with c.sync_lock():
+        IngestionService(_adapter(payload)).sync_matches("MLB", date_from="2026-10-15", date_to="2026-10-16")
+    assert len(taken) == 2                                         # the outer lock only: the service took none
 
 
 @pytest.mark.parametrize("cmd", ["sync-matches", "sync-teams"])
@@ -115,7 +176,7 @@ def test_a_sync_by_hand_takes_the_lock_and_a_step_of_a_holding_run_takes_none(mo
     r = CliRunner().invoke(cli.cli, [cmd, "--competition", "MLB", "--season", "2026"])
     assert r.exit_code == 0, r.output
     assert len(taken) == 1 and len(ran) == 1
-    monkeypatch.setenv(c.HELD_ENV, str(tmp_path / "db.lock"))
+    monkeypatch.setenv(c.HELD_ENV, f"{os.getpid() + 100000}:{tmp_path / 'db.lock'}")    # an ancestor's lock
     r = CliRunner().invoke(cli.cli, [cmd, "--competition", "MLB", "--season", "2026"])
     assert r.exit_code == 0, r.output
     assert len(taken) == 1 and len(ran) == 2                                         # no second lock

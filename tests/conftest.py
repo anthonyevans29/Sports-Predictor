@@ -13,8 +13,11 @@ os.environ["DATABASE_URL"] = f"sqlite:///{_TMP / 'test.db'}"
 os.environ.setdefault("API_FOOTBALL_KEY", "test-dummy")
 os.environ["OPEN_BROWSER"] = "false"
 # sync-teams / sync-matches take the chains' DB lock (#569): a test's sync locks a file under the throwaway dir, never
-# the checkout's logs/db.lock; a test that names its own lock sets SP_LOCK (monkeypatch), which wins
-os.environ.setdefault("SP_LOCK", str(_TMP / "db.lock"))
+# the checkout's logs/db.lock nor a lock path the launching shell exported (Codex on #650: set, not setdefault); a
+# test that names its own lock sets SP_LOCK (monkeypatch), which wins. A lock marker inherited from a holding run is
+# cleared, so no test skips the lock as a step of one.
+os.environ["SP_LOCK"] = str(_TMP / "db.lock")
+os.environ.pop("SP_DB_LOCK_HELD", None)
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 

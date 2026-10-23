@@ -72,11 +72,32 @@ shadow probability. Model-vs-close: pick-vs-close against the stored 1X2
 book close (#167/#207 contract, nfl-grade's rule) and value-side-vs-close
 from the earliest pre-kickoff book snapshot. The live record is NOT gate
 evidence and says so.
+
+THE v2 BINDING (ARCHITECT 2026-10-23, addendum 158 item 1(b), verbatim): "(b) The v2 shadow: src/walters/ncaa_shadow.py
+still binds ncaa-elo-v1r and refuses on its FAIL. Prepare the v2 binding now (registry id, the frozen s =
+279.14222651259433, the version, input cutoff and prediction stamp on every row), under the same refusal guard (it
+exports nothing unless the registry verdict is PASS), so a PASS on 11-09 leads straight into the confirmation window. A
+read-only receipt on synthetic cases that the shadow's probabilities equal the gate path's. One PR, after (a), before
+11-08."
+  * BINDINGS: one per registry id. `export-ncaa-predictions --id ncaa-elo-v2` runs the v2 binding; the default stays
+    v1r, which refuses on its FAIL as before.
+  * v2: the registry entry must record a PASS verdict (none, or anything else, refuses), the declaration's neutral rule
+    and v1's constants (as v1r's), and the logistic scale s frozen at exactly V2_FROZEN_S (the ruling's number; a
+    registry that disagrees refuses). The model is the gate's own: ncaa_backtest.NeutralRuleElo at that s, walked over
+    the same D2 stream (2024-2026, current labels, J2 merge).
+  * Every row of either binding carries registry_id, model_version, input_cutoff (the walk reads every stream game
+    kicking off before it) and prediction_stamp (the export's clock); a v2 row also the logistic scale.
+  * parity(): the receipt on synthetic cases. The gate path is ncaa_v1r_gate.run_gate itself, with a recorder around
+    the declared model that keeps the probability of every game the gate scores; the shadow path is this module's walk
+    over the stream games kicking off before that game, then the prediction. scripts/ncaa_v2_shadow_parity.py prints
+    it on a seeded synthetic stream; no DB is read.
+  * Grading never pools: ncaa-shadow-grade --id reads only the files its binding wrote.
 """
 from __future__ import annotations
 
 import json
 import math
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -110,6 +131,36 @@ class ShadowRefused(RuntimeError):
     """A precondition the ruling names is not met: printed with its reason, exit 2, nothing written."""
 
 
+V2_EID = "ncaa-elo-v2"
+V2_MODEL_VERSION = "ncaa_elo_v2"
+V2_FROZEN_S = 279.14222651259433            # addendum 158 item 1(b): "the frozen s = 279.14222651259433"
+V2_RULING = "ARCHITECT 2026-10-23, addendum 158 item 1(b)"
+V2_NOTE = ("NCAA SHADOW — ncaa_elo_v2 (v1's structure and constants, the logistic scale s frozen) as a model shadow "
+           "beside the market-only NCAA Desk: the confirmation window's instrument after a PASS. Never a call, never a "
+           "venue input, never in the ledger. This live record is NOT gate evidence.")
+
+
+@dataclass(frozen=True)
+class Binding:
+    """One registry id the shadow can serve: its model version, its note, whether it exports only on a recorded PASS
+    and the frozen logistic scale it requires (None: v1, /400)."""
+    eid: str
+    model_version: str
+    note: str
+    pass_only: bool
+    scale: float | None
+
+
+BINDINGS = {EID: Binding(EID, MODEL_VERSION, NOTE, False, None),
+            V2_EID: Binding(V2_EID, V2_MODEL_VERSION, V2_NOTE, True, V2_FROZEN_S)}
+
+
+def binding(eid: str = EID) -> Binding:
+    if eid not in BINDINGS:
+        raise ShadowRefused(f"REFUSED: {eid!r} is not a registry id the NCAA shadow serves ({', '.join(BINDINGS)})")
+    return BINDINGS[eid]
+
+
 # ARCHITECT 2026-10-09, addendum 24 item 2(d), verbatim: the college shadow does not start on v1r. frozen() refuses
 # once the registry records a verdict for ncaa-elo-v1r other than PASS (FAIL, 2026-10-09). ncaa-shadow-grade is
 # untouched: it has no file to read.
@@ -121,23 +172,29 @@ VERDICT_REFUSAL = ("Addendum 6 item 1 put the verdict on every shadow row once t
                    "than PASS. The shadow's terms for the next candidate are part of its declaration.")
 
 
-def frozen(registry_path: str | None = None) -> tuple[dict, bool, str]:
-    """(entry, home advantage at neutral sites?, rule) from the registry; refuses unless ncaa-elo-v1r is
-    declared and its declaration states the neutral-site rule, and refuses once the registry records a verdict for
-    it other than PASS (addendum 24 item 2(d))."""
+def frozen(registry_path: str | None = None, eid: str = EID) -> tuple[dict, bool, str]:
+    """(entry, home advantage at neutral sites?, rule) from the registry; refuses unless `eid` is declared and its
+    declaration states the neutral-site rule and freezes v1's constants. v1r: refuses once the registry records a
+    verdict other than PASS (addendum 24 item 2(d)). v2: refuses unless the registry records a PASS (addendum 158
+    item 1(b): "it exports nothing unless the registry verdict is PASS")."""
     from src.walters import registry as reg
 
-    e = reg.get(EID, registry_path) if registry_path else reg.get(EID)
+    b = binding(eid)
+    e = reg.get(b.eid, registry_path) if registry_path else reg.get(b.eid)
     if e is None:
-        raise ShadowRefused(f"REFUSED: {EID} is not declared in docs/registry — the NCAA shadow starts only once "
+        raise ShadowRefused(f"REFUSED: {b.eid} is not declared in docs/registry — the NCAA shadow starts only once "
                             "it is (ARCHITECT 2026-10-07, addendum 6 item 1)")
     verdict = (e.get("verdict") or {}).get("verdict")
+    if b.pass_only and str(verdict or "").upper() != "PASS":
+        raise ShadowRefused(f"export-ncaa-predictions --id {b.eid} REFUSED (exit 2): the registry records "
+                            f"{'no verdict' if not verdict else 'the verdict ' + str(verdict)} for {b.eid}; the v2 "
+                            f"shadow exports nothing unless the registry verdict is PASS ({V2_RULING})")
     if verdict and str(verdict).upper() != "PASS":
-        raise ShadowRefused(f"export-ncaa-predictions REFUSED (exit 2): the registry records {EID}'s verdict as "
+        raise ShadowRefused(f"export-ncaa-predictions REFUSED (exit 2): the registry records {b.eid}'s verdict as "
                             f"{verdict}. {VERDICT_RULING}, verbatim: \"{VERDICT_REFUSAL}\"")
     rule = e.get(NEUTRAL_RULE_KEY)
     if rule not in NEUTRAL_RULES:
-        raise ShadowRefused(f"REFUSED: {EID}'s declaration has no {NEUTRAL_RULE_KEY} (one of "
+        raise ShadowRefused(f"REFUSED: {b.eid}'s declaration has no {NEUTRAL_RULE_KEY} (one of "
                             f"{', '.join(sorted(NEUTRAL_RULES))}; got {rule!r}) — whether v1r applies home "
                             "advantage at neutral sites is the declaration's choice, never the shadow's")
     from src.models.ncaa_elo import NCAAEloConfig
@@ -147,9 +204,25 @@ def frozen(registry_path: str | None = None) -> tuple[dict, bool, str]:
     if not isinstance(declared, dict) or set(declared) != set(CONSTANT_KEYS) or any(
             not isinstance(declared[k], (int, float)) or isinstance(declared[k], bool)
             or float(declared[k]) != frozen_v1[k] for k in CONSTANT_KEYS):
-        raise ShadowRefused(f"REFUSED: {EID}'s declaration must freeze {CONSTANTS_KEY} = v1's untouched constants "
+        raise ShadowRefused(f"REFUSED: {b.eid}'s declaration must freeze {CONSTANTS_KEY} = v1's untouched constants "
                             f"{frozen_v1} (got {declared!r}) — the shadow runs only the declared model")
     return e, NEUTRAL_RULES[rule], rule
+
+
+def bound_scale(b: Binding, e: dict) -> float | None:
+    """The logistic scale the binding runs at: None for v1r (v1's /400); for v2 the registry's frozen s
+    (ncaa_v1r_gate.scale_state, the gate's own read), which must equal the ruled V2_FROZEN_S exactly."""
+    if b.scale is None:
+        return None
+    from src.walters import ncaa_v1r_gate as g
+
+    v, why = g.scale_state(g.spec_of(b.eid), e)
+    if why:
+        raise ShadowRefused(f"REFUSED: {b.eid}: {why}")
+    if v != b.scale:
+        raise ShadowRefused(f"REFUSED: {b.eid}'s registry freezes s = {v!r}, not the ruled {b.scale!r} ({V2_RULING}); "
+                            "the shadow runs only the declared model")
+    return v
 
 
 def gate_label(e: dict) -> str:
@@ -176,10 +249,23 @@ def coverage_guard(fbs: dict[str, dict]) -> dict[str, dict]:
 from src.walters.ncaa_backtest import NeutralRuleElo as V1R  # noqa: E402  (stdlib-only at import time)
 
 
-def fit(now: datetime, neutral_home_advantage: bool, games=None, fbs: dict | None = None):
+def walk(model, games, now: datetime) -> dict:
+    """The shadow's walk, pure: update `model` on every stream game (D2 order) kicking off before `now`. Returns the
+    count walked by season."""
+    by_season: dict = {}
+    for g in games:                                     # D2 order: stored kickoff, then match id
+        if g.utc_date >= now:
+            continue
+        model.update(g)
+        by_season[g.season] = by_season.get(g.season, 0) + 1
+    return by_season
+
+
+def fit(now: datetime, neutral_home_advantage: bool, games=None, fbs: dict | None = None,
+        scale: float | None = None):
     """(model, receipt, team merge): walk-forward over D2's stream (current CFBD labels only, seasons 2024-2026,
     kickoff then match id, postseason included, level scores skipped; J2 merge applied) before `now`; refuses
-    unless D6's coverage holds for 2024, 2025 and 2026."""
+    unless D6's coverage holds for 2024, 2025 and 2026. `scale`: the v2 binding's frozen s (None: v1)."""
     from src.db.database import session_scope
     from src.ingestion.ncaa_cfbd import stored_coverage
     from src.walters import ncaa_backtest as nb
@@ -190,15 +276,10 @@ def fit(now: datetime, neutral_home_advantage: bool, games=None, fbs: dict | Non
             s.rollback()
     cov = coverage_guard(fbs)
     v = nb.load_v1r_stream(games)
-    model = V1R(neutral_home_advantage)
-    used, by_season = 0, {}
-    for g in v.games:                                   # D2 order: stored kickoff, then match id
-        if g.utc_date >= now:
-            continue
-        model.update(g)
-        used += 1
-        by_season[g.season] = by_season.get(g.season, 0) + 1
-    return model, {"games_used": used, "walked_by_season": dict(sorted(by_season.items())),
+    model = V1R(neutral_home_advantage, scale=scale)
+    by_season = walk(model, v.games, now)
+    used = sum(by_season.values())
+    return model, {"games_used": used, "logistic_scale": scale, "walked_by_season": dict(sorted(by_season.items())),
                    "season_type_census": {s_: dict(sorted(c.items())) for s_, c in sorted(v.census.items())},
                    "level_scores_skipped": len(v.level), "level_scores_listed": list(v.level),
                    "neutral_updates": model.neutral_updates, "neutral_unflagged": model.unflagged_updates,
@@ -234,7 +315,8 @@ def fbs_teams(s, merge=None) -> set[int]:
     return {canon(t) for row in s.execute(q).all() for t in row}
 
 
-def build_rows(now: datetime | None = None, hours: int = WINDOW_HOURS, registry_path: str | None = None) -> dict:
+def build_rows(now: datetime | None = None, hours: int = WINDOW_HOURS, registry_path: str | None = None,
+               eid: str = EID) -> dict:
     from collections import Counter
 
     from sqlalchemy import select
@@ -245,9 +327,11 @@ def build_rows(now: datetime | None = None, hours: int = WINDOW_HOURS, registry_
     from src.walters.export import _fixture_row
 
     now = now or utc_now_naive()
-    e, neutral_ha, rule = frozen(registry_path)
+    b = binding(eid)
+    e, neutral_ha, rule = frozen(registry_path, eid=eid)
+    scale = bound_scale(b, e)
     label = gate_label(e)
-    model, rc, merge = fit(now, neutral_ha)
+    model, rc, merge = fit(now, neutral_ha, scale=scale)
     rc["neutral_site_rule"] = rule
     rows, skipped = [], Counter()
     with session_scope() as s:
@@ -272,7 +356,10 @@ def build_rows(now: datetime | None = None, hours: int = WINDOW_HOURS, registry_
             pick_home = p >= 0.5
             row.update({
                 "competition": COMPETITION, "family": FAMILY,
-                "engine": ENGINE, "model_version": MODEL_VERSION, "gate_verdict": label, "registry_id": EID,
+                "engine": ENGINE, "model_version": b.model_version, "gate_verdict": label, "registry_id": b.eid,
+                # addendum 158 item 1(b): the input cutoff (the walk read every stream game kicking off before it)
+                # and the prediction stamp (this export's clock), on every row
+                "input_cutoff": now.isoformat(), "prediction_stamp": now.isoformat(),
                 "prediction": {"home_win_prob": round(p, 4), "away_win_prob": round(1 - p, 4),
                                "top_pick": "home_win" if pick_home else "away_win",
                                "top_pick_prob": round(p if pick_home else 1 - p, 4),
@@ -281,25 +368,27 @@ def build_rows(now: datetime | None = None, hours: int = WINDOW_HOURS, registry_
                                # D8: the listed home's advantage; the neutral flag is unknown before the game
                                "home_adv_applied": model.home_adv(g),
                                "home_adv_basis": HOME_ADV_BASIS,
-                               "neutral": None, "neutral_flag": NEUTRAL_FLAG_UNKNOWN},
+                               "neutral": None, "neutral_flag": NEUTRAL_FLAG_UNKNOWN,
+                               **({"logistic_scale": scale} if scale is not None else {})},
             })
             rows.append(row)
         s.rollback()
-    return {"rows": rows, "fit": rc, "skipped": dict(skipped), "label": label, "now": now}
+    return {"rows": rows, "fit": rc, "skipped": dict(skipped), "label": label, "now": now, "binding": b}
 
 
 def export(now: datetime | None = None, hours: int = WINDOW_HOURS, out_dir: str = "exports",
-           registry_path: str | None = None) -> tuple[str, dict]:
-    r = build_rows(now, hours, registry_path)
+           registry_path: str | None = None, eid: str = EID) -> tuple[str, dict]:
+    r = build_rows(now, hours, registry_path, eid=eid)
+    b = r["binding"]
     now = r["now"]
     Path(out_dir).mkdir(parents=True, exist_ok=True)
     # Codex on #344: second precision and an exclusive create, so a rerun never replaces an earlier artifact
     path = str(Path(out_dir) / f"{FILE_PREFIX}{now.strftime('%Y-%m-%d_%H%M%S')}.json")
     doc = {"sport": "ncaa", "competition": COMPETITION, "family": FAMILY, "engine": ENGINE,
-           "model_version": MODEL_VERSION, "registry_id": EID, "gate_verdict": r["label"],
+           "model_version": b.model_version, "registry_id": b.eid, "gate_verdict": r["label"],
            "contains_predictions": False,   # nothing here is a live prediction (doctrine)
            "gate_evidence": False,          # the shadow's live record is not gate evidence (ruling)
-           "exported_at": now.isoformat(), "window_hours": hours, "note": NOTE,
+           "exported_at": now.isoformat(), "window_hours": hours, "note": b.note,
            "fit": r["fit"], "skipped": r["skipped"], "count": len(r["rows"]), "predictions": r["rows"]}
     try:
         with open(path, "x") as f:
@@ -309,8 +398,9 @@ def export(now: datetime | None = None, hours: int = WINDOW_HOURS, out_dir: str 
     return path, doc
 
 
-def last_calls(export_dir: str = "exports") -> dict[int, dict]:
-    """match_id -> the LAST shadow row written before its kickoff."""
+def last_calls(export_dir: str = "exports", eid: str | None = None) -> dict[int, dict]:
+    """match_id -> the LAST shadow row written before its kickoff. `eid`: only the files that binding wrote (a file
+    without a registry_id is v1r's, the only binding before 158 item 1(b)); None reads every binding's."""
     out: dict[int, dict] = {}
     for f in sorted(Path(export_dir).glob(f"{FILE_PREFIX}*.json")):
         try:
@@ -319,6 +409,8 @@ def last_calls(export_dir: str = "exports") -> dict[int, dict]:
             continue
         if doc.get("engine") != ENGINE or doc.get("competition") != COMPETITION:
             continue
+        if eid is not None and doc.get("registry_id", EID) != eid:
+            continue                                 # grading never pools two bindings
         at = doc.get("exported_at") or ""
         for r in doc.get("predictions") or []:
             mid, ko = r.get("match_id"), r.get("utc_date") or ""
@@ -346,9 +438,10 @@ def _result(s, m) -> tuple[int, int, str] | None:
     return m.home_score, m.away_score, "matches"
 
 
-def grade(days: int = 30, export_dir: str = "exports", now: datetime | None = None, progress=None) -> dict:
+def grade(days: int = 30, export_dir: str = "exports", now: datetime | None = None, progress=None,
+          eid: str = EID) -> dict:
     """Results (hit rate, log-loss, Brier) and model-vs-close (pick-vs-close + value-side) for finished NCAA
-    games whose call exists in a shadow export. Not gate evidence."""
+    games whose call exists in a shadow export of the `eid` binding (never pooled). Not gate evidence."""
     from sqlalchemy import select
 
     from src.db.database import session_scope
@@ -358,7 +451,9 @@ def grade(days: int = 30, export_dir: str = "exports", now: datetime | None = No
     from src.walters.vs_close import block
 
     now = now or utc_now_naive()
-    calls = last_calls(export_dir)
+    b = binding(eid)
+    tag = b.model_version.replace("ncaa_elo_", "")             # v1r_H= / v2_H= on each line
+    calls = last_calls(export_dir, eid=b.eid)
     hits, lls, briers, clvs, vclvs, lines = [], [], [], [], [], []
     pairs = []                         # addendum 64 item 2: (model p, close p) of the outcome, games with a close
     kalshi_fed = 0                     # of those, the closes a Kalshi mid priced (the stale-book rule)
@@ -414,7 +509,7 @@ def grade(days: int = 30, export_dir: str = "exports", now: datetime | None = No
                 vclvs.append(vg["value_side_clv"])
             elif anchor_h is None:
                 unanchored += 1
-            line = (f"  {m.away_team.name[:16]:16} @ {m.home_team.name[:16]:16} v1r_H={p:.3f} "
+            line = (f"  {m.away_team.name[:16]:16} @ {m.home_team.name[:16]:16} {tag}_H={p:.3f} "
                     f"result {hs}-{as_} ({src}) {'HIT' if hits[-1] else 'miss'} · "
                     f"close_H={'%.3f' % close_h if close_h is not None else '  — '} "
                     f"div={'%+.1fpp' % (clv * 100) if clv is not None else '—'} "
@@ -435,3 +530,99 @@ def grade(days: int = 30, export_dir: str = "exports", now: datetime | None = No
             "value_side_n": len(vclvs), "unanchored": unanchored,
             "mean_value_side_clv_pp": round(sum(vclvs) / len(vclvs) * 100, 2) if vclvs else None,
             "lines": lines}
+
+
+# ----------------------------------------------------------------------------------------------------------------
+# THE PARITY RECEIPT (addendum 158 item 1(b)): "A read-only receipt on synthetic cases that the shadow's probabilities
+# equal the gate path's." Pure over its inputs: no DB, no file.
+# ----------------------------------------------------------------------------------------------------------------
+
+PARITY_TOL = 1e-12
+
+
+class _Recorder:
+    """The gate's declared model, recording the probability of every game the gate predicts (it predicts only the
+    games it scores); every other call passes through unchanged."""
+
+    def __init__(self, inner):
+        self.inner, self.p = inner, {}
+
+    def predict(self, g):
+        p = self.inner.predict(g)
+        self.p[g.match_id] = p
+        return p
+
+    def __getattr__(self, name):
+        return getattr(self.inner, name)
+
+
+def parity(games, scale: float = V2_FROZEN_S, neutral_home_advantage: bool = False) -> dict:
+    """Both paths on one stream (`games`: D2 order, as the gate and the shadow read it):
+    - the gate path: ncaa_v1r_gate.run_gate on ncaa-elo-v2's gate read, the declared model at `scale` recorded;
+    - the shadow path: for every game the gate scored, a fresh model at `scale` walked (walk()) over the stream games
+      kicking off before it, then the prediction of that game with the same game record.
+    Returns per-game rows (match id, kickoff, the two probabilities, |diff|) and the counts. The pregame difference
+    (D8: a live row prices with the listed home's advantage and an unknown neutral flag) is counted apart: the
+    shadow's price of each neutral scored game with its flag unknown, against the gate's."""
+    from dataclasses import replace
+
+    from src.walters import ncaa_backtest as nb
+    from src.walters import ncaa_v1r_gate as g
+
+    read = g.spec_of(V2_EID).gate
+    rec = _Recorder(nb.NeutralRuleElo(neutral_home_advantage, scale=scale))
+    res = g.run_gate(games, model=rec, read=read)
+    by_id = {x.match_id: x for x in games}
+    rows, pregame = [], []
+    for mid, gp in rec.p.items():
+        x = by_id[mid]
+        m = V1R(neutral_home_advantage, scale=scale)
+        walk(m, games, x.utc_date)
+        sp = m.predict(x)
+        rows.append({"match_id": mid, "kickoff": x.utc_date, "gate": gp, "shadow": sp, "diff": abs(sp - gp)})
+        if x.neutral is True:
+            m2 = V1R(neutral_home_advantage, scale=scale)
+            walk(m2, games, x.utc_date)
+            pregame.append(abs(m2.predict(replace(x, neutral=None)) - gp))
+    diffs = [r["diff"] for r in rows]
+    return {"scale": scale, "stream": len(games), "gate_scored": res.get("n_scored", 0), "compared": len(rows),
+            "unequal": sum(d > PARITY_TOL for d in diffs), "max_diff": max(diffs, default=0.0), "rows": rows,
+            "neutral_scored": len(pregame), "pregame_max_diff": max(pregame, default=0.0)}
+
+
+def parity_lines(r: dict, rows: bool = False) -> list[str]:
+    L = [f"NCAA v2 SHADOW PARITY ({V2_RULING}) · synthetic · s {r['scale']!r} · stream {r['stream']} games · gate scored "
+         f"{r['gate_scored']} · compared {r['compared']} · unequal {r['unequal']} (max |diff| {r['max_diff']:.3g}; "
+         f"equal within {PARITY_TOL:g}) · {'EQUAL' if r['compared'] and not r['unequal'] else 'NOT EQUAL'}",
+         f"  pregame (D8, reported): {r['neutral_scored']} scored neutral games; priced as a live row prices them "
+         f"(the listed home's advantage, the neutral flag unknown) they differ from the gate by up to "
+         f"{r['pregame_max_diff']:.3g}: the pregame metadata (item 1(c)) is that difference's source"]
+    if rows:
+        L += [f"  - game {x['match_id']} · {x['kickoff']:%Y-%m-%d %H:%M} · gate {x['gate']:.6f} · shadow "
+              f"{x['shadow']:.6f} · |diff| {x['diff']:.2g}" for x in r["rows"]]
+    return L
+
+
+def synthetic_stream(seed: int = 158, teams: int = 30, weeks: int = 13, per_week: int = 14) -> list:
+    """A seeded synthetic D2 stream (2024-2026; 'regular' weeks then a 'postseason' week; one game in ten neutral;
+    no level score), for the parity receipt only. D2 order: kickoff, then id."""
+    import random
+
+    from src.walters import ncaa_backtest as nb
+
+    rnd = random.Random(seed)
+    out, mid = [], 0
+    for season, year in (("2024", 2024), ("2025", 2025), ("2026", 2026)):
+        for w in range(weeks + 1):
+            ids = rnd.sample(range(1, teams + 1), 2 * per_week)
+            for i in range(per_week):
+                mid += 1
+                hs, as_ = rnd.randint(0, 49), rnd.randint(0, 49)
+                if hs == as_:
+                    hs += 3
+                at = datetime(year, 9, 1) + timedelta(days=7 * w, hours=12 + 4 * (i % 3))
+                out.append(nb.Game(ids[2 * i], ids[2 * i + 1], season, at, hs, as_, "",
+                                   neutral=rnd.random() < 0.1, label_source="cfbd", orientation="same",
+                                   match_id=mid, season_type="postseason" if w == weeks else "regular",
+                                   cfbd_season=season))
+    return sorted(out, key=lambda x: (x.utc_date, x.match_id))

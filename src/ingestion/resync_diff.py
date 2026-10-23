@@ -52,6 +52,34 @@ def classify_row(ours: dict, nm) -> dict:
     return {"teams": teams, "scores": scores, "date_moved": moved}
 
 
+def _fenced_2023_ids(s, competition_code: str, matches) -> set[int]:
+    """THE 2023 FENCE (ARCHITECT 2026-10-23, addendum 161 item 1): the ids of the NCAA 2023 matches in the second read's
+    scored set (their CFBD label's season_type 'regular' and week 5 on; no label, or a week or season_type unknown,
+    counts as fenced) while the ncaa-elo-v2 run is unrecorded. Their sample lines print no score."""
+    if (competition_code or "").upper() != "NCAA":
+        return set()
+    from src.walters.ncaa_backtest import V2_SECOND, fenced_2023, v2_run_recorded
+    ids = [m.id for m in matches if str(m.season) == V2_SECOND]
+    if not ids or v2_run_recorded():
+        return set()
+    from sqlalchemy import inspect, select
+
+    from src.db.schema import NCAACFBDLabel
+    from src.ingestion.ncaa_cfbd import label_load_options
+    labels = {}
+    if inspect(s.connection()).has_table(NCAACFBDLabel.__tablename__):
+        labels = {lab.match_id: lab for lab in s.execute(select(NCAACFBDLabel).options(*label_load_options(s))
+                                                         .where(NCAACFBDLabel.match_id.in_(ids))).scalars()}
+    out = set()
+    for mid in ids:
+        lab = labels.get(mid)
+        st = lab.__dict__.get("season_type") if lab is not None else None
+        wk = lab.__dict__.get("week") if lab is not None else None
+        if fenced_2023(V2_SECOND, st, wk, False):
+            out.add(mid)
+    return out
+
+
 def diff(adapter, competition_code: str, season: str | None, date_from: str | None = None,
          date_to: str | None = None, sample: int = 12) -> dict:
     from sqlalchemy import select
@@ -86,6 +114,7 @@ def diff(adapter, competition_code: str, season: str | None, date_from: str | No
         def _src_for(tid, listed):
             return str(listed) if str(listed) in team_ids.get(tid, ()) else str(team_src.get(tid))
         names = {t.id: t.name for t in s.execute(select(Team).where(Team.sport == comp.sport)).scalars()}
+        fenced = _fenced_2023_ids(s, competition_code, list(ours.values()))   # addendum 161 item 1
         seen = set()
         for nm in listing:
             m = ours.get(str(nm.source_id))
@@ -103,10 +132,13 @@ def diff(adapter, competition_code: str, season: str | None, date_from: str | No
             rc["date_moved"] += row["date_moved"]
             if row["teams"] != "same" or row["scores"] not in ("same", "provider_missing"):
                 key = f"teams {row['teams']} / scores {row['scores']}"
-                samples.setdefault(key, []).append(
-                    f"{m.utc_date:%Y-%m-%d} match {m.id} ours {names.get(m.away_team_id)} @ "
-                    f"{names.get(m.home_team_id)} {m.away_score}-{m.home_score} · provider "
-                    f"{nm.away_team_source_id}@{nm.home_team_source_id} {nm.away_score}-{nm.home_score}")
+                line = (f"{m.utc_date:%Y-%m-%d} match {m.id} ours {names.get(m.away_team_id)} @ "
+                        f"{names.get(m.home_team_id)} {m.away_score}-{m.home_score} · provider "
+                        f"{nm.away_team_source_id}@{nm.home_team_source_id} {nm.away_score}-{nm.home_score}")
+                if m.id in fenced:
+                    from src.walters.ncaa_backtest import mask_scores
+                    line = mask_scores(line)
+                samples.setdefault(key, []).append(line)
             if m.status == MatchStatus.FINISHED and m.home_score is not None and m.away_score is not None \
                     and m.home_score != m.away_score:
                 home_rate["ours"][1] += 1

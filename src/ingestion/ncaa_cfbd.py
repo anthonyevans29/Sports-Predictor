@@ -531,6 +531,17 @@ def build_labels(records: list, keys: dict, ours: list[Ours], teams: dict[int, s
     in_scope: list[tuple[dict, str]] = []
     pending: list[tuple] = []                                 # first-pass unmatched, for the J1 retry
     why_not: dict[int, str] = {}                              # id(rec) -> why it carries no row
+    # THE 2023 FENCE (ARCHITECT 2026-10-23, addendum 161 item 1): a 2023 in-scope game in the second read's scored set
+    # (regular, week 5 on; week or season_type unknown included) keeps its counts, but every score in its receipt text
+    # (corrections, dateshift notes, unmatched and unlabelled reasons) is withheld while the ncaa-elo-v2 run is
+    # unrecorded. The masked text is what the ingest record stores. The side table stores the scores as before.
+    from src.walters.ncaa_backtest import V2_SECOND, fenced_2023, mask_scores, v2_run_recorded
+    recorded = v2_run_recorded() if str(year) == V2_SECOND else True
+    fenced: set[int] = set()                                  # id(rec) of the fenced games
+
+    def masked(rid: int, text: str) -> str:
+        return mask_scores(text) if rid in fenced else text
+
     for rec in records:
         out_of_scope = in_scope_reason(rec, keys, division)
         if out_of_scope:
@@ -541,6 +552,10 @@ def build_labels(records: list, keys: dict, ours: list[Ours], teams: dict[int, s
         home, away, start = rec.get(keys["home"]), rec.get(keys["away"]), parse_start(rec.get(keys["start"]))
         desc = _desc(rec, keys)
         in_scope.append((rec, desc))
+        if fenced_2023(str(year), rec.get(keys["season_type"]) if keys.get("season_type") else None,
+                       served_week(rec.get(keys["week"]) if keys.get("week") else None)[0], recorded):
+            fenced.add(id(rec))
+            c["fenced_2023"] += 1
         if not home or not away or start is None:
             c["source_unusable_row"] += 1
             why_not[id(rec)] = "unusable source row (no team or start date)"
@@ -576,7 +591,7 @@ def build_labels(records: list, keys: dict, ours: list[Ours], teams: dict[int, s
         c["unmatched"] += 1
         if status != "no_fit":
             c[f"dateshift_{status}"] += 1
-        r.unmatched.append(desc + (f" — {note}" if note else ""))
+        r.unmatched.append(masked(id(rec), desc + (f" — {note}" if note else "")))
         why_not[id(rec)] = "unmatched" + (f" ({note})" if note else "")
         if hn in our_norms and an in our_norms:
             c["unmatched_both_names_known"] += 1             # a date / missing-game gap, not a name gap
@@ -597,7 +612,7 @@ def build_labels(records: list, keys: dict, ours: list[Ours], teams: dict[int, s
         c[f"join_via_{row['join_via']}"] += 1
         c[row["_kind"]] += 1
         if row.get("_dateshift"):
-            r.dateshift.append(f"match {mid} · {row['_desc']} · {row['_dateshift']}")
+            r.dateshift.append(masked(row["_rec"], f"match {mid} · {row['_desc']} · {row['_dateshift']}"))
         if row["neutral"]:
             c["neutral"] += 1
         elif row["neutral"] is None:
@@ -606,13 +621,13 @@ def build_labels(records: list, keys: dict, ours: list[Ours], teams: dict[int, s
         if not row["_week_ok"]:
             c["week_not_integer"] += 1
         if row["correction_reason"]:
-            r.corrections.append(f"match {mid} · {row['_desc']} · {row['correction_reason']}")
+            r.corrections.append(masked(row["_rec"], f"match {mid} · {row['_desc']} · {row['correction_reason']}"))
         if row["_our_season"] != row["season"]:
             c["season_disagree"] += 1
             r.season_disagree.append(f"match {mid} · {row['_desc']} · our season {row['_our_season']!r} "
                                      f"vs CFBD year {row['season']}")
         r.rows.append({k: v for k, v in row.items() if not k.startswith("_")})
-    r.unlabelled = [f"{desc} — {why_not[id(rec)]}" for rec, desc in in_scope if id(rec) in why_not]
+    r.unlabelled = [masked(id(rec), f"{desc} — {why_not[id(rec)]}") for rec, desc in in_scope if id(rec) in why_not]
     return r
 
 
@@ -923,6 +938,10 @@ def receipt_lines(r: YearResult, limit: int = SAMPLE, unmatched_names: bool = Fa
          f"ours unscored {c['ours_no_score']} · our season differs from the CFBD year {c['season_disagree']}",
          week_line(r),
          f"    aliases: usable {r.aliases_usable} · refused {len(r.alias_refused)}"]
+    if c["fenced_2023"]:
+        from src.walters.ncaa_backtest import V2_2023_FENCE_RULING, V2_2023_SCOPE
+        L.append(f"    2023 FENCE ({V2_2023_FENCE_RULING}): every score withheld in the lines below on "
+                 f"{c['fenced_2023']} in-scope game(s), {V2_2023_SCOPE}; the counts above stand")
     for src, tgt, why in r.alias_refused:
         L.append(f"      REFUSED alias {src!r} -> {tgt!r}: {why}")
     cov = fbs_coverage(scope, j)

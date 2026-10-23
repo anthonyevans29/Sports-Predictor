@@ -64,7 +64,7 @@ def come_line(code: str, c: dict) -> str:
 
 
 def lines(res: dict, season: str, declared: date) -> list[str]:
-    from src.walters.paper import WINDOW_GAMES, close_record_line
+    from src.walters.paper import WINDOW_GAMES, close_record_line, quality_lines
     L = [f"LEAGUES CLOSE RECEIPT (ARCHITECT 2026-10-23, addendum 155 item 4(a); 156 item 1; #322) · read-only · "
          f"season {season} · declaration {declared}"]
     dated = []
@@ -74,6 +74,7 @@ def lines(res: dict, season: str, declared: date) -> list[str]:
             continue
         L.append(f"{code} {season} · stored games {r['games']} (cancelled / postponed / stale_orphan {r['not_games']})")
         L.append(close_record_line(code, r["record"]))
+        L += quality_lines(code, r["quality"])
         L.append(come_line(code, r["to_come"]))
         if r["projected"]:
             p = r["projected"]
@@ -100,6 +101,7 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--season", default=SEASON, help="the season as the DB stores it (default 2026/27)")
     ap.add_argument("--declared", default=DECLARED.isoformat(), help="the declaration date (default 2026-11-06)")
+    ap.add_argument("--rows", action="store_true", help="print every parity row (default: the per-league lines only)")
     a = ap.parse_args(argv)
     f = db_file()
     if not f.is_file():
@@ -108,6 +110,16 @@ def main(argv=None) -> int:
     from src.walters.paper import LEAGUES, leagues_season
     for ln in lines(leagues_season(LEAGUES, a.season, declared), a.season, declared):
         print(ln)
+    from src.walters import leagues_candidate as lc
+    prod = lc.production_poisson()
+    if prod is None:
+        print("PARITY (158 item 2(a)): not computed: no production soccer model resolved (nothing faked)")
+        return 0
+    print(f"PARITY (158 item 2(a)): the production soccer model {prod[0]} (rho {prod[1]}, Elo goal coefficient "
+          f"{prod[2]}); the shadow path is leagues_candidate.predict_as_of, the gate path run_soccer_backtest")
+    for code in LEAGUES:
+        for ln in lc.parity_lines(lc.parity(code, prod[1], prod[2], season=a.season), rows=a.rows):
+            print(ln)
     return 0
 
 

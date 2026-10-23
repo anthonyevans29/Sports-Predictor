@@ -47,6 +47,7 @@ P&L, no position, no order, no export.
 from __future__ import annotations
 
 import math
+from collections import Counter
 from datetime import date, datetime, timedelta
 
 from src.walters import close as _close
@@ -683,6 +684,65 @@ LEAGUES = ("SA", "BL1", "FL1", "ELC")                  # the leagues lane's comp
 WINDOW_GAMES = 60                                      # addendum 155 item 4(b): the first 60 FINISHED games per league
 
 
+WEEKDAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+
+
+def _quality(q: dict, m, rows, tickers: dict, bucket: str) -> None:
+    """ARCHITECT 2026-10-23, addendum 158 item 2(b): one FINISHED game's capture quality, by the kickoff's UTC weekday.
+    bucket: the close record's own outcome for the game ('n' = a qualifying three-way close, R42(b)). The controlling
+    capture is the one three_way_close reads (the last before kickoff holding a leg): its age (kickoff - captured_at),
+    its provenance (the legs' source, and the events their stored tickers name). SUPERSEDED: the controlling capture
+    forms no close (incomplete, over the cap, other checks) while an OLDER capture before kickoff would have (the R42(b)
+    rule substitutes none: it is counted, never used)."""
+    from src.walters import kalshi_legs
+    day = WEEKDAYS[m.utc_date.weekday()] if m.utc_date else "?"
+    d = q["by_weekday"].setdefault(day, Counter())
+    d["finished"] += 1
+    d[bucket] += 1
+    caps, t = _last_capture(rows, m.utc_date)
+    if t is None:
+        return
+    q.setdefault("ages", {}).setdefault(day, []).append((m.utc_date - t).total_seconds() / 3600.0)
+    legs = [r for legs in caps[t].values() for r in legs]
+    q["sources"].update(str(getattr(r, "source", None)) for r in legs)
+    q["events"].update(kalshi_legs.event_of(tickers[r.id]) if tickers.get(r.id) else "(no ticker)" for r in legs)
+    if bucket.startswith("unpriced_") and bucket != "unpriced_none":
+        for older in sorted((x for x in caps if x < t), reverse=True):
+            cl, _ = _three_way(rows, older + timedelta(microseconds=1))
+            if cl is not None:
+                q["superseded"].append({"match_id": m.id, "kickoff": m.utc_date, "controlling": t, "why": bucket,
+                                        "older_complete": older})
+                break
+
+
+def quality_lines(code: str, q: dict) -> list[str]:
+    """The capture-quality lines of the leagues receipt (158 item 2(b))."""
+    import statistics
+    L = [f"  - {code} · capture quality (158 item 2(b)), by the kickoff's UTC weekday:"]
+    for day in WEEKDAYS:
+        d = q["by_weekday"].get(day)
+        if not d:
+            continue
+        ages = q.get("ages", {}).get(day, [])
+        age = (f" · controlling capture age median {statistics.median(ages):.1f} h (min {min(ages):.1f}, max "
+               f"{max(ages):.1f})" if ages else " · no capture")
+        L.append(f"    {day}: finished {d['finished']} · qualifying close {d['n']} ({d['n'] / d['finished']:.0%}) · "
+                 f"missing {d['unpriced_none']} · incomplete {d['unpriced_incomplete']} · over-cap {d['unpriced_cap']} · "
+                 f"other checks {d['unpriced_other']} · mismatched {d['mismatched']} · no 90-minute result "
+                 f"{d['no_result']}{age}")
+    L.append("    provenance of the controlling captures' legs: source " + (", ".join(
+        f"{k} {v}" for k, v in sorted(q["sources"].items())) or "none") + " · events " + (", ".join(
+        f"{k} {v}" for k, v in sorted(q["events"].items())[:8]) or "none")
+             + (f" (+{len(q['events']) - 8} more)" if len(q["events"]) > 8 else ""))
+    L.append(f"    superseded (a later capture forms no close where an older one would; never substituted): "
+             f"{len(q['superseded'])}")
+    for c in q["superseded"]:
+        L.append(f"      match {c['match_id']} · kickoff {c['kickoff']:%a %Y-%m-%d %H:%M}Z · controlling capture "
+                 f"{c['controlling']:%Y-%m-%d %H:%M:%S}Z ({c['why'][len('unpriced_'):]}) · an older complete capture "
+                 f"{c['older_complete']:%Y-%m-%d %H:%M:%S}Z")
+    return L
+
+
 def leagues_season(codes, season: str, declared: date, now: datetime | None = None) -> dict:
     """ARCHITECT 2026-10-23, addendum 155 item 4(a) and addendum 156 item 1: per league, the season's games as the
     close's record reads them. Read-only: one session, rolled back.
@@ -722,8 +782,13 @@ def leagues_season(codes, season: str, declared: date, now: datetime | None = No
             mism = kalshi_legs.mismatched(s, [m.id for m in fin]) if fin else {}
             tickers, current, homes = _three_way_guards(s, [m.id for m in fin], snaps)
             rec = _empty(len(fin), KIND_THREE)
+            quality = {"by_weekday": {}, "superseded": [], "sources": Counter(), "events": Counter()}
+            buckets = ("n", "no_result", "mismatched", *(key for key, _ in UNPRICED))
             for m in fin:
+                before = {k: rec[k] for k in buckets}
                 _score_three(rec, m, snaps.get(m.id, []), mism, tickers, homes, current.get(m.id))
+                _quality(quality, m, snaps.get(m.id, []), tickers,
+                         next(k for k in buckets if rec[k] != before[k]))
             come = {"n": len(ahead), "close": 0, **{key: 0 for key, _ in UNPRICED}}
             for m in ahead:
                 cl, why = _three_way(snaps.get(m.id, []), None)
@@ -732,7 +797,7 @@ def leagues_season(codes, season: str, declared: date, now: datetime | None = No
                         and m.utc_date.date() >= declared]
             nth = fixtures[WINDOW_GAMES - 1] if len(fixtures) >= WINDOW_GAMES else None
             out[code] = {"games": len(games), "seasons_stored": seasons, "not_games": sum(
-                status[m.id] in NOT_GAMES for m in games), "record": rec, "to_come": come,
+                status[m.id] in NOT_GAMES for m in games), "record": rec, "to_come": come, "quality": quality,
                 "from_declared": len(fixtures),
                 "projected": None if nth is None else {"date": nth.utc_date.date(), "match_id": nth.id}}
         s.rollback()

@@ -7,3 +7,10 @@
   - The projection reads the stored fixtures (cancelled, postponed and stale_orphan left out) whose kickoff UTC date is on or after 2026-11-06.
   - `close_record`'s row read and guard inputs are extracted unchanged into `_kalshi_snaps` and `_three_way_guards`; its tests pass unchanged.
 - Step (c) of the leagues lane is appended from the laptop console's date, in this PR, before merge.
+- **Addendum 158 item 2(a)(b), built into this receipt:**
+  - (a) `leagues_candidate.predict_as_of` rebuilds the gate's walk for each fixture from the finished regular-round games strictly before its kickoff. The parity lines compare it with `run_soccer_backtest`, row for row. The test league proves equality within 1e-12, and the laptop console is the receipt for 2026/27.
+  - (b) Capture quality by kickoff weekday, the controlling capture's age and provenance, and the superseded cases. The ELC 10-19 midweek board, if it is one, is listed among those cases.
+- **A finding, for the architect:** the shadow export of the expansion leagues (`soccer_expansion.price_upcoming`, `export-soccer-expansion-shadow`) is NOT the gate's walk.
+  - It walks Elo over every finished game of every stage, with no same-kickoff batching, and takes its strengths from all finished games at once.
+  - The receipt prints its divergence from the gate on the same games.
+  - I have not changed it. That export also serves PD and the expansion confirmation, so switching it to `predict_as_of` is for the architect to rule. The leagues candidate's prospective path is `predict_as_of`.

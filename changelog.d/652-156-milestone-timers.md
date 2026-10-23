@@ -1,4 +1,4 @@
-## 2026-10-23 (#000: 156-milestone-timers — ARCHITECT addendum 154 item 3 and addendum 155 item 8(b), as one small PR by addendum 156 item 4)
+## 2026-10-23 (#652: 156-milestone-timers — ARCHITECT addendum 154 item 3 and addendum 155 item 8(b), as one small PR by addendum 156 item 4)
 - The roadmap print's milestones: a milestone may carry `done` (null or {date, receipt}, a step's shape). A done milestone prints `<title> · <due_on> · done <date>` and is never counted overdue. Its due_on stays as written, so no date moves.
 - .github/ledger/taxonomy.json: the milestone "Executable-edge ruling (2 wks of ladders)" is done 2026-10-20, receipt addendum 146 item 1 (the K-track ruled BINDING). docs/LEDGER.md's milestone table says so.
 - A CI check (tests/test_hosting_pack.py): every shipped `deploy/hosting/systemd/*.timer` is on exactly one T11 list, every T11 name is shipped, and hosting-h1.md's Schedule table has one row per shipped timer and none other. The table gained its four missing rows (sp-intl-daily, sp-mlb-history, sp-window, sp-closing-watch).

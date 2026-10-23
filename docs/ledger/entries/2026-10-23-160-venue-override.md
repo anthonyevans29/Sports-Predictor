@@ -5,6 +5,7 @@
   - `intl-venue-resolve` honours the same table and never fetches an overridden venue.
   - `intl-venue-override` re-derives the rows at those venues from their stored countries, with nothing fetched, and prints receipt (b). It is a dry run unless `--apply`.
   - `--provider-check` prints the provider's `/venues?id` answer for each overridden venue: the receipt the 3989 entry waits on.
+  - A row's `derived_at` (the flag's ingest time) now moves whenever the ingest or the re-derivation changes the row, and stays put otherwise. 159 item 2's receipt reads it ("with each flag's ingest time").
 - Readings for the architect (as built):
   - The stored `venue_country` stays the provider's, and the row's `rule` names the override. The flag from the provider's country alone therefore stays computable (`provider_flag`), which the 11-12 read reported both ways needs (item 3). That read itself is 159 item 2's receipt, not built here.
   - The cohort is intl_shadow's, frozen when the registry holds it, else the provisional first 60. The receipt says so, and says when it cannot read it.

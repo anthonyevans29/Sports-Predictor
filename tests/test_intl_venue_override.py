@@ -98,7 +98,14 @@ def test_rederive_dry_run_apply_and_rerun(fresh_db):
     assert "Andorra v Latvia · venue 2618 (provider: Spain) · home country Andorra · neutral_v3 neutral -> home" in text
     assert "venue 3989 (provider: Ukraine) · home country Finland · neutral_v3 neutral -> unknown" in text
 
+    from src.db.database import session_scope
+    from src.db.schema import IntlMatchVenue
+    with session_scope() as s:
+        stamp0 = {m: s.get(IntlMatchVenue, m).derived_at for m in ids.values()}
     iv.rederive(apply=True, cohort_ids=set())
+    with session_scope() as s:                                                 # the flag's ingest time moves with it
+        stamp1 = {m: s.get(IntlMatchVenue, m).derived_at for m in ids.values()}
+    assert stamp1[ids["and_home"]] > stamp0[ids["and_home"]] and stamp1[ids["other"]] == stamp0[ids["other"]]
     got = _v3(ids)
     assert got["and_home"][0] is False and got["and_home"][1] == "Spain"       # the provider's country is kept
     assert iv.OVERRIDE_TAG in got["and_home"][2]

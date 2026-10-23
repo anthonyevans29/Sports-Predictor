@@ -109,6 +109,7 @@ def sync(save_dir: str, venues_dir: str | None = None, plan_only: bool = False, 
     from src.db.database import session_scope
     from src.db.schema import Competition, IntlMatchVenue, Match, Team
     from src.ingestion.intl_history import CODE_BY_NAME
+    from src.timeutil import utc_now_naive
 
     root = root or os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     for d in (save_dir, venues_dir):
@@ -165,7 +166,11 @@ def sync(save_dir: str, venues_dir: str | None = None, plan_only: bool = False, 
         for mid, vid, hc in rows:
             vc = venue_country.get(vid) if vid is not None else None
             flag, rule = derive(vid, vc, hc)                 # addendum 160 item 2: the keyed override, if any
-            r = s.get(IntlMatchVenue, mid) or IntlMatchVenue(match_id=mid, rule=rule)
+            r = s.get(IntlMatchVenue, mid)
+            if r is None:
+                r = IntlMatchVenue(match_id=mid, rule=rule)
+            elif (r.venue_id, r.venue_country, r.home_country, r.neutral_v3, r.rule) != (vid, vc, hc, flag, rule):
+                r.derived_at = utc_now_naive()               # the flag's ingest time moves only when the row does
             r.venue_id, r.venue_country, r.home_country, r.neutral_v3, r.rule = vid, vc, hc, flag, rule
             s.add(r)
             out["unknown" if flag is None else "neutral" if flag else "home"] += 1
@@ -203,6 +208,7 @@ def rederive(apply: bool = False, cohort_ids: set[int] | None = None) -> dict:
 
     from src.db.database import session_scope
     from src.db.schema import Competition, IntlMatchVenue, Match, Team
+    from src.timeutil import utc_now_naive
 
     out = {"rows_read": 0, "flag_changed": [], "rule_only": 0, "unchanged": 0, "applied": apply}
     with session_scope() as s:
@@ -236,7 +242,7 @@ def rederive(apply: bool = False, cohort_ids: set[int] | None = None) -> dict:
                     "venue_country": v.venue_country, "home_country": v.home_country, "before": v.neutral_v3,
                     "after": flag, "cohort": cohort_ids is not None and m.id in cohort_ids})
             if apply:
-                v.neutral_v3, v.rule = flag, rule
+                v.neutral_v3, v.rule, v.derived_at = flag, rule, utc_now_naive()   # the flag's ingest time
         if not apply:
             s.rollback()
     out["cohort_known"] = cohort_ids is not None

@@ -5679,6 +5679,17 @@ def intl_elo_confirm_cmd(freeze_cohort, substitute, record, ruling, no_fetch):
     if r["n"]:
         click.echo(f"  so far: log-loss {r['log_loss']:.4f} · naive {r['naive_log_loss']:.4f} · reference (naive − 0.010) "
                    f"{r['reference_log_loss']:.4f} · bar {r['bar']:.4f} — not a verdict until the cohort is complete")
+        try:
+            rp = us.confirmation_read(flags="provider")       # addendum 160 item 3: reported both ways
+        except us.ShadowRefused as e:
+            click.echo(f"  the same read on the provider's flags: not read ({e})")
+        else:
+            same = all(rp.get(k) == r.get(k) for k in ("n", "log_loss", "naive_log_loss"))
+            click.echo(f"  the same read on the provider's flags (no venue-country override; reported, the verdict is "
+                       f"taken on the stored, corrected flags — {us.PROVIDER_FLAGS_RULING}): {rp['n']}/{rp['n_games']} "
+                       f"labelled" + (f" · log-loss {rp['log_loss']:.4f} · naive {rp['naive_log_loss']:.4f} · reference "
+                                      f"{rp['reference_log_loss']:.4f}" if rp["n"] else "")
+                       + (" · identical to the stored-flag read" if same else ""))
     if not record:
         return
     if not ruling:

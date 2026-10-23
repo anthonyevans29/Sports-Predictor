@@ -1,0 +1,11 @@
+**2026-10-23 — BUILT (ARCHITECT addendum 159 item 2, #336; addendum 160 item 3; lane unl; before 2026-11-11): the venue-input provenance receipt and the read reported both ways. Nothing run.**
+- **159 item 2, verbatim:** "UNL, venue-input provenance (#336, ruling). Confirmation replays the frozen method on the stored results and the stored neutral_v3 flags; shadow grading reads the pre-kickoff files. Both stand as built. Code: a read-only receipt before 11-11 — the input snapshot the read uses (ids, results, neutral_v3 per cohort fixture, with each flag's ingest time), the fixtures whose stored flag changed after their pre-kickoff shadow file was written, and the replayed vs saved probability on those; missing shadow files listed as missing. Any material difference comes to me; nobody picks the better set. #336's closing receipt is this."
+- **160 item 3, verbatim in part:** "The read on 11-12 is reported BOTH ways (stored flags; corrected flags); the verdict is taken on the corrected inputs; the frozen method is untouched."
+- Built on the venue-override branch, which this needs: its `provider_flag` and the `derived_at` that now moves with a flag.
+  - The receipt, read-only.
+  - `intl-elo-confirm`'s second line, the provider-flag read. `--record` is unchanged.
+- Readings for the architect (as built):
+  - "Changed after the file" means one of two things: the stored flag differs from the one the file priced, or the flag's ingest time is later than the file's export time.
+  - The replay walks the stored stream to the file's export time, as the shadow did when it wrote the file. So a result stored since then does not enter the comparison.
+  - "Material" is a |diff| over 5e-5. The file stores 4 decimals, so anything at or under that is rounding.
+  - "The stored flags" in 160 item 3 are read here as the provider's, before any override. The corrected flags are the stored ones once `intl-venue-override --apply` has run.

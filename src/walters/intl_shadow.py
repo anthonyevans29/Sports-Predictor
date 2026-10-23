@@ -407,16 +407,42 @@ def grade(days: int = 30, export_dir: str = "exports", now: datetime | None = No
             "buckets": {name: _agg([r for r in same if r["bucket"] == name]) for name, _, _ in DIV_BUCKETS}}
 
 
-def confirmation_read(now: datetime | None = None) -> dict:
+PROVIDER_FLAGS_RULING = ("ARCHITECT 2026-10-23, addendum 160 item 3: \"The read on 11-12 is reported BOTH ways (stored "
+                         "flags; corrected flags); the verdict is taken on the corrected inputs; the frozen method is "
+                         "untouched.\"")
+
+
+def provider_flags(s) -> dict[int, bool | None]:
+    """{match id: neutral_v3 from the provider's venue country alone} for every intl_match_venue row: the derivation
+    without the keyed venue-country overrides (intl_venues.provider_flag), so the read can be reported on the flags
+    as the provider served them beside the stored, corrected ones (addendum 160 item 3)."""
+    from sqlalchemy import select
+
+    from src.db.schema import IntlMatchVenue
+    from src.ingestion.intl_venues import provider_flag
+    return {v.match_id: provider_flag(v.venue_country, v.home_country)
+            for v in s.execute(select(IntlMatchVenue)).scalars()}
+
+
+def confirmation_read(now: datetime | None = None, flags: str = "stored") -> dict:
     """The plan's read so far: the first-60 set priced predict-then-update
-    (walk-forward over the whole stream), model log-loss vs naive − 0.010."""
+    (walk-forward over the whole stream), model log-loss vs naive − 0.010.
+    `flags` "stored" (the verdict's): the stored neutral_v3, overrides applied; "provider": every game's flag from the
+    provider's venue country alone (addendum 160 item 3, reported, never the verdict)."""
+    from dataclasses import replace
+
     from src.db.database import session_scope
     from src.walters import intl_elo as ie
 
+    if flags not in ("stored", "provider"):
+        raise ValueError(flags)
     now = now or utc_now_naive()
     e, c_mult, k_mult = frozen()
     with session_scope() as s:
         games, _ = ie.load(s, rule="v3")
+        if flags == "provider":
+            pf = provider_flags(s)
+            games = [replace(g, neutral=pf[g.id]) if g.id in pf else g for g in games]
         co = cohort(e, s)
         elig = eligible_fixtures(s, e)
         status = {f["id"]: f["status"] for f in elig}
@@ -443,7 +469,7 @@ def confirmation_read(now: datetime | None = None) -> dict:
     n = len(scored)
     plan = e["confirmation_plan"]
     pending = sorted(set(co["ids"]) - set(scored))
-    out = {"n": n, "n_games": plan["n_games"], "bar": plan["bar"], "scored_ids": scored,
+    out = {"n": n, "n_games": plan["n_games"], "bar": plan["bar"], "scored_ids": scored, "flags": flags,
            "first_game_at": first.strftime("%Y-%m-%dT%H:%M:%SZ") if first else None,
            "cohort_state": co["state"], "cohort_size": len(co["ids"]), "eligible_stored": co["eligible_stored"],
            "pending": [{"id": i, "status": status.get(i, "not stored")} for i in pending],

@@ -132,8 +132,9 @@ class Game:
     cfbd_id: int | None = None
     cfbd_season: str | None = None
     label_fetched_at: datetime | None = None
-    # ncaa-elo-v2 D10 (ARCHITECT 2026-10-16, addendum 81 item 2): CFBD's week as served, from the side table once the
-    # 2023 ingest PR stores it; None until then (law 4: unknown stays unknown). Only the 2023 second read reads it.
+    # ncaa-elo-v2 D10 (ARCHITECT 2026-10-16, addendum 81 item 2): CFBD's week as served, from the side table's week
+    # column (migrate_ncaa_cfbd_week.py; addendum 158 item 1(a)); None on a DB without the column and on a label whose
+    # ingest predates it (law 4: unknown stays unknown). Only the 2023 second read reads it.
     week: int | None = None
 
     @property
@@ -346,7 +347,7 @@ def game_from_rows(m, label=None) -> Game:
                     m.stage or "", match_id=m.id)
     corrected = (label.home_score, label.away_score) != (m.home_score, m.away_score)
     st = label.__dict__.get("season_type") if hasattr(label, "__dict__") else None   # unloaded pre-J4: None
-    wk = label.__dict__.get("week") if hasattr(label, "__dict__") else None          # no column yet: None (D10)
+    wk = label.__dict__.get("week") if hasattr(label, "__dict__") else None          # unloaded pre-week: None (D10)
     if label.orientation == "swapped":
         return Game(m.away_team_id, m.home_team_id, m.season, m.utc_date, label.away_score, label.home_score,
                     m.stage or "", neutral=label.neutral, label_source="cfbd", orientation="swapped",

@@ -83,7 +83,9 @@ def drop_db() -> None:
     otherwise it survives, init_db() recreates an empty ncaa_cfbd_labels, and
     the ingest's guard reads "migrated" for a table the migration never made.
     The v2 marker (ncaa_cfbd_v2_migration, written only by
-    migrate_ncaa_cfbd_v2.py, #367) is dropped for the same reason, and so is
+    migrate_ncaa_cfbd_v2.py, #367) and the week marker
+    (ncaa_cfbd_week_migration, written only by migrate_ncaa_cfbd_week.py;
+    addendum 158 item 1(a)) are dropped for the same reason, and so is
     kalshi_settled_markets_migration (written only by
     migrate_kalshi_settled_markets.py; Codex on #521). They are the only
     unmapped tables in the schema (migrate_*.py otherwise add columns/indexes to
@@ -91,12 +93,13 @@ def drop_db() -> None:
     from sqlalchemy import text
 
     from src.ingestion.kalshi_history import MIGRATION_MARKER as KALSHI_HISTORY_MARKER
-    from src.ingestion.ncaa_cfbd import MIGRATION_MARKER, V2_MIGRATION_MARKER
+    from src.ingestion.ncaa_cfbd import MIGRATION_MARKER, V2_MIGRATION_MARKER, WEEK_MIGRATION_MARKER
 
     Base.metadata.drop_all(_engine)
     with _engine.begin() as conn:
         conn.execute(text(f"DROP TABLE IF EXISTS {MIGRATION_MARKER}"))
         conn.execute(text(f"DROP TABLE IF EXISTS {V2_MIGRATION_MARKER}"))
+        conn.execute(text(f"DROP TABLE IF EXISTS {WEEK_MIGRATION_MARKER}"))
         conn.execute(text(f"DROP TABLE IF EXISTS {KALSHI_HISTORY_MARKER}"))
 
 

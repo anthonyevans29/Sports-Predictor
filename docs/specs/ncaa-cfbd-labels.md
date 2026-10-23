@@ -5,6 +5,38 @@ SCOPE + JOIN (J1–J4) built 2026-10-08, re-ingest from the saved payloads
 pending.** No model change. GATE #79 (frozen 2026-09-30) is unchanged and stays
 SUSPENDED-PENDING-DATA until the architect reads the coverage receipt.
 
+## THE WEEK AND THE 2023 INGEST (ARCHITECT 2026-10-23, addendum 158 item 1(a); ncaa-elo-v2 D10)
+
+Verbatim: "(a) The 2023 ingest (D10: the CFBD 2023 both-FBS labels with the WEEK persisted on NCAACFBDLabel — the
+second read scores from week 5, so the field is a precondition — plus the provider's 2023 listing) is already due
+2026-11-01 in the spec but is NOT a roadmap step: add it as a step (owner code, due 2026-11-01, "the 2023 ingest with
+the week field, its census by --preflight read by me")."
+
+- `ncaa_cfbd_labels.week`: CFBD's `week` as served. `migrate_ncaa_cfbd_week.py` adds the nullable column and its own
+  one-row marker (`ncaa_cfbd_week_migration`). A non-dry ingest refuses until that marker exists, because an
+  init_db()-created column does not count. A `--dry-run` does not need it.
+- An integer week is stored as served. A week served as anything else (a string, a float) is stored NULL and counted
+  (`served but not an integer`, law 4: never parsed into a number). A payload with no week field stores NULL on every
+  row, and the receipt says NOT SERVED.
+- The receipt adds two lines, counts only:
+  - our stored NCAA matches of the year by status (the provider's listing the labels join to);
+  - the joined rows by season_type and week.
+- A label written before the column reads week None until its season is ingested again; the re-ingest updates it.
+- The readers (`ncaa_backtest.game_from_rows`, `label_load_options`) read the week where the column exists and None
+  where it does not. Only the 2023 second read reads it.
+
+The operator's block (laptop; nothing here runs before the PR merges):
+
+1. The `.backup` (law 5).
+2. `python migrate_ncaa_cfbd_week.py`
+3. `python cli.py sync-teams --competition NCAA --season 2023`, then
+   `python cli.py sync-matches --competition NCAA --season 2023`: the provider's 2023 listing, whole
+   (3,720 listed at the 10-13 probe). Teams before matches, as for every new competition-season.
+4. `python cli.py ncaa-cfbd-labels --year 2023 --dry-run --unmatched-names`, then the same without `--dry-run`
+   (API; the payload is saved under `exports/cfbd/`). Paste both receipts.
+5. `python cli.py ncaa-gate --id ncaa-elo-v2 --preflight`: the census (the second read's stream by season_type and by
+   CFBD week, its baseline, its scored-set size), to the architect.
+
 ## SCOPE + JOIN (ARCHITECT 2026-10-08, addendum 10 item 3) — DATA LANE
 
 No model constant changed. #79's declaration and acceptance numbers are untouched. The ncaa-elo-v1r declaration is NOT written here (no registry write).

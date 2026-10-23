@@ -147,6 +147,7 @@ v2's `Spec` differs in data only. The new commands are `ncaa-gate --id ID` and `
 - **Scored.** 2023 games whose season_type is exactly 'regular' and whose week is 5 or later.
 - **The baseline (D4 of the second read).** 2023 'regular' games with a week before 5, non-neutral; 0.5 at a neutral site.
 - **The week.** CFBD's `week` as served. The label table does not store it yet: the 2023 ingest PR (item 4, by 2026-11-01) adds it. Until then every game reads week unknown (`Game.week` None, law 4). A 'regular' game with no week is walked, never scored and never in the baseline, and is counted in the census. If CFBD serves a week 0, its games sit in the baseline with weeks 1-4: "weeks before 5".
+  - **Built by the 2023 ingest PR** (ARCHITECT 2026-10-23, addendum 158 item 1(a)): `ncaa_cfbd_labels.week` (`migrate_ncaa_cfbd_week.py`, column plus marker; the ingest writes only after it). An integer week is stored as served; a week served as anything else is stored NULL and counted (law 4), so it reads week unknown as above. A label written before the column reads None until its season is ingested again.
 - **Its preconditions never refuse the run.** These are 2023 covered (L2 + L3), its baseline defined, and 500 scored. They are printed at `--preflight`, and the architect reads the census before the run. They are carried in the reservation, and they decide the second read's result:
   - NOT READ, when 2023 is not covered;
   - INVALID, when the baseline is undefined or fewer than 500 games are scored. Then the architect rules again.

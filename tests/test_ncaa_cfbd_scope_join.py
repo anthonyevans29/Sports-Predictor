@@ -252,7 +252,7 @@ def test_build_labels_fills_season_type_as_served():
 
 
 def _old_schema(eng):
-    """The side table as #333 shipped it: no season_type column."""
+    """The side table as #333 shipped it: no season_type column (and no week, D10's column)."""
     from src.db.database import init_db
 
     import migrate_ncaa_cfbd_labels as mig
@@ -260,7 +260,8 @@ def _old_schema(eng):
     assert mig.main() == 0
     with eng.begin() as conn:
         conn.execute(text("ALTER TABLE ncaa_cfbd_labels DROP COLUMN season_type"))
-    assert "season_type" not in {c["name"] for c in inspect(eng).get_columns("ncaa_cfbd_labels")}
+        conn.execute(text("ALTER TABLE ncaa_cfbd_labels DROP COLUMN week"))
+    assert not {"season_type", "week"} & {c["name"] for c in inspect(eng).get_columns("ncaa_cfbd_labels")}
 
 
 def _world(s):
@@ -290,6 +291,7 @@ J4_RECS = [rec(9501, "J4 A", "J4 B", 31, 10, "2084-09-06T19:00:00.000Z"),
 
 def test_migration_adds_nullable_column_idempotently_and_ingest_fills_it(fresh_db, tmp_path, monkeypatch, capsys):
     import migrate_ncaa_cfbd_v2 as mig_st
+    import migrate_ncaa_cfbd_week as mig_week
     from src.db.database import session_scope
 
     _old_schema(fresh_db)
@@ -310,6 +312,7 @@ def test_migration_adds_nullable_column_idempotently_and_ingest_fills_it(fresh_d
     assert mig_st.main() == 0 and "already exists" in capsys.readouterr().out          # idempotent
     col = {c["name"]: c for c in inspect(fresh_db).get_columns("ncaa_cfbd_labels")}["season_type"]
     assert col["nullable"] is True
+    assert mig_week.main() == 0
     lines = []
     assert nc.run([2084], from_file=str(f), out=lines.append) == 0
     with session_scope() as s:
@@ -383,10 +386,11 @@ def test_ingest_receipt_states_the_coverage_and_lists_every_unlabelled_game():
 def test_l2_coverage_is_the_latest_record_and_never_opens_the_payload(fresh_db, tmp_path, monkeypatch):
     import migrate_ncaa_cfbd_labels as mig
     import migrate_ncaa_cfbd_v2 as mig2
+    import migrate_ncaa_cfbd_week as mig_week
     from src.db.database import init_db, session_scope
 
     init_db()
-    assert mig.main() == 0 and mig2.main() == 0                  # both markers the ingest requires
+    assert mig.main() == 0 and mig2.main() == 0 and mig_week.main() == 0  # the markers the ingest requires
     with session_scope() as s:
         _world(s)
     monkeypatch.setattr(nc, "ALIAS_FILE", tmp_path / "aliases.json")
@@ -424,11 +428,12 @@ def test_coverage_cli_prints_scope_fact_v1r_stream_and_79_info(fresh_db, tmp_pat
 
     import migrate_ncaa_cfbd_labels as mig
     import migrate_ncaa_cfbd_v2 as mig2
+    import migrate_ncaa_cfbd_week as mig_week
     from cli import cli
     from src.db.database import init_db, session_scope
 
     init_db()
-    assert mig.main() == 0 and mig2.main() == 0                  # both markers the ingest requires
+    assert mig.main() == 0 and mig2.main() == 0 and mig_week.main() == 0  # the markers the ingest requires
     with session_scope() as s:
         _world(s)
     monkeypatch.setattr(nc, "ALIAS_FILE", tmp_path / "aliases.json")
@@ -450,10 +455,11 @@ def test_coverage_cli_prints_scope_fact_v1r_stream_and_79_info(fresh_db, tmp_pat
 def _setup(fresh_db, tmp_path, monkeypatch):
     import migrate_ncaa_cfbd_labels as mig
     import migrate_ncaa_cfbd_v2 as mig2
+    import migrate_ncaa_cfbd_week as mig_week
     from src.db.database import init_db, session_scope
 
     init_db()
-    assert mig.main() == 0 and mig2.main() == 0                  # both markers the ingest requires
+    assert mig.main() == 0 and mig2.main() == 0 and mig_week.main() == 0  # the markers the ingest requires
     with session_scope() as s:
         ms = _world(s)
     monkeypatch.setattr(nc, "ALIAS_FILE", tmp_path / "aliases.json")

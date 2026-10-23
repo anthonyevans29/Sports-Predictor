@@ -650,6 +650,10 @@ class NCAACFBDLabel(Base):
       / 'score-disagree: ...'). The stream reads THESE scores (ruling (4)).
     * season_type: CFBD's seasonType as served (J4, ARCHITECT 2026-10-08);
       NULL until the next ingest after migrate_ncaa_cfbd_v2.py.
+    * week: CFBD's week as served (ncaa-elo-v2 D10; ARCHITECT 2026-10-23,
+      addendum 158 item 1(a)); NULL until the next ingest after
+      migrate_ncaa_cfbd_week.py, and NULL for a week served as anything but
+      an integer.
     Created by migrate_ncaa_cfbd_labels.py. Upserted by match id, never
     deleted by the ingest.
     """
@@ -671,6 +675,10 @@ class NCAACFBDLabel(Base):
     # J4 (ARCHITECT 2026-10-08): CFBD's seasonType as served ('regular' / 'postseason' / ...), nullable,
     # added by migrate_ncaa_cfbd_v2.py, filled on the next ingest. DATA ONLY: nothing reads it as a rule.
     season_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    # ncaa-elo-v2 D10 (ARCHITECT 2026-10-23, addendum 158 item 1(a)): CFBD's week as served (an integer; anything
+    # else NULL, law 4), nullable, added by migrate_ncaa_cfbd_week.py, filled on the next ingest. Only the 2023
+    # second read reads it (scored from week 5, its baseline from the weeks before).
+    week: Mapped[int | None] = mapped_column(Integer, nullable=True)
     payload_file: Mapped[str | None] = mapped_column(String(256))              # the saved payload (exports/)
     fetched_at: Mapped[datetime] = mapped_column(DateTime)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now_naive)

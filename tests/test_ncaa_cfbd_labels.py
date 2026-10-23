@@ -177,11 +177,12 @@ def test_two_source_games_on_one_match_are_both_refused():
 
 def test_dry_run_writes_nothing_then_ingest_upserts_and_never_touches_matches(tmp_path, pinned):
     import migrate_ncaa_cfbd_v2 as mig2
+    import migrate_ncaa_cfbd_week as mig_week
     import migrate_ncaa_cfbd_labels as mig
     from cli import cli
 
     w = world()
-    assert mig.main() == 0 and mig2.main() == 0                    # the markers the ingest requires
+    assert mig.main() == 0 and mig2.main() == 0 and mig_week.main() == 0  # the markers the ingest requires
     ids = list(w["matches"].values())
     f = tmp_path / "payload.json"
     f.write_text(json.dumps(RECS))
@@ -267,7 +268,11 @@ def test_init_db_alone_does_not_satisfy_the_guard_migration_does(tmp_path, pinne
     with pytest.raises(nc.CFBDError, match="migrate_ncaa_cfbd_v2.py"):
         nc.run([2083], from_file=str(f), out=lines.append)
     import migrate_ncaa_cfbd_v2 as mig2
+    import migrate_ncaa_cfbd_week as mig_week
     assert mig2.main() == 0
+    with pytest.raises(nc.CFBDError, match="migrate_ncaa_cfbd_week.py"):      # D10: the week's marker too
+        nc.run([2083], from_file=str(f), out=lines.append)
+    assert mig_week.main() == 0
     lines = []
     assert nc.run([2083], from_file=str(f), out=lines.append) == 0
     assert any(x.startswith("  WRITTEN ncaa_cfbd_labels:") for x in lines)
@@ -391,11 +396,12 @@ def test_unmatched_names_flag_lists_every_name(tmp_path, pinned):
 def test_api_mode_key_never_printed_and_payload_saved_under_save_dir(tmp_path, pinned, monkeypatch):
     import config
     import migrate_ncaa_cfbd_v2 as mig2
+    import migrate_ncaa_cfbd_week as mig_week
     import migrate_ncaa_cfbd_labels as mig
     from cli import cli
 
     world()
-    assert mig.main() == 0 and mig2.main() == 0                    # the markers the ingest requires
+    assert mig.main() == 0 and mig2.main() == 0 and mig_week.main() == 0  # the markers the ingest requires
     monkeypatch.setattr(config, "settings", dataclasses.replace(config.settings, cfbd_api_key=SENTINEL))
     seen = {}
 

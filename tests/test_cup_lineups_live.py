@@ -140,3 +140,26 @@ def test_a_fixture_with_no_provider_id_gets_a_failed_row_and_no_call():
     live.tick(KO - timedelta(minutes=15), adapter=ad)
     (row,) = _rows()
     assert row.status == "failed" and "no API-Football fixture id" in row.error and ad.calls == []
+
+
+
+def test_drop_db_drops_the_marker(tmp_path, monkeypatch):
+    """init-db --force: drop_all() drops mapped tables only, so the unmapped marker is dropped by name (the
+    ncaa_cfbd_labels_migration convention, Codex on #333); otherwise init_db() recreates an empty table that reads
+    as migrated. On a DB of its own: drop_db() acts on the module engine."""
+    from sqlalchemy import create_engine, inspect
+    from sqlalchemy.orm import sessionmaker
+
+    import src.db.database as db
+    eng = create_engine(f"sqlite:///{tmp_path / 'drop.db'}", future=True)
+    monkeypatch.setattr(db, "_engine", eng)
+    monkeypatch.setattr(db, "SessionLocal", sessionmaker(bind=eng, autoflush=False, future=True,
+                                                         expire_on_commit=False))
+    db.init_db()
+    _setup()
+    assert inspect(eng).has_table(live.MIGRATION_MARKER)
+    db.drop_db()
+    db.init_db()
+    assert not inspect(eng).has_table(live.MIGRATION_MARKER)
+    with pytest.raises(live.Refused, match="migrate_cup_lineup_observations.py has not run"):
+        live.tick(KO - timedelta(minutes=15), adapter=FakeAdapter([]))

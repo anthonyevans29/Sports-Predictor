@@ -175,6 +175,29 @@ def writer_of_record() -> str | None:
     return v if v in WRITERS else None
 
 
+# THE TIMER LISTS (ARCHITECT 2026-10-23, addendum 155 item 8(b)): hosting-h1.md T11 names every shipped timer on
+# exactly one of three lists; the host's /etc/sports-predictor/timers.enabled is the TIMERS it enabled (T11, "the list
+# H2 steps 2 and 6 reuse"). tests/test_hosting_pack.py checks the lists, the shipped units and the Schedule table
+# agree; sp_deploy's receipt names the shipped timers the host has not enabled.
+T11_LISTS = ("TIMERS", "MLB_LAPTOP_ONLY", "HELD_FOR_CUTOVER")
+TIMERS_ENABLED = Path("/etc/sports-predictor/timers.enabled")
+
+
+def t11_lists(runbook: Path | None = None) -> dict[str, list[str]]:
+    """T11's three shell lists from hosting-h1.md, by name, each in its written order."""
+    rb = Path(runbook or REPO / "docs" / "specs" / "hosting-h1.md").read_text(encoding="utf-8")
+    out = {}
+    for name in T11_LISTS:
+        block = rb[rb.index(f'{name}="') + len(name) + 2:]
+        out[name] = block[:block.index('"')].split()
+    return out
+
+
+def shipped_timers(repo: Path | None = None) -> list[str]:
+    """The timer units this checkout ships (deploy/hosting/systemd/*.timer), by file name, sorted."""
+    return sorted(p.name for p in (Path(repo or REPO) / "deploy" / "hosting" / "systemd").glob("*.timer"))
+
+
 def redact(line: str) -> str:
     for name in SECRET_ENV:
         val = os.environ.get(name) or _dotenv().get(name)

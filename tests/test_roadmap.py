@@ -68,7 +68,8 @@ def test_the_print_on_the_ruled_day_lists_each_lane_in_order_with_its_next_step(
     nxt = first["steps"][0]
     assert lines[i + 1] == f"  next: {nxt['what']} · {nxt['owner']} · due {nxt['due']} · in 29 days"
     assert "  Cutover ~Oct 8 · 2026-10-30 · in 17 days" in lines
-    assert "  Executable-edge ruling (2 wks of ladders) · 2026-10-20 · in 7 days" in lines
+    # done since addendum 154 item 3 (ruled 2026-10-20, addendum 146): the line says done whatever the day
+    assert "  Executable-edge ruling (2 wks of ladders) · 2026-10-20 · done 2026-10-20" in lines
     assert lines[-1] == "overdue: 0"
 
 
@@ -403,6 +404,12 @@ def test_an_iso_week_today_exits_2():
     ({"milestones": [{"due_on": "2026-10-30"}]}, "milestone 1: no title"),
     ({"milestones": [{"title": "Cutover ~Oct 8", "description": ""}]}, "milestone 'Cutover ~Oct 8': no due_on"),
     ({"milestones": [{"description": ""}]}, "milestone 1: no due_on"),
+    ({"milestones": [{"title": "M", "due_on": "2026-10-20", "done": "yes"}]},
+     "milestone 'M': done is neither null nor {date, receipt}"),
+    ({"milestones": [{"title": "M", "due_on": "2026-10-20", "done": {"date": "2026-10-32", "receipt": "r"}}]},
+     "milestone 'M': done date '2026-10-32' is not a real date"),
+    ({"milestones": [{"title": "M", "due_on": "2026-10-20", "done": {"date": "2026-10-20", "receipt": " "}}]},
+     "milestone 'M': done with no receipt"),
 ])
 def test_a_taxonomy_of_the_wrong_shape_exits_2_and_names_the_entry(tax, msg, tmp_path, monkeypatch):
     """Codex on #488: a taxonomy of valid JSON in the wrong shape refuses (exit 2, naming it), never a traceback."""
@@ -901,3 +908,25 @@ def test_the_real_roadmap_records_the_quarterback_probe_done():
     assert nx[0] == 2 and nx[1]["owner"] == "operator" and nx[1]["due"] == "2026-10-23"
     lines, _ = rm.report(date(2026, 10, 14))
     assert f"  next: {lane['steps'][1]['what']} · operator · due 2026-10-23 · in 9 days" in lines
+
+
+def test_a_done_milestone_prints_done_and_is_never_overdue(tmp_path, monkeypatch):
+    """ARCHITECT 2026-10-22, addendum 154 item 3: "mark the milestone done on 2026-10-20 with that reference. A done
+    flag only; no date moves." The due_on stays as written; the line says done, and the overdue count leaves it out."""
+    monkeypatch.setattr(rm, "TAXONOMY_PATH", _write(tmp_path, {"milestones": [
+        {"title": "M1", "due_on": "2026-10-20", "description": "",
+         "done": {"date": "2026-10-20", "receipt": "addendum 146 item 1"}},
+        {"title": "M2", "due_on": "2026-10-20", "description": "", "done": None}]}, "t.json"))
+    lines, _ = rm.report(date(2026, 10, 22))
+    assert "  M1 · 2026-10-20 · done 2026-10-20" in lines and "  M2 · 2026-10-20 · OVERDUE 2 days" in lines
+    plain, _ = rm.report(date(2026, 10, 22), taxonomy_path=_write(tmp_path, {"milestones": [
+        {"title": "M2", "due_on": "2026-10-20", "description": ""}]}, "t2.json"))
+    assert int(lines[-1].split()[-1]) == int(plain[-1].split()[-1])      # M1 adds nothing to the count; M2 adds 1
+
+
+def test_the_executable_edge_milestone_is_done_on_2026_10_20_and_its_date_did_not_move():
+    """Addendum 154 item 3 on the tracked taxonomy: done 2026-10-20, with the addendum 146 reference; due_on unchanged."""
+    ms = {m["title"]: m for m in json.loads(rm.TAXONOMY_PATH.read_text(encoding="utf-8"))["milestones"]}
+    m = ms["Executable-edge ruling (2 wks of ladders)"]
+    assert m["due_on"] == "2026-10-20" and m["done"]["date"] == "2026-10-20" and "addendum 146" in m["done"]["receipt"]
+    assert all("done" not in x for t, x in ms.items() if t != "Executable-edge ruling (2 wks of ladders)")

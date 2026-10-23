@@ -52,6 +52,29 @@ def _adapter_for_competition(code: str):
     return get_adapter(sport=_sport_for_competition(code))
 
 
+def _sync_lock(fn):
+    """THE SYNC'S DB LOCK (#569 RULED, ARCHITECT 2026-10-21, addendum 153 item 2): "a run holds the DB lock the host's
+    chains hold (the laptop's syncs today take none)". sync-teams and sync-matches run under sp_common.db_lock, the
+    chains' own flock (SP_LOCK, else logs/db.lock), so a sync run by hand never overlaps a chain's or a closing run's
+    writes (two overlapping runs each created a row for one gamePk: #569's twins). A sync run as a step of a run that
+    already holds it (sp_common.lock_held_by_caller: HELD_ENV names an ancestor's pid, set by db_lock and inherited by
+    every step) takes no second lock: it would wait on its own run. Waiting prints one line. The service takes the
+    same lock at its own write boundary (service._db_lock), so the admin UI's sync jobs hold it too (Codex on #650);
+    here it also covers the MLB api-sports fallback, which does not go through the service."""
+    import functools
+
+    @functools.wraps(fn)
+    def run(*a, **k):
+        import sys as _sys
+        from pathlib import Path as _P
+        _sys.path.insert(0, str(_P(__file__).resolve().parent / "deploy" / "hosting"))
+        import sp_common as _spc
+        with _spc.sync_lock(on_wait=lambda p: print(f"… waiting for the DB lock {p} (a chain or closing run holds it)",
+                                                    flush=True)):
+            return fn(*a, **k)
+    return run
+
+
 def _mlb_fallback(code: str) -> bool:
     from src.ingestion.mlb_apisports import fallback_engaged
     return fallback_engaged(code)
@@ -179,6 +202,7 @@ def sync_competitions_cmd(sport: str):
 @cli.command("sync-teams")
 @click.option("--competition", "competition_code", required=True, help="Code, e.g. PL, FAC, CL, MLB")
 @click.option("--season", default=None, help="e.g. 2024/25 (soccer), 2026 (MLB)")
+@_sync_lock
 def sync_teams_cmd(competition_code: str, season: str | None):
     """Pull all teams for a competition (in a given season)."""
     if _mlb_fallback(competition_code):
@@ -200,6 +224,7 @@ def sync_teams_cmd(competition_code: str, season: str | None):
                    "of them (the closing run's schedule read for NFL, SOCCER and MLB, ARCHITECT 2026-10-09, "
                    "addendum 23 A1, as amended by addendum 25 2(i)). The sync itself is unchanged. Default: "
                    "unchanged.")
+@_sync_lock
 def sync_matches_cmd(
     competition_code: str,
     season: str | None,

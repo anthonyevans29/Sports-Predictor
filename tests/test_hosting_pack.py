@@ -669,6 +669,77 @@ def test_ncaa_timer_ships_enabled_in_runbook():
         assert f.name in t11, f"{f.name} missing from the T11 lists"
 
 
+def test_the_t11_lists_the_shipped_timers_and_the_schedule_table_agree():
+    """ARCHITECT 2026-10-23, addendum 155 item 8(b): "a CI check (read-only) that the T11 TIMERS list, the shipped
+    systemd/*.timer files and docs/specs/hosting-h1.md's table agree". Every shipped timer is on exactly one T11 list;
+    every name on a T11 list is shipped; the Schedule table has one row per shipped timer and none other."""
+    lists = c.t11_lists()
+    shipped = c.shipped_timers()
+    named = [t for n in c.T11_LISTS for t in lists[n]]
+    assert len(shipped) >= 20 and all(lists[n] for n in c.T11_LISTS)
+    assert sorted(set(named)) == sorted(named), f"a timer on two T11 lists: {sorted({t for t in named if named.count(t) > 1})}"
+    assert sorted(named) == shipped, (f"shipped, on no T11 list: {sorted(set(shipped) - set(named))}; "
+                                      f"on a T11 list, not shipped: {sorted(set(named) - set(shipped))}")
+    rb = (ROOT / "docs" / "specs" / "hosting-h1.md").read_text()
+    table = rb[rb.index("### Schedule"):]
+    table = table[:table.index("\n\n", table.index("| Timer |"))]
+    rows = [f"{m}.timer" for m in re.findall(r"^\| (sp-[\w-]+) \|", table, re.M)]
+    assert sorted(set(rows)) == sorted(rows), f"a timer with two rows: {sorted({t for t in rows if rows.count(t) > 1})}"
+    assert sorted(rows) == shipped, (f"shipped, no Schedule row: {sorted(set(shipped) - set(rows))}; "
+                                     f"a Schedule row, not shipped: {sorted(set(rows) - set(shipped))}")
+
+
+import sp_deploy  # noqa: E402
+
+
+def _enabled(tmp_path, names):
+    p = tmp_path / "timers.enabled"
+    p.write_text(" ".join(names) + "\n")
+    return p
+
+
+def test_the_deploy_receipt_names_the_shipped_timers_the_host_has_not_enabled(tmp_path):
+    """Addendum 155 item 8(b): "a line in the deploy receipt naming any shipped timer not in
+    /etc/sports-predictor/timers.enabled on the host (names only)". The 2026-10-23 host: 15 of T11's 16 TIMERS
+    enabled, sp-ncaa-schedule.timer never installed."""
+    lists = c.t11_lists()
+    st = sp_deploy.timers_state(enabled_path=_enabled(tmp_path, [t for t in lists["TIMERS"]
+                                                                 if t != "sp-ncaa-schedule.timer"]))
+    assert st["not_enabled"] == sorted(["sp-ncaa-schedule.timer", *lists["MLB_LAPTOP_ONLY"], *lists["HELD_FOR_CUTOVER"]])
+    assert st["by_list"] == {"TIMERS": ["sp-ncaa-schedule.timer"], "MLB_LAPTOP_ONLY": sorted(lists["MLB_LAPTOP_ONLY"]),
+                             "HELD_FOR_CUTOVER": lists["HELD_FOR_CUTOVER"]}
+    line = sp_deploy.timers_line(st)
+    assert line.startswith("\n  ! shipped timers not in ") and "sp-ncaa-schedule.timer (TIMERS)" in line
+    assert "sp-closing-watch.timer (HELD_FOR_CUTOVER)" in line and "install and enable it" in line
+    # the host as T11 leaves it: only the lists T11 holds off are not enabled -> a plain line, no "!"
+    ok = sp_deploy.timers_state(enabled_path=_enabled(tmp_path, lists["TIMERS"]))
+    assert ok["by_list"].keys() == {"MLB_LAPTOP_ONLY", "HELD_FOR_CUTOVER"}
+    assert sp_deploy.timers_line(ok).startswith("\n  · shipped timers not in ") and "!" not in sp_deploy.timers_line(ok)
+    every = sp_deploy.timers_state(enabled_path=_enabled(tmp_path, c.shipped_timers()))
+    assert every["not_enabled"] == [] and "every shipped timer is in" in sp_deploy.timers_line(every)
+
+
+def test_the_deploy_receipt_never_guesses_when_timers_enabled_is_unreadable(tmp_path):
+    """Law 4: a missing file is an error with no list, and the line says so with "!"."""
+    st = sp_deploy.timers_state(enabled_path=tmp_path / "absent")
+    assert st["not_enabled"] is None and "unreadable (FileNotFoundError)" in st["error"]
+    assert sp_deploy.timers_line(st).startswith("\n  ! timers: ")
+
+
+def test_a_shipped_timer_on_no_t11_list_is_named_unlisted(tmp_path):
+    repo = tmp_path / "repo"
+    (repo / "deploy" / "hosting" / "systemd").mkdir(parents=True)
+    (repo / "docs" / "specs").mkdir(parents=True)
+    (repo / "docs" / "specs" / "hosting-h1.md").write_text(
+        'TIMERS="sp-a.timer"\nMLB_LAPTOP_ONLY="sp-b.timer"\nHELD_FOR_CUTOVER="sp-c.timer"\n')
+    for n in ("sp-a", "sp-b", "sp-c", "sp-new"):
+        (repo / "deploy" / "hosting" / "systemd" / f"{n}.timer").write_text("")
+    st = sp_deploy.timers_state(repo=repo, enabled_path=_enabled(tmp_path, ["sp-a.timer"]))
+    assert st["by_list"] == {"MLB_LAPTOP_ONLY": ["sp-b.timer"], "HELD_FOR_CUTOVER": ["sp-c.timer"],
+                             "unlisted": ["sp-new.timer"]}
+    assert sp_deploy.timers_line(st).startswith("\n  ! ") and "sp-new.timer (unlisted)" in sp_deploy.timers_line(st)
+
+
 # ------------------------------------------- H1a fresh bootstrap (09-27) ----
 
 import bootstrap  # noqa: E402

@@ -23,7 +23,7 @@
  "milestones": [
   {"title": "Cutover ~Oct 8", "due_on": "2026-10-30", "description": "H1b parallel week -> the H2 cutover decision (earliest after 2026-10-05 13:45 UTC; frozen criteria)."},
   {"title": "Policy v1.2 promotion (30 value shadows)", "due_on": null, "description": "Condition: >= 30 graded value_shadow calls, then a POLICY_VERSION bump."},
-  {"title": "Executable-edge ruling (2 wks of ladders)", "due_on": "2026-10-20", "description": "Two weeks of ladders after K2 (2026-09-29), then the executable-edge ruling."},
+  {"title": "Executable-edge ruling (2 wks of ladders)", "due_on": "2026-10-20", "description": "Two weeks of ladders after K2 (2026-09-29), then the executable-edge ruling.", "done": {"date": "2026-10-20", "receipt": "addendum 146 item 1 (ARCHITECT 2026-10-20 09:59 ET): the K-track is BINDING; marked done by addendum 154 item 3"}},
   {"title": "Offseason decisions (MLB egress/provider)", "due_on": null, "description": "Condition: the MLB offseason (about 5 weeks out from 2026-09-29): residential egress for statsapi or a new provider."},
   {"title": "NHL reopening (goalie source)", "due_on": null, "description": "Condition: an external goalie/lineup data source enters the stack."},
   {"title": "Cup reopening (rotation R-track)", "due_on": null, "description": "Condition: a rotation-aware candidate on as-of lineup data passes the frozen cup exam."},

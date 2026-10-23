@@ -71,15 +71,26 @@ The ritual for every tag, v1.0.0 and hotfixes included, with no exceptions:
 4. **The ledger records the release.** Open an Issue labelled `release`
    (plus track:H, class:lane, sport:all, size:S) on the per-release
    milestone `vX.Y.Z`. Paste the notes and the compare verdict into it.
-5. **Deploy on the host:**
+5. **Deploy on the host** (ARCHITECT 2026-10-22, addendum 154 item 2), in two
+   calls. The recommended first call is the dry run: it fetches, names the
+   target and prints the plan, and changes nothing.
    ```
-   sudo -u sp venv/bin/python deploy/hosting/sp_deploy.py
+   sudo -u sp venv/bin/python deploy/hosting/sp_deploy.py --tag vX.Y.Z --dry-run
    ```
-   The deploy receipt names the from and to releases and any new
-   `migrate_*.py` files. Run those by hand, after a backup.
-   A migration with no DB file at the configured path refuses ("no database
-   at <path>; a migration never creates one — law 5"), exit 1, and writes
-   nothing (addendum 112 item 1, #524).
+   1. The deploy: `sudo -u sp venv/bin/python deploy/hosting/sp_deploy.py
+      [--tag vX.Y.Z]` (default: the latest tag). Its receipt names the from
+      and to releases and any new `migrate_*.py` files.
+   2. The migration command the deploy prints, verbatim. It runs as the
+      service user with host.env loaded and holds one DB lock across the
+      daily backup and every migration, in order.
+   - Never pass `--run-migrations` to the deploy call itself. It runs ONLY
+     the migrations (it returns before the checkout) and validates the names
+     against the CURRENT checkout. On the old release a new file "is not a
+     migrate_*.py file": refused, nothing changed (v1.5.0's first attempt,
+     2026-10-22).
+   - A migration with no DB file at the configured path refuses ("no database
+     at <path>; a migration never creates one — law 5"), exit 1, and writes
+     nothing (addendum 112 item 1, #524).
 
 ## Release record
 One line per tag, from v1.4.0 on. Each release's Issue carries its notes and
@@ -88,6 +99,7 @@ its compare verdict.
 | Tag | Cut (UTC) | Commit | Tag object | Release Issue |
 |---|---|---|---|---|
 | `v1.4.0` | 2026-10-16 14:18:21Z | `684462e3d5078ff2c906db73362a220917bf1fcb` | `253bacd00327446936cdb16ea37a76deafc20ff1` | #556 |
+| `v1.5.0` | 2026-10-22 13:24:24Z | `d15b9981edfa74379dd01089f7de23db51353d45` | `358777b00f6d39de1a92f97052f3756d9b89e5c1` | #647 |
 
 - **v1.4.0** (ARCHITECT 2026-10-16, addendum 87). The commit is the ledger
   compile over 53a0e83, the #551 merge over c546168.
@@ -100,6 +112,25 @@ its compare verdict.
   - The full notes are in #556: `python3 scripts/release_notes.py --to
     684462e3d5078ff2c906db73362a220917bf1fcb` (105 sections since v1.3.0,
     no AMENDED line).
+- **v1.5.0** (ARCHITECT 2026-10-22, addendum 154 item 1). The commit is the
+  #645 merge: the ledger compile ffe4097 (43 changelog sections, 47 ledger
+  entries) over 1552e8c. The tag was cut by the operator.
+  - **Compare:** day 4 of 5, ruled PASS for the release gate (09:30 ET). The
+    tool read DIVERGENT on 3 files, every divergence in an allowed class:
+    code-version skew (the host on v1.4.0, the laptop on ancestors of
+    d15b998) and capture timing. There was no data or logic disagreement.
+  - **The tag message:** the first tag cut with `--cleanup=verbatim`. It
+    keeps the header and all 43 `## ` section headings (44 lines beginning
+    with `#`; the v1.4.0 lesson closed). It matches `python3
+    scripts/release_notes.py --to d15b9981edfa74379dd01089f7de23db51353d45`
+    line for line, plus one trailing blank line. No AMENDED line.
+  - **Deploy:** on the host at 13:40:09Z (v1.4.0 -> v1.5.0, 176 files, exit
+    0). Both new migrations ran under one lock after backup
+    `sports_2026-10-22_134012.db` (integrity ok): `migrate_injury_player_source_id.py`,
+    then `migrate_match_series_fields.py`.
+  - **Day 5:** Friday's compare, with both sides on d15b998, goes here when
+    it lands.
+  - #647 carries the notes (in four parts) and addendum 154 item 1 verbatim.
 
 ## Hotfix path
 A hotfix gets a patch tag (`vX.Y.Z+1`) through the same ritual. There is no

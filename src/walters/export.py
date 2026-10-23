@@ -229,16 +229,18 @@ def _collect_rows(
                 p.player_source_id for ps in pitchers_by_match.values()
                 for p in ps if p.player_source_id
             }
-            pitcher_stats_by_source_id: dict[str, PitcherSeasonStats] = {}
+            # Keyed by (source_id, season) and read for the game's season (addendum 162 item 1(b)): the row
+            # shows the stats the model used, never another season's.
+            pitcher_stats_by_source_season: dict[tuple[str, str], PitcherSeasonStats] = {}
             if pitcher_source_ids:
                 for ps in s.execute(
                     select(PitcherSeasonStats).where(
                         PitcherSeasonStats.player_source_id.in_(pitcher_source_ids)
                     )
                 ).scalars():
-                    pitcher_stats_by_source_id[ps.player_source_id] = ps
+                    pitcher_stats_by_source_season[(ps.player_source_id, ps.season)] = ps
         else:
-            pitcher_stats_by_source_id = {}
+            pitcher_stats_by_source_season = {}
 
         # Soccer injuries by team (current snapshot, not historical)
         team_ids = {m.home_team_id for m in matches} | {m.away_team_id for m in matches}
@@ -271,7 +273,7 @@ def _collect_rows(
                 odds=odds_by_match.get(m.id, []),
                 kalshi=kalshi_by_match.get(m.id),
                 pitchers=pitchers_by_match.get(m.id, []),
-                pitcher_stats_by_source_id=pitcher_stats_by_source_id,
+                pitcher_stats_by_source_season=pitcher_stats_by_source_season,
                 injuries_by_team=injuries_by_team,
                 unused_context=unused_context_by_match.get(m.id),
                 sport=sport,
@@ -308,7 +310,7 @@ def _build_row(
     odds: list[Odds],
     kalshi: dict[str, OddsSnapshot] | None = None,
     pitchers: list[MatchParticipant],
-    pitcher_stats_by_source_id: dict,
+    pitcher_stats_by_source_season: dict,
     injuries_by_team: dict,
     unused_context: dict | None = None,
     sport: Sport,
@@ -525,7 +527,8 @@ def _build_row(
         def _pitcher_dict(p):
             if p is None:
                 return None
-            stats = pitcher_stats_by_source_id.get(p.player_source_id) if p.player_source_id else None
+            stats = (pitcher_stats_by_source_season.get((p.player_source_id, m.season))
+                     if p.player_source_id else None)
             return {
                 "name": p.player_name,
                 "kind": p.kind,

@@ -1159,6 +1159,26 @@ def sync_lineups_history_cmd(competition_code, season, dry_run, max_calls, save,
         raise SystemExit(2)
 
 
+@cli.command("observe-cup-lineups")
+@click.option("--competition", "codes", multiple=True, type=click.Choice(("CL", "UEL", "EFL", "FAC")),
+              help="Repeatable; default all four cups.")
+@click.option("--loop", is_flag=True, help="Tick every 30 s until no poll of the window's fixtures remains.")
+@click.option("--dry-run", is_flag=True, help="Print the due polls; no call, nothing written.")
+def observe_cup_lineups_cmd(codes, loop, dry_run):
+    """CUPS STEP B, THE LIVE T-15 OBSERVATION STORE (ARCHITECT 2026-10-23, addendum 158 item 3(a); #106). For the
+    stored cup fixtures kicking off within 3 hours, each due poll (T-15, the label poll; T-5 and T+10, later reads that
+    catch a correction) asked once and appended to cup_lineup_observations: scheduled and observed time, the
+    team-mapped elevens, status complete / partial / empty / failed / missed, late flagged. Append-only: the first
+    complete observation is preserved, a later correction is its own row. Writes nothing else.
+    src/ingestion/cup_lineups_live.py."""
+    from src.ingestion.cup_lineups_live import COMPETITIONS, Refused, run
+    try:
+        run(tuple(codes) or COMPETITIONS, loop=loop, dry_run=dry_run, echo=click.echo)
+    except Refused as e:
+        click.echo(str(e))
+        raise SystemExit(2)
+
+
 @cli.command("sync-players")
 @click.option("--competition", "competition_code", required=True, help="e.g. PL")
 @click.option("--season", required=True, help="e.g. 2025/26")

@@ -159,6 +159,12 @@
       "state": "to declare",
       "steps": [
         {
+          "what": "candidate nine's two receipts (addendum 157 item 2): (a) GSAx feasibility from the stored shot table and (b) the starter timing probe of the NHL API on three game days, read-only scripts in one PR, the consoles on #105",
+          "owner": "code",
+          "due": "2026-10-28",
+          "done": null
+        },
+        {
           "what": "candidate nine declared to Code, or my written ruling that there is none worth a run",
           "owner": "architect",
           "due": "2026-10-30",

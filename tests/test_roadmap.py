@@ -857,8 +857,8 @@ def test_the_base_order_kept_and_the_heads_lines_after_it_passes():
     base = _with_lines("nhl", [first, second])
     head = copy.deepcopy(base)
     st = _lane(head, "nhl")["steps"][0]
-    _lane(head, "nhl")["moved"].append(_mv(st["what"], st["due"], "2026-10-31"))
-    st["due"] = "2026-10-31"
+    _lane(head, "nhl")["moved"].append(_mv(st["what"], st["due"], "2026-10-29"))
+    st["due"] = "2026-10-29"                         # a day later, still before the lane's next step (no step goes back)
     assert rm.validate(head) == [] and rm.check_moves(base, head) == []
 
 

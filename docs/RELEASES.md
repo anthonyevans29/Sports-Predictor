@@ -128,8 +128,13 @@ its compare verdict.
     0). Both new migrations ran under one lock after backup
     `sports_2026-10-22_134012.db` (integrity ok): `migrate_injury_player_source_id.py`,
     then `migrate_match_series_fields.py`.
-  - **Day 5:** Friday's compare, with both sides on d15b998, goes here when
-    it lands.
+  - **Day 5:** ruled PASS (ARCHITECT 2026-10-23 08:30 ET, addendum 155 item
+    9), with both sides on d15b998. The tool read DIVERGENT on 5 files, none
+    a code-version skew. The classes were capture timing, the host's NFL
+    cohort from its bootstrap, and the 37 NCAA placeholder rows of
+    item 8: `sp-ncaa-schedule.timer` was never installed on the host. The
+    operator installed it at 12:32Z. v1.5.0 is CONFIRMED as production; the
+    host stays on the tag.
   - #647 carries the notes (in four parts) and addendum 154 item 1 verbatim.
 
 ## Hotfix path

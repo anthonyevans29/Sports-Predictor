@@ -127,11 +127,26 @@
           "what": "the re-declaration on 2026/27 games, to Code as an addendum; it dates the steps after it",
           "owner": "architect",
           "due": "2026-10-23",
+          "done": {
+            "date": "2026-10-23",
+            "receipt": "addendum 155 item 4 (ARCHITECT 2026-10-23): the re-declaration's dated steps, on 2026/27 games against the Kalshi three-way close of addendum 150"
+          }
+        },
+        {
+          "what": "a read-only receipt per league of the 2026/27 games FINISHED with a three-way close under addendum 150's rule (R42(b): one capture, all three legs, normalized), and the close's own log-loss on them (the bar's denominator); the same read for the games still to come this season that already hold a capture",
+          "owner": "code",
+          "due": "2026-10-30",
+          "done": null
+        },
+        {
+          "what": "the candidate declared per league: soccer_elo_poisson's current constants, trained to 2025/26, frozen (no retuning on 2026/27), with the pre-registered window (the first 60 FINISHED 2026/27 games per league with a three-way close, counted from the declaration) and the bar written before any result: the candidate's log-loss below the close's on that window, a tie a rejection (CONTRIBUTING law 3); the lane's state becomes declared",
+          "owner": "architect",
+          "due": "2026-11-06",
           "done": null
         }
       ],
       "earliest_live": null,
-      "live_needs": "set by the re-declaration: a gate per league on this season's games, then a confirmation.",
+      "live_needs": "addendum 155 item 4: a PASS on the pre-registered window (the candidate's log-loss below the Kalshi three-way close's on the first 60 FINISHED 2026/27 games per league with a three-way close, counted from the declaration; a tie a rejection), read when the 60th game of a league is final (a calendar step: its date accrues), then a confirmation of 60 more; earliest_live is set by the confirmation, never by a date. SA, BL1, FL1 and ELC stay MARKET-ONLY throughout.",
       "vs_close": "behind. The closing market beat the candidate by 0.042 (SA), 0.042 (BL1), 0.026 (FL1) and 0.028 (ELC) of log-loss on the test seasons.",
       "moved": []
     },
@@ -191,19 +206,28 @@
           "what": "the lineup-history probe run (scripts/lineup_history_probe.py, #78), its receipt to me",
           "owner": "operator",
           "due": "2026-10-14",
-          "done": {"date": "2026-10-14", "receipt": "logs/lineup_history_probe_2026-10-14.txt"}
+          "done": {
+            "date": "2026-10-14",
+            "receipt": "logs/lineup_history_probe_2026-10-14.txt"
+          }
         },
         {
           "what": "my ruling on the data: a dated plan for a rotation-aware candidate, or that there is none",
           "owner": "architect",
           "due": "2026-10-15",
-          "done": {"date": "2026-10-15", "receipt": "addendum 71 (ARCHITECT 2026-10-15 07:36 ET): the plan, steps A, B and C"}
+          "done": {
+            "date": "2026-10-15",
+            "receipt": "addendum 71 (ARCHITECT 2026-10-15 07:36 ET): the plan, steps A, B and C"
+          }
         },
         {
           "what": "Step A's probe written: scripts/lineup_timing_probe.py (read-only; polls api_football.list_lineup_confirmed at T-120, T-90, T-75, T-60, T-45, T-30 and T-15), its PR open, its checks green",
           "owner": "code",
           "due": "2026-10-19",
-          "done": {"date": "2026-10-15", "receipt": "#528 merged 2026-10-15 at 8a571fa (called in addendum 75 item 1)"}
+          "done": {
+            "date": "2026-10-15",
+            "receipt": "#528 merged 2026-10-15 at 8a571fa (called in addendum 75 item 1)"
+          }
         },
         {
           "what": "Step A: the timing probe run on the CL matchday, the laptop awake 10:30am to 3:00pm ET, its receipt to me the same evening",
@@ -218,7 +242,10 @@
           "what": "Step A, UEL: the timing probe run on the UEL matchday (--competition UEL, the same polls), the laptop awake from T-130 of the first kickoff, its receipt to me the same evening",
           "owner": "operator",
           "due": "2026-10-22",
-          "done": null
+          "done": {
+            "date": "2026-10-22",
+            "receipt": "#106 comment 6365057980: the summary lines (18 of 18 fixtures eleven per side at T-15, none at T-30; 125 of 126 calls HTTP 200, one dropped connection at T-90, the next poll answered); the console stays in the laptop's logs/lineup_timing_probe_UEL_2026-10-22.txt (ARCHITECT 2026-10-23, addendum 155 item 3: Step A closed)"
+          }
         },
         {
           "what": "Step A, EFL: the timing probe run on the next EFL round with stored rows (--competition EFL, the same polls; its date named by the operator), the laptop awake from T-130 of the first kickoff, its receipt to me the same evening",
@@ -256,7 +283,10 @@
           "what": "a read-only probe of the provider's quarterback data: its PR open, its checks green (see (h))",
           "owner": "code",
           "due": "2026-10-21",
-          "done": {"date": "2026-10-13", "receipt": "PR #489 merged at 7e6e88c"}
+          "done": {
+            "date": "2026-10-13",
+            "receipt": "PR #489 merged at 7e6e88c"
+          }
         },
         {
           "what": "its run, the receipt to me",

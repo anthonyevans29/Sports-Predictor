@@ -40,7 +40,7 @@ proven standard (2026-09-28).
 | `pull_backup.py` + `scripts/setup_backup_pull.sh` | **Laptop side.** Nightly pull of the host's newest daily `.backup` over the tailnet into `~/sp-backups`. Verified against the sha256 sidecar plus an integrity check, and receipted (H0-14 second layer, $0). |
 | `pull_exports.py` + `scripts/setup_export_pull.sh` | **Laptop side.** Pulls the host's `exports/` over the tailnet into the laptop's `exports/host/`, never its own `exports/`. Host from `SP_HOST_ADDR`. Newest-wins by mtime, idempotent, all-or-nothing on an unreachable host. Receipted (pulled / unchanged / newest `window_24h.json`). On demand; the hourly launchd job at :10 is optional. |
 | `sp_deploy.py` | Fast-forward to merged `origin/main` only, with a receipt. |
-| `systemd/` | `sp-chain@.service` template, 14 timers, backup, prune, notify@, boot-receipt, web, and `sp-soccer-refresh.service` (no timer). |
+| `systemd/` | `sp-chain@.service` template, the timers of the Schedule table below (every one on a T11 list; CI-checked), backup, prune, notify@, boot-receipt, web, and `sp-soccer-refresh.service` (no timer). |
 | `etc/` | host.env template, full-season list template, unattended-upgrades reboot window, logrotate. |
 | `install.sh` | Copies units and config into place. **Enables nothing.** |
 | `bootstrap.py` | H1a: `fingerprint` (read-only counts), `plan`, `run` (the wiring sequence, receipted and resumable), and `compare` (phase-1 acceptance: completed seasons exact plus the BACKLOG anchors). `catch-up --reference fp_host.json [--apply]` (laptop, 2026-09-29): the pre-cutover completeness sweep — sync-teams then sync-matches for every competition-season the laptop counts fewer games than the reference; dry run by default; `--apply` takes the daily backup first, receipts each season before/after (`kind: catch_up`), stops at the first failure. |
@@ -75,6 +75,10 @@ set by `SP_IMPROVE_HOLD_ON_PASS=1`, which the chain template sets.
 | sp-weekly-fullseason | weekly-fullseason | Sun 06:00 UTC | daily |
 | sp-backup-prune | (retention, report-only) | daily 05:30 UTC | — |
 | sp-exports-squash | exports mirror weekly history squash (F2.5; a no-op until `SP_EXPORTS_MIRROR_REMOTE` is set) | Sun 06:10 UTC | — |
+| sp-intl-daily | intl-daily (the incremental intl sync, the v3 venue step, the UNL shadow export) | daily 07:20 UTC | daily |
+| sp-mlb-history | mlb-history (MLB PHASE A: the api-sports fallback's MLB history; sync only) | daily 10:30 UTC | daily |
+| sp-window | window (the next-24h card and delta pages) | hourly at :05, hours 00-03 and 06-23 UTC (H0-3) | — |
+| sp-closing-watch | (closing.py watch, NFL and SOCCER; not a chain) — **held for the cutover ruling** (T11 `HELD_FOR_CUTOVER`, C7) | every minute (the one H0-3 exemption, by name) | — |
 | *(none)* | soccer-refresh | **operator-started** (H0-6) | fresh prerefresh |
 
 **H0-3 reboot window.** No timer fires between 04:15 and 05:15 UTC. CI
@@ -1024,6 +1028,12 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
     deploy before anything is installed.
   - The install record lives inside the venv (`venv/.sp-requirements.installed`),
     so a recreated venv reinstalls on the next deploy.
+  - The deploy installs no unit files. Its receipt line (and `timers_not_enabled` in the receipt) names, by
+    name only, every timer the deployed tag ships that `/etc/sports-predictor/timers.enabled` does not list,
+    under the T11 list that carries it (ARCHITECT 2026-10-23, addendum 155 item 8(b): the host ran without
+    `sp-ncaa-schedule.timer` from 10-09 to 10-23). A `TIMERS` timer missing reads "!": install and enable it
+    by T11's recipe for a live host. The `MLB_LAPTOP_ONLY` and `HELD_FOR_CUTOVER` timers are off by T11 and
+    print on a plain line. An unreadable `timers.enabled` prints "!" and no list.
 - **Midweek PL round (H0-10), operator-started.**
   `sudo -u sp venv/bin/python deploy/hosting/sp_run.py soccer-prematch --set sat=<first-day> --set sat_plus3=<day-after-last>`.
 - **Seasons (H0-8).**

@@ -796,9 +796,7 @@ def isolated():
 
 def runbook_timers() -> list[str]:
     """The T11 enable list from hosting-h1.md (the list H2 steps 2 and 6 reuse)."""
-    rb = (HERE.parents[1] / "docs" / "specs" / "hosting-h1.md").read_text()
-    block = rb[rb.index('TIMERS="') + len('TIMERS="'):]
-    return block[:block.index('"')].split()
+    return c.t11_lists(HERE.parents[1] / "docs" / "specs" / "hosting-h1.md")["TIMERS"]
 
 
 def _under(root: Path, p: Path) -> bool:

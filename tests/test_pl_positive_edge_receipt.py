@@ -5,6 +5,7 @@ the grading close block of src/walters/close.py graded_block, "redated"); the cl
 run writes them (tests/test_void_redated.py write_closing, through closing.closing_doc / closing_name, family SOCCER),
 each row a predictions-export row whose desk block is the real desk_policy.annotate's."""
 import json
+import math
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -211,3 +212,91 @@ def test_a_file_that_is_not_pl_soccer_is_named_and_not_read(tmp_path):
     assert not res["results"]["rows"] and res["results"]["not_pl"] == [p.name]
     assert "not PL soccer 1: soccer_PL_results_2026-10-24.json" in text
     assert "unreadable 1: soccer_PL_results_2026-10-25.json" in text
+
+
+# ---- addendum 163 item 1: the table, the cells, the injury split, the n=60 line -----------------------------------
+
+def table_world(tmp_path):
+    """Four members, hand-computable: (pick, model p, close fair, hit, injuries on the closing row)
+    1 home 0.60 / 0.50 hit  (+10pp; 3 and 2: both list, the guard quiet)        return +1
+    2 home 0.52 / 0.40 miss (+12pp exactly: in the cell; 3 and 0: the guard fires) return -1
+    3 home 0.5199 / 0.40 miss (+11.99pp: out of the cell; 0 and 0: neither)     return -1
+    4 draw 0.40 / 0.25 hit  (+15pp; no closing row)                              return +3
+    and the mirror: 5 at exactly -5pp (in, a hit), 6 at -4.99pp (out)."""
+    write_results(tmp_path, "2026-10-24", [
+        result_row(1, p=(0.60, 0.20, 0.20), fair=(0.50, 0.25, 0.25), hit=True),
+        result_row(2, p=(0.52, 0.24, 0.24), fair=(0.40, 0.30, 0.30), hit=False, score=(0, 1)),
+        result_row(3, p=(0.5199, 0.24, 0.2401), fair=(0.40, 0.30, 0.30), hit=False, score=(0, 2)),
+        result_row(4, p=(0.30, 0.40, 0.30), fair=(0.40, 0.25, 0.35), hit=True, score=(1, 1)),
+        result_row(5, p=(0.40, 0.30, 0.30), fair=(0.45, 0.30, 0.25), hit=True),
+        result_row(6, p=(0.4001, 0.30, 0.2999), fair=(0.45, 0.30, 0.25), hit=False, score=(0, 0))])
+    write_closing(tmp_path, datetime(2026, 10, 24, 13, 15),
+                  [pred_row(1, inj=(3, 2)), pred_row(2, inj=(3, 0)), pred_row(3, inj=(0, 0))], fam="SOCCER")
+    return run(tmp_path)
+
+
+def test_the_close_implied_rate_its_half_width_and_the_model_mean(tmp_path):
+    text, res = table_world(tmp_path)
+    t = res["table"]
+    assert (t["n"], t["hits"], t["rate"]) == (4, 2, 0.5)
+    assert abs(t["implied"] - (0.50 + 0.40 + 0.40 + 0.25) / 4) < 1e-12                       # 0.3875
+    hw = 1.96 * math.sqrt(0.5 * 0.5 + 0.4 * 0.6 + 0.4 * 0.6 + 0.25 * 0.75) / 4 * 100           # 46.94pp
+    assert abs(t["implied_hw_pp"] - hw) < 1e-9 and round(hw, 1) == 46.9
+    assert abs(t["model"] - (0.60 + 0.52 + 0.5199 + 0.40) / 4) < 1e-12                        # 0.509975
+    assert ("n 4 · hits 2 (50.0%) · close-implied 38.8% (±46.9pp at 95%: ±1.96 x sqrt(sum p(1-p)) / n, p = each "
+            "row's close fair for the pick) · the model's own mean probability 51.0%") in text
+
+
+def test_the_per_unit_return_at_the_close_fair_price(tmp_path):
+    text, res = table_world(tmp_path)
+    t = res["table"]
+    assert t["ret"] == 0.5 and t["priced"] == 4 and t["unpriced"] == 0              # (+1 - 1 - 1 + 3) / 4
+    assert abs(t["ret_hw"] - 1.96 * math.sqrt(11 / 3) / 2) < 1e-12                  # sample sd sqrt(11/3)
+    assert ("hypothetical return at the close's fair price +50.0% per unit, interval ±187.7 points (approximate, "
+            "95%: a hit 1/p_close - 1, a miss -1; ±1.96 x sd / sqrt(n) of the per-unit returns, sample sd) over 4 "
+            "rows, before spread and fee") in text
+
+
+def test_a_two_member_return_by_hand():
+    two = pe.stats([{"p": 0.6, "q": 0.5, "hit": True}, {"p": 0.4, "q": 0.25, "hit": False}])
+    assert two["ret"] == 0.0                                                       # (+1 - 1) / 2
+    assert abs(two["ret_hw"] - 1.96) < 1e-12                                       # 1.96 x sqrt(2) / sqrt(2)
+    one = pe.stats([{"p": 0.6, "q": 0.25, "hit": True}])
+    assert one["ret"] == 3.0 and one["ret_hw"] is None                             # no sd under 2 rows
+    assert pe.stats([])["implied"] is None
+
+
+def test_the_mirror_set_at_exactly_minus_five(tmp_path):
+    text, res = table_world(tmp_path)
+    assert [x["match_id"] for x in res["mirror"]] == [5] and 6 in {x["match_id"] for x in res["below"]}
+    m = res["mirror_table"]
+    assert (m["n"], m["hits"], m["implied"], m["model"]) == (1, 1, 0.45, 0.40)
+    assert "the mirror set (gap <= -5pp: the pick at least 5pp BELOW the close): n 1 · hits 1 (100.0%)" in text
+
+
+def test_the_cells_the_twelve_point_boundary_and_the_draw(tmp_path):
+    text, res = table_world(tmp_path)
+    assert pe.CELL_GAP_PP == 12.0 and pe.CELL_PICK == "draw" and pe.MIN_GAP_PP == 5.0
+    assert res["cells"] == {"gap": {"n": 2, "hits": 1}, "draw": {"n": 1, "hits": 1}}       # 2 and 4; 4
+    assert ("cells (the architect's cells from the 10-24 read, not knobs): gap >= +12pp (CELL_GAP_PP) n 2 (hits 1) · "
+            "draw picks (CELL_PICK) n 1 (hits 1)") in text
+
+
+def test_the_injury_split(tmp_path):
+    text, res = table_world(tmp_path)
+    sp = res["split"]
+    assert sp["guard"] == {"fires": {"n": 1, "hits": 0}, "does not fire": {"n": 2, "hits": 1},
+                           "no injury data / no closing row": {"n": 1, "hits": 1}}
+    assert sp["presence"] == {"both sides list someone": {"n": 1, "hits": 1}, "one side lists none": {"n": 1, "hits": 0},
+                              "neither lists anyone": {"n": 1, "hits": 0}, "unknown": {"n": 1, "hits": 1}}
+    assert ("injury split, by the one-sided guard's state: fires 1 (hits 0) · does not fire 2 (hits 1) · no injury "
+            "data / no closing row 1 (hits 1)") in text
+    assert ("injury split, by injury presence: both sides list someone 1 (hits 1) · one side lists none 1 (hits 0) · "
+            "neither lists anyone 1 (hits 0) · unknown 1 (hits 1)") in text
+
+
+def test_the_n60_line_and_no_verdict(tmp_path):
+    text, _ = table_world(tmp_path)
+    assert ("- next read pre-registered at n=60 (ARCHITECT 2026-10-24, addendum 163 item 1): same definition, read "
+            "once · the cohort now: n 4 of 60") in text
+    assert pe.READ_AT_N == 60 and "VERDICT" not in text.upper().replace("NO VERDICT", "")

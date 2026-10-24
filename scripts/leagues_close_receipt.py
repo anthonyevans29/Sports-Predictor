@@ -29,7 +29,9 @@ could open it: the receipt never creates a database. One session, rolled back; n
 
 Then the parity receipt (158 item 2(a)) per league. It REFUSES with exit status 2, as cli.py's soccer-expansion
 commands do, when no production soccer model resolves, and per league when the league-season stores a stage label
-the code cannot place (the gate's F3 refusal); the close part above still prints.
+the code cannot place (the gate's F3 refusal); the close part above still prints. A league whose parity read is
+not equal (a row unequal, or a game priced by one path only) prints a NOT EQUAL line and exits 1 unless a
+refusal made it 2.
 
 Run:  python3 scripts/leagues_close_receipt.py [--season 2026/27] [--declared 2026-11-06] [--rows]
 Paste the whole output on #322.
@@ -47,6 +49,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 SEASON = "2026/27"
 DECLARED = date(2026, 11, 6)                 # 155 item 4(b): the declaration; 156 item 1: "on or after 2026-11-06"
 REFUSED = 2                                  # the exit status of a refusal, as cli.py's soccer-expansion commands
+DIVERGED = 1                                 # the exit status of a parity read that is not equal (a refusal outranks it)
 
 
 def db_file() -> Path:
@@ -141,6 +144,11 @@ def main(argv=None) -> int:
             continue
         for ln in lc.parity_lines(p, rows=a.rows):
             print(ln)
+        if p["unequal"] or p["shadow_only"] or p["gate_only"]:   # Codex P1 on #663: a divergence is never a 0
+            print(f"{code} {a.season} · PARITY (158 item 2(a)) · NOT EQUAL: unequal {p['unequal']} · priced by the "
+                  f"shadow only {len(p['shadow_only'])} · by the gate only {len(p['gate_only'])}; the shadow path is "
+                  f"not the gate's walk on this league-season")
+            rc = max(rc, DIVERGED)
     return rc
 
 

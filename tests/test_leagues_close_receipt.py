@@ -334,3 +334,39 @@ def test_the_script_refuses_with_status_2_on_an_unplaceable_stage_and_prints_the
     out = capsys.readouterr().out
     assert f"SA {SEASON} · PARITY (158 item 2(a)) · REFUSED: stage / round labels the code cannot place" in out
     assert f"BL1 {SEASON} · PARITY (158 item 2(a)) · finished regular-round 0" in out
+
+
+@pytest.mark.parametrize("field,value", [("unequal", 1), ("shadow_only", [5001]), ("gate_only", [(5002, "no rating")])])
+def test_the_script_exits_1_with_a_not_equal_line_when_parity_diverges(tmp_path, monkeypatch, capsys, field, value):
+    """Codex P1 on #663 (round 2): a parity read with a row unequal, or a game priced by one path only, prints a NOT
+    EQUAL line and exits 1, never 0; a refusal elsewhere still makes it 2."""
+    from src.models.poisson import PoissonConfig
+    from src.walters import leagues_candidate as lc
+    from src.walters.soccer_expansion import ExpansionRefused
+    _script_db(tmp_path, monkeypatch)
+    cfg = PoissonConfig()
+    monkeypatch.setattr(lc, "production_poisson", lambda: ("v-test", cfg.dixon_coles_rho, cfg.elo_goal_coeff))
+    _comps()
+    assert lr.main([]) == 0                     # equal everywhere (nothing priced by either path): 0
+    capsys.readouterr()
+    real = lc.parity
+
+    def diverged(code, *a, **k):
+        p = real(code, *a, **k)
+        if code == "SA":
+            p[field] = value
+        return p
+
+    monkeypatch.setattr(lc, "parity", diverged)
+    assert lr.main([]) == lr.DIVERGED == 1
+    out = capsys.readouterr().out
+    assert f"SA {SEASON} · PARITY (158 item 2(a)) · NOT EQUAL: " in out
+    assert f"BL1 {SEASON} · PARITY (158 item 2(a)) · NOT EQUAL" not in out
+
+    def refused(code, *a, **k):
+        if code == "BL1":
+            raise ExpansionRefused("BL1 test refusal")
+        return diverged(code, *a, **k)
+
+    monkeypatch.setattr(lc, "parity", refused)
+    assert lr.main([]) == lr.REFUSED == 2

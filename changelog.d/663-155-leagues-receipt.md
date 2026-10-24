@@ -13,3 +13,4 @@
   - Games to come: SCHEDULED games kicking off after the receipt's clock. Their captures are read as of that clock, behind the finished score's own mismatched-legs guard (`paper._guarded_three_way`, now shared by `_score_three`, unchanged in effect), with mismatched legs as their own cause. LIVE games and SCHEDULED games past their kickoff are counted apart, never in the cohort.
   - An older capture whose legs name two events is never counted as a superseded case.
   - The ledger entry says plainly that step (c) is not yet in docs/roadmap.json: it is appended in this PR from the laptop console's date.
+- Codex round 2 on #663: a league whose parity read is not equal (a row unequal beyond the tolerance, or a game priced by the shadow path or the gate only) prints a NOT EQUAL line and the script exits 1; a refusal's 2 outranks it. A divergence never reads as a 0.

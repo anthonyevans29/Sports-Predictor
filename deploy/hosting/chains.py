@@ -25,8 +25,9 @@ PL = ("--competition", "PL", "--season", "2026/27")
 EXPANSION_CODES = ("PD", "SA", "BL1", "FL1", "ELC")
 EXPANSION = [("--competition", c, "--season", "2026/27") for c in EXPANSION_CODES]
 # Kalshi series PINNED (ARCHITECT 2026-10-07, addendum 2): "A pinned series never makes a league live." Their
-# sync-kalshi-soccer runs on the shadow chain (soccer-prematch) as CAPTURE ONLY. They are deliberately NOT in
-# WINDOW_KALSHI: the window card spans every competition, and a capture-only league adds no venue line to it.
+# sync-kalshi-soccer runs on the shadow chain (soccer-prematch) as CAPTURE ONLY, and since ARCHITECT 2026-10-24,
+# addendum 164 item 2(a), on the hourly window chain too (WINDOW_KALSHI_CAPTURE_ONLY, below). They are deliberately
+# NOT in WINDOW_KALSHI: the window card spans every competition, and a capture-only league adds no venue line to it.
 KALSHI_CAPTURE_ONLY = EXPANSION_CODES
 # ncaa-schedule's forward window in days past today (ARCHITECT 2026-10-09: "the next seven days")
 NCAA_FORWARD_DAYS = 7
@@ -235,8 +236,9 @@ CHAINS: dict[str, dict] = {
 #       game count> (sync_odds takes the next N scheduled games), except the
 #       american-football family (sport NFL: NFL + NCAA), which is priced once
 #       by sync-odds-football;
-#   then the Kalshi syncs for the competitions in WINDOW_KALSHI, then
-#   `window-card`. After a clean run, or a run where only sync steps failed
+#   then the Kalshi syncs for the competitions in WINDOW_KALSHI, then the
+#   capture-only Kalshi syncs of WINDOW_KALSHI_CAPTURE_ONLY (addendum 164
+#   item 2(a)), then `window-card`. After a clean run, or a run where only sync steps failed
 #   and the card ran (addendum 84 item 2(b)), sp_window_page pages CARD
 #   DELTAS (post).
 # NO predict/improve step, ever: model fields stay canonical from their slot.
@@ -247,7 +249,8 @@ WINDOW_KALSHI: dict[str, list[list[str]]] = {
     # competition code -> its Kalshi sync. CI pins the soccer entries to
     # src/adapters/kalshi.py SOCCER_GAME_SERIES (PL; UNL pinned to KXUEFANLGAME,
     # ARCHITECT 2026-10-05, so no --series flag) + SOCCER_SERIES_DISCOVERY,
-    # less KALSHI_CAPTURE_ONLY (the soccer-expansion leagues, shadow chain only).
+    # less KALSHI_CAPTURE_ONLY (the soccer-expansion leagues: capture only, WINDOW_KALSHI_CAPTURE_ONLY below,
+    # addendum 164 item 2(a)).
     "MLB": [["sync-kalshi", "--date-from", "{today}", "--date-to", "{tomorrow}"]],
     "NFL": [["sync-kalshi-nfl"]],
     "NCAA": [["sync-kalshi-ncaa"]],
@@ -259,6 +262,21 @@ WINDOW_KALSHI: dict[str, list[list[str]]] = {
     # replay console with CL in it (item 3).
     "CL": [["sync-kalshi-soccer", "--competition", "CL"]],
 }
+# CAPTURE QUALITY (ARCHITECT 2026-10-24, addendum 164 item 2(a), verbatim): "the four series plus KXLALIGAGAME join the
+# host's hourly window chain's Kalshi capture from the next deploy — a capture-only step, no export, no call; the pacing
+# rule holds (one series per call, 90 s apart from any laptop pull is the operator's rule, the chain's own pacing is
+# Code's)". Evidence: finished 2026/27 games with a qualifying three-way close SA 0 of 50, BL1 1 of 37, FL1 1 of 46, ELC
+# 1 of 96, every miss "no capture" (outside the window chain, captured only Fri/Sat). Built from KALSHI_CAPTURE_ONLY,
+# one step per code, so one series per call (each code's series is mapped in src/adapters/kalshi.py SOCCER_GAME_SERIES:
+# no --series flag). Tiered as WINDOW_KALSHI is (sp_run.window_plan): a league's step runs only when its next kickoff in
+# the window is near or imminent (<= PROX_FAR_H), so the last capture before a kickoff is at most about an hour old (the
+# timer fires at :05, outside 04-05 UTC, H0-3). A separate table, never merged into WINDOW_KALSHI: nothing on the card's
+# path reads it (window-card reads the DB's stored matches and quotes, never chains.py), so it adds no venue line, no
+# export and no call (desk_policy.SHADOW_VENUE_COMPS still refuses them). Pacing: the chain's steps run one after
+# another, each its own process; a step failing on a 429 is retried by sp_run (RETRY_BACKOFF_S, 15 s then 45 s), and a
+# step still failing is a sync step, so the chain runs on (addendum 84 item 2(b)). No bar moves: R42(b) is unchanged.
+WINDOW_KALSHI_CAPTURE_ONLY: dict[str, list[list[str]]] = {
+    c: [["sync-kalshi-soccer", "--competition", c]] for c in KALSHI_CAPTURE_ONLY}
 # A SYNC STEP'S FAILURE DOES NOT STOP THE WINDOW CHAIN (ARCHITECT 2026-10-16 09:29 ET, addendum 84 item 2(b),
 # RULED, verbatim): "in the window chain a sync step's failure is recorded and notified as now, but does not stop the
 # chain — the later sync steps and the card/export steps run; a failure in a card/export step still ends the chain.

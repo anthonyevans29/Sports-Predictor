@@ -1,0 +1,16 @@
+## 2026-10-23 (#663: 155-leagues-receipt — ARCHITECT addendum 155 item 4(a) and addendum 156 item 1; a read-only receipt)
+- scripts/leagues_close_receipt.py and `paper.leagues_season`. Per league (SA, BL1, FL1, ELC), for the 2026/27 games:
+  - FINISHED games are scored against addendum 150's three-way Kalshi close exactly as the close record scores a three-way competition: n with a close and the close's log-loss, the bar's denominator.
+  - Games still to come are read for the capture they hold now.
+  - The projection is the kickoff UTC date of the 60th stored fixture on or after 2026-11-06. The earliest of the four is step (c)'s date.
+- `paper._kalshi_snaps` and `paper._three_way_guards`: extracted unchanged from `close_record` (the rows the close reads and the mismatched-capture guard's inputs), so the receipt and the record read the same rows the same way.
+- Addendum 158 item 2(a): `src/walters/leagues_candidate.py`. `predict_as_of` is the leagues' prospective path, BEING the expansion gate's walk: a cold start over the league-season's finished regular-round games before the kickoff, same-kickoff games kept apart, the production rho and Elo coefficient, nothing fitted. The receipt's parity lines set it against `run_soccer_backtest` as the gate calls it, row for row. Every row carries the candidate id, the code sha, the input cutoff and the prediction stamp.
+- Finding: the current shadow export (`soccer_expansion.price_upcoming`) is not that walk. It reads every stage, batches nothing, and takes its strengths from all finished games. The receipt reports its divergence on the same games; it is unchanged here.
+- Addendum 158 item 2(b): capture quality per league and kickoff UTC weekday (`paper._quality`, `paper.quality_lines`). It gives the qualifying share, the counts by cause, the controlling capture's age and provenance, and the superseded cases.
+- Codex round 1 on #663:
+  - The parity read refuses (`ExpansionRefused`) when the league-season stores a stage label `soccer_expansion.placement` cannot place, NULL and empty included, read by the gate's own `stage_census`: the gate's run refuses on such a label (F3), so parity never reads as a clean pass over games both paths left out.
+  - The script exits 2 with a REFUSED line when no production soccer model resolves, or when a league's parity read refuses, as cli.py's soccer-expansion commands refuse. The close part still prints.
+  - Games to come: SCHEDULED games kicking off after the receipt's clock. Their captures are read as of that clock, behind the finished score's own mismatched-legs guard (`paper._guarded_three_way`, now shared by `_score_three`, unchanged in effect), with mismatched legs as their own cause. LIVE games and SCHEDULED games past their kickoff are counted apart, never in the cohort.
+  - An older capture whose legs name two events is never counted as a superseded case.
+  - The ledger entry says plainly that step (c) is not yet in docs/roadmap.json: it is appended in this PR from the laptop console's date.
+- Codex round 2 on #663: a league whose parity read is not equal (a row unequal beyond the tolerance, or a game priced by the shadow path or the gate only) prints a NOT EQUAL line and the script exits 1; a refusal's 2 outranks it. A divergence never reads as a 0.

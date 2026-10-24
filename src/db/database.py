@@ -85,11 +85,14 @@ def drop_db() -> None:
     The v2 marker (ncaa_cfbd_v2_migration, written only by
     migrate_ncaa_cfbd_v2.py, #367) is dropped for the same reason, and so is
     kalshi_settled_markets_migration (written only by
-    migrate_kalshi_settled_markets.py; Codex on #521). They are the only
+    migrate_kalshi_settled_markets.py; Codex on #521), and so is
+    cup_lineup_observations_migration (written only by
+    migrate_cup_lineup_observations.py; addendum 158 item 3(a)). They are the only
     unmapped tables in the schema (migrate_*.py otherwise add columns/indexes to
     mapped tables, which drop with them)."""
     from sqlalchemy import text
 
+    from src.ingestion.cup_lineups_live import MIGRATION_MARKER as CUP_LINEUPS_MARKER
     from src.ingestion.kalshi_history import MIGRATION_MARKER as KALSHI_HISTORY_MARKER
     from src.ingestion.ncaa_cfbd import MIGRATION_MARKER, V2_MIGRATION_MARKER
 
@@ -98,6 +101,7 @@ def drop_db() -> None:
         conn.execute(text(f"DROP TABLE IF EXISTS {MIGRATION_MARKER}"))
         conn.execute(text(f"DROP TABLE IF EXISTS {V2_MIGRATION_MARKER}"))
         conn.execute(text(f"DROP TABLE IF EXISTS {KALSHI_HISTORY_MARKER}"))
+        conn.execute(text(f"DROP TABLE IF EXISTS {CUP_LINEUPS_MARKER}"))
 
 
 @contextmanager

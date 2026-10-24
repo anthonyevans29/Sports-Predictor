@@ -30,17 +30,27 @@ is "no stats".
 
 Per side, one of:
   no starter listed                            the game stores no starting_pitcher for the side
+  listed without a source id                   a starter is stored with an empty player_source_id: neither read can
+                                               join it to a stats row (unchanged; a data-quality count of its own)
   no usable row                                neither read finds one: unchanged
-  only the game's season                       the one usable row is the game's season: unchanged
-  another season only: now no stats            the old read took another season's row, the new finds none: CHANGED
-  two seasons: the old read took the game's    the stored detail equals the game's-season row: unchanged
-  two seasons: the old read took another       the stored detail equals another season's row: CHANGED
-  two seasons: undetermined                    the stored detail equals no row now (a later refresh, or no detail
-                                               stored): named, not counted as either
+  only the game's season                       every usable row is the game's season: unchanged
+  no starter stats then or now                 the prediction stored no starter detail (the old read used no starter
+                                               component: no row, or an opener's, games_started 0) and the new read
+                                               gives none either (no row, or games_started 0): unchanged
+  two seasons: the old read took the game's    the stored detail equals the game's-season row only: unchanged
+  another season only: now no stats            the stored detail equals another season's row only (games_started > 0,
+                                               so it fed the starter component), the new read finds none: CHANGED
+  two seasons: the old read took another       the stored detail equals another season's row only, the new read takes
+                                               the game's: CHANGED
+  undetermined                                 named with its reason, counted as neither: the stored starter's name is
+                                               not the one listed now (sync_pitchers overwrites the row); the stored
+                                               detail equals no row now (a later refresh, or a row added after the
+                                               prediction); it equals rows of two seasons (the rounding cannot tell);
+                                               or no detail is stored while the new read would give one
 
-The starters are the ones stored now (match_participants); a prediction made before a later starter change was made
-on that earlier listing, so S4 reads the current listing, not the history. Nothing is re-predicted: a changed row is
-named, and the size of the change is a re-predict, not this receipt.
+The starters are the ones stored now (match_participants); a prediction whose stored starter name
+(factor_breakdown home_/away_pitcher) differs from the one listed now is undetermined, never read on the replacement.
+Nothing is re-predicted: a changed row is named, and the size of the change is a re-predict, not this receipt.
 
 Run (from the repo root):  python3 scripts/mlb_pitcher_season_receipt.py [--db PATH] [--date YYYY-MM-DD]
                            [--season 2026] [--competition MLB]
@@ -133,32 +143,42 @@ def starters(con, match_id: int) -> dict[int, tuple[str, str | None]]:
         (match_id, ROLE))}
 
 
-UNCHANGED = ("no starter listed", "no usable row", "only the game's season", "two seasons: the old read took the game's")
+UNCHANGED = ("no starter listed", "listed without a source id", "no usable row", "only the game's season",
+             "no starter stats then or now", "two seasons: the old read took the game's")
 CHANGED = ("another season only: now no stats", "two seasons: the old read took another")
-UNDETERMINED = "two seasons: undetermined"
-KINDS = UNCHANGED[:3] + (CHANGED[0], UNCHANGED[3], CHANGED[1], UNDETERMINED)
+UNDETERMINED = "undetermined"
+KINDS = UNCHANGED + CHANGED + (UNDETERMINED,)
 
 
-def classify(rows: list[tuple] | None, season: str, detail: dict | None = None) -> tuple[str, tuple | None]:
-    """(kind, the row the old read took when known)."""
+def classify(rows: list[tuple] | None, season: str, detail: dict | None = None, listed_name: str | None = None,
+             stored_name: str | None = None) -> tuple[str, tuple | None, str]:
+    """(kind, the row the old read took when known, the reason when undetermined). rows None: no starter listed
+    (a starter listed without a source id is counted by the caller)."""
     if rows is None:
-        return "no starter listed", None
+        return "no starter listed", None, ""
+    if stored_name is not None and listed_name is not None and stored_name != listed_name:
+        return UNDETERMINED, None, f"the stored starter {stored_name} is not the one listed now ({listed_name})"
     use = usable(rows)
     if not use:
-        return "no usable row", None
+        return "no usable row", None, ""
     mine = new_read(rows, season)
     others = [r for r in use if r[1] != season]
     if not others:
-        return "only the game's season", mine
+        return "only the game's season", mine, ""
+    if not detail:
+        if mine is None or not (mine[4] or 0):
+            return "no starter stats then or now", None, ""
+        return UNDETERMINED, None, "no starter detail stored while the new read gives one"
+    took = [r for r in use if matches_detail(r, detail)]
+    if not took:
+        return UNDETERMINED, None, "the stored detail equals no row now"
+    if len({r[1] for r in took}) > 1:
+        return UNDETERMINED, None, "the stored detail equals rows of two seasons"
+    if took[0][1] == season:
+        return "two seasons: the old read took the game's", took[0], ""
     if mine is None:
-        took = [r for r in others if matches_detail(r, detail)]
-        return "another season only: now no stats", (took[0] if took else others[-1] if len(others) == 1 else None)
-    if matches_detail(mine, detail):
-        return "two seasons: the old read took the game's", mine
-    took = [r for r in others if matches_detail(r, detail)]
-    if took:
-        return "two seasons: the old read took another", took[0]
-    return UNDETERMINED, None
+        return "another season only: now no stats", took[0], ""
+    return "two seasons: the old read took another", took[0], ""
 
 
 def main(argv=None) -> int:
@@ -234,15 +254,22 @@ def main(argv=None) -> int:
             fb = {}
         st = starters(con, mid)
         for side, team in (("home", home), ("away", away)):
-            sid = st[team][1] if team in st else None
-            rows = usable_rows(con, sid) if sid else None
-            kind, took = classify(rows, season, (fb or {}).get(f"{side}_starter_detail"))
+            if team not in st:
+                sides["no starter listed"] += 1
+                continue
+            name, sid = st[team]
+            if not sid:
+                sides["listed without a source id"] += 1
+                continue
+            rows = usable_rows(con, sid)
+            kind, took, why = classify(rows, season, (fb or {}).get(f"{side}_starter_detail"), name,
+                                       (fb or {}).get(f"{side}_pitcher"))
             sides[kind] += 1
-            line = f"prediction {pid} {side}: {fmt(took)} -> {fmt(new_read(rows, season) if rows else None)}"
+            line = f"prediction {pid} {side}: {fmt(took)} -> {fmt(new_read(rows, season))}"
             if kind in CHANGED:
                 changed.setdefault(mid, []).append(line)
             elif kind == UNDETERMINED:
-                undetermined.setdefault(mid, []).append(line)
+                undetermined.setdefault(mid, []).append(f"prediction {pid} {side}: {why}")
     games_n = len({p[1] for p in preds})
     print(f"\nS4 postseason predictions, season {a.season} (stage in {', '.join(POSTSEASON)}): {len(preds)} row(s) "
           f"on {games_n} game(s) · {2 * len(preds)} side(s)")
@@ -255,8 +282,7 @@ def main(argv=None) -> int:
     else:
         print("  live probability changes: none (no side's row changes)")
     if undetermined:
-        print(f"  UNDETERMINED on {len(undetermined)} game(s) (two seasons stored; the stored detail matches no row "
-              "now):")
+        print(f"  UNDETERMINED on {len(undetermined)} game(s) (named with the reason; counted as neither):")
         for mid in sorted(undetermined):
             print(f"    match {mid}: " + "; ".join(undetermined[mid]))
     return 0

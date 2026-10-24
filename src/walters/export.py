@@ -229,8 +229,9 @@ def _collect_rows(
                 p.player_source_id for ps in pitchers_by_match.values()
                 for p in ps if p.player_source_id
             }
-            # Keyed by (source_id, season) and read for the game's season (addendum 162 item 1(b)): the row
-            # shows the stats the model used, never another season's.
+            # Keyed by (source_id, season) and read for the game's season (addendum 162 item 1(b)), with the
+            # model's own filter (era set, innings > 0): the row shows the stats the model used, never another
+            # season's, and no stats where the model had none.
             pitcher_stats_by_source_season: dict[tuple[str, str], PitcherSeasonStats] = {}
             if pitcher_source_ids:
                 for ps in s.execute(
@@ -238,7 +239,8 @@ def _collect_rows(
                         PitcherSeasonStats.player_source_id.in_(pitcher_source_ids)
                     )
                 ).scalars():
-                    pitcher_stats_by_source_season[(ps.player_source_id, ps.season)] = ps
+                    if ps.era is not None and (ps.innings_pitched or 0) > 0:      # the model's own filter
+                        pitcher_stats_by_source_season[(ps.player_source_id, ps.season)] = ps
         else:
             pitcher_stats_by_source_season = {}
 

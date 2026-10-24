@@ -115,16 +115,27 @@ def _receipt():
     return mod
 
 
-def _set_detail(match_id, side, era):
-    """Stand in for a prediction the old read made: its stored starter detail."""
+def _set_detail(match_id, side, era, name=None):
+    """Stand in for a prediction the old read made: its stored starter detail (None: no detail) and starter name."""
     from src.db.database import session_scope
     from src.db.schema import Prediction
 
     with session_scope() as s:
         p = s.query(Prediction).filter_by(match_id=match_id).one()
         fb = dict(p.factor_breakdown or {})
-        fb[f"{side}_starter_detail"] = {"raw_era": era, "ip": 60.0, "gs": 10}
+        fb[f"{side}_starter_detail"] = None if era is None else {"raw_era": era, "ip": 60.0, "gs": 10}
+        if name is not None:
+            fb[f"{side}_pitcher"] = name
         p.factor_breakdown = fb
+
+
+def _sql(stmt, **params):
+    from sqlalchemy import text
+
+    from src.db.database import session_scope
+
+    with session_scope() as s:
+        s.execute(text(stmt), params)
 
 
 def _run_receipt(capsys):
@@ -157,10 +168,54 @@ def test_the_receipt_reads_what_the_old_read_took_from_the_stored_detail(capsys)
     assert re.search(rf"match {ids['ONLY_PRIOR']}: prediction \d+ home: row \d+ season 2093 .* -> none", s4)
 
     _set_detail(ids["TWO"], "home", 2.0)            # the old read took the game's season: unchanged
-    _set_detail(ids["ONLY_PRIOR"], "home", 5.5)     # matches no row: still changed (one other row, no 2094 row)
+    _set_detail(ids["ONLY_PRIOR"], "home", None)    # no starter component then (opener or no row), none now
     s4 = _run_receipt(capsys).split("S4 ")[1]
-    assert "  two seasons: the old read took the game's: 1" in s4 and "LIVE PROBABILITY CHANGES on 1 game(s)" in s4
+    assert "  two seasons: the old read took the game's: 1" in s4 and "  no starter stats then or now: 1" in s4
+    assert "live probability changes: none" in s4
 
-    _set_detail(ids["TWO"], "home", 5.5)            # matches no current row: named, never guessed
+
+def test_the_receipt_never_infers_a_row_it_cannot_place(capsys):
+    _, ids = _predict()
+    _set_detail(ids["TWO"], "home", 5.5)            # equals no row now (a refresh, a later row): undetermined
+    _set_detail(ids["ONLY_PRIOR"], "home", 5.5)     # the one other row does not match: never inferred from it
     s4 = _run_receipt(capsys).split("S4 ")[1]
-    assert "  two seasons: undetermined: 1" in s4 and f"UNDETERMINED on 1 game(s)" in s4
+    assert "  undetermined: 2" in s4 and "live probability changes: none" in s4
+    assert s4.count("the stored detail equals no row now") == 2
+
+    _sql("UPDATE pitcher_season_stats SET era = 2.0 WHERE player_source_id = 'ps-1' AND season = :s", s=PRIOR)
+    try:                                            # both seasons round to the stored detail: ambiguous
+        _set_detail(ids["TWO"], "home", 2.0)
+        s4 = _run_receipt(capsys).split("S4 ")[1]
+        assert "the stored detail equals rows of two seasons" in s4
+    finally:
+        _sql("UPDATE pitcher_season_stats SET era = 9.0 WHERE player_source_id = 'ps-1' AND season = :s", s=PRIOR)
+
+    _set_detail(ids["TWO"], "home", 9.0, name="Someone Else")   # the listing was overwritten since
+    s4 = _run_receipt(capsys).split("S4 ")[1]
+    assert "the stored starter Someone Else is not the one listed now (Pps-1)" in s4
+    _set_detail(ids["TWO"], "home", 9.0, name="Pps-1")
+
+    _sql("UPDATE match_participants SET player_source_id = '' WHERE match_id = :m AND player_source_id = 'ps-4'",
+         m=ids["ONLY_PRIOR"])
+    try:                                            # listed, no source id: its own count, not "no starter listed"
+        s4 = _run_receipt(capsys).split("S4 ")[1]
+        assert "  listed without a source id: 1" in s4 and "  no starter listed: 0" in s4
+    finally:
+        _sql("UPDATE match_participants SET player_source_id = 'ps-4' WHERE match_id = :m AND player_source_id = ''",
+             m=ids["ONLY_PRIOR"])
+
+
+def test_the_export_shows_no_stats_where_the_model_had_none():
+    from src.db.schema import Sport
+    from src.walters.export import _collect_rows
+
+    _, ids = _predict()
+    _sql("UPDATE pitcher_season_stats SET innings_pitched = 0 WHERE player_source_id = 'ps-3'")
+    try:                                            # the model's filter (era set, innings > 0) applies to the export
+        rows = {r["match_id"]: r for r in _collect_rows(sport=Sport.MLB, start_date=KO - timedelta(days=1),
+                                                        end_date=KO + timedelta(days=1), competition_code=COMP,
+                                                        statuses=None)}
+        assert rows[ids["TWO"]]["pitchers"]["away"]["era"] is None
+        assert rows[ids["TWO"]]["pitchers"]["home"]["era"] == 2.00
+    finally:
+        _sql("UPDATE pitcher_season_stats SET innings_pitched = 60.0 WHERE player_source_id = 'ps-3'")

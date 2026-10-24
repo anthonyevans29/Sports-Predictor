@@ -3,7 +3,8 @@ Migration (2026-10-23, ARCHITECT addendum 158 item 3(a), CUPS STEP B; lane cups,
 cup_lineup_observations, the one table `observe-cup-lineups` writes: the LIVE T-15 observation store, "per fixture the
 scheduled poll time and the actual observation time, eleven team-mapped starters per side, the FIRST complete
 observation preserved and every later correction appended (never replaced) [...] and explicit rows for failed, partial
-or late observations." One row per (fixture, poll), append-only.
+or late observations." One row per (fixture, kickoff, poll), append-only: the unique key holds the stored kickoff, so
+a re-dated fixture starts a fresh poll set and the old kickoff's rows are kept as they were (Codex on #662).
 
 Additive and idempotent: creates the table if missing, plus the one-row migration marker
 cup_lineup_observations_migration; never deletes or rewrites; touches no other table. Until it runs,

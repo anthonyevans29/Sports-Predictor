@@ -1029,8 +1029,10 @@ class CupLineupObservation(Base):
     rows for failed, partial or late observations. The T-35 inputs and forecast of a declared candidate are kept apart
     from the T-15 label."
 
-    One row per (fixture, poll): APPEND-ONLY. Nothing updates or deletes a row; a later poll that answers a different
-    eleven is its own row (differs_from_first). Written ONLY by `observe-cup-lineups`
+    One row per (fixture, kickoff, poll): APPEND-ONLY. Nothing updates or deletes a row; a later poll that answers a
+    different eleven is its own row (differs_from_first). The kickoff is part of the key (Codex on #662): a fixture a
+    schedule sync re-dates starts a fresh poll set, with its own first complete row, and the old kickoff's rows stay as
+    they were. Written ONLY by `observe-cup-lineups`
     (src/ingestion/cup_lineups_live.py); nothing prices from it (it is not the lineups table, so no lineup reader sees
     it), and it holds no candidate input or forecast: those are kept apart, in their own store, by the declaration.
     status: 'complete' (eleven team-mapped starters per side), 'partial' (an answer short of that, or a side mapped to
@@ -1045,7 +1047,7 @@ class CupLineupObservation(Base):
     match_id: Mapped[int] = mapped_column(ForeignKey("matches.id"), index=True)
     competition: Mapped[str] = mapped_column(String(8), index=True)
     fixture_source_id: Mapped[str | None] = mapped_column(String(32))
-    kickoff_at: Mapped[datetime | None] = mapped_column(DateTime)        # the stored kickoff when polled (UTC, naive)
+    kickoff_at: Mapped[datetime] = mapped_column(DateTime)              # the stored kickoff when polled (UTC, naive)
     poll_label: Mapped[str] = mapped_column(String(16))                 # "T-15" (the label poll), "T-5", "T+10"
     scheduled_at: Mapped[datetime] = mapped_column(DateTime)            # kickoff_at - the poll's offset
     observed_at: Mapped[datetime | None] = mapped_column(DateTime)      # OUR clock at the answer; NULL when no call
@@ -1064,7 +1066,7 @@ class CupLineupObservation(Base):
     match: Mapped[Match] = relationship()
 
     __table_args__ = (
-        UniqueConstraint("match_id", "poll_label", name="uq_cup_lineup_obs_match_poll"),
+        UniqueConstraint("match_id", "kickoff_at", "poll_label", name="uq_cup_lineup_obs_match_kickoff_poll"),
     )
 
 

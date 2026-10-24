@@ -1169,12 +1169,14 @@ def observe_cup_lineups_cmd(codes, loop, dry_run):
     stored cup fixtures kicking off within 3 hours, each due poll (T-15, the label poll; T-5 and T+10, later reads that
     catch a correction) asked once and appended to cup_lineup_observations: scheduled and observed time, the
     team-mapped elevens, status complete / partial / empty / failed / missed, late flagged. Append-only: the first
-    complete observation is preserved, a later correction is its own row. Writes nothing else.
+    complete observation is preserved, a later correction is its own row; a re-dated fixture starts a fresh poll set.
+    A real tick holds the chains' DB lock; a missing DB file is refused, never created. Writes nothing else.
     src/ingestion/cup_lineups_live.py."""
     from src.ingestion.cup_lineups_live import COMPETITIONS, Refused, run
+    from src.walters.venue_quote_age import Refused as ReadRefused
     try:
         run(tuple(codes) or COMPETITIONS, loop=loop, dry_run=dry_run, echo=click.echo)
-    except Refused as e:
+    except (Refused, ReadRefused) as e:
         click.echo(str(e))
         raise SystemExit(2)
 

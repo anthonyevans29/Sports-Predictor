@@ -1,4 +1,4 @@
-## 2026-10-23 (#000: 157-nhl-receipts — ARCHITECT addendum 157 item 2(a) and (b); read-only scripts, no model)
+## 2026-10-23 (#660: 157-nhl-receipts — ARCHITECT addendum 157 item 2(a) and (b); read-only scripts, no model)
 - scripts/nhl_gsax_feasibility.py: the GSAx feasibility receipt. Per season 2023-24..2025-26 and game type it prints:
   - the stored shot events by type, with and without a goalie_id;
   - the exclusions in the frozen xG rules' order, then the events kept but naming no goalie;

@@ -9,8 +9,10 @@ shows. Sources (tools/cockpit.html): normTeam L974, dayDiff L1003, isShadow
 L1036, heldContractFair L1075, executedPositions L1287, FAMILY_SPORTS L1552,
 parseTicker L1595, titleTeams/titleParse/codeFits/tickerRole/resolveSide
 L1611-1673, codesFit/sameTeam/gameFits L1674-1693, matchFill L1694,
-sideFields L1744, classifyFills L1809, FEE_M_BY_FAMILY/feeLegClass L1829.
-The Cockpit's in-memory desk picks (deskPicks) are not in the export, so the
+sideFields L1744, classifyFills L1809, FEE_M_BY_FAMILY/feeLegClass L1829;
+#431 R16/R17's closingPositions with sameGame/closingIndex/coverOf, by name
+(closing_positions; ARCHITECT 2026-10-20, addendum 146 item 1(iv), addendum
+148 item 1). The Cockpit's in-memory desk picks (deskPicks) are not in the export, so the
 "system-pick, unlogged" book can read short here; system_matched never depends
 on them.
 """
@@ -51,6 +53,18 @@ def day_diff(a: str | None, b: str | None) -> float:
 
 def is_shadow(c: dict) -> bool:
     return c.get("call_type") in ("quarantine_shadow", "value_shadow")
+
+
+def not_executed_closing(c: dict) -> str:
+    """The closing that marked a call not executed (#431, ARCHITECT 2026-10-20, addendum 145 item 3(b) R13), as the
+    receipts print it: "closing <family> <start>: <the page's words>". The mark is the Cockpit's contract
+    {flag, closing: {family, start, run_id, as_of, file}, closing_call: {text, calls}}; a key it lacks reads "?",
+    and a mark of another shape reads the same way, never a crash."""
+    m = c.get("not_executed")
+    m = m if isinstance(m, dict) else {}
+    cl = m["closing"] if isinstance(m.get("closing"), dict) else {}
+    cc = m["closing_call"] if isinstance(m.get("closing_call"), dict) else {}
+    return f"closing {cl.get('family') or '?'} {cl.get('start') or '?'}: {cc.get('text') or '?'}"
 
 
 def parse_ticker(t) -> dict:
@@ -321,6 +335,45 @@ def _start_nearest(fx: dict, cands: list) -> list:
     return [c for c in within if dist(c) == m]
 
 
+# The Cockpit's REDATED_DRIFT_MS (tools/cockpit.html; desk_policy.DESK_CLOCK_DRIFT, 1 h, inclusive) in seconds: R2's
+# one game (ARCHITECT 2026-10-20, addendum 145 item 3(b)), read by _unmarked_first
+REDATED_DRIFT_S = 3600
+
+
+def _kickoff_ts(c: dict):
+    """A call's kickoff as epoch seconds (UTC when it names no zone), as _start_nearest reads it; None when absent or
+    unreadable."""
+    from datetime import datetime, timezone
+    k = c.get("kickoff")
+    if not k:
+        return None
+    try:
+        kt = datetime.fromisoformat(k[:-1] + "+00:00" if k.endswith(("Z", "z")) else k)
+    except ValueError:
+        return None
+    return (kt.replace(tzinfo=timezone.utc) if kt.tzinfo is None else kt).timestamp()
+
+
+def _unmarked_first(fx: dict, cands: list, group: list, keep) -> list:
+    """unmarkedFirst (#431 R7 under R2, verify_ports #1): R2 counts kickoffs within DESK_CLOCK_DRIFT (REDATED_DRIFT_S,
+    inclusive) as one game, so "an unmarked call of the same game and side" can sit minutes off the nearest start.
+    The group the nearest start chose (the calls the fill would take) keeps its unmarked calls first; when every one is
+    marked, the unmarked calls passing `keep` among the candidates within _start_nearest's 3h whose kickoff is within
+    the hour of one of the group's take the fill instead. The 3h doubleheader rule and the tie flag (the chosen group,
+    listed whole) stand as they were. A line-for-line port: the Cockpit's matchFill moves with it."""
+    from datetime import datetime, timezone
+    u = [c for c in group if not c.get("not_executed")]
+    if u or not group:
+        return u or group
+    if not fx.get("start"):
+        return group
+    t0 = datetime.fromisoformat(fx["start"]).replace(tzinfo=timezone.utc).timestamp()
+    ks = [k for k in (_kickoff_ts(c) for c in group) if k is not None]
+    same = [c for c in cands if not c.get("not_executed") and keep(c) and (k := _kickoff_ts(c)) is not None
+            and abs(k - t0) <= 3 * 3600 and any(abs(k - x) <= REDATED_DRIFT_S for x in ks)]
+    return same or group
+
+
 def match_fill(fx: dict, calls: list, picks: list) -> dict:
     if fx.get("kind") != "sport":
         return {"book": "fun", "category": fx.get("category")}
@@ -336,8 +389,12 @@ def match_fill(fx: dict, calls: list, picks: list) -> dict:
         # a LADDER is executed as NO on the other side (desk order line: AWAY ladder = NO on HOME = X2): a
         # composite NO matches a real ladder call whose pick is the opposite side, never a straight (Codex on #299)
         opp = {"HOME": "AWAY", "AWAY": "HOME"}.get(fx.get("no_on_role"))
-        lad = [c for c in _start_nearest(fx, cands)
-               if c.get("call_type") == "ladder" and c.get("pick") == opp and (c.get("units") or 0) > 0]
+
+        def is_lad(c):
+            return c.get("call_type") == "ladder" and c.get("pick") == opp and (c.get("units") or 0) > 0
+        # R7 (ARCHITECT 2026-10-20, addendum 145 item 3(b), #431): an unmarked ladder of the game (R2's hour) first, as
+        # for the straight below
+        lad = _unmarked_first(fx, cands, [c for c in _start_nearest(fx, cands) if is_lad(c)], is_lad)
         if lad:
             c = lad[0]
             out = {"book": "system_matched", "category": f"{c.get('engine')} · {c.get('tier')} (ladder: NO on "
@@ -377,7 +434,13 @@ def match_fill(fx: dict, calls: list, picks: list) -> dict:
         return {"book": "off_book_sports", "category": "stored prediction exists but the side disagrees",
                 "plausible": True}
     agree = [c for c in _start_nearest(fx, cands) if side_agrees(c)]
-    real = [c for c in agree if c.get("call_type") != "quarantine_shadow" and (c.get("units") or 0) > 0]
+
+    def is_real(c):
+        return c.get("call_type") != "quarantine_shadow" and (c.get("units") or 0) > 0
+    # R7 (ARCHITECT 2026-10-20, addendum 145 item 3(b), #431): a call a closing page did not repeat
+    # (not_executed) yields the fill to an unmarked call of the same game (R2's hour) and side; a marked call alone
+    # keeps it
+    real = _unmarked_first(fx, cands, [c for c in agree if is_real(c)], lambda c: side_agrees(c) and is_real(c))
     if real:
         c = real[0]
         out = {"book": "system_matched", "category": f"{c.get('engine')} · {c.get('tier')}",
@@ -385,6 +448,8 @@ def match_fill(fx: dict, calls: list, picks: list) -> dict:
         # PARITY: the Cockpit takes the first agreeing call, so the receipt does too (its numbers must
         # match the Cockpit's). When MORE THAN ONE real call fits (e.g. an MLB doubleheader, same teams
         # and day), the attribution is ambiguous: flagged and listed, never silent (Codex on #297).
+        # The list covers only the group the fill went to (R7): a marked claim beside the unmarked call
+        # that took the fill is no tie, in the ladder branch above as here.
         if len(real) > 1:
             out["ambiguous_calls"] = [x.get("id") for x in real]
         return out
@@ -462,7 +527,9 @@ def held_contract_fair(f: dict, c: dict, fair: dict):
 def executed_positions(L: dict, fills: list[dict] | None = None) -> dict:
     """executedPositions: per graded, non-shadow, non-parlay call with a close, qty-weighted over its
     system_matched fills: clv = close fair of the held contract − entry; fee_adj = clv − open fee/contract.
-    A call the Cockpit voided as re-dated (void_redated, ARCHITECT 2026-10-17, addendum 106 item 4) is never one."""
+    A call the Cockpit voided as re-dated (void_redated, ARCHITECT 2026-10-17, addendum 106 item 4) is never one.
+    A call a closing page did not repeat (not_executed, #431) still is: addendum 145 item 3(b) R10 keeps it in
+    executedPositions and clvLines, the claim-against-close read."""
     graded = {c.get("id"): c for c in (L.get("calls") or [])
               if c.get("status") == "graded" and c.get("close_ref") and not is_shadow(c)
               and c.get("call_type") != "parlay_leg" and not c.get("void_redated")}
@@ -497,3 +564,169 @@ def executed_positions(L: dict, fills: list[dict] | None = None) -> dict:
             "fills": a["fills"]} for a in by.values()]
     ids = [i for i in unpriced if i not in by]
     return {"pos": pos, "unpriced": len(ids), "unpriced_ids": ids}
+
+
+# ---- #431 R16/R17: the closing CLV (closingPositions) ----------------------------------------------------------------
+# ARCHITECT 2026-10-20, addendum 146 item 1(iv), verbatim: "R16 the ledger stores the page's ORDERED size and limit
+# beside the FILLED size and entry; R17 each position carries entry minus the closing ask on its pick (true CLV, in
+# cents) and the P&L view sums it beside the P&L". The sign as CORRECTED (addendum 148 item 1(b)): "ask minus entry,
+# + = bought below the close, the direction the page's existing CLV lines already use". The port follows the page as
+# the mark's ports do (R13: "parity ships with the mark"); scripts/ledger_fills_parity_verify.py compares every field.
+
+def _js_truthy(x) -> bool:
+    """JavaScript truthiness: an object or an array is true even when empty (Python's {} and [] are not)."""
+    if isinstance(x, (dict, list)):
+        return True
+    if isinstance(x, float) and x != x:
+        return False
+    return bool(x)
+
+
+def _js_num(x) -> float:
+    """`+x` for a stored leg's bid or ask: a number as it is, a decimal string as JS coerces it ("" is 0), else NaN."""
+    if isinstance(x, (int, float)):
+        return float(x)
+    if isinstance(x, str) and re.fullmatch(r"\s*([+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?)?\s*", x):
+        return float(x.strip() or 0)
+    return float("nan")
+
+
+def _js_join(*xs) -> str:
+    """[a, b, c].join("|"): null and undefined join as ""."""
+    from src.walters.desk_policy import js_str
+    return "|".join("" if x is None else js_str(x) for x in xs)
+
+
+def _utc_s(s):
+    """utcMs in seconds: None for an empty value (the page's NaN), else the value read as _kickoff_ts reads a kickoff
+    (a naive date-time is UTC)."""
+    return None if not s else _kickoff_ts({"kickoff": str(s)})
+
+
+def same_game(a: dict, b: dict) -> bool:
+    """sameGame (R2, addendum 145 item 3(b)): one game by sport, home and away, kickoffs within DESK_CLOCK_DRIFT
+    (REDATED_DRIFT_S), inclusive."""
+    x, y = _utc_s(a.get("kickoff")), _utc_s(b.get("kickoff"))
+    return (a.get("sport") == b.get("sport") and a.get("home") == b.get("home") and a.get("away") == b.get("away")
+            and x is not None and y is not None and abs(x - y) <= REDATED_DRIFT_S)
+
+
+def closing_index(closings) -> dict:
+    """closingIndex: the stored games (L.meta.closings, the Cockpit's putPage records) by sport, home and away, in the
+    stored order: {"<sport>|<home>|<away>": [{"k", "p", "g"}, ...]}."""
+    ix: dict = {}
+    for k, p in (closings or {}).items():
+        for g in ((p.get("games") if isinstance(p, dict) else None) or {}).values():
+            if isinstance(g, dict):
+                ix.setdefault(_js_join(g.get("sport"), g.get("home"), g.get("away")), []).append(
+                    {"k": k, "p": p, "g": g})
+    return ix
+
+
+def cover_of(ix: dict, c: dict) -> list:
+    """coverOf: a call's covering stored games, those of its sport, home and away that same_game keeps."""
+    return [h for h in ix.get(_js_join(c.get("sport"), c.get("home"), c.get("away")), []) if same_game(c, h["g"])]
+
+
+def closing_positions(L: dict, fills: list[dict] | None = None) -> list[dict]:
+    """closingPositions (#431 R16/R17, tools/cockpit.html), line for line. Addendum 148 item 1, each default accepted:
+    (c) per position, qty-weighted; (d) every filled straight, VENUE or LADDER position matched to a call, open
+    included (tickets and parlays are not positions, R5; shadows are never filled); (e) the closing page's order
+    whenever one is stored for the game, else the slate's; (f) the held contract's ask, by the fill's ticker and side,
+    and a fill on a contract the page does not quote counted, not priced; (g) over the ordered size, above the limit,
+    outside any page: flagged and counted, never left out of the CLV; (h) a manual Record fill is not a position; (i)
+    no backfill: a stored page with no closing quote is counted, never priced from anything else.
+
+    One entry per call (graded or open, not a shadow, not a parlay leg, not void as re-dated; marked or not: a mark is
+    R10's business) with a system_matched fill (qty > 0, entry known), in the order of its first fill:
+      id, c, status;
+      cover   "page" (one stored game covers the call), "none", or "ambiguous" (two: never guessed, law 4; neither
+              page's order nor quote is read);
+      page    "closing" (the covering page's order for the call's "<engine>|<call_type>|<pick>"), "slate" (the
+              call's exec_order: the page it last followed) or None (outside any page);
+      legacy  no order read and the call has no exec_order key (claimed before R16 stored one);
+      ordered the order read ({ticker, side, limit, contracts, unit} or {why}), or None;
+      filled  {contracts: sum qty, entry: qty-weighted (dollars), fills: n};
+      asks    per fill, the held contract's closing ask: the stored leg whose ticker is the fill's (trimmed, upper
+              case); YES its ask, NO 1 - its bid at 4 dp (desk_policy.order_line prices NO so); else None;
+      quote   "priced", "unpriced" (a fill on a contract the page does not quote), "no_quote" (the stored game has no
+              legs: a page stored before R17), "no_page" or "ambiguous";
+      clv_c   sum qty*(ask - entry) / sum qty * 100: cents, close - entry, pre-fee; None unless EVERY fill prices
+              (fee_adj's all-or-nothing);
+      above_limit_c, above_fills  the largest entry - limit in cents (each at 4 dp, toFixed) above 0, and how many;
+      over_size, partial          sum qty above / below the order's contracts.
+    The limit and the contracts are read only when they are numbers. `fills` defaults to classify_fills(L)."""
+    from src.walters.desk_policy import js_fixed, js_str
+    ix = closing_index((L.get("meta") or {}).get("closings"))
+    calls = {c.get("id"): c for c in (L.get("calls") or [])
+             if not is_shadow(c) and c.get("call_type") != "parlay_leg" and not c.get("void_redated")
+             and c.get("status") in ("graded", "open")}
+    by: dict = {}
+    for f in (fills if fills is not None else classify_fills(L)):
+        if f.get("book") != "system_matched" or not f.get("call_id") or not (f.get("qty") or 0) > 0 \
+                or f.get("entry") is None:
+            continue
+        c = calls.get(f["call_id"])
+        if c is None:
+            continue
+        by.setdefault(c.get("id"), {"c": c, "fills": []})["fills"].append(f)
+
+    def T(t):
+        return ("" if t is None else js_str(t)).strip().upper()
+
+    def cents(x):
+        return float(js_fixed(x * 100, 4))
+
+    def num(x):
+        return isinstance(x, (int, float)) and not isinstance(x, bool)
+    out = []
+    for a in by.values():
+        c, fs = a["c"], a["fills"]
+        hits = cover_of(ix, c)
+        g = hits[0]["g"] if len(hits) == 1 else None
+        cover = "page" if g is not None else "ambiguous" if hits else "none"
+        orders = g.get("orders") if g is not None else None
+        key = "|".join(js_str(c.get(k)) if k in c else "undefined" for k in ("engine", "call_type", "pick"))
+        po = orders.get(key) if isinstance(orders, dict) else None
+        eo = c.get("exec_order")
+        legacy = not _js_truthy(po) and cover != "ambiguous" and "exec_order" not in c
+        ordered = None if cover == "ambiguous" else po if _js_truthy(po) else eo if _js_truthy(eo) else None
+        page = None if cover == "ambiguous" else "closing" if _js_truthy(po) else "slate" if _js_truthy(eo) else None
+        qty = 0
+        for f in fs:
+            qty += f["qty"]
+        s = 0
+        for f in fs:
+            s += f["qty"] * f["entry"]
+        entry = s / qty
+        lg = g.get("legs") if g is not None else None
+        legs = list(lg.values()) if isinstance(lg, dict) else list(lg) if isinstance(lg, list) else None
+        asks = []
+        for f in fs:
+            leg = None if legs is None else next(
+                (x for x in legs if isinstance(x, dict) and _js_truthy(x.get("ticker"))
+                 and T(x["ticker"]) == T(f.get("ticker"))), None)
+            sd = ("" if not _js_truthy(f.get("side")) else js_str(f["side"])).lower()
+            if leg is None or sd not in ("yes", "no"):
+                asks.append(None)
+            elif sd == "yes":
+                asks.append(None if leg.get("ask") is None else _js_num(leg["ask"]))
+            else:
+                asks.append(None if leg.get("bid") is None else float(js_fixed(1 - _js_num(leg["bid"]), 4)))
+        quote = (("no_page" if cover == "none" else "ambiguous") if cover != "page" else "no_quote" if legs is None
+                 else "unpriced" if any(x is None for x in asks) else "priced")
+        clv_c = None
+        if quote == "priced":
+            s = 0
+            for f, x in zip(fs, asks):
+                s += f["qty"] * (x - f["entry"])
+            clv_c = s / qty * 100
+        lim = ordered.get("limit") if isinstance(ordered, dict) and num(ordered.get("limit")) else None
+        over = [] if lim is None else [x for x in (cents(f["entry"] - lim) for f in fs) if x > 0]
+        n = ordered.get("contracts") if isinstance(ordered, dict) and num(ordered.get("contracts")) else None
+        out.append({"id": c.get("id"), "c": c, "status": c.get("status"), "cover": cover, "page": page,
+                    "legacy": legacy, "ordered": ordered, "filled": {"contracts": qty, "entry": entry, "fills": len(fs)},
+                    "asks": asks, "quote": quote, "clv_c": clv_c, "above_limit_c": max(over) if over else None,
+                    "above_fills": len(over), "over_size": n is not None and qty > n,
+                    "partial": n is not None and qty < n})
+    return out

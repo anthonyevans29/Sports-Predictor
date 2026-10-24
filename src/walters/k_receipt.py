@@ -291,9 +291,12 @@ def eligible_calls(L: dict, since: datetime = K_WINDOW_FROM, until: datetime = K
     """Eligible = a real system call: a straight or ladder, units > 0, not a shadow, not a
     parlay leg, its kickoff (else log date) inside the window. A call the Cockpit voided as
     re-dated (void_redated, ARCHITECT 2026-10-17, addendum 106 item 4) never is: it is counted
-    on its own line (redated_calls)."""
+    on its own line (redated_calls). Nor is a call a closing page did not repeat (not_executed,
+    #431, ARCHITECT 2026-10-20, addendum 145 item 3(b) R13): counted on its own line
+    (not_executed_calls)."""
     return [c for c in L.get("calls") or []
-            if _real_call(c) and not c.get("void_redated") and _in_window(c, since, until)]
+            if _real_call(c) and not c.get("void_redated") and not c.get("not_executed")
+            and _in_window(c, since, until)]
 
 
 def redated_calls(L: dict, since: datetime = K_WINDOW_FROM, until: datetime = K_WINDOW_TO) -> list[dict]:
@@ -302,6 +305,15 @@ def redated_calls(L: dict, since: datetime = K_WINDOW_FROM, until: datetime = K_
     shadow or parlay leg was never in the reconciliation."""
     return [c for c in L.get("calls") or []
             if _real_call(c) and c.get("void_redated") and _in_window(c, since, until)]
+
+
+def not_executed_calls(L: dict, since: datetime = K_WINDOW_FROM, until: datetime = K_WINDOW_TO) -> list[dict]:
+    """The calls in the window that would have been eligible but a closing page did not repeat (not_executed, #431,
+    addendum 145 item 3(b) R10/R13): out of the reconciliation, counted on their own line, and KEPT in the
+    executed-position CLV (the Cockpit keeps them in executedPositions). A call that is also void is listed as void
+    only."""
+    return [c for c in L.get("calls") or []
+            if _real_call(c) and c.get("not_executed") and not c.get("void_redated") and _in_window(c, since, until)]
 
 
 def _recorded_quote(c: dict):
@@ -355,7 +367,9 @@ def reconcile(L: dict, since: datetime = K_WINDOW_FROM, until: datetime = K_WIND
                      "engine": c.get("engine"), "units": c.get("units"), **d})
     matched_fills = [f for f in fills if f.get("book") == "system_matched"]
     void_ids = {c.get("id") for c in redated_calls(L, since, until)}     # addendum 106 item 4: neither in nor out
-    outside = [f for f in matched_fills if f.get("call_id") not in ids and f.get("call_id") not in void_ids]
+    ne_ids = {c.get("id") for c in not_executed_calls(L, since, until)}  # #431 R13: neither in nor out, as a void
+    outside = [f for f in matched_fills
+               if f.get("call_id") not in ids and f.get("call_id") not in void_ids and f.get("call_id") not in ne_ids]
     inside = [f for f in matched_fills if f.get("call_id") in ids]
     tally = {k: sum(1 for r in rows if r["disposition"] == k) for k in DISPOSITIONS}
     return {"since": since, "until": until, "rows": rows, "tally": tally,
@@ -367,6 +381,7 @@ def reconcile(L: dict, since: datetime = K_WINDOW_FROM, until: datetime = K_WIND
             "ledger": {"fills": len(fills), "system_matched": len(matched_fills),
                        "matched_in_window": len(inside), "matched_outside_window": len(outside),
                        "matched_redated": sum(1 for f in matched_fills if f.get("call_id") in void_ids),
+                       "matched_not_executed": sum(1 for f in matched_fills if f.get("call_id") in ne_ids),
                        "qty": sum(f.get("qty") or 0 for f in inside),
                        "open_fees": sum(f.get("open_fee") or 0 for f in inside
                                         if isinstance(f.get("open_fee"), (int, float))),
@@ -383,12 +398,51 @@ def reconcile(L: dict, since: datetime = K_WINDOW_FROM, until: datetime = K_WIND
                       for b in ("system_matched", "system_pick_unlogged", "off_book_sports", "fun")}}
 
 
+def closing_clv_lines(L: dict, in_window: set) -> list[str]:
+    """#431 R16/R17 (ARCHITECT 2026-10-20, addendum 146 item 1(iv), verbatim: "R16 the ledger stores the page's
+    ORDERED size and limit beside the FILLED size and entry; R17 each position carries entry minus the closing ask on
+    its pick (true CLV, in cents)"; the sign as CORRECTED by addendum 148 item 1(b): "ask minus entry, + = bought below
+    the close"). ONE line per PRICED position of the Cockpit's closingPositions (ledger_fills.closing_positions):
+    close − entry in cents, printed as the Cockpit's Closing CLV line prints it, beside the filled size and entry, the
+    held contracts' closing asks, and the order it was read against with R16's flags. Each its own line, never
+    appended to another (the lines around it are pinned). A position not priced (no stored page, ambiguous, a contract
+    the page does not quote, no closing quote stored) prints nothing here: the Cockpit's line counts it. A position
+    outside the reconciliation's cohort (in_window) is printed and says so."""
+    from src.walters.desk_policy import js_fixed
+    from src.walters.ledger_fills import closing_positions
+
+    def c1(x):     # the Cockpit's c1: v=+x.toFixed(1)||0, then `${v>=0?"+":""}${v.toFixed(1)}c` (never "-0.0c")
+        v = float(js_fixed(x, 1)) or 0.0
+        return ("+" if v >= 0 else "") + js_fixed(v, 1) + "c"
+    out = []
+    for p in sorted((p for p in closing_positions(L) if p["clv_c"] is not None),
+                    key=lambda p: (_call_day(p["c"]), str(p["id"]))):
+        c, o, fl = p["c"], p["ordered"], p["filled"]
+        if isinstance(o, dict) and "why" in o and "ticker" not in o:      # orderOf's {why}: the page wrote no order
+            order = f"no order on the {p['page']} page ({o.get('why') or '?'})"
+        elif isinstance(o, dict):
+            order = f"ordered {o.get('contracts')} @ {o.get('limit')} {o.get('side')} (the {p['page']} page)"
+        else:
+            order = "no order read (" + ("claimed before R16" if p["legacy"] else "outside any page") + ")"
+        flags = ([f"{p['above_fills']} fill(s) above the limit (max {c1(p['above_limit_c'])})"]
+                 if p["above_limit_c"] is not None else []) \
+            + (["over the ordered size"] if p["over_size"] else []) + (["partial"] if p["partial"] else [])
+        out.append(f"- CLOSING CLV (#431 R17, close − entry; + = beat the close) {c.get('sport')} {c.get('game')} · "
+                   f"{_call_day(c)} · {c.get('call_type')} {c.get('pick')} · {c1(p['clv_c'])} · filled {fl['contracts']}"
+                   f" @ {fl['entry']:.4f} ({fl['fills']} fill(s); closing ask {', '.join(map(str, p['asks']))}) · "
+                   + order + (" · R16: " + " · ".join(flags) if flags else "")
+                   + ("" if p["id"] in in_window else " · outside the window"))
+    return out
+
+
 def format_fills(L: dict, since: datetime = K_WINDOW_FROM, until: datetime = K_WINDOW_TO) -> list[str]:
-    from src.walters.ledger_fills import executed_positions
+    from src.walters.ledger_fills import executed_positions, not_executed_closing
     from src.walters.redated import void_counts
     rec = reconcile(L, since, until)
     ex = executed_positions(L)
+    ne = not_executed_calls(L, since, until)
     in_window = {r["call_id"] for r in rec["rows"]}          # the same cohort as the reconciliation (Codex on #297)
+    in_window |= {c.get("id") for c in ne}                   # #431 R10: a not-executed claim stays in the CLV
     outside = [p for p in ex["pos"] if p["c"].get("id") not in in_window]
     ex["pos"] = [p for p in ex["pos"] if p["c"].get("id") in in_window]
     ex["unpriced"] = sum(1 for i in ex.get("unpriced_ids", []) if i in in_window)   # same window (Codex on #299)
@@ -397,6 +451,7 @@ def format_fills(L: dict, since: datetime = K_WINDOW_FROM, until: datetime = K_W
            " · ".join(f"{k} {v}" for k, v in rec["books"].items()),
            (f"  system_matched in window: {lg['matched_in_window']} (outside window {lg['matched_outside_window']}"
             + (f"; on a void call {lg['matched_redated']}" if lg["matched_redated"] else "")
+            + (f"; on a not-executed call {lg['matched_not_executed']}" if lg["matched_not_executed"] else "")
             + f") · qty {lg['qty']} · opening fees ${lg['open_fees']:.2f} · fees ${lg['fees']:.2f}"
               f" · realised P&L pre-fee ${lg['pnl_pre']:+.2f} net ${lg['pnl_net']:+.2f}"),
            "  opening-fee class: " + " · ".join(f"{k} {v}" for k, v in lg["fee_classes"].items() if v),
@@ -411,7 +466,8 @@ def format_fills(L: dict, since: datetime = K_WINDOW_FROM, until: datetime = K_W
         c = p["c"]
         out.append(f"- {c.get('sport')} {c.get('game')} · {p['day']} · pick {c.get('pick')} · qty {p['qty']} · "
                    f"entry CLV {p['clv'] * 100:+.2f}pp · fee-adj "
-                   + ("—" if p["fee_adj"] is None else f"{p['fee_adj'] * 100:+.2f}pp") + f" ({p['fee_status']})")
+                   + ("—" if p["fee_adj"] is None else f"{p['fee_adj'] * 100:+.2f}pp") + f" ({p['fee_status']})"
+                   + (" · NOT EXECUTED (#431)" if c.get("not_executed") else ""))
     if pos:
         cl = [p["clv"] for p in pos]
         fa = [p["fee_adj"] for p in pos if p["fee_adj"] is not None]
@@ -424,6 +480,7 @@ def format_fills(L: dict, since: datetime = K_WINDOW_FROM, until: datetime = K_W
         out.append(f"  {len(outside)} executed position(s) outside the window, excluded from the CLV above")
     if ex["unpriced"]:
         out.append(f"  {ex['unpriced']} matched call(s) whose held contract is not priceable at the close")
+    out += closing_clv_lines(L, in_window)       # #431 R17: lines of their own, after the block's last line
     t = rec["tally"]
     out.append(f"CALL-TO-FILL RECONCILIATION (#75, adopted) · eligible calls {since:%Y-%m-%d} → "
                f"{until:%Y-%m-%d} (exclusive): {rec['funnel']['eligible']} · cost recorded "
@@ -437,6 +494,12 @@ def format_fills(L: dict, since: datetime = K_WINDOW_FROM, until: datetime = K_W
                    f"{c['void_redated']}")
     out.append(f"  legacy join {rec['legacy_join']} of the eligible calls (paired with its result by the "
                "Cockpit's ±1-day team join: no match id, logged before the field; addendum 109 item 2)")
+    # #431 R13: after the legacy-join line, which tests/test_void_redated.py pins two lines below the void line
+    out.append(f"  not executed: {len(ne)} (#431: the closing page did not repeat them; out of the reconciliation, "
+               "kept in the CLV above)")
+    for c in ne:
+        out.append(f"- NOT EXECUTED {c.get('sport')} {c.get('game')} · {c.get('call_type')} {c.get('pick')} · "
+                   + not_executed_closing(c))
     for r in rec["rows"]:
         line = (f"- {r['disposition']:<11} {r['sport']} {r['game']} · {r['day']} · {r['call_type']} "
                 f"{r['pick']} · {r['units']}u · {r['why']}")

@@ -59,6 +59,12 @@ label "void: re-dated <old start> → <new start>"; no result) is excluded from 
 counted on its own line. The fresh call on the new date is the graded row. A placeholder kickoff (addendum 109 item 2
 Q2) is the same void state under its own label, "void: placeholder kickoff", counted apart on that line.
 
+NOT EXECUTED (#431, ARCHITECT 2026-10-20, addendum 145 item 3(b) R10/R13): a claim a closing page did not repeat
+carries the Cockpit's mark not_executed ({flag, closing: {family, start, run_id, as_of, file}, closing_call: {text,
+calls}}). As the Cockpit leaves it out of settledBets and gradedCount, it is excluded from every total and the n/30,
+and listed and counted on its own line with the closing's own words; its result, net and fills stay on its row. A call
+that is also void is listed as void only. Marked, never deleted.
+
 LEGACY JOIN (ARCHITECT 2026-10-17, addendum 109 item 2): the Cockpit pairs a call that carries a match id with its
 result by that id; a call logged before the field is paired by the ±1-day team join as before and carries
 legacy_join. Such a row is marked "legacy join" and counted on a line of its own; nothing is regraded. The fills are
@@ -270,16 +276,24 @@ def totals(rs: list[dict]) -> dict:
 
 
 def read(L: dict) -> dict:
+    from src.walters.ledger_fills import not_executed_closing
     fills = shadow_fills(L)
     order = lambda r: (r["kickoff"] is None, r["kickoff"] or "", r["game"] or "")     # noqa: E731
     vs = sorted((row(c, fills.get(c.get("id"), 0)) for c in L["calls"]
-                 if c.get("call_type") == VALUE_SHADOW and not c.get("void_redated")), key=order)
+                 if c.get("call_type") == VALUE_SHADOW and not c.get("void_redated") and not c.get("not_executed")),
+                key=order)
     other = [row(c) for c in L["calls"]
-             if c.get("call_type") != VALUE_SHADOW and staked_by(c) and not c.get("void_redated")]
+             if c.get("call_type") != VALUE_SHADOW and staked_by(c) and not c.get("void_redated")
+             and not c.get("not_executed")]
     # addendum 106 item 4: out of every total, listed with the label
     void = sorted(({**row(c), "outcome": c["void_redated"]} for c in L["calls"]
                    if c.get("void_redated") and (c.get("call_type") == VALUE_SHADOW or staked_by(c))), key=order)
-    return {"rows": vs, "other_staked": other, "void_redated": void, "all": totals(vs),
+    # #431 (addendum 145 item 3(b) R10/R13): out of every total and the n/30, listed with the closing's call; the
+    # claim's own result, net and fills stay on the row (a void call is listed as void only)
+    ne = sorted(({**row(c, fills.get(c.get("id"), 0)), "closing": not_executed_closing(c)} for c in L["calls"]
+                 if c.get("not_executed") and not c.get("void_redated")
+                 and (c.get("call_type") == VALUE_SHADOW or staked_by(c))), key=order)
+    return {"rows": vs, "other_staked": other, "void_redated": void, "not_executed": ne, "all": totals(vs),
             "with_close": totals([r for r in vs if r["close"] is not None]),
             "staked": {"field": sum(1 for r in vs if r["staked"] == "field"),
                        "text": sum(1 for r in vs if r["staked"] == "text")},
@@ -325,7 +339,7 @@ def report(L: dict, name: str, echo=print) -> dict:
          f"meta.policy_version {(L.get('meta') or {}).get('policy_version', '-')} (the Cockpit rewrites it on every "
          "load)")
     echo(f"keys: {KEYS}")
-    if not out["rows"] and not out["other_staked"] and not out["void_redated"]:
+    if not out["rows"] and not out["other_staked"] and not out["void_redated"] and not out["not_executed"]:
         echo("VALUE SHADOWS: none in this ledger (0 calls with call_type value_shadow, 0 marked "
              f"\"{STAKED_TEXT}\") → n=0 of {REVIEW_N}")
     else:
@@ -348,11 +362,18 @@ def report(L: dict, name: str, echo=print) -> dict:
             echo(_line(r) + (f" · call_type {r['call_type']}" if r["call_type"] != VALUE_SHADOW else ""))
         echo(f"legacy join {out['legacy_join']} (paired with its result by the Cockpit's ±1-day team join: no match "
              "id, logged before the field; addendum 109 item 2)")
+        # #431 R13: before the n/30 line, which stays the second-last line (tests/test_value_shadow_receipt.py)
+        echo(f"not executed: {len(out['not_executed'])} (#431: the closing page did not repeat them; out of every "
+             "total and the n/30; marked, never deleted)")
+        for r in out["not_executed"]:
+            echo(_line(r) + f" · NOT EXECUTED · {r['closing']}"
+                 + (f" · call_type {r['call_type']}" if r["call_type"] != VALUE_SHADOW else ""))
         echo(f"n/30: the policy card's counter (every value shadow with a result) {a['graded']} of {REVIEW_N} · the "
              f"P&L block's (its settled rows, the kickoff audit applied) {min(a['settled'], REVIEW_N)} of {REVIEW_N}")
     echo("VALUE-SHADOW-RECEIPT " + json.dumps({"ledger": name, "calls": len(L["calls"]), "all": a, "with_close": wc,
                                                 "staked": out["staked"], "other_staked": len(out["other_staked"]),
                                                 "void_redated": len(out["void_redated"]),
+                                                "not_executed": len(out["not_executed"]),
                                                 "legacy_join": out["legacy_join"],
                                                 "with_fill": out["with_fill"],
                                                 "n_of_30": f"{a['graded']} of {REVIEW_N}",

@@ -118,8 +118,12 @@ def test_conflicting_withdrawn_and_changed_are_counted_before_puck_drop_and_the_
     s = tp.game_summary({"id": 1}, polls, eventual=_ident([2], [3]))
     assert s["counts"]["home"] == {"missing": 2, "conflicting": 1, "withdrawn": 1, "changed": 1}   # 1 -> 2 at T-30
     assert s["counts"]["away"] == {"missing": 1, "changed": 2}                        # 3 -> 4 at T-45, 4 -> 3 at T-15
-    assert s["cutoff_label"] == "T-45" and s["cutoff"] == {"away": [4], "home": []}   # T-35 unanswered: T-45 stands
-    assert not s["usable"] and s["reliability"] == {"away": "differs", "home": "no identity at the cutoff"}
+    assert s["cutoff_label"] is None and s["cutoff"] is None       # T-35 unanswered: no earlier poll stands in for it
+    assert not s["usable"] and s["reliability"] == {"away": "no identity at the cutoff",
+                                                    "home": "no identity at the cutoff"}
+    lines = tp.summary_lines([{"id": 1, "away_names": ["A"], "home_names": ["H"]}], {1: s})
+    assert any("the T-35 poll missed or unanswered" in ln for ln in lines)
+    assert any("T-35 poll missed or unanswered: 1 (not usable)" in ln for ln in lines)
     assert s["first"]["home"] == (90, ["boxscore"], [1])                              # the puck-drop poll is not counted
 
 

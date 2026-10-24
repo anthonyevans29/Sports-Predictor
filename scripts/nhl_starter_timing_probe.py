@@ -39,8 +39,9 @@ scripts/nhl_api_probe.py green condition (a starter flag found, or the MoneyPuck
                      starter (flag or path). UNIQUE: exactly one id; CONFLICTING: more than one (two endpoints, or one
                      endpoint flagging two); MISSING: none.
   Summary            per game: the poll at which each side's identity was first seen and which endpoint asserted it
-                     (our poll time); USABLE AT THE CUTOFF: both sides unique at the last answered poll at or before
-                     T-35; and the counts over the pregame polls before puck drop (T-120 .. T-15), per side: missing
+                     (our poll time); USABLE AT THE CUTOFF: both sides unique at the T-35 poll itself (a T-35 poll
+                     missed or unanswered is not usable and is counted as such; an earlier poll never stands in
+                     for it, #660 review); and the counts over the pregame polls before puck drop (T-120 .. T-15), per side: missing
                      (an answered poll with no identity), conflicting, withdrawn (an identity seen, then none at a later
                      answered poll), changed (a unique identity different from the side's previous one). Then, across
                      the day: the share of games usable at the cutoff, the first-seen polls by endpoint, the totals,
@@ -222,11 +223,9 @@ def game_summary(game: dict, polls: dict, eventual: dict | None) -> dict:
                     out["counts"][side]["changed"] += 1
                 if st == "unique":
                     last_unique = ids
-    at = [o for o in OFFSETS if o >= CUTOFF and polls.get(o) is not None]
-    if at:
-        o = min(at)                                       # the last answered poll at or before the cutoff
-        out["cutoff_label"] = label(o)
-        out["cutoff"] = {s: polls[o][s]["ids"] for s in SIDES}
+    if polls.get(CUTOFF) is not None:                  # the T-35 poll itself; an earlier one never stands in
+        out["cutoff_label"] = label(CUTOFF)
+        out["cutoff"] = {s: polls[CUTOFF][s]["ids"] for s in SIDES}
     usable = out["cutoff"] is not None and all(len(out["cutoff"][s]) == 1 for s in SIDES)
     out["usable"] = usable
     rel = {}
@@ -262,11 +261,13 @@ def summary_lines(games: list[dict], res: dict) -> list[str]:
                          for side in SIDES)
         L.append(f"  {g['id']} {'/'.join(g['away_names'][:1])} @ {'/'.join(g['home_names'][:1])} · "
                  + " · ".join(parts)
-                 + f" · at the cutoff ({s['cutoff_label'] or 'no answered poll at or before T-35'}): "
+                 + f" · at the cutoff ({s['cutoff_label'] or 'the T-35 poll missed or unanswered'}): "
                  + ("USABLE" if s["usable"] else "not usable") + f" · before puck drop: {cnt}"
                  + " · reliability: " + ", ".join(f"{side} {s['reliability'][side]}" for side in SIDES))
     n = len(games)
-    L.append(f"  usable at the cutoff (T-35): {usable} of {n} games" + (f" ({usable / n:.0%})" if n else ""))
+    unanswered = sum(res[g["id"]]["cutoff"] is None for g in games)
+    L.append(f"  usable at the cutoff (T-35): {usable} of {n} games" + (f" ({usable / n:.0%})" if n else "")
+             + f" · T-35 poll missed or unanswered: {unanswered} (not usable)")
     L.append("  first seen, by endpoint and poll (a side counts once per asserting endpoint): "
              + (" · ".join(f"{ep} {lab} {v}" for (ep, lab), v in sorted(first_by.items())) or "none"))
     L.append("  before puck drop, side-polls: " + " · ".join(f"{k} {totals.get(k, 0)}"

@@ -134,7 +134,8 @@ EVENT_COLS = ("nhl_game_id", "match_id", "game_start", "game_type", "event_type"
 
 
 def load(con):
-    """(events, appearances). Events as nhl_xg.Shot plus their goalie_id; appearances keyed (nhl_game_id, goalie_id)."""
+    """(events, appearances, why). Events as nhl_xg.Shot plus their goalie_id; appearances keyed (nhl_game_id,
+    goalie_id), or None with the reason when the table cannot be read."""
     from src.models import nhl_xg as nx
     events = []
     for r in con.execute(f"SELECT {', '.join(EVENT_COLS)} FROM nhl_shot_events ORDER BY game_start, nhl_game_id"):
@@ -146,13 +147,13 @@ def load(con):
     apps = {}
     try:
         rows = con.execute("SELECT nhl_game_id, goalie_id, goalie_name, side, is_starter, shots_against, "
-                           "goals_against FROM nhl_goalie_appearances")
-    except sqlite3.OperationalError:
-        rows = []
+                           "goals_against FROM nhl_goalie_appearances").fetchall()
+    except sqlite3.OperationalError as e:            # never read as "no appearance row" (#660 review)
+        return events, None, f"nhl_goalie_appearances could not be read: {e}"
     for g, gid, name, side, st, sa, ga in rows:
         apps[(g, gid)] = {"name": name, "side": side, "is_starter": None if st is None else bool(st),
                           "shots_against": sa, "goals_against": ga}
-    return events, apps
+    return events, apps, None
 
 
 def xg_model(events):
@@ -182,11 +183,12 @@ def receipt(events, apps, model) -> dict:
         t["by_type"][et]["events"] += 1
         t["by_type"][et]["with goalie_id" if gid is not None else "no goalie_id"] += 1
         key = (s.nhl_game_id, gid)
-        if gid is not None and et in SOG and not ((s.period_type or "").upper() == "SO"
-                                                  or (s.game_type == 2 and (s.period or 0) >= 5)):
-            c = t["cross"][key]                  # the boxscore cross-check: the events naming this goalie
-            c[0] += 1
-            c[1] += 1 if et == "goal" else 0
+        if gid is not None and not ((s.period_type or "").upper() == "SO"
+                                    or (s.game_type == 2 and (s.period or 0) >= 5)):
+            c = t["cross"][key]                  # the boxscore cross-check: every goalie-game an event names (a
+            if et in SOG:                        # zero-SOG one compares as 0 and 0, #660 review); SOG and goals
+                c[0] += 1
+                c[1] += 1 if et == "goal" else 0
         p = nx.prepare(s)
         if p.excluded:
             t["excluded"][p.excluded] += 1
@@ -201,20 +203,27 @@ def receipt(events, apps, model) -> dict:
         t["goals"] += p.goal
         t["xg"] += x
         t["games"].add(s.nhl_game_id)
-        a = apps.get(key)
+        a = apps.get(key) if apps is not None else None
         defending = "away" if p.side == "home" else "home"
-        if a is None:
+        role = None                              # the defending goalie's role, only from a row on the defending side
+        if apps is None:
+            t["join"]["starter table unreadable"] += 1
+        elif a is None:
             t["join"]["no appearance row"] += 1
+        elif a["side"] != defending:             # exclusive: a shooting-side row establishes no role (#660 review)
+            t["join"]["appearance side is not the defending side"] += 1
         else:
-            if a["side"] != defending:
-                t["join"]["appearance side is not the defending side"] += 1
-            t["join"][{True: "the starter", False: "a relief appearance", None: "starter flag NULL"}[a["is_starter"]]] += 1
-            if a["is_starter"] is False:
+            role = a["is_starter"]
+            t["join"][{True: "the starter", False: "a relief appearance", None: "starter flag NULL"}[role]] += 1
+            if role is False:
                 t["relief_games"].add(s.nhl_game_id)
         g = t["per_goalie"].setdefault(gid, {"games": set(), "starts": set(), "shots": 0, "xg": 0.0, "goals": 0,
-                                             "name": a["name"] if a else None})
+                                             "name": None, "joined": False})
+        if a is not None:
+            g["joined"] = True
+            g["name"] = g["name"] or a["name"]
         g["games"].add(s.nhl_game_id)
-        if a and a["is_starter"]:
+        if role:
             g["starts"].add(s.nhl_game_id)
         g["shots"] += 1
         g["xg"] += x
@@ -223,6 +232,9 @@ def receipt(events, apps, model) -> dict:
         for t in season.values():
             agree = Counter()
             for key, (sog, goals) in t["cross"].items():
+                if apps is None:
+                    agree["starter table unreadable"] += 1
+                    continue
                 a = apps.get(key)
                 if a is None:
                     agree["no appearance row"] += 1
@@ -240,9 +252,13 @@ def _fmt_types(t) -> str:
                       for et, c in sorted(t["by_type"].items()))
 
 
-def lines(out: dict, model, why: str | None, form: str, path: Path, goalies: bool = True) -> list[str]:
+def lines(out: dict, model, why: str | None, form: str, path: Path, goalies: bool = True,
+          apps_why: str | None = None) -> list[str]:
     L = [f"NHL GSAx FEASIBILITY (ARCHITECT 2026-10-23, addendum 157 item 2(a); #105) · read-only, counts only · "
          f"DB {path.name} ({form})"]
+    if apps_why:
+        L.append(f"STARTERS: UNAVAILABLE ({apps_why}); the join and the boxscore cross-check read "
+                 "'starter table unreadable', never 'no appearance row'")
     if model is None:
         L.append(f"xG: UNAVAILABLE ({why}); xG faced prints 0 and the shot and goal counts stand")
     else:
@@ -283,7 +299,8 @@ def lines(out: dict, model, why: str | None, form: str, path: Path, goalies: boo
                 continue
             L.append("  goalie_id · name · games · starts · shots faced · xG faced · goals against · xG - GA")
             for gid, g in sorted(t["per_goalie"].items(), key=lambda kv: (-kv[1]["shots"], kv[0])):
-                L.append(f"  {gid} · {g['name'] or '(no appearance row)'} · {len(g['games'])} · {len(g['starts'])} · "
+                name = g["name"] or ("(name not stored)" if g["joined"] else "(no appearance row)")
+                L.append(f"  {gid} · {name} · {len(g['games'])} · {len(g['starts'])} · "
                          f"{g['shots']} · {g['xg']:.2f} · {g['goals']} · {g['xg'] - g['goals']:+.2f}")
     return L
 
@@ -296,11 +313,11 @@ def main(argv=None) -> int:
     p = db_path(a.db)
     con, form = open_read(p)
     try:
-        events, apps = load(con)
+        events, apps, apps_why = load(con)
     finally:
         con.close()
     model, why = xg_model(events)
-    for ln in lines(receipt(events, apps, model), model, why, form, p, goalies=not a.no_goalies):
+    for ln in lines(receipt(events, apps, model), model, why, form, p, goalies=not a.no_goalies, apps_why=apps_why):
         print(ln)
     return 0
 

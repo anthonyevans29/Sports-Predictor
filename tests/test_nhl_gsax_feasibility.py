@@ -69,7 +69,8 @@ def test_season_is_the_game_ids_first_four_digits():
 
 def test_the_event_set_counts_every_exclusion_and_joins_the_starters(db):
     con, form = gx.open_read(db)
-    events, apps = gx.load(con)
+    events, apps, why_apps = gx.load(con)
+    assert why_apps is None
     con.close()
     model, why = gx.xg_model(events)
     assert model is not None and why is None and model.n_fit == 60
@@ -102,3 +103,51 @@ def test_no_database_is_never_created(tmp_path):
     with pytest.raises(SystemExit, match="never creates one"):
         gx.main(["--db", str(tmp_path / "absent.db")])
     assert not (tmp_path / "absent.db").exists()
+
+
+def _receipt_2024(db):
+    con, _ = gx.open_read(db)
+    events, apps, why = gx.load(con)
+    con.close()
+    return gx.receipt(events, apps, gx.xg_model(events)[0])["seasons"][2024][2], why
+
+
+def test_a_shooting_side_row_establishes_no_role_and_a_zero_sog_goalie_game_is_cross_checked(db):
+    con = sqlite3.connect(db)
+    g, t = 2024020102, "2024-11-02 23:00:00"
+    _shot(con, g, 1, t, "shot-on-goal", "home", STARTER)          # STARTER's row below sits on the shooting side
+    _shot(con, g, 2, t, "missed-shot", "home", RELIEF)            # RELIEF: eligible misses only, zero SOG
+    for gid_, side, name, st, sa, ga in ((STARTER, "home", "A. Starter", 1, 1, 0), (RELIEF, "away", None, 1, 3, 0)):
+        con.execute("INSERT INTO nhl_goalie_appearances (nhl_game_id, game_start, game_type, side, goalie_id, "
+                    "goalie_name, is_starter, shots_against, goals_against) VALUES (?,?,?,?,?,?,?,?,?)",
+                    (g, t, 2, side, gid_, name, st, sa, ga))
+    con.commit()
+    con.close()
+    t2, _ = _receipt_2024(db)
+    assert t2["join"]["appearance side is not the defending side"] == 1
+    assert sum(t2["join"].values()) == t2["n"]                     # exclusive: the categories sum to the event set
+    assert g not in t2["per_goalie"][STARTER]["starts"]            # a mismatched row adds no start
+    # RELIEF's zero-SOG game compares as 0 against the boxscore's 3: a differ the old tally never saw
+    assert t2["cross_tally"]["shots against: differ"] == 2
+
+
+def test_a_joined_row_without_a_name_is_not_a_missing_row(db, capsys):
+    con = sqlite3.connect(db)
+    con.execute("UPDATE nhl_goalie_appearances SET goalie_name = NULL WHERE goalie_id = ?", (RELIEF,))
+    con.commit()
+    con.close()
+    assert gx.main(["--db", str(db)]) == 0
+    out = capsys.readouterr().out
+    assert f"  {RELIEF} · (name not stored) ·" in out and f"  {HOME_G} · (no appearance row) ·" in out
+
+
+def test_an_unreadable_starter_table_is_never_read_as_no_rows(db, capsys):
+    con = sqlite3.connect(db)
+    con.execute("DROP TABLE nhl_goalie_appearances")
+    con.commit()
+    con.close()
+    t2, why = _receipt_2024(db)
+    assert why and "nhl_goalie_appearances could not be read" in why
+    assert t2["join"] == {"starter table unreadable": 5} and "no appearance row" not in t2["cross_tally"]
+    assert gx.main(["--db", str(db)]) == 0
+    assert "STARTERS: UNAVAILABLE (nhl_goalie_appearances could not be read" in capsys.readouterr().out

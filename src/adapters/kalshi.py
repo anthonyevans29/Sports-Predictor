@@ -219,7 +219,8 @@ class KalshiAdapter:
     # BL1 -> KXBUNDESLIGAGAME (not KXBUNDESLIGA2GAME, KXBBLGAME or
     # KXWDBBLGAME); FL1 -> KXLIGUE1GAME; ELC -> KXEFLCHAMPIONSHIPGAME ... A
     # pinned series never makes a league live." Capture only: the shadow chain
-    # syncs them (deploy/hosting/chains.py KALSHI_CAPTURE_ONLY); nothing exports
+    # syncs them (deploy/hosting/chains.py KALSHI_CAPTURE_ONLY), and the window
+    # chain hourly (WINDOW_KALSHI_CAPTURE_ONLY, addendum 164 item 2(a)); nothing exports
     # those leagues' rows to the Desk until soccer-expansion-v1 is CONFIRMED.
     # ARCHITECT 2026-10-13 09:42 ET, addendum 58 item 1, verbatim: "CL reads Kalshi through the series KXUCLGAME. It
     # is wired as PL is: the soccer path, three legs, the same spread guard, the same placement. Nothing else about

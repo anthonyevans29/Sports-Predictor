@@ -1128,6 +1128,85 @@ def test_window_kalshi_table_pinned_to_adapter_series():
             assert st[0] in cli.commands
 
 
+def test_window_capture_only_table_is_the_expansion_leagues_one_series_per_step():
+    """CAPTURE QUALITY (ARCHITECT 2026-10-24, addendum 164 item 2(a)): "the four series plus KXLALIGAGAME join the
+    host's hourly window chain's Kalshi capture [...] a capture-only step, no export, no call; [...] one series per
+    call". The table is KALSHI_CAPTURE_ONLY, one sync-kalshi-soccer step per code, each code mapped in the adapter (no
+    --series flag); WINDOW_KALSHI still excludes them (the card's venue lines are unchanged)."""
+    from src.adapters.kalshi import KalshiAdapter
+    assert chains.WINDOW_KALSHI_CAPTURE_ONLY == {c: [["sync-kalshi-soccer", "--competition", c]]
+                                                 for c in chains.KALSHI_CAPTURE_ONLY}
+    assert set(chains.KALSHI_CAPTURE_ONLY) == {"PD", "SA", "BL1", "FL1", "ELC"}
+    assert {KalshiAdapter.SOCCER_GAME_SERIES[c] for c in chains.WINDOW_KALSHI_CAPTURE_ONLY} == {
+        "KXLALIGAGAME", "KXSERIEAGAME", "KXBUNDESLIGAGAME", "KXLIGUE1GAME", "KXEFLCHAMPIONSHIPGAME"}
+    assert not set(chains.WINDOW_KALSHI_CAPTURE_ONLY) & set(chains.WINDOW_KALSHI)
+    assert not any("--series" in st for sts in chains.WINDOW_KALSHI_CAPTURE_ONLY.values() for st in sts)
+    cli = _cli()
+    opts = {o for p in cli.commands["sync-kalshi-soccer"].params for o in (*p.opts, *p.secondary_opts)}
+    for sts in chains.WINDOW_KALSHI_CAPTURE_ONLY.values():
+        assert len(sts) == 1                                            # one series per call
+        assert all(tok in opts for tok in sts[0][1:] if tok.startswith("--")), sts
+    assert "sync-kalshi-soccer" in chains.UNMETERED
+    # nothing on the card's path reads the table: window-card reads the DB, never chains.py
+    import src.walters.window as window
+    for src in (inspect.getsource(window), inspect.getsource(cli.commands["window-card"].callback),
+                (HOSTING / "sp_window_page.py").read_text()):
+        assert "WINDOW_KALSHI_CAPTURE_ONLY" not in src and "KALSHI_CAPTURE_ONLY" not in src
+
+
+def test_window_plan_captures_the_expansion_leagues_near_and_imminent_only(sandbox, monkeypatch):
+    """Addendum 164 item 2(a): the capture-only steps are tiered as the window's Kalshi syncs are: a league with its
+    next kickoff near (SA, +3h) or imminent (FL1, +1h) gets its step, a far league (BL1, +10h) only its schedule check,
+    a league with no game in the window (PD, +30h; ELC finished) nothing. Every other step of the plan, the card's
+    included, is the plan without the table; a window with no expansion game adds none."""
+    now = datetime(2026, 10, 3, 20, 0)
+    _window_db(sandbox / "w.db", now)
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{sandbox / 'w.db'}")
+    base = sp_run.window_plan(now)
+    assert not any(s[0] == "sync-kalshi-soccer" and s[2] in chains.KALSHI_CAPTURE_ONLY for s in base["steps"])
+    con = sqlite3.connect(sandbox / "w.db")
+    con.executemany("INSERT INTO competitions VALUES (?,?,?)",
+                    [(6, "SOCCER", "SA"), (7, "SOCCER", "FL1"), (8, "SOCCER", "BL1"), (9, "SOCCER", "PD"),
+                     (10, "SOCCER", "ELC")])
+    fmt = "%Y-%m-%d %H:%M:%S"
+    con.executemany("INSERT INTO matches(competition_id, season, status, utc_date) VALUES (?,?,?,?)",
+                    [(cid, "2026/27", st, (now + timedelta(hours=h)).strftime(fmt))
+                     for cid, st, h in ((6, "SCHEDULED", 3), (7, "SCHEDULED", 1), (8, "SCHEDULED", 10),
+                                        (9, "SCHEDULED", 30), (10, "FINISHED", 1))])
+    con.commit()
+    con.close()
+    plan = sp_run.window_plan(now)
+    steps = [" ".join(s) for s in plan["steps"]]
+    assert "sync-kalshi-soccer --competition SA" in steps                   # near
+    assert "sync-kalshi-soccer --competition FL1" in steps                  # imminent
+    assert not any(s.startswith(("sync-kalshi-soccer --competition BL1",    # far: schedule only
+                                 "sync-kalshi-soccer --competition PD",     # outside the window
+                                 "sync-kalshi-soccer --competition ELC")) for s in steps)   # finished only
+    assert steps.count("sync-kalshi-soccer --competition SA") == 1
+    assert plan["tiers"]["near"] == ["MLB", "PL", "SA"] and plan["tiers"]["imminent"] == ["FL1"]
+    assert "BL1" in plan["tiers"]["far"]
+    # the capture steps sit with the Kalshi syncs, before the card; the card step is unchanged
+    assert steps[-1] == "window-card --hours 24" == " ".join(base["steps"][-1])
+    assert max(steps.index("sync-kalshi-soccer --competition SA"),
+               steps.index("sync-kalshi-soccer --competition FL1")) < steps.index("window-card --hours 24")
+    # only the table differs: without it the plan is the same plan less the capture steps
+    monkeypatch.setattr(sp_run, "WINDOW_KALSHI_CAPTURE_ONLY", {})
+    without = sp_run.window_plan(now)
+    cap = {("sync-kalshi-soccer", "--competition", "SA"), ("sync-kalshi-soccer", "--competition", "FL1")}
+    assert [s for s in plan["steps"] if tuple(s) not in cap] == without["steps"]
+    # the flat plan carries BL1's capture too: proximity skips it, and the receipt counts it
+    assert plan["skipped_by_proximity"] == without["skipped_by_proximity"] + 1
+    # every planned command and option exists in cli.py (law 1)
+    cli = _cli()
+    for st in plan["steps"]:
+        opts = {o for p in cli.commands[st[0]].params for o in (*p.opts, *p.secondary_opts)}
+        assert all(tok in opts for tok in st[1:] if tok.startswith("--")), st
+    # no export / predict / call step names an expansion league in the window plan
+    for st in plan["steps"]:
+        if any(c in st for c in chains.KALSHI_CAPTURE_ONLY):
+            assert st[0] in ("sync-matches", "sync-odds", "sync-kalshi-soccer"), st
+
+
 def test_window_mlb_kalshi_step_ends_at_tomorrow_plus_one_day(sandbox, monkeypatch):
     """#175 (ARCHITECT 2026-10-17 10:40 ET, addendum 112 item 8), RULED: "the step's window ends at {tomorrow}+1 day".
     The window chain as sp_run resolves it for a run on UTC day D: the MLB Kalshi step is the only step the date

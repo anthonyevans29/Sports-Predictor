@@ -280,7 +280,9 @@ def test_kalshi_venue_carries_the_home_legs_ticker_null_safe():
     assert set(kv) == {"from", "to", "move_pp", "from_at", "to_at", "alarm", "to_ticker"}
     assert "to_ticker" not in lm["venues"]["book"]
     # no tickers stored (before migrate_kalshi_ticker.py), or rows with no id: null, never a guess
-    assert line_move(rows, KO, KO - timedelta(minutes=20))["venues"]["kalshi"]["to_ticker"] is None
+    assert line_move(rows, KO, KO - timedelta(minutes=20), tickers={})["venues"]["kalshi"]["to_ticker"] is None
+    # no tickers asked for (every export's call): the key is not written, the venue unchanged
+    assert "to_ticker" not in line_move(rows, KO, KO - timedelta(minutes=20))["venues"]["kalshi"]
     assert line_move(rows, KO, KO - timedelta(minutes=20), tickers={1: "X-Y-Z"})["venues"]["kalshi"]["to_ticker"] is None
     bare = [NS(selection=x.selection, devig_prob=x.devig_prob, captured_at=x.captured_at, source="kalshi", market="ML")
             for x in rows]

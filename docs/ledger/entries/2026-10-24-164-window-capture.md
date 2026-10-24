@@ -24,7 +24,7 @@
   - Built, item 1:
     - `sp_window_page.CAPTURE_ONLY` (`WINDOW_KALSHI_CAPTURE_ONLY` less `WINDOW_KALSHI`, read from chains.py) holds back the `line_move` class only, on those leagues only. The move is not paged, not URGENT and not a freshen.
     - The move is printed as one line in the window's log, and listed in the `window_page` receipt's `capture_only_moves`.
-    - The Kalshi venue of `line_move` gains `to_ticker`, the HOME leg's stored market ticker, so the line can name the series and ticker.
+    - The Kalshi venue of `line_move` gains `to_ticker`, the HOME leg's stored market ticker, so the line can name the series and ticker. It is written on the window card only (`with_ticker=True` from `window.build_card`): the fixtures and NFL exports that read `line_move` do not carry it, so no export contract changes.
   - Built, item 4: the order was already as ruled. The capture-only steps follow every live Kalshi step in the plan, and a unit test pins it.
   - Readings for the architect:
     - Where only the book venue alarmed on such a row, the same line is logged with `venue book` and series and ticker `-`, and still not paged.

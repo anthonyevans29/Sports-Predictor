@@ -168,7 +168,9 @@ def test_line_move_for_match_reads_the_home_legs_stored_ticker(world):
                 pairs.append((sn, f"KXNFLGAME-97OCT13{suffix}"))
         s.flush()
         write_kalshi_tickers(s, [(sn.id, t) for sn, t in pairs])
-        lm = line_move_for_match(s, m, ko - timedelta(minutes=30))
+        lm = line_move_for_match(s, m, ko - timedelta(minutes=30), with_ticker=True)
+        plain = line_move_for_match(s, m, ko - timedelta(minutes=30))     # the exports' call: no new key
+    assert "to_ticker" not in plain["venues"]["kalshi"] and plain["venues"]["kalshi"]["move_pp"] == 10.0
     kv = lm["venues"]["kalshi"]
     assert kv["alarm"] and kv["move_pp"] == 10.0
     assert kv["to_ticker"] == "KXNFLGAME-97OCT13LMHOMEAWAY-HOME"

@@ -1,3 +1,3 @@
-## 2026-10-24 (#000: 163-floor-pl-probe — ARCHITECT addendum 163 items 3 and 4, with addendum 163 recorded)
+## 2026-10-24 (#667: 163-floor-pl-probe — ARCHITECT addendum 163 items 3 and 4, with addendum 163 recorded)
 - docs/CLI.md, the closing-watch row: the slate floor named in one line (item 3). With the 06:00 ET floor, a kickoff before 08:30 ET gets its slate less than 150 minutes ahead (a 07:30 ET PL kickoff prints "due 06:00 ET", T-90). That is the floor, not a miss, and the closing stays at T-35. No behaviour change.
 - scripts/lineup_timing_probe.py: PL is in the `--competition` choice list (item 4), read under the stored code 'PL' like every other choice. tests/test_lineup_timing_probe.py: a PL plan reads only the PL row; the refusal test now names BL1.

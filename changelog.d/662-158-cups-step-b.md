@@ -1,4 +1,4 @@
-## 2026-10-23 (#000: 158-cups-step-b — ARCHITECT addendum 158 item 3(a); cups Step B, due 10-29)
+## 2026-10-23 (#662: 158-cups-step-b — ARCHITECT addendum 158 item 3(a); cups Step B, due 10-29)
 - `observe-cup-lineups` (src/ingestion/cup_lineups_live.py) and the new table `cup_lineup_observations` (migrate_cup_lineup_observations.py: table plus marker, additive; the ingest writes only after it).
 - The LIVE T-15 observation store. For the stored CL, UEL, EFL and FAC fixtures kicking off within 3 hours, each due poll is asked once and appended: T-15 (the label poll), then T-5 and T+10 (later reads that catch a correction).
 - Each row holds the scheduled and observed time and the team-mapped elevens and bench, with status complete, partial, empty, failed or missed; a call more than 5 minutes late is flagged late. The first complete observation is marked and preserved, and a later complete row records whether its elevens differ from the first.

@@ -1130,8 +1130,11 @@ def _generate_predictions_mlb(
         # pitcher_by_match_team. Wraps a defensive sample-shrinkage so a
         # pitcher with very few innings doesn't dominate the prediction.
         from src.db.schema import PitcherSeasonStats, BullpenSeasonStats
-        # source_id -> (era, ip, games_started)
-        pitcher_era_by_source_id: dict[str, tuple[float, float, int]] = {}
+        # THE GAME'S SEASON (ARCHITECT 2026-10-23, addendum 162 item 1(b)): a pitcher's row is keyed by
+        # (source_id, season) and read for the game's own season (Match.season as stored), never another
+        # season's; no row for it is "no stats" (the missing-starter shrink below).
+        # (source_id, season) -> (era, ip, games_started)
+        pitcher_era_by_source_season: dict[tuple[str, str], tuple[float, float, int]] = {}
         source_ids_needed = {
             sid for (_, sid) in pitcher_by_match_team.values()
             if sid is not None
@@ -1143,7 +1146,7 @@ def _generate_predictions_mlb(
                 )
             ).scalars():
                 if ps.era is not None and ps.innings_pitched > 0:
-                    pitcher_era_by_source_id[ps.player_source_id] = (
+                    pitcher_era_by_source_season[(ps.player_source_id, ps.season)] = (
                         ps.era, ps.innings_pitched, ps.games_started or 0,
                     )
 
@@ -1191,7 +1194,7 @@ def _generate_predictions_mlb(
         # so the export shows WHAT the model actually used, not just raw stats.
         starter_detail_by_key: dict[tuple[int, int], dict] = {}
 
-        def _resolve_pitcher(match_id: int, team_id: int) -> PitcherStats | None:
+        def _resolve_pitcher(match_id: int, team_id: int, match_season: str) -> PitcherStats | None:
             """
             Return PitcherStats with a blended starter+bullpen ERA.
 
@@ -1218,8 +1221,8 @@ def _generate_predictions_mlb(
 
             # 1) Resolve starter component (shrunk toward league avg)
             starter_era = None
-            if source_id and source_id in pitcher_era_by_source_id:
-                era, ip, gs = pitcher_era_by_source_id[source_id]
+            if source_id and (source_id, match_season) in pitcher_era_by_source_season:
+                era, ip, gs = pitcher_era_by_source_season[(source_id, match_season)]
                 if gs == 0:
                     # Reliever being used as opener / bullpen game.
                     # Skip starter component entirely.
@@ -1287,8 +1290,8 @@ def _generate_predictions_mlb(
             if home_profile is None or away_profile is None:
                 continue
 
-            home_pitcher = _resolve_pitcher(m.id, m.home_team_id)
-            away_pitcher = _resolve_pitcher(m.id, m.away_team_id)
+            home_pitcher = _resolve_pitcher(m.id, m.home_team_id, m.season)
+            away_pitcher = _resolve_pitcher(m.id, m.away_team_id, m.season)
 
             # Phase 12: park factor — multiplies expected runs based on venue.
             # Coors +21%, Petco -9%, most parks neutral. Adjustment is

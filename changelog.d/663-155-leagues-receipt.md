@@ -1,4 +1,4 @@
-## 2026-10-23 (#000: 155-leagues-receipt — ARCHITECT addendum 155 item 4(a) and addendum 156 item 1; a read-only receipt)
+## 2026-10-23 (#663: 155-leagues-receipt — ARCHITECT addendum 155 item 4(a) and addendum 156 item 1; a read-only receipt)
 - scripts/leagues_close_receipt.py and `paper.leagues_season`. Per league (SA, BL1, FL1, ELC), for the 2026/27 games:
   - FINISHED games are scored against addendum 150's three-way Kalshi close exactly as the close record scores a three-way competition: n with a close and the close's log-loss, the bar's denominator.
   - Games still to come are read for the capture they hold now.

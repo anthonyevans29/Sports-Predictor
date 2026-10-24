@@ -23,6 +23,10 @@ bar, independently per league."
 - parity: both paths on every finished 2026/27 game of the league: a row per game the gate scored, its three
   probabilities from each path and their largest absolute difference; games one path prices and the other does not
   are counted apart. Equal means a difference no larger than PARITY_TOL (floating-point summation order only).
+  REFUSED (ExpansionRefused, before any game is walked) when the league-season stores a stage / round label the code
+  cannot place (soccer_expansion.placement None, NULL or empty included), read by the gate's own census
+  (soccer_expansion.stage_census, STALE_ORPHAN excluded): the gate's run refuses on such a label (F3, never guessed),
+  so the parity read does too, and a game is never silently left out of both paths (Codex on #663).
 - legacy_shadow: the probabilities the CURRENT shadow export (soccer_expansion.price_upcoming's arithmetic, read as of
   each game's kickoff: every stage, no same-kickoff batching, strengths from all finished games before it) would give
   the same games, against the gate path: reported as a finding, never used.
@@ -36,7 +40,7 @@ import dataclasses
 import subprocess
 from datetime import datetime
 
-from src.walters.soccer_expansion import CURRENT_SEASON, MIN_PRIOR, is_regular
+from src.walters.soccer_expansion import CURRENT_SEASON, MIN_PRIOR, ExpansionRefused, is_regular, stage_census
 
 CANDIDATE = "soccer-expansion-v1 walk, prospective on 2026/27 (undeclared: 158 item 2(c) declares it per league)"
 PARITY_TOL = 1e-12
@@ -139,11 +143,23 @@ def gate_rows(code: str, season: str, rho: float, coeff: float) -> list[dict]:
                                stage_filter=is_regular, batch_same_kickoff=BATCH_SAME_KICKOFF) or []
 
 
+def unplaced_labels(s, code: str, season: str) -> list[str]:
+    """F3 for one league-season: every stored label placement() cannot place, with its count, by the gate's own census
+    (soccer_expansion.stage_census, as soccer_expansion.unplaced reads it for the gate's seasons)."""
+    return [f"{code} {season} {lab!r} ({n})" for lab, n, pl in stage_census(s, code, season) if pl is None]
+
+
 def parity(code: str, rho: float, coeff: float, season: str = CURRENT_SEASON, now: datetime | None = None) -> dict:
     """The parity receipt for one league (the module docstring). Read-only: one session, rolled back."""
     from src.db.database import session_scope
     from src.timeutil import utc_now_naive
     now = now or utc_now_naive()
+    with session_scope() as s:
+        bad = unplaced_labels(s, code, season)
+        s.rollback()
+    if bad:                          # F3, as the gate's run refuses: never guessed, never silently left out
+        raise ExpansionRefused("stage / round labels the code cannot place (F3; the gate's run refuses on them, so "
+                               "the parity read does; never guessed): " + "; ".join(bad))
     sha = code_sha()
     gate = {r["match_id"]: r for r in gate_rows(code, season, rho, coeff)}
     out = {"code": code, "season": season, "gate_scored": len(gate), "rows": [], "max_diff": 0.0, "unequal": 0,

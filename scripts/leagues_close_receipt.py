@@ -14,8 +14,11 @@ Per league (SA, BL1, FL1, ELC; the season as the DB stores it, "2026/27" by defa
   - the FINISHED games scored against addendum 150's three-way Kalshi close exactly as results-tally's close record
     scores a three-way competition (paper._score_three; the same line, paper.close_record_line, and the unpriced line
     by cause): n with a close and the close's log-loss on them, the bar's denominator;
-  - the games still to come (not FINISHED, not cancelled / postponed / stale_orphan), read for the capture they hold
-    now: a capture that forms a close by three_way_close's rule, or the cause it does not (UNPRICED), or none;
+  - the games still to come (SCHEDULED, kickoff after the receipt's clock; not FINISHED, not LIVE, not cancelled /
+    postponed / stale_orphan), read for the capture they hold now (stored before the clock): a capture that forms a
+    close by three_way_close's rule behind the finished score's mismatched-legs guard, or the cause it does not
+    (mismatched legs, or UNPRICED's), or none; LIVE games and SCHEDULED games past their kickoff are named and
+    counted apart, never in the cohort;
   - the projection: the season's stored fixtures (cancelled / postponed / stale_orphan left out) whose kickoff's UTC
     date is on or after the declaration date (2026-11-06), in kickoff order; the 60th's kickoff UTC date, every game
     assumed to get a three-way close. Fewer than 60 stored: no date, the count printed (law 4).
@@ -24,7 +27,11 @@ Then step (c)'s date as 156 item 1 rules it: the earliest of the four, the other
 The DB is the one DATABASE_URL names (else ./data/sports.db). A path with no file is refused before any import that
 could open it: the receipt never creates a database. One session, rolled back; nothing written.
 
-Run:  python3 scripts/leagues_close_receipt.py [--season 2026/27] [--declared 2026-11-06]
+Then the parity receipt (158 item 2(a)) per league. It REFUSES with exit status 2, as cli.py's soccer-expansion
+commands do, when no production soccer model resolves, and per league when the league-season stores a stage label
+the code cannot place (the gate's F3 refusal); the close part above still prints.
+
+Run:  python3 scripts/leagues_close_receipt.py [--season 2026/27] [--declared 2026-11-06] [--rows]
 Paste the whole output on #322.
 """
 from __future__ import annotations
@@ -39,6 +46,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 SEASON = "2026/27"
 DECLARED = date(2026, 11, 6)                 # 155 item 4(b): the declaration; 156 item 1: "on or after 2026-11-06"
+REFUSED = 2                                  # the exit status of a refusal, as cli.py's soccer-expansion commands
 
 
 def db_file() -> Path:
@@ -57,10 +65,14 @@ def db_file() -> Path:
 
 
 def come_line(code: str, c: dict) -> str:
-    from src.walters.paper import UNPRICED
-    causes = " · ".join(f"{text.split(' {k}')[0]} {c[key]}" for key, text in UNPRICED if c[key])
+    from src.walters.paper import MISMATCHED, UNPRICED
+    causes = " · ".join(([f"mismatched legs {c[MISMATCHED]}"] if c[MISMATCHED] else [])
+                        + [f"{text.split(' {k}')[0]} {c[key]}" for key, text in UNPRICED if c[key]])
+    apart = " · ".join(f"{label} {c[key]}" for key, label in (("live", "live"),
+                                                               ("past_kickoff", "past kickoff, not finished")) if c[key])
     return (f"  - {code} · to come {c['n']} · a capture forming a close now {c['close']}"
-            + (f" · no close: {causes}" if causes else ""))
+            + (f" · no close: {causes}" if causes else "")
+            + (f" · not in the cohort: {apart}" if apart else ""))
 
 
 def lines(res: dict, season: str, declared: date) -> list[str]:
@@ -112,15 +124,24 @@ def main(argv=None) -> int:
         print(ln)
     from src.walters import leagues_candidate as lc
     prod = lc.production_poisson()
-    if prod is None:
-        print("PARITY (158 item 2(a)): not computed: no production soccer model resolved (nothing faked)")
-        return 0
+    if prod is None:                 # as the soccer-expansion commands refuse (cli.py): exit 2, never a pass
+        print("PARITY (158 item 2(a)): REFUSED: no production soccer model resolved (nothing faked); the receipt is "
+              "incomplete without its parity part")
+        return REFUSED
     print(f"PARITY (158 item 2(a)): the production soccer model {prod[0]} (rho {prod[1]}, Elo goal coefficient "
           f"{prod[2]}); the shadow path is leagues_candidate.predict_as_of, the gate path run_soccer_backtest")
+    from src.walters.soccer_expansion import ExpansionRefused
+    rc = 0
     for code in LEAGUES:
-        for ln in lc.parity_lines(lc.parity(code, prod[1], prod[2], season=a.season), rows=a.rows):
+        try:
+            p = lc.parity(code, prod[1], prod[2], season=a.season)
+        except ExpansionRefused as e:   # F3: an unplaceable stage label refuses, as the gate's run does
+            print(f"{code} {a.season} · PARITY (158 item 2(a)) · REFUSED: {e}")
+            rc = REFUSED
+            continue
+        for ln in lc.parity_lines(p, rows=a.rows):
             print(ln)
-    return 0
+    return rc
 
 
 if __name__ == "__main__":

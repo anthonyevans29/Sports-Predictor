@@ -78,8 +78,8 @@ def test_games_to_come_are_read_for_the_capture_they_hold_and_not_games_are_left
     _game(813, "BL1", soon)                                                  # no capture
     _game(814, "BL1", soon, MatchStatus.POSTPONED)                           # not a game: left out
     c = paper.leagues_season(("BL1",), SEASON, DECLARED, now=NOW)["BL1"]["to_come"]
-    assert c == {"n": 3, "close": 1, "unpriced_incomplete": 1, "unpriced_cap": 0, "unpriced_none": 1,
-                 "unpriced_other": 0}
+    assert c == {"n": 3, "close": 1, "mismatched": 0, "unpriced_incomplete": 1, "unpriced_cap": 0, "unpriced_none": 1,
+                 "unpriced_other": 0, "live": 0, "past_kickoff": 0}
     assert lr.come_line("BL1", c) == ("  - BL1 · to come 3 · a capture forming a close now 1 · no close: last capture "
                                       "incomplete 1 · no capture 1")
 
@@ -194,3 +194,143 @@ def test_the_prospective_path_equals_the_gate_walk_row_for_row_and_the_legacy_sh
     lines = lc.parity_lines(p, rows=False)
     assert lines[0].startswith(f"SA {SEASON} · PARITY (158 item 2(a)) · finished regular-round 60 (other stages 2")
     assert "unequal 0" in lines[0] and "a finding: it is not the gate's walk" in lines[1]
+
+
+# ---- Codex on #663 ---------------------------------------------------------------------------------------------------
+
+def _tick(mid, at, tickers):
+    """What migrate_kalshi_ticker.py adds (once), then the market_ticker of game `mid`'s legs captured at `at`, by row id
+    ({selection: ticker})."""
+    from sqlalchemy import text
+
+    from src.db.database import session_scope
+    from src.db.schema import OddsSnapshot
+    with session_scope() as s:
+        if not any(r[1] == "market_ticker" for r in s.execute(text("PRAGMA table_info(odds_snapshots)"))):
+            s.execute(text("ALTER TABLE odds_snapshots ADD COLUMN market_ticker VARCHAR(64)"))
+        for x in s.query(OddsSnapshot).filter_by(match_id=mid, captured_at=at).all():
+            if x.selection in tickers:
+                s.execute(text("UPDATE odds_snapshots SET market_ticker = :v WHERE id = :i"),
+                          {"v": tickers[x.selection], "i": x.id})
+
+
+E1 = {"HOME": "KXSERIEAGAME-26OCT25AAABBB-AAA", "DRAW": "KXSERIEAGAME-26OCT25AAABBB-TIE",
+      "AWAY": "KXSERIEAGAME-26OCT25AAABBB-BBB"}
+TWO = {**E1, "DRAW": "KXSERIEAGAME-26OCT25CCCDDD-TIE"}               # the draw leg of another event
+
+
+def test_an_upcoming_capture_whose_legs_name_two_events_forms_no_close_and_is_counted_as_mismatched():
+    """Codex P2 on #663: the games to come go through the finished score's own guard (_guarded_three_way). 831's full
+    capture names two events: mismatched, never a close; 832's names one: a close."""
+    _comps()
+    soon, at = NOW + timedelta(days=2), NOW - timedelta(hours=1)
+    _game(831, "SA", soon)
+    _legs(831, A, at)
+    _game(832, "SA", soon)
+    _legs(832, A, at)
+    _tick(831, at, TWO)
+    _tick(832, at, {k: v.replace("AAABBB", "EEEFFF") for k, v in E1.items()})
+    c = paper.leagues_season(("SA",), SEASON, DECLARED, now=NOW)["SA"]["to_come"]
+    assert (c["n"], c["close"], c["mismatched"]) == (2, 1, 1)
+    assert lr.come_line("SA", c) == "  - SA · to come 2 · a capture forming a close now 1 · no close: mismatched legs 1"
+
+
+def test_an_older_capture_whose_legs_name_two_events_is_never_a_superseded_case():
+    """Codex P2 on #663: 841's controlling capture (T-30, one event) is incomplete (its DRAW leg one-sided); its older
+    complete capture (T-3h) names two events: no close, so no SUPERSEDED case. 842, the same with the older capture
+    of one event: SUPERSEDED."""
+    _comps()
+    sat = datetime(2026, 10, 17, 14, 0)
+    for mid, older_tickers in ((841, TWO), (842, E1)):
+        ko = sat + timedelta(hours=mid - 841)
+        _game(mid, "SA", ko, MatchStatus.FINISHED, 1, 0)
+        _legs(mid, A, ko - timedelta(hours=3))
+        _legs(mid, {"HOME": (0.45, 0.46), "DRAW": (None, 0.28), "AWAY": (0.27, 0.28)}, ko - timedelta(minutes=30))
+        tick = {k: v.replace("AAABBB", f"G{mid}") for k, v in E1.items()}
+        _tick(mid, ko - timedelta(minutes=30), tick)
+        _tick(mid, ko - timedelta(hours=3), {k: v.replace("AAABBB", f"G{mid}") for k, v in older_tickers.items()})
+    q = paper.leagues_season(("SA",), SEASON, DECLARED, now=NOW)["SA"]["quality"]
+    assert q["by_weekday"]["Sat"]["unpriced_incomplete"] == 2 and q["by_weekday"]["Sat"]["mismatched"] == 0
+    assert [c["match_id"] for c in q["superseded"]] == [842]
+
+
+def test_upcoming_captures_are_read_as_of_the_receipt_clock():
+    """Codex P2 on #663: 851's full capture at NOW-1h is the last one stored before the clock; a two-leg capture
+    stamped after it (NOW+1h, before the kickoff) is not read yet: a close now."""
+    _comps()
+    _game(851, "FL1", NOW + timedelta(days=1))
+    _legs(851, A, NOW - timedelta(hours=1))
+    _legs(851, {"HOME": (0.45, 0.46), "AWAY": (0.27, 0.28)}, NOW + timedelta(hours=1))
+    c = paper.leagues_season(("FL1",), SEASON, DECLARED, now=NOW)["FL1"]["to_come"]
+    assert (c["n"], c["close"], c["unpriced_incomplete"]) == (1, 1, 0)
+
+
+def test_live_and_past_kickoff_games_are_named_apart_and_never_in_the_cohort():
+    """Codex P2 on #663: the cohort is SCHEDULED with a kickoff after the clock. 861 LIVE, 862 SCHEDULED an hour past
+    its kickoff: each holds a full capture, each is counted apart; 864, to come, is the cohort."""
+    _comps()
+    _game(861, "ELC", NOW - timedelta(minutes=30), MatchStatus.LIVE)
+    _game(862, "ELC", NOW - timedelta(hours=1))
+    _game(864, "ELC", NOW + timedelta(days=1))
+    for mid in (861, 862, 864):
+        _legs(mid, A, NOW - timedelta(hours=2))
+    c = paper.leagues_season(("ELC",), SEASON, DECLARED, now=NOW)["ELC"]["to_come"]
+    assert (c["n"], c["close"], c["live"], c["past_kickoff"]) == (1, 1, 1, 1)
+    assert lr.come_line("ELC", c) == ("  - ELC · to come 1 · a capture forming a close now 1 · not in the cohort: live 1"
+                                      " · past kickoff, not finished 1")
+
+
+@pytest.mark.parametrize("stage", [None, "", "Matchday 3"], ids=["null", "empty", "unfamiliar"])
+def test_parity_refuses_a_stage_label_the_code_cannot_place(stage):
+    """Codex P1 on #663: a label placement() cannot place refuses the parity read, as it refuses the gate's run (F3),
+    before any game is walked: never "unequal 0" over games both paths silently left out."""
+    from src.db.database import session_scope
+    from src.db.schema import Competition, Match
+    from src.models.poisson import PoissonConfig
+    from src.walters import leagues_candidate as lc
+    from src.walters.soccer_expansion import ExpansionRefused
+    _comps()
+    _league_season("SA")
+    with session_scope() as s:
+        c = s.query(Competition).filter_by(code="SA").one()
+        m0 = s.query(Match).filter_by(competition_id=c.id).first()
+        s.add(Match(id=7000, sport=c.sport, competition_id=c.id, season=SEASON, utc_date=datetime(2026, 9, 1, 14),
+                    status=MatchStatus.FINISHED, home_team_id=m0.home_team_id, away_team_id=m0.away_team_id,
+                    home_score=1, away_score=1, stage=stage))
+    cfg = PoissonConfig()
+    with pytest.raises(ExpansionRefused, match=f"SA {SEASON} {stage!r} \\(1\\)"):
+        lc.parity("SA", cfg.dixon_coles_rho, cfg.elo_goal_coeff, now=NOW)
+
+
+def _script_db(tmp_path, monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{tmp_path / 'iso.db'}")    # the iso_db fixture's file
+
+
+def test_the_script_refuses_with_status_2_when_no_production_model_resolves(tmp_path, monkeypatch, capsys):
+    """Codex P1 on #663: no production soccer model -> REFUSED, exit 2 (as cli.py's soccer-expansion commands), never
+    a 0 over a receipt without its parity part."""
+    from src.walters import leagues_candidate as lc
+    _script_db(tmp_path, monkeypatch)
+    monkeypatch.setattr(lc, "production_poisson", lambda: None)
+    assert lr.main([]) == lr.REFUSED == 2
+    assert "PARITY (158 item 2(a)): REFUSED: no production soccer model resolved" in capsys.readouterr().out
+
+
+def test_the_script_refuses_with_status_2_on_an_unplaceable_stage_and_prints_the_other_leagues(tmp_path, monkeypatch,
+                                                                                                capsys):
+    from src.db.database import session_scope
+    from src.db.schema import Competition, Match
+    from src.models.poisson import PoissonConfig
+    from src.walters import leagues_candidate as lc
+    _script_db(tmp_path, monkeypatch)
+    cfg = PoissonConfig()
+    monkeypatch.setattr(lc, "production_poisson", lambda: ("v-test", cfg.dixon_coles_rho, cfg.elo_goal_coeff))
+    _comps()
+    _league_season("SA")
+    with session_scope() as s:
+        c = s.query(Competition).filter_by(code="SA").one()
+        s.query(Match).filter_by(id=5000, competition_id=c.id).update({"stage": None})
+    assert lr.main([]) == 2
+    out = capsys.readouterr().out
+    assert f"SA {SEASON} · PARITY (158 item 2(a)) · REFUSED: stage / round labels the code cannot place" in out
+    assert f"BL1 {SEASON} · PARITY (158 item 2(a)) · finished regular-round 0" in out

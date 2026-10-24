@@ -1,0 +1,7 @@
+## 2026-10-23 (#654: 157-nhl-nine-prep — ARCHITECT addendum 157 items 3, 4 and 5; records only, no code)
+- docs/roadmap.json, nhl lane: live_needs reads the frozen bar's rule as src/walters/nhl_backtest.py writes it. That is the test log-loss at or under the home-rate baseline's minus 0.010 (LL_MARGIN), plus the calibration bands and the ratings range. Its number is read from the 600-game cohort at the run. 0.6866 is named as the rule's value on the retired 2025 cohort. The cohort is regular-season games only (the NHL API's game type 2), with the ids and counts listed in the run's receipt. A non-Elo candidate declares its own stability guards. One line, edited in place; no date moves.
+- docs/roadmap.json, nhl lane: a first step, candidate nine's two receipts (code, due 2026-10-28, item 2), before the 2026-10-30 declaration it conditions.
+- docs/roadmap.json, nfl-qb lane: the probe run's step is done 2026-10-23 (item 10). Its receipt is #427 comment 6367734110; the console stays in the laptop's logs.
+- BACKLOG: a market-anchored NHL model is DECLINED (item 4; the doctrine stands). It may exist later only as a read-only residual diagnostic, never a Desk candidate.
+- #653 opened: NHL candidate ten, a strength-specific goal model, as a later lane after nine's declaration, with no date yet (item 5).
+- Items 1, 2 and 6 recorded. The receipts of item 2 ((a) GSAx feasibility, (b) the starter-timing probe) are their own PR, due 2026-10-28.

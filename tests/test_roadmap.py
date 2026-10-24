@@ -857,8 +857,8 @@ def test_the_base_order_kept_and_the_heads_lines_after_it_passes():
     base = _with_lines("nhl", [first, second])
     head = copy.deepcopy(base)
     st = _lane(head, "nhl")["steps"][0]
-    _lane(head, "nhl")["moved"].append(_mv(st["what"], st["due"], "2026-10-31"))
-    st["due"] = "2026-10-31"
+    _lane(head, "nhl")["moved"].append(_mv(st["what"], st["due"], "2026-10-29"))
+    st["due"] = "2026-10-29"                         # a day later, still before the lane's next step (no step goes back)
     assert rm.validate(head) == [] and rm.check_moves(base, head) == []
 
 
@@ -900,14 +900,16 @@ def test_the_ci_step_fails_a_rewritten_base_line(tmp_path):
 
 def test_the_real_roadmap_records_the_quarterback_probe_done():
     """Addendum 62 item 4: lane nfl-qb, its first step, done on 2026-10-13, receipt "PR #489 merged at 7e6e88c".
-    No date moves; the print reads the lane's next step as the operator's run, due 2026-10-23."""
+    Addendum 157 item 10: the operator's run is done on 2026-10-23, its receipt the Summary lines on #427. No date
+    moves; the print reads the lane's next step as the architect's ruling, due 2026-11-02."""
     lane = _lane(_real(), "nfl-qb")
     assert lane["steps"][0]["done"] == {"date": "2026-10-13", "receipt": "PR #489 merged at 7e6e88c"}
+    assert lane["steps"][1]["done"]["date"] == "2026-10-23" and "#427" in lane["steps"][1]["done"]["receipt"]
     assert [st["due"] for st in lane["steps"]] == ["2026-10-21", "2026-10-23", "2026-11-02"] and lane["moved"] == []
     nx = rm.next_step(lane)
-    assert nx[0] == 2 and nx[1]["owner"] == "operator" and nx[1]["due"] == "2026-10-23"
-    lines, _ = rm.report(date(2026, 10, 14))
-    assert f"  next: {lane['steps'][1]['what']} · operator · due 2026-10-23 · in 9 days" in lines
+    assert nx[0] == 3 and nx[1]["owner"] == "architect" and nx[1]["due"] == "2026-11-02"
+    lines, _ = rm.report(date(2026, 10, 23))
+    assert f"  next: {lane['steps'][2]['what']} · architect · due 2026-11-02 · in 10 days" in lines
 
 
 def test_a_done_milestone_prints_done_and_is_never_overdue(tmp_path, monkeypatch):

@@ -314,6 +314,14 @@ Which machine runs item 5's readout (ARCHITECT 2026-10-18, addendum 128 item 1(a
    took the goal-margin fallback for any game is not v7. Its file and rows read `nhl_elo_v7_goal_margin_fallback`, the
    run prints `✗ the walk took the goal-margin fallback for <n> of <N> games`, and nhl-shadow-grade grades it on its own
    line, never pooled with v7.)
+   **UNL cohort post-check (ARCHITECT 2026-10-23, addendum 159 item 1), read by the architect:** "receipt after the cutover
+   (Code's runbook step): the same read on the host, which must print the same 60 ids and the same labelled count; a
+   difference is a cutover blocker for the UNL record step, not a reason to touch the cohort." After the host's first
+   chain, TERMINAL (host): `sudo -u sp venv/bin/python cli.py intl-elo-confirm` (no flags: the progress read, nothing
+   written). Paste it beside the laptop's read of `block_1023_unl_receipts`. The two must name the same 60 cohort ids
+   (the 2026-10-03 freeze) and the same labelled count. The host's pre-cutover 19 of 60 is its own younger intl ingest,
+   not a reading of the cohort. A difference blocks the UNL record step (11-12) and goes to the architect; the cohort is
+   never touched. The record runs on whichever machine is writer of record that day, with this receipt in hand.
 5b. **TERMINAL (host): the host's closing watch (ARCHITECT 2026-10-12, addendum 45 P4; #405, #408 items 2 and 3).**
    "The runbook's host step, in this order: preflight for the two families, one test page as sp, the dry run,
    then install-push with the role host. Only when all four pass: install, daemon-reload, enable, and the line in

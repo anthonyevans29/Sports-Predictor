@@ -20,3 +20,14 @@
     - `desk_venue` refuses a venue call on them (`SHADOW_VENUE_COMPS`: "Kalshi captured for the record only"), and no chain exports or predicts them.
     - One consequence for the architect to read: the card pager's line-move delta (a 6 pp move on either venue inside T-3h) can now fire on these leagues' Kalshi side. No freshen family maps them, so nothing runs.
 - On the host the change goes live with the next tag's deploy. The window chain re-reads chains.py on every hourly run, so no timer restart is needed for it.
+- **Addendum 165 items 1 and 4 (ARCHITECT 2026-10-24), verbatim:** "1. The pager (your point 1) — RULED: no page on the five capture-only leagues. The URGENT 6pp-in-3h page exists so the operator looks at a quote the Desk can act on. PD, SA, BL1, FL1 and ELC are capture-only until a PASS and its confirmation: no export, no call, nothing to act on. A page the operator cannot act on is noise, and noise is what teaches someone to ignore the page that matters. So: the pager reads the live list (WINDOW_KALSHI) only, never the new table. Keep the move itself: write it to the window's log as one line (series, ticker, from, to, minutes to kickoff) so the capture-quality receipt of 164 item 4(b) can count large late moves per league. A logged move is a receipt; a paged one is a false alarm. Test: a 6pp move on a captured ELC quote produces the log line and no page; the same move on a PL quote still pages." "4. One check before the PR opens. 'One series per call' is right for pacing; confirm in the PR body that the five sync-kalshi-soccer steps are AFTER the live Kalshi steps in the chain, so a 429 on a shadow league never delays a live capture. If the order is the other way round, move them; a unit test that asserts the order is enough."
+  - Built, item 1:
+    - `sp_window_page.CAPTURE_ONLY` (`WINDOW_KALSHI_CAPTURE_ONLY` less `WINDOW_KALSHI`, read from chains.py) holds back the `line_move` class only, on those leagues only. The move is not paged, not URGENT and not a freshen.
+    - The move is printed as one line in the window's log, and listed in the `window_page` receipt's `capture_only_moves`.
+    - The Kalshi venue of `line_move` gains `to_ticker`, the HOME leg's stored market ticker, so the line can name the series and ticker.
+  - Built, item 4: the order was already as ruled. The capture-only steps follow every live Kalshi step in the plan, and a unit test pins it.
+  - Readings for the architect:
+    - Where only the book venue alarmed on such a row, the same line is logged with `venue book` and series and ticker `-`, and still not paged.
+    - Each line ends `· venue <kalshi|book>`, so the two kinds stay apart in the log.
+    - A move is logged once, when the row turns late-news?, as the page would have fired.
+    - A first (baseline) run logs nothing, as it pages nothing.

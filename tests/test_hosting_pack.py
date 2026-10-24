@@ -1149,9 +1149,14 @@ def test_window_capture_only_table_is_the_expansion_leagues_one_series_per_step(
     assert "sync-kalshi-soccer" in chains.UNMETERED
     # nothing on the card's path reads the table: window-card reads the DB, never chains.py
     import src.walters.window as window
-    for src in (inspect.getsource(window), inspect.getsource(cli.commands["window-card"].callback),
-                (HOSTING / "sp_window_page.py").read_text()):
+    for src in (inspect.getsource(window), inspect.getsource(cli.commands["window-card"].callback)):
         assert "WINDOW_KALSHI_CAPTURE_ONLY" not in src and "KALSHI_CAPTURE_ONLY" not in src
+    # the pager reads it for one thing only (addendum 165 item 1): the leagues whose line moves it never pages
+    import sp_window_page
+    pager = (HOSTING / "sp_window_page.py").read_text()
+    assert "CAPTURE_ONLY = frozenset(WINDOW_KALSHI_CAPTURE_ONLY) - frozenset(WINDOW_KALSHI)" in pager
+    for fn in (sp_window_page.run, sp_window_page.deltas, sp_window_page.snapshot, sp_window_page.line):
+        assert "WINDOW_KALSHI_CAPTURE_ONLY" not in inspect.getsource(fn)   # read once, as CAPTURE_ONLY
 
 
 def test_window_plan_captures_the_expansion_leagues_near_and_imminent_only(sandbox, monkeypatch):
@@ -1911,6 +1916,114 @@ def test_line_move_pages_through_quiet_hours_high_priority(sandbox, monkeypatch)
     assert len(sent) == 1 and sent[0][3] == "high" and "LINE MOVE inside T-3h" in sent[0][2]
     assert "tier" not in sent[0][2]
     assert rec["freshen_needed"][0]["reason"] == "line_move"
+
+
+_ELC_TICKER = "KXEFLCHAMPIONSHIPGAME-26OCT24LEEWBA-LEE"
+
+
+def _capture_only_move_card(comp):
+    """A 6pp+ Kalshi move inside T-3h on one row of competition `comp` (game 1), plus a quiet row (game 2)."""
+    lm = {"flag": "late-news?", "threshold_pp": 6.0, "window_h": 3,
+          "venues": {"kalshi": {"from": 0.40, "to": 0.33, "move_pp": -7.0, "alarm": True,
+                                "from_at": "2026-10-04T14:30:00", "to_at": "2026-10-04T16:05:00",
+                                "to_ticker": _ELC_TICKER if comp == "ELC" else "KXEPLGAME-26OCT04ARSCHE-ARS"}}}
+    return _card({1: {"competition": comp, "sport": "soccer", "engine": "market_only", "tier": None,
+                      "late_news_flag": "late-news?", "line_move": lm},
+                  2: {"competition": comp, "sport": "soccer", "engine": "market_only", "tier": None}})
+
+
+def test_capture_only_line_move_is_logged_and_receipted_never_paged(sandbox, monkeypatch, capsys):
+    """ARCHITECT 2026-10-24, addendum 165 item 1: "the pager reads the live list (WINDOW_KALSHI) only, never the new
+    table. Keep the move itself: write it to the window's log as one line (series, ticker, from, to, minutes to
+    kickoff) [...] Test: a 6pp move on a captured ELC quote produces the log line and no page; the same move on a PL
+    quote still pages." """
+    assert sp_window_page.CAPTURE_ONLY == frozenset(chains.WINDOW_KALSHI_CAPTURE_ONLY) - frozenset(chains.WINDOW_KALSHI)
+    assert sp_window_page.CAPTURE_ONLY == {"PD", "SA", "BL1", "FL1", "ELC"} and "PL" not in sp_window_page.CAPTURE_ONLY
+    monkeypatch.setenv("SP_WINDOW_STATE", str(sandbox / "ws.json"))
+    day = datetime(2026, 10, 4, 15, 0, tzinfo=timezone.utc)
+    quiet = _card({1: {"competition": "ELC", "sport": "soccer", "engine": "market_only", "tier": None},
+                   2: {"competition": "ELC", "sport": "soccer", "engine": "market_only", "tier": None}})
+    _page(sandbox, monkeypatch, quiet, day)                                    # baseline (and the day's digest)
+    capsys.readouterr()
+    rec, sent = _page(sandbox, monkeypatch, _capture_only_move_card("ELC"), day + timedelta(hours=1, minutes=5))
+    out = capsys.readouterr().out
+    want = ("· capture-only line move (addendum 165 item 1): ELC KXEFLCHAMPIONSHIPGAME "
+            f"{_ELC_TICKER} 0.400->0.330 (-7.0pp) · 55 min to kickoff · venue kalshi")
+    assert out.splitlines() == [want]                                          # one line, in the window's log
+    assert rec["capture_only_moves"] == {"count": 1, "lines": [want]}
+    assert sent == [] and not rec["paged"]                                     # no page, no priority raised
+    assert rec["deltas"]["line_move"] == 0 and rec["freshen_needed"] == []     # no freshen
+    # the same row again: the move is a transition, logged once
+    rec, sent = _page(sandbox, monkeypatch, _capture_only_move_card("ELC"), day + timedelta(hours=1, minutes=10))
+    assert rec["capture_only_moves"]["count"] == 0 and sent == []
+    # only the book venue alarmed: the same line, venue book, series and ticker '-'; still no page
+    card = _card({1: {"competition": "SA", "sport": "soccer", "engine": "market_only", "tier": None,
+                      "late_news_flag": "late-news?",
+                      "line_move": {"flag": "late-news?", "venues": {
+                          "book": {"from": 0.50, "to": 0.57, "move_pp": 7.0, "alarm": True,
+                                   "to_at": "2026-10-04T16:30:00"},
+                          "kalshi": {"from": 0.50, "to": 0.51, "move_pp": 1.0, "alarm": False,
+                                     "to_ticker": "KXSERIEAGAME-26OCT04INTMIL-INT"}}}}})
+    monkeypatch.setenv("SP_WINDOW_STATE", str(sandbox / "ws-sa.json"))
+    _page(sandbox, monkeypatch, _card({1: {"competition": "SA", "sport": "soccer", "engine": "market_only",
+                                           "tier": None}}), day)
+    capsys.readouterr()
+    rec, sent = _page(sandbox, monkeypatch, card, day + timedelta(hours=1))
+    assert capsys.readouterr().out.splitlines() == [
+        "· capture-only line move (addendum 165 item 1): SA - - 0.500->0.570 (+7.0pp) · 30 min to kickoff · venue book"]
+    assert sent == [] and rec["freshen_needed"] == []
+    # every other class still pages on a capture-only league (only the line move is held back)
+    monkeypatch.setenv("SP_WINDOW_STATE", str(sandbox / "ws-q.json"))
+    _page(sandbox, monkeypatch, quiet, day)
+    rec, sent = _page(sandbox, monkeypatch, _card({1: {"competition": "ELC", "sport": "soccer", "quarantine": True,
+                                                       "engine": "market_only", "tier": None},
+                                                   2: {"competition": "ELC", "sport": "soccer",
+                                                       "engine": "market_only", "tier": None}}), day)
+    assert rec["deltas"]["quarantine"] == 1 and len(sent) == 1 and "QUARANTINE ON" in sent[0][2]
+
+
+def test_live_line_move_still_pages_high_with_freshen(sandbox, monkeypatch, capsys):
+    """Addendum 165 item 1: "the same move on a PL quote still pages"; as does a competition in neither table."""
+    for comp in ("PL", "UEL"):
+        monkeypatch.setenv("SP_WINDOW_STATE", str(sandbox / f"ws-{comp}.json"))
+        day = datetime(2026, 10, 4, 15, 0, tzinfo=timezone.utc)
+        _page(sandbox, monkeypatch, _card({1: {"competition": comp, "sport": "soccer"},
+                                           2: {"competition": comp, "sport": "soccer"}}), day)
+        capsys.readouterr()
+        rec, sent = _page(sandbox, monkeypatch, _capture_only_move_card(comp), day + timedelta(hours=1, minutes=5))
+        assert "capture-only line move" not in capsys.readouterr().out
+        assert rec["capture_only_moves"] == {"count": 0, "lines": []}
+        assert rec["deltas"]["line_move"] == 1 and len(sent) == 1 and sent[0][3] == "high"
+        assert "LINE MOVE inside T-3h" in sent[0][2]
+        assert rec["freshen_needed"] == [{"id": "1", "sport": "soccer", "competition": comp, "reason": "line_move"}]
+
+
+def test_window_capture_only_kalshi_steps_come_after_every_live_kalshi_step(sandbox, monkeypatch):
+    """ARCHITECT 2026-10-24, addendum 165 item 4: "confirm [...] that the five sync-kalshi-soccer steps are AFTER the
+    live Kalshi steps in the chain, so a 429 on a shadow league never delays a live capture. [...] a unit test that
+    asserts the order is enough." SA's game kicks off BEFORE PL's (and MLB's), so the order is the plan's, not the
+    kickoffs'."""
+    now = datetime(2026, 10, 3, 20, 0)
+    _window_db(sandbox / "w.db", now)
+    con = sqlite3.connect(sandbox / "w.db")
+    con.executemany("INSERT INTO competitions VALUES (?,?,?)", [(6, "SOCCER", "SA"), (7, "SOCCER", "BL1")])
+    fmt = "%Y-%m-%d %H:%M:%S"
+    con.executemany("INSERT INTO matches(competition_id, season, status, utc_date) VALUES (?,?,?,?)",
+                    [(6, "2026/27", "SCHEDULED", (now + timedelta(hours=2, minutes=10)).strftime(fmt)),
+                     (7, "2026/27", "SCHEDULED", (now + timedelta(hours=1)).strftime(fmt))])
+    con.commit()
+    con.close()
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{sandbox / 'w.db'}")
+    steps = sp_run.window_plan(now)["steps"]
+    live = {tuple(st) for sts in chains.WINDOW_KALSHI.values() for st in sts}
+    capture = {tuple(st) for sts in chains.WINDOW_KALSHI_CAPTURE_ONLY.values() for st in sts}
+    live_i = [i for i, st in enumerate(steps) if tuple(st) in live]
+    cap_i = [i for i, st in enumerate(steps) if tuple(st) in capture]
+    assert [" ".join(steps[i]) for i in cap_i] == ["sync-kalshi-soccer --competition BL1",
+                                                  "sync-kalshi-soccer --competition SA"]
+    assert {" ".join(steps[i]) for i in live_i} >= {"sync-kalshi-soccer --competition PL",
+                                                   "sync-kalshi --date-from {today} --date-to {tomorrow}"}
+    assert max(live_i) < min(cap_i)
 
 
 # --------------------------------- catch-up (architect 2026-09-29) ----

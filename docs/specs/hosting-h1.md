@@ -510,7 +510,14 @@ read-only:
      STALE-BOOK? change / kickoff moved (or postponed) / T-90 news /
      line move (a row turned `late-news?`: ≥ 6pp net move on the book
      consensus or Kalshi inside T-3h, from stored snapshots; ruling
-     2026-09-29).
+     2026-09-29). A capture-only league's move (PD, SA, BL1, FL1, ELC:
+     `chains.WINDOW_KALSHI_CAPTURE_ONLY`, not in `WINDOW_KALSHI`) never
+     pages and never requests a freshen (ARCHITECT 2026-10-24, addendum 165
+     item 1: "A logged move is a receipt; a paged one is a false alarm"):
+     it is one line in the window's log, `· capture-only line move
+     (addendum 165 item 1): <competition> <series> <ticker> <from>-><to>
+     (<move>pp) · <minutes> min to kickoff · venue <kalshi|book>`, and is
+     listed in the `window_page` receipt's `capture_only_moves`.
    - One daily digest on the first run at or after 08:00 ET.
    - Quiet hours are 00:00–07:00 ET. Only the QUARANTINE-CLASS deltas page
      then, at high priority: quarantine flips, and line moves (ruling

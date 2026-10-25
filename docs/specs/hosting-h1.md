@@ -63,14 +63,14 @@ set by `SP_IMPROVE_HOLD_ON_PASS=1`, which the chain template sets.
 | sp-mlb-morning | mlb-morning (improve HOLDS on PASS; results-tally last) | daily 09:45 UTC | daily |
 | sp-soccer-morning-after | soccer-morning-after | Sun/Mon/Tue 09:50 UTC | daily |
 | sp-nfl-grade | nfl-grade | Mon/Tue/Fri 10:00 UTC | daily |
-| sp-soccer-friday | soccer-prematch | Fri 14:00 UTC | — |
-| sp-soccer-saturday | soccer-prematch | Sat 10:30 Europe/London | — |
+| sp-soccer-friday | soccer-prematch, data only (ARCHITECT 2026-10-25, addendum 166 item 6(B): the PL `predict` and the PL window `export-predictions` are retired; the closing watch's slate stage writes `soccer_PL_<start>_to_<end>.json`): the PL `sync-matches` / `sync-odds` / `sync-injuries`, the expansion leagues' `sync-matches` / `sync-odds`, their capture-only `sync-kalshi-soccer`, the PL `sync-kalshi-soccer` | Fri 14:00 UTC | — |
+| sp-soccer-saturday | soccer-prematch, data only (as sp-soccer-friday, ARCHITECT 2026-10-25, addendum 166 item 6(B)) | Sat 10:30 Europe/London | — |
 | sp-mlb-preslate | mlb-preslate | daily 14:30 UTC | — |
 | sp-nfl-lines | nfl-lines | daily 15:00 UTC | — |
 | sp-nhl-daily | nhl-daily (inactive before 2026-09-29; override `SP_NHL_ACTIVE_FROM`) | daily 16:00 UTC | daily |
 | sp-ncaa-market | ncaa-market (H0-11: enabled with the rest); from 2026-10-02 `sync-matches` NCAA yesterday + today runs first (#254), plus tomorrow from 2026-10-07 | Tue + Wed 16:00 (midweek FBS games, added 2026-10-07), Thu 16:00 (Thursday-night slates, added 2026-09-28), Fri 16:00, Sat 13:00 UTC | — |
 | sp-ncaa-schedule | ncaa-schedule (ARCHITECT 2026-10-09, addendum 19 item 3: "the stored kickoff of every NCAA game in the next seven days is at most one day old"): `sync-matches` NCAA, single-day calls today..today+7, then `refresh-by-id --competition NCAA --days 7` (addendum 21 item 1: every stored SCHEDULED game in those days refreshed by its own id; the listing no longer carries games that have not started); sync only | daily 10:35 + 22:35 UTC | — |
-| sp-nfl-predict | nfl-predict | Thu 18:00, Sun 14:00 UTC | — |
+| sp-nfl-prematch | nfl-prematch (was sp-nfl-predict / nfl-predict; ARCHITECT 2026-10-25, addendum 166 item 6(B): `predict-nfl` and `export-nfl-predictions` are retired, the closing watch's slate stage writes `nfl_predictions_<date>.json`): `sync-injuries` NFL, `capture-weather-nfl` | Thu 18:00, Sun 14:00 UTC | — |
 | sp-clv-capture | clv-capture | 08/12/16/20 America/New_York (H0-7 confirmed; DST follows the zone) | — |
 | sp-weekly-fullseason | weekly-fullseason | Sun 06:00 UTC | daily |
 | sp-backup-prune | (retention, report-only) | daily 05:30 UTC | — |
@@ -751,7 +751,7 @@ Receipt: the push arrives on the phone, and the printed line says
 **T11. TERMINAL (host): enable.**
 ```
 TIMERS="sp-backup.timer sp-backup-prune.timer sp-soccer-friday.timer sp-soccer-saturday.timer
-  sp-soccer-morning-after.timer sp-nfl-lines.timer sp-nfl-grade.timer sp-nfl-predict.timer
+  sp-soccer-morning-after.timer sp-nfl-lines.timer sp-nfl-grade.timer sp-nfl-prematch.timer
   sp-nhl-daily.timer sp-weekly-fullseason.timer sp-ncaa-market.timer sp-window.timer
   sp-mlb-history.timer sp-intl-daily.timer sp-exports-squash.timer sp-ncaa-schedule.timer"
 MLB_LAPTOP_ONLY="sp-mlb-morning.timer sp-mlb-preslate.timer sp-clv-capture.timer"   # NOT enabled: statsapi 406 on the DO ASN (H1b note)
@@ -774,6 +774,12 @@ systemctl list-timers 'sp-*' --no-pager     # receipt: next-elapse for each
   history only, from the api-sports fallback. On a live host that
   predates it, see "MLB PHASE A" below.
 - No timer exists for soccer-refresh (H0-6).
+- **The prediction timers, retired (ARCHITECT 2026-10-25, addendum 166 item 6(B), applying addendum 126 item 2(d)).**
+  The host's fixed-time NFL and PL predict and slate-export steps are gone: the closing watch's slate stage writes
+  the slate files (`nfl_predictions_<date>.json`, `soccer_PL_<start>_to_<end>.json`). The data syncs stay on their
+  schedules: `sp-nfl-predict.timer` is renamed `sp-nfl-prematch.timer` (chain `nfl-prematch`: the NFL injury sync and
+  the weather capture), and `sp-soccer-friday.timer` / `sp-soccer-saturday.timer` run `soccer-prematch` data only.
+  On a live host the unit change is the architect's TERMINAL (host) block, in the PR that ships it.
 - `sp-intl-daily.timer` (2026-10-02, 07:20 UTC): the incremental intl sync,
   the v3 venue step and the UNL shadow export (intl-elo-v2's confirmation
   window). On a live host that predates it: install the unit, then
@@ -1047,7 +1053,10 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
     by T11's recipe for a live host. The `MLB_LAPTOP_ONLY` and `HELD_FOR_CUTOVER` timers are off by T11 and
     print on a plain line. An unreadable `timers.enabled` prints "!" and no list.
 - **Midweek PL round (H0-10), operator-started.**
-  `sudo -u sp venv/bin/python deploy/hosting/sp_run.py soccer-prematch --set sat=<first-day> --set sat_plus3=<day-after-last>`.
+  `sudo -u sp venv/bin/python deploy/hosting/sp_run.py soccer-prematch` (data only since ARCHITECT 2026-10-25,
+  addendum 166 item 6(B): no step reads `--set sat=` / `sat_plus3=` any more). The round's slate file is the closing
+  watch's slate stage's, in the midweek form (`closing.soccer_window`: a Wednesday to Friday day prices the day to the
+  day + 3).
 - **Seasons (H0-8).**
   - NHL turns itself on at 2026-09-29, the 2026-27 opening day (operator-confirmed
     2026-09-28; the old 2026-10-07 was 2025-derived).
@@ -1062,9 +1071,11 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
   - After the World Series:
     `systemctl disable --now sp-mlb-morning.timer sp-mlb-preslate.timer sp-clv-capture.timer`.
     Record it in BACKLOG.
-- **London NFL Sundays.** `nfl-predict` fires at 14:00 UTC, which is after a
-  13:30 UTC London kickoff. On those weeks run
-  `systemctl start sp-chain@nfl-predict.service` by hand before kickoff.
+- **London NFL Sundays.** Retired with the prediction timers (ARCHITECT 2026-10-25, addendum 166 item 6(B), applying addendum 126
+  item 2(d): "The host's fixed-time timers (nfl-predict Sun 14:00Z — AFTER a 9:30 ET London kickoff) are retired by
+  the cutover PR"). The closing watch's slate stage is due at the day's first kickoff less 150 minutes (06:00 ET at
+  the earliest), London included; `sp-nfl-prematch.timer` (Sun 14:00 UTC) carries only the injury sync and the
+  weather capture.
 - **Web UI (H0-4).** TERMINAL (laptop):
   `ssh -L 8000:127.0.0.1:8000 sp@sp-vps-1`, then open http://localhost:8000.
 

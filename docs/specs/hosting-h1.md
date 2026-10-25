@@ -77,7 +77,7 @@ set by `SP_IMPROVE_HOLD_ON_PASS=1`, which the chain template sets.
 | sp-exports-squash | exports mirror weekly history squash (F2.5; a no-op until `SP_EXPORTS_MIRROR_REMOTE` is set) | Sun 06:10 UTC | — |
 | sp-intl-daily | intl-daily (the incremental intl sync, the v3 venue step, the UNL shadow export) | daily 07:20 UTC | daily |
 | sp-mlb-history | mlb-history (MLB PHASE A: the api-sports fallback's MLB history; sync only) | daily 10:30 UTC | daily |
-| sp-window | window (the next-24h card and delta pages) | hourly at :05, hours 00-03 and 06-23 UTC (H0-3) | — |
+| sp-window | window (the next-24h card and delta pages); from the next deploy (ARCHITECT 2026-10-24, addendum 164 item 2(a)) also the capture-only Kalshi sync of PD `KXLALIGAGAME`, SA `KXSERIEAGAME`, BL1 `KXBUNDESLIGAGAME`, FL1 `KXLIGUE1GAME` and ELC `KXEFLCHAMPIONSHIPGAME` (`chains.WINDOW_KALSHI_CAPTURE_ONLY`: one `sync-kalshi-soccer --competition <code>` per league, one series per call, when the league's next kickoff is near or imminent; no export, no call, no venue line on the card) | hourly at :05, hours 00-03 and 06-23 UTC (H0-3) | — |
 | sp-closing-watch | (closing.py watch, NFL and SOCCER; not a chain) — **held for the cutover ruling** (T11 `HELD_FOR_CUTOVER`, C7) | every minute (the one H0-3 exemption, by name) | — |
 | *(none)* | soccer-refresh | **operator-started** (H0-6) | fresh prerefresh |
 
@@ -493,7 +493,12 @@ read-only:
    competition (`sync_odds` prices the next N scheduled games). The
    american-football family (NFL + NCAA) gets one `sync-odds-football`.
    Then the Kalshi sync for each competition in `WINDOW_KALSHI` (CI-pinned
-   to the adapter's series). Bid/ask are stored by the K1 path.
+   to the adapter's series). Bid/ask are stored by the K1 path. Then the
+   capture-only Kalshi sync of each soccer-expansion league in
+   `WINDOW_KALSHI_CAPTURE_ONLY` (PD, SA, BL1, FL1, ELC; ARCHITECT
+   2026-10-24, addendum 164 item 2(a)), tiered the same way (near and
+   imminent only), one series per step: captured for the record (the
+   three-way close), no export, no call.
 3. **No model runs.** `window-card` copies model p, tier and quarantine
    from the canonical chain-slot exports (joined on `match_id`) and
    reprices only the market side: book fair, Kalshi, venue gap and
@@ -505,7 +510,14 @@ read-only:
      STALE-BOOK? change / kickoff moved (or postponed) / T-90 news /
      line move (a row turned `late-news?`: ≥ 6pp net move on the book
      consensus or Kalshi inside T-3h, from stored snapshots; ruling
-     2026-09-29).
+     2026-09-29). A capture-only league's move (PD, SA, BL1, FL1, ELC:
+     `chains.WINDOW_KALSHI_CAPTURE_ONLY`, not in `WINDOW_KALSHI`) never
+     pages and never requests a freshen (ARCHITECT 2026-10-24, addendum 165
+     item 1: "A logged move is a receipt; a paged one is a false alarm"):
+     it is one line in the window's log, `· capture-only line move
+     (addendum 165 item 1): <competition> <series> <ticker> <from>-><to>
+     (<move>pp) · <minutes> min to kickoff · venue <kalshi|book>`, and is
+     listed in the `window_page` receipt's `capture_only_moves`.
    - One daily digest on the first run at or after 08:00 ET.
    - Quiet hours are 00:00–07:00 ET. Only the QUARANTINE-CLASS deltas page
      then, at high priority: quarantine flips, and line moves (ruling

@@ -527,6 +527,8 @@ def test_under_role_host_a_one_sided_case_reads_as_reached_by_the_host_fence_fir
     odds = [N(market="1X2", bookmaker=bk, selection=k, price_decimal=1 / v, captured_at=datetime(2091, 1, 1, 15),
               line=None) for bk in ("b1", "b2") for k, v in fair.items()]
     monkeypatch.setenv(dp.ROLE_ENV, "host")
+    # the switch on, as before the cutover (addendum 166 item 6(A) lifted it)
+    monkeypatch.setitem(dp.HOST_FENCE_RULE, "on", True)
     g = rc.guard_calls(_match_stub(), "PL", stored, (odds, []), 0, 3, {}, datetime(2091, 1, 1, 16))
     assert g["desk_on"] == g["desk_off"] == {"call": "PASS", "units": 0, "pass_kind": dp.HOST_FENCE_KIND}
     s = rc.guard_summary([{"prediction_id": 1, "result": "AWAY", "pick": "AWAY", "counts": (0, 3), **g}])

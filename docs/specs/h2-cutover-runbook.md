@@ -22,8 +22,11 @@ target Monday 2026-10-26, fallback 10-30". These are the plan's dates as it stat
 page and change none of them: each step is done as sections 0 to 3 write it. The frozen criteria are unchanged
 (ARCHITECT 2026-10-02, verbatim): "cutover when (a) 5 consecutive morning compares show only explained classes, (b)
 the host has run a full day on a tag carrying #246 with desk calls emitted, (c) parity harness green on that tag."
+The rows after the Mon 10-26 cutover row are ARCHITECT 2026-10-25, addendum 166 items 4 and 5 (the conditional GO,
+its five conditions and the fallback; the Monday timetable, one row per timed block): each What cell is the ruling's
+text, verbatim and in order; the When cells are this table's date keys.
 
-| When (addendum 113) | What | On this page |
+| When (addendum 113, then addendum 166) | What | On this page |
 |---|---|---|
 | Sun 10-18 → Thu 10-22 | the five morning compares: criterion (a) | section 0, Readiness readout (a) |
 | Sun 10-18 | the dry run on the laptop (any mode, no host); receipt to the architect | section 0, Dry run |
@@ -33,6 +36,25 @@ the host has run a full day on a tag carrying #246 with desk calls emitted, (c) 
 | Thu 10-22 evening | `cli.py cutover-readiness` on the HOST, over ssh in the Thursday evening block (addendum 128 item 1(a); addendum 113 item 5 said the laptop); its GO / NOT-YET lines pasted to the architect | section 0, Readiness readout, TERMINAL (host): (b) and (T9) read the host's own receipts and list, run without `--receipts` or `--fullseason-list` (pass `--named FILE` when a day is operator-named). The laptop form (`--receipts FILE --fullseason-list FILE`) is for the architect's dry reads only. |
 | Fri 10-23 morning | the architect's ruling: cutover Monday 10-26, or named reasons and the 10-30 fallback | |
 | Mon 10-26, 09:00–11:00 ET (fallback 10-30) | the cutover: section 1, step by step, each step's receipt pasted before the next | section 1 |
+| Mon 10-26, 09:00–11:00 ET (conditional GO) | CUTOVER — RULING: CONDITIONAL GO FOR MONDAY 10-26, 09:00–11:00 ET, with a correction of my own first. | addendum 166 item 4, verbatim; section 1 |
+| Sun 10-25 morning | GO on Monday therefore needs ALL of: (1) T9's close this morning — the weekly-fullseason receipt at 06:00Z, exit 0, every listed competition-season synced (the Tailscale block prints it); | addendum 166 item 4 (1), verbatim; section 0, T9 |
+| Sun 10-25 evening | (2) P8 tonight — exit 0, the page ending `machine: host`, the host's closing file written, wall time well inside the watch's thirty-minute lock budget; | addendum 166 item 4 (2), verbatim; section 0, The host closing-watch rehearsal |
+| by Sun 10-25 17:00 ET | (3) the cutover policy PR (item 6(A)) MERGED by Sunday 17:00 ET: CI green, Codex findings answered, no P1 open; | addendum 166 item 4 (3), verbatim; section 0, The host fence |
+| Mon 10-26 07:30–09:04 ET | (4) Monday 07:30 ET compare PASS → tag v1.6.0 → deployed by 08:50 → the host's timers STOPPED by 09:04 ET. (4)'s timing is a safety rule, not a convenience: from the deploy to the pause the host runs the switch-off code over its mis-keyed soccer ratings, and no host soccer chain runs between 12:20Z and 13:05Z (nfl-grade 10:00Z, mlb-history 10:30Z, ncaa-schedule 10:35Z and the 12:05Z window tick are before the deploy; the 13:05Z tick is the first on the new database, as addendum 113 planned). If the deploy slips past 08:50, STOP the timers first (step 2), then deploy — the preflight has to run before step 2, so in that case the preflight's receipt names v1.5.0 and I accept that on the page. | addendum 166 item 4 (4), verbatim; section 1 steps 2 and 4 |
+| Mon 10-26 05:45–11:00 ET | (5) The operator at the keyboard 05:45–11:00 ET Monday, confirmed to me tonight. | addendum 166 item 4 (5), verbatim |
+| Fri 10-30 (fallback) | ANY ONE unmet → the fallback Friday 10-30 as addendum 113 declared, and docs/roadmap.json moves the line the same day (its moved line with the unmet condition named). No bar moves; no step is shortened; the review rounds on the PR are the review stop rule's, not fewer. | addendum 166 item 4, verbatim; docs/roadmap.json |
+| Mon 10-26 05:45–06:45 ET | 05:45–06:45 laptop morning block, VPN on — the backup line, then `migrate_cup_lineup_observations.py` (Step B's table; the pack must carry the current schema), then the usual syncs and no chains after it; | addendum 166 item 5 ("MONDAY TIMETABLE IF GO (every block from me; ET)"), verbatim |
+| Mon 10-26 07:15 ET | 07:15 Tailscale block — compare + host receipts; | addendum 166 item 5, verbatim |
+| Mon 10-26 07:45 ET | 07:45 my read, the tag ruling; | addendum 166 item 5, verbatim |
+| Mon 10-26 08:00 ET | 08:00 the tag block (v1.6.0, `--cleanup=verbatim`); | addendum 166 item 5, verbatim; docs/RELEASES.md |
+| Mon 10-26 08:20 ET | 08:20 the deploy block (dry run → deploy → the printed migration command); | addendum 166 item 5, verbatim; section 0, Host on a release tag |
+| Mon 10-26 08:50 ET | 08:50 runbook section 1 step 1 (CLV capture and the closing watch uninstalled, `none loaded`); | addendum 166 item 5, verbatim; section 1 step 1 |
+| Mon 10-26 09:00 ET | 09:00 step 2 (timers stopped, before 09:04); | addendum 166 item 5, verbatim; section 1 step 2 |
+| Mon 10-26 09:10 ET | 09:10 step 3 (the PL reference for the next round's dates, read from the DB by the block, never typed; pack; scp over the tailnet); | addendum 166 item 5, verbatim; section 1 step 3 |
+| Mon 10-26 09:30 ET | 09:30 step 4 one step at a time — preflight (the env_changes names must be ones I name in the morning page), pause, install, the PL prediction check (CLEAN, N and M ≥ 1), the fence check ({'on': False}), flip, resume, receipt; | addendum 166 item 5, verbatim; section 1 step 4 |
+| Mon 10-26 10:15 ET | 10:15 step 5 post checks + the NHL shadow and UNL cohort post-checks on the host's first chain; | addendum 166 item 5, verbatim; section 1 step 5 |
+| Mon 10-26, after step 5 | 5b the host's closing watch (preflight, test page, dry run, install-push, enable, the timers.enabled line); | addendum 166 item 5, verbatim; section 1 step 5b |
+| Mon 10-26, before 17:30 ET | step 7 the laptop's MLB watch back (`--family MLB`) before 17:30 ET for Game 3. From `receipt` on, the laptop is the console: blocks, Cockpit, MLB. | addendum 166 item 5, verbatim; section 1 step 7 |
 
 The plan's dated items (addendum 113, "WHAT STILL HAS TO HAPPEN, DATED"), verbatim:
 
@@ -92,8 +114,8 @@ Which machine runs item 5's readout (ARCHITECT 2026-10-18, addendum 128 item 1(a
   **The cutover's preflight checks the host's (addendum 47 item 7(c)):** it refuses unless host.env itself says
   `SP_EXPORTS_MIRROR_ROLE=host`. `install --replace` copies the pack's `.env` (the laptop's, role `laptop`) over the
   checkout's, and only host.env's own line keeps the host pushing as `host`.
-- **The host fence (ARCHITECT 2026-10-17, addendum 109 item 3; #410):** until the cutover, every soccer model row the host's Desk sees is PASS `host_fence` (the machine's `SP_EXPORTS_MIRROR_ROLE` is `host`, read from host.env first, then the environment, then the checkout's `.env`, so a run typed by hand, such as P8's `closing-run` below, is fenced as the timers' runs are; an unknown role is fenced too, addendum 110 item 1). "The fence lifts with the cutover (the ruling that cuts over names it)." The fence reads the switch `desk_policy.HOST_FENCE_RULE`, never `SP_WRITER_OF_RECORD`: "the cutover PR does the flip and turns the switch off in the same change" (addendum 114 item 3). The PL check below leaves the desk block out (`--ignore-keys desk,...`), so the fence does not touch it, and nothing else in the cutover reads the switch:
-  - **Before `flip` (step 4, after `install`, the timers still paused), TERMINAL (host):** `sudo -u sp venv/bin/python -c "from src.walters.desk_policy import HOST_FENCE_RULE; print(HOST_FENCE_RULE)"` prints `{'on': False}` (the tag carries the cutover's PR). Anything else: do not `flip`, and return it to the architect; the writer of record would mark every PL row PASS `host_fence`.
+- **The host fence (ARCHITECT 2026-10-17, addendum 109 item 3; #410):** until the cutover, every soccer model row the host's Desk sees is PASS `host_fence` (the machine's `SP_EXPORTS_MIRROR_ROLE` is `host`, read from host.env first, then the environment, then the checkout's `.env`, so a run typed by hand, such as P8's `closing-run` below, is fenced as the timers' runs are; an unknown role is fenced too, addendum 110 item 1). The switch is off from #000 (ARCHITECT 2026-10-25, addendum 166 item 6(A)), so on a tag carrying it the check below prints `{'on': False}`. "The fence lifts with the cutover (the ruling that cuts over names it)." The fence reads the switch `desk_policy.HOST_FENCE_RULE`, never `SP_WRITER_OF_RECORD`: "the cutover PR does the flip and turns the switch off in the same change" (addendum 114 item 3). The PL check below leaves the desk block out (`--ignore-keys desk,...`), so the fence does not touch it, and nothing else in the cutover reads the switch:
+  - **Before `flip` (step 4, after `install`, the timers still paused), TERMINAL (host):** `sudo -u sp venv/bin/python -c "from src.walters.desk_policy import HOST_FENCE_RULE; print(HOST_FENCE_RULE)"` prints `{'on': False}` (the tag carries #000). Anything else: do not `flip`, and return it to the architect; the writer of record would mark every PL row PASS `host_fence`.
   - **After the flip:** the host's first PL `--desk` file reads `desk_meta.host_fence_rule: false`; paste that line with the post-check receipts (step 5).
 - **The host closing-watch rehearsal (ARCHITECT 2026-10-12, addendum 45 P8):** "One rehearsal before the cutover
   day, on my word, and not before the tag that carries P1 is on the host: a single closing-run by hand on the

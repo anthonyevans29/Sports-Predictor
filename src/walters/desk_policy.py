@@ -194,7 +194,7 @@ DESK_CLOCK_DRIFT = timedelta(hours=1)
 # other value fence, each with its own reason (a value that is neither host nor laptop: addendum 115 item 3b's words). The role is read by machine_role(): the machine's own
 # host.env, then the process environment, then the checkout's .env. Checked first, before S1: it overrides every call.
 # It lifts by this switch, HOST_FENCE_RULE. The frozen golden predates it and runs with it off (base_v11()).
-# LIFTED by this PR (#000), ARCHITECT 2026-10-25, addendum 166 items 4(ii) and 6(A) ("THE CUTOVER POLICY PR [...]
+# LIFTED by this PR (#671), ARCHITECT 2026-10-25, addendum 166 items 4(ii) and 6(A) ("THE CUTOVER POLICY PR [...]
 # `HOST_FENCE_RULE = {"on": False}` in src/walters/desk_policy.py and nothing else in that module"): the switch is off,
 # so a machine's role no longer changes a soccer (or INTL) call. The machinery (host_fenced, machine_role, the
 # reasons, host_fence_rule_off, base_v11) is unchanged and reads the switch.

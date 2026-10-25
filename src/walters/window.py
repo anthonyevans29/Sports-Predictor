@@ -156,7 +156,7 @@ def build_card(now: datetime | None = None, hours: int = 24,
             # LINE-MOVE ALARM (ruling 2026-09-29): >= 6pp on either venue inside
             # T-3h marks the row "late-news?"; sp_window_page pages it and
             # requests freshen:<family>. Stored snapshots only, no provider calls.
-            lm = line_move_for_match(s, m, now)
+            lm = line_move_for_match(s, m, now, with_ticker=True)   # addendum 165 item 1: the card only
             model = models.get(m.id)
             edge = None
             if model and model["top_pick"] and model["top_pick_prob"] is not None \

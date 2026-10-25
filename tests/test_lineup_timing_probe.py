@@ -475,8 +475,8 @@ def test_competition_names_the_stored_code_polled_and_cl_stays_the_default(world
 def test_a_competition_outside_the_three_is_refused_by_the_parser(world, capsys):
     clock = Clock(at(12, 0))
     with pytest.raises(SystemExit) as e:
-        probe.run(["--db", str(world.db), "--competition", "PL"], clock=clock, sleep=clock.sleep)
-    assert e.value.code == 2 and "invalid choice: 'PL'" in capsys.readouterr().err
+        probe.run(["--db", str(world.db), "--competition", "BL1"], clock=clock, sleep=clock.sleep)
+    assert e.value.code == 2 and "invalid choice: 'BL1'" in capsys.readouterr().err
 
 
 def _europa_row(world, code, fid):
@@ -529,3 +529,15 @@ def test_neither_europa_code_on_the_day_says_so_and_cl_names_no_other_code(world
     clock, prov = world.make(at(16, 0))
     probe.run(["--db", str(world.db), "--date", "2026-10-22"], clock=clock, sleep=clock.sleep, provider=prov)
     assert "  0 CL row(s) stored with a kickoff on 2026-10-22\n" in capsys.readouterr().out
+
+
+def test_pl_is_a_choice_and_reads_its_own_rows(world, capsys, monkeypatch):
+    """Addendum 163 item 4: PL in the choice list, read under the stored code 'PL' (the world's PL row, 1004)."""
+    clock, prov = world.make(at(16, 0))
+    monkeypatch.setattr(probe, "Provider", lambda *a, **kw: pytest.fail("--plan built a provider"))
+    assert "PL" in probe.COMPETITIONS
+    assert probe.run(["--db", str(world.db), "--date", DAY, "--plan", "--competition", "PL"], clock=clock,
+                     sleep=clock.sleep, provider=prov) == 0
+    out = capsys.readouterr().out
+    assert "  1 PL row(s) stored with a kickoff on 2026-10-20\n" in out and "fixture 1004" in out
+    assert "fixture 1001" not in out                        # a CL row is never read as PL

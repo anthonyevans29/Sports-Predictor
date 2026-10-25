@@ -36,7 +36,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import sp_common as c  # noqa: E402
 from chains import (CHAINS, FRESHEN_FAMILY, FRESHEN_MIN_INTERVAL_S, IMMINENT_INJURY_FAMILIES,  # noqa: E402
-                    PROX_FAR_H, PROX_IMMINENT_H, UNMETERED, WINDOW_HOURS, WINDOW_KALSHI)
+                    PROX_FAR_H, PROX_IMMINENT_H, UNMETERED, WINDOW_HOURS, WINDOW_KALSHI,
+                    WINDOW_KALSHI_CAPTURE_ONLY)
 
 TAIL = 5
 DAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
@@ -186,6 +187,13 @@ def window_plan(now) -> dict:
         seen = set()
         for code, *_ in priced:
             for st in WINDOW_KALSHI.get(code, []):
+                if tuple(st) not in seen:
+                    seen.add(tuple(st))
+                    steps.append(list(st))
+        # CAPTURE ONLY (ARCHITECT 2026-10-24, addendum 164 item 2(a)): the expansion leagues' series, tiered as the
+        # Kalshi syncs above (near / imminent only), one series per step; capture for the record: no venue line, no export, no call.
+        for code, *_ in priced:
+            for st in WINDOW_KALSHI_CAPTURE_ONLY.get(code, []):
                 if tuple(st) not in seen:
                     seen.add(tuple(st))
                     steps.append(list(st))

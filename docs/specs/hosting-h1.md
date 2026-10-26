@@ -782,9 +782,16 @@ systemctl list-timers 'sp-*' --no-pager     # receipt: next-elapse for each
   On a live host the unit change is the architect's TERMINAL (host) block, in the PR that ships it.
 - `sp-intl-daily.timer` (2026-10-02, 07:20 UTC): the incremental intl sync,
   the v3 venue step and the UNL shadow export (intl-elo-v2's confirmation
-  window). On a live host that predates it: install the unit, then
-  `systemctl enable --now sp-intl-daily.timer` and add it to
-  `/etc/sports-predictor/timers.enabled`.
+  window). On a live host that predates it (the recipe ends with the timers.enabled line, ARCHITECT
+  2026-10-26, addendum 168 item 2: a timer enabled by hand and never listed is one the cutover's pause leaves
+  running):
+  ```
+  sudo install -m 0644 deploy/hosting/systemd/sp-intl-daily.timer /etc/systemd/system/
+  sudo systemctl daemon-reload
+  sudo systemctl enable --now sp-intl-daily.timer
+  echo sp-intl-daily.timer | sudo tee -a /etc/sports-predictor/timers.enabled
+  systemctl list-timers sp-intl-daily.timer --no-pager   # receipt: next elapse at 07:20 UTC
+  ```
 - `sp-ncaa-schedule.timer` (ARCHITECT 2026-10-09, addendum 19 item 3; daily 10:35 + 22:35 UTC): the
   NCAA forward-week kickoff sync. The provider files an unannounced kickoff at 04:00Z and announces it
   days later; without this the host refreshed a game's kickoff only once it was inside ncaa-market's
@@ -1052,6 +1059,11 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
     `sp-ncaa-schedule.timer` from 10-09 to 10-23). A `TIMERS` timer missing reads "!": install and enable it
     by T11's recipe for a live host. The `MLB_LAPTOP_ONLY` and `HELD_FOR_CUTOVER` timers are off by T11 and
     print on a plain line. An unreadable `timers.enabled` prints "!" and no list.
+    The same receipt (and `timers_active_not_listed`) names, by name only, every sp timer systemd lists as
+    ACTIVE that `timers.enabled` does not list (ARCHITECT 2026-10-26, addendum 168 item 2: `sp-intl-daily.timer`
+    and `sp-exports-squash.timer` ran enabled by hand with no list line, so the cutover's pause would have left
+    them running): "!", add them to the list by hand; the deploy never writes it. None prints nothing more. A
+    listing that cannot be read prints "!" and no list, never an empty one.
 - **Midweek PL round (H0-10), operator-started.**
   `sudo -u sp venv/bin/python deploy/hosting/sp_run.py soccer-prematch` (data only since ARCHITECT 2026-10-25,
   addendum 166 item 6(B): no step reads `--set sat=` / `sat_plus3=` any more). The round's slate file is the closing

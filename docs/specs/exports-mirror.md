@@ -62,7 +62,13 @@ run code that carries it.
    SP_EXPORTS_MIRROR_REMOTE=git@github.com:anthonyevans29/Sports-Predictor-exports.git
    SP_EXPORTS_MIRROR_ROLE=host
    ```
-   Then `systemctl enable --now sp-exports-squash.timer` (it is on the T11 list).
+   Then, unless T11 already enabled and listed it (it is on the T11 list; a host that predates the list line
+   does not hold it in `/etc/sports-predictor/timers.enabled`), the recipe ends with the timers.enabled line
+   (ARCHITECT 2026-10-26, addendum 168 item 2):
+   ```
+   sudo systemctl enable --now sp-exports-squash.timer
+   echo sp-exports-squash.timer | sudo tee -a /etc/sports-predictor/timers.enabled
+   ```
    Setting the remote BEFORE the key works is harmless. The chain hook's pushes commit in the working
    clone and fail to push; the first push that can reach the remote sends those commits too
    ("incl. N earlier unpushed commit(s)"). The change test is against the remote's tip, never the local HEAD.

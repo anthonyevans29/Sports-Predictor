@@ -542,3 +542,22 @@ def test_architect_1026_the_ncaa_close_record_over_2026_is_fenced_too(monkeypatc
     assert "n=1" in _line("NHL")
     monkeypatch.setattr(nb, "v2_run_recorded", lambda *a, **k: True)
     assert "n=1" in _line("NCAA")
+
+
+def test_700_the_ncaa_close_record_fences_by_the_label_season_too(monkeypatch):
+    """#700 (Codex on #697): _result reads the CFBD label's outcome whatever the stored season, so a match stored as
+    2024 whose label says 2023 is left out as fenced 2023 until the run is recorded."""
+    from src.db.database import session_scope
+    from src.db.schema import Match, NCAACFBDLabel
+    from src.walters import ncaa_backtest as nb
+    _comps()
+    _game(631, "NCAA", 28, 14)
+    with session_scope() as s:
+        s.get(Match, 631).season = "2024"
+        s.add(NCAACFBDLabel(match_id=631, source="cfbd", source_game_id=631, season="2023", orientation="same",
+                            home_score=28, away_score=14, season_type="regular", week=9, fetched_at=NOW))
+    _kal(631, "HOME", 0.65, 0.66, KO - timedelta(minutes=30))
+    monkeypatch.setattr(nb, "v2_run_recorded", lambda *a, **k: False)
+    assert "left out: fenced 2023 1 " in _line("NCAA") and "n=0" in _line("NCAA")
+    monkeypatch.setattr(nb, "v2_run_recorded", lambda *a, **k: True)
+    assert "n=1" in _line("NCAA")

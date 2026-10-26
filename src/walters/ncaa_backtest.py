@@ -629,6 +629,48 @@ def fenced_2023(season, season_type, week, recorded: bool | None = None) -> bool
     return not (v2_run_recorded() if recorded is None else recorded)
 
 
+def label_seasons(s, matches) -> dict:
+    """{match id: (the CFBD label's season or None, season_type, week)} for `matches` (any label of the match: the
+    fence reads what the label says, current or not). A DB without the label table, or a match without a label, reads
+    (None, None, None). Read in chunks (SQLite's bound-parameter cap)."""
+    from sqlalchemy import inspect, select
+
+    from src.db.schema import NCAACFBDLabel
+    from src.ingestion.ncaa_cfbd import label_load_options
+
+    ids = [m.id for m in matches]
+    out = {mid: (None, None, None) for mid in ids}
+    if not ids or not inspect(s.connection()).has_table(NCAACFBDLabel.__tablename__):
+        return out
+    opts = label_load_options(s)
+    for i in range(0, len(ids), 500):
+        for lab in s.execute(select(NCAACFBDLabel).options(*opts)
+                             .where(NCAACFBDLabel.match_id.in_(ids[i:i + 500]))).scalars():
+            out[lab.match_id] = (None if lab.season is None else str(lab.season),
+                                 lab.__dict__.get("season_type"), lab.__dict__.get("week"))
+    return out
+
+
+def v2_fenced_ids(s, matches) -> tuple[set, set]:
+    """(the 2023-fenced ids, the 2026-fenced ids) among NCAA `matches` while the ncaa-elo-v2 run is unrecorded (#700,
+    Codex on #697: the fence reads the CFBD label's season as well as the stored one). A match is a 2023 candidate when
+    its stored season OR its label's season is 2023, and is fenced unless its label shows it outside the scored set
+    (fenced_2023 on the label's season_type and week; no label reads unknown, so fenced, law 4). A match is 2026-fenced
+    when either season is 2026 (the 2026 fence covers the whole season). Empty sets once the run is recorded."""
+    if v2_run_recorded():
+        return set(), set()
+    labs = label_seasons(s, matches)
+    f23, f26 = set(), set()
+    for m in matches:
+        lab_season, st, wk = labs.get(m.id, (None, None, None))
+        seasons = {str(m.season), lab_season}
+        if V2_SECOND in seasons and fenced_2023(V2_SECOND, st, wk, False):
+            f23.add(m.id)
+        elif V2_TEST in seasons:
+            f26.add(m.id)
+    return f23, f26
+
+
 def mask_scores(text: str) -> str:
     """A line on a fenced game with every score ('31-10', or a partial '7-None') replaced by SCORE_WITHHELD; dates
     ('2023-09-06') are kept."""

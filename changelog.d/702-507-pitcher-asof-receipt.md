@@ -11,5 +11,12 @@
   - the starter as of the game: no stats, opener, or a starter component with its ERA complete or incomplete (a NULL earned_runs is counted, never filled);
   - the bullpen season and recent windows as of the game;
   - a cross-check of the appearance sums against the stored pitcher_season_stats rows.
+- Codex round 1 (the contract of addendum 163 item 4: "the WHOLE live layer as of each game"):
+  - the as-of figures read the model's starter only (match_participants); the boxscore's is a comparison, never an input;
+  - the starter identity's source and time (refreshed_at by or after the kickoff), and sides with more than one row;
+  - the live path per side, as _resolve_pitcher takes it (no pitcher input, blend, starter with the league bullpen, bullpen half-weighted, neutral);
+  - a statsapi id held by more than one stored game refuses, naming the match ids (#569: canonical ids after the dedupe); a STALE_ORPHAN row is never a game;
+  - the recent window takes the live sync's inclusive lower date (kickoff date minus 10 days), and a NULL earned_runs in it leaves its ERA incomplete;
+  - the cross-check reads regular-season appearances only (the stored row is the provider's regular-season split).
 - The DB is opened mode=ro and never created; a missing column refuses (law 1); nothing is run, written or fetched. The run is the operator's.
-- Tests: tests/test_mlb_pitcher_asof_receipt.py (a synthetic season with a doubleheader at one kickoff, a NULL earned_runs row, a participant that differs from the boxscore, rows joined by statsapi id, a row with no side; the DB unchanged; a missing DB and a missing column refused). No bar moves.
+- Tests: tests/test_mlb_pitcher_asof_receipt.py (a synthetic season with a doubleheader at one kickoff, a NULL earned_runs row, a participant that differs from the boxscore, rows joined by statsapi id, a row with no side, a participant without a source id, a postseason relief row; twin ids refused and a STALE_ORPHAN left out; the recent window's inclusive date bound; the DB unchanged; a missing DB and a missing column refused). No bar moves.

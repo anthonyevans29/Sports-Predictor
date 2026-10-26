@@ -1,7 +1,7 @@
 **2026-10-26 — BUILT (lane mlb-pitchers, #507; roadmap step due 2026-10-28; queue order ARCHITECT 2026-10-26 16:10 ET): the as-of pitcher receipt, read-only. The run is the operator's; the declaration (due 10-31) is the architect's. No bar moves.**
 - **The step, verbatim** (docs/roadmap.json, lane mlb-pitchers; addendum 63 item 4): "the as-of reconstruction of the pitcher statistics the live model reads, from the stored appearances (docs/historical_backfill_assessment.md tier 1), as a read-only receipt: coverage per season".
 - **What the live model reads** (src/walters/training.py, read 2026-10-26):
-  - **Starter:** the starter in match_participants, with his pitcher_season_stats row for the game's own season (addendum 162 item 1(b)): era, innings_pitched, games_started.
+  - **Starter:** the starter in match_participants, with that pitcher's pitcher_season_stats row for the game's own season (addendum 162 item 1(b)): era, innings_pitched, games_started.
   - **Bullpen:** the team's bullpen_season_stats row (era, innings_pitched, recent_era).
   - Both are season-to-date at their last refresh, so a past game read from them is read with later games in. That is why the backtest needs an as-of rebuild.
 - **The receipt:** `scripts/mlb_pitcher_asof_receipt.py` rebuilds those quantities from pitcher_appearances over games that started strictly before each game, and prints per season:
@@ -13,6 +13,11 @@
   - a cross-check against the stored season rows.
   - A NULL earned_runs is counted as incomplete, never filled (law 4).
 - **Readings for the architect, as built:**
-  - The model's starter is read from match_participants first, and the boxscore's (is_starter) only where none is listed. Both counts are printed, with their agreement.
+  - The as-of figures read the model's starter only (match_participants). The boxscore's starter (is_starter) is printed beside it as a comparison and never put in its place, so a side with no listed starter counts as the live layer's missing-input fallback (Codex round 1).
+  - The starter identity's provenance is the participant row's source and refreshed_at. The table keeps the last refresh only, so an identity refreshed after the kickoff is counted as such: the pregame identity is not shown.
+  - The live path per side follows _resolve_pitcher on the as-of inputs: no pitcher input (no starter listed), the blend, the starter with the league bullpen, the bullpen half-weighted with the starter unknown, or neutral.
+  - The recent bullpen window takes the live sync's inclusive lower date, the kickoff's UTC date minus 10 days. The provider's dates are local, so a late game near the bound can differ by a day.
+  - The cross-check reads regular-season appearances only, because the stored season row is the provider's regular-season split.
   - A game's season is matches.season as stored.
   - An appearance that joins to no stored game of the season, or to neither team, is left out and counted.
+- **The #569 dedupe precedes the run.** Addendum 163 item 4 says "the canonical game ids after the #569 dedupe — the dedupe PR precedes this receipt". The dedupe PR (addendum 153 item 2) is not built yet. Until it lands, the receipt refuses any season in which a statsapi id is held by more than one stored game, naming the match ids. After the dedupe, the STALE_ORPHAN rows are never a game.

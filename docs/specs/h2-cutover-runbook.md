@@ -22,8 +22,16 @@ target Monday 2026-10-26, fallback 10-30". These are the plan's dates as it stat
 page and change none of them: each step is done as sections 0 to 3 write it. The frozen criteria are unchanged
 (ARCHITECT 2026-10-02, verbatim): "cutover when (a) 5 consecutive morning compares show only explained classes, (b)
 the host has run a full day on a tag carrying #246 with desk calls emitted, (c) parity harness green on that tag."
+The rows after the Mon 10-26 cutover row are ARCHITECT 2026-10-25, addendum 166 item 4 (the conditional GO, its five
+conditions and the fallback), then addendum 167 item 3 (the Monday order, corrected; one row per timed block): each
+What cell is the ruling's text, verbatim and in order; the When cells are this table's date keys. Addendum 167 item 1
+REPLACED the rows that quoted addendum 166 item 5, whose order (step 2 before step 3 and the preflight) can never
+reach `pause`: "the table rows in docs/specs/h2-cutover-runbook.md that quote item 5 are REPLACED by item 3's rows,
+quoted verbatim and dated addendum 167 (a ruling that corrects a ruling is recorded as such, not silently edited)."
+Addendum 167 item 2(a) moved the deploy of the fence-off tag to after `pause`, which corrects item 4 (4)'s "tag
+v1.6.0 → deployed by 08:50 → the host's timers STOPPED by 09:04 ET"; that row stays verbatim, marked as corrected.
 
-| When (addendum 113) | What | On this page |
+| When (addendum 113, then addendum 166, then addendum 167) | What | On this page |
 |---|---|---|
 | Sun 10-18 → Thu 10-22 | the five morning compares: criterion (a) | section 0, Readiness readout (a) |
 | Sun 10-18 | the dry run on the laptop (any mode, no host); receipt to the architect | section 0, Dry run |
@@ -33,6 +41,27 @@ the host has run a full day on a tag carrying #246 with desk calls emitted, (c) 
 | Thu 10-22 evening | `cli.py cutover-readiness` on the HOST, over ssh in the Thursday evening block (addendum 128 item 1(a); addendum 113 item 5 said the laptop); its GO / NOT-YET lines pasted to the architect | section 0, Readiness readout, TERMINAL (host): (b) and (T9) read the host's own receipts and list, run without `--receipts` or `--fullseason-list` (pass `--named FILE` when a day is operator-named). The laptop form (`--receipts FILE --fullseason-list FILE`) is for the architect's dry reads only. |
 | Fri 10-23 morning | the architect's ruling: cutover Monday 10-26, or named reasons and the 10-30 fallback | |
 | Mon 10-26, 09:00–11:00 ET (fallback 10-30) | the cutover: section 1, step by step, each step's receipt pasted before the next | section 1 |
+| Mon 10-26, 09:00–11:00 ET (conditional GO) | CUTOVER — RULING: CONDITIONAL GO FOR MONDAY 10-26, 09:00–11:00 ET, with a correction of my own first. | addendum 166 item 4, verbatim; section 1 |
+| Sun 10-25 morning | GO on Monday therefore needs ALL of: (1) T9's close this morning — the weekly-fullseason receipt at 06:00Z, exit 0, every listed competition-season synced (the Tailscale block prints it); | addendum 166 item 4 (1), verbatim; section 0, T9 |
+| Sun 10-25 evening | (2) P8 tonight — exit 0, the page ending `machine: host`, the host's closing file written, wall time well inside the watch's thirty-minute lock budget; | addendum 166 item 4 (2), verbatim; section 0, The host closing-watch rehearsal |
+| by Sun 10-25 17:00 ET | (3) the cutover policy PR (item 6(A)) MERGED by Sunday 17:00 ET: CI green, Codex findings answered, no P1 open; | addendum 166 item 4 (3), verbatim; section 0, The host fence |
+| Mon 10-26 07:30–09:04 ET | (4) Monday 07:30 ET compare PASS → tag v1.6.0 → deployed by 08:50 → the host's timers STOPPED by 09:04 ET. (4)'s timing is a safety rule, not a convenience: from the deploy to the pause the host runs the switch-off code over its mis-keyed soccer ratings, and no host soccer chain runs between 12:20Z and 13:05Z (nfl-grade 10:00Z, mlb-history 10:30Z, ncaa-schedule 10:35Z and the 12:05Z window tick are before the deploy; the 13:05Z tick is the first on the new database, as addendum 113 planned). If the deploy slips past 08:50, STOP the timers first (step 2), then deploy — the preflight has to run before step 2, so in that case the preflight's receipt names v1.5.0 and I accept that on the page. | addendum 166 item 4 (4), verbatim; CORRECTED by addendum 167 items 2(a) and 3: the deploy is after `pause` (the 09:22 ET row). Addendum 167 postscript (a), verbatim: "CONDITION (4), RULED: read as corrected by item 3 — Monday 07:30 compare PASS → v1.6.0 cut at 08:00 → preflight with the timers live → pause → deploy v1.6.0 with the timers stopped → install. The "deployed by 08:50 / stopped by 09:04" times are withdrawn; the 09:05 tick runs on v1.5.0 and is the last pre-cutover tick. Conditions (1), (2), (3), (5) unchanged. #672's reading is mine." ; section 1 steps 2 and 4 |
+| Mon 10-26 05:45–11:00 ET | (5) The operator at the keyboard 05:45–11:00 ET Monday, confirmed to me tonight. | addendum 166 item 4 (5), verbatim |
+| Fri 10-30 (fallback) | ANY ONE unmet → the fallback Friday 10-30 as addendum 113 declared, and docs/roadmap.json moves the line the same day (its moved line with the unmet condition named). No bar moves; no step is shortened; the review rounds on the PR are the review stop rule's, not fewer. | addendum 166 item 4, verbatim; docs/roadmap.json |
+| Mon 10-26 05:45–06:45 ET | 05:45–06:45 laptop morning block, VPN on — backup, migrate_cup_lineup_observations.py, the syncs, no chains after. | addendum 167 item 3, verbatim; section 1 step 1 |
+| Mon 10-26 07:15 ET | 07:15 Tailscale block — compare + host receipts. | addendum 167 item 3, verbatim; section 2 |
+| Mon 10-26 07:45 ET | 07:45 my read → the tag ruling. | addendum 167 item 3, verbatim |
+| Mon 10-26 08:00 ET | 08:00 the tag block: v1.6.0 cut on GitHub (--cleanup=verbatim). The host is NOT deployed yet. | addendum 167 item 3, verbatim; docs/RELEASES.md |
+| Mon 10-26 08:30 ET | 08:30 section 1 step 1 (laptop): CLV capture and the closing watch uninstalled, `none loaded`. | addendum 167 item 3, verbatim; section 1 step 1 |
+| Mon 10-26 08:40 ET | 08:40 section 1 step 3 (laptop): the PL reference for the next round (dates read from the DB by the block), the pack, scp over the tailnet. The host's timers are still running: the pack is the laptop's database, the host's is untouched by this step. | addendum 167 item 3, verbatim; section 1 step 3 |
+| Mon 10-26 09:12 ET | 09:12 step 4a (host): `preflight --pack` with the timers ACTIVE (the 09:05 window tick has fired; its chain may still be running, which preflight does not mind). The env_changes list: names only, each one a name I give in the morning page. | addendum 167 item 3, verbatim; section 1 step 4 |
+| Mon 10-26 09:16 ET | 09:16 step 2 / `pause` (host): the timers stopped; `pause` is the receipted form of step 2, run once (step 2's bare `systemctl stop` is not run separately — pause does it and receipts it). | addendum 167 item 3, verbatim; section 1 steps 2 and 4 |
+| Mon 10-26 09:22 ET | 09:22 THE DEPLOY (host): sp_deploy.py --tag v1.6.0 --dry-run → --tag v1.6.0 → the printed migration command (harmless on the rehearsal database, which `install` replaces; run it as the ritual says). The deploy happens with the timers paused: zero unfenced exposure. The preflight's receipt names v1.5.0; every receipt from `install` on names v1.6.0; accepted on the page by this ruling. | addendum 167 item 3, verbatim; section 0, Host on a release tag; section 1 step 4 |
+| Mon 10-26 09:40 ET | 09:40 `install`; the PL prediction check (CLEAN, N and M ≥ 1); the fence check (`{'on': False}`); `flip`; `resume`; `receipt`. | addendum 167 item 3, verbatim; section 1 step 4 |
+| Mon 10-26 10:15 ET | 10:15 step 5 post checks; 5b the host's closing watch (preflight, test page, dry run, install-push, enable, the timers.enabled line). | addendum 167 item 3, verbatim; section 1 steps 5 and 5b |
+| Mon 10-26 12:00 ET (16:00Z) | 12:00 ET (16:00Z) the host's nhl-daily runs on the installed database: the NHL shadow post-check (addendum 49 item 3) is read BY ME from the mirror (host/2026-10-26/nhl_shadow_*.json and the chain's export lines in the receipts) at 12:30 ET — no operator step; the UNL cohort read (`intl-elo-confirm`, no flags) goes in the first post-cutover Tailscale block, Tuesday morning. This answers Codex's P2: the check is scheduled where the evidence appears and staffed by the mirror, not by the operator's window. | addendum 167 item 3, verbatim; section 1 step 5 |
+| Mon 10-26, before 17:30 ET | Before 17:30 ET: step 7, the laptop's MLB watch back (`--family MLB`) for Game 3. | addendum 167 item 3, verbatim; section 1 step 7 |
+| Mon 10-26 11:00 ET | The 11:00 end of the operator's window stands for steps 1–5b. | addendum 167 item 3, verbatim |
 
 The plan's dated items (addendum 113, "WHAT STILL HAS TO HAPPEN, DATED"), verbatim:
 
@@ -92,8 +121,8 @@ Which machine runs item 5's readout (ARCHITECT 2026-10-18, addendum 128 item 1(a
   **The cutover's preflight checks the host's (addendum 47 item 7(c)):** it refuses unless host.env itself says
   `SP_EXPORTS_MIRROR_ROLE=host`. `install --replace` copies the pack's `.env` (the laptop's, role `laptop`) over the
   checkout's, and only host.env's own line keeps the host pushing as `host`.
-- **The host fence (ARCHITECT 2026-10-17, addendum 109 item 3; #410):** until the cutover, every soccer model row the host's Desk sees is PASS `host_fence` (the machine's `SP_EXPORTS_MIRROR_ROLE` is `host`, read from host.env first, then the environment, then the checkout's `.env`, so a run typed by hand, such as P8's `closing-run` below, is fenced as the timers' runs are; an unknown role is fenced too, addendum 110 item 1). "The fence lifts with the cutover (the ruling that cuts over names it)." The fence reads the switch `desk_policy.HOST_FENCE_RULE`, never `SP_WRITER_OF_RECORD`: "the cutover PR does the flip and turns the switch off in the same change" (addendum 114 item 3). The PL check below leaves the desk block out (`--ignore-keys desk,...`), so the fence does not touch it, and nothing else in the cutover reads the switch:
-  - **Before `flip` (step 4, after `install`, the timers still paused), TERMINAL (host):** `sudo -u sp venv/bin/python -c "from src.walters.desk_policy import HOST_FENCE_RULE; print(HOST_FENCE_RULE)"` prints `{'on': False}` (the tag carries the cutover's PR). Anything else: do not `flip`, and return it to the architect; the writer of record would mark every PL row PASS `host_fence`.
+- **The host fence (ARCHITECT 2026-10-17, addendum 109 item 3; #410):** until the cutover, every soccer model row the host's Desk sees is PASS `host_fence` (the machine's `SP_EXPORTS_MIRROR_ROLE` is `host`, read from host.env first, then the environment, then the checkout's `.env`, so a run typed by hand, such as P8's `closing-run` below, is fenced as the timers' runs are; an unknown role is fenced too, addendum 110 item 1). The switch is off from #671 (ARCHITECT 2026-10-25, addendum 166 item 6(A)), so on a tag carrying it the check below prints `{'on': False}`. "The fence lifts with the cutover (the ruling that cuts over names it)." The fence reads the switch `desk_policy.HOST_FENCE_RULE`, never `SP_WRITER_OF_RECORD`: "the cutover PR does the flip and turns the switch off in the same change" (addendum 114 item 3). The PL check below leaves the desk block out (`--ignore-keys desk,...`), so the fence does not touch it, and nothing else in the cutover reads the switch:
+  - **Before `flip` (step 4, after `install`, the timers still paused), TERMINAL (host):** `sudo -u sp venv/bin/python -c "from src.walters.desk_policy import HOST_FENCE_RULE; print(HOST_FENCE_RULE)"` prints `{'on': False}` (the tag carries #671). Anything else: do not `flip`, and return it to the architect; the writer of record would mark every PL row PASS `host_fence`.
   - **After the flip:** the host's first PL `--desk` file reads `desk_meta.host_fence_rule: false`; paste that line with the post-check receipts (step 5).
 - **The host closing-watch rehearsal (ARCHITECT 2026-10-12, addendum 45 P8):** "One rehearsal before the cutover
   day, on my word, and not before the tag that carries P1 is on the host: a single closing-run by hand on the
@@ -187,8 +216,9 @@ Which machine runs item 5's readout (ARCHITECT 2026-10-18, addendum 128 item 1(a
     `--named FILE` (`{"YYYY-MM-DD": "<class>: <evidence>"}`); such days print as
     operator-named. GO is a readout; the cutover is the architect's ruling.
 - **Host on a release tag.** Production is a tagged release
-  (docs/RELEASES.md). The host runs `sp_deploy.py` to the ruled tag before
-  the cutover morning, so every cutover receipt names that tag.
+  (docs/RELEASES.md). The host runs `sp_deploy.py` to the ruled tag, deployed between `pause` and `install` on
+  cutover day (addendum 167 item 3); the preflight receipt names the previous tag. Every receipt from `install` on
+  names the ruled tag ("accepted on the page by this ruling", addendum 167 item 3).
 
 ## 1. Cutover morning (only after the ruling)
 
@@ -215,6 +245,10 @@ Which machine runs item 5's readout (ARCHITECT 2026-10-18, addendum 128 item 1(a
    systemctl list-timers 'sp-*' --no-pager      # receipt: none of the list is waiting
    ```
    `sp_cutover.py run` stops them again (idempotent) and receipts it.
+   **On cutover day 2026-10-26 (ARCHITECT 2026-10-25, addendum 167 item 3), verbatim:** "`pause` is the receipted
+   form of step 2, run once (step 2's bare `systemctl stop` is not run separately — pause does it and receipts it)."
+   It runs in step 4, after `preflight --pack` with the timers ACTIVE (the preflight stops on a host whose listed
+   timers are all inactive: `timers already stopped: run the preflight before step 2`).
 3. **TERMINAL (laptop)** (H2 step 3): write the PL reference, then pack and transfer over the tailnet only.
    **The reference is written for the check (#422 RULED, ARCHITECT 2026-10-11, addendum 40 item 9):** "On the
    laptop, after the last sync and immediately before the pack: the PL predictions exported with --start and
@@ -239,6 +273,8 @@ Which machine runs item 5's readout (ARCHITECT 2026-10-18, addendum 128 item 1(a
    P=/home/sp/sp_pack_<stamp>
    sudo venv/bin/python deploy/hosting/sp_cutover.py preflight --pack $P
    sudo venv/bin/python deploy/hosting/sp_cutover.py pause --pack $P
+   # THE DEPLOY (addendum 167 item 3), with the timers paused: sp_deploy.py --tag <ruled tag> --dry-run, then
+   # --tag <ruled tag>, then the printed migration command; the preflight's receipt names the previous tag
    sudo venv/bin/python deploy/hosting/sp_cutover.py install --pack $P
    # the PL PREDICTION CHECK (below); flip only on its PASS
    # the HOST FENCE CHECK (section 0): HOST_FENCE_RULE prints {'on': False}; flip only then
@@ -497,6 +533,13 @@ paste, line by line, like the explained classes. (`bootstrap.py compare
 
 ## 3. Rollback
 
+**A host whose database is the old one runs a fence-on tag, always (ARCHITECT 2026-10-25, addendum 167 item 2(b)).**
+For every rollback after the deploy (a refusal at install, a PL check that is not CLEAN, a fence check that does not
+print off, anything that ends the day with the host still on its old database), this line comes before every
+`systemctl start`, verbatim: "if the host's HEAD is a tag carrying #671, redeploy the last fence-on tag (v1.5.0,
+sp_deploy.py --tag v1.5.0) BEFORE any timer starts; the receipt names the tag". Refused at preflight or at pause,
+the host is not deployed yet (addendum 167 item 2(a)) and rolls back on v1.5.0 exactly as written below.
+
 **A refusal during `run`** prints `FAIL at <step>`. If the step came after
 `pause`, it also prints `timers remain STOPPED`. Nothing resumes on its
 own.
@@ -504,15 +547,16 @@ own.
 - **Refused at preflight:** nothing changed; the timers are as step 2
   left them. Fix the cause (for example, re-pack after a verify FAIL) and
   re-run `run`. To return to the parallel week instead:
+  if the host's HEAD is a tag carrying #671, redeploy the last fence-on tag (v1.5.0, sp_deploy.py --tag v1.5.0)
+  BEFORE any timer starts; the receipt names the tag. Then
   `sudo systemctl start $(cat /etc/sports-predictor/timers.enabled)`, then
   reinstall the laptop's CLV jobs and its closing watch (`bash scripts/setup_closing_watch.sh`). The laptop never stopped being the
   writer of record.
 - **Refused at pause:** host DB and host.env are untouched. Fix it and
   re-run, or return to the parallel week as above.
-- **Refused at install:** delete the pack on both machines and repeat from
-  step 3 (hosting-h1.md H2 step 4: any `✗` means re-pack). Do not
-  hand-move files in `data/`; a rehearsal DB moved aside stays as
-  `data/rehearsal_<ts>.db` until the receipts are pasted.
+- **Refused at install (ARCHITECT 2026-10-25, addendum 167 postscript (c), verbatim):** "RULED — no same-day retry after `pause`. A refusal at or after install ends the cutover for the day: the host stays paused until I have read the console, then rolls back per section 3 (redeploy v1.5.0 before any timer starts). The runbook line says so; the preflight's refusal of stopped timers is the guard that enforces it, not a bug."
+  So no `✗` at install is re-packed and retried that day. Do not hand-move files in `data/`; a rehearsal DB moved
+  aside stays as `data/rehearsal_<ts>.db` until the receipts are pasted.
 - **Not PASS at the PL check** (between `install` and `flip`; #422 RULED, addendum 40 item 9): the cutover ends
   for that day. Run nothing further: no `flip`, no `resume`, no restore of the rehearsal DB, no timer start. The
   host stays paused (timers stopped, flag `laptop`, the installed DB in place, `data/rehearsal_<ts>.db` kept)

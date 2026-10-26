@@ -38,7 +38,8 @@ def _no_real_cross_ref_guard(monkeypatch):
 def _machine_role_laptop(monkeypatch):
     """Addendum 109 item 3 + addendum 110 item 1 (#410): the Desk's host fence reads the machine's
     SP_EXPORTS_MIRROR_ROLE from host.env (SP_HOST_ENV) first, then the environment, then the checkout's .env
-    (desk_policy.DOTENV), and fences every soccer model row unless the role is exactly laptop. Every test runs pinned
+    (desk_policy.DOTENV), and, while its switch is on (HOST_FENCE_RULE: off from addendum 166 item 6(A); the fence's
+    own tests turn it on), fences every soccer model row unless the role is exactly laptop. Every test runs pinned
     to laptop, in the environment, with both files pointed at a path that does not exist: no test inherits the
     machine's role (a real host.env, a role exported into the shell, a .env read by config.py's load_dotenv), and a
     child process inherits the pin. A test that needs another role, or none, sets or deletes it

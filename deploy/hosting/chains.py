@@ -7,8 +7,10 @@ checks every command and every option against cli.py's click definitions
 
 Placeholders, computed in UTC by sp_run: {today} {yesterday} {tomorrow}
 {sat} (the coming Saturday, today if Saturday) {sat_plus3} (the Tuesday
-after: pl_weekly_routine's "--end <MON-date+1>"). Midweek soccer rounds
-(H0-10) override with `sp_run.py soccer-prematch --set sat=... --set sat_plus3=...`.
+after: pl_weekly_routine's "--end <MON-date+1>"). Since ARCHITECT addendum 166
+item 6(B) no chain step names {sat}/{sat_plus3}: the soccer-prematch export that
+priced that window is retired, and the closing watch's slate stage computes the
+same window itself (closing.soccer_window, from sp_run.date_vars).
 
 backup: "daily"      -> today's verified daily backup must exist, else one is
                         taken first; a failed backup fails the chain.
@@ -25,8 +27,9 @@ PL = ("--competition", "PL", "--season", "2026/27")
 EXPANSION_CODES = ("PD", "SA", "BL1", "FL1", "ELC")
 EXPANSION = [("--competition", c, "--season", "2026/27") for c in EXPANSION_CODES]
 # Kalshi series PINNED (ARCHITECT 2026-10-07, addendum 2): "A pinned series never makes a league live." Their
-# sync-kalshi-soccer runs on the shadow chain (soccer-prematch) as CAPTURE ONLY. They are deliberately NOT in
-# WINDOW_KALSHI: the window card spans every competition, and a capture-only league adds no venue line to it.
+# sync-kalshi-soccer runs on the shadow chain (soccer-prematch) as CAPTURE ONLY, and since ARCHITECT 2026-10-24,
+# addendum 164 item 2(a), on the hourly window chain too (WINDOW_KALSHI_CAPTURE_ONLY, below). They are deliberately
+# NOT in WINDOW_KALSHI: the window card spans every competition, and a capture-only league adds no venue line to it.
 KALSHI_CAPTURE_ONLY = EXPANSION_CODES
 # ncaa-schedule's forward window in days past today (ARCHITECT 2026-10-09: "the next seven days")
 NCAA_FORWARD_DAYS = 7
@@ -78,7 +81,12 @@ CHAINS: dict[str, dict] = {
         "steps": [["capture-odds", "--sport", "mlb", *MLB]],
     },
     # --- Soccer (docs/pl_weekly_routine.md) ---
-    "soccer-prematch": {  # Friday and Saturday: the PL lines + the expansion leagues' data lines
+    # THE TIMERS RETIREMENT (ARCHITECT 2026-10-25, addendum 166 item 6(B), applying addendum 126 item 2(d): "The
+    # host's fixed-time timers [...] are retired by the cutover PR"): the PL predict and the PL window export
+    # (`export-predictions --sport soccer --competition PL --start {sat} --end {sat_plus3} --status scheduled`, the
+    # slate file soccer_PL_<sat>_to_<sat_plus3>.json) left this chain; the closing watch's slate stage runs the same
+    # predict and writes that file itself (closing.slate_steps). Every sync stays, on the same two timers.
+    "soccer-prematch": {  # Friday and Saturday: the PL lines + the expansion leagues' data lines; data only
         "steps": [
             ["sync-matches", *PL],
             ["sync-odds", *PL],
@@ -86,9 +94,6 @@ CHAINS: dict[str, dict] = {
             *[[verb, *x] for x in EXPANSION for verb in ("sync-matches", "sync-odds")],
             *[["sync-kalshi-soccer", "--competition", c] for c in KALSHI_CAPTURE_ONLY],   # capture only
             ["sync-kalshi-soccer"],
-            ["predict", "--sport", "soccer", *PL],
-            ["export-predictions", "--sport", "soccer", "--competition", "PL",
-             "--start", "{sat}", "--end", "{sat_plus3}", "--status", "scheduled"],
         ],
     },
     "soccer-morning-after": {
@@ -126,13 +131,15 @@ CHAINS: dict[str, dict] = {
             ["export-nfl-results"],
         ],
     },
-    "nfl-predict": {
-        # Exhibit 1 ruling (2026-09-28): injuries first — the host predicted
-        # with 0 injury inputs vs the laptop's 280 (CHAIN GAP). freshen:NFL
-        # already had it; the audit found no other gap (MLB has no injury
-        # source: sync-injuries MLB is a no-op).
+    # Was "nfl-predict" (sp-nfl-predict.timer). THE TIMERS RETIREMENT (ARCHITECT 2026-10-25, addendum 166 item 6(B),
+    # applying addendum 126 item 2(d)): `predict-nfl` and `export-nfl-predictions` (the slate file
+    # nfl_predictions_<date>.json) left it; the closing watch's slate stage runs the same two itself
+    # (closing.slate_steps). The two steps the slate stage does not run stay, on the same Thu/Sun schedule
+    # (sp-nfl-prematch.timer): the whole-league injury sync (Exhibit 1 ruling, 2026-09-28: injuries first; the slate's
+    # own is scoped to the day's games) and the weather capture (tracking only: no model reads it).
+    "nfl-prematch": {
         "steps": [["sync-injuries", "--competition", "NFL", "--season", "2026"],
-                  ["capture-weather-nfl"], ["predict-nfl"], ["export-nfl-predictions"]],
+                  ["capture-weather-nfl"]],
     },
     # --- Market-only (docs/CLI.md "Market-only competitions") ---
     "nhl-daily": {
@@ -235,8 +242,9 @@ CHAINS: dict[str, dict] = {
 #       game count> (sync_odds takes the next N scheduled games), except the
 #       american-football family (sport NFL: NFL + NCAA), which is priced once
 #       by sync-odds-football;
-#   then the Kalshi syncs for the competitions in WINDOW_KALSHI, then
-#   `window-card`. After a clean run, or a run where only sync steps failed
+#   then the Kalshi syncs for the competitions in WINDOW_KALSHI, then the
+#   capture-only Kalshi syncs of WINDOW_KALSHI_CAPTURE_ONLY (addendum 164
+#   item 2(a)), then `window-card`. After a clean run, or a run where only sync steps failed
 #   and the card ran (addendum 84 item 2(b)), sp_window_page pages CARD
 #   DELTAS (post).
 # NO predict/improve step, ever: model fields stay canonical from their slot.
@@ -247,7 +255,8 @@ WINDOW_KALSHI: dict[str, list[list[str]]] = {
     # competition code -> its Kalshi sync. CI pins the soccer entries to
     # src/adapters/kalshi.py SOCCER_GAME_SERIES (PL; UNL pinned to KXUEFANLGAME,
     # ARCHITECT 2026-10-05, so no --series flag) + SOCCER_SERIES_DISCOVERY,
-    # less KALSHI_CAPTURE_ONLY (the soccer-expansion leagues, shadow chain only).
+    # less KALSHI_CAPTURE_ONLY (the soccer-expansion leagues: capture only, WINDOW_KALSHI_CAPTURE_ONLY below,
+    # addendum 164 item 2(a)).
     "MLB": [["sync-kalshi", "--date-from", "{today}", "--date-to", "{tomorrow}"]],
     "NFL": [["sync-kalshi-nfl"]],
     "NCAA": [["sync-kalshi-ncaa"]],
@@ -259,6 +268,21 @@ WINDOW_KALSHI: dict[str, list[list[str]]] = {
     # replay console with CL in it (item 3).
     "CL": [["sync-kalshi-soccer", "--competition", "CL"]],
 }
+# CAPTURE QUALITY (ARCHITECT 2026-10-24, addendum 164 item 2(a), verbatim): "the four series plus KXLALIGAGAME join the
+# host's hourly window chain's Kalshi capture from the next deploy — a capture-only step, no export, no call; the pacing
+# rule holds (one series per call, 90 s apart from any laptop pull is the operator's rule, the chain's own pacing is
+# Code's)". Evidence: finished 2026/27 games with a qualifying three-way close SA 0 of 50, BL1 1 of 37, FL1 1 of 46, ELC
+# 1 of 96, every miss "no capture" (outside the window chain, captured only Fri/Sat). Built from KALSHI_CAPTURE_ONLY,
+# one step per code, so one series per call (each code's series is mapped in src/adapters/kalshi.py SOCCER_GAME_SERIES:
+# no --series flag). Tiered as WINDOW_KALSHI is (sp_run.window_plan): a league's step runs only when its next kickoff in
+# the window is near or imminent (<= PROX_FAR_H), so the last capture before a kickoff is at most about an hour old (the
+# timer fires at :05, outside 04-05 UTC, H0-3). A separate table, never merged into WINDOW_KALSHI: nothing on the card's
+# path reads it (window-card reads the DB's stored matches and quotes, never chains.py), so it adds no venue line, no
+# export and no call (desk_policy.SHADOW_VENUE_COMPS still refuses them). Pacing: the chain's steps run one after
+# another, each its own process; a step failing on a 429 is retried by sp_run (RETRY_BACKOFF_S, 15 s then 45 s), and a
+# step still failing is a sync step, so the chain runs on (addendum 84 item 2(b)). No bar moves: R42(b) is unchanged.
+WINDOW_KALSHI_CAPTURE_ONLY: dict[str, list[list[str]]] = {
+    c: [["sync-kalshi-soccer", "--competition", c]] for c in KALSHI_CAPTURE_ONLY}
 # A SYNC STEP'S FAILURE DOES NOT STOP THE WINDOW CHAIN (ARCHITECT 2026-10-16 09:29 ET, addendum 84 item 2(b),
 # RULED, verbatim): "in the window chain a sync step's failure is recorded and notified as now, but does not stop the
 # chain — the later sync steps and the card/export steps run; a failure in a card/export step still ends the chain.
@@ -296,12 +320,21 @@ IMMINENT_INJURY_FAMILIES = ("NFL", "SOCCER")
 # freshen: the window repricing IS their freshen. Families in
 # SP_SKIP_FAMILIES (MLB on the DO host, ASN ruling) are logged as
 # freshen_needed and never run.
-CHAINS["freshen:NFL"] = {"steps": [
+# #673 RULED (ARCHITECT 2026-10-25 11:55 ET, addendum 167 postscript (b)): "a file that carries Desk blocks is never
+# replaced by one without them. The freshen writes to its own name (the alternative), and the slate's kept copy and
+# receipt stay true; `--desk` is not added to the freshen (the closing page is the row that counts, the freshen is an
+# input refresh)." freshen:NFL's export writes {freshen_out}, logs/<freshen run id>.<the export's default name>
+# (sp_run.run_vars): outside exports/, so never the slate's exports/nfl_predictions_<date>.json (a hard link to the
+# slate's kept logs/ copy, addendum 133 item 3(a)), never mirrored, and never matched by closing.py's export_glob
+# (nfl_predictions_*.json in exports/). The closing chain derived from it takes its own --out (_closing_from_freshen).
+CHAINS["freshen:NFL"] = {"freshen_out": "nfl_predictions_{today}.json",
+                         "example_vars": {"freshen_out": "logs/20261026T150000Z-freshen-NFL.nfl_predictions_2026-10-26.json"},
+                         "steps": [
     ["sync-injuries", "--competition", "NFL", "--season", "2026"],
     ["sync-odds-football"],
     ["sync-kalshi-nfl"],
     ["predict-nfl"],
-    ["export-nfl-predictions"],
+    ["export-nfl-predictions", "--out", "{freshen_out}"],
 ]}
 CHAINS["freshen:MLB"] = {"steps": [list(s) for s in CHAINS["mlb-preslate"]["steps"]]}  # the 10
 # MLB CLOSING-RUN AUTOPILOT (ARCHITECT 2026-10-08, addendum 13 item 3, Q2, A1): "It runs the ten mlb-preslate steps
@@ -371,11 +404,21 @@ _CLOSING_ADD = {
 # .json itself once the page went out. The freshen and slate chains are unchanged.
 
 
+FRESHEN_OUT = ["--out", "{freshen_out}"]
+
+
+def freshen_step(s: list[str]) -> list[str]:
+    """A freshen step without the freshen's own export file (#673): the closing run names its own (--out
+    {export_out}, addendum 40 item 2)."""
+    i = next((i for i in range(len(s) - 1) if s[i:i + 2] == FRESHEN_OUT), None)
+    return list(s) if i is None else [*s[:i], *s[i + 2:]]
+
+
 def _closing_from_freshen(freshen: str, comp: str, season: str) -> list[list[str]]:
     # A1 as amended (addendum 25 2(i)): by date, one UTC day per call, naming that day's covered games
     read = [["sync-matches", "--competition", comp, "--season", season, "--date-from", d, "--date-to", d,
              "--match-ids", ids] for d, ids in (("{start_day}", "{start_day_ids}"), ("{end_day}", "{end_day_ids}"))]
-    return read + [[*s, *_CLOSING_ADD.get(s[0], [])] for s in CHAINS[freshen]["steps"]]
+    return read + [[*freshen_step(s), *_CLOSING_ADD.get(s[0], [])] for s in CHAINS[freshen]["steps"]]
 
 
 # A sample of the run-time placeholders, for the law-1 option check (tests/test_hosting_pack.py) only.

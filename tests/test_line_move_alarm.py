@@ -262,3 +262,28 @@ def test_sync_injuries_kickoff_scope_calls_only_imminent_teams(monkeypatch):
     r = CliRunner().invoke(cli_mod.cli, ["sync-injuries", "--competition", "NFL", "--season", "2026",
                                          "--kickoff-within-hours", "0.01"])
     assert r.exit_code == 0 and calls == [] and "no provider call" in r.output
+
+
+def test_kalshi_venue_carries_the_home_legs_ticker_null_safe():
+    """ARCHITECT 2026-10-24, addendum 165 item 1: the capture-only log line names the series and ticker, so the Kalshi
+    venue carries `to_ticker` (the HOME leg's stored market ticker at the `to` capture), null where none is stored.
+    Additive: the venue's other keys are unchanged, the book venue gains none."""
+    t0, t1 = KO - timedelta(hours=2, minutes=30), KO - timedelta(minutes=40)
+
+    def k(i, sel, p, at):
+        return NS(id=i, selection=sel, devig_prob=p, captured_at=at, source="kalshi", market="ML")
+    rows = [k(1, "HOME", 0.40, t0), k(2, "AWAY", 0.58, t0), k(3, "HOME", 0.33, t1), k(4, "AWAY", 0.66, t1)]
+    tickers = {1: "KXNFLGAME-26OCT04AAABBB-BBB", 3: "KXNFLGAME-26OCT04AAABBB-BBB", 4: "KXNFLGAME-26OCT04AAABBB-AAA"}
+    lm = line_move(rows + book(0.5, t0) + book(0.5, t1), KO, KO - timedelta(minutes=20), tickers=tickers)
+    kv = lm["venues"]["kalshi"]
+    assert kv["to_ticker"] == "KXNFLGAME-26OCT04AAABBB-BBB"                     # the HOME leg's (row 3), not AWAY's
+    assert set(kv) == {"from", "to", "move_pp", "from_at", "to_at", "alarm", "to_ticker"}
+    assert "to_ticker" not in lm["venues"]["book"]
+    # no tickers stored (before migrate_kalshi_ticker.py), or rows with no id: null, never a guess
+    assert line_move(rows, KO, KO - timedelta(minutes=20), tickers={})["venues"]["kalshi"]["to_ticker"] is None
+    # no tickers asked for (every export's call): the key is not written, the venue unchanged
+    assert "to_ticker" not in line_move(rows, KO, KO - timedelta(minutes=20))["venues"]["kalshi"]
+    assert line_move(rows, KO, KO - timedelta(minutes=20), tickers={1: "X-Y-Z"})["venues"]["kalshi"]["to_ticker"] is None
+    bare = [NS(selection=x.selection, devig_prob=x.devig_prob, captured_at=x.captured_at, source="kalshi", market="ML")
+            for x in rows]
+    assert line_move(bare, KO, KO - timedelta(minutes=20), tickers=tickers)["venues"]["kalshi"]["to_ticker"] is None

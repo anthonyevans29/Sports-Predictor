@@ -1028,6 +1028,56 @@ class Lineup(Base):
     )
 
 
+class CupLineupObservation(Base):
+    """
+    CUPS STEP B, THE LIVE T-15 OBSERVATION STORE (ARCHITECT 2026-10-23, addendum 158 item 3(a); lane cups, #106),
+    verbatim: "Step B, due 10-29, is the LIVE T-15 observation store: per fixture the scheduled poll time and the actual
+    observation time, eleven team-mapped starters per side, the FIRST complete observation preserved and every later
+    correction appended (never replaced: the generic sync-lineups replace-on-answer is not Step B's store), and explicit
+    rows for failed, partial or late observations. The T-35 inputs and forecast of a declared candidate are kept apart
+    from the T-15 label."
+
+    One row per (fixture, kickoff, poll): APPEND-ONLY. Nothing updates or deletes a row; a later poll that answers a
+    different eleven is its own row (differs_from_first). The kickoff is part of the key (Codex on #662): a fixture a
+    schedule sync re-dates starts a fresh poll set, with its own first complete row, and the old kickoff's rows stay as
+    they were. Written ONLY by `observe-cup-lineups`
+    (src/ingestion/cup_lineups_live.py); nothing prices from it (it is not the lineups table, so no lineup reader sees
+    it), and it holds no candidate input or forecast: those are kept apart, in their own store, by the declaration.
+    status: 'complete' (eleven team-mapped starters per side), 'partial' (an answer short of that, or a side mapped to
+    neither team), 'empty' (an answer with no lineup), 'failed' (the call raised; error kept), 'missed' (the poll's time
+    passed by more than MISSED_AFTER with no call made: no call, no lineup). late: the call was made more than
+    LATE_LIMIT after scheduled_at. Created by migrate_cup_lineup_observations.py.
+    """
+
+    __tablename__ = "cup_lineup_observations"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    match_id: Mapped[int] = mapped_column(ForeignKey("matches.id"), index=True)
+    competition: Mapped[str] = mapped_column(String(8), index=True)
+    fixture_source_id: Mapped[str | None] = mapped_column(String(32))
+    kickoff_at: Mapped[datetime] = mapped_column(DateTime)              # the stored kickoff when polled (UTC, naive)
+    poll_label: Mapped[str] = mapped_column(String(16))                 # "T-15" (the label poll), "T-5", "T+10"
+    scheduled_at: Mapped[datetime] = mapped_column(DateTime)            # kickoff_at - the poll's offset
+    observed_at: Mapped[datetime | None] = mapped_column(DateTime)      # OUR clock at the answer; NULL when no call
+    status: Mapped[str] = mapped_column(String(16))                     # complete | partial | empty | failed | missed
+    late: Mapped[bool] = mapped_column(Boolean, default=False)
+    home_starters: Mapped[int | None] = mapped_column(Integer)          # team-mapped starters, home side
+    away_starters: Mapped[int | None] = mapped_column(Integer)
+    unmapped_sides: Mapped[int | None] = mapped_column(Integer)         # answer blocks mapped to neither team
+    lineup: Mapped[dict | None] = mapped_column(JSON)                   # {"home"|"away": {team_id, formation, starters, bench}}
+    is_first_complete: Mapped[bool] = mapped_column(Boolean, default=False)
+    differs_from_first: Mapped[bool | None] = mapped_column(Boolean)    # a later complete row: a correction?
+    error: Mapped[str | None] = mapped_column(String(256))
+    source: Mapped[str] = mapped_column(String(64), default="api_football")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now_naive)
+
+    match: Mapped[Match] = relationship()
+
+    __table_args__ = (
+        UniqueConstraint("match_id", "kickoff_at", "poll_label", name="uq_cup_lineup_obs_match_kickoff_poll"),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Match participants — starter roles per sport (Phase 5)
 # ---------------------------------------------------------------------------

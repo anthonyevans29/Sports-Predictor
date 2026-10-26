@@ -9,10 +9,12 @@ reads the switch, never SP_WRITER_OF_RECORD. Code's reading is the ruling."
 
 THE FLIP AS THE CUTOVER PR MAKES IT, both halves in one change: sp_cutover.py's own `flip` step writes
 SP_WRITER_OF_RECORD=host into host.env (step_flip, run here unchanged against a scratch host.env), and the switch the
-fence reads, desk_policy.HOST_FENCE_RULE, is turned off (here monkeypatched, as the cutover PR's one source line will
-set it). The host's watch is the unit's own command line (deploy/hosting/systemd/sp-closing-watch.service ExecStart),
-run with host.env loaded into the environment as the unit's EnvironmentFile loads it; the laptop's watch today is
-scripts/setup_closing_watch.sh with no --family (its default, MLB NFL SOCCER). The closing run's export step is
+fence reads, desk_policy.HOST_FENCE_RULE, is off: the cutover PR's one source line sets it (ARCHITECT 2026-10-25,
+addendum 166 item 6(A): `HOST_FENCE_RULE = {"on": False}`), so after the flip the module's default is read as it is;
+before the flip the switch is turned on here (monkeypatched), as it was before the cutover. The host's watch is the
+unit's own command line (deploy/hosting/systemd/sp-closing-watch.service ExecStart), run with host.env loaded into
+the environment as the unit's EnvironmentFile loads it; the laptop's watch today is scripts/setup_closing_watch.sh
+with no --family (its default, MLB NFL SOCCER). The closing run's export step is
 `python cli.py export-predictions --desk` in a child process; here the box's fake step annotates the export at the step
 (desk_policy.annotate, reading the role and the switch as they are then).
 The in-process identity test is #580's tests/test_desk_host_fence.py::
@@ -26,6 +28,7 @@ real step, page, push or network."""
 import ast
 import builtins
 import contextlib
+import copy
 import gc
 import json
 import os
@@ -115,9 +118,15 @@ def flip_writer(p: Path, monkeypatch) -> dict:
     return rec
 
 
-def switch_off(monkeypatch) -> None:
-    """The flip's second half: the cutover PR's line, HOST_FENCE_RULE = {"on": False}."""
-    monkeypatch.setitem(dp.HOST_FENCE_RULE, "on", False)
+def switch_off() -> None:
+    """The flip's second half: the cutover PR's line, HOST_FENCE_RULE = {"on": False} (addendum 166 item 6(A)), the
+    module's own default: nothing is set here, the source line is read as it is."""
+    assert dp.HOST_FENCE_RULE == {"on": False}
+
+
+def fence_switch_on(monkeypatch) -> None:
+    """Before the flip: the switch on, as before the cutover (addendum 166 item 6(A) lifted it)."""
+    monkeypatch.setitem(dp.HOST_FENCE_RULE, "on", True)
 
 
 def desk_at_the_export_step(box, monkeypatch) -> None:
@@ -154,8 +163,9 @@ def closed(box, fam: str) -> dict:
 
 
 def laptop_desks() -> dict:
-    """The laptop's Desk calls for the same rows (conftest pins role laptop): family -> match id -> desk block."""
-    assert dp.machine_role() == "laptop" and dp.HOST_FENCE_RULE["on"] is True
+    """The laptop's Desk calls for the same rows (conftest pins role laptop): family -> match id -> desk block. The
+    switch never reaches the laptop: its calls are the same with it on or off."""
+    assert dp.machine_role() == "laptop"
     return {"NFL": {r["match_id"]: r["desk"] for r in nfl_doc()["predictions"]},
             "SOCCER": {r["match_id"]: r["desk"] for r in pl_doc()["predictions"]}}
 
@@ -223,7 +233,7 @@ def test_a_after_the_flip_the_hosts_watch_closes_nfl_and_soccer_and_the_soccer_r
     lap = laptop_desks()
     p = host_env(box, monkeypatch)
     rec = flip_writer(p, monkeypatch)
-    switch_off(monkeypatch)
+    switch_off()
     environment_file(p, monkeypatch)                   # resume starts the timers: the unit reads the new host.env
     assert c.writer_of_record() == "host" and mc.mirror_role() == "host" and dp.machine_role() == "host"
     assert rec["changed"] is True and Path(rec["kept_copy"]).read_text().startswith("SP_WRITER_OF_RECORD=laptop")
@@ -266,7 +276,7 @@ def test_a_the_hosts_soccer_page_after_the_flip_is_the_laptops_page_but_for_the_
     box.pages.clear()
     p = host_env(box, monkeypatch)
     flip_writer(p, monkeypatch)
-    switch_off(monkeypatch)
+    switch_off()
     environment_file(p, monkeypatch)
     assert the_hosts_tick(box, monkeypatch) == 0
     assert page_of(box, "SOCCER") == lap_page[:-1] + ["machine: host"]
@@ -276,11 +286,14 @@ def test_a_the_hosts_soccer_page_after_the_flip_is_the_laptops_page_but_for_the_
 # ================================================================================= (b) before the flip ==
 
 def test_b_before_the_flip_the_hosts_soccer_rows_are_fenced_and_nfl_is_not(box, monkeypatch):
-    """(b) Before the flip (role host, SP_WRITER_OF_RECORD=laptop, the fence on, as the host is today): the same
+    """(b) Before the flip (role host, SP_WRITER_OF_RECORD=laptop, the fence on, as the host ran before the cutover
+    PR, addendum 166 item 6(A), turned the switch off; turned on here): the same
     tick closes NFL and SOCCER, and every soccer row it closes is PASS host_fence with the ruled reason, so the page
     carries no PLAY (only the PASS count), and the closing file's desk_meta reads host_fence_rule true. NFL's rows are
     the laptop's Desk calls, as after the flip."""
     lap = laptop_desks()
+    # the switch on, as before the cutover (addendum 166 item 6(A) lifted it)
+    fence_switch_on(monkeypatch)
     p = host_env(box, monkeypatch)
     environment_file(p, monkeypatch)
     assert c.writer_of_record() == "laptop" and dp.HOST_FENCE_RULE["on"] is True and dp.machine_role() == "host"
@@ -309,8 +322,11 @@ def test_the_switch_decides_the_soccer_rows_and_the_writer_line_decides_nothing(
     p = host_env(box, monkeypatch)
     if writer_flipped:
         flip_writer(p, monkeypatch)
-    if not switch_on:
-        switch_off(monkeypatch)
+    if switch_on:
+        # the switch on, as before the cutover (addendum 166 item 6(A) lifted it)
+        fence_switch_on(monkeypatch)
+    else:
+        switch_off()
     environment_file(p, monkeypatch)
     assert c.writer_of_record() == ("host" if writer_flipped else "laptop")
     assert the_hosts_tick(box, monkeypatch) == 0
@@ -550,7 +566,9 @@ def test_c_one_switch_the_cutover_pr_turns_off_and_the_pinned_routes_stay_shut()
     src = Path(dp.__file__).read_text()
     tree = ast.parse(src)
     switches = _switches(tree)
-    assert [s for s in switches if "FENCE" in s] == [SWITCH] and dp.HOST_FENCE_RULE == {"on": True}
+    assert [s for s in switches if "FENCE" in s] == [SWITCH] and dp.HOST_FENCE_RULE == {"on": False}   # addendum 166
+    assert ast.literal_eval(next(n.value for n in tree.body if isinstance(n, ast.Assign) and n.lineno == switches[
+        SWITCH])) == {"on": False}                                      # the definition: the cutover PR's line
     fns = _functions(tree)
     path = tuple(READ_PATH)
     assert path == ("host_fenced", "role_reading", "machine_role", "_env_file")
@@ -623,14 +641,15 @@ def test_c_one_switch_the_cutover_pr_turns_off_and_the_pinned_routes_stay_shut()
     assert "desk_parity_verify" not in records["deploy/hosting/cutover_readiness.py"].imports  # on a scratch worktree
 
 
-def test_c_a_fresh_process_on_the_flipped_host_reads_the_switch_from_the_source_and_is_still_fenced(box, monkeypatch):
+def test_c_a_fresh_process_on_the_flipped_host_reads_the_switch_from_the_source_and_is_lifted(box, monkeypatch):
     """The closing run's export step is a child process (`python cli.py export-predictions --desk`): what it reads is
     the source line, not this process's state. On the host after sp_cutover's own flip (host.env: writer host, role
     host; SP_WRITER_OF_RECORD=host in the environment, as the unit loads it), a fresh process runs the runbook's own
-    HOST FENCE CHECK command (section 0, before step 4's flip) and prints {'on': True} today, and a soccer row there is
-    PASS host_fence with desk_meta.host_fence_rule true: the flip alone does not lift the fence. In production only the
-    cutover PR's line does (the runbook's check then prints {'on': False}). Test (c) pins that: the switch is written
-    nowhere but its definition and desk_policy's two context managers; the fence's read path reads exactly the
+    HOST FENCE CHECK command (section 0, before step 4's flip) and prints {'on': False}, the cutover PR's line
+    (ARCHITECT 2026-10-25, addendum 166 item 6(A)), and a soccer row there is the laptop's call (PLAY, no host_fence)
+    with desk_meta.host_fence_rule false. Before that line it printed {'on': True} and the row was PASS host_fence: the
+    flip alone does not lift the fence; in production only the cutover PR's line does. Test (c) pins that: the
+    switch is written nowhere but its definition and desk_policy's two context managers; the fence's read path reads exactly the
     desk_policy names it reads today; outside desk_policy no tracked production Python file references the switch or a
     fence input, and only four verify/battery scripts reference a context manager; no script that reaches one (by
     import, or by naming it in a string its code uses) is imported or named by cli.py, config.py, src/, deploy/ or the
@@ -648,7 +667,7 @@ def test_c_a_fresh_process_on_the_flipped_host_reads_the_switch_from_the_source_
     assert env["SP_WRITER_OF_RECORD"] == "host" and env["SP_EXPORTS_MIRROR_ROLE"] == "host"
     out = subprocess.run([sys.executable, "-c", m.group(1)], cwd=ROOT, env=env, capture_output=True, text=True,
                          check=True)
-    assert out.stdout.strip() == "{'on': True}"
+    assert out.stdout.strip() == "{'on': False}"                       # the runbook's check, as the tag must print it
     code = ("import json, sys; from datetime import datetime; from src.walters import desk_policy as dp; "
             "doc = json.load(sys.stdin); dp.annotate(doc, now=datetime.fromisoformat(sys.argv[1])); "
             "d = doc['predictions'][0]['desk']; "
@@ -657,7 +676,13 @@ def test_c_a_fresh_process_on_the_flipped_host_reads_the_switch_from_the_source_
     doc = {"sport": "soccer", "predictions": [mun_ful()]}
     out = subprocess.run([sys.executable, "-c", code, FENCE_NOW.isoformat()], cwd=ROOT, env=env,
                          input=json.dumps(doc), capture_output=True, text=True, check=True)
-    assert json.loads(out.stdout) == ["host", True, "PASS", dp.HOST_FENCE_KIND, REASON]
+    monkeypatch.setenv("SP_HOST_ENV", str(box.tmp / "no-host.env"))   # this process: the laptop (conftest's pin)
+    monkeypatch.setenv(dp.ROLE_ENV, "laptop")
+    lap = copy.deepcopy(doc)
+    dp.annotate(lap, now=FENCE_NOW)
+    d = lap["predictions"][0]["desk"]
+    assert d["call"] == "PLAY" and d["pass_kind"] != dp.HOST_FENCE_KIND
+    assert json.loads(out.stdout) == ["host", False, d["call"], d["pass_kind"], d["reason"]]
 
 
 # ============================================================================== the runbook's 2026-10 schedule ==

@@ -409,7 +409,7 @@ def test_c3_nfl_and_soccer_closing_chains_are_their_freshen_chains_opening_with_
     """C3 + addendum 22: the freshen chain's steps in order, ending in the export that carries the Desk's call,
     opened by the schedule read (status and start time) for its games."""
     clo = chains.CHAINS[chains.CLOSING_FAMILIES[fam]]["steps"]
-    fr = chains.CHAINS[freshen]["steps"]
+    fr = [chains.freshen_step(s) for s in chains.CHAINS[freshen]["steps"]]   # #673: without the freshen's own file
     # A1 as amended (addendum 25 2(i)): "nfl-closing takes the SOCCER form: sync-matches by date, one UTC day per
     # call, naming that day's covered games. The by_id branch goes."
     read = [["sync-matches", "--competition", comp, "--season", season, "--date-from", d, "--date-to", d,
@@ -731,7 +731,8 @@ def test_c6_the_real_page_posts_to_the_card_topic_and_records_no_topic(monkeypat
 def test_c7_one_launchd_watch_and_the_host_units_shipped_held():
     """C7 stands (addendum 45): the laptop has one launchd job (its families in the plist since P5); the host's
     closing units exist only as sp-closing-watch.service + .timer, shipped and held (P3): no other unit names a
-    closing, and the timer is on T11's HELD_FOR_CUTOVER list, never on TIMERS (tests/test_hosting_pack.py)."""
+    closing. The timer was on T11's HELD_FOR_CUTOVER list until the cutover, and is on TIMERS from it (ARCHITECT
+    2026-10-26, addendum 168 item 5; tests/test_hosting_pack.py)."""
     sh = (ROOT / "scripts" / "setup_closing_watch.sh").read_text()
     assert "INTERVAL_S=60" in sh and "<string>closing-watch</string>" in sh and "${PLIST_FAMILIES}" in sh.split(
         "<array>")[1].split("</array>")[0]

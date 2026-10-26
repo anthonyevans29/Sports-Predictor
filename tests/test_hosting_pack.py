@@ -656,17 +656,266 @@ def test_the_migrate_pack_reads_its_copy_immutable_and_install_reads_the_live_db
 
 def test_ncaa_timer_ships_enabled_in_runbook():
     rb = (ROOT / "docs" / "specs" / "hosting-h1.md").read_text()
-    t11 = rb[rb.index("TIMERS=\""):rb.index("echo $TIMERS")]  # TIMERS + MLB_LAPTOP_ONLY + HELD_FOR_CUTOVER
+    t11 = rb[rb.index("TIMERS=\""):rb.index("echo $TIMERS")]  # TIMERS + MLB_LAPTOP_ONLY
     assert "HELD_B4" not in rb  # B4 ruled: the model-bearing timers enable with the rest
     enabled = t11[:t11.index("MLB_LAPTOP_ONLY=")]
     for mlb in ("sp-mlb-morning.timer", "sp-mlb-preslate.timer", "sp-clv-capture.timer"):
         assert mlb not in enabled, f"{mlb} must stay OFF the host enable list (statsapi ASN block)"
-    # Addendum 45 P3: "A third list in the T11 test names the units that are shipped and held for the cutover ruling."
-    held = t11[t11.index("HELD_FOR_CUTOVER="):].split("\n")[0]
-    assert re.findall(r"sp-[\w-]+\.timer", held) == ["sp-closing-watch.timer"]
-    assert "sp-closing-watch" not in enabled and "sp-closing-watch" not in t11[:t11.index("HELD_FOR_CUTOVER=")]
+    # Addendum 45 P3 held sp-closing-watch.timer on a third T11 list until the cutover ruling; ARCHITECT 2026-10-26,
+    # addendum 168 item 5: "sp-closing-watch.timer moves to TIMERS (CI's check follows)". The third list is retired.
+    assert "sp-closing-watch.timer" in enabled and "HELD_FOR_CUTOVER=" not in t11
     for f in (HOSTING / "systemd").glob("*.timer"):
         assert f.name in t11, f"{f.name} missing from the T11 lists"
+
+
+def test_the_t11_lists_the_shipped_timers_and_the_schedule_table_agree():
+    """ARCHITECT 2026-10-23, addendum 155 item 8(b): "a CI check (read-only) that the T11 TIMERS list, the shipped
+    systemd/*.timer files and docs/specs/hosting-h1.md's table agree". Every shipped timer is on exactly one T11 list;
+    every name on a T11 list is shipped; the Schedule table has one row per shipped timer and none other."""
+    lists = c.t11_lists()
+    shipped = c.shipped_timers()
+    named = [t for n in c.T11_LISTS for t in lists[n]]
+    assert len(shipped) >= 20 and all(lists[n] for n in c.T11_LISTS)
+    assert sorted(set(named)) == sorted(named), f"a timer on two T11 lists: {sorted({t for t in named if named.count(t) > 1})}"
+    assert sorted(named) == shipped, (f"shipped, on no T11 list: {sorted(set(shipped) - set(named))}; "
+                                      f"on a T11 list, not shipped: {sorted(set(named) - set(shipped))}")
+    rb = (ROOT / "docs" / "specs" / "hosting-h1.md").read_text()
+    table = rb[rb.index("### Schedule"):]
+    table = table[:table.index("\n\n", table.index("| Timer |"))]
+    rows = [f"{m}.timer" for m in re.findall(r"^\| (sp-[\w-]+) \|", table, re.M)]
+    assert sorted(set(rows)) == sorted(rows), f"a timer with two rows: {sorted({t for t in rows if rows.count(t) > 1})}"
+    assert sorted(rows) == shipped, (f"shipped, no Schedule row: {sorted(set(shipped) - set(rows))}; "
+                                     f"a Schedule row, not shipped: {sorted(set(rows) - set(shipped))}")
+
+
+
+# ------------------------------- the prediction timers, retired (ARCHITECT 2026-10-25, addendum 166 item 6(B)) ----
+# "(B) THE TIMERS RETIREMENT PR [...] addendum 126 item 2(d) rules the host's fixed-time PREDICTION timers retired by
+# the cutover. Law 1 first: enumerate from deploy/hosting/chains.py what each of sp-nfl-predict, sp-soccer-friday and
+# sp-soccer-saturday actually runs, step by step. Retire ONLY the predict + slate-export steps the watch's slate stage
+# duplicates; a weekly ratings refresh, a grade, a results export or a whole-season sync that one of those chains also
+# carries is KEPT (moved to its own unit or left in a renamed chain — propose, do not decide)."
+PL_ARGS = ["--competition", "PL", "--season", "2026/27"]
+# What each chain ran on main f0e4cbf, before the retirement (chains.py, read 2026-10-25), and which steps retire.
+BEFORE_166B = {
+    "nfl-predict": [["sync-injuries", "--competition", "NFL", "--season", "2026"], ["capture-weather-nfl"],
+                    ["predict-nfl"], ["export-nfl-predictions"]],
+    "soccer-prematch": [["sync-matches", *PL_ARGS], ["sync-odds", *PL_ARGS], ["sync-injuries", *PL_ARGS],
+                        *[[v, "--competition", x, "--season", "2026/27"] for x in ("PD", "SA", "BL1", "FL1", "ELC")
+                          for v in ("sync-matches", "sync-odds")],
+                        *[["sync-kalshi-soccer", "--competition", x] for x in ("PD", "SA", "BL1", "FL1", "ELC")],
+                        ["sync-kalshi-soccer"],
+                        ["predict", "--sport", "soccer", *PL_ARGS],
+                        ["export-predictions", "--sport", "soccer", "--competition", "PL",
+                         "--start", "{sat}", "--end", "{sat_plus3}", "--status", "scheduled"]],
+}
+RETIRED_166B = {"nfl-predict": BEFORE_166B["nfl-predict"][2:], "soccer-prematch": BEFORE_166B["soccer-prematch"][-2:]}
+# timer -> (its calendar lines, unchanged; the chain it runs now; the chain it ran before)
+TIMERS_166B = {
+    "sp-nfl-prematch.timer": (["Thu *-*-* 18:00:00 UTC", "Sun *-*-* 14:00:00 UTC"], "nfl-prematch", "nfl-predict"),
+    "sp-soccer-friday.timer": (["Fri *-*-* 14:00:00 UTC"], "soccer-prematch", "soccer-prematch"),
+    "sp-soccer-saturday.timer": (["Sat *-*-* 10:30:00 Europe/London"], "soccer-prematch", "soccer-prematch"),
+}
+
+
+def _slate_steps_of(fam):
+    """The slate stage's own steps for a synthetic day (closing.slate_steps: resolve_steps, the closing's resolution,
+    SOCCER's export gaining its window), so the retired steps are compared with what the slate stage really runs."""
+    import closing
+    day = date(2026, 10, 31)
+    covers = [{"match_id": 7, "start": datetime(2026, 10, 31, 17, 0, tzinfo=timezone.utc)}]
+    return closing.slate_steps(fam, day, covers, datetime(2026, 10, 31, 12, 0, tzinfo=timezone.utc), "RID")
+
+
+def test_the_three_timers_keep_their_schedules_and_run_only_the_kept_steps():
+    timers = _timers()
+    assert "sp-nfl-predict.timer" not in timers and "nfl-predict" not in chains.CHAINS     # renamed, not duplicated
+    for t, (cals, chain, before) in TIMERS_166B.items():
+        assert timers[t] == (cals, f"sp-chain@{chain}.service"), t
+        kept = [s for s in BEFORE_166B[before] if s not in RETIRED_166B[before]]
+        assert chains.CHAINS[chain]["steps"] == kept, chain                          # the kept steps, in order
+        assert "backup" not in chains.CHAINS[chain] and not chains.CHAINS[chain].get("operator_only")
+    assert [s[0] for s in chains.CHAINS["nfl-prematch"]["steps"]] == ["sync-injuries", "capture-weather-nfl"]
+    assert all(s[0].startswith("sync-") for s in chains.CHAINS["soccer-prematch"]["steps"])  # every sync stays
+
+
+def test_each_retired_step_is_one_the_slate_stage_runs_for_the_same_family():
+    """A step retires only where the slate stage runs the same command for the same family: the predict word for word,
+    the export the same command and competition (the slate's adds --desk and its --out, SOCCER's its window)."""
+    nfl, soccer = _slate_steps_of("NFL"), _slate_steps_of("SOCCER")
+    assert ["predict-nfl"] in nfl and nfl[-1][0] == "export-nfl-predictions"
+    assert RETIRED_166B["nfl-predict"] == [["predict-nfl"], ["export-nfl-predictions"]]
+    assert ["predict", "--sport", "soccer", *PL_ARGS] in soccer
+    assert soccer[-1][:5] == ["export-predictions", "--sport", "soccer", "--competition", "PL"]
+    assert RETIRED_166B["soccer-prematch"][0] in soccer
+    assert RETIRED_166B["soccer-prematch"][1][:5] == soccer[-1][:5]
+    # the kept steps the slate stage does NOT run as written (whole-league / whole-season / other leagues / weather)
+    for chain, slate in (("nfl-prematch", nfl), ("soccer-prematch", soccer)):
+        for st in chains.CHAINS[chain]["steps"]:
+            assert st[0] not in ("predict", "predict-nfl", "export-predictions", "export-nfl-predictions")
+    assert ["capture-weather-nfl"] not in nfl
+    assert ["sync-injuries", "--competition", "NFL", "--season", "2026"] not in nfl          # the slate's is scoped
+    assert ["sync-matches", *PL_ARGS] not in soccer and ["sync-odds", *PL_ARGS] not in soccer
+
+
+def test_the_retired_exports_wrote_the_slate_files_names():
+    """The in-place rewrite (BACKLOG 2026-10-18, addendum 126 entry, open item 2): the retired exports wrote the slate
+    stage's own exports/ names on the days the timers fire. NFL: export-nfl-predictions' default
+    exports/nfl_predictions_<UTC date>.json on Thursday 18:00Z and Sunday 14:00Z (the ET date too); SOCCER: Saturday's
+    --start {sat} --end {sat_plus3} is the Saturday slate's soccer_PL_<sat>_to_<sat_plus3>.json."""
+    import closing
+    thu, sun, sat = date(2026, 10, 29), date(2026, 11, 1), date(2026, 10, 31)
+    for d in (thu, sun):
+        assert closing.slate_file("NFL", d) == f"nfl_predictions_{d.isoformat()}.json"
+    v = sp_run.date_vars(sat)
+    assert closing.slate_file("SOCCER", sat) == f"soccer_PL_{v['sat']}_to_{v['sat_plus3']}.json"
+
+
+def test_no_timer_runs_a_live_nfl_or_pl_predict_or_slate_export():
+    """After 6(B) no shipped timer's chain predicts or exports NFL or PL: the closing watch's slate stage writes their
+    slate files. MLB is not touched (mlb-preslate, a laptop duty: T11's MLB_LAPTOP_ONLY)."""
+    retired = {"predict-nfl", "export-nfl-predictions"}
+    for t, (_, unit) in _timers().items():
+        m = re.match(r"sp-chain@(.+)\.service$", unit)
+        if not m:
+            continue
+        for st in chains.CHAINS[m.group(1)]["steps"]:
+            assert st[0] not in retired, (t, st)
+            if st[0] in ("predict", "export-predictions"):
+                assert "PL" not in st and "soccer" not in st, (t, st)
+
+
+def test_the_t11_lists_carry_the_renamed_timer():
+    lists = c.t11_lists()
+    assert "sp-nfl-prematch.timer" in lists["TIMERS"]
+    assert not any("sp-nfl-predict.timer" in lists[n] for n in c.T11_LISTS)
+    assert {"sp-soccer-friday.timer", "sp-soccer-saturday.timer"} <= set(lists["TIMERS"])
+    assert "sp-closing-watch.timer" in lists["TIMERS"] and "HELD_FOR_CUTOVER" not in lists  # on TIMERS from the cutover (addendum 168 item 5)
+    rb = (ROOT / "docs" / "specs" / "hosting-h1.md").read_text()
+    assert "| sp-nfl-prematch | nfl-prematch (was sp-nfl-predict / nfl-predict;" in rb
+
+
+import sp_deploy  # noqa: E402
+
+
+def _enabled(tmp_path, names):
+    p = tmp_path / "timers.enabled"
+    p.write_text(" ".join(names) + "\n")
+    return p
+
+
+def test_the_deploy_receipt_names_the_shipped_timers_the_host_has_not_enabled(tmp_path):
+    """Addendum 155 item 8(b): "a line in the deploy receipt naming any shipped timer not in
+    /etc/sports-predictor/timers.enabled on the host (names only)". The 2026-10-23 host: 15 of T11's 16 TIMERS
+    enabled, sp-ncaa-schedule.timer never installed."""
+    lists = c.t11_lists()
+    st = sp_deploy.timers_state(enabled_path=_enabled(tmp_path, [t for t in lists["TIMERS"]
+                                                                 if t != "sp-ncaa-schedule.timer"]))
+    assert st["not_enabled"] == sorted(["sp-ncaa-schedule.timer", *lists["MLB_LAPTOP_ONLY"]])
+    assert st["by_list"] == {"TIMERS": ["sp-ncaa-schedule.timer"], "MLB_LAPTOP_ONLY": sorted(lists["MLB_LAPTOP_ONLY"])}
+    line = sp_deploy.timers_line(st)
+    assert line.startswith("\n  ! shipped timers not in ") and "sp-ncaa-schedule.timer (TIMERS)" in line
+    assert "install and enable it" in line
+    # the host as T11 leaves it: only the list T11 holds off is not enabled -> a plain line, no "!"
+    ok = sp_deploy.timers_state(enabled_path=_enabled(tmp_path, lists["TIMERS"]))
+    assert ok["by_list"].keys() == {"MLB_LAPTOP_ONLY"}
+    assert sp_deploy.timers_line(ok).startswith("\n  · shipped timers not in ") and "!" not in sp_deploy.timers_line(ok)
+    every = sp_deploy.timers_state(enabled_path=_enabled(tmp_path, c.shipped_timers()))
+    assert every["not_enabled"] == [] and "every shipped timer is in" in sp_deploy.timers_line(every)
+
+
+def test_the_deploy_receipt_never_guesses_when_timers_enabled_is_unreadable(tmp_path):
+    """Law 4: a missing file is an error with no list, and the line says so with "!"."""
+    st = sp_deploy.timers_state(enabled_path=tmp_path / "absent")
+    assert st["not_enabled"] is None and "unreadable (FileNotFoundError)" in st["error"]
+    assert sp_deploy.timers_line(st).startswith("\n  ! timers: ")
+
+
+def test_a_shipped_timer_on_no_t11_list_is_named_unlisted(tmp_path):
+    repo = tmp_path / "repo"
+    (repo / "deploy" / "hosting" / "systemd").mkdir(parents=True)
+    (repo / "docs" / "specs").mkdir(parents=True)
+    (repo / "docs" / "specs" / "hosting-h1.md").write_text(
+        'TIMERS="sp-a.timer sp-c.timer"\nMLB_LAPTOP_ONLY="sp-b.timer"\n')
+    for n in ("sp-a", "sp-b", "sp-c", "sp-new"):
+        (repo / "deploy" / "hosting" / "systemd" / f"{n}.timer").write_text("")
+    st = sp_deploy.timers_state(repo=repo, enabled_path=_enabled(tmp_path, ["sp-a.timer", "sp-c.timer"]))
+    assert st["by_list"] == {"MLB_LAPTOP_ONLY": ["sp-b.timer"], "unlisted": ["sp-new.timer"]}
+    assert sp_deploy.timers_line(st).startswith("\n  ! ") and "sp-new.timer (unlisted)" in sp_deploy.timers_line(st)
+
+
+def _listing(*units, rc=0):
+    """A stand-in for `systemctl list-units --type=timer --state=active --no-legend --plain sp-*`: it checks it was
+    asked exactly that (sp_common's reader, the cutover preflight's) and answers with these units."""
+    calls = []
+
+    def run(argv):
+        calls.append(argv)
+        assert argv == list(c.ACTIVE_SP_TIMERS_ARGV)
+        return rc, "\n".join(f"{u} loaded active waiting desc" for u in units) if rc == 0 else "Failed to connect to bus"
+    run.calls = calls
+    return run
+
+
+def test_the_deploy_receipt_names_an_active_sp_timer_the_list_does_not(tmp_path):
+    """ARCHITECT 2026-10-26, addendum 168 item 2 (#676): the receipt line "is extended to name ACTIVE timers not on
+    the list, not only shipped-but-unlisted ones — a read-only line". The 2026-10-26 host: 14 lines in
+    timers.enabled, 16 sp timers active (sp-intl-daily and sp-exports-squash enabled by hand, never listed)."""
+    lists = c.t11_lists()
+    listed = [t for t in lists["TIMERS"] if t not in ("sp-intl-daily.timer", "sp-exports-squash.timer")]
+    path = _enabled(tmp_path, listed)
+    run = _listing(*lists["TIMERS"])
+    st = sp_deploy.active_timers_state(enabled_path=path, runner=run)
+    assert st == {"active_not_listed": ["sp-exports-squash.timer", "sp-intl-daily.timer"]} and len(run.calls) == 1
+    line = sp_deploy.active_timers_line(st)
+    assert line.startswith(f"\n  ! active sp timers not in {c.TIMERS_ENABLED}: sp-exports-squash.timer, "
+                           "sp-intl-daily.timer — add them to the list by hand")
+    assert path.read_text() == " ".join(listed) + "\n"           # read-only: the list is never written
+    # an active sp timer whose name no T11 list could carry is still named, never dropped (addendum 57 item 8)
+    odd = sp_deploy.active_timers_state(enabled_path=path, runner=_listing(*listed, "sp-notify@x.timer"))
+    assert odd["active_not_listed"] == ["sp-notify@x.timer"]
+
+
+def test_every_active_timer_listed_leaves_the_deploy_receipt_as_it_was(tmp_path):
+    lists = c.t11_lists()
+    path = _enabled(tmp_path, lists["TIMERS"])
+    st = sp_deploy.active_timers_state(enabled_path=path, runner=_listing(*lists["TIMERS"][:3], "other.timer"))
+    assert st == {"active_not_listed": []} and sp_deploy.active_timers_line(st) == ""
+    shipped = sp_deploy.timers_line(sp_deploy.timers_state(enabled_path=path))
+    assert shipped + sp_deploy.active_timers_line(st) == shipped   # the addendum 155 line, unchanged and alone
+
+
+def test_an_unreadable_active_listing_is_labelled_never_read_as_empty(tmp_path):
+    """Law 4: a listing that fails (no bus, no systemctl) is an error with no list, and the line says so with "!";
+    an unreadable timers.enabled is labelled the same way, and systemctl is not asked."""
+    path = _enabled(tmp_path, c.t11_lists()["TIMERS"])
+    st = sp_deploy.active_timers_state(enabled_path=path, runner=_listing(rc=1))
+    assert st["active_not_listed"] is None and st["error"].startswith("systemctl list-units exit 1: Failed to connect")
+    line = sp_deploy.active_timers_line(st)
+    assert line.startswith("\n  ! active timers: systemctl list-units exit 1") and "could not be compared" in line
+    missing_run = _listing("sp-a.timer")
+    gone = sp_deploy.active_timers_state(enabled_path=tmp_path / "absent", runner=missing_run)
+    assert gone["active_not_listed"] is None and "unreadable (FileNotFoundError)" in gone["error"]
+    assert sp_deploy.active_timers_line(gone).startswith("\n  ! active timers: ") and missing_run.calls == []
+    # a systemctl that cannot run at all is exit 127, labelled
+    rc, out = sp_deploy._systemctl_read(["/nonexistent/systemctl-for-this-test"])
+    assert rc == 127 and "FileNotFoundError" in out
+
+
+def test_every_by_hand_timer_enable_recipe_adds_the_timer_to_timers_enabled():
+    """ARCHITECT 2026-10-26, addendum 168 item 2: "T11's recipe for enabling a timer ends with the timers.enabled
+    line". Every `enable --now sp-….timer` a runbook gives by hand is followed, in its recipe, by
+    `echo <it> | sudo tee -a /etc/sports-predictor/timers.enabled` (T11's own `enable --now $TIMERS` writes the
+    whole list first)."""
+    missing = []
+    for doc in ("hosting-h1.md", "h2-cutover-runbook.md", "exports-mirror.md"):
+        lines = (ROOT / "docs" / "specs" / doc).read_text(encoding="utf-8").splitlines()
+        for i, ln in enumerate(lines):
+            for t in re.findall(r"enable --now (sp-[\w@.-]+\.timer)", ln):
+                recipe = "\n".join(lines[i:i + 3])
+                if f"echo {t} | sudo tee -a /etc/sports-predictor/timers.enabled" not in recipe:
+                    missing.append(f"{doc}:{i + 1} {t}")
+    assert not missing, f"a by-hand timer enable with no timers.enabled line: {missing}"
 
 
 # ------------------------------------------- H1a fresh bootstrap (09-27) ----
@@ -1057,6 +1306,90 @@ def test_window_kalshi_table_pinned_to_adapter_series():
             assert st[0] in cli.commands
 
 
+def test_window_capture_only_table_is_the_expansion_leagues_one_series_per_step():
+    """CAPTURE QUALITY (ARCHITECT 2026-10-24, addendum 164 item 2(a)): "the four series plus KXLALIGAGAME join the
+    host's hourly window chain's Kalshi capture [...] a capture-only step, no export, no call; [...] one series per
+    call". The table is KALSHI_CAPTURE_ONLY, one sync-kalshi-soccer step per code, each code mapped in the adapter (no
+    --series flag); WINDOW_KALSHI still excludes them (the card's venue lines are unchanged)."""
+    from src.adapters.kalshi import KalshiAdapter
+    assert chains.WINDOW_KALSHI_CAPTURE_ONLY == {c: [["sync-kalshi-soccer", "--competition", c]]
+                                                 for c in chains.KALSHI_CAPTURE_ONLY}
+    assert set(chains.KALSHI_CAPTURE_ONLY) == {"PD", "SA", "BL1", "FL1", "ELC"}
+    assert {KalshiAdapter.SOCCER_GAME_SERIES[c] for c in chains.WINDOW_KALSHI_CAPTURE_ONLY} == {
+        "KXLALIGAGAME", "KXSERIEAGAME", "KXBUNDESLIGAGAME", "KXLIGUE1GAME", "KXEFLCHAMPIONSHIPGAME"}
+    assert not set(chains.WINDOW_KALSHI_CAPTURE_ONLY) & set(chains.WINDOW_KALSHI)
+    assert not any("--series" in st for sts in chains.WINDOW_KALSHI_CAPTURE_ONLY.values() for st in sts)
+    cli = _cli()
+    opts = {o for p in cli.commands["sync-kalshi-soccer"].params for o in (*p.opts, *p.secondary_opts)}
+    for sts in chains.WINDOW_KALSHI_CAPTURE_ONLY.values():
+        assert len(sts) == 1                                            # one series per call
+        assert all(tok in opts for tok in sts[0][1:] if tok.startswith("--")), sts
+    assert "sync-kalshi-soccer" in chains.UNMETERED
+    # nothing on the card's path reads the table: window-card reads the DB, never chains.py
+    import src.walters.window as window
+    for src in (inspect.getsource(window), inspect.getsource(cli.commands["window-card"].callback)):
+        assert "WINDOW_KALSHI_CAPTURE_ONLY" not in src and "KALSHI_CAPTURE_ONLY" not in src
+    # the pager reads it for one thing only (addendum 165 item 1): the leagues whose line moves it never pages
+    import sp_window_page
+    pager = (HOSTING / "sp_window_page.py").read_text()
+    assert "CAPTURE_ONLY = frozenset(WINDOW_KALSHI_CAPTURE_ONLY) - frozenset(WINDOW_KALSHI)" in pager
+    for fn in (sp_window_page.run, sp_window_page.deltas, sp_window_page.snapshot, sp_window_page.line):
+        assert "WINDOW_KALSHI_CAPTURE_ONLY" not in inspect.getsource(fn)   # read once, as CAPTURE_ONLY
+
+
+def test_window_plan_captures_the_expansion_leagues_near_and_imminent_only(sandbox, monkeypatch):
+    """Addendum 164 item 2(a): the capture-only steps are tiered as the window's Kalshi syncs are: a league with its
+    next kickoff near (SA, +3h) or imminent (FL1, +1h) gets its step, a far league (BL1, +10h) only its schedule check,
+    a league with no game in the window (PD, +30h; ELC finished) nothing. Every other step of the plan, the card's
+    included, is the plan without the table; a window with no expansion game adds none."""
+    now = datetime(2026, 10, 3, 20, 0)
+    _window_db(sandbox / "w.db", now)
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{sandbox / 'w.db'}")
+    base = sp_run.window_plan(now)
+    assert not any(s[0] == "sync-kalshi-soccer" and s[2] in chains.KALSHI_CAPTURE_ONLY for s in base["steps"])
+    con = sqlite3.connect(sandbox / "w.db")
+    con.executemany("INSERT INTO competitions VALUES (?,?,?)",
+                    [(6, "SOCCER", "SA"), (7, "SOCCER", "FL1"), (8, "SOCCER", "BL1"), (9, "SOCCER", "PD"),
+                     (10, "SOCCER", "ELC")])
+    fmt = "%Y-%m-%d %H:%M:%S"
+    con.executemany("INSERT INTO matches(competition_id, season, status, utc_date) VALUES (?,?,?,?)",
+                    [(cid, "2026/27", st, (now + timedelta(hours=h)).strftime(fmt))
+                     for cid, st, h in ((6, "SCHEDULED", 3), (7, "SCHEDULED", 1), (8, "SCHEDULED", 10),
+                                        (9, "SCHEDULED", 30), (10, "FINISHED", 1))])
+    con.commit()
+    con.close()
+    plan = sp_run.window_plan(now)
+    steps = [" ".join(s) for s in plan["steps"]]
+    assert "sync-kalshi-soccer --competition SA" in steps                   # near
+    assert "sync-kalshi-soccer --competition FL1" in steps                  # imminent
+    assert not any(s.startswith(("sync-kalshi-soccer --competition BL1",    # far: schedule only
+                                 "sync-kalshi-soccer --competition PD",     # outside the window
+                                 "sync-kalshi-soccer --competition ELC")) for s in steps)   # finished only
+    assert steps.count("sync-kalshi-soccer --competition SA") == 1
+    assert plan["tiers"]["near"] == ["MLB", "PL", "SA"] and plan["tiers"]["imminent"] == ["FL1"]
+    assert "BL1" in plan["tiers"]["far"]
+    # the capture steps sit with the Kalshi syncs, before the card; the card step is unchanged
+    assert steps[-1] == "window-card --hours 24" == " ".join(base["steps"][-1])
+    assert max(steps.index("sync-kalshi-soccer --competition SA"),
+               steps.index("sync-kalshi-soccer --competition FL1")) < steps.index("window-card --hours 24")
+    # only the table differs: without it the plan is the same plan less the capture steps
+    monkeypatch.setattr(sp_run, "WINDOW_KALSHI_CAPTURE_ONLY", {})
+    without = sp_run.window_plan(now)
+    cap = {("sync-kalshi-soccer", "--competition", "SA"), ("sync-kalshi-soccer", "--competition", "FL1")}
+    assert [s for s in plan["steps"] if tuple(s) not in cap] == without["steps"]
+    # the flat plan carries BL1's capture too: proximity skips it, and the receipt counts it
+    assert plan["skipped_by_proximity"] == without["skipped_by_proximity"] + 1
+    # every planned command and option exists in cli.py (law 1)
+    cli = _cli()
+    for st in plan["steps"]:
+        opts = {o for p in cli.commands[st[0]].params for o in (*p.opts, *p.secondary_opts)}
+        assert all(tok in opts for tok in st[1:] if tok.startswith("--")), st
+    # no export / predict / call step names an expansion league in the window plan
+    for st in plan["steps"]:
+        if any(c in st for c in chains.KALSHI_CAPTURE_ONLY):
+            assert st[0] in ("sync-matches", "sync-odds", "sync-kalshi-soccer"), st
+
+
 def test_window_mlb_kalshi_step_ends_at_tomorrow_plus_one_day(sandbox, monkeypatch):
     """#175 (ARCHITECT 2026-10-17 10:40 ET, addendum 112 item 8), RULED: "the step's window ends at {tomorrow}+1 day".
     The window chain as sp_run resolves it for a run on UTC day D: the MLB Kalshi step is the only step the date
@@ -1210,6 +1543,102 @@ def test_run_freshens_family_map_skip_and_rate_guard(sandbox, monkeypatch):
     assert not again[0]["ran"] and again[0]["skipped"].startswith("rate-guard")
     later = sp_run.run_freshens(needed[:1], "win-3", now + timedelta(minutes=61), now.date())
     assert later[0]["ran"]
+
+
+# #673 RULED (ARCHITECT 2026-10-25 11:55 ET, addendum 167 postscript (b)): "a file that carries Desk blocks is never
+# replaced by one without them. The freshen writes to its own name (the alternative), and the slate's kept copy and
+# receipt stay true; `--desk` is not added to the freshen". The fake export writes as the real one does: its --out
+# when given, else exports/nfl_predictions_<date>.json opened in place (the hard-link finding).
+EXPORT_CLI = '''import sys, os
+a = sys.argv[1:]
+print("ran", " ".join(a))
+if a and a[0] == "export-nfl-predictions":
+    path = a[a.index("--out") + 1] if "--out" in a else "exports/nfl_predictions_2026-10-25.json"
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as f:
+        f.write('{"rows": [{"id": 1}], "freshened": true}')
+'''
+
+
+def test_673_a_freshen_after_a_slate_leaves_the_slates_kept_copy_and_receipt_true_and_names_its_own_file(
+        sandbox, monkeypatch):
+    import os
+    import closing
+    (c.REPO / "cli.py").write_text(EXPORT_CLI)
+    slate = b'{"rows": [{"id": 1, "desk": {"call": "PLAY"}}], "desk_meta": {"as_of": "2026-10-25T15:00:00Z"}}'
+    kept = "logs/20261025T1500Z-nfl-slate.nfl_predictions_2026-10-25.json"
+    (c.REPO / "logs").mkdir()
+    (c.REPO / kept).write_bytes(slate)
+    rec = closing.link_slate_file(kept, "nfl_predictions_2026-10-25.json")
+    assert rec["sha256"] == c.sha256_file(c.REPO / kept)
+    name = c.REPO / "exports" / "nfl_predictions_2026-10-25.json"
+    assert os.path.samefile(name, c.REPO / kept)                      # the slate's two names are one file
+    now = datetime(2026, 10, 25, 16, 30)
+    out = sp_run.run_freshens([{"id": "1", "sport": "nfl", "competition": "NFL"}], "win-1", now, now.date())
+    assert out[0]["ran"] and out[0]["exit"] == 0
+    assert (c.REPO / kept).read_bytes() == slate and name.read_bytes() == slate   # never written into
+    assert c.sha256_file(c.REPO / kept) == rec["sha256"]                          # the slate receipt stays true
+    own = "logs/20261025T163000Z-freshen-NFL.nfl_predictions_2026-10-25.json"
+    assert out[0]["wrote"] == {"file": own, "sha256": c.sha256_file(c.REPO / own)}
+    assert json.loads((c.REPO / own).read_text())["freshened"] is True
+    step = [r for r in receipts(sandbox) if r["kind"] == "step"][-1]
+    assert step["command"].endswith(f"export-nfl-predictions --out {own}")    # no --desk on the freshen
+    assert sorted(p.name for p in (c.REPO / "exports").iterdir()) == ["nfl_predictions_2026-10-25.json"]
+    assert [r for r in receipts(sandbox) if r["kind"] == "freshen"][-1]["wrote"]["file"] == own
+
+
+def test_673_the_freshen_never_opens_its_own_file_a_second_time(sandbox, monkeypatch):
+    (c.REPO / "cli.py").write_text(EXPORT_CLI)
+    now = datetime(2026, 10, 25, 16, 30)
+    own = c.REPO / "logs" / "20261025T163000Z-freshen-NFL.nfl_predictions_2026-10-25.json"
+    own.parent.mkdir(parents=True)
+    own.write_text("EARLIER")
+    out = sp_run.run_freshens([{"id": "1", "sport": "nfl", "competition": "NFL"}], "win-1", now, now.date())
+    assert not out[0]["ran"] and out[0]["exit"] == 1 and "already exists" in out[0]["refused"]
+    assert own.read_text() == "EARLIER"
+    assert not [r for r in receipts(sandbox) if r["kind"] == "step"]
+
+
+def test_673_codex_692_a_set_never_moves_the_freshens_file_and_a_manual_run_names_it(sandbox, monkeypatch):
+    """Codex on #692: {freshen_out} is the run's own, never a --set: a manual run asked to write exports/ still writes
+    logs/<run id>.nfl_predictions_<date>.json, and its chain receipt names it."""
+    (c.REPO / "cli.py").write_text(EXPORT_CLI)
+    assert sp_run.main(["freshen:NFL", "--set", "freshen_out=exports/fresh.json"]) == 0
+    assert not (c.REPO / "exports" / "fresh.json").exists()
+    own = list((c.REPO / "logs").glob("*-freshen-NFL.nfl_predictions_*.json"))
+    assert len(own) == 1
+    chain = [r for r in receipts(sandbox) if r["kind"] == "chain"][-1]
+    assert chain["wrote"] == {"file": str(own[0].relative_to(c.REPO)), "sha256": c.sha256_file(own[0])}
+
+
+def test_673_codex_692_the_taken_path_is_read_under_the_chain_lock(sandbox, monkeypatch):
+    """Codex on #692: the existence check runs under the lock the export runs under, so a second run of the same
+    second, waiting on the lock, finds the first run's file and is refused."""
+    (c.REPO / "cli.py").write_text(EXPORT_CLI)
+    now = datetime(2026, 10, 25, 16, 30)
+    own = c.REPO / "logs" / "20261025T163000Z-freshen-NFL.nfl_predictions_2026-10-25.json"
+    real_lock = c.db_lock
+    from contextlib import contextmanager
+
+    @contextmanager
+    def lock_then_first_run_wrote(*a, **kw):
+        with real_lock(*a, **kw):
+            own.parent.mkdir(parents=True, exist_ok=True)
+            own.write_text("THE FIRST RUN'S")       # what the run holding the lock before this one wrote
+            yield
+    monkeypatch.setattr(c, "db_lock", lock_then_first_run_wrote)
+    out = sp_run.run_freshens([{"id": "1", "sport": "nfl", "competition": "NFL"}], "win-1", now, now.date())
+    assert not out[0]["ran"] and "already exists" in out[0]["refused"]
+    assert own.read_text() == "THE FIRST RUN'S"
+
+
+def test_673_only_the_nfl_freshen_takes_its_own_file_and_the_closing_export_is_unchanged():
+    assert sp_run.run_vars("freshen:NFL", "20261025T1630Z-freshen:NFL", date(2026, 10, 25)) == {
+        "freshen_out": "logs/20261025T1630Z-freshen-NFL.nfl_predictions_2026-10-25.json"}
+    for name in ("freshen:SOCCER", "freshen:MLB", "nhl-daily", "window"):
+        assert sp_run.run_vars(name, "RID", date(2026, 10, 25)) == {}
+    assert chains.CHAINS["freshen:NFL"]["steps"][-1] == ["export-nfl-predictions", "--out", "{freshen_out}"]
+    assert chains.CHAINS["nfl-closing"]["steps"][-1] == ["export-nfl-predictions", "--desk", "--out", "{export_out}"]
 
 
 def test_window_run_triggers_freshen_and_recards(sandbox, monkeypatch):
@@ -1448,7 +1877,8 @@ import compare_exports  # noqa: E402
 
 def test_prediction_chains_sync_injuries_first_mlb_exempt():
     ch = chains.CHAINS
-    assert ch["nfl-predict"]["steps"][0] == ["sync-injuries", "--competition", "NFL", "--season", "2026"]
+    # nfl-predict is nfl-prematch since addendum 166 item 6(B): its predict left it, its injury sync stays first
+    assert ch["nfl-prematch"]["steps"][0] == ["sync-injuries", "--competition", "NFL", "--season", "2026"]
     for name, c_ in ch.items():                 # the audit, kept as a guard
         cmds = [s[0] for s in c_.get("steps") or []]
         if not {"predict", "predict-nfl"} & set(cmds):
@@ -1761,6 +2191,114 @@ def test_line_move_pages_through_quiet_hours_high_priority(sandbox, monkeypatch)
     assert len(sent) == 1 and sent[0][3] == "high" and "LINE MOVE inside T-3h" in sent[0][2]
     assert "tier" not in sent[0][2]
     assert rec["freshen_needed"][0]["reason"] == "line_move"
+
+
+_ELC_TICKER = "KXEFLCHAMPIONSHIPGAME-26OCT24LEEWBA-LEE"
+
+
+def _capture_only_move_card(comp):
+    """A 6pp+ Kalshi move inside T-3h on one row of competition `comp` (game 1), plus a quiet row (game 2)."""
+    lm = {"flag": "late-news?", "threshold_pp": 6.0, "window_h": 3,
+          "venues": {"kalshi": {"from": 0.40, "to": 0.33, "move_pp": -7.0, "alarm": True,
+                                "from_at": "2026-10-04T14:30:00", "to_at": "2026-10-04T16:05:00",
+                                "to_ticker": _ELC_TICKER if comp == "ELC" else "KXEPLGAME-26OCT04ARSCHE-ARS"}}}
+    return _card({1: {"competition": comp, "sport": "soccer", "engine": "market_only", "tier": None,
+                      "late_news_flag": "late-news?", "line_move": lm},
+                  2: {"competition": comp, "sport": "soccer", "engine": "market_only", "tier": None}})
+
+
+def test_capture_only_line_move_is_logged_and_receipted_never_paged(sandbox, monkeypatch, capsys):
+    """ARCHITECT 2026-10-24, addendum 165 item 1: "the pager reads the live list (WINDOW_KALSHI) only, never the new
+    table. Keep the move itself: write it to the window's log as one line (series, ticker, from, to, minutes to
+    kickoff) [...] Test: a 6pp move on a captured ELC quote produces the log line and no page; the same move on a PL
+    quote still pages." """
+    assert sp_window_page.CAPTURE_ONLY == frozenset(chains.WINDOW_KALSHI_CAPTURE_ONLY) - frozenset(chains.WINDOW_KALSHI)
+    assert sp_window_page.CAPTURE_ONLY == {"PD", "SA", "BL1", "FL1", "ELC"} and "PL" not in sp_window_page.CAPTURE_ONLY
+    monkeypatch.setenv("SP_WINDOW_STATE", str(sandbox / "ws.json"))
+    day = datetime(2026, 10, 4, 15, 0, tzinfo=timezone.utc)
+    quiet = _card({1: {"competition": "ELC", "sport": "soccer", "engine": "market_only", "tier": None},
+                   2: {"competition": "ELC", "sport": "soccer", "engine": "market_only", "tier": None}})
+    _page(sandbox, monkeypatch, quiet, day)                                    # baseline (and the day's digest)
+    capsys.readouterr()
+    rec, sent = _page(sandbox, monkeypatch, _capture_only_move_card("ELC"), day + timedelta(hours=1, minutes=5))
+    out = capsys.readouterr().out
+    want = ("· capture-only line move (addendum 165 item 1): ELC KXEFLCHAMPIONSHIPGAME "
+            f"{_ELC_TICKER} 0.400->0.330 (-7.0pp) · 55 min to kickoff · venue kalshi")
+    assert out.splitlines() == [want]                                          # one line, in the window's log
+    assert rec["capture_only_moves"] == {"count": 1, "lines": [want]}
+    assert sent == [] and not rec["paged"]                                     # no page, no priority raised
+    assert rec["deltas"]["line_move"] == 0 and rec["freshen_needed"] == []     # no freshen
+    # the same row again: the move is a transition, logged once
+    rec, sent = _page(sandbox, monkeypatch, _capture_only_move_card("ELC"), day + timedelta(hours=1, minutes=10))
+    assert rec["capture_only_moves"]["count"] == 0 and sent == []
+    # only the book venue alarmed: the same line, venue book, series and ticker '-'; still no page
+    card = _card({1: {"competition": "SA", "sport": "soccer", "engine": "market_only", "tier": None,
+                      "late_news_flag": "late-news?",
+                      "line_move": {"flag": "late-news?", "venues": {
+                          "book": {"from": 0.50, "to": 0.57, "move_pp": 7.0, "alarm": True,
+                                   "to_at": "2026-10-04T16:30:00"},
+                          "kalshi": {"from": 0.50, "to": 0.51, "move_pp": 1.0, "alarm": False,
+                                     "to_ticker": "KXSERIEAGAME-26OCT04INTMIL-INT"}}}}})
+    monkeypatch.setenv("SP_WINDOW_STATE", str(sandbox / "ws-sa.json"))
+    _page(sandbox, monkeypatch, _card({1: {"competition": "SA", "sport": "soccer", "engine": "market_only",
+                                           "tier": None}}), day)
+    capsys.readouterr()
+    rec, sent = _page(sandbox, monkeypatch, card, day + timedelta(hours=1))
+    assert capsys.readouterr().out.splitlines() == [
+        "· capture-only line move (addendum 165 item 1): SA - - 0.500->0.570 (+7.0pp) · 30 min to kickoff · venue book"]
+    assert sent == [] and rec["freshen_needed"] == []
+    # every other class still pages on a capture-only league (only the line move is held back)
+    monkeypatch.setenv("SP_WINDOW_STATE", str(sandbox / "ws-q.json"))
+    _page(sandbox, monkeypatch, quiet, day)
+    rec, sent = _page(sandbox, monkeypatch, _card({1: {"competition": "ELC", "sport": "soccer", "quarantine": True,
+                                                       "engine": "market_only", "tier": None},
+                                                   2: {"competition": "ELC", "sport": "soccer",
+                                                       "engine": "market_only", "tier": None}}), day)
+    assert rec["deltas"]["quarantine"] == 1 and len(sent) == 1 and "QUARANTINE ON" in sent[0][2]
+
+
+def test_live_line_move_still_pages_high_with_freshen(sandbox, monkeypatch, capsys):
+    """Addendum 165 item 1: "the same move on a PL quote still pages"; as does a competition in neither table."""
+    for comp in ("PL", "UEL"):
+        monkeypatch.setenv("SP_WINDOW_STATE", str(sandbox / f"ws-{comp}.json"))
+        day = datetime(2026, 10, 4, 15, 0, tzinfo=timezone.utc)
+        _page(sandbox, monkeypatch, _card({1: {"competition": comp, "sport": "soccer"},
+                                           2: {"competition": comp, "sport": "soccer"}}), day)
+        capsys.readouterr()
+        rec, sent = _page(sandbox, monkeypatch, _capture_only_move_card(comp), day + timedelta(hours=1, minutes=5))
+        assert "capture-only line move" not in capsys.readouterr().out
+        assert rec["capture_only_moves"] == {"count": 0, "lines": []}
+        assert rec["deltas"]["line_move"] == 1 and len(sent) == 1 and sent[0][3] == "high"
+        assert "LINE MOVE inside T-3h" in sent[0][2]
+        assert rec["freshen_needed"] == [{"id": "1", "sport": "soccer", "competition": comp, "reason": "line_move"}]
+
+
+def test_window_capture_only_kalshi_steps_come_after_every_live_kalshi_step(sandbox, monkeypatch):
+    """ARCHITECT 2026-10-24, addendum 165 item 4: "confirm [...] that the five sync-kalshi-soccer steps are AFTER the
+    live Kalshi steps in the chain, so a 429 on a shadow league never delays a live capture. [...] a unit test that
+    asserts the order is enough." SA's game kicks off BEFORE PL's (and MLB's), so the order is the plan's, not the
+    kickoffs'."""
+    now = datetime(2026, 10, 3, 20, 0)
+    _window_db(sandbox / "w.db", now)
+    con = sqlite3.connect(sandbox / "w.db")
+    con.executemany("INSERT INTO competitions VALUES (?,?,?)", [(6, "SOCCER", "SA"), (7, "SOCCER", "BL1")])
+    fmt = "%Y-%m-%d %H:%M:%S"
+    con.executemany("INSERT INTO matches(competition_id, season, status, utc_date) VALUES (?,?,?,?)",
+                    [(6, "2026/27", "SCHEDULED", (now + timedelta(hours=2, minutes=10)).strftime(fmt)),
+                     (7, "2026/27", "SCHEDULED", (now + timedelta(hours=1)).strftime(fmt))])
+    con.commit()
+    con.close()
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{sandbox / 'w.db'}")
+    steps = sp_run.window_plan(now)["steps"]
+    live = {tuple(st) for sts in chains.WINDOW_KALSHI.values() for st in sts}
+    capture = {tuple(st) for sts in chains.WINDOW_KALSHI_CAPTURE_ONLY.values() for st in sts}
+    live_i = [i for i, st in enumerate(steps) if tuple(st) in live]
+    cap_i = [i for i, st in enumerate(steps) if tuple(st) in capture]
+    assert [" ".join(steps[i]) for i in cap_i] == ["sync-kalshi-soccer --competition BL1",
+                                                  "sync-kalshi-soccer --competition SA"]
+    assert {" ".join(steps[i]) for i in live_i} >= {"sync-kalshi-soccer --competition PL",
+                                                   "sync-kalshi --date-from {today} --date-to {tomorrow}"}
+    assert max(live_i) < min(cap_i)
 
 
 # --------------------------------- catch-up (architect 2026-09-29) ----

@@ -100,6 +100,7 @@ its compare verdict.
 |---|---|---|---|---|
 | `v1.4.0` | 2026-10-16 14:18:21Z | `684462e3d5078ff2c906db73362a220917bf1fcb` | `253bacd00327446936cdb16ea37a76deafc20ff1` | #556 |
 | `v1.5.0` | 2026-10-22 13:24:24Z | `d15b9981edfa74379dd01089f7de23db51353d45` | `358777b00f6d39de1a92f97052f3756d9b89e5c1` | #647 |
+| `v1.6.0` | 2026-10-26 12:07:29Z | `4c106f5097cd4a47817d6a5cf988b7b9f21c00e6` | `01fa5d615cb0c9142b94ef816d0eb6e6d7f6f5da` | #678 |
 
 - **v1.4.0** (ARCHITECT 2026-10-16, addendum 87). The commit is the ledger
   compile over 53a0e83, the #551 merge over c546168.
@@ -136,6 +137,26 @@ its compare verdict.
     operator installed it at 12:32Z. v1.5.0 is CONFIRMED as production; the
     host stays on the tag.
   - #647 carries the notes (in four parts) and addendum 154 item 1 verbatim.
+- **v1.6.0** (ARCHITECT 2026-10-26, addendum 168 item 1): the cutover's tag. The commit is the ledger compile
+  4c106f50 (17 changelog fragments, 19 ledger entries) over 9659224 (#671, the fence switch off, and #672). The tag was
+  cut by the operator: tagger stamp 2026-10-26 12:07:29Z (08:07:29 ET); the architect's record reads 08:11 ET,
+  the push after the clean-tree gate (below).
+  - **Compare:** the day's compare at 07:30 ET read DIVERGENT on 9 files, every one named code-version skew;
+    ruled PASS for the release gate. Host receipts over 24h: 0 failing.
+  - **The tag message:** `--cleanup=verbatim`, the header and all 17 `## ` section headings kept (18 lines beginning
+    with `#`). It matches `python3 scripts/release_notes.py --to 4c106f5097cd4a47817d6a5cf988b7b9f21c00e6` line
+    for line, plus one trailing blank line. No AMENDED line.
+  - **The release block's clean-tree gate:** the fold commit had been made on the laptop by an earlier run of the
+    release block and not pushed; the gate caught it, the push followed and the block re-ran clean. Not a finding
+    (addendum 168 item 1: "the gate worked").
+  - **Deploy, with the timers stopped (addendum 167 item 3):** on the host at 13:43Z (v1.5.0 -> v1.6.0, 59 files),
+    after `pause` (13:43:19Z, 16 timers stopped, no chain running) and before `install`. Why that order: v1.6.0
+    carries #671 (the fence switch off), and a host on its old database must never run a fence-off tag with its
+    timers live (addendum 167 item 2). The migration command ran as printed: backup `sports_2026-10-26_134323.db`
+    (integrity ok), then `migrate_cup_lineup_observations.py`. The fence check printed `{'on': False}`.
+  - **Every receipt from `install` on names v1.6.0** (addendum 167 item 3); the preflight's names v1.5.0. The
+    cutover's receipt at 13:45:11Z: running v1.6.0, flag host.
+  - #678 carries the notes and addendum 168 item 1 verbatim.
 
 ## Hotfix path
 A hotfix gets a patch tag (`vX.Y.Z+1`) through the same ritual. There is no

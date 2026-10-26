@@ -47,7 +47,12 @@ matchday 3 is the Thursday (the roadmap step, #539, is dated 10-22; pass --date 
 today in UTC). --competition names the stored competition code whose rows are polled (competitions.code); everything
 else (the polls, the late rule, the summary) is the same for each.
 
-Run:  python3 scripts/lineup_timing_probe.py [--competition CL|UEL|EL|EFL] [--db PATH] [--date YYYY-MM-DD] [--plan]
+ARCHITECT 2026-10-24 (addendum 163 item 4), verbatim: "NIT: scripts/lineup_timing_probe.py accepts --competition
+CL|UEL|EL|EFL only; the PL probe for the record (Saturday PL kickoffs) needs PL in the choice list (and the stored
+competition code it maps to). One line; next PL Saturday." PL is the stored code (competitions.code 'PL', the Premier
+League; api_football league 39), read as every other choice is.
+
+Run:  python3 scripts/lineup_timing_probe.py [--competition CL|UEL|EL|EFL|PL] [--db PATH] [--date YYYY-MM-DD] [--plan]
 --competition is the stored code (default CL). --date is the day in UTC (default: today in UTC). --plan prints the
 fixtures and their poll times and makes no call.
 Start it before the first poll you want; it exits after its last poll (Ctrl-C prints the summary so far).
@@ -67,7 +72,7 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-COMPETITIONS = ("CL", "UEL", "EL", "EFL")      # addendum 75 item 3(a), 76 item 2: CL default; UEL; EL; EFL
+COMPETITIONS = ("CL", "UEL", "EL", "EFL", "PL")   # addendum 75 item 3(a), 76 item 2: CL default; UEL; EL; EFL; PL (163 item 4)
 COMPETITION = COMPETITIONS[0]
 # Addendum 76 item 2: the Europa League is stored under either code (api_football maps both to league 3); a day with no
 # row under the code asked names how many the other holds, and is never read as it.

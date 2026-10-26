@@ -64,6 +64,12 @@ lane's earliest_live is null. No second reader of the file.
 Addendum 61 item 5: "#494 is in: a milestone with no due_on key is refused, named." And: "One day is singular: 'in 1
 day', 'OVERDUE 1 day', '(+1 more step overdue)'. Addendum 59 5(e) named the pattern, not the grammar."
 
+A MILESTONE DONE (ARCHITECT 2026-10-22, addendum 154 item 3), verbatim: "`python cli.py roadmap` prints the
+ledger/taxonomy.json milestone "Executable-edge ruling (2 wks of ladders) · 2026-10-20 · OVERDUE 2 days". It was ruled
+on 2026-10-20 (addendum 146): mark the milestone done on 2026-10-20 with that reference. A done flag only; no date
+moves." A milestone may carry `done`: null or {date, receipt}, the steps' shape; the print writes a done milestone
+"done <date>" in place of its count and never counts it overdue. Its due_on stays as written.
+
 Pure: reads two tracked JSON files, writes nothing. The base check reads the base's file through `git show`.
 """
 from __future__ import annotations
@@ -234,8 +240,9 @@ def validate(doc) -> list[str]:
 
 
 def validate_milestones(tax) -> list[str]:
-    """The taxonomy as the print reads it: an object whose milestones are a list of objects, each with a title, and
-    a due_on key that is null or a real date."""
+    """The taxonomy as the print reads it: an object whose milestones are a list of objects, each with a title, a
+    due_on key that is null or a real date, and an optional done that is null or {date, receipt} (addendum 154
+    item 3)."""
     if not isinstance(tax, dict):
         return ["the taxonomy: not an object"]
     ms = tax.get("milestones")
@@ -252,6 +259,16 @@ def validate_milestones(tax) -> list[str]:
             errs.append(f"milestone {m['title']!r}: no due_on" if _text(m.get("title")) else f"milestone {i}: no due_on")
         elif m["due_on"] is not None and real_date(m["due_on"]) is None:
             errs.append(f"milestone {m.get('title')!r}: due_on {m['due_on']!r} is not a real date (YYYY-MM-DD)")
+        done = m.get("done")                   # addendum 154 item 3: optional; null or {date, receipt}, as a step's
+        if done is not None:
+            mname = f"milestone {m['title']!r}" if _text(m.get("title")) else f"milestone {i}"
+            if not isinstance(done, dict) or any(k not in done for k in DONE_KEYS):
+                errs.append(f"{mname}: done is neither null nor {{date, receipt}}")
+            else:
+                if real_date(done["date"]) is None:
+                    errs.append(f"{mname}: done date {done['date']!r} is not a real date (YYYY-MM-DD)")
+                if not _text(done["receipt"]):
+                    errs.append(f"{mname}: done with no receipt")
     return errs
 
 
@@ -358,6 +375,9 @@ def report(today: date, path: Path | None = None, taxonomy_path: Path | None = N
     dated = [m for m in tax["milestones"] if m.get("due_on")]
     lines.append(f"MILESTONES ({tp.parent.name}/{tp.name}, those with a due_on)")
     for m in dated:
+        if m.get("done") is not None:          # addendum 154 item 3: a done flag only; the due_on stays as written
+            lines.append(f"  {m['title']} · {m['due_on']} · done {m['done']['date']}")
+            continue
         d = real_date(m["due_on"])
         overdue += d < today
         lines.append(f"  {m['title']} · {m['due_on']} · {when(d, today)}")

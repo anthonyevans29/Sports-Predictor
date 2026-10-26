@@ -1,4 +1,5 @@
-# PL pre-matchweek run (pl_weekly_routine FRIDAY).
+# PL pre-matchweek run (pl_weekly_routine FRIDAY): data only since ARCHITECT 2026-10-25, addendum 166 item 6(B)
+# (the PL predict and window export left soccer-prematch; the closing watch's slate stage writes the slate file).
 # H0-3: no timer fires inside the 04:15-05:15 UTC reboot buffer (tests/test_hosting_pack.py).
 [Unit]
 Description=sports-predictor timer: sp-soccer-friday

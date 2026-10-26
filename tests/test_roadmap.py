@@ -67,8 +67,10 @@ def test_the_print_on_the_ruled_day_lists_each_lane_in_order_with_its_next_step(
                         f"{first['earliest_live'] or 'not set'} · vs close: {first['vs_close']}")
     nxt = first["steps"][0]
     assert lines[i + 1] == f"  next: {nxt['what']} · {nxt['owner']} · due {nxt['due']} · in 29 days"
-    assert "  Cutover ~Oct 8 · 2026-10-30 · in 17 days" in lines
-    assert "  Executable-edge ruling (2 wks of ladders) · 2026-10-20 · in 7 days" in lines
+    # done since addendum 168 item 5 (the H2 cutover, 2026-10-26 13:45:11Z): the line says done whatever the day
+    assert "  Cutover ~Oct 8 · 2026-10-30 · done 2026-10-26" in lines
+    # done since addendum 154 item 3 (ruled 2026-10-20, addendum 146): the line says done whatever the day
+    assert "  Executable-edge ruling (2 wks of ladders) · 2026-10-20 · done 2026-10-20" in lines
     assert lines[-1] == "overdue: 0"
 
 
@@ -152,8 +154,8 @@ def test_lanes_data_is_the_print_as_data_with_no_eta_for_an_undated_lane(tmp_pat
         assert g["eta"] == (f"earliest live {ln['earliest_live']}" if ln["earliest_live"] else "no ETA")
     assert {g["lane"] for g in got if g["eta"] == "no ETA"} == {"leagues", "nfl-qb", "mlb-pitchers"}
     ncaa = next(g for g in got if g["lane"] == "ncaa")           # its first two steps are done: the third is next
-    assert ncaa["next"] == {"what": _lane(_real(), "ncaa")["steps"][2]["what"], "owner": "calendar",
-                            "due": "2026-11-08", "when": "in 21 days"}
+    assert ncaa["next"] == {"what": _lane(_real(), "ncaa")["steps"][2]["what"], "owner": "code",   # the 2023 ingest
+                            "due": "2026-11-01", "when": "in 14 days"}                          # (addendum 158 1(a))
     doc = _real()
     _lane(doc, "unl")["state"] = "live"
     for st in _lane(doc, "unl")["steps"]:
@@ -228,8 +230,8 @@ BROKEN = [
      lambda d: [_lane(d, "cups").__setitem__("state", "blocked")] +
      [st.__setitem__("done", {"date": "2026-10-14", "receipt": "r"}) for st in _lane(d, "cups")["steps"]],
      "lane 'cups': state 'blocked' and no step left to do"),
-    ("due dates never go backwards", lambda d: _lane(d, "ncaa")["steps"][3].__setitem__("due", "2026-11-07"),
-     "lane 'ncaa' step 4: due 2026-11-07 goes backwards from step 3's 2026-11-08"),
+    ("due dates never go backwards", lambda d: _lane(d, "ncaa")["steps"][4].__setitem__("due", "2026-11-07"),
+     "lane 'ncaa' step 5: due 2026-11-07 goes backwards from step 4's 2026-11-08"),
     ("earliest_live not before the last step's due", lambda d: _lane(d, "nhl").__setitem__("earliest_live", "2027-01-20"),
      "lane 'nhl': earliest_live 2027-01-20 is before the last step's due date 2027-01-21"),
     ("every moved line has its six parts",
@@ -403,6 +405,12 @@ def test_an_iso_week_today_exits_2():
     ({"milestones": [{"due_on": "2026-10-30"}]}, "milestone 1: no title"),
     ({"milestones": [{"title": "Cutover ~Oct 8", "description": ""}]}, "milestone 'Cutover ~Oct 8': no due_on"),
     ({"milestones": [{"description": ""}]}, "milestone 1: no due_on"),
+    ({"milestones": [{"title": "M", "due_on": "2026-10-20", "done": "yes"}]},
+     "milestone 'M': done is neither null nor {date, receipt}"),
+    ({"milestones": [{"title": "M", "due_on": "2026-10-20", "done": {"date": "2026-10-32", "receipt": "r"}}]},
+     "milestone 'M': done date '2026-10-32' is not a real date"),
+    ({"milestones": [{"title": "M", "due_on": "2026-10-20", "done": {"date": "2026-10-20", "receipt": " "}}]},
+     "milestone 'M': done with no receipt"),
 ])
 def test_a_taxonomy_of_the_wrong_shape_exits_2_and_names_the_entry(tax, msg, tmp_path, monkeypatch):
     """Codex on #488: a taxonomy of valid JSON in the wrong shape refuses (exit 2, naming it), never a traceback."""
@@ -850,8 +858,8 @@ def test_the_base_order_kept_and_the_heads_lines_after_it_passes():
     base = _with_lines("nhl", [first, second])
     head = copy.deepcopy(base)
     st = _lane(head, "nhl")["steps"][0]
-    _lane(head, "nhl")["moved"].append(_mv(st["what"], st["due"], "2026-10-31"))
-    st["due"] = "2026-10-31"
+    _lane(head, "nhl")["moved"].append(_mv(st["what"], st["due"], "2026-10-29"))
+    st["due"] = "2026-10-29"                         # a day later, still before the lane's next step (no step goes back)
     assert rm.validate(head) == [] and rm.check_moves(base, head) == []
 
 
@@ -893,11 +901,45 @@ def test_the_ci_step_fails_a_rewritten_base_line(tmp_path):
 
 def test_the_real_roadmap_records_the_quarterback_probe_done():
     """Addendum 62 item 4: lane nfl-qb, its first step, done on 2026-10-13, receipt "PR #489 merged at 7e6e88c".
-    No date moves; the print reads the lane's next step as the operator's run, due 2026-10-23."""
+    Addendum 157 item 10: the operator's run is done on 2026-10-23, its receipt the Summary lines on #427. No date
+    moves; the print reads the lane's next step as the architect's ruling, due 2026-11-02."""
     lane = _lane(_real(), "nfl-qb")
     assert lane["steps"][0]["done"] == {"date": "2026-10-13", "receipt": "PR #489 merged at 7e6e88c"}
+    assert lane["steps"][1]["done"]["date"] == "2026-10-23" and "#427" in lane["steps"][1]["done"]["receipt"]
     assert [st["due"] for st in lane["steps"]] == ["2026-10-21", "2026-10-23", "2026-11-02"] and lane["moved"] == []
     nx = rm.next_step(lane)
-    assert nx[0] == 2 and nx[1]["owner"] == "operator" and nx[1]["due"] == "2026-10-23"
-    lines, _ = rm.report(date(2026, 10, 14))
-    assert f"  next: {lane['steps'][1]['what']} · operator · due 2026-10-23 · in 9 days" in lines
+    assert nx[0] == 3 and nx[1]["owner"] == "architect" and nx[1]["due"] == "2026-11-02"
+    lines, _ = rm.report(date(2026, 10, 23))
+    assert f"  next: {lane['steps'][2]['what']} · architect · due 2026-11-02 · in 10 days" in lines
+
+
+def test_a_done_milestone_prints_done_and_is_never_overdue(tmp_path, monkeypatch):
+    """ARCHITECT 2026-10-22, addendum 154 item 3: "mark the milestone done on 2026-10-20 with that reference. A done
+    flag only; no date moves." The due_on stays as written; the line says done, and the overdue count leaves it out."""
+    monkeypatch.setattr(rm, "TAXONOMY_PATH", _write(tmp_path, {"milestones": [
+        {"title": "M1", "due_on": "2026-10-20", "description": "",
+         "done": {"date": "2026-10-20", "receipt": "addendum 146 item 1"}},
+        {"title": "M2", "due_on": "2026-10-20", "description": "", "done": None}]}, "t.json"))
+    lines, _ = rm.report(date(2026, 10, 22))
+    assert "  M1 · 2026-10-20 · done 2026-10-20" in lines and "  M2 · 2026-10-20 · OVERDUE 2 days" in lines
+    plain, _ = rm.report(date(2026, 10, 22), taxonomy_path=_write(tmp_path, {"milestones": [
+        {"title": "M2", "due_on": "2026-10-20", "description": ""}]}, "t2.json"))
+    assert int(lines[-1].split()[-1]) == int(plain[-1].split()[-1])      # M1 adds nothing to the count; M2 adds 1
+
+
+def test_the_executable_edge_milestone_is_done_on_2026_10_20_and_its_date_did_not_move():
+    """Addendum 154 item 3 on the tracked taxonomy: done 2026-10-20, with the addendum 146 reference; due_on unchanged."""
+    ms = {m["title"]: m for m in json.loads(rm.TAXONOMY_PATH.read_text(encoding="utf-8"))["milestones"]}
+    m = ms["Executable-edge ruling (2 wks of ladders)"]
+    assert m["due_on"] == "2026-10-20" and m["done"]["date"] == "2026-10-20" and "addendum 146" in m["done"]["receipt"]
+    assert all("done" not in x for t, x in ms.items()
+               if t not in ("Executable-edge ruling (2 wks of ladders)", "Cutover ~Oct 8"))
+
+
+def test_the_cutover_milestone_is_done_on_2026_10_26_and_its_date_did_not_move():
+    """ARCHITECT 2026-10-26, addendum 168 item 5: "the Cutover milestone in ledger/taxonomy.json DONE 2026-10-26 with
+    this receipt". The title (the milestone's key) and due_on 2026-10-30 are unchanged; the receipt names item 1."""
+    ms = {m["title"]: m for m in json.loads(rm.TAXONOMY_PATH.read_text(encoding="utf-8"))["milestones"]}
+    m = ms["Cutover ~Oct 8"]
+    assert m["due_on"] == "2026-10-30" and m["done"]["date"] == "2026-10-26"
+    assert "addendum 168 item 1" in m["done"]["receipt"] and "13:45:11Z" in m["done"]["receipt"]

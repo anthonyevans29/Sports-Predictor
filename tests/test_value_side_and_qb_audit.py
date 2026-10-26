@@ -123,7 +123,10 @@ def test_results_md_prints_both(tmp_path, monkeypatch):
     results_tally(days=30, out_path=str(out))
     txt = out.read_text()
     assert "- Mean model-close divergence (pick): -1.25pp" in txt                   # P0-3 rename (#208)
-    assert "- Mean model-close divergence (value side): +2.50pp (n=12 anchored; value-shadow cohort +6.10pp, n=3)" in txt
+    # #687: the cohort line names its definition (graded.value_shadow), never the closing files' desk.value_shadow
+    assert ("- Mean model-close divergence (value side): +2.50pp (n=12 anchored; value-shadow cohort, counted on "
+            "graded.value_shadow (the results file's earlier anchor, not the closing files' desk.value_shadow) "
+            "+6.10pp, n=3)") in txt
     monkeypatch.setattr(nfp, "grade_nfl", lambda days_back=30, exports_dir="exports": {
         "ok": True, "games": 2, "decided": 2, "pushes": 0, "hits": 1, "logloss": 0.7, "mean_clv_pp": 0.5,
         "value_side_n": 0, "mean_value_side_clv_pp": None, "value_shadow_n": 0,

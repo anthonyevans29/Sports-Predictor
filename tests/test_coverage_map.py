@@ -223,9 +223,9 @@ def test_a_day_with_a_gap(env):
     assert gaps(out) == [
         "MLB: 2 GAMES, 1 PREDICTION ROW, NONE FOR 50549",                   # partial: the games named, no hint
         "MLB: 2 GAMES, ROWS 1, NO SLATE FILE",                              # addendum 126 item 2(b) (#590)
-        "NFL: 1 GAME, 0 PREDICTION ROWS — nfl-predict has not run",
+        "NFL: 1 GAME, 0 PREDICTION ROWS",  # no hint: addendum 166 item 6(B) retired the chain's predict
         "NFL: 1 GAME, ROWS 0, NO SLATE FILE",
-        "PL: 4 GAMES, 0 PREDICTION ROWS — soccer-prematch has not run",     # the spec's example, word for word
+        "PL: 4 GAMES, 0 PREDICTION ROWS",  # no hint: addendum 166 item 6(B) retired the chain's predict
         "PL: 4 GAMES, ROWS 0, NO SLATE FILE",
     ]
 
@@ -817,7 +817,7 @@ def test_a_family_this_machine_refuses_shows_the_refusal_and_claims_no_gap(env, 
                         "the MLB feed))")
     assert out[out.index(mlb) + 1] == "MLB SLATE · NO SLATE FILE — run block block_1017_mlb_slate.txt"
     assert gaps(out) == ["MLB: 2 GAMES, ROWS 0, NO SLATE FILE",
-                         "PL: 1 GAME, 0 PREDICTION ROWS — soccer-prematch has not run",
+                         "PL: 1 GAME, 0 PREDICTION ROWS",  # no hint: addendum 166 item 6(B) retired the chain's predict
                          "PL: 1 GAME, ROWS 0, NO SLATE FILE"]
     assert cm.coverage(datetime(2026, 10, 17).date(), NOW)["competitions"][0]["groups"] == []
 
@@ -1318,9 +1318,11 @@ def test_the_real_schema(tmp_path, monkeypatch):
 # ------------------------------------------------------------------------------------------- the hint --
 
 def test_the_hint_is_derived_from_chains_py():
-    assert cm.writer_chains("SOCCER") == ["soccer-prematch"]
+    # ARCHITECT 2026-10-25, addendum 166 item 6(B): soccer-prematch's and nfl-predict's predict steps are retired (the
+    # closing watch's slate stage runs them), so no slate chain writes SOCCER's or NFL's rows: no hint for them.
+    assert cm.writer_chains("SOCCER") == []
     assert cm.writer_chains("MLB") == ["mlb-preslate"]
-    assert cm.writer_chains("NFL") == ["nfl-predict"]
+    assert cm.writer_chains("NFL") == []
 
 
 def test_no_writer_found_no_hint(env, monkeypatch):
@@ -1396,7 +1398,7 @@ PIN_TEXT = [
     "EL1 · 1 game · UNKNOWN (no closing family covers EL1; no roadmap lane names EL1; in none of the code's market-only "
     "sets) · rows: none · without rows: 704 · closing: none (no closing family covers EL1)",
     "GAPS:",
-    "NFL: 1 GAME, 0 PREDICTION ROWS — nfl-predict has not run",
+    "NFL: 1 GAME, 0 PREDICTION ROWS",  # no hint: addendum 166 item 6(B) retired the chain's predict
     "NFL: 1 GAME, ROWS 0, NO SLATE FILE",
     "PL: 4 GAMES, 3 PREDICTION ROWS, NONE FOR 403",
     "PL: 4 GAMES, ROWS 3, NO SLATE FILE",

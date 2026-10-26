@@ -1,6 +1,6 @@
 # The host's closing watch (ARCHITECT 2026-10-12, addendum 45 P2/P3): closing.py watch for NFL and SOCCER by name,
-# never bare. SHIPPED AND HELD: not enabled by install.sh, a deploy or this file; the cutover ruling enables its
-# timer (C7; hosting-h1.md T11 HELD_FOR_CUTOVER, h2-cutover-runbook.md section 1 step 5b).
+# never bare. Not enabled by install.sh, a deploy or this file; the cutover enabled its timer (C7;
+# h2-cutover-runbook.md section 1 step 5b, 2026-10-26 13:47Z; on hosting-h1.md T11 TIMERS from then, addendum 168 item 5).
 # P3: "What the watch has already receipted and notified leaves with a status of its own; the unit counts that
 # status and a refusal's as success, and its failure path is for what the process could not report itself."
 # Exit 3 = a failed run or a miss, receipted and notified; exit 2 = a refusal, receipted and notified once per start

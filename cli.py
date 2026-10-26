@@ -704,6 +704,52 @@ def retire_orphans_cmd(competition_code, season, apply, backup_path, match_ids):
         click.echo(ln)
 
 
+@cli.command("dedupe-mlb-twins")
+@click.option("--apply", is_flag=True, help="MERGE the named groups (default: dry run, writes nothing).")
+@click.option("--backup", "backup_path", default=None,
+              help="Required with --apply: a .backup file taken just before (integrity checked; its matches count "
+                   "must equal the live DB's), as dedupe-matches has it.")
+@click.option("--gamepks", default=None,
+              help="Required with --apply, read only with it: the gamePks to merge, comma-separated, as the dry run "
+                   "printed them. A named gamePk whose fresh plan is not a merge is REFUSED and left.")
+def dedupe_mlb_twins_cmd(apply, backup_path, gamepks):
+    """MLB TWINS (#569 RULED, ARCHITECT 2026-10-21, addendum 153 item 2): two live MLB rows holding one mlb_stats_api id
+    are one game. The dry run lists every such gamePk with its class, the kept id and the reason, the state the kept row
+    takes, the references re-pointed and the rows left; class 2's predictions of a game already played; the training
+    set's FINISHED rows before and after. --apply (with --backup and --gamepks) retires the other row to STALE_ORPHAN
+    with its references re-pointed; nothing is deleted. The readings: src/ingestion/mlb_twins.py."""
+    from sqlalchemy.exc import OperationalError as _OpErr
+
+    from src.db.database import get_engine as _get_engine
+    from src.db.migrate_guard import refuse_missing_db as _refuse_missing_db
+    from src.db.schema import Match as _M
+    from src.ingestion import mlb_twins as mt
+
+    if _refuse_missing_db(_get_engine(), "dedupe-mlb-twins"):   # law 5: a dry run never creates a DB
+        raise SystemExit(2)
+    named = None
+    if gamepks is not None:
+        named = [x.strip() for x in gamepks.split(",") if x.strip()]
+        if not named or not all(x.isdigit() for x in named):
+            raise click.UsageError(f"--gamepks takes comma-separated gamePks, got {gamepks!r}")
+        if not apply:
+            raise click.UsageError("REFUSED: --gamepks names the groups to merge and is read only with --apply. The "
+                                   "dry run plans every group.")
+    if apply:
+        if not named:
+            raise click.UsageError("REFUSED: --apply without --gamepks. Name each gamePk the dry run planned: "
+                                   "--gamepks PK,PK. Only the named groups are merged.")
+        _verify_backup(backup_path, "matches", _M)
+    try:
+        r = mt.run(apply=apply, named=named)
+    except ValueError as e:
+        raise click.ClickException(str(e))
+    except _OpErr as e:
+        _schema_refusal(e)
+    for ln in mt.lines(r):
+        click.echo(ln)
+
+
 @cli.command("clv-restate")
 @click.option("--apply", is_flag=True, help="WRITE the restated CLV (default: dry-run, writes nothing).")
 @click.option("--backup", "backup_path", default=None,

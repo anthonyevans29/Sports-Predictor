@@ -1,4 +1,4 @@
-## 2026-10-23 (#000: 158-ncaa-v2-shadow — ARCHITECT addendum 158 item 1(b)(c); ncaa-elo-v2, before 11-08)
+## 2026-10-23 (#698: 158-ncaa-v2-shadow — ARCHITECT addendum 158 item 1(b)(c); ncaa-elo-v2, before 11-08)
 - `export-ncaa-predictions --id ncaa-elo-v2`: the v2 binding. It runs the gate's own model at the frozen s (`NeutralRuleElo`, s must equal the ruled 279.14222651259433) over the same D2 stream, and exports nothing unless the registry records ncaa-elo-v2's PASS. The default stays v1r, which refuses on its FAIL as before.
 - Every shadow row of either binding carries `registry_id`, `model_version`, `input_cutoff` and `prediction_stamp`; a v2 row also carries the logistic scale. `ncaa-shadow-grade --id` grades one binding's files only, never pooled.
 - `scripts/ncaa_v2_shadow_parity.py`: the read-only parity receipt on a seeded synthetic stream. It runs the gate path (run_gate, the declared model recorded) against the shadow path (the walk before each scored game, then the prediction), requires equality within 1e-12, and reports the pregame difference on neutral games.

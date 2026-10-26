@@ -203,3 +203,92 @@ def test_architect_1026_the_ingest_keys_the_fence_on_the_rows_season(monkeypatch
     assert any("[score withheld]" in x for x in r.corrections)
     r = _labels(2023, False, monkeypatch, row_season="")              # no row season: the requested year
     assert r.counts["fenced_2023"] == 2
+
+
+def test_700_the_fence_reads_the_label_season_as_well_as_the_stored_one(tmp_path, monkeypatch):
+    """#700 (Codex on #697): a match stored under another season whose CFBD label says 2023 week 5+ is fenced; one
+    whose label says 2023 week 1-4 is not; a stored-2023 match with no label is fenced; a label or stored season of
+    2026 is 2026-fenced. Empty once the run is recorded."""
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+
+    import src.db.database as db
+    from src.db.schema import Competition, Match, MatchStatus, NCAACFBDLabel, Sport, Team
+    from src.ingestion import resync_diff as rd
+
+    eng = create_engine(f"sqlite:///{tmp_path / 'l.db'}", future=True)
+    monkeypatch.setattr(db, "_engine", eng)
+    monkeypatch.setattr(db, "SessionLocal", sessionmaker(bind=eng, autoflush=False, future=True,
+                                                         expire_on_commit=False))
+    db.init_db()
+    monkeypatch.setattr(nb, "v2_run_recorded", lambda *a, **k: False)
+    with db.session_scope() as s:
+        c = Competition(sport=Sport.NFL, code="NCAA", name="NCAA", area="USA", type="LEAGUE")
+        t1, t2 = Team(sport=Sport.NFL, name="L1"), Team(sport=Sport.NFL, name="L2")
+        s.add_all([c, t1, t2])
+        s.flush()
+        ms = {}
+        for key, stored, lab_season, wk in (("lab23w8", "2024", "2023", 8), ("lab23w2", "2024", "2023", 2),
+                                             ("nolabel23", "2023", None, None), ("lab26", "2025", "2026", 3),
+                                             ("plain24", "2024", "2024", 8)):
+            m = Match(sport=Sport.NFL, competition_id=c.id, season=stored, utc_date=datetime(2024, 9, 9),
+                      status=MatchStatus.FINISHED, home_team_id=t1.id, away_team_id=t2.id, home_score=7, away_score=3)
+            s.add(m)
+            s.flush()
+            ms[key] = m
+            if lab_season:
+                s.add(NCAACFBDLabel(match_id=m.id, source="cfbd", source_game_id=m.id, season=lab_season,
+                                    orientation="same", home_score=7, away_score=3, season_type="regular", week=wk,
+                                    fetched_at=datetime(2026, 10, 24)))
+        s.flush()
+        f23, f26 = nb.v2_fenced_ids(s, list(ms.values()))
+        assert f23 == {ms["lab23w8"].id, ms["nolabel23"].id} and f26 == {ms["lab26"].id}
+        assert rd._fenced_2023_ids(s, "NCAA", list(ms.values())) == f23
+        monkeypatch.setattr(nb, "v2_run_recorded", lambda *a, **k: True)
+        assert nb.v2_fenced_ids(s, list(ms.values())) == (set(), set())
+        s.rollback()
+
+
+def test_700_resync_diff_keeps_fenced_games_out_of_its_home_rate(tmp_path, monkeypatch):
+    """#700: a fenced game (here a stored-2024 match labelled 2023 week 8) is in no aggregate: resync-diff's home-rate
+    line leaves it out and counts it; its sample line prints no score."""
+    from types import SimpleNamespace as NS
+
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+
+    import src.db.database as db
+    from src.db.schema import Competition, Match, MatchStatus, NCAACFBDLabel, Sport, Team
+    from src.ingestion import resync_diff as rd
+
+    eng = create_engine(f"sqlite:///{tmp_path / 'r.db'}", future=True)
+    monkeypatch.setattr(db, "_engine", eng)
+    monkeypatch.setattr(db, "SessionLocal", sessionmaker(bind=eng, autoflush=False, future=True,
+                                                         expire_on_commit=False))
+    db.init_db()
+    monkeypatch.setattr(nb, "v2_run_recorded", lambda *a, **k: False)
+    with db.session_scope() as s:
+        c = Competition(sport=Sport.NFL, code="NCAA", name="NCAA", area="USA", type="LEAGUE")
+        t1 = Team(sport=Sport.NFL, name="M1", external_ids={"p": 11})
+        t2 = Team(sport=Sport.NFL, name="M2", external_ids={"p": 12})
+        s.add_all([c, t1, t2])
+        s.flush()
+        for eid, wk in ((901, 8), (902, 2)):
+            m = Match(sport=Sport.NFL, competition_id=c.id, season="2024", utc_date=datetime(2024, 10, 5),
+                      status=MatchStatus.FINISHED, home_team_id=t1.id, away_team_id=t2.id, home_score=31,
+                      away_score=10, external_ids={"p": eid})
+            s.add(m)
+            s.flush()
+            s.add(NCAACFBDLabel(match_id=m.id, source="cfbd", source_game_id=eid, season="2023", orientation="same",
+                                home_score=31, away_score=10, season_type="regular", week=wk,
+                                fetched_at=datetime(2026, 10, 24)))
+
+    class Adapter:
+        def list_matches(self, *a):
+            return [NS(source="p", source_id=e, home_team_source_id=11, away_team_source_id=12, home_score=10,
+                       away_score=31, utc_date=datetime(2024, 10, 5)) for e in (901, 902)]
+    out = rd.diff(Adapter(), "NCAA", "2024")
+    assert out["counts"]["fenced_2023_out_of_rate"] == 1
+    assert out["home_rate"]["ours"] == (1.0, 1) and out["home_rate"]["provider"] == (0.0, 1)
+    lines = [x for v in out["samples"].values() for x in v]
+    assert any("[score withheld]" in x for x in lines) and any("31" in x for x in lines)

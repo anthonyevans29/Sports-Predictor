@@ -664,12 +664,15 @@ def close_record(days: int, now: datetime | None = None) -> dict:
             # The v2 fences: no result tally over NCAA 2023 (addendum 161 item 1) or 2026 (addendum 86 item 3 (Q2);
             # ARCHITECT 2026-10-26 15:15 ET: "the NCAA close-record line over 2026 games is FENCED too (146 5(b) yields
             # to the 2026 fence; the record says it was printed through 10-26 and tuned nothing)")
+            # #700 (Codex on #697): the stored season OR the CFBD label's, since _result reads the label's outcome
             fence_v2 = code == "NCAA" and not _nb.v2_run_recorded()
+            labs = _nb.label_seasons(s, games) if fence_v2 else {}
             for m in games:
-                if fence_v2 and str(m.season) == _nb.V2_SECOND:
+                seasons = {str(m.season), labs.get(m.id, (None,))[0]}
+                if fence_v2 and _nb.V2_SECOND in seasons:
                     rec["fenced_2023"] += 1          # every 2023 game, conservatively (weeks 1-4 need no tally)
                     continue
-                if fence_v2 and str(m.season) == _nb.V2_TEST:
+                if fence_v2 and _nb.V2_TEST in seasons:
                     rec["fenced_2026"] += 1
                     continue
                 if three:

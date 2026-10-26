@@ -897,7 +897,7 @@ def test_168_3_install_removes_the_ruled_pack_only_settings_and_names_them_never
     path or a key (a list in sp_cutover, ruled: SP_EXPORTS_MIRROR_KEY, CFBD_API_KEY, SP_HOST_ADDR today), printing
     their names". host.env defines CFBD_API_KEY (kept); SP_HOST_ADDR= there is empty, so the .env's line is the one
     the host reads (removed, addendum 48 item 6); NTFY_TOPIC is pack-only but not ruled (kept). Every other line is
-    byte-identical; the .env before it is kept beside it, 0600."""
+    byte-identical; the .env before it is kept beside host.env (outside the checkout), 0640."""
     pk = _pack_168(world, host, monkeypatch, PACK_ENV_168)
     world["real_env"].write_text(REAL_ENV_TEXT + "CFBD_API_KEY=host-cfbd\nSP_HOST_ADDR=\n")
     (host["h"] / ".env").write_text("DATABASE_URL=sqlite:///./data/sports.db\n")
@@ -905,16 +905,18 @@ def test_168_3_install_removes_the_ruled_pack_only_settings_and_names_them_never
     assert _install_168(host, pk) == 0
     out = capsys.readouterr().out
     assert ("· pack-only settings removed from the checkout's .env (addendum 168 item 3; names only, never values): "
-            "SP_EXPORTS_MIRROR_KEY, SP_HOST_ADDR · the .env before it kept as .env.pre-scrub-") in out
+            "SP_EXPORTS_MIRROR_KEY, SP_HOST_ADDR · the .env before it kept as "
+            f"{world['real_env'].parent / 'checkout.env.pre-scrub-'}") in out
     envp = host["h"] / ".env"
     want = "".join(ln for ln in PACK_ENV_168.splitlines(keepends=True)
                    if not ln.lstrip().startswith(("SP_EXPORTS_MIRROR_KEY", "SP_HOST_ADDR")))
     assert envp.read_bytes() == want.encode()                        # other lines byte-identical, CRLF kept
     assert c.parse_env_file(envp)["CFBD_API_KEY"] == "cfbd-secret-value-123"
     assert c.parse_env_file(envp)["NTFY_TOPIC"] == "laptop-topic-value"
-    baks = list(host["h"].glob(".env.pre-scrub-*.bak"))
+    baks = list(world["real_env"].parent.glob("checkout.env.pre-scrub-*"))
     assert len(baks) == 1 and baks[0].read_bytes() == PACK_ENV_168.encode()
-    assert baks[0].stat().st_mode & 0o777 == 0o600
+    assert baks[0].stat().st_mode & 0o777 == 0o640
+    assert not [q for q in host["h"].rglob("*") if "pre-scrub" in q.name]      # nothing in the checkout
     r = _lines(world["real_receipts"])[-1]
     assert r["step"] == "install" and r["exit"] == 0
     assert r["env_removed"] == ["SP_EXPORTS_MIRROR_KEY", "SP_HOST_ADDR"]
@@ -934,7 +936,7 @@ def test_168_3_a_ruled_setting_the_host_checkout_already_had_is_kept(world, host
     assert _install_168(host, pk) == 0
     assert "never values): " not in capsys.readouterr().out
     assert (host["h"] / ".env").read_bytes() == PACK_ENV_168.encode()
-    assert not list(host["h"].glob(".env.pre-scrub-*"))
+    assert not list(world["real_env"].parent.glob("checkout.env.pre-scrub-*"))
     r = _lines(world["real_receipts"])[-1]
     assert r["env_removed"] == [] and r["env_kept_copy"] is None and "env_scrub_undecided" not in r
 
@@ -987,11 +989,11 @@ def test_168_3_codex_682_a_taken_backup_name_gets_a_suffix_and_the_scrub_still_r
     pk = _pack_168(world, host, monkeypatch, PACK_ENV_168)
     (host["h"] / ".env").write_text("DATABASE_URL=sqlite:///./data/sports.db\n")
     monkeypatch.setattr(c, "utc_now", lambda: datetime(2026, 10, 26, 13, 44, 0, tzinfo=timezone.utc))
-    earlier = host["h"] / ".env.pre-scrub-20261026T134400Z.bak"
+    earlier = world["real_env"].parent / "checkout.env.pre-scrub-20261026T134400Z"
     earlier.write_bytes(b"EARLIER=kept\n")
     assert _install_168(host, pk) == 0
     assert earlier.read_bytes() == b"EARLIER=kept\n"
-    second = host["h"] / ".env.pre-scrub-20261026T134400Z-1.bak"
+    second = world["real_env"].parent / "checkout.env.pre-scrub-20261026T134400Z-1"
     assert second.read_bytes() == PACK_ENV_168.encode()
     r = _lines(world["real_receipts"])[-1]
     assert r["env_kept_copy"] == str(second) and r["env_removed"] == ["SP_EXPORTS_MIRROR_KEY", "CFBD_API_KEY",
@@ -999,8 +1001,8 @@ def test_168_3_codex_682_a_taken_backup_name_gets_a_suffix_and_the_scrub_still_r
 
 
 def test_168_3_codex_682_the_secret_copies_are_created_0600_from_the_outset(world, host, monkeypatch):
-    """Codex on #682 (P1): the kept copy and the temporary name are created with mode 0600 and O_EXCL, never written
-    at a wider mode first, whatever the umask."""
+    """Codex on #682 (P1), ARCHITECT 2026-10-26: the kept copy and the temporary name are created with mode 0600 and
+    O_EXCL, never written at a wider mode first, whatever the umask; the copy is 0640 only after its bytes."""
     pk = _pack_168(world, host, monkeypatch, PACK_ENV_168)
     (host["h"] / ".env").write_text("DATABASE_URL=sqlite:///./data/sports.db\n")
     seen, real_open = [], sp_cutover.os.open
@@ -1016,7 +1018,7 @@ def test_168_3_codex_682_the_secret_copies_are_created_0600_from_the_outset(worl
     finally:
         os.umask(old)
     names = [n for n, _, _ in seen]
-    assert any(n.startswith(".env.pre-scrub-") for n in names) and "..env.scrub-tmp" in names
+    assert any(n.startswith("checkout.env.pre-scrub-") for n in names) and "..env.scrub-tmp" in names
     for n, flags, mode in seen:
         assert mode == 0o600 and flags & os.O_EXCL and flags & os.O_CREAT, (n, oct(mode))
     assert not (host["h"] / "..env.scrub-tmp").exists()
@@ -1044,12 +1046,100 @@ def test_168_3_codex_682_a_scrub_io_error_is_a_receipted_refusal_not_a_traceback
         assert v not in out and v not in world["real_receipts"].read_text()
 
 
-def test_168_3_codex_682_the_secret_copies_are_gitignored():
-    """Codex on #682 (P1): the kept copy, a hand-made .env.bak and the temporary name are ignored by git, so a routine
-    `git add -A` on the host never stages a secret; .env.example stays tracked."""
+def test_168_3_codex_682_the_temporary_name_and_a_hand_made_copy_are_gitignored():
+    """Codex on #682 (P1): the scrub's temporary name (it lives beside the .env until the replace) and a hand-made
+    .env.bak are ignored by git; .env.example stays tracked. The kept copy is not in the checkout at all (below)."""
     import subprocess
     root = Path(__file__).resolve().parent.parent
-    for name in (".env.pre-scrub-20261026T134000Z.bak", ".env.pre-scrub-20261026T134000Z-1.bak", ".env.bak",
-                 "..env.scrub-tmp"):
+    for name in (".env.bak", "..env.scrub-tmp"):
         assert subprocess.run(["git", "-C", str(root), "check-ignore", "-q", name]).returncode == 0, name
     assert subprocess.run(["git", "-C", str(root), "check-ignore", "-q", ".env.example"]).returncode == 1
+
+
+def test_168_3_architect_682_the_root_install_keeps_the_copy_beside_host_env_and_names_it_to_the_sp_install(
+        world, host, monkeypatch):
+    """ARCHITECT 2026-10-26, on Codex's two P1s on #682: the copy lives where git can't see it, beside
+    host.env.pre-cutover-<ts>, root:sp 0640 (the flip's pattern). Root writes it (sp cannot write that directory),
+    created 0600, then host.env's owner and 0640 through the descriptor, BEFORE the sp install runs, and names it."""
+    from datetime import datetime, timezone
+    pk = _pack_168(world, host, monkeypatch, PACK_ENV_168)
+    (host["h"] / ".env").write_text("DATABASE_URL=sqlite:///./data/sports.db\n")
+    monkeypatch.setattr(c, "utc_now", lambda: datetime(2026, 10, 26, 13, 44, 0, tzinfo=timezone.utc))
+    monkeypatch.setattr(sp_cutover, "_euid", lambda: 0)
+    owners = []
+    monkeypatch.setattr(sp_cutover.os, "fchown", lambda fd, uid, gid: owners.append((uid, gid)))
+    seen = []
+
+    def runner(argv):
+        seen.append([str(a) for a in argv])
+        keep = world["real_env"].parent / "checkout.env.pre-scrub-20261026T134400Z"
+        assert keep.read_bytes() == PACK_ENV_168.encode() and keep.stat().st_mode & 0o777 == 0o640
+        return 1, "the sp install (not run here)"
+    ctx = sp_cutover.Ctx(pack=pk, timers_file=host["timers"], runner=runner)
+    with pytest.raises(sp_cutover.Refused):
+        sp_cutover.step_install(ctx)
+    st = world["real_env"].stat()
+    assert owners == [(st.st_uid, st.st_gid)]
+    assert seen[0][:4] == ["runuser", "-u", "sp", "--"]
+    assert seen[0][-2:] == ["--env-kept-copy", str(world["real_env"].parent / "checkout.env.pre-scrub-20261026T134400Z")]
+    assert not [q for q in host["h"].rglob("*") if "pre-scrub" in q.name]
+
+
+def test_168_3_architect_682_the_sp_install_edits_only_against_the_copy_it_was_named(world, host, monkeypatch, capsys):
+    """The `sp` install scrubs with the copy root named (--env-kept-copy), and edits nothing unless that copy holds the
+    placed .env's bytes: a missing or different copy is a receipted refusal, the .env left as the pack's."""
+    pk = _pack_168(world, host, monkeypatch, PACK_ENV_168)
+    named = world["real_env"].parent / "checkout.env.pre-scrub-20261026T134400Z"
+    named.write_bytes(PACK_ENV_168.encode())
+    (host["h"] / ".env").write_text("DATABASE_URL=sqlite:///./data/sports.db\n")
+    argv = ["install", "--pack", str(pk), "--timers-file", str(host["timers"]), "--env-kept-copy", str(named)]
+    assert sp_cutover.main(argv, runner=FakeSystemctl(active=host["timers"].read_text().split())) == 0
+    r = _lines(world["real_receipts"])[-1]
+    assert r["env_kept_copy"] == str(named) and r["env_removed"] == ["SP_EXPORTS_MIRROR_KEY", "CFBD_API_KEY",
+                                                                     "SP_HOST_ADDR"]
+    assert list(world["real_env"].parent.glob("checkout.env.pre-scrub-*")) == [named]   # no second copy written
+
+    pk2 = _pack_168(world, host, monkeypatch, PACK_ENV_168, name="pack_20261026T1341")
+    named.write_bytes(b"NOT=the pack's .env\n")
+    (host["h"] / ".env").write_text("DATABASE_URL=sqlite:///./data/sports.db\n")
+    capsys.readouterr()
+    argv = ["install", "--pack", str(pk2), "--timers-file", str(host["timers"]), "--env-kept-copy", str(named)]
+    assert sp_cutover.main(argv, runner=FakeSystemctl(active=host["timers"].read_text().split())) == 1
+    r = _lines(world["real_receipts"])[-1]
+    assert r["exit"] == 1 and "no kept copy of the placed .env" in r["env_scrub_error"] and r["env_removed"] == []
+    assert (host["h"] / ".env").read_bytes() == PACK_ENV_168.encode()
+    for v in VALUES_168:
+        assert v not in capsys.readouterr().out and v not in world["real_receipts"].read_text()
+
+
+def test_168_3_architect_682_a_copy_that_cannot_be_kept_refuses_before_anything_is_installed(
+        world, host, monkeypatch):
+    pk = _pack_168(world, host, monkeypatch, PACK_ENV_168)
+    (host["h"] / ".env").write_text("DATABASE_URL=sqlite:///./data/sports.db\n")
+
+    def denied(path, data, owner=None, mode=None):
+        raise PermissionError(13, "Permission denied", str(path))
+    monkeypatch.setattr(sp_cutover, "_write_private", denied)
+    called = []
+    monkeypatch.setattr(sp_migrate, "install", lambda pack, replace: called.append(pack) or 0)
+    assert _install_168(host, pk) == 1
+    assert called == []
+    r = _lines(world["real_receipts"])[-1]
+    assert r["step"] == "install" and "the .env copy could not be kept" in r["refused"] and "nothing installed" in \
+        r["refused"] and r["env_scrub_planned"] == ["SP_EXPORTS_MIRROR_KEY", "CFBD_API_KEY", "SP_HOST_ADDR"]
+    assert (host["h"] / ".env").read_bytes() == b"DATABASE_URL=sqlite:///./data/sports.db\n"
+
+
+def test_168_3_architect_682_an_install_that_never_placed_the_env_names_the_unused_copy(world, host, monkeypatch, capsys):
+    pk = _pack_168(world, host, monkeypatch, PACK_ENV_168)
+    (host["h"] / ".env").write_text("DATABASE_URL=sqlite:///./data/sports.db\n")
+
+    def failed_first(pack, replace):
+        raise SystemExit("✗ injected failure before the .env was placed")
+    monkeypatch.setattr(sp_migrate, "install", failed_first)
+    capsys.readouterr()
+    assert _install_168(host, pk) == 1
+    keep = next(world["real_env"].parent.glob("checkout.env.pre-scrub-*"))
+    assert f"· the copy kept before install is unused, nothing was removed: {keep}" in capsys.readouterr().out
+    r = _lines(world["real_receipts"])[-1]
+    assert r["env_removed"] == [] and r["env_kept_copy"] == str(keep)

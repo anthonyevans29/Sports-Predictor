@@ -1,7 +1,7 @@
 # Environment
 .env
-# .env copies hold secrets (Codex on #682; addendum 168 item 3): the scrub's kept copy, its temporary name,
-# and a hand-made .bak beside it
+# .env copies hold secrets (Codex on #682; addendum 168 item 3): a hand-made .bak beside it and the scrub's
+# temporary name. The scrub's kept copy is never in the checkout: it lives beside host.env (sp_cutover).
 .env.*.bak
 .env.bak
 *.scrub-tmp

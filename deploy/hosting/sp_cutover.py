@@ -43,8 +43,10 @@ Steps (in order; `run` = all six, the first failure stops):
              Addendum 168 item 3: then removes from the checkout's .env each ruled
              setting (PACK_ONLY_SCRUB) that came only from the pack (the preflight's
              comparison, read before the .env is replaced) and that host.env gives no
-             value; line-preserving, .env.pre-scrub-<ts>.bak kept beside it; prints
-             and receipts the names, never a value. Other names are never removed.
+             value; line-preserving; the .env before it kept where git cannot see
+             it, beside host.env as checkout.env.pre-scrub-<ts> (created 0600, then
+             root:sp 0640); prints and receipts the names, never a value. Other
+             names are never removed.
   flip       SP_WRITER_OF_RECORD=host in host.env (ARCHITECT-RULE 2026-10-01:
              the REAL writer-of-record flag, laptop|host; SP_PARALLEL_MODE
              stays the H0-16 quota mode and is never touched). Line-preserving;
@@ -196,6 +198,7 @@ class Ctx:
     cutover_id: str = ""
     done: dict = field(default_factory=dict)
     shot_read: Callable | None = None      # tests inject a fake read (ctx, pack: bool) -> dict (None: run_shot_read)
+    env_kept_copy: Path | None = None      # the `sp` install: the copy root kept before it (step_install)
 
 
 # ------------------------------------------------------------ plumbing ----
@@ -636,52 +639,82 @@ def _scrub_plan(ctx: Ctx, man: dict) -> dict:
     return {"remove": [k for k in PACK_ONLY_SCRUB if k in pack_only], "undecided": [], "why": None}
 
 
-def _write_private(path: Path, data: bytes) -> None:
+def _write_private(path: Path, data: bytes, owner: tuple[int, int] | None = None, mode: int | None = None) -> None:
     """Create `path` with mode 0600 from the outset (O_CREAT | O_EXCL: never an existing file, never a wider mode while
-    the secret bytes are written; Codex on #682), then write `data`. FileExistsError if the name is taken."""
+    the secret bytes are written; Codex on #682), write `data`, then, when named, give it `owner` and `mode` through the
+    open descriptor, after the bytes. FileExistsError if the name is taken."""
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     try:
         with os.fdopen(fd, "wb") as f:
             f.write(data)
+            f.flush()
+            if owner is not None:
+                os.fchown(f.fileno(), *owner)
+            if mode is not None:
+                os.fchmod(f.fileno(), mode)
     except BaseException:
         path.unlink(missing_ok=True)
         raise
 
 
-def _scrub_env(ctx: Ctx, man: dict, plan: dict) -> dict:
+ENV_COPY_PREFIX = "checkout.env.pre-scrub-"
+ENV_COPY_MODE = 0o640
+
+
+def _keep_env_copy(ctx: Ctx, plan: dict) -> Path | None:
+    """The copy of the .env the scrub edits, kept BEFORE install (ARCHITECT 2026-10-26, on Codex's two P1s on #682:
+    "a copy of a file that holds secrets must be created 0600 before any byte is written, and it must live where git
+    can't see it (beside `host.env.pre-cutover-<ts>` under `/etc/sports-predictor/`, root:sp 0640, is the pattern the
+    flip already uses — not in the checkout behind a `.gitignore` line)"). It is written beside host.env as
+    checkout.env.pre-scrub-<ts> (a taken name gets a -N suffix, never overwritten), created 0600, then host.env's owner
+    (as root) and 0640. Its bytes are the pack's .env, the file install places and the scrub edits (_scrub_env checks
+    them against the placed .env before it edits anything). Root writes it before the `sp` install, which cannot write
+    that directory. None when nothing is to be removed."""
+    if not plan["remove"]:
+        return None
+    data = (ctx.pack / sp_migrate.ENV).read_bytes()
+    st = c.HOST_ENV.stat()
+    owner = (st.st_uid, st.st_gid) if _euid() == 0 else None
+    stamp = c.utc_now().strftime("%Y%m%dT%H%M%SZ")
+    for n in range(100):
+        keep = c.HOST_ENV.with_name(f"{ENV_COPY_PREFIX}{stamp}{'' if n == 0 else f'-{n}'}")
+        try:
+            _write_private(keep, data, owner, ENV_COPY_MODE)
+            return keep
+        except FileExistsError:
+            continue
+    raise FileExistsError(f"{ENV_COPY_PREFIX}{stamp}[-N]: 100 names taken")
+
+
+def _scrub_env(ctx: Ctx, man: dict, plan: dict, keep: Path | None) -> dict:
     """Addendum 168 item 3: remove the planned names from the checkout's .env once it is the pack's. Line-preserving
-    (every other line byte-identical), a copy kept beside it first (.env.pre-scrub-<ts>.bak, created 0600, a name never
-    reused: a taken name gets a -N suffix, so a retry in the same second still scrubs), names printed and returned, never
-    a value. An OSError propagates to the caller, which receipts it as a refusal (Codex on #682)."""
+    (every other line byte-identical); the .env before it is `keep`, the copy _keep_env_copy wrote before install, and
+    nothing is edited unless that copy holds the placed .env's bytes. Names printed and returned, never a value. An
+    OSError propagates to the caller, which receipts it as a refusal (Codex on #682)."""
     envp = c.REPO / ".env"
     out = {"env_scrub_ruled": list(PACK_ONLY_SCRUB), "env_removed": [], "env_kept_copy": None}
     placed = envp.is_file() and c.sha256_file(envp) == man["files"].get(sp_migrate.ENV)
     names = plan["remove"] if placed else []
     if names:
+        if keep is None or not keep.is_file() or c.sha256_file(keep) != c.sha256_file(envp):
+            raise FileNotFoundError(f"no kept copy of the placed .env ({keep or 'none written'}): nothing edited")
         data = envp.read_bytes()              # bytes: every line's own ending kept, \r\n included
         lines = data.splitlines(keepends=True)
         kept = [ln for ln in lines if _env_key(ln.decode("utf-8", "replace")) not in names]
-        stamp = c.utc_now().strftime("%Y%m%dT%H%M%SZ")
-        for n in range(100):
-            bak = envp.with_name(f"{envp.name}.pre-scrub-{stamp}{'' if n == 0 else f'-{n}'}.bak")
-            try:
-                _write_private(bak, data)
-                break
-            except FileExistsError:
-                continue
-        else:
-            raise FileExistsError(f"{envp.name}.pre-scrub-{stamp}[-N].bak: 100 names taken")
         mode = envp.stat().st_mode & 0o7777
         tmp = envp.with_name(f".{envp.name}.scrub-tmp")
         tmp.unlink(missing_ok=True)           # a stale temporary name from an interrupted run is never written into
         _write_private(tmp, b"".join(kept))
         os.chmod(tmp, mode)                   # the .env's own mode, as install left it
         os.replace(tmp, envp)
-        out.update(env_removed=list(names), env_kept_copy=str(bak))
+        out.update(env_removed=list(names), env_kept_copy=str(keep))
         print(f"· pack-only settings removed from the checkout's .env (addendum 168 item 3; names only, never "
-              f"values): {', '.join(names)} · the .env before it kept as {bak.name}")
+              f"values): {', '.join(names)} · the .env before it kept as {keep}")
     else:
         print("· pack-only settings removed from the checkout's .env (addendum 168 item 3): none")
+        if keep is not None:                  # written before install; nothing edited (the .env was not placed)
+            out["env_kept_copy"] = str(keep)
+            print(f"· the copy kept before install is unused, nothing was removed: {keep}")
     if plan["undecided"]:
         out.update(env_scrub_undecided=list(plan["undecided"]), env_scrub_undecided_why=plan["why"])
         print(f"· NOT decided, nothing removed: {', '.join(plan['undecided'])} — {plan['why']}; check them by hand "
@@ -689,13 +722,23 @@ def _scrub_env(ctx: Ctx, man: dict, plan: dict) -> dict:
     return out
 
 
-def _scrub_failed(plan: dict, e: OSError) -> dict:
+def _scrub_failed(plan: dict, e: OSError, keep: Path | None = None) -> dict:
     """The receipt fields for a scrub that raised (Codex on #682): the names it meant to remove, none removed."""
     err = f"{e.__class__.__name__}: {e}"
     print(f"✗ the ruled pack-only settings could not be removed from the checkout's .env ({err}): remove "
           f"{', '.join(plan['remove']) or '(none planned)'} from it by hand (addendum 168 item 3)")
-    return {"env_scrub_ruled": list(PACK_ONLY_SCRUB), "env_removed": [], "env_kept_copy": None,
+    return {"env_scrub_ruled": list(PACK_ONLY_SCRUB), "env_removed": [], "env_kept_copy": str(keep) if keep else None,
             "env_scrub_planned": list(plan["remove"]), "env_scrub_error": err}
+
+
+def _keep_copy_or_refuse(ctx: Ctx, plan: dict) -> Path | None:
+    """_keep_env_copy, before install changes anything: a copy that cannot be kept refuses install, nothing placed."""
+    try:
+        return _keep_env_copy(ctx, plan)
+    except OSError as e:
+        _refuse(ctx, "install", f"the .env copy could not be kept beside {c.HOST_ENV} ({e.__class__.__name__}: {e}) "
+                                "— nothing installed", env_scrub_ruled=list(PACK_ONLY_SCRUB),
+                env_scrub_planned=list(plan["remove"]))
 
 
 def _install_in_process(ctx: Ctx) -> dict:
@@ -705,13 +748,14 @@ def _install_in_process(ctx: Ctx) -> dict:
     try:
         with c.db_lock(ctx.lock_timeout):
             plan = _scrub_plan(ctx, man)
+            keep = ctx.env_kept_copy or _keep_copy_or_refuse(ctx, plan)
             try:
                 rc = sp_migrate.install(ctx.pack, replace=True)
             finally:                          # the pack's .env never stays unscrubbed, whatever install did after it
                 try:
-                    scrub = _scrub_env(ctx, man, plan)
+                    scrub = _scrub_env(ctx, man, plan, keep)
                 except OSError as e:          # receipted, never a traceback (Codex on #682)
-                    scrub = _scrub_failed(plan, e)
+                    scrub = _scrub_failed(plan, e, keep)
             if scrub.get("env_scrub_error"):
                 _refuse(ctx, s, f"the pack's .env is in place but the ruled pack-only settings could not be removed "
                                 f"({scrub['env_scrub_error']}) — remove them from the checkout's .env by hand", **scrub)
@@ -734,9 +778,12 @@ def _install_in_process(ctx: Ctx) -> dict:
 def step_install(ctx: Ctx) -> dict:
     if not _as_service_user(ctx):
         return _install_in_process(ctx)
+    # The .env copy is root's to write (the service user cannot write host.env's directory): it is kept here, before
+    # the service user's install, and named to it (ARCHITECT 2026-10-26, on Codex's P1s on #682).
+    keep = _keep_copy_or_refuse(ctx, _scrub_plan(ctx, _manifest(ctx)))
     rc, out = ctx.runner(["runuser", "-u", ctx.service_user, "--", sys.executable, str(HERE / "sp_cutover.py"),
                           "install", "--pack", str(ctx.pack), "--timers-file", str(ctx.timers_file),
-                          "--lock-timeout", str(ctx.lock_timeout)])
+                          "--lock-timeout", str(ctx.lock_timeout), *(["--env-kept-copy", str(keep)] if keep else [])])
     print(out.rstrip())
     got = _last_ok(ctx, "install")
     if rc != 0 or not got:
@@ -975,6 +1022,8 @@ def main(argv=None, runner: Runner | None = None, shot_read: Callable | None = N
     ap.add_argument("--lock-timeout", type=float, default=3600.0)
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--scratch", type=Path)
+    ap.add_argument("--env-kept-copy", type=Path, default=None,
+                    help="internal: the .env copy root kept before the service user's install (step_install)")
     a = ap.parse_args(argv)
     if a.dry_run != (a.scratch is not None):
         raise SystemExit("✗ REFUSED: --dry-run and --scratch go together (flag mismatch).")
@@ -993,7 +1042,7 @@ def main(argv=None, runner: Runner | None = None, shot_read: Callable | None = N
     pack = a.pack.resolve() if a.pack else None
     ctx = Ctx(pack=pack, timers_file=timers_file, runner=runner or system_runner,
               lock_timeout=a.lock_timeout, service_user=c.setting("SP_SERVICE_USER") or "sp",
-              cutover_id=pack.name if pack else "nopack", shot_read=shot_read)
+              cutover_id=pack.name if pack else "nopack", shot_read=shot_read, env_kept_copy=a.env_kept_copy)
     return drive(ctx, STEPS if a.step == "run" else [a.step])
 
 

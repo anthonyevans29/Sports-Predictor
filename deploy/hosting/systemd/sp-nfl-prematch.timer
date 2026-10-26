@@ -1,0 +1,16 @@
+# The NFL pre-slate data syncs, Thursday and Sunday (was sp-nfl-predict.timer): the whole-league injury sync and the
+# weather capture. ARCHITECT 2026-10-25, addendum 166 item 6(B): predict-nfl and export-nfl-predictions left the
+# chain; the closing watch's slate stage writes the slate file (addendum 126 item 2(a)/(d)). Same calendar lines.
+# H0-3: no timer fires inside the 04:15-05:15 UTC reboot buffer (tests/test_hosting_pack.py).
+[Unit]
+Description=sports-predictor timer: sp-nfl-prematch
+
+[Timer]
+OnCalendar=Thu *-*-* 18:00:00 UTC
+OnCalendar=Sun *-*-* 14:00:00 UTC
+Unit=sp-chain@nfl-prematch.service
+Persistent=true
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target

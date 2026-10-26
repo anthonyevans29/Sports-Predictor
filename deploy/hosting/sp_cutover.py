@@ -40,6 +40,11 @@ Steps (in order; `run` = all six, the first failure stops):
              Running sp-chain@ services are listed (install waits on the DB lock).
   install    sp_migrate install --replace (verify again, place, re-verify),
              under the DB lock; S2 = S1 and R2 = R1 for every table, or refuse.
+             Addendum 168 item 3: then removes from the checkout's .env each ruled
+             setting (PACK_ONLY_SCRUB) that came only from the pack (the preflight's
+             comparison, read before the .env is replaced) and that host.env gives no
+             value; line-preserving, .env.pre-scrub-<ts>.bak kept beside it; prints
+             and receipts the names, never a value. Other names are never removed.
   flip       SP_WRITER_OF_RECORD=host in host.env (ARCHITECT-RULE 2026-10-01:
              the REAL writer-of-record flag, laptop|host; SP_PARALLEL_MODE
              stays the H0-16 quota mode and is never touched). Line-preserving;
@@ -107,6 +112,11 @@ PACK_WHOSE, HOST_WHOSE = "the pack's", "the host's live"       # whose NHL shot 
 # (grep: sp_run.metered_skip, etc/host.env.example). Values: full | designated.
 FLAG, FLAG_VALUE, FLAG_KNOWN = "SP_WRITER_OF_RECORD", "host", ("laptop", "host")
 FLAG_LINE = re.compile(r"^(\s*(?:export\s+)?)" + FLAG + r"\s*=(.*?)(\r?\n)?$")
+# ARCHITECT 2026-10-26, addendum 168 item 3 (#677), verbatim: "the env_changes list stays names-only, but `install`
+# (or the runbook's step right after it) REMOVES pack-only settings that host.env does not define and that name a path
+# or a key (a list in sp_cutover, ruled: SP_EXPORTS_MIRROR_KEY, CFBD_API_KEY, SP_HOST_ADDR today), printing their
+# names". A name not on this list is never removed: it stays on env_changes, names only, as before.
+PACK_ONLY_SCRUB = ("SP_EXPORTS_MIRROR_KEY", "CFBD_API_KEY", "SP_HOST_ADDR")
 
 Runner = Callable[[list], "tuple[int, str]"]
 
@@ -597,26 +607,99 @@ def step_pause(ctx: Ctx) -> dict:
     return _receipt(ctx, s, 0, timers_stopped=len(timers), chains_running=running)
 
 
+def _env_key(line: str) -> str | None:
+    """The setting a .env line defines, read exactly as sp_common.parse_env_file reads it (None: no setting)."""
+    t = line.strip()
+    if not t or t.startswith("#") or "=" not in t:
+        return None
+    return t.split("=", 1)[0].strip().removeprefix("export ").strip()
+
+
+def _scrub_plan(ctx: Ctx, man: dict) -> dict:
+    """Addendum 168 item 3, decided BEFORE sp_migrate.install replaces the checkout's .env: the ruled names
+    (PACK_ONLY_SCRUB) that the preflight's own comparison (env_changes_by_pack: the pack's .env against the checkout's
+    .env as it stands, host.env's values left out) lists as pack-only. When the checkout's .env is already the pack's,
+    byte for byte, the .env the pack replaces is gone and which names came only from the pack cannot be read here;
+    nothing is removed and the names are reported as undecided (law 4). The same when host.env cannot be read."""
+    pe = ctx.pack / sp_migrate.ENV
+    if not pe.is_file():                      # no env in the pack: install leaves the checkout's .env (Codex on #457)
+        return {"remove": [], "undecided": [], "why": None}
+    carried = [k for k in PACK_ONLY_SCRUB if k in c.parse_env_file(pe)]
+    envp = c.REPO / ".env"
+    why = None
+    if envp.is_file() and c.sha256_file(envp) == man["files"].get(sp_migrate.ENV):
+        why = "the checkout's .env was already the pack's before install, so which settings came only from the pack " \
+              "cannot be read here"
+    elif not (c.HOST_ENV.is_file() and os.access(c.HOST_ENV, os.R_OK)):
+        why = f"host.env {c.HOST_ENV} cannot be read, so which settings it defines cannot be read here"
+    if why:
+        return {"remove": [], "undecided": carried, "why": why if carried else None}
+    pack_only = env_changes_by_pack(ctx.pack, c.parse_env_file(c.HOST_ENV))["pack_only"]
+    return {"remove": [k for k in PACK_ONLY_SCRUB if k in pack_only], "undecided": [], "why": None}
+
+
+def _scrub_env(ctx: Ctx, man: dict, plan: dict) -> dict:
+    """Addendum 168 item 3: remove the planned names from the checkout's .env once it is the pack's. Line-preserving
+    (every other line byte-identical), a copy kept beside it first (.env.pre-scrub-<ts>.bak, 0600), names printed and
+    returned, never a value."""
+    envp = c.REPO / ".env"
+    out = {"env_scrub_ruled": list(PACK_ONLY_SCRUB), "env_removed": [], "env_kept_copy": None}
+    placed = envp.is_file() and c.sha256_file(envp) == man["files"].get(sp_migrate.ENV)
+    names = plan["remove"] if placed else []
+    if names:
+        with open(envp, newline="") as f:     # newline="": every line's own ending kept, \r\n included
+            lines = f.read().splitlines(keepends=True)
+        kept = [ln for ln in lines if _env_key(ln) not in names]
+        stamp = c.utc_now().strftime("%Y%m%dT%H%M%SZ")
+        bak = envp.with_name(f"{envp.name}.pre-scrub-{stamp}.bak")
+        if bak.exists():
+            _refuse(ctx, "install", f"{bak} exists — never overwritten (the .env is the pack's, unscrubbed)",
+                    env_scrub_ruled=list(PACK_ONLY_SCRUB), env_removed=[])
+        mode = envp.stat().st_mode & 0o7777
+        shutil.copyfile(envp, bak)
+        os.chmod(bak, 0o600)
+        tmp = envp.with_name(f".{envp.name}.scrub-tmp")
+        with open(tmp, "w", newline="") as f:
+            f.write("".join(kept))
+        os.chmod(tmp, mode)
+        os.replace(tmp, envp)
+        out.update(env_removed=list(names), env_kept_copy=str(bak))
+        print(f"· pack-only settings removed from the checkout's .env (addendum 168 item 3; names only, never "
+              f"values): {', '.join(names)} · the .env before it kept as {bak.name}")
+    else:
+        print("· pack-only settings removed from the checkout's .env (addendum 168 item 3): none")
+    if plan["undecided"]:
+        out.update(env_scrub_undecided=list(plan["undecided"]), env_scrub_undecided_why=plan["why"])
+        print(f"· NOT decided, nothing removed: {', '.join(plan['undecided'])} — {plan['why']}; check them by hand "
+              "against the preflight's env_changes (h2-cutover-runbook.md section 1 step 4)")
+    return out
+
+
 def _install_in_process(ctx: Ctx) -> dict:
     s = "install"
     man = _manifest(ctx)
+    scrub: dict = {}
     try:
         with c.db_lock(ctx.lock_timeout):
-            rc = sp_migrate.install(ctx.pack, replace=True)
+            plan = _scrub_plan(ctx, man)
+            try:
+                rc = sp_migrate.install(ctx.pack, replace=True)
+            finally:                          # the pack's .env never stays unscrubbed, whatever install did after it
+                scrub = _scrub_env(ctx, man, plan)
             target = c.db_path()
             s2 = c.sha256_file(target) if target.exists() else None
             r2 = c.table_counts(target)
     except SystemExit as e:
-        _refuse(ctx, s, str(e).lstrip("✗ ").strip())
+        _refuse(ctx, s, str(e).lstrip("✗ ").strip(), **scrub)
     except TimeoutError as e:
         _refuse(ctx, s, f"{e} — a chain still holds the DB lock")
     s1, r1 = man["files"].get(sp_migrate.DB), man["counts"]
     if rc != 0 or s2 != s1 or r2 != r1:
         _refuse(ctx, s, "installed DB does not match the manifest (S2/R2 vs S1/R1)",
-                s1=s1, s2=s2, r_mismatch=sorted(t for t in set(r1) | set(r2) if r1.get(t) != r2.get(t)))
+                s1=s1, s2=s2, r_mismatch=sorted(t for t in set(r1) | set(r2) if r1.get(t) != r2.get(t)), **scrub)
     aside = sorted(p.name for p in target.parent.glob("rehearsal_*.db"))
     return _receipt(ctx, s, 0, db=str(target), s1=s1, s2=s2, s2_eq_s1=True, r2_eq_r1=True,
-                    n_tables=len(r2), counts=r2, rehearsal_aside=aside[-1:] or None)
+                    n_tables=len(r2), counts=r2, rehearsal_aside=aside[-1:] or None, **scrub)
 
 
 def step_install(ctx: Ctx) -> dict:

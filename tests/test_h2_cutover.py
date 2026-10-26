@@ -857,3 +857,124 @@ def test_80_3_a_refusal_for_another_check_keeps_both_shot_reads_on_its_receipt(w
     r = _lines(world["real_receipts"])[-1]
     assert r["refused"].startswith("active sp timers not on the timers list")
     assert r["shot_gate_pack"] == PASS_GATE and r["shot_gate_host"] == HOST_GATE
+
+
+# ---------------- addendum 168 item 3 (#677): install removes the ruled pack-only settings, names only ----
+
+PACK_ENV_168 = ("# laptop .env\r\n"
+                "DATABASE_URL=sqlite:///./data/sports.db\r\n"
+                "SP_EXPORTS_MIRROR_KEY=/home/anthony/.ssh/sp_mirror_ed25519\n"
+                "export CFBD_API_KEY=\"cfbd-secret-value-123\"\n"
+                "NTFY_TOPIC=laptop-topic-value\n"
+                "  SP_HOST_ADDR = 100.64.0.7\n"
+                "# trailing comment, no newline")
+VALUES_168 = ("/home/anthony/.ssh/sp_mirror_ed25519", "cfbd-secret-value-123", "100.64.0.7", "laptop-topic-value")
+
+
+def _pack_168(world, host, monkeypatch, env_text, name="pack_20261026T1340"):
+    """A pack whose .env is `env_text` (made on the laptop), then back to the host checkout."""
+    laptop = world["laptop"]
+    monkeypatch.setattr(c, "REPO", laptop)
+    monkeypatch.setattr(c, "_DOTENV_CACHE", None)
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{world['db']}")
+    (laptop / ".env").write_bytes(env_text.encode())
+    pk = world["tmp"] / name
+    assert sp_migrate.pack(pk) == 0
+    monkeypatch.setattr(c, "REPO", host["h"])
+    monkeypatch.setattr(c, "_DOTENV_CACHE", None)
+    monkeypatch.setenv("DATABASE_URL", "sqlite:///./data/sports.db")
+    return pk
+
+
+def _install_168(host, pk):
+    return sp_cutover.main(["install", "--pack", str(pk), "--timers-file", str(host["timers"])],
+                           runner=FakeSystemctl(active=host["timers"].read_text().split()))
+
+
+def test_168_3_install_removes_the_ruled_pack_only_settings_and_names_them_never_their_values(
+        world, host, monkeypatch, capsys):
+    """Addendum 168 item 3: "`install` [...] REMOVES pack-only settings that host.env does not define and that name a
+    path or a key (a list in sp_cutover, ruled: SP_EXPORTS_MIRROR_KEY, CFBD_API_KEY, SP_HOST_ADDR today), printing
+    their names". host.env defines CFBD_API_KEY (kept); SP_HOST_ADDR= there is empty, so the .env's line is the one
+    the host reads (removed, addendum 48 item 6); NTFY_TOPIC is pack-only but not ruled (kept). Every other line is
+    byte-identical; the .env before it is kept beside it, 0600."""
+    pk = _pack_168(world, host, monkeypatch, PACK_ENV_168)
+    world["real_env"].write_text(REAL_ENV_TEXT + "CFBD_API_KEY=host-cfbd\nSP_HOST_ADDR=\n")
+    (host["h"] / ".env").write_text("DATABASE_URL=sqlite:///./data/sports.db\n")
+    capsys.readouterr()
+    assert _install_168(host, pk) == 0
+    out = capsys.readouterr().out
+    assert ("· pack-only settings removed from the checkout's .env (addendum 168 item 3; names only, never values): "
+            "SP_EXPORTS_MIRROR_KEY, SP_HOST_ADDR · the .env before it kept as .env.pre-scrub-") in out
+    envp = host["h"] / ".env"
+    want = "".join(ln for ln in PACK_ENV_168.splitlines(keepends=True)
+                   if not ln.lstrip().startswith(("SP_EXPORTS_MIRROR_KEY", "SP_HOST_ADDR")))
+    assert envp.read_bytes() == want.encode()                        # other lines byte-identical, CRLF kept
+    assert c.parse_env_file(envp)["CFBD_API_KEY"] == "cfbd-secret-value-123"
+    assert c.parse_env_file(envp)["NTFY_TOPIC"] == "laptop-topic-value"
+    baks = list(host["h"].glob(".env.pre-scrub-*.bak"))
+    assert len(baks) == 1 and baks[0].read_bytes() == PACK_ENV_168.encode()
+    assert baks[0].stat().st_mode & 0o777 == 0o600
+    r = _lines(world["real_receipts"])[-1]
+    assert r["step"] == "install" and r["exit"] == 0
+    assert r["env_removed"] == ["SP_EXPORTS_MIRROR_KEY", "SP_HOST_ADDR"]
+    assert r["env_scrub_ruled"] == list(sp_cutover.PACK_ONLY_SCRUB) and r["env_kept_copy"] == str(baks[0])
+    receipts = world["real_receipts"].read_text()
+    for v in VALUES_168:
+        assert v not in out and v not in receipts
+
+
+def test_168_3_a_ruled_setting_the_host_checkout_already_had_is_kept(world, host, monkeypatch, capsys):
+    """Only a setting that came from the pack alone is removed: one the host checkout's .env already carried is not
+    pack-only (the preflight's comparison), so install leaves the pack's line."""
+    pk = _pack_168(world, host, monkeypatch, PACK_ENV_168)
+    (host["h"] / ".env").write_text("DATABASE_URL=sqlite:///./data/sports.db\nSP_HOST_ADDR=10.0.0.1\n"
+                                    "SP_EXPORTS_MIRROR_KEY=/home/sp/.ssh/k\nCFBD_API_KEY=host\n")
+    capsys.readouterr()
+    assert _install_168(host, pk) == 0
+    assert "never values): " not in capsys.readouterr().out
+    assert (host["h"] / ".env").read_bytes() == PACK_ENV_168.encode()
+    assert not list(host["h"].glob(".env.pre-scrub-*"))
+    r = _lines(world["real_receipts"])[-1]
+    assert r["env_removed"] == [] and r["env_kept_copy"] is None and "env_scrub_undecided" not in r
+
+
+def test_168_3_an_env_already_the_packs_decides_nothing_and_names_the_ruled_settings(world, host, monkeypatch, capsys):
+    """Law 4: when the checkout's .env is already the pack's before install, the .env the pack replaces is gone, so
+    which settings came only from the pack cannot be read: nothing is removed, the ruled names it carries are named."""
+    pk = _pack_168(world, host, monkeypatch, PACK_ENV_168)
+    (host["h"] / ".env").write_bytes(PACK_ENV_168.encode())
+    capsys.readouterr()
+    assert _install_168(host, pk) == 0
+    out = capsys.readouterr().out
+    assert "· NOT decided, nothing removed: SP_EXPORTS_MIRROR_KEY, CFBD_API_KEY, SP_HOST_ADDR — the checkout's .env " \
+           "was already the pack's before install" in out
+    assert (host["h"] / ".env").read_bytes() == PACK_ENV_168.encode()
+    r = _lines(world["real_receipts"])[-1]
+    assert r["env_removed"] == [] and r["env_scrub_undecided"] == ["SP_EXPORTS_MIRROR_KEY", "CFBD_API_KEY",
+                                                                   "SP_HOST_ADDR"]
+    for v in VALUES_168:
+        assert v not in out and v not in world["real_receipts"].read_text()
+
+
+def test_168_3_a_refused_install_after_the_env_is_placed_still_removes_and_receipts_the_names(
+        world, host, monkeypatch, capsys):
+    """The pack's .env never stays unscrubbed: install refusing after it placed the .env still removes the ruled
+    names, and the refusal's receipt carries them."""
+    pk = _pack_168(world, host, monkeypatch, PACK_ENV_168)
+    (host["h"] / ".env").write_text("DATABASE_URL=sqlite:///./data/sports.db\n")
+
+    def placed_then_failed(pack, replace):
+        (c.REPO / ".env").write_bytes((pack / sp_migrate.ENV).read_bytes())
+        raise SystemExit("✗ injected failure after the .env was placed")
+    monkeypatch.setattr(sp_migrate, "install", placed_then_failed)
+    assert _install_168(host, pk) == 1
+    r = _lines(world["real_receipts"])[-1]
+    assert r["step"] == "install" and "injected failure" in r["refused"]
+    assert r["env_removed"] == ["SP_EXPORTS_MIRROR_KEY", "CFBD_API_KEY", "SP_HOST_ADDR"]
+    left = c.parse_env_file(host["h"] / ".env")
+    assert not set(sp_cutover.PACK_ONLY_SCRUB) & set(left) and left["NTFY_TOPIC"] == "laptop-topic-value"
+
+
+def test_168_3_the_ruled_list_is_the_three_names():
+    assert sp_cutover.PACK_ONLY_SCRUB == ("SP_EXPORTS_MIRROR_KEY", "CFBD_API_KEY", "SP_HOST_ADDR")

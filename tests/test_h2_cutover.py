@@ -1202,3 +1202,145 @@ def test_168_3_architect_682_an_install_that_never_placed_the_env_names_the_unus
     assert f"· the copy kept before install is unused, nothing was removed: {keep}" in capsys.readouterr().out
     r = _lines(world["real_receipts"])[-1]
     assert r["env_removed"] == [] and r["env_kept_copy"] == str(keep)
+
+
+# ---------------- #691: the flip's host.env copy under #682's rule; #693: a scrub-plan read error is a refusal ----
+
+@pytest.mark.parametrize("as_root", [False, True])
+def test_691_the_flips_copy_and_temporary_name_are_created_0600_then_take_host_envs_owner_and_mode(
+        world, host, monkeypatch, as_root):
+    """ARCHITECT 2026-10-26 12:20 ET: "The flip's shutil.copy2 copy: its own small PR under the same rule" (#682: "a
+    copy of a file that holds secrets must be created 0600 before any byte is written"). Both names are opened 0600
+    with O_EXCL under umask 022; the copy ends byte-identical at host.env's mode (and owner, as root)."""
+    from datetime import datetime, timezone
+    world["real_env"].write_text("SP_PARALLEL_MODE=designated\nSP_WRITER_OF_RECORD=laptop\nAPI_KEY=secret\n")
+    os.chmod(world["real_env"], 0o640)
+    before = world["real_env"].read_bytes()
+    monkeypatch.setattr(c, "utc_now", lambda: datetime(2026, 10, 26, 13, 44, 59, tzinfo=timezone.utc))
+    monkeypatch.setattr(sp_cutover, "_euid", lambda: 0 if as_root else 1000)
+    owners, seen, real_open = [], [], sp_cutover.os.open
+    monkeypatch.setattr(sp_cutover.os, "fchown", lambda fd, uid, gid: owners.append((uid, gid)))
+
+    def spy(path, flags, mode=0o777, *a, **kw):
+        if "host.env" in str(path):
+            seen.append((Path(path).name, flags, mode))
+        return real_open(path, flags, mode, *a, **kw)
+    monkeypatch.setattr(sp_cutover.os, "open", spy)
+    ctx = sp_cutover.Ctx(pack=world["pack"], timers_file=host["timers"], runner=FakeSystemctl(active=[]))
+    old = os.umask(0o022)
+    try:
+        rec = sp_cutover.step_flip(ctx)
+    finally:
+        os.umask(old)
+    keep = world["real_env"].parent / "host.env.pre-cutover-20261026T134459Z"
+    assert [n for n, _, _ in seen] == [keep.name, ".host.env.cutover-tmp"]
+    for n, flags, mode in seen:
+        assert mode == 0o600 and flags & os.O_EXCL and flags & os.O_CREAT, (n, oct(mode))
+    assert keep.read_bytes() == before and keep.stat().st_mode & 0o777 == 0o640
+    assert world["real_env"].stat().st_mode & 0o777 == 0o640
+    assert not (world["real_env"].parent / ".host.env.cutover-tmp").exists()
+    st = world["real_env"].stat()
+    assert owners == ([(st.st_uid, st.st_gid)] * 2 if as_root else [])
+    assert rec["kept_copy"] == str(keep) and rec["changed"] is True
+
+
+def test_691_a_flip_copy_name_taken_in_the_race_is_refused_never_overwritten(world, host, monkeypatch):
+    from datetime import datetime, timezone
+    world["real_env"].write_text("SP_WRITER_OF_RECORD=laptop\n")
+    monkeypatch.setattr(c, "utc_now", lambda: datetime(2026, 10, 26, 13, 44, 59, tzinfo=timezone.utc))
+    keep = world["real_env"].parent / "host.env.pre-cutover-20261026T134459Z"
+    real_write = sp_cutover._write_private
+
+    def taken_first(path, data, owner=None, mode=None):
+        if path == keep and not keep.exists():
+            keep.write_text("EARLIER\n")           # appears between the exists() check and the create
+        return real_write(path, data, owner, mode)
+    monkeypatch.setattr(sp_cutover, "_write_private", taken_first)
+    ctx = sp_cutover.Ctx(pack=world["pack"], timers_file=host["timers"], runner=FakeSystemctl(active=[]))
+    with pytest.raises(sp_cutover.Refused):
+        sp_cutover.step_flip(ctx)
+    assert keep.read_text() == "EARLIER\n" and world["real_env"].read_text() == "SP_WRITER_OF_RECORD=laptop\n"
+    assert "exists — never overwritten" in _lines(world["real_receipts"])[-1]["refused"]
+
+
+@pytest.mark.parametrize("as_root", [False, True])
+def test_693_a_scrub_plan_read_error_is_a_receipted_install_refusal_nothing_installed(
+        world, host, monkeypatch, as_root):
+    """ARCHITECT 2026-10-26 13:00 ET (#682 round-5 P2, #693): "follow-up Issue, not a block (nothing installed on that
+    path; the fix rides with #691)." An OSError while the plan reads the .env files refuses install with a receipt,
+    on the in-process path and the root path, never a traceback; nothing is installed and no step runs."""
+    pk = _pack_168(world, host, monkeypatch, PACK_ENV_168)
+    (host["h"] / ".env").write_text("DATABASE_URL=sqlite:///./data/sports.db\n")
+
+    def vanished(ctx, man):
+        raise FileNotFoundError(2, "No such file or directory", str(c.REPO / ".env"))
+    monkeypatch.setattr(sp_cutover, "_scrub_plan", vanished)
+    called, ran = [], []
+    monkeypatch.setattr(sp_migrate, "install", lambda pack, replace: called.append(pack) or 0)
+    if as_root:
+        monkeypatch.setattr(sp_cutover, "_euid", lambda: 0)
+        ctx = sp_cutover.Ctx(pack=pk, timers_file=host["timers"], runner=lambda argv: ran.append(argv) or (0, ""))
+        with pytest.raises(sp_cutover.Refused):
+            sp_cutover.step_install(ctx)
+    else:
+        assert _install_168(host, pk) == 1
+    assert called == [] and ran == []
+    r = _lines(world["real_receipts"])[-1]
+    assert r["step"] == "install" and r["exit"] == 1
+    assert "the .env settings could not be read (FileNotFoundError" in r["refused"] and "nothing installed" in \
+        r["refused"]
+    assert not list(world["real_env"].parent.glob("checkout.env.pre-scrub-*"))
+
+
+def test_691_codex_695_every_other_byte_of_host_env_is_kept_whatever_the_locale(world, host, monkeypatch):
+    """Codex on #695: the rewrite is the bytes read, line for line; only the flag's line changes (no re-encoding)."""
+    body = "SP_PARALLEL_MODE=designated\nSP_WRITER_OF_RECORD=laptop\nNOTE=café — ok\n".encode()
+    world["real_env"].write_bytes(body)
+    real_read_text = Path.read_text
+    monkeypatch.setattr(Path, "read_text", lambda self, encoding=None, errors=None: real_read_text(
+        self, encoding=encoding or "utf-8", errors=errors))
+    ctx = sp_cutover.Ctx(pack=world["pack"], timers_file=host["timers"], runner=FakeSystemctl(active=[]))
+    sp_cutover.step_flip(ctx)
+    assert world["real_env"].read_bytes() == body.replace(b"SP_WRITER_OF_RECORD=laptop", b"SP_WRITER_OF_RECORD=host")
+
+
+def test_691_codex_695_an_undecodable_host_env_stops_the_flip_before_any_write(world, host):
+    """The post-check reads host.env as text, so a host.env that does not decode stops the flip before the copy and
+    the rewrite. (Every receipt reads host.env too, so its refusal cannot be receipted: law 4, nothing written.)"""
+    world["real_env"].write_bytes(b"SP_WRITER_OF_RECORD=laptop\nBAD=\xff\xfe\n")
+    before = sorted(q.name for q in world["real_env"].parent.iterdir())
+    ctx = sp_cutover.Ctx(pack=world["pack"], timers_file=host["timers"], runner=FakeSystemctl(active=[]))
+    with pytest.raises((sp_cutover.Refused, UnicodeError)):
+        sp_cutover.step_flip(ctx)
+    assert world["real_env"].read_bytes() == b"SP_WRITER_OF_RECORD=laptop\nBAD=\xff\xfe\n"
+    assert sorted(q.name for q in world["real_env"].parent.iterdir()) == before
+
+
+def test_691_codex_695_a_failed_cleanup_never_hides_the_receipted_refusal(world, host, monkeypatch):
+    world["real_env"].write_text("SP_WRITER_OF_RECORD=laptop\n")
+    real_unlink = Path.unlink
+
+    def stuck(self, missing_ok=False):
+        if self.name == ".host.env.cutover-tmp":
+            raise OSError(30, "Read-only file system", str(self))
+        return real_unlink(self, missing_ok=missing_ok)
+    monkeypatch.setattr(Path, "unlink", stuck)
+    ctx = sp_cutover.Ctx(pack=world["pack"], timers_file=host["timers"], runner=FakeSystemctl(active=[]))
+    with pytest.raises(sp_cutover.Refused):
+        sp_cutover.step_flip(ctx)
+    r = _lines(world["real_receipts"])[-1]
+    assert r["step"] == "flip" and "host env not rewritten (OSError)" in r["refused"]
+    assert world["real_env"].read_text() == "SP_WRITER_OF_RECORD=laptop\n"
+
+
+def test_693_codex_695_an_undecodable_pack_env_is_a_receipted_install_refusal(world, host, monkeypatch):
+    """Codex on #695: the pack's .env that does not decode is a receipted refusal, nothing installed."""
+    pk = _pack_168(world, host, monkeypatch, PACK_ENV_168)
+    (host["h"] / ".env").write_text("DATABASE_URL=sqlite:///./data/sports.db\n")
+    (pk / sp_migrate.ENV).write_bytes(PACK_ENV_168.encode() + b"\nBAD=\xff\xfe\n")
+    called = []
+    monkeypatch.setattr(sp_migrate, "install", lambda pack, replace: called.append(pack) or 0)
+    assert _install_168(host, pk) == 1
+    assert called == []
+    r = _lines(world["real_receipts"])[-1]
+    assert r["step"] == "install" and "the .env settings could not be read (UnicodeDecodeError" in r["refused"]

@@ -78,7 +78,7 @@ set by `SP_IMPROVE_HOLD_ON_PASS=1`, which the chain template sets.
 | sp-intl-daily | intl-daily (the incremental intl sync, the v3 venue step, the UNL shadow export) | daily 07:20 UTC | daily |
 | sp-mlb-history | mlb-history (MLB PHASE A: the api-sports fallback's MLB history; sync only) | daily 10:30 UTC | daily |
 | sp-window | window (the next-24h card and delta pages); from the next deploy (ARCHITECT 2026-10-24, addendum 164 item 2(a)) also the capture-only Kalshi sync of PD `KXLALIGAGAME`, SA `KXSERIEAGAME`, BL1 `KXBUNDESLIGAGAME`, FL1 `KXLIGUE1GAME` and ELC `KXEFLCHAMPIONSHIPGAME` (`chains.WINDOW_KALSHI_CAPTURE_ONLY`: one `sync-kalshi-soccer --competition <code>` per league, one series per call, when the league's next kickoff is near or imminent; no export, no call, no venue line on the card) | hourly at :05, hours 00-03 and 06-23 UTC (H0-3) | — |
-| sp-closing-watch | (closing.py watch, NFL and SOCCER; not a chain) — **held for the cutover ruling** (T11 `HELD_FOR_CUTOVER`, C7) | every minute (the one H0-3 exemption, by name) | — |
+| sp-closing-watch | (closing.py watch, NFL and SOCCER; not a chain) — enabled at the cutover, 2026-10-26 13:47Z (T11 `TIMERS`; ARCHITECT 2026-10-26, addendum 168 item 5; held for the cutover ruling until then, C7) | every minute (the one H0-3 exemption, by name) | — |
 | *(none)* | soccer-refresh | **operator-started** (H0-6) | fresh prerefresh |
 
 **H0-3 reboot window.** No timer fires between 04:15 and 05:15 UTC. CI
@@ -753,19 +753,21 @@ Receipt: the push arrives on the phone, and the printed line says
 TIMERS="sp-backup.timer sp-backup-prune.timer sp-soccer-friday.timer sp-soccer-saturday.timer
   sp-soccer-morning-after.timer sp-nfl-lines.timer sp-nfl-grade.timer sp-nfl-predict.timer
   sp-nhl-daily.timer sp-weekly-fullseason.timer sp-ncaa-market.timer sp-window.timer
-  sp-mlb-history.timer sp-intl-daily.timer sp-exports-squash.timer sp-ncaa-schedule.timer"
+  sp-mlb-history.timer sp-intl-daily.timer sp-exports-squash.timer sp-ncaa-schedule.timer
+  sp-closing-watch.timer"
 MLB_LAPTOP_ONLY="sp-mlb-morning.timer sp-mlb-preslate.timer sp-clv-capture.timer"   # NOT enabled: statsapi 406 on the DO ASN (H1b note)
-HELD_FOR_CUTOVER="sp-closing-watch.timer"   # NOT enabled: shipped and held for the cutover ruling (addendum 45 P3, C7)
 echo $TIMERS | sudo tee /etc/sports-predictor/timers.enabled   # the list H2 steps 2 and 6 reuse
 systemctl enable --now sp-boot-receipt.service sp-web.service
 systemctl enable --now $TIMERS
 systemctl list-timers 'sp-*' --no-pager     # receipt: next-elapse for each
 ```
-- Every shipped timer is on `TIMERS`, `MLB_LAPTOP_ONLY` or `HELD_FOR_CUTOVER`; CI checks it.
-- `HELD_FOR_CUTOVER` (ARCHITECT 2026-10-12, addendum 45 P3: "A third list in the T11 test names the units that
-  are shipped and held for the cutover ruling"): `sp-closing-watch.timer`. C7 stands: the cutover ruling decides
-  when it runs. Its step is h2-cutover-runbook.md section 1 step 5b; install.sh copies the unit and enables
-  nothing, and no deploy enables it.
+- Every shipped timer is on `TIMERS` or `MLB_LAPTOP_ONLY`; CI checks it.
+- `sp-closing-watch.timer` is on `TIMERS` from the cutover (ARCHITECT 2026-10-26, addendum 168 item 5:
+  "hosting-h1.md's T11 HELD_FOR_CUTOVER list: sp-closing-watch.timer moves to TIMERS (CI's check follows)"). Until
+  then it was the one name on a third list, `HELD_FOR_CUTOVER` (ARCHITECT 2026-10-12, addendum 45 P3: "A third
+  list in the T11 test names the units that are shipped and held for the cutover ruling"; C7: the cutover ruling
+  decides when it runs). The host enabled it at h2-cutover-runbook.md section 1 step 5b, 2026-10-26 13:47Z
+  (timers.enabled 17 lines), and the third list is retired. install.sh still copies the unit and enables nothing.
 - `TIMERS` includes the soccer model-bearing timers (B4, seeded registry)
   and `sp-ncaa-market.timer` (H0-11).
 - The MLB timers stay off. They are shipped and CI-validated, ready for
@@ -1044,8 +1046,8 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
     name only, every timer the deployed tag ships that `/etc/sports-predictor/timers.enabled` does not list,
     under the T11 list that carries it (ARCHITECT 2026-10-23, addendum 155 item 8(b): the host ran without
     `sp-ncaa-schedule.timer` from 10-09 to 10-23). A `TIMERS` timer missing reads "!": install and enable it
-    by T11's recipe for a live host. The `MLB_LAPTOP_ONLY` and `HELD_FOR_CUTOVER` timers are off by T11 and
-    print on a plain line. An unreadable `timers.enabled` prints "!" and no list.
+    by T11's recipe for a live host. The `MLB_LAPTOP_ONLY` timers are off by T11 and print on a plain line
+    (`HELD_FOR_CUTOVER`, the third list, was retired at the cutover: addendum 168 item 5). An unreadable `timers.enabled` prints "!" and no list.
 - **Midweek PL round (H0-10), operator-started.**
   `sudo -u sp venv/bin/python deploy/hosting/sp_run.py soccer-prematch --set sat=<first-day> --set sat_plus3=<day-after-last>`.
 - **Seasons (H0-8).**

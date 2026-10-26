@@ -978,3 +978,78 @@ def test_168_3_a_refused_install_after_the_env_is_placed_still_removes_and_recei
 
 def test_168_3_the_ruled_list_is_the_three_names():
     assert sp_cutover.PACK_ONLY_SCRUB == ("SP_EXPORTS_MIRROR_KEY", "CFBD_API_KEY", "SP_HOST_ADDR")
+
+
+def test_168_3_codex_682_a_taken_backup_name_gets_a_suffix_and_the_scrub_still_runs(world, host, monkeypatch, capsys):
+    """Codex on #682 (P2): a retry in the same second finds the backup name taken. The kept copy takes a -N suffix,
+    the earlier copy is never overwritten, and the ruled names are still removed."""
+    from datetime import datetime, timezone
+    pk = _pack_168(world, host, monkeypatch, PACK_ENV_168)
+    (host["h"] / ".env").write_text("DATABASE_URL=sqlite:///./data/sports.db\n")
+    monkeypatch.setattr(c, "utc_now", lambda: datetime(2026, 10, 26, 13, 44, 0, tzinfo=timezone.utc))
+    earlier = host["h"] / ".env.pre-scrub-20261026T134400Z.bak"
+    earlier.write_bytes(b"EARLIER=kept\n")
+    assert _install_168(host, pk) == 0
+    assert earlier.read_bytes() == b"EARLIER=kept\n"
+    second = host["h"] / ".env.pre-scrub-20261026T134400Z-1.bak"
+    assert second.read_bytes() == PACK_ENV_168.encode()
+    r = _lines(world["real_receipts"])[-1]
+    assert r["env_kept_copy"] == str(second) and r["env_removed"] == ["SP_EXPORTS_MIRROR_KEY", "CFBD_API_KEY",
+                                                                      "SP_HOST_ADDR"]
+
+
+def test_168_3_codex_682_the_secret_copies_are_created_0600_from_the_outset(world, host, monkeypatch):
+    """Codex on #682 (P1): the kept copy and the temporary name are created with mode 0600 and O_EXCL, never written
+    at a wider mode first, whatever the umask."""
+    pk = _pack_168(world, host, monkeypatch, PACK_ENV_168)
+    (host["h"] / ".env").write_text("DATABASE_URL=sqlite:///./data/sports.db\n")
+    seen, real_open = [], sp_cutover.os.open
+
+    def spy(path, flags, mode=0o777, *a, **kw):
+        if ".env" in str(path):
+            seen.append((Path(path).name, flags, mode))
+        return real_open(path, flags, mode, *a, **kw)
+    monkeypatch.setattr(sp_cutover.os, "open", spy)
+    old = os.umask(0o022)
+    try:
+        assert _install_168(host, pk) == 0
+    finally:
+        os.umask(old)
+    names = [n for n, _, _ in seen]
+    assert any(n.startswith(".env.pre-scrub-") for n in names) and "..env.scrub-tmp" in names
+    for n, flags, mode in seen:
+        assert mode == 0o600 and flags & os.O_EXCL and flags & os.O_CREAT, (n, oct(mode))
+    assert not (host["h"] / "..env.scrub-tmp").exists()
+
+
+def test_168_3_codex_682_a_scrub_io_error_is_a_receipted_refusal_not_a_traceback(world, host, monkeypatch, capsys):
+    """Codex on #682 (P2): an OSError while scrubbing (a full disk at the replace) refuses install with a receipt
+    naming the error and the settings to remove by hand; no traceback, no value printed."""
+    pk = _pack_168(world, host, monkeypatch, PACK_ENV_168)
+    (host["h"] / ".env").write_text("DATABASE_URL=sqlite:///./data/sports.db\n")
+
+    def full(src, dst):
+        raise OSError(28, "No space left on device")
+    monkeypatch.setattr(sp_cutover.os, "replace", full)
+    capsys.readouterr()
+    assert _install_168(host, pk) == 1
+    out = capsys.readouterr().out
+    assert "could not be removed from the checkout's .env (OSError: [Errno 28] No space left on device): remove " \
+           "SP_EXPORTS_MIRROR_KEY, CFBD_API_KEY, SP_HOST_ADDR from it by hand" in out
+    r = _lines(world["real_receipts"])[-1]
+    assert r["step"] == "install" and r["exit"] == 1 and "could not be removed" in r["refused"]
+    assert r["env_removed"] == [] and r["env_scrub_planned"] == ["SP_EXPORTS_MIRROR_KEY", "CFBD_API_KEY",
+                                                                 "SP_HOST_ADDR"]
+    for v in VALUES_168:
+        assert v not in out and v not in world["real_receipts"].read_text()
+
+
+def test_168_3_codex_682_the_secret_copies_are_gitignored():
+    """Codex on #682 (P1): the kept copy, a hand-made .env.bak and the temporary name are ignored by git, so a routine
+    `git add -A` on the host never stages a secret; .env.example stays tracked."""
+    import subprocess
+    root = Path(__file__).resolve().parent.parent
+    for name in (".env.pre-scrub-20261026T134000Z.bak", ".env.pre-scrub-20261026T134000Z-1.bak", ".env.bak",
+                 "..env.scrub-tmp"):
+        assert subprocess.run(["git", "-C", str(root), "check-ignore", "-q", name]).returncode == 0, name
+    assert subprocess.run(["git", "-C", str(root), "check-ignore", "-q", ".env.example"]).returncode == 1

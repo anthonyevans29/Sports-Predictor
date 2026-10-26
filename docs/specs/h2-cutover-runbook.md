@@ -296,7 +296,7 @@ Which machine runs item 5's readout (ARCHITECT 2026-10-18, addendum 128 item 1(a
      names; and the ruling text in the runbook says a pack-only setting that names a path on the source machine is
      never "expected"." `install` decides "pack-only" with the preflight's own comparison, read just before the pack's
      `.env` replaces the checkout's; a setting to which host.env gives a value is kept (an empty `NAME=` is not a
-     value). It keeps the `.env` as `.env.pre-scrub-<ts>.bak` (0600) beside it, removes only those lines (every other
+     value). It keeps the `.env` as `.env.pre-scrub-<ts>.bak` beside it (created 0600 from the outset, a taken name gets a `-N` suffix, and the copy is gitignored: Codex on #682), removes only those lines (every other
      line byte-identical), and prints and receipts the names (`env_removed`), never a value. A name not on the ruled
      list is never removed: it stays on `env_changes`, names only. When the checkout's `.env` is already the pack's
      before `install`, which settings came only from the pack cannot be read: nothing is removed and the ruled names it

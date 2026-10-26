@@ -1,5 +1,10 @@
 # Environment
 .env
+# .env copies hold secrets (Codex on #682; addendum 168 item 3): the scrub's kept copy, its temporary name,
+# and a hand-made .bak beside it
+.env.*.bak
+.env.bak
+*.scrub-tmp
 .venv/
 venv/
 env/

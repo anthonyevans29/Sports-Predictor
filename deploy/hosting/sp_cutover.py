@@ -636,30 +636,46 @@ def _scrub_plan(ctx: Ctx, man: dict) -> dict:
     return {"remove": [k for k in PACK_ONLY_SCRUB if k in pack_only], "undecided": [], "why": None}
 
 
+def _write_private(path: Path, data: bytes) -> None:
+    """Create `path` with mode 0600 from the outset (O_CREAT | O_EXCL: never an existing file, never a wider mode while
+    the secret bytes are written; Codex on #682), then write `data`. FileExistsError if the name is taken."""
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+    except BaseException:
+        path.unlink(missing_ok=True)
+        raise
+
+
 def _scrub_env(ctx: Ctx, man: dict, plan: dict) -> dict:
     """Addendum 168 item 3: remove the planned names from the checkout's .env once it is the pack's. Line-preserving
-    (every other line byte-identical), a copy kept beside it first (.env.pre-scrub-<ts>.bak, 0600), names printed and
-    returned, never a value."""
+    (every other line byte-identical), a copy kept beside it first (.env.pre-scrub-<ts>.bak, created 0600, a name never
+    reused: a taken name gets a -N suffix, so a retry in the same second still scrubs), names printed and returned, never
+    a value. An OSError propagates to the caller, which receipts it as a refusal (Codex on #682)."""
     envp = c.REPO / ".env"
     out = {"env_scrub_ruled": list(PACK_ONLY_SCRUB), "env_removed": [], "env_kept_copy": None}
     placed = envp.is_file() and c.sha256_file(envp) == man["files"].get(sp_migrate.ENV)
     names = plan["remove"] if placed else []
     if names:
-        with open(envp, newline="") as f:     # newline="": every line's own ending kept, \r\n included
-            lines = f.read().splitlines(keepends=True)
-        kept = [ln for ln in lines if _env_key(ln) not in names]
+        data = envp.read_bytes()              # bytes: every line's own ending kept, \r\n included
+        lines = data.splitlines(keepends=True)
+        kept = [ln for ln in lines if _env_key(ln.decode("utf-8", "replace")) not in names]
         stamp = c.utc_now().strftime("%Y%m%dT%H%M%SZ")
-        bak = envp.with_name(f"{envp.name}.pre-scrub-{stamp}.bak")
-        if bak.exists():
-            _refuse(ctx, "install", f"{bak} exists — never overwritten (the .env is the pack's, unscrubbed)",
-                    env_scrub_ruled=list(PACK_ONLY_SCRUB), env_removed=[])
+        for n in range(100):
+            bak = envp.with_name(f"{envp.name}.pre-scrub-{stamp}{'' if n == 0 else f'-{n}'}.bak")
+            try:
+                _write_private(bak, data)
+                break
+            except FileExistsError:
+                continue
+        else:
+            raise FileExistsError(f"{envp.name}.pre-scrub-{stamp}[-N].bak: 100 names taken")
         mode = envp.stat().st_mode & 0o7777
-        shutil.copyfile(envp, bak)
-        os.chmod(bak, 0o600)
         tmp = envp.with_name(f".{envp.name}.scrub-tmp")
-        with open(tmp, "w", newline="") as f:
-            f.write("".join(kept))
-        os.chmod(tmp, mode)
+        tmp.unlink(missing_ok=True)           # a stale temporary name from an interrupted run is never written into
+        _write_private(tmp, b"".join(kept))
+        os.chmod(tmp, mode)                   # the .env's own mode, as install left it
         os.replace(tmp, envp)
         out.update(env_removed=list(names), env_kept_copy=str(bak))
         print(f"· pack-only settings removed from the checkout's .env (addendum 168 item 3; names only, never "
@@ -673,6 +689,15 @@ def _scrub_env(ctx: Ctx, man: dict, plan: dict) -> dict:
     return out
 
 
+def _scrub_failed(plan: dict, e: OSError) -> dict:
+    """The receipt fields for a scrub that raised (Codex on #682): the names it meant to remove, none removed."""
+    err = f"{e.__class__.__name__}: {e}"
+    print(f"✗ the ruled pack-only settings could not be removed from the checkout's .env ({err}): remove "
+          f"{', '.join(plan['remove']) or '(none planned)'} from it by hand (addendum 168 item 3)")
+    return {"env_scrub_ruled": list(PACK_ONLY_SCRUB), "env_removed": [], "env_kept_copy": None,
+            "env_scrub_planned": list(plan["remove"]), "env_scrub_error": err}
+
+
 def _install_in_process(ctx: Ctx) -> dict:
     s = "install"
     man = _manifest(ctx)
@@ -683,7 +708,13 @@ def _install_in_process(ctx: Ctx) -> dict:
             try:
                 rc = sp_migrate.install(ctx.pack, replace=True)
             finally:                          # the pack's .env never stays unscrubbed, whatever install did after it
-                scrub = _scrub_env(ctx, man, plan)
+                try:
+                    scrub = _scrub_env(ctx, man, plan)
+                except OSError as e:          # receipted, never a traceback (Codex on #682)
+                    scrub = _scrub_failed(plan, e)
+            if scrub.get("env_scrub_error"):
+                _refuse(ctx, s, f"the pack's .env is in place but the ruled pack-only settings could not be removed "
+                                f"({scrub['env_scrub_error']}) — remove them from the checkout's .env by hand", **scrub)
             target = c.db_path()
             s2 = c.sha256_file(target) if target.exists() else None
             r2 = c.table_counts(target)

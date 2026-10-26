@@ -1532,8 +1532,12 @@ def results_tally(days: int = 30, out_path: str = "RESULTS.md", report=None, exp
                     + (f"- Mean log-loss: {r['logloss']:.4f}\n" if r.get("logloss") is not None else "")
                     + (f"- Mean model-close divergence (pick): {r['mean_clv_pp']:+.2f}pp\n"
                        if r.get("mean_clv_pp") is not None else "")
+                    # #687 (ARCHITECT 2026-10-26 11:55 ET): "results-tally names which value-shadow definition its
+                    # cohort line counts (graded.value_shadow, the earlier anchor, vs desk.value_shadow, the day's
+                    # set)". Text only: neither definition changes.
                     + (f"- Mean model-close divergence (value side): {r['mean_value_side_clv_pp']:+.2f}pp"
-                       f" (n={r['value_side_n']} anchored; value-shadow cohort "
+                       f" (n={r['value_side_n']} anchored; value-shadow cohort, counted on graded.value_shadow (the "
+                       f"results file's earlier anchor, not the closing files' desk.value_shadow) "
                        + (f"{r['mean_value_shadow_clv_pp']:+.2f}pp" if r['mean_value_shadow_clv_pp'] is not None else "—")
                        + f", n={r['value_shadow_n']})\n"
                        if r.get("mean_value_side_clv_pp") is not None else

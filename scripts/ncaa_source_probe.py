@@ -48,6 +48,12 @@ from src.walters.ncaa_backtest import (  # noqa: E402
 SAMPLE = 15
 
 
+
+def row_season(rec: dict, year) -> str:
+    """The row's season for the 2023 fence: its own, else the requested year when it is missing, null or empty
+    (Codex on #697: a null row season never unmasks a 2023 sample)."""
+    return str(rec.get("season") or year)
+
 def fenced(year) -> bool:
     """The test-season fence (ARCHITECT 2026-10-08, addendum 15 item 1(b), verbatim): "Until the run is recorded,
     for 2025 its two rate-and-margin lines print n and the withheld notice in place of the rates and margins. The
@@ -129,7 +135,7 @@ def compare(records: list, keys: dict, session, division: str | None = None, yea
                 # the 2023 fence (addendum 161 item 1): a game of the second read's scored set prints no score
                 st = rec.get(keys["season_type"]) if keys.get("season_type") else None
                 wk = rec.get(keys["week"]) if keys.get("week") else None
-                season = rec.get("season", year)
+                season = row_season(rec, year)
                 if fenced_2023(str(season), st, wk if isinstance(wk, int) and not isinstance(wk, bool) else None):
                     line = mask_scores(line)
                 score_bad.append(line)

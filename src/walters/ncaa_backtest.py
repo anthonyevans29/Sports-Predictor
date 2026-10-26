@@ -608,24 +608,30 @@ V2_2023_SCOPE = (f"{V2_SECOND} 'regular' games from week {V2_SECOND_MIN_WEEK} (t
                  "a week or season_type unknown counts as fenced)")
 V2_2023_FENCED = f"withheld until the {V2_EID} run is recorded ({V2_2023_FENCE_RULING}: {V2_2023_SCOPE})"
 SCORE_WITHHELD = "[score withheld]"
-_SCORE = re.compile(r"(?<![\d-])\d{1,3}-\d{1,3}(?![\d-])")
+# a score pair, either side possibly missing ('7-None': resync-diff prints a stored or provider score it lacks as None;
+# Codex on #697)
+_SCORE = re.compile(r"(?<![\w-])(?:\d{1,3}|None)-(?:\d{1,3}|None)(?![\w-])")
 
 
 def fenced_2023(season, season_type, week, recorded: bool | None = None) -> bool:
-    """True when the game is in the 2023 fence's scope and the ncaa-elo-v2 run is not recorded: season 2023,
-    season_type 'regular' (or unknown) and week 5 or later (or unknown). A 2023 postseason game and a week 0-4 regular
-    game are readable."""
+    """True when the game is in the 2023 fence's scope and the ncaa-elo-v2 run is not recorded: season 2023, unless it
+    is shown to be outside the scored set. Readable: season_type exactly 'postseason' (CFBD's value), or exactly
+    'regular' with an integer week before 5. Everything else (a week 5+ regular game, an unknown or unrecognized
+    season_type, an unknown week) is fenced (law 4; Codex on #697: only a recognized postseason value bypasses)."""
     if str(season) != V2_SECOND:
         return False
-    if season_type is not None and str(season_type) != "regular":
+    st = None if season_type is None else str(season_type)
+    if st == "postseason":
         return False
-    if week is not None and not isinstance(week, bool) and isinstance(week, int) and week < V2_SECOND_MIN_WEEK:
+    if (st == "regular" and week is not None and not isinstance(week, bool) and isinstance(week, int)
+            and week < V2_SECOND_MIN_WEEK):
         return False
     return not (v2_run_recorded() if recorded is None else recorded)
 
 
 def mask_scores(text: str) -> str:
-    """A line on a fenced game with every score ('31-10') replaced by SCORE_WITHHELD; dates ('2023-09-06') are kept."""
+    """A line on a fenced game with every score ('31-10', or a partial '7-None') replaced by SCORE_WITHHELD; dates
+    ('2023-09-06') are kept."""
     return _SCORE.sub(SCORE_WITHHELD, text)
 
 

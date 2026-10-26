@@ -827,6 +827,10 @@ def run(years: list[int], from_file: str | None = None, dry_run: bool = False, s
             + (f" · payload saved {payload_label(saved)}" if saved and not from_file else "")
             + (" · payload NOT saved (dry run)" if dry_run and not from_file else ""))
         pf = payload_label(saved) if saved else None
+        with session_scope() as s:                  # the listing census before any exit (Codex on #697): an empty
+            listing = stored_listing(s, year)       # answer is told apart from a season we never synced
+            s.rollback()
+        out(listing_line(year, listing))
         if not recs:
             if not dry_run:
                 with session_scope() as s:
@@ -847,7 +851,6 @@ def run(years: list[int], from_file: str | None = None, dry_run: bool = False, s
             continue
         starts = [d for d in (parse_start(x.get(keys["start"])) for x in recs) if d is not None]
         with session_scope() as s:
-            listing = stored_listing(s, year)
             teams = ncaa_teams(s)
             ours = load_ours(s, min(starts), max(starts), teams) if starts else []
             res = build_labels(recs, keys, ours, teams, aliases, year, div)
@@ -862,7 +865,6 @@ def run(years: list[int], from_file: str | None = None, dry_run: bool = False, s
                 stale = s.execute(select(func.count()).select_from(NCAACFBDLabel).where(
                     NCAACFBDLabel.season == str(year),
                     NCAACFBDLabel.match_id.notin_([x["match_id"] for x in res.rows]))).scalar_one()
-        out(listing_line(year, listing))
         for line in receipt_lines(res, limit=limit, unmatched_names=unmatched_names):
             out(line)
         if wrote is not None:

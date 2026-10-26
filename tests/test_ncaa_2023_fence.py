@@ -27,12 +27,18 @@ def test_the_ruling_verbatim_the_scope_and_the_lift():
     assert nb.V2_2023_FENCE == RULING and nb.V2_SECOND == "2023" and nb.V2_SECOND_MIN_WEEK == 5
     for args, want in ((("2023", "regular", 5), True), (("2023", "regular", 12), True), (("2023", "regular", None), True),
                        (("2023", None, None), True), (("2023", "regular", 4), False), (("2023", "regular", 0), False),
-                       (("2023", "postseason", None), False), (("2024", "regular", 9), False)):
+                       (("2023", "postseason", None), False), (("2024", "regular", 9), False),
+                       # Codex on #697: only a recognized postseason value, or 'regular' with a week before 5, is read
+                       (("2023", None, 3), True), (("2023", "", 3), True), (("2023", "Regular", 3), True),
+                       (("2023", "Postseason", None), True), (("2023", "bowl", 2), True)):
         assert nb.fenced_2023(*args, recorded=False) is want, args
     assert nb.fenced_2023("2023", "regular", 9, recorded=True) is False          # the recorded run lifts it
     assert nb.fenced_2023("2023", "regular", 9) is True                         # the committed registry: unrun
     assert nb.mask_scores("2023-09-06 A @ B · ours 21-14, CFBD 14-21 · offset +1.0h") == \
         "2023-09-06 A @ B · ours [score withheld], CFBD [score withheld] · offset +1.0h"
+    # Codex on #697: a partial pair (resync-diff prints a missing side as None) is masked too
+    assert nb.mask_scores("2023-10-07 match 9 ours 1 @ 2 7-None · provider 11@12 None-21") == \
+        "2023-10-07 match 9 ours 1 @ 2 [score withheld] · provider 11@12 [score withheld]"
 
 
 def _labels(year, recorded, monkeypatch):
@@ -131,6 +137,10 @@ def test_the_source_probe_fences_2023(monkeypatch):
     spec.loader.exec_module(probe)
     assert probe.fenced(2023) and probe.fenced_notice(2023) == nb.V2_2023_FENCED
     assert probe.fenced_year(2099, [{"season": 2023}]) == "2023"
+    # Codex on #697: a row whose season is null or empty reads the requested year, so its sample stays masked
+    for rec in ({"season": None}, {"season": ""}, {}):
+        assert probe.row_season(rec, 2023) == "2023"
+    assert probe.row_season({"season": 2024}, 2023) == "2024"
     monkeypatch.setattr(nb, "v2_run_recorded", lambda *a, **k: True)
     assert not probe.fenced(2023)
 

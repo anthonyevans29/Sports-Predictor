@@ -224,3 +224,15 @@ def test_drop_db_drops_the_week_marker(fresh_db):
     assert not inspect(fresh_db).has_table(nc.WEEK_MIGRATION_MARKER)
     with session_scope() as s:
         assert nc.has_week(s) and not nc.week_migrated(s)
+
+
+def test_codex_697_the_listing_census_prints_before_an_empty_or_malformed_payload_exits(fresh_db, tmp_path, monkeypatch):
+    """Codex on #697: the stored-NCAA-by-status census is printed for every year, before the empty-payload and the
+    missing-field exits, so an empty provider answer is told apart from a season we never synced."""
+    _migrated_to_v2(fresh_db)
+    for recs in ([], [{"id": 1}]):
+        f = _payload(tmp_path, monkeypatch, recs=recs)
+        lines = []
+        nc.run([2084], from_file=str(f), dry_run=True, out=lines.append)
+        out = "\n".join(lines)
+        assert "OUR STORED NCAA MATCHES of season 2084" in out, recs

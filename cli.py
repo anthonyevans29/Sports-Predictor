@@ -9352,7 +9352,8 @@ def closing_run_cmd(family, start, dry_run):
               help="Print every family's start times and what would run; touch nothing (no network either).")
 def closing_watch_cmd(families, dry_run):
     """CLOSING WATCH, the tick every minute (laptop: scripts/setup_closing_watch.sh --family F, one launchd job; host:
-    sp-closing-watch.timer for NFL and SOCCER, shipped held, addendum 45).
+    sp-closing-watch.timer for NFL and SOCCER, addendum 45; enabled at the cutover, 2026-10-26 13:47Z, and on
+    hosting-h1.md T11's TIMERS from then, addendum 168 item 5).
     No network to decide: per family, the earliest unstarted start time not yet closed; at T-35 (no attempt inside
     T-5, at most three per start time) it starts closing-run for it, covering the games within the 10 minutes after
     it (MLB: after checking the MLB feed answers). Otherwise exit 0, silent. Then THE SLATE STAGE (ARCHITECT

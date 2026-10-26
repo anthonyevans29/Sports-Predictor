@@ -67,7 +67,8 @@ def test_the_print_on_the_ruled_day_lists_each_lane_in_order_with_its_next_step(
                         f"{first['earliest_live'] or 'not set'} · vs close: {first['vs_close']}")
     nxt = first["steps"][0]
     assert lines[i + 1] == f"  next: {nxt['what']} · {nxt['owner']} · due {nxt['due']} · in 29 days"
-    assert "  Cutover ~Oct 8 · 2026-10-30 · in 17 days" in lines
+    # done since addendum 168 item 5 (the H2 cutover, 2026-10-26 13:45:11Z): the line says done whatever the day
+    assert "  Cutover ~Oct 8 · 2026-10-30 · done 2026-10-26" in lines
     # done since addendum 154 item 3 (ruled 2026-10-20, addendum 146): the line says done whatever the day
     assert "  Executable-edge ruling (2 wks of ladders) · 2026-10-20 · done 2026-10-20" in lines
     assert lines[-1] == "overdue: 0"
@@ -931,4 +932,14 @@ def test_the_executable_edge_milestone_is_done_on_2026_10_20_and_its_date_did_no
     ms = {m["title"]: m for m in json.loads(rm.TAXONOMY_PATH.read_text(encoding="utf-8"))["milestones"]}
     m = ms["Executable-edge ruling (2 wks of ladders)"]
     assert m["due_on"] == "2026-10-20" and m["done"]["date"] == "2026-10-20" and "addendum 146" in m["done"]["receipt"]
-    assert all("done" not in x for t, x in ms.items() if t != "Executable-edge ruling (2 wks of ladders)")
+    assert all("done" not in x for t, x in ms.items()
+               if t not in ("Executable-edge ruling (2 wks of ladders)", "Cutover ~Oct 8"))
+
+
+def test_the_cutover_milestone_is_done_on_2026_10_26_and_its_date_did_not_move():
+    """ARCHITECT 2026-10-26, addendum 168 item 5: "the Cutover milestone in ledger/taxonomy.json DONE 2026-10-26 with
+    this receipt". The title (the milestone's key) and due_on 2026-10-30 are unchanged; the receipt names item 1."""
+    ms = {m["title"]: m for m in json.loads(rm.TAXONOMY_PATH.read_text(encoding="utf-8"))["milestones"]}
+    m = ms["Cutover ~Oct 8"]
+    assert m["due_on"] == "2026-10-30" and m["done"]["date"] == "2026-10-26"
+    assert "addendum 168 item 1" in m["done"]["receipt"] and "13:45:11Z" in m["done"]["receipt"]

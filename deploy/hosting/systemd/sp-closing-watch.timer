@@ -1,9 +1,10 @@
 # The host's closing watch tick (ARCHITECT 2026-10-12, addendum 45 P3): "One calendar line: every minute of every
 # hour. H0-3's buffer is for chains that write on a schedule. A tick with no start due reads the stored schedule and
 # ends, so this one timer is exempt from the buffer by name [...] and no start time is ever without a tick."
-# SHIPPED AND HELD for the cutover ruling (C7): on T11's HELD_FOR_CUTOVER list, never on TIMERS.
+# ENABLED at the cutover (h2-cutover-runbook.md section 1 step 5b, 2026-10-26 13:47Z): on T11's TIMERS from then
+# (ARCHITECT 2026-10-26, addendum 168 item 5). Until then it was shipped and held for the cutover ruling (C7).
 [Unit]
-Description=sports-predictor timer: sp-closing-watch (held for the cutover ruling)
+Description=sports-predictor timer: sp-closing-watch
 
 [Timer]
 OnCalendar=*-*-* *:*:00 UTC

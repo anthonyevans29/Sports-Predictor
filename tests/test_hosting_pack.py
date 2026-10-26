@@ -656,15 +656,14 @@ def test_the_migrate_pack_reads_its_copy_immutable_and_install_reads_the_live_db
 
 def test_ncaa_timer_ships_enabled_in_runbook():
     rb = (ROOT / "docs" / "specs" / "hosting-h1.md").read_text()
-    t11 = rb[rb.index("TIMERS=\""):rb.index("echo $TIMERS")]  # TIMERS + MLB_LAPTOP_ONLY + HELD_FOR_CUTOVER
+    t11 = rb[rb.index("TIMERS=\""):rb.index("echo $TIMERS")]  # TIMERS + MLB_LAPTOP_ONLY
     assert "HELD_B4" not in rb  # B4 ruled: the model-bearing timers enable with the rest
     enabled = t11[:t11.index("MLB_LAPTOP_ONLY=")]
     for mlb in ("sp-mlb-morning.timer", "sp-mlb-preslate.timer", "sp-clv-capture.timer"):
         assert mlb not in enabled, f"{mlb} must stay OFF the host enable list (statsapi ASN block)"
-    # Addendum 45 P3: "A third list in the T11 test names the units that are shipped and held for the cutover ruling."
-    held = t11[t11.index("HELD_FOR_CUTOVER="):].split("\n")[0]
-    assert re.findall(r"sp-[\w-]+\.timer", held) == ["sp-closing-watch.timer"]
-    assert "sp-closing-watch" not in enabled and "sp-closing-watch" not in t11[:t11.index("HELD_FOR_CUTOVER=")]
+    # Addendum 45 P3 held sp-closing-watch.timer on a third T11 list until the cutover ruling; ARCHITECT 2026-10-26,
+    # addendum 168 item 5: "sp-closing-watch.timer moves to TIMERS (CI's check follows)". The third list is retired.
+    assert "sp-closing-watch.timer" in enabled and "HELD_FOR_CUTOVER=" not in t11
     for f in (HOSTING / "systemd").glob("*.timer"):
         assert f.name in t11, f"{f.name} missing from the T11 lists"
 
@@ -791,7 +790,7 @@ def test_the_t11_lists_carry_the_renamed_timer():
     assert "sp-nfl-prematch.timer" in lists["TIMERS"]
     assert not any("sp-nfl-predict.timer" in lists[n] for n in c.T11_LISTS)
     assert {"sp-soccer-friday.timer", "sp-soccer-saturday.timer"} <= set(lists["TIMERS"])
-    assert lists["HELD_FOR_CUTOVER"] == ["sp-closing-watch.timer"]       # the watch's enable is the cutover's (A)
+    assert "sp-closing-watch.timer" in lists["TIMERS"] and "HELD_FOR_CUTOVER" not in lists  # on TIMERS from the cutover (addendum 168 item 5)
     rb = (ROOT / "docs" / "specs" / "hosting-h1.md").read_text()
     assert "| sp-nfl-prematch | nfl-prematch (was sp-nfl-predict / nfl-predict;" in rb
 
@@ -812,15 +811,14 @@ def test_the_deploy_receipt_names_the_shipped_timers_the_host_has_not_enabled(tm
     lists = c.t11_lists()
     st = sp_deploy.timers_state(enabled_path=_enabled(tmp_path, [t for t in lists["TIMERS"]
                                                                  if t != "sp-ncaa-schedule.timer"]))
-    assert st["not_enabled"] == sorted(["sp-ncaa-schedule.timer", *lists["MLB_LAPTOP_ONLY"], *lists["HELD_FOR_CUTOVER"]])
-    assert st["by_list"] == {"TIMERS": ["sp-ncaa-schedule.timer"], "MLB_LAPTOP_ONLY": sorted(lists["MLB_LAPTOP_ONLY"]),
-                             "HELD_FOR_CUTOVER": lists["HELD_FOR_CUTOVER"]}
+    assert st["not_enabled"] == sorted(["sp-ncaa-schedule.timer", *lists["MLB_LAPTOP_ONLY"]])
+    assert st["by_list"] == {"TIMERS": ["sp-ncaa-schedule.timer"], "MLB_LAPTOP_ONLY": sorted(lists["MLB_LAPTOP_ONLY"])}
     line = sp_deploy.timers_line(st)
     assert line.startswith("\n  ! shipped timers not in ") and "sp-ncaa-schedule.timer (TIMERS)" in line
-    assert "sp-closing-watch.timer (HELD_FOR_CUTOVER)" in line and "install and enable it" in line
-    # the host as T11 leaves it: only the lists T11 holds off are not enabled -> a plain line, no "!"
+    assert "install and enable it" in line
+    # the host as T11 leaves it: only the list T11 holds off is not enabled -> a plain line, no "!"
     ok = sp_deploy.timers_state(enabled_path=_enabled(tmp_path, lists["TIMERS"]))
-    assert ok["by_list"].keys() == {"MLB_LAPTOP_ONLY", "HELD_FOR_CUTOVER"}
+    assert ok["by_list"].keys() == {"MLB_LAPTOP_ONLY"}
     assert sp_deploy.timers_line(ok).startswith("\n  · shipped timers not in ") and "!" not in sp_deploy.timers_line(ok)
     every = sp_deploy.timers_state(enabled_path=_enabled(tmp_path, c.shipped_timers()))
     assert every["not_enabled"] == [] and "every shipped timer is in" in sp_deploy.timers_line(every)
@@ -838,12 +836,11 @@ def test_a_shipped_timer_on_no_t11_list_is_named_unlisted(tmp_path):
     (repo / "deploy" / "hosting" / "systemd").mkdir(parents=True)
     (repo / "docs" / "specs").mkdir(parents=True)
     (repo / "docs" / "specs" / "hosting-h1.md").write_text(
-        'TIMERS="sp-a.timer"\nMLB_LAPTOP_ONLY="sp-b.timer"\nHELD_FOR_CUTOVER="sp-c.timer"\n')
+        'TIMERS="sp-a.timer sp-c.timer"\nMLB_LAPTOP_ONLY="sp-b.timer"\n')
     for n in ("sp-a", "sp-b", "sp-c", "sp-new"):
         (repo / "deploy" / "hosting" / "systemd" / f"{n}.timer").write_text("")
-    st = sp_deploy.timers_state(repo=repo, enabled_path=_enabled(tmp_path, ["sp-a.timer"]))
-    assert st["by_list"] == {"MLB_LAPTOP_ONLY": ["sp-b.timer"], "HELD_FOR_CUTOVER": ["sp-c.timer"],
-                             "unlisted": ["sp-new.timer"]}
+    st = sp_deploy.timers_state(repo=repo, enabled_path=_enabled(tmp_path, ["sp-a.timer", "sp-c.timer"]))
+    assert st["by_list"] == {"MLB_LAPTOP_ONLY": ["sp-b.timer"], "unlisted": ["sp-new.timer"]}
     assert sp_deploy.timers_line(st).startswith("\n  ! ") and "sp-new.timer (unlisted)" in sp_deploy.timers_line(st)
 
 

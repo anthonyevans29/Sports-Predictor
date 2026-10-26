@@ -176,15 +176,17 @@ def writer_of_record() -> str | None:
 
 
 # THE TIMER LISTS (ARCHITECT 2026-10-23, addendum 155 item 8(b)): hosting-h1.md T11 names every shipped timer on
-# exactly one of three lists; the host's /etc/sports-predictor/timers.enabled is the TIMERS it enabled (T11, "the list
-# H2 steps 2 and 6 reuse"). tests/test_hosting_pack.py checks the lists, the shipped units and the Schedule table
-# agree; sp_deploy's receipt names the shipped timers the host has not enabled.
-T11_LISTS = ("TIMERS", "MLB_LAPTOP_ONLY", "HELD_FOR_CUTOVER")
+# exactly one list; the host's /etc/sports-predictor/timers.enabled is the TIMERS it enabled (T11, "the list H2 steps
+# 2 and 6 reuse"). tests/test_hosting_pack.py checks the lists, the shipped units and the Schedule table agree;
+# sp_deploy's receipt names the shipped timers the host has not enabled. The third list, HELD_FOR_CUTOVER
+# (sp-closing-watch.timer, addendum 45 P3), is retired: the timer moved to TIMERS at the cutover (ARCHITECT 2026-10-26,
+# addendum 168 item 5).
+T11_LISTS = ("TIMERS", "MLB_LAPTOP_ONLY")
 TIMERS_ENABLED = Path("/etc/sports-predictor/timers.enabled")
 
 
 def t11_lists(runbook: Path | None = None) -> dict[str, list[str]]:
-    """T11's three shell lists from hosting-h1.md, by name, each in its written order."""
+    """T11's shell lists from hosting-h1.md, by name, each in its written order."""
     rb = Path(runbook or REPO / "docs" / "specs" / "hosting-h1.md").read_text(encoding="utf-8")
     out = {}
     for name in T11_LISTS:

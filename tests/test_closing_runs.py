@@ -731,7 +731,8 @@ def test_c6_the_real_page_posts_to_the_card_topic_and_records_no_topic(monkeypat
 def test_c7_one_launchd_watch_and_the_host_units_shipped_held():
     """C7 stands (addendum 45): the laptop has one launchd job (its families in the plist since P5); the host's
     closing units exist only as sp-closing-watch.service + .timer, shipped and held (P3): no other unit names a
-    closing, and the timer is on T11's HELD_FOR_CUTOVER list, never on TIMERS (tests/test_hosting_pack.py)."""
+    closing. The timer was on T11's HELD_FOR_CUTOVER list until the cutover, and is on TIMERS from it (ARCHITECT
+    2026-10-26, addendum 168 item 5; tests/test_hosting_pack.py)."""
     sh = (ROOT / "scripts" / "setup_closing_watch.sh").read_text()
     assert "INTERVAL_S=60" in sh and "<string>closing-watch</string>" in sh and "${PLIST_FAMILIES}" in sh.split(
         "<array>")[1].split("</array>")[0]

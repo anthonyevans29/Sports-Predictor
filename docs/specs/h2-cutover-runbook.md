@@ -1,11 +1,12 @@
 # H2 cutover runbook: the ONE `.backup` migration (H2-PREP)
 
-**Status: PREP ONLY.** This page is the operator sequence for the H2
-cutover and for checking it afterwards. **The cutover itself needs an
-architect ruling on the frozen parallel-week criteria** (H0-18,
-`hosting-h1.md` "Cutover criteria"). Nothing on this page, and nothing in
-`sp_cutover.py` or `h2_dry_run.py`, triggers the cutover or decides it.
-Ties and partial passes are rejections; they extend the parallel week.
+**Status: CUTOVER DONE 2026-10-26 13:45:11Z** (ARCHITECT 2026-10-26, addendum 168 item 1). The host is the writer
+of record for SOCCER and NFL; the laptop is the console and MLB. This page is the record of the operator sequence the
+cutover ran, and the reference for checking it afterwards and for rolling it back (section 3, an architect ruling).
+Before the cutover it read: "Status: PREP ONLY. [...] The cutover itself needs an architect ruling on the frozen
+parallel-week criteria" (H0-18, `hosting-h1.md` "Cutover criteria"); that ruling was addendum 166 item 4 with its
+corrections (addendum 167). Nothing on this page, and nothing in `sp_cutover.py` or `h2_dry_run.py`, triggers a
+cutover or decides one.
 
 Source of truth for the steps: `hosting-h1.md` "## H2" (cutover morning,
 steps 1 to 7). This runbook executes those steps through
@@ -30,8 +31,10 @@ reach `pause`: "the table rows in docs/specs/h2-cutover-runbook.md that quote it
 quoted verbatim and dated addendum 167 (a ruling that corrects a ruling is recorded as such, not silently edited)."
 Addendum 167 item 2(a) moved the deploy of the fence-off tag to after `pause`, which corrects item 4 (4)'s "tag
 v1.6.0 → deployed by 08:50 → the host's timers STOPPED by 09:04 ET"; that row stays verbatim, marked as corrected.
+Addendum 168 (ARCHITECT 2026-10-26 10:00 ET) marks the Mon 10-26 rows done with their receipt times (item 1) and
+adds the day's two corrections as rows, verbatim (items 2 and 3).
 
-| When (addendum 113, then addendum 166, then addendum 167) | What | On this page |
+| When (addendum 113, then addendum 166, then addendum 167, then addendum 168) | What | On this page |
 |---|---|---|
 | Sun 10-18 → Thu 10-22 | the five morning compares: criterion (a) | section 0, Readiness readout (a) |
 | Sun 10-18 | the dry run on the laptop (any mode, no host); receipt to the architect | section 0, Dry run |
@@ -40,8 +43,8 @@ v1.6.0 → deployed by 08:50 → the host's timers STOPPED by 09:04 ET"; that ro
 | Thu 10-22 | the host runs on v1.5.0: criterion (b)'s full day with desk calls; the parity harness on that tag: criterion (c) | section 0, Readiness readout (b), (c) |
 | Thu 10-22 evening | `cli.py cutover-readiness` on the HOST, over ssh in the Thursday evening block (addendum 128 item 1(a); addendum 113 item 5 said the laptop); its GO / NOT-YET lines pasted to the architect | section 0, Readiness readout, TERMINAL (host): (b) and (T9) read the host's own receipts and list, run without `--receipts` or `--fullseason-list` (pass `--named FILE` when a day is operator-named). The laptop form (`--receipts FILE --fullseason-list FILE`) is for the architect's dry reads only. |
 | Fri 10-23 morning | the architect's ruling: cutover Monday 10-26, or named reasons and the 10-30 fallback | |
-| Mon 10-26, 09:00–11:00 ET (fallback 10-30) | the cutover: section 1, step by step, each step's receipt pasted before the next | section 1 |
-| Mon 10-26, 09:00–11:00 ET (conditional GO) | CUTOVER — RULING: CONDITIONAL GO FOR MONDAY 10-26, 09:00–11:00 ET, with a correction of my own first. | addendum 166 item 4, verbatim; section 1 |
+| Mon 10-26, 09:00–11:00 ET (fallback 10-30) | the cutover: section 1, step by step, each step's receipt pasted before the next | section 1; **DONE 2026-10-26 13:45:11Z** (addendum 168 item 1) |
+| Mon 10-26, 09:00–11:00 ET (conditional GO) | CUTOVER — RULING: CONDITIONAL GO FOR MONDAY 10-26, 09:00–11:00 ET, with a correction of my own first. | addendum 166 item 4, verbatim; section 1; **DONE 2026-10-26 13:45:11Z** (addendum 168 item 1) |
 | Sun 10-25 morning | GO on Monday therefore needs ALL of: (1) T9's close this morning — the weekly-fullseason receipt at 06:00Z, exit 0, every listed competition-season synced (the Tailscale block prints it); | addendum 166 item 4 (1), verbatim; section 0, T9 |
 | Sun 10-25 evening | (2) P8 tonight — exit 0, the page ending `machine: host`, the host's closing file written, wall time well inside the watch's thirty-minute lock budget; | addendum 166 item 4 (2), verbatim; section 0, The host closing-watch rehearsal |
 | by Sun 10-25 17:00 ET | (3) the cutover policy PR (item 6(A)) MERGED by Sunday 17:00 ET: CI green, Codex findings answered, no P1 open; | addendum 166 item 4 (3), verbatim; section 0, The host fence |
@@ -49,18 +52,20 @@ v1.6.0 → deployed by 08:50 → the host's timers STOPPED by 09:04 ET"; that ro
 | Mon 10-26 05:45–11:00 ET | (5) The operator at the keyboard 05:45–11:00 ET Monday, confirmed to me tonight. | addendum 166 item 4 (5), verbatim |
 | Fri 10-30 (fallback) | ANY ONE unmet → the fallback Friday 10-30 as addendum 113 declared, and docs/roadmap.json moves the line the same day (its moved line with the unmet condition named). No bar moves; no step is shortened; the review rounds on the PR are the review stop rule's, not fewer. | addendum 166 item 4, verbatim; docs/roadmap.json |
 | Mon 10-26 05:45–06:45 ET | 05:45–06:45 laptop morning block, VPN on — backup, migrate_cup_lineup_observations.py, the syncs, no chains after. | addendum 167 item 3, verbatim; section 1 step 1 |
-| Mon 10-26 07:15 ET | 07:15 Tailscale block — compare + host receipts. | addendum 167 item 3, verbatim; section 2 |
-| Mon 10-26 07:45 ET | 07:45 my read → the tag ruling. | addendum 167 item 3, verbatim |
-| Mon 10-26 08:00 ET | 08:00 the tag block: v1.6.0 cut on GitHub (--cleanup=verbatim). The host is NOT deployed yet. | addendum 167 item 3, verbatim; docs/RELEASES.md |
-| Mon 10-26 08:30 ET | 08:30 section 1 step 1 (laptop): CLV capture and the closing watch uninstalled, `none loaded`. | addendum 167 item 3, verbatim; section 1 step 1 |
-| Mon 10-26 08:40 ET | 08:40 section 1 step 3 (laptop): the PL reference for the next round (dates read from the DB by the block), the pack, scp over the tailnet. The host's timers are still running: the pack is the laptop's database, the host's is untouched by this step. | addendum 167 item 3, verbatim; section 1 step 3 |
-| Mon 10-26 09:12 ET | 09:12 step 4a (host): `preflight --pack` with the timers ACTIVE (the 09:05 window tick has fired; its chain may still be running, which preflight does not mind). The env_changes list: names only, each one a name I give in the morning page. | addendum 167 item 3, verbatim; section 1 step 4 |
-| Mon 10-26 09:16 ET | 09:16 step 2 / `pause` (host): the timers stopped; `pause` is the receipted form of step 2, run once (step 2's bare `systemctl stop` is not run separately — pause does it and receipts it). | addendum 167 item 3, verbatim; section 1 steps 2 and 4 |
-| Mon 10-26 09:22 ET | 09:22 THE DEPLOY (host): sp_deploy.py --tag v1.6.0 --dry-run → --tag v1.6.0 → the printed migration command (harmless on the rehearsal database, which `install` replaces; run it as the ritual says). The deploy happens with the timers paused: zero unfenced exposure. The preflight's receipt names v1.5.0; every receipt from `install` on names v1.6.0; accepted on the page by this ruling. | addendum 167 item 3, verbatim; section 0, Host on a release tag; section 1 step 4 |
-| Mon 10-26 09:40 ET | 09:40 `install`; the PL prediction check (CLEAN, N and M ≥ 1); the fence check (`{'on': False}`); `flip`; `resume`; `receipt`. | addendum 167 item 3, verbatim; section 1 step 4 |
-| Mon 10-26 10:15 ET | 10:15 step 5 post checks; 5b the host's closing watch (preflight, test page, dry run, install-push, enable, the timers.enabled line). | addendum 167 item 3, verbatim; section 1 steps 5 and 5b |
+| Mon 10-26 07:15 ET | 07:15 Tailscale block — compare + host receipts. | addendum 167 item 3, verbatim; section 2; **DONE 07:30 ET**: DIVERGENT 9 files, every one named code-version skew (release gate PASS); host receipts 24h 0 failing (addendum 168 item 1) |
+| Mon 10-26 07:45 ET | 07:45 my read → the tag ruling. | addendum 167 item 3, verbatim; **DONE**: the tag ruling, v1.6.0 (addendum 168 item 1) |
+| Mon 10-26 08:00 ET | 08:00 the tag block: v1.6.0 cut on GitHub (--cleanup=verbatim). The host is NOT deployed yet. | addendum 167 item 3, verbatim; docs/RELEASES.md; **DONE 08:11 ET**: v1.6.0 cut on 4c106f50, `--cleanup=verbatim`, 17 headings kept, CI green (addendum 168 item 1) |
+| Mon 10-26 08:30 ET | 08:30 section 1 step 1 (laptop): CLV capture and the closing watch uninstalled, `none loaded`. | addendum 167 item 3, verbatim; section 1 step 1; **DONE 08:17 ET**: "none loaded" (addendum 168 item 1) |
+| Mon 10-26 08:40 ET | 08:40 section 1 step 3 (laptop): the PL reference for the next round (dates read from the DB by the block), the pack, scp over the tailnet. The host's timers are still running: the pack is the laptop's database, the host's is untouched by this step. | addendum 167 item 3, verbatim; section 1 step 3; **DONE 08:17 ET**: the PL reference soccer_PL_2026-10-31_to_2026-11-02.json, 10 rows; the pack sp_pack_20261026T1214 over the tailnet (addendum 168 item 1) |
+| Mon 10-26 09:12 ET | 09:12 step 4a (host): `preflight --pack` with the timers ACTIVE (the 09:05 window tick has fired; its chain may still be running, which preflight does not mind). The env_changes list: names only, each one a name I give in the morning page. | addendum 167 item 3, verbatim; section 1 step 4; **DONE 13:22Z** (PASS; refused at 13:20Z, correction 1 below) (addendum 168 item 1) |
+| Mon 10-26 09:20 ET (13:20Z) | CORRECTION 1 — the host's timers list (finding, host/ops, mine to log; law 6: BACKLOG + Issue): /etc/sports-predictor/timers.enabled held 14 lines while 16 sp timers were active; sp-intl-daily.timer and sp-exports-squash.timer had been enabled by hand on earlier days (the UNL ingest; the Sunday squash) with no list line. The preflight refused, correctly ("add them to the list by hand; the tool never writes it"); the operator appended both; the second preflight passed. Consequence had it gone unseen: `pause` would have left intl-daily running (it writes the DB) during install. Code: an Issue (finding) and the fix: T11's recipe for enabling a timer ends with the timers.enabled line, and `sp_deploy`'s receipt line (addendum 155 item 8(b), already built) is extended to name ACTIVE timers not on the list, not only shipped-but-unlisted ones — a read-only line, small PR, this week. | addendum 168 item 2, verbatim; #676; section 1 step 4 (preflight) |
+| Mon 10-26 09:16 ET | 09:16 step 2 / `pause` (host): the timers stopped; `pause` is the receipted form of step 2, run once (step 2's bare `systemctl stop` is not run separately — pause does it and receipts it). | addendum 167 item 3, verbatim; section 1 steps 2 and 4; **DONE 13:43:19Z**: 16 timers stopped, no chain running (addendum 168 item 1) |
+| Mon 10-26 09:22 ET | 09:22 THE DEPLOY (host): sp_deploy.py --tag v1.6.0 --dry-run → --tag v1.6.0 → the printed migration command (harmless on the rehearsal database, which `install` replaces; run it as the ritual says). The deploy happens with the timers paused: zero unfenced exposure. The preflight's receipt names v1.5.0; every receipt from `install` on names v1.6.0; accepted on the page by this ruling. | addendum 167 item 3, verbatim; section 0, Host on a release tag; section 1 step 4; **DONE 13:43Z**: v1.5.0 -> v1.6.0 (4c106f50, 59 files) with the timers stopped; backup sports_2026-10-26_134323.db integrity ok, migrate_cup_lineup_observations.py; the fence printed {'on': False} (addendum 168 item 1) |
+| Mon 10-26 09:40 ET | 09:40 `install`; the PL prediction check (CLEAN, N and M ≥ 1); the fence check (`{'on': False}`); `flip`; `resume`; `receipt`. | addendum 167 item 3, verbatim; section 1 step 4; **DONE**: install 13:44:22Z (S2 = S1, R2 = R1 on 36 tables); the PL check 10 of 10, VERDICT: CLEAN; fence {'on': False}; flip 13:44:59Z; resume 13:45:09Z; receipt 13:45:11Z (addendum 168 item 1) |
+| Mon 10-26 10:15 ET | 10:15 step 5 post checks; 5b the host's closing watch (preflight, test page, dry run, install-push, enable, the timers.enabled line). | addendum 167 item 3, verbatim; section 1 steps 5 and 5b; **5b DONE 13:47Z**: preflight NFL+SOCCER role host PASS, test page accepted, dry run, install push exit 0 after correction 2 below, sp-closing-watch.timer installed, enabled, listed (timers.enabled 17 lines), first tick 13:48Z (addendum 168 item 1) |
+| Mon 10-26 09:47 ET (13:47Z) | CORRECTION 2 — the pack's .env on the host (finding, host/ops, MINE: I ruled the three pack-only names "harmless today" at 09:43 and one was not): `install --replace` put the laptop's .env over the host checkout's, so SP_EXPORTS_MIRROR_KEY pointed at a path on the laptop; host.env gives that setting no value, so the host's mirror push read the laptop's path and refused ("the mirror never falls back silently" — the right behaviour). Caught by step 5b's install-push check before any timer pushed. Fix applied by hand: the three laptop-only lines (SP_EXPORTS_MIRROR_KEY, CFBD_API_KEY, SP_HOST_ADDR) removed from /opt/sports-predictor/.env (a .bak beside it); the push then landed. Code: the Issue, and the fix in the runbook and the tool: the env_changes list stays names-only, but `install` (or the runbook's step right after it) REMOVES pack-only settings that host.env does not define and that name a path or a key (a list in sp_cutover, ruled: SP_EXPORTS_MIRROR_KEY, CFBD_API_KEY, SP_HOST_ADDR today), printing their names; and the ruling text in the runbook says a pack-only setting that names a path on the source machine is never "expected". Small PR, this week; the runbook's 2026-10 schedule table records both corrections with their times. | addendum 168 item 3, verbatim; #677; section 1 steps 4 (install) and 5b |
 | Mon 10-26 12:00 ET (16:00Z) | 12:00 ET (16:00Z) the host's nhl-daily runs on the installed database: the NHL shadow post-check (addendum 49 item 3) is read BY ME from the mirror (host/2026-10-26/nhl_shadow_*.json and the chain's export lines in the receipts) at 12:30 ET — no operator step; the UNL cohort read (`intl-elo-confirm`, no flags) goes in the first post-cutover Tailscale block, Tuesday morning. This answers Codex's P2: the check is scheduled where the evidence appears and staffed by the mirror, not by the operator's window. | addendum 167 item 3, verbatim; section 1 step 5 |
-| Mon 10-26, before 17:30 ET | Before 17:30 ET: step 7, the laptop's MLB watch back (`--family MLB`) for Game 3. | addendum 167 item 3, verbatim; section 1 step 7 |
+| Mon 10-26, before 17:30 ET | Before 17:30 ET: step 7, the laptop's MLB watch back (`--family MLB`) for Game 3. | addendum 167 item 3, verbatim; section 1 step 7; **DONE 10:13 ET**: the CLV jobs and the MLB-only watch reinstalled; packs deleted; cold backup sports_2026-10-26.db 310.7 MB (ARCHITECT 2026-10-26) |
 | Mon 10-26 11:00 ET | The 11:00 end of the operator's window stands for steps 1–5b. | addendum 167 item 3, verbatim |
 
 The plan's dated items (addendum 113, "WHAT STILL HAS TO HAPPEN, DATED"), verbatim:
@@ -137,6 +142,9 @@ Which machine runs item 5's readout (ARCHITECT 2026-10-18, addendum 128 item 1(a
   code stops it, and nothing tells it the other machine already paged (each machine reads only its own
   receipts). P8's run is such a run, which is why its page is a second page and the laptop's is the one acted
   on. The page ends `machine: host`.
+  - **P8 READ: PASS (ARCHITECT 2026-10-25 20:15 ET, addendum 167 postscript 2(a)), verbatim:** "(a) P8 READ: PASS. Host closing-run NFL for 2026-10-26T00:20Z on v1.5.0: exit 0, 6/6 steps, 17.0 s (20 s wall), page accepted ending "machine: host", closing file exports/closing_NFL_2026-10-26T0020Z.json (sha256 ea5e654f3f7f), mirror push exit 0 @ 5ce89059; the host's Desk row equals the laptop's 19:45 page (PLAY SEA 0.5u, BUY YES KXNFLGAME-26OCT25KCSEA-SEA @ 0.59 × 16, exec +8.6pp, QB hold). Record it on the runbook's P8 bullet and in the records entry; the 10-22 refusals (early runs, the ±6h window) stay in the record as what they were."
+  - **The 10-22 attempts, as they were (addendum 166 item 4(i), verbatim):** "(i) P8, the host closing-run rehearsal, has not been read: Thursday's early run was refused (kickoff outside the ±6h schedule window) and the 19:50 run did not happen. The runbook makes one rehearsal, read by me, a pre-cutover item. Tonight's SNF run (block_1025_p8_host.txt, 19:55 ET) is it."
+  - This is condition (2) of addendum 166 item 4 (the 2026-10 schedule table's Sun 10-25 evening row), met.
 - **No timer moves (addendum 45 P6):** "In twelve days no chain held the lock, or waited for it, longer than seven
   minutes, and the watch allows thirty. A closing run meets the hourly chain only where its T-35 falls between
   five and twelve past the hour, a kickoff at about a quarter to, and then it waits for it. The units with no run
@@ -163,6 +171,8 @@ Which machine runs item 5's readout (ARCHITECT 2026-10-18, addendum 128 item 1(a
   - The readout reads it: `cutover-readiness` prints `(T9) WEEKLY FULL-SEASON LIST` (below).
   - The close: the receipt of the chain's first real run, its own timer, Sun 10-25 06:00Z, on that morning's page.
 - **Readiness readout (#85, ARCHITECT lane 2 2026-10-04).** TERMINAL (host),
+  **The cutover is DONE (2026-10-26 13:45:11Z; ARCHITECT 2026-10-26, addendum 168 item 1):** the host is the writer of
+  record for SOCCER and NFL. The readout below is the record of how the GO was read; the command stays read-only.
   read-only, on the HOST, over ssh in the Thursday evening block (ARCHITECT 2026-10-18, addendum 128 item 1(a),
   verbatim: "WHICH MACHINE RUNS `cutover-readiness`: the HOST, over ssh in the Thursday evening block, so (b) and
   (T9) read the host's own receipts and list; the laptop form (`--receipts FILE --fullseason-list FILE`) is for my

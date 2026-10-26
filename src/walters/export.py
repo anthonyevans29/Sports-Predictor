@@ -1321,6 +1321,16 @@ def export_fixtures(
         # --orphans) is never a fixture — excluded and counted (law 4)
         counts["stale_orphans_excluded"] = sum(1 for m in ms if m.status == MatchStatus.STALE_ORPHAN)
         ms = [m for m in ms if m.status != MatchStatus.STALE_ORPHAN]
+        # THE 2023 FENCE (ARCHITECT 2026-10-26 15:15 ET, on #697): "export-fixtures REFUSES a date range touching
+        # fenced 2023 games (format untouched)". Refused before anything is written.
+        if competition_code.upper() == "NCAA":
+            from src.ingestion.resync_diff import _fenced_2023_ids
+            from src.walters.ncaa_backtest import FenceRefused, v2_2023_fence_refusal
+            fenced = _fenced_2023_ids(s, competition_code, ms)
+            if fenced:
+                raise FenceRefused(v2_2023_fence_refusal("export-fixtures --competition NCAA")
+                                   + f" ({len(fenced)} fenced game(s) in {lo:%Y-%m-%d}..{hi:%Y-%m-%d}; "
+                                     "narrow the dates or wait for the recorded run)")
         # ARCHITECT 2026-10-03 (priority): until a duplicate fixture is merged
         # (dedupe-matches), the export carries ONE row per fixture — the
         # FINISHED row when the pair has one, else the older (referenced) row.

@@ -332,6 +332,10 @@ def resync_diff_cmd(competition_code, season, date_from, date_to, sample):
         # the 2026 fence (addendum 86 item 3, Q2): an NCAA listing that includes 2026 prints no home win rate until
         # the ncaa-elo-v2 run is recorded; the single-game samples stay
         click.echo(f"  home win rate (decided games): {nb.V2_FENCED_RATE} (n ours={no}, provider={np_})")
+    elif competition_code.upper() == "NCAA" and season == nb.V2_SECOND and not nb.v2_run_recorded():
+        # the 2023 fence (addendum 161 item 1): the listing's rate includes the second read's scored set; the samples
+        # of its fenced games print no score (resync_diff._fenced_2023_ids)
+        click.echo(f"  home win rate (decided games): {nb.V2_2023_FENCED} (n ours={no}, provider={np_})")
     else:
         click.echo(f"  home win rate (decided games): ours {ro} (n={no}) · provider {rp} (n={np_})")
     for k, lines in sorted(r["samples"].items()):
@@ -7217,6 +7221,9 @@ def ncaa_audit_cmd(seasons, limit):
         if nb.V2_TEST in given:
             click.echo(nb.v2_fence_refusal("ncaa-audit"))
             raise SystemExit(2)
+        if nb.V2_SECOND in given:                       # the 2023 fence (addendum 161 item 1)
+            click.echo(nb.v2_2023_fence_refusal("ncaa-audit"))
+            raise SystemExit(2)
         if not given:                                                   # the default: 2025 alone until the run
             run_seasons = tuple(s_ for s_ in na.AUDIT_SEASONS if s_ != nb.V2_TEST)
     data = na.load(top=limit)
@@ -9032,8 +9039,13 @@ def export_fixtures_cmd(competition_code, start, end, desk):
     """Market-only fixtures export (no predictions) for market-only competitions:
     UNL, NCAA, the suspended cups, and NHL (market-only launch 2026-10-07)."""
     from src.walters.export import export_fixtures
+    from src.walters.ncaa_backtest import FenceRefused
     rc: dict = {}
-    path = export_fixtures(competition_code, start=start, end=end, receipts=rc, desk=desk or None)
+    try:
+        path = export_fixtures(competition_code, start=start, end=end, receipts=rc, desk=desk or None)
+    except FenceRefused as e:                 # the 2023 fence (ARCHITECT 2026-10-26 15:15 ET): nothing written
+        console.print(f"[red]✗ {e}[/red]")
+        raise SystemExit(2)
     console.print(f"[green]✓ Wrote market-only fixtures to {path}[/green]")
     if (dl := _desk_line(path)):
         print("  " + dl)

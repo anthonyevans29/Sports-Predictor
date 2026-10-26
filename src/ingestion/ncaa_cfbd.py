@@ -56,6 +56,17 @@ SCOPE + JOIN (ARCHITECT 2026-10-08, addendum 10 item 3; docs/specs/ncaa-cfbd-lab
     opening the payload); a label is current when its fetched_at equals that
     record's (latest_record_stamps; the v1r stream and the shadow's FBS team
     set read current labels only); a non-dry run needs division fbs.
+
+THE WEEK (ncaa-elo-v2 D10; ARCHITECT 2026-10-23, addendum 158 item 1(a), verbatim in part: "The 2023 ingest (D10: the
+CFBD 2023 both-FBS labels with the WEEK persisted on NCAACFBDLabel — the second read scores from week 5, so the field
+is a precondition — plus the provider's 2023 listing)"):
+  * CFBD's `week` as served rides on each row (week, nullable, migrate_ncaa_cfbd_week.py): an integer is stored as
+    it is; a week served as anything else is stored NULL and counted (week_not_integer, law 4); a payload with no
+    week field stores NULL on every row and the receipt says so;
+  * the receipt counts the joined rows by season_type and week (counts only, never an outcome), and the stored NCAA
+    matches of the year by status (the provider's listing the labels join to);
+  * a non-dry run needs the week migration's marker (the v2 convention: an init_db()-created column does not
+    count), a --dry-run does not.
 """
 from __future__ import annotations
 
@@ -95,6 +106,7 @@ OPTIONAL = {
     "home_class": re.compile(r"^home_?(classification|division)$", re.I),
     "away_class": re.compile(r"^away_?(classification|division)$", re.I),
     "id": re.compile(r"^id$", re.I),
+    "week": re.compile(r"^week$", re.I),                     # D10 (addendum 158 item 1(a)): CFBD's week as served
 }
 
 
@@ -426,6 +438,8 @@ class YearResult:
     dateshift: list[str] = field(default_factory=list)        # J1: every dateshift row (both kickoffs, offset)
     escaped: list[tuple[int, str, str]] = field(default_factory=list)   # J2: our names html.unescape changes
     unlabelled: list[str] = field(default_factory=list)       # SCOPE: every in-scope game with no row, and why
+    weeks: Counter = field(default_factory=Counter)           # D10: joined rows by (season_type, week as stored)
+    week_field: str | None = None                             # D10: the payload key the week was read from
 
 
 def in_scope_reason(rec: dict, keys: dict, division: str | None) -> str | None:
@@ -452,6 +466,17 @@ def _desc(rec: dict, keys: dict) -> str:
         f"{rec.get(keys['away'])} @ {rec.get(keys['home'])}" + (" (neutral)" if nv else "")
 
 
+def served_week(v) -> tuple[int | None, bool]:
+    """D10: (the week to store, whether it was usable). CFBD's `week` as served: an integer (never a bool) is stored
+    as it is; None (not served) is stored None; anything else (a string, a float) is stored None and reported (law 4:
+    never parsed into a number the source did not serve as one)."""
+    if v is None:
+        return None, True
+    if isinstance(v, int) and not isinstance(v, bool):
+        return v, True
+    return None, False
+
+
 def build_labels(records: list, keys: dict, ours: list[Ours], teams: dict[int, str],
                  aliases: dict[str, str], year: int, division: str | None = "fbs") -> YearResult:
     """Pure over its inputs: no DB, no network. Returns the rows to upsert and the receipt.
@@ -460,6 +485,7 @@ def build_labels(records: list, keys: dict, ours: list[Ours], teams: dict[int, s
     from src.ingestion.match_lookup import normalize_team_name as norm
 
     r = YearResult(year, scope_label=f"both-{division.upper()}" if division else "all")
+    r.week_field = keys.get("week")
     usable, r.alias_refused = vet_aliases(aliases, teams)
     r.aliases_usable = len(usable)
     r.escaped = escaped_names(teams)
@@ -492,17 +518,33 @@ def build_labels(records: list, keys: dict, ours: list[Ours], teams: dict[int, s
                       f"CFBD in our orientation {oh}-{oa})")
         sid = rec.get(keys["id"]) if keys["id"] else None
         st = rec.get(keys["season_type"]) if keys.get("season_type") else None
+        wk, wk_ok = served_week(rec.get(keys["week"]) if keys.get("week") else None)
         return {"match_id": m.id, "source": SOURCE, "source_game_id": int(sid) if isinstance(sid, int) else None,
                 "season": str(year), "orientation": orient, "neutral": neutral, "home_score": oh, "away_score": oa,
                 "source_home_team": rec.get(keys["home"]), "source_away_team": rec.get(keys["away"]),
                 "join_via": via, "correction_reason": reason,
                 "season_type": None if st is None else str(st),          # J4: CFBD seasonType as served
-                "_kind": kind, "_desc": desc, "_our_season": m.season, "_rec": id(rec)}
+                "week": wk,                                              # D10: CFBD week as served (int, else None)
+                "_week_ok": wk_ok, "_kind": kind, "_desc": desc, "_our_season": m.season, "_rec": id(rec)}
 
     by_target: dict[int, list[dict]] = {}
     in_scope: list[tuple[dict, str]] = []
     pending: list[tuple] = []                                 # first-pass unmatched, for the J1 retry
     why_not: dict[int, str] = {}                              # id(rec) -> why it carries no row
+    # THE 2023 FENCE (ARCHITECT 2026-10-23, addendum 161 item 1): a 2023 in-scope game in the second read's scored set
+    # (regular, week 5 on; week or season_type unknown included) keeps its counts, but every score in its receipt text
+    # (corrections, dateshift notes, unmatched and unlabelled reasons) is withheld while the ncaa-elo-v2 run is
+    # unrecorded. The masked text is what the ingest record stores. The side table stores the scores as before.
+    from src.walters.ncaa_backtest import V2_SECOND, fenced_2023, mask_scores, v2_run_recorded
+    # read whenever the requested year or any row's season is 2023: a 2023 payload replayed under another --year is
+    # fenced by its rows' season (ARCHITECT 2026-10-26 15:15 ET)
+    recorded = (v2_run_recorded() if str(year) == V2_SECOND
+                or any(str(r_.get("season")) == V2_SECOND for r_ in records if isinstance(r_, dict)) else True)
+    fenced: set[int] = set()                                  # id(rec) of the fenced games
+
+    def masked(rid: int, text: str) -> str:
+        return mask_scores(text) if rid in fenced else text
+
     for rec in records:
         out_of_scope = in_scope_reason(rec, keys, division)
         if out_of_scope:
@@ -513,6 +555,14 @@ def build_labels(records: list, keys: dict, ours: list[Ours], teams: dict[int, s
         home, away, start = rec.get(keys["home"]), rec.get(keys["away"]), parse_start(rec.get(keys["start"]))
         desc = _desc(rec, keys)
         in_scope.append((rec, desc))
+        # the row's own season (CFBD's `season`, as the source probe reads it), else the requested year: a 2023 payload
+        # replayed under another --year is still fenced (ARCHITECT 2026-10-26 15:15 ET: "key the fence on the row's
+        # season")
+        if fenced_2023(str(rec.get("season") or year),
+                       rec.get(keys["season_type"]) if keys.get("season_type") else None,
+                       served_week(rec.get(keys["week"]) if keys.get("week") else None)[0], recorded):
+            fenced.add(id(rec))
+            c["fenced_2023"] += 1
         if not home or not away or start is None:
             c["source_unusable_row"] += 1
             why_not[id(rec)] = "unusable source row (no team or start date)"
@@ -548,7 +598,7 @@ def build_labels(records: list, keys: dict, ours: list[Ours], teams: dict[int, s
         c["unmatched"] += 1
         if status != "no_fit":
             c[f"dateshift_{status}"] += 1
-        r.unmatched.append(desc + (f" — {note}" if note else ""))
+        r.unmatched.append(masked(id(rec), desc + (f" — {note}" if note else "")))
         why_not[id(rec)] = "unmatched" + (f" ({note})" if note else "")
         if hn in our_norms and an in our_norms:
             c["unmatched_both_names_known"] += 1             # a date / missing-game gap, not a name gap
@@ -569,19 +619,22 @@ def build_labels(records: list, keys: dict, ours: list[Ours], teams: dict[int, s
         c[f"join_via_{row['join_via']}"] += 1
         c[row["_kind"]] += 1
         if row.get("_dateshift"):
-            r.dateshift.append(f"match {mid} · {row['_desc']} · {row['_dateshift']}")
+            r.dateshift.append(masked(row["_rec"], f"match {mid} · {row['_desc']} · {row['_dateshift']}"))
         if row["neutral"]:
             c["neutral"] += 1
         elif row["neutral"] is None:
             c["neutral_unknown"] += 1
+        r.weeks[(row["season_type"], row["week"])] += 1
+        if not row["_week_ok"]:
+            c["week_not_integer"] += 1
         if row["correction_reason"]:
-            r.corrections.append(f"match {mid} · {row['_desc']} · {row['correction_reason']}")
+            r.corrections.append(masked(row["_rec"], f"match {mid} · {row['_desc']} · {row['correction_reason']}"))
         if row["_our_season"] != row["season"]:
             c["season_disagree"] += 1
             r.season_disagree.append(f"match {mid} · {row['_desc']} · our season {row['_our_season']!r} "
                                      f"vs CFBD year {row['season']}")
         r.rows.append({k: v for k, v in row.items() if not k.startswith("_")})
-    r.unlabelled = [f"{desc} — {why_not[id(rec)]}" for rec, desc in in_scope if id(rec) in why_not]
+    r.unlabelled = [masked(id(rec), f"{desc} — {why_not[id(rec)]}") for rec, desc in in_scope if id(rec) in why_not]
     return r
 
 
@@ -640,22 +693,36 @@ def has_season_type(s) -> bool:
         return False
 
 
+WEEK_COLUMN = "week"                    # D10 (ARCHITECT 2026-10-23, addendum 158 item 1(a)): migrate_ncaa_cfbd_week.py
+
+
+def has_week(s) -> bool:
+    """True when ncaa_cfbd_labels.week exists (the week migration ran, or the table was created from the current ORM,
+    which carries the column)."""
+    from sqlalchemy import inspect
+    try:
+        return WEEK_COLUMN in {c["name"] for c in inspect(s.connection()).get_columns("ncaa_cfbd_labels")}
+    except Exception:
+        return False
+
+
 def label_load_options(s) -> list:
     """ORM load options for reading NCAACFBDLabel on a DB that may predate J4's
-    migration: without the column, every other column is loaded and season_type
-    is never selected (readers use getattr(row, 'season_type', None) only when
-    it exists). Readers never fail on an un-migrated laptop."""
-    if has_season_type(s):
+    migration or the week's (D10): a missing column is never selected and every
+    other column is loaded (readers read season_type / week from the row's
+    __dict__, None when unloaded). Readers never fail on an un-migrated laptop."""
+    missing = {c for c, ok in ((SEASON_TYPE_COLUMN, has_season_type(s)), (WEEK_COLUMN, has_week(s))) if not ok}
+    if not missing:
         return []
     from sqlalchemy.orm import load_only
 
     from src.db.schema import NCAACFBDLabel
     return [load_only(*[getattr(NCAACFBDLabel, c.key) for c in NCAACFBDLabel.__table__.columns
-                        if c.key != SEASON_TYPE_COLUMN])]
+                        if c.key not in missing])]
 
 
 LABEL_FIELDS = ("source", "source_game_id", "season", "orientation", "neutral", "home_score", "away_score",
-                "source_home_team", "source_away_team", "join_via", "correction_reason", "season_type")
+                "source_home_team", "source_away_team", "join_via", "correction_reason", "season_type", "week")
 
 
 def upsert(s, rows: list[dict], fetched_at: datetime, payload_file: str | None) -> Counter:
@@ -733,6 +800,7 @@ def run(years: list[int], from_file: str | None = None, dry_run: bool = False, s
     with session_scope() as s:
         ready = migrated(s)
         v2_ready = ready and v2_migrated(s)
+        week_ready = ready and week_migrated(s)
         s.rollback()
     if not ready and not dry_run:
         raise CFBDError("REFUSED: ncaa_cfbd_labels is not migrated (no migration marker "
@@ -743,6 +811,10 @@ def run(years: list[int], from_file: str | None = None, dry_run: bool = False, s
                         f"{RECORD_TABLE} (L1) missing, or no migration marker {V2_MIGRATION_MARKER}; an "
                         "init_db()-created table or column does not count) — take the .backup, then run "
                         "`python migrate_ncaa_cfbd_v2.py` (a --dry-run works without it)")
+    if not week_ready and not dry_run:
+        raise CFBDError(f"REFUSED: the week migration has not run (ncaa_cfbd_labels.{WEEK_COLUMN} (D10) missing, or no "
+                        f"migration marker {WEEK_MIGRATION_MARKER}; an init_db()-created column does not count) — take "
+                        "the .backup, then run `python migrate_ncaa_cfbd_week.py` (a --dry-run works without it)")
     rc = 0
     for year in years:
         fetched_at = utc_now_naive()
@@ -762,6 +834,10 @@ def run(years: list[int], from_file: str | None = None, dry_run: bool = False, s
             + (f" · payload saved {payload_label(saved)}" if saved and not from_file else "")
             + (" · payload NOT saved (dry run)" if dry_run and not from_file else ""))
         pf = payload_label(saved) if saved else None
+        with session_scope() as s:                  # the listing census before any exit (Codex on #697): an empty
+            listing = stored_listing(s, year)       # answer is told apart from a season we never synced
+            s.rollback()
+        out(listing_line(year, listing))
         if not recs:
             if not dry_run:
                 with session_scope() as s:
@@ -811,6 +887,47 @@ def run(years: list[int], from_file: str | None = None, dry_run: bool = False, s
     return rc
 
 
+def stored_listing(s, year: int) -> Counter:
+    """D10's "the provider's 2023 listing": OUR stored NCAA matches whose season is `year`, by status (a count per
+    status; no score is read). Read-only."""
+    from sqlalchemy import func, select
+
+    from src.db.schema import Competition, Match, Sport
+
+    rows = s.execute(select(Match.status, func.count()).join(Competition, Match.competition_id == Competition.id)
+                     .where(Match.sport == Sport.NFL, Competition.code == "NCAA", Match.season == str(year))
+                     .group_by(Match.status)).all()
+    return Counter({(st.value if hasattr(st, "value") else str(st)): n for st, n in rows})
+
+
+def listing_line(year: int, listing: Counter) -> str:
+    n = sum(listing.values())
+    return (f"  OUR STORED NCAA MATCHES of season {year} (the provider's listing the labels join to; counts by status, "
+            f"no score read): {n}" + (" · " + " · ".join(f"{k} {v}" for k, v in sorted(listing.items())) if n else
+                                      f" — none: sync-teams then sync-matches --competition NCAA --season {year} "
+                                      "first (the labels join to stored matches only)"))
+
+
+def _week_key(w):
+    return (1, 0) if w is None else (0, w)
+
+
+def week_line(r: YearResult) -> str:
+    """D10: the joined rows by CFBD season_type and week as stored (counts only, never an outcome)."""
+    by_type: dict = {}
+    for (st, wk), n in r.weeks.items():
+        by_type.setdefault(st, {})[wk] = n
+    parts = []
+    for st in sorted(by_type, key=lambda x: (x is None, str(x))):
+        ws = by_type[st]
+        parts.append(f"{st if st is not None else '(no season_type)'}: "
+                     + ", ".join(f"{'unknown' if w is None else w} {ws[w]}" for w in sorted(ws, key=_week_key)))
+    field_note = (f"read from {r.week_field!r}" if r.week_field
+                  else "NOT SERVED: the payload has no week field, every row stores NULL (law 4)")
+    return (f"    WEEK (D10, CFBD week as served; {field_note}) joined rows by season_type and week: "
+            + (" | ".join(parts) or "none") + f" · served but not an integer (stored NULL) {r.counts['week_not_integer']}")
+
+
 def receipt_lines(r: YearResult, limit: int = SAMPLE, unmatched_names: bool = False) -> list[str]:
     c = r.counts
     scope = c["completed_in_scope"]
@@ -828,7 +945,12 @@ def receipt_lines(r: YearResult, limit: int = SAMPLE, unmatched_names: bool = Fa
          f"    joined via: exact {c['join_via_exact']} · substring {c['join_via_substring']} · alias "
          f"{c['join_via_alias']} · dateshift {c['join_via_dateshift']} · scores agree {c['score_agree']} · "
          f"ours unscored {c['ours_no_score']} · our season differs from the CFBD year {c['season_disagree']}",
+         week_line(r),
          f"    aliases: usable {r.aliases_usable} · refused {len(r.alias_refused)}"]
+    if c["fenced_2023"]:
+        from src.walters.ncaa_backtest import V2_2023_FENCE_RULING, V2_2023_SCOPE
+        L.append(f"    2023 FENCE ({V2_2023_FENCE_RULING}): every score withheld in the lines below on "
+                 f"{c['fenced_2023']} in-scope game(s), {V2_2023_SCOPE}; the counts above stand")
     for src, tgt, why in r.alias_refused:
         L.append(f"      REFUSED alias {src!r} -> {tgt!r}: {why}")
     cov = fbs_coverage(scope, j)
@@ -917,6 +1039,26 @@ def v2_migrated(s) -> bool:
                 and inspect(s.connection()).has_table(V2_MIGRATION_MARKER)):
             return False
         return bool(s.execute(text(f"SELECT COUNT(*) FROM {V2_MIGRATION_MARKER}")).scalar())
+    except Exception:
+        return False
+
+
+# The week migration marker (D10; ARCHITECT 2026-10-23, addendum 158 item 1(a)). The same convention as the two above:
+# a label table created from the current ORM carries the week column, so the column's existence does not prove
+# migrate_ncaa_cfbd_week.py (the post-backup migration) ran. That script, and nothing else, creates this one-row table
+# by Core SQL (unmapped, so create_all can never make it), and the ingest writes only when the column and this marker
+# exist.
+WEEK_MIGRATION_MARKER = "ncaa_cfbd_week_migration"
+
+
+def week_migrated(s) -> bool:
+    """True only when migrate_ncaa_cfbd_week.py ran: ncaa_cfbd_labels.week exists AND the marker table that script
+    alone writes holds its row."""
+    from sqlalchemy import inspect, text
+    try:
+        if not (has_week(s) and inspect(s.connection()).has_table(WEEK_MIGRATION_MARKER)):
+            return False
+        return bool(s.execute(text(f"SELECT COUNT(*) FROM {WEEK_MIGRATION_MARKER}")).scalar())
     except Exception:
         return False
 

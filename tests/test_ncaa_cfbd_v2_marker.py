@@ -106,6 +106,8 @@ def test_after_the_script_the_marker_unlocks_the_ingest_and_reruns_keep_one_row(
     assert _marker_rows(fresh_db) == [(1, "migrate_ncaa_cfbd_v2.py")]
     with session_scope() as s:
         assert nc.v2_migrated(s)
+    import migrate_ncaa_cfbd_week as mig_week
+    assert mig_week.main() == 0                                                    # D10: the week's own marker
     lines = []
     assert nc.run([2084], from_file=str(f), out=lines.append) == 0
     assert any(x.startswith("  WRITTEN ncaa_cfbd_labels:") for x in lines)
@@ -143,6 +145,8 @@ def test_a_db_migrated_before_the_marker_gets_the_marker_only(fresh_db, tmp_path
     assert "+ Wrote migration marker ncaa_cfbd_v2_migration" in out
     assert _snapshot(fresh_db, skip={nc.V2_MIGRATION_MARKER}) == before             # nothing else changed
     assert _marker_rows(fresh_db) == [(1, "migrate_ncaa_cfbd_v2.py")]
+    import migrate_ncaa_cfbd_week as mig_week
+    assert mig_week.main() == 0                                                    # D10: the week's own marker
     assert nc.run([2084], from_file=str(f), out=lambda *_: None) == 0
     assert _records(fresh_db) == 2
 

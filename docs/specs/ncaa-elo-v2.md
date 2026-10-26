@@ -147,6 +147,15 @@ v2's `Spec` differs in data only. The new commands are `ncaa-gate --id ID` and `
 - **Scored.** 2023 games whose season_type is exactly 'regular' and whose week is 5 or later.
 - **The baseline (D4 of the second read).** 2023 'regular' games with a week before 5, non-neutral; 0.5 at a neutral site.
 - **The week.** CFBD's `week` as served. The label table does not store it yet: the 2023 ingest PR (item 4, by 2026-11-01) adds it. Until then every game reads week unknown (`Game.week` None, law 4). A 'regular' game with no week is walked, never scored and never in the baseline, and is counted in the census. If CFBD serves a week 0, its games sit in the baseline with weeks 1-4: "weeks before 5".
+  - **The 2023 fence** (ARCHITECT 2026-10-23, addendum 161 item 1), built on the week branch: until the one run is recorded, a 2023 'regular' game from week 5 is fenced. So is one whose week or season_type is unknown. Readers cannot print a home win rate, a result tally or a score for a fenced game, and the 2026 fence's guard carries over with its wording and the 2023 scope named:
+    - ncaa-audit refuses 2023;
+    - the generic walks refuse NCAA 2023;
+    - the web views withhold 2023;
+    - resync-diff withholds its 2023 rate line and masks the scores in its fenced samples;
+    - the source probe withholds 2023's rates and masks its fenced samples;
+    - the label ingest's receipt keeps its counts and masks every score on a fenced game, and the ingest record stores the masked text.
+  Weeks 1-4 and the postseason stay readable.
+  - **Built by the 2023 ingest PR** (ARCHITECT 2026-10-23, addendum 158 item 1(a)): `ncaa_cfbd_labels.week` (`migrate_ncaa_cfbd_week.py`, column plus marker; the ingest writes only after it). An integer week is stored as served; a week served as anything else is stored NULL and counted (law 4), so it reads week unknown as above. A label written before the column reads None until its season is ingested again.
 - **Its preconditions never refuse the run.** These are 2023 covered (L2 + L3), its baseline defined, and 500 scored. They are printed at `--preflight`, and the architect reads the census before the run. They are carried in the reservation, and they decide the second read's result:
   - NOT READ, when 2023 is not covered;
   - INVALID, when the baseline is undefined or fewer than 500 games are scored. Then the architect rules again.

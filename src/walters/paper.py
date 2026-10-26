@@ -510,7 +510,8 @@ def _empty(finished: int, kind: str = KIND_TWO) -> dict:
                 "draw_fav": 0, "over_sum": 0.0, "no_result": 0, "mismatched": 0, "unpriced": 0,
                 **{key: 0 for key, _ in UNPRICED}, "rows": []}
     return {"kind": kind, "finished": finished, "n": 0, "ll_sum": 0.0, "fav_w": 0, "fav_d": 0, "even": 0,
-            "no_result": 0, "tie": 0, "mismatched": 0, "no_close": 0, "three_way": 0}
+            "no_result": 0, "tie": 0, "mismatched": 0, "no_close": 0, "three_way": 0, "fenced_2023": 0,
+            "fenced_2026": 0}
 
 
 def three_way_comps() -> tuple[str, ...]:
@@ -634,6 +635,7 @@ def close_record(days: int, now: datetime | None = None) -> dict:
     from src.db.schema import Competition, Match, MatchStatus, Sport
     from src.timeutil import utc_now_naive
     from src.walters import kalshi_legs
+    from src.walters import ncaa_backtest as _nb
     from src.walters.cup_exam import favorite
     from src.walters.vs_close import log_loss
 
@@ -659,7 +661,17 @@ def close_record(days: int, now: datetime | None = None) -> dict:
             else:                                              # the rows the two-way close reads (Codex round 2)
                 tickers, current, homes = two_way_legs(s, games, snaps)
             rec = _empty(len(games), KIND_THREE if three else KIND_TWO)
+            # The v2 fences: no result tally over NCAA 2023 (addendum 161 item 1) or 2026 (addendum 86 item 3 (Q2);
+            # ARCHITECT 2026-10-26 15:15 ET: "the NCAA close-record line over 2026 games is FENCED too (146 5(b) yields
+            # to the 2026 fence; the record says it was printed through 10-26 and tuned nothing)")
+            fence_v2 = code == "NCAA" and not _nb.v2_run_recorded()
             for m in games:
+                if fence_v2 and str(m.season) == _nb.V2_SECOND:
+                    rec["fenced_2023"] += 1          # every 2023 game, conservatively (weeks 1-4 need no tally)
+                    continue
+                if fence_v2 and str(m.season) == _nb.V2_TEST:
+                    rec["fenced_2026"] += 1
+                    continue
                 if three:
                     _score_three(rec, m, snaps.get(m.id, []), mism, tickers, homes, current.get(m.id))
                     continue
@@ -837,7 +849,12 @@ REASONS = (("no_result", "no decided result {k}"),
            ("mismatched", "mismatched legs {k}"),
            ("no_close", "no Kalshi close {k} (no two-sided quote before kickoff, or the last one over the 2c cap)"),
            ("three_way", "three-way board {k} (close_from_kalshi is two-way only; a three-way competition's games "
-                         "take the three-way close on its own line, never pooled)"))
+                         "take the three-way close on its own line, never pooled)"),
+           ("fenced_2023", "fenced 2023 {k} (NCAA season 2023, withheld until the ncaa-elo-v2 run is recorded: "
+                           "ARCHITECT 2026-10-23, addendum 161 item 1; Codex on #697)"),
+           ("fenced_2026", "fenced 2026 {k} (NCAA season 2026, withheld until the ncaa-elo-v2 run is recorded: "
+                           "ARCHITECT 2026-10-16, addendum 86 item 3 (Q2); addendum 146 item 5(b) yields to the fence, "
+                           "ARCHITECT 2026-10-26 15:15 ET)"))
 REASONS_3 = (("no_result", "no decided 90-minute result {k}"),
              ("mismatched", "mismatched legs {k}"))
 

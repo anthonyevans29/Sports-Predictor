@@ -59,6 +59,7 @@ Brier and RPS print for INFORMATION ONLY (binary outcome: RPS == Brier).
 from __future__ import annotations
 
 import math
+import re
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -132,8 +133,9 @@ class Game:
     cfbd_id: int | None = None
     cfbd_season: str | None = None
     label_fetched_at: datetime | None = None
-    # ncaa-elo-v2 D10 (ARCHITECT 2026-10-16, addendum 81 item 2): CFBD's week as served, from the side table once the
-    # 2023 ingest PR stores it; None until then (law 4: unknown stays unknown). Only the 2023 second read reads it.
+    # ncaa-elo-v2 D10 (ARCHITECT 2026-10-16, addendum 81 item 2): CFBD's week as served, from the side table's week
+    # column (migrate_ncaa_cfbd_week.py; addendum 158 item 1(a)); None on a DB without the column and on a label whose
+    # ingest predates it (law 4: unknown stays unknown). Only the 2023 second read reads it.
     week: int | None = None
 
     @property
@@ -346,7 +348,7 @@ def game_from_rows(m, label=None) -> Game:
                     m.stage or "", match_id=m.id)
     corrected = (label.home_score, label.away_score) != (m.home_score, m.away_score)
     st = label.__dict__.get("season_type") if hasattr(label, "__dict__") else None   # unloaded pre-J4: None
-    wk = label.__dict__.get("week") if hasattr(label, "__dict__") else None          # no column yet: None (D10)
+    wk = label.__dict__.get("week") if hasattr(label, "__dict__") else None          # unloaded pre-week: None (D10)
     if label.orientation == "swapped":
         return Game(m.away_team_id, m.home_team_id, m.season, m.utc_date, label.away_score, label.home_score,
                     m.stage or "", neutral=label.neutral, label_source="cfbd", orientation="swapped",
@@ -580,9 +582,62 @@ def v2_fence_view(competition_code, season) -> str | None:
     `/?league=NCAA` standings show 2026 wins and losses — RULED: fence it, one line [...] (a league=NCAA view answers
     "withheld until the ncaa-elo-v2 run is recorded" until then)". The notice while NCAA's shown season is 2026 and
     the run is unrecorded, else None. The single games of the view's lists stay (the level ruling)."""
-    if (competition_code or "").strip().upper() != NCAA_COMPETITION_CODE or str(season) != V2_TEST:
+    if (competition_code or "").strip().upper() != NCAA_COMPETITION_CODE or str(season) not in (V2_TEST, V2_SECOND):
         return None
-    return None if v2_run_recorded() else V2_FENCED_RATE
+    if v2_run_recorded():
+        return None
+    return V2_FENCED_RATE if str(season) == V2_TEST else V2_2023_FENCED     # addendum 161 item 1: 2023 too
+
+
+# THE 2023 FENCE (ARCHITECT 2026-10-23, addendum 161 item 1, verbatim below): the 2026 fence's mechanism, extended to
+# the D10 second read's scored set. Until the registry records ncaa-elo-v2's one run, a 2023 'regular' game from week 5
+# is unread: no home win rate, result tally or score-bearing line on it. Weeks 1-4 (the cold-start warm-up, walked and
+# never scored) stay readable. A 2023 'regular' game with no week (or a 2023 game with no season_type) cannot be shown
+# to be warm-up, so it is fenced too (law 4). Lifted by the recorded run, never by a flag.
+V2_SECOND = "2023"
+V2_SECOND_MIN_WEEK = 5
+V2_2023_FENCE = ("A 2023 FENCE: YES. Once the 2023 games and labels are stored, the second read's scored set (2023 "
+                 "regular-season games from week 5, D10) is unread until the one run on 11-09, exactly as 2026's scored "
+                 "set is. The 2026 fence's mechanism extends to 2023 week-5-onward regular games: ncaa-cfbd-coverage, "
+                 "resync-diff --season 2023 and every other read-only command that would print a home win rate, a "
+                 "result tally or a score-bearing line on them refuses or masks them under the same guard, with the "
+                 "same wording and the 2023 scope named. Weeks 1–4 of 2023 (the cold-start warm-up, walked and never "
+                 "scored) stay readable. One small PR on top of the week branch, before the operator's 2023 block runs.")
+V2_2023_FENCE_RULING = "ARCHITECT 2026-10-23, addendum 161 item 1"
+V2_2023_SCOPE = (f"{V2_SECOND} 'regular' games from week {V2_SECOND_MIN_WEEK} (the D10 second read's scored set; "
+                 "a week or season_type unknown counts as fenced)")
+V2_2023_FENCED = f"withheld until the {V2_EID} run is recorded ({V2_2023_FENCE_RULING}: {V2_2023_SCOPE})"
+SCORE_WITHHELD = "[score withheld]"
+# a score pair, either side possibly missing ('7-None': resync-diff prints a stored or provider score it lacks as None;
+# Codex on #697)
+_SCORE = re.compile(r"(?<![\w-])(?:\d{1,3}|None)-(?:\d{1,3}|None)(?![\w-])")
+
+
+def fenced_2023(season, season_type, week, recorded: bool | None = None) -> bool:
+    """True when the game is in the 2023 fence's scope and the ncaa-elo-v2 run is not recorded: season 2023, unless it
+    is shown to be outside the scored set. Readable: season_type exactly 'postseason' (CFBD's value), or exactly
+    'regular' with an integer week before 5. Everything else (a week 5+ regular game, an unknown or unrecognized
+    season_type, an unknown week) is fenced (law 4; Codex on #697: only a recognized postseason value bypasses)."""
+    if str(season) != V2_SECOND:
+        return False
+    st = None if season_type is None else str(season_type)
+    if st == "postseason":
+        return False
+    if (st == "regular" and week is not None and not isinstance(week, bool) and isinstance(week, int)
+            and week < V2_SECOND_MIN_WEEK):
+        return False
+    return not (v2_run_recorded() if recorded is None else recorded)
+
+
+def mask_scores(text: str) -> str:
+    """A line on a fenced game with every score ('31-10', or a partial '7-None') replaced by SCORE_WITHHELD; dates
+    ('2023-09-06') are kept."""
+    return _SCORE.sub(SCORE_WITHHELD, text)
+
+
+def v2_2023_fence_refusal(command: str) -> str:
+    return (f"{command} REFUSED (exit 2): {V2_SECOND} is among its seasons and the {V2_EID} run is not recorded "
+            f"({V2_2023_SCOPE}). {V2_2023_FENCE_RULING}, verbatim: \"{V2_2023_FENCE}\"")
 
 
 class FenceRefused(RuntimeError):
@@ -596,8 +651,11 @@ def v2_fence_walk(competition_code, season) -> str | None:
     if (competition_code or "").strip().upper() != NCAA_COMPETITION_CODE:
         return None
     s_ = "" if season is None else str(season).strip()
-    if s_ not in ("", V2_TEST) or v2_run_recorded():
+    if s_ not in ("", V2_TEST, V2_SECOND) or v2_run_recorded():
         return None
+    if s_ == V2_SECOND:                                  # addendum 161 item 1: the 2023 scored set, the same guard
+        return (f"{NCAA_COMPETITION_CODE} {s_}: {V2_SECOND} is among its seasons and the {V2_EID} run is not recorded "
+                f"({V2_2023_SCOPE}). {V2_2023_FENCE_RULING}, verbatim: \"{V2_2023_FENCE}\"")
     return (f"{NCAA_COMPETITION_CODE} {s_ or '(every season)'}: {V2_TEST} is among its seasons and the {V2_EID} run "
             f"is not recorded. {V2_FENCE_RULING}, verbatim: \"{V2_FENCE}\"")
 

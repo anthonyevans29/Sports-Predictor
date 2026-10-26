@@ -41,10 +41,18 @@ sys.path.insert(0, ROOT)
 from src.ingestion.ncaa_cfbd import (  # noqa: E402,F401
     BASE, FIELDS, OPTIONAL, CFBDError, discover, fetch, parse_start, refuse_save_path,
 )
-from src.walters.ncaa_backtest import FENCED_RATE, V2_FENCED_RATE, V2_TEST  # noqa: E402
+from src.walters.ncaa_backtest import (  # noqa: E402
+    FENCED_RATE, V2_2023_FENCED, V2_FENCED_RATE, V2_SECOND, V2_TEST, fenced_2023, mask_scores,
+)
 
 SAMPLE = 15
 
+
+
+def row_season(rec: dict, year) -> str:
+    """The row's season for the 2023 fence: its own, else the requested year when it is missing, null or empty
+    (Codex on #697: a null row season never unmasks a 2023 sample)."""
+    return str(rec.get("season") or year)
 
 def fenced(year) -> bool:
     """The test-season fence (ARCHITECT 2026-10-08, addendum 15 item 1(b), verbatim): "Until the run is recorded,
@@ -54,12 +62,12 @@ def fenced(year) -> bool:
     2026 until the ncaa-elo-v2 run is recorded."""
     from src.walters.ncaa_backtest import V1R_TEST, v1r_run_recorded, v2_run_recorded
     return ((str(year) == V1R_TEST and not v1r_run_recorded())
-            or (str(year) == V2_TEST and not v2_run_recorded()))
+            or (str(year) in (V2_TEST, V2_SECOND) and not v2_run_recorded()))     # 2023: addendum 161 item 1
 
 
 def fenced_notice(year) -> str:
-    """The withheld notice for `year`'s fence: v1r's for 2025, ncaa-elo-v2's for 2026."""
-    return V2_FENCED_RATE if str(year) == V2_TEST else FENCED_RATE
+    """The withheld notice for `year`'s fence: v1r's for 2025, ncaa-elo-v2's for 2026 and for 2023 (its scored set)."""
+    return V2_FENCED_RATE if str(year) == V2_TEST else V2_2023_FENCED if str(year) == V2_SECOND else FENCED_RATE
 
 
 def fenced_year(year, recs) -> str | None:
@@ -72,7 +80,7 @@ def fenced_year(year, recs) -> str | None:
     return next((s_ for s_ in sorted(seasons) if fenced(s_)), None)
 
 
-def compare(records: list, keys: dict, session, division: str | None = None) -> dict:
+def compare(records: list, keys: dict, session, division: str | None = None, year=None) -> dict:
     """Row-level comparison against OUR NCAA matches. Read-only."""
     from src.db.schema import Sport
     from src.ingestion.match_lookup import find_match
@@ -123,8 +131,14 @@ def compare(records: list, keys: dict, session, division: str | None = None) -> 
         else:
             out["score_disagree"] += 1
             if len(score_bad) < SAMPLE:
-                score_bad.append(f"{start:%Y-%m-%d} match {m.id} ours {m.home_score}-{m.away_score} "
-                                 f"source {oh}-{oa} ({orient})")
+                line = f"{start:%Y-%m-%d} match {m.id} ours {m.home_score}-{m.away_score} source {oh}-{oa} ({orient})"
+                # the 2023 fence (addendum 161 item 1): a game of the second read's scored set prints no score
+                st = rec.get(keys["season_type"]) if keys.get("season_type") else None
+                wk = rec.get(keys["week"]) if keys.get("week") else None
+                season = row_season(rec, year)
+                if fenced_2023(str(season), st, wk if isinstance(wk, int) and not isinstance(wk, bool) else None):
+                    line = mask_scores(line)
+                score_bad.append(line)
         if orient == "swapped" and len(swapped) < SAMPLE:
             swapped.append(f"{start:%Y-%m-%d} match {m.id}: source {away} @ {home}{' (neutral)' if neutral else ''}"
                            f" · ours {m.away_team.name if m.away_team else '?'} @ {m.home_team.name if m.home_team else '?'}")
@@ -193,7 +207,7 @@ def main(argv=None) -> int:
             rc = 2
             continue
         with session_scope() as s:
-            r = compare(recs, keys, s, (a.division or "").lower() or None)
+            r = compare(recs, keys, s, (a.division or "").lower() or None, year=year)
             s.rollback()
         c = r["counts"]
         joined = c.get("joined_same", 0) + c.get("joined_swapped", 0)

@@ -149,10 +149,15 @@ class Binding:
     note: str
     pass_only: bool
     scale: float | None
+    # the neutral-site rule the gate's model runs (ncaa_v1r_gate.model_for: NeutralRuleElo's default, no home advantage
+    # at neutral sites); None = either declared rule (v1r). ARCHITECT 2026-10-26 15:15 ET (#698): "the neutral-rule
+    # pin BLOCKS — the binding refuses any rule but the gate's".
+    rule: str | None = None
 
 
+GATE_RULE = "no_home_advantage_at_neutral"
 BINDINGS = {EID: Binding(EID, MODEL_VERSION, NOTE, False, None),
-            V2_EID: Binding(V2_EID, V2_MODEL_VERSION, V2_NOTE, True, V2_FROZEN_S)}
+            V2_EID: Binding(V2_EID, V2_MODEL_VERSION, V2_NOTE, True, V2_FROZEN_S, GATE_RULE)}
 
 
 def binding(eid: str = EID) -> Binding:
@@ -197,6 +202,11 @@ def frozen(registry_path: str | None = None, eid: str = EID) -> tuple[dict, bool
         raise ShadowRefused(f"REFUSED: {b.eid}'s declaration has no {NEUTRAL_RULE_KEY} (one of "
                             f"{', '.join(sorted(NEUTRAL_RULES))}; got {rule!r}) — whether v1r applies home "
                             "advantage at neutral sites is the declaration's choice, never the shadow's")
+    if b.rule is not None and rule != b.rule:
+        raise ShadowRefused(f"export-ncaa-predictions --id {b.eid} REFUSED (exit 2): its declaration's "
+                            f"{NEUTRAL_RULE_KEY} is {rule!r}, not the gate's {b.rule!r} (the gate's model is "
+                            "NeutralRuleElo's default); the shadow runs only the model the gate scored "
+                            "(ARCHITECT 2026-10-26 15:15 ET, on #698)")
     from src.models.ncaa_elo import NCAAEloConfig
 
     frozen_v1 = {k: getattr(NCAAEloConfig(), k) for k in CONSTANT_KEYS}

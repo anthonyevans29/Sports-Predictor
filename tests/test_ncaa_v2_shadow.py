@@ -24,9 +24,10 @@ from tests.test_ncaa_shadow import NOW, V1, mine, world  # noqa: F401  (fixtures
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def _v2_registry(tmp_path, verdict="PASS", s=sh.V2_FROZEN_S, name="experiments.json"):
+def _v2_registry(tmp_path, verdict="PASS", s=sh.V2_FROZEN_S, name="experiments.json",
+                 rule="no_home_advantage_at_neutral"):
     p = tmp_path / name
-    e = {"id": sh.V2_EID, "sport": "ncaa", "constants": V1, "neutral_site_rule": "no_home_advantage_at_neutral",
+    e = {"id": sh.V2_EID, "sport": "ncaa", "constants": V1, "neutral_site_rule": rule,
          "logistic_scale": {"s": s}}
     if verdict is not None:
         e["verdict"] = {"verdict": verdict, "ruling": "x"}
@@ -113,3 +114,15 @@ def test_cli_id_v2_refusal_exits_2(mine):
 
     res = CliRunner().invoke(cli, ["export-ncaa-predictions", "--id", "ncaa-elo-v2"])
     assert res.exit_code == 2 and "ncaa-elo-v2" in res.output
+
+
+def test_architect_1026_the_v2_binding_refuses_any_neutral_rule_but_the_gates(mine, tmp_path):
+    """ARCHITECT 2026-10-26 15:15 ET (#698): "the neutral-rule pin BLOCKS — the binding refuses any rule but the
+    gate's". The gate's model is NeutralRuleElo's default (no home advantage at neutral sites); a v2 entry declaring
+    the other rule exports nothing. v1r keeps either declared rule."""
+    assert nb.NeutralRuleElo().neutral_home_advantage is False and sh.BINDINGS[sh.V2_EID].rule == sh.GATE_RULE
+    reg = _v2_registry(tmp_path, rule="home_advantage_at_neutral", name="other.json")
+    with pytest.raises(sh.ShadowRefused, match="not the gate's 'no_home_advantage_at_neutral'"):
+        sh.export(now=NOW, out_dir=str(tmp_path / "o"), registry_path=reg, eid=sh.V2_EID)
+    assert not list((tmp_path / "o").glob("ncaa_shadow_*.json"))
+    assert sh.BINDINGS[sh.EID].rule is None

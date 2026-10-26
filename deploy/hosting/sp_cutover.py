@@ -798,13 +798,23 @@ def step_install(ctx: Ctx) -> dict:
     # the service user's install, and named to it (ARCHITECT 2026-10-26, on Codex's P1s on #682).
     man = _manifest(ctx)
     keep = _keep_copy_or_refuse(ctx, _scrub_plan(ctx, man), man)
-    rc, out = ctx.runner(["runuser", "-u", ctx.service_user, "--", sys.executable, str(HERE / "sp_cutover.py"),
-                          "install", "--pack", str(ctx.pack), "--timers-file", str(ctx.timers_file),
-                          "--lock-timeout", str(ctx.lock_timeout), *(["--env-kept-copy", str(keep)] if keep else [])])
+    try:
+        rc, out = ctx.runner(["runuser", "-u", ctx.service_user, "--", sys.executable, str(HERE / "sp_cutover.py"),
+                              "install", "--pack", str(ctx.pack), "--timers-file", str(ctx.timers_file),
+                              "--lock-timeout", str(ctx.lock_timeout),
+                              *(["--env-kept-copy", str(keep)] if keep else [])])
+    except Exception as e:                    # the copy is still named below (ARCHITECT 2026-10-26 12:45 ET)
+        rc, out = 1, f"✗ install as {ctx.service_user} could not run ({e.__class__.__name__}: {e})"
     print(out.rstrip())
     got = _last_ok(ctx, "install")
     if rc != 0 or not got:
-        _refuse(ctx, "install", f"install as {ctx.service_user} exit {rc} (see its receipt)")
+        # ARCHITECT 2026-10-26 12:45 ET (#682, the round-3 P2): "a secret copy left unrecorded by a refusal is the
+        # morning's finding in another coat: root's refusal names the copy's path and prints it, the tool never deletes
+        # it."
+        kept = {"env_kept_copy": str(keep)} if keep else {}
+        if keep:
+            print(f"· the .env copy kept before the {ctx.service_user} install stays, never deleted: {keep}")
+        _refuse(ctx, "install", f"install as {ctx.service_user} exit {rc} (see its receipt)", **kept)
     return got[1]
 
 

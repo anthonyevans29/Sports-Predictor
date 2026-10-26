@@ -1085,6 +1085,36 @@ def test_168_3_architect_682_the_root_install_keeps_the_copy_beside_host_env_and
     assert not [q for q in host["h"].rglob("*") if "pre-scrub" in q.name]
 
 
+@pytest.mark.parametrize("child", ["exit_before_scrub", "cannot_run"])
+def test_168_3_architect_682_a_refused_sp_install_names_the_copy_root_kept_and_never_deletes_it(
+        world, host, monkeypatch, capsys, child):
+    """ARCHITECT 2026-10-26 12:45 ET (#682, the round-3 P2): "root's refusal names the copy's path and prints it, the
+    tool never deletes it." The sp install exits before its scrub (a DB-lock timeout) or cannot run at all."""
+    from datetime import datetime, timezone
+    pk = _pack_168(world, host, monkeypatch, PACK_ENV_168)
+    (host["h"] / ".env").write_text("DATABASE_URL=sqlite:///./data/sports.db\n")
+    monkeypatch.setattr(c, "utc_now", lambda: datetime(2026, 10, 26, 13, 44, 0, tzinfo=timezone.utc))
+    monkeypatch.setattr(sp_cutover, "_euid", lambda: 0)
+    monkeypatch.setattr(sp_cutover.os, "fchown", lambda fd, uid, gid: None)
+
+    def runner(argv):
+        if child == "cannot_run":
+            raise FileNotFoundError(2, "No such file or directory", "runuser")
+        return 1, "✗ REFUSED install: timed out waiting for the DB lock — a chain still holds the DB lock"
+    ctx = sp_cutover.Ctx(pack=pk, timers_file=host["timers"], runner=runner)
+    capsys.readouterr()
+    with pytest.raises(sp_cutover.Refused):
+        sp_cutover.step_install(ctx)
+    keep = world["real_env"].parent / "checkout.env.pre-scrub-20261026T134400Z"
+    assert keep.read_bytes() == PACK_ENV_168.encode()                        # never deleted
+    assert f"· the .env copy kept before the sp install stays, never deleted: {keep}" in capsys.readouterr().out
+    r = _lines(world["real_receipts"])[-1]
+    assert r["step"] == "install" and r["exit"] == 1 and r["env_kept_copy"] == str(keep)
+    assert "install as sp exit 1" in r["refused"]
+    for v in VALUES_168:
+        assert v not in world["real_receipts"].read_text()
+
+
 def test_168_3_architect_682_the_sp_install_edits_only_against_the_copy_it_was_named(world, host, monkeypatch, capsys):
     """The `sp` install scrubs with the copy root named (--env-kept-copy), and edits nothing unless that copy holds the
     placed .env's bytes: a missing or different copy is a receipted refusal, the .env left as the pack's."""

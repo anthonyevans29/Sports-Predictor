@@ -1,0 +1,18 @@
+**2026-10-26 — BUILT (lane mlb-pitchers, #507; roadmap step due 2026-10-28; queue order ARCHITECT 2026-10-26 16:10 ET): the as-of pitcher receipt, read-only. The run is the operator's; the declaration (due 10-31) is the architect's. No bar moves.**
+- **The step, verbatim** (docs/roadmap.json, lane mlb-pitchers; addendum 63 item 4): "the as-of reconstruction of the pitcher statistics the live model reads, from the stored appearances (docs/historical_backfill_assessment.md tier 1), as a read-only receipt: coverage per season".
+- **What the live model reads** (src/walters/training.py, read 2026-10-26):
+  - **Starter:** the starter in match_participants, with his pitcher_season_stats row for the game's own season (addendum 162 item 1(b)): era, innings_pitched, games_started.
+  - **Bullpen:** the team's bullpen_season_stats row (era, innings_pitched, recent_era).
+  - Both are season-to-date at their last refresh, so a past game read from them is read with later games in. That is why the backtest needs an as-of rebuild.
+- **The receipt:** `scripts/mlb_pitcher_asof_receipt.py` rebuilds those quantities from pitcher_appearances over games that started strictly before each game, and prints per season:
+  - games;
+  - appearances per side;
+  - the model's starter against the boxscore's;
+  - the starter as of the game (no stats, opener, or a starter component with its ERA complete or incomplete);
+  - the bullpen as of the game (season, and the 10-day recent window at 10 IP);
+  - a cross-check against the stored season rows.
+  - A NULL earned_runs is counted as incomplete, never filled (law 4).
+- **Readings for the architect, as built:**
+  - The model's starter is read from match_participants first, and the boxscore's (is_starter) only where none is listed. Both counts are printed, with their agreement.
+  - A game's season is matches.season as stored.
+  - An appearance that joins to no stored game of the season, or to neither team, is left out and counted.

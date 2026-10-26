@@ -1,0 +1,15 @@
+## 2026-10-26 (#000: 507-pitcher-asof-receipt — lane mlb-pitchers: the as-of reconstruction of the pitcher statistics the live model reads, coverage per season, read-only)
+- scripts/mlb_pitcher_asof_receipt.py: the roadmap step "the as-of reconstruction of the pitcher statistics the live model reads, from the stored appearances (docs/historical_backfill_assessment.md tier 1), as a read-only receipt: coverage per season" (code, due 2026-10-28; addendum 63 item 4).
+- What the live model reads (training.py, read first):
+  - the side's starting_pitcher from match_participants, with that pitcher's pitcher_season_stats row for the game's season (era, innings_pitched, games_started; GS 0 = an opener);
+  - the team's bullpen_season_stats row (era, innings_pitched, recent_era over 10 days, weighted from 10 IP).
+  - Both tables hold the season to date at their last refresh, so a past game read from them sees later games.
+- The receipt rebuilds the same quantities from pitcher_appearances, using only games that started strictly before the game read. Per season (default 2025, 2026), over the finished regular-season games:
+  - games by status and stage;
+  - appearances per side, with rows left out counted;
+  - the model's starter against the boxscore's;
+  - the starter as of the game: no stats, opener, or a starter component with its ERA complete or incomplete (a NULL earned_runs is counted, never filled);
+  - the bullpen season and recent windows as of the game;
+  - a cross-check of the appearance sums against the stored pitcher_season_stats rows.
+- The DB is opened mode=ro and never created; a missing column refuses (law 1); nothing is run, written or fetched. The run is the operator's.
+- Tests: tests/test_mlb_pitcher_asof_receipt.py (a synthetic season with a doubleheader at one kickoff, a NULL earned_runs row, a participant that differs from the boxscore, rows joined by statsapi id, a row with no side; the DB unchanged; a missing DB and a missing column refused). No bar moves.

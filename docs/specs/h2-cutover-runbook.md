@@ -137,6 +137,9 @@ Which machine runs item 5's readout (ARCHITECT 2026-10-18, addendum 128 item 1(a
   code stops it, and nothing tells it the other machine already paged (each machine reads only its own
   receipts). P8's run is such a run, which is why its page is a second page and the laptop's is the one acted
   on. The page ends `machine: host`.
+  - **P8 READ: PASS (ARCHITECT 2026-10-25 20:15 ET, addendum 167 postscript 2(a)), verbatim:** "(a) P8 READ: PASS. Host closing-run NFL for 2026-10-26T00:20Z on v1.5.0: exit 0, 6/6 steps, 17.0 s (20 s wall), page accepted ending "machine: host", closing file exports/closing_NFL_2026-10-26T0020Z.json (sha256 ea5e654f3f7f), mirror push exit 0 @ 5ce89059; the host's Desk row equals the laptop's 19:45 page (PLAY SEA 0.5u, BUY YES KXNFLGAME-26OCT25KCSEA-SEA @ 0.59 × 16, exec +8.6pp, QB hold). Record it on the runbook's P8 bullet and in the records entry; the 10-22 refusals (early runs, the ±6h window) stay in the record as what they were."
+  - **The 10-22 attempts, as they were (addendum 166 item 4(i), verbatim):** "(i) P8, the host closing-run rehearsal, has not been read: Thursday's early run was refused (kickoff outside the ±6h schedule window) and the 19:50 run did not happen. The runbook makes one rehearsal, read by me, a pre-cutover item. Tonight's SNF run (block_1025_p8_host.txt, 19:55 ET) is it."
+  - This is condition (2) of addendum 166 item 4 (the 2026-10 schedule table's Sun 10-25 evening row), met.
 - **No timer moves (addendum 45 P6):** "In twelve days no chain held the lock, or waited for it, longer than seven
   minutes, and the watch allows thirty. A closing run meets the hourly chain only where its T-35 falls between
   five and twelve past the hour, a kickoff at about a quarter to, and then it waits for it. The units with no run

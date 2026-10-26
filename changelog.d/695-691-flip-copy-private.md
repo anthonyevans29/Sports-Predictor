@@ -1,4 +1,4 @@
-## 2026-10-26 (#000: 691-flip-copy-private — ARCHITECT 2026-10-26 12:20 / 13:00 ET: the flip's host.env copy under #682's rule; a scrub-plan read error is a receipted refusal, #693)
+## 2026-10-26 (#695: 691-flip-copy-private — ARCHITECT 2026-10-26 12:20 / 13:00 ET: the flip's host.env copy under #682's rule; a scrub-plan read error is a receipted refusal, #693)
 - deploy/hosting/sp_cutover.py `step_flip`:
   - `host.env.pre-cutover-<ts>` was made with `shutil.copy2`. It is now created through `_write_private` (#682): 0600 with O_EXCL before any byte is written, then host.env's owner (as root) and mode through the descriptor, with copy2's times kept.
   - The temporary name `.host.env.cutover-tmp` is created the same way. A stale one is removed first, never written into.

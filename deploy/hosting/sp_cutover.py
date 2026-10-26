@@ -301,13 +301,11 @@ def active_sp_timers(ctx: Ctx, step: str) -> list[str]:
     """The sp timers active on the host now, as systemd lists them (addendum 57 item 8), whatever their names: one
     the list's name pattern cannot carry (sp-x@y.timer, an underscore) is still an active sp timer and is kept, never
     dropped. A listing that cannot be read refuses: an unread listing is never read as empty."""
-    rc, out = ctx.runner(["systemctl", "list-units", "--type=timer", "--state=active", "--no-legend", "--plain",
-                          "sp-*"])
+    rc, out = ctx.runner(list(c.ACTIVE_SP_TIMERS_ARGV))
     if rc != 0:
         _refuse(ctx, step, f"cannot read the active sp timers: systemctl list-units exit {rc}: "
                            f"{c.redact(out.strip())[:200]}")
-    units = (ln.split()[0] for ln in out.splitlines() if ln.split())
-    return sorted({u for u in units if u.startswith("sp-") and u.endswith(".timer")})
+    return c.parse_active_sp_timers(out)
 
 
 def _shot_argv(ctx: Ctx, pack: bool) -> list:

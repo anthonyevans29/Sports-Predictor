@@ -689,6 +689,113 @@ def test_the_t11_lists_the_shipped_timers_and_the_schedule_table_agree():
                                      f"a Schedule row, not shipped: {sorted(set(rows) - set(shipped))}")
 
 
+
+# ------------------------------- the prediction timers, retired (ARCHITECT 2026-10-25, addendum 166 item 6(B)) ----
+# "(B) THE TIMERS RETIREMENT PR [...] addendum 126 item 2(d) rules the host's fixed-time PREDICTION timers retired by
+# the cutover. Law 1 first: enumerate from deploy/hosting/chains.py what each of sp-nfl-predict, sp-soccer-friday and
+# sp-soccer-saturday actually runs, step by step. Retire ONLY the predict + slate-export steps the watch's slate stage
+# duplicates; a weekly ratings refresh, a grade, a results export or a whole-season sync that one of those chains also
+# carries is KEPT (moved to its own unit or left in a renamed chain — propose, do not decide)."
+PL_ARGS = ["--competition", "PL", "--season", "2026/27"]
+# What each chain ran on main f0e4cbf, before the retirement (chains.py, read 2026-10-25), and which steps retire.
+BEFORE_166B = {
+    "nfl-predict": [["sync-injuries", "--competition", "NFL", "--season", "2026"], ["capture-weather-nfl"],
+                    ["predict-nfl"], ["export-nfl-predictions"]],
+    "soccer-prematch": [["sync-matches", *PL_ARGS], ["sync-odds", *PL_ARGS], ["sync-injuries", *PL_ARGS],
+                        *[[v, "--competition", x, "--season", "2026/27"] for x in ("PD", "SA", "BL1", "FL1", "ELC")
+                          for v in ("sync-matches", "sync-odds")],
+                        *[["sync-kalshi-soccer", "--competition", x] for x in ("PD", "SA", "BL1", "FL1", "ELC")],
+                        ["sync-kalshi-soccer"],
+                        ["predict", "--sport", "soccer", *PL_ARGS],
+                        ["export-predictions", "--sport", "soccer", "--competition", "PL",
+                         "--start", "{sat}", "--end", "{sat_plus3}", "--status", "scheduled"]],
+}
+RETIRED_166B = {"nfl-predict": BEFORE_166B["nfl-predict"][2:], "soccer-prematch": BEFORE_166B["soccer-prematch"][-2:]}
+# timer -> (its calendar lines, unchanged; the chain it runs now; the chain it ran before)
+TIMERS_166B = {
+    "sp-nfl-prematch.timer": (["Thu *-*-* 18:00:00 UTC", "Sun *-*-* 14:00:00 UTC"], "nfl-prematch", "nfl-predict"),
+    "sp-soccer-friday.timer": (["Fri *-*-* 14:00:00 UTC"], "soccer-prematch", "soccer-prematch"),
+    "sp-soccer-saturday.timer": (["Sat *-*-* 10:30:00 Europe/London"], "soccer-prematch", "soccer-prematch"),
+}
+
+
+def _slate_steps_of(fam):
+    """The slate stage's own steps for a synthetic day (closing.slate_steps: resolve_steps, the closing's resolution,
+    SOCCER's export gaining its window), so the retired steps are compared with what the slate stage really runs."""
+    import closing
+    day = date(2026, 10, 31)
+    covers = [{"match_id": 7, "start": datetime(2026, 10, 31, 17, 0, tzinfo=timezone.utc)}]
+    return closing.slate_steps(fam, day, covers, datetime(2026, 10, 31, 12, 0, tzinfo=timezone.utc), "RID")
+
+
+def test_the_three_timers_keep_their_schedules_and_run_only_the_kept_steps():
+    timers = _timers()
+    assert "sp-nfl-predict.timer" not in timers and "nfl-predict" not in chains.CHAINS     # renamed, not duplicated
+    for t, (cals, chain, before) in TIMERS_166B.items():
+        assert timers[t] == (cals, f"sp-chain@{chain}.service"), t
+        kept = [s for s in BEFORE_166B[before] if s not in RETIRED_166B[before]]
+        assert chains.CHAINS[chain]["steps"] == kept, chain                          # the kept steps, in order
+        assert "backup" not in chains.CHAINS[chain] and not chains.CHAINS[chain].get("operator_only")
+    assert [s[0] for s in chains.CHAINS["nfl-prematch"]["steps"]] == ["sync-injuries", "capture-weather-nfl"]
+    assert all(s[0].startswith("sync-") for s in chains.CHAINS["soccer-prematch"]["steps"])  # every sync stays
+
+
+def test_each_retired_step_is_one_the_slate_stage_runs_for_the_same_family():
+    """A step retires only where the slate stage runs the same command for the same family: the predict word for word,
+    the export the same command and competition (the slate's adds --desk and its --out, SOCCER's its window)."""
+    nfl, soccer = _slate_steps_of("NFL"), _slate_steps_of("SOCCER")
+    assert ["predict-nfl"] in nfl and nfl[-1][0] == "export-nfl-predictions"
+    assert RETIRED_166B["nfl-predict"] == [["predict-nfl"], ["export-nfl-predictions"]]
+    assert ["predict", "--sport", "soccer", *PL_ARGS] in soccer
+    assert soccer[-1][:5] == ["export-predictions", "--sport", "soccer", "--competition", "PL"]
+    assert RETIRED_166B["soccer-prematch"][0] in soccer
+    assert RETIRED_166B["soccer-prematch"][1][:5] == soccer[-1][:5]
+    # the kept steps the slate stage does NOT run as written (whole-league / whole-season / other leagues / weather)
+    for chain, slate in (("nfl-prematch", nfl), ("soccer-prematch", soccer)):
+        for st in chains.CHAINS[chain]["steps"]:
+            assert st[0] not in ("predict", "predict-nfl", "export-predictions", "export-nfl-predictions")
+    assert ["capture-weather-nfl"] not in nfl
+    assert ["sync-injuries", "--competition", "NFL", "--season", "2026"] not in nfl          # the slate's is scoped
+    assert ["sync-matches", *PL_ARGS] not in soccer and ["sync-odds", *PL_ARGS] not in soccer
+
+
+def test_the_retired_exports_wrote_the_slate_files_names():
+    """The in-place rewrite (BACKLOG 2026-10-18, addendum 126 entry, open item 2): the retired exports wrote the slate
+    stage's own exports/ names on the days the timers fire. NFL: export-nfl-predictions' default
+    exports/nfl_predictions_<UTC date>.json on Thursday 18:00Z and Sunday 14:00Z (the ET date too); SOCCER: Saturday's
+    --start {sat} --end {sat_plus3} is the Saturday slate's soccer_PL_<sat>_to_<sat_plus3>.json."""
+    import closing
+    thu, sun, sat = date(2026, 10, 29), date(2026, 11, 1), date(2026, 10, 31)
+    for d in (thu, sun):
+        assert closing.slate_file("NFL", d) == f"nfl_predictions_{d.isoformat()}.json"
+    v = sp_run.date_vars(sat)
+    assert closing.slate_file("SOCCER", sat) == f"soccer_PL_{v['sat']}_to_{v['sat_plus3']}.json"
+
+
+def test_no_timer_runs_a_live_nfl_or_pl_predict_or_slate_export():
+    """After 6(B) no shipped timer's chain predicts or exports NFL or PL: the closing watch's slate stage writes their
+    slate files. MLB is not touched (mlb-preslate, a laptop duty: T11's MLB_LAPTOP_ONLY)."""
+    retired = {"predict-nfl", "export-nfl-predictions"}
+    for t, (_, unit) in _timers().items():
+        m = re.match(r"sp-chain@(.+)\.service$", unit)
+        if not m:
+            continue
+        for st in chains.CHAINS[m.group(1)]["steps"]:
+            assert st[0] not in retired, (t, st)
+            if st[0] in ("predict", "export-predictions"):
+                assert "PL" not in st and "soccer" not in st, (t, st)
+
+
+def test_the_t11_lists_carry_the_renamed_timer():
+    lists = c.t11_lists()
+    assert "sp-nfl-prematch.timer" in lists["TIMERS"]
+    assert not any("sp-nfl-predict.timer" in lists[n] for n in c.T11_LISTS)
+    assert {"sp-soccer-friday.timer", "sp-soccer-saturday.timer"} <= set(lists["TIMERS"])
+    assert lists["HELD_FOR_CUTOVER"] == ["sp-closing-watch.timer"]       # the watch's enable is the cutover's (A)
+    rb = (ROOT / "docs" / "specs" / "hosting-h1.md").read_text()
+    assert "| sp-nfl-prematch | nfl-prematch (was sp-nfl-predict / nfl-predict;" in rb
+
+
 import sp_deploy  # noqa: E402
 
 
@@ -738,6 +845,80 @@ def test_a_shipped_timer_on_no_t11_list_is_named_unlisted(tmp_path):
     assert st["by_list"] == {"MLB_LAPTOP_ONLY": ["sp-b.timer"], "HELD_FOR_CUTOVER": ["sp-c.timer"],
                              "unlisted": ["sp-new.timer"]}
     assert sp_deploy.timers_line(st).startswith("\n  ! ") and "sp-new.timer (unlisted)" in sp_deploy.timers_line(st)
+
+
+def _listing(*units, rc=0):
+    """A stand-in for `systemctl list-units --type=timer --state=active --no-legend --plain sp-*`: it checks it was
+    asked exactly that (sp_common's reader, the cutover preflight's) and answers with these units."""
+    calls = []
+
+    def run(argv):
+        calls.append(argv)
+        assert argv == list(c.ACTIVE_SP_TIMERS_ARGV)
+        return rc, "\n".join(f"{u} loaded active waiting desc" for u in units) if rc == 0 else "Failed to connect to bus"
+    run.calls = calls
+    return run
+
+
+def test_the_deploy_receipt_names_an_active_sp_timer_the_list_does_not(tmp_path):
+    """ARCHITECT 2026-10-26, addendum 168 item 2 (#676): the receipt line "is extended to name ACTIVE timers not on
+    the list, not only shipped-but-unlisted ones — a read-only line". The 2026-10-26 host: 14 lines in
+    timers.enabled, 16 sp timers active (sp-intl-daily and sp-exports-squash enabled by hand, never listed)."""
+    lists = c.t11_lists()
+    listed = [t for t in lists["TIMERS"] if t not in ("sp-intl-daily.timer", "sp-exports-squash.timer")]
+    path = _enabled(tmp_path, listed)
+    run = _listing(*lists["TIMERS"])
+    st = sp_deploy.active_timers_state(enabled_path=path, runner=run)
+    assert st == {"active_not_listed": ["sp-exports-squash.timer", "sp-intl-daily.timer"]} and len(run.calls) == 1
+    line = sp_deploy.active_timers_line(st)
+    assert line.startswith(f"\n  ! active sp timers not in {c.TIMERS_ENABLED}: sp-exports-squash.timer, "
+                           "sp-intl-daily.timer — add them to the list by hand")
+    assert path.read_text() == " ".join(listed) + "\n"           # read-only: the list is never written
+    # an active sp timer whose name no T11 list could carry is still named, never dropped (addendum 57 item 8)
+    odd = sp_deploy.active_timers_state(enabled_path=path, runner=_listing(*listed, "sp-notify@x.timer"))
+    assert odd["active_not_listed"] == ["sp-notify@x.timer"]
+
+
+def test_every_active_timer_listed_leaves_the_deploy_receipt_as_it_was(tmp_path):
+    lists = c.t11_lists()
+    path = _enabled(tmp_path, lists["TIMERS"])
+    st = sp_deploy.active_timers_state(enabled_path=path, runner=_listing(*lists["TIMERS"][:3], "other.timer"))
+    assert st == {"active_not_listed": []} and sp_deploy.active_timers_line(st) == ""
+    shipped = sp_deploy.timers_line(sp_deploy.timers_state(enabled_path=path))
+    assert shipped + sp_deploy.active_timers_line(st) == shipped   # the addendum 155 line, unchanged and alone
+
+
+def test_an_unreadable_active_listing_is_labelled_never_read_as_empty(tmp_path):
+    """Law 4: a listing that fails (no bus, no systemctl) is an error with no list, and the line says so with "!";
+    an unreadable timers.enabled is labelled the same way, and systemctl is not asked."""
+    path = _enabled(tmp_path, c.t11_lists()["TIMERS"])
+    st = sp_deploy.active_timers_state(enabled_path=path, runner=_listing(rc=1))
+    assert st["active_not_listed"] is None and st["error"].startswith("systemctl list-units exit 1: Failed to connect")
+    line = sp_deploy.active_timers_line(st)
+    assert line.startswith("\n  ! active timers: systemctl list-units exit 1") and "could not be compared" in line
+    missing_run = _listing("sp-a.timer")
+    gone = sp_deploy.active_timers_state(enabled_path=tmp_path / "absent", runner=missing_run)
+    assert gone["active_not_listed"] is None and "unreadable (FileNotFoundError)" in gone["error"]
+    assert sp_deploy.active_timers_line(gone).startswith("\n  ! active timers: ") and missing_run.calls == []
+    # a systemctl that cannot run at all is exit 127, labelled
+    rc, out = sp_deploy._systemctl_read(["/nonexistent/systemctl-for-this-test"])
+    assert rc == 127 and "FileNotFoundError" in out
+
+
+def test_every_by_hand_timer_enable_recipe_adds_the_timer_to_timers_enabled():
+    """ARCHITECT 2026-10-26, addendum 168 item 2: "T11's recipe for enabling a timer ends with the timers.enabled
+    line". Every `enable --now sp-….timer` a runbook gives by hand is followed, in its recipe, by
+    `echo <it> | sudo tee -a /etc/sports-predictor/timers.enabled` (T11's own `enable --now $TIMERS` writes the
+    whole list first)."""
+    missing = []
+    for doc in ("hosting-h1.md", "h2-cutover-runbook.md", "exports-mirror.md"):
+        lines = (ROOT / "docs" / "specs" / doc).read_text(encoding="utf-8").splitlines()
+        for i, ln in enumerate(lines):
+            for t in re.findall(r"enable --now (sp-[\w@.-]+\.timer)", ln):
+                recipe = "\n".join(lines[i:i + 3])
+                if f"echo {t} | sudo tee -a /etc/sports-predictor/timers.enabled" not in recipe:
+                    missing.append(f"{doc}:{i + 1} {t}")
+    assert not missing, f"a by-hand timer enable with no timers.enabled line: {missing}"
 
 
 # ------------------------------------------- H1a fresh bootstrap (09-27) ----
@@ -1603,7 +1784,8 @@ import compare_exports  # noqa: E402
 
 def test_prediction_chains_sync_injuries_first_mlb_exempt():
     ch = chains.CHAINS
-    assert ch["nfl-predict"]["steps"][0] == ["sync-injuries", "--competition", "NFL", "--season", "2026"]
+    # nfl-predict is nfl-prematch since addendum 166 item 6(B): its predict left it, its injury sync stays first
+    assert ch["nfl-prematch"]["steps"][0] == ["sync-injuries", "--competition", "NFL", "--season", "2026"]
     for name, c_ in ch.items():                 # the audit, kept as a guard
         cmds = [s[0] for s in c_.get("steps") or []]
         if not {"predict", "predict-nfl"} & set(cmds):

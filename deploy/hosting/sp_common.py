@@ -198,6 +198,20 @@ def shipped_timers(repo: Path | None = None) -> list[str]:
     return sorted(p.name for p in (Path(repo or REPO) / "deploy" / "hosting" / "systemd").glob("*.timer"))
 
 
+# THE ACTIVE sp TIMERS, as systemd lists them (ARCHITECT 2026-10-13, addendum 57 item 8): one reader for the cutover's
+# preflight (sp_cutover.active_sp_timers, which refuses on a failed read) and the deploy receipt (ARCHITECT
+# 2026-10-26, addendum 168 item 2: sp_deploy names the active sp timers timers.enabled does not list).
+ACTIVE_SP_TIMERS_ARGV = ("systemctl", "list-units", "--type=timer", "--state=active", "--no-legend", "--plain",
+                         "sp-*")
+
+
+def parse_active_sp_timers(out: str) -> list[str]:
+    """The sp timers in an ACTIVE_SP_TIMERS_ARGV listing, whatever their names: one the list's name pattern cannot
+    carry (sp-x@y.timer, an underscore) is still an active sp timer and is kept, never dropped. Sorted, unique."""
+    units = (ln.split()[0] for ln in out.splitlines() if ln.split())
+    return sorted({u for u in units if u.startswith("sp-") and u.endswith(".timer")})
+
+
 def redact(line: str) -> str:
     for name in SECRET_ENV:
         val = os.environ.get(name) or _dotenv().get(name)

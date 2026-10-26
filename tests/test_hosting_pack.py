@@ -1545,6 +1545,69 @@ def test_run_freshens_family_map_skip_and_rate_guard(sandbox, monkeypatch):
     assert later[0]["ran"]
 
 
+# #673 RULED (ARCHITECT 2026-10-25 11:55 ET, addendum 167 postscript (b)): "a file that carries Desk blocks is never
+# replaced by one without them. The freshen writes to its own name (the alternative), and the slate's kept copy and
+# receipt stay true; `--desk` is not added to the freshen". The fake export writes as the real one does: its --out
+# when given, else exports/nfl_predictions_<date>.json opened in place (the hard-link finding).
+EXPORT_CLI = '''import sys, os
+a = sys.argv[1:]
+print("ran", " ".join(a))
+if a and a[0] == "export-nfl-predictions":
+    path = a[a.index("--out") + 1] if "--out" in a else "exports/nfl_predictions_2026-10-25.json"
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as f:
+        f.write('{"rows": [{"id": 1}], "freshened": true}')
+'''
+
+
+def test_673_a_freshen_after_a_slate_leaves_the_slates_kept_copy_and_receipt_true_and_names_its_own_file(
+        sandbox, monkeypatch):
+    import os
+    import closing
+    (c.REPO / "cli.py").write_text(EXPORT_CLI)
+    slate = b'{"rows": [{"id": 1, "desk": {"call": "PLAY"}}], "desk_meta": {"as_of": "2026-10-25T15:00:00Z"}}'
+    kept = "logs/20261025T1500Z-nfl-slate.nfl_predictions_2026-10-25.json"
+    (c.REPO / "logs").mkdir()
+    (c.REPO / kept).write_bytes(slate)
+    rec = closing.link_slate_file(kept, "nfl_predictions_2026-10-25.json")
+    assert rec["sha256"] == c.sha256_file(c.REPO / kept)
+    name = c.REPO / "exports" / "nfl_predictions_2026-10-25.json"
+    assert os.path.samefile(name, c.REPO / kept)                      # the slate's two names are one file
+    now = datetime(2026, 10, 25, 16, 30)
+    out = sp_run.run_freshens([{"id": "1", "sport": "nfl", "competition": "NFL"}], "win-1", now, now.date())
+    assert out[0]["ran"] and out[0]["exit"] == 0
+    assert (c.REPO / kept).read_bytes() == slate and name.read_bytes() == slate   # never written into
+    assert c.sha256_file(c.REPO / kept) == rec["sha256"]                          # the slate receipt stays true
+    own = "logs/20261025T163000Z-freshen-NFL.nfl_predictions_2026-10-25.json"
+    assert out[0]["wrote"] == {"file": own, "sha256": c.sha256_file(c.REPO / own)}
+    assert json.loads((c.REPO / own).read_text())["freshened"] is True
+    step = [r for r in receipts(sandbox) if r["kind"] == "step"][-1]
+    assert step["command"].endswith(f"export-nfl-predictions --out {own}")    # no --desk on the freshen
+    assert sorted(p.name for p in (c.REPO / "exports").iterdir()) == ["nfl_predictions_2026-10-25.json"]
+    assert [r for r in receipts(sandbox) if r["kind"] == "freshen"][-1]["wrote"]["file"] == own
+
+
+def test_673_the_freshen_never_opens_its_own_file_a_second_time(sandbox, monkeypatch):
+    (c.REPO / "cli.py").write_text(EXPORT_CLI)
+    now = datetime(2026, 10, 25, 16, 30)
+    own = c.REPO / "logs" / "20261025T163000Z-freshen-NFL.nfl_predictions_2026-10-25.json"
+    own.parent.mkdir(parents=True)
+    own.write_text("EARLIER")
+    out = sp_run.run_freshens([{"id": "1", "sport": "nfl", "competition": "NFL"}], "win-1", now, now.date())
+    assert not out[0]["ran"] and out[0]["exit"] == 1 and "already exists" in out[0]["refused"]
+    assert own.read_text() == "EARLIER"
+    assert not [r for r in receipts(sandbox) if r["kind"] == "step"]
+
+
+def test_673_only_the_nfl_freshen_takes_its_own_file_and_the_closing_export_is_unchanged():
+    assert sp_run.run_vars("freshen:NFL", "20261025T1630Z-freshen:NFL", date(2026, 10, 25)) == {
+        "freshen_out": "logs/20261025T1630Z-freshen-NFL.nfl_predictions_2026-10-25.json"}
+    for name in ("freshen:SOCCER", "freshen:MLB", "nhl-daily", "window"):
+        assert sp_run.run_vars(name, "RID", date(2026, 10, 25)) == {}
+    assert chains.CHAINS["freshen:NFL"]["steps"][-1] == ["export-nfl-predictions", "--out", "{freshen_out}"]
+    assert chains.CHAINS["nfl-closing"]["steps"][-1] == ["export-nfl-predictions", "--desk", "--out", "{export_out}"]
+
+
 def test_window_run_triggers_freshen_and_recards(sandbox, monkeypatch):
     (c.REPO / "cli.py").write_text(FAKE_CLI)
     import sp_window_page

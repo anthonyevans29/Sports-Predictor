@@ -320,12 +320,21 @@ IMMINENT_INJURY_FAMILIES = ("NFL", "SOCCER")
 # freshen: the window repricing IS their freshen. Families in
 # SP_SKIP_FAMILIES (MLB on the DO host, ASN ruling) are logged as
 # freshen_needed and never run.
-CHAINS["freshen:NFL"] = {"steps": [
+# #673 RULED (ARCHITECT 2026-10-25 11:55 ET, addendum 167 postscript (b)): "a file that carries Desk blocks is never
+# replaced by one without them. The freshen writes to its own name (the alternative), and the slate's kept copy and
+# receipt stay true; `--desk` is not added to the freshen (the closing page is the row that counts, the freshen is an
+# input refresh)." freshen:NFL's export writes {freshen_out}, logs/<freshen run id>.<the export's default name>
+# (sp_run.run_vars): outside exports/, so never the slate's exports/nfl_predictions_<date>.json (a hard link to the
+# slate's kept logs/ copy, addendum 133 item 3(a)), never mirrored, and never matched by closing.py's export_glob
+# (nfl_predictions_*.json in exports/). The closing chain derived from it takes its own --out (_closing_from_freshen).
+CHAINS["freshen:NFL"] = {"freshen_out": "nfl_predictions_{today}.json",
+                         "example_vars": {"freshen_out": "logs/20261026T150000Z-freshen-NFL.nfl_predictions_2026-10-26.json"},
+                         "steps": [
     ["sync-injuries", "--competition", "NFL", "--season", "2026"],
     ["sync-odds-football"],
     ["sync-kalshi-nfl"],
     ["predict-nfl"],
-    ["export-nfl-predictions"],
+    ["export-nfl-predictions", "--out", "{freshen_out}"],
 ]}
 CHAINS["freshen:MLB"] = {"steps": [list(s) for s in CHAINS["mlb-preslate"]["steps"]]}  # the 10
 # MLB CLOSING-RUN AUTOPILOT (ARCHITECT 2026-10-08, addendum 13 item 3, Q2, A1): "It runs the ten mlb-preslate steps
@@ -395,11 +404,21 @@ _CLOSING_ADD = {
 # .json itself once the page went out. The freshen and slate chains are unchanged.
 
 
+FRESHEN_OUT = ["--out", "{freshen_out}"]
+
+
+def freshen_step(s: list[str]) -> list[str]:
+    """A freshen step without the freshen's own export file (#673): the closing run names its own (--out
+    {export_out}, addendum 40 item 2)."""
+    i = next((i for i in range(len(s) - 1) if s[i:i + 2] == FRESHEN_OUT), None)
+    return list(s) if i is None else [*s[:i], *s[i + 2:]]
+
+
 def _closing_from_freshen(freshen: str, comp: str, season: str) -> list[list[str]]:
     # A1 as amended (addendum 25 2(i)): by date, one UTC day per call, naming that day's covered games
     read = [["sync-matches", "--competition", comp, "--season", season, "--date-from", d, "--date-to", d,
              "--match-ids", ids] for d, ids in (("{start_day}", "{start_day_ids}"), ("{end_day}", "{end_day_ids}"))]
-    return read + [[*s, *_CLOSING_ADD.get(s[0], [])] for s in CHAINS[freshen]["steps"]]
+    return read + [[*freshen_step(s), *_CLOSING_ADD.get(s[0], [])] for s in CHAINS[freshen]["steps"]]
 
 
 # A sample of the run-time placeholders, for the law-1 option check (tests/test_hosting_pack.py) only.

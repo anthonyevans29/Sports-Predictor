@@ -409,7 +409,7 @@ def test_c3_nfl_and_soccer_closing_chains_are_their_freshen_chains_opening_with_
     """C3 + addendum 22: the freshen chain's steps in order, ending in the export that carries the Desk's call,
     opened by the schedule read (status and start time) for its games."""
     clo = chains.CHAINS[chains.CLOSING_FAMILIES[fam]]["steps"]
-    fr = chains.CHAINS[freshen]["steps"]
+    fr = [chains.freshen_step(s) for s in chains.CHAINS[freshen]["steps"]]   # #673: without the freshen's own file
     # A1 as amended (addendum 25 2(i)): "nfl-closing takes the SOCCER form: sync-matches by date, one UTC day per
     # call, naming that day's covered games. The by_id branch goes."
     read = [["sync-matches", "--competition", comp, "--season", season, "--date-from", d, "--date-to", d,

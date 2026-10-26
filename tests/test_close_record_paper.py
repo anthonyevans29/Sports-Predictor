@@ -151,9 +151,11 @@ def test_a_level_or_null_score_is_no_decided_result():
     assert _line("NHL") == "- NHL: close log-loss — · favourite — · n=0 · finished 2; left out: no decided result 2"
 
 
-def test_ncaa_reads_the_cfbd_label_first_and_a_tie_is_a_data_defect():
+def test_ncaa_reads_the_cfbd_label_first_and_a_tie_is_a_data_defect(monkeypatch):
     from src.db.database import session_scope
     from src.db.schema import NCAACFBDLabel
+    from src.walters import ncaa_backtest as nb
+    monkeypatch.setattr(nb, "v2_run_recorded", lambda *a, **k: True)      # the scoring as it reads once the run is in
     _comps()
     _game(601, "NCAA", 20, 17)                                           # the matches row: HOME
     with session_scope() as s:                                           # the label of record: AWAY 20-17
@@ -521,3 +523,22 @@ def test_codex_697_the_ncaa_close_record_withholds_2023_until_the_v2_run_is_reco
                              "addendum 161 item 1; Codex on #697)")
     monkeypatch.setattr(nb, "v2_run_recorded", lambda *a, **k: True)
     assert _line("NCAA").startswith("- NCAA: close log-loss ") and "n=1" in _line("NCAA")
+
+
+def test_architect_1026_the_ncaa_close_record_over_2026_is_fenced_too(monkeypatch):
+    """ARCHITECT 2026-10-26 15:15 ET: "the NCAA close-record line over 2026 games is FENCED too (146 5(b) yields to the
+    2026 fence; the record says it was printed through 10-26 and tuned nothing)". NHL is untouched."""
+    from src.walters import ncaa_backtest as nb
+    _comps()
+    _game(621, "NCAA", 24, 3)
+    _kal(621, "HOME", 0.70, 0.71, KO - timedelta(minutes=30))
+    _game(622, "NHL", 3, 2)
+    _kal(622, "HOME", 0.55, 0.56, KO - timedelta(minutes=30))
+    monkeypatch.setattr(nb, "v2_run_recorded", lambda *a, **k: False)
+    assert _line("NCAA") == ("- NCAA: close log-loss — · favourite — · n=0 · finished 1; left out: fenced 2026 1 "
+                             "(NCAA season 2026, withheld until the ncaa-elo-v2 run is recorded: ARCHITECT 2026-10-16, "
+                             "addendum 86 item 3 (Q2); addendum 146 item 5(b) yields to the fence, ARCHITECT 2026-10-26 "
+                             "15:15 ET)")
+    assert "n=1" in _line("NHL")
+    monkeypatch.setattr(nb, "v2_run_recorded", lambda *a, **k: True)
+    assert "n=1" in _line("NCAA")

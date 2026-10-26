@@ -41,7 +41,7 @@ def test_the_ruling_verbatim_the_scope_and_the_lift():
         "2023-10-07 match 9 ours 1 @ 2 [score withheld] · provider 11@12 [score withheld]"
 
 
-def _labels(year, recorded, monkeypatch):
+def _labels(year, recorded, monkeypatch, row_season=None):
     monkeypatch.setattr(nb, "v2_run_recorded", lambda *a, **k: recorded)
     teams = {1: "F A", 2: "F B", 3: "F C", 4: "F D"}
 
@@ -58,6 +58,9 @@ def _labels(year, recorded, monkeypatch):
             {"id": 503, "season": year, "seasonType": "regular", "week": 7, "startDate": f"{year}-10-14T19:00:00Z",
              "completed": True, "neutralSite": False, "homeTeam": "Nowhere", "homeClassification": "fbs",
              "homePoints": 3, "awayTeam": "F D", "awayClassification": "fbs", "awayPoints": 0}]
+    if row_season is not None:                                     # a saved payload replayed under another --year
+        for r_ in recs:
+            r_["season"] = row_season
     keys, _ = nc.discover(recs[0])
     return nc.build_labels(recs, keys, ours_list, teams, {}, year, "fbs")
 
@@ -144,3 +147,59 @@ def test_the_source_probe_fences_2023(monkeypatch):
     monkeypatch.setattr(nb, "v2_run_recorded", lambda *a, **k: True)
     assert not probe.fenced(2023)
 
+
+
+def test_architect_1026_export_fixtures_refuses_a_range_touching_fenced_2023_games(tmp_path, monkeypatch):
+    """ARCHITECT 2026-10-26 15:15 ET: "export-fixtures REFUSES a date range touching fenced 2023 games (format
+    untouched)". A range with only week 1-4 games, or another competition, or the recorded run, exports as before."""
+    import os
+
+    import pytest
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+
+    import src.db.database as db
+    from cli import cli
+    from src.db.schema import Competition, Match, MatchStatus, NCAACFBDLabel, Sport, Team
+    from src.walters.export import export_fixtures
+
+    eng = create_engine(f"sqlite:///{tmp_path / 'x.db'}", future=True)
+    monkeypatch.setattr(db, "_engine", eng)
+    monkeypatch.setattr(db, "SessionLocal", sessionmaker(bind=eng, autoflush=False, future=True,
+                                                         expire_on_commit=False))
+    db.init_db()
+    monkeypatch.setattr(nb, "v2_run_recorded", lambda *a, **k: False)
+    with db.session_scope() as s:
+        c = Competition(sport=Sport.NFL, code="NCAA", name="NCAA", area="USA", type="LEAGUE")
+        t1, t2 = Team(sport=Sport.NFL, name="X1"), Team(sport=Sport.NFL, name="X2")
+        s.add_all([c, t1, t2])
+        s.flush()
+        for day, wk in ((2, 1), (30, 6)):                           # 2023-09-02 week 1; 2023-09-30 week 6
+            m = Match(sport=Sport.NFL, competition_id=c.id, season="2023", utc_date=datetime(2023, 9, day, 18),
+                      status=MatchStatus.FINISHED, home_team_id=t1.id, away_team_id=t2.id, home_score=21, away_score=7)
+            s.add(m)
+            s.flush()
+            s.add(NCAACFBDLabel(match_id=m.id, source="cfbd", source_game_id=m.id, season="2023", orientation="same",
+                                home_score=21, away_score=7, season_type="regular", week=wk,
+                                fetched_at=datetime(2026, 10, 24)))
+    out = tmp_path / "ex"
+    with pytest.raises(nb.FenceRefused, match="export-fixtures --competition NCAA REFUSED"):
+        export_fixtures("NCAA", start="2023-09-01", end="2023-10-01", out_dir=str(out))
+    assert not out.exists()                                          # nothing written
+    assert os.path.basename(export_fixtures("NCAA", start="2023-09-01", end="2023-09-03", out_dir=str(out))) \
+        == "fixtures_NCAA_2023-09-01_to_2023-09-03.json"            # weeks 1-4 only: exported as before
+    res = CliRunner().invoke(cli, ["export-fixtures", "--competition", "NCAA", "--start", "2023-09-01",
+                                   "--end", "2023-10-01"])
+    assert res.exit_code == 2 and "1 fenced game(s)" in res.output
+    monkeypatch.setattr(nb, "v2_run_recorded", lambda *a, **k: True)
+    export_fixtures("NCAA", start="2023-09-01", end="2023-10-01", out_dir=str(out))
+
+
+def test_architect_1026_the_ingest_keys_the_fence_on_the_rows_season(monkeypatch):
+    """ARCHITECT 2026-10-26 15:15 ET: "the cross-year replay BLOCKS — key the fence on the row's season". 2023 rows
+    replayed under --year 2024 are fenced as 2023's; a row with no season reads the requested year."""
+    r = _labels(2024, False, monkeypatch, row_season=2023)
+    assert r.counts["fenced_2023"] == 2
+    assert any("[score withheld]" in x for x in r.corrections)
+    r = _labels(2023, False, monkeypatch, row_season="")              # no row season: the requested year
+    assert r.counts["fenced_2023"] == 2

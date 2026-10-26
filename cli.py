@@ -9039,8 +9039,13 @@ def export_fixtures_cmd(competition_code, start, end, desk):
     """Market-only fixtures export (no predictions) for market-only competitions:
     UNL, NCAA, the suspended cups, and NHL (market-only launch 2026-10-07)."""
     from src.walters.export import export_fixtures
+    from src.walters.ncaa_backtest import FenceRefused
     rc: dict = {}
-    path = export_fixtures(competition_code, start=start, end=end, receipts=rc, desk=desk or None)
+    try:
+        path = export_fixtures(competition_code, start=start, end=end, receipts=rc, desk=desk or None)
+    except FenceRefused as e:                 # the 2023 fence (ARCHITECT 2026-10-26 15:15 ET): nothing written
+        console.print(f"[red]✗ {e}[/red]")
+        raise SystemExit(2)
     console.print(f"[green]✓ Wrote market-only fixtures to {path}[/green]")
     if (dl := _desk_line(path)):
         print("  " + dl)

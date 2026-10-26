@@ -536,7 +536,10 @@ def build_labels(records: list, keys: dict, ours: list[Ours], teams: dict[int, s
     # (corrections, dateshift notes, unmatched and unlabelled reasons) is withheld while the ncaa-elo-v2 run is
     # unrecorded. The masked text is what the ingest record stores. The side table stores the scores as before.
     from src.walters.ncaa_backtest import V2_SECOND, fenced_2023, mask_scores, v2_run_recorded
-    recorded = v2_run_recorded() if str(year) == V2_SECOND else True
+    # read whenever the requested year or any row's season is 2023: a 2023 payload replayed under another --year is
+    # fenced by its rows' season (ARCHITECT 2026-10-26 15:15 ET)
+    recorded = (v2_run_recorded() if str(year) == V2_SECOND
+                or any(str(r_.get("season")) == V2_SECOND for r_ in records if isinstance(r_, dict)) else True)
     fenced: set[int] = set()                                  # id(rec) of the fenced games
 
     def masked(rid: int, text: str) -> str:
@@ -552,7 +555,11 @@ def build_labels(records: list, keys: dict, ours: list[Ours], teams: dict[int, s
         home, away, start = rec.get(keys["home"]), rec.get(keys["away"]), parse_start(rec.get(keys["start"]))
         desc = _desc(rec, keys)
         in_scope.append((rec, desc))
-        if fenced_2023(str(year), rec.get(keys["season_type"]) if keys.get("season_type") else None,
+        # the row's own season (CFBD's `season`, as the source probe reads it), else the requested year: a 2023 payload
+        # replayed under another --year is still fenced (ARCHITECT 2026-10-26 15:15 ET: "key the fence on the row's
+        # season")
+        if fenced_2023(str(rec.get("season") or year),
+                       rec.get(keys["season_type"]) if keys.get("season_type") else None,
                        served_week(rec.get(keys["week"]) if keys.get("week") else None)[0], recorded):
             fenced.add(id(rec))
             c["fenced_2023"] += 1

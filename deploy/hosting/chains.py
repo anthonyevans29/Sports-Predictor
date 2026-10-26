@@ -7,8 +7,10 @@ checks every command and every option against cli.py's click definitions
 
 Placeholders, computed in UTC by sp_run: {today} {yesterday} {tomorrow}
 {sat} (the coming Saturday, today if Saturday) {sat_plus3} (the Tuesday
-after: pl_weekly_routine's "--end <MON-date+1>"). Midweek soccer rounds
-(H0-10) override with `sp_run.py soccer-prematch --set sat=... --set sat_plus3=...`.
+after: pl_weekly_routine's "--end <MON-date+1>"). Since ARCHITECT addendum 166
+item 6(B) no chain step names {sat}/{sat_plus3}: the soccer-prematch export that
+priced that window is retired, and the closing watch's slate stage computes the
+same window itself (closing.soccer_window, from sp_run.date_vars).
 
 backup: "daily"      -> today's verified daily backup must exist, else one is
                         taken first; a failed backup fails the chain.
@@ -79,7 +81,12 @@ CHAINS: dict[str, dict] = {
         "steps": [["capture-odds", "--sport", "mlb", *MLB]],
     },
     # --- Soccer (docs/pl_weekly_routine.md) ---
-    "soccer-prematch": {  # Friday and Saturday: the PL lines + the expansion leagues' data lines
+    # THE TIMERS RETIREMENT (ARCHITECT 2026-10-25, addendum 166 item 6(B), applying addendum 126 item 2(d): "The
+    # host's fixed-time timers [...] are retired by the cutover PR"): the PL predict and the PL window export
+    # (`export-predictions --sport soccer --competition PL --start {sat} --end {sat_plus3} --status scheduled`, the
+    # slate file soccer_PL_<sat>_to_<sat_plus3>.json) left this chain; the closing watch's slate stage runs the same
+    # predict and writes that file itself (closing.slate_steps). Every sync stays, on the same two timers.
+    "soccer-prematch": {  # Friday and Saturday: the PL lines + the expansion leagues' data lines; data only
         "steps": [
             ["sync-matches", *PL],
             ["sync-odds", *PL],
@@ -87,9 +94,6 @@ CHAINS: dict[str, dict] = {
             *[[verb, *x] for x in EXPANSION for verb in ("sync-matches", "sync-odds")],
             *[["sync-kalshi-soccer", "--competition", c] for c in KALSHI_CAPTURE_ONLY],   # capture only
             ["sync-kalshi-soccer"],
-            ["predict", "--sport", "soccer", *PL],
-            ["export-predictions", "--sport", "soccer", "--competition", "PL",
-             "--start", "{sat}", "--end", "{sat_plus3}", "--status", "scheduled"],
         ],
     },
     "soccer-morning-after": {
@@ -127,13 +131,15 @@ CHAINS: dict[str, dict] = {
             ["export-nfl-results"],
         ],
     },
-    "nfl-predict": {
-        # Exhibit 1 ruling (2026-09-28): injuries first — the host predicted
-        # with 0 injury inputs vs the laptop's 280 (CHAIN GAP). freshen:NFL
-        # already had it; the audit found no other gap (MLB has no injury
-        # source: sync-injuries MLB is a no-op).
+    # Was "nfl-predict" (sp-nfl-predict.timer). THE TIMERS RETIREMENT (ARCHITECT 2026-10-25, addendum 166 item 6(B),
+    # applying addendum 126 item 2(d)): `predict-nfl` and `export-nfl-predictions` (the slate file
+    # nfl_predictions_<date>.json) left it; the closing watch's slate stage runs the same two itself
+    # (closing.slate_steps). The two steps the slate stage does not run stay, on the same Thu/Sun schedule
+    # (sp-nfl-prematch.timer): the whole-league injury sync (Exhibit 1 ruling, 2026-09-28: injuries first; the slate's
+    # own is scoped to the day's games) and the weather capture (tracking only: no model reads it).
+    "nfl-prematch": {
         "steps": [["sync-injuries", "--competition", "NFL", "--season", "2026"],
-                  ["capture-weather-nfl"], ["predict-nfl"], ["export-nfl-predictions"]],
+                  ["capture-weather-nfl"]],
     },
     # --- Market-only (docs/CLI.md "Market-only competitions") ---
     "nhl-daily": {

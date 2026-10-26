@@ -466,7 +466,9 @@ def model_status(code: str, lanes: list[dict], entries: dict, prod, unread: str 
 def writer_chains(fam: str) -> list[str]:
     """The chains whose model step writes the family's prediction rows, from chains.py: the closing chain's step whose
     command is in PREDICT_COMMANDS, word for word in a chain that is neither a closing chain nor a freshen chain
-    (sp_run names those freshen:<family>). SOCCER: soccer-prematch; MLB: mlb-preslate; NFL: nfl-predict."""
+    (sp_run names those freshen:<family>). MLB: mlb-preslate. SOCCER and NFL: none since ARCHITECT 2026-10-25,
+    addendum 166 item 6(B) retired soccer-prematch's and nfl-predict's predict steps (the closing watch's slate stage
+    runs them), so their gap line carries no hint; it was soccer-prematch and nfl-predict."""
     model = [s for s in CHAINS[CLOSING_FAMILIES[fam]]["steps"] if s and s[0] in PREDICT_COMMANDS]
     skip = set(CLOSING_FAMILIES.values()) | {f"freshen:{f}" for f in FRESHEN_FAMILY.values()}
     return [name for name, ch in CHAINS.items()

@@ -747,6 +747,17 @@ def _scrub_failed(plan: dict, e: OSError, keep: Path | None = None) -> dict:
             "env_scrub_planned": list(plan["remove"]), "env_scrub_error": err}
 
 
+def _plan_or_refuse(ctx: Ctx, man: dict) -> dict:
+    """_scrub_plan, before install changes anything (#693, ARCHITECT 2026-10-26 13:00 ET: "follow-up Issue, not a
+    block (nothing installed on that path; the fix rides with #691)"): a read error is a receipted install refusal,
+    never a traceback."""
+    try:
+        return _scrub_plan(ctx, man)
+    except OSError as e:
+        _refuse(ctx, "install", f"the .env settings could not be read ({e.__class__.__name__}: {e}) — nothing "
+                                "installed", env_scrub_ruled=list(PACK_ONLY_SCRUB))
+
+
 def _keep_copy_or_refuse(ctx: Ctx, plan: dict, man: dict) -> Path | None:
     """_keep_env_copy, before install changes anything: a copy that cannot be kept refuses install, nothing placed."""
     try:
@@ -763,7 +774,7 @@ def _install_in_process(ctx: Ctx) -> dict:
     scrub: dict = {}
     try:
         with c.db_lock(ctx.lock_timeout):
-            plan = _scrub_plan(ctx, man)
+            plan = _plan_or_refuse(ctx, man)
             keep = ctx.env_kept_copy or _keep_copy_or_refuse(ctx, plan, man)
             try:
                 rc = sp_migrate.install(ctx.pack, replace=True)
@@ -797,7 +808,7 @@ def step_install(ctx: Ctx) -> dict:
     # The .env copy is root's to write (the service user cannot write host.env's directory): it is kept here, before
     # the service user's install, and named to it (ARCHITECT 2026-10-26, on Codex's P1s on #682).
     man = _manifest(ctx)
-    keep = _keep_copy_or_refuse(ctx, _scrub_plan(ctx, man), man)
+    keep = _keep_copy_or_refuse(ctx, _plan_or_refuse(ctx, man), man)
     try:
         rc, out = ctx.runner(["runuser", "-u", ctx.service_user, "--", sys.executable, str(HERE / "sp_cutover.py"),
                               "install", "--pack", str(ctx.pack), "--timers-file", str(ctx.timers_file),
@@ -836,9 +847,18 @@ def step_flip(ctx: Ctx) -> dict:
     if keep.exists():
         _refuse(ctx, s, f"{keep} exists — never overwritten")
     st = p.stat()
-    shutil.copy2(p, keep)
-    if _as_service_user(ctx):
-        os.chown(keep, st.st_uid, st.st_gid)
+    # #691 (ARCHITECT 2026-10-26 12:20 ET: "The flip's shutil.copy2 copy: its own small PR under the same rule"): the
+    # copy and the temporary name are created 0600 before any byte is written (_write_private, #682), then host.env's
+    # owner (as root) and mode through the descriptor; a taken name is refused, never overwritten.
+    owner = (st.st_uid, st.st_gid) if _as_service_user(ctx) else None
+    mode = st.st_mode & 0o7777
+    try:
+        _write_private(keep, p.read_bytes(), owner, mode)
+        os.utime(keep, ns=(st.st_atime_ns, st.st_mtime_ns))     # the times copy2 kept
+    except FileExistsError:
+        _refuse(ctx, s, f"{keep} exists — never overwritten")
+    except OSError as e:
+        _refuse(ctx, s, f"host env copy not written: {keep} ({type(e).__name__})")
     changed = before != FLAG_VALUE
     if changed:
         if hits:
@@ -849,11 +869,13 @@ def step_flip(ctx: Ctx) -> dict:
                 lines[-1] += "\n"
             lines.append(f"{FLAG}={FLAG_VALUE}\n")
         tmp = p.with_name(f".{p.name}.cutover-tmp")
-        tmp.write_text("".join(lines))
-        os.chmod(tmp, st.st_mode & 0o7777)
-        if _as_service_user(ctx):
-            os.chown(tmp, st.st_uid, st.st_gid)
-        os.replace(tmp, p)
+        try:
+            tmp.unlink(missing_ok=True)       # a stale temporary name from an interrupted run is never written into
+            _write_private(tmp, "".join(lines).encode(), owner, mode)
+            os.replace(tmp, p)
+        except OSError as e:
+            tmp.unlink(missing_ok=True)
+            _refuse(ctx, s, f"host env not rewritten ({type(e).__name__}); it is as it was", kept_copy=str(keep))
     after = c.parse_env_file(p)
     if after.get(FLAG) in FLAG_KNOWN:          # this process's receipts name the NEW writer from here on
         os.environ[FLAG] = after[FLAG]

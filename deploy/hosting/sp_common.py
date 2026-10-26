@@ -175,6 +175,45 @@ def writer_of_record() -> str | None:
     return v if v in WRITERS else None
 
 
+# THE TIMER LISTS (ARCHITECT 2026-10-23, addendum 155 item 8(b)): hosting-h1.md T11 names every shipped timer on
+# exactly one list; the host's /etc/sports-predictor/timers.enabled is the TIMERS it enabled (T11, "the list H2 steps
+# 2 and 6 reuse"). tests/test_hosting_pack.py checks the lists, the shipped units and the Schedule table agree;
+# sp_deploy's receipt names the shipped timers the host has not enabled. The third list, HELD_FOR_CUTOVER
+# (sp-closing-watch.timer, addendum 45 P3), is retired: the timer moved to TIMERS at the cutover (ARCHITECT 2026-10-26,
+# addendum 168 item 5).
+T11_LISTS = ("TIMERS", "MLB_LAPTOP_ONLY")
+TIMERS_ENABLED = Path("/etc/sports-predictor/timers.enabled")
+
+
+def t11_lists(runbook: Path | None = None) -> dict[str, list[str]]:
+    """T11's shell lists from hosting-h1.md, by name, each in its written order."""
+    rb = Path(runbook or REPO / "docs" / "specs" / "hosting-h1.md").read_text(encoding="utf-8")
+    out = {}
+    for name in T11_LISTS:
+        block = rb[rb.index(f'{name}="') + len(name) + 2:]
+        out[name] = block[:block.index('"')].split()
+    return out
+
+
+def shipped_timers(repo: Path | None = None) -> list[str]:
+    """The timer units this checkout ships (deploy/hosting/systemd/*.timer), by file name, sorted."""
+    return sorted(p.name for p in (Path(repo or REPO) / "deploy" / "hosting" / "systemd").glob("*.timer"))
+
+
+# THE ACTIVE sp TIMERS, as systemd lists them (ARCHITECT 2026-10-13, addendum 57 item 8): one reader for the cutover's
+# preflight (sp_cutover.active_sp_timers, which refuses on a failed read) and the deploy receipt (ARCHITECT
+# 2026-10-26, addendum 168 item 2: sp_deploy names the active sp timers timers.enabled does not list).
+ACTIVE_SP_TIMERS_ARGV = ("systemctl", "list-units", "--type=timer", "--state=active", "--no-legend", "--plain",
+                         "sp-*")
+
+
+def parse_active_sp_timers(out: str) -> list[str]:
+    """The sp timers in an ACTIVE_SP_TIMERS_ARGV listing, whatever their names: one the list's name pattern cannot
+    carry (sp-x@y.timer, an underscore) is still an active sp timer and is kept, never dropped. Sorted, unique."""
+    units = (ln.split()[0] for ln in out.splitlines() if ln.split())
+    return sorted({u for u in units if u.startswith("sp-") and u.endswith(".timer")})
+
+
 def redact(line: str) -> str:
     for name in SECRET_ENV:
         val = os.environ.get(name) or _dotenv().get(name)

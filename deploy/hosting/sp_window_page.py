@@ -2,7 +2,7 @@
 """Window-card pager (architect spec 2026-09-27). It runs as the `window`
 chain's post-step after a clean run, or after a run where only `sync-` steps
 failed and window-card ran (ARCHITECT 2026-10-16, addendum 84 item 2(b)). It
-is stdlib-only and reads the card JSON only.
+is stdlib-only (plus chains.py, plain data, beside it) and reads the card JSON only.
 
 Delivery: the SECOND private ntfy topic, NTFY_CARD_TOPIC (read from .env).
 It is DELTA-DRIVEN: it pushes only when the card changed since the previous
@@ -18,7 +18,11 @@ run. The delta classes:
                  window chain then triggers freshen:<family> (sp_run)
     line_move    LINE-MOVE ALARM (ruling 2026-09-29): the card row turned
                  "late-news?" (>= 6pp on book or Kalshi inside T-3h, from
-                 stored snapshots); pages and triggers freshen:<family>
+                 stored snapshots); pages and triggers freshen:<family>. A
+                 capture-only league's move (chains.WINDOW_KALSHI_CAPTURE_ONLY,
+                 not in WINDOW_KALSHI; ARCHITECT 2026-10-24, addendum 165 item 1)
+                 never pages and never freshens: it is one line in the window's
+                 log and in the receipt's `capture_only_moves`
     model        model updated: the canonical pick, its probability (to 0.1%)
                  or the model version changed (card page, 2026-10-01)
     call         call changed: the Desk's call or units in the file changed
@@ -53,6 +57,7 @@ from zoneinfo import ZoneInfo
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import sp_common as c  # noqa: E402
+from chains import WINDOW_KALSHI, WINDOW_KALSHI_CAPTURE_ONLY  # noqa: E402  (plain data, as sp_run imports it)
 
 ET = ZoneInfo("America/New_York")
 QUIET = (0, 7)          # [00:00, 07:00) ET
@@ -61,6 +66,48 @@ CLASSES = ("new_priced", "tier", "quarantine", "stale", "kickoff", "t90_news", "
            "qb_news")
 FRESHEN_CLASSES = ("t90_news", "line_move")
 URGENT = ("quarantine", "line_move")
+# NO PAGE ON A CAPTURE-ONLY LEAGUE (ARCHITECT 2026-10-24, addendum 165 item 1, RULED, verbatim): "The URGENT 6pp-in-3h
+# page exists so the operator looks at a quote the Desk can act on. PD, SA, BL1, FL1 and ELC are capture-only until a
+# PASS and its confirmation: no export, no call, nothing to act on. A page the operator cannot act on is noise, and
+# noise is what teaches someone to ignore the page that matters. So: the pager reads the live list (WINDOW_KALSHI)
+# only, never the new table. Keep the move itself: write it to the window's log as one line (series, ticker, from, to,
+# minutes to kickoff) so the capture-quality receipt of 164 item 4(b) can count large late moves per league. A logged
+# move is a receipt; a paged one is a false alarm." Only the line_move class is held back, and only for these leagues:
+# every other class, and every competition in WINDOW_KALSHI or in neither table, pages as before. sp_run calls run()
+# in-process as the window chain's post, so stdout is the window's log (the journal).
+CAPTURE_ONLY = frozenset(WINDOW_KALSHI_CAPTURE_ONLY) - frozenset(WINDOW_KALSHI)
+CAPTURE_ONLY_MOVE = "· capture-only line move (addendum 165 item 1):"
+
+
+def _capture_only_move(d: dict) -> bool:
+    return d["cls"] == "line_move" and str(d["g"].get("competition") or "").upper() in CAPTURE_ONLY
+
+
+def _iso_naive(v):
+    try:
+        return datetime.fromisoformat(str(v).replace("Z", "")[:19]) if v else None
+    except ValueError:
+        return None
+
+
+def capture_only_move_line(row: dict, competition: str) -> str:
+    """One log line for a capture-only league's line move: the Kalshi venue when it alarmed, else the book venue
+    (series and ticker '-'). Series = the HOME leg's ticker up to its first '-' (Kalshi's own naming: the series,
+    then the event, then the market); '-' when no ticker is stored. Minutes to kickoff are counted from the `to`
+    capture. '-' for any part the row does not carry."""
+    venues = ((row or {}).get("line_move") or {}).get("venues") or {}
+    name = next((k for k in ("kalshi", "book") if (venues.get(k) or {}).get("alarm")), None)
+    v = venues.get(name) or {}
+    ticker = v.get("to_ticker") if name == "kalshi" else None
+    series = str(ticker).split("-", 1)[0] if ticker else "-"
+
+    def f3(x):
+        return f"{x:.3f}" if isinstance(x, (int, float)) else "-"
+    mv = f"{v['move_pp']:+.1f}pp" if isinstance(v.get("move_pp"), (int, float)) else "-pp"
+    ko, at = _iso_naive((row or {}).get("utc_date")), _iso_naive(v.get("to_at"))
+    mins = f"{round((ko - at).total_seconds() / 60)}" if ko and at else "-"
+    return (f"{CAPTURE_ONLY_MOVE} {competition} {series} {ticker or '-'} {f3(v.get('from'))}->{f3(v.get('to'))} "
+            f"({mv}) · {mins} min to kickoff · venue {name or '-'}")
 
 
 def state_path() -> Path:
@@ -415,6 +462,13 @@ def run(card_path: Path, now_utc: datetime | None = None) -> dict:
     cur, cur_t90 = snapshot(card), card.get("t90_signatures") or {}
     ds = [] if first_run else deltas(state.get("games", {}), cur, state.get("t90", {}), cur_t90)
     rekey = {"carried": 0, "baseline": []} if first_run else qb_rekey(state.get("games", {}), cur)   # #458
+    # addendum 165 item 1: a capture-only league's line move is logged and receipted, never paged or freshened
+    held = [d for d in ds if _capture_only_move(d)]
+    ds = [d for d in ds if not _capture_only_move(d)]
+    rows = {str(r.get("match_id")): r for r in card.get("fixtures", [])}
+    moves = [capture_only_move_line(rows.get(d["id"]), str(d["g"].get("competition") or "").upper()) for d in held]
+    for m in moves:
+        print(m, flush=True)
     quiet = QUIET[0] <= et.hour < QUIET[1]
     # QUARANTINE-CLASS (exempt from quiet hours, high priority): quarantine flips
     # and, by ruling 2026-09-29 on #65, line moves — early European kickoffs put
@@ -443,6 +497,7 @@ def run(card_path: Path, now_utc: datetime | None = None) -> dict:
     rec = {"kind": "window_page", "exit": 0, "games": len(cur), "first_run": first_run,
            "deltas": counts, "quiet_hours": quiet, "suppressed": suppressed,
            "qb_rekey": rekey,
+           "capture_only_moves": {"count": len(moves), "lines": moves},
            "paged": paged, "digest": did_digest,
            "freshen_needed": [{"id": d["id"], "sport": d["g"]["sport"],
                                "competition": d["g"]["competition"], "reason": d["cls"]}

@@ -18,7 +18,14 @@ Addendum 114 item 3: ""Lifted by the flip" (addendum 113) and "the named switch 
 switch, never SP_WRITER_OF_RECORD. Code's reading is the ruling."
 The role is read from the machine's host.env (SP_HOST_ENV), then the environment, then the checkout's .env
 (desk_policy.DOTENV). The reason for a value that is neither host nor laptop is addendum 115 item 3b's approved wording.
-tests/conftest.py pins every test to role laptop in the environment, with both files at a path that does not exist."""
+tests/conftest.py pins every test to role laptop in the environment, with both files at a path that does not exist.
+THE LIFT (ARCHITECT 2026-10-25, addendum 166 item 6(A), verbatim): "`HOST_FENCE_RULE = {"on": False}` in
+src/walters/desk_policy.py and nothing else in that module; the tests that assert the fence under role host and role
+unknown now assert the lift, and test_the_switch_the_cutover_pr_turns_off_is_the_one_the_fence_reads stays as the proof
+that it was this switch". At the module's default every soccer and INTL model row is the laptop's call under every
+role. The tests of the fence's mechanism (the reasons, host.env's read order, first over every other kind, INTL with
+soccer, other sports untouched, the window card, desk-rescore) turn the switch on inside the test, as it was before
+the cutover: the machinery stays in the module and reads the switch."""
 import copy
 import io
 import json
@@ -123,7 +130,8 @@ def files(tmp_path, monkeypatch):
 
 
 def test_the_rule_its_kind_and_its_reasons():
-    assert dp.HOST_FENCE_RULE["on"] is True and dp.HOST_FENCE_KIND == "host_fence"
+    assert dp.HOST_FENCE_RULE == {"on": False}                # addendum 166 item 6(A): the cutover PR's line
+    assert dp.HOST_FENCE_KIND == "host_fence"
     assert dp.HOST_FENCE_KIND in dp.NO_CALL_KINDS and dp.HOST_FENCE_REASON == REASON
     assert dp.HOST_FENCE_UNSET_REASON == UNSET
     assert dp.ROLE_ENV == "SP_EXPORTS_MIRROR_ROLE"          # addendum 45 P1's setting, not SP_WRITER_OF_RECORD
@@ -131,13 +139,21 @@ def test_the_rule_its_kind_and_its_reasons():
     assert 'ROLE_SETTING = "SP_EXPORTS_MIRROR_ROLE"' in src  # the closing watch reads the same setting
 
 
-def test_two_mis_keyed_clubs_under_role_host_are_pass_host_fence(role):
-    """The ruled test: under role host, PASS host_fence with the ruled reason; rating_source and every model number
-    stay as they are; no order, no exec block, no value shadow, no shadow units."""
+def test_two_mis_keyed_clubs_under_role_host_are_the_laptops_call_the_fence_lifted(role, monkeypatch):
+    """Addendum 166 item 6(A): the fence lifted. At the module's default (the switch off) the two mis-keyed clubs
+    under role host are the laptop's call, PLAY 1u with its order line, never host_fence; desk_meta reads
+    host_fence_rule false. The ruled test of addendum 109 item 3 stays, with the switch on as before the cutover:
+    under role host, PASS host_fence with the ruled reason; rating_source and every model number stay as they are; no
+    order, no exec block, no value shadow, no shadow units."""
     role("laptop")
     lap, _ = annotate(mun_ful())
     assert lap[410001]["call"] == "PLAY" and lap[410001]["units"] == 1 and lap[410001]["order"]["text"]
     role("host")
+    lifted, doc = annotate(mun_ful())
+    assert lifted == lap and lifted[410001]["pass_kind"] != "host_fence" and dp.machine_role() == "host"
+    assert doc["desk_meta"]["host_fence_rule"] is False
+    # the switch on, as before the cutover (addendum 166 item 6(A) lifted it)
+    monkeypatch.setitem(dp.HOST_FENCE_RULE, "on", True)
     rows = [mun_ful()]
     before = copy.deepcopy(rows[0])
     desk, doc = annotate(*rows)
@@ -171,10 +187,20 @@ def test_under_role_laptop_the_row_is_unchanged(role):
 
 
 @pytest.mark.parametrize("value", [None, "", "   ", "\n"])
-def test_under_role_unset_every_soccer_model_row_is_pass_host_fence_role_unknown(role, value):
-    """The ruled test, third case (addendum 110 item 1): "role unset → PASS host_fence (role unknown)", with the ruled
-    reason. An empty value is unset. The row's other fields are unchanged; no order, exec block or value shadow."""
+def test_under_role_unset_every_soccer_model_row_is_the_laptops_call_the_fence_lifted(role, value, monkeypatch):
+    """Addendum 166 item 6(A): the fence lifted. At the module's default, with the role unset (an empty value is
+    unset), every soccer model row is the laptop's call (a PLAY, a value shadow, a LADDER); desk_meta reads
+    host_fence_rule false. The ruled test, third case (addendum 110 item 1), stays with the switch on as before the
+    cutover: "role unset → PASS host_fence (role unknown)", with the ruled reason. The row's other fields are
+    unchanged; no order, exec block or value shadow."""
+    role("laptop")
+    lap, _ = annotate(mun_ful(), cov_mci_value(), cov_mci_ladder())
     role(value)
+    lifted, doc = annotate(mun_ful(), cov_mci_value(), cov_mci_ladder())
+    assert lifted == lap and all(d["pass_kind"] != "host_fence" for d in lifted.values())
+    assert doc["desk_meta"]["host_fence_rule"] is False and dp.machine_role() is None
+    # the switch on, as before the cutover (addendum 166 item 6(A) lifted it)
+    monkeypatch.setitem(dp.HOST_FENCE_RULE, "on", True)
     rows = [mun_ful(), cov_mci_value(), cov_mci_ladder()]
     before = copy.deepcopy(rows)
     desk, doc = annotate(*rows)
@@ -187,15 +213,24 @@ def test_under_role_unset_every_soccer_model_row_is_pass_host_fence_role_unknown
 
 
 @pytest.mark.parametrize("value", ["HOST", "Host", "hosts", "writer", "laptop-host", "1", "Laptop", " LAPTOP\n"])
-def test_a_role_that_is_neither_host_nor_laptop_is_pass_host_fence_naming_the_value(role, value):
-    """Neither host nor laptop: the role is unknown, so the row is fenced (law 4). Case and spelling are not guessed.
-    The reason names the value as read, stripped (addendum 115 item 3b, approved)."""
+def test_a_role_that_is_neither_host_nor_laptop_is_the_laptops_call_the_fence_lifted(role, value, monkeypatch):
+    """Addendum 166 item 6(A): the fence lifted. At the module's default a value that is neither host nor laptop
+    changes nothing: the row is the laptop's call. With the switch on, as before the cutover: the role is unknown, so
+    the row is fenced (law 4). Case and spelling are not guessed. The reason names the value as read, stripped
+    (addendum 115 item 3b, approved)."""
+    role("laptop")
+    lap, _ = annotate(mun_ful())
     role(value)
+    assert annotate(mun_ful())[0] == lap and reason(annotate(mun_ful())[0]) is None
+    # the switch on, as before the cutover (addendum 166 item 6(A) lifted it)
+    monkeypatch.setitem(dp.HOST_FENCE_RULE, "on", True)
     desk, _ = annotate(mun_ful())
     assert reason(desk) == unknown(value.strip()) and dp.role_reading() == (None, value.strip())
 
 
-def test_surrounding_whitespace_is_stripped_as_closing_mirror_role_strips_it(role):
+def test_surrounding_whitespace_is_stripped_as_closing_mirror_role_strips_it(role, monkeypatch):
+    # the switch on, as before the cutover (addendum 166 item 6(A) lifted it)
+    monkeypatch.setitem(dp.HOST_FENCE_RULE, "on", True)
     role("laptop")
     lap, _ = annotate(mun_ful())
     role("  laptop\n")
@@ -204,10 +239,12 @@ def test_surrounding_whitespace_is_stripped_as_closing_mirror_role_strips_it(rol
     assert reason(annotate(mun_ful())[0]) == REASON
 
 
-def test_the_checkouts_env_alone_says_laptop_so_a_script_without_config_is_not_fenced(role, files):
+def test_the_checkouts_env_alone_says_laptop_so_a_script_without_config_is_not_fenced(role, files, monkeypatch):
     """Addendum 110 item 1: "The laptop's .env carries the role line [...] so the laptop is never caught by it." No
     role in the environment (a script that never imports config, so load_dotenv never ran) and no host.env: the .env
     decides. The environment comes before it."""
+    # the switch on, as before the cutover (addendum 166 item 6(A) lifted it)
+    monkeypatch.setitem(dp.HOST_FENCE_RULE, "on", True)
     role("laptop")
     lap, _ = annotate(mun_ful())
     role(None)
@@ -233,6 +270,8 @@ def test_a_host_env_that_exists_but_cannot_be_read_makes_the_role_unknown(role, 
     fenced, reason "host fence: role unknown (host.env unreadable)" — and nothing after it is consulted. Only a host.env
     that does not exist (the laptop) falls through to the environment and the checkout's .env." host.env is root:sp
     0640, so a user outside sp cannot read it, while the checkout's .env on the host says laptop."""
+    # the switch on, as before the cutover (addendum 166 item 6(A) lifted it)
+    monkeypatch.setitem(dp.HOST_FENCE_RULE, "on", True)
     real = open
 
     def guarded(path, *a, **kw):
@@ -266,6 +305,8 @@ def test_host_env_is_read_first_so_a_hand_run_on_the_host_is_fenced(role, tmp_pa
     "machine: host", while its export step's environment carries no role, or the laptop's role from the checkout's
     .env (install --replace copies the laptop's; config.py's load_dotenv reads it). The Desk reads host.env first, so
     that export is fenced too: host.env's host beats the environment's laptop."""
+    # the switch on, as before the cutover (addendum 166 item 6(A) lifted it)
+    monkeypatch.setitem(dp.HOST_FENCE_RULE, "on", True)
     import closing
     host_env = tmp_path / "host.env"
     host_env.write_text("SP_WRITER_OF_RECORD=laptop\nSP_EXPORTS_MIRROR_ROLE=host\n")
@@ -285,9 +326,11 @@ def test_host_env_is_read_first_so_a_hand_run_on_the_host_is_fenced(role, tmp_pa
     assert out.stdout.strip() == "host"
 
 
-def test_host_env_decides_when_it_holds_a_value_and_the_environment_when_it_does_not(role, files):
+def test_host_env_decides_when_it_holds_a_value_and_the_environment_when_it_does_not(role, files, monkeypatch):
     """A host.env with no role line, or an empty one, does not decide: the environment does, then the .env. A value
     there decides, valid or not: one that is neither host nor laptop is unknown, never the environment's laptop."""
+    # the switch on, as before the cutover (addendum 166 item 6(A) lifted it)
+    monkeypatch.setitem(dp.HOST_FENCE_RULE, "on", True)
     role("laptop")
     lap, _ = annotate(mun_ful())
     for text in ("SP_WRITER_OF_RECORD=laptop\n", "SP_EXPORTS_MIRROR_ROLE=\n", "SP_EXPORTS_MIRROR_ROLE=  \n"):
@@ -308,6 +351,8 @@ def test_host_env_decides_when_it_holds_a_value_and_the_environment_when_it_does
 
 @pytest.mark.parametrize("who", ["host", None, "", "HOST", "laptop", ".env laptop", "host.env host"])
 def test_the_switch_off_leaves_every_row_unchanged_under_every_role(role, files, who):
+    """The switch off, by host_fence_rule_off() and at the module's default (addendum 166 item 6(A): the cutover PR's
+    line), leaves every row the laptop's under every role."""
     role("laptop")
     lap, _ = annotate(mun_ful(), cov_mci_value(), cov_mci_ladder())
     if who == ".env laptop":
@@ -321,25 +366,36 @@ def test_the_switch_off_leaves_every_row_unchanged_under_every_role(role, files,
         off, doc = annotate(mun_ful(), cov_mci_value(), cov_mci_ladder())
     assert off == lap and off[410001]["call"] == "PLAY"
     assert doc["desk_meta"]["host_fence_rule"] is False
-    assert dp.HOST_FENCE_RULE["on"] is True
+    default, doc = annotate(mun_ful(), cov_mci_value(), cov_mci_ladder())
+    assert default == lap and doc["desk_meta"]["host_fence_rule"] is False
+    assert dp.HOST_FENCE_RULE == {"on": False}                # addendum 166 item 6(A)
 
 
 def test_the_switch_the_cutover_pr_turns_off_is_the_one_the_fence_reads(role, files, monkeypatch):
     """Addendum 114 item 3: "the cutover PR does the flip and turns the switch off in the same change; the fence reads
     the switch, never SP_WRITER_OF_RECORD." The cutover PR's line, HOST_FENCE_RULE = {"on": False}, alone lifts the
-    fence under role host and role unknown. SP_WRITER_OF_RECORD, laptop or host or unset, in host.env, the environment
-    or the .env, and sp_common.writer_of_record() whatever it says, change nothing; desk_policy names it nowhere in
-    its code (comments aside)."""
+    fence under role host and role unknown. Addendum 166 item 6(A): this test "stays as the proof that it was this
+    switch": at the module's default (the cutover PR's line, off) the rows are the laptop's under role host and role
+    unknown; set ON (as before the cutover) the same switch fences them; set off again, the laptop's.
+    SP_WRITER_OF_RECORD, laptop or host or unset, in host.env, the environment or the .env, and
+    sp_common.writer_of_record() whatever it says, change nothing; desk_policy names it nowhere in its code (comments
+    aside)."""
     import sp_common
+    assert dp.HOST_FENCE_RULE == {"on": False}                    # the module's default: the cutover PR's line
     role("laptop")
     lap, _ = annotate(mun_ful())
     for who in ("host", None, "HOST"):
         role(who)
-        assert annotate(mun_ful())[0][410001]["pass_kind"] == "host_fence", who
+        default, doc = annotate(mun_ful())
+        assert default == lap and doc["desk_meta"]["host_fence_rule"] is False, who
+        monkeypatch.setitem(dp.HOST_FENCE_RULE, "on", True)       # the switch on, as before the cutover
+        on, doc = annotate(mun_ful())
+        assert on[410001]["pass_kind"] == "host_fence" and doc["desk_meta"]["host_fence_rule"] is True, who
         monkeypatch.setitem(dp.HOST_FENCE_RULE, "on", False)      # the cutover PR's change
         off, doc = annotate(mun_ful())
         assert off == lap and doc["desk_meta"]["host_fence_rule"] is False, who
-        monkeypatch.setitem(dp.HOST_FENCE_RULE, "on", True)
+    # the switch on, as before the cutover (addendum 166 item 6(A) lifted it)
+    monkeypatch.setitem(dp.HOST_FENCE_RULE, "on", True)
     for wor in ("laptop", "host", None):
         line = f"SP_WRITER_OF_RECORD={wor}\n" if wor else ""
         monkeypatch.setattr(sp_common, "writer_of_record", lambda w=wor: w)
@@ -369,7 +425,7 @@ def test_the_env_file_the_role_falls_back_to_is_the_one_config_loads():
 
 
 @pytest.mark.parametrize("who", ["host", None])
-def test_the_fence_comes_first_and_overrides_every_call_and_every_other_kind(role, who):
+def test_the_fence_comes_first_and_overrides_every_call_and_every_other_kind(role, who, monkeypatch):
     """A LADDER, a value shadow, a default rating, a shadow league and a started game: under role host, or an unknown
     role, each soccer model row is host_fence (checked first), with no order, exec block or value shadow."""
     rows = [mun_ful(), cov_mci_value(), cov_mci_ladder(),
@@ -381,6 +437,8 @@ def test_the_fence_comes_first_and_overrides_every_call_and_every_other_kind(rol
     role("laptop")
     lap, _ = annotate(*rows)
     assert [lap[m]["pass_kind"] for m in (410004, 410005, 410006)] == ["default_rating", "shadow_league", "started"]
+    # the switch on, as before the cutover (addendum 166 item 6(A) lifted it)
+    monkeypatch.setitem(dp.HOST_FENCE_RULE, "on", True)
     role(who)
     why = REASON if who == "host" else UNSET
     desk, doc = annotate(*rows)
@@ -391,7 +449,7 @@ def test_the_fence_comes_first_and_overrides_every_call_and_every_other_kind(rol
     assert parlays["live_legs"] == 0 and parlays["tickets"] == []           # never a parlay leg
 
 
-def test_other_sports_and_market_only_rows_are_untouched_under_role_host_and_role_unknown(role):
+def test_other_sports_and_market_only_rows_are_untouched_under_role_host_and_role_unknown(role, monkeypatch):
     """Only soccer model rows are fenced: an MLB and an NFL model row, and a soccer market-only fixtures file (the
     venue engine, not model_edge), read the same under role host and an unknown role as under role laptop."""
     mlb = {"match_id": 501, "home_team": "Cleveland Guardians", "away_team": "Tampa Bay Rays",
@@ -408,6 +466,8 @@ def test_other_sports_and_market_only_rows_are_untouched_under_role_host_and_rol
          "market": {"bookmaker_count": 6, "captured_at": "2026-10-17T14:30:00",
                     "fair_prob": {"HOME": 0.45, "DRAW": 0.28, "AWAY": 0.27}},
          "kalshi": {"status": "two_sided", "prob": {"HOME": 0.38, "DRAW": 0.30, "AWAY": 0.32}}}]}
+    # the switch on, as before the cutover (addendum 166 item 6(A) lifted it)
+    monkeypatch.setitem(dp.HOST_FENCE_RULE, "on", True)
     out = {}
     for who in ("laptop", "host", None):
         role(who)
@@ -421,10 +481,12 @@ def test_other_sports_and_market_only_rows_are_untouched_under_role_host_and_rol
     assert out["host"][2]["engine"] == "venue_edge" and out["host"][2]["pass_kind"] != "host_fence"
 
 
-def test_the_window_card_copies_the_fence_and_the_pager_reads_pass(role, tmp_path):
+def test_the_window_card_copies_the_fence_and_the_pager_reads_pass(role, tmp_path, monkeypatch):
     """The card copies each row's Desk call from the export on disk (window.canonical_models); the pager's row reads
     it. A fenced row is PASS 0u there, under role host or an unknown role: no staked call reaches the host pager. The
     model numbers ride along."""
+    # the switch on, as before the cutover (addendum 166 item 6(A) lifted it)
+    monkeypatch.setitem(dp.HOST_FENCE_RULE, "on", True)
     texts = {}
     for who in ("laptop", "host", None):
         role(who)
@@ -460,10 +522,12 @@ def laptop_desk_file():
 
 
 @pytest.mark.parametrize("who, why", [("host", REASON), (None, UNSET), ("HOST", unknown("HOST"))])
-def test_desk_rescore_reports_a_fenced_play_as_host_fence_never_unchanged(role, who, why):
+def test_desk_rescore_reports_a_fenced_play_as_host_fence_never_unchanged(role, who, why, monkeypatch):
     """#410 review: the fence is on in both of desk-rescore's sides (addendum_off holds it), so a laptop PLAY
     re-scored on a machine whose role is host or unknown is 0u on both, and 0 = 0 read "unchanged". It is its own
     transition, as the quarantine and the kalshi-only suspension are, and it carries the fence's reason."""
+    # the switch on, as before the cutover (addendum 166 item 6(A) lifted it)
+    monkeypatch.setitem(dp.HOST_FENCE_RULE, "on", True)
     role("laptop")
     doc = laptop_desk_file()
     (x,) = dp.rescore(doc)
@@ -479,9 +543,11 @@ def test_desk_rescore_reports_a_fenced_play_as_host_fence_never_unchanged(role, 
 
 
 @pytest.mark.parametrize("who, why", [("host", REASON), (None, UNSET)])
-def test_desk_rescore_cli_prints_host_fence_and_its_count_not_unchanged(role, tmp_path, who, why):
+def test_desk_rescore_cli_prints_host_fence_and_its_count_not_unchanged(role, tmp_path, who, why, monkeypatch):
     """The console and the receipt name the fence and its reason (not "no executable quote": the row had a Kalshi
     ask), count it on its own line, and never as halved. On the laptop neither appears."""
+    # the switch on, as before the cutover (addendum 166 item 6(A) lifted it)
+    monkeypatch.setitem(dp.HOST_FENCE_RULE, "on", True)
     from click.testing import CliRunner
 
     import cli
@@ -505,15 +571,20 @@ def test_desk_rescore_cli_prints_host_fence_and_its_count_not_unchanged(role, tm
     assert line in receipt and "under the host fence" in receipt
 
 
+@pytest.mark.parametrize("switch", ["default", "on"])
 @pytest.mark.parametrize("who", ["host", None])
-def test_the_frozen_golden_holds_under_role_host_and_role_unknown(role, who):
+def test_the_frozen_golden_holds_under_role_host_and_role_unknown(role, who, switch, monkeypatch):
     """base_v11() holds the fence off, so the golden battery (tests/test_desk_golden.py, untouched) passes whatever
-    the machine's role: under role host, and with the role unset."""
+    the machine's role: under role host, and with the role unset; at the module's default (off, addendum 166 item
+    6(A)) and with the switch on, as before the cutover. base_v11() puts the switch back as it found it."""
     import desk_battery as b
+    if switch == "on":
+        # the switch on, as before the cutover (addendum 166 item 6(A) lifted it)
+        monkeypatch.setitem(dp.HOST_FENCE_RULE, "on", True)
     role(who)
     results = b.check_against_golden()
     assert results and all(n > 0 and not bad for _, n, bad in results)
-    assert dp.HOST_FENCE_RULE["on"] is True
+    assert dp.HOST_FENCE_RULE["on"] is (switch == "on")
 
 
 def intl_unl(mid=115001, p=(0.60, 0.22, 0.18), fair=(0.54, 0.26, 0.20), ask=0.50):
@@ -531,11 +602,21 @@ def intl_unl(mid=115001, p=(0.60, 0.22, 0.18), fair=(0.54, 0.26, 0.20), ask=0.50
     return r
 
 
-def test_intl_model_rows_are_fenced_with_the_soccer_family(role):
+def test_intl_model_rows_are_fenced_with_the_soccer_family(role, monkeypatch):
     """Addendum 115 item 3a, verbatim: "INTL rows ARE fenced under role host. The ruling's "soccer" means every
     model-edge row of the soccer family whose ratings are keyed to the laptop's team ids — intl-elo is copied the same
     way. INTL is dark until 11-12 anyway; fencing it costs nothing and the switch lifts both at once."
+    Addendum 166 item 6(A): at the module's default (the switch off) the INTL row is the laptop's under every role;
+    with the switch on, as before the cutover, it is fenced with soccer.
     """
+    role("laptop")
+    lap, _ = annotate(intl_unl(), sport="intl")
+    for who in ("host", None, "HOST", " LAPTOP\n"):
+        role(who)
+        default, doc = annotate(intl_unl(), sport="intl")
+        assert default == lap and doc["desk_meta"]["host_fence_rule"] is False, who
+    # the switch on, as before the cutover (addendum 166 item 6(A) lifted it)
+    monkeypatch.setitem(dp.HOST_FENCE_RULE, "on", True)
     out = {}
     for who in ("laptop", "host", None, "HOST"):
         role(who)

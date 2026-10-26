@@ -229,16 +229,20 @@ def _collect_rows(
                 p.player_source_id for ps in pitchers_by_match.values()
                 for p in ps if p.player_source_id
             }
-            pitcher_stats_by_source_id: dict[str, PitcherSeasonStats] = {}
+            # Keyed by (source_id, season) and read for the game's season (addendum 162 item 1(b)), with the
+            # model's own filter (era set, innings > 0): the row shows the stats the model used, never another
+            # season's, and no stats where the model had none.
+            pitcher_stats_by_source_season: dict[tuple[str, str], PitcherSeasonStats] = {}
             if pitcher_source_ids:
                 for ps in s.execute(
                     select(PitcherSeasonStats).where(
                         PitcherSeasonStats.player_source_id.in_(pitcher_source_ids)
                     )
                 ).scalars():
-                    pitcher_stats_by_source_id[ps.player_source_id] = ps
+                    if ps.era is not None and (ps.innings_pitched or 0) > 0:      # the model's own filter
+                        pitcher_stats_by_source_season[(ps.player_source_id, ps.season)] = ps
         else:
-            pitcher_stats_by_source_id = {}
+            pitcher_stats_by_source_season = {}
 
         # Soccer injuries by team (current snapshot, not historical)
         team_ids = {m.home_team_id for m in matches} | {m.away_team_id for m in matches}
@@ -271,7 +275,7 @@ def _collect_rows(
                 odds=odds_by_match.get(m.id, []),
                 kalshi=kalshi_by_match.get(m.id),
                 pitchers=pitchers_by_match.get(m.id, []),
-                pitcher_stats_by_source_id=pitcher_stats_by_source_id,
+                pitcher_stats_by_source_season=pitcher_stats_by_source_season,
                 injuries_by_team=injuries_by_team,
                 unused_context=unused_context_by_match.get(m.id),
                 sport=sport,
@@ -308,7 +312,7 @@ def _build_row(
     odds: list[Odds],
     kalshi: dict[str, OddsSnapshot] | None = None,
     pitchers: list[MatchParticipant],
-    pitcher_stats_by_source_id: dict,
+    pitcher_stats_by_source_season: dict,
     injuries_by_team: dict,
     unused_context: dict | None = None,
     sport: Sport,
@@ -525,7 +529,8 @@ def _build_row(
         def _pitcher_dict(p):
             if p is None:
                 return None
-            stats = pitcher_stats_by_source_id.get(p.player_source_id) if p.player_source_id else None
+            stats = (pitcher_stats_by_source_season.get((p.player_source_id, m.season))
+                     if p.player_source_id else None)
             return {
                 "name": p.player_name,
                 "kind": p.kind,
@@ -1527,8 +1532,12 @@ def results_tally(days: int = 30, out_path: str = "RESULTS.md", report=None, exp
                     + (f"- Mean log-loss: {r['logloss']:.4f}\n" if r.get("logloss") is not None else "")
                     + (f"- Mean model-close divergence (pick): {r['mean_clv_pp']:+.2f}pp\n"
                        if r.get("mean_clv_pp") is not None else "")
+                    # #687 (ARCHITECT 2026-10-26 11:55 ET): "results-tally names which value-shadow definition its
+                    # cohort line counts (graded.value_shadow, the earlier anchor, vs desk.value_shadow, the day's
+                    # set)". Text only: neither definition changes.
                     + (f"- Mean model-close divergence (value side): {r['mean_value_side_clv_pp']:+.2f}pp"
-                       f" (n={r['value_side_n']} anchored; value-shadow cohort "
+                       f" (n={r['value_side_n']} anchored; value-shadow cohort, counted on graded.value_shadow (the "
+                       f"results file's earlier anchor, not the closing files' desk.value_shadow) "
                        + (f"{r['mean_value_shadow_clv_pp']:+.2f}pp" if r['mean_value_shadow_clv_pp'] is not None else "—")
                        + f", n={r['value_shadow_n']})\n"
                        if r.get("mean_value_side_clv_pp") is not None else

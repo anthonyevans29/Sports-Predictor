@@ -1159,6 +1159,28 @@ def sync_lineups_history_cmd(competition_code, season, dry_run, max_calls, save,
         raise SystemExit(2)
 
 
+@cli.command("observe-cup-lineups")
+@click.option("--competition", "codes", multiple=True, type=click.Choice(("CL", "UEL", "EFL", "FAC")),
+              help="Repeatable; default all four cups.")
+@click.option("--loop", is_flag=True, help="Tick every 30 s until no poll of the window's fixtures remains.")
+@click.option("--dry-run", is_flag=True, help="Print the due polls; no call, nothing written.")
+def observe_cup_lineups_cmd(codes, loop, dry_run):
+    """CUPS STEP B, THE LIVE T-15 OBSERVATION STORE (ARCHITECT 2026-10-23, addendum 158 item 3(a); #106). For the
+    stored cup fixtures kicking off within 3 hours, each due poll (T-15, the label poll; T-5 and T+10, later reads that
+    catch a correction) asked once and appended to cup_lineup_observations: scheduled and observed time, the
+    team-mapped elevens, status complete / partial / empty / failed / missed, late flagged. Append-only: the first
+    complete observation is preserved, a later correction is its own row; a re-dated fixture starts a fresh poll set.
+    A real tick holds the chains' DB lock; a missing DB file is refused, never created. Writes nothing else.
+    src/ingestion/cup_lineups_live.py."""
+    from src.ingestion.cup_lineups_live import COMPETITIONS, Refused, run
+    from src.walters.venue_quote_age import Refused as ReadRefused
+    try:
+        run(tuple(codes) or COMPETITIONS, loop=loop, dry_run=dry_run, echo=click.echo)
+    except (Refused, ReadRefused) as e:
+        click.echo(str(e))
+        raise SystemExit(2)
+
+
 @cli.command("sync-players")
 @click.option("--competition", "competition_code", required=True, help="e.g. PL")
 @click.option("--season", required=True, help="e.g. 2025/26")
@@ -9339,7 +9361,8 @@ def closing_run_cmd(family, start, dry_run):
               help="Print every family's start times and what would run; touch nothing (no network either).")
 def closing_watch_cmd(families, dry_run):
     """CLOSING WATCH, the tick every minute (laptop: scripts/setup_closing_watch.sh --family F, one launchd job; host:
-    sp-closing-watch.timer for NFL and SOCCER, shipped held, addendum 45).
+    sp-closing-watch.timer for NFL and SOCCER, addendum 45; enabled at the cutover, 2026-10-26 13:47Z, and on
+    hosting-h1.md T11's TIMERS from then, addendum 168 item 5).
     No network to decide: per family, the earliest unstarted start time not yet closed; at T-35 (no attempt inside
     T-5, at most three per start time) it starts closing-run for it, covering the games within the 10 minutes after
     it (MLB: after checking the MLB feed answers). Otherwise exit 0, silent. Then THE SLATE STAGE (ARCHITECT

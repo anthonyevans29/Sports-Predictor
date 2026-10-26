@@ -61,12 +61,32 @@ def _series(snaps, venue: str, kickoff: datetime, now: datetime,
     return out
 
 
+def _home_ticker(snaps, at: datetime, kickoff: datetime, tickers: dict | None) -> str | None:
+    """The stored market ticker (odds_snapshots.market_ticker, the HOME leg's own market, e.g.
+    KXEFLCHAMPIONSHIPGAME-26OCT24ABCXYZ-ABC) of the Kalshi HOME leg the `to` point reads: the newest HOME row
+    captured at or before `at` (and before kickoff), ties by the larger row id. `tickers` is {row id: ticker} as
+    paper.capture_tickers reads the unmapped column; a row object carrying `market_ticker` itself is read as well.
+    None where no ticker is stored (before migrate_kalshi_ticker.py, or an untickered leg)."""
+    rows = [x for x in snaps if getattr(x, "source", None) == "kalshi" and getattr(x, "selection", None) == "HOME"
+            and x.captured_at is not None and x.captured_at <= at and x.captured_at < kickoff
+            and x.devig_prob is not None]
+    if not rows:
+        return None
+    x = max(rows, key=lambda r: (r.captured_at, getattr(r, "id", None) or 0))
+    t = (tickers or {}).get(getattr(x, "id", None)) or getattr(x, "market_ticker", None)
+    return str(t) if t else None
+
+
 def line_move(snaps, kickoff: datetime, now: datetime,
               threshold_pp: float = LINE_MOVE_PP, window_h: int = LINE_MOVE_WINDOW_H,
-              three_way: bool = False) -> dict | None:
+              three_way: bool = False, tickers: dict | None = None) -> dict | None:
     """None outside [kickoff - window_h, kickoff). Else {"flag", "venues"}.
     Each venue with >= 2 points reports {from, to, move_pp, from_at, to_at,
-    alarm}; flag = LATE_NEWS_FLAG when any venue's |move| >= threshold."""
+    alarm}; flag = LATE_NEWS_FLAG when any venue's |move| >= threshold.
+    The Kalshi venue also carries `to_ticker` (ARCHITECT 2026-10-24, addendum 165 item 1: the window's log line of a
+    capture-only league's move names its series and ticker): the HOME leg's market ticker at the `to` capture
+    (_home_ticker), null where none is stored, when `tickers` is given ({} reads row objects only). Additive:
+    every other key is unchanged, and with tickers None (every export) the key is not written."""
     if kickoff is None or not (kickoff - timedelta(hours=window_h) <= now < kickoff):
         return None
     start = kickoff - timedelta(hours=window_h)
@@ -90,6 +110,8 @@ def line_move(snaps, kickoff: datetime, now: datetime,
             # snapshots (the oldest where they differ; null = unknown, never fresh)
             venues[venue]["from_source_updated_at"] = _book_source_time(snaps, ref[0])
             venues[venue]["to_source_updated_at"] = _book_source_time(snaps, cur[0])
+        elif tickers is not None:          # the window card only (line_move_for_match with_ticker): exports unchanged
+            venues[venue]["to_ticker"] = _home_ticker(snaps, cur[0], kickoff, tickers)
     return {"flag": LATE_NEWS_FLAG if any(v["alarm"] for v in venues.values()) else None,
             "threshold_pp": threshold_pp, "window_h": window_h, "venues": venues}
 
@@ -103,7 +125,10 @@ def _book_source_time(snaps, t: datetime) -> str | None:
     return v.isoformat() if v else None
 
 
-def line_move_for_match(s, m, now: datetime | None = None) -> dict | None:
+def line_move_for_match(s, m, now: datetime | None = None, with_ticker: bool = False) -> dict | None:
+    """The stored-snapshot line move for one match. with_ticker (the window card only, ARCHITECT 2026-10-24,
+    addendum 165 item 1) adds the Kalshi venue's `to_ticker`; the exports that read this (export.py, nfl_predict)
+    call it without, so their rows are unchanged (an export contract is gate-class)."""
     from sqlalchemy import select
 
     from src.db.schema import OddsSnapshot
@@ -117,7 +142,11 @@ def line_move_for_match(s, m, now: datetime | None = None) -> dict | None:
     # line move from mismatched Kalshi legs)
     snaps = attach_source_times(s, s.execute(select(OddsSnapshot).where(OddsSnapshot.match_id == m.id)).scalars())
     snaps, _ = guard_snaps(snaps, s)
-    return line_move(snaps, m.utc_date, now, three_way=_is_soccer(m))
+    tickers = None
+    if with_ticker:   # addendum 165 item 1: the Kalshi legs' stored tickers (the unmapped market_ticker column, by row id)
+        from src.walters.paper import capture_tickers
+        tickers = capture_tickers(s, [x.id for x in snaps if getattr(x, "source", None) == "kalshi"])
+    return line_move(snaps, m.utc_date, now, three_way=_is_soccer(m), tickers=tickers)
 
 
 def _is_soccer(m) -> bool:

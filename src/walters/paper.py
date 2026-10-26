@@ -47,7 +47,8 @@ P&L, no position, no order, no export.
 from __future__ import annotations
 
 import math
-from datetime import datetime, timedelta
+from collections import Counter
+from datetime import date, datetime, timedelta
 
 from src.walters import close as _close
 
@@ -526,6 +527,26 @@ def three_way_comps() -> tuple[str, ...]:
                         - set(CLOSE_RECORD_COMPS)))
 
 
+MISMATCHED = "mismatched"
+
+
+def _guarded_three_way(m, snaps, before: datetime | None, mism: dict, tickers: dict | None = None,
+                       homes: dict | None = None, current: dict | None = None) -> tuple[dict | None, str | None]:
+    """_three_way's (close, None) or (None, cause) for game `m` read before `before`, behind the mismatched-legs guard
+    _score_three applies, in its order: the game's newest legs (`mism`, kalshi_legs.mismatched as ruled), then the
+    legs of the capture the close reads (_last_capture's) judged with those newest legs (`current`),
+    capture_mismatched (Codex round 1 P1 on #640, R47, #641 item 2 RULED). (None, MISMATCHED) when either names two
+    events: no close is formed from legs of two events. The finished-game score, the leagues receipt's games to come
+    and its superseded check all read the close through this one guard (Codex on #663)."""
+    if m.id in mism:
+        return None, MISMATCHED
+    caps, t = _last_capture(snaps, before)         # the capture the close reads (none: unpriced, _three_way says)
+    if t is not None and capture_mismatched([r for legs in caps[t].values() for r in legs], tickers or {}, m.id,
+                                            homes, current):
+        return None, MISMATCHED
+    return _three_way(snaps, before)
+
+
 def _score_three(rec: dict, m, snaps, mism: dict, tickers: dict | None = None, homes: dict | None = None,
                  current: dict | None = None) -> None:
     """One game of a three-way competition, in this order of exclusion: no decided 90-minute result
@@ -540,15 +561,10 @@ def _score_three(rec: dict, m, snaps, mism: dict, tickers: dict | None = None, h
     if res is None:
         rec["no_result"] += 1
         return
-    if m.id in mism:
-        rec["mismatched"] += 1
-        return
-    caps, t = _last_capture(snaps, m.utc_date)        # the capture the close reads (none: unpriced, below)
-    if t is not None and capture_mismatched([r for legs in caps[t].values() for r in legs], tickers or {}, m.id,
-                                            homes, current):
+    cl, why = _guarded_three_way(m, snaps, m.utc_date, mism, tickers, homes, current)
+    if why == MISMATCHED:
         rec["mismatched"] += 1             # its legs name two events: no close, never priced (Codex on #640, R47)
         return
-    cl, why = _three_way(snaps, m.utc_date)
     if cl is None:
         rec["unpriced"] += 1
         rec[why] += 1                      # its cause (UNPRICED), so the unpriced line's every reason is true
@@ -570,6 +586,33 @@ def _score_three(rec: dict, m, snaps, mism: dict, tickers: dict | None = None, h
                         "favourite": fav})                 # every row names its close kind (addendum 150 item 1)
 
 
+def _kalshi_snaps(s, ids) -> dict:
+    """{match_id: [the stored rows the Kalshi close reads]} for the games `ids` (close.kalshi_close_market_filter)."""
+    from sqlalchemy import select
+
+    from src.db.schema import OddsSnapshot
+    snaps: dict = {}
+    for k in range(0, len(ids), _IN_CHUNK):
+        for x in s.execute(select(OddsSnapshot).where(OddsSnapshot.match_id.in_(ids[k:k + _IN_CHUNK]),
+                                                      _close.kalshi_close_market_filter(OddsSnapshot))).scalars():
+            snaps.setdefault(x.match_id, []).append(x)
+    return snaps
+
+
+def _three_way_guards(s, ids, snaps) -> tuple[dict, dict, dict]:
+    """(tickers, current, homes) the three-way score's mismatched-capture guard reads: the captured legs' tickers,
+    each side's newest legs judged with the capture (#641), and the events' home teams (Codex on #640)."""
+    from src.walters import kalshi_legs
+    current: dict = {}
+    tickers = capture_tickers(s, [x.id for v in snaps.values() for x in v if x.source == "kalshi" and x.market == "1X2"])
+    if tickers:
+        current = kalshi_legs.current_tickers(s, ids)
+    events = {kalshi_legs.event_of(t) for t in tickers.values()}
+    events |= {kalshi_legs.event_of(t) for legs in current.values() for ts in legs.values() for t in ts}
+    homes = kalshi_legs.homes_of(s, events) if tickers else {}
+    return tickers, current, homes
+
+
 def close_record(days: int, now: datetime | None = None) -> dict:
     """{code: record}, each record naming its close kind (`kind`); the two kinds never pool. The FINISHED games of
     the last `days` days on the kickoff in this machine's DB.
@@ -588,7 +631,7 @@ def close_record(days: int, now: datetime | None = None) -> dict:
     from sqlalchemy import select
 
     from src.db.database import session_scope
-    from src.db.schema import Competition, Match, MatchStatus, OddsSnapshot, Sport
+    from src.db.schema import Competition, Match, MatchStatus, Sport
     from src.timeutil import utc_now_naive
     from src.walters import kalshi_legs
     from src.walters.cup_exam import favorite
@@ -606,25 +649,13 @@ def close_record(days: int, now: datetime | None = None) -> dict:
                        Match.utc_date >= now - timedelta(days=days))
                 .order_by(Match.utc_date, Match.id)).scalars())
             ids = [m.id for m in games]
-            snaps: dict = {}
-            for k in range(0, len(ids), _IN_CHUNK):
-                for x in s.execute(select(OddsSnapshot).where(OddsSnapshot.match_id.in_(ids[k:k + _IN_CHUNK]),
-                                                              _close.kalshi_close_market_filter(OddsSnapshot))
-                                   ).scalars():
-                    snaps.setdefault(x.match_id, []).append(x)
+            snaps = _kalshi_snaps(s, ids)
             if code not in CLOSE_RECORD_COMPS and not any(
                     x.source == "kalshi" and x.market == "1X2" for v in snaps.values() for x in v):
                 continue                       # no stored Kalshi three-way leg in the window: nothing printed
             mism = kalshi_legs.mismatched(s, ids) if ids else {}
-            current: dict = {}
             if three:
-                tickers = capture_tickers(s, [x.id for v in snaps.values() for x in v
-                                              if x.source == "kalshi" and x.market == "1X2"])
-                if tickers:                                    # each side's newest legs, judged with the capture (#641)
-                    current = kalshi_legs.current_tickers(s, ids)
-                events = {kalshi_legs.event_of(t) for t in tickers.values()}
-                events |= {kalshi_legs.event_of(t) for legs in current.values() for ts in legs.values() for t in ts}
-                homes = kalshi_legs.homes_of(s, events) if tickers else {}  # the guard's second clause (Codex on #640)
+                tickers, current, homes = _three_way_guards(s, ids, snaps)
             else:                                              # the rows the two-way close reads (Codex round 2)
                 tickers, current, homes = two_way_legs(s, games, snaps)
             rec = _empty(len(games), KIND_THREE if three else KIND_TWO)
@@ -660,6 +691,141 @@ def close_record(days: int, now: datetime | None = None) -> dict:
                     rec["fav_d"] += 1
                     rec["fav_w"] += 1 if fav == side else 0
             out[code] = rec
+        s.rollback()
+    return out
+
+
+LEAGUES = ("SA", "BL1", "FL1", "ELC")                  # the leagues lane's competitions (docs/roadmap.json, #322)
+WINDOW_GAMES = 60                                      # addendum 155 item 4(b): the first 60 FINISHED games per league
+
+
+WEEKDAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+
+
+def _quality(q: dict, m, rows, tickers: dict, bucket: str, mism: dict | None = None, homes: dict | None = None,
+             current: dict | None = None) -> None:
+    """ARCHITECT 2026-10-23, addendum 158 item 2(b): one FINISHED game's capture quality, by the kickoff's UTC weekday.
+    bucket: the close record's own outcome for the game ('n' = a qualifying three-way close, R42(b)). The controlling
+    capture is the one three_way_close reads (the last before kickoff holding a leg): its age (kickoff - captured_at),
+    its provenance (the legs' source, and the events their stored tickers name). SUPERSEDED: the controlling capture
+    forms no close (incomplete, over the cap, other checks) while an OLDER capture before kickoff would have (the R42(b)
+    rule substitutes none: it is counted, never used). The older capture is read through _guarded_three_way, the
+    finished-game score's own mismatched-legs guard (`mism`, `tickers`, `homes`, `current` as _score_three takes them):
+    an older capture whose legs name two events forms no close, so it never makes a SUPERSEDED case (Codex on #663)."""
+    from src.walters import kalshi_legs
+    day = WEEKDAYS[m.utc_date.weekday()] if m.utc_date else "?"
+    d = q["by_weekday"].setdefault(day, Counter())
+    d["finished"] += 1
+    d[bucket] += 1
+    caps, t = _last_capture(rows, m.utc_date)
+    if t is None:
+        return
+    q.setdefault("ages", {}).setdefault(day, []).append((m.utc_date - t).total_seconds() / 3600.0)
+    legs = [r for legs in caps[t].values() for r in legs]
+    q["sources"].update(str(getattr(r, "source", None)) for r in legs)
+    q["events"].update(kalshi_legs.event_of(tickers[r.id]) if tickers.get(r.id) else "(no ticker)" for r in legs)
+    if bucket.startswith("unpriced_") and bucket != "unpriced_none":
+        for older in sorted((x for x in caps if x < t), reverse=True):
+            cl, _ = _guarded_three_way(m, rows, older + timedelta(microseconds=1), mism or {}, tickers, homes,
+                                       current)
+            if cl is not None:
+                q["superseded"].append({"match_id": m.id, "kickoff": m.utc_date, "controlling": t, "why": bucket,
+                                        "older_complete": older})
+                break
+
+
+def quality_lines(code: str, q: dict) -> list[str]:
+    """The capture-quality lines of the leagues receipt (158 item 2(b))."""
+    import statistics
+    L = [f"  - {code} · capture quality (158 item 2(b)), by the kickoff's UTC weekday:"]
+    for day in WEEKDAYS:
+        d = q["by_weekday"].get(day)
+        if not d:
+            continue
+        ages = q.get("ages", {}).get(day, [])
+        age = (f" · controlling capture age median {statistics.median(ages):.1f} h (min {min(ages):.1f}, max "
+               f"{max(ages):.1f})" if ages else " · no capture")
+        L.append(f"    {day}: finished {d['finished']} · qualifying close {d['n']} ({d['n'] / d['finished']:.0%}) · "
+                 f"missing {d['unpriced_none']} · incomplete {d['unpriced_incomplete']} · over-cap {d['unpriced_cap']} · "
+                 f"other checks {d['unpriced_other']} · mismatched {d['mismatched']} · no 90-minute result "
+                 f"{d['no_result']}{age}")
+    L.append("    provenance of the controlling captures' legs: source " + (", ".join(
+        f"{k} {v}" for k, v in sorted(q["sources"].items())) or "none") + " · events " + (", ".join(
+        f"{k} {v}" for k, v in sorted(q["events"].items())[:8]) or "none")
+             + (f" (+{len(q['events']) - 8} more)" if len(q["events"]) > 8 else ""))
+    L.append(f"    superseded (a later capture forms no close where an older one would; never substituted): "
+             f"{len(q['superseded'])}")
+    for c in q["superseded"]:
+        L.append(f"      match {c['match_id']} · kickoff {c['kickoff']:%a %Y-%m-%d %H:%M}Z · controlling capture "
+                 f"{c['controlling']:%Y-%m-%d %H:%M:%S}Z ({c['why'][len('unpriced_'):]}) · an older complete capture "
+                 f"{c['older_complete']:%Y-%m-%d %H:%M:%S}Z")
+    return L
+
+
+def leagues_season(codes, season: str, declared: date, now: datetime | None = None) -> dict:
+    """ARCHITECT 2026-10-23, addendum 155 item 4(a) and addendum 156 item 1: per league, the season's games as the
+    close's record reads them. Read-only: one session, rolled back.
+    - finished: the season's FINISHED games scored against the three-way Kalshi close of addendum 150 exactly as
+      close_record scores a three-way competition (_score_three: no 90-minute result, mismatched legs, unpriced by
+      cause, else scored), so n and the close's log-loss are the bar's denominator.
+    - to_come: the season's games still to come at `now` (Codex on #663): status SCHEDULED (not FINISHED, not LIVE,
+      not a NOT_GAMES status, kalshi_match.NOT_GAMES) with a stored kickoff after `now`, read for the capture they
+      hold now: the last capture stored before `now` forming a close by three_way_close's rule, behind the finished
+      score's own mismatched-legs guard (_guarded_three_way: `mismatched`, its own cause), or the UNPRICED cause;
+      "no capture" where none holds a leg. Named apart, never in the cohort and never dropped: a LIVE game (`live`)
+      and a SCHEDULED game whose kickoff is at or before `now` (`past_kickoff`: past kickoff, not finished).
+    - projected: the stored fixture list's games of the season (NOT_GAMES left out) whose kickoff's UTC date is on or
+      after `declared`, in kickoff order, every game assumed to get a three-way close (156 item 1): the 60th's kickoff
+      UTC date, or None with the count when fewer than 60 are stored."""
+    from sqlalchemy import select
+
+    from src.db.database import session_scope
+    from src.db.schema import Competition, Match, MatchStatus
+    from src.ingestion.kalshi_match import NOT_GAMES
+    from src.timeutil import utc_now_naive
+    from src.walters import kalshi_legs
+
+    now = now or utc_now_naive()
+    out: dict = {}
+    with session_scope() as s:
+        for code in codes:
+            games = list(s.execute(
+                select(Match).join(Competition, Competition.id == Match.competition_id)
+                .where(Competition.code == code, Match.season == season)
+                .order_by(Match.utc_date, Match.id)).scalars())
+            seasons = [] if games else sorted({x for x in s.execute(
+                select(Match.season).join(Competition, Competition.id == Match.competition_id)
+                .where(Competition.code == code)).scalars() if x})
+            status = {m.id: str(getattr(m.status, "value", m.status) or "").lower() for m in games}
+            fin = [m for m in games if m.status == MatchStatus.FINISHED]
+            open_ = [m for m in games if m.status != MatchStatus.FINISHED and status[m.id] not in NOT_GAMES]
+            live = [m for m in open_ if m.status == MatchStatus.LIVE]                 # matches.utc_date: NOT NULL
+            past = [m for m in open_ if m.status != MatchStatus.LIVE and m.utc_date <= now]
+            ahead = [m for m in open_ if m.status != MatchStatus.LIVE and m.utc_date > now]
+            ids = [m.id for m in fin + ahead]
+            snaps = _kalshi_snaps(s, ids)
+            mism = kalshi_legs.mismatched(s, ids) if ids else {}        # per game: the id set changes no verdict
+            tickers, current, homes = _three_way_guards(s, ids, snaps)
+            rec = _empty(len(fin), KIND_THREE)
+            quality = {"by_weekday": {}, "superseded": [], "sources": Counter(), "events": Counter()}
+            buckets = ("n", "no_result", "mismatched", *(key for key, _ in UNPRICED))
+            for m in fin:
+                before = {k: rec[k] for k in buckets}
+                _score_three(rec, m, snaps.get(m.id, []), mism, tickers, homes, current.get(m.id))
+                _quality(quality, m, snaps.get(m.id, []), tickers,
+                         next(k for k in buckets if rec[k] != before[k]), mism, homes, current.get(m.id))
+            come = {"n": len(ahead), "close": 0, MISMATCHED: 0, **{key: 0 for key, _ in UNPRICED},
+                    "live": len(live), "past_kickoff": len(past)}
+            for m in ahead:
+                cl, why = _guarded_three_way(m, snaps.get(m.id, []), now, mism, tickers, homes, current.get(m.id))
+                come["close" if cl is not None else why] += 1
+            fixtures = [m for m in games if status[m.id] not in NOT_GAMES and m.utc_date is not None
+                        and m.utc_date.date() >= declared]
+            nth = fixtures[WINDOW_GAMES - 1] if len(fixtures) >= WINDOW_GAMES else None
+            out[code] = {"games": len(games), "seasons_stored": seasons, "not_games": sum(
+                status[m.id] in NOT_GAMES for m in games), "record": rec, "to_come": come, "quality": quality,
+                "from_declared": len(fixtures),
+                "projected": None if nth is None else {"date": nth.utc_date.date(), "match_id": nth.id}}
         s.rollback()
     return out
 

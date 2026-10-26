@@ -1,11 +1,12 @@
 # H2 cutover runbook: the ONE `.backup` migration (H2-PREP)
 
-**Status: PREP ONLY.** This page is the operator sequence for the H2
-cutover and for checking it afterwards. **The cutover itself needs an
-architect ruling on the frozen parallel-week criteria** (H0-18,
-`hosting-h1.md` "Cutover criteria"). Nothing on this page, and nothing in
-`sp_cutover.py` or `h2_dry_run.py`, triggers the cutover or decides it.
-Ties and partial passes are rejections; they extend the parallel week.
+**Status: CUTOVER DONE 2026-10-26 13:45:11Z** (ARCHITECT 2026-10-26, addendum 168 item 1). The host is the writer
+of record for SOCCER and NFL; the laptop is the console and MLB. This page is the record of the operator sequence the
+cutover ran, and the reference for checking it afterwards and for rolling it back (section 3, an architect ruling).
+Before the cutover it read: "Status: PREP ONLY. [...] The cutover itself needs an architect ruling on the frozen
+parallel-week criteria" (H0-18, `hosting-h1.md` "Cutover criteria"); that ruling was addendum 166 item 4 with its
+corrections (addendum 167). Nothing on this page, and nothing in `sp_cutover.py` or `h2_dry_run.py`, triggers a
+cutover or decides one.
 
 Source of truth for the steps: `hosting-h1.md` "## H2" (cutover morning,
 steps 1 to 7). This runbook executes those steps through
@@ -22,8 +23,18 @@ target Monday 2026-10-26, fallback 10-30". These are the plan's dates as it stat
 page and change none of them: each step is done as sections 0 to 3 write it. The frozen criteria are unchanged
 (ARCHITECT 2026-10-02, verbatim): "cutover when (a) 5 consecutive morning compares show only explained classes, (b)
 the host has run a full day on a tag carrying #246 with desk calls emitted, (c) parity harness green on that tag."
+The rows after the Mon 10-26 cutover row are ARCHITECT 2026-10-25, addendum 166 item 4 (the conditional GO, its five
+conditions and the fallback), then addendum 167 item 3 (the Monday order, corrected; one row per timed block): each
+What cell is the ruling's text, verbatim and in order; the When cells are this table's date keys. Addendum 167 item 1
+REPLACED the rows that quoted addendum 166 item 5, whose order (step 2 before step 3 and the preflight) can never
+reach `pause`: "the table rows in docs/specs/h2-cutover-runbook.md that quote item 5 are REPLACED by item 3's rows,
+quoted verbatim and dated addendum 167 (a ruling that corrects a ruling is recorded as such, not silently edited)."
+Addendum 167 item 2(a) moved the deploy of the fence-off tag to after `pause`, which corrects item 4 (4)'s "tag
+v1.6.0 → deployed by 08:50 → the host's timers STOPPED by 09:04 ET"; that row stays verbatim, marked as corrected.
+Addendum 168 (ARCHITECT 2026-10-26 10:00 ET) marks the Mon 10-26 rows done with their receipt times (item 1) and
+adds the day's two corrections as rows, verbatim (items 2 and 3).
 
-| When (addendum 113) | What | On this page |
+| When (addendum 113, then addendum 166, then addendum 167, then addendum 168) | What | On this page |
 |---|---|---|
 | Sun 10-18 → Thu 10-22 | the five morning compares: criterion (a) | section 0, Readiness readout (a) |
 | Sun 10-18 | the dry run on the laptop (any mode, no host); receipt to the architect | section 0, Dry run |
@@ -32,7 +43,30 @@ the host has run a full day on a tag carrying #246 with desk calls emitted, (c) 
 | Thu 10-22 | the host runs on v1.5.0: criterion (b)'s full day with desk calls; the parity harness on that tag: criterion (c) | section 0, Readiness readout (b), (c) |
 | Thu 10-22 evening | `cli.py cutover-readiness` on the HOST, over ssh in the Thursday evening block (addendum 128 item 1(a); addendum 113 item 5 said the laptop); its GO / NOT-YET lines pasted to the architect | section 0, Readiness readout, TERMINAL (host): (b) and (T9) read the host's own receipts and list, run without `--receipts` or `--fullseason-list` (pass `--named FILE` when a day is operator-named). The laptop form (`--receipts FILE --fullseason-list FILE`) is for the architect's dry reads only. |
 | Fri 10-23 morning | the architect's ruling: cutover Monday 10-26, or named reasons and the 10-30 fallback | |
-| Mon 10-26, 09:00–11:00 ET (fallback 10-30) | the cutover: section 1, step by step, each step's receipt pasted before the next | section 1 |
+| Mon 10-26, 09:00–11:00 ET (fallback 10-30) | the cutover: section 1, step by step, each step's receipt pasted before the next | section 1; **DONE 2026-10-26 13:45:11Z** (addendum 168 item 1) |
+| Mon 10-26, 09:00–11:00 ET (conditional GO) | CUTOVER — RULING: CONDITIONAL GO FOR MONDAY 10-26, 09:00–11:00 ET, with a correction of my own first. | addendum 166 item 4, verbatim; section 1; **DONE 2026-10-26 13:45:11Z** (addendum 168 item 1) |
+| Sun 10-25 morning | GO on Monday therefore needs ALL of: (1) T9's close this morning — the weekly-fullseason receipt at 06:00Z, exit 0, every listed competition-season synced (the Tailscale block prints it); | addendum 166 item 4 (1), verbatim; section 0, T9 |
+| Sun 10-25 evening | (2) P8 tonight — exit 0, the page ending `machine: host`, the host's closing file written, wall time well inside the watch's thirty-minute lock budget; | addendum 166 item 4 (2), verbatim; section 0, The host closing-watch rehearsal |
+| by Sun 10-25 17:00 ET | (3) the cutover policy PR (item 6(A)) MERGED by Sunday 17:00 ET: CI green, Codex findings answered, no P1 open; | addendum 166 item 4 (3), verbatim; section 0, The host fence |
+| Mon 10-26 07:30–09:04 ET | (4) Monday 07:30 ET compare PASS → tag v1.6.0 → deployed by 08:50 → the host's timers STOPPED by 09:04 ET. (4)'s timing is a safety rule, not a convenience: from the deploy to the pause the host runs the switch-off code over its mis-keyed soccer ratings, and no host soccer chain runs between 12:20Z and 13:05Z (nfl-grade 10:00Z, mlb-history 10:30Z, ncaa-schedule 10:35Z and the 12:05Z window tick are before the deploy; the 13:05Z tick is the first on the new database, as addendum 113 planned). If the deploy slips past 08:50, STOP the timers first (step 2), then deploy — the preflight has to run before step 2, so in that case the preflight's receipt names v1.5.0 and I accept that on the page. | addendum 166 item 4 (4), verbatim; CORRECTED by addendum 167 items 2(a) and 3: the deploy is after `pause` (the 09:22 ET row). Addendum 167 postscript (a), verbatim: "CONDITION (4), RULED: read as corrected by item 3 — Monday 07:30 compare PASS → v1.6.0 cut at 08:00 → preflight with the timers live → pause → deploy v1.6.0 with the timers stopped → install. The "deployed by 08:50 / stopped by 09:04" times are withdrawn; the 09:05 tick runs on v1.5.0 and is the last pre-cutover tick. Conditions (1), (2), (3), (5) unchanged. #672's reading is mine." ; section 1 steps 2 and 4 |
+| Mon 10-26 05:45–11:00 ET | (5) The operator at the keyboard 05:45–11:00 ET Monday, confirmed to me tonight. | addendum 166 item 4 (5), verbatim |
+| Fri 10-30 (fallback) | ANY ONE unmet → the fallback Friday 10-30 as addendum 113 declared, and docs/roadmap.json moves the line the same day (its moved line with the unmet condition named). No bar moves; no step is shortened; the review rounds on the PR are the review stop rule's, not fewer. | addendum 166 item 4, verbatim; docs/roadmap.json |
+| Mon 10-26 05:45–06:45 ET | 05:45–06:45 laptop morning block, VPN on — backup, migrate_cup_lineup_observations.py, the syncs, no chains after. | addendum 167 item 3, verbatim; section 1 step 1 |
+| Mon 10-26 07:15 ET | 07:15 Tailscale block — compare + host receipts. | addendum 167 item 3, verbatim; section 2; **DONE 07:30 ET**: DIVERGENT 9 files, every one named code-version skew (release gate PASS); host receipts 24h 0 failing (addendum 168 item 1) |
+| Mon 10-26 07:45 ET | 07:45 my read → the tag ruling. | addendum 167 item 3, verbatim; **DONE**: the tag ruling, v1.6.0 (addendum 168 item 1) |
+| Mon 10-26 08:00 ET | 08:00 the tag block: v1.6.0 cut on GitHub (--cleanup=verbatim). The host is NOT deployed yet. | addendum 167 item 3, verbatim; docs/RELEASES.md; **DONE 08:11 ET**: v1.6.0 cut on 4c106f50, `--cleanup=verbatim`, 17 headings kept, CI green (addendum 168 item 1) |
+| Mon 10-26 08:30 ET | 08:30 section 1 step 1 (laptop): CLV capture and the closing watch uninstalled, `none loaded`. | addendum 167 item 3, verbatim; section 1 step 1; **DONE 08:17 ET**: "none loaded" (addendum 168 item 1) |
+| Mon 10-26 08:40 ET | 08:40 section 1 step 3 (laptop): the PL reference for the next round (dates read from the DB by the block), the pack, scp over the tailnet. The host's timers are still running: the pack is the laptop's database, the host's is untouched by this step. | addendum 167 item 3, verbatim; section 1 step 3; **DONE 08:17 ET**: the PL reference soccer_PL_2026-10-31_to_2026-11-02.json, 10 rows; the pack sp_pack_20261026T1214 over the tailnet (addendum 168 item 1) |
+| Mon 10-26 09:12 ET | 09:12 step 4a (host): `preflight --pack` with the timers ACTIVE (the 09:05 window tick has fired; its chain may still be running, which preflight does not mind). The env_changes list: names only, each one a name I give in the morning page. | addendum 167 item 3, verbatim; section 1 step 4; **DONE 13:22Z** (PASS; refused at 13:20Z, correction 1 below) (addendum 168 item 1) |
+| Mon 10-26 09:20 ET (13:20Z) | CORRECTION 1 — the host's timers list (finding, host/ops, mine to log; law 6: BACKLOG + Issue): /etc/sports-predictor/timers.enabled held 14 lines while 16 sp timers were active; sp-intl-daily.timer and sp-exports-squash.timer had been enabled by hand on earlier days (the UNL ingest; the Sunday squash) with no list line. The preflight refused, correctly ("add them to the list by hand; the tool never writes it"); the operator appended both; the second preflight passed. Consequence had it gone unseen: `pause` would have left intl-daily running (it writes the DB) during install. Code: an Issue (finding) and the fix: T11's recipe for enabling a timer ends with the timers.enabled line, and `sp_deploy`'s receipt line (addendum 155 item 8(b), already built) is extended to name ACTIVE timers not on the list, not only shipped-but-unlisted ones — a read-only line, small PR, this week. | addendum 168 item 2, verbatim; #676; section 1 step 4 (preflight) |
+| Mon 10-26 09:16 ET | 09:16 step 2 / `pause` (host): the timers stopped; `pause` is the receipted form of step 2, run once (step 2's bare `systemctl stop` is not run separately — pause does it and receipts it). | addendum 167 item 3, verbatim; section 1 steps 2 and 4; **DONE 13:43:19Z**: 16 timers stopped, no chain running (addendum 168 item 1) |
+| Mon 10-26 09:22 ET | 09:22 THE DEPLOY (host): sp_deploy.py --tag v1.6.0 --dry-run → --tag v1.6.0 → the printed migration command (harmless on the rehearsal database, which `install` replaces; run it as the ritual says). The deploy happens with the timers paused: zero unfenced exposure. The preflight's receipt names v1.5.0; every receipt from `install` on names v1.6.0; accepted on the page by this ruling. | addendum 167 item 3, verbatim; section 0, Host on a release tag; section 1 step 4; **DONE 13:43Z**: v1.5.0 -> v1.6.0 (4c106f50, 59 files) with the timers stopped; backup sports_2026-10-26_134323.db integrity ok, migrate_cup_lineup_observations.py; the fence printed {'on': False} (addendum 168 item 1) |
+| Mon 10-26 09:40 ET | 09:40 `install`; the PL prediction check (CLEAN, N and M ≥ 1); the fence check (`{'on': False}`); `flip`; `resume`; `receipt`. | addendum 167 item 3, verbatim; section 1 step 4; **DONE**: install 13:44:22Z (S2 = S1, R2 = R1 on 36 tables); the PL check 10 of 10, VERDICT: CLEAN; fence {'on': False}; flip 13:44:59Z; resume 13:45:09Z; receipt 13:45:11Z (addendum 168 item 1) |
+| Mon 10-26 10:15 ET | 10:15 step 5 post checks; 5b the host's closing watch (preflight, test page, dry run, install-push, enable, the timers.enabled line). | addendum 167 item 3, verbatim; section 1 steps 5 and 5b; **5b DONE 13:47Z**: preflight NFL+SOCCER role host PASS, test page accepted, dry run, install push exit 0 after correction 2 below, sp-closing-watch.timer installed, enabled, listed (timers.enabled 17 lines), first tick 13:48Z (addendum 168 item 1) |
+| Mon 10-26 09:47 ET (13:47Z) | CORRECTION 2 — the pack's .env on the host (finding, host/ops, MINE: I ruled the three pack-only names "harmless today" at 09:43 and one was not): `install --replace` put the laptop's .env over the host checkout's, so SP_EXPORTS_MIRROR_KEY pointed at a path on the laptop; host.env gives that setting no value, so the host's mirror push read the laptop's path and refused ("the mirror never falls back silently" — the right behaviour). Caught by step 5b's install-push check before any timer pushed. Fix applied by hand: the three laptop-only lines (SP_EXPORTS_MIRROR_KEY, CFBD_API_KEY, SP_HOST_ADDR) removed from /opt/sports-predictor/.env (a .bak beside it); the push then landed. Code: the Issue, and the fix in the runbook and the tool: the env_changes list stays names-only, but `install` (or the runbook's step right after it) REMOVES pack-only settings that host.env does not define and that name a path or a key (a list in sp_cutover, ruled: SP_EXPORTS_MIRROR_KEY, CFBD_API_KEY, SP_HOST_ADDR today), printing their names; and the ruling text in the runbook says a pack-only setting that names a path on the source machine is never "expected". Small PR, this week; the runbook's 2026-10 schedule table records both corrections with their times. | addendum 168 item 3, verbatim; #677; section 1 steps 4 (install) and 5b |
+| Mon 10-26 12:00 ET (16:00Z) | 12:00 ET (16:00Z) the host's nhl-daily runs on the installed database: the NHL shadow post-check (addendum 49 item 3) is read BY ME from the mirror (host/2026-10-26/nhl_shadow_*.json and the chain's export lines in the receipts) at 12:30 ET — no operator step; the UNL cohort read (`intl-elo-confirm`, no flags) goes in the first post-cutover Tailscale block, Tuesday morning. This answers Codex's P2: the check is scheduled where the evidence appears and staffed by the mirror, not by the operator's window. | addendum 167 item 3, verbatim; section 1 step 5 |
+| Mon 10-26, before 17:30 ET | Before 17:30 ET: step 7, the laptop's MLB watch back (`--family MLB`) for Game 3. | addendum 167 item 3, verbatim; section 1 step 7; **DONE 10:13 ET**: the CLV jobs and the MLB-only watch reinstalled; packs deleted; cold backup sports_2026-10-26.db 310.7 MB (ARCHITECT 2026-10-26) |
+| Mon 10-26 11:00 ET | The 11:00 end of the operator's window stands for steps 1–5b. | addendum 167 item 3, verbatim |
 
 The plan's dated items (addendum 113, "WHAT STILL HAS TO HAPPEN, DATED"), verbatim:
 
@@ -92,8 +126,8 @@ Which machine runs item 5's readout (ARCHITECT 2026-10-18, addendum 128 item 1(a
   **The cutover's preflight checks the host's (addendum 47 item 7(c)):** it refuses unless host.env itself says
   `SP_EXPORTS_MIRROR_ROLE=host`. `install --replace` copies the pack's `.env` (the laptop's, role `laptop`) over the
   checkout's, and only host.env's own line keeps the host pushing as `host`.
-- **The host fence (ARCHITECT 2026-10-17, addendum 109 item 3; #410):** until the cutover, every soccer model row the host's Desk sees is PASS `host_fence` (the machine's `SP_EXPORTS_MIRROR_ROLE` is `host`, read from host.env first, then the environment, then the checkout's `.env`, so a run typed by hand, such as P8's `closing-run` below, is fenced as the timers' runs are; an unknown role is fenced too, addendum 110 item 1). "The fence lifts with the cutover (the ruling that cuts over names it)." The fence reads the switch `desk_policy.HOST_FENCE_RULE`, never `SP_WRITER_OF_RECORD`: "the cutover PR does the flip and turns the switch off in the same change" (addendum 114 item 3). The PL check below leaves the desk block out (`--ignore-keys desk,...`), so the fence does not touch it, and nothing else in the cutover reads the switch:
-  - **Before `flip` (step 4, after `install`, the timers still paused), TERMINAL (host):** `sudo -u sp venv/bin/python -c "from src.walters.desk_policy import HOST_FENCE_RULE; print(HOST_FENCE_RULE)"` prints `{'on': False}` (the tag carries the cutover's PR). Anything else: do not `flip`, and return it to the architect; the writer of record would mark every PL row PASS `host_fence`.
+- **The host fence (ARCHITECT 2026-10-17, addendum 109 item 3; #410):** until the cutover, every soccer model row the host's Desk sees is PASS `host_fence` (the machine's `SP_EXPORTS_MIRROR_ROLE` is `host`, read from host.env first, then the environment, then the checkout's `.env`, so a run typed by hand, such as P8's `closing-run` below, is fenced as the timers' runs are; an unknown role is fenced too, addendum 110 item 1). The switch is off from #671 (ARCHITECT 2026-10-25, addendum 166 item 6(A)), so on a tag carrying it the check below prints `{'on': False}`. "The fence lifts with the cutover (the ruling that cuts over names it)." The fence reads the switch `desk_policy.HOST_FENCE_RULE`, never `SP_WRITER_OF_RECORD`: "the cutover PR does the flip and turns the switch off in the same change" (addendum 114 item 3). The PL check below leaves the desk block out (`--ignore-keys desk,...`), so the fence does not touch it, and nothing else in the cutover reads the switch:
+  - **Before `flip` (step 4, after `install`, the timers still paused), TERMINAL (host):** `sudo -u sp venv/bin/python -c "from src.walters.desk_policy import HOST_FENCE_RULE; print(HOST_FENCE_RULE)"` prints `{'on': False}` (the tag carries #671). Anything else: do not `flip`, and return it to the architect; the writer of record would mark every PL row PASS `host_fence`.
   - **After the flip:** the host's first PL `--desk` file reads `desk_meta.host_fence_rule: false`; paste that line with the post-check receipts (step 5).
 - **The host closing-watch rehearsal (ARCHITECT 2026-10-12, addendum 45 P8):** "One rehearsal before the cutover
   day, on my word, and not before the tag that carries P1 is on the host: a single closing-run by hand on the
@@ -108,6 +142,9 @@ Which machine runs item 5's readout (ARCHITECT 2026-10-18, addendum 128 item 1(a
   code stops it, and nothing tells it the other machine already paged (each machine reads only its own
   receipts). P8's run is such a run, which is why its page is a second page and the laptop's is the one acted
   on. The page ends `machine: host`.
+  - **P8 READ: PASS (ARCHITECT 2026-10-25 20:15 ET, addendum 167 postscript 2(a)), verbatim:** "(a) P8 READ: PASS. Host closing-run NFL for 2026-10-26T00:20Z on v1.5.0: exit 0, 6/6 steps, 17.0 s (20 s wall), page accepted ending "machine: host", closing file exports/closing_NFL_2026-10-26T0020Z.json (sha256 ea5e654f3f7f), mirror push exit 0 @ 5ce89059; the host's Desk row equals the laptop's 19:45 page (PLAY SEA 0.5u, BUY YES KXNFLGAME-26OCT25KCSEA-SEA @ 0.59 × 16, exec +8.6pp, QB hold). Record it on the runbook's P8 bullet and in the records entry; the 10-22 refusals (early runs, the ±6h window) stay in the record as what they were."
+  - **The 10-22 attempts, as they were (addendum 166 item 4(i), verbatim):** "(i) P8, the host closing-run rehearsal, has not been read: Thursday's early run was refused (kickoff outside the ±6h schedule window) and the 19:50 run did not happen. The runbook makes one rehearsal, read by me, a pre-cutover item. Tonight's SNF run (block_1025_p8_host.txt, 19:55 ET) is it."
+  - This is condition (2) of addendum 166 item 4 (the 2026-10 schedule table's Sun 10-25 evening row), met.
 - **No timer moves (addendum 45 P6):** "In twelve days no chain held the lock, or waited for it, longer than seven
   minutes, and the watch allows thirty. A closing run meets the hourly chain only where its T-35 falls between
   five and twelve past the hour, a kickoff at about a quarter to, and then it waits for it. The units with no run
@@ -134,6 +171,8 @@ Which machine runs item 5's readout (ARCHITECT 2026-10-18, addendum 128 item 1(a
   - The readout reads it: `cutover-readiness` prints `(T9) WEEKLY FULL-SEASON LIST` (below).
   - The close: the receipt of the chain's first real run, its own timer, Sun 10-25 06:00Z, on that morning's page.
 - **Readiness readout (#85, ARCHITECT lane 2 2026-10-04).** TERMINAL (host),
+  **The cutover is DONE (2026-10-26 13:45:11Z; ARCHITECT 2026-10-26, addendum 168 item 1):** the host is the writer of
+  record for SOCCER and NFL. The readout below is the record of how the GO was read; the command stays read-only.
   read-only, on the HOST, over ssh in the Thursday evening block (ARCHITECT 2026-10-18, addendum 128 item 1(a),
   verbatim: "WHICH MACHINE RUNS `cutover-readiness`: the HOST, over ssh in the Thursday evening block, so (b) and
   (T9) read the host's own receipts and list; the laptop form (`--receipts FILE --fullseason-list FILE`) is for my
@@ -187,8 +226,9 @@ Which machine runs item 5's readout (ARCHITECT 2026-10-18, addendum 128 item 1(a
     `--named FILE` (`{"YYYY-MM-DD": "<class>: <evidence>"}`); such days print as
     operator-named. GO is a readout; the cutover is the architect's ruling.
 - **Host on a release tag.** Production is a tagged release
-  (docs/RELEASES.md). The host runs `sp_deploy.py` to the ruled tag before
-  the cutover morning, so every cutover receipt names that tag.
+  (docs/RELEASES.md). The host runs `sp_deploy.py` to the ruled tag, deployed between `pause` and `install` on
+  cutover day (addendum 167 item 3); the preflight receipt names the previous tag. Every receipt from `install` on
+  names the ruled tag ("accepted on the page by this ruling", addendum 167 item 3).
 
 ## 1. Cutover morning (only after the ruling)
 
@@ -215,6 +255,10 @@ Which machine runs item 5's readout (ARCHITECT 2026-10-18, addendum 128 item 1(a
    systemctl list-timers 'sp-*' --no-pager      # receipt: none of the list is waiting
    ```
    `sp_cutover.py run` stops them again (idempotent) and receipts it.
+   **On cutover day 2026-10-26 (ARCHITECT 2026-10-25, addendum 167 item 3), verbatim:** "`pause` is the receipted
+   form of step 2, run once (step 2's bare `systemctl stop` is not run separately — pause does it and receipts it)."
+   It runs in step 4, after `preflight --pack` with the timers ACTIVE (the preflight stops on a host whose listed
+   timers are all inactive: `timers already stopped: run the preflight before step 2`).
 3. **TERMINAL (laptop)** (H2 step 3): write the PL reference, then pack and transfer over the tailnet only.
    **The reference is written for the check (#422 RULED, ARCHITECT 2026-10-11, addendum 40 item 9):** "On the
    laptop, after the last sync and immediately before the pack: the PL predictions exported with --start and
@@ -239,6 +283,8 @@ Which machine runs item 5's readout (ARCHITECT 2026-10-18, addendum 128 item 1(a
    P=/home/sp/sp_pack_<stamp>
    sudo venv/bin/python deploy/hosting/sp_cutover.py preflight --pack $P
    sudo venv/bin/python deploy/hosting/sp_cutover.py pause --pack $P
+   # THE DEPLOY (addendum 167 item 3), with the timers paused: sp_deploy.py --tag <ruled tag> --dry-run, then
+   # --tag <ruled tag>, then the printed migration command; the preflight's receipt names the previous tag
    sudo venv/bin/python deploy/hosting/sp_cutover.py install --pack $P
    # the PL PREDICTION CHECK (below); flip only on its PASS
    # the HOST FENCE CHECK (section 0): HOST_FENCE_RULE prints {'on': False}; flip only then
@@ -254,6 +300,18 @@ Which machine runs item 5's readout (ARCHITECT 2026-10-18, addendum 128 item 1(a
      ruling names the settings it expects on it, and a name the ruling did not give stops the cutover before pause."
      The operator pastes the list with the preflight's receipt (`env_changes` in it, names only), and goes on to
      `pause` only when every name on it is one the ruling gave.
+     **Addendum 168 item 3 (ARCHITECT 2026-10-26, #677):** "the env_changes list stays names-only, but `install` (or
+     the runbook's step right after it) REMOVES pack-only settings that host.env does not define and that name a path
+     or a key (a list in sp_cutover, ruled: SP_EXPORTS_MIRROR_KEY, CFBD_API_KEY, SP_HOST_ADDR today), printing their
+     names; and the ruling text in the runbook says a pack-only setting that names a path on the source machine is
+     never "expected"." `install` decides "pack-only" with the preflight's own comparison, read just before the pack's
+     `.env` replaces the checkout's; a setting to which host.env gives a value is kept (an empty `NAME=` is not a
+     value). It keeps the `.env` where git cannot see it, beside host.env as `/etc/sports-predictor/checkout.env.pre-scrub-<ts>` (written by root before the `sp` install; created 0600 before any byte is written, then root:sp 0640, the pattern of the flip's `host.env.pre-cutover-<ts>`; a taken name gets a `-N` suffix; ARCHITECT 2026-10-26 on Codex's P1s on #682), removes only those lines (every other
+     line byte-identical), and prints and receipts the names (`env_removed`), never a value. A name not on the ruled
+     list is never removed: it stays on `env_changes`, names only. When the checkout's `.env` is already the pack's
+     before `install`, which settings came only from the pack cannot be read: nothing is removed and the ruled names it
+     carries are printed as not decided (`env_scrub_undecided`), to check by hand against the preflight's
+     `env_changes`. A pack-only setting that names a path on the source machine is never "expected".
    - It runs as root (systemctl, and host.env is `root:sp 0640`). The steps
      that open the DB or the pack (verify, install) re-run as `sp`
      (`runuser -u sp`), so `data/sports.db`, `.env` and `exports/` stay
@@ -265,8 +323,8 @@ Which machine runs item 5's readout (ARCHITECT 2026-10-18, addendum 128 item 1(a
      |---|---|---|
      | preflight | `sp_migrate verify` (sha256, integrity, every table count); checks the pack's `DATABASE_URL` is relative; reads the timers list and host.env; reads the `sp-*` timers active on the host (`systemctl list-units --type=timer --state=active`, addendum 57 item 8) | missing pack; verify FAIL; an absolute `DATABASE_URL`; a missing or empty timers list, or a non-`sp-*.timer` name in it; an active `sp-*` timer that is not on the list, whatever its name, named in the refusal (the operator corrects the list by hand; the tool never writes it), or an active-timers listing that cannot be read; host.env missing or not writable; `SP_WRITER_OF_RECORD` on more than one line or with a value other than `laptop`/`host`; host.env not saying `SP_EXPORTS_MIRROR_ROLE=host` itself (addendum 47 item 7(c)); any target under `data/`; **addendum 79 item 4:** a listed timer that is not active (named); **addendum 80 item 3:** the PACK's NHL shot GATE streams (`<pack>/sports.db`, the laptop's DB that `install` puts in place) below 95% in any season they name (named with its share; read by `sp_cutover.py shot-gate --pack` as `sp`, nhl-shot-coverage's own numbers), or a pack GATE read that fails. Each check prints its own line and one refusal names every failed check. The host's live DB is read the same way and printed **for the record; it never refuses**. Below 95% there, the backfill's exact host command is printed (`nhl-shot-sync --start … --end … --dry-run` first), never run here, labelled "optional before cutover; not a prerequisite". **Every listed timer inactive and no sp timer off the list active** (a run after step 2, which is not the preflight): past the pack, data/ and timer-list reads, it stops with `timers already stopped: run the preflight before step 2` and its receipt (exit 1, `stopped`, never `refused`); no further check runs |
      | pause | `systemctl stop` on the list, then `is-active` for each timer; lists any `sp-chain@` still running | stop failed; any timer not `inactive` |
-     | install | `sp_migrate install --replace` under the DB lock (waits for a running chain) | verify FAIL; S2 ≠ S1; any R2 ≠ R1; lock timeout |
-     | flip | sets `SP_WRITER_OF_RECORD=host` in host.env (never touches `SP_PARALLEL_MODE`), line-preserving; keeps `host.env.pre-cutover-<ts>` beside it | ambiguous flag lines; any other key changed |
+     | install | `sp_migrate install --replace` under the DB lock (waits for a running chain); then, addendum 168 item 3, removes from the checkout's `.env` each ruled pack-only setting (`SP_EXPORTS_MIRROR_KEY`, `CFBD_API_KEY`, `SP_HOST_ADDR`) that host.env gives no value, line-preserving, the `.env` kept first as `/etc/sports-predictor/checkout.env.pre-scrub-<ts>` (root:sp 0640), printing their names (never values; receipt `env_removed`) | verify FAIL; S2 ≠ S1; any R2 ≠ R1; lock timeout; the `.env` copy cannot be kept or the `.env` settings cannot be read (before anything is installed; #693) |
+     | flip | sets `SP_WRITER_OF_RECORD=host` in host.env (never touches `SP_PARALLEL_MODE`), line-preserving; keeps `host.env.pre-cutover-<ts>` beside it (created 0600 before any byte is written, then host.env's owner and mode; a taken name refused; #691) | ambiguous flag lines; any other key changed; the copy or the rewrite cannot be written |
      | resume | `systemctl start` on the list; each `active`; `systemctl start sp-backup.service` | a timer not active; the backup failed or has no `integrity=ok` receipt |
      | receipt | a boot-receipt-style summary: running release, db sha (S2 = S1), R2 = R1, flag, timers, first backup | any earlier step without a successful receipt, or receipts out of order |
 
@@ -314,6 +372,14 @@ Which machine runs item 5's readout (ARCHITECT 2026-10-18, addendum 128 item 1(a
    took the goal-margin fallback for any game is not v7. Its file and rows read `nhl_elo_v7_goal_margin_fallback`, the
    run prints `✗ the walk took the goal-margin fallback for <n> of <N> games`, and nhl-shadow-grade grades it on its own
    line, never pooled with v7.)
+   **UNL cohort post-check (ARCHITECT 2026-10-23, addendum 159 item 1), read by the architect:** "receipt after the cutover
+   (Code's runbook step): the same read on the host, which must print the same 60 ids and the same labelled count; a
+   difference is a cutover blocker for the UNL record step, not a reason to touch the cohort." After the host's first
+   chain, TERMINAL (host): `sudo -u sp venv/bin/python cli.py intl-elo-confirm` (no flags: the progress read, nothing
+   written). Paste it beside the laptop's read of `block_1023_unl_receipts`. The two must name the same 60 cohort ids
+   (the 2026-10-03 freeze) and the same labelled count. The host's pre-cutover 19 of 60 is its own younger intl ingest,
+   not a reading of the cohort. A difference blocks the UNL record step (11-12) and goes to the architect; the cohort is
+   never touched. The record runs on whichever machine is writer of record that day, with this receipt in hand.
 5b. **TERMINAL (host): the host's closing watch (ARCHITECT 2026-10-12, addendum 45 P4; #405, #408 items 2 and 3).**
    "The runbook's host step, in this order: preflight for the two families, one test page as sp, the dry run,
    then install-push with the role host. Only when all four pass: install, daemon-reload, enable, and the line in
@@ -489,6 +555,13 @@ paste, line by line, like the explained classes. (`bootstrap.py compare
 
 ## 3. Rollback
 
+**A host whose database is the old one runs a fence-on tag, always (ARCHITECT 2026-10-25, addendum 167 item 2(b)).**
+For every rollback after the deploy (a refusal at install, a PL check that is not CLEAN, a fence check that does not
+print off, anything that ends the day with the host still on its old database), this line comes before every
+`systemctl start`, verbatim: "if the host's HEAD is a tag carrying #671, redeploy the last fence-on tag (v1.5.0,
+sp_deploy.py --tag v1.5.0) BEFORE any timer starts; the receipt names the tag". Refused at preflight or at pause,
+the host is not deployed yet (addendum 167 item 2(a)) and rolls back on v1.5.0 exactly as written below.
+
 **A refusal during `run`** prints `FAIL at <step>`. If the step came after
 `pause`, it also prints `timers remain STOPPED`. Nothing resumes on its
 own.
@@ -496,15 +569,16 @@ own.
 - **Refused at preflight:** nothing changed; the timers are as step 2
   left them. Fix the cause (for example, re-pack after a verify FAIL) and
   re-run `run`. To return to the parallel week instead:
+  if the host's HEAD is a tag carrying #671, redeploy the last fence-on tag (v1.5.0, sp_deploy.py --tag v1.5.0)
+  BEFORE any timer starts; the receipt names the tag. Then
   `sudo systemctl start $(cat /etc/sports-predictor/timers.enabled)`, then
   reinstall the laptop's CLV jobs and its closing watch (`bash scripts/setup_closing_watch.sh`). The laptop never stopped being the
   writer of record.
 - **Refused at pause:** host DB and host.env are untouched. Fix it and
   re-run, or return to the parallel week as above.
-- **Refused at install:** delete the pack on both machines and repeat from
-  step 3 (hosting-h1.md H2 step 4: any `✗` means re-pack). Do not
-  hand-move files in `data/`; a rehearsal DB moved aside stays as
-  `data/rehearsal_<ts>.db` until the receipts are pasted.
+- **Refused at install (ARCHITECT 2026-10-25, addendum 167 postscript (c), verbatim):** "RULED — no same-day retry after `pause`. A refusal at or after install ends the cutover for the day: the host stays paused until I have read the console, then rolls back per section 3 (redeploy v1.5.0 before any timer starts). The runbook line says so; the preflight's refusal of stopped timers is the guard that enforces it, not a bug."
+  So no `✗` at install is re-packed and retried that day. Do not hand-move files in `data/`; a rehearsal DB moved
+  aside stays as `data/rehearsal_<ts>.db` until the receipts are pasted.
 - **Not PASS at the PL check** (between `install` and `flip`; #422 RULED, addendum 40 item 9): the cutover ends
   for that day. Run nothing further: no `flip`, no `resume`, no restore of the rehearsal DB, no timer start. The
   host stays paused (timers stopped, flag `laptop`, the installed DB in place, `data/rehearsal_<ts>.db` kept)

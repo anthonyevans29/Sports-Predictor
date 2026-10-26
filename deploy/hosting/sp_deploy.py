@@ -496,6 +496,86 @@ def migration_plan(before: str, after: str, changed: list[str]) -> dict:
             "deleted_migrations": deleted_migrations}
 
 
+def timers_state(repo: Path | None = None, enabled_path: Path | None = None) -> dict:
+    """ARCHITECT 2026-10-23, addendum 155 item 8(b): "a line in the deploy receipt naming any shipped timer not in
+    /etc/sports-predictor/timers.enabled on the host (names only)". Read-only. `not_enabled`: every shipped timer
+    (deploy/hosting/systemd/*.timer of the checked-out tree) that the file does not name; `by_list`: those names
+    under the T11 list that carries them (an unlisted one under "unlisted"). An unreadable file or runbook is an
+    `error` with `not_enabled` null, never a guessed list (law 4)."""
+    path = Path(enabled_path or c.TIMERS_ENABLED)
+    shipped = c.shipped_timers(repo)
+    try:
+        enabled = set(path.read_text(encoding="utf-8").split())
+    except (OSError, UnicodeDecodeError) as e:
+        return {"not_enabled": None, "by_list": None, "error": f"{path} unreadable ({e.__class__.__name__})"}
+    try:
+        lists = c.t11_lists(Path(repo or c.REPO) / "docs" / "specs" / "hosting-h1.md")
+    except (OSError, ValueError) as e:
+        lists, err = {}, f"hosting-h1.md T11 lists unreadable ({e.__class__.__name__})"
+    else:
+        err = None
+    missing = [t for t in shipped if t not in enabled]
+    by_list: dict[str, list[str]] = {}
+    for t in missing:
+        by_list.setdefault(next((n for n in c.T11_LISTS if t in lists.get(n, ())), "unlisted"), []).append(t)
+    return {"not_enabled": missing, "by_list": by_list, **({"error": err} if err else {})}
+
+
+def timers_line(st: dict) -> str:
+    """The receipt's console line. "!" when a timer T11 enables (TIMERS) or one on no T11 list is not enabled, or
+    when the file cannot be read; a plain line when only the lists T11 holds off are not enabled."""
+    if st["not_enabled"] is None:
+        return f"\n  ! timers: {st['error']} — the shipped timers could not be compared with the host's enabled list"
+    if not st["not_enabled"]:
+        return f"\n  ✓ timers: every shipped timer is in {c.TIMERS_ENABLED}"
+    by = st["by_list"]
+    parts = [f"{', '.join(by[n])} ({n})" for n in (*c.T11_LISTS, "unlisted") if by.get(n)]
+    loud = by.get("TIMERS") or by.get("unlisted") or st.get("error")
+    head = ("  ! shipped timers not in " if loud else "  · shipped timers not in ") + f"{c.TIMERS_ENABLED}: "
+    tail = (" — a TIMERS timer not enabled: install and enable it by hosting-h1.md T11's recipe for a live host"
+            if by.get("TIMERS") else "")
+    return "\n" + head + " · ".join(parts) + tail + (f" ({st['error']})" if st.get("error") else "")
+
+
+def _systemctl_read(argv: list[str]) -> tuple[int, str]:
+    """One read-only systemctl call, output captured, never a shell. A call that cannot run is exit 127."""
+    try:
+        r = subprocess.run(argv, capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.SubprocessError) as e:
+        return 127, f"{type(e).__name__}: {e}"
+    return r.returncode, (r.stdout or "") + (r.stderr or "")
+
+
+def active_timers_state(enabled_path: Path | None = None, runner=None) -> dict:
+    """ARCHITECT 2026-10-26, addendum 168 item 2 (#676): the receipt line "is extended to name ACTIVE timers not on
+    the list, not only shipped-but-unlisted ones — a read-only line". `active_not_listed`: every sp timer systemd
+    lists as active (sp_common's reader, the one the cutover preflight uses, addendum 57 item 8) that
+    timers.enabled does not name. Read-only: it refuses nothing and never writes the list. An unreadable list or
+    listing is an `error` with `active_not_listed` null, never a guessed list (law 4)."""
+    path = Path(enabled_path or c.TIMERS_ENABLED)
+    try:
+        enabled = set(path.read_text(encoding="utf-8").split())
+    except (OSError, UnicodeDecodeError) as e:
+        return {"active_not_listed": None, "error": f"{path} unreadable ({e.__class__.__name__})"}
+    rc, out = (runner or _systemctl_read)(list(c.ACTIVE_SP_TIMERS_ARGV))
+    if rc != 0:
+        return {"active_not_listed": None,
+                "error": f"systemctl list-units exit {rc}: {c.redact(out.strip())[:200]}"}
+    return {"active_not_listed": [t for t in c.parse_active_sp_timers(out) if t not in enabled]}
+
+
+def active_timers_line(st: dict) -> str:
+    """The receipt's second timers line: empty when every active sp timer is on the list (the receipt reads as it
+    did before addendum 168); "!" naming them when one is not, or when the comparison could not be made."""
+    if st["active_not_listed"] is None:
+        return (f"\n  ! active timers: {st['error']} — the active sp timers could not be compared with the host's "
+                f"enabled list")
+    if not st["active_not_listed"]:
+        return ""
+    return (f"\n  ! active sp timers not in {c.TIMERS_ENABLED}: {', '.join(st['active_not_listed'])} — add them to "
+            f"the list by hand (the tool never writes it): the cutover's pause stops only the listed timers")
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="Deploy a release tag (production = tags only).")
     ap.add_argument("--tag", default=None, help="Exact release tag (vX.Y.Z); default: the latest.")
@@ -664,6 +744,8 @@ def main(argv=None) -> int:
         # deployed tag still carries uncompiled (expected 0).
         pending = sorted(str(p.relative_to(c.REPO)) for d in ("changelog.d", "docs/ledger/entries")
                          for p in (Path(c.REPO) / d).glob("*.md") if p.name != "README.md")
+        timers = timers_state()
+        active = active_timers_state()
     c.append_receipt({"kind": "deploy", "exit": 1 if checkout_warning else 0, "from_sha": before, "to_sha": after,
                       "from_release": before_rel, "to_release": after_rel, "tag": target,
                       "files_changed": len(changed), "new_migrations": plan["new"],
@@ -672,7 +754,11 @@ def main(argv=None) -> int:
                       "modified_migrations": plan["modified"], "rollback_migrations_skipped": plan["skipped"],
                       "requirements_installed": installed,
                       **({"checkout_warning": checkout_warning} if checkout_warning else {}),
-                      "ledger_fragments_pending": len(pending)})
+                      "ledger_fragments_pending": len(pending),
+                      "timers_not_enabled": timers["not_enabled"], "timers_not_enabled_by_list": timers["by_list"],
+                      **({"timers_error": timers["error"]} if timers.get("error") else {}),
+                      "timers_active_not_listed": active["active_not_listed"],
+                      **({"timers_active_error": active["error"]} if active.get("error") else {})})
     print(("✗ deploy (post-checkout hook FAILED; see above) " if checkout_warning else "✓ deploy ")
           + f"{before_rel or before} -> {after_rel} ({after}, {len(changed)} files)"
           + (f"\n  ✓ requirements installed ({REQUIREMENTS} {req_reason})" if installed else "")
@@ -698,7 +784,8 @@ def main(argv=None) -> int:
           + (f"\n  ! rollback / non-forward deploy: migrations in the diff are NOT run (the target predates "
              f"them; the DB keeps its additive columns): {plan['skipped']}" if plan["skipped"] else "")
           + (f"\n  ! {len(pending)} ledger fragment(s) uncompiled in {target} — the tag was cut without "
-             "`ledger.py compile` (docs/RELEASES.md step 2)" if pending else ""))
+             "`ledger.py compile` (docs/RELEASES.md step 2)" if pending else "")
+          + timers_line(timers) + active_timers_line(active))
     return 1 if checkout_warning else 0
 
 

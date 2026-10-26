@@ -142,6 +142,40 @@ def test_no_venue_price_no_line_move_and_no_close_from_mismatched_legs(world, mo
         assert ok is not None and ok["source"] == "kalshi_only"
 
 
+def test_line_move_for_match_reads_the_home_legs_stored_ticker(world):
+    """ARCHITECT 2026-10-24, addendum 165 item 1: the window card's Kalshi line-move venue carries `to_ticker`, the
+    HOME leg's odds_snapshots.market_ticker at the `to` capture, read through paper.capture_tickers (the unmapped
+    column, by row id)."""
+    from src.walters.line_move import line_move_for_match
+    ko = DAY + timedelta(days=3, hours=19)
+    with session_scope() as s:
+        comp = Competition(sport=Sport.NFL, code="KLGLM", name="KLG line move", area="USA", type="LEAGUE")
+        s.add(comp)
+        s.flush()
+        h, a = Team(sport=Sport.NFL, name="KLG LM Home"), Team(sport=Sport.NFL, name="KLG LM Away")
+        s.add_all([h, a])
+        s.flush()
+        m = Match(sport=Sport.NFL, competition_id=comp.id, season="2094", status=MatchStatus.SCHEDULED,
+                  utc_date=ko, home_team_id=h.id, away_team_id=a.id)
+        s.add(m)
+        s.flush()
+        pairs = []
+        for at, home in ((ko - timedelta(hours=4), 0.40), (ko - timedelta(minutes=50), 0.50)):
+            for sel, p, suffix in (("HOME", home, "LMHOMEAWAY-HOME"), ("AWAY", 1 - home, "LMHOMEAWAY-AWAY")):
+                sn = OddsSnapshot(match_id=m.id, market="ML", selection=sel, devig_prob=p, n_books=1,
+                                  captured_at=at, source="kalshi", yes_bid=p - .01, yes_ask=p + .01)
+                s.add(sn)
+                pairs.append((sn, f"KXNFLGAME-97OCT13{suffix}"))
+        s.flush()
+        write_kalshi_tickers(s, [(sn.id, t) for sn, t in pairs])
+        lm = line_move_for_match(s, m, ko - timedelta(minutes=30), with_ticker=True)
+        plain = line_move_for_match(s, m, ko - timedelta(minutes=30))     # the exports' call: no new key
+    assert "to_ticker" not in plain["venues"]["kalshi"] and plain["venues"]["kalshi"]["move_pp"] == 10.0
+    kv = lm["venues"]["kalshi"]
+    assert kv["alarm"] and kv["move_pp"] == 10.0
+    assert kv["to_ticker"] == "KXNFLGAME-97OCT13LMHOMEAWAY-HOME"
+
+
 def test_the_closing_runs_capture_read_on_a_sqlite3_connection(world):
     import sys
     from pathlib import Path

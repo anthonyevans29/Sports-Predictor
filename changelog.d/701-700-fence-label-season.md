@@ -1,4 +1,4 @@
-## 2026-10-26 (#000: 700-fence-label-season — the v2 fences read the CFBD label's season as well as the stored one, #700)
+## 2026-10-26 (#701: 700-fence-label-season — the v2 fences read the CFBD label's season as well as the stored one, #700)
 - src/walters/ncaa_backtest.py:
   - `label_seasons(s, matches)` reads each match's CFBD label: season, season_type and week, read in chunks.
   - `v2_fenced_ids(s, matches)` returns the 2023-fenced and 2026-fenced ids while the ncaa-elo-v2 run is unrecorded.

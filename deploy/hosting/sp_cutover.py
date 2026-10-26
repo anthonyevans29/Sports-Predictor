@@ -89,7 +89,7 @@ import sqlite3
 import stat
 import subprocess
 import sys
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from pathlib import Path
@@ -753,7 +753,7 @@ def _plan_or_refuse(ctx: Ctx, man: dict) -> dict:
     never a traceback."""
     try:
         return _scrub_plan(ctx, man)
-    except OSError as e:
+    except (OSError, UnicodeError) as e:      # an undecodable .env too (Codex on #695)
         _refuse(ctx, "install", f"the .env settings could not be read ({e.__class__.__name__}: {e}) — nothing "
                                 "installed", env_scrub_ruled=list(PACK_ONLY_SCRUB))
 
@@ -834,9 +834,12 @@ def step_flip(ctx: Ctx) -> dict:
     p = c.HOST_ENV
     _no_data(ctx, s, (p,))
     try:
-        text = p.read_text()
-    except OSError as e:
+        raw = p.read_bytes()
+        p.read_text()                         # the post-check's own read (parse_env_file): it must decode, before any write
+    except (OSError, UnicodeError) as e:
         _refuse(ctx, s, f"host env unreadable: {p} ({type(e).__name__})")
+    # bytes in, the same bytes out on every other line (Codex on #695): surrogateescape round-trips any byte
+    text = raw.decode("utf-8", "surrogateescape")
     lines = text.splitlines(keepends=True)
     hits = _flag_lines(text)
     if len(hits) > 1:
@@ -853,7 +856,7 @@ def step_flip(ctx: Ctx) -> dict:
     owner = (st.st_uid, st.st_gid) if _as_service_user(ctx) else None
     mode = st.st_mode & 0o7777
     try:
-        _write_private(keep, p.read_bytes(), owner, mode)
+        _write_private(keep, raw, owner, mode)
         os.utime(keep, ns=(st.st_atime_ns, st.st_mtime_ns))     # the times copy2 kept
     except FileExistsError:
         _refuse(ctx, s, f"{keep} exists — never overwritten")
@@ -871,10 +874,11 @@ def step_flip(ctx: Ctx) -> dict:
         tmp = p.with_name(f".{p.name}.cutover-tmp")
         try:
             tmp.unlink(missing_ok=True)       # a stale temporary name from an interrupted run is never written into
-            _write_private(tmp, "".join(lines).encode(), owner, mode)
+            _write_private(tmp, "".join(lines).encode("utf-8", "surrogateescape"), owner, mode)
             os.replace(tmp, p)
         except OSError as e:
-            tmp.unlink(missing_ok=True)
+            with suppress(OSError):           # cleanup is best-effort: the refusal is always receipted (Codex on #695)
+                tmp.unlink(missing_ok=True)
             _refuse(ctx, s, f"host env not rewritten ({type(e).__name__}); it is as it was", kept_copy=str(keep))
     after = c.parse_env_file(p)
     if after.get(FLAG) in FLAG_KNOWN:          # this process's receipts name the NEW writer from here on

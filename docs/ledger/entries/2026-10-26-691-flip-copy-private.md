@@ -4,3 +4,4 @@
 - **#693, ruling (ARCHITECT 2026-10-26 13:00 ET), verbatim:** "#682 round-5 P2: follow-up Issue, not a block (nothing installed on that path; the fix rides with #691)."
   - Built: `_plan_or_refuse`. A read error while the scrub plan reads the `.env` files refuses install with a receipt, on both paths, before anything is installed.
 - **Not done here:** the runbook's step 7 line says `host.env.pre-cutover-<ts>` "holds no secrets". It is not edited here; it is named in the PR for the architect.
+- Codex round 1 on #695 (three P2), fixed: the flip rewrites host.env from the bytes it read (surrogateescape both ways), so every other line is byte-identical whatever the locale, and a host.env the post-check cannot decode stops the flip before any write; a failed cleanup of the temporary name never hides the receipted refusal; an undecodable `.env` in the scrub plan is a receipted install refusal like an `OSError`.

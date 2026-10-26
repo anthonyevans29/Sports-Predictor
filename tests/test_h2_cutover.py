@@ -1290,3 +1290,57 @@ def test_693_a_scrub_plan_read_error_is_a_receipted_install_refusal_nothing_inst
     assert "the .env settings could not be read (FileNotFoundError" in r["refused"] and "nothing installed" in \
         r["refused"]
     assert not list(world["real_env"].parent.glob("checkout.env.pre-scrub-*"))
+
+
+def test_691_codex_695_every_other_byte_of_host_env_is_kept_whatever_the_locale(world, host, monkeypatch):
+    """Codex on #695: the rewrite is the bytes read, line for line; only the flag's line changes (no re-encoding)."""
+    body = "SP_PARALLEL_MODE=designated\nSP_WRITER_OF_RECORD=laptop\nNOTE=café — ok\n".encode()
+    world["real_env"].write_bytes(body)
+    real_read_text = Path.read_text
+    monkeypatch.setattr(Path, "read_text", lambda self, encoding=None, errors=None: real_read_text(
+        self, encoding=encoding or "utf-8", errors=errors))
+    ctx = sp_cutover.Ctx(pack=world["pack"], timers_file=host["timers"], runner=FakeSystemctl(active=[]))
+    sp_cutover.step_flip(ctx)
+    assert world["real_env"].read_bytes() == body.replace(b"SP_WRITER_OF_RECORD=laptop", b"SP_WRITER_OF_RECORD=host")
+
+
+def test_691_codex_695_an_undecodable_host_env_stops_the_flip_before_any_write(world, host):
+    """The post-check reads host.env as text, so a host.env that does not decode stops the flip before the copy and
+    the rewrite. (Every receipt reads host.env too, so its refusal cannot be receipted: law 4, nothing written.)"""
+    world["real_env"].write_bytes(b"SP_WRITER_OF_RECORD=laptop\nBAD=\xff\xfe\n")
+    before = sorted(q.name for q in world["real_env"].parent.iterdir())
+    ctx = sp_cutover.Ctx(pack=world["pack"], timers_file=host["timers"], runner=FakeSystemctl(active=[]))
+    with pytest.raises((sp_cutover.Refused, UnicodeError)):
+        sp_cutover.step_flip(ctx)
+    assert world["real_env"].read_bytes() == b"SP_WRITER_OF_RECORD=laptop\nBAD=\xff\xfe\n"
+    assert sorted(q.name for q in world["real_env"].parent.iterdir()) == before
+
+
+def test_691_codex_695_a_failed_cleanup_never_hides_the_receipted_refusal(world, host, monkeypatch):
+    world["real_env"].write_text("SP_WRITER_OF_RECORD=laptop\n")
+    real_unlink = Path.unlink
+
+    def stuck(self, missing_ok=False):
+        if self.name == ".host.env.cutover-tmp":
+            raise OSError(30, "Read-only file system", str(self))
+        return real_unlink(self, missing_ok=missing_ok)
+    monkeypatch.setattr(Path, "unlink", stuck)
+    ctx = sp_cutover.Ctx(pack=world["pack"], timers_file=host["timers"], runner=FakeSystemctl(active=[]))
+    with pytest.raises(sp_cutover.Refused):
+        sp_cutover.step_flip(ctx)
+    r = _lines(world["real_receipts"])[-1]
+    assert r["step"] == "flip" and "host env not rewritten (OSError)" in r["refused"]
+    assert world["real_env"].read_text() == "SP_WRITER_OF_RECORD=laptop\n"
+
+
+def test_693_codex_695_an_undecodable_pack_env_is_a_receipted_install_refusal(world, host, monkeypatch):
+    """Codex on #695: the pack's .env that does not decode is a receipted refusal, nothing installed."""
+    pk = _pack_168(world, host, monkeypatch, PACK_ENV_168)
+    (host["h"] / ".env").write_text("DATABASE_URL=sqlite:///./data/sports.db\n")
+    (pk / sp_migrate.ENV).write_bytes(PACK_ENV_168.encode() + b"\nBAD=\xff\xfe\n")
+    called = []
+    monkeypatch.setattr(sp_migrate, "install", lambda pack, replace: called.append(pack) or 0)
+    assert _install_168(host, pk) == 1
+    assert called == []
+    r = _lines(world["real_receipts"])[-1]
+    assert r["step"] == "install" and "the .env settings could not be read (UnicodeDecodeError" in r["refused"]

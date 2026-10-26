@@ -6,3 +6,4 @@
 - deploy/hosting/sp_cutover.py `install` (#693, Codex round 5 on #682): `_scrub_plan`'s read errors are a receipted install refusal ("the .env settings could not be read … nothing installed"), on the in-process path and the root path, never a traceback.
 - docs/specs/h2-cutover-runbook.md: the step table's flip and install rows say it.
 - Tests: tests/test_h2_cutover.py `test_691_*` and `test_693_*`. Closes #691 and #693. No bar moves.
+- Codex round 1 on #695 (three P2), fixed: the flip rewrites host.env from the bytes it read (surrogateescape both ways), so every other line is byte-identical whatever the locale, and a host.env the post-check cannot decode stops the flip before any write; a failed cleanup of the temporary name never hides the receipted refusal; an undecodable `.env` in the scrub plan is a receipted install refusal like an `OSError`.

@@ -1,11 +1,12 @@
 # H2 cutover runbook: the ONE `.backup` migration (H2-PREP)
 
-**Status: PREP ONLY.** This page is the operator sequence for the H2
-cutover and for checking it afterwards. **The cutover itself needs an
-architect ruling on the frozen parallel-week criteria** (H0-18,
-`hosting-h1.md` "Cutover criteria"). Nothing on this page, and nothing in
-`sp_cutover.py` or `h2_dry_run.py`, triggers the cutover or decides it.
-Ties and partial passes are rejections; they extend the parallel week.
+**Status: CUTOVER DONE 2026-10-26 13:45:11Z** (ARCHITECT 2026-10-26, addendum 168 item 1). The host is the writer
+of record for SOCCER and NFL; the laptop is the console and MLB. This page is the record of the operator sequence the
+cutover ran, and the reference for checking it afterwards and for rolling it back (section 3, an architect ruling).
+Before the cutover it read: "Status: PREP ONLY. [...] The cutover itself needs an architect ruling on the frozen
+parallel-week criteria" (H0-18, `hosting-h1.md` "Cutover criteria"); that ruling was addendum 166 item 4 with its
+corrections (addendum 167). Nothing on this page, and nothing in `sp_cutover.py` or `h2_dry_run.py`, triggers a
+cutover or decides one.
 
 Source of truth for the steps: `hosting-h1.md` "## H2" (cutover morning,
 steps 1 to 7). This runbook executes those steps through

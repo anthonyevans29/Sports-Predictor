@@ -740,6 +740,80 @@ def test_a_shipped_timer_on_no_t11_list_is_named_unlisted(tmp_path):
     assert sp_deploy.timers_line(st).startswith("\n  ! ") and "sp-new.timer (unlisted)" in sp_deploy.timers_line(st)
 
 
+def _listing(*units, rc=0):
+    """A stand-in for `systemctl list-units --type=timer --state=active --no-legend --plain sp-*`: it checks it was
+    asked exactly that (sp_common's reader, the cutover preflight's) and answers with these units."""
+    calls = []
+
+    def run(argv):
+        calls.append(argv)
+        assert argv == list(c.ACTIVE_SP_TIMERS_ARGV)
+        return rc, "\n".join(f"{u} loaded active waiting desc" for u in units) if rc == 0 else "Failed to connect to bus"
+    run.calls = calls
+    return run
+
+
+def test_the_deploy_receipt_names_an_active_sp_timer_the_list_does_not(tmp_path):
+    """ARCHITECT 2026-10-26, addendum 168 item 2 (#676): the receipt line "is extended to name ACTIVE timers not on
+    the list, not only shipped-but-unlisted ones — a read-only line". The 2026-10-26 host: 14 lines in
+    timers.enabled, 16 sp timers active (sp-intl-daily and sp-exports-squash enabled by hand, never listed)."""
+    lists = c.t11_lists()
+    listed = [t for t in lists["TIMERS"] if t not in ("sp-intl-daily.timer", "sp-exports-squash.timer")]
+    path = _enabled(tmp_path, listed)
+    run = _listing(*lists["TIMERS"])
+    st = sp_deploy.active_timers_state(enabled_path=path, runner=run)
+    assert st == {"active_not_listed": ["sp-exports-squash.timer", "sp-intl-daily.timer"]} and len(run.calls) == 1
+    line = sp_deploy.active_timers_line(st)
+    assert line.startswith(f"\n  ! active sp timers not in {c.TIMERS_ENABLED}: sp-exports-squash.timer, "
+                           "sp-intl-daily.timer — add them to the list by hand")
+    assert path.read_text() == " ".join(listed) + "\n"           # read-only: the list is never written
+    # an active sp timer whose name no T11 list could carry is still named, never dropped (addendum 57 item 8)
+    odd = sp_deploy.active_timers_state(enabled_path=path, runner=_listing(*listed, "sp-notify@x.timer"))
+    assert odd["active_not_listed"] == ["sp-notify@x.timer"]
+
+
+def test_every_active_timer_listed_leaves_the_deploy_receipt_as_it_was(tmp_path):
+    lists = c.t11_lists()
+    path = _enabled(tmp_path, lists["TIMERS"])
+    st = sp_deploy.active_timers_state(enabled_path=path, runner=_listing(*lists["TIMERS"][:3], "other.timer"))
+    assert st == {"active_not_listed": []} and sp_deploy.active_timers_line(st) == ""
+    shipped = sp_deploy.timers_line(sp_deploy.timers_state(enabled_path=path))
+    assert shipped + sp_deploy.active_timers_line(st) == shipped   # the addendum 155 line, unchanged and alone
+
+
+def test_an_unreadable_active_listing_is_labelled_never_read_as_empty(tmp_path):
+    """Law 4: a listing that fails (no bus, no systemctl) is an error with no list, and the line says so with "!";
+    an unreadable timers.enabled is labelled the same way, and systemctl is not asked."""
+    path = _enabled(tmp_path, c.t11_lists()["TIMERS"])
+    st = sp_deploy.active_timers_state(enabled_path=path, runner=_listing(rc=1))
+    assert st["active_not_listed"] is None and st["error"].startswith("systemctl list-units exit 1: Failed to connect")
+    line = sp_deploy.active_timers_line(st)
+    assert line.startswith("\n  ! active timers: systemctl list-units exit 1") and "could not be compared" in line
+    missing_run = _listing("sp-a.timer")
+    gone = sp_deploy.active_timers_state(enabled_path=tmp_path / "absent", runner=missing_run)
+    assert gone["active_not_listed"] is None and "unreadable (FileNotFoundError)" in gone["error"]
+    assert sp_deploy.active_timers_line(gone).startswith("\n  ! active timers: ") and missing_run.calls == []
+    # a systemctl that cannot run at all is exit 127, labelled
+    rc, out = sp_deploy._systemctl_read(["/nonexistent/systemctl-for-this-test"])
+    assert rc == 127 and "FileNotFoundError" in out
+
+
+def test_every_by_hand_timer_enable_recipe_adds_the_timer_to_timers_enabled():
+    """ARCHITECT 2026-10-26, addendum 168 item 2: "T11's recipe for enabling a timer ends with the timers.enabled
+    line". Every `enable --now sp-….timer` a runbook gives by hand is followed, in its recipe, by
+    `echo <it> | sudo tee -a /etc/sports-predictor/timers.enabled` (T11's own `enable --now $TIMERS` writes the
+    whole list first)."""
+    missing = []
+    for doc in ("hosting-h1.md", "h2-cutover-runbook.md", "exports-mirror.md"):
+        lines = (ROOT / "docs" / "specs" / doc).read_text(encoding="utf-8").splitlines()
+        for i, ln in enumerate(lines):
+            for t in re.findall(r"enable --now (sp-[\w@.-]+\.timer)", ln):
+                recipe = "\n".join(lines[i:i + 3])
+                if f"echo {t} | sudo tee -a /etc/sports-predictor/timers.enabled" not in recipe:
+                    missing.append(f"{doc}:{i + 1} {t}")
+    assert not missing, f"a by-hand timer enable with no timers.enabled line: {missing}"
+
+
 # ------------------------------------------- H1a fresh bootstrap (09-27) ----
 
 import bootstrap  # noqa: E402

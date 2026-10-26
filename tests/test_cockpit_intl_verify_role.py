@@ -42,6 +42,8 @@ def test_the_intl_verifier_pins_the_laptop_role_for_its_own_process(case, tmp_pa
     elif case == "exported host":
         monkeypatch.setenv("SP_EXPORTS_MIRROR_ROLE", "host")
     intl = {"sport": "INTL"}
+    # the switch on, as before the cutover (addendum 166 item 6(A) lifted it)
+    monkeypatch.setitem(dp.HOST_FENCE_RULE, "on", True)
     assert dp.machine_role() != "laptop" and dp.host_fenced(intl)     # as the verifier found it: fenced
     load_verifier(monkeypatch)
     assert dp.role_reading() == ("laptop", "laptop")

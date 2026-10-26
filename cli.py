@@ -5427,7 +5427,10 @@ def nhl_shadow_grade_cmd(days):
 
 @cli.command("export-ncaa-predictions")
 @click.option("--hours", default=36, show_default=True, type=int, help="Window from now (UTC).")
-def export_ncaa_predictions_cmd(hours):
+@click.option("--id", "eid", type=click.Choice(["ncaa-elo-v1r", "ncaa-elo-v2"]), default="ncaa-elo-v1r",
+              show_default=True, help="The registry id the shadow binds (ARCHITECT 2026-10-23, addendum 158 item 1(b)): "
+              "ncaa-elo-v2 exports nothing unless the registry records its PASS.")
+def export_ncaa_predictions_cmd(hours, eid):
     """NCAA SHADOW (ARCHITECT 2026-10-07, addendum 6 item 1): ncaa_elo_v1r (v1,
     constants untouched) for every FBS game in the window. Every row: engine
     model_shadow, competition NCAA, family NCAAF, gate status (UNGATED — shadow
@@ -5438,10 +5441,13 @@ def export_ncaa_predictions_cmd(hours):
     (exit 2) once the registry records a verdict for ncaa-elo-v1r other than
     PASS (ARCHITECT 2026-10-09, addendum 24 item 2(d): v1r FAILED, the college
     shadow does not start on it). Walks D2's stream. Writes
-    exports/ncaa_shadow_<stamp>.json; nothing to the DB."""
+    exports/ncaa_shadow_<stamp>.json; nothing to the DB. `--id ncaa-elo-v2`
+    (addendum 158 item 1(b)): ncaa_elo_v2 at the frozen s, exporting nothing
+    unless the registry records its PASS; every row carries the registry id,
+    the version, the input cutoff and the prediction stamp."""
     from src.walters.ncaa_shadow import ShadowRefused, export
     try:
-        path, doc = export(hours=hours)
+        path, doc = export(hours=hours, eid=eid)
     except ShadowRefused as e:
         print(str(e))
         raise SystemExit(2)
@@ -5459,13 +5465,16 @@ def export_ncaa_predictions_cmd(hours):
 
 @cli.command("ncaa-shadow-grade")
 @click.option("--days", default=30, show_default=True, type=int)
-def ncaa_shadow_grade_cmd(days):
+@click.option("--id", "eid", type=click.Choice(["ncaa-elo-v1r", "ncaa-elo-v2"]), default="ncaa-elo-v1r",
+              show_default=True, help="Grade only this binding's files (never pooled).")
+def ncaa_shadow_grade_cmd(days, eid):
     """NCAA SHADOW grade from the shadow exports on disk (the last row before
     kickoff): results (hit rate, log-loss, Brier) and model-vs-close
-    (pick-vs-close + value-side). Read-only. NOT gate evidence."""
+    (pick-vs-close + value-side). Read-only. NOT gate evidence. One binding's
+    files at a time (`--id`)."""
     from src.walters.ncaa_shadow import grade
-    r = grade(days=days, progress=print)
-    print(f"  ── NCAA shadow (not gate evidence) · graded {r['graded']} (calls on file {r['calls_on_file']}; "
+    r = grade(days=days, progress=print, eid=eid)
+    print(f"  ── NCAA shadow {eid} (not gate evidence) · graded {r['graded']} (calls on file {r['calls_on_file']}; "
           f"no result {r['no_result']}; ties {r['ties_skipped']}; identity mismatch {r['identity_mismatch']}) · hit rate {r['hit_rate']} · log-loss "
           f"{r['log_loss']} · Brier {r['brier']} · mean pick-vs-close {r['mean_clv_pp']}pp (n={r['priced']}; "
           f"unpriced {r['unpriced']}) · value-side {r['mean_value_side_clv_pp']}pp (n={r['value_side_n']}; "

@@ -790,7 +790,7 @@ def test_the_t11_lists_carry_the_renamed_timer():
     assert "sp-nfl-prematch.timer" in lists["TIMERS"]
     assert not any("sp-nfl-predict.timer" in lists[n] for n in c.T11_LISTS)
     assert {"sp-soccer-friday.timer", "sp-soccer-saturday.timer"} <= set(lists["TIMERS"])
-    assert lists["HELD_FOR_CUTOVER"] == ["sp-closing-watch.timer"]       # the watch's enable is the cutover's (A)
+    assert "sp-closing-watch.timer" in lists["TIMERS"] and "HELD_FOR_CUTOVER" not in lists  # on TIMERS from the cutover (addendum 168 item 5)
     rb = (ROOT / "docs" / "specs" / "hosting-h1.md").read_text()
     assert "| sp-nfl-prematch | nfl-prematch (was sp-nfl-predict / nfl-predict;" in rb
 

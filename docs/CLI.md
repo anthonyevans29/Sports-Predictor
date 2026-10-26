@@ -122,10 +122,11 @@ The laptop closes every live-model family by itself (ARCHITECT 2026-10-09, adden
   SOCCER need neither mode (ARCHITECT 2026-10-09, addendum 23 D2).
 - **Off switch:** `bash scripts/setup_closing_watch.sh --uninstall`.
 - **Check first:** `python cli.py closing-watch --dry-run` and `python cli.py closing-run --family NFL --dry-run`.
-- **The host:** NFL and SOCCER run the same command under a timer from the cutover ruling on, not before (C7).
-  Addendum 45 ships `sp-closing-watch.service` / `.timer` (`closing.py watch --family NFL --family SOCCER`, every
-  minute, H0-3's one exemption) held: install.sh enables nothing and the timer is on T11's `HELD_FOR_CUTOVER`; its
-  step is h2-cutover-runbook.md section 1 step 5b. MLB stays on the laptop to the season's last game.
+- **The host:** NFL and SOCCER run the same command under a timer from the cutover on (C7). Addendum 45 ships
+  `sp-closing-watch.service` / `.timer` (`closing.py watch --family NFL --family SOCCER`, every minute, H0-3's one
+  exemption); install.sh enables nothing. The host enabled the timer at the cutover, h2-cutover-runbook.md section 1
+  step 5b (2026-10-26 13:47Z), and it is on T11's `TIMERS` from then (ARCHITECT 2026-10-26, addendum 168 item 5; the
+  `HELD_FOR_CUTOVER` list that held it until then is retired). MLB stays on the laptop to the season's last game.
 - **The page (C5)**, by T-30 on a clean run, high priority when it carries a PLAY:
 
   ```

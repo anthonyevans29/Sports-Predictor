@@ -1112,6 +1112,35 @@ def test_168_3_architect_682_the_sp_install_edits_only_against_the_copy_it_was_n
         assert v not in capsys.readouterr().out and v not in world["real_receipts"].read_text()
 
 
+@pytest.mark.parametrize("swap", ["symlink", "other_bytes"])
+def test_168_3_codex_682_root_never_copies_a_swapped_pack_env(world, host, monkeypatch, swap):
+    """Codex on #682 (P1): the pack is the service user's, so root opens its .env without following a symlink and
+    copies it only when its bytes are the manifest's: a name swapped after the plan read it (a symlink to a
+    root-readable file, or other bytes) is never copied into the group-readable copy; install refuses first."""
+    pk = _pack_168(world, host, monkeypatch, PACK_ENV_168)
+    (host["h"] / ".env").write_text("DATABASE_URL=sqlite:///./data/sports.db\n")
+    secret = world["tmp"] / "root-only.txt"
+    secret.write_text("ROOT_ONLY=never-copied\n")
+    real_plan = sp_cutover._scrub_plan
+
+    def plan_then_swap(ctx, man):
+        out = real_plan(ctx, man)
+        pe = ctx.pack / sp_migrate.ENV
+        pe.unlink()
+        if swap == "symlink":
+            pe.symlink_to(secret)
+        else:
+            pe.write_text("ROOT_ONLY=never-copied\n")
+        return out
+    monkeypatch.setattr(sp_cutover, "_scrub_plan", plan_then_swap)
+    called = []
+    monkeypatch.setattr(sp_migrate, "install", lambda pack, replace: called.append(pack) or 0)
+    assert _install_168(host, pk) == 1
+    assert called == [] and not list(world["real_env"].parent.glob("checkout.env.pre-scrub-*"))
+    r = _lines(world["real_receipts"])[-1]
+    assert "the .env copy could not be kept" in r["refused"] and "never-copied" not in world["real_receipts"].read_text()
+
+
 def test_168_3_architect_682_a_copy_that_cannot_be_kept_refuses_before_anything_is_installed(
         world, host, monkeypatch):
     pk = _pack_168(world, host, monkeypatch, PACK_ENV_168)

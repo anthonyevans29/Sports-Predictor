@@ -80,11 +80,13 @@ receipts and systemd are never touched. Prints each receipt, then PASS/FAIL.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
 import shutil
 import sqlite3
+import stat
 import subprocess
 import sys
 from contextlib import contextmanager
@@ -661,7 +663,21 @@ ENV_COPY_PREFIX = "checkout.env.pre-scrub-"
 ENV_COPY_MODE = 0o640
 
 
-def _keep_env_copy(ctx: Ctx, plan: dict) -> Path | None:
+def _read_pack_env(ctx: Ctx, man: dict) -> bytes:
+    """The pack's .env as root reads it for the copy (Codex on #682, P1): opened without following a symlink, a regular
+    file only, and its bytes the manifest's (sha256), so a name swapped after _scrub_plan read it is never copied into
+    a group-readable file. OSError otherwise."""
+    fd = os.open(ctx.pack / sp_migrate.ENV, os.O_RDONLY | os.O_NOFOLLOW)
+    with os.fdopen(fd, "rb") as f:
+        if not stat.S_ISREG(os.fstat(f.fileno()).st_mode):
+            raise OSError(f"the pack's {sp_migrate.ENV} is not a regular file")
+        data = f.read()
+    if hashlib.sha256(data).hexdigest() != man["files"].get(sp_migrate.ENV):
+        raise OSError(f"the pack's {sp_migrate.ENV} is not the manifest's (sha256)")
+    return data
+
+
+def _keep_env_copy(ctx: Ctx, plan: dict, man: dict) -> Path | None:
     """The copy of the .env the scrub edits, kept BEFORE install (ARCHITECT 2026-10-26, on Codex's two P1s on #682:
     "a copy of a file that holds secrets must be created 0600 before any byte is written, and it must live where git
     can't see it (beside `host.env.pre-cutover-<ts>` under `/etc/sports-predictor/`, root:sp 0640, is the pattern the
@@ -672,7 +688,7 @@ def _keep_env_copy(ctx: Ctx, plan: dict) -> Path | None:
     that directory. None when nothing is to be removed."""
     if not plan["remove"]:
         return None
-    data = (ctx.pack / sp_migrate.ENV).read_bytes()
+    data = _read_pack_env(ctx, man)
     st = c.HOST_ENV.stat()
     owner = (st.st_uid, st.st_gid) if _euid() == 0 else None
     stamp = c.utc_now().strftime("%Y%m%dT%H%M%SZ")
@@ -731,10 +747,10 @@ def _scrub_failed(plan: dict, e: OSError, keep: Path | None = None) -> dict:
             "env_scrub_planned": list(plan["remove"]), "env_scrub_error": err}
 
 
-def _keep_copy_or_refuse(ctx: Ctx, plan: dict) -> Path | None:
+def _keep_copy_or_refuse(ctx: Ctx, plan: dict, man: dict) -> Path | None:
     """_keep_env_copy, before install changes anything: a copy that cannot be kept refuses install, nothing placed."""
     try:
-        return _keep_env_copy(ctx, plan)
+        return _keep_env_copy(ctx, plan, man)
     except OSError as e:
         _refuse(ctx, "install", f"the .env copy could not be kept beside {c.HOST_ENV} ({e.__class__.__name__}: {e}) "
                                 "— nothing installed", env_scrub_ruled=list(PACK_ONLY_SCRUB),
@@ -748,7 +764,7 @@ def _install_in_process(ctx: Ctx) -> dict:
     try:
         with c.db_lock(ctx.lock_timeout):
             plan = _scrub_plan(ctx, man)
-            keep = ctx.env_kept_copy or _keep_copy_or_refuse(ctx, plan)
+            keep = ctx.env_kept_copy or _keep_copy_or_refuse(ctx, plan, man)
             try:
                 rc = sp_migrate.install(ctx.pack, replace=True)
             finally:                          # the pack's .env never stays unscrubbed, whatever install did after it
@@ -780,7 +796,8 @@ def step_install(ctx: Ctx) -> dict:
         return _install_in_process(ctx)
     # The .env copy is root's to write (the service user cannot write host.env's directory): it is kept here, before
     # the service user's install, and named to it (ARCHITECT 2026-10-26, on Codex's P1s on #682).
-    keep = _keep_copy_or_refuse(ctx, _scrub_plan(ctx, _manifest(ctx)))
+    man = _manifest(ctx)
+    keep = _keep_copy_or_refuse(ctx, _scrub_plan(ctx, man), man)
     rc, out = ctx.runner(["runuser", "-u", ctx.service_user, "--", sys.executable, str(HERE / "sp_cutover.py"),
                           "install", "--pack", str(ctx.pack), "--timers-file", str(ctx.timers_file),
                           "--lock-timeout", str(ctx.lock_timeout), *(["--env-kept-copy", str(keep)] if keep else [])])

@@ -391,6 +391,33 @@ def mirror_after_step(unit: str, i: int, cmd: str, run_id: str) -> None:
           flush=True)
 
 
+def run_vars(name: str, run_id: str, today: date) -> dict:
+    """#673 (ARCHITECT 2026-10-25, addendum 167 postscript (b): "The freshen writes to its own name"): a chain with a
+    `freshen_out` name gets {freshen_out} = logs/<run id>.<that name>, the run id's ':' written '-'. Outside exports/:
+    never the slate's file, never mirrored. Every other chain: nothing."""
+    name_ = CHAINS[name].get("freshen_out")
+    if not name_:
+        return {}
+    return {"freshen_out": f"logs/{run_id.replace(':', '-')}.{name_.format(**date_vars(today))}"}
+
+
+def freshen_out_taken(rv: dict) -> str | None:
+    """#442's rule for the freshen's own file: "Nothing a run kept is opened for writing a second time"."""
+    out_ = rv.get("freshen_out")
+    if out_ and ((c.REPO / out_).exists() or (c.REPO / out_).is_symlink()):
+        return f"the freshen's export path {out_} already exists: nothing a run kept is opened for writing a second time"
+    return None
+
+
+def freshen_wrote(rv: dict) -> dict | None:
+    """The receipt line naming what the freshen wrote (#673): its own file and sha256 (None: not written)."""
+    out_ = rv.get("freshen_out")
+    if not out_:
+        return None
+    p = c.REPO / out_
+    return {"file": out_, "sha256": c.sha256_file(p) if p.is_file() else None}
+
+
 def freshen_state_path():
     return c.receipts_path().with_name("freshen_state.json")
 
@@ -430,12 +457,25 @@ def run_freshens(needed: list, window_run_id: str, now, today: date) -> list[dic
             continue
         quota = new_quota()
         run_id = f"{now.strftime('%Y%m%dT%H%M%SZ')}-{name}"
-        steps = resolve(name, {}, today)
-        with c.db_lock():
-            rc, ok = run_steps(steps, name, f"sp-chain@{name}.service", run_id, today, quota)
+        rv = run_vars(name, run_id, today)
+        steps = resolve(name, rv, today)
+        with c.db_lock():                     # checked under the lock its export runs under (Codex on #692)
+            taken = freshen_out_taken(rv)
+            if not taken:
+                rc, ok = run_steps(steps, name, f"sp-chain@{name}.service", run_id, today, quota)
+        if taken:
+            print(f"✗ {name}: {taken}", flush=True)
+            out.append(c.append_receipt({**base, "exit": 1, "ran": False, "run_id": run_id, "refused": taken}))
+            continue
         state[fam] = now.isoformat()
-        out.append(c.append_receipt({**base, "exit": rc, "ran": True, "run_id": run_id,
-                                     "steps_ok": ok, "steps_total": len(steps), "quota": quota}))
+        rec = {**base, "exit": rc, "ran": True, "run_id": run_id,
+               "steps_ok": ok, "steps_total": len(steps), "quota": quota}
+        wrote = freshen_wrote(rv)
+        if wrote is not None:
+            rec["wrote"] = wrote
+            print(f"· {name} wrote {wrote['file']}" + (f" (sha256 {wrote['sha256'][:12]})" if wrote["sha256"]
+                                                     else " — not written"), flush=True)
+        out.append(c.append_receipt(rec))
     sp.parent.mkdir(parents=True, exist_ok=True)
     sp.write_text(_json.dumps(state))
     return out
@@ -483,9 +523,10 @@ def main(argv=None) -> int:
     chain = CHAINS[a.chain]
     now = c.utc_now()
     today = now.date()
-    overrides = dict(kv.split("=", 1) for kv in a.set)
     unit = a.unit or f"sp-chain@{a.chain}.service"
     run_id = f"{now.strftime('%Y%m%dT%H%M%SZ')}-{a.chain}"
+    rv = run_vars(a.chain, run_id, today)           # #673: a freshen's own file, never a --set (Codex on #692)
+    overrides = {**dict(kv.split("=", 1) for kv in a.set), **rv}
     # The closing chains (deploy/hosting/closing.py) take run-time placeholders only a closing run computes, so they
     # are refused BEFORE resolving: a dry run prints the command to use and touches nothing.
     closing_cmd = chain.get("laptop_only") or chain.get("closing_command")
@@ -534,6 +575,11 @@ def main(argv=None) -> int:
     step_report: dict = {"failed": [], "stopped_at": None}
     quota = new_quota()
     with c.db_lock():
+        taken = freshen_out_taken(overrides)    # under the lock the export runs under (Codex on #692)
+        if taken:
+            print(f"✗ {a.chain}: {taken}")
+            c.append_receipt({"kind": "chain", "unit": unit, "run_id": run_id, "exit": 2, "refused": taken})
+            return 2
         need = chain.get("backup")
         if need == "prerefresh" or (need == "daily" and sp_backup.todays_daily() is None):
             backup_rec = sp_backup.run_backup(need, lock=False)
@@ -570,6 +616,9 @@ def main(argv=None) -> int:
            "counts": c.table_counts(c.db_path(), c.CHAIN_COUNT_TABLES), "exports": exports}
     if gate:
         rec["active_from"] = gate
+    wrote = freshen_wrote(overrides)
+    if wrote is not None:
+        rec["wrote"] = wrote
     if step_report["failed"]:
         rec["failed_steps"] = [{"step": i, "command": cmd, "exit": rc} for i, cmd, rc, _ in step_report["failed"]]
         rec["stopped_at"] = step_report["stopped_at"]

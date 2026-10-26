@@ -541,7 +541,16 @@ read-only:
 **Freshen chains** (ruling 2026-09-27). These are the documented operator
 sequences, defined in `chains.py` as `freshen:<family>`:
 - `freshen:NFL`: `sync-injuries` NFL → `sync-odds-football` →
-  `sync-kalshi-nfl` → `predict-nfl` → `export-nfl-predictions`.
+  `sync-kalshi-nfl` → `predict-nfl` → `export-nfl-predictions --out
+  logs/<run id>.nfl_predictions_<date>.json`. #673 (ARCHITECT 2026-10-25,
+  addendum 167 postscript (b), verbatim): "a file that carries Desk blocks is
+  never replaced by one without them. The freshen writes to its own name (the
+  alternative), and the slate's kept copy and receipt stay true; `--desk` is
+  not added to the freshen (the closing page is the row that counts, the
+  freshen is an input refresh)." The file is outside `exports/` (never the
+  slate's `exports/nfl_predictions_<date>.json`, never mirrored); the freshen
+  receipt names it (`wrote` {file, sha256}), and a path that already exists
+  is refused, never written into.
 - `freshen:MLB`: the documented 10-command pre-game chain. It is a laptop
   duty: on a host with `SP_SKIP_FAMILIES=MLB` it is logged as
   `freshen_needed` and never run.

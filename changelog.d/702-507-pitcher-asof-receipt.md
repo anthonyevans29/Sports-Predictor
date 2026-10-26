@@ -1,4 +1,4 @@
-## 2026-10-26 (#000: 507-pitcher-asof-receipt — lane mlb-pitchers: the as-of reconstruction of the pitcher statistics the live model reads, coverage per season, read-only)
+## 2026-10-26 (#702: 507-pitcher-asof-receipt — lane mlb-pitchers: the as-of reconstruction of the pitcher statistics the live model reads, coverage per season, read-only)
 - scripts/mlb_pitcher_asof_receipt.py: the roadmap step "the as-of reconstruction of the pitcher statistics the live model reads, from the stored appearances (docs/historical_backfill_assessment.md tier 1), as a read-only receipt: coverage per season" (code, due 2026-10-28; addendum 63 item 4).
 - What the live model reads (training.py, read first):
   - the side's starting_pitcher from match_participants, with that pitcher's pitcher_season_stats row for the game's season (era, innings_pitched, games_started; GS 0 = an opener);

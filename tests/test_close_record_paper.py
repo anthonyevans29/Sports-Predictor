@@ -501,3 +501,23 @@ def test_the_helper_and_close_from_kalshi_agree_on_the_same_rows():
                     or js_round((ask - bid) * 100) > KALSHI_ONLY["maxSpreadC"]), i
             seen["fails"] += 1
     assert min(seen.values()) > 0, seen                    # every branch met, ties of different quotes among the priced
+
+
+def test_codex_697_the_ncaa_close_record_withholds_2023_until_the_v2_run_is_recorded(monkeypatch):
+    """Codex on #697 (P1): a results-tally window wide enough to reach 2023 prints no NCAA close tally over 2023 games
+    while the ncaa-elo-v2 run is unrecorded (ARCHITECT 2026-10-23, addendum 161 item 1: no "result tally" on the
+    second read's scored set); every 2023 game is left out and counted, and the recorded run lifts it."""
+    from src.db.database import session_scope
+    from src.db.schema import Match
+    from src.walters import ncaa_backtest as nb
+    _comps()
+    _game(611, "NCAA", 31, 10)
+    with session_scope() as s:
+        s.get(Match, 611).season = "2023"
+    _kal(611, "HOME", 0.60, 0.61, KO - timedelta(minutes=30))
+    monkeypatch.setattr(nb, "v2_run_recorded", lambda *a, **k: False)
+    assert _line("NCAA") == ("- NCAA: close log-loss — · favourite — · n=0 · finished 1; left out: fenced 2023 1 "
+                             "(NCAA season 2023, withheld until the ncaa-elo-v2 run is recorded: ARCHITECT 2026-10-23, "
+                             "addendum 161 item 1; Codex on #697)")
+    monkeypatch.setattr(nb, "v2_run_recorded", lambda *a, **k: True)
+    assert _line("NCAA").startswith("- NCAA: close log-loss ") and "n=1" in _line("NCAA")

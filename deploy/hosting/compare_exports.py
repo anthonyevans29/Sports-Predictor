@@ -272,17 +272,20 @@ def _main(argv=None) -> int:
         print(f"left out of the comparison (--ignore-keys, read off the clock): {', '.join(sorted(ignore))}")
         print("the timestamp mask is off: every other key is compared (git_sha is reported on its own line)")
     clean, skew_names, compared = True, set(), 0
+    with_diffs, unparseable, one_sided = 0, 0, []    # #680: what made a run DIVERGENT, named on its summary line
     pred_rows = {"laptop": 0, "host": 0}
     for name in sorted(set(la) | set(ho)):
         if name not in la or name not in ho:
             print(f"· {name}: only on {'host' if name not in la else 'laptop'}")
             clean = False
+            one_sided.append(name)
             continue
         try:
             x, y = json.loads(la[name].read_text()), json.loads(ho[name].read_text())
         except json.JSONDecodeError as e:
             print(f"✗ {name}: unparseable ({e})")
             clean = False
+            unparseable += 1
             continue
         compared += 1
         if a.require_predictions:
@@ -293,6 +296,7 @@ def _main(argv=None) -> int:
         only = {s: [k for v in um.values() for k in v[s]] for s in ("laptop", "host")}
         ok = not d and not only["laptop"] and not only["host"]
         clean &= ok
+        with_diffs += 0 if ok else 1
         sha = sha_line(x, y)
         skew_names.update([name] if sha.startswith("code-version skew") else [])
         print(f"{'✓' if ok else '✗'} {name}: rows laptop={rows_of(x)} host={rows_of(y)} "
@@ -327,7 +331,11 @@ def _main(argv=None) -> int:
         print("VERDICT: NO-COVERAGE (0 compared) — not a data verdict")
         return EXIT_NO_COVERAGE
     classes = "capture timing | provider pagination | code-version skew (only where named above)"
-    print(f"{'CLEAN' if clean else 'DIVERGENT'} ({compared} compared) — "
+    # #680 (ARCHITECT 2026-10-26, a verdict-line nit): a DIVERGENT run names its cause on this line (the files with diffs,
+    # unparseable, on one side only). The VERDICT line and the exit code are unchanged.
+    why = "" if clean else (f", {with_diffs} with diffs" + (f", {unparseable} unparseable" if unparseable else "")
+                            + (f"; {len(one_sided)} on one side only: {', '.join(one_sided)}" if one_sided else ""))
+    print(f"{'CLEAN' if clean else 'DIVERGENT'} ({compared} compared{why}) — "
           f"each divergence needs an explanation ({classes}) or a BACKLOG entry."
           + (f" Code-version skew named for: {', '.join(sorted(skew_names))}." if skew_names else ""))
     print(f"VERDICT: {'CLEAN' if clean else 'DIVERGENT'}")

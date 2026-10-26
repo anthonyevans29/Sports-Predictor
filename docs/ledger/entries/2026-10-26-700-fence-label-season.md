@@ -7,3 +7,4 @@
   - resync-diff keeps fenced games out of its home-rate line (counted) and masks their samples, under the ruling of 2026-10-26 15:15 ET: "aggregates, samples and rates over fenced games stay masked".
   - The close record and `export-fixtures` read the same membership.
 - **Item 2 of #700** (the kickoff receipt's single-game scores) is closed with no change by that ruling: "single-game score lines STAY visible everywhere".
+- Codex round 1 on #701 (P1), fixed: resync-diff also keeps 2026-fenced games (stored or label season 2026) out of its home-rate line, counted as `fenced_2026_out_of_rate`; their single-game sample lines stay, as the level ruling keeps for 2026.

@@ -273,22 +273,23 @@ def test_700_resync_diff_keeps_fenced_games_out_of_its_home_rate(tmp_path, monke
         t2 = Team(sport=Sport.NFL, name="M2", external_ids={"p": 12})
         s.add_all([c, t1, t2])
         s.flush()
-        for eid, wk in ((901, 8), (902, 2)):
+        for eid, wk, lab_season in ((901, 8, "2023"), (902, 2, "2023"), (903, 4, "2026")):
             m = Match(sport=Sport.NFL, competition_id=c.id, season="2024", utc_date=datetime(2024, 10, 5),
                       status=MatchStatus.FINISHED, home_team_id=t1.id, away_team_id=t2.id, home_score=31,
                       away_score=10, external_ids={"p": eid})
             s.add(m)
             s.flush()
-            s.add(NCAACFBDLabel(match_id=m.id, source="cfbd", source_game_id=eid, season="2023", orientation="same",
-                                home_score=31, away_score=10, season_type="regular", week=wk,
+            s.add(NCAACFBDLabel(match_id=m.id, source="cfbd", source_game_id=eid, season=lab_season,
+                                orientation="same", home_score=31, away_score=10, season_type="regular", week=wk,
                                 fetched_at=datetime(2026, 10, 24)))
 
     class Adapter:
         def list_matches(self, *a):
             return [NS(source="p", source_id=e, home_team_source_id=11, away_team_source_id=12, home_score=10,
-                       away_score=31, utc_date=datetime(2024, 10, 5)) for e in (901, 902)]
+                       away_score=31, utc_date=datetime(2024, 10, 5)) for e in (901, 902, 903)]
     out = rd.diff(Adapter(), "NCAA", "2024")
     assert out["counts"]["fenced_2023_out_of_rate"] == 1
+    assert out["counts"]["fenced_2026_out_of_rate"] == 1          # Codex on #701: a label-2026 game, out of the rate
     assert out["home_rate"]["ours"] == (1.0, 1) and out["home_rate"]["provider"] == (0.0, 1)
     lines = [x for v in out["samples"].values() for x in v]
-    assert any("[score withheld]" in x for x in lines) and any("31" in x for x in lines)
+    assert any("[score withheld]" in x for x in lines) and sum("31" in x for x in lines) == 2   # 902, 903 kept

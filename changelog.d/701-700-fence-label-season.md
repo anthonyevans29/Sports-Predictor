@@ -8,3 +8,4 @@
 - src/walters/paper.py: the NCAA close record fences by the stored or the label's season, since `_result` reads the label's outcome.
 - Item 2 of #700 (the kickoff receipt) is settled with no change by the 15:15 ET ruling: single-game score lines stay visible.
 - Tests: tests/test_ncaa_2023_fence.py `test_700_*` and tests/test_close_record_paper.py `test_700_*`. Closes #700. No bar moves.
+- Codex round 1 on #701 (P1), fixed: resync-diff also keeps 2026-fenced games (stored or label season 2026) out of its home-rate line, counted as `fenced_2026_out_of_rate`; their single-game sample lines stay, as the level ruling keeps for 2026.

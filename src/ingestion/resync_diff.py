@@ -98,6 +98,12 @@ def diff(adapter, competition_code: str, season: str | None, date_from: str | No
             return str(listed) if str(listed) in team_ids.get(tid, ()) else str(team_src.get(tid))
         names = {t.id: t.name for t in s.execute(select(Team).where(Team.sport == comp.sport)).scalars()}
         fenced = _fenced_2023_ids(s, competition_code, list(ours.values()))   # addendum 161 item 1
+        # the 2026 fence by the stored or the label's season (#700; Codex on #701): out of the home-rate line (an
+        # aggregate); its single-game sample line stays, as the level ruling keeps for 2026 (addendum 99)
+        fenced_2026 = set()
+        if (competition_code or "").upper() == "NCAA":
+            from src.walters.ncaa_backtest import v2_fenced_ids
+            fenced_2026 = v2_fenced_ids(s, list(ours.values()))[1]
         seen = set()
         for nm in listing:
             m = ours.get(str(nm.source_id))
@@ -124,6 +130,9 @@ def diff(adapter, competition_code: str, season: str | None, date_from: str | No
                 samples.setdefault(key, []).append(line)
             if m.id in fenced:                  # #700: a fenced game is in no aggregate (ARCHITECT 2026-10-26 15:15 ET:
                 rc["fenced_2023_out_of_rate"] += 1      # "aggregates, samples and rates over fenced games stay masked")
+                continue
+            if m.id in fenced_2026:
+                rc["fenced_2026_out_of_rate"] += 1
                 continue
             if m.status == MatchStatus.FINISHED and m.home_score is not None and m.away_score is not None \
                     and m.home_score != m.away_score:

@@ -272,7 +272,9 @@ def _main(argv=None) -> int:
         print(f"left out of the comparison (--ignore-keys, read off the clock): {', '.join(sorted(ignore))}")
         print("the timestamp mask is off: every other key is compared (git_sha is reported on its own line)")
     clean, skew_names, compared = True, set(), 0
-    with_diffs, unparseable, one_sided = 0, 0, []    # #680: what made a run DIVERGENT, named on its summary line
+    # #680: what made a run DIVERGENT, each file named on the summary line (Codex on #683: field diffs and rows on one
+    # side within a file are separate causes; a file's own line prints diffs=0 when only its rows differ)
+    field_diffs, row_diffs, unparseable, one_sided = [], [], [], []
     pred_rows = {"laptop": 0, "host": 0}
     for name in sorted(set(la) | set(ho)):
         if name not in la or name not in ho:
@@ -285,7 +287,7 @@ def _main(argv=None) -> int:
         except json.JSONDecodeError as e:
             print(f"✗ {name}: unparseable ({e})")
             clean = False
-            unparseable += 1
+            unparseable.append(name)
             continue
         compared += 1
         if a.require_predictions:
@@ -296,7 +298,10 @@ def _main(argv=None) -> int:
         only = {s: [k for v in um.values() for k in v[s]] for s in ("laptop", "host")}
         ok = not d and not only["laptop"] and not only["host"]
         clean &= ok
-        with_diffs += 0 if ok else 1
+        if d:
+            field_diffs.append(name)
+        if only["laptop"] or only["host"]:
+            row_diffs.append(name)
         sha = sha_line(x, y)
         skew_names.update([name] if sha.startswith("code-version skew") else [])
         print(f"{'✓' if ok else '✗'} {name}: rows laptop={rows_of(x)} host={rows_of(y)} "
@@ -331,10 +336,12 @@ def _main(argv=None) -> int:
         print("VERDICT: NO-COVERAGE (0 compared) — not a data verdict")
         return EXIT_NO_COVERAGE
     classes = "capture timing | provider pagination | code-version skew (only where named above)"
-    # #680 (ARCHITECT 2026-10-26, a verdict-line nit): a DIVERGENT run names its cause on this line (the files with diffs,
-    # unparseable, on one side only). The VERDICT line and the exit code are unchanged.
-    why = "" if clean else (f", {with_diffs} with diffs" + (f", {unparseable} unparseable" if unparseable else "")
-                            + (f"; {len(one_sided)} on one side only: {', '.join(one_sided)}" if one_sided else ""))
+    # #680 (ARCHITECT 2026-10-26, a verdict-line nit): a DIVERGENT run names each cause on this line, with its files:
+    # field diffs, rows on one side within a file, unparseable, on one side only. The VERDICT line and the exit code are
+    # unchanged; a CLEAN run's line reads as before.
+    causes = (("with field diffs", field_diffs), ("with rows on one side", row_diffs), ("unparseable", unparseable),
+              ("on one side only", one_sided))
+    why = "".join(f"; {len(names)} {label}: {', '.join(names)}" for label, names in causes if names)
     print(f"{'CLEAN' if clean else 'DIVERGENT'} ({compared} compared{why}) — "
           f"each divergence needs an explanation ({classes}) or a BACKLOG entry."
           + (f" Code-version skew named for: {', '.join(sorted(skew_names))}." if skew_names else ""))

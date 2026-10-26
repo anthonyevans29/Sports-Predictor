@@ -80,19 +80,22 @@ def test_the_latest_payload_before_kickoff_is_the_pregame_observation(fresh_db, 
     _payload(d, "20261005T120000Z", [(501, "PG 0", False)])                            # after kickoff: never pregame
     _payload(d, "20261011T120000Z", [(503, "PG 4", False)])                            # after 503's kickoff (10-10)
     (d / "cfbd_games_2026_notastamp.json").write_text("[]")
-    r = npg.receipt("2026", d, now=NOW)
+    r = npg.receipt("2026", d, now=NOW, db_path=tmp_path / "fresh.db")
     reg = r["by_type"]["regular"]
     assert reg["games"] == 2 and reg["pregame_observed"] == 2 and reg["lead 1-3 days"] == 2
     assert reg["neutral agrees (neutral)"] == 1 and reg["neutral differs: pregame neutral, post-game home"] == 1
     assert reg["cfbd home unchanged"] == 1 and reg["cfbd home changed"] == 1
     assert (reg["listing_same"], reg["listing_swapped"]) == (1, 1)
+    # Codex on #698: the orientation as known before kickoff (502's pregame home is neither of its label's teams)
+    assert (reg["pregame_listing_same"], reg["pregame_listing_unknown"]) == (1, 1)
     assert reg["kalshi_quote_before_kickoff"] == 1
     post = r["by_type"]["postseason"]
     assert post["no_pregame_payload"] == 1 and post["kalshi_quote_before_kickoff"] == 0     # its quote came after
     assert r["counts"]["upcoming"] == 1 and r["counts"]["upcoming_kalshi_quote"] == 1
     text = "\n".join(npg.lines(r))
     assert "payloads read 4" in text and "notastamp" in text and "No score, result or rate" in text
-    assert "kalshi_settled_markets: the table does not exist here" not in text                # init_db made it
+    # Codex on #698: an init_db()-created table without its migration's marker is not a D11 source
+    assert r["has_settled_table"] is False and "kalshi_settled_markets: not migrated here" in text
 
 
 def test_it_writes_nothing_and_the_script_refuses_a_missing_db(fresh_db, tmp_path, monkeypatch):
@@ -102,7 +105,7 @@ def test_it_writes_nothing_and_the_script_refuses_a_missing_db(fresh_db, tmp_pat
     with fresh_db.connect() as conn:
         before = {t: conn.execute(text(f'SELECT COUNT(*) FROM "{t}"')).scalar()
                   for t in ("matches", "ncaa_cfbd_labels", "odds_snapshots")}
-    npg.receipt("2026", tmp_path / "none", now=NOW)
+    npg.receipt("2026", tmp_path / "none", now=NOW, db_path=tmp_path / "fresh.db")
     with fresh_db.connect() as conn:
         assert before == {t: conn.execute(text(f'SELECT COUNT(*) FROM "{t}"')).scalar() for t in before}
     import importlib.util
@@ -113,3 +116,48 @@ def test_it_writes_nothing_and_the_script_refuses_a_missing_db(fresh_db, tmp_pat
     with pytest.raises(SystemExit, match="never creates one"):
         mod.main([])
     assert not (tmp_path / "absent.db").exists()
+
+
+def test_codex_698_the_receipt_opens_the_db_read_only_and_never_the_apps_session(fresh_db, tmp_path, monkeypatch):
+    """Codex on #698 (P1): the receipt reads through a mode=ro engine on the named file, never the app's session_scope
+    (whose connect hook sets PRAGMA journal_mode=WAL); a missing file is refused, never created."""
+    import src.db.database as db
+    _world()
+
+    def forbidden(*a, **k):
+        raise AssertionError("the app's writable session was opened")
+    monkeypatch.setattr(db, "session_scope", forbidden)
+    seen = []
+    real = npg.readonly_session
+
+    def spy(path):
+        seen.append(str(path))
+        return real(path)
+    monkeypatch.setattr(npg, "readonly_session", spy)
+    r = npg.receipt("2026", tmp_path / "none", now=NOW, db_path=tmp_path / "fresh.db")
+    assert seen == [str(tmp_path / "fresh.db")] and r["stored"] == 4
+    with pytest.raises(SystemExit, match="never creates one"):
+        npg.receipt("2026", tmp_path / "none", now=NOW, db_path=tmp_path / "absent.db")
+    assert not (tmp_path / "absent.db").exists()
+
+
+def test_codex_698_a_migrated_settled_table_is_read_as_the_d11_source(fresh_db, tmp_path):
+    from sqlalchemy import text
+
+    from src.ingestion import kalshi_history
+    _world()
+    with fresh_db.begin() as conn:
+        conn.execute(text(f"CREATE TABLE IF NOT EXISTS {kalshi_history.MIGRATION_MARKER} (id INTEGER PRIMARY KEY)"))
+        conn.execute(text(f"INSERT INTO {kalshi_history.MIGRATION_MARKER} (id) VALUES (1)"))
+    r = npg.receipt("2026", tmp_path / "none", now=NOW, db_path=tmp_path / "fresh.db")
+    assert r["has_settled_table"] is True and "not migrated here" not in "\n".join(npg.lines(r))
+
+
+def test_codex_698_the_pregame_orientation_follows_cfbds_home_before_kickoff():
+    from types import SimpleNamespace as L
+    lab = L(orientation="same", source_home_team="A", source_away_team="B")
+    assert npg.pregame_orientation("A", lab) == "same"
+    assert npg.pregame_orientation("B", lab) == "swapped"          # CFBD's home changed after kickoff
+    assert npg.pregame_orientation("C", lab) == "unknown" and npg.pregame_orientation(None, lab) == "unknown"
+    assert npg.pregame_orientation("A", L(orientation="swapped", source_home_team="A", source_away_team="B")) == \
+        "swapped"

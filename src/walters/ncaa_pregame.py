@@ -22,6 +22,7 @@ score, no result, no rate (the 2026 fence, addendum 86 item 3 Q2, holds).
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import re
 from collections import Counter
@@ -83,12 +84,51 @@ def _lead(hours: float) -> str:
     return LEADS[-1][1]
 
 
-def receipt(season: str = "2026", payload_dir: str | Path = "exports/cfbd", now: datetime | None = None) -> dict:
-    """The receipt (module docstring). One session, rolled back; nothing written."""
+@contextlib.contextmanager
+def readonly_session(path: Path):
+    """The DB opened with a mode=ro URI (Codex on #698): no connect hook, no PRAGMA, no commit; a missing file is
+    refused, never created (venue_quote_age.readonly_session's open, on a named path)."""
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import Session
+
+    path = Path(path)
+    if not path.is_file():
+        raise SystemExit(f"no database at {path}: the receipt never creates one")
+    eng = create_engine(f"sqlite:///file:{path.as_posix()}?mode=ro&uri=true",
+                        connect_args={"uri": True, "check_same_thread": False})
+    s = Session(eng)
+    try:
+        yield s
+    finally:
+        s.rollback()
+        s.close()
+        eng.dispose()
+
+
+FLIP = {"same": "swapped", "swapped": "same"}
+
+
+def pregame_orientation(payload_home, lab) -> str:
+    """Our listing against CFBD's home AS KNOWN BEFORE KICKOFF (Codex on #698): the label's post-game orientation when
+    the payload's home is the label's source home, its reverse when it is the label's source away, else unknown."""
+    o = getattr(lab, "orientation", None)
+    if payload_home is None or o not in FLIP:
+        return "unknown"
+    if payload_home == lab.source_home_team:
+        return o
+    if payload_home == getattr(lab, "source_away_team", None):
+        return FLIP[o]
+    return "unknown"
+
+
+def receipt(season: str = "2026", payload_dir: str | Path = "exports/cfbd", now: datetime | None = None,
+            db_path: str | Path | None = None) -> dict:
+    """The receipt (module docstring). One mode=ro session (readonly_session); nothing written. `db_path`: the SQLite
+    file (default: the configured DATABASE_URL's)."""
     from sqlalchemy import func, inspect, select
 
-    from src.db.database import session_scope
     from src.db.schema import Competition, Match, MatchStatus, NCAACFBDLabel, OddsSnapshot, Sport
+    from src.ingestion import kalshi_history
     from src.ingestion.ncaa_cfbd import label_load_options, latest_record_stamps
     from src.timeutil import utc_now_naive
 
@@ -97,10 +137,17 @@ def receipt(season: str = "2026", payload_dir: str | Path = "exports/cfbd", now:
     stamps = [p[0] for p in payloads]
     c: Counter = Counter()
     by_type: dict = {}
-    with session_scope() as s:
+    if db_path is None:
+        from src.walters.venue_quote_age import db_file_path
+        db_path = db_file_path()
+        if db_path is None:
+            raise SystemExit("not a SQLite DATABASE_URL: the receipt is SQLite-only")
+    with readonly_session(db_path) as s:
         insp = inspect(s.connection())
         has_labels = insp.has_table(NCAACFBDLabel.__tablename__)
-        has_settled = insp.has_table("kalshi_settled_markets")
+        # migrated, not merely present (Codex on #698): an init_db()-created table without its migration's marker is
+        # not a D11 source (kalshi_history.migrated)
+        has_settled = kalshi_history.migrated(s)
         current = latest_record_stamps(s, [season]).get(season) if has_labels else None
         ncaa = (select(Match).join(Competition, Match.competition_id == Competition.id)
                 .where(Match.sport == Sport.NFL, Competition.code == "NCAA", Match.season == season))
@@ -162,6 +209,7 @@ def receipt(season: str = "2026", payload_dir: str | Path = "exports/cfbd", now:
                 t["neutral differs: pregame " + ("neutral" if g["neutral"] else "home") + ", post-game "
                   + ("neutral" if lab.neutral else "home")] += 1
             t["cfbd home unchanged" if g["home"] == lab.source_home_team else "cfbd home changed"] += 1
+            t[f"pregame_listing_{pregame_orientation(g['home'], lab)}"] += 1     # as known before kickoff
         s.rollback()
     return {"season": season, "now": now, "payloads": len(payloads), "first": stamps[0] if stamps else None,
             "last": stamps[-1] if stamps else None, "skipped_files": skipped, "current_record": current,
@@ -183,8 +231,11 @@ def lines(r: dict) -> list[str]:
     L.append(f"  not labelled: upcoming {c['upcoming']} (a Kalshi quote stored {c['upcoming_kalshi_quote']}) · past "
              f"without a current label {c['past_unlabelled']} · cancelled / orphan {c['unlabelled_cancelled_or_orphan']}")
     if not r["has_settled_table"]:
-        L.append("  kalshi_settled_markets: the table does not exist here (D11's read waits on its first NCAA pull)")
-    L.append("  sources: listing = our matches row (home / away as the provider listed it); cfbd = the latest saved "
-             "payload fetched before kickoff, by CFBD game id; kalshi = odds_snapshots source 'kalshi' before kickoff, "
-             "and kalshi_settled_markets series KXNCAAFGAME. No score, result or rate is read or printed.")
+        L.append("  kalshi_settled_markets: not migrated here (migrate_kalshi_settled_markets.py's table and marker; "
+                 "D11's read waits on its migration and its first NCAA pull)")
+    L.append("  sources: listing = our matches row (home / away as the provider listed it): listing_* against CFBD's "
+             "post-game home (the label), pregame_listing_* against CFBD's home in the latest payload before kickoff "
+             "(unknown: that home is neither of the label's teams); cfbd = the latest saved payload fetched before "
+             "kickoff, by CFBD game id; kalshi = odds_snapshots source 'kalshi' before kickoff, and "
+             "kalshi_settled_markets series KXNCAAFGAME. No score, result or rate is read or printed.")
     return L

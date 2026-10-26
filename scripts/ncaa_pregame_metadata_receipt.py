@@ -6,8 +6,8 @@ as known BEFORE kickoff (the CFBD labels are post-game; D8 needs pregame neutral
 Kalshi benchmark's coverage (D11). Counts only."
 
 src/walters/ncaa_pregame.py says what is read and how. The DB is the one DATABASE_URL names (else ./data/sports.db);
-a path with no file is refused before anything opens it (the receipt never creates a database). One session, rolled
-back; nothing written; nothing fetched. The saved CFBD payloads are read from --payload-dir (default exports/cfbd).
+a path with no file is refused before anything opens it (the receipt never creates a database). One mode=ro session
+(no connect hook, no PRAGMA); nothing written; nothing fetched. The saved CFBD payloads are read from --payload-dir (default exports/cfbd).
 
 Run:  python3 scripts/ncaa_pregame_metadata_receipt.py [--season 2026] [--payload-dir exports/cfbd]
 """
@@ -45,7 +45,7 @@ def main(argv=None) -> int:
     if not f.is_file():
         raise SystemExit(f"no database at {f}: the receipt never creates one")
     from src.walters import ncaa_pregame as npg
-    for line in npg.lines(npg.receipt(a.season, a.payload_dir)):
+    for line in npg.lines(npg.receipt(a.season, a.payload_dir, db_path=f)):
         print(line)
     return 0
 

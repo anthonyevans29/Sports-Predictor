@@ -1599,6 +1599,39 @@ def test_673_the_freshen_never_opens_its_own_file_a_second_time(sandbox, monkeyp
     assert not [r for r in receipts(sandbox) if r["kind"] == "step"]
 
 
+def test_673_codex_692_a_set_never_moves_the_freshens_file_and_a_manual_run_names_it(sandbox, monkeypatch):
+    """Codex on #692: {freshen_out} is the run's own, never a --set: a manual run asked to write exports/ still writes
+    logs/<run id>.nfl_predictions_<date>.json, and its chain receipt names it."""
+    (c.REPO / "cli.py").write_text(EXPORT_CLI)
+    assert sp_run.main(["freshen:NFL", "--set", "freshen_out=exports/fresh.json"]) == 0
+    assert not (c.REPO / "exports" / "fresh.json").exists()
+    own = list((c.REPO / "logs").glob("*-freshen-NFL.nfl_predictions_*.json"))
+    assert len(own) == 1
+    chain = [r for r in receipts(sandbox) if r["kind"] == "chain"][-1]
+    assert chain["wrote"] == {"file": str(own[0].relative_to(c.REPO)), "sha256": c.sha256_file(own[0])}
+
+
+def test_673_codex_692_the_taken_path_is_read_under_the_chain_lock(sandbox, monkeypatch):
+    """Codex on #692: the existence check runs under the lock the export runs under, so a second run of the same
+    second, waiting on the lock, finds the first run's file and is refused."""
+    (c.REPO / "cli.py").write_text(EXPORT_CLI)
+    now = datetime(2026, 10, 25, 16, 30)
+    own = c.REPO / "logs" / "20261025T163000Z-freshen-NFL.nfl_predictions_2026-10-25.json"
+    real_lock = c.db_lock
+    from contextlib import contextmanager
+
+    @contextmanager
+    def lock_then_first_run_wrote(*a, **kw):
+        with real_lock(*a, **kw):
+            own.parent.mkdir(parents=True, exist_ok=True)
+            own.write_text("THE FIRST RUN'S")       # what the run holding the lock before this one wrote
+            yield
+    monkeypatch.setattr(c, "db_lock", lock_then_first_run_wrote)
+    out = sp_run.run_freshens([{"id": "1", "sport": "nfl", "competition": "NFL"}], "win-1", now, now.date())
+    assert not out[0]["ran"] and "already exists" in out[0]["refused"]
+    assert own.read_text() == "THE FIRST RUN'S"
+
+
 def test_673_only_the_nfl_freshen_takes_its_own_file_and_the_closing_export_is_unchanged():
     assert sp_run.run_vars("freshen:NFL", "20261025T1630Z-freshen:NFL", date(2026, 10, 25)) == {
         "freshen_out": "logs/20261025T1630Z-freshen-NFL.nfl_predictions_2026-10-25.json"}

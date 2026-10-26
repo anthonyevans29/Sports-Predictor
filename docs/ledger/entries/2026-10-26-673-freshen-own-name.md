@@ -11,3 +11,4 @@
   - `nfl-closing`'s steps are unchanged.
   - `freshen:SOCCER` is not touched: its one-day `soccer_PL_<date>.json` is never the slate's two-date name (the Issue's read).
 - **Not done here:** no Desk, model, export-contract, timer or Cockpit change. Not this week's tag (v1.6.1), as ruled.
+- Codex round 1 on #692 (two P2), fixed: the taken-path check runs under the chain lock the export runs under, in `run_freshens` and in `main`, so a second run in the same second finds the first run's file and is refused; `{freshen_out}` is the run's own and a `--set freshen_out=...` never moves it (`run_vars` is merged last).

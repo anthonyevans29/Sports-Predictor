@@ -183,7 +183,7 @@ def moves(s, tables, kept, other) -> tuple[dict, dict]:
 def plan(s) -> dict:
     from sqlalchemy import select
 
-    from src.db.schema import Match, MatchStatus, Prediction, PredictionHistory, Sport
+    from src.db.schema import Prediction, PredictionHistory
     from src.ingestion import match_dedupe as md
 
     tables = md._fk_tables(s)
@@ -213,12 +213,20 @@ def plan(s) -> dict:
                                   "after_kickoff": sum(1 for p in preds if p and kept.utc_date and p >= kept.utc_date),
                                   "kickoff": _val(kept.utc_date)}
         out["groups"].append(g)
-    finished = Counter(m.season for m in s.execute(select(Match).where(
-        Match.sport == Sport.MLB, Match.status == MatchStatus.FINISHED)).scalars())
+    finished = finished_by_season(s)
     retired = Counter(r["season"] for g in out["groups"] for r in g["rows"]
                       if r["id"] == g["other"] and r["status"] == "FINISHED")
     out["finished"] = {season: (n, n - retired[season]) for season, n in sorted(finished.items())}
     return out
+
+
+def finished_by_season(s) -> Counter:
+    """The FINISHED MLB rows per season: the rows the training set reads."""
+    from sqlalchemy import select
+
+    from src.db.schema import Match, MatchStatus, Sport
+    return Counter(m.season for m in s.execute(select(Match).where(
+        Match.sport == Sport.MLB, Match.status == MatchStatus.FINISHED)).scalars())
 
 
 def merge(s, tables, g: dict, at: str) -> dict:
@@ -282,11 +290,14 @@ def run(apply: bool = False, named=None) -> dict:
         refused = {x["gamepk"]: x["why"] for x in r["refused"]}
         tables = md._fk_tables(s)
         at = utc_now_naive().isoformat(timespec="seconds")
-        for pk in named:
+        for pk in dict.fromkeys(named):             # a gamePk named twice is merged once (Codex on #704)
             if pk not in planned:
                 r["refused_at_apply"].append({"gamepk": pk, "why": refused.get(pk, "no live MLB rows share it")})
                 continue
             r["merged"].append(merge(s, tables, planned[pk], at))
+        s.flush()
+        after = finished_by_season(s)                # the state the apply leaves, not the plan's (Codex on #704)
+        r["finished_applied"] = {season: (n, after[season]) for season, (n, _) in r["finished"].items()}
     return r
 
 
@@ -341,4 +352,6 @@ def lines(r: dict) -> list[str]:
         for x in r["refused_at_apply"]:
             L.append(f"  REFUSED gamePk {x['gamepk']}: {x['why']} (named, not merged)")
         L.append(f"  merged {len(r['merged'])} · refused {len(r['refused_at_apply'])}")
+        L.append("  the training set's FINISHED MLB rows per season after this apply (read back): "
+                 + (" · ".join(f"{k} {a} -> {b}" for k, (a, b) in r["finished_applied"].items()) or "none"))
     return L

@@ -145,8 +145,9 @@ def test_the_apply_retires_the_named_rows_re_points_and_marks_and_deletes_nothin
     from src.ingestion import mlb_twins as mt
     monkeypatch.setattr(cli, "_verify_backup", lambda path, table, model: path)
     before = counts()
-    r = run_cli("--apply", "--backup", str(tmp_path / "b.db"), "--gamepks", ",".join(PLANNED + ["700001"]))
+    r = run_cli("--apply", "--backup", str(tmp_path / "b.db"), "--gamepks", ",".join(PLANNED + ["700001", "824621"]))
     assert r.exit_code == 0, r.output
+    assert r.output.count("MERGED gamePk 824621") == 1                  # named twice, merged once
     assert "REFUSED gamePk 700001: two FINISHED rows with different scores (2-1, 1-2): no class of the ruling" in r.output
     assert "merged 4 · refused 1" in r.output
     after = counts()
@@ -206,3 +207,13 @@ def test_a_missing_db_is_refused_and_never_created(tmp_path, monkeypatch):
     r = run_cli()
     assert r.exit_code == 2
     assert not path.exists()
+
+
+def test_the_apply_reads_back_the_training_set_it_leaves(db, tmp_path, monkeypatch):
+    """A subset named: the after count is the committed state's (one 2026 FINISHED twin retired), not the plan's."""
+    import cli
+    monkeypatch.setattr(cli, "_verify_backup", lambda path, table, model: path)
+    r = run_cli("--apply", "--backup", str(tmp_path / "b.db"), "--gamepks", "824621")
+    assert r.exit_code == 0, r.output
+    assert "before -> after: 2025 12 -> 11 · 2026 3 -> 2" in r.output        # the plan, every group
+    assert "after this apply (read back): 2025 12 -> 12 · 2026 3 -> 2" in r.output

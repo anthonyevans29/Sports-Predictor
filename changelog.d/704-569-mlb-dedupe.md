@@ -1,4 +1,4 @@
-## 2026-10-26 (#000: 569-mlb-dedupe — dedupe-mlb-twins: two live MLB rows under one mlb_stats_api id merged by class, dry run first; addendum 153 item 2)
+## 2026-10-26 (#704: 569-mlb-dedupe — dedupe-mlb-twins: two live MLB rows under one mlb_stats_api id merged by class, dry run first; addendum 153 item 2)
 - cli.py `dedupe-mlb-twins` and src/ingestion/mlb_twins.py: the #569 dedupe as addendum 153 item 2 ruled it (queue: ARCHITECT 2026-10-26 17:00 ET, ahead of the QB packet; the #702 receipt runs after it, addendum 163 item 4).
 - The dry run lists every gamePk held by two or more live MLB rows: its class, the kept id and the reason, both rows with their references, the state the kept row takes, the rows re-pointed and left, and the refusals listed for the architect.
   - Class 1 (same-minute FINISHED twins) and class 4 (FINISHED twins at two kickoffs) by (a); class 4 keeps the earlier row and takes the later row's date.

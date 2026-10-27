@@ -160,6 +160,11 @@ def _collect_rows(
             .where(Prediction.match_id.in_(match_ids))
             .order_by(Prediction.computed_at.desc())
         ).scalars():
+            # #569 (c): a prediction re-pointed from a SCHEDULED copy of a game already played is never the game's
+            # prediction in an export (ARCHITECT 2026-10-27 09:05 ET, #704 read: "Push the exports-skip line");
+            # evaluate_finished never grades it either (src/ingestion/mlb_twins.py marks it)
+            if (pred.factor_breakdown or {}).get("dedupe_569"):
+                continue
             if pred.match_id not in preds_by_match:
                 preds_by_match[pred.match_id] = pred
 

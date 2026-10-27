@@ -234,3 +234,18 @@ def test_the_host_fallback_id_moves_to_the_kept_row(db, tmp_path, monkeypatch):
         kept, other = s.get(Match, 3940), s.get(Match, 3945)
         assert kept.external_ids["api_baseball"] == "41"
         assert "api_baseball" not in other.external_ids and other.external_ids["api_baseball_prev"] == ["41"]
+
+
+def test_a_marked_prediction_is_never_the_game_s_prediction_in_an_export(db, tmp_path, monkeypatch):
+    """ARCHITECT 2026-10-27 09:05 ET (#704 read): "Push the exports-skip line". After the merge, 4390 holds only the
+    re-pointed post-game prediction of its SCHEDULED copy: the export shows the game with no prediction."""
+    import cli
+    from src.db.schema import Sport
+    from src.walters.export import _collect_rows
+    monkeypatch.setattr(cli, "_verify_backup", lambda path, table, model: path)
+    assert run_cli("--apply", "--backup", str(tmp_path / "b.db"), "--gamepks", "823062").exit_code == 0
+    rows = {r["match_id"]: r for r in _collect_rows(sport=Sport.MLB, start_date=Z("2026-07-07T00:00"),
+                                                     end_date=Z("2026-07-08T00:00"), competition_code="MLB",
+                                                     statuses=None)}
+    assert 4390 in rows and rows[4390]["prediction"] is None
+    assert 5218 not in rows or rows[5218]["prediction"] is None

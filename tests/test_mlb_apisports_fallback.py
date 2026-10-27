@@ -177,3 +177,30 @@ def test_mlb_history_chain_is_sync_only():
     assert [s[0] for s in steps] == ["sync-competitions", "sync-matches"]
     assert chains.CHAINS["mlb-history"]["backup"] == "daily"
     assert not any(s[0] in ("predict", "evaluate", "improve", "export-predictions") for s in steps)
+
+
+def test_a_stale_orphan_twin_is_never_paired():
+    """#569 (addendum 169 item 3(c)): a dedupe-retired twin beside its kept row, neither keyed to the provider yet.
+    The pairing takes our rows first-come, so before, the retired twin (stored first) took the provider's game and was
+    linked; now the STALE_ORPHAN row is never paired, and the game pairs with the kept row."""
+    V = datetime(2033, 7, 4, 17, 5)
+    with session_scope() as s:
+        comp = s.execute(select(Competition).where(Competition.code == "MLB")).scalars().first()
+        t = {}
+        for sid, name in ((131, "Seattle Mariners"), (132, "Texas Rangers")):
+            t[name] = Team(sport=Sport.MLB, name=name, external_ids={"mlb_stats_api": str(sid)})
+            s.add(t[name])
+        s.flush()
+        for st in (MatchStatus.STALE_ORPHAN, MatchStatus.FINISHED):      # the retired twin stored first
+            s.add(Match(sport=Sport.MLB, competition_id=comp.id, season="2033", stage="R", utc_date=V, status=st,
+                        home_team_id=t["Seattle Mariners"].id, away_team_id=t["Texas Rangers"].id, home_score=4,
+                        away_score=2, external_ids={"mlb_stats_api": "777"} if st == MatchStatus.FINISHED else
+                        {"mlb_stats_api_prev": ["777"]}))
+    teams = [{"id": 131, "name": "Seattle Mariners", "code": None}, {"id": 132, "name": "Texas Rangers", "code": None}]
+    r = fb.sync_matches(FakeClient(teams, [g(51, (131, "Seattle Mariners"), (132, "Texas Rangers"), V, hr=4, ar=2)]),
+                        "2033")
+    assert r["linked_existing"] == 1 and r["ambiguous"] == 0 and r["created"] == 0
+    with session_scope() as s:
+        rows = {m.status: m for m in s.execute(select(Match).where(Match.season == "2033")).scalars()}
+        assert rows[MatchStatus.FINISHED].external_ids.get(fb.SOURCE) == "51"
+        assert fb.SOURCE not in rows[MatchStatus.STALE_ORPHAN].external_ids

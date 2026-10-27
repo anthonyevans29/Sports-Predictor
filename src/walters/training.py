@@ -1511,6 +1511,10 @@ def evaluate_finished(sport: Sport = Sport.SOCCER) -> int:
             # Skip if outcome already exists
             if pred.outcome is not None:
                 continue
+            # #569 (c) (ARCHITECT 2026-10-21, addendum 153 item 2): a prediction re-pointed from a SCHEDULED copy of a
+            # game already played is "never graded as a call" (src/ingestion/mlb_twins.py marks it)
+            if (pred.factor_breakdown or {}).get("dedupe_569"):
+                continue
             match = pred.match
             if match.home_score is None or match.away_score is None:
                 continue

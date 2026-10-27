@@ -1,4 +1,4 @@
-## 2026-10-27 (#000: 712-qb-receipt-fixes — the QB receipts' field line, dropped finished games and failed live reads, before the receipts run; #712 items 1-3)
+## 2026-10-27 (#713: 712-qb-receipt-fixes — the QB receipts' field line, dropped finished games and failed live reads, before the receipts run; #712 items 1-3)
 - scripts/nfl_qb_coverage.py:
   - Item 1: each season's F line lists every passing field any season of the run sends. A field missing for a whole season reads "on 0, ABSENT"; it used to be left off. A header line names the field universe.
   - Item 2: a listed row the provider marks finished (a short the adapter maps to FINISHED, or no status claim with both totals) but the adapter's parse drops is named under FINISHED BUT DROPPED and makes the season's gate line INCOMPLETE. An all-star exhibition is the adapter's own exclusion, counted on its own line and not in the gate.

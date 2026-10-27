@@ -123,3 +123,17 @@ def test_grade_nfl_readonly_opens_through_readonly_scope(iso_db, monkeypatch):
     assert seen == [1]
     nfl_predict.grade_nfl()                                      # the default keeps session_scope
     assert seen == [1]
+
+
+def test_an_empty_nfl_read_still_prints_the_section_and_its_source(iso_db, monkeypatch):
+    """Codex on #711: grade_nfl's ok=False with nothing re-dated (no finished NFL prediction) is an empty section with
+    its Source line, never a missing section."""
+    import src.walters.nfl_predict as nfp
+    from src.walters.export import results_tally
+    monkeypatch.setattr(nfp, "grade_nfl", lambda days_back=None, exports_dir="exports", readonly=False: {
+        "ok": False, "reason": "no finished NFL games with predictions in window", "redated": 0, "redated_rows": []})
+    out = iso_db.parent / "RESULTS.md"
+    results_tally(days=30, out_path=str(out))
+    nfl = out.read_text().split("## NFL (live since Week 3, 2026-09-22)", 1)[1].split("\n## ", 1)[0]
+    assert "No graded games in window." in nfl
+    assert "- Source: the database, read-only (mode=ro): the NFL predictions joined to the finished games" in nfl

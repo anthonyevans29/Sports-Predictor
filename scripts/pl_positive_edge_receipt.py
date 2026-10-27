@@ -202,7 +202,9 @@ def read_db(since: str = DEFAULT_SINCE) -> dict:
     out: dict = {}
     dupes, n = [], 0
     with readonly_session() as s:
-        comp = s.execute(select(Competition).where(Competition.code == "PL")).scalar_one_or_none()
+        # Codex on #711: competitions are unique by (sport, code), so the lookup names the sport
+        comp = s.execute(select(Competition).where(Competition.sport == Sport.SOCCER,
+                                                   Competition.code == "PL")).scalar_one_or_none()
         if comp is None:                        # law 4: no PL competition is a refusal, never an empty cohort
             from src.walters.venue_quote_age import Refused
             raise Refused("REFUSED: no PL competition in the database")
@@ -224,6 +226,17 @@ def read_db(since: str = DEFAULT_SINCE) -> dict:
             out[m.id] = (label, result_row(s, pred, oc, m))
     return {"rows": out, "files": [], "unreadable": [], "not_pl": [], "rows_read": n, "dupes": dupes,
             "source": "db", "since": since}
+
+
+def _since(v: str) -> str:
+    """--since as a calendar date (Codex on #711): an impossible date is argparse's error, exit 2, never a traceback."""
+    import argparse
+    from datetime import date
+    try:
+        date.fromisoformat(v)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"not a date (YYYY-MM-DD): {v!r}")
+    return v
 
 
 def cross_check(db: dict, ex: dict) -> dict:
@@ -345,7 +358,9 @@ def injury_split(members: list[dict]) -> dict:
 def read(exports_dir, min_gap_pp: float = MIN_GAP_PP, source: str = "db", since: str = DEFAULT_SINCE) -> dict:
     if source == "db":
         res = read_db(since)
-        res["check"] = cross_check(res, read_results(exports_dir))
+        # Codex on #711: the secondary read is kept whole, so its files, unreadable and non-PL files are printed
+        res["secondary"] = read_results(exports_dir)
+        res["check"] = cross_check(res, res["secondary"])
     else:
         res = read_results(exports_dir)
         res["source"] = "exports"
@@ -527,6 +542,11 @@ def report(exports_dir, min_gap_pp: float = MIN_GAP_PP, echo=print, source: str 
              + (f" ({', '.join(map(str, ck['exports_only']))})" if ck["exports_only"] else "")
              + f" · top pick or hit differ {len(ck['differ'])}"
              + (f" ({', '.join(map(str, ck['differ']))})" if ck["differ"] else ""))
+        sec = res["secondary"]
+        echo(f"    files read {len(sec['files'])}"
+             + (f" · unreadable {len(sec['unreadable'])}: {', '.join(sec['unreadable'])}" if sec["unreadable"] else "")
+             + (f" · not PL soccer {len(sec['not_pl'])}: {', '.join(sec['not_pl'])}" if sec["not_pl"] else "")
+             + f" · duplicate copies dropped {len(sec['dupes'])}")
     else:
         echo(f"SOURCE: results files {d}/{RESULTS_GLOB} (--source exports; the database not read): "
              f"{len(res['files'])} read"
@@ -566,7 +586,8 @@ def report(exports_dir, min_gap_pp: float = MIN_GAP_PP, echo=print, source: str 
     for line in table_lines(out):
         echo(line)
     echo("PL-POSITIVE-EDGE-RECEIPT " + json.dumps({
-        "min_gap_pp": min_gap_pp, "source": res["source"], "results_files": len(res["files"]),
+        "min_gap_pp": min_gap_pp, "source": res["source"],
+        "results_files": len((res.get("secondary") or res)["files"]),
         "results_rows": res["rows_read"],
         "matches": len(res["rows"]), "dupes_dropped": len(res["dupes"]), "closing_files": cr["files"],
         "graded": out["graded"], "cohort": len(out["members"]), "hits": out["hits"],
@@ -587,7 +608,8 @@ def main(argv=None) -> int:
     ap.add_argument("--source", choices=("db", "exports"), default="db",
                     help="db (default, #706): the database read-only, the results exports a cross-check; exports: the "
                          "results files alone (the database not opened)")
-    ap.add_argument("--since", default=DEFAULT_SINCE, help="--source db: matches from this date (UTC)")
+    ap.add_argument("--since", default=DEFAULT_SINCE, type=_since,
+                    help="--source db: matches from this date (UTC, YYYY-MM-DD)")
     a = ap.parse_args(argv)
     try:
         report(a.exports, a.min_gap_pp, source=a.source, since=a.since)

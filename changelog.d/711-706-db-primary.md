@@ -8,4 +8,5 @@
   - The results files become a SECONDARY cross-check on its own line: matches in both, database only, files only (named), and top pick or hit differing (named).
   - `--source exports` keeps the files-only read.
   - A SOURCE line, and "source" in the JSON line.
+- Codex round 1 on #711: an empty NFL read still prints its section and Source line; the receipt's secondary read keeps its file counts, unreadable and non-PL files and prints them; `--since` must be a calendar date (exit 2 otherwise); the PL lookup names the sport (competitions are unique by sport and code).
 - Tests: tests/test_db_primary_706.py (new), tests/test_pl_positive_edge_receipt.py (the database path on a throwaway file; the files path pinned to `--source exports`), tests/test_value_side_and_qb_audit.py. No bar moves, no prediction output changes.

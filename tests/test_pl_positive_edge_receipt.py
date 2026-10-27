@@ -11,6 +11,8 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+import pytest
+
 import scripts.pl_positive_edge_receipt as pe
 from src.walters import desk_policy as dp
 from tests.test_void_redated import write_closing
@@ -325,7 +327,8 @@ def db_world(tmp_path, monkeypatch):
     with Session(eng) as s:
         pl = Competition(sport=Sport.SOCCER, code="PL", name="PL", area="ENG", type="LEAGUE")
         elc = Competition(sport=Sport.SOCCER, code="ELC", name="ELC", area="ENG", type="LEAGUE")
-        s.add_all([pl, elc])
+        other = Competition(sport=Sport.NFL, code="PL", name="not soccer", area="X", type="LEAGUE")   # Codex on #711
+        s.add_all([pl, elc, other])
         s.flush()
 
         def game(mid, comp, at, hs, aw, fair, preds):
@@ -365,6 +368,7 @@ def db_world(tmp_path, monkeypatch):
                                                       score=(0, 1)),
                                            result_row(23, p=(0.62, 0.20, 0.18), fair=(0.50, 0.25, 0.25)),
                                            result_row(26, p=(0.62, 0.20, 0.18), fair=(0.50, 0.25, 0.25))])
+    (tmp_path / "soccer_PL_results_2026-10-25.json").write_text("{not json")    # Codex on #711: never silent
     return db
 
 
@@ -383,7 +387,8 @@ def test_the_database_is_the_primary_source_one_row_per_match_its_latest_predict
     assert "matches in both 2 · in the database only 0 · in the files only 1 (26) · top pick or hit differ 1 (21)" \
         in text
     assert {m["match_id"] for m in res["members"]} == {21, 23}            # +15pp and +12pp over the book close
-    assert '"source": "db"' in text
+    assert '"source": "db"' in text and '"results_files": 1' in text
+    assert "    files read 1 · unreadable 1: soccer_PL_results_2026-10-25.json · duplicate copies dropped 0" in text
     assert db.read_bytes() == before                                       # read-only: the file unchanged
 
 
@@ -391,6 +396,7 @@ def test_the_exports_source_reads_the_files_alone(tmp_path, monkeypatch):
     db_world(tmp_path, monkeypatch)
     text, res = run(tmp_path)
     assert res["results"]["source"] == "exports" and sorted(res["results"]["rows"]) == [21, 23, 26]
+    assert res["results"]["unreadable"] == ["soccer_PL_results_2026-10-25.json"]
     assert "SOURCE: results files" in text and "the database not read" in text
 
 
@@ -401,3 +407,10 @@ def test_a_missing_db_file_is_refused_exit_2_never_created(tmp_path, monkeypatch
     monkeypatch.setattr(config, "settings", types.SimpleNamespace(database_url=f"sqlite:///{missing}"))
     assert pe.main(["--exports", str(tmp_path)]) == 2
     assert "REFUSED: no DB file" in capsys.readouterr().out and not missing.exists()
+
+
+def test_an_impossible_since_date_is_an_argument_error_exit_2(tmp_path, capsys):
+    """Codex on #711: argparse refuses it before any database is opened, never a traceback."""
+    with pytest.raises(SystemExit) as e:
+        pe.main(["--exports", str(tmp_path), "--since", "2026-02-31"])
+    assert e.value.code == 2 and "not a date (YYYY-MM-DD): '2026-02-31'" in capsys.readouterr().err

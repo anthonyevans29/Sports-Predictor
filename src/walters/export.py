@@ -1583,6 +1583,9 @@ def results_tally(days: int = 30, out_path: str = "RESULTS.md", report=None, exp
                              f"- Void: {void_counts(r.get('redated_rows') or [])} (out of every line above): "
                              + "; ".join(r.get("redated_rows") or []) + "\n"
                              + f"- Source: {_NFL_SOURCE}\n")
+            else:                                 # Codex on #711: an empty read still says which source it read
+                lines.append(f"## NFL (live since Week 3, 2026-09-22)\n\nNo graded games in window.\n\n"
+                             f"- Source: {_NFL_SOURCE}\n")
         except Exception:
             lines.append("## NFL (live since Week 3, 2026-09-22)\n\nGrade unavailable.\n")
     # EXEC COHORTS (ARCHITECT 2026-10-20, addendum 146 item 1(v)): the closing files' PLAY calls by exec edge, per

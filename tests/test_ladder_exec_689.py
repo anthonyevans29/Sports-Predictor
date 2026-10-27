@@ -70,3 +70,21 @@ def test_only_a_ladder_carries_it_and_the_goldens_policy_writes_none():
     with dp.base_v11():
         d = desk_of(ladder_row())
     assert d["call"] == "LADDER" and "ladder_exec" not in d
+
+
+def test_a_sub_cent_quote_is_normalized_as_the_order_line_does():
+    """Codex on #714: a HOME yes bid of 0.445 is a 0.45 yes bid in the order line, so the NO ask is 0.55, not 0.555."""
+    d = desk_of(ladder_row(legs={"HOME": {"ticker": "T-EVE", "bid": 0.445, "ask": 0.4549}}))
+    assert d["order"]["text"].startswith("BUY NO T-EVE @ 0.55 ")
+    lx = d["ladder_exec"]
+    assert (lx["bid"], lx["ask"]) == (0.55, 0.55) and lx["cost"] == round(0.55 + kalshi_fee(0.55, 1.0, n=5), 4)
+
+
+def test_a_priced_leg_without_a_model_draw_says_why():
+    """Codex on #714: a row with no draw probability prices the leg but has no model draw + away, so no edge, and
+    says so (results-tally then names the cause, never "no ladder_exec block")."""
+    r = dp.normalize({"sport": "soccer", "predictions": [ladder_row()]})[0]
+    r["probsAll"] = {**r["probsAll"], "DRAW": None}
+    lx = dp.ladder_exec_block(r, {"call": "LADDER", "units": 0.5})
+    assert lx["cost"] is not None and lx["edge_pp"] is None and lx["model_p"] is None
+    assert lx["why"] == "no model probability for draw + away (the row carries no draw probability): no edge"

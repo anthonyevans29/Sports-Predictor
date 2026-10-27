@@ -1646,9 +1646,11 @@ def ladder_exec_block(r, c):
     if not leg.get("ticker"):
         out["why"] = "no Kalshi ticker on file for the HOME leg (ladder = NO on HOME)"
         return out
-    yb, ya = leg.get("bid"), leg.get("ask")
-    bid = None if ya is None else round(1 - ya, 4)          # NO prices mirror the YES contract (order_line)
-    ask = None if yb is None else round(1 - yb, 4)
+    # the quotes normalized exactly as order_line normalizes them (cents first, then the NO mirror; Codex on #714),
+    # so a sub-cent yes quote prices the very limit the order writes
+    yb, ya = _c(leg.get("bid")), _c(leg.get("ask"))
+    bid = None if ya is None else _c(1 - ya)
+    ask = None if yb is None else _c(1 - yb)
     out.update(ticker=leg["ticker"], bid=bid, ask=ask)
     if ask is None or not (0 < ask < 1):
         out["why"] = "no NO ask to take (the HOME leg has no yes bid)"
@@ -1665,6 +1667,8 @@ def ladder_exec_block(r, c):
     cost = round(ask + fee, 4)
     e = None if out["model_p"] is None else (out["model_p"] - cost) * 100
     out.update(cost=cost, basis="taker", contracts=n, edge_pp=_num(e), fee_clears=exec_clears(e))
+    if e is None:                                         # priced, but no model draw + away (Codex on #714)
+        out["why"] = "no model probability for draw + away (the row carries no draw probability): no edge"
     return out
 
 

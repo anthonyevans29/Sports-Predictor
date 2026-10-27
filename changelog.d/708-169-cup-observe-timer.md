@@ -1,4 +1,4 @@
-## 2026-10-27 (#000: 169-cup-observe-timer — Step B's host timer, the laptop's standing routine, the Today tab's coverage source; the cups' daily schedule read, #707)
+## 2026-10-27 (#708: 169-cup-observe-timer — Step B's host timer, the laptop's standing routine, the Today tab's coverage source; the cups' daily schedule read, #707)
 - deploy/hosting/systemd/sp-cup-observe.{timer,service} (ARCHITECT 2026-10-27, addendum 169 item 4(i); wanted before CL on 11-03; Step B's first live run is today, on the host, by hand):
   - one `observe-cup-lineups` tick, all four cups, no --loop, every five minutes at :00..:55, hours 00-03 and 06-23 UTC (H0-3 kept, no exemption);
   - its own service as sp, OnFailure paging through `sp-notify@cup-observe` (a refusal fails the unit: the store would not be recording);

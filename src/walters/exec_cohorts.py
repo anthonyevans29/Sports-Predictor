@@ -16,7 +16,15 @@ As built (each reading is the conservative one, law 4; the PR body lists them fo
   (re-dated, or the placeholder kickoff), left out and named; else its newest row is graded.
 - Only PLAY calls count (desk.call). A LADDER carries no exec block by design (desk_policy.call_exec_block) and is
   left out, counted. Its ordered NO leg's informational price (desk.ladder_exec, #689) puts it on its own line, priced
-  but ungraded: by that edge's cell, the mean edge and the unpriced rows by why, never pooled with PLAY. PASS rows, quarantine shadows and value shadows are not calls.
+  but ungraded: by that edge's cell, the mean edge and the unpriced rows by why, never pooled with PLAY.
+- THE FLOOR-BLOCKED LINE (#690, RULING_FLOOR): a PASS row of the probability floor (the pick's model_p under the
+  family's own pMin, 0.50 for SOCCER and INTL; the edge floor writes the same pass_kind and is told apart by the
+  probability) with exec >= 4 at the close (desk.exec.edge_pp, basis taker) is counted on its own line per family with
+  a probability floor: W-L-P and notional units at 1u (BASE_UNITS, the size a PASS row's exec block is priced at) at
+  desk.exec.cost. It never enters a PLAY cell or the n=30 counter. The line prints 0 when nothing qualifies: the floor
+  is frozen and the line is its receipt. Only a model-engine row is read; a non-finite model_p never is; INTL is graded
+  on the 90-minute result (intl_shadow.result_90; an AET / PEN game without it stays open); a void row keeps its label
+  (re-dated or placeholder kickoff) on the line (Codex on #717). PASS rows, quarantine shadows and value shadows are not calls.
 - The cohort is desk.exec.edge_pp: exec >= 4 is the Desk's own exec_clears (4 less FEE_CLEAR_EPS); 0 < exec < 4 is
   e > 0 and not clears; exec <= 0 is e <= 0. A PLAY with no exec edge is "exec unknown", never guessed into a cohort;
   a basis other than taker is left out, counted. 0 < exec < 4 splits on the Desk's QB tags (QB_TAGS): QB inputs clean
@@ -144,6 +152,41 @@ def _out() -> dict:
             "ladder_edges": [], "ladder_unpriced": {}}
 
 
+RULING_FLOOR = ("(3) FLOOR-BLOCKED COHORT (results-tally, read-only line): rows PASS by the 0.50 floor with exec >= 4 "
+                "at the close (10-25: Newcastle, +8.6, won), counted notionally as \"PASS by floor, exec >= 4\", W-L and "
+                "notional units, never pooled; the floor is frozen and this line is its receipt.")
+
+
+def floor_blocked(desk: dict, fam: str) -> bool:
+    """A closing row PASS by the probability floor with exec >= 4 at the close (ARCHITECT 2026-10-26 12:05 ET, #690;
+    RULING_FLOOR). The Desk writes pass_kind "floor" for the edge floor too (desk_policy.desk_call), so the two are told
+    apart by the probability: the pick's model_p under the family's own pMin (desk_policy.POLICY: SOCCER and INTL 0.50;
+    a family with no probability floor has none). exec >= 4 is the Desk's own exec_clears on desk.exec.edge_pp at basis
+    taker; an unknown edge is never read into it (law 4)."""
+    if desk.get("engine") != "model_edge" or desk.get("call") != "PASS" or desk.get("pass_kind") != "floor":
+        return False                                       # a venue-engine PASS is never the probability floor
+    p_min = (desk_policy.POLICY.get(fam) or desk_policy.POLICY["DEFAULT"]).get("pMin", 0) or 0
+    mp = desk.get("model_p")
+    if (not p_min or isinstance(mp, bool) or not isinstance(mp, (int, float)) or not math.isfinite(mp)
+            or not mp < p_min):                            # a non-finite probability is never read in (Codex on #717)
+        return False
+    ex = desk.get("exec") if isinstance(desk.get("exec"), dict) else None
+    return bool(ex) and ex.get("basis") == "taker" and cohort_of(ex.get("edge_pp")) == GE4
+
+
+def floor_result_of(m, pick, fam: str) -> str:
+    """The floor-blocked row's result. INTL is graded on the 90-minute result (Codex on #717), the stream's own rule
+    (intl_shadow.result_90): the 90-minute score, else the score of a FT row; an AET / PEN game with no 90-minute
+    score is never graded (open, law 4). Every other family reads result_of, as the PLAY cells do."""
+    if fam != "INTL" or m.status in VOID or m.status != MatchStatus.FINISHED:
+        return result_of(m, pick)
+    from src.walters.intl_shadow import result_90
+    r = result_90(m)
+    if r is None or pick not in ("HOME", "DRAW", "AWAY"):
+        return "open"
+    return "win" if {"H": "HOME", "D": "DRAW", "A": "AWAY"}[r] == pick else "loss"
+
+
 def _within(entries, current) -> list:
     """The entries whose recorded start is within the Desk's clock drift of the match's current start."""
     cur = as_utc(current)
@@ -166,6 +209,7 @@ def tally(exports_dir) -> dict:
     fams = set(cr.get("families") or ())
     cells: dict = {}
     left: dict = {}
+    floor: dict = {}
     pooled = {"graded": 0, "before": 0, "undated": 0}
     with session_scope() as s:
         for mid in sorted(cr["rows"]):
@@ -198,6 +242,30 @@ def tally(exports_dir) -> dict:
                 else:
                     out["ladder_priced"][cohort_of(le)] += 1
                     out["ladder_edges"].append(float(le))
+                continue
+            if floor_blocked(desk, fam):                       # #690: its own line, never a PLAY cell
+                fb = floor.setdefault(fam, {**_cell(), "not_in_db": 0, "teams": 0, "redated": []})
+                if m is None:
+                    fb["not_in_db"] += 1
+                    continue
+                h = m.home_team.name if m.home_team else None
+                a = m.away_team.name if m.away_team else None
+                if (row.get("home_team"), row.get("away_team")) != (h, a):
+                    fb["teams"] += 1
+                    continue
+                if lab:
+                    fb["redated"].append(lab)                      # its label kept (Codex on #717)
+                    continue
+                res = floor_result_of(m, desk.get("pick"), fam)
+                fb["plays"] += 1
+                fb[{"win": "w", "loss": "l", "push": "p", "void": "void", "open": "open"}[res]] += 1
+                if res != "open":
+                    u = settle_units(desk_policy.BASE_UNITS, res, desk["exec"].get("cost"))
+                    if u is None:
+                        fb["unpriced"] += 1
+                    else:
+                        fb["units_sum"] += u
+                        fb["priced"] += 1
                 continue
             if call != "PLAY":
                 continue
@@ -237,7 +305,7 @@ def tally(exports_dir) -> dict:
                     c["priced"] += 1
         s.rollback()
     return {"files": cr["files"], "unreadable": cr["unreadable"], "runs": cr["runs"], "families": sorted(fams),
-            "cells": cells, "left_out": left, "cohort_graded": pooled["graded"], "cohort_before": pooled["before"],
+            "cells": cells, "left_out": left, "floor_blocked": floor, "cohort_graded": pooled["graded"], "cohort_before": pooled["before"],
             "cohort_undated": pooled["undated"]}
 
 
@@ -268,6 +336,25 @@ def _left_line(fam: str, out: dict) -> str:
     if out["void"]:
         items.append(f"void: {void_counts(out['void'])}")
     return f"- {fam} · left out: " + (", ".join(items) if items else "none")
+
+
+def _floor_line(fam: str, c: dict | None) -> str | None:
+    """The floor-blocked line (#690) of a family with a probability floor (desk_policy.POLICY pMin > 0), printed
+    whether or not a row qualifies: the floor is frozen and this line is its receipt. Notional at 1u (BASE_UNITS, the
+    size a PASS row's desk.exec is priced at) at desk.exec.cost; never pooled with a PLAY cell."""
+    p_min = (desk_policy.POLICY.get(fam) or desk_policy.POLICY["DEFAULT"]).get("pMin", 0) or 0
+    if not p_min:
+        return None
+    head = (f"- {fam} · PASS by floor, exec >= 4 (#690: the pick's model p under the {p_min:.2f} probability floor, "
+            f"exec >= 4 at the close; notional {desk_policy.BASE_UNITS}u at desk.exec.cost, never pooled; the floor is "
+            "frozen and this line is its receipt): ")
+    if not c or not (c["plays"] or c["not_in_db"] or c["teams"] or c["redated"]):
+        return head + "0"
+    lo = [f"{k} {c[v]}" for k, v in (("not in this DB", "not_in_db"), ("teams differ", "teams")) if c[v]]
+    if c["redated"]:
+        lo.append(f"void: {void_counts(c['redated'])}")
+    return (head + f"{c['plays']} · W-L-P {c['w']}-{c['l']}-{c['p']} · {_units_text(c)} · open {c['open']} · "
+            f"void {c['void']}" + (f" · left out: {', '.join(lo)}" if lo else ""))
 
 
 LADDER_TEXT = ("LADDER, the ordered NO leg priced, ungraded (#689: desk.ladder_exec, notional, never pooled with "
@@ -345,6 +432,8 @@ def section(t: dict, exports_dir) -> str:
             out.append(ll)
         if lo["void"]:
             out.append(f"- {fam} · void: {void_counts(lo['void'])}: " + "; ".join(lo["void"]))
+        if (fl := _floor_line(fam, (t.get("floor_blocked") or {}).get(fam))) is not None:
+            out.append(fl)
     out.append(_pooled(t))
     return "\n".join(out) + "\n"
 

@@ -164,6 +164,8 @@ FAMILIES_TEXT = (
     f"- SOCCER · {LE0}: PLAY 0\n"
     f"- SOCCER · {UNK}: PLAY 0\n"
     "- SOCCER · left out: none\n"
+    "- SOCCER · PASS by floor, exec >= 4 (#690: the pick's model p under the 0.50 probability floor, exec >= 4 at the "
+    "close; notional 1u at desk.exec.cost, never pooled; the floor is frozen and this line is its receipt): 0\n"
     f"{POOL} 0 of 30 — not read before n=30 · {BEFORE} 1\n")
 
 
@@ -657,3 +659,89 @@ def test_the_ladder_line_prices_the_no_leg_and_never_grades_or_pools_it(tmp_path
             "NO-leg exec edge +2.3pp; unpriced double chance for a draw pick is 1X or X2: no single contract to price 1, "
             "no ladder_exec block on the row 1\n") in txt
     assert "PLAY 1" not in txt and "W-L-P" not in txt
+
+
+
+# ---- #690 (ARCHITECT 2026-10-26 12:05 ET): "rows PASS by the 0.50 floor with exec >= 4 at the close [...] counted
+# notionally as "PASS by floor, exec >= 4", W-L and notional units, never pooled; the floor is frozen and this line is
+# its receipt." -------------------------------------------------------------------------------------------------------
+
+def floor_desk(model_p=0.47, edge=8.6, cost=0.42, pick="HOME", basis="taker", kind="floor"):
+    return {"engine": "model_edge", "call": "PASS", "units": 0, "pick": pick, "pass_kind": kind, "model_p": model_p,
+            "tags": [], "exec": {"edge_pp": edge, "cost": cost, "basis": basis}}
+
+
+def test_the_floor_blocked_line_counts_pass_by_the_probability_floor_with_exec_ge_4(tmp_path):
+    """Newcastle (10-25: +8.6, won) as the row: model p 0.47 under 0.50, exec +8.6 at the close, a home win: W-L 1-0,
+    +1u x (1/0.42 - 1). The edge floor (model p >= 0.50, pass_kind floor too), exec < 4, an unknown exec and a basis
+    other than taker are not in it; nothing enters a PLAY cell; MLB (no probability floor) prints no such line."""
+    _comps()
+    for mid, (h, a) in enumerate([("Newcastle", "Spurs"), ("A", "B"), ("C", "D"), ("E", "F"), ("G", "H"),
+                                  ("I", "J")], start=4601):
+        _match(mid, "PL", h, a, hs=2, aw=0)
+    write_closing(tmp_path / "exports", KO - timedelta(minutes=35), [
+        row(4601, "Newcastle", "Spurs", floor_desk()),
+        row(4602, "A", "B", floor_desk(model_p=0.55)),                 # the edge floor: never the probability floor
+        row(4603, "C", "D", floor_desk(edge=3.0)),                     # exec < 4
+        row(4604, "E", "F", floor_desk(edge=None)),                    # exec unknown: never read in
+        row(4605, "G", "H", floor_desk(basis="maker")),                # not the taker basis
+        row(4606, "I", "J", floor_desk(pick="AWAY")),                  # in the cohort: a loss
+    ], fam="SOCCER")
+    t = xc.tally(tmp_path / "exports")
+    fb = t["floor_blocked"]["SOCCER"]
+    assert (fb["plays"], fb["w"], fb["l"]) == (2, 1, 1)
+    assert fb["units_sum"] == pytest.approx((1 / 0.42 - 1) - 1)
+    txt = xc.section(t, tmp_path / "exports")
+    assert ("- SOCCER · PASS by floor, exec >= 4 (#690: the pick's model p under the 0.50 probability floor, exec >= 4 "
+            "at the close; notional 1u at desk.exec.cost, never pooled; the floor is frozen and this line is its "
+            f"receipt): 2 · W-L-P 1-1-0 · {(1 / 0.42 - 1) - 1:+.2f}u · open 0 · void 0\n") in txt
+    assert "PLAY 1" not in txt and "PLAY 2" not in txt
+    assert "MLB · PASS by floor" not in txt
+
+
+def test_a_family_without_a_probability_floor_has_no_floor_blocked_rows():
+    assert not xc.floor_blocked(floor_desk(), "NFL") and not xc.floor_blocked(floor_desk(), "MLB")
+    assert xc.floor_blocked(floor_desk(), "SOCCER") and xc.floor_blocked(floor_desk(), "INTL")
+    assert not xc.floor_blocked({**floor_desk(), "model_p": True}, "SOCCER")      # a bool is not a probability
+    assert not xc.floor_blocked({**floor_desk(), "call": "PLAY"}, "SOCCER")
+
+
+def test_codex_round_1_on_717_intl_90_minutes_labels_kept_finite_p_and_the_model_engine(tmp_path):
+    """Codex on #717: (1) an INTL floor row is graded on the 90-minute result, and an AET game without a 90-minute
+    score stays open; (2) a re-dated and a placeholder-kickoff exclusion keep their own labels; (3) a non-finite
+    model_p is never read in; and a venue-engine PASS is never the probability floor."""
+    from src.db.database import session_scope
+    from src.db.schema import Competition, Match, Team
+    _comps()
+    with session_scope() as s:
+        c = Competition(sport=Sport.SOCCER, code="UNL", name="UNL", area="I", type="INTL")
+        s.add(c)
+        s.flush()
+
+        def m(mid, raw, ft, s90):
+            h, a = Team(sport=Sport.SOCCER, name=f"H{mid}"), Team(sport=Sport.SOCCER, name=f"A{mid}")
+            s.add_all([h, a])
+            s.flush()
+            s.add(Match(id=mid, sport=Sport.SOCCER, competition_id=c.id, season="2026/27", utc_date=KO,
+                        status=MatchStatus.FINISHED, status_raw=raw, home_team_id=h.id, away_team_id=a.id,
+                        home_score=ft[0], away_score=ft[1], home_score_90=s90[0] if s90 else None,
+                        away_score_90=s90[1] if s90 else None, full_time_result=Result.HOME if ft[0] > ft[1] else
+                        Result.AWAY if ft[0] < ft[1] else Result.DRAW))
+        m(4701, "AET", (2, 1), (1, 1))          # a 90-minute draw, won in extra time: the HOME pick LOSES
+        m(4702, "PEN", (1, 1), None)            # no 90-minute score: never graded
+    write_closing(tmp_path / "ix", KO - timedelta(minutes=35),
+                  [row(4701, "H4701", "A4701", floor_desk()), row(4702, "H4702", "A4702", floor_desk())], fam="INTL")
+    fb = xc.tally(tmp_path / "ix")["floor_blocked"]["INTL"]
+    assert (fb["plays"], fb["w"], fb["l"], fb["open"]) == (2, 0, 1, 1)
+    # (2) labels: one row re-dated three days, one on the 04:00Z placeholder
+    for mid, (h, a) in ((4801, ("R1", "R2")), (4802, ("P1", "P2"))):
+        _match(mid, "PL", h, a, hs=1, aw=0)
+    write_closing(tmp_path / "lx", KO - timedelta(days=3), [
+        row(4801, "R1", "R2", floor_desk(), ko=KO - timedelta(days=3)),
+        row(4802, "P1", "P2", floor_desk(), ko=datetime(KO.year, KO.month, KO.day, 4, 0))], fam="SOCCER")
+    txt = _section(tmp_path / "lx")
+    assert "left out: void: re-dated 1 · placeholder kickoff 1" in txt
+    # (3) a non-finite probability and a venue-engine row
+    assert not xc.floor_blocked({**floor_desk(), "model_p": float("-inf")}, "SOCCER")
+    assert not xc.floor_blocked({**floor_desk(), "model_p": float("nan")}, "SOCCER")
+    assert not xc.floor_blocked({**floor_desk(), "engine": "venue_edge"}, "SOCCER")

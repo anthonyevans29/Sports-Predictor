@@ -105,7 +105,11 @@ def season_receipt(season: int, fetch: Fetch) -> dict:
     out = {"season": season, "stages": defaultdict(Counter), "status": Counter(), "fields": Counter(),
            "field_missing": Counter(), "lines": 0, "no_attempts": 0, "join": Counter(), "join_top": Counter(),
            "left": [], "teams": set()}
-    games = fetch("games", season, "list", "games", league=probe.LEAGUE, season=season)
+    try:
+        games = fetch("games", season, "list", "games", league=probe.LEAGUE, season=season)
+    except Capped as e:                                 # the cap reached at a season's boundary: stop cleanly (Codex)
+        out["left"].append(str(e))
+        return out
     finished = []
     for r in games:
         p = probe.parsed(r)
@@ -165,7 +169,11 @@ def season_receipt(season: int, fetch: Fetch) -> dict:
             roster_of[pid].add(tid)
     for gid, (sg, sides) in lines_by_game.items():
         for tid, pl in sides.items():
-            top = max(range(len(pl)), key=lambda i: probe.attempts(pl[i][1]) or -1)
+            # the most-attempts quarterback among the lines whose attempts read (0 is a read); none readable: no pick
+            read = [(probe.attempts(st), i) for i, (_p, st) in enumerate(pl) if probe.attempts(st) is not None]
+            top = max(read)[1] if read else None
+            if top is None:
+                out["join_top"]["no attempts read (no most-attempts quarterback)"] += 1
             for i, (player, stats) in enumerate(pl):
                 pid = player.get("id") if isinstance(player, dict) else None
                 k = ("no player id" if pid is None else "no roster read for the team" if tid not in rosters

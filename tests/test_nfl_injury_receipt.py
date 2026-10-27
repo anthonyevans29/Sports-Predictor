@@ -95,3 +95,26 @@ def test_live_reads_raw_taken_retained_and_unresolved_without_a_lookup(tmp_path)
 def test_live_payloads_are_refused_under_data(tmp_path):
     with pytest.raises(SystemExit, match="under data/"):
         run(tmp_path, "--live", "--save", str(ROOT / "data" / "x"), get=lambda *a, **k: (200, {}, []))
+
+
+def test_a_closing_with_no_start_reads_the_file_name_and_failed_live_reads_are_not_empty(tmp_path):
+    """Codex on #710: a closing file with no closing.start takes the name's stamp (redated.closing_rows' fallback);
+    /teams's wrapped records are read; a failed read is counted as failed, never as an empty answer."""
+    ex, rec = world(tmp_path)
+    (ex / "closing_NFL_2026-10-19T1700Z.json").write_text(json.dumps({
+        "closing": {"family": "NFL", "run_id": "r3"},
+        "predictions": [_row("Buffalo Bills", "Miami Dolphins", _side(2), _side(1))]}))
+
+    def get(path, **p):
+        if path == "teams":
+            return 200, {}, [{"team": {"id": 9, "name": "Bills"}}]
+        if path == "players":
+            return 200, {}, [{"id": 90, "position": "QB"}]
+        return 500, {"request": "Timeout"}, []
+    out = []
+    assert nir.main(["--exports", str(ex), "--receipts", str(rec), "--live", "--save", str(tmp_path / "pay")],
+                    echo=out.append, get=get) == 0
+    out = "\n".join(out)
+    assert "C closing_NFL_2026-10-19T1700Z.json · start 2026-10-19 17:00Z · run r3" in out
+    assert "9 Bills: raw 0 · taken 0 · retained 0 · positions unresolved 0 · injuries read FAILED" in out
+    assert "teams answering empty 0 · rosters empty 0 · injuries reads failed 1 · roster reads failed 0" in out

@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import statistics
 import sys
 from collections import Counter
@@ -76,7 +77,13 @@ def closings(exports: Path, since: datetime) -> list[dict]:
         if fam != FAMILY:
             continue
         start = _utc(block.get("start"))
-        if start is not None and start < since:
+        if start is None:                     # the closing reader's fallback: the file name's stamp (Codex on #710)
+            m = re.search(r"_(\d{4}-\d{2}-\d{2}T\d{4})Z?\.json$", p.name)
+            start = datetime.strptime(m.group(1), "%Y-%m-%dT%H%M") if m else None
+        if start is None:
+            out.append({"file": p.name, "unreadable": True})
+            continue
+        if start < since:
             continue
         out.append({"file": p.name, "start": start, "run_id": block.get("run_id"),
                     "rows": [r for r in doc.get("predictions") or [] if isinstance(r, dict)]})
@@ -168,7 +175,8 @@ def live(save: Path, season: int, get=None) -> list[str]:
     keep(f"teams_{season}", teams)
     L = [f"  L live read, season {season}: /teams answered {len(teams)} team(s) (HTTP {code}{', errors ' + str(errs) if errs else ''})"]
     tot = Counter()
-    for t in sorted((x for x in teams if isinstance(x, dict) and x.get("id") is not None), key=lambda x: str(x["id"])):
+    flat = [(x.get("team") if isinstance(x.get("team"), dict) else x) for x in teams if isinstance(x, dict)]
+    for t in sorted((x for x in flat if x.get("id") is not None), key=lambda x: str(x["id"])):   # flat or wrapped
         tid, name = t["id"], t.get("name")
         _, rerrs, roster = get("players", team=tid, season=season)
         _, ierrs, items = get("injuries", team=tid)
@@ -178,14 +186,18 @@ def live(save: Path, season: int, get=None) -> list[str]:
         entries = injury_entries([i for i in items if isinstance(i, dict) and isinstance(i.get("player"), dict)])
         named = [e for e in entries if (e[0]["player"].get("name") or "").strip()]
         unres = [e[0]["player"]["name"] for e in named if resolve_position(e[0]["player"], idx, by_name=e[1])[0] is None]
+        # a failed read is counted as failed, never as an empty answer (Codex on #710)
         tot.update(raw=len(items), taken=len(entries), retained=len(named), unresolved=len(unres),
-                   empty=0 if items else 1, roster_empty=0 if roster else 1)
+                   empty=0 if items or ierrs else 1, roster_empty=0 if roster or rerrs else 1,
+                   injuries_failed=1 if ierrs else 0, roster_failed=1 if rerrs else 0)
         L.append(f"      {tid} {name}: raw {len(items)} · taken {len(entries)} · retained {len(named)} · positions "
                  f"unresolved {len(unres)}" + (f" ({', '.join(unres)})" if unres else "") +
-                 (" · roster EMPTY" if not roster else "") + (f" · errors {rerrs or ierrs}" if rerrs or ierrs else ""))
+                 (" · roster EMPTY" if not roster and not rerrs else "") +
+                 (f" · roster read FAILED {rerrs}" if rerrs else "") + (f" · injuries read FAILED {ierrs}" if ierrs else ""))
     L.append(f"    live totals: raw {tot['raw']} · taken {tot['taken']} · retained {tot['retained']} · positions "
              f"unresolved {tot['unresolved']} · teams answering empty {tot['empty']} · rosters empty "
-             f"{tot['roster_empty']}")
+             f"{tot['roster_empty']} · injuries reads failed {tot['injuries_failed']} · roster reads failed "
+             f"{tot['roster_failed']}")
     return L
 
 

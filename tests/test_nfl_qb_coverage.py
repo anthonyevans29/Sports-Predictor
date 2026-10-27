@@ -85,3 +85,20 @@ def test_a_rerun_reads_the_kept_payloads_and_a_cap_stops_cleanly(tmp_path):
 def test_the_cache_is_refused_under_data(tmp_path):
     with pytest.raises(SystemExit, match="under data/"):
         qbc.main(["--save", str(ROOT / "data" / "x")], echo=lambda *_: None, get=fake([]))
+
+
+def test_a_cap_at_a_season_boundary_stops_cleanly_and_unreadable_attempts_make_no_pick(tmp_path, monkeypatch):
+    """Codex on #710: the cap reached at the next season's list ends cleanly (no traceback); a team-game whose lines
+    read no attempts has no most-attempts quarterback (counted, never the first line), and 0 attempts is a read."""
+    out, calls = run(tmp_path, "--max-calls", "6")                 # season 2025 uses all six calls
+    out2 = []
+    assert qbc.main(["--seasons", "2025,2026", "--save", str(tmp_path / "pay"), "--max-calls", "0"],
+                    echo=out2.append, get=fake([])) == 0
+    assert "LEFT at the call cap (0)" in "\n".join(out2) and "SUMMARY 2026" in "\n".join(out2)
+    monkeypatch.setitem(STATS, 11, [_team(1, [{"player": {"id": 104}, "statistics": [{"name": "yards", "value": "9"}]},
+                                              _p(105, "0/0")])])
+    monkeypatch.setitem(STATS, 10, [_team(1, [{"player": {"id": 106}, "statistics": [{"name": "yards", "value": "3"}]}])])
+    out, _ = run(tmp_path / "b")
+    assert "no attempts read (no most-attempts quarterback) 1" in out          # game 10: nothing readable
+    assert "the most-attempts quarterback per team-game (OUR READ): no attempts read (no most-attempts " \
+           "quarterback) 1 · no roster 1" in out                               # game 11: 105 (0/0) is the pick

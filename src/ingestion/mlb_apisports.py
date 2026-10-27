@@ -283,7 +283,10 @@ def sync_matches(client, season: str, date_from: str | None = None, date_to: str
                                                   Match.season == str(season))).scalars())
         by_ext = {str((m.external_ids or {}).get(SOURCE)): m for m in rows if (m.external_ids or {}).get(SOURCE)}
         # Our rows not yet keyed to the provider (statsapi-origin): pair them by the probe's rule.
+        # A STALE_ORPHAN row is never a fixture: it is never paired (#569, the MLB twins dedupe: a retired twin hands
+        # its provider id to the kept row and must not be linked back); a stored key still finds it, as before.
         unlinked = [m for m in rows if not (m.external_ids or {}).get(SOURCE)
+                    and m.status != MatchStatus.STALE_ORPHAN
                     and in_window({"utc": m.utc_date}, date_from, date_to)]
         ours = [{"id": m.id, "utc": m.utc_date, "home": m.home_team.name, "away": m.away_team.name,
                  "stage": m.stage, "home_score": m.home_score, "away_score": m.away_score} for m in unlinked]

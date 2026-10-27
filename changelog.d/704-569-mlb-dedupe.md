@@ -7,5 +7,8 @@
 - --apply (with --backup and --gamepks naming the groups, under the chains' DB lock): the other row becomes STALE_ORPHAN, its references re-pointed; nothing is deleted.
   - Its mlb_stats_api id moves to mlb_stats_api_prev, so the sync's gamePk lookup finds the kept row only.
   - Rows of other tables move only where the kept row holds none; the retired row keeps its own otherwise, counted.
+- Which database (ARCHITECT 2026-10-27, addendum 169 item 3(c)): "both, laptop first (the MLB record), the host second under its lock, each after its backup; the dry run on each is pasted before the write".
+  - For the host: the retired row's `api_baseball` id (the api-sports fallback's key) moves to `api_baseball_prev`, and the kept row takes it when it holds none.
+  - src/ingestion/mlb_apisports.py `sync_matches`: the fallback never pairs a STALE_ORPHAN row (its first-come pairing could link a retired twin stored first); a stored key still finds a row, as before.
 - src/walters/training.py `evaluate_finished`: a prediction carrying factor_breakdown.dedupe_569 (class 2's predictions of a game already played, re-pointed) is never graded, as (c) rules.
 - docs/CLI.md: the command's row. Tests: tests/test_mlb_twins.py (each class, the refusals, the dry run writes nothing, the apply deletes nothing, a marked prediction is not graded, the command's refusals). No bar moves; nothing is applied before the architect's read.

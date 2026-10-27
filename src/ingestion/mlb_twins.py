@@ -41,7 +41,11 @@ The readings built here (each stated in the PR for the architect):
     row's own stays on it, counted and printed. Nothing is deleted.
   * THE RETIRED ROW: status STALE_ORPHAN; its mlb_stats_api id leaves the key (a sync looks the gamePk up by it and
     must find the kept row only) for mlb_stats_api_prev, with mlb_stats_api_merged_into (the kept id) and
-    mlb_stats_api_deduped_at. The kept row records mlb_stats_api_merged_from.
+    mlb_stats_api_deduped_at. The kept row records mlb_stats_api_merged_from. THE HOST (ARCHITECT 2026-10-27, addendum
+    169 item 3(c): "both, laptop first (the MLB record), the host second under its lock"): the api-sports fallback
+    looks a game up by external_ids["api_baseball"], so the retired row's api_baseball id moves the same way, to
+    api_baseball_prev, and the kept row takes it when it holds none; the fallback never pairs a STALE_ORPHAN row
+    (mlb_apisports.sync_matches).
   * CLASS 2's PREDICTIONS: each prediction re-pointed from the SCHEDULED copy carries factor_breakdown["dedupe_569"]
     ({from_match, into, computed_at, kickoff}); evaluate_finished never grades a prediction carrying it (training.py).
     The receipt line counts them and their history rows.
@@ -62,6 +66,7 @@ DEDUPED_AT = f"{SOURCE}_deduped_at"
 MARK = "dedupe_569"                 # factor_breakdown key: a prediction of a game already played, never graded
 REFERENCES = ("odds", "odds_snapshots", "predictions", "prediction_history", "kalshi_settled_markets")
 ALWAYS_MOVE = REFERENCES + ("pitcher_appearances", "umpire_games")
+OTHER_IDS = ("api_baseball",)      # the host's api-sports fallback id (mlb_apisports.SOURCE): moves with the gamePk
 STATE = ("utc_date", "status", "status_raw", "home_score", "away_score", "full_time_result")
 
 
@@ -257,6 +262,11 @@ def merge(s, tables, g: dict, at: str) -> dict:
     ext_o[PREV] = sorted({*(ext_o.get(PREV) or []), str(pk)})
     ext_o[MERGED_INTO], ext_o[DEDUPED_AT] = kept.id, at
     ext_k[MERGED_FROM] = sorted({*(ext_k.get(MERGED_FROM) or []), other.id})
+    for key in OTHER_IDS:                          # the host's fallback looks a game up by its own id (addendum 169 3(c))
+        v = ext_o.pop(key, None)
+        if v is not None:
+            ext_o[f"{key}_prev"] = sorted({*(ext_o.get(f"{key}_prev") or []), str(v)})
+            ext_k.setdefault(key, v)
     other.external_ids, kept.external_ids = ext_o, ext_k
     other.status = MatchStatus.STALE_ORPHAN
     s.flush()

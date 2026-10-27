@@ -217,3 +217,20 @@ def test_the_apply_reads_back_the_training_set_it_leaves(db, tmp_path, monkeypat
     assert r.exit_code == 0, r.output
     assert "before -> after: 2025 12 -> 11 · 2026 3 -> 2" in r.output        # the plan, every group
     assert "after this apply (read back): 2025 12 -> 12 · 2026 3 -> 2" in r.output
+
+
+def test_the_host_fallback_id_moves_to_the_kept_row(db, tmp_path, monkeypatch):
+    """Addendum 169 item 3(c): the host runs the dedupe too, and its api-sports fallback looks a game up by
+    api_baseball: the retired row hands its id to the kept row (which held none) and keeps it only as history."""
+    import cli
+    from src.db.database import session_scope
+    from src.db.schema import Match
+    monkeypatch.setattr(cli, "_verify_backup", lambda path, table, model: path)
+    with session_scope() as s:
+        m = s.get(Match, 3945)
+        m.external_ids = {**m.external_ids, "api_baseball": "41"}
+    assert run_cli("--apply", "--backup", str(tmp_path / "b.db"), "--gamepks", "824621").exit_code == 0
+    with session_scope() as s:
+        kept, other = s.get(Match, 3940), s.get(Match, 3945)
+        assert kept.external_ids["api_baseball"] == "41"
+        assert "api_baseball" not in other.external_ids and other.external_ids["api_baseball_prev"] == ["41"]

@@ -149,3 +149,69 @@ def test_a_stage_not_identified_stays_out_of_the_gate(tmp_path, monkeypatch):
         assert "1/2 = 50.0% · MEETS" in out
     finally:
         GAMES[1] = kept
+
+
+# ---- #712 items 1 and 2 (ARCHITECT 2026-10-27 13:45 ET: "fixed in ONE small PR before the receipt runs") ----------
+
+def test_a_field_absent_from_a_whole_season_is_on_its_field_line(tmp_path):
+    """Item 1: the field universe is every field any season of the run sends; a season that sends none of a field
+    lists it "on 0, ABSENT", never leaves it off (sack yards decide ANY/A against NY/A0, spec 3.1)."""
+    g26 = [_row(20, 500, "FT")]
+    s26 = {20: [_team(1, [_p(101, "20/30")]), _team(2, [_p(201, "18/25")])]}          # no 'sacks' on any line
+
+    def get(path, **p):
+        if path == "games":
+            return 200, {}, (g26 if p["season"] == 2026 else GAMES)
+        if path == "games/statistics/players":
+            return 200, {}, (s26 if p["id"] == 20 else STATS).get(p["id"], [])
+        return fake([])(path, **p)
+    out = []
+    assert qbc.main(["--seasons", "2025,2026", "--save", str(tmp_path / "pay")], echo=out.append, get=get) == 0
+    out = "\n".join(out)
+    s25, s26_text = out.split("== season 2026", 1)
+    assert "'sacks' on 1, missing/empty 3" in s25
+    assert "'sacks' on 0, ABSENT from the whole season (2 lines)" in s26_text
+    assert "field universe (#712 item 1): 3 passing field(s)" in out
+
+
+def test_a_finished_game_the_parse_drops_makes_the_gate_incomplete(tmp_path):
+    """Item 2: a regular-season row the provider marks FT but the adapter's parse cannot read (no kickoff) is named
+    and makes the gate INCOMPLETE; an all-star exhibition is the adapter's exclusion, counted apart, never a gap; a
+    dropped row not marked finished is neither."""
+    bad = _row(14, 0, "FT")
+    bad["game"]["date"] = {}                                               # no kickoff: the parse drops it
+    star = _row(15, 600, "FT", home=(31, "AFC"), away=(32, "NFC"), stage="Post Season")
+    ns = _row(16, 0, "NS")
+    ns["game"]["date"] = {}
+    rows = GAMES + [bad, star, ns]
+
+    def get(path, **p):
+        return (200, {}, rows) if path == "games" else fake([])(path, **p)
+    out = []
+    assert qbc.main(["--seasons", "2025", "--save", str(tmp_path / "pay")], echo=out.append, get=get) == 0
+    out = "\n".join(out)
+    assert "FINISHED BUT DROPPED by the adapter's parse 1 (no statistics read; the gate cannot check them): game 14" in out
+    assert "non-competitive, excluded by the adapter (all-star side 'AFC'): 1 (not in the gate)" in out
+    assert "1/2 = 50.0% · INCOMPLETE (1 finished game(s) dropped by the parse)" in out
+
+
+
+def test_an_absence_is_never_claimed_for_a_season_whose_reads_are_incomplete(tmp_path):
+    """Codex on #713: when a season's statistics reads are incomplete (a failed read here), a field the season's read
+    lines lack is UNKNOWN for the season, never ABSENT from the whole season."""
+    g26 = [_row(20, 500, "FT"), _row(21, 600, "FT")]
+    s26 = {20: [_team(1, [_p(101, "20/30")]), _team(2, [_p(201, "18/25")])]}
+
+    def get(path, **p):
+        if path == "games":
+            return 200, {}, (g26 if p["season"] == 2026 else GAMES)
+        if path == "games/statistics/players":
+            if p["id"] == 21:
+                return 500, {}, []
+            return 200, {}, (s26 if p["id"] == 20 else STATS).get(p["id"], [])
+        return fake([])(path, **p)
+    out = []
+    assert qbc.main(["--seasons", "2025,2026", "--save", str(tmp_path / "pay")], echo=out.append, get=get) == 0
+    s26_text = "\n".join(out).split("== season 2026", 1)[1]
+    assert "'sacks' on 0 of the 2 lines read, UNKNOWN for the season (reads incomplete)" in s26_text
+    assert "ABSENT" not in s26_text

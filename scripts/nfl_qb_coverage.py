@@ -38,6 +38,7 @@ Paste the whole output to the architect.
 from __future__ import annotations
 
 import argparse
+import html
 import importlib.util
 import json
 import os
@@ -51,6 +52,7 @@ _spec = importlib.util.spec_from_file_location("nfl_qb_probe", ROOT / "scripts" 
 probe = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(probe)
 
+from src.adapters import api_american_football as aaf  # noqa: E402
 from src.db.schema import MatchStatus  # noqa: E402
 
 DEFAULT_SEASONS = [2023, 2024, 2025, 2026]
@@ -113,6 +115,25 @@ def _in_gate(stage: str) -> bool | None:
     return True if n in GATE_STAGES else False if n == "preseason" else None
 
 
+def _dropped(row) -> str | None:
+    """Why the adapter's parse dropped a listed row (ARCHITECT 2026-10-27 13:45 ET, #712 item 2): "finished" when
+    the provider marks it finished (a short the adapter maps to FINISHED, or no status claim with both totals, the
+    adapter's own score-presence rule) but the parse could not read it (no id, kickoff or team id), which the gate
+    cannot check and so makes the gate line INCOMPLETE; the adapter's own exclusion reason for an all-star
+    exhibition, by design, never counted; None otherwise (a game not finished)."""
+    g = probe._game(row)
+    t = (row.get("teams") or {}) if isinstance(row, dict) else {}
+    why = aaf._non_competitive(g.get("week"), g.get("stage"),
+                               team_names=tuple(html.unescape(str((t.get(s) or {}).get("name") or ""))
+                                                for s in ("home", "away")))
+    if why:
+        return f"non-competitive, excluded by the adapter ({why})"
+    short = probe.game_status(row)
+    if aaf._STATUS.get(short) == MatchStatus.FINISHED or probe._no_status_both_totals(row):
+        return "finished"
+    return None
+
+
 def _team_ids(row) -> tuple:
     t = (row.get("teams") or {}) if isinstance(row, dict) else {}
     return tuple((t.get(side) or {}).get("id") for side in ("home", "away"))
@@ -125,7 +146,7 @@ def _empty(v) -> bool:
 def season_receipt(season: int, fetch: Fetch) -> dict:
     out = {"season": season, "stages": defaultdict(Counter), "status": Counter(), "fields": Counter(),
            "field_missing": Counter(), "lines": 0, "no_attempts": 0, "join": Counter(), "join_top": Counter(),
-           "left": [], "failed": [], "teams": set()}
+           "left": [], "failed": [], "dropped": [], "excluded": Counter(), "teams": set()}
     try:
         games = fetch("games", season, "list", "games", league=probe.LEAGUE, season=season)
     except Capped as e:                                 # the cap reached at a season's boundary: stop cleanly (Codex)
@@ -141,6 +162,13 @@ def season_receipt(season: int, fetch: Fetch) -> dict:
         sg = _stage(r)
         out["stages"][sg]["listed"] += 1
         out["status"][st] += 1
+        if p is None:
+            why = _dropped(r)
+            if why == "finished":                       # #712 item 2: a finished game the gate cannot check
+                out["stages"][sg]["finished, dropped by the parse"] += 1
+                out["dropped"].append(probe.game_label(r))
+            elif why:
+                out["excluded"][why] += 1
         out["teams"].update(t for t in _team_ids(r) if t is not None)
         if p and p[0] == MatchStatus.FINISHED and probe.game_id(r) is not None:
             out["stages"][sg]["finished"] += 1
@@ -221,7 +249,12 @@ def season_receipt(season: int, fetch: Fetch) -> dict:
     return out
 
 
-def lines(r: dict, fetch: Fetch) -> list[str]:
+def lines(r: dict, fetch: Fetch, universe=None) -> list[str]:
+    """The season's lines. `universe`: every passing field any season of the run sends (#712 item 1), so a field
+    absent from this whole season is still on its F line, "on 0" and absent, never left off."""
+    universe = sorted(set(universe or ()) | set(r["fields"]))
+    # a whole-season absence is claimed only when every finished game's statistics were read (Codex on #713)
+    partial = bool(r["left"] or r["failed"] or r["dropped"])
     s = r["season"]
     L = [f"\n== season {s}",
          "  G /games: by status " + " · ".join(f"{k} {v}" for k, v in sorted(r["status"].items()))]
@@ -231,11 +264,19 @@ def lines(r: dict, fetch: Fetch) -> list[str]:
                  + (f" · statistics read failed {c['statistics read failed']}" if c["statistics read failed"] else ""))
     L.append(f"  F passing lines {r['lines']} (no attempts read {r['no_attempts']}) · fields: "
              + (" · ".join(f"{nm!r} on {r['lines'] - r['field_missing'][nm]}, missing/empty {r['field_missing'][nm]}"
-                           for nm in sorted(r["fields"])) or "none"))
+                           if nm in r["fields"] else
+                           (f"{nm!r} on 0 of the {r['lines']} lines read, UNKNOWN for the season (reads incomplete)"
+                            if partial else f"{nm!r} on 0, ABSENT from the whole season ({r['lines']} lines)")
+                           for nm in universe) or "none"))
     L.append("  R roster join, every passing line: " + (" · ".join(f"{k} {v}" for k, v in sorted(r["join"].items()))
                                                      or "none"))
     L.append("    the most-attempts quarterback per team-game (OUR READ): "
              + (" · ".join(f"{k} {v}" for k, v in sorted(r["join_top"].items())) or "none"))
+    if r["dropped"]:
+        L.append(f"  FINISHED BUT DROPPED by the adapter's parse {len(r['dropped'])} (no statistics read; the gate "
+                 "cannot check them): " + "; ".join(r["dropped"][:10]) + (" …" if len(r["dropped"]) > 10 else ""))
+    for why, n in sorted(r["excluded"].items()):
+        L.append(f"  {why}: {n} (not in the gate)")
     if r["failed"]:
         L.append(f"  FAILED reads {len(r['failed'])} (kept out of every count; a re-run asks them again): "
                  + ", ".join(r["failed"][:10]) + (" …" if len(r["failed"]) > 10 else ""))
@@ -254,12 +295,17 @@ def lines(r: dict, fetch: Fetch) -> list[str]:
             gate.update(c)
         elif k is None:                                 # a stage not identified: never in the gate (Codex on #710)
             unknown.update(c)
-    if unknown["finished"]:
-        L.append(f"  stages not identified (missing or novel; not in the gate): finished {unknown['finished']}")
+    if unknown["finished"] or unknown["finished, dropped by the parse"]:
+        L.append(f"  stages not identified (missing or novel; not in the gate): finished {unknown['finished']}"
+                 + (f" · finished, dropped by the parse {unknown['finished, dropped by the parse']}"
+                    if unknown["finished, dropped by the parse"] else ""))
     incomplete = [x for x, on in (("capped: a re-run completes it", r["left"]),
                                   (f"{len(r['failed'])} read(s) failed: a re-run asks them again", r["failed"]),
-                                  (f"{unknown['finished']} finished game(s) of a stage not identified",
-                                   unknown["finished"])) if on]
+                                  (f"{unknown['finished'] + unknown['finished, dropped by the parse']} finished "
+                                   "game(s) of a stage not identified",
+                                   unknown["finished"] + unknown["finished, dropped by the parse"]),
+                                  (f"{gate['finished, dropped by the parse']} finished game(s) dropped by the parse",
+                                   gate["finished, dropped by the parse"])) if on]
     pct = gate["passing both teams"] / gate["finished"] if gate["finished"] else None
     L.append(f"  coverage gate {s} (regular season and postseason, both teams >= {GATE:.0%}): "
              f"{gate['passing both teams']}/{gate['finished']}"
@@ -287,8 +333,13 @@ def main(argv=None, echo=print, get=None) -> int:
     seasons = [int(x) for x in a.seasons.split(",") if x.strip()]
     echo(f"NFL QB COVERAGE RECEIPT (addendum 162 item 3(a), #427) · read-only, opens no database · league "
          f"{probe.LEAGUE} · seasons {seasons} · payloads kept in {save} · call cap {a.max_calls}")
-    for s in seasons:
-        for ln in lines(season_receipt(s, fetch), fetch):
+    results = [season_receipt(s, fetch) for s in seasons]
+    universe = set().union(*(r["fields"] for r in results)) if results else set()
+    echo(f"field universe (#712 item 1): {len(universe)} passing field(s) sent by some season of this run; each "
+         "season's F line lists every one. A field no season sends cannot be named here: sack yards are read from "
+         "the fields listed.")
+    for r in results:
+        for ln in lines(r, fetch, universe):
             echo(ln)
     echo(f"\ncalls made {fetch.calls} · answers read from the kept payloads {fetch.cached} · failed {len(fetch.failed)}"
          f" · answered with no rows {len(fetch.empty)}")

@@ -150,6 +150,9 @@ FAMILIES_TEXT = (
     f"- MLB · {LE0}: PLAY 1 · W-L-P 1-0-0 · +0.31u · open 0 · void 0\n"
     f"- MLB · {UNK}: PLAY 1 · W-L-P 0-0-0 · units — · open 1 · void 0\n"
     "- MLB · left out: LADDER 1 (no exec block by design)\n"
+    "- MLB · LADDER, the ordered NO leg priced, ungraded (#689: desk.ladder_exec, notional, never pooled with PLAY; no "
+    "call, units or floor reads it): 1 · priced 0: exec >= 4 0 · 0 < exec < 4 0 · exec <= 0 0; unpriced no ladder_exec "
+    "block on the row 1\n"
     "- NFL · exec >= 4: PLAY 1 · W-L-P 0-0-1 · +0.00u · open 0 · void 0\n"
     f"- NFL · {CLEAN}: PLAY 0\n"
     f"- NFL · {QB}: PLAY 1 · W-L-P 1-0-0 · +0.33u · open 0 · void 0\n"
@@ -631,3 +634,26 @@ def test_read_only_the_exports_and_the_db_are_untouched(tmp_path):
     before = snap()
     _section(ex)
     assert snap() == before
+
+
+def test_the_ladder_line_prices_the_no_leg_and_never_grades_or_pools_it(tmp_path):
+    """#689: the LADDER rows by desk.ladder_exec.edge_pp (exec >= 4, 0 < exec < 4, exec <= 0), the mean NO-leg edge,
+    the unpriced by why; no record, no units, and the PLAY cells are untouched."""
+    _comps()
+
+    def lad(edge, why=None, basis="taker"):
+        d = desk(call="LADDER", pick="AWAY", exec_=False)
+        d["ladder_exec"] = {"edge_pp": edge, "basis": basis if edge is not None else None, "why": why}
+        return d
+    write_closing(tmp_path / "exports", KO - timedelta(minutes=35),
+                  [row(4501, "A", "B", lad(6.0)), row(4502, "C", "D", lad(2.0)), row(4503, "E", "F", lad(-1.0)),
+                   row(4504, "G", "H", lad(None, why="double chance for a draw pick is 1X or X2: no single contract "
+                                                      "to price")),
+                   row(4505, "I", "J", desk(call="LADDER", pick="AWAY", exec_=False))])
+    txt = _section(tmp_path / "exports")
+    assert "- MLB · left out: LADDER 5 (no exec block by design)\n" in txt
+    assert ("- MLB · LADDER, the ordered NO leg priced, ungraded (#689: desk.ladder_exec, notional, never pooled with "
+            "PLAY; no call, units or floor reads it): 5 · priced 3: exec >= 4 1 · 0 < exec < 4 1 · exec <= 0 1 · mean "
+            "NO-leg exec edge +2.3pp; unpriced double chance for a draw pick is 1X or X2: no single contract to price 1, "
+            "no ladder_exec block on the row 1\n") in txt
+    assert "PLAY 1" not in txt and "W-L-P" not in txt

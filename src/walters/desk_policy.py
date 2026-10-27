@@ -1615,6 +1615,63 @@ def call_exec_block(r, c):
                       c["units"] if c.get("execUnits") and c["units"] else None)
 
 
+LADDER_EXEC_NOTE = ("informational (#689): the ordered NO leg's price; no call, no units and no floor read it, and "
+                    "desk.exec stays null for a LADDER")
+
+
+def ladder_exec_block(r, c):
+    """THE LADDER EXEC BLOCK (ARCHITECT 2026-10-26 12:05 ET, #689), verbatim: "Build the exec block for the ordered NO
+    leg, informational: it changes no call, no units, no floor." A LADDER on an away pick orders BUY NO on the HOME
+    contract (order_line, X2 = NOT HOME); this prices that order as call_exec_block prices a PLAY's: the NO ask
+    (1 - the HOME leg's yes bid) plus the taker fee at the order's own contract count (#87 v1.1 (h); the count at the
+    join price when the doctrine joins, as order_line writes it). model_p is the model's draw + away; market_p the
+    books' fair draw + away; edge_pp = (model_p - cost) x 100. A draw pick has no single contract (1X or X2), and a
+    leg with no ticker or no ask is unpriceable: each says why, never priced from another contract. None for every
+    row but a LADDER, and with the #87 addendum off (base_v11, the golden's policy)."""
+    if not EXEC_RULES["on"] or c["call"] != "LADDER":
+        return None
+    out = {"leg": "NO on HOME (X2 = not home)", "ticker": None, "model_p": None, "market_p": None, "bid": None,
+           "ask": None, "cost": None, "basis": None, "contracts": None, "edge_pp": None, "fee_clears": None,
+           "why": None, "informational": True, "note": LADDER_EXEC_NOTE}
+    if r["pick"] != "AWAY":
+        out["leg"] = None
+        out["why"] = "double chance for a draw pick is 1X or X2: no single contract to price"
+        return out
+    probs, fair = r.get("probsAll") or {}, r.get("fairAll") or {}
+    if probs.get("DRAW") is not None and probs.get("AWAY") is not None:
+        out["model_p"] = _num(probs["DRAW"] + probs["AWAY"])
+    if fair.get("DRAW") is not None and fair.get("AWAY") is not None:
+        out["market_p"] = _num(fair["DRAW"] + fair["AWAY"])
+    leg = ((r.get("src") or {}).get("kalshi_legs") or {}).get("HOME") or {}
+    if not leg.get("ticker"):
+        out["why"] = "no Kalshi ticker on file for the HOME leg (ladder = NO on HOME)"
+        return out
+    # the quotes normalized exactly as order_line normalizes them (cents first, then the NO mirror; Codex on #714),
+    # so a sub-cent yes quote prices the very limit the order writes
+    yb, ya = _c(leg.get("bid")), _c(leg.get("ask"))
+    bid = None if ya is None else _c(1 - ya)
+    ask = None if yb is None else _c(1 - yb)
+    out.update(ticker=leg["ticker"], bid=bid, ask=ask)
+    if ask is None or not (0 < ask < 1):
+        out["why"] = "no NO ask to take (the HOME leg has no yes bid)"
+        return out
+    n = order_contracts(c["units"], join_price(bid, ask) or ask)
+    if n is None:
+        out["why"] = f"{c['units']}u is under one contract at {ask:.2f}"
+        return out
+    from src.walters.venue import KALSHI_FEE_M, KALSHI_SERIES_BY_COMPETITION, kalshi_fee
+    fee = kalshi_fee(ask, KALSHI_FEE_M.get(KALSHI_SERIES_BY_COMPETITION.get(r.get("comp") or ""), (1.0, None))[0], n=n)
+    if fee is None:
+        out["why"] = "no taker fee for the NO ask"
+        return out
+    cost = round(ask + fee, 4)
+    e = None if out["model_p"] is None else (out["model_p"] - cost) * 100
+    out.update(cost=cost, basis="taker", contracts=n, edge_pp=_num(e), fee_clears=exec_clears(e))
+    if e is None:                                         # priced, but no model draw + away (Codex on #714)
+        out["why"] = "no model probability for draw + away (the row carries no draw probability): no edge"
+    return out
+
+
 def desk_block(r, c, v, ven) -> dict:
     """The per-row `desk` field (model rows: the call + any value shadow;
     market-only rows: the venue engine). Every row also carries `venue`, the
@@ -1643,6 +1700,9 @@ def desk_block(r, c, v, ven) -> dict:
            "order": (order_line(r, r["pick"], c["units"], ladder=(c["call"] == "LADDER"))
                      if c["call"] in ("PLAY", "LADDER") else None),
            "venue": venue_block(ven)}
+    lx = ladder_exec_block(r, c)
+    if lx is not None:                                    # #689: informational; desk.exec stays null for a LADDER
+        out["ladder_exec"] = lx
     if c.get("koHold"):                                   # Q3 K3: for the record only; nothing reads it as a call
         out["kalshi_only_hold"] = {k: _num(x) for k, x in c["koHold"].items()}
     if c.get("clockHold"):                                # addendum 72 item 1: both clocks, for the closing file

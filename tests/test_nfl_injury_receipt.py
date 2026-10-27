@@ -130,3 +130,25 @@ def test_a_closing_block_that_is_not_an_object_is_unreadable_and_the_rest_are_re
     out = "\n".join(out)
     assert "closing_NFL_2026-10-17T1700Z.json" in out and "closing_NFL_2026-10-17T1800Z.json" in out
     assert "C closing_NFL_2026-10-18T1700Z.json" in out and "C closing_NFL_2026-10-18T2025Z.json" in out
+
+
+def test_a_non_200_live_read_with_no_errors_is_failed_never_empty(tmp_path):
+    """#712 item 3 (ARCHITECT 2026-10-27 13:45 ET): HTTP 503 with an empty errors object is a FAILED read, for the
+    roster, the injuries and /teams alike, never an empty roster or an empty list."""
+    ex, rec = world(tmp_path)
+
+    def get(path, **p):
+        if path == "teams":
+            return 200, {}, [{"id": 9, "name": "Bills"}]
+        return 503, {}, []
+    out = []
+    assert nir.main(["--exports", str(ex), "--receipts", str(rec), "--live", "--save", str(tmp_path / "pay")],
+                    echo=out.append, get=get) == 0
+    out = "\n".join(out)
+    assert "9 Bills: raw 0 · taken 0 · retained 0 · positions unresolved 0 · roster read FAILED {'http': 503} · " \
+           "injuries read FAILED {'http': 503}" in out
+    assert "teams answering empty 0 · rosters empty 0 · injuries reads failed 1 · roster reads failed 1" in out
+    out2 = []
+    assert nir.main(["--exports", str(ex), "--receipts", str(rec), "--live", "--save", str(tmp_path / "pay2")],
+                    echo=out2.append, get=lambda path, **p: (502, {}, [])) == 0
+    assert "the /teams read FAILED: no team is read, never an empty league" in "\n".join(out2)

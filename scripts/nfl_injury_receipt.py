@@ -63,6 +63,11 @@ def _utc(v) -> datetime | None:
     return d.astimezone(timezone.utc).replace(tzinfo=None) if d.tzinfo else d
 
 
+def _failed(code, errs) -> bool:
+    """A live read failed: API errors, or any answer but HTTP 200 (ARCHITECT 2026-10-27 13:45 ET, #712 item 3)."""
+    return bool(errs) or code != 200
+
+
 def closings(exports: Path, since: datetime) -> list[dict]:
     """The NFL closing files, oldest first: {file, start, run_id, rows}."""
     out = []
@@ -175,13 +180,19 @@ def live(save: Path, season: int, get=None) -> list[str]:
 
     code, errs, teams = get("teams", league=probe.LEAGUE, season=season)
     keep(f"teams_{season}", teams)
-    L = [f"  L live read, season {season}: /teams answered {len(teams)} team(s) (HTTP {code}{', errors ' + str(errs) if errs else ''})"]
+    L = [f"  L live read, season {season}: /teams answered {len(teams)} team(s) (HTTP {code}{', errors ' + str(errs) if errs else ''})"
+         + (" · the /teams read FAILED: no team is read, never an empty league" if _failed(code, errs) else "")]
+    if _failed(code, errs):
+        return L
     tot = Counter()
     flat = [(x.get("team") if isinstance(x.get("team"), dict) else x) for x in teams if isinstance(x, dict)]
     for t in sorted((x for x in flat if x.get("id") is not None), key=lambda x: str(x["id"])):   # flat or wrapped
         tid, name = t["id"], t.get("name")
-        _, rerrs, roster = get("players", team=tid, season=season)
-        _, ierrs, items = get("injuries", team=tid)
+        rcode, rerrs, roster = get("players", team=tid, season=season)
+        icode, ierrs, items = get("injuries", team=tid)
+        # #712 item 3: a read is answered only as HTTP 200 with no errors; anything else is FAILED, never empty
+        rerrs = rerrs or ({} if rcode == 200 else {"http": rcode})
+        ierrs = ierrs or ({} if icode == 200 else {"http": icode})
         keep(f"roster_{tid}", roster)
         keep(f"injuries_{tid}", items)
         idx = roster_index(roster)

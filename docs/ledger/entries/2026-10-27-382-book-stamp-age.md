@@ -19,3 +19,7 @@
   - The Thanksgiving day games get their own slot.
   - With no stamp column, the header says games with no priced close stay (d).
   - The docstring says the database file is never written, though SQLite may create its WAL sidecars.
+- **Readings RULED (ARCHITECT 2026-10-27 17:35 ET, addendum 172):** items 1, 2, 4, 6 and 8 as built; item 5's slot tables approved as the receipt's own classifier, with no Desk field and no reader.
+  - Item 3: (d) stays in the denominator, labelled. ONE line is added: "the stamped share of book-priced games (a to c and stamped, d excluded), because the stale-book question is a question about book closes; the all-games share stays beside it." It was the only change asked, and it is built.
+  - Item 7: the run is the laptop's, from main after Wednesday's merge, mode=ro, `--exports exports`. One receipt, the laptop's, goes on #382.
+  - The per-family STALE_BOOK_H ruling follows the receipt, on #382.

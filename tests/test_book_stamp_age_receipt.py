@@ -101,6 +101,9 @@ def test_every_graded_game_is_in_the_denominator_with_its_cause(iso):
     assert nfl["games"] == 5 and nfl["stamped"] == 2
     assert nfl["unknown"] == {"a": 0, "b": 1, "c": 1, "d": 1}
     assert "== NFL: 5 graded game(s) · stamped 2 · unknown 3 · re-dated (kept out) 0" in text_
+    assert nfl["book_priced"] == 4                                            # addendum 172 item 3: (d) excluded
+    assert ("  stamped share: of book-priced games (unknown a to c and stamped; d excluded) 2 of 4 (50.0%) · "
+            "of all games (re-dated kept out) 2 of 5 (40.0%)") in text_
     assert "    12-24 h: 0 of 5 (unknowns in the denominator)" in text_
     assert "    6-12 h: 1 of 5 (unknowns in the denominator)" in text_ and "    24-48 h: 1 of 5" in text_
     assert "    more than STALE_BOOK_H (24 h, the code's switch): 1 of 5" in text_
@@ -249,3 +252,15 @@ def test_codex_round_1_on_720_teams_table_per_book_ages_and_the_column_per_table
     e2.dispose()
     monkeypatch.setattr(database, "SessionLocal", sessionmaker(bind=create_engine(f"sqlite:///{bare}"), future=True))
     assert bsa.main([]) == 2 and "has no teams" in capsys.readouterr().out
+
+
+def test_addendum_172_the_stamped_share_with_no_book_priced_game_reads_n_a(iso):
+    from src.db.database import session_scope
+    with session_scope() as s:
+        game(s, "nobook", SUN, books=())                                         # (d) only
+    text_, res = run()
+    assert res["NFL"]["book_priced"] == 0
+    assert ("stamped share: of book-priced games (unknown a to c and stamped; d excluded) 0 of 0 (n/a) · "
+            "of all games (re-dated kept out) 0 of 1 (0.0%)") in text_
+    assert ("stamped share: of book-priced games (unknown a to c and stamped; d excluded) 0 of 0 (n/a) · "
+            "of all games (re-dated kept out) 0 of 0 (n/a)") in text_         # the PL section, no game

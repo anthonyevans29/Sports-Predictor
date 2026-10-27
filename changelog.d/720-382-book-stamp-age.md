@@ -8,5 +8,6 @@
   - **By book:** only where bookmaker-level rows were retained, with the multi-stamp count.
   - `--exports` keeps re-dated games out, listed. A JSON line closes it.
 - Codex round 1 on #720: the teams table is in the required-table check; each book's age is read from its own rows; the stamp column is checked on the close's own table (odds or odds_snapshots).
+- Addendum 172 item 3 (ARCHITECT 2026-10-27 17:35 ET): one line adds the stamped share of book-priced games (unknown a to c and stamped; d excluded), with the all-games share beside it.
 - docs/CLI.md: the row.
 - Tests: tests/test_book_stamp_age_receipt.py (new). No bar moves; nothing written; `STALE_BOOK_H` unchanged.

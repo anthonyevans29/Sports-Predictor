@@ -36,6 +36,8 @@ read-only connection cannot remove. Nothing else is written.
   - (b) a priced book close whose rows carry no stamp (rows written before the migration or before #629);
   - (c) a priced book close whose rows are partly stamped (oldest_source_time reads any unknown row as unknown);
   - (d) no priced book close at all (no pre-kickoff book session, an incomplete outcome set, or a PL kalshi_only close).
+  One line prints the stamped share of the book-priced games (a to c and stamped; d excluded: the stale-book question
+  is about book closes), with the share of all games beside it (ARCHITECT 2026-10-27 17:35 ET, addendum 172 item 3).
   A game re-dated by the closing files (with --exports, redated.void_label) is listed and kept out of the distribution,
   counted; without --exports the receipt says re-dates are unlabelled.
 - BY KICKOFF SLOT (no slot classifier exists in the code; this one is Code's, printed for the architect's approval):
@@ -204,6 +206,10 @@ def _dist_text(d: dict) -> str:
             + f" · max {d['max']:.2f} (hours before the stored kickoff)")
 
 
+def _share(k: int, n: int) -> str:
+    return f"{k} of {n} ({100 * k / n:.1f}%)" if n else f"{k} of 0 (n/a)"
+
+
 def family_report(recs: list, family: str, void: list, echo) -> dict:
     from src.walters.close import STALE_BOOK_H
     n = len(recs) + len(void)
@@ -217,10 +223,12 @@ def family_report(recs: list, family: str, void: list, echo) -> dict:
         echo(f"  unknown {name}: {unk[k]}")
     for v in void:
         echo(f"  re-dated, kept out: {v}")
+    den, priced_n = len(recs), len(recs) - unk["d"]
+    echo(f"  stamped share: of book-priced games (unknown a to c and stamped; d excluded) "
+         f"{_share(len(stamped), priced_n)} · of all games (re-dated kept out) {_share(len(stamped), den)}")
     first = min((r["kickoff"] for r in stamped), default=None)
     echo(f"  first stamped kickoff: {first:%Y-%m-%d %H:%M}Z" if first else "  first stamped kickoff: none")
     echo(f"  provider-stamp age (a lower bound on quote age): {_dist_text(d)}")
-    den = len(recs)
     for _lo, _hi, name in BUCKETS:
         c = sum(1 for a in ages if bucket(a) == name)
         echo(f"    {name}: {c} of {den} (unknowns in the denominator)")
@@ -257,6 +265,7 @@ def family_report(recs: list, family: str, void: list, echo) -> dict:
     echo(f"    games whose priced rows carry more than one distinct stamp: {multi} (the provider stamps an answer, "
          "not a book: a per-book age differs from the game's only where this is above 0)")
     return {"games": n, "stamped": len(stamped), "unknown": unk, "redated": len(void), "dist": d,
+            "book_priced": priced_n,
             "over_stale_book_h": over, "by_slot": by_slot, "by_book": by_book, "snapshot_only": snap_only,
             "multi_stamp_games": multi, "first_stamped_kickoff": first.isoformat() if first else None}
 

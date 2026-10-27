@@ -704,3 +704,44 @@ def test_a_family_without_a_probability_floor_has_no_floor_blocked_rows():
     assert xc.floor_blocked(floor_desk(), "SOCCER") and xc.floor_blocked(floor_desk(), "INTL")
     assert not xc.floor_blocked({**floor_desk(), "model_p": True}, "SOCCER")      # a bool is not a probability
     assert not xc.floor_blocked({**floor_desk(), "call": "PLAY"}, "SOCCER")
+
+
+def test_codex_round_1_on_717_intl_90_minutes_labels_kept_finite_p_and_the_model_engine(tmp_path):
+    """Codex on #717: (1) an INTL floor row is graded on the 90-minute result, and an AET game without a 90-minute
+    score stays open; (2) a re-dated and a placeholder-kickoff exclusion keep their own labels; (3) a non-finite
+    model_p is never read in; and a venue-engine PASS is never the probability floor."""
+    from src.db.database import session_scope
+    from src.db.schema import Competition, Match, Team
+    _comps()
+    with session_scope() as s:
+        c = Competition(sport=Sport.SOCCER, code="UNL", name="UNL", area="I", type="INTL")
+        s.add(c)
+        s.flush()
+
+        def m(mid, raw, ft, s90):
+            h, a = Team(sport=Sport.SOCCER, name=f"H{mid}"), Team(sport=Sport.SOCCER, name=f"A{mid}")
+            s.add_all([h, a])
+            s.flush()
+            s.add(Match(id=mid, sport=Sport.SOCCER, competition_id=c.id, season="2026/27", utc_date=KO,
+                        status=MatchStatus.FINISHED, status_raw=raw, home_team_id=h.id, away_team_id=a.id,
+                        home_score=ft[0], away_score=ft[1], home_score_90=s90[0] if s90 else None,
+                        away_score_90=s90[1] if s90 else None, full_time_result=Result.HOME if ft[0] > ft[1] else
+                        Result.AWAY if ft[0] < ft[1] else Result.DRAW))
+        m(4701, "AET", (2, 1), (1, 1))          # a 90-minute draw, won in extra time: the HOME pick LOSES
+        m(4702, "PEN", (1, 1), None)            # no 90-minute score: never graded
+    write_closing(tmp_path / "ix", KO - timedelta(minutes=35),
+                  [row(4701, "H4701", "A4701", floor_desk()), row(4702, "H4702", "A4702", floor_desk())], fam="INTL")
+    fb = xc.tally(tmp_path / "ix")["floor_blocked"]["INTL"]
+    assert (fb["plays"], fb["w"], fb["l"], fb["open"]) == (2, 0, 1, 1)
+    # (2) labels: one row re-dated three days, one on the 04:00Z placeholder
+    for mid, (h, a) in ((4801, ("R1", "R2")), (4802, ("P1", "P2"))):
+        _match(mid, "PL", h, a, hs=1, aw=0)
+    write_closing(tmp_path / "lx", KO - timedelta(days=3), [
+        row(4801, "R1", "R2", floor_desk(), ko=KO - timedelta(days=3)),
+        row(4802, "P1", "P2", floor_desk(), ko=datetime(KO.year, KO.month, KO.day, 4, 0))], fam="SOCCER")
+    txt = _section(tmp_path / "lx")
+    assert "left out: void: re-dated 1 · placeholder kickoff 1" in txt
+    # (3) a non-finite probability and a venue-engine row
+    assert not xc.floor_blocked({**floor_desk(), "model_p": float("-inf")}, "SOCCER")
+    assert not xc.floor_blocked({**floor_desk(), "model_p": float("nan")}, "SOCCER")
+    assert not xc.floor_blocked({**floor_desk(), "engine": "venue_edge"}, "SOCCER")

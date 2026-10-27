@@ -11,6 +11,8 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+import pytest
+
 import scripts.pl_positive_edge_receipt as pe
 from src.walters import desk_policy as dp
 from tests.test_void_redated import write_closing
@@ -67,8 +69,9 @@ def pred_row(mid, p=(0.45, 0.30, 0.25), mkt=(0.40, 0.30, 0.30), inj=(1, 1), utc=
 
 
 def run(ex, **kw):
+    """The results-files path (--source exports); the database path is tested below on a throwaway DB."""
     out = []
-    res = pe.report(ex, echo=out.append, **kw)
+    res = pe.report(ex, echo=out.append, **{"source": "exports", **kw})
     return "\n".join(out), res
 
 
@@ -191,7 +194,7 @@ def test_the_script_writes_nothing_and_never_opens_the_db(tmp_path):
     work.mkdir()
     snap = lambda: {q: q.read_bytes() if q.is_file() else None for q in tmp_path.rglob("*")}   # noqa: E731
     before = snap()
-    code = ("import runpy, sys; sys.argv = ['x', '--exports', sys.argv[1]]\n"
+    code = ("import runpy, sys; sys.argv = ['x', '--exports', sys.argv[1], '--source', 'exports']\n"
             "try:\n    runpy.run_path(%r, run_name='__main__')\n"
             "except SystemExit as e:\n    assert not e.code, e.code\n"
             "assert 'src.db.database' not in sys.modules, 'the DB module was imported'\n"
@@ -300,3 +303,114 @@ def test_the_n60_line_and_no_verdict(tmp_path):
     assert ("- next read pre-registered at n=60 (ARCHITECT 2026-10-24, addendum 163 item 1): same definition, read "
             "once · the cohort now: n 4 of 60") in text
     assert pe.READ_AT_N == 60 and "VERDICT" not in text.upper().replace("NO VERDICT", "")
+
+
+# ---- #706 (ARCHITECT 2026-10-27 08:20 ET): the database read-only as the primary source, the exports secondary -------
+
+def db_world(tmp_path, monkeypatch):
+    """A throwaway SQLite file the receipt opens mode=ro: PL 21 (an earlier and a later graded prediction; the later,
+    away 0.55 at a 0.40 close, is the row), PL 22 (its one prediction marked dedupe_569: never a row), PL 23 (graded,
+    home 0.62 at a 0.50 close: a hit), ELC 24 (not PL), PL 25 (before --since)."""
+    import config
+    import types
+    from datetime import timedelta
+
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import Session
+
+    from src.db.schema import (Base, Competition, Match, MatchStatus, Odds, Prediction, PredictionOutcome, Result,
+                               Sport, Team)
+    db = tmp_path / "ro.db"
+    eng = create_engine(f"sqlite:///{db}", future=True)
+    Base.metadata.create_all(eng)
+    ko = datetime(2026, 10, 24, 14, 0)
+    with Session(eng) as s:
+        pl = Competition(sport=Sport.SOCCER, code="PL", name="PL", area="ENG", type="LEAGUE")
+        elc = Competition(sport=Sport.SOCCER, code="ELC", name="ELC", area="ENG", type="LEAGUE")
+        other = Competition(sport=Sport.NFL, code="PL", name="not soccer", area="X", type="LEAGUE")   # Codex on #711
+        s.add_all([pl, elc, other])
+        s.flush()
+
+        def game(mid, comp, at, hs, aw, fair, preds):
+            h, a = Team(sport=Sport.SOCCER, name=f"Home {mid}"), Team(sport=Sport.SOCCER, name=f"Away {mid}")
+            s.add_all([h, a])
+            s.flush()
+            s.add(Match(id=mid, sport=Sport.SOCCER, competition_id=comp.id, season="2026/27", utc_date=at,
+                        status=MatchStatus.FINISHED, home_team_id=h.id, away_team_id=a.id, home_score=hs,
+                        away_score=aw))
+            s.flush()
+            for bk in ("bk1", "bk2"):
+                for sel, f in zip(("HOME", "DRAW", "AWAY"), fair):
+                    s.add(Odds(match_id=mid, bookmaker=bk, market="1X2", selection=sel, price_decimal=round(1 / f, 4),
+                               captured_at=at - timedelta(minutes=20)))
+            res = Result.HOME if hs > aw else Result.AWAY if hs < aw else Result.DRAW
+            for computed, (ph, pd, pa), fb in preds:
+                pr = Prediction(match_id=mid, model_version="soccer_elo_poisson_v22", computed_at=computed,
+                                home_win_prob=ph, draw_prob=pd, away_win_prob=pa, expected_home_score=1.4,
+                                expected_away_score=1.1, factor_breakdown=fb)
+                s.add(pr)
+                s.flush()
+                top = max((("H", ph), ("D", pd), ("A", pa)), key=lambda kv: kv[1])[0]
+                s.add(PredictionOutcome(prediction_id=pr.id, actual_result=res, actual_home_score=hs,
+                                        actual_away_score=aw, top_pick_hit=top == res.value, log_loss=0.9))
+        early = ko - timedelta(days=1)
+        game(21, pl, ko, 0, 1, (0.35, 0.25, 0.40), [(early, (0.50, 0.25, 0.25), None),
+                                                    (ko - timedelta(hours=6), (0.25, 0.20, 0.55), None)])
+        game(22, pl, ko, 1, 0, (0.40, 0.30, 0.30), [(early, (0.60, 0.20, 0.20), {"dedupe_569": {"twin": 9}})])
+        game(23, pl, ko, 2, 0, (0.50, 0.25, 0.25), [(early, (0.62, 0.20, 0.18), None)])
+        game(24, elc, ko, 2, 0, (0.40, 0.30, 0.30), [(early, (0.70, 0.15, 0.15), None)])
+        game(25, pl, datetime(2026, 7, 20, 14, 0), 2, 0, (0.40, 0.30, 0.30), [(early, (0.70, 0.15, 0.15), None)])
+        s.commit()
+    eng.dispose()
+    monkeypatch.setattr(config, "settings", types.SimpleNamespace(database_url=f"sqlite:///{db}"))
+    # the exports, secondary: 21 with the EARLIER pick (home: they differ), 23 as the database has it, 26 files-only
+    write_results(tmp_path, "2026-10-24", [result_row(21, p=(0.50, 0.25, 0.25), fair=(0.35, 0.25, 0.40), hit=False,
+                                                      score=(0, 1)),
+                                           result_row(23, p=(0.62, 0.20, 0.18), fair=(0.50, 0.25, 0.25)),
+                                           result_row(26, p=(0.62, 0.20, 0.18), fair=(0.50, 0.25, 0.25))])
+    (tmp_path / "soccer_PL_results_2026-10-25.json").write_text("{not json")    # Codex on #711: never silent
+    return db
+
+
+def test_the_database_is_the_primary_source_one_row_per_match_its_latest_prediction(tmp_path, monkeypatch):
+    db = db_world(tmp_path, monkeypatch)
+    before = db.read_bytes()
+    out = []
+    res = pe.report(tmp_path, echo=out.append, since="2026-08-01")
+    text = "\n".join(out)
+    r = res["results"]
+    assert r["source"] == "db" and sorted(r["rows"]) == [21, 23]          # 22 marked, 24 ELC, 25 before --since
+    assert r["rows_read"] == 3 and len(r["dupes"]) == 1                    # 21's earlier prediction not taken
+    assert r["rows"][21][1]["predicted"]["top_pick"] == "away_win"
+    assert r["check"] == {"both": 2, "db_only": 0, "exports_only": [26], "differ": [21]}
+    assert "SOURCE: the database, read-only (mode=ro): prediction_outcomes of PL matches from 2026-08-01" in text
+    assert "matches in both 2 · in the database only 0 · in the files only 1 (26) · top pick or hit differ 1 (21)" \
+        in text
+    assert {m["match_id"] for m in res["members"]} == {21, 23}            # +15pp and +12pp over the book close
+    assert '"source": "db"' in text and '"results_files": 1' in text
+    assert "    files read 1 · unreadable 1: soccer_PL_results_2026-10-25.json · duplicate copies dropped 0" in text
+    assert db.read_bytes() == before                                       # read-only: the file unchanged
+
+
+def test_the_exports_source_reads_the_files_alone(tmp_path, monkeypatch):
+    db_world(tmp_path, monkeypatch)
+    text, res = run(tmp_path)
+    assert res["results"]["source"] == "exports" and sorted(res["results"]["rows"]) == [21, 23, 26]
+    assert res["results"]["unreadable"] == ["soccer_PL_results_2026-10-25.json"]
+    assert "SOURCE: results files" in text and "the database not read" in text
+
+
+def test_a_missing_db_file_is_refused_exit_2_never_created(tmp_path, monkeypatch, capsys):
+    import config
+    import types
+    missing = tmp_path / "none.db"
+    monkeypatch.setattr(config, "settings", types.SimpleNamespace(database_url=f"sqlite:///{missing}"))
+    assert pe.main(["--exports", str(tmp_path)]) == 2
+    assert "REFUSED: no DB file" in capsys.readouterr().out and not missing.exists()
+
+
+def test_an_impossible_since_date_is_an_argument_error_exit_2(tmp_path, capsys):
+    """Codex on #711: argparse refuses it before any database is opened, never a traceback."""
+    with pytest.raises(SystemExit) as e:
+        pe.main(["--exports", str(tmp_path), "--since", "2026-02-31"])
+    assert e.value.code == 2 and "not a date (YYYY-MM-DD): '2026-02-31'" in capsys.readouterr().err

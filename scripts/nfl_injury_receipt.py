@@ -193,10 +193,10 @@ def live(save: Path, season: int, get=None) -> list[str]:
         # #712 item 3: a read is answered only as HTTP 200 with no errors; anything else is FAILED, never empty
         rerrs = rerrs or ({} if rcode == 200 else {"http": rcode})
         ierrs = ierrs or ({} if icode == 200 else {"http": icode})
+        keep(f"roster_{tid}", roster)                  # the answer as sent, a failed one too (Codex on #713)
+        keep(f"injuries_{tid}", items)
         roster = [] if rerrs else roster                # Codex on #713: a failed read's rows are never measured
         items = [] if ierrs else items
-        keep(f"roster_{tid}", roster)
-        keep(f"injuries_{tid}", items)
         idx = roster_index(roster)
         entries = injury_entries([i for i in items if isinstance(i, dict) and isinstance(i.get("player"), dict)])
         named = [e for e in entries if (e[0]["player"].get("name") or "").strip()]

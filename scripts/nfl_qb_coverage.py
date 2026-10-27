@@ -253,6 +253,8 @@ def lines(r: dict, fetch: Fetch, universe=None) -> list[str]:
     """The season's lines. `universe`: every passing field any season of the run sends (#712 item 1), so a field
     absent from this whole season is still on its F line, "on 0" and absent, never left off."""
     universe = sorted(set(universe or ()) | set(r["fields"]))
+    # a whole-season absence is claimed only when every finished game's statistics were read (Codex on #713)
+    partial = bool(r["left"] or r["failed"] or r["dropped"])
     s = r["season"]
     L = [f"\n== season {s}",
          "  G /games: by status " + " · ".join(f"{k} {v}" for k, v in sorted(r["status"].items()))]
@@ -262,7 +264,9 @@ def lines(r: dict, fetch: Fetch, universe=None) -> list[str]:
                  + (f" · statistics read failed {c['statistics read failed']}" if c["statistics read failed"] else ""))
     L.append(f"  F passing lines {r['lines']} (no attempts read {r['no_attempts']}) · fields: "
              + (" · ".join(f"{nm!r} on {r['lines'] - r['field_missing'][nm]}, missing/empty {r['field_missing'][nm]}"
-                           if nm in r["fields"] else f"{nm!r} on 0, ABSENT from the whole season ({r['lines']} lines)"
+                           if nm in r["fields"] else
+                           (f"{nm!r} on 0 of the {r['lines']} lines read, UNKNOWN for the season (reads incomplete)"
+                            if partial else f"{nm!r} on 0, ABSENT from the whole season ({r['lines']} lines)")
                            for nm in universe) or "none"))
     L.append("  R roster join, every passing line: " + (" · ".join(f"{k} {v}" for k, v in sorted(r["join"].items()))
                                                      or "none"))

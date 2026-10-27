@@ -193,3 +193,25 @@ def test_a_finished_game_the_parse_drops_makes_the_gate_incomplete(tmp_path):
     assert "FINISHED BUT DROPPED by the adapter's parse 1 (no statistics read; the gate cannot check them): game 14" in out
     assert "non-competitive, excluded by the adapter (all-star side 'AFC'): 1 (not in the gate)" in out
     assert "1/2 = 50.0% · INCOMPLETE (1 finished game(s) dropped by the parse)" in out
+
+
+
+def test_an_absence_is_never_claimed_for_a_season_whose_reads_are_incomplete(tmp_path):
+    """Codex on #713: when a season's statistics reads are incomplete (a failed read here), a field the season's read
+    lines lack is UNKNOWN for the season, never ABSENT from the whole season."""
+    g26 = [_row(20, 500, "FT"), _row(21, 600, "FT")]
+    s26 = {20: [_team(1, [_p(101, "20/30")]), _team(2, [_p(201, "18/25")])]}
+
+    def get(path, **p):
+        if path == "games":
+            return 200, {}, (g26 if p["season"] == 2026 else GAMES)
+        if path == "games/statistics/players":
+            if p["id"] == 21:
+                return 500, {}, []
+            return 200, {}, (s26 if p["id"] == 20 else STATS).get(p["id"], [])
+        return fake([])(path, **p)
+    out = []
+    assert qbc.main(["--seasons", "2025,2026", "--save", str(tmp_path / "pay")], echo=out.append, get=get) == 0
+    s26_text = "\n".join(out).split("== season 2026", 1)[1]
+    assert "'sacks' on 0 of the 2 lines read, UNKNOWN for the season (reads incomplete)" in s26_text
+    assert "ABSENT" not in s26_text

@@ -172,3 +172,5 @@ def test_rows_sent_with_a_failed_read_are_never_measured(tmp_path):
     assert "9 Bills: raw 0 · taken 0 · retained 0 · positions unresolved 0 · roster read FAILED {'http': 500} · " \
            "injuries read FAILED {'token': 'bad'}" in out
     assert "injuries reads failed 1 · roster reads failed 1" in out
+    saved = json.loads((tmp_path / "pay" / "roster_9.json").read_text())
+    assert saved == [{"id": 90, "name": "J. Allen", "position": "QB"}]      # the failed answer kept as sent (Codex)

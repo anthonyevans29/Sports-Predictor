@@ -1,4 +1,4 @@
-## 2026-10-27 (#000: 382-book-stamp-age — the book-stamp age receipt: the full distribution per family, by kickoff slot, by book where retained, unknowns in the denominator; #382)
+## 2026-10-27 (#720: 382-book-stamp-age — the book-stamp age receipt: the full distribution per family, by kickoff slot, by book where retained, unknowns in the denominator; #382)
 - scripts/book_stamp_age_receipt.py (new, read-only, the database mode=ro):
   - **Games:** every graded live NFL game (Week 3 on) and every graded PL game from `--pl-since` (default the #629 merge, 2026-10-20 18:42Z), one per match.
   - **Close and age:** each game's close comes from its family's own grading path (NFL `close_1x2` + `stale_book_close`; PL `grading_close`). The age is `close.stamp_age_hours`.

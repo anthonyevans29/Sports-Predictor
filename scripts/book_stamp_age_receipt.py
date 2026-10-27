@@ -71,7 +71,7 @@ UNKNOWN = {"a": "(a) no source_updated_at column on this database",
            "b": "(b) priced book close, its rows unstamped",
            "c": "(c) priced book close, its rows partly stamped",
            "d": "(d) no priced book close"}
-NEEDED_TABLES = ("matches", "competitions", "predictions", "prediction_outcomes", "odds", "odds_snapshots")
+NEEDED_TABLES = ("matches", "competitions", "teams", "predictions", "prediction_outcomes", "odds", "odds_snapshots")
 QS = (("p10", 0.10), ("p25", 0.25), ("median", 0.50), ("p75", 0.75), ("p90", 0.90))
 
 
@@ -109,8 +109,12 @@ def _stamps(session, rows) -> list:
     return [getattr(r, "source_updated_at", None) for r in attach_source_times(session, rows)]
 
 
-def game_record(s, m, family: str, has_column: bool) -> dict:
-    """One game: its close kind, its stamp age (or the unknown cause), and its per-book rows (odds-sourced closes)."""
+def game_record(s, m, family: str, has_column) -> dict:
+    """One game: its close kind, its stamp age (or the unknown cause), and its per-book ages (odds-sourced closes).
+    `has_column`: {table: bool}, the stamp column on each table, checked for the table the close's rows come from (a
+    partly migrated database: Codex on #720); a bool is read as both tables."""
+    if isinstance(has_column, bool):
+        has_column = {"odds": has_column, "odds_snapshots": has_column}
     from sqlalchemy import select
 
     from src.db.schema import Odds
@@ -136,11 +140,18 @@ def game_record(s, m, family: str, has_column: bool) -> dict:
     priced_rows = C.priced_rows(book)
     stamps = _stamps(s, priced_rows)
     out["distinct_stamps"] = len({x for x in stamps if x is not None})
-    if book.get("stamp_rows") is None:                    # odds-table rows: bookmaker-level, retained
-        out["books"] = sorted({r.bookmaker for r in priced_rows if getattr(r, "bookmaker", None)})
+    table = "odds" if book.get("stamp_rows") is None else "odds_snapshots"
+    if table == "odds":                                   # odds-table rows: bookmaker-level, retained
+        # each book's age from its OWN rows (Codex on #720): its oldest stamp; unknown if any of its rows is unstamped
+        per: dict = {}
+        for r, st in zip(priced_rows, stamps):
+            if getattr(r, "bookmaker", None):
+                per.setdefault(r.bookmaker, []).append(st)
+        out["books"] = {bk: (None if not has_column[table] or any(x is None for x in sts) else
+                             C.stamp_age_hours(min(sts), m.utc_date)) for bk, sts in sorted(per.items())}
     else:
         out["books"] = None                               # a book snapshot: the consensus only, no bookmaker
-    if not has_column:
+    if not has_column[table]:
         out["unknown"] = "a"
     elif not stamps or all(x is None for x in stamps):
         out["unknown"] = "b"
@@ -234,14 +245,14 @@ def family_report(recs: list, family: str, void: list, echo) -> dict:
     echo(f"    games whose close is a book snapshot (consensus only, no bookmaker): {snap_only}")
     books: dict = {}
     for r in recs:
-        for b in r["books"] or ():
-            books.setdefault(b, []).append(r)
+        for b, age in (r["books"] or {}).items():
+            books.setdefault(b, []).append(age)
     by_book = {}
     for b in sorted(books):
-        rs = books[b]
-        bd = dist([r["age"] for r in rs if r["age"] is not None])
-        by_book[b] = {"games": len(rs), "unknown": sum(1 for r in rs if r["age"] is None), **bd}
-        echo(f"    {b}: games {len(rs)} · unknown {by_book[b]['unknown']} · {_dist_text(bd)}")
+        ages_b = books[b]                                 # the book's own age per game (Codex on #720)
+        bd = dist([a for a in ages_b if a is not None])
+        by_book[b] = {"games": len(ages_b), "unknown": sum(1 for a in ages_b if a is None), **bd}
+        echo(f"    {b}: games {len(ages_b)} · unknown {by_book[b]['unknown']} · {_dist_text(bd)} (the book's own rows)")
     multi = sum(1 for r in recs if r["distinct_stamps"] > 1)
     echo(f"    games whose priced rows carry more than one distinct stamp: {multi} (the provider stamps an answer, "
          "not a book: a per-book age differs from the game's only where this is above 0)")
@@ -281,10 +292,11 @@ def report(pl_since: str = PL_SINCE, exports_dir: str | None = None, echo=print)
         if missing:
             raise ReadOnlyRefused(f"REFUSED: {url.database} has no {', '.join(missing)} table(s): not this app's "
                                   "database, nothing read")
-        has_col = has_source_time("odds", s.get_bind())
-        echo("odds.source_updated_at: " + ("present" if has_col else
-                                           "ABSENT (every priced book close reads unknown (a); a game with no priced "
-                                           "book close stays (d))"))
+        has_col = {t: has_source_time(t, s.get_bind()) for t in ("odds", "odds_snapshots")}
+        for t, on in has_col.items():
+            echo(f"{t}.source_updated_at: " + ("present" if on else
+                                               f"ABSENT (every priced book close from {t} reads unknown (a); a game "
+                                               "with no priced book close stays (d))"))
         for fam in ("NFL", "PL"):
             recs, void = [], []
             for m in games(s, fam, since):

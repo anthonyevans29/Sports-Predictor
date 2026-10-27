@@ -146,8 +146,8 @@ def test_a_database_without_the_stamp_column_is_unknown_a_never_fresh(iso):
         game(s, "none", SUN + timedelta(days=1), books=())              # no priced close: stays (d) (review of #382)
     text_, res = run()
     assert res["NFL"]["unknown"]["a"] == 1 and res["NFL"]["unknown"]["d"] == 1 and res["NFL"]["stamped"] == 0
-    assert ("odds.source_updated_at: ABSENT (every priced book close reads unknown (a); a game with no priced book "
-            "close stays (d))") in text_
+    assert ("odds.source_updated_at: ABSENT (every priced book close from odds reads unknown (a); a game with no "
+            "priced book close stays (d))") in text_
 
 
 def test_a_redated_game_is_listed_and_kept_out_with_exports(iso, tmp_path):
@@ -208,3 +208,44 @@ def test_review_of_382_offsets_refused_empty_exports_named_and_a_schemaless_file
     eng.dispose()
     monkeypatch.setattr(database, "SessionLocal", sessionmaker(bind=create_engine(f"sqlite:///{bare}"), future=True))
     assert bsa.main([]) == 2 and "has no matches" in capsys.readouterr().out
+
+
+
+def test_codex_round_1_on_720_teams_table_per_book_ages_and_the_column_per_table(iso, tmp_path, monkeypatch,
+                                                                                capsys):
+    """(1) a file without the teams table is refused, exit 2; (2) each book's age is read from its own rows (a newer
+    book keeps its own age, an unstamped book is unknown alone); (3) the stamp column is checked on the close's own
+    table: a snapshot close on a database whose odds_snapshots has no column is unknown (a), not (b)."""
+    from src.db import database
+    from src.db.database import session_scope
+    with session_scope() as s:
+        game(s, "two-stamps", SUN, books=(("bk1", 10), ("bk2", 30)))         # the game reads the oldest: 30 h
+        game(s, "one-unstamped", SUN + timedelta(hours=3, minutes=25), books=(("bk1", 8), ("bk2", None)))
+    text_, res = run()
+    bb = res["NFL"]["by_book"]
+    assert res["NFL"]["dist"]["max"] == pytest.approx(30.0) and res["NFL"]["multi_stamp_games"] == 1
+    assert bb["bk1"]["games"] == 2 and bb["bk1"]["unknown"] == 0 and bb["bk1"]["max"] == pytest.approx(10.0)
+    assert bb["bk2"]["games"] == 2 and bb["bk2"]["unknown"] == 1 and bb["bk2"]["min"] == pytest.approx(30.0)
+    # (3) drop the snapshot column only: a PL snapshot close is (a)
+    eng = database.SessionLocal.kw["bind"]
+    with eng.begin() as c:
+        c.execute(text("ALTER TABLE odds_snapshots DROP COLUMN source_updated_at"))
+    from src.db.schema import OddsSnapshot
+    with session_scope() as s:
+        mid = game(s, "pl-snap", datetime(2026, 10, 26, 20, 0), sport="SOCCER", code="PL", books=())
+        for sel, px in (("HOME", 0.5), ("DRAW", 0.25), ("AWAY", 0.25)):
+            s.add(OddsSnapshot(match_id=mid, market="1X2", selection=sel, source="api_football", n_books=4,
+                               devig_prob=px, captured_at=datetime(2026, 10, 26, 19, 25)))
+    text_, res = run()
+    assert res["PL"]["unknown"]["a"] == 1 and res["PL"]["unknown"]["b"] == 0
+    assert "odds_snapshots.source_updated_at: ABSENT" in text_ and "odds.source_updated_at: present" in text_
+    # (1) a file without teams
+    bare = tmp_path / "noteams.db"
+    e2 = create_engine(f"sqlite:///{bare}")
+    from src.db.schema import Base
+    Base.metadata.create_all(e2)
+    with e2.begin() as c:
+        c.execute(text("DROP TABLE teams"))
+    e2.dispose()
+    monkeypatch.setattr(database, "SessionLocal", sessionmaker(bind=create_engine(f"sqlite:///{bare}"), future=True))
+    assert bsa.main([]) == 2 and "has no teams" in capsys.readouterr().out

@@ -1,0 +1,30 @@
+# Cups Step B's live store on the host (ARCHITECT 2026-10-27, addendum 169 item 4(i)): "a TIMER UNIT for Step B on
+# the host - sp-cup-observe.timer/service running observe-cup-lineups (all four cups) on a cadence that covers T-3h to
+# T+10 of every stored cup kickoff (one tick, no --loop, every 5 minutes on cup match days, or a calendar derived from
+# the stored fixtures; Code proposes), on the T11 TIMERS list, CI's timers check".
+# Proposed and built: every five minutes of every day, at :00, :05 ... :55. A cup kicks off on a five-minute mark, so
+# each T-15, T-5 and T+10 poll falls on a tick; any other kickoff is asked within five minutes, inside the store's
+# LATE_LIMIT. A tick with no poll due reads and ends without the DB lock (cup_lineups_live.tick).
+# H0-3: hours 04 and 05 UTC are skipped (no timer inside the 04:15-05:15 UTC reboot buffer; no cup kicks off then).
+[Unit]
+Description=sports-predictor timer: sp-cup-observe
+
+[Timer]
+OnCalendar=*-*-* 00..03,06..23:00:00 UTC
+OnCalendar=*-*-* 00..03,06..23:05:00 UTC
+OnCalendar=*-*-* 00..03,06..23:10:00 UTC
+OnCalendar=*-*-* 00..03,06..23:15:00 UTC
+OnCalendar=*-*-* 00..03,06..23:20:00 UTC
+OnCalendar=*-*-* 00..03,06..23:25:00 UTC
+OnCalendar=*-*-* 00..03,06..23:30:00 UTC
+OnCalendar=*-*-* 00..03,06..23:35:00 UTC
+OnCalendar=*-*-* 00..03,06..23:40:00 UTC
+OnCalendar=*-*-* 00..03,06..23:45:00 UTC
+OnCalendar=*-*-* 00..03,06..23:50:00 UTC
+OnCalendar=*-*-* 00..03,06..23:55:00 UTC
+Unit=sp-cup-observe.service
+Persistent=false
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target

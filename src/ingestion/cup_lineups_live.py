@@ -45,6 +45,8 @@ How it reads and writes (law 1: every name is the code's own):
   it held waits, printing one line. An insert that still meets the unique key (a writer outside the lock) is skipped
   and counted "already observed", its row standing. The adapter is built before any row is written whenever a due
   poll needs a provider call, so a missing key refuses with nothing written (Codex on #662).
+- A tick with no poll due takes no lock: it reads mode=ro, refuses an unmigrated store as a real tick does, and ends
+  (the host's sp-cup-observe timer, every five minutes; ARCHITECT 2026-10-27, addendum 169 item 4(i)).
 - --loop: ticks every TICK seconds until no poll of the window's fixtures remains to be made (each tick is the same
   read-due-ask-append; a re-run never asks a poll that has a row). Without --loop it makes one tick (a timer's run).
 """
@@ -174,11 +176,17 @@ def tick(now: datetime, codes=COMPETITIONS, *, dry_run: bool = False, adapter=No
                       "never creates one (law 5). Nothing was asked or written.")
     if dry_run:
         return _tick(now, codes, dry_run=True, adapter=adapter, clock=clock)
+    # A tick with no poll due reads (mode=ro), refuses as a real tick does, and ends without the chains' DB lock: the
+    # host's sp-cup-observe timer ticks every five minutes of every day (ARCHITECT 2026-10-27, addendum 169 item 4(i)),
+    # and a tick that writes nothing never waits on a chain. A tick with a poll due takes the lock and plans again.
+    pre = _tick(now, codes, dry_run=True, adapter=adapter, clock=clock, refuse_unmigrated=True)
+    if not pre.due:
+        return pre
     with _db_lock():
         return _tick(now, codes, dry_run=False, adapter=adapter, clock=clock)
 
 
-def _tick(now: datetime, codes, *, dry_run: bool, adapter, clock) -> Tick:
+def _tick(now: datetime, codes, *, dry_run: bool, adapter, clock, refuse_unmigrated: bool = False) -> Tick:
     from sqlalchemy import select
     from sqlalchemy.exc import IntegrityError
 
@@ -189,7 +197,7 @@ def _tick(now: datetime, codes, *, dry_run: bool, adapter, clock) -> Tick:
     t = Tick(now=now)
     with readonly_session() as rs:
         ok = migrated(rs)
-        if not dry_run and not ok:
+        if (not dry_run or refuse_unmigrated) and not ok:
             raise Refused("REFUSED: migrate_cup_lineup_observations.py has not run (the table and its marker); this "
                           "command never creates either. --dry-run reads without them.")
         fixtures = _fixtures(rs, codes, now)

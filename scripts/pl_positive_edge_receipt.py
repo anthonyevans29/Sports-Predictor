@@ -1,6 +1,6 @@
 """
-THE PL POSITIVE-EDGE RECEIPT (ARCHITECT addendum 162 item 2(a), with addendum 163 item 1's table; #92), READ-ONLY,
-files only:
+THE PL POSITIVE-EDGE RECEIPT (ARCHITECT addendum 162 item 2(a), with addendum 163 item 1's table; #92), READ-ONLY;
+the database first since #706:
 
 "The positive-edge n=30 read (#92) is mine, on Saturday from the mirror's results exports once the 30th graded PL
 prediction is in (Friday's Ipswich game grades in the morning block): cohort = top pick at least +5pp over the close
@@ -10,9 +10,22 @@ Desk's final call on it was PLAY, LADDER or PASS — the read says what the coho
 audit-backed version bump, never a knob. Code: a read-only script for that receipt (scripts/pl_positive_edge_receipt.py,
 from the results exports and the closing files) so the read reproduces on either machine; small, by Monday."
 
-WHAT IT READS (the keys are printed with the output; it never opens the database):
-- THE RESULTS EXPORTS: <exports>/soccer_PL_results_*.json, as `export-results --sport soccer --competition PL` writes
-  them (src/walters/export.py export_results). A file that is not JSON, or whose competition_code is not PL or whose
+THE SOURCE (#706; ARCHITECT 2026-10-27 08:20 ET), verbatim: "Both read the database read-only (prediction_outcomes,
+mode=ro) as the primary source, the closing files beside, export files secondary; a receipt line says which source it
+read." The 10-27 finding: the receipt read 18 of the 30 graded rows from the export files on disk.
+- --source db (the default): the PL graded rows straight from the database, opened mode=ro
+  (venue_quote_age.readonly_session; a missing file or no PL competition is refused, exit 2, never created or read as
+  empty), matches from --since (default DEFAULT_SINCE), each row built by export.result_row (the export's one row
+  builder, so the row is the one a results file would hold). One row per match: its latest graded prediction
+  (computed_at, then id), the earlier ones counted; a prediction marked factor_breakdown.dedupe_569 is never one. The
+  results files are then read only as a SECONDARY cross-check, printed on its own line: matches in both, in the
+  database only, in the files only (named), and where both hold a match whether the top pick or the hit differ (named).
+- --source exports: the results files alone, as before #706; the database is never opened.
+The SOURCE line of the output says which it read; the JSON line carries "source".
+
+WHAT IT READS (the keys are printed with the output):
+- THE RESULTS EXPORTS (--source exports; the cross-check otherwise): <exports>/soccer_PL_results_*.json, as
+  `export-results --sport soccer --competition PL` writes them (src/walters/export.py export_results). A file that is not JSON, or whose competition_code is not PL or whose
   sport is not soccer, is counted and named, never read. Several files may hold one match (a re-export, a re-dated
   game): one row per match_id, the newest file's (its exported_at, then its name), every dropped copy counted.
 - per results row: match_id, date (the match's current start), home_team / away_team, predicted.top_pick ("home_win" |
@@ -169,6 +182,76 @@ def read_results(exports_dir) -> dict:
             "dupes": dupes}
 
 
+DEFAULT_SINCE = "2026-08-01"                   # the PL 2026/27 season's first matchday is after this
+
+
+def read_db(since: str = DEFAULT_SINCE) -> dict:
+    """THE PRIMARY SOURCE (#706; ARCHITECT 2026-10-27 08:20 ET: "Both read the database read-only (prediction_outcomes,
+    mode=ro) as the primary source, the closing files beside, export files secondary; a receipt line says which source
+    it read"): the PL graded rows from the database, opened mode=ro (venue_quote_age.readonly_session: a missing file
+    is refused, never created), each built by export.result_row, the export's own builder, so the row is the one an
+    export-results file would hold. One row per match: the match's latest graded prediction (computed_at, then id); a
+    prediction carrying factor_breakdown.dedupe_569 is never one (#569 (c)). Same shape as read_results."""
+    from datetime import datetime as _dt
+
+    from sqlalchemy import select
+
+    from src.db.schema import Competition, Match, Prediction, PredictionOutcome, Sport
+    from src.walters.export import result_row
+    from src.walters.venue_quote_age import readonly_session
+    out: dict = {}
+    dupes, n = [], 0
+    with readonly_session() as s:
+        # Codex on #711: competitions are unique by (sport, code), so the lookup names the sport
+        comp = s.execute(select(Competition).where(Competition.sport == Sport.SOCCER,
+                                                   Competition.code == "PL")).scalar_one_or_none()
+        if comp is None:                        # law 4: no PL competition is a refusal, never an empty cohort
+            from src.walters.venue_quote_age import Refused
+            raise Refused("REFUSED: no PL competition in the database")
+        q = (select(Prediction, PredictionOutcome, Match)
+             .join(PredictionOutcome, PredictionOutcome.prediction_id == Prediction.id)
+             .join(Match, Match.id == Prediction.match_id)
+             .where(Match.sport == Sport.SOCCER, Match.utc_date >= _dt.fromisoformat(since),
+                    PredictionOutcome.actual_home_score.isnot(None),
+                    Match.competition_id == comp.id)
+             .order_by(Match.id, Prediction.computed_at, Prediction.id))
+        for pred, oc, m in s.execute(q).all():
+            if (pred.factor_breakdown or {}).get("dedupe_569"):
+                continue
+            n += 1
+            label = f"prediction {pred.id} ({pred.computed_at:%Y-%m-%d %H:%M}Z)" if pred.computed_at else \
+                f"prediction {pred.id}"
+            if m.id in out:
+                dupes.append((m.id, label, out[m.id][0]))
+            out[m.id] = (label, result_row(s, pred, oc, m))
+    return {"rows": out, "files": [], "unreadable": [], "not_pl": [], "rows_read": n, "dupes": dupes,
+            "source": "db", "since": since}
+
+
+def _since(v: str) -> str:
+    """--since as a calendar date (Codex on #711): an impossible date is argparse's error, exit 2, never a traceback."""
+    import argparse
+    from datetime import date
+    try:
+        date.fromisoformat(v)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"not a date (YYYY-MM-DD): {v!r}")
+    return v
+
+
+def cross_check(db: dict, ex: dict) -> dict:
+    """The results exports, SECONDARY (#706): the matches each source holds, and where both hold a match whether the
+    top pick and the graded hit agree."""
+    both = set(db["rows"]) & set(ex["rows"])
+    differ = sorted(mid for mid in both if (
+        (db["rows"][mid][1].get("predicted") or {}).get("top_pick") !=
+        (ex["rows"][mid][1].get("predicted") or {}).get("top_pick") or
+        (db["rows"][mid][1].get("graded") or {}).get("top_pick_hit") !=
+        (ex["rows"][mid][1].get("graded") or {}).get("top_pick_hit")))
+    return {"both": len(both), "db_only": len(set(db["rows"]) - both), "exports_only": sorted(set(ex["rows"]) - both),
+            "differ": differ}
+
+
 def final_call(entries, date) -> tuple[tuple | None, str | None]:
     """exec_cohorts.tally's selection on a match's closing entries [(run start, family, row), ...] against the match's
     current start: (the entry, None), or (the newest entry, the void label) when none is within the drift and the
@@ -272,8 +355,15 @@ def injury_split(members: list[dict]) -> dict:
     return out
 
 
-def read(exports_dir, min_gap_pp: float = MIN_GAP_PP) -> dict:
-    res = read_results(exports_dir)
+def read(exports_dir, min_gap_pp: float = MIN_GAP_PP, source: str = "db", since: str = DEFAULT_SINCE) -> dict:
+    if source == "db":
+        res = read_db(since)
+        # Codex on #711: the secondary read is kept whole, so its files, unreadable and non-PL files are printed
+        res["secondary"] = read_results(exports_dir)
+        res["check"] = cross_check(res, res["secondary"])
+    else:
+        res = read_results(exports_dir)
+        res["source"] = "exports"
     cr = closing_rows(exports_dir)
     members, below, no_close, not_book, void, ungraded, no_pick, mirror = [], [], [], [], [], [], [], []
     graded = 0
@@ -430,21 +520,41 @@ def table_lines(out: dict) -> list[str]:
                f"- {PRE_REGISTRATION} · the cohort now: n {n} of {READ_AT_N}"])
 
 
-def report(exports_dir, min_gap_pp: float = MIN_GAP_PP, echo=print) -> dict:
-    out = read(exports_dir, min_gap_pp)
+def report(exports_dir, min_gap_pp: float = MIN_GAP_PP, echo=print, source: str = "db",
+           since: str = DEFAULT_SINCE) -> dict:
+    out = read(exports_dir, min_gap_pp, source, since)
     res, cr = out["results"], out["closing"]
     d = str(exports_dir).rstrip("/")
-    echo("PL POSITIVE-EDGE RECEIPT (ARCHITECT addendum 162 item 2(a); #92): read-only, files only, no verdict")
+    echo("PL POSITIVE-EDGE RECEIPT (ARCHITECT addendum 162 item 2(a); #92): read-only, no verdict")
     echo(f"ruling: \"{RULING}\"")
     echo(f"cohort line: top pick's model p minus the book close's fair p >= {min_gap_pp:+g}pp (--min-gap-pp; the ruled "
          "line, not a knob)")
     echo(f"keys: {KEYS}")
-    echo(f"INPUTS: results files {d}/{RESULTS_GLOB}: {len(res['files'])} read"
-         + (f" ({', '.join(res['files'])})" if res["files"] else "")
-         + (f" · unreadable {len(res['unreadable'])}: {', '.join(res['unreadable'])}" if res["unreadable"] else "")
-         + (f" · not PL soccer {len(res['not_pl'])}: {', '.join(res['not_pl'])}" if res["not_pl"] else ""))
-    echo(f"  results rows {res['rows_read']} · matches {len(res['rows'])} · duplicate copies dropped "
-         f"{len(res['dupes'])} (one row per match_id, the newest file's: exported_at, then the name)")
+    if res["source"] == "db":
+        ck = res["check"]
+        echo(f"SOURCE: the database, read-only (mode=ro): prediction_outcomes of PL matches from {res['since']}, "
+             "each row built by export.result_row (#706: the primary source; the closing files beside; the results "
+             "exports secondary)")
+        echo(f"  graded predictions read {res['rows_read']} · matches {len(res['rows'])} · earlier predictions of a "
+             f"match not taken {len(res['dupes'])} (one row per match: its latest graded prediction)")
+        echo(f"  SECONDARY, results files {d}/{RESULTS_GLOB} (a cross-check, never a row): matches in both "
+             f"{ck['both']} · in the database only {ck['db_only']} · in the files only {len(ck['exports_only'])}"
+             + (f" ({', '.join(map(str, ck['exports_only']))})" if ck["exports_only"] else "")
+             + f" · top pick or hit differ {len(ck['differ'])}"
+             + (f" ({', '.join(map(str, ck['differ']))})" if ck["differ"] else ""))
+        sec = res["secondary"]
+        echo(f"    files read {len(sec['files'])}"
+             + (f" · unreadable {len(sec['unreadable'])}: {', '.join(sec['unreadable'])}" if sec["unreadable"] else "")
+             + (f" · not PL soccer {len(sec['not_pl'])}: {', '.join(sec['not_pl'])}" if sec["not_pl"] else "")
+             + f" · duplicate copies dropped {len(sec['dupes'])}")
+    else:
+        echo(f"SOURCE: results files {d}/{RESULTS_GLOB} (--source exports; the database not read): "
+             f"{len(res['files'])} read"
+             + (f" ({', '.join(res['files'])})" if res["files"] else "")
+             + (f" · unreadable {len(res['unreadable'])}: {', '.join(res['unreadable'])}" if res["unreadable"] else "")
+             + (f" · not PL soccer {len(res['not_pl'])}: {', '.join(res['not_pl'])}" if res["not_pl"] else ""))
+        echo(f"  results rows {res['rows_read']} · matches {len(res['rows'])} · duplicate copies dropped "
+             f"{len(res['dupes'])} (one row per match_id, the newest file's: exported_at, then the name)")
     for mid, kept, dropped in res["dupes"]:
         echo(f"    match {mid}: kept {kept}, dropped {dropped}")
     runs = (f"runs {cr['runs'][0]:%Y-%m-%d %H:%M}Z to {cr['runs'][1]:%Y-%m-%d %H:%M}Z" if cr["runs"] else "runs —")
@@ -476,7 +586,9 @@ def report(exports_dir, min_gap_pp: float = MIN_GAP_PP, echo=print) -> dict:
     for line in table_lines(out):
         echo(line)
     echo("PL-POSITIVE-EDGE-RECEIPT " + json.dumps({
-        "min_gap_pp": min_gap_pp, "results_files": len(res["files"]), "results_rows": res["rows_read"],
+        "min_gap_pp": min_gap_pp, "source": res["source"],
+        "results_files": len((res.get("secondary") or res)["files"]),
+        "results_rows": res["rows_read"],
         "matches": len(res["rows"]), "dupes_dropped": len(res["dupes"]), "closing_files": cr["files"],
         "graded": out["graded"], "cohort": len(out["members"]), "hits": out["hits"],
         "by_call": {k: v["n"] for k, v in out["by_call"].items()}, "void": len(out["void"]),
@@ -493,8 +605,20 @@ def main(argv=None) -> int:
     ap.add_argument("--exports", default="exports", help="the exports directory (default exports)")
     ap.add_argument("--min-gap-pp", type=float, default=MIN_GAP_PP,
                     help="the cohort line in pp (default 5, the ruled line; not a knob to tune)")
+    ap.add_argument("--source", choices=("db", "exports"), default="db",
+                    help="db (default, #706): the database read-only, the results exports a cross-check; exports: the "
+                         "results files alone (the database not opened)")
+    ap.add_argument("--since", default=DEFAULT_SINCE, type=_since,
+                    help="--source db: matches from this date (UTC, YYYY-MM-DD)")
     a = ap.parse_args(argv)
-    report(a.exports, a.min_gap_pp)
+    try:
+        report(a.exports, a.min_gap_pp, source=a.source, since=a.since)
+    except Exception as e:                                       # a refused read-only open (no DB file): exit 2
+        from src.walters.venue_quote_age import Refused
+        if isinstance(e, Refused):
+            print(str(e))
+            return 2
+        raise
     return 0
 
 

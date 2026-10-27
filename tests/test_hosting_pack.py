@@ -3890,3 +3890,31 @@ def test_codex_4250381656_an_undelivered_failure_page_holds_nothing_back(sandbox
     sp_notify.main(["failure", "closing-watch"])
     sp_notify.main(["failure", "closing-watch"])                     # now one went out: held back
     assert sent == [False, False, True] and receipts(sandbox)[-1]["page_held_back"] is True
+
+
+def test_cup_observe_timer_form():
+    """ARCHITECT 2026-10-27, addendum 169 item 4(i): cups Step B on the host, one observe-cup-lineups tick (all four
+    cups, no --loop) every five minutes of hours 00-03 and 06-23 UTC (H0-3 kept: no exemption), its own service as sp,
+    OnFailure paging through sp-notify@cup-observe, on the T11 TIMERS list."""
+    t = (HOSTING / "systemd" / "sp-cup-observe.timer").read_text()
+    assert re.findall(r"^OnCalendar=(.+)$", t, re.M) == [f"*-*-* 00..03,06..23:{m:02d}:00 UTC" for m in range(0, 60, 5)]
+    assert re.search(r"^Unit=sp-cup-observe\.service$", t, re.M) and re.search(r"^AccuracySec=1s$", t, re.M)
+    u = (HOSTING / "systemd" / "sp-cup-observe.service").read_text()
+    assert re.search(r"^ExecStart=\S+python cli\.py observe-cup-lineups$", u, re.M)          # one tick, every cup
+    assert re.search(r"^OnFailure=sp-notify@cup-observe\.service$", u, re.M) and re.search(r"^User=sp$", u, re.M)
+    assert "EnvironmentFile=-/etc/sports-predictor/host.env" in u and "SuccessExitStatus" not in u   # a refusal pages
+    import sp_notify
+    assert sp_notify.unit_for("cup-observe") == "sp-cup-observe.service"
+    assert "sp-cup-observe.timer" in c.t11_lists()["TIMERS"] and "sp-cup-observe.timer" not in H0_3_EXEMPT
+
+
+def test_intl_daily_reads_the_four_cup_schedules_last():
+    """#707 (ARCHITECT 2026-10-27): "a daily cup schedule step (EFL, CL, UEL, FAC) on an existing daily chain [...],
+    listed in the chain's steps". intl-daily runs every day (07:20 UTC); the cup reads come after the intl steps."""
+    steps = chains.CHAINS["intl-daily"]["steps"]
+    assert steps[:3] == [["intl-sync", "--since", "{today}", "--save", "exports/intl_daily"],
+                         ["intl-venue-sync", "--from-dir", "exports/intl_daily", "--venues-dir", "exports/intl_venues"],
+                         ["export-unl-predictions"]]
+    assert steps[3:] == [["sync-matches", "--competition", c, "--season", "2026/27"] for c in ("EFL", "CL", "UEL", "FAC")]
+    t = (HOSTING / "systemd" / "sp-intl-daily.timer").read_text()
+    assert re.findall(r"^OnCalendar=(.+)$", t, re.M) == ["*-*-* 07:20:00 UTC"]           # daily

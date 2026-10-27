@@ -34,6 +34,8 @@ KALSHI_CAPTURE_ONLY = EXPANSION_CODES
 # ncaa-schedule's forward window in days past today (ARCHITECT 2026-10-09: "the next seven days")
 NCAA_FORWARD_DAYS = 7
 
+CUP_SCHEDULE = ("EFL", "CL", "UEL", "FAC")     # intl-daily's cup schedule read (#707), in this order
+
 CHAINS: dict[str, dict] = {
     # --- MLB (docs/CLI.md "MLB daily operation") ---
     "mlb-morning": {
@@ -180,6 +182,12 @@ CHAINS: dict[str, dict] = {
             ["intl-sync", "--since", "{today}", "--save", "exports/intl_daily"],
             ["intl-venue-sync", "--from-dir", "exports/intl_daily", "--venues-dir", "exports/intl_venues"],
             ["export-unl-predictions"],
+            # THE CUPS' DAILY SCHEDULE READ (#707; ARCHITECT 2026-10-27: "a daily cup schedule step (EFL, CL, UEL, FAC)
+            # on an existing daily chain [...], listed in the chain's steps"): one listing read per cup, so a cup
+            # game's stored kickoff is at most a day old on its match day. Nothing else re-read a cup's schedule
+            # between the Sunday full-season sync and the 24h window (EFL round 4, four of eight dates a day wrong).
+            # Last in the chain, so a cup read that fails leaves the intl steps done.
+            *[["sync-matches", "--competition", code, "--season", "2026/27"] for code in CUP_SCHEDULE],
         ],
     },
     "ncaa-market": {

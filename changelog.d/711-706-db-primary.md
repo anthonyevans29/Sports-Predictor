@@ -1,0 +1,12 @@
+## 2026-10-27 (#711: 706-db-primary — results-tally and the PL positive-edge receipt read the database read-only first, and say which source they read; #706)
+- src/db/database.py `readonly_scope()`: a mode=ro session on the file the app's sessions are bound to. It has no connect hook, no pragma and no commit, and SQLite refuses a write. A missing file is refused (`ReadOnlyRefused`), never created.
+- src/walters/export.py `result_row(s, pred, oc, m)`: export_results' row builder, factored out unchanged so the receipt builds the same row. `results_tally`'s MLB and Soccer (PL) sections read through `readonly_scope`, and each carries a `- Source:` line (prediction_outcomes over the rolling window; no export file read). The NFL section asks `grade_nfl(readonly=True)` and carries its own Source line (nfl-grade's join, season to date). No count changes. The EXEC COHORTS section already names its closing files.
+- src/walters/nfl_predict.py `grade_nfl(readonly=False)`: `readonly=True` reads through `readonly_scope`. nfl-grade and the default path are unchanged.
+- cli.py `results-tally`: a missing DB file exits 2 with the refusal.
+- scripts/pl_positive_edge_receipt.py:
+  - `--source db` (the default) reads the PL graded rows from the database mode=ro, matches from `--since` (default 2026-08-01). Each row is built by `export.result_row`. One row per match (its latest graded prediction; a #569-marked one never). A missing file or no PL competition exits 2.
+  - The results files become a SECONDARY cross-check on its own line: matches in both, database only, files only (named), and top pick or hit differing (named).
+  - `--source exports` keeps the files-only read.
+  - A SOURCE line, and "source" in the JSON line.
+- Codex round 1 on #711: an empty NFL read still prints its section and Source line; the receipt's secondary read keeps its file counts, unreadable and non-PL files and prints them; `--since` must be a calendar date (exit 2 otherwise); the PL lookup names the sport (competitions are unique by sport and code).
+- Tests: tests/test_db_primary_706.py (new), tests/test_pl_positive_edge_receipt.py (the database path on a throwaway file; the files path pinned to `--source exports`), tests/test_value_side_and_qb_audit.py. No bar moves, no prediction output changes.

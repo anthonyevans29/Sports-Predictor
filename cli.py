@@ -5174,8 +5174,13 @@ def export_nfl_results_cmd(days_back, match_ids):
 @click.option("--days", default=30, type=int, help="Rolling window size.")
 def results_tally_cmd(days):
     """Regenerate RESULTS.md — rolling per-sport record."""
+    from src.db.database import ReadOnlyRefused
     from src.walters.export import results_tally
-    path = results_tally(days=days, report=click.echo)
+    try:
+        path = results_tally(days=days, report=click.echo)
+    except ReadOnlyRefused as e:          # #706: the DB is read mode=ro; a missing file is refused, never created
+        click.echo(str(e))
+        raise SystemExit(2)
     console.print(f"[green]✓ Wrote {path}[/green]")
 
 

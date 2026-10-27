@@ -115,7 +115,9 @@ def test_grade_nfl_prints_value_side_beside_pick_vs_close():
 def test_results_md_prints_both(tmp_path, monkeypatch):
     import src.walters.nfl_predict as nfp
     from src.walters.export import results_tally
-    monkeypatch.setattr(nfp, "grade_nfl", lambda days_back=30, exports_dir="exports": {
+    from src.db.database import init_db
+    init_db()                                    # #706: results-tally reads the DB mode=ro; a missing file is refused
+    monkeypatch.setattr(nfp, "grade_nfl", lambda days_back=30, exports_dir="exports", readonly=False: {
         "ok": True, "games": 16, "decided": 16, "pushes": 0, "hits": 9, "logloss": 0.66, "mean_clv_pp": -1.25,
         "value_side_n": 12, "mean_value_side_clv_pp": 2.5, "value_shadow_n": 3,
         "mean_value_shadow_clv_pp": 6.1})
@@ -127,7 +129,7 @@ def test_results_md_prints_both(tmp_path, monkeypatch):
     assert ("- Mean model-close divergence (value side): +2.50pp (n=12 anchored; value-shadow cohort, counted on "
             "graded.value_shadow (the results file's earlier anchor, not the closing files' desk.value_shadow) "
             "+6.10pp, n=3)") in txt
-    monkeypatch.setattr(nfp, "grade_nfl", lambda days_back=30, exports_dir="exports": {
+    monkeypatch.setattr(nfp, "grade_nfl", lambda days_back=30, exports_dir="exports", readonly=False: {
         "ok": True, "games": 2, "decided": 2, "pushes": 0, "hits": 1, "logloss": 0.7, "mean_clv_pp": 0.5,
         "value_side_n": 0, "mean_value_side_clv_pp": None, "value_shadow_n": 0,
         "mean_value_shadow_clv_pp": None})

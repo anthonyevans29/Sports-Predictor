@@ -1,4 +1,4 @@
-## 2026-10-27 (#000: 689-ladder-exec — the LADDER's ordered NO leg priced on the row, informational, and a priced-but-ungraded LADDER line in results-tally; #689)
+## 2026-10-27 (#714: 689-ladder-exec — the LADDER's ordered NO leg priced on the row, informational, and a priced-but-ungraded LADDER line in results-tally; #689)
 - src/walters/desk_policy.py `ladder_exec_block`: a LADDER row now carries `desk.ladder_exec`, the ordered BUY NO on HOME priced as a PLAY's exec block is:
   - `model_p`: the model's draw + away; `market_p`: the books' fair draw + away;
   - the NO bid / ask, mirrored from the HOME leg;

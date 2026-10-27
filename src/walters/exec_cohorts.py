@@ -15,7 +15,8 @@ As built (each reading is the conservative one, law 4; the PR body lists them fo
   desk_policy.DESK_CLOCK_DRIFT); a game none of whose rows is within the hour is void when redated.void_label says so
   (re-dated, or the placeholder kickoff), left out and named; else its newest row is graded.
 - Only PLAY calls count (desk.call). A LADDER carries no exec block by design (desk_policy.call_exec_block) and is
-  left out, counted. PASS rows, quarantine shadows and value shadows are not calls.
+  left out, counted. Its ordered NO leg's informational price (desk.ladder_exec, #689) puts it on its own line, priced
+  but ungraded: by that edge's cell, the mean edge and the unpriced rows by why, never pooled with PLAY. PASS rows, quarantine shadows and value shadows are not calls.
 - The cohort is desk.exec.edge_pp: exec >= 4 is the Desk's own exec_clears (4 less FEE_CLEAR_EPS); 0 < exec < 4 is
   e > 0 and not clears; exec <= 0 is e <= 0. A PLAY with no exec edge is "exec unknown", never guessed into a cohort;
   a basis other than taker is left out, counted. 0 < exec < 4 splits on the Desk's QB tags (QB_TAGS): QB inputs clean
@@ -139,7 +140,8 @@ def _cell() -> dict:
 
 
 def _out() -> dict:
-    return {"ladder": 0, "basis": 0, "not_in_db": 0, "teams": 0, "void": []}
+    return {"ladder": 0, "basis": 0, "not_in_db": 0, "teams": 0, "void": [], "ladder_priced": {k: 0 for k in CELLS},
+            "ladder_edges": [], "ladder_unpriced": {}}
 
 
 def _within(entries, current) -> list:
@@ -187,6 +189,15 @@ def tally(exports_dir) -> dict:
             out = left.setdefault(fam, _out())
             if call == "LADDER":
                 out["ladder"] += 1
+                # #689: the ordered NO leg's informational price (desk.ladder_exec), priced but never graded here
+                lx = desk.get("ladder_exec") if isinstance(desk.get("ladder_exec"), dict) else None
+                le = lx.get("edge_pp") if lx and lx.get("basis") == "taker" else None
+                if le is None or cohort_of(le) == UNKNOWN:
+                    why = (lx.get("why") if lx else None) or "no ladder_exec block on the row"
+                    out["ladder_unpriced"][why] = out["ladder_unpriced"].get(why, 0) + 1
+                else:
+                    out["ladder_priced"][cohort_of(le)] += 1
+                    out["ladder_edges"].append(float(le))
                 continue
             if call != "PLAY":
                 continue
@@ -259,6 +270,25 @@ def _left_line(fam: str, out: dict) -> str:
     return f"- {fam} · left out: " + (", ".join(items) if items else "none")
 
 
+LADDER_TEXT = ("LADDER, the ordered NO leg priced, ungraded (#689: desk.ladder_exec, notional, never pooled with "
+               "PLAY; no call, units or floor reads it)")
+
+
+def _ladder_line(fam: str, out: dict) -> str | None:
+    """The priced-but-ungraded LADDER line (ARCHITECT 2026-10-26 12:05 ET, #689): the LADDER rows by the NO leg's
+    exec edge (the same cells as a PLAY's, without the QB split), the mean edge, and the unpriced rows by why. No
+    record and no units: the LADDER/NO read is the architect's (addendum 162 item 2(c))."""
+    if not out["ladder"]:
+        return None
+    pr = out["ladder_priced"]
+    n = len(out["ladder_edges"])
+    cells = " · ".join(f"{k} {pr[k]}" for k in (GE4, MID, LE0))
+    mean = f" · mean NO-leg exec edge {sum(out['ladder_edges']) / n:+.1f}pp" if n else ""
+    un = ("; unpriced " + ", ".join(f"{w} {c}" for w, c in sorted(out["ladder_unpriced"].items()))
+          if out["ladder_unpriced"] else "")
+    return f"- {fam} · {LADDER_TEXT}: {out['ladder']} · priced {n}: {cells}{mean}{un}"
+
+
 def _not_counted(before: int, undated: int) -> str:
     return f" · {BEFORE_TEXT} {before}" + (f" · not counted (no run start) {undated}" if undated else "")
 
@@ -311,6 +341,8 @@ def section(t: dict, exports_dir) -> str:
                     continue                          # printed only when the QB half holds a PLAY
                 out.append(_cell_line(fam, k, mine[k]))
         out.append(_left_line(fam, lo))
+        if (ll := _ladder_line(fam, lo)) is not None:
+            out.append(ll)
         if lo["void"]:
             out.append(f"- {fam} · void: {void_counts(lo['void'])}: " + "; ".join(lo["void"]))
     out.append(_pooled(t))

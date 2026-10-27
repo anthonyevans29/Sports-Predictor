@@ -1,4 +1,4 @@
-## 2026-10-27 (#000: 427-qb-packet — the NFL quarterback term's design packet for the 11-02 ruling, and #627's receipt; read-only)
+## 2026-10-27 (#710: 427-qb-packet — the NFL quarterback term's design packet for the 11-02 ruling, and #627's receipt; read-only)
 - docs/specs/nfl-qb-term.md (ARCHITECT 2026-10-23, addendum 162 item 3(a)): a PROPOSAL, not a declaration.
   - The measure: ANY/A per game (NY/A without sack yards where the line sends none), season-centred, with a prior-games estimate shrunk hard (k = 400 dropbacks, half-life 16 games, a replacement prior from first-100-dropback quarterbacks).
   - The term, relative to Elo: today's starter minus the quarterback level the team's rating was built on, so there is no double count.

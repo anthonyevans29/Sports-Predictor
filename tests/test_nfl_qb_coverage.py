@@ -257,3 +257,5 @@ def test_a_malformed_row_is_counted_and_named_never_a_traceback(tmp_path):
     assert "(not the provider's row shape) 3" in out
     assert "NOT THE PROVIDER'S ROW SHAPE 3 (counted; may be finished games the gate cannot check)" in out
     assert "1/2 = 50.0% · INCOMPLETE (3 listed row(s) not in the provider's shape)" in out
+    assert "SUMMARY 2025: listed 7 · finished 3" in out                     # the malformed rows are listed (Codex)
+    assert "(not the provider's row shape): listed 3 · finished 0" in out

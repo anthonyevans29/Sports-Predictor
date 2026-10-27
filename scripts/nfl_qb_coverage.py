@@ -177,6 +177,7 @@ def season_receipt(season: int, fetch: Fetch) -> dict:
     for r in games:
         if _malformed(r):                               # #715 item 2: counted and named, never a traceback
             out["status"]["(not the provider's row shape)"] += 1
+            out["stages"]["(not the provider's row shape)"]["listed"] += 1     # in the listed total (Codex on #716)
             out["malformed"].append(json.dumps(r, sort_keys=True, default=str)[:120])
             continue
         p = probe.parsed(r)

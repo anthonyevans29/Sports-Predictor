@@ -1,0 +1,18 @@
+## 2026-10-27 (#000: 608-nfl-neutral-site — the NFL neutral-site receipt: every game away from the home team's venue, the 48 with and without, how it was priced and graded; read-only, never gated; #608)
+- scripts/nfl_neutral_site_receipt.py (ARCHITECT 2026-10-27, addendum 171 item 2):
+  - The provider's `/games` list per season (default 2023 to the current season). It reads the coverage receipt's kept `logs/nfl_qb_payloads/<season>/games_list.json` first, else its own kept answer, else ONE call per season through `nfl_qb_probe.get`.
+  - Payloads are kept under `--save` (default `logs/nfl_neutral_site_payloads`). A `--save` under data/ is refused (exit 2).
+  - A failed read is FAILED and named, and its season is never measured. An answer with no rows is EMPTY. `--max-calls` stops cleanly and says INCOMPLETE. The call count is printed.
+  - Law 1: the keys of the first real row, its game member and its venue member are printed before any venue field is read. If no row serves a venue, the receipt prints "the provider serves no venue" and stops (exit 0), but only when every season asked was read and at least one row in the provider's shape came back. A run where a season FAILED or was capped, or nothing was read, prints "venue NOT MEASURED" with the seasons named, `venue_served` null, exit 2: a read that did not happen is never the finding (law 4).
+  - The venue rule is labelled and stores nothing:
+    - the venue is `game.venue.name` as served;
+    - a team's home venue is the venue of more than half of ALL its listed home games that season (a game with no venue served counts in the denominator; a plurality is UNKNOWN);
+    - a venue name or city that is not a string is a malformed venue (UNKNOWN, counted); a team id that is not a string or an integer is a malformed row (counted, never classified);
+    - both classifications are printed per game ("neither team's home", "outside the home team's stadium");
+    - any missing side is UNKNOWN, never home.
+  - The database is opened mode=ro (`readonly_scope`, or `--db PATH` the same way). The provider game joins its stored match by `external_ids["api_american_football"]`, else a labelled fallback. More than one candidate at any step (a provider id or a previous id on two stored matches, two matches on one key) is AMBIGUOUS and refused.
+  - v1's walk uses nfl_backtest's pure functions. It gives p with and without the 48 on the same state before each update, and the update stays v1's.
+  - Beside the walk: the stored prediction; the close as `grade_nfl` reads it; the result (tie = PUSH), hit, log-loss and CLV; and, with `--exports`, the newest closing row and the void rule. Without `--exports` the void reads "not read (no --exports)" on the row and in the JSON (never null), and the grade is marked "void unread".
+  - 2023 is listed from the provider only, "not stored, not walked". The Wembley and Paris cases are named; a named case whose season FAILED, was capped or was not asked says "not read", never "not in the provider read".
+- docs/CLI.md: the receipt's row.
+- Tests: tests/test_nfl_neutral_site_receipt.py (a fake provider, a throwaway SQLite opened mode=ro, no network, nothing under data/). No bar moves; no verdict; nothing stored.

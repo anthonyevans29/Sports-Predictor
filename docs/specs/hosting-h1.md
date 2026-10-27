@@ -75,9 +75,10 @@ set by `SP_IMPROVE_HOLD_ON_PASS=1`, which the chain template sets.
 | sp-weekly-fullseason | weekly-fullseason | Sun 06:00 UTC | daily |
 | sp-backup-prune | (retention, report-only) | daily 05:30 UTC | — |
 | sp-exports-squash | exports mirror weekly history squash (F2.5; a no-op until `SP_EXPORTS_MIRROR_REMOTE` is set) | Sun 06:10 UTC | — |
-| sp-intl-daily | intl-daily (the incremental intl sync, the v3 venue step, the UNL shadow export) | daily 07:20 UTC | daily |
+| sp-intl-daily | intl-daily (the incremental intl sync, the v3 venue step, the UNL shadow export; then the cups' daily schedule read, `sync-matches` EFL, CL, UEL and FAC 2026/27, #707, ARCHITECT 2026-10-27) | daily 07:20 UTC | daily |
 | sp-mlb-history | mlb-history (MLB PHASE A: the api-sports fallback's MLB history; sync only) | daily 10:30 UTC | daily |
 | sp-window | window (the next-24h card and delta pages); from the next deploy (ARCHITECT 2026-10-24, addendum 164 item 2(a)) also the capture-only Kalshi sync of PD `KXLALIGAGAME`, SA `KXSERIEAGAME`, BL1 `KXBUNDESLIGAGAME`, FL1 `KXLIGUE1GAME` and ELC `KXEFLCHAMPIONSHIPGAME` (`chains.WINDOW_KALSHI_CAPTURE_ONLY`: one `sync-kalshi-soccer --competition <code>` per league, one series per call, when the league's next kickoff is near or imminent; no export, no call, no venue line on the card) | hourly at :05, hours 00-03 and 06-23 UTC (H0-3) | — |
+| sp-cup-observe | (cli.py observe-cup-lineups, one tick, all four cups; not a chain): cups Step B's live T-15 observation store (ARCHITECT 2026-10-27, addendum 169 item 4(i)); a tick with no poll due ends without the DB lock | every 5 minutes at :00..:55, hours 00-03 and 06-23 UTC (H0-3) | — |
 | sp-closing-watch | (closing.py watch, NFL and SOCCER; not a chain) — enabled at the cutover, 2026-10-26 13:47Z (T11 `TIMERS`; ARCHITECT 2026-10-26, addendum 168 item 5; held for the cutover ruling until then, C7) | every minute (the one H0-3 exemption, by name) | — |
 | *(none)* | soccer-refresh | **operator-started** (H0-6) | fresh prerefresh |
 
@@ -763,7 +764,7 @@ TIMERS="sp-backup.timer sp-backup-prune.timer sp-soccer-friday.timer sp-soccer-s
   sp-soccer-morning-after.timer sp-nfl-lines.timer sp-nfl-grade.timer sp-nfl-prematch.timer
   sp-nhl-daily.timer sp-weekly-fullseason.timer sp-ncaa-market.timer sp-window.timer
   sp-mlb-history.timer sp-intl-daily.timer sp-exports-squash.timer sp-ncaa-schedule.timer
-  sp-closing-watch.timer"
+  sp-closing-watch.timer sp-cup-observe.timer"
 MLB_LAPTOP_ONLY="sp-mlb-morning.timer sp-mlb-preslate.timer sp-clv-capture.timer"   # NOT enabled: statsapi 406 on the DO ASN (H1b note)
 echo $TIMERS | sudo tee /etc/sports-predictor/timers.enabled   # the list H2 steps 2 and 6 reuse
 systemctl enable --now sp-boot-receipt.service sp-web.service
@@ -819,6 +820,20 @@ systemctl list-timers 'sp-*' --no-pager     # receipt: next-elapse for each
   echo sp-ncaa-schedule.timer | sudo tee -a /etc/sports-predictor/timers.enabled
   systemctl list-timers sp-ncaa-schedule.timer --no-pager   # receipt: next elapse at 10:35 or 22:35 UTC
   sudo -u sp venv/bin/python deploy/hosting/sp_run.py ncaa-schedule   # first run now, receipted
+  ```
+- `sp-cup-observe.timer` (ARCHITECT 2026-10-27, addendum 169 item 4(i); every 5 minutes, hours 00-03 and 06-23 UTC):
+  cups Step B's live store, one `observe-cup-lineups` tick for all four cups, no `--loop`. A tick with no poll due
+  reads and ends without the DB lock. A refusal (no DB file, the store not migrated, no API-Football key) fails the
+  unit, which pages through `sp-notify@cup-observe`. On a live host that predates it, after the deploy of the tag that
+  carries it (until then the operator runs the loop by hand on cup days):
+  ```
+  sudo install -m 0644 deploy/hosting/systemd/sp-cup-observe.service deploy/hosting/systemd/sp-cup-observe.timer /etc/systemd/system/
+  sudo systemctl daemon-reload
+  sudo -u sp venv/bin/python cli.py observe-cup-lineups --dry-run   # receipt: the fixtures within 3 h and the polls due
+  sudo systemctl enable --now sp-cup-observe.timer
+  echo sp-cup-observe.timer | sudo tee -a /etc/sports-predictor/timers.enabled
+  systemctl list-timers sp-cup-observe.timer --no-pager   # receipt: next elapse on a five-minute mark
+  journalctl -u sp-cup-observe -n 20 --no-pager           # receipt: the first tick's line
   ```
 - **A CHANGED timer on a live host** (e.g. `sp-ncaa-market.timer` gained Tue + Wed 16:00 UTC, ARCHITECT
   2026-10-07, addendum 2 item 8a). `sp_deploy.py` checks out the tag but does not install unit files, so

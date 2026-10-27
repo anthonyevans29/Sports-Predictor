@@ -461,6 +461,22 @@ Which machine runs item 5's readout (ARCHITECT 2026-10-18, addendum 128 item 1(a
    ```
    The setup script's consoles name MLB only (its preflight, its test page, its plist and its closing words).
    With no MLB game left in the season, nothing is reinstalled.
+   **The laptop's standing routine after the cutover (ARCHITECT 2026-10-27, addendum 169 item 4(ii)):** "the
+   morning 'console' block I wrote today is the operator's shape of it — record it as the laptop's standing routine
+   (backup, MLB, read-only receipts, tally, mirror) so no PL/NFL/NHL/NCAA sync ever runs on the laptop again." In order,
+   every morning:
+   1. **Backup:** the daily `.backup` (the `.backup` API, never a file copy), outside `data/`, before anything writes.
+   2. **MLB:** the `mlb-morning` chain's steps in its order (`deploy/hosting/chains.py`: `sync-matches` MLB yesterday
+      and today, `evaluate`, `improve --hold-on-pass`, `sync-appearances`, `sync-umpires`, `export-results`,
+      `results-tally`), then the slate (`mlb-preslate`'s steps) and the MLB closing watch at their times.
+   3. **Read-only receipts:** the day's blocks that read the laptop's database (mode=ro, or `sqlite3 -readonly`).
+      Each is MLB's record or a read of it.
+   4. **Tally:** `results-tally`, the last step of `mlb-morning`.
+   5. **Mirror:** `python deploy/hosting/exports_mirror.py push --role laptop --label morning`.
+
+   Nothing else writes the laptop's database. No `sync-*` of PL, NFL, NHL, NCAA, the cups, UNL or the intl family
+   runs on the laptop: the host is their writer of record, and its `coverage` file (the mirror's
+   `host/latest/coverage.json`) is the day's map. `python cli.py coverage` on the laptop shows MLB only.
 
 ## 2. Fresh-fingerprint compare
 

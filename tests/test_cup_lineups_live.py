@@ -312,3 +312,31 @@ def test_codex_662_an_insert_another_run_beat_is_counted_already_observed_not_a_
     t = live.tick(KO - timedelta(minutes=15), adapter=Racer([full]))
     assert t.already == 1 and t.rows == [] and len(_rows()) == 1
     assert "already observed 1" in live.tick_lines(t, False)[0]
+
+
+def test_a_tick_with_no_poll_due_takes_no_lock_and_still_refuses_an_unmigrated_store(monkeypatch):
+    """ARCHITECT 2026-10-27, addendum 169 item 4(i): the host's timer ticks every five minutes; a tick with nothing due
+    reads mode=ro and ends without the chains' DB lock, and an unmigrated store is still refused as a real tick does."""
+    _setup()
+    taken = []
+
+    class Lock:
+        def __enter__(self):
+            taken.append(True)
+
+        def __exit__(self, *a):
+            return False
+    monkeypatch.setattr(live, "_db_lock", Lock)
+    t = live.tick(KO - timedelta(hours=1), adapter=FakeAdapter([]))        # every poll still ahead
+    assert t.due == 0 and t.remaining == 3 and taken == [] and _rows() == []
+    t = live.tick(KO - timedelta(hours=5), adapter=FakeAdapter([]))        # no fixture within 3 h
+    assert t.fixtures == 0 and taken == []
+    full = _slots(HOME_SRC, ELEVEN_H) + _slots(AWAY_SRC, ELEVEN_A)
+    t = live.tick(KO - timedelta(minutes=15), adapter=FakeAdapter([full]))   # the T-15 poll due: the lock, a row
+    assert taken == [True] and len(_rows()) == 1
+
+
+def test_a_lock_free_tick_still_refuses_an_unmigrated_store(tmp_path):
+    _setup(migrated=False)
+    with pytest.raises(live.Refused, match="migrate_cup_lineup_observations.py has not run"):
+        live.tick(KO - timedelta(hours=1), adapter=FakeAdapter([]))

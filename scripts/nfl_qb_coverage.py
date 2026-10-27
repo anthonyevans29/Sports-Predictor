@@ -134,6 +134,21 @@ def _dropped(row) -> str | None:
     return None
 
 
+def _malformed(row) -> bool:
+    """A listed row not in the provider's shape (ARCHITECT 2026-10-27 14:35 ET, #715 item 2: "a malformed row must be
+    counted, not a traceback"): not an object, or a game, teams or home / away member present but not an object. It
+    is counted and named; it may be a finished game the gate cannot check, so the season's gate line and its field
+    absences read INCOMPLETE / UNKNOWN (law 4)."""
+    if not isinstance(row, dict):
+        return True
+    if row.get("game") is not None and not isinstance(row["game"], dict):
+        return True
+    t = row.get("teams")
+    if t is None:
+        return False
+    return not isinstance(t, dict) or any(t.get(s) is not None and not isinstance(t[s], dict) for s in ("home", "away"))
+
+
 def _team_ids(row) -> tuple:
     t = (row.get("teams") or {}) if isinstance(row, dict) else {}
     return tuple((t.get(side) or {}).get("id") for side in ("home", "away"))
@@ -146,17 +161,25 @@ def _empty(v) -> bool:
 def season_receipt(season: int, fetch: Fetch) -> dict:
     out = {"season": season, "stages": defaultdict(Counter), "status": Counter(), "fields": Counter(),
            "field_missing": Counter(), "lines": 0, "no_attempts": 0, "join": Counter(), "join_top": Counter(),
-           "left": [], "failed": [], "dropped": [], "excluded": Counter(), "teams": set()}
+           "left": [], "failed": [], "dropped": [], "excluded": Counter(), "teams": set(), "malformed": [],
+           "stats_incomplete": []}
     try:
         games = fetch("games", season, "list", "games", league=probe.LEAGUE, season=season)
     except Capped as e:                                 # the cap reached at a season's boundary: stop cleanly (Codex)
         out["left"].append(str(e))
+        out["stats_incomplete"].append("the games list (capped)")
         return out
     if games is None:                                   # a failed read is not an empty season (Codex on #710)
         out["failed"].append("the games list")
+        out["stats_incomplete"].append("the games list (failed)")
         return out
     finished = []
     for r in games:
+        if _malformed(r):                               # #715 item 2: counted and named, never a traceback
+            out["status"]["(not the provider's row shape)"] += 1
+            out["stages"]["(not the provider's row shape)"]["listed"] += 1     # in the listed total (Codex on #716)
+            out["malformed"].append(json.dumps(r, sort_keys=True, default=str)[:120])
+            continue
         p = probe.parsed(r)
         st = p[0].name if p else "(dropped by the adapter's parse)"
         sg = _stage(r)
@@ -180,10 +203,12 @@ def season_receipt(season: int, fetch: Fetch) -> dict:
             teams = fetch("players", season, gid, "games/statistics/players", id=gid)
         except Capped as e:
             out["left"].append(str(e))
+            out["stats_incomplete"].append(f"statistics of game {gid} (capped)")
             continue
         if teams is None:                               # failed: not "passing neither" (Codex on #710)
             out["stages"][sg]["statistics read failed"] += 1
             out["failed"].append(f"statistics of game {gid}")
+            out["stats_incomplete"].append(f"statistics of game {gid} (failed)")
             continue
         sides = {}
         for tb in teams:
@@ -254,7 +279,9 @@ def lines(r: dict, fetch: Fetch, universe=None) -> list[str]:
     absent from this whole season is still on its F line, "on 0" and absent, never left off."""
     universe = sorted(set(universe or ()) | set(r["fields"]))
     # a whole-season absence is claimed only when every finished game's statistics were read (Codex on #713)
-    partial = bool(r["left"] or r["failed"] or r["dropped"])
+    # #715 item 1: only the games-list and statistics reads decide it; a roster read never does (the passing lines
+    # are complete without it)
+    partial = bool(r["stats_incomplete"] or r["dropped"] or r["malformed"])
     s = r["season"]
     L = [f"\n== season {s}",
          "  G /games: by status " + " · ".join(f"{k} {v}" for k, v in sorted(r["status"].items()))]
@@ -277,6 +304,9 @@ def lines(r: dict, fetch: Fetch, universe=None) -> list[str]:
                  "cannot check them): " + "; ".join(r["dropped"][:10]) + (" …" if len(r["dropped"]) > 10 else ""))
     for why, n in sorted(r["excluded"].items()):
         L.append(f"  {why}: {n} (not in the gate)")
+    if r["malformed"]:
+        L.append(f"  NOT THE PROVIDER'S ROW SHAPE {len(r['malformed'])} (counted; may be finished games the gate cannot "
+                 "check): " + "; ".join(r["malformed"][:5]) + (" …" if len(r["malformed"]) > 5 else ""))
     if r["failed"]:
         L.append(f"  FAILED reads {len(r['failed'])} (kept out of every count; a re-run asks them again): "
                  + ", ".join(r["failed"][:10]) + (" …" if len(r["failed"]) > 10 else ""))
@@ -299,8 +329,12 @@ def lines(r: dict, fetch: Fetch, universe=None) -> list[str]:
         L.append(f"  stages not identified (missing or novel; not in the gate): finished {unknown['finished']}"
                  + (f" · finished, dropped by the parse {unknown['finished, dropped by the parse']}"
                     if unknown["finished, dropped by the parse"] else ""))
-    incomplete = [x for x, on in (("capped: a re-run completes it", r["left"]),
-                                  (f"{len(r['failed'])} read(s) failed: a re-run asks them again", r["failed"]),
+    # #715 item 1: the gate counts passing lines, so only the games-list and statistics reads make it INCOMPLETE; a
+    # roster read that failed or was capped leaves the R join line partial, never the gate
+    incomplete = [x for x, on in ((f"{len(r['stats_incomplete'])} games-list or statistics read(s) failed or capped: "
+                                   "a re-run completes them", r["stats_incomplete"]),
+                                  (f"{len(r['malformed'])} listed row(s) not in the provider's shape",
+                                   r["malformed"]),
                                   (f"{unknown['finished'] + unknown['finished, dropped by the parse']} finished "
                                    "game(s) of a stage not identified",
                                    unknown["finished"] + unknown["finished, dropped by the parse"]),

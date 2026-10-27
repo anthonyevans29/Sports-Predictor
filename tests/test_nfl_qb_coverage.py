@@ -123,7 +123,9 @@ def test_failed_reads_are_kept_out_of_the_counts_and_the_gate_is_incomplete(tmp_
     assert "FAILED reads 2 (kept out of every count; a re-run asks them again): statistics of game 11, roster of " \
            "team 2" in out
     assert "R roster join, every passing line: no roster read for the team 1 · same team 2" in out
-    assert "1/2 = 50.0% · INCOMPLETE (2 read(s) failed: a re-run asks them again)" in out and "BELOW" not in out
+    # #715 item 1: the gate is INCOMPLETE for the failed statistics read only; the roster read never decides it
+    assert ("1/2 = 50.0% · INCOMPLETE (1 games-list or statistics read(s) failed or capped: a re-run completes them)"
+            in out) and "BELOW" not in out
     assert "failed 2 · answered with no rows 1" in out
 
 
@@ -215,3 +217,45 @@ def test_an_absence_is_never_claimed_for_a_season_whose_reads_are_incomplete(tmp
     s26_text = "\n".join(out).split("== season 2026", 1)[1]
     assert "'sacks' on 0 of the 2 lines read, UNKNOWN for the season (reads incomplete)" in s26_text
     assert "ABSENT" not in s26_text
+
+
+
+# ---- #715 (ARCHITECT 2026-10-27 14:35 ET: "#715 (both items) goes in before the receipts run") -------------------
+
+def test_a_failed_roster_read_decides_neither_the_field_absence_nor_the_gate(tmp_path):
+    """Item 1: every statistics read of 2026 completes and its roster read fails; the season's absent field reads
+    ABSENT (the passing lines establish it), the gate reads its verdict, and the roster failure is listed."""
+    g26 = [_row(20, 500, "FT")]
+    s26 = {20: [_team(1, [_p(101, "20/30")]), _team(2, [_p(201, "18/25")])]}
+
+    def get(path, **p):
+        if path == "games":
+            return 200, {}, (g26 if p["season"] == 2026 else GAMES)
+        if path == "games/statistics/players":
+            return 200, {}, (s26 if p["id"] == 20 else STATS).get(p["id"], [])
+        if path == "players" and p["season"] == 2026:
+            return 503, {}, []
+        return fake([])(path, **p)
+    out = []
+    assert qbc.main(["--seasons", "2025,2026", "--save", str(tmp_path / "pay")], echo=out.append, get=get) == 0
+    s26_text = "\n".join(out).split("== season 2026", 1)[1]
+    assert "'sacks' on 0, ABSENT from the whole season (2 lines)" in s26_text and "UNKNOWN" not in s26_text
+    assert "FAILED reads 2" in s26_text and "roster of team 1" in s26_text
+    assert "1/1 = 100.0% · MEETS" in s26_text
+
+
+def test_a_malformed_row_is_counted_and_named_never_a_traceback(tmp_path):
+    """Item 2: a row whose game is not an object, a row that is not an object, and a row whose home team is a string
+    are counted under their own status and named; they make the gate INCOMPLETE and an absence UNKNOWN."""
+    rows = GAMES + [{"game": ["x"], "teams": {}}, "oops", {"game": {"id": 30}, "teams": {"home": "Bills"}}]
+
+    def get(path, **p):
+        return (200, {}, rows) if path == "games" else fake([])(path, **p)
+    out = []
+    assert qbc.main(["--seasons", "2025", "--save", str(tmp_path / "pay")], echo=out.append, get=get) == 0
+    out = "\n".join(out)
+    assert "(not the provider's row shape) 3" in out
+    assert "NOT THE PROVIDER'S ROW SHAPE 3 (counted; may be finished games the gate cannot check)" in out
+    assert "1/2 = 50.0% · INCOMPLETE (3 listed row(s) not in the provider's shape)" in out
+    assert "SUMMARY 2025: listed 7 · finished 3" in out                     # the malformed rows are listed (Codex)
+    assert "(not the provider's row shape): listed 3 · finished 0" in out

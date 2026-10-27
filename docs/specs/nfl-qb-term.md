@@ -46,7 +46,13 @@ correction ruled for the NHL GSAx term on 2026-10-27 (a league level that drifts
 - **(b) 2023 centred on itself.** 2023's weeks 1–2 are centred on 2023's mean of the games strictly before each game. 2023's first game day, which has no earlier game, is centred on that day's own pooled mean.
   - That is a within-day read, confined to the warm-up: nothing of 2023 is scored, and μ₀ (3.3) is computed from 2023's centred values after the season.
 
-(a) is cleaner where 2022 exists. The prior μ₀ is then computed from 2023's centred values either way.
+**RULED (ARCHITECT 2026-10-27 10:20 ET, addendum 170 item 2(a)), verbatim:** "The coverage receipt decides, not the
+PR: it runs with 2022 in --seasons. If 2022 is listed and meets the same coverage gate (lines for both teams in at least
+98% of its finished regular-season and postseason games), option (a) stands — 2022 is read for its whole-season mean
+only, nothing else of it enters. If 2022 is absent or under the gate, option (b) stands — 2023 centred on itself, the
+first game day on its own pooled mean, confined to the warm-up that is never scored. The spec records both with this
+rule; the ruling of 11-02 names which one the receipt chose." The coverage receipt prints each season's gate line
+(`coverage gate`, section 7). The prior μ₀ is computed from 2023's centred values either way.
 
 ### 3.3 The estimate as of a game
 For quarterback q before game g, with `x_i` his centred measures in his own earlier games i (any team, any season in
@@ -98,10 +104,13 @@ term moves the forecast when the starter changes: an injury, a benching, a rooki
 - **Split:** 2023 is warm-up (ratings and quarterback estimates accrue, nothing scored, μ₀ computed). β is fit on 2024 regular season and postseason. The scored set is 2025 regular season and postseason, preseason excluded throughout as v1's gate does.
   - v1's constants were set before 2025 was scored, and nothing of 2025 enters the fit.
   - 2025 is the window v1's own gate scored (BACKLOG "NFL PHASE 2 GATE"): a known window, declared as such.
-- **Gate:** PASS iff the candidate's mean log-loss on the scored set < v1's on the same games − 0.0050 (the MLB bar's margin), strictly: an improvement of exactly 0.0050 is a tie and rejects. In every 10pp band with n ≥ 30, |realized − stated| ≤ 7pp (v1's calibration rule).
+- **Gate:** PASS iff the candidate's mean log-loss on the scored set < v1's on the same games − 0.0050 (the MLB bar's margin), strictly: an improvement of exactly 0.0050 is a tie and rejects. **The margin's strictness is RULED and frozen** (ARCHITECT 2026-10-27 10:20 ET, addendum 170 item 2(b), verbatim): "strict, as pushed. A candidate at exactly 0.0050 is a tie and a tie is a rejection (law 3). Frozen now, before any figure exists." In every 10pp band with n ≥ 30, |realized − stated| ≤ 7pp (v1's calibration rule).
 - **Confirmation:** the 2026 regular-season games after the verdict, frozen once, at n = 100: CONFIRMED iff the candidate's log-loss < v1's on the same games.
 - **The hold ends only with PASS and CONFIRMED**, as ruled.
 - **Reported, never gated:** the identity hit rate, the oracle arm, β's likelihood curve, and the term's size (|Δ| in Elo points) by quartile.
+
+**Noted, not yet ruled** (addendum 170 item 2: "they belong to the 11-02 declaration, after the receipts"): the 98%
+coverage gate, H = 16, k = 400, the 100-dropback prior window, ρ = 0.10, the β fit on 2024, the n = 100 confirmation.
 
 ## 7. The two receipts in this PR (read-only; the runs are the operator's)
 

@@ -18,6 +18,10 @@ Per season (default 2023..2026):
                                    lack it or send it null/empty ("missing fields"); a line with no attempts read.
   R  /players?team&season           each team's roster of the season: a passing line's player id joins the same
                                    team's roster, another team's roster of the season (a trade), or none.
+  Gate                             per season, the coverage gate (ARCHITECT 2026-10-27, addendum 170 item 2(a)): lines
+                                   for both teams in at least 98% of the finished regular-season and postseason games.
+                                   It decides 2023's centring (docs/specs/nfl-qb-term.md 3.2): run with 2022 in
+                                   --seasons; 2022 MEETS -> option (a), absent or BELOW -> option (b).
   Summary                          per season and game type: games listed / finished / with passing stats for both
                                    teams, and the roster join of the most-attempts quarterbacks.
 
@@ -51,6 +55,7 @@ from src.db.schema import MatchStatus  # noqa: E402
 
 DEFAULT_SEASONS = [2023, 2024, 2025, 2026]
 DEFAULT_SAVE = ROOT / "logs" / "nfl_qb_payloads"
+GATE = 0.98                 # the coverage gate (addendum 170 item 2(a)); the 11-02 declaration rules the figure
 
 
 class Capped(Exception):
@@ -205,6 +210,17 @@ def lines(r: dict, fetch: Fetch) -> list[str]:
     tot = Counter()
     for c in r["stages"].values():
         tot.update(c)
+    # the coverage gate (ARCHITECT 2026-10-27, addendum 170 item 2(a)): lines for both teams in at least 98% of the
+    # season's finished regular-season and postseason games (every game type but the preseason)
+    gate = Counter()
+    for sg, c in r["stages"].items():
+        if "pre" not in sg.lower():
+            gate.update(c)
+    pct = gate["passing both teams"] / gate["finished"] if gate["finished"] else None
+    L.append(f"  coverage gate {s} (regular season and postseason, both teams >= {GATE:.0%}): "
+             f"{gate['passing both teams']}/{gate['finished']}"
+             + (f" = {pct:.1%} · {'MEETS' if pct >= GATE else 'BELOW'}" if pct is not None else " · NO FINISHED GAME")
+             + (" · INCOMPLETE (capped: a re-run completes it)" if r["left"] else ""))
     L.append(f"  SUMMARY {s}: listed {tot['listed']} · finished {tot['finished']} · passing stats for both teams "
              f"{tot['passing both teams']}/{tot['finished']} · most-attempts QB joins its team's roster "
              f"{r['join_top']['same team']}/{sum(r['join_top'].values())}")

@@ -69,6 +69,8 @@ def test_coverage_by_game_type_fields_and_the_roster_join(tmp_path):
     assert "R roster join, every passing line: another team's roster 1 · same team 3" in out
     assert "the most-attempts quarterback per team-game (OUR READ): another team's roster 1 · same team 2" in out
     assert "SUMMARY 2025: listed 4 · finished 3 · passing stats for both teams 1/3" in out
+    # the gate leaves the preseason out: the two regular-season games, one with both teams (addendum 170 item 2(a))
+    assert "coverage gate 2025 (regular season and postseason, both teams >= 98%): 1/2 = 50.0% · BELOW" in out
     assert len(calls) == 1 + 3 + 2                                 # the list, three finished games, two rosters
     assert "failed or empty 1" in out                              # the preseason game's empty answer
 

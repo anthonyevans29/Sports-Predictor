@@ -64,7 +64,10 @@ Sections, per season (default 2025 and 2026):
                           incomplete.
   B  the bullpen          per side: prior relief IP > 0 with ERA complete / incomplete, none; the recent window at
                           10 IP or more, its ERA complete / incomplete.
-  P  the live path        per side, the fallback _resolve_pitcher takes on the as-of inputs (above).
+  P  the live path        per side, the fallback _resolve_pitcher takes on the as-of inputs (above). It stands only
+                          on an identity refreshed by kickoff and on complete ERAs (#703): a listed identity refreshed
+                          after kickoff (or with no time), and a component whose ERA is incomplete (season, or a recent
+                          window of 10 IP or more), are counted under their own names, never as a path.
   C  the cross-check      per pitcher_season_stats row of the season: the season's REGULAR-season appearance outs
                           (the stored row is the provider's regular-season split) against its innings_pitched x 3
                           (agree within one out / differ / no appearances), and earned_runs the same way. Counts only.
@@ -99,6 +102,8 @@ REGULAR = {"R"}                          # the stored gameType (MLBStatsAPIAdapt
 POSTSEASON = {"F", "D", "L", "W"}        # export.MLB_POSTSEASON_GAME_TYPES
 RECENT_DAYS = 10                         # sync_bullpen_stats(recent_window_days=10)
 RECENT_MIN_IP = 10.0                     # sync_bullpen_stats(recent_min_ip=10.0)
+PATHS = ("P blend: starter and bullpen", "P starter, league bullpen", "P bullpen half-weighted, starter unknown",
+         "P neutral (no data)")              # a path read on a listed, pregame identity and complete ERAs (#703)
 READS = {"matches": ["id", "competition_id", "season", "utc_date", "status", "stage", "home_team_id", "away_team_id",
                      "external_ids"],
          "competitions": ["id", "code"],
@@ -336,7 +341,14 @@ def read_game(g, d, pitch, pen, recent, c):
         ip = sum(r[2] for r in win) / 3
         c["B recent 10 days: " + (f"< {RECENT_MIN_IP:g} IP" if ip < RECENT_MIN_IP else f">= {RECENT_MIN_IP:g} IP, ERA "
                                   + ("incomplete" if any(r[3] for r in win) else "complete"))] += 1
+        # #703: the path stands only on an identity observed by kickoff and on ERAs the appearances rebuild whole (the
+        # live loader admits a row only with a usable ERA); either missing is counted under its own name, never a path
+        pregame = part is not None and part["at"] is not None and part["at"] <= g["kick"]
+        torn = ((starter and pitch.er_missing[model] > 0) or
+                (bullpen and (pen.er_missing[team] > 0 or (ip >= RECENT_MIN_IP and any(r[3] for r in win)))))
         c["P " + ("no pitcher input (no starter listed)" if part is None else
+                  "identity not established pregame (refreshed after kickoff, or no time)" if not pregame else
+                  "not reconstructable (an ERA the path reads is incomplete: earned_runs NULL)" if torn else
                   "blend: starter and bullpen" if starter and bullpen else
                   "starter, league bullpen" if starter else
                   "bullpen half-weighted, starter unknown" if bullpen else "neutral (no data)")] += 1
@@ -391,7 +403,8 @@ def lines(season: str, d: dict, c: Counter, x: Counter) -> list[str]:
              f"component as of the game (ERA complete) {comp}/{sides} · bullpen season ERA complete "
              f"{c['B season: ERA complete']}/{sides} · bullpen recent >= {RECENT_MIN_IP:g} IP "
              f"(ERA complete) {c[f'B recent 10 days: >= {RECENT_MIN_IP:g} IP, ERA complete']}/{sides} · identity "
-             f"refreshed by kickoff {c['S identity refreshed by kickoff']}/{sides}")
+             f"refreshed by kickoff {c['S identity refreshed by kickoff']}/{sides} · the live path reconstructed "
+             f"(identity by kickoff, ERAs complete) {sum(c[k] for k in PATHS)}/{sides}")
     return L
 
 

@@ -106,16 +106,19 @@ def test_the_as_of_reconstruction_reads_only_games_that_started_before(tmp_path,
     assert "the model's against the boxscore's: agree 1 · boxscore only 4 · differ 1 · neither 4" in out
     assert ("B bullpen, per side (10): recent 10 days: < 10 IP 10 · season: ERA complete 4 · season: no prior relief "
             "IP 6") in out
-    # g1 home: p1 and H's g0 relief; g1 away: no stats and no A relief; g4 home: no source id, H's relief
+    # g1 home: p1 and H's g0 relief; g1 away: its identity was refreshed after the kickoff, so no path stands on it
+    # (#703); g4 home: no source id, H's relief
     assert ("P the live path as of the game, per side (10): blend: starter and bullpen 1 · bullpen half-weighted, "
-            "starter unknown 1 · neutral (no data) 1 · no pitcher input (no starter listed) 7") in out
+            "starter unknown 1 · identity not established pregame (refreshed after kickoff, or no time) 1 · no pitcher "
+            "input (no starter listed) 7") in out
     # p1: 36 regular-season outs = 12.0 IP, ER 4 = 4 (its postseason relief is not counted); p2: 48 outs against
     # 17.0 IP (51), a NULL ER row
     assert "C cross-check, pitcher_season_stats 2025 rows 2: ER NULL on a row 1 · ER agree 1 · IP agree 1 · IP differ 1" \
         in out
     assert ("SUMMARY 2025: regular games 5 · appearances both sides 2/5 · a starter component as of the game (ERA "
             "complete) 1/10 · bullpen season ERA complete 4/10 · bullpen recent >= 10 IP (ERA complete) 0/10 · "
-            "identity refreshed by kickoff 2/10") in out
+            "identity refreshed by kickoff 2/10 · the live path reconstructed (identity by kickoff, ERAs complete) "
+            "2/10") in out
 
 
 def test_twin_game_ids_refuse_until_the_dedupe_and_an_orphan_is_never_a_game(tmp_path, capsys):
@@ -203,3 +206,22 @@ def test_a_missing_column_refuses_law_1(tmp_path):
         raise AssertionError("not refused")
     except SystemExit as e:
         assert "pitcher_appearances.earned_runs" in str(e)
+
+
+def test_an_incomplete_era_is_no_path(tmp_path, capsys):
+    """#703: g2's away starter p2 is listed by kickoff, but its prior g0 row has earned_runs NULL: the starter component
+    the path would read cannot be rebuilt, so the side is counted under its own name, never as a blend or a fallback."""
+    import sqlite3
+    p = tmp_path / "copy.db"
+    build(p)
+    con = sqlite3.connect(p)
+    gid, kick, away = con.execute("SELECT id, utc_date, away_team_id FROM matches WHERE external_ids LIKE '%5002%'").fetchone()
+    con.execute("INSERT INTO match_participants (match_id, team_id, role, kind, player_name, player_source_id, source, "
+                "refreshed_at) VALUES (?, ?, 'starting_pitcher', 'confirmed', 'p2', 'p2', 'mlb_stats_api', ?)",
+                (gid, away, kick))
+    con.commit()
+    con.close()
+    assert rc.main(["--db", str(p), "--seasons", "2025"]) == 0
+    out = capsys.readouterr().out
+    assert "not reconstructable (an ERA the path reads is incomplete: earned_runs NULL) 1" in out
+    assert "the live path reconstructed (identity by kickoff, ERAs complete) 2/10" in out

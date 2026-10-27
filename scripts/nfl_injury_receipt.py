@@ -70,6 +70,8 @@ def closings(exports: Path, since: datetime) -> list[dict]:
         try:
             doc = json.loads(p.read_text())
             block = doc.get("closing") or {}
+            if not isinstance(block, dict) or not isinstance(doc.get("predictions") or [], list):
+                raise ValueError("not a closing block")     # Codex on #710: unreadable, never a crash
         except (OSError, ValueError, AttributeError):
             out.append({"file": p.name, "unreadable": True})
             continue

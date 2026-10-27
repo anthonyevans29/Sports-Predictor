@@ -118,3 +118,15 @@ def test_a_closing_with_no_start_reads_the_file_name_and_failed_live_reads_are_n
     assert "C closing_NFL_2026-10-19T1700Z.json · start 2026-10-19 17:00Z · run r3" in out
     assert "9 Bills: raw 0 · taken 0 · retained 0 · positions unresolved 0 · injuries read FAILED" in out
     assert "teams answering empty 0 · rosters empty 0 · injuries reads failed 1 · roster reads failed 0" in out
+
+
+def test_a_closing_block_that_is_not_an_object_is_unreadable_and_the_rest_are_read(tmp_path):
+    """Codex on #710: "closing": [] (or a string) is an unreadable file, never a crash that hides the later closings."""
+    ex, rec = world(tmp_path)
+    (ex / "closing_NFL_2026-10-17T1700Z.json").write_text(json.dumps({"closing": [], "predictions": []}))
+    (ex / "closing_NFL_2026-10-17T1800Z.json").write_text(json.dumps({"closing": "x", "predictions": []}))
+    out = []
+    assert nir.main(["--exports", str(ex), "--receipts", str(rec)], echo=out.append) == 0
+    out = "\n".join(out)
+    assert "closing_NFL_2026-10-17T1700Z.json" in out and "closing_NFL_2026-10-17T1800Z.json" in out
+    assert "C closing_NFL_2026-10-18T1700Z.json" in out and "C closing_NFL_2026-10-18T2025Z.json" in out

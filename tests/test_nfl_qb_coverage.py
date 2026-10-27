@@ -72,7 +72,7 @@ def test_coverage_by_game_type_fields_and_the_roster_join(tmp_path):
     # the gate leaves the preseason out: the two regular-season games, one with both teams (addendum 170 item 2(a))
     assert "coverage gate 2025 (regular season and postseason, both teams >= 98%): 1/2 = 50.0% · BELOW" in out
     assert len(calls) == 1 + 3 + 2                                 # the list, three finished games, two rosters
-    assert "failed or empty 1" in out                              # the preseason game's empty answer
+    assert "failed 0 · answered with no rows 1" in out              # the preseason game's empty answer
 
 
 def test_a_rerun_reads_the_kept_payloads_and_a_cap_stops_cleanly(tmp_path):
@@ -104,3 +104,48 @@ def test_a_cap_at_a_season_boundary_stops_cleanly_and_unreadable_attempts_make_n
     assert "no attempts read (no most-attempts quarterback) 1" in out          # game 10: nothing readable
     assert "the most-attempts quarterback per team-game (OUR READ): no attempts read (no most-attempts " \
            "quarterback) 1 · no roster 1" in out                               # game 11: 105 (0/0) is the pick
+
+
+def test_failed_reads_are_kept_out_of_the_counts_and_the_gate_is_incomplete(tmp_path):
+    """Codex on #710 (P1): a failed statistics or roster read is neither "passing neither" nor an empty roster; the
+    gate says INCOMPLETE and names it, never BELOW."""
+    def get(path, **p):
+        if path == "games/statistics/players" and p["id"] == 11:
+            return 429, {"rateLimit": "Too many requests"}, []
+        if path == "players" and p["team"] == 2:
+            return None, {"request": "Timeout"}, []
+        return fake([])(path, **p)
+    out = []
+    assert qbc.main(["--seasons", "2025", "--save", str(tmp_path / "pay")], echo=out.append, get=get) == 0
+    out = "\n".join(out)
+    assert "Regular Season: listed 3 · finished 2 · passing both teams 1 · one team 0 · neither 0 · statistics read " \
+           "failed 1" in out
+    assert "FAILED reads 2 (kept out of every count; a re-run asks them again): statistics of game 11, roster of " \
+           "team 2" in out
+    assert "R roster join, every passing line: no roster read for the team 1 · same team 2" in out
+    assert "1/2 = 50.0% · INCOMPLETE (2 read(s) failed: a re-run asks them again)" in out and "BELOW" not in out
+    assert "failed 2 · answered with no rows 1" in out
+
+
+def test_a_tie_for_the_most_attempts_names_no_quarterback(tmp_path, monkeypatch):
+    """Codex on #710: two lines tied at the most attempts give no pick, counted, never the provider's row order."""
+    monkeypatch.setitem(STATS, 11, [_team(1, [_p(101, "20/30"), _p(102, "18/30")])])
+    out, _ = run(tmp_path)
+    assert "tied for the most attempts (no most-attempts quarterback) 1" in out
+
+
+def test_a_stage_not_identified_stays_out_of_the_gate(tmp_path, monkeypatch):
+    """Codex on #710: a finished game with no stage, or a novel one, is never counted as regular season or
+    postseason; it is printed and the gate reads INCOMPLETE."""
+    monkeypatch.setattr(qbc, "GATE", 0.5)
+    kept = GAMES[1]
+    try:
+        GAMES[1] = _row(11, 200, "FT", stage=None)
+        out, _ = run(tmp_path)
+        assert "stages not identified (missing or novel; not in the gate): finished 1" in out
+        assert "1/1 = 100.0% · INCOMPLETE (1 finished game(s) of a stage not identified)" in out
+        GAMES[1] = _row(11, 200, "FT", stage="Post Season")
+        out, _ = run(tmp_path / "b")
+        assert "1/2 = 50.0% · MEETS" in out
+    finally:
+        GAMES[1] = kept

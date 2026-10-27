@@ -69,8 +69,11 @@ class Fetch:
         self.save, self.max_calls, self.calls, self.cached = save, max_calls, 0, 0
         self.get = get or probe.get
         self.failed: list[str] = []
+        self.empty: list[str] = []
 
-    def __call__(self, kind: str, bucket, key, path: str, **params) -> list:
+    def __call__(self, kind: str, bucket, key, path: str, **params) -> list | None:
+        """The rows; [] for an answer with no rows; None for a FAILED read (a transport error, a non-200 answer or
+        API errors: Codex on #710), which the caller keeps out of every count and marks the gate INCOMPLETE."""
         f = self.save / str(bucket) / f"{kind}_{key}.json"
         if f.is_file():
             try:
@@ -82,9 +85,12 @@ class Fetch:
             raise Capped(f"{kind} {key}")
         self.calls += 1
         code, errs, rows = self.get(path, **params)
-        if errs or not rows:
-            self.failed.append(f"{bucket} {kind} {key}: HTTP {code}" + (f" errors {errs}" if errs else " (no rows)"))
-            return rows or []
+        if errs or code != 200:
+            self.failed.append(f"{bucket} {kind} {key}: HTTP {code}" + (f" errors {errs}" if errs else ""))
+            return None
+        if not rows:
+            self.empty.append(f"{bucket} {kind} {key}")
+            return []
         f.parent.mkdir(parents=True, exist_ok=True)
         tmp = f.with_suffix(".tmp")
         tmp.write_text(json.dumps(rows, sort_keys=True, default=str))
@@ -95,6 +101,16 @@ class Fetch:
 def _stage(row) -> str:
     g = probe._game(row)
     return str(g.get("stage")) if isinstance(g, dict) and g.get("stage") is not None else "(no stage)"
+
+
+GATE_STAGES = {"regularseason", "postseason"}        # the provider's "Regular Season" / "Post Season", normalized
+
+
+def _in_gate(stage: str) -> bool | None:
+    """True for the regular season or the postseason, False for the preseason, None for a stage not identified
+    (missing or novel): never counted in the gate, printed as indeterminate (Codex on #710)."""
+    n = "".join(ch for ch in stage.lower() if ch.isalpha())
+    return True if n in GATE_STAGES else False if n == "preseason" else None
 
 
 def _team_ids(row) -> tuple:
@@ -109,11 +125,14 @@ def _empty(v) -> bool:
 def season_receipt(season: int, fetch: Fetch) -> dict:
     out = {"season": season, "stages": defaultdict(Counter), "status": Counter(), "fields": Counter(),
            "field_missing": Counter(), "lines": 0, "no_attempts": 0, "join": Counter(), "join_top": Counter(),
-           "left": [], "teams": set()}
+           "left": [], "failed": [], "teams": set()}
     try:
         games = fetch("games", season, "list", "games", league=probe.LEAGUE, season=season)
     except Capped as e:                                 # the cap reached at a season's boundary: stop cleanly (Codex)
         out["left"].append(str(e))
+        return out
+    if games is None:                                   # a failed read is not an empty season (Codex on #710)
+        out["failed"].append("the games list")
         return out
     finished = []
     for r in games:
@@ -133,6 +152,10 @@ def season_receipt(season: int, fetch: Fetch) -> dict:
             teams = fetch("players", season, gid, "games/statistics/players", id=gid)
         except Capped as e:
             out["left"].append(str(e))
+            continue
+        if teams is None:                               # failed: not "passing neither" (Codex on #710)
+            out["stages"][sg]["statistics read failed"] += 1
+            out["failed"].append(f"statistics of game {gid}")
             continue
         sides = {}
         for tb in teams:
@@ -168,17 +191,25 @@ def season_receipt(season: int, fetch: Fetch) -> dict:
         except Capped as e:
             out["left"].append(str(e))
             continue
+        if rows is None:                                # failed: "no roster read for the team", never an empty roster
+            out["failed"].append(f"roster of team {tid}")
+            continue
         rosters[tid] = {probe.roster_player(x).get("id") for x in rows if isinstance(x, dict)
                         and isinstance(probe.roster_player(x), dict)}
         for pid in rosters[tid]:
             roster_of[pid].add(tid)
     for gid, (sg, sides) in lines_by_game.items():
         for tid, pl in sides.items():
-            # the most-attempts quarterback among the lines whose attempts read (0 is a read); none readable: no pick
+            # the most-attempts quarterback among the lines whose attempts read (0 is a read); none readable: no pick.
+            # A tie for the most names none (Codex on #710): the pick never rests on the provider's row order
             read = [(probe.attempts(st), i) for i, (_p, st) in enumerate(pl) if probe.attempts(st) is not None]
-            top = max(read)[1] if read else None
-            if top is None:
+            most = max(a for a, _i in read) if read else None
+            leaders = [i for a, i in read if a == most]
+            top = leaders[0] if len(leaders) == 1 else None
+            if not read:
                 out["join_top"]["no attempts read (no most-attempts quarterback)"] += 1
+            elif top is None:
+                out["join_top"]["tied for the most attempts (no most-attempts quarterback)"] += 1
             for i, (player, stats) in enumerate(pl):
                 pid = player.get("id") if isinstance(player, dict) else None
                 k = ("no player id" if pid is None else "no roster read for the team" if tid not in rosters
@@ -196,7 +227,8 @@ def lines(r: dict, fetch: Fetch) -> list[str]:
          "  G /games: by status " + " · ".join(f"{k} {v}" for k, v in sorted(r["status"].items()))]
     for sg, c in sorted(r["stages"].items()):
         L.append(f"    {sg}: listed {c['listed']} · finished {c['finished']} · passing both teams "
-                 f"{c['passing both teams']} · one team {c['passing one team']} · neither {c['passing neither']}")
+                 f"{c['passing both teams']} · one team {c['passing one team']} · neither {c['passing neither']}"
+                 + (f" · statistics read failed {c['statistics read failed']}" if c["statistics read failed"] else ""))
     L.append(f"  F passing lines {r['lines']} (no attempts read {r['no_attempts']}) · fields: "
              + (" · ".join(f"{nm!r} on {r['lines'] - r['field_missing'][nm]}, missing/empty {r['field_missing'][nm]}"
                            for nm in sorted(r["fields"])) or "none"))
@@ -204,6 +236,9 @@ def lines(r: dict, fetch: Fetch) -> list[str]:
                                                      or "none"))
     L.append("    the most-attempts quarterback per team-game (OUR READ): "
              + (" · ".join(f"{k} {v}" for k, v in sorted(r["join_top"].items())) or "none"))
+    if r["failed"]:
+        L.append(f"  FAILED reads {len(r['failed'])} (kept out of every count; a re-run asks them again): "
+                 + ", ".join(r["failed"][:10]) + (" …" if len(r["failed"]) > 10 else ""))
     if r["left"]:
         L.append(f"  LEFT at the call cap ({fetch.max_calls}): {len(r['left'])} read(s), first {r['left'][0]}; "
                  "a re-run resumes from the kept payloads")
@@ -212,15 +247,25 @@ def lines(r: dict, fetch: Fetch) -> list[str]:
         tot.update(c)
     # the coverage gate (ARCHITECT 2026-10-27, addendum 170 item 2(a)): lines for both teams in at least 98% of the
     # season's finished regular-season and postseason games (every game type but the preseason)
-    gate = Counter()
+    gate, unknown = Counter(), Counter()
     for sg, c in r["stages"].items():
-        if "pre" not in sg.lower():
+        k = _in_gate(sg)
+        if k:
             gate.update(c)
+        elif k is None:                                 # a stage not identified: never in the gate (Codex on #710)
+            unknown.update(c)
+    if unknown["finished"]:
+        L.append(f"  stages not identified (missing or novel; not in the gate): finished {unknown['finished']}")
+    incomplete = [x for x, on in (("capped: a re-run completes it", r["left"]),
+                                  (f"{len(r['failed'])} read(s) failed: a re-run asks them again", r["failed"]),
+                                  (f"{unknown['finished']} finished game(s) of a stage not identified",
+                                   unknown["finished"])) if on]
     pct = gate["passing both teams"] / gate["finished"] if gate["finished"] else None
     L.append(f"  coverage gate {s} (regular season and postseason, both teams >= {GATE:.0%}): "
              f"{gate['passing both teams']}/{gate['finished']}"
-             + (f" = {pct:.1%} · {'MEETS' if pct >= GATE else 'BELOW'}" if pct is not None else " · NO FINISHED GAME")
-             + (" · INCOMPLETE (capped: a re-run completes it)" if r["left"] else ""))
+             + (f" = {pct:.1%}" if pct is not None else "")
+             + (f" · INCOMPLETE ({'; '.join(incomplete)})" if incomplete else
+                f" · {'MEETS' if pct >= GATE else 'BELOW'}" if pct is not None else " · NO FINISHED GAME"))
     L.append(f"  SUMMARY {s}: listed {tot['listed']} · finished {tot['finished']} · passing stats for both teams "
              f"{tot['passing both teams']}/{tot['finished']} · most-attempts QB joins its team's roster "
              f"{r['join_top']['same team']}/{sum(r['join_top'].values())}")
@@ -245,10 +290,12 @@ def main(argv=None, echo=print, get=None) -> int:
     for s in seasons:
         for ln in lines(season_receipt(s, fetch), fetch):
             echo(ln)
-    echo(f"\ncalls made {fetch.calls} · answers read from the kept payloads {fetch.cached} · failed or empty "
-         f"{len(fetch.failed)}")
+    echo(f"\ncalls made {fetch.calls} · answers read from the kept payloads {fetch.cached} · failed {len(fetch.failed)}"
+         f" · answered with no rows {len(fetch.empty)}")
     for f in fetch.failed[:40]:
         echo(f"  ✗ {f}")
+    for f in fetch.empty[:20]:
+        echo(f"  ∅ {f}")
     return 0
 
 

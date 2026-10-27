@@ -25,6 +25,7 @@ quarterback term that has passed its gate". This packet changes nothing about th
 - **What is listed:** per game for 2023–2026 (about 335 games a season), one passing line per quarterback. The line holds completions/attempts, yards, TD, INT, sacks and rating.
 - **No starter field:** the game statistics and the rosters carry none, and an unplayed game names no player.
 - **The starter is post hoc only:** the quarterback with the most attempts. That is OUR READ, never the provider's word.
+  - **A tie for the most attempts names none** (Codex on #710). It never rests on the provider's row order, and the coverage receipt counts such team-games. Sections 4 and 5 say how such a game is read.
 - **The coverage receipt** (`scripts/nfl_qb_coverage.py`, section 7) makes this whole over every game of every season and game type, beyond the probe's three games a season. It reports which games carry lines for both teams, which fields each line sends or leaves empty (sack yards in particular, see 3.1), and how many passing-line player ids join a roster.
 - **Coverage gate:** the estimate in section 3 needs lines for both teams in at least 98% of the finished regular-season and postseason games of each season it reads. Below that, the design is re-read before any declaration. This is a proposed threshold for the architect.
 
@@ -72,11 +73,13 @@ except β (section 4).
 team's rating already holds its recent quarterback level. Adding a starter's whole strength would count it twice. The
 term therefore adds only the difference between today's starter and the quarterback level the rating was built on.
 
-- **The carried level** `C(t, g)` of team t before game g: the dropback-weighted mean of `S(q_j, j)`, each game's own most-attempts quarterback measured as of that game.
-  - It runs over t's previous games j, weighted `v_j = (1 − ρ)^(n_j)`, where n_j counts t's games after j (the most recent game has n_j = 0).
-  - `ρ = 0.10` per game approximates Elo's own memory at K = 20.
-  - A game in the previous season carries a further factor 0.75 (v1's season_regression 0.25).
-  - ρ is a proposal; Code's receipt can print Elo's realized decay to check it before the declaration.
+- **The carried level** `C(t, g)` of team t before game g is built the way v1 builds the rating, as a walk over t's games in order, so it carries what the rating carries:
+  - **Start:** `C = 0` before t's first game in the data. 0 is the centred league level, as v1 starts every team at default_rating 1500.
+  - **After each game j of t:** `C ← (1 − ρ)·C + ρ·S(q_j, j)`, with `q_j` the game's own most-attempts quarterback measured as of that game. A game with no most-attempts quarterback (none readable, or a tie) leaves C unchanged.
+  - **At t's first game of a new season:** `C ← 0.75·C` before the game. This is v1's season_regression 0.25 toward the league level, as v1 moves each rating 25% of the way back to 1500 (`src/walters/nfl_backtest.py`).
+  - **Why a walk and not a weighted mean (Codex on #710):** the packet's first form was a normalized weighted mean with a 0.75 factor on the previous season's weights. That factor cancels between numerator and denominator, so at a season opener C stayed at last season's full level while the rating had regressed. Δ then over-subtracted in every opener. The walk shrinks C itself toward the league level, as the rating is shrunk. A team with a short history also stays near 0, as a new rating stays near 1500.
+  - `ρ = 0.10` per game approximates Elo's own memory at K = 20. ρ is a proposal; Code's receipt can print Elo's realized decay to check it before the declaration.
+  - The walk drops the first form's dropback weights, since v1's update weighs every game alike.
 - **The term:** `Δ(t, g) = S(starter(t, g), g) − C(t, g)`, in centred ANY/A units.
 - **Applied to the forecast only:** the game's rating difference becomes `dr + β·(Δ_home − Δ_away)`, with v1's home advantage and logistic unchanged.
 - **The ratings are v1's, exactly.** The rating update after the game uses v1's own expectation, without the term. v1's walk, k_factor 20, home_advantage 48, mov_base 2.2, season_regression 0.25 and default_rating 1500 are all fixed ("Elo constants fixed"). Both arms are therefore identical in every component but the term.
@@ -87,7 +90,7 @@ term moves the forecast when the starter changes: an injury, a benching, a rooki
 
 ## 5. The pregame identity rule (as evidence allows)
 
-- **The starter of team t in game g:** the most-attempts quarterback of t's previous game (OUR READ, section 2).
+- **The starter of team t in game g:** the most-attempts quarterback of t's previous game (OUR READ, section 2). Where that game names none (a tie, or no attempts readable), the rule reads the game before it.
   - **Week 1:** t's most-attempts quarterback over its previous season's last four games.
   - **Exception:** where our injury read names him out (Out or Doubtful), the starter is t's other quarterback with the most attempts in t's games this season; if none has any, it is the replacement prior μ₀.
 - **The injury read's stamp problem (#627, named, as ruled).** The injuries table is replace-on-sync, so a past read is not kept, and `synced_at` is OUR sync's time, not the provider's report time.
@@ -111,12 +114,17 @@ term moves the forecast when the starter changes: an injury, a benching, a rooki
 
 **Noted, not yet ruled** (addendum 170 item 2: "they belong to the 11-02 declaration, after the receipts"): the 98%
 coverage gate, H = 16, k = 400, the 100-dropback prior window, ρ = 0.10, the β fit on 2024, the n = 100 confirmation.
+The carried level's walk form (section 4, corrected after Codex on #710) is part of the same proposal.
 
 ## 7. The two receipts in this PR (read-only; the runs are the operator's)
 
 1. **`scripts/nfl_qb_coverage.py`, the coverage section 2 asks for.** Per season and game type: games listed, finished, with passing lines for both teams, one or neither; every field's presence on the lines; the roster join of every line and of each team-game's most-attempts quarterback.
    - It keeps every answer under `logs/nfl_qb_payloads/` (never `data/`), so a capped run resumes and the design's dry run later reads the same payloads.
    - About 1,500 calls for four seasons; `--max-calls` caps a run.
+   - **What the gate line counts (Codex on #710):**
+     - Only the provider's Regular Season and Post Season stages count. A finished game whose stage is missing or novel is printed and never counted.
+     - A failed read (transport error, non-200 answer, API errors) is printed and kept out of every count. A read that answered with no rows is counted as an answer.
+     - Either of the last two makes the gate line INCOMPLETE, never MEETS or BELOW, and so does a capped run.
 2. **`scripts/nfl_injury_receipt.py`, #627's receipt.** Per NFL closing since 10-11, from the closing files and the closing receipts: the teams with an empty list, each FEED (the provider answered no entry), OUR READ (it answered and nothing was retained) or UNKNOWN (no receipt); the join failures (positions unresolved); and the observation age (the page's start minus `synced_at`).
    - `--live` reads every team's injuries now: raw entries, the entries the read takes, retained, and positions the roster join leaves unresolved. The position lookup is not asked.
    - It opens no database, so it runs on either machine. The NFL record is the host's since the cutover.

@@ -1,0 +1,11 @@
+## 2026-10-27 (#000: 169-cup-observe-timer — Step B's host timer, the laptop's standing routine, the Today tab's coverage source; the cups' daily schedule read, #707)
+- deploy/hosting/systemd/sp-cup-observe.{timer,service} (ARCHITECT 2026-10-27, addendum 169 item 4(i); wanted before CL on 11-03; Step B's first live run is today, on the host, by hand):
+  - one `observe-cup-lineups` tick, all four cups, no --loop, every five minutes at :00..:55, hours 00-03 and 06-23 UTC (H0-3 kept, no exemption);
+  - its own service as sp, OnFailure paging through `sp-notify@cup-observe` (a refusal fails the unit: the store would not be recording);
+  - on the T11 `TIMERS` list, with its Schedule row and the install steps for a live host in hosting-h1.md.
+- src/ingestion/cup_lineups_live.py: a tick with no poll due reads mode=ro, refuses an unmigrated store as a real tick does, and ends without the chains' DB lock; a tick with a poll due takes the lock and plans again.
+- docs/specs/h2-cutover-runbook.md section 1 step 7: the laptop's standing routine after the cutover (169 item 4(ii)): backup, MLB, read-only receipts, tally, mirror; no PL/NFL/NHL/NCAA, cups, UNL or intl sync on the laptop.
+- tools/cockpit.html (the repo copy): the Today tab's note names `host/latest/coverage.json` as the coverage source since the cutover (169 item 4(iii)). The live Cockpit is the published artifact.
+- deploy/hosting/chains.py intl-daily (#707, ARCHITECT 2026-10-27: "a daily cup schedule step (EFL, CL, UEL, FAC) on an existing daily chain [...], listed in the chain's steps"): four `sync-matches --competition <EFL|CL|UEL|FAC> --season 2026/27` steps, last in the chain (daily 07:20 UTC); the hosting-h1.md Schedule row names them.
+- deploy/hosting/coverage_map.py: a shadow export covers the competitions the steps before it name (the cup reads after export-unl-predictions are no cup shadow).
+- Tests: tests/test_hosting_pack.py (the timer's form, T11, the notifier's unit, intl-daily's cup steps), tests/test_intl_shadow.py, tests/test_cup_lineups_live.py (a no-due tick takes no lock and still refuses an unmigrated store). No bar moves.

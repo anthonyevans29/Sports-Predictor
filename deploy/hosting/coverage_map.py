@@ -61,7 +61,7 @@ v7"."
       SHADOW       a roadmap lane whose `competitions` names it (addendum 111 item 2; never its prose) and (a) the lane
                    is confirming and its registry entry is confirming (a gate PASS in its declared confirmation window:
                    a shadow, never a call), or (b) in any other state, a chain in chains.py runs a shadow export for it
-                   (a step whose command is one of SHADOW_EXPORTS, in a chain whose steps name the competition; an
+                   (a step whose command is one of SHADOW_EXPORTS, in a chain whose steps before it name the competition; an
                    operator-only chain is no schedule). (b) is how NHL qualifies (its lane is "to declare", and
                    nhl-daily runs export-nhl-predictions, v7, every day: the ruling's own example) and how a declared
                    lane would (NCAA's has no shadow export scheduled: CLAUDE.md "No college shadow ... until then").
@@ -369,15 +369,17 @@ def market_only_sets() -> list[tuple[str, frozenset]]:
 
 def scheduled_shadows() -> list[dict]:
     """The shadow exports a chain runs (chains.py), each {chain, command, model: the code's id for its model, comps:
-    the competitions the chain's steps name}. An operator-only chain has no timer: no schedule."""
+    the competitions the chain's steps before the export name}. An operator-only chain has no timer: no schedule."""
     out = []
     for name, ch in CHAINS.items():
         if ch.get("operator_only"):
             continue
         steps = [s for s in ch.get("steps") or [] if s]
-        comps = {s[i + 1] for s in steps for i, a in enumerate(s[:-1]) if a == "--competition"}
-        for s in steps:
+        for j, s in enumerate(steps):
             if s[0] in SHADOW_EXPORTS:
+                # the competitions the steps BEFORE the export name: the reads that feed it (#707: intl-daily's cup
+                # schedule reads come after export-unl-predictions and are no shadow of the cups)
+                comps = {x[i + 1] for x in steps[:j] for i, a in enumerate(x[:-1]) if a == "--competition"}
                 mod, attr = SHADOW_EXPORTS[s[0]]
                 out.append({"chain": name, "command": s[0], "model": getattr(importlib.import_module(mod), attr),
                             "comps": comps})

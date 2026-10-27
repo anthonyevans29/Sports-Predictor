@@ -1,4 +1,4 @@
-## 2026-10-27 (#000: 690-floor-blocked — results-tally's floor-blocked line: PASS by the 0.50 floor with exec >= 4 at the close, notional, never pooled; #690)
+## 2026-10-27 (#717: 690-floor-blocked — results-tally's floor-blocked line: PASS by the 0.50 floor with exec >= 4 at the close, notional, never pooled; #690)
 - src/walters/exec_cohorts.py `floor_blocked` and the EXEC COHORTS section:
   - Per family with a probability floor (SOCCER, INTL: pMin 0.50), a line "PASS by floor, exec >= 4". It counts the closing rows PASS by the probability floor (the pick's model_p under the family's pMin) with exec >= 4 at the close (`desk.exec.edge_pp`, basis taker).
   - The Desk writes pass_kind "floor" for the edge floor too, so the two are told apart by the probability.

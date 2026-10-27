@@ -152,3 +152,23 @@ def test_a_non_200_live_read_with_no_errors_is_failed_never_empty(tmp_path):
     assert nir.main(["--exports", str(ex), "--receipts", str(rec), "--live", "--save", str(tmp_path / "pay2")],
                     echo=out2.append, get=lambda path, **p: (502, {}, [])) == 0
     assert "the /teams read FAILED: no team is read, never an empty league" in "\n".join(out2)
+
+
+def test_rows_sent_with_a_failed_read_are_never_measured(tmp_path):
+    """Codex on #713: a non-200 answer (or API errors) that still carries rows is FAILED, and its rows enter no total
+    and resolve no position."""
+    ex, rec = world(tmp_path)
+
+    def get(path, **p):
+        if path == "teams":
+            return 200, {}, [{"id": 9, "name": "Bills"}]
+        if path == "players":
+            return 500, {}, [{"id": 90, "name": "J. Allen", "position": "QB"}]
+        return 200, {"token": "bad"}, [{"player": {"id": 90, "name": "J. Allen"}, "status": "Out"}]
+    out = []
+    assert nir.main(["--exports", str(ex), "--receipts", str(rec), "--live", "--save", str(tmp_path / "pay")],
+                    echo=out.append, get=get) == 0
+    out = "\n".join(out)
+    assert "9 Bills: raw 0 · taken 0 · retained 0 · positions unresolved 0 · roster read FAILED {'http': 500} · " \
+           "injuries read FAILED {'token': 'bad'}" in out
+    assert "injuries reads failed 1 · roster reads failed 1" in out

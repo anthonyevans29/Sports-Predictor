@@ -944,6 +944,81 @@ class UnknownCompetition(ValueError):
                          "never falls back to every row (ARCHITECT 2026-10-13, addendum 64 item 3)")
 
 
+def result_row(s, pred, oc, m) -> dict:
+    """One graded row as export-results writes it: the prediction, the outcome and the grading close (read in `s`). The
+    ONE builder of a results row: export_results and the PL positive-edge receipt's database read (#706) both call it."""
+    # THE grading close (odds → snapshot → kalshi_only, ARCHITECT 2026-10-05), not the odds table alone: MLB replaces its
+    # odds table, so a results row read only the table and stayed unpriced.
+    from src.walters.close import grading_close_block as _close_block
+    home = m.home_team.name if m.home_team else None
+    away = m.away_team.name if m.away_team else None
+    # S17 (2026-09-01): the label MUST consider the draw. Bournemouth-
+    # Everton (MW2) had draw 0.3389 > home 0.3383; grading was correct
+    # (evaluate includes draw) but this label said home_win. Include
+    # draw_prob and assert label/grade consistency — loudly.
+    probs = {"home_win": pred.home_win_prob,
+             "draw": getattr(pred, "draw_prob", None),
+             "away_win": pred.away_win_prob}
+    nn = {k: v for k, v in probs.items() if v is not None}
+    top_side = max(nn, key=nn.get) if nn else None
+    _res_to_pick = {"H": "home_win", "D": "draw", "A": "away_win"}
+    if (top_side and oc.actual_result is not None
+            and oc.top_pick_hit is not None):
+        _expected_hit = (_res_to_pick.get(oc.actual_result.value)
+                         == top_side)
+        if _expected_hit != bool(oc.top_pick_hit):
+            log.error(
+                "S17 ASSERTION: match %s label %s vs graded hit=%s "
+                "(actual %s) — label/grade inconsistency",
+                m.id, top_side, oc.top_pick_hit,
+                oc.actual_result.value)
+    proj_total = None
+    if pred.expected_home_score is not None and pred.expected_away_score is not None:
+        proj_total = round(pred.expected_home_score + pred.expected_away_score, 2)
+    actual_total = None
+    if oc.actual_home_score is not None and oc.actual_away_score is not None:
+        actual_total = oc.actual_home_score + oc.actual_away_score
+    return {
+        "match_id": m.id,
+        "date": m.utc_date.isoformat() if m.utc_date else None,
+        "away_team": away, "home_team": home,
+        # what we predicted
+        "predicted": {
+            "top_pick": top_side,
+            "top_pick_prob": round(nn[top_side], 4) if top_side else None,
+            "home_win_prob": pred.home_win_prob,
+            "draw_prob": getattr(pred, "draw_prob", None),
+            "away_win_prob": pred.away_win_prob,
+            "projected_total": proj_total,
+            "over_under_line": pred.over_under_line,
+            "over_prob": pred.over_prob,
+        },
+        # what happened
+        "actual": {
+            "home_score": oc.actual_home_score,
+            "away_score": oc.actual_away_score,
+            "total_runs": actual_total,
+            "result": oc.actual_result.value if oc.actual_result else None,
+        },
+        # how the prediction graded
+        "graded": {
+            "top_pick_hit": oc.top_pick_hit,
+            "total_correct": oc.total_correct,
+            "total_error": (round(actual_total - proj_total, 2)
+                            if (actual_total is not None and proj_total is not None) else None),
+            "log_loss": oc.log_loss,
+            "brier_score": oc.brier_score,
+            # ARCHITECT 2026-10-19 (addendum 137 item 3, #612): the stored model-close divergence (RESULTS.md:
+            # VERIFIED or RETAINED-LEGACY), model p minus close fair on the pick, a fraction (0.0453 =
+            # +4.53pp); NOT a closing-line value (close minus entry is the Cockpit P&L's, on fills)
+            "model_close_divergence": oc.clv,
+            "clv": oc.clv,                       # the alias, through v1.5.0 (the morning-run consumer reads it)
+            "closing_price": oc.closing_price,
+            **_close_block(s, m),                # q_close per side for entry-price CLV (#208)
+        },
+    }
+
+
 def export_results(
     *,
     sport: Sport,
@@ -968,13 +1043,6 @@ def export_results(
     from sqlalchemy import select
     from src.db.database import session_scope
 
-    from src.walters.close import grading_close_block as _gcb
-
-    def _close_block(s, m):
-        # THE grading close (odds → snapshot → kalshi_only, ARCHITECT 2026-10-05), not the odds table alone:
-        # MLB replaces its odds table, so a results row read only the table and stayed unpriced.
-        return _gcb(s, m)
-
     rows = []
     with session_scope() as s:
         q = (
@@ -998,73 +1066,7 @@ def export_results(
             q = q.where(Match.competition_id == comp.id)
 
         for pred, oc, m in s.execute(q).all():
-            home = m.home_team.name if m.home_team else None
-            away = m.away_team.name if m.away_team else None
-            # S17 (2026-09-01): the label MUST consider the draw. Bournemouth-
-            # Everton (MW2) had draw 0.3389 > home 0.3383; grading was correct
-            # (evaluate includes draw) but this label said home_win. Include
-            # draw_prob and assert label/grade consistency — loudly.
-            probs = {"home_win": pred.home_win_prob,
-                     "draw": getattr(pred, "draw_prob", None),
-                     "away_win": pred.away_win_prob}
-            nn = {k: v for k, v in probs.items() if v is not None}
-            top_side = max(nn, key=nn.get) if nn else None
-            _res_to_pick = {"H": "home_win", "D": "draw", "A": "away_win"}
-            if (top_side and oc.actual_result is not None
-                    and oc.top_pick_hit is not None):
-                _expected_hit = (_res_to_pick.get(oc.actual_result.value)
-                                 == top_side)
-                if _expected_hit != bool(oc.top_pick_hit):
-                    log.error(
-                        "S17 ASSERTION: match %s label %s vs graded hit=%s "
-                        "(actual %s) — label/grade inconsistency",
-                        m.id, top_side, oc.top_pick_hit,
-                        oc.actual_result.value)
-            proj_total = None
-            if pred.expected_home_score is not None and pred.expected_away_score is not None:
-                proj_total = round(pred.expected_home_score + pred.expected_away_score, 2)
-            actual_total = None
-            if oc.actual_home_score is not None and oc.actual_away_score is not None:
-                actual_total = oc.actual_home_score + oc.actual_away_score
-            rows.append({
-                "match_id": m.id,
-                "date": m.utc_date.isoformat() if m.utc_date else None,
-                "away_team": away, "home_team": home,
-                # what we predicted
-                "predicted": {
-                    "top_pick": top_side,
-                    "top_pick_prob": round(nn[top_side], 4) if top_side else None,
-                    "home_win_prob": pred.home_win_prob,
-                    "draw_prob": getattr(pred, "draw_prob", None),
-                    "away_win_prob": pred.away_win_prob,
-                    "projected_total": proj_total,
-                    "over_under_line": pred.over_under_line,
-                    "over_prob": pred.over_prob,
-                },
-                # what happened
-                "actual": {
-                    "home_score": oc.actual_home_score,
-                    "away_score": oc.actual_away_score,
-                    "total_runs": actual_total,
-                    "result": oc.actual_result.value if oc.actual_result else None,
-                },
-                # how the prediction graded
-                "graded": {
-                    "top_pick_hit": oc.top_pick_hit,
-                    "total_correct": oc.total_correct,
-                    "total_error": (round(actual_total - proj_total, 2)
-                                    if (actual_total is not None and proj_total is not None) else None),
-                    "log_loss": oc.log_loss,
-                    "brier_score": oc.brier_score,
-                    # ARCHITECT 2026-10-19 (addendum 137 item 3, #612): the stored model-close divergence (RESULTS.md:
-                    # VERIFIED or RETAINED-LEGACY), model p minus close fair on the pick, a fraction (0.0453 =
-                    # +4.53pp); NOT a closing-line value (close minus entry is the Cockpit P&L's, on fills)
-                    "model_close_divergence": oc.clv,
-                    "clv": oc.clv,                       # the alias, through v1.5.0 (the morning-run consumer reads it)
-                    "closing_price": oc.closing_price,
-                    **_close_block(s, m),                # q_close per side for entry-price CLV (#208)
-                },
-            })
+            rows.append(result_row(s, pred, oc, m))
 
     rows.sort(key=lambda r: (r["date"] or "", r["match_id"]))
     from src.walters.redated import label_rows
@@ -1385,6 +1387,12 @@ def export_fixtures(
     return path
 
 
+# #706: the NFL section's source line (grade_nfl's one record definition, read through readonly_scope)
+_NFL_SOURCE = ("the database, read-only (mode=ro): the NFL predictions joined to the finished games (nfl-grade's join; "
+               "no prediction_outcomes rows during the rehearsal), season to date from live_since, not the rolling "
+               "window; a game void by the closing files on disk left out; no export file read")
+
+
 def results_tally(days: int = 30, out_path: str = "RESULTS.md", report=None, exports_dir: str = "exports") -> str:
     """Rolling results document (2026-09-15, user request): last-N-day
     sides/log-loss/CLV per sport, regenerated on demand. Auto-generated —
@@ -1412,7 +1420,6 @@ def results_tally(days: int = 30, out_path: str = "RESULTS.md", report=None, exp
 
     from sqlalchemy import select
 
-    from src.db.database import session_scope
     from src.db.schema import (Match, MatchStatus, Prediction,
                                PredictionOutcome, Sport)
 
@@ -1453,8 +1460,14 @@ def results_tally(days: int = 30, out_path: str = "RESULTS.md", report=None, exp
     _console: list = []         # addendum 146 items 1(v) and 5(b): one console line each, after the close ages
     from src.walters.redated import closing_starts, void_counts, void_label
     closing = closing_starts(exports_dir)["rows"]
-    with session_scope() as s:
+    # #706 (ARCHITECT 2026-10-27 08:20 ET): "Both read the database read-only (prediction_outcomes, mode=ro) as the
+    # primary source, the closing files beside, export files secondary; a receipt line says which source it read."
+    from src.db.database import readonly_scope
+    with readonly_scope() as s:
         cutoff = utc_now_naive() - timedelta(days=days)
+        _src = (f"- Source: the database, read-only (mode=ro): prediction_outcomes of the matches from "
+                f"{cutoff:%Y-%m-%d %H:%M}Z (rolling {days} days); a game void by the closing files on disk left out; "
+                "no export file read\n")
         for sport, label, code in ((Sport.MLB, "MLB", None), (Sport.SOCCER, "Soccer (PL)", "PL")):
             # Outcomes link via prediction_id -> Prediction -> Match
             # (2026-09-15 hotfix: first ship guessed match_id; read the
@@ -1479,7 +1492,7 @@ def results_tally(days: int = 30, out_path: str = "RESULTS.md", report=None, exp
                          if redated else "")
             n = len(rows)
             if not n:
-                lines.append(f"## {label}\n\nNo graded games in window.\n" + (f"\n{void_line}" if void_line else ""))
+                lines.append(f"## {label}\n\nNo graded games in window.\n\n{_src}" + void_line)
                 continue
             hits = sum(1 for oc, m in rows if oc.top_pick_hit)
             lls = [oc.log_loss for oc, m in rows if oc.log_loss is not None]
@@ -1526,13 +1539,13 @@ def results_tally(days: int = 30, out_path: str = "RESULTS.md", report=None, exp
                    if ver else "- Mean model-close divergence, verified close: — (n=0)\n")
                 + (f"- Retained-legacy model-close divergence (separate cohort, not in the headline): "
                    f"{sum(leg)/len(leg)*100:+.2f}pp (n={len(leg)})\n" if leg else "")
-                + close_age_line(age) + void_line)
+                + close_age_line(age) + void_line + _src)
         # NFL from the grade join (no outcome rows during rehearsal). ONE record
         # definition (ARCHITECT 2026-10-06): season to date from live_since, a tie
         # is a push outside the hit denominator, pre-live rows on their own line.
         try:
             from src.walters.nfl_predict import grade_nfl
-            r = grade_nfl(days_back=None, exports_dir=exports_dir)
+            r = grade_nfl(days_back=None, exports_dir=exports_dir, readonly=True)
             if r.get("ok"):
                 pl = r.get("pre_live") or {}
                 nfl_age = r.get("close_minutes_before_start")       # #382; absent = no close reported
@@ -1560,6 +1573,7 @@ def results_tally(days: int = 30, out_path: str = "RESULTS.md", report=None, exp
                     + (close_age_line(nfl_age) if nfl_age is not None else "")
                     + (f"- Void: {void_counts(r.get('redated_rows') or [])} (out of every line above): "
                        + "; ".join(r.get("redated_rows") or []) + "\n" if r.get("redated") else "")
+                    + f"- Source: {_NFL_SOURCE}\n"
                     + (f"\n### NFL pre-live (before 2026-09-22; never pooled)\n\n"
                        f"- Sides: {pl['hits']}/{pl['decided']} · pushes {pl['pushes']}\n"
                        f"- {_vs_line(pl.get('vs_close'))}\n"
@@ -1567,7 +1581,8 @@ def results_tally(days: int = 30, out_path: str = "RESULTS.md", report=None, exp
             elif r.get("redated"):                # addendum 106 item 4: every game re-dated, named as MLB/Soccer do
                 lines.append(f"## NFL (live since Week 3, 2026-09-22)\n\nNo graded games in window.\n\n"
                              f"- Void: {void_counts(r.get('redated_rows') or [])} (out of every line above): "
-                             + "; ".join(r.get("redated_rows") or []) + "\n")
+                             + "; ".join(r.get("redated_rows") or []) + "\n"
+                             + f"- Source: {_NFL_SOURCE}\n")
         except Exception:
             lines.append("## NFL (live since Week 3, 2026-09-22)\n\nGrade unavailable.\n")
     # EXEC COHORTS (ARCHITECT 2026-10-20, addendum 146 item 1(v)): the closing files' PLAY calls by exec edge, per

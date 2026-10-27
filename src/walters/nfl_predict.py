@@ -436,7 +436,8 @@ def value_side_grade(p_home: float, anchor_home: float | None, close_home: float
             "shadow": (v_home != (p_home >= 0.5)) and abs(edge_home) * 100 >= VALUE_FLOOR_PP}
 
 
-def grade_nfl(days_back: int | None = None, progress=None, exports_dir: str = "exports") -> dict:
+def grade_nfl(days_back: int | None = None, progress=None, exports_dir: str = "exports",
+              readonly: bool = False) -> dict:
     """
     NFL grading (2026-09-14, built for Week 1's first read): joins
     predictions vs finished games and the latest banked book consensus.
@@ -454,6 +455,9 @@ def grade_nfl(days_back: int | None = None, progress=None, exports_dir: str = "e
     VOID: RE-DATED (ARCHITECT 2026-10-17, addendum 106 item 4): a game void by
     its closing rows in `exports_dir` (redated.void_label) leaves every tally
     and is named on its own line, as the results file labels it.
+
+    `readonly=True` (#706; results-tally's NFL section) reads through
+    database.readonly_scope (mode=ro) instead of session_scope.
     """
     from datetime import datetime, timedelta
     import math
@@ -472,7 +476,8 @@ def grade_nfl(days_back: int | None = None, progress=None, exports_dir: str = "e
     def tally():
         return {"games": 0, "decided": 0, "hits": 0, "pushes": 0}
 
-    with session_scope() as s:
+    from src.db.database import readonly_scope
+    with (readonly_scope() if readonly else session_scope()) as s:
         now = utc_now_naive()
         finished = (nfl_scoped(select(Prediction, Match)
                                .join(Match, Match.id == Prediction.match_id))

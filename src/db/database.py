@@ -121,6 +121,34 @@ def session_scope() -> Generator[Session, None, None]:
         session.close()
 
 
+class ReadOnlyRefused(Exception):
+    """readonly_scope cannot open the app's database read-only (no SQLite file): refused, never created."""
+
+
+@contextmanager
+def readonly_scope() -> Generator[Session, None, None]:
+    """A READ-ONLY session on the file the app's sessions are bound to (#706; ARCHITECT 2026-10-27 08:20 ET: "Both read
+    the database read-only (prediction_outcomes, mode=ro) as the primary source"). The file is opened through a mode=ro
+    URI: no connect hook (no directory made, no pragma), no commit, and SQLite itself refuses a write. A missing file or
+    a non-file URL is refused (ReadOnlyRefused), never created. The session is closed, not rolled back, so the rows it
+    loaded keep their attributes after the block (as session_scope's expire_on_commit=False does)."""
+    url = SessionLocal.kw["bind"].url
+    if url.get_backend_name() != "sqlite" or not url.database or url.database == ":memory:":
+        raise ReadOnlyRefused(f"REFUSED: a read-only read needs a SQLite database file (got {url.get_backend_name()})")
+    # a bind already opened through a mode=ro URI (a receipt's own read-only engine) names its file after "file:"
+    path = Path(url.database[len("file:"):] if url.database.startswith("file:") else url.database).resolve()
+    if not path.is_file():
+        raise ReadOnlyRefused(f"REFUSED: no DB file at {path}: a read-only read never creates one")
+    eng = create_engine(f"sqlite:///file:{path.as_posix()}?mode=ro&uri=true",
+                        connect_args={"uri": True, "check_same_thread": False})
+    session = Session(eng, autoflush=False, expire_on_commit=False)
+    try:
+        yield session
+    finally:
+        session.close()
+        eng.dispose()
+
+
 def has_kalshi_ticker() -> bool:
     """odds_snapshots.market_ticker exists (migrate_kalshi_ticker.py ran).
     Checked on every call (one PRAGMA), never cached: a stale answer either

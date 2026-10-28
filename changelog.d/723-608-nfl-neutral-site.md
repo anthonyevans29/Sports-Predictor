@@ -1,4 +1,4 @@
-## 2026-10-27 (#000: 608-nfl-neutral-site — the NFL neutral-site receipt: every game away from the home team's venue, the 48 with and without, how it was priced and graded; read-only, never gated; #608)
+## 2026-10-27 (#723: 608-nfl-neutral-site — the NFL neutral-site receipt: every game away from the home team's venue, the 48 with and without, how it was priced and graded; read-only, never gated; #608)
 - scripts/nfl_neutral_site_receipt.py (ARCHITECT 2026-10-27, addendum 171 item 2):
   - The provider's `/games` list per season (default 2023 to the current season). It reads the coverage receipt's kept `logs/nfl_qb_payloads/<season>/games_list.json` first, else its own kept answer, else ONE call per season through `nfl_qb_probe.get`.
   - Payloads are kept under `--save` (default `logs/nfl_neutral_site_payloads`). A `--save` under data/ is refused (exit 2).

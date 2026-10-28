@@ -744,4 +744,6 @@ def test_codex_round_1_on_717_intl_90_minutes_labels_kept_finite_p_and_the_model
     # (3) a non-finite probability and a venue-engine row
     assert not xc.floor_blocked({**floor_desk(), "model_p": float("-inf")}, "SOCCER")
     assert not xc.floor_blocked({**floor_desk(), "model_p": float("nan")}, "SOCCER")
+    assert not xc.floor_blocked({**floor_desk(), "model_p": -0.1}, "SOCCER")      # #718: not a probability
+    assert xc.floor_blocked({**floor_desk(), "model_p": 0.0}, "SOCCER")
     assert not xc.floor_blocked({**floor_desk(), "engine": "venue_edge"}, "SOCCER")

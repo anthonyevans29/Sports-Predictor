@@ -4,6 +4,243 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-10-27 (#717: 690-floor-blocked — results-tally's floor-blocked line: PASS by the 0.50 floor with exec >= 4 at the close, notional, never pooled; #690)
+- src/walters/exec_cohorts.py `floor_blocked` and the EXEC COHORTS section:
+  - Per family with a probability floor (SOCCER, INTL: pMin 0.50), a line "PASS by floor, exec >= 4". It counts the closing rows PASS by the probability floor (the pick's model_p under the family's pMin) with exec >= 4 at the close (`desk.exec.edge_pp`, basis taker).
+  - The Desk writes pass_kind "floor" for the edge floor too, so the two are told apart by the probability.
+  - Figures: W-L-P and notional units at 1u (BASE_UNITS, the size a PASS row's exec block is priced at) at `desk.exec.cost`. Rows not in this DB, with teams differing or re-dated are counted apart.
+  - It never enters a PLAY cell or the n=30 counter, and prints 0 when nothing qualifies (the frozen floor's receipt).
+- Codex round 1 on #717: INTL floor rows are graded on the 90-minute result (an AET / PEN game without a 90-minute score stays open); a void row keeps its label (re-dated or placeholder kickoff); a non-finite model_p is never read in; and only a model-engine row is (a venue PASS is never the probability floor).
+- docs/CLI.md: the results-tally row.
+- Tests: tests/test_exec_cohorts.py. No bar moves; read-only line.
+
+## 2026-10-27 (#716: 715-qb-receipt-followup — the coverage receipt's field absence and gate read the passing data only; a malformed row is counted, never a traceback; #715)
+- scripts/nfl_qb_coverage.py:
+  - Item 1: only the games-list and statistics reads, a parse-dropped finished game or a malformed row make a season's field absence UNKNOWN or its gate line INCOMPLETE. A failed or capped roster read is listed and leaves the roster join partial, never the field line or the gate.
+  - Item 2: a listed row not in the provider's shape (not an object, or a game, teams or home / away member that is not one) is counted under "(not the provider's row shape)", named, and makes the gate INCOMPLETE and an absence UNKNOWN. Before, it stopped the run with a traceback.
+- docs/specs/nfl-qb-term.md section 7 says the same.
+- Tests: tests/test_nfl_qb_coverage.py. No bar moves; read-only receipt.
+
+## 2026-10-27 (#714: 689-ladder-exec — the LADDER's ordered NO leg priced on the row, informational, and a priced-but-ungraded LADDER line in results-tally; #689)
+- src/walters/desk_policy.py `ladder_exec_block`: a LADDER row now carries `desk.ladder_exec`, the ordered BUY NO on HOME priced as a PLAY's exec block is:
+  - `model_p`: the model's draw + away; `market_p`: the books' fair draw + away;
+  - the NO bid / ask, mirrored from the HOME leg;
+  - the taker cost at the order's own contract count, the contracts, `edge_pp` and `fee_clears`.
+  - A draw pick, an unticketed HOME leg or a missing ask gives `why` and no price. `desk.exec` stays null for a LADDER.
+  - No call, units, floor or order changes. Written only with the #87 addendum on, so the golden is untouched.
+- src/walters/exec_cohorts.py: results-tally's EXEC COHORTS section adds, under "left out: LADDER", a line counting the LADDER rows by the NO leg's exec edge (exec >= 4 · 0 < exec < 4 · exec <= 0), with the mean edge and the unpriced rows by why. It is ungraded, notional and never pooled with PLAY.
+- Codex round 1 on #714: the NO quotes are normalized exactly as order_line normalizes them (cents first, then the mirror), so a sub-cent yes quote prices the order's own limit; a priced leg with no model draw probability says why it has no edge.
+- docs/CLI.md: the `desk.ladder_exec` row.
+- Tests: tests/test_ladder_exec_689.py (new), tests/test_exec_cohorts.py. No bar moves.
+
+## 2026-10-27 (#713: 712-qb-receipt-fixes — the QB receipts' field line, dropped finished games and failed live reads, before the receipts run; #712 items 1-3)
+- scripts/nfl_qb_coverage.py:
+  - Item 1: each season's F line lists every passing field any season of the run sends. A field missing for a whole season reads "on 0, ABSENT"; it used to be left off. The absence is claimed only when every finished game's statistics were read; otherwise the field reads UNKNOWN for the season (Codex on #713). A header line names the field universe.
+  - Item 2: a listed row the provider marks finished (a short the adapter maps to FINISHED, or no status claim with both totals) but the adapter's parse drops is named under FINISHED BUT DROPPED and makes the season's gate line INCOMPLETE. An all-star exhibition is the adapter's own exclusion, counted on its own line and not in the gate.
+- scripts/nfl_injury_receipt.py `--live`: a read counts as answered only when it is HTTP 200 with no errors (item 3). A non-200 answer with an empty errors object is FAILED, never an empty roster or list, and a failed read's rows are never measured, though the saved payload keeps them as sent (Codex on #713); a failed /teams read reads no team.
+- docs/specs/nfl-qb-term.md section 7 says the same. Items 4 and 5 stay on #712 for the 11-02 declaration.
+- Tests: tests/test_nfl_qb_coverage.py, tests/test_nfl_injury_receipt.py. No bar moves; read-only receipts, no model or export change.
+
+## 2026-10-27 (#711: 706-db-primary — results-tally and the PL positive-edge receipt read the database read-only first, and say which source they read; #706)
+- src/db/database.py `readonly_scope()`: a mode=ro session on the file the app's sessions are bound to. It has no connect hook, no pragma and no commit, and SQLite refuses a write. A missing file is refused (`ReadOnlyRefused`), never created.
+- src/walters/export.py `result_row(s, pred, oc, m)`: export_results' row builder, factored out unchanged so the receipt builds the same row. `results_tally`'s MLB and Soccer (PL) sections read through `readonly_scope`, and each carries a `- Source:` line (prediction_outcomes over the rolling window; no export file read). The NFL section asks `grade_nfl(readonly=True)` and carries its own Source line (nfl-grade's join, season to date). No count changes. The EXEC COHORTS section already names its closing files.
+- src/walters/nfl_predict.py `grade_nfl(readonly=False)`: `readonly=True` reads through `readonly_scope`. nfl-grade and the default path are unchanged.
+- cli.py `results-tally`: a missing DB file exits 2 with the refusal.
+- scripts/pl_positive_edge_receipt.py:
+  - `--source db` (the default) reads the PL graded rows from the database mode=ro, matches from `--since` (default 2026-08-01). Each row is built by `export.result_row`. One row per match (its latest graded prediction; a #569-marked one never). A missing file or no PL competition exits 2.
+  - The results files become a SECONDARY cross-check on its own line: matches in both, database only, files only (named), and top pick or hit differing (named).
+  - `--source exports` keeps the files-only read.
+  - A SOURCE line, and "source" in the JSON line.
+- Codex round 1 on #711: an empty NFL read still prints its section and Source line; the receipt's secondary read keeps its file counts, unreadable and non-PL files and prints them; `--since` must be a calendar date (exit 2 otherwise); the PL lookup names the sport (competitions are unique by sport and code).
+- Tests: tests/test_db_primary_706.py (new), tests/test_pl_positive_edge_receipt.py (the database path on a throwaway file; the files path pinned to `--source exports`), tests/test_value_side_and_qb_audit.py. No bar moves, no prediction output changes.
+
+## 2026-10-27 (#710: 427-qb-packet — the NFL quarterback term's design packet for the 11-02 ruling, and #627's receipt; read-only)
+- docs/specs/nfl-qb-term.md (ARCHITECT 2026-10-23, addendum 162 item 3(a)): a PROPOSAL, not a declaration.
+  - The measure: ANY/A per game (NY/A without sack yards where the line sends none), season-centred, with a prior-games estimate shrunk hard (k = 400 dropbacks, half-life 16 games, a replacement prior from first-100-dropback quarterbacks).
+  - The term, relative to Elo: today's starter minus the quarterback level the team's rating was built on, so there is no double count.
+  - Applied to the forecast only: v1's ratings and constants are unchanged, and β is the one fitted figure.
+  - The identity rule: the previous game's most-attempts quarterback unless our injury read names him out, with #627's stamp problem named.
+  - A proposed gate for the architect to freeze: 2024 fit, 2025 scored, −0.0050 vs v1, calibration, and the 2026 confirmation.
+- scripts/nfl_qb_coverage.py: the coverage the packet asks for, per season and game type (games listed / finished / with passing lines for both teams; every field's presence; the roster join), read-only, every answer kept under logs/nfl_qb_payloads/ (never data/), resumable, --max-calls capped.
+- scripts/nfl_injury_receipt.py (#627; addendum 162 item 3(c)): per NFL closing, the empty injury lists by cause (FEED / OUR READ / UNKNOWN from the closing receipt's empty answers), the join failures, the observation age; --live reads every team's injuries now (raw / taken / retained / unresolved, no position lookup). Opens no database.
+- Tests: tests/test_nfl_qb_coverage.py, tests/test_nfl_injury_receipt.py (fake provider, throwaway files). No bar moves; nothing is fitted, run or scored.
+- Codex round 2 (one fix round, addendum 170 item 3): the spec's carried level is a walk shrunk toward the league level at each season, as v1's rating is (the weighted mean's 0.75 factor cancelled); the coverage receipt keeps failed reads out of every count (INCOMPLETE, never BELOW), counts only Regular Season and Post Season in the gate, and names no quarterback on a tie for the most attempts; the #627 receipt lists a closing whose block is not an object as unreadable.
+
+## 2026-10-27 (#708: 169-cup-observe-timer — Step B's host timer, the laptop's standing routine, the Today tab's coverage source; the cups' daily schedule read, #707)
+- deploy/hosting/systemd/sp-cup-observe.{timer,service} (ARCHITECT 2026-10-27, addendum 169 item 4(i); wanted before CL on 11-03; Step B's first live run is today, on the host, by hand):
+  - one `observe-cup-lineups` tick, all four cups, no --loop, every five minutes at :00..:55, hours 00-03 and 06-23 UTC (H0-3 kept, no exemption);
+  - its own service as sp, OnFailure paging through `sp-notify@cup-observe` (a refusal fails the unit: the store would not be recording);
+  - on the T11 `TIMERS` list, with its Schedule row and the install steps for a live host in hosting-h1.md.
+- src/ingestion/cup_lineups_live.py: a tick with no poll due reads mode=ro, refuses an unmigrated store as a real tick does, and ends without the chains' DB lock; a tick with a poll due takes the lock and plans again.
+- docs/specs/h2-cutover-runbook.md section 1 step 7: the laptop's standing routine after the cutover (169 item 4(ii)): backup, MLB, read-only receipts, tally, mirror; no PL/NFL/NHL/NCAA, cups, UNL or intl sync on the laptop.
+- tools/cockpit.html (the repo copy): the Today tab's note names `host/latest/coverage.json` as the coverage source since the cutover (169 item 4(iii)). The live Cockpit is the published artifact.
+- deploy/hosting/chains.py intl-daily (#707, ARCHITECT 2026-10-27: "a daily cup schedule step (EFL, CL, UEL, FAC) on an existing daily chain [...], listed in the chain's steps"): four `sync-matches --competition <EFL|CL|UEL|FAC> --season 2026/27` steps, last in the chain (daily 07:20 UTC); the hosting-h1.md Schedule row names them.
+- deploy/hosting/coverage_map.py: a shadow export covers the competitions the steps before it name (the cup reads after export-unl-predictions are no cup shadow).
+- Tests: tests/test_hosting_pack.py (the timer's form, T11, the notifier's unit, intl-daily's cup steps), tests/test_intl_shadow.py, tests/test_cup_lineups_live.py (a no-due tick takes no lock and still refuses an unmigrated store). No bar moves.
+
+## 2026-10-26 (#705: 703-asof-path-gates — the as-of pitcher receipt's live path stands only on a pregame identity and complete ERAs)
+- scripts/mlb_pitcher_asof_receipt.py, the P line (#703, #702's round-2 Codex P2s; ARCHITECT 2026-10-26 17:00 ET: "#703's fixes before the receipt's first run"):
+  - A listed identity refreshed after the kickoff, or with no time, is counted as "identity not established pregame", never as a path.
+  - A starter or bullpen component whose ERA is incomplete (an earned_runs NULL in the season, or in a recent window of 10 IP or more) is counted as "not reconstructable", never as a blend or a fallback.
+  - The summary adds "the live path reconstructed (identity by kickoff, ERAs complete) x/y".
+- Tests: tests/test_mlb_pitcher_asof_receipt.py (a post-kickoff identity; a prior earned_runs NULL under a pregame starter). No bar moves; the run is the operator's, after the #569 dedupe.
+
+## 2026-10-26 (#704: 569-mlb-dedupe — dedupe-mlb-twins: two live MLB rows under one mlb_stats_api id merged by class, dry run first; addendum 153 item 2)
+- cli.py `dedupe-mlb-twins` and src/ingestion/mlb_twins.py: the #569 dedupe as addendum 153 item 2 ruled it (queue: ARCHITECT 2026-10-26 17:00 ET, ahead of the QB packet; the #702 receipt runs after it, addendum 163 item 4).
+- The dry run lists every gamePk held by two or more live MLB rows: its class, the kept id and the reason, both rows with their references, the state the kept row takes, the rows re-pointed and left, and the refusals listed for the architect.
+  - Class 1 (same-minute FINISHED twins) and class 4 (FINISHED twins at two kickoffs) by (a); class 4 keeps the earlier row and takes the later row's date.
+  - Class 2 (a FINISHED game and a SCHEDULED copy) keeps the FINISHED row; class 3 (a POSTPONED row and its make-up) keeps the make-up.
+  - (a): the row holding references (odds, odds_snapshots, predictions, prediction_history, kalshi_settled_markets) is kept; neither, the lower id; both, REFUSED.
+- --apply (with --backup and --gamepks naming the groups, under the chains' DB lock): the other row becomes STALE_ORPHAN, its references re-pointed; nothing is deleted.
+  - Its mlb_stats_api id moves to mlb_stats_api_prev, so the sync's gamePk lookup finds the kept row only.
+  - Rows of other tables move only where the kept row holds none; the retired row keeps its own otherwise, counted.
+- Which database (ARCHITECT 2026-10-27, addendum 169 item 3(c)): "both, laptop first (the MLB record), the host second under its lock, each after its backup; the dry run on each is pasted before the write".
+  - For the host: the retired row's `api_baseball` id (the api-sports fallback's key) moves to `api_baseball_prev`, and the kept row takes it when it holds none.
+  - src/ingestion/mlb_apisports.py `sync_matches`: the fallback never pairs a STALE_ORPHAN row (its first-come pairing could link a retired twin stored first); a stored key still finds a row, as before.
+- src/walters/export.py `_collect_rows` (ARCHITECT 2026-10-27 09:05 ET, the #704 read: "Push the exports-skip line"): a prediction carrying factor_breakdown.dedupe_569 is never a game's prediction in an export.
+- src/walters/training.py `evaluate_finished`: a prediction carrying factor_breakdown.dedupe_569 (class 2's predictions of a game already played, re-pointed) is never graded, as (c) rules.
+- docs/CLI.md: the command's row. Tests: tests/test_mlb_twins.py (each class, the refusals, the dry run writes nothing, the apply deletes nothing, a marked prediction is not graded, the command's refusals). No bar moves; nothing is applied before the architect's read.
+
+## 2026-10-26 (#702: 507-pitcher-asof-receipt — lane mlb-pitchers: the as-of reconstruction of the pitcher statistics the live model reads, coverage per season, read-only)
+- scripts/mlb_pitcher_asof_receipt.py: the roadmap step "the as-of reconstruction of the pitcher statistics the live model reads, from the stored appearances (docs/historical_backfill_assessment.md tier 1), as a read-only receipt: coverage per season" (code, due 2026-10-28; addendum 63 item 4).
+- What the live model reads (training.py, read first):
+  - the side's starting_pitcher from match_participants, with that pitcher's pitcher_season_stats row for the game's season (era, innings_pitched, games_started; GS 0 = an opener);
+  - the team's bullpen_season_stats row (era, innings_pitched, recent_era over 10 days, weighted from 10 IP).
+  - Both tables hold the season to date at their last refresh, so a past game read from them sees later games.
+- The receipt rebuilds the same quantities from pitcher_appearances, using only games that started strictly before the game read. Per season (default 2025, 2026), over the finished regular-season games:
+  - games by status and stage;
+  - appearances per side, with rows left out counted;
+  - the model's starter against the boxscore's;
+  - the starter as of the game: no stats, opener, or a starter component with its ERA complete or incomplete (a NULL earned_runs is counted, never filled);
+  - the bullpen season and recent windows as of the game;
+  - a cross-check of the appearance sums against the stored pitcher_season_stats rows.
+- Codex round 1 (the contract of addendum 163 item 4: "the WHOLE live layer as of each game"):
+  - the as-of figures read the model's starter only (match_participants); the boxscore's is a comparison, never an input;
+  - the starter identity's source and time (refreshed_at by or after the kickoff), and sides with more than one row;
+  - the live path per side, as _resolve_pitcher takes it (no pitcher input, blend, starter with the league bullpen, bullpen half-weighted, neutral);
+  - a statsapi id held by more than one stored game refuses, naming the match ids (#569: canonical ids after the dedupe); a STALE_ORPHAN row is never a game;
+  - the recent window takes the live sync's inclusive lower date (kickoff date minus 10 days), and a NULL earned_runs in it leaves its ERA incomplete;
+  - the cross-check reads regular-season appearances only (the stored row is the provider's regular-season split).
+- The DB is opened mode=ro and never created; a missing column refuses (law 1); nothing is run, written or fetched. The run is the operator's.
+- Tests: tests/test_mlb_pitcher_asof_receipt.py (a synthetic season with a doubleheader at one kickoff, a NULL earned_runs row, a participant that differs from the boxscore, rows joined by statsapi id, a row with no side, a participant without a source id, a postseason relief row; twin ids refused and a STALE_ORPHAN left out; the recent window's inclusive date bound; the DB unchanged; a missing DB and a missing column refused). No bar moves.
+
+## 2026-10-26 (#701: 700-fence-label-season — the v2 fences read the CFBD label's season as well as the stored one, #700)
+- src/walters/ncaa_backtest.py:
+  - `label_seasons(s, matches)` reads each match's CFBD label: season, season_type and week, read in chunks.
+  - `v2_fenced_ids(s, matches)` returns the 2023-fenced and 2026-fenced ids while the ncaa-elo-v2 run is unrecorded.
+  - A match is a 2023 candidate when its stored season or its label's season is 2023, and is fenced unless its label shows it outside the scored set. No label counts as fenced (law 4).
+  - A match is 2026-fenced when either season is 2026.
+- src/ingestion/resync_diff.py: `_fenced_2023_ids` uses the shared helper. A fenced game is left out of the home-rate line, counted as `fenced_2023_out_of_rate`; ARCHITECT 2026-10-26 15:15 ET: "aggregates, samples and rates over fenced games stay masked". Its sample line stays masked. `export-fixtures`' refusal reads the same helper.
+- src/walters/paper.py: the NCAA close record fences by the stored or the label's season, since `_result` reads the label's outcome.
+- Item 2 of #700 (the kickoff receipt) is settled with no change by the 15:15 ET ruling: single-game score lines stay visible.
+- Tests: tests/test_ncaa_2023_fence.py `test_700_*` and tests/test_close_record_paper.py `test_700_*`. Closes #700. No bar moves.
+- Codex round 1 on #701 (P1), fixed: resync-diff also keeps 2026-fenced games (stored or label season 2026) out of its home-rate line, counted as `fenced_2026_out_of_rate`; their single-game sample lines stay, as the level ruling keeps for 2026.
+
+## 2026-10-26 (#695: 691-flip-copy-private — ARCHITECT 2026-10-26 12:20 / 13:00 ET: the flip's host.env copy under #682's rule; a scrub-plan read error is a receipted refusal, #693)
+- deploy/hosting/sp_cutover.py `step_flip`:
+  - `host.env.pre-cutover-<ts>` was made with `shutil.copy2`. It is now created through `_write_private` (#682): 0600 with O_EXCL before any byte is written, then host.env's owner (as root) and mode through the descriptor, with copy2's times kept.
+  - The temporary name `.host.env.cutover-tmp` is created the same way. A stale one is removed first, never written into.
+  - A copy name taken in the race is refused, never overwritten. A copy or rewrite that cannot be written is a receipted refusal, with host.env as it was.
+- deploy/hosting/sp_cutover.py `install` (#693, Codex round 5 on #682): `_scrub_plan`'s read errors are a receipted install refusal ("the .env settings could not be read … nothing installed"), on the in-process path and the root path, never a traceback.
+- docs/specs/h2-cutover-runbook.md: the step table's flip and install rows say it.
+- Tests: tests/test_h2_cutover.py `test_691_*` and `test_693_*`. Closes #691 and #693. No bar moves.
+- Codex round 1 on #695 (three P2), fixed: the flip rewrites host.env from the bytes it read (surrogateescape both ways), so every other line is byte-identical whatever the locale, and a host.env the post-check cannot decode stops the flip before any write; a failed cleanup of the temporary name never hides the receipted refusal; an undecodable `.env` in the scrub plan is a receipted install refusal like an `OSError`.
+
+## 2026-10-26 (#694: 1026-records-687 — ARCHITECT 2026-10-26 11:55 / 12:05 ET: the 10-25 NFL and 10-24/25 PL audit records; results-tally names its value-shadow definition, #687)
+- src/walters/export.py: results-tally's NFL value-side line names the definition its value-shadow cohort counts: `graded.value_shadow` (the results file's earlier anchor), not the closing files' `desk.value_shadow` (the day's set). Text only: neither definition and no count changes. Closes #687.
+- Ledger entries:
+  - The 10-25 NFL audit (11:55 ET): #608 and #382 receipt requests; #685 and #686 closed onto them; the record of the day's holds; the NHL post-check PASS (#626 closed).
+  - The 10-24/25 PL audit (12:05 ET): #688, #689, #690; the weekend card's record.
+  - The 12:20 / 12:45 / 13:00 ET rulings on #682 and #692 (#691, #693).
+- Tests: tests/test_value_side_and_qb_audit.py pins the line's text. No bar moves; RESULTS.md is regenerated by the operator's results-tally, not here.
+
+## 2026-10-26 (#692: 673-freshen-own-name — ARCHITECT addendum 167 postscript (b): the NFL freshen writes to its own name, never the slate's file)
+- deploy/hosting/chains.py: `freshen:NFL`'s export step is `export-nfl-predictions --out {freshen_out}`, with no `--desk` (as ruled). `nfl-closing`, which is derived from it, drops the freshen's `--out` (`freshen_step`) and keeps its own `--desk --out {export_out}`, so its steps are unchanged.
+- deploy/hosting/sp_run.py: `run_vars` sets `{freshen_out}` to `logs/<run id>.nfl_predictions_<date>.json`, with the run id's `:` written `-`, for both the window's `run_freshens` and a manual `sp_run.py freshen:NFL`. The freshen receipt carries `wrote` {file, sha256} and prints it. A path that already exists is refused before any step (#442's rule).
+- The name is outside `exports/`, so the slate's `exports/nfl_predictions_<date>.json` and its hard-linked kept `logs/` copy are never written into, and the slate receipt's sha256 stays true. The file is not mirrored, and closing.py's `export_glob` (`nfl_predictions_*.json` in `exports/`) never matches it.
+- docs/specs/hosting-h1.md: the freshen chain's line carries the ruling verbatim and the file.
+- Tests: a freshen after a slate leaves the slate's kept bytes and receipt sha256 unchanged and names its own file; a taken path is refused; only the NFL freshen takes a file; the closing export is unchanged; C3's derivation test compares against the freshen steps without the freshen's file. Closes #673. No bar moves.
+- Codex round 1 on #692 (two P2), fixed: the taken-path check runs under the chain lock the export runs under, in `run_freshens` and in `main`, so a second run in the same second finds the first run's file and is refused; `{freshen_out}` is the run's own and a `--set freshen_out=...` never moves it (`run_vars` is merged last).
+
+## 2026-10-26 (#683: 680-verdict-line — the compare's DIVERGENT summary line names its cause; #680, a verdict-line nit)
+- `deploy/hosting/compare_exports.py`: a DIVERGENT run's summary line names each cause with its files: field diffs, rows on one side within a file, unparseable, and files on one side only (Codex on #683: field diffs and rows on one side are separate causes, each named). For example `DIVERGENT (7 compared; 3 on one side only: nfl_predictions.json, soccer_PL.json, unl_shadow.json) — each divergence needs an explanation (...)`. The `VERDICT:` line, the exit codes and the CLEAN line are unchanged. Read-only.
+- `tests/test_compare_exports_verdict_line.py`: the section 2 shape (7 compared with diffs=0, three undated host-only files) names its cause with the same VERDICT and exit; a field diff names its file; rows on one side within a file are their own cause (the file's line reads diffs=0); an unparseable file is named; a clean run reads as before.
+
+## 2026-10-26 (#682: 168-pack-env-scrub — ARCHITECT addendum 168 item 3: `install` removes the ruled pack-only settings, names only)
+- deploy/hosting/sp_cutover.py: `PACK_ONLY_SCRUB = ("SP_EXPORTS_MIRROR_KEY", "CFBD_API_KEY", "SP_HOST_ADDR")`, the ruled list. `install` decides, just before `sp_migrate install --replace` replaces the checkout's `.env` (under the DB lock, in the `sp` process), which of the ruled names are pack-only with the preflight's own comparison (`env_changes_by_pack`: host.env's values left out, an empty `NAME=` is not one); once the pack's `.env` is in place it removes those lines (every other line byte-identical, line endings kept), keeps `.env.pre-scrub-<ts>.bak` (0600) beside it, prints the names and puts them in the install receipt (`env_removed`, `env_kept_copy`, `env_scrub_ruled`), never a value. The removal runs even when install refuses after placing the `.env`, and that refusal's receipt carries the names. A name not on the list is never removed; `env_changes` stays names-only as before.
+- When the checkout's `.env` is already the pack's before install (or host.env cannot be read), which settings came only from the pack cannot be read: nothing is removed and the ruled names the pack carries are printed as not decided (`env_scrub_undecided`, law 4).
+- docs/specs/h2-cutover-runbook.md: section 1 step 4's settings-list bullet carries addendum 168 item 3, verbatim, what `install` now removes and prints, and the ruling's sentence that a pack-only setting that names a path on the source machine is never "expected"; the step table's install row says it. The 2026-10 schedule table is not touched here (a records PR carries both corrections with their times).
+- Tests: tests/test_h2_cutover.py, five `test_168_3_*` tests (removed and named; a host.env value keeps it; a non-ruled pack-only setting kept; values never in the output or the receipt; other lines byte-identical; the `.bak`; a ruled setting the host checkout already had kept; the already-the-pack's case decides nothing; a refused install still scrubs).
+- The Issue: #677 (addendum 168 item 3). No bar moves.
+- Codex round 1 on #682: the secret copies are created 0600 from the outset (O_EXCL) and gitignored (`.env.*.bak`, `.env.bak`, `*.scrub-tmp`); a taken backup name takes a `-N` suffix and the scrub still runs; a scrub OSError is a receipted refusal, not a traceback.
+- ARCHITECT 2026-10-26 on Codex's two P1s on #682 (fix-and-reply): "a copy of a file that holds secrets must be created 0600 before any byte is written, and it must live where git can't see it (beside `host.env.pre-cutover-<ts>` under `/etc/sports-predictor/`, root:sp 0640, is the pattern the flip already uses — not in the checkout behind a `.gitignore` line)". The kept copy is now `checkout.env.pre-scrub-<ts>` beside host.env, written by root before the `sp` install (which cannot write that directory) and named to it (`--env-kept-copy`); created 0600 with O_EXCL, then host.env's owner and 0640 through the descriptor after the bytes; a taken name gets a `-N` suffix. The `sp` install edits the `.env` only when that copy holds the placed `.env`'s bytes (else a receipted refusal, nothing edited); a copy that cannot be kept refuses install before anything is installed; a copy left unused (install never placed the `.env`) is named. Nothing is kept in the checkout; `.gitignore` keeps `.env.*.bak` and `.env.bak` (hand-made copies) and `*.scrub-tmp` (the temporary name lives beside the `.env` until the replace).
+- Codex round 3 on #682 (d36dde1), its P1 fixed: root reads the pack's `.env` for the copy without following a symlink (`O_NOFOLLOW`), as a regular file only, and copies it only when its bytes are the manifest's (sha256); a name swapped after the plan read it is never copied into the group-readable copy, and install refuses first. The round's P2 (an unused copy when the `sp` install never reaches the scrub) is listed for the architect (review stop rule: round cap reached, money-path code).
+- The round-3 P2, RULED BLOCKING (ARCHITECT 2026-10-26 12:45 ET), verbatim: "a secret copy left unrecorded by a refusal is the morning's finding in another coat: root's refusal names the copy's path and prints it, the tool never deletes it". Built: when the `sp` install exits non-zero or cannot run at all, root's refusal receipt carries `env_kept_copy` and prints the copy's path; the copy is never deleted. Pushed with no review request (round cap reached), CI only.
+
+## 2026-10-26 (#681: 168-timers-list-receipt — ARCHITECT addendum 168 item 2, CORRECTION 1: the deploy receipt names ACTIVE sp timers timers.enabled does not list; every by-hand timer recipe ends with the list line; #676)
+- `deploy/hosting/sp_deploy.py`: the deploy receipt's timers line (addendum 155 item 8(b)) is unchanged; a second line, read-only, names every sp timer systemd lists as active that `/etc/sports-predictor/timers.enabled` does not list (`! active sp timers not in /etc/sports-predictor/timers.enabled: ... — add them to the list by hand (the tool never writes it)`). None prints nothing more. A listing that fails, or an unreadable `timers.enabled`, prints `! active timers: <reason> — ... could not be compared` and no list (law 4). The receipt JSON gains `timers_active_not_listed` (null when not read) and `timers_active_error`. It refuses nothing and writes nothing.
+- `deploy/hosting/sp_common.py`: the active sp timers reader (`ACTIVE_SP_TIMERS_ARGV`, `parse_active_sp_timers`) moves here from `sp_cutover.active_sp_timers`, which now calls it. The preflight's behavior (its refusal on a failed read included) is unchanged; the deploy reads the same listing the same way.
+- `docs/specs/hosting-h1.md`: the `sp-intl-daily.timer` live-host recipe, which was prose ("add it to timers.enabled"), is now a recipe block ending with `echo sp-intl-daily.timer | sudo tee -a /etc/sports-predictor/timers.enabled`, in the `sp-ncaa-schedule.timer` recipe's style. "Deploying a release" describes the new line. `docs/specs/exports-mirror.md` step 4: the `sp-exports-squash.timer` enable carries the same list line.
+- `tests/test_hosting_pack.py`: an active unlisted timer is named (the 2026-10-26 host: 14 listed, 16 active); every active timer listed leaves the receipt as it was; an unreadable listing (and an unreadable list) is labelled, never read as empty; every by-hand `enable --now sp-*.timer` in hosting-h1.md, h2-cutover-runbook.md and exports-mirror.md is followed by its `tee -a` line (it caught the two recipes above).
+
+## 2026-10-26 (#675: 167-p8-read — ARCHITECT addendum 167 postscript 2 and addendum 168: P8 READ PASS on the host; the H2 cutover DONE 2026-10-26 13:45:11Z; v1.6.0 recorded)
+- docs/specs/h2-cutover-runbook.md: the P8 bullet (section 0) records the architect's P8 read, PASS (host closing-run NFL for 2026-10-26T00:20Z on v1.5.0: exit 0, 6/6 steps, 17.0 s, page ending `machine: host`, closing file sha256 ea5e654f3f7f, the host's Desk row equal to the laptop's page), verbatim, and the 10-22 attempts as addendum 166 item 4(i) wrote them. Condition (2) of addendum 166 item 4 is met.
+- The ledger entry records postscript 2(b): #671 and #672 merged (main 9659224); conditions (1)(2)(3) met, (4) Monday's sequence, (5) pending the operator; the timers PR is #674, Thursday's tag. Records only.
+- Addendum 168 (the cutover record): docs/RELEASES.md records v1.6.0 (4c106f50, release Issue #678); the Cutover milestone in .github/ledger/taxonomy.json is done 2026-10-26 with the receipt; the runbook's 2026-10 schedule table marks the Mon 10-26 rows done with their receipt times and adds the day's two corrections (#676, #677) as rows; hosting-h1.md T11 moves `sp-closing-watch.timer` to `TIMERS` and retires `HELD_FOR_CUTOVER` (sp_common.T11_LISTS reads two lists; CI's T11 check follows); the readiness readout says the cutover is done. docs/roadmap.json is unchanged: it has no cutover line. Closes #410 on the fence receipt.
+- The cutover's section 2 compare (10:12 ET: 7 of 7 compared files diffs=0; three undated host-only files; VERDICT DIVERGENT with no divergent file, Issue #680) and step 7 (done 10:13 ET) are recorded in the day's entry and on the schedule table's step 7 row.
+- Addendum 168 postscript: the entry states condition (3)'s clock (#671 merged 20:12 ET, after 17:00 ET; its review completed clean before it, 11:49 ET; the architect read (3) as met). `closing-watch --help` no longer calls the host timer "shipped held" (Closes #679).
+
+## 2026-10-25 (#674: 166-timers-retirement — ARCHITECT addendum 166 item 6(B), applying addendum 126 item 2(d); the host's fixed-time NFL and PL predict + slate-export steps retired, every sync kept)
+- ARCHITECT 2026-10-25, addendum 166 item 6(B), verbatim: "(B) THE TIMERS RETIREMENT PR (ops class, AFTER (A), not a Monday blocker; merged and tagged before Thursday 10-29 13:00Z — Thursday's nfl-predict at 18:00Z and the watch's TNF slate would otherwise both write the same exports/ name, the in-place rewrite BACKLOG already names): addendum 126 item 2(d) rules the host's fixed-time PREDICTION timers retired by the cutover. Law 1 first: enumerate from deploy/hosting/chains.py what each of sp-nfl-predict, sp-soccer-friday and sp-soccer-saturday actually runs, step by step. Retire ONLY the predict + slate-export steps the watch's slate stage duplicates; a weekly ratings refresh, a grade, a results export or a whole-season sync that one of those chains also carries is KEPT (moved to its own unit or left in a renamed chain — propose, do not decide). The PR body lists each unit: each step, kept or retired, and why; the T11 lists; the host config change (the timers.enabled lines) as a TERMINAL (host) step I block out; CI's timers check updated. I rule the list from the PR body before merge."
+- Addendum 126 item 2(d), verbatim: "(d) Before the cutover the laptop is the machine for every family (its watch runs every minute while it is awake; a laptop asleep at the due time means the first tick after waking — the page says the run was late, with the minutes). After the cutover the host's watch does it for SOCCER and NFL (the fence lifts), and MLB stays the laptop's to the season's last game. The host's fixed-time timers (nfl-predict Sun 14:00Z — AFTER a 9:30 ET London kickoff) are retired by the cutover PR; they are not fixed by hand this week."
+- `deploy/hosting/chains.py`:
+  - `nfl-predict` is renamed `nfl-prematch`. It keeps `sync-injuries --competition NFL --season 2026` (still step 1) and `capture-weather-nfl`. `predict-nfl` and `export-nfl-predictions` are retired: the closing watch's slate stage runs both (`closing.slate_steps`).
+  - `soccer-prematch` keeps every sync: the PL `sync-matches` / `sync-odds` / `sync-injuries`, the expansion leagues' `sync-matches` / `sync-odds`, their capture-only `sync-kalshi-soccer`, and the PL `sync-kalshi-soccer`. `predict --sport soccer --competition PL` and the window `export-predictions … --start {sat} --end {sat_plus3}` are retired: the slate stage runs both and writes `soccer_PL_<sat>_to_<sat_plus3>.json` itself.
+  - Every other chain is unchanged (20 of 22 compared to main f0e4cbf).
+- `deploy/hosting/systemd/`:
+  - `sp-nfl-predict.timer` is renamed `sp-nfl-prematch.timer` (`Unit=sp-chain@nfl-prematch.service`). Its calendar lines are unchanged: Thu 18:00 and Sun 14:00 UTC.
+  - `sp-soccer-friday.timer` / `sp-soccer-saturday.timer` change only their comments.
+- docs/specs/hosting-h1.md:
+  - The Schedule table's three rows are rewritten.
+  - T11's `TIMERS` names `sp-nfl-prematch.timer`, and a T11 bullet records the retirement.
+  - The London-Sundays note is retired: the slate is due at the first kickoff less 150 minutes.
+  - The H0-10 midweek line now says the by-hand run is data only.
+- `deploy/hosting/coverage_map.py`: only the `writer_chains` docstring changes. The derivation is unchanged, and it now finds no writer chain for NFL or PL, so their zero-row gap line carries no "— <chain> has not run" hint. `tests/test_coverage_map.py` pins that.
+- tests/test_hosting_pack.py:
+  - The three timers keep their calendars and run exactly the kept steps.
+  - Each retired step is one `closing.slate_steps` runs for the same family.
+  - The retired exports wrote the slate files' names (`closing.slate_file`).
+  - No shipped timer's chain predicts or exports NFL or PL; MLB is untouched.
+  - T11 carries the renamed timer. The injuries-first guard reads `nfl-prematch`.
+- The host's unit change and the `timers.enabled` line are a TERMINAL (host) step for the architect to block out (in the PR body). No host script ships.
+
+## 2026-10-23 (#698: 158-ncaa-v2-shadow — ARCHITECT addendum 158 item 1(b)(c); ncaa-elo-v2, before 11-08)
+- `export-ncaa-predictions --id ncaa-elo-v2`: the v2 binding. It runs the gate's own model at the frozen s (`NeutralRuleElo`, s must equal the ruled 279.14222651259433) over the same D2 stream, and exports nothing unless the registry records ncaa-elo-v2's PASS. The default stays v1r, which refuses on its FAIL as before.
+- Every shadow row of either binding carries `registry_id`, `model_version`, `input_cutoff` and `prediction_stamp`; a v2 row also carries the logistic scale. `ncaa-shadow-grade --id` grades one binding's files only, never pooled.
+- `scripts/ncaa_v2_shadow_parity.py`: the read-only parity receipt on a seeded synthetic stream. It runs the gate path (run_gate, the declared model recorded) against the shadow path (the walk before each scored game, then the prediction), requires equality within 1e-12, and reports the pregame difference on neutral games.
+- `scripts/ncaa_pregame_metadata_receipt.py`: the read-only pregame metadata receipt, counts only. It reads the latest saved CFBD payload before each kickoff (neutral and CFBD home against the post-game label, with the lead time), our listing's orientation, and Kalshi quote and settled-row coverage.
+- Codex round 1 on #698, fixed. P1: the pregame receipt reads the DB through a mode=ro engine on the named file, never the app's session (whose connect hook sets PRAGMA journal_mode=WAL); a missing file is refused, never created. P2: Kalshi settled coverage is read only where the table is migrated (kalshi_history.migrated: the table and its marker), else the line says so. P2: a pregame orientation (pregame_listing_*) against CFBD's home in the latest payload before kickoff, beside the post-game one, unknown when that home is neither of the label's teams.
+- RULED (ARCHITECT 2026-10-26 15:15 ET), verbatim: "#698: the neutral-rule pin BLOCKS — the binding refuses any rule but the gate's; CI only, no request; merge after #697." Built: the v2 binding carries the gate's rule (`no_home_advantage_at_neutral`, NeutralRuleElo's default, which ncaa_v1r_gate.model_for runs) and refuses a declaration with any other `neutral_site_rule` (exit 2, nothing exported). v1r keeps either declared rule. The round-2 receipt P2s are in follow-up #699.
+
+## 2026-10-23 (#697: 158-ncaa-2023-week — ARCHITECT addendum 158 item 1(a); ncaa-elo-v2 D10, due 11-01)
+- `ncaa_cfbd_labels.week`, CFBD's week as served (migrate_ncaa_cfbd_week.py: a nullable column plus its own marker, additive). The ingest writes only after it; a `--dry-run` does not need it.
+- `ncaa-cfbd-labels` stores an integer week as served. A week served as anything else is stored NULL and counted (law 4), and a payload with no week field stores NULL and says so.
+- The receipt adds two count lines: the stored NCAA matches of the year by status, and the joined rows by season_type and week.
+- The readers carry the week (`Game.week`) where the column exists and None where it does not. Only the 2023 second read reads it. Nothing is run; the operator's 2023 block is in docs/specs/ncaa-cfbd-labels.md.
+
+## 2026-10-23 (#697: 161-ncaa-2023-fence — ARCHITECT addendum 161 item 1; before the operator's 2023 block)
+- The 2023 fence: the 2026 fence's mechanism extended to the D10 second read's scored set. Until the ncaa-elo-v2 run is recorded, it covers 2023 'regular' games from week 5, plus any 2023 game whose week or season_type is unknown. Weeks 1-4 and the postseason stay readable.
+- `ncaa-audit --season 2023` refuses (exit 2). The generic walks refuse NCAA 2023, and the web league and match views withhold 2023. `resync-diff --season 2023` withholds its home-rate line. `scripts/ncaa_source_probe.py` withholds 2023's rate-and-margin lines. Each one names the ruling and the 2023 scope.
+- Score-bearing single-game lines on fenced games are masked ("[score withheld]") in the `ncaa-cfbd-labels` receipt, which also stores them masked in the ingest record and so in `ncaa-cfbd-coverage`'s unlabelled list. The same masking applies to resync-diff's samples and the probe's score-disagree sample. The counts stand, and the side table keeps the scores.
+- Codex round 1 on #697: four P2s fixed. Only a recognized `postseason`, or `regular` with a week before 5, reads a 2023 game, and any other season_type is fenced. A partial score (`7-None`) is masked. A probe row with a null season reads the requested year. The listing census prints before the empty or malformed payload exits. The two P1s (per-game scores on the web views, and `export-fixtures` by date) are escalated to the architect: they are fence-scope questions against the level ruling the 2026 fence carries.
+- Codex round 2 on #697. Its P1 is fixed: results-tally's NCAA close record leaves out every 2023 game, counted as "fenced 2023", while the ncaa-elo-v2 run is unrecorded, so no close log-loss or favourite record is printed over the second read's scored set. Its two P2s are listed for the architect with the round-1 P1s, as one fence-scope question: the maintenance receipts' single-game score lines (`dedupe-matches`, `scripts/ncaa_rekey_receipt.py`), and the ingest's fence keyed on the requested year rather than the row's season on a cross-year replay.
+- RULED (ARCHITECT 2026-10-26 15:15 ET), verbatim: "#697: single-game score lines STAY visible everywhere (pages, dedupe/rekey receipts, the kickoff receipt), as addendum 99 rules for 2026; aggregates, samples and rates over fenced games stay masked; export-fixtures REFUSES a date range touching fenced 2023 games (format untouched); the cross-year replay BLOCKS — key the fence on the row's season; the NCAA close-record line over 2026 games is FENCED too (146 5(b) yields to the 2026 fence; the record says it was printed through 10-26 and tuned nothing). Push with CI only, no review request (cap reached); then merge."
+  - Built: `export-fixtures --competition NCAA` refuses (exit 2, nothing written) a date range holding a fenced 2023 game; a range of weeks 1-4 only, another competition, or the recorded run exports as before, the file's format unchanged.
+  - Built: the label ingest keys the fence on each row's own season (CFBD's `season`), else the requested year, so a 2023 payload replayed under another `--year` is fenced.
+  - Built: results-tally's NCAA close-record line leaves out the 2026 games too (counted, "fenced 2026"), as it does 2023's, until the ncaa-elo-v2 run is recorded.
+  - For the record, as ruled: the NCAA close-record line over 2026 games was printed by results-tally through 2026-10-26 and tuned nothing.
+  - Unchanged, as ruled: single-game score lines (the web league and match pages, `dedupe-matches`, `scripts/ncaa_rekey_receipt.py`, `scripts/kickoff_receipt.py`).
+
 ## 2026-10-25 (#672: 166-records — ARCHITECT addendum 166 item 6(D), its 08:20 ET correction and its 08:25 ET postscript: records only)
 - `.github/ledger/taxonomy.json`: the "Cutover ~Oct 8" milestone's description carries addendum 166 item 4's ruling (the conditional GO for Monday 2026-10-26, and the fallback Friday 2026-10-30). The title and `due_on` (2026-10-30) are unchanged.
 - The day's ledger entry records Saturday's records, with the SOCCER exec cohorts as the 08:20 correction states them; T9 closed by the 2026-10-25 06:00Z weekly-fullseason run (limitation #586); the 2026-10-25 compare; and Saturday's PL grade.

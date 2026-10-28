@@ -695,3 +695,31 @@ def test_a_row_retired_on_its_own_game_day_stays_in_that_days_prediction_export(
     sched = json.loads(export_predictions(sport=Sport.MLB, start_date=lo, end_date=hi, competition_code="MLB",
                                           statuses=[MatchStatus.SCHEDULED]))
     assert sched["predictions"] == []
+
+
+def test_the_apply_holds_the_lock_from_the_backup_check_through_the_plan_and_the_write(db, monkeypatch, tmp_path):
+    """#709 item 4 (Codex on #704): the apply takes the chains' DB lock before _verify_backup and holds it through the
+    plan (its one call) and the write, so no chain commits between the backup check and the retire; a dry run takes
+    none."""
+    import cli
+    from src.ingestion import mlb_orphans as mo
+    from tests.test_mlb_twins import lock_taken, spy_db_lock
+    monkeypatch.setenv("SP_LOCK", str(tmp_path / "db.lock"))
+    lock_taken()
+    taken, seen = spy_db_lock(monkeypatch), []
+    real_verify, real_run = cli._verify_backup, mo.run
+    monkeypatch.setattr(cli, "_verify_backup", lambda *a: seen.append(("backup", lock_taken())) or real_verify(*a))
+    monkeypatch.setattr(mo, "run", lambda *a, **k: seen.append(("run", lock_taken())) or real_run(*a, **k))
+    stats = Stats(schedule(*entries()))
+    real_get = stats._get
+    stats._get = lambda *a, **k: seen.append(("call", lock_taken())) or real_get(*a, **k)
+    rc, out = cli_run(monkeypatch, stats)
+    assert rc == 0, out
+    assert seen == [("run", (0, False)), ("call", (0, False))] and taken == []
+    seen.clear()
+    good = backup(db, tmp_path / "good.backup")
+    rc, out = cli_run(monkeypatch, stats, "--apply", "--backup", good, "--match-ids", "50555,50549")
+    assert rc == 0, out
+    assert "  applied: retired 2 (50549, 50555) · refused at apply 0 · named 50549, 50555" in out.splitlines()
+    assert seen == [("backup", (1, True)), ("run", (1, True)), ("call", (1, True))]
+    assert len(taken) == 1 and lock_taken() == (0, False)

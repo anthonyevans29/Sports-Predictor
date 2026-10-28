@@ -249,3 +249,181 @@ def test_a_marked_prediction_is_never_the_game_s_prediction_in_an_export(db, tmp
                                                      statuses=None)}
     assert 4390 in rows and rows[4390]["prediction"] is None
     assert 5218 not in rows or rows[5218]["prediction"] is None
+
+
+def test_a_kept_postponed_row_counts_with_the_finished_state_it_takes(db, tmp_path, monkeypatch):
+    """#709 item 1 (Codex on #704): a class-3 POSTPONED row holding references is kept by (a) and takes the make-up's
+    FINISHED state, so the training set's count does not change. The dry run projects from both rows' status before
+    and after, and its projection is the apply's read-back."""
+    import cli
+    from src.db.database import session_scope
+    from src.db.schema import Match, MatchStatus, Odds
+    monkeypatch.setattr(cli, "_verify_backup", lambda path, table, model: path)
+    with session_scope() as s:
+        s.add(Odds(match_id=6782, bookmaker="b", market="ML", selection="HOME", price_decimal=2.1))
+    r = run_cli()
+    assert r.exit_code == 0, r.output
+    assert "[class 3] gamePk 778443 (a POSTPONED row and its make-up): KEEPS 6782, RETIRES 6784" in r.output
+    assert "the kept row takes: utc_date 2025-04-05T17:05 -> 2025-04-06T17:05, status POSTPONED -> FINISHED" in r.output
+    assert "before -> after: 2025 12 -> 11 · 2026 3 -> 2" in r.output          # class 4's retired row only, in 2025
+    r = run_cli("--apply", "--backup", str(tmp_path / "b.db"), "--gamepks", ",".join(PLANNED))
+    assert r.exit_code == 0, r.output
+    assert "after this apply (read back): 2025 12 -> 11 · 2026 3 -> 2" in r.output
+    with session_scope() as s:
+        assert s.get(Match, 6782).status == MatchStatus.FINISHED
+        assert s.get(Match, 6784).status == MatchStatus.STALE_ORPHAN
+
+
+def test_a_child_row_moves_unless_the_kept_row_holds_one_of_its_key(db, tmp_path, monkeypatch):
+    """#709 item 2 (Codex on #704): both class-1 rows carry the home starter, and the retired row also carries the away
+    starter, both sides' stats and a projected home lineup next to the confirmed one both hold. The keys are the
+    schema's and the writers': match_participants (team, role), match_stats (team), lineups (team, kind). The rows the
+    kept row lacks move; only the colliding ones stay on the retired row. Nothing is deleted."""
+    import cli
+    from src.db.database import session_scope
+    from src.db.schema import Lineup, Match, MatchParticipant, MatchStats
+    monkeypatch.setattr(cli, "_verify_backup", lambda path, table, model: path)
+    with session_scope() as s:
+        h, a = s.get(Match, 3940).home_team_id, s.get(Match, 3940).away_team_id
+        s.add(MatchParticipant(match_id=3945, team_id=a, role="starting_pitcher", kind="confirmed", player_name="p2",
+                               player_source_id="p2"))
+        s.add_all([MatchStats(match_id=3940, team_id=h), MatchStats(match_id=3945, team_id=h),
+                   MatchStats(match_id=3945, team_id=a)])
+        s.add_all([Lineup(match_id=3940, team_id=h, kind="confirmed", player_name="x1"),
+                   Lineup(match_id=3945, team_id=h, kind="confirmed", player_name="x1"),
+                   Lineup(match_id=3945, team_id=h, kind="projected", player_name="x2")])
+    before = counts()
+    r = run_cli()
+    assert r.exit_code == 0, r.output
+    assert ("re-points: lineups 1, match_participants 1, match_stats 1, pitcher_appearances 1 · left on the retired row "
+            "(the kept row holds its own): lineups 1, match_participants 1, match_stats 1") in r.output
+    r = run_cli("--apply", "--backup", str(tmp_path / "b.db"), "--gamepks", "824621")
+    assert r.exit_code == 0, r.output
+    assert ("MERGED gamePk 824621: kept 3940, 3945 STALE_ORPHAN · re-pointed lineups 1, match_participants 1, "
+            "match_stats 1, pitcher_appearances 1") in r.output
+    assert {k: v for k, v in counts().items() if k != "orphans"} == {k: v for k, v in before.items() if k != "orphans"}
+    with session_scope() as s:
+        def on(model, *cols):
+            return sorted(tuple(r) for r in s.execute(select(model.match_id, *cols)))
+        assert on(MatchParticipant, MatchParticipant.team_id) == [(3940, h), (3940, a), (3945, h)]
+        assert on(MatchStats, MatchStats.team_id) == [(3940, h), (3940, a), (3945, h)]
+        assert on(Lineup, Lineup.kind) == [(3940, "confirmed"), (3940, "projected"), (3945, "confirmed")]
+
+
+def test_the_dry_run_counts_a_class_2_prediction_computed_before_the_kickoff(db):
+    """#709 item 3 (Codex on #704, a ledger question): the dry run already prints, per class-2 group, how many of the
+    copy's predictions were computed at or after the kept row's kickoff, so a pre-kickoff one shows in the receipt for
+    the architect. No policy change: the apply marks every re-pointed class-2 prediction, as ruling (c) reads."""
+    from src.db.database import session_scope
+    from src.db.schema import Prediction
+    with session_scope() as s:
+        s.add(Prediction(match_id=5218, model_version="mlb-v1", computed_at=Z("2026-07-07T18:00"), home_win_prob=0.5,
+                         away_win_prob=0.5))
+    r = run_cli()
+    assert r.exit_code == 0, r.output
+    assert ("(c) predictions of a game already played at the time: 2 prediction(s) (1 computed at or after the kept "
+            "row's kickoff 2026-07-07T23:10)") in r.output
+
+
+def lock_taken():
+    """(this thread's db_lock depth, the flock taken: another open file description of SP_LOCK cannot take it). The
+    #709 item 4 receipt, shared by the lock tests of dedupe-matches and retire-orphans."""
+    import fcntl
+    import os
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "deploy" / "hosting"))
+    import sp_common as c
+    with open(os.environ["SP_LOCK"], "a+") as f:
+        try:
+            fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return getattr(c._HELD, "depth", 0), True
+        fcntl.flock(f, fcntl.LOCK_UN)
+        return getattr(c._HELD, "depth", 0), False
+
+
+def spy_db_lock(monkeypatch) -> list:
+    """Each db_lock taken (sp_common.sync_lock's), counted; the real lock is taken."""
+    import sp_common as c
+    real, taken = c.db_lock, []
+
+    def spy(**k):
+        taken.append(k)
+        return real(**k)
+    monkeypatch.setattr(c, "db_lock", spy)
+    return taken
+
+
+def test_the_apply_holds_the_lock_from_the_backup_check_through_the_merge(db, tmp_path, monkeypatch):
+    """#709 item 4 (Codex on #704): the command takes the chains' DB lock before _verify_backup and holds it through
+    the plan and the merge, so no chain commits between the backup check and the merge. mt.run's own lock is a no-op
+    under it (one lock taken); a dry run takes none."""
+    import cli
+    from src.ingestion import mlb_twins as mt
+    monkeypatch.setenv("SP_LOCK", str(tmp_path / "db.lock"))
+    lock_taken()
+    taken, seen = spy_db_lock(monkeypatch), []
+    monkeypatch.setattr(cli, "_verify_backup", lambda path, table, model: seen.append(("backup", lock_taken())) or path)
+    real_plan, real_merge = mt.plan, mt.merge
+    monkeypatch.setattr(mt, "plan", lambda s: seen.append(("plan", lock_taken())) or real_plan(s))
+    monkeypatch.setattr(mt, "merge", lambda *a: seen.append(("merge", lock_taken())) or real_merge(*a))
+    r = run_cli()
+    assert r.exit_code == 0, r.output
+    assert seen == [("plan", (0, False))] and taken == []
+    seen.clear()
+    r = run_cli("--apply", "--backup", str(tmp_path / "b.db"), "--gamepks", "824621")
+    assert r.exit_code == 0, r.output
+    assert "MERGED gamePk 824621" in r.output
+    assert seen == [("backup", (1, True)), ("plan", (1, True)), ("merge", (1, True))]
+    assert len(taken) == 1 and lock_taken() == (0, False)                     # one lock, released after
+
+
+@pytest.mark.parametrize("scores", [((None, None), (None, None)), ((5, None), (5, None)), ((None, 2), (None, 2)),
+                                    ((5, 2), (5, None))])
+def test_a_finished_pair_without_a_complete_score_is_refused(db, tmp_path, monkeypatch, scores):
+    """#709 item 5 (Codex on #704): classify compared the two scores for equality, so two FINISHED rows both (None,
+    None), or both (5, None), passed as class 1. A FINISHED pair is classed only with both scores on both rows; else it
+    is REFUSED and listed as any pair of no class, and an apply naming it leaves it."""
+    import cli
+    from src.db.database import session_scope
+    from src.db.schema import Match
+    monkeypatch.setattr(cli, "_verify_backup", lambda path, table, model: path)
+    with session_scope() as s:
+        for mid, (h, a) in zip((3940, 3945), scores):
+            s.get(Match, mid).home_score, s.get(Match, mid).away_score = h, a
+    shown = ", ".join(f"{h}-{a}" for h, a in scores)
+    r = run_cli()
+    assert r.exit_code == 0, r.output
+    assert "planned 3 (class 2 1 · class 3 1 · class 4 1) · refused 5" in r.output
+    assert (f"[REFUSED] gamePk 824621: two FINISHED rows without a complete score ({shown}): no class of the ruling · "
+            "listed for the architect, nothing written") in r.output
+    r = run_cli("--apply", "--backup", str(tmp_path / "b.db"), "--gamepks", "824621")
+    assert r.exit_code == 0, r.output
+    assert f"REFUSED gamePk 824621: two FINISHED rows without a complete score ({shown})" in r.output
+    assert "merged 0 · refused 1" in r.output and counts()["orphans"] == 1
+
+
+def test_a_db_without_prediction_history_plans_and_applies_class_2(db, tmp_path, monkeypatch):
+    """#709 item 6 (Codex on #704): the class-2 history count queried prediction_history unguarded, where _fk_tables
+    skips a table the live DB lacks. The count is skipped the same way: the table is named absent, no history row is
+    counted, and the apply merges (the throwaway DB's table dropped)."""
+    import cli
+    from sqlalchemy import text
+
+    from src.db.database import get_engine, session_scope
+    from src.db.schema import Match, MatchStatus, Prediction
+    monkeypatch.setattr(cli, "_verify_backup", lambda path, table, model: path)
+    with get_engine().begin() as con:
+        con.execute(text("DROP TABLE prediction_history"))
+    r = run_cli()
+    assert r.exit_code == 0, r.output
+    assert "reference tables absent from the live DB, skipped (they hold no references): prediction_history" in r.output
+    assert ("(c) predictions of a game already played at the time: 1 prediction(s) (1 computed at or after the kept "
+            "row's kickoff 2026-07-07T23:10) and 0 history row(s)") in r.output
+    r = run_cli("--apply", "--backup", str(tmp_path / "b.db"), "--gamepks", "823062")
+    assert r.exit_code == 0, r.output
+    assert "MERGED gamePk 823062: kept 4390, 5218 STALE_ORPHAN · re-pointed predictions 1" in r.output
+    with session_scope() as s:
+        assert s.get(Match, 5218).status == MatchStatus.STALE_ORPHAN
+        assert s.execute(select(Prediction.match_id)).scalars().all() == [4390]

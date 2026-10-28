@@ -65,14 +65,29 @@ def _sync_lock(fn):
 
     @functools.wraps(fn)
     def run(*a, **k):
-        import sys as _sys
-        from pathlib import Path as _P
-        _sys.path.insert(0, str(_P(__file__).resolve().parent / "deploy" / "hosting"))
-        import sp_common as _spc
-        with _spc.sync_lock(on_wait=lambda p: print(f"… waiting for the DB lock {p} (a chain or closing run holds it)",
-                                                    flush=True)):
+        with _chains_lock():
             return fn(*a, **k)
     return run
+
+
+def _chains_lock():
+    """sp_common.sync_lock, the chains' flock (SP_LOCK, else logs/db.lock): a no-op when this thread or an ancestor
+    run already holds it; waiting prints one line."""
+    import sys as _sys
+    from pathlib import Path as _P
+    _sys.path.insert(0, str(_P(__file__).resolve().parent / "deploy" / "hosting"))
+    import sp_common as _spc
+    return _spc.sync_lock(on_wait=lambda p: print(f"… waiting for the DB lock {p} (a chain or closing run holds it)",
+                                                  flush=True))
+
+
+def _apply_lock(apply: bool):
+    """THE APPLY'S DB LOCK (#709 item 4, Codex on #704): an --apply verified against a .backup takes the chains' lock
+    before _verify_backup and holds it through the plan and the write, so no chain commits between the backup check
+    and the merge (writes the verified backup would not hold). dedupe-matches, retire-orphans and dedupe-mlb-twins; a
+    dry run takes none."""
+    from contextlib import nullcontext
+    return _chains_lock() if apply else nullcontext()
 
 
 def _mlb_fallback(code: str) -> bool:
@@ -477,25 +492,27 @@ def dedupe_matches_cmd(competition_code, source, apply, backup_path, sample, orp
 
     from sqlalchemy.exc import OperationalError as _OpErr
 
-    if apply:
-        _verify_backup(backup_path, "matches", _M)
-    md.SKIPPED_ABSENT.clear()
-
+    with _apply_lock(apply):                    # #709 item 4: the backup check, the plan and the merge under one lock
+        if apply:
+            _verify_backup(backup_path, "matches", _M)
+        md.SKIPPED_ABSENT.clear()
+        if orphans:
+            try:
+                out = _dedupe_orphans(competition_code, source, apply, sample)
+            except _OpErr as e:
+                _schema_refusal(e)
+        else:
+            try:
+                r = md.run(competition_code, source=source, apply=apply, sample=sample)
+            except ValueError as e:
+                raise click.ClickException(str(e))
+            except _OpErr as e:
+                _schema_refusal(e)
     if orphans:
-        try:
-            out = _dedupe_orphans(competition_code, source, apply, sample)
-        except _OpErr as e:
-            _schema_refusal(e)
         if md.SKIPPED_ABSENT:
             click.echo(f"  reference tables absent from the live DB, skipped (they hold no references; "
                        f"`init-db` creates them): {sorted(md.SKIPPED_ABSENT)}")
         return out
-    try:
-        r = md.run(competition_code, source=source, apply=apply, sample=sample)
-    except ValueError as e:
-        raise click.ClickException(str(e))
-    except _OpErr as e:
-        _schema_refusal(e)
     if md.SKIPPED_ABSENT:
         click.echo(f"  reference tables absent from the live DB, skipped (they hold no references; "
                    f"`init-db` creates them): {sorted(md.SKIPPED_ABSENT)}")
@@ -693,13 +710,15 @@ def retire_orphans_cmd(competition_code, season, apply, backup_path, match_ids):
         if not named:
             raise click.UsageError("REFUSED: --apply without --match-ids. Name each row the dry run planned retire: "
                                    "--match-ids ID,ID. Only the named rows are written.")
-        _verify_backup(backup_path, "matches", _M)
-    try:
-        r = mo.run(str(season).strip(), _adapter_for_competition(mo.COMPETITION), apply=apply, named=named)
-    except ValueError as e:
-        raise click.ClickException(str(e))
-    except _OpErr as e:
-        _schema_refusal(e)
+    with _apply_lock(apply):                    # #709 item 4: the backup check, the plan and the write under one lock
+        if apply:
+            _verify_backup(backup_path, "matches", _M)
+        try:
+            r = mo.run(str(season).strip(), _adapter_for_competition(mo.COMPETITION), apply=apply, named=named)
+        except ValueError as e:
+            raise click.ClickException(str(e))
+        except _OpErr as e:
+            _schema_refusal(e)
     for ln in mo.lines(r):
         click.echo(ln)
 
@@ -739,13 +758,15 @@ def dedupe_mlb_twins_cmd(apply, backup_path, gamepks):
         if not named:
             raise click.UsageError("REFUSED: --apply without --gamepks. Name each gamePk the dry run planned: "
                                    "--gamepks PK,PK. Only the named groups are merged.")
-        _verify_backup(backup_path, "matches", _M)
-    try:
-        r = mt.run(apply=apply, named=named)
-    except ValueError as e:
-        raise click.ClickException(str(e))
-    except _OpErr as e:
-        _schema_refusal(e)
+    with _apply_lock(apply):                    # #709 item 4: mt.run's own lock is a no-op under it (this thread's)
+        if apply:
+            _verify_backup(backup_path, "matches", _M)
+        try:
+            r = mt.run(apply=apply, named=named)
+        except ValueError as e:
+            raise click.ClickException(str(e))
+        except _OpErr as e:
+            _schema_refusal(e)
     for ln in mt.lines(r):
         click.echo(ln)
 

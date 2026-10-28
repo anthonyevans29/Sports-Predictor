@@ -272,7 +272,10 @@
           "what": "Step A, EFL: the timing probe run on the next EFL round with stored rows (--competition EFL, the same polls; its date named by the operator), the laptop awake from T-130 of the first kickoff, its receipt to me the same evening",
           "owner": "operator",
           "due": "2026-10-27",
-          "done": null
+          "done": {
+            "date": "2026-10-27",
+            "receipt": "#106 comment 6453014863: the summary lines (2 fixtures, first eleven per side at T-15 for 2 of 2, none at T-30; 14 of 14 calls HTTP 200, none failed or missed); the probe ran as the host unit sp-efl-probe-20261027, its journal stays on the host (ARCHITECT 2026-10-27 16:40 ET: \"the EFL roadmap line is done on its date\")"
+          }
         },
         {
           "what": "Step B: the LIVE T-15 observation store (addendum 158 item 3(a); the history ingest is done, #538, kept out of every price by #541): per fixture the scheduled poll time and the actual observation time, eleven team-mapped starters per side, the first complete observation preserved and every later correction appended (never replaced), explicit rows for failed, partial or late observations; the T-35 inputs and forecast of a declared candidate kept apart from the T-15 label; its PR",

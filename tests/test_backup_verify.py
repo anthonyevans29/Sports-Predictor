@@ -115,3 +115,36 @@ def test_the_plain_fallback_cannot_write(tmp_path):
     with pytest.raises(sqlite3.OperationalError):
         con.execute("INSERT INTO matches (id) VALUES (1)")
     con.close()
+
+
+@pytest.mark.parametrize("orphans", [False, True])
+def test_dedupe_matches_apply_holds_the_lock_from_the_backup_check_through_the_merge(tmp_path, monkeypatch, orphans):
+    """#709 item 4 (Codex on #704): dedupe-matches --apply (and --orphans --apply) takes the chains' DB lock before
+    _verify_backup and holds it through the plan and the merge; a dry run takes none. The merge is stubbed: the
+    receipt is the lock at each step, never a write to the shared test DB."""
+    import cli
+    from src.ingestion import match_dedupe as md
+    from tests.test_mlb_twins import lock_taken, spy_db_lock
+    monkeypatch.setenv("SP_LOCK", str(tmp_path / "db.lock"))
+    lock_taken()
+    taken, seen = spy_db_lock(monkeypatch), []
+    real_verify = cli._verify_backup
+    monkeypatch.setattr(cli, "_verify_backup", lambda *a: seen.append(("backup", lock_taken())) or real_verify(*a))
+    state = {"rows": 0, "carry_prev": 0, "stale_orphans": 0, "rekeys_by_via": {}}
+
+    def fake_run(code, source, apply, sample):
+        seen.append(("run", lock_taken()))
+        return {"applied": apply, "pairs": 0, "report": {}, "differs": {}, "sample": [], "merged": 0, "refused": [],
+                "repointed": {}, "before": state, "after": state}
+    monkeypatch.setattr(md, "run", fake_run)
+    monkeypatch.setattr(cli, "_dedupe_orphans", lambda *a: seen.append(("run", lock_taken())))
+    args = ["dedupe-matches", "--competition", "NCAA"] + (["--orphans"] if orphans else [])
+    out = run(args)
+    assert out.exit_code == 0, out.output
+    assert seen == [("run", (0, False))] and taken == []
+    seen.clear()
+    out = run(args + ["--apply", "--backup", str(_backup_of_live(tmp_path / "b.db"))])
+    assert out.exit_code == 0, out.output
+    assert "backup verified:" in out.output
+    assert seen == [("backup", (1, True)), ("run", (1, True))]
+    assert len(taken) == 1 and lock_taken() == (0, False)

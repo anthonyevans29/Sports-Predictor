@@ -476,7 +476,10 @@ Which machine runs item 5's readout (ARCHITECT 2026-10-18, addendum 128 item 1(a
 
    Nothing else writes the laptop's database. No `sync-*` of PL, NFL, NHL, NCAA, the cups, UNL or the intl family
    runs on the laptop: the host is their writer of record, and its `coverage` file (the mirror's
-   `host/latest/coverage.json`) is the day's map. `python cli.py coverage` on the laptop shows MLB only.
+   `host/latest/coverage.json`) is the day's map. `python cli.py coverage` on the laptop lists every competition with
+   games that day in the laptop's database (#709). Only its MLB line is this machine's record. Its other lines (EFL,
+   NCAA and NHL among them) read rows synced before the cutover and not since; they, and any gap printed for them, are
+   not this machine's. The host's `coverage` file is their day's map.
 
 ## 2. Fresh-fingerprint compare
 

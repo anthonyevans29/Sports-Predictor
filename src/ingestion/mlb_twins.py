@@ -23,7 +23,8 @@ The readings built here (each stated in the PR for the architect):
     that are not STALE_ORPHAN and carry one external_ids["mlb_stats_api"]. A group of three or more rows is REFUSED.
   * THE CLASS, from the two rows' stored state: both FINISHED with one score at one kickoff minute = 1; both FINISHED
     with one score at two kickoffs = 4; FINISHED and SCHEDULED = 2; POSTPONED and another status = 3. Two FINISHED rows
-    with different scores, and any other pair of statuses, are REFUSED (no class of the ruling).
+    with different scores, two FINISHED rows without both scores on both (one score is a complete one, #709 item 5),
+    and any other pair of statuses, are REFUSED (no class of the ruling).
   * REFERENCES, the ruling's list: odds, odds_snapshots (Kalshi quotes included), predictions, prediction_history and
     kalshi_settled_markets (the Kalshi legs' settlements), counted per row.
   * THE KEPT ROW: class 1 by (a). Class 2 the FINISHED row (c), whatever either holds. Class 3 the make-up (d); a
@@ -36,9 +37,12 @@ The readings built here (each stated in the PR for the architect):
     a stored value. Every change is printed.
   * RE-POINTING: every table referencing matches.id, read from the schema (match_dedupe._fk_tables; a table the live DB
     lacks is skipped and named). The references, pitcher_appearances and umpire_games (one row per source game, by
-    their unique indexes) always move. Any other table moves only when the kept row holds no row of it: where both
-    hold one (match_participants' starter, game_weather, match_stats' unique (match_id, team_id) ...), the retired
-    row's own stays on it, counted and printed. Nothing is deleted.
+    their unique indexes) always move. A table with a key per game (KEYS: match_participants' (team, role), the
+    sync_pitchers upsert's; match_stats' unique (match_id, team_id); lineups' (team, kind), its index and the history
+    sync's replace) moves row by row: each of the retired row's rows moves unless the kept row holds one of the same
+    key, and only the colliding rows stay on the retired row (#709 item 2). Any other table (game_weather's snapshots,
+    the one-row-per-match side tables) moves only when the kept row holds no row of it. A row left stays on the retired
+    row, counted and printed. Nothing is deleted.
   * THE RETIRED ROW: status STALE_ORPHAN; its mlb_stats_api id leaves the key (a sync looks the gamePk up by it and
     must find the kept row only) for mlb_stats_api_prev, with mlb_stats_api_merged_into (the kept id) and
     mlb_stats_api_deduped_at. The kept row records mlb_stats_api_merged_from. THE HOST (ARCHITECT 2026-10-27, addendum
@@ -48,11 +52,17 @@ The readings built here (each stated in the PR for the architect):
     (mlb_apisports.sync_matches).
   * CLASS 2's PREDICTIONS: each prediction re-pointed from the SCHEDULED copy carries factor_breakdown["dedupe_569"]
     ({from_match, into, computed_at, kickoff}); evaluate_finished never grades a prediction carrying it (training.py).
-    The receipt line counts them and their history rows.
-  * THE TRAINING SET: the FINISHED MLB rows per season before, and after (the retired FINISHED rows out).
+    The receipt line counts them and their history rows (none counted where the live DB lacks prediction_history, as
+    _fk_tables skips it: #709 item 6).
+  * THE TRAINING SET: the FINISHED MLB rows per season before, and after, projected from both rows' status before
+    and after each merge (#709 item 1): the retired row is out, and the kept row counts with the status it takes (a
+    class-3 POSTPONED row kept by (a) takes the make-up's FINISHED, so the count does not change). The apply reads the
+    count back.
   * --apply needs --backup PATH and --gamepks naming the groups (cli.py; as retire-orphans names its rows): the apply
     plans again in its own session under the chains' DB lock, and a named gamePk whose fresh plan is not a merge is
-    REFUSED and left. A dry run rolls back.
+    REFUSED and left. The command takes the lock before its backup check and holds it through the plan and the merge
+    (#709 item 4), so run's own lock is a no-op there (sp_common.sync_lock, held by this thread). A dry run takes no
+    lock and rolls back.
 """
 from __future__ import annotations
 
@@ -68,6 +78,9 @@ REFERENCES = ("odds", "odds_snapshots", "predictions", "prediction_history", "ka
 ALWAYS_MOVE = REFERENCES + ("pitcher_appearances", "umpire_games")
 OTHER_IDS = ("api_baseball",)      # the host's api-sports fallback id (mlb_apisports.SOURCE): moves with the gamePk
 STATE = ("utc_date", "status", "status_raw", "home_score", "away_score", "full_time_result")
+KEYS = {"match_participants": ("team_id", "role"),   # a row's key within its game: moved unless the kept row holds it
+        "match_stats": ("team_id",),
+        "lineups": ("team_id", "kind")}
 
 
 def _sid(m) -> str | None:
@@ -112,6 +125,9 @@ def references(s, tables, mid: int) -> dict:
 def classify(a, b) -> tuple[int | None, str]:
     st = {_st(a), _st(b)}
     if st == {"FINISHED"}:
+        if None in (a.home_score, a.away_score, b.home_score, b.away_score):     # #709 item 5: one score, complete
+            return None, (f"two FINISHED rows without a complete score ({a.home_score}-{a.away_score}, "
+                          f"{b.home_score}-{b.away_score}): no class of the ruling")
         if (a.home_score, a.away_score) != (b.home_score, b.away_score):
             return None, (f"two FINISHED rows with different scores ({a.home_score}-{a.away_score}, "
                           f"{b.home_score}-{b.away_score}): no class of the ruling")
@@ -170,19 +186,29 @@ def state_changes(kept, current) -> dict:
             if getattr(current, f) is not None and getattr(current, f) != getattr(kept, f)}
 
 
-def moves(s, tables, kept, other) -> tuple[dict, dict]:
-    """({table: rows re-pointed}, {table: rows left on the retired row}) as the module doc says."""
+def moves(s, tables, kept, other) -> tuple[dict, dict, dict]:
+    """({table: rows re-pointed}, {table: rows left on the retired row}, {table: ids re-pointed}) as the module doc
+    says. The ids are a KEYS table's where the kept row holds rows of it: only those ids move."""
     from sqlalchemy import func, select
-    move, left = {}, {}
+    move, left, ids = {}, {}, {}
     for t, c, _ in tables:
         n = s.execute(select(func.count()).select_from(t).where(c == other.id)).scalar()
         if not n:
             continue
         if t.name in ALWAYS_MOVE or not s.execute(select(func.count()).select_from(t).where(c == kept.id)).scalar():
             move[t.name] = n
+        elif t.name in KEYS:
+            cols = [t.c[k] for k in KEYS[t.name]]
+            held = {tuple(r) for r in s.execute(select(*cols).where(c == kept.id))}
+            go = [r[0] for r in s.execute(select(t.c.id, *cols).where(c == other.id).order_by(t.c.id))
+                  if tuple(r[1:]) not in held]
+            if go:
+                move[t.name], ids[t.name] = len(go), go
+            if n - len(go):
+                left[t.name] = n - len(go)
         else:
             left[t.name] = n
-    return move, left
+    return move, left, ids
 
 
 def plan(s) -> dict:
@@ -192,6 +218,7 @@ def plan(s) -> dict:
     from src.ingestion import match_dedupe as md
 
     tables = md._fk_tables(s)
+    names = {t.name for t, _, _ in tables}
     out = {"groups": [], "refused": [], "skipped_absent": sorted(md.SKIPPED_ABSENT)}
     for pk, rows in groups(s).items():
         refs = {m.id: references(s, tables, m.id) for m in rows}
@@ -208,20 +235,26 @@ def plan(s) -> dict:
             out["refused"].append({**g, "class": cls, "what": what, "why": d["refused"]})
             continue
         kept, other = d["kept"], d["other"]
-        move, left = moves(s, tables, kept, other)
+        move, left, ids = moves(s, tables, kept, other)
         g.update({"class": cls, "what": what, "kept": kept.id, "other": other.id, "why": d["why"],
-                  "takes": state_changes(kept, d["current"]), "moves": move, "left": left})
+                  "takes": state_changes(kept, d["current"]), "moves": move, "left": left, "move_ids": ids})
         if cls == 2:
             preds = s.execute(select(Prediction.computed_at).where(Prediction.match_id == other.id)).scalars().all()
-            hist = s.execute(select(PredictionHistory.id).where(PredictionHistory.match_id == other.id)).scalars().all()
+            hist = (s.execute(select(PredictionHistory.id).where(PredictionHistory.match_id == other.id)).scalars().all()
+                    if PredictionHistory.__tablename__ in names else [])     # absent: skipped as _fk_tables skips it
             g["played_before"] = {"predictions": len(preds), "history": len(hist),
                                   "after_kickoff": sum(1 for p in preds if p and kept.utc_date and p >= kept.utc_date),
                                   "kickoff": _val(kept.utc_date)}
         out["groups"].append(g)
     finished = finished_by_season(s)
-    retired = Counter(r["season"] for g in out["groups"] for r in g["rows"]
-                      if r["id"] == g["other"] and r["status"] == "FINISHED")
-    out["finished"] = {season: (n, n - retired[season]) for season, n in sorted(finished.items())}
+    delta = Counter()                   # both rows' status before and after each merge (#709 item 1)
+    for g in out["groups"]:
+        for r in g["rows"]:
+            delta[r["season"]] -= r["status"] == "FINISHED"
+            if r["id"] == g["kept"]:
+                delta[r["season"]] += g["takes"].get("status", (None, r["status"]))[1] == "FINISHED"
+    out["finished"] = {season: (finished[season], finished[season] + delta[season])
+                       for season in sorted({*finished, *(k for k, v in delta.items() if v)})}
     return out
 
 
@@ -256,7 +289,10 @@ def merge(s, tables, g: dict, at: str) -> dict:
     moved = {}
     for t, c, _ in tables:
         if t.name in g["moves"]:
-            moved[t.name] = s.execute(update(t).where(c == other.id).values({c.name: kept.id})).rowcount
+            q = update(t).where(c == other.id)
+            if t.name in g["move_ids"]:                # a KEYS table: only the rows the kept row holds no key of
+                q = q.where(t.c.id.in_(g["move_ids"][t.name]))
+            moved[t.name] = s.execute(q.values({c.name: kept.id})).rowcount
     ext_o, ext_k = dict(other.external_ids or {}), dict(kept.external_ids or {})
     pk = ext_o.pop(SOURCE, None)
     ext_o[PREV] = sorted({*(ext_o.get(PREV) or []), str(pk)})

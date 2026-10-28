@@ -256,7 +256,9 @@ def _initial_form(a: tuple, b: tuple) -> bool:
     if not ini or not sur or len(b) <= len(sur) or b[-len(sur):] != sur:
         return False
     given = b[:-len(sur)]
-    return all(i >= len(given) or given[i].startswith(c) for i, c in enumerate(ini)) and given[0].startswith(ini[0])
+    if len(ini) > len(given):          # Codex on #722: "A. X. Smith" never names "Adam Smith" (an initial unmatched)
+        return False
+    return all(given[i].startswith(c) for i, c in enumerate(ini))
 
 
 def name_match(name, cands: list[dict]) -> tuple[str, list[dict]]:
@@ -425,11 +427,14 @@ def read_db(s, rows: list[dict]) -> None:
     for x in rows:
         r = x["row"]
         m, how = s.get(Match, x["match_id"]), "by match id"
-        if m is not None and (tname(m.home_team_id)[0], tname(m.away_team_id)[0]) != (r.get("home_team"),
-                                                                                      r.get("away_team")):
+        ko = redated.as_utc(r.get("utc_date"))
+        # Codex on #722: the id is machine-local; it stands only for the row's teams AND its kickoff (the same two
+        # clubs meet twice a season), else the teams-and-kickoff lookup below decides
+        if m is not None and ((tname(m.home_team_id)[0], tname(m.away_team_id)[0]) != (r.get("home_team"),
+                                                                                       r.get("away_team"))
+                              or ko is None or m.utc_date != ko):
             m = None
         if m is None:
-            ko = redated.as_utc(r.get("utc_date"))
             found = [c for c in s.execute(select(Match).where(Match.utc_date == ko)).scalars()
                      if (tname(c.home_team_id)[0], tname(c.away_team_id)[0]) == (r.get("home_team"),
                                                                                 r.get("away_team"))] if ko else []

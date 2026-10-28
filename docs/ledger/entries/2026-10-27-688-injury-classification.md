@@ -22,3 +22,4 @@
 - **Review on #722:**
   - **Merge from main:** the header named the machine role through `desk_policy.machine_role`, a Desk fence input that `tests/test_host_watch_after_flip.py` allows only in desk_policy. It is now read as `closing.mirror_role` reads it (`sp_common.setting`).
   - **Codex round 1:** a side whose /fixtures/players block was read in full can still lack an entry for a substitute of /fixtures/lineups. That name's minutes are unread: it prints "not listed, appearance unread" beside the measured "did not appear" count and is counted apart, never dropped from both lists.
+  - **Codex round 1, the other two:** a name with more initials than the candidate's given names never matches ("A. X. Smith" is not "Adam Smith"). A closing row's match id is machine-local and the same two clubs meet twice a season, so the id stands only where the stored match has the row's teams and its kickoff; otherwise the teams-and-kickoff lookup decides.

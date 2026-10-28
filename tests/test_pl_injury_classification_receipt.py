@@ -762,3 +762,22 @@ def test_codex_722_a_lineup_only_bench_name_on_a_side_read_in_full_is_unread_nev
     assert sm["not_listed_unread_on_read_sides"] == 1
     assert "on a side read in full, in the lineups with no minutes entry (unread, counted apart) 1" in line(
         out, "NOT LISTED (ruling 1(f)): ")
+
+
+def test_codex_722_more_initials_than_given_names_never_match():
+    """Codex on #722: "A. X. Smith" names no "Adam Smith" (the X is unmatched); "A. Smith" still does."""
+    assert rc.name_match("A. X. Smith", [{"names": {"Adam Smith"}}])[0] == "unmatched"
+    assert rc.name_match("A. Smith", [{"names": {"Adam Smith"}}])[0] == "initial form"
+    assert rc.name_match("E. J. Kroupi", [{"names": {"Eli Junior Kroupi"}}])[0] == "initial form"
+
+
+def test_codex_722_a_match_id_with_the_teams_but_another_kickoff_is_never_used(world):
+    """Codex on #722: the id is machine-local and the same two clubs meet twice a season: a stored match with the
+    row's teams but another kickoff is not the row's game; the teams-and-kickoff lookup decides (here: none stored)."""
+    ex = world["tmp"] / "ex3"
+    closing(ex, "2026-10-24T16:30:00", [row(9240, "Chelsea", "Tottenham", "2027-03-14T16:30:00", ["E. Emegha"],
+                                            [], 5, 0, S_CHE)])
+    out = []
+    rc.main(["--exports", str(ex), "--db", str(world["db"]), "--save", str(world["save"])], echo=out.append,
+            get=FakeGet(answers()))
+    assert "DB: not in the database" in line(out, "  DB: ")

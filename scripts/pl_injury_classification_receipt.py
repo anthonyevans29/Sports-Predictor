@@ -777,7 +777,11 @@ def build(pop: dict, s, fetch: Fetch) -> dict:
                 return "/".join(sorted(c["names"])) or f"id {c.get('id')}"
             if ssq and ssq["players"] and "players" not in ssq["partial"]:
                 sd["not_listed"] = sorted(nm(c) for c in ssq["cands"] if appearance(c) == DNP_SQUAD and unlisted(c))
-                sd["not_listed_why"], sd["not_listed_unread"] = None, []
+                sd["not_listed_why"] = None
+                # Codex on #722: a member of /fixtures/lineups the players block does not hold (a bench name with no
+                # minutes entry) is unread, beside the measured count, never dropped from both lists
+                sd["not_listed_unread"] = sorted(nm(c) for c in ssq["cands"]
+                                                 if appearance(c).startswith(UNREAD) and unlisted(c))
             else:
                 sd["not_listed"] = None
                 if not sd["fixture_read"]:
@@ -882,7 +886,7 @@ def lines(res: dict, pop: dict, hdr: dict, fetch: Fetch) -> tuple[list[str], dic
     L.append("PROVIDER KEYS (law 1, printed from the first real answer of each kind before any field is read):")
     L += res["keys"] or ["  no answer read: no key printed, no field read"]
     by_type, by_stamp, by_age = defaultdict(Counter), defaultdict(Counter), defaultdict(Counter)
-    nl_dnp, nl_unread, nl_cut = 0, 0, 0
+    nl_dnp, nl_unread, nl_cut, nl_unread_read = 0, 0, 0, 0
     unmatched = ambiguous = 0
     for x in rows:
         r, db = x["row"], x["db"]
@@ -930,6 +934,10 @@ def lines(res: dict, pop: dict, hdr: dict, fetch: Fetch) -> tuple[list[str], dic
                     nl_dnp += len(sd["not_listed"])
                     cut = ""
                 L.append(f"    {NOT_LISTED_DNP} {len(sd['not_listed'])}{cut}: {', '.join(sd['not_listed']) or 'none'}")
+                if sd["not_listed_unread"]:
+                    nl_unread_read += len(sd["not_listed_unread"])
+                    L.append(f"    {NOT_LISTED_UNREAD} {len(sd['not_listed_unread'])} (in /fixtures/lineups, no minutes "
+                             f"entry in the players answer): {', '.join(sd['not_listed_unread'])}")
             else:
                 nl_unread += 1
                 L.append(f"    {NOT_LISTED_UNREAD} ({sd['not_listed_why']})"
@@ -949,7 +957,8 @@ def lines(res: dict, pop: dict, hdr: dict, fetch: Fetch) -> tuple[list[str], dic
     for b in sorted(by_age):
         L.append(f"  {b}: {_cnt(by_age[b])}")
     L.append(f"NOT LISTED (ruling 1(f)): {NOT_LISTED_DNP} {nl_dnp} · sides '{NOT_LISTED_UNREAD}' {nl_unread} · "
-             f"on a side whose list was cut and is not recoverable (listed or not UNKNOWN, counted apart) {nl_cut}")
+             f"on a side whose list was cut and is not recoverable (listed or not UNKNOWN, counted apart) {nl_cut} · "
+             f"on a side read in full, in the lineups with no minutes entry (unread, counted apart) {nl_unread_read}")
     if res["malformed"]:
         L.append(f"NOT THE PROVIDER'S SHAPE {len(res['malformed'])} (counted, never read): "
                  + "; ".join(res["malformed"][:10]) + (" …" if len(res["malformed"]) > 10 else ""))
@@ -970,6 +979,7 @@ def lines(res: dict, pop: dict, hdr: dict, fetch: Fetch) -> tuple[list[str], dic
         "by_stamp_age": {k: dict(v) for k, v in by_stamp.items()},
         "by_fixture_age": {k: dict(v) for k, v in by_age.items()},
         "not_listed_did_not_appear": nl_dnp, "not_listed_unread_sides": nl_unread, "not_listed_side_list_cut": nl_cut,
+        "not_listed_unread_on_read_sides": nl_unread_read,
         "unmatched": unmatched, "ambiguous": ambiguous, "malformed": len(res["malformed"]),
         "calls": {"made": fetch.calls, "cached": fetch.cached, "failed": len(fetch.failed), "empty": len(fetch.empty),
                   "cap": fetch.max_calls},

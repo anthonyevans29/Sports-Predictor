@@ -19,3 +19,6 @@
   - **Stamp-age buckets** are under 1 h, 1 to 6 h, 6 to 24 h and 24 h or more (our clock: the run start minus synced_at). As scouted, every row is expected in the first.
   - **The machine role** is printed in the header. The receipt cannot tell from the file that it is the laptop's database; the role line and the operator's run are the evidence.
   - **The four cases** are matched on teams and kickoff date, never on match id.
+- **Review on #722:**
+  - **Merge from main:** the header named the machine role through `desk_policy.machine_role`, a Desk fence input that `tests/test_host_watch_after_flip.py` allows only in desk_policy. It is now read as `closing.mirror_role` reads it (`sp_common.setting`).
+  - **Codex round 1:** a side whose /fixtures/players block was read in full can still lack an entry for a substitute of /fixtures/lineups. That name's minutes are unread: it prints "not listed, appearance unread" beside the measured "did not appear" count and is counted apart, never dropped from both lists.

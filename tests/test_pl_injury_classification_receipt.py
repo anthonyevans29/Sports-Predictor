@@ -739,3 +739,26 @@ def test_a_worked_case_with_no_row_in_the_population_is_printed_missing(world):
 def test_the_header_names_the_sqlite_sidecars(world):
     _, out, _ = run(world)
     assert rc.SIDECARS in out[:8] and "creates <file>-wal and <file>-shm" in rc.SIDECARS
+
+
+def test_codex_722_a_lineup_only_bench_name_on_a_side_read_in_full_is_unread_never_dropped(world):
+    """Codex on #722: a well-formed /fixtures/players block that holds no entry for a substitute of /fixtures/lineups
+    leaves the side read in full, but that name's minutes are unread: it prints as 'not listed, appearance unread'
+    beside the measured did-not-appear count, and is counted apart, never dropped from both lists."""
+    t = dict(answers())
+    t[("fixtures/players", "1001")] = (200, {}, [
+        {"team": {"id": int(TEAMS["Chelsea"])}, "players": [pentry(1, "E. Emegha", 90, False),
+                                                            pentry(10, "João Pedro", None, True)]},   # no M. Gusto
+        {"team": {"id": int(TEAMS["Tottenham"])}, "players": [pentry(20, "Pedro Porro", 90, False),
+                                                              pentry(21, "X. Simons", 15, True),
+                                                              pentry(22, "M. Mudryk", None, True)]}])
+    _, out, _ = run(world, table=t)
+    blk = _block(out, "== match 9240", "== match 9238")
+    che = blk[:blk.index(line(blk, "  AWAY Tottenham"))]
+    assert "    not listed, did not appear 1: João Pedro" in che
+    assert ("    not listed, appearance unread 1 (in /fixtures/lineups, no minutes entry in the players answer): "
+            "M. Gusto") in che
+    sm = summary(out)
+    assert sm["not_listed_unread_on_read_sides"] == 1
+    assert "on a side read in full, in the lineups with no minutes entry (unread, counted apart) 1" in line(
+        out, "NOT LISTED (ruling 1(f)): ")

@@ -772,12 +772,27 @@ systemctl enable --now $TIMERS
 systemctl list-timers 'sp-*' --no-pager     # receipt: next-elapse for each
 ```
 - Every shipped timer is on `TIMERS` or `MLB_LAPTOP_ONLY`; CI checks it.
+- **The file's form (#725; ARCHITECT 2026-10-28, addendum 174 item 4: "hosting-h1's T11 recipes must not assume one
+  timer name per line in timers.enabled (the file holds several per line)").** `timers.enabled` is a list of names
+  separated by whitespace, not one per line: the `echo $TIMERS` above writes the whole list on ONE line, and each
+  live-host recipe below appends one more line (`echo <name> | sudo tee -a`). Every reader takes it by name:
+  `$(cat /etc/sports-predictor/timers.enabled)`, `sp_cutover` and `sp_deploy` (`.split()`). A recipe that counts,
+  finds or removes a timer goes by name too, never by line (`wc -l`, or `grep -x` / `sed '/^name$/d'` on the file
+  as written, miss every name on the TIMERS line). The names, one per line, as a receipt: `tr -s ' \t' '\n' < /etc/sports-predictor/timers.enabled | sed
+  '/^$/d' | sort`. **A timer retired or renamed on a live host** (e.g. `sp-nfl-predict.timer` to
+  `sp-nfl-prematch.timer`, #674) leaves the list by name, rewritten in place under sudo, after its `systemctl disable
+  --now`:
+  ```
+  f=/etc/sports-predictor/timers.enabled; old=sp-nfl-predict.timer
+  tr -s ' \t' '\n' < "$f" | sed '/^$/d' | grep -vxF "$old" | tr '\n' ' ' | sed 's/ $/\n/' | sudo tee "$f.new" >/dev/null && sudo mv "$f.new" "$f"
+  tr -s ' \t' '\n' < "$f" | sed '/^$/d' | grep -cxF "$old"   # receipt: 0
+  ```
 - `sp-closing-watch.timer` is on `TIMERS` from the cutover (ARCHITECT 2026-10-26, addendum 168 item 5:
   "hosting-h1.md's T11 HELD_FOR_CUTOVER list: sp-closing-watch.timer moves to TIMERS (CI's check follows)"). Until
   then it was the one name on a third list, `HELD_FOR_CUTOVER` (ARCHITECT 2026-10-12, addendum 45 P3: "A third
   list in the T11 test names the units that are shipped and held for the cutover ruling"; C7: the cutover ruling
   decides when it runs). The host enabled it at h2-cutover-runbook.md section 1 step 5b, 2026-10-26 13:47Z
-  (timers.enabled 17 lines), and the third list is retired. install.sh still copies the unit and enables nothing.
+  (timers.enabled 17 names), and the third list is retired. install.sh still copies the unit and enables nothing.
 - `TIMERS` includes the soccer model-bearing timers (B4, seeded registry)
   and `sp-ncaa-market.timer` (H0-11).
 - The MLB timers stay off. They are shipped and CI-validated, ready for

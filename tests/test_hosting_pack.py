@@ -4057,3 +4057,15 @@ def test_intl_daily_reads_the_four_cup_schedules_last():
     assert steps[3:] == [["sync-matches", "--competition", c, "--season", "2026/27"] for c in ("EFL", "CL", "UEL", "FAC")]
     t = (HOSTING / "systemd" / "sp-intl-daily.timer").read_text()
     assert re.findall(r"^OnCalendar=(.+)$", t, re.M) == ["*-*-* 07:20:00 UTC"]           # daily
+
+
+def test_725_t11_recipes_read_timers_enabled_by_name_never_by_line():
+    """#725 (ARCHITECT 2026-10-28, addendum 174 item 4): "hosting-h1's T11 recipes must not assume one timer name per
+    line in timers.enabled (the file holds several per line)". No recipe in hosting-h1.md counts the file's lines or
+    matches a whole line of it; the retire recipe splits the file into names first."""
+    import re
+    rb = (c.REPO / "docs" / "specs" / "hosting-h1.md").read_text(encoding="utf-8")
+    lines = [ln for ln in rb.splitlines() if "timers.enabled" in ln or '"$f"' in ln]
+    assert not any(re.search(r"wc -l|grep -[a-zA-Z]*x[a-zA-Z]* [^|]*timers\.enabled|sed -i", ln) for ln in lines)
+    assert "timers.enabled 17 lines" not in rb
+    assert "tr -s ' \\t' '\\n' < \"$f\" | sed '/^$/d' | grep -vxF \"$old\"" in rb

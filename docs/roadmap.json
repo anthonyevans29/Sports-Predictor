@@ -348,7 +348,10 @@
           "what": "the as-of reconstruction of the pitcher statistics the live model reads, from the stored appearances (docs/historical_backfill_assessment.md tier 1), as a read-only receipt: coverage per season",
           "owner": "code",
           "due": "2026-10-28",
-          "done": null
+          "done": {
+            "date": "2026-10-28",
+            "receipt": "#507 comment 6470536840: the laptop's run of scripts/mlb_pitcher_asof_receipt.py (#702), seasons 2025 and 2026, read-only (2026: appearances both sides 2429/2429, the live path reconstructed 3173/4858 sides; 2025: no stored starter identity, 0/4860) (ARCHITECT 2026-10-28 09:40 ET: the step \"is done on its date\")"
+          }
         },
         {
           "what": "my declaration: the backtest with the pitcher layer on and off, the same games, the MLB bar (0.0050) as the pre-committed margin, on the 2025 and 2026 regular seasons; the result shapes the 2027 model",

@@ -795,6 +795,7 @@ def test_the_t11_lists_carry_the_renamed_timer():
     assert "| sp-nfl-prematch | nfl-prematch (was sp-nfl-predict / nfl-predict;" in rb
 
 
+import sp_cutover  # noqa: E402
 import sp_deploy  # noqa: E402
 
 
@@ -816,10 +817,11 @@ def test_the_deploy_receipt_names_the_shipped_timers_the_host_has_not_enabled(tm
     line = sp_deploy.timers_line(st)
     assert line.startswith("\n  ! shipped timers not in ") and "sp-ncaa-schedule.timer (TIMERS)" in line
     assert "install and enable it" in line
-    # the host as T11 leaves it: only the list T11 holds off is not enabled -> a plain line, no "!"
+    # the host as T11 leaves it: only the list T11 holds off is not enabled -> a plain line, no "!", counted not named
+    # (ARCHITECT 2026-10-28, #725: "the deploy's timers line must name only the TIMERS timers missing")
     ok = sp_deploy.timers_state(enabled_path=_enabled(tmp_path, lists["TIMERS"]))
     assert ok["by_list"].keys() == {"MLB_LAPTOP_ONLY"}
-    assert sp_deploy.timers_line(ok).startswith("\n  · shipped timers not in ") and "!" not in sp_deploy.timers_line(ok)
+    assert sp_deploy.timers_line(ok) == f"\n  · shipped timers not in {c.TIMERS_ENABLED}: 3 on MLB_LAPTOP_ONLY (held off by T11)"
     every = sp_deploy.timers_state(enabled_path=_enabled(tmp_path, c.shipped_timers()))
     assert every["not_enabled"] == [] and "every shipped timer is in" in sp_deploy.timers_line(every)
 
@@ -831,17 +833,154 @@ def test_the_deploy_receipt_never_guesses_when_timers_enabled_is_unreadable(tmp_
     assert sp_deploy.timers_line(st).startswith("\n  ! timers: ")
 
 
-def test_a_shipped_timer_on_no_t11_list_is_named_unlisted(tmp_path):
+def _t11_repo(tmp_path, block, timers=("sp-a", "sp-b", "sp-c", "sp-new")):
+    """A checkout whose runbook's T11 step holds `block` as its fenced block (the shape hosting-h1.md writes it in:
+    the step's bold head, the fence, the lists, the shell lines that follow, then the next step), shipping `timers`."""
     repo = tmp_path / "repo"
     (repo / "deploy" / "hosting" / "systemd").mkdir(parents=True)
     (repo / "docs" / "specs").mkdir(parents=True)
     (repo / "docs" / "specs" / "hosting-h1.md").write_text(
-        'TIMERS="sp-a.timer sp-c.timer"\nMLB_LAPTOP_ONLY="sp-b.timer"\n')
-    for n in ("sp-a", "sp-b", "sp-c", "sp-new"):
+        '**T10. TERMINAL (host): dry-run receipts.**\n```\nNOT_T11="sp-x.timer"\n```\n\n'
+        f'**T11. TERMINAL (host): enable.**\n```\n{block}echo $TIMERS | sudo tee /etc/sports-predictor/timers.enabled\n```\n'
+        '- a note\n```\nLATER="sp-y.timer"\n```\n\n**T12. TERMINAL (laptop): the nightly backup pull.**\n')
+    for n in timers:
         (repo / "deploy" / "hosting" / "systemd" / f"{n}.timer").write_text("")
+    return repo
+
+
+def test_a_shipped_timer_on_no_t11_list_is_named_unlisted(tmp_path):
+    repo = _t11_repo(tmp_path, 'TIMERS="sp-a.timer sp-c.timer"\nMLB_LAPTOP_ONLY="sp-b.timer"\n')
     st = sp_deploy.timers_state(repo=repo, enabled_path=_enabled(tmp_path, ["sp-a.timer", "sp-c.timer"]))
     assert st["by_list"] == {"MLB_LAPTOP_ONLY": ["sp-b.timer"], "unlisted": ["sp-new.timer"]}
-    assert sp_deploy.timers_line(st).startswith("\n  ! ") and "sp-new.timer (unlisted)" in sp_deploy.timers_line(st)
+    line = sp_deploy.timers_line(st)
+    assert line.startswith("\n  ! ") and "sp-new.timer (unlisted)" in line and "sp-b.timer" not in line
+    assert "1 on MLB_LAPTOP_ONLY (held off by T11)" in line
+
+
+# --------------------------- the T11 lists as the file holds them (ARCHITECT 2026-10-28 10:15 ET, #725) ----
+# "FINDING from the deploy receipt: sp_common.t11_lists() raises ValueError on v1.6.1's docs/specs/hosting-h1.md, so
+# the receipt's timers line calls five shipped timers "(unlisted)" instead of naming the two TIMERS ones; the
+# laptop-only lists were unreadable too. Issue + a small PR: the parser reads the T11 blocks as the file now holds
+# them, with a test pinned to the real file; the deploy's timers line must name only the TIMERS timers missing."
+# The v1.6.0 -> v1.6.1 receipt, verbatim: "! shipped timers not in /etc/sports-predictor/timers.enabled:
+# sp-clv-capture.timer, sp-cup-observe.timer, sp-mlb-morning.timer, sp-mlb-preslate.timer, sp-nfl-prematch.timer
+# (unlisted) (hosting-h1.md T11 lists unreadable (ValueError))". The deploy ran v1.6.0's code (T11_LISTS with
+# HELD_FOR_CUTOVER) on v1.6.1's runbook (HELD_FOR_CUTOVER retired, addendum 168 item 5).
+V160_T11_LISTS = ("TIMERS", "MLB_LAPTOP_ONLY", "HELD_FOR_CUTOVER")
+
+
+def test_the_t11_lists_are_read_from_the_real_runbook_as_it_holds_them():
+    """Pinned to docs/specs/hosting-h1.md as it is now: two lists, in this order, and nothing else."""
+    lists = c.t11_lists()
+    assert list(lists) == ["TIMERS", "MLB_LAPTOP_ONLY"] == list(c.T11_LISTS)
+    assert {"sp-nfl-prematch.timer", "sp-cup-observe.timer", "sp-closing-watch.timer"} <= set(lists["TIMERS"])
+    assert len(lists["TIMERS"]) == 18
+    assert lists["MLB_LAPTOP_ONLY"] == ["sp-mlb-morning.timer", "sp-mlb-preslate.timer", "sp-clv-capture.timer"]
+    assert sp_cutover.runbook_timers() == lists["TIMERS"]
+
+
+def test_a_runbook_without_a_list_the_code_once_named_or_with_an_extra_one_reads_without_error(tmp_path, monkeypatch):
+    """This deploy's case: code expecting HELD_FOR_CUTOVER reads a runbook that retired it, and every list the
+    file holds is still read; a list the code never named (v1.6.0's HELD_FOR_CUTOVER, read by today's code) too."""
+    monkeypatch.setattr(c, "T11_LISTS", V160_T11_LISTS)
+    lists = c.t11_lists()
+    assert list(lists) == ["TIMERS", "MLB_LAPTOP_ONLY"] and "sp-cup-observe.timer" in lists["TIMERS"]
+    monkeypatch.undo()
+    v160 = _t11_repo(tmp_path, 'TIMERS="sp-a.timer\n  sp-c.timer"\n'
+                               'MLB_LAPTOP_ONLY="sp-b.timer"   # NOT enabled: statsapi 406 on the DO ASN (H1b note)\n'
+                               'HELD_FOR_CUTOVER="sp-new.timer"   # NOT enabled: shipped and held for the cutover ruling\n')
+    rb = v160 / "docs" / "specs" / "hosting-h1.md"
+    assert c.t11_lists(rb) == {"TIMERS": ["sp-a.timer", "sp-c.timer"], "MLB_LAPTOP_ONLY": ["sp-b.timer"],
+                               "HELD_FOR_CUTOVER": ["sp-new.timer"]}      # the other steps' blocks are not T11's
+    st = sp_deploy.timers_state(repo=v160, enabled_path=_enabled(tmp_path, ["sp-a.timer", "sp-c.timer"]))
+    assert st["by_list"] == {"MLB_LAPTOP_ONLY": ["sp-b.timer"], "HELD_FOR_CUTOVER": ["sp-new.timer"]}
+    assert sp_deploy.timers_line(st) == (f"\n  · shipped timers not in {c.TIMERS_ENABLED}: 1 on MLB_LAPTOP_ONLY "
+                                         "(held off by T11) · 1 on HELD_FOR_CUTOVER (held off by T11)")
+
+
+def test_the_timers_line_for_the_v1_6_1_host_names_only_the_two_timers_timers(tmp_path, monkeypatch):
+    """The v1.6.0 -> v1.6.1 deploy, read right: the host's 17-line timers.enabled held every TIMERS timer but
+    sp-nfl-prematch.timer and sp-cup-observe.timer (16), plus one name this tree does not ship (sp-nfl-predict.timer
+    here: a name not shipped never reaches the line). Run by the code that expected HELD_FOR_CUTOVER, and by today's."""
+    lists = c.t11_lists()
+    host = [t for t in lists["TIMERS"] if t not in ("sp-nfl-prematch.timer", "sp-cup-observe.timer")]
+    path = _enabled(tmp_path, [*host, "sp-nfl-predict.timer"])
+    assert len(path.read_text().split()) == 17
+    want = (f"\n  ! shipped timers not in {c.TIMERS_ENABLED}: sp-cup-observe.timer, sp-nfl-prematch.timer (TIMERS)"
+            " · 3 on MLB_LAPTOP_ONLY (held off by T11) — a TIMERS timer not enabled: install and enable it by "
+            "hosting-h1.md T11's recipe for a live host")
+    st = sp_deploy.timers_state(enabled_path=path)
+    assert st["by_list"] == {"TIMERS": ["sp-cup-observe.timer", "sp-nfl-prematch.timer"],
+                             "MLB_LAPTOP_ONLY": sorted(lists["MLB_LAPTOP_ONLY"])} and "error" not in st
+    line = sp_deploy.timers_line(st)
+    assert line == want and not any(t in line for t in lists["MLB_LAPTOP_ONLY"]) and "unlisted" not in line
+    monkeypatch.setattr(c, "T11_LISTS", V160_T11_LISTS)
+    old = sp_deploy.timers_state(enabled_path=path)
+    assert old["by_list"] == st["by_list"] and old["lists_absent"] == ["HELD_FOR_CUTOVER"]
+    assert sp_deploy.timers_line(old) == want + " (hosting-h1.md T11 holds no HELD_FOR_CUTOVER list)"
+
+
+def test_an_unreadable_t11_block_is_an_error_never_a_guessed_list(tmp_path):
+    """Law 4. As before, no list in the block, or a list with no closing quote anywhere after it, raises ValueError;
+    newly (v1.6.1's parser read on), so does no T11 step, no closed fenced block, a list closed only by a later
+    list's quote, or one named twice. The deploy's line keeps the error, loud, and every timer reads unlisted; with
+    no timer missing it is still "!" with the error, never "✓"."""
+    for body, why in (('TIMERS="sp-a.timer sp-b.timer\nMLB_LAPTOP_ONLY="sp-c.timer"\n', "TIMERS list is not closed"),
+                      ('TIMERS="sp-a.timer sp-b.timer\n', "TIMERS list is not closed"),
+                      ('TIMERS="sp-a.timer"\nTIMERS="sp-b.timer"\n', "names TIMERS twice"),
+                      ("# no list\n", "holds no list")):
+        repo = _t11_repo(tmp_path / why.replace(" ", "-") / str(len(body)), body)
+        with pytest.raises(ValueError, match=why):
+            c.t11_lists(repo / "docs" / "specs" / "hosting-h1.md")
+    bare = tmp_path / "bare.md"
+    bare.write_text('TIMERS="sp-a.timer"\n')                        # a list outside any T11 step is not T11's
+    with pytest.raises(ValueError, match=r"holds no \*\*T11\. step"):
+        c.t11_lists(bare)
+    bare.write_text('**T11. TERMINAL (host): enable.**\nTIMERS="sp-a.timer"\n\n**T12. next**\n```\nX="y"\n```\n')
+    with pytest.raises(ValueError, match="holds no closed fenced block"):
+        c.t11_lists(bare)
+    repo = _t11_repo(tmp_path / "loud", 'TIMERS="sp-a.timer sp-c.timer\n')
+    st = sp_deploy.timers_state(repo=repo, enabled_path=_enabled(tmp_path, ["sp-a.timer"]))
+    assert st["by_list"] == {"unlisted": ["sp-b.timer", "sp-c.timer", "sp-new.timer"]} and "lists_absent" not in st
+    line = sp_deploy.timers_line(st)
+    assert line.startswith("\n  ! shipped timers not in ") and line.endswith(
+        "(hosting-h1.md T11 lists unreadable (ValueError: hosting-h1.md T11's TIMERS list is not closed))")
+    every = sp_deploy.timers_state(repo=repo, enabled_path=_enabled(tmp_path / "loud", [f"sp-{n}.timer" for n in
+                                                                                     ("a", "b", "c", "new")]))
+    assert every["not_enabled"] == [] and "error" in every
+    assert sp_deploy.timers_line(every) == (f"\n  ! timers: every shipped timer is in {c.TIMERS_ENABLED} (hosting-h1.md"
+                                            " T11 lists unreadable (ValueError: hosting-h1.md T11's TIMERS list is "
+                                            "not closed))")
+
+
+def test_a_runbook_whose_t11_block_holds_no_timers_list_is_loud(tmp_path):
+    """Law 4: the deploy reads the next release's runbook, so a renamed or dropped TIMERS reaches old code. With no
+    TIMERS list nothing says which list T11 enables: a list that is there (ENABLE here) is counted as held off, as
+    any non-TIMERS list is, but the line is "!", and with no timer missing it is "!" too, never "✓"."""
+    repo = _t11_repo(tmp_path, 'ENABLE="sp-a.timer sp-c.timer sp-new.timer"\nMLB_LAPTOP_ONLY="sp-b.timer"\n')
+    st = sp_deploy.timers_state(repo=repo, enabled_path=_enabled(tmp_path, []))
+    assert st["by_list"] == {"ENABLE": ["sp-a.timer", "sp-c.timer", "sp-new.timer"], "MLB_LAPTOP_ONLY": ["sp-b.timer"]}
+    assert st["lists_absent"] == ["TIMERS"] and "error" not in st
+    assert sp_deploy.timers_line(st) == (f"\n  ! shipped timers not in {c.TIMERS_ENABLED}: 3 on ENABLE (held off by "
+                                         "T11) · 1 on MLB_LAPTOP_ONLY (held off by T11) (hosting-h1.md T11 holds no "
+                                         "TIMERS list)")
+    every = sp_deploy.timers_state(repo=repo, enabled_path=_enabled(tmp_path, [f"sp-{n}.timer" for n in
+                                                                              ("a", "b", "c", "new")]))
+    assert sp_deploy.timers_line(every) == (f"\n  ! timers: every shipped timer is in {c.TIMERS_ENABLED} "
+                                            "(hosting-h1.md T11 holds no TIMERS list)")
+    # a retired list that is not TIMERS leaves the line as it was: "✓" with nothing missing, the list noted
+    held = _t11_repo(tmp_path / "held", 'TIMERS="sp-a.timer sp-b.timer sp-c.timer sp-new.timer"\n')
+    assert sp_deploy.timers_line(sp_deploy.timers_state(repo=held, enabled_path=tmp_path / "timers.enabled")) == (
+        f"\n  ✓ timers: every shipped timer is in {c.TIMERS_ENABLED}"
+        " (hosting-h1.md T11 holds no MLB_LAPTOP_ONLY list)")
+
+
+def test_the_cutover_still_refuses_a_runbook_without_timers(tmp_path, monkeypatch):
+    """sp_cutover needs TIMERS (the list H2 steps 2 and 6 reuse): a runbook without it fails there, loudly."""
+    repo = _t11_repo(tmp_path, 'MLB_LAPTOP_ONLY="sp-b.timer"\n')
+    monkeypatch.setattr(sp_cutover, "HERE", repo / "deploy" / "hosting")
+    with pytest.raises(ValueError, match="holds no TIMERS list"):
+        sp_cutover.runbook_timers()
 
 
 def _listing(*units, rc=0):

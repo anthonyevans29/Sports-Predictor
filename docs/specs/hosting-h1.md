@@ -1083,8 +1083,15 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
     name only, every timer the deployed tag ships that `/etc/sports-predictor/timers.enabled` does not list,
     under the T11 list that carries it (ARCHITECT 2026-10-23, addendum 155 item 8(b): the host ran without
     `sp-ncaa-schedule.timer` from 10-09 to 10-23). A `TIMERS` timer missing reads "!": install and enable it
-    by T11's recipe for a live host. The `MLB_LAPTOP_ONLY` timers are off by T11 and print on a plain line
-    (`HELD_FOR_CUTOVER`, the third list, was retired at the cutover: addendum 168 item 5). An unreadable `timers.enabled` prints "!" and no list.
+    by T11's recipe for a live host. The `MLB_LAPTOP_ONLY` timers are off by T11: the line counts them, plain,
+    never names them ("3 on MLB_LAPTOP_ONLY (held off by T11)"; ARCHITECT 2026-10-28, #725: "the deploy's timers
+    line must name only the TIMERS timers missing"); alone they leave the line plain. A timer on no T11 list is
+    named, "!", "(unlisted)". The lists are read as T11's block holds them, whatever their names: a list the code
+    expects that the block lacks is noted on the line and never empties the others (`HELD_FOR_CUTOVER`, the third
+    list, was retired at the cutover: addendum 168 item 5; the deploy runs the release it replaces, so the old
+    code reads the new runbook). An unreadable `timers.enabled` prints "!" and no list; an unreadable T11 block
+    prints "!" with its error, and every timer reads unlisted. That block, or one with no `TIMERS` list, prints
+    "!" even with no timer missing, never "✓" (law 4).
     The same receipt (and `timers_active_not_listed`) names, by name only, every sp timer systemd lists as
     ACTIVE that `timers.enabled` does not list (ARCHITECT 2026-10-26, addendum 168 item 2: `sp-intl-daily.timer`
     and `sp-exports-squash.timer` ran enabled by hand with no list line, so the cutover's pause would have left

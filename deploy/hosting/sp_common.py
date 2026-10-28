@@ -180,18 +180,44 @@ def writer_of_record() -> str | None:
 # 2 and 6 reuse"). tests/test_hosting_pack.py checks the lists, the shipped units and the Schedule table agree;
 # sp_deploy's receipt names the shipped timers the host has not enabled. The third list, HELD_FOR_CUTOVER
 # (sp-closing-watch.timer, addendum 45 P3), is retired: the timer moved to TIMERS at the cutover (ARCHITECT 2026-10-26,
-# addendum 168 item 5).
+# addendum 168 item 5). T11_LISTS is the lists this code expects; t11_lists reads the lists the file holds (#725).
 T11_LISTS = ("TIMERS", "MLB_LAPTOP_ONLY")
 TIMERS_ENABLED = Path("/etc/sports-predictor/timers.enabled")
+_T11_HEAD = re.compile(r"^\*\*T11\.", re.M)
+_RUNBOOK_STEP = re.compile(r"^\*\*T\d+\.", re.M)
+_FENCED = re.compile(r"^```[^\n]*\n(.*?)^```", re.M | re.S)
+_SHELL_LIST = re.compile(r'^([A-Z][A-Z0-9_]*)="', re.M)
 
 
 def t11_lists(runbook: Path | None = None) -> dict[str, list[str]]:
-    """T11's shell lists from hosting-h1.md, by name, each in its written order."""
+    """The shell lists T11's enable block holds (hosting-h1.md, the first fenced block under "**T11."), by name in
+    the file's order, each list's units in written order. ARCHITECT 2026-10-28 (#725): "the parser reads the T11
+    blocks as the file now holds them". v1.6.0's parser looked up each name of a fixed tuple, so the deploy that ran
+    it on v1.6.1's runbook (HELD_FOR_CUTOVER retired) raised ValueError and lost every list. Now a list T11_LISTS
+    names and the block lacks is simply absent from the dict (a caller that needs one says so), and a list the
+    block holds and the code never named is read too. No T11 block, no list in it, a list named twice, or a list
+    whose closing quote is missing: ValueError, never a guessed list (law 4)."""
     rb = Path(runbook or REPO / "docs" / "specs" / "hosting-h1.md").read_text(encoding="utf-8")
-    out = {}
-    for name in T11_LISTS:
-        block = rb[rb.index(f'{name}="') + len(name) + 2:]
-        out[name] = block[:block.index('"')].split()
+    head = _T11_HEAD.search(rb)
+    if not head:
+        raise ValueError("hosting-h1.md holds no **T11. step")
+    nxt = _RUNBOOK_STEP.search(rb, head.end())
+    step = rb[head.end():nxt.start() if nxt else len(rb)]
+    fence = _FENCED.search(step)
+    if not fence:
+        raise ValueError("hosting-h1.md T11 holds no closed fenced block")
+    block = fence.group(1)
+    out: dict[str, list[str]] = {}
+    for m in _SHELL_LIST.finditer(block):
+        name, rest = m.group(1), block[m.end():]
+        if name in out:
+            raise ValueError(f"hosting-h1.md T11 names {name} twice")
+        units = rest[:rest.index('"')].split() if '"' in rest else None
+        if units is None or any("=" in u for u in units):    # the quote closes on the next list's opening one
+            raise ValueError(f"hosting-h1.md T11's {name} list is not closed")
+        out[name] = units
+    if not out:
+        raise ValueError("hosting-h1.md T11's fenced block holds no list")
     return out
 
 

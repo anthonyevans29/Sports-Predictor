@@ -109,6 +109,9 @@ def _mlb_fallback_run(kind: str, season, date_from=None, date_to=None) -> None:
               f"held near unkeyed {r['held_near_unkeyed']} · team missing {r['team_missing']} · "
               f"exhibition skipped {r['exhibition_skipped']} · FINISHED downgrades refused "
               f"{r['downgrade_refused']} · stage NULL (created) {r['stage_null_created']}")
+        print(f"  #569 class 5: provider ids retired as fallback mispaired, never paired or created: "
+              f"{len(r['mispaired_skipped'])}" + (f" ({', '.join(r['mispaired_skipped'])})"
+                                                   if r["mispaired_skipped"] else ""))
         print(f"  status vocab {r['status_vocab']} · UNMAPPED (stay scheduled) {r['unmapped_status']}")
         print(f"  KNOWN LIMITATION: {r['known_limitation']} · rows marked "
               f"{fb.UNAVAILABLE} this run: {len(r['dh_marked'])}")
@@ -712,12 +715,18 @@ def retire_orphans_cmd(competition_code, season, apply, backup_path, match_ids):
 @click.option("--gamepks", default=None,
               help="Required with --apply, read only with it: the gamePks to merge, comma-separated, as the dry run "
                    "printed them. A named gamePk whose fresh plan is not a merge is REFUSED and left.")
-def dedupe_mlb_twins_cmd(apply, backup_path, gamepks):
+@click.option("--record", "record_path", default=None,
+              help="Class 5 (ARCHITECT 2026-10-28): a read-only .backup of the LAPTOP's database, outside data/, read as "
+                   "the statsapi record (never fetched); two FINISHED rows with different scores keep the row whose "
+                   "score is the record's. Without it such a group is REFUSED.")
+def dedupe_mlb_twins_cmd(apply, backup_path, gamepks, record_path):
     """MLB TWINS (#569 RULED, ARCHITECT 2026-10-21, addendum 153 item 2): two live MLB rows holding one mlb_stats_api id
     are one game. The dry run lists every such gamePk with its class, the kept id and the reason, the state the kept row
     takes, the references re-pointed and the rows left; class 2's predictions of a game already played; the training
     set's FINISHED rows before and after. --apply (with --backup and --gamepks) retires the other row to STALE_ORPHAN
-    with its references re-pointed; nothing is deleted. The readings: src/ingestion/mlb_twins.py."""
+    with its references re-pointed; nothing is deleted. Class 5 (ARCHITECT 2026-10-28): two FINISHED rows with different
+    scores keep the row whose score matches the statsapi record, read from --record (the laptop's .backup, read-only),
+    the other retired with its score labelled "fallback mispaired". The readings: src/ingestion/mlb_twins.py."""
     from sqlalchemy.exc import OperationalError as _OpErr
 
     from src.db.database import get_engine as _get_engine
@@ -740,8 +749,14 @@ def dedupe_mlb_twins_cmd(apply, backup_path, gamepks):
             raise click.UsageError("REFUSED: --apply without --gamepks. Name each gamePk the dry run planned: "
                                    "--gamepks PK,PK. Only the named groups are merged.")
         _verify_backup(backup_path, "matches", _M)
+    record = None
+    if record_path is not None:
+        try:
+            record = mt.read_record(record_path, live_db=_get_engine().url.database)
+        except mt.RecordRefused as e:
+            raise click.UsageError(str(e))
     try:
-        r = mt.run(apply=apply, named=named)
+        r = mt.run(apply=apply, named=named, record=record)
     except ValueError as e:
         raise click.ClickException(str(e))
     except _OpErr as e:

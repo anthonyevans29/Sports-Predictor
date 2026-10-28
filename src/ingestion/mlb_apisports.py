@@ -260,7 +260,7 @@ def sync_matches(client, season: str, date_from: str | None = None, date_to: str
            "exhibition_skipped": 0, "team_missing": 0, "held_near_unkeyed": 0, "downgrade_refused": 0,
            "status_vocab": dict(Counter(f"{p['status_short']}|{p['status_long']}" for p in prov_all)),
            "unmapped_status": {}, "finished": 0, "stage_null_created": 0,
-           "dh_marked": [], "time_conflicts": [], "time_kept_statsapi": 0,
+           "dh_marked": [], "time_conflicts": [], "time_kept_statsapi": 0, "mispaired_skipped": [],
            "known_limitation": KNOWN_LIMITATION}
     prov = []
     for p in prov_all:
@@ -282,6 +282,18 @@ def sync_matches(client, season: str, date_from: str | None = None, date_to: str
         rows = list(s.execute(select(Match).where(Match.competition_id == comp.id,
                                                   Match.season == str(season))).scalars())
         by_ext = {str((m.external_ids or {}).get(SOURCE)): m for m in rows if (m.external_ids or {}).get(SOURCE)}
+        # #569 class 5 (ARCHITECT 2026-10-28 10:40 ET): a provider id that a retired row labelled "fallback
+        # mispaired" holds in api_baseball_prev is the id this fallback mispaired. It is never paired again nor
+        # created as a row (paired, it would write its score over the kept row's statsapi score); a row still
+        # holding it live keeps it (by_ext). Skipped, listed in the receipt.
+        from src.ingestion.mlb_twins import MISPAIRED, SCORE_LABEL
+        retired = {str(v) for m in s.execute(select(Match).where(
+                       Match.sport == Sport.MLB, Match.status == MatchStatus.STALE_ORPHAN)).scalars()
+                   if (m.external_ids or {}).get(SCORE_LABEL) == MISPAIRED
+                   for v in ((m.external_ids or {}).get(f"{SOURCE}_prev") or [])}
+        skip = {str(p["id"]) for p in prov if str(p["id"]) in retired and str(p["id"]) not in by_ext}
+        prov = [p for p in prov if str(p["id"]) not in skip]
+        rec["mispaired_skipped"] = sorted(skip)
         # Our rows not yet keyed to the provider (statsapi-origin): pair them by the probe's rule.
         # A STALE_ORPHAN row is never a fixture: it is never paired (#569, the MLB twins dedupe: a retired twin hands
         # its provider id to the kept row and must not be linked back); a stored key still finds it, as before.

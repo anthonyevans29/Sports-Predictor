@@ -53,6 +53,35 @@ The readings built here (each stated in the PR for the architect):
   * --apply needs --backup PATH and --gamepks naming the groups (cli.py; as retire-orphans names its rows): the apply
     plans again in its own session under the chains' DB lock, and a named gamePk whose fresh plan is not a merge is
     REFUSED and left. A dry run rolls back.
+
+CLASS 5 (ARCHITECT 2026-10-28 10:40 ET, #569), verbatim: "(2) RULING for a class 5, after (1): two FINISHED rows under
+one gamePk with different scores — the row whose score matches the statsapi record is the game (on this host, the
+laptop's apply console names the kept ids: 4390 and 4446), the other is retired with its references re-pointed as class 2
+does and its score labelled "fallback mispaired"; a group where neither score matches the record stays refused. Small PR
+after #688/#608; the host apply of those two rides it."
+The readings built here:
+  * THE RECORD is never fetched (the host never calls statsapi): it is a read-only .backup of the LAPTOP's database,
+    given as --record PATH (read_record). Refused, exit 2, nothing opened or created: a missing path, a directory, a
+    path with a directory named data in it (law 5: a backup outside data/), the live DB itself. It opens as a
+    mode=ro&immutable=1 URI (no journal or WAL sidecar is made) and must pass quick_check and hold a matches table.
+  * THE RECORD'S SCORE of a gamePk: the record's MLB rows that are not STALE_ORPHAN and carry that mlb_stats_api id,
+    FINISHED, with both scores present; that row's (home, away). No such row, a row without a complete score, or two
+    such rows with two scores: REFUSED, the reason printed. No --record: REFUSED, "class 5 needs --record".
+  * THE KEPT ROW is the one whose score equals the record's (references or none, as class 2 keeps its FINISHED row);
+    neither equal: REFUSED and listed ("stays refused"). The kept row takes no state from the retired row: its
+    statsapi score is the game.
+  * THE RETIRED ROW is retired exactly as class 2 retires its copy (STALE_ORPHAN, the ids to _prev with _merged_into
+    and _deduped_at, the references re-pointed, its predictions marked dedupe_569). ITS SCORE stays on it (never
+    copied to the kept row) and is labelled external_ids["mlb_stats_api_score_label"] = "fallback mispaired", beside
+    mlb_stats_api_deduped_at, where the module keeps its other merge labels.
+  * ITS api_baseball ID is the other game's provider id (the fallback mispaired it), so it goes to api_baseball_prev
+    ONLY and is never handed to the kept row: on the kept row it would make the next fallback run write the other
+    game's score over the statsapi score. Nor is it freed to pair again: an unkeyed kept row is the nearest same-teams
+    row to it, so the next fallback run would pair it back and write the mispaired score over the record's (review
+    finding, reproduced). mlb_apisports.sync_matches therefore never pairs nor creates a provider id held in the
+    api_baseball_prev of a row labelled "fallback mispaired" (unless a row still holds it live), and lists it in the
+    receipt (mispaired_skipped). Whether that id is a doubleheader's other game, and where it belongs, is item (1)'s
+    finding: until a ruling, no row takes it.
 """
 from __future__ import annotations
 
@@ -68,6 +97,91 @@ REFERENCES = ("odds", "odds_snapshots", "predictions", "prediction_history", "ka
 ALWAYS_MOVE = REFERENCES + ("pitcher_appearances", "umpire_games")
 OTHER_IDS = ("api_baseball",)      # the host's api-sports fallback id (mlb_apisports.SOURCE): moves with the gamePk
 STATE = ("utc_date", "status", "status_raw", "home_score", "away_score", "full_time_result")
+CLASS5_RULING = "ARCHITECT 2026-10-28 10:40 ET"
+SCORE_LABEL = f"{SOURCE}_score_label"   # on a class-5 retired row: its score is not the game's
+MISPAIRED = "fallback mispaired"
+
+
+class RecordRefused(ValueError):
+    """--record cannot be read as the statsapi record; nothing was opened or written."""
+
+
+def read_record(path: str, live_db: str | None = None) -> dict:
+    """The laptop's statsapi record from a read-only .backup (see the module doc's class 5):
+    {"path", "rows", "by_pk": {gamePk: [(id, status, home_score, away_score)]}}. Raises RecordRefused."""
+    import json
+    import sqlite3
+    from pathlib import Path
+
+    rp = Path(path).expanduser().resolve()
+    if not rp.exists():
+        raise RecordRefused(f"REFUSED [check: --record exists]: tried {path!r} -> {rp}: not found; nothing opened")
+    if not rp.is_file():
+        raise RecordRefused(f"REFUSED [check: --record is a file]: {rp} is a directory; nothing opened")
+    if "data" in rp.parts[:-1]:
+        raise RecordRefused(f"REFUSED [check: --record outside data/]: {rp} is under a data/ directory (law 5: the "
+                            "record is a .backup outside data/); nothing opened")
+    if live_db and live_db != ":memory:" and Path(live_db).resolve() == rp:
+        raise RecordRefused(f"REFUSED [check: --record is not the live DB]: {rp} is the configured database; the "
+                            "record is a .backup of the laptop's; nothing opened")
+    try:
+        con = sqlite3.connect(rp.as_uri() + "?mode=ro&immutable=1", uri=True)
+        try:
+            qc = [r[0] for r in con.execute("PRAGMA quick_check")]
+            if qc != ["ok"]:
+                raise RecordRefused(f"REFUSED [check: --record quick_check]: {rp}: {'; '.join(map(str, qc[:3]))}")
+            got = con.execute("SELECT id, status, home_score, away_score, external_ids FROM matches "
+                              "WHERE sport = 'MLB' AND status != 'STALE_ORPHAN' ORDER BY id").fetchall()
+        finally:
+            con.close()
+    except sqlite3.Error as e:
+        raise RecordRefused(f"REFUSED [check: --record opens read-only with a matches table]: {rp}: "
+                            f"{e.__class__.__name__}: {e}")
+    by_pk = defaultdict(list)
+    for i, st, h, a, ext in got:
+        try:
+            v = (json.loads(ext) if ext else {}) or {}
+        except ValueError:
+            continue
+        pk = v.get(SOURCE) if isinstance(v, dict) else None
+        if pk is not None and str(pk).strip():
+            by_pk[str(pk)].append((i, st, h, a))
+    return {"path": str(rp), "rows": len(got), "by_pk": dict(by_pk)}
+
+
+def _sc(h, a) -> str:
+    return f"{h}-{a}"
+
+
+def class5(pk: str, a, b, record: dict | None) -> dict:
+    """Two FINISHED rows, two scores: {kept, other, current, why, what} by the record's score, or {refused}."""
+    pre = f"class 5 ({CLASS5_RULING})"
+    if record is None:
+        return {"refused": f"{pre} needs --record PATH (a read-only .backup of the laptop's statsapi record, "
+                           "outside data/)"}
+    held = record["by_pk"].get(pk, [])
+    if not held:
+        return {"refused": f"{pre}: the record holds no live MLB row of gamePk {pk}"}
+    full = [(i, h, aw) for i, st, h, aw in held if st == "FINISHED" and h is not None and aw is not None]
+    if not full:
+        return {"refused": f"{pre}: the record's row(s) of gamePk {pk} carry no complete FINISHED score ("
+                           + ", ".join(f"record row {i} {st} score {_sc(h, aw)}" for i, st, h, aw in held) + ")"}
+    if len({(h, aw) for _, h, aw in full}) > 1:
+        return {"refused": f"{pre}: the record holds two scores for gamePk {pk} ("
+                           + ", ".join(f"record row {i} {_sc(h, aw)}" for i, h, aw in full) + ")"}
+    rid, rh, ra = full[0]
+    scores = f"{a.id} {_sc(a.home_score, a.away_score)}, {b.id} {_sc(b.home_score, b.away_score)}"
+    hit = [m for m in (a, b) if (m.home_score, m.away_score) == (rh, ra)]
+    if len(hit) != 1:
+        return {"refused": f"{pre}: neither score matches the record's ({scores}; the record's {_sc(rh, ra)}, "
+                           f"record row {rid}): stays refused"}
+    kept = hit[0]
+    other = b if kept is a else a
+    return {"kept": kept, "other": other, "current": kept,
+            "what": "two FINISHED rows with different scores, one the record's",
+            "why": (f"{pre}: the row whose score matches the statsapi record is the game · {scores}; the record's "
+                    f"{_sc(rh, ra)} (record row {rid}) · {other.id}'s score labelled \"{MISPAIRED}\", the kept row "
+                    "takes nothing from it")}
 
 
 def _sid(m) -> str | None:
@@ -185,7 +299,7 @@ def moves(s, tables, kept, other) -> tuple[dict, dict]:
     return move, left
 
 
-def plan(s) -> dict:
+def plan(s, record: dict | None = None) -> dict:
     from sqlalchemy import select
 
     from src.db.schema import Prediction, PredictionHistory
@@ -200,10 +314,17 @@ def plan(s) -> dict:
             out["refused"].append({**g, "why": f"{len(rows)} rows hold one gamePk: a pair only"})
             continue
         cls, what = classify(*rows)
-        if cls is None:
+        if cls is None and {_st(m) for m in rows} == {"FINISHED"}:          # two scores: class 5 by the record
+            d = class5(pk, *rows, record)
+            if "refused" in d:
+                out["refused"].append({**g, "why": f"{what} · {d['refused']}"})
+                continue
+            cls, what = 5, d["what"]
+        elif cls is None:
             out["refused"].append({**g, "why": what})
             continue
-        d = decide(cls, *rows, refs)
+        else:
+            d = decide(cls, *rows, refs)
         if "refused" in d:
             out["refused"].append({**g, "class": cls, "what": what, "why": d["refused"]})
             continue
@@ -211,7 +332,7 @@ def plan(s) -> dict:
         move, left = moves(s, tables, kept, other)
         g.update({"class": cls, "what": what, "kept": kept.id, "other": other.id, "why": d["why"],
                   "takes": state_changes(kept, d["current"]), "moves": move, "left": left})
-        if cls == 2:
+        if cls in (2, 5):
             preds = s.execute(select(Prediction.computed_at).where(Prediction.match_id == other.id)).scalars().all()
             hist = s.execute(select(PredictionHistory.id).where(PredictionHistory.match_id == other.id)).scalars().all()
             g["played_before"] = {"predictions": len(preds), "history": len(hist),
@@ -222,6 +343,8 @@ def plan(s) -> dict:
     retired = Counter(r["season"] for g in out["groups"] for r in g["rows"]
                       if r["id"] == g["other"] and r["status"] == "FINISHED")
     out["finished"] = {season: (n, n - retired[season]) for season, n in sorted(finished.items())}
+    if record is not None:
+        out["record"] = {"path": record["path"], "rows": record["rows"], "gamepks": len(record["by_pk"])}
     return out
 
 
@@ -245,12 +368,14 @@ def merge(s, tables, g: dict, at: str) -> dict:
     for f in g["takes"]:
         setattr(kept, f, getattr(current, f))
     marked = []
-    if g["class"] == 2:
+    if g["class"] in (2, 5):                       # class 5 marks the retired row's predictions as class 2 does
+        why = ("a prediction of a game already played at the time: never graded as a call (#569 (c))"
+               if g["class"] == 2 else
+               f"a prediction of a row retired as {MISPAIRED}: never graded as a call (#569 class 5, {CLASS5_RULING})")
         for p in s.execute(select(Prediction).where(Prediction.match_id == other.id)).scalars():
             p.factor_breakdown = {**(p.factor_breakdown or {}), MARK: {
                 "from_match": other.id, "into": kept.id, "computed_at": _val(p.computed_at),
-                "kickoff": _val(kept.utc_date),
-                "why": "a prediction of a game already played at the time: never graded as a call (#569 (c))"}}
+                "kickoff": _val(kept.utc_date), "why": why}}
             marked.append(p.id)
     s.flush()
     moved = {}
@@ -262,18 +387,25 @@ def merge(s, tables, g: dict, at: str) -> dict:
     ext_o[PREV] = sorted({*(ext_o.get(PREV) or []), str(pk)})
     ext_o[MERGED_INTO], ext_o[DEDUPED_AT] = kept.id, at
     ext_k[MERGED_FROM] = sorted({*(ext_k.get(MERGED_FROM) or []), other.id})
+    held_back = []
     for key in OTHER_IDS:                          # the host's fallback looks a game up by its own id (addendum 169 3(c))
         v = ext_o.pop(key, None)
         if v is not None:
             ext_o[f"{key}_prev"] = sorted({*(ext_o.get(f"{key}_prev") or []), str(v)})
-            ext_k.setdefault(key, v)
+            if g["class"] == 5:                    # the other game's id: _prev only, never the kept row's (module doc)
+                held_back.append(f"{key} {v}")
+            else:
+                ext_k.setdefault(key, v)
+    if g["class"] == 5:
+        ext_o[SCORE_LABEL] = MISPAIRED
     other.external_ids, kept.external_ids = ext_o, ext_k
     other.status = MatchStatus.STALE_ORPHAN
     s.flush()
-    return {"gamepk": g["gamepk"], "kept": kept.id, "other": other.id, "moved": moved, "marked": marked}
+    return {"gamepk": g["gamepk"], "kept": kept.id, "other": other.id, "moved": moved, "marked": marked,
+            "class": g["class"], "held_back": held_back}
 
 
-def run(apply: bool = False, named=None) -> dict:
+def run(apply: bool = False, named=None, record: dict | None = None) -> dict:
     """The plan; with apply, the named groups merged (a named gamePk the fresh plan does not merge is refused)."""
     from contextlib import nullcontext
 
@@ -288,7 +420,7 @@ def run(apply: bool = False, named=None) -> dict:
     else:
         lock = nullcontext()
     with lock, session_scope() as s:
-        r = plan(s)
+        r = plan(s, record)
         r["applied"], r["merged"], r["refused_at_apply"] = apply, [], []
         if not apply:
             s.rollback()
@@ -322,6 +454,10 @@ def lines(r: dict) -> list[str]:
          f"gamePks held by two or more live MLB rows {len(r['groups']) + len(r['refused'])} · planned "
          f"{len(r['groups'])} (" + " · ".join(f"class {k} {by[k]}" for k in sorted(by)) + f") · refused "
          f"{len(r['refused'])}"]
+    if r.get("record"):
+        x = r["record"]
+        L.append(f"  the record (class 5, {CLASS5_RULING}): {x['path']} · opened read-only (mode=ro, immutable) · "
+                 f"live MLB rows {x['rows']} · gamePks {x['gamepks']}")
     if r["skipped_absent"]:
         L.append(f"  reference tables absent from the live DB, skipped (they hold no references): "
                  f"{', '.join(r['skipped_absent'])}")
@@ -353,12 +489,17 @@ def lines(r: dict) -> list[str]:
              + (" · ".join(f"{k} {a} -> {b}" for k, (a, b) in r["finished"].items()) or "none"))
     if r["groups"]:
         L.append("  to apply, after the architect's read: --apply --backup PATH --gamepks "
-                 + ",".join(g["gamepk"] for g in r["groups"]))
+                 + ",".join(g["gamepk"] for g in r["groups"])
+                 + (" --record PATH (class 5 plans again from the record)" if any(g["class"] == 5 for g in r["groups"])
+                    else ""))
     if r["applied"]:
         for m in r["merged"]:
             L.append(f"  MERGED gamePk {m['gamepk']}: kept {m['kept']}, {m['other']} STALE_ORPHAN · re-pointed "
                      + (", ".join(f"{t} {n}" for t, n in sorted(m["moved"].items())) or "nothing")
-                     + (f" · predictions marked {MARK}: {', '.join(map(str, m['marked']))}" if m["marked"] else ""))
+                     + (f" · predictions marked {MARK}: {', '.join(map(str, m['marked']))}" if m["marked"] else "")
+                     + (f" · {m['other']}'s score labelled \"{MISPAIRED}\"" if m.get("class") == 5 else "")
+                     + (f" · {', '.join(m['held_back'])} to _prev only (not handed to the kept row)"
+                        if m.get("held_back") else ""))
         for x in r["refused_at_apply"]:
             L.append(f"  REFUSED gamePk {x['gamepk']}: {x['why']} (named, not merged)")
         L.append(f"  merged {len(r['merged'])} · refused {len(r['refused_at_apply'])}")

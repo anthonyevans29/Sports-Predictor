@@ -249,3 +249,230 @@ def test_a_marked_prediction_is_never_the_game_s_prediction_in_an_export(db, tmp
                                                      statuses=None)}
     assert 4390 in rows and rows[4390]["prediction"] is None
     assert 5218 not in rows or rows[5218]["prediction"] is None
+
+
+# ---- class 5 (ARCHITECT 2026-10-28 10:40 ET, #569): two FINISHED rows, two scores, kept by the statsapi record ----
+# The host's shape: the copy 5218 was mispaired by the api-sports fallback to the day's other game (FINISHED 6-1, that
+# game's provider id); the laptop's record holds 4390 FINISHED 3-4 and 5218 already retired (class 2 there).
+RECORD = [  # (id, gamePk, status, home runs, away runs)
+    (4390, "823062", "FINISHED", 3, 4),
+    (5218, "823062", "STALE_ORPHAN", None, None),
+    (9001, "700001", "FINISHED", 5, 5),        # neither host score (2-1, 1-2) is the record's
+]
+
+
+def build_record(path, rows=RECORD):
+    """A scratch record built through the ORM (the enum NAMES and JSON text the real file stores), in WAL mode."""
+    import sqlite3
+
+    from sqlalchemy.orm import Session
+
+    from src.db.schema import Base, Competition, Match, MatchStatus, Sport, Team
+    eng = create_engine(f"sqlite:///{path}", future=True)
+    Base.metadata.create_all(eng)
+    with Session(eng) as s:
+        comp = Competition(sport=Sport.MLB, code="MLB", name="Major League Baseball", area="USA", type="LEAGUE")
+        h, a = Team(sport=Sport.MLB, name="Hawks"), Team(sport=Sport.MLB, name="Owls")
+        s.add_all([comp, h, a])
+        s.flush()
+        for i, pk, st, hr, ar in rows:
+            s.add(Match(id=i, sport=Sport.MLB, competition_id=comp.id, season="2026", utc_date=Z("2026-07-07T23:10"),
+                        status=MatchStatus[st], home_team_id=h.id, away_team_id=a.id, home_score=hr, away_score=ar,
+                        external_ids={"mlb_stats_api": pk} if st != "STALE_ORPHAN" else {"mlb_stats_api_prev": [pk]}))
+        s.commit()
+    eng.dispose()
+    con = sqlite3.connect(path)
+    con.execute("PRAGMA journal_mode=WAL")
+    con.close()
+    return path
+
+
+def mispair():
+    from src.db.database import session_scope
+    from src.db.schema import Match, MatchStatus
+    with session_scope() as s:
+        m = s.get(Match, 5218)
+        m.status, m.status_raw, m.home_score, m.away_score = MatchStatus.FINISHED, "FT", 6, 1
+        m.external_ids = {**m.external_ids, "api_baseball": "160050", "api_baseball_utc": "2026-07-07T23:05"}
+
+
+@pytest.fixture
+def record(tmp_path):
+    d = tmp_path / "laptop"
+    d.mkdir()
+    return build_record(d / "laptop-daily.backup")
+
+
+def test_class_5_needs_the_record_and_without_it_stays_refused(db, tmp_path, monkeypatch):
+    import cli
+    from src.db.database import session_scope
+    from src.db.schema import Match, MatchStatus
+    mispair()
+    r = run_cli()
+    assert r.exit_code == 0, r.output
+    assert ("[REFUSED] gamePk 823062: two FINISHED rows with different scores (3-4, 6-1): no class of the ruling · "
+            "class 5 (ARCHITECT 2026-10-28 10:40 ET) needs --record PATH") in r.output
+    monkeypatch.setattr(cli, "_verify_backup", lambda path, table, model: path)
+    r = run_cli("--apply", "--backup", str(tmp_path / "b.db"), "--gamepks", "823062")
+    assert r.exit_code == 0, r.output
+    assert "REFUSED gamePk 823062: two FINISHED rows with different scores (3-4, 6-1)" in r.output
+    assert "needs --record PATH" in r.output and "merged 0 · refused 1" in r.output
+    with session_scope() as s:
+        assert s.get(Match, 5218).status == MatchStatus.FINISHED and s.get(Match, 4390).status == MatchStatus.FINISHED
+
+
+def test_class_5_dry_run_keeps_the_record_s_score_and_leaves_the_other_classes_as_they_were(db, record):
+    import hashlib
+    mispair()
+    before, digest = counts(), hashlib.md5(record.read_bytes()).hexdigest()
+    r = run_cli("--record", str(record))
+    assert r.exit_code == 0, r.output
+    out = r.output
+    assert "planned 4 (class 1 1 · class 3 1 · class 4 1 · class 5 1) · refused 4" in out
+    assert (f"the record (class 5, ARCHITECT 2026-10-28 10:40 ET): {record.resolve()} · opened read-only (mode=ro, "
+            "immutable) · live MLB rows 2 · gamePks 2") in out
+    assert ("[class 5] gamePk 823062 (two FINISHED rows with different scores, one the record's): KEEPS 4390, RETIRES "
+            "5218 to STALE_ORPHAN · class 5 (ARCHITECT 2026-10-28 10:40 ET): the row whose score matches the statsapi "
+            "record is the game · 4390 3-4, 5218 6-1; the record's 3-4 (record row 4390) · 5218's score labelled "
+            "\"fallback mispaired\", the kept row takes nothing from it") in out
+    assert "the kept row takes: nothing (its own state is the provider's)" in out
+    assert ("[REFUSED] gamePk 700001: two FINISHED rows with different scores (2-1, 1-2): no class of the ruling · "
+            "class 5 (ARCHITECT 2026-10-28 10:40 ET): neither score matches the record's (9001 2-1, 9002 1-2; the "
+            "record's 5-5, record row 9001): stays refused") in out
+    # the other classes, as without the record
+    assert ("[class 1] gamePk 824621 (same-minute twins): KEEPS 3940, RETIRES 3945 to STALE_ORPHAN · (a) class 1: "
+            "neither holds references, the lower id (the first stored)") in out
+    assert "[class 3] gamePk 778443 (a POSTPONED row and its make-up): KEEPS 6784, RETIRES 6782" in out
+    assert "[class 4] gamePk 776907 (two FINISHED rows, two kickoffs): KEEPS 8347, RETIRES 8353" in out
+    assert "[REFUSED] gamePk 700003: 3 rows hold one gamePk: a pair only" in out
+    # 2026 FINISHED: 3940, 3945, 4390, 5218; 3945 and 5218 retired
+    assert "before -> after: 2025 12 -> 11 · 2026 4 -> 2" in out
+    assert "--gamepks 776907,778443,823062,824621 --record PATH" in out
+    assert counts() == before
+    assert hashlib.md5(record.read_bytes()).hexdigest() == digest
+    assert sorted(p.name for p in record.parent.iterdir()) == [record.name]     # no -wal / -shm / -journal made
+
+
+def test_class_5_apply_retires_the_mispaired_row_labels_its_score_and_re_points(db, record, tmp_path, monkeypatch):
+    import cli
+    from src.db.database import session_scope
+    from src.db.schema import Match, MatchStatus, Prediction, PredictionHistory
+    from src.ingestion import mlb_twins as mt
+    monkeypatch.setattr(cli, "_verify_backup", lambda path, table, model: path)
+    mispair()
+    r = run_cli("--apply", "--backup", str(tmp_path / "b.db"), "--gamepks", "823062", "--record", str(record))
+    assert r.exit_code == 0, r.output
+    assert ("MERGED gamePk 823062: kept 4390, 5218 STALE_ORPHAN · re-pointed prediction_history 3, predictions 1 · "
+            "predictions marked dedupe_569: ") in r.output
+    assert ("5218's score labelled \"fallback mispaired\" · api_baseball 160050 to _prev only (not handed to the kept "
+            "row)") in r.output
+    assert "merged 1 · refused 0" in r.output
+    with session_scope() as s:
+        kept, other = s.get(Match, 4390), s.get(Match, 5218)
+        assert (kept.status, kept.home_score, kept.away_score) == (MatchStatus.FINISHED, 3, 4)
+        assert kept.utc_date == Z("2026-07-07T23:10") and "api_baseball" not in kept.external_ids
+        assert kept.external_ids["mlb_stats_api_merged_from"] == [5218]
+        assert (other.status, other.home_score, other.away_score) == (MatchStatus.STALE_ORPHAN, 6, 1)
+        e = other.external_ids
+        assert e["mlb_stats_api_score_label"] == "fallback mispaired"
+        assert "mlb_stats_api" not in e and e["mlb_stats_api_prev"] == ["823062"]
+        assert e["mlb_stats_api_merged_into"] == 4390 and e["mlb_stats_api_deduped_at"] == "2026-10-26T21:00:00"
+        assert "api_baseball" not in e and e["api_baseball_prev"] == ["160050"]
+        p = s.execute(select(Prediction)).scalars().one()
+        assert p.match_id == 4390 and p.factor_breakdown["dedupe_569"]["from_match"] == 5218
+        assert "class 5" in p.factor_breakdown["dedupe_569"]["why"]
+        assert set(s.execute(select(PredictionHistory.match_id)).scalars().all()) == {4390}
+        assert "823062" not in mt.groups(s)
+    r = run_cli("--record", str(record))                       # a second run plans no class-5 group
+    assert r.exit_code == 0 and "823062" not in r.output and "[class 5]" not in r.output
+    assert "planned 3 (class 1 1 · class 3 1 · class 4 1) · refused 4" in r.output
+
+
+def test_class_5_refusals_from_the_record(tmp_path):
+    from types import SimpleNamespace as NS
+
+    from src.ingestion import mlb_twins as mt
+    a, b = NS(id=1, home_score=3, away_score=4), NS(id=2, home_score=6, away_score=1)
+    rec = {"by_pk": {"1": [(7, "SCHEDULED", None, None)], "2": [(7, "FINISHED", 3, None)],
+                     "3": [(7, "FINISHED", 3, 4), (8, "FINISHED", 6, 1)], "4": [(7, "FINISHED", 6, 1)]}}
+    assert "needs --record PATH" in mt.class5("4", a, b, None)["refused"]
+    assert "the record holds no live MLB row of gamePk 9" in mt.class5("9", a, b, rec)["refused"]
+    assert "carry no complete FINISHED score (record row 7 SCHEDULED score None-None)" in mt.class5("1", a, b, rec)["refused"]
+    assert "carry no complete FINISHED score (record row 7 FINISHED score 3-None)" in mt.class5("2", a, b, rec)["refused"]
+    assert "the record holds two scores for gamePk 3" in mt.class5("3", a, b, rec)["refused"]
+    d = mt.class5("4", a, b, rec)
+    assert d["kept"] is b and d["other"] is a and d["current"] is b
+
+
+def test_the_record_path_refusals_open_and_create_nothing(db, record, tmp_path):
+    import shutil
+    under = tmp_path / "data"
+    under.mkdir()
+    shutil.copy(record, under / "laptop.backup")
+    r = run_cli("--record", str(under / "laptop.backup"))
+    assert r.exit_code == 2 and "REFUSED [check: --record outside data/]" in r.output
+    r = run_cli("--record", str(tmp_path / "absent.backup"))
+    assert r.exit_code == 2 and "REFUSED [check: --record exists]" in r.output
+    assert not (tmp_path / "absent.backup").exists()
+    r = run_cli("--record", str(tmp_path))
+    assert r.exit_code == 2 and "REFUSED [check: --record is a file]" in r.output
+    r = run_cli("--record", str(db))
+    assert r.exit_code == 2 and "REFUSED [check: --record is not the live DB]" in r.output
+    (tmp_path / "junk.backup").write_text("not sqlite")
+    r = run_cli("--record", str(tmp_path / "junk.backup"))
+    assert r.exit_code == 2 and "REFUSED [check: --record" in r.output
+    assert counts()["orphans"] == 1
+
+
+def _fallback_sync(monkeypatch, games):
+    """The host's api-sports fallback run over the season, on a fake provider (tests/test_mlb_apisports_fallback.py)."""
+    from src.ingestion import mlb_apisports as fb
+    from tests.test_mlb_apisports_fallback import FakeClient, g
+    monkeypatch.setattr(fb, "_league_id", lambda: 1)
+    teams = [{"id": 1, "name": "Hawks", "code": None}, {"id": 2, "name": "Owls", "code": None}]
+    return fb.sync_matches(FakeClient(teams, [g(gid, (1, "Hawks"), (2, "Owls"), Z(at), hr=hr, ar=ar)
+                                              for gid, at, hr, ar in games]), "2026")
+
+
+@pytest.mark.parametrize("own_id", [None, "160049"])
+def test_after_a_class_5_apply_the_fallback_never_pairs_back_nor_creates_the_mispaired_id(db, record, tmp_path,
+                                                                                            monkeypatch, own_id):
+    """Review finding (P1): freed, the mispaired id 160050 paired back onto the unkeyed kept row 4390 on the next
+    fallback run and wrote 6-1 over the record's 3-4. Kept row unkeyed: never paired. Kept row keyed to its own
+    provider game: 160050 is never created as a row."""
+    import cli
+    from src.db.database import session_scope
+    from src.db.schema import Match, MatchStatus
+    monkeypatch.setattr(cli, "_verify_backup", lambda path, table, model: path)
+    mispair()
+    if own_id:
+        with session_scope() as s:
+            m = s.get(Match, 4390)
+            m.external_ids = {**m.external_ids, "api_baseball": own_id}
+    r = run_cli("--apply", "--backup", str(tmp_path / "b.db"), "--gamepks", "823062", "--record", str(record))
+    assert r.exit_code == 0 and "merged 1 · refused 0" in r.output, r.output
+    before = counts()
+    games = [(160050, "2026-07-07T23:05", 6, 1)] + ([(int(own_id), "2026-07-07T23:10", 3, 4)] if own_id else [])
+    for _ in range(2):                                         # and again: still skipped
+        rec = _fallback_sync(monkeypatch, games)
+        assert rec["mispaired_skipped"] == ["160050"]
+        assert rec["created"] == 0 and rec["linked_existing"] == 0 and rec["held_near_unkeyed"] == 0
+        with session_scope() as s:
+            kept, other = s.get(Match, 4390), s.get(Match, 5218)
+            assert (kept.status, kept.home_score, kept.away_score) == (MatchStatus.FINISHED, 3, 4)
+            assert kept.external_ids.get("api_baseball") == own_id
+            assert (other.status, other.home_score, other.away_score) == (MatchStatus.STALE_ORPHAN, 6, 1)
+            assert not [m.id for m in s.execute(select(Match)).scalars()
+                        if (m.external_ids or {}).get("api_baseball") == "160050"]
+        assert counts() == before
+
+
+def test_the_fallback_skip_is_class_5_s_only(db, monkeypatch):
+    """A provider id in the api_baseball_prev of a row NOT labelled "fallback mispaired" pairs as before."""
+    from src.db.database import session_scope
+    from src.db.schema import Match
+    with session_scope() as s:
+        m = s.get(Match, 9042)                                     # a STALE_ORPHAN row with no class-5 label
+        m.external_ids = {**m.external_ids, "api_baseball_prev": ["160050"]}
+    rec = _fallback_sync(monkeypatch, [(160050, "2026-07-07T23:10", 3, 4)])
+    assert rec["mispaired_skipped"] == [] and rec["linked_existing"] == 1

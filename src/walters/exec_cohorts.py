@@ -168,7 +168,7 @@ def floor_blocked(desk: dict, fam: str) -> bool:
     p_min = (desk_policy.POLICY.get(fam) or desk_policy.POLICY["DEFAULT"]).get("pMin", 0) or 0
     mp = desk.get("model_p")
     if (not p_min or isinstance(mp, bool) or not isinstance(mp, (int, float)) or not math.isfinite(mp)
-            or not mp < p_min):                            # a non-finite probability is never read in (Codex on #717)
+            or not 0.0 <= mp < p_min):                     # a non-finite or negative p is never read in (#717, #718)
         return False
     ex = desk.get("exec") if isinstance(desk.get("exec"), dict) else None
     return bool(ex) and ex.get("basis") == "taker" and cohort_of(ex.get("edge_pp")) == GE4

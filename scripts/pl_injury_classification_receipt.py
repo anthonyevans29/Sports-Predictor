@@ -112,6 +112,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from src.walters import redated  # noqa: E402   (imports no src.db module)
+from deploy.hosting import sp_common  # noqa: E402   (the role setting, as closing.mirror_role reads it)
 
 TAG = "PL-INJURY-CLASSIFICATION-RECEIPT"
 SOURCE = "api_football"                       # the adapter's source_name; the external_ids key of matches and teams
@@ -836,13 +837,21 @@ def _cnt(c: Counter) -> str:
     return " · ".join(f"{k} {c[k]}" for k in CLASSES if c.get(k)) or "none"
 
 
+def _machine_role() -> str | None:
+    """SP_EXPORTS_MIRROR_ROLE as closing.mirror_role reads it (sp_common.setting: the environment, else host.env, else
+    the checkout's .env): host or laptop, else None. Not the Desk fence's reader (desk_policy.role_reading), which no
+    script references (tests/test_host_watch_after_flip.py)."""
+    role = (sp_common.setting("SP_EXPORTS_MIRROR_ROLE") or "").strip()
+    return role if role in ("host", "laptop") else None
+
+
 def lines(res: dict, pop: dict, hdr: dict, fetch: Fetch) -> tuple[list[str], dict]:
     rows = res["rows"]
     L = [f"PL INJURY CLASSIFICATION RECEIPT (ARCHITECT 2026-10-27, addendum 171 item 1; #688) · READ-ONLY · "
          f"database {hdr['db']} · closing files {hdr['exports']}/closing_*.json (family {FAMILY}, competition "
          f"{COMPETITION}, run start >= {hdr['since']:%Y-%m-%dT%H:%M:%S}: the #629 merge, #615's stamping) · rows "
          f"{len(rows)} of {pop['files']} closing file(s) read · machine role "
-         f"{redated.desk_policy.machine_role() or 'unknown'} (ruling 1(b) reads the LAPTOP's database, or a .backup "
+         f"{_machine_role() or 'unknown'} (ruling 1(b) reads the LAPTOP's database, or a .backup "
          "copy of it through --db)",
          f"PROVIDER (ruling 1(a)): calls made {fetch.calls} · answers read from the kept payloads {fetch.cached} · "
          f"failed {len(fetch.failed)} · answered with no rows {len(fetch.empty)} · call cap {fetch.max_calls} · "

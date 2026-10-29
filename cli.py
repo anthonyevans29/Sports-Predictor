@@ -224,6 +224,12 @@ def sync_teams_cmd(competition_code: str, season: str | None):
                    "of them (the closing run's schedule read for NFL, SOCCER and MLB, ARCHITECT 2026-10-09, "
                    "addendum 23 A1, as amended by addendum 25 2(i)). The sync itself is unchanged. Default: "
                    "unchanged.")
+@click.option("--refuse-unknown-teams", "refuse_unknown_teams", is_flag=True, default=False,
+              help="Exit 1, after the sync, when a listing was skipped because its club is not in the DB, with one "
+                   "line naming the competition, the season, the count, the id range and the sync-teams command "
+                   "to run (intl-daily's cup schedule read, #728, ARCHITECT 2026-10-29). The listings with known "
+                   "clubs are written as without it; nothing is rolled back. Default: unchanged (the skip is a "
+                   "log warning, exit 0).")
 @_sync_lock
 def sync_matches_cmd(
     competition_code: str,
@@ -232,16 +238,22 @@ def sync_matches_cmd(
     date_from: str | None,
     date_to: str | None,
     match_ids: str | None = None,
+    refuse_unknown_teams: bool = False,
 ):
     """Pull matches by season or date range. MLB on a host whose
     SP_SKIP_FAMILIES names MLB syncs from the api-sports fallback (PHASE A)."""
     named = _match_ids_opt(match_ids)
     if named is not None and seasons > 0:
         raise click.UsageError("--match-ids names the games of one read; not with --seasons")
+    if refuse_unknown_teams and seasons > 0:
+        raise click.UsageError("--refuse-unknown-teams checks one read; not with --seasons")
     if _mlb_fallback(competition_code):
         if named is not None:
             raise click.UsageError("--match-ids is not supported by the MLB api-sports fallback (no per-game "
                                    "answer to check)")
+        if refuse_unknown_teams:
+            raise click.UsageError("--refuse-unknown-teams is not supported by the MLB api-sports fallback (it "
+                                   "syncs its own teams first)")
         if seasons > 0:
             raise click.UsageError("the MLB api-sports fallback takes --season (one season per run)")
         _mlb_fallback_run("matches", season or (date_from or date_to or "")[:4] or None,
@@ -275,6 +287,19 @@ def sync_matches_cmd(
         progress=_progress, **({"held_ids": held} if held is not None else {}),
     )
     console.print(f"[green]✓ Matches ({competition_code}): {result}[/green]")
+    # #728 (ARCHITECT 2026-10-29 09:45 ET): "The daily cup read should refuse-and-say, or be preceded by a sync-teams
+    # step for a competition-season with no teams, so the next new season does not repeat it". Refuse-and-say, opt-in:
+    # only the listings skipped because a club is not in the DB count (the service's _skipped_ids, the ids its
+    # warning names), never a re-key refusal or another skip. The sync above is unchanged and stays written. Printed
+    # plainly (never rich-wrapped), after the sync's own lines, so the step's receipt tail and the chain's failure
+    # lines carry it (one line, under their 200-character cut for a cup). A competition not in the DB (every
+    # listing skipped, no ids) is not this refusal.
+    unknown = (getattr(result, "_skipped_ids", None) or []) if refuse_unknown_teams else []
+    if unknown:
+        print(f"✗ REFUSED: {competition_code} {season or '(all seasons)'}: {len(unknown)} listing(s) skipped, "
+              f"club(s) not in the DB (ids {min(unknown)}..{max(unknown)}); the known listings are written. "
+              f"Run: python cli.py sync-teams --competition {competition_code}"
+              + (f" --season {season}" if season else ""), flush=True)
     if named is not None:
         # A1 (addendum 23): "exits non-zero unless the provider's answer held every one of them." Printed plainly
         # (never rich-wrapped) so the closing run's receipt tail has it.
@@ -289,6 +314,8 @@ def sync_matches_cmd(
             raise SystemExit(1)
         print(f"✓ the provider's answer held all {len(named)} named game(s)" + (f" ({note})" if note else ""),
               flush=True)
+    if unknown:
+        raise SystemExit(1)
 
 
 @cli.command("resync-diff")

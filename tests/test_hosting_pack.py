@@ -3908,6 +3908,20 @@ def test_cup_observe_timer_form():
     assert "sp-cup-observe.timer" in c.t11_lists()["TIMERS"] and "sp-cup-observe.timer" not in H0_3_EXEMPT
 
 
+def test_only_the_cup_schedule_read_refuses_unknown_teams():
+    """#728 (ARCHITECT 2026-10-29 09:45 ET): "The daily cup read should refuse-and-say, or be preceded by a sync-teams
+    step for a competition-season with no teams, so the next new season does not repeat it". The flag rides the
+    CUP_SCHEDULE steps of intl-daily and no other step: every other sync-matches (the full-season chains, MLB's
+    statsapi listings with their recurring M12 skips, the window) is as before. Whether a refusing cup read stops the
+    cups after it (intl-daily without continue_on_sync_failure) is open for the architect's ruling, not pinned here."""
+    flagged = [(name, st) for name, ch in chains.CHAINS.items() for st in ch.get("steps", [])
+               if "--refuse-unknown-teams" in st]
+    assert flagged == [("intl-daily", ["sync-matches", "--competition", c, "--season", "2026/27",
+                                       "--refuse-unknown-teams"]) for c in chains.CUP_SCHEDULE]
+    for built in ("sp_run.py", "closing.py"):   # the full-season (fullseason_resolve), window and closing runs' argv
+        assert "--refuse-unknown-teams" not in (HOSTING / built).read_text()
+
+
 def test_intl_daily_reads_the_four_cup_schedules_last():
     """#707 (ARCHITECT 2026-10-27): "a daily cup schedule step (EFL, CL, UEL, FAC) on an existing daily chain [...],
     listed in the chain's steps". intl-daily runs every day (07:20 UTC); the cup reads come after the intl steps."""
@@ -3915,6 +3929,7 @@ def test_intl_daily_reads_the_four_cup_schedules_last():
     assert steps[:3] == [["intl-sync", "--since", "{today}", "--save", "exports/intl_daily"],
                          ["intl-venue-sync", "--from-dir", "exports/intl_daily", "--venues-dir", "exports/intl_venues"],
                          ["export-unl-predictions"]]
-    assert steps[3:] == [["sync-matches", "--competition", c, "--season", "2026/27"] for c in ("EFL", "CL", "UEL", "FAC")]
+    assert steps[3:] == [["sync-matches", "--competition", c, "--season", "2026/27", "--refuse-unknown-teams"]
+                         for c in ("EFL", "CL", "UEL", "FAC")]                           # #728: the cup read refuses
     t = (HOSTING / "systemd" / "sp-intl-daily.timer").read_text()
     assert re.findall(r"^OnCalendar=(.+)$", t, re.M) == ["*-*-* 07:20:00 UTC"]           # daily

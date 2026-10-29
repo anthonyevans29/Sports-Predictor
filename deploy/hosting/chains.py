@@ -187,7 +187,15 @@ CHAINS: dict[str, dict] = {
             # game's stored kickoff is at most a day old on its match day. Nothing else re-read a cup's schedule
             # between the Sunday full-season sync and the 24h window (EFL round 4, four of eight dates a day wrong).
             # Last in the chain, so a cup read that fails leaves the intl steps done.
-            *[["sync-matches", "--competition", code, "--season", "2026/27"] for code in CUP_SCHEDULE],
+            # #728 (ARCHITECT 2026-10-29 09:45 ET): "The daily cup read should refuse-and-say, or be preceded by a
+            # sync-teams step for a competition-season with no teams, so the next new season does not repeat it".
+            # --refuse-unknown-teams: a cup read that skipped a listing whose club is not in the DB writes the known
+            # listings, prints one "✗ REFUSED:" line naming the sync-teams command to run, and exits 1. The step
+            # fails and the chain exits 1 and pages (OnFailure=sp-notify@%i). As built, a failed step stops the
+            # chain (sp_run.run_steps; continue_on_sync_failure is the window chain's alone), so the cups after it
+            # in CUP_SCHEDULE go unread until sync-teams runs: OPEN, needs-ruling (#728), not settled.
+            *[["sync-matches", "--competition", code, "--season", "2026/27", "--refuse-unknown-teams"]
+              for code in CUP_SCHEDULE],
         ],
     },
     "ncaa-market": {

@@ -635,6 +635,44 @@ def test_minutes_not_an_int_or_null_is_unread_never_did_not_appear(minutes):
     assert any("games.minutes" in m for m in mal) and sq["home"]["partial"] == ["players"]
 
 
+def test_724_an_empty_players_block_is_a_squad_unread_never_a_known_one():
+    """#724 item 1 (ARCHITECT 2026-10-29, addendum 176 item 3(a)): a team block with players: [] read as a full read,
+    so a listed name classed "did not appear (absent)" and the not-listed line printed a measured 0. Now the side's
+    players kind is partial, named, and the name reads unread."""
+    sq, mal = _sq(players=[{"team": {"id": 1}, "players": []}])
+    assert sq["home"]["players"] is False and sq["home"]["partial"] == ["players"]
+    assert "m players home: players is an empty list" in mal
+    cls, det = rc.classify("A. Isak", sq["home"], None)
+    assert cls == rc.UNREAD and "absent" not in cls
+
+
+def test_724_an_empty_players_block_prints_not_listed_unread_never_a_measured_0(world):
+    t = dict(answers())
+    t[("fixtures/players", "1001")] = (200, {}, [
+        {"team": {"id": 49}, "players": []},
+        {"team": {"id": 47}, "players": [pentry(20, "Pedro Porro", 90, False)]}])
+    _, out, _ = run(world, table=t)
+    blk = _block(out, "== match 9240", "== match 9238")
+    che = blk[:blk.index(line(blk, "  AWAY Tottenham"))]
+    assert not any(ln.startswith("    " + rc.NOT_LISTED_DNP) for ln in che)
+    assert not any(rc.DNP_SQUAD in ln or "(absent)" in ln for ln in che)
+    assert "    not listed, did not appear 0: none" in blk                # Spurs: its block read in full, a real 0
+
+
+def test_724_a_missing_minutes_key_is_a_member_not_the_providers_shape_never_a_null():
+    """#724 item 2: g.get("minutes") gave None for an absent key as for a JSON null, so the member classed "did not
+    appear (in the squad answer, no minutes)". Now the key is required: counted, the side partial, the name unread.
+    An explicit null still reads as before (in the squad answer, no minutes)."""
+    sq, mal = _sq(players=[{"team": {"id": 1}, "players": [
+        {"player": {"id": 5, "name": "A. Isak"}, "statistics": [{"games": {"substitute": True}}]}]}])
+    cls, det = rc.classify("A. Isak", sq["home"], None)
+    assert cls == rc.UNREAD and "minutes absent not the provider's shape" in cls + det
+    assert "m players home[0]: games has no minutes key" in mal and sq["home"]["partial"] == ["players"]
+    sq, mal = _sq(players=[{"team": {"id": 1}, "players": [
+        {"player": {"id": 5, "name": "A. Isak"}, "statistics": [{"games": {"minutes": None, "substitute": True}}]}]}])
+    assert rc.classify("A. Isak", sq["home"], None)[0] == rc.DNP_SQUAD and mal == [] and sq["home"]["players"]
+
+
 def test_an_unhashable_player_id_is_counted_never_a_traceback(world):
     sq, mal = _sq(lineups=[{"team": {"id": 1}, "startXI": [{"player": {"id": [5], "name": "A"}}], "substitutes": []}],
                   players=[{"team": {"id": 2}, "players": [{"player": {"id": {"a": 1}, "name": "B"},

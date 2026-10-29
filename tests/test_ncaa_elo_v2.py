@@ -251,7 +251,9 @@ def test_the_roadmap_lane_names_the_declaration_and_the_step_done():
     done = ln["steps"][1]["done"]                     # #553 merged (ARCHITECT 2026-10-16, addendum 96 item 1)
     assert done["date"] == "2026-10-16" and "#553 merged at 81ea7c0" in done["receipt"]
     assert "addendum 96" in done["receipt"]
-    assert ln["steps"][2]["done"] is None and ln["moved"] == []
+    done = ln["steps"][2]["done"]                     # the 2023 ingest (ARCHITECT 2026-10-29 09:55 ET, #709)
+    assert done["date"] == "2026-10-29" and "#79 comment 6498529114" in done["receipt"]
+    assert ln["steps"][3]["done"] is None and ln["moved"] == []
 
 
 # ------------------------------------------------------------------------------------------------ D1: the model --

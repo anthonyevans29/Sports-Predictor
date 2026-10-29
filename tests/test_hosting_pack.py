@@ -928,6 +928,8 @@ def test_an_unreadable_t11_block_is_an_error_never_a_guessed_list(tmp_path):
     for body, why in (('TIMERS="sp-a.timer sp-b.timer\nMLB_LAPTOP_ONLY="sp-c.timer"\n', "TIMERS list is not closed"),
                       ('TIMERS="sp-a.timer sp-b.timer\n', "TIMERS list is not closed"),
                       ('TIMERS="sp-a.timer"\nTIMERS="sp-b.timer"\n', "names TIMERS twice"),
+                      ('TIMERS="sp-a.timer\necho "$TIMERS"\n', "TIMERS list does not end at its closing quote"),
+                      ('TIMERS="sp-a.timer"; echo x\n', "TIMERS list does not end at its closing quote"),
                       ("# no list\n", "holds no list")):
         repo = _t11_repo(tmp_path / why.replace(" ", "-") / str(len(body)), body)
         with pytest.raises(ValueError, match=why):
@@ -938,6 +940,9 @@ def test_an_unreadable_t11_block_is_an_error_never_a_guessed_list(tmp_path):
         c.t11_lists(bare)
     bare.write_text('**T11. TERMINAL (host): enable.**\nTIMERS="sp-a.timer"\n\n**T12. next**\n```\nX="y"\n```\n')
     with pytest.raises(ValueError, match="holds no closed fenced block"):
+        c.t11_lists(bare)
+    bare.write_text('**T11. TERMINAL (host): enable.**\nTIMERS="sp-a.timer"\n\n**T11b. next**\n```\nX="y"\n```\n')
+    with pytest.raises(ValueError, match="holds no closed fenced block"):   # a suffixed step ends T11 too (#729)
         c.t11_lists(bare)
     repo = _t11_repo(tmp_path / "loud", 'TIMERS="sp-a.timer sp-c.timer\n')
     st = sp_deploy.timers_state(repo=repo, enabled_path=_enabled(tmp_path, ["sp-a.timer"]))
@@ -951,6 +956,15 @@ def test_an_unreadable_t11_block_is_an_error_never_a_guessed_list(tmp_path):
     assert sp_deploy.timers_line(every) == (f"\n  ! timers: every shipped timer is in {c.TIMERS_ENABLED} (hosting-h1.md"
                                             " T11 lists unreadable (ValueError: hosting-h1.md T11's TIMERS list is "
                                             "not closed))")
+
+
+def test_an_indented_list_and_a_commented_close_are_read(tmp_path):
+    """#729 (Codex round 1): an assignment indented in the fence is a list too, never silently absent; a closing
+    quote followed by blanks or a # comment ends the list, and a quote inside the comment closes nothing."""
+    repo = _t11_repo(tmp_path, '  TIMERS="sp-a.timer\n    sp-c.timer"  \n'
+                               '\tMLB_LAPTOP_ONLY="sp-b.timer"   # NOT "enabled": statsapi 406\n')
+    assert c.t11_lists(repo / "docs" / "specs" / "hosting-h1.md") == {"TIMERS": ["sp-a.timer", "sp-c.timer"],
+                                                                      "MLB_LAPTOP_ONLY": ["sp-b.timer"]}
 
 
 def test_a_runbook_whose_t11_block_holds_no_timers_list_is_loud(tmp_path):
@@ -4069,3 +4083,6 @@ def test_725_t11_recipes_read_timers_enabled_by_name_never_by_line():
     assert not any(re.search(r"wc -l|grep -[a-zA-Z]*x[a-zA-Z]* [^|]*timers\.enabled|sed -i", ln) for ln in lines)
     assert "timers.enabled 17 lines" not in rb
     assert "tr -s ' \\t' '\\n' < \"$f\" | sed '/^$/d' | grep -vxF \"$old\"" in rb
+    recipe = next(ln for ln in rb.splitlines() if 'grep -vxF "$old"' in ln)    # #729: no failed read empties it
+    assert recipe.lstrip().startswith('[ -s "$f" ] && ( set -o pipefail; ') and recipe.rstrip().endswith(
+        ') && [ -s "$f.new" ] && sudo mv "$f.new" "$f"')

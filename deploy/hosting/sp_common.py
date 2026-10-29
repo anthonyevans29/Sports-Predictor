@@ -184,9 +184,10 @@ def writer_of_record() -> str | None:
 T11_LISTS = ("TIMERS", "MLB_LAPTOP_ONLY")
 TIMERS_ENABLED = Path("/etc/sports-predictor/timers.enabled")
 _T11_HEAD = re.compile(r"^\*\*T11\.", re.M)
-_RUNBOOK_STEP = re.compile(r"^\*\*T\d+\.", re.M)
+_RUNBOOK_STEP = re.compile(r"^\*\*T\d+[a-z]?\.", re.M)            # T10b, T12b are steps too
 _FENCED = re.compile(r"^```[^\n]*\n(.*?)^```", re.M | re.S)
-_SHELL_LIST = re.compile(r'^([A-Z][A-Z0-9_]*)="', re.M)
+_SHELL_LIST = re.compile(r'^[ \t]*([A-Z][A-Z0-9_]*)="', re.M)          # an indented assignment is one too
+_LIST_TAIL = re.compile(r"[ \t]*(#.*)?")                                # after the closing quote: a comment at most
 
 
 def t11_lists(runbook: Path | None = None) -> dict[str, list[str]]:
@@ -196,7 +197,8 @@ def t11_lists(runbook: Path | None = None) -> dict[str, list[str]]:
     it on v1.6.1's runbook (HELD_FOR_CUTOVER retired) raised ValueError and lost every list. Now a list T11_LISTS
     names and the block lacks is simply absent from the dict (a caller that needs one says so), and a list the
     block holds and the code never named is read too. No T11 block, no list in it, a list named twice, or a list
-    whose closing quote is missing: ValueError, never a guessed list (law 4)."""
+    whose closing quote is missing or does not end the assignment (only blanks or a # comment may follow it on its
+    line, so a later command's quote never closes it): ValueError, never a guessed list (law 4)."""
     rb = Path(runbook or REPO / "docs" / "specs" / "hosting-h1.md").read_text(encoding="utf-8")
     head = _T11_HEAD.search(rb)
     if not head:
@@ -208,14 +210,19 @@ def t11_lists(runbook: Path | None = None) -> dict[str, list[str]]:
         raise ValueError("hosting-h1.md T11 holds no closed fenced block")
     block = fence.group(1)
     out: dict[str, list[str]] = {}
-    for m in _SHELL_LIST.finditer(block):
-        name, rest = m.group(1), block[m.end():]
+    pos = 0
+    while m := _SHELL_LIST.search(block, pos):
+        name = m.group(1)
         if name in out:
             raise ValueError(f"hosting-h1.md T11 names {name} twice")
-        units = rest[:rest.index('"')].split() if '"' in rest else None
+        close = block.find('"', m.end())
+        units = block[m.end():close].split() if close >= 0 else None
         if units is None or any("=" in u for u in units):    # the quote closes on the next list's opening one
             raise ValueError(f"hosting-h1.md T11's {name} list is not closed")
+        if not _LIST_TAIL.fullmatch(block[close + 1:].split("\n", 1)[0]):    # a later command's quote closed it
+            raise ValueError(f"hosting-h1.md T11's {name} list does not end at its closing quote")
         out[name] = units
+        pos = close + 1
     if not out:
         raise ValueError("hosting-h1.md T11's fenced block holds no list")
     return out

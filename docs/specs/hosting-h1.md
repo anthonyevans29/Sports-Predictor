@@ -781,10 +781,11 @@ systemctl list-timers 'sp-*' --no-pager     # receipt: next-elapse for each
   as written, miss every name on the TIMERS line). The names, one per line, as a receipt: `tr -s ' \t' '\n' < /etc/sports-predictor/timers.enabled | sed
   '/^$/d' | sort`. **A timer retired or renamed on a live host** (e.g. `sp-nfl-predict.timer` to
   `sp-nfl-prematch.timer`, #674) leaves the list by name, rewritten in place under sudo, after its `systemctl disable
-  --now`:
+  --now`. The new list replaces the file only when every stage of the read succeeded and the new list is not empty
+  (`pipefail` in a subshell, then `[ -s ]`): a failed read leaves the file as it was, never an empty list:
   ```
   f=/etc/sports-predictor/timers.enabled; old=sp-nfl-predict.timer
-  tr -s ' \t' '\n' < "$f" | sed '/^$/d' | grep -vxF "$old" | tr '\n' ' ' | sed 's/ $/\n/' | sudo tee "$f.new" >/dev/null && sudo mv "$f.new" "$f"
+  [ -s "$f" ] && ( set -o pipefail; tr -s ' \t' '\n' < "$f" | sed '/^$/d' | grep -vxF "$old" | tr '\n' ' ' | sed 's/ $/\n/' | sudo tee "$f.new" >/dev/null ) && [ -s "$f.new" ] && sudo mv "$f.new" "$f"
   tr -s ' \t' '\n' < "$f" | sed '/^$/d' | grep -cxF "$old"   # receipt: 0
   ```
 - `sp-closing-watch.timer` is on `TIMERS` from the cutover (ARCHITECT 2026-10-26, addendum 168 item 5:

@@ -177,7 +177,10 @@
           "what": "candidate nine's two receipts (addendum 157 item 2): (a) GSAx feasibility from the stored shot table and (b) the starter timing probe of the NHL API on three game days, read-only scripts in one PR, the consoles on #105",
           "owner": "code",
           "due": "2026-10-28",
-          "done": null
+          "done": {
+            "date": "2026-10-29",
+            "receipt": "#105 comment 6498263271: the four-day read of the starter timing probe (10-25 empty log, 10-26 not run, 10-27 11 games, 10-28 4 games with --save; three endpoints, polls T-120..T-0): no pregame goalie assertion anywhere; the live boxscore's goalies carry no starter key (ARCHITECT 2026-10-29 09:45 ET: \"candidate nine's receipts (b) → done 10-29 on the four-day read\")"
+          }
         },
         {
           "what": "candidate nine declared to Code, or my written ruling that there is none worth a run",
@@ -273,8 +276,8 @@
           "owner": "operator",
           "due": "2026-10-27",
           "done": {
-            "date": "2026-10-27",
-            "receipt": "#106 comment 6453014863: the summary lines (2 fixtures, first eleven per side at T-15 for 2 of 2, none at T-30; 14 of 14 calls HTTP 200, none failed or missed); the probe ran as the host unit sp-efl-probe-20261027, its journal stays on the host (ARCHITECT 2026-10-27 16:40 ET: \"the EFL roadmap line is done on its date\")"
+            "date": "2026-10-28",
+            "receipt": "the two EFL rounds: 10-27 #106 comment 6453014863 (2 of 2 first eleven per side at T-15, none at T-30; 14 of 14 calls HTTP 200) and 10-28 (5 games); 7 of 7 at T-15; the probe ran as host units, their journals stay on the host (ARCHITECT 2026-10-29 09:45 ET: \"Step A, EFL → done 10-28 (7/7 at T-15)\")"
           }
         },
         {

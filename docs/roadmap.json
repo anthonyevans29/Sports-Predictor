@@ -89,7 +89,10 @@
           "what": "the 2023 ingest with the week field, its census by --preflight read by me",
           "owner": "code",
           "due": "2026-11-01",
-          "done": null
+          "done": {
+            "date": "2026-10-29",
+            "receipt": "#79 comment 6498529114: the host's 2023 ingest, 13:45Z (3720 rows, 792 labels with weeks, the second read 534 games VALID; 2024-2026 weeks filled) (ARCHITECT 2026-10-29 09:55 ET: \"the 2023 ingest with the week field line done 10-29 (rides #709's moved lines)\")"
+          }
         },
         {
           "what": "the 500th both-FBS regular-season game of 2026 is final and labelled (274 were at the run of 2026-10-09)",

@@ -1054,3 +1054,14 @@ def test_741_an_unreadable_registry_is_a_refusal_through_the_command_never_a_tra
                              env={"SP_EXPORTS_MIRROR_ROLE": "host"})
     assert out.exit_code == 2 and "Traceback" not in out.output, out.output
     assert "runs on the host only" not in out.output and "is unreadable (JSONDecodeError)" in out.output, out.output
+
+
+def test_741_round2_an_unreadable_registry_is_windowrefused_at_the_source(ledger):
+    """Codex on #741 (round 2): leagues_window's registry reads (declaration, run_record_constants, surviving) turn an
+    unreadable file into WindowRefused at the source, so every caller refuses with its own REFUSED line."""
+    from src.walters import registry as reg
+    _world(ledger)
+    Path(reg.LEDGER).write_text("{not json")
+    for f in (lambda: lw.declaration("SA"), lw.run_record_constants, lw.surviving):
+        with pytest.raises(lw.WindowRefused, match="is unreadable"):
+            f()

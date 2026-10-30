@@ -165,13 +165,23 @@ def _ledger() -> str:
     return sx._reg_paths()[0]                 # read at call time (tests point the registry at tmp paths)
 
 
+def _registry_get(eid: str) -> dict | None:
+    """registry.get at call time (_ledger()), with a registry file that cannot be read or parsed refused as
+    WindowRefused (law 4; Codex on #741: every caller then refuses with its own REFUSED line, never a traceback)."""
+    from src.walters import registry as reg
+    try:
+        return reg.get(eid, _ledger())
+    except (OSError, ValueError) as err:
+        raise WindowRefused(f"the registry {_ledger()} is unreadable ({err.__class__.__name__}): nothing is read "
+                            "(law 4)") from None
+
+
 def declaration(code: str) -> dict | None:
     """The league's declaration entry, or None (NOT DECLARED). An entry counts only under its own id."""
-    from src.walters import registry as reg
     eid = DECLARATION_IDS.get((code or "").strip().upper())
     if eid is None:
         return None
-    e = reg.get(eid, _ledger())
+    e = _registry_get(eid)
     return e if isinstance(e, dict) and e.get("id") == eid else None
 
 
@@ -204,9 +214,8 @@ def _run_result(e) -> dict:
 def run_record_constants() -> dict:
     """{production_version, rho, elo_goal_coeff} as the soccer-expansion-v1 run record holds them (R1: "soccer_elo_
     poisson as the run record holds it"); never the current production model. Refused when the record lacks them."""
-    from src.walters import registry as reg
     from src.walters import soccer_expansion as sx
-    e = reg.get(sx.EID, _ledger())
+    e = _registry_get(sx.EID)
     res = _run_result(e)
     if any(res.get(k) is None for k in CONSTANTS):
         raise WindowRefused(f"{sx.EID} has no run record holding {', '.join(CONSTANTS)}: the frozen constants are "
@@ -224,9 +233,8 @@ def surviving() -> list[str]:
     results outside this reader, so a window is never declared on one of them (Codex on #733). A run record stored
     with a null `result` reads as none (_run_result): [] here, and checked() then refuses on run_record_constants()
     with its text (labelled, never a traceback out of coverage; pass-3 finding 8)."""
-    from src.walters import registry as reg
     from src.walters import soccer_expansion as sx
-    e = reg.get(sx.EID, _ledger())
+    e = _registry_get(sx.EID)
     surv = _run_result(e).get("surviving")
     return list(surv or [])
 

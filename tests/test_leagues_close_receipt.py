@@ -343,6 +343,19 @@ def test_the_script_refuses_with_status_2_when_the_run_record_holds_no_constants
     assert "PARITY (158 item 2(a)): REFUSED: soccer-expansion-v1 has no run record holding" in out
 
 
+def test_741_an_unreadable_registry_refuses_the_parity_part_with_status_2(tmp_path, monkeypatch, capsys):
+    """Codex on #741 (round 2): a registry that exists but is not JSON refuses the parity part (its REFUSED line,
+    exit 2), never a traceback."""
+    from src.walters import registry as reg
+    _script_db(tmp_path, monkeypatch)
+    led = tmp_path / "experiments.json"
+    led.write_text("{not json")
+    monkeypatch.setattr(reg, "LEDGER", str(led))
+    assert lr.main([]) == lr.REFUSED == 2
+    out = capsys.readouterr().out
+    assert "REFUSED: the registry " in out and "is unreadable (JSONDecodeError)" in out and "Traceback" not in out
+
+
 def test_the_parity_runs_at_the_run_records_constants_production_a_reference_line_and_pd_first(tmp_path,
                                                                                                 monkeypatch, capsys):
     """164 item 3: the parity's constants are the run record's (the export's binding); the production model is

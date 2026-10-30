@@ -179,7 +179,12 @@ def main(argv=None) -> int:
     with read_only(f):
         print(f"database: {f.resolve()} (mode=ro; this machine's receipt: say which machine produced it, addendum 185 "
               "D5)")
-        return _receipt(a, declared)
+        from src.walters.leagues_window import WindowRefused
+        try:
+            return _receipt(a, declared)
+        except WindowRefused as e:           # Codex on #741: an unreadable registry (the fence's read included) is a
+            print(f"REFUSED: {e}; the receipt is not read")   # refusal, exit 2, never a traceback
+            return REFUSED
 
 
 def _receipt(a, declared) -> int:

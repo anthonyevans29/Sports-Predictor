@@ -29,9 +29,11 @@ PL = ("--competition", "PL", "--season", "2026/27")
 # only if a league sync precedes it there — it does not, so not intl-daily) [...] No new timer, no daily league
 # sync"): SHADOW_EXPORT_STEP, bare, is the last step of soccer-prematch (sp-soccer-friday and sp-soccer-saturday) and
 # soccer-morning-after. Bare: no --competition (it binds its own leagues from the registry: PD and each declared one
-# of the four, R5) and no --hours (its window runs to the next of those three timers' fires,
-# soccer_expansion.next_chain_run). sp_run runs these chains on the host (the systemd timers); the command itself
-# refuses on any other machine (addendum 178 R6).
+# of the four, R5) and no --hours (its window runs to the next of those three timers' fires plus
+# soccer_expansion.EXPORT_WINDOW_MARGIN, 2 h, so it reaches the next chain's export step: soccer_expansion.
+# next_chain_run; ARCHITECT 2026-10-30 14:50 ET, addendum 188 item 4; each run writes its own new file, never a row
+# rewritten). sp_run runs these chains on the host (the systemd timers); the command itself refuses on any other
+# machine (addendum 178 R6).
 EXPANSION_CODES = ("PD", "SA", "BL1", "FL1", "ELC")
 EXPANSION = [("--competition", c, "--season", "2026/27") for c in EXPANSION_CODES]
 SHADOW_EXPORT_STEP = ["export-soccer-expansion-shadow"]

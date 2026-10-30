@@ -193,13 +193,21 @@ def verdict_recorded(e: dict | None) -> bool:
     return bool(e and e.get("verdict"))
 
 
+def _run_result(e) -> dict:
+    """The entry's run.result when it is a dict, else {} (an entry, run or result stored as null or as another kind
+    reads as no run record: the callers refuse on it with their own text, never an AttributeError; pass-3 finding 8)."""
+    run = e.get("run") if isinstance(e, dict) else None
+    res = run.get("result") if isinstance(run, dict) else None
+    return res if isinstance(res, dict) else {}
+
+
 def run_record_constants() -> dict:
     """{production_version, rho, elo_goal_coeff} as the soccer-expansion-v1 run record holds them (R1: "soccer_elo_
     poisson as the run record holds it"); never the current production model. Refused when the record lacks them."""
     from src.walters import registry as reg
     from src.walters import soccer_expansion as sx
     e = reg.get(sx.EID, _ledger())
-    res = ((e or {}).get("run") or {}).get("result") or {}
+    res = _run_result(e)
     if any(res.get(k) is None for k in CONSTANTS):
         raise WindowRefused(f"{sx.EID} has no run record holding {', '.join(CONSTANTS)}: the frozen constants are "
                             "unknown (R1), nothing is read")
@@ -213,11 +221,13 @@ def run_record_constants() -> dict:
 
 def surviving() -> list[str]:
     """The soccer-expansion-v1 run record's surviving set (PD): its confirmation machinery reads those leagues'
-    results outside this reader, so a window is never declared on one of them (Codex on #733)."""
+    results outside this reader, so a window is never declared on one of them (Codex on #733). A run record stored
+    with a null `result` reads as none (_run_result): [] here, and checked() then refuses on run_record_constants()
+    with its text (labelled, never a traceback out of coverage; pass-3 finding 8)."""
     from src.walters import registry as reg
     from src.walters import soccer_expansion as sx
     e = reg.get(sx.EID, _ledger())
-    surv = ((e or {}).get("run") or {}).get("result", {}).get("surviving") if isinstance(e, dict) else None
+    surv = _run_result(e).get("surviving")
     return list(surv or [])
 
 
@@ -307,10 +317,18 @@ def stored_rows(code: str, declared_at: str | None, export_dir: str = "exports")
     export_shadow (164 item 3; the host only, R6): for a declared league it writes rows only for fixtures kicking off
     strictly after declared_at, each carrying that entry text byte for byte. {} ("no stored rows") until it has
     written one. Rows written before the export switch (price_upcoming's arithmetic, unlabelled) are never read as
-    the candidate's."""
+    the candidate's.
+    ARCHITECT 2026-10-30 14:50 ET, addendum 188 item 4, verbatim in part: "a fixture covered by two runs has two rows;
+    the audit's row for a fixture is the LAST row whose export time is before its kickoff (the lowest pending_before by
+    construction), the earlier rows counted as superseded on the audit's line." Each run writes its own file
+    (soccer_expansion.export_shadow), so the row kept is the one with the latest `exported_at` before the kickoff
+    (naive isoformat, compared as text, which orders it in time; never the file name's order; on an equal
+    `exported_at` the later name), and every other qualifying row of that fixture is counted on it as `superseded`
+    (a reader's annotation beside `exported_at`, never a field of the file)."""
     out: dict[int, dict] = {}
     if not declared_at:
         return out
+    seen: Counter = Counter()
     for f in sorted(Path(export_dir).glob(f"{EXPORT_PREFIX}*.json")):
         try:
             doc = json.loads(f.read_text())
@@ -322,8 +340,11 @@ def stored_rows(code: str, declared_at: str | None, export_dir: str = "exports")
             if (mid is None or r.get("competition") != code or r.get("declared_at") != declared_at or not at
                     or at >= ko):
                 continue
+            seen[mid] += 1
             if mid not in out or at >= out[mid]["exported_at"]:
                 out[mid] = {**r, "exported_at": at}
+    for mid, row in out.items():
+        row["superseded"] = seen[mid] - 1
     return out
 
 
@@ -586,11 +607,12 @@ def audit(stored: dict[int, dict], recomputed: dict[int, tuple[float, float, flo
     are EXPECTED and listed with the count." A difference goes to `findings` when the stored row's
     inputs_read.pending_before is 0 OR is not on the row as a whole number (pending_before() None: never assumed
     expected, law 4), to `expected` when it is above 0; each entry carries `pending_before` (None where the row has
-    none)."""
+    none). `superseded` (addendum 188 item 4): the members' earlier stored rows that the row audited replaced (each
+    stored row's `superseded`, stored_rows), summed over the members with a row."""
     from src.walters.soccer_expansion import shadow_prob
     present = [i for i in recomputed if i in stored]
     out = {"present": len(present), "missing": len(recomputed) - len(present), "findings": [], "expected": [],
-           "unreadable": []}
+           "unreadable": [], "superseded": sum(int(stored[i].get("superseded") or 0) for i in present)}
     for i in present:
         sp = _stored_probs(stored[i])
         if sp is None:
@@ -607,12 +629,16 @@ def audit(stored: dict[int, dict], recomputed: dict[int, tuple[float, float, flo
 
 def audit_lines(code: str, a: dict) -> list[str]:
     """The audit as printed: the head, then D4's two lines, FINDINGS and EXPECTED, each counted (0 included) and each
-    difference listed under its line; neither silent, with no stored row too (findings 13/21: both lines print 0)."""
+    difference listed under its line; neither silent, with no stored row too (findings 13/21: both lines print 0).
+    The head counts the SUPERSEDED rows (addendum 188 item 4: the earlier rows of a member that a later run's row
+    before its kickoff replaced), 0 included."""
     head = (f"  - {code} · stored prospective rows: none (no stored rows; {a['missing']} members without one)"
             if not a["present"] else
             f"  - {code} · stored prospective rows: present {a['present']} · missing {a['missing']} · differ from the "
             f"recompute {len(a['findings']) + len(a['expected'])} (R1: never resolved either way)"
-            + (f" · unreadable {len(a['unreadable'])}" if a["unreadable"] else ""))
+            + (f" · unreadable {len(a['unreadable'])}" if a["unreadable"] else "")
+            + f" · superseded {a.get('superseded', 0)} (earlier rows of these members from other runs; the row "
+              "audited is the last one exported before the kickoff, addendum 188 item 4)")
     L = [head,
          f"  - {code} · FINDINGS {len(a['findings'])}: differences on rows with pending_before = 0, or with no "
          "pending_before on the row (addendum 185 D4)"]

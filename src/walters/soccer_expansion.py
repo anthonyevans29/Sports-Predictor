@@ -13,7 +13,8 @@ The ruling, verbatim, and the operational definitions: docs/specs/soccer-expansi
                                         constants (164 item 3; R5: a league not declared has no rows); engine
                                         model_shadow (no Desk call, no order line, no prediction row); the LAST step
                                         of the soccer sync chains, its rows until the next chain's export (addendum
-                                        185 D2; the next fire + EXPORT_REACH)
+                                        185 D2; the next fire + EXPORT_WINDOW_MARGIN, 188 item 4); one new file per
+                                        run, never a row rewritten
     soccer-expansion-shadow-grade       read-only: the shadow's top pick vs the three-way book close
     soccer-expansion-confirm            the confirmation window (ARCHITECT 2026-10-08, addendum 11, item 4): freeze,
                                         substitute, progress, record, on the intl-elo-confirm pattern (section at the
@@ -559,23 +560,27 @@ SHADOW_NOT_STORED = "not stored: "
 # the soccer-prematch chain), each (timer, chain, its OnCalendar line exactly as the timer file holds it): declared
 # once here, pinned to the files by tests/test_leagues_export.py. The chain step (deploy/hosting/chains.py) runs the
 # command bare, so its window is strictly after the run and before the next chain's EXPORT: (the run, the next of
-# these fires + EXPORT_REACH), next_chain_run.
+# these fires + EXPORT_WINDOW_MARGIN), next_chain_run.
 SYNC_CHAIN_TIMERS = (
     ("sp-soccer-friday.timer", "soccer-prematch", "Fri *-*-* 14:00:00 UTC"),
     ("sp-soccer-saturday.timer", "soccer-prematch", "Sat *-*-* 10:30:00 Europe/London"),
     ("sp-soccer-morning-after.timer", "soccer-morning-after", "Sun,Mon,Tue *-*-* 09:50:00 UTC"),
 )
-# EXPORT_REACH: how far past the next timer's fire the window reaches, so that it ends at or after the moment the
-# NEXT chain's export step runs, never at the fire itself (Code's reading of D2's "before the next chain's": before
-# the next chain's EXPORT, for the architect). The export is that chain's LAST step (chains.py), so it runs only after
-# every step before it: soccer-prematch's PL syncs, the five leagues' sync-matches / sync-odds and six Kalshi captures;
-# soccer-morning-after's daily backup, six sync-matches, evaluate and export-results; each step retried on a transient
-# failure (sp_run.RETRY_BACKOFF_S), the whole run under the DB lock (sp_common.db_lock waits up to 3 h). systemd bounds
-# all of it: sp-chain@.service is TimeoutStartSec=3h (lock wait included) after a fire the timers allow 1 min late
-# (AccuracySec=1min). So no chain's export runs later than 3 h 1 min after its fire; 6 h is that bound doubled as the
-# margin. Overlapping rows are harmless: last_calls and leagues_window.stored_rows take the LAST row before kickoff.
+# ARCHITECT 2026-10-30 14:50 ET, addendum 188 item 4, verbatim: "THE EXPORT SWITCH — the chain-boundary gap, ruled:
+# Code's reading of D2 stands (the window runs to the next chain's EXPORT step, not its fire), the margin a named
+# constant EXPORT_WINDOW_MARGIN = 2 h past the next chain's fire, overlaps allowed. And one rule that makes overlaps
+# free: NO ROW IS EVER REWRITTEN — each run writes its own dated file (one per run); a fixture covered by two runs has
+# two rows; the audit's row for a fixture is the LAST row whose export time is before its kickoff (the lowest
+# pending_before by construction), the earlier rows counted as superseded on the audit's line. A run never reads or
+# edits another run's file."
+# So the chain step's window is (the run, the next of these fires + EXPORT_WINDOW_MARGIN): the next chain's export is
+# that chain's LAST step (chains.py) and runs after every step before it. The value is the ruling's, not derived here
+# from the unit files: a chain whose export runs more than 2 h after its fire leaves the games kicking off between its
+# fire + 2 h and its export without a row (the reader's "row missing"; accepted under the ruling, the ledger says so).
+# The same `end` bounds the F3 unplaced-label scope (shadow_unplaced). Overlapping rows are free: each run its own
+# file (export_shadow), and last_calls and leagues_window.stored_rows take the LAST row before kickoff by exported_at.
 # Not covered: a fire systemd runs late on boot (Persistent=true after host downtime) - its gap is "row missing".
-EXPORT_REACH = timedelta(hours=6)
+EXPORT_WINDOW_MARGIN = timedelta(hours=2)
 _ON_CALENDAR = re.compile(r"([A-Za-z]{3}(?:,[A-Za-z]{3})*) \*-\*-\* (\d\d):(\d\d):00 (\S+)")
 _WEEKDAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 
@@ -649,7 +654,13 @@ def shadow_bindings() -> dict[str, dict]:
 
 def shadow_binding(code: str) -> dict:
     """One league's binding (shadow_bindings, above): the one function the export binds with and coverage's
-    SHADOW_BINDS reads (deploy/hosting/coverage_map.py), so coverage never calls a league SHADOW the export refuses."""
+    SHADOW_BINDS reads (deploy/hosting/coverage_map.py), so coverage never calls a league SHADOW whose BINDING the
+    export refuses (the registry stage: its entry, its instants, the surviving set, the constants). What coverage
+    cannot see (pass-3 findings 2/7): export_shadow's two DB-stage refusals, made per run after this binding passes,
+    SHADOW_NOT_STORED (no competition or no CURRENT_SEASON game in the DB) and F3 (shadow_unplaced: a label it cannot
+    place before the window's end). Neither reads here: this never opens the DB, and coverage reads no export's
+    outcome. On a day the export refuses a league at that stage, coverage still prints the league's shadow; the
+    command's REFUSED line and exit 2 (the chain's failure page, D7) are that day's signal."""
     from src.walters import leagues_window as lw
     b = {"code": code, "state": None, "candidate": None, "declared_at": None, "window_opens_at": None,
          "frozen_constants": None, "opens_at": None, "gate_verdict": None}
@@ -778,13 +789,18 @@ def export_shadow(now: datetime | None = None, hours: int | None = None,
     fixture of an exporting league). A league with a label the code cannot place before the window's end is refused
     (F3, shadow_unplaced; 184 item 1), and so is a bound league this DB does not store (SHADOW_NOT_STORED: its
     competition, or any CURRENT_SEASON game; law 4); the other leagues are still written. Never the production model,
-    never a prediction row; the file is exports/soccer_expansion_shadow_<%Y-%m-%d_%H%M>.json.
+    never a prediction row.
+    THE FILE (addendum 188 item 4, EXPORT_WINDOW_MARGIN above: "NO ROW IS EVER REWRITTEN — each run writes its own
+    dated file"): exports/soccer_expansion_shadow_<%Y-%m-%d_%H%M%S_%f>.json, stamped to the microsecond of `now`, and
+    created EXCLUSIVELY (open mode "x"): a name that exists is never overwritten and never edited; the run refuses
+    (ExpansionRefused: the command's REFUSED line, exit 2) and writes nothing. A run never reads another run's file.
     THE WINDOW is (now, end), strictly after the stamp (a fixture kicking off at the stamp itself has no row: last_calls
     and leagues_window.stored_rows never read a row stamped at or after its kickoff). end: `hours` given (a manual
     run's explicit override, cli --hours) -> now + hours; else (the chain step, D2 above) the next soccer sync chain's
-    fire, next_chain_run(now), plus EXPORT_REACH, so a chain run's rows cover the fixtures "kicking off after that run
-    and before the next chain's" export (Code's reading, EXPORT_REACH above: a kickoff between the next fire and the
-    next chain's export step is in this file, never in neither). The header's `window` says which.
+    fire, next_chain_run(now), plus EXPORT_WINDOW_MARGIN, so a chain run's rows cover the fixtures "kicking off after
+    that run and before the next chain's" export (Code's reading, ruled by addendum 188 item 4, above: a kickoff
+    between the next fire and the next chain's export step, run within the margin, is in this file, never in neither).
+    The header's `window` says which.
     The stamp: `exported_at` = `prediction_stamp` = `input_cutoff` = now.isoformat() (naive UTC), the same form as
     `utc_date` (Match.utc_date.isoformat()), so last_calls and leagues_window.stored_rows compare them as strings.
     input_cutoff is the export instant for a prospective row (the DB state it read: the results stored at `now`; 158
@@ -814,9 +830,10 @@ def export_shadow(now: datetime | None = None, hours: int | None = None,
         rule = f"--hours {hours} (a manual run's explicit window)"
     else:
         nxt = next_chain_run(now)
-        end = nxt["at"] + EXPORT_REACH
-        rule = (f"until the next soccer sync chain's export ({nxt['chain']}, {nxt['timer']} + EXPORT_REACH "
-                f"{EXPORT_REACH.total_seconds() / 3600:g}h; ARCHITECT 2026-10-30, addendum 185 D2)")
+        end = nxt["at"] + EXPORT_WINDOW_MARGIN
+        rule = (f"until the next soccer sync chain's export ({nxt['chain']}, {nxt['timer']} + EXPORT_WINDOW_MARGIN "
+                f"{EXPORT_WINDOW_MARGIN.total_seconds() / 3600:g}h; ARCHITECT 2026-10-30, addendum 185 D2, addendum "
+                "188 item 4)")
     sha = lc.code_sha()
     path_, _ = _reg_paths()
     e = reg.get(EID, path_)
@@ -876,7 +893,7 @@ def export_shadow(now: datetime | None = None, hours: int | None = None,
                 rows.append(r)
             s.rollback()
     Path(out_dir).mkdir(parents=True, exist_ok=True)
-    path = str(Path(out_dir) / f"{FILE_PREFIX}{now.strftime('%Y-%m-%d_%H%M')}.json")
+    path = str(Path(out_dir) / f"{FILE_PREFIX}{now.strftime('%Y-%m-%d_%H%M%S_%f')}.json")
     doc = {"sport": "soccer", "engine": ENGINE, "experiment": EID,
            "model_version": frozen["production_version"] if frozen else None,
            "gate_verdict": e and e.get("status") or "not declared", "contains_predictions": False,
@@ -884,20 +901,28 @@ def export_shadow(now: datetime | None = None, hours: int | None = None,
            "window_hours": hours if hours is not None else round((end - now).total_seconds() / 3600, 2),
            "window": {"after": stamp, "before": end.isoformat(), "rule": rule,
                       "next_chain": ({"at": nxt["at"].isoformat(), "timer": nxt["timer"], "chain": nxt["chain"],
-                                      "reach_hours": EXPORT_REACH.total_seconds() / 3600}
+                                      "margin_hours": EXPORT_WINDOW_MARGIN.total_seconds() / 3600}
                                      if nxt else None)},
            "note": SHADOW_NOTE, "git_sha": sha,
            "frozen_constants": frozen,
            "bindings": {c: {k: b[k] for k in BINDING_KEYS if k in b} for c, b in binds.items()},
            "counts": {c: dict(n) for c, n in counts.items()}, "missing": missing,
            "count": len(rows), "predictions": rows}
-    with open(path, "w") as f:
-        json.dump(doc, f, indent=2, default=str)
+    # addendum 188 item 4: "NO ROW IS EVER REWRITTEN": created exclusively; an existing name is refused, never
+    # overwritten, and nothing is written (the text is serialized first, so a failure leaves no partial file)
+    text = json.dumps(doc, indent=2, default=str)
+    try:
+        with open(path, "x") as f:
+            f.write(text)
+    except FileExistsError:
+        raise ExpansionRefused(f"{path} already exists: no row is ever rewritten and a run never edits another run's "
+                               "file (ARCHITECT 2026-10-30, addendum 188 item 4)") from None
     return path, doc
 
 
 def last_calls(export_dir: str = "exports") -> dict[int, dict]:
-    """match_id -> the LAST shadow row written before its kickoff."""
+    """match_id -> the LAST shadow row written before its kickoff: the latest `exported_at` (naive isoformat, compared
+    as text, which orders it in time), never the file name's order; on an equal `exported_at` the later name."""
     out: dict[int, dict] = {}
     for f in sorted(Path(export_dir).glob(f"{FILE_PREFIX}*.json")):
         try:

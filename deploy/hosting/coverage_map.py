@@ -60,7 +60,9 @@ v7"."
                    not LIVE, the reason kept on the line, and the derivation goes on.
       SHADOW       a roadmap lane whose `competitions` names it (addendum 111 item 2; never its prose) and (a) the lane
                    is confirming and its registry entry is confirming (a gate PASS in its declared confirmation window:
-                   a shadow, never a call), or (b) in any other state, a chain in chains.py runs a shadow export for it
+                   a shadow, never a call; not when a chain's export of that registry id refuses the competition,
+                   SHADOW_BINDS: it writes no row for it, pass-3 finding 6), or (b) in any other state, a chain in
+                   chains.py runs a shadow export for it
                    (a step whose command is one of SHADOW_EXPORTS, in a chain whose steps before it name the competition; an
                    operator-only chain is no schedule; and, for a shadow export that binds its own leagues, only a
                    competition it binds: SHADOW_BINDS). (b) is how NHL qualifies (its lane is "to declare", and
@@ -234,22 +236,22 @@ def _expansion_binds(code: str, entries: dict) -> str | None:
     shadow before it is declared); after it, predict_as_of rows labelled with the league's declared_at." The step runs
     bare after the five leagues' syncs (ARCHITECT 2026-10-30 12:45 ET, addendum 185 D2), so the steps before it name
     all five; the export binds a league only through its declaration in the registry (soccer_expansion.
-    shadow_bindings): the four under leagues_window.DECLARATION_IDS (the entry under its own id, as
-    leagues_window.declaration reads it), the experiment's own surviving league through the experiment's entry. Read
-    from `entries` (read_ledgers' registry), never a copy of the codes. An entry present binds only when the export's
-    own binding passes (soccer_expansion.shadow_binding: leagues_window.checked for the four, confirming() and its
-    checks for PD): a binding the export refuses writes no row, so its league is never SHADOW here (R5's lens), and
-    the line carries the export's reason."""
+    shadow_binding: the four under leagues_window.DECLARATION_IDS through leagues_window.declaration and checked,
+    the experiment's own surviving league, PD, through confirming() and its checks). ONE registry source (pass-3
+    findings 3/12): the answer is shadow_binding's alone, read from the registry the export itself reads at call time
+    (soccer_expansion._reg_paths: registry.LEDGER), never `entries` (read_ledgers' copy, which coverage(registry_path=)
+    could point elsewhere): `entries` is taken for SHADOW_BINDS' signature and not read. A binding the export refuses
+    writes no row, so its league is never SHADOW here (R5's lens), and the line carries the export's reason. What this
+    cannot see: the export's DB-stage refusals (not stored, F3), made per run after the binding passes
+    (soccer_expansion.shadow_binding's docstring); on such a day the league still reads its shadow here."""
     from src.walters import leagues_window as lw
     from src.walters import soccer_expansion as sx
     if code not in sx.LEAGUES:
         return f"{code} is not a league of {sx.EID}"
-    eid = lw.DECLARATION_IDS.get(code, sx.EID)
-    e = entries.get(eid)
-    if not (isinstance(e, dict) and e.get("id") == eid):
-        return (f"{code} is not declared (no registry entry {eid}; addendum 178 R5: nothing is a shadow before it is "
-                "declared)")
     b = sx.shadow_binding(code)
+    if b["state"] == sx.SHADOW_NOT_DECLARED:
+        return (f"{code} is not declared (no registry entry {lw.DECLARATION_IDS.get(code, sx.EID)}; addendum 178 R5: "
+                "nothing is a shadow before it is declared)")
     if b["state"] != sx.SHADOW_EXPORTING:
         return f"its binding of {code} is {b['state']} (soccer_expansion.shadow_binding, the export's own)"
     return None
@@ -442,17 +444,21 @@ def shadow_tag(model_id: str) -> str:
 def shadow_of(code: str, lanes: list[dict], entries: dict, day: date) -> tuple[str | None, str]:
     """(the shadow's tag, where it was read) when a lane naming the competition makes it SHADOW, else (None, why not).
     The module docstring's rule: a confirming lane whose registry entry is confirming, or a lane in any state whose
-    competition a chain runs a shadow export for on `day` (a chain outside its season gate runs nothing)."""
+    competition a chain runs a shadow export for on `day` (a chain outside its season gate runs nothing). A confirming
+    lane is not SHADOW when a chain's export of that very model refuses the competition (SHADOW_BINDS: it writes no
+    row for it; pass-3 finding 6, PD outside the run record's surviving set): MARKET-ONLY with the export's reason."""
     naming = [ln for ln in lanes if code in (ln.get("competitions") or [])]
     if not naming:
         return None, f"no roadmap lane names {code}"
     runs = [r for r in scheduled_shadows() if code in r["comps"]]
     unbound: dict[tuple[str, str], list[str]] = {}       # (command, why) -> the chains: SHADOW_BINDS' answer
+    unbound_model: dict[tuple[str, str], str] = {}       # (command, why) -> the model id that export writes
     for r in runs:
         f = SHADOW_BINDS.get(r["command"])
         why_not = f(code, entries) if f else None
         if why_not:
             unbound.setdefault((r["command"], why_not), []).append(r["chain"])
+            unbound_model[(r["command"], why_not)] = r["model"]
     runs = [r for r in runs if not any(r["chain"] in v and r["command"] == k[0] for k, v in unbound.items())]
     off = {r["chain"]: chain_inactive(r["chain"], day) for r in runs}     # sp_run's season gate, on the day
     gated = "; ".join(sorted({v for v in off.values() if v})
@@ -470,6 +476,13 @@ def shadow_of(code: str, lanes: list[dict], entries: dict, day: date) -> tuple[s
                 continue
             if e.get("status") != "confirming":
                 whys.append(f"{src}; registry {rid}: {e.get('status')} (the lane and the registry disagree)")
+                continue
+            # pass-3 finding 6: a chain's export of this very model that refuses the competition (SHADOW_BINDS: PD
+            # outside the run record's surviving set, a constants drift) writes no row for it: never SHADOW here
+            refusing = [f"{', '.join(chs)} run {cmd}, which writes no {code} row: {w}"
+                        for (cmd, w), chs in unbound.items() if unbound_model[(cmd, w)] == rid]
+            if refusing:
+                whys.append(f"{src}; registry {rid}: confirming, but " + "; ".join(refusing))
                 continue
             return shadow_tag(rid), f"{src}; registry {rid}: confirming"
         if runs:

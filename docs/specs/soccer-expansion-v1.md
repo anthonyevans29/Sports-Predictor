@@ -164,17 +164,22 @@ declared_at."
 - THE WINDOW (addendum 185 D2): the command is the LAST step, bare, of the soccer sync chains (`soccer-prematch`,
   run by sp-soccer-friday and sp-soccer-saturday, and `soccer-morning-after`); its rows are the fixtures kicking off
   strictly after the run and before the next chain's export: the next of those three timers' fires
-  (`soccer_expansion.next_chain_run`) plus `EXPORT_REACH` (6 h: sp-chain@.service's TimeoutStartSec=3h bounds how
-  long a chain runs before its last step, doubled as margin; Code's reading of D2's "before the next chain's", for
-  the architect; an overlap is harmless, the last row before kickoff is the one read). `--hours N` is a manual run's
-  explicit override.
+  (`soccer_expansion.next_chain_run`) plus `EXPORT_WINDOW_MARGIN` (2 h; ARCHITECT 2026-10-30 14:50 ET, addendum 188
+  item 4: Code's reading of D2 stands, the window runs to the next chain's EXPORT step, "overlaps allowed"; a chain
+  whose export runs more than 2 h after its fire leaves the games kicking off between fire + 2 h and its export
+  without a row, "row missing", accepted). The same window end bounds the F3 unplaced-label scope. `--hours N` is a
+  manual run's explicit override.
+- NO ROW IS EVER REWRITTEN (addendum 188 item 4): each run writes its own new file, stamped to the microsecond and
+  created exclusively (a name that exists is refused, exit 2, nothing written); a fixture two runs cover has two rows.
+  The readers (`last_calls`, `leagues_window.stored_rows`) take the LAST row exported before its kickoff, by
+  `exported_at`; the cohort reader's audit counts the earlier rows of its members as SUPERSEDED on its line.
 - Every stored game of a bound league kicking off in the window, any status, is priced by
   `leagues_candidate.predict_as_of` (F3 regular rounds, F5 batching, the one predicate, MIN_PRIOR 40) or listed in
   `missing` with its reason: before_declared_at, status_<value>, not_regular, below_min_prior, no_strength. A stage
   label the code cannot place, kicking off before the window's end, refuses that league (addendum 184 item 1), as
   does a bound league this DB does not store (law 4); the others are still written and the command exits 2 (D7: the
   chain's failure page is the signal; a label unplaced on the second chain run is a finding Issue).
-- It writes `exports/soccer_expansion_shadow_<stamp>.json`:
+- It writes `exports/soccer_expansion_shadow_<%Y-%m-%d_%H%M%S_%f>.json` (its own, per run):
   - engine `model_shadow` (the Desk's `normalize` skips it; the Cockpit renders it in the greyed shadow card);
   - `model_version` is the run record's production_version, never the production model's;
   - each row carries `experiment`, `candidate`, `declared_at`, `window_opens_at`, `frozen_constants`, `code_sha`,

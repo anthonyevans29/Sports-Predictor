@@ -61,7 +61,7 @@ set by `SP_IMPROVE_HOLD_ON_PASS=1`, which the chain template sets.
 |---|---|---|---|
 | sp-backup | (daily .backup) | daily 09:30 UTC | — |
 | sp-mlb-morning | mlb-morning (improve HOLDS on PASS; results-tally last) | daily 09:45 UTC | daily |
-| sp-soccer-morning-after | soccer-morning-after, its last step the bare `export-soccer-expansion-shadow` (ARCHITECT 2026-10-30, addendum 185 D2: the shadow export closes every soccer sync chain; rows until the next chain's export: its fire + `EXPORT_REACH`) | Sun/Mon/Tue 09:50 UTC | daily |
+| sp-soccer-morning-after | soccer-morning-after, its last step the bare `export-soccer-expansion-shadow` (ARCHITECT 2026-10-30, addendum 185 D2: the shadow export closes every soccer sync chain; rows until the next chain's export: its fire + `EXPORT_WINDOW_MARGIN`, 2 h, addendum 188 item 4; each run its own new file) | Sun/Mon/Tue 09:50 UTC | daily |
 | sp-nfl-grade | nfl-grade | Mon/Tue/Fri 10:00 UTC | daily |
 | sp-soccer-friday | soccer-prematch, no longer data only: the syncs (ARCHITECT 2026-10-25, addendum 166 item 6(B): the PL `predict` and the PL window `export-predictions` are retired; the closing watch's slate stage writes `soccer_PL_<start>_to_<end>.json`): the PL `sync-matches` / `sync-odds` / `sync-injuries`, the expansion leagues' `sync-matches` / `sync-odds`, their capture-only `sync-kalshi-soccer`, the PL `sync-kalshi-soccer`; then, last, the bare `export-soccer-expansion-shadow` (ARCHITECT 2026-10-30, addendum 185 D2; reads the DB only, UNMETERED) | Fri 14:00 UTC | — |
 | sp-soccer-saturday | soccer-prematch, no longer data only: the syncs (as sp-soccer-friday, ARCHITECT 2026-10-25, addendum 166 item 6(B)), then, last, the host-only bare `export-soccer-expansion-shadow` (addendum 185 D2; R6) | Sat 10:30 Europe/London | — |
@@ -1116,9 +1116,11 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
     them running): "!", add them to the list by hand; the deploy never writes it. None prints nothing more. A
     listing that cannot be read prints "!" and no list, never an empty one.
 - **Midweek PL round (H0-10), operator-started.**
-  `sudo -u sp venv/bin/python deploy/hosting/sp_run.py soccer-prematch` (data only since ARCHITECT 2026-10-25,
-  addendum 166 item 6(B): no step reads `--set sat=` / `sat_plus3=` any more; its last step, the expansion shadow
-  export, then writes rows until the next timer's chain export, its fire + `EXPORT_REACH`, addendum 185 D2). The round's slate file is the closing
+  `sudo -u sp venv/bin/python deploy/hosting/sp_run.py soccer-prematch` (no longer data only: since ARCHITECT
+  2026-10-25, addendum 166 item 6(B), no step reads `--set sat=` / `sat_plus3=` any more, and its last step, the
+  host-only expansion shadow export, writes its own new file, `exports/soccer_expansion_shadow_<stamp>.json`, with
+  rows until the next timer's chain export, its fire + `EXPORT_WINDOW_MARGIN`, 2 h, addendum 185 D2 and addendum 188
+  item 4; a refused league exits 2 after the file is written, D7). The round's slate file is the closing
   watch's slate stage's, in the midweek form (`closing.soccer_window`: a Wednesday to Friday day prices the day to the
   day + 3).
 - **Seasons (H0-8).**

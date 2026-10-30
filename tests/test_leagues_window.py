@@ -616,7 +616,8 @@ def test_score_recomputes_both_arms_on_the_60_and_refuses_before_ready(ledger):
         s.rollback()
     assert r["n"] == 60 and r["ll_candidate"] == sum(cand) / 60 and r["ll_close"] == sum(close) / 60
     assert r["verdict"] == lw.verdict_of(r["ll_candidate"], r["ll_close"])
-    assert r["audit"] == {"present": 0, "missing": 60, "findings": [], "expected": [], "unreadable": []}
+    assert r["audit"] == {"present": 0, "missing": 60, "findings": [], "expected": [], "unreadable": [],
+                          "superseded": 0}
     # D4's two lines print with no stored row too, both counted 0 (findings 13/21: neither silent)
     assert lw.audit_lines("SA", r["audit"]) == [
         "  - SA · stored prospective rows: none (no stored rows; 60 members without one)",
@@ -663,7 +664,8 @@ def test_the_audit_counts_a_stored_row_that_differs_from_the_recompute(ledger, t
     assert a["expected"] == [] and a["findings"][0]["pending_before"] is None
     L = lw.audit_lines("SA", a)
     assert L[0] == ("  - SA · stored prospective rows: present 2 · missing 58 · differ from the recompute 1 (R1: never "
-                    "resolved either way)")
+                    "resolved either way) · superseded 0 (earlier rows of these members from other runs; the row "
+                    "audited is the last one exported before the kickoff, addendum 188 item 4)")
     assert L[1] == ("  - SA · FINDINGS 1: differences on rows with pending_before = 0, or with no pending_before on "
                     "the row (addendum 185 D4)")
     assert L[2].startswith(f"    FINDING match {got[1][0]} · stored ") and L[2].endswith(

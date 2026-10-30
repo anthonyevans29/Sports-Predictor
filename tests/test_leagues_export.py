@@ -395,7 +395,7 @@ def test_8_r6_the_host_writes_the_file(ledger, monkeypatch):
     r = CliRunner().invoke(cli.cli, ["export-soccer-expansion-shadow"])
     assert r.exit_code == 0, r.output
     (f,) = Path("exports").glob(f"{sx.FILE_PREFIX}*.json")
-    assert f.name == f"{sx.FILE_PREFIX}{NOW:%Y-%m-%d_%H%M}.json" and json.loads(f.read_text())["count"] == 1
+    assert f.name == f"{sx.FILE_PREFIX}{NOW:%Y-%m-%d_%H%M%S_%f}.json" and json.loads(f.read_text())["count"] == 1
     assert "PD · exporting · soccer-expansion-v1 · declared_at 2026-10-07T15:17:38Z · window opens " in r.output
     assert "SA · not declared" in r.output and "frozen v22 (the run record's; never the production model)" in r.output
 
@@ -428,7 +428,7 @@ def test_9_the_audit_reads_the_exports_rows_present_and_equal(ledger, tmp_path):
     w = lw.read(("SA",), now=NOW, export_dir=str(out))["SA"]
     assert w["state"] == "ready" and w["stored_present"] == 60 and w["stored_missing"] == 0
     a = lw.score(w, export_dir=str(out), now=NOW)["audit"]
-    assert a == {"present": 60, "missing": 0, "findings": [], "expected": [], "unreadable": []}
+    assert a == {"present": 60, "missing": 0, "findings": [], "expected": [], "unreadable": [], "superseded": 0}
 
 
 def test_9_rows_exported_before_earlier_games_finished_are_counted_and_expected(ledger, tmp_path):
@@ -554,28 +554,30 @@ def test_12_an_unreadable_timer_line_refuses_never_a_guessed_window(monkeypatch)
 
 
 def test_12_without_hours_the_window_runs_to_the_next_chains_export_and_strictly_after_the_stamp(ledger, tmp_path):
-    """The chain step's window: (now, the next chain's fire + EXPORT_REACH), Code's reading of D2's "before the next
-    chain's" as before the next chain's EXPORT (finding 0/9: the window never ends at the fire, so a kickoff between
-    the fire and that chain's last step is in this file). A fixture kicking off at the stamp itself is neither a row
+    """The chain step's window: (now, the next chain's fire + EXPORT_WINDOW_MARGIN), Code's reading of D2's "before the
+    next chain's" as before the next chain's EXPORT, ruled with the margin's name and value (ARCHITECT 2026-10-30,
+    addendum 188 item 4: "EXPORT_WINDOW_MARGIN = 2 h past the next chain's fire, overlaps allowed"; finding 0/9: the
+    window never ends at the fire, so a kickoff between the fire and that chain's last step is in this file). A fixture kicking off at the stamp itself is neither a row
     nor a missing entry (finding 13: last_calls and stored_rows never read a row stamped at its kickoff); one at the
     window's end is not in this file. --hours stays a manual run's explicit override."""
     _world(ledger)
     t = _teams("PD")
     rest = _priors("PD", t)
     now = datetime(2026, 11, 3, 10, 5)                         # Tuesday's morning-after run -> Friday 14:00Z
-    end = datetime(2026, 11, 6, 14, 0) + sx.EXPORT_REACH
-    assert sx.EXPORT_REACH == timedelta(hours=6) and end == datetime(2026, 11, 6, 20, 0)
+    end = datetime(2026, 11, 6, 14, 0) + sx.EXPORT_WINDOW_MARGIN
+    assert sx.EXPORT_WINDOW_MARGIN == timedelta(hours=2) and end == datetime(2026, 11, 6, 16, 0)
     _game(901, "PD", now, rest[0], MatchStatus.SCHEDULED)                                 # at the stamp
     _game(902, "PD", datetime(2026, 11, 5, 19, 0), rest[1], MatchStatus.SCHEDULED)         # Thursday: a row
     _game(903, "PD", datetime(2026, 11, 6, 14, 0), rest[2], MatchStatus.SCHEDULED)         # at the next fire: a row
     _game(904, "PD", end, rest[3], MatchStatus.SCHEDULED)                                  # at the end: not here
     _, doc = _export(now, hours=None, out=tmp_path / "a")
     assert [r["match_id"] for r in doc["predictions"]] == [902, 903] and doc["missing"] == []
-    assert doc["window"] == {"after": now.isoformat(), "before": "2026-11-06T20:00:00",
+    assert doc["window"] == {"after": now.isoformat(), "before": "2026-11-06T16:00:00",
                              "rule": "until the next soccer sync chain's export (soccer-prematch, sp-soccer-friday."
-                                     "timer + EXPORT_REACH 6h; ARCHITECT 2026-10-30, addendum 185 D2)",
+                                     "timer + EXPORT_WINDOW_MARGIN 2h; ARCHITECT 2026-10-30, addendum 185 D2, "
+                                     "addendum 188 item 4)",
                              "next_chain": {"at": "2026-11-06T14:00:00", "timer": "sp-soccer-friday.timer",
-                                            "chain": "soccer-prematch", "reach_hours": 6.0}}
+                                            "chain": "soccer-prematch", "margin_hours": 2.0}}
     assert doc["window_hours"] == round((end - now).total_seconds() / 3600, 2)
     _, doc = _export(now, hours=100, out=tmp_path / "b")
     assert [r["match_id"] for r in doc["predictions"]] == [902, 903, 904] and doc["window_hours"] == 100
@@ -585,8 +587,8 @@ def test_12_without_hours_the_window_runs_to_the_next_chains_export_and_strictly
 def test_12_the_sunday_10z_kickoff_has_a_row_from_saturdays_export(ledger, tmp_path):
     """Finding 0/9's case: LaLiga's Sunday 12:00 CEST slot is 10:00Z, ten minutes after sp-soccer-morning-after fires
     at 09:50Z. Sunday's export runs after that chain's syncs (here 10:10Z) and so cannot write it; Saturday's export
-    (summer time: Saturday's 10:30 London is 09:30Z) reaches past Sunday's fire by EXPORT_REACH, so the game has a
-    row, and last_calls reads it (the last row written before its kickoff)."""
+    (summer time: Saturday's 10:30 London is 09:30Z) reaches past Sunday's fire by EXPORT_WINDOW_MARGIN (2 h, addendum
+    188 item 4), so the game has a row, and last_calls reads it (the last row written before its kickoff)."""
     _world(ledger)
     t = _teams("PD")
     rest = _priors("PD", t)
@@ -596,7 +598,7 @@ def test_12_the_sunday_10z_kickoff_has_a_row_from_saturdays_export(ledger, tmp_p
     out = tmp_path / "x"
     _, a = _export(sat, hours=None, out=out)
     _, b = _export(sun, hours=None, out=out)
-    assert [r["match_id"] for r in a["predictions"]] == [911] and a["window"]["before"] == "2026-10-11T15:50:00"
+    assert [r["match_id"] for r in a["predictions"]] == [911] and a["window"]["before"] == "2026-10-11T11:50:00"
     assert b["predictions"] == [] and b["missing"] == []          # after Sunday's stamp only: never in its file
     got = sx.last_calls(str(out))
     assert list(got) == [911] and got[911]["prediction_stamp"] == sat.isoformat()
@@ -613,9 +615,9 @@ def test_12_the_chain_step_runs_bare_and_the_cli_prints_its_window(ledger, monke
     monkeypatch.setattr(sx, "utc_now_naive", lambda: now)
     r = CliRunner().invoke(cli.cli, ["export-soccer-expansion-shadow"])
     assert r.exit_code == 0, r.output
-    assert ("1 rows · kickoffs after 2026-10-30T14:20:00 and before 2026-10-31T16:30:00 (until the next soccer sync "
-            "chain's export (soccer-prematch, sp-soccer-saturday.timer + EXPORT_REACH 6h; ARCHITECT 2026-10-30, "
-            "addendum 185 D2))") in r.output
+    assert ("1 rows · kickoffs after 2026-10-30T14:20:00 and before 2026-10-31T12:30:00 (until the next soccer sync "
+            "chain's export (soccer-prematch, sp-soccer-saturday.timer + EXPORT_WINDOW_MARGIN 2h; ARCHITECT "
+            "2026-10-30, addendum 185 D2, addendum 188 item 4))") in r.output
     assert CliRunner().invoke(cli.cli, ["export-soccer-expansion-shadow", "--hours", "0"]).exit_code == 2   # usage
 
 
@@ -734,7 +736,9 @@ def test_16_the_audit_splits_differences_by_the_rows_pending_before():
     assert [(f["match_id"], f["pending_before"]) for f in a["expected"]] == [(2, 3)]
     assert [f["pending_before"] for f in a["findings"]] == [0, None, None, None, None, None]
     L = lw.audit_lines("SA", a)
-    assert L[0].endswith("differ from the recompute 7 (R1: never resolved either way)")
+    assert L[0].endswith("differ from the recompute 7 (R1: never resolved either way) · superseded 0 (earlier rows of "
+                         "these members from other runs; the row audited is the last one exported before the kickoff, "
+                         "addendum 188 item 4)")
     assert L[1].startswith("  - SA · FINDINGS 6: ") and L[8].startswith("  - SA · EXPECTED 1: ")
     assert L[2].endswith("pending_before 0") and L[3].endswith("pending_before not on the row")
     assert L[9].startswith("    EXPECTED match 2 ") and L[9].endswith("pending_before 3") and len(L) == 10
@@ -801,3 +805,103 @@ def test_17_rows_continue_after_a_verdict_and_carry_no_verdict_label(ledger, tmp
     _, doc = _export(now, out=tmp_path)
     (r,) = [x for x in doc["predictions"] if x["competition"] == "SA"]
     assert r["gate_verdict"] == f"leagues-sa-v1 · declared {AT_TEXT}" and "verdict" not in r["gate_verdict"]
+
+
+# ------------------------------------- 18. addendum 188 item 4: NO ROW IS EVER REWRITTEN, the audit's superseded --
+
+ADD188 = ("ARCHITECT 2026-10-30 14:50 ET, addendum 188 item 4, verbatim in part: \"NO ROW IS EVER REWRITTEN — each run "
+          "writes its own dated file (one per run); a fixture covered by two runs has two rows; the audit's row for a "
+          "fixture is the LAST row whose export time is before its kickoff (the lowest pending_before by construction), "
+          "the earlier rows counted as superseded on the audit's line. A run never reads or edits another run's file.\"")
+
+
+def _files(d):
+    return sorted(Path(d).glob(f"{sx.FILE_PREFIX}*.json"))
+
+
+def test_18_two_runs_in_one_minute_write_two_files_the_first_untouched(ledger, tmp_path):
+    """ADD188: each run its own file, named to the microsecond and created exclusively: two runs in the same minute
+    leave two files, the first byte for byte as written; a run whose name exists is refused (ExpansionRefused) and
+    writes nothing, the existing file untouched."""
+    _world(ledger)
+    t = _teams("PD")
+    _priors("PD", t)
+    _game(900, "PD", NOW + timedelta(hours=5), (t[0], t[1]), MatchStatus.SCHEDULED)
+    out = tmp_path / "ex"
+    p1, a = _export(NOW + timedelta(seconds=10), out=out)
+    first = Path(p1).read_bytes()
+    p2, b = _export(NOW + timedelta(seconds=40, microseconds=5), out=out)
+    assert p1 != p2 and [f.name for f in _files(out)] == [Path(p1).name, Path(p2).name]
+    assert Path(p1).name == f"{sx.FILE_PREFIX}2026-12-20_120010_000000.json"
+    assert Path(p2).name == f"{sx.FILE_PREFIX}2026-12-20_120040_000005.json"
+    assert Path(p1).read_bytes() == first and a["count"] == b["count"] == 1
+    with pytest.raises(sx.ExpansionRefused, match="already exists: no row is ever rewritten"):
+        _export(NOW + timedelta(seconds=10), out=out)
+    assert Path(p1).read_bytes() == first and len(_files(out)) == 2
+    calls = sx.last_calls(str(out))
+    assert calls[900]["exported_at"] == (NOW + timedelta(seconds=40, microseconds=5)).isoformat()
+
+
+def test_18_the_command_refuses_an_existing_name_exit_2_nothing_overwritten(ledger, monkeypatch):
+    """ADD188 through the command: the second run at the same instant prints REFUSED and exits 2; the first file is
+    byte for byte as written and no other file appears."""
+    import cli
+    _world(ledger)
+    t = _teams("PD")
+    _priors("PD", t)
+    _game(900, "PD", NOW + timedelta(hours=5), (t[0], t[1]), MatchStatus.SCHEDULED)
+    monkeypatch.setenv("SP_EXPORTS_MIRROR_ROLE", "host")
+    monkeypatch.setattr(sx, "utc_now_naive", lambda: NOW)
+    assert CliRunner().invoke(cli.cli, ["export-soccer-expansion-shadow"]).exit_code == 0
+    (f,) = _files("exports")
+    first = f.read_bytes()
+    r = CliRunner().invoke(cli.cli, ["export-soccer-expansion-shadow"])
+    assert r.exit_code == 2 and isinstance(r.exception, SystemExit), r.output
+    assert "already exists: no row is ever rewritten" in r.output and "Nothing was written." in r.output
+    assert _files("exports") == [f] and f.read_bytes() == first
+
+
+def test_18_the_audits_row_is_the_last_before_kickoff_the_earlier_counted_superseded(ledger, tmp_path):
+    """ADD188: every member covered by two runs (one export of the whole window at the declaration, with earlier games
+    pending, then one five minutes before each kickoff with every earlier game final). stored_rows keeps the later
+    row (pending_before 0) and counts the earlier one superseded; the audit finds nothing, sums 60 superseded, and
+    its line prints the count."""
+    _world(ledger, decl("SA"))
+    out = tmp_path / "ex"
+    games = _sequenced()
+    _, big = _export(AT + timedelta(minutes=5), hours=24 * 16, out=out)
+    assert len(big["predictions"]) == 60
+    for mid, ko, hs, as_ in games:
+        _export(ko - timedelta(minutes=5), hours=1, out=out)
+        _finish(mid, hs, as_)
+    assert len(_files(out)) == 61
+    rows = lw.stored_rows("SA", AT_TEXT, str(out))
+    assert rows[2059]["inputs_read"]["pending_before"] == 0 and rows[2059]["superseded"] == 1
+    assert rows[2059]["exported_at"] == (games[-1][1] - timedelta(minutes=5)).isoformat()
+    w = lw.read(("SA",), now=NOW, export_dir=str(out))["SA"]
+    a = lw.score(w, export_dir=str(out), now=NOW)["audit"]
+    assert a == {"present": 60, "missing": 0, "findings": [], "expected": [], "unreadable": [], "superseded": 60}
+    assert lw.audit_lines("SA", a)[0].endswith(" · superseded 60 (earlier rows of these members from other runs; the "
+                                               "row audited is the last one exported before the kickoff, addendum 188 "
+                                               "item 4)")
+
+
+def test_18_the_readers_order_by_exported_at_never_the_file_name(tmp_path):
+    """last_calls and stored_rows keep the row with the latest exported_at before the kickoff, whatever the names'
+    order: a minute-stamped file from before the switch sorts after a microsecond-stamped one of the same minute
+    ("_1435." > "_143000_"), so a name-ordered read would keep the earlier row."""
+    ko = "2026-11-06T18:00:00"
+    base = {"match_id": 7, "utc_date": ko, "competition": "SA", "declared_at": AT_TEXT}
+
+    def doc(at, p):
+        return {"engine": sx.ENGINE, "exported_at": at,
+                "predictions": [{**base, "prediction": {"home_win_prob": p, "draw_prob": 0.3, "away_win_prob": 0.7 - p,
+                                                        "top_pick": "home_win", "top_pick_prob": p}}]}
+    (tmp_path / f"{sx.FILE_PREFIX}2026-11-06_143000_000000.json").write_text(json.dumps(doc("2026-11-06T14:36:00",
+                                                                                              0.5)))
+    (tmp_path / f"{sx.FILE_PREFIX}2026-11-06_1435.json").write_text(json.dumps(doc("2026-11-06T14:35:00", 0.4)))
+    assert [f.name for f in _files(tmp_path)][-1].endswith("_1435.json")          # the earlier row's name is last
+    assert sx.last_calls(str(tmp_path))[7]["exported_at"] == "2026-11-06T14:36:00"
+    got = lw.stored_rows("SA", AT_TEXT, str(tmp_path))[7]
+    assert got["exported_at"] == "2026-11-06T14:36:00" and got["prediction"]["home_win_prob"] == 0.5
+    assert got["superseded"] == 1

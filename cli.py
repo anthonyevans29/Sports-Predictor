@@ -6664,19 +6664,21 @@ def soccer_expansion_gate_cmd(preflight, no_fetch):
 @click.option("--hours", default=None, type=click.IntRange(min=1),
               help="A manual run's explicit window: kickoffs in (now, now + HOURS). Without it (the chain step), "
                    "kickoffs after now and before the next soccer sync chain's export (its timer's fire + "
-                   "soccer_expansion.EXPORT_REACH; addendum 185 D2).")
+                   "soccer_expansion.EXPORT_WINDOW_MARGIN, 2 h; addendum 185 D2, addendum 188 item 4).")
 def export_soccer_expansion_shadow_cmd(hours):
     """soccer-expansion-v1 SHADOW, on the HOST only (ARCHITECT 2026-10-30 addendum 178 R6, verbatim in part:
     "THE EXPORT runs on the HOST only (the writer of record ...) — the laptop never exports a league."). PD (159
     item 6(a)) and each DECLARED league of SA, BL1, FL1, ELC (R5: none before its declaration) priced by
     leagues_candidate.predict_as_of at the run record's frozen constants, never the production model (164 item 3);
-    engine model_shadow (greyed; never a Desk call, never an order line, no prediction row). Writes
-    exports/soccer_expansion_shadow_<stamp>.json.
+    engine model_shadow (greyed; never a Desk call, never an order line, no prediction row). Writes its own new file,
+    exports/soccer_expansion_shadow_<stamp to the microsecond>.json, created exclusively (ARCHITECT 2026-10-30,
+    addendum 188 item 4: "NO ROW IS EVER REWRITTEN — each run writes its own dated file"): a name that exists is
+    refused (exit 2, nothing written), never overwritten.
     THE SCHEDULE (ARCHITECT 2026-10-30 12:45 ET, addendum 185 D2): the LAST step of the soccer sync chains
     (deploy/hosting/chains.py: soccer-prematch, run by sp-soccer-friday and sp-soccer-saturday, and
     soccer-morning-after), run bare: its rows are the fixtures kicking off after the run and before the next chain's
-    export (soccer_expansion.next_chain_run, from the three timers' schedules, plus EXPORT_REACH: Code's reading of
-    "before the next chain's"). --hours is a manual run's explicit override.
+    export (soccer_expansion.next_chain_run, from the three timers' schedules, plus EXPORT_WINDOW_MARGIN = 2 h: Code's
+    reading of "before the next chain's", ruled by addendum 188 item 4). --hours is a manual run's explicit override.
     REFUSED (exit 2) before any DB read, nothing read or written, unless this machine's role
     (desk_policy.not_host_reason, on the fence's own reading: host.env, the environment, the checkout's .env) is
     host: laptop, unset, a value that is neither, and an unreadable host.env each refuse with their own reason. The
@@ -6699,7 +6701,8 @@ def export_soccer_expansion_shadow_cmd(hours):
     from src.walters import soccer_expansion as sx
     try:
         path, doc = sx.export_shadow(hours=hours)
-    except sx.ExpansionRefused as e:         # next_chain_run: a timer schedule it cannot read (never guessed)
+    except sx.ExpansionRefused as e:         # next_chain_run (a timer schedule it cannot read: never guessed), or
+        #                                      the run's file name exists (addendum 188 item 4: never overwritten)
         click.echo(f"REFUSED: {e}. Nothing was written.")
         raise SystemExit(2)
     console.print(f"[green]✓ Wrote soccer-expansion SHADOW to {path}[/green]")

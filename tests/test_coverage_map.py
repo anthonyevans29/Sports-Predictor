@@ -450,6 +450,56 @@ def test_pd_binds_in_coverage_only_when_the_exports_pd_binding_passes(env):
                    "hold PD (soccer_expansion.shadow_binding, the export's own)"), why
 
 
+def test_pd_reads_no_shadow_when_the_export_refuses_pd(env):
+    """Pass-3 finding 6: PD's confirming lane (soccer-expansion-v1 confirming) is not SHADOW when the chains' export of
+    that very model refuses PD (SHADOW_BINDS): the printed status is MARKET-ONLY with the export's reason, never
+    "shadow v1"; with the binding passing, the lane reads its shadow as before."""
+    lanes = [lane("pd", "confirming", "soccer-expansion-v1", ["PD"])]
+    Path(reg.LEDGER).write_text(json.dumps(ENTRIES + [SX_RUN]))
+    entries = {e["id"]: e for e in reg.load(reg.LEDGER)}
+    got = cm.model_status("PD", lanes, entries, {}, day=NOW.date())
+    assert got["shadow"] == "v1" and got["from"].endswith("roadmap lane pd: confirming; registry soccer-expansion-v1: "
+                                                          "confirming"), got
+    off = {**SX_RUN, "run": {"result": {**SX_RUN["run"]["result"], "surviving": ["SA"]}}}
+    Path(reg.LEDGER).write_text(json.dumps(ENTRIES + [off]))
+    entries = {e["id"]: e for e in reg.load(reg.LEDGER)}
+    got = cm.model_status("PD", lanes, entries, {}, day=NOW.date())
+    assert got["shadow"] is None and got["label"] == "MARKET-ONLY", got
+    assert ("roadmap lane pd: confirming; registry soccer-expansion-v1: confirming, but soccer-prematch, "
+            "soccer-morning-after run export-soccer-expansion-shadow, which writes no PD row: its binding of PD is "
+            "refused: soccer-expansion-v1: the run record's surviving set ['SA'] does not hold PD") in got["from"], got
+
+
+def test_expansion_binds_reads_one_registry_the_exports_own(env):
+    """Pass-3 findings 3/12: the answer is soccer_expansion.shadow_binding's alone, on the registry the export reads
+    (registry.LEDGER at call time); `entries` (read_ledgers' copy) is never read, so one call never mixes two
+    registries: an SA entry only in `entries` is not declared, and one only in the export's registry binds."""
+    f = cm.SHADOW_BINDS["export-soccer-expansion-shadow"]
+    Path(reg.LEDGER).write_text(json.dumps(ENTRIES + [SX_RUN]))
+    assert f("SA", {SA_DECL["id"]: SA_DECL}) == ("SA is not declared (no registry entry leagues-sa-v1; addendum 178 "
+                                                 "R5: nothing is a shadow before it is declared)")
+    Path(reg.LEDGER).write_text(json.dumps(ENTRIES + [SX_RUN, SA_DECL]))
+    assert f("SA", {}) is None
+
+
+@pytest.mark.parametrize("result", [None, "not a dict", []])
+def test_a_run_record_with_no_usable_result_refuses_cleanly_in_coverage(env, result):
+    """Pass-3 finding 8: a soccer-expansion-v1 run record stored with `result` null (or another kind) reads as no run
+    record: SA's binding refuses with run_record_constants' text and PD's too, never an AttributeError out of
+    coverage (exit 0 whatever the gaps)."""
+    make_db(env, [(860, "SA", "2026-10-17 19:00", "SCHEDULED")])
+    Path(reg.LEDGER).write_text(json.dumps(ENTRIES + [{**SX_RUN, "run": {"result": result}}, SA_DECL]))
+    f = cm.SHADOW_BINDS["export-soccer-expansion-shadow"]
+    for code in ("SA", "PD"):
+        assert f(code, {}) == (f"its binding of {code} is refused: soccer-expansion-v1 has no run record holding "
+                               "production_version, rho, elo_goal_coeff: the frozen constants are unknown (R1), nothing "
+                               "is read (soccer_expansion.shadow_binding, the export's own)"), code
+    code, out = run("--date", DAY)
+    assert code == 0, out
+    line = line_of(out, "SA")
+    assert "· MARKET-ONLY (" in line and "shadow v1" not in line and "has no run record holding" in line, line
+
+
 def test_the_cups_and_the_four_leagues_are_market_only_from_the_codes_sets(env, monkeypatch):
     """CL, EFL, UEL from cup_coeff.EXAM_COMPS; SA, BL1, FL1, ELC from the three expansion sets. Read from the code at
     run time (a set changed in the code changes the line), never a copy: CL out of EXAM_COMPS is UNKNOWN."""

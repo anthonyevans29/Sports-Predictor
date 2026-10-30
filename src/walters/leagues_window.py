@@ -51,8 +51,8 @@ the bar is 155 item 4(b)'s (below the close's log-loss), not league_gate's."
   ahead -> to come; FINISHED under AWD / WO -> excluded (La Liga's predicate, soccer_expansion.AWARDED, addendum 16
   item 1 Q2); FINISHED FT, or with no raw code (C1; addendum 185), whose stored 90-minute score disagrees with its
   stored score (disagrees(); addendum 184 item 2: a data finding, never read as one figure or the other) ->
-  PENDING ("score disagreement"), listed with both figures; FINISHED with no usable result (result_of: no scores stored, or a non-FT code such as AET / PEN with
-  no 90-minute score; addendum 181 item 3) -> PENDING; then the
+  PENDING ("score disagreement"), listed with both figures; FINISHED with no usable result (result_of: no scores
+  stored, or a non-FT code such as AET / PEN with no 90-minute score; addendum 181 item 3) -> PENDING; then the
   three-way close as paper scores it (paper._guarded_three_way at the kickoff: mismatched legs, or UNPRICED's cause
   -> excluded by cause); then the candidate (leagues_candidate.predict_as_of on the finished rows strictly before
   the kickoff, the entry's frozen constants): below_min_prior / no_strength -> excluded by cause, no slot; else a
@@ -66,9 +66,9 @@ the bar is 155 item 4(b)'s (below the close's log-loss), not league_gate's."
   "results strictly before each fixture's kickoff"): one not final (LIVE, SCHEDULED, or FINISHED, AWD / WO apart,
   with no score stored or no usable result) is PENDING (`before_instant`) and blocks, as R4's "a LIVE or un-ingested
   game before the 60th makes the read WAIT, never skip" reads; a regular-round FT or no-raw-code one whose scores
-  disagree is PENDING under its own cause and listed (addendum 184 item 2); a POSTPONED one is counted apart (it can enter by its
-  actual kickoff, R4); the rest are final, never in the window (an AWD / WO row among them is final whatever its row
-  stores, 181 item 2).
+  disagree is PENDING under its own cause and listed (addendum 184 item 2); a POSTPONED one is counted apart (it can
+  enter by its actual kickoff, R4); the rest are final, never in the window (an AWD / WO row among them is final
+  whatever its row stores, 181 item 2).
 - THE ONE PREDICATE (addendum 181 item 2: soccer_expansion.unscoreable, La Liga's): a game finished under AWD or WO
   is neither scored nor walked (no Elo or prior update, whatever scores its row carries); a non-FT row with a stored
   90-minute score is walked and scored on the 90-minute score; a no-raw-code row is walked and scored as the gate
@@ -451,7 +451,7 @@ def membership(s, code: str, declared_at: datetime, constants: dict, now: dateti
         if _raw(m) in AWARDED:
             out["excluded"]["awarded"] += 1
             continue
-        if disagrees(m):             # 184 item 2: a data finding, before any slot or cause: never one figure or the other
+        if disagrees(m):             # 184 item 2: a data finding before any slot or cause, never one figure or other
             out["pending"]["score_disagreement"] += 1
             out["blocking"] += 1
             out["score_disagreement"].append(m)

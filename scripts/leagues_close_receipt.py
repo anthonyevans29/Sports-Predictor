@@ -22,6 +22,10 @@ Per league (SA, BL1, FL1, ELC; the season as the DB stores it, "2026/27" by defa
   - the projection: the season's stored fixtures (cancelled / postponed / stale_orphan left out) whose kickoff's UTC
     date is on or after the declaration date (2026-11-06), in kickoff order; the 60th's kickoff UTC date, every game
     assumed to get a three-way close. Fewer than 60 stored: no date, the count printed (law 4).
+  - the capture quality per league and kickoff weekday (158 item 2(b)), the controlling capture's age printed with it,
+    and every qualifying close more than 6 hours old at kickoff named (match, kickoff, capture time, age), counted in
+    the close record all the same (ARCHITECT 2026-10-24, addendum 164 item 2(c): "a close more than 6 hours old is
+    counted but named");
 Then step (c)'s date as 156 item 1 rules it: the earliest of the four, the other three named.
 
 The DB is the one DATABASE_URL names (else ./data/sports.db). A path with no file is refused before any import that

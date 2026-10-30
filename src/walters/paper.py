@@ -724,6 +724,7 @@ WINDOW_GAMES = 60                                      # addendum 155 item 4(b):
 
 
 WEEKDAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+STALE_CLOSE_H = 6.0       # ARCHITECT 2026-10-24, addendum 164 item 2(c): "a close more than 6 hours old is counted but named"
 
 
 def _quality(q: dict, m, rows, tickers: dict, bucket: str, mism: dict | None = None, homes: dict | None = None,
@@ -744,7 +745,10 @@ def _quality(q: dict, m, rows, tickers: dict, bucket: str, mism: dict | None = N
     caps, t = _last_capture(rows, m.utc_date)
     if t is None:
         return
-    q.setdefault("ages", {}).setdefault(day, []).append((m.utc_date - t).total_seconds() / 3600.0)
+    age = (m.utc_date - t).total_seconds() / 3600.0
+    q.setdefault("ages", {}).setdefault(day, []).append(age)
+    if bucket == "n" and age > STALE_CLOSE_H:           # 164 item 2(c): a qualifying close, counted in n, named
+        q.setdefault("stale", []).append({"match_id": m.id, "kickoff": m.utc_date, "captured": t, "age_h": age})
     legs = [r for legs in caps[t].values() for r in legs]
     q["sources"].update(str(getattr(r, "source", None)) for r in legs)
     q["events"].update(kalshi_legs.event_of(tickers[r.id]) if tickers.get(r.id) else "(no ticker)" for r in legs)
@@ -777,6 +781,12 @@ def quality_lines(code: str, q: dict) -> list[str]:
         f"{k} {v}" for k, v in sorted(q["sources"].items())) or "none") + " · events " + (", ".join(
         f"{k} {v}" for k, v in sorted(q["events"].items())[:8]) or "none")
              + (f" (+{len(q['events']) - 8} more)" if len(q["events"]) > 8 else ""))
+    stale = q.get("stale", [])
+    L.append(f"    qualifying closes more than {STALE_CLOSE_H:g} h old at kickoff (164 item 2(c); counted in the close "
+             f"record, named): {len(stale)}")
+    for c in stale:
+        L.append(f"      match {c['match_id']} · kickoff {c['kickoff']:%a %Y-%m-%d %H:%M}Z · close captured "
+                 f"{c['captured']:%Y-%m-%d %H:%M:%S}Z · age {c['age_h']:.1f} h")
     L.append(f"    superseded (a later capture forms no close where an older one would; never substituted): "
              f"{len(q['superseded'])}")
     for c in q["superseded"]:
@@ -838,7 +848,7 @@ def leagues_season(codes, season: str, declared: date, now: datetime | None = No
             mism = kalshi_legs.mismatched(s, ids) if ids else {}        # per game: the id set changes no verdict
             tickers, current, homes = _three_way_guards(s, ids, snaps)
             rec = _empty(len(fin), KIND_THREE)
-            quality = {"by_weekday": {}, "superseded": [], "sources": Counter(), "events": Counter()}
+            quality = {"by_weekday": {}, "superseded": [], "stale": [], "sources": Counter(), "events": Counter()}
             buckets = ("n", "no_result", "mismatched", *(key for key, _ in UNPRICED))
             for m in fin:
                 if _lw.fenced(cut, m):

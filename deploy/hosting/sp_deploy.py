@@ -500,8 +500,12 @@ def timers_state(repo: Path | None = None, enabled_path: Path | None = None) -> 
     """ARCHITECT 2026-10-23, addendum 155 item 8(b): "a line in the deploy receipt naming any shipped timer not in
     /etc/sports-predictor/timers.enabled on the host (names only)". Read-only. `not_enabled`: every shipped timer
     (deploy/hosting/systemd/*.timer of the checked-out tree) that the file does not name; `by_list`: those names
-    under the T11 list that carries them (an unlisted one under "unlisted"). An unreadable file or runbook is an
-    `error` with `not_enabled` null, never a guessed list (law 4)."""
+    under the T11 list that carries them, of the lists the checked-out runbook holds (TIMERS first, then the file's
+    order; one on no list under "unlisted"); `lists_absent`: a list T11_LISTS names that the runbook does not hold.
+    ARCHITECT 2026-10-28 (#725): the deploy runs the release it replaces, so this code reads the NEXT release's
+    runbook; a list it once named and the runbook retired is absent, never a reason to lose the others. An
+    unreadable file or runbook is an `error` with `not_enabled` (file) or every list (runbook) unread, never a
+    guessed list (law 4)."""
     path = Path(enabled_path or c.TIMERS_ENABLED)
     shipped = c.shipped_timers(repo)
     try:
@@ -510,31 +514,41 @@ def timers_state(repo: Path | None = None, enabled_path: Path | None = None) -> 
         return {"not_enabled": None, "by_list": None, "error": f"{path} unreadable ({e.__class__.__name__})"}
     try:
         lists = c.t11_lists(Path(repo or c.REPO) / "docs" / "specs" / "hosting-h1.md")
-    except (OSError, ValueError) as e:
-        lists, err = {}, f"hosting-h1.md T11 lists unreadable ({e.__class__.__name__})"
+    except (OSError, UnicodeDecodeError, ValueError) as e:
+        lists, err = {}, f"hosting-h1.md T11 lists unreadable ({e.__class__.__name__}: {e})"
     else:
         err = None
     missing = [t for t in shipped if t not in enabled]
-    by_list: dict[str, list[str]] = {}
+    order = ["TIMERS", *(n for n in lists if n != "TIMERS")]
+    by_list: dict[str, list[str]] = {n: [] for n in (*order, "unlisted")}
     for t in missing:
-        by_list.setdefault(next((n for n in c.T11_LISTS if t in lists.get(n, ())), "unlisted"), []).append(t)
-    return {"not_enabled": missing, "by_list": by_list, **({"error": err} if err else {})}
+        by_list[next((n for n in order if t in lists.get(n, ())), "unlisted")].append(t)
+    absent = [] if err else [n for n in c.T11_LISTS if n not in lists]
+    return {"not_enabled": missing, "by_list": {n: v for n, v in by_list.items() if v},
+            **({"lists_absent": absent} if absent else {}), **({"error": err} if err else {})}
 
 
 def timers_line(st: dict) -> str:
-    """The receipt's console line. "!" when a timer T11 enables (TIMERS) or one on no T11 list is not enabled, or
-    when the file cannot be read; a plain line when only the lists T11 holds off are not enabled."""
+    """The receipt's console line. ARCHITECT 2026-10-28 (#725): "the deploy's timers line must name only the TIMERS
+    timers missing." "!" naming them when a timer T11 enables (TIMERS) or one on no T11 list is not enabled, or when
+    the file or the runbook cannot be read, or the runbook holds no TIMERS list, whether or not a timer is missing
+    (law 4: a block that cannot say which list T11 enables is never read as "held off" or "✓"); a list T11 holds off
+    (MLB_LAPTOP_ONLY, any other the runbook holds) is counted, never named, and alone it leaves the line plain."""
     if st["not_enabled"] is None:
         return f"\n  ! timers: {st['error']} — the shipped timers could not be compared with the host's enabled list"
+    absent = "".join(f" (hosting-h1.md T11 holds no {n} list)" for n in st.get("lists_absent", ()))
+    err = f" ({st['error']})" if st.get("error") else ""
+    unread = st.get("error") or "TIMERS" in st.get("lists_absent", ())
     if not st["not_enabled"]:
-        return f"\n  ✓ timers: every shipped timer is in {c.TIMERS_ENABLED}"
+        return f"\n  {'!' if unread else '✓'} timers: every shipped timer is in {c.TIMERS_ENABLED}" + absent + err
     by = st["by_list"]
-    parts = [f"{', '.join(by[n])} ({n})" for n in (*c.T11_LISTS, "unlisted") if by.get(n)]
-    loud = by.get("TIMERS") or by.get("unlisted") or st.get("error")
+    parts = [f"{', '.join(v)} ({n})" if n in ("TIMERS", "unlisted") else f"{len(v)} on {n} (held off by T11)"
+             for n, v in by.items()]                     # timers_state's order: TIMERS, the file's, unlisted
+    loud = by.get("TIMERS") or by.get("unlisted") or unread
     head = ("  ! shipped timers not in " if loud else "  · shipped timers not in ") + f"{c.TIMERS_ENABLED}: "
     tail = (" — a TIMERS timer not enabled: install and enable it by hosting-h1.md T11's recipe for a live host"
             if by.get("TIMERS") else "")
-    return "\n" + head + " · ".join(parts) + tail + (f" ({st['error']})" if st.get("error") else "")
+    return "\n" + head + " · ".join(parts) + tail + absent + err
 
 
 def _systemctl_read(argv: list[str]) -> tuple[int, str]:
@@ -757,6 +771,7 @@ def main(argv=None) -> int:
                       "ledger_fragments_pending": len(pending),
                       "timers_not_enabled": timers["not_enabled"], "timers_not_enabled_by_list": timers["by_list"],
                       **({"timers_error": timers["error"]} if timers.get("error") else {}),
+                      **({"timers_t11_lists_absent": timers["lists_absent"]} if timers.get("lists_absent") else {}),
                       "timers_active_not_listed": active["active_not_listed"],
                       **({"timers_active_error": active["error"]} if active.get("error") else {})})
     print(("✗ deploy (post-checkout hook FAILED; see above) " if checkout_warning else "✓ deploy ")

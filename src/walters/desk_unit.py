@@ -24,8 +24,8 @@ key, a non-numeric value, or a pool of zero each yield UNREAD, never a zero unit
 only to a unit computed from a successful read. The ET date is the page's time in America/New_York, not the host's UTC
 day."
 
-THE NUMBERS: unit = floor(UNIT_FRACTION x pool) in whole dollars, then the floor: max(that, floor) (#732 judgement J3:
-the floor is the least a unit is). The half-unit requirement (item 4) is checked on the floor and on the unit: half of
+THE NUMBERS: unit = floor(UNIT_FRACTION x pool) in whole dollars, then the floor: max(that, floor), the operator's
+hand-set minimum; a floor above floor(pool) leaves the day unread, "floor above the pool" (addendum 182 item 3). The half-unit requirement (item 4) is checked on the floor and on the unit: half of
 it (HALF_UNIT_FRACTION / UNIT_FRACTION of a unit) must buy one contract at MAX_LIMIT, the highest limit an order line
 writes. A floor that is set but is not a positive whole number, or that fails the requirement, leaves the day unread
 (law 4). An unset floor applies no floor and says so; the requirement still holds on the unit.
@@ -174,11 +174,16 @@ def compute(pool_usd, floor_raw: str | None, floor_source: str = "unset") -> dic
         if not _half_buys_one(floor):
             return {"state": "unread", "why": f"{name} fails the requirement: half a unit at the floor cannot buy "
                                               f"one contract at {MAX_LIMIT}"}
+        if floor > pool.to_integral_value(rounding=ROUND_FLOOR):
+            # ARCHITECT 2026-10-30 11:20 ET, addendum 182 item 3 (J3): "the floor never funds a unit the pool cannot. A
+            # floor above floor(pool) makes the day UNREAD, the reason named ("floor above the pool"); the operator
+            # then decides (the floor or the pool), the Desk never sizes a whole pool on one call."
+            return {"state": "unread", "why": f"{name}: floor above the pool (the operator decides: the floor or the "
+                                              "pool)"}
         if int(floor) > raw:
-            # the unit is then above UNIT_FRACTION of the pool, said by name and never by figure; whether a floor above
-            # the fraction, or above the whole pool, may stand is the architect's (#732 judgement J3, no ceiling yet)
-            floor_state = (f"{name} applied (the floor binds: the unit is above UNIT_FRACTION of the pool"
-                           + ("; the floor is above the whole pool" if floor > pool else "") + ")")
+            # 182 item 3: "A floor above the fraction's unit but within the pool applies as the operator's hand-set
+            # minimum, said by name as built."
+            floor_state = f"{name} applied (the floor binds: the unit is above UNIT_FRACTION of the pool)"
         else:
             floor_state = f"{name} set (not binding)"
     unit = max(raw, int(floor)) if floor is not None else raw

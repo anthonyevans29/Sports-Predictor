@@ -92,9 +92,9 @@ def test_the_floor_binds_below_it_and_never_above_and_a_bad_floor_is_unread():
     assert du.compute(FIXTURE_POOL_SMALL, str(FIXTURE_FLOOR), "environment") == {
         "state": "read", "unit_usd": FIXTURE_FLOOR,
         "floor_state": "SP_UNIT_FLOOR_USD applied (the floor binds: the unit is above UNIT_FRACTION of the pool)"}
-    # a floor above the whole pool is said by name (no ceiling: #732 judgement J3 is the architect's)
+    # a floor above the whole pool is unread, "floor above the pool" (addendum 182 item 3, J3 ruled)
     above = du.compute(FIXTURE_FLOOR_LOW * 5, str(FIXTURE_FLOOR), "environment")
-    assert above["unit_usd"] == FIXTURE_FLOOR and above["floor_state"].endswith("; the floor is above the whole pool)")
+    assert above["state"] == "unread" and "floor above the pool" in above["why"] and "unit_usd" not in above
     assert du.compute(FIXTURE_POOL_SMALL, str(FIXTURE_FLOOR_LOW), "environment") == {
         "state": "read", "unit_usd": 88, "floor_state": "SP_UNIT_FLOOR_USD set (not binding)"}
     for bad in ("abc", "0", "-11", "11.5"):                                 # set, but not a positive whole number
@@ -238,9 +238,12 @@ def test_an_unread_day_prices_the_exec_gate_at_the_reference_fill_and_labels_it(
 
 
 def test_j1_the_read_can_move_a_borderline_tier(day):
-    """J1 is NOT neutral (for the architect, #732): the fee rounds per fill of the order's own count (#87 v1.1 (h)),
-    so a row whose exec edge sits at 4pp is a 1u PLAY at the reference fill and a 0.5u PLAY on a read day's unit.
-    Pinned so the docs' claim stays true; which basis is right is the architect's ruling."""
+    """J1, RULED as built (ARCHITECT 2026-10-30 11:20 ET, addendum 182 item 2): "The exec edge is the edge of the order
+    the Desk would place; with no order (unread) the reference fill (ORDER_UNIT_CONTRACTS per 1u, the pre-v1.2 basis) is
+    the basis, labelled contracts_basis on the row ... Code pins the synthetic receipt (the 0.55 ask at 4pp, both bases'
+    tier) as a test so the dependence is visible on the record, never silent." The fee rounds per fill of the order's
+    own count (#87 v1.1 (h)): at the 0.55 ask the row's exec edge is at 4pp or above on the reference fill (a 1u PLAY,
+    unread: no order placed) and below 4pp on a read day's synthetic unit (a 0.5u PLAY). The thresholds stand."""
     legs = {"HOME": {"ticker": "T-FIX-HOME", "bid": 0.54, "ask": 0.55}}
     doc = {"sport": "nfl", "predictions": [dict(nfl("FIX", 0.6071, 0.55, bid=0.54, ask=0.55, legs=legs),
                                                 match_id=7001)]}
@@ -250,6 +253,21 @@ def test_j1_the_read_can_move_a_borderline_tier(day):
         r = dp.annotate(json.loads(json.dumps(doc)), now=NOW)["predictions"][0]["desk"]
     assert (u["call"], u["units"]) == ("PLAY", 1) and u["exec"]["edge_pp"] >= 4
     assert (r["call"], r["units"]) == ("PLAY", 0.5) and r["exec"]["edge_pp"] < 4
+    assert u["exec"]["contracts_basis"] == dp.UNIT_REFERENCE_FILL_TEXT and "contracts_basis" not in r["exec"]
+    assert u["order"]["text"] is None and r["order"]["text"]           # the unread day places nothing
+
+
+def test_j3_a_floor_above_the_pool_is_unread_never_a_whole_pool_unit():
+    """Addendum 182 item 3: "A floor above floor(pool) makes the day UNREAD, the reason named ("floor above the pool")
+    ... A floor above the fraction's unit but within the pool applies as the operator's hand-set minimum, said by name
+    as built." Synthetic figures only."""
+    over = du.compute(FIXTURE_POOL_SMALL, str(FIXTURE_POOL_SMALL + 1))
+    assert over["state"] == "unread" and "floor above the pool" in over["why"] and "unit_usd" not in over
+    within = du.compute(FIXTURE_POOL_SMALL, str(FIXTURE_FLOOR))
+    assert within["state"] == "read" and within["unit_usd"] == FIXTURE_FLOOR
+    assert within["floor_state"].endswith("(the floor binds: the unit is above UNIT_FRACTION of the pool)")
+    whole = du.compute(FIXTURE_POOL_SMALL, str(FIXTURE_POOL_SMALL))      # exactly the pool: within it, applies
+    assert whole["state"] == "read"
 
 
 def test_yesterdays_unit_is_never_read_for_today(day):

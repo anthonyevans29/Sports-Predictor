@@ -70,5 +70,49 @@ def test_a_v1_1_file_with_no_unit_fields_masks_nothing(tmp_path, capsys):
 
 
 def test_a_key_named_unit_or_text_elsewhere_is_still_compared():
-    out = ce.diff({"x": {"unit": "a", "text": "b"}}, {"x": {"unit": "c", "text": "d"}}, masked={"n": 0})
+    out = ce.diff({"x": {"unit": "a", "text": "b"}}, {"x": {"unit": "c", "text": "d"}})
     assert out == ["$.x.text: 'b' vs 'd'", "$.x.unit: 'a' vs 'c'"]
+
+
+def test_an_order_against_null_is_printed_redacted(tmp_path, capsys):
+    """Codex on #735 (P1): a PLAY on one side and a PASS (desk.order null, desk_meta null) on the other formats the
+    whole object; its unit-bearing values are redacted first, and still counted."""
+    a, b = doc(FIXTURE_LAPTOP_UNIT, 11, FIXTURE_LAPTOP_POOL), doc(FIXTURE_HOST_UNIT, 11, FIXTURE_HOST_POOL)
+    b["predictions"][0]["desk"]["order"] = None
+    a["desk_meta"] = {"unit": a["desk_meta"]["unit"]}
+    b["desk_meta"] = None
+    rc, out = run(tmp_path, capsys, a, b)
+    for secret in (FIXTURE_LAPTOP_UNIT, FIXTURE_HOST_UNIT, FIXTURE_LAPTOP_POOL, FIXTURE_HOST_POOL, "BUY YES", "× 11"):
+        assert secret not in out, secret
+    assert ".desk.order: \"{'unit': '<masked>', 'text': '<masked>', 'contracts': '<mask" in out   # cut at 60
+    assert "$.desk_meta: \"{'unit': '<masked>'}\" vs 'None'" in out
+    assert "unit-bearing fields masked (policy v1.2): 4" in out and rc == ce.EXIT_DIVERGENT
+
+
+def test_the_redaction_reaches_the_pool_field_at_any_depth():
+    assert ce.redacted({"a": [{"pool_usd": "FIXTURE-POOL-A", "b": 1}]}) == {"a": [{"pool_usd": "<masked>", "b": 1}]}
+    assert ce.diff({"x": {"pool_usd": "FIXTURE-POOL-A"}}, {"x": None}) == ["$.x: \"{'pool_usd': '<masked>'}\" vs 'None'"]
+
+
+def test_the_count_reaches_past_the_diff_output_limit(tmp_path, capsys):
+    """Codex on #735 (P2): 41 earlier differing keys fill the 40-line output before a later order is visited."""
+    a, b = doc(FIXTURE_LAPTOP_UNIT, 10, FIXTURE_LAPTOP_POOL), doc(FIXTURE_HOST_UNIT, 10, FIXTURE_HOST_POOL)
+    for i in range(41):
+        a[f"a{i:02d}"], b[f"a{i:02d}"] = 0, 1
+    a["zz"], b["zz"] = {"order": {"unit": FIXTURE_LAPTOP_UNIT}}, {"order": {"unit": FIXTURE_HOST_UNIT}}
+    rc, out = run(tmp_path, capsys, a, b)
+    assert "unit-bearing fields masked (policy v1.2): 5" in out and rc == ce.EXIT_DIVERGENT
+
+
+def test_the_count_reaches_under_ignored_keys(tmp_path, capsys):
+    """Codex on #735 (P2): the cutover's documented --ignore-keys desk,desk_meta,... prunes both subtrees; their
+    unit-bearing fields are still counted (the count is the files', the same in both modes)."""
+    a, b = doc(FIXTURE_LAPTOP_UNIT, 10, FIXTURE_LAPTOP_POOL), doc(FIXTURE_HOST_UNIT, 10, FIXTURE_HOST_POOL)
+    rc, out = run(tmp_path, capsys, a, b, "--ignore-keys", "desk,desk_meta,line_move,late_news_flag")
+    assert "unit-bearing fields masked (policy v1.2): 4" in out and rc == ce.EXIT_CLEAN
+
+
+def test_rows_on_one_side_count_their_unit_fields_once_per_field():
+    row = doc(FIXTURE_LAPTOP_UNIT, 10, FIXTURE_LAPTOP_POOL)["predictions"][0]
+    other = {**row, "home_team": "Other FC"}
+    assert ce.unit_count({"p": [row]}, {"p": [row, other]}) == 6

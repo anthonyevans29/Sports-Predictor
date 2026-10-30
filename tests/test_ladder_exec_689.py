@@ -18,7 +18,7 @@ NOW = datetime(2026, 10, 11, 16, 0, tzinfo=timezone.utc)
 
 @pytest.fixture(autouse=True)
 def _contracts_per_unit(monkeypatch):
-    monkeypatch.delenv("SP_UNIT_USD", raising=False)                 # 1u = 10 contracts
+    monkeypatch.setattr(dp, "UNIT_PIN", dp.LEGACY_CONTRACTS_BASIS)   # 1u = 10 contracts (conftest's pin, stated)
 
 
 def ladder_row(probs=(0.25, 0.25, 0.50), legs=None):
@@ -88,3 +88,14 @@ def test_a_priced_leg_without_a_model_draw_says_why():
     lx = dp.ladder_exec_block(r, {"call": "LADDER", "units": 0.5})
     assert lx["cost"] is not None and lx["edge_pp"] is None and lx["model_p"] is None
     assert lx["why"] == "no model probability for draw + away (the row carries no draw probability): no edge"
+
+
+def test_an_unread_day_labels_the_ladder_exec_count_the_fees_basis(monkeypatch):
+    """Addendum 179 item 4 (#732): an unread day carries no order line; the ladder exec's count is then the reference
+    fill the fee is priced at, labelled so, never an order."""
+    monkeypatch.setattr(dp, "UNIT_PIN", dp.unit_unread(dp.UNIT_UNREAD_TEXT))
+    d = desk_of(ladder_row())
+    assert d["call"] == "LADDER" and d["order"]["text"] is None and d["order"]["why"] == dp.UNIT_UNREAD_TEXT
+    assert d["ladder_exec"]["contracts"] == 5 and d["ladder_exec"]["contracts_basis"] == dp.UNIT_REFERENCE_FILL_TEXT
+    monkeypatch.setattr(dp, "UNIT_PIN", dp.LEGACY_CONTRACTS_BASIS)
+    assert "contracts_basis" not in desk_of(ladder_row())["ladder_exec"]

@@ -11,6 +11,11 @@ Cockpit SHOWS and LOGS.
 #87 v1.1 ADDENDUM (2026-10-06): the verifies predate it and pin pre-addendum fixtures (join-bid, maker basis,
 "informational only", the frozen render golden), so files are written under dp.base_v11() by default;
 base=False writes them under the addendum (scripts/cockpit_exec_addendum_verify.py).
+
+DESK POLICY v1.2 (ARCHITECT 2026-10-30, addendum 179, #732): the Desk sizes its order lines from the day's unit file
+(logs/desk_unit_<ET date>.json). The verifies are synthetic and never read it: every file here is written under
+`unit` (desk_policy.unit_override), by default dp.LEGACY_CONTRACTS_BASIS, the pre-v1.2 10 contracts per 1u their
+fixtures pin, whatever the checkout's logs/ holds. A verify of the unread page passes dp.unit_unread(...).
 """
 import contextlib
 import json
@@ -22,13 +27,15 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from src.walters import desk_policy as dp  # noqa: E402
 
 
-def desk_files(docs: dict, now, counts: dict | None = None, parlays: bool = True, base: bool = True) -> dict:
+def desk_files(docs: dict, now, counts: dict | None = None, parlays: bool = True, base: bool = True,
+               unit: dict | None = None) -> dict:
     """{name: doc} -> the same docs annotated (desk + desk_meta) in load order,
     plus desk_parlays.json (unless parlays=False). model_shadow docs, window
-    cards and desk_parlays docs pass through unchanged."""
+    cards and desk_parlays docs pass through unchanged. `unit`: the unit basis
+    (default the pre-v1.2 contracts basis; never the day's file)."""
     if now.tzinfo is None:
         now = now.replace(tzinfo=timezone.utc)
-    with (dp.base_v11() if base else contextlib.nullcontext()):
+    with (dp.base_v11() if base else contextlib.nullcontext()), dp.unit_override(unit or dp.LEGACY_CONTRACTS_BASIS):
         return _desk_files(docs, now, counts, parlays)
 
 
@@ -55,13 +62,13 @@ def write(tmp: str, docs: dict) -> list[str]:
     return paths
 
 
-def upload(page, paths, now=None, parlays: bool = True, base: bool = True):
+def upload(page, paths, now=None, parlays: bool = True, base: bool = True, unit: dict | None = None):
     """Drop-in for page.set_input_files("#predFile", paths) in the verifies:
     annotates every prediction/fixtures file in place through the Python Desk
     (clock = `now` or the browser's Date.now(); counts = the page's own
     ledgerSummary(), exactly the operator flow), adds desk_parlays.json
-    beside them unless one is already loaded, then uploads."""
-    with (dp.base_v11() if base else contextlib.nullcontext()):
+    beside them unless one is already loaded, then uploads. `unit`: as desk_files."""
+    with (dp.base_v11() if base else contextlib.nullcontext()), dp.unit_override(unit or dp.LEGACY_CONTRACTS_BASIS):
         return _upload(page, paths, now, parlays)
 
 

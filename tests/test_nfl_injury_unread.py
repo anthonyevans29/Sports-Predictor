@@ -48,7 +48,7 @@ def test_the_15111_row_with_clevelands_list_empty_reads_play_half_units_naming_t
     assert (d["call"], d["units"], d["pick"]) == ("PLAY", 0.5, "AWAY")
     assert REASON in d["reason"] and dp.INJURY_EMPTY_TAG in d["tags"]
     assert doc["desk_meta"]["nfl_injury_list_empty_rule"] is True
-    assert doc["desk_meta"]["policy_version"] == "v1.1"                               # v1.1's QB rule, law 4
+    assert doc["desk_meta"]["policy_version"] == "v1.2"            # v1.1's QB rule, law 4; v1.2: the unit (#732)
     assert d["order"]["contracts"] < read["order"]["contracts"]                       # sized at half units
 
 

@@ -182,13 +182,13 @@ def test_fixtures_export_hook_and_cli_receipt(fixtures_world, tmp_path, monkeypa
     assert "desk_meta" not in off and all("desk" not in f for f in off["fixtures"])
     on = json.loads(open(export_fixtures(fixtures_world, out_dir=str(tmp_path), desk=True)).read())
     d = on["fixtures"][0]["desk"]
-    assert on["desk_meta"]["policy_version"] == "v1.1"
+    assert on["desk_meta"]["policy_version"] == "v1.2"            # addendum 179 (#732)
     assert (d["engine"], d["call"], d["pass_kind"], d["reason"]) == ("venue_edge", "PASS", "noref",
                                                                      "single venue — no pair")
     from cli import cli
     monkeypatch.chdir(tmp_path)
     out = CliRunner().invoke(cli, ["export-fixtures", "--competition", fixtures_world, "--desk"]).output
-    assert "desk v1.1 as of" in out and "1 rows → PASS 1" in out and "default 0 (no ledger summary)" in out
+    assert "desk v1.2 as of" in out and "1 rows → PASS 1" in out and "default 0 (no ledger summary)" in out
 
 
 # ------------------------------------------------- parlays (ARCHITECT 2026-10-01) --

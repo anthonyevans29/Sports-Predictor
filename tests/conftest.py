@@ -49,3 +49,38 @@ def _machine_role_laptop(monkeypatch):
     monkeypatch.setenv("SP_EXPORTS_MIRROR_ROLE", "laptop")
     monkeypatch.setenv("SP_HOST_ENV", str(_TMP / "no-host.env"))
     monkeypatch.setattr(desk_policy, "DOTENV", _TMP / "no.env")
+
+
+@pytest.fixture(autouse=True)
+def _desk_unit_pinned(monkeypatch, tmp_path):
+    """Addendum 179 (#732, Desk policy v1.2): the Desk sizes its order lines from the day's unit file
+    (src/walters/desk_unit.py, logs/desk_unit_<ET date>.json, folder SP_DESK_UNIT_DIR). No test reads or writes the
+    checkout's logs/: the folder is a per-test path under tmp_path that does not exist, and no test inherits a floor
+    (SP_UNIT_FLOOR_USD) or the retired SP_UNIT_USD from the launching shell. As the machine's role is pinned above,
+    every test is pinned to the pre-v1.2 contracts basis (desk_policy.UNIT_PIN = LEGACY_CONTRACTS_BASIS: 10 contracts
+    per 1u, the label a file exported with SP_UNIT_USD unset carries), so the other rules' tests keep their order
+    lines; a test of the unit itself lifts the pin (tests/test_desk_unit_fraction.py's `day` fixture)."""
+    from src.walters import desk_policy
+    monkeypatch.setenv("SP_DESK_UNIT_DIR", str(tmp_path / "desk-unit-none"))
+    monkeypatch.delenv("SP_UNIT_FLOOR_USD", raising=False)
+    monkeypatch.delenv("SP_UNIT_USD", raising=False)
+    monkeypatch.setattr(desk_policy, "UNIT_PIN", desk_policy.LEGACY_CONTRACTS_BASIS)
+
+
+@pytest.fixture(autouse=True)
+def _no_live_kalshi_pool_read(monkeypatch):
+    """Addenda 186-187 (#734): kalshi_pool.POOL_FIELDS holds the real names, so a read with no fake fetch would sign a
+    GET to Kalshi PROD on any machine with a key. No test ever does: the key's names are cleared (config's load_dotenv
+    may have set them from the checkout's .env) and signed_fetch refuses; a test of the read passes its own fake fetch.
+    The figures' role is pinned too: desk_unit.figures_allowed reads config.PROCESS_ENV_ROLE (captured at import,
+    before load_dotenv, addendum 183 item 2(1)), set here to the laptop pin above; a test that needs another role sets
+    it."""
+    import config
+    from src.walters import kalshi_pool
+    monkeypatch.delenv("KALSHI_API_KEY_ID", raising=False)
+    monkeypatch.delenv("KALSHI_PRIVATE_KEY_PATH", raising=False)
+
+    def refused():
+        raise AssertionError("a test reached kalshi_pool.signed_fetch: no test signs a Kalshi request")
+    monkeypatch.setattr(kalshi_pool, "signed_fetch", refused)
+    monkeypatch.setattr(config, "PROCESS_ENV_ROLE", "laptop")

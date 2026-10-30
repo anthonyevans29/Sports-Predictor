@@ -189,6 +189,15 @@
           "what": "candidate nine declared to Code, or my written ruling that there is none worth a run",
           "owner": "architect",
           "due": "2026-10-30",
+          "done": {
+            "date": "2026-10-30",
+            "receipt": "ARCHITECT 2026-10-30, addendum 177, verbatim on #105 (comment 6521950151): \"A WRITTEN NO on the NHL API as the source\" (receipt 2(b): no pregame goalie assertion on any side of any game; the as-of requirement cannot be met from this source). No candidate is declared; the bar (0.6866) did not move; v7 stays the failed-gate shadow; NHL stays market-only"
+          }
+        },
+        {
+          "what": "the operator's sourcing decision on an external projected-starters feed: a named source with a pregame stamp, or none (ARCHITECT 2026-10-30, addendum 177: the later steps and earliest_live 2027-01-22 stand only on a source by 11-13; if none, Code clears them with a moved line)",
+          "owner": "operator",
+          "due": "2026-11-13",
           "done": null
         },
         {

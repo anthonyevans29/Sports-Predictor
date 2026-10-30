@@ -146,6 +146,27 @@ def test_capture_quality_by_weekday_with_a_superseded_complete_capture():
     assert any(ln.startswith("      match 822 · kickoff Sat 2026-10-17 16:00Z") and "(incomplete)" in ln for ln in lines)
 
 
+def test_164_2c_a_qualifying_close_more_than_6_h_old_is_counted_and_named():
+    """ARCHITECT 2026-10-24, addendum 164 item 2(c): "a close more than 6 hours old is counted but named". A full
+    capture 7 h before kickoff is a qualifying close (R42(b) sets no age), counted in n and the log-loss, and named;
+    one at 5h59 is not named, nor one at exactly 6.0 h (more than 6 hours); an incomplete capture 8 h out forms no
+    close and is not named as one."""
+    _comps()
+    sat = datetime(2026, 10, 17, 14, 0)
+    for mid, ago in ((831, timedelta(hours=7)), (832, timedelta(hours=5, minutes=59)), (833, timedelta(hours=6))):
+        _game(mid, "SA", sat + timedelta(minutes=mid - 830), MatchStatus.FINISHED, 1, 0)
+        _legs(mid, A, sat + timedelta(minutes=mid - 830) - ago)
+    _game(834, "SA", sat + timedelta(hours=1), MatchStatus.FINISHED, 0, 0)
+    _legs(834, {"HOME": (0.45, 0.46), "AWAY": (0.27, 0.28)}, sat + timedelta(hours=1) - timedelta(hours=8))
+    r = paper.leagues_season(("SA",), SEASON, DECLARED, now=NOW)["SA"]
+    assert r["record"]["n"] == 3
+    assert [c["match_id"] for c in r["quality"]["stale"]] == [831]
+    lines = paper.quality_lines("SA", r["quality"])
+    assert ("    qualifying closes more than 6 h old at kickoff (164 item 2(c); counted in the close record, named): 1"
+            in lines)
+    assert "      match 831 · kickoff Sat 2026-10-17 14:01Z · close captured 2026-10-17 07:01:00Z · age 7.0 h" in lines
+
+
 def _league_season(code, n_rounds=20):
     """A small league: 6 teams, a regular-season round every 3-4 days (three games at one kickoff per round, F5),
     plus two games of a non-regular stage the walk never reads (F3)."""

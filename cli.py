@@ -6418,8 +6418,8 @@ def soccer_backtest_cmd(competition_code, season, min_prior, rho, candidate):
     from src.walters import soccer_expansion as _sx
     from rich.table import Table
 
-    _why = _sx.guards_backtest(competition_code)
-    if _why:                 # ARCHITECT 2026-10-07: nobody reads these test seasons outside the one run
+    _why = _sx.guards_backtest(competition_code, season)
+    if _why:                 # ARCHITECT 2026-10-07: nobody reads these test seasons outside the one run; addendum 178 R8
         click.echo(f"REFUSED: {_why}")
         raise SystemExit(2)
     from src.walters import ncaa_backtest as _nb
@@ -6558,11 +6558,12 @@ def dixon_coles_sweep_cmd(competition_code, season, rhos):
 
     best = None
     from src.walters import ncaa_backtest as _nb
+    from src.walters import soccer_expansion as _sx
     for rho in rho_list:
         try:
             results = run_soccer_backtest(competition_code, season, dixon_coles_rho=rho)
-        except _nb.FenceRefused as e:                      # the 2026 fence (addendum 86 item 3, Q2)
-            console.print(f"[red]REFUSED: {e}[/red]")
+        except (_sx.ExpansionRefused, _nb.FenceRefused) as e:   # the 2026 fence (addendum 86 item 3, Q2); the
+            console.print(f"[red]REFUSED: {e}[/red]")           # leagues' window fence (addendum 181 item 8)
             raise SystemExit(2)
         if not results:
             continue
@@ -6723,7 +6724,9 @@ def soccer_expansion_shadow_grade_cmd(days):
     for ln in r["lines"]:
         print(ln)
     for code, d in sorted(r["per_league"].items()):
-        print(f"  ── {code}: graded {d['graded']} · priced {d['priced']} · mean pick-vs-close {d['mean_clv_pp']}pp")
+        print(f"  ── {code}: graded {d['graded']} · priced {d['priced']} · mean pick-vs-close {d['mean_clv_pp']}pp"
+              + (f" · fenced {d['fenced']} (after the declaration: the cohort reader's alone, addendum 178 R8)"
+                 if d.get("fenced") else ""))
 
 
 @cli.command("soccer-expansion-confirm")
@@ -7017,13 +7020,14 @@ def elo_coeff_sweep_cmd(competition_code, season, coeffs, rho):
         t.add_column(c, justify="right")
 
     from src.walters import ncaa_backtest as _nb
+    from src.walters import soccer_expansion as _sx
     for raw in coeffs.split(","):
         coeff = float(raw.strip())
         try:
             results = run_soccer_backtest(competition_code, season,
                                           dixon_coles_rho=rho, elo_goal_coeff=coeff)
-        except _nb.FenceRefused as e:                      # the 2026 fence (addendum 86 item 3, Q2)
-            console.print(f"[red]REFUSED: {e}[/red]")
+        except (_sx.ExpansionRefused, _nb.FenceRefused) as e:   # the 2026 fence (addendum 86 item 3, Q2); the
+            console.print(f"[red]REFUSED: {e}[/red]")           # leagues' window fence (addendum 181 item 8)
             raise SystemExit(2)
         if not results:
             console.print("[yellow]no results[/yellow]")

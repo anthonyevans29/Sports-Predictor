@@ -192,7 +192,10 @@ def test_soccer_backtest_refuses_these_leagues_while_unrun(monkeypatch):
     assert r.exit_code == 2 and "read once" in r.output
     assert sx.guards_backtest("PL") is None
     monkeypatch.setattr(reg, "get", lambda eid, path=None: {**DECLARED, "run": {"run_at": "x"}})
-    assert sx.guards_backtest("BL1") is None
+    assert sx.guards_backtest("BL1", "2024/25") is None
+    # ARCHITECT 2026-10-30, addendum 181 item 1(b): with no leagues-bl1-v1 entry, a walk of every season (or of
+    # 2026/27) meets the pre-declaration fence, cut at 2026-10-30T15:00:00Z
+    assert "pre-declaration fence" in sx.guards_backtest("BL1")
 
 
 @pytest.fixture(scope="module")
@@ -305,8 +308,8 @@ def test_every_backtest_path_is_refused_on_these_leagues_while_unrun(monkeypatch
     import cli
     for cmd in (["dixon-coles-sweep", "--competition", "BL1", "--season", "2024/25"],
                 ["elo-coeff-sweep", "--competition", "BL1", "--season", "2024/25"]):
-        r = CliRunner().invoke(cli.cli, cmd)
-        assert r.exit_code != 0 and isinstance(r.exception, sx.ExpansionRefused), (cmd, r.output[-200:])
+        r = CliRunner().invoke(cli.cli, cmd)     # addendum 181 item 8: REFUSED and exit 2, never a traceback
+        assert r.exit_code == 2 and "REFUSED" in r.output and "read once" in r.output, (cmd, r.output[-200:])
     # Codex on #326 (round 2): the generic `backtest` walk reads any competition's scores; sealed too
     from src.walters import backtest as gb
     with pytest.raises(sx.ExpansionRefused, match="read once"):

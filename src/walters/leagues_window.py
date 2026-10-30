@@ -168,8 +168,22 @@ def run_record_constants() -> dict:
     if any(res.get(k) is None for k in CONSTANTS):
         raise WindowRefused(f"{sx.EID} has no run record holding {', '.join(CONSTANTS)}: the frozen constants are "
                             "unknown (R1), nothing is read")
-    return {"production_version": str(res["production_version"]), "rho": float(res["rho"]),
-            "elo_goal_coeff": float(res["elo_goal_coeff"])}
+    try:
+        return {"production_version": str(res["production_version"]), "rho": float(res["rho"]),
+                "elo_goal_coeff": float(res["elo_goal_coeff"])}
+    except (TypeError, ValueError):                       # Codex on #733: refused, never a traceback
+        raise WindowRefused(f"{sx.EID}'s run record holds constants that are not numbers "
+                            f"({ {k: res.get(k) for k in CONSTANTS}!r}): the frozen constants are unknown (R1)")
+
+
+def surviving() -> list[str]:
+    """The soccer-expansion-v1 run record's surviving set (PD): its confirmation machinery reads those leagues'
+    results outside this reader, so a window is never declared on one of them (Codex on #733)."""
+    from src.walters import registry as reg
+    from src.walters import soccer_expansion as sx
+    e = reg.get(sx.EID, _ledger())
+    surv = ((e or {}).get("run") or {}).get("result", {}).get("surviving") if isinstance(e, dict) else None
+    return list(surv or [])
 
 
 def checked(code: str, e: dict) -> tuple[datetime, dict]:
@@ -180,10 +194,16 @@ def checked(code: str, e: dict) -> tuple[datetime, dict]:
     if at is None:
         raise WindowRefused(f"{code} ({eid}): no declared_at as a UTC instant (stored {e.get('declared_at')!r}); R3: "
                             "the opening instant is the declaration's recorded time, a date is never the instant")
+    if code in surviving():
+        raise WindowRefused(f"{code} ({eid}): {code} is in the soccer-expansion-v1 surviving set, whose confirmation "
+                            "reads its results outside the cohort reader; a window is never declared on it (R8)")
     got = e.get(CONSTANTS_FIELD)
     if not isinstance(got, dict) or any(got.get(k) is None for k in CONSTANTS):
         raise WindowRefused(f"{code} ({eid}): the entry holds no {CONSTANTS_FIELD} {{{', '.join(CONSTANTS)}}}; R1: "
                             "the frozen constants are the run record's")
+    if isinstance(got, dict) and set(got) != set(CONSTANTS):   # Codex on #733: an extra key is never dropped
+        raise WindowRefused(f"{code} ({eid}): {CONSTANTS_FIELD} holds the keys {sorted(got)!r}, not exactly "
+                            f"{list(CONSTANTS)!r}; R1: the frozen constants are the run record's, nothing beside them")
     want = run_record_constants()
     try:
         mine = {"production_version": str(got["production_version"]), "rho": float(got["rho"]),
@@ -303,7 +323,9 @@ def membership(s, code: str, declared_at: datetime, constants: dict, now: dateti
         if st == "postponed":        # it can still enter the window by its actual kickoff once re-dated (R4)
             out["postponed_before"] += 1
         elif is_regular(m.stage) and (st in ("live", "scheduled") or (st == "finished" and (
-                m.home_score is None or m.away_score is None))):
+                m.home_score is None or m.away_score is None
+                or ((m.status_raw or "").strip() and (m.status_raw or "").strip().upper() not in AWARDED
+                    and result_90(m) is None)))):    # Codex on #733: an AET/PEN prior waits for its 90 minutes
             out["pending"]["before_instant"] += 1    # not final: every member's walk reads it once final (R1, R4)
             out["blocking"] += 1
         else:
@@ -361,7 +383,8 @@ def membership(s, code: str, declared_at: datetime, constants: dict, now: dateti
     cut = last_ko if n >= WINDOW_GAMES else max(now, last_ko or now)
     bad = [f"{code} {SEASON} {m.id} {m.stage!r} "
            + (f"{m.utc_date:%Y-%m-%dT%H:%MZ}" if m.utc_date is not None else "no kickoff")
-           for m in games if _status(m) != "stale_orphan" and placement(m.stage) is None
+           for m in games if _status(m) not in ("stale_orphan", "cancelled", "postponed")   # never a slot
+           and placement(m.stage) is None
            and (m.utc_date is None or m.utc_date <= cut)]
     if bad:
         raise WindowRefused(f"{code}: stage / round labels the code cannot place, kicking off at or before "
@@ -456,7 +479,7 @@ def audit_lines(code: str, a: dict) -> list[str]:
     return L
 
 
-def score(window: dict, export_dir: str = "exports") -> dict:
+def score(window: dict, export_dir: str = "exports", now: datetime | None = None) -> dict:
     """THE SCORING PATH (R1), for item 5's PR: refused unless the window is "ready" (60 members, nothing pending
     before the 60th). Every member is recomputed at read time: predict_as_of on the finished rows strictly before
     its kickoff at the frozen constants; the close by paper's own rule (_guarded_three_way at the kickoff); the
@@ -474,10 +497,19 @@ def score(window: dict, export_dir: str = "exports") -> dict:
         raise WindowRefused(f"{window.get('code')}: the one read is at the {WINDOW_GAMES}th member with nothing "
                             f"pending before it (state {window.get('state')!r}, members "
                             f"{len(window.get('members') or ())})")
+    from src.timeutil import utc_now_naive
     code, ids, c = window["code"], list(window["members"]), window["constants"]
     key = {"H": 0, "D": 1, "A": 2}
     pairs, recomputed, problems = [], {}, []
     with readonly_scope() as s:
+        # Codex on #733: the cohort is re-derived in THIS transaction; a fixture, result or close ingested since the
+        # read could put another game before the 60th, so the ids and the state must match the read's or nothing
+        # is scored (never games 2-61 for 1-60).
+        fresh = membership(s, code, window["declared_at"], c, now or utc_now_naive())
+        if fresh["state"] != "ready" or fresh["members"] != ids:
+            raise WindowRefused(f"{code}: the window moved between the read and the score (state "
+                                f"{fresh['state']!r}; members {'unchanged' if fresh['members'] == ids else 'changed'}"
+                                "): read it again; nothing is scored")
         rows = lc._season_rows(s, code, SEASON)
         snaps = paper._kalshi_snaps(s, ids)
         mism = kalshi_legs.mismatched(s, ids)

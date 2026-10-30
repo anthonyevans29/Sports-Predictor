@@ -659,3 +659,69 @@ def test_the_shadow_grade_counts_the_window_and_grades_the_rest(ledger, tmp_path
     g = sx.shadow_grade(days=60, export_dir=str(tmp_path / "exports"), now=NOW)
     assert g["per_league"]["FL1"] == {"graded": 0, "priced": 0, "fenced": 1, "mean_clv_pp": None}
     assert g["per_league"]["ELC"]["graded"] == 1 and len(g["lines"]) == 1
+
+
+# ----------------------------------------------------------------------------- Codex on #733, round 1 --
+
+def test_codex_733_a_declaration_on_a_surviving_league_is_refused(ledger):
+    """The soccer-expansion-v1 confirmation reads its surviving leagues' results outside the cohort reader, so a
+    window is never declared on one of them (P1, fenced before any confirmation path)."""
+    _comps()
+    ledger(decl("SA"), run={**RUN, "run": {"result": {**FROZEN, "surviving": ["SA"]}}})
+    assert "in the soccer-expansion-v1 surviving set" in _read("SA")["refused"]
+
+
+def test_codex_733_an_extra_frozen_constant_is_refused_never_dropped(ledger):
+    _comps()
+    ledger(decl("SA", constants={**FROZEN, "min_prior": 40}))
+    assert "not exactly ['production_version', 'rho', 'elo_goal_coeff']" in _read("SA")["refused"]
+
+
+def test_codex_733_a_run_record_with_a_constant_that_is_not_a_number_refuses_never_a_traceback(ledger):
+    _comps()
+    ledger(decl("SA"), run={**RUN, "run": {"result": {**FROZEN, "rho": "minus a tenth"}}})
+    assert "constants that are not numbers" in _read("SA")["refused"]
+
+
+def test_codex_733_a_cancelled_or_postponed_row_with_an_unplaced_label_never_refuses_the_league(ledger):
+    _comps()
+    ledger(decl("SA"))
+    t = _teams("SA")
+    rest = _priors("SA", t)
+    _members("SA", t, 5, 2000, AT + timedelta(hours=1))
+    _game(2950, "SA", AT + timedelta(hours=2), rest[0], MatchStatus.CANCELLED, stage=None)
+    _game(2951, "SA", AT + timedelta(hours=3), rest[1], MatchStatus.POSTPONED, stage="")
+    w = _read("SA")
+    assert "refused" not in w and w["excluded"]["cancelled"] == 1 and w["not_placed"] == 1
+    _game(2952, "SA", AT + timedelta(hours=4), rest[2], MatchStatus.SCHEDULED, stage=None)
+    assert "cannot place" in _read("SA")["refused"]                    # a row that could take a slot still refuses
+
+
+def test_codex_733_a_prior_with_no_90_minute_result_before_the_instant_makes_the_read_wait(ledger):
+    """An AET / PEN row before the instant is FINISHED with full-time scores but no 90-minute result: the members'
+    walk would read its after-extra-time score, so it waits like a member would (P1)."""
+    _comps()
+    ledger(decl("SA"))
+    t = _teams("SA")
+    rest = _priors("SA", t)
+    _members("SA", t, 60, 2000, AT + timedelta(hours=1))
+    _game(2960, "SA", AT - timedelta(days=1), rest[0], raw="AET", s90=False)
+    w = _read("SA")
+    assert w["state"] == "waiting" and w["pending"]["before_instant"] == 1
+
+
+def test_codex_733_score_re_derives_the_cohort_and_refuses_when_it_moved(ledger):
+    """A game ingested after the read and ordered before the 60th member: score() re-derives membership in its own
+    transaction and refuses rather than scoring games 2-61 (P1)."""
+    _comps()
+    ledger(decl("SA"))
+    t = _teams("SA")
+    rest = _priors("SA", t)
+    got = _members("SA", t, 60, 2000, AT + timedelta(hours=1))
+    w = _read("SA")
+    assert w["state"] == "ready" and lw.score(w, now=NOW)["n"] == 60
+    ko = got[0][1] + timedelta(minutes=30)
+    _game(2970, "SA", ko, rest[0])
+    _legs(2970, ko)
+    with pytest.raises(lw.WindowRefused, match="the window moved between the read and the score"):
+        lw.score(w, now=NOW)

@@ -17,10 +17,16 @@ bar, independently per league."
   order (soccer_backtest.update_after_match, EloConfig()), strengths estimated from those rows
   (soccer_backtest.estimate_strengths), then soccer_backtest.predict_match with the production rho and Elo
   coefficient. Unpriced, as the walk leaves a game unscored, when fewer than MIN_PRIOR rows precede it or a team has no
-  strength. Nothing is fitted.
+  strength. Nothing is fitted. THE ONE PREDICATE (ARCHITECT 2026-10-30 11:00 ET, addendum 181 item 2: "La Liga's ONE
+  predicate governs the whole path"): the priors pass through soccer_backtest._confirmation_rows
+  (soccer_expansion.unscoreable): a game finished under AWD or WO is neither scored nor walked, a non-FT row with a
+  stored 90-minute score is walked on it, a no-raw-code row is walked as stored (C1).
 - gate_rows: the GATE path, soccer_backtest.run_soccer_backtest itself, as the expansion gate calls it (MIN_PRIOR,
-  stage_filter=is_regular, batch_same_kickoff=True, the same rho and coefficient), on the 2026/27 season.
-- parity: both paths on every finished 2026/27 game of the league: a row per game the gate scored, its three
+  stage_filter=is_regular, batch_same_kickoff=True, the same rho and coefficient), on the 2026/27 season, as the
+  confirmation walk with that predicate (confirmation_scoring=True; 181 item 2: "158 item 2(a)'s "the gate's walk" is
+  the confirmation walk with that predicate, not the raw walk"), so the parity holds by construction.
+- parity: both paths on every finished 2026/27 game of the league the predicate scores (an unscoreable one is
+  priced by neither): a row per game the gate scored, its three
   probabilities from each path and their largest absolute difference; games one path prices and the other does not
   are counted apart. Equal means a difference no larger than PARITY_TOL (floating-point summation order only).
   REFUSED (ExpansionRefused, before any game is walked) when the league-season stores a stage / round label the code
@@ -88,9 +94,11 @@ def _season_rows(s, code: str, season: str):
 
 def predict_as_of(rows, fixture, rho: float, coeff: float):
     """The prospective prediction for `fixture` from the finished regular-round rows strictly before its kickoff, or
-    (None, why). `rows`: the league-season's finished rows (any order)."""
+    (None, why). `rows`: the league-season's finished rows (any order). The priors pass through the one predicate
+    (soccer_backtest._confirmation_rows; addendum 181 item 2): AWD / WO released, a non-FT row on its 90' score."""
     from src.walters import soccer_backtest as sb
-    prior = sorted((m for m in rows if is_regular(m.stage) and m.utc_date < fixture.utc_date and m.id != fixture.id),
+    prior = sorted(sb._confirmation_rows(m for m in rows if is_regular(m.stage) and m.utc_date < fixture.utc_date
+                                         and m.id != fixture.id),
                    key=lambda m: m.utc_date)
     if len(prior) < MIN_PRIOR:
         return None, "below_min_prior"
@@ -135,12 +143,15 @@ def legacy_shadow(rows, fixture, rho: float, coeff: float):
                             home_strength=hs, away_strength=as_, context=ctx, config=cfg)
 
 
-def gate_rows(code: str, season: str, rho: float, coeff: float) -> list[dict]:
-    """The gate path: run_soccer_backtest exactly as soccer_expansion.run calls it, on `season`."""
+def gate_rows(code: str, season: str, rho: float, coeff: float, through: datetime | None = None) -> list[dict]:
+    """The gate path: run_soccer_backtest as soccer_expansion.run calls it, on `season`, as the confirmation walk with
+    the one predicate (confirmation_scoring=True, addendum 181 item 2); cut at `through` when the leagues' window
+    fence is up (addendum 178 R8; 181 item 1(b): no game after the cut is walked)."""
     from src.walters.soccer_backtest import run_soccer_backtest
     from src.walters.soccer_expansion import BATCH_SAME_KICKOFF
     return run_soccer_backtest(code, season, MIN_PRIOR, dixon_coles_rho=rho, elo_goal_coeff=coeff,
-                               stage_filter=is_regular, batch_same_kickoff=BATCH_SAME_KICKOFF) or []
+                               stage_filter=is_regular, batch_same_kickoff=BATCH_SAME_KICKOFF,
+                               confirmation_scoring=True, through=through) or []
 
 
 def unplaced_labels(s, code: str, season: str) -> list[str]:
@@ -150,10 +161,17 @@ def unplaced_labels(s, code: str, season: str) -> list[str]:
 
 
 def parity(code: str, rho: float, coeff: float, season: str = CURRENT_SEASON, now: datetime | None = None) -> dict:
-    """The parity receipt for one league (the module docstring). Read-only: one session, rolled back."""
+    """The parity receipt for one league (the module docstring). Read-only: one session, rolled back.
+    THE WINDOW FENCE (ARCHITECT 2026-10-30, addendum 178 R8; addendum 181 item 1(b)): while the league's verdict is
+    not recorded (leagues_window.fence_cutoff), both paths read only the 2026/27 games kicking off at or before the
+    cut (its declared_at; PRE_DECLARATION_CUT while no entry exists); the finished regular-round games after it are
+    counted (`fenced`), never walked or compared. PL, PD and every other competition: unchanged."""
+    from src.walters.soccer_expansion import unscoreable
     from src.db.database import session_scope
     from src.timeutil import utc_now_naive
+    from src.walters.leagues_window import fence_cutoff
     now = now or utc_now_naive()
+    cut = fence_cutoff(code, season)
     with session_scope() as s:
         bad = unplaced_labels(s, code, season)
         s.rollback()
@@ -161,13 +179,20 @@ def parity(code: str, rho: float, coeff: float, season: str = CURRENT_SEASON, no
         raise ExpansionRefused("stage / round labels the code cannot place (F3; the gate's run refuses on them, so "
                                "the parity read does; never guessed): " + "; ".join(bad))
     sha = code_sha()
-    gate = {r["match_id"]: r for r in gate_rows(code, season, rho, coeff)}
+    gate = {r["match_id"]: r for r in gate_rows(code, season, rho, coeff, through=cut)}
     out = {"code": code, "season": season, "gate_scored": len(gate), "rows": [], "max_diff": 0.0, "unequal": 0,
-           "shadow_only": [], "gate_only": [], "legacy_max_diff": 0.0, "legacy_unequal": 0, "legacy_unpriced": 0}
+           "shadow_only": [], "gate_only": [], "legacy_max_diff": 0.0, "legacy_unequal": 0, "legacy_unpriced": 0,
+           "fenced": 0}
     with session_scope() as s:
         rows = _season_rows(s, code, season)
+        if cut is not None:          # R8: the window's games are the cohort reader's alone
+            out["fenced"] = sum(1 for m in rows if m.utc_date > cut and is_regular(m.stage))
+            rows = [m for m in rows if m.utc_date <= cut]
         regular = [m for m in rows if is_regular(m.stage)]
+        out["released"] = sum(1 for m in regular if unscoreable(m))     # 181 item 2: neither path prices them
         for m in regular:
+            if unscoreable(m):
+                continue
             pred, why = predict_as_of(rows, m, rho, coeff)
             g = gate.get(m.id)
             if pred is None and g is None:
@@ -201,7 +226,11 @@ def parity_lines(p: dict, rows: bool = True) -> list[str]:
     head = (f"{p['code']} {p['season']} · PARITY (158 item 2(a)) · finished regular-round {p['finished_regular']} "
             f"(other stages {p['not_regular']}, never walked) · gate scored {p['gate_scored']} · compared "
             f"{len(p['rows'])} · unequal {p['unequal']} (max |diff| {p['max_diff']:.3g}; equal within {PARITY_TOL:g}) · "
-            f"priced by the shadow only {len(p['shadow_only'])} · by the gate only {len(p['gate_only'])}")
+            f"priced by the shadow only {len(p['shadow_only'])} · by the gate only {len(p['gate_only'])}"
+            + (f" · released {p['released']} (the one predicate: AWD / WO, or a non-FT code with no 90-minute score; "
+               "neither path walks or prices them, addendum 181 item 2)" if p.get("released") else "")
+            + (f" · fenced {p['fenced']} (finished after the cut: the cohort reader's alone, addendum 178 R8; "
+               "addendum 181 item 1(b))" if p.get("fenced") else ""))
     L = [head, f"  - the current shadow export's arithmetic (price_upcoming, as of each kickoff) on the same games: "
                f"unequal {p['legacy_unequal']} of {len(p['rows']) - p['legacy_unpriced']} priced (max |diff| "
                f"{p['legacy_max_diff']:.3g}); unpriced {p['legacy_unpriced']} (a finding: it is not the gate's walk)"]

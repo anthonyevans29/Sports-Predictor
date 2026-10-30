@@ -508,7 +508,7 @@ def _empty(finished: int, kind: str = KIND_TWO) -> dict:
     if kind == KIND_THREE:
         return {"kind": kind, "finished": finished, "n": 0, "ll_sum": 0.0, "fav_w": 0, "fav_d": 0, "even": 0,
                 "draw_fav": 0, "over_sum": 0.0, "no_result": 0, "mismatched": 0, "unpriced": 0,
-                **{key: 0 for key, _ in UNPRICED}, "rows": []}
+                **{key: 0 for key, _ in UNPRICED}, "fenced_window": 0, "rows": []}
     return {"kind": kind, "finished": finished, "n": 0, "ll_sum": 0.0, "fav_w": 0, "fav_d": 0, "even": 0,
             "no_result": 0, "tie": 0, "mismatched": 0, "no_close": 0, "three_way": 0, "fenced_2023": 0,
             "fenced_2026": 0}
@@ -628,6 +628,10 @@ def close_record(days: int, now: datetime | None = None) -> dict:
     holds a stored Kalshi 1X2 leg: three_way_close (addendum 150), _score_three's order of exclusion, the log-loss on
     the normalized three-way probabilities, favourite_3 (the draw included, flagged), the overround and the close
     kind kept per row, each unpriced game counted by its cause (UNPRICED).
+    THE LEAGUES' WINDOW FENCE (ARCHITECT 2026-10-30, addendum 178 R8; addendum 181 item 1(b)): a 2026/27 game of SA,
+    BL1, FL1 or ELC kicking off after that league's cut (its declared_at; leagues_window.PRE_DECLARATION_CUT while no
+    entry exists), while its verdict is not recorded (leagues_window.fence_cutoff), is counted `fenced_window` and
+    never scored: the window's outcomes have one reader, the cohort reader. Every other competition: unchanged.
     Read-only: one session, rolled back."""
     from sqlalchemy import select
 
@@ -635,6 +639,7 @@ def close_record(days: int, now: datetime | None = None) -> dict:
     from src.db.schema import Competition, Match, MatchStatus, Sport
     from src.timeutil import utc_now_naive
     from src.walters import kalshi_legs
+    from src.walters import leagues_window as _lw
     from src.walters import ncaa_backtest as _nb
     from src.walters.cup_exam import favorite
     from src.walters.vs_close import log_loss
@@ -667,6 +672,7 @@ def close_record(days: int, now: datetime | None = None) -> dict:
             # #700 (Codex on #697): the stored season OR the CFBD label's, since _result reads the label's outcome
             fence_v2 = code == "NCAA" and not _nb.v2_run_recorded()
             labs = _nb.label_seasons(s, games) if fence_v2 else {}
+            cut = _lw.fence_cutoff(code, _lw.SEASON)   # the leagues' window fence (addendum 178 R8); None = none
             for m in games:
                 seasons = {str(m.season), labs.get(m.id, (None,))[0]}
                 if fence_v2 and _nb.V2_SECOND in seasons:
@@ -674,6 +680,9 @@ def close_record(days: int, now: datetime | None = None) -> dict:
                     continue
                 if fence_v2 and _nb.V2_TEST in seasons:
                     rec["fenced_2026"] += 1
+                    continue
+                if three and _lw.fenced(cut, m):
+                    rec["fenced_window"] += 1        # a declared league's window game: the cohort reader's alone
                     continue
                 if three:
                     _score_three(rec, m, snaps.get(m.id, []), mism, tickers, homes, current.get(m.id))
@@ -801,7 +810,12 @@ def leagues_season(codes, season: str, declared: date, now: datetime | None = No
       and a SCHEDULED game whose kickoff is at or before `now` (`past_kickoff`: past kickoff, not finished).
     - projected: the stored fixture list's games of the season (NOT_GAMES left out) whose kickoff's UTC date is on or
       after `declared`, in kickoff order, every game assumed to get a three-way close (156 item 1): the 60th's kickoff
-      UTC date, or None with the count when fewer than 60 are stored."""
+      UTC date, or None with the count when fewer than 60 are stored.
+    THE WINDOW FENCE (ARCHITECT 2026-10-30, addendum 178 R8; addendum 181 item 1(b)): while a league's verdict is not
+    recorded (leagues_window.fence_cutoff), its FINISHED games kicking off after the cut (its declared_at;
+    leagues_window.PRE_DECLARATION_CUT while no entry exists) are neither scored nor read for quality: they stay in
+    `finished` and are counted `fenced_window` on the record (the cohort reader is their one reader). The games to
+    come and the projection read no outcome and are unchanged."""
     from sqlalchemy import select
 
     from src.db.database import session_scope
@@ -809,11 +823,13 @@ def leagues_season(codes, season: str, declared: date, now: datetime | None = No
     from src.ingestion.kalshi_match import NOT_GAMES
     from src.timeutil import utc_now_naive
     from src.walters import kalshi_legs
+    from src.walters import leagues_window as _lw
 
     now = now or utc_now_naive()
     out: dict = {}
     with session_scope() as s:
         for code in codes:
+            cut = _lw.fence_cutoff(code, season)
             games = list(s.execute(
                 select(Match).join(Competition, Competition.id == Match.competition_id)
                 .where(Competition.code == code, Match.season == season)
@@ -835,6 +851,9 @@ def leagues_season(codes, season: str, declared: date, now: datetime | None = No
             quality = {"by_weekday": {}, "superseded": [], "stale": [], "sources": Counter(), "events": Counter()}
             buckets = ("n", "no_result", "mismatched", *(key for key, _ in UNPRICED))
             for m in fin:
+                if _lw.fenced(cut, m):
+                    rec["fenced_window"] += 1            # R8: the window's outcome, the cohort reader's alone
+                    continue
                 before = {k: rec[k] for k in buckets}
                 _score_three(rec, m, snaps.get(m.id, []), mism, tickers, homes, current.get(m.id))
                 _quality(quality, m, snaps.get(m.id, []), tickers,
@@ -869,7 +888,11 @@ REASONS = (("no_result", "no decided result {k}"),
                            "ARCHITECT 2026-10-16, addendum 86 item 3 (Q2); addendum 146 item 5(b) yields to the fence, "
                            "ARCHITECT 2026-10-26 15:15 ET)"))
 REASONS_3 = (("no_result", "no decided 90-minute result {k}"),
-             ("mismatched", "mismatched legs {k}"))
+             ("mismatched", "mismatched legs {k}"),
+             ("fenced_window", "fenced {k} (a league's window: games after its declared_at, or after the "
+                               "pre-declaration cut 2026-10-30T15:00:00Z while undeclared, are read only by the "
+                               "cohort reader until the verdict is recorded, ARCHITECT 2026-10-30, addendum 178 R8; "
+                               "addendum 181 item 1(b))"))
 
 
 def _reasons(r: dict, reasons=REASONS) -> str:

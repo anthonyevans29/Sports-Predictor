@@ -95,7 +95,8 @@ def run_soccer_backtest(competition_code: str = "PL", season: str | None = None,
                         sealed_read: bool = False,
                         stage_filter=None,
                         batch_same_kickoff: bool = False,
-                        confirmation_scoring: bool = False):
+                        confirmation_scoring: bool = False,
+                        through=None):
     """
     Walk `competition_code`/`season` in date order, predict each match using only
     prior matches (leakage-free). Returns a list of per-match result dicts:
@@ -146,13 +147,19 @@ def run_soccer_backtest(competition_code: str = "PL", season: str | None = None,
     90-minute score (home_score_90 / away_score_90), never the
     after-extra-time one. False (the default) = unchanged, so the gate's one
     run and every existing command reproduce exactly.
+
+    through (ARCHITECT 2026-10-30, addendum 178 R8, the leagues' window fence): when set, no row kicking off after
+    it is walked or scored, and the fence allows a fenced league's 2026/27 walk only when `through` is at or before
+    the league's cut: its entry's declared_at, or leagues_window.PRE_DECLARATION_CUT while no entry exists
+    (ARCHITECT 2026-10-30, addendum 181 item 1(b); leagues_window.fence_refusal). The walk is predict-then-update
+    in kickoff order, so every row it returns equals the uncut walk's row for the same game. None (the default) = unchanged.
     """
     # soccer-expansion-v1 (ARCHITECT 2026-10-07; Codex on #326): its leagues' test seasons are read ONCE, by its gate.
     # Every caller of this walk (soccer-backtest, the rho / coefficient sweeps, the candidate harnesses) is refused
     # on those leagues while the experiment is declared and unrun; only the gate passes sealed_read=True.
     if not sealed_read:
         from src.walters import soccer_expansion as _sx
-        _why = _sx.guards_backtest(competition_code)
+        _why = _sx.guards_backtest(competition_code, season, through)    # with the leagues' window fence (R8)
         if _why:
             raise _sx.ExpansionRefused(_why)
     from src.walters import ncaa_backtest as _nb            # the 2026 fence (ARCHITECT 2026-10-16, addendum 86 Q2)
@@ -176,6 +183,8 @@ def run_soccer_backtest(competition_code: str = "PL", season: str | None = None,
         # sort by kickoff time — the spine of leakage safety
         matches = [m for m in matches
                    if m.utc_date and m.home_score is not None and m.away_score is not None]
+        if through is not None:          # the window fence's cut (addendum 178 R8): no game after it is walked
+            matches = [m for m in matches if m.utc_date <= through]
         if stage_filter is not None:
             matches = [m for m in matches if stage_filter(m.stage)]
         if confirmation_scoring:

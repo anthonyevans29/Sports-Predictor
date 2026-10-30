@@ -37,6 +37,15 @@ the code cannot place (the gate's F3 refusal); the close part above still prints
 not equal (a row unequal, or a game priced by one path only) prints a NOT EQUAL line and exits 1 unless a
 refusal made it 2.
 
+THE WINDOW FENCE (ARCHITECT 2026-10-30, addendum 178 R8, verbatim: "FENCED: after a declaration the window's outcomes
+have one reader, the cohort reader; guards_backtest refuses any other read of them until the verdict is recorded (the
+NCAA fence's precedent)."): for a league whose verdict is not recorded (src/walters/leagues_window.py), the close
+part scores and reads for quality only the finished games kicking off at or before its cut (the others are counted
+"fenced" on the record's line) and the parity part compares only those games (the others counted "fenced"); the cut
+is the entry's declared_at, or with no entry PRE_DECLARATION_CUT, 2026-10-30T15:00:00Z (the pre-declaration fence,
+ARCHITECT 2026-10-30 11:00 ET, addendum 181 item 1(b)). The cohort reader, scripts/leagues_window.py, is the
+window's one reader.
+
 Run:  python3 scripts/leagues_close_receipt.py [--season 2026/27] [--declared 2026-11-06] [--rows]
 Paste the whole output on #322.
 """

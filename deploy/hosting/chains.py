@@ -23,9 +23,18 @@ from __future__ import annotations
 MLB = ("--competition", "MLB", "--season", "2026")
 PL = ("--competition", "PL", "--season", "2026/27")
 # soccer-expansion-v1 (ARCHITECT 2026-10-07): PD, SA, BL1, FL1, ELC current season, DATA ONLY (sync-matches /
-# sync-odds) on the soccer chains, laptop and host. No predict, no export: the shadow is its own command.
+# sync-odds) on the soccer chains, laptop and host. No predict. THE SHADOW EXPORT (ARCHITECT 2026-10-30 12:45 ET,
+# addendum 185 D2, verbatim in part: "THE EXPORT RUNS AS THE LAST STEP OF EVERY EXISTING SOCCER SYNC CHAIN
+# (soccer-friday 14:00Z, soccer-saturday 10:30 London, soccer-morning-after Sun/Mon/Tue 09:50Z, and intl-daily's tail
+# only if a league sync precedes it there — it does not, so not intl-daily) [...] No new timer, no daily league
+# sync"): SHADOW_EXPORT_STEP, bare, is the last step of soccer-prematch (sp-soccer-friday and sp-soccer-saturday) and
+# soccer-morning-after. Bare: no --competition (it binds its own leagues from the registry: PD and each declared one
+# of the four, R5) and no --hours (its window runs to the next of those three timers' fires,
+# soccer_expansion.next_chain_run). sp_run runs these chains on the host (the systemd timers); the command itself
+# refuses on any other machine (addendum 178 R6).
 EXPANSION_CODES = ("PD", "SA", "BL1", "FL1", "ELC")
 EXPANSION = [("--competition", c, "--season", "2026/27") for c in EXPANSION_CODES]
+SHADOW_EXPORT_STEP = ["export-soccer-expansion-shadow"]
 # Kalshi series PINNED (ARCHITECT 2026-10-07, addendum 2): "A pinned series never makes a league live." Their
 # sync-kalshi-soccer runs on the shadow chain (soccer-prematch) as CAPTURE ONLY, and since ARCHITECT 2026-10-24,
 # addendum 164 item 2(a), on the hourly window chain too (WINDOW_KALSHI_CAPTURE_ONLY, below). They are deliberately
@@ -88,7 +97,7 @@ CHAINS: dict[str, dict] = {
     # (`export-predictions --sport soccer --competition PL --start {sat} --end {sat_plus3} --status scheduled`, the
     # slate file soccer_PL_<sat>_to_<sat_plus3>.json) left this chain; the closing watch's slate stage runs the same
     # predict and writes that file itself (closing.slate_steps). Every sync stays, on the same two timers.
-    "soccer-prematch": {  # Friday and Saturday: the PL lines + the expansion leagues' data lines; data only
+    "soccer-prematch": {  # Friday and Saturday: the PL lines + the expansion leagues' data lines, then the shadow export
         "steps": [
             ["sync-matches", *PL],
             ["sync-odds", *PL],
@@ -96,6 +105,7 @@ CHAINS: dict[str, dict] = {
             *[[verb, *x] for x in EXPANSION for verb in ("sync-matches", "sync-odds")],
             *[["sync-kalshi-soccer", "--competition", c] for c in KALSHI_CAPTURE_ONLY],   # capture only
             ["sync-kalshi-soccer"],
+            [*SHADOW_EXPORT_STEP],       # LAST (addendum 185 D2): reads the DB only, after every sync above
         ],
     },
     "soccer-morning-after": {
@@ -105,6 +115,7 @@ CHAINS: dict[str, dict] = {
             *[["sync-matches", *x] for x in EXPANSION],
             ["evaluate", "--sport", "soccer"],
             ["export-results", "--sport", "soccer", "--competition", "PL"],
+            [*SHADOW_EXPORT_STEP],       # LAST (addendum 185 D2): reads the DB only, after every sync above
         ],
     },
     "soccer-refresh": {  # H0-6: OPERATOR-STARTED ONLY — no timer exists
@@ -459,4 +470,5 @@ UNMETERED = frozenset({
     "export-nhl-predictions",
     "nhl-shot-sync",          # api-web.nhle.com (the NHL's free API), never api-sports
     "export-unl-predictions",  # reads the DB only
+    "export-soccer-expansion-shadow",  # reads the DB and the registry only (addendum 185 D2: its chain step)
 })

@@ -425,3 +425,49 @@ def test_the_script_exits_1_with_a_not_equal_line_when_parity_diverges(tmp_path,
 
     monkeypatch.setattr(lc, "parity", refused)
     assert lr.main([]) == lr.REFUSED == 2
+
+
+def test_185_d5_the_receipt_reads_mode_ro_runs_on_the_laptop_and_imports_nothing_host_only(tmp_path, monkeypatch,
+                                                                                             capsys):
+    """Addendum 185 D5: the operator runs the branch's parity script READ-ONLY on the laptop. Every session the receipt
+    opens (the close part and the parity) is on a mode=ro URI of the DATABASE_URL file, a write through it is refused
+    by SQLite, the app's own sessions and engine are restored afterwards, the laptop role refuses nothing, and neither
+    the script nor the modules its parity calls import anything from deploy/hosting or read the machine role."""
+    import ast
+
+    from sqlalchemy import text
+    from sqlalchemy.exc import OperationalError
+
+    from src.db import database
+    from src.walters import leagues_candidate as lc
+    _script_db(tmp_path, monkeypatch)
+    monkeypatch.setenv("SP_EXPORTS_MIRROR_ROLE", "laptop")
+    before = (database.SessionLocal, database._engine)
+    seen = []
+    real = lc.parity
+
+    def spy(code, rho, coeff, **k):
+        with database.session_scope() as s:
+            seen.append(str(s.get_bind().url))
+            with pytest.raises(OperationalError, match="readonly"):
+                s.execute(text("CREATE TABLE t_probe (x INTEGER)"))
+            s.rollback()
+        return real(code, rho, coeff, **k)
+    monkeypatch.setattr(lc, "parity", spy)
+    assert lr.main([]) == 0
+    out = capsys.readouterr().out
+    assert out.startswith(f"database: {(tmp_path / 'iso.db').resolve()} (mode=ro; this machine's receipt")
+    assert len(seen) == 5 and all("mode=ro" in u for u in seen)
+    assert (database.SessionLocal, database._engine) == before               # restored for the process
+    hosted = {"deploy", "sp_common", "chains", "closing", "coverage_map", "sp_run"}
+    files = [ROOT / "scripts" / "leagues_close_receipt.py",
+             *(ROOT / "src" / "walters" / f"{m}.py" for m in ("leagues_candidate", "leagues_window",
+                                                               "soccer_expansion", "paper"))]
+    for f in files:
+        tree = ast.parse(f.read_text(encoding="utf-8"))
+        names = {(n.module or "").split(".")[0] for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)}
+        names |= {a.name.split(".")[0] for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
+        assert not names & hosted, (f.name, names & hosted)
+    src = (ROOT / "scripts" / "leagues_close_receipt.py").read_text(encoding="utf-8")
+    for name in ("not_host_reason", "machine_role", "role_reading", "SP_EXPORTS_MIRROR_ROLE", "host_fenced"):
+        assert name not in src, name                                         # no machine role is read or refused

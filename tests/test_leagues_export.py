@@ -226,12 +226,16 @@ def test_4_after_the_declaration_rows_carry_the_entry_text_byte_for_byte(ledger,
     assert json.loads(Path(path).read_text())["predictions"][-1]["declared_at"] == AT_TEXT    # as stored, verbatim
     assert (r["candidate"], r["experiment"], r["frozen_constants"], r["code_sha"]) == ("leagues-sa-v1", sx.EID,
                                                                                        FROZEN, "abc1234")
-    assert r["input_cutoff"] == r["utc_date"] == (AT + timedelta(hours=1)).isoformat()
-    assert r["prediction_stamp"] == doc["exported_at"] == now.isoformat()
+    assert r["utc_date"] == (AT + timedelta(hours=1)).isoformat()
+    # finding 3: a prospective row's input cutoff is the export instant (the DB state it read), never the kickoff
+    assert r["input_cutoff"] == r["prediction_stamp"] == doc["exported_at"] == now.isoformat()
     assert r["inputs_read"] == {"n_prior": 40, "last_prior_kickoff": datetime(2026, 9, 4, 3, 0).isoformat(),
                                 "pending_before": 2}
     assert r["gate_verdict"] == f"leagues-sa-v1 · declared {AT_TEXT} · verdict pending"
-    assert "window_opens_at" not in r and doc["git_sha"] == "abc1234"
+    # D1 (addendum 185): the four's rows carry window_opens_at = their declared_at, the same verbatim text
+    assert r["window_opens_at"] == r["declared_at"] == AT_TEXT and doc["git_sha"] == "abc1234"
+    assert doc["bindings"]["SA"]["window_opens_at"] == AT_TEXT
+    assert set(r) >= {"declared_at", "window_opens_at"} and set(doc["predictions"][0]) == set(r)   # one schema
     assert sorted((x["match_id"], x["reason"]) for x in doc["missing"] if x["competition"] == "SA") == [
         (2001, "before_declared_at"), (2002, "before_declared_at")]
 
@@ -329,7 +333,11 @@ def test_7_an_unplaced_label_before_the_windows_end_refuses_that_league_only(led
     monkeypatch.setenv("SP_EXPORTS_MIRROR_ROLE", "host")
     monkeypatch.setattr(sx, "utc_now_naive", lambda: now)
     r = CliRunner().invoke(cli.cli, ["export-soccer-expansion-shadow"])
-    assert r.exit_code == 2 and "SA · refused: F3" in r.output and "REFUSED: SA (above)" in r.output
+    assert r.exit_code == 2 and "SA · refused: F3" in r.output
+    # PD has no stored game in this world: refused by name (finding 11), never "exporting, rows 0"
+    assert "PD · refused: not stored: no 2026/27 game of PD is stored in this DB" in r.output
+    assert "REFUSED: PD, SA (above); the exporting leagues (BL1) were written to exports/" in r.output
+    assert "a label unplaced on the second chain run is a finding Issue" in r.output          # D7, an F3 refusal
     assert "BL1 · exporting · leagues-bl1-v1" in r.output and "rows 1" in r.output
     assert len(list(Path("exports").glob(f"{sx.FILE_PREFIX}*.json"))) == 1             # the others were written
 
@@ -364,6 +372,10 @@ def test_8_r6_only_the_host_exports(ledger, tmp_path, monkeypatch, setup, why):
     monkeypatch.setattr(sx, "shadow_bindings", lambda *a, **k: pytest.fail("the registry was read"))
     from src.db import database
     monkeypatch.setattr(database, "session_scope", lambda *a, **k: pytest.fail("the DB was read"))
+    # finding 9: cli.py binds session_scope / init_db at import; a read in the command body before the role check
+    # would go through those names, never database's
+    monkeypatch.setattr(cli, "session_scope", lambda *a, **k: pytest.fail("the DB was read (cli.session_scope)"))
+    monkeypatch.setattr(cli, "init_db", lambda *a, **k: pytest.fail("the DB was touched (cli.init_db)"))
     r = CliRunner().invoke(cli.cli, ["export-soccer-expansion-shadow"])
     assert r.exit_code == 2
     assert r.output.startswith("REFUSED: export-soccer-expansion-shadow runs on the host only (the writer of record; "
@@ -416,12 +428,12 @@ def test_9_the_audit_reads_the_exports_rows_present_and_equal(ledger, tmp_path):
     w = lw.read(("SA",), now=NOW, export_dir=str(out))["SA"]
     assert w["state"] == "ready" and w["stored_present"] == 60 and w["stored_missing"] == 0
     a = lw.score(w, export_dir=str(out), now=NOW)["audit"]
-    assert a == {"present": 60, "missing": 0, "differ": [], "unreadable": []}
+    assert a == {"present": 60, "missing": 0, "findings": [], "expected": [], "unreadable": []}
 
 
-def test_9_rows_exported_before_earlier_games_finished_are_counted_findings(ledger, tmp_path):
-    """D4 (Code's default): such rows are written with inputs_read.pending_before; the read's recompute differs and
-    the audit counts it (R1: never resolved either way)."""
+def test_9_rows_exported_before_earlier_games_finished_are_counted_and_expected(ledger, tmp_path):
+    """D4 (addendum 185): such rows are written with inputs_read.pending_before; the read's recompute differs and the
+    audit counts it on its EXPECTED line, listed with the count (R1: never resolved either way); none is a FINDING."""
     _world(ledger, decl("SA"))
     out = tmp_path / "ex"
     games = _sequenced()
@@ -432,8 +444,15 @@ def test_9_rows_exported_before_earlier_games_finished_are_counted_findings(ledg
         _finish(mid, hs, as_)
     w = lw.read(("SA",), now=NOW, export_dir=str(out))["SA"]
     a = lw.score(w, export_dir=str(out), now=NOW)["audit"]
-    assert a["present"] == 60 and a["differ"] and not a["unreadable"]
-    assert all(pend[d["match_id"]] > 0 for d in a["differ"]) and 2000 not in {d["match_id"] for d in a["differ"]}
+    assert a["present"] == 60 and a["expected"] and a["findings"] == [] and not a["unreadable"]
+    assert all(pend[d["match_id"]] == d["pending_before"] > 0 for d in a["expected"])
+    assert 2000 not in {d["match_id"] for d in a["expected"]}
+    L = lw.audit_lines("SA", a)
+    assert L[1] == ("  - SA · FINDINGS 0: differences on rows with pending_before = 0, or with no pending_before on "
+                    "the row (addendum 185 D4)")
+    assert L[2].startswith(f"  - SA · EXPECTED {len(a['expected'])}: differences on rows with pending_before > 0")
+    assert all(x.startswith("    EXPECTED match ") and " · pending_before " in x for x in L[3:])
+    assert len(L) == 3 + len(a["expected"])
 
 
 # ------------------------------------------------------------------------------------------- 10. consumers --
@@ -490,3 +509,228 @@ def test_11_the_registry_is_read_at_call_time(ledger, tmp_path):
     ledger(run={"id": sx.EID, "run": None})                 # the real registry holds a run record; this one does not
     _, doc = _export(NOW, out=tmp_path / "b")
     assert doc["bindings"]["PD"]["state"].startswith(sx.SHADOW_REFUSED)
+
+
+# ------------------------------------------------------------- 12. D2: the chain step's window (addendum 185) --
+
+def test_12_the_three_timers_are_the_timer_files_own():
+    """SYNC_CHAIN_TIMERS is declared once in soccer_expansion and pinned here to deploy/hosting/systemd: each timer's
+    OnCalendar line, word for word, and the chain its Unit runs."""
+    import re
+    root = Path(__file__).resolve().parent.parent / "deploy" / "hosting" / "systemd"
+    for timer, chain, cal in sx.SYNC_CHAIN_TIMERS:
+        t = (root / timer).read_text(encoding="utf-8")
+        assert re.findall(r"^OnCalendar=(.+)$", t, re.M) == [cal], timer
+        assert re.search(r"^Unit=(.+)$", t, re.M).group(1) == f"sp-chain@{chain}.service", timer
+    assert sorted(t for t, _, _ in sx.SYNC_CHAIN_TIMERS) == sorted(
+        p.name for p in root.glob("sp-soccer-*.timer"))                      # every soccer sync timer, no other
+
+
+@pytest.mark.parametrize("now, at, timer", [
+    # Friday's chain (14:00Z) -> Saturday 10:30 London: 09:30Z in summer time (UK clocks go back 2026-10-25)
+    (datetime(2026, 10, 23, 14, 20), datetime(2026, 10, 24, 9, 30), "sp-soccer-saturday.timer"),
+    (datetime(2026, 10, 30, 14, 20), datetime(2026, 10, 31, 10, 30), "sp-soccer-saturday.timer"),   # winter: 10:30Z
+    (datetime(2027, 3, 26, 14, 20), datetime(2027, 3, 27, 10, 30), "sp-soccer-saturday.timer"),     # before 03-28
+    (datetime(2027, 4, 2, 14, 20), datetime(2027, 4, 3, 9, 30), "sp-soccer-saturday.timer"),        # after: BST
+    # Saturday's -> Sunday's morning-after 09:50Z; Sunday's -> Monday's; Monday's -> Tuesday's
+    (datetime(2026, 10, 31, 10, 50), datetime(2026, 11, 1, 9, 50), "sp-soccer-morning-after.timer"),
+    (datetime(2026, 11, 1, 10, 5), datetime(2026, 11, 2, 9, 50), "sp-soccer-morning-after.timer"),
+    (datetime(2026, 11, 2, 10, 5), datetime(2026, 11, 3, 9, 50), "sp-soccer-morning-after.timer"),
+    # Tuesday's -> Friday 14:00Z (no chain Wed / Thu: D2, no daily league sync)
+    (datetime(2026, 11, 3, 10, 5), datetime(2026, 11, 6, 14, 0), "sp-soccer-friday.timer"),
+    # strictly after: a clock exactly at a fire reads the next one
+    (datetime(2026, 11, 6, 14, 0), datetime(2026, 11, 7, 10, 30), "sp-soccer-saturday.timer"),
+])
+def test_12_next_chain_run_is_the_next_timer_fire_dst_correct(now, at, timer):
+    got = sx.next_chain_run(now)
+    assert (got["at"], got["timer"]) == (at, timer)
+    assert got["chain"] == dict((t, c) for t, c, _ in sx.SYNC_CHAIN_TIMERS)[timer]
+
+
+def test_12_an_unreadable_timer_line_refuses_never_a_guessed_window(monkeypatch):
+    monkeypatch.setattr(sx, "SYNC_CHAIN_TIMERS", (("sp-x.timer", "soccer-prematch", "daily"),))
+    with pytest.raises(sx.ExpansionRefused, match="not a form next_chain_run reads"):
+        sx.next_chain_run(NOW)
+
+
+def test_12_without_hours_the_window_runs_to_the_next_chain_and_strictly_after_the_stamp(ledger, tmp_path):
+    """The chain step's window: (now, the next chain's run). A fixture before the next run is a row; one at or after
+    it is not in this file (the next chain's); a fixture kicking off at the stamp itself is neither a row nor a
+    missing entry (finding 13: last_calls and stored_rows never read a row stamped at its kickoff). --hours stays a
+    manual run's explicit override."""
+    _world(ledger)
+    t = _teams("PD")
+    rest = _priors("PD", t)
+    now = datetime(2026, 11, 3, 10, 5)                         # Tuesday's morning-after run -> Friday 14:00Z
+    _game(901, "PD", now, rest[0], MatchStatus.SCHEDULED)                                 # at the stamp
+    _game(902, "PD", datetime(2026, 11, 5, 19, 0), rest[1], MatchStatus.SCHEDULED)         # Thursday: a row
+    _game(903, "PD", datetime(2026, 11, 6, 14, 0), rest[2], MatchStatus.SCHEDULED)         # at the next run: not here
+    _, doc = _export(now, hours=None, out=tmp_path / "a")
+    assert [r["match_id"] for r in doc["predictions"]] == [902] and doc["missing"] == []
+    assert doc["window"] == {"after": now.isoformat(), "before": "2026-11-06T14:00:00",
+                             "rule": "until the next soccer sync chain's run (soccer-prematch, sp-soccer-friday.timer; "
+                                     "ARCHITECT 2026-10-30, addendum 185 D2)",
+                             "next_chain": {"at": "2026-11-06T14:00:00", "timer": "sp-soccer-friday.timer",
+                                            "chain": "soccer-prematch"}}
+    assert doc["window_hours"] == round((datetime(2026, 11, 6, 14, 0) - now).total_seconds() / 3600, 2)
+    _, doc = _export(now, hours=100, out=tmp_path / "b")
+    assert [r["match_id"] for r in doc["predictions"]] == [902, 903] and doc["window_hours"] == 100
+    assert doc["window"]["next_chain"] is None and doc["window"]["rule"].startswith("--hours 100")
+
+
+def test_12_the_chain_step_runs_bare_and_the_cli_prints_its_window(ledger, monkeypatch):
+    import cli
+    _world(ledger)
+    t = _teams("PD")
+    _priors("PD", t)
+    now = datetime(2026, 10, 30, 14, 20)
+    _game(900, "PD", now + timedelta(hours=5), (t[0], t[1]), MatchStatus.SCHEDULED)
+    monkeypatch.setenv("SP_EXPORTS_MIRROR_ROLE", "host")
+    monkeypatch.setattr(sx, "utc_now_naive", lambda: now)
+    r = CliRunner().invoke(cli.cli, ["export-soccer-expansion-shadow"])
+    assert r.exit_code == 0, r.output
+    assert ("1 rows · kickoffs after 2026-10-30T14:20:00 and before 2026-10-31T10:30:00 (until the next soccer sync "
+            "chain's run (soccer-prematch, sp-soccer-saturday.timer; ARCHITECT 2026-10-30, addendum 185 D2))") in r.output
+    assert CliRunner().invoke(cli.cli, ["export-soccer-expansion-shadow", "--hours", "0"]).exit_code == 2   # usage
+
+
+# ------------------------------------------------------- 13. law 4: a league this DB does not store (finding 11) --
+
+def test_13_a_bound_league_not_stored_is_refused_by_name_never_a_quiet_window(ledger, tmp_path):
+    _comps()                                                   # SA, BL1, FL1, ELC stored; PD's competition is not
+    ledger(decl("SA"), run=SXRUN)
+    _, doc = _export(NOW, out=tmp_path / "a")
+    assert doc["bindings"]["PD"]["state"] == ("refused: not stored: the competition PD is not stored in this DB (law "
+                                              "4: missing data is labelled, never an empty window)")
+    assert doc["bindings"]["SA"]["state"] == ("refused: not stored: no 2026/27 game of SA is stored in this DB (law 4: "
+                                              "missing data is labelled, never an empty window)")
+    assert doc["counts"]["PD"] == doc["counts"]["SA"] == {} and doc["predictions"] == []
+    _pd()
+    t = _teams("PD")
+    _game(950, "PD", NOW - timedelta(days=2), (t[0], t[1]))    # one stored game: PD binds and exports (0 rows)
+    _, doc = _export(NOW, out=tmp_path / "b")
+    assert doc["bindings"]["PD"]["state"] == "exporting" and doc["counts"]["PD"] == {}
+
+
+# --------------------------------------------- 14. a non-numeric run-record constant refuses (finding 12) --
+
+def test_14_a_non_numeric_constant_refuses_cleanly_through_the_command(ledger, monkeypatch):
+    import cli
+    _comps()
+    _pd()
+    ledger(run={**SXRUN, "run": {"result": {**SXRUN["run"]["result"], "rho": "abc"}}})
+    monkeypatch.setenv("SP_EXPORTS_MIRROR_ROLE", "host")
+    monkeypatch.setattr(sx, "utc_now_naive", lambda: NOW)
+    r = CliRunner().invoke(cli.cli, ["export-soccer-expansion-shadow"])
+    assert r.exit_code == 2 and not isinstance(r.exception, ValueError), r.output
+    assert "PD · refused: soccer-expansion-v1's run record holds constants that are not numbers" in r.output
+    assert "REFUSED: PD (above); no league was exported (exports/" in r.output and "holds no row)" in r.output
+    assert "finding Issue" not in r.output                 # D7's label sentence only on an F3 refusal (finding 20)
+
+
+# -------------------------------------------- 15. pending_before is D4's count, postponed included (finding 15) --
+
+def test_15_pending_before_counts_every_earlier_game_not_final_postponed_included(ledger, tmp_path):
+    _world(ledger, decl("SA"))
+    t = _teams("SA")
+    rest = _priors("SA", t)
+    now = AT + timedelta(days=1)
+    _game(2201, "SA", now - timedelta(hours=3), rest[0], MatchStatus.POSTPONED)       # comes back by its kickoff (R4)
+    _game(2202, "SA", now - timedelta(hours=2), rest[1], MatchStatus.SCHEDULED)       # un-ingested
+    _game(2203, "SA", now + timedelta(hours=1), rest[2], MatchStatus.LIVE)
+    _game(2204, "SA", now + timedelta(hours=2), rest[3], MatchStatus.CANCELLED)       # never walked: not counted
+    _game(2205, "SA", now + timedelta(hours=3), rest[4], MatchStatus.STALE_ORPHAN)    # never walked: not counted
+    _game(2206, "SA", now + timedelta(hours=4), rest[5], MatchStatus.SCHEDULED, stage="Relegation Round")  # F3
+    _game(2207, "SA", now - timedelta(hours=1), rest[6], raw="AET", s90=False)        # FINISHED, no 90': pending
+    _game(2208, "SA", now + timedelta(hours=5), rest[7], MatchStatus.SCHEDULED)       # the row
+    _, doc = _export(now, out=tmp_path)
+    (r,) = [x for x in doc["predictions"] if x["match_id"] == 2208]
+    assert r["inputs_read"]["pending_before"] == 4                     # 2201 2202 2203 2207
+
+
+# ------------------------------------------------------- 16. D4: the audit's two lines (addendum 185) --
+
+def test_16_the_audit_splits_differences_by_the_rows_pending_before():
+    """pending_before 0 -> FINDING; > 0 -> EXPECTED (listed with the count); a row without inputs_read, without the
+    key, or with a value that is not a whole number >= 0 -> FINDING (never assumed expected). Equal rows are neither."""
+    rec = {i: (0.5, 0.3, 0.2) for i in range(1, 9)}
+    off = {"home_win_prob": 0.4, "draw_prob": 0.3, "away_win_prob": 0.3}
+    same = {"home_win_prob": 0.5, "draw_prob": 0.3, "away_win_prob": 0.2}
+    stored = {1: {"prediction": off, "inputs_read": {"pending_before": 0}},
+              2: {"prediction": off, "inputs_read": {"pending_before": 3}},
+              3: {"prediction": off},
+              4: {"prediction": off, "inputs_read": {}},
+              5: {"prediction": off, "inputs_read": {"pending_before": "3"}},
+              6: {"prediction": off, "inputs_read": {"pending_before": True}},
+              7: {"prediction": off, "inputs_read": {"pending_before": -1}},
+              8: {"prediction": same, "inputs_read": {"pending_before": 5}}}
+    a = lw.audit(stored, rec)
+    assert [f["match_id"] for f in a["findings"]] == [1, 3, 4, 5, 6, 7]
+    assert [(f["match_id"], f["pending_before"]) for f in a["expected"]] == [(2, 3)]
+    assert [f["pending_before"] for f in a["findings"]] == [0, None, None, None, None, None]
+    L = lw.audit_lines("SA", a)
+    assert L[0].endswith("differ from the recompute 7 (R1: never resolved either way)")
+    assert L[1].startswith("  - SA · FINDINGS 6: ") and L[8].startswith("  - SA · EXPECTED 1: ")
+    assert L[2].endswith("pending_before 0") and L[3].endswith("pending_before not on the row")
+    assert L[9].startswith("    EXPECTED match 2 ") and L[9].endswith("pending_before 3") and len(L) == 10
+
+
+# ------------------------------------------------------------- 17. the uncovered branches (finding 19) --
+
+def test_17_pd_refuses_when_the_surviving_set_lacks_it(ledger, tmp_path):
+    _comps()
+    _pd()
+    ledger(run={**SXRUN, "run": {"result": {**SXRUN["run"]["result"], "surviving": ["SA"]}}})
+    _, doc = _export(NOW, out=tmp_path)
+    assert doc["bindings"]["PD"]["state"] == ("refused: soccer-expansion-v1: the run record's surviving set ['SA'] does "
+                                              "not hold PD")
+
+
+@pytest.mark.parametrize("field, value", [("declared_at", "2026-10-07"), ("verdict", {"verdict": "PASS",
+                                                                                      "at": "2026-10-09"}),
+                                          ("verdict", {"verdict": "PASS", "at": "2026-10-09T08:47:39-04:00"})])
+def test_17_pd_refuses_an_instant_that_is_not_utc(ledger, tmp_path, field, value):
+    _comps()
+    _pd()
+    ledger(run={**SXRUN, field: value})
+    _, doc = _export(NOW, out=tmp_path)
+    st = doc["bindings"]["PD"]["state"]
+    assert st.startswith("refused: soccer-expansion-v1: declared_at ") and st.endswith("is not a UTC instant")
+
+
+def test_17_pd_refuses_a_constants_drift_between_confirming_and_the_run_record(ledger, tmp_path, monkeypatch):
+    _world(ledger)
+    monkeypatch.setattr(lw, "run_record_constants", lambda: {**FROZEN, "rho": -0.2})
+    _, doc = _export(NOW, out=tmp_path)
+    assert "confirming()'s constants" in doc["bindings"]["PD"]["state"] and "differ from leagues_window." \
+        "run_record_constants()" in doc["bindings"]["PD"]["state"]
+
+
+def test_17_a_label_with_no_kickoff_refuses_the_league():
+    from types import SimpleNamespace
+    games = [SimpleNamespace(id=7, utc_date=None, status=MatchStatus.SCHEDULED, stage="Matchday 3"),
+             SimpleNamespace(id=8, utc_date=None, status=MatchStatus.POSTPONED, stage="Matchday 3"),
+             SimpleNamespace(id=9, utc_date=NOW, status=MatchStatus.SCHEDULED, stage="Regular Season - 3")]
+    assert sx.shadow_unplaced(games, "SA", NOW) == ["SA 2026/27 7 'Matchday 3' no kickoff"]
+
+
+def test_17_the_parity_goes_through_the_exports_own_function(ledger, monkeypatch):
+    _world(ledger)
+    _league_season("PD", 5000)
+    calls = []
+    real = sx.shadow_entry
+    monkeypatch.setattr(sx, "shadow_entry", lambda *a, **k: calls.append(k.get("prospective")) or real(*a, **k))
+    p = lc.parity("PD", -0.1, 0.0008, now=NOW)
+    assert calls and set(calls) == {False} and len(p["rows"]) <= len(calls)
+
+
+def test_17_a_recorded_verdict_labels_the_rows_and_they_continue(ledger, tmp_path):
+    """D6: rows continue after a verdict; the label carries it (_verdict_text)."""
+    _world(ledger, decl("SA", verdict={"verdict": "REJECT"}))
+    t = _teams("SA")
+    rest = _priors("SA", t)
+    now = AT + timedelta(days=1)
+    _game(2301, "SA", now + timedelta(hours=2), rest[0], MatchStatus.SCHEDULED)
+    _, doc = _export(now, out=tmp_path)
+    (r,) = [x for x in doc["predictions"] if x["competition"] == "SA"]
+    assert r["gate_verdict"] == f"leagues-sa-v1 · declared {AT_TEXT} · verdict REJECT"

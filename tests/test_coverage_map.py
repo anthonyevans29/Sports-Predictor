@@ -398,6 +398,20 @@ def test_a_declared_lane_is_shadow_only_where_a_chain_runs_its_shadow_export(env
             "ncaa-market runs export-ncaa-predictions (ncaa_elo_v1r)) ·") in line_of(run("--date", DAY)[1], "NCAA")
 
 
+def test_a_declared_league_reads_the_shadow_the_soccer_chains_run_and_an_undeclared_one_does_not(env):
+    """R5 (addendum 178) with D2 (addendum 185): export-soccer-expansion-shadow runs after the five leagues' syncs, and
+    a league reads its shadow only once the registry holds its declaration (SHADOW_BINDS, read from the registry's
+    entries). SA declared: MARKET-ONLY · shadow v1 by (b); BL1 still MARKET-ONLY alone."""
+    make_db(env, [(860, "SA", "2026-10-17 19:00", "SCHEDULED"), (861, "BL1", "2026-10-17 19:00", "SCHEDULED")])
+    Path(reg.LEDGER).write_text(json.dumps(ENTRIES + [{"id": "leagues-sa-v1", "competition": "SA"}]))
+    out = run("--date", DAY)[1]
+    assert (f"· MARKET-ONLY · shadow v1 ({EXPANSION_SETS}; roadmap lane leagues: to declare; chain soccer-prematch "
+            "runs export-soccer-expansion-shadow (soccer-expansion-v1)) ·") in line_of(out, "SA")
+    assert "which writes no BL1 row: BL1 is not declared (no registry entry leagues-bl1-v1" in line_of(out, "BL1")
+    assert "· MARKET-ONLY (" in line_of(out, "BL1")
+    assert cm.SHADOW_BINDS["export-soccer-expansion-shadow"]("PL", {}) == "PL is not a league of soccer-expansion-v1"
+
+
 def test_the_cups_and_the_four_leagues_are_market_only_from_the_codes_sets(env, monkeypatch):
     """CL, EFL, UEL from cup_coeff.EXAM_COMPS; SA, BL1, FL1, ELC from the three expansion sets. Read from the code at
     run time (a set changed in the code changes the line), never a copy: CL out of EXAM_COMPS is UNKNOWN."""
@@ -408,9 +422,13 @@ def test_the_cups_and_the_four_leagues_are_market_only_from_the_codes_sets(env, 
     for code in ("CL", "EFL", "UEL"):
         assert (f"· MARKET-ONLY (cup_coeff.EXAM_COMPS; roadmap lane cups: declared, no shadow export scheduled for "
                 f"{code} (chains.py)) ·") in line_of(out, code)
+    # R5 (addendum 178): the soccer chains run export-soccer-expansion-shadow after the four's syncs (addendum 185 D2),
+    # but it writes no row for a league not declared: no shadow, the reason on the line (SHADOW_BINDS)
     for code in ("SA", "BL1", "FL1", "ELC"):
         assert (f"· MARKET-ONLY ({EXPANSION_SETS}; roadmap lane leagues: to declare, no shadow export scheduled for "
-                f"{code} (chains.py)) ·") in line_of(out, code)
+                f"{code} (chains.py: soccer-prematch, soccer-morning-after run export-soccer-expansion-shadow, which "
+                f"writes no {code} row: {code} is not declared (no registry entry leagues-{code.lower()}-v1; addendum "
+                "178 R5: nothing is a shadow before it is declared))) ·") in line_of(out, code)
     assert out[-1] == "GAPS: none"
     from src.walters import cup_coeff
     monkeypatch.setattr(cup_coeff, "EXAM_COMPS", {"EFL", "UEL", "EL"})
@@ -503,8 +521,9 @@ def test_the_market_only_sets_are_the_codes_own():
 
 def test_the_shadow_exports_are_the_clis_own():
     """SHADOW_EXPORTS: each command is a cli command whose body reaches its module; each module writes engine
-    model_shadow; every module that does is named. The chains that run one: nhl-daily (its steps name NHL) and
-    intl-daily (its steps name no competition)."""
+    model_shadow; every module that does is named. The chains that run one: soccer-prematch and soccer-morning-after
+    (addendum 185 D2; their steps name PL and the five expansion leagues, SHADOW_BINDS narrows them), nhl-daily (its
+    steps name NHL) and intl-daily (its steps name no competition)."""
     import importlib
     import cli
     for cmd, (mod, attr) in cm.SHADOW_EXPORTS.items():
@@ -516,7 +535,13 @@ def test_the_shadow_exports_are_the_clis_own():
     assert writers == sorted(mod for mod, _ in cm.SHADOW_EXPORTS.values())
     from src.walters import intl_shadow, nhl_shadow
     assert nhl_shadow.MODEL_VERSION == V7
+    five = set(cm.EXPANSION_CODES)
     assert cm.scheduled_shadows() == [
+        # addendum 185 D2: the last step of both soccer sync chains; the steps before it name PL and the five
+        {"chain": "soccer-prematch", "command": "export-soccer-expansion-shadow", "model": "soccer-expansion-v1",
+         "comps": {"PL", *five}},
+        {"chain": "soccer-morning-after", "command": "export-soccer-expansion-shadow", "model": "soccer-expansion-v1",
+         "comps": {"PL", *five}},
         {"chain": "nhl-daily", "command": "export-nhl-predictions", "model": V7, "comps": {"NHL"}},
         {"chain": "intl-daily", "command": "export-unl-predictions", "model": intl_shadow.MODEL_VERSION,
          "comps": set()}]

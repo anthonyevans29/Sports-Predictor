@@ -6661,7 +6661,9 @@ def soccer_expansion_gate_cmd(preflight, no_fetch):
 
 
 @cli.command("export-soccer-expansion-shadow")
-@click.option("--hours", default=72, show_default=True, type=int)
+@click.option("--hours", default=None, type=click.IntRange(min=1),
+              help="A manual run's explicit window: kickoffs in (now, now + HOURS). Without it (the chain step), "
+                   "kickoffs after now and before the next soccer sync chain's run (addendum 185 D2).")
 def export_soccer_expansion_shadow_cmd(hours):
     """soccer-expansion-v1 SHADOW, on the HOST only (ARCHITECT 2026-10-30 addendum 178 R6, verbatim in part:
     "THE EXPORT runs on the HOST only (the writer of record ...) — the laptop never exports a league."). PD (159
@@ -6669,15 +6671,23 @@ def export_soccer_expansion_shadow_cmd(hours):
     leagues_candidate.predict_as_of at the run record's frozen constants, never the production model (164 item 3);
     engine model_shadow (greyed; never a Desk call, never an order line, no prediction row). Writes
     exports/soccer_expansion_shadow_<stamp>.json.
+    THE SCHEDULE (ARCHITECT 2026-10-30 12:45 ET, addendum 185 D2): the LAST step of the soccer sync chains
+    (deploy/hosting/chains.py: soccer-prematch, run by sp-soccer-friday and sp-soccer-saturday, and
+    soccer-morning-after), run bare: its rows are the fixtures kicking off after the run and before the next chain's
+    run (soccer_expansion.next_chain_run, from the three timers' schedules). --hours is a manual run's explicit
+    override.
     REFUSED (exit 2) before any DB read, nothing read or written, unless this machine's role
     (desk_policy.not_host_reason, on the fence's own reading: host.env, the environment, the checkout's .env) is
     host: laptop, unset, a value that is neither, and an unreadable host.env each refuse with their own reason. The
     role, never SP_WRITER_OF_RECORD and never host_fenced (whose switch is off). Per league it prints the binding's
     state, the rows and the missing fixtures by reason.
-    Code's default, open for the architect (D7): a refused league (its binding, or F3) exits 2 after the other
-    leagues are written, as the cohort reader does.
-    Code's default, open for the architect (D2): no chain, timer or UNMETERED entry runs it yet (the chain and the
-    time need a ruling); deploy/hosting/chains.py is untouched."""
+    D7, ARCHITECT 2026-10-30 12:45 ET, addendum 185, verbatim: "AN UNPLACED STAGE LABEL ON A DAILY CHAIN: exit 2
+    stands (184 item 1); the export is the chain's LAST step so the syncs before it complete; the other leagues' rows
+    are written before the refusal exits; the chain's failure page is the signal and the label is placed by a receipt
+    PR the same day (as the cup timer's REFUSED rows are handled). No daily failure is tolerated for more than one
+    chain run: a label unplaced on the second run is a finding Issue." A refused league (its binding, F3, or a league
+    this DB does not store) exits 2 after the file is written; the closing line names the leagues that were exported,
+    or says none was."""
     from src.walters import desk_policy as _dp
     why = _dp.not_host_reason()
     if why is not None:
@@ -6686,11 +6696,17 @@ def export_soccer_expansion_shadow_cmd(hours):
                    "written.")
         raise SystemExit(2)
     from src.walters import soccer_expansion as sx
-    path, doc = sx.export_shadow(hours=hours)
+    try:
+        path, doc = sx.export_shadow(hours=hours)
+    except sx.ExpansionRefused as e:         # next_chain_run: a timer schedule it cannot read (never guessed)
+        click.echo(f"REFUSED: {e}. Nothing was written.")
+        raise SystemExit(2)
     console.print(f"[green]✓ Wrote soccer-expansion SHADOW to {path}[/green]")
-    print(f"  {doc['count']} rows in the next {hours}h · frozen {doc['model_version'] or 'unknown'} (the run "
-          f"record's; never the production model) · code {doc['git_sha'] or 'unknown'}")
-    refused = []
+    w = doc["window"]
+    print(f"  {doc['count']} rows · kickoffs after {w['after']} and before {w['before']} ({w['rule']}) · frozen "
+          f"{doc['model_version'] or 'unknown'} (the run record's; never the production model) · code "
+          f"{doc['git_sha'] or 'unknown'}")
+    refused, exported = [], []
     for code, b in doc["bindings"].items():
         n = doc["counts"].get(code) or {}
         miss = {k: v for k, v in n.items() if k != "priced"}
@@ -6702,8 +6718,16 @@ def export_soccer_expansion_shadow_cmd(hours):
                                              if b["state"] == sx.SHADOW_EXPORTING else ""))
         if b["state"].startswith(sx.SHADOW_REFUSED):
             refused.append(code)
+        elif b["state"] == sx.SHADOW_EXPORTING:
+            exported.append(code)
     if refused:
-        click.echo(f"REFUSED: {', '.join(refused)} (above); the other leagues were written to {path}")
+        click.echo(f"REFUSED: {', '.join(refused)} (above); "
+                   + (f"the exporting leagues ({', '.join(exported)}) were written to {path}" if exported else
+                      f"no league was exported ({path} holds no row)")
+                   + (". D7 (addendum 185): the chain's failure page is the signal; the label is placed by a receipt "
+                      "PR the same day, and a label unplaced on the second chain run is a finding Issue"
+                      if any(doc["bindings"][c]["state"].startswith(sx.SHADOW_REFUSED + "F3") for c in refused)
+                      else ""))
         raise SystemExit(2)
 
 

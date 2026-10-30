@@ -508,6 +508,7 @@ def read(codes=LEAGUES, now: datetime | None = None, export_dir: str = "exports"
         stored = stored_rows(code, e.get("declared_at"), export_dir)
         w.update({"declared": True, "id": e["id"], "declared_at_text": e.get("declared_at"),
                   "verdict_recorded": verdict_recorded(e),
+                  "export_dir": str(export_dir),
                   "stored_present": sum(1 for i in w["members"] if i in stored),
                   "stored_missing": sum(1 for i in w["members"] if i not in stored)})
         out[code] = w
@@ -535,14 +536,29 @@ def aggregate(pairs) -> dict:
     return {"n": n, "ll_candidate": ll_c, "ll_close": ll_k, "verdict": verdict_of(ll_c, ll_k)}
 
 
+def pending_before(row: dict) -> int | None:
+    """The stored row's inputs_read.pending_before (soccer_expansion.shadow_entry: D4's count of earlier-kickoff games
+    not final at export), or None when the row does not carry it as a whole number >= 0 (no inputs_read, no key, a
+    bool, a string, a negative): never assumed."""
+    v = (row.get("inputs_read") or {}).get("pending_before") if isinstance(row.get("inputs_read"), dict) else None
+    return v if isinstance(v, int) and not isinstance(v, bool) and v >= 0 else None
+
+
 def audit(stored: dict[int, dict], recomputed: dict[int, tuple[float, float, float]]) -> dict:
     """R1's audit: each member's stored prospective row against the recompute on the same fixture. No tolerance
     (addendum 181 item 5): the recompute ROUNDED BY THE EXPORT'S OWN FUNCTION (soccer_expansion.shadow_prob, the one
-    shadow_row writes with) is compared to the stored value; not equal is a finding, counted and listed, never
-    resolved either way. Pure."""
+    shadow_row writes with) is compared to the stored value; not equal is a difference, counted and listed, never
+    resolved either way. Pure.
+    D4, ARCHITECT 2026-10-30 12:45 ET, addendum 185, verbatim: "The audit prints two lines, both counted, neither silent
+    (R1 holds): differences on rows with pending_before = 0 are FINDINGS; differences on rows with pending_before > 0
+    are EXPECTED and listed with the count." A difference goes to `findings` when the stored row's
+    inputs_read.pending_before is 0 OR is not on the row as a whole number (pending_before() None: never assumed
+    expected, law 4), to `expected` when it is above 0; each entry carries `pending_before` (None where the row has
+    none)."""
     from src.walters.soccer_expansion import shadow_prob
     present = [i for i in recomputed if i in stored]
-    out = {"present": len(present), "missing": len(recomputed) - len(present), "differ": [], "unreadable": []}
+    out = {"present": len(present), "missing": len(recomputed) - len(present), "findings": [], "expected": [],
+           "unreadable": []}
     for i in present:
         sp = _stored_probs(stored[i])
         if sp is None:
@@ -551,23 +567,32 @@ def audit(stored: dict[int, dict], recomputed: dict[int, tuple[float, float, flo
         rounded = tuple(shadow_prob(x) for x in recomputed[i])
         if sp != rounded:
             d = max(abs(a - b) for a, b in zip(sp, recomputed[i]))
-            out["differ"].append({"match_id": i, "stored": sp, "recomputed": recomputed[i], "rounded": rounded,
-                                  "diff": d})
+            pb = pending_before(stored[i])
+            out["expected" if pb else "findings"].append({"match_id": i, "stored": sp, "recomputed": recomputed[i],
+                                                           "rounded": rounded, "diff": d, "pending_before": pb})
     return out
 
 
 def audit_lines(code: str, a: dict) -> list[str]:
+    """The audit as printed: the head, then D4's two lines, FINDINGS and EXPECTED, each counted (0 included) and each
+    difference listed under its line; neither silent."""
     if not a["present"]:
-        head = f"  - {code} · stored prospective rows: none (no stored rows; {a['missing']} members without one)"
-    else:
-        head = (f"  - {code} · stored prospective rows: present {a['present']} · missing {a['missing']} · "
-                f"differ from the recompute {len(a['differ'])} (FINDINGS, R1: never resolved either way)"
-                + (f" · unreadable {len(a['unreadable'])}" if a["unreadable"] else ""))
-    L = [head]
-    for f in a["differ"]:
-        L.append(f"    FINDING match {f['match_id']} · stored " + "/".join(f"{x:.4f}" for x in f["stored"])
-                 + " · recomputed " + "/".join(f"{x:.6f}" for x in f["recomputed"]) + " (rounded by the export's "
-                 "function " + "/".join(f"{x:.4f}" for x in f["rounded"]) + f") · |diff| {f['diff']:.2g}")
+        return [f"  - {code} · stored prospective rows: none (no stored rows; {a['missing']} members without one)"]
+    L = [f"  - {code} · stored prospective rows: present {a['present']} · missing {a['missing']} · differ from the "
+         f"recompute {len(a['findings']) + len(a['expected'])} (R1: never resolved either way)"
+         + (f" · unreadable {len(a['unreadable'])}" if a["unreadable"] else ""),
+         f"  - {code} · FINDINGS {len(a['findings'])}: differences on rows with pending_before = 0, or with no "
+         "pending_before on the row (addendum 185 D4)"]
+
+    def one(kind, f):
+        return (f"    {kind} match {f['match_id']} · stored " + "/".join(f"{x:.4f}" for x in f["stored"])
+                + " · recomputed " + "/".join(f"{x:.6f}" for x in f["recomputed"]) + " (rounded by the export's "
+                "function " + "/".join(f"{x:.4f}" for x in f["rounded"]) + f") · |diff| {f['diff']:.2g} · "
+                f"pending_before {'not on the row' if f['pending_before'] is None else f['pending_before']}")
+    L.extend(one("FINDING", f) for f in a["findings"])
+    L.append(f"  - {code} · EXPECTED {len(a['expected'])}: differences on rows with pending_before > 0 (exported "
+             "before an earlier game was final; addendum 185 D4)")
+    L.extend(one("EXPECTED", f) for f in a["expected"])
     return L
 
 
@@ -667,8 +692,10 @@ def lines(res: dict, now: datetime) -> list[str]:
                      "score, C1; listed as C2 lists them, addendum 181 item 3):")
             L.extend(f"    - {x}" for x in w["no_raw_code_members"])
         L.append(f"  - stored prospective rows (R1's audit receipt): present {w['stored_present']} · missing "
-                 f"{w['stored_missing']}" + ("" if w["stored_present"] else " (no stored rows: none written by "
-                                                                            "the host's shadow export)"))
+                 f"{w['stored_missing']}" + ("" if w["stored_present"] else
+                                             f" (no stored rows: none found in {w.get('export_dir', 'exports')}; the "
+                                             "host's shadow export writes them in the host's exports/, so a read "
+                                             "elsewhere finds none there)"))
         if w.get("verdict_recorded"):
             L.append(f"  - {code} · the verdict is recorded in {w['id']}: the fence is lifted")
         elif w["state"] == "ready":

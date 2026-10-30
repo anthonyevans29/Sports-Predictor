@@ -13,8 +13,13 @@ cause, the pending games by kind (R2's list: scheduled, LIVE, un-ingested; then 
 no score stored or a non-FT code with no 90-minute score, and a game at or before the instant not final, which every
 member's walk reads once final), the AWD / WO rows released from the walk and the members with no raw code (each
 listed, ARCHITECT 2026-10-30, addendum 181 items 2 and 3), the postponed games not placed, the stored prospective rows
-present or missing (the host's shadow export writes them, R5/R6), and the state: accruing, waiting (R4: a game before the 60th not final) or ready. At ready it
+present or missing, and the state: accruing, waiting (R4: a game before the 60th not final) or ready. At ready it
 says the one read is addendum 178 PR ORDER item 5's PR and stops: nothing is scored by this script, at any n.
+
+WHERE TO RUN IT: the stored rows are written by the HOST's shadow export (addendum 178 R6) into the host's own
+exports/, and their match ids are the host DB's. Run the reader on the host, from the deployed checkout (host.env's
+DATABASE_URL, the default --exports exports); a read on the laptop finds none of the host's rows there (the laptop's
+exports/host/ copy is a separate folder this reader does not read) and says so: "none found in <the directory>".
 
 The DB is the one DATABASE_URL names (else ./data/sports.db), as scripts/leagues_close_receipt.py reads it. A path
 with no file is REFUSED (exit 2) before any import that could open it: the reader never creates a database. One
@@ -41,7 +46,9 @@ REFUSED = 2                                  # the exit status of a refusal, as 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--exports", default="exports",
-                    help="the directory holding the shadow export's files, read for stored rows (default exports)")
+                    help="the directory holding the shadow export's files, read for stored rows (default exports: "
+                         "the host's own, where the export writes them; run the reader where those files and the DB "
+                         "that wrote them are, the host)")
     a = ap.parse_args(argv)
     import importlib.util                     # the close receipt's own DB resolution, loaded from its file
     spec = importlib.util.spec_from_file_location(

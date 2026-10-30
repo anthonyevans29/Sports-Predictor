@@ -29,7 +29,15 @@ Per league (SA, BL1, FL1, ELC; the season as the DB stores it, "2026/27" by defa
 Then step (c)'s date as 156 item 1 rules it: the earliest of the four, the other three named.
 
 The DB is the one DATABASE_URL names (else ./data/sports.db). A path with no file is refused before any import that
-could open it: the receipt never creates a database. One session, rolled back; nothing written.
+could open it: the receipt never creates a database. READ-ONLY for real (read_only below): before anything is read,
+the app's sessions and its engine are rebound, for the receipt's run only, to an engine of their own on a mode=ro URI
+of that file (sp_cutover's shot-gate idiom), so the app engine's connect hooks (PRAGMA journal_mode=WAL, the data/
+mkdir) never run, SQLite itself refuses any write, and nothing is written. No machine role is read and none refuses:
+the receipt runs on the laptop or the host alike, and imports nothing from deploy/hosting (ARCHITECT 2026-10-30 12:45
+ET, addendum 185 D5, verbatim: "THE PARITY RECEIPT for the PR body: the operator runs the branch's parity script
+READ-ONLY on the laptop (its read-only scope; a row-for-row arithmetic check on the laptop's data, stale is fine) — my
+block when Code names the script and its arguments; the host receipt after v1.6.2's deploy is my block too and goes on
+#322. The PR body says which machine produced its receipt.").
 
 Then the parity receipt (158 item 2(a)) per league, PD first (159 item 6(a); PD is never fenced), then the four,
 at the soccer-expansion-v1 RUN RECORD's frozen constants (leagues_window.run_record_constants: the constants the
@@ -59,6 +67,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+from contextlib import contextmanager
 from datetime import date
 from pathlib import Path
 
@@ -83,6 +92,28 @@ def db_file() -> Path:
     if not url.startswith("sqlite:///"):
         raise SystemExit(f"not a SQLite URL ({url.split(':')[0]}): the receipt is SQLite-only")
     return Path(url.replace("sqlite:///", ""))
+
+
+@contextmanager
+def read_only(f: Path):
+    """For the block: src.db.database's SessionLocal and engine are an engine of their own on a mode=ro URI of `f`
+    (no connect hook, no pragma, no mkdir; SQLite refuses a write), restored afterwards. session_scope, readonly_scope
+    (which reads the bound file after "file:") and the has_* column checks all read through it."""
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+
+    from src.db import database
+    eng = create_engine(f"sqlite:///file:{f.resolve().as_posix()}?mode=ro&uri=true",
+                        connect_args={"uri": True, "check_same_thread": False}, future=True)
+    saved = database.SessionLocal, database._engine
+    database.SessionLocal = sessionmaker(bind=eng, autoflush=False, autocommit=False, future=True,
+                                         expire_on_commit=False)
+    database._engine = eng
+    try:
+        yield eng
+    finally:
+        database.SessionLocal, database._engine = saved
+        eng.dispose()
 
 
 def come_line(code: str, c: dict) -> str:
@@ -140,6 +171,13 @@ def main(argv=None) -> int:
     if not f.is_file():
         raise SystemExit(f"no database at {f}: the receipt never creates one")
     declared = date.fromisoformat(a.declared)
+    with read_only(f):
+        print(f"database: {f.resolve()} (mode=ro; this machine's receipt: say which machine produced it, addendum 185 "
+              "D5)")
+        return _receipt(a, declared)
+
+
+def _receipt(a, declared) -> int:
     from src.walters.paper import LEAGUES, leagues_season
     for ln in lines(leagues_season(LEAGUES, a.season, declared), a.season, declared):
         print(ln)

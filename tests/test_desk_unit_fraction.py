@@ -24,6 +24,8 @@ import pytest
 from src.walters import desk_policy as dp
 from src.walters import desk_unit as du
 from src.walters import kalshi_pool as kpool
+
+REAL_SIGNED_FETCH = kpool.signed_fetch   # captured at import; conftest refuses it in every test
 from tests.test_closing_runs import box, mc  # noqa: F401  (box is a fixture)
 from tests.test_desk_exec_addendum import nfl
 
@@ -198,8 +200,8 @@ def test_a_failed_read_writes_nothing_and_the_next_page_reads_again_180_item_4(d
 @pytest.mark.parametrize("got,why", [
     ({"ok": True, "pool_usd": 0}, "the pool is not positive"),
     ({"ok": True, "pool_usd": "not a number"}, "the pool is not a number"),
-    ({"ok": False, "why": "key 'fixture_cash_key' is missing from the balance response"}, "is missing"),
-    ({"ok": False, "why": "key 'fixture_cash_key' of the balance response is not a number"}, "is not a number"),
+    ({"ok": False, "why": "key 'balance_dollars' is missing from the balance response"}, "is missing"),
+    ({"ok": False, "why": "key 'balance_dollars' of the balance response is not a dollar string"}, "not a dollar string"),
     ({"ok": False, "why": kpool.NOT_ENUMERATED}, "not enumerated"),
 ])
 def test_empty_is_not_zero_180_item_5(day, monkeypatch, got, why):
@@ -344,6 +346,7 @@ def test_no_key_through_the_day_unit_and_the_cli_is_unread_and_writes_nothing(da
     import cli
     monkeypatch.delenv("KALSHI_API_KEY_ID", raising=False)
     monkeypatch.delenv("KALSHI_PRIVATE_KEY_PATH", raising=False)
+    monkeypatch.setattr(kpool, "signed_fetch", REAL_SIGNED_FETCH)        # no key: it signs nothing, returns None
     out = CliRunner().invoke(cli.cli, ["desk-unit"])
     assert out.exit_code == 0, out.output
     assert du.read_day(du.et_date(datetime.now(timezone.utc))) is None   # 180 item 4: a failed read writes nothing
@@ -626,8 +629,11 @@ def test_every_fixture_figure_is_a_synthetic_digit_pattern():
     flat = [x for v in figures for x in (v if isinstance(v, tuple) else (v,))]
     assert len(flat) >= 10
     for v in flat:
-        digits = str(v).replace(".", "", 1) if isinstance(v, str) else str(v)
-        assert isinstance(v, (int, str)) and not isinstance(v, bool) and SYNTHETIC.match(digits), v
+        if isinstance(v, str):                      # a `_dollars` string: whole digits, one point, digits
+            whole, _, frac = v.partition(".")
+            assert whole.isdigit() and frac.isdigit() and SYNTHETIC.match(whole + frac), v
+        else:
+            assert isinstance(v, int) and not isinstance(v, bool) and SYNTHETIC.match(str(v)), v
 
 
 def test_no_file_sets_a_unit_figure():
@@ -672,7 +678,8 @@ def test_the_slate_pages_unread_line_follows_the_exports_own_unit():
     assert cl.export_unit_unread({"desk_meta": {}}, unread) is True and cl.export_unit_unread({}, read) is False
 
 
-@pytest.mark.parametrize("v", ["1e3", " 12.000000", "12.1234567", "12.", ".5", "+1.00", "", "NaN"])
+@pytest.mark.parametrize("v", ["1e3", " 12.000000", "12.1234567", "12.", ".5", "+1.00", "", "NaN", "-1.00", "1_000",
+                               "\u0661\u0662.00"])
 def test_only_a_fixed_point_dollar_string_is_read(v):
     got = kpool.read_pool(fetch=fake_fetch(two_pages(), balance={**balance_body(), "balance_dollars": v}))
     assert got["ok"] is False and got["why"] == "key 'balance_dollars' of the balance response is not a dollar string"
@@ -690,3 +697,12 @@ def test_the_process_role_is_captured_before_any_dotenv_load():
     before load_dotenv can fill it from the checkout's .env."""
     src = (Path(__file__).resolve().parent.parent / "config.py").read_text()
     assert src.index("PROCESS_ENV_ROLE = os.environ.get(") < src.index("load_dotenv(")
+
+
+def test_no_test_can_sign_a_kalshi_request():
+    """Review before round three (P1): conftest clears the key's names and refuses signed_fetch, so a read with no
+    fake fetch is unread, never a live PROD GET."""
+    import os
+    assert not os.environ.get("KALSHI_API_KEY_ID") and not os.environ.get("KALSHI_PRIVATE_KEY_PATH")
+    got = kpool.read_pool()
+    assert got["ok"] is False and got["why"] == "the request signer is not usable (AssertionError)"

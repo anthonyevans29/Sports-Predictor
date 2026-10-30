@@ -13,8 +13,8 @@ EVERY page of /portfolio/positions (cursor until empty ...; a page loop past a c
 partial pool)." "portfolio_value is NOT used (it is Kalshi's own valuation; the pool is at cost, not marked to market).
 event_positions is not used (one pool, no double count)."
 
-THE DEFINITIONS (ARCHITECT 2026-10-30 13:20 ET, addendum 187; read by the architect from the live reference
-2026-10-30, docs.kalshi.com is not reachable from Code's session), verbatim:
+THE DEFINITIONS (ARCHITECT 2026-10-30 13:20 ET, addendum 187; "read by the architect from the live reference
+2026-10-30 (docs.kalshi.com is not reachable from Code's session)"), verbatim:
 - https://docs.kalshi.com/api-reference/portfolio/get-positions — market_exposure_dollars: "Cost of the aggregate
   market position in dollars" (the cost basis addendum 179 item 2's "at cost" requires); cursor: "The Cursor
   represents a pointer to the next page of records in the pagination. Use the value returned from the previous
@@ -61,8 +61,9 @@ BALANCE_PATH = "/portfolio/balance"
 PAGE_LIMIT = 100                     # the documented default page size, sent under the spec's limit_param
 PAGED_KEYS = frozenset({"path", "list", "cost", "cursor", "cursor_param", "limit_param", "params"})
 MAX_PAGES = 20                       # addendum 186 item 3: a loop past 20 pages reads UNREAD, never a partial pool
-# the reference's "Fixed-point US dollar string ... responses emit up to 6" decimal places: no exponent, no blank
-FIXED_POINT = re.compile(r"-?\d+(?:\.\d{1,6})?")
+# the reference's "Fixed-point US dollar string ... responses emit up to 6" decimal places: ASCII digits, no sign, no
+# exponent, no blank (a negative balance or cost is not a pool: law 4, unread)
+FIXED_POINT = re.compile(r"[0-9]+(?:\.[0-9]{1,6})?")
 PROBE = Path(__file__).resolve().parents[2] / "scripts" / "kalshi_trade_api_probe.py"
 
 

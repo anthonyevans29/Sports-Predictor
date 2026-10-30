@@ -257,10 +257,12 @@ def guards_backtest(competition_code: str, season=None, through: datetime | None
     read would spend the test seasons outside the one run. None = allowed.
     THE LEAGUES' WINDOW FENCE (ARCHITECT 2026-10-30 09:30 ET, addendum 178 R8, verbatim: "FENCED: after a declaration
     the window's outcomes have one reader, the cohort reader; guards_backtest refuses any other read of them until
-    the verdict is recorded (the NCAA fence's precedent)."): for SA, BL1, FL1 or ELC with a declaration entry
-    (leagues_window.DECLARATION_IDS) and no verdict recorded, a walk of `season` 2026/27, or of every season (None),
-    is refused naming the cohort reader, unless it is cut at `through` at or before the league's declared_at (it then
-    reads no game of the window). No entry, no fence: an undeclared league is unaffected."""
+    the verdict is recorded (the NCAA fence's precedent)."): for SA, BL1, FL1 or ELC (leagues_window.DECLARATION_IDS)
+    with no verdict recorded, a walk of `season` 2026/27, or of every season (None), is refused naming the cohort
+    reader, unless it is cut at `through` at or before the league's cut: its entry's declared_at, or with no entry
+    leagues_window.PRE_DECLARATION_CUT, 2026-10-30T15:00:00Z (the pre-declaration fence, addendum 181 item 1(b)).
+    The fence bars any figure of either arm on a window game (a log-loss, a hit, a pick or probability set against
+    an outcome) and never bars reading a result as data (ARCHITECT 2026-10-30, addendum 181 item 4)."""
     from src.walters import registry as reg
     if (competition_code or "").upper() not in LEAGUES:
         return None
@@ -559,15 +561,21 @@ def price_upcoming(code: str, now: datetime, hours: int, rho: float, coeff: floa
     return out, dict(cnt)
 
 
+def shadow_prob(p: float) -> float:
+    """The shadow export's rounding of a probability (4 places): the one function shadow_row writes with and the
+    cohort reader's audit rounds the recompute with (ARCHITECT 2026-10-30, addendum 181 item 5: no tolerance)."""
+    return round(p, 4)
+
+
 def shadow_row(fixture_row: dict, pred, model_version: str, label: str, code: str) -> dict:
     """A greyed shadow row. Pure. No desk, no order, never a prediction."""
     probs = {"home_win": pred.p_home, "draw": pred.p_draw, "away_win": pred.p_away}
     top = max(probs.items(), key=lambda kv: kv[1])
     return {**fixture_row, "competition": code, "engine": ENGINE, "model_version": model_version,
             "gate_verdict": label,
-            "prediction": {"home_win_prob": round(pred.p_home, 4), "draw_prob": round(pred.p_draw, 4),
-                           "away_win_prob": round(pred.p_away, 4), "top_pick": top[0],
-                           "top_pick_prob": round(top[1], 4)}}
+            "prediction": {"home_win_prob": shadow_prob(pred.p_home), "draw_prob": shadow_prob(pred.p_draw),
+                           "away_win_prob": shadow_prob(pred.p_away), "top_pick": top[0],
+                           "top_pick_prob": shadow_prob(top[1])}}
 
 
 def export_shadow(prod: tuple, now: datetime | None = None, hours: int = WINDOW_HOURS,
@@ -627,7 +635,8 @@ def shadow_grade(days: int = 30, export_dir: str = "exports", now: datetime | No
     """READ-ONLY: the shadow's top pick vs the three-way book close (#207 contract), per league.
     The leagues' window fence (ARCHITECT 2026-10-30, addendum 178 R8): a finished 2026/27 game of a declared league
     (SA, BL1, FL1, ELC; verdict not recorded) kicking off after its declared_at is not graded here, only counted
-    (`fenced`): the window's games have one reader, the cohort reader. No declaration, no fence."""
+    (`fenced`): the window's games have one reader, the cohort reader. With no entry the cut is
+    leagues_window.PRE_DECLARATION_CUT (addendum 181 item 1(b)); PL, PD and every other competition: unchanged."""
     from src.db.database import session_scope
     from src.db.schema import Match, MatchStatus, Odds
     from src.walters.close import close_1x2, outcomes_for, priced
@@ -721,6 +730,16 @@ def unscoreable(m, status: str | None = None) -> bool:
     return m.home_score_90 is None or m.away_score_90 is None
 
 
+def c2_line(m, names: dict) -> str:
+    """C2's line (addendum 16 item 1: "id, kickoff, teams, raw code, scores"), the one formatter walk_census and the
+    leagues' cohort reader (leagues_window) list rows with. `names`: {team id: name}; an unknown id prints as itself."""
+    s90 = (f"{m.home_score_90}-{m.away_score_90}" if m.home_score_90 is not None and m.away_score_90 is not None
+           else "not stored")
+    return (f"{m.id} · {m.utc_date:%Y-%m-%dT%H:%MZ} · {names.get(m.home_team_id, m.home_team_id)} v "
+            f"{names.get(m.away_team_id, m.away_team_id)} · {m.status_raw or 'raw NULL'} · score "
+            f"{m.home_score}-{m.away_score} · 90' {s90}")
+
+
 def walk_census(s, code: str, season: str) -> dict:
     """C2 (ARCHITECT 2026-10-08, addendum 16 item 1, verbatim): "Progress prints, per league-season walked, the
     finished rows counted by raw code, and lists every row the walk left out under the rule: id, kickoff, teams, raw
@@ -741,14 +760,8 @@ def walk_census(s, code: str, season: str) -> dict:
     cnt = Counter((m.status_raw or "").strip().upper() or "raw NULL" for m in rows)
     out["by_raw_code"] = dict(sorted(cnt.items()))
 
-    def line(m):
-        s90 = (f"{m.home_score_90}-{m.away_score_90}" if m.home_score_90 is not None and m.away_score_90 is not None
-               else "not stored")
-        return (f"{m.id} · {m.utc_date:%Y-%m-%dT%H:%MZ} · {names.get(m.home_team_id, m.home_team_id)} v "
-                f"{names.get(m.away_team_id, m.away_team_id)} · {m.status_raw or 'raw NULL'} · score "
-                f"{m.home_score}-{m.away_score} · 90' {s90}")
-    out["left_out"] = [line(m) for m in rows if unscoreable(m, "finished")]
-    out["no_raw_code"] = [line(m) for m in rows if not (m.status_raw or "").strip()]
+    out["left_out"] = [c2_line(m, names) for m in rows if unscoreable(m, "finished")]
+    out["no_raw_code"] = [c2_line(m, names) for m in rows if not (m.status_raw or "").strip()]
     return out
 
 

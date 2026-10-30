@@ -628,10 +628,10 @@ def close_record(days: int, now: datetime | None = None) -> dict:
     holds a stored Kalshi 1X2 leg: three_way_close (addendum 150), _score_three's order of exclusion, the log-loss on
     the normalized three-way probabilities, favourite_3 (the draw included, flagged), the overround and the close
     kind kept per row, each unpriced game counted by its cause (UNPRICED).
-    THE LEAGUES' WINDOW FENCE (ARCHITECT 2026-10-30, addendum 178 R8): a 2026/27 game of SA, BL1, FL1 or ELC kicking
-    off after that league's declared_at, while its verdict is not recorded (leagues_window.fence_cutoff), is counted
-    `fenced_window` and never scored: the window's outcomes have one reader, the cohort reader. No declaration, no
-    fence.
+    THE LEAGUES' WINDOW FENCE (ARCHITECT 2026-10-30, addendum 178 R8; addendum 181 item 1(b)): a 2026/27 game of SA,
+    BL1, FL1 or ELC kicking off after that league's cut (its declared_at; leagues_window.PRE_DECLARATION_CUT while no
+    entry exists), while its verdict is not recorded (leagues_window.fence_cutoff), is counted `fenced_window` and
+    never scored: the window's outcomes have one reader, the cohort reader. Every other competition: unchanged.
     Read-only: one session, rolled back."""
     from sqlalchemy import select
 
@@ -801,11 +801,11 @@ def leagues_season(codes, season: str, declared: date, now: datetime | None = No
     - projected: the stored fixture list's games of the season (NOT_GAMES left out) whose kickoff's UTC date is on or
       after `declared`, in kickoff order, every game assumed to get a three-way close (156 item 1): the 60th's kickoff
       UTC date, or None with the count when fewer than 60 are stored.
-    THE WINDOW FENCE (ARCHITECT 2026-10-30, addendum 178 R8): while a league is declared and its verdict is not
-    recorded (leagues_window.fence_cutoff), its FINISHED games kicking off after declared_at are neither scored nor
-    read for quality: they stay in `finished` and are counted `fenced_window` on the record (the cohort reader is
-    their one reader). The games to come and the projection read no outcome and are unchanged. No declaration, no
-    fence."""
+    THE WINDOW FENCE (ARCHITECT 2026-10-30, addendum 178 R8; addendum 181 item 1(b)): while a league's verdict is not
+    recorded (leagues_window.fence_cutoff), its FINISHED games kicking off after the cut (its declared_at;
+    leagues_window.PRE_DECLARATION_CUT while no entry exists) are neither scored nor read for quality: they stay in
+    `finished` and are counted `fenced_window` on the record (the cohort reader is their one reader). The games to
+    come and the projection read no outcome and are unchanged."""
     from sqlalchemy import select
 
     from src.db.database import session_scope
@@ -879,9 +879,10 @@ REASONS = (("no_result", "no decided result {k}"),
                            "ARCHITECT 2026-10-26 15:15 ET)"))
 REASONS_3 = (("no_result", "no decided 90-minute result {k}"),
              ("mismatched", "mismatched legs {k}"),
-             ("fenced_window", "fenced {k} (a declared league's window: games after its declared_at are read only by "
-                               "the cohort reader until the verdict is recorded, ARCHITECT 2026-10-30, addendum 178 "
-                               "R8)"))
+             ("fenced_window", "fenced {k} (a league's window: games after its declared_at, or after the "
+                               "pre-declaration cut 2026-10-30T15:00:00Z while undeclared, are read only by the "
+                               "cohort reader until the verdict is recorded, ARCHITECT 2026-10-30, addendum 178 R8; "
+                               "addendum 181 item 1(b))"))
 
 
 def _reasons(r: dict, reasons=REASONS) -> str:

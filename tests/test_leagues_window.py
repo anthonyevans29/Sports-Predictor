@@ -57,7 +57,8 @@ def ledger(tmp_path, monkeypatch):
 
 
 def decl(code, at=AT_TEXT, constants=FROZEN, **kw):
-    e = {"id": lw.DECLARATION_IDS[code], "declared_at": at, "frozen_constants": constants, "verdict": None}
+    e = {"id": lw.DECLARATION_IDS[code], "competition": code, "declared_at": at, "frozen_constants": constants,
+         "verdict": None}
     e.update(kw)
     return e
 
@@ -138,10 +139,16 @@ def test_no_entry_reads_not_declared_and_prints_only_that(ledger):
 
 
 def test_the_real_registry_holds_no_league_declaration_yet():
-    """Today: NOT DECLARED everywhere, so no fence and today's behaviour is unchanged."""
+    """Today: NOT DECLARED everywhere, so the PRE-DECLARATION fence stands at its constant cut (addendum 181 item
+    1(b)); every other competition and every other season is never fenced."""
+    assert lw.PRE_DECLARATION_CUT == datetime(2026, 10, 30, 15, 0)
     for code in paper.LEAGUES:
         assert reg.get(lw.DECLARATION_IDS[code]) is None
-        assert lw.fence_cutoff(code, SEASON) is None
+        assert lw.fence_cutoff(code, SEASON) == lw.PRE_DECLARATION_CUT
+        assert lw.fence_cutoff(code, None) == lw.PRE_DECLARATION_CUT
+        assert lw.fence_cutoff(code, "2025/26") is None
+    for code in ("PL", "PD", "NFL", "CL", "UNL", None):
+        assert lw.fence_cutoff(code, SEASON) is None and lw.fence_cutoff(code) is None
 
 
 @pytest.mark.parametrize("entry, why", [
@@ -353,34 +360,134 @@ def test_a_postponed_game_at_or_before_the_instant_is_never_called_out_of_the_wi
     assert "never walked 41 (never in the window) · postponed 1 (postponed: placed by its actual kickoff" in head
 
 
-def test_a_finished_row_with_no_raw_code_and_no_90_minute_score_is_pending_under_its_own_label(ledger):
-    """C1 against R4, open for a ruling: such a row stays PENDING (R4), labelled apart so the print names it."""
+def test_181_3_a_finished_row_with_no_raw_code_and_both_scores_is_a_member_scored_on_its_stored_score(ledger):
+    """Addendum 181 item 3: C1 wins. A FINISHED row with no raw status code and both scores stored is a MEMBER, scored
+    on its stored score, listed as C2 lists it; `no_raw_code` is no longer a PENDING kind."""
+    from src.db.database import session_scope
+    from src.db.schema import Match
+    assert "no_raw_code" not in {k for k, _ in lw.PENDING}
     _comps()
     ledger(decl("SA"))
     t = _teams("SA")
     _priors("SA", t)
     _members("SA", t, 2, 2000, AT + timedelta(hours=1))
-    _game(2905, "SA", AT + timedelta(hours=2), (t[2], t[5]), raw=None, s90=False)
+    _game(2905, "SA", AT + timedelta(hours=2), (t[2], t[5]), raw=None, s90=False, hs=0, as_=2)
     _legs(2905, AT + timedelta(hours=2))
     w = _read("SA")
-    assert dict(w["pending"]) == {"no_raw_code": 1} and 2905 not in w["members"]
-    assert any("no raw status code and no 90-minute score" in x and "open for a ruling" in x
-               for x in lw.lines({"SA": w}, NOW))
+    assert 2905 in w["members"] and not w["pending"] and w["n"] == 3
+    assert len(w["no_raw_code_members"]) == 1 and w["no_raw_code_members"][0].startswith("2905 · ")
+    assert "raw NULL · score 0-2 · 90' not stored" in w["no_raw_code_members"][0]
+    out = lw.lines({"SA": w}, NOW)
+    assert any("members with no raw status code 1 (scored on the stored score, C1" in x for x in out)
+    assert any(x.startswith("    - 2905 · ") for x in out)
+    assert not FORBIDDEN.search("\n".join(out))
+    with session_scope() as s:
+        assert lw.result_of(s.get(Match, 2905)) == "A"                 # its stored score is its result
+        s.rollback()
 
 
-def test_an_awarded_prior_is_counted_as_walked_and_printed_for_the_ruling(ledger):
-    """Q2 ("neither scored nor walked") against 158 item 2(a) (the gate's walk reads it): unresolved here; the AWD
-    row is excluded as a member and the count of AWD / WO rows the members' walk reads is printed."""
+def test_181_3_pending_is_a_finished_row_with_no_usable_result_only(ledger):
+    """R4's PENDING (181 item 3): no scores stored, or a non-FT code with no 90-minute score; the read waits."""
+    from src.db.database import session_scope
+    from src.db.schema import Match
     _comps()
     ledger(decl("SA"))
     t = _teams("SA")
     _priors("SA", t)
-    _game(2906, "SA", AT + timedelta(minutes=30), (t[2], t[5]), raw="AWD", hs=3, as_=0)
-    _legs(2906, AT + timedelta(minutes=30))
     _members("SA", t, 2, 2000, AT + timedelta(hours=1))
+    _game(2910, "SA", AT + timedelta(hours=2), (t[2], t[5]), raw=None, s90=False)
+    _game(2911, "SA", AT + timedelta(hours=3), (t[3], t[6]), raw="PEN", s90=False)
+    _game(2912, "SA", AT + timedelta(hours=4), (t[4], t[7]), raw="AET", hs=2, as_=1)   # a 90' score stored: member
+    for mid, h in ((2910, 2), (2911, 3), (2912, 4)):
+        _legs(mid, AT + timedelta(hours=h))
+    with session_scope() as s:
+        m = s.get(Match, 2910)
+        m.home_score = m.away_score = None                              # no score stored, no raw code
     w = _read("SA")
-    assert dict(w["excluded"]) == {"awarded": 1} and w["awarded_walked"] == 1 and w["n"] == 2
-    assert any("AWD / WO rows the members' walk reads as priors 1" in x for x in lw.lines({"SA": w}, NOW))
+    assert dict(w["pending"]) == {"no_result_90": 2} and 2912 in w["members"]
+    assert 2910 not in w["members"] and 2911 not in w["members"]
+
+
+def test_181_2_an_awarded_row_is_neither_walked_nor_scored_and_is_listed_as_released(ledger):
+    """Addendum 181 item 2: La Liga's ONE predicate (soccer_expansion.unscoreable) governs the whole path. An AWD /
+    WO row is excluded as a member and RELEASED from every member's walk (no Elo or prior update, whatever scores it
+    carries): predict_as_of equals the walk with the row absent; it is counted and listed (`awarded_released`)."""
+    from src.db.database import session_scope
+    from src.db.schema import Match
+    from src.walters import leagues_candidate as lc
+    _comps()
+    ledger(decl("SA"))
+    t = _teams("SA")
+    _priors("SA", t)
+    _game(2906, "SA", AT - timedelta(hours=2), (t[2], t[5]), raw="AWD", hs=3, as_=0)       # a prior, awarded
+    _game(2907, "SA", AT + timedelta(minutes=30), (t[3], t[6]), raw="WO", hs=3, as_=0)    # a window game, awarded
+    _legs(2907, AT + timedelta(minutes=30))
+    got = _members("SA", t, 2, 2000, AT + timedelta(hours=1))
+    w = _read("SA")
+    assert dict(w["excluded"]) == {"awarded": 1} and w["n"] == 2 and not w["pending"]
+    assert [x.split(" · ")[0] for x in w["awarded_released"]] == ["2906", "2907"]
+    assert "AWD · score 3-0" in w["awarded_released"][0]
+    out = lw.lines({"SA": w}, NOW)
+    assert any("AWD / WO rows released from the members' walk 2 (neither scored nor walked" in x for x in out)
+    with session_scope() as s:
+        rows = lc._season_rows(s, "SA", SEASON)
+        m = s.get(Match, got[1][0])
+        with_awd, _ = lc.predict_as_of(rows, m, -0.1, 0.0008)
+        without, _ = lc.predict_as_of([r for r in rows if r.id not in (2906, 2907)], m, -0.1, 0.0008)
+        s.rollback()
+    assert (with_awd.p_home, with_awd.p_draw, with_awd.p_away) == (without.p_home, without.p_draw, without.p_away)
+
+
+def test_181_2_a_non_ft_prior_with_a_90_minute_score_is_walked_on_it(ledger):
+    """The one predicate: an AET / PEN prior with a stored 90-minute score is walked on the 90-minute score, never
+    the after-extra-time one: predict_as_of equals the walk with that row stored as FT at its 90-minute score."""
+    from src.db.database import session_scope
+    from src.db.schema import Match
+    from src.walters import leagues_candidate as lc
+    _comps()
+    ledger(decl("SA"))
+    t = _teams("SA")
+    _priors("SA", t)
+    _game(2908, "SA", AT - timedelta(hours=2), (t[2], t[5]), raw="AET", hs=1, as_=1)
+    with session_scope() as s:
+        s.get(Match, 2908).home_score = 3                               # after extra time 3-1; 90 minutes 1-1
+    got = _members("SA", t, 2, 2000, AT + timedelta(hours=1))
+    assert _read("SA")["state"] == "accruing" and not _read("SA")["pending"]
+
+    def p():
+        with session_scope() as s:
+            rows = lc._season_rows(s, "SA", SEASON)
+            q, _ = lc.predict_as_of(rows, s.get(Match, got[1][0]), -0.1, 0.0008)
+            s.rollback()
+        return q.p_home, q.p_draw, q.p_away
+    aet = p()
+    with session_scope() as s:
+        m = s.get(Match, 2908)
+        m.home_score, m.status_raw = 1, "FT"
+    assert aet == p()
+
+
+def test_181_2_parity_is_the_confirmation_walk_and_equal_with_released_rows(ledger):
+    """158 item 2(a)'s "the gate's walk" is the confirmation walk with the predicate (181 item 2): with an AWD prior
+    and an AET prior that has a 90-minute score, the shadow path and the gate path agree row for row, and the AWD
+    row is priced by neither (counted `released`)."""
+    from src.db.database import session_scope
+    from src.db.schema import Match
+    from src.walters import leagues_candidate as lc
+    _comps()
+    ledger(decl("SA", verdict={"verdict": "PASS"}))                    # no fence: every game compared
+    t = _teams("SA")
+    _priors("SA", t, n=45)
+    _game(2920, "SA", datetime(2026, 9, 20, 15, 0), (t[2], t[5]), raw="AWD", hs=3, as_=0)
+    _game(2921, "SA", datetime(2026, 9, 21, 15, 0), (t[3], t[6]), raw="AET", hs=1, as_=1)
+    with session_scope() as s:
+        s.get(Match, 2921).home_score = 2
+    _members("SA", t, 5, 2000, AT + timedelta(hours=1))
+    p = lc.parity("SA", -0.1, 0.0008, season=SEASON, now=NOW)
+    assert p["unequal"] == 0 and not p["shadow_only"] and not p["gate_only"] and p["released"] == 1
+    ids = {r["match_id"] for r in p["rows"]}
+    assert 2920 not in ids and 2921 in ids and {2000, 2004} <= ids
+    assert "released 1 (the one predicate" in lc.parity_lines(p, rows=False)[0]
 
 
 def test_the_pending_line_carries_r2s_list_scheduled_live_un_ingested(ledger):
@@ -561,8 +668,10 @@ def test_guards_backtest_refuses_a_declared_leagues_window_and_leaves_the_rest(l
     assert sx.guards_backtest("SA", "2024/25") is None                            # another season: not the window
     assert sx.guards_backtest("SA", SEASON, through=AT) is None                   # cut at the instant
     assert sx.guards_backtest("SA", SEASON, through=AT + timedelta(seconds=1))
-    assert sx.guards_backtest("BL1", SEASON) is None                              # undeclared: unchanged
     assert sx.guards_backtest("FL1", SEASON) is None                              # the verdict recorded: lifted
+    why = sx.guards_backtest("BL1", SEASON)                                       # undeclared: the pre-declaration
+    assert why and "not declared yet" in why and "2026-10-30T15:00:00Z" in why    # fence (addendum 181 item 1(b))
+    assert sx.guards_backtest("BL1", SEASON, through=lw.PRE_DECLARATION_CUT) is None
     assert sx.guards_backtest("PL", SEASON) is None and sx.guards_backtest("PD", SEASON) is None
 
 
@@ -595,9 +704,10 @@ def test_soccer_backtest_and_the_walk_refuse_the_window_and_the_cut_walk_reads_o
         run_backtest(SEASON, "SA")
 
 
-def test_the_walk_is_unchanged_for_an_undeclared_league(ledger):
+def test_the_cut_walk_is_the_full_walks_head_once_the_verdict_is_recorded(ledger):
     from src.walters.soccer_backtest import run_soccer_backtest
     _comps()
+    ledger(decl("SA", verdict={"verdict": "PASS"}))                               # the fence lifted
     t = _teams("SA")
     _priors("SA", t, n=45)
     _members("SA", t, 5, 2000, AT + timedelta(hours=1))
@@ -617,12 +727,12 @@ def test_the_leagues_receipt_close_part_and_parity_read_only_games_at_or_before_
     _members("SA", t, 3, 2000, AT + timedelta(hours=1))
     r = paper.leagues_season(("SA",), SEASON, AT.date(), now=NOW)["SA"]["record"]
     assert r["n"] == 1 and r["fenced_window"] == 3 and r["finished"] == 48
-    assert "fenced 3 (a declared league's window" in close_record_line("SA", r)
+    assert "fenced 3 (a league's window" in close_record_line("SA", r)
     p = lc.parity("SA", -0.1, 0.0008, season=SEASON, now=NOW)
     assert p["fenced"] == 3 and not {x["match_id"] for x in p["rows"]} & {2000, 2001, 2002}
     assert p["unequal"] == 0 and not p["shadow_only"] and not p["gate_only"] and p["rows"]
-    assert "fenced 3 (finished after the declaration" in lc.parity_lines(p, rows=False)[0]
-    ledger()                                                                      # undeclared: unchanged
+    assert "fenced 3 (finished after the cut" in lc.parity_lines(p, rows=False)[0]
+    ledger(decl("SA", verdict={"verdict": "PASS"}))                               # the verdict recorded: lifted
     r = paper.leagues_season(("SA",), SEASON, AT.date(), now=NOW)["SA"]["record"]
     assert r["n"] == 4 and r["fenced_window"] == 0
     assert "fenced" not in close_record_line("SA", r) and lc.parity("SA", -0.1, 0.0008, season=SEASON)["fenced"] == 0
@@ -639,14 +749,14 @@ def test_results_tallys_close_record_fences_the_window(ledger):
     _legs(11, after)
     r = paper.close_record(60, now=NOW)["BL1"]
     assert r["n"] == 1 and r["fenced_window"] == 1
-    ledger()
+    ledger(decl("BL1", verdict={"verdict": "PASS"}))
     r = paper.close_record(60, now=NOW)["BL1"]
     assert r["n"] == 2 and r["fenced_window"] == 0
 
 
 def test_the_shadow_grade_counts_the_window_and_grades_the_rest(ledger, tmp_path):
     _comps()
-    ledger(decl("FL1"))
+    ledger(decl("FL1"), decl("ELC", verdict={"verdict": "PASS"}))
     t = _teams("FL1")
     tb = _teams("ELC")
     _game(20, "FL1", AT + timedelta(days=1), (t[0], t[1]))
@@ -725,3 +835,165 @@ def test_codex_733_score_re_derives_the_cohort_and_refuses_when_it_moved(ledger)
     _legs(2970, ko)
     with pytest.raises(lw.WindowRefused, match="the window moved between the read and the score"):
         lw.score(w, now=NOW)
+
+
+# ------------------------------------------------------------------- Codex round 2 + addendum 181 --
+
+def test_181_1b_the_pre_declaration_fence_cuts_every_receipt_at_the_constant_without_an_entry(ledger, tmp_path):
+    """Addendum 181 item 1(b): for a league of DECLARATION_IDS with NO entry the fence stands exactly as for a
+    declared league, cut at PRE_DECLARATION_CUT. Every walk is refused unless cut at or before it; the close record,
+    the leagues receipt, parity and the shadow grade read only the games at or before it and count the rest."""
+    from src.walters import leagues_candidate as lc
+    from src.walters.soccer_backtest import run_soccer_backtest
+    cut = lw.PRE_DECLARATION_CUT
+    _comps()
+    t = _teams("SA")
+    _priors("SA", t, n=45)
+    before, between = cut - timedelta(hours=1), cut + timedelta(days=3)          # `between`: before AT
+    _game(3000, "SA", before, (t[0], t[9]))
+    _legs(3000, before)
+    _game(3001, "SA", between, (t[9], t[0]))
+    _legs(3001, between)
+    _members("SA", t, 2, 2000, AT + timedelta(hours=1))
+    assert lw.declaration("SA") is None and lw.fence_cutoff("SA", SEASON) == cut
+    # the walks
+    for season in (SEASON, None):
+        with pytest.raises(sx.ExpansionRefused, match="pre-declaration fence stands, cut at 2026-10-30T15:00:00Z"):
+            run_soccer_backtest("SA", season)
+    assert run_soccer_backtest("SA", SEASON, through=cut)
+    with pytest.raises(sx.ExpansionRefused):
+        run_soccer_backtest("SA", SEASON, through=cut + timedelta(seconds=1))
+    assert run_soccer_backtest("SA", "2025/26") is None                          # another season: not fenced
+    # the receipts
+    rec = paper.close_record(60, now=NOW)["SA"]
+    assert (rec["n"], rec["fenced_window"]) == (1, 3)
+    r = paper.leagues_season(("SA",), SEASON, AT.date(), now=NOW)["SA"]["record"]
+    assert (r["n"], r["fenced_window"]) == (1, 3)
+    p = lc.parity("SA", -0.1, 0.0008, season=SEASON, now=NOW)
+    assert p["fenced"] == 3 and not {x["match_id"] for x in p["rows"]} & {3001, 2000, 2001}
+    assert 3000 in {x["match_id"] for x in p["rows"]} and p["unequal"] == 0
+    rows = [{"match_id": mid, "utc_date": ko.isoformat(), "competition": "SA",
+             "prediction": {"top_pick": "home_win", "top_pick_prob": 0.5}} for mid, ko in ((3000, before),
+                                                                                         (3001, between))]
+    (tmp_path / "exports").mkdir()
+    (tmp_path / "exports" / "soccer_expansion_shadow_2026-10-30_1000.json").write_text(json.dumps(
+        {"engine": sx.ENGINE, "exported_at": (before - timedelta(hours=2)).isoformat(), "predictions": rows}))
+    g = sx.shadow_grade(days=60, export_dir=str(tmp_path / "exports"), now=NOW)["per_league"]["SA"]
+    assert (g["graded"], g["fenced"]) == (1, 1)
+
+
+def test_181_1b_with_an_entry_the_cut_becomes_its_declared_at_and_a_verdict_lifts_it(ledger):
+    """When the entry lands the cut becomes its declared_at (later by construction: a game between the two was never
+    a window game and is released to the receipts); a verdict recorded lifts the fence. PL and PD: never fenced."""
+    cut = lw.PRE_DECLARATION_CUT
+    _comps()
+    t = _teams("SA")
+    _game(3001, "SA", cut + timedelta(days=3), (t[9], t[0]))
+    _legs(3001, cut + timedelta(days=3))
+    _game(3002, "SA", AT + timedelta(days=1), (t[0], t[9]))
+    _legs(3002, AT + timedelta(days=1))
+    assert paper.close_record(60, now=NOW)["SA"]["fenced_window"] == 2
+    ledger(decl("SA"))
+    assert lw.fence_cutoff("SA", SEASON) == AT
+    rec = paper.close_record(60, now=NOW)["SA"]
+    assert (rec["n"], rec["fenced_window"]) == (1, 1)
+    assert sx.guards_backtest("SA", SEASON, through=AT) is None and sx.guards_backtest("SA", SEASON)
+    ledger(decl("SA", verdict={"verdict": "REJECT"}))
+    assert lw.fence_cutoff("SA", SEASON) is None and sx.guards_backtest("SA", SEASON) is None
+    rec = paper.close_record(60, now=NOW)["SA"]
+    assert (rec["n"], rec["fenced_window"]) == (2, 0)
+    for code in ("PL", "PD"):
+        assert lw.fence_cutoff(code, SEASON) is None and lw.fence_refusal(code, None) is None
+
+
+def test_181_6_an_entry_whose_league_field_is_not_its_code_is_refused(ledger):
+    """Addendum 181 item 6: the reader refuses an entry whose league field (LEAGUE_FIELD, "competition") is not the
+    code it was looked up under; a missing field is not the code either."""
+    assert lw.LEAGUE_FIELD == "competition"
+    _comps()
+    ledger(decl("SA", competition="BL1"), {**decl("FL1"), "competition": None})
+    assert "the entry's competition is 'BL1', not 'SA'" in _read("SA")["refused"]
+    assert "the entry's competition is None, not 'FL1'" in _read("FL1")["refused"]
+    assert lw.fence_cutoff("SA", SEASON) == AT                          # the fence stays up (conservative)
+
+
+def test_181_5_the_audit_compares_the_recompute_rounded_by_the_exports_own_function(ledger, tmp_path, monkeypatch):
+    """Addendum 181 item 5: no tolerance. A stored value equal to the recompute rounded by soccer_expansion.
+    shadow_prob (the function shadow_row writes with) is no finding; a stored value within the retired 5e-5 but not
+    equal to it IS one."""
+    assert not hasattr(lw, "AUDIT_TOL")
+    rec = {1: (0.123456, 0.345678, 0.530866), 2: (0.123456, 0.345678, 0.530866)}
+    stored = {1: {"prediction": {"home_win_prob": 0.1235, "draw_prob": 0.3457, "away_win_prob": 0.5309}},
+              2: {"prediction": {"home_win_prob": 0.12346, "draw_prob": 0.3457, "away_win_prob": 0.5309}}}
+    a = lw.audit(stored, rec)
+    assert [f["match_id"] for f in a["differ"]] == [2] and a["differ"][0]["rounded"] == (0.1235, 0.3457, 0.5309)
+    assert abs(a["differ"][0]["diff"]) < 5e-5                           # inside the retired tolerance: still a finding
+    assert "(rounded by the export's function 0.1235/0.3457/0.5309)" in lw.audit_lines("SA", a)[1]
+    from types import SimpleNamespace
+    row = sx.shadow_row({}, SimpleNamespace(p_home=0.123456, p_draw=0.345678, p_away=0.530866), "v22", "x", "SA")
+    assert row["prediction"]["home_win_prob"] == sx.shadow_prob(0.123456) == 0.1235      # one function
+    monkeypatch.setattr(sx, "shadow_prob", lambda p: -1.0)
+    assert sx.shadow_row({}, SimpleNamespace(p_home=0.1, p_draw=0.2, p_away=0.7), "v22", "x",
+                         "SA")["prediction"]["draw_prob"] == -1.0
+    assert lw.audit(stored, rec)["differ"][0]["rounded"] == (-1.0, -1.0, -1.0)
+
+
+@pytest.mark.parametrize("args", [["dixon-coles-sweep", "--competition", "SA", "--season", SEASON],
+                                  ["elo-coeff-sweep", "--competition", "SA", "--season", SEASON, "--rho", "-0.1"]])
+def test_181_8_the_sweeps_print_refused_and_exit_2_on_the_fence(ledger, args):
+    """Addendum 181 item 8 (round-2 P2): the two sweeps catch the fence's refusal as soccer-backtest does: REFUSED,
+    exit 2, never a traceback."""
+    import cli
+    from click.testing import CliRunner
+    _comps()
+    r = CliRunner().invoke(cli.cli, args)
+    assert r.exit_code == 2 and "REFUSED" in r.output and "pre-declaration fence" in r.output
+    assert not isinstance(r.exception, sx.ExpansionRefused)
+
+
+def test_181_2_an_awarded_row_with_no_stored_score_is_final_released_and_listed_on_either_side_of_the_instant(ledger):
+    """Addendum 181 item 2: an AWD / WO game is neither scored nor walked "whatever scores its row carries", so no
+    member's walk ever reads it: before the instant it is final (never `before_instant`, never blocking) and the
+    window reaches ready; after it, it is excluded by cause. Either way it is RELEASED and listed, with or without a
+    stored score (the season's rows, not the walk's)."""
+    _comps()
+    ledger(decl("SA"))
+    t = _teams("SA")
+    _priors("SA", t)
+    got = _members("SA", t, 60, 2000, AT + timedelta(hours=1))
+    _game(2920, "SA", AT - timedelta(days=1), (t[2], t[5]), raw="AWD", hs=None, as_=None, s90=False)
+    _game(2921, "SA", got[5][1] + timedelta(minutes=1), (t[3], t[6]), raw="WO", hs=None, as_=None, s90=False)
+    w = _read("SA")
+    assert (w["n"], w["state"], w["blocking"]) == (60, "ready", 0) and not w["pending"]
+    assert w["at_or_before"] == 41 and dict(w["excluded"]) == {"awarded": 1}
+    assert [x.split(" · ")[0] for x in w["awarded_released"]] == ["2920", "2921"]
+    assert "AWD · score None-None · 90' not stored" in w["awarded_released"][0]
+
+
+def test_181_2_result_of_reads_the_raw_code_as_the_one_predicate_does(ledger):
+    """result_of is derived from soccer_expansion.unscoreable and reads the raw code as it does (stripped): a
+    FINISHED 'FT ' row with both scores and no 90-minute score is final on its stored score, as the confirmation walk
+    walks it, before the instant and as a member; never PENDING."""
+    from src.db.database import session_scope
+    from src.db.schema import Match
+    from src.walters import soccer_backtest as sb
+    _comps()
+    ledger(decl("SA"))
+    t = _teams("SA")
+    _priors("SA", t)
+    _members("SA", t, 2, 2000, AT + timedelta(hours=1))
+    _game(2930, "SA", AT - timedelta(hours=2), (t[2], t[5]), raw="FT ", s90=False, hs=2, as_=0)   # a prior
+    _game(2931, "SA", AT + timedelta(hours=2), (t[3], t[6]), raw=" ft", s90=False, hs=0, as_=1)   # a window game
+    _legs(2931, AT + timedelta(hours=2))
+    w = _read("SA")
+    assert not w["pending"] and w["blocking"] == 0 and 2931 in w["members"] and w["at_or_before"] == 41
+    with session_scope() as s:
+        a, b = s.get(Match, 2930), s.get(Match, 2931)
+        assert (lw.result_of(a), lw.result_of(b)) == ("H", "A")
+        assert not sx.unscoreable(a) and sb._confirmation_rows([a]) == [a]       # the walk reads it as stored
+        for raw, h90, want in (("AWD", None, None), ("WO", 1, None), ("PEN", None, None), ("AET", 1, "D"),
+                               (None, 2, "H")):
+            a.status_raw, a.home_score_90, a.away_score_90 = raw, h90, (1 if h90 is not None else None)
+            assert lw.result_of(a) == want, raw
+            assert (lw.result_of(a) is None) == (sx.unscoreable(a) or raw in sx.AWARDED), raw
+        s.rollback()

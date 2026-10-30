@@ -6520,11 +6520,12 @@ def dixon_coles_sweep_cmd(competition_code, season, rhos):
 
     best = None
     from src.walters import ncaa_backtest as _nb
+    from src.walters import soccer_expansion as _sx
     for rho in rho_list:
         try:
             results = run_soccer_backtest(competition_code, season, dixon_coles_rho=rho)
-        except _nb.FenceRefused as e:                      # the 2026 fence (addendum 86 item 3, Q2)
-            console.print(f"[red]REFUSED: {e}[/red]")
+        except (_sx.ExpansionRefused, _nb.FenceRefused) as e:   # the 2026 fence (addendum 86 item 3, Q2); the
+            console.print(f"[red]REFUSED: {e}[/red]")           # leagues' window fence (addendum 181 item 8)
             raise SystemExit(2)
         if not results:
             continue
@@ -6981,13 +6982,14 @@ def elo_coeff_sweep_cmd(competition_code, season, coeffs, rho):
         t.add_column(c, justify="right")
 
     from src.walters import ncaa_backtest as _nb
+    from src.walters import soccer_expansion as _sx
     for raw in coeffs.split(","):
         coeff = float(raw.strip())
         try:
             results = run_soccer_backtest(competition_code, season,
                                           dixon_coles_rho=rho, elo_goal_coeff=coeff)
-        except _nb.FenceRefused as e:                      # the 2026 fence (addendum 86 item 3, Q2)
-            console.print(f"[red]REFUSED: {e}[/red]")
+        except (_sx.ExpansionRefused, _nb.FenceRefused) as e:   # the 2026 fence (addendum 86 item 3, Q2); the
+            console.print(f"[red]REFUSED: {e}[/red]")           # leagues' window fence (addendum 181 item 8)
             raise SystemExit(2)
         if not results:
             console.print("[yellow]no results[/yellow]")

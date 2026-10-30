@@ -149,9 +149,10 @@ def run_soccer_backtest(competition_code: str = "PL", season: str | None = None,
     run and every existing command reproduce exactly.
 
     through (ARCHITECT 2026-10-30, addendum 178 R8, the leagues' window fence): when set, no row kicking off after
-    it is walked or scored, and the fence allows a declared league's 2026/27 walk only when `through` is at or before
-    its declared_at (leagues_window.fence_refusal). The walk is predict-then-update in kickoff order, so every row it
-    returns equals the uncut walk's row for the same game. None (the default) = unchanged.
+    it is walked or scored, and the fence allows a fenced league's 2026/27 walk only when `through` is at or before
+    the league's cut: its entry's declared_at, or leagues_window.PRE_DECLARATION_CUT while no entry exists
+    (ARCHITECT 2026-10-30, addendum 181 item 1(b); leagues_window.fence_refusal). The walk is predict-then-update
+    in kickoff order, so every row it returns equals the uncut walk's row for the same game. None (the default) = unchanged.
     """
     # soccer-expansion-v1 (ARCHITECT 2026-10-07; Codex on #326): its leagues' test seasons are read ONCE, by its gate.
     # Every caller of this walk (soccer-backtest, the rho / coefficient sweeps, the candidate harnesses) is refused

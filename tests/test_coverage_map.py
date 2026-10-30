@@ -114,6 +114,13 @@ V7 = "nhl_elo_v7_xg_margin_no_na"                            # nhl_shadow.MODEL_
 NHL_SHADOW = ("export._MARKET_ONLY_REASON; roadmap lane nhl: to declare; chain nhl-daily runs export-nhl-predictions "
               f"({V7})")
 EXPANSION_SETS = "SHADOW_VENUE_COMPS (_refuse_shadow_league), chains.EXPANSION_CODES, chains.KALSHI_CAPTURE_ONLY"
+# The soccer-expansion-v1 run record (v22 / -0.1 / 0.0008, PASS, surviving PD) and a declaration the export binds
+SX_RUN = {"id": "soccer-expansion-v1", "status": "confirming", "declared_at": "2026-10-07T15:17:38Z",
+          "run": {"result": {"production_version": "v22", "rho": -0.1, "elo_goal_coeff": 0.0008, "verdict": "PASS",
+                             "surviving": ["PD"]}},
+          "verdict": {"verdict": "PASS", "at": "2026-10-09T12:47:39Z"}}
+SA_DECL = {"id": "leagues-sa-v1", "competition": "SA", "declared_at": "2026-10-15T10:00:00Z",
+           "frozen_constants": {"production_version": "v22", "rho": -0.1, "elo_goal_coeff": 0.0008}, "verdict": None}
 
 
 @pytest.fixture
@@ -403,13 +410,44 @@ def test_a_declared_league_reads_the_shadow_the_soccer_chains_run_and_an_undecla
     a league reads its shadow only once the registry holds its declaration (SHADOW_BINDS, read from the registry's
     entries). SA declared: MARKET-ONLY · shadow v1 by (b); BL1 still MARKET-ONLY alone."""
     make_db(env, [(860, "SA", "2026-10-17 19:00", "SCHEDULED"), (861, "BL1", "2026-10-17 19:00", "SCHEDULED")])
-    Path(reg.LEDGER).write_text(json.dumps(ENTRIES + [{"id": "leagues-sa-v1", "competition": "SA"}]))
+    Path(reg.LEDGER).write_text(json.dumps(ENTRIES + [SX_RUN, SA_DECL]))
     out = run("--date", DAY)[1]
     assert (f"· MARKET-ONLY · shadow v1 ({EXPANSION_SETS}; roadmap lane leagues: to declare; chain soccer-prematch "
             "runs export-soccer-expansion-shadow (soccer-expansion-v1)) ·") in line_of(out, "SA")
     assert "which writes no BL1 row: BL1 is not declared (no registry entry leagues-bl1-v1" in line_of(out, "BL1")
     assert "· MARKET-ONLY (" in line_of(out, "BL1")
     assert cm.SHADOW_BINDS["export-soccer-expansion-shadow"]("PL", {}) == "PL is not a league of soccer-expansion-v1"
+
+
+@pytest.mark.parametrize("bad, why", [
+    ({"competition": "BL1"}, "the entry's competition is 'BL1', not 'SA'"),
+    ({"declared_at": "2026-10-31"}, "no declared_at as a UTC instant"),
+    ({"frozen_constants": {"production_version": "v999", "rho": 0.5, "elo_goal_coeff": 9.0}},
+     "differ from the soccer-expansion-v1 run record"),
+])
+def test_a_declaration_the_export_refuses_is_never_a_shadow_in_coverage(env, bad, why):
+    """Findings 1/11: SHADOW_BINDS mirrors the export's own binding (soccer_expansion.shadow_binding): an SA entry
+    present that leagues_window.checked refuses writes no SA row, so SA stays MARKET-ONLY with the export's reason on
+    its line, never "shadow v1"."""
+    make_db(env, [(860, "SA", "2026-10-17 19:00", "SCHEDULED")])
+    Path(reg.LEDGER).write_text(json.dumps(ENTRIES + [SX_RUN, {**SA_DECL, **bad}]))
+    line = line_of(run("--date", DAY)[1], "SA")
+    assert "· MARKET-ONLY (" in line and "shadow v1" not in line, line
+    assert ("run export-soccer-expansion-shadow, which writes no SA row: its binding of SA is refused: SA "
+            "(leagues-sa-v1): ") in line and why in line, line
+    assert cm.SHADOW_BINDS["export-soccer-expansion-shadow"]("SA", {e["id"]: e for e in [SX_RUN, {**SA_DECL, **bad}]})
+
+
+def test_pd_binds_in_coverage_only_when_the_exports_pd_binding_passes(env):
+    """PD through confirming() and its checks, as the export binds it: a run record whose surviving set does not
+    hold PD refuses, and SHADOW_BINDS says so (the export's own text)."""
+    Path(reg.LEDGER).write_text(json.dumps(ENTRIES + [SX_RUN]))
+    assert cm.SHADOW_BINDS["export-soccer-expansion-shadow"]("PD", {SX_RUN["id"]: SX_RUN}) is None
+    off = {**SX_RUN, "run": {"result": {**SX_RUN["run"]["result"], "surviving": ["SA"]}}}
+    Path(reg.LEDGER).write_text(json.dumps(ENTRIES + [off]))
+    why = cm.SHADOW_BINDS["export-soccer-expansion-shadow"]("PD", {off["id"]: off})
+    assert why == ("its binding of PD is refused: soccer-expansion-v1: the run record's surviving set ['SA'] does not "
+                   "hold PD (soccer_expansion.shadow_binding, the export's own)"), why
 
 
 def test_the_cups_and_the_four_leagues_are_market_only_from_the_codes_sets(env, monkeypatch):

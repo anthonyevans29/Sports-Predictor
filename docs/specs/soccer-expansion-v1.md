@@ -163,8 +163,11 @@ declared_at."
     schema with PD's).
 - THE WINDOW (addendum 185 D2): the command is the LAST step, bare, of the soccer sync chains (`soccer-prematch`,
   run by sp-soccer-friday and sp-soccer-saturday, and `soccer-morning-after`); its rows are the fixtures kicking off
-  strictly after the run and before the next of those three timers' fires (`soccer_expansion.next_chain_run`).
-  `--hours N` is a manual run's explicit override.
+  strictly after the run and before the next chain's export: the next of those three timers' fires
+  (`soccer_expansion.next_chain_run`) plus `EXPORT_REACH` (6 h: sp-chain@.service's TimeoutStartSec=3h bounds how
+  long a chain runs before its last step, doubled as margin; Code's reading of D2's "before the next chain's", for
+  the architect; an overlap is harmless, the last row before kickoff is the one read). `--hours N` is a manual run's
+  explicit override.
 - Every stored game of a bound league kicking off in the window, any status, is priced by
   `leagues_candidate.predict_as_of` (F3 regular rounds, F5 batching, the one predicate, MIN_PRIOR 40) or listed in
   `missing` with its reason: before_declared_at, status_<value>, not_regular, below_min_prior, no_strength. A stage
@@ -177,7 +180,8 @@ declared_at."
   - each row carries `experiment`, `candidate`, `declared_at`, `window_opens_at`, `frozen_constants`, `code_sha`,
     `input_cutoff` (the export instant: the DB state it read), `prediction_stamp` and `inputs_read` (n_prior,
     last_prior_kickoff, pending_before: D4's count of earlier-kickoff regular-round games not final at export,
-    postponed included); a declared league's `gate_verdict` is its declaration's state, PD's is the experiment's;
+    postponed included); a declared league's `gate_verdict` is `<id> · declared <declared_at>`, no verdict label
+    (addendum 185 D6: a later PR labels them with the verdict), PD's is the experiment's;
   - the header carries `git_sha`, `frozen_constants`, `window`, `bindings` and `missing`;
   - `contains_predictions: false`.
 - The rows of a declared league are the cohort reader's audit receipt (R1; `leagues_window.stored_rows` / `audit`):
@@ -320,7 +324,9 @@ the declaration (1540b1b; sha256 e7c5e2eb…3341a, pinned by a test with the `ra
 - `soccer-morning-after` adds `sync-matches` for the five.
 - There is no predict. The Kalshi step is CAPTURE ONLY (below). Since ARCHITECT 2026-10-30, addendum 185 D2, both
   chains end in the bare `export-soccer-expansion-shadow` (section 6: a shadow file, never a call; host only, R6).
-- The laptop routine (docs/pl_weekly_routine.md) carries the same lines.
+- The laptop routine (docs/pl_weekly_routine.md) carries the same sync and capture lines, but not the export: that
+  last step is host-only (R6: the laptop never exports a league; the command refuses there with exit 2), so it is
+  not a laptop line.
 
 ## 8a. Kalshi series (ARCHITECT 2026-10-07, addendum 2, verbatim)
 

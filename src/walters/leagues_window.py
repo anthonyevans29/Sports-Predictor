@@ -607,12 +607,13 @@ def audit(stored: dict[int, dict], recomputed: dict[int, tuple[float, float, flo
 
 def audit_lines(code: str, a: dict) -> list[str]:
     """The audit as printed: the head, then D4's two lines, FINDINGS and EXPECTED, each counted (0 included) and each
-    difference listed under its line; neither silent."""
-    if not a["present"]:
-        return [f"  - {code} · stored prospective rows: none (no stored rows; {a['missing']} members without one)"]
-    L = [f"  - {code} · stored prospective rows: present {a['present']} · missing {a['missing']} · differ from the "
-         f"recompute {len(a['findings']) + len(a['expected'])} (R1: never resolved either way)"
-         + (f" · unreadable {len(a['unreadable'])}" if a["unreadable"] else ""),
+    difference listed under its line; neither silent, with no stored row too (findings 13/21: both lines print 0)."""
+    head = (f"  - {code} · stored prospective rows: none (no stored rows; {a['missing']} members without one)"
+            if not a["present"] else
+            f"  - {code} · stored prospective rows: present {a['present']} · missing {a['missing']} · differ from the "
+            f"recompute {len(a['findings']) + len(a['expected'])} (R1: never resolved either way)"
+            + (f" · unreadable {len(a['unreadable'])}" if a["unreadable"] else ""))
+    L = [head,
          f"  - {code} · FINDINGS {len(a['findings'])}: differences on rows with pending_before = 0, or with no "
          "pending_before on the row (addendum 185 D4)"]
 

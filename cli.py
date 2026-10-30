@@ -6663,7 +6663,8 @@ def soccer_expansion_gate_cmd(preflight, no_fetch):
 @cli.command("export-soccer-expansion-shadow")
 @click.option("--hours", default=None, type=click.IntRange(min=1),
               help="A manual run's explicit window: kickoffs in (now, now + HOURS). Without it (the chain step), "
-                   "kickoffs after now and before the next soccer sync chain's run (addendum 185 D2).")
+                   "kickoffs after now and before the next soccer sync chain's export (its timer's fire + "
+                   "soccer_expansion.EXPORT_REACH; addendum 185 D2).")
 def export_soccer_expansion_shadow_cmd(hours):
     """soccer-expansion-v1 SHADOW, on the HOST only (ARCHITECT 2026-10-30 addendum 178 R6, verbatim in part:
     "THE EXPORT runs on the HOST only (the writer of record ...) — the laptop never exports a league."). PD (159
@@ -6674,8 +6675,8 @@ def export_soccer_expansion_shadow_cmd(hours):
     THE SCHEDULE (ARCHITECT 2026-10-30 12:45 ET, addendum 185 D2): the LAST step of the soccer sync chains
     (deploy/hosting/chains.py: soccer-prematch, run by sp-soccer-friday and sp-soccer-saturday, and
     soccer-morning-after), run bare: its rows are the fixtures kicking off after the run and before the next chain's
-    run (soccer_expansion.next_chain_run, from the three timers' schedules). --hours is a manual run's explicit
-    override.
+    export (soccer_expansion.next_chain_run, from the three timers' schedules, plus EXPORT_REACH: Code's reading of
+    "before the next chain's"). --hours is a manual run's explicit override.
     REFUSED (exit 2) before any DB read, nothing read or written, unless this machine's role
     (desk_policy.not_host_reason, on the fence's own reading: host.env, the environment, the checkout's .env) is
     host: laptop, unset, a value that is neither, and an unreadable host.env each refuse with their own reason. The

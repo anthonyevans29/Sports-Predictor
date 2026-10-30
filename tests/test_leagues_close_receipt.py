@@ -454,10 +454,23 @@ def test_185_d5_the_receipt_reads_mode_ro_runs_on_the_laptop_and_imports_nothing
             s.rollback()
         return real(code, rho, coeff, **k)
     monkeypatch.setattr(lc, "parity", spy)
+    from src.walters import paper
+    closed = []
+    real_close = paper.leagues_season
+
+    def close_spy(*a, **k):                     # the close part (finding 20): its sessions are mode=ro too
+        with database.session_scope() as s:
+            closed.append(str(s.get_bind().url))
+            with pytest.raises(OperationalError, match="readonly"):
+                s.execute(text("CREATE TABLE t_probe2 (x INTEGER)"))
+            s.rollback()
+        return real_close(*a, **k)
+    monkeypatch.setattr(paper, "leagues_season", close_spy)
     assert lr.main([]) == 0
     out = capsys.readouterr().out
     assert out.startswith(f"database: {(tmp_path / 'iso.db').resolve()} (mode=ro; this machine's receipt")
     assert len(seen) == 5 and all("mode=ro" in u for u in seen)
+    assert closed and all("mode=ro" in u for u in closed)
     assert (database.SessionLocal, database._engine) == before               # restored for the process
     hosted = {"deploy", "sp_common", "chains", "closing", "coverage_map", "sp_run"}
     files = [ROOT / "scripts" / "leagues_close_receipt.py",
@@ -471,3 +484,21 @@ def test_185_d5_the_receipt_reads_mode_ro_runs_on_the_laptop_and_imports_nothing
     src = (ROOT / "scripts" / "leagues_close_receipt.py").read_text(encoding="utf-8")
     for name in ("not_host_reason", "machine_role", "role_reading", "SP_EXPORTS_MIRROR_ROLE", "host_fenced"):
         assert name not in src, name                                         # no machine role is read or refused
+
+
+def test_185_d5_the_app_engine_is_restored_when_the_receipt_raises(tmp_path, monkeypatch):
+    """Finding 20: read_only restores the app's sessions and engine in a `finally`, so a receipt that raises (a stale
+    laptop schema missing a column, say) leaves the process on the app's own engine, never on the mode=ro one."""
+    from src.db import database
+    _script_db(tmp_path, monkeypatch)
+    before = (database.SessionLocal, database._engine)
+    inside = []
+
+    def boom(a, declared):
+        inside.append(str(database._engine.url))
+        raise RuntimeError("no such column: matches.home_score_90")
+    monkeypatch.setattr(lr, "_receipt", boom)
+    with pytest.raises(RuntimeError, match="no such column"):
+        lr.main([])
+    assert inside and "mode=ro" in inside[0]
+    assert (database.SessionLocal, database._engine) == before

@@ -270,7 +270,7 @@ def test_shadow_rows_carry_no_desk_call_and_write_no_prediction(league, monkeypa
     assert (doc["engine"], doc["contains_predictions"], doc["model_version"]) == ("model_shadow", False, "v22")
     (r,) = [x for x in doc["predictions"] if x["match_id"] == league["up"]]
     assert r["engine"] == "model_shadow" and r["competition"] == "FL1" and r["model_version"] == "v22"
-    assert r["gate_verdict"] == "leagues-fl1-v1 · declared 2097-08-01T00:00:00Z · verdict pending"
+    assert r["gate_verdict"] == "leagues-fl1-v1 · declared 2097-08-01T00:00:00Z"            # D6: no verdict label
     p = r["prediction"]
     with session_scope() as s:
         rows = lc._season_rows(s, "FL1", "2097/98")

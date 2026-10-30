@@ -1,4 +1,6 @@
-# PL interim grading (no refresh: H0-6).
+# PL interim grading (no refresh: H0-6), then, LAST, the host-only bare export-soccer-expansion-shadow (ARCHITECT
+# 2026-10-30, addendum 185 D2; R6): it writes exports/soccer_expansion_shadow_<stamp>.json and exits 2 on a refused
+# league (D7: the failure page).
 # H0-3: no timer fires inside the 04:15-05:15 UTC reboot buffer (tests/test_hosting_pack.py).
 [Unit]
 Description=sports-predictor timer: sp-soccer-morning-after

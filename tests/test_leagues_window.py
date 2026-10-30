@@ -617,8 +617,13 @@ def test_score_recomputes_both_arms_on_the_60_and_refuses_before_ready(ledger):
     assert r["n"] == 60 and r["ll_candidate"] == sum(cand) / 60 and r["ll_close"] == sum(close) / 60
     assert r["verdict"] == lw.verdict_of(r["ll_candidate"], r["ll_close"])
     assert r["audit"] == {"present": 0, "missing": 60, "findings": [], "expected": [], "unreadable": []}
-    assert lw.audit_lines("SA", r["audit"]) == ["  - SA · stored prospective rows: none (no stored rows; 60 members "
-                                                "without one)"]
+    # D4's two lines print with no stored row too, both counted 0 (findings 13/21: neither silent)
+    assert lw.audit_lines("SA", r["audit"]) == [
+        "  - SA · stored prospective rows: none (no stored rows; 60 members without one)",
+        "  - SA · FINDINGS 0: differences on rows with pending_before = 0, or with no pending_before on the row "
+        "(addendum 185 D4)",
+        "  - SA · EXPECTED 0: differences on rows with pending_before > 0 (exported before an earlier game was final; "
+        "addendum 185 D4)"]
     with pytest.raises(lw.WindowRefused, match="the one read is at the 60th member"):
         lw.score({**w, "state": "waiting"})
     with pytest.raises(lw.WindowRefused):

@@ -32,7 +32,11 @@ The DB is the one DATABASE_URL names (else ./data/sports.db). A path with no fil
 could open it: the receipt never creates a database. READ-ONLY for real (read_only below): before anything is read,
 the app's sessions and its engine are rebound, for the receipt's run only, to an engine of their own on a mode=ro URI
 of that file (sp_cutover's shot-gate idiom), so the app engine's connect hooks (PRAGMA journal_mode=WAL, the data/
-mkdir) never run, SQLite itself refuses any write, and nothing is written. No machine role is read and none refuses:
+mkdir) never run and SQLite itself refuses any write: no row is written and no file is created by the receipt. What
+mode=ro does NOT promise: the app runs the DB in WAL mode (src/db/database.py), and SQLite opening a WAL database even
+read-only may create or touch its -wal and -shm sidecar files beside it (a probe on SQLite 3.45.1 left an empty -wal
+and a 32 KB -shm next to a cleanly closed WAL file); the database's contents are untouched. No machine role is read
+and none refuses:
 the receipt runs on the laptop or the host alike, and imports nothing from deploy/hosting (ARCHITECT 2026-10-30 12:45
 ET, addendum 185 D5, verbatim: "THE PARITY RECEIPT for the PR body: the operator runs the branch's parity script
 READ-ONLY on the laptop (its read-only scope; a row-for-row arithmetic check on the laptop's data, stale is fine) — my
@@ -97,7 +101,8 @@ def db_file() -> Path:
 @contextmanager
 def read_only(f: Path):
     """For the block: src.db.database's SessionLocal and engine are an engine of their own on a mode=ro URI of `f`
-    (no connect hook, no pragma, no mkdir; SQLite refuses a write), restored afterwards. session_scope, readonly_scope
+    (no connect hook, no pragma, no mkdir; SQLite refuses a write; a WAL database's -wal / -shm sidecars may still be
+    created or touched, the module docstring says so), restored afterwards. session_scope, readonly_scope
     (which reads the bound file after "file:") and the has_* column checks all read through it."""
     from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker

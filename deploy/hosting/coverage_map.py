@@ -236,7 +236,10 @@ def _expansion_binds(code: str, entries: dict) -> str | None:
     all five; the export binds a league only through its declaration in the registry (soccer_expansion.
     shadow_bindings): the four under leagues_window.DECLARATION_IDS (the entry under its own id, as
     leagues_window.declaration reads it), the experiment's own surviving league through the experiment's entry. Read
-    from `entries` (read_ledgers' registry), never a copy of the codes."""
+    from `entries` (read_ledgers' registry), never a copy of the codes. An entry present binds only when the export's
+    own binding passes (soccer_expansion.shadow_binding: leagues_window.checked for the four, confirming() and its
+    checks for PD): a binding the export refuses writes no row, so its league is never SHADOW here (R5's lens), and
+    the line carries the export's reason."""
     from src.walters import leagues_window as lw
     from src.walters import soccer_expansion as sx
     if code not in sx.LEAGUES:
@@ -246,6 +249,9 @@ def _expansion_binds(code: str, entries: dict) -> str | None:
     if not (isinstance(e, dict) and e.get("id") == eid):
         return (f"{code} is not declared (no registry entry {eid}; addendum 178 R5: nothing is a shadow before it is "
                 "declared)")
+    b = sx.shadow_binding(code)
+    if b["state"] != sx.SHADOW_EXPORTING:
+        return f"its binding of {code} is {b['state']} (soccer_expansion.shadow_binding, the export's own)"
     return None
 
 

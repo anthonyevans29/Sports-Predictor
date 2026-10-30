@@ -135,12 +135,13 @@ def legacy_shadow(rows, fixture, rho: float, coeff: float):
                             home_strength=hs, away_strength=as_, context=ctx, config=cfg)
 
 
-def gate_rows(code: str, season: str, rho: float, coeff: float) -> list[dict]:
-    """The gate path: run_soccer_backtest exactly as soccer_expansion.run calls it, on `season`."""
+def gate_rows(code: str, season: str, rho: float, coeff: float, through: datetime | None = None) -> list[dict]:
+    """The gate path: run_soccer_backtest exactly as soccer_expansion.run calls it, on `season`; cut at `through`
+    when the leagues' window fence is up (addendum 178 R8: no game after the declaration is walked)."""
     from src.walters.soccer_backtest import run_soccer_backtest
     from src.walters.soccer_expansion import BATCH_SAME_KICKOFF
     return run_soccer_backtest(code, season, MIN_PRIOR, dixon_coles_rho=rho, elo_goal_coeff=coeff,
-                               stage_filter=is_regular, batch_same_kickoff=BATCH_SAME_KICKOFF) or []
+                               stage_filter=is_regular, batch_same_kickoff=BATCH_SAME_KICKOFF, through=through) or []
 
 
 def unplaced_labels(s, code: str, season: str) -> list[str]:
@@ -150,10 +151,16 @@ def unplaced_labels(s, code: str, season: str) -> list[str]:
 
 
 def parity(code: str, rho: float, coeff: float, season: str = CURRENT_SEASON, now: datetime | None = None) -> dict:
-    """The parity receipt for one league (the module docstring). Read-only: one session, rolled back."""
+    """The parity receipt for one league (the module docstring). Read-only: one session, rolled back.
+    THE WINDOW FENCE (ARCHITECT 2026-10-30, addendum 178 R8): while the league is declared and its verdict is not
+    recorded (leagues_window.fence_cutoff), both paths read only the 2026/27 games kicking off at or before its
+    declared_at; the finished regular-round games after it are counted (`fenced`), never walked or compared. No
+    declaration, no fence: unchanged."""
     from src.db.database import session_scope
     from src.timeutil import utc_now_naive
+    from src.walters.leagues_window import fence_cutoff
     now = now or utc_now_naive()
+    cut = fence_cutoff(code, season)
     with session_scope() as s:
         bad = unplaced_labels(s, code, season)
         s.rollback()
@@ -161,11 +168,15 @@ def parity(code: str, rho: float, coeff: float, season: str = CURRENT_SEASON, no
         raise ExpansionRefused("stage / round labels the code cannot place (F3; the gate's run refuses on them, so "
                                "the parity read does; never guessed): " + "; ".join(bad))
     sha = code_sha()
-    gate = {r["match_id"]: r for r in gate_rows(code, season, rho, coeff)}
+    gate = {r["match_id"]: r for r in gate_rows(code, season, rho, coeff, through=cut)}
     out = {"code": code, "season": season, "gate_scored": len(gate), "rows": [], "max_diff": 0.0, "unequal": 0,
-           "shadow_only": [], "gate_only": [], "legacy_max_diff": 0.0, "legacy_unequal": 0, "legacy_unpriced": 0}
+           "shadow_only": [], "gate_only": [], "legacy_max_diff": 0.0, "legacy_unequal": 0, "legacy_unpriced": 0,
+           "fenced": 0}
     with session_scope() as s:
         rows = _season_rows(s, code, season)
+        if cut is not None:          # R8: the window's games are the cohort reader's alone
+            out["fenced"] = sum(1 for m in rows if m.utc_date > cut and is_regular(m.stage))
+            rows = [m for m in rows if m.utc_date <= cut]
         regular = [m for m in rows if is_regular(m.stage)]
         for m in regular:
             pred, why = predict_as_of(rows, m, rho, coeff)
@@ -201,7 +212,9 @@ def parity_lines(p: dict, rows: bool = True) -> list[str]:
     head = (f"{p['code']} {p['season']} · PARITY (158 item 2(a)) · finished regular-round {p['finished_regular']} "
             f"(other stages {p['not_regular']}, never walked) · gate scored {p['gate_scored']} · compared "
             f"{len(p['rows'])} · unequal {p['unequal']} (max |diff| {p['max_diff']:.3g}; equal within {PARITY_TOL:g}) · "
-            f"priced by the shadow only {len(p['shadow_only'])} · by the gate only {len(p['gate_only'])}")
+            f"priced by the shadow only {len(p['shadow_only'])} · by the gate only {len(p['gate_only'])}"
+            + (f" · fenced {p['fenced']} (finished after the declaration: the cohort reader's alone, addendum 178 R8)"
+               if p.get("fenced") else ""))
     L = [head, f"  - the current shadow export's arithmetic (price_upcoming, as of each kickoff) on the same games: "
                f"unequal {p['legacy_unequal']} of {len(p['rows']) - p['legacy_unpriced']} priced (max |diff| "
                f"{p['legacy_max_diff']:.3g}); unpriced {p['legacy_unpriced']} (a finding: it is not the gate's walk)"]

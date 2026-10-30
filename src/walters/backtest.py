@@ -70,7 +70,7 @@ def run_backtest(season: str = "2025", competition_code: str = "MLB",
     # soccer-expansion-v1 (Codex on #326): the generic walk reads any competition's finished scores, so the
     # expansion leagues' sealed test seasons are refused here too while the experiment is declared and unrun.
     from src.walters import soccer_expansion as _sx
-    _why = _sx.guards_backtest(competition_code)
+    _why = _sx.guards_backtest(competition_code, season)     # with the leagues' window fence (addendum 178 R8)
     if _why:
         raise _sx.ExpansionRefused(_why)
     from src.walters import ncaa_backtest as _nb            # the 2026 fence (ARCHITECT 2026-10-16, addendum 86 Q2)

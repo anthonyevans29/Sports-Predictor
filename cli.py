@@ -6380,8 +6380,8 @@ def soccer_backtest_cmd(competition_code, season, min_prior, rho, candidate):
     from src.walters import soccer_expansion as _sx
     from rich.table import Table
 
-    _why = _sx.guards_backtest(competition_code)
-    if _why:                 # ARCHITECT 2026-10-07: nobody reads these test seasons outside the one run
+    _why = _sx.guards_backtest(competition_code, season)
+    if _why:                 # ARCHITECT 2026-10-07: nobody reads these test seasons outside the one run; addendum 178 R8
         click.echo(f"REFUSED: {_why}")
         raise SystemExit(2)
     from src.walters import ncaa_backtest as _nb
@@ -6685,7 +6685,9 @@ def soccer_expansion_shadow_grade_cmd(days):
     for ln in r["lines"]:
         print(ln)
     for code, d in sorted(r["per_league"].items()):
-        print(f"  ── {code}: graded {d['graded']} · priced {d['priced']} · mean pick-vs-close {d['mean_clv_pp']}pp")
+        print(f"  ── {code}: graded {d['graded']} · priced {d['priced']} · mean pick-vs-close {d['mean_clv_pp']}pp"
+              + (f" · fenced {d['fenced']} (after the declaration: the cohort reader's alone, addendum 178 R8)"
+                 if d.get("fenced") else ""))
 
 
 @cli.command("soccer-expansion-confirm")

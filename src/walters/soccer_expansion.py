@@ -252,9 +252,15 @@ def declared_unrun():
     return e
 
 
-def guards_backtest(competition_code: str) -> str | None:
+def guards_backtest(competition_code: str, season=None, through: datetime | None = None) -> str | None:
     """soccer-backtest on a league of this experiment is refused while it is declared and unrun: an ad-hoc
-    read would spend the test seasons outside the one run. None = allowed."""
+    read would spend the test seasons outside the one run. None = allowed.
+    THE LEAGUES' WINDOW FENCE (ARCHITECT 2026-10-30 09:30 ET, addendum 178 R8, verbatim: "FENCED: after a declaration
+    the window's outcomes have one reader, the cohort reader; guards_backtest refuses any other read of them until
+    the verdict is recorded (the NCAA fence's precedent)."): for SA, BL1, FL1 or ELC with a declaration entry
+    (leagues_window.DECLARATION_IDS) and no verdict recorded, a walk of `season` 2026/27, or of every season (None),
+    is refused naming the cohort reader, unless it is cut at `through` at or before the league's declared_at (it then
+    reads no game of the window). No entry, no fence: an undeclared league is unaffected."""
     from src.walters import registry as reg
     if (competition_code or "").upper() not in LEAGUES:
         return None
@@ -262,7 +268,8 @@ def guards_backtest(competition_code: str) -> str | None:
     if e is not None and e.get("run") is None:
         return (f"{competition_code} is a {EID} league, declared and unrun: its test seasons are read once, by "
                 "soccer-expansion-gate (docs/specs/soccer-expansion-v1.md)")
-    return None
+    from src.walters.leagues_window import fence_refusal
+    return fence_refusal(competition_code, season, through)
 
 
 # ------------------------------------------------------------- the DB --
@@ -617,21 +624,32 @@ PICK = {"home_win": "HOME", "draw": "DRAW", "away_win": "AWAY"}
 
 
 def shadow_grade(days: int = 30, export_dir: str = "exports", now: datetime | None = None) -> dict:
-    """READ-ONLY: the shadow's top pick vs the three-way book close (#207 contract), per league."""
+    """READ-ONLY: the shadow's top pick vs the three-way book close (#207 contract), per league.
+    The leagues' window fence (ARCHITECT 2026-10-30, addendum 178 R8): a finished 2026/27 game of a declared league
+    (SA, BL1, FL1, ELC; verdict not recorded) kicking off after its declared_at is not graded here, only counted
+    (`fenced`): the window's games have one reader, the cohort reader. No declaration, no fence."""
     from src.db.database import session_scope
     from src.db.schema import Match, MatchStatus, Odds
     from src.walters.close import close_1x2, outcomes_for, priced
+    from src.walters.leagues_window import fence_cutoff, fenced
     from sqlalchemy import select
 
     now = now or utc_now_naive()
     per: dict[str, dict] = {}
     lines = []
+    cuts: dict = {}
     with session_scope() as s:
         for mid, c in sorted(last_calls(export_dir).items(), key=lambda kv: kv[1].get("utc_date") or ""):
             m = s.get(Match, mid)
             if m is None or m.status != MatchStatus.FINISHED or m.utc_date < now - timedelta(days=days):
                 continue
             code = c.get("competition") or "?"
+            if code not in cuts:
+                cuts[code] = fence_cutoff(code, CURRENT_SEASON)
+            if fenced(cuts[code], m):
+                per.setdefault(code, {"graded": 0, "priced": 0, "clv": []})
+                per[code]["fenced"] = per[code].get("fenced", 0) + 1
+                continue
             d = per.setdefault(code, {"graded": 0, "priced": 0, "clv": []})
             d["graded"] += 1
             sel = PICK[c["prediction"]["top_pick"]]

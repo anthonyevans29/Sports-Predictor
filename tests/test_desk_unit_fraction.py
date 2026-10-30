@@ -270,6 +270,18 @@ def test_j3_a_floor_above_the_pool_is_unread_never_a_whole_pool_unit():
     assert whole["state"] == "read"
 
 
+def test_the_day_file_is_the_owners_alone_0600(day):
+    """Codex on #734: the day file holds the day's unit (and the pool on the laptop), so it is created 0600."""
+    import os
+    import stat
+    old = os.umask(0o022)
+    try:
+        du.day_unit(NOW, read_pool=pool_of(FIXTURE_POOL), role="laptop")
+    finally:
+        os.umask(old)
+    assert stat.S_IMODE((day / "desk_unit_2026-10-11.json").stat().st_mode) == 0o600
+
+
 def test_yesterdays_unit_is_never_read_for_today(day):
     du.day_unit(NOW - timedelta(days=1), read_pool=pool_of(FIXTURE_POOL))
     assert (day / "desk_unit_2026-10-10.json").exists()

@@ -199,7 +199,12 @@ def _write_once(p: Path, rec: dict) -> bool:
     p.parent.mkdir(parents=True, exist_ok=True)
     tmp = p.with_name(f".{p.name}.{os.getpid()}.tmp")
     try:
-        tmp.write_text(json.dumps(rec, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        # Codex on #734: the record holds the day's unit (and the pool on the laptop), so the file is the owner's alone:
+        # created 0600 before any byte is written (the link keeps the mode), as sp_backup / pull_backup keep theirs.
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(json.dumps(rec, indent=2, sort_keys=True) + "\n")
+        os.chmod(tmp, 0o600)                  # whatever the umask
         try:
             os.link(tmp, p)                   # refuses an existing name: the day's first record stands
         except FileExistsError:

@@ -772,12 +772,28 @@ systemctl enable --now $TIMERS
 systemctl list-timers 'sp-*' --no-pager     # receipt: next-elapse for each
 ```
 - Every shipped timer is on `TIMERS` or `MLB_LAPTOP_ONLY`; CI checks it.
+- **The file's form (#725; ARCHITECT 2026-10-28, addendum 174 item 4: "hosting-h1's T11 recipes must not assume one
+  timer name per line in timers.enabled (the file holds several per line)").** `timers.enabled` is a list of names
+  separated by whitespace, not one per line: the `echo $TIMERS` above writes the whole list on ONE line, and each
+  live-host recipe below appends one more line (`echo <name> | sudo tee -a`). Every reader takes it by name:
+  `$(cat /etc/sports-predictor/timers.enabled)`, `sp_cutover` and `sp_deploy` (`.split()`). A recipe that counts,
+  finds or removes a timer goes by name too, never by line (`wc -l`, or `grep -x` / `sed '/^name$/d'` on the file
+  as written, miss every name on the TIMERS line). The names, one per line, as a receipt: `tr -s ' \t' '\n' < /etc/sports-predictor/timers.enabled | sed
+  '/^$/d' | sort`. **A timer retired or renamed on a live host** (e.g. `sp-nfl-predict.timer` to
+  `sp-nfl-prematch.timer`, #674) leaves the list by name, rewritten in place under sudo, after its `systemctl disable
+  --now`. The new list replaces the file only when every stage of the read succeeded and the new list is not empty
+  (`pipefail` in a subshell, then `[ -s ]`): a failed read leaves the file as it was, never an empty list:
+  ```
+  f=/etc/sports-predictor/timers.enabled; old=sp-nfl-predict.timer
+  [ -s "$f" ] && ( set -o pipefail; tr -s ' \t' '\n' < "$f" | sed '/^$/d' | grep -vxF "$old" | tr '\n' ' ' | sed 's/ $/\n/' | sudo tee "$f.new" >/dev/null ) && [ -s "$f.new" ] && sudo mv "$f.new" "$f"
+  tr -s ' \t' '\n' < "$f" | sed '/^$/d' | grep -cxF "$old"   # receipt: 0
+  ```
 - `sp-closing-watch.timer` is on `TIMERS` from the cutover (ARCHITECT 2026-10-26, addendum 168 item 5:
   "hosting-h1.md's T11 HELD_FOR_CUTOVER list: sp-closing-watch.timer moves to TIMERS (CI's check follows)"). Until
   then it was the one name on a third list, `HELD_FOR_CUTOVER` (ARCHITECT 2026-10-12, addendum 45 P3: "A third
   list in the T11 test names the units that are shipped and held for the cutover ruling"; C7: the cutover ruling
   decides when it runs). The host enabled it at h2-cutover-runbook.md section 1 step 5b, 2026-10-26 13:47Z
-  (timers.enabled 17 lines), and the third list is retired. install.sh still copies the unit and enables nothing.
+  (timers.enabled 17 names), and the third list is retired. install.sh still copies the unit and enables nothing.
 - `TIMERS` includes the soccer model-bearing timers (B4, seeded registry)
   and `sp-ncaa-market.timer` (H0-11).
 - The MLB timers stay off. They are shipped and CI-validated, ready for
@@ -1083,8 +1099,15 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
     name only, every timer the deployed tag ships that `/etc/sports-predictor/timers.enabled` does not list,
     under the T11 list that carries it (ARCHITECT 2026-10-23, addendum 155 item 8(b): the host ran without
     `sp-ncaa-schedule.timer` from 10-09 to 10-23). A `TIMERS` timer missing reads "!": install and enable it
-    by T11's recipe for a live host. The `MLB_LAPTOP_ONLY` timers are off by T11 and print on a plain line
-    (`HELD_FOR_CUTOVER`, the third list, was retired at the cutover: addendum 168 item 5). An unreadable `timers.enabled` prints "!" and no list.
+    by T11's recipe for a live host. The `MLB_LAPTOP_ONLY` timers are off by T11: the line counts them, plain,
+    never names them ("3 on MLB_LAPTOP_ONLY (held off by T11)"; ARCHITECT 2026-10-28, #725: "the deploy's timers
+    line must name only the TIMERS timers missing"); alone they leave the line plain. A timer on no T11 list is
+    named, "!", "(unlisted)". The lists are read as T11's block holds them, whatever their names: a list the code
+    expects that the block lacks is noted on the line and never empties the others (`HELD_FOR_CUTOVER`, the third
+    list, was retired at the cutover: addendum 168 item 5; the deploy runs the release it replaces, so the old
+    code reads the new runbook). An unreadable `timers.enabled` prints "!" and no list; an unreadable T11 block
+    prints "!" with its error, and every timer reads unlisted. That block, or one with no `TIMERS` list, prints
+    "!" even with no timer missing, never "✓" (law 4).
     The same receipt (and `timers_active_not_listed`) names, by name only, every sp timer systemd lists as
     ACTIVE that `timers.enabled` does not list (ARCHITECT 2026-10-26, addendum 168 item 2: `sp-intl-daily.timer`
     and `sp-exports-squash.timer` ran enabled by hand with no list line, so the cutover's pause would have left

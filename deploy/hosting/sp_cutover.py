@@ -1007,8 +1007,12 @@ def isolated():
 
 
 def runbook_timers() -> list[str]:
-    """The T11 enable list from hosting-h1.md (the list H2 steps 2 and 6 reuse)."""
-    return c.t11_lists(HERE.parents[1] / "docs" / "specs" / "hosting-h1.md")["TIMERS"]
+    """The T11 enable list from hosting-h1.md (the list H2 steps 2 and 6 reuse). A runbook whose T11 block holds no
+    TIMERS list fails here, loudly, as it did before t11_lists read the lists the file holds (#725)."""
+    lists = c.t11_lists(HERE.parents[1] / "docs" / "specs" / "hosting-h1.md")
+    if "TIMERS" not in lists:
+        raise ValueError(f"hosting-h1.md T11 holds no TIMERS list (it holds {', '.join(lists)})")
+    return lists["TIMERS"]
 
 
 def _under(root: Path, p: Path) -> bool:

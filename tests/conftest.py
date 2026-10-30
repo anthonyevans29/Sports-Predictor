@@ -49,3 +49,19 @@ def _machine_role_laptop(monkeypatch):
     monkeypatch.setenv("SP_EXPORTS_MIRROR_ROLE", "laptop")
     monkeypatch.setenv("SP_HOST_ENV", str(_TMP / "no-host.env"))
     monkeypatch.setattr(desk_policy, "DOTENV", _TMP / "no.env")
+
+
+@pytest.fixture(autouse=True)
+def _desk_unit_pinned(monkeypatch, tmp_path):
+    """Addendum 179 (#732, Desk policy v1.2): the Desk sizes its order lines from the day's unit file
+    (src/walters/desk_unit.py, logs/desk_unit_<ET date>.json, folder SP_DESK_UNIT_DIR). No test reads or writes the
+    checkout's logs/: the folder is a per-test path under tmp_path that does not exist, and no test inherits a floor
+    (SP_UNIT_FLOOR_USD) or the retired SP_UNIT_USD from the launching shell. As the machine's role is pinned above,
+    every test is pinned to the pre-v1.2 contracts basis (desk_policy.UNIT_PIN = LEGACY_CONTRACTS_BASIS: 10 contracts
+    per 1u, the label a file exported with SP_UNIT_USD unset carries), so the other rules' tests keep their order
+    lines; a test of the unit itself lifts the pin (tests/test_desk_unit_fraction.py's `day` fixture)."""
+    from src.walters import desk_policy
+    monkeypatch.setenv("SP_DESK_UNIT_DIR", str(tmp_path / "desk-unit-none"))
+    monkeypatch.delenv("SP_UNIT_FLOOR_USD", raising=False)
+    monkeypatch.delenv("SP_UNIT_USD", raising=False)
+    monkeypatch.setattr(desk_policy, "UNIT_PIN", desk_policy.LEGACY_CONTRACTS_BASIS)

@@ -1,7 +1,9 @@
 """ORDER LINE (ARCHITECT 2026-10-04): every Desk PLAY / LADDER / VENUE row and every parlay leg carries the
 copy-exact Kalshi order — market ticker, side, limit per doctrine (join bid; the ask on a 1c spread), contract
-count at the declared unit size (SP_UNIT_USD, default 10 contracts per 1u). The ticker comes from the stored
-snapshot (sync-kalshi-*), through the export's kalshi_legs. No policy change."""
+count at the unit in force (v1.2, addendum 179: the day's dollar unit; these cases run on the conftest pin, the
+pre-v1.2 contracts basis of 10 per 1u, or on a synthetic dollar pin). The ticker comes from the stored snapshot
+(sync-kalshi-*), through the export's kalshi_legs. No policy change."""
+FIXTURE_UNIT_DOLLARS = 1234          # synthetic (addendum 179 item 5: never a real figure)
 from datetime import timedelta
 
 import pytest
@@ -30,7 +32,6 @@ def R(legs, three_way=False):
 
 
 def test_straight_yes_joins_the_bid_and_counts_ten_per_unit(monkeypatch):
-    monkeypatch.delenv("SP_UNIT_USD", raising=False)
     o = dp.order_line(R(LEGS2), "HOME", 0.5)
     assert o["text"] == "BUY YES KXNFLGAME-26OCT05BUFKC-KC @ 0.55 × 5" and o["limit_basis"] == "join bid"
     assert o["unit"] == "1u = 10 contracts (SP_UNIT_USD unset)" and o["why"] is None
@@ -44,11 +45,11 @@ def test_one_cent_spread_takes_the_ask():
 
 
 def test_unit_size_in_dollars(monkeypatch):
-    monkeypatch.setenv("SP_UNIT_USD", "25")
-    o = dp.order_line(R(LEGS2), "HOME", 0.5)                          # 0.5 x $25 / 0.55 = 22.7 -> 22
-    assert o["contracts"] == 22 and o["unit"] == "1u = $25" and o["text"].endswith("× 22")
-    monkeypatch.setenv("SP_UNIT_USD", "1")
-    o = dp.order_line(R(LEGS2), "HOME", 0.25)                         # 0.25 x $1 / 0.55 < 1 contract
+    monkeypatch.setattr(dp, "UNIT_PIN", dp.unit_basis_usd(FIXTURE_UNIT_DOLLARS))
+    o = dp.order_line(R(LEGS2), "HOME", 0.5)                          # 0.5 x 1234 / 0.55 = 1121.8 -> 1121
+    assert o["contracts"] == 1121 and o["unit"] == f"1u = ${FIXTURE_UNIT_DOLLARS}" and o["text"].endswith("× 1121")
+    monkeypatch.setattr(dp, "UNIT_PIN", dp.unit_basis_usd(1))
+    o = dp.order_line(R(LEGS2), "HOME", 0.25)                         # 0.25 x 1 / 0.55 < 1 contract
     assert o["text"] is None and "under one contract" in o["why"]
 
 
@@ -78,7 +79,6 @@ def test_no_bid_no_ticker_and_nothing_staked():
 
 
 def test_desk_block_and_parlay_legs_carry_the_order(monkeypatch):
-    monkeypatch.delenv("SP_UNIT_USD", raising=False)
     from tests.test_desk_policy import NOW, row
     doc = {"sport": "mlb", "predictions": [
         row("Kansas City", 0.66, fair_h=0.58, bid=0.55, ask=0.58, kalshi_legs=LEGS2),     # PLAY HOME

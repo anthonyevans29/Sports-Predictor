@@ -23,6 +23,11 @@ PARITY RULES: arithmetic in the same order as the JS (IEEE doubles both
 sides); JS `toFixed` reproduced exactly (`js_fixed`), JS number-to-string
 (`js_str`), Math.round (`js_round`). Kickoffs: naive utc_date is UTC (#178).
 Presentation-only pieces (KO line, re-run hint, HTML) are not ported.
+
+DESK POLICY v1.2 (ARCHITECT 2026-10-30, addendum 179, #732): the unit is UNIT_FRACTION of the money pool, read once a
+day (src/walters/desk_unit.py). The v1.1 rules are unchanged, but the exec gate's fee rounds at the order's own count,
+which is now the day's unit's: a borderline row's exec edge, tier and units can differ between a read day and an
+unread one (#732 judgement J1, for the architect). The ORDER LINE section holds the rule.
 """
 from __future__ import annotations
 
@@ -32,10 +37,15 @@ import math
 import os
 from datetime import datetime, timedelta, timezone
 from contextlib import contextmanager
+from contextvars import ContextVar
 from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 
-POLICY_VERSION = "v1.1"
+# v1.2 (ARCHITECT 2026-10-30 09:30 ET, addendum 179, #732; the operator's ruling of 09:26 ET): THE UNIT BECOMES A
+# FRACTION OF THE POOL. Only the unit's size moved; no v1.1 rule changed. The exec gate's fee still rounds at the
+# order's own count (#87 v1.1 (h)), now the day's unit's, so a borderline row's tier can follow the read (J1; the
+# ORDER LINE section below holds the unit). No dollar figure of any kind is in this module (addendum 179 item 5).
+POLICY_VERSION = "v1.2"
 INF = math.inf
 POLICY = {
     "SOCCER": {"eMin": 4, "eLad": 10, "eHair": 10, "pMin": 0.50, "qNever": False},
@@ -759,12 +769,12 @@ def maker_cost_for(r, side):
 
 
 def order_contracts(units, limit):
-    """The contract count `order_line` writes for `units` at `limit` (SP_UNIT_USD -> dollars / limit, else
-    ORDER_UNIT_CONTRACTS per 1u, floored); None when under one contract or no valid limit."""
+    """The contract count `order_line` writes for `units` at `limit` (the day's dollar unit / limit, floored; v1.2,
+    addendum 179 item 7); on an unread day the reference fill the exec gate prices at (J1). None when under one
+    contract or no valid limit."""
     if not units or units <= 0 or limit is None or not (0 < limit < 1):
         return None
-    unit = unit_size()
-    n = int(units * unit["value"] / limit + 1e-9) if unit["mode"] == "usd" else int(units * unit["value"] + 1e-9)
+    n = _contracts_at(units, limit, unit_size())
     return n if n >= 1 else None
 
 
@@ -779,7 +789,7 @@ def taker_cost_for(r, side, units=None):
     if ask is None or not (0 < ask < 1):
         return None
     # the count is the EMITTED order's: at the join limit when the doctrine joins (>= 3c), else at the ask
-    # (SP_UNIT_USD sizes by limit — Codex on #303)
+    # (a dollar unit sizes by limit — Codex on #303)
     limit = join_price(q.get("bid"), ask) or ask
     n = order_contracts(BASE_UNITS if units is None else units, limit)
     if n is None:
@@ -856,6 +866,8 @@ def exec_block(r, side, model_p, units=None, order_units=None):
         if order_units is not None and order_units != units:
             oc = taker_cost_for(r, side, order_units)
             out.update(order_contracts=order_contracts(order_units, lim), order_cost=oc)
+        if unit_size()["mode"] == "unread":      # addendum 179 item 4: the counts are the fee's basis, not an order
+            out["contracts_basis"] = UNIT_REFERENCE_FILL_TEXT
     return out
 
 
@@ -1524,22 +1536,144 @@ def window_venue(row: dict, now_ms: float) -> dict:
 #            only when the spread is >= 3c; no ask -> no limit (stated, never guessed).
 #            (The 2026-09-30 join-bid doctrine is superseded; base_v11() keeps it for the golden.)
 #            NO prices mirror the YES contract: NO bid = 1 - yes ask, NO ask = 1 - yes bid
-#   count  : SP_UNIT_USD (dollars per 1u) set -> floor(units x SP_UNIT_USD / limit);
-#            unset -> ORDER_UNIT_CONTRACTS contracts per 1u (floor(units x 10))
+#   count  : floor(units x the day's unit in dollars / limit) (addendum 179 item 7, "as today, on the day's unit")
+#
+# THE UNIT IS A FRACTION OF THE POOL (ARCHITECT 2026-10-30 09:30 ET, addendum 179, #732, Desk policy v1.2; the
+# operator's ruling of 09:26 ET), verbatim: "a unit is 8% of the money pool, growing and shrinking with it. [...] The
+# half-unit cohort (0 < exec < 4, QB-clean) is therefore 4% of the pool; LADDER notional and the floor-blocked notional
+# lines stay notional at 1u." The architect advised 2-3% and the operator kept 8%: the operator's sizing decision, the
+# advice beside it, not re-opened. The fraction and the names are code and may be printed; the pool's dollar value
+# and the day's dollar unit are never in this repo (item 5). Every PLAY's units are the v1.1 policy's; a 0.5u row is
+# HALF_UNIT_FRACTION of the pool by arithmetic (item 1), so it has no code path of its own.
+#   THE READ, ONCE A DAY (item 3): the day's first slate stage runs `cli.py desk-unit`, which computes
+#     floor(UNIT_FRACTION x pool) in whole dollars, applies the floor (UNIT_FLOOR_ENV, set by hand, never in the repo)
+#     and writes logs/desk_unit_<ET date>.json once (src/walters/desk_unit.py). Every later page that day reads that
+#     file: annotate / parlays_doc read it once for their own `now`'s ET date (_day_scope).
+#   UNREAD (item 4, law 4): a failed read, a file the day does not have (no read yet today; yesterday's file is never
+#     read), or a file that cannot be read: no order line; the order's `why` is UNIT_UNREAD_TEXT verbatim. The exec
+#     gate's fee is then priced at the reference fill (ORDER_UNIT_CONTRACTS per 1u, the pre-v1.2 default). That is
+#     NOT neutral (#732 judgement J1, for the architect): the fee rounds per fill of the order's own count (#87 v1.1
+#     (h)), on a read day units x the day's unit / limit, so a borderline row's exec edge, tier and units can differ
+#     between a read day and an unread one. Which basis is right is the architect's ruling; until then the unread
+#     day's desk.exec / desk.ladder_exec counts carry `contracts_basis` = UNIT_REFERENCE_FILL_TEXT.
+#   SP_UNIT_USD is retired from the Desk's sizing (item 4): nothing here reads it. A file exported before the switch
+#     carries its own basis in its order lines' `unit` label, which desk-rescore reads (file_unit_basis).
 ORDER_UNIT_CONTRACTS = 10
+UNIT_FRACTION = 0.08                     # addendum 179 item 1: a unit is 8% of the money pool
+HALF_UNIT_FRACTION = 0.04                # addendum 179 item 1: the half-unit cohort, 0.5u = 4% of the pool
+UNIT_FLOOR_ENV = "SP_UNIT_FLOOR_USD"     # addendum 179 item 4: the floor's NAME (its value is set by hand, never here)
+UNIT_UNREAD_TEXT = "unit unread — no order"          # addendum 179 item 4, verbatim
+UNIT_UNREAD_LABEL = "unit unread"
+# An unread day's desk.exec / desk.ladder_exec `contracts` are the reference fill the fee is priced at, never an order:
+# those blocks then carry `contracts_basis` with this text (absent on a read day, where the count is the order's).
+UNIT_REFERENCE_FILL_TEXT = "reference fill, no order (unit unread)"
+# The basis a file exported before v1.2 with SP_UNIT_USD unset declares in its order lines (desk-rescore re-scores
+# such a file under it; the Cockpit's fillUnitBasis reads it): the label is that file's, kept verbatim.
+LEGACY_CONTRACTS_LABEL = f"1u = {ORDER_UNIT_CONTRACTS} contracts (SP_UNIT_USD unset)"
+LEGACY_CONTRACTS_BASIS = {"mode": "contracts", "value": ORDER_UNIT_CONTRACTS, "label": LEGACY_CONTRACTS_LABEL,
+                          "state": "contracts", "et_date": None, "why": None}
+# The unit in force, most specific first: unit_override (desk-rescore's file basis), UNIT_PIN (tests: conftest pins
+# every test to the legacy contracts basis, as it pins the machine's role; a test of the unit itself lifts the pin),
+# the day the running annotate / parlays_doc read (_day_scope), else a fresh read of the wall clock's ET day.
+_UNIT_OVERRIDE: ContextVar = ContextVar("desk_unit_override", default=None)
+_UNIT_DAY: ContextVar = ContextVar("desk_unit_day", default=None)
+UNIT_PIN = None
+
+
+def unit_basis_usd(dollars, *, state: str = "read", et_date: str | None = None) -> dict:
+    """A dollar basis: 1u = `dollars`. The label keeps the pre-v1.2 shape, "1u = $<n>" (item 6: "every page's order
+    line stamps the day's unit ("1u = $X") as now")."""
+    v = float(dollars)
+    return {"mode": "usd", "value": v, "label": f"1u = ${v:g}", "state": state, "et_date": et_date, "why": None}
+
+
+def unit_unread(why: str, *, state: str = "unread", et_date: str | None = None) -> dict:
+    """No unit (item 4): no order line. `value` is the reference fill the exec gate prices at (J1), never an order."""
+    return {"mode": "unread", "value": ORDER_UNIT_CONTRACTS, "label": UNIT_UNREAD_LABEL, "state": state,
+            "et_date": et_date, "why": why}
+
+
+def day_unit_basis(now: datetime | None = None) -> dict:
+    """The unit of `now`'s ET day, from its file (desk_unit.read_day): read -> its dollars; unread, absent or
+    unreadable -> unit_unread. Never another day's file."""
+    from src.walters import desk_unit
+    day = desk_unit.et_date(now or datetime.now(timezone.utc))
+    try:
+        rec = desk_unit.read_day(day)
+    except desk_unit.UnitPathRefused as e:
+        return unit_unread(str(e), et_date=day.isoformat())
+    if rec is None:
+        return unit_unread("no unit read for this ET day (the day's first slate reads it)", state="absent",
+                           et_date=day.isoformat())
+    if rec.get("state") == "read" and rec.get("unit_usd"):
+        return unit_basis_usd(rec["unit_usd"], et_date=day.isoformat())
+    return unit_unread(rec.get("why") or "unit unread", et_date=day.isoformat())
+
+
+@contextmanager
+def unit_override(basis: dict | None):
+    """Size under `basis` (desk-rescore: the file's own unit); None leaves the unit as it is."""
+    token = _UNIT_OVERRIDE.set(basis) if basis is not None else None
+    try:
+        yield
+    finally:
+        if token is not None:
+            _UNIT_OVERRIDE.reset(token)
+
+
+@contextmanager
+def _day_scope(now: datetime):
+    """annotate / parlays_doc: the day's file is read ONCE for the document, at its own `now`'s ET day."""
+    if _UNIT_OVERRIDE.get() is not None or UNIT_PIN is not None:
+        yield
+        return
+    token = _UNIT_DAY.set(day_unit_basis(now))
+    try:
+        yield
+    finally:
+        _UNIT_DAY.reset(token)
 
 
 def unit_size() -> dict:
-    import os
-    raw = (os.environ.get("SP_UNIT_USD") or "").strip()
+    """The unit in force (see _UNIT_OVERRIDE): {mode usd | contracts | unread, value, label, state, et_date, why}."""
+    return _UNIT_OVERRIDE.get() or UNIT_PIN or _UNIT_DAY.get() or day_unit_basis()
+
+
+def unit_meta() -> dict:
+    """desk_meta.unit: the unit's state and names, and the fractions (item 5: the fraction and the names are code)."""
+    u = unit_size()
+    return {"state": u.get("state"), "et_date": u.get("et_date"), "label": u["label"], "why": u.get("why"),
+            "fraction": UNIT_FRACTION, "half_fraction": HALF_UNIT_FRACTION, "floor_name": UNIT_FLOOR_ENV}
+
+
+def _contracts_at(units, limit, unit) -> int:
+    """floor(units x dollars / limit) on a dollar unit; floor(units x 10) on the contracts basis and on the reference
+    fill of an unread day (J1: the exec gate's price only)."""
+    if unit["mode"] == "usd":
+        return int(units * unit["value"] / limit + 1e-9)
+    return int(units * unit["value"] + 1e-9)
+
+
+# ADDENDUM 179 ITEM 7 (verbatim): "The Desk's "take at the ask, spread < 3¢" doctrine stays; Code adds to the page the
+# order's size against the visible depth at the ask (contracts available at the limit, from the orderbook read the
+# Desk already makes) and a line "size over the ask's depth: N contracts" when it is — informational". No orderbook
+# read exists today (#732): the /markets listing's level sizes are not stored, so no export leg carries a depth, and
+# the depth field's key name has not been read from a real response (law 1). The line is therefore UNWIRED: depth_note
+# below is the line's text and arithmetic only, and order_line reads no depth from a leg (no field name is guessed).
+# Wiring it, on the enumerated name of a stored size, is the follow-up the architect rules on #732 (needs-ruling: the
+# premise "the orderbook read the Desk already makes" does not hold). N is the depth at the ask; a TAKE order only.
+DEPTH_NOTE = "size over the ask's depth: {} contracts"
+
+
+def depth_note(contracts, depth) -> str | None:
+    """Item 7's line when the order's contracts exceed the depth at the ask, else None (informational)."""
+    if contracts is None or depth is None or isinstance(depth, bool):
+        return None
     try:
-        v = float(raw)
-    except ValueError:
-        v = 0.0
-    if v > 0:
-        return {"mode": "usd", "value": v, "label": f"1u = ${v:g}"}
-    return {"mode": "contracts", "value": ORDER_UNIT_CONTRACTS,
-            "label": f"1u = {ORDER_UNIT_CONTRACTS} contracts (SP_UNIT_USD unset)"}
+        d = int(float(depth))
+    except (TypeError, ValueError):
+        return None
+    return DEPTH_NOTE.format(d) if contracts > d else None
 
 
 def _c(x):
@@ -1555,6 +1689,9 @@ def order_line(r, target: str | None, units, ladder: bool = False) -> dict | Non
     unit = unit_size()
     out = {"ticker": None, "side": None, "limit": None, "limit_basis": None, "contracts": None,
            "unit": unit["label"], "text": None, "why": None}
+    if unit["mode"] == "unread":              # addendum 179 item 4: "unit unread — no order" (law 4)
+        out["why"] = UNIT_UNREAD_TEXT
+        return out
     opp = {"HOME": "AWAY", "AWAY": "HOME"}.get(target)
     if ladder:
         if target != "AWAY":
@@ -1595,12 +1732,13 @@ def order_line(r, target: str | None, units, ladder: bool = False) -> dict | Non
     if not (0 < limit < 1):
         out["why"] = f"limit {limit} outside (0, 1) — no order written"
         return out
-    n = int(units * unit["value"] / limit + 1e-9) if unit["mode"] == "usd" else int(units * unit["value"] + 1e-9)
+    n = _contracts_at(units, limit, unit)
     out.update(limit=limit, limit_basis=basis, contracts=n)
     if n < 1:
         out["why"] = f"{units}u at {unit['label']} is under one contract at {limit:.2f}"
         return out
     out["text"] = f"BUY {side} {leg['ticker']} @ {limit:.2f} × {n}"
+    # addendum 179 item 7's depth line: UNWIRED (no stored depth, no enumerated key name; see DEPTH_NOTE)
     return out
 
 
@@ -1667,6 +1805,8 @@ def ladder_exec_block(r, c):
     cost = round(ask + fee, 4)
     e = None if out["model_p"] is None else (out["model_p"] - cost) * 100
     out.update(cost=cost, basis="taker", contracts=n, edge_pp=_num(e), fee_clears=exec_clears(e))
+    if unit_size()["mode"] == "unread":          # addendum 179 item 4: the count is the fee's basis, not an order
+        out["contracts_basis"] = UNIT_REFERENCE_FILL_TEXT
     if e is None:                                         # priced, but no model draw + away (Codex on #714)
         out["why"] = "no model probability for draw + away (the row carries no draw probability): no edge"
     return out
@@ -1760,11 +1900,13 @@ def annotate(doc: dict, *, now: datetime | None = None, counts: dict | None = No
     if now.tzinfo is None:
         now = now.replace(tzinfo=timezone.utc)
     now_ms = float((now - datetime(1970, 1, 1, tzinfo=timezone.utc)) // _MS)
-    ev = evaluate(doc, now_ms, counts)
-    calls = {id(r): c for r, c in ev["calls"]}
-    values = {id(r): v for r, v in ev["values"]}
-    for r, ven in ev["venue"]:
-        r["src"]["desk"] = desk_block(r, calls.get(id(r)), values.get(id(r)), ven)
+    with _day_scope(now):                 # v1.2 (addendum 179 item 3): the day's unit, read once for the file
+        ev = evaluate(doc, now_ms, counts)
+        calls = {id(r): c for r, c in ev["calls"]}
+        values = {id(r): v for r, v in ev["values"]}
+        for r, ven in ev["venue"]:
+            r["src"]["desk"] = desk_block(r, calls.get(id(r)), values.get(id(r)), ven)
+        unit = unit_meta()
     doc["desk_meta"] = {"policy_version": POLICY_VERSION,
                         "as_of": now.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
                         "counts": ev["counts"], "counts_source": counts_source,
@@ -1791,7 +1933,10 @@ def annotate(doc: dict, *, now: datetime | None = None, counts: dict | None = No
                         "host_fence_rule": HOST_FENCE_RULE["on"],
                         # addendum 37 item 3 (2026-10-10): legs of two events are never a pair (read in the export)
                         "kalshi_leg_guard": _kalshi_leg_guard_on(),
-                        "source": "src/walters/desk_policy.py (F1 port of the Cockpit Desk v1.1)"}
+                        # addendum 179 (v1.2): the day's unit, its state and the fractions (the label is the order's)
+                        "unit": unit,
+                        "source": "src/walters/desk_policy.py (F1 port of the Cockpit Desk v1.1; v1.2: the unit, "
+                                  "addendum 179)"}
     return doc
 
 
@@ -1805,18 +1950,20 @@ def parlays_doc(named_docs, *, now: datetime | None = None, counts: dict | None 
         now = now.replace(tzinfo=timezone.utc)
     now_ms = float((now - datetime(1970, 1, 1, tzinfo=timezone.utc)) // _MS)
     calls = []
-    for _, d in named_docs:
-        calls += evaluate(d, now_ms, counts)["calls"]
-    pstats: dict = {}
-    ranked = rank_parlays(calls, pstats)
-    tickets = ranked[:PARLAY["top"]]                      # == build_parlays(calls)
-    shadow = b_track_shadow(calls, ranked)
-    cut = shadow.pop("_cut_by_id")
-    blocks = []
-    for t in tickets:
-        b = parlay_block(t)
-        b["b_shadow"] = cut.get(id(t))        # "capped" | "deduped" | None — NOT applied (shadow)
-        blocks.append(b)
+    with _day_scope(now):                 # v1.2 (addendum 179 item 3): the legs' orders on the day's unit
+        for _, d in named_docs:
+            calls += evaluate(d, now_ms, counts)["calls"]
+        pstats: dict = {}
+        ranked = rank_parlays(calls, pstats)
+        tickets = ranked[:PARLAY["top"]]                      # == build_parlays(calls)
+        shadow = b_track_shadow(calls, ranked)
+        cut = shadow.pop("_cut_by_id")
+        blocks = []
+        for t in tickets:
+            b = parlay_block(t)
+            b["b_shadow"] = cut.get(id(t))        # "capped" | "deduped" | None — NOT applied (shadow)
+            blocks.append(b)
+        unit = unit_meta()
     return {"kind": "desk_parlays_v1", "files": [n for n, _ in named_docs],
             "live_legs": sum(1 for _, c in calls if c["call"] != "PASS"),
             "desk_meta": {"policy_version": POLICY_VERSION,
@@ -1825,6 +1972,7 @@ def parlays_doc(named_docs, *, now: datetime | None = None, counts: dict | None 
                           "counts_source": counts_source,
                           # #418 (addendum 112 item 11): the same field the --desk exports carry (annotate)
                           "kalshi_leg_guard": _kalshi_leg_guard_on(),
+                          "unit": unit,                     # addendum 179 (v1.2), as annotate's
                           "source": "src/walters/desk_policy.py build_parlays (F1 port, #183 semantics)"},
             "b_track_shadow": shadow,
             "pricing": ({"basis": "executable (ask + taker fee per leg)", "label": PARLAY_LABEL,
@@ -1833,40 +1981,43 @@ def parlays_doc(named_docs, *, now: datetime | None = None, counts: dict | None 
 
 
 def file_unit_basis(doc: dict):
-    """The unit sizing the FILE was produced under, read from its own order lines ("1u = $N" -> "N"; "1u = 10
-    contracts" -> "" = SP_UNIT_USD unset). None when the file carries no order (the caller's env then stands)."""
+    """The unit basis the FILE was produced under, read from its own order lines: "1u = $N" -> a dollar basis of N;
+    the pre-v1.2 "1u = 10 contracts" label -> the contracts basis; "unit unread" (v1.2, addendum 179 item 4) -> unread
+    (never read as 10 contracts). None when the file carries no order (the unit in force then stands)."""
     import re
     for r in (doc.get("predictions") or []) + (doc.get("fixtures") or []):
         u = ((r.get("desk") or {}).get("order") or {}).get("unit")
         if u:
             m = re.match(r"1u = \$([0-9.]+)", u)
-            return m.group(1) if m else ""
+            if m:
+                return unit_basis_usd(float(m.group(1)), state="file")
+            if u == UNIT_UNREAD_LABEL:
+                return unit_unread(UNIT_UNREAD_TEXT, state="file")
+            return dict(LEGACY_CONTRACTS_BASIS, state="file")
     return None
 
 
-@contextmanager
-def _unit_env(basis):
-    was = os.environ.get("SP_UNIT_USD")
-    try:
-        if basis is not None:
-            os.environ["SP_UNIT_USD"] = basis
-        yield
-    finally:
-        if was is None:
-            os.environ.pop("SP_UNIT_USD", None)
-        else:
-            os.environ["SP_UNIT_USD"] = was
+def unit_basis_text(basis: dict | None) -> str:
+    """desk-rescore's unit-basis words. They go into docs/receipts (the public repo), so a dollar unit is named, never
+    its figure (addendum 179 item 5: "never the public repo")."""
+    if basis is None:
+        return "no order in the file: the reference fill"
+    if basis["mode"] == "usd":
+        return "the file's dollar unit (from the file; its figure is not printed, addendum 179 item 5)"
+    if basis["mode"] == "unread":
+        return "unit unread (from the file): no order"
+    return f"1u = {ORDER_UNIT_CONTRACTS} contracts (from the file)"
 
 
 def rescore(doc: dict) -> list[dict]:
     """Re-scores under the FILE's own unit basis (file_unit_basis), so the audit is reproducible from the file,
-    not the caller's SP_UNIT_USD (Codex on #303)."""
-    with _unit_env(file_unit_basis(doc)):
+    not the caller's environment or day (Codex on #303; v1.2: no environment is read)."""
+    basis = file_unit_basis(doc)
+    # a file with no order is priced at the reference fill, never at the caller's day (reproducible from the file)
+    with unit_override(basis or unit_unread("no order in the file", state="file")):
         rows = _rescore(doc)
     for x in rows:
-        x["unit_basis"] = unit_size()["label"] if file_unit_basis(doc) is None else (
-            f"1u = ${file_unit_basis(doc)} (from the file)" if file_unit_basis(doc) else
-            f"1u = {ORDER_UNIT_CONTRACTS} contracts (from the file)")
+        x["unit_basis"] = unit_basis_text(basis)
     return rows
 
 

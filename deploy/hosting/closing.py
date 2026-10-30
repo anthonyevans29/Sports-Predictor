@@ -65,8 +65,10 @@ host nor laptop; C6 NTFY_CARD_TOPIC unset; R4 a malformed --start; nothing to cl
 step, an export path that already exists (#442: nothing a run kept is opened for writing a second time).
 
 Receipts: kind "closing" (one line per run, success, failure, refusal or superseded) and kind "closing_miss" (the MLB
-feed unreachable; the lock held into T-5; a due start time first seen inside T-5), once per start time and reason. The autopilot places nothing and
-never opens Kalshi's trading API. --dry-run touches nothing: no step, no backup, no receipt, no push, no page, no
+feed unreachable; the lock held into T-5; a due start time first seen inside T-5), once per start time and reason. The autopilot places nothing. Its
+one read of Kalshi's trading API is the slate's day unit (ARCHITECT 2026-10-30, addendum 179 item 3: "computed at the
+day's FIRST Desk page on the host (the first slate stage of the ET day)"): `cli.py desk-unit`, GET only, in its own step
+process; this module neither imports the Desk nor names a trading path (C8). --dry-run touches nothing: no step, no backup, no receipt, no push, no page, no
 network.
 
 THE SLATE RUN (ARCHITECT 2026-10-18, addendum 126 item 2(a), #590; the section "slate" below): after its closings, each
@@ -79,6 +81,12 @@ the link leaves nothing in exports/; a push or a page that fails comes after the
 the mirror push, then one page: "SLATE <FAMILY> <YYYY-MM-DD>: <N> row(s) · PLAY <p> · PASS <q> · exports/<file>". A
 failure pages "SLATE <FAMILY> FAILED: <step command> — RUN BY HAND: block_<MMDD>_<family>_slate.txt · attempt k/3".
 The closings, their groups, steps and files are unchanged.
+THE DAY'S UNIT (addendum 179 items 3-4, #732, Desk policy v1.2): before its steps, a slate run reads the day's unit,
+`python cli.py desk-unit` (read_day_unit; not one of resolve_steps' steps, which stay as addendum 133 3(a) lists them),
+which reads the pool once per ET day and keeps logs/desk_unit_<ET date>.json; the export steps after it, and every
+closing that day, size their order lines from that file. Its exit never fails the slate. The receipt keeps the state,
+never a figure (`unit`: state, et_date, new, exit). An unread day: the slate page says UNIT_UNREAD_TEXT on a line of
+its own, and every PLAY line of a closing page says it in place of its order.
 """
 from __future__ import annotations
 
@@ -114,6 +122,10 @@ FAMILIES = {
     "SOCCER": {"chain": CLOSING_FAMILIES["SOCCER"], "comps": ("PL",), "export_glob": "soccer_PL_*.json",
                "noun": "kickoff", "feed": False, "starters": False},
 }
+# Addendum 179 item 4, verbatim: the text of an unread day (desk_policy.UNIT_UNREAD_TEXT; this module never imports the
+# Desk, C8: a test pins the two). UNIT_MARK: the line `cli.py desk-unit` ends on (cli.DESK_UNIT_MARK; pinned too).
+UNIT_UNREAD_TEXT = "unit unread — no order"
+UNIT_MARK = "DESK-UNIT"
 RUN_LEAD_MIN = 35            # C2: a run starts when the earliest unstarted start time is 35 minutes away
 COVER_MIN = 10               # C2: it covers every game starting within the 10 minutes after that time
 PAGE_BY_MIN = 30             # C2: the page is out by T-30 on a clean run
@@ -766,6 +778,7 @@ def desk_rows(doc: dict, cover_ids: set, done: datetime, started_ids=frozenset()
                     "units": d.get("units") or 0, "edge_pp": _r2(d.get("edge_pp")),
                     "exec_edge_pp": _r2((d.get("exec") or {}).get("edge_pp")),
                     "order": (d.get("order") or {}).get("text"), "order_why": (d.get("order") or {}).get("why"),
+                    "depth_note": (d.get("order") or {}).get("depth_note"),     # addendum 179 item 7
                     "reason": d.get("reason"), "pass_kind": d.get("pass_kind"),
                     "kalshi_only_hold": d.get("kalshi_only_hold"), "hold": hold_for(d, fam),
                     "unresolved_injuries": unresolved_injuries(r) if fam == "NFL" else None,
@@ -1054,13 +1067,24 @@ def stale_starters(doc: dict, rows: list[dict], games: list[dict], run_start: da
     return out
 
 
+def order_text(x: dict) -> str:
+    """The order as the export wrote it, else why there is none; an unread day's text verbatim (addendum 179 item 4:
+    the page "says "unit unread — no order""), never "no order: unit unread — no order"."""
+    if x["order"]:
+        return x["order"]
+    if x["order_why"] == UNIT_UNREAD_TEXT:
+        return UNIT_UNREAD_TEXT
+    return f"no order: {x['order_why'] or 'none written'}"
+
+
 def summary_block(x: dict) -> str:
     lines = [f"── {x['start_et']} · {x['away']} @ {x['home']}  [match {x['match_id']}]",
              f"   call   {x['call']} · pick {x['pick']} · {_units(x['units'])} · edge {_pp(x['edge_pp'])} "
              f"· exec edge {_pp(x['exec_edge_pp'])}"]
     if x["call"] in STAKED_CALLS:
-        order = x["order"] or f"no order: {x['order_why'] or 'none written'}"
-        lines.append(f"   order  {order}" + (f" · HOLD: {x['hold']}" if x["hold"] else ""))
+        order = order_text(x)
+        lines.append(f"   order  {order}" + (f" · {x['depth_note']}" if x.get("depth_note") else "")
+                     + (f" · HOLD: {x['hold']}" if x["hold"] else ""))
     else:
         lines.append(f"   order  none ({x['call']}: {x['reason'] or x['pass_kind'] or '-'})")
     k = x.get("kalshi_only_hold")
@@ -1132,8 +1156,9 @@ def page_text(fam: str, start: datetime, at: datetime, rows: list[dict], prev: d
                                            f"no starter listed for {' and '.join(miss)}", "the model shrinks for it"]
     plays = [x for x in rows if x["call"] in STAKED_CALLS]
     for x in plays:
-        parts = [game_of(x), x["call_text"], x["order"] or f"no order: {x['order_why'] or 'none written'}",
-                 f"exec {_pp(x['exec_edge_pp'])}"]
+        parts = [game_of(x), x["call_text"], order_text(x), f"exec {_pp(x['exec_edge_pp'])}"]
+        if x.get("depth_note"):                         # addendum 179 item 7: informational, beside the order
+            parts.append(x["depth_note"])
         if x.get("unresolved_injuries"):                # B7
             parts.append(f"{x['unresolved_injuries']} injured, position unresolved")
         if x.get("injuries_empty"):                     # addendum 40 item 4, beside B7's count
@@ -1740,6 +1765,7 @@ def _closing(rec: dict, fam: str, s: datetime, covers: list[dict], folder: Path,
         print(f"✗ backup failed: {rec['backup'].get('error')} — no step runs"
               + (f"; set aside: {', '.join(rec['backup']['set_aside'])}" if rec["backup"].get("set_aside") else ""))
         return
+    rec["unit"] = read_day_unit(run_id)          # addendum 180 item 4: a page that finds no file reads it itself
     steps = resolve_steps(fam, s, covers, held, run_id)
     rec["planned_steps"] = len(steps)
     logs = c.REPO / "logs"            # addendum 40 item 2: the export step writes here, never into exports/
@@ -2449,19 +2475,22 @@ def calls_text(calls: dict) -> str:
 
 
 def slate_page_text(fam: str, day: date, rows: int, calls: dict, file: str, late: dict | None,
-                    beyond: int = 0) -> tuple[str, str]:
+                    beyond: int = 0, unit_unread: bool = False) -> tuple[str, str]:
     """Item 2(a)'s page, the declared text: "SLATE <FAMILY> <YYYY-MM-DD>: <N> row(s) · PLAY <p> · PASS <q> ·
     exports/<file>" (addendum 133 item 3(c): `1 row` on a one-game day, rows_text). N and the calls count the ET day's
     games (addendum 133 item 4, item 8), and the rows beyond the day follow the counts, `· +<k> beyond the day` when
     k > 0 (`beyond`, beyond_text). A late run (_slate_late: the run's start more than LATE_MIN after the due time,
     whatever held it; addendum 137 item 2(4)) says so on the next line, the declared text of addendum 133 item 4, item 3: `LATE <m> min: due
     HH:MM ET, first tick HH:MM ET, run HH:MM ET` (the first tick: the earliest queued_at of the day's slate and
-    slate_miss receipts, which says whether the laptop slept); the machine's line last (addendum 45).
+    slate_miss receipts, which says whether the laptop slept); an unread day's unit says UNIT_UNREAD_TEXT on a line of
+    its own (addendum 179 item 4, `unit_unread`); the machine's line last (addendum 45).
     Returns (title, body)."""
     lines = [f"SLATE {fam} {day.isoformat()}: {rows_text(rows)} · {calls_text(calls)}{beyond_text(beyond)} · {file}"]
     if late:
         lines.append(f"LATE {late['minutes']} min: due {et(late['due'])[11:]}, first tick {et(late['tick'])[11:]}, "
                      f"run {et(late['run'])[11:]}")
+    if unit_unread:
+        lines.append(UNIT_UNREAD_TEXT)
     lines.append(machine_line())
     return f"{fam} slate {day.isoformat()}", "\n".join(lines)
 
@@ -2821,6 +2850,24 @@ def _slate_what(rec: dict) -> str:
         f, f"{f}" + (f" ({rec['error']})" if rec.get("error") else ""))
 
 
+def read_day_unit(run_id: str) -> dict:
+    """Addendum 179 item 3: `python cli.py desk-unit` in its own step process (the closing chain's runner), which reads
+    the pool once per ET day and keeps the day's file under logs/. {state, et_date, new, exit} from its UNIT_MARK line,
+    never a figure (the host's console prints none either); state "unknown" when the line is missing. Its exit never
+    fails the slate: an unread day leaves the export's orders unwritten, which is the ruling's own answer."""
+    print("\n=== [day unit] python cli.py desk-unit", flush=True)
+    try:
+        rc, tail, _ = run_step(["desk-unit"], run_id)
+    except Exception as e:  # noqa: BLE001 — the read reports, never stops the slate
+        return {"state": "unknown", "et_date": None, "new": None, "exit": None, "error": type(e).__name__}
+    out = {"state": "unknown", "et_date": None, "new": None, "exit": rc}
+    for line in tail:
+        if line.startswith(UNIT_MARK + " "):
+            kv = dict(p.split("=", 1) for p in line.split()[1:] if "=" in p)
+            out.update(state=kv.get("state") or "unknown", et_date=kv.get("et_date"), new=kv.get("new") == "yes")
+    return out
+
+
 def _slate(rec: dict, fam: str, day: date, covers: list[dict], folder: Path, held: datetime, t0: float,
            wall0: float, late: dict | None) -> None:
     """The slate run's body. The caller holds the chain lock and writes the receipt line afterwards, still under it."""
@@ -2835,6 +2882,7 @@ def _slate(rec: dict, fam: str, day: date, covers: list[dict], folder: Path, hel
         rec["failed"] = "backup"                  # 380.3, as a closing: no step runs
         print(f"✗ backup failed: {rec['backup'].get('error')} — no step runs")
         return
+    rec["unit"] = read_day_unit(rec["run_id"])     # addendum 179 item 3: the day's unit, before the export reads it
     steps = slate_steps(fam, day, covers, held, rec["run_id"])
     rec["planned_steps"] = len(steps)
     # addendum 133 item 3(a): the export step writes resolve_steps' own --out, logs/<run id>.<name> (the closing's
@@ -2898,7 +2946,8 @@ def _slate(rec: dict, fam: str, day: date, covers: list[dict], folder: Path, hel
     if rec["push"].get("exit") != 0:
         rec["failed"] = "push"
         return
-    title, body = slate_page_text(fam, day, rec["rows"], rec["calls"], rec["file"], late, rec["beyond_day"])
+    title, body = slate_page_text(fam, day, rec["rows"], rec["calls"], rec["file"], late, rec["beyond_day"],
+                                  unit_unread=(rec.get("unit") or {}).get("state") != "read")
     print(f"\n--- page ---\n{body}\n---")
     tries = []
     for n in range(1, PAGE_TRIES + 1):

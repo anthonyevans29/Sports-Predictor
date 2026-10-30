@@ -8,7 +8,9 @@ never computes an order. Checks, over SYNTHETIC files:
 - a PASS row shows no order;
 - an eligible VENUE row (market-only) shows the file's order text;
 - every parlay-ticket leg shows its file order text;
-- calls and units are unchanged by the order line (no policy change).
+- calls and units are unchanged by the order line (no policy change);
+- an unread day's file (Desk policy v1.2, addendum 179 item 4) renders
+  "order: unit unread — no order" and no order line, its PLAY still a PLAY.
 
     python3 scripts/cockpit_order_line_verify.py
 
@@ -35,7 +37,7 @@ CHECKS = []
 
 
 def check(label, ok, detail=""):
-    CHECKS.append(ok)
+    CHECKS.append(bool(ok))
     print(f"  {'PASS' if ok else 'FAIL'}  {label}" + (f"  — {detail}" if detail else ""))
 
 
@@ -154,6 +156,30 @@ def main():
         check("every ticket leg shows its file order text", bool(want) and sorted(shown) == sorted(want),
               json.dumps([shown, want]))
         check("no page errors", not errors, "; ".join(errors))
+
+        # Desk policy v1.2 (addendum 179 item 4, #732): an unread day's file carries no order line, and the page says
+        # the file's words verbatim. The same synthetic files, written under the unread basis, on a fresh page.
+        print("UNREAD DAY (v1.2)")
+        tmp2 = tempfile.mkdtemp(prefix="cockpit-order-unread-")
+        for n, d in {"nfl.json": NFL, "fixtures_NCAA.json": NCAA}.items():
+            with open(os.path.join(tmp2, n), "w") as f:
+                json.dump(d, f)
+        page2 = browser.new_page()
+        errors2 = []
+        page2.on("pageerror", lambda e: errors2.append(str(e)))
+        page2.goto(f"http://127.0.0.1:{srv.server_address[1]}/cockpit.html")
+        cdf.upload(page2, [os.path.join(tmp2, n) for n in ("nfl.json", "fixtures_NCAA.json")],
+                   unit=cdf.dp.unit_unread(cdf.dp.UNIT_UNREAD_TEXT))
+        page2.wait_for_function("document.getElementById('summary').textContent.includes('rows')")
+        page2.click("#tabDesk")
+        page = page2
+        sea2 = row(rows("slate"), "Seattle")
+        check("unread day: a PLAY renders 'order: unit unread — no order', no order line",
+              sea2["line"] is None and sea2["note"] == "order: unit unread — no order", json.dumps(sea2))
+        calls2 = page2.evaluate("deskCalls.map(x=>[x.r.home,x.call,x.units])")
+        check("unread day: the PLAY stays a PLAY (only the order goes)",
+              ["Seattle Seahawks", "PLAY", 1] in [list(x) for x in calls2], json.dumps(calls2))
+        check("unread day: no page errors", not errors2, "; ".join(errors2))
         browser.close()
     srv.shutdown()
     print(f"\n{sum(CHECKS)}/{len(CHECKS)} checks passed" + (" — ALL GREEN" if all(CHECKS) else ""))

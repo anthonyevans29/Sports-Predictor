@@ -294,6 +294,11 @@ def box(tmp_path, monkeypatch):
     real_slate = mc.slate_watch
     monkeypatch.setattr(mc, "slate_watch", lambda *a, **k: 0)
     b.slate_on = lambda: monkeypatch.setattr(mc, "slate_watch", real_slate)
+    # THE DAY'S UNIT (addendum 179 item 3, #732): the slate's `cli.py desk-unit` read is faked as read (no subprocess,
+    # no Kalshi call, never counted among the steps); tests/test_desk_unit_fraction.py fakes it unread
+    b.unit_reads = []
+    monkeypatch.setattr(mc, "read_day_unit", lambda run_id: b.unit_reads.append(run_id) or {
+        "state": "read", "et_date": None, "new": True, "exit": 0})
     real_append = c.append_receipt
 
     def watched_append(rec):

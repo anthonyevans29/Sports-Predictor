@@ -55,8 +55,10 @@ def row(home, p, fair, comp="MLB"):
 def main():
     docs = {"mlb.json": {"sport": "mlb", "predictions": [row("Ahome", 0.62, 0.55), row("Bhome", 0.63, 0.55)]},
             "nfl.json": {"sport": "nfl", "predictions": [row("Chome", 0.64, 0.55, comp=None)]}}
-    with dp.base_v11():          # pre-addendum fixture: no exec quotes (#87 v1.1 prices legs at executable cost)
-        ann = {n: dp.annotate(json.loads(json.dumps(d)), now=NOW) for n, d in docs.items()}
+    # pre-addendum fixture: no exec quotes (#87 v1.1 prices legs at executable cost); the unit pinned to the pre-v1.2
+    # contracts basis, never the checkout's day file (addendum 179, #732: synthetic files never size from logs/)
+    with dp.base_v11(), dp.unit_override(dp.LEGACY_CONTRACTS_BASIS):
+        ann ={n: dp.annotate(json.loads(json.dumps(d)), now=NOW) for n, d in docs.items()}
         par = dp.parlays_doc(list(ann.items()), now=NOW)
     b = par["b_track_shadow"]
     print(f"slate: straights {[p['desk']['units'] for d in ann.values() for p in d['predictions']]} · "

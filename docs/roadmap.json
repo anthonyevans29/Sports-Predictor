@@ -191,11 +191,17 @@
           "due": "2026-10-30",
           "done": {
             "date": "2026-10-30",
-            "receipt": "ARCHITECT 2026-10-30, addendum 177, verbatim on #105 (comment 6521950151): \"A WRITTEN NO on the NHL API as the source\" (receipt 2(b): no pregame goalie assertion on any side of any game; the as-of requirement cannot be met from this source). No candidate is declared; the bar (0.6866) did not move; v7 stays the failed-gate shadow; NHL stays market-only"
+            "receipt": "ARCHITECT 2026-10-30 08:10 ET on #105: \"the roadmap's 10-30 step is done as this ruling: NO candidate declared today; the NHL API asserts no starter on any endpoint (four days, 15 games); the landing page's matchup.goalieComparison lists each side's two goalies with season stats ... in an order that is not GP, points or name. HYPOTHESIS to test, never assumed: leaders[0] at T-35 is the projected starter.\" The bar does not move; v7 stays the failed-gate shadow; NHL stays market-only"
           }
         },
         {
-          "what": "the operator's sourcing decision on an external projected-starters feed: a named source with a pregame stamp, or none (ARCHITECT 2026-10-30, addendum 177: the later steps and earliest_live 2027-01-22 stand only on a source by 11-13; if none, Code clears them with a moved line)",
+          "what": "candidate nine declared to Code on the leaders-order receipt, or my written no (ARCHITECT 2026-10-30 08:10 ET: \"leaders[0] at T-35 vs the eventual starter, n and the hit rate, and at T-120\", on #105 by 11-05, from three more host days with --save)",
+          "owner": "architect",
+          "due": "2026-11-06",
+          "done": null
+        },
+        {
+          "what": "the operator's sourcing decision on an external projected-starters feed: a named source with a pregame stamp, or none (ARCHITECT 2026-10-30, addendum 177; it stays on the roadmap in case the order is noise, 08:10 ET)",
           "owner": "operator",
           "due": "2026-11-13",
           "done": null
@@ -228,7 +234,16 @@
       "earliest_live": "2027-01-22",
       "live_needs": "PASS at the frozen bar on 600 or more regular-season games of 2026-27 (the NHL API's game type 2; the included ids and counts listed in the run's receipt), CONFIRMED, and a Desk policy ruling. The bar is the harness's criterion set as written in src/walters/nhl_backtest.py: the candidate's test log-loss at or under the home-rate baseline's minus 0.010 (LL_MARGIN), the calibration bands, the ratings range; its number is read from the 600-game cohort at the run, never before (0.6866 was the rule's value on the retired 2025 cohort, not the rule). A candidate whose state is not an Elo rating declares its own stability guards with its declaration (addendum 157 item 3).",
       "vs_close": "behind. The shadow (v7) reads 0.6747 against the market's 0.6482 over the 64 games graded to 2026-10-13 (my read of the laptop's shadow exports on the mirror). The bar certifies better than the schedule, not better than the market.",
-      "moved": []
+      "moved": [
+        {
+          "moved_on": "2026-10-30",
+          "which": "candidate nine declared to Code on the leaders-order receipt, or my written no (ARCHITECT 2026-10-30 08:10 ET: \"leaders[0] at T-35 vs the eventual starter, n and the hit rate, and at T-120\", on #105 by 11-05, from three more host days with --save)",
+          "was": "2026-10-30",
+          "now": "2026-11-06",
+          "why": "the 10-30 step is done as a ruling of no candidate today; the declaration waits on the leaders-order hypothesis receipt (leaders[0] at T-35 against the eventual starter, three more host days)",
+          "ruling": "ARCHITECT 2026-10-30 08:10 ET, #105, item (4): \"My declaration or written no on 11-06 (a moved line: the 10-30 ruling done, the 11-06 step appended).\""
+        }
+      ]
     },
     {
       "lane": "cups",

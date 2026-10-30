@@ -811,8 +811,10 @@ def test_one_moved_line_records_one_move():
 # --- addendum 62 item 3 (#504): the base's moved lines stay on the head, word for word, in order ---
 
 def _with_lines(lane_id, lines):
+    """The real file with the lane's moved lines exactly `lines` (the lane is a vehicle: its own real lines, such as
+    nhl's of 2026-10-30, are set aside so the numbering these tests name is the synthetic lines' own)."""
     def edit(d):
-        _lane(d, lane_id)["moved"] += [dict(x) for x in lines]
+        _lane(d, lane_id)["moved"] = [dict(x) for x in lines]
     return _broken(edit)
 
 

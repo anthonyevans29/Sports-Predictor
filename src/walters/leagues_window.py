@@ -49,8 +49,10 @@ the bar is 155 item 4(b)'s (below the close's log-loss), not league_gate's."
   blocking; a stored round label placement() names a play-off -> excluded (F3, the candidate walks regular rounds
   only); LIVE -> PENDING; SCHEDULED with its kickoff at or before the read clock -> PENDING (un-ingested); SCHEDULED
   ahead -> to come; FINISHED under AWD / WO -> excluded (La Liga's predicate, soccer_expansion.AWARDED, addendum 16
-  item 1 Q2); FINISHED with no usable result (result_of: no scores stored, or a non-FT code such as AET / PEN with
-  no 90-minute score; addendum 181 item 3) -> PENDING; then the
+  item 1 Q2); FINISHED FT, or with no raw code (C1; addendum 185), whose stored 90-minute score disagrees with its
+  stored score (disagrees(); addendum 184 item 2: a data finding, never read as one figure or the other) ->
+  PENDING ("score disagreement"), listed with both figures; FINISHED with no usable result (result_of: no scores
+  stored, or a non-FT code such as AET / PEN with no 90-minute score; addendum 181 item 3) -> PENDING; then the
   three-way close as paper scores it (paper._guarded_three_way at the kickoff: mismatched legs, or UNPRICED's cause
   -> excluded by cause); then the candidate (leagues_candidate.predict_as_of on the finished rows strictly before
   the kickoff, the entry's frozen constants): below_min_prior / no_strength -> excluded by cause, no slot; else a
@@ -63,9 +65,10 @@ the bar is 155 item 4(b)'s (below the close's log-loss), not league_gate's."
 - THE GAMES AT OR BEFORE THE INSTANT are never members, but every member's walk reads the regular-round ones (R1:
   "results strictly before each fixture's kickoff"): one not final (LIVE, SCHEDULED, or FINISHED, AWD / WO apart,
   with no score stored or no usable result) is PENDING (`before_instant`) and blocks, as R4's "a LIVE or un-ingested
-  game before the 60th makes the read WAIT, never skip" reads; a POSTPONED one is counted apart (it can enter by its
-  actual kickoff, R4); the rest are final, never in the window (an AWD / WO row among them is final whatever its row
-  stores, 181 item 2).
+  game before the 60th makes the read WAIT, never skip" reads; a regular-round FT or no-raw-code one whose scores
+  disagree is PENDING under its own cause and listed (addendum 184 item 2); a POSTPONED one is counted apart (it can
+  enter by its actual kickoff, R4); the rest are final, never in the window (an AWD / WO row among them is final
+  whatever its row stores, 181 item 2).
 - THE ONE PREDICATE (addendum 181 item 2: soccer_expansion.unscoreable, La Liga's): a game finished under AWD or WO
   is neither scored nor walked (no Elo or prior update, whatever scores its row carries); a non-FT row with a stored
   90-minute score is walked and scored on the 90-minute score; a no-raw-code row is walked and scored as the gate
@@ -143,7 +146,10 @@ PENDING = (("scheduled", "scheduled"),                    # R2's list: "pending 
            ("no_result_90", "finished, no usable result (no score stored, or a non-FT code with no 90-minute "
                             "score: the read waits for ingestion; one that never fills is a finding at the read)"),
            ("before_instant", "kicking off at or before the instant, not final (LIVE, un-ingested or no score "
-                              "stored: every member's walk reads it once final)"))
+                              "stored: every member's walk reads it once final)"),
+           ("score_disagreement", "score disagreement (an FT or no-raw-code row whose stored 90-minute score differs "
+                                  "from its stored score: a data finding, addendum 184 item 2 and 185, listed below "
+                                  "with both figures)"))
 NOT_PLACED = "postponed: placed by its actual kickoff when stored"
 assert {k for k, _ in UNPRICED} <= {k for k, _ in EXCLUDED}
 
@@ -372,6 +378,20 @@ def not_final(m) -> bool:
         m.home_score is None or m.away_score is None or result_of(m) is None))
 
 
+def disagrees(m) -> bool:
+    """ARCHITECT 2026-10-30 12:00 ET, addendum 184 item 2 (#736), verbatim: "an FT row's stored score is its
+    90-minute score by definition. An FT row whose stored 90-minute score DISAGREES with its stored score is a data
+    finding: PENDING under its own cause ("score disagreement"), listed with both figures, never silently one or the
+    other." Addendum 185 (#737, reading 1 ruled, verbatim): "widen it. By C1 a no-raw-code row is an FT row, so a
+    disagreement on it is the same data finding: `_raw(m) not in ("", "FT")`, PENDING under the same cause, listed
+    with both figures". True for a raw FT row or one with no raw code (as the predicate reads the code) with both
+    scores and both 90-minute scores stored
+    and the two pairs differing; a 90-minute score not stored is no disagreement."""
+    if _raw(m) not in ("", "FT") or None in (m.home_score, m.away_score, m.home_score_90, m.away_score_90):
+        return False
+    return (m.home_score, m.away_score) != (m.home_score_90, m.away_score_90)
+
+
 def membership(s, code: str, declared_at: datetime, constants: dict, now: datetime) -> dict:
     """The window of one declared league as of `now` (the module docstring's order). Counts and ids only: the
     probabilities predict_as_of returns are discarded here and recomputed by score() at the read (R1)."""
@@ -395,14 +415,20 @@ def membership(s, code: str, declared_at: datetime, constants: dict, now: dateti
     out = {"code": code, "season": SEASON, "declared_at": declared_at, "constants": dict(constants),
            "stored_games": len(games), "at_or_before": 0, "postponed_before": 0, "members": [],
            "excluded": Counter(), "pending": Counter(), "to_come": 0, "not_placed": 0, "blocking": 0,
-           "awarded_released": [], "no_raw_code_members": []}
+           "awarded_released": [], "no_raw_code_members": [], "score_disagreement": [], "disagreement_before": 0}
     for m in games:
         if m.utc_date is not None and m.utc_date > declared_at:
             continue
         st = _status(m)
         if st == "postponed":        # it can still enter the window by its actual kickoff once re-dated (R4)
             out["postponed_before"] += 1
-        elif is_regular(m.stage) and not_final(m):
+        elif is_regular(m.stage) and st == "finished" and disagrees(m):
+            out["pending"]["score_disagreement"] += 1   # 184 item 2: every member's walk reads it, so the read waits
+            out["disagreement_before"] += 1           # the instant's tally names it (the line still adds up)
+            out["blocking"] += 1
+            out["score_disagreement"].append(m)
+        elif is_regular(m.stage) and not_final(m):   # 181 item 2: AWD / WO released first; an AET/PEN
+                                                     # prior without its 90', or no score stored, waits
             out["pending"]["before_instant"] += 1    # not final: every member's walk reads it once final (R1, R4)
             out["blocking"] += 1
         else:
@@ -436,6 +462,11 @@ def membership(s, code: str, declared_at: datetime, constants: dict, now: dateti
             continue
         if _raw(m) in AWARDED:
             out["excluded"]["awarded"] += 1
+            continue
+        if disagrees(m):             # 184 item 2: a data finding before any slot or cause, never one figure or other
+            out["pending"]["score_disagreement"] += 1
+            out["blocking"] += 1
+            out["score_disagreement"].append(m)
             continue
         if result_of(m) is None:     # 181 item 3: no score stored, or a non-FT code with no 90' score: R4's PENDING
             out["pending"]["no_result_90"] += 1
@@ -473,13 +504,14 @@ def membership(s, code: str, declared_at: datetime, constants: dict, now: dateti
     # with or without a stored score (the season's rows, not the walk's, which hold only scored rows).
     released = ([m for m in games if _status(m) == "finished" and is_regular(m.stage) and m.utc_date is not None
                  and m.utc_date < last_ko and _raw(m) in AWARDED] if last_ko is not None else [])
-    if released or out["no_raw_code_members"]:
+    if released or out["no_raw_code_members"] or out["score_disagreement"]:
         from src.db.schema import Team
-        both = released + out["no_raw_code_members"]
+        both = released + out["no_raw_code_members"] + out["score_disagreement"]
         names = {t.id: t.name for t in s.execute(select(Team).where(Team.id.in_(
             {m.home_team_id for m in both} | {m.away_team_id for m in both}))).scalars()}
         out["awarded_released"] = [c2_line(m, names) for m in released]
         out["no_raw_code_members"] = [c2_line(m, names) for m in out["no_raw_code_members"]]
+        out["score_disagreement"] = [c2_line(m, names) for m in out["score_disagreement"]]   # both figures (184 item 2)
     out["n"] = n
     out["state"] = ("accruing" if n < WINDOW_GAMES else "waiting" if out["blocking"] else "ready")
     return out
@@ -676,7 +708,9 @@ def lines(res: dict, now: datetime) -> list[str]:
                  f"record's) · members {w['n']} of {WINDOW_GAMES} · state {w['state']}")
         L.append(f"  - stored games of {SEASON} {w['stored_games']} · kicking off at or before the instant: final or "
                  f"never walked {w['at_or_before']} (never in the window) · postponed {w['postponed_before']} "
-                 f"({NOT_PLACED}) · not final {w['pending'].get('before_instant', 0)} (pending, below)")
+                 f"({NOT_PLACED}) · not final {w['pending'].get('before_instant', 0)} (pending, below)"
+                 + (f" · score disagreement {w['disagreement_before']} (pending, below)"
+                    if w.get("disagreement_before") else ""))
         L.append(f"  - excluded (no slot): {_causes(w['excluded'], EXCLUDED)}")
         pend = Counter(w["pending"])
         L.append(f"  - pending (the read waits for them): scheduled {w['to_come']} · LIVE {pend['live']} · un-ingested "
@@ -691,6 +725,11 @@ def lines(res: dict, now: datetime) -> list[str]:
             L.append(f"  - members with no raw status code {len(w['no_raw_code_members'])} (scored on the stored "
                      "score, C1; listed as C2 lists them, addendum 181 item 3):")
             L.extend(f"    - {x}" for x in w["no_raw_code_members"])
+        if w.get("score_disagreement"):
+            L.append(f"  - score disagreement {len(w['score_disagreement'])} (an FT or no-raw-code row whose stored "
+                     "90-minute score differs from its stored score: a data finding, PENDING, never read as one figure "
+                     "or the other; addendum 184 item 2 and 185):")
+            L.extend(f"    - {x}" for x in w["score_disagreement"])
         L.append(f"  - stored prospective rows (R1's audit receipt): present {w['stored_present']} · missing "
                  f"{w['stored_missing']}" + ("" if w["stored_present"] else
                                              f" (no stored rows: none found in {w.get('export_dir', 'exports')}; the "
@@ -703,5 +742,5 @@ def lines(res: dict, now: datetime) -> list[str]:
                      "read is addendum 178 PR ORDER item 5's PR; nothing is scored here")
         elif w["state"] == "waiting":
             L.append(f"  - {code} · WAITING: {WINDOW_GAMES} members, {w['blocking']} game(s) before the "
-                     f"{WINDOW_GAMES}th not final (R4: the read waits, never skips)")
+                     f"{WINDOW_GAMES}th pending (not final, or a score disagreement; R4: the read waits, never skips)")
     return L

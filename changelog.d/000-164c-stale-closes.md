@@ -1,0 +1,5 @@
+## 2026-10-30 (#000: 164c-stale-closes — the leagues receipt names every qualifying close more than 6 h old; addendum 164 item 2(c), #322)
+- src/walters/paper.py `_quality` / `quality_lines`: a FINISHED game whose qualifying three-way close (R42(b)) was captured more than 6 hours before kickoff (`STALE_CLOSE_H = 6.0`, strictly more) is named under its league's capture-quality lines: match, kickoff, the close's capture time, its age. It stays counted in the close record and its log-loss: R42(b) sets no age, and the ruling counts it. A capture that forms no close is never named as one.
+- **The ruling (ARCHITECT 2026-10-24, addendum 164 item 2(c)), verbatim:** "the receipt's weekday table is re-read at the first read and the controlling capture's age printed with it — a close more than 6 hours old is counted but named."
+- scripts/leagues_close_receipt.py: the docstring names the line; its output and exit codes (0 / 1 / 2, 164 item 4) are otherwise unchanged.
+- Tests: tests/test_leagues_close_receipt.py (7 h named; 5h59 and exactly 6.0 h not named; an incomplete capture 8 h out not named; all three closes counted). Read-only receipt; no bar moves.

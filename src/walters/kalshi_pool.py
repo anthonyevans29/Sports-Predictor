@@ -5,24 +5,36 @@ operator corrects it if the pool is wider). Law 1 first: Code prints the KEY NAM
 endpoint's real response and, if open positions' cost is not in it, the positions endpoint's — names only, never a
 value — and builds the read on the names that exist, not on remembered ones."
 
-THE NAMES ARE NOT ENUMERATED YET: the operator's names-only block lands its output on #732. Until then POOL_FIELDS is
-None and every read is UNREAD with NOT_ENUMERATED: no field name is guessed, and no request is made. When the names
-land, POOL_FIELDS is filled from that output (one reviewed change) in this shape; every entry is a name-level fact
-read from the real response, the API's money unit included:
-    {"per_dollar": <the API's money units per dollar: 100 for integer cents, 1 for dollar amounts>,
-     "cash": "<the cash balance's key in GET /portfolio/balance>",
-     "positions": one of
-        {"included": True}                          the balance's cash already carries open positions at cost
-        {"balance_key": "<key>"}                    a key of the balance response holding positions at cost
-        {"path": "/portfolio/positions", "list": "<the positions list's key>", "cost": "<a position's cost key>",
-         "cursor": "<the response's paging cursor key>", "cursor_param": "<the request's cursor parameter>",
-         "limit_param": "<the request's page-size parameter>" or None (none sent)}
-                                                    the positions endpoint, paged; the REQUEST's parameter names
-                                                    are read from the endpoint's documented request too, never
-                                                    borrowed from another endpoint or assumed to equal a response key
-    }
-A value is an integer or a numeric string (never a bool); a missing key, a non-200 answer, a timeout, a bad value or a
-spec that is not this shape reads UNREAD with its why, never a partial pool (law 4).
+THE NAMES (the operator's names-only receipt on #732, host v1.6.1, 2026-10-30 ~12:50 ET) AND THEIR READ (ARCHITECT
+2026-10-30 13:00 ET, addendum 186, verbatim): "THE MONEY UNIT: the `_dollars` STRING fields, read as Decimal — never
+the int fields (balance, portfolio_value), whose unit is not asserted by the response. That settles per_dollar: there
+is none to assume." "THE POOL = Decimal(balance_dollars) + Σ Decimal(market_positions[].market_exposure_dollars) over
+EVERY page of /portfolio/positions (cursor until empty ...; a page loop past a cap of 20 pages reads UNREAD, never a
+partial pool)." "portfolio_value is NOT used (it is Kalshi's own valuation; the pool is at cost, not marked to market).
+event_positions is not used (one pool, no double count)."
+
+THE DEFINITIONS (ARCHITECT 2026-10-30 13:20 ET, addendum 187; read by the architect from the live reference
+2026-10-30, docs.kalshi.com is not reachable from Code's session), verbatim:
+- https://docs.kalshi.com/api-reference/portfolio/get-positions — market_exposure_dollars: "Cost of the aggregate
+  market position in dollars" (the cost basis addendum 179 item 2's "at cost" requires); cursor: "The Cursor
+  represents a pointer to the next page of records in the pagination. Use the value returned from the previous
+  response to get the next page."; limit: "Parameter to specify the number of results per page. Defaults to 100.";
+  the endpoint: "Returns unsettled positions by default"; count_filter: "Restricts the positions to those with any of
+  following fields with non-zero values, as a comma separated list. The following values are accepted - position,
+  total_traded".
+- https://docs.kalshi.com/api-reference/portfolio/get-balance — the endpoint: "Returns the balance and portfolio value
+  for a member. Both values include all exchange indexes unless `exchange_index` is provided."; balance_dollars:
+  "Member's available balance as a fixed-point dollar string for the requested account and exchange index.";
+  balance_breakdown: "User balance breakdown per exchange instance, omitted only when using a subaccount-restricted
+  API key." So balance_dollars is the total across the exchange indexes when exchange_index is omitted (the read
+  omits it): the breakdown is NOT read, and its absence never makes a day unread (186 item 4's first branch).
+- The read (187 item 3): settlement_status omitted (unsettled = open), count_filter=position, limit at the
+  documented default, cursor until the response's cursor is empty, the 20-page cap to UNREAD. Item 4, for the record:
+  balance_dollars is the AVAILABLE balance, so cash reserved by a resting order is outside the pool until it fills or
+  cancels (conservative; the Desk places no resting orders).
+
+A value is a `_dollars` string read as Decimal (never an int, a float or a bool); a missing key, a non-200 answer, a
+timeout, a bad value or a spec that is not this shape reads UNREAD with its why, never a partial pool (law 4).
 
 GET ONLY: the request goes through scripts/kalshi_trade_api_probe.py's Client (its signer and its read-only refusal:
 any method but GET raises before a socket opens), loaded from the file, its behaviour unchanged. Credentials are its
@@ -36,12 +48,18 @@ import sys
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
-POOL_FIELDS: dict | None = None      # #732: filled from the operator's names-only block, never from memory
+# #732's receipt and addenda 186-187: every name below is in the real response or the documented request.
+POOL_FIELDS: dict | None = {
+    "cash": "balance_dollars",
+    "positions": {"path": "/portfolio/positions", "list": "market_positions", "cost": "market_exposure_dollars",
+                  "cursor": "cursor", "cursor_param": "cursor", "limit_param": "limit",
+                  "params": {"count_filter": "position"}},
+}
 NOT_ENUMERATED = "the balance response's key names are not enumerated (#732)"
 BALANCE_PATH = "/portfolio/balance"
-PAGE_LIMIT = 200                     # the page size sent under the spec's limit_param (none sent when it is None)
-PAGED_KEYS = frozenset({"path", "list", "cost", "cursor", "cursor_param", "limit_param"})
-MAX_PAGES = 50
+PAGE_LIMIT = 100                     # the documented default page size, sent under the spec's limit_param
+PAGED_KEYS = frozenset({"path", "list", "cost", "cursor", "cursor_param", "limit_param", "params"})
+MAX_PAGES = 20                       # addendum 186 item 3: a loop past 20 pages reads UNREAD, never a partial pool
 PROBE = Path(__file__).resolve().parents[2] / "scripts" / "kalshi_trade_api_probe.py"
 
 
@@ -74,38 +92,32 @@ def _unread(why: str) -> dict:
     return {"ok": False, "pool_usd": None, "why": why}
 
 
-def _amount(body, key: str, per_dollar: Decimal, where: str):
+def _amount(body, key: str, where: str):
+    """A `_dollars` string read as Decimal dollars (addendum 186 item 2); anything else is a why, never a figure."""
     if not isinstance(body, dict) or key not in body:
         return None, f"key '{key}' is missing from the {where} response"
     v = body[key]
-    if isinstance(v, bool) or not isinstance(v, (int, float, str)):
-        return None, f"key '{key}' of the {where} response is not a number"
+    if not isinstance(v, str):
+        return None, f"key '{key}' of the {where} response is not a dollar string"
     try:
-        d = Decimal(str(v))
+        d = Decimal(v.strip())
     except (InvalidOperation, ValueError):
-        return None, f"key '{key}' of the {where} response is not a number"
+        return None, f"key '{key}' of the {where} response is not a dollar string"
     if not d.is_finite():
-        return None, f"key '{key}' of the {where} response is not a number"
-    return d / per_dollar, None
+        return None, f"key '{key}' of the {where} response is not a dollar string"
+    return d, None
 
 
 def _spec_why(f) -> str | None:
-    if not isinstance(f, dict) or not isinstance(f.get("cash"), str) or not f["cash"]:
-        return "POOL_FIELDS is not the documented shape (no cash key)"
-    try:
-        pd = Decimal(str(f.get("per_dollar")))
-    except (InvalidOperation, ValueError):
-        return "POOL_FIELDS is not the documented shape (per_dollar)"
-    if isinstance(f.get("per_dollar"), bool) or not pd.is_finite() or pd <= 0:
-        return "POOL_FIELDS is not the documented shape (per_dollar)"
+    if not isinstance(f, dict) or set(f) != {"cash", "positions"} or not isinstance(f.get("cash"), str) \
+            or not f["cash"]:
+        return "POOL_FIELDS is not the documented shape (cash)"
     pos = f.get("positions")
-    if pos == {"included": True}:
-        return None
-    if isinstance(pos, dict) and set(pos) == {"balance_key"} and isinstance(pos["balance_key"], str):
-        return None
     if isinstance(pos, dict) and set(pos) == PAGED_KEYS and all(
-            isinstance(pos[k], str) and pos[k] for k in PAGED_KEYS - {"limit_param"}) and (
-            pos["limit_param"] is None or (isinstance(pos["limit_param"], str) and pos["limit_param"])):
+            isinstance(pos[k], str) and pos[k] for k in PAGED_KEYS - {"limit_param", "params"}) and (
+            pos["limit_param"] is None or (isinstance(pos["limit_param"], str) and pos["limit_param"])) and (
+            isinstance(pos["params"], dict) and all(isinstance(k, str) and isinstance(v, str)
+                                                    for k, v in pos["params"].items())):
         return None
     return "POOL_FIELDS is not the documented shape (positions)"
 
@@ -126,7 +138,8 @@ def _call(fetch, path, params, where):
 
 
 def read_pool(fetch=None, fields=None) -> dict:
-    """{"ok": True, "pool_usd": Decimal} (cash + open positions at cost, in dollars) or {"ok": False, "why"}.
+    """{"ok": True, "pool_usd": Decimal} (balance_dollars + Σ market_positions[].market_exposure_dollars over every
+    page; addenda 186-187) or {"ok": False, "why"}.
     `fetch`/`fields`: tests (a fake fetch with synthetic payloads; the spec monkeypatched); else the signed GET and
     POOL_FIELDS. Nothing is printed."""
     f = POOL_FIELDS if fields is None else fields
@@ -142,38 +155,30 @@ def read_pool(fetch=None, fields=None) -> dict:
             return _unread(f"the request signer is not usable ({e.__class__.__name__})")
         if fetch is None:
             return _unread("no Kalshi API key configured (KALSHI_API_KEY_ID / KALSHI_PRIVATE_KEY_PATH)")
-    per = Decimal(str(f["per_dollar"]))
     body, why = _call(fetch, BALANCE_PATH, None, "balance")
     if why:
         return _unread(why)
-    cash, why = _amount(body, f["cash"], per, "balance")
+    cash, why = _amount(body, f["cash"], "balance")
     if why:
         return _unread(why)
     pos = f["positions"]
-    if pos == {"included": True}:
-        held = Decimal(0)
-    elif "balance_key" in pos:
-        held, why = _amount(body, pos["balance_key"], per, "balance")
+    held, cursor = Decimal(0), None
+    for _ in range(MAX_PAGES):
+        params = {**pos["params"], **({pos["limit_param"]: PAGE_LIMIT} if pos["limit_param"] else {}),
+                  **({pos["cursor_param"]: cursor} if cursor else {})}
+        page, why = _call(fetch, pos["path"], params, "positions")
         if why:
             return _unread(why)
-    else:
-        held, cursor = Decimal(0), None
-        for _ in range(MAX_PAGES):
-            params = {**({pos["limit_param"]: PAGE_LIMIT} if pos["limit_param"] else {}),
-                      **({pos["cursor_param"]: cursor} if cursor else {})}
-            page, why = _call(fetch, pos["path"], params, "positions")
+        if not isinstance(page, dict) or not isinstance(page.get(pos["list"]), list):
+            return _unread(f"key '{pos['list']}' is missing from the positions response")
+        for p in page[pos["list"]]:
+            v, why = _amount(p, pos["cost"], "positions")
             if why:
                 return _unread(why)
-            if not isinstance(page, dict) or not isinstance(page.get(pos["list"]), list):
-                return _unread(f"key '{pos['list']}' is missing from the positions response")
-            for p in page[pos["list"]]:
-                v, why = _amount(p, pos["cost"], per, "positions")
-                if why:
-                    return _unread(why)
-                held += v
-            cursor = page.get(pos["cursor"])
-            if not cursor:
-                break
-        else:
-            return _unread(f"the positions read did not end within {MAX_PAGES} pages")
+            held += v
+        cursor = page.get(pos["cursor"])
+        if not cursor:
+            break
+    else:
+        return _unread(f"the positions read did not end within {MAX_PAGES} pages")
     return {"ok": True, "pool_usd": cash + held, "why": None}

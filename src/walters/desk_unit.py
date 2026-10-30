@@ -100,8 +100,12 @@ def read_day(day: date) -> dict | None:
     if not isinstance(rec, dict) or rec.get("kind") != KIND or rec.get("et_date") != day.isoformat():
         return {"kind": KIND, "et_date": day.isoformat(), "state": "unread",
                 "why": "unit file is not this day's desk_unit_v1 record"}
-    if rec.get("state") == "read" and not (isinstance(rec.get("unit_usd"), int) and rec["unit_usd"] > 0):
-        return {"kind": KIND, "et_date": day.isoformat(), "state": "unread", "why": "unit file carries no unit"}
+    u = rec.get("unit_usd")
+    if rec.get("state") == "read" and not (isinstance(u, int) and not isinstance(u, bool) and u > 0):
+        # addendum 183 item 2(2): "A unit is an int that is not a bool, positive; anything else is a malformed file
+        # and the day reads UNREAD, named."
+        return {"kind": KIND, "et_date": day.isoformat(), "state": "unread",
+                "why": f"unit file malformed: unit_usd {u!r} is not a positive whole number (a bool is never a unit)"}
     return rec
 
 
@@ -131,18 +135,13 @@ def _host_env() -> dict | None:
 
 
 def figures_allowed() -> bool:
-    """Item 5: the pool and the unit in dollars print on the laptop's console only. True only when the machine's role
-    reads exactly laptop, in the Desk's order (host.env, then the environment, then the checkout's .env, the first
-    non-empty value deciding); a host.env that cannot be read, an unset role or any other value: no figure (law 4)."""
-    name = dp.ROLE_ENV
-    host = _host_env()
-    if host is None:
-        return False
-    for src in (host, os.environ, dp._env_file(dp.DOTENV)):
-        v = (src.get(name) or "").strip()
-        if v:
-            return v == "laptop"
-    return False
+    """Item 5: the pool and the unit in dollars print on the laptop's console only. ARCHITECT 2026-10-30 11:30 ET,
+    addendum 183 item 2(1): "The role comes only from the environment the process runs with (host.env through systemd),
+    never from a file the code opens; with no role in the environment the role is unknown and every figure is refused
+    (law 4)." So the role is config.PROCESS_ENV_ROLE, read before config loads the checkout's .env: True only when it is
+    exactly laptop; unset, empty or any other value refuses every figure. No host.env or .env is opened here."""
+    import config
+    return (config.PROCESS_ENV_ROLE or "").strip() == dp.ROLES[1]
 
 
 def _half_buys_one(unit: Decimal) -> bool:

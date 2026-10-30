@@ -1593,13 +1593,19 @@ def unit_unread(why: str, *, state: str = "unread", et_date: str | None = None) 
             "et_date": et_date, "why": why}
 
 
-def day_unit_basis(now: datetime | None = None) -> dict:
+def day_unit_basis(now: datetime | None = None, read: bool = False) -> dict:
     """The unit of `now`'s ET day, from its file (desk_unit.read_day): read -> its dollars; unread, absent or
-    unreadable -> unit_unread. Never another day's file."""
+    unreadable -> unit_unread. Never another day's file. read=True (the export's own document scope, _day_scope):
+    ARCHITECT 2026-10-30 11:30 ET, addendum 183 item 2(3), "the EXPORT step reads the file for ITS OWN ET date at export
+    time, and finding none makes the read itself and writes that date's file; the slate's earlier read is not passed
+    forward" (addendum 180 item 4: a failed read writes nothing)."""
     from src.walters import desk_unit
-    day = desk_unit.et_date(now or datetime.now(timezone.utc))
+    now = now or datetime.now(timezone.utc)
+    day = desk_unit.et_date(now)
     try:
         rec = desk_unit.read_day(day)
+        if rec is None and read:
+            rec, _ = desk_unit.day_unit(now, role="laptop" if desk_unit.figures_allowed() else "not laptop")
     except desk_unit.UnitPathRefused as e:
         return unit_unread(str(e), et_date=day.isoformat())
     if rec is None:
@@ -1627,7 +1633,7 @@ def _day_scope(now: datetime):
     if _UNIT_OVERRIDE.get() is not None or UNIT_PIN is not None:
         yield
         return
-    token = _UNIT_DAY.set(day_unit_basis(now))
+    token = _UNIT_DAY.set(day_unit_basis(now, read=True))      # 183 item 2(3): the export's own ET date, at export
     try:
         yield
     finally:

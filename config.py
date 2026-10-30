@@ -10,6 +10,12 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+# The machine role AS THE PROCESS WAS STARTED WITH IT, read before .env is loaded (ARCHITECT 2026-10-30 11:30 ET,
+# addendum 183 item 2(1)): "The role comes only from the environment the process runs with (host.env through systemd),
+# never from a file the code opens; with no role in the environment the role is unknown and every figure is refused
+# (law 4)." Desk policy v1.2's figure printing (src/walters/desk_unit.figures_allowed) reads this, never os.environ.
+PROCESS_ENV_ROLE = os.environ.get("SP_EXPORTS_MIRROR_ROLE")
+
 # Load .env from project root
 PROJECT_ROOT = Path(__file__).parent
 load_dotenv(PROJECT_ROOT / ".env")

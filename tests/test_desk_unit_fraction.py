@@ -36,8 +36,6 @@ FIXTURE_POOL_LATER = 54321            # synthetic: a pool that moved within the 
 FIXTURE_POOL_SMALL = 1111             # synthetic: floor(0.08 x 1111) = 88
 FIXTURE_FLOOR = 111                   # synthetic floor, above 88: it binds
 FIXTURE_FLOOR_LOW = 11                # synthetic floor, below 88: it does not
-FIXTURE_CASH_CENTS = 1234500          # synthetic: 12345.00 in cents
-FIXTURE_COSTS_CENTS = (11100, 22200)  # synthetic: 111.00 and 222.00 in cents
 LEGS = {"HOME": {"ticker": "T-FIX-HOME", "bid": 0.54, "ask": 0.55}}
 
 
@@ -181,7 +179,9 @@ def test_a_failed_read_writes_nothing_and_the_next_page_reads_again_180_item_4(d
     d = doc["predictions"][0]["desk"]
     assert d["call"] == "PLAY" and d["order"]["text"] is None and d["order"]["contracts"] is None
     assert d["order"]["why"] == "unit unread — no order" and d["order"]["unit"] == "unit unread"
-    assert doc["desk_meta"]["unit"]["state"] == "absent"                # no file for the day: absent, never a unit
+    # 183 item 2(3): the export finds no file for its own ET date and makes the read itself (here the real read,
+    # POOL_FIELDS None: unread, nothing written), never a unit
+    assert doc["desk_meta"]["unit"]["state"] == "unread" and du.read_day(DAY) is None
     again, created = du.day_unit(NOW + timedelta(hours=1), read_pool=pool_of(FIXTURE_POOL))
     assert created and again["state"] == "read" and again["unit_usd"] == FIXTURE_UNIT   # the next page reads, writes
     later, created = du.day_unit(NOW + timedelta(hours=2), read_pool=failed())
@@ -208,11 +208,10 @@ def test_empty_is_not_zero_180_item_5(day, monkeypatch, got, why):
 
 
 def test_the_missing_key_and_non_numeric_value_come_from_the_read_itself():
-    spec = {"per_dollar": 100, "cash": "fixture_cash_key", "positions": {"included": True}}
-    miss = kpool.read_pool(fetch=lambda path, params=None: (200, {"other": 1}), fields=spec)
-    bad = kpool.read_pool(fetch=lambda path, params=None: (200, {"fixture_cash_key": "n/a"}), fields=spec)
-    assert miss["ok"] is False and miss["why"] == "key 'fixture_cash_key' is missing from the balance response"
-    assert bad["ok"] is False and bad["why"] == "key 'fixture_cash_key' of the balance response is not a number"
+    miss = kpool.read_pool(fetch=lambda path, params=None: (200, {"other": "1.00"}))
+    bad = kpool.read_pool(fetch=lambda path, params=None: (200, {"balance_dollars": "n/a"}))
+    assert miss["ok"] is False and miss["why"] == "key 'balance_dollars' is missing from the balance response"
+    assert bad["ok"] is False and bad["why"] == "key 'balance_dollars' of the balance response is not a dollar string"
 
 
 def test_the_et_date_is_new_york_not_the_utc_day():
@@ -314,86 +313,142 @@ def test_a_data_path_is_refused(tmp_path, monkeypatch):
 
 # ================================================================================================ the pool read ==
 
-def test_pool_fields_none_is_unread_and_makes_no_request():
-    assert kpool.POOL_FIELDS is None                                         # #732: the names are not enumerated
-    got = kpool.read_pool(fetch=lambda *a, **k: pytest.fail("no request before the names are enumerated"))
+def test_pool_fields_are_the_names_on_732_and_addenda_186_187():
+    """Addendum 186 items 2-3 and 187 items 1-3: the cash is balance_dollars (never the int balance or
+    portfolio_value; balance_breakdown not read), the positions term is market_positions[].market_exposure_dollars
+    ("Cost of the aggregate market position in dollars"), paged by the documented cursor / limit, count_filter=position,
+    settlement_status omitted, the 20-page cap."""
+    assert kpool.POOL_FIELDS == {
+        "cash": "balance_dollars",
+        "positions": {"path": "/portfolio/positions", "list": "market_positions", "cost": "market_exposure_dollars",
+                      "cursor": "cursor", "cursor_param": "cursor", "limit_param": "limit",
+                      "params": {"count_filter": "position"}}}
+    assert kpool.MAX_PAGES == 20 and kpool.PAGE_LIMIT == 100 and kpool.BALANCE_PATH == "/portfolio/balance"
+    assert kpool.read_pool(fields=None)["why"] != kpool.NOT_ENUMERATED     # the names are enumerated now
+
+
+def test_pool_fields_none_still_reads_unread_and_makes_no_request(monkeypatch):
+    monkeypatch.setattr(kpool, "POOL_FIELDS", None)
+    got = kpool.read_pool(fetch=lambda *a, **k: pytest.fail("no request without the names"))
     assert got == {"ok": False, "pool_usd": None, "why": "the balance response's key names are not enumerated (#732)"}
 
 
-def test_pool_fields_none_through_the_day_unit_and_the_cli(day, monkeypatch):
+def test_no_key_through_the_day_unit_and_the_cli_is_unread_and_writes_nothing(day, monkeypatch):
     from click.testing import CliRunner
 
     import cli
+    monkeypatch.delenv("KALSHI_API_KEY_ID", raising=False)
+    monkeypatch.delenv("KALSHI_PRIVATE_KEY_PATH", raising=False)
     out = CliRunner().invoke(cli.cli, ["desk-unit"])
     assert out.exit_code == 0, out.output
     assert du.read_day(du.et_date(datetime.now(timezone.utc))) is None   # 180 item 4: a failed read writes nothing
-    assert f"{dp.UNIT_UNREAD_TEXT}: {kpool.NOT_ENUMERATED}" in out.output
+    assert f"{dp.UNIT_UNREAD_TEXT}: no Kalshi API key configured" in out.output
     assert re.search(r"^DESK-UNIT state=unread et_date=\d{4}-\d\d-\d\d new=no$", out.output, re.M)
 
 
-SPEC_PAGED = {"per_dollar": 100, "cash": "fixture_cash_key",
-              "positions": {"path": "/fixture/positions", "list": "fixture_rows", "cost": "fixture_cost",
-                            "cursor": "fixture_cursor", "cursor_param": "fixture_cursor_param",
-                            "limit_param": "fixture_limit_param"}}
+# The posted shape (#732's receipt), every value a SYNTHETIC digit pattern (item 5): the balance's int fields and
+# portfolio_value carry figures the read must never use; event_positions carries costs it must never add.
+FIXTURE_CASH_DOLLARS = "12345.000000"          # synthetic
+FIXTURE_COSTS_DOLLARS = ("111.000000", "222.000000")   # synthetic
+FIXTURE_NEVER = "99999.000000"                 # synthetic: in a field the pool never reads
 
 
-def fake_fetch(pages, seen=None):
+def balance_body(cash=FIXTURE_CASH_DOLLARS):
+    return {"balance": 7777777, "balance_breakdown": [{"balance": FIXTURE_NEVER, "exchange_index": 0}],
+            "balance_dollars": cash, "portfolio_value": 8888888, "updated_ts": 1}
+
+
+def market(cost):
+    return {"exchange_index": 0, "fees_paid_dollars": FIXTURE_NEVER, "last_updated_ts": "2026-10-30T00:00:00Z",
+            "market_exposure_dollars": cost, "position_fp": "10.00", "realized_pnl_dollars": FIXTURE_NEVER,
+            "ticker": "T-FIX", "total_traded_dollars": FIXTURE_NEVER}
+
+
+def event():
+    return {"event_exposure_dollars": FIXTURE_NEVER, "event_ticker": "E-FIX", "fees_paid_dollars": FIXTURE_NEVER,
+            "realized_pnl_dollars": FIXTURE_NEVER, "total_cost_dollars": FIXTURE_NEVER,
+            "total_cost_shares_fp": "10.00"}
+
+
+def fake_fetch(pages, seen=None, balance=None):
     def fetch(path, params=None):
         (seen if seen is not None else []).append((path, dict(params or {})))
         if path == kpool.BALANCE_PATH:
-            return 200, {"fixture_cash_key": FIXTURE_CASH_CENTS}
-        cur = (params or {}).get("fixture_cursor_param") or 0
-        return 200, pages[int(cur)]
+            return 200, balance or balance_body()
+        return 200, pages[int((params or {}).get("cursor") or 0)]
     return fetch
 
 
-def test_the_pool_is_cash_plus_positions_at_cost_in_dollars(monkeypatch):
-    pages = [{"fixture_rows": [{"fixture_cost": FIXTURE_COSTS_CENTS[0]}], "fixture_cursor": "1"},
-             {"fixture_rows": [{"fixture_cost": str(FIXTURE_COSTS_CENTS[1])}], "fixture_cursor": ""}]
+def two_pages():
+    return [{"cursor": "1", "market_positions": [market(FIXTURE_COSTS_DOLLARS[0])], "event_positions": [event()]},
+            {"cursor": "", "market_positions": [market(FIXTURE_COSTS_DOLLARS[1])], "event_positions": [event()]}]
+
+
+def test_the_pool_is_balance_dollars_plus_market_exposure_over_every_page():
     seen = []
-    monkeypatch.setattr(kpool, "POOL_FIELDS", SPEC_PAGED)                  # the names drop in here later (#732)
+    got = kpool.read_pool(fetch=fake_fetch(two_pages(), seen))
+    assert got == {"ok": True, "pool_usd": Decimal("12678"), "why": None}   # 12345 + 111 + 222, Decimal dollars
+    assert [p for p, _ in seen] == [kpool.BALANCE_PATH, "/portfolio/positions", "/portfolio/positions"]
+    assert seen[0][1] == {}                                       # no exchange_index: the total across the indexes
+    assert [q for _, q in seen[1:]] == [{"count_filter": "position", "limit": 100},
+                                        {"count_filter": "position", "limit": 100, "cursor": "1"}]
+
+
+def test_the_breakdown_is_not_read_and_its_absence_never_unreads_the_day():
+    """187 item 2: balance_dollars is the total when exchange_index is omitted; the breakdown is not read."""
+    body = balance_body()
+    del body["balance_breakdown"]
+    got = kpool.read_pool(fetch=fake_fetch(two_pages(), balance=body))
+    assert got["ok"] is True and got["pool_usd"] == Decimal("12678")
+
+
+def test_the_int_fields_are_never_the_money_unit():
+    """186 item 2: never the int fields (balance, portfolio_value): a balance_dollars given as an int is UNREAD."""
+    for v in (1234500, 12345.0, True, None):
+        got = kpool.read_pool(fetch=fake_fetch(two_pages(), balance={**balance_body(), "balance_dollars": v}))
+        assert got == {"ok": False, "pool_usd": None,
+                       "why": "key 'balance_dollars' of the balance response is not a dollar string"}
+    pages = two_pages()
+    pages[1]["market_positions"][0]["market_exposure_dollars"] = 22200
+    got = kpool.read_pool(fetch=fake_fetch(pages))
+    assert got["ok"] is False and got["why"] == ("key 'market_exposure_dollars' of the positions response is not a "
+                                                 "dollar string")
+
+
+def test_a_page_loop_past_twenty_pages_is_unread_never_a_partial_pool():
+    pages = [{"cursor": str(i + 1), "market_positions": [market("1.000000")], "event_positions": []}
+             for i in range(25)]
+    seen = []
     got = kpool.read_pool(fetch=fake_fetch(pages, seen))
-    assert got == {"ok": True, "pool_usd": Decimal("12678"), "why": None}   # 12345 + 111 + 222 (cents -> dollars)
-    assert [p for p, _ in seen] == [kpool.BALANCE_PATH, "/fixture/positions", "/fixture/positions"]
-    # the request's parameter names are the spec's, never a borrowed "limit" or the response's cursor key
-    assert [q for _, q in seen[1:]] == [{"fixture_limit_param": kpool.PAGE_LIMIT},
-                                        {"fixture_limit_param": kpool.PAGE_LIMIT, "fixture_cursor_param": "1"}]
-    no_limit = []
-    kpool.read_pool(fetch=fake_fetch(pages, no_limit),
-                    fields={**SPEC_PAGED, "positions": {**SPEC_PAGED["positions"], "limit_param": None}})
-    assert [q for _, q in no_limit[1:]] == [{}, {"fixture_cursor_param": "1"}]
-    # the API's money unit is part of the spec, never assumed: the same answer read as dollars is 100x
-    big = kpool.read_pool(fetch=fake_fetch(pages), fields={**SPEC_PAGED, "per_dollar": 1})
-    assert big["pool_usd"] == Decimal("1267800")
-    inc = kpool.read_pool(fetch=fake_fetch(pages), fields={"per_dollar": 100, "cash": "fixture_cash_key",
-                                                           "positions": {"included": True}})
-    assert inc["pool_usd"] == Decimal("12345")
-    bal = kpool.read_pool(fetch=lambda path, params=None: (200, {"fixture_cash_key": FIXTURE_CASH_CENTS,
-                                                                 "fixture_held": 11100}),
-                          fields={"per_dollar": 100, "cash": "fixture_cash_key",
-                                  "positions": {"balance_key": "fixture_held"}})
-    assert bal["pool_usd"] == Decimal("12456")
+    assert got == {"ok": False, "pool_usd": None, "why": "the positions read did not end within 20 pages"}
+    assert len(seen) == 1 + 20
+    twenty = [{"cursor": str(i + 1) if i < 19 else "", "market_positions": [market("1.000000")],
+               "event_positions": []} for i in range(20)]
+    assert kpool.read_pool(fetch=fake_fetch(twenty))["pool_usd"] == Decimal("12365")    # 20 pages: read whole
 
 
 @pytest.mark.parametrize("fetch, why", [
-    (lambda p, q=None: (200, {"other": 1}), "key 'fixture_cash_key' is missing from the balance response"),
+    (lambda p, q=None: (200, {"other": "1.00"}), "key 'balance_dollars' is missing from the balance response"),
     (lambda p, q=None: (401, {}), "the balance read answered HTTP 401"),
     (lambda p, q=None: (None, "no key configured"), "the balance read: no key configured"),
-    (lambda p, q=None: (200, {"fixture_cash_key": True}), "key 'fixture_cash_key' of the balance response is not a "
-                                                         "number"),
+    (lambda p, q=None: (200, {"balance_dollars": "NaN"}), "key 'balance_dollars' of the balance response is not a "
+                                                          "dollar string"),
     (lambda p, q=None: (_ for _ in ()).throw(TimeoutError()), "the balance read failed (TimeoutError)"),
-], ids=["missing-key", "http-401", "no-key", "bool", "timeout"])
+    (lambda p, q=None: ((200, balance_body()) if p == kpool.BALANCE_PATH else (200, {"cursor": ""})),
+     "key 'market_positions' is missing from the positions response"),
+    (lambda p, q=None: ((200, balance_body()) if p == kpool.BALANCE_PATH else (503, {})),
+     "the positions read answered HTTP 503"),
+], ids=["missing-key", "http-401", "no-key", "nan", "timeout", "no-list", "positions-503"])
 def test_every_failure_is_unread_never_a_partial_pool(fetch, why):
-    got = kpool.read_pool(fetch=fetch, fields={"per_dollar": 100, "cash": "fixture_cash_key",
-                                               "positions": {"included": True}})
+    got = kpool.read_pool(fetch=fetch)
     assert got == {"ok": False, "pool_usd": None, "why": why}
 
 
 def test_a_spec_not_in_the_documented_shape_is_unread():
-    for spec in ({}, {"per_dollar": 100, "cash": "c"}, {"per_dollar": 0, "cash": "c", "positions": {"included": True}},
-                 {"per_dollar": 100, "cash": "c", "positions": {"path": "/p"}},
-                 {"per_dollar": 100, "cash": "c", "positions": {"path": "/p", "list": "l", "cost": "c",
-                                                                "cursor": "k"}}):   # no request parameter names
+    good = kpool.POOL_FIELDS
+    for spec in ({}, {"cash": "c"}, {**good, "per_dollar": 100}, {**good, "positions": {"path": "/p"}},
+                 {**good, "positions": {k: v for k, v in good["positions"].items() if k != "params"}},
+                 {**good, "positions": {**good["positions"], "params": {"count_filter": 1}}}):
         assert kpool.read_pool(fetch=lambda *a: pytest.fail("no request"), fields=spec)["ok"] is False
 
 
@@ -419,7 +474,8 @@ def test_desk_unit_prints_figures_on_the_laptop_only(day, monkeypatch, role, fig
     from click.testing import CliRunner
 
     import cli
-    monkeypatch.setenv(dp.ROLE_ENV, role)
+    import config
+    monkeypatch.setattr(config, "PROCESS_ENV_ROLE", role)               # 183 item 2(1): the process's own role
     monkeypatch.setattr(kpool, "read_pool", pool_of(FIXTURE_POOL))
     out = CliRunner().invoke(cli.cli, ["desk-unit"]).output
     assert "UNIT_FRACTION 0.08 · HALF_UNIT_FRACTION 0.04 · floor SP_UNIT_FLOOR_USD" in out
@@ -427,6 +483,49 @@ def test_desk_unit_prints_figures_on_the_laptop_only(day, monkeypatch, role, fig
     assert "DESK-UNIT state=read" in out
     again = CliRunner().invoke(cli.cli, ["desk-unit"]).output                  # the day file: new=no
     assert "new=no" in again and "the day file (read once a day)" in again
+
+
+# ============================================================================ addendum 183 item 2 (Codex round 2) ==
+
+def test_183_the_role_comes_only_from_the_process_environment(day, monkeypatch, tmp_path):
+    """183 item 2(1): "The role comes only from the environment the process runs with (host.env through systemd),
+    never from a file the code opens; with no role in the environment the role is unknown and every figure is refused
+    (law 4)." A host.env absent and a checkout .env (or os.environ after load_dotenv) saying laptop: no figure."""
+    import config
+    monkeypatch.setattr(config, "PROCESS_ENV_ROLE", None)
+    monkeypatch.setenv(dp.ROLE_ENV, "laptop")                           # what load_dotenv would put there from .env
+    monkeypatch.setenv("SP_HOST_ENV", str(tmp_path / "absent.env"))
+    assert du.figures_allowed() is False
+    for role, ok in (("laptop", True), (" laptop ", True), ("host", False), ("", False), ("Laptop", False)):
+        monkeypatch.setattr(config, "PROCESS_ENV_ROLE", role)
+        assert du.figures_allowed() is ok, role
+
+
+@pytest.mark.parametrize("bad", [True, False, 1.5, "987", 0, -5, None])
+def test_183_a_bool_or_any_non_int_unit_is_a_malformed_file_read_unread(day, bad):
+    """183 item 2(2): "A unit is an int that is not a bool, positive; anything else is a malformed file and the day
+    reads UNREAD, named." """
+    day.mkdir(parents=True, exist_ok=True)
+    du.path_for(DAY).write_text(json.dumps({"kind": "desk_unit_v1", "et_date": DAY.isoformat(), "state": "read",
+                                            "unit_usd": bad}))
+    rec = du.read_day(DAY)
+    assert rec["state"] == "unread" and "unit file malformed" in rec["why"]
+    assert dp.day_unit_basis(NOW)["state"] == "unread"
+
+
+def test_183_a_run_crossing_midnight_et_exports_on_its_own_dates_unit(day, monkeypatch):
+    """183 item 2(3): a run starts 23:50 ET (its pre-step reads and writes that date's file) and exports 00:10 ET: the
+    export finds no file for its own ET date, makes the read itself and writes that date's file; the earlier read is
+    not passed forward. Synthetic pools."""
+    start = datetime(2026, 10, 31, 3, 50, tzinfo=timezone.utc)          # 23:50 ET on 2026-10-30 (EDT)
+    export = datetime(2026, 10, 31, 4, 10, tzinfo=timezone.utc)         # 00:10 ET on 2026-10-31
+    rec, created = du.day_unit(start, read_pool=pool_of(FIXTURE_POOL))
+    assert created and rec["et_date"] == "2026-10-30"
+    monkeypatch.setattr(kpool, "read_pool", pool_of(FIXTURE_POOL_SMALL))
+    doc = dp.annotate(play_doc(), now=export)
+    assert doc["desk_meta"]["unit"]["et_date"] == "2026-10-31" and doc["desk_meta"]["unit"]["state"] == "read"
+    assert du.read_day(date(2026, 10, 31))["unit_usd"] == 88             # floor(0.08 x FIXTURE_POOL_SMALL), its own
+    assert du.read_day(date(2026, 10, 30))["unit_usd"] == FIXTURE_UNIT   # the earlier date's file is untouched
 
 
 # ============================================================================================ the depth line ==
@@ -513,14 +612,16 @@ SYNTHETIC = re.compile(r"^(?:(\d)\1*|0?1?2?3?4?5?6?7?8?9?|9?8?7?6?5?4?3?2?1?0?)0
 
 def test_every_fixture_figure_is_a_synthetic_digit_pattern():
     """Item 5: no test fixture is a plausible real figure. Each FIXTURE_* figure in the unit's tests is a run of
-    digits (12345, 54321, 987) or one digit repeated (1111, 111, 11), with trailing zeros for cents."""
+    digits (12345, 54321, 987) or one digit repeated (1111, 111, 11), with trailing zeros for cents; a `_dollars`
+    string (addendum 186 item 2) is the same pattern with its point ("12345.000000")."""
     import tests.test_desk_exec_addendum as ea
     import tests.test_desk_order_line as ol
     figures = [v for m in (globals(), vars(ea), vars(ol)) for k, v in m.items() if k.startswith("FIXTURE_")]
     flat = [x for v in figures for x in (v if isinstance(v, tuple) else (v,))]
     assert len(flat) >= 10
     for v in flat:
-        assert isinstance(v, int) and SYNTHETIC.match(str(v)), v
+        digits = str(v).replace(".", "", 1) if isinstance(v, str) else str(v)
+        assert isinstance(v, (int, str)) and not isinstance(v, bool) and SYNTHETIC.match(digits), v
 
 
 def test_no_file_sets_a_unit_figure():

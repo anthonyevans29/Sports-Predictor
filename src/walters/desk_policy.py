@@ -1604,7 +1604,9 @@ def day_unit_basis(now: datetime | None = None, read: bool = False) -> dict:
     day = desk_unit.et_date(now)
     try:
         rec = desk_unit.read_day(day)
-        if rec is None and read:
+        # the read is the export's own at export time: a pinned clock (desk-parlays --now, an as-of rescore) on any
+        # other ET day never reads the live pool and never writes that day's file (review before round 3)
+        if rec is None and read and day == desk_unit.et_date(desk_unit.wall_now()):
             rec, _ = desk_unit.day_unit(now, role="laptop" if desk_unit.figures_allowed() else "not laptop")
     except desk_unit.UnitPathRefused as e:
         return unit_unread(str(e), et_date=day.isoformat())

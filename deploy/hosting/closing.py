@@ -2850,6 +2850,15 @@ def _slate_what(rec: dict) -> str:
         f, f"{f}" + (f" ({rec['error']})" if rec.get("error") else ""))
 
 
+def export_unit_unread(doc: dict, slate_read: dict | None) -> bool:
+    """The slate page's unread line follows the EXPORT's own unit (its desk_meta.unit; addendum 183 item 2(3): "the
+    slate's earlier read is not passed forward"); only a file carrying no unit falls back to the slate's read."""
+    unit = (doc.get("desk_meta") or {}).get("unit") if isinstance(doc, dict) else None
+    if isinstance(unit, dict) and unit.get("mode"):
+        return unit.get("mode") == "unread"
+    return (slate_read or {}).get("state") != "read"
+
+
 def read_day_unit(run_id: str) -> dict:
     """Addendum 179 item 3: `python cli.py desk-unit` in its own step process (the closing chain's runner), which reads
     the pool once per ET day and keeps the day's file under logs/. {state, et_date, new, exit} from its UNIT_MARK line,
@@ -2947,7 +2956,7 @@ def _slate(rec: dict, fam: str, day: date, covers: list[dict], folder: Path, hel
         rec["failed"] = "push"
         return
     title, body = slate_page_text(fam, day, rec["rows"], rec["calls"], rec["file"], late, rec["beyond_day"],
-                                  unit_unread=(rec.get("unit") or {}).get("state") != "read")
+                                  unit_unread=export_unit_unread(doc, rec.get("unit")))
     print(f"\n--- page ---\n{body}\n---")
     tries = []
     for n in range(1, PAGE_TRIES + 1):

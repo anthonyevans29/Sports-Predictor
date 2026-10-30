@@ -45,7 +45,12 @@ def day(tmp_path, monkeypatch):
     d = tmp_path / "logs"
     monkeypatch.setenv(du.DIR_ENV, str(d))
     monkeypatch.setattr(dp, "UNIT_PIN", None)
+    monkeypatch.setattr(du, "wall_now", lambda: WALL[0])    # the documents' own clock is "now" unless a test moves it
+    WALL[0] = NOW
     return d
+
+
+WALL = [None]
 
 
 def pool_of(amount):
@@ -522,6 +527,7 @@ def test_183_a_run_crossing_midnight_et_exports_on_its_own_dates_unit(day, monke
     rec, created = du.day_unit(start, read_pool=pool_of(FIXTURE_POOL))
     assert created and rec["et_date"] == "2026-10-30"
     monkeypatch.setattr(kpool, "read_pool", pool_of(FIXTURE_POOL_SMALL))
+    WALL[0] = export                                                    # the export runs at 00:10 ET, wall time
     doc = dp.annotate(play_doc(), now=export)
     assert doc["desk_meta"]["unit"]["et_date"] == "2026-10-31" and doc["desk_meta"]["unit"]["state"] == "read"
     assert du.read_day(date(2026, 10, 31))["unit_usd"] == 88             # floor(0.08 x FIXTURE_POOL_SMALL), its own
@@ -631,3 +637,56 @@ def test_no_file_sets_a_unit_figure():
     got = subprocess.run(["git", "-C", str(ROOT), "grep", "--untracked", "-nIE", pat, "--", ".",
                           ":(exclude)tests/test_desk_unit_fraction.py"], capture_output=True, text=True)
     assert got.returncode == 1 and got.stdout == "", got.stdout
+
+
+# ============================================================== the pre-push review of round three (#734) ==
+
+def test_a_malformed_unit_is_named_by_type_never_by_value(day):
+    path = du.path_for(DAY)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"kind": du.KIND, "et_date": DAY.isoformat(), "state": "read",
+                                "unit_usd": float(FIXTURE_UNIT)}))
+    got = du.read_day(DAY)
+    assert got["state"] == "unread" and "unit_usd (float)" in got["why"] and str(FIXTURE_UNIT) not in got["why"]
+
+
+def test_a_pinned_clock_on_another_et_day_never_reads_the_live_pool(day, monkeypatch):
+    """The export's own read is at export time: a document stamped on another ET day (desk-parlays --now, an as-of
+    rescore) finds no file and reads absent, never the live pool, and writes nothing."""
+    monkeypatch.setattr(kpool, "read_pool", lambda *a, **k: pytest.fail("no live read for another day"))
+    past = NOW - timedelta(days=3)                                       # the wall clock stays at NOW
+    got = dp.day_unit_basis(past, read=True)
+    assert got["mode"] == "unread" and got["state"] == "absent"
+    assert du.read_day(du.et_date(past)) is None
+
+
+def test_the_slate_pages_unread_line_follows_the_exports_own_unit():
+    """183 item 2(3): "the slate's earlier read is not passed forward": the page's unread line is the export's own
+    desk_meta.unit; only a file carrying no unit falls back to the slate's read."""
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "deploy" / "hosting"))
+    import closing as cl
+    read, unread = {"state": "read"}, {"state": "unread"}
+    assert cl.export_unit_unread({"desk_meta": {"unit": {"mode": "usd"}}}, unread) is False
+    assert cl.export_unit_unread({"desk_meta": {"unit": {"mode": "unread"}}}, read) is True
+    assert cl.export_unit_unread({"desk_meta": {}}, unread) is True and cl.export_unit_unread({}, read) is False
+
+
+@pytest.mark.parametrize("v", ["1e3", " 12.000000", "12.1234567", "12.", ".5", "+1.00", "", "NaN"])
+def test_only_a_fixed_point_dollar_string_is_read(v):
+    got = kpool.read_pool(fetch=fake_fetch(two_pages(), balance={**balance_body(), "balance_dollars": v}))
+    assert got["ok"] is False and got["why"] == "key 'balance_dollars' of the balance response is not a dollar string"
+
+
+def test_a_positions_page_without_its_cursor_key_is_unread():
+    pages = two_pages()
+    del pages[0]["cursor"]
+    got = kpool.read_pool(fetch=fake_fetch(pages))
+    assert got == {"ok": False, "pool_usd": None, "why": "key 'cursor' is missing from the positions response"}
+
+
+def test_the_process_role_is_captured_before_any_dotenv_load():
+    """Addendum 183 item 2(1): the figures' role is the environment the process started with, so config captures it
+    before load_dotenv can fill it from the checkout's .env."""
+    src = (Path(__file__).resolve().parent.parent / "config.py").read_text()
+    assert src.index("PROCESS_ENV_ROLE = os.environ.get(") < src.index("load_dotenv(")

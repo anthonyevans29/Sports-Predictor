@@ -50,7 +50,9 @@ Morning chain (laptop), split into **two phases by network mode**
    `sync-appearances --recent` → `sync-umpires --recent` →
    `export-results` → `desk-unit` (the day's unit for the record,
    addendum 179 item 3: a Kalshi read, not statsapi, its own call; the
-   laptop's pages size from its file, and an unread day writes no order). The statsapi calls are `sync-matches`,
+   laptop's pages size from its file, and an unread day writes no order; the pool and the unit print only when
+   the shell itself carries `SP_EXPORTS_MIRROR_ROLE=laptop`, never from the checkout's .env: addendum 183 item
+   2(1)). The statsapi calls are `sync-matches`,
    `sync-appearances` and `sync-umpires`. The rest is local, so it runs
    in this phase too. Then, after the MLB sync and never inside the watch,
    the retire step (ARCHITECT 2026-10-20, addendum 146 item 3(a), #568:

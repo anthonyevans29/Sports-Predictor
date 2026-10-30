@@ -57,6 +57,11 @@ class UnitPathRefused(RuntimeError):
     """Law 5: the unit file never lands under a data/ folder."""
 
 
+def wall_now() -> datetime:
+    """The wall clock (UTC): the export's own read happens only on its ET date (desk_policy.day_unit_basis)."""
+    return datetime.now(timezone.utc)
+
+
 def et_date(now: datetime) -> date:
     """The ET day of `now` (a naive datetime is UTC, as the Desk reads kickoffs)."""
     if now.tzinfo is None:
@@ -105,7 +110,8 @@ def read_day(day: date) -> dict | None:
         # addendum 183 item 2(2): "A unit is an int that is not a bool, positive; anything else is a malformed file
         # and the day reads UNREAD, named."
         return {"kind": KIND, "et_date": day.isoformat(), "state": "unread",
-                "why": f"unit file malformed: unit_usd {u!r} is not a positive whole number (a bool is never a unit)"}
+                "why": f"unit file malformed: unit_usd ({type(u).__name__}) is not a positive whole number (a bool is "
+                       "never a unit; the value is never printed)"}
     return rec
 
 

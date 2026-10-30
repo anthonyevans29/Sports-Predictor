@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import importlib.util
 import os
+import re
 import sys
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -60,6 +61,8 @@ BALANCE_PATH = "/portfolio/balance"
 PAGE_LIMIT = 100                     # the documented default page size, sent under the spec's limit_param
 PAGED_KEYS = frozenset({"path", "list", "cost", "cursor", "cursor_param", "limit_param", "params"})
 MAX_PAGES = 20                       # addendum 186 item 3: a loop past 20 pages reads UNREAD, never a partial pool
+# the reference's "Fixed-point US dollar string ... responses emit up to 6" decimal places: no exponent, no blank
+FIXED_POINT = re.compile(r"-?\d+(?:\.\d{1,6})?")
 PROBE = Path(__file__).resolve().parents[2] / "scripts" / "kalshi_trade_api_probe.py"
 
 
@@ -97,15 +100,12 @@ def _amount(body, key: str, where: str):
     if not isinstance(body, dict) or key not in body:
         return None, f"key '{key}' is missing from the {where} response"
     v = body[key]
-    if not isinstance(v, str):
+    if not isinstance(v, str) or not FIXED_POINT.fullmatch(v):
         return None, f"key '{key}' of the {where} response is not a dollar string"
     try:
-        d = Decimal(v.strip())
+        return Decimal(v), None
     except (InvalidOperation, ValueError):
         return None, f"key '{key}' of the {where} response is not a dollar string"
-    if not d.is_finite():
-        return None, f"key '{key}' of the {where} response is not a dollar string"
-    return d, None
 
 
 def _spec_why(f) -> str | None:
@@ -176,8 +176,10 @@ def read_pool(fetch=None, fields=None) -> dict:
             if why:
                 return _unread(why)
             held += v
-        cursor = page.get(pos["cursor"])
-        if not cursor:
+        if pos["cursor"] not in page:          # the paging key is in every page (#732): absent is a shape fault
+            return _unread(f"key '{pos['cursor']}' is missing from the positions response")
+        cursor = page[pos["cursor"]]
+        if not cursor:                         # "An empty value of this field indicates there is no next page"
             break
     else:
         return _unread(f"the positions read did not end within {MAX_PAGES} pages")

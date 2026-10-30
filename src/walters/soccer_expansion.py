@@ -865,10 +865,13 @@ def export_shadow(now: datetime | None = None, hours: int | None = None,
                 "188 item 4)")
     sha = lc.code_sha()
     path_, _ = _reg_paths()
-    e = reg.get(EID, path_)
+    try:
+        e = reg.get(EID, path_)
+    except (OSError, ValueError):            # Codex on #741: an unreadable registry refuses every binding below
+        e = None                             # (shadow_binding), never a traceback before them; the header says so
     try:
         frozen = lw.run_record_constants()
-    except lw.WindowRefused:
+    except (lw.WindowRefused, OSError, ValueError):
         frozen = None                        # every binding refuses without it; the header says unknown (law 4)
     binds = shadow_bindings()
     rows, missing, counts = [], [], {}

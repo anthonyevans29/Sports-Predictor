@@ -1036,3 +1036,21 @@ def test_pass5_a_tie_on_exported_at_is_counted_superseded_the_later_name_kept(tm
     got = lw.stored_rows("SA", AT_TEXT, str(tmp_path))[7]
     assert got["superseded"] == 1 and got["prediction"]["home_win_prob"] == 0.5
     assert "any tied on exported_at" in lw.SUPERSEDED_NOTE
+
+
+def test_741_an_unreadable_registry_is_a_refusal_through_the_command_never_a_traceback(ledger, tmp_path):
+    """Codex on #741: a registry that exists but is not JSON refuses every binding (shadow_binding) and the command
+    exits 2 with its REFUSED line; the header's own registry read never raises before them."""
+    from click.testing import CliRunner
+
+    import cli
+    from src.walters import registry as reg
+    _world(ledger, decl("SA"))
+    Path(reg.LEDGER).write_text("{not json")
+    _, doc = _export(NOW, out=tmp_path / "u")
+    assert doc["gate_verdict"] == "not declared" and doc["frozen_constants"] is None
+    assert all(b["state"].startswith(sx.SHADOW_REFUSED) for b in doc["bindings"].values())
+    out = CliRunner().invoke(cli.cli, ["export-soccer-expansion-shadow", "--hours", "24"],
+                             env={"SP_EXPORTS_MIRROR_ROLE": "host"})
+    assert out.exit_code == 2 and "Traceback" not in out.output, out.output
+    assert "runs on the host only" not in out.output and "is unreadable (JSONDecodeError)" in out.output, out.output

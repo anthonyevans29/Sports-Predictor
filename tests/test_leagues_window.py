@@ -1030,7 +1030,8 @@ def test_184_2_an_ft_member_whose_90_minute_score_disagrees_is_pending_and_liste
         "FT · score 2-1 · 90' 1-1")
     out = lw.lines({"SA": w}, NOW)
     assert any(x.startswith("  - pending") and "listed below with both figures) 1" in x for x in out)
-    assert any("  - score disagreement 1 (an FT row whose stored 90-minute score differs" in x for x in out)
+    assert any("  - score disagreement 1 (an FT or no-raw-code row whose stored 90-minute score differs" in x
+               for x in out)
     assert any(x.startswith("    - 2920 · ") and "score 2-1 · 90' 1-1" in x for x in out)
     assert not FORBIDDEN.search("\n".join(out))
 
@@ -1146,3 +1147,27 @@ def test_184_2_a_disagreement_landing_after_a_ready_read_refuses_the_score(ledge
     _set_90(2010, 0, 3)
     with pytest.raises(lw.WindowRefused, match="the window moved between the read and the score"):
         lw.score(w, now=NOW)
+
+
+def test_185_a_no_raw_code_row_whose_90_minute_score_disagrees_is_pending_too(ledger):
+    """ARCHITECT 2026-10-30 12:45 ET, addendum 185 (#737, reading 1, verbatim): "widen it. By C1 a no-raw-code row is
+    an FT row, so a disagreement on it is the same data finding: `_raw(m) not in ("", "FT")`, PENDING under the same
+    cause, listed with both figures, one test." After the instant it takes no slot (never a no-raw-code member); at
+    or before it, it blocks; an agreeing no-raw-code row is still a member (C1)."""
+    _comps()
+    ledger(decl("SA"))
+    t = _teams("SA")
+    _priors("SA", t)
+    _game(2990, "SA", AT - timedelta(days=1), (t[8], t[9]), raw=None, hs=2, as_=0)
+    _set_90(2990, 1, 0)
+    _game(2991, "SA", AT + timedelta(hours=1), (t[2], t[5]), raw=None, hs=1, as_=1)
+    _set_90(2991, 0, 1)
+    _game(2992, "SA", AT + timedelta(hours=2), (t[3], t[6]), raw=None, hs=0, as_=2)     # agrees: a C1 member
+    for mid, h in ((2991, 1), (2992, 2)):
+        _legs(mid, AT + timedelta(hours=h))
+    w = _read("SA")
+    assert dict(w["pending"]) == {"score_disagreement": 2} and w["disagreement_before"] == 1
+    assert [x.split(" · ")[0] for x in w["score_disagreement"]] == ["2990", "2991"]
+    assert "raw NULL · score 1-1 · 90' 0-1" in w["score_disagreement"][1]
+    assert 2991 not in w["members"] and 2992 in w["members"]
+    assert [x.split(" · ")[0] for x in w["no_raw_code_members"]] == ["2992"]

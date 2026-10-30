@@ -664,8 +664,7 @@ def test_the_audit_counts_a_stored_row_that_differs_from_the_recompute(ledger, t
     assert a["expected"] == [] and a["findings"][0]["pending_before"] is None
     L = lw.audit_lines("SA", a)
     assert L[0] == ("  - SA · stored prospective rows: present 2 · missing 58 · differ from the recompute 1 (R1: never "
-                    "resolved either way) · superseded 0 (earlier rows of these members from other runs; the row "
-                    "audited is the last one exported before the kickoff, addendum 188 item 4)")
+                    "resolved either way) · superseded 0 " + lw.SUPERSEDED_NOTE)
     assert L[1] == ("  - SA · FINDINGS 1: differences on rows with pending_before = 0, or with no pending_before on "
                     "the row (addendum 185 D4)")
     assert L[2].startswith(f"    FINDING match {got[1][0]} · stored ") and L[2].endswith(

@@ -482,6 +482,20 @@ def test_expansion_binds_reads_one_registry_the_exports_own(env):
     assert f("SA", {}) is None
 
 
+def test_pd_with_no_registry_entry_reads_not_declared(env):
+    """Pass-4 finding 6: with no soccer-expansion-v1 entry in the registry, PD's binding is SHADOW_NOT_DECLARED
+    (soccer_expansion.shadow_binding), so coverage prints PD's "not declared" text, as for the four, never a
+    run-record refusal; with the entry and no usable run record it is that refusal (the test below)."""
+    from src.walters import soccer_expansion as sx
+    Path(reg.LEDGER).write_text(json.dumps(ENTRIES))
+    assert sx.shadow_binding("PD")["state"] == sx.SHADOW_NOT_DECLARED
+    f = cm.SHADOW_BINDS["export-soccer-expansion-shadow"]
+    assert f("PD", {}) == ("PD is not declared (no registry entry soccer-expansion-v1; addendum 178 R5: nothing is a "
+                           "shadow before it is declared)")
+    Path(reg.LEDGER).write_text(json.dumps(ENTRIES + [SX_RUN]))
+    assert sx.shadow_binding("PD")["state"] == sx.SHADOW_EXPORTING and f("PD", {}) is None
+
+
 @pytest.mark.parametrize("result", [None, "not a dict", []])
 def test_a_run_record_with_no_usable_result_refuses_cleanly_in_coverage(env, result):
     """Pass-3 finding 8: a soccer-expansion-v1 run record stored with `result` null (or another kind) reads as no run

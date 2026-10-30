@@ -310,6 +310,10 @@ def fenced(cut: datetime | None, m) -> bool:
 
 # ----------------------------------------------------------------------------------------- stored rows --
 
+SUPERSEDED_NOTE = ("(the members' other stored rows: earlier ones and any tied on exported_at; the row audited is "
+                   "the last one exported before the kickoff, addendum 188 item 4)")
+
+
 def stored_rows(code: str, declared_at: str | None, export_dir: str = "exports") -> dict[int, dict]:
     """R1's audit receipt: {match_id: the LAST stored prospective row before its kickoff} from the shadow export's
     files (exports/soccer_expansion_shadow_*.json), only rows of `code` labelled with the league's declared_at (R5:
@@ -323,8 +327,11 @@ def stored_rows(code: str, declared_at: str | None, export_dir: str = "exports")
     construction), the earlier rows counted as superseded on the audit's line." Each run writes its own file
     (soccer_expansion.export_shadow), so the row kept is the one with the latest `exported_at` before the kickoff
     (naive isoformat, compared as text, which orders it in time; never the file name's order; on an equal
-    `exported_at` the later name), and every other qualifying row of that fixture is counted on it as `superseded`
-    (a reader's annotation beside `exported_at`, never a field of the file)."""
+    `exported_at` the later name in sorted order). `superseded` on the kept row is exactly the count of every OTHER
+    qualifying row of that fixture (its competition, its declared_at, a stamp before its kickoff) across the files:
+    each earlier one AND each with the same `exported_at` as the kept row (ties included: the later name is kept and
+    the tied row is counted; with stamps to the second and an exclusive name per run, a tie needs a copied file).
+    A reader's annotation beside `exported_at`, never a field of the file."""
     out: dict[int, dict] = {}
     if not declared_at:
         return out
@@ -392,8 +399,10 @@ def result_of(m) -> str | None:
 def not_final(m) -> bool:
     """A game a later walk reads once final that is not final yet: LIVE, SCHEDULED, or FINISHED with no score stored
     or no usable result (an AET / PEN row without its 90'). AWD / WO is final and released first, whatever its row
-    stores (181 item 2). POSTPONED is not here (R4 places it by its actual kickoff). One function for membership's
-    `before_instant` and the shadow export's inputs_read.pending_before (soccer_expansion.shadow_entry)."""
+    stores (181 item 2). POSTPONED is not here (R4 places it by its actual kickoff), nor CANCELLED or a stale orphan
+    (never walked). One function for membership's `before_instant` and the shadow export's inputs_read.pending_before
+    (soccer_expansion.shadow_entry; ARCHITECT 2026-10-30, addendum 189 item 3: "SCHEDULED, LIVE, or FINISHED without a
+    result"; POSTPONED and CANCELLED are not counted)."""
     st = _status(m)
     return st in ("live", "scheduled") or (st == "finished" and _raw(m) not in AWARDED and (
         m.home_score is None or m.away_score is None or result_of(m) is None))
@@ -607,8 +616,8 @@ def audit(stored: dict[int, dict], recomputed: dict[int, tuple[float, float, flo
     are EXPECTED and listed with the count." A difference goes to `findings` when the stored row's
     inputs_read.pending_before is 0 OR is not on the row as a whole number (pending_before() None: never assumed
     expected, law 4), to `expected` when it is above 0; each entry carries `pending_before` (None where the row has
-    none). `superseded` (addendum 188 item 4): the members' earlier stored rows that the row audited replaced (each
-    stored row's `superseded`, stored_rows), summed over the members with a row."""
+    none). `superseded` (addendum 188 item 4): the members' other stored rows beside the row audited (each kept row's
+    `superseded`, stored_rows: the earlier ones and any tied on exported_at), summed over the members with a row."""
     from src.walters.soccer_expansion import shadow_prob
     present = [i for i in recomputed if i in stored]
     out = {"present": len(present), "missing": len(recomputed) - len(present), "findings": [], "expected": [],
@@ -637,8 +646,7 @@ def audit_lines(code: str, a: dict) -> list[str]:
             f"  - {code} · stored prospective rows: present {a['present']} · missing {a['missing']} · differ from the "
             f"recompute {len(a['findings']) + len(a['expected'])} (R1: never resolved either way)"
             + (f" · unreadable {len(a['unreadable'])}" if a["unreadable"] else "")
-            + f" · superseded {a.get('superseded', 0)} (earlier rows of these members from other runs; the row "
-              "audited is the last one exported before the kickoff, addendum 188 item 4)")
+            + f" · superseded {a.get('superseded', 0)} {SUPERSEDED_NOTE}")
     L = [head,
          f"  - {code} · FINDINGS {len(a['findings'])}: differences on rows with pending_before = 0, or with no "
          "pending_before on the row (addendum 185 D4)"]

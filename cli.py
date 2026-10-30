@@ -5422,6 +5422,44 @@ def desk_rescore_cmd(files, out_path):
     console.print(f"[green]✓ receipt written to {tgt} — commit it via PR[/green]")
 
 
+DESK_UNIT_MARK = "DESK-UNIT"          # deploy/hosting/closing.py UNIT_MARK reads this line (a test pins the two)
+
+
+@cli.command("desk-unit")
+def desk_unit_cmd():
+    """THE DAY'S UNIT (ARCHITECT 2026-10-30, addendum 179 items 3-5, #732; Desk policy v1.2): the ET day's unit,
+    floor(UNIT_FRACTION x pool) in whole dollars with the floor (SP_UNIT_FLOOR_USD), read from the Kalshi pool ONCE a
+    day and kept in logs/desk_unit_<ET date>.json; a later call that day reads the file and never the pool. The host's
+    slate and closing stages run it before their export; the laptop's morning block runs it for the record (its own
+    call). A failed read writes nothing (ARCHITECT 2026-10-30, addendum 180 item 4): that page is unread ("unit unread
+    — no order") and the next page that day reads again; the first page whose read succeeds writes the day's file. Prints the fractions, the floor's name and the state; the pool
+    and the unit in dollars only on the laptop (item 5: never in a host log). Always exit 0 (a failed read never fails
+    a slate), except a unit folder under data/ (exit 2, law 5)."""
+    from src.walters import desk_policy as dp
+    from src.walters import desk_unit as du
+    laptop = du.figures_allowed()
+    try:
+        rec, created = du.day_unit(role="laptop" if laptop else "not laptop")
+    except du.UnitPathRefused as e:
+        print(f"✗ {e}")
+        raise SystemExit(2)
+    print(f"DESK UNIT (Desk policy {dp.POLICY_VERSION}, addendum 179) · ET {rec.get('et_date')} · "
+          f"UNIT_FRACTION {dp.UNIT_FRACTION:g} · HALF_UNIT_FRACTION {dp.HALF_UNIT_FRACTION:g} · floor "
+          f"{dp.UNIT_FLOOR_ENV} · {'read now' if created else 'the day file (read once a day)'}")
+    if rec.get("state") == "read":
+        print(f"  state read · {rec.get('floor_state') or '-'}")
+        if laptop:
+            pool = f"${rec['pool_usd']:,.2f}" if isinstance(rec.get("pool_usd"), (int, float)) else (
+                "not in the day file (written where the role is not laptop)")
+            print(f"  pool {pool} · 1u = ${rec['unit_usd']:g} · 0.5u = ${rec['unit_usd'] / 2:g} "
+                  f"(laptop console only)")
+        else:
+            print("  the figures stay in the day file (this machine is not the laptop: no dollar figure in its log)")
+    else:
+        print(f"  {dp.UNIT_UNREAD_TEXT}: {rec.get('why') or 'unit unread'}")
+    print(f"{DESK_UNIT_MARK} state={rec.get('state')} et_date={rec.get('et_date')} new={'yes' if created else 'no'}")
+
+
 @cli.command("export-nhl-predictions")
 @click.option("--hours", default=36, show_default=True, type=int, help="Window from now (UTC).")
 def export_nhl_predictions_cmd(hours):
@@ -6671,9 +6709,9 @@ def export_soccer_expansion_shadow_cmd(hours):
     item 6(a)) and each DECLARED league of SA, BL1, FL1, ELC (R5: none before its declaration) priced by
     leagues_candidate.predict_as_of at the run record's frozen constants, never the production model (164 item 3);
     engine model_shadow (greyed; never a Desk call, never an order line, no prediction row). Writes its own new file,
-    exports/soccer_expansion_shadow_<stamp to the microsecond>.json, created exclusively (ARCHITECT 2026-10-30,
-    addendum 188 item 4: "NO ROW IS EVER REWRITTEN — each run writes its own dated file"): a name that exists is
-    refused (exit 2, nothing written), never overwritten.
+    exports/soccer_expansion_shadow_<stamp to the second>.json, published atomically and exclusively (ARCHITECT
+    2026-10-30, addendum 188 item 4: "NO ROW IS EVER REWRITTEN — each run writes its own dated file"): a name that
+    exists, or a write that fails, is refused (exit 2, nothing written under the name), never overwritten.
     THE SCHEDULE (ARCHITECT 2026-10-30 12:45 ET, addendum 185 D2): the LAST step of the soccer sync chains
     (deploy/hosting/chains.py: soccer-prematch, run by sp-soccer-friday and sp-soccer-saturday, and
     soccer-morning-after), run bare: its rows are the fixtures kicking off after the run and before the next chain's
@@ -6702,7 +6740,8 @@ def export_soccer_expansion_shadow_cmd(hours):
     try:
         path, doc = sx.export_shadow(hours=hours)
     except sx.ExpansionRefused as e:         # next_chain_run (a timer schedule it cannot read: never guessed), or
-        #                                      the run's file name exists (addendum 188 item 4: never overwritten)
+        #                                      the run's file name exists (addendum 188 item 4: never overwritten),
+        #                                      or the file could not be written (any OSError: no file under its name)
         click.echo(f"REFUSED: {e}. Nothing was written.")
         raise SystemExit(2)
     console.print(f"[green]✓ Wrote soccer-expansion SHADOW to {path}[/green]")

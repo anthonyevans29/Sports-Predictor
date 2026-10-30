@@ -395,7 +395,7 @@ def test_8_r6_the_host_writes_the_file(ledger, monkeypatch):
     r = CliRunner().invoke(cli.cli, ["export-soccer-expansion-shadow"])
     assert r.exit_code == 0, r.output
     (f,) = Path("exports").glob(f"{sx.FILE_PREFIX}*.json")
-    assert f.name == f"{sx.FILE_PREFIX}{NOW:%Y-%m-%d_%H%M%S_%f}.json" and json.loads(f.read_text())["count"] == 1
+    assert f.name == f"{sx.FILE_PREFIX}{NOW:%Y-%m-%d_%H%M%S}.json" and json.loads(f.read_text())["count"] == 1
     assert "PD · exporting · soccer-expansion-v1 · declared_at 2026-10-07T15:17:38Z · window opens " in r.output
     assert "SA · not declared" in r.output and "frozen v22 (the run record's; never the production model)" in r.output
 
@@ -670,14 +670,23 @@ def test_14_a_non_numeric_constant_refuses_cleanly_through_the_command(ledger, m
     assert "finding Issue" not in r.output                 # D7's label sentence only on an F3 refusal (finding 20)
 
 
-# -------------------------------------------- 15. pending_before is D4's count, postponed included (finding 15) --
+# ------------------------- 15. pending_before is D4's count, by status (addendum 189 item 3; finding 15) --
 
-def test_15_pending_before_counts_every_earlier_game_not_final_postponed_included(ledger, tmp_path):
+ADD189_3 = ("ARCHITECT 2026-10-30 15:15 ET, addendum 189 item 3, verbatim in part: \"pending_before counts the league's "
+            "games with a STORED kickoff strictly earlier than the fixture's that are not yet final AND will enter the "
+            "walk once final: SCHEDULED, LIVE, or FINISHED without a result. A POSTPONED game with no new kickoff and a "
+            "CANCELLED game are NOT counted [...] A re-dated game counts by its new kickoff if that is earlier than the "
+            "fixture's.\"")
+
+
+def test_15_pending_before_counts_every_earlier_game_not_final_by_status(ledger, tmp_path):
+    """ADD189_3: SCHEDULED, LIVE and FINISHED without a result count; POSTPONED, CANCELLED, a stale orphan and a
+    play-off round do not."""
     _world(ledger, decl("SA"))
     t = _teams("SA")
     rest = _priors("SA", t)
     now = AT + timedelta(days=1)
-    _game(2201, "SA", now - timedelta(hours=3), rest[0], MatchStatus.POSTPONED)       # comes back by its kickoff (R4)
+    _game(2201, "SA", now - timedelta(hours=3), rest[0], MatchStatus.POSTPONED)       # not placed (R4): not counted
     _game(2202, "SA", now - timedelta(hours=2), rest[1], MatchStatus.SCHEDULED)       # un-ingested
     _game(2203, "SA", now + timedelta(hours=1), rest[2], MatchStatus.LIVE)
     _game(2204, "SA", now + timedelta(hours=2), rest[3], MatchStatus.CANCELLED)       # never walked: not counted
@@ -687,21 +696,21 @@ def test_15_pending_before_counts_every_earlier_game_not_final_postponed_include
     _game(2208, "SA", now + timedelta(hours=5), rest[7], MatchStatus.SCHEDULED)       # the row
     _, doc = _export(now, out=tmp_path)
     (r,) = [x for x in doc["predictions"] if x["match_id"] == 2208]
-    assert r["inputs_read"]["pending_before"] == 4                     # 2201 2202 2203 2207
+    assert r["inputs_read"]["pending_before"] == 3                     # 2202 2203 2207; never 2201 (POSTPONED)
 
 
-def test_15_pending_before_has_no_time_bound_and_a_disagreement_prior_is_not_counted_as_built(ledger, tmp_path):
-    """CURRENT BEHAVIOUR, pinned for the architect (finding 8; listed in the ledger entry, not changed: D4's
-    definition is literal). (1) No time bound: a POSTPONED game weeks before the export, never re-dated, and a
-    SCHEDULED game left un-ingested days before it, both still count on a row exported now, so while either stands
-    every later row of the league carries pending_before >= 1 and its differences read EXPECTED. (2) Code's reading of
-    D4's "not FINISHED at export": a FINISHED FT row whose stored 90-minute score disagrees with its stored score
-    (#737's disagrees(), PENDING in the cohort reader's membership) is FINISHED, so it is not counted."""
+def test_15_a_stale_postponed_game_is_not_counted_and_a_disagreement_prior_is_not_counted_as_built(ledger, tmp_path):
+    """ADD189_3, the ruled behaviour (by status, not by time): (1) a POSTPONED game weeks before the export, never
+    re-dated, is NOT counted (it is not in the walk), so it no longer makes every later row of its league EXPECTED; a
+    SCHEDULED game left un-ingested days before the export still counts (by status, no time bound). (2) Code's reading
+    of D4's "not FINISHED at export", kept for the architect: a FINISHED FT row whose stored 90-minute score disagrees
+    with its stored score (#737's disagrees(), PENDING in the cohort reader's membership) is FINISHED, so it is not
+    counted."""
     _world(ledger, decl("SA"))
     t = _teams("SA")
     rest = _priors("SA", t)
     now = AT + timedelta(days=30)
-    _game(2401, "SA", AT + timedelta(days=2), rest[0], MatchStatus.POSTPONED)         # 4 weeks back, never re-dated
+    _game(2401, "SA", AT + timedelta(days=2), rest[0], MatchStatus.POSTPONED)         # 4 weeks back: not counted
     _game(2402, "SA", now - timedelta(days=5), rest[1], MatchStatus.SCHEDULED)        # stale, un-ingested
     _game(2403, "SA", now - timedelta(days=1), rest[2], hs=2, as_=1)                  # FT 2-1 ...
     _set(2403, home_score_90=1, away_score_90=1)                                      # ... 1-1 at 90': disagrees
@@ -712,7 +721,29 @@ def test_15_pending_before_has_no_time_bound_and_a_disagreement_prior_is_not_cou
         assert lw.disagrees(s.get(Match, 2403)) and not lw.not_final(s.get(Match, 2403))
     _, doc = _export(now, out=tmp_path)
     (r,) = [x for x in doc["predictions"] if x["match_id"] == 2404]
-    assert r["inputs_read"]["pending_before"] == 2                     # 2401 2402; never 2403
+    assert r["inputs_read"]["pending_before"] == 1                     # 2402; never 2401 (POSTPONED), never 2403
+
+
+def test_15_postponed_and_cancelled_are_not_counted_a_re_dated_game_counts_by_its_new_kickoff(ledger, tmp_path):
+    """ADD189_3: an earlier POSTPONED game and an earlier CANCELLED game are not counted; a game re-dated (SCHEDULED,
+    its stored kickoff moved) counts by its NEW kickoff: earlier than the fixture's -> counted, later -> not, whatever
+    its original kickoff was."""
+    _world(ledger, decl("SA"))
+    t = _teams("SA")
+    rest = _priors("SA", t)
+    now = AT + timedelta(days=1)
+    fixture = now + timedelta(hours=6)
+    _game(2501, "SA", now - timedelta(hours=4), rest[0], MatchStatus.POSTPONED)       # earlier, postponed
+    _game(2502, "SA", now - timedelta(hours=3), rest[1], MatchStatus.CANCELLED)       # earlier, cancelled
+    _game(2503, "SA", fixture + timedelta(days=3), rest[2], MatchStatus.SCHEDULED)    # was later ...
+    _set(2503, utc_date=now + timedelta(hours=2))                                     # ... re-dated earlier: counted
+    _game(2504, "SA", now - timedelta(hours=2), rest[3], MatchStatus.SCHEDULED)       # was earlier ...
+    _set(2504, utc_date=fixture + timedelta(hours=1))                                 # ... re-dated later: not
+    _game(2505, "SA", fixture, rest[4], MatchStatus.SCHEDULED)                        # the row
+    _, doc = _export(now, out=tmp_path)
+    pend = {x["match_id"]: x["inputs_read"]["pending_before"] for x in doc["predictions"]}
+    assert pend[2505] == 1                                             # 2503 only
+    assert pend[2503] == 0 and pend[2504] == 2                         # 2504's earlier: 2503 and 2505
 
 
 # ------------------------------------------------------- 16. D4: the audit's two lines (addendum 185) --
@@ -736,9 +767,7 @@ def test_16_the_audit_splits_differences_by_the_rows_pending_before():
     assert [(f["match_id"], f["pending_before"]) for f in a["expected"]] == [(2, 3)]
     assert [f["pending_before"] for f in a["findings"]] == [0, None, None, None, None, None]
     L = lw.audit_lines("SA", a)
-    assert L[0].endswith("differ from the recompute 7 (R1: never resolved either way) · superseded 0 (earlier rows of "
-                         "these members from other runs; the row audited is the last one exported before the kickoff, "
-                         "addendum 188 item 4)")
+    assert L[0].endswith("differ from the recompute 7 (R1: never resolved either way) · superseded 0 " + lw.SUPERSEDED_NOTE)
     assert L[1].startswith("  - SA · FINDINGS 6: ") and L[8].startswith("  - SA · EXPECTED 1: ")
     assert L[2].endswith("pending_before 0") and L[3].endswith("pending_before not on the row")
     assert L[9].startswith("    EXPECTED match 2 ") and L[9].endswith("pending_before 3") and len(L) == 10
@@ -820,9 +849,10 @@ def _files(d):
 
 
 def test_18_two_runs_in_one_minute_write_two_files_the_first_untouched(ledger, tmp_path):
-    """ADD188: each run its own file, named to the microsecond and created exclusively: two runs in the same minute
-    leave two files, the first byte for byte as written; a run whose name exists is refused (ExpansionRefused) and
-    writes nothing, the existing file untouched."""
+    """ADD188: each run its own file, named to the second (FILE_STAMP, pass-4 findings 0/4) and published
+    exclusively: two runs at different seconds of one minute leave two files, the first byte for byte as written; a
+    run whose name exists (the same second, whatever its microseconds) is refused (ExpansionRefused) and writes
+    nothing, the existing file untouched and no temp file left."""
     _world(ledger)
     t = _teams("PD")
     _priors("PD", t)
@@ -832,14 +862,30 @@ def test_18_two_runs_in_one_minute_write_two_files_the_first_untouched(ledger, t
     first = Path(p1).read_bytes()
     p2, b = _export(NOW + timedelta(seconds=40, microseconds=5), out=out)
     assert p1 != p2 and [f.name for f in _files(out)] == [Path(p1).name, Path(p2).name]
-    assert Path(p1).name == f"{sx.FILE_PREFIX}2026-12-20_120010_000000.json"
-    assert Path(p2).name == f"{sx.FILE_PREFIX}2026-12-20_120040_000005.json"
+    assert Path(p1).name == f"{sx.FILE_PREFIX}2026-12-20_120010.json"
+    assert Path(p2).name == f"{sx.FILE_PREFIX}2026-12-20_120040.json"
     assert Path(p1).read_bytes() == first and a["count"] == b["count"] == 1
-    with pytest.raises(sx.ExpansionRefused, match="already exists: no row is ever rewritten"):
-        _export(NOW + timedelta(seconds=10), out=out)
+    for again in (NOW + timedelta(seconds=10), NOW + timedelta(seconds=10, microseconds=7)):
+        with pytest.raises(sx.ExpansionRefused, match="already exists: no row is ever rewritten"):
+            _export(again, out=out)
     assert Path(p1).read_bytes() == first and len(_files(out)) == 2
+    assert sorted(p.name for p in out.iterdir()) == [Path(p1).name, Path(p2).name]       # no temp file left
     calls = sx.last_calls(str(out))
     assert calls[900]["exported_at"] == (NOW + timedelta(seconds=40, microseconds=5)).isoformat()
+
+
+def test_18_the_files_name_is_one_mirror_kind(ledger, tmp_path, monkeypatch):
+    """Pass-4 findings 0/4: the run file's own name, as export_shadow writes it, reads as the one kind
+    soccer_expansion_shadow in exports_mirror.kind_of and in compare_exports.kind_of (its copy), so host/latest keeps
+    one newest file for the family, as ncaa_shadow's name does."""
+    root = Path(__file__).resolve().parents[1]
+    monkeypatch.syspath_prepend(str(root / "deploy" / "hosting"))
+    import compare_exports as ce
+    import exports_mirror as em
+    _world(ledger)
+    names = [Path(_export(NOW + timedelta(seconds=k, microseconds=k), out=tmp_path)[0]).name for k in (1, 59)]
+    for n in names:
+        assert em.kind_of(n) == ce.kind_of(n) == "soccer_expansion_shadow", n
 
 
 def test_18_the_command_refuses_an_existing_name_exit_2_nothing_overwritten(ledger, monkeypatch):
@@ -859,6 +905,45 @@ def test_18_the_command_refuses_an_existing_name_exit_2_nothing_overwritten(ledg
     assert r.exit_code == 2 and isinstance(r.exception, SystemExit), r.output
     assert "already exists: no row is ever rewritten" in r.output and "Nothing was written." in r.output
     assert _files("exports") == [f] and f.read_bytes() == first
+    assert sorted(p.name for p in Path("exports").iterdir()) == [f.name]                 # no temp file left
+
+
+def test_18_a_write_that_fails_midway_leaves_no_file_and_no_temp_exit_2(ledger, monkeypatch):
+    """Pass-4 findings 2/5: the write is atomic. A write that fails part way (ENOSPC after 100 bytes) leaves no file
+    under the run's name and no temp file; the command prints REFUSED and exits 2, never a traceback."""
+    import cli
+    import errno
+    import os as _os
+    _world(ledger)
+    t = _teams("PD")
+    _priors("PD", t)
+    _game(900, "PD", NOW + timedelta(hours=5), (t[0], t[1]), MatchStatus.SCHEDULED)
+    monkeypatch.setenv("SP_EXPORTS_MIRROR_ROLE", "host")
+    monkeypatch.setattr(sx, "utc_now_naive", lambda: NOW)
+    real = _os.fdopen
+
+    class Half:
+        def __init__(self, f):
+            self.f = f
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            self.f.close()
+
+        def write(self, text):
+            self.f.write(text[:100])
+            self.f.flush()
+            raise OSError(errno.ENOSPC, "No space left on device")
+
+    monkeypatch.setattr(sx.os, "fdopen", lambda fd, mode="r": Half(real(fd, mode)))
+    r = CliRunner().invoke(cli.cli, ["export-soccer-expansion-shadow"])
+    assert r.exit_code == 2 and isinstance(r.exception, SystemExit), r.output
+    name = f"{sx.FILE_PREFIX}{NOW:%Y-%m-%d_%H%M%S}.json"
+    assert f"REFUSED: exports/{name} could not be written (OSError: [Errno 28] No space left on device)" in r.output
+    assert "Nothing was written." in r.output
+    assert list(Path("exports").iterdir()) == []                                       # no file, no temp file
 
 
 def test_18_the_audits_row_is_the_last_before_kickoff_the_earlier_counted_superseded(ledger, tmp_path):
@@ -881,15 +966,16 @@ def test_18_the_audits_row_is_the_last_before_kickoff_the_earlier_counted_supers
     w = lw.read(("SA",), now=NOW, export_dir=str(out))["SA"]
     a = lw.score(w, export_dir=str(out), now=NOW)["audit"]
     assert a == {"present": 60, "missing": 0, "findings": [], "expected": [], "unreadable": [], "superseded": 60}
-    assert lw.audit_lines("SA", a)[0].endswith(" · superseded 60 (earlier rows of these members from other runs; the "
-                                               "row audited is the last one exported before the kickoff, addendum 188 "
-                                               "item 4)")
+    assert lw.audit_lines("SA", a)[0].endswith(" · superseded 60 " + lw.SUPERSEDED_NOTE)
 
 
 def test_18_the_readers_order_by_exported_at_never_the_file_name(tmp_path):
-    """last_calls and stored_rows keep the row with the latest exported_at before the kickoff, whatever the names'
-    order: a minute-stamped file from before the switch sorts after a microsecond-stamped one of the same minute
-    ("_1435." > "_143000_"), so a name-ordered read would keep the earlier row."""
+    """last_calls and stored_rows keep the row with the latest exported_at before the kickoff, never the names'
+    order. Contrived inputs, two different minutes: an old-style minute name of 14:35 ("_1435.json", exported_at
+    14:35) sorts after a seconds-stamped name of 14:30 ("_143000.json") whose exported_at is set to 14:36, so the
+    name order and the exported_at order disagree and a name-ordered read would keep the 14:35 row. Both readers keep
+    the 14:36 row and count the other as superseded. (With honest stamps the two orders agree; this pins the rule,
+    not a case the writer makes.)"""
     ko = "2026-11-06T18:00:00"
     base = {"match_id": 7, "utc_date": ko, "competition": "SA", "declared_at": AT_TEXT}
 
@@ -897,11 +983,56 @@ def test_18_the_readers_order_by_exported_at_never_the_file_name(tmp_path):
         return {"engine": sx.ENGINE, "exported_at": at,
                 "predictions": [{**base, "prediction": {"home_win_prob": p, "draw_prob": 0.3, "away_win_prob": 0.7 - p,
                                                         "top_pick": "home_win", "top_pick_prob": p}}]}
-    (tmp_path / f"{sx.FILE_PREFIX}2026-11-06_143000_000000.json").write_text(json.dumps(doc("2026-11-06T14:36:00",
-                                                                                              0.5)))
+    (tmp_path / f"{sx.FILE_PREFIX}2026-11-06_143000.json").write_text(json.dumps(doc("2026-11-06T14:36:00", 0.5)))
     (tmp_path / f"{sx.FILE_PREFIX}2026-11-06_1435.json").write_text(json.dumps(doc("2026-11-06T14:35:00", 0.4)))
     assert [f.name for f in _files(tmp_path)][-1].endswith("_1435.json")          # the earlier row's name is last
     assert sx.last_calls(str(tmp_path))[7]["exported_at"] == "2026-11-06T14:36:00"
     got = lw.stored_rows("SA", AT_TEXT, str(tmp_path))[7]
     assert got["exported_at"] == "2026-11-06T14:36:00" and got["prediction"]["home_win_prob"] == 0.5
     assert got["superseded"] == 1
+
+
+# ----------------------------------------------------------------------------- pass-5 review (export switch) --
+
+def test_pass5_a_missing_or_unreadable_registry_refuses_never_a_green_empty_step(ledger, tmp_path):
+    """'not declared' is a fact read from a registry that exists and parses: a missing or unreadable registry file
+    refuses every binding (law 4), so the chain step exits 2, never green with no row."""
+    from src.walters import registry as reg
+    _world(ledger, decl("SA"))
+    Path(reg.LEDGER).unlink()
+    b = sx.shadow_binding("PD")
+    assert b["state"].startswith(sx.SHADOW_REFUSED) and "is missing" in b["state"]
+    assert sx.shadow_binding("SA")["state"].startswith(sx.SHADOW_REFUSED)
+    Path(reg.LEDGER).write_text("{not json")
+    assert "is unreadable (JSONDecodeError)" in sx.shadow_binding("PD")["state"]
+
+
+def test_pass5_the_run_file_has_the_other_exports_mode(ledger, tmp_path):
+    """mkstemp creates 0600 and os.link keeps it; the run file is chmod'ed to 0666 & ~umask, as open() makes every
+    other export (0644 under umask 022)."""
+    import os
+    import stat
+    _world(ledger)
+    old = os.umask(0o022)
+    try:
+        path, _ = _export(NOW, out=tmp_path / "m")
+    finally:
+        os.umask(old)
+    assert stat.S_IMODE(os.stat(path).st_mode) == 0o644
+
+
+def test_pass5_a_tie_on_exported_at_is_counted_superseded_the_later_name_kept(tmp_path):
+    """stored_rows' superseded counts every other row of the fixture before its kickoff, ties on exported_at
+    included; on a tie the later name is kept (the audit line's note says so)."""
+    ko = "2026-11-06T18:00:00"
+    base = {"match_id": 7, "utc_date": ko, "competition": "SA", "declared_at": AT_TEXT}
+
+    def doc(p):
+        return {"engine": sx.ENGINE, "exported_at": "2026-11-06T14:30:00",
+                "predictions": [{**base, "prediction": {"home_win_prob": p, "draw_prob": 0.3, "away_win_prob": 0.7 - p,
+                                                        "top_pick": "home_win", "top_pick_prob": p}}]}
+    (tmp_path / f"{sx.FILE_PREFIX}2026-11-06_143000.json").write_text(json.dumps(doc(0.4)))
+    (tmp_path / f"{sx.FILE_PREFIX}2026-11-06_143000_copy.json").write_text(json.dumps(doc(0.5)))
+    got = lw.stored_rows("SA", AT_TEXT, str(tmp_path))[7]
+    assert got["superseded"] == 1 and got["prediction"]["home_win_prob"] == 0.5
+    assert "any tied on exported_at" in lw.SUPERSEDED_NOTE

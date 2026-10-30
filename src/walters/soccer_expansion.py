@@ -59,6 +59,11 @@ EDGE_COHORT_PP = 5.0                # reported only: the positive-edge cohort (>
 CLOSE_BOOKMAKER = "fdcuk_close"
 ENGINE = "model_shadow"
 FILE_PREFIX = "soccer_expansion_shadow_"
+# The run file's stamp, to the second (pass-4 findings 0/4): exports_mirror.STAMP, and compare_exports._STAMP, its
+# copy, strip `_%Y-%m-%d_%H%M%S` from a name to find its kind (ncaa_shadow's name is stamped so); a finer stamp would
+# leave its tail in the kind and break the mirror's newest-per-kind host/latest. Two runs in one second share the
+# name: the second refuses (export_shadow's exclusive publish), never an overwrite.
+FILE_STAMP = "%Y-%m-%d_%H%M%S"
 SHADOW_NOTE = ("SHADOW — soccer-expansion-v1's PD and each declared league of SA, BL1, FL1, ELC (none before its "
                "declaration, addendum 178 R5), priced by leagues_candidate.predict_as_of at the run record's frozen "
                "constants, never the production model (164 item 3). Until CONFIRMED every one of these leagues is "
@@ -637,6 +642,8 @@ def shadow_bindings() -> dict[str, dict]:
       record; a drift is a refusal, never a silent difference), read FIRST so a constant that is not a number refuses
       with run_record_constants' text, never a traceback out of confirming()'s float(). PD needs its own path:
       leagues_window.checked refuses a surviving league, and PD is not in DECLARATION_IDS.
+    - PD with no soccer-expansion-v1 entry in the registry -> SHADOW_NOT_DECLARED, no rows (pass-4 finding 6: the
+      label coverage prints, "not declared", never a run-record refusal).
     - SA, BL1, FL1, ELC (R5): no entry -> SHADOW_NOT_DECLARED, no rows; an entry leagues_window.checked refuses (its
       league field, its instant, a surviving league, its constants) -> SHADOW_REFUSED with checked's text, no rows.
     D1, ARCHITECT 2026-10-30 12:45 ET, addendum 185, verbatim: "PD's rows carry BOTH fields, as Code's default:
@@ -665,7 +672,22 @@ def shadow_binding(code: str) -> dict:
     b = {"code": code, "state": None, "candidate": None, "declared_at": None, "window_opens_at": None,
          "frozen_constants": None, "opens_at": None, "gate_verdict": None}
     try:
+        # pass-5 review: "not declared" is a fact read from a registry that exists and parses; a missing or
+        # unreadable registry file refuses (law 4), never a green, empty chain step
+        path = _reg_paths()[0]
+        if not os.path.isfile(path):
+            raise ExpansionRefused(f"the registry {path} is missing: no binding is read (law 4)")
+        try:
+            from src.walters import registry as reg
+            reg.load(path)
+        except (OSError, ValueError) as err:
+            raise ExpansionRefused(f"the registry {path} is unreadable ({err.__class__.__name__}): no binding is "
+                                   "read (law 4)") from None
         if code == "PD":
+            pe = reg.get(EID, path)
+            if not isinstance(pe, dict) or pe.get("id") != EID:  # pass-4 finding 6: no entry is NOT DECLARED (R5),
+                b["state"] = SHADOW_NOT_DECLARED                 # as for the four, never a run-record refusal
+                return b
             want = lw.run_record_constants()          # first: a non-number refuses here (WindowRefused)
             e, surv, params = confirming()
             if code not in surv:
@@ -711,15 +733,20 @@ def shadow_entry(rows, fixture, constants: dict, opens_at: datetime | None, game
     here); then leagues_candidate.predict_as_of at the constants -> below_min_prior / no_strength, or the prediction.
     inputs_read: n_prior (the rows walked, leagues_candidate.priors), last_prior_kickoff (formatted as utc_date is)
     and pending_before, D4's count (ARCHITECT 2026-10-30 12:45 ET, addendum 185 D4: "the count of earlier-kickoff games
-    of that league not FINISHED at export"): every regular-round game of `games` kicking off before the fixture that
-    is not final for the walk at export: SCHEDULED, LIVE, POSTPONED (R4: it can come back by its actual kickoff and
-    be walked), or FINISHED with no usable 90-minute result (leagues_window.not_final). Never counted: a CANCELLED or
-    STALE_ORPHAN game (never a fixture or a prior, so it cannot move the recompute), an AWD / WO row (final and
-    released, 181 item 2), a play-off round (never walked, F3), and a FINISHED FT / no-raw-code row whose 90-minute
-    score disagrees with its stored score (leagues_window.disagrees, #737: PENDING in membership, but FINISHED, and D4
-    counts games "not FINISHED at export"; Code's reading, for the architect). No time bound (as ruled; the ledger
-    lists a proposed bound for the architect): a game kicking off weeks before the export still counts while it is
-    not final. A row with pending_before > 0 may differ from the
+    of that league not FINISHED at export"), ruled by status, not by time (ARCHITECT 2026-10-30 15:15 ET, addendum
+    189 item 3, verbatim: "pending_before counts the league's games with a STORED kickoff strictly earlier than the
+    fixture's that are not yet final AND will enter the walk once final: SCHEDULED, LIVE, or FINISHED without a
+    result. A POSTPONED game with no new kickoff and a CANCELLED game are NOT counted (R4: a postponed game is not
+    placed until re-dated; a cancelled one is excluded by cause — neither is in the walk, so neither makes a later
+    row's difference expected). A re-dated game counts by its new kickoff if that is earlier than the fixture's."):
+    every regular-round game of `games` with a stored kickoff strictly before the fixture's that leagues_window.
+    not_final reads as not final: SCHEDULED, LIVE, or FINISHED with no usable 90-minute result. A re-dated game is
+    read by the kickoff the DB stores for it (its new one), so it counts when that is earlier and not when it is
+    later. Never counted: a POSTPONED game (its status says it is not placed; R4), a CANCELLED or STALE_ORPHAN game
+    (never a fixture or a prior, so it cannot move the recompute), an AWD / WO row (final and released, 181 item 2),
+    a play-off round (never walked, F3), and a FINISHED FT / no-raw-code row whose 90-minute score disagrees with its
+    stored score (leagues_window.disagrees, #737: PENDING in membership, but FINISHED, and D4 counts games "not
+    FINISHED at export"; Code's reading, for the architect). A row with pending_before > 0 may differ from the
     read's recompute: leagues_window.audit lists that difference as EXPECTED, a difference at 0 as a FINDING.
     prospective=False (the parity receipt, leagues_candidate.parity): a finished game, priced as of its kickoff; the
     window and status checks are skipped, the pricing is the same function."""
@@ -741,9 +768,9 @@ def shadow_entry(rows, fixture, constants: dict, opens_at: datetime | None, game
     if pred is None:
         return None, why
     prior = lc.priors(rows, fixture)
+    # addendum 189 item 3 (above): by status, by the stored kickoff; not_final never reads POSTPONED or CANCELLED
     pending = sum(1 for g in games if g.id != fixture.id and g.utc_date is not None
-                  and g.utc_date < fixture.utc_date and is_regular(g.stage)
-                  and (str(getattr(g.status, "value", g.status) or "").lower() == "postponed" or not_final(g)))
+                  and g.utc_date < fixture.utc_date and is_regular(g.stage) and not_final(g))
     return pred, {"n_prior": len(prior), "last_prior_kickoff": prior[-1].utc_date.isoformat() if prior else None,
                   "pending_before": pending}
 
@@ -791,9 +818,11 @@ def export_shadow(now: datetime | None = None, hours: int | None = None,
     competition, or any CURRENT_SEASON game; law 4); the other leagues are still written. Never the production model,
     never a prediction row.
     THE FILE (addendum 188 item 4, EXPORT_WINDOW_MARGIN above: "NO ROW IS EVER REWRITTEN — each run writes its own
-    dated file"): exports/soccer_expansion_shadow_<%Y-%m-%d_%H%M%S_%f>.json, stamped to the microsecond of `now`, and
-    created EXCLUSIVELY (open mode "x"): a name that exists is never overwritten and never edited; the run refuses
-    (ExpansionRefused: the command's REFUSED line, exit 2) and writes nothing. A run never reads another run's file.
+    dated file"): exports/soccer_expansion_shadow_<%Y-%m-%d_%H%M%S>.json (FILE_STAMP: to the second of `now`, the
+    form the mirror's kind rule strips), published atomically and EXCLUSIVELY (_publish: a temp file, then os.link):
+    a name that exists is never overwritten and never edited, a failed write leaves no file under the name; the run
+    refuses (ExpansionRefused: the command's REFUSED line, exit 2) and writes nothing. A run never reads another run's
+    file.
     THE WINDOW is (now, end), strictly after the stamp (a fixture kicking off at the stamp itself has no row: last_calls
     and leagues_window.stored_rows never read a row stamped at or after its kickoff). end: `hours` given (a manual
     run's explicit override, cli --hours) -> now + hours; else (the chain step, D2 above) the next soccer sync chain's
@@ -892,8 +921,7 @@ def export_shadow(now: datetime | None = None, hours: int | None = None,
                           "input_cutoff": stamp, "prediction_stamp": stamp, "inputs_read": x})
                 rows.append(r)
             s.rollback()
-    Path(out_dir).mkdir(parents=True, exist_ok=True)
-    path = str(Path(out_dir) / f"{FILE_PREFIX}{now.strftime('%Y-%m-%d_%H%M%S_%f')}.json")
+    path = str(Path(out_dir) / f"{FILE_PREFIX}{now.strftime(FILE_STAMP)}.json")
     doc = {"sport": "soccer", "engine": ENGINE, "experiment": EID,
            "model_version": frozen["production_version"] if frozen else None,
            "gate_verdict": e and e.get("status") or "not declared", "contains_predictions": False,
@@ -908,16 +936,47 @@ def export_shadow(now: datetime | None = None, hours: int | None = None,
            "bindings": {c: {k: b[k] for k in BINDING_KEYS if k in b} for c, b in binds.items()},
            "counts": {c: dict(n) for c, n in counts.items()}, "missing": missing,
            "count": len(rows), "predictions": rows}
-    # addendum 188 item 4: "NO ROW IS EVER REWRITTEN": created exclusively; an existing name is refused, never
-    # overwritten, and nothing is written (the text is serialized first, so a failure leaves no partial file)
-    text = json.dumps(doc, indent=2, default=str)
-    try:
-        with open(path, "x") as f:
-            f.write(text)
-    except FileExistsError:
-        raise ExpansionRefused(f"{path} already exists: no row is ever rewritten and a run never edits another run's "
-                               "file (ARCHITECT 2026-10-30, addendum 188 item 4)") from None
+    _publish(path, json.dumps(doc, indent=2, default=str))
     return path, doc
+
+
+def _publish(path: str, text: str) -> None:
+    """The run's file, atomic and exclusive (addendum 188 item 4: "NO ROW IS EVER REWRITTEN"; pass-4 findings 2/5):
+    the whole text goes to a temp file in the same directory, named so no reader's FILE_PREFIX*.json glob sees it
+    (a leading '.', a '.tmp' suffix), is fsynced, and is published by os.link(tmp, path), which never overwrites: an
+    existing name raises FileExistsError and the run refuses. The temp file is always removed. So a reader sees the
+    whole file under its name or no file, never a truncated one. Any OSError on this path (the directory, the write,
+    the link) is ExpansionRefused: the command's REFUSED line and exit 2, never a traceback, nothing under `path`."""
+    import tempfile
+    d, name = os.path.split(path)
+    tmp = None
+    try:
+        Path(d or ".").mkdir(parents=True, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(prefix=f".{name}.", suffix=".tmp", dir=d or ".")
+        mask = os.umask(0)
+        os.umask(mask)
+        os.fchmod(fd, 0o666 & ~mask)      # the other exports' mode (mkstemp's 0600 would outlive the link)
+        with os.fdopen(fd, "w") as f:
+            f.write(text)
+            f.flush()
+            os.fsync(f.fileno())
+        try:
+            os.link(tmp, path)
+        except FileExistsError:           # the name only (a mkdir clash is the generic line below)
+            raise ExpansionRefused(f"{path} already exists: no row is ever rewritten and a run never edits another "
+                                   "run's file (ARCHITECT 2026-10-30, addendum 188 item 4)") from None
+    except OSError as err:
+        raise ExpansionRefused(f"{path} could not be written ({err.__class__.__name__}: {err}); no file is published "
+                               "under that name (addendum 188 item 4: whole or not at all)") from None
+    finally:
+        if tmp is not None:
+            try:
+                os.unlink(tmp)
+            except OSError:               # already gone, or not removable: a dot-named .tmp no reader globs
+                pass
+    # Known (pass-5 review): a process killed between mkstemp and the unlink (SIGKILL, power loss; no SIGTERM handler
+    # runs `finally`) leaves its dot-named .tmp behind. No FILE_PREFIX*.json or *.json reader sees it; a bare listing
+    # (pull_exports' skipped names, sp_run's receipt, sp_migrate's pack) does. Housekeeping only; listed in the ledger.
 
 
 def last_calls(export_dir: str = "exports") -> dict[int, dict]:

@@ -169,8 +169,10 @@ declared_at."
   whose export runs more than 2 h after its fire leaves the games kicking off between fire + 2 h and its export
   without a row, "row missing", accepted). The same window end bounds the F3 unplaced-label scope. `--hours N` is a
   manual run's explicit override.
-- NO ROW IS EVER REWRITTEN (addendum 188 item 4): each run writes its own new file, stamped to the microsecond and
-  created exclusively (a name that exists is refused, exit 2, nothing written); a fixture two runs cover has two rows.
+- NO ROW IS EVER REWRITTEN (addendum 188 item 4): each run writes its own new file, stamped to the second (the form
+  `exports_mirror.STAMP` strips, so the mirror's kind is `soccer_expansion_shadow`) and published atomically and
+  exclusively (a temp file, then `os.link`: a name that exists, or a write that fails, is refused, exit 2, nothing
+  under the name); a fixture two runs cover has two rows.
   The readers (`last_calls`, `leagues_window.stored_rows`) take the LAST row exported before its kickoff, by
   `exported_at`; the cohort reader's audit counts the earlier rows of its members as SUPERSEDED on its line.
 - Every stored game of a bound league kicking off in the window, any status, is priced by
@@ -179,13 +181,14 @@ declared_at."
   label the code cannot place, kicking off before the window's end, refuses that league (addendum 184 item 1), as
   does a bound league this DB does not store (law 4); the others are still written and the command exits 2 (D7: the
   chain's failure page is the signal; a label unplaced on the second chain run is a finding Issue).
-- It writes `exports/soccer_expansion_shadow_<%Y-%m-%d_%H%M%S_%f>.json` (its own, per run):
+- It writes `exports/soccer_expansion_shadow_<%Y-%m-%d_%H%M%S>.json` (its own, per run; mode 0644 under umask 022, as the other exports):
   - engine `model_shadow` (the Desk's `normalize` skips it; the Cockpit renders it in the greyed shadow card);
   - `model_version` is the run record's production_version, never the production model's;
   - each row carries `experiment`, `candidate`, `declared_at`, `window_opens_at`, `frozen_constants`, `code_sha`,
     `input_cutoff` (the export instant: the DB state it read), `prediction_stamp` and `inputs_read` (n_prior,
-    last_prior_kickoff, pending_before: D4's count of earlier-kickoff regular-round games not final at export,
-    postponed included); a declared league's `gate_verdict` is `<id> · declared <declared_at>`, no verdict label
+    last_prior_kickoff, pending_before: D4's count, ruled by status (addendum 189 item 3): the regular-round games
+    with a stored kickoff strictly before the fixture's that are SCHEDULED, LIVE, or FINISHED without a result;
+    never POSTPONED, CANCELLED, a stale orphan or AWD / WO; a re-dated game counts by its stored kickoff); a declared league's `gate_verdict` is `<id> · declared <declared_at>`, no verdict label
     (addendum 185 D6: a later PR labels them with the verdict), PD's is the experiment's;
   - the header carries `git_sha`, `frozen_constants`, `window`, `bindings` and `missing`;
   - `contains_predictions: false`.

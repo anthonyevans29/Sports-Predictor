@@ -347,7 +347,7 @@ def test_k6_the_actionable_receipt_splits_by_the_record_and_infers_nothing():
 
 # ---------------------------------------------- addendum 15 item 2: "A cost is the cost of an order" --
 
-@pytest.mark.parametrize("unit_usd", [None, "20"])            # the unit in contracts, and in dollars
+@pytest.mark.parametrize("unit_usd", [None, 1234])            # the unit in contracts, and in (synthetic) dollars
 def test_desk_rescore_prices_each_row_at_its_own_exec_block_and_a_suspended_row_not_at_all(
         tmp_path, monkeypatch, unit_usd):
     """ARCHITECT 2026-10-08, addendum 15 item 2 (RULED): "The desk-rescore line carries the exec cost and exec edge
@@ -359,10 +359,8 @@ def test_desk_rescore_prices_each_row_at_its_own_exec_block_and_a_suspended_row_
     from click.testing import CliRunner
 
     import cli
-    if unit_usd is None:
-        monkeypatch.delenv("SP_UNIT_USD", raising=False)
-    else:
-        monkeypatch.setenv("SP_UNIT_USD", unit_usd)
+    if unit_usd is not None:                                     # v1.2: a dollar unit, pinned (never an env)
+        monkeypatch.setattr(dp, "UNIT_PIN", dp.unit_basis_usd(unit_usd))
     doc = {"sport": "mlb", "predictions": [
         row("Susp", 0.56),                                       # kalshi-only: suspended under Q3
         dict(row("Quar", 0.71, fair_h=0.56, bid=0.55, ask=0.56), stage="postseason"),   # +15pp: shadow 0.5u

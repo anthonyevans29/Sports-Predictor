@@ -165,7 +165,6 @@ def venue_desk(*rows, code="NHL"):
 def test_a_pass_venue_row_carries_units_0_and_class_pass_and_a_venue_row_no_class(hold, monkeypatch):
     """Addendum 117 item 2(c): every PASS venue row (the quote-age hold, below floor, single venue, books < 4, in-play)
     reads units 0 / cls pass; a VENUE row carries no cls, as it never did. The venue sub-block is unchanged."""
-    monkeypatch.delenv("SP_UNIT_USD", raising=False)   # contracts by the unit, not the laptop's dollar unit
     rows = (fx("Held"), fx("Floor", fair=(0.55, 0.45), kal=(0.54, 0.46)), fx("Single", kal=None),
             fx("Thin", books=3), fx("InPlay", kickoff_min=-10))
     with (nullcontext() if hold else dp.quote_age_rule_off()):
@@ -188,7 +187,6 @@ def test_a_venue_pass_row_before_the_engine_carries_class_pass_too():
 
 
 def test_a_play_rows_sizing_is_unchanged(monkeypatch):
-    monkeypatch.delenv("SP_UNIT_USD", raising=False)   # contracts by the unit, not the laptop's dollar unit
     d = desk("nfl", pred("Play1u", 0.62, 0.55, "NFL"), pred("Big16", 0.71, 0.55, "NFL"))
     assert (d["Play1u"]["call"], d["Play1u"]["units"], d["Play1u"]["cls"]) == ("PLAY", 1, "play")
     # the same big-edge caution on a PLAY row still halves it and marks it caution

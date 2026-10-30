@@ -33,7 +33,8 @@ python cli.py export-predictions --sport soccer --competition PL \
 Notes:
 * soccer-expansion-v1 (ARCHITECT 2026-10-07): the PD / SA / BL1 / FL1 / ELC lines are DATA ONLY: no predict, no
   export. Their Kalshi series are pinned (addendum 2) and synced as CAPTURE ONLY: "A pinned series never makes a
-  league live." Those leagues are SHADOW until CONFIRMED (`export-soccer-expansion-shadow`). Each
+  league live." Those leagues are SHADOW until CONFIRMED (`export-soccer-expansion-shadow`, the host's
+  export: PD, and each of the four only once declared, addendum 178 R5/R6). Each
   competition-season needs `sync-teams` once before its first `sync-matches`, which skips clubs it does not know.
 * `sync-matches` first: catches postponements/rearrangements before anything
   prices against a stale kickoff (the Kalshi time gate depends on utc_date).

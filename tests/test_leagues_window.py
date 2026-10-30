@@ -548,7 +548,7 @@ def test_the_print_is_counts_only_at_every_state_and_ready_says_the_read_is_item
             "the run record's) · members 60 of 60 · state ready") in out
     assert "The one read is addendum 178 PR ORDER item 5's PR; nothing is scored here" in out
     assert "BL1 · declared_at 2026-11-06T14:30:00Z" in out and "members 5 of 60 · state accruing" in out
-    assert "present 0 · missing 5 (no stored rows: the export that writes them is a later PR)" in out
+    assert "present 0 · missing 5 (no stored rows: none written by the host's shadow export)" in out
     assert "SA · NOT DECLARED" not in out
     assert "FL1 · NOT DECLARED (no registry entry leagues-fl1-v1): no window" in out
 

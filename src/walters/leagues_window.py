@@ -78,8 +78,9 @@ the bar is 155 item 4(b)'s (below the close's log-loss), not league_gate's."
 - THE SCORING PATH (R1; item 5's PR calls it, this PR's CLI never does): score(window) recomputes every member at
   read time (predict_as_of at the frozen constants; the close by paper's own rule; the 90-minute outcome) and returns
   both arms' mean log-loss, unrounded, on the same 60, with verdict_of's PASS only when the candidate's is strictly
-  below the close's (a tie REJECTS), and the AUDIT of the stored prospective rows (stored_rows; none exist until the
-  export PR: "no stored rows").
+  below the close's (a tie REJECTS), and the AUDIT of the stored prospective rows (stored_rows: the rows the shadow
+  export, soccer_expansion.export_shadow, writes for a declared league after its declared_at, R5; "no stored rows"
+  where none was written).
 - THE FENCE (R8; addendum 181 items 1(b) and 4): fence_cutoff / fence_refusal. For every league of DECLARATION_IDS
   whose verdict is not recorded, its 2026/27 games kicking off after the cut are fenced from every other reader. The
   cut is the entry's declared_at; with NO entry it is PRE_DECLARATION_CUT (2026-10-30T15:00:00Z, addendum 181's
@@ -89,7 +90,8 @@ the bar is 155 item 4(b)'s (below the close's log-loss), not league_gate's."
   can be cut (paper.leagues_season, paper.close_record, leagues_candidate.parity, soccer_expansion.shadow_grade) read
   only the games at or before the cut and count the rest as fenced. A recorded verdict lifts it. The fence bars any
   figure of either arm on a window game, never reading a result as data (181 item 4: production training,
-  soccer-refresh, price_upcoming, the web views, resync-diff, compression_probe and preflight are not fenced).
+  soccer-refresh, the shadow export's pricing (export_shadow; price_upcoming before the export switch), the web views,
+  resync-diff, compression_probe and preflight are not fenced).
 The reader prints COUNTS ONLY (R2): no log-loss, probability, hit or any running figure of either arm, before n = 60
 or (in this PR) at it.
 """
@@ -119,7 +121,7 @@ PRE_DECLARATION_RULING = ("ARCHITECT 2026-10-30 11:00 ET, addendum 181 item 1(b)
 CONSTANTS_FIELD = "frozen_constants"
 CONSTANTS = ("production_version", "rho", "elo_goal_coeff")
 READER = "scripts/leagues_window.py (the cohort reader, src/walters/leagues_window.py)"
-EXPORT_PREFIX = "soccer_expansion_shadow_"    # soccer_expansion.FILE_PREFIX: where the export PR's rows will be read
+EXPORT_PREFIX = "soccer_expansion_shadow_"    # soccer_expansion.FILE_PREFIX (test-pinned equal): the export's files
 FENCE_RULING = (f"{ADDENDUM} R8, verbatim: \"FENCED: after a declaration the window's outcomes have one reader, the "
                 "cohort reader; guards_backtest refuses any other read of them until the verdict is recorded (the NCAA "
                 "fence's precedent).\"")
@@ -295,9 +297,11 @@ def fenced(cut: datetime | None, m) -> bool:
 def stored_rows(code: str, declared_at: str | None, export_dir: str = "exports") -> dict[int, dict]:
     """R1's audit receipt: {match_id: the LAST stored prospective row before its kickoff} from the shadow export's
     files (exports/soccer_expansion_shadow_*.json), only rows of `code` labelled with the league's declared_at (R5:
-    "after it, predict_as_of rows labelled with the league's declared_at"). The export that writes them is a later
-    PR (164 item 3); today no row carries the label, so this is {} ("no stored rows"). Rows of the current shadow
-    (price_upcoming's arithmetic, unlabelled) are never read as the candidate's."""
+    "after it, predict_as_of rows labelled with the league's declared_at"). The writer is soccer_expansion.
+    export_shadow (164 item 3; the host only, R6): for a declared league it writes rows only for fixtures kicking off
+    strictly after declared_at, each carrying that entry text byte for byte. {} ("no stored rows") until it has
+    written one. Rows written before the export switch (price_upcoming's arithmetic, unlabelled) are never read as
+    the candidate's."""
     out: dict[int, dict] = {}
     if not declared_at:
         return out
@@ -358,6 +362,16 @@ def result_of(m) -> str | None:
     return "H" if hg > ag else ("A" if hg < ag else "D")
 
 
+def not_final(m) -> bool:
+    """A game a later walk reads once final that is not final yet: LIVE, SCHEDULED, or FINISHED with no score stored
+    or no usable result (an AET / PEN row without its 90'). AWD / WO is final and released first, whatever its row
+    stores (181 item 2). POSTPONED is not here (R4 places it by its actual kickoff). One function for membership's
+    `before_instant` and the shadow export's inputs_read.pending_before (soccer_expansion.shadow_entry)."""
+    st = _status(m)
+    return st in ("live", "scheduled") or (st == "finished" and _raw(m) not in AWARDED and (
+        m.home_score is None or m.away_score is None or result_of(m) is None))
+
+
 def membership(s, code: str, declared_at: datetime, constants: dict, now: datetime) -> dict:
     """The window of one declared league as of `now` (the module docstring's order). Counts and ids only: the
     probabilities predict_as_of returns are discarded here and recomputed by score() at the read (R1)."""
@@ -388,10 +402,7 @@ def membership(s, code: str, declared_at: datetime, constants: dict, now: dateti
         st = _status(m)
         if st == "postponed":        # it can still enter the window by its actual kickoff once re-dated (R4)
             out["postponed_before"] += 1
-        elif is_regular(m.stage) and (st in ("live", "scheduled") or (
-                st == "finished" and _raw(m) not in AWARDED       # 181 item 2: AWD / WO is final and released first,
-                and (m.home_score is None or m.away_score is None   # whatever its row stores; no score stored, or
-                     or result_of(m) is None))):                    # an AET/PEN prior without its 90', waits
+        elif is_regular(m.stage) and not_final(m):
             out["pending"]["before_instant"] += 1    # not final: every member's walk reads it once final (R1, R4)
             out["blocking"] += 1
         else:
@@ -656,8 +667,8 @@ def lines(res: dict, now: datetime) -> list[str]:
                      "score, C1; listed as C2 lists them, addendum 181 item 3):")
             L.extend(f"    - {x}" for x in w["no_raw_code_members"])
         L.append(f"  - stored prospective rows (R1's audit receipt): present {w['stored_present']} · missing "
-                 f"{w['stored_missing']}" + ("" if w["stored_present"] else " (no stored rows: the export that "
-                                                                            "writes them is a later PR)"))
+                 f"{w['stored_missing']}" + ("" if w["stored_present"] else " (no stored rows: none written by "
+                                                                            "the host's shadow export)"))
         if w.get("verdict_recorded"):
             L.append(f"  - {code} · the verdict is recorded in {w['id']}: the fence is lifted")
         elif w["state"] == "ready":

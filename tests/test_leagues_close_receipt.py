@@ -327,14 +327,48 @@ def _script_db(tmp_path, monkeypatch):
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{tmp_path / 'iso.db'}")    # the iso_db fixture's file
 
 
-def test_the_script_refuses_with_status_2_when_no_production_model_resolves(tmp_path, monkeypatch, capsys):
-    """Codex P1 on #663: no production soccer model -> REFUSED, exit 2 (as cli.py's soccer-expansion commands), never
-    a 0 over a receipt without its parity part."""
+def test_the_script_refuses_with_status_2_when_the_run_record_holds_no_constants(tmp_path, monkeypatch, capsys):
+    """Codex P1 on #663, rebound by the export switch (164 item 3: "bound to the run record's frozen parameters"): no
+    frozen constants in the soccer-expansion-v1 run record -> REFUSED, exit 2, never a 0 over a receipt without its
+    parity part."""
+    import json
+
+    from src.walters import registry as reg
+    _script_db(tmp_path, monkeypatch)
+    led = tmp_path / "experiments.json"
+    led.write_text(json.dumps([{"id": "soccer-expansion-v1", "run": None}]))
+    monkeypatch.setattr(reg, "LEDGER", str(led))
+    assert lr.main([]) == lr.REFUSED == 2
+    out = capsys.readouterr().out
+    assert "PARITY (158 item 2(a)): REFUSED: soccer-expansion-v1 has no run record holding" in out
+
+
+def test_the_parity_runs_at_the_run_records_constants_production_a_reference_line_and_pd_first(tmp_path,
+                                                                                                monkeypatch, capsys):
+    """164 item 3: the parity's constants are the run record's (the export's binding); the production model is
+    printed beside them as a reference only, never the parity's input; PD (159 item 6(a)) is in the loop, first."""
     from src.walters import leagues_candidate as lc
     _script_db(tmp_path, monkeypatch)
+    seen = []
+    real = lc.parity
+    monkeypatch.setattr(lc, "parity", lambda code, rho, coeff, **k: seen.append((code, rho, coeff)) or real(
+        code, rho, coeff, **k))
+    monkeypatch.setattr(lc, "production_poisson", lambda: ("v99", -0.2, 0.002))
+    assert lr.main([]) == 0
+    out = capsys.readouterr().out
+    assert seen == [(c, -0.1, 0.0008) for c in ("PD", "SA", "BL1", "FL1", "ELC")]
+    assert ("PARITY (158 item 2(a)): the soccer-expansion-v1 run record's frozen constants v22 (rho -0.1, Elo goal "
+            "coefficient 0.0008)") in out
+    assert ("  - reference only, never the parity's input: the production soccer model v99 (rho -0.2, Elo goal "
+            "coefficient 0.002); NOT equal to the frozen constants (the export never reads it)") in out
+    monkeypatch.setattr(lc, "production_poisson", lambda: ("v22", -0.1, 0.0008))
+    assert lr.main([]) == 0
+    assert "the production soccer model v22 (rho -0.1, Elo goal coefficient 0.0008); equal to the frozen constants " \
+           "today" in capsys.readouterr().out
     monkeypatch.setattr(lc, "production_poisson", lambda: None)
-    assert lr.main([]) == lr.REFUSED == 2
-    assert "PARITY (158 item 2(a)): REFUSED: no production soccer model resolved" in capsys.readouterr().out
+    assert lr.main([]) == 0                         # the reference is not the parity's input: never a refusal
+    assert "the production soccer model not resolved" in capsys.readouterr().out
+    assert f"PD {SEASON} · PARITY (158 item 2(a)) · finished regular-round 0" in out
 
 
 def test_the_script_refuses_with_status_2_on_an_unplaceable_stage_and_prints_the_other_leagues(tmp_path, monkeypatch,

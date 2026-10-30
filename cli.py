@@ -6663,18 +6663,48 @@ def soccer_expansion_gate_cmd(preflight, no_fetch):
 @cli.command("export-soccer-expansion-shadow")
 @click.option("--hours", default=72, show_default=True, type=int)
 def export_soccer_expansion_shadow_cmd(hours):
-    """soccer-expansion-v1 SHADOW: PD, SA, BL1, FL1, ELC priced by the PRODUCTION soccer model walked over the
-    current season; engine model_shadow (greyed; never a Desk call, never an order line, no prediction row).
-    Writes exports/soccer_expansion_shadow_<stamp>.json."""
-    from src.walters import soccer_expansion as sx
-    prod = _soccer_prod_poisson()
-    if prod is None:
-        click.echo("REFUSED: no production soccer model resolved (nothing faked)")
+    """soccer-expansion-v1 SHADOW, on the HOST only (ARCHITECT 2026-10-30 addendum 178 R6, verbatim in part:
+    "THE EXPORT runs on the HOST only (the writer of record ...) — the laptop never exports a league."). PD (159
+    item 6(a)) and each DECLARED league of SA, BL1, FL1, ELC (R5: none before its declaration) priced by
+    leagues_candidate.predict_as_of at the run record's frozen constants, never the production model (164 item 3);
+    engine model_shadow (greyed; never a Desk call, never an order line, no prediction row). Writes
+    exports/soccer_expansion_shadow_<stamp>.json.
+    REFUSED (exit 2) before any DB read, nothing read or written, unless this machine's role
+    (desk_policy.not_host_reason, on the fence's own reading: host.env, the environment, the checkout's .env) is
+    host: laptop, unset, a value that is neither, and an unreadable host.env each refuse with their own reason. The
+    role, never SP_WRITER_OF_RECORD and never host_fenced (whose switch is off). Per league it prints the binding's
+    state, the rows and the missing fixtures by reason.
+    Code's default, open for the architect (D7): a refused league (its binding, or F3) exits 2 after the other
+    leagues are written, as the cohort reader does.
+    Code's default, open for the architect (D2): no chain, timer or UNMETERED entry runs it yet (the chain and the
+    time need a ruling); deploy/hosting/chains.py is untouched."""
+    from src.walters import desk_policy as _dp
+    why = _dp.not_host_reason()
+    if why is not None:
+        click.echo(f"REFUSED: export-soccer-expansion-shadow runs on the host only (the writer of record; ARCHITECT "
+                   f"2026-10-30 addendum 178 R6: the laptop never exports a league): {why}. Nothing was read or "
+                   "written.")
         raise SystemExit(2)
-    path, doc = sx.export_shadow(prod, hours=hours)
+    from src.walters import soccer_expansion as sx
+    path, doc = sx.export_shadow(hours=hours)
     console.print(f"[green]✓ Wrote soccer-expansion SHADOW to {path}[/green]")
-    print(f"  {doc['count']} games in the next {hours}h · model {doc['model_version']} · " + " · ".join(
-        f"{c} {', '.join(f'{k} {v}' for k, v in sorted(n.items()))}" for c, n in doc["counts"].items()))
+    print(f"  {doc['count']} rows in the next {hours}h · frozen {doc['model_version'] or 'unknown'} (the run "
+          f"record's; never the production model) · code {doc['git_sha'] or 'unknown'}")
+    refused = []
+    for code, b in doc["bindings"].items():
+        n = doc["counts"].get(code) or {}
+        miss = {k: v for k, v in n.items() if k != "priced"}
+        print(f"  {code} · {b['state']}" + (f" · {b['candidate']} · declared_at {b['declared_at']}"
+                                             + (f" · window opens {b['window_opens_at']}" if b.get("window_opens_at")
+                                                else "")
+                                             + f" · rows {n.get('priced', 0)} · missing "
+                                             + (", ".join(f"{k} {v}" for k, v in sorted(miss.items())) or "none")
+                                             if b["state"] == sx.SHADOW_EXPORTING else ""))
+        if b["state"].startswith(sx.SHADOW_REFUSED):
+            refused.append(code)
+    if refused:
+        click.echo(f"REFUSED: {', '.join(refused)} (above); the other leagues were written to {path}")
+        raise SystemExit(2)
 
 
 @cli.command("soccer-expansion-shadow-grade")

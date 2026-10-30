@@ -143,15 +143,39 @@ confirmation section at the end of `src/walters/soccer_expansion.py`. The declar
 
 ## 6. Shadow (until CONFIRMED)
 
-- `export-soccer-expansion-shadow` prices the five leagues' scheduled matches in the window (72h default) with the
-  production model.
-  - The walk covers the current season's finished matches before now, using the same harness walk.
-  - Below min_prior finished matches, a league prices nothing, and that is counted.
+THE EXPORT SWITCH (ARCHITECT 2026-10-24, addendum 164 item 3; addendum 159 item 6(a); ARCHITECT 2026-10-30, addendum
+178 R1, R5, R6; lane leagues, #322). 164 item 3, verbatim in part: "the prospective predictions for SA/BL1/FL1/ELC —
+and for PD (159 item 6(a)) — are produced by leagues_candidate.predict_as_of from the declaration on, bound to the run
+record's frozen parameters, never by price_upcoming." R5, verbatim: "BEFORE THE DECLARATION the four leagues get no
+prospective rows (nothing is a shadow before it is declared); after it, predict_as_of rows labelled with the league's
+declared_at."
+
+- `export-soccer-expansion-shadow` runs on the HOST only (R6). On any other machine (role laptop, unset, a value that
+  is neither, or an unreadable host.env) it refuses, exit 2, before any DB read; nothing is read or written.
+- Each league has a binding (`soccer_expansion.shadow_bindings`, the registry read at call time):
+  - PD: soccer-expansion-v1 through `confirming()` (run record, PASS verdict, PD surviving), at the run record's
+    frozen constants (v22, rho -0.1, Elo goal coefficient 0.0008), checked equal to
+    `leagues_window.run_record_constants()`. Rows carry the entry's `declared_at` and its verdict's `at` as
+    `window_opens_at`, both verbatim (Code's default, open for the architect: D1).
+  - SA, BL1, FL1, ELC: no rows until the league's declaration entry exists (`not declared`); an entry the cohort
+    reader refuses gives no rows either (`refused: ...`). Declared, rows only for fixtures kicking off strictly after
+    its `declared_at`, each labelled with that text verbatim.
+- Every stored game of a bound league kicking off in the window (72h default), any status, is priced by
+  `leagues_candidate.predict_as_of` (F3 regular rounds, F5 batching, the one predicate, MIN_PRIOR 40) or listed in
+  `missing` with its reason: before_declared_at, status_<value>, not_regular, below_min_prior, no_strength. A stage
+  label the code cannot place, kicking off before the window's end, refuses that league (addendum 184 item 1); the
+  others are still written and the command exits 2.
 - It writes `exports/soccer_expansion_shadow_<stamp>.json`:
   - engine `model_shadow` (the Desk's `normalize` skips it; the Cockpit renders it in the greyed shadow card);
-  - per-row `gate_verdict` from the registry;
+  - `model_version` is the run record's production_version, never the production model's;
+  - each row carries `experiment`, `candidate`, `declared_at`, `frozen_constants`, `code_sha`, `input_cutoff`,
+    `prediction_stamp` and `inputs_read` (n_prior, last_prior_kickoff, pending_before); a declared league's
+    `gate_verdict` is its declaration's state, PD's is the experiment's;
+  - the header carries `git_sha`, `frozen_constants`, `bindings` and `missing`;
   - `contains_predictions: false`.
+- The rows of a declared league are the cohort reader's audit receipt (R1; `leagues_window.stored_rows` / `audit`).
 - It writes no Prediction row. So nothing reaches `evaluate`, `improve`, the results tally or the PL n=30 read.
+- The schedule is open for the architect (D2): no chain or timer runs the command yet.
 - `soccer-expansion-shadow-grade` (read-only) compares the shadow's top pick to the three-way book close (the #207
   close contract), per league.
 
@@ -221,7 +245,8 @@ It rules F1–F5 only. F6 is not ruled and stays in `OPEN_FINDINGS`: the run sti
 5. **Batch key (F5):** "the same kickoff" = an identical stored `utc_date` (to the second). Within a batch, the Elo
    updates apply in the walk's sort order after every prediction of the batch.
 6. **The shadow** (`export-soccer-expansion-shadow`) is not the gate. It keeps its existing walk (no stage filter,
-   no batching).
+   no batching). SUPERSEDED 2026-10-30 by the export switch (addendum 164 item 3; section 6): the shadow's rows are
+   `leagues_candidate.predict_as_of`, the gate's walk, at the run record's frozen constants.
 
 ### Ledger finding (no run record touched)
 

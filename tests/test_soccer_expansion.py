@@ -218,7 +218,8 @@ def league():
                         status=MatchStatus.FINISHED, status_raw="FT", home_team_id=t[h].id, away_team_id=t[a].id,
                         home_score=rng.randint(0, 3), away_score=rng.randint(0, 3), stage=f"Regular Season - {i + 1}"))
         up = Match(sport=Sport.SOCCER, competition_id=c.id, season="2097/98", utc_date=start + timedelta(days=60, hours=5),
-                   status=MatchStatus.SCHEDULED, home_team_id=t[0].id, away_team_id=t[1].id)
+                   status=MatchStatus.SCHEDULED, home_team_id=t[0].id, away_team_id=t[1].id,
+                   stage="Regular Season - 49")       # a placed label: an unplaced one refuses the export (F3)
         s.add(up)
         s.flush()
         return {"up": up.id, "now": start + timedelta(days=60)}
@@ -243,15 +244,40 @@ def test_shadow_label_a_league_dropped_before_the_run_names_its_recorded_reason(
     assert sx._status_label(e, "PD") == "PASS · verdict PASS · confirmation open"
 
 
+SX_RUN = {"id": sx.EID, "status": "confirming", "declared_at": "2026-10-07T15:17:38Z",
+          "run": {"result": {"verdict": "PASS", "surviving": ["PD"], "production_version": "v22", "rho": -0.1,
+                             "elo_goal_coeff": 0.0008, "per_league": {"PD": {"verdict": "PASS"}}}},
+          "verdict": {"verdict": "PASS", "at": "2026-10-09T12:47:39Z"}}
+FL1_DECL = {"id": "leagues-fl1-v1", "competition": "FL1", "declared_at": "2097-08-01T00:00:00Z", "verdict": None,
+            "frozen_constants": {"production_version": "v22", "rho": -0.1, "elo_goal_coeff": 0.0008}}
+
+
 def test_shadow_rows_carry_no_desk_call_and_write_no_prediction(league, monkeypatch, tmp_path):
+    """The export switch (164 item 3; addendum 178 R5): FL1 has no row before its declaration; declared, its row is
+    leagues_candidate.predict_as_of at the run record's frozen constants, engine model_shadow, never a Desk input,
+    never a prediction row."""
+    from src.walters import leagues_candidate as lc
     monkeypatch.setattr(sx, "CURRENT_SEASON", "2097/98")
-    monkeypatch.setattr(reg, "get", lambda eid, path=None: DECLARED if eid == sx.EID else None)
-    path, doc = sx.export_shadow(("soccer_vX", -0.1, 0.0008), now=league["now"], hours=24, out_dir=str(tmp_path))
-    assert (doc["engine"], doc["contains_predictions"]) == ("model_shadow", False)
+    entries = {sx.EID: SX_RUN}
+    monkeypatch.setattr(reg, "get", lambda eid, path=None: entries.get(eid))
+    monkeypatch.setattr(lc, "production_poisson", lambda: ("soccer_vX", -0.2, 0.002))     # never read
+    path, doc = sx.export_shadow(now=league["now"], hours=24, out_dir=str(tmp_path / "before"))
+    assert doc["bindings"]["FL1"]["state"] == "not declared" and doc["counts"]["FL1"] == {}
+    assert not [x for x in doc["predictions"] if x["competition"] == "FL1"]
+    assert not [x for x in doc["missing"] if x["competition"] == "FL1"]
+    entries["leagues-fl1-v1"] = FL1_DECL
+    path, doc = sx.export_shadow(now=league["now"], hours=24, out_dir=str(tmp_path))
+    assert (doc["engine"], doc["contains_predictions"], doc["model_version"]) == ("model_shadow", False, "v22")
     (r,) = [x for x in doc["predictions"] if x["match_id"] == league["up"]]
-    assert r["engine"] == "model_shadow" and r["competition"] == "FL1" and r["gate_verdict"] == "DECLARED — gate not run"
+    assert r["engine"] == "model_shadow" and r["competition"] == "FL1" and r["model_version"] == "v22"
+    assert r["gate_verdict"] == "leagues-fl1-v1 · declared 2097-08-01T00:00:00Z · verdict pending"
     p = r["prediction"]
-    assert p["home_win_prob"] + p["draw_prob"] + p["away_win_prob"] == pytest.approx(1, abs=1e-3)
+    with session_scope() as s:
+        rows = lc._season_rows(s, "FL1", "2097/98")
+        want, _ = lc.predict_as_of(rows, s.get(Match, league["up"]), -0.1, 0.0008)
+        s.rollback()
+    assert (p["home_win_prob"], p["draw_prob"], p["away_win_prob"]) == tuple(
+        sx.shadow_prob(x) for x in (want.p_home, want.p_draw, want.p_away))
     assert "desk" not in r and "order" not in r
     assert dp.normalize(json.loads(open(path).read())) == []          # never a Desk input
     doc2 = json.loads(open(path).read())
@@ -259,7 +285,7 @@ def test_shadow_rows_carry_no_desk_call_and_write_no_prediction(league, monkeypa
     assert all("desk" not in x for x in doc2["predictions"])
     with session_scope() as s:
         assert s.execute(select(func.count(Prediction.id)).where(Prediction.match_id == league["up"])).scalar() == 0
-    assert doc["counts"]["FL1"]["priced"] == 1 and doc["counts"]["PD"] in ({"not_stored": 1}, {"priced": 0})
+    assert doc["counts"]["FL1"]["priced"] == 1
 
 
 def test_expansion_chains_are_data_only():

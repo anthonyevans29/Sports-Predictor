@@ -31,8 +31,13 @@ Then step (c)'s date as 156 item 1 rules it: the earliest of the four, the other
 The DB is the one DATABASE_URL names (else ./data/sports.db). A path with no file is refused before any import that
 could open it: the receipt never creates a database. One session, rolled back; nothing written.
 
-Then the parity receipt (158 item 2(a)) per league. It REFUSES with exit status 2, as cli.py's soccer-expansion
-commands do, when no production soccer model resolves, and per league when the league-season stores a stage label
+Then the parity receipt (158 item 2(a)) per league, PD first (159 item 6(a); PD is never fenced), then the four,
+at the soccer-expansion-v1 RUN RECORD's frozen constants (leagues_window.run_record_constants: the constants the
+shadow export binds to, ARCHITECT 2026-10-24, addendum 164 item 3: "bound to the run record's frozen parameters,
+never by price_upcoming"); the production model's are printed beside them as a reference line, never the parity's
+input. The shadow side is the export's own function (soccer_expansion.shadow_entry, through leagues_candidate.
+parity), so the receipt proves the export path. It REFUSES with exit status 2, as cli.py's soccer-expansion
+commands do, when the run record holds no constants, and per league when the league-season stores a stage label
 the code cannot place (the gate's F3 refusal); the close part above still prints. A league whose parity read is
 not equal (a row unequal, or a game priced by one path only) prints a NOT EQUAL line and exits 1 unless a
 refusal made it 2.
@@ -139,18 +144,28 @@ def main(argv=None) -> int:
     for ln in lines(leagues_season(LEAGUES, a.season, declared), a.season, declared):
         print(ln)
     from src.walters import leagues_candidate as lc
-    prod = lc.production_poisson()
-    if prod is None:                 # as the soccer-expansion commands refuse (cli.py): exit 2, never a pass
-        print("PARITY (158 item 2(a)): REFUSED: no production soccer model resolved (nothing faked); the receipt is "
-              "incomplete without its parity part")
+    from src.walters import leagues_window as lw
+    try:
+        frozen = lw.run_record_constants()
+    except lw.WindowRefused as e:    # as the soccer-expansion commands refuse (cli.py): exit 2, never a pass
+        print(f"PARITY (158 item 2(a)): REFUSED: {e}; the receipt is incomplete without its parity part")
         return REFUSED
-    print(f"PARITY (158 item 2(a)): the production soccer model {prod[0]} (rho {prod[1]}, Elo goal coefficient "
-          f"{prod[2]}); the shadow path is leagues_candidate.predict_as_of, the gate path run_soccer_backtest")
+    print(f"PARITY (158 item 2(a)): the soccer-expansion-v1 run record's frozen constants {frozen['production_version']}"
+          f" (rho {frozen['rho']}, Elo goal coefficient {frozen['elo_goal_coeff']}), the shadow export's binding (164 "
+          "item 3); the shadow path is soccer_expansion.shadow_entry (leagues_candidate.predict_as_of), the gate path "
+          "run_soccer_backtest")
+    prod = lc.production_poisson()
+    print("  - reference only, never the parity's input: the production soccer model "
+          + (f"{prod[0]} (rho {prod[1]}, Elo goal coefficient {prod[2]}); "
+             + ("equal to the frozen constants today" if (str(prod[0]), float(prod[1]), float(prod[2])) == (
+                 frozen["production_version"], frozen["rho"], frozen["elo_goal_coeff"]) else
+                "NOT equal to the frozen constants (the export never reads it)")
+             if prod is not None else "not resolved"))
     from src.walters.soccer_expansion import ExpansionRefused
     rc = 0
-    for code in LEAGUES:
+    for code in ("PD", *LEAGUES):
         try:
-            p = lc.parity(code, prod[1], prod[2], season=a.season)
+            p = lc.parity(code, frozen["rho"], frozen["elo_goal_coeff"], season=a.season)
         except ExpansionRefused as e:   # F3: an unplaceable stage label refuses, as the gate's run does
             print(f"{code} {a.season} · PARITY (158 item 2(a)) · REFUSED: {e}")
             rc = REFUSED

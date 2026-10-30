@@ -180,7 +180,9 @@ def read_pool(fetch=None, fields=None) -> dict:
         if pos["cursor"] not in page:          # the paging key is in every page (#732): absent is a shape fault
             return _unread(f"key '{pos['cursor']}' is missing from the positions response")
         cursor = page[pos["cursor"]]
-        if not cursor:                         # "An empty value of this field indicates there is no next page"
+        if not isinstance(cursor, str):        # addendum 188 item 2: "the cursor must be a string; "" ends paging;
+            return _unread("cursor not a string")   # absent, null or any non-string reads UNREAD, named"
+        if cursor == "":
             break
     else:
         return _unread(f"the positions read did not end within {MAX_PAGES} pages")

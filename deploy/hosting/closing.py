@@ -2851,11 +2851,13 @@ def _slate_what(rec: dict) -> str:
 
 
 def export_unit_unread(doc: dict, slate_read: dict | None) -> bool:
-    """The slate page's unread line follows the EXPORT's own unit (its desk_meta.unit; addendum 183 item 2(3): "the
-    slate's earlier read is not passed forward"); only a file carrying no unit falls back to the slate's read."""
+    """The slate page's unread line follows the EXPORT's own unit, its serialized desk_meta.unit.state (ARCHITECT
+    2026-10-30 14:50 ET, addendum 188 item 1, verbatim: "the page reads the export's `state` (read → no line; unread or
+    absent → the line; the contracts pin → no line), falls back to the slate's read only when the export carries no unit
+    at all"). Any other state shows the line (law 4: an unknown unit places no order)."""
     unit = (doc.get("desk_meta") or {}).get("unit") if isinstance(doc, dict) else None
-    if isinstance(unit, dict) and unit.get("mode"):
-        return unit.get("mode") == "unread"
+    if isinstance(unit, dict):
+        return unit.get("state") not in ("read", "contracts")
     return (slate_read or {}).get("state") != "read"
 
 

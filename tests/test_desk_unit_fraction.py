@@ -601,6 +601,8 @@ def test_the_slate_reads_the_unit_through_the_cli_and_receipts_no_figure(monkeyp
 
 def test_an_unread_slate_day_pages_the_line(box, monkeypatch):
     from tests.test_slate_run import et, slate_pages, the_day, tick
+    # 188 item 1: the line follows the EXPORT's own unit, so the export is unread too (its own read failed)
+    monkeypatch.setattr(dp, "UNIT_PIN", dp.unit_unread("fixture: the export's own read failed"))
     the_day(box, monkeypatch)
     monkeypatch.setattr(mc, "read_day_unit", lambda run_id: {"state": "unread", "et_date": "2026-10-18", "new": True,
                                                              "exit": 0})
@@ -666,16 +668,41 @@ def test_a_pinned_clock_on_another_et_day_never_reads_the_live_pool(day, monkeyp
     assert du.read_day(du.et_date(past)) is None
 
 
-def test_the_slate_pages_unread_line_follows_the_exports_own_unit():
-    """183 item 2(3): "the slate's earlier read is not passed forward": the page's unread line is the export's own
-    desk_meta.unit; only a file carrying no unit falls back to the slate's read."""
+def test_188_the_slate_pages_unread_line_reads_the_exports_own_serialized_state(day):
+    """Addendum 188 item 1: the page reads the state annotate() serializes (desk_meta.unit.state), on real annotate()
+    outputs, never a hand-built record: read -> no line; unread or absent -> the line; the contracts pin -> no line;
+    the slate's read only when the export carries no unit at all."""
     import sys
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "deploy" / "hosting"))
     import closing as cl
     read, unread = {"state": "read"}, {"state": "unread"}
-    assert cl.export_unit_unread({"desk_meta": {"unit": {"mode": "usd"}}}, unread) is False
-    assert cl.export_unit_unread({"desk_meta": {"unit": {"mode": "unread"}}}, read) is True
+    WALL[0] = NOW + timedelta(days=7)                                       # the wall clock on another ET day:
+    absent = dp.annotate(play_doc(), now=NOW)                               # no file and no live read, so absent
+    assert absent["desk_meta"]["unit"]["state"] == "absent" and cl.export_unit_unread(absent, read) is True
+    WALL[0] = NOW
+    du.day_unit(NOW, read_pool=failed())
+    assert du.read_day(DAY) is None
+    du.day_unit(NOW, read_pool=pool_of(FIXTURE_POOL))
+    got = dp.annotate(play_doc(), now=NOW)
+    assert got["desk_meta"]["unit"]["state"] == "read" and cl.export_unit_unread(got, unread) is False
+    path = du.path_for(DAY)
+    path.write_text(json.dumps({"kind": du.KIND, "et_date": DAY.isoformat(), "state": "unread", "why": "fixture"}))
+    bad = dp.annotate(play_doc(), now=NOW)
+    assert bad["desk_meta"]["unit"]["state"] == "unread" and cl.export_unit_unread(bad, read) is True
+    with dp.unit_override(dp.LEGACY_CONTRACTS_BASIS):
+        pinned = dp.annotate(play_doc(), now=NOW)
+    assert pinned["desk_meta"]["unit"]["state"] == "contracts" and cl.export_unit_unread(pinned, unread) is False
     assert cl.export_unit_unread({"desk_meta": {}}, unread) is True and cl.export_unit_unread({}, read) is False
+
+
+@pytest.mark.parametrize("cursor", [None, False, 0, [], {}, 1], ids=["null", "false", "zero", "list", "dict", "int"])
+def test_188_a_cursor_that_is_not_a_string_is_unread(cursor):
+    """Addendum 188 item 2, option (a): the cursor must be a string; "" ends paging; absent, null or any non-string
+    reads UNREAD, named ("cursor not a string")."""
+    pages = two_pages()
+    pages[0]["cursor"] = cursor
+    got = kpool.read_pool(fetch=fake_fetch(pages))
+    assert got == {"ok": False, "pool_usd": None, "why": "cursor not a string"}
 
 
 @pytest.mark.parametrize("v", ["1e3", " 12.000000", "12.1234567", "12.", ".5", "+1.00", "", "NaN", "-1.00", "1_000",

@@ -397,7 +397,7 @@ def membership(s, code: str, declared_at: datetime, constants: dict, now: dateti
     out = {"code": code, "season": SEASON, "declared_at": declared_at, "constants": dict(constants),
            "stored_games": len(games), "at_or_before": 0, "postponed_before": 0, "members": [],
            "excluded": Counter(), "pending": Counter(), "to_come": 0, "not_placed": 0, "blocking": 0,
-           "awarded_released": [], "no_raw_code_members": [], "score_disagreement": []}
+           "awarded_released": [], "no_raw_code_members": [], "score_disagreement": [], "disagreement_before": 0}
     for m in games:
         if m.utc_date is not None and m.utc_date > declared_at:
             continue
@@ -406,6 +406,7 @@ def membership(s, code: str, declared_at: datetime, constants: dict, now: dateti
             out["postponed_before"] += 1
         elif is_regular(m.stage) and st == "finished" and disagrees(m):
             out["pending"]["score_disagreement"] += 1   # 184 item 2: every member's walk reads it, so the read waits
+            out["disagreement_before"] += 1           # the instant's tally names it (the line still adds up)
             out["blocking"] += 1
             out["score_disagreement"].append(m)
         elif is_regular(m.stage) and (st in ("live", "scheduled") or (
@@ -666,7 +667,9 @@ def lines(res: dict, now: datetime) -> list[str]:
                  f"record's) · members {w['n']} of {WINDOW_GAMES} · state {w['state']}")
         L.append(f"  - stored games of {SEASON} {w['stored_games']} · kicking off at or before the instant: final or "
                  f"never walked {w['at_or_before']} (never in the window) · postponed {w['postponed_before']} "
-                 f"({NOT_PLACED}) · not final {w['pending'].get('before_instant', 0)} (pending, below)")
+                 f"({NOT_PLACED}) · not final {w['pending'].get('before_instant', 0)} (pending, below)"
+                 + (f" · score disagreement {w['disagreement_before']} (pending, below)"
+                    if w.get("disagreement_before") else ""))
         L.append(f"  - excluded (no slot): {_causes(w['excluded'], EXCLUDED)}")
         pend = Counter(w["pending"])
         L.append(f"  - pending (the read waits for them): scheduled {w['to_come']} · LIVE {pend['live']} · un-ingested "
@@ -696,5 +699,5 @@ def lines(res: dict, now: datetime) -> list[str]:
                      "read is addendum 178 PR ORDER item 5's PR; nothing is scored here")
         elif w["state"] == "waiting":
             L.append(f"  - {code} · WAITING: {WINDOW_GAMES} members, {w['blocking']} game(s) before the "
-                     f"{WINDOW_GAMES}th not final (R4: the read waits, never skips)")
+                     f"{WINDOW_GAMES}th pending (not final, or a score disagreement; R4: the read waits, never skips)")
     return L

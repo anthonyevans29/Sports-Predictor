@@ -11,9 +11,10 @@ Per league (SA, BL1, FL1, ELC), from src/walters/leagues_window.py: NOT DECLARED
 printed), or the declaration's instant (declared_at, UTC) and frozen constants, members n of 60, the exclusions by
 cause, the pending games by kind (R2's list: scheduled, LIVE, un-ingested; then finished with no usable result, i.e.
 no score stored or a non-FT code with no 90-minute score, and a game at or before the instant not final, which every
-member's walk reads once final), the AWD / WO rows released from the walk and the members with no raw code (each
+member's walk reads once final; and the score disagreement, an FT row whose stored 90-minute score differs from its
+stored score, listed with both figures: ARCHITECT 2026-10-30, addendum 184 item 2, #736), the AWD / WO rows released from the walk and the members with no raw code (each
 listed, ARCHITECT 2026-10-30, addendum 181 items 2 and 3), the postponed games not placed, the stored prospective rows
-present or missing (none until the export PR), and the state: accruing, waiting (R4: a game before the 60th not final) or ready. At ready it
+present or missing (none until the export PR), and the state: accruing, waiting (R4: a game before the 60th pending) or ready. At ready it
 says the one read is addendum 178 PR ORDER item 5's PR and stops: nothing is scored by this script, at any n.
 
 The DB is the one DATABASE_URL names (else ./data/sports.db), as scripts/leagues_close_receipt.py reads it. A path

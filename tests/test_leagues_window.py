@@ -1085,3 +1085,64 @@ def test_184_2_score_refuses_while_a_disagreement_stands(ledger):
     assert w["state"] == "waiting" and dict(w["pending"]) == {"score_disagreement": 1}
     with pytest.raises(lw.WindowRefused, match="state 'waiting'"):
         lw.score(w, now=NOW)
+
+
+def test_184_2_the_instants_tally_names_a_disagreement_before_it_and_still_adds_up(ledger):
+    """Review of #736: a disagreeing prior is in none of final / postponed / not final, so the tally names it; the
+    four figures add up to the games at or before the instant."""
+    _comps()
+    ledger(decl("SA"))
+    t = _teams("SA")
+    _priors("SA", t)
+    _set_90(1005, 0, 0)
+    w = _read("SA")
+    assert w["disagreement_before"] == 1
+    assert w["at_or_before"] + w["postponed_before"] + w["pending"].get("before_instant", 0) \
+        + w["disagreement_before"] == 40
+    head = next(x for x in lw.lines({"SA": w}, NOW) if "kicking off at or before the instant" in x)
+    assert head.endswith("not final 0 (pending, below) · score disagreement 1 (pending, below)")
+
+
+def test_184_2_the_pair_is_compared_whole_on_the_raw_code_as_the_predicate_reads_it(ledger):
+    """Review of #736: an away-only difference is a disagreement; a raw " ft " is FT (stripped, upper-cased); one
+    90-minute figure stored is no stored 90-minute score (no disagreement: the row is read on its stored score, as the
+    walk and result_of both read it); a play-off FT row before the instant is never walked, so never pending."""
+    from src.db.database import session_scope
+    from src.db.schema import Match
+    _comps()
+    ledger(decl("SA"))
+    t = _teams("SA")
+    _priors("SA", t)
+    _game(2980, "SA", AT + timedelta(hours=1), (t[2], t[5]), hs=1, as_=1)
+    _set_90(2980, 1, 0)                                                              # away figure only
+    _game(2981, "SA", AT + timedelta(hours=2), (t[3], t[6]), hs=2, as_=0, raw=" ft ")
+    _set_90(2981, 0, 0)
+    _game(2982, "SA", AT + timedelta(hours=3), (t[4], t[7]), hs=2, as_=0)
+    _set_90(2982, 1, None)                                                           # one 90' figure stored
+    _game(2983, "SA", AT - timedelta(days=1), (t[8], t[9]), hs=3, as_=0, stage="Relegation Round - 1")
+    _set_90(2983, 0, 0)
+    for mid, h in ((2980, 1), (2981, 2), (2982, 3)):
+        _legs(mid, AT + timedelta(hours=h))
+    w = _read("SA")
+    assert dict(w["pending"]) == {"score_disagreement": 2} and w["disagreement_before"] == 0
+    assert [x.split(" · ")[0] for x in w["score_disagreement"]] == ["2980", "2981"]
+    assert 2982 in w["members"]
+    with session_scope() as s:
+        assert [lw.disagrees(s.get(Match, i)) for i in (2980, 2981, 2982, 2983)] == [True, True, False, True]
+        assert lw.result_of(s.get(Match, 2982)) == "H"
+        s.rollback()
+
+
+def test_184_2_a_disagreement_landing_after_a_ready_read_refuses_the_score(ledger):
+    """Review of #736: score() re-derives the window, so a sync that writes a disagreeing 90-minute score onto a
+    member after a ready read refuses (the window moved): never scored on one figure or the other."""
+    _comps()
+    ledger(decl("SA"))
+    t = _teams("SA")
+    _priors("SA", t)
+    _members("SA", t, 60, 2000, AT + timedelta(hours=1))
+    w = _read("SA")
+    assert w["state"] == "ready"
+    _set_90(2010, 0, 3)
+    with pytest.raises(lw.WindowRefused, match="the window moved between the read and the score"):
+        lw.score(w, now=NOW)

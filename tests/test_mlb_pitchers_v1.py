@@ -1091,7 +1091,7 @@ def test_a_ledger_save_failure_removes_the_cohort_file_and_freezes_nothing(gate,
     monkeypatch.setattr(reg, "save", boom)
     with pytest.raises(mp.GateRefused) as ex:
         mp.freeze(gate["db"], no_fetch=True)
-    assert "could not be saved" in str(ex.value) and "nothing frozen" in str(ex.value)
+    assert "could not be completed" in str(ex.value) and "nothing frozen" in str(ex.value)
     assert not os.path.exists(os.path.join(reg.IDS_DIR, mp.COHORT_FILE))
     assert mp._entry()[mp.COHORT_KEY] is None
 
@@ -1172,3 +1172,68 @@ def test_the_fingerprint_is_the_rows_not_their_order_or_the_file(gate, tmp_path)
 def _prod(p):
     with mp.readonly_session(Path(p)) as s:
         return mp.production_config(s)
+
+
+# ============================================================================ #749 (addendum 194 item 2), items 1-3 --
+
+def test_749_1_a_failed_reservation_write_removes_the_file_and_spends_nothing(gate, monkeypatch):
+    """A write that fails after the exclusive create (a full disk) leaves no reservation: the one run is not spent,
+    the refusal names it, and the next reservation goes through."""
+    real = mp.json.dump
+
+    def half(obj, f, *a, **k):
+        f.write('{"id": "mlb-pi')
+        raise OSError(28, "No space left on device")
+    monkeypatch.setattr(mp.json, "dump", half)
+    with pytest.raises(mp.GateRefused) as ex:
+        mp.reserve({"db": "x"}, no_fetch=True)
+    assert "could not be written" in str(ex.value) and "not spent" in str(ex.value)
+    assert not os.path.exists(mp.reservation_path())
+    monkeypatch.setattr(mp.json, "dump", real)
+    assert mp.reserve({"db": "x"}, no_fetch=True) == mp.reservation_path()
+    assert json.loads(Path(mp.reservation_path()).read_text())["id"] == mp.EID
+
+
+def test_749_2_a_non_numeric_cohort_token_refuses_naming_the_file(gate):
+    mp.freeze(gate["db"], no_fetch=True)
+    f = Path(reg.IDS_DIR) / mp.COHORT_FILE
+    f.write_text(f.read_text() + "<<<<<<< HEAD\n")
+    with pytest.raises(mp.GateRefused) as ex:
+        mp.run(gate["db"], no_fetch=True)
+    assert "docs/registry/ids/mlb-pitchers-v1.cohort.txt" in str(ex.value) and "not an id" in str(ex.value)
+    assert not os.path.exists(mp.reservation_path())
+
+
+@pytest.mark.parametrize("where", ["reload", "save-truncated"])
+def test_749_3_any_failure_in_the_freeze_sequence_leaves_nothing(gate, monkeypatch, where):
+    """One rollback around the whole sequence: a failure in the ledger's reload after the cohort file is written, or a
+    save that truncates the ledger and then fails, removes the cohort file and puts the ledger's bytes back; the next
+    freeze goes through."""
+    before = Path(reg.LEDGER).read_bytes()
+    cohort = Path(reg.IDS_DIR) / mp.COHORT_FILE
+    if where == "reload":
+        real = reg.load
+
+        def flaky(*a, **k):                         # fails only inside the sequence, once the file is written
+            if cohort.exists():
+                raise OSError(5, "Input/output error")
+            return real(*a, **k)
+        monkeypatch.setattr(reg, "load", flaky)
+        restore = ("load", real)
+    else:
+        real = reg.save
+
+        def boom(entries, path=reg.LEDGER):
+            with open(path, "w") as fh:
+                fh.write('[{"id": "trunc')
+            raise OSError(28, "No space left on device")
+        monkeypatch.setattr(reg, "save", boom)
+        restore = ("save", real)
+    with pytest.raises(mp.GateRefused) as ex:
+        mp.freeze(gate["db"], no_fetch=True)
+    msg = str(ex.value)
+    assert "could not be completed" in msg and "the cohort file is removed" in msg and "the ledger is as it was" in msg
+    assert not cohort.exists() and Path(reg.LEDGER).read_bytes() == before
+    monkeypatch.setattr(reg, *restore)
+    mp.freeze(gate["db"], no_fetch=True)                                            # the next freeze goes through
+    assert cohort.exists() and mp._entry()[mp.COHORT_KEY]["n"] == len(gate["ids"])

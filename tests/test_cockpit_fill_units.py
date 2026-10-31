@@ -4,10 +4,13 @@ FILL_UNIT_CONTRACTS=10 goes; the page holds no dollar figure; a file whose order
 fill in contracts with the label "contracts (no unit basis in file)", never a guessed unit. The page's own functions
 run under node on synthetic fills.
 
-DESK POLICY v1.2 (#740; ARCHITECT 2026-10-30 11:20 ET, addendum 182 item 6, verbatim): "1. Set POLICY_VERSION to v1.2.
-2. Convert each fill's units by the unit of the file's own ET day: its desk_meta.unit label, read on that file's ET
-date, never another day's. 3. Render an unread day's label ("unit unread — no order") as contracts only, with no dollar
-basis. 4. Test it through the cockpit verifies, on synthetic files only." Every unit below is a synthetic fixture."""
+DESK POLICY v1.2 (#740). The ruling (ARCHITECT 2026-10-30 11:20 ET, addendum 182 item 6), as recorded on #734: "the
+Cockpit gets one follow-up PR:" / "- `POLICY_VERSION` v1.2;" / "- fills converted by the file's own ET day;" / "- the
+"unit unread" label rendered as contracts only.". The Issue's plan (#740, "The PR (one, after #734)"): "1. Set
+`POLICY_VERSION` to v1.2." "2. Convert each fill's units by the unit of the file's own ET day: its `desk_meta.unit`
+label, read on that file's ET date, never another day's." "3. Render an unread day's label ("unit unread — no order")
+as contracts only, with no dollar basis." "4. Test it through the cockpit verifies, on synthetic files only." Every unit
+below is a synthetic fixture."""
 import json
 import re
 import shutil
@@ -99,7 +102,7 @@ def _run(tmp_path, rows, fills=FILLS, parlays=None):
 needs_node = pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
 
 
-# ---- v1.1 files (no dated desk_meta.unit): the order-line basis, today's behaviour, for every day no v1.2 file names
+# ---- v1.1 files (no dated desk_meta.unit): the order-line basis, today's behaviour, for the days before any v1.2 day
 
 @needs_node
 def test_a_dollar_unit_reads_the_entry_cost_over_the_files_unit(tmp_path):
@@ -169,18 +172,18 @@ def test_the_page_reads_the_basis_from_the_rows_and_the_parlays_file():
 
 # ---- v1.2 (#740): the unit of the file of the fill's own ET day ----------------------------------------------------
 
-def _meta(et_date, label, state="read"):
+def _meta(et_date, label, state="read", as_of=None):
     """A v1.2 file's desk_meta, as desk_policy.unit_meta writes it (synthetic units only)."""
-    return {"policy_version": "v1.2", "as_of": f"{et_date}T16:00:00Z",
+    return {"policy_version": "v1.2", "as_of": as_of or f"{et_date}T16:00:00Z",
             "unit": {"state": state, "et_date": et_date, "label": label, "why": None, "fraction": 0.08,
                      "half_fraction": 0.04, "floor_name": "SP_UNIT_FLOOR_USD"}}
 
 
-def _row12(et_date, label, state="read"):
+def _row12(et_date, label, state="read", as_of=None):
     unit = label if state == "read" else "unit unread"
     order = {"text": "BUY ...", "unit": unit} if state == "read" else {"text": None, "unit": unit,
                                                                        "why": "unit unread — no order"}
-    return {"fileDesk": {"order": order}, "deskMeta": _meta(et_date, label, state)}
+    return {"fileDesk": {"order": order}, "deskMeta": _meta(et_date, label, state, as_of)}
 
 
 def _fill(ticker, side, qty, entry, fees=0.05):
@@ -279,25 +282,65 @@ def test_two_files_of_one_day_that_disagree_are_a_conflict(tmp_path):
     assert out["home"]["units"] == pytest.approx(23.0 / 20)
 
 
+V11 = {"fileDesk": {"order": {"text": "BUY", "unit": "1u = $10"}},
+       "deskMeta": {"policy_version": "v1.1", "as_of": "2026-10-13T16:00:00Z"}}
+
+
 @needs_node
-def test_a_v11_file_beside_v12_files_keeps_its_order_line_basis_for_the_other_days(tmp_path):
+def test_a_v11_file_beside_v12_files_keeps_its_order_line_basis_before_the_first_v12_day(tmp_path):
     """A v1.1 file (no dated desk_meta.unit; a v1.2 file with an undated unit, the tests' contracts pin, reads the
-    same way) keeps today's behaviour for the days no v1.2 file names; the days a v1.2 file names are its own."""
-    v11 = {"fileDesk": {"order": {"text": "BUY", "unit": "1u = $10"}},
-           "deskMeta": {"policy_version": "v1.1", "as_of": "2026-10-13T16:00:00Z"}}
-    out = _run(tmp_path, [v11, _row12("2026-10-15", "unit unread", "unread")], MULTI)
+    same way) keeps today's behaviour for the days before the first ET day a loaded v1.2 file names; the days a v1.2
+    file names are its own, and a later day no v1.2 file names is contracts only: the retired v1.1 unit is never
+    another (v1.2-era) day's (item 2, "never another day's"; law 4)."""
+    out = _run(tmp_path, [V11, _row12("2026-10-15", "unit unread", "unread")], MULTI)
     assert out["db"]["legacy"] == {"mode": "usd", "value": 10}
     assert out["games"][G1]["unit"]["kind"] == "legacy" and _home(out, G1)["units"] == pytest.approx(23.0 / 10)
     assert out["games"][G2]["unit"]["kind"] == "unread" and _home(out, G2)["units"] is None     # never the v1.1 unit
-    assert out["games"][G3]["unit"]["kind"] == "legacy" and _home(out, G3)["units"] == pytest.approx(8.0 / 10)
-    assert ("2026-10-15 unit unread — no order (contracts only); 2 day(s) no v1.2 file names at 1u = $10 (the v1.1 "
-            "files' order lines)") in out["head"]
+    g3 = out["games"][G3]
+    assert g3["unit"]["kind"] == "missing" and _home(out, G3)["units"] is None and _home(out, G3)["over"] is None
+    assert g3["unit"]["label"] == "contracts (no unit basis for 2026-10-16 in the loaded files)"
+    assert ("2026-10-15 unit unread — no order (contracts only); 2026-10-16 contracts (no unit basis for 2026-10-16 in "
+            "the loaded files); 1 day(s) no v1.2 file names at 1u = $10 (the v1.1 files' order lines)") in out["head"]
+    # with no v1.2 file loaded, the v1.1 basis is every day's, as before
+    out = _run(tmp_path, [V11], MULTI)
+    assert all(out["games"][k]["unit"]["kind"] == "legacy" for k in (G1, G2, G3))
     pinned = {"fileDesk": {"order": {"text": "BUY", "unit": "1u = 10 contracts (SP_UNIT_USD unset)"}},
               "deskMeta": {"policy_version": "v1.2", "unit": {"state": "contracts", "et_date": None,
                                                                "label": "1u = 10 contracts (SP_UNIT_USD unset)"}}}
     out = _run(tmp_path, [pinned], FILLS)
     assert out["db"] == {"days": {}, "legacy": {"mode": "contracts", "value": 10}}
     assert out["home"]["units"] == pytest.approx(6.0)
+
+
+@needs_node
+def test_a_conflicted_day_stays_a_conflict_beside_a_v11_file(tmp_path):
+    """Two 10-14 files that differ, a v1.1 file loaded too: 10-14 is a conflict (contracts only), never the v1.1 unit."""
+    out = _run(tmp_path, [V11, _row12("2026-10-14", "1u = $20"), _row12("2026-10-14", "1u = $25")], FILLS)
+    assert out["db"]["legacy"] == {"mode": "usd", "value": 10}
+    assert out["games"][G1]["unit"]["kind"] == "conflict"
+    assert out["home"]["units"] is None and out["home"]["over"] is None and out["over"] is None
+
+
+@needs_node
+def test_a_files_day_is_its_unit_et_date_never_the_utc_date_of_as_of(tmp_path):
+    """Item 2, "read on that file's ET date": an evening export (21:30 ET on 10-14) has as_of on the next UTC day; its
+    unit is 10-14's, and 10-15 has no file."""
+    row = _row12("2026-10-14", "1u = $20", as_of="2026-10-15T01:30:00Z")
+    out = _run(tmp_path, [row], MULTI)
+    assert out["db"]["days"] == {"2026-10-14": {"mode": "usd", "value": 20}}
+    assert out["games"][G1]["unit"]["kind"] == "day" and _home(out, G1)["units"] == pytest.approx(23.0 / 20)
+    assert out["games"][G2]["unit"]["label"] == "contracts (no unit basis for 2026-10-15 in the loaded files)"
+    assert _home(out, G2)["units"] is None
+
+
+@needs_node
+def test_the_headline_names_the_latest_8_days_and_counts_the_rest(tmp_path):
+    """C6: fills on 10 ET days (no file loaded): the 2 earliest are counted, the latest 8 named in date order."""
+    fills = [_fill(f"KXMLBGAME-26OCT{d:02d}MILLAD-LAD", "yes", 10, 0.50) for d in range(5, 15)]
+    out = _run(tmp_path, [], fills)
+    clause = "; ".join(f"2026-10-{d:02d} contracts (no unit basis for 2026-10-{d:02d} in the loaded files)"
+                       for d in range(7, 15))
+    assert f"units by the file's ET day: 2 earlier day(s) not named; {clause} · " in out["head"]
 
 
 @needs_node

@@ -160,8 +160,15 @@ def main():
         check("v1.2: the unread 09-27 day's games are contracts only, 'unit unread — no order', no unit",
               tbl.count("2026-09-27: unit unread — no order (contracts only)") == 2
               and "BOS (home): 3 ct · if it lands" in tbl and "NYY (away): 3 ct · if it lands" in tbl, tbl[-400:])
-        check("v1.2: the day no v1.2 file names takes the v1.1 file's order-line unit (10-04 at 1u = $50)",
-              "2026-10-04: 1u = $50" in tbl, tbl[:400])
+        check("v1.2: a day after the first v1.2 day that no v1.2 file names is contracts only, never the v1.1 unit "
+              "(10-04, beside a v1.1 file's 1u = $50)",
+              "2026-10-04: contracts (no unit basis for 2026-10-04 in the loaded files)" in tbl
+              and "1u = $50" not in tbl, tbl[:400])
+        page.evaluate(f"(()=>{{const m={meta}; rows=[{{fileDesk:{{order:{{text:'BUY',unit:'1u = $50'}}}}}},"
+                      "{deskMeta:m('2026-10-04','unit unread','unread')}]; renderLedger();})()")
+        tbl = page.inner_text("#exposureTable") if page.query_selector("#exposureTable") else ""
+        check("v1.2: the days before the first v1.2 day take the v1.1 file's order-line unit (09-28 at 1u = $50)",
+              "2026-09-28: 1u = $50" in tbl and "2026-10-04: unit unread — no order (contracts only)" in tbl, tbl[:400])
         page.evaluate(f"(()=>{{const m={meta}; rows=[{{deskMeta:m('2026-09-28','1u = $5','read')}},"
                       "{deskMeta:m('2026-09-28','1u = $6','read')}]; renderLedger();})()")
         tbl = page.inner_text("#exposureTable") if page.query_selector("#exposureTable") else ""

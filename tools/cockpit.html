@@ -3,14 +3,16 @@
   FILL UNITS (#487, ARCHITECT 2026-10-13; addendum 67 item 3, 2026-10-14): a fill's units are its entry cost in
   dollars, fees left out, over the dollars of one unit READ FROM THE LOADED FILE's order lines ("1u = $N", as
   desk_policy.file_unit_basis reads it); "1u = N contracts" reads contracts over N. The page holds no dollar figure
-  of its own. A file whose order lines carry no unit basis shows the fill in contracts, labelled "contracts (no unit
-  basis in file)", never a guessed unit. Repo copy only: the live Cockpit is republished on the operator's word.
+  of its own. A file whose order lines carry no unit basis shows the fill in contracts, never a guessed unit (the
+  v1.1 label "contracts (no unit basis in file)" is superseded by the dated label below, #740). Repo copy only: the
+  live Cockpit is republished on the operator's word.
   BY THE FILE'S ET DAY (Desk policy v1.2, #740; ARCHITECT 2026-10-30 11:20 ET, addendum 182 item 6): a fill's units
   are read on the unit of the file of the fill's own ET day (the date its Kalshi ticker names), from that file's
   desk_meta.unit, never another day's; an unread day's fills are contracts only, labelled "unit unread — no order";
   a day no loaded file names is contracts only, labelled "contracts (no unit basis for <date> in the loaded files)";
   two loaded files of one day that differ are contracts only, both named. A file with no dated desk_meta.unit (v1.1)
-  keeps the order-line reading above for every day no v1.2 file names.
+  keeps the order-line reading above for the days before the first ET day a loaded v1.2 file names (every day when
+  none is loaded); a day on or after it that no v1.2 file names is contracts only, never the retired v1.1 unit.
 -->
 <html lang="en">
 <head>
@@ -766,7 +768,8 @@ function renderVenue(){
 // ---------------------------------------------------------------------
 // LEDGER (bd_ledger_v1) — localStorage, per-viewer, every access guarded.
 // ---------------------------------------------------------------------
-// #740 (ARCHITECT 2026-10-30 11:20 ET, addendum 182 item 6): "Set POLICY_VERSION to v1.2." A v1.1 file shows the banner.
+// #740 (ARCHITECT 2026-10-30 11:20 ET, addendum 182 item 6, as recorded on #734: "`POLICY_VERSION` v1.2;"; the
+// Issue's plan, item 1: "Set `POLICY_VERSION` to v1.2."). A v1.1 file shows the banner.
 const LEDGER_KEY="bd_ledger_v1", POLICY_VERSION="v1.2";
 let storageOK=true;
 function emptyLedger(){return {meta:{policy_version:POLICY_VERSION},calls:[]};}
@@ -2401,10 +2404,11 @@ function fillUnitLabel(b){
   if(b.conflict) return `contracts (the loaded files' unit bases differ: ${b.conflict.join(" vs ")})`;
   return b.mode==="usd"?`1u = $${b.value}`:`1u = ${b.value} contracts`;
 }
-// THE UNIT BY THE FILE'S ET DAY (Desk policy v1.2, #740; ARCHITECT 2026-10-30 11:20 ET, addendum 182 item 6,
-// verbatim: "Convert each fill's units by the unit of the file's own ET day: its desk_meta.unit label, read on that
-// file's ET date, never another day's." and "Render an unread day's label ("unit unread — no order") as contracts
-// only, with no dollar basis."). A v1.2 file's desk_meta.unit (desk_policy.unit_meta: state, et_date, label) gives
+// THE UNIT BY THE FILE'S ET DAY (Desk policy v1.2, #740; ARCHITECT 2026-10-30 11:20 ET, addendum 182 item 6, as
+// recorded on #734: "fills converted by the file's own ET day;" and "the "unit unread" label rendered as contracts
+// only."; the Issue's plan (#740), items 2 and 3: "Convert each fill's units by the unit of the file's own ET day: its
+// `desk_meta.unit` label, read on that file's ET date, never another day's." and "Render an unread day's label ("unit
+// unread — no order") as contracts only, with no dollar basis."). A v1.2 file's desk_meta.unit (desk_policy.unit_meta: state, et_date, label) gives
 // its ET date one entry: state read with a "1u = $N" label -> that unit; state contracts with a "1u = N contracts"
 // label -> that count; any other state, or a label that does not read so -> UNREAD (law 4, as
 // closing.export_unit_unread reads a state). A unit block with no ET date (the tests' contracts pin) is not a day's:
@@ -2444,15 +2448,16 @@ function fillEtDate(key){
   return m&&MONTHS[m[2]]?`20${m[1]}-${String(MONTHS[m[2]]).padStart(2,"0")}-${m[3]}`:null;
 }
 // One day's unit for the fills of that day: {basis (null = contracts only), kind, label}. Never another day's: a day
-// no v1.2 file names takes the v1.1 files' order-line basis when one is loaded (the pre-v1.2 unit, one for every day),
-// else contracts only.
+// no v1.2 file names takes the v1.1 files' order-line basis when one is loaded (the pre-v1.2 unit, one for every day)
+// only BEFORE the first ET day a loaded v1.2 file names (v1.2 was live by then, and the v1.1 unit is retired from it on;
+// with no v1.2 file loaded, every day); else contracts only.
 function fillDayBasis(db,date){
-  const e=date?((db||{}).days||{})[date]:null;
+  const days=(db||{}).days||{}, e=date?days[date]:null, first=Object.keys(days).sort()[0]||null;
   if(e&&e.unread) return {basis:null,kind:"unread",label:"unit unread — no order"};
   if(e&&e.conflict) return {basis:null,kind:"conflict",
     label:`contracts (the loaded files of ${date} differ on the unit: ${e.conflict.join(" vs ")})`};
   if(e) return {basis:e,kind:"day",label:fillUnitLabel(e)};
-  const lg=(db||{}).legacy;
+  const lg=first&&(!date||date>=first)?null:(db||{}).legacy;
   if(lg&&!lg.conflict) return {basis:lg,kind:"legacy",label:fillUnitLabel(lg)};
   if(lg) return {basis:null,kind:"legacy_conflict",label:fillUnitLabel(lg)};
   return {basis:null,kind:"missing",label:`contracts (no unit basis for ${date||"an undated ticker"} in the loaded files)`};

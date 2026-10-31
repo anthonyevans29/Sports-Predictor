@@ -397,7 +397,17 @@ def main():
         vm = json.loads(json.dumps(files))
         vm["nfl.json"]["desk_meta"]["policy_version"] = "v9.9"
         page, V = load(vm, sc["counts"])
-        check("file policy version ≠ Cockpit: flagged", "file policy v9.9 ≠ Cockpit v1.1" in V["summary"], V["summary"][-160:])
+        check("file policy version ≠ Cockpit: flagged", "file policy v9.9 ≠ Cockpit v1.2" in V["summary"], V["summary"][-160:])
+        page.context.close()
+        # #740 (addendum 182 item 6): the Cockpit is v1.2; a v1.1 file shows the mismatch, never silenced
+        vm["nfl.json"]["desk_meta"]["policy_version"] = "v1.1"
+        page, V = load(vm, sc["counts"])
+        check("a v1.1 file beside the v1.2 Cockpit: flagged", "file policy v1.1 ≠ Cockpit v1.2" in V["summary"],
+              V["summary"][-160:])
+        page.context.close()
+        page, V = load(files, sc["counts"])
+        check("the v1.2 files (desk_policy's own): no policy mismatch", "file policy" not in V["summary"],
+              V["summary"][-160:])
         # #544 (ARCHITECT 2026-10-18, addendum 125 item 4): the Ledger card shows the one line, exactly
         page.click("#tabLedger")
         card_line = page.evaluate("""(()=>{const c=document.querySelector('#ledgerView > .card');

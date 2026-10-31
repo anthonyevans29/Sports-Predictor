@@ -209,7 +209,7 @@ def test_the_pitcher_layer_rows_carry_todays_home_probability_per_match_id(off_d
     assert bt.run_backtest(season=OFF_SEASON, competition_code=OFF_COMP) == _ref_walk(OFF_SEASON, OFF_COMP)[0]
 
 
-def test_the_walk_runs_on_a_given_read_only_session_with_the_copys_production_config(tmp_path):
+def test_the_walk_runs_on_a_given_read_only_session_with_the_copys_production_config(tmp_path, monkeypatch):
     p = tmp_path / "copy.db"
     eng = create_engine(f"sqlite:///{p}")
     Base.metadata.create_all(eng)
@@ -225,6 +225,9 @@ def test_the_walk_runs_on_a_given_read_only_session_with_the_copys_production_co
         res, _, homes = _ref_walk("2026", "MLB", scope=lambda: nullcontext(s))
         assert bt.run_backtest(season="2026", competition_code="MLB", session=s) == res
         inputs = {mid: (PitcherStats("h", 3.1, True), PitcherStats("a", None, False)) for mid in ids}
+        held = tmp_path / "held.started.json"                   # the sealed read stands only on a reservation
+        held.write_text("{}")
+        monkeypatch.setattr(mp, "RESERVATION", str(held))
         rows = bt.run_backtest(season="2026", competition_code="MLB", pitcher_layer=True, pitcher_inputs=inputs,
                                session=s, sealed_read=True)
     assert [(r[0], r[3]) for r in rows] == homes and all(r[3] != r[4] for r in rows)
@@ -500,8 +503,16 @@ def test_the_fence_refuses_the_pitcher_layer_on_2026_while_declared_and_unrun_an
     assert mp.fence_walk("MLB", "2025") is None and mp.fence_walk("NFL", "2026") is None
     bt.run_backtest(season="2026", competition_code="MLB")                         # OFF: never fenced
     bt.run_backtest(season="2025", competition_code="MLB", pitcher_layer=True, pitcher_inputs={})
+    with pytest.raises(mp.PitcherFenceRefused) as ex:                              # Codex on #748 (P1): the flag
+        bt.run_backtest(season="2026", competition_code="MLB", pitcher_layer=True, pitcher_inputs={},
+                        sealed_read=True)                                          # alone, no reservation: refused
+    assert "sealed_read without the gate's reservation" in str(ex.value) and mp.FENCE_TEXT in str(ex.value)
+    assert not os.path.exists(mp.reservation_path())
+    Path(mp.reservation_path()).write_text("{}")                                   # the gate's own walk, reserved
     bt.run_backtest(season="2026", competition_code="MLB", pitcher_layer=True, pitcher_inputs={},
-                    sealed_read=True)                                              # the gate's own walk
+                    sealed_read=True)
+    assert mp.sealed_refusal("MLB", "2025") is None and mp.sealed_refusal("NFL", "2026") is None
+    os.remove(mp.reservation_path())
     _edit(ledger, lambda e: None)                                                  # absent: fails closed
     assert "absent from the registry" in mp.fence_walk("MLB", "2026")
     with pytest.raises(mp.PitcherFenceRefused):
@@ -1052,3 +1063,31 @@ def test_no_confirmation_freeze_can_overwrite_the_test_cohort_file(gate):
     with pytest.raises(reg.RegistryError, match="no executable confirmation_plan"):
         reg.freeze_confirmation_cohort(mp.EID, [1], {}, reg.LEDGER, reg.IDS_DIR)
     assert f.read_text() == frozen and reg.frozen_cohort(reg.get(mp.EID, reg.LEDGER)) is None
+
+
+# ============================================================================================ Codex on #748, round 1 --
+
+def test_a_ledger_save_failure_removes_the_cohort_file_and_freezes_nothing(gate, monkeypatch):
+    """Codex on #748 (P2): a freeze whose ledger save fails leaves no cohort file behind (a later freeze would refuse
+    on it) and test_cohort null; the CLI reads REFUSED, exit 2."""
+    def boom(*a, **k):
+        raise OSError(28, "No space left on device")
+    monkeypatch.setattr(reg, "save", boom)
+    with pytest.raises(mp.GateRefused) as ex:
+        mp.freeze(gate["db"], no_fetch=True)
+    assert "could not be saved" in str(ex.value) and "nothing frozen" in str(ex.value)
+    assert not os.path.exists(os.path.join(reg.IDS_DIR, mp.COHORT_FILE))
+    assert mp._entry()[mp.COHORT_KEY] is None
+
+
+def test_the_cross_ref_guard_holds_a_test_cohort_as_the_cohort_kind():
+    """Codex on #748 (P2): the #329 guard's cohort kind reads test_cohort as well as confirmation_cohort, so a ref whose
+    ledger froze mlb-pitchers-v1's test cohort without its file still holds a cohort (the guard refuses on it)."""
+    tc = {"n": 3, "ids_sha256": "x", "ids_file": "docs/registry/ids/mlb-pitchers-v1.cohort.txt"}
+    led = json.dumps([{"id": mp.EID, "test_cohort": tc, "run": None}]).encode()
+    st = reg._guard_state(mp.EID, lambda rel: led if rel.endswith("experiments.json") else None)
+    assert st["cohort"] is not None and st["run record"] is None and st["reservation"] is None
+    bare = json.dumps([{"id": mp.EID, "test_cohort": None, "run": None}]).encode()
+    assert reg._guard_state(mp.EID, lambda rel: bare if rel.endswith("experiments.json") else None)["cohort"] is None
+    conf = json.dumps([{"id": "x", "confirmation_cohort": tc}]).encode()               # the confirmation kind as before
+    assert reg._guard_state("x", lambda rel: conf if rel.endswith("experiments.json") else None)["cohort"] is not None

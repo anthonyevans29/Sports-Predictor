@@ -65,7 +65,7 @@ Issue #746. The roadmap lines are #747's.
 `run_backtest(pitcher_layer=True)` on MLB with season 2026, or every season (no season), is REFUSED
 (`PitcherFenceRefused`, a `FenceRefused`: every CLI caller that maps the NCAA fence prints `REFUSED: ...` and exits 2)
 while the entry is declared and unrun, and while it is absent (fails closed). The refusal quotes item 3's fence sentence
-verbatim. `mlb-pitchers-gate`'s own walk passes `sealed_read=True`, only after its reservation. Lifted once the run is
+verbatim. `mlb-pitchers-gate`'s own walk passes `sealed_read=True`, only after its reservation; the flag suppresses the fence only while that reservation exists (`sealed_refusal`). Lifted once the run is
 recorded (`run` set). The default walk (OFF) is never fenced by it; other seasons and competitions are not fenced.
 
 ### Commands
@@ -151,3 +151,9 @@ REFUSED, exit 2, naming the spent reservation.
   `src/walters/mlb_pitcher_asof.py`, whose `reconstruct` calls its own `read_game`, so that block would count 0 on this
   code. The same figure is the freeze's own console line (`both sides on a live path N · one side N · neither N`,
   from `mlb_pitcher_asof.cohort_ids(classify(...))`), and the freeze refuses unless both is exactly 1553.
+- **(k) The copy's fingerprint (Codex on #748, P1; not built, for a ruling).** The run checks that the copy reproduces
+  the frozen ids, but not that it is the frozen copy. A replaced copy with the same 1553 ids and different scores,
+  earned runs or production config would be read. Proposal: the freeze records a fingerprint of the rows the run reads
+  (2026 MLB matches, the 2026 appearance and starting-pitcher rows, the production MLB model row); the run refuses
+  before its reservation unless the copy reproduces it. It adds a refusal to the declared run, so it waits for the
+  architect.

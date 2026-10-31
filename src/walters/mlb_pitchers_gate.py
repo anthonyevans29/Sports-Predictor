@@ -130,6 +130,16 @@ def fence_walk(competition_code, season) -> str | None:
             f"mlb-pitchers-gate (docs/specs/mlb-pitchers-v1.md). {RULING} item 3, verbatim: \"{FENCE_TEXT}\"")
 
 
+
+def sealed_refusal(competition_code, season) -> str | None:
+    """The gate's own exception to the fence, checked (Codex on #748, P1): `sealed_read` suppresses the fence only
+    when the gate's reservation exists (its one run has begun). A sealed read with the fence standing and no
+    reservation is refused like the fenced walk itself, so no caller reaches the 2026 ON arm by the flag alone."""
+    why = fence_walk(competition_code, season)
+    if why is None or os.path.exists(reservation_path()):
+        return None
+    return f"sealed_read without the gate's reservation ({os.path.relpath(reservation_path())} absent): {why}"
+
 # ------------------------------------------------------------------------------------------------ the copy --
 
 def _data_dir() -> Path:
@@ -412,7 +422,15 @@ def freeze(db, no_fetch: bool = False, echo=None) -> dict:
     entry = next(x for x in entries if x["id"] == EID)
     entry[COHORT_KEY] = {"n": len(ids), "ids_sha256": reg._ids_sha(ids), "ids_file": f"docs/registry/ids/{COHORT_FILE}",
                          "frozen_at": reg._now(), "basis": basis}
-    reg.save(entries, reg.LEDGER)
+    try:
+        reg.save(entries, reg.LEDGER)
+    except (OSError, ValueError, TypeError) as x:   # Codex on #748 (P2): never leave the file without its entry
+        try:
+            os.remove(fpath)
+        except OSError:
+            pass
+        raise GateRefused(f"the ledger could not be saved ({type(x).__name__}: {x}); the cohort file is removed and "
+                          "test_cohort stays null: nothing frozen")
     return {"entry": entry, "ids": ids, "guard": receipt, "db": str(path)}
 
 

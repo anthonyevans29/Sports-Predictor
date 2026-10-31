@@ -111,11 +111,10 @@ def run_backtest(season: str = "2025", competition_code: str = "MLB",
     if _why:
         raise _nb.FenceRefused(_why)
     if pitcher_layer:
-        if not sealed_read:                                 # mlb-pitchers-v1 (addendum 190 item 3): the 2026 fence
-            from src.walters import mlb_pitchers_gate as _mp
-            _why = _mp.fence_walk(competition_code, season)
-            if _why:
-                raise _mp.PitcherFenceRefused(_why)
+        from src.walters import mlb_pitchers_gate as _mp        # mlb-pitchers-v1 (addendum 190 item 3): the 2026 fence;
+        _why = (_mp.sealed_refusal if sealed_read else _mp.fence_walk)(competition_code, season)  # sealed: reserved only
+        if _why:
+            raise _mp.PitcherFenceRefused(_why)
         if pitcher_inputs is None:
             raise ValueError("pitcher_layer=True needs pitcher_inputs (match id -> (home, away) PitcherStats)")
         from src.walters.mlb_pitcher_asof import missing_starter_shrink

@@ -44,4 +44,4 @@
   - the frozen copy runs;
   - a frozen cohort with no fingerprint refuses;
   - the same rows in another file give the same fingerprint.
-- **193 item 3:** the lane's `registry_id` becomes "mlb-pitchers-v1" in this PR after #747 merges.
+- **193 item 3, done:** after #747 merged, docs/roadmap.json's mlb-pitchers lane carries `registry_id` "mlb-pitchers-v1", with the entry (state "declared" from #747).

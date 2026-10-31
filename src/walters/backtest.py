@@ -15,13 +15,24 @@ rows (keeps the backtest cleanly separate from live predictions) and does NOT
 touch the model.
 
 HONEST LIMITATIONS (stated, not hidden):
-  - Team run profiles ARE point-in-time (leakage-free). Pitcher ERAs are NOT
-    reconstructed as-of-date — we run without pitcher adjustment in the
+  - Team run profiles ARE point-in-time (leakage-free). By default (the OFF arm)
+    pitcher ERAs are NOT used — we run without pitcher adjustment in the
     backtest, so it isolates the run-profile/calibration behaviour. This makes
     the backtest a test of the STRUCTURAL model + run-shrink calibration, not
     the full pitcher-aware pipeline. Good enough to confirm/deny the
     confidence-tier overconfidence gradient, which is a property of the win-prob
     calibration, not the pitcher layer.
+  - THE ON ARM EXISTS BEHIND ONE FLAG (mlb-pitchers-v1, ARCHITECT 2026-10-31,
+    addendum 190; docs/specs/mlb-pitchers-v1.md): run_backtest(pitcher_layer=True,
+    pitcher_inputs=...) prices, in the SAME walk (same history, same profiles,
+    same production config), each game named in pitcher_inputs twice: OFF (the
+    call this walk makes today) and ON (predict_game fed the as-of PitcherStats
+    reconstructed from the stored appearances, src/walters/mlb_pitcher_asof.py,
+    then the live path's missing-starter shrink). Raw p_home, pre any blend.
+    Park factor and the market blend are in NEITHER arm. With MLB and 2026 (or
+    no season) the flag is FENCED while the registry entry mlb-pitchers-v1 is
+    declared and unrun (or absent), mlb-pitchers-gate's own run excepted.
+    The default (pitcher_layer False) is today's walk, byte for byte.
   - Recency blend inside estimate_run_profiles uses the prior games we feed it,
     so it stays leakage-free by construction.
 """
@@ -29,6 +40,7 @@ from __future__ import annotations
 
 import math
 from collections import defaultdict
+from contextlib import nullcontext
 
 from sqlalchemy import select
 
@@ -57,7 +69,11 @@ def _load_production_config(s) -> BaseballConfig:
 
 def run_backtest(season: str = "2025", competition_code: str = "MLB",
                  shrink_frac_override: float | None = None,
-                 return_totals_rows: bool = False):
+                 return_totals_rows: bool = False,
+                 pitcher_layer: bool = False,
+                 pitcher_inputs: dict | None = None,
+                 session=None,
+                 sealed_read: bool = False):
     """
     Walk `season`'s finished games in date order; predict each using only prior
     games (leakage-free). Returns a list of (predicted_prob_on_pick, won,
@@ -66,6 +82,23 @@ def run_backtest(season: str = "2025", competition_code: str = "MLB",
     shrink_frac_override: if set, overrides run_shrink_frac (and forces shrink
     on) — used by the shrink-tuning sweep to test alternative strengths against
     the same leakage-free walk.
+
+    pitcher_layer (mlb-pitchers-v1, addendum 190; the ONE flag): False (the
+    default) is today's walk exactly. True: `pitcher_inputs` maps match id ->
+    (home PitcherStats, away PitcherStats) (the as-of reconstruction,
+    mlb_pitcher_asof.pitcher_stats_asof); the walk is the same one, and for each
+    game it prices that is in pitcher_inputs it computes OFF (the identical
+    predict_game call, no pitchers) and ON (predict_game with those PitcherStats,
+    then the live path's missing-starter shrink) from the same profiles and
+    config, and returns, in walk order, (match_id, utc_date, home_won
+    (home_score > away_score), p_home_off, p_home_on) for those games only.
+    FENCED with MLB and season 2026 (or None) while mlb-pitchers-v1 is declared
+    and unrun or absent (mlb_pitchers_gate.fence_walk; PitcherFenceRefused);
+    `sealed_read` is the gate's own exception, passed only after its
+    reservation. OFF is never fenced by it.
+
+    session: a session to read through (the gate's read-only session on its
+    --db copy); None = session_scope(), as today.
     """
     # soccer-expansion-v1 (Codex on #326): the generic walk reads any competition's finished scores, so the
     # expansion leagues' sealed test seasons are refused here too while the experiment is declared and unrun.
@@ -77,9 +110,19 @@ def run_backtest(season: str = "2025", competition_code: str = "MLB",
     _why = _nb.v2_fence_walk(competition_code, season)
     if _why:
         raise _nb.FenceRefused(_why)
+    if pitcher_layer:
+        if not sealed_read:                                 # mlb-pitchers-v1 (addendum 190 item 3): the 2026 fence
+            from src.walters import mlb_pitchers_gate as _mp
+            _why = _mp.fence_walk(competition_code, season)
+            if _why:
+                raise _mp.PitcherFenceRefused(_why)
+        if pitcher_inputs is None:
+            raise ValueError("pitcher_layer=True needs pitcher_inputs (match id -> (home, away) PitcherStats)")
+        from src.walters.mlb_pitcher_asof import missing_starter_shrink
     results = []
     totals_rows = []  # richer rows for the totals-model head-to-head
-    with session_scope() as s:
+    pitcher_rows = []  # mlb-pitchers-v1: (match_id, utc_date, home_won, p_home_off, p_home_on) per priced input game
+    with (session_scope() if session is None else nullcontext(session)) as s:
         comp = s.execute(
             select(Competition).where(Competition.code == competition_code)
         ).scalar_one_or_none()
@@ -136,6 +179,16 @@ def run_backtest(season: str = "2025", competition_code: str = "MLB",
                         ap.runs_scored_per_game, ap.runs_allowed_per_game,
                         cfg.league_runs_per_game, m.venue,
                     ))
+                    if pitcher_layer and m.id in pitcher_inputs:
+                        # the ON arm: the same profiles and config, the as-of PitcherStats, the live shrink
+                        home_ps, away_ps = pitcher_inputs[m.id]
+                        pred_on = predict_game(hp, ap, home_pitcher=home_ps,
+                                               away_pitcher=away_ps, config=cfg)
+                        p_on, _ = missing_starter_shrink(pred_on.p_home, pred_on.p_away,
+                                                         home_ps, away_ps)
+                        pitcher_rows.append((m.id, m.utc_date,
+                                             m.home_score > m.away_score,
+                                             pred.p_home, p_on))
             # now add this game to history for future predictions
             history.append({
                 "home_team_id": m.home_team_id, "away_team_id": m.away_team_id,
@@ -143,6 +196,8 @@ def run_backtest(season: str = "2025", competition_code: str = "MLB",
                 "utc_date": m.utc_date,
             })
 
+    if pitcher_layer:
+        return pitcher_rows
     if return_totals_rows:
         return totals_rows
     return results

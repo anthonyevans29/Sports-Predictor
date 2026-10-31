@@ -1587,5 +1587,37 @@
     "benchmark": "D11. Kalshi close as a benchmark: kalshi_settled_markets (KXNCAAFGAME, from 2025-08-23) is read beside the verdict for the 2026 scored games where a row exists \u2014 reported, never gated \u2014 and 2023 has none; nothing in D5 moves for it. (That read waits on the table's first NCAA pull, a later block.)",
     "ratified": "ARCHITECT 2026-10-16 07:53 ET, addendum 81 item 2 (pre-run, frozen; D1-D11 verbatim in docs/specs/ncaa-elo-v2.md). D10's ruling, generally (verbatim): \"a season that predates every training season, whose games the candidate never walked, is a legitimate additional test, and it can only BLOCK: the lane goes live only if BOTH the gate (D5 on 2026) and the second read pass; a second read that fails is a FAIL of the candidate.\"",
     "prior_reads_note": "D9. Prior reads: the 2026 season's games through 2026-10-09 (274 both-FBS finals) were walked by v1r's shadow exports and by nothing scored; no candidate has been scored on 2026; this declaration is written with v1r's 2025 figures known (item 1), and with no figure of 2026 read beyond the shadow's own rows, which carry no verdict."
+  },
+  {
+    "id": "mlb-pitchers-v1",
+    "sport": "mlb",
+    "lane": "#507 (mlb-pitchers-v1 declared ARCHITECT 2026-10-31, addendum 190; roadmap lane mlb-pitchers)",
+    "candidate": "ON \u2014 mlb v2 with the pitcher layer fed the as-of reconstruction (#702's receipt: the season's appearances of games started strictly before the game; the starter + bullpen blend where the starter is listed, the half-weighted bullpen where the starter is unknown \u2014 the live path's own fallbacks, nothing new); built as src/walters/mlb_pitcher_asof.pitcher_stats_asof (the live _resolve_pitcher's construction on the as-of sums) and the live missing-starter shrink, through src/walters/backtest.run_backtest(pitcher_layer=True) (docs/specs/mlb-pitchers-v1.md)",
+    "declaration": "docs/specs/mlb-pitchers-v1.md",
+    "training_cutoff": "none fitted: mlb v2's production config as stored on the run's copy; no constant moves on this run (190 item 4)",
+    "test_set": "MLB 2026 regular season: the games with both sides reconstructed on a live path, 1553 on the 10-31 console, frozen by id before the run (ids/mlb-pitchers-v1.cohort.txt); 2025 excluded (190 item 6)",
+    "gate": "THE METRIC AND THE BAR: mean log-loss of the home-win probability over the 1553, both arms, unrounded. PASS only if OFF \u2212 ON >= 0.0050 (the MLB `improve` bar, addendum 63 item 4); less, or a tie, REJECTS. Brier and the per-month lines print for the record and gate nothing. One read (law 3): the registry entry mlb-pitchers-v1 is DECLARED at this addendum's instant (2026-10-31T15:45:00Z) with the plan (arms, cohort sha, metric, bar) frozen in it; the MLB backtest with the pitcher layer on is fenced on 2026 while the entry is declared and unrun, the gate's run excepted \u2014 the expansion fence's precedent.",
+    "confirmation_window": "none: the lane has no go-live (addendum 190 item 7: earliest_live stays null; its exit is the 2027 model); the verdict's effect is item 4",
+    "confirmation_plan": null,
+    "declared_at": "2026-10-31T15:45:00Z",
+    "status": "declared",
+    "run": null,
+    "verdict": null,
+    "arms": {
+      "on": "mlb v2 with the pitcher layer fed the as-of reconstruction (#702's receipt: the season's appearances of games started strictly before the game; the starter + bullpen blend where the starter is listed, the half-weighted bullpen where the starter is unknown \u2014 the live path's own fallbacks, nothing new)",
+      "off": "the same model with the pitcher layer off (as src/walters/backtest.py runs today)"
+    },
+    "cohort": {
+      "n_declared": 1553,
+      "rule": "the 2026 regular-season games with BOTH sides reconstructed on a live path (190 item 2): per game, both sides' P label in the receipt's PATHS (blend: starter and bullpen; starter, league bullpen; bullpen half-weighted, starter unknown; neutral (no data)), classified on the run's copy by src/walters/mlb_pitcher_asof.classify",
+      "counted_on": "the 10-31 console"
+    },
+    "metric": "mean log-loss of the home-win probability over the 1553, both arms, unrounded (190 item 3)",
+    "bar": "PASS only if OFF \u2212 ON >= 0.0050 (the MLB `improve` bar, addendum 63 item 4); less, or a tie, REJECTS (190 item 3)",
+    "test_cohort": null,
+    "live_needs": "WHAT THE VERDICT DOES (live_needs): PASS \u2014 the layer stays in the live model for 2027, AND the live path must then read the as-of sums, never the snapshot (item 5), before opening day; REJECT \u2014 the layer is retired from the live model by a ruling before 2027, and the 2027 model is the OFF arm. Either way the result is the record, not a reason to retune: no constant moves on this run.",
+    "snapshot_note": "190 item 5: \"The snapshot as the model actually read it each day is NOT reconstructable (only the last refresh survives), so no third arm is run; said in the entry.\" The finding is Issue #746 (pitcher_season_stats a stale snapshot).",
+    "prior_reads_note": "the #702 receipt (2026-10-28) and the 10-31 console counted coverage only (games, sides, paths); no arm's log-loss on 2026 has been read.",
+    "ratified": "ARCHITECT 2026-10-31 11:45 ET, addendum 190 (pre-run, frozen; verbatim in docs/specs/mlb-pitchers-v1.md)"
   }
 ]

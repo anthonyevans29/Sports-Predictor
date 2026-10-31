@@ -39,6 +39,7 @@ import json
 import math
 import os
 import sqlite3
+import subprocess
 from collections import Counter
 from contextlib import contextmanager
 from pathlib import Path
@@ -90,10 +91,21 @@ def _iso(d) -> str | None:
 
 # ------------------------------------------------------------------------------------------------ the fence --
 
-def run_recorded() -> bool:
-    """True once the registry records mlb-pitchers-v1's one run (`run` set). An absent entry reads as not recorded."""
+def _entry() -> dict | None:
+    """The registry entry (None when absent). An unreadable registry (a corrupt or truncated experiments.json, an OSError)
+    raises GateRefused naming it, never a raw traceback."""
     reg = _reg()
-    e = reg.get(EID, reg.LEDGER)
+    try:
+        return reg.get(EID, reg.LEDGER)
+    except (OSError, ValueError) as x:
+        raise GateRefused(f"the registry {reg.LEDGER} cannot be read ({type(x).__name__}: {x}); nothing read, "
+                          "nothing written")
+
+
+def run_recorded() -> bool:
+    """True once the registry records mlb-pitchers-v1's one run (`run` set). An absent entry reads as not recorded;
+    an unreadable registry raises GateRefused."""
+    e = _entry()
     return bool(e and e.get("run"))
 
 
@@ -104,10 +116,15 @@ def fence_walk(competition_code, season) -> str | None:
     if (competition_code or "").strip().upper() != COMPETITION:
         return None
     s_ = "" if season is None else str(season).strip()
-    if s_ not in ("", SEASON) or run_recorded():
+    if s_ not in ("", SEASON):
         return None
-    reg = _reg()
-    e = reg.get(EID, reg.LEDGER)
+    try:
+        e = _entry()
+    except GateRefused as x:                         # an unreadable registry: the fence fails closed, by name
+        return (f"{COMPETITION} {s_ or '(every season)'} with the pitcher layer on: {x} (fails closed). {RULING} "
+                f"item 3, verbatim: \"{FENCE_TEXT}\"")
+    if e and e.get("run"):
+        return None
     state = "absent from the registry (fails closed)" if e is None else f"{e.get('status')} and unrun"
     return (f"{COMPETITION} {s_ or '(every season)'} with the pitcher layer on: {EID} is {state}; its one read is "
             f"mlb-pitchers-gate (docs/specs/mlb-pitchers-v1.md). {RULING} item 3, verbatim: \"{FENCE_TEXT}\"")
@@ -117,6 +134,36 @@ def fence_walk(competition_code, season) -> str | None:
 
 def _data_dir() -> Path:
     return Path(DATA_DIR).resolve() if DATA_DIR else (Path(_reg().ROOT) / "data").resolve()
+
+
+def _main_checkout_data() -> Path | None:
+    """The MAIN checkout's data/ when this code runs from a git worktree (Code sessions do): the parent of git's
+    common dir, joined with data/. None outside a git checkout, or when it is the code checkout's own data/."""
+    try:
+        out = subprocess.run(["git", "rev-parse", "--path-format=absolute", "--git-common-dir"], cwd=_reg().ROOT,
+                             capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if out.returncode != 0 or not out.stdout.strip():
+        return None
+    return (Path(out.stdout.strip()).resolve().parent / "data").resolve()
+
+
+def _data_dirs() -> list[Path]:
+    """Every data/ the fence keys on: the code checkout's own (or DATA_DIR) and, from a worktree, the main
+    checkout's."""
+    dirs = [_data_dir()]
+    main = _main_checkout_data()
+    if main is not None and main not in dirs:
+        dirs.append(main)
+    return dirs
+
+
+def _same_file(a: Path, b: Path) -> bool:
+    try:
+        return os.path.samefile(a, b)
+    except OSError:
+        return False
 
 
 def _app_db() -> Path | None:
@@ -133,17 +180,27 @@ def _app_db() -> Path | None:
 
 def check_db(db) -> Path:
     """--db: required; refused (never created) unless an existing file outside the repo's data/ (law 5, by resolved
-    path, so a symlink or a relative path cannot slip by) that is not the app's configured database."""
+    path, so a symlink or a relative path cannot slip by; from a git worktree the main checkout's data/ too; and by
+    identity, so a hard link to a file directly under a data/ cannot slip by) that is not the app's configured
+    database."""
     if db is None or not str(db).strip():
         raise GateRefused("--db PATH is required: a .backup copy of the database outside data/ (law 5); the gate never "
                           "reads the live database")
     tgt = Path(str(db)).expanduser().resolve()
-    data = _data_dir()
-    if tgt == data or data in tgt.parents:
-        raise GateRefused(f"--db {db} resolves under the repo's data/ ({data}): law 5, the database is never touched "
-                          "casually; take a .backup copy outside data/ and pass that")
+    for data in _data_dirs():
+        if tgt == data or data in tgt.parents:
+            raise GateRefused(f"--db {db} resolves under the repo's data/ ({data}): law 5, the database is never "
+                              "touched casually; take a .backup copy outside data/ and pass that")
+        try:                                         # by identity too: a hard link to a data/ file is that file
+            near = [data / n for n in os.listdir(data)]
+        except OSError:
+            near = []
+        for f in near:
+            if f.is_file() and _same_file(tgt, f):
+                raise GateRefused(f"--db {db} is the same file as {f} (a hard link into the repo's data/): law 5; "
+                                  "take a .backup copy outside data/ and pass that")
     app = _app_db()
-    if app is not None and tgt == app:
+    if app is not None and (tgt == app or _same_file(tgt, app)):
         raise GateRefused(f"--db {db} is the app's configured database ({app}): the gate reads a .backup copy only")
     if not tgt.is_file():
         raise GateRefused(f"--db {db}: no file at {tgt}; the gate never creates one")
@@ -163,12 +220,15 @@ def open_ro(path: Path):
 @contextmanager
 def readonly_session(path: Path):
     """A SQLAlchemy session on the copy through a mode=ro URI (database.readonly_scope's pattern, bound to the --db
-    file): no connect hook, no pragma, no commit; closed, never committed."""
+    file): no connect hook, no pragma, no commit; closed, never committed. The URI is open_ro's percent-encoded
+    path.as_uri() handed to sqlite3 directly, so a '#' or '?' in the path cannot cut the filename or drop mode=ro."""
     from sqlalchemy import create_engine
     from sqlalchemy.orm import Session
+    from sqlalchemy.pool import NullPool
 
-    eng = create_engine(f"sqlite:///file:{path.as_posix()}?mode=ro&uri=true",
-                        connect_args={"uri": True, "check_same_thread": False})
+    uri = path.as_uri() + "?mode=ro"                 # percent-encoded: a '#' or '?' in the path cannot drop mode=ro
+    eng = create_engine("sqlite://", poolclass=NullPool,
+                        creator=lambda: sqlite3.connect(uri, uri=True, check_same_thread=False))
     session = Session(eng, autoflush=False, expire_on_commit=False)
     try:
         yield session
@@ -202,8 +262,15 @@ def production_config(s):
     from src.models.baseball import BaseballConfig
     from src.walters import backtest as bt
 
-    mv = s.execute(select(ModelVersion).where(ModelVersion.sport == Sport.MLB, ModelVersion.status == "production")
-                   .order_by(ModelVersion.id.desc())).scalars().first()
+    from sqlalchemy.exc import SQLAlchemyError
+
+    try:
+        mv = s.execute(select(ModelVersion).where(ModelVersion.sport == Sport.MLB,
+                                                  ModelVersion.status == "production")
+                       .order_by(ModelVersion.id.desc())).scalars().first()
+    except SQLAlchemyError as x:
+        raise GateRefused(f"the copy's model_versions cannot be read through the mode=ro session ({x}); nothing "
+                          "reserved, nothing read")
     if mv is None or not mv.parameters or "baseball_config" not in mv.parameters:
         raise GateRefused("the copy holds no production MLB model with a baseball_config: the arms would run on the "
                           "defaults, which is not mlb v2 (law 4); nothing reserved, nothing read")
@@ -235,8 +302,7 @@ def _reserved_why(p: str) -> str:
 
 def declared_unrun() -> dict:
     """The registry entry, refusing unless declared and unrun (the cohort is read once) and unreserved."""
-    reg = _reg()
-    e = reg.get(EID, reg.LEDGER)
+    e = _entry()
     if e is None or e.get("status") != "declared" or e.get("run") is not None:
         raise GateRefused(f"{EID} must be declared and unrun in the registry (status "
                           f"{e.get('status') if e else 'absent'}): the test cohort is read once")

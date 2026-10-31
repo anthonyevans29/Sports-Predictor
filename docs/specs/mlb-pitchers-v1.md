@@ -95,19 +95,25 @@ recorded (`run` set). The default walk (OFF) is never fenced by it; other season
 ### --db
 
 Required for both commands. The path must exist (never created), must not resolve under the repo's `data/` (law 5;
-by resolved path, so a symlink or relative path cannot slip by) and must not be the app's configured database. It is
-opened read-only through a `mode=ro` URI by both the sqlite3 as-of loader and the SQLAlchemy session the walk reads
-through (`database.readonly_scope`'s pattern, bound to the file); `_load_production_config` reads the copy's
-production config.
+by resolved path, so a symlink or relative path cannot slip by; run from a git worktree, the main checkout's `data/`
+too, found from git's common dir) and must not be the app's configured database; a hard link to a file directly under
+any of those `data/` directories, or to the app's database, is refused by identity. It is opened read-only through a
+percent-encoded `mode=ro` URI (`path.as_uri()`, so a `#` or `?` in the path cannot cut the filename or drop `mode=ro`)
+by both the sqlite3 as-of loader and the SQLAlchemy session the walk reads through (`database.readonly_scope`'s
+pattern, bound to the file); `_load_production_config` reads the copy's production config. An unreadable registry
+(a corrupt `experiments.json`) refuses, and fences, by name; a run whose record fails after the verdict printed is
+REFUSED, exit 2, naming the spent reservation.
 
 ## 3. The operator's sequence (the laptop; MLB history is the laptop's duty)
 
-1. A `.backup` copy outside `data/` (the `.backup` API, never a file copy), e.g.
-   `sqlite3 data/sports.db ".backup ~/backups/mlb_pitchers_v1_$(date +%F).db"`.
-2. `python cli.py mlb-pitchers-freeze --db ~/backups/mlb_pitchers_v1_<date>.db` — paste the console.
+1. A `.backup` copy outside `data/` (the `.backup` API, never a file copy), from the repo root, e.g.
+   `COPY="$HOME/backups/mlb_pitchers_v1_$(date +%F).db"; mkdir -p "$HOME/backups" && sqlite3 data/sports.db ".backup '$COPY'"`.
+   The path is expanded by the shell before sqlite3 sees it: a `~` inside the quotes is not expanded by bash or by
+   sqlite3, and the `.backup` would fail or write a literal `./~/backups/...` in the checkout.
+2. `python cli.py mlb-pitchers-freeze --db "$COPY"` (the same expanded path) — paste the console.
 3. Commit the registry files (`docs/registry/experiments.json`, `docs/registry/ids/mlb-pitchers-v1.cohort.txt`) in a
    PR, the 10-09 soccer cohort precedent, before the run.
-4. `python cli.py mlb-pitchers-gate --db ~/backups/mlb_pitchers_v1_<date>.db` (the same copy), the architect's block,
+4. `python cli.py mlb-pitchers-gate --db "$HOME/backups/mlb_pitchers_v1_<date>.db"` (the same copy), the architect's block,
    11-06 — paste the whole console. The run record (`experiments.json`, `ids/mlb-pitchers-v1.txt`,
    `mlb-pitchers-v1.started.json`) is committed by Code's verdict PR.
 

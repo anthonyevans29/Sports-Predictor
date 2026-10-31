@@ -7541,7 +7541,13 @@ def mlb_pitchers_gate_cmd(db, no_fetch):
         raise SystemExit(2)
     for line in mp.run_lines(r):
         click.echo(line)
-    e = mp.record(r)
+    try:
+        e = mp.record(r)
+    except (mp.GateRefused, reg.RegistryError, OSError, ValueError) as x:
+        click.echo(f"REFUSED: run computed and reserved but not recorded: {type(x).__name__}: {x}. The one run is "
+                   f"spent ({mp.reservation_path()}); paste this whole console to the architect, who rules how it is "
+                   "recorded. Nothing reruns.")
+        raise SystemExit(2)
     click.echo(f"  recorded: {e['run']['n_scored']} cohort ids · sha {e['run']['ids_sha256'][:12]}… · "
                f"{e['run']['ids_file']} (commit docs/registry/ in a PR; the verdict is recorded by Code's PR on the "
                "architect's ruling)")

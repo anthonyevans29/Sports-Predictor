@@ -41,9 +41,11 @@ SRC = asof.SOURCE
 
 # ===================================================================================================== OFF unchanged --
 
-def _ref_walk(season="2025", competition_code="MLB", shrink_frac_override=None, scope=None):
+def _ref_walk(season="2025", competition_code="MLB", shrink_frac_override=None, scope=None, pitchers=None, ons=None):
     """TODAY'S WALK, verbatim (src/walters/backtest.py run_backtest at origin/main 78566ff5, after its fences),
-    extended only to carry m.id and p_home (`homes`) and to take the session scope (default session_scope)."""
+    extended only to carry m.id and p_home (`homes`), to take the session scope (default session_scope), and, given
+    `pitchers` {match id: (home PitcherStats, away PitcherStats)}, to append the independent ON reference
+    (m.id, the live shrink of predict_game(hp, ap, home_pitcher=home, away_pitcher=away)) to `ons`."""
     from src.walters.backtest import _load_production_config
     from src.db.schema import Match, MatchStatus, Competition
     results = []
@@ -99,6 +101,10 @@ def _ref_walk(season="2025", competition_code="MLB", shrink_frac_override=None, 
                     actual_total = m.home_score + m.away_score
                     results.append((p, won, proj_total, actual_total))
                     homes.append((m.id, pred.p_home))
+                    if pitchers is not None and m.id in pitchers:            # the extension: the ON reference
+                        h_ps, a_ps = pitchers[m.id]
+                        p_on = predict_game(hp, ap, home_pitcher=h_ps, away_pitcher=a_ps, config=cfg)
+                        ons.append((m.id, asof.missing_starter_shrink(p_on.p_home, p_on.p_away, h_ps, a_ps)[0]))
                     # richer row for the totals-model head-to-head (leakage-free:
                     # run rates are point-in-time from prior games only)
                     totals_rows.append((
@@ -522,11 +528,13 @@ def test_a_fenced_walk_reaching_the_cli_is_refused_exit_2_never_a_traceback(ledg
 N_GAMES, FIRST_LISTED = 60, 45
 
 
-def _gate_copy(path: Path, first_listed=FIRST_LISTED, production=True):
+def _gate_copy(path: Path, first_listed=FIRST_LISTED, production=True, config=None, rookie_away=()):
     """A 2026 copy: 6 teams (statsapi ids), 60 regular games (3 a day, two sharing a kickoff), each with both
     starters (a three-man rotation per team) and a relief appearance per side, earned runs complete; the
     starting_pitcher rows listed 3 hours before kickoff from game `first_listed` on (so the cohort is games 45-59:
-    every side a blend); a production MLB model."""
+    every side a blend); a production MLB model (baseball_config `config`, default {run_shrink_enabled: True}). A game
+    index in `rookie_away` lists an away starter with no prior appearance (an asymmetric game: the away side's
+    bullpen half-weighted, starter unknown; the shrink applies)."""
     eng = create_engine(f"sqlite:///{path}")
     Base.metadata.create_all(eng)
     with Session(eng) as s:
@@ -556,12 +564,13 @@ def _gate_copy(path: Path, first_listed=FIRST_LISTED, production=True):
                                         team_source_id=str(100 + t), pitcher_id=f"t{t}r{k % 2}", outs=9 + k % 3,
                                         is_starter=False, earned_runs=k % 3))
                 if k >= first_listed:
+                    lp = f"rookie{k}" if (t == a and k in rookie_away) else sp
                     s.add(MatchParticipant(match_id=m.id, team_id=teams[t].id, role="starting_pitcher",
-                                           kind="confirmed", player_name=sp, player_source_id=sp,
+                                           kind="confirmed", player_name=lp, player_source_id=lp,
                                            refreshed_at=at - timedelta(hours=3)))
         if production:
             s.add(ModelVersion(sport=Sport.MLB, model_family="mlb_pythag_negbin", version="v2", status="production",
-                               parameters={"baseball_config": {"run_shrink_enabled": True}}))
+                               parameters={"baseball_config": config or {"run_shrink_enabled": True}}))
         s.commit()
     eng.dispose()
     return path
@@ -633,22 +642,202 @@ def test_freeze_writes_the_cohort_file_and_test_cohort_then_the_run_scores_it_an
     assert r.exit_code == 2 and "REFUSED" in r.output and "read once" in r.output
 
 
-def test_the_run_scores_both_arms_from_the_same_walk_as_the_reference(gate):
-    mp.freeze(gate["db"])
-    r = mp.run(gate["db"])
-    with mp.readonly_session(Path(gate["db"])) as s:
-        _, _, homes = _ref_walk("2026", "MLB", scope=lambda: nullcontext(s))
-    ref = dict(homes)
-    cls = mp.classify_copy(Path(gate["db"]))
-    con = sqlite3.connect(gate["db"])
+# a production config pitcher_stats_asof reads (league_era, the effective-IP cap), so a default-config build shows
+RICH_CONFIG = {"run_shrink_enabled": True, "league_era": 4.0, "starter_eff_ip_enabled": True, "pitcher_damping": 0.5}
+
+
+@pytest.mark.parametrize("config,rookies", [(None, ()), (RICH_CONFIG, (50, 53))], ids=["default", "asymmetric-rich"])
+def test_the_run_scores_both_arms_from_the_same_walk_as_the_reference(ledger, tmp_path, monkeypatch, config, rookies):
+    """Both arms pinned to an independent reference: OFF to today's walk; ON to the same walk's profiles fed the
+    inputs built HERE from the classification's home and away sides on the copy's production config (built here, not
+    by the gate), home as home_pitcher, then the live shrink. The asymmetric copy (a half-weighted away side, the
+    shrink applied) on a config pitcher_stats_asof reads makes a home/away swap or a default-config build visible."""
+    db = _gate_copy(tmp_path / "copy.db", config=config, rookie_away=rookies)
+    ids = _cohort_of(db)
+    monkeypatch.setattr(mp, "COHORT_N", len(ids))
+    mp.freeze(db)
+    r = mp.run(db)
+    cfg = BaseballConfig(**(config or {"run_shrink_enabled": True}))
+    cls = mp.classify_copy(Path(db))
+    inputs = {i: (asof.pitcher_stats_asof(cls["games"][i]["home"], cfg),
+                  asof.pitcher_stats_asof(cls["games"][i]["away"], cfg)) for i in ids}
+    ons = []
+    with mp.readonly_session(Path(db)) as s:
+        _, _, homes = _ref_walk("2026", "MLB", scope=lambda: nullcontext(s), pitchers=inputs, ons=ons)
+    ref, ref_on = dict(homes), dict(ons)
+    assert sorted(ref_on) == ids
+    con = sqlite3.connect(db)
     won = {i: hs > as_ for i, hs, as_ in con.execute("SELECT id, home_score, away_score FROM matches")}
     con.close()
-    off = math.fsum(mp.ll_home(ref[i], won[i]) for i in gate["ids"]) / 15
-    assert r["ll_off"] == off and r["n"] == 15 and r["verdict"] == mp.verdict(r["ll_off"], r["ll_on"])
-    cfg = BaseballConfig(run_shrink_enabled=True)
-    assert all(cls["games"][i]["home"]["starter"] for i in gate["ids"])
-    assert r["paths"] == {"blend: starter and bullpen / blend: starter and bullpen": 15}
-    assert r["baseball_config"] == cfg.as_dict()
+    n = len(ids)
+    off = math.fsum(mp.ll_home(ref[i], won[i]) for i in ids) / n
+    on = math.fsum(mp.ll_home(ref_on[i], won[i]) for i in ids) / n
+    assert r["ll_off"] == off and r["ll_on"] == on and r["n"] == n                 # both arms, exactly
+    assert r["verdict"] == mp.verdict(off, on) and r["baseball_config"] == cfg.as_dict()
+    assert all(cls["games"][i]["home"]["starter"] for i in ids)
+    if not rookies:
+        assert r["paths"] == {"blend: starter and bullpen / blend: starter and bullpen": n}
+        return
+    half = [i for i in ids if not inputs[i][1].starter_known]
+    assert len(half) == 2 and all(inputs[i][0].starter_known for i in half)
+    assert r["paths"]["blend: starter and bullpen / bullpen half-weighted, starter unknown"] == 2
+    # the pins bite: a swap of the sides, or the defaults, moves p_on on the asymmetric games
+    for i in half:
+        h_ps, a_ps = inputs[i]
+        assert (asof.pitcher_stats_asof(cls["games"][i]["home"], BaseballConfig()).era != h_ps.era)
+        swapped = [(m, (inputs[m][1], inputs[m][0]) if m == i else inputs[m]) for m in ids]
+        ons_sw = []
+        with mp.readonly_session(Path(db)) as s:
+            _ref_walk("2026", "MLB", scope=lambda: nullcontext(s), pitchers=dict(swapped), ons=ons_sw)
+        assert dict(ons_sw)[i] != ref_on[i]
+
+
+def test_freeze_and_run_call_the_cross_ref_guard_and_a_refusal_writes_nothing(gate, monkeypatch):
+    """#329 (RULED 2026-10-08): the guard runs before any write in freeze() and before the reservation in run(); a
+    refusal names the ref and writes nothing (tests/test_soccer_expansion_confirm.py:206's pin)."""
+    db = gate["db"]
+    calls = []
+
+    def refusing(eid, no_fetch=False, repo=None):
+        calls.append((eid, no_fetch))
+        raise reg.RegistryError("stale ref origin/laptop/x holds a different mlb-pitchers-v1.cohort.txt")
+
+    def passing(eid, no_fetch=False, repo=None):
+        calls.append((eid, no_fetch))
+        return f"guard {eid}: stub"
+    walked = []
+    real_bt = bt.run_backtest
+    monkeypatch.setattr(bt, "run_backtest", lambda **kw: walked.append(kw) or real_bt(**kw))
+    cohort = Path(reg.IDS_DIR) / "mlb-pitchers-v1.cohort.txt"
+    monkeypatch.setattr(reg, "cross_ref_guard", refusing)
+    for nf in (True, False):
+        with pytest.raises(mp.GateRefused, match="stale ref origin/laptop/x"):
+            mp.freeze(db, no_fetch=nf)
+    assert calls == [(mp.EID, True), (mp.EID, False)]
+    assert not cohort.exists() and reg.get(mp.EID, reg.LEDGER)["test_cohort"] is None
+    monkeypatch.setattr(reg, "cross_ref_guard", passing)
+    seen = []
+    r = mp.freeze(db, no_fetch=True, echo=seen.append)
+    assert calls[-1] == (mp.EID, True) and seen == [f"guard {mp.EID}: stub"] and r["guard"] == seen[0]
+    assert cohort.exists()
+    monkeypatch.setattr(reg, "cross_ref_guard", refusing)
+    with pytest.raises(mp.GateRefused, match="stale ref origin/laptop/x"):
+        mp.run(db, no_fetch=True)
+    assert calls[-1] == (mp.EID, True)
+    assert not os.path.exists(mp.reservation_path()) and not walked                 # nothing reserved, nothing read
+    e = reg.get(mp.EID, reg.LEDGER)
+    assert e["status"] == "declared" and e["run"] is None
+    monkeypatch.setattr(reg, "cross_ref_guard", passing)
+    mp.run(db, no_fetch=False)
+    assert calls[-1] == (mp.EID, False) and len(walked) == 1
+    assert json.loads(Path(mp.reservation_path()).read_text())["guard"] == f"guard {mp.EID}: stub"
+
+
+def test_a_hash_or_question_mark_in_the_copys_path_keeps_mode_ro_and_reads_that_file(gate):
+    """readonly_session hands sqlite3 open_ro's percent-encoded URI: a '#' or '?' cannot cut the filename (opening or
+    creating the shorter path read-write) or drop mode=ro."""
+    for d in ("bk#1", "q?x"):
+        cut = gate["tmp"] / d.split("#")[0].split("?")[0]
+        decoy = _gate_copy(cut, config={"run_shrink_enabled": False})              # a database at the cut path
+        with sqlite3.connect(decoy) as con:
+            con.execute("UPDATE model_versions SET version = 'decoy'")
+        decoy_sha = _sha(decoy)
+        (gate["tmp"] / d).mkdir()
+        p = gate["tmp"] / d / "copy.db"
+        p.write_bytes(Path(gate["db"]).read_bytes())
+        assert mp.check_db(p) == p.resolve()
+        before = _sha(p)
+        with mp.readonly_session(p) as s:
+            version, cfg = mp.production_config(s)
+            files = [row[2] for row in s.connection().exec_driver_sql("PRAGMA database_list")]
+            with pytest.raises(Exception, match="readonly"):
+                s.connection().exec_driver_sql("CREATE TABLE zz (x INTEGER)")
+        assert version == "v2" and cfg.run_shrink_enabled is True and files == [str(p)]
+        assert _sha(p) == before and _sha(decoy) == decoy_sha
+    assert sorted(x.name for x in gate["tmp"].iterdir() if x.suffix == "" and x.is_file()) == ["bk", "q"]
+
+
+def test_a_missing_copy_path_component_creates_nothing(gate):
+    """No file is created at a cut path when nothing is there (the reproduction's empty 0-byte 'bk')."""
+    (gate["tmp"] / "bk#2").mkdir()
+    p = gate["tmp"] / "bk#2" / "copy.db"
+    p.write_bytes(Path(gate["db"]).read_bytes())
+    with mp.readonly_session(p) as s:
+        assert mp.production_config(s)[0] == "v2"
+    assert not (gate["tmp"] / "bk").exists()
+
+
+def test_from_a_worktree_the_main_checkouts_data_and_hard_links_into_data_are_refused(gate, tmp_path, monkeypatch):
+    """The fence keys on every data/: the code checkout's own (DATA_DIR here, elsewhere) and, from a git worktree, the
+    main checkout's (git's common dir's parent); and on identity, so a hard link to a data/ file outside data/ is the
+    same file."""
+    import shutil
+    import subprocess
+    if shutil.which("git") is None:
+        pytest.skip("git not installed")
+    main = tmp_path / "main"
+    main.mkdir()
+    g = ["git", "-c", "user.email=t@t", "-c", "user.name=t", "-c", "commit.gpgsign=false", "-C", str(main)]
+    subprocess.run(g + ["init", "-q"], check=True)
+    subprocess.run(g + ["commit", "-q", "--allow-empty", "-m", "init"], check=True)
+    wt = main / ".claude" / "worktrees" / "wt"
+    subprocess.run(g + ["worktree", "add", "-q", "--detach", str(wt)], check=True)
+    (main / "data").mkdir()
+    live = main / "data" / "sports.db"
+    live.write_bytes(Path(gate["db"]).read_bytes())
+    monkeypatch.setattr(reg, "ROOT", str(wt))
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    monkeypatch.setattr(mp, "DATA_DIR", str(elsewhere))
+    assert mp._main_checkout_data() == (main / "data").resolve()
+    for p in (live, wt / ".." / ".." / ".." / "data" / "sports.db"):
+        with pytest.raises(mp.GateRefused, match="law 5"):
+            mp.check_db(p)
+    link = tmp_path / "hardlink.db"
+    os.link(live, link)
+    with pytest.raises(mp.GateRefused, match="hard link into the repo's data/"):
+        mp.check_db(link)
+    own = elsewhere / "sports.db"
+    own.write_bytes(b"x")
+    link2 = tmp_path / "hardlink2.db"
+    os.link(own, link2)
+    with pytest.raises(mp.GateRefused, match="hard link into the repo's data/"):
+        mp.check_db(link2)
+    copy = tmp_path / "copy_outside.db"
+    copy.write_bytes(live.read_bytes())                                            # a real copy passes
+    assert mp.check_db(copy) == copy.resolve()
+    with pytest.raises(mp.GateRefused, match="law 5"):
+        mp.freeze(live)
+    assert reg.get(mp.EID, reg.LEDGER)["test_cohort"] is None
+
+
+def test_an_unreadable_registry_or_a_failed_record_is_refused_exit_2_never_a_traceback(gate, monkeypatch):
+    import cli
+    db = gate["db"]
+    good = Path(reg.LEDGER).read_text()
+    Path(reg.LEDGER).write_text(good[: len(good) // 2])                            # truncated: JSONDecodeError
+    with pytest.raises(mp.GateRefused, match="cannot be read"):
+        mp.declared_unrun()
+    why = mp.fence_walk("MLB", "2026")
+    assert "cannot be read" in why and "fails closed" in why and mp.FENCE_TEXT in why
+    with pytest.raises(mp.PitcherFenceRefused):
+        bt.run_backtest(season="2026", competition_code="MLB", pitcher_layer=True, pitcher_inputs={})
+    for cmd in ("mlb-pitchers-freeze", "mlb-pitchers-gate"):
+        r = CliRunner().invoke(cli.cli, [cmd, "--db", str(db)])
+        assert r.exit_code == 2 and "REFUSED: " in r.output and "cannot be read" in r.output, r.output
+        assert "Traceback" not in r.output and isinstance(r.exception, SystemExit)
+    Path(reg.LEDGER).write_text(good)
+    mp.freeze(db)
+
+    def broken(*a, **k):
+        raise OSError("No space left on device")
+    monkeypatch.setattr(reg, "record_run", broken)
+    r = CliRunner().invoke(cli.cli, ["mlb-pitchers-gate", "--db", str(db)])
+    assert r.exit_code == 2 and isinstance(r.exception, SystemExit), r.output
+    assert "VERDICT (computed; the architect rules): " in r.output                 # the console printed first
+    assert "REFUSED: run computed and reserved but not recorded: OSError: No space left on device" in r.output
+    assert "Traceback" not in r.output and os.path.exists(mp.reservation_path())
+    assert reg.get(mp.EID, reg.LEDGER)["run"] is None
 
 
 def test_freeze_refusals(gate, monkeypatch):

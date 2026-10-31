@@ -263,8 +263,9 @@ def classify_copy(path: Path) -> dict:
 
 
 def production_config(s):
-    """(version, BaseballConfig) of the copy's production MLB model: the newest model_versions row with sport MLB and
-    status production (backtest._load_production_config's query). Refused when there is none, or it carries no
+    """(version, BaseballConfig) of the copy's production MLB model: the live family's (training._family_for) one
+    production row, which must also be the row the walk reads (backtest._load_production_config: the newest
+    production MLB row of any family). Refused when there is none, or it carries no
     baseball_config that builds (the walk would silently fall back to the defaults: law 4, never faked)."""
     from sqlalchemy import select
 
@@ -274,15 +275,33 @@ def production_config(s):
 
     from sqlalchemy.exc import SQLAlchemyError
 
+    from src.walters.training import _family_for
+
+    family = _family_for(Sport.MLB)                 # the live path's family (training._resolve_model_version)
     try:
-        mv = s.execute(select(ModelVersion).where(ModelVersion.sport == Sport.MLB,
-                                                  ModelVersion.status == "production")
-                       .order_by(ModelVersion.id.desc())).scalars().first()
+        lives = list(s.execute(select(ModelVersion).where(ModelVersion.sport == Sport.MLB,
+                                                          ModelVersion.model_family == family,
+                                                          ModelVersion.status == "production")).scalars())
+        walk = s.execute(select(ModelVersion).where(ModelVersion.sport == Sport.MLB,
+                                                    ModelVersion.status == "production")
+                         .order_by(ModelVersion.id.desc())).scalars().first()
     except SQLAlchemyError as x:
         raise GateRefused(f"the copy's model_versions cannot be read through the mode=ro session ({x}); nothing "
                           "reserved, nothing read")
+    if len(lives) > 1:
+        raise GateRefused(f"the copy holds {len(lives)} production rows of the live MLB family {family}: the live "
+                          "model is not one row (law 4); nothing reserved, nothing read")
+    mv = lives[0] if lives else None
+    # Codex on #748 (P1): the walk (backtest._load_production_config, today's query, kept so OFF is today's backtest)
+    # reads the NEWEST production MLB row of any family; the arms must run on the live family's row, so the two rows
+    # must be the same row.
+    if mv is not None and walk is not None and walk.id != mv.id:
+        raise GateRefused(f"the walk's production MLB row (id {walk.id}, family {walk.model_family}) is not the live "
+                          f"family's ({family}, id {mv.id}, {mv.version}): the arms would run on another family's "
+                          "config; nothing reserved, nothing read")
     if mv is None or not mv.parameters or "baseball_config" not in mv.parameters:
-        raise GateRefused("the copy holds no production MLB model with a baseball_config: the arms would run on the "
+        raise GateRefused(f"the copy holds no production MLB model of the live family {family} with a "
+                          "baseball_config: the arms would run on the "
                           "defaults, which is not mlb v2 (law 4); nothing reserved, nothing read")
     try:
         cfg = BaseballConfig(**mv.parameters["baseball_config"])

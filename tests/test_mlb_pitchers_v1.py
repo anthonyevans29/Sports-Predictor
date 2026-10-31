@@ -940,6 +940,19 @@ def test_run_refusals_before_any_read(gate, monkeypatch):
     noprod = _gate_copy(gate["tmp"] / "noprod.db", production=False)
     with pytest.raises(mp.GateRefused, match="no production MLB model"):
         mp.run(noprod)
+    # Codex on #748 (P1): a newer production MLB row of another family would be the walk's row: refused
+    other = gate["tmp"] / "otherfam.db"
+    other.write_bytes(Path(db).read_bytes())
+    con = sqlite3.connect(other)
+    cols = [r[1] for r in con.execute("PRAGMA table_info(model_versions)")]
+    row = dict(zip(cols, con.execute("SELECT * FROM model_versions WHERE status='production'").fetchone()))
+    row.update(id=row["id"] + 100, model_family="mlb_other_family", version="x1",
+               parameters=json.dumps({"baseball_config": {"run_shrink_enabled": False}}))
+    con.execute(f"INSERT INTO model_versions ({','.join(row)}) VALUES ({','.join('?' * len(row))})", list(row.values()))
+    con.commit()
+    con.close()
+    with pytest.raises(mp.GateRefused, match="is not the live family's"):
+        mp.run(other)
     # missing / under data
     for bad, says in ((None, "required"), (gate["tmp"] / "absent.db", "never creates one"),
                       (ROOT / "data" / "sports.db", "law 5")):

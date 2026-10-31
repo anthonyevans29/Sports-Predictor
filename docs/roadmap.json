@@ -148,7 +148,7 @@
           }
         },
         {
-          "what": "the candidate declared per league: soccer_elo_poisson's current constants, trained to 2025/26, frozen (no retuning on 2026/27), with the pre-registered window (the first 60 FINISHED 2026/27 games per league with a three-way close, counted from the declaration) and the bar written before any result: the candidate's log-loss below the close's on that window, a tie a rejection (CONTRIBUTING law 3); each league declared on its own when its parity receipt and cohort reader are in hand and receipt 4(a) is read, no earlier than 10-30 and no later than 11-06, its window counted from its own declaration (addendum 158 item 2(c); a declaration before 11-06 is a moved line); the lane's state becomes declared",
+          "what": "the candidate declared per league: soccer_elo_poisson's current constants, trained to 2025/26, frozen (no retuning on 2026/27), with the pre-registered window (the first 60 FINISHED 2026/27 games per league with a three-way close, counted from the declaration) and the bar written before any result: the candidate's log-loss below the close's on that window, a tie a rejection (CONTRIBUTING law 3); each league declared on its own when its parity receipt and cohort reader are in hand and receipt 4(a) is read, no earlier than 10-30 and no later than 11-06, its window counted from its own declaration (addendum 158 item 2(c); a declaration before 11-06 is a moved line); precondition (addendum 181 item 1): a league is declared only after the fence is live on the host, v1.6.2 deployed and its receipt in hand; if v1.6.2 is not on the host by 11-06 the declarations move with moved lines that day (ARCHITECT 2026-10-31 11:50 ET, addendum 191 item 2(c): written into the step's text, not a moved line); the lane's state becomes declared",
           "owner": "architect",
           "due": "2026-11-06",
           "done": null
@@ -177,12 +177,36 @@
           "what": "candidate nine's two receipts (addendum 157 item 2): (a) GSAx feasibility from the stored shot table and (b) the starter timing probe of the NHL API on three game days, read-only scripts in one PR, the consoles on #105",
           "owner": "code",
           "due": "2026-10-28",
-          "done": null
+          "done": {
+            "date": "2026-10-29",
+            "receipt": "#105: receipt 2(a), the GSAx feasibility read (comment 6441614249; READ by the architect 2026-10-27 08:25 ET), and receipt 2(b), the four-day read of the starter timing probe (comment 6498263271: 10-25 empty log, 10-26 not run, 10-27 11 games, 10-28 4 games with --save; three endpoints, polls T-120..T-0; no pregame goalie assertion anywhere) (ARCHITECT 2026-10-29 09:45 ET: \"candidate nine's receipts (b) → done 10-29 on the four-day read\"; ARCHITECT 2026-10-31 11:50 ET, addendum 191 item 2(a): \"the 10-28 step DONE (receipts 2(a) and 2(b) on #105)\")"
+          }
         },
         {
           "what": "candidate nine declared to Code, or my written ruling that there is none worth a run",
           "owner": "architect",
           "due": "2026-10-30",
+          "done": {
+            "date": "2026-10-30",
+            "receipt": "ARCHITECT 2026-10-30 08:10 ET on #105 (comment 6522364298): \"the roadmap's 10-30 step is done as this ruling: NO candidate declared today; the NHL API asserts no starter on any endpoint (four days, 15 games); the landing page's matchup.goalieComparison lists each side's two goalies with season stats ... in an order that is not GP, points or name. HYPOTHESIS to test, never assumed: leaders[0] at T-35 is the projected starter.\" Three more host days with --save; the receipt on #105 by 11-05; the architect's ruling 11-06. The bar does not move; v7 stays the failed-gate shadow; NHL stays market-only (ARCHITECT 2026-10-31 11:50 ET, addendum 191 item 2(a))"
+          }
+        },
+        {
+          "what": "the leaders-order receipt on #105: the four probe days (10-28, 10-30, 10-31, 11-01) read together — does landing goalieComparison leaders[0] name the starter the LIVE boxscore shows in net, per side per game",
+          "owner": "code",
+          "due": "2026-11-05",
+          "done": null
+        },
+        {
+          "what": "the architect's declaration of candidate nine on that receipt, or the written no",
+          "owner": "architect",
+          "due": "2026-11-06",
+          "done": null
+        },
+        {
+          "what": "the operator's sourcing decision on an external projected-starters feed: a named source with a pregame stamp, or none (ARCHITECT 2026-10-31 11:50 ET, addendum 191 item 2(a): the 12-28, 12-29, 01-20 and 01-21 steps and earliest_live 2027-01-22 stand only on a source by 11-13; the clearing, if it comes, is a later moved line)",
+          "owner": "operator",
+          "due": "2026-11-13",
           "done": null
         },
         {
@@ -213,7 +237,24 @@
       "earliest_live": "2027-01-22",
       "live_needs": "PASS at the frozen bar on 600 or more regular-season games of 2026-27 (the NHL API's game type 2; the included ids and counts listed in the run's receipt), CONFIRMED, and a Desk policy ruling. The bar is the harness's criterion set as written in src/walters/nhl_backtest.py: the candidate's test log-loss at or under the home-rate baseline's minus 0.010 (LL_MARGIN), the calibration bands, the ratings range; its number is read from the 600-game cohort at the run, never before (0.6866 was the rule's value on the retired 2025 cohort, not the rule). A candidate whose state is not an Elo rating declares its own stability guards with its declaration (addendum 157 item 3).",
       "vs_close": "behind. The shadow (v7) reads 0.6747 against the market's 0.6482 over the 64 games graded to 2026-10-13 (my read of the laptop's shadow exports on the mirror). The bar certifies better than the schedule, not better than the market.",
-      "moved": []
+      "moved": [
+        {
+          "moved_on": "2026-10-31",
+          "which": "the leaders-order receipt on #105: the four probe days (10-28, 10-30, 10-31, 11-01) read together — does landing goalieComparison leaders[0] name the starter the LIVE boxscore shows in net, per side per game",
+          "was": "2026-10-30",
+          "now": "2026-11-05",
+          "why": "the 10-30 step (candidate nine declared, or a written no) is done as the 08:10 ET ruling of no candidate today; the leaders[0] hypothesis is read first, on the four probe days together, its receipt on #105 by 11-05",
+          "ruling": "ARCHITECT 2026-10-31 12:40 ET, addendum 192 item 1: \"THE NHL 11-06 STEP — RULED IN (the 10-30 08:10 ET ruling's item (4) appended it; addendum 191 item 2(a) dropped it by omission). Two steps land before the 11-13 sourcing step, each with its moved line quoting this addendum\"; ARCHITECT 2026-10-30 08:10 ET, #105, item (4): \"My declaration or written no on 11-06 (a moved line: the 10-30 ruling done, the 11-06 step appended).\""
+        },
+        {
+          "moved_on": "2026-10-31",
+          "which": "the architect's declaration of candidate nine on that receipt, or the written no",
+          "was": "2026-10-30",
+          "now": "2026-11-06",
+          "why": "the 10-30 step (candidate nine declared, or a written no) is done as the 08:10 ET ruling of no candidate today; the declaration or the written no follows the leaders-order receipt, on 11-06",
+          "ruling": "ARCHITECT 2026-10-31 12:40 ET, addendum 192 item 1: \"THE NHL 11-06 STEP — RULED IN (the 10-30 08:10 ET ruling's item (4) appended it; addendum 191 item 2(a) dropped it by omission). Two steps land before the 11-13 sourcing step, each with its moved line quoting this addendum\"; ARCHITECT 2026-10-30 08:10 ET, #105, item (4): \"My declaration or written no on 11-06 (a moved line: the 10-30 ruling done, the 11-06 step appended).\""
+        }
+      ]
     },
     {
       "lane": "cups",
@@ -339,25 +380,52 @@
       "issue": 507,
       "registry_id": null,
       "competitions": ["MLB"],
-      "state": "to declare",
+      "state": "declared",
       "steps": [
         {
           "what": "the as-of reconstruction of the pitcher statistics the live model reads, from the stored appearances (docs/historical_backfill_assessment.md tier 1), as a read-only receipt: coverage per season",
           "owner": "code",
           "due": "2026-10-28",
-          "done": null
+          "done": {
+            "date": "2026-10-28",
+            "receipt": "#507 comment 6470536840: the laptop's run of scripts/mlb_pitcher_asof_receipt.py (#702), seasons 2025 and 2026, read-only (2026: appearances both sides 2429/2429, the live path reconstructed 3173/4858 sides; 2025: no stored starter identity, 0/4860) (ARCHITECT 2026-10-28 09:40 ET: the step \"is done on its date\"; ARCHITECT 2026-10-31 11:50 ET, addendum 191 item 2(b): \"the 10-28 step DONE (#702's receipt, #507)\")"
+          }
         },
         {
           "what": "my declaration: the backtest with the pitcher layer on and off, the same games, the MLB bar (0.0050) as the pre-committed margin, on the 2025 and 2026 regular seasons; the result shapes the 2027 model",
           "owner": "architect",
           "due": "2026-10-31",
+          "done": {
+            "date": "2026-10-31",
+            "receipt": "ARCHITECT 2026-10-31 11:45 ET, addendum 190: the pitcher-layer declaration, registry entry mlb-pitchers-v1 DECLARED at 2026-10-31T15:45:00Z (two arms, ON with the as-of reconstruction and OFF, on the same 1553 2026 regular-season games with both sides reconstructed; mean log-loss of the home-win probability; PASS only if OFF - ON >= 0.0050, a tie rejects); 2026 only (the moved line below, 190 item 6) (ARCHITECT 2026-10-31 11:50 ET, addendum 191 item 2(b))"
+          }
+        },
+        {
+          "what": "the harness PR (190 item 7): the ON arm's as-of inputs into the backtest behind one flag, the registry entry mlb-pitchers-v1 and its frozen cohort, the fence, tests on synthetic rows, the OFF arm pinned to today's backtest on the cohort",
+          "owner": "code",
+          "due": "2026-11-05",
+          "done": null
+        },
+        {
+          "what": "the one run on the laptop and the verdict (190 item 7: on a .backup copy outside data/ with --db, the architect's block; the verdict recorded in the entry by Code's PR)",
+          "owner": "architect",
+          "due": "2026-11-06",
           "done": null
         }
       ],
       "earliest_live": null,
-      "live_needs": "MLB is live. The lane's exit is a measured contribution of the pitcher layer, on or off, before the 2027 season; a layer that does not clear the margin is retired from the live model by a ruling.",
+      "live_needs": "MLB is live. The lane's exit is a measured contribution of the pitcher layer, on or off, before the 2027 season; a layer that does not clear the margin is retired from the live model by a ruling. A PASS also requires the live path to read the as-of sums and never the snapshot before opening day (addendum 190 items 4–5; #746).",
       "vs_close": "ahead on the small 2026 sample the mirror holds (27 decided games from 09-29, 14 picks right; the 16 with a close: model 0.6923 against the close's 0.7098), too few to say.",
-      "moved": []
+      "moved": [
+        {
+          "moved_on": "2026-10-31",
+          "which": "my declaration: the backtest with the pitcher layer on and off, the same games, the MLB bar (0.0050) as the pre-committed margin, on the 2025 and 2026 regular seasons; the result shapes the 2027 model",
+          "was": "2026-10-31",
+          "now": "2026-10-31",
+          "why": "scope, not date: the step's \"2025 and 2026 regular seasons\" is narrowed to the 2026 regular season. Addendum 190 item 6, verbatim: \"2025: EXCLUDED, by receipt — 0 of 4860 sides reconstructable (#702, 10-28: no stored pregame starter identity; the boxscore starter is post-game, the exports begin 2026-05-24). The roadmap step's \"2025 and 2026\" is narrowed to 2026 by a moved line (scope, not date; Code appends it with this addendum quoted). 2025 enters only on an external as-of probable-starters source with a pregame stamp, the same class of condition as NHL's; not sought.\"",
+          "ruling": "ARCHITECT 2026-10-31 11:45 ET, addendum 190 item 6; ARCHITECT 2026-10-31 11:50 ET, addendum 191 item 2(b): \"a moved line narrowing the scope to 2026 (190 item 6, the reason quoted)\""
+        }
+      ]
     }
   ]
 }

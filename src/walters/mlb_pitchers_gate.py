@@ -35,6 +35,7 @@ GATE-CLASS). The ruling, verbatim, the harness and Code's readings: docs/specs/m
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import os
@@ -262,6 +263,66 @@ def classify_copy(path: Path) -> dict:
     return asof.classify(d, SEASON)
 
 
+FINGERPRINT_RULING = "ARCHITECT 2026-10-31 13:15 ET, addendum 193 item 1"
+FINGERPRINT_RULE = (
+    "the freeze records a fingerprint of the rows the run reads, and the run refuses before its reservation unless the "
+    "copy it is given reproduces it (" + FINGERPRINT_RULING + "). Parts, each the sha256 of its rows as sorted JSON "
+    "lines: games, every 2026 MLB match row the walk and the reconstruction read (id, kickoff, status, stage, teams, "
+    "final scores, the statsapi id; it holds the cohort games' ids, kickoffs and final scores); appearances, the "
+    "pitcher_appearances rows the as-of reconstruction attributes to the season's games (game, side, pitcher, outs, "
+    "starter, earned runs); starters, the starting_pitcher rows it reads (game, side, kind, source id, source, "
+    "refreshed at, rows held); config, the production config the arms run with (version, baseball_config). A mismatch "
+    "is a finding on #507 (the copy is not the frozen one), never a re-freeze and never a run on the other copy")
+
+
+def _lines_sha(rows) -> dict:
+    lines = sorted(json.dumps(r, sort_keys=True, default=str) for r in rows)
+    return {"n": len(lines), "sha256": hashlib.sha256("\n".join(lines).encode()).hexdigest()}
+
+
+def fingerprint(path: Path, version: str, cfg) -> dict:
+    """The copy's fingerprint (addendum 193 item 1): the rows the run reads, per part {n, sha256}, and one sha256 over
+    the parts. Read-only, through the same mode=ro reader and the same as-of load the classification uses."""
+    from src.walters import mlb_pitcher_asof as asof
+    con = open_ro(path)
+    try:
+        asof.check_columns(con)
+        d = asof.load(con, SEASON)
+        games = [list(r) for r in con.execute(
+            "SELECT m.id, m.utc_date, m.status, m.stage, m.home_team_id, m.away_team_id, m.home_score, m.away_score, "
+            "m.external_ids FROM matches m JOIN competitions c ON c.id = m.competition_id "
+            "WHERE c.code = ? AND m.season = ?", (COMPETITION, SEASON))]
+    except SystemExit as e:
+        raise GateRefused(str(e))
+    except sqlite3.Error as x:
+        raise GateRefused(f"the copy cannot be read for its fingerprint ({x}); nothing written, nothing reserved")
+    finally:
+        con.close()
+    apps = [[mid, a["side"], a["pid"], a["outs"], a["starter"], a["er"]] for mid, rows in d["apps"].items()
+            for a in rows]
+    starters = [[mid, side, p["kind"], p["psid"], p["source"], _iso(p["at"]), p["n"]]
+                for mid, sides in d["parts"].items() for side, p in sides.items()]
+    config = [[version, cfg.as_dict()]]
+    parts = {"games": _lines_sha(games), "appearances": _lines_sha(apps), "starters": _lines_sha(starters),
+             "config": _lines_sha(config)}
+    whole = hashlib.sha256(json.dumps({k: v["sha256"] for k, v in parts.items()}, sort_keys=True).encode()).hexdigest()
+    return {"sha256": whole, "parts": parts, "rule": FINGERPRINT_RULE}
+
+
+def fingerprint_mismatch(frozen: dict | None, now: dict) -> str | None:
+    """None when the copy reproduces the frozen fingerprint; else the refusal, naming each part that differs."""
+    if not frozen or not frozen.get("sha256"):
+        return (f"the frozen {COHORT_KEY} carries no fingerprint ({FINGERPRINT_RULING}): the copy cannot be checked; "
+                "nothing reserved, nothing read, the architect rules")
+    if frozen["sha256"] == now["sha256"]:
+        return None
+    diff = [f"{k} (n {frozen['parts'].get(k, {}).get('n')} -> {v['n']})" for k, v in now["parts"].items()
+            if frozen.get("parts", {}).get(k, {}).get("sha256") != v["sha256"]]
+    return (f"the copy is not the frozen one: its fingerprint {now['sha256'][:12]}… is not the frozen "
+            f"{frozen['sha256'][:12]}… (parts differ: {', '.join(diff) or 'the whole'}). A finding on #507, never a "
+            f"re-freeze and never a run on the other copy ({FINGERPRINT_RULING}); nothing reserved, nothing read")
+
+
 def production_config(s):
     """(version, BaseballConfig) of the copy's production MLB model: the live family's (training._family_for) one
     production row, which must also be the row the walk reads (backtest._load_production_config: the newest
@@ -407,7 +468,8 @@ def freeze(db, no_fetch: bool = False, echo=None) -> dict:
     and unrun with no test_cohort, no cohort file and no reservation; then the cross-ref guard (before any write);
     then the copy's classification must give exactly COHORT_N ids (else REFUSED naming the count: the DB moved).
     Writes docs/registry/ids/mlb-pitchers-v1.cohort.txt (sorted ids, one per line, a trailing newline) and the
-    entry's test_cohort {n, ids_sha256 (registry._ids_sha), ids_file, frozen_at, basis}. Never confirmation_cohort."""
+    entry's test_cohort {n, ids_sha256 (registry._ids_sha), ids_file, frozen_at, basis, fingerprint (addendum 193 item
+    1: the rows the run reads, read from the same copy)}. Never confirmation_cohort."""
     from src.walters import mlb_pitcher_asof as asof
 
     reg = _reg()
@@ -434,13 +496,16 @@ def freeze(db, no_fetch: bool = False, echo=None) -> dict:
                           "architect rules")
     basis = cohort_basis(cls, ids)
     basis["selected_at"] = reg._now()
+    with readonly_session(path) as s:               # the config the arms will run with (refused when none)
+        version, cfg = production_config(s)
+    fp = fingerprint(path, version, cfg)            # addendum 193 item 1: which data, beside which games
     os.makedirs(reg.IDS_DIR, exist_ok=True)
     with open(fpath, "x") as f:
         f.write("\n".join(str(i) for i in ids) + "\n")
     entries = reg.load(reg.LEDGER)
     entry = next(x for x in entries if x["id"] == EID)
     entry[COHORT_KEY] = {"n": len(ids), "ids_sha256": reg._ids_sha(ids), "ids_file": f"docs/registry/ids/{COHORT_FILE}",
-                         "frozen_at": reg._now(), "basis": basis}
+                         "frozen_at": reg._now(), "basis": basis, "fingerprint": fp}
     try:
         reg.save(entries, reg.LEDGER)
     except (OSError, ValueError, TypeError) as x:   # Codex on #748 (P2): never leave the file without its entry
@@ -465,6 +530,8 @@ def freeze_lines(r: dict) -> list[str]:
             f"  cohort {tc['n']} (declared {COHORT_N}) · first kickoff {b['first_kickoff']} · last {b['last_kickoff']}",
             "  by month: " + " · ".join(f"{k} {v}" for k, v in b["by_month"].items()),
             f"  frozen: {tc['ids_file']} · sha256 {tc['ids_sha256']} · {COHORT_KEY} written into the entry",
+            f"  fingerprint {tc['fingerprint']['sha256']} ({FINGERPRINT_RULING}): "
+            + " · ".join(f"{k} {v['n']} rows {v['sha256'][:12]}…" for k, v in tc["fingerprint"]["parts"].items()),
             "  NOTHING SCORED. Commit docs/registry/ (the entry and the cohort file) in a PR before mlb-pitchers-gate."]
 
 
@@ -521,7 +588,8 @@ def score(rows, cohort: list[int]) -> dict:
 def run(db, no_fetch: bool = False, echo=None) -> dict:
     """The ONE run. Before any outcome read, each refusal exit 2 with nothing written: declared and unrun; no
     reservation; the frozen test_cohort present and its file matching its sha and count; the --db copy (check_db);
-    the copy's own re-classification exactly COHORT_N ids and the same set as the file; the copy's production config.
+    the copy's own re-classification exactly COHORT_N ids and the same set as the file; the copy's production config;
+    the copy's fingerprint equal to the frozen one (addendum 193 item 1).
     Then the reservation (after the cross-ref guard), then the walk (sealed_read), then the score. The caller records
     it (record)."""
     from src.walters import backtest as bt
@@ -541,6 +609,11 @@ def run(db, no_fetch: bool = False, echo=None) -> dict:
                           "reserved, nothing read")
     with readonly_session(path) as s:
         version, cfg = production_config(s)
+        fp = fingerprint(path, version, cfg)
+        fp_now = fp["sha256"]
+        why = fingerprint_mismatch(e[COHORT_KEY].get("fingerprint"), fp)
+        if why:                                     # addendum 193 item 1: the frozen copy, or no run
+            raise GateRefused(why)
         inputs = {mid: (asof.pitcher_stats_asof(cls["games"][mid]["home"], cfg),
                         asof.pitcher_stats_asof(cls["games"][mid]["away"], cfg)) for mid in ids}
         reg = _reg()
@@ -551,7 +624,7 @@ def run(db, no_fetch: bool = False, echo=None) -> dict:
         rows = bt.run_backtest(season=SEASON, competition_code=COMPETITION, pitcher_layer=True,
                                pitcher_inputs=inputs, session=s, sealed_read=True)
     r = score(rows, ids)
-    r.update(cohort_ids=ids, cohort_sha256=reg._ids_sha(ids), production_version=version,
+    r.update(cohort_ids=ids, cohort_sha256=reg._ids_sha(ids), production_version=version, fingerprint_sha256=fp_now,
              baseball_config=cfg.as_dict(), db=str(path),
              paths=dict(Counter(f"{cls['games'][m]['home']['label'][2:]} / {cls['games'][m]['away']['label'][2:]}"
                                 for m in ids)))
@@ -561,7 +634,8 @@ def run(db, no_fetch: bool = False, echo=None) -> dict:
 def result_record(r: dict) -> dict:
     """The run's result as recorded (registry.record_run): every figure unrounded; the ids are the sidecar's."""
     keep = ("verdict", "n", "ll_off", "ll_on", "delta", "bar", "brier_off", "brier_on", "by_month", "home_win_rate",
-            "n_cohort", "n_priced", "unpriced_n", "unpriced_ids", "why", "cohort_sha256", "production_version",
+            "n_cohort", "n_priced", "unpriced_n", "unpriced_ids", "why", "cohort_sha256", "fingerprint_sha256",
+            "production_version",
             "baseball_config", "paths")
     out = {k: r[k] for k in keep if k in r}
     out["metric"] = "mean home-side log-loss, -(y ln p + (1 - y) ln(1 - p)), p floored at 1e-12; Brier (p - y)^2"
@@ -579,6 +653,7 @@ def record(r: dict) -> dict:
 def run_lines(r: dict) -> list[str]:
     L = [f"  production config: {r['production_version']} · {json.dumps(r['baseball_config'], sort_keys=True)}",
          f"  cohort {len(r['cohort_ids'])} · sha256 {r['cohort_sha256']} (the frozen file, re-classified on this copy)",
+         f"  fingerprint {r['fingerprint_sha256']}: the frozen copy's ({FINGERPRINT_RULING})",
          "  paths (home / away): " + " · ".join(f"{k} {v}" for k, v in sorted(r["paths"].items()))]
     if r["verdict"] == "INVALID":
         L.append(f"  INVALID: {r['unpriced_n']} of {r['n_cohort']} cohort games unpriced by the walk ({r['why']}); "

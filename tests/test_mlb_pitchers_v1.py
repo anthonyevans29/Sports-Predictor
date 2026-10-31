@@ -623,6 +623,9 @@ def test_freeze_writes_the_cohort_file_and_test_cohort_then_the_run_scores_it_an
     assert tc["ids_file"] == "docs/registry/ids/mlb-pitchers-v1.cohort.txt" and "confirmation_cohort" not in e
     assert tc["basis"]["games_by_sides_on_a_path"] == {"both": 15, "one": 0, "neither": 45}
     assert sum(tc["basis"]["by_month"].values()) == 15 and tc["basis"]["rule"] == mp.COHORT_RULE
+    fp = tc["fingerprint"]                                                         # addendum 193 item 1
+    assert set(fp["parts"]) == {"games", "appearances", "starters", "config"} and fp["rule"] == mp.FINGERPRINT_RULE
+    assert fp["parts"]["games"]["n"] == 60 and fp["parts"]["config"]["n"] == 1 and "fingerprint " in r.output
     assert e["status"] == "declared" and e["run"] is None
     assert not os.path.exists(mp.reservation_path())                               # the freeze reserves nothing
     calls = []
@@ -1104,3 +1107,68 @@ def test_the_cross_ref_guard_holds_a_test_cohort_as_the_cohort_kind():
     assert reg._guard_state(mp.EID, lambda rel: bare if rel.endswith("experiments.json") else None)["cohort"] is None
     conf = json.dumps([{"id": "x", "confirmation_cohort": tc}]).encode()               # the confirmation kind as before
     assert reg._guard_state("x", lambda rel: conf if rel.endswith("experiments.json") else None)["cohort"] is not None
+
+
+# ================================================================================ the fingerprint (addendum 193) --
+
+def _swapped(gate, name, sql, *args):
+    """A copy of the frozen copy with one row changed (the cohort ids unchanged)."""
+    p = gate["tmp"] / name
+    p.write_bytes(Path(gate["db"]).read_bytes())
+    con = sqlite3.connect(p)
+    con.execute(sql, args)
+    con.commit()
+    con.close()
+    assert _cohort_of(p) == gate["ids"]                                             # the same 1553 (here 15) ids
+    return p
+
+
+def test_a_swapped_copy_with_the_same_ids_refuses_and_the_frozen_copy_passes(gate, monkeypatch):
+    """Addendum 193 item 1 (and item 4's tests): the freeze records the copy's fingerprint; a copy with the same cohort
+    ids and one changed score, one changed earned run or another production config is refused before the
+    reservation, as a finding (never a re-freeze, never a run on the other copy); the frozen copy runs."""
+    mp.freeze(gate["db"], no_fetch=True)
+    frozen = mp._entry()[mp.COHORT_KEY]["fingerprint"]
+    walked = []
+    monkeypatch.setattr(bt, "run_backtest", lambda **kw: walked.append(kw) or [])
+    cid = gate["ids"][4]
+    score = _swapped(gate, "score.db", "UPDATE matches SET home_score = home_score + 1 WHERE id = ?", cid)
+    er = _swapped(gate, "er.db", "UPDATE pitcher_appearances SET earned_runs = earned_runs + 1 WHERE id = "
+                                 "(SELECT MIN(id) FROM pitcher_appearances WHERE match_id = ?)", cid)
+    conf = _swapped(gate, "conf.db", "UPDATE model_versions SET parameters = ? WHERE status = 'production'",
+                    json.dumps({"baseball_config": {"run_shrink_enabled": False}}))
+    for p, part in ((score, "games"), (er, "appearances"), (conf, "config")):
+        with pytest.raises(mp.GateRefused) as ex:
+            mp.run(p, no_fetch=True)
+        msg = str(ex.value)
+        assert "the copy is not the frozen one" in msg and f"{part} (n " in msg and "#507" in msg
+        assert "never a re-freeze" in msg and "nothing reserved" in msg
+        assert mp.fingerprint_mismatch(frozen, mp.fingerprint(p, *_prod(p)))
+    assert not walked and not os.path.exists(mp.reservation_path())                 # nothing reserved, nothing read
+    assert mp.fingerprint_mismatch(frozen, mp.fingerprint(gate["db"], *_prod(gate["db"]))) is None
+    r = mp.run(gate["db"], no_fetch=True)                                           # the frozen copy runs
+    assert walked and os.path.exists(mp.reservation_path()) and r["fingerprint_sha256"] == frozen["sha256"]
+
+
+def test_a_frozen_cohort_without_a_fingerprint_refuses_the_run(gate):
+    mp.freeze(gate["db"], no_fetch=True)
+    _edit(reg.LEDGER, lambda e: {**e, "test_cohort": {k: v for k, v in e["test_cohort"].items() if k != "fingerprint"}})
+    with pytest.raises(mp.GateRefused, match="carries no fingerprint"):
+        mp.run(gate["db"], no_fetch=True)
+    assert not os.path.exists(mp.reservation_path())
+
+
+def test_the_fingerprint_is_the_rows_not_their_order_or_the_file(gate, tmp_path):
+    """The same rows in another file (a VACUUM INTO copy) give the same fingerprint; the read writes nothing."""
+    before = _sha(gate["db"])
+    a = mp.fingerprint(gate["db"], *_prod(gate["db"]))
+    other = tmp_path / "vacuumed.db"
+    con = sqlite3.connect(gate["db"])
+    con.execute("VACUUM INTO ?", (str(other),))
+    con.close()
+    assert mp.fingerprint(other, *_prod(other)) == a and _sha(gate["db"]) == before
+
+
+def _prod(p):
+    with mp.readonly_session(Path(p)) as s:
+        return mp.production_config(s)

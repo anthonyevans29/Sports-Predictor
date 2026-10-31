@@ -24,3 +24,24 @@
 - **Codex round 2 on #748 (three findings).**
   - P1, the model family, fixed: the gate's `production_config` reads the live MLB family's (`training._family_for`) one production row, refuses two, and refuses when the walk's row is another row. The walk's row is `backtest._load_production_config`, the newest production MLB row of any family, kept as today's query so OFF stays today's backtest. A test covers a newer production row of another family.
   - The two P2s go to the follow-up Issue #749 (review stop rule, addendum 7 item 2): a partial reservation write, and a non-numeric cohort token, each a traceback. They are also listed for the architect, since #749 item 1 can spend the one run without a read.
+- **RULED (ARCHITECT 2026-10-31 13:15 ET, addendum 193), verbatim:**
+
+> ARCHITECT 2026-10-31 13:15 ET — addendum 193: #748 (the mlb-pitchers-v1 harness) — Codex's P1 on the copy's identity RULED IN; #747 merges now.
+>
+> 1. THE FINGERPRINT — RULED IN, Code's proposal as written: the freeze records a fingerprint of the rows the run reads — the 1553 games' ids, kickoffs and final scores; the pitcher_appearances rows the as-of reconstruction reads for them; the production config the OFF arm runs with — and the run REFUSES before its reservation unless the copy it is given reproduces it. A mismatch is a finding on #507 (the copy is not the frozen one), never a re-freeze and never a run on the other copy. This is the NCAA gate's precedent (its frozen fingerprint stood through a stored-data change on 10-29) and it is what law 3's "one read" means when the read is on a copy: the ids check says which games, the fingerprint says which data. The freeze and the run stay on the same .backup copy in my block, as documented; the fingerprint is what makes that a check rather than a habit.
+> 2. The three round-1 fixes stand as pushed (the gate flag passes the fence only under the gate's own reservation; a failed freeze leaves nothing; the cross-ref guard sees a cohort on another branch).
+> 3. #747 at 05fd8c3 carries addendum 192 as ruled (the two NHL steps, the pitcher lane declared with registry_id null, live_needs' sentence): CI green, clean — the operator merges it now (block_1031_merge_747.txt). After the merge #748 sets the lane's registry_id to mlb-pitchers-v1 with the entry, as Code planned.
+> 4. #748 then: the fingerprint in the round-2 push with its tests (a swapped copy with the same ids and one changed score refuses; the frozen copy passes); the review rounds under the cap; my merge block; the freeze-and-run block on the laptop 11-06 on a fresh .backup copy outside data/, my text.
+
+- **193 item 1, built:** `mlb_pitchers_gate.fingerprint`, stored as `test_cohort.fingerprint` by the freeze. The run recomputes it on its copy and refuses before the reservation on any difference, naming the parts. It is a finding on #507, never a re-freeze. The parts:
+  - games: every 2026 MLB match row the walk and the reconstruction read, a superset of the cohort's ids, kickoffs and scores, because the walk's profiles read every game;
+  - appearances: the attributed appearance rows;
+  - starters: the starting_pitcher rows, per the proposal as written;
+  - config: the production version and the baseball_config.
+
+  Tests:
+  - a copy with the same ids and one changed score refuses, and so does one with a changed earned run or another production config;
+  - the frozen copy runs;
+  - a frozen cohort with no fingerprint refuses;
+  - the same rows in another file give the same fingerprint.
+- **193 item 3:** the lane's `registry_id` becomes "mlb-pitchers-v1" in this PR after #747 merges.

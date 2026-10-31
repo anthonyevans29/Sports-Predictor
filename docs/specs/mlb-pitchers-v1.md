@@ -151,9 +151,16 @@ REFUSED, exit 2, naming the spent reservation.
   `src/walters/mlb_pitcher_asof.py`, whose `reconstruct` calls its own `read_game`, so that block would count 0 on this
   code. The same figure is the freeze's own console line (`both sides on a live path N · one side N · neither N`,
   from `mlb_pitcher_asof.cohort_ids(classify(...))`), and the freeze refuses unless both is exactly 1553.
-- **(k) The copy's fingerprint (Codex on #748, P1; not built, for a ruling).** The run checks that the copy reproduces
-  the frozen ids, but not that it is the frozen copy. A replaced copy with the same 1553 ids and different scores,
-  earned runs or production config would be read. Proposal: the freeze records a fingerprint of the rows the run reads
-  (2026 MLB matches, the 2026 appearance and starting-pitcher rows, the production MLB model row); the run refuses
-  before its reservation unless the copy reproduces it. It adds a refusal to the declared run, so it waits for the
-  architect.
+- **(k) The copy's fingerprint — RULED IN (ARCHITECT 2026-10-31 13:15 ET, addendum 193 item 1), verbatim:** "THE
+  FINGERPRINT — RULED IN, Code's proposal as written: the freeze records a fingerprint of the rows the run reads — the
+  1553 games' ids, kickoffs and final scores; the pitcher_appearances rows the as-of reconstruction reads for them; the
+  production config the OFF arm runs with — and the run REFUSES before its reservation unless the copy it is given
+  reproduces it. A mismatch is a finding on #507 (the copy is not the frozen one), never a re-freeze and never a run on
+  the other copy." Built (`mlb_pitchers_gate.fingerprint`): four parts, each the sha256 of its rows as sorted JSON lines,
+  and one sha256 over them, stored as `test_cohort.fingerprint`. The parts are: games (every 2026 MLB match row the
+  walk and the reconstruction read: id, kickoff, status, stage, teams, final scores and the statsapi id; a superset of
+  the cohort games', because the walk's run profiles read every game); appearances (the rows the as-of load attributes
+  to the season's games); starters (the starting_pitcher rows it reads, per Code's proposal as written, since they pick
+  which pitcher's sums feed ON); config (the production version and the baseball_config the arms run with). The run
+  recomputes it on its copy after the cohort checks and the production config, and refuses before the reservation on
+  any difference, naming the parts.

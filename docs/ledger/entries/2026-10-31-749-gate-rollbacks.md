@@ -5,3 +5,6 @@
   - item 2: `frozen_ids` refuses a non-id token, naming the file;
   - item 3: `freeze` has one rollback around the create, write, reload and save, which removes the file and restores the ledger's bytes.
 - **Code's reading:** item 3's rollback also restores `docs/registry/experiments.json`'s bytes. `registry.save` opens the ledger with "w" (it truncates first), so a save that fails partway would otherwise leave a truncated registry. `registry.save` itself is unchanged; it is shared code beyond this lane.
+- **Codex round 1 on #751 (two P2s, fixed):**
+  - the freeze restores the ledger's bytes only when its own save had begun ("the ledger was not written" otherwise), so another command's update made between the snapshot and an earlier failure is never overwritten;
+  - a reservation whose removal also fails is refused as "could NOT be removed … remove by hand", never as "not spent".

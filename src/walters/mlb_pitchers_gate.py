@@ -426,8 +426,10 @@ def reserve(meta: dict | None = None, no_fetch: bool = False, echo=None) -> str:
     except (OSError, TypeError, ValueError) as x:  # #749 item 1 (addendum 194 item 2): a failed write spends nothing
         try:
             os.remove(p)
-        except OSError:
-            pass
+        except OSError as y:                        # Codex on #751: never claim a removal that failed
+            raise GateRefused(f"the reservation {os.path.relpath(p)} could not be written ({type(x).__name__}: {x}) "
+                              f"and could NOT be removed ({y}): nothing was read, but the file now reads as a spent "
+                              f"run; remove {p} by hand before the run")
         raise GateRefused(f"the reservation {os.path.relpath(p)} could not be written ({type(x).__name__}: {x}); the "
                           "file is removed: the one run is not spent, nothing read")
     return p
@@ -511,9 +513,11 @@ def freeze(db, no_fetch: bool = False, echo=None) -> dict:
         version, cfg = production_config(s)
     fp = fingerprint(path, version, cfg)            # addendum 193 item 1: which data, beside which games
     # #749 item 3 (addendum 194 item 2): ONE rollback around the whole sequence (the file's create and write, the
-    # ledger's reload and save). Any failure removes the file this call created and puts the ledger's bytes back
-    # (registry.save truncates before it writes), so a failed freeze leaves nothing and the next freeze is not blocked.
-    created, ledger_before = False, None
+    # ledger's reload and save). Any failure removes the file this call created and, when the failure came in or
+    # after this call's save (registry.save truncates before it writes), puts the ledger's bytes back; a failure before
+    # the save leaves the ledger as it is (Codex on #751: never overwrite another command's update). So a failed
+    # freeze leaves nothing and the next freeze is not blocked.
+    created, ledger_before, saving = False, None, False
     try:
         with open(reg.LEDGER, "rb") as f:
             ledger_before = f.read()
@@ -526,6 +530,7 @@ def freeze(db, no_fetch: bool = False, echo=None) -> dict:
         entry[COHORT_KEY] = {"n": len(ids), "ids_sha256": reg._ids_sha(ids),
                              "ids_file": f"docs/registry/ids/{COHORT_FILE}", "frozen_at": reg._now(), "basis": basis,
                              "fingerprint": fp}
+        saving = True                               # from here the ledger's bytes are this call's to put back
         reg.save(entries, reg.LEDGER)
     except (OSError, ValueError, TypeError, KeyError, StopIteration) as x:
         undone = []
@@ -535,7 +540,9 @@ def freeze(db, no_fetch: bool = False, echo=None) -> dict:
                 undone.append("the cohort file is removed")
             except OSError as y:
                 undone.append(f"the cohort file could NOT be removed ({y}): remove {fpath} by hand")
-        if ledger_before is not None:
+        if not saving:                              # Codex on #751: a failure before the save never touched the
+            undone.append("the ledger was not written")   # ledger; another command's update is never overwritten
+        elif ledger_before is not None:
             try:
                 with open(reg.LEDGER, "rb") as f:
                     same = f.read() == ledger_before

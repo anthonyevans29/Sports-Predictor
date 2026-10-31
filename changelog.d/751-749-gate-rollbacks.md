@@ -6,3 +6,4 @@
   - a half-written reservation is removed and the next reservation goes through;
   - a conflict-marker token refuses, naming the file, with nothing reserved;
   - a failed reload, and a save that truncates the ledger and then fails, each leave no file and the ledger byte-identical, and the next freeze goes through.
+- Codex round 1 on #751: the freeze restores the ledger only when the failure came in or after its own save, so another command's update is never overwritten. A reservation whose cleanup also fails says the file remains and must be removed by hand, never that the run is not spent. A test for each.

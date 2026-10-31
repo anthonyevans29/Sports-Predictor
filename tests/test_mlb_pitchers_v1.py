@@ -1232,8 +1232,44 @@ def test_749_3_any_failure_in_the_freeze_sequence_leaves_nothing(gate, monkeypat
     with pytest.raises(mp.GateRefused) as ex:
         mp.freeze(gate["db"], no_fetch=True)
     msg = str(ex.value)
-    assert "could not be completed" in msg and "the cohort file is removed" in msg and "the ledger is as it was" in msg
+    assert "could not be completed" in msg and "the cohort file is removed" in msg
+    assert ("the ledger was not written" if where == "reload" else "the ledger is as it was") in msg
     assert not cohort.exists() and Path(reg.LEDGER).read_bytes() == before
     monkeypatch.setattr(reg, *restore)
     mp.freeze(gate["db"], no_fetch=True)                                            # the next freeze goes through
     assert cohort.exists() and mp._entry()[mp.COHORT_KEY]["n"] == len(gate["ids"])
+
+
+def test_751_a_failure_before_the_save_never_overwrites_another_commands_ledger_update(gate, monkeypatch):
+    """Codex on #751: the ledger changed by someone else after the snapshot, then this freeze fails before its own
+    save: the rollback leaves that update in place (only this call's save is ever undone)."""
+    cohort = Path(reg.IDS_DIR) / mp.COHORT_FILE
+    real = reg.load
+
+    def flaky(*a, **k):
+        if cohort.exists():                         # another command's update lands, then the reload fails
+            Path(reg.LEDGER).write_text(Path(reg.LEDGER).read_text().replace('"status": "declared"',
+                                                                             '"status": "declared" ', 1))
+            raise OSError(5, "Input/output error")
+        return real(*a, **k)
+    monkeypatch.setattr(reg, "load", flaky)
+    with pytest.raises(mp.GateRefused, match="the ledger was not written"):
+        mp.freeze(gate["db"], no_fetch=True)
+    assert '"status": "declared" ' in Path(reg.LEDGER).read_text() and not cohort.exists()
+
+
+def test_751_a_reservation_that_cannot_be_removed_says_so(gate, monkeypatch):
+    """Codex on #751: when the cleanup of a half-written reservation fails too, the refusal says the file remains and
+    must be removed by hand, never that the run is not spent."""
+    def half(obj, f, *a, **k):
+        f.write("{")
+        raise OSError(28, "No space left on device")
+    monkeypatch.setattr(mp.json, "dump", half)
+
+    def no_rm(p):
+        raise OSError(30, "Read-only file system")
+    monkeypatch.setattr(mp.os, "remove", no_rm)
+    with pytest.raises(mp.GateRefused) as ex:
+        mp.reserve({"db": "x"}, no_fetch=True)
+    assert "could NOT be removed" in str(ex.value) and "by hand" in str(ex.value)
+    assert "not spent" not in str(ex.value)

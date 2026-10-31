@@ -452,7 +452,7 @@ def _guard_paths(eid: str) -> dict:
 
 def _guard_state(eid: str, read) -> dict:
     """{kind: comparable value or None} for one tree; `read(relpath)` -> bytes | None. A kind is held when the
-    ledger entry carries it (confirmation_cohort / run) or its file exists; the value is both, so a tree holds it
+    ledger entry carries it (confirmation_cohort or test_cohort / run) or its file exists; the value is both, so a tree holds it
     "identically" only when the entry field and the file bytes both match."""
     p = _guard_paths(eid)
     entry = None
@@ -465,11 +465,17 @@ def _guard_state(eid: str, read) -> dict:
     entry = entry or {}
 
     def val(field, f):
-        fld, blob = (entry.get(field) if field else None), read(p[f])
+        if isinstance(field, tuple):    # several ledger fields hold the kind: the first one present
+            fld = next((entry[k] for k in field if entry.get(k)), None)
+        else:
+            fld = entry.get(field) if field else None
+        blob = read(p[f])
         if not fld and blob is None:
             return None
         return (json.dumps(fld, sort_keys=True) if fld else None, blob)
-    return {"cohort": val("confirmation_cohort", "cohort"), "run record": val("run", "run"),
+    # Codex on #748 (P2): mlb-pitchers-v1 freezes its test cohort under test_cohort (its {eid}.cohort.txt is that
+    # cohort, never a confirmation one), so a ref holding either field holds the cohort kind.
+    return {"cohort": val(("confirmation_cohort", "test_cohort"), "cohort"), "run record": val("run", "run"),
             "reservation": val(None, "reservation")}
 
 

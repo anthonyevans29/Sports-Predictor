@@ -7544,6 +7544,74 @@ def ncaa_gate_cmd(eid, preflight, word, fingerprint, no_fetch):
     _ncaa_gate(eid, preflight, word, fingerprint, no_fetch)
 
 
+@cli.command("mlb-pitchers-freeze")
+@click.option("--db", "db", default=None,
+              help="REQUIRED: a .backup copy of the database OUTSIDE data/ (law 5); opened mode=ro, never created.")
+@click.option("--no-fetch", "no_fetch", is_flag=True,
+              help="Cross-ref guard (#329): skip fetching origin laptop/*; only the refs this clone knows are checked "
+                   "and the receipt says other clones were not checked.")
+def mlb_pitchers_freeze_cmd(db, no_fetch):
+    """mlb-pitchers-v1, THE TEST COHORT FROZEN BEFORE THE RUN (ARCHITECT 2026-10-31 11:45 ET, addendum 190 item 2;
+    GATE-CLASS; docs/specs/mlb-pitchers-v1.md). Classifies the copy's 2026 regular season with the #702 receipt's
+    per-side classification (src/walters/mlb_pitcher_asof.py) and freezes the games with BOTH sides on a live path:
+    exactly 1553 ids, else REFUSED naming the count (the database moved). Writes
+    docs/registry/ids/mlb-pitchers-v1.cohort.txt and the entry's test_cohort (n, sha256, file, frozen_at, basis).
+    Refused (exit 2, nothing written) unless the entry is declared and unrun, with no test_cohort, no cohort file and
+    no reservation; the #329 cross-ref guard runs before any write. Reads no outcome; scores nothing."""
+    from src.walters import mlb_pitchers_gate as mp
+    from src.walters import registry as reg
+
+    try:
+        r = mp.freeze(db, no_fetch=no_fetch)
+    except (mp.GateRefused, reg.RegistryError) as e:
+        click.echo(f"REFUSED: {e}")
+        raise SystemExit(2)
+    for line in mp.freeze_lines(r):
+        click.echo(line)
+
+
+@cli.command("mlb-pitchers-gate")
+@click.option("--db", "db", default=None,
+              help="REQUIRED: the same .backup copy the freeze read, OUTSIDE data/ (law 5); opened mode=ro, never "
+                   "created.")
+@click.option("--no-fetch", "no_fetch", is_flag=True,
+              help="Cross-ref guard (#329): skip fetching origin laptop/*; only the refs this clone knows are checked "
+                   "and the receipt says other clones were not checked.")
+def mlb_pitchers_gate_cmd(db, no_fetch):
+    """mlb-pitchers-v1, THE ONE RUN (ARCHITECT 2026-10-31 11:45 ET, addendum 190; GATE-CLASS;
+    docs/specs/mlb-pitchers-v1.md). ONE walk of the copy's 2026 MLB season (src/walters/backtest.run_backtest,
+    pitcher_layer=True): each frozen cohort game priced OFF (today's backtest call) and ON (the as-of PitcherStats,
+    the live construction, then the live missing-starter shrink), from the same history, profiles and production
+    config; raw p_home, pre any blend. Mean home-side log-loss over the cohort, both arms, unrounded: PASS iff
+    OFF - ON >= 0.0050, else REJECT; Brier and the per-month lines are reported, never gated. A cohort game either arm
+    cannot price makes the run INVALID (printed with the ids, recorded), never scored on a subset. Refused (exit 2,
+    nothing written) unless declared and unrun, unreserved, the frozen test_cohort's file matches its sha and count,
+    the copy's re-classification reproduces the same 1553 ids, and the copy holds a production MLB config; then the
+    reservation docs/registry/mlb-pitchers-v1.started.json (after the #329 cross-ref guard), then the walk; recorded
+    with registry.record_run (commit docs/registry/ in a PR). The verdict is the architect's."""
+    from src.walters import mlb_pitchers_gate as mp
+    from src.walters import registry as reg
+
+    click.echo(f"MLB-PITCHERS-V1 · ONE RUN ({mp.RULING}) · --db {db} · cohort {mp.COHORT_N} · bar {mp.BAR!r}")
+    try:
+        r = mp.run(db, no_fetch=no_fetch, echo=lambda line: click.echo(f"  {line}"))
+    except (mp.GateRefused, mp.FenceRefused, reg.RegistryError) as e:
+        click.echo(f"REFUSED: {e}")
+        raise SystemExit(2)
+    for line in mp.run_lines(r):
+        click.echo(line)
+    try:
+        e = mp.record(r)
+    except (mp.GateRefused, reg.RegistryError, OSError, ValueError) as x:
+        click.echo(f"REFUSED: run computed and reserved but not recorded: {type(x).__name__}: {x}. The one run is "
+                   f"spent ({mp.reservation_path()}); paste this whole console to the architect, who rules how it is "
+                   "recorded. Nothing reruns.")
+        raise SystemExit(2)
+    click.echo(f"  recorded: {e['run']['n_scored']} cohort ids · sha {e['run']['ids_sha256'][:12]}… · "
+               f"{e['run']['ids_file']} (commit docs/registry/ in a PR; the verdict is recorded by Code's PR on the "
+               "architect's ruling)")
+
+
 @cli.command("ncaa-fit-scale")
 @click.option("--id", "eid", default="ncaa-elo-v2", show_default=True, type=click.Choice(["ncaa-elo-v2"]),
               help="The registry id of a declaration with a fitted logistic scale.")

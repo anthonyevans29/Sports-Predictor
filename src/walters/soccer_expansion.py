@@ -8,8 +8,13 @@ The ruling, verbatim, and the operational definitions: docs/specs/soccer-expansi
     soccer-expansion-gate               the ONE run: refused unless the registry holds the experiment declared and
                                         unrun AND the spec's open findings are ruled; per-league lines, the
                                         surviving set, the scored-ids sidecar (registry.record_run)
-    export-soccer-expansion-shadow      the five leagues as a greyed SHADOW (engine model_shadow; no Desk call,
-                                        no order line, no prediction row)
+    export-soccer-expansion-shadow      the HOST's shadow export (addendum 178 R6): PD and each DECLARED league of
+                                        the four, priced by leagues_candidate.predict_as_of at the run record's frozen
+                                        constants (164 item 3; R5: a league not declared has no rows); engine
+                                        model_shadow (no Desk call, no order line, no prediction row); the LAST step
+                                        of the soccer sync chains, its rows until the next chain's export (addendum
+                                        185 D2; the next fire + EXPORT_WINDOW_MARGIN, 188 item 4); one new file per
+                                        run, never a row rewritten
     soccer-expansion-shadow-grade       read-only: the shadow's top pick vs the three-way book close
     soccer-expansion-confirm            the confirmation window (ARCHITECT 2026-10-08, addendum 11, item 4): freeze,
                                         substitute, progress, record, on the intl-elo-confirm pattern (section at the
@@ -54,9 +59,15 @@ EDGE_COHORT_PP = 5.0                # reported only: the positive-edge cohort (>
 CLOSE_BOOKMAKER = "fdcuk_close"
 ENGINE = "model_shadow"
 FILE_PREFIX = "soccer_expansion_shadow_"
-WINDOW_HOURS = 72
-SHADOW_NOTE = ("SHADOW — soccer-expansion-v1 (PD, SA, BL1, FL1, ELC). Until CONFIRMED every one of these leagues "
-               "is SHADOW: never a Desk call, never an order line, never a prediction row; nothing enters PL's "
+# The run file's stamp, to the second (pass-4 findings 0/4): exports_mirror.STAMP, and compare_exports._STAMP, its
+# copy, strip `_%Y-%m-%d_%H%M%S` from a name to find its kind (ncaa_shadow's name is stamped so); a finer stamp would
+# leave its tail in the kind and break the mirror's newest-per-kind host/latest. Two runs in one second share the
+# name: the second refuses (export_shadow's exclusive publish), never an overwrite.
+FILE_STAMP = "%Y-%m-%d_%H%M%S"
+SHADOW_NOTE = ("SHADOW — soccer-expansion-v1's PD and each declared league of SA, BL1, FL1, ELC (none before its "
+               "declaration, addendum 178 R5), priced by leagues_candidate.predict_as_of at the run record's frozen "
+               "constants, never the production model (164 item 3). Until CONFIRMED every one of these leagues is "
+               "SHADOW: never a Desk call, never an order line, never a prediction row; nothing enters PL's "
                "evaluate / improve / results tally / n=30 read.")
 
 # Points the ruling leaves undefined are FINDINGS for a ruling, listed in the spec (section 7). The one run
@@ -516,49 +527,265 @@ def _status_label(e: dict | None, code: str) -> str:
     return f"{league} · verdict {v or 'pending'}" + (" · confirmation open" if e.get("status") == "confirming" else "")
 
 
-def price_upcoming(code: str, now: datetime, hours: int, rho: float, coeff: float, season: str = CURRENT_SEASON):
-    """The production model, walked over this season's finished matches before `now` (the harness's own walk),
-    pricing the SCHEDULED matches in the window. Returns ([(match, pred)], counts)."""
-    from sqlalchemy import select
-    from src.db.database import session_scope
-    from src.db.schema import Match, MatchStatus
-    from src.walters import soccer_backtest as sb
+# THE EXPORT SWITCH (lane leagues, #322). The shadow's rows are the candidate's, bound to the run record, never the
+# production model's:
+# - ARCHITECT 2026-10-24, addendum 164 item 3, verbatim in part: "the prospective predictions for SA/BL1/FL1/ELC —
+#   and for PD (159 item 6(a)) — are produced by leagues_candidate.predict_as_of from the declaration on, bound to
+#   the run record's frozen parameters, never by price_upcoming. Code: the export path switch in the same PR as the
+#   daily shadow export (159 item 6(a)), before 11-06."
+# - Addendum 159 item 6(a), verbatim: "a daily PD shadow export bound to the candidate (experiment id, the run
+#   record's frozen parameters — never the current production parameters — the input cutoff, the prediction stamp,
+#   the full three-way distribution, explicit reasons for a missing row), in the chains on both machines".
+# - ARCHITECT 2026-10-30 09:30 ET, addendum 178 R5, verbatim: "BEFORE THE DECLARATION the four leagues get no
+#   prospective rows (nothing is a shadow before it is declared); after it, predict_as_of rows labelled with the
+#   league's declared_at." R6, verbatim in part: "THE EXPORT runs on the HOST only (the writer of record
+#   ...) — the laptop never exports a league." (the refusal is the command's, cli.py)
+# - 158 item 2(a): "Every row keeps the candidate id, the code sha, the input cutoff and the prediction stamp."
+# - 184 item 1: a stage label the code cannot place refuses the league, never a skipped row.
+# - ARCHITECT 2026-10-30 12:45 ET, addendum 185 (the export switch's D1-D7 ruled), the points this module carries,
+#   each verbatim beside the code it governs: D1 (shadow_bindings), D2 (SYNC_CHAIN_TIMERS, next_chain_run), D4
+#   (export_shadow; leagues_window.audit), D6 (shadow_bindings); D7 is the command's (cli.py).
+# R1: the stored rows are the cohort reader's AUDIT RECEIPT (leagues_window.stored_rows / audit), read on the file
+# prefix, `exported_at`, the row's `competition`, `declared_at`, `match_id`, `utc_date` and the three probabilities.
+SHADOW_EXPORTING = "exporting"
+SHADOW_NOT_DECLARED = "not declared"
+SHADOW_REFUSED = "refused: "
+# A bound league whose competition, or whose CURRENT_SEASON, this DB does not store is refused with this cause (law 4:
+# "missing data stays null and labeled"; never an exporting league with 0 rows that reads as a quiet window).
+SHADOW_NOT_STORED = "not stored: "
 
-    out, cnt = [], Counter()
-    with session_scope() as s:
-        c = _comp(s, code)
-        if c is None:
-            return [], {"not_stored": 1}
-        rows = list(s.execute(select(Match).where(Match.competition_id == c.id, Match.season == season)
-                              .order_by(Match.utc_date, Match.id)).scalars())
-        done = [m for m in rows if m.status == MatchStatus.FINISHED and m.utc_date and m.utc_date < now
-                and m.home_score is not None and m.away_score is not None]
-        due = [m for m in rows if m.status == MatchStatus.SCHEDULED and m.utc_date
-               and now <= m.utc_date < now + timedelta(hours=hours)]
-        import dataclasses
-        ctx, elo = sb.CompetitionScoringContext(), sb.EloState(config=sb.EloConfig())
-        cfg = dataclasses.replace(sb.PoissonConfig(), dixon_coles_rho=rho, elo_goal_coeff=coeff)
-        for m in done:
-            nh, na = sb.update_after_match(elo.get(m.home_team_id), elo.get(m.away_team_id),
-                                           m.home_score, m.away_score, elo.config)
-            elo.set(m.home_team_id, nh)
-            elo.set(m.away_team_id, na)
-        if len(done) < MIN_PRIOR:
-            cnt["below_min_prior"] = len(due)
-            due = []
-        st = sb.estimate_strengths([{"home_team_id": p.home_team_id, "away_team_id": p.away_team_id,
-                                     "home_score": p.home_score, "away_score": p.away_score} for p in done], ctx) \
-            if due else {}
-        for m in due:
-            hs, as_ = st.get(m.home_team_id), st.get(m.away_team_id)
-            if not (hs and as_):
-                cnt["no_strength"] += 1
+# D2, ARCHITECT 2026-10-30 12:45 ET, addendum 185, verbatim: "THE EXPORT RUNS AS THE LAST STEP OF EVERY EXISTING SOCCER
+# SYNC CHAIN (soccer-friday 14:00Z, soccer-saturday 10:30 London, soccer-morning-after Sun/Mon/Tue 09:50Z, and
+# intl-daily's tail only if a league sync precedes it there — it does not, so not intl-daily): rows for the league's
+# fixtures kicking off after that run and before the next chain's, computed on the results the DB holds at that
+# moment. No new timer, no daily league sync (declined: a metered provider call for a receipt, and R1 makes the
+# recompute the verdict, the rows only its audit). A midweek game no chain precedes gets no row and the reader counts
+# it "row missing" (R2's "rows present or missing") — accepted, not a finding."
+# The three timers that start those chains (deploy/hosting/systemd; sp-soccer-friday and sp-soccer-saturday both run
+# the soccer-prematch chain), each (timer, chain, its OnCalendar line exactly as the timer file holds it): declared
+# once here, pinned to the files by tests/test_leagues_export.py. The chain step (deploy/hosting/chains.py) runs the
+# command bare, so its window is strictly after the run and before the next chain's EXPORT: (the run, the next of
+# these fires + EXPORT_WINDOW_MARGIN), next_chain_run.
+SYNC_CHAIN_TIMERS = (
+    ("sp-soccer-friday.timer", "soccer-prematch", "Fri *-*-* 14:00:00 UTC"),
+    ("sp-soccer-saturday.timer", "soccer-prematch", "Sat *-*-* 10:30:00 Europe/London"),
+    ("sp-soccer-morning-after.timer", "soccer-morning-after", "Sun,Mon,Tue *-*-* 09:50:00 UTC"),
+)
+# ARCHITECT 2026-10-30 14:50 ET, addendum 188 item 4, verbatim: "THE EXPORT SWITCH — the chain-boundary gap, ruled:
+# Code's reading of D2 stands (the window runs to the next chain's EXPORT step, not its fire), the margin a named
+# constant EXPORT_WINDOW_MARGIN = 2 h past the next chain's fire, overlaps allowed. And one rule that makes overlaps
+# free: NO ROW IS EVER REWRITTEN — each run writes its own dated file (one per run); a fixture covered by two runs has
+# two rows; the audit's row for a fixture is the LAST row whose export time is before its kickoff (the lowest
+# pending_before by construction), the earlier rows counted as superseded on the audit's line. A run never reads or
+# edits another run's file."
+# So the chain step's window is (the run, the next of these fires + EXPORT_WINDOW_MARGIN): the next chain's export is
+# that chain's LAST step (chains.py) and runs after every step before it. The value is the ruling's, not derived here
+# from the unit files: a chain whose export runs more than 2 h after its fire leaves the games kicking off between its
+# fire + 2 h and its export without a row (the reader's "row missing"; accepted under the ruling, the ledger says so).
+# The same `end` bounds the F3 unplaced-label scope (shadow_unplaced). Overlapping rows are free: each run its own
+# file (export_shadow), and last_calls and leagues_window.stored_rows take the LAST row before kickoff by exported_at.
+# Not covered: a fire systemd runs late on boot (Persistent=true after host downtime) - its gap is "row missing".
+EXPORT_WINDOW_MARGIN = timedelta(hours=2)
+_ON_CALENDAR = re.compile(r"([A-Za-z]{3}(?:,[A-Za-z]{3})*) \*-\*-\* (\d\d):(\d\d):00 (\S+)")
+_WEEKDAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+
+
+def next_chain_run(now: datetime) -> dict:
+    """The next soccer sync chain's run strictly after `now` (naive UTC): {at (naive UTC), timer, chain}, the earliest
+    next fire of SYNC_CHAIN_TIMERS. Each OnCalendar line is read in its own zone (zoneinfo: Europe/London's 10:30 is
+    09:30Z in summer time and 10:30Z in winter, so a clock change moves it, as systemd moves it). A line this parser
+    does not read refuses (ExpansionRefused), never a guessed window."""
+    from datetime import timezone
+    from zoneinfo import ZoneInfo
+    best = None
+    for timer, chain, cal in SYNC_CHAIN_TIMERS:
+        m = _ON_CALENDAR.fullmatch(cal)
+        if m is None or any(d not in _WEEKDAYS for d in m.group(1).split(",")):
+            raise ExpansionRefused(f"{timer}: OnCalendar {cal!r} is not a form next_chain_run reads (never guessed)")
+        days = {_WEEKDAYS.index(d) for d in m.group(1).split(",")}
+        tz = timezone.utc if m.group(4) == "UTC" else ZoneInfo(m.group(4))
+        local = now.replace(tzinfo=timezone.utc).astimezone(tz).date()
+        for k in range(8):
+            d = local + timedelta(days=k)
+            if d.weekday() not in days:
                 continue
-            out.append((m.id, sb.predict_match(home_elo=elo.get(m.home_team_id), away_elo=elo.get(m.away_team_id),
-                                               home_strength=hs, away_strength=as_, context=ctx, config=cfg)))
-        s.rollback()
-    cnt["priced"] = len(out)
-    return out, dict(cnt)
+            at = datetime(d.year, d.month, d.day, int(m.group(2)), int(m.group(3)), tzinfo=tz).astimezone(
+                timezone.utc).replace(tzinfo=None)
+            if at > now:
+                if best is None or at < best["at"]:
+                    best = {"at": at, "timer": timer, "chain": chain}
+                break
+    return best
+
+
+# The reasons a fixture in the window has no row (159 item 6(a): "explicit reasons for a missing row"), each listed
+# in the file's `missing` with its match id and kickoff. A league that is not declared or is refused has no fixture
+# reasons: its one reason is its binding's state.
+MISSING_REASONS = (("before_declared_at", "kicks off at or before the binding's window_opens_at (the four: their "
+                                          "declared_at, R5; PD: the verdict's at; D1)"),
+                   ("status_live", "LIVE"), ("status_finished", "finished"), ("status_postponed", "postponed"),
+                   ("status_cancelled", "cancelled"), ("status_stale_orphan", "stale orphan (never a fixture)"),
+                   ("not_regular", "a play-off round (F3: the candidate walks regular rounds only)"),
+                   ("below_min_prior", f"below MIN_PRIOR ({MIN_PRIOR}) finished regular-round games before it"),
+                   ("no_strength", "a team with no strength"))
+
+
+def shadow_bindings() -> dict[str, dict]:
+    """{code: binding} for the five leagues, read from the registry at call time (_reg_paths, leagues_window.
+    declaration; never the path registry.get bound when it was defined). A binding: `state` (SHADOW_EXPORTING,
+    SHADOW_NOT_DECLARED or SHADOW_REFUSED + why), `candidate`, `declared_at` (the entry's text, verbatim),
+    `frozen_constants`, `window_opens_at` (the entry's text, verbatim: the instant a fixture must kick off strictly
+    after), `opens_at` (the same instant, naive UTC) and `gate_verdict` (the rows' label). The current production
+    model is never read.
+    - PD (159 item 6(a)): soccer-expansion-v1 through confirming() (its run record, a PASS verdict, a surviving set
+      holding PD); the constants are the run record's, asserted equal to leagues_window.run_record_constants() (one
+      record; a drift is a refusal, never a silent difference), read FIRST so a constant that is not a number refuses
+      with run_record_constants' text, never a traceback out of confirming()'s float(). PD needs its own path:
+      leagues_window.checked refuses a surviving league, and PD is not in DECLARATION_IDS.
+    - PD with no soccer-expansion-v1 entry in the registry -> SHADOW_NOT_DECLARED, no rows (pass-4 finding 6: the
+      label coverage prints, "not declared", never a run-record refusal).
+    - SA, BL1, FL1, ELC (R5): no entry -> SHADOW_NOT_DECLARED, no rows; an entry leagues_window.checked refuses (its
+      league field, its instant, a surviving league, its constants) -> SHADOW_REFUSED with checked's text, no rows.
+    D1, ARCHITECT 2026-10-30 12:45 ET, addendum 185, verbatim: "PD's rows carry BOTH fields, as Code's default:
+    declared_at = soccer-expansion-v1's own declaration (2026-10-07T15:17:38Z) and window_opens_at = the verdict's `at`
+    (2026-10-09T12:47:39Z), the confirmation rule's own instant ("kickoff strictly after the verdict's at"). The four
+    leagues' rows carry declared_at = the entry's and window_opens_at = the same instant (one schema). Any reader that
+    ever filters PD rows for membership filters on window_opens_at; none does today."
+    D6, verbatim: "ROWS CONTINUE while the declaration checks out, after a verdict either way, Code's default; after a
+    REJECT they are the shadow's rows and never a call (the Cockpit's lane as now); a later PR labels them with the
+    verdict when one exists." So a recorded verdict for one of the four, or PD's confirmation recorded, changes
+    nothing here, and the four's rows carry no verdict label: their gate_verdict is "<id> · declared <declared_at>"
+    (the verdict label is that later PR's)."""
+    return {code: shadow_binding(code) for code in LEAGUES}
+
+
+def shadow_binding(code: str) -> dict:
+    """One league's binding (shadow_bindings, above): the one function the export binds with and coverage's
+    SHADOW_BINDS reads (deploy/hosting/coverage_map.py), so coverage never calls a league SHADOW whose BINDING the
+    export refuses (the registry stage: its entry, its instants, the surviving set, the constants). What coverage
+    cannot see (pass-3 findings 2/7): export_shadow's two DB-stage refusals, made per run after this binding passes,
+    SHADOW_NOT_STORED (no competition or no CURRENT_SEASON game in the DB) and F3 (shadow_unplaced: a label it cannot
+    place before the window's end). Neither reads here: this never opens the DB, and coverage reads no export's
+    outcome. On a day the export refuses a league at that stage, coverage still prints the league's shadow; the
+    command's REFUSED line and exit 2 (the chain's failure page, D7) are that day's signal."""
+    from src.walters import leagues_window as lw
+    b = {"code": code, "state": None, "candidate": None, "declared_at": None, "window_opens_at": None,
+         "frozen_constants": None, "opens_at": None, "gate_verdict": None}
+    try:
+        # pass-5 review: "not declared" is a fact read from a registry that exists and parses; a missing or
+        # unreadable registry file refuses (law 4), never a green, empty chain step
+        path = _reg_paths()[0]
+        if not os.path.isfile(path):
+            raise ExpansionRefused(f"the registry {path} is missing: no binding is read (law 4)")
+        try:
+            from src.walters import registry as reg
+            reg.load(path)
+        except (OSError, ValueError) as err:
+            raise ExpansionRefused(f"the registry {path} is unreadable ({err.__class__.__name__}): no binding is "
+                                   "read (law 4)") from None
+        if code == "PD":
+            pe = reg.get(EID, path)
+            if not isinstance(pe, dict) or pe.get("id") != EID:  # pass-4 finding 6: no entry is NOT DECLARED (R5),
+                b["state"] = SHADOW_NOT_DECLARED                 # as for the four, never a run-record refusal
+                return b
+            want = lw.run_record_constants()          # first: a non-number refuses here (WindowRefused)
+            e, surv, params = confirming()
+            if code not in surv:
+                raise ExpansionRefused(f"{EID}: the run record's surviving set {surv!r} does not hold {code}")
+            mine = {"production_version": str(params["production_version"]), "rho": params["rho"],
+                    "elo_goal_coeff": params["elo_goal_coeff"]}
+            if mine != want:
+                raise ExpansionRefused(f"{EID}: confirming()'s constants {mine!r} differ from "
+                                       f"leagues_window.run_record_constants() {want!r}")
+            # D1 (above): declared_at = the soccer-expansion-v1 entry's own "declared_at", verbatim, and
+            # window_opens_at = its verdict's "at", verbatim. Both must read as UTC instants (law 4); the fixtures
+            # must kick off strictly after window_opens_at.
+            opens = (e.get("verdict") or {}).get("at")
+            if lw.parse_instant(e.get("declared_at")) is None or lw.parse_instant(opens) is None:
+                raise ExpansionRefused(f"{EID}: declared_at {e.get('declared_at')!r} or verdict.at {opens!r} "
+                                       "is not a UTC instant")
+            b.update(candidate=EID, declared_at=e["declared_at"], window_opens_at=opens, frozen_constants=mine,
+                     opens_at=lw.parse_instant(opens), gate_verdict=_status_label(e, code))
+        else:
+            e = lw.declaration(code)
+            if e is None:
+                b["state"] = SHADOW_NOT_DECLARED
+                return b
+            at, mine = lw.checked(code, e)
+            # D1 (above): window_opens_at = declared_at, the same verbatim text (one schema with PD's)
+            b.update(candidate=e["id"], declared_at=e["declared_at"], window_opens_at=e["declared_at"],
+                     frozen_constants=mine, opens_at=at,
+                     gate_verdict=f"{e['id']} · declared {e['declared_at']}")   # D6: no verdict label yet
+    except ExpansionRefused as err:          # leagues_window.WindowRefused included
+        b["state"] = SHADOW_REFUSED + str(err)
+        return b
+    b["state"] = SHADOW_EXPORTING
+    return b
+
+
+def shadow_entry(rows, fixture, constants: dict, opens_at: datetime | None, games=(), prospective: bool = True):
+    """One fixture of the shadow export: (prediction, inputs_read) or (None, reason). Pure.
+    `rows`: the league-season's finished rows (leagues_candidate._season_rows); `games`: every stored game of the
+    league-season (for pending_before); `constants`: the binding's frozen rho and elo_goal_coeff.
+    In order: kickoff at or before `opens_at` -> before_declared_at; a status other than SCHEDULED -> status_<value>;
+    a play-off round -> not_regular (predict_as_of never checks the fixture's own stage); a label the code cannot
+    place REFUSES (ExpansionRefused; 184 item 1: never a skipped row; the export refuses the league before it gets
+    here); then leagues_candidate.predict_as_of at the constants -> below_min_prior / no_strength, or the prediction.
+    inputs_read: n_prior (the rows walked, leagues_candidate.priors), last_prior_kickoff (formatted as utc_date is)
+    and pending_before, D4's count (ARCHITECT 2026-10-30 12:45 ET, addendum 185 D4: "the count of earlier-kickoff games
+    of that league not FINISHED at export"), ruled by status, not by time (ARCHITECT 2026-10-30 15:15 ET, addendum
+    189 item 3, verbatim: "pending_before counts the league's games with a STORED kickoff strictly earlier than the
+    fixture's that are not yet final AND will enter the walk once final: SCHEDULED, LIVE, or FINISHED without a
+    result. A POSTPONED game with no new kickoff and a CANCELLED game are NOT counted (R4: a postponed game is not
+    placed until re-dated; a cancelled one is excluded by cause — neither is in the walk, so neither makes a later
+    row's difference expected). A re-dated game counts by its new kickoff if that is earlier than the fixture's."):
+    every regular-round game of `games` with a stored kickoff strictly before the fixture's that leagues_window.
+    not_final reads as not final: SCHEDULED, LIVE, or FINISHED with no usable 90-minute result. A re-dated game is
+    read by the kickoff the DB stores for it (its new one), so it counts when that is earlier and not when it is
+    later. Never counted: a POSTPONED game (its status says it is not placed; R4), a CANCELLED or STALE_ORPHAN game
+    (never a fixture or a prior, so it cannot move the recompute), an AWD / WO row (final and released, 181 item 2),
+    a play-off round (never walked, F3), and a FINISHED FT / no-raw-code row whose 90-minute score disagrees with its
+    stored score (leagues_window.disagrees, #737: PENDING in membership, but FINISHED, and D4 counts games "not
+    FINISHED at export"; Code's reading, for the architect). A row with pending_before > 0 may differ from the
+    read's recompute: leagues_window.audit lists that difference as EXPECTED, a difference at 0 as a FINDING.
+    prospective=False (the parity receipt, leagues_candidate.parity): a finished game, priced as of its kickoff; the
+    window and status checks are skipped, the pricing is the same function."""
+    from src.walters import leagues_candidate as lc
+    from src.walters.leagues_window import not_final
+    if prospective:
+        if opens_at is not None and fixture.utc_date <= opens_at:
+            return None, "before_declared_at"
+        st = str(getattr(fixture.status, "value", fixture.status) or "").lower()
+        if st != "scheduled":
+            return None, f"status_{st}"
+    pl = placement(fixture.stage)
+    if pl == "playoff":
+        return None, "not_regular"
+    if pl is None:
+        raise ExpansionRefused(f"{fixture.id}: stage / round label {fixture.stage!r} the code cannot place (F3; "
+                               "addendum 184 item 1: the league refuses, never a skipped row)")
+    pred, why = lc.predict_as_of(rows, fixture, constants["rho"], constants["elo_goal_coeff"])
+    if pred is None:
+        return None, why
+    prior = lc.priors(rows, fixture)
+    # addendum 189 item 3 (above): by status, by the stored kickoff; not_final never reads POSTPONED or CANCELLED
+    pending = sum(1 for g in games if g.id != fixture.id and g.utc_date is not None
+                  and g.utc_date < fixture.utc_date and is_regular(g.stage) and not_final(g))
+    return pred, {"n_prior": len(prior), "last_prior_kickoff": prior[-1].utc_date.isoformat() if prior else None,
+                  "pending_before": pending}
+
+
+def shadow_unplaced(games, code: str, end: datetime) -> list[str]:
+    """F3 for the export (184 item 1): every row that could be a prior or a fixture of this export, kicking off before
+    the window's end (or with no kickoff), not stale / cancelled / postponed (never a fixture or a prior), whose
+    label placement() cannot place. Membership's "at or before the read clock" rule (leagues_window.membership), not
+    the whole-season census leagues_candidate.parity reads. Any one refuses the league."""
+    return [f"{code} {CURRENT_SEASON} {m.id} {m.stage!r} "
+            + (f"{m.utc_date:%Y-%m-%dT%H:%MZ}" if m.utc_date is not None else "no kickoff")
+            for m in games
+            if str(getattr(m.status, "value", m.status) or "").lower() not in ("stale_orphan", "cancelled",
+                                                                                 "postponed")
+            and placement(m.stage) is None and (m.utc_date is None or m.utc_date < end)]
 
 
 def shadow_prob(p: float) -> float:
@@ -578,38 +805,186 @@ def shadow_row(fixture_row: dict, pred, model_version: str, label: str, code: st
                            "top_pick_prob": shadow_prob(top[1])}}
 
 
-def export_shadow(prod: tuple, now: datetime | None = None, hours: int = WINDOW_HOURS,
+BINDING_KEYS = ("state", "candidate", "declared_at", "window_opens_at", "frozen_constants")
+
+
+def export_shadow(now: datetime | None = None, hours: int | None = None,
                   out_dir: str = "exports") -> tuple[str, dict]:
-    """prod = (version, rho, coeff) of the PRODUCTION soccer model (resolved by the caller, never faked)."""
+    """The shadow export (the export switch, above): per league, its binding (shadow_bindings); for a binding that
+    exports, every stored game of the league-season kicking off in the window, ANY status, through shadow_entry at
+    the binding's frozen constants, a row or a `missing` entry with its reason (rows + missing = every in-window
+    fixture of an exporting league). A league with a label the code cannot place before the window's end is refused
+    (F3, shadow_unplaced; 184 item 1), and so is a bound league this DB does not store (SHADOW_NOT_STORED: its
+    competition, or any CURRENT_SEASON game; law 4); the other leagues are still written. Never the production model,
+    never a prediction row.
+    THE FILE (addendum 188 item 4, EXPORT_WINDOW_MARGIN above: "NO ROW IS EVER REWRITTEN — each run writes its own
+    dated file"): exports/soccer_expansion_shadow_<%Y-%m-%d_%H%M%S>.json (FILE_STAMP: to the second of `now`, the
+    form the mirror's kind rule strips), published atomically and EXCLUSIVELY (_publish: a temp file, then os.link):
+    a name that exists is never overwritten and never edited, a failed write leaves no file under the name; the run
+    refuses (ExpansionRefused: the command's REFUSED line, exit 2) and writes nothing. A run never reads another run's
+    file.
+    THE WINDOW is (now, end), strictly after the stamp (a fixture kicking off at the stamp itself has no row: last_calls
+    and leagues_window.stored_rows never read a row stamped at or after its kickoff). end: `hours` given (a manual
+    run's explicit override, cli --hours) -> now + hours; else (the chain step, D2 above) the next soccer sync chain's
+    fire, next_chain_run(now), plus EXPORT_WINDOW_MARGIN, so a chain run's rows cover the fixtures "kicking off after
+    that run and before the next chain's" export (Code's reading, ruled by addendum 188 item 4, above: a kickoff
+    between the next fire and the next chain's export step, run within the margin, is in this file, never in neither).
+    The header's `window` says which.
+    The stamp: `exported_at` = `prediction_stamp` = `input_cutoff` = now.isoformat() (naive UTC), the same form as
+    `utc_date` (Match.utc_date.isoformat()), so last_calls and leagues_window.stored_rows compare them as strings.
+    input_cutoff is the export instant for a prospective row (the DB state it read: the results stored at `now`; 158
+    item 2(a)'s field, as ncaa_shadow's prospective rows set it), never the kickoff: games between the stamp and the
+    kickoff are not in its priors, and inputs_read.pending_before counts them. (leagues_candidate.parity's rows, priced
+    after the fact on finished games, keep the kickoff as theirs.)
+    Additive to the file before the switch: header git_sha, frozen_constants (the run record's), window, bindings,
+    missing; rows experiment, candidate, declared_at, window_opens_at (D1), frozen_constants, code_sha, input_cutoff,
+    prediction_stamp, inputs_read. `model_version` is the run record's production_version; a declared league's
+    `gate_verdict` is "<id> · declared <declared_at>" (D6: no verdict label), PD's is _status_label's.
+    D3, ARCHITECT 2026-10-30 12:45 ET, addendum 185, verbatim: "THE COMPARE: no change. A host-only family prints "only
+    on host" and the compare morning reads it as #680's section 2 did (explained lines); the masked count from #735
+    prints beside it." compare_exports is unchanged."""
+    from sqlalchemy import select
+
     from src.db.database import session_scope
-    from src.db.schema import Match
+    from src.db.schema import Competition, Match
+    from src.walters import leagues_candidate as lc
+    from src.walters import leagues_window as lw
     from src.walters import registry as reg
     from src.walters.export import _fixture_row
 
-    version, rho, coeff = prod
     now = now or utc_now_naive()
-    e = reg.get(EID)
-    rows, counts = [], {}
+    stamp = now.isoformat()
+    if hours is not None:
+        end, nxt = now + timedelta(hours=hours), None
+        rule = f"--hours {hours} (a manual run's explicit window)"
+    else:
+        nxt = next_chain_run(now)
+        end = nxt["at"] + EXPORT_WINDOW_MARGIN
+        rule = (f"until the next soccer sync chain's export ({nxt['chain']}, {nxt['timer']} + EXPORT_WINDOW_MARGIN "
+                f"{EXPORT_WINDOW_MARGIN.total_seconds() / 3600:g}h; ARCHITECT 2026-10-30, addendum 185 D2, addendum "
+                "188 item 4)")
+    sha = lc.code_sha()
+    path_, _ = _reg_paths()
+    try:
+        e = reg.get(EID, path_)
+    except (OSError, ValueError):            # Codex on #741: an unreadable registry refuses every binding below
+        e = None                             # (shadow_binding), never a traceback before them; the header says so
+    try:
+        frozen = lw.run_record_constants()
+    except (lw.WindowRefused, OSError, ValueError):
+        frozen = None                        # every binding refuses without it; the header says unknown (law 4)
+    binds = shadow_bindings()
+    rows, missing, counts = [], [], {}
     for code in LEAGUES:
-        priced, counts[code] = price_upcoming(code, now, hours, rho, coeff, season=CURRENT_SEASON)
+        b = binds[code]
+        cnt = Counter()
+        counts[code] = cnt
+        if b["state"] != SHADOW_EXPORTING:
+            continue
         with session_scope() as s:
-            for mid, pred in priced:
-                fx = _fixture_row(s, s.get(Match, mid), code, Counter(), Counter())
-                rows.append(shadow_row(fx, pred, version, _status_label(e, code), code))
+            games = list(s.execute(select(Match).join(Competition, Competition.id == Match.competition_id)
+                                   .where(Competition.code == code, Match.season == CURRENT_SEASON)
+                                   .order_by(Match.utc_date, Match.id)).scalars())
+            if not games:                      # law 4: a league this DB does not hold is never a quiet window
+                held = s.execute(select(Competition.id).where(Competition.code == code)).first() is not None
+                b["state"] = (SHADOW_REFUSED + SHADOW_NOT_STORED
+                              + (f"no {CURRENT_SEASON} game of {code} is stored in this DB" if held else
+                                 f"the competition {code} is not stored in this DB")
+                              + " (law 4: missing data is labelled, never an empty window)")
+                s.rollback()
+                continue
+            bad = shadow_unplaced(games, code, end)
+            if bad:
+                b["state"] = (SHADOW_REFUSED + "F3: stage / round labels the code cannot place, kicking off before "
+                              "the window's end (never guessed; addendum 184 item 1): " + "; ".join(bad))
+                s.rollback()
+                continue
+            done = lc._season_rows(s, code, CURRENT_SEASON)
+            for m in games:
+                if m.utc_date is None or not (now < m.utc_date < end):    # strictly after the stamp (above)
+                    continue
+                pred, x = shadow_entry(done, m, b["frozen_constants"], b["opens_at"], games)
+                if pred is None:
+                    cnt[x] += 1
+                    missing.append({"match_id": m.id, "competition": code, "utc_date": m.utc_date.isoformat(),
+                                    "reason": x})
+                    continue
+                # D4, ARCHITECT 2026-10-30 12:45 ET, addendum 185, verbatim: "A ROW EXPORTED BEFORE AN EARLIER
+                # SAME-DAY GAME HAS FINISHED: written, with pending_before (the count of earlier-kickoff games of that
+                # league not FINISHED at export) on the row, Code's default. The audit prints two lines, both counted,
+                # neither silent (R1 holds): differences on rows with pending_before = 0 are FINDINGS; differences on
+                # rows with pending_before > 0 are EXPECTED and listed with the count. A row is never held back (a
+                # missing row says less than a labelled one)."
+                cnt["priced"] += 1
+                r = shadow_row(_fixture_row(s, m, code, Counter(), Counter()), pred,
+                               b["frozen_constants"]["production_version"], b["gate_verdict"], code)
+                r.update({"experiment": EID, "candidate": b["candidate"], "declared_at": b["declared_at"],
+                          "window_opens_at": b["window_opens_at"],
+                          "frozen_constants": dict(b["frozen_constants"]), "code_sha": sha,
+                          "input_cutoff": stamp, "prediction_stamp": stamp, "inputs_read": x})
+                rows.append(r)
             s.rollback()
-    Path(out_dir).mkdir(parents=True, exist_ok=True)
-    path = str(Path(out_dir) / f"{FILE_PREFIX}{now.strftime('%Y-%m-%d_%H%M')}.json")
-    doc = {"sport": "soccer", "engine": ENGINE, "experiment": EID, "model_version": version,
+    path = str(Path(out_dir) / f"{FILE_PREFIX}{now.strftime(FILE_STAMP)}.json")
+    doc = {"sport": "soccer", "engine": ENGINE, "experiment": EID,
+           "model_version": frozen["production_version"] if frozen else None,
            "gate_verdict": e and e.get("status") or "not declared", "contains_predictions": False,
-           "exported_at": now.isoformat(), "window_hours": hours, "note": SHADOW_NOTE, "counts": counts,
+           "exported_at": stamp,
+           "window_hours": hours if hours is not None else round((end - now).total_seconds() / 3600, 2),
+           "window": {"after": stamp, "before": end.isoformat(), "rule": rule,
+                      "next_chain": ({"at": nxt["at"].isoformat(), "timer": nxt["timer"], "chain": nxt["chain"],
+                                      "margin_hours": EXPORT_WINDOW_MARGIN.total_seconds() / 3600}
+                                     if nxt else None)},
+           "note": SHADOW_NOTE, "git_sha": sha,
+           "frozen_constants": frozen,
+           "bindings": {c: {k: b[k] for k in BINDING_KEYS if k in b} for c, b in binds.items()},
+           "counts": {c: dict(n) for c, n in counts.items()}, "missing": missing,
            "count": len(rows), "predictions": rows}
-    with open(path, "w") as f:
-        json.dump(doc, f, indent=2, default=str)
+    _publish(path, json.dumps(doc, indent=2, default=str))
     return path, doc
 
 
+def _publish(path: str, text: str) -> None:
+    """The run's file, atomic and exclusive (addendum 188 item 4: "NO ROW IS EVER REWRITTEN"; pass-4 findings 2/5):
+    the whole text goes to a temp file in the same directory, named so no reader's FILE_PREFIX*.json glob sees it
+    (a leading '.', a '.tmp' suffix), is fsynced, and is published by os.link(tmp, path), which never overwrites: an
+    existing name raises FileExistsError and the run refuses. The temp file is always removed. So a reader sees the
+    whole file under its name or no file, never a truncated one. Any OSError on this path (the directory, the write,
+    the link) is ExpansionRefused: the command's REFUSED line and exit 2, never a traceback, nothing under `path`."""
+    import tempfile
+    d, name = os.path.split(path)
+    tmp = None
+    try:
+        Path(d or ".").mkdir(parents=True, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(prefix=f".{name}.", suffix=".tmp", dir=d or ".")
+        mask = os.umask(0)
+        os.umask(mask)
+        os.fchmod(fd, 0o666 & ~mask)      # the other exports' mode (mkstemp's 0600 would outlive the link)
+        with os.fdopen(fd, "w") as f:
+            f.write(text)
+            f.flush()
+            os.fsync(f.fileno())
+        try:
+            os.link(tmp, path)
+        except FileExistsError:           # the name only (a mkdir clash is the generic line below)
+            raise ExpansionRefused(f"{path} already exists: no row is ever rewritten and a run never edits another "
+                                   "run's file (ARCHITECT 2026-10-30, addendum 188 item 4)") from None
+    except OSError as err:
+        raise ExpansionRefused(f"{path} could not be written ({err.__class__.__name__}: {err}); no file is published "
+                               "under that name (addendum 188 item 4: whole or not at all)") from None
+    finally:
+        if tmp is not None:
+            try:
+                os.unlink(tmp)
+            except OSError:               # already gone, or not removable: a dot-named .tmp no reader globs
+                pass
+    # Known (pass-5 review): a process killed between mkstemp and the unlink (SIGKILL, power loss; no SIGTERM handler
+    # runs `finally`) leaves its dot-named .tmp behind. No FILE_PREFIX*.json or *.json reader sees it; a bare listing
+    # (pull_exports' skipped names, sp_run's receipt, sp_migrate's pack) does. Housekeeping only; listed in the ledger.
+
+
 def last_calls(export_dir: str = "exports") -> dict[int, dict]:
-    """match_id -> the LAST shadow row written before its kickoff."""
+    """match_id -> the LAST shadow row written before its kickoff: the latest `exported_at` (naive isoformat, compared
+    as text, which orders it in time), never the file name's order; on an equal `exported_at` the later name."""
     out: dict[int, dict] = {}
     for f in sorted(Path(export_dir).glob(f"{FILE_PREFIX}*.json")):
         try:

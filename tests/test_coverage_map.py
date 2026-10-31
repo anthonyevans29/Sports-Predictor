@@ -114,6 +114,13 @@ V7 = "nhl_elo_v7_xg_margin_no_na"                            # nhl_shadow.MODEL_
 NHL_SHADOW = ("export._MARKET_ONLY_REASON; roadmap lane nhl: to declare; chain nhl-daily runs export-nhl-predictions "
               f"({V7})")
 EXPANSION_SETS = "SHADOW_VENUE_COMPS (_refuse_shadow_league), chains.EXPANSION_CODES, chains.KALSHI_CAPTURE_ONLY"
+# The soccer-expansion-v1 run record (v22 / -0.1 / 0.0008, PASS, surviving PD) and a declaration the export binds
+SX_RUN = {"id": "soccer-expansion-v1", "status": "confirming", "declared_at": "2026-10-07T15:17:38Z",
+          "run": {"result": {"production_version": "v22", "rho": -0.1, "elo_goal_coeff": 0.0008, "verdict": "PASS",
+                             "surviving": ["PD"]}},
+          "verdict": {"verdict": "PASS", "at": "2026-10-09T12:47:39Z"}}
+SA_DECL = {"id": "leagues-sa-v1", "competition": "SA", "declared_at": "2026-10-15T10:00:00Z",
+           "frozen_constants": {"production_version": "v22", "rho": -0.1, "elo_goal_coeff": 0.0008}, "verdict": None}
 
 
 @pytest.fixture
@@ -398,6 +405,115 @@ def test_a_declared_lane_is_shadow_only_where_a_chain_runs_its_shadow_export(env
             "ncaa-market runs export-ncaa-predictions (ncaa_elo_v1r)) ·") in line_of(run("--date", DAY)[1], "NCAA")
 
 
+def test_a_declared_league_reads_the_shadow_the_soccer_chains_run_and_an_undeclared_one_does_not(env):
+    """R5 (addendum 178) with D2 (addendum 185): export-soccer-expansion-shadow runs after the five leagues' syncs, and
+    a league reads its shadow only once the registry holds its declaration (SHADOW_BINDS, read from the registry's
+    entries). SA declared: MARKET-ONLY · shadow v1 by (b); BL1 still MARKET-ONLY alone."""
+    make_db(env, [(860, "SA", "2026-10-17 19:00", "SCHEDULED"), (861, "BL1", "2026-10-17 19:00", "SCHEDULED")])
+    Path(reg.LEDGER).write_text(json.dumps(ENTRIES + [SX_RUN, SA_DECL]))
+    out = run("--date", DAY)[1]
+    assert (f"· MARKET-ONLY · shadow v1 ({EXPANSION_SETS}; roadmap lane leagues: to declare; chain soccer-prematch "
+            "runs export-soccer-expansion-shadow (soccer-expansion-v1)) ·") in line_of(out, "SA")
+    assert "which writes no BL1 row: BL1 is not declared (no registry entry leagues-bl1-v1" in line_of(out, "BL1")
+    assert "· MARKET-ONLY (" in line_of(out, "BL1")
+    assert cm.SHADOW_BINDS["export-soccer-expansion-shadow"]("PL", {}) == "PL is not a league of soccer-expansion-v1"
+
+
+@pytest.mark.parametrize("bad, why", [
+    ({"competition": "BL1"}, "the entry's competition is 'BL1', not 'SA'"),
+    ({"declared_at": "2026-10-31"}, "no declared_at as a UTC instant"),
+    ({"frozen_constants": {"production_version": "v999", "rho": 0.5, "elo_goal_coeff": 9.0}},
+     "differ from the soccer-expansion-v1 run record"),
+])
+def test_a_declaration_the_export_refuses_is_never_a_shadow_in_coverage(env, bad, why):
+    """Findings 1/11: SHADOW_BINDS mirrors the export's own binding (soccer_expansion.shadow_binding): an SA entry
+    present that leagues_window.checked refuses writes no SA row, so SA stays MARKET-ONLY with the export's reason on
+    its line, never "shadow v1"."""
+    make_db(env, [(860, "SA", "2026-10-17 19:00", "SCHEDULED")])
+    Path(reg.LEDGER).write_text(json.dumps(ENTRIES + [SX_RUN, {**SA_DECL, **bad}]))
+    line = line_of(run("--date", DAY)[1], "SA")
+    assert "· MARKET-ONLY (" in line and "shadow v1" not in line, line
+    assert ("run export-soccer-expansion-shadow, which writes no SA row: its binding of SA is refused: SA "
+            "(leagues-sa-v1): ") in line and why in line, line
+    assert cm.SHADOW_BINDS["export-soccer-expansion-shadow"]("SA", {e["id"]: e for e in [SX_RUN, {**SA_DECL, **bad}]})
+
+
+def test_pd_binds_in_coverage_only_when_the_exports_pd_binding_passes(env):
+    """PD through confirming() and its checks, as the export binds it: a run record whose surviving set does not
+    hold PD refuses, and SHADOW_BINDS says so (the export's own text)."""
+    Path(reg.LEDGER).write_text(json.dumps(ENTRIES + [SX_RUN]))
+    assert cm.SHADOW_BINDS["export-soccer-expansion-shadow"]("PD", {SX_RUN["id"]: SX_RUN}) is None
+    off = {**SX_RUN, "run": {"result": {**SX_RUN["run"]["result"], "surviving": ["SA"]}}}
+    Path(reg.LEDGER).write_text(json.dumps(ENTRIES + [off]))
+    why = cm.SHADOW_BINDS["export-soccer-expansion-shadow"]("PD", {off["id"]: off})
+    assert why == ("its binding of PD is refused: soccer-expansion-v1: the run record's surviving set ['SA'] does not "
+                   "hold PD (soccer_expansion.shadow_binding, the export's own)"), why
+
+
+def test_pd_reads_no_shadow_when_the_export_refuses_pd(env):
+    """Pass-3 finding 6: PD's confirming lane (soccer-expansion-v1 confirming) is not SHADOW when the chains' export of
+    that very model refuses PD (SHADOW_BINDS): the printed status is MARKET-ONLY with the export's reason, never
+    "shadow v1"; with the binding passing, the lane reads its shadow as before."""
+    lanes = [lane("pd", "confirming", "soccer-expansion-v1", ["PD"])]
+    Path(reg.LEDGER).write_text(json.dumps(ENTRIES + [SX_RUN]))
+    entries = {e["id"]: e for e in reg.load(reg.LEDGER)}
+    got = cm.model_status("PD", lanes, entries, {}, day=NOW.date())
+    assert got["shadow"] == "v1" and got["from"].endswith("roadmap lane pd: confirming; registry soccer-expansion-v1: "
+                                                          "confirming"), got
+    off = {**SX_RUN, "run": {"result": {**SX_RUN["run"]["result"], "surviving": ["SA"]}}}
+    Path(reg.LEDGER).write_text(json.dumps(ENTRIES + [off]))
+    entries = {e["id"]: e for e in reg.load(reg.LEDGER)}
+    got = cm.model_status("PD", lanes, entries, {}, day=NOW.date())
+    assert got["shadow"] is None and got["label"] == "MARKET-ONLY", got
+    assert ("roadmap lane pd: confirming; registry soccer-expansion-v1: confirming, but soccer-prematch, "
+            "soccer-morning-after run export-soccer-expansion-shadow, which writes no PD row: its binding of PD is "
+            "refused: soccer-expansion-v1: the run record's surviving set ['SA'] does not hold PD") in got["from"], got
+
+
+def test_expansion_binds_reads_one_registry_the_exports_own(env):
+    """Pass-3 findings 3/12: the answer is soccer_expansion.shadow_binding's alone, on the registry the export reads
+    (registry.LEDGER at call time); `entries` (read_ledgers' copy) is never read, so one call never mixes two
+    registries: an SA entry only in `entries` is not declared, and one only in the export's registry binds."""
+    f = cm.SHADOW_BINDS["export-soccer-expansion-shadow"]
+    Path(reg.LEDGER).write_text(json.dumps(ENTRIES + [SX_RUN]))
+    assert f("SA", {SA_DECL["id"]: SA_DECL}) == ("SA is not declared (no registry entry leagues-sa-v1; addendum 178 "
+                                                 "R5: nothing is a shadow before it is declared)")
+    Path(reg.LEDGER).write_text(json.dumps(ENTRIES + [SX_RUN, SA_DECL]))
+    assert f("SA", {}) is None
+
+
+def test_pd_with_no_registry_entry_reads_not_declared(env):
+    """Pass-4 finding 6: with no soccer-expansion-v1 entry in the registry, PD's binding is SHADOW_NOT_DECLARED
+    (soccer_expansion.shadow_binding), so coverage prints PD's "not declared" text, as for the four, never a
+    run-record refusal; with the entry and no usable run record it is that refusal (the test below)."""
+    from src.walters import soccer_expansion as sx
+    Path(reg.LEDGER).write_text(json.dumps(ENTRIES))
+    assert sx.shadow_binding("PD")["state"] == sx.SHADOW_NOT_DECLARED
+    f = cm.SHADOW_BINDS["export-soccer-expansion-shadow"]
+    assert f("PD", {}) == ("PD is not declared (no registry entry soccer-expansion-v1; addendum 178 R5: nothing is a "
+                           "shadow before it is declared)")
+    Path(reg.LEDGER).write_text(json.dumps(ENTRIES + [SX_RUN]))
+    assert sx.shadow_binding("PD")["state"] == sx.SHADOW_EXPORTING and f("PD", {}) is None
+
+
+@pytest.mark.parametrize("result", [None, "not a dict", []])
+def test_a_run_record_with_no_usable_result_refuses_cleanly_in_coverage(env, result):
+    """Pass-3 finding 8: a soccer-expansion-v1 run record stored with `result` null (or another kind) reads as no run
+    record: SA's binding refuses with run_record_constants' text and PD's too, never an AttributeError out of
+    coverage (exit 0 whatever the gaps)."""
+    make_db(env, [(860, "SA", "2026-10-17 19:00", "SCHEDULED")])
+    Path(reg.LEDGER).write_text(json.dumps(ENTRIES + [{**SX_RUN, "run": {"result": result}}, SA_DECL]))
+    f = cm.SHADOW_BINDS["export-soccer-expansion-shadow"]
+    for code in ("SA", "PD"):
+        assert f(code, {}) == (f"its binding of {code} is refused: soccer-expansion-v1 has no run record holding "
+                               "production_version, rho, elo_goal_coeff: the frozen constants are unknown (R1), nothing "
+                               "is read (soccer_expansion.shadow_binding, the export's own)"), code
+    code, out = run("--date", DAY)
+    assert code == 0, out
+    line = line_of(out, "SA")
+    assert "· MARKET-ONLY (" in line and "shadow v1" not in line and "has no run record holding" in line, line
+
+
 def test_the_cups_and_the_four_leagues_are_market_only_from_the_codes_sets(env, monkeypatch):
     """CL, EFL, UEL from cup_coeff.EXAM_COMPS; SA, BL1, FL1, ELC from the three expansion sets. Read from the code at
     run time (a set changed in the code changes the line), never a copy: CL out of EXAM_COMPS is UNKNOWN."""
@@ -408,9 +524,13 @@ def test_the_cups_and_the_four_leagues_are_market_only_from_the_codes_sets(env, 
     for code in ("CL", "EFL", "UEL"):
         assert (f"· MARKET-ONLY (cup_coeff.EXAM_COMPS; roadmap lane cups: declared, no shadow export scheduled for "
                 f"{code} (chains.py)) ·") in line_of(out, code)
+    # R5 (addendum 178): the soccer chains run export-soccer-expansion-shadow after the four's syncs (addendum 185 D2),
+    # but it writes no row for a league not declared: no shadow, the reason on the line (SHADOW_BINDS)
     for code in ("SA", "BL1", "FL1", "ELC"):
         assert (f"· MARKET-ONLY ({EXPANSION_SETS}; roadmap lane leagues: to declare, no shadow export scheduled for "
-                f"{code} (chains.py)) ·") in line_of(out, code)
+                f"{code} (chains.py: soccer-prematch, soccer-morning-after run export-soccer-expansion-shadow, which "
+                f"writes no {code} row: {code} is not declared (no registry entry leagues-{code.lower()}-v1; addendum "
+                "178 R5: nothing is a shadow before it is declared))) ·") in line_of(out, code)
     assert out[-1] == "GAPS: none"
     from src.walters import cup_coeff
     monkeypatch.setattr(cup_coeff, "EXAM_COMPS", {"EFL", "UEL", "EL"})
@@ -503,8 +623,9 @@ def test_the_market_only_sets_are_the_codes_own():
 
 def test_the_shadow_exports_are_the_clis_own():
     """SHADOW_EXPORTS: each command is a cli command whose body reaches its module; each module writes engine
-    model_shadow; every module that does is named. The chains that run one: nhl-daily (its steps name NHL) and
-    intl-daily (its steps name no competition)."""
+    model_shadow; every module that does is named. The chains that run one: soccer-prematch and soccer-morning-after
+    (addendum 185 D2; their steps name PL and the five expansion leagues, SHADOW_BINDS narrows them), nhl-daily (its
+    steps name NHL) and intl-daily (its steps name no competition)."""
     import importlib
     import cli
     for cmd, (mod, attr) in cm.SHADOW_EXPORTS.items():
@@ -516,7 +637,13 @@ def test_the_shadow_exports_are_the_clis_own():
     assert writers == sorted(mod for mod, _ in cm.SHADOW_EXPORTS.values())
     from src.walters import intl_shadow, nhl_shadow
     assert nhl_shadow.MODEL_VERSION == V7
+    five = set(cm.EXPANSION_CODES)
     assert cm.scheduled_shadows() == [
+        # addendum 185 D2: the last step of both soccer sync chains; the steps before it name PL and the five
+        {"chain": "soccer-prematch", "command": "export-soccer-expansion-shadow", "model": "soccer-expansion-v1",
+         "comps": {"PL", *five}},
+        {"chain": "soccer-morning-after", "command": "export-soccer-expansion-shadow", "model": "soccer-expansion-v1",
+         "comps": {"PL", *five}},
         {"chain": "nhl-daily", "command": "export-nhl-predictions", "model": V7, "comps": {"NHL"}},
         {"chain": "intl-daily", "command": "export-unl-predictions", "model": intl_shadow.MODEL_VERSION,
          "comps": set()}]

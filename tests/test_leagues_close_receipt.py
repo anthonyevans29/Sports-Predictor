@@ -327,14 +327,61 @@ def _script_db(tmp_path, monkeypatch):
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{tmp_path / 'iso.db'}")    # the iso_db fixture's file
 
 
-def test_the_script_refuses_with_status_2_when_no_production_model_resolves(tmp_path, monkeypatch, capsys):
-    """Codex P1 on #663: no production soccer model -> REFUSED, exit 2 (as cli.py's soccer-expansion commands), never
-    a 0 over a receipt without its parity part."""
+def test_the_script_refuses_with_status_2_when_the_run_record_holds_no_constants(tmp_path, monkeypatch, capsys):
+    """Codex P1 on #663, rebound by the export switch (164 item 3: "bound to the run record's frozen parameters"): no
+    frozen constants in the soccer-expansion-v1 run record -> REFUSED, exit 2, never a 0 over a receipt without its
+    parity part."""
+    import json
+
+    from src.walters import registry as reg
+    _script_db(tmp_path, monkeypatch)
+    led = tmp_path / "experiments.json"
+    led.write_text(json.dumps([{"id": "soccer-expansion-v1", "run": None}]))
+    monkeypatch.setattr(reg, "LEDGER", str(led))
+    assert lr.main([]) == lr.REFUSED == 2
+    out = capsys.readouterr().out
+    assert "PARITY (158 item 2(a)): REFUSED: soccer-expansion-v1 has no run record holding" in out
+
+
+def test_741_an_unreadable_registry_refuses_the_parity_part_with_status_2(tmp_path, monkeypatch, capsys):
+    """Codex on #741 (round 2): a registry that exists but is not JSON refuses the parity part (its REFUSED line,
+    exit 2), never a traceback."""
+    from src.walters import registry as reg
+    _script_db(tmp_path, monkeypatch)
+    led = tmp_path / "experiments.json"
+    led.write_text("{not json")
+    monkeypatch.setattr(reg, "LEDGER", str(led))
+    assert lr.main([]) == lr.REFUSED == 2
+    out = capsys.readouterr().out
+    assert "REFUSED: the registry " in out and "is unreadable (JSONDecodeError)" in out and "Traceback" not in out
+
+
+def test_the_parity_runs_at_the_run_records_constants_production_a_reference_line_and_pd_first(tmp_path,
+                                                                                                monkeypatch, capsys):
+    """164 item 3: the parity's constants are the run record's (the export's binding); the production model is
+    printed beside them as a reference only, never the parity's input; PD (159 item 6(a)) is in the loop, first."""
     from src.walters import leagues_candidate as lc
     _script_db(tmp_path, monkeypatch)
+    seen = []
+    real = lc.parity
+    monkeypatch.setattr(lc, "parity", lambda code, rho, coeff, **k: seen.append((code, rho, coeff)) or real(
+        code, rho, coeff, **k))
+    monkeypatch.setattr(lc, "production_poisson", lambda: ("v99", -0.2, 0.002))
+    assert lr.main([]) == 0
+    out = capsys.readouterr().out
+    assert seen == [(c, -0.1, 0.0008) for c in ("PD", "SA", "BL1", "FL1", "ELC")]
+    assert ("PARITY (158 item 2(a)): the soccer-expansion-v1 run record's frozen constants v22 (rho -0.1, Elo goal "
+            "coefficient 0.0008)") in out
+    assert ("  - reference only, never the parity's input: the production soccer model v99 (rho -0.2, Elo goal "
+            "coefficient 0.002); NOT equal to the frozen constants (the export never reads it)") in out
+    monkeypatch.setattr(lc, "production_poisson", lambda: ("v22", -0.1, 0.0008))
+    assert lr.main([]) == 0
+    assert "the production soccer model v22 (rho -0.1, Elo goal coefficient 0.0008); equal to the frozen constants " \
+           "today" in capsys.readouterr().out
     monkeypatch.setattr(lc, "production_poisson", lambda: None)
-    assert lr.main([]) == lr.REFUSED == 2
-    assert "PARITY (158 item 2(a)): REFUSED: no production soccer model resolved" in capsys.readouterr().out
+    assert lr.main([]) == 0                         # the reference is not the parity's input: never a refusal
+    assert "the production soccer model not resolved" in capsys.readouterr().out
+    assert f"PD {SEASON} · PARITY (158 item 2(a)) · finished regular-round 0" in out
 
 
 def test_the_script_refuses_with_status_2_on_an_unplaceable_stage_and_prints_the_other_leagues(tmp_path, monkeypatch,
@@ -391,3 +438,80 @@ def test_the_script_exits_1_with_a_not_equal_line_when_parity_diverges(tmp_path,
 
     monkeypatch.setattr(lc, "parity", refused)
     assert lr.main([]) == lr.REFUSED == 2
+
+
+def test_185_d5_the_receipt_reads_mode_ro_runs_on_the_laptop_and_imports_nothing_host_only(tmp_path, monkeypatch,
+                                                                                             capsys):
+    """Addendum 185 D5: the operator runs the branch's parity script READ-ONLY on the laptop. Every session the receipt
+    opens (the close part and the parity) is on a mode=ro URI of the DATABASE_URL file, a write through it is refused
+    by SQLite, the app's own sessions and engine are restored afterwards, the laptop role refuses nothing, and neither
+    the script nor the modules its parity calls import anything from deploy/hosting or read the machine role."""
+    import ast
+
+    from sqlalchemy import text
+    from sqlalchemy.exc import OperationalError
+
+    from src.db import database
+    from src.walters import leagues_candidate as lc
+    _script_db(tmp_path, monkeypatch)
+    monkeypatch.setenv("SP_EXPORTS_MIRROR_ROLE", "laptop")
+    before = (database.SessionLocal, database._engine)
+    seen = []
+    real = lc.parity
+
+    def spy(code, rho, coeff, **k):
+        with database.session_scope() as s:
+            seen.append(str(s.get_bind().url))
+            with pytest.raises(OperationalError, match="readonly"):
+                s.execute(text("CREATE TABLE t_probe (x INTEGER)"))
+            s.rollback()
+        return real(code, rho, coeff, **k)
+    monkeypatch.setattr(lc, "parity", spy)
+    from src.walters import paper
+    closed = []
+    real_close = paper.leagues_season
+
+    def close_spy(*a, **k):                     # the close part (finding 20): its sessions are mode=ro too
+        with database.session_scope() as s:
+            closed.append(str(s.get_bind().url))
+            with pytest.raises(OperationalError, match="readonly"):
+                s.execute(text("CREATE TABLE t_probe2 (x INTEGER)"))
+            s.rollback()
+        return real_close(*a, **k)
+    monkeypatch.setattr(paper, "leagues_season", close_spy)
+    assert lr.main([]) == 0
+    out = capsys.readouterr().out
+    assert out.startswith(f"database: {(tmp_path / 'iso.db').resolve()} (mode=ro; this machine's receipt")
+    assert len(seen) == 5 and all("mode=ro" in u for u in seen)
+    assert closed and all("mode=ro" in u for u in closed)
+    assert (database.SessionLocal, database._engine) == before               # restored for the process
+    hosted = {"deploy", "sp_common", "chains", "closing", "coverage_map", "sp_run"}
+    files = [ROOT / "scripts" / "leagues_close_receipt.py",
+             *(ROOT / "src" / "walters" / f"{m}.py" for m in ("leagues_candidate", "leagues_window",
+                                                               "soccer_expansion", "paper"))]
+    for f in files:
+        tree = ast.parse(f.read_text(encoding="utf-8"))
+        names = {(n.module or "").split(".")[0] for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)}
+        names |= {a.name.split(".")[0] for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
+        assert not names & hosted, (f.name, names & hosted)
+    src = (ROOT / "scripts" / "leagues_close_receipt.py").read_text(encoding="utf-8")
+    for name in ("not_host_reason", "machine_role", "role_reading", "SP_EXPORTS_MIRROR_ROLE", "host_fenced"):
+        assert name not in src, name                                         # no machine role is read or refused
+
+
+def test_185_d5_the_app_engine_is_restored_when_the_receipt_raises(tmp_path, monkeypatch):
+    """Finding 20: read_only restores the app's sessions and engine in a `finally`, so a receipt that raises (a stale
+    laptop schema missing a column, say) leaves the process on the app's own engine, never on the mode=ro one."""
+    from src.db import database
+    _script_db(tmp_path, monkeypatch)
+    before = (database.SessionLocal, database._engine)
+    inside = []
+
+    def boom(a, declared):
+        inside.append(str(database._engine.url))
+        raise RuntimeError("no such column: matches.home_score_90")
+    monkeypatch.setattr(lr, "_receipt", boom)
+    with pytest.raises(RuntimeError, match="no such column"):
+        lr.main([])
+    assert inside and "mode=ro" in inside[0]
+    assert (database.SessionLocal, database._engine) == before

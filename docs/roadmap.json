@@ -378,7 +378,7 @@
       "lane": "mlb-pitchers",
       "title": "MLB: the pitcher layer, tested as of each game",
       "issue": 507,
-      "registry_id": null,
+      "registry_id": "mlb-pitchers-v1",
       "competitions": ["MLB"],
       "state": "declared",
       "steps": [

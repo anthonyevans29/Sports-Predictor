@@ -65,7 +65,8 @@ first real answer of each kind before any field of it is read):
   or absent from the side's answers read), appearance unread (a read that failed, had no rows, was capped, or no
   provider fixture id; or a name not found where a member of the side's answer was missing or not the provider's
   shape, which may hide him). AMBIGUOUS and UNMATCHED names are printed as such, never guessed. A minutes value
-  neither an int nor null, or a player id neither an int nor a string, is counted as not the provider's shape.
+  neither an int nor null, a games object with no minutes key, or a player id neither an int nor a string, is counted
+  as not the provider's shape; an empty players list is a side's players answer unread, never a known squad (#724).
 - NAME MATCHING (soccer injuries store no provider player id): a normalized name (casefold, accents stripped, dots,
   hyphens and apostrophes dropped) equal to one candidate's; else the "Initial. Surname" form against a full name (the
   surname tokens equal, each initial the start of the given name in its place), in either direction. Two or more
@@ -542,9 +543,11 @@ def squad(lineups, players, home_ids: set, away_ids: set, label: str, malformed:
     """{side: {"lineups": read?, "players": read?, "partial": [kind], "cands": [candidate]}} from the two answers;
     candidates keyed by the provider player id (by name where none is sent). A kind is read for a side only when every
     member of its block was the provider's shape (lineups: startXI and substitutes both lists of slots holding a player
-    object; players: a list of entries holding a player object and a statistics[0].games object whose minutes is an int
-    or null). A block with any member missing or malformed puts the kind in "partial": its well-formed members still
-    give candidates, but a name it may hide is never classed absent. Rows not the provider's shape are counted and
+    object; players: a non-empty list of entries holding a player object and a statistics[0].games object with a
+    minutes key whose value is an int or null). A block with any member missing or malformed puts the kind in
+    "partial": its well-formed members still give candidates, but a name it may hide is never classed absent. An empty
+    players list is a squad unread, never a known one (#724 item 1), and a games object with no minutes key is a member
+    not the provider's shape, never a measured null (#724 item 2). Rows not the provider's shape are counted and
     named."""
     out = {s: {"lineups": False, "players": False, "partial": [], "cands": {}} for s in ("home", "away")}
     unmapped = []
@@ -619,6 +622,10 @@ def squad(lineups, players, home_ids: set, away_ids: set, label: str, malformed:
             malformed.append(f"{label} players {side}: players is " + ("missing" if ents is None else "not a list"))
             done(side, "players", False)
             continue
+        if not ents:                                         # #724 item 1: no member read is no squad read
+            malformed.append(f"{label} players {side}: players is an empty list")
+            done(side, "players", False)
+            continue
         ok = True
         for j, e in enumerate(ents):
             p = e.get("player") if isinstance(e, dict) else None
@@ -637,7 +644,12 @@ def squad(lineups, players, home_ids: set, away_ids: set, label: str, malformed:
                 malformed.append(f"{label} players {side}[{j}]: no statistics[0].games object")
                 ok = False
                 continue
-            mins = g.get("minutes")
+            if "minutes" not in g:                           # #724 item 2: an absent key is not a null minutes
+                malformed.append(f"{label} players {side}[{j}]: games has no minutes key")
+                c["minutes_bad"] = "absent"
+                ok = False
+                continue
+            mins = g["minutes"]
             if mins is not None and _int(mins) is None:
                 malformed.append(f"{label} players {side}[{j}]: games.minutes {mins!r} is not an int or null")
                 c["minutes_bad"] = repr(mins)

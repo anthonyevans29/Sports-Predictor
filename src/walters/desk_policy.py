@@ -1050,6 +1050,24 @@ def role_reading(env=None) -> tuple[str | None, object]:
     return None, ""
 
 
+def not_host_reason() -> str | None:
+    """None on the host; else why this machine is not the host, by role_reading (read-only): the role is laptop,
+    unset, a value that is neither, or host.env exists and cannot be read (its value is never consulted past it). For
+    a command that runs on the host only (ARCHITECT 2026-10-30, addendum 178 R6: export-soccer-expansion-shadow).
+    Not a fence input: host_fenced never reads it, so a file that rebinds it changes no Desk call; callers outside
+    this module reference it, never role_reading (tests/test_host_watch_after_flip.py pins that)."""
+    role, value = role_reading()
+    if role == "host":
+        return None
+    if value is HOST_ENV_UNREADABLE:
+        return "host.env exists but cannot be read: the role is unknown"
+    if role == "laptop":
+        return "this machine's role is laptop"
+    if value:
+        return f"the role {value!r} is not host or laptop"
+    return f"the role is unknown ({ROLE_ENV} unset)"
+
+
 def machine_role(env=None) -> str | None:
     """This machine's role, host or laptop; None when it is unknown (role_reading)."""
     return role_reading(env)[0]

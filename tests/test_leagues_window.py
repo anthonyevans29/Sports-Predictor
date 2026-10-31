@@ -548,7 +548,9 @@ def test_the_print_is_counts_only_at_every_state_and_ready_says_the_read_is_item
             "the run record's) · members 60 of 60 · state ready") in out
     assert "The one read is addendum 178 PR ORDER item 5's PR; nothing is scored here" in out
     assert "BL1 · declared_at 2026-11-06T14:30:00Z" in out and "members 5 of 60 · state accruing" in out
-    assert "present 0 · missing 5 (no stored rows: the export that writes them is a later PR)" in out
+    # finding 17: the reader says what it read (the directory), never who wrote nothing
+    assert ("present 0 · missing 5 (no stored rows: none found in exports; the host's shadow export writes them in "
+            "the host's exports/, so a read elsewhere finds none there)") in out
     assert "SA · NOT DECLARED" not in out
     assert "FL1 · NOT DECLARED (no registry entry leagues-fl1-v1): no window" in out
 
@@ -614,9 +616,15 @@ def test_score_recomputes_both_arms_on_the_60_and_refuses_before_ready(ledger):
         s.rollback()
     assert r["n"] == 60 and r["ll_candidate"] == sum(cand) / 60 and r["ll_close"] == sum(close) / 60
     assert r["verdict"] == lw.verdict_of(r["ll_candidate"], r["ll_close"])
-    assert r["audit"] == {"present": 0, "missing": 60, "differ": [], "unreadable": []}
-    assert lw.audit_lines("SA", r["audit"]) == ["  - SA · stored prospective rows: none (no stored rows; 60 members "
-                                                "without one)"]
+    assert r["audit"] == {"present": 0, "missing": 60, "findings": [], "expected": [], "unreadable": [],
+                          "superseded": 0}
+    # D4's two lines print with no stored row too, both counted 0 (findings 13/21: neither silent)
+    assert lw.audit_lines("SA", r["audit"]) == [
+        "  - SA · stored prospective rows: none (no stored rows; 60 members without one)",
+        "  - SA · FINDINGS 0: differences on rows with pending_before = 0, or with no pending_before on the row "
+        "(addendum 185 D4)",
+        "  - SA · EXPECTED 0: differences on rows with pending_before > 0 (exported before an earlier game was final; "
+        "addendum 185 D4)"]
     with pytest.raises(lw.WindowRefused, match="the one read is at the 60th member"):
         lw.score({**w, "state": "waiting"})
     with pytest.raises(lw.WindowRefused):
@@ -651,11 +659,18 @@ def test_the_audit_counts_a_stored_row_that_differs_from_the_recompute(ledger, t
     (tmp_path / "exports" / "soccer_expansion_shadow_2026-11-06_1435.json").write_text(json.dumps(doc))
     assert _read("SA")["stored_present"] == 2
     a = lw.score(w, export_dir=str(tmp_path / "exports"))["audit"]
-    assert a["present"] == 2 and a["missing"] == 58 and [f["match_id"] for f in a["differ"]] == [got[1][0]]
+    # a stored row with no inputs_read is a FINDING, never assumed EXPECTED (addendum 185 D4; law 4)
+    assert a["present"] == 2 and a["missing"] == 58 and [f["match_id"] for f in a["findings"]] == [got[1][0]]
+    assert a["expected"] == [] and a["findings"][0]["pending_before"] is None
     L = lw.audit_lines("SA", a)
-    assert L[0].startswith("  - SA · stored prospective rows: present 2 · missing 58 · differ from the recompute 1 "
-                           "(FINDINGS, R1: never resolved either way)")
-    assert L[1].startswith(f"    FINDING match {got[1][0]} · stored ")
+    assert L[0] == ("  - SA · stored prospective rows: present 2 · missing 58 · differ from the recompute 1 (R1: never "
+                    "resolved either way) · superseded 0 " + lw.SUPERSEDED_NOTE)
+    assert L[1] == ("  - SA · FINDINGS 1: differences on rows with pending_before = 0, or with no pending_before on "
+                    "the row (addendum 185 D4)")
+    assert L[2].startswith(f"    FINDING match {got[1][0]} · stored ") and L[2].endswith(
+        " · pending_before not on the row")
+    assert L[3:] == ["  - SA · EXPECTED 0: differences on rows with pending_before > 0 (exported before an earlier "
+                     "game was final; addendum 185 D4)"]
 
 
 # ------------------------------------------------------------------------------------------------ the fence --
@@ -926,16 +941,16 @@ def test_181_5_the_audit_compares_the_recompute_rounded_by_the_exports_own_funct
     stored = {1: {"prediction": {"home_win_prob": 0.1235, "draw_prob": 0.3457, "away_win_prob": 0.5309}},
               2: {"prediction": {"home_win_prob": 0.12346, "draw_prob": 0.3457, "away_win_prob": 0.5309}}}
     a = lw.audit(stored, rec)
-    assert [f["match_id"] for f in a["differ"]] == [2] and a["differ"][0]["rounded"] == (0.1235, 0.3457, 0.5309)
-    assert abs(a["differ"][0]["diff"]) < 5e-5                           # inside the retired tolerance: still a finding
-    assert "(rounded by the export's function 0.1235/0.3457/0.5309)" in lw.audit_lines("SA", a)[1]
+    assert [f["match_id"] for f in a["findings"]] == [2] and a["findings"][0]["rounded"] == (0.1235, 0.3457, 0.5309)
+    assert abs(a["findings"][0]["diff"]) < 5e-5                         # inside the retired tolerance: still a finding
+    assert "(rounded by the export's function 0.1235/0.3457/0.5309)" in lw.audit_lines("SA", a)[2]
     from types import SimpleNamespace
     row = sx.shadow_row({}, SimpleNamespace(p_home=0.123456, p_draw=0.345678, p_away=0.530866), "v22", "x", "SA")
     assert row["prediction"]["home_win_prob"] == sx.shadow_prob(0.123456) == 0.1235      # one function
     monkeypatch.setattr(sx, "shadow_prob", lambda p: -1.0)
     assert sx.shadow_row({}, SimpleNamespace(p_home=0.1, p_draw=0.2, p_away=0.7), "v22", "x",
                          "SA")["prediction"]["draw_prob"] == -1.0
-    assert lw.audit(stored, rec)["differ"][0]["rounded"] == (-1.0, -1.0, -1.0)
+    assert lw.audit(stored, rec)["findings"][0]["rounded"] == (-1.0, -1.0, -1.0)
 
 
 @pytest.mark.parametrize("args", [["dixon-coles-sweep", "--competition", "SA", "--season", SEASON],

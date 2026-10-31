@@ -29,10 +29,27 @@ Per league (SA, BL1, FL1, ELC; the season as the DB stores it, "2026/27" by defa
 Then step (c)'s date as 156 item 1 rules it: the earliest of the four, the other three named.
 
 The DB is the one DATABASE_URL names (else ./data/sports.db). A path with no file is refused before any import that
-could open it: the receipt never creates a database. One session, rolled back; nothing written.
+could open it: the receipt never creates a database. READ-ONLY for real (read_only below): before anything is read,
+the app's sessions and its engine are rebound, for the receipt's run only, to an engine of their own on a mode=ro URI
+of that file (sp_cutover's shot-gate idiom), so the app engine's connect hooks (PRAGMA journal_mode=WAL, the data/
+mkdir) never run and SQLite itself refuses any write: no row is written and no file is created by the receipt. What
+mode=ro does NOT promise: the app runs the DB in WAL mode (src/db/database.py), and SQLite opening a WAL database even
+read-only may create or touch its -wal and -shm sidecar files beside it (a probe on SQLite 3.45.1 left an empty -wal
+and a 32 KB -shm next to a cleanly closed WAL file); the database's contents are untouched. No machine role is read
+and none refuses:
+the receipt runs on the laptop or the host alike, and imports nothing from deploy/hosting (ARCHITECT 2026-10-30 12:45
+ET, addendum 185 D5, verbatim: "THE PARITY RECEIPT for the PR body: the operator runs the branch's parity script
+READ-ONLY on the laptop (its read-only scope; a row-for-row arithmetic check on the laptop's data, stale is fine) — my
+block when Code names the script and its arguments; the host receipt after v1.6.2's deploy is my block too and goes on
+#322. The PR body says which machine produced its receipt.").
 
-Then the parity receipt (158 item 2(a)) per league. It REFUSES with exit status 2, as cli.py's soccer-expansion
-commands do, when no production soccer model resolves, and per league when the league-season stores a stage label
+Then the parity receipt (158 item 2(a)) per league, PD first (159 item 6(a); PD is never fenced), then the four,
+at the soccer-expansion-v1 RUN RECORD's frozen constants (leagues_window.run_record_constants: the constants the
+shadow export binds to, ARCHITECT 2026-10-24, addendum 164 item 3: "bound to the run record's frozen parameters,
+never by price_upcoming"); the production model's are printed beside them as a reference line, never the parity's
+input. The shadow side is the export's own function (soccer_expansion.shadow_entry, through leagues_candidate.
+parity), so the receipt proves the export path. It REFUSES with exit status 2, as cli.py's soccer-expansion
+commands do, when the run record holds no constants, and per league when the league-season stores a stage label
 the code cannot place (the gate's F3 refusal); the close part above still prints. A league whose parity read is
 not equal (a row unequal, or a game priced by one path only) prints a NOT EQUAL line and exits 1 unless a
 refusal made it 2.
@@ -54,6 +71,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+from contextlib import contextmanager
 from datetime import date
 from pathlib import Path
 
@@ -78,6 +96,29 @@ def db_file() -> Path:
     if not url.startswith("sqlite:///"):
         raise SystemExit(f"not a SQLite URL ({url.split(':')[0]}): the receipt is SQLite-only")
     return Path(url.replace("sqlite:///", ""))
+
+
+@contextmanager
+def read_only(f: Path):
+    """For the block: src.db.database's SessionLocal and engine are an engine of their own on a mode=ro URI of `f`
+    (no connect hook, no pragma, no mkdir; SQLite refuses a write; a WAL database's -wal / -shm sidecars may still be
+    created or touched, the module docstring says so), restored afterwards. session_scope, readonly_scope
+    (which reads the bound file after "file:") and the has_* column checks all read through it."""
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+
+    from src.db import database
+    eng = create_engine(f"sqlite:///file:{f.resolve().as_posix()}?mode=ro&uri=true",
+                        connect_args={"uri": True, "check_same_thread": False}, future=True)
+    saved = database.SessionLocal, database._engine
+    database.SessionLocal = sessionmaker(bind=eng, autoflush=False, autocommit=False, future=True,
+                                         expire_on_commit=False)
+    database._engine = eng
+    try:
+        yield eng
+    finally:
+        database.SessionLocal, database._engine = saved
+        eng.dispose()
 
 
 def come_line(code: str, c: dict) -> str:
@@ -135,22 +176,44 @@ def main(argv=None) -> int:
     if not f.is_file():
         raise SystemExit(f"no database at {f}: the receipt never creates one")
     declared = date.fromisoformat(a.declared)
+    with read_only(f):
+        print(f"database: {f.resolve()} (mode=ro; this machine's receipt: say which machine produced it, addendum 185 "
+              "D5)")
+        from src.walters.leagues_window import WindowRefused
+        try:
+            return _receipt(a, declared)
+        except WindowRefused as e:           # Codex on #741: an unreadable registry (the fence's read included) is a
+            print(f"REFUSED: {e}; the receipt is not read")   # refusal, exit 2, never a traceback
+            return REFUSED
+
+
+def _receipt(a, declared) -> int:
     from src.walters.paper import LEAGUES, leagues_season
     for ln in lines(leagues_season(LEAGUES, a.season, declared), a.season, declared):
         print(ln)
     from src.walters import leagues_candidate as lc
-    prod = lc.production_poisson()
-    if prod is None:                 # as the soccer-expansion commands refuse (cli.py): exit 2, never a pass
-        print("PARITY (158 item 2(a)): REFUSED: no production soccer model resolved (nothing faked); the receipt is "
-              "incomplete without its parity part")
+    from src.walters import leagues_window as lw
+    try:
+        frozen = lw.run_record_constants()
+    except lw.WindowRefused as e:    # as the soccer-expansion commands refuse (cli.py): exit 2, never a pass
+        print(f"PARITY (158 item 2(a)): REFUSED: {e}; the receipt is incomplete without its parity part")
         return REFUSED
-    print(f"PARITY (158 item 2(a)): the production soccer model {prod[0]} (rho {prod[1]}, Elo goal coefficient "
-          f"{prod[2]}); the shadow path is leagues_candidate.predict_as_of, the gate path run_soccer_backtest")
+    print(f"PARITY (158 item 2(a)): the soccer-expansion-v1 run record's frozen constants {frozen['production_version']}"
+          f" (rho {frozen['rho']}, Elo goal coefficient {frozen['elo_goal_coeff']}), the shadow export's binding (164 "
+          "item 3); the shadow path is soccer_expansion.shadow_entry (leagues_candidate.predict_as_of), the gate path "
+          "run_soccer_backtest")
+    prod = lc.production_poisson()
+    print("  - reference only, never the parity's input: the production soccer model "
+          + (f"{prod[0]} (rho {prod[1]}, Elo goal coefficient {prod[2]}); "
+             + ("equal to the frozen constants today" if (str(prod[0]), float(prod[1]), float(prod[2])) == (
+                 frozen["production_version"], frozen["rho"], frozen["elo_goal_coeff"]) else
+                "NOT equal to the frozen constants (the export never reads it)")
+             if prod is not None else "not resolved"))
     from src.walters.soccer_expansion import ExpansionRefused
     rc = 0
-    for code in LEAGUES:
+    for code in ("PD", *LEAGUES):
         try:
-            p = lc.parity(code, prod[1], prod[2], season=a.season)
+            p = lc.parity(code, frozen["rho"], frozen["elo_goal_coeff"], season=a.season)
         except ExpansionRefused as e:   # F3: an unplaceable stage label refuses, as the gate's run does
             print(f"{code} {a.season} · PARITY (158 item 2(a)) · REFUSED: {e}")
             rc = REFUSED

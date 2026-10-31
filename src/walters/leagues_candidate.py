@@ -33,9 +33,14 @@ bar, independently per league."
   cannot place (soccer_expansion.placement None, NULL or empty included), read by the gate's own census
   (soccer_expansion.stage_census, STALE_ORPHAN excluded): the gate's run refuses on such a label (F3, never guessed),
   so the parity read does too, and a game is never silently left out of both paths (Codex on #663).
-- legacy_shadow: the probabilities the CURRENT shadow export (soccer_expansion.price_upcoming's arithmetic, read as of
-  each game's kickoff: every stage, no same-kickoff batching, strengths from all finished games before it) would give
-  the same games, against the gate path: reported as a finding, never used.
+- legacy_shadow: the probabilities the RETIRED shadow arithmetic (soccer_expansion.price_upcoming's, deleted by the
+  export switch, 164 item 3; read as of each game's kickoff: every stage, no same-kickoff batching, strengths from all
+  finished games before it) would give the same games, against the gate path: reported as a finding, never used.
+- THE SHADOW SIDE of the parity is the export's own function, soccer_expansion.shadow_entry (prospective=False: a
+  finished game is priced as of its kickoff), which calls predict_as_of; the receipt so proves the export path
+  (ARCHITECT 2026-10-24, addendum 164 item 3: "the prospective predictions for SA/BL1/FL1/ELC — and for PD (159 item
+  6(a)) — are produced by leagues_candidate.predict_as_of from the declaration on, bound to the run record's frozen
+  parameters, never by price_upcoming").
 Every parity row carries the candidate id (CANDIDATE: the walk, prospective on 2026/27, until the declaration names
 it), the code sha (git, short; None when git cannot say), the input cutoff (the game's kickoff: the latest input it
 may read) and the prediction stamp (the receipt's own clock).
@@ -43,7 +48,6 @@ may read) and the prediction stamp (the receipt's own clock).
 from __future__ import annotations
 
 import dataclasses
-import subprocess
 from datetime import datetime
 
 from src.walters.soccer_expansion import CURRENT_SEASON, MIN_PRIOR, ExpansionRefused, is_regular, stage_census
@@ -53,11 +57,11 @@ PARITY_TOL = 1e-12
 
 
 def code_sha() -> str | None:
-    try:
-        r = subprocess.run(["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True, timeout=10)
-    except (OSError, subprocess.SubprocessError):
-        return None
-    return r.stdout.strip() or None if r.returncode == 0 else None
+    """The producing checkout's short sha: provenance.git_sha() (anchored to the repo, not the process's working
+    directory; SP_GIT_SHA overrides; None when git cannot say), the `git_sha` every export carries and compare_exports
+    masks."""
+    from src.walters.provenance import git_sha
+    return git_sha()
 
 
 def production_poisson():
@@ -92,14 +96,22 @@ def _season_rows(s, code: str, season: str):
     return rows
 
 
+def priors(rows, fixture) -> list:
+    """The rows predict_as_of walks for `fixture`, in kickoff order: the finished regular-round rows strictly before
+    its kickoff (F5), itself excluded, through the one predicate (soccer_backtest._confirmation_rows; addendum 181 item
+    2). Pure; the selection predict_as_of makes, lifted out so the shadow export records what it read."""
+    from src.walters import soccer_backtest as sb
+    return sorted(sb._confirmation_rows(m for m in rows if is_regular(m.stage) and m.utc_date < fixture.utc_date
+                                        and m.id != fixture.id),
+                  key=lambda m: m.utc_date)
+
+
 def predict_as_of(rows, fixture, rho: float, coeff: float):
     """The prospective prediction for `fixture` from the finished regular-round rows strictly before its kickoff, or
     (None, why). `rows`: the league-season's finished rows (any order). The priors pass through the one predicate
     (soccer_backtest._confirmation_rows; addendum 181 item 2): AWD / WO released, a non-FT row on its 90' score."""
     from src.walters import soccer_backtest as sb
-    prior = sorted(sb._confirmation_rows(m for m in rows if is_regular(m.stage) and m.utc_date < fixture.utc_date
-                                         and m.id != fixture.id),
-                   key=lambda m: m.utc_date)
+    prior = priors(rows, fixture)
     if len(prior) < MIN_PRIOR:
         return None, "below_min_prior"
     elo = sb.EloState(config=sb.EloConfig())
@@ -120,8 +132,9 @@ def predict_as_of(rows, fixture, rho: float, coeff: float):
 
 
 def legacy_shadow(rows, fixture, rho: float, coeff: float):
-    """soccer_expansion.price_upcoming's arithmetic for `fixture`, read as of its kickoff (every stage, no batching,
-    Elo over every finished row before it, strengths from them all): the current shadow's number, for the finding."""
+    """The retired soccer_expansion.price_upcoming's arithmetic for `fixture` (deleted by the export switch, 164 item
+    3), read as of its kickoff (every stage, no batching, Elo over every finished row before it, strengths from them
+    all): the old shadow's number, kept for the finding."""
     from src.walters import soccer_backtest as sb
     done = sorted((m for m in rows if m.utc_date < fixture.utc_date and m.id != fixture.id), key=lambda m: m.utc_date)
     if len(done) < MIN_PRIOR:
@@ -166,7 +179,7 @@ def parity(code: str, rho: float, coeff: float, season: str = CURRENT_SEASON, no
     not recorded (leagues_window.fence_cutoff), both paths read only the 2026/27 games kicking off at or before the
     cut (its declared_at; PRE_DECLARATION_CUT while no entry exists); the finished regular-round games after it are
     counted (`fenced`), never walked or compared. PL, PD and every other competition: unchanged."""
-    from src.walters.soccer_expansion import unscoreable
+    from src.walters.soccer_expansion import shadow_entry, unscoreable
     from src.db.database import session_scope
     from src.timeutil import utc_now_naive
     from src.walters.leagues_window import fence_cutoff
@@ -193,7 +206,7 @@ def parity(code: str, rho: float, coeff: float, season: str = CURRENT_SEASON, no
         for m in regular:
             if unscoreable(m):
                 continue
-            pred, why = predict_as_of(rows, m, rho, coeff)
+            pred, why = shadow_entry(rows, m, {"rho": rho, "elo_goal_coeff": coeff}, None, prospective=False)
             g = gate.get(m.id)
             if pred is None and g is None:
                 continue
@@ -231,7 +244,7 @@ def parity_lines(p: dict, rows: bool = True) -> list[str]:
                "neither path walks or prices them, addendum 181 item 2)" if p.get("released") else "")
             + (f" · fenced {p['fenced']} (finished after the cut: the cohort reader's alone, addendum 178 R8; "
                "addendum 181 item 1(b))" if p.get("fenced") else ""))
-    L = [head, f"  - the current shadow export's arithmetic (price_upcoming, as of each kickoff) on the same games: "
+    L = [head, f"  - the retired shadow arithmetic (price_upcoming's, as of each kickoff) on the same games: "
                f"unequal {p['legacy_unequal']} of {len(p['rows']) - p['legacy_unpriced']} priced (max |diff| "
                f"{p['legacy_max_diff']:.3g}); unpriced {p['legacy_unpriced']} (a finding: it is not the gate's walk)"]
     if rows:

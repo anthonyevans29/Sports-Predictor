@@ -727,16 +727,43 @@ def _slate_steps_of(fam):
     return closing.slate_steps(fam, day, covers, datetime(2026, 10, 31, 12, 0, tzinfo=timezone.utc), "RID")
 
 
+# ARCHITECT 2026-10-30 12:45 ET, addendum 185 D2, verbatim in part: "THE EXPORT RUNS AS THE LAST STEP OF EVERY EXISTING
+# SOCCER SYNC CHAIN (soccer-friday 14:00Z, soccer-saturday 10:30 London, soccer-morning-after Sun/Mon/Tue 09:50Z [...])".
+# What each soccer sync chain gained after the 166B retirement: that one bare step, last.
+ADDED_185_D2 = {"soccer-prematch": [["export-soccer-expansion-shadow"]],
+                "soccer-morning-after": [["export-soccer-expansion-shadow"]]}
+
+
 def test_the_three_timers_keep_their_schedules_and_run_only_the_kept_steps():
     timers = _timers()
     assert "sp-nfl-predict.timer" not in timers and "nfl-predict" not in chains.CHAINS     # renamed, not duplicated
     for t, (cals, chain, before) in TIMERS_166B.items():
         assert timers[t] == (cals, f"sp-chain@{chain}.service"), t
         kept = [s for s in BEFORE_166B[before] if s not in RETIRED_166B[before]]
-        assert chains.CHAINS[chain]["steps"] == kept, chain                          # the kept steps, in order
+        assert chains.CHAINS[chain]["steps"] == kept + ADDED_185_D2.get(chain, []), chain   # kept, in order; D2 last
         assert "backup" not in chains.CHAINS[chain] and not chains.CHAINS[chain].get("operator_only")
     assert [s[0] for s in chains.CHAINS["nfl-prematch"]["steps"]] == ["sync-injuries", "capture-weather-nfl"]
-    assert all(s[0].startswith("sync-") for s in chains.CHAINS["soccer-prematch"]["steps"])  # every sync stays
+    # every sync stays; the one step after them is D2's bare shadow export
+    assert all(s[0].startswith("sync-") for s in chains.CHAINS["soccer-prematch"]["steps"][:-1])
+    assert chains.CHAINS["soccer-prematch"]["steps"][-1] == ["export-soccer-expansion-shadow"]
+
+
+def test_185_d2_the_shadow_export_is_the_last_step_of_every_soccer_sync_chain_and_nowhere_else():
+    """D2: the bare step closes soccer-prematch (sp-soccer-friday, sp-soccer-saturday) and soccer-morning-after; not
+    intl-daily (no league sync precedes it there) and no other chain; no new timer; UNMETERED (it reads the DB only, so
+    designated-days mode never skips it as a provider call). The three timers that start those chains are the ones
+    soccer_expansion.SYNC_CHAIN_TIMERS declares (pinned to the timer files in tests/test_leagues_export.py)."""
+    from src.walters import soccer_expansion as sx
+    step = ["export-soccer-expansion-shadow"]
+    holders = sorted(n for n, ch in chains.CHAINS.items() if step in (ch.get("steps") or []))
+    assert holders == ["soccer-morning-after", "soccer-prematch"]
+    for n in holders:
+        assert chains.CHAINS[n]["steps"][-1] == step and chains.CHAINS[n]["steps"].count(step) == 1
+    assert "export-soccer-expansion-shadow" in chains.UNMETERED
+    timers = _timers()
+    runs = {t: u for t, (_, u) in timers.items() if u in {f"sp-chain@{n}.service" for n in holders}}
+    assert sorted(runs) == sorted(t for t, _, _ in sx.SYNC_CHAIN_TIMERS)
+    assert all(runs[t] == f"sp-chain@{c}.service" for t, c, _ in sx.SYNC_CHAIN_TIMERS)
 
 
 def test_each_retired_step_is_one_the_slate_stage_runs_for_the_same_family():

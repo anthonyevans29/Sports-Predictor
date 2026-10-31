@@ -13,4 +13,6 @@
   - (e) the bar reads >= literally: exactly 0.0050 passes; "a tie" is a tie of the arms, which rejects.
   - (f) MLB has no Elo: "the same Elo state" is read as the same run-profile history, profiles and production config, one walk.
   - (g) the freeze is a separate command run before the run on the same copy, its files committed before the run.
-  - (h) the roadmap lane's state and registry_id wait on #747's ruling; docs/roadmap.json is not touched here.
+  - (h) ruled (addendum 192 item 2): the lane's state "declared" lands in #747; registry_id "mlb-pitchers-v1" lands in this PR after #747 merges (both touch docs/roadmap.json).
+  - (i) a FINISHED cohort game stored with equal scores scores y = 0 in both arms (today's walk's `home_score > away_score`); none is expected (MLB resumes suspended games); the harness neither refuses nor relabels one.
+  - (j) the operator's 10-31 counting block (a wrapper on the receipt module's `read_game`) counts 0 on this code (the receipt imports `reconstruct` from the module); the freeze's console line "both sides on a live path N" is the same figure and the freeze refuses unless it is 1553.

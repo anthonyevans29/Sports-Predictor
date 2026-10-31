@@ -139,5 +139,15 @@ REFUSED, exit 2, naming the spent reservation.
 - **(f) MLB has no Elo.** "The same Elo state" is read as the same run-profile history, profiles and production config:
   ONE walk prices both arms.
 - **(g) The freeze is a separate command**, run before the run on the same copy, its files committed before the run.
-- **(h) The roadmap lane's state and registry_id** (`declared`, `mlb-pitchers-v1`) wait on #747's ruling; this branch
-  does not touch docs/roadmap.json.
+- **(h) The roadmap lane's state and registry_id.** Ruled (ARCHITECT 2026-10-31 12:40 ET, addendum 192 item 2): the
+  state becomes "declared" in #747; `registry_id` becomes "mlb-pitchers-v1" in this PR, where the entry is written,
+  after #747 merges (both touch docs/roadmap.json).
+- **(i) A FINISHED cohort game stored with equal scores** is scored y = 0 (not a home win) in both arms, as today's walk
+  and the row contract (`home_won = home_score > away_score`) read it. Classification never reads scores, so such a
+  game would stay in the cohort. MLB resumes a suspended game rather than finishing it tied, so none is expected; the
+  harness neither refuses nor relabels one (that would change the scored-set rule after the declaration).
+- **(j) The 10-31 counting block is superseded.** The operator's block of 10-31 counted the 1553 by replacing the
+  receipt module's `read_game` with a counting wrapper. The receipt now imports `read_game` and `reconstruct` from
+  `src/walters/mlb_pitcher_asof.py`, whose `reconstruct` calls its own `read_game`, so that block would count 0 on this
+  code. The same figure is the freeze's own console line (`both sides on a live path N · one side N · neither N`,
+  from `mlb_pitcher_asof.cohort_ids(classify(...))`), and the freeze refuses unless both is exactly 1553.

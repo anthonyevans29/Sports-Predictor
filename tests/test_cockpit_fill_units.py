@@ -85,13 +85,14 @@ def _node(tmp_path, body, name="fill_units.js"):
     return json.loads(subprocess.run(["node", str(f)], capture_output=True, text=True, check=True).stdout)
 
 
-def _run(tmp_path, rows, fills=FILLS, parlays=None):
+def _run(tmp_path, rows, fills=FILLS, parlays=None, metas=None):
     """The page's exposure over `fills` with `rows` (and a desk_parlays file) loaded: the day bases, every game (its
     ET date, its day's unit, its outcomes), the summary, the headline and the block's HTML."""
     return _node(tmp_path, "\n".join([
-        f"const rows={json.dumps(rows)}; let fileParlays={json.dumps(parlays)};",   # the page's two globals
+        f"const rows={json.dumps(rows)}; let fileParlays={json.dumps(parlays)};",   # the page's three globals
+        f"let fileMetas={json.dumps(metas or [])};",
         f"const L={json.dumps({'fills': fills})};",
-        "const db=fillDayBases(rows,fileParlays), x=fillExposure(L,db);",
+        "const db=fillDayBases(rows,fileParlays,fileMetas), x=fillExposure(L,db);",
         "const g0=x.games.find(g=>g.teams==='MILLAD')||x.games[0];",
         "const home=g0?g0.outcomes.find(o=>o.outcome==='HOME'):null;",
         "const games=Object.fromEntries(x.games.map(g=>[g.key,{etDate:g.etDate,unit:g.unit,outcomes:g.outcomes}]));",
@@ -166,7 +167,7 @@ def test_a_parlay_files_ticket_legs_count_as_loaded_order_lines(tmp_path):
 
 def test_the_page_reads_the_basis_from_the_rows_and_the_parlays_file():
     html = _html()
-    assert html.count("fillDayBases(rows,fileParlays)") == 2 and "fillUnitBasis(rows" not in html
+    assert html.count("fillDayBases(rows,fileParlays,fileMetas)") == 2 and "fillUnitBasis(rows" not in html
     assert "fillExposure(L,fillUnitBasis" not in html
 
 
@@ -371,3 +372,22 @@ def test_a_v11_file_shows_the_policy_mismatch_banner(tmp_path):
     f.write_text(js)
     a, b = json.loads(subprocess.run(["node", str(f)], capture_output=True, text=True, check=True).stdout)
     assert "⚠ file policy v1.1 ≠ Cockpit v1.2" in a and "≠" not in b
+
+
+@needs_node
+def test_an_empty_v12_export_still_names_its_days_unit(tmp_path):
+    """#753 review (Codex P2): a v1.2 export with no rows (predictions: []) carries its desk_meta all the same; the page
+    keeps every accepted file's desk_meta (fileMetas), so its day is read, unread or a conflict, never "no loaded
+    file"."""
+    read = _run(tmp_path, [], metas=[_meta("2026-10-14", "1u = $20")])
+    assert read["db"]["days"]["2026-10-14"] == {"mode": "usd", "value": 20} and read["label"] == "1u = $20"
+    unread = _run(tmp_path, [], metas=[_meta("2026-10-14", "unit unread", "unread")])
+    assert unread["db"]["days"]["2026-10-14"] == {"unread": True} and unread["home"]["units"] is None
+    clash = _run(tmp_path, [_row12("2026-10-14", "1u = $20")], metas=[_meta("2026-10-14", "1u = $25")])
+    assert "conflict" in clash["db"]["days"]["2026-10-14"] and clash["home"]["over"] is None
+
+
+def test_load_docs_keeps_every_accepted_files_desk_meta():
+    html = _html()
+    body = html[html.index("async function loadDocs("):html.index("$(\"predFile\")")]
+    assert "fileMetas=[];" in body and "if(doc.desk_meta) fileMetas.push(doc.desk_meta);" in body

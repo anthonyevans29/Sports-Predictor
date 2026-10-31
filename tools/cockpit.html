@@ -2426,12 +2426,13 @@ function fileDayUnit(meta){
 // with different units -> {conflict} (contracts only, both named, never a pick). An unread file of a day another file
 // of that day read: the read unit stands (an unread page writes no order line, addendum 179 item 4; the day's unit is
 // its first successful read, addendum 180 item 4), so only a day with no read file is {unread}.
-function fillDayBases(rs,parlays){
+function fillDayBases(rs,parlays,metas){
   const seen={};
   const add=meta=>{ const x=fileDayUnit(meta); if(!x) return false;
     const e=seen[x.date]=seen[x.date]||{bases:new Map(),unread:false};
     if(x.basis) e.bases.set(x.basis.mode+":"+x.basis.value,x.basis); else e.unread=true;
     return true; };
+  (metas||[]).forEach(add);   // each accepted file's own desk_meta, an empty export's too (#753 review)
   const legacyRows=(rs||[]).filter(r=>!add((r||{}).deskMeta));
   const legacyParlays=parlays&&!add(parlays.desk_meta)?parlays:null;
   const days={};
@@ -2529,7 +2530,7 @@ function exposureHeadline(x){ const s=x.summary;
     +(x.excludedRole?` · ${x.excludedRole} fill(s) excluded (contract role not decided by the ticker)`:"")
     +(x.excludedEvent?` · ${x.excludedEvent} fill(s) excluded (event identity ambiguous)`:""); }
 function exposureHTML(L){
-  const x=fillExposure(L,fillDayBases(rows,fileParlays)); if(!x.games.length&&!x.excluded) return "";
+  const x=fillExposure(L,fillDayBases(rows,fileParlays,fileMetas)); if(!x.games.length&&!x.excluded) return "";
   const $$=v=>(v<0?"−$":"$")+Math.abs(v).toFixed(2);
   const trs=x.games.slice(0,25).map(g=>`<tr><td>${esc(g.key)}</td><td>${g.fills}</td>`
     +`<td>${$$(g.gross)}</td><td>${$$(g.fees)}</td><td>${g.hedge?$$(g.hedge):"—"}</td><td><b>${$$(g.cashAtRisk)}</b></td><td>`
@@ -2559,7 +2560,7 @@ function realizedLines(L){
     (()=>{const fc=feeClassSummary(fs); return `fee class (open legs, fee vs formula): ${fc.txt}`
       +(fc.live?` · ${fc.live} MLB fill(s) at the LIVE rate (doctrine: MLB is never executed live)`:"");})(),
     `unmatched-but-plausible for manual review: ${fs.filter(x=>x.plausible).length}`,
-    exposureHeadline(fillExposure(L,fillDayBases(rows,fileParlays))),""];
+    exposureHeadline(fillExposure(L,fillDayBases(rows,fileParlays,fileMetas))),""];
 }
 $("kalshiCsvFile").addEventListener("change",async e=>{
   const f=e.target.files[0]; if(!f)return;
@@ -2582,6 +2583,9 @@ function buildParlays(){
 // matched to its loaded row (sport, home, away, kickoff, pick). A ticket with a
 // leg not in the loaded files is skipped and counted, never rebuilt.
 let fileParlays=null, parlayNote="";
+// every accepted prediction/fixtures file's desk_meta, rows or none (#753 review: an empty v1.2 export still names
+// its day's unit, unread state or conflict to fillDayBases)
+let fileMetas=[];
 function parlaysFromFile(){
   parlayNote="";
   if(!fileParlays){ parlayNote="no desk_parlays file loaded — run desk-parlays on these exports and load its file"; return []; }
@@ -2790,7 +2794,7 @@ async function loadDocs(fs){
   if(cov.taken){ try{ renderToday(); }catch(e){ did.coverageError=(e&&e.message)||String(e); todayFailed(did.coverageError); } }
   fs=cov.rest;
   if(!fs.length){ setTab("today"); return did; }   // a coverage file alone: the loaded slate is never reset
-  rows=[]; shadowRows=[]; fileParlays=null; refusedFiles=[]; const sports=new Set();
+  rows=[]; shadowRows=[]; fileParlays=null; refusedFiles=[]; fileMetas=[]; const sports=new Set();
   did.slate=true;
   for(const f of fs){
     try{const doc=JSON.parse(f.text);
@@ -2802,6 +2806,7 @@ async function loadDocs(fs){
       // and desk_parlays files keep their own paths (above).
       if(rr.some(r=>!r.fileDesk)){ refusedFiles.push(f.name); continue; }
       rr.forEach(r=>sports.add(r.sport));
+      if(doc.desk_meta) fileMetas.push(doc.desk_meta);
       rows=rows.concat(rr);}
     catch(err){$("summary").textContent=`Could not parse ${f.name}: ${err.message}`; did.refused=refusedFiles.slice(); return did;}
   }

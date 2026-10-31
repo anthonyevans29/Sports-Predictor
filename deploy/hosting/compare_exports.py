@@ -7,7 +7,10 @@
 For every same-named JSON file in both: record counts (top-level list, or the
 longest list value in a top-level object) and a field-level diff with
 timestamp-like keys ignored (*_at, ts, timestamp, generated*, captured*).
-Files present on one side only are listed. Output is paste-ready. Exit 0 =
+The unit-bearing fields of Desk policy v1.2 (order.unit, order.text,
+order.contracts, desk_meta.unit, and pool_usd at any depth) are never compared
+or printed, in either mode; their count is printed (ARCHITECT 2026-10-30,
+addendum 182 item 4). Files present on one side only are listed. Output is paste-ready. Exit 0 =
 CLEAN (every compared file identical after the timestamp mask), 1 = DIVERGENT,
 2 = ERROR (the comparison could not run: bad arguments, a side directory
 missing, a crash), 3 = NO-COVERAGE (nothing was compared: zero JSON files on
@@ -88,6 +91,49 @@ EXIT_CLEAN, EXIT_DIVERGENT, EXIT_ERROR, EXIT_NO_COVERAGE = 0, 1, 2, 3
 TS_KEY = re.compile(r"(_at$|^ts$|timestamp|^generated|^captured|^as_of)", re.I)
 # machine-local or reported separately — never a field diff
 MASKED = {"match_id", "git_sha"}
+# THE UNIT-BEARING FIELDS (ARCHITECT 2026-10-30 11:20 ET, addendum 182 item 4, verbatim): "compare_exports masks the
+# unit-bearing fields — order.unit, order.text, order.contracts, desk_meta.unit (and the laptop-only pool field
+# wherever it appears) — compares the rest, and prints the masked count ("unit-bearing fields masked (policy v1.2):
+# N"); a divergence in exec figures from fee rounding is real and still prints (no dollar in it)." Each machine reads
+# its own pool (Desk policy v1.2, #732), so these differ by construction and carry a dollar figure: never printed, in
+# either mode (the --ignore-keys check included), counted instead.
+UNIT_BEARING = {"order": {"unit", "text", "contracts"}, "desk_meta": {"unit"}}
+POOL_FIELD = "pool_usd"
+
+
+def unit_bearing(parent, key) -> bool:
+    """True for a field addendum 182 item 4 masks: under a key named `order` its unit / text / contracts, under
+    `desk_meta` its unit, and the laptop-only pool field at any depth."""
+    return key == POOL_FIELD or key in UNIT_BEARING.get(parent, ())
+
+
+def unit_count(a, b, parent=None) -> int:
+    """The unit-bearing fields of one file pair, a field on either side counted once: its own walk (Codex on #735),
+    so the count reaches past the 40-line diff limit, into keys --ignore-keys prunes, into rows on one side only and
+    across a dict-vs-other mismatch. Lists keep their parent key (as `diff` does); game rows pair by row key."""
+    if isinstance(a, dict) or isinstance(b, dict):
+        da, db = (a if isinstance(a, dict) else {}), (b if isinstance(b, dict) else {})
+        return sum(1 if unit_bearing(parent, k) else unit_count(da.get(k), db.get(k), k) for k in set(da) | set(db))
+    if isinstance(a, list) or isinstance(b, list):
+        la, lb = (a if isinstance(a, list) else []), (b if isinstance(b, list) else [])
+        if is_game_rows(la) and is_game_rows(lb):
+            ka, kb = keyed(la), keyed(lb)
+            return sum(unit_count(ka.get(k), kb.get(k), parent) for k in set(ka) | set(kb))
+        return sum(unit_count(la[i] if i < len(la) else None, lb[i] if i < len(lb) else None, parent)
+                   for i in range(max(len(la), len(lb))))
+    return 0
+
+
+def redacted(v, parent=None):
+    """`v` with every unit-bearing field's value replaced by "<masked>", for a structural mismatch printed whole (an
+    `order` or `desk_meta` object against null; Codex on #735): the dollar figure never reaches the output."""
+    if isinstance(v, dict):
+        return {k: "<masked>" if unit_bearing(parent, k) else redacted(x, k) for k, x in v.items()}
+    if isinstance(v, list):
+        return [redacted(x, parent) for x in v]
+    return v
+
+
 KICKOFF, HOME, AWAY = ("utc_date", "kickoff", "date"), ("home_team", "home"), ("away_team", "away")
 
 # MACHINE STATE (ARCHITECT 2026-10-18, addendum 128 item 3; the module docstring quotes it): the kinds listed by
@@ -178,22 +224,26 @@ def rows_of(doc) -> int | None:
     return None
 
 
-def diff(a, b, path="$", out=None, limit=40, unmatched=None, ignore=None) -> list[str]:
+def diff(a, b, path="$", out=None, limit=40, unmatched=None, ignore=None, parent=None) -> list[str]:
     """`ignore`: None = the generic mask (TS_KEY + MASKED). A set (--ignore-keys; the cutover PL check only, #420)
     REPLACES that mask: only those keys and git_sha (code, never read from the database) are left out, so every
-    database-read timestamp and match_id is compared (Codex on #439)."""
+    database-read timestamp and match_id is compared (Codex on #439). In both modes the unit-bearing fields
+    (addendum 182 item 4, unit_bearing) are left out and never printed: a mismatch printed whole is redacted first;
+    unit_count counts them."""
     out = [] if out is None else out
     if len(out) >= limit:
         return out
     if isinstance(a, dict) and isinstance(b, dict):
         for k in sorted(set(a) | set(b)):
+            if unit_bearing(parent, k):
+                continue
             if (ignore is None and (TS_KEY.search(str(k)) or k in MASKED)) or (
                     ignore is not None and (k in ignore or k == "git_sha")):
                 continue
             if k not in a or k not in b:
                 out.append(f"{path}.{k}: only in {'host' if k not in a else 'laptop'}")
             else:
-                diff(a[k], b[k], f"{path}.{k}", out, limit, unmatched, ignore)
+                diff(a[k], b[k], f"{path}.{k}", out, limit, unmatched, ignore, k)
     elif is_game_rows(a) and is_game_rows(b):
         ka, kb = keyed(a), keyed(b)            # key FIRST, then compare pairs
         if unmatched is not None:
@@ -201,14 +251,14 @@ def diff(a, b, path="$", out=None, limit=40, unmatched=None, ignore=None) -> lis
             unmatched[path]["laptop"] += sorted(set(ka) - set(kb))
             unmatched[path]["host"] += sorted(set(kb) - set(ka))
         for k in sorted(set(ka) & set(kb)):
-            diff(ka[k], kb[k], f"{path}[{k}]", out, limit, unmatched, ignore)
+            diff(ka[k], kb[k], f"{path}[{k}]", out, limit, unmatched, ignore, parent)
     elif isinstance(a, list) and isinstance(b, list):
         if len(a) != len(b):
             out.append(f"{path}: length {len(a)} vs {len(b)}")
         for i, (x, y) in enumerate(zip(a, b)):
-            diff(x, y, f"{path}[{i}]", out, limit, unmatched, ignore)
+            diff(x, y, f"{path}[{i}]", out, limit, unmatched, ignore, parent)
     elif a != b:
-        out.append(f"{path}: {str(a)[:60]!r} vs {str(b)[:60]!r}")
+        out.append(f"{path}: {str(redacted(a, parent))[:60]!r} vs {str(redacted(b, parent))[:60]!r}")
     return out
 
 
@@ -275,6 +325,7 @@ def _main(argv=None) -> int:
     # #680: what made a run DIVERGENT, each file named on the summary line (Codex on #683: field diffs and rows on one
     # side within a file are separate causes; a file's own line prints diffs=0 when only its rows differ)
     field_diffs, row_diffs, unparseable, one_sided = [], [], [], []
+    unit_masked = 0                               # addendum 182 item 4: the unit-bearing fields left out, counted
     pred_rows = {"laptop": 0, "host": 0}
     for name in sorted(set(la) | set(ho)):
         if name not in la or name not in ho:
@@ -295,6 +346,7 @@ def _main(argv=None) -> int:
                 pred_rows[side] += predicted_rows(doc)
         um: dict = {}
         d = diff(x, y, unmatched=um, ignore=ignore)
+        unit_masked += unit_count(x, y)
         only = {s: [k for v in um.values() for k in v[s]] for s in ("laptop", "host")}
         ok = not d and not only["laptop"] and not only["host"]
         clean &= ok
@@ -320,6 +372,7 @@ def _main(argv=None) -> int:
           f"{settled} outside the window · not matched by {a.glob}: laptop {len(other['laptop'])}, "
           f"host {len(other['host'])}" + (f" (e.g. {', '.join((other['laptop'] + other['host'])[:3])})"
                                           if other['laptop'] or other['host'] else ""))
+    print(f"unit-bearing fields masked (policy v1.2): {unit_masked}")   # addendum 182 item 4
     if a.require_predictions:
         print(f"predictions compared (rows with a prediction and its probabilities): laptop {pred_rows['laptop']} "
               f"· host {pred_rows['host']}")

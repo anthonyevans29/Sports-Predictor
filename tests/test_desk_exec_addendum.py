@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from src.walters import desk_policy as dp
+FIXTURE_UNIT_DOLLARS = 1234          # synthetic (addendum 179 item 5: never a real figure)
 from src.walters.venue import kalshi_exec
 
 NOW = datetime(2026, 10, 11, 16, 0, tzinfo=timezone.utc)
@@ -269,13 +270,14 @@ def test_doctrine_join_price_and_order_share_one_source_for_three_way_legs():
 
 def test_h_each_order_is_priced_at_its_own_contract_count(monkeypatch):
     """(h) RULED 2026-10-06: the fee is per fill of the order's OWN contract count; the 10-contract assumption ended.
-    At a 0.55 ask (NFL M=1): 10 contracts -> 17c/10 = 1.7c; 2 contracts (0.25u) -> 3c/2 = 1.5c; SP_UNIT_USD=20 ->
-    floor(20/0.55) = 36 contracts -> round(62.37c) = 62c/36."""
+    At a 0.55 ask (NFL M=1): 10 contracts -> 17c/10 = 1.7c; 2 contracts (0.25u) -> 3c/2 = 1.5c; a dollar unit of
+    FIXTURE_UNIT_DOLLARS (synthetic) -> floor(1234/0.55) = 2243 contracts -> round(3886.0c) = 3886c/2243."""
     n = dp.normalize({"sport": "nfl", "predictions": [nfl("A", 0.62, 0.55, bid=0.54, ask=0.55)]})[0]
     assert dp.taker_cost_for(n, "HOME", 1) == 0.567 and dp.taker_cost_for(n, "HOME", 0.25) == 0.565
-    monkeypatch.setenv("SP_UNIT_USD", "20")
-    assert dp.order_contracts(1, 0.55) == 36 and dp.taker_cost_for(n, "HOME", 1) == round(0.55 + 0.62 / 36, 4)
-    monkeypatch.delenv("SP_UNIT_USD")
+    monkeypatch.setattr(dp, "UNIT_PIN", dp.unit_basis_usd(FIXTURE_UNIT_DOLLARS))
+    fee = round(2243 * 0.07 * 0.55 * 0.45 * 100) / 100
+    assert dp.order_contracts(1, 0.55) == 2243 and dp.taker_cost_for(n, "HOME", 1) == round(0.55 + fee / 2243, 4)
+    monkeypatch.setattr(dp, "UNIT_PIN", dp.LEGACY_CONTRACTS_BASIS)
     assert dp.taker_cost_for(n, "HOME", 0.05) is None                 # under one contract: no order, no cost
     # a halved PLAY: the gate priced the 1u order; the emitted 0.5u order (5 contracts) is reported beside it
     doc = {"sport": "nfl", "predictions": [nfl("HALF", 0.62, 0.55, bid=0.58, ask=0.59)]}
@@ -306,26 +308,26 @@ def test_i_venue_backs_the_best_side_that_clears_both_gates():
 
 def test_codex_round_4_quote_selection_and_join_count_follow_the_order_line(monkeypatch):
     """Codex on #303: (1) a ticketed AWAY leg with no ask is the order's instrument, so it is UNPRICEABLE (never
-    priced from NO on HOME, which order_line would not buy); (2) with SP_UNIT_USD and a >= 3c spread the order
+    priced from NO on HOME, which order_line would not buy); (2) with a dollar unit and a >= 3c spread the order
     joins at bid + 1c, so the fill count is taken at the join limit, not the ask."""
     r = nfl("KC", 0.40, 0.48, bid=0.50, ask=0.52,
             legs={"HOME": {"ticker": "T-KC", "bid": 0.50, "ask": 0.52}, "AWAY": {"ticker": "T-BUF", "bid": 0.46,
                                                                               "ask": None}})
     n = dp.normalize({"sport": "nfl", "predictions": [r]})[0]
     assert dp.taker_cost_for(n, "AWAY", 1) is None and dp.order_line(n, "AWAY", 1)["text"] is None
-    monkeypatch.setenv("SP_UNIT_USD", "20")
+    monkeypatch.setattr(dp, "UNIT_PIN", dp.unit_basis_usd(FIXTURE_UNIT_DOLLARS))
     j = dp.normalize({"sport": "nfl", "predictions": [nfl("J", 0.62, 0.50, bid=0.50, ask=0.55, legs={
         "HOME": {"ticker": "T-J", "bid": 0.50, "ask": 0.55}})]})[0]
     o = dp.order_line(j, "HOME", 1)
-    assert (o["limit"], o["contracts"]) == (0.51, 39)                    # floor(20 / 0.51)
-    fee39 = round(39 * 0.07 * 0.55 * 0.45 * 100) / 100                   # 67.6c -> 68c over the EMITTED 39
-    assert dp.taker_cost_for(j, "HOME", 1) == round(0.55 + round(fee39 / 39, 6), 4)
+    assert (o["limit"], o["contracts"]) == (0.51, 2419)                  # floor(1234 / 0.51)
+    fee = round(2419 * 0.07 * 0.55 * 0.45 * 100) / 100                   # over the EMITTED 2419
+    assert dp.taker_cost_for(j, "HOME", 1) == round(0.55 + round(fee / 2419, 6), 4)
 
 
 def test_codex_round_5_exec_block_on_opponent_no_and_rescore_uses_the_files_units(monkeypatch):
     """Codex on #303: (1) an AWAY pick with no AWAY leg but a ticketed HOME leg is priced and ordered as NO on HOME,
     so desk.exec must be present even when the legacy K-track fields are empty; (2) desk-rescore applies the unit
-    basis the FILE was produced under, never the caller's SP_UNIT_USD."""
+    basis the FILE was produced under, never the caller's (v1.2: never the caller's day either)."""
     r = {"home_team": "KC", "away_team": "BUF", "utc_date": ko(), "competition": "NFL", "stage": "regular",
          "prediction": {"probabilities": {"home_win": 0.35, "draw": None, "away_win": 0.65}, "tier": "lean"},
          "market": {"bookmaker_count": 9, "fair_prob": {"HOME": 0.42, "AWAY": 0.58}},
@@ -334,15 +336,16 @@ def test_codex_round_5_exec_block_on_opponent_no_and_rescore_uses_the_files_unit
     blk = dp.exec_block(n, "AWAY", 0.65)
     assert blk is not None and blk["no_side"] and blk["cost"] == dp.taker_cost_for(n, "AWAY", 1)
     assert dp.order_line(n, "AWAY", 1)["text"].startswith("BUY NO T-KC @ 0.62")
-    monkeypatch.setenv("SP_UNIT_USD", "20")
+    monkeypatch.setattr(dp, "UNIT_PIN", dp.unit_basis_usd(FIXTURE_UNIT_DOLLARS))
     doc = {"sport": "nfl", "predictions": [nfl("HALF", 0.62, 0.55, bid=0.58, ask=0.59, legs={
         "HOME": {"ticker": "T-H", "bid": 0.58, "ask": 0.59}})]}
     with dp.base_v11():
-        dp.annotate(doc, now=NOW)                                       # produced under $20 units
+        dp.annotate(doc, now=NOW)                                       # produced under the synthetic dollar unit
     a = dp.rescore(doc)
-    monkeypatch.delenv("SP_UNIT_USD")                                   # the caller's env differs
+    monkeypatch.setattr(dp, "UNIT_PIN", dp.LEGACY_CONTRACTS_BASIS)     # the caller's unit differs
     b = dp.rescore(doc)
-    assert a == b and a[0]["unit_basis"] == "1u = $20 (from the file)"
+    assert a == b and a[0]["unit_basis"] == dp.unit_basis_text(dp.unit_basis_usd(FIXTURE_UNIT_DOLLARS))
+    assert str(FIXTURE_UNIT_DOLLARS) not in a[0]["unit_basis"]         # docs/receipts never carry the figure
 
 
 def test_codex_round_6_maker_cost_at_the_order_count_and_parlay_cli_wording(tmp_path):

@@ -5422,6 +5422,44 @@ def desk_rescore_cmd(files, out_path):
     console.print(f"[green]✓ receipt written to {tgt} — commit it via PR[/green]")
 
 
+DESK_UNIT_MARK = "DESK-UNIT"          # deploy/hosting/closing.py UNIT_MARK reads this line (a test pins the two)
+
+
+@cli.command("desk-unit")
+def desk_unit_cmd():
+    """THE DAY'S UNIT (ARCHITECT 2026-10-30, addendum 179 items 3-5, #732; Desk policy v1.2): the ET day's unit,
+    floor(UNIT_FRACTION x pool) in whole dollars with the floor (SP_UNIT_FLOOR_USD), read from the Kalshi pool ONCE a
+    day and kept in logs/desk_unit_<ET date>.json; a later call that day reads the file and never the pool. The host's
+    slate and closing stages run it before their export; the laptop's morning block runs it for the record (its own
+    call). A failed read writes nothing (ARCHITECT 2026-10-30, addendum 180 item 4): that page is unread ("unit unread
+    — no order") and the next page that day reads again; the first page whose read succeeds writes the day's file. Prints the fractions, the floor's name and the state; the pool
+    and the unit in dollars only on the laptop (item 5: never in a host log). Always exit 0 (a failed read never fails
+    a slate), except a unit folder under data/ (exit 2, law 5)."""
+    from src.walters import desk_policy as dp
+    from src.walters import desk_unit as du
+    laptop = du.figures_allowed()
+    try:
+        rec, created = du.day_unit(role="laptop" if laptop else "not laptop")
+    except du.UnitPathRefused as e:
+        print(f"✗ {e}")
+        raise SystemExit(2)
+    print(f"DESK UNIT (Desk policy {dp.POLICY_VERSION}, addendum 179) · ET {rec.get('et_date')} · "
+          f"UNIT_FRACTION {dp.UNIT_FRACTION:g} · HALF_UNIT_FRACTION {dp.HALF_UNIT_FRACTION:g} · floor "
+          f"{dp.UNIT_FLOOR_ENV} · {'read now' if created else 'the day file (read once a day)'}")
+    if rec.get("state") == "read":
+        print(f"  state read · {rec.get('floor_state') or '-'}")
+        if laptop:
+            pool = f"${rec['pool_usd']:,.2f}" if isinstance(rec.get("pool_usd"), (int, float)) else (
+                "not in the day file (written where the role is not laptop)")
+            print(f"  pool {pool} · 1u = ${rec['unit_usd']:g} · 0.5u = ${rec['unit_usd'] / 2:g} "
+                  f"(laptop console only)")
+        else:
+            print("  the figures stay in the day file (this machine is not the laptop: no dollar figure in its log)")
+    else:
+        print(f"  {dp.UNIT_UNREAD_TEXT}: {rec.get('why') or 'unit unread'}")
+    print(f"{DESK_UNIT_MARK} state={rec.get('state')} et_date={rec.get('et_date')} new={'yes' if created else 'no'}")
+
+
 @cli.command("export-nhl-predictions")
 @click.option("--hours", default=36, show_default=True, type=int, help="Window from now (UTC).")
 def export_nhl_predictions_cmd(hours):
@@ -6380,8 +6418,8 @@ def soccer_backtest_cmd(competition_code, season, min_prior, rho, candidate):
     from src.walters import soccer_expansion as _sx
     from rich.table import Table
 
-    _why = _sx.guards_backtest(competition_code)
-    if _why:                 # ARCHITECT 2026-10-07: nobody reads these test seasons outside the one run
+    _why = _sx.guards_backtest(competition_code, season)
+    if _why:                 # ARCHITECT 2026-10-07: nobody reads these test seasons outside the one run; addendum 178 R8
         click.echo(f"REFUSED: {_why}")
         raise SystemExit(2)
     from src.walters import ncaa_backtest as _nb
@@ -6520,11 +6558,12 @@ def dixon_coles_sweep_cmd(competition_code, season, rhos):
 
     best = None
     from src.walters import ncaa_backtest as _nb
+    from src.walters import soccer_expansion as _sx
     for rho in rho_list:
         try:
             results = run_soccer_backtest(competition_code, season, dixon_coles_rho=rho)
-        except _nb.FenceRefused as e:                      # the 2026 fence (addendum 86 item 3, Q2)
-            console.print(f"[red]REFUSED: {e}[/red]")
+        except (_sx.ExpansionRefused, _nb.FenceRefused) as e:   # the 2026 fence (addendum 86 item 3, Q2); the
+            console.print(f"[red]REFUSED: {e}[/red]")           # leagues' window fence (addendum 181 item 8)
             raise SystemExit(2)
         if not results:
             continue
@@ -6685,7 +6724,9 @@ def soccer_expansion_shadow_grade_cmd(days):
     for ln in r["lines"]:
         print(ln)
     for code, d in sorted(r["per_league"].items()):
-        print(f"  ── {code}: graded {d['graded']} · priced {d['priced']} · mean pick-vs-close {d['mean_clv_pp']}pp")
+        print(f"  ── {code}: graded {d['graded']} · priced {d['priced']} · mean pick-vs-close {d['mean_clv_pp']}pp"
+              + (f" · fenced {d['fenced']} (after the declaration: the cohort reader's alone, addendum 178 R8)"
+                 if d.get("fenced") else ""))
 
 
 @cli.command("soccer-expansion-confirm")
@@ -6979,13 +7020,14 @@ def elo_coeff_sweep_cmd(competition_code, season, coeffs, rho):
         t.add_column(c, justify="right")
 
     from src.walters import ncaa_backtest as _nb
+    from src.walters import soccer_expansion as _sx
     for raw in coeffs.split(","):
         coeff = float(raw.strip())
         try:
             results = run_soccer_backtest(competition_code, season,
                                           dixon_coles_rho=rho, elo_goal_coeff=coeff)
-        except _nb.FenceRefused as e:                      # the 2026 fence (addendum 86 item 3, Q2)
-            console.print(f"[red]REFUSED: {e}[/red]")
+        except (_sx.ExpansionRefused, _nb.FenceRefused) as e:   # the 2026 fence (addendum 86 item 3, Q2); the
+            console.print(f"[red]REFUSED: {e}[/red]")           # leagues' window fence (addendum 181 item 8)
             raise SystemExit(2)
         if not results:
             console.print("[yellow]no results[/yellow]")

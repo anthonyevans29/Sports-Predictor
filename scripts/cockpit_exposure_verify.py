@@ -10,6 +10,9 @@ Ledger tab's file input. Checks:
 - a team-outcome above the 1.25u cap-equivalent is flagged, on the unit basis a loaded file's order lines
   declare (#487, addendum 67 item 3: here "1u = 10 contracts", as a file exported with SP_UNIT_USD unset says);
   with no basis in the loaded files the table shows contracts, labelled, and no unit;
+- Desk policy v1.2 (#740, addendum 182 item 6): each game's fills on the unit of the loaded file of the game's own
+  ET day (desk_meta.unit), never another day's; an unread day is contracts only, "unit unread — no order"; a day no
+  loaded file names is contracts only, labelled; two files of one day that differ are contracts only, both named;
 - a fill whose contract role the ticker does not decide is excluded, counted;
 - load-order invariance: the same fills in reverse order give the same result;
 - an MLB doubleheader (two intraday event tickers, same teams and date) is TWO
@@ -86,7 +89,7 @@ def main():
         page.wait_for_function("document.getElementById('ledgerNote').textContent.includes('Kalshi CSV')")
         # the basis a desk file exported with SP_UNIT_USD unset declares (desk_policy.unit_size's label), read by the
         # page's own reader (#487, addendum 67 item 3): the page holds no unit of its own
-        B10 = "fillUnitBasis([{fileDesk:{order:{unit:'1u = 10 contracts (SP_UNIT_USD unset)'}}}])"
+        B10 = "fillDayBases([{fileDesk:{order:{unit:'1u = 10 contracts (SP_UNIT_USD unset)'}}}],null)"
         x = page.evaluate(f"fillExposure(loadLedger(),{B10})")
         g = {gm["teams"]: gm for gm in x["games"] if gm["family"] != "MLB"}
         dh = [gm for gm in x["games"] if gm["family"] == "MLB"]
@@ -134,7 +137,8 @@ def main():
         check("load-order invariance: reversed fills give the identical result", rev == x)
         tbl = page.inner_text("#exposureTable") if page.query_selector("#exposureTable") else ""
         check("Ledger tab renders the exposure table; no desk file loaded: contracts, labelled, no unit (#487)",
-              "BUFKC" in tbl and "contracts (no unit basis in file)" in tbl.lower() and "15 ct · if it lands" in tbl
+              "BUFKC" in tbl and "contracts (no unit basis for 2026-09-28 in the loaded files)" in tbl.lower()
+              and "15 ct · if it lands" in tbl
               and "≈" not in tbl and "cash at risk" in tbl.lower(), tbl[:300])
         # a loaded desk file whose order lines declare 1u = 10 contracts: the cap beside, on the file's basis
         page.evaluate("rows=[{fileDesk:{order:{text:'BUY', unit:'1u = 10 contracts (SP_UNIT_USD unset)'}}}]; renderLedger()")
@@ -144,6 +148,30 @@ def main():
         tbl = page.inner_text("#exposureTable") if page.query_selector("#exposureTable") else ""
         check("with a desk file's 1u = $5: 15 ct at 0.60 = $9.00 of entry ≈ 1.80u > 1.25u", "1.80u > 1.25u" in tbl,
               tbl[:300])
+        # v1.2 (#740): the unit of the file of each game's own ET day (synthetic desk_meta.unit blocks)
+        meta = ("(d,label,state)=>({policy_version:'v1.2',unit:{state,et_date:d,label,why:null}})")
+        page.evaluate(f"(()=>{{const m={meta}; rows=[{{fileDesk:{{order:{{text:'BUY',unit:'1u = $5'}}}},"
+                      "deskMeta:m('2026-09-28','1u = $5','read')},{fileDesk:{order:{text:null,unit:'unit unread'}},"
+                      "deskMeta:m('2026-09-27','unit unread','unread')},{fileDesk:{order:{text:'BUY',unit:'1u = $50'}}}];"
+                      " renderLedger();})()")
+        tbl = page.inner_text("#exposureTable") if page.query_selector("#exposureTable") else ""
+        check("v1.2: a 09-28 file's 1u = $5 converts the 09-28 games (15 ct at 0.60 ≈ 1.80u > 1.25u)",
+              "2026-09-28: 1u = $5" in tbl and "1.80u > 1.25u" in tbl, tbl[:400])
+        check("v1.2: the unread 09-27 day's games are contracts only, 'unit unread — no order', no unit",
+              tbl.count("2026-09-27: unit unread — no order (contracts only)") == 2
+              and "BOS (home): 3 ct · if it lands" in tbl and "NYY (away): 3 ct · if it lands" in tbl, tbl[-400:])
+        check("v1.2: the day no v1.2 file names takes the v1.1 file's order-line unit (10-04 at 1u = $50)",
+              "2026-10-04: 1u = $50" in tbl, tbl[:400])
+        page.evaluate(f"(()=>{{const m={meta}; rows=[{{deskMeta:m('2026-09-28','1u = $5','read')}},"
+                      "{deskMeta:m('2026-09-28','1u = $6','read')}]; renderLedger();})()")
+        tbl = page.inner_text("#exposureTable") if page.query_selector("#exposureTable") else ""
+        check("v1.2: two files of 09-28 that differ: contracts only, both named; 10-04 has no file: contracts only",
+              "the loaded files of 2026-09-28 differ on the unit: 1u = $5 vs 1u = $6" in tbl
+              and "contracts (no unit basis for 2026-10-04 in the loaded files)" in tbl and "≈" not in tbl, tbl[:400])
+        txt = "\n".join(page.evaluate("realizedLines(loadLedger())"))
+        check("v1.2: the P&L text's headline names the units by the file's ET day",
+              "units by the file's ET day: 2026-09-27 contracts (no unit basis for 2026-09-27" in txt
+              and "the 1.25u cap-equivalent not read (no unit)" in txt, txt[-500:])
         page.evaluate("rows=[]; renderLedger()")
         txt = "\n".join(page.evaluate("realizedLines(loadLedger())"))
         check("P&L text carries the headline (diagnostic, cap/sizing unchanged)",

@@ -248,8 +248,8 @@ def _cached_service(adapter):
                         self._teams.setdefault(sid, t)
             return self._teams.get(source_id)
 
-        def _upsert_team(self, s, nt, result):
-            team = super()._upsert_team(s, nt, result)
+        def _upsert_team(self, s, nt, result, **kw):     # season / newest_years pass through (#764)
+            team = super()._upsert_team(s, nt, result, **kw)
             self._teams[nt.source_id] = team
             return team
 

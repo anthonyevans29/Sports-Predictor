@@ -62,7 +62,11 @@ def _job_sync_competitions(*, sport: str = "soccer", **kwargs) -> str:
 def _job_sync_teams(*, competition_code: str, season: str, **kwargs) -> str:
     service = IngestionService(_adapter_for_competition(competition_code))
     result = service.sync_teams(competition_code, season)
-    return f"created={result.created} updated={result.updated} skipped={result.skipped}"
+    out = f"created={result.created} updated={result.updated} skipped={result.skipped}"
+    if result.names_kept:      # #764: never silent
+        from src.ingestion.service import names_kept_line
+        out += f" {names_kept_line(len(result.names_kept))}"
+    return out
 
 
 def _job_sync_matches(

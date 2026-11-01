@@ -199,6 +199,9 @@ def sync_competitions_cmd(sport: str):
     console.print(f"[green]✓ Competitions: {result}[/green]")
 
 
+NAMES_KEPT_SHOWN = 25   # sync-teams lists at most this many kept/listed pairs under the names-kept line (#764)
+
+
 @cli.command("sync-teams")
 @click.option("--competition", "competition_code", required=True, help="Code, e.g. PL, FAC, CL, MLB")
 @click.option("--season", default=None, help="e.g. 2024/25 (soccer), 2026 (MLB)")
@@ -211,6 +214,14 @@ def sync_teams_cmd(competition_code: str, season: str | None):
     service = IngestionService(_adapter_for_competition(competition_code))
     result = service.sync_teams(competition_code, season)
     console.print(f"[green]✓ Teams ({competition_code}): {result}[/green]")
+    if result.names_kept:
+        # #764 (ARCHITECT 2026-11-01, addendum 204 item 2): a historical-season listing never renames; never silent
+        from src.ingestion.service import names_kept_line
+        print(f"  {names_kept_line(len(result.names_kept))}")
+        for tid, kept, listed in result.names_kept[:NAMES_KEPT_SHOWN]:
+            print(f"    team #{tid}: kept {kept!r} (the {season} listing reads {listed!r})")
+        if len(result.names_kept) > NAMES_KEPT_SHOWN:
+            print(f"    ... and {len(result.names_kept) - NAMES_KEPT_SHOWN} more")
 
 
 @cli.command("sync-matches")
@@ -1501,6 +1512,8 @@ def intl_sync_cmd(since, max_calls, dry_run, save, from_dir):
         click.echo(f"    {n:>4}  {name}")
     click.echo(f"  teams: {r['teams']} (fixture-only, not served by /teams: {r['fixture_only_teams']}) · "
                f"matches: {r['matches']}")
+    if r.get("names_kept_line"):              # #764 (addendum 206 item 2(i)): a history listing keeps current names
+        click.echo(f"  {r['names_kept_line']}")
     click.echo("  neutral_derived: " + " · ".join(f"{k} {v}" for k, v in sorted(r["neutral"].items())))
     click.echo(f"  RULE: {ih.NEUTRAL_RULE}")
     if not dry_run:

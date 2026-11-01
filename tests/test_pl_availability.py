@@ -491,8 +491,20 @@ def test_the_roadmap_lane_validates_and_is_declared():
     assert [s["owner"] for s in steps] == ["code", "operator", "calendar", "architect"]
     assert steps[0]["due"] == "2026-11-05" and steps[0]["what"].startswith("the shadow PR")
     assert "the first host page on the tag after v1.6.2" in steps[1]["what"] and steps[1]["due"] == "2026-11-06"
-    assert "projected later" in steps[2]["what"] and "NOT a projection" in steps[2]["what"]
-    assert steps[3]["what"].startswith("the one read") and ln["moved"] == []
+    # addendum 199 item 3: the two later steps are projections, not floors; each date move has its moved line
+    assert steps[2]["what"].startswith("the 60th window game is final") and steps[2]["due"] == "2026-12-20"
+    assert "projection from the PL schedule, not a floor" in steps[2]["what"]
+    assert steps[3]["what"].startswith("the one read and the verdict") and steps[3]["due"] == "2026-12-21"
+    assert [(m["which"], m["was"], m["now"]) for m in ln["moved"]] == [
+        (steps[2]["what"], "2026-11-06", "2026-12-20"), (steps[3]["what"], "2026-11-06", "2026-12-21")]
+    assert all(m["ruling"].startswith("ARCHITECT 2026-11-01 12:05 ET, addendum 199 item 3") for m in ln["moved"])
+
+
+def test_the_entry_records_the_one_entry_per_player_limitation():
+    """Addendum 199 item 6: the known limitation is written into the registry entry (the ingest is not changed)."""
+    e = pa._entry()
+    assert e["limitation"].startswith("KNOWN LIMITATION (ARCHITECT 2026-11-01 12:05 ET, addendum 199 item 6)")
+    assert "under-counts" in e["limitation"] and "the ingest is NOT changed" in e["limitation"]
 
 
 # ===================================================================================================== the fence --

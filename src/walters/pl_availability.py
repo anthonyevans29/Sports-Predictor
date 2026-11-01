@@ -309,7 +309,11 @@ def fence_cutoff(season=None) -> datetime | None:
 
 def fence_refusal(competition_code, season=None, through: datetime | None = None) -> str | None:
     """The refusal text for a PL walk of `season` (None: every season) that would read a fenced game, None = allowed.
-    A walk cut at `through` (no game kicking off after it) is allowed when `through` is strictly before the cut."""
+    A walk cut at `through` (no game kicking off after it) is allowed when `through` is strictly before the cut.
+    The fence covers the window's PAIRED figures only: the candidate's arm anywhere, the backtest walks on the window and
+    #430's receipt; v22's production grading (evaluate, export-results, results-tally, the value-side n=30 read, the PL
+    positive-edge receipt) is the live model's own ledger and keeps running (ARCHITECT 2026-11-01 12:05 ET, addendum 199
+    item 1: "it is not a read of the window's verdict, it predates the window and it carries no candidate figure")."""
     if (competition_code or "").strip().upper() != COMPETITION:
         return None
     cut = fence_cutoff(season)

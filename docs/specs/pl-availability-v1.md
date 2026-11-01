@@ -31,6 +31,9 @@ Item 6 (two standing lines) is carried by #759 and is not this lane's; it is not
 - (b) **The adapter keeps one entry per player** (`api_football.list_injuries`: the entry with the latest fixture
   timestamp). A player whose newest entry names a later fixture (a European game after the PL game, say) has no
   stored entry for this fixture, so the rule counts him for nothing. That is the feed as stored, not a choice here.
+  **KNOWN LIMITATION, RULED (addendum 199 item 6):** the candidate under-counts that case; the ingest is NOT changed
+  (a dedupe change would move v22's own input list, and v22 does not move). Written into the registry entry
+  (`limitation`); if the window PASSES, the dedupe is revisited as part of v23's declaration, not before.
 - (c) **Where the arm is priced.** In the same pass as v22 (`training._generate_predictions_soccer`), for PL on the
   host only, and stored in the Prediction row's `factor_breakdown` under `pl_availability_v1`. The export prices
   nothing (it reads the stored row), so this is the one place "the same model on the same inputs" holds exactly, and
@@ -91,3 +94,21 @@ Item 6 (two standing lines) is carried by #759 and is not this lane's; it is not
   - Steps 3 (the 60th game) and 4 (the one read) carry the same date as a floor, written in their text as NOT a
     projection. `roadmap.validate` requires a real date on every step, and no fixture calendar is in the
     repository; the projection is made from the PL schedule as the database stores it, with a moved line.
+
+## 3. The five questions, ruled (ARCHITECT 2026-11-01 12:05 ET, addendum 199), verbatim
+
+> ARCHITECT 2026-11-01 12:05 ET — addendum 199: #760 (pl-availability-v1, the shadow) — the five questions ruled; one push, then the merge block.
+>
+> 1. THE FENCE AND v22's LIVE GRADING — AS BUILT. Item 3's "no other read of either arm on the window" fences the WINDOW'S PAIRED FIGURES: the candidate's arm anywhere, the backtest walks on the window, #430's receipt. v22's production grading (evaluate, export-results, results-tally, the value-side n=30 read, the PL positive-edge receipt) is the live model's own ledger and keeps running: it is not a read of the window's verdict, it predates the window and it carries no candidate figure. One line in the fence's docstring says so.
+>
+> 2. THE COMPARE — option (b): a NAMED, COUNTED host-only class. compare_exports treats every `candidate_*` key as "shadow-arm keys (host-only, pl-availability-v1)": never compared, never printed, counted on its own line beside the unit-bearing count (#735's pattern), so a real v22 divergence in the same file still prints inside the budget. Its own small tooling PR after #760 (stop rule item 5), merged before the compare morning of the tag that carries the shadow (v1.6.3). #760 itself leaves the compare untouched, as built.
+>
+> 3. THE ROADMAP DATES — projections, said so: "the 60th window game is final" due 2026-12-20 (the PL calendar from the first host page on v1.6.3: six full rounds — 11-07/08, 11-21/22 after the international break, 11-28/29, 12-05/06, 12-12/13, 12-19/20 — a projection from the schedule, not a floor); "the one read and the verdict" due 2026-12-21, owner architect. If the first host page slips or the schedule differs, the dates move with moved lines that day. The 11-06 floor is withdrawn (a floor that reads overdue is noise, not a commitment).
+>
+> 4. THE THREE EXCLUSION CAUSES — ruled in, as built: no v22 prediction stored; a prediction of another model than v22; no candidate arm (a labelled failure included) — each EXCLUDED BY CAUSE, named and counted, consuming no slot (R4's pattern).
+>
+> 5. soccer-backtest ON PL WITH NO --season — as built: the fence refuses a walk that would read 2026/27 until the verdict; a PL walk names a season (2025/26 or earlier) until then, and the refusal says so. `--candidate` with no --season running its gate seasons stands.
+>
+> 6. THE READINGS 2(a)–(i) — all stand, with one recorded LIMITATION: the adapter keeps one entry per player, so a player whose newest entry names a LATER fixture has none for this one and the rule counts him for nothing — the candidate under-counts that case. It is the feed as stored and the ingest is NOT changed (a dedupe change would move v22's own input list, and v22 does not move); it is written into the registry entry and the lane's ledger text as a known limitation, and if the window PASSES the dedupe is revisited as part of v23's declaration, not before. "Exactly 0.0050 passes" is the bar as written (at least 0.0050). The local web view is left as is.
+>
+> 7. THE PUSH: item 3's dates with their moved lines, item 1's docstring line, item 6's limitation text in the entry and the fragment; CI green; the automatic review's findings handled under the stop rule; then my merge block on the new head. The shadow reaches the host on the tag after v1.6.2; the first host page records window_opens_at; v22's outputs are pinned unchanged by test and stay the Desk's.

@@ -131,12 +131,24 @@ class SyncResult:
     # printed by __str__ (the CLI prints its own line).
     no_book_odds: list = field(default_factory=list)
     no_book_odds_run: str | None = None
+    # NEVER SILENT AGAIN (ARCHITECT 2026-11-01, addendum 204 item 3(c); #728, #765): the provider id of every listing
+    # sync_matches skipped because its home or away club is not in the DB, in listing order. The sync-matches command
+    # prints them on their own line (skipped_listings_line), which a chain's step receipt and summary line carry. Not
+    # printed by __str__ (default output unchanged); `skipped` still counts them, with any other skip.
+    skipped_ids: list = field(default_factory=list)
 
     def __str__(self) -> str:
         out = f"created={self.created} updated={self.updated} skipped={self.skipped}"
         if self.rekeyed or self.rekey_refused:
             out += f" rekeyed={self.rekeyed} rekey_refused={self.rekey_refused}"
         return out
+
+
+def skipped_listings_line(ids) -> str:
+    """The ruled line (ARCHITECT 2026-11-01, addendum 204 item 3(c)), verbatim: "skipped N listing(s) of clubs not in
+    the DB: <ids>", the ids comma-separated in listing order. sp_run reads it back (SKIPPED_LISTINGS_LINE)."""
+    ids = [str(i) for i in ids]
+    return f"skipped {len(ids)} listing(s) of clubs not in the DB: {', '.join(ids)}"
 
 
 # THE PROVIDER'S ANSWER WHEN BOOKS ARE 0 (ARCHITECT 2026-10-16, addendum 97 item 2(a)): what sync_odds_mlb's per-game
@@ -441,7 +453,7 @@ class IngestionService:
                 n = write_match_series(s, [(m.id, f) for m, f in series_rows])
                 log.info("sync_matches(%s): series fields stored on %d row(s)%s", competition_code, n,
                          "" if n else " (none: migrate_match_series_fields.py not run)")
-        _sk = getattr(result, "_skipped_ids", None)
+        _sk = result.skipped_ids
         if _sk:
             log.warning(
                 "sync_matches(%s): skipped %d listing(s) whose team(s) are not "
@@ -465,14 +477,7 @@ class IngestionService:
             # to DEBUG; the caller emits ONE summary line with the id range.
             log.debug("Skipping match %s: team(s) not in DB (comp %s).",
                       nm.source_id, comp.code)
-            _skipped = getattr(result, "_skipped_ids", None)
-            if _skipped is None:
-                _skipped = []
-                try:
-                    result._skipped_ids = _skipped
-                except Exception:
-                    pass
-            _skipped.append(str(nm.source_id))
+            result.skipped_ids.append(str(nm.source_id))
             result.skipped += 1
             return None
 

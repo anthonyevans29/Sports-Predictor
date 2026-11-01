@@ -273,8 +273,12 @@ def test_t9_count_is_fullseason_steps_own_resolution(no_settings, monkeypatch, c
     steps = sp_run.fullseason_steps()
     assert steps == sp_run.resolve("weekly-fullseason", {}, cr.date(2026, 10, 25))
     st = cr.fullseason_state(c.setting("SP_FULLSEASON_LIST"))
-    assert st["state"] == "ok" and len(st["entries"]) == len(steps) == 6
-    assert st["entries"] == [f"{s[2]}|{s[4]}" for s in steps]
+    # #765 (addendum 204 item 3(a)): two steps per line, sync-teams then sync-matches; one competition per line
+    assert [s[0] for s in steps] == ["sync-teams", "sync-matches"] * 6
+    assert all(steps[k][1:] == steps[k + 1][1:] for k in range(0, len(steps), 2))
+    matches = [s for s in steps if s[0] == "sync-matches"]
+    assert st["state"] == "ok" and len(st["entries"]) == len(matches) == 6 and len(steps) == 12
+    assert st["entries"] == [f"{s[2]}|{s[4]}" for s in matches]
     assert st["entries"] == ["PL|2026/27", "BL1|2026/27", "NFL|2026", "PL|2026/27", "X|a|b", "Y|{b}"]
     # a brace the chain cannot fill: str.format's KeyError, ValueError, IndexError (and an attribute it cannot read)
     for bad, err in (("NFL|{season}", "KeyError"), ("NFL|2026}", "ValueError"), ("NFL|{0}", "IndexError"),
@@ -328,7 +332,7 @@ def test_t9_a_half_str_format_leaves_empty_and_a_leading_bom(no_settings, monkey
     assert rc == 1 and "(T9) fullseason list UNPARSEABLE" in last
     lst.write_bytes(b"\xef\xbb\xbfMLB|2026\nNFL|2026\n")
     steps = sp_run.resolve("weekly-fullseason", {}, cr.date(2026, 10, 25))
-    assert [s[2] for s in steps] == ["MLB", "NFL"]
+    assert [s[2] for s in steps] == ["MLB", "MLB", "NFL", "NFL"]          # #765: sync-teams, then sync-matches
     st = cr.fullseason_state(str(lst), cr.date(2026, 10, 22))
     assert st["state"] == "ok" and st["entries"] == ["MLB|2026", "NFL|2026"]
     rc, t9, last = readout(no_settings, capsys)

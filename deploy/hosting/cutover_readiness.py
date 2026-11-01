@@ -410,7 +410,10 @@ def fullseason_state(path: str | None, today: date | None = None, source: str = 
     except OSError as e:
         out.update(state="UNREADABLE", why=f"unreadable ({type(e).__name__}: {e})")
         return out
-    entries = [(st[2], st[4]) for st in steps]   # sync-matches --competition CODE --season SEASON, as resolved
+    # one competition per sync-matches step (sync-matches --competition CODE --season SEASON, as resolved); its
+    # sync-teams step before it (ARCHITECT 2026-11-01, addendum 204 item 3(a), #765) is the same line, never counted
+    # twice
+    entries = [(st[2], st[4]) for st in steps if st[0] == "sync-matches"]
     out["entries"] = [f"{code}|{season}" for code, season in entries]
     out["mlb"] = [f"{code}|{season}" for code, season in entries if mlb_code(code)]
     if not entries:

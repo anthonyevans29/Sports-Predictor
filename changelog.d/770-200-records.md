@@ -1,4 +1,4 @@
-## 2026-11-01 (#000: 200-records — the records of addenda 200 item 4 and 201–204: the mlb-pitchers harness step done, the EFL Step A moved line, the ncaa 2023 ingest done; the day's findings recorded)
+## 2026-11-01 (#770: 200-records — the records of addenda 200 item 4 and 201–204: the mlb-pitchers harness step done, the EFL Step A moved line, the ncaa 2023 ingest done; the day's findings recorded)
 - docs/roadmap.json:
   - mlb-pitchers' harness-PR step is DONE 2026-11-01 (receipt "#748, #751").
   - cups' EFL Step A step moves from 2026-10-27 to 2026-12-15 with its moved line (addendum 200 item 4(b), verbatim); the step is ordered after Step C, as the date order requires.

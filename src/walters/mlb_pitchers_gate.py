@@ -419,9 +419,19 @@ def reserve(meta: dict | None = None, no_fetch: bool = False, echo=None) -> str:
         fd = os.open(p, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
     except FileExistsError:
         raise GateRefused(_reserved_why(p))
-    with os.fdopen(fd, "w") as f:
-        json.dump({"id": EID, "started_at": _iso(utc_now_naive()), "guard": receipt, **(meta or {})}, f)
-        f.write("\n")
+    try:
+        with os.fdopen(fd, "w") as f:
+            json.dump({"id": EID, "started_at": _iso(utc_now_naive()), "guard": receipt, **(meta or {})}, f)
+            f.write("\n")
+    except (OSError, TypeError, ValueError) as x:  # #749 item 1 (addendum 194 item 2): a failed write spends nothing
+        try:
+            os.remove(p)
+        except OSError as y:                        # Codex on #751: never claim a removal that failed
+            raise GateRefused(f"the reservation {os.path.relpath(p)} could not be written ({type(x).__name__}: {x}) "
+                              f"and could NOT be removed ({y}): nothing was read, but the file now reads as a spent "
+                              f"run; remove {p} by hand before the run")
+        raise GateRefused(f"the reservation {os.path.relpath(p)} could not be written ({type(x).__name__}: {x}); the "
+                          "file is removed: the one run is not spent, nothing read")
     return p
 
 
@@ -437,6 +447,9 @@ def frozen_ids(e: dict) -> list[int]:
         ids = reg._frozen_base(e, tc, reg.IDS_DIR)
     except reg.RegistryError as x:
         raise GateRefused(str(x))
+    except ValueError as x:                         # #749 item 2: a token that is not an id refuses, by name
+        raise GateRefused(f"{EID}: the frozen cohort file {tc.get('ids_file')} holds a token that is not an id ({x}); "
+                          "nothing reserved, nothing read")
     if len(ids) != COHORT_N or tc.get("n") != COHORT_N:
         raise GateRefused(f"{EID}: the frozen {COHORT_KEY} holds {len(ids)} ids, not the declared {COHORT_N}")
     return ids
@@ -499,22 +512,48 @@ def freeze(db, no_fetch: bool = False, echo=None) -> dict:
     with readonly_session(path) as s:               # the config the arms will run with (refused when none)
         version, cfg = production_config(s)
     fp = fingerprint(path, version, cfg)            # addendum 193 item 1: which data, beside which games
-    os.makedirs(reg.IDS_DIR, exist_ok=True)
-    with open(fpath, "x") as f:
-        f.write("\n".join(str(i) for i in ids) + "\n")
-    entries = reg.load(reg.LEDGER)
-    entry = next(x for x in entries if x["id"] == EID)
-    entry[COHORT_KEY] = {"n": len(ids), "ids_sha256": reg._ids_sha(ids), "ids_file": f"docs/registry/ids/{COHORT_FILE}",
-                         "frozen_at": reg._now(), "basis": basis, "fingerprint": fp}
+    # #749 item 3 (addendum 194 item 2): ONE rollback around the whole sequence (the file's create and write, the
+    # ledger's reload and save). Any failure removes the file this call created and, when the failure came in or
+    # after this call's save (registry.save truncates before it writes), puts the ledger's bytes back; a failure before
+    # the save leaves the ledger as it is (Codex on #751: never overwrite another command's update). So a failed
+    # freeze leaves nothing and the next freeze is not blocked.
+    created, ledger_before, saving = False, None, False
     try:
+        with open(reg.LEDGER, "rb") as f:
+            ledger_before = f.read()
+        os.makedirs(reg.IDS_DIR, exist_ok=True)
+        with open(fpath, "x") as f:
+            created = True
+            f.write("\n".join(str(i) for i in ids) + "\n")
+        entries = reg.load(reg.LEDGER)
+        entry = next(x for x in entries if x["id"] == EID)
+        entry[COHORT_KEY] = {"n": len(ids), "ids_sha256": reg._ids_sha(ids),
+                             "ids_file": f"docs/registry/ids/{COHORT_FILE}", "frozen_at": reg._now(), "basis": basis,
+                             "fingerprint": fp}
+        saving = True                               # from here the ledger's bytes are this call's to put back
         reg.save(entries, reg.LEDGER)
-    except (OSError, ValueError, TypeError) as x:   # Codex on #748 (P2): never leave the file without its entry
-        try:
-            os.remove(fpath)
-        except OSError:
-            pass
-        raise GateRefused(f"the ledger could not be saved ({type(x).__name__}: {x}); the cohort file is removed and "
-                          "test_cohort stays null: nothing frozen")
+    except (OSError, ValueError, TypeError, KeyError, StopIteration) as x:
+        undone = []
+        if created:
+            try:
+                os.remove(fpath)
+                undone.append("the cohort file is removed")
+            except OSError as y:
+                undone.append(f"the cohort file could NOT be removed ({y}): remove {fpath} by hand")
+        if not saving:                              # Codex on #751: a failure before the save never touched the
+            undone.append("the ledger was not written")   # ledger; another command's update is never overwritten
+        elif ledger_before is not None:
+            try:
+                with open(reg.LEDGER, "rb") as f:
+                    same = f.read() == ledger_before
+                if not same:
+                    with open(reg.LEDGER, "wb") as f:
+                        f.write(ledger_before)
+                undone.append("the ledger is as it was")
+            except OSError as y:
+                undone.append(f"the ledger could NOT be restored ({y}): restore docs/registry/experiments.json from git")
+        raise GateRefused(f"the freeze could not be completed ({type(x).__name__}: {x}); " + "; ".join(undone)
+                          + f"; {COHORT_KEY} stays null: nothing frozen")
     return {"entry": entry, "ids": ids, "guard": receipt, "db": str(path)}
 
 

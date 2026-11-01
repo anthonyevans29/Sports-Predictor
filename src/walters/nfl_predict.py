@@ -669,7 +669,12 @@ def export_nfl_results(days_back: int | None = None, out_dir: str = "exports") -
 
     VOID: RE-DATED (ARCHITECT 2026-10-17, addendum 106 item 4): a row whose
     match is void by its closing rows in `out_dir` keeps its fields, gains
-    "redated" (the label) and leaves both records (season and pre-live)."""
+    "redated" (the label) and leaves both records (season and pre-live).
+
+    THE GRADED EXPORT (#755, addendum 196 item 4(i)): every row (live and
+    pre-live) gains "graded_export" ({kind, file, run_id, exported_at}: the
+    closing file's row over the slate file's, src/walters/graded_export.py);
+    the file's "graded_exports" counts them. The grade is the database's."""
     import json as _json
     import math
     import os as _os
@@ -762,6 +767,10 @@ def export_nfl_results(days_back: int | None = None, out_dir: str = "exports") -
     flags = [r.pop("_pre_live") for r in rows]
     from src.walters.redated import label_rows
     label_rows(rows, out_dir, "utc_date")
+    # #755 (addendum 196 item 4(i); addendum 200 item 2): each row names the export it stands behind, the closing row
+    # over the slate row (#632's rule), its run_id and exported_at; read-side naming only (graded_export's docstring)
+    from src.walters.graded_export import name_rows
+    named = name_rows(rows, out_dir, "nfl", "utc_date")
     live = [r for r, f in zip(rows, flags) if not f]
     pre = [r for r, f in zip(rows, flags) if f]
 
@@ -777,5 +786,6 @@ def export_nfl_results(days_back: int | None = None, out_dir: str = "exports") -
                     "sport": "nfl",
                     "note": "record is variance, not signal — for the consumer to grade against",
                     "window": window, "record": record,
-                    "count": len(live), "results": live, "pre_live": pre_live}, f, indent=2)
+                    "count": len(live), "results": live, "pre_live": pre_live,
+                    "graded_exports": named}, f, indent=2)   # #755: rows (live and pre-live) by the export they name
     return path

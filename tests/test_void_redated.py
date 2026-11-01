@@ -249,7 +249,10 @@ def test_the_mlb_results_export_labels_the_row_keeps_it_and_tallies_only_the_res
 
 def test_unmoved_games_read_exactly_as_before(iso_db, tmp_path):
     _mlb_world()
-    strip = lambda d: {k: v for k, v in d.items() if k not in ("exported_at", "git_sha")}      # noqa: E731
+    # #755: graded_export / graded_exports name the export file a row stands behind, so they differ by construction
+    # once closing files are on disk (tests/test_results_graded_export.py pins them); every other field is as before
+    strip = lambda d: {k: ([{x: y for x, y in r.items() if x != "graded_export"} for r in v] if k == "results"   # noqa: E731
+                           else v) for k, v in d.items() if k not in ("exported_at", "git_sha", "graded_exports")}
     before = _mlb_export(tmp_path / "none")
     write_closing(tmp_path / "ex", NEW_START, [fresh_50548()])
     write_closing(tmp_path / "ex", MIL_LAD_START, [mil_lad()])

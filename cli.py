@@ -1512,6 +1512,8 @@ def intl_sync_cmd(since, max_calls, dry_run, save, from_dir):
         click.echo(f"    {n:>4}  {name}")
     click.echo(f"  teams: {r['teams']} (fixture-only, not served by /teams: {r['fixture_only_teams']}) · "
                f"matches: {r['matches']}")
+    if r.get("names_kept_line"):              # #764 (addendum 206 item 2(i)): a history listing keeps current names
+        click.echo(f"  {r['names_kept_line']}")
     click.echo("  neutral_derived: " + " · ".join(f"{k} {v}" for k, v in sorted(r["neutral"].items())))
     click.echo(f"  RULE: {ih.NEUTRAL_RULE}")
     if not dry_run:

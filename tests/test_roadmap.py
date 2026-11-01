@@ -154,9 +154,9 @@ def test_lanes_data_is_the_print_as_data_with_no_eta_for_an_undated_lane(tmp_pat
         assert g["eta"] == (f"earliest live {ln['earliest_live']}" if ln["earliest_live"] else "no ETA")
     assert {g["lane"] for g in got if g["eta"] == "no ETA"} == {"leagues", "nfl-qb", "mlb-pitchers",
                                                                  "pl-availability"}      # addendum 198
-    ncaa = next(g for g in got if g["lane"] == "ncaa")           # its first two steps are done: the third is next
-    assert ncaa["next"] == {"what": _lane(_real(), "ncaa")["steps"][2]["what"], "owner": "code",   # the 2023 ingest
-                            "due": "2026-11-01", "when": "in 14 days"}                          # (addendum 158 1(a))
+    ncaa = next(g for g in got if g["lane"] == "ncaa")           # its first three steps are done: the fourth is next
+    assert ncaa["next"] == {"what": _lane(_real(), "ncaa")["steps"][3]["what"], "owner": "calendar",  # the 500th game
+                            "due": "2026-11-08", "when": "in 21 days"}  # (the 2023 ingest done 11-01, addendum 201 item 5)
     doc = _real()
     _lane(doc, "unl")["state"] = "live"
     for st in _lane(doc, "unl")["steps"]:

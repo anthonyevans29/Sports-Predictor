@@ -439,7 +439,10 @@
           "what": "the shadow PR (addendum 198 item 5, gate-class): the second probability set on the PL rows (slate and closing, host only), the registry entry pl-availability-v1 and the frozen rule, the grader's second arm, the window reader (counts only before 60), the fence, tests on synthetic injury rows, this lane and the ledger entry",
           "owner": "code",
           "due": "2026-11-05",
-          "done": null
+          "done": {
+            "date": "2026-11-01",
+            "receipt": "#760 merged at 0a72244f (2026-11-01T17:23Z), the ARCHITECT's merge block after addendum 199 item 7"
+          }
         },
         {
           "what": "the first host page on the tag after v1.6.2: the first PL slate or closing page the host writes on a tag that carries the shadow PR, its deploy receipt in hand; Code's PR then records window_opens_at in the entry (the first PL kickoff strictly after that page, addendum 198 item 3). The date is the leagues lane's v1.6.2 date (v1.6.2 on the host by 11-06, addendum 181 item 1 and addendum 191 item 2(c)), the earliest this page can be; a later tag moves it with a moved line",

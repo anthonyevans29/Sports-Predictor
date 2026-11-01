@@ -248,8 +248,8 @@ def _cached_service(adapter):
                         self._teams.setdefault(sid, t)
             return self._teams.get(source_id)
 
-        def _upsert_team(self, s, nt, result):
-            team = super()._upsert_team(s, nt, result)
+        def _upsert_team(self, s, nt, result, **kw):     # season / newest_years pass through (#764)
+            team = super()._upsert_team(s, nt, result, **kw)
             self._teams[nt.source_id] = team
             return team
 
@@ -263,7 +263,7 @@ def ingest(src: Source, since: date, max_calls: int = 80, dry_run: bool = False)
     from src.adapters.normalized import NormalizedTeam
     from src.db.database import session_scope
     from src.db.schema import Competition, Match, MatchNeutralDerived, Sport
-    from src.ingestion.service import SyncResult
+    from src.ingestion.service import SyncResult, names_kept_line, newest_membership_years
 
     leagues = src.get("leagues.json", "leagues", {"country": "World"}).get("response") or []
     work = plan(leagues, since)
@@ -315,7 +315,15 @@ def ingest(src: Source, since: date, max_calls: int = 80, dry_run: bool = False)
             comps[p["code"]] = c
         for p in work:
             key = (p["code"], p["year"])
-            comp, season_str = comps[p["code"]], None
+            comp = comps[p["code"]]
+            # #764 (ARCHITECT 2026-11-01 15:45 ET, addendum 206 item 2(i)): "intl_history PASSES ITS SEASON" — the
+            # season derived from the fixtures (else the query's year), so a history listing older than a team's
+            # newest membership keeps its name and short_name, counted on the same "names kept" line. The newest
+            # years are read once per competition-season (one query; memberships this ingest wrote are flushed).
+            season_str = _season(adapter, kept[key] or fixtures[key], p["code"])
+            listing_season = season_str or str(p["year"])
+            s.flush()
+            newest = newest_membership_years(s, Sport.SOCCER)
             served = set()
             for it in teams[key]:
                 t, v = it.get("team") or {}, it.get("venue") or {}
@@ -325,8 +333,7 @@ def ingest(src: Source, since: date, max_calls: int = 80, dry_run: bool = False)
                 nt = NormalizedTeam(sport=Sport.SOCCER, name=t["name"], short_name=t.get("code"), tla=t.get("code"),
                                     area=t.get("country"), founded=t.get("founded"), venue=v.get("name"),
                                     source=adapter.source_name, source_id=str(t["id"]))
-                team = svc._upsert_team(s, nt, tres)
-                season_str = season_str or _season(adapter, kept[key] or fixtures[key], p["code"])
+                team = svc._upsert_team(s, nt, tres, season=listing_season, newest_years=newest)
                 if season_str:
                     svc._link_team_to_competition(s, team, comp, season_str)
             for it in kept[key]:                     # teams the /teams listing did not serve
@@ -335,7 +342,8 @@ def ingest(src: Source, since: date, max_calls: int = 80, dry_run: bool = False)
                     if str(t.get("id")) not in served and svc._find_team_by_source(
                             s, Sport.SOCCER, adapter.source_name, str(t.get("id"))) is None:
                         svc._upsert_team(s, NormalizedTeam(sport=Sport.SOCCER, name=t.get("name") or f"team {t['id']}",
-                                                           source=adapter.source_name, source_id=str(t["id"])), tres)
+                                                           source=adapter.source_name, source_id=str(t["id"])), tres,
+                                         season=listing_season, newest_years=newest)
                         fixture_only_teams += 1
             cache = {}
             for m in s.execute(select(Match).where(Match.competition_id == comp.id)).scalars():
@@ -369,6 +377,8 @@ def ingest(src: Source, since: date, max_calls: int = 80, dry_run: bool = False)
     return {"plan": work, "calls": src.calls, "senior_teams": len(senior), "per_cs": per_cs,
             "excluded_teams": excluded_teams, "excluded_total": sum(excluded_by_cs.values()),
             "teams": str(tres), "matches": str(mres), "fixture_only_teams": fixture_only_teams,
+            "names_kept": list(tres.names_kept),
+            "names_kept_line": names_kept_line(len(tres.names_kept)) if tres.names_kept else None,
             "neutral": dict(neutral), "dry_run": dry_run}
 
 

@@ -13,6 +13,7 @@ Design:
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 from typing import Iterable
 
@@ -136,6 +137,11 @@ class SyncResult:
     # prints them on their own line (skipped_listings_line), which a chain's step receipt and summary line carry. Not
     # printed by __str__ (default output unchanged); `skipped` still counts them, with any other skip.
     skipped_ids: list = field(default_factory=list)
+    # A HISTORICAL-SEASON LISTING NEVER RENAMES (ARCHITECT 2026-11-01, addendum 204 item 2, #764): one entry per
+    # existing team whose rename an older season's listing withheld, (team id, the name kept, the name listed).
+    # Never silent: sync_teams' log line, the sync-teams command (on its own line, unwrapped) and the admin job each
+    # carry "names kept: N (a historical-season listing)". Not printed by __str__ (the CLI prints its own line, once).
+    names_kept: list = field(default_factory=list)
 
     def __str__(self) -> str:
         out = f"created={self.created} updated={self.updated} skipped={self.skipped}"
@@ -149,6 +155,43 @@ def skipped_listings_line(ids) -> str:
     the DB: <ids>", the ids comma-separated in listing order. sp_run reads it back (SKIPPED_LISTINGS_LINE)."""
     ids = [str(i) for i in ids]
     return f"skipped {len(ids)} listing(s) of clubs not in the DB: {', '.join(ids)}"
+
+
+def names_kept_line(n: int) -> str:
+    """The ruled line (addendum 204 item 2), verbatim."""
+    return f"names kept: {n} (a historical-season listing)"
+
+
+_SEASON_YEAR = re.compile(r"(\d{4})(?!\d)")
+
+
+def season_year(season) -> int | None:
+    """The leading four-digit year of a stored season string (ARCHITECT 2026-11-01, addendum 204 item 2):
+    "2026/27" and "2026" both read 2026 ("2026-27" too); a string with no leading year ("abc", "", None, "26/27",
+    "20261") reads unknown (None)."""
+    if season is None:
+        return None
+    m = _SEASON_YEAR.match(str(season).strip())
+    return int(m.group(1)) if m else None
+
+
+def newest_membership_years(s: Session, sport, team_ids=None) -> dict[int, int]:
+    """team id -> the newest year (season_year) over the team's stored competition_teams rows, across every
+    competition of `sport` (addendum 204 item 2: "the team's NEWEST stored membership season across every
+    competition of the same sport"). A row whose season reads unknown is left out; a team with none is absent.
+    One query: sync_teams reads it once per sync (the per-sync prefetch pattern), never per team."""
+    q = (select(CompetitionTeam.team_id, CompetitionTeam.season)
+         .join(Competition, Competition.id == CompetitionTeam.competition_id)
+         .join(Team, Team.id == CompetitionTeam.team_id)
+         .where(Competition.sport == sport, Team.sport == sport))
+    if team_ids is not None:
+        q = q.where(CompetitionTeam.team_id.in_(list(team_ids)))
+    out: dict[int, int] = {}
+    for tid, season in s.execute(q).all():
+        y = season_year(season)
+        if y is not None and (tid not in out or y > out[tid]):
+            out[tid] = y
+    return out
 
 
 # THE PROVIDER'S ANSWER WHEN BOOKS ARE 0 (ARCHITECT 2026-10-16, addendum 97 item 2(a)): what sync_odds_mlb's per-game
@@ -295,19 +338,37 @@ class IngestionService:
                 result.skipped = len(teams)
                 return result
 
+            # #764: the newest stored membership year per team of this sport, read ONCE before any write of this
+            # sync (so a listing's own membership never counts as its team's newest)
+            newest = newest_membership_years(s, comp.sport) if season_year(season) is not None else {}
             for nt in teams:
-                team = self._upsert_team(s, nt, result)
+                team = self._upsert_team(s, nt, result, season=season, newest_years=newest)
                 if season:
                     self._link_team_to_competition(s, team, comp, season)
-        log.info("sync_teams(%s): %s", competition_code, result)
+        log.info("sync_teams(%s): %s%s", competition_code, result,
+                 f" {names_kept_line(len(result.names_kept))}" if result.names_kept else "")
         return result
 
-    def _upsert_team(self, s: Session, nt: NormalizedTeam, result: SyncResult) -> Team:
+    def _upsert_team(self, s: Session, nt: NormalizedTeam, result: SyncResult, season: str | None = None,
+                     newest_years: dict | None = None) -> Team:
+        """`season` (#764, ARCHITECT 2026-11-01, addendum 204 item 2): the listing's season. An EXISTING team on a
+        listing whose season_year is OLDER than the team's newest stored membership year (any competition of the
+        same sport) keeps its name and short_name; external_ids are written as always, and a withheld rename is
+        recorded on result.names_kept. Equal, newer, an unknown year on either side, no membership yet, or no
+        season: renames as today. `newest_years` is sync_teams' one-query map; without it the team's own is read."""
         team = self._find_team_by_source(s, nt.sport, nt.source, nt.source_id)
 
         if team:
-            team.name = nt.name
-            team.short_name = nt.short_name or team.short_name
+            if self._historical_listing(s, team, season, newest_years):
+                new_short = nt.short_name or team.short_name
+                if nt.name != team.name or new_short != team.short_name:
+                    kept, listed = team.name, nt.name
+                    if new_short != team.short_name:        # a withheld short_name change is named too
+                        kept, listed = f"{kept} [short: {team.short_name}]", f"{listed} [short: {new_short}]"
+                    result.names_kept.append((team.id, kept, listed))
+            else:
+                team.name = nt.name
+                team.short_name = nt.short_name or team.short_name
             team.tla = nt.tla or team.tla
             team.area = nt.area or team.area
             team.founded = nt.founded or team.founded
@@ -337,6 +398,17 @@ class IngestionService:
         s.flush()
         result.created += 1
         return team
+
+    @staticmethod
+    def _historical_listing(s: Session, team: Team, season, newest_years) -> bool:
+        """True when the listing's season year is known and older than the team's newest known membership year."""
+        year = season_year(season)
+        if year is None or team.id is None:
+            return False
+        if newest_years is None:
+            newest_years = newest_membership_years(s, team.sport, [team.id])
+        newest = newest_years.get(team.id)
+        return newest is not None and year < newest
 
     @staticmethod
     def _find_team_by_source(

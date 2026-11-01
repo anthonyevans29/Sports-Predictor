@@ -6422,6 +6422,13 @@ def soccer_backtest_cmd(competition_code, season, min_prior, rho, candidate):
     if _why:                 # ARCHITECT 2026-10-07: nobody reads these test seasons outside the one run; addendum 178 R8
         click.echo(f"REFUSED: {_why}")
         raise SystemExit(2)
+    from src.walters import pl_availability as _pla
+    # pl-availability-v1's fence (ARCHITECT 2026-11-01, addendum 198 item 3): the plain walk with no --season reads
+    # every season; a --candidate with no --season reads its pre-declared PL gate seasons (2023/24-2025/26) only
+    _why = None if (candidate and season is None) else _pla.fence_refusal(competition_code, season)
+    if _why:
+        click.echo(f"REFUSED: {_why}")
+        raise SystemExit(2)
     from src.walters import ncaa_backtest as _nb
     _why = _nb.v2_fence_walk(competition_code, season)
     if _why:                 # the 2026 fence (addendum 86 item 3, Q2), before any candidate mode (Codex on #561)

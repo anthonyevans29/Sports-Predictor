@@ -162,6 +162,10 @@ def run_soccer_backtest(competition_code: str = "PL", season: str | None = None,
         _why = _sx.guards_backtest(competition_code, season, through)    # with the leagues' window fence (R8)
         if _why:
             raise _sx.ExpansionRefused(_why)
+    from src.walters import pl_availability as _pla         # pl-availability-v1's fence (addendum 198 item 3); never
+    _why = _pla.fence_refusal(competition_code, season, through)     # lifted by sealed_read (not the leagues' gate)
+    if _why:
+        raise _pla.PLFenceRefused(_why)
     from src.walters import ncaa_backtest as _nb            # the 2026 fence (ARCHITECT 2026-10-16, addendum 86 Q2)
     _why = _nb.v2_fence_walk(competition_code, season)
     if _why:

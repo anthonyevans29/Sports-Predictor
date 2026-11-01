@@ -10,7 +10,11 @@ timestamp-like keys ignored (*_at, ts, timestamp, generated*, captured*).
 The unit-bearing fields of Desk policy v1.2 (order.unit, order.text,
 order.contracts, desk_meta.unit, and pool_usd at any depth) are never compared
 or printed, in either mode; their count is printed (ARCHITECT 2026-10-30,
-addendum 182 item 4). Files present on one side only are listed. Output is paste-ready. Exit 0 =
+addendum 182 item 4). The shadow-arm keys of pl-availability-v1 (every
+`candidate_*` key at any depth, and a results row's `candidate` arm) are never
+compared or printed either, and counted on their own line beside that count
+(ARCHITECT 2026-11-01, addendum 199 item 2; SHADOW-ARM KEYS below). Files
+present on one side only are listed. Output is paste-ready. Exit 0 =
 CLEAN (every compared file identical after the timestamp mask), 1 = DIVERGENT,
 2 = ERROR (the comparison could not run: bad arguments, a side directory
 missing, a crash), 3 = NO-COVERAGE (nothing was compared: zero JSON files on
@@ -59,6 +63,31 @@ is counted as not matched or settled; the Action's *.json and --since 0
 select the whole folder). The --since window and the header's settled count
 treat it like any dated file.
 cutover_readiness.compare_day (criterion (a)) applies the same rule.
+
+SHADOW-ARM KEYS (ARCHITECT 2026-11-01 12:05 ET, addendum 199 item 2, verbatim):
+"THE COMPARE — option (b): a NAMED, COUNTED host-only class. compare_exports
+treats every `candidate_*` key as "shadow-arm keys (host-only,
+pl-availability-v1)": never compared, never printed, counted on its own line
+beside the unit-bearing count (#735's pattern), so a real v22 divergence in the
+same file still prints inside the budget. Its own small tooling PR after #760
+(stop rule item 5), merged before the compare morning of the tag that carries
+the shadow (v1.6.3). #760 itself leaves the compare untouched, as built."
+#760 writes, on the host only, candidate_version, candidate_probabilities,
+candidate_missing and candidate_reason on every PL slate and closing row, and a
+key named `candidate` on a PL results row (pl_availability.RESULT_KEY) holding
+the arm. A shadow-arm key is (shadow_arm): any key whose name starts with
+"candidate_", at any depth, as ruled; and a key named exactly `candidate` ONLY
+when its value (either side's) is a dict whose `version` is
+"pl-availability-v1" — every value pl_availability.result_arm returns carries
+that version. The test is by value, not by name alone or by parent, because
+other writers use a key named `candidate` for something else
+(leagues_candidate rows, soccer_expansion bindings, registry listings,
+training's promote result: a string or null): those are never masked. Both
+modes (the generic mask and --ignore-keys) leave the class out; a structural
+mismatch printed whole shows its values as "<masked>"; the count is the file
+pair's own walk (a key on either side once, past the diff limit and under
+pruned keys), printed as "shadow-arm keys (host-only, pl-availability-v1): N"
+right after the unit-bearing line.
 """
 from __future__ import annotations
 
@@ -107,28 +136,60 @@ def unit_bearing(parent, key) -> bool:
     return key == POOL_FIELD or key in UNIT_BEARING.get(parent, ())
 
 
-def unit_count(a, b, parent=None) -> int:
-    """The unit-bearing fields of one file pair, a field on either side counted once: its own walk (Codex on #735),
-    so the count reaches past the 40-line diff limit, into keys --ignore-keys prunes, into rows on one side only and
-    across a dict-vs-other mismatch. Lists keep their parent key (as `diff` does); game rows pair by row key."""
+# THE SHADOW-ARM KEYS (ARCHITECT 2026-11-01 12:05 ET, addendum 199 item 2; the module docstring quotes it): the
+# pl-availability-v1 candidate's keys, written on the host only (#760), never compared or printed, counted.
+SHADOW_EID = "pl-availability-v1"               # pl_availability.EID (this file ships alone: copied, not imported)
+SHADOW_PREFIX = "candidate_"                    # pl_availability.ROW_KEYS, and any other candidate_* key, any depth
+SHADOW_RESULT_KEY = "candidate"                 # pl_availability.RESULT_KEY: the results row's arm
+SHADOW_LINE = "shadow-arm keys (host-only, pl-availability-v1)"     # the ruling's name, verbatim
+
+
+def shadow_arm(key, *values) -> bool:
+    """True for a shadow-arm key (addendum 199 item 2): a name starting with "candidate_" at any depth, or a key named
+    exactly `candidate` whose value on either side is the arm (a dict whose `version` is pl-availability-v1). Another
+    writer's `candidate` (a string or null) is compared as before."""
+    k = str(key)
+    return k.startswith(SHADOW_PREFIX) or (k == SHADOW_RESULT_KEY and any(
+        isinstance(v, dict) and v.get("version") == SHADOW_EID for v in values))
+
+
+def _masked_count(a, b, hit, parent=None) -> int:
+    """The fields `hit(parent, key, a_value, b_value)` masks in one file pair, a field on either side counted once: its
+    own walk (Codex on #735), so the count reaches past the 40-line diff limit, into keys --ignore-keys prunes, into rows
+    on one side only and across a dict-vs-other mismatch. Lists keep their parent key (as `diff` does); game rows pair
+    by row key. A masked field is counted once and not walked into."""
     if isinstance(a, dict) or isinstance(b, dict):
         da, db = (a if isinstance(a, dict) else {}), (b if isinstance(b, dict) else {})
-        return sum(1 if unit_bearing(parent, k) else unit_count(da.get(k), db.get(k), k) for k in set(da) | set(db))
+        return sum(1 if hit(parent, k, da.get(k), db.get(k)) else _masked_count(da.get(k), db.get(k), hit, k)
+                   for k in set(da) | set(db))
     if isinstance(a, list) or isinstance(b, list):
         la, lb = (a if isinstance(a, list) else []), (b if isinstance(b, list) else [])
         if is_game_rows(la) and is_game_rows(lb):
             ka, kb = keyed(la), keyed(lb)
-            return sum(unit_count(ka.get(k), kb.get(k), parent) for k in set(ka) | set(kb))
-        return sum(unit_count(la[i] if i < len(la) else None, lb[i] if i < len(lb) else None, parent)
+            return sum(_masked_count(ka.get(k), kb.get(k), hit, parent) for k in set(ka) | set(kb))
+        return sum(_masked_count(la[i] if i < len(la) else None, lb[i] if i < len(lb) else None, hit, parent)
                    for i in range(max(len(la), len(lb))))
     return 0
 
 
+def unit_count(a, b, parent=None) -> int:
+    """The unit-bearing fields of one file pair (addendum 182 item 4), a field on either side counted once."""
+    return _masked_count(a, b, lambda p, k, x, y: unit_bearing(p, k), parent)
+
+
+def shadow_count(a, b, parent=None) -> int:
+    """The shadow-arm keys of one file pair (addendum 199 item 2), a key on either side counted once, by the same walk
+    as unit_count: 4 per PL row carrying the four candidate_* keys, 1 per results row carrying the arm."""
+    return _masked_count(a, b, lambda p, k, x, y: shadow_arm(k, x, y), parent)
+
+
 def redacted(v, parent=None):
-    """`v` with every unit-bearing field's value replaced by "<masked>", for a structural mismatch printed whole (an
-    `order` or `desk_meta` object against null; Codex on #735): the dollar figure never reaches the output."""
+    """`v` with every unit-bearing field's value, and every shadow-arm key's (addendum 199 item 2), replaced by
+    "<masked>", for a structural mismatch printed whole (an `order` or `desk_meta` object against null; Codex on #735;
+    a PL row against null): neither a dollar figure nor a candidate figure reaches the output."""
     if isinstance(v, dict):
-        return {k: "<masked>" if unit_bearing(parent, k) else redacted(x, k) for k, x in v.items()}
+        return {k: "<masked>" if unit_bearing(parent, k) or shadow_arm(k, x) else redacted(x, k)
+                for k, x in v.items()}
     if isinstance(v, list):
         return [redacted(x, parent) for x in v]
     return v
@@ -228,14 +289,14 @@ def diff(a, b, path="$", out=None, limit=40, unmatched=None, ignore=None, parent
     """`ignore`: None = the generic mask (TS_KEY + MASKED). A set (--ignore-keys; the cutover PL check only, #420)
     REPLACES that mask: only those keys and git_sha (code, never read from the database) are left out, so every
     database-read timestamp and match_id is compared (Codex on #439). In both modes the unit-bearing fields
-    (addendum 182 item 4, unit_bearing) are left out and never printed: a mismatch printed whole is redacted first;
-    unit_count counts them."""
+    (addendum 182 item 4, unit_bearing) and the shadow-arm keys (addendum 199 item 2, shadow_arm) are left out and
+    never printed: a mismatch printed whole is redacted first; unit_count and shadow_count count them."""
     out = [] if out is None else out
     if len(out) >= limit:
         return out
     if isinstance(a, dict) and isinstance(b, dict):
         for k in sorted(set(a) | set(b)):
-            if unit_bearing(parent, k):
+            if unit_bearing(parent, k) or shadow_arm(k, a.get(k), b.get(k)):
                 continue
             if (ignore is None and (TS_KEY.search(str(k)) or k in MASKED)) or (
                     ignore is not None and (k in ignore or k == "git_sha")):
@@ -277,7 +338,11 @@ def main(argv=None) -> int:
 
 
 def _main(argv=None) -> int:
-    ap = argparse.ArgumentParser()
+    ap = argparse.ArgumentParser(epilog=(
+        "Never compared or printed, in either mode, and counted on their own lines: the unit-bearing fields "
+        "(addendum 182 item 4) and the shadow-arm keys (ARCHITECT 2026-11-01, addendum 199 item 2: \"compare_exports "
+        "treats every `candidate_*` key as \"shadow-arm keys (host-only, pl-availability-v1)\": never compared, never "
+        "printed, counted on its own line beside the unit-bearing count\"; also a results row's `candidate` arm)."))
     ap.add_argument("laptop", type=Path)
     ap.add_argument("host", type=Path)
     ap.add_argument("--glob", default="*.json")
@@ -326,6 +391,7 @@ def _main(argv=None) -> int:
     # side within a file are separate causes; a file's own line prints diffs=0 when only its rows differ)
     field_diffs, row_diffs, unparseable, one_sided = [], [], [], []
     unit_masked = 0                               # addendum 182 item 4: the unit-bearing fields left out, counted
+    shadow_masked = 0                             # addendum 199 item 2: the shadow-arm keys left out, counted
     pred_rows = {"laptop": 0, "host": 0}
     for name in sorted(set(la) | set(ho)):
         if name not in la or name not in ho:
@@ -347,6 +413,7 @@ def _main(argv=None) -> int:
         um: dict = {}
         d = diff(x, y, unmatched=um, ignore=ignore)
         unit_masked += unit_count(x, y)
+        shadow_masked += shadow_count(x, y)
         only = {s: [k for v in um.values() for k in v[s]] for s in ("laptop", "host")}
         ok = not d and not only["laptop"] and not only["host"]
         clean &= ok
@@ -373,6 +440,7 @@ def _main(argv=None) -> int:
           f"host {len(other['host'])}" + (f" (e.g. {', '.join((other['laptop'] + other['host'])[:3])})"
                                           if other['laptop'] or other['host'] else ""))
     print(f"unit-bearing fields masked (policy v1.2): {unit_masked}")   # addendum 182 item 4
+    print(f"{SHADOW_LINE}: {shadow_masked}")                            # addendum 199 item 2
     if a.require_predictions:
         print(f"predictions compared (rows with a prediction and its probabilities): laptop {pred_rows['laptop']} "
               f"· host {pred_rows['host']}")

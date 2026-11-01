@@ -26,6 +26,10 @@
   created/updated, sync-matches' skipped count) and every step that skipped
   listings of clubs not in the DB (`listings_skipped`), which the summary line
   names. The exit is unchanged (law 4: skipped, not faked).
+- A failed sync-teams step does NOT stop the chain (ARCHITECT 2026-11-01,
+  addendum 207 item 4): the run goes on to that competition's sync-matches
+  and every later step, the exit is the FIRST failure's, and the summary line
+  names the failed step. Every other step stops a chain as before.
 """
 from __future__ import annotations
 
@@ -412,6 +416,12 @@ def transient_class(rc: int, tail: list[str]) -> str | None:
 
 
 SYNC_PREFIX = "sync-"      # addendum 84 item 2(b): a sync step's command starts with it; any other is card/export
+# A FAILED sync-teams DOES NOT STOP THE CHAIN (ARCHITECT 2026-11-01 17:10 ET, addendum 207 item 4; #765, #728),
+# verbatim: "A failed sync-teams does NOT stop the chain: the chain continues to that competition's sync-matches and to
+# every later step, keeps the FIRST failure's exit code, and names the failed step in its summary line; sync-matches'
+# skipped-listings line then says what the failed teams read cost (never silent). Not continue_on_sync_failure on the
+# chains (wider than ruled [...])." Only the sync-teams command; every other step stops a chain as before.
+TEAMS_GO_ON = "addendum 207 item 4: a failed sync-teams does not stop the chain"
 
 
 def run_steps(steps, label: str, unit: str, run_id: str, today: date, quota: dict,
@@ -426,7 +436,9 @@ def run_steps(steps, label: str, unit: str, run_id: str, today: date, quota: dic
     the step's last redacted output line)] and `stopped_at` (the step that
     stopped the run, or None), and `sync` [(step, argv, sync_counts, exit)] for every sync-teams/sync-matches step
     that ran (its counts {} when it printed none) and every other step that printed a sync count (#765/#728: the chain
-    receipt's line per competition and its skipped listings)."""
+    receipt's line per competition and its skipped listings).
+    A failed `sync-teams` step (addendum 207 item 4, TEAMS_GO_ON) is receipted and the run goes on, whatever
+    `continue_sync` says; it is in `failed` (so the exit is the first failure's) and never `stopped_at`."""
     ok, first_rc = 0, 0
     if report is not None:
         report.update(failed=[], stopped_at=None, sync=[])
@@ -460,8 +472,12 @@ def run_steps(steps, label: str, unit: str, run_id: str, today: date, quota: dic
             rec.update(retried=len(attempts) - 1, attempts=attempts)
             print(f"· retried {len(attempts) - 1}: {'ok' if rc == 0 else f'still failing (exit {rc})'}",
                   flush=True)
-        if rc != 0 and continue_sync and st[0].startswith(SYNC_PREFIX):
+        sync_goes_on = continue_sync and st[0].startswith(SYNC_PREFIX)
+        teams_goes_on = st[0] == "sync-teams"         # addendum 207 item 4: whatever continue_sync says
+        if rc != 0 and sync_goes_on:
             rec["continued"] = "addendum 84 item 2(b): a sync step's failure does not stop the window chain"
+        elif rc != 0 and teams_goes_on:
+            rec["continued"] = TEAMS_GO_ON
         counts = sync_counts(marks)
         if counts or st[0] in ("sync-teams", "sync-matches"):
             if counts:
@@ -478,9 +494,13 @@ def run_steps(steps, label: str, unit: str, run_id: str, today: date, quota: dic
             if report is not None:
                 report["failed"].append((i, line, rc, next((x for x in reversed(tail) if x.strip()), "")))
             first_rc = first_rc or rc
-            if continue_sync and st[0].startswith(SYNC_PREFIX):
+            if sync_goes_on:
                 print(f"· sync step {i}/{len(steps)} failed (exit {rc}): {line} — recorded; the chain runs on "
                       "(addendum 84 item 2(b))", flush=True)
+                continue
+            if teams_goes_on:
+                print(f"· sync-teams step {i}/{len(steps)} failed (exit {rc}): {line} — recorded; the chain runs on "
+                      "to its sync-matches and every later step (addendum 207 item 4)", flush=True)
                 continue
             if report is not None:
                 report["stopped_at"] = i
@@ -774,8 +794,16 @@ def main(argv=None) -> int:
           f"· unmetered run {quota['unmetered_run']} · provider calls: not instrumented")
     skipped_text = ("" if not skipped else " · listings skipped (clubs not in the DB): " + ", ".join(
         f"step {i}/{len(steps)} {_opt(st, '--competition') or st[0]} {nid['n']}" for i, st, nid in skipped))
+    # addendum 207 item 4: the summary line names each failed sync-teams step the chain ran on past BECAUSE of it; on
+    # a continue_on_sync_failure chain addendum 84 item 2(b) carried the step (its receipt's `continued` says so), so
+    # the summary never credits that step to item 4
+    teams_failed = [(i, steps[i - 1], rc) for i, _cmd, rc, _ in step_report["failed"]
+                    if steps[i - 1][0] == "sync-teams" and not chain.get("continue_on_sync_failure")]
+    teams_text = ("" if not teams_failed else " · sync-teams failed (the chain ran on, addendum 207 item 4): "
+                  + ", ".join(f"step {i}/{len(steps)} {_opt(st, '--competition') or st[0]} exit {rc}"
+                              for i, st, rc in teams_failed))
     print(f"\n{'✓' if chain_exit == 0 else '✗'} {a.chain}: exit={chain_exit} "
-          f"steps {ok}/{len(steps)} in {rec['duration_s']}s{skipped_text} · running "
+          f"steps {ok}/{len(steps)} in {rec['duration_s']}s{teams_text}{skipped_text} · running "
           f"{c.running_release() or 'release ?'} · writer of record {c.writer_of_record() or '?'}")
     # addendum 204 item 3(c): each step that skipped listings, with its command and ids (law 4: exit unchanged)
     for i, st, nid in skipped:

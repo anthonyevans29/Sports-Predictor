@@ -323,17 +323,105 @@ def test_a_sync_step_that_ran_but_printed_no_count_reads_unknown_and_its_exit_ne
     assert ("  · UEL 2026/27: sync-teams failed (exit 1) created ? · updated ? · sync-matches skipped ? "
             "(no count printed)") in out
     assert not any("did not run" in x for x in out)
+    # precedence: on a continue_on_sync_failure chain addendum 84 item 2(b) carried UEL's failed sync-teams, so its
+    # receipt and the summary never credit it to addendum 207 item 4
+    steps = [r for r in receipts(sandbox) if r["kind"] == "step"]
+    assert steps[4]["step"] == 5 and steps[4]["continued"] == "addendum 84 item 2(b): a sync step's failure does not stop the window chain"
+    summary = next(x for x in out if x.startswith("✗ t-nocount-765:"))
+    assert "addendum 207" not in summary and "sync-teams failed" not in summary
 
 
-def test_did_not_run_is_only_a_sync_matches_step_never_reached(sandbox, monkeypatch, capsys):
-    """A chain that stops at a failed sync-teams (no continue_on_sync_failure): its sync-matches never ran."""
+def test_did_not_run_is_only_a_sync_matches_step_never_reached_and_a_failed_sync_matches_still_stops(sandbox,
+                                                                                                    monkeypatch,
+                                                                                                    capsys):
+    """A failed sync-matches still stops a chain without continue_on_sync_failure (exit semantics unchanged; addendum
+    207 item 4 runs on past a failed sync-teams only): a later competition's sync-matches is never reached and its
+    line says `did not run`."""
     (c.REPO / "cli.py").write_text(FAKE_NO_COUNT_CLI)
     monkeypatch.setitem(chains.CHAINS, "t-stop-765", {"steps": [
-        ["sync-teams", "--competition", "UEL", "--season", "2026/27"],
-        ["sync-matches", "--competition", "UEL", "--season", "2026/27"]]})
+        ["sync-teams", "--competition", "MLB", "--season", "2026"],
+        ["sync-teams", "--competition", "PL", "--season", "2026/27"],
+        ["sync-matches", "--competition", "PL", "--season", "2026/27"],
+        ["sync-matches", "--competition", "MLB", "--season", "2026"]]})
     capsys.readouterr()
     assert sp_run.main(["t-stop-765"]) == 1
     out = capsys.readouterr().out.split("\n")
-    (uel,) = receipts(sandbox)[-1]["competitions"]
-    assert (uel["teams_exit"], uel["matches_step"], uel["matches_exit"]) == (1, None, None)
-    assert ("  · UEL 2026/27: sync-teams failed (exit 1) created ? · updated ? · sync-matches did not run") in out
+    rs = receipts(sandbox)
+    assert [r["step"] for r in rs if r["kind"] == "step"] == [1, 2, 3]            # step 4 never ran
+    chain = rs[-1]
+    assert chain["stopped_at"] == 3 and [f["step"] for f in chain["failed_steps"]] == [3]
+    mlb, pl = chain["competitions"]
+    assert (mlb["teams_exit"], mlb["matches_step"], mlb["matches_exit"]) == (0, None, None)
+    assert "  · MLB 2026: sync-teams created 0 · updated ? · sync-matches did not run" in out
+    assert (pl["matches_step"], pl["matches_exit"]) == (3, 1)
+    assert "  ✗ stopped at step 3/4" in out
+    assert not any("sync-teams failed" in x for x in out)
+
+
+# ------------------------------------------------------------------ addendum 207 item 4: a failed sync-teams runs on
+
+FAKE_INTL_CLI = '''import sys
+a = sys.argv[1:]
+if a[0] not in ("sync-teams", "sync-matches"):
+    print("ran", " ".join(a))
+    sys.exit(0)
+code = a[a.index("--competition") + 1]
+if a[0] == "sync-teams":
+    if code in ("CL", "FAC"):
+        print("Traceback (most recent call last):")
+        print("RuntimeError: provider teams read failed")
+        sys.exit(4 if code == "CL" else 5)
+    print("✓ Teams (%s): created=0 updated=36 skipped=0" % code)
+else:
+    if code == "CL":
+        print("✓ Matches (CL): created=0 updated=10 skipped=3")
+        print("skipped 3 listing(s) of clubs not in the DB: 7001, 7002, 7003")
+    else:
+        print("✓ Matches (%s): created=0 updated=12 skipped=0" % code)
+'''
+
+
+def test_a_failed_sync_teams_runs_on_to_its_sync_matches_and_later_cups_with_the_first_failures_exit(sandbox,
+                                                                                                      capsys):
+    """ARCHITECT 2026-11-01 17:10 ET, addendum 207 item 4, verbatim: "A failed sync-teams does NOT stop the chain: the
+    chain continues to that competition's sync-matches and to every later step, keeps the FIRST failure's exit code,
+    and names the failed step in its summary line; sync-matches' skipped-listings line then says what the failed teams
+    read cost (never silent). [...] One test: a sync-teams failure followed by a successful sync-matches and a later
+    cup read; exit code the first failure's; the summary names the step." The real intl-daily chain (its own steps,
+    continue_on_sync_failure unset): CL's sync-teams exits 4, FAC's (later) exits 5."""
+    assert not chains.CHAINS["intl-daily"].get("continue_on_sync_failure")            # not the wider flag
+    (c.REPO / "cli.py").write_text(FAKE_INTL_CLI)
+    capsys.readouterr()
+    assert sp_run.main(["intl-daily"]) == 4                                           # the FIRST failure's exit
+    out = capsys.readouterr().out.rstrip("\n").split("\n")
+    rs = receipts(sandbox)
+    steps = [r for r in rs if r["kind"] == "step"]
+    assert [s_["step"] for s_ in steps] == list(range(1, 12))                         # every step ran
+    cmds = [s_["command"].split()[2:5:2] for s_ in steps[3:]]
+    assert cmds == [[v, code] for code in ("EFL", "CL", "UEL", "FAC") for v in ("sync-teams", "sync-matches")]
+    assert [s_["exit"] for s_ in steps] == [0, 0, 0, 0, 0, 4, 0, 0, 0, 5, 0]
+    assert steps[5]["continued"] == sp_run.TEAMS_GO_ON and "sync" not in steps[5]     # no faked teams count
+    assert all("continued" not in s_ for s_ in steps if not s_["exit"])
+    # CL's sync-matches ran after its failed sync-teams, and its skipped-listings line is in the receipt
+    assert steps[6]["sync"]["not_in_db"] == {"n": 3, "ids": ["7001", "7002", "7003"]} and steps[6]["exit"] == 0
+    # the LATER cups' reads ran
+    assert steps[8]["sync"]["matches"] == {"created": 0, "updated": 12, "skipped": 0}           # UEL
+    assert steps[10]["exit"] == 0 and steps[10]["sync"]["matches"]["updated"] == 12          # FAC, past its own failure
+    chain = rs[-1]
+    assert chain["kind"] == "chain" and chain["exit"] == 4 and chain["steps_ok"] == 9
+    assert chain["stopped_at"] is None and [f["step"] for f in chain["failed_steps"]] == [6, 10]
+    assert chain["listings_skipped"] == [{"step": 7, "command": "python cli.py sync-matches --competition CL "
+                                          "--season 2026/27", "n": 3, "ids": ["7001", "7002", "7003"]}]
+    cl = next(r for r in chain["competitions"] if r["competition"] == "CL")
+    assert cl == {"competition": "CL", "season": "2026/27", "teams_step": 6, "teams_exit": 4, "teams_created": None,
+                  "teams_updated": None, "matches_step": 7, "matches_exit": 0, "matches_skipped": 3, "not_in_db": 3}
+    assert ("  · CL 2026/27: sync-teams failed (exit 4) created ? · updated ? · sync-matches skipped 3 "
+            "(3 of clubs not in the DB)") in out
+    assert not any("did not run" in x for x in out)
+    text = "\n".join(out)
+    assert ("· sync-teams step 6/11 failed (exit 4): python cli.py sync-teams --competition CL --season 2026/27 — "
+            "recorded; the chain runs on to its sync-matches and every later step (addendum 207 item 4)") in text
+    summary = next(x for x in out if x.startswith("✗ intl-daily: exit=4 steps 9/11"))
+    assert (" · sync-teams failed (the chain ran on, addendum 207 item 4): step 6/11 CL exit 4, step 10/11 FAC exit 5"
+            " · listings skipped (clubs not in the DB): step 7/11 CL 3 · running ") in summary
+    assert not any(x.startswith("  ✗ stopped at") for x in out)

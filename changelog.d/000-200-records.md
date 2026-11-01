@@ -1,0 +1,11 @@
+## 2026-11-01 (#000: 200-records — the records of addenda 200 item 4 and 201–204: the mlb-pitchers harness step done, the EFL Step A moved line, the ncaa 2023 ingest done; the day's findings recorded)
+- docs/roadmap.json:
+  - mlb-pitchers' harness-PR step is DONE 2026-11-01 (receipt "#748, #751").
+  - cups' EFL Step A step moves from 2026-10-27 to 2026-12-15 with its moved line (addendum 200 item 4(b), verbatim); the step is ordered after Step C, as the date order requires.
+  - ncaa's 2023-ingest step is DONE 2026-11-01 (receipt "#79 comment (the census, 2026-11-01)"; addendum 201 item 5).
+  - No other date moves; no bar moves.
+- tests/test_roadmap.py: the ncaa lane's pinned next step follows the done-mark (the 500th-game calendar step, 11-08).
+- docs/ledger/entries/2026-11-01-200-records.md quotes addendum 200 item 4 and addenda 201–204 verbatim. It records:
+  - the findings #762, #763, #764, #765 and the closes of #426 and #358;
+  - the #754 fifth-game note, and the slate_miss:SOCCER code read;
+  - the two owed lines whose source text the architect is asked to name.

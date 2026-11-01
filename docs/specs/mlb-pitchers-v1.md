@@ -164,3 +164,7 @@ REFUSED, exit 2, naming the spent reservation.
   which pitcher's sums feed ON); config (the production version and the baseball_config the arms run with). The run
   recomputes it on its copy after the cohort checks and the production config, and refuses before the reservation on
   any difference, naming the parts.
+- **Write failures (ARCHITECT 2026-10-31 15:10 ET, addendum 194 item 2; #749).** A reservation whose write fails after
+  its exclusive create is removed and refused: the one run is not spent. A non-id token in the frozen cohort file is
+  refused, naming the file. The freeze has one rollback around its whole sequence (the cohort file's create and write,
+  the ledger's reload and save): any failure removes the file and puts the ledger's bytes back.

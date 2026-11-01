@@ -166,7 +166,7 @@ def main():
         L = page.evaluate("JSON.parse(localStorage.getItem('bd_ledger_v1'))")
         calls = L["calls"]
         by = lambda **kw: [c for c in calls if all(c.get(k) == v for k, v in kw.items())]
-        check("policy_version stamped v1.1", L["meta"]["policy_version"] == "v1.1")
+        check("policy_version stamped v1.2", L["meta"]["policy_version"] == "v1.2")
         check("model_edge straights = 4 (s1, s6, s7, n3)", len(by(engine="model_edge", call_type="straight")) == 4)
         check("ladder logged for the Wolves–Chelsea away edge", len(by(call_type="ladder")) == 1
               and by(call_type="ladder")[0]["pick"] == "AWAY")

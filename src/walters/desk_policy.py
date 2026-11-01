@@ -1586,7 +1586,7 @@ UNIT_UNREAD_LABEL = "unit unread"
 # those blocks then carry `contracts_basis` with this text (absent on a read day, where the count is the order's).
 UNIT_REFERENCE_FILL_TEXT = "reference fill, no order (unit unread)"
 # The basis a file exported before v1.2 with SP_UNIT_USD unset declares in its order lines (desk-rescore re-scores
-# such a file under it; the Cockpit's fillUnitBasis reads it): the label is that file's, kept verbatim.
+# such a file under it; the Cockpit's fillOrderMatch reads it): the label is that file's, kept verbatim.
 LEGACY_CONTRACTS_LABEL = f"1u = {ORDER_UNIT_CONTRACTS} contracts (SP_UNIT_USD unset)"
 LEGACY_CONTRACTS_BASIS = {"mode": "contracts", "value": ORDER_UNIT_CONTRACTS, "label": LEGACY_CONTRACTS_LABEL,
                           "state": "contracts", "et_date": None, "why": None}

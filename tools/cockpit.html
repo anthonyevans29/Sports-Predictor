@@ -1,10 +1,17 @@
 <!DOCTYPE html>
 <!--
   FILL UNITS (#487, ARCHITECT 2026-10-13; addendum 67 item 3, 2026-10-14): a fill's units are its entry cost in
-  dollars, fees left out, over the dollars of one unit READ FROM THE LOADED FILE's order lines ("1u = $N", as
+  dollars, fees left out, over the dollars of one unit READ FROM THE LOADED FILES' order lines ("1u = $N", as
   desk_policy.file_unit_basis reads it); "1u = N contracts" reads contracts over N. The page holds no dollar figure
-  of its own. A file whose order lines carry no unit basis shows the fill in contracts, labelled "contracts (no unit
-  basis in file)", never a guessed unit. Repo copy only: the live Cockpit is republished on the operator's word.
+  of its own. Repo copy only: the live Cockpit is republished on the operator's word.
+  BY THE STAMP, NOT A DATE (Desk policy v1.2, #740 / #753; ARCHITECT 2026-11-01 08:45 ET, addendum 197 item 1): a
+  fill converts by the unit stamped on the Desk row whose order produced it, and by nothing else. The page matches a
+  fill by its TICKER to the loaded files' order rows; of several, the latest row whose page time is before the
+  fill's opened time (the closing row stands over the slate row, #632's rule); that row's own "1u = ..." label is
+  the basis (a v1.1 row by its v1.1 label, a v1.2 row by its day's label). A fill matched to no loaded order row is
+  contracts only, labelled "no loaded page carries this order" (an off-book bet included). No fill is read on the
+  game's day or on a file's date; the page needs no switch date and never infers one. (Supersedes round 1's per-ET-day
+  reading and its dated labels.)
 -->
 <html lang="en">
 <head>
@@ -118,7 +125,7 @@ details.sig pre{max-height:220px;margin:6px 0 0}
 </style>
 </head>
 <body>
-<h1>Cockpit <span class="chip">card + desk + ledger + next 24h + today · policy v1.1</span></h1>
+<h1>Cockpit <span class="chip">card + desk + ledger + next 24h + today · policy v1.2</span></h1>
 <div class="row" style="margin-bottom:10px">
   <button id="tabCard" class="ghost">Card</button>
   <button id="tabDesk">Desk</button>
@@ -148,7 +155,7 @@ details.sig pre{max-height:220px;margin:6px 0 0}
 
 <div id="deskView">
 <div class="card deskonly">
-  <h2 style="margin-top:0">Policy v1.1 <span class="note">per-sport · model_edge evidence-set 2026-09-25 unchanged · venue_edge added in shadow 2026-09-26 · changes only via audit-backed version bump</span></h2>
+  <h2 style="margin-top:0">Policy v1.2 <span class="note">v1.1's rules + the day's unit (addendum 179; #753: each fill by the unit stamped on its order's row, addendum 197) · per-sport · model_edge evidence-set 2026-09-25 unchanged · venue_edge added in shadow 2026-09-26 · changes only via audit-backed version bump</span></h2>
   <div class="note" style="margin-top:4px;line-height:1.7">
     <b>SOCCER</b> — floor 4pp · pick-prob ≥ 0.50 · away/draw edges ≥ 10pp → double-chance ladder 0.5u · any edge ≥ 10pp half-units <span style="opacity:.75">(cohort 6/16: big edges anti-predictive, die by draw)</span><br>
     <b>NFL</b> — floor 4pp · divergence ≥ 15pp quarantine = never a straight play <span style="opacity:.75">(wk 1–2 mega-edges 1-5; ATL 34-3)</span> · QB-flagged games half-units<br>
@@ -247,7 +254,7 @@ details.sig pre{max-height:220px;margin:6px 0 0}
 <div id="ledgerView" hidden>
   <div class="card">
     <h2 style="margin-top:0">Ledger <span class="note">bd_ledger_v1 · this browser only · fair-odds P&amp;L, pre-fee</span></h2>
-    <div class="note" id="ledgerExportsLine" style="margin-bottom:8px" title="ARCHITECT 2026-10-18, addendum 125 item 4 (#544): no --desk export reads a ledger summary; counts_source default 0 is the permanent reading and the postseason half-unit cap that keys on it stays ON">exports read no ledger summary; postseason rows are sized at half until v1.2</div>
+    <div class="note" id="ledgerExportsLine" style="margin-bottom:8px" title="ARCHITECT 2026-10-18, addendum 125 item 4 (#544): no --desk export reads a ledger summary; counts_source default 0 is the permanent reading. ARCHITECT 2026-11-01, addendum 197 item 2: a loaded v1.1 file keeps the pinned line (postseason rows sized at half until v1.2); a loaded v1.2 file shows the v1.2 line (the unit is a fraction of the pool, addendum 179); none loaded: the Cockpit's own policy's">exports read no ledger summary; policy v1.2: the unit is a fraction of the pool (addendum 179); v1.1's postseason half-sizing no longer applies</div>
     <div class="row">
       <div><label>Results files / finished fixtures (JSON — same intake for both)</label><br>
         <input type="file" id="resultsFile" accept=".json" multiple></div>
@@ -760,8 +767,29 @@ function renderVenue(){
 // ---------------------------------------------------------------------
 // LEDGER (bd_ledger_v1) — localStorage, per-viewer, every access guarded.
 // ---------------------------------------------------------------------
-const LEDGER_KEY="bd_ledger_v1", POLICY_VERSION="v1.1";
+// #740 (ARCHITECT 2026-10-30 11:20 ET, addendum 182 item 6, as recorded on #734: "`POLICY_VERSION` v1.2;"; the
+// Issue's plan, item 1: "Set `POLICY_VERSION` to v1.2."). A v1.1 file shows the banner.
+const LEDGER_KEY="bd_ledger_v1", POLICY_VERSION="v1.2";
 let storageOK=true;
+// THE LEDGER CARD'S POLICY LINE (#ledgerExportsLine; ARCHITECT 2026-11-01 08:45 ET, addendum 197 item 2, verbatim):
+// "ITEM 3, the ledger card line "postseason rows are sized at half until v1.2" (addendum 125 item 4): for a loaded file
+// at policy v1.1 the line stands verbatim as pinned; for a loaded file at policy v1.2 the card shows instead "policy
+// v1.2: the unit is a fraction of the pool (addendum 179); v1.1's postseason half-sizing no longer applies" — the verify
+// pins both texts, each under its policy version, this addendum quoted." The versions are every accepted loaded file's
+// desk_meta.policy_version (fileMetas, the rows' deskMeta, the desk_parlays file's); both loaded: both texts, v1.1's
+// first; neither: the Cockpit's own POLICY_VERSION's (the element's text before any load).
+const LEDGER_LINE_TEXT={"v1.1":"exports read no ledger summary; postseason rows are sized at half until v1.2",
+  "v1.2":"exports read no ledger summary; policy v1.2: the unit is a fraction of the pool (addendum 179); v1.1's postseason half-sizing no longer applies"};
+function ledgerExportsText(metas){
+  const vs=new Set((metas||[]).map(m=>(m||{}).policy_version));
+  const on=["v1.1","v1.2"].filter(v=>vs.has(v));
+  return (on.length?on:[POLICY_VERSION]).map(v=>LEDGER_LINE_TEXT[v]).join(" · ");
+}
+function renderLedgerExportsLine(){   // after loadDocs has set rows / fileParlays / fileMetas
+  const el=$("ledgerExportsLine"); if(!el) return;
+  el.textContent=ledgerExportsText(fileMetas.concat(rows.map(r=>r.deskMeta).filter(Boolean),
+    fileParlays&&fileParlays.desk_meta?[fileParlays.desk_meta]:[]));
+}
 function emptyLedger(){return {meta:{policy_version:POLICY_VERSION},calls:[]};}
 function loadLedger(){
   try{ const raw=localStorage.getItem(LEDGER_KEY);
@@ -2344,13 +2372,16 @@ function realizedHTML(L){
 //   cash at risk = gross + fees − min_o payout(o)    (the worst-case loss)
 //   hedge offset = min_o payout(o)                    (> 0 only when the
 //                  held contracts genuinely pay on EVERY outcome)
-//   per team-outcome: units on the UNIT BASIS READ FROM THE LOADED FILES' ORDER
-//   LINES (#487, ARCHITECT 2026-10-13, and addendum 67 item 3, 2026-10-14):
-//   "1u = $N" -> the entry cost of the contracts paying on it (qty × entry, fees
-//   left out) ÷ N; "1u = N contracts" -> those contracts ÷ N (N from the file);
-//   no unit basis in the files (or files that disagree) -> contracts only, so
-//   labelled, never a guessed unit and no cap comparison. The page holds no
-//   dollar figure and no contracts-per-unit figure of its own.
+//   per team-outcome: units on the UNIT STAMPED ON THE DESK ROW WHOSE ORDER
+//   PRODUCED EACH FILL (#487, ARCHITECT 2026-10-13, and addendum 67 item 3,
+//   2026-10-14; by the stamp, never a date, since addendum 197 item 1,
+//   2026-11-01, #753): "1u = $N" -> the entry cost of the fill's contracts
+//   (qty × entry, fees left out) ÷ N; "1u = N contracts" -> its contracts ÷ N
+//   (N from the row's label), on every outcome the fill pays on; the row is
+//   the loaded order row of the fill's ticker latest before the fill opened
+//   (fillOrderIndex / fillOrderMatch); a fill no loaded row produced ->
+//   contracts only, labelled, and its outcome gets no cap comparison. The
+//   page holds no dollar figure and no contracts-per-unit figure of its own.
 // A fill whose contract role the ticker does not decide is EXCLUDED and counted
 // (law 4: never guessed). Fills are realized (closed) positions, so this is the
 // exposure as executed, not a live book.
@@ -2362,32 +2393,73 @@ function realizedHTML(L){
 // counted apart ("event identity ambiguous").
 const THREE_WAY_FAMILIES=new Set(["EPL","UCL","FACUP","UEFANL"]);
 const BTRACK_CAP_U=1.25;
-// The unit basis of the loaded files, read from their order lines as desk_policy.file_unit_basis reads a file's:
-// "1u = $N" (SP_UNIT_USD set) or "1u = N contracts" (unset). Every accepted loaded file counts: the prediction and
-// fixtures rows' orders and a desk_parlays file's ticket legs' orders. One basis across them -> it; none -> null;
-// more than one -> {conflict} (never a pick between them).
-function fillUnitBasis(rs,parlays){
-  const seen=new Map();
-  const units=(rs||[]).map(r=>(((r||{}).fileDesk||{}).order||{}).unit)
-    .concat(((parlays||{}).tickets||[]).flatMap(t=>((t||{}).legs||[]).map(l=>((l||{}).order||{}).unit)));
-  for(const raw of units){
-    const u=String(raw||"").trim(); if(!u) continue;
-    let m=u.match(/^1u = \$([0-9.]+)/), b=null;
-    if(m&&+m[1]>0) b={mode:"usd",value:+m[1]};
-    else if((m=u.match(/^1u = ([0-9]+) contracts\b/))&&+m[1]>0) b={mode:"contracts",value:+m[1]};
-    if(b) seen.set(b.mode+":"+b.value,b);
+// One unit label, as desk_policy writes it: "1u = $N" -> {usd N}; "1u = N contracts" -> {contracts N}; anything else
+// (the v1.2 "unit unread" label included) -> null, never a unit.
+function unitLabelBasis(raw){
+  const u=String(raw||"").trim(); if(!u) return null;
+  let m=u.match(/^1u = \$([0-9.]+)/);
+  if(m&&+m[1]>0) return {mode:"usd",value:+m[1]};
+  if((m=u.match(/^1u = ([0-9]+) contracts\b/))&&+m[1]>0) return {mode:"contracts",value:+m[1]};
+  return null;
+}
+// THE STAMP, NOT A DATE (ARCHITECT 2026-11-01 08:45 ET, addendum 197 item 1, verbatim): "a fill converts by the unit
+// stamped on the Desk row whose order produced it, and by nothing else. The Cockpit matches a fill to the loaded files'
+// order rows by TICKER (the order line names it); where several loaded files carry an order for that ticker, the latest
+// row whose page time is before the fill's opened time (the closing row stands over the slate row, #632's rule); the
+// matched row's own "1u = $X" label is the basis — a v1.1 row by its v1.1 label, a v1.2 row by its day's label. A fill
+// matched to NO loaded order row converts to nothing: contracts only, labelled "no loaded page carries this order".
+// So: no fill is ever read on the game's day or on a file's date; no v1.1 label reaches past its own rows; the page
+// needs no switch date and never infers one." (It replaces the per-ET-day reading of round 1, C1 and C4.)
+// The loaded files' order rows by ticker: {TICKER: [{pageTime (ms; NaN when it does not read), label, basis, source,
+// page}]}. Every loaded row's desk.order that names a ticker AND was written (its `text`; model and venue rows alike;
+// page time: the row's exportedAt, its file's desk_meta.as_of || exported_at) and every desk_parlays leg's order that
+// does (page time: the parlay file's own desk_meta.as_of || exported_at). An order line that names a ticker but wrote
+// no order (desk_policy.order_line's "no ask to take", "outside (0, 1)", "under one contract" exits keep the ticker,
+// text null) produced no fill: it is never a candidate, so it never stands over the row that wrote the order.
+function fillOrderIndex(rs,parlays){
+  const idx={};
+  const add=(order,page,source)=>{
+    const o=order||{}, T=String(o.ticker||"").trim().toUpperCase(); if(!T||!o.text) return;
+    const label=String(o.unit==null?"":o.unit).trim();
+    (idx[T]=idx[T]||[]).push({pageTime:page?utcMs(page):NaN,label,basis:unitLabelBasis(label),source,page:page||null});
+  };
+  for(const r of (rs||[])) add(((r||{}).fileDesk||{}).order,(r||{}).exportedAt||null,"row");
+  if(parlays){
+    const m=parlays.desk_meta||{}, page=m.as_of||parlays.exported_at||null;
+    for(const t of (parlays.tickets||[])) for(const l of ((t||{}).legs||[])) add((l||{}).order,page,"parlay leg");
   }
-  if(!seen.size) return null;
-  if(seen.size>1) return {conflict:Array.from(seen.values()).map(fillUnitLabel)};
-  return Array.from(seen.values())[0];
+  return idx;
 }
-function fillUnitLabel(b){
-  if(!b) return "contracts (no unit basis in file)";
-  if(b.conflict) return `contracts (the loaded files' unit bases differ: ${b.conflict.join(" vs ")})`;
-  return b.mode==="usd"?`1u = $${b.value}`:`1u = ${b.value} contracts`;
+// addendum 197 item 1, verbatim:
+const FILL_UNMATCHED_LABEL="no loaded page carries this order";
+// One fill's unit: {basis (null = contracts only), kind, label, page}. The candidates are the order rows of the fill's
+// own ticker (exact, trimmed, uppercased) whose page time reads and is strictly BEFORE the fill's opened time; the
+// latest of them is the row that produced the order (the closing row over the slate row). Its own label is the basis.
+// Never a pick: rows of that latest page time that differ on the label are a conflict (contracts only, both named);
+// a label that does not read as a unit (v1.2's "unit unread — no order") is contracts only, the label printed.
+function fillOrderMatch(index,fill){
+  const f=fill||{}, T=String(f.ticker||"").trim().toUpperCase(), cands=(T&&(index||{})[T])||[];
+  if(!cands.length) return {basis:null,kind:"unmatched",label:FILL_UNMATCHED_LABEL,page:null};
+  const open=utcMs(f.opened);
+  if(!isFinite(open)) return {basis:null,kind:"no_open_time",
+    label:"the fill's opened time does not read: no loaded page can be placed before it",page:null};
+  const timed=cands.filter(c=>isFinite(c.pageTime)), before=timed.filter(c=>c.pageTime<open);
+  if(!before.length) return {basis:null,kind:"after_fill",
+    label:"no loaded page carries this order before the fill opened"
+      +(timed.length?"":` (${cands.length} order row(s) with no readable page time)`),page:null};
+  const t=Math.max(...before.map(c=>c.pageTime)), top=before.filter(c=>c.pageTime===t);
+  const labels=[...new Set(top.map(c=>c.label))].sort();
+  if(labels.length>1) return {basis:null,kind:"conflict",
+    label:`the loaded pages of ${top[0].page} differ on this order's unit: ${labels.join(" vs ")}`,page:top[0].page};
+  const c=top[0];
+  if(!c.basis) return {basis:null,kind:"label_unread",label:c.label||"(no unit label)",page:c.page};
+  return {basis:c.basis,kind:"matched",label:c.label,page:c.page,source:c.source};
 }
-function fillExposure(L,basis){
-  const ub=basis&&!basis.conflict?basis:null;
+// The short text of a contracts-only kind, for the headline's count.
+const FILL_KIND_TEXT={unmatched:FILL_UNMATCHED_LABEL,after_fill:"no loaded page carries this order before the fill opened",
+  no_open_time:"the fill's opened time does not read",conflict:"the latest pages differ on the unit",
+  label_unread:"the order's unit label does not read"};
+function fillExposure(L,index){
   const games={}; let excludedRole=0, excludedEvent=0;
   for(const f of (L.fills||[])){
     if(f.kind!=="sport"){ continue; }
@@ -2400,25 +2472,44 @@ function fillExposure(L,basis){
     const k=cut>0?T.slice(0,cut):"";
     if(!/^KX[A-Z]+GAME-\d{2}[A-Z]{3}\d{2}(\d{4})?[A-Z0-9]+$/.test(k)||T.slice(cut+1)!==f.sideCode
        ||!k.endsWith(f.teams)){ excludedEvent++; continue; }
+    const z=()=>Object.fromEntries(outs.map(o=>[o,0]));
     const g=games[k]=games[k]||{key:k,family:f.family,date:f.date,teams:f.teams,outs,fills:0,gross:0,fees:0,
-      pay:Object.fromEntries(outs.map(o=>[o,0])),cost:Object.fromEntries(outs.map(o=>[o,0])),codes:tr.codes||null};
+      pay:z(),cost:z(),conv:z(),convN:z(),unconv:z(),units:{},codes:tr.codes||null};
     if(!g.codes&&tr.codes) g.codes=tr.codes;
-    const cost=qty*(+f.entry||0);
+    const cost=qty*(+f.entry||0), m=fillOrderMatch(index,f), b=m.basis;
+    const u=!b?null:b.mode==="usd"?cost/b.value:qty/b.value;
     g.fills++; g.gross+=cost; g.fees+=+f.fees||0;
-    for(const o of outs) if(no?o!==tr.role:o===tr.role){ g.pay[o]+=qty; g.cost[o]+=cost; }
+    const uk=m.kind+"␟"+m.label;
+    (g.units[uk]=g.units[uk]||{kind:m.kind,label:m.label,fills:0}).fills++;
+    for(const o of outs) if(no?o!==tr.role:o===tr.role){
+      g.pay[o]+=qty; g.cost[o]+=cost;
+      if(u==null) g.unconv[o]+=qty; else { g.conv[o]+=u; g.convN[o]++; }
+    }
   }
-  const unitsOf=(g,o)=>!ub?null:ub.mode==="usd"?g.cost[o]/ub.value:g.pay[o]/ub.value;
   const list=Object.values(games).map(g=>{
     const minPay=Math.min(...g.outs.map(o=>g.pay[o]));
-    const outcomes=g.outs.map(o=>{ const u=unitsOf(g,o);
-      return {outcome:o,contracts:g.pay[o],cost:g.cost[o],units:u,over:u!=null&&u>BTRACK_CAP_U+1e-9,
-        net:g.pay[o]-g.gross-g.fees}; });
-    return {...g,hedge:minPay,cashAtRisk:Math.max(0,g.gross+g.fees-minPay),outcomes};
+    const outcomes=g.outs.map(o=>{ const u=g.convN[o]?g.conv[o]:null, un=g.unconv[o];
+      return {outcome:o,contracts:g.pay[o],cost:g.cost[o],units:u,unconverted:un,
+        over:u==null||un>0?null:u>BTRACK_CAP_U+1e-9,net:g.pay[o]-g.gross-g.fees}; });
+    const units=Object.values(g.units).sort((a,b)=>(a.kind==="matched"?0:1)-(b.kind==="matched"?0:1)
+      ||a.kind.localeCompare(b.kind)||a.label.localeCompare(b.label));
+    const contractsOnly={};
+    for(const x of units) if(x.kind!=="matched") contractsOnly[x.kind]=(contractsOnly[x.kind]||0)+x.fills;
+    const {conv,convN,unconv,...rest}=g;
+    return {...rest,units,labels:units.filter(x=>x.kind==="matched").map(x=>x.label),contractsOnly,
+      hedge:minPay,cashAtRisk:Math.max(0,g.gross+g.fees-minPay),outcomes};
   }).sort((a,b)=>b.cashAtRisk-a.cashAtRisk||a.key.localeCompare(b.key));
   const outcomes=list.flatMap(g=>g.outcomes.filter(o=>o.contracts>0));
-  return {games:list,excluded:excludedRole+excludedEvent,excludedRole,excludedEvent,basis:basis||null,
-    unitLabel:fillUnitLabel(basis),
-    summary:{games:list.length,teamOutcomes:outcomes.length,over:ub?outcomes.filter(o=>o.over).length:null,
+  const full=outcomes.filter(o=>o.units!=null&&!o.unconverted);
+  const byKind={}, labels=new Set(); let matched=0;
+  for(const g of list) for(const x of g.units){
+    if(x.kind==="matched"){ matched+=x.fills; labels.add(x.label); } else byKind[x.kind]=(byKind[x.kind]||0)+x.fills; }
+  return {games:list,excluded:excludedRole+excludedEvent,excludedRole,excludedEvent,
+    summary:{games:list.length,teamOutcomes:outcomes.length,withUnit:full.length,
+      over:full.length?full.filter(o=>o.over).length:null,
+      partial:outcomes.filter(o=>o.units!=null&&o.unconverted>0).length,
+      matchedFills:matched,labels:Array.from(labels).sort(),
+      contractsOnlyFills:Object.values(byKind).reduce((a,n)=>a+n,0),contractsOnlyByKind:byKind,
       hedged:list.filter(g=>g.hedge>0).length,hedge:list.reduce((a,g)=>a+g.hedge,0),
       gross:list.reduce((a,g)=>a+g.gross,0),fees:list.reduce((a,g)=>a+g.fees,0),
       cashAtRisk:list.reduce((a,g)=>a+g.cashAtRisk,0),maxCashAtRisk:list.length?list[0].cashAtRisk:0}};
@@ -2427,27 +2518,44 @@ function exposureOutcomeName(g,o){
   if(o==="DRAW") return "tie";
   const c=g.codes; return c?(o==="HOME"?c.home:c.away)+` (${o.toLowerCase()})`:o.toLowerCase();
 }
+// The headline's units clause (addendum 197 item 1): the fills matched to their order's row and the labels used, the
+// fills in contracts only by why.
+function exposureUnitsText(x){ const s=x.summary;
+  const why=Object.keys(s.contractsOnlyByKind).sort().map(k=>`${FILL_KIND_TEXT[k]||k}: ${s.contractsOnlyByKind[k]}`);
+  return `${s.matchedFills} fill(s) matched`+(s.labels.length?` (${s.labels.join("; ")})`:"")
+    +`, ${s.contractsOnlyFills} fill(s) contracts only`+(why.length?` (${why.join("; ")})`:""); }
+// One game's units, for its table cell: each label its fills converted by; each contracts-only reason, its label.
+function exposureGameUnitText(g){
+  return g.units.map(x=>x.kind==="matched"?`${x.label} (${x.fills} fill(s))`
+    :`contracts only: ${x.label} (${x.fills} fill(s))`).join(" · "); }
 function exposureHeadline(x){ const s=x.summary;
   return `B-track fills exposure (diagnostic, cap/sizing unchanged): ${s.games} game(s) · ${s.teamOutcomes} team-outcome(s) · `
     +`gross $${s.gross.toFixed(2)} · cash at risk $${s.cashAtRisk.toFixed(2)} (max one game $${s.maxCashAtRisk.toFixed(2)}) · `
-    +`hedged ${s.hedged} game(s), offset $${s.hedge.toFixed(2)} · units at ${x.unitLabel}`
-    +(s.over==null?` · the ${BTRACK_CAP_U}u cap-equivalent not read (no unit)`:` · over the ${BTRACK_CAP_U}u cap-equivalent ${s.over}`)
+    +`hedged ${s.hedged} game(s), offset $${s.hedge.toFixed(2)} · units by the Desk row whose order produced each fill `
+    +`(addendum 197): ${exposureUnitsText(x)}`
+    +(s.over==null?` · the ${BTRACK_CAP_U}u cap-equivalent not read (no team-outcome fully converted)`
+      :` · over the ${BTRACK_CAP_U}u cap-equivalent ${s.over} (of ${s.withUnit} team-outcome(s) fully converted)`)
+    +(s.partial?` · ${s.partial} team-outcome(s) partly converted (no cap read)`:"")
     +(x.excludedRole?` · ${x.excludedRole} fill(s) excluded (contract role not decided by the ticker)`:"")
     +(x.excludedEvent?` · ${x.excludedEvent} fill(s) excluded (event identity ambiguous)`:""); }
 function exposureHTML(L){
-  const x=fillExposure(L,fillUnitBasis(rows,fileParlays)); if(!x.games.length&&!x.excluded) return "";
+  const x=fillExposure(L,fillOrderIndex(rows,fileParlays)); if(!x.games.length&&!x.excluded) return "";
   const $$=v=>(v<0?"−$":"$")+Math.abs(v).toFixed(2);
   const trs=x.games.slice(0,25).map(g=>`<tr><td>${esc(g.key)}</td><td>${g.fills}</td>`
     +`<td>${$$(g.gross)}</td><td>${$$(g.fees)}</td><td>${g.hedge?$$(g.hedge):"—"}</td><td><b>${$$(g.cashAtRisk)}</b></td><td>`
+    +`<span class="note">${esc(exposureGameUnitText(g))}</span><br>`
     +g.outcomes.filter(o=>o.contracts>0).map(o=>`<span class="${o.over?"caution":""}">${esc(exposureOutcomeName(g,o.outcome))}: `
-      +`${o.contracts} ct`+(o.units==null?"":` ≈ ${o.units.toFixed(2)}u${o.over?` &gt; ${BTRACK_CAP_U}u`:""}`)
+      +`${o.contracts} ct`+(o.units==null?"":` ≈ ${o.units.toFixed(2)}u`
+        +(o.unconverted?` (partial: ${o.unconverted} ct in contracts only, no cap read)`:o.over?` &gt; ${BTRACK_CAP_U}u`:""))
       +` · if it lands ${$$(o.net)}</span>`).join("<br>")
     +`</td></tr>`).join("");
+  const head=x.summary.matchedFills?`contracts ≈ units by the Desk row whose order produced each fill, beside the ${BTRACK_CAP_U}u cap; contracts only where no loaded order row converts the fill (reason in each game's cell)`
+    :"contracts only: no loaded order row converts these fills (reason in each game's cell)";
   return `<h2>B-track exposure — fills-based (#211, diagnostic)</h2><div class="note">${esc(exposureHeadline(x))}</div>`
     +`<div class="tablewrap"><table id="exposureTable"><thead><tr><th>settlement event (ticker)</th><th>fills</th><th>gross stake</th><th>fees</th>`
-    +`<th>hedge offset</th><th>cash at risk</th><th>per team-outcome (${esc(x.basis&&!x.basis.conflict?`contracts ≈ units at ${x.unitLabel}, beside the ${BTRACK_CAP_U}u cap`:x.unitLabel)})</th></tr></thead>`
+    +`<th>hedge offset</th><th>cash at risk</th><th>per team-outcome (${esc(head)})</th></tr></thead>`
     +`<tbody>${trs}</tbody></table></div>`+(x.games.length>25?`<div class="note">top 25 of ${x.games.length} by cash at risk</div>`:"")
-    +`<div class="note">Cash at risk = gross + fees − the worst outcome's payout; a hedge offset counts only contracts of the SAME settlement event that pay on EVERY outcome (a tie leaves a home/away pair unhedged in soccer; a doubleheader is two events). Units are read on the loaded files' own unit basis (their order lines: "1u = $N" → the entry cost paying on the outcome, fees left out, ÷ N; "1u = N contracts" → contracts ÷ N); with no basis in the files, contracts only. The cap stays units-based and is NOT applied here.</div>`;
+    +`<div class="note">Cash at risk = gross + fees − the worst outcome's payout; a hedge offset counts only contracts of the SAME settlement event that pay on EVERY outcome (a tie leaves a home/away pair unhedged in soccer; a doubleheader is two events). Units by the stamp, never a date (addendum 197): each fill is matched by its ticker to the loaded Desk rows whose order names it; of those, the latest row whose page time is before the fill opened produced it (the closing row stands over the slate row), and that row's own unit label converts it ("1u = $N" → the fill's entry cost, fees left out, ÷ N; "1u = N contracts" → its contracts ÷ N) — a v1.1 row by its v1.1 label, a v1.2 row by its day's label. A fill no loaded page carries the order of (an off-book bet included), or carries it only after the fill opened, is contracts only, labelled; so is a fill whose row's label does not read or whose latest rows differ. No fill is read on the game's day or a file's date. A team-outcome with any contracts-only fill has no cap comparison. The cap stays units-based and is NOT applied here.</div>`;
 }
 function realizedLines(L){
   const fs=classifyFills(L); if(!fs.length) return ["REALIZED (Kalshi fills): none imported"];
@@ -2462,7 +2570,7 @@ function realizedLines(L){
     (()=>{const fc=feeClassSummary(fs); return `fee class (open legs, fee vs formula): ${fc.txt}`
       +(fc.live?` · ${fc.live} MLB fill(s) at the LIVE rate (doctrine: MLB is never executed live)`:"");})(),
     `unmatched-but-plausible for manual review: ${fs.filter(x=>x.plausible).length}`,
-    exposureHeadline(fillExposure(L,fillUnitBasis(rows,fileParlays))),""];
+    exposureHeadline(fillExposure(L,fillOrderIndex(rows,fileParlays))),""];
 }
 $("kalshiCsvFile").addEventListener("change",async e=>{
   const f=e.target.files[0]; if(!f)return;
@@ -2485,6 +2593,9 @@ function buildParlays(){
 // matched to its loaded row (sport, home, away, kickoff, pick). A ticket with a
 // leg not in the loaded files is skipped and counted, never rebuilt.
 let fileParlays=null, parlayNote="";
+// every accepted prediction/fixtures file's desk_meta, rows or none (#753 review: an empty export still counts): the
+// Ledger card's policy line reads their policy versions (addendum 197 item 2)
+let fileMetas=[];
 function parlaysFromFile(){
   parlayNote="";
   if(!fileParlays){ parlayNote="no desk_parlays file loaded — run desk-parlays on these exports and load its file"; return []; }
@@ -2693,7 +2804,7 @@ async function loadDocs(fs){
   if(cov.taken){ try{ renderToday(); }catch(e){ did.coverageError=(e&&e.message)||String(e); todayFailed(did.coverageError); } }
   fs=cov.rest;
   if(!fs.length){ setTab("today"); return did; }   // a coverage file alone: the loaded slate is never reset
-  rows=[]; shadowRows=[]; fileParlays=null; refusedFiles=[]; const sports=new Set();
+  rows=[]; shadowRows=[]; fileParlays=null; refusedFiles=[]; fileMetas=[]; const sports=new Set();
   did.slate=true;
   for(const f of fs){
     try{const doc=JSON.parse(f.text);
@@ -2705,9 +2816,12 @@ async function loadDocs(fs){
       // and desk_parlays files keep their own paths (above).
       if(rr.some(r=>!r.fileDesk)){ refusedFiles.push(f.name); continue; }
       rr.forEach(r=>sports.add(r.sport));
+      if(doc.desk_meta) fileMetas.push(doc.desk_meta);
       rows=rows.concat(rr);}
-    catch(err){$("summary").textContent=`Could not parse ${f.name}: ${err.message}`; did.refused=refusedFiles.slice(); return did;}
+    catch(err){$("summary").textContent=`Could not parse ${f.name}: ${err.message}`; did.refused=refusedFiles.slice();
+      renderLedgerExportsLine(); return did;}
   }
+  renderLedgerExportsLine();   // addendum 197 item 2: the card's policy line by the loaded files' versions
   sportLabel=Array.from(sports).join("+");
   policy();
   renderCard();

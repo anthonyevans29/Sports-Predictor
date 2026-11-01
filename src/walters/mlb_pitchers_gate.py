@@ -30,8 +30,8 @@ GATE-CLASS). The ruling, verbatim, the harness and Code's readings: docs/specs/m
   the entry is declared and unrun, and while it is absent (fails closed); lifted once its run is recorded. The gate's
   own walk passes sealed_read after its reservation. OFF (the default walk) is never fenced by it.
 - --db: required; an existing SQLite file, never created, never under the repo's data/ (law 5) and never the app's
-  configured database; opened mode=ro (a URI) by both the sqlite3 as-of loader and the SQLAlchemy session the walk
-  reads through.
+  configured database; opened mode=ro + immutable=1 (a URI; addendum 198 item 6(ii)) by both the sqlite3 as-of loader
+  and the SQLAlchemy session the walk reads through.
 """
 from __future__ import annotations
 
@@ -218,26 +218,34 @@ def check_db(db) -> Path:
     return tgt
 
 
+# ADDENDUM 198 item 6(ii) (ARCHITECT 2026-11-01 10:05 ET): "every `--db` on a copy opens it with `immutable=1` beside
+# `mode=ro` (SQLite's own read of a file nothing else writes)". A fresh .backup copy is a WAL-mode file with no
+# sidecars, which a plain mode=ro open refuses where it cannot create them (the 09:48 ET console); immutable=1 reads it
+# and creates none. The gate reads a copy only (never the configured database), so every open here is a copy's.
+COPY_URI_QUERY = "?mode=ro&immutable=1"
+
+
 def open_ro(path: Path):
-    """sqlite3 on the copy through a mode=ro URI (never created, never written; SQLite refuses a write)."""
+    """sqlite3 on the copy through a mode=ro + immutable=1 URI (never created, never written; SQLite refuses a write;
+    no sidecar created)."""
     try:
-        con = sqlite3.connect(path.as_uri() + "?mode=ro", uri=True)
+        con = sqlite3.connect(path.as_uri() + COPY_URI_QUERY, uri=True)
         con.execute("SELECT 1 FROM matches LIMIT 1")
     except sqlite3.Error as e:
-        raise GateRefused(f"--db {path}: cannot be read through a mode=ro URI ({e}); nothing read")
+        raise GateRefused(f"--db {path}: cannot be read through a mode=ro + immutable=1 URI ({e}); nothing read")
     return con
 
 
 @contextmanager
 def readonly_session(path: Path):
-    """A SQLAlchemy session on the copy through a mode=ro URI (database.readonly_scope's pattern, bound to the --db
+    """A SQLAlchemy session on the copy through a mode=ro + immutable=1 URI (database.readonly_scope's pattern, bound to the --db
     file): no connect hook, no pragma, no commit; closed, never committed. The URI is open_ro's percent-encoded
     path.as_uri() handed to sqlite3 directly, so a '#' or '?' in the path cannot cut the filename or drop mode=ro."""
     from sqlalchemy import create_engine
     from sqlalchemy.orm import Session
     from sqlalchemy.pool import NullPool
 
-    uri = path.as_uri() + "?mode=ro"                 # percent-encoded: a '#' or '?' in the path cannot drop mode=ro
+    uri = path.as_uri() + COPY_URI_QUERY             # percent-encoded: a '#' or '?' in the path cannot drop mode=ro
     eng = create_engine("sqlite://", poolclass=NullPool,
                         creator=lambda: sqlite3.connect(uri, uri=True, check_same_thread=False))
     session = Session(eng, autoflush=False, expire_on_commit=False)

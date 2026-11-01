@@ -90,6 +90,15 @@ become MORE binding under an income goal, never less."
   runs every backticked span as a shell command: on 2026-10-06 one ran
   `python cli.py nfl-grade`, which created an empty DB under the container's
   data/ and blanked the span in #290's body.
+- **Operator blocks (ARCHITECT 2026-11-01, addendum 198 item 6(i), standing):**
+  "from now on the ARCHITECT writes every block the operator runs; Code builds,
+  reports heads and receipts, and names the command and its arguments in the PR
+  body, but ships no block to the operator."
+- **`--db` copies (ARCHITECT 2026-11-01, addendum 198 item 6(ii), standing):**
+  "every `--db` on a copy opens it with `immutable=1` beside `mode=ro` (SQLite's
+  own read of a file nothing else writes) ... the live file keeps readonly_scope
+  as is." A fresh .backup copy is a WAL-mode file with no sidecars, which a plain
+  mode=ro open refuses where it cannot create them.
 - **Sweep (ARCHITECT, 2026-10-05):** an UNANSWERED Codex thread on a
   MERGED PR is a finding in its own right: verify it, then fix it in a
   follow-up PR or escalate it. #278's missed P1 left a grading close that

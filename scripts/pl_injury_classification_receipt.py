@@ -42,7 +42,8 @@ first real answer of each kind before any field of it is read):
   input_quality.injuries.{home,away}.{count,synced_at} (the guard's count and our sync clock),
   prediction.factor_breakdown.{home,away}_injuries_count / factor_notes / lineup_kind, desk.call / desk.pick.
 - THE DATABASE, mode=ro: the configured file through src.db.database.readonly_scope(), or --db PATH (a .backup copy
-  OUTSIDE data/, refused under data/) opened the same way (a mode=ro URI; a missing file is refused, never created).
+  OUTSIDE data/, refused under data/) opened through a mode=ro + immutable=1 URI (addendum 198 item 6(ii); a missing
+  file is refused, never created).
   matches (id, home_team_id, away_team_id, utc_date, status, home_score, away_score, competition_id, external_ids:
   "api_football" is the provider's fixture id), teams (name, external_ids "api_football", with ids recorded by a merge),
   competitions (code), injuries (id, team_id, player_name, player_position, reason, type, fixture_source_id, source,
@@ -134,8 +135,9 @@ GUARD_COUNTS = (
     "counts the same rows and never reads type.")
 SIDECARS = ("SQLITE SIDECARS (a reading, not a write): the app runs the database in WAL mode, and SQLite's own mode=ro "
             "open of a WAL file with no live connection creates <file>-wal and <file>-shm beside it and leaves them "
-            "(empty sidecars, no row written). On the live file that is two files under data/; --db on a .backup "
-            "copy outside data/ keeps them beside the copy. database.readonly_scope (#706) opens the same way.")
+            "(empty sidecars, no row written). On the live file that is two files under data/; "
+            "database.readonly_scope (#706) opens the live file that way. --db on a .backup copy outside data/ opens it "
+            "with immutable=1 beside mode=ro (addendum 198 item 6(ii)): no sidecar is created beside the copy.")
 LABELS_NOTE = ("STATUS LABELS (ruling 1(c)): the stored `type` is printed verbatim, the provider's own word; no bucket "
                "but the exact word. Out / doubtful / questionable are the NFL feed's words, not this one's.")
 
@@ -356,11 +358,15 @@ def open_db(db: str | None):
             raise Refused(f"REFUSED: no DB file at {path}: a read-only read never creates one")
         from sqlalchemy import create_engine
         from sqlalchemy.orm import Session
-        eng = create_engine(f"sqlite:///file:{path.as_posix()}?mode=ro&uri=true",
+        # ADDENDUM 198 item 6(ii) (ARCHITECT 2026-11-01 10:05 ET): "every `--db` on a copy opens it with
+        # `immutable=1` beside `mode=ro` (SQLite's own read of a file nothing else writes)": a fresh .backup copy is a
+        # WAL-mode file with no sidecars, which a plain mode=ro open refuses where it cannot create them (the 09:48 ET
+        # console); immutable=1 reads it and creates none. The live file keeps readonly_scope as is.
+        eng = create_engine(f"sqlite:///file:{path.as_posix()}?mode=ro&immutable=1&uri=true",
                             connect_args={"uri": True, "check_same_thread": False})
         s = Session(eng, autoflush=False, expire_on_commit=False)
         try:
-            yield s, f"--db {path} (mode=ro URI)"
+            yield s, f"--db {path} (mode=ro + immutable=1 URI: a copy nothing else writes; no sidecar created)"
         finally:
             s.close()
             eng.dispose()

@@ -197,7 +197,7 @@ def test_exposure_header_census_first_and_teams(world):
     code, out = exposure(world)
     assert code == 0
     assert out[0].startswith("PL INJURY EXPOSURE RECEIPT") and "now 2026-11-01T12:00:00Z" in out[0]
-    assert f"database --db {world['db'].resolve()} (mode=ro URI)" in out[0]
+    assert f"database --db {world['db'].resolve()} (mode=ro + immutable=1 URI" in out[0]
     assert "PL 2026/27: 9 team(s)" in out[0]                                     # Coventry's 2025/26 row left out
     assert any(ln.startswith("WHAT THE MODEL COUNTS") for ln in out)
     assert any('"Missing Fixture" AND the fixture it names is this fixture or a later one' in ln for ln in out)
@@ -463,6 +463,36 @@ def test_exposure_db_bytes_unchanged(world):
     before = _sha(world["db"])
     code, _ = exposure(world)
     assert code == 0 and _sha(world["db"]) == before
+
+
+def test_exposure_a_fresh_wal_backup_copy_opens_and_leaves_no_sidecar(world, tmp_path):
+    """Addendum 198 item 6(ii): a fresh .backup copy is a WAL-mode file with no sidecars; --db opens it with
+    immutable=1 beside mode=ro, reads it, and creates no -wal/-shm beside it (a plain mode=ro open creates both, and
+    refuses where it cannot)."""
+    import sqlite3
+    live = tmp_path / "live.db"
+    src = sqlite3.connect(world["db"])
+    dst = sqlite3.connect(live)
+    src.backup(dst)
+    src.close()
+    dst.execute("PRAGMA journal_mode=WAL")
+    dst.commit()
+    copy_dir = tmp_path / "copy"
+    copy_dir.mkdir()
+    copy = copy_dir / "sp.db"
+    bk = sqlite3.connect(copy)
+    dst.backup(bk)
+    bk.close()
+    dst.close()
+    assert sorted(p.name for p in copy_dir.iterdir()) == ["sp.db"]
+    with open(copy, "rb") as f:
+        assert f.read(20)[18:20] == bytes([2, 2])          # the header's WAL marks: a WAL-mode file
+    before = _sha(copy)
+    out = []
+    code = rc.main(["exposure", "--db", str(copy), "--now", NOW, "--exports", str(world["ex"])],
+                   echo=out.append)
+    assert code == 0 and "(mode=ro + immutable=1 URI" in out[0]
+    assert sorted(p.name for p in copy_dir.iterdir()) == ["sp.db"] and _sha(copy) == before
 
 
 def test_exposure_bad_now_is_argparses_exit_2(world):

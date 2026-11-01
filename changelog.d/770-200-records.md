@@ -8,6 +8,6 @@
 - docs/ledger/entries/2026-11-01-200-records.md quotes addendum 200 item 4 and addenda 201–204 verbatim. It records:
   - the findings #762, #763, #764, #765 and the closes of #426 and #358;
   - the #754 fifth-game note, and the slate_miss:SOCCER code read;
-  - the two owed lines of addendum 205: the NFL quarantine's rounding-boundary sentence, as rewritten by addendum 207 item 1 (src/walters/nfl_predict.py `QUARANTINE_ROUNDING_NOTE`, in the export's contract note and the docs/CLI.md row, which now states the absolute value; tests/test_venue_flag.py pins 14.96 -> 15.0 and its mirror -14.96 -> -15.0, both quarantine true) and the fee finding #769.
+  - the two owed lines of addendum 205: the NFL quarantine's rounding-boundary sentence, as rewritten by addendum 207 item 1 (src/walters/nfl_predict.py `QUARANTINE_ROUNDING_NOTE`, in the export's contract note and the docs/CLI.md row, which now states the absolute value; tests/test_venue_flag.py pins 14.96 -> 15.0 and its mirror -14.96 -> -15.0, both quarantine true; the export note's opening clause reads "rows whose market_divergence_pp has an absolute value of 15 or more carry quarantine=true", addendum 208) and the fee finding #769.
 - tests/test_ncaa_elo_v2.py: the lane's step 2 is now done (addendum 201 item 5); the test pins the done-mark and the next step open.
 - Codex round 1 on #770: the docs/CLI.md row's `|divergence|` bars are escaped (`\|divergence\|`) so the table keeps its three columns.

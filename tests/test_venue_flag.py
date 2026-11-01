@@ -117,4 +117,5 @@ def test_the_quarantine_reads_the_exported_rounded_divergence(slate, tmp_path):
     assert mirror["market"]["fair_prob"]["HOME"] == pytest.approx(0.50, abs=1e-6)
     assert mirror["market_divergence_pp"] == -15.0 and mirror["quarantine"] is True
     assert QUARANTINE_ROUNDING_NOTE in doc["note"]
+    assert "CONTRACT RULE: rows whose market_divergence_pp has an absolute value of 15 or more carry quarantine=true — " in doc["note"]            # addendum 208, verbatim
     assert "absolute value" in QUARANTINE_ROUNDING_NOTE and "|" not in QUARANTINE_ROUNDING_NOTE

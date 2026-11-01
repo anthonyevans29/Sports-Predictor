@@ -348,8 +348,8 @@ def export_nfl_predictions(days_ahead: int = 8, out_dir: str = "exports",
         "contains_predictions": True,
         "rehearsal": False,
         "live_since": f"{NFL_LIVE_SINCE:%Y-%m-%d} (Week 3; ratified after two graded weeks)",
-        "note": ("LIVE: gate-passed v1 Elo. CONTRACT RULE: rows with "
-                 "market_divergence_pp >= 15 carry quarantine=true — "
+        "note": ("LIVE: gate-passed v1 Elo. CONTRACT RULE: rows whose "      # addendum 208: the clause, verbatim
+                 "market_divergence_pp has an absolute value of 15 or more carry quarantine=true — "
                  "consumer treats them as watch-flagged, never straight "
                  "plays (rule earned 1-5 across Weeks 1-2). "
                  + QUARANTINE_ROUNDING_NOTE + " "

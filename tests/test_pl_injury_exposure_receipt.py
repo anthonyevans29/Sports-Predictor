@@ -338,6 +338,21 @@ def test_exposure_next_is_never_a_row_that_cannot_be_played(world):
     assert "next (PL match 202" in line(out, "    D. Later ·") and line(out, "    D. Later ·").endswith("rule yes")
 
 
+def test_exposure_a_live_match_already_started_is_next(world):
+    """Codex on #757: a LIVE PL row kicked off before now is the team's next PL match; an entry naming it is next
+    (the rule counts it), never past."""
+    from src.db.schema import Match, MatchStatus
+
+    def change(s):
+        m = s.get(Match, 201)
+        m.status, m.utc_date = MatchStatus.LIVE, _dt("2026-11-01T11:30:00")      # NOW is 12:00
+    _db_write(world, change)
+    _, out = exposure(world)
+    assert "next PL match: match 201" in line(out, "== Bournemouth")
+    ln = line(out, "    B. Next ·")
+    assert "next (PL match 201 2026-11-01 11:30Z" in ln and ln.endswith("rule yes")
+
+
 def test_exposure_a_fixture_of_a_match_the_team_is_not_in_is_undecidable(world):
     from src.db.schema import Injury, Team
 
@@ -664,6 +679,20 @@ def test_lineups_a_cached_rerun_makes_no_call(world, monkeypatch):
     code = rc.main(["lineups", "--exports", str(world["host"]), "--db", str(world["db"]), "--save",
                     str(world["save"]), "--fixture", "avl-ful=2004"], echo=out.append)
     assert code == 0
+
+
+def test_lineups_max_calls_zero_runs_offline_without_a_key(world, monkeypatch):
+    """Codex on #757: --max-calls 0 caps every unkept read before any get, so no key is asked for and the receipt
+    says INCOMPLETE (exit 0), never a refusal."""
+    def no_probe():
+        raise AssertionError("--max-calls 0 asked for the provider client")
+    monkeypatch.setattr(rc, "_probe_get", no_probe)
+    out = []
+    code = rc.main(["lineups", "--exports", str(world["host"]), "--db", str(world["db"]), "--save",
+                    str(world["save"]), "--max-calls", "0"], echo=out.append)
+    text = "\n".join(out)
+    assert code == 0 and "INCOMPLETE" in text and not any(l.startswith("REFUSED") for l in out)
+    assert summary(out, rc.TAG_LINEUPS)["calls"]["made"] == 0
 
 
 def test_lineups_no_key_is_refused_before_any_call(world, monkeypatch):

@@ -332,8 +332,11 @@ def read_world(s, season: str, now: datetime) -> dict:
             by_prev[str(old)].append(rec)
     teams = []
     for tid in team_ids:
+        # a LIVE row is in play: its kickoff is before now, and it is the team's next PL match all the same (Codex on
+        # #757); every other row counts only from now on
         ahead = sorted((m for m in matches.values() if m["comp_id"] == pl.id and tid in (m["home"], m["away"])
-                        and m["utc"] is not None and m["utc"] >= now), key=lambda m: (m["utc"], m["id"]))
+                        and m["utc"] is not None and (m["utc"] >= now or m["status"] == "live")),
+                       key=lambda m: (m["utc"], m["id"]))
         pls = [m for m in ahead if m["status"] in NEXT_STATUSES]
         passed = [m for m in ahead if m["status"] not in NEXT_STATUSES and (not pls or m["utc"] <= pls[0]["utc"])]
         stored = [{"id": i.id, "name": i.player_name, "position": i.player_position, "reason": i.reason,
@@ -806,7 +809,10 @@ def run_lineups(a, echo, get) -> int:
             games.append(g)
     fetch = None
     need = [g for g in games if g.get("fixture")]
-    if get is None and any(Fetch(save, 0, None).cached_answer("lineups", g["fixture"]) is None for g in need):
+    # the key is asked for only when a call can be made: --max-calls 0 caps every unkept read before any get (Codex on
+    # #757), so that run stays offline and prints INCOMPLETE
+    if get is None and a.max_calls > 0 and any(Fetch(save, 0, None).cached_answer("lineups", g["fixture"]) is None
+                                               for g in need):
         get, key = _probe_get()
         if not key:
             raise Refused("REFUSED: no API_FOOTBALL_KEY (environment or .env)")

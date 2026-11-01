@@ -412,7 +412,9 @@ def _build_row(
             "over_prob": round(pred.over_prob, 4) if pred.over_prob is not None else None,
             "to_advance_home_prob": round(pred.to_advance_home_prob, 4) if pred.to_advance_home_prob is not None else None,
             "to_advance_away_prob": round(pred.to_advance_away_prob, 4) if pred.to_advance_away_prob is not None else None,
-            "factor_breakdown": pred.factor_breakdown or {},
+            # pl-availability-v1 (addendum 198 item 2): the candidate's stored arm never rides inside the prediction
+            # block; on the host it reaches a PL row only as the candidate_* keys below (pl_availability.export_fields)
+            "factor_breakdown": _strip_arm(pred.factor_breakdown),
         }
 
         if not is_baseball:
@@ -654,8 +656,21 @@ def _build_row(
             "book_odds": mkt_iq.get("bookmaker_count") or 0,
             "kalshi": kal_status,
         }
+        # pl-availability-v1 (ARCHITECT 2026-11-01 10:05 ET, addendum 198 item 2): on the host, every PL row carries the
+        # candidate's second probability set and its missing counts beside the model's; never a call, never a Desk
+        # input. Off the host, and on every other competition, the keys are absent. A FINISHED window game's row
+        # withholds the figures until the verdict (the fence, item 3: the row carries the result beside them).
+        from src.walters.pl_availability import export_fields
+        cand = export_fields(pred, row["competition"], m)
+        if cand is not None:
+            row.update(cand)
 
     return row
+
+
+def _strip_arm(fb) -> dict:
+    from src.walters.pl_availability import strip_arm
+    return strip_arm(fb)
 
 
 def _injury_side(lst: list) -> dict:
@@ -978,7 +993,7 @@ def result_row(s, pred, oc, m) -> dict:
     actual_total = None
     if oc.actual_home_score is not None and oc.actual_away_score is not None:
         actual_total = oc.actual_home_score + oc.actual_away_score
-    return {
+    row = {
         "match_id": m.id,
         "date": m.utc_date.isoformat() if m.utc_date else None,
         "away_team": away, "home_team": home,
@@ -1017,6 +1032,13 @@ def result_row(s, pred, oc, m) -> dict:
             **_close_block(s, m),                # q_close per side for entry-price CLV (#208)
         },
     }
+    # pl-availability-v1 (addendum 198 items 2-3): the grader's second arm, on the host for a PL game, beside
+    # `predicted` and `graded` (unchanged); fenced on a window game until the verdict (pl_availability.result_arm)
+    from src.walters.pl_availability import RESULT_KEY, result_arm
+    arm = result_arm(s, pred, oc, m)
+    if arm is not None:
+        row[RESULT_KEY] = arm
+    return row
 
 
 def export_results(

@@ -381,11 +381,36 @@ def _sha(p: Path) -> str:
     return hashlib.sha256(p.read_bytes()).hexdigest()
 
 
+def test_a_fresh_wal_backup_copy_opens_immutable_and_leaves_no_sidecar(world, tmp_path):
+    """Addendum 198 item 6(ii): --db opens a fresh WAL-mode .backup copy with immutable=1 beside mode=ro, reads it,
+    and creates no -wal/-shm beside it."""
+    import sqlite3
+    live = tmp_path / "wal-live.db"
+    with sqlite3.connect(world["db"]) as src, sqlite3.connect(live) as dst:
+        src.backup(dst)
+    with sqlite3.connect(live) as dst:
+        dst.execute("PRAGMA journal_mode=WAL")
+    d = tmp_path / "walcopy"
+    d.mkdir()
+    p = d / "sp.db"
+    src = sqlite3.connect(live)
+    bk = sqlite3.connect(p)
+    src.backup(bk)
+    bk.close()
+    src.close()
+    assert sorted(x.name for x in d.iterdir()) == ["sp.db"] and p.read_bytes()[18:20] == bytes([2, 2])
+    before = _sha(p)
+    with rc.open_db(str(p)) as (s, label):
+        assert "(mode=ro + immutable=1 URI" in label
+        s.execute(__import__("sqlalchemy").text("SELECT count(*) FROM matches")).scalar()
+    assert sorted(x.name for x in d.iterdir()) == ["sp.db"] and _sha(p) == before
+
+
 def test_the_db_copy_is_opened_read_only_bytes_unchanged(world):
     before = _sha(world["db"])
     code, out, _ = run(world)
     assert code == 0 and _sha(world["db"]) == before
-    assert f"database --db {world['db'].resolve()} (mode=ro URI)" in out[0]
+    assert f"database --db {world['db'].resolve()} (mode=ro + immutable=1 URI" in out[0]
     assert "machine role laptop (ruling 1(b) reads the LAPTOP's database" in out[0]       # conftest pins the role
     assert not (world["db"].parent / "copy.db-journal").exists()
 

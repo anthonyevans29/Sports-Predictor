@@ -771,6 +771,32 @@ def test_a_hash_or_question_mark_in_the_copys_path_keeps_mode_ro_and_reads_that_
     assert sorted(x.name for x in gate["tmp"].iterdir() if x.suffix == "" and x.is_file()) == ["bk", "q"]
 
 
+def test_a_fresh_wal_backup_copy_opens_immutable_and_leaves_no_sidecar(gate):
+    """Addendum 198 item 6(ii): a fresh .backup copy is a WAL-mode file with no sidecars; open_ro and readonly_session
+    open it with immutable=1 beside mode=ro, read it, and create no -wal/-shm beside it (a plain mode=ro open creates
+    both, and refuses where it cannot)."""
+    live = gate["tmp"] / "wal-live.db"
+    with sqlite3.connect(gate["db"]) as src, sqlite3.connect(live) as dst:
+        src.backup(dst)
+    with sqlite3.connect(live) as dst:
+        dst.execute("PRAGMA journal_mode=WAL")
+    d = gate["tmp"] / "walcopy"
+    d.mkdir()
+    p = d / "copy.db"
+    src = sqlite3.connect(live)
+    bk = sqlite3.connect(p)
+    src.backup(bk)
+    bk.close()
+    src.close()
+    assert sorted(x.name for x in d.iterdir()) == ["copy.db"] and p.read_bytes()[18:20] == bytes([2, 2])
+    before = _sha(p)
+    con = mp.open_ro(p)
+    con.close()
+    with mp.readonly_session(p) as s:
+        assert mp.production_config(s)[0] == "v2"
+    assert sorted(x.name for x in d.iterdir()) == ["copy.db"] and _sha(p) == before
+
+
 def test_a_missing_copy_path_component_creates_nothing(gate):
     """No file is created at a cut path when nothing is there (the reproduction's empty 0-byte 'bk')."""
     (gate["tmp"] / "bk#2").mkdir()

@@ -7553,7 +7553,8 @@ def ncaa_gate_cmd(eid, preflight, word, fingerprint, no_fetch):
 
 @cli.command("mlb-pitchers-freeze")
 @click.option("--db", "db", default=None,
-              help="REQUIRED: a .backup copy of the database OUTSIDE data/ (law 5); opened mode=ro, never created.")
+              help="REQUIRED: a .backup copy of the database OUTSIDE data/ (law 5); opened mode=ro + immutable=1 "
+                   "(addendum 198 item 6(ii)), never created.")
 @click.option("--no-fetch", "no_fetch", is_flag=True,
               help="Cross-ref guard (#329): skip fetching origin laptop/*; only the refs this clone knows are checked "
                    "and the receipt says other clones were not checked.")
@@ -7579,8 +7580,8 @@ def mlb_pitchers_freeze_cmd(db, no_fetch):
 
 @cli.command("mlb-pitchers-gate")
 @click.option("--db", "db", default=None,
-              help="REQUIRED: the same .backup copy the freeze read, OUTSIDE data/ (law 5); opened mode=ro, never "
-                   "created.")
+              help="REQUIRED: the same .backup copy the freeze read, OUTSIDE data/ (law 5); opened mode=ro + "
+                   "immutable=1, never created.")
 @click.option("--no-fetch", "no_fetch", is_flag=True,
               help="Cross-ref guard (#329): skip fetching origin laptop/*; only the refs this clone knows are checked "
                    "and the receipt says other clones were not checked.")

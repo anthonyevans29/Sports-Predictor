@@ -33,8 +33,11 @@ log = logging.getLogger(__name__)
 # ARCHITECT 2026-11-01 14:25 ET, addendum 205 item 1 (a docs line; nothing moves): the quarantine threshold reads the
 # exported, ROUNDED divergence (divergence_pp below: round(..., 1)), the conservative side of the boundary, and the
 # Desk reads the same exported field. The contract sentence, verbatim:
-QUARANTINE_ROUNDING_NOTE = ("The threshold is applied to market_divergence_pp as exported, rounded to one decimal; an "
-                            "unrounded |divergence| of 14.95–14.99 reads 15.0 and is quarantined.")
+# ARCHITECT 2026-11-01 17:10 ET, addendum 207 item 1 (verbatim; it replaces addendum 205 item 1's sentence)
+QUARANTINE_ROUNDING_NOTE = ("The threshold is applied to the absolute value of market_divergence_pp as exported, rounded "
+                            "to one decimal: an unrounded divergence whose absolute value rounds to 15.0 (14.96 to 14.99 "
+                            "on either side of zero; exactly 14.95 goes by the float's binary representation) is "
+                            "quarantined, the conservative side of the boundary.")
 
 MODEL_VERSION = "nfl_elo_v1"
 

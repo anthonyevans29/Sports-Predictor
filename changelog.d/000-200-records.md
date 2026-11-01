@@ -8,4 +8,5 @@
 - docs/ledger/entries/2026-11-01-200-records.md quotes addendum 200 item 4 and addenda 201–204 verbatim. It records:
   - the findings #762, #763, #764, #765 and the closes of #426 and #358;
   - the #754 fifth-game note, and the slate_miss:SOCCER code read;
-  - the two owed lines whose source text the architect is asked to name.
+  - the two owed lines of addendum 205: the NFL quarantine's rounding-boundary sentence (src/walters/nfl_predict.py `QUARANTINE_ROUNDING_NOTE`, in the export's contract note and the docs/CLI.md row; tests/test_venue_flag.py pins 14.96 -> 15.0 -> quarantine true) and the fee finding #769.
+- tests/test_ncaa_elo_v2.py: the lane's step 2 is now done (addendum 201 item 5); the test pins the done-mark and the next step open.

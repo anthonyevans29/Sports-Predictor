@@ -65,7 +65,10 @@ def slate():
         stale = game(0, 1, 0.55, 0.25, 0.52)
         # venues agree: book 0.60, kalshi 0.62 -> silent
         agree = game(2, 3, 0.64, 0.60, 0.62)
-        return {"stale": stale, "agree": agree}
+        # addendum 205 item 1, the rounding boundary: model 0.6496 over a book fair of 0.50 is 14.96pp unrounded,
+        # exported as 15.0, and quarantined (the threshold reads the exported, rounded figure)
+        edge = game(1, 2, 0.6496, 0.50, 0.50)
+        return {"stale": stale, "agree": agree, "edge": edge}
 
 
 def _odds_kwargs_ok():
@@ -97,3 +100,14 @@ def test_cli_prints_the_venue_check(slate, tmp_path, monkeypatch):
     out = CliRunner().invoke(cli, ["export-nfl-predictions", "--week"]).output
     assert "STALE-BOOK? flagged: 1" in out
     assert "VF Panthers @ VF Browns" in out and "gap=27.0pp" in out and "quarantine=True" in out
+
+
+def test_the_quarantine_reads_the_exported_rounded_divergence(slate, tmp_path):
+    """ARCHITECT 2026-11-01 14:25 ET, addendum 205 item 1: "an unrounded |divergence| of 14.95–14.99 reads 15.0 and is
+    quarantined" (the Detroit–Minnesota closing row of 11-01: exported -15.0, unrounded 14.97, quarantine True)."""
+    from src.walters.nfl_predict import QUARANTINE_ROUNDING_NOTE, export_nfl_predictions
+    doc = json.loads(open(export_nfl_predictions(out_dir=str(tmp_path))).read())
+    row = {r["match_id"]: r for r in doc["predictions"]}[slate["edge"]]
+    assert row["market"]["fair_prob"]["HOME"] == pytest.approx(0.50, abs=1e-6)
+    assert row["market_divergence_pp"] == 15.0 and row["quarantine"] is True
+    assert QUARANTINE_ROUNDING_NOTE in doc["note"]

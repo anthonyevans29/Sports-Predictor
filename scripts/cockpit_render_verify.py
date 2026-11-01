@@ -20,7 +20,10 @@ file is REFUSED with "export with --desk" and nothing of it renders; no
 parlays file -> no tickets, and the card says so; a policy-version mismatch
 is flagged; the Ledger card shows exactly the line "exports read no ledger
 summary; postseason rows are sized at half until v1.2" (#544, ARCHITECT
-2026-10-18, addendum 125 item 4).
+2026-10-18, addendum 125 item 4) for files at policy v1.1, and for files at
+policy v1.2 "exports read no ledger summary; policy v1.2: the unit is a
+fraction of the pool (addendum 179); v1.1's postseason half-sizing no longer
+applies" (ARCHITECT 2026-11-01, addendum 197 item 2); both loaded, both.
 
 TODAY (ARCHITECT 2026-10-18, addendum 125 item 2(c), #589): "scripts/
 cockpit_render_verify.py extended to load the file and assert the tiles'
@@ -94,7 +97,17 @@ STATE = """(()=>{
   };})()"""
 
 
-LEDGER_CARD_LINE = "exports read no ledger summary; postseason rows are sized at half until v1.2"   # #544, verbatim
+# The Ledger card's line, each under its policy version (ARCHITECT 2026-11-01 08:45 ET, addendum 197 item 2, verbatim):
+# "ITEM 3, the ledger card line "postseason rows are sized at half until v1.2" (addendum 125 item 4): for a loaded file
+# at policy v1.1 the line stands verbatim as pinned; for a loaded file at policy v1.2 the card shows instead "policy
+# v1.2: the unit is a fraction of the pool (addendum 179); v1.1's postseason half-sizing no longer applies" — the
+# verify pins both texts, each under its policy version, this addendum quoted."
+LEDGER_CARD_LINE = "exports read no ledger summary; postseason rows are sized at half until v1.2"   # #544, verbatim (v1.1)
+LEDGER_CARD_LINE_V12 = ("exports read no ledger summary; policy v1.2: the unit is a fraction of the pool (addendum 179); "
+                        "v1.1's postseason half-sizing no longer applies")                       # addendum 197 item 2
+CARD_LINE = """(()=>{const c=document.querySelector('#ledgerView > .card');
+  const el=c&&c.querySelector('#ledgerExportsLine');
+  return el?{text:el.textContent,shown:!!el.offsetParent}:null;})()"""
 
 NO_EXEC = {"edge": None, "cost": None, "basis": None, "taker": None, "join": None, "note": None}
 
@@ -404,18 +417,36 @@ def main():
         page, V = load(vm, sc["counts"])
         check("a v1.1 file beside the v1.2 Cockpit: flagged", "file policy v1.1 ≠ Cockpit v1.2" in V["summary"],
               V["summary"][-160:])
+        # addendum 197 item 2: a v1.1 file and v1.2 files loaded together: both lines, v1.1's first
+        page.click("#tabLedger")
+        card_line = page.evaluate(CARD_LINE)
+        check("addendum 197 item 2: v1.1 and v1.2 files loaded: the card shows both lines, v1.1's first",
+              card_line is not None and card_line["shown"]
+              and card_line["text"] == LEDGER_CARD_LINE + " · " + LEDGER_CARD_LINE_V12, json.dumps(card_line))
+        page.context.close()
+        # addendum 197 item 2 (addendum 125 item 4): every loaded file at policy v1.1: the line stands verbatim as pinned
+        v11 = json.loads(json.dumps(files))
+        for d in v11.values():
+            if isinstance(d, dict) and isinstance(d.get("desk_meta"), dict):
+                d["desk_meta"]["policy_version"] = "v1.1"
+        page, V = load(v11, sc["counts"])
+        page.click("#tabLedger")
+        card_line = page.evaluate(CARD_LINE)
+        check("addendum 197 item 2: files at policy v1.1: the card shows 'exports read no ledger summary; postseason "
+              "rows are sized at half until v1.2' (addendum 125 item 4, verbatim as pinned)",
+              card_line is not None and card_line["shown"]
+              and card_line["text"] == LEDGER_CARD_LINE, json.dumps(card_line))
         page.context.close()
         page, V = load(files, sc["counts"])
         check("the v1.2 files (desk_policy's own): no policy mismatch", "file policy" not in V["summary"],
               V["summary"][-160:])
-        # #544 (ARCHITECT 2026-10-18, addendum 125 item 4): the Ledger card shows the one line, exactly
+        # addendum 197 item 2: files at policy v1.2 (desk_policy's own): the v1.2 line instead
         page.click("#tabLedger")
-        card_line = page.evaluate("""(()=>{const c=document.querySelector('#ledgerView > .card');
-          const el=c&&c.querySelector('#ledgerExportsLine');
-          return el?{text:el.textContent,shown:!!el.offsetParent}:null;})()""")
-        check("Ledger card shows 'exports read no ledger summary; postseason rows are sized at half until v1.2'",
+        card_line = page.evaluate(CARD_LINE)
+        check("addendum 197 item 2: files at policy v1.2: the card shows 'exports read no ledger summary; policy v1.2: "
+              "the unit is a fraction of the pool (addendum 179); v1.1's postseason half-sizing no longer applies'",
               card_line is not None and card_line["shown"]
-              and card_line["text"] == LEDGER_CARD_LINE, json.dumps(card_line))
+              and card_line["text"] == LEDGER_CARD_LINE_V12, json.dumps(card_line))
         page.context.close()
         today_checks(browser, url, tmp, errors, load, files, sc["counts"])
         check("no page errors", not errors, "; ".join(errors[:3]))

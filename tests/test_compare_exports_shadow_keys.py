@@ -66,7 +66,7 @@ def test_the_shadow_keys_are_masked_counted_and_a_real_v22_divergence_still_prin
     assert "candidate_" not in out
     assert ".prediction.probabilities.home_win: '0.45' vs '0.46'" in out   # the real divergence, inside the budget
     assert "diffs=2 " in out              # home_win and away_win (0.73 - home_win) alone: no shadow key is a diff
-    assert LINE + "40" in out                                              # 4 keys x 10 rows
+    assert LINE + "40" in out.splitlines()                                 # 4 keys x 10 rows
     lines = out.splitlines()
     unit_i = next(i for i, x in enumerate(lines) if x.startswith("unit-bearing fields masked (policy v1.2): "))
     assert lines[unit_i + 1] == LINE + "40"                                # its own line, beside the unit-bearing one
@@ -82,21 +82,21 @@ def test_mutation_without_the_mask_the_divergence_is_lost_past_the_budget(tmp_pa
     rc, out = run(tmp_path, capsys, laptop, host)
     assert ".prediction.probabilities.home_win" not in out
     assert "candidate_probabilities: only in host" in out
-    assert LINE + "0" in out
+    assert LINE + "0" in out.splitlines()
 
 
 def test_only_the_shadow_keys_differ_reads_clean_with_the_count(tmp_path, capsys):
     rc, out = run(tmp_path, capsys, slate([pl_row(i) for i in range(10)]), slate([host_row(i) for i in range(10)]))
     for s in SECRETS:
         assert s not in out, s
-    assert LINE + "40" in out and "diffs=0 " in out
+    assert LINE + "40" in out.splitlines() and "diffs=0 " in out
     assert out.rstrip().splitlines()[-1] == "VERDICT: CLEAN" and rc == ce.EXIT_CLEAN
 
 
 def test_the_ignore_keys_mode_leaves_them_out_too(tmp_path, capsys):
     rc, out = run(tmp_path, capsys, slate([pl_row(i) for i in range(10)]), slate([host_row(i) for i in range(10)]),
                   "--ignore-keys", "desk,desk_meta,line_move,late_news_flag")
-    assert "candidate_" not in out and LINE + "40" in out and rc == ce.EXIT_CLEAN
+    assert "candidate_" not in out and LINE + "40" in out.splitlines() and rc == ce.EXIT_CLEAN
 
 
 def test_the_results_row_arm_is_masked_and_counted_host_only(tmp_path, capsys):
@@ -117,7 +117,7 @@ def test_the_results_row_arm_is_masked_and_counted_host_only(tmp_path, capsys):
     rc, out = run(tmp_path, capsys, laptop, host, name=f"results_PL_{DAY}.json")
     for s in SECRETS:
         assert s not in out, s
-    assert LINE + "3" in out
+    assert LINE + "3" in out.splitlines()
     assert out.rstrip().splitlines()[-1] == "VERDICT: CLEAN" and rc == ce.EXIT_CLEAN
 
 
@@ -131,6 +131,18 @@ def test_another_writers_candidate_key_is_still_compared():
         "$.r.candidate.version: 'other' vs 'v2'"]
     assert ce.shadow_count({"r": {"candidate": "a"}}, {"r": {"candidate": "b"}}) == 0
     assert ce.shadow_arm("candidate", None, {"version": EID})
+    assert ce.shadow_arm("candidate", {"version": EID}, None)
+
+
+def test_the_results_arm_in_diff_is_masked_on_either_side():
+    """diff() reads the `candidate` value on BOTH sides: the arm on the laptop only, or on the host only, against a
+    null or another writer's string, is left out and never printed (a host-only read would print the laptop's arm)."""
+    arm = {"version": EID, "probabilities": {"home_win": FIXTURE_P}, "log_loss": FIXTURE_LL}
+    for other in (None, "leagues-x"):
+        assert ce.diff({"r": {"candidate": arm}}, {"r": {"candidate": other}}) == []
+        assert ce.diff({"r": {"candidate": other}}, {"r": {"candidate": arm}}) == []
+        assert ce.shadow_count({"r": {"candidate": arm}}, {"r": {"candidate": other}}) == 1
+        assert ce.shadow_count({"r": {"candidate": other}}, {"r": {"candidate": arm}}) == 1
     assert not ce.shadow_arm("candidates") and not ce.shadow_arm("my_candidate_x")
 
 
@@ -140,12 +152,12 @@ def test_a_candidate_key_in_an_unrelated_block_is_masked_at_any_depth(tmp_path, 
     rc, out = run(tmp_path, capsys, a, b, name="window_24h.json")
     for s in SECRETS:
         assert s not in out, s
-    assert LINE + "2" in out and rc == ce.EXIT_CLEAN
+    assert LINE + "2" in out.splitlines() and rc == ce.EXIT_CLEAN
 
 
 def test_a_laptop_file_with_none_and_no_other_diff_reads_clean_with_the_count(tmp_path, capsys):
     rc, out = run(tmp_path, capsys, slate([pl_row(0)]), slate([host_row(0)]))
-    assert LINE + "4" in out and "unit-bearing fields masked (policy v1.2): 0" in out
+    assert LINE + "4" in out.splitlines() and "unit-bearing fields masked (policy v1.2): 0" in out
     assert out.rstrip().splitlines()[-1] == "VERDICT: CLEAN" and rc == ce.EXIT_CLEAN
 
 
@@ -157,8 +169,9 @@ def test_the_unit_bearing_count_is_unchanged_beside_them(tmp_path, capsys):
     _, base = run(tmp_path / "base", capsys, plain_l, plain_h)
     rc, out = run(tmp_path / "shadow", capsys, slate([with_order(pl_row(0), "U-A")]),
                   slate([with_order(host_row(0), "U-B")]))
-    assert "unit-bearing fields masked (policy v1.2): 3" in base and LINE + "0" in base
-    assert "unit-bearing fields masked (policy v1.2): 3" in out and LINE + "4" in out and rc == ce.EXIT_CLEAN
+    assert "unit-bearing fields masked (policy v1.2): 3" in base and LINE + "0" in base.splitlines()
+    assert "unit-bearing fields masked (policy v1.2): 3" in out and LINE + "4" in out.splitlines()
+    assert rc == ce.EXIT_CLEAN
 
 
 def test_a_structural_mismatch_printed_whole_carries_no_candidate_value(tmp_path, capsys):
@@ -170,7 +183,7 @@ def test_a_structural_mismatch_printed_whole_carries_no_candidate_value(tmp_path
         assert s not in out, s
     assert "$.extra: \"{'candidate_probabilities': '<masked>', 'p': 1}\" vs 'None'" in out
     assert "$.res: \"{'candidate': '<masked>'}\" vs 'None'" in out
-    assert LINE + "2" in out and rc == ce.EXIT_DIVERGENT
+    assert LINE + "2" in out.splitlines() and rc == ce.EXIT_DIVERGENT
 
 
 def test_the_help_names_the_class(capsys):
@@ -180,3 +193,30 @@ def test_the_help_names_the_class(capsys):
         assert e.code == 0
     out = capsys.readouterr().out
     assert "shadow-arm keys" in out and "pl-availability-v1" in out and "addendum 199 item 2" in out
+
+
+def test_a_shadow_key_on_both_sides_is_counted_once(tmp_path, capsys):
+    """Addendum 199 item 2's count is per key, "a key on either side counted once": when the laptop also carries the
+    four candidate_* keys (with different values) on ten PL rows, the count is 40, not 80; one results row with the arm
+    on both sides counts 1, not 2. Nothing of either side's candidate values prints."""
+    def other(i):
+        r = host_row(i)
+        r["candidate_probabilities"] = {"home_win": 0.2, "draw": 0.3, "away_win": 0.5}
+        r["candidate_reason"] = "FIXTURE-REASON-LAPTOP"
+        return r
+    rc, out = run(tmp_path / "rows", capsys, slate([other(i) for i in range(10)]),
+                  slate([host_row(i) for i in range(10)]))
+    for s in SECRETS + ("FIXTURE-REASON-LAPTOP",):
+        assert s not in out, s
+    assert LINE + "40" in out.splitlines() and LINE + "80" not in out and "diffs=0 " in out
+    assert out.rstrip().splitlines()[-1] == "VERDICT: CLEAN" and rc == ce.EXIT_CLEAN
+
+    def res(ll):
+        return {"match_id": 1, "date": f"{DAY}T15:00:00", "home_team": "Home01", "away_team": "Away01",
+                "predicted": {"model_version": "v22", "home_win": 0.45}, "graded": {"log_loss": 1.01},
+                "candidate": {"version": EID, "log_loss": ll}}
+    rc, out = run(tmp_path / "res", capsys, {"results": [res(0.555111)]}, {"results": [res(FIXTURE_LL)]},
+                  name=f"results_PL_{DAY}.json")
+    assert str(FIXTURE_LL) not in out and "0.555111" not in out
+    assert LINE + "1" in out.splitlines()
+    assert out.rstrip().splitlines()[-1] == "VERDICT: CLEAN" and rc == ce.EXIT_CLEAN

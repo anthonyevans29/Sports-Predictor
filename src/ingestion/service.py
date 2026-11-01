@@ -351,6 +351,10 @@ class IngestionService:
         existing = s.get(CompetitionTeam, {"competition_id": comp.id, "team_id": team.id, "season": season})
         if not existing:
             s.add(CompetitionTeam(competition_id=comp.id, team_id=team.id, season=season))
+            # #585 (ARCHITECT 2026-11-01, addendum 200 item 3): SessionLocal runs autoflush=False, so without this
+            # flush the next s.get in the same sync misses the add; a merged row a listing names by both of its
+            # provider ids (59 and 901 on 1385) would be added twice and the unique key rolls the whole sync back.
+            s.flush()
 
     # ------------------------------------------------------------------
     # Matches

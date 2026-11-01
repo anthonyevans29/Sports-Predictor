@@ -152,7 +152,8 @@ def test_lanes_data_is_the_print_as_data_with_no_eta_for_an_undated_lane(tmp_pat
         assert (g["title"], g["issue"], g["state"], g["competitions"]) == (ln["title"], ln["issue"], ln["state"],
                                                                           ln.get("competitions"))
         assert g["eta"] == (f"earliest live {ln['earliest_live']}" if ln["earliest_live"] else "no ETA")
-    assert {g["lane"] for g in got if g["eta"] == "no ETA"} == {"leagues", "nfl-qb", "mlb-pitchers"}
+    assert {g["lane"] for g in got if g["eta"] == "no ETA"} == {"leagues", "nfl-qb", "mlb-pitchers",
+                                                                 "pl-availability"}      # addendum 198
     ncaa = next(g for g in got if g["lane"] == "ncaa")           # its first two steps are done: the third is next
     assert ncaa["next"] == {"what": _lane(_real(), "ncaa")["steps"][2]["what"], "owner": "code",   # the 2023 ingest
                             "due": "2026-11-01", "when": "in 14 days"}                          # (addendum 158 1(a))
@@ -292,8 +293,10 @@ BROKEN = [
 # Addendum 111 item 2 (ARCHITECT 2026-10-17 10:35 ET, #575), verbatim: "Nations League [UNL]; La Liga [PD]; the
 # four-league lane [SA, BL1, FL1, ELC]; College [NCAA]; Hockey [NHL]; Cups [CL, EFL, UEL]; NFL QB [NFL]; MLB pitcher
 # [MLB]."
+# ARCHITECT 2026-11-01 10:05 ET, addendum 198 item 5: "the roadmap lane (declared; ...)": lane pl-availability, [PL].
 RULED_COMPETITIONS = {"unl": ["UNL"], "pd": ["PD"], "leagues": ["SA", "BL1", "FL1", "ELC"], "ncaa": ["NCAA"],
-                      "nhl": ["NHL"], "cups": ["CL", "EFL", "UEL"], "nfl-qb": ["NFL"], "mlb-pitchers": ["MLB"]}
+                      "nhl": ["NHL"], "cups": ["CL", "EFL", "UEL"], "nfl-qb": ["NFL"], "mlb-pitchers": ["MLB"],
+                      "pl-availability": ["PL"]}
 
 
 def test_each_lane_carries_the_ruled_competitions():

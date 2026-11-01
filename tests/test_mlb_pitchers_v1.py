@@ -1081,7 +1081,9 @@ def test_the_entry_is_declared_unrun_with_the_verbatim_plan():
     # the ledger stays registry.save's format (indent 2, a trailing newline)
     raw = (ROOT / "docs" / "registry" / "experiments.json").read_text()
     assert raw == json.dumps(json.loads(raw), indent=2) + "\n"
-    assert reg.load()[-1]["id"] == mp.EID
+    # appended, never inserted: every entry after it was declared after it (pl-availability-v1, addendum 198)
+    ids = [x["id"] for x in reg.load()]
+    assert all(x["declared_at"] > e["declared_at"] for x in reg.load()[ids.index(mp.EID) + 1:])
 
 
 def test_the_spec_holds_addendum_190_verbatim_and_the_readings():

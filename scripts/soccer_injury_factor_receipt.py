@@ -237,6 +237,9 @@ def left_out(x: dict) -> list[str]:
             + ([LEFT_OUT[2]] if x.get("floored") else []))
 
 
+FENCED = "fenced (the pl-availability-v1 window, until its verdict)"
+
+
 def rows(s, competition: str) -> tuple[list[dict], dict]:
     from sqlalchemy import select
     from src.db.schema import (Competition, Match, MatchStatus, ModelVersion, Odds, OddsSnapshot, Prediction,
@@ -255,11 +258,21 @@ def rows(s, competition: str) -> tuple[list[dict], dict]:
     closes: dict = {}
     odds: dict = {}
     out, skipped = [], {"no injury counts": 0, "no expected goals": 0}
+    # pl-availability-v1's fence (ARCHITECT 2026-11-01 10:05 ET, addendum 198 item 3: "no other read of either arm on
+    # the window until the verdict"): this receipt re-prices v22 by its injury lists, the candidate's own question, so
+    # a fenced PL game is left out and counted, never read (src/walters/pl_availability.fenced)
+    from src.walters import pl_availability as pla
+    cut = pla.fence_cutoff(pla.SEASON) if pla.fence_refusal(competition, pla.SEASON) else None
+    if cut is not None:
+        skipped[FENCED] = 0
     seen = set()
     for pred, m in s.execute(q).all():
         if pred.id in seen:
             continue
         seen.add(pred.id)
+        if pla.fenced(cut, m):
+            skipped[FENCED] += 1
+            continue
         fb = pred.factor_breakdown or {}
         hc, ac = fb.get("home_injuries_count"), fb.get("away_injuries_count")
         if not isinstance(hc, int) or not isinstance(ac, int):

@@ -426,6 +426,61 @@
           "ruling": "ARCHITECT 2026-10-31 11:45 ET, addendum 190 item 6; ARCHITECT 2026-10-31 11:50 ET, addendum 191 item 2(b): \"a moved line narrowing the scope to 2026 (190 item 6, the reason quoted)\""
         }
       ]
+    },
+    {
+      "lane": "pl-availability",
+      "title": "PL: injury entries counted for their own fixture only",
+      "issue": 754,
+      "registry_id": "pl-availability-v1",
+      "competitions": ["PL"],
+      "state": "declared",
+      "steps": [
+        {
+          "what": "the shadow PR (addendum 198 item 5, gate-class): the second probability set on the PL rows (slate and closing, host only), the registry entry pl-availability-v1 and the frozen rule, the grader's second arm, the window reader (counts only before 60), the fence, tests on synthetic injury rows, this lane and the ledger entry",
+          "owner": "code",
+          "due": "2026-11-05",
+          "done": null
+        },
+        {
+          "what": "the first host page on the tag after v1.6.2: the first PL slate or closing page the host writes on a tag that carries the shadow PR, its deploy receipt in hand; Code's PR then records window_opens_at in the entry (the first PL kickoff strictly after that page, addendum 198 item 3). The date is the leagues lane's v1.6.2 date (v1.6.2 on the host by 11-06, addendum 181 item 1 and addendum 191 item 2(c)), the earliest this page can be; a later tag moves it with a moved line",
+          "owner": "operator",
+          "due": "2026-11-06",
+          "done": null
+        },
+        {
+          "what": "the 60th window game is final: the 60th FINISHED PL game with a three-way close from window_opens_at (addendum 198 item 3). A projection from the PL schedule, not a floor: six full rounds from the first host page on v1.6.3 (11-07/08, 11-21/22 after the international break, 11-28/29, 12-05/06, 12-12/13, 12-19/20; addendum 199 item 3). If the first host page slips or the schedule differs, the date moves with a moved line that day",
+          "owner": "calendar",
+          "due": "2026-12-20",
+          "done": null
+        },
+        {
+          "what": "the one read and the verdict (addendum 198 item 3): mean three-way log-loss of each arm, unrounded; PASS only if the candidate's is below v22's by at least 0.0050, less or a tie rejects; the close's printed beside both, gating nothing; Brier and the per-club counts for the record (scripts/pl_availability_window.py --read, in the architect's block); the verdict recorded in the entry by Code's PR. The day after the projected 60th game (addendum 199 item 3)",
+          "owner": "architect",
+          "due": "2026-12-21",
+          "done": null
+        }
+      ],
+      "earliest_live": null,
+      "live_needs": "addendum 198 item 3: a PASS on the pre-registered window (the first 60 FINISHED PL games with a three-way close from window_opens_at; the candidate's mean three-way log-loss below v22's by at least 0.0050, a tie a rejection) makes the rule v23 by a ruling and a version bump, no other change riding it; a REJECT retires the rule and #754 closes with a written no. PL stays live on v22 throughout and the Desk's calls come from v22 (item 4); earliest_live stays null: the verdict decides, never a date.",
+      "vs_close": "behind: addendum 196 item 1 reads the PL model's divergence from the market as anti-predictive (13/30, behind the close). The candidate's figure against the close is printed at the one read beside both arms and gates nothing (addendum 198 item 3).",
+      "moved": [
+        {
+          "moved_on": "2026-11-01",
+          "which": "the 60th window game is final: the 60th FINISHED PL game with a three-way close from window_opens_at (addendum 198 item 3). A projection from the PL schedule, not a floor: six full rounds from the first host page on v1.6.3 (11-07/08, 11-21/22 after the international break, 11-28/29, 12-05/06, 12-12/13, 12-19/20; addendum 199 item 3). If the first host page slips or the schedule differs, the date moves with a moved line that day",
+          "was": "2026-11-06",
+          "now": "2026-12-20",
+          "why": "the 11-06 floor is withdrawn; the date is now a projection from the PL schedule: six full rounds from the first host page on v1.6.3, the 60th window game final on the 12-19/20 weekend",
+          "ruling": "ARCHITECT 2026-11-01 12:05 ET, addendum 199 item 3: \"THE ROADMAP DATES — projections, said so: 'the 60th window game is final' due 2026-12-20 (the PL calendar from the first host page on v1.6.3: six full rounds — 11-07/08, 11-21/22 after the international break, 11-28/29, 12-05/06, 12-12/13, 12-19/20 — a projection from the schedule, not a floor); 'the one read and the verdict' due 2026-12-21, owner architect. If the first host page slips or the schedule differs, the dates move with moved lines that day. The 11-06 floor is withdrawn (a floor that reads overdue is noise, not a commitment).\""
+        },
+        {
+          "moved_on": "2026-11-01",
+          "which": "the one read and the verdict (addendum 198 item 3): mean three-way log-loss of each arm, unrounded; PASS only if the candidate's is below v22's by at least 0.0050, less or a tie rejects; the close's printed beside both, gating nothing; Brier and the per-club counts for the record (scripts/pl_availability_window.py --read, in the architect's block); the verdict recorded in the entry by Code's PR. The day after the projected 60th game (addendum 199 item 3)",
+          "was": "2026-11-06",
+          "now": "2026-12-21",
+          "why": "dated with the projected 60th game: the one read and the verdict the day after it, owner architect; the 11-06 floor withdrawn",
+          "ruling": "ARCHITECT 2026-11-01 12:05 ET, addendum 199 item 3: \"THE ROADMAP DATES — projections, said so: 'the 60th window game is final' due 2026-12-20 (the PL calendar from the first host page on v1.6.3: six full rounds — 11-07/08, 11-21/22 after the international break, 11-28/29, 12-05/06, 12-12/13, 12-19/20 — a projection from the schedule, not a floor); 'the one read and the verdict' due 2026-12-21, owner architect. If the first host page slips or the schedule differs, the dates move with moved lines that day. The 11-06 floor is withdrawn (a floor that reads overdue is noise, not a commitment).\""
+        }
+      ]
     }
   ]
 }

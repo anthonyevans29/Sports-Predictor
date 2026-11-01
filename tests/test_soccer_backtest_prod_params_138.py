@@ -16,7 +16,9 @@ def _run(monkeypatch, prod, *args):
 
     monkeypatch.setattr(cli, "_soccer_prod_poisson", lambda: prod)
     monkeypatch.setattr(sb, "run_soccer_backtest", fake)
-    out = CliRunner().invoke(cli.cli, ["soccer-backtest", *args]).output
+    # a named season: PL with no --season walks 2026/27 too, which pl-availability-v1's fence refuses until its
+    # verdict (ARCHITECT 2026-11-01, addendum 198 item 3); 2025/26 is outside the window
+    out = CliRunner().invoke(cli.cli, ["soccer-backtest", "--season", "2025/26", *args]).output
     return seen, out
 
 

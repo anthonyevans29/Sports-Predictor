@@ -736,6 +736,13 @@ def _generate_predictions_soccer(
         def _rating_source(team_id: int) -> str:
             return "model" if team_id in elo_league.ratings else "default"
 
+        # pl-availability-v1 (ARCHITECT 2026-11-01 10:05 ET, addendum 198 item 2): the candidate's arm, priced in this
+        # same pass beside v22 for PL on the host only (src/walters/pl_availability.py): the same model on the same
+        # inputs, only the injury lists filtered by the frozen rule. It never touches v22's probabilities; it is stored
+        # as one extra factor_breakdown key. The report-only mode never computes it.
+        from src.walters import pl_availability as _pla
+        arm_off = "report-only" if include_finished else _pla.arm_off_reason(competition_code)
+
         skipped_no_strengths: dict[str, int] = {}
         for m in upcoming:
             home_elo = _effective_elo(m.home_team_id)
@@ -926,6 +933,28 @@ def _generate_predictions_soccer(
                 })
                 continue
 
+            arm = None
+            if arm_off is None:
+                try:                # the shadow never stops v22's own row (item 4: v22 stays the live model)
+                    home_c = _pla.rule_filter(home_inj, m)
+                    away_c = _pla.rule_filter(away_inj, m)
+                    c_factor = injury_adjustment(home_injuries=home_c, away_injuries=away_c).combine(
+                        lu_factor).combine(xi_factor)
+                    c_pred = predict_match(
+                        home_elo=home_elo,
+                        away_elo=away_elo,
+                        home_strength=home_str,
+                        away_strength=away_str,
+                        context=context,
+                        config=fixture_cfg,
+                        factor_adjustment=c_factor,
+                    )
+                    arm = _pla.arm_block(c_pred, home_c, away_c, home_inj, away_inj, mv.version)
+                except Exception as e:  # noqa: BLE001 — named, never silent: the row stores the failure as its cause
+                    log.warning("%s: no candidate arm for match %s (%s: %s); v22's row is written as always",
+                                _pla.EID, m.id, type(e).__name__, e)
+                    arm = _pla.failed_block(mv.version, e)   # no probabilities: never an arm, but the cause is kept
+
             # Upsert: delete prior predictions for this (match, version) then insert
             existing = s.execute(
                 select(Prediction).where(
@@ -995,6 +1024,7 @@ def _generate_predictions_soccer(
                     "away_league": team_to_league.get(m.away_team_id),
                     "home_league_bonus": round(league_bonus(team_to_league.get(m.home_team_id)), 1) if is_cup_competition else None,
                     "away_league_bonus": round(league_bonus(team_to_league.get(m.away_team_id)), 1) if is_cup_competition else None,
+                    **({_pla.FB_KEY: arm} if arm is not None else {}),
                 },
             ))
             written += 1

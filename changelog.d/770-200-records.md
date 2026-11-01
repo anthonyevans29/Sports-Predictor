@@ -10,3 +10,4 @@
   - the #754 fifth-game note, and the slate_miss:SOCCER code read;
   - the two owed lines of addendum 205: the NFL quarantine's rounding-boundary sentence (src/walters/nfl_predict.py `QUARANTINE_ROUNDING_NOTE`, in the export's contract note and the docs/CLI.md row; tests/test_venue_flag.py pins 14.96 -> 15.0 -> quarantine true) and the fee finding #769.
 - tests/test_ncaa_elo_v2.py: the lane's step 2 is now done (addendum 201 item 5); the test pins the done-mark and the next step open.
+- Codex round 1 on #770: the docs/CLI.md row's `|divergence|` bars are escaped (`\|divergence\|`) so the table keeps its three columns.

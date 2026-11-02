@@ -22,10 +22,11 @@ each venue (team 1 at home to team 2, then team 2 at home to team 1); each venue
 g = 120 / 80 = 1.5 and b = 1.8 / 1.5 = 1.2 (inside the clamp). training.py builds it inline in _train_fresh_soccer
 (training.py:196-214) inside a DB session, with no pure helper to call, so this file computes it with the same
 expressions (context_from below) and pins g 1.5, b 1.2. n = 40 per team, so the shrinkage weight is 40/45; equal Elo; no
-injury, lineup or XI factors. The real code gives attack and defence 0.911111 for both teams (bit-identical to the
-review's printed figures), home λ 1.494222, away λ 1.245185, total 2.7394074074074064 (−8.6864%): the review's own
-asserted total 2.739407407407407, to 1e-9. The floats agree to the last bit (the real code and the review's script both
-compute 2.7394074074074064); the review's literal 2.739407407407407 is the exact value 1.5·2.2·(41/45)² = 18491/6750
+injury, lineup or XI factors. The real code gives attack and defence 0.911111 for both teams (the review's printed
+figures to 1e-15; the last bit is the interpreter's), home λ 1.494222, away λ 1.245185, total 2.7394074074074064 (−8.6864%): the review's own
+asserted total 2.739407407407407, to 1e-9. Under one interpreter the floats agree to the last bit (on Python 3.11
+the real code and the review's script both compute 2.7394074074074064; 3.12's compensated float sum can move the last
+bit of both alike); the review's literal 2.739407407407407 is the exact value 1.5·2.2·(41/45)² = 18491/6750
 rounded to 16 digits, which is within 4.4e-16 of the float and inside the review's own abs_tol of 1e-12.
 Before shrinkage the same equations give the average-team rating (3−b)/2 = 0.9 and a total 1.5·2.2·0.9² = 2.673
 (−10.9%); the n/(n+5) pull toward 1.0 at n = 40 brings it to 2.7394. NO difference between the real code and the
@@ -150,9 +151,13 @@ def test_the_review_league_reproduces_exactly_through_the_real_code():
     st = estimate_strengths(matches, ctx)
     assert set(st) == {1, 2}
     assert estimate_strengths(matches, direct) == st
-    # attack and defence 0.911111 for both teams: bit-identical to the review's printed dict
-    assert (st[1].attack, st[1].defense) == (0.9111111111111111, 0.9111111111111106)
-    assert (st[2].attack, st[2].defense) == (0.9111111111111106, 0.9111111111111111)
+    # attack and defence 0.911111 for both teams: the review's printed dict to 1e-15. The last bit depends on the
+    # interpreter, not on the model: Python 3.12's sum() of floats is compensated (3.11's is not), so the real code
+    # and the review's script both print (0.9111111111111111, 0.9111111111111106) under 3.11 and 0.9111111111111111
+    # for all four under 3.12 (CI's).
+    for got, review in (((st[1].attack, st[1].defense), (0.9111111111111111, 0.9111111111111106)),
+                        ((st[2].attack, st[2].defense), (0.9111111111111106, 0.9111111111111111))):
+        assert got == pytest.approx(review, abs=1e-15)
     for s in st.values():
         assert s.attack == pytest.approx(41 / 45, abs=1e-12) and s.defense == pytest.approx(41 / 45, abs=1e-12)
         # n = 40 per team (w = 40/45) on the pre-shrinkage average-team rating (3 − b)/2 = 0.9

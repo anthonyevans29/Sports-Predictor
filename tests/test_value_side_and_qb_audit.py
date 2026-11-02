@@ -315,7 +315,7 @@ def test_each_grade_records_the_anchor_timestamp(tmp_path):
     assert g["value_side"] == "HOME" and g["value_shadow"] is True and g["value_side_clv"] == 0.134
     assert g["value_anchor_at"] == (ko - timedelta(days=3)).isoformat()
     assert g["value_prediction_at"] == (ko - timedelta(days=2, hours=23)).isoformat()
-    assert "clv" in g and "close_home_prob" in g                    # existing fields unchanged
+    assert "model_close_divergence" in g and "close_home_prob" in g  # existing fields unchanged (`clv` alias: #621)
     unanchored = rows.get("VS bare Home")
     if unanchored is not None:                                      # created by the earlier test in this module
         assert unanchored["value_side"] is None and unanchored["value_anchor_at"] is None

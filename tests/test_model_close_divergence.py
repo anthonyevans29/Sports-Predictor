@@ -4,6 +4,9 @@ same value and the one-sentence comment at each writer; `clv` stays as an alias 
 release after (the removal is its own line in that release's changelog); the tests pin the new key and the alias; the
 external morning-run consumer is the alias's reason."
 
+The removal (#621, the release after v1.5.0; overdue, v1.6.2 still shipped it): `graded.clv` is gone from all three
+writers and `graded.model_close_divergence` is unchanged. `_both` now pins the alias's ABSENCE beside the key.
+
 The three writers: export-results (the stored value, `prediction_outcomes.clv`), export-nfl-results (computed at
 write on the book close) and export-intl-results (computed at write, argmax pick). Each test runs on its OWN
 throwaway SQLite file (SessionLocal rebound under tmp_path)."""
@@ -32,9 +35,9 @@ def iso_db(tmp_path, monkeypatch):
 
 
 def _both(g):
-    """The new key and the alias: both present, the same value."""
-    assert "model_close_divergence" in g and "clv" in g, sorted(g)
-    assert g["model_close_divergence"] == g["clv"]
+    """The key present and the alias absent (#621: `graded.clv`, ruled to go in the release after v1.5.0, shipped through v1.6.2, is removed)."""
+    assert "model_close_divergence" in g, sorted(g)
+    assert "clv" not in g, sorted(g)
     return g["model_close_divergence"]
 
 
@@ -79,7 +82,7 @@ def _world(now):
     return ids
 
 
-def test_export_results_writes_the_stored_divergence_under_both_keys(iso_db):
+def test_export_results_writes_the_stored_divergence_without_the_alias(iso_db):
     from src.timeutil import utc_now_naive
     from src.walters.export import export_results
     now = utc_now_naive()
@@ -87,11 +90,11 @@ def test_export_results_writes_the_stored_divergence_under_both_keys(iso_db):
     doc = json.loads(export_results(sport=Sport.MLB, start_date=now - timedelta(days=5), end_date=now))
     by = {r["match_id"]: r["graded"] for r in doc["results"]}
     assert set(by) == {ids["stored"], ids["none"]}
-    assert _both(by[ids["stored"]]) == 0.0453                   # the STORED value, as written, under both keys
+    assert _both(by[ids["stored"]]) == 0.0453                   # the STORED value, as written; no alias
     assert _both(by[ids["none"]]) is None
 
 
-def test_export_nfl_results_writes_the_pick_divergence_under_both_keys(iso_db, tmp_path):
+def test_export_nfl_results_writes_the_pick_divergence_without_the_alias(iso_db, tmp_path):
     from src.timeutil import utc_now_naive
     from src.walters.nfl_predict import export_nfl_results
     ids = _world(utc_now_naive())
@@ -103,7 +106,7 @@ def test_export_nfl_results_writes_the_pick_divergence_under_both_keys(iso_db, t
     assert g["model_close_divergence"] == round(0.6 - g["close_home_prob"], 4)
 
 
-def test_export_intl_results_writes_the_pick_divergence_under_both_keys(iso_db):
+def test_export_intl_results_writes_the_pick_divergence_without_the_alias(iso_db):
     from src.db.database import append_prediction_history, session_scope
     from src.db.schema import Competition, Match, MatchStatus, Odds, Team
     from src.walters import intl_production as ip
@@ -132,5 +135,5 @@ def test_export_intl_results_writes_the_pick_divergence_under_both_keys(iso_db):
     g = by[pid]
     assert _both(g) == round(0.5 - g["close_fair"]["HOME"], 4)   # the argmax pick, HOME
     assert g["model_close_divergence"] is not None
-    assert _both(by[bid]) is None                                # no close: null under both keys
+    assert _both(by[bid]) is None                                # no close: null, and no alias
 

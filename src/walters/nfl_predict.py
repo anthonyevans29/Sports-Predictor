@@ -757,9 +757,9 @@ def export_nfl_results(days_back: int | None = None, out_dir: str = "exports") -
                            # ARCHITECT 2026-10-19 (addendum 137 item 3, #612): model p minus close fair on the pick
                            # (p >= 0.5 picks HOME), a fraction (0.0453 = +4.53pp), on the row's close above (the book,
                            # or the session's Kalshi mid by the stale-book rule); NOT a closing-line value (close
-                           # minus entry is the Cockpit P&L's, on fills)
+                           # minus entry is the Cockpit P&L's, on fills). Its alias `clv` (ruled to go in the release
+                           # after v1.5.0; shipped through v1.6.2) is removed (#621)
                            "model_close_divergence": round(clv, 4) if clv is not None else None,
-                           "clv": round(clv, 4) if clv is not None else None,   # the alias, through v1.5.0
                            # value side (additive, rulings 2026-09-29): null when unanchored
                            "value_side": vg["side"] if vg else None,
                            "value_side_clv": round(vg["value_side_clv"], 4) if vg else None,

@@ -14,7 +14,9 @@ Addendum 219 (ARCHITECT 2026-11-02 12:20 ET): item 4, the run refuses a null fit
 nothing recorded) and the stream fingerprint (v2) binds the declared term; item 6, --db reads a .backup copy through
 mode=ro&immutable=1 (refused under data/, when missing, and with a -wal/-shm/-journal beside it; never created, no
 sidecar), the same fingerprint as the same rows through DATABASE_URL, and the ONE run refuses without --db (--preflight
-keeps DATABASE_URL); items 5 and 7 in the entry and the lane."""
+keeps DATABASE_URL); items 5 and 7 in the entry and the lane. Codex P1s on #784: the run refuses constants that are not
+the entry's frozen block (drifted code defaults, a differing or missing value, an extra key) before anything is read,
+and a reservation is whole or absent (a failed serialisation, write, fsync or close leaves no file)."""
 import json
 import math
 import os
@@ -554,6 +556,260 @@ def test_reserve_is_an_exclusive_create(ledger, monkeypatch):
     assert Path(g.reservation_path()).read_text() == first
 
 
+# ----------------------------------------------- Codex P1 (a) on #784: the run walks the declared constants --
+
+def _set_constants(ledger, constants):
+    """Replace the tmp ledger entry's constants block (None: delete it)."""
+    entries = json.loads(Path(ledger).read_text())
+    e = next(x for x in entries if x["id"] == EID)
+    if constants is None:
+        e.pop("constants", None)
+    else:
+        e["constants"] = constants
+    Path(ledger).write_text(json.dumps(entries, indent=2) + "\n")
+
+
+def _drifted(**defaults):
+    """An NFLEloConfig whose defaults drifted after the declaration (the code changed, the entry did not)."""
+    import dataclasses
+    return dataclasses.make_dataclass("NFLEloConfig", [(k, float, dataclasses.field(default=v))
+                                                       for k, v in defaults.items()], bases=(nb.NFLEloConfig,))
+
+
+V1 = {"k_factor": 20.0, "home_advantage": 48.0, "season_regression": 0.25, "mov_base": 2.2, "default_rating": 1500.0}
+
+
+def test_the_real_entrys_constants_are_the_walks():
+    g = _g()
+    e = reg.get(EID)
+    assert g.code_constants() == V1 == e["constants"]
+    assert g.constants_state(e) is None and g.declared_constants(e) == V1
+
+
+@pytest.mark.parametrize("case", ["code k drifts", "code home advantage drifts", "code default rating drifts",
+                                  "code adds a field", "entry differs", "entry by one ulp", "no block", "block not an object",
+                                  "missing key", "extra key", "a string value", "a bool value"])
+def test_constants_that_are_not_the_declarations_refuse_before_anything_is_read(db, ledger, monkeypatch, tmp_path,
+                                                                                case):
+    """Codex P1 on #784: the run builds the candidate from NFLEloConfig()'s defaults; a default that drifts after the
+    declaration (or an entry block that is not the five constants) refuses, exit 2, before the stream is loaded and
+    before the guard and the reservation: nothing read, nothing reserved, nothing recorded."""
+    import cli
+    g = _g()
+    declare(ledger, shrink=0.9)
+    fp = FP()
+    copy = COPY(tmp_path)
+    c = dict(V1)
+    want = "differ from nfl_backtest.NFLEloConfig()'s, the walk the run would build"
+    if case == "code k drifts":
+        monkeypatch.setattr(nb, "NFLEloConfig", _drifted(k_factor=21.0))
+        want += " (k_factor: entry 20.0, code 21.0)"
+    elif case == "code home advantage drifts":                 # v1's base default, not the term's replacement
+        monkeypatch.setattr(nb, "NFLEloConfig", _drifted(home_advantage=50.0))
+        want += " (home_advantage: entry 48.0, code 50.0)"
+    elif case == "code default rating drifts":
+        monkeypatch.setattr(nb, "NFLEloConfig", _drifted(default_rating=1505.0))
+    elif case == "code adds a field":                          # review on #784: the key set is the dataclass's fields
+        monkeypatch.setattr(nb, "NFLEloConfig", _drifted(mov_cap=24.0))
+        assert g.candidate("shrink", 0.9)[0].mov_cap == 24.0   # the walk would read it; the entry does not freeze it
+        want = "does not name exactly NFLEloConfig()'s fields, k_factor, "
+        want2 = "(missing mov_cap: walked, not frozen)"
+    elif case == "entry differs":
+        _set_constants(ledger, {**c, "mov_base": 2.3})
+        want += " (mov_base: entry 2.3, code 2.2)"
+    elif case == "entry by one ulp":                         # exact float equality
+        _set_constants(ledger, {**c, "season_regression": math.nextafter(0.25, 1.0)})
+    elif case == "no block":
+        _set_constants(ledger, None)
+        want = "has no constants block"
+    elif case == "block not an object":
+        _set_constants(ledger, [20.0, 48.0, 0.25, 2.2, 1500.0])
+        want = "has no constants block"
+    elif case == "missing key":
+        _set_constants(ledger, {k: v for k, v in c.items() if k != "mov_base"})
+        want = "(missing mov_base: walked, not frozen)"
+    elif case == "extra key":
+        _set_constants(ledger, {**c, "shrink": 0.9})
+        want = "(not walked: shrink)"
+    elif case == "a string value":
+        _set_constants(ledger, {**c, "k_factor": "20.0"})
+        want += " (k_factor: entry '20.0', code 20.0)"
+    elif case == "a bool value":
+        _set_constants(ledger, {**c, "k_factor": True})
+    before = Path(ledger).read_bytes()
+    guarded = []
+    monkeypatch.setattr(reg, "cross_ref_guard", lambda *a, **k: guarded.append(1) or "stub")
+    _no_scoring(monkeypatch)
+    monkeypatch.setattr(nb, "load_stream", lambda *a, **k: (_ for _ in ()).throw(AssertionError("loaded")))
+    res = CliRunner().invoke(cli.cli, ["nfl-v2-gate", "--architect-word", WORD, "--stream-fingerprint", fp,
+                                       "--db", copy, "--no-fetch"])
+    assert res.exit_code == 2, res.output
+    assert "REFUSED" in res.output and want in res.output, res.output
+    if case == "code adds a field":
+        assert want2 in res.output, res.output
+    assert "The constants are chosen BEFORE the run and written into the declaration" in res.output
+    assert "nothing read, nothing reserved, nothing scored" in res.output
+    assert guarded == []
+    _nothing_written(ledger, before, tmp_path)
+    with pytest.raises(g.GateRefused, match="Codex P1 on #784"):
+        g.run(WORD, fp, no_fetch=True, db=copy)
+    assert guarded == []
+    _nothing_written(ledger, before, tmp_path)
+
+
+def test_the_constants_check_precedes_the_db_check(db, ledger, monkeypatch, tmp_path):
+    """Nothing is read: the drifted constants refuse even with no --db and with a --db that check_db would refuse."""
+    g = _g()
+    declare(ledger, shrink=0.9)
+    _set_constants(ledger, {**V1, "k_factor": 25.0})
+    monkeypatch.setattr(g, "check_db", lambda *a, **k: (_ for _ in ()).throw(AssertionError("db checked")))
+    for db_arg in (None, str(tmp_path / "missing.db")):
+        with pytest.raises(g.GateRefused, match="k_factor: entry 25.0, code 20.0"):
+            g.run(WORD, "f" * 64, no_fetch=True, db=db_arg)
+    assert not os.path.exists(g.reservation_path())
+
+
+def test_preflight_says_the_constants_same_or_differs(db, ledger, monkeypatch):
+    import cli
+    res = CliRunner().invoke(cli.cli, ["nfl-v2-gate", "--preflight"])
+    assert res.exit_code == 0, res.output
+    line = next(x for x in res.output.splitlines() if x.startswith("  constants: "))
+    assert line == (f"  constants: the entry's frozen {V1!r} · NFLEloConfig()'s {V1!r} · SAME: the run walks the "
+                    "declared constants (Codex P1 on #784)")
+    _set_constants(ledger, {**V1, "mov_base": 2.3})
+    res = CliRunner().invoke(cli.cli, ["nfl-v2-gate", "--preflight"])
+    assert res.exit_code == 0, res.output                     # the preflight reads; the run refuses
+    assert "· DIFFERS — the run refuses: the entry's frozen constants differ from nfl_backtest.NFLEloConfig()'s, " \
+           "the walk the run would build (mov_base: entry 2.3, code 2.2) (Codex P1 on #784)" in res.output
+    _set_constants(ledger, None)
+    res = CliRunner().invoke(cli.cli, ["nfl-v2-gate", "--preflight"])
+    assert res.exit_code == 0 and "  constants: the entry's frozen (none) · " in res.output
+    assert "DIFFERS — the run refuses: the registry entry has no constants block" in res.output
+
+
+# ------------------------------------------- Codex P1 (b) on #784: the reservation is whole or absent --
+
+def test_a_reservation_that_cannot_be_serialised_creates_nothing(ledger, monkeypatch):
+    g = _g()
+    monkeypatch.setattr(reg, "cross_ref_guard", lambda *a, **k: "stub")
+    with pytest.raises(g.GateRefused, match="could not be serialised .*the read is not spent"):
+        g.reserve({"architect_word": WORD, "bad": object()}, no_fetch=True)
+    assert not os.path.exists(g.reservation_path())
+
+
+@pytest.mark.parametrize("fault", ["partial write", "write", "fsync", "close", "directory fsync"])
+def test_a_reservation_write_failure_leaves_no_file_and_a_later_reserve_succeeds(ledger, monkeypatch, fault):
+    import errno
+    g = _g()
+    monkeypatch.setattr(reg, "cross_ref_guard", lambda *a, **k: "stub")
+    real_write, real_close = os.write, os.close
+    calls = []
+
+    def bad_write(fd, data):
+        calls.append(1)
+        if fault == "partial write" and len(calls) == 1:
+            return real_write(fd, bytes(data[:10]))           # some bytes land, then the disk fills
+        raise OSError(errno.ENOSPC, "No space left on device")
+
+    def bad(*a, **k):
+        raise OSError(errno.EIO, "Input/output error")
+    closed = []
+
+    def bad_close(fd):                                        # Linux: the fd is released even when close fails
+        real_close(fd)
+        if not closed:
+            closed.append(fd)
+            raise OSError(errno.EIO, "Input/output error")
+    with monkeypatch.context() as m:
+        if fault in ("partial write", "write"):
+            m.setattr(g.os, "write", bad_write)
+        elif fault == "fsync":
+            m.setattr(g.os, "fsync", bad)
+        elif fault == "directory fsync":                       # the file's fsync passes; the directory's fails
+            real_fsync, synced = os.fsync, []
+
+            def dir_bad(fd):
+                synced.append(fd)
+                if len(synced) == 2:
+                    raise OSError(errno.EIO, "Input/output error")
+                return real_fsync(fd)
+            m.setattr(g.os, "fsync", dir_bad)
+        else:
+            m.setattr(g.os, "close", bad_close)
+        with pytest.raises(g.GateRefused) as ei:
+            g.reserve({"architect_word": WORD}, no_fetch=True)
+    msg = str(ei.value)
+    assert "could not be written (OSError" in msg and "removed: nothing scored, the read is not spent" in msg
+    assert not os.path.exists(g.reservation_path())
+    if fault == "partial write":
+        assert len(calls) == 2
+    if fault == "directory fsync":
+        assert len(synced) == 2
+    # the fault removed, the one reservation is written whole
+    p = g.reserve({"architect_word": WORD}, no_fetch=True)
+    saved = json.loads(Path(p).read_text())
+    assert saved["id"] == EID and saved["architect_word"] == WORD and saved["guard"] == "stub"
+    assert Path(p).read_text().endswith("}\n")
+
+
+def test_the_reservation_fsyncs_its_directory_after_the_file(ledger, monkeypatch):
+    """Review on #784: the new file's directory entry is made durable (the directory fsynced) before reserve()
+    returns, after the file itself is written, fsynced and closed."""
+    import stat
+    g = _g()
+    monkeypatch.setattr(reg, "cross_ref_guard", lambda *a, **k: "stub")
+    real_fsync, seen = os.fsync, []
+
+    def spy(fd):
+        seen.append(stat.S_ISDIR(os.fstat(fd).st_mode))
+        return real_fsync(fd)
+    monkeypatch.setattr(g.os, "fsync", spy)
+    p = g.reserve({"architect_word": WORD}, no_fetch=True)
+    assert seen == [False, True]                              # the file, then its directory
+    assert json.loads(Path(p).read_text())["architect_word"] == WORD
+
+
+def test_a_write_failure_whose_removal_also_fails_says_inspect_the_file(ledger, monkeypatch):
+    import errno
+    g = _g()
+    monkeypatch.setattr(reg, "cross_ref_guard", lambda *a, **k: "stub")
+
+    def bad(*a, **k):
+        raise OSError(errno.EIO, "Input/output error")
+    with monkeypatch.context() as m:
+        m.setattr(g.os, "fsync", bad)
+        m.setattr(g.os, "unlink", lambda p: (_ for _ in ()).throw(PermissionError(errno.EACCES, "denied")))
+        with pytest.raises(g.GateRefused, match="could not be removed \\(PermissionError.*INSPECT THE FILE"):
+            g.reserve({"architect_word": WORD}, no_fetch=True)
+    assert os.path.exists(g.reservation_path())               # left for the operator to inspect, as the refusal says
+    os.remove(g.reservation_path())
+
+
+def test_a_run_whose_reservation_cannot_be_written_records_nothing_and_a_later_run_succeeds(db, ledger, monkeypatch,
+                                                                                           tmp_path):
+    import cli
+    g = _g()
+    declare(ledger, shrink=0.9)
+    fp = FP()
+    copy = COPY(tmp_path)
+    before = Path(ledger).read_bytes()
+    monkeypatch.setattr(reg, "cross_ref_guard", lambda *a, **k: "stub")
+    real = (nb.walk_protocol, nb._expected_home)
+    args = ["nfl-v2-gate", "--architect-word", WORD, "--stream-fingerprint", fp, "--db", copy, "--no-fetch"]
+    with monkeypatch.context() as m:
+        m.setattr(g, "_write_all", lambda fd, data: (_ for _ in ()).throw(OSError(28, "No space left on device")))
+        _no_scoring(m)
+        res = CliRunner().invoke(cli.cli, args)
+    assert res.exit_code == 2, res.output
+    assert "REFUSED" in res.output and "could not be written" in res.output and "the read is not spent" in res.output
+    _nothing_written(ledger, before, tmp_path)
+    assert (nb.walk_protocol, nb._expected_home) == real
+    res = CliRunner().invoke(cli.cli, args)
+    assert res.exit_code == 0, res.output
+    assert "recorded: 301 scored ids" in res.output
+    assert json.load(open(g.reservation_path()))["stream_fingerprint"] == fp
+
+
 def test_a_missing_season_refuses_before_the_reservation(tmp_path, monkeypatch, ledger):
     d = world.fresh(tmp_path / "only2024.db", monkeypatch)
     world.build(d, seasons=("2024",))
@@ -856,6 +1112,8 @@ def test_the_home_advantage_run_records_its_constants(db, ledger, monkeypatch, t
     assert r["ll_model"] == nb.walk_protocol(warmup, scored, nb.NFLEloConfig(home_advantage=36.0))["ll_model"]
     e = g.record(r, WORD)
     assert e["run"]["result"]["constants"]["home_advantage"] == 36.0
+    import dataclasses                                        # the record reads the dataclass's fields (review, #784)
+    assert list(r["constants"]) == [f.name for f in dataclasses.fields(nb.NFLEloConfig)] == list(g.code_constants())
 
 
 def test_an_interrupted_run_spends_the_reservation(db, ledger, monkeypatch, tmp_path):

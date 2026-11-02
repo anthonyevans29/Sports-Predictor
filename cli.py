@@ -5943,7 +5943,7 @@ def nfl_v2_gate_cmd(preflight, word, fingerprint, db, no_fetch):
     s·(p − 0.5) at pricing; or home_advantage, v1's 48 replaced for the whole walk). Refused (exit 2, nothing written,
     nothing recorded) unless declared and unrun and unreserved, --architect-word and --stream-fingerprint given, and
     exactly one form declared with a valid value, and its fit recorded (calibration_term.fit.warmup_fingerprint;
-    addendum 219 item 4); then, the stream loaded and nothing scored, unless both seasons hold games, the fit's warm-up
+    addendum 219 item 4), and the entry's frozen constants NFLEloConfig()'s exactly (Codex P1 on #784); then, the stream loaded and nothing scored, unless both seasons hold games, the fit's warm-up
     fingerprint is the loaded 2024 rows', and the stream fingerprint (v2: the rows AND the declared term, 219 item 4)
     matches. --db reads a .backup copy (mode=ro + immutable=1; 219 item 6); the run refuses without it. The reservation
     docs/registry/nfl-elo-v2.started.json (after the #329 cross-ref guard) carries the word and the fingerprints and

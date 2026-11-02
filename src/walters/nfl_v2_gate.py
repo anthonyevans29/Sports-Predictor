@@ -18,22 +18,25 @@ on a refusal; the corrected stream as the fingerprint)".
     nfl-v2-gate --preflight [--db COPY]
                                        scores nothing: the scope line (naming the database read), the warm-up and
                                        scored counts (printed beside 215's 285, never asserted), the 2024 baseline,
-                                       the declared term (or NOT DECLARED: the run refuses), the warm-up fingerprint
-                                       against the one the fit recorded (fit null or CHANGED: the run refuses); its
-                                       last line is the stream fingerprint, which binds the declared term (v2, below).
-                                       No 2025 outcome is computed or printed.
+                                       the declared term (or NOT DECLARED: the run refuses), the entry's frozen
+                                       constants against NFLEloConfig()'s (SAME, or DIFFERS: the run refuses), the
+                                       warm-up fingerprint against the one the fit recorded (fit null or CHANGED: the
+                                       run refuses); its last line is the stream fingerprint, which binds the
+                                       declared term (v2, below). No 2025 outcome is computed or printed.
     nfl-v2-gate --architect-word T --stream-fingerprint F [--db COPY]
                                        the ONE run: refused (exit 2, nothing written, nothing recorded) unless the
                                        entry is declared and unrun and unreserved, the word and the fingerprint are
                                        given, the calibration term is declared (exactly one form, a valid value) and
-                                       its fit is recorded (calibration_term.fit with a warmup_fingerprint); then the
-                                       stream is loaded (nothing scored) and the run refuses unless both seasons hold
+                                       its fit is recorded (calibration_term.fit with a warmup_fingerprint), and the
+                                       entry's frozen constants are NFLEloConfig()'s exactly; then the stream is
+                                       loaded (nothing scored) and the run refuses unless both seasons hold
                                        games, the fit's warm-up fingerprint is the loaded 2024 rows', and the stream
                                        fingerprint (the rows AND the term) is F; then the reservation (after the #329
                                        cross-ref guard) carrying the word, the fingerprints and the term, written
-                                       BEFORE the first game is scored; then the frozen protocol's walk (nfl_backtest
-                                       .walk_protocol, the code nfl-backtest runs) and the record (registry
-                                       .record_run: the scored 2025 ids and the result, the word and the
+                                       BEFORE the first game is scored, whole or absent (a failed write is removed
+                                       and the run refuses, the read not spent); then the frozen protocol's walk
+                                       (nfl_backtest.walk_protocol, the code nfl-backtest runs) and the record
+                                       (registry.record_run: the scored 2025 ids and the result, the word and the
                                        fingerprints).
 
 ADDENDUM 219 item 4 (ARCHITECT 2026-11-02 12:20 ET, verbatim): "BINDING — RULED IN, the one push before merge: the run
@@ -56,6 +59,20 @@ for 11-06, and the mlb-pitchers pattern it cites requires --db: "the gate never 
 keeps DATABASE_URL without it (215 item 3's 11-04 preflight reads the live DB). A copy with a -wal, -shm or -journal
 file beside it is refused: immutable=1 would read the main file alone and miss committed pages still in the WAL, and a
 fresh .backup copy has none.
+
+CODEX P1s on #784 (verified, fixed in the PR): (a) THE CONSTANTS. The registry entry's "constants" block is the
+declaration's frozen constants (215 item 2: "The constants are chosen BEFORE the run and written into the
+declaration"); candidate() builds the walk from NFLEloConfig()'s defaults, so the run refuses (declared_constants,
+before the stream is loaded and before reserve(): nothing read, nothing reserved, nothing recorded) when the entry has
+no constants block, a key is missing or extra against NFLEloConfig's dataclass fields (a field added to the config
+later is walked but not frozen: refused), or any value differs from NFLEloConfig()'s by exact float equality
+(home_advantage against v1's base default; the home_advantage form replaces it separately). The refusal is the
+binding: the constants are not in the stream fingerprint. --preflight prints the comparison (SAME, or DIFFERS: the run
+refuses). (b) THE RESERVATION IS WHOLE OR ABSENT. reserve() serialises the body before the exclusive create (a
+serialisation error creates nothing), then writes, fsyncs and closes it and fsyncs its directory (the new entry
+durable before the first game is scored) inside a guard; on any failure the file is
+removed and the run refuses, nothing scored, the read not spent (an empty or partial file would read as a spent run to
+every later invocation). If the removal fails too, the refusal names the file to inspect.
 
 THE MACHINERY IS ncaa-gate's (src/walters/ncaa_v1r_gate.py): declared_unrun, the word, the fingerprint checked against
 the stream about to be walked, reserve() after registry.cross_ref_guard with an exclusive create, record_run. It is
@@ -83,7 +100,7 @@ import json
 import math
 import os
 from contextlib import contextmanager
-from dataclasses import replace
+from dataclasses import fields, replace
 from datetime import datetime
 
 from src.timeutil import utc_now_naive
@@ -171,8 +188,62 @@ def declared_term(e: dict | None) -> tuple[str, float]:
     return form, v
 
 
+# ------------------------------------------------------------------------------------ the frozen constants --
+# The registry entry's "constants" block is the declaration's (215 item 2: "The constants are chosen BEFORE the run and
+# written into the declaration"); candidate() builds the walk from nfl_backtest.NFLEloConfig()'s defaults. The run
+# refuses unless the two are the same, key for key and value for value (exact float equality), so a default that
+# drifts after the declaration cannot spend the one read of 2025 on a model the architect did not word (Codex P1 on
+# #784). home_advantage compares with v1's base default: the home_advantage form replaces it in candidate() and is
+# bound separately (term_state, the stream fingerprint). Checked before the stream is loaded and before reserve():
+# nothing read, nothing reserved, nothing recorded. The refusal is the binding; the constants are not in the stream
+# fingerprint. The key set is NFLEloConfig's dataclass fields, never a list kept here: a field added to the config
+# later (one the walk would read) is a key the entry does not freeze, and the run refuses it (review on #784).
+
+
+def _is_number(v) -> bool:
+    return isinstance(v, (int, float)) and not isinstance(v, bool)
+
+
+def code_constants() -> dict:
+    """nfl_backtest.NFLEloConfig()'s defaults, every dataclass field of it: the constants candidate() walks (before
+    the term)."""
+    c = nb.NFLEloConfig()
+    return {f.name: getattr(c, f.name) for f in fields(c)}
+
+
+def constants_state(e: dict | None) -> str | None:
+    """None when the entry's frozen constants block equals code_constants() exactly; else why the run refuses."""
+    blk = (e or {}).get("constants")
+    if not isinstance(blk, dict):
+        return "the registry entry has no constants block (the declaration's frozen constants)"
+    code = code_constants()
+    missing = [k for k in code if k not in blk]
+    extra = sorted(k for k in blk if k not in code)
+    if missing or extra:
+        return ("the entry's constants block does not name exactly NFLEloConfig()'s fields, " + ", ".join(code)
+                + (f" (missing {', '.join(missing)}: walked, not frozen)" if missing else "")
+                + (f" (not walked: {', '.join(extra)})" if extra else ""))
+    diff = [f"{k}: entry {blk[k]!r}, code {code[k]!r}" for k in code
+            if not (_is_number(blk[k]) and _is_number(code[k])) or float(blk[k]) != float(code[k])]
+    if diff:
+        return ("the entry's frozen constants differ from nfl_backtest.NFLEloConfig()'s, the walk the run would build "
+                "(" + "; ".join(diff) + ")")
+    return None
+
+
+def declared_constants(e: dict | None) -> dict:
+    """The entry's frozen constants, refusing (GateRefused, exit 2) unless they are the walk's; see constants_state."""
+    why = constants_state(e)
+    if why:
+        raise GateRefused(f"{EID}: {why}: 215 item 2, \"The constants are chosen BEFORE the run and written into the "
+                          "declaration\"; the run walks the declared constants or nothing (Codex P1 on #784); nothing "
+                          "read, nothing reserved, nothing scored")
+    return dict(e["constants"])
+
+
 def candidate(form: str, value: float):
-    """(the walk's NFLEloConfig, the price map) for a declared term. v1's constants otherwise untouched."""
+    """(the walk's NFLEloConfig, the price map) for a declared term. v1's constants otherwise untouched (the run has
+    checked them against the entry's frozen block first: declared_constants)."""
     base = nb.NFLEloConfig()
     if form == "shrink":
         return base, (lambda p, s=value: 0.5 + s * (p - 0.5))
@@ -314,9 +385,35 @@ def _reserved_why(p: str) -> str:
             "is the one run, recorded or not. Nothing reruns without an architect ruling")
 
 
+def _write_all(fd: int, data: bytes) -> None:
+    view = memoryview(data)
+    while view:
+        view = view[os.write(fd, view):]
+    os.fsync(fd)
+
+
+def _fsync_dir(p: str) -> None:
+    """fsync the reservation's directory, so the new file's directory entry is durable before the first game is
+    scored (review on #784: without it a crash after the verdict could lose the entry, and the read could be taken
+    twice). POSIX only: Windows cannot open a directory for fsync, and NTFS journals the entry itself."""
+    if os.name == "nt":
+        return
+    dfd = os.open(os.path.dirname(os.path.abspath(p)), os.O_RDONLY)
+    try:
+        os.fsync(dfd)
+    finally:
+        os.close(dfd)
+
+
 def reserve(meta: dict, no_fetch: bool = False, echo=None) -> str:
     """ncaa-gate's reserve(): the #329 cross-ref guard first, then the exclusive create of the reservation, before the
-    first game is scored."""
+    first game is scored.
+
+    A reservation is whole or absent (Codex P1 on #784): the body is serialised BEFORE the exclusive create (a
+    serialisation error creates nothing), then written, fsynced and closed, and its directory fsynced, inside a guard;
+    on any failure there the fd is closed and the file removed, and the run refuses (exit 2: nothing scored, the read is not spent). An empty or
+    partial file would otherwise read as a spent run to every later invocation. If the removal itself fails the
+    refusal says so and names the file to inspect (it may read as a spent run until it is)."""
     reg = _reg()
     p = reservation_path()
     if os.path.exists(p):
@@ -328,12 +425,41 @@ def reserve(meta: dict, no_fetch: bool = False, echo=None) -> str:
     if echo:
         echo(receipt)
     try:
+        data = (json.dumps({"id": EID, "started_at": _iso(utc_now_naive()), "guard": receipt, **meta})
+                + "\n").encode("utf-8")
+    except Exception as err:
+        raise GateRefused(f"{EID}: the reservation could not be serialised ({type(err).__name__}: {err}); nothing "
+                          "written, nothing scored, the read is not spent") from err
+    try:
         fd = os.open(p, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
     except FileExistsError:
         raise GateRefused(_reserved_why(p))
-    with os.fdopen(fd, "w") as f:
-        json.dump({"id": EID, "started_at": _iso(utc_now_naive()), "guard": receipt, **meta}, f)
-        f.write("\n")
+    fd_open = True
+    try:
+        _write_all(fd, data)
+        fd_open = False
+        os.close(fd)
+        _fsync_dir(p)                                          # the directory entry is durable too (review on #784)
+    except BaseException as err:
+        if fd_open:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+        try:
+            os.unlink(p)
+            removed = "removed"
+        except FileNotFoundError:
+            removed = "already gone"
+        except OSError as uerr:
+            raise GateRefused(f"{EID}: the reservation {os.path.relpath(p)} could not be written "
+                              f"({type(err).__name__}: {err}) and could not be removed ({type(uerr).__name__}: "
+                              f"{uerr}): INSPECT THE FILE before anything else; it may be empty or partial and reads as a spent run while it "
+                              "stands. Nothing was scored") from err
+        if not isinstance(err, Exception):
+            raise
+        raise GateRefused(f"{EID}: the reservation {os.path.relpath(p)} could not be written ({type(err).__name__}: "
+                          f"{err}); {removed}: nothing scored, the read is not spent") from err
     return p
 
 
@@ -367,6 +493,7 @@ def preflight(rows, entry: dict | None, preseason: dict | None = None) -> dict:
     fp, fp_n = stream_fingerprint(warmup, scored, bound_term(entry))
     wfp, wn = warmup_fingerprint(warmup)
     form, value, why = term_state(entry)
+    cwhy = constants_state(entry)
     try:
         rec = fit_binding(entry)
     except GateRefused:
@@ -379,6 +506,7 @@ def preflight(rows, entry: dict | None, preseason: dict | None = None) -> dict:
             "preseason_excluded": preseason or {},
             "baseline_home_rate": nb.baseline_rate(warmup) if warmup else None,
             "form": form, "value": value, "term_why": why,
+            "constants": (entry or {}).get("constants"), "code_constants": code_constants(), "constants_why": cwhy,
             "fit_warmup_fingerprint": rec,
             "warmup_fingerprint": wfp, "warmup_fingerprint_n": wn,
             "fingerprint": fp, "fingerprint_n": fp_n}
@@ -408,6 +536,10 @@ def preflight_lines(pf: dict, scope: str | None = None) -> list[str]:
              + (f"{rate:.6f} ({pf['warmup_n']} games)" if rate is not None else "UNDEFINED (no warm-up game)"))
     L.append("  calibration term: " + (describe(pf["form"], pf["value"]) if pf["form"] else
                                        f"NOT DECLARED — the run refuses: {pf['term_why']}"))
+    L.append("  constants: the entry's frozen " + (repr(pf["constants"]) if pf["constants"] is not None else "(none)")
+             + f" · NFLEloConfig()'s {pf['code_constants']!r} · "
+             + ("SAME: the run walks the declared constants" if not pf["constants_why"] else
+                f"DIFFERS — the run refuses: {pf['constants_why']}") + " (Codex P1 on #784)")
     rec = pf["fit_warmup_fingerprint"]
     L.append(f"  warm-up fingerprint {pf['warmup_fingerprint']} ({pf['warmup_fingerprint_n']} games; nfl-v2-fit-warmup "
              f"prints it) · the fit's, as the entry records it: {rec or '—'} · "
@@ -476,8 +608,9 @@ def run(word: str | None, fingerprint: str | None, no_fetch: bool = False, echo=
     """The ONE run. Checked BEFORE the reservation, each refusal exit 2 with nothing written and nothing recorded:
     declared and unrun and unreserved; the word (non-empty, verbatim); the fingerprint; the calibration term declared
     (exactly one form, a valid value); the fit recorded (calibration_term.fit.warmup_fingerprint, addendum 219 item
-    4); the --db copy given and admissible (check_db; addendum 219 item 6: the ONE run reads the .backup copy, never
-    DATABASE_URL). Then the stream is loaded
+    4); the entry's frozen constants the walk's (declared_constants: the block present, exactly NFLEloConfig()'s fields,
+    each value equal to its default; Codex P1 on #784); the --db copy given and admissible (check_db; addendum 219
+    item 6: the ONE run reads the .backup copy, never DATABASE_URL). Then the stream is loaded
     (nfl_backtest.load_stream, the read --preflight makes, from the same database; nothing scored) and the run refuses
     unless both seasons hold games, the loaded 2024 rows' warm-up fingerprint is the fit's (219 item 4: a stale fit
     refuses), and the stream fingerprint over those rows AND the declared term equals `fingerprint` (219 item 4: the
@@ -493,6 +626,7 @@ def run(word: str | None, fingerprint: str | None, no_fetch: bool = False, echo=
                           f"with the last line of {COMMAND} --preflight")
     form, value = declared_term(e)
     fit_wfp = fit_binding(e)                                   # 219 item 4: a null fit refuses here, before the load
+    declared_constants(e)                                      # the entry's frozen constants are the walk's, or refuse
     if db is None or not str(db).strip():                      # 219 item 6: the run reads the copy, never the live DB
         raise GateRefused("the ONE run reads a fresh .backup copy outside data/ (addendum 219 item 6, the mlb-pitchers "
                           "pattern: the gate never reads the live database): pass --db COPY, the copy --preflight "
@@ -533,8 +667,7 @@ def run(word: str | None, fingerprint: str | None, no_fetch: bool = False, echo=
               "warmup_n": len(warmup), "scored_n": len(scored), "calibration_term": term,
               "warmup_fingerprint": wfp, "fit_warmup_fingerprint": fit_wfp,
               "db": str(path),
-              "constants": {k: getattr(cfg, k) for k in ("k_factor", "home_advantage", "season_regression",
-                                                         "mov_base", "default_rating")}})
+              "constants": {k: getattr(cfg, k) for k in code_constants()}})
     return w
 
 

@@ -101,6 +101,7 @@ its compare verdict.
 | `v1.4.0` | 2026-10-16 14:18:21Z | `684462e3d5078ff2c906db73362a220917bf1fcb` | `253bacd00327446936cdb16ea37a76deafc20ff1` | #556 |
 | `v1.5.0` | 2026-10-22 13:24:24Z | `d15b9981edfa74379dd01089f7de23db51353d45` | `358777b00f6d39de1a92f97052f3756d9b89e5c1` | #647 |
 | `v1.6.0` | 2026-10-26 12:07:29Z | `4c106f5097cd4a47817d6a5cf988b7b9f21c00e6` | `01fa5d615cb0c9142b94ef816d0eb6e6d7f6f5da` | #678 |
+| `v1.6.1` | 2026-10-28 12:45:48Z | `23f86e3794a7c075eb7b668e980e2f41ee90ad8f` | `fd3fd51b0179b9fe97dc1b07f00843d69150bf15` | #777 (record backfilled 2026-11-02 (addendum 213 item 2)) |
 | `v1.6.2` | 2026-11-02 14:14:20Z | `98181976f9f4c98c2c3f6e3c8e576e8082d6477f` | `db8fde9c6680b46e77f843b0a5c2e779295bc9dd` | #776 |
 
 - **v1.4.0** (ARCHITECT 2026-10-16, addendum 87). The commit is the ledger
@@ -158,6 +159,18 @@ its compare verdict.
   - **Every receipt from `install` on names v1.6.0** (addendum 167 item 3); the preflight's names v1.5.0. The
     cutover's receipt at 13:45:11Z: running v1.6.0, flag host.
   - #678 carries the notes and addendum 168 item 1 verbatim.
+- **v1.6.1** (record backfilled 2026-11-02, ARCHITECT 2026-11-02 09:55 ET, addendum 213 item 2: the ritual's step 4
+  was missed on 10-28). The commit is the ledger compile 23f86e37 (22 changelog fragments, 25 ledger entries) over
+  7fb77030 (#717); the tag addendum 168's postscript named for #674 (the timers retirement). Tagger stamp
+  2026-10-28 12:45:48Z (08:45:48 ET).
+  - **The tag message:** the header and all 22 `## ` section headings kept (23 lines beginning with `#`). It matches
+    `python3 scripts/release_notes.py --to 23f86e3794a7c075eb7b668e980e2f41ee90ad8f` line for line, plus one trailing
+    blank line. No AMENDED line.
+  - **Compare:** addendum 168's postscript line ("the tag v1.6.1 Wednesday morning after that day's compare"), quoted
+    on #777. BACKLOG holds no separate line with that compare's own VERDICT.
+  - **Deploy:** `sp_deploy.py --tag v1.6.1` on 10-28; its timers line read the new runbook with the old release's
+    parser (addendum 174 item 4; fixed by #725).
+  - #777 carries the notes and addendum 213 item 2 verbatim.
 - **v1.6.2** (ARCHITECT 2026-11-02 09:30 ET, addendum 212 item 2(b)). The commit is the ledger compile 98181976
   (26 changelog fragments, 26 ledger entries) over 9eebd349 (#770); it carries #766, #767, #771, #773, #768 and #770.
   The tag was cut by the operator: tagger stamp 2026-11-02 14:14:20Z (09:14:20 ET).

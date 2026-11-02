@@ -741,12 +741,17 @@ def test_a_reservation_write_failure_leaves_no_file_and_a_later_reserve_succeeds
         with pytest.raises(g.GateRefused) as ei:
             g.reserve({"architect_word": WORD}, no_fetch=True)
     msg = str(ei.value)
-    assert "could not be written (OSError" in msg and "removed: nothing scored, the read is not spent" in msg
+    assert "could not be written (OSError" in msg
+    if fault == "fsync":                                      # every fsync fails: the removal's directory fsync too
+        assert "removed, but the removal could not be made durable (OSError" in msg, msg     # #798
+        assert msg.endswith("is absent before the run: nothing scored"), msg      # never "the read is not spent"
+    else:
+        assert msg.endswith("removed: nothing scored, the read is not spent"), msg
     assert not os.path.exists(g.reservation_path())
     if fault == "partial write":
         assert len(calls) == 2
     if fault == "directory fsync":
-        assert len(synced) == 2
+        assert len(synced) == 3                               # the file, its directory (fails), the removal's (#798)
     # the fault removed, the one reservation is written whole
     p = g.reserve({"architect_word": WORD}, no_fetch=True)
     saved = json.loads(Path(p).read_text())
@@ -810,6 +815,39 @@ def test_a_run_whose_reservation_cannot_be_written_records_nothing_and_a_later_r
     assert res.exit_code == 0, res.output
     assert "recorded: 301 scored ids" in res.output
     assert json.load(open(g.reservation_path()))["stream_fingerprint"] == fp
+
+
+def test_a_run_whose_reservation_cannot_be_created_exits_2_and_a_later_run_succeeds(db, ledger, monkeypatch, tmp_path):
+    """#798 (addendum 222 item 2): a create failing with ENOSPC (not an existing file) is a refusal, exit 2, not a
+    traceback; nothing created, nothing scored, nothing recorded; the read is not spent and the one run proceeds."""
+    import errno
+
+    import cli
+    g = _g()
+    declare(ledger, shrink=0.9)
+    fp = FP()
+    copy = COPY(tmp_path)
+    before = Path(ledger).read_bytes()
+    monkeypatch.setattr(reg, "cross_ref_guard", lambda *a, **k: "stub")
+    args = ["nfl-v2-gate", "--architect-word", WORD, "--stream-fingerprint", fp, "--db", copy, "--no-fetch"]
+    real_open = os.open
+
+    def full_disk(path, *a, **k):                             # only the reservation's create fails
+        if os.path.abspath(path) == os.path.abspath(g.reservation_path()):
+            raise OSError(errno.ENOSPC, "No space left on device")
+        return real_open(path, *a, **k)
+    with monkeypatch.context() as m:
+        m.setattr(g.os, "open", full_disk)
+        _no_scoring(m)
+        res = CliRunner().invoke(cli.cli, args)
+    assert res.exit_code == 2, res.output
+    assert res.exception is None or isinstance(res.exception, SystemExit), res.exception
+    assert "REFUSED" in res.output and "could not be created (OSError" in res.output
+    assert "nothing written, nothing scored, the read is not spent" in res.output
+    _nothing_written(ledger, before, tmp_path)
+    res = CliRunner().invoke(cli.cli, args)
+    assert res.exit_code == 0, res.output
+    assert "recorded: 301 scored ids" in res.output
 
 
 def test_a_missing_season_refuses_before_the_reservation(tmp_path, monkeypatch, ledger):

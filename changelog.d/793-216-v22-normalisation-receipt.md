@@ -1,4 +1,4 @@
-## 2026-11-02 (#000: 216-v22-normalisation-receipt — v22's normalisation finding pinned on the real code, read-only; addendum 216 item 1(b), the Issues of items 1(a), 2, 4 and 5)
+## 2026-11-02 (#793: 216-v22-normalisation-receipt — v22's normalisation finding pinned on the real code, read-only; addendum 216 item 1(b), the Issues of items 1(a), 2, 4 and 5)
 - **Ruling (verbatim, addendum 216, all items):**
 > ARCHITECT 2026-11-02 10:50 ET — addendum 216: the external review of v22 (the operator's GPT, 2026-11-02, with its normalisation_diagnostic.py) — read against the code (law 1, by me) and ruled. v22 does not move; the pl-availability shadow is untouched; the findings go to the successor candidate and to the ledger.
 >

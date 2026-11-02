@@ -171,8 +171,9 @@ def refresh(competition_code: str, adapter, days: int = 7, now=None, progress=No
                                                provider_score=[new_h, new_a]))
                 m.home_score, m.away_score = new_h, new_a
                 changed = True
-            if nm.status_raw:
-                m.status_raw = nm.status_raw
+            if nm.status_raw and nm.status_raw != m.status_raw:   # never blank a stored code with an absent one;
+                m.status_raw = nm.status_raw                       # a code written is an update (Codex on #775:
+                changed = True                                     # a code-only write once read "unchanged")
             r["updated" if changed else "unchanged"] += 1
     return r
 

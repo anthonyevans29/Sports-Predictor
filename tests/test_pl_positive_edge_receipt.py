@@ -38,7 +38,7 @@ def result_row(mid, p=(0.45, 0.30, 0.25), fair=(0.40, 0.30, 0.30), hit=True, sco
          "actual": {"home_score": score[0], "away_score": score[1], "total_runs": sum(score),
                     "result": "H" if score[0] > score[1] else "A" if score[0] < score[1] else "D"},
          "graded": {"top_pick_hit": hit, "total_correct": None, "total_error": None, "log_loss": 0.8,
-                    "brier_score": 0.5, "model_close_divergence": None, "clv": None, "closing_price": None, **close}}
+                    "brier_score": 0.5, "model_close_divergence": None, "closing_price": None, **close}}
     r.update(extra)
     return r
 

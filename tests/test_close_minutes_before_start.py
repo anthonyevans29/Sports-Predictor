@@ -130,7 +130,8 @@ def test_every_results_row_with_close_at_carries_the_field(iso_db, tmp_path):
         assert "close_at" in g and "close_minutes_before_start" in g                 # present wherever close_at is
         assert g["close_minutes_before_start"] == want[mid]
         assert (g["close_at"] is None) == (want[mid] is None)
-        for kept in ("close_fair", "close_books", "close_source", "clv"):             # nothing renamed or removed
+        for kept in ("close_fair", "close_books", "close_source", "model_close_divergence"):  # nothing renamed or
+            # removed (the `clv` alias was, by its own ruling: #621)
             assert kept in g
 
 

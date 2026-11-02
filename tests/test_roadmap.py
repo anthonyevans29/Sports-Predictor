@@ -294,9 +294,10 @@ BROKEN = [
 # four-league lane [SA, BL1, FL1, ELC]; College [NCAA]; Hockey [NHL]; Cups [CL, EFL, UEL]; NFL QB [NFL]; MLB pitcher
 # [MLB]."
 # ARCHITECT 2026-11-01 10:05 ET, addendum 198 item 5: "the roadmap lane (declared; ...)": lane pl-availability, [PL].
+# ARCHITECT 2026-11-02 10:35 ET, addendum 215 item 3: "a lane "nfl-v2" on the roadmap": nfl_elo_v2's lane, [NFL].
 RULED_COMPETITIONS = {"unl": ["UNL"], "pd": ["PD"], "leagues": ["SA", "BL1", "FL1", "ELC"], "ncaa": ["NCAA"],
-                      "nhl": ["NHL"], "cups": ["CL", "EFL", "UEL"], "nfl-qb": ["NFL"], "mlb-pitchers": ["MLB"],
-                      "pl-availability": ["PL"]}
+                      "nhl": ["NHL"], "cups": ["CL", "EFL", "UEL"], "nfl-qb": ["NFL"], "nfl-v2": ["NFL"],
+                      "mlb-pitchers": ["MLB"], "pl-availability": ["PL"]}
 
 
 def test_each_lane_carries_the_ruled_competitions():

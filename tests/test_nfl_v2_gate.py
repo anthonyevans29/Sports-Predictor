@@ -9,7 +9,12 @@ word, no fingerprint, a stream that no longer matches it, a season missing, a re
 recorded) with nothing written; the reservation after the #329 guard and before the first scored game, carrying the
 word and the fingerprint; one run recorded as ncaa-gate records it, a second refused; the run is the frozen protocol's
 code; the shrink and home-advantage forms change the walk as defined; --preflight scores nothing and prints no 2025
-figure; the fit reads 2024 only (its output is identical with and without 2025 rows) and its grid minima."""
+figure; the fit reads 2024 only (its output is identical with and without 2025 rows) and its grid minima.
+Addendum 219 (ARCHITECT 2026-11-02 12:20 ET): item 4, the run refuses a null fit and a stale fit (nothing reserved,
+nothing recorded) and the stream fingerprint (v2) binds the declared term; item 6, --db reads a .backup copy through
+mode=ro&immutable=1 (refused under data/, when missing, and with a -wal/-shm/-journal beside it; never created, no
+sidecar), the same fingerprint as the same rows through DATABASE_URL, and the ONE run refuses without --db (--preflight
+keeps DATABASE_URL); items 5 and 7 in the entry and the lane."""
 import json
 import math
 import os
@@ -132,6 +137,17 @@ def test_the_entry_is_declared_unrun_with_v1s_constants_the_term_unset_and_215s_
     assert e["confirmation_plan"] is None
     assert e["declared_at"] == "2026-11-02T15:35:00Z" and e["ratified"].startswith("ARCHITECT 2026-11-02 10:35 ET")
     assert reg._retired_refusal(e["test_set"], EID) is None
+    # addendum 219 (ARCHITECT 2026-11-02 12:20 ET): the eight questions ruled, each quoted where it applies
+    a219 = "ARCHITECT 2026-11-02 12:20 ET, addendum 219"
+    for n, field, head in ((1, e["declared_at_note"], "STATUS before the declaration — `declared`"),
+                           (2, t["rule"], "THE FIT METHOD — as built"), (3, t["rule"], "h = 0 — ALLOWED"),
+                           (4, t["rule"], "BINDING — RULED IN"), (5, e["gate"], "THE TIE — the frozen text"),
+                           (6, e["stream"]["database"], "THE DATABASE on 11-06"),
+                           (8, e["confirmation_plan_note"], "confirmation_plan null — as built")):
+        assert f"{a219} item {n}, verbatim" in field and f"\"{head}" in field, n
+    assert "Law 3's \"ties are rejections\" governs bars written as \"better than\" (the improve bar); where a " \
+           "pre-committed criterion wrote \"<=\", \"<=\" stands." in e["gate"]
+    assert "stream fingerprint v2" in e["stream"]["fingerprint"] and "calibration term" in e["stream"]["fingerprint"]
     raw = (ROOT / "docs" / "registry" / "experiments.json").read_text()
     assert raw == json.dumps(json.loads(raw), indent=2) + "\n"
     ids = [x["id"] for x in reg.load()]
@@ -153,11 +169,12 @@ def test_the_roadmap_lane_nfl_v2():
            (EID, "to declare", ["NFL"], "2026-11-26", [])
     assert [(s["owner"], s["due"]) for s in ln["steps"]] == [
         ("code", "2026-11-03"), ("operator", "2026-11-04"), ("architect", "2026-11-05"), ("operator", "2026-11-06"),
-        ("calendar", "2026-11-23"), ("architect", "2026-11-24"), ("architect", "2026-11-26")]
+        ("calendar", "2026-11-23"), ("operator", "2026-11-24"), ("architect", "2026-11-26")]   # 219 item 7
     assert all(s["done"] is None for s in ln["steps"])
     assert ln["steps"][0]["what"].startswith("the harness PR")
     assert "the preflight of the v2 harness" in ln["steps"][1]["what"]
     assert ln["steps"][3]["what"] == "the ONE run on my word, my block, the verdict the same day"
+    assert "he pastes the rehearsal pages to his GPT; the read comes to me" in ln["steps"][5]["what"]
     assert not any(x["lane"] == "nfl-confirm" for x in doc["lanes"])     # the records PR adds it, not this one
 
 
@@ -370,7 +387,19 @@ def ledger(tmp_path, monkeypatch):
     return p
 
 
-def declare(ledger, shrink=None, home_advantage=None, fit=None):
+AUTO = object()
+
+
+def WFP():
+    """The warm-up fingerprint of the bound DB's 2024 rows (the fit's, when the fit read this DB)."""
+    return _g().warmup_fingerprint(nb.split(nb.load_stream())[0])[0]
+
+
+def declare(ledger, shrink=None, home_advantage=None, fit=AUTO):
+    """Write a term into the tmp ledger's entry. fit AUTO: a fit recorded on the bound DB's 2024 rows (the bound
+    run, addendum 219 item 4); None: the null fit; else the block given."""
+    if fit is AUTO:
+        fit = {"method": "test", "warmup_fingerprint": WFP()}
     entries = json.loads(Path(ledger).read_text())
     e = next(x for x in entries if x["id"] == EID)
     e["calibration_term"].update({"shrink": shrink, "home_advantage": home_advantage, "fit": fit})
@@ -378,9 +407,17 @@ def declare(ledger, shrink=None, home_advantage=None, fit=None):
 
 
 def FP():
+    """The stream fingerprint --preflight prints now: the bound DB's rows and the tmp ledger's declared term (v2)."""
     g = _g()
     warmup, scored = nb.split(nb.load_stream())
-    return g.stream_fingerprint(warmup, scored)[0]
+    return g.stream_fingerprint(warmup, scored, g.bound_term(reg.get(EID, reg.LEDGER)))[0]
+
+
+def COPY(tmp_path, name="run-copy.db") -> str:
+    """A .backup copy of the bound DB as it stands now: addendum 219 item 6, the ONE run reads the copy (--db), never
+    DATABASE_URL."""
+    import src.db.database as d
+    return str(_backup(Path(d._engine.url.database), tmp_path / "copies" / name))
 
 
 def _nothing_written(ledger, before, tmp_path):
@@ -399,14 +436,22 @@ def _no_scoring(monkeypatch):
 
 @pytest.mark.parametrize("case", ["no term", "both forms", "bad value", "no shrink", "not smaller", "no word",
                                   "no fingerprint", "stale fingerprint", "reserved", "already run", "not declared",
-                                  "closed", "declared with a run"])
+                                  "closed", "declared with a run", "null fit", "fit not an object",
+                                  "fit without its fingerprint", "stale fit", "no db"])
 def test_the_run_refuses_on_each_missing_condition_and_writes_nothing(db, ledger, monkeypatch, tmp_path, case):
     import cli
     g = _g()
-    fp = FP()
-    word, given = WORD, fp
     if case == "no term":
         pass
+    elif case == "null fit":                            # 219 item 4: "the run REFUSES when `fit` is null"
+        declare(ledger, shrink=0.9, fit=None)
+    elif case == "fit not an object":
+        declare(ledger, shrink=0.9, fit="0" * 64)
+    elif case == "fit without its fingerprint":
+        declare(ledger, shrink=0.9, fit={"method": "grid", "warmup_fingerprint": "  "})
+    elif case == "stale fit":                           # 219 item 4: "... or when the fit's warm-up fingerprint differs"
+        wfp = WFP()
+        declare(ledger, shrink=0.9, fit={"warmup_fingerprint": wfp[:-1] + ("1" if wfp[-1] == "0" else "0")})
     elif case == "both forms":
         declare(ledger, shrink=0.9, home_advantage=40.0)
     elif case == "bad value":
@@ -417,6 +462,8 @@ def test_the_run_refuses_on_each_missing_condition_and_writes_nothing(db, ledger
         declare(ledger, home_advantage=48.0)
     else:
         declare(ledger, shrink=0.9)
+    fp = FP()                                           # the fingerprint of the stream and the term as now declared
+    word, given = WORD, fp
     if case == "no word":
         word = "   "
     if case == "no fingerprint":
@@ -437,28 +484,38 @@ def test_the_run_refuses_on_each_missing_condition_and_writes_nothing(db, ledger
         else:
             entries.remove(e)
         Path(ledger).write_text(json.dumps(entries, indent=2) + "\n")
+    copy = COPY(tmp_path)                               # 219 item 6: the run reads the copy
     before = Path(ledger).read_bytes()
     had_reservation = os.path.exists(g.reservation_path())
     guarded = []
     monkeypatch.setattr(reg, "cross_ref_guard", lambda *a, **k: guarded.append(1) or "stub")
     _no_scoring(monkeypatch)
-    if case != "stale fingerprint":                     # every other refusal comes before the stream is loaded
+    if case not in ("stale fingerprint", "stale fit"):  # every other refusal comes before the stream is loaded
         monkeypatch.setattr(nb, "load_stream", lambda *a, **k: (_ for _ in ()).throw(AssertionError("loaded")))
     args = ["nfl-v2-gate", "--no-fetch"]
     if word is not None:
         args += ["--architect-word", word]
     if given is not None:
         args += ["--stream-fingerprint", given]
+    if case != "no db":                                 # 219 item 6: without --db the run refuses
+        args += ["--db", copy]
     res = CliRunner().invoke(cli.cli, args)
     assert res.exit_code == 2, res.output
     assert "REFUSED" in res.output
     want = {"no term": "not declared", "both forms": "both forms are set", "bad value": "0 < s < 1",
             "no shrink": "s = 1 is nfl_elo_v1 unchanged", "not smaller": "h = 48.0 is nfl_elo_v1 unchanged",
             "no word": "architect's word", "no fingerprint": "--stream-fingerprint",
-            "stale fingerprint": "no longer matches", "reserved": "the one run, recorded or not",
+            "stale fingerprint": "no longer match the fingerprint given", "reserved": "the one run, recorded or not",
             "already run": "declared and unrun", "not declared": "status absent", "closed": "(status closed)",
-            "declared with a run": "declared and unrun"}[case]
+            "declared with a run": "declared and unrun", "null fit": "calibration_term.fit is null",
+            "fit not an object": "calibration_term.fit is not an object",
+            "fit without its fingerprint": "recorded without a warmup_fingerprint", "stale fit": "the fit is stale",
+            "no db": "pass --db COPY"}[case]
     assert want in res.output, res.output
+    if case in ("null fit", "fit not an object", "fit without its fingerprint", "stale fit"):
+        assert "addendum 219 item 4" in res.output
+    if case == "no db":
+        assert "addendum 219 item 6" in res.output
     assert guarded == []
     assert Path(ledger).read_bytes() == before
     assert os.path.exists(g.reservation_path()) == had_reservation
@@ -505,7 +562,7 @@ def test_a_missing_season_refuses_before_the_reservation(tmp_path, monkeypatch, 
     _no_scoring(monkeypatch)
     g = _g()
     with pytest.raises(g.GateRefused, match="insufficient seasons for protocol"):
-        g.run(WORD, "f" * 64, no_fetch=True)
+        g.run(WORD, "f" * 64, no_fetch=True, db=COPY(tmp_path))
     _nothing_written(ledger, before, tmp_path)
 
 
@@ -530,7 +587,7 @@ def test_the_fingerprint_is_the_corrected_stream(db, ledger):
     assert (len(w1), len(s1)) == (len(w0) + 1, len(s0))
     corrected = FP()
     assert corrected != before
-    assert g.stream_fingerprint(w1, s1)[0] == corrected
+    assert g.stream_fingerprint(w1, s1, None)[0] == corrected
     with db.session_scope() as s:                                       # a score change is a different stream
         m = s.execute(select(Match).where(Match.id == db.ids["ids"]["2025"][0])).scalar_one()   # a walked game
         m.home_score += 1
@@ -556,16 +613,68 @@ def test_the_fingerprint_reads_every_field(field, where):
     g = _g()
     assert g.FINGERPRINT_FIELDS == THE_FINGERPRINT_FIELDS
     warmup, scored = _rows()
-    fp, n = g.stream_fingerprint(warmup, scored)
-    if where == "warm-up":
-        w2 = list(warmup)
-        w2[7] = _bumped(w2[7], field)
-        assert g.stream_fingerprint(w2, scored) != (fp, n) and g.stream_fingerprint(w2, scored)[1] == n
-        assert g.warmup_fingerprint(w2)[0] != g.warmup_fingerprint(warmup)[0]
-    else:
-        s2 = list(scored)
-        s2[7] = _bumped(s2[7], field)
-        assert g.stream_fingerprint(warmup, s2) != (fp, n) and g.stream_fingerprint(warmup, s2)[1] == n
+    for term in (None, ("shrink", 0.9), ("home_advantage", 40.0)):
+        fp, n = g.stream_fingerprint(warmup, scored, term)
+        if where == "warm-up":
+            w2 = list(warmup)
+            w2[7] = _bumped(w2[7], field)
+            assert g.stream_fingerprint(w2, scored, term) != (fp, n) and g.stream_fingerprint(w2, scored, term)[1] == n
+            assert g.warmup_fingerprint(w2)[0] != g.warmup_fingerprint(warmup)[0]
+        else:
+            s2 = list(scored)
+            s2[7] = _bumped(s2[7], field)
+            assert g.stream_fingerprint(warmup, s2, term) != (fp, n) and g.stream_fingerprint(warmup, s2, term)[1] == n
+
+
+def test_the_term_is_inside_the_stream_fingerprint():
+    """Addendum 219 item 4: "the term's value is INSIDE the fingerprint the architect's word binds to (the word names
+    the term)". The same rows with another value, the other form or no term have another fingerprint; the warm-up
+    fingerprint (the fit's) is the rows' alone; the value is taken exactly as the run uses it (term_state's float)."""
+    g = _g()
+    warmup, scored = _rows()
+    terms = [None, ("shrink", 0.9), ("shrink", 0.85), ("shrink", math.nextafter(0.9, 1.0)), ("home_advantage", 0.9),
+             ("home_advantage", 40.0), ("home_advantage", 40.5)]
+    fps = [g.stream_fingerprint(warmup, scored, t)[0] for t in terms]
+    assert len(set(fps)) == len(terms)
+    assert g.FINGERPRINT_TAG == "nfl-elo-v2 stream fingerprint v2"
+    assert g.stream_fingerprint(warmup, scored, ("home_advantage", 0))[0] == \
+        g.stream_fingerprint(warmup, scored, ("home_advantage", 0.0))[0]               # h = 0 as the run uses it
+    e = {"calibration_term": {"shrink": None, "home_advantage": 0}}
+    assert g.bound_term(e) == ("home_advantage", 0.0)                                # 219 item 3: h = 0 allowed
+    assert g.bound_term({"calibration_term": {"shrink": 1.0, "home_advantage": None}}) is None   # invalid: none
+    assert g.bound_term(None) is None
+
+
+def test_a_word_taken_before_a_term_edit_refuses_after_it(db, ledger, monkeypatch, tmp_path):
+    """The preflight's fingerprint with s = 0.9 (the word's), then the term edited to 0.85 (the fit untouched): the run
+    refuses before the reservation, nothing recorded; the preflight now prints another fingerprint; on that one, it
+    runs."""
+    import cli
+    g = _g()
+    declare(ledger, shrink=0.9)
+    pre = CliRunner().invoke(cli.cli, ["nfl-v2-gate", "--preflight"])
+    assert pre.exit_code == 0, pre.output
+    worded = pre.output.splitlines()[-1].split()[2]
+    assert worded == FP()
+    declare(ledger, shrink=0.85)                                    # edited after the word
+    before = Path(ledger).read_bytes()
+    guarded = []
+    monkeypatch.setattr(reg, "cross_ref_guard", lambda *a, **k: guarded.append(1) or "stub")
+    real = (nb.walk_protocol, nb._expected_home)
+    _no_scoring(monkeypatch)
+    copy = COPY(tmp_path)
+    res = CliRunner().invoke(cli.cli, ["nfl-v2-gate", "--architect-word", WORD, "--stream-fingerprint", worded,
+                                       "--db", copy, "--no-fetch"])
+    assert res.exit_code == 2 and "REFUSED" in res.output and "no longer match the fingerprint given" in res.output
+    assert "shrink s = 0.85" in res.output and "v2 binds the term, addendum 219 item 4" in res.output
+    assert guarded == []
+    _nothing_written(ledger, before, tmp_path)
+    again = CliRunner().invoke(cli.cli, ["nfl-v2-gate", "--preflight"]).output.splitlines()[-1].split()[2]
+    assert again != worded and again == FP()
+    monkeypatch.setattr(nb, "walk_protocol", real[0])
+    monkeypatch.setattr(nb, "_expected_home", real[1])
+    r = g.run(WORD, again, no_fetch=True, db=copy)
+    assert r["calibration_term"] == {"form": "shrink", "value": 0.85} and r["stream_fingerprint"] == again
 
 
 def test_preflight_scores_nothing_writes_nothing_and_prints_no_2025_figure(db, ledger, monkeypatch, tmp_path):
@@ -578,14 +687,18 @@ def test_preflight_scores_nothing_writes_nothing_and_prints_no_2025_figure(db, l
     assert res.exit_code == 0, res.output
     out = res.output.splitlines()
     assert out[0].startswith("NFL-ELO-V2 · PREFLIGHT (scores nothing)")
-    assert out[1] == "  scope[nfl-v2-gate]: teams=32, games=603, competitions={NFL}"
+    assert out[1] == ("  scope[nfl-v2-gate]: teams=32, games=603, competitions={NFL} · db DATABASE_URL (the app's "
+                      "configured database)")
     assert "warm-up 2024: 301 games (addendum 215 item 2 names 285: DIFFERS by +16" in res.output
     assert "scored 2025: 301 games (addendum 215 item 2 names 285: DIFFERS by +16" in res.output
     assert "by stage Post Season 13, Regular Season 288" in res.output
     assert "preseason excluded: 2024 4, 2025 4 · other seasons, never walked: 2026 1" in res.output
     assert "calibration term: NOT DECLARED — the run refuses" in res.output
-    assert out[-1] == f"STREAM FINGERPRINT {FP()} (602 games: the 2024 and 2025 stream as the gate walks it; the run " \
-                      "takes it as --stream-fingerprint)"
+    assert "fit NOT RECORDED (calibration_term.fit null or without warmup_fingerprint): the run refuses" in res.output
+    assert out[-1] == (f"STREAM FINGERPRINT {FP()} (602 games: the 2024 and 2025 stream as the gate walks it, and the "
+                       "calibration term NOT DECLARED: this fingerprint binds the undeclared term and the run refuses; "
+                       "the declaration's term changes it; v2, addendum 219 item 4; the run takes it as "
+                       "--stream-fingerprint)")
     assert out[-2] == "PREFLIGHT only: nothing scored, nothing reserved, nothing recorded."
     warmup, scored = nb.split(nb.load_stream())
     r24 = sum(1 for r in warmup if r.home_score > r.away_score) / len(warmup)
@@ -600,7 +713,15 @@ def test_preflight_scores_nothing_writes_nothing_and_prints_no_2025_figure(db, l
     declare(ledger, home_advantage=40.0, fit={"warmup_fingerprint": wfp})
     res = CliRunner().invoke(cli.cli, ["nfl-v2-gate", "--preflight"])
     assert "calibration term: home advantage 40.0 Elo points (v1: 48.0)" in res.output
-    assert f"warm-up fingerprint {wfp} (301 games" in res.output and "· SAME" in res.output
+    assert f"warm-up fingerprint {wfp} (301 games" in res.output
+    assert "· SAME: the fit is bound to these 2024 rows (addendum 219 item 4)" in res.output
+    assert res.output.splitlines()[-1].startswith(f"STREAM FINGERPRINT {FP()} (602 games: the 2024 and 2025 stream as "
+                                                  "the gate walks it, and the calibration term as declared (home "
+                                                  "advantage 40.0 Elo points")
+    declare(ledger, home_advantage=40.0, fit={"warmup_fingerprint": "e" * 64})       # a stale fit, said in advance
+    res = CliRunner().invoke(cli.cli, ["nfl-v2-gate", "--preflight"])
+    assert res.exit_code == 0 and "CHANGED since the fit: the run refuses" in res.output
+    _nothing_written(ledger, Path(ledger).read_bytes(), tmp_path)
 
 
 @pytest.mark.parametrize("declared", [False, True])
@@ -646,7 +767,7 @@ def test_the_counts_print_the_same_when_they_are_285(tmp_path, monkeypatch, ledg
     assert any("scored 2025: 285 games (addendum 215 item 2 names 285: the same)" in x for x in lines)
 
 
-def test_the_reservation_follows_the_guard_and_precedes_the_first_scored_game(db, ledger, monkeypatch):
+def test_the_reservation_follows_the_guard_and_precedes_the_first_scored_game(db, ledger, monkeypatch, tmp_path):
     g = _g()
     declare(ledger, shrink=0.9)
     fp = FP()
@@ -662,11 +783,14 @@ def test_the_reservation_follows_the_guard_and_precedes_the_first_scored_game(db
         seen["reserved_at_walk"] = os.path.exists(g.reservation_path())
         return real(*a, **k)
     monkeypatch.setattr(nb, "walk_protocol", walk)
-    g.run(WORD, fp, no_fetch=True)
+    copy = COPY(tmp_path)
+    g.run(WORD, fp, no_fetch=True, db=copy)
     assert seen == {"reserved_at_guard": False, "reserved_at_walk": True}
     saved = json.load(open(g.reservation_path()))
     assert saved["architect_word"] == WORD and saved["stream_fingerprint"] == fp and saved["guard"] == "stub"
     assert saved["calibration_term"] == {"form": "shrink", "value": 0.9} and saved["stream_games"] == 602
+    assert saved["warmup_fingerprint"] == saved["fit_warmup_fingerprint"] == WFP()
+    assert saved["db"] == str(Path(copy).resolve())
 
 
 def test_a_guard_refusal_reserves_nothing_and_scores_nothing(db, ledger, monkeypatch, tmp_path):
@@ -679,18 +803,20 @@ def test_a_guard_refusal_reserves_nothing_and_scores_nothing(db, ledger, monkeyp
         raise reg.CrossRefRefused("a run record on ref laptop/x at commit abc")
     monkeypatch.setattr(reg, "cross_ref_guard", refuse)
     _no_scoring(monkeypatch)
+    copy = COPY(tmp_path)
     with pytest.raises(g.GateRefused, match="laptop/x"):
-        g.run(WORD, fp)
+        g.run(WORD, fp, db=copy)
     _nothing_written(ledger, before, tmp_path)
 
 
-def test_one_run_recorded_and_a_second_refused(db, ledger, monkeypatch):
+def test_one_run_recorded_and_a_second_refused(db, ledger, monkeypatch, tmp_path):
     import cli
     g = _g()
     declare(ledger, shrink=0.9)
     fp = FP()
+    copy = COPY(tmp_path)
     res = CliRunner().invoke(cli.cli, ["nfl-v2-gate", "--architect-word", WORD, "--stream-fingerprint", fp,
-                                       "--no-fetch"])
+                                       "--db", copy, "--no-fetch"])
     assert res.exit_code == 0, res.output
     warmup, scored = nb.split(nb.load_stream())
     cfg, price = g.candidate("shrink", 0.9)
@@ -703,6 +829,9 @@ def test_one_run_recorded_and_a_second_refused(db, ledger, monkeypatch):
     rr = e["run"]["result"]
     assert rr["architect_word"] == WORD and rr["stream_fingerprint"] == fp
     assert rr["calibration_term"] == {"form": "shrink", "value": 0.9}
+    assert rr["warmup_fingerprint"] == rr["fit_warmup_fingerprint"] == WFP() and rr["db"] == str(Path(copy).resolve())
+    assert rr["stream_fingerprint_tag"] == "nfl-elo-v2 stream fingerprint v2"
+    assert f"warm-up fingerprint {WFP()}: the fit's ({WFP()}), checked before the reservation" in res.output
     assert rr["ll_model"] == want["ll_model"] and rr["pass"] == want["pass"] and rr["verdict"]
     assert "scored_ids" not in rr and "protocol_lines" not in rr
     ids = [int(x) for x in open(Path(reg.IDS_DIR) / f"{EID}.txt").read().split()]
@@ -710,17 +839,17 @@ def test_one_run_recorded_and_a_second_refused(db, ledger, monkeypatch):
     saved = json.load(open(g.reservation_path()))
     assert saved["architect_word"] == WORD and saved["stream_fingerprint"] == fp
     again = CliRunner().invoke(cli.cli, ["nfl-v2-gate", "--architect-word", "again", "--stream-fingerprint", fp,
-                                         "--no-fetch"])
+                                         "--db", copy, "--no-fetch"])
     assert again.exit_code == 2 and "REFUSED" in again.output and "read once" in again.output
     os.remove(g.reservation_path())                        # even without the file, the registry refuses
     with pytest.raises(g.GateRefused, match="declared and unrun"):
-        g.run("again", fp)
+        g.run("again", fp, db=copy)
 
 
-def test_the_home_advantage_run_records_its_constants(db, ledger, monkeypatch):
+def test_the_home_advantage_run_records_its_constants(db, ledger, monkeypatch, tmp_path):
     g = _g()
     declare(ledger, home_advantage=36.0)
-    r = g.run(WORD, FP(), no_fetch=True)
+    r = g.run(WORD, FP(), no_fetch=True, db=COPY(tmp_path))
     assert r["constants"]["home_advantage"] == 36.0 and r["calibration_term"] == {"form": "home_advantage",
                                                                                    "value": 36.0}
     warmup, scored = nb.split(nb.load_stream())
@@ -729,18 +858,19 @@ def test_the_home_advantage_run_records_its_constants(db, ledger, monkeypatch):
     assert e["run"]["result"]["constants"]["home_advantage"] == 36.0
 
 
-def test_an_interrupted_run_spends_the_reservation(db, ledger, monkeypatch):
+def test_an_interrupted_run_spends_the_reservation(db, ledger, monkeypatch, tmp_path):
     g = _g()
     declare(ledger, shrink=0.9)
     fp = FP()
+    copy = COPY(tmp_path)
 
     def boom(*a, **k):
         raise KeyboardInterrupt
     monkeypatch.setattr(nb, "walk_protocol", boom)
     with pytest.raises(KeyboardInterrupt):
-        g.run(WORD, fp, no_fetch=True)
+        g.run(WORD, fp, no_fetch=True, db=copy)
     with pytest.raises(g.GateRefused, match="one run, recorded or not"):
-        g.run(WORD, fp, no_fetch=True)
+        g.run(WORD, fp, no_fetch=True, db=copy)
 
 
 # ===================================================================================== the 2024-only fit --
@@ -834,3 +964,120 @@ def test_the_fit_flags_a_value_that_is_not_the_named_direction():
     out = "\n".join(f.fit_lines(r))
     assert "EXPANSION" not in out and "not a smaller" not in out and "GRID EDGE" not in out
     assert "unchanged" not in out
+
+
+# ============================================================ --db: the .backup copy (addendum 219 item 6) --
+# "THE DATABASE on 11-06 — a fresh .backup COPY outside data/, opened with `--db` and immutable=1 (the standing rule of
+# addendum 198 item 6(ii), the mlb-pitchers pattern) [...] the preflight's fingerprint on that copy is the run's."
+
+def _backup(src: Path, dst: Path) -> Path:
+    """A .backup-API copy (sqlite3's online backup), as the operator's block takes it."""
+    import sqlite3
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    a, b = sqlite3.connect(str(src)), sqlite3.connect(str(dst))
+    a.backup(b)
+    b.close()
+    a.close()
+    return dst
+
+
+def _sha(p: Path) -> str:
+    import hashlib
+    return hashlib.sha256(p.read_bytes()).hexdigest()
+
+
+def test_db_copy_gives_the_preflight_and_the_run_the_same_stream_and_creates_no_sidecar(db, ledger, tmp_path):
+    import cli
+    from sqlalchemy import update
+
+    from src.db.schema import Match
+    g = _g()
+    declare(ledger, shrink=0.9)
+    via_url = CliRunner().invoke(cli.cli, ["nfl-v2-gate", "--preflight"])
+    assert via_url.exit_code == 0, via_url.output
+    copy = _backup(tmp_path / "nfl.db", tmp_path / "copy" / "nfl-copy.db")
+    sha = _sha(copy)
+    via_db = CliRunner().invoke(cli.cli, ["nfl-v2-gate", "--preflight", "--db", str(copy)])
+    assert via_db.exit_code == 0, via_db.output
+    a, b = via_url.output.splitlines(), via_db.output.splitlines()
+    assert b[1] == a[1].replace("db DATABASE_URL (the app's configured database)",
+                                f"db --db {copy.resolve()} (a .backup copy, opened mode=ro&immutable=1)")
+    assert b[1] != a[1] and a[:1] + a[2:] == b[:1] + b[2:]               # the same counts, fingerprints, term
+    worded = b[-1].split()[2]
+    assert worded == FP()
+    assert sorted(os.listdir(copy.parent)) == ["nfl-copy.db"] and _sha(copy) == sha   # no -wal/-shm, unwritten
+    # the copy is what --db reads: the bound DB moves (a 2025 result), the copy's fingerprint does not
+    with db.session_scope() as s:
+        s.execute(update(Match).where(Match.season == "2025").values(home_score=Match.home_score + 7))
+    assert FP() != worded
+    again = CliRunner().invoke(cli.cli, ["nfl-v2-gate", "--preflight", "--db", str(copy)])
+    assert again.output.splitlines()[-1].split()[2] == worded
+    # the run on the copy, on the copy's fingerprint (the bound DB's would refuse)
+    res = CliRunner().invoke(cli.cli, ["nfl-v2-gate", "--architect-word", WORD, "--stream-fingerprint", worded,
+                                       "--db", str(copy), "--no-fetch"])
+    assert res.exit_code == 0, res.output
+    assert f"--db {copy}" in res.output.splitlines()[0]
+    saved = json.load(open(g.reservation_path()))
+    assert saved["db"] == str(copy.resolve()) and saved["stream_fingerprint"] == worded
+    rr = reg.get(EID, str(ledger))["run"]["result"]
+    assert rr["db"] == str(copy.resolve()) and rr["stream_fingerprint"] == worded
+    assert f"db --db {copy.resolve()}" in rr["scope"]
+    assert sorted(os.listdir(copy.parent)) == ["nfl-copy.db"] and _sha(copy) == sha
+
+
+@pytest.mark.parametrize("where", ["repo data/", "linked data/", "missing", "-wal", "-shm", "-journal"])
+@pytest.mark.parametrize("cmd", ["preflight", "run", "fit"])
+def test_db_refuses_a_path_under_data_and_a_missing_file_and_creates_nothing(db, ledger, monkeypatch, tmp_path,
+                                                                            where, cmd):
+    import cli
+    from src.walters import mlb_pitchers_gate as mp
+    declare(ledger, shrink=0.9)
+    fp = FP()
+    if where == "repo data/":                           # the repo's own data/ (never created, never read)
+        target = ROOT / "data" / "nfl-v2-gate-test-copy.db"
+        assert not target.exists()
+        want = "resolves under the repo's data/"
+    elif where == "linked data/":                       # through a symlink: resolved before the check
+        fake = tmp_path / "data"
+        monkeypatch.setattr(mp, "DATA_DIR", str(fake))
+        _backup(tmp_path / "nfl.db", fake / "nfl-copy.db")
+        (tmp_path / "link").symlink_to(fake, target_is_directory=True)
+        target = tmp_path / "link" / "nfl-copy.db"
+        want = "resolves under the repo's data/"
+    elif where.startswith("-"):                         # a sidecar beside the copy: immutable=1 would ignore it
+        target = _backup(tmp_path / "nfl.db", tmp_path / "copy" / "nfl-copy.db")
+        Path(str(target) + where).write_bytes(b"")
+        want = f"has a {where} sidecar"
+    else:
+        target = tmp_path / "nowhere" / "nfl-copy.db"
+        want = "no file at"
+    before = Path(ledger).read_bytes()
+    guarded = []
+    monkeypatch.setattr(reg, "cross_ref_guard", lambda *a, **k: guarded.append(1) or "stub")
+    _no_scoring(monkeypatch)
+    monkeypatch.setattr(nb, "load_stream", lambda *a, **k: (_ for _ in ()).throw(AssertionError("loaded")))
+    args = {"preflight": ["nfl-v2-gate", "--preflight"],
+            "run": ["nfl-v2-gate", "--architect-word", WORD, "--stream-fingerprint", fp, "--no-fetch"],
+            "fit": ["nfl-v2-fit-warmup"]}[cmd] + ["--db", str(target)]
+    res = CliRunner().invoke(cli.cli, args)
+    assert res.exit_code == 2 and "REFUSED" in res.output and want in res.output, res.output
+    assert guarded == []
+    _nothing_written(ledger, before, tmp_path)
+    if where == "repo data/":
+        assert not target.exists()
+    if where == "missing":
+        assert not target.exists() and not target.parent.exists()
+
+
+def test_db_on_the_fit_reads_the_copy(db, tmp_path):
+    """nfl-v2-fit-warmup --db: the same 2024 fit and warm-up fingerprint as through DATABASE_URL, from the copy; the
+    scope line names the database."""
+    import cli
+    via_url = CliRunner().invoke(cli.cli, ["nfl-v2-fit-warmup"])
+    copy = _backup(tmp_path / "nfl.db", tmp_path / "copy" / "nfl-copy.db")
+    via_db = CliRunner().invoke(cli.cli, ["nfl-v2-fit-warmup", "--db", str(copy)])
+    assert via_url.exit_code == 0 and via_db.exit_code == 0, via_db.output
+    a, b = via_url.output.splitlines(), via_db.output.splitlines()
+    assert "db DATABASE_URL" in a[1] and f"db --db {copy.resolve()}" in b[1]
+    assert a[:1] + a[2:] == b[:1] + b[2:] and f"warm-up fingerprint {WFP()}" in via_db.output
+    assert sorted(os.listdir(copy.parent)) == ["nfl-copy.db"]

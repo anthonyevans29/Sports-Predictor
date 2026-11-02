@@ -5,13 +5,16 @@ item 2 (in part, verbatim): "the candidate's one change is a calibration term fi
 walk (a probability shrink toward 0.5, or a smaller home advantage, one or the other, with its 2024-fitted value) — I
 rule the form, the PR writes it before any 2025 figure is printed."
 
-    nfl-v2-fit-warmup   reads ONLY the 2024 NFL rows (the SQL selects season '2024'; a row of any other season the
+    nfl-v2-fit-warmup [--db COPY]
+                        reads ONLY the 2024 NFL rows (the SQL selects season '2024'; a row of any other season the
                         query returns refuses the read), walks them predict-then-update with nfl_elo_v1's constants,
                         and prints, for EACH form, its 2024-fitted value with the method, and the 2024 bands (stated
                         vs realized) before and after the fitted term. It writes nothing, records nothing, and never
-                        reads or prints a 2025 figure.
+                        reads or prints a 2025 figure. --db reads a .backup copy through nfl-v2-gate's own --db
+                        (outside data/, never created, mode=ro&immutable=1; addendum 219 item 6), so the fit's warm-up
+                        fingerprint can be taken on the copy the run reads; without it, DATABASE_URL.
 
-THE METHOD (proposed; the architect rules it with the form):
+THE METHOD (ruled as built, addendum 219 item 2; the architect rules the form on 11-05):
     the 2024 walk   every 2024 non-preseason FINISHED NFL row with both scores, by kickoff then id (the gate's
                     warm-up, exactly), from default ratings (cold, as the gate's warm-up starts); each game priced
                     with the state before it, then updated (the predict-then-update walk of 215 item 2's "2024 walk";
@@ -47,16 +50,16 @@ class FitRefused(RuntimeError):
     pass
 
 
-def load_warmup(report=None) -> list[nb.Game]:
+def load_warmup(report=None, session=None) -> list[nb.Game]:
     """The 2024 warm-up rows ONLY: the gate's stream query (nfl_backtest's selection) with season = '2024' in the
     SQL itself, so no row of another season is ever read; preseason excluded. A returned row of another season
-    refuses (a guard, never expected)."""
+    refuses (a guard, never expected). `session`: the --db copy's read-only session (nfl_backtest.read_session), else
+    the app's."""
     from sqlalchemy import select
 
-    from src.db.database import session_scope
     from src.db.schema import Match, MatchStatus
 
-    with session_scope() as s:
+    with nb.read_session(session) as s:
         games = list(s.execute(
             nb.nfl_scoped(select(Match)).where(
                 Match.season == SEASON,
@@ -70,7 +73,8 @@ def load_warmup(report=None) -> list[nb.Game]:
             report(nb.scope_line("nfl-v2-fit-warmup", games))
         rows = [nb.Game(m.id, m.utc_date, m.season, (m.stage or ""), m.home_team_id, m.away_team_id,
                         m.home_score, m.away_score) for m in games]
-        s.rollback()
+        if session is None:
+            s.rollback()
     bad = sorted({r.season for r in rows if r.season != SEASON})
     if bad:
         raise FitRefused(f"the 2024 read returned rows of season(s) {bad}: refused, nothing printed")
@@ -196,7 +200,14 @@ def fit_lines(r: dict, scope: str | None = None) -> list[str]:
     return L
 
 
-def fit_read() -> list[str]:
+def fit_read(db=None) -> list[str]:
+    """The fit's one read: the 2024 rows from the --db copy when given (nfl_v2_gate.check_db / db_session, the gate's
+    own --db, addendum 219 item 6), else DATABASE_URL; then fit(). A --db refusal is a FitRefused."""
+    try:
+        path = v2.check_db(db) if db is not None else None
+    except v2.GateRefused as e:
+        raise FitRefused(str(e))
     scope: list[str] = []
-    rows = load_warmup(scope.append)
-    return fit_lines(fit(rows), scope[0] if scope else None)
+    with v2.db_session(path) as s:
+        rows = load_warmup(scope.append, session=s)
+    return fit_lines(fit(rows), v2._scope(scope, path))

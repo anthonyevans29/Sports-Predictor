@@ -5926,10 +5926,15 @@ def nfl_backtest_cmd():
               help="The stream fingerprint printed on --preflight's last line. Required for the run: it refuses, "
                    "before the reservation, unless the 2024 and 2025 stream it is about to walk still matches; "
                    "recorded beside the word.")
+@click.option("--db", "db", default=None,
+              help="A .backup copy of the database OUTSIDE data/ (law 5; addendum 219 item 6: the 11-06 run and its "
+                   "preflight read the fresh copy): opened mode=ro + immutable=1, never created, refused under data/, "
+                   "when missing, or with a -wal/-shm/-journal beside it. REQUIRED for the run (it refuses without "
+                   "it); --preflight without it reads DATABASE_URL.")
 @click.option("--no-fetch", "no_fetch", is_flag=True,
               help="Cross-ref guard (#329): skip fetching origin laptop/*; only the refs this clone knows are checked "
                    "and the receipt says other clones were not checked.")
-def nfl_v2_gate_cmd(preflight, word, fingerprint, no_fetch):
+def nfl_v2_gate_cmd(preflight, word, fingerprint, db, no_fetch):
     """nfl-elo-v2 GATE (ARCHITECT 2026-11-02, addendum 215 items 2-3; GATE-CLASS). The FROZEN phase-2 protocol on the
     corrected stream, ONE run: warm-up 2024 complete (update only), scored 2025 regular + post (predict, then update),
     preseason excluded; baseline = the warm-up's realized home rate; PASS iff log-loss <= baseline − 0.010 AND every
@@ -5937,21 +5942,24 @@ def nfl_v2_gate_cmd(preflight, word, fingerprint, no_fetch):
     nfl_elo_v1's walk with the ONE declared calibration term (registry calibration_term: shrink s, p' = 0.5 +
     s·(p − 0.5) at pricing; or home_advantage, v1's 48 replaced for the whole walk). Refused (exit 2, nothing written,
     nothing recorded) unless declared and unrun and unreserved, --architect-word and --stream-fingerprint given, and
-    exactly one form declared with a valid value; then, the stream loaded and nothing scored, unless both seasons hold
-    games and its fingerprint matches. The reservation docs/registry/nfl-elo-v2.started.json (after the #329
-    cross-ref guard) carries the word and the fingerprint and precedes the first game scored; ONE run, recorded with
-    its scored 2025 ids. nfl-backtest is unchanged."""
+    exactly one form declared with a valid value, and its fit recorded (calibration_term.fit.warmup_fingerprint;
+    addendum 219 item 4); then, the stream loaded and nothing scored, unless both seasons hold games, the fit's warm-up
+    fingerprint is the loaded 2024 rows', and the stream fingerprint (v2: the rows AND the declared term, 219 item 4)
+    matches. --db reads a .backup copy (mode=ro + immutable=1; 219 item 6); the run refuses without it. The reservation
+    docs/registry/nfl-elo-v2.started.json (after the #329 cross-ref guard) carries the word and the fingerprints and
+    precedes the first game scored; ONE run, recorded with its scored 2025 ids. nfl-backtest is unchanged."""
     from src.walters import nfl_v2_gate as g
     from src.walters import registry as reg
 
     try:
         e = g.declared_unrun()
         if preflight:
-            for line in g.preflight_read(e):
+            for line in g.preflight_read(e, db=db):
                 click.echo(line)
             return
-        click.echo(f"NFL-ELO-V2 · ONE RUN · {g.RULING} · word: {word!r} · stream fingerprint {fingerprint!r}")
-        r = g.run(word, fingerprint, no_fetch=no_fetch, echo=lambda line: click.echo(f"  {line}"))
+        click.echo(f"NFL-ELO-V2 · ONE RUN · {g.RULING} · word: {word!r} · stream fingerprint {fingerprint!r}"
+                   + (f" · --db {db}" if db is not None else ""))
+        r = g.run(word, fingerprint, no_fetch=no_fetch, echo=lambda line: click.echo(f"  {line}"), db=db)
     except g.GateRefused as err:
         click.echo(f"REFUSED: {err}")
         raise SystemExit(2)
@@ -5967,17 +5975,21 @@ def nfl_v2_gate_cmd(preflight, word, fingerprint, no_fetch):
 
 
 @cli.command("nfl-v2-fit-warmup")
-def nfl_v2_fit_warmup_cmd():
+@click.option("--db", "db", default=None,
+              help="A .backup copy of the database OUTSIDE data/ (nfl-v2-gate's own --db: mode=ro + immutable=1, "
+                   "never created, refused under data/ or when missing). Without it, DATABASE_URL.")
+def nfl_v2_fit_warmup_cmd(db):
     """nfl-elo-v2: THE 2024-ONLY FIT for the declaration proposal (ARCHITECT 2026-11-02, addendum 215 item 2;
     read-only). Reads ONLY the 2024 NFL rows (season '2024' in the query; any other season refuses), walks them
     predict-then-update with nfl_elo_v1's constants, and prints for each form its 2024-fitted value and the method
     (shrink s: the grid 0.001..1.500 minimizing the 2024 mean log-loss, price only; home advantage h: the grid
     0..120 by 0.5 minimizing the 2024 mean log-loss of the re-run walk), with the 2024 bands stated vs realized before
-    and after. Never reads or prints a 2025 figure; writes nothing; records nothing."""
+    and after. Never reads or prints a 2025 figure; writes nothing; records nothing. --db reads a .backup copy
+    (nfl-v2-gate's own --db, addendum 219 item 6)."""
     from src.walters import nfl_v2_fit as f
 
     try:
-        lines = f.fit_read()
+        lines = f.fit_read(db=db)
     except f.FitRefused as err:
         click.echo(f"REFUSED: {err}")
         raise SystemExit(2)

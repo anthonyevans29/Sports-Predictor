@@ -16,6 +16,7 @@ both training and scoring — rotation noise (the EFL Trophy principle).
 from __future__ import annotations
 
 import math
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import NamedTuple
 
@@ -159,15 +160,28 @@ def is_preseason(stage: str | None) -> bool:
     return "pre" in (stage or "").lower()
 
 
-def load_stream(label: str = "nfl-backtest", report=None) -> list[Game]:
+@contextmanager
+def read_session(session=None):
+    """`session` itself when one is given (its owner opened it and closes it; nothing is committed here), else the
+    app's session_scope() exactly as before. nfl-v2-gate --db passes a read-only session on a .backup copy (mode=ro +
+    immutable=1, addendum 219 item 6); nfl-backtest passes none and reads DATABASE_URL as it always has."""
+    if session is not None:
+        yield session
+        return
+    from src.db.database import session_scope
+    with session_scope() as s:
+        yield s
+
+
+def load_stream(label: str = "nfl-backtest", report=None, session=None) -> list[Game]:
     """The frozen protocol's stream: every FINISHED NFL row (nfl_scoped) with both scores, by kickoff then id,
-    preseason excluded. Reports the scope line. Shared by nfl-backtest and nfl-v2-gate (addendum 215 item 3)."""
+    preseason excluded. Reports the scope line. Shared by nfl-backtest and nfl-v2-gate (addendum 215 item 3).
+    `session`: read through it instead of the app's session_scope() (read_session; nfl-v2-gate --db only)."""
     from sqlalchemy import select
 
-    from src.db.database import session_scope
     from src.db.schema import Match, MatchStatus
 
-    with session_scope() as s:
+    with read_session(session) as s:
         games = list(s.execute(
             nfl_scoped(select(Match)).where(
                 Match.status == MatchStatus.FINISHED,

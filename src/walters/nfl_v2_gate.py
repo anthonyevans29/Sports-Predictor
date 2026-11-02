@@ -15,20 +15,47 @@ Item 3 (in part, verbatim): "11-03 code — the harness PR (the candidate entry 
 one-run gate with the reservation pattern of ncaa-gate: the architect's word, the stream fingerprint, nothing recorded
 on a refusal; the corrected stream as the fingerprint)".
 
-    nfl-v2-gate --preflight            scores nothing: the scope line, the warm-up and scored counts (printed beside
-                                       215's 285, never asserted), the 2024 baseline, the declared term (or NOT
-                                       DECLARED), the warm-up fingerprint against the one the fit read; its last line
-                                       is the stream fingerprint. No 2025 outcome is computed or printed.
-    nfl-v2-gate --architect-word T --stream-fingerprint F
+    nfl-v2-gate --preflight [--db COPY]
+                                       scores nothing: the scope line (naming the database read), the warm-up and
+                                       scored counts (printed beside 215's 285, never asserted), the 2024 baseline,
+                                       the declared term (or NOT DECLARED: the run refuses), the warm-up fingerprint
+                                       against the one the fit recorded (fit null or CHANGED: the run refuses); its
+                                       last line is the stream fingerprint, which binds the declared term (v2, below).
+                                       No 2025 outcome is computed or printed.
+    nfl-v2-gate --architect-word T --stream-fingerprint F [--db COPY]
                                        the ONE run: refused (exit 2, nothing written, nothing recorded) unless the
                                        entry is declared and unrun and unreserved, the word and the fingerprint are
-                                       given, and the calibration term is declared (exactly one form, a valid value);
-                                       then the stream is loaded (nothing scored) and the run refuses unless both
-                                       seasons hold games and its fingerprint is F; then the reservation (after the
-                                       #329 cross-ref guard) carrying the word and the fingerprint, written BEFORE the
-                                       first game is scored; then the frozen protocol's walk (nfl_backtest
+                                       given, the calibration term is declared (exactly one form, a valid value) and
+                                       its fit is recorded (calibration_term.fit with a warmup_fingerprint); then the
+                                       stream is loaded (nothing scored) and the run refuses unless both seasons hold
+                                       games, the fit's warm-up fingerprint is the loaded 2024 rows', and the stream
+                                       fingerprint (the rows AND the term) is F; then the reservation (after the #329
+                                       cross-ref guard) carrying the word, the fingerprints and the term, written
+                                       BEFORE the first game is scored; then the frozen protocol's walk (nfl_backtest
                                        .walk_protocol, the code nfl-backtest runs) and the record (registry
-                                       .record_run: the scored 2025 ids and the result, the word and the fingerprint).
+                                       .record_run: the scored 2025 ids and the result, the word and the
+                                       fingerprints).
+
+ADDENDUM 219 item 4 (ARCHITECT 2026-11-02 12:20 ET, verbatim): "BINDING — RULED IN, the one push before merge: the run
+REFUSES when `fit` is null or when the fit's warm-up fingerprint differs from the run's warm-up fingerprint, and the
+term's value is INSIDE the fingerprint the architect's word binds to (the word names the term). Tests: the null fit,
+the stale fit, the term inside the fingerprint. The refusal records nothing." Built: fit_binding() refuses a null fit
+(or one without its warmup_fingerprint) before the stream is loaded; after the load the fit's warm-up fingerprint is
+compared with the loaded 2024 rows' (the digest --preflight prints); the STREAM FINGERPRINT (v2) digests the declared
+term (form and value, exactly as the run uses them) beside the rows, so a term edited after the word changes it and the
+run refuses. Every one of these refusals precedes reserve(): nothing reserved, nothing recorded.
+
+ADDENDUM 219 item 6 (verbatim): "THE DATABASE on 11-06 — a fresh .backup COPY outside data/, opened with `--db` and
+immutable=1 (the standing rule of addendum 198 item 6(ii), the mlb-pitchers pattern), taken by my block that morning
+after the 11-04 live re-sync has put the corrected 2024 rows on the laptop; the preflight's fingerprint on that copy is
+the run's. The registry write goes to the repo, not the DB." Built: --db PATH goes through mlb_pitchers_gate's own
+check_db (refused under any data/ by resolved path or by identity, refused when it is the app's configured database,
+refused when missing: never created) and its readonly_session (a mode=ro&immutable=1 URI: no write, no sidecar); the
+stream and the preseason count are read through that session. The ONE run REFUSES without --db (item 6 names the copy
+for 11-06, and the mlb-pitchers pattern it cites requires --db: "the gate never reads the live database"); --preflight
+keeps DATABASE_URL without it (215 item 3's 11-04 preflight reads the live DB). A copy with a -wal, -shm or -journal
+file beside it is refused: immutable=1 would read the main file alone and miss committed pages still in the WAL, and a
+fresh .backup copy has none.
 
 THE MACHINERY IS ncaa-gate's (src/walters/ncaa_v1r_gate.py): declared_unrun, the word, the fingerprint checked against
 the stream about to be walked, reserve() after registry.cross_ref_guard with an exclusive create, record_run. It is
@@ -55,6 +82,7 @@ import hashlib
 import json
 import math
 import os
+from contextlib import contextmanager
 from dataclasses import replace
 from datetime import datetime
 
@@ -78,8 +106,14 @@ FORMS = ("shrink", "home_advantage")
 #   home_id, away_id, home_score, away_score   the ratings, the outcome and the margin of victory
 # Over the rows the gate walks: the 2024 and 2025 non-preseason FINISHED NFL rows with both scores. The 16 games #775
 # turned FINISHED are in it, so the corrected stream and the defective one have different fingerprints.
+# v2 (addendum 219 item 4: "the term's value is INSIDE the fingerprint the architect's word binds to (the word names
+# the term)"): the stream fingerprint's digest also carries the calibration term as the run will use it, {"form":
+# "shrink"|"home_advantage", "value": float} (term_state's form and float value), or null while it is not declared (a
+# fingerprint of the undeclared term, which no run accepts: the run refuses an undeclared term first). A term edited
+# after the word changes the fingerprint, and the run refuses. The warm-up fingerprint stays rows only (v1): it is the
+# fit's, and the fit has no term.
 FINGERPRINT_FIELDS = ("match_id", "utc_date", "season", "stage", "home_id", "away_id", "home_score", "away_score")
-FINGERPRINT_TAG = f"{EID} stream fingerprint v1"
+FINGERPRINT_TAG = f"{EID} stream fingerprint v2"
 WARMUP_TAG = f"{EID} warm-up fingerprint v1"
 
 
@@ -162,23 +196,103 @@ def _fp_value(v):
     return v.strftime("%Y-%m-%dT%H:%M:%S.%f") if isinstance(v, datetime) else v
 
 
-def _digest(tag: str, rows) -> tuple[str, int]:
+def _digest(tag: str, rows, **extra) -> tuple[str, int]:
     body = {"tag": tag, "fields": list(FINGERPRINT_FIELDS),
-            "games": [[_fp_value(getattr(g, f)) for f in FINGERPRINT_FIELDS] for g in rows]}
-    blob = json.dumps(body, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+            "games": [[_fp_value(getattr(g, f)) for f in FINGERPRINT_FIELDS] for g in rows], **extra}
+    blob = json.dumps(body, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False)
     return hashlib.sha256(blob.encode("ascii")).hexdigest(), len(rows)
 
 
-def stream_fingerprint(warmup, scored) -> tuple[str, int]:
-    """sha256 over the stream exactly as the gate walks it: the warm-up rows then the scored rows, in walk order, each
-    carrying FINGERPRINT_FIELDS (JSON, sorted keys, no whitespace). (hex digest, number of games)."""
-    return _digest(FINGERPRINT_TAG, list(warmup) + list(scored))
+def bound_term(e: dict | None) -> tuple[str, float] | None:
+    """The term the stream fingerprint binds: (form, value) exactly as the run uses it (term_state's), or None while
+    the entry declares no valid term (the run refuses that term before the stream is loaded)."""
+    form, value, _ = term_state(e)
+    return (form, value) if form else None
+
+
+def stream_fingerprint(warmup, scored, term: tuple[str, float] | None) -> tuple[str, int]:
+    """THE STREAM FINGERPRINT v2, the one the architect's word binds to: sha256 over the stream exactly as the gate
+    walks it (the warm-up rows then the scored rows, in walk order, each carrying FINGERPRINT_FIELDS) AND the
+    calibration term (form, value) as the run uses it, or null when none is declared (addendum 219 item 4). JSON,
+    sorted keys, no whitespace. (hex digest, number of games). `term` is required: no caller fingerprints the rows
+    without saying which term it binds."""
+    t = {"form": term[0], "value": float(term[1])} if term is not None else None
+    return _digest(FINGERPRINT_TAG, list(warmup) + list(scored), calibration_term=t)
 
 
 def warmup_fingerprint(warmup) -> tuple[str, int]:
     """sha256 over the 2024 warm-up rows alone: the stream the fit read (nfl-v2-fit-warmup prints it; the declaration
-    may record it as calibration_term.fit.warmup_fingerprint, and --preflight compares)."""
+    records it as calibration_term.fit.warmup_fingerprint; --preflight compares and the run refuses a difference,
+    addendum 219 item 4)."""
     return _digest(WARMUP_TAG, list(warmup))
+
+
+def fit_binding(e: dict | None) -> str:
+    """The fit's warm-up fingerprint as the entry records it (calibration_term.fit.warmup_fingerprint), refusing
+    when the fit is null, not an object, or carries no non-empty warmup_fingerprint: addendum 219 item 4, "the run
+    REFUSES when `fit` is null". Checked before the stream is loaded; nothing reserved, nothing recorded."""
+    blk = (e or {}).get(TERM_KEY)
+    fit = blk.get("fit") if isinstance(blk, dict) else None
+    rec = fit.get("warmup_fingerprint") if isinstance(fit, dict) else None
+    if not isinstance(rec, str) or not rec.strip():
+        what = ("null" if fit is None else "not an object" if not isinstance(fit, dict)
+                else "recorded without a warmup_fingerprint")
+        raise GateRefused(f"{EID}: {TERM_KEY}.fit is {what}: addendum 219 item 4, \"the run REFUSES when `fit` is null "
+                          "or when the fit's warm-up fingerprint differs from the run's warm-up fingerprint\"; the "
+                          "declaration records the fit's receipt (fit.warmup_fingerprint, printed by nfl-v2-fit-warmup) "
+                          "beside the term; nothing reserved, nothing scored")
+    return rec.strip()
+
+
+def _fit_state(rec: str | None, wfp: str) -> str:
+    """--preflight's reading of the fit binding (the run's two refusals of addendum 219 item 4, said in advance)."""
+    if not rec:
+        return "fit NOT RECORDED (calibration_term.fit null or without warmup_fingerprint): the run refuses"
+    if rec != wfp:
+        return "CHANGED since the fit: the run refuses (the architect reads this line)"
+    return "SAME: the fit is bound to these 2024 rows"
+
+
+# ------------------------------------------------------------------------------------- the database (--db) --
+
+SIDECARS = ("-wal", "-shm", "-journal")
+
+
+def check_db(db):
+    """--db PATH (addendum 219 item 6): mlb_pitchers_gate.check_db itself, the standing --db fence (an existing file,
+    never created; never under any data/ by resolved path or by identity; never the app's configured database); then
+    refused when a -wal, -shm or -journal file sits beside it (immutable=1 ignores them, so committed pages still in a
+    WAL would be missed without a word; a fresh .backup copy has none); then a probe of its matches table through the
+    same mode=ro&immutable=1 URI. Refusals are this gate's."""
+    from src.walters import mlb_pitchers_gate as mp
+    try:
+        path = mp.check_db(db)
+        for s in SIDECARS:
+            if path.with_name(path.name + s).exists():
+                raise mp.GateRefused(f"--db {db} has a {s} sidecar ({path.name + s}): not a fresh .backup copy; "
+                                     "immutable=1 would ignore it and read a stale stream; take a fresh .backup copy")
+        mp.open_ro(path).close()
+    except mp.GateRefused as e:
+        raise GateRefused(f"{e}; nothing read, nothing reserved")
+    return path
+
+
+@contextmanager
+def db_session(path):
+    """None when there is no --db (the app's DATABASE_URL, as before); else mlb_pitchers_gate.readonly_session on the
+    copy: a SQLAlchemy session through a mode=ro&immutable=1 URI (COPY_URI_QUERY), never committed, no sidecar."""
+    if path is None:
+        yield None
+        return
+    from src.walters import mlb_pitchers_gate as mp
+    with mp.readonly_session(path) as s:
+        yield s
+
+
+def db_label(path) -> str:
+    from src.walters import mlb_pitchers_gate as mp
+    return (f"db --db {path} (a .backup copy, opened {mp.COPY_URI_QUERY.lstrip('?')})" if path is not None
+            else "db DATABASE_URL (the app's configured database)")
 
 
 # ------------------------------------------------------------------------------------- the reservation --
@@ -247,12 +361,16 @@ def _by(rows, key) -> dict:
 
 def preflight(rows, entry: dict | None, preseason: dict | None = None) -> dict:
     """Pure over the loaded stream (nfl_backtest.load_stream: preseason already excluded). Counts per season and per
-    stage, the 2024 baseline, the declared term, the fingerprints. No model is built; no 2025 outcome is computed."""
+    stage, the 2024 baseline, the declared term, the fit binding, the fingerprints (the stream fingerprint binding the
+    declared term, or the undeclared one). No model is built; no 2025 outcome is computed."""
     warmup, scored = nb.split(rows)
-    fp, fp_n = stream_fingerprint(warmup, scored)
+    fp, fp_n = stream_fingerprint(warmup, scored, bound_term(entry))
     wfp, wn = warmup_fingerprint(warmup)
     form, value, why = term_state(entry)
-    fit = (((entry or {}).get(TERM_KEY) or {}).get("fit") or {})
+    try:
+        rec = fit_binding(entry)
+    except GateRefused:
+        rec = None
     return {"warmup_n": len(warmup), "scored_n": len(scored),
             "warmup_by_stage": _by(warmup, lambda r: r.stage or "(none)"),
             "scored_by_stage": _by(scored, lambda r: r.stage or "(none)"),
@@ -261,7 +379,7 @@ def preflight(rows, entry: dict | None, preseason: dict | None = None) -> dict:
             "preseason_excluded": preseason or {},
             "baseline_home_rate": nb.baseline_rate(warmup) if warmup else None,
             "form": form, "value": value, "term_why": why,
-            "fit_warmup_fingerprint": fit.get("warmup_fingerprint") if isinstance(fit, dict) else None,
+            "fit_warmup_fingerprint": rec,
             "warmup_fingerprint": wfp, "warmup_fingerprint_n": wn,
             "fingerprint": fp, "fingerprint_n": fp_n}
 
@@ -291,39 +409,51 @@ def preflight_lines(pf: dict, scope: str | None = None) -> list[str]:
     L.append("  calibration term: " + (describe(pf["form"], pf["value"]) if pf["form"] else
                                        f"NOT DECLARED — the run refuses: {pf['term_why']}"))
     rec = pf["fit_warmup_fingerprint"]
-    state = ("not recorded in the entry" if not rec else
-             "SAME" if rec == pf["warmup_fingerprint"] else
-             "CHANGED since the fit (the architect reads this line)")
     L.append(f"  warm-up fingerprint {pf['warmup_fingerprint']} ({pf['warmup_fingerprint_n']} games; nfl-v2-fit-warmup "
-             f"prints it) · the fit's, as the entry records it: {rec or '—'} · {state}")
+             f"prints it) · the fit's, as the entry records it: {rec or '—'} · "
+             f"{_fit_state(rec, pf['warmup_fingerprint'])} (addendum 219 item 4)")
     if not pf["warmup_n"] or not pf["scored_n"]:
         L.append("  the run refuses: the protocol needs both seasons (insufficient seasons for protocol)")
     L.append("PREFLIGHT only: nothing scored, nothing reserved, nothing recorded.")
+    term = (f"and the calibration term as declared ({describe(pf['form'], pf['value'])})" if pf["form"] else
+            "and the calibration term NOT DECLARED: this fingerprint binds the undeclared term and the run refuses; "
+            "the declaration's term changes it")
     L.append(f"STREAM FINGERPRINT {pf['fingerprint']} ({pf['fingerprint_n']} games: the {nb.WARMUP_SEASON} and "
-             f"{nb.SCORED_SEASON} stream as the gate walks it; the run takes it as --stream-fingerprint)")
+             f"{nb.SCORED_SEASON} stream as the gate walks it, {term}; v2, addendum 219 item 4; the run takes it as "
+             "--stream-fingerprint)")
     return L
 
 
-def preseason_counts() -> dict:
-    """The preseason rows the stream excludes, per season (counts only; nothing else read)."""
+def preseason_counts(session=None) -> dict:
+    """The preseason rows the stream excludes, per season (counts only; nothing else read). `session`: the --db
+    copy's read-only session (nfl_backtest.read_session), else the app's."""
     from sqlalchemy import select
 
-    from src.db.database import session_scope
     from src.db.schema import Match, MatchStatus
 
-    with session_scope() as s:
+    with nb.read_session(session) as s:
         rows = s.execute(nb.nfl_scoped(select(Match.season, Match.stage)).where(
             Match.status == MatchStatus.FINISHED, Match.home_score.is_not(None),
             Match.away_score.is_not(None))).all()
-        s.rollback()
+        if session is None:
+            s.rollback()
     return _by([r for r in rows if nb.is_preseason(r[1])], lambda r: r[0])
 
 
-def preflight_read(entry: dict | None) -> list[str]:
-    """--preflight's one read: the stream (nfl_backtest.load_stream), the preseason count; then preflight()."""
+def _scope(scope: list[str], path) -> str | None:
+    return f"{scope[0]} · {db_label(path)}" if scope else None
+
+
+def preflight_read(entry: dict | None, db=None) -> list[str]:
+    """--preflight's one read: the stream (nfl_backtest.load_stream), the preseason count, from the --db copy when
+    given (check_db; addendum 219 item 6: "the preflight's fingerprint on that copy is the run's"); then
+    preflight()."""
+    path = check_db(db) if db is not None else None
     scope: list[str] = []
-    rows = nb.load_stream(COMMAND, scope.append)
-    return preflight_lines(preflight(rows, entry, preseason_counts()), scope[0] if scope else None)
+    with db_session(path) as s:
+        rows = nb.load_stream(COMMAND, scope.append, session=s)
+        pre = preseason_counts(session=s)
+    return preflight_lines(preflight(rows, entry, pre), _scope(scope, path))
 
 
 # ---------------------------------------------------------------------------------------------- the run --
@@ -342,13 +472,18 @@ def verdict_text(passed: bool, w: dict) -> str:
             "stands; the 2027 candidate declares in the offseason)")
 
 
-def run(word: str | None, fingerprint: str | None, no_fetch: bool = False, echo=None) -> dict:
-    """The ONE run. Checked BEFORE the reservation, each refusal exit 2 with nothing written: declared and unrun and
-    unreserved; the word (non-empty, verbatim); the fingerprint; the calibration term declared (exactly one form, a
-    valid value). Then the stream is loaded (nfl_backtest.load_stream, the read --preflight makes; nothing scored) and
-    the run refuses unless both seasons hold games and its fingerprint equals `fingerprint`. Then the reservation
-    (after the cross-ref guard), carrying the word, the fingerprint and the term; then the frozen protocol's walk over
-    that same loaded stream. The caller records the run (record())."""
+def run(word: str | None, fingerprint: str | None, no_fetch: bool = False, echo=None, db=None) -> dict:
+    """The ONE run. Checked BEFORE the reservation, each refusal exit 2 with nothing written and nothing recorded:
+    declared and unrun and unreserved; the word (non-empty, verbatim); the fingerprint; the calibration term declared
+    (exactly one form, a valid value); the fit recorded (calibration_term.fit.warmup_fingerprint, addendum 219 item
+    4); the --db copy given and admissible (check_db; addendum 219 item 6: the ONE run reads the .backup copy, never
+    DATABASE_URL). Then the stream is loaded
+    (nfl_backtest.load_stream, the read --preflight makes, from the same database; nothing scored) and the run refuses
+    unless both seasons hold games, the loaded 2024 rows' warm-up fingerprint is the fit's (219 item 4: a stale fit
+    refuses), and the stream fingerprint over those rows AND the declared term equals `fingerprint` (219 item 4: the
+    word names the term). Then the reservation (after the cross-ref guard), carrying the word, the fingerprints, the
+    term and the database read; then the frozen protocol's walk over that same loaded stream. The caller records the
+    run (record())."""
     e = declared_unrun()
     if not word or not str(word).strip():
         raise GateRefused("the run starts only on the architect's word (215 item 3): pass --architect-word with it "
@@ -357,28 +492,47 @@ def run(word: str | None, fingerprint: str | None, no_fetch: bool = False, echo=
         raise GateRefused("the word refers to one stream (ncaa-gate's addendum 17 item 1): pass --stream-fingerprint "
                           f"with the last line of {COMMAND} --preflight")
     form, value = declared_term(e)
+    fit_wfp = fit_binding(e)                                   # 219 item 4: a null fit refuses here, before the load
+    if db is None or not str(db).strip():                      # 219 item 6: the run reads the copy, never the live DB
+        raise GateRefused("the ONE run reads a fresh .backup copy outside data/ (addendum 219 item 6, the mlb-pitchers "
+                          "pattern: the gate never reads the live database): pass --db COPY, the copy --preflight "
+                          "read; nothing read, nothing reserved")
+    path = check_db(db)
     scope: list[str] = []
-    rows = nb.load_stream(COMMAND, scope.append)               # the stream about to be walked; nothing scored
+    with db_session(path) as s:
+        rows = nb.load_stream(COMMAND, scope.append, session=s)   # the stream about to be walked; nothing scored
     warmup, scored = nb.split(rows)
     if not warmup or not scored:
         raise GateRefused(f"the stream holds {len(warmup)} warm-up ({nb.WARMUP_SEASON}) and {len(scored)} scored "
                           f"({nb.SCORED_SEASON}) games: insufficient seasons for protocol; nothing reserved or "
                           "recorded, the read is not spent")
-    fp, fp_n = stream_fingerprint(warmup, scored)
+    wfp, wn = warmup_fingerprint(warmup)
+    if wfp != fit_wfp:
+        raise GateRefused(f"the fit is stale: {TERM_KEY}.fit.warmup_fingerprint is {fit_wfp}, the {nb.WARMUP_SEASON} "
+                          f"rows about to be walked are {wfp} ({wn} games): addendum 219 item 4, \"the run REFUSES ... "
+                          "when the fit's warm-up fingerprint differs from the run's warm-up fingerprint\"; nothing "
+                          "reserved, nothing scored — the architect rules the term on the rows the run reads")
+    fp, fp_n = stream_fingerprint(warmup, scored, (form, value))
     if fp != str(fingerprint).strip():
-        raise GateRefused(f"the stream no longer matches the fingerprint given: given {str(fingerprint).strip()}, the "
-                          f"stream about to be walked is {fp} ({fp_n} games); nothing reserved, nothing scored — "
-                          f"re-run {COMMAND} --preflight and take the architect's word on it")
+        raise GateRefused(f"the stream and the declared term no longer match the fingerprint given: given "
+                          f"{str(fingerprint).strip()}, the stream about to be walked with the term declared now "
+                          f"({describe(form, value)}) is {fp} ({fp_n} games; v2 binds the term, addendum 219 item 4); "
+                          f"nothing reserved, nothing scored — re-run {COMMAND} --preflight and take the architect's "
+                          "word on it")
+    term = {"form": form, "value": value}
     meta = {"architect_word": word, "stream_fingerprint": fp, "stream_games": fp_n, "warmup_n": len(warmup),
-            "scored_n": len(scored), "calibration_term": {"form": form, "value": value}}
+            "scored_n": len(scored), "calibration_term": term, "warmup_fingerprint": wfp,
+            "fit_warmup_fingerprint": fit_wfp, "db": str(path)}
     reserve(meta, no_fetch=no_fetch, echo=echo)
     # from here on, the one run is spent
     cfg, price = candidate(form, value)
     lines: list[str] = []
     w = nb.walk_protocol(warmup, scored, cfg, price, lines.append)
-    w.update({"verdict": verdict_text(w["pass"], w), "protocol_lines": lines, "scope": scope[0] if scope else None,
-              "stream_fingerprint": fp, "stream_games": fp_n, "warmup_n": len(warmup), "scored_n": len(scored),
-              "calibration_term": {"form": form, "value": value},
+    w.update({"verdict": verdict_text(w["pass"], w), "protocol_lines": lines, "scope": _scope(scope, path),
+              "stream_fingerprint": fp, "stream_fingerprint_tag": FINGERPRINT_TAG, "stream_games": fp_n,
+              "warmup_n": len(warmup), "scored_n": len(scored), "calibration_term": term,
+              "warmup_fingerprint": wfp, "fit_warmup_fingerprint": fit_wfp,
+              "db": str(path),
               "constants": {k: getattr(cfg, k) for k in ("k_factor", "home_advantage", "season_regression",
                                                          "mov_base", "default_rating")}})
     return w
@@ -405,7 +559,10 @@ def run_lines(r: dict) -> list[str]:
     if r.get("scope"):
         L.append(f"  {r['scope']}")
     L.append(f"  stream fingerprint {r['stream_fingerprint']} ({r['stream_games']} games: warm-up {r['warmup_n']}, "
-             f"scored {r['scored_n']}), checked before the reservation and recorded beside the word")
+             f"scored {r['scored_n']}; v2, the rows and the declared term), checked before the reservation and "
+             "recorded beside the word")
+    L.append(f"  warm-up fingerprint {r['warmup_fingerprint']}: the fit's ({r['fit_warmup_fingerprint']}), checked "
+             "before the reservation (addendum 219 item 4)")
     L.append(f"  candidate: nfl_elo_v1's constants {r['constants']} · {describe(**r['calibration_term'])}")
     L += [f"  {x}" for x in r["protocol_lines"]]
     for b in r["bands"]:

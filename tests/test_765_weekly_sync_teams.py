@@ -272,6 +272,23 @@ def test_a_chain_without_sync_steps_gets_no_competition_lines(sandbox, monkeypat
     json.dumps(chain)                                                         # the receipt stays plain JSON
 
 
+
+def test_a_competition_season_listed_twice_keeps_each_runs_receipt_line():
+    """Codex on #774: a list line written twice runs twice (fullseason_entries keeps duplicates), so each sync-teams
+    run keeps its own competition entry with its own sync-matches; the earlier run's skip count is never overwritten."""
+    pl = ["--competition", "PL", "--season", "2026/27"]
+    sync = [(1, ["sync-teams", *pl], {"teams": {"created": 1, "updated": 2}}, 0),
+            (2, ["sync-matches", *pl], {"matches": {"created": 0, "updated": 5, "skipped": 3},
+                                        "not_in_db": {"n": 3, "ids": ["1", "2", "3"]}}, 0),
+            (3, ["sync-teams", *pl], {}, 1),
+            (4, ["sync-matches", *pl], {"matches": {"created": 0, "updated": 5, "skipped": 0}}, 0)]
+    first, second = sp_run.competition_lines(sync)
+    assert (first["teams_step"], first["matches_step"], first["matches_skipped"], first["not_in_db"]) == (1, 2, 3, 3)
+    assert (second["teams_step"], second["teams_exit"], second["matches_step"], second["matches_skipped"],
+            second["not_in_db"]) == (3, 1, 4, 0, 0)
+    assert "(3 of clubs not in the DB)" in sp_run.competition_text(first)
+    assert "sync-teams failed (exit 1)" in sp_run.competition_text(second)
+
 # A sync step that RAN but printed no recognised count (it failed first, or the MLB fallback's own matches line): the
 # competition line reads '?' and the exit, never "did not run" (law 4). Through run_steps, never a hand-built list.
 FAKE_NO_COUNT_CLI = '''import sys

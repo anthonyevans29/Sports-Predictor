@@ -314,27 +314,29 @@ def _opt(st: list[str], flag: str) -> str | None:
 
 
 def competition_lines(sync: list) -> list[dict]:
-    """The chain's receipt line per competition (addendum 204 item 3(a)): one per competition-season a sync-teams step
-    of the run RAN (whatever its exit, whether or not it printed a count), in step order, carrying sync-teams'
+    """The chain's receipt line per competition (addendum 204 item 3(a)): one per sync-teams step of the run that RAN
+    (a competition-season listed twice gets two lines, each with its own sync-matches; Codex on #774) (whatever its exit, whether or not it printed a count), in step order, carrying sync-teams'
     created/updated and exit, and its sync-matches' step, exit and skipped count (None where the step printed no count
     -- it failed first, or the MLB fallback's own matches line has no skipped count: law 4, never a guessed 0) and the
     listings skipped for clubs not in the DB. `matches_step` None means the sync-matches step never ran (the chain
     stopped before it, or H0-16b skipped it). `sync` is run_steps' report["sync"]: [(step, argv, counts, exit)]."""
-    out: dict = {}
-    for i, st, counts, rc in sync:
+    out: list = []
+    latest: dict = {}          # (competition, season) -> that key's latest sync-teams entry (Codex on #774: a list
+    for i, st, counts, rc in sync:  # line written twice runs twice, so each sync-teams run keeps its own entry)
         if st[0] not in ("sync-teams", "sync-matches"):
             continue
         key = (_opt(st, "--competition"), _opt(st, "--season"))
         if st[0] == "sync-teams":
             t = counts.get("teams") or {}
-            out[key] = {"competition": key[0], "season": key[1], "teams_step": i, "teams_exit": rc,
-                        "teams_created": t.get("created"), "teams_updated": t.get("updated"),
-                        "matches_step": None, "matches_exit": None, "matches_skipped": None, "not_in_db": None}
-        elif key in out and out[key]["matches_step"] is None:
+            latest[key] = {"competition": key[0], "season": key[1], "teams_step": i, "teams_exit": rc,
+                           "teams_created": t.get("created"), "teams_updated": t.get("updated"),
+                           "matches_step": None, "matches_exit": None, "matches_skipped": None, "not_in_db": None}
+            out.append(latest[key])
+        elif key in latest and latest[key]["matches_step"] is None:
             m, nid = counts.get("matches"), counts.get("not_in_db")
-            out[key].update(matches_step=i, matches_exit=rc, matches_skipped=(m or {}).get("skipped"),
-                            not_in_db=nid["n"] if nid else (0 if m else None))
-    return list(out.values())
+            latest[key].update(matches_step=i, matches_exit=rc, matches_skipped=(m or {}).get("skipped"),
+                               not_in_db=nid["n"] if nid else (0 if m else None))
+    return out
 
 
 def _n(v) -> str:

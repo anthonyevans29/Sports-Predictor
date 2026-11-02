@@ -281,8 +281,13 @@ class APIAmericanFootballAdapter(DataAdapter):
                 utc = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
                 utc = utc.astimezone(timezone.utc).replace(tzinfo=None) if utc.tzinfo else utc
             status_block = game.get("status") or {}
-            short = (status_block.get("short") if isinstance(status_block, dict)
-                     else str(status_block)) or "NS"
+            # The raw provider code BEFORE the "NS" default (ARCHITECT 2026-11-01, addendum 202 item 3; #763,
+            # #493), as api_hockey reads it: an absent status stays absent (None) in status_raw, never "NS"
+            # (conservative unknowns), and the score-presence rule below tests this raw code, so it fires on an
+            # absent status as designed. The _STATUS mapping of every present code is unchanged.
+            raw_short = (status_block.get("short") if isinstance(status_block, dict)
+                         else (str(status_block) if status_block else None))
+            short = raw_short or "NS"
             home = (teams.get("home") or {})
             away = (teams.get("away") or {})
             if gid is None or home.get("id") is None or away.get("id") is None:
@@ -310,7 +315,7 @@ class APIAmericanFootballAdapter(DataAdapter):
             # A game with both totals and no status claim is finished with
             # lazy upstream metadata — infer, but ONLY when status is absent,
             # never over an explicit live/scheduled short.
-            if (short in (None, "", "None") and _h_total is not None
+            if (raw_short in (None, "", "None") and _h_total is not None
                     and _a_total is not None):
                 status = MatchStatus.FINISHED
             out.append(NormalizedMatch(
@@ -323,6 +328,8 @@ class APIAmericanFootballAdapter(DataAdapter):
                 source=self.source_name, source_id=str(gid),
                 matchday=matchday,
                 stage=str(game.get("stage") or "") or None,
+                # the provider's short verbatim, None when absent (addendum 202 item 3; #763)
+                status_raw=(raw_short if raw_short not in (None, "", "None") else None),
                 home_score=hs.get("total") if isinstance(hs, dict) else hs,
                 away_score=as_.get("total") if isinstance(as_, dict) else as_,
             ))

@@ -339,16 +339,16 @@ def reserve(meta: dict | None = None, no_fetch: bool = False, echo=None, spec: S
                               f"({type(err).__name__}: {err}) and could not be removed ({type(uerr).__name__}: "
                               f"{uerr}): INSPECT THE FILE before anything else; it may be empty or partial and reads "
                               "as a spent run while it stands. Nothing was scored") from err
-        else:
-            try:                                               # the removal is durable too (review on #797)
-                _fsync_dir(p)
-            except OSError as derr:
-                removed = (f"removed, but the removal could not be made durable ({type(derr).__name__}: {derr}): "
-                           f"if the machine restarts before its directory is flushed the file may return, so "
-                           f"check that {os.path.relpath(p)} is absent before the run")
+        # the removal is durable too, ours or another process's (reviews on #797; addendum 222 item 1)
+        try:
+            _fsync_dir(p)
+        except OSError as derr:
+            removed = (f"{removed}, but the removal could not be made durable ({type(derr).__name__}: {derr}): "
+                       f"if the machine restarts before its directory is flushed the file may return, so "
+                       f"check that {os.path.relpath(p)} is absent before the run")
         if not isinstance(err, Exception):
             raise
-        tail = ("nothing scored" if removed.startswith("removed, but") else
+        tail = ("nothing scored" if "could not be made durable" in removed else
                 "nothing scored, the read is not spent")
         raise GateRefused(f"{spec.eid}: the reservation {os.path.relpath(p)} could not be written "
                           f"({type(err).__name__}: {err}); {removed}: {tail}") from err

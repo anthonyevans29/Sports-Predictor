@@ -480,3 +480,43 @@ def test_the_newline_is_the_platforms_as_the_old_text_mode_wrote_it(ledger, monk
     raw = Path(p).read_bytes()
     assert raw.endswith(b"}\r\n") and raw.count(b"\n") == 1
     assert json.loads(raw)["architect_word"] == WORD
+
+
+# ----------------------------------------------------------------- review on #797 round 2 (addendum 222 item 1) --
+
+@pytest.mark.parametrize("dir_sync_fails", [False, True])
+def test_a_reservation_another_process_already_removed_is_made_durable_too(ledger, monkeypatch, dir_sync_fails):
+    """The write fails and, before our cleanup, another process removes the file: the directory is still fsynced
+    (that other unlink may not be flushed). If that fsync fails the refusal says so and never claims the read
+    unspent (addendum 222 item 1: the round-two P2 rides #797)."""
+    import stat
+    events, real_unlink, real_fsync = [], os.unlink, os.fsync
+
+    def bad_write(fd, data):
+        real_unlink(vg.reservation_path(vg.V2))               # another process removes it mid-failure
+        raise OSError(errno.ENOSPC, "No space left on device")
+
+    def spy_unlink(p):
+        events.append("unlink")
+        return real_unlink(p)                                 # raises FileNotFoundError: already gone
+
+    def spy_fsync(fd):
+        is_dir = stat.S_ISDIR(os.fstat(fd).st_mode)
+        events.append("fsync dir" if is_dir else "fsync file")
+        if is_dir and dir_sync_fails:
+            raise OSError(errno.EIO, "Input/output error")
+        return real_fsync(fd)
+    with monkeypatch.context() as m:
+        m.setattr(vg.os, "write", bad_write)
+        m.setattr(vg.os, "unlink", spy_unlink)
+        m.setattr(vg.os, "fsync", spy_fsync)
+        with pytest.raises(vg.GateRefused) as ei:
+            vg.reserve({"architect_word": WORD}, no_fetch=True, spec=vg.V2)
+    msg = str(ei.value)
+    assert events == ["unlink", "fsync dir"]
+    if dir_sync_fails:
+        assert "already gone, but the removal could not be made durable (OSError" in msg, msg
+        assert msg.endswith("is absent before the run: nothing scored"), msg
+    else:
+        assert msg.endswith("already gone: nothing scored, the read is not spent"), msg
+    assert not os.path.exists(vg.reservation_path(vg.V2))

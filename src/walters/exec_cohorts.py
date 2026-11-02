@@ -34,6 +34,19 @@ As built (each reading is the conservative one, law 4; the PR body lists them fo
 - Results from the DB: CANCELLED, POSTPONED and STALE_ORPHAN are void; FINISHED with both scores decides (a level
   two-way score is a push; a three-way board reads full_time_result, else the scores); anything else is open. A row
   whose teams are not the DB match's is left out (match ids are machine-local), as is a match id this DB lacks.
+- THE WOULD-BE LINE (ARCHITECT 2026-11-02 11:20 ET, addendum 217 item 4, RULING_217_4): an NFL row the Desk called
+  PASS market-only (desk_policy NFL_MARKET_ONLY_KIND: the row's own record that it was written while the model was
+  uncertified) whose record-only would-be call (desk.market_only_hold.would_call) is PLAY is counted on ONE line of its
+  own, labelled WOULD_BE. Each row decides from what it carries, never from the registry's state today, so a closing
+  file written while uncertified counts the same after a certification. The line is printed while the registry does
+  not read the NFL model certified (registry.certification_of on nfl_predict.MODEL_VERSION, the uncertified() #785
+  built; an unread registry or a missing entry is never judged certified, law 4), and after that whenever a would-be
+  row or a #446 row is there (the registry's state is the head's text only): split by the QB tags the hold reads (QB_TAGS: QB-flagged or unread / QB inputs clean),
+  W-L-P and notional units at would_units at desk.exec.cost (the exec block the chain sized, desk_policy
+  call_exec_block), the exec cells counted beside. It never enters a PLAY cell, the n=30 counter or the pooled line,
+  and it is never a position. Its tail is #446's thirty-row count (addendum 44 item 9): the NFL PLAY rows in a cell
+  with a QB tag plus the QB-tagged would-be rows, each labelled, closing runs from the hold of 2026-10-11 (HOLD_446_FROM;
+  earlier ones and undated ones beside it, not counted). Certified with neither a would-be row nor a #446 row: no line.
 - Read-only: one session, nothing written; no verdict is computed (the n=30 read is the architect's).
 - The n=30 counter starts at the PRE-REGISTRATION (R41 RULED, ARCHITECT 2026-10-20 19:54 ET, addendum 151 item 2):
   it counts only the pre-registered cohort's graded rows whose closing run starts on or after 2026-10-19 07:40 ET
@@ -70,6 +83,21 @@ PRE_REGISTERED = datetime(2026, 10, 19, 7, 40, tzinfo=ZoneInfo("America/New_York
 COUNTED_FROM = as_utc(PRE_REGISTERED)                 # 2026-10-19 11:40, naive UTC: the closing runs' own clock
 COUNTED_FROM_TEXT = "closing runs from the pre-registration (2026-10-19 07:40 ET)"
 BEFORE_TEXT = "before pre-registration, not counted"
+# THE WOULD-BE LINE (ARCHITECT 2026-11-02 11:20 ET, addendum 217 item 4, verbatim):
+RULING_217_4 = ("4. RULED, a follow-up PR (small, after the v2 harness): #446's measurement keeps accruing on paper — "
+                "exec_cohorts and the closing page's hold check gain one cohort line for NFL while uncertified, "
+                "\"would-be PLAY (uncertified, unstaked)\", reading the record-only would-be call with the same QB-flag "
+                "/ unread-list classification, never pooled with PLAY, never a position. #446's read at thirty rows "
+                "counts those rows too, labelled. Not blocking #778.")
+WOULD_BE = "would-be PLAY (uncertified, unstaked)"         # the ruled label, verbatim (closing.WOULD_BE: a test pins it)
+WOULD_BE_FAMILIES = ("NFL",)                                # desk_policy.NFL_MARKET_ONLY_SPORTS, as a closing family
+QB_OUT, QB_CLEAN = "QB-flagged or unread", "QB inputs clean"
+# #446 (ARCHITECT 2026-10-12 08:41 ET, addendum 44 item 9), verbatim: "Every NFL row the Desk calls PLAY with a QB flag
+# or an unread list is kept with what the page said, the price it named, the close, the result, and what was done about
+# it. I read the receipt at thirty such rows or at the season's end, whichever comes first."
+READ_446_AT_N = 30
+HOLD_446_FROM = as_utc(datetime(2026, 10, 11, 0, 0, tzinfo=ZoneInfo("America/New_York")))   # closing.CLOSING_HOLDS'
+HOLD_446_FROM_TEXT = "closing runs from the hold of 2026-10-11"                           # QB hold, "since"
 
 GE4, MID, LE0, UNKNOWN = "exec >= 4", "0 < exec < 4", "exec <= 0", "exec unknown"
 MID_QB = "0 < exec < 4, QB"              # the cell key of the QB-tagged half of MID (outside the cohort)
@@ -187,6 +215,47 @@ def floor_result_of(m, pick, fam: str) -> str:
     return "win" if {"H": "HOME", "D": "DRAW", "A": "AWAY"}[r] == pick else "loss"
 
 
+def would_be_play(desk: dict) -> dict | None:
+    """The record-only would-be call of a market-only row (desk_policy.nfl_market_only: the chain's own call, in
+    desk.market_only_hold) when it is a PLAY on a PASS row of NFL_MARKET_ONLY_KIND; else None. Never a call."""
+    if desk.get("call") != "PASS" or desk.get("pass_kind") != desk_policy.NFL_MARKET_ONLY_KIND:
+        return None
+    h = desk.get("market_only_hold")
+    return h if isinstance(h, dict) and h.get("would_call") == "PLAY" else None
+
+
+def qb_tagged(desk: dict) -> bool:
+    """The hold's QB classification: the row carries one of the Desk's QB tags (QB_TAGS: QB-flagged or unread list)."""
+    tags = desk.get("tags") if isinstance(desk.get("tags"), list) else []
+    return bool({t for t in tags if isinstance(t, str)} & set(QB_TAGS))
+
+
+def nfl_model_version() -> str:
+    """The id predict-nfl writes (nfl_predict.MODEL_VERSION): the model the registry is read on and the line names
+    ("the NFL model" if it cannot be imported: the line's text, never the section's failure)."""
+    try:
+        from src.walters.nfl_predict import MODEL_VERSION
+        return MODEL_VERSION
+    except Exception:                                   # noqa: BLE001
+        return "the NFL model"
+
+
+def nfl_certification(registry_path=None) -> tuple[str, str]:
+    """The NFL model's certification in the registry (registry.certification_of on nfl_predict.MODEL_VERSION), for the
+    line's head text: "uncertified", "certified" or "unread". Any failure to import or read degrades to ("unread", the
+    exception's name) (law 4: never judged certified, never the section's failure)."""
+    try:
+        from src.walters import registry
+        return registry.certification_of(nfl_model_version(), registry_path)
+    except Exception as e:                              # noqa: BLE001
+        return "unread", type(e).__name__
+
+
+def _would() -> dict:
+    return {QB_OUT: _cell(), QB_CLEAN: _cell(), "exec": {k: 0 for k in (GE4, MID, LE0, UNKNOWN)}, "basis": 0,
+            "not_in_db": 0, "teams": 0, "void": []}
+
+
 def _within(entries, current) -> list:
     """The entries whose recorded start is within the Desk's clock drift of the match's current start."""
     cur = as_utc(current)
@@ -196,12 +265,15 @@ def _within(entries, current) -> list:
             if (st := as_utc(e[2].get("utc_date"))) is not None and abs(cur - st) <= desk_policy.DESK_CLOCK_DRIFT]
 
 
-def tally(exports_dir) -> dict:
+def tally(exports_dir, registry_path=None) -> dict:
     """The cohorts per closing family, from the closing files on disk and this machine's DB. Read-only: one session,
     rolled back. {"files", "unreadable", "runs", "families": [sorted], "cells": {(family, cell): counts}, "left_out":
     {family: counts}, "cohort_graded": W + L of the pre-registered cohort over every family, its rows whose closing run
     starts at or after COUNTED_FROM only (the n=30 counter), "cohort_before": its graded rows of earlier runs,
-    "cohort_undated": its graded rows with no run start (neither is counted)}."""
+    "cohort_undated": its graded rows with no run start (neither is counted), "certification": the NFL model's
+    (nfl_certification, the head's text only), "model_version": the id it was read on, "would_be": {family: the would-be
+    line's counts, each row by what it carries}, "count_446": {family: {"play", "would_be", "before", "undated"}}}.
+    `registry_path` None: the tracked registry."""
     from src.db.database import session_scope
     from src.db.schema import Match
 
@@ -211,6 +283,14 @@ def tally(exports_dir) -> dict:
     left: dict = {}
     floor: dict = {}
     pooled = {"graded": 0, "before": 0, "undated": 0}
+    cert = nfl_certification(registry_path)
+    would: dict = {}
+    c446: dict = {}
+
+    def count_446(fam, run, kind):
+        k = c446.setdefault(fam, {"play": 0, "would_be": 0, "before": 0, "undated": 0})
+        k["undated" if run is None else kind if run >= HOLD_446_FROM else "before"] += 1
+
     with session_scope() as s:
         for mid in sorted(cr["rows"]):
             entries = cr["rows"][mid]
@@ -267,6 +347,41 @@ def tally(exports_dir) -> dict:
                         fb["units_sum"] += u
                         fb["priced"] += 1
                 continue
+            wb = would_be_play(desk) if fam in WOULD_BE_FAMILIES else None     # the row's own state, not today's
+            if wb is not None:                                 # addendum 217 item 4: its own line, never a PLAY cell
+                w = would.setdefault(fam, _would())
+                if m is None:
+                    w["not_in_db"] += 1
+                    continue
+                h = m.home_team.name if m.home_team else None
+                a = m.away_team.name if m.away_team else None
+                if (row.get("home_team"), row.get("away_team")) != (h, a):
+                    w["teams"] += 1
+                    continue
+                if lab:
+                    w["void"].append(f"match {m.id} {a or '?'} @ {h or '?'}: {lab}")
+                    continue
+                ex = desk.get("exec") if isinstance(desk.get("exec"), dict) else None
+                edge = ex.get("edge_pp") if ex else None
+                if edge is not None and ex.get("basis") != "taker":
+                    w["basis"] += 1
+                    continue
+                w["exec"][cohort_of(edge)] += 1
+                qb = qb_tagged(desk)
+                if qb:
+                    count_446(fam, e[0], "would_be")
+                res = result_of(m, desk.get("pick"))
+                c = w[QB_OUT if qb else QB_CLEAN]
+                c["plays"] += 1
+                c[{"win": "w", "loss": "l", "push": "p", "void": "void", "open": "open"}[res]] += 1
+                if res != "open":
+                    u = settle_units(wb.get("would_units"), res, ex.get("cost") if ex else None)
+                    if u is None:
+                        c["unpriced"] += 1
+                    else:
+                        c["units_sum"] += u
+                        c["priced"] += 1
+                continue
             if call != "PLAY":
                 continue
             if m is None:
@@ -289,6 +404,8 @@ def tally(exports_dir) -> dict:
             tags = desk.get("tags") if isinstance(desk.get("tags"), list) else []
             if key == MID and {t for t in tags if isinstance(t, str)} & set(QB_TAGS):
                 key = MID_QB
+            if fam in WOULD_BE_FAMILIES and qb_tagged(desk):     # #446's rows: a QB tag, whatever the exec cell
+                count_446(fam, e[0], "play")
             res = result_of(m, desk.get("pick"))
             c = cells.setdefault((fam, key), _cell())
             c["plays"] += 1
@@ -306,7 +423,8 @@ def tally(exports_dir) -> dict:
         s.rollback()
     return {"files": cr["files"], "unreadable": cr["unreadable"], "runs": cr["runs"], "families": sorted(fams),
             "cells": cells, "left_out": left, "floor_blocked": floor, "cohort_graded": pooled["graded"], "cohort_before": pooled["before"],
-            "cohort_undated": pooled["undated"]}
+            "cohort_undated": pooled["undated"], "certification": cert,
+            "model_version": nfl_model_version(), "would_be": would, "count_446": c446}
 
 
 def _units_text(c: dict) -> str:
@@ -355,6 +473,50 @@ def _floor_line(fam: str, c: dict | None) -> str | None:
         lo.append(f"void: {void_counts(c['redated'])}")
     return (head + f"{c['plays']} · W-L-P {c['w']}-{c['l']}-{c['p']} · {_units_text(c)} · open {c['open']} · "
             f"void {c['void']}" + (f" · left out: {', '.join(lo)}" if lo else ""))
+
+
+def _would_be_line(fam: str, t: dict) -> str | None:
+    """THE WOULD-BE LINE (addendum 217 item 4) of a family the market-only rule holds, printed while its model is not
+    read certified (0 when nothing qualifies: the measurement is running), and after that whenever a would-be row or a
+    #446 row is there (the rows carry their own state; the registry's is the head's text only). #446's thirty-row count
+    is its tail."""
+    cert = t.get("certification") or ("certified", "")
+    if fam not in WOULD_BE_FAMILIES:
+        return None
+    w = (t.get("would_be") or {}).get(fam) or _would()
+    k = {"play": 0, "would_be": 0, "before": 0, "undated": 0, **((t.get("count_446") or {}).get(fam) or {})}
+    if cert[0] == "certified" and fam not in (t.get("would_be") or {}) and not any(k.values()):
+        return None
+    mv = t.get("model_version") or nfl_model_version()
+    state = (f"while the registry reads {mv} uncertified ({cert[1]})" if cert[0] == "uncertified" else
+             f"rows recorded while uncertified; the registry now reads {mv} certified ({cert[1]})"
+             if cert[0] == "certified" else f"certification not read for {mv}: {cert[1]}")
+    head = (f"- {fam} · {WOULD_BE} (addendum 217 item 4: the Desk's record-only would-be call, desk.market_only_hold, "
+            f"{state}; notional at desk.exec.cost, never pooled with PLAY, never a position): ")
+    n = w[QB_OUT]["plays"] + w[QB_CLEAN]["plays"]
+    body = f"{n}"
+    if n:
+        def part(lab, c):
+            if not c["plays"]:
+                return f"{lab} 0"
+            return (f"{lab} {c['plays']} · W-L-P {c['w']}-{c['l']}-{c['p']} · {_units_text(c)} · open {c['open']} · "
+                    f"void {c['void']}")
+        body += (f" · {part(QB_OUT, w[QB_OUT])} · {part(QB_CLEAN, w[QB_CLEAN])} · by exec: "
+                 + " · ".join(f"{x} {w['exec'][x]}" for x in (GE4, MID, LE0, UNKNOWN)))
+    lo = [f"{lab} {w[v]}" for lab, v in (("exec basis not taker", "basis"), ("not in this DB", "not_in_db"),
+                                          ("teams differ", "teams")) if w[v]]
+    if w["void"]:
+        lo.append(f"void: {void_counts(w['void'])}")
+    if lo:
+        body += f" · left out: {', '.join(lo)}"
+    tot = k["play"] + k["would_be"]
+    tail = (f"n={READ_446_AT_N} reached — for the architect's read (no verdict is computed here)"
+            if tot >= READ_446_AT_N else f"of {READ_446_AT_N}")
+    body += (f" · #446's thirty-row count (addendum 44 item 9: rows with a QB flag or an unread list, "
+             f"{HOLD_446_FROM_TEXT}): PLAY {k['play']} + {WOULD_BE} {k['would_be']} = {tot} {tail}"
+             + (f" · before the hold, not counted {k['before']}" if k["before"] else "")
+             + (f" · undated, not counted {k['undated']}" if k["undated"] else ""))
+    return head + body
 
 
 LADDER_TEXT = ("LADDER, the ordered NO leg priced, ungraded (#689: desk.ladder_exec, notional, never pooled with "
@@ -434,6 +596,8 @@ def section(t: dict, exports_dir) -> str:
             out.append(f"- {fam} · void: {void_counts(lo['void'])}: " + "; ".join(lo["void"]))
         if (fl := _floor_line(fam, (t.get("floor_blocked") or {}).get(fam))) is not None:
             out.append(fl)
+        if (wl := _would_be_line(fam, t)) is not None:
+            out.append(wl)
     out.append(_pooled(t))
     return "\n".join(out) + "\n"
 

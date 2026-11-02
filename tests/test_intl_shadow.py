@@ -214,8 +214,10 @@ def test_intl_daily_chain_and_cli_refusal(monkeypatch):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "deploy" / "hosting"))
     import chains
     steps = chains.CHAINS["intl-daily"]["steps"]
-    assert [s[0] for s in steps] == ["intl-sync", "intl-venue-sync", "export-unl-predictions"] + ["sync-matches"] * 4
-    assert [s[2] for s in steps[3:]] == ["EFL", "CL", "UEL", "FAC"]        # the cups' daily schedule read, last (#707)
+    # the cups' daily schedule read, last (#707), each cup's sync-teams immediately before it (#728, addendum 204 3(b))
+    assert [s[0] for s in steps] == (["intl-sync", "intl-venue-sync", "export-unl-predictions"]
+                                     + ["sync-teams", "sync-matches"] * 4)
+    assert [s[2] for s in steps[3:]] == ["EFL", "EFL", "CL", "CL", "UEL", "UEL", "FAC", "FAC"]
     assert steps[0][1:3] == ["--since", "{today}"] and "export-unl-predictions" in chains.UNMETERED
     from click.testing import CliRunner
     from cli import cli

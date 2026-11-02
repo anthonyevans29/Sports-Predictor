@@ -224,6 +224,19 @@ def sync_teams_cmd(competition_code: str, season: str | None):
             print(f"    ... and {len(result.names_kept) - NAMES_KEPT_SHOWN} more")
 
 
+def _print_skipped_listings(result) -> None:
+    """NEVER SILENT AGAIN (ARCHITECT 2026-11-01, addendum 204 item 3(c); #728, #765): "sync_matches' skipped-listings
+    warning becomes a line the chain prints in its own receipt (the journal digest shows it), never only a log
+    warning: "skipped N listing(s) of clubs not in the DB: <ids>" [...] It stays exit 0 (law 4: the listings are
+    skipped, not faked)". Printed plainly (never rich-wrapped) so a chain's step receipt and summary line carry it
+    (sp_run.SKIPPED_LISTINGS_LINE); nothing when no listing was skipped for a club not in the DB, or when the result
+    carries no SyncResult ids (a test's stand-in service)."""
+    ids = getattr(result, "skipped_ids", None)
+    if ids:
+        from src.ingestion.service import skipped_listings_line
+        print(skipped_listings_line(ids), flush=True)
+
+
 @cli.command("sync-matches")
 @click.option("--competition", "competition_code", required=True, help="Code, e.g. PL, FAC, CL, MLB")
 @click.option("--season", default=None, help="Single season, e.g. 2024/25 (soccer), 2026 (MLB)")
@@ -275,6 +288,7 @@ def sync_matches_cmd(
             console.print(f"[cyan]→ Syncing {competition_code} season {season_str}[/cyan]")
             result = service.sync_matches(competition_code, season=season_str)
             console.print(f"  {result}")
+            _print_skipped_listings(result)
         return
 
     def _progress(msg):
@@ -286,6 +300,7 @@ def sync_matches_cmd(
         progress=_progress, **({"held_ids": held} if held is not None else {}),
     )
     console.print(f"[green]✓ Matches ({competition_code}): {result}[/green]")
+    _print_skipped_listings(result)
     if named is not None:
         # A1 (addendum 23): "exits non-zero unless the provider's answer held every one of them." Printed plainly
         # (never rich-wrapped) so the closing run's receipt tail has it.

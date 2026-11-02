@@ -136,8 +136,9 @@ def _no_status_both_totals(row):
 def parsed(row):
     """(status, naive-UTC kickoff) as the adapter's own parse reads the row; None when it drops the row (no id, a
     non-competitive game) or cannot read it. The adapter's documented score-presence rule ("a game with both totals
-    and no status claim is finished") is applied here too: its code sets the short to NS first, so the rule never
-    fires there for an absent status (#493)."""
+    and no status claim is finished") is applied here too. Until #763 (addendum 202 item 3) the adapter set the short
+    to NS first, so the rule never fired there for an absent status (#493); the adapter now applies it itself, and
+    this copy is a harmless repeat, kept."""
     try:
         got = _ADAPTER._parse_games({"response": [row]}, "NFL", "")
     except Exception:

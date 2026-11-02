@@ -25,6 +25,10 @@ from src.walters import desk_policy as dp
 from src.walters import desk_unit as du
 from src.walters import kalshi_pool as kpool
 
+# addendum 214: this module pins the Desk chain on NFL rows (sizing, orders, legs, pages), which still runs under NFL
+# market-only; it runs with the rule off, as main ran it (tests/test_nfl_market_only_214.py pins the rule on).
+pytestmark = pytest.mark.usefixtures("nfl_market_only_off")
+
 REAL_SIGNED_FETCH = kpool.signed_fetch   # captured at import; conftest refuses it in every test
 from tests.test_closing_runs import box, mc  # noqa: F401  (box is a fixture)
 from tests.test_desk_exec_addendum import nfl

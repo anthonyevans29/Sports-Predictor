@@ -41,6 +41,10 @@ import pytest
 from src.walters import desk_policy as dp
 from src.walters import window
 
+# addendum 214: this module pins the Desk chain on NFL rows (sizing, orders, legs, pages), which still runs under NFL
+# market-only; it runs with the rule off, as main ran it (tests/test_nfl_market_only_214.py pins the rule on).
+pytestmark = pytest.mark.usefixtures("nfl_market_only_off")
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "deploy" / "hosting"))
 sys.path.insert(0, str(ROOT / "scripts"))

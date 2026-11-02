@@ -320,8 +320,10 @@ def test_inactive_and_fullseason_guard(sandbox, monkeypatch):
     lst = sandbox / "fs.list"
     lst.write_text("# c\nPL|2026/27\nNFL|2026\n")
     monkeypatch.setenv("SP_FULLSEASON_LIST", str(lst))
-    assert sp_run.resolve("weekly-fullseason", {}, date(2026, 10, 4)) == [
+    assert sp_run.resolve("weekly-fullseason", {}, date(2026, 10, 4)) == [      # #765: teams before matches
+        ["sync-teams", "--competition", "PL", "--season", "2026/27"],
         ["sync-matches", "--competition", "PL", "--season", "2026/27"],
+        ["sync-teams", "--competition", "NFL", "--season", "2026"],
         ["sync-matches", "--competition", "NFL", "--season", "2026"]]
 
 
@@ -4095,7 +4097,9 @@ def test_intl_daily_reads_the_four_cup_schedules_last():
     assert steps[:3] == [["intl-sync", "--since", "{today}", "--save", "exports/intl_daily"],
                          ["intl-venue-sync", "--from-dir", "exports/intl_daily", "--venues-dir", "exports/intl_venues"],
                          ["export-unl-predictions"]]
-    assert steps[3:] == [["sync-matches", "--competition", c, "--season", "2026/27"] for c in ("EFL", "CL", "UEL", "FAC")]
+    # #728 (ARCHITECT 2026-11-01, addendum 204 item 3(b)): each cup's sync-teams immediately before its sync-matches
+    assert steps[3:] == [[v, "--competition", c, "--season", "2026/27"] for c in ("EFL", "CL", "UEL", "FAC")
+                         for v in ("sync-teams", "sync-matches")]
     t = (HOSTING / "systemd" / "sp-intl-daily.timer").read_text()
     assert re.findall(r"^OnCalendar=(.+)$", t, re.M) == ["*-*-* 07:20:00 UTC"]           # daily
 

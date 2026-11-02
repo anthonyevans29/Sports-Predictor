@@ -20,6 +20,16 @@
   (e.g. SP_NHL_ACTIVE_FROM in host.env); every run prints and receipts it.
 - H0-16(b): SP_PARALLEL_MODE=designated + SP_DESIGNATED_DAYS=Fri,Sat,...
   skips METERED steps on other days (receipted as skipped). Default: full.
+- #765/#728 (ARCHITECT 2026-11-01, addendum 204 item 3): a step's printed sync
+  counts ride on its receipt (`sync`); the chain receipt carries one line per
+  competition-season a sync-teams step named (`competitions`: sync-teams'
+  created/updated, sync-matches' skipped count) and every step that skipped
+  listings of clubs not in the DB (`listings_skipped`), which the summary line
+  names. The exit is unchanged (law 4: skipped, not faked).
+- A failed sync-teams step does NOT stop the chain (ARCHITECT 2026-11-01,
+  addendum 207 item 4): the run goes on to that competition's sync-matches
+  and every later step, the exit is the FIRST failure's, and the summary line
+  names the failed step. Every other step stops a chain as before.
 """
 from __future__ import annotations
 
@@ -85,14 +95,17 @@ def fullseason_entries(p) -> list[tuple[int, str, str, str]]:
 
 
 def fullseason_resolve(p, v: dict) -> list[list[str]]:
-    """weekly-fullseason's steps for the list at `p`, filled as resolve() fills every chain's steps: one
-    `sync-matches --competition CODE --season SEASON` per line, through format_step with `v`. The ONE path from the
-    file to the commands: resolve() runs weekly-fullseason through it and cutover-readiness counts the list through
-    it (ARCHITECT 2026-10-18, addendum 122 item 3(b)), so a line the readout counts is a line the chain runs, and a
-    line the chain fails on the readout reads UNPARSEABLE. Raises ValueError naming the file and line for a line the
-    parser refuses (fullseason_entries) and for a brace str.format cannot fill ("NFL|{season}": KeyError; a lone '}':
-    ValueError; "{0}": IndexError; "{today.x}": AttributeError), the error's type and text in the message, and for a
-    code or season that str.format leaves empty ("NFL|{today:.0}"), as the parser refuses an empty half."""
+    """weekly-fullseason's steps for the list at `p`, filled as resolve() fills every chain's steps: per line,
+    `sync-teams --competition CODE --season SEASON` then `sync-matches --competition CODE --season SEASON` (TEAMS
+    BEFORE MATCHES, ARCHITECT 2026-11-01, addendum 204 item 3(a): "immediately before each `sync-matches` line"), both
+    from the one str.format of the line through format_step with `v`. The ONE path from the file to the commands:
+    resolve() runs weekly-fullseason through it and cutover-readiness counts the list through it (ARCHITECT
+    2026-10-18, addendum 122 item 3(b); one competition per sync-matches step), so a line the readout counts is a line
+    the chain runs, and a line the chain fails on the readout reads UNPARSEABLE. Raises ValueError naming the file and
+    line for a line the parser refuses (fullseason_entries) and for a brace str.format cannot fill ("NFL|{season}":
+    KeyError; a lone '}': ValueError; "{0}": IndexError; "{today.x}": AttributeError), the error's type and text in
+    the message, and for a code or season that str.format leaves empty ("NFL|{today:.0}"), as the parser refuses an
+    empty half."""
     out = []
     for n, line, code, season in fullseason_entries(p):
         try:
@@ -104,7 +117,7 @@ def fullseason_resolve(p, v: dict) -> list[list[str]]:
             which = ("code and season" if not st[2].strip() and not st[4].strip()
                      else "code" if not st[2].strip() else "season")
             raise ValueError(f"{p} line {n}: {line!r} is not CODE|SEASON (empty {which} after str.format)")
-        out.append(st)
+        out += [["sync-teams", *st[1:]], st]
     return out
 
 
@@ -246,7 +259,107 @@ def page(msg: str, run_id: str) -> None:
                       extra={"run_id": run_id})
 
 
-def run_step(argv: list[str], run_id: str) -> tuple[int, list[str], float]:
+# THE SYNC COUNTS A CHAIN'S RECEIPT CARRIES (ARCHITECT 2026-11-01, addendum 204 item 3(a) and (c); #765, #728): "its
+# receipt line per competition carries sync-teams' created/updated and sync-matches' skipped count", and "skipped N
+# listing(s) of clubs not in the DB: <ids>" is "a line the chain prints in its own receipt [...] and a chain step with
+# N > 0 says so in the chain's summary line". The lines the commands print (law 1, cli.py):
+#   sync-teams           "✓ Teams (CODE): created=N updated=N skipped=N"             (SyncResult.__str__)
+#   sync-teams, the MLB api-sports fallback (SP_SKIP_FAMILIES names MLB; cli._mlb_fallback_run, its own sync_teams):
+#                        "  teams SEASON: provider N · created N · stamped N · existing N · linked N · ..."
+#                        it has no `updated`: the receipt says null (law 4), with its stamped / existing / linked
+#   sync-matches         "✓ Matches (CODE): created=N updated=N skipped=N"
+#   sync-matches         "skipped N listing(s) of clubs not in the DB: <ids>"         (service.skipped_listings_line)
+# run_step collects every such line as it streams (never only the tail's last TAIL lines), redacted.
+TEAMS_LINE = re.compile(r"^✓ Teams \((?P<code>[^)]*)\): created=(?P<created>\d+) updated=(?P<updated>\d+) "
+                        r"skipped=(?P<skipped>\d+)")
+FALLBACK_TEAMS_LINE = re.compile(r"^\s*teams (?P<season>\S+): provider (?P<provider>\d+) · "
+                                 r"created (?P<created>\d+) · stamped (?P<stamped>\d+) · existing (?P<existing>\d+) · linked (?P<linked>\d+)")
+MATCHES_LINE = re.compile(r"^✓ Matches \((?P<code>[^)]*)\): created=(?P<created>\d+) updated=(?P<updated>\d+) "
+                          r"skipped=(?P<skipped>\d+)")
+SKIPPED_LISTINGS_LINE = re.compile(r"^skipped (?P<n>\d+) listing\(s\) of clubs not in the DB: ?(?P<ids>.*)$")
+_SYNC_LINES = (TEAMS_LINE, FALLBACK_TEAMS_LINE, MATCHES_LINE, SKIPPED_LISTINGS_LINE)
+
+
+def sync_counts(lines: list[str]) -> dict:
+    """The counts a sync step printed (the lines above), {} when it printed none. Keys present only when printed:
+    `teams` {created, updated, skipped} (or, from the MLB fallback, {created, updated: None, stamped, existing,
+    linked, via}), `matches` {created, updated, skipped}, `not_in_db` {n, ids}. The last line of each kind counts."""
+    out: dict = {}
+    for s in lines:
+        s = s.rstrip()
+        m = TEAMS_LINE.match(s)
+        if m:
+            out["teams"] = {k: int(m.group(k)) for k in ("created", "updated", "skipped")}
+            continue
+        m = FALLBACK_TEAMS_LINE.match(s)
+        if m:
+            out["teams"] = {"created": int(m.group("created")), "updated": None,
+                            **{k: int(m.group(k)) for k in ("stamped", "existing", "linked")},
+                            "via": "MLB api-sports fallback (no updated count: null)"}
+            continue
+        m = MATCHES_LINE.match(s)
+        if m:
+            out["matches"] = {k: int(m.group(k)) for k in ("created", "updated", "skipped")}
+            continue
+        m = SKIPPED_LISTINGS_LINE.match(s)
+        if m:
+            out["not_in_db"] = {"n": int(m.group("n")),
+                                "ids": [x.strip() for x in m.group("ids").split(",") if x.strip()]}
+    return out
+
+
+def _opt(st: list[str], flag: str) -> str | None:
+    i = next((i for i in range(len(st) - 1) if st[i] == flag), None)
+    return None if i is None else st[i + 1]
+
+
+def competition_lines(sync: list) -> list[dict]:
+    """The chain's receipt line per competition (addendum 204 item 3(a)): one per sync-teams step of the run that RAN
+    (a competition-season listed twice gets two lines, each with its own sync-matches; Codex on #774) (whatever its exit, whether or not it printed a count), in step order, carrying sync-teams'
+    created/updated and exit, and its sync-matches' step, exit and skipped count (None where the step printed no count
+    -- it failed first, or the MLB fallback's own matches line has no skipped count: law 4, never a guessed 0) and the
+    listings skipped for clubs not in the DB. `matches_step` None means the sync-matches step never ran (the chain
+    stopped before it, or H0-16b skipped it). `sync` is run_steps' report["sync"]: [(step, argv, counts, exit)]."""
+    out: list = []
+    latest: dict = {}          # (competition, season) -> that key's latest sync-teams entry (Codex on #774: a list
+    for i, st, counts, rc in sync:  # line written twice runs twice, so each sync-teams run keeps its own entry)
+        if st[0] not in ("sync-teams", "sync-matches"):
+            continue
+        key = (_opt(st, "--competition"), _opt(st, "--season"))
+        if st[0] == "sync-teams":
+            t = counts.get("teams") or {}
+            latest[key] = {"competition": key[0], "season": key[1], "teams_step": i, "teams_exit": rc,
+                           "teams_created": t.get("created"), "teams_updated": t.get("updated"),
+                           "matches_step": None, "matches_exit": None, "matches_skipped": None, "not_in_db": None}
+            out.append(latest[key])
+        elif key in latest and latest[key]["matches_step"] is None:
+            m, nid = counts.get("matches"), counts.get("not_in_db")
+            latest[key].update(matches_step=i, matches_exit=rc, matches_skipped=(m or {}).get("skipped"),
+                               not_in_db=nid["n"] if nid else (0 if m else None))
+    return out
+
+
+def _n(v) -> str:
+    return "?" if v is None else str(v)
+
+
+def competition_text(r: dict) -> str:
+    """One competition's printed receipt line (the journal shows it). A step that ran and failed says `failed (exit
+    N)`; a count it did not print reads `?` (law 4); `did not run` is only a sync-matches step never reached."""
+    out = (f"  · {r['competition']} {r['season']}: sync-teams "
+           + ("" if not r["teams_exit"] else f"failed (exit {r['teams_exit']}) ")
+           + f"created {_n(r['teams_created'])} · updated {_n(r['teams_updated'])}")
+    if r["matches_step"] is None:
+        return out + " · sync-matches did not run"
+    return out + (" · sync-matches "
+                  + ("" if not r["matches_exit"] else f"failed (exit {r['matches_exit']}) ")
+                  + f"skipped {_n(r['matches_skipped'])}"
+                  + (" (no count printed)" if r["matches_skipped"] is None and not r["matches_exit"] else "")
+                  + (f" ({r['not_in_db']} of clubs not in the DB)" if r["not_in_db"] else ""))
+
+
+def run_step(argv: list[str], run_id: str, marks: list | None = None) -> tuple[int, list[str], float]:
+    """`marks` (a list, opt-in; #765/#728): receives every line matching _SYNC_LINES, redacted, as it streams."""
     cmd = [sys.executable, "cli.py", *argv]
     t0 = time.monotonic()
     tail: deque = deque(maxlen=TAIL)
@@ -260,6 +373,8 @@ def run_step(argv: list[str], run_id: str) -> tuple[int, list[str], float]:
             tail.append(c.redact(s))
         if s.startswith("SP-PAGE:"):
             page(c.redact(s), run_id)
+        if marks is not None and any(r.match(s) for r in _SYNC_LINES):
+            marks.append(c.redact(s))
     rc = proc.wait()
     return rc, list(tail), time.monotonic() - t0
 
@@ -303,6 +418,12 @@ def transient_class(rc: int, tail: list[str]) -> str | None:
 
 
 SYNC_PREFIX = "sync-"      # addendum 84 item 2(b): a sync step's command starts with it; any other is card/export
+# A FAILED sync-teams DOES NOT STOP THE CHAIN (ARCHITECT 2026-11-01 17:10 ET, addendum 207 item 4; #765, #728),
+# verbatim: "A failed sync-teams does NOT stop the chain: the chain continues to that competition's sync-matches and to
+# every later step, keeps the FIRST failure's exit code, and names the failed step in its summary line; sync-matches'
+# skipped-listings line then says what the failed teams read cost (never silent). Not continue_on_sync_failure on the
+# chains (wider than ruled [...])." Only the sync-teams command; every other step stops a chain as before.
+TEAMS_GO_ON = "addendum 207 item 4: a failed sync-teams does not stop the chain"
 
 
 def run_steps(steps, label: str, unit: str, run_id: str, today: date, quota: dict,
@@ -315,10 +436,14 @@ def run_steps(steps, label: str, unit: str, run_id: str, today: date, quota: dic
     step still stops it. The exit is the FIRST failed step's (non-zero when any
     step failed). `report` (a dict) receives `failed` [(step, command, exit,
     the step's last redacted output line)] and `stopped_at` (the step that
-    stopped the run, or None)."""
+    stopped the run, or None), and `sync` [(step, argv, sync_counts, exit)] for every sync-teams/sync-matches step
+    that ran (its counts {} when it printed none) and every other step that printed a sync count (#765/#728: the chain
+    receipt's line per competition and its skipped listings).
+    A failed `sync-teams` step (addendum 207 item 4, TEAMS_GO_ON) is receipted and the run goes on, whatever
+    `continue_sync` says; it is in `failed` (so the exit is the first failure's) and never `stopped_at`."""
     ok, first_rc = 0, 0
     if report is not None:
-        report.update(failed=[], stopped_at=None)
+        report.update(failed=[], stopped_at=None, sync=[])
     for i, st in enumerate(steps, 1):
         line = f"python cli.py {' '.join(st)}"
         if metered_skip(st[0], today):
@@ -330,7 +455,8 @@ def run_steps(steps, label: str, unit: str, run_id: str, today: date, quota: dic
         print(f"\n=== [{label} {i}/{len(steps)}] {line}", flush=True)
         attempts, total = [], 0.0
         while True:
-            rc, tail, dur = run_step(st, run_id)
+            marks: list = []
+            rc, tail, dur = run_step(st, run_id, marks=marks)
             total += dur
             cls = transient_class(rc, tail)
             attempts.append({"exit": rc, "duration_s": round(dur, 1), "transient": cls})
@@ -348,17 +474,35 @@ def run_steps(steps, label: str, unit: str, run_id: str, today: date, quota: dic
             rec.update(retried=len(attempts) - 1, attempts=attempts)
             print(f"· retried {len(attempts) - 1}: {'ok' if rc == 0 else f'still failing (exit {rc})'}",
                   flush=True)
-        if rc != 0 and continue_sync and st[0].startswith(SYNC_PREFIX):
+        sync_goes_on = continue_sync and st[0].startswith(SYNC_PREFIX)
+        teams_goes_on = st[0] == "sync-teams"         # addendum 207 item 4: whatever continue_sync says
+        if rc != 0 and sync_goes_on:
             rec["continued"] = "addendum 84 item 2(b): a sync step's failure does not stop the window chain"
+        elif rc != 0 and teams_goes_on:
+            rec["continued"] = TEAMS_GO_ON
+        counts = sync_counts(marks)
+        if counts or st[0] in ("sync-teams", "sync-matches"):
+            if counts:
+                rec["sync"] = counts
+            if report is not None:
+                report["sync"].append((i, list(st), counts, rc))
+            nid = (counts.get("not_in_db") or {}).get("n", 0)
+            if nid:
+                print(f"⚠ step {i}/{len(steps)} skipped {nid} listing(s) of clubs not in the DB (exit stays "
+                      f"{rc}: skipped, not faked)", flush=True)
         c.append_receipt(rec)
         mirror_after_step(unit, i, st[0], run_id)
         if rc != 0:
             if report is not None:
                 report["failed"].append((i, line, rc, next((x for x in reversed(tail) if x.strip()), "")))
             first_rc = first_rc or rc
-            if continue_sync and st[0].startswith(SYNC_PREFIX):
+            if sync_goes_on:
                 print(f"· sync step {i}/{len(steps)} failed (exit {rc}): {line} — recorded; the chain runs on "
                       "(addendum 84 item 2(b))", flush=True)
+                continue
+            if teams_goes_on:
+                print(f"· sync-teams step {i}/{len(steps)} failed (exit {rc}): {line} — recorded; the chain runs on "
+                      "to its sync-matches and every later step (addendum 207 item 4)", flush=True)
                 continue
             if report is not None:
                 report["stopped_at"] = i
@@ -572,7 +716,7 @@ def main(argv=None) -> int:
     exports_before = {p: p.stat().st_mtime for p in (c.REPO / "exports").glob("*")} \
         if (c.REPO / "exports").exists() else {}
     backup_rec, chain_exit, ok = None, 0, 0
-    step_report: dict = {"failed": [], "stopped_at": None}
+    step_report: dict = {"failed": [], "stopped_at": None, "sync": []}
     quota = new_quota()
     with c.db_lock():
         taken = freshen_out_taken(overrides)    # under the lock the export runs under (Codex on #692)
@@ -624,6 +768,16 @@ def main(argv=None) -> int:
         rec["stopped_at"] = step_report["stopped_at"]
     if backup_rec is not None:
         rec["backup"] = {k: backup_rec.get(k) for k in ("file", "sha256", "integrity")}
+    # #765/#728 (addendum 204 item 3(a), (c)): the line per competition a sync-teams step named, and every step that
+    # skipped listings of clubs not in the DB (exit unchanged: skipped, not faked; never silent)
+    comps = competition_lines(step_report["sync"])
+    if comps:
+        rec["competitions"] = comps
+    skipped = [(i, st, counts["not_in_db"]) for i, st, counts, _rc in step_report["sync"]
+               if (counts.get("not_in_db") or {}).get("n")]
+    if skipped:
+        rec["listings_skipped"] = [{"step": i, "command": f"python cli.py {' '.join(st)}", "n": nid["n"],
+                                    "ids": nid["ids"]} for i, st, nid in skipped]
     if page_rec is not None:
         rec["page"] = {k: page_rec.get(k) for k in ("deltas", "paged", "digest", "suppressed")}
         rec["freshens"] = [{k: f.get(k) for k in ("chain", "ran", "exit", "skipped")}
@@ -636,11 +790,27 @@ def main(argv=None) -> int:
               f"({PROX_IMMINENT_H}-{PROX_FAR_H}h) {tz['near']} · far(>{PROX_FAR_H}h, schedule only) "
               f"{tz['far']} · steps skipped by proximity {_LAST_WINDOW_PLAN['skipped_by_proximity']}")
     c.append_receipt(rec)
+    for r in comps:
+        print(competition_text(r))
     print(f"  quota: metered steps run {quota['metered_run']} · skipped {quota['metered_skipped']} "
           f"· unmetered run {quota['unmetered_run']} · provider calls: not instrumented")
+    skipped_text = ("" if not skipped else " · listings skipped (clubs not in the DB): " + ", ".join(
+        f"step {i}/{len(steps)} {_opt(st, '--competition') or st[0]} {nid['n']}" for i, st, nid in skipped))
+    # addendum 207 item 4: the summary line names each failed sync-teams step the chain ran on past BECAUSE of it; on
+    # a continue_on_sync_failure chain addendum 84 item 2(b) carried the step (its receipt's `continued` says so), so
+    # the summary never credits that step to item 4
+    teams_failed = [(i, steps[i - 1], rc) for i, _cmd, rc, _ in step_report["failed"]
+                    if steps[i - 1][0] == "sync-teams" and not chain.get("continue_on_sync_failure")]
+    teams_text = ("" if not teams_failed else " · sync-teams failed (the chain ran on, addendum 207 item 4): "
+                  + ", ".join(f"step {i}/{len(steps)} {_opt(st, '--competition') or st[0]} exit {rc}"
+                              for i, st, rc in teams_failed))
     print(f"\n{'✓' if chain_exit == 0 else '✗'} {a.chain}: exit={chain_exit} "
-          f"steps {ok}/{len(steps)} in {rec['duration_s']}s · running {c.running_release() or 'release ?'}"
-          f" · writer of record {c.writer_of_record() or '?'}")
+          f"steps {ok}/{len(steps)} in {rec['duration_s']}s{teams_text}{skipped_text} · running "
+          f"{c.running_release() or 'release ?'} · writer of record {c.writer_of_record() or '?'}")
+    # addendum 204 item 3(c): each step that skipped listings, with its command and ids (law 4: exit unchanged)
+    for i, st, nid in skipped:
+        print(f"  ⚠ step {i}/{len(steps)} python cli.py {' '.join(st)}: "
+              f"skipped {nid['n']} listing(s) of clubs not in the DB: {', '.join(nid['ids'])}"[:600])
     # The failure page (sp_notify) carries the journal's last 30 lines; a run that went on past a failed sync step
     # has pushed that step's output out of them, so the failures are named here, at the very end.
     for i, cmd, rc, last in step_report["failed"]:

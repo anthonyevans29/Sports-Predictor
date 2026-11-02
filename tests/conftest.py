@@ -84,3 +84,15 @@ def _no_live_kalshi_pool_read(monkeypatch):
         raise AssertionError("a test reached kalshi_pool.signed_fetch: no test signs a Kalshi request")
     monkeypatch.setattr(kalshi_pool, "signed_fetch", refused)
     monkeypatch.setattr(config, "PROCESS_ENV_ROLE", "laptop")
+
+
+@pytest.fixture
+def nfl_market_only_off():
+    """Addendum 214 (2026-11-02): every NFL row is PASS on the Desk (desk_policy.NFL_MARKET_ONLY_RULE). The chain under
+    it (the floor, the quarantine, the QB and empty-list rules, the exec gate, order lines, parlay legs, the closing
+    page's holds) still runs and sizes the record; the modules that pin that chain with NFL rows use this fixture
+    (`pytestmark = pytest.mark.usefixtures("nfl_market_only_off")`) and run it with the rule off, as main ran it.
+    Not autouse: every other test runs with the rule on, and tests/test_nfl_market_only_214.py pins it."""
+    from src.walters import desk_policy
+    with desk_policy.nfl_market_only_rule_off():
+        yield

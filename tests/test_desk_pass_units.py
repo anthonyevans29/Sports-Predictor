@@ -30,6 +30,10 @@ from src.walters.venue import kalshi_exec
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts"))
 import desk_battery as b  # noqa: E402
 
+# addendum 214: this module pins the Desk chain on NFL rows (sizing, orders, legs, pages), which still runs under NFL
+# market-only; it runs with the rule off, as main ran it (tests/test_nfl_market_only_214.py pins the rule on).
+pytestmark = pytest.mark.usefixtures("nfl_market_only_off")
+
 NOW = datetime(2026, 10, 17, 17, 0, tzinfo=timezone.utc)
 PRE_GATE = "pre-gate sport: no production model — market display only"
 CAUTION_REASON = "edge ≥ 15pp → market-is-right caution (cohort: big edges historically anti-predictive)"

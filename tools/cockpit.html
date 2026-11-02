@@ -158,7 +158,7 @@ details.sig pre{max-height:220px;margin:6px 0 0}
   <h2 style="margin-top:0">Policy v1.2 <span class="note">v1.1's rules + the day's unit (addendum 179; #753: each fill by the unit stamped on its order's row, addendum 197) · per-sport · model_edge evidence-set 2026-09-25 unchanged · venue_edge added in shadow 2026-09-26 · changes only via audit-backed version bump</span></h2>
   <div class="note" style="margin-top:4px;line-height:1.7">
     <b>SOCCER</b> — floor 4pp · pick-prob ≥ 0.50 · away/draw edges ≥ 10pp → double-chance ladder 0.5u · any edge ≥ 10pp half-units <span style="opacity:.75">(cohort 6/16: big edges anti-predictive, die by draw)</span><br>
-    <b>NFL</b> — floor 4pp · divergence ≥ 15pp quarantine = never a straight play <span style="opacity:.75">(wk 1–2 mega-edges 1-5; ATL 34-3)</span> · QB-flagged games half-units<br>
+    <b>NFL</b> — PASS all <span style="opacity:.75">(market-only since 2026-11-02, addendum 214: nfl_elo_v1 uncertified until the confirmation read)</span> · the model's numbers, divergence and quarantine stay on the page, labelled uncertified · the rules below still size the record (quarantine and value shadows unstaked; the chain's own call shown as a hold, record only): floor 4pp · divergence ≥ 15pp quarantine = never a straight play <span style="opacity:.75">(wk 1–2 mega-edges 1-5; ATL 34-3)</span> · QB-flagged games half-units<br>
     <b>MLB</b> — floor 4pp · edge &gt; 8pp vs its reference (book close or kalshi-only mid) = QUARANTINE, never a straight play, logged as a quarantine shadow <span style="opacity:.75">(ARCHITECT 2026-10-07: &gt;8pp went 7 of 34; the 15pp caution tier is superseded)</span> · road picks unrestricted <span style="opacity:.75">(380-row read: away 56% / home 60% — watch, not penalty)</span> · totals untouched (M16 caution)<br>
     <b>NHL</b> — PASS all <span style="opacity:.75">(pre-gate: no production model)</span> · Base 1u · parlays 0.25u ≤3 legs, positive edge, no shared teams (model_edge only).<br>
     <b>VALUE-SIDE</b> (v1.2 CANDIDATE, shadow 2026-09-29; model sports) — edge = model − market on EVERY side · the value side is not the model's top pick and clears the 4pp floor → value_shadow at 0.25u notional, NOT staked · graded like quarantine shadows · promotion to real sizing only via version bump after ≥ 30 graded · <b id="vsProgress">graded —/30</b> <span style="opacity:.75">(MNF wk 4: CHI +13.4pp as the dog, Desk said PASS, CHI won 27-7)</span><br>
@@ -417,6 +417,7 @@ function normalize(doc){
           if(un.length)bits.push("position unresolved: "+un.length);}
         return bits.join(" · ");})(),
       tier:pr.tier||null,fileDesk:p.desk||null,deskMeta:doc.desk_meta||null,
+      cert:doc.certification??null,   // addendum 214: the export's additive label (NFL: "uncertified (addendum 214) ...")
       exportedAt:(doc.desk_meta&&doc.desk_meta.as_of)||doc.exported_at||null});
   }
   return out;
@@ -585,7 +586,10 @@ function passKindTag(k){
     // order, no value shadow; the reason names both clocks (desk_policy.KICKOFF_CLOCK_KIND, rendered from the file).
     // The Desk's threshold: desk_policy.DESK_CLOCK_DRIFT, 1h, inclusive (addendum 83 item 2, 2026-10-16; it was
     // more than the matcher's 2h under addendum 72). The Cockpit compares no clocks itself.
-    :k==="kickoff_clock"?'<span class="passkind">kickoff disputed</span>':"";
+    :k==="kickoff_clock"?'<span class="passkind">kickoff disputed</span>'
+    // addendum 214 (ARCHITECT 2026-11-02): every NFL row is PASS, "nfl_elo_v1 uncertified (addendum 214): market-only
+    // until the confirmation read" (desk_policy.NFL_MARKET_ONLY_KIND; the reason is rendered from the file)
+    :k==="market_only"?'<span class="passkind">market-only · uncertified</span>':"";
 }
 // Q3 K3: the file's kalshi_only_hold — what the 2026-10-01 rule would have done, FOR THE RECORD ONLY. Never a call:
 // nothing here is counted, logged or staked.
@@ -596,6 +600,13 @@ function koHoldHTML(h){
     +` (bid ${h.bid!=null?h.bid.toFixed(2):"—"} / ask ${h.ask!=null?h.ask.toFixed(2):"—"}, spread ${h.spread_c??"—"}c)`
     +` · raw edge ${pp(h.raw_edge_pp)} · on equal footing ${pp(h.equal_footing_edge_pp)}`
     +` · the 2026-10-01 rule: ${esc(String(h.would_call??"—"))} ${h.would_units||0}u</div>`;
+}
+// addendum 214: the file's market_only_hold — the call the Desk's own chain gave an NFL row before market-only turned it
+// PASS, FOR THE RECORD ONLY (the confirmation's record). Never a call: nothing here is counted, logged or staked.
+function mktOnlyHoldHTML(h){
+  if(!h) return "";
+  return `<div class="note">hold (record only, not a call; ${esc(String(h.certification??"uncertified"))}): the chain's call`
+    +` ${esc(String(h.would_call??"—"))} ${h.would_units||0}u${h.would_reason?` — ${esc(String(h.would_reason))}`:""}</div>`;
 }
 function rerunHint(r){
   const t=utcMs(r.utc); if(!isFinite(t)||t<=Date.now()) return "";
@@ -678,9 +689,17 @@ function fileVenue(r){ const v=r.fileDesk.venue||{};
     // VENUE QUOTE AGE (ARCHITECT 2026-10-07): a row the file HOLDS (no quote time stored) — a re-run cannot clear it
     held:!!v.quote_age_hold}; }
 
+// The summary's PASS breakdown: each kind counted once, "other" the rest (addendum 214 added market-only, NFL).
+function passSummary(n){
+  if(!n.passes) return "";
+  const other=n.passes-n.passNoRef-n.passFloor-n.passStarted-n.passShadow-n.passKoSusp-n.passMktOnly;
+  return ` (${n.passNoRef} no reference · ${n.passFloor} below floor${n.passStarted?` · ${n.passStarted} started`:""}`
+    +`${n.passShadow?` · ${n.passShadow} shadow league`:""}${n.passKoSusp?` · ${n.passKoSusp} kalshi-only suspended (MLB)`:""}`
+    +`${n.passMktOnly?` · ${n.passMktOnly} market-only (NFL, uncertified)`:""}${other?` · ${other} other`:""})`;
+}
 function policy(){
   renderProgress();
-  let plays=0,ladders=0,passes=0,passNoRef=0,passFloor=0,passStarted=0,passShadow=0,passKoSusp=0;
+  let plays=0,ladders=0,passes=0,passNoRef=0,passFloor=0,passStarted=0,passShadow=0,passKoSusp=0,passMktOnly=0;
   const tb=$("slate").querySelector("tbody"); tb.innerHTML="";
   deskCalls=[]; deskValue=[];
   for(const r of rows){
@@ -689,7 +708,7 @@ function policy(){
     const {call,cls,units,edge,tags,reasons,shadowUnits,passKind,mktRef,kalOnly}=fileCall(r);
     deskCalls.push({r,call,units,edge,tags:tags.slice(),reasons:reasons.slice(),cls,shadowUnits,passKind,mktRef,kalOnly});
     const vs=fileValue(r); if(vs) deskValue.push({r,v:vs});
-    if(call==="PASS"){passes++; if(passKind==="noref")passNoRef++; else if(passKind==="floor")passFloor++; else if(passKind==="started")passStarted++; else if(passKind==="shadow_league")passShadow++; else if(passKind==="kalshi_only_suspended")passKoSusp++;}
+    if(call==="PASS"){passes++; if(passKind==="noref")passNoRef++; else if(passKind==="floor")passFloor++; else if(passKind==="started")passStarted++; else if(passKind==="shadow_league")passShadow++; else if(passKind==="kalshi_only_suspended")passKoSusp++; else if(passKind==="market_only")passMktOnly++;}
     else if(call==="LADDER")ladders++; else plays++;
     const tr=document.createElement("tr");
     if(passKind==="noref"||passKind==="started"||passKind==="shadow_league"||passKind==="kalshi_only_suspended"
@@ -698,7 +717,7 @@ function policy(){
       <td>${r.prob.toFixed(3)}</td><td>${mktRef!=null?mktRef.toFixed(3)+(kalOnly?' <span class="passkind">kalshi-only</span>':""):"—"}</td>
       <td>${edge!=null?(edge>0?"+":"")+edge.toFixed(1)+"pp":"—"}${execHTMLFrom(r.fileDesk.exec,r.prob)}</td>
       <td class="${cls}">${call}${passKindTag(passKind)}${orderHTML(r.fileDesk.order)}</td><td>${units||"—"}</td>
-      <td class="reason">${esc(reasons.join(" · "))}${passKind==="noref"?rerunHint(r):""}${koHoldHTML(r.fileDesk.kalshi_only_hold)}</td>`;
+      <td class="reason">${esc(reasons.join(" · "))}${passKind==="noref"?rerunHint(r):""}${koHoldHTML(r.fileDesk.kalshi_only_hold)}${mktOnlyHoldHTML(r.fileDesk.market_only_hold)}</td>`;
     tb.appendChild(tr);
   }
   for(const {r,v} of deskValue){        // appended after the main rows: row order of the policy table is unchanged
@@ -720,7 +739,7 @@ function policy(){
     }});
   const corr=Object.entries(teamCount).filter(([t,n])=>n>1).map(([t,n])=>`${t}×${n}`);
   $("summary").textContent=`${sportLabel} · ${rows.length} rows → ${plays} play · ${ladders} ladder · ${passes} pass`
-    +(passes?` (${passNoRef} no reference · ${passFloor} below floor${passStarted?` · ${passStarted} started`:""}${passShadow?` · ${passShadow} shadow league`:""}${passKoSusp?` · ${passKoSusp} kalshi-only suspended (MLB)`:""}${passes-passNoRef-passFloor-passStarted-passShadow-passKoSusp?` · ${passes-passNoRef-passFloor-passStarted-passShadow-passKoSusp} other`:""})`:"")
+    +passSummary({passes,passNoRef,passFloor,passStarted,passShadow,passKoSusp,passMktOnly})
     +(deskValue.length?` · ${deskValue.length} value shadow (not staked)`:"")
     +(corr.length?` · ⚠ correlated exposure: ${corr.join(", ")}`:"")
     +deskSourceNote();
@@ -2917,14 +2936,27 @@ function sideName(r,k){return k==="HOME"?r.home:k==="AWAY"?r.away:"Draw";}
 // Escape file- and model-supplied text before it goes into innerHTML: team
 // names, statuses and Claude reads are data, never markup.
 function esc(v){return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"})[c]);}
+// addendum 214 (ARCHITECT 2026-11-02): a row is an uncertified shadow when its file carries `certification` (the NFL
+// export's additive label) or its Desk call is PASS market_only (desk_policy.NFL_MARKET_ONLY_KIND). Such a sport is
+// never shown LIVE: the Card shows it as it shows NHL's, not a live model; the bars stay (the confirmation's record).
+function cardUncertified(r){
+  return !!(r.cert||(r.fileDesk&&r.fileDesk.pass_kind==="market_only"));
+}
+function cardUncertifiedWhy(r){
+  const d=r.fileDesk||{};
+  return `uncertified shadow, not placed: Desk ${d.call||"PASS"} ${d.units||0}u`
+    +(d.reason?` — ${d.reason}`:r.cert?` — ${r.cert}`:"");
+}
+function cardChip(rs){
+  return rs.some(cardUncertified)?"UNCERTIFIED · market-only":rs.some(r=>r.live)?"LIVE":"internal";
+}
 function renderCard(){
   const el=$("cardView"); el.innerHTML="";
   const bySport={};
   rows.forEach(r=>{(bySport[r.sport]=bySport[r.sport]||[]).push(r);});
   for(const [sport,rs] of Object.entries(bySport)){
-    const live=rs.some(r=>r.live);
     el.insertAdjacentHTML("beforeend",
-      `<h2 style="margin:16px 0 6px">${esc(sport)} <span class="chip">${live?"LIVE":"internal"} · ${rs.length} games</span></h2>`);
+      `<h2 style="margin:16px 0 6px">${esc(sport)} <span class="chip">${esc(cardChip(rs))} · ${rs.length} games</span></h2>`);
     for(const r of rs.slice().sort((a,b)=>a.utc.localeCompare(b.utc))){
       const keys=r.mktHasDraw||r.probsAll.DRAW!=null?["HOME","DRAW","AWAY"]:["HOME","AWAY"];
       const bars=keys.map(k=>{
@@ -2937,6 +2969,7 @@ function renderCard(){
       }).join("");
       const chips=[];
       if(r.marketOnly)chips.push(`<span class="gchip">market-only · books' fair</span>`);
+      if(cardUncertified(r))chips.push(`<span class="gchip">market-only · uncertified shadow</span>`);   // addendum 214
       if(r.tier)chips.push(`<span class="gchip ${r.tier==="strong"?"s":""}">${esc(r.tier)}</span>`);
       if(rowQuar(r)){ const qv=r.div!=null?r.div:(r.fileDesk&&r.fileDesk.edge_pp!=null?+(+r.fileDesk.edge_pp).toFixed(1):null);
         chips.push(`<span class="gchip q">QUARANTINE${qv!=null?` ${qv>=0?"+":""}${esc(qv)}pp`:""}</span>`); }
@@ -2944,7 +2977,8 @@ function renderCard(){
       if(r.qbs.length)chips.push(`<span class="gchip">QB: ${esc(r.qbs.join(", "))}</span>`);
       const why=[];
       if(r.marketOnly){ why.push(`gated competition — no predictions by doctrine; bars show the books' consensus fair (${r.books||0} books)`); }
-      else why.push(`pick ${sideName(r,r.pick)} (${r.pick.toLowerCase()}) at ${(r.prob*100).toFixed(1)}%`+(r.mkt!=null?` vs market ${(r.mkt*100).toFixed(1)}% (edge ${((r.prob-r.mkt)*100).toFixed(1)}pp)`:" — no market reference"));
+      else{ if(cardUncertified(r))why.push(cardUncertifiedWhy(r));   // addendum 214: first, before the shadow pick
+        why.push(`${cardUncertified(r)?"shadow ":""}pick ${sideName(r,r.pick)} (${r.pick.toLowerCase()}) at ${(r.prob*100).toFixed(1)}%`+(r.mkt!=null?` vs market ${(r.mkt*100).toFixed(1)}% (edge ${((r.prob-r.mkt)*100).toFixed(1)}pp)`:" — no market reference")); }
       if(r.quar)why.push(`divergence ${r.div}pp ≥ 15 → contract quarantine (weeks 1–2: big edges 1-5)`);
       else if(fileQuar(r))why.push(r.fileDesk.reason||"quarantine (file's Desk call)");   // raw: esc(why.join) below
       if(r.kal)why.push(`kalshi ${r.kal}`);

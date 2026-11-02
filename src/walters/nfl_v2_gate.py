@@ -72,7 +72,10 @@ refuses). (b) THE RESERVATION IS WHOLE OR ABSENT. reserve() serialises the body 
 serialisation error creates nothing), then writes, fsyncs and closes it and fsyncs its directory (the new entry
 durable before the first game is scored) inside a guard; on any failure the file is
 removed and the run refuses, nothing scored, the read not spent (an empty or partial file would read as a spent run to
-every later invocation). If the removal fails too, the refusal names the file to inspect.
+every later invocation). If the removal fails too, the refusal names the file to inspect. #798 (addendum 222 item 2,
+#797's shape): a create that fails for any reason refuses, nothing created; the removal is followed by an fsync of the
+directory, and one that cannot be made durable is said (the refusal then ends "nothing scored", never "the read is not
+spent").
 
 THE MACHINERY IS ncaa-gate's (src/walters/ncaa_v1r_gate.py): declared_unrun, the word, the fingerprint checked against
 the stream about to be walked, reserve() after registry.cross_ref_guard with an exclusive create, record_run. It is
@@ -413,7 +416,9 @@ def reserve(meta: dict, no_fetch: bool = False, echo=None) -> str:
     serialisation error creates nothing), then written, fsynced and closed, and its directory fsynced, inside a guard;
     on any failure there the fd is closed and the file removed, and the run refuses (exit 2: nothing scored, the read is not spent). An empty or
     partial file would otherwise read as a spent run to every later invocation. If the removal itself fails the
-    refusal says so and names the file to inspect (it may read as a spent run until it is)."""
+    refusal says so and names the file to inspect (it may read as a spent run until it is). A create that fails for
+    any reason refuses the same way, nothing created; a removal (ours, or a file already gone) is followed by an fsync
+    of the directory, and a removal that cannot be made durable is said (#798, addendum 222 item 2: #797's shape)."""
     reg = _reg()
     p = reservation_path()
     if os.path.exists(p):
@@ -434,6 +439,10 @@ def reserve(meta: dict, no_fetch: bool = False, echo=None) -> str:
         fd = os.open(p, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
     except FileExistsError:
         raise GateRefused(_reserved_why(p))
+    except OSError as err:                                     # ENOSPC, EACCES, EIO...: nothing was created (#798)
+        raise GateRefused(f"{EID}: the reservation {os.path.relpath(p)} could not be created "
+                          f"({type(err).__name__}: {err}); nothing written, nothing scored, the read is not spent"
+                          ) from err
     fd_open = True
     try:
         _write_all(fd, data)
@@ -456,10 +465,19 @@ def reserve(meta: dict, no_fetch: bool = False, echo=None) -> str:
                               f"({type(err).__name__}: {err}) and could not be removed ({type(uerr).__name__}: "
                               f"{uerr}): INSPECT THE FILE before anything else; it may be empty or partial and reads as a spent run while it "
                               "stands. Nothing was scored") from err
+        # the removal is durable too, ours or another process's (#798; addendum 222 item 2, #797's shape)
+        try:
+            _fsync_dir(p)
+        except OSError as derr:
+            removed = (f"{removed}, but the removal could not be made durable ({type(derr).__name__}: {derr}): "
+                       f"if the machine restarts before its directory is flushed the file may return, so "
+                       f"check that {os.path.relpath(p)} is absent before the run")
         if not isinstance(err, Exception):
             raise
+        tail = ("nothing scored" if "could not be made durable" in removed else
+                "nothing scored, the read is not spent")
         raise GateRefused(f"{EID}: the reservation {os.path.relpath(p)} could not be written ({type(err).__name__}: "
-                          f"{err}); {removed}: nothing scored, the read is not spent") from err
+                          f"{err}); {removed}: {tail}") from err
     return p
 
 

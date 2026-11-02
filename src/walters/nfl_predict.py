@@ -30,6 +30,15 @@ from src.timeutil import utc_now_naive
 
 log = logging.getLogger(__name__)
 
+# ARCHITECT 2026-11-01 14:25 ET, addendum 205 item 1 (a docs line; nothing moves): the quarantine threshold reads the
+# exported, ROUNDED divergence (divergence_pp below: round(..., 1)), the conservative side of the boundary, and the
+# Desk reads the same exported field. The contract sentence, verbatim:
+# ARCHITECT 2026-11-01 17:10 ET, addendum 207 item 1 (verbatim; it replaces addendum 205 item 1's sentence)
+QUARANTINE_ROUNDING_NOTE = ("The threshold is applied to the absolute value of market_divergence_pp as exported, rounded "
+                            "to one decimal: an unrounded divergence whose absolute value rounds to 15.0 (14.96 to 14.99 "
+                            "on either side of zero; exactly 14.95 goes by the float's binary representation) is "
+                            "quarantined, the conservative side of the boundary.")
+
 MODEL_VERSION = "nfl_elo_v1"
 
 
@@ -339,10 +348,11 @@ def export_nfl_predictions(days_ahead: int = 8, out_dir: str = "exports",
         "contains_predictions": True,
         "rehearsal": False,
         "live_since": f"{NFL_LIVE_SINCE:%Y-%m-%d} (Week 3; ratified after two graded weeks)",
-        "note": ("LIVE: gate-passed v1 Elo. CONTRACT RULE: rows with "
-                 "market_divergence_pp >= 15 carry quarantine=true — "
+        "note": ("LIVE: gate-passed v1 Elo. CONTRACT RULE: rows whose "      # addendum 208: the clause, verbatim
+                 "market_divergence_pp has an absolute value of 15 or more carry quarantine=true — "
                  "consumer treats them as watch-flagged, never straight "
                  "plays (rule earned 1-5 across Weeks 1-2). "
+                 + QUARANTINE_ROUNDING_NOTE + " "
                  "venue_flag 'STALE-BOOK?' (|book fair - kalshi_prob| >= 8pp) "
                  "is a WARNING ONLY: it marks rows whose book reference — and "
                  "so their divergence/quarantine/edge — should be distrusted; "

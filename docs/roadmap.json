@@ -89,7 +89,10 @@
           "what": "the 2023 ingest with the week field, its census by --preflight read by me",
           "owner": "code",
           "due": "2026-11-01",
-          "done": null
+          "done": {
+            "date": "2026-11-01",
+            "receipt": "#79 comment (the census, 2026-11-01)"
+          }
         },
         {
           "what": "the 500th both-FBS regular-season game of 2026 is final and labelled (274 were at the run of 2026-10-09)",
@@ -310,12 +313,6 @@
           }
         },
         {
-          "what": "Step A, EFL: the timing probe run on the next EFL round with stored rows (--competition EFL, the same polls; its date named by the operator), the laptop awake from T-130 of the first kickoff, its receipt to me the same evening",
-          "owner": "operator",
-          "due": "2026-10-27",
-          "done": null
-        },
-        {
           "what": "Step B: the LIVE T-15 observation store (addendum 158 item 3(a); the history ingest is done, #538, kept out of every price by #541): per fixture the scheduled poll time and the actual observation time, eleven team-mapped starters per side, the first complete observation preserved and every later correction appended (never replaced), explicit rows for failed, partial or late observations; the T-35 inputs and forecast of a declared candidate kept apart from the T-15 label; its PR",
           "owner": "code",
           "due": "2026-10-29",
@@ -329,12 +326,27 @@
           "owner": "architect",
           "due": "2026-11-05",
           "done": null
+        },
+        {
+          "what": "Step A, EFL: the timing probe run on the next EFL round with stored rows (--competition EFL, the same polls; its date named by the operator), the laptop awake from T-130 of the first kickoff, its receipt to me the same evening",
+          "owner": "operator",
+          "due": "2026-12-15",
+          "done": null
         }
       ],
       "earliest_live": "2027-02-16",
       "live_needs": "a PASS at cup_exam's frozen gate as it stood at the 2026-09-25 FAIL (mean error <= 8.0pp, <= 13 rows over 8pp, sign >= 80%), on the same exam set, split and metric, with a rotation term built only from lineups readable at or before the time Step A shows; the prior result, fix-v2's 14.76pp, is the record it has to better and not the bar. Then the forward confirmation every lane carries. Until then cups stay market-only; no venue call on CL (#505).",
       "vs_close": "not read",
-      "moved": []
+      "moved": [
+        {
+          "moved_on": "2026-11-01",
+          "which": "Step A, EFL: the timing probe run on the next EFL round with stored rows (--competition EFL, the same polls; its date named by the operator), the laptop awake from T-130 of the first kickoff, its receipt to me the same evening",
+          "was": "2026-10-27",
+          "now": "2026-12-15",
+          "why": "the fourth round was played in the week of 10-26 with no probe run; the quarter-final week (the week of 12-14; the operator names the matchday from the stored rows). It gates nothing, as ruled 2026-10-22",
+          "ruling": "ARCHITECT 2026-11-01 13:15 ET, addendum 200 item 4(b), MOVED LINE: \"EFL Step A moves from 2026-10-27 to 2026-12-15, the quarter-final week (the week of 12-14; the operator names the matchday from the stored rows); it gates nothing, as ruled 2026-10-22; no bar, no other date moves.\""
+        }
+      ]
     },
     {
       "lane": "nfl-qb",
@@ -404,7 +416,10 @@
           "what": "the harness PR (190 item 7): the ON arm's as-of inputs into the backtest behind one flag, the registry entry mlb-pitchers-v1 and its frozen cohort, the fence, tests on synthetic rows, the OFF arm pinned to today's backtest on the cohort",
           "owner": "code",
           "due": "2026-11-05",
-          "done": null
+          "done": {
+            "date": "2026-11-01",
+            "receipt": "#748, #751"
+          }
         },
         {
           "what": "the one run on the laptop and the verdict (190 item 7: on a .backup copy outside data/ with --db, the architect's block; the verdict recorded in the entry by Code's PR)",

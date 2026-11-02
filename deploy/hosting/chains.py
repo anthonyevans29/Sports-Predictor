@@ -200,7 +200,11 @@ CHAINS: dict[str, dict] = {
             # game's stored kickoff is at most a day old on its match day. Nothing else re-read a cup's schedule
             # between the Sunday full-season sync and the 24h window (EFL round 4, four of eight dates a day wrong).
             # Last in the chain, so a cup read that fails leaves the intl steps done.
-            *[["sync-matches", "--competition", code, "--season", "2026/27"] for code in CUP_SCHEDULE],
+            # TEAMS BEFORE MATCHES (ARCHITECT 2026-11-01, addendum 204 item 3(b); #728): "intl-daily runs the same
+            # sync-teams step before each cup's sync-matches (four calls a day; the cup rounds are where new clubs
+            # enter)". Each cup's sync-teams runs immediately before its sync-matches, under the chain's one DB lock.
+            *[[verb, "--competition", code, "--season", "2026/27"] for code in CUP_SCHEDULE
+              for verb in ("sync-teams", "sync-matches")],
         ],
     },
     "ncaa-market": {
@@ -244,6 +248,12 @@ CHAINS: dict[str, dict] = {
     # Steps come from SP_FULLSEASON_LIST (one "CODE|SEASON" per line), written
     # at provisioning from a read-only DB query — per-comp season strings are
     # what the DB stores, never assumed. Missing/empty list = chain FAILS.
+    # TEAMS BEFORE MATCHES (ARCHITECT 2026-11-01, addendum 204 item 3(a); #765): "the weekly full-season chain runs
+    # `sync-teams --competition CODE --season SEASON` immediately before each `sync-matches` line of
+    # SP_FULLSEASON_LIST, under the same DB lock, teams-before-matches per competition as the law says". Two steps per
+    # line, sync-teams then sync-matches (sp_run.fullseason_resolve). `sync-teams --competition MLB` routes as
+    # `sync-matches` does where SP_SKIP_FAMILIES names MLB (cli.py's api-sports fallback, its own sync_teams);
+    # nothing here special-cases it.
     "weekly-fullseason": {
         "backup": "daily",
         "fullseason": True,

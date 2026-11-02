@@ -35,7 +35,11 @@ def key_line(r: dict) -> str:
     if k == "chain":
         if r.get("skipped") or r.get("refused"):
             return r.get("skipped") or f"refused: {r['refused']}"
+        # addendum 204 item 3(c) (#728): a step that skipped listings of clubs not in the DB says so here too
+        sk = r.get("listings_skipped") or []
         return (f"steps {r.get('steps_ok')}/{r.get('steps_total')}; exports {len(r.get('exports') or [])}"
+                + (f"; listings skipped (clubs not in the DB) {sum(x.get('n') or 0 for x in sk)} in "
+                   f"{len(sk)} step(s)" if sk else "")
                 + (f"; {r['release']}" if r.get("release") else ""))
     if k == "backup":
         return f"{r.get('file')} integrity={r.get('integrity')}" + (

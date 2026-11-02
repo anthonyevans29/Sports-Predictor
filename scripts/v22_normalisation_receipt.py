@@ -21,11 +21,24 @@ reader: the improve gate's holdout scorer, _score_model_on_holdout_soccer (train
 WHAT IT PRINTS (the addendum's expressions, item 1, on the stored g and b): g and b as stored; the implied
 average-team rating (3−b)/2 before shrinkage; the forecast total for a league of average teams g·(1+b)·((3−b)/2)²
 against the data's 2g, and the % deficit; the home/away goal ratio the model expresses (b) against the data's
-(b/(2−b)). Beside them, the same quantities from the REAL code (src.models.poisson: estimate_strengths and
-predict_match, called, never copied) on a synthetic average-team league at the stored g and b (20 teams, a double round
-robin scored at the true means, Elo equal, no factors; the pre-shrinkage rating recovered exactly from the n/(n+5)
-output), and the as-run figure at n = 38 (one PL season's shrinkage). The two must agree (to 1e-9); a disagreement
-is printed as such, never hidden.
+(b/(2−b)). A b AT A CLAMP (training.py:214, max(1.0, min(1.30, boost)); compared to 1e-12) is not the data's boost
+and the unclamped value is not stored, so the data's ratio is printed as a BOUND only: "≥ 1.857" at the 1.30 clamp,
+"≤ 1.000" at the 1.0 clamp (the JSON: data_ratio null, data_ratio_bound {op, value}, clamped true); an interior b
+prints the ratio itself (data_ratio, data_ratio_bound null, clamped false). Beside them, the same quantities from the
+REAL code (src.models.poisson: estimate_strengths and predict_match, called, never copied) on a synthetic
+average-team league at the stored g and b (20 teams, a double round robin scored at the true means, Elo equal, no
+factors; the pre-shrinkage rating recovered exactly from the n/(n+5) output, n = 38 in that league). The two must
+agree (to 1e-9); a disagreement is printed as such, never hidden. Then the as-run figure at N games per team
+(--per-team N, even: two average teams meeting N/2 times at each venue, the real estimate_strengths' n/(n+5) at
+n = N): N defaults to 38 for PL ONLY (20 clubs, a double round robin); for any other --competition without
+--per-team the as-run line prints "not computed" and the JSON's as_run_* are null. The label names N.
+
+WHICH CODE (law 1): the checkout's root goes FIRST on sys.path before any src.* import (the checkout above scripts/;
+for a copy run elsewhere, the first PYTHONPATH entry holding src/models/poisson.py; else the working directory, only
+when it holds src/models/poisson.py), so an installed top-level `src` package never shadows it; the receipt prints the
+file src.models.poisson was loaded from and refuses (exit 2) unless it IS that checkout's src/models/poisson.py
+(compared exactly: a site-packages or .venv under the checkout or the working directory never passes), and refuses
+when no checkout is found.
 
 THE TEST BESIDE IT (tests/test_v22_normalisation_receipt.py): the review's league (its normalisation_diagnostic.py,
 sha256 a91de689b0aa67cd4ef8548ef28bda62930ca871ca52cd2e4d9eee52bf44b677, citing training.py blob
@@ -34,38 +47,63 @@ reproduces exactly through the real code: 3.000 in, 2.739407407407407 out (−8.
 shrinkage at n = 40 (2.673, −10.9%, before it). The addendum's "about −8% at b = 1.15" is the pre-shrinkage
 average-team figure, −8.02%, which is what this line prints for b = 1.15.
 
-READ-ONLY: --db is a .backup copy OUTSIDE data/ (refused under data/ and when missing), opened through SQLite's
-mode=ro + immutable=1 URI (addendum 198 item 6(ii)): no row, no sidecar, nothing written. No network. Standard
-library plus one repo import (src.models.poisson; numpy). Exit 0 on a complete read; 2 refused: no --db, a path under
-data/, no file, not a database with model_versions, not exactly one production soccer_elo_poisson row, parameters not
-a JSON object, no stored context for the competition, or a stored g or b that is not a positive number. Nothing in
-v22 changes (item 1(c)). Last line `V22-NORMALISATION-RECEIPT {...}`.
+READ-ONLY: --db is a .backup copy, opened through SQLite's mode=ro + immutable=1 URI (addendum 198 item 6(ii)): no row,
+no sidecar, nothing written. A path with ANY directory named data in it, in any case (DATA, Data: a case-insensitive
+filesystem opens them as data/), is refused (deliberately broader than the checkout's data/, law 5): a copy is never
+read from any directory named data; the operator's .backup copies live outside one. No network. Standard library plus
+one repo import (src.models.poisson; numpy). Exit 0 on a complete read; 2 refused: no --db, a path with a directory
+named data in it, no file, not a database with model_versions, not exactly one production soccer_elo_poisson row,
+parameters not a JSON object, no stored context for the competition, a stored g or b that is not a positive number, a
+--per-team that is not an even number >= 2, no checkout found, or src.models.poisson not loaded from the checkout's own
+file. Nothing in v22 changes (item 1(c)). Last line `V22-NORMALISATION-RECEIPT {...}`.
 
-Run:  python3 scripts/v22_normalisation_receipt.py --db PATH [--competition PL]
-      PYTHONPATH=<checkout> python3 /tmp/v22_normalisation_receipt.py --db PATH [--competition PL]
+Run:  python3 scripts/v22_normalisation_receipt.py --db PATH [--competition PL] [--per-team N]
+      PYTHONPATH=<checkout> python3 /tmp/v22_normalisation_receipt.py --db PATH [--competition PL] [--per-team N]
 """
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import sqlite3
 import sys
 from pathlib import Path
 
 _FILE = globals().get("__file__")
-# run as a file inside a checkout: the checkout above scripts/; run as a copy elsewhere (/tmp, with PYTHONPATH naming
-# the checkout) or from stdin: the working directory, which PYTHONPATH then backs
 _HERE = Path(_FILE).resolve() if _FILE and Path(_FILE).is_file() else None
-ROOT = _HERE.parents[1] if _HERE is not None and (_HERE.parents[1] / "src").is_dir() else Path.cwd()
-if str(ROOT) not in sys.path:
-    sys.path.append(str(ROOT))                         # after PYTHONPATH: a named checkout wins
+_POISSON = Path("src") / "models" / "poisson.py"
+
+
+def _checkout_root() -> Path | None:
+    """The checkout whose src.models.poisson is the real code: the one above scripts/ when run as a file inside a
+    checkout (scripts/ beside src/models/poisson.py); for a copy run elsewhere (/tmp) or from stdin, the first
+    PYTHONPATH entry holding src/models/poisson.py; else the working directory, ONLY when it holds
+    src/models/poisson.py. None otherwise: load_poisson refuses (exit 2), never importing whatever `src` the path
+    happens to hold (a cwd that is an ancestor of a site-packages would otherwise pass an installed `src`)."""
+    if _HERE is not None and _HERE.parent.name == "scripts" and (_HERE.parents[1] / _POISSON).is_file():
+        return _HERE.parents[1]
+    for entry in os.environ.get("PYTHONPATH", "").split(os.pathsep):
+        if entry and (Path(entry) / _POISSON).is_file():
+            return Path(entry).resolve()
+    cwd = Path.cwd().resolve()
+    return cwd if (cwd / _POISSON).is_file() else None
+
+
+ROOT = _checkout_root()
+# FIRST on sys.path, before any src.* import: an installed top-level `src` in site-packages (or any other path entry)
+# never shadows the checkout's; the module actually loaded is printed and refused unless it IS
+# ROOT/src/models/poisson.py
+if ROOT is not None and (not sys.path or sys.path[0] != str(ROOT)):
+    sys.path.insert(0, str(ROOT))
 
 TAG = "V22-NORMALISATION-RECEIPT"
 FAMILY = "soccer_elo_poisson"
 N_TEAMS = 20                                           # the synthetic league: one PL-sized double round robin
-PER_TEAM = 2 * (N_TEAMS - 1)                           # 38 matches per team
+SYNTH_N = 2 * (N_TEAMS - 1)                            # 38 matches per team in the synthetic league
 AGREE_TOL = 1e-9
-CLAMP = (1.0, 1.30)                                    # training.py:214
+CLAMP_LO, CLAMP_HI = 1.0, 1.30                         # src/walters/training.py:214, max(1.0, min(1.30, boost))
+CLAMP_TOL = 1e-12
+DEFAULT_PER_TEAM = {"PL": 38}                          # 20 clubs, a double round robin; no other code assumed
 
 
 class Refused(Exception):
@@ -73,16 +111,26 @@ class Refused(Exception):
 
 
 def _under_data(p: Path) -> bool:
-    return "data" in p.parts or (ROOT / "data").resolve() in (p, *p.parents)
+    # DELIBERATELY BROADER than the checkout's data/ (law 5): a path with ANY part named data in it, in ANY case, is
+    # refused (a case-insensitive filesystem, macOS APFS's default, opens DATA/ or Data/ as data/, and Path.resolve()
+    # keeps the typed case there); the checkout's own data/ is matched resolved (a symlinked data/), also casefolded
+    if any(part.casefold() == "data" for part in p.parts):
+        return True
+    if ROOT is None:
+        return False
+    d = str((ROOT / "data").resolve()).casefold()
+    return any(str(x).casefold() == d for x in (p, *p.parents))
 
 
 def open_ro(db: str | None) -> tuple[sqlite3.Connection, str]:
     if not db:
-        raise Refused("REFUSED: no --db given: the read is on a .backup copy OUTSIDE data/ "
+        raise Refused("REFUSED: no --db given: the read is on a .backup copy outside any directory named data "
                       "(python3 scripts/v22_normalisation_receipt.py --db PATH)")
     path = Path(db).expanduser().resolve()
     if _under_data(path):
-        raise Refused(f"REFUSED: --db {path} is under data/ (law 5): --db is a .backup copy OUTSIDE data/")
+        raise Refused(f"REFUSED: --db {path} has a directory named data in it: a path with ANY directory named data "
+                      "in it is refused (any case; deliberately broader than the checkout's data/, law 5); --db is a "
+                      ".backup copy outside any directory named data")
     if not path.is_file():
         raise Refused(f"REFUSED: no DB file at {path}: a read-only read never creates one")
     # ADDENDUM 198 item 6(ii): every --db on a copy opens with immutable=1 beside mode=ro (no sidecar is created)
@@ -124,42 +172,111 @@ def stored_context(con: sqlite3.Connection, competition: str) -> dict:
             "stored": ctx}
 
 
+
+
+def clamp_state(b: float) -> str | None:
+    """'upper' / 'lower' when the stored b sits at training.py:214's clamp (to 1e-12), else None (interior)."""
+    if abs(b - CLAMP_HI) <= CLAMP_TOL:
+        return "upper"
+    if abs(b - CLAMP_LO) <= CLAMP_TOL:
+        return "lower"
+    return None
+
+
 def expressions(g: float, b: float) -> dict:
-    """The addendum's equations (item 1)."""
+    """The addendum's equations (item 1). The data's home/away ratio b/(2−b) is the data's only when b is interior:
+    at a clamp the stored b is not the data's boost (the unclamped value is not stored), so only a bound is known
+    (b/(2−b) is increasing in b: at the 1.30 clamp the data's ratio is ≥ 1.30/0.70, at the 1.0 clamp ≤ 1.0)."""
     r = (3 - b) / 2
     total = g * (1 + b) * r * r
-    return {"rating": r, "total": total, "data_total": 2 * g, "deficit": total / (2 * g) - 1,
-            "ratio_model": b, "ratio_data": b / (2 - b)}
+    clamp = clamp_state(b)
+    out = {"rating": r, "total": total, "data_total": 2 * g, "deficit": total / (2 * g) - 1, "ratio_model": b,
+           "clamp": clamp, "data_ratio": None, "data_ratio_bound": None}
+    if clamp == "upper":
+        out["data_ratio_bound"] = {"op": ">=", "value": CLAMP_HI / (2 - CLAMP_HI)}
+    elif clamp == "lower":
+        out["data_ratio_bound"] = {"op": "<=", "value": CLAMP_LO / (2 - CLAMP_LO)}
+    else:
+        out["data_ratio"] = b / (2 - b)
+    return out
 
 
-def real_code(g: float, b: float) -> dict:
+def load_poisson():
+    """src.models.poisson, refused unless the file actually loaded IS ROOT/src/models/poisson.py, compared exactly
+    (law 1: the real code is the checkout's, never an installed package of the same name, and never a site-packages
+    or .venv that merely sits under the checkout or the working directory). No checkout found: refused before any
+    import."""
+    if ROOT is None:
+        raise Refused("REFUSED: no checkout found (no scripts/ beside src/models/poisson.py, no PYTHONPATH entry "
+                      "holding it, and the working directory holds none): run inside a checkout or set "
+                      "PYTHONPATH=<checkout>; the real code is the checkout's, never another package named src")
+    expected = (ROOT / _POISSON).resolve()
+    try:
+        import src.models.poisson as poisson
+    except ImportError as e:
+        raise Refused(f"REFUSED: src.models.poisson does not import from the checkout {ROOT} "
+                      f"({type(e).__name__}: {e})") from None
+    loaded = Path(poisson.__file__).resolve()
+    if loaded != expected:
+        raise Refused(f"REFUSED: src.models.poisson was loaded from {loaded}, which is not the checkout's {expected}: "
+                      "the real code is the checkout's, never another package named src")
+    return poisson, loaded
+
+
+def real_code(g: float, b: float, per_team: int | None, poisson) -> dict:
     """The same quantities from src.models.poisson on a synthetic average-team league at (g, b): every fixture of a
-    double round robin scored home g·b and away g·(2−b); Elo 1500 both sides (multipliers exp(0) = 1); no factors.
-    The pre-shrinkage rating is the real output with w = n/(n+5) undone exactly."""
-    from src.models.poisson import (CompetitionScoringContext, PoissonConfig, TeamStrength, estimate_strengths,
-                                    predict_match)
+    double round robin of 20 teams scored home g·b and away g·(2−b); Elo 1500 both sides (multipliers exp(0) = 1); no
+    factors. The pre-shrinkage rating is the real output with w = n/(n+5) undone exactly (n = 38 in this league).
+    The as-run figure (per_team = N, not None): the real estimate_strengths on two average teams that meet N/2 times
+    at each venue (N games each, the real n/(n+5) shrinkage at n = N), then the real predict_match."""
     matches = [{"home_team_id": h, "away_team_id": a, "home_score": g * b, "away_score": g * (2 - b)}
                for h in range(N_TEAMS) for a in range(N_TEAMS) if h != a]
-    ctx = CompetitionScoringContext(avg_goals_per_team_per_match=g, home_field_goal_boost=b)
-    st = estimate_strengths(matches, ctx)
-    w = PER_TEAM / (PER_TEAM + 5)
+    ctx = poisson.CompetitionScoringContext(avg_goals_per_team_per_match=g, home_field_goal_boost=b)
+    st = poisson.estimate_strengths(matches, ctx)
+    w = SYNTH_N / (SYNTH_N + 5)
     att, dfn = st[0].attack, st[0].defense
-    raw = TeamStrength(attack=(att - (1 - w)) / w, defense=(dfn - (1 - w)) / w)
-    p = predict_match(1500.0, 1500.0, raw, raw, ctx, PoissonConfig())
-    p_run = predict_match(1500.0, 1500.0, st[0], st[1], ctx, PoissonConfig())
-    total, run_total = p.home_xg + p.away_xg, p_run.home_xg + p_run.away_xg
-    return {"rating": raw.attack, "rating_defense": raw.defense, "total": total, "deficit": total / (2 * g) - 1,
-            "ratio_model": p.home_xg / p.away_xg, "as_run_rating": att, "as_run_total": run_total,
-            "as_run_deficit": run_total / (2 * g) - 1, "uniform": len({round(s.attack, 12) for s in st.values()}) == 1}
+    raw = poisson.TeamStrength(attack=(att - (1 - w)) / w, defense=(dfn - (1 - w)) / w)
+    p = poisson.predict_match(1500.0, 1500.0, raw, raw, ctx, poisson.PoissonConfig())
+    total = p.home_xg + p.away_xg
+    out = {"rating": raw.attack, "rating_defense": raw.defense, "total": total, "deficit": total / (2 * g) - 1,
+           "ratio_model": p.home_xg / p.away_xg, "uniform": len({round(s.attack, 12) for s in st.values()}) == 1,
+           "as_run_rating": None, "as_run_total": None, "as_run_deficit": None}
+    if per_team is not None:
+        half = per_team // 2
+        pair = ([{"home_team_id": 0, "away_team_id": 1, "home_score": g * b, "away_score": g * (2 - b)}] * half
+                + [{"home_team_id": 1, "away_team_id": 0, "home_score": g * b, "away_score": g * (2 - b)}] * half)
+        sr = poisson.estimate_strengths(pair, ctx)
+        pr = poisson.predict_match(1500.0, 1500.0, sr[0], sr[1], ctx, poisson.PoissonConfig())
+        run_total = pr.home_xg + pr.away_xg
+        out.update(as_run_rating=sr[0].attack, as_run_total=run_total, as_run_deficit=run_total / (2 * g) - 1)
+    return out
 
 
-def report(c: dict, form: str, echo=print) -> dict:
+def _r(v, nd=6):
+    return None if v is None else round(v, nd)
+
+
+def report(c: dict, form: str, per_team: int | None = None, echo=print) -> dict:
     g, b = c["g"], c["b"]
-    e, r = expressions(g, b), real_code(g, b)
+    poisson, loaded = load_poisson()
+    e, r = expressions(g, b), real_code(g, b, per_team, poisson)
     agree = all(abs(e[k] - r[k]) <= AGREE_TOL for k in ("rating", "total", "deficit", "ratio_model")) \
         and abs(r["rating_defense"] - e["rating"]) <= AGREE_TOL and r["uniform"]
-    at_clamp = " (AT THE CLAMP: the data's own ratio is beyond it)" if b in CLAMP else ""
+    clamp = e["clamp"]
+    at_clamp = {"upper": f" (AT THE {CLAMP_HI:.2f} CLAMP: the data's own boost is at or above it; the unclamped "
+                         "value is not stored)",
+                "lower": f" (AT THE {CLAMP_LO:.1f} CLAMP: the data's own boost is at or below it; the unclamped "
+                         "value is not stored)"}.get(clamp, "")
+    if clamp == "upper":
+        data_ratio = (f"≥ {e['data_ratio_bound']['value']:.3f}, b stored at the {CLAMP_HI:.2f} clamp; "
+                      "the unclamped value is not stored")
+    elif clamp == "lower":
+        data_ratio = (f"≤ {e['data_ratio_bound']['value']:.3f} at the {CLAMP_LO:.1f} clamp; "
+                      "the unclamped value is not stored")
+    else:
+        data_ratio = f"{e['data_ratio']:.4f}"
     echo(f"read-only open: {form}")
+    echo(f"real code: src.models.poisson loaded from {loaded} (the checkout {ROOT}'s own)")
     echo(f"production {FAMILY} {c['version']} (model_versions.id {c['row_id']}) · stored context "
          f"{c['competition']}: {json.dumps(c['stored'], sort_keys=True)}")
     echo(f"  g (avg_goals_per_team_per_match, as stored)  {g:.6f}   -> the data's total 2g = {e['data_total']:.4f}")
@@ -167,20 +284,27 @@ def report(c: dict, form: str, echo=print) -> dict:
     echo(f"  implied average-team rating (3-b)/2          {e['rating']:.6f}   (before shrinkage)")
     echo(f"  forecast total g(1+b)((3-b)/2)^2             {e['total']:.4f}   vs 2g {e['data_total']:.4f}   "
          f"deficit {e['deficit'] * 100:+.2f}%")
-    echo(f"  home/away ratio: the model expresses b       {e['ratio_model']:.4f}   the data's b/(2-b) "
-         f"{e['ratio_data']:.4f}")
+    echo(f"  home/away ratio: the model expresses b       {e['ratio_model']:.4f}   the data's b/(2-b) {data_ratio}")
     echo(f"  the real code (src.models.poisson, average-team league at this g and b): rating {r['rating']:.6f} · "
          f"total {r['total']:.4f} ({r['deficit'] * 100:+.2f}%) · ratio {r['ratio_model']:.4f} · "
          f"{'AGREES with the expressions' if agree else 'DISAGREES with the expressions'} (tolerance {AGREE_TOL:g})")
-    echo(f"  as run at n = {PER_TEAM} (one season's n/(n+5) shrinkage toward 1.0): rating {r['as_run_rating']:.6f} · "
-         f"total {r['as_run_total']:.4f} ({r['as_run_deficit'] * 100:+.2f}%)")
+    if per_team is None:
+        echo("  as run (one season's n/(n+5) shrinkage toward 1.0): not computed (pass --per-team N: the games each "
+             f"team plays in one season; only PL defaults, to {DEFAULT_PER_TEAM['PL']})")
+    else:
+        echo(f"  as run at N = {per_team} games per team (one season's n/(n+5) shrinkage toward 1.0): rating "
+             f"{r['as_run_rating']:.6f} · total {r['as_run_total']:.4f} ({r['as_run_deficit'] * 100:+.2f}%)")
     echo("  Nothing in v22 changes (addendum 216 item 1(c)); a reading, no verdict, no threshold.")
+    bound = e["data_ratio_bound"]
     summary = {"model_version": c["version"], "competition": c["competition"], "g": g, "b": b,
-               "b_at_clamp": b in CLAMP, "rating": round(e["rating"], 6), "total": round(e["total"], 6),
+               "clamped": clamp is not None, "clamp": clamp,
+               "rating": round(e["rating"], 6), "total": round(e["total"], 6),
                "data_total": round(e["data_total"], 6), "deficit_pct": round(e["deficit"] * 100, 3),
-               "ratio_model": round(e["ratio_model"], 6), "ratio_data": round(e["ratio_data"], 6),
-               "real_code_agrees": agree, "as_run_n": PER_TEAM, "as_run_total": round(r["as_run_total"], 6),
-               "as_run_deficit_pct": round(r["as_run_deficit"] * 100, 3)}
+               "ratio_model": round(e["ratio_model"], 6), "data_ratio": _r(e["data_ratio"]),
+               "data_ratio_bound": None if bound is None else {"op": bound["op"], "value": round(bound["value"], 6)},
+               "real_code_agrees": agree, "poisson_file": str(loaded),
+               "as_run_n": per_team, "as_run_total": _r(r["as_run_total"]),
+               "as_run_deficit_pct": _r(None if r["as_run_deficit"] is None else r["as_run_deficit"] * 100, 3)}
     echo(f"{TAG} {json.dumps(summary, sort_keys=True)}")
     return summary
 
@@ -188,16 +312,25 @@ def report(c: dict, form: str, echo=print) -> dict:
 def main(argv=None, echo=print) -> int:
     ap = argparse.ArgumentParser(description="addendum 216 item 1(b): the v22 normalisation expressions on the "
                                              "production model's stored context (read-only)")
-    ap.add_argument("--db", default=None, help="a .backup copy OUTSIDE data/, opened mode=ro + immutable=1")
+    ap.add_argument("--db", default=None,
+                    help="a .backup copy, opened mode=ro + immutable=1; a path with ANY directory named data in it "
+                         "(any case) is refused (deliberately broader than the checkout's data/, law 5)")
     ap.add_argument("--competition", default="PL", help="the stored context's competition code (default PL)")
+    ap.add_argument("--per-team", type=int, default=None, metavar="N",
+                    help="games each team plays in one season, for the as-run line (an even number: N/2 at each "
+                         "venue); default 38 for PL only, otherwise the as-run line is not computed")
     a = ap.parse_args(argv)
+    per_team = a.per_team if a.per_team is not None else DEFAULT_PER_TEAM.get(a.competition)
     try:
+        if per_team is not None and (per_team < 2 or per_team % 2):
+            raise Refused(f"REFUSED: --per-team {per_team}: N must be an even number >= 2 (the as-run league plays "
+                          "N/2 games at each venue, equal home and away games per team)")
         con, form = open_ro(a.db)
         try:
             c = stored_context(con, a.competition)
         finally:
             con.close()
-        report(c, form, echo)
+        report(c, form, per_team, echo)
     except Refused as ex:
         echo(str(ex))
         return 2

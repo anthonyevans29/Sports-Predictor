@@ -84,7 +84,10 @@ def closing_rows(exports_dir) -> dict:
     file gives one, "families": [the families the files read name, sorted]}. The run start is the closing block's
     start, else the file name's stamp (a row with neither sorts oldest). The family is the closing block's, else the
     name's segment (closing_<FAMILY>_...), else None. Each row is the export's row as the closing file holds it. An
-    unreadable file is counted, never fatal. Writes nothing."""
+    unreadable file is counted, never fatal. Writes nothing.
+    "exports" (#755, addendum 196 item 4(i)): {match id: [{"file": the file's name, "run_id": its closing block's
+    run_id, "exported_at": its top-level exported_at}, ...]}, one per entry of "rows"[match id], in the same order,
+    each value as the file holds it (None where it has none); graded_export names a results row's export from it."""
     d = Path(exports_dir)
     rows: dict[int, list] = {}
     files, bad, runs, fams = 0, [], [], set()
@@ -95,6 +98,7 @@ def closing_rows(exports_dir) -> dict:
             block = doc.get("closing") or {}
             run = as_utc(block.get("start"))
             fam = block.get("family")
+            src = {"file": p.name, "run_id": block.get("run_id"), "exported_at": doc.get("exported_at")}
         except (OSError, ValueError, AttributeError, TypeError):
             bad.append(p.name)
             continue
@@ -111,11 +115,12 @@ def closing_rows(exports_dir) -> dict:
             fams.add(fam)
         for r in preds:
             if isinstance(r.get("match_id"), int) and not isinstance(r.get("match_id"), bool):
-                rows.setdefault(r["match_id"], []).append((run, fam, r))
+                rows.setdefault(r["match_id"], []).append((run, fam, r, src))
     for v in rows.values():
         v.sort(key=lambda x: (x[0] is not None, x[0] or datetime.min))
-    return {"rows": rows, "files": files, "unreadable": bad, "runs": (min(runs), max(runs)) if runs else None,
-            "families": sorted(fams)}
+    return {"rows": {mid: [x[:3] for x in v] for mid, v in rows.items()}, "files": files, "unreadable": bad,
+            "runs": (min(runs), max(runs)) if runs else None, "families": sorted(fams),
+            "exports": {mid: [x[3] for x in v] for mid, v in rows.items()}}
 
 
 def closing_starts(exports_dir) -> dict:

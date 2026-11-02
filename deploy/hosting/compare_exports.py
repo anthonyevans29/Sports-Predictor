@@ -13,7 +13,11 @@ or printed, in either mode; their count is printed (ARCHITECT 2026-10-30,
 addendum 182 item 4). The shadow-arm keys of pl-availability-v1 (every
 `candidate_*` key at any depth, and a results row's `candidate` arm) are never
 compared or printed either, and counted on their own line beside that count
-(ARCHITECT 2026-11-01, addendum 199 item 2; SHADOW-ARM KEYS below). Files
+(ARCHITECT 2026-11-01, addendum 199 item 2; SHADOW-ARM KEYS below). The
+graded-export keys of #755 (every key of a results row's `graded_export` object
+and of the file-level `graded_exports` block) are never compared or printed,
+and counted on their own line beside those two (ARCHITECT 2026-11-01, addendum
+206 item 1; GRADED-EXPORT KEYS below). Files
 present on one side only are listed. Output is paste-ready. Exit 0 =
 CLEAN (every compared file identical after the timestamp mask), 1 = DIVERGENT,
 2 = ERROR (the comparison could not run: bad arguments, a side directory
@@ -88,6 +92,33 @@ mismatch printed whole shows its values as "<masked>"; the count is the file
 pair's own walk (a key on either side once, past the diff limit and under
 pruned keys), printed as "shadow-arm keys (host-only, pl-availability-v1): N"
 right after the unit-bearing line.
+
+GRADED-EXPORT KEYS (ARCHITECT 2026-11-01 15:45 ET, addendum 206 item 1,
+verbatim): "#768 (#755, the results row names the export it graded) — RULED
+option (a): a NAMED, COUNTED machine-local class in compare_exports,
+"graded-export keys (machine-local)": every key of a results row's
+graded_export object and of the file-level graded_exports block, never
+compared, never printed as a diff, counted once per file on its own line beside
+the unit-bearing (#735) and shadow-arm (#761) lines, so a real grading
+divergence in the same file still prints inside the budget. The premise is
+right: the laptop and the host each grade their OWN closing file, so the file
+name and run id differ by nature and are not a skew." #768 writes, on every
+results row of export-results and export-nfl-results (live and pre-live), a
+key `graded_export` = {kind, file, run_id, exported_at}
+(src/walters/graded_export.py KEY), and on the file a block `graded_exports` =
+{closing, slate, none, closing_files, slate_files, unreadable} (name_rows'
+counts). The class is matched by those two PARENT names exactly
+(graded_export_class), at any depth: no other writer in src/, deploy/,
+scripts/, tools/ or cli.py writes a key named either (law 1, read on main and on
+#768's branch, 2026-11-01), so the name is exact. A key that only starts with
+either name (graded_export_x) and the results row's `graded` block are compared
+as before. Both modes (the generic mask and --ignore-keys) leave the class out;
+a structural mismatch printed whole shows the object as "<masked>"; the count
+is every key of each object, a key on either side once (graded_count: 4 per
+results row, 6 for the file's block), by the file pair's own walk (past the
+diff limit and under pruned keys); a parent whose value is not an object on
+either side counts 1. Printed as "graded-export keys (machine-local): N" right
+after the shadow-arm line. cutover_readiness.compare_day reads the same diff().
 """
 from __future__ import annotations
 
@@ -153,21 +184,44 @@ def shadow_arm(key, *values) -> bool:
         isinstance(v, dict) and v.get("version") == SHADOW_EID for v in values))
 
 
-def _masked_count(a, b, hit, parent=None) -> int:
+# THE GRADED-EXPORT KEYS (ARCHITECT 2026-11-01 15:45 ET, addendum 206 item 1; the module docstring quotes it): the
+# export a results row stands behind (#768), named by each machine from its OWN closing file: machine-local, never
+# compared or printed, counted.
+GRADED_EXPORT_KEYS = ("graded_export",      # graded_export.KEY: a results row's {kind, file, run_id, exported_at}
+                      "graded_exports")     # the results file's block: name_rows' counts (this file ships alone)
+GRADED_LINE = "graded-export keys (machine-local)"                  # the ruling's name, verbatim
+
+
+def graded_export_class(key) -> bool:
+    """True for a graded-export parent (addendum 206 item 1): a key named exactly `graded_export` or `graded_exports`,
+    at any depth (no other writer uses either name). Its whole object is masked; graded_export_x is compared."""
+    return key in GRADED_EXPORT_KEYS
+
+
+def graded_keys(x, y) -> int:
+    """The keys one graded-export parent counts: every key of its object, a key on either side once; 1 when neither
+    side's value is an object (the parent itself, so a masked key is never silent)."""
+    if isinstance(x, dict) or isinstance(y, dict):
+        return len(set(x if isinstance(x, dict) else ()) | set(y if isinstance(y, dict) else ()))
+    return 1
+
+
+def _masked_count(a, b, hit, parent=None, weight=None) -> int:
     """The fields `hit(parent, key, a_value, b_value)` masks in one file pair, a field on either side counted once: its
     own walk (Codex on #735), so the count reaches past the 40-line diff limit, into keys --ignore-keys prunes, into rows
     on one side only and across a dict-vs-other mismatch. Lists keep their parent key (as `diff` does); game rows pair
-    by row key. A masked field is counted once and not walked into."""
+    by row key. A masked field is counted once (or `weight(a_value, b_value)`, the keys of its object, for the
+    graded-export class) and not walked into."""
     if isinstance(a, dict) or isinstance(b, dict):
         da, db = (a if isinstance(a, dict) else {}), (b if isinstance(b, dict) else {})
-        return sum(1 if hit(parent, k, da.get(k), db.get(k)) else _masked_count(da.get(k), db.get(k), hit, k)
-                   for k in set(da) | set(db))
+        return sum((weight(da.get(k), db.get(k)) if weight else 1) if hit(parent, k, da.get(k), db.get(k))
+                   else _masked_count(da.get(k), db.get(k), hit, k, weight) for k in set(da) | set(db))
     if isinstance(a, list) or isinstance(b, list):
         la, lb = (a if isinstance(a, list) else []), (b if isinstance(b, list) else [])
         if is_game_rows(la) and is_game_rows(lb):
             ka, kb = keyed(la), keyed(lb)
-            return sum(_masked_count(ka.get(k), kb.get(k), hit, parent) for k in set(ka) | set(kb))
-        return sum(_masked_count(la[i] if i < len(la) else None, lb[i] if i < len(lb) else None, hit, parent)
+            return sum(_masked_count(ka.get(k), kb.get(k), hit, parent, weight) for k in set(ka) | set(kb))
+        return sum(_masked_count(la[i] if i < len(la) else None, lb[i] if i < len(lb) else None, hit, parent, weight)
                    for i in range(max(len(la), len(lb))))
     return 0
 
@@ -183,12 +237,20 @@ def shadow_count(a, b, parent=None) -> int:
     return _masked_count(a, b, lambda p, k, x, y: shadow_arm(k, x, y), parent)
 
 
+def graded_count(a, b, parent=None) -> int:
+    """The graded-export keys of one file pair (addendum 206 item 1), by the same walk: every key of each
+    `graded_export` / `graded_exports` object, a key on either side once (4 per results row, 6 for the file's block)."""
+    return _masked_count(a, b, lambda p, k, x, y: graded_export_class(k), parent, graded_keys)
+
+
 def redacted(v, parent=None):
-    """`v` with every unit-bearing field's value, and every shadow-arm key's (addendum 199 item 2), replaced by
-    "<masked>", for a structural mismatch printed whole (an `order` or `desk_meta` object against null; Codex on #735;
-    a PL row against null): neither a dollar figure nor a candidate figure reaches the output."""
+    """`v` with every unit-bearing field's value, every shadow-arm key's (addendum 199 item 2) and every graded-export
+    object (addendum 206 item 1) replaced by "<masked>", for a structural mismatch printed whole (an `order` or
+    `desk_meta` object against null; Codex on #735; a PL row against null; a results row against null): neither a
+    dollar figure, a candidate figure nor a graded export's file or run id reaches the output."""
     if isinstance(v, dict):
-        return {k: "<masked>" if unit_bearing(parent, k) or shadow_arm(k, x) else redacted(x, k)
+        return {k: "<masked>" if unit_bearing(parent, k) or shadow_arm(k, x) or graded_export_class(k)
+                else redacted(x, k)
                 for k, x in v.items()}
     if isinstance(v, list):
         return [redacted(x, parent) for x in v]
@@ -289,14 +351,15 @@ def diff(a, b, path="$", out=None, limit=40, unmatched=None, ignore=None, parent
     """`ignore`: None = the generic mask (TS_KEY + MASKED). A set (--ignore-keys; the cutover PL check only, #420)
     REPLACES that mask: only those keys and git_sha (code, never read from the database) are left out, so every
     database-read timestamp and match_id is compared (Codex on #439). In both modes the unit-bearing fields
-    (addendum 182 item 4, unit_bearing) and the shadow-arm keys (addendum 199 item 2, shadow_arm) are left out and
-    never printed: a mismatch printed whole is redacted first; unit_count and shadow_count count them."""
+    (addendum 182 item 4, unit_bearing), the shadow-arm keys (addendum 199 item 2, shadow_arm) and the graded-export
+    keys (addendum 206 item 1, graded_export_class) are left out and never printed: a mismatch printed whole is
+    redacted first; unit_count, shadow_count and graded_count count them."""
     out = [] if out is None else out
     if len(out) >= limit:
         return out
     if isinstance(a, dict) and isinstance(b, dict):
         for k in sorted(set(a) | set(b)):
-            if unit_bearing(parent, k) or shadow_arm(k, a.get(k), b.get(k)):
+            if unit_bearing(parent, k) or shadow_arm(k, a.get(k), b.get(k)) or graded_export_class(k):
                 continue
             if (ignore is None and (TS_KEY.search(str(k)) or k in MASKED)) or (
                     ignore is not None and (k in ignore or k == "git_sha")):
@@ -340,9 +403,12 @@ def main(argv=None) -> int:
 def _main(argv=None) -> int:
     ap = argparse.ArgumentParser(epilog=(
         "Never compared or printed, in either mode, and counted on their own lines: the unit-bearing fields "
-        "(addendum 182 item 4) and the shadow-arm keys (ARCHITECT 2026-11-01, addendum 199 item 2: \"compare_exports "
+        "(addendum 182 item 4), the shadow-arm keys (ARCHITECT 2026-11-01, addendum 199 item 2: \"compare_exports "
         "treats every `candidate_*` key as \"shadow-arm keys (host-only, pl-availability-v1)\": never compared, never "
-        "printed, counted on its own line beside the unit-bearing count\"; also a results row's `candidate` arm)."))
+        "printed, counted on its own line beside the unit-bearing count\"; also a results row's `candidate` arm), and "
+        "the graded-export keys (ARCHITECT 2026-11-01, addendum 206 item 1: \"graded-export keys (machine-local)\": "
+        "every key of a results row's graded_export object and of the file-level graded_exports block, never "
+        "compared, never printed as a diff, counted once per file on its own line)."))
     ap.add_argument("laptop", type=Path)
     ap.add_argument("host", type=Path)
     ap.add_argument("--glob", default="*.json")
@@ -392,6 +458,7 @@ def _main(argv=None) -> int:
     field_diffs, row_diffs, unparseable, one_sided = [], [], [], []
     unit_masked = 0                               # addendum 182 item 4: the unit-bearing fields left out, counted
     shadow_masked = 0                             # addendum 199 item 2: the shadow-arm keys left out, counted
+    graded_masked = 0                             # addendum 206 item 1: the graded-export keys left out, counted
     pred_rows = {"laptop": 0, "host": 0}
     for name in sorted(set(la) | set(ho)):
         if name not in la or name not in ho:
@@ -414,6 +481,7 @@ def _main(argv=None) -> int:
         d = diff(x, y, unmatched=um, ignore=ignore)
         unit_masked += unit_count(x, y)
         shadow_masked += shadow_count(x, y)
+        graded_masked += graded_count(x, y)
         only = {s: [k for v in um.values() for k in v[s]] for s in ("laptop", "host")}
         ok = not d and not only["laptop"] and not only["host"]
         clean &= ok
@@ -441,6 +509,7 @@ def _main(argv=None) -> int:
                                           if other['laptop'] or other['host'] else ""))
     print(f"unit-bearing fields masked (policy v1.2): {unit_masked}")   # addendum 182 item 4
     print(f"{SHADOW_LINE}: {shadow_masked}")                            # addendum 199 item 2
+    print(f"{GRADED_LINE}: {graded_masked}")                            # addendum 206 item 1
     if a.require_predictions:
         print(f"predictions compared (rows with a prediction and its probabilities): laptop {pred_rows['laptop']} "
               f"· host {pred_rows['host']}")

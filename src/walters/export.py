@@ -1060,6 +1060,11 @@ def export_results(
     VOID: RE-DATED (ARCHITECT 2026-10-17, addendum 106 item 4): a row whose
     match is void by its closing rows in `exports_dir` (redated.void_label)
     keeps its fields, gains "redated" (the label), and leaves every tally here.
+
+    THE GRADED EXPORT (#755, addendum 196 item 4(i)): every row gains "graded_export" ({kind, file, run_id,
+    exported_at}: the closing file's row over the slate file's, src/walters/graded_export.py); the payload's
+    "graded_exports" counts the rows by kind and names a file that could not be read. The grade itself is the
+    database's, unchanged.
     """
     from src.db.schema import Prediction, PredictionOutcome, Match, Team
     from sqlalchemy import select
@@ -1094,6 +1099,10 @@ def export_results(
     from src.walters.redated import label_rows
     from src.walters.vs_close import block_from_rows
     redated = label_rows(rows, exports_dir, "date")
+    # #755 (addendum 196 item 4(i); addendum 200 item 2): each row names the export it stands behind, the closing row
+    # over the slate row (#632's rule), its run_id and exported_at; read-side naming only (graded_export's docstring)
+    from src.walters.graded_export import name_rows
+    named = name_rows(rows, exports_dir, sport.value, "date")
     tallied = [r for r in rows if not r.get("redated")]       # addendum 106 item 4: out of every tally, row kept
     payload = {
         "exported_at": utc_now_naive().isoformat() + "Z",
@@ -1109,6 +1118,7 @@ def export_results(
         "record": {"games": len(tallied), "hits": sum(1 for r in tallied if r["graded"]["top_pick_hit"]),
                    "vs_close": block_from_rows(tallied), "redated": redated},
         "totals_pulse": _compute_totals_pulse(tallied),
+        "graded_exports": named,               # #755: rows by the kind of export they name, unreadable files named
         "results": rows,
     }
     if output_format == "json":

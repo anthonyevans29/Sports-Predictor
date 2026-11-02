@@ -9267,6 +9267,10 @@ def export_results_cmd(sport, competition_code, date_str, out_path):
     from src.walters.vs_close import line as _vs_line
     print(f"  {_vs_line((data.get('record') or {}).get('vs_close'))}")
     _redated_lines(data["results"])
+    # #755 (addendum 196 item 4(i)): the rows by the export they name (closing over slate), unreadable files named
+    from src.walters.graded_export import counts_line as _graded_line
+    if data.get("graded_exports"):
+        print(f"  {_graded_line(data['graded_exports'])}")
 
     # totals pulse now lives in the payload (audit layer reads it from the file);
     # print it from there so console and file are the same single source of truth.

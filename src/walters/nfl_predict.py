@@ -30,6 +30,15 @@ from src.timeutil import utc_now_naive
 
 log = logging.getLogger(__name__)
 
+# ARCHITECT 2026-11-01 14:25 ET, addendum 205 item 1 (a docs line; nothing moves): the quarantine threshold reads the
+# exported, ROUNDED divergence (divergence_pp below: round(..., 1)), the conservative side of the boundary, and the
+# Desk reads the same exported field. The contract sentence, verbatim:
+# ARCHITECT 2026-11-01 17:10 ET, addendum 207 item 1 (verbatim; it replaces addendum 205 item 1's sentence)
+QUARANTINE_ROUNDING_NOTE = ("The threshold is applied to the absolute value of market_divergence_pp as exported, rounded "
+                            "to one decimal: an unrounded divergence whose absolute value rounds to 15.0 (14.96 to 14.99 "
+                            "on either side of zero; exactly 14.95 goes by the float's binary representation) is "
+                            "quarantined, the conservative side of the boundary.")
+
 MODEL_VERSION = "nfl_elo_v1"
 
 
@@ -339,10 +348,11 @@ def export_nfl_predictions(days_ahead: int = 8, out_dir: str = "exports",
         "contains_predictions": True,
         "rehearsal": False,
         "live_since": f"{NFL_LIVE_SINCE:%Y-%m-%d} (Week 3; ratified after two graded weeks)",
-        "note": ("LIVE: gate-passed v1 Elo. CONTRACT RULE: rows with "
-                 "market_divergence_pp >= 15 carry quarantine=true — "
+        "note": ("LIVE: gate-passed v1 Elo. CONTRACT RULE: rows whose "      # addendum 208: the clause, verbatim
+                 "market_divergence_pp has an absolute value of 15 or more carry quarantine=true — "
                  "consumer treats them as watch-flagged, never straight "
                  "plays (rule earned 1-5 across Weeks 1-2). "
+                 + QUARANTINE_ROUNDING_NOTE + " "
                  "venue_flag 'STALE-BOOK?' (|book fair - kalshi_prob| >= 8pp) "
                  "is a WARNING ONLY: it marks rows whose book reference — and "
                  "so their divergence/quarantine/edge — should be distrusted; "
@@ -669,7 +679,12 @@ def export_nfl_results(days_back: int | None = None, out_dir: str = "exports") -
 
     VOID: RE-DATED (ARCHITECT 2026-10-17, addendum 106 item 4): a row whose
     match is void by its closing rows in `out_dir` keeps its fields, gains
-    "redated" (the label) and leaves both records (season and pre-live)."""
+    "redated" (the label) and leaves both records (season and pre-live).
+
+    THE GRADED EXPORT (#755, addendum 196 item 4(i)): every row (live and
+    pre-live) gains "graded_export" ({kind, file, run_id, exported_at}: the
+    closing file's row over the slate file's, src/walters/graded_export.py);
+    the file's "graded_exports" counts them. The grade is the database's."""
     import json as _json
     import math
     import os as _os
@@ -762,6 +777,10 @@ def export_nfl_results(days_back: int | None = None, out_dir: str = "exports") -
     flags = [r.pop("_pre_live") for r in rows]
     from src.walters.redated import label_rows
     label_rows(rows, out_dir, "utc_date")
+    # #755 (addendum 196 item 4(i); addendum 200 item 2): each row names the export it stands behind, the closing row
+    # over the slate row (#632's rule), its run_id and exported_at; read-side naming only (graded_export's docstring)
+    from src.walters.graded_export import name_rows
+    named = name_rows(rows, out_dir, "nfl", "utc_date")
     live = [r for r, f in zip(rows, flags) if not f]
     pre = [r for r, f in zip(rows, flags) if f]
 
@@ -777,5 +796,6 @@ def export_nfl_results(days_back: int | None = None, out_dir: str = "exports") -
                     "sport": "nfl",
                     "note": "record is variance, not signal — for the consumer to grade against",
                     "window": window, "record": record,
-                    "count": len(live), "results": live, "pre_live": pre_live}, f, indent=2)
+                    "count": len(live), "results": live, "pre_live": pre_live,
+                    "graded_exports": named}, f, indent=2)   # #755: rows (live and pre-live) by the export they name
     return path

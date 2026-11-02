@@ -189,11 +189,15 @@ def test_refresh_by_id_stores_the_code_and_never_blanks_it(monkeypatch):
 
     try:
         # step 1: an NS answer stores "NS" (all three rows)
-        run(**{sid: ({"short": "NS"}, (None, None)) for sid in ids})
+        r = run(**{sid: ({"short": "NS"}, (None, None)) for sid in ids})
         assert [state(sid) for sid in ids] == [(MatchStatus.SCHEDULED, "NS", None, None)] * 3
+        assert (r["updated"], r["unchanged"]) == (3, 0)          # a code-only write is an update (Codex on #775)
+        r = run(**{"76402": ({"short": "NS"}, (None, None))})   # the same code again: nothing written, unchanged
+        assert (r["updated"], r["unchanged"]) == (0, 1)
         # step 2: no status and no totals: the row stays SCHEDULED and the stored code is never blanked
-        run(**{"76401": ({}, (None, None))})
+        r = run(**{"76401": ({}, (None, None))})
         assert state("76401") == (MatchStatus.SCHEDULED, "NS", None, None)
+        assert (r["updated"], r["unchanged"]) == (0, 1)
         # step 3: no status and both totals: FINISHED (#493's rule), the stored "NS" kept; FT overwrites "NS";
         # an empty answer (NOT FOUND) leaves its row untouched
         r = run(**{"76401": ({}, (24, 17)), "76402": ({"short": "FT"}, (24, 17)), "76403": (None, (None, None))})

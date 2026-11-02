@@ -268,8 +268,8 @@ def guards_backtest(competition_code: str, season=None, through: datetime | None
     read would spend the test seasons outside the one run. None = allowed.
     THE LEAGUES' WINDOW FENCE (ARCHITECT 2026-10-30 09:30 ET, addendum 178 R8, verbatim: "FENCED: after a declaration
     the window's outcomes have one reader, the cohort reader; guards_backtest refuses any other read of them until
-    the verdict is recorded (the NCAA fence's precedent)."): for SA, BL1, FL1 or ELC (leagues_window.DECLARATION_IDS)
-    with no verdict recorded, a walk of `season` 2026/27, or of every season (None), is refused naming the cohort
+    the verdict is recorded (the NCAA fence's precedent)."): for PD, SA, BL1, FL1 or ELC (leagues_window.DECLARATION_IDS;
+    PD by ARCHITECT 2026-11-02, addendum 222 item 4(b)) with no verdict recorded, a walk of `season` 2026/27, or of every season (None), is refused naming the cohort
     reader, unless it is cut at `through` at or before the league's cut: its entry's declared_at, or with no entry
     leagues_window.PRE_DECLARATION_CUT, 2026-10-30T15:00:00Z (the pre-declaration fence, addendum 181 item 1(b)).
     The fence bars any figure of either arm on a window game (a log-loss, a hit, a pick or probability set against
@@ -621,8 +621,9 @@ def next_chain_run(now: datetime) -> dict:
 # The reasons a fixture in the window has no row (159 item 6(a): "explicit reasons for a missing row"), each listed
 # in the file's `missing` with its match id and kickoff. A league that is not declared or is refused has no fixture
 # reasons: its one reason is its binding's state.
-MISSING_REASONS = (("before_declared_at", "kicks off at or before the binding's window_opens_at (the four: their "
-                                          "declared_at, R5; PD: the verdict's at; D1)"),
+MISSING_REASONS = (("before_declared_at", "kicks off at or before the binding's window_opens_at (a declared league: "
+                                          "its declared_at, R5, PD's leagues-pd-v1 included, addendum 222 item 4(b); "
+                                          "PD with no such entry: the verdict's at; D1)"),
                    ("status_live", "LIVE"), ("status_finished", "finished"), ("status_postponed", "postponed"),
                    ("status_cancelled", "cancelled"), ("status_stale_orphan", "stale orphan (never a fixture)"),
                    ("not_regular", "a play-off round (F3: the candidate walks regular rounds only)"),
@@ -637,16 +638,24 @@ def shadow_bindings() -> dict[str, dict]:
     `frozen_constants`, `window_opens_at` (the entry's text, verbatim: the instant a fixture must kick off strictly
     after), `opens_at` (the same instant, naive UTC) and `gate_verdict` (the rows' label). The current production
     model is never read.
-    - PD (159 item 6(a)): soccer-expansion-v1 through confirming() (its run record, a PASS verdict, a surviving set
-      holding PD); the constants are the run record's, asserted equal to leagues_window.run_record_constants() (one
-      record; a drift is a refusal, never a silent difference), read FIRST so a constant that is not a number refuses
-      with run_record_constants' text, never a traceback out of confirming()'s float(). PD needs its own path:
-      leagues_window.checked refuses a surviving league, and PD is not in DECLARATION_IDS.
-    - PD with no soccer-expansion-v1 entry in the registry -> SHADOW_NOT_DECLARED, no rows (pass-4 finding 6: the
-      label coverage prints, "not declared", never a run-record refusal).
+    - PD WITH its leagues-pd-v1 entry in the registry (ARCHITECT 2026-11-02 16:35 ET, addendum 222 item 4(b),
+      verbatim: "PD gets the window reader and the fence in the SAME PR, on the same code path and the same stamp"):
+      bound as the four are (below), through leagues_window.declaration and checked (SURVIVING_RULED lets PD pass),
+      so its rows carry candidate leagues-pd-v1, declared_at = window_opens_at = the entry's text (2026-11-02T18:10:00Z)
+      and gate_verdict "leagues-pd-v1 · declared <declared_at>": the rows the cohort reader's stored_rows reads for
+      PD's window (addendum 222 item 4(a)). The prediction is unchanged (the same predict_as_of at the same run-record
+      constants); only the labels are leagues-pd-v1's, and soccer-expansion-v1's confirmation reads no row.
+    - PD WITHOUT that entry (a registry from before addendum 220; 159 item 6(a)): soccer-expansion-v1 through
+      confirming() (its run record, a PASS verdict, a surviving set holding PD); the constants are the run record's,
+      asserted equal to leagues_window.run_record_constants() (one record; a drift is a refusal, never a silent
+      difference), read FIRST so a constant that is not a number refuses with run_record_constants' text, never a
+      traceback out of confirming()'s float().
+    - PD with neither entry in the registry -> SHADOW_NOT_DECLARED, no rows (pass-4 finding 6: the label coverage
+      prints, "not declared", never a run-record refusal).
     - SA, BL1, FL1, ELC (R5): no entry -> SHADOW_NOT_DECLARED, no rows; an entry leagues_window.checked refuses (its
       league field, its instant, a surviving league, its constants) -> SHADOW_REFUSED with checked's text, no rows.
-    D1, ARCHITECT 2026-10-30 12:45 ET, addendum 185, verbatim: "PD's rows carry BOTH fields, as Code's default:
+    D1 (for PD bound to soccer-expansion-v1, i.e. without its leagues-pd-v1 entry), ARCHITECT 2026-10-30 12:45 ET,
+    addendum 185, verbatim: "PD's rows carry BOTH fields, as Code's default:
     declared_at = soccer-expansion-v1's own declaration (2026-10-07T15:17:38Z) and window_opens_at = the verdict's `at`
     (2026-10-09T12:47:39Z), the confirmation rule's own instant ("kickoff strictly after the verdict's at"). The four
     leagues' rows carry declared_at = the entry's and window_opens_at = the same instant (one schema). Any reader that
@@ -683,7 +692,7 @@ def shadow_binding(code: str) -> dict:
         except (OSError, ValueError) as err:
             raise ExpansionRefused(f"the registry {path} is unreadable ({err.__class__.__name__}): no binding is "
                                    "read (law 4)") from None
-        if code == "PD":
+        if code == "PD" and lw.declaration(code) is None:     # no leagues-pd-v1 entry: the binding before 222 4(b)
             pe = reg.get(EID, path)
             if not isinstance(pe, dict) or pe.get("id") != EID:  # pass-4 finding 6: no entry is NOT DECLARED (R5),
                 b["state"] = SHADOW_NOT_DECLARED                 # as for the four, never a run-record refusal
@@ -1009,9 +1018,9 @@ PICK = {"home_win": "HOME", "draw": "DRAW", "away_win": "AWAY"}
 def shadow_grade(days: int = 30, export_dir: str = "exports", now: datetime | None = None) -> dict:
     """READ-ONLY: the shadow's top pick vs the three-way book close (#207 contract), per league.
     The leagues' window fence (ARCHITECT 2026-10-30, addendum 178 R8): a finished 2026/27 game of a declared league
-    (SA, BL1, FL1, ELC; verdict not recorded) kicking off after its declared_at is not graded here, only counted
-    (`fenced`): the window's games have one reader, the cohort reader. With no entry the cut is
-    leagues_window.PRE_DECLARATION_CUT (addendum 181 item 1(b)); PL, PD and every other competition: unchanged."""
+    (PD, SA, BL1, FL1, ELC; verdict not recorded; PD by addendum 222 item 4(b)) kicking off after its declared_at is
+    not graded here, only counted (`fenced`): the window's games have one reader, the cohort reader. With no entry the
+    cut is leagues_window.PRE_DECLARATION_CUT (addendum 181 item 1(b)); PL and every other competition: unchanged."""
     from src.db.database import session_scope
     from src.db.schema import Match, MatchStatus, Odds
     from src.walters.close import close_1x2, outcomes_for, priced
@@ -1299,11 +1308,25 @@ def stale_orphans(s, ids) -> dict[int, dict]:
     return out
 
 
+CONFIRM_FENCE_NOTE = ("fenced: a window game of the league's cohort-reader declaration (leagues_window; PD's "
+                      "leagues-pd-v1 from 2026-11-02T18:10:00Z, ARCHITECT 2026-11-02 16:35 ET, addendum 222 item 4(b): "
+                      "\"the fence must exist before any PD figure can be read\"); not walked or scored here until its "
+                      "verdict is recorded; the collision with this confirmation is the architect's to rule")
+
+
 def confirmation_read() -> dict:
     """The plan's read so far: the cohort priced by the gate's own walk (per league-season from a cold start, min_prior
     40, regular-season rows, F5 batching, the run record's params), predict-then-update; pooled model log-loss vs the
-    pooled naive (each league's frozen 2023/24 H/D/A) − 0.010; per-league lines (reported, not gated)."""
+    pooled naive (each league's frozen 2023/24 H/D/A) − 0.010; per-league lines (reported, not gated).
+    THE LEAGUES' WINDOW FENCE (addendum 178 R8; PD in leagues_window.DECLARATION_IDS by ARCHITECT 2026-11-02 16:35 ET,
+    addendum 222 item 4(b)): a walked league-season the fence covers (leagues_window.fence_cutoff: leagues-pd-v1's
+    declared_at, 2026-11-02T18:10:00Z, until its verdict is recorded) is walked only THROUGH the cut
+    (run_soccer_backtest through=: predict-then-update, so every row it returns equals the uncut walk's), and a cohort
+    fixture kicking off after the cut is never scored: it stays pending under CONFIRM_FENCE_NOTE and is listed in
+    `fenced_window`, so the read is not complete and --record refuses while one stands. Nothing is picked between the
+    two lanes: the cohort, its freeze and its substitutions are unchanged; only no fenced figure is read."""
     from src.db.database import session_scope
+    from src.walters.leagues_window import fence_cutoff
     from src.walters.soccer_backtest import run_soccer_backtest
 
     e, surv, params = confirming()
@@ -1320,16 +1343,23 @@ def confirmation_read() -> dict:
         census = [walk_census(s, code, season) for code, season in walked]     # C2
         orphans = stale_orphans(s, [i for i in want if i not in by_id])
         s.rollback()
+    cuts = {(code, season): fence_cutoff(code, season) for code, season in walked}    # None = no fence (R8)
+    fenced_ids = sorted((i for i in want if i in by_id and cuts.get((by_id[i]["code"], by_id[i]["season"])) is not None
+                         and by_id[i]["kickoff"] is not None
+                         and by_id[i]["kickoff"] > cuts[(by_id[i]["code"], by_id[i]["season"])]),
+                        key=lambda i: (by_id[i]["kickoff"], i))
     for code, season in walked:
         for r in run_soccer_backtest(code, season, MIN_PRIOR, dixon_coles_rho=params["rho"],
                                      elo_goal_coeff=params["elo_goal_coeff"], stage_filter=is_regular,
                                      batch_same_kickoff=BATCH_SAME_KICKOFF,
-                                     confirmation_scoring=True) or []:     # Codex P1s on #373: the substitution rule
+                                     confirmation_scoring=True,     # Codex P1s on #373: the substitution rule
+                                     through=cuts[(code, season)]) or []:   # the window fence (addendum 222 4(b))
             if r["match_id"] in want:
                 priced[r["match_id"]] = r
     key = {"H": "p_home", "D": "p_draw", "A": "p_away"}
-    scored = sorted((i for i in want if i in priced and i in by_id and not by_id[i]["unscoreable"]),
-                    key=lambda i: (by_id[i]["kickoff"], i))
+    fenced_set = set(fenced_ids)
+    scored = sorted((i for i in want if i in priced and i in by_id and not by_id[i]["unscoreable"]
+                     and i not in fenced_set), key=lambda i: (by_id[i]["kickoff"], i))
     per: dict[str, dict] = {}
     ll_m = ll_n = 0.0
     for i in scored:
@@ -1345,6 +1375,8 @@ def confirmation_read() -> dict:
     pending = sorted(want - set(scored))
 
     def why(i):
+        if i in fenced_set:
+            return "fenced"                                    # CONFIRM_FENCE_NOTE (addendum 222 item 4(b))
         f = by_id.get(i)
         if f is None:
             return "stale_orphan" if i in orphans else "not stored as an eligible fixture"
@@ -1371,6 +1403,9 @@ def confirmation_read() -> dict:
                               and co["state"] == "frozen"),
            "census": census,
            "per_league": per,
+           # the leagues' window fence (addendum 222 item 4(b)): cohort fixtures after a fenced league's cut, pending
+           "fenced_window": [{"id": i, "code": by_id[i]["code"], "kickoff": by_id[i]["kickoff"]} for i in fenced_ids],
+           "fence_note": CONFIRM_FENCE_NOTE if fenced_ids else None,
            # recordable only as the WHOLE frozen cohort, every fixture labelled
            "complete": co["state"] == "frozen" and not pending and n == plan["n_games"]}
     if n:

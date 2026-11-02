@@ -250,8 +250,9 @@ def _expansion_binds(code: str, entries: dict) -> str | None:
     shadow before it is declared); after it, predict_as_of rows labelled with the league's declared_at." The step runs
     bare after the five leagues' syncs (ARCHITECT 2026-10-30 12:45 ET, addendum 185 D2), so the steps before it name
     all five; the export binds a league only through its declaration in the registry (soccer_expansion.
-    shadow_binding: the four under leagues_window.DECLARATION_IDS through leagues_window.declaration and checked,
-    the experiment's own surviving league, PD, through confirming() and its checks). ONE registry source (pass-3
+    shadow_binding: the leagues of leagues_window.DECLARATION_IDS through leagues_window.declaration and checked, PD
+    included once its leagues-pd-v1 entry is in the registry (ARCHITECT 2026-11-02, addendum 222 item 4(b)); PD
+    without that entry, the experiment's own surviving league, through confirming() and its checks). ONE registry source (pass-3
     findings 3/12): the answer is shadow_binding's alone, read from the registry the export itself reads at call time
     (soccer_expansion._reg_paths: registry.LEDGER), never `entries` (read_ledgers' copy, which coverage(registry_path=)
     could point elsewhere): `entries` is taken for SHADOW_BINDS' signature and not read. A binding the export refuses
@@ -264,7 +265,10 @@ def _expansion_binds(code: str, entries: dict) -> str | None:
         return f"{code} is not a league of {sx.EID}"
     b = sx.shadow_binding(code)
     if b["state"] == sx.SHADOW_NOT_DECLARED:
-        return (f"{code} is not declared (no registry entry {lw.DECLARATION_IDS.get(code, sx.EID)}; addendum 178 R5: "
+        # a surviving league ruled onto the cohort reader (PD, addendum 222 item 4(b)) binds through its own entry or,
+        # without it, soccer-expansion-v1: neither is held
+        ids = lw.DECLARATION_IDS.get(code, sx.EID) + (f" or {sx.EID}" if code in lw.SURVIVING_RULED else "")
+        return (f"{code} is not declared (no registry entry {ids}; addendum 178 R5: "
                 "nothing is a shadow before it is declared)")
     if b["state"] != sx.SHADOW_EXPORTING:
         return f"its binding of {code} is {b['state']} (soccer_expansion.shadow_binding, the export's own)"

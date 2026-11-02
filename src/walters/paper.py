@@ -628,8 +628,8 @@ def close_record(days: int, now: datetime | None = None) -> dict:
     holds a stored Kalshi 1X2 leg: three_way_close (addendum 150), _score_three's order of exclusion, the log-loss on
     the normalized three-way probabilities, favourite_3 (the draw included, flagged), the overround and the close
     kind kept per row, each unpriced game counted by its cause (UNPRICED).
-    THE LEAGUES' WINDOW FENCE (ARCHITECT 2026-10-30, addendum 178 R8; addendum 181 item 1(b)): a 2026/27 game of SA,
-    BL1, FL1 or ELC kicking off after that league's cut (its declared_at; leagues_window.PRE_DECLARATION_CUT while no
+    THE LEAGUES' WINDOW FENCE (ARCHITECT 2026-10-30, addendum 178 R8; addendum 181 item 1(b)): a 2026/27 game of PD
+    (addendum 222 item 4(b)), SA, BL1, FL1 or ELC kicking off after that league's cut (its declared_at; leagues_window.PRE_DECLARATION_CUT while no
     entry exists), while its verdict is not recorded (leagues_window.fence_cutoff), is counted `fenced_window` and
     never scored: the window's outcomes have one reader, the cohort reader. Every other competition: unchanged.
     Read-only: one session, rolled back."""
@@ -870,6 +870,57 @@ def leagues_season(codes, season: str, declared: date, now: datetime | None = No
                 status[m.id] in NOT_GAMES for m in games), "record": rec, "to_come": come, "quality": quality,
                 "from_declared": len(fixtures),
                 "projected": None if nth is None else {"date": nth.utc_date.date(), "match_id": nth.id}}
+        s.rollback()
+    return out
+
+
+def window_projection(starts: dict, season: str) -> dict:
+    """ARCHITECT 2026-11-02 13:10 ET, addendum 220 item 5, in part: "the calendar step of 12-06 (step (c): the 60th
+    fixture per league, ELC first) RECOUNTED from this stamp by Code from the stored schedule and written as the
+    projection it is". 156 item 1's rule (every game assumed to get a three-way close), counted from each league's
+    own start. `starts`: {code: a naive UTC datetime (a declared league's declared_at, R3: a fixture counts only if its
+    kickoff is strictly after the instant) or a date (a league not declared: its UTC day on, as leagues_season's
+    projection reads a date)}. Per code: the season's stored games (NOT_GAMES left out), in kickoff order then id, after
+    the start; `after` their count, `projected` the 60th's {date (its kickoff's UTC date), kickoff, match_id} or None
+    when fewer than 60 are stored (law 4: no date). The rows the window gives no slot are left out as the cohort
+    reader leaves them out (addendum 220 item 2: "an AWD/WO game is unscoreable and consumes no slot"): a row whose
+    status_raw is AWD or WO (soccer_expansion.AWARDED) and a row whose stored round label soccer_expansion.placement
+    names a play-off (F3); `excluded` counts them {"awarded", "not_regular"}. A label the code cannot place is counted
+    (the cohort reader refuses on it at its read; a projection names no verdict). THE SCHEDULE ONLY: a kickoff, a
+    status, its raw code, the round label and an id are read, never a score, a capture or a price, so no figure of
+    either arm on any game (the fence, addendum 181 item 4, has nothing to bar here, PD included). Read-only: one
+    session, rolled back."""
+    from sqlalchemy import select
+
+    from src.db.database import session_scope
+    from src.db.schema import Competition, Match
+    from src.ingestion.kalshi_match import NOT_GAMES
+    from src.walters.soccer_expansion import AWARDED, placement
+
+    out: dict = {}
+    with session_scope() as s:
+        for code, start in starts.items():
+            rows = s.execute(select(Match.id, Match.utc_date, Match.status, Match.status_raw, Match.stage)
+                             .join(Competition, Competition.id == Match.competition_id)
+                             .where(Competition.code == code, Match.season == season)
+                             .order_by(Match.utc_date, Match.id)).all()
+            is_instant = isinstance(start, datetime)
+            fixtures, excluded = [], {"awarded": 0, "not_regular": 0}
+            for mid, ko, st, raw, stage in rows:
+                if str(getattr(st, "value", st) or "").lower() in NOT_GAMES or ko is None:
+                    continue
+                if not (ko > start if is_instant else ko.date() >= start):
+                    continue
+                if placement(stage) == "playoff":
+                    excluded["not_regular"] += 1
+                elif (raw or "").strip().upper() in AWARDED:
+                    excluded["awarded"] += 1
+                else:
+                    fixtures.append((mid, ko))
+            nth = fixtures[WINDOW_GAMES - 1] if len(fixtures) >= WINDOW_GAMES else None
+            out[code] = {"start": start, "games": len(rows), "after": len(fixtures), "excluded": excluded,
+                         "projected": None if nth is None else {"date": nth[1].date(), "kickoff": nth[1],
+                                                                "match_id": nth[0]}}
         s.rollback()
     return out
 

@@ -121,10 +121,11 @@ def _league_season(code, base, start=datetime(2026, 8, 15, 14, 0), n_rounds=20):
 def test_1_shadow_entry_equals_the_gate_path_row_for_row(ledger, code):
     """158 item 2(a) on the export's own function: every finished regular-round game the gate scores is priced by
     shadow_entry (prospective=False) within PARITY_TOL, and equal once rounded by shadow_prob; nothing priced by one
-    path only. PD (never fenced) and SA with its verdict recorded (the fence lifted)."""
+    path only. PD and SA each with its verdict recorded (the fence lifted; PD is fenced as the four are, ARCHITECT
+    2026-11-02, addendum 222 item 4(b))."""
     from src.db.database import session_scope
     from src.walters.soccer_expansion import unscoreable
-    _world(ledger, decl("SA", verdict={"verdict": "PASS"}))
+    _world(ledger, decl("SA", verdict={"verdict": "PASS"}), decl("PD", verdict={"verdict": "PASS"}))
     _league_season(code, 5000)
     gate = {r["match_id"]: r for r in lc.gate_rows(code, SEASON, -0.1, 0.0008)}
     assert gate
@@ -428,7 +429,10 @@ def test_9_the_audit_reads_the_exports_rows_present_and_equal(ledger, tmp_path):
     w = lw.read(("SA",), now=NOW, export_dir=str(out))["SA"]
     assert w["state"] == "ready" and w["stored_present"] == 60 and w["stored_missing"] == 0
     a = lw.score(w, export_dir=str(out), now=NOW)["audit"]
-    assert a == {"present": 60, "missing": 0, "findings": [], "expected": [], "unreadable": [], "superseded": 0}
+    assert a == {"present": 60, "missing": 0, "findings": [], "expected": [], "unreadable": [], "superseded": 0,
+                 "no_prospective_row": [], "no_row_on_carrying_page": [],   # addendum 222 item 4(a): none excluded
+                 # the first file whose header binding carried leagues-sa-v1 (export_shadow writes it in every file)
+                 "first_carrying_page": (AT + timedelta(hours=1) - timedelta(minutes=5)).isoformat()}
 
 
 def test_9_rows_exported_before_earlier_games_finished_are_counted_and_expected(ledger, tmp_path):
@@ -451,8 +455,12 @@ def test_9_rows_exported_before_earlier_games_finished_are_counted_and_expected(
     assert L[1] == ("  - SA · FINDINGS 0: differences on rows with pending_before = 0, or with no pending_before on "
                     "the row (addendum 185 D4)")
     assert L[2].startswith(f"  - SA · EXPECTED {len(a['expected'])}: differences on rows with pending_before > 0")
-    assert all(x.startswith("    EXPECTED match ") and " · pending_before " in x for x in L[3:])
-    assert len(L) == 3 + len(a["expected"])
+    assert all(x.startswith("    EXPECTED match ") and " · pending_before " in x for x in L[3:-2])
+    assert L[-2].startswith("  - SA · excluded by cause (no slot): no prospective row: the entry was not on the "
+                            "host's tag 0 (")                # addendum 222 item 4(a), counted 0
+    assert L[-1].startswith("  - SA · FINDING · no prospective row on a page whose tag carried the entry 0 (")
+    assert L[-1].endswith(f"export directory: exported_at {(AT + timedelta(minutes=5)).isoformat()})")
+    assert len(L) == 5 + len(a["expected"])
 
 
 # ------------------------------------------------------------------------------------------- 10. consumers --
@@ -468,7 +476,9 @@ def test_10_the_consumers_read_the_new_rows(ledger, tmp_path):
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "deploy" / "hosting"))
     import coverage_map as cm
     assert lw.EXPORT_PREFIX == sx.FILE_PREFIX
-    _world(ledger, decl("SA"))
+    # PD with its leagues-pd-v1 verdict recorded (addendum 222 item 4(b): PD is fenced as the four are; a recorded
+    # verdict lifts it), so PD's game is graded; SA's window game is fenced
+    _world(ledger, decl("SA"), decl("PD", verdict={"verdict": "PASS"}))
     now = AT + timedelta(days=1)
     for code, base in (("PD", 1000), ("SA", 3000)):
         t = _teams(code)
@@ -477,6 +487,8 @@ def test_10_the_consumers_read_the_new_rows(ledger, tmp_path):
     out = tmp_path / "ex"
     path, doc = _export(now, out=out)
     assert {r["competition"] for r in doc["predictions"]} == {"PD", "SA"}
+    assert {r["competition"]: r["candidate"] for r in doc["predictions"]} == {"PD": "leagues-pd-v1",
+                                                                            "SA": "leagues-sa-v1"}
     calls = sx.last_calls(str(out))
     assert set(calls) == {1900, 3900} and calls[3900]["exported_at"] == now.isoformat()
     _finish(1900, 1, 0)
@@ -965,7 +977,9 @@ def test_18_the_audits_row_is_the_last_before_kickoff_the_earlier_counted_supers
     assert rows[2059]["exported_at"] == (games[-1][1] - timedelta(minutes=5)).isoformat()
     w = lw.read(("SA",), now=NOW, export_dir=str(out))["SA"]
     a = lw.score(w, export_dir=str(out), now=NOW)["audit"]
-    assert a == {"present": 60, "missing": 0, "findings": [], "expected": [], "unreadable": [], "superseded": 60}
+    assert a == {"present": 60, "missing": 0, "findings": [], "expected": [], "unreadable": [], "superseded": 60,
+                 "no_prospective_row": [], "no_row_on_carrying_page": [],
+                 "first_carrying_page": (AT + timedelta(minutes=5)).isoformat()}
     assert lw.audit_lines("SA", a)[0].endswith(" · superseded 60 " + lw.SUPERSEDED_NOTE)
 
 

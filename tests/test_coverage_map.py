@@ -490,8 +490,8 @@ def test_pd_with_no_registry_entry_reads_not_declared(env):
     Path(reg.LEDGER).write_text(json.dumps(ENTRIES))
     assert sx.shadow_binding("PD")["state"] == sx.SHADOW_NOT_DECLARED
     f = cm.SHADOW_BINDS["export-soccer-expansion-shadow"]
-    assert f("PD", {}) == ("PD is not declared (no registry entry soccer-expansion-v1; addendum 178 R5: nothing is a "
-                           "shadow before it is declared)")
+    assert f("PD", {}) == ("PD is not declared (no registry entry leagues-pd-v1 or soccer-expansion-v1; addendum 178 "
+                           "R5: nothing is a shadow before it is declared)")   # PD's two bindings (addendum 222 4(b))
     Path(reg.LEDGER).write_text(json.dumps(ENTRIES + [SX_RUN]))
     assert sx.shadow_binding("PD")["state"] == sx.SHADOW_EXPORTING and f("PD", {}) is None
 
@@ -582,7 +582,10 @@ RULED = {   # addendum 111 item 2's examples, on the tracked roadmap and registr
     "MLB": ("LIVE", "LIVE"), "PL": ("LIVE", "LIVE"), "NFL": ("MARKET-ONLY", "MARKET-ONLY · shadow v1"),
     "NHL": ("MARKET-ONLY", "MARKET-ONLY · shadow v7"), "UNL": ("MARKET-ONLY", "MARKET-ONLY · shadow v2"),
     "PD": ("MARKET-ONLY", "MARKET-ONLY · shadow v1"), "NCAA": ("MARKET-ONLY", "MARKET-ONLY"),
-    **{c: ("MARKET-ONLY", "MARKET-ONLY") for c in ("CL", "EFL", "UEL", "SA", "BL1", "FL1", "ELC")},
+    **{c: ("MARKET-ONLY", "MARKET-ONLY") for c in ("CL", "EFL", "UEL", "BL1")},
+    # ARCHITECT 2026-11-02 13:10 ET, addendum 220: SA, FL1 and ELC declared (leagues-<code>-v1), so the export binds
+    # them (addendum 178 R5) and the declared leagues lane names them; BL1 is not declared (its moved line, 11-09)
+    **{c: ("MARKET-ONLY", "MARKET-ONLY · shadow v1") for c in ("SA", "FL1", "ELC")},
     "EL1": ("UNKNOWN", "UNKNOWN"),
 }
 

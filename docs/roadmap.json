@@ -130,7 +130,7 @@
       "issue": 322,
       "registry_id": null,
       "competitions": ["SA", "BL1", "FL1", "ELC"],
-      "state": "to declare",
+      "state": "declared",
       "steps": [
         {
           "what": "the re-declaration on 2026/27 games, to Code as an addendum; it dates the steps after it",
@@ -154,10 +154,19 @@
           "what": "the candidate declared per league: soccer_elo_poisson's current constants, trained to 2025/26, frozen (no retuning on 2026/27), with the pre-registered window (the first 60 FINISHED 2026/27 games per league with a three-way close, counted from the declaration) and the bar written before any result: the candidate's log-loss below the close's on that window, a tie a rejection (CONTRIBUTING law 3); each league declared on its own when its parity receipt and cohort reader are in hand and receipt 4(a) is read, no earlier than 10-30 and no later than 11-06, its window counted from its own declaration (addendum 158 item 2(c); a declaration before 11-06 is a moved line); precondition (addendum 181 item 1): a league is declared only after the fence is live on the host, v1.6.2 deployed and its receipt in hand; if v1.6.2 is not on the host by 11-06 the declarations move with moved lines that day (ARCHITECT 2026-10-31 11:50 ET, addendum 191 item 2(c): written into the step's text, not a moved line); the lane's state becomes declared",
           "owner": "architect",
           "due": "2026-11-06",
+          "done": {
+            "date": "2026-11-02",
+            "receipt": "addendum 220"
+          }
+        },
+        {
+          "what": "BL1's declaration (ARCHITECT 2026-11-02 13:10 ET, addendum 220 item 4): its parity receipt with rows, read after the Bundesliga round of 11-06/07 (the architect's laptop block, Monday 11-09 morning), and the declaration the same day, its window counted from its own stamp at the bar of addendum 220 item 3; until then BL1 has no registry entry (leagues-bl1-v1) and its pre-declaration fence stands, cut at 2026-10-30T15:00:00Z (addendum 181 item 1(b)); the lane reads \"declared (4 of 5)\" (addendum 220 item 5: PD, SA, FL1 and ELC declared at 2026-11-02T18:10:00Z; the state field holds declared, the nearest of roadmap.STATES, which has no such value)",
+          "owner": "architect",
+          "due": "2026-11-09",
           "done": null
         },
         {
-          "what": "step (c) (addendum 156 item 1): the 60th 2026/27 fixture on or after the 2026-11-06 declaration is played, ELC first: ELC 2026-12-06 (match 9834); then SA 2026-12-20 (match 17433), BL1 2027-01-09 (match 18545), FL1 2027-01-16 (match 19476), from the leagues receipt on #322 (dated by addendum 164 item 1). The date assumes every game gets a three-way close (addendum 164 item 2 is what makes that honest); it moves forward with its moved line if the close share lags at the first read",
+          "what": "step (c) (addendum 156 item 1), RECOUNTED from the declarations' stamp 2026-11-02T18:10:00Z (addendum 220 item 5): the 60th 2026/27 fixture per declared league kicking off after the stamp is played, ELC first. A PROJECTION pending its receipt: the recount from the stored schedule (scripts/leagues_close_receipt.py, read-only, each league from its registry entry's declared_at, PD included; BL1 from its own declaration) is the operator's block, and until its console is read the date stands as the 11-06 count had it (ELC 2026-12-06, match 9834; then SA 2026-12-20, match 17433; BL1 2027-01-09, match 18545; FL1 2027-01-16, match 19476; PD not yet counted), a count that says otherwise moving it with its moved line. The window's first page, as the code runs it, is the first host shadow-export file (export-soccer-expansion-shadow) written on a release tag carrying the declaration entries: the host deploys tags only and the export binds a league from the tag's own docs/registry/experiments.json, so the 09:50Z soccer-morning-after of 2026-11-03, the first soccer chain on v1.6.2, binds no PD, SA, FL1 or ELC entry and carries no row labelled 2026-11-02T18:10:00Z (PD's rows there are labelled with soccer-expansion-v1's declared_at; on a tag carrying the entries PD's rows bind to leagues-pd-v1, ARCHITECT 2026-11-02 16:35 ET, addendum 222 item 4(b)); that file is named here when it lands, and a window game kicking off before it has no stored prospective row labelled with the stamp and is EXCLUDED BY CAUSE, \"no prospective row: the entry was not on the host's tag\", named and counted by the cohort reader and its receipt, consuming no slot (addendum 222 item 4(a): the window still counts from the stamp; ELC's midweek games the likely ones), so a league's 60th moves one fixture later for each. The date assumes every game gets a three-way close (addendum 164 item 2 is what makes that honest); it moves forward with its moved line if the close share lags at the first read",
           "owner": "calendar",
           "due": "2026-12-06",
           "done": null
@@ -166,7 +175,16 @@
       "earliest_live": null,
       "live_needs": "addendum 155 item 4: a PASS on the pre-registered window (the candidate's log-loss below the Kalshi three-way close's on the first 60 FINISHED 2026/27 games per league with a three-way close, counted from the declaration; a tie a rejection), read when the 60th game of a league is final (a calendar step: its date accrues), then a confirmation of 60 more qualifying games at the same bar, independently per league (addendum 158 item 2(a)); earliest_live is set by the confirmation, never by a date. SA, BL1, FL1 and ELC stay MARKET-ONLY throughout.",
       "vs_close": "behind. The closing market beat the candidate by 0.042 (SA), 0.042 (BL1), 0.026 (FL1) and 0.028 (ELC) of log-loss on the test seasons.",
-      "moved": []
+      "moved": [
+        {
+          "moved_on": "2026-11-02",
+          "which": "BL1's declaration (ARCHITECT 2026-11-02 13:10 ET, addendum 220 item 4): its parity receipt with rows, read after the Bundesliga round of 11-06/07 (the architect's laptop block, Monday 11-09 morning), and the declaration the same day, its window counted from its own stamp at the bar of addendum 220 item 3; until then BL1 has no registry entry (leagues-bl1-v1) and its pre-declaration fence stands, cut at 2026-10-30T15:00:00Z (addendum 181 item 1(b)); the lane reads \"declared (4 of 5)\" (addendum 220 item 5: PD, SA, FL1 and ELC declared at 2026-11-02T18:10:00Z; the state field holds declared, the nearest of roadmap.STATES, which has no such value)",
+          "was": "2026-11-06",
+          "now": "2026-11-09",
+          "why": "BL1's declaration moves from 2026-11-06 to 2026-11-09: the parity receipt with rows is read after the Bundesliga round of 11-06/07 (my laptop block, Monday 11-09 morning), and the declaration follows it the same day; no bar moves; the other four leagues' declarations stand at 11-02.",
+          "ruling": "ARCHITECT 2026-11-02 13:10 ET, addendum 220 item 4 (MOVED LINE, verbatim in why)"
+        }
+      ]
     },
     {
       "lane": "nhl",

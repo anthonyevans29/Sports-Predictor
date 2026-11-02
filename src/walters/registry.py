@@ -226,12 +226,36 @@ def record_verdict(eid: str, verdict: str, ruling: str, path: str = LEDGER) -> d
     return e
 
 
+# A LIVE MODEL'S CERTIFICATION (ARCHITECT 2026-11-02 10:15 ET, addendum 214 item 4(b), verbatim in part: "nfl_elo_v1's
+# entry gets the regression line verbatim (stream 676, the 70–80% band 7.7pp, #775 issuecomment-6580087145) and the
+# state "UNCERTIFIED — shadow, confirmation window (addendum 214 item 3)", with the window's definition and bar written
+# in."). An entry naming the model a predict path writes (`model_version`, the code's own id for it) whose
+# `certification` starts with UNCERTIFIED withholds that model: it is no model of record, and no production. Addendum 217
+# item 5: "the tile reads the registry" (deploy/hosting/coverage_map.model_status reads uncertified_live).
+UNCERTIFIED = "UNCERTIFIED"
+
+
+def uncertified(e: dict) -> bool:
+    """True when the entry's certification withholds its model (the state starts with UNCERTIFIED)."""
+    return isinstance(e, dict) and str(e.get("certification") or "").startswith(UNCERTIFIED)
+
+
+def uncertified_live(model_version: str, entries) -> dict | None:
+    """The registry entry that withholds `model_version` (the id a predict path writes, e.g. nfl_predict.MODEL_VERSION),
+    or None: the first entry whose `model_version` is that id and whose certification is UNCERTIFIED."""
+    return next((e for e in entries if isinstance(e, dict) and model_version
+                 and e.get("model_version") == model_version and uncertified(e)), None)
+
+
 def production_allowed(eid: str, path: str = LEDGER) -> tuple[bool, str]:
     """Doctrine check: production only after a PASS AND a completed
-    confirmation (recorded with record_confirmation)."""
+    confirmation (recorded with record_confirmation). An UNCERTIFIED
+    certification (addendum 214 item 4(b)) refuses whatever else the entry holds."""
     e = get(eid, path)
     if e is None:
         return False, "not in the registry"
+    if uncertified(e):
+        return False, f"certification {e['certification']}"
     if not e.get("verdict") or e["verdict"]["verdict"] != "PASS":
         return False, "no PASS verdict"
     c = e.get("confirmation")

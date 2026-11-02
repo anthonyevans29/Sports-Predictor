@@ -121,10 +121,13 @@ become MORE binding under an income goal, never less."
   pot; PL predictions live; positive-edge cohort (>=+5pp vs market) is
   6/16 — big anti-market edges are ANTI-PREDICTIVE; n=30 pre-committed
   read pending. Market-first discipline is doctrine.
-- **NFL**: nfl_elo_v1 **LIVE since Week 3** (2026-09-22). Export
-  carries market_divergence_pp + quarantine (|div|>=15pp) — contract
-  fields; consumer treats quarantined rows as never-straight-plays
-  (mega-edges went 1-5 in weeks 1-2).
+- **NFL**: nfl_elo_v1 LIVE from Week 3 (2026-09-22) and UNCERTIFIED
+  since 2026-11-02 (addendum 214): on the corrected 2024 warm-up it
+  fails the frozen phase-2 gate's calibration band (70–80%: 7.7pp vs
+  7.0). NFL is MARKET-ONLY; the pages, shadows and record keep running;
+  nfl_elo_v2 (one calibration term fitted on 2024 only) is declared
+  11-05 and run once through the UNCHANGED gate on 11-06 (addendum 215);
+  v1's forward read is after the Super Bowl. The bar did not move.
 - **NHL**: data certified (4,410 games, FT/AOT/AP mapped, true-zero
   nulls); Kalshi KXNHLGAME live. NO MODEL YET — the frozen gate stands
   (`nhl-backtest`). **PHASE 2 CLOSED 2026-09-25:** v1-v4 all FAILED

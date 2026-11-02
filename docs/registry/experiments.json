@@ -1651,6 +1651,96 @@
     "ratified": "ARCHITECT 2026-11-01 10:05 ET, addendum 198 (pre-window, frozen; verbatim in docs/specs/pl-availability-v1.md)"
   },
   {
+    "id": "nfl-elo-v1",
+    "sport": "nfl",
+    "lane": "nfl-confirm (#780; the live NFL model since Week 3, 2026-09-22; UNCERTIFIED by ARCHITECT 2026-11-02 10:15 ET, addendum 214)",
+    "candidate": "nfl_elo_v1 (src/walters/nfl_predict.MODEL_VERSION; src/walters/nfl_backtest.NFLEloConfig) with its frozen constants unchanged: k_factor 20, home_advantage 48, season_regression 0.25, mov_base 2.2, default_rating 1500; preseason excluded; the NFL competition only (nfl_scoped)",
+    "declaration": "pre-registry: the NFL PHASE 2 GATE, written 2026-09-09 before any model code existed (BACKLOG, 2026-09-09); the forward confirmation declared by ARCHITECT 2026-11-02 10:15 ET, addendum 214 item 3, amended by ARCHITECT 2026-11-02 10:35 ET, addendum 215 item 1",
+    "training_cutoff": "walk-forward; warm-up season 2024 (ratings accrue, nothing scored), preseason excluded",
+    "test_set": "NFL 2025 regular season + postseason (nfl-backtest's scored window; warm-up 2024, preseason excluded)",
+    "gate": "the NFL PHASE 2 GATE, frozen 2026-09-09 before any model code existed (BACKLOG, 2026-09-09), verbatim: \"PASS REQUIRES BOTH: (1) model mean log-loss <= baseline mean log-loss MINUS 0.010; (2) calibration: in every 10pp band with n>=30, |realized - stated mean| <= 7pp. FAIL on either -> model does not ship, iterate or park\". Walk-forward over finished NFL games in utc_date order, preseason excluded; the baseline the constant home probability fitted on the warm-up season's realized home win rate only. \"These numbers are frozen now \u2014 the backtest may not be re-read against friendlier criteria.\"",
+    "confirmation_window": "ARCHITECT 2026-11-02 10:35 ET, addendum 215 item 1 (amending addendum 214 item 3; the 100-game window is withdrawn): EVERY NFL regular-season and postseason game with a kickoff strictly after 2026-11-02 15:15Z that reaches FINISHED with a stored close, through the Super Bowl (2027-02-08). The bar is the frozen gate's own two criteria applied to the window, nothing friendlier: (1) the model's mean log-loss <= the schedule-naive baseline's - 0.010, the baseline the constant home probability the gate defines (the warm-up's realized home rate, on the complete 2024 season); (2) every 10pp band with n >= 30 within 7pp; a band that never reaches 30 is reported, not scored. The close's log-loss is printed beside, gating nothing. ONE read, the architect's, after the Super Bowl (2027-02-08). Its purpose is the record and the 2027 declaration: on this path alone nfl_elo_v1 does not come back in 2026.",
+    "declared_at": "2026-11-02T15:15:00Z",
+    "declared_at_note": "the forward confirmation's declaration (addendum 214's stamp, 10:15 ET); the gate itself predates the registry: written 2026-09-09 before any model code (BACKLOG 2026-09-09), see `declaration` and `history`",
+    "status": "confirming",
+    "run": {
+      "run_at": "2026-09-09 (pre-registry; BACKLOG \"NFL GATE VERDICT 2026-09-09\")",
+      "n_scored": null,
+      "ids_sha256": null,
+      "ids_file": null,
+      "result": {
+        "log_loss": 0.6361,
+        "baseline_log_loss": 0.6911,
+        "worst_band_gap_pp": 6.6
+      },
+      "prior_reads": [],
+      "prior_read_count": null,
+      "note": "the 2026-09-09 run predates the registry: scored match ids not recorded. The warm-up was short by 16 games (the provider's no-status 2024 games stored SCHEDULED; #763/#493, fixed by #775): see `regression`"
+    },
+    "verdict": {
+      "verdict": "VOID",
+      "ruling": "ARCHITECT 2026-11-02 10:15 ET, addendum 214 item 2, verbatim: \"THE RULING. The gate was \"written before any model code exists\" and says \"FAIL on either \u2192 the model does not ship \u2026 the backtest may not be re-read against friendlier criteria\" (BACKLOG, 2026-09-09). The model was promoted on a warm-up short by 16 games; on the complete warm-up it fails criterion (2) by 0.7pp on one band of 45 \u2014 one game's worth. Law 3 does not have a margin: ties and near-misses reject, and the bar does not move because the week was good. nfl_elo_v1's certification was earned on defective data and is VOID on the evidence; the model is UNCERTIFIED as of this addendum. NFL goes MARKET-ONLY (PAPER, exactly as NHL and NCAA: no model-edge call, no units, no position; the value shadow lines continue unstaked as the record) until a forward confirmation passes. This takes effect NOW for the Desk's calls: tonight's MNF page (SEA 0.5u on the slate) is read for the record and NOT PLACED; my check-ins say so until the host's code says it.\"",
+      "at": "2026-11-02T15:15:00Z",
+      "was": {
+        "verdict": "PASS",
+        "ruling": "NFL GATE VERDICT 2026-09-09 (BACKLOG, verbatim, its markdown bold stripped): \"PASS \u2014 decisively. Model 0.6361 vs baseline 0.6911 (margin 0.055 = 5.5x required); all four n>=30 bands calibrated <=7pp (worst 6.6pp in 40-50% \u2014 stated 45.5% realized 38.9%, road-favorite shading, WATCH at rehearsal, not defect).\"",
+        "at": "2026-09-09"
+      }
+    },
+    "model_version": "nfl_elo_v1",
+    "competitions": [
+      "NFL"
+    ],
+    "certification": "UNCERTIFIED \u2014 shadow, confirmation window (addendum 214 item 3)",
+    "certification_note": "ARCHITECT 2026-11-02 10:15 ET, addendum 214 item 4(b): the entry carries the regression line verbatim and the state \"UNCERTIFIED \u2014 shadow, confirmation window (addendum 214 item 3)\", with the window's definition and bar written in (the window and bar as amended by addendum 215 item 1). The Desk calls every NFL row PASS, units 0, while it holds (desk_policy.NFL_MARKET_ONLY_RULE, #778); its predictions stay on every NFL page as a shadow, labelled uncertified (item 3: \"THE FORWARD CONFIRMATION, declared now, read once: candidate = nfl_elo_v1 unchanged (frozen constants; the corrected data from the next tag), as a SHADOW: its predictions keep being exported on every NFL page, labelled uncertified.\"). Addendum 217 item 5: \"the tile reads the registry\": coverage reads this field (registry.uncertified_live).",
+    "regression": {
+      "line": "stream 676, the 70\u201380% band 7.7pp, #775 issuecomment-6580087145",
+      "receipt": "#775 issuecomment-6580087145 (the third run, the laptop, #775's head ec01b13 on a .backup copy outside data/)",
+      "before": {
+        "warm_up": "the live DB, the defective warm-up (269 games; the stream 660)",
+        "verdict": "PASS",
+        "log_loss": 0.6361,
+        "baseline_log_loss": 0.6911,
+        "need": "<= 0.6811",
+        "bands": "every band within 7pp (worst 6.6pp)"
+      },
+      "after": {
+        "warm_up": "the complete warm-up (285 games, the complete 2024 regular season and postseason; the stream 676; 2024: 334 FINISHED, 0 SCHEDULED)",
+        "verdict": "FAIL",
+        "log_loss": 0.6366,
+        "baseline_log_loss": 0.6913,
+        "need": "<= 0.6813",
+        "log_loss_criterion": "PASS",
+        "failing_band": {
+          "band": "70\u201380%",
+          "n": 45,
+          "stated": 0.744,
+          "realized": 0.667,
+          "gap_pp": 7.7,
+          "bar_pp": 7.0
+        }
+      },
+      "ruling": "ARCHITECT 2026-11-02 10:15 ET, addendum 214 item 1, verbatim: \"THE RECEIPT (#775 issuecomment-6580087145, the third run, the laptop, #775's head ec01b13 on a .backup copy outside data/): the 16 NFL games of 2024 stored SCHEDULED with both totals and no status are, under the fix, FINISHED (2024: 334 FINISHED, 0 SCHEDULED; the stream 660 \u2192 676, the warm-up 269 \u2192 285 \u2014 the complete 2024 regular season and postseason, exactly). nfl-backtest, the frozen phase-2 gate of 2026-09-09 re-run as the provenance check it is: BEFORE (the live DB, the defective warm-up) PASS \u2014 log-loss 0.6361 vs 0.6911 (need \u2264 0.6811), every band within 7pp (worst 6.6pp). AFTER (the complete warm-up) FAIL \u2014 log-loss 0.6366 vs 0.6913 (need \u2264 0.6813) PASS, but the 70\u201380% band: n = 45, stated 0.744, realized 0.667, gap 7.7pp against the frozen 7.0pp. The same model, the same constants, the same 2025 scored set; only the warm-up data became correct.\""
+    },
+    "confirmation_plan": null,
+    "confirmation_plan_note": "registry.check_plan holds one metric against a fixed bar; this window's bar is the frozen gate's two criteria (log-loss against the window's own baseline - 0.010, and every band with n >= 30 within 7pp), so no executable plan is written and record_confirmation refuses this entry. The read is the confirmation receipt script's (addendum 214 item 4(c)) and the verdict the architect's, recorded by a PR.",
+    "window_amended": "ARCHITECT 2026-11-02 10:35 ET, addendum 215 item 1, verbatim: \"THE AMENDMENT. The 70\u201380% band held 45 of the gate's 285 scored games (16%); a 100-game forward window would put about 16 games in it, and the gate skips any band under n = 30 \u2014 so criterion (2), the one nfl_elo_v1 failed, could not fail in that window, and the \"confirmation\" would be a log-loss test only, weaker than the gate it claims to confirm. Amended: nfl_elo_v1's forward window is EVERY NFL regular-season and postseason game with a kickoff strictly after 2026-11-02 15:15Z that reaches FINISHED with a stored close, through the Super Bowl; the two frozen criteria as written (bands with n \u2265 30 only; a band that never reaches 30 is reported, not scored); ONE read by me after the Super Bowl (2027-02-08). Its purpose is the record and the 2027 declaration, not a return to production in 2026: on this path alone nfl_elo_v1 does not come back this season. Code: 214 item 4(c)'s script and 4(d)'s lane carry this window and date instead of the 100-game one; nothing else in 214 changes.\"",
+    "history": [
+      {
+        "on": "2026-09-09",
+        "what": "the NFL PHASE 2 GATE written before any model code; nfl-backtest PASS the same day (BACKLOG 2026-09-09)"
+      },
+      {
+        "on": "2026-09-22",
+        "what": "LIVE from Week 3 after the Week-2 rehearsal and the GPT dry read (BACKLOG \"NFL LIVE \u2014 RATIFIED 2026-09-22\")"
+      },
+      {
+        "on": "2026-11-02",
+        "what": "UNCERTIFIED: on the complete 2024 warm-up the frozen gate reads FAIL (the 70\u201380% band 7.7pp vs 7.0); NFL MARKET-ONLY; the forward confirmation declared (addendum 214) and amended (addendum 215 item 1)"
+      }
+    ]
+  },
+  {
     "id": "nfl-elo-v2",
     "sport": "nfl",
     "lane": "nfl_elo_v1's successor (ARCHITECT 2026-11-02 10:35 ET, addendum 215 items 2-3; roadmap lane nfl-v2)",

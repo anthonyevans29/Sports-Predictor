@@ -177,7 +177,9 @@ def test_the_roadmap_lane_nfl_v2():
     assert "the preflight of the v2 harness" in ln["steps"][1]["what"]
     assert ln["steps"][3]["what"] == "the ONE run on my word, my block, the verdict the same day"
     assert "he pastes the rehearsal pages to his GPT; the read comes to me" in ln["steps"][5]["what"]
-    assert not any(x["lane"] == "nfl-confirm" for x in doc["lanes"])     # the records PR adds it, not this one
+    # the records PR (#785, addendum 214 item 4(d)) adds nfl-confirm; it sits right after this lane
+    names = [x["lane"] for x in doc["lanes"]]
+    assert names.count("nfl-confirm") == 1 and names.index("nfl-confirm") == names.index("nfl-v2") + 1
 
 
 # =================================================================================== the calibration term --

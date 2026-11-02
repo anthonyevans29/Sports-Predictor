@@ -57,7 +57,17 @@ v7"."
                    _current_production_version reads it), `predict-nfl` nfl_predict.MODEL_VERSION (no model_versions
                    row; the predict path writes that constant). The registry holds no live model (the three predate
                    it): the model of record is what the predict path resolves. No production row (or more than one):
-                   not LIVE, the reason kept on the line, and the derivation goes on.
+                   not LIVE, the reason kept on the line, and the derivation goes on. A registry entry whose
+                   `model_version` is the resolved model and whose certification is UNCERTIFIED (registry.
+                   uncertified_live; ARCHITECT 2026-11-02, addendum 214 item 4(b), and addendum 217 item 5: "the tile
+                   reads the registry") withholds it: not LIVE, the entry named on the line, and the competition is
+                   MARKET-ONLY from that entry (addendum 214 item 2: "NFL goes MARKET-ONLY"); its shadow is judged as
+                   any lane's (a confirming lane on the confirming entry: `MARKET-ONLY · shadow v1`). Its slate and
+                   its prediction rows are still watched as a LIVE model's (the SLATE gap and the rows gap; addendum
+                   214 item 3: "its predictions keep being exported on every NFL page"), beside the PAPER line. Not
+                   judged when the registry cannot be read (read_ledgers gives None, a missing file included; a
+                   roadmap that cannot be read leaves the registry judged): LIVE, its line saying "certification not
+                   judged: <why>".
       SHADOW       a roadmap lane whose `competitions` names it (addendum 111 item 2; never its prose) and (a) the lane
                    is confirming and its registry entry is confirming (a gate PASS in its declared confirmation window:
                    a shadow, never a call; not when a chain's export of that registry id refuses the competition,
@@ -175,7 +185,11 @@ gate); CL and NCAA have none and show the market line only."
     game's, a row recorded for another kickoff (its utc_date more than desk_policy.DESK_CLOCK_DRIFT from the game's
     current start: redated.redated_label, the re-dated rule) or with a kickoff that cannot be read, or a game two
     shadow exports hold, is not shown; a shadow module whose files cannot be read hides only its own competitions'
-    shadows (paper.shadow_comps), never another module's rows (Codex round 1 on #640). The value side is the side with the largest model p - mid
+    shadows (paper.shadow_comps), never another module's rows (Codex round 1 on #640). A competition whose model a
+    registry entry withholds (the `held` of model_status) reads its shadow from the family's own predictions export
+    instead (held_shadow_rows: the withheld model's last row written before kickoff in closing.FAMILIES' export_glob,
+    "UNCERTIFIED, registry <id>"; addendum 214 item 3, Codex round 1 P2 on #785), never from a shadow export, and no
+    shadow export list gains it. The value side is the side with the largest model p - mid
     above zero (the pick's own side eligible; judged at the printed precision, so a side under 0.05pp above its mid is
     none, said so; on a three-way prediction judged only with all three legs priced; a prediction whose legs are not
     the board's is never judged and carries no divergence); a divergence is (model p - mid) x 100 in pp. A game left
@@ -338,19 +352,28 @@ def family_of(code: str) -> str | None:
     return next((f for f, d in cl.FAMILIES.items() if code in d["comps"]), None)
 
 
-def read_ledgers(roadmap_path=None, registry_path=None) -> tuple[list[dict], dict, str | None]:
-    """(roadmap lanes, {registry id: entry}, why they could not be read or None). Read-only."""
+def read_ledgers(roadmap_path=None, registry_path=None) -> tuple[list[dict], dict | None, str | None]:
+    """(roadmap lanes, {registry id: entry} or None when the registry cannot be read, why either could not be read or
+    None). Read-only. Each file is read on its own: a roadmap that cannot be read leaves the registry's entries, so a
+    live model's certification (registry.uncertified_live, addendum 214 item 4(b)) is still judged; a registry that
+    cannot be read gives None, never {}, so no line reads a certification it did not judge (law 4). A registry file that
+    is not there is not read (registry.load gives [] for it, which is no reading: Codex round 1 P2 on #785); one that is
+    there and empty is read ({})."""
     from src import roadmap as rm
     from src.walters import registry as reg
+    lanes, entries, why = [], None, []
     try:
         lanes = rm.load(roadmap_path)["lanes"]
     except rm.RoadmapError as e:
-        return [], {}, f"the roadmap cannot be read: {e}"
+        why.append(f"the roadmap cannot be read: {e}")
+    path = registry_path or reg.LEDGER
     try:
-        entries = {e["id"]: e for e in reg.load(registry_path or reg.LEDGER)}
+        if not Path(path).exists():
+            raise FileNotFoundError(path)
+        entries = {e["id"]: e for e in reg.load(path)}
     except (OSError, ValueError, KeyError, TypeError) as e:
-        return [], {}, f"the registry cannot be read: {type(e).__name__}"
-    return lanes, entries, None
+        why.append(f"the registry cannot be read: {type(e).__name__}")
+    return lanes, entries, "; ".join(why) or None
 
 
 def _predict_model(step: list[str], prod) -> tuple[str | None, str]:
@@ -492,33 +515,47 @@ def shadow_of(code: str, lanes: list[dict], entries: dict, day: date) -> tuple[s
     return None, "; ".join(whys)
 
 
-def model_status(code: str, lanes: list[dict], entries: dict, prod, unread: str | None = None,
+def model_status(code: str, lanes: list[dict], entries: dict | None, prod, unread: str | None = None,
                  day: date | None = None) -> dict:
     """{status: LIVE | SHADOW | MARKET-ONLY | UNKNOWN, label: as printed, from: where it was read, shadow: the shadow's
-    tag or None}, in the ruled order (addendum 111 item 2), on `day` (default today, ET). The table is the module
-    docstring's."""
+    tag or None, held: the registry id that withholds the family's model or None}, in the ruled order (addendum 111
+    item 2), on `day` (default today, ET). The table is the module docstring's. `entries` None: the registry could not
+    be read (read_ledgers), so a LIVE line says its certification was not judged."""
+    from src.walters import registry as reg
     fam = family_of(code)
+    held = None                       # the registry entry that withholds the family's model (addendum 214 item 4(b))
     if fam:
         model, src = live_model(fam, prod)
-        if model:
-            return {"status": "LIVE", "label": "LIVE", "from": f"closing family {fam}; {src}", "shadow": None}
+        held = reg.uncertified_live(model, entries.values()) if model and entries is not None else None
+        if model and not held:
+            if entries is None:       # law 4: a certification that was not read is never a silent LIVE
+                src = f"{src}; certification not judged: {unread or 'the registry cannot be read'}"
+            return {"status": "LIVE", "label": "LIVE", "from": f"closing family {fam}; {src}", "shadow": None,
+                    "held": None}
+        if held:                      # addendum 217 item 5: "the tile reads the registry"
+            src = f"{src}, and registry {held['id']} reads it {held['certification']}"
         why_not_live = f"closing family {fam}, but {src}"     # not LIVE: the derivation goes on, the reason kept
     else:
         why_not_live = f"no closing family covers {code}"
     market = [where for where, codes in market_only_sets() if code in codes]
+    if held:                          # its model withheld: the family's competitions are market-only (addendum 214 item 2)
+        market.append(f"registry {held['id']}: {held['model_version']} uncertified, market-only")
     day = day or cl.ny_date(cl.clock())
     tag, why = (None, f"shadow not judged: {unread}") if unread else shadow_of(code, lanes, entries, day)
     if tag and market:                # the ruling's both: "MARKET-ONLY · shadow v7"
         return {"status": "MARKET-ONLY", "label": f"MARKET-ONLY · shadow {tag}",
-                "from": "; ".join(([why_not_live] if fam else []) + [", ".join(market), why]), "shadow": tag}
+                "from": "; ".join(([why_not_live] if fam else []) + [", ".join(market), why]), "shadow": tag,
+                "held": held["id"] if held else None}
     if tag:
         return {"status": "SHADOW", "label": f"SHADOW {tag}",
-                "from": "; ".join(([why_not_live] if fam else []) + [why]), "shadow": tag}
+                "from": "; ".join(([why_not_live] if fam else []) + [why]), "shadow": tag, "held": held["id"] if held else None}
     if market:
         return {"status": "MARKET-ONLY", "label": "MARKET-ONLY",
-                "from": "; ".join(([why_not_live] if fam else []) + [", ".join(market), why]), "shadow": None}
+                "from": "; ".join(([why_not_live] if fam else []) + [", ".join(market), why]), "shadow": None,
+                "held": held["id"] if held else None}
     return {"status": "UNKNOWN", "label": "UNKNOWN",
-            "from": "; ".join([why_not_live, why, "in none of the code's market-only sets"]), "shadow": None}
+            "from": "; ".join([why_not_live, why, "in none of the code's market-only sets"]), "shadow": None,
+            "held": held["id"] if held else None}
 
 
 def writer_chains(fam: str) -> list[str]:
@@ -620,6 +657,50 @@ def shadow_rows() -> tuple[dict, dict]:
     return out, failed
 
 
+def held_shadow_rows(fam: str, held: dict, exports=None) -> tuple[dict, dict]:
+    """The PAPER shadow of a withheld model (registry.uncertified_live; addendum 214 item 3: "its predictions keep being
+    exported on every NFL page"; Codex round 1 P2 on #785): ({match_id: the last row of the entry's `model_version` that
+    the family's own predictions export (closing.FAMILIES[fam]["export_glob"] in exports/) wrote before its kickoff,
+    shaped as a shadow row: its model_version, gate_verdict "UNCERTIFIED, registry <id>", the file's exported_at},
+    {source: "<source>: <Error>"} when the exports cannot be listed), shadow_rows()' shape. The family's export is read,
+    never written, and stays what it is: no SHADOW_EXPORTS entry, no shadow module. A file or row that cannot be read
+    is passed over, as a shadow module's last_calls passes it; a row with no readable kickoff is no pre-kickoff row.
+    Read-only."""
+    from src.walters import redated
+    from src.walters import registry as reg
+    ex = Path(exports) if exports is not None else c.REPO / cl.SLATE_DIR
+    pattern = cl.FAMILIES[fam]["export_glob"]
+    source = f"{cl.SLATE_DIR}/{pattern}"
+    mv, label = held["model_version"], f"{reg.UNCERTIFIED}, registry {held['id']}"
+    try:
+        paths = sorted(ex.glob(pattern)) if ex.is_dir() else []
+    except OSError as e:
+        return {}, {source: f"{source}: {type(e).__name__}"}
+    out: dict = {}
+    when: dict = {}
+    for p in paths:
+        try:
+            doc = json.loads(p.read_text(encoding="utf-8"))
+            at = redated.as_utc(doc["exported_at"])
+            rows = doc["predictions"]
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+        if at is None or not isinstance(rows, list):
+            continue
+        for r in rows:
+            pred = r.get("prediction") if isinstance(r, dict) else None
+            if not isinstance(pred, dict) or pred.get("model_version") != mv:
+                continue              # another model's row (a successor's) is no shadow of the withheld one
+            mid, ko = r.get("match_id"), redated.as_utc(r.get("utc_date"))
+            if mid is None or ko is None or at >= ko:
+                continue
+            if mid not in out or at >= when[mid]:
+                out[mid] = {**r, "model_version": mv, "gate_verdict": label, "exported_at": doc["exported_at"],
+                            "source_file": p.name}
+                when[mid] = at
+    return out, {}
+
+
 def shadow_unread(code: str, failed: dict) -> str | None:
     """Why the competition's shadows are not read: the failures of the modules whose competitions hold it
     (paper.shadow_comps, from each module's own code), "; "-joined; a failed module whose competitions are not known
@@ -704,10 +785,12 @@ def _paper_shadow(r: dict | None, g: dict, kalshi: dict | None) -> tuple[dict | 
             **v}, None
 
 
-def paper_view(x: dict, by_id: dict, kal: dict, shadows: tuple, now: datetime) -> dict:
+def paper_view(x: dict, by_id: dict, kal: dict, shadows: tuple, now: datetime,
+               searched: str = f"shadow row before kickoff in {cl.SLATE_DIR}/") -> dict:
     """The PAPER data of one MARKET-ONLY competition (the module docstring's rule): {label, ruling, kalshi_unread,
     shadow_unread, games: [{match_id, away, home, start, started, board, kalshi, kalshi_why, mismatched, shadow,
-    shadow_why}]}. Every datetime aware UTC; no raw shadow or export row is copied in."""
+    shadow_why}]}. Every datetime aware UTC; no raw shadow or export row is copied in. `searched`: what a game with no
+    row was looked for in (a withheld model's: its own rows in the family's export, held_shadow_rows)."""
     from src.walters import paper
     rows_by, failed = shadows
     unread = shadow_unread(x["code"], failed)          # only this competition's modules (Codex round 1 on #640)
@@ -730,7 +813,7 @@ def paper_view(x: dict, by_id: dict, kal: dict, shadows: tuple, now: datetime) -
         if unread:
             d["shadow_why"] = f"not read ({unread})"
         elif mid not in rows_by:
-            d["shadow_why"] = f"none (no shadow row before kickoff in {cl.SLATE_DIR}/)"
+            d["shadow_why"] = f"none (no {searched})"
         elif rows_by[mid] is None:
             d["shadow_why"] = f"{TWO_SHADOWS}: not shown"
         else:
@@ -1066,12 +1149,14 @@ def coverage(day: date | None = None, now: datetime | None = None, roadmap_path=
             finished = [g["match_id"] for g in mine if g["match_id"] in v["finished"] and not cl.started(g, now)
                         and g["match_id"] not in shown]    # its run is no done line of the day
             closing_unread = v["unread"]
+        # a withheld model's slate is still the record (addendum 214 item 3: "its predictions keep being exported on
+        # every NFL page"): its slate and rows are watched as a LIVE one's, beside the PAPER line
         slate = (slate_view(fam, mine, day, refused, now=now, void={g["match_id"] for g in void})
-                 if fam and st["status"] == "LIVE" and mine else None)
+                 if fam and (st["status"] == "LIVE" or st["held"]) and mine else None)
         comps.append({"code": code, "games": [g["match_id"] for g in mine], "void": [(g["match_id"], g["status"])
                                                                                    for g in void],
                       "status": st["status"], "status_label": st["label"], "status_from": st["from"],
-                      "shadow": st["shadow"], "family": fam, "refused": refused,
+                      "shadow": st["shadow"], "held": st["held"], "family": fam, "refused": refused,
                       "rows": sorted(by_model.values(), key=lambda m: m["model_version"]),
                       "without_rows": [g["match_id"] for g in mine if not preds.get(g["match_id"])],
                       "writers": writer_chains(fam) if fam else [], "groups": groups, "started": started,
@@ -1086,7 +1171,15 @@ def coverage(day: date | None = None, now: datetime | None = None, roadmap_path=
     by_id = {g["match_id"]: g for g in games}
     paper_codes = {x["code"] for x in paper_comps}
     for x in comps:
-        x["paper"] = paper_view(x, by_id, kal, shadows, now) if x["code"] in paper_codes else None
+        if x["code"] in paper_codes and x["held"]:
+            # a withheld model's shadow is its own predictions export (addendum 214 item 3; Codex round 1 P2 on #785):
+            # the family's export is read as it stands, and no production shadow export list gains the competition
+            held = entries[x["held"]]
+            x["paper"] = paper_view(x, by_id, kal, held_shadow_rows(x["family"], held), now,
+                                    f"{held['model_version']} row before kickoff in {cl.SLATE_DIR}/"
+                                    f"{cl.FAMILIES[x['family']]['export_glob']}")
+        else:
+            x["paper"] = paper_view(x, by_id, kal, shadows, now) if x["code"] in paper_codes else None
     return {"date": day, "now": now, "competitions": comps, "gaps": gap_lines(comps)}
 
 
@@ -1096,7 +1189,8 @@ def gap_lines(comps: list[dict]) -> list[str]:
     for x in comps:
         rows = sum(m["rows"] for m in x["rows"])
         # refused here: its line names the refusal, the rows are another machine's
-        if x["status"] == "LIVE" and not x.get("refused") and x["without_rows"]:
+        # a withheld model's rows are the confirmation's record (addendum 214 item 3): their gap is claimed as LIVE's
+        if (x["status"] == "LIVE" or x.get("held")) and not x.get("refused") and x["without_rows"]:
             line = f"{x['code']}: {_n(len(x['games']), 'GAME')}, {_n(rows, 'PREDICTION ROW')}"
             if len(x["without_rows"]) < len(x["games"]):
                 line += f", NONE FOR {', '.join(map(str, x['without_rows']))}"
@@ -1209,11 +1303,12 @@ def _games_text(x: dict) -> str:
 
 def _rows_clauses(x: dict) -> tuple[str, str | None]:
     """The rows clause and the without-rows clause (None where the line leaves it out: no row and none expected)."""
+    expected = x["status"] not in NO_ROWS_EXPECTED or bool(x.get("held"))    # a withheld model still writes them
     if x["rows"]:
         rows = "rows: " + ", ".join(f"{m['model_version']} {m['rows']}" + _computed(m) for m in x["rows"])
     else:
-        rows = f"rows: none (none expected: {x['status']})" if x["status"] in NO_ROWS_EXPECTED else "rows: none"
-    if x["rows"] or x["status"] not in NO_ROWS_EXPECTED:
+        rows = "rows: none" if expected else f"rows: none (none expected: {x['status']})"
+    if x["rows"] or expected:
         return rows, "without rows: " + (", ".join(map(str, x["without_rows"])) or "none")
     return rows, None
 

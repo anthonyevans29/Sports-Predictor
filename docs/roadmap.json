@@ -198,13 +198,19 @@
           "what": "the leaders-order receipt on #105: the four probe days (10-28, 10-30, 10-31, 11-01) read together — does landing goalieComparison leaders[0] name the starter the LIVE boxscore shows in net, per side per game",
           "owner": "code",
           "due": "2026-11-05",
-          "done": null
+          "done": {
+            "date": "2026-11-02",
+            "receipt": "#105 issuecomment-6578471513"
+          }
         },
         {
           "what": "the architect's declaration of candidate nine on that receipt, or the written no",
           "owner": "architect",
           "due": "2026-11-06",
-          "done": null
+          "done": {
+            "date": "2026-11-02",
+            "receipt": "addendum 211"
+          }
         },
         {
           "what": "the operator's sourcing decision on an external projected-starters feed: a named source with a pregame stamp, or none (ARCHITECT 2026-10-31 11:50 ET, addendum 191 item 2(a): the 12-28, 12-29, 01-20 and 01-21 steps and earliest_live 2027-01-22 stand only on a source by 11-13; the clearing, if it comes, is a later moved line)",
@@ -378,6 +384,21 @@
           "what": "my ruling: a candidate declared, or a written no",
           "owner": "architect",
           "due": "2026-11-02",
+          "done": {
+            "date": "2026-11-02",
+            "receipt": "addendum 209"
+          }
+        },
+        {
+          "what": "the operator's sourcing decision on an external pregame starters/depth-chart source for the NFL (a named source with a pregame stamp and its terms, or none) — the same date as the NHL's sourcing step, the two decisions together",
+          "owner": "operator",
+          "due": "2026-11-13",
+          "done": null
+        },
+        {
+          "what": "the STALE_BOOK_H NFL re-read as already dated, and the written declaration or no on any sourced feed",
+          "owner": "architect",
+          "due": "2026-11-16",
           "done": null
         }
       ],
@@ -440,6 +461,49 @@
       "earliest_live": "2026-11-26",
       "live_needs": "nfl_elo_v2 passes the frozen phase-2 gate on the corrected stream in ONE run on 11-06 and its two-week rehearsal reads clean, then my ruling (addendum 215 items 2-4). FAIL: NFL stays market-only for 2026, v1's forward read (addendum 215 item 1) stands, and the 2027 candidate declares in the offseason on 2024-2026 complete.",
       "vs_close": "not read. nfl_elo_v2 has scored no game; nfl_elo_v1 (uncertified, addendum 214) keeps its own record against the close on the pages.",
+      "moved": []
+    },
+    {
+      "lane": "nfl-confirm",
+      "title": "NFL: nfl_elo_v1's forward confirmation (uncertified, market-only)",
+      "issue": 780,
+      "registry_id": "nfl-elo-v1",
+      "competitions": [
+        "NFL"
+      ],
+      "state": "confirming",
+      "steps": [
+        {
+          "what": "the policy PR: the NFL family's Desk engine reads market-only (addendum 214 item 4(a))",
+          "owner": "code",
+          "due": "2026-11-03",
+          "done": {
+            "date": "2026-11-02",
+            "receipt": "#778 merged at 6b3bd076"
+          }
+        },
+        {
+          "what": "the tag carrying #775 and the policy, deployed (the architect's blocks)",
+          "owner": "operator",
+          "due": "2026-11-04",
+          "done": null
+        },
+        {
+          "what": "the Super Bowl, the window's last game: every NFL regular-season and postseason game with a kickoff strictly after 2026-11-02 15:15Z that reaches FINISHED with a stored close, through the Super Bowl (addendum 215 item 1)",
+          "owner": "calendar",
+          "due": "2027-02-08",
+          "done": null
+        },
+        {
+          "what": "the one read (addendum 215 item 1): the frozen gate's two criteria on the window, nothing friendlier (the model's mean log-loss <= the schedule-naive baseline's - 0.010; every 10pp band with n >= 30 within 7pp, a band under 30 reported, not scored); the close's log-loss printed beside, gating nothing",
+          "owner": "architect",
+          "due": "2027-02-09",
+          "done": null
+        }
+      ],
+      "earliest_live": null,
+      "live_needs": "addendum 215 item 1, verbatim in part: \"Its purpose is the record and the 2027 declaration, not a return to production in 2026: on this path alone nfl_elo_v1 does not come back this season.\" Until then NFL is MARKET-ONLY (addendum 214 item 2: no model-edge call, no units, no position) and the model's rows are a shadow labelled uncertified (item 3). The faster path to NFL production is a successor through the unchanged gate (nfl_elo_v2, addendum 215 items 2-3, its own lane).",
+      "vs_close": "not read for this window: the close's log-loss is printed beside the one read, gating nothing (addendum 214 item 3). Before the window, the nfl-qb lane's figure: 0.6104 against the close's 0.6419 over the 46 games with a close and a result to 2026-10-13.",
       "moved": []
     },
     {

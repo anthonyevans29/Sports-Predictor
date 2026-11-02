@@ -52,7 +52,11 @@ position weights, the 25% cap, the ingest's 14-day keep and the Desk's one-sided
   the PL grader grades v22 at) -> excluded "no close"; then the arms: no v22 prediction, a stored prediction of
   another model than v22, or no candidate arm on it -> excluded by cause (R4's rule for a member the candidate cannot
   price); else a MEMBER. Counting stops at the 60th member. State: "accruing" under 60, "waiting" at 60 with a game
-  before the 60th pending, else "ready". window_opens_at null: the reader REFUSES (no window yet).
+  before the 60th pending, else "ready". window_opens_at null: the reader REFUSES (no window yet). RECORDED (ARCHITECT
+  2026-11-02 13:10 ET, addendum 220 item 6): window_opens_at 2026-11-02T20:00:00Z, on the first host page
+  soccer_PL_2026-10-31_to_2026-11-03.json stamped 2026-11-02T17:30:18Z (the entry's first_host_page); the reader
+  counts from it and it is the fence's cut. The count of the stored schedule to the 60th fixture is the window
+  reader's --project (fixtures and kickoffs only).
 - THE READ (item 3, verbatim): "The read at the 60th: mean three-way log-loss of each arm, unrounded; PASS only if the
   candidate's is below v22's by at least 0.0050 (the house bar), less or a tie REJECTS; the close's log-loss printed
   beside both and gating nothing; Brier and the per-club counts printed for the record." `score` (only at "ready",

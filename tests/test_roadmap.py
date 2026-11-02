@@ -297,9 +297,10 @@ BROKEN = [
 # ARCHITECT 2026-11-01 10:05 ET, addendum 198 item 5: "the roadmap lane (declared; ...)": lane pl-availability, [PL].
 # ARCHITECT 2026-11-02 10:15 ET, addendum 214 item 4(d): "a new lane "nfl-confirm"" (item 3: nfl_elo_v1 "as a SHADOW:
 # its predictions keep being exported on every NFL page"), [NFL].
+# ARCHITECT 2026-11-02 10:35 ET, addendum 215 item 3: "a lane "nfl-v2" on the roadmap": nfl_elo_v2's lane, [NFL].
 RULED_COMPETITIONS = {"unl": ["UNL"], "pd": ["PD"], "leagues": ["SA", "BL1", "FL1", "ELC"], "ncaa": ["NCAA"],
-                      "nhl": ["NHL"], "cups": ["CL", "EFL", "UEL"], "nfl-qb": ["NFL"], "mlb-pitchers": ["MLB"],
-                      "pl-availability": ["PL"], "nfl-confirm": ["NFL"]}
+                      "nhl": ["NHL"], "cups": ["CL", "EFL", "UEL"], "nfl-qb": ["NFL"], "nfl-v2": ["NFL"],
+                      "nfl-confirm": ["NFL"], "mlb-pitchers": ["MLB"], "pl-availability": ["PL"]}
 
 
 def test_each_lane_carries_the_ruled_competitions():

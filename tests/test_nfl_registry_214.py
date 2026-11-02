@@ -114,7 +114,9 @@ def test_the_ledger_stays_one_json_file_in_its_format():
     raw = (ROOT / "docs" / "registry" / "experiments.json").read_text()
     assert raw == json.dumps(json.loads(raw), indent=2) + "\n"
     ids = [x["id"] for x in reg.load()]
-    assert ids.count(EID) == 1 and ids.index(EID) == ids.index("pl-availability-v1") + 1   # appended; later ones follow
+    # declared-at order (main's registry tests): nfl-elo-v1 (15:15Z) before nfl-elo-v2 (15:35Z, #784)
+    assert ids.count(EID) == 1 and ids.index(EID) == ids.index("pl-availability-v1") + 1
+    assert ids.index("nfl-elo-v2") == ids.index(EID) + 1
 
 
 # ------------------------------------------------------------------------------------------------- the lane --

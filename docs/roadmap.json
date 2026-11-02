@@ -198,13 +198,19 @@
           "what": "the leaders-order receipt on #105: the four probe days (10-28, 10-30, 10-31, 11-01) read together — does landing goalieComparison leaders[0] name the starter the LIVE boxscore shows in net, per side per game",
           "owner": "code",
           "due": "2026-11-05",
-          "done": null
+          "done": {
+            "date": "2026-11-02",
+            "receipt": "#105 issuecomment-6578471513"
+          }
         },
         {
           "what": "the architect's declaration of candidate nine on that receipt, or the written no",
           "owner": "architect",
           "due": "2026-11-06",
-          "done": null
+          "done": {
+            "date": "2026-11-02",
+            "receipt": "addendum 211"
+          }
         },
         {
           "what": "the operator's sourcing decision on an external projected-starters feed: a named source with a pregame stamp, or none (ARCHITECT 2026-10-31 11:50 ET, addendum 191 item 2(a): the 12-28, 12-29, 01-20 and 01-21 steps and earliest_live 2027-01-22 stand only on a source by 11-13; the clearing, if it comes, is a later moved line)",

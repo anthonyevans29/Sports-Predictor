@@ -101,6 +101,7 @@ its compare verdict.
 | `v1.4.0` | 2026-10-16 14:18:21Z | `684462e3d5078ff2c906db73362a220917bf1fcb` | `253bacd00327446936cdb16ea37a76deafc20ff1` | #556 |
 | `v1.5.0` | 2026-10-22 13:24:24Z | `d15b9981edfa74379dd01089f7de23db51353d45` | `358777b00f6d39de1a92f97052f3756d9b89e5c1` | #647 |
 | `v1.6.0` | 2026-10-26 12:07:29Z | `4c106f5097cd4a47817d6a5cf988b7b9f21c00e6` | `01fa5d615cb0c9142b94ef816d0eb6e6d7f6f5da` | #678 |
+| `v1.6.2` | 2026-11-02 14:14:20Z | `98181976f9f4c98c2c3f6e3c8e576e8082d6477f` | `db8fde9c6680b46e77f843b0a5c2e779295bc9dd` | #776 |
 
 - **v1.4.0** (ARCHITECT 2026-10-16, addendum 87). The commit is the ledger
   compile over 53a0e83, the #551 merge over c546168.
@@ -157,6 +158,15 @@ its compare verdict.
   - **Every receipt from `install` on names v1.6.0** (addendum 167 item 3); the preflight's names v1.5.0. The
     cutover's receipt at 13:45:11Z: running v1.6.0, flag host.
   - #678 carries the notes and addendum 168 item 1 verbatim.
+- **v1.6.2** (ARCHITECT 2026-11-02 09:30 ET, addendum 212 item 2(b)). The commit is the ledger compile 98181976
+  (26 changelog fragments, 26 ledger entries) over 9eebd349 (#770); it carries #766, #767, #771, #773, #768 and #770.
+  The tag was cut by the operator: tagger stamp 2026-11-02 14:14:20Z (09:14:20 ET).
+  - **The tag message:** `--cleanup=verbatim`, the header and all 26 `## ` section headings kept (27 lines beginning
+    with `#`). It matches `python3 scripts/release_notes.py --to 98181976f9f4c98c2c3f6e3c8e576e8082d6477f` line
+    for line, plus one trailing blank line. No AMENDED line.
+  - **Deploy:** "11-02 14:22Z deploy exit 0 v1.6.1 -> v1.6.2 (98181976)" (addendum 212).
+  - **Compare:** addendum 210 item 1's verdict, on #776.
+  - #776 carries the notes (two comments; they exceed one Issue body) and the deploy receipt.
 
 ## Hotfix path
 A hotfix gets a patch tag (`vX.Y.Z+1`) through the same ritual. There is no

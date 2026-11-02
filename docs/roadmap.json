@@ -583,7 +583,10 @@
           "what": "the first host page on the tag after v1.6.2: the first PL slate or closing page the host writes on a tag that carries the shadow PR, its deploy receipt in hand; Code's PR then records window_opens_at in the entry (the first PL kickoff strictly after that page, addendum 198 item 3). The date is the leagues lane's v1.6.2 date (v1.6.2 on the host by 11-06, addendum 181 item 1 and addendum 191 item 2(c)), the earliest this page can be; a later tag moves it with a moved line",
           "owner": "operator",
           "due": "2026-11-06",
-          "done": null
+          "done": {
+            "date": "2026-11-02",
+            "receipt": "ARCHITECT 2026-11-02 13:10 ET, addendum 220 item 6, verbatim: \"The pl-availability window, for the record: open at 2026-11-02T20:00:00Z on the first host page (soccer_PL_2026-10-31_to_2026-11-03.json, 2026-11-02T17:30:18Z, 98181976); the 12-20/12-21 projection stands until Code's count from the stored schedule says otherwise (a midweek PL round in early December would pull the 60th game to the 12-12/13 round — then a moved line, earlier, from me).\" The page soccer_PL_2026-10-31_to_2026-11-03.json, stamped 2026-11-02T17:30:18Z, sha prefix 98181976 (as given); the window open at 2026-11-02T20:00:00Z, recorded in pl-availability-v1 as window_opens_at with the page as first_host_page by Code's PR; the deploy receipt: addendum 220's head, verbatim in part: \"v1.6.2 (the fence, the cohort reader, the export switch) is on the host, deploy receipt 11-02 14:22Z\""
+          }
         },
         {
           "what": "the 60th window game is final: the 60th FINISHED PL game with a three-way close from window_opens_at (addendum 198 item 3). A projection from the PL schedule, not a floor: six full rounds from the first host page on v1.6.3 (11-07/08, 11-21/22 after the international break, 11-28/29, 12-05/06, 12-12/13, 12-19/20; addendum 199 item 3). If the first host page slips or the schedule differs, the date moves with a moved line that day",

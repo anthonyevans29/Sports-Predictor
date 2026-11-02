@@ -112,3 +112,21 @@ Item 6 (two standing lines) is carried by #759 and is not this lane's; it is not
 > 6. THE READINGS 2(a)–(i) — all stand, with one recorded LIMITATION: the adapter keeps one entry per player, so a player whose newest entry names a LATER fixture has none for this one and the rule counts him for nothing — the candidate under-counts that case. It is the feed as stored and the ingest is NOT changed (a dedupe change would move v22's own input list, and v22 does not move); it is written into the registry entry and the lane's ledger text as a known limitation, and if the window PASSES the dedupe is revisited as part of v23's declaration, not before. "Exactly 0.0050 passes" is the bar as written (at least 0.0050). The local web view is left as is.
 >
 > 7. THE PUSH: item 3's dates with their moved lines, item 1's docstring line, item 6's limitation text in the entry and the fragment; CI green; the automatic review's findings handled under the stop rule; then my merge block on the new head. The shadow reaches the host on the tag after v1.6.2; the first host page records window_opens_at; v22's outputs are pinned unchanged by test and stay the Desk's.
+
+## 4. The window recorded (ARCHITECT 2026-11-02 13:10 ET, addendum 220 item 6), verbatim
+
+> 6. The pl-availability window, for the record: open at 2026-11-02T20:00:00Z on the first host page (soccer_PL_2026-10-31_to_2026-11-03.json, 2026-11-02T17:30:18Z, 98181976); the 12-20/12-21 projection stands until Code's count from the stored schedule says otherwise (a midweek PL round in early December would pull the 60th game to the 12-12/13 round — then a moved line, earlier, from me).
+
+Code's record of it (law 1):
+- The entry `pl-availability-v1` carries `window_opens_at` = `2026-11-02T20:00:00Z` and `first_host_page` =
+  {file `soccer_PL_2026-10-31_to_2026-11-03.json`, stamp `2026-11-02T17:30:18Z`, sha_prefix `98181976`}.
+  `window_opens_at_note` quotes item 6. The eight characters are a prefix, as given; the rest is not recorded. The
+  repo's tag v1.6.2 points at a commit beginning `98181976`, and that tag carries #760's merge (`0a72244f`).
+- The reader no longer refuses for a null window. Its members kick off at or after 2026-11-02T20:00:00Z. The fence's
+  cut moves from declared_at (2026-11-01T15:05:00Z) to window_opens_at, as section 2(j) says it does. PL 2026/27
+  games kicking off between the two instants leave the fence. None of them is a window member.
+- The count: `python3 scripts/pl_availability_window.py --project --db COPY` reads the stored PL 2026/27 fixtures
+  that kick off at or after window_opens_at, in kickoff order, with cancelled, postponed and stale_orphan left out.
+  It prints the 60th's kickoff UTC date beside the roadmap's 12-20 step, with the distance in days. It reads
+  fixtures and kickoffs only, through a mode=ro&immutable=1 copy. Code has no database, so the count follows on the
+  operator's receipt. The 12-20/12-21 projection stands as the record has it until then.

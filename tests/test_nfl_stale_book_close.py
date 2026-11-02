@@ -229,13 +229,14 @@ def test_the_nfl_file_and_the_grade_read_one_close_and_count_the_kalshi_closes(i
     by = {r["home_team"]: r["graded"] for r in doc["results"]}
     g = by["SB w-stale H"]
     assert (g["close_reference"], g["close_book_stamp_age_h"], g["close_home_prob"]) == ("kalshi", 32.0, 0.605)
-    assert g["clv"] == round(0.70 - 0.605, 4) and g["close_kalshi"]["book_fair"]["HOME"] == BOOK_H
+    assert g["model_close_divergence"] == round(0.70 - 0.605, 4) and g["close_kalshi"]["book_fair"]["HOME"] == BOOK_H
     f = by["SB w-fresh H"]
     assert (f["close_reference"], f["close_book_stamp_age_h"], f["close_home_prob"]) == ("books", 6.0, BOOK_H)
     n = by["SB w-null H"]
     assert (n["close_reference"], n["close_book_stamp_age_h"], n["close_home_prob"]) == ("books", None, BOOK_H)
     u = by["SB w-unpriced H"]
-    assert (u["close_reference"], u["close_fair"], u["close_home_prob"], u["clv"]) == (None, None, None, None)
+    assert (u["close_reference"], u["close_fair"], u["close_home_prob"]) == (None, None, None)
+    assert u["model_close_divergence"] is None
     assert u["close_stale_book"].startswith("book stamp 32.00 h before kickoff")
     want = {**vc.block([(0.70, 0.605), (0.35, BOOK_A), (0.60, BOOK_H)]), "kalshi_only_closes": 1}
     assert doc["record"]["vs_close"] == want and doc["record"]["by_week"]["6"]["vs_close"] == want

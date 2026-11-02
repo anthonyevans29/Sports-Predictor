@@ -286,14 +286,14 @@ def results(now: datetime | None = None, days: int | None = None) -> dict:
                 actual["after_extra_time"] = {"home_score": m.home_score, "away_score": m.away_score}
             # ARCHITECT 2026-10-19 (addendum 137 item 3, #612): model p minus close fair on the pick (the argmax),
             # a fraction (0.0453 = +4.53pp), on the book close; NOT a closing-line value (close minus entry is the
-            # Cockpit P&L's, on fills)
+            # Cockpit P&L's, on fills). Its alias `clv` (ruled to go in the release after v1.5.0; shipped through
+            # v1.6.2) is removed (#621)
             div = round(probs[pick] - fair[pick], 4) if fair and fair.get(pick) is not None else None
             rows.append({**base, "actual": actual, "graded": {
                 "top_pick_hit": pick == side, "push": False,
                 "log_loss": round(-math.log(max(float(probs[side]), 1e-12)), 4),
                 **cb,
-                "model_close_divergence": div,
-                "clv": div}})                                # the alias, through v1.5.0
+                "model_close_divergence": div}})
         s.rollback()
     return {"rows": rows, "ungraded": ungraded, "now": now,
             "window": {"kind": "all_production_predictions"} if days is None else

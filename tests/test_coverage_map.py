@@ -1123,7 +1123,7 @@ def results_doc(name, ids, day):
                            "away_win_prob": 0.45, "projected_total": 8.5, "over_under_line": 8.5, "over_prob": 0.5},
              "actual": {"home_score": 4, "away_score": 2, "total_runs": 6, "result": "H"},
              "graded": {"top_pick_hit": True, "total_correct": True, "total_error": -2.5, "log_loss": 0.6,
-                        "brier_score": 0.2, "clv": None, "closing_price": None}} for i in ids]
+                        "brier_score": 0.2, "model_close_divergence": None, "closing_price": None}} for i in ids]
     doc = {"exported_at": f"{day}T12:00:00Z", "git_sha": "abc1234", "sport": sport,
            "start_date": f"{day}T08:00:00", "end_date": f"{day}T08:00:00", "competition_code": code,
            "count": len(rows), "record": {"games": len(rows), "hits": len(rows), "vs_close": None, "redated": []},

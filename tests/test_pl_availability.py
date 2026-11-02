@@ -30,6 +30,10 @@ SEASON = "2026/27"
 OPENS = datetime(2026, 11, 7, 12, 30)                 # a window_opens_at, naive UTC
 OPENS_TEXT = "2026-11-07T12:30:00Z"
 NOW = datetime(2027, 1, 20, 12, 0)                    # the read clock
+WINDOW_OPENS = datetime(2026, 11, 2, 20, 0)           # the real entry's window_opens_at (addendum 220 item 6)
+WINDOW_OPENS_TEXT = "2026-11-02T20:00:00Z"
+# addendum 220 item 6, verbatim, cut from the spec's section 4 (the quote line)
+ITEM_220_6 = next(ln[len("> 6. "):] for ln in SPEC.read_text().splitlines() if ln.startswith("> 6. The pl-availability"))
 FORBIDDEN = re.compile(r"log-loss|log loss|logloss|probab|\bhits?\b|%|0\.\d{3}", re.IGNORECASE)
 
 _spec = importlib.util.spec_from_file_location("pl_availability_window", ROOT / "scripts" / "pl_availability_window.py")
@@ -467,7 +471,18 @@ def test_the_registry_entry_is_declared_with_the_frozen_rule():
     assert e["rule"] == pa.RULE_TEXT and pa.RULE_TEXT in e["candidate"] and pa.UNCHANGED_TEXT in e["candidate"]
     assert pa.BAR_TEXT in e["gate"] and pa.FENCE_TEXT in e["gate"] and pa.VERDICT_TEXT in e["gate"]
     assert e["fence"] == pa.FENCE_TEXT and e["window"].endswith(pa.WINDOW_TEXT)
-    assert e["window_opens_at"] is None and "Code's PR records it" in e["window_opens_at_note"]
+    # addendum 220 item 6: the window recorded, the first host page beside it, the note its receipt (verbatim)
+    assert e["window_opens_at"] == WINDOW_OPENS_TEXT and pa.parse_instant(e["window_opens_at"]) == WINDOW_OPENS
+    assert pa.parse_instant(e["window_opens_at"]) > pa.parse_instant(e["declared_at"])
+    assert e["first_host_page"] == {"file": "soccer_PL_2026-10-31_to_2026-11-03.json", "stamp": "2026-11-02T17:30:18Z",
+                                    "sha_prefix": "98181976", "note": e["first_host_page"]["note"]}
+    assert "a prefix as given" in e["first_host_page"]["note"] and "not a hash of the file" in e["first_host_page"]["note"]
+    assert "the operator's --project receipt checks that" in e["window_opens_at_note"]
+    assert pa.parse_instant(e["first_host_page"]["stamp"]) < WINDOW_OPENS
+    assert e["window_opens_at_note"].startswith(f"RECORDED (ARCHITECT 2026-11-02 13:10 ET, addendum 220 item 6, "
+                                                f"verbatim): \"{ITEM_220_6}\"")
+    assert ITEM_220_6.startswith("The pl-availability window, for the record: open at 2026-11-02T20:00:00Z")
+    assert "Code's PR records it" not in e["window_opens_at_note"]
     assert e["n"] == 60 == pa.WINDOW_GAMES and e["base_version"] == "v22" == pa.BASE_VERSION and pa.BAR == 0.0050
     assert e["live_needs"].startswith("WHAT THE VERDICT DOES (live_needs): PASS") and "#754" in e["live_needs"]
     assert e["confirmation_plan"] is None
@@ -493,6 +508,17 @@ def test_the_roadmap_lane_validates_and_is_declared():
     assert [s["owner"] for s in steps] == ["code", "operator", "calendar", "architect"]
     assert steps[0]["due"] == "2026-11-05" and steps[0]["what"].startswith("the shadow PR")
     assert "the first host page on the tag after v1.6.2" in steps[1]["what"] and steps[1]["due"] == "2026-11-06"
+    # addendum 220 item 6: the first host page is in; its receipt quotes the item; the two later steps stand
+    assert steps[0]["done"] and steps[1]["done"]["date"] == "2026-11-02"
+    rc = steps[1]["done"]["receipt"]
+    assert rc.startswith(f"ARCHITECT 2026-11-02 13:10 ET, addendum 220 item 6, verbatim: \"{ITEM_220_6}\"")
+    assert all(x in rc for x in ("soccer_PL_2026-10-31_to_2026-11-03.json", "2026-11-02T17:30:18Z", "98181976",
+                                 WINDOW_OPENS_TEXT))
+    assert rc.endswith("the deploy receipt: addendum 220's head, verbatim in part: \"v1.6.2 (the fence, the cohort reader, "
+                       "the export switch) is on the host, deploy receipt 11-02 14:22Z\"")
+    assert steps[2]["done"] is None and steps[3]["done"] is None
+    j, nxt = rm.next_step(ln)
+    assert nxt is steps[2] and (nxt["due"], rm.overdue_steps(ln, datetime(2026, 11, 2).date())) == ("2026-12-20", [])
     # addendum 199 item 3: the two later steps are projections, not floors; each date move has its moved line
     assert steps[2]["what"].startswith("the 60th window game is final") and steps[2]["due"] == "2026-12-20"
     assert "projection from the PL schedule, not a floor" in steps[2]["what"]
@@ -511,16 +537,22 @@ def test_the_entry_records_the_one_entry_per_player_limitation():
 
 # ===================================================================================================== the fence --
 
-def test_the_real_registry_fences_pl_2026_27_from_the_declaration():
-    """window_opens_at is null in the entry as declared: the cut is declared_at (no window game kicks off before it)."""
-    assert pa.fence_cutoff(SEASON) == pa.DECLARED_AT == pa.fence_cutoff(None)
+def test_the_real_registry_fences_pl_2026_27_from_the_recorded_window():
+    """Addendum 220 item 6: window_opens_at is recorded (2026-11-02T20:00:00Z), so it is the cut; before it was
+    recorded the cut was declared_at (the fixture-registry test below keeps that case)."""
+    assert pa.fence_cutoff(SEASON) == WINDOW_OPENS == pa.fence_cutoff(None)
     assert pa.fence_cutoff("2025/26") is None
     why = pa.fence_refusal("PL", SEASON)
-    assert why and pa.FENCE_TEXT in why and pa.READER in why and "2026-11-01T15:05:00Z" in why
+    assert why and pa.FENCE_TEXT in why and pa.READER in why and WINDOW_OPENS_TEXT in why
+    assert "2026-11-01T15:05:00Z" not in why
     assert pa.fence_refusal("pl", None)                                     # every season: fenced
     assert pa.fence_refusal("PL", "2025/26") is None and pa.fence_refusal("SA", SEASON) is None
-    assert pa.fence_refusal("PL", SEASON, through=pa.DECLARED_AT - timedelta(seconds=1)) is None
-    assert pa.fence_refusal("PL", SEASON, through=pa.DECLARED_AT)
+    assert pa.fence_refusal("PL", SEASON, through=WINDOW_OPENS - timedelta(seconds=1)) is None
+    assert pa.fence_refusal("PL", SEASON, through=WINDOW_OPENS)
+    # a game kicking off at the window is fenced; one between the declaration and the window is not (never a member)
+    at = SimpleNamespace(season=SEASON, utc_date=WINDOW_OPENS)
+    between = SimpleNamespace(season=SEASON, utc_date=datetime(2026, 11, 2, 17, 30))
+    assert pa.fenced(pa.fence_cutoff(SEASON), at) and not pa.fenced(pa.fence_cutoff(SEASON), between)
     from src.walters import soccer_expansion as sx
     assert sx.guards_backtest("PL", SEASON) is None                         # the leagues' fence is untouched
 
@@ -629,9 +661,27 @@ def test_the_reader_refuses_while_window_opens_at_is_null(iso_db, ledger):
     assert "is not after declared_at" in pa.read(now=NOW)["refused"]
 
 
-def test_the_real_entry_refuses_the_reader():
+def test_the_cut_is_declared_at_while_the_window_is_null(ledger):
+    """The entry as declared on 11-01 (window_opens_at null): the cut was declared_at; recorded, it is the window."""
+    ledger(window_opens_at=None)
+    assert pa.fence_cutoff(SEASON) == pa.DECLARED_AT
+    assert "2026-11-01T15:05:00Z" in pa.fence_refusal("PL", SEASON)
+    ledger(window_opens_at=WINDOW_OPENS_TEXT)
+    assert pa.fence_cutoff(SEASON) == WINDOW_OPENS
+
+
+def test_the_real_entry_opens_the_window_and_the_reader_reads_it(iso_db):
+    """Addendum 220 item 6: the real entry's recorded window is the reader's cut; the reader no longer refuses."""
+    t = _pl()
+    _game(1, WINDOW_OPENS - timedelta(hours=2, minutes=30), t[:2])           # 11-02 17:30: before the window
+    _game(2, WINDOW_OPENS, t[2:4])                                           # the window's first kickoff: a member
     res = pa.read(now=NOW)
-    assert "window_opens_at is null" in res["refused"]
+    assert "refused" not in res
+    assert (res["declared_at"], res["opens_at"]) == (pa.DECLARED_AT, WINDOW_OPENS)
+    assert res["members"] == [2] and res["before_window"] == 1 and res["state"] == "accruing"
+    out = pa.lines(res, NOW)
+    assert f"window opens {WINDOW_OPENS_TEXT}" in out[1] and not any(FORBIDDEN.search(x) for x in out)
+    assert pa.checked(pa._entry()) == (pa.DECLARED_AT, WINDOW_OPENS)
 
 
 def test_membership_counts_by_cause_and_prints_counts_only(iso_db, ledger):
@@ -859,3 +909,165 @@ def test_the_injury_factor_receipt_leaves_fenced_pl_games_out(iso_db, ledger):
     with session_scope() as s:
         _, skipped = rc.rows(s, "PL")
     assert rc.FENCED not in skipped and skipped["no expected goals"] == 2
+
+
+# ================================================== --project: the count from the stored schedule (addendum 220 item 6) --
+
+PAGE = {"file": "soccer_PL_2026-10-31_to_2026-11-03.json", "stamp": "2026-11-02T17:30:18Z", "sha_prefix": "98181976"}
+
+
+def _backup(src: Path, dst: Path) -> Path:
+    """A .backup-API copy (sqlite3's online backup), as the operator's block takes it (tests/test_nfl_v2_gate.py's)."""
+    import sqlite3
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    a, b = sqlite3.connect(str(src)), sqlite3.connect(str(dst))
+    a.backup(b)
+    b.close()
+    a.close()
+    return dst
+
+
+def _schedule(teams, n, start, base=300, step=timedelta(hours=6), **kw):
+    pairs = list(itertools.permutations(teams, 2))
+    for i in range(n):
+        _game(base + i, start + i * step, pairs[i % len(pairs)], **kw)
+
+
+def _project(capsys, copy) -> tuple[int, list[str]]:
+    rc = script.main(["--project", "--db", str(copy)])
+    return rc, capsys.readouterr().out.splitlines()
+
+
+def test_project_prints_the_60th_fixture_from_the_window_and_reads_no_outcome(iso_db, ledger, tmp_path, capsys):
+    ledger(first_host_page=PAGE)
+    t = _pl()
+    _game(1, OPENS - timedelta(days=1), t[:2])                                    # before the window: never counted
+    _game(2, OPENS + timedelta(minutes=30), t[:2], status=MatchStatus.CANCELLED, pred=False, odds=False)
+    _game(3, OPENS + timedelta(minutes=40), t[:2], status=MatchStatus.POSTPONED, pred=False, odds=False)
+    _game(4, OPENS + timedelta(minutes=50), t[:2], status=MatchStatus.STALE_ORPHAN, pred=False, odds=False)
+    _game(5, OPENS, t[2:4], status=MatchStatus.SCHEDULED, pred=False, odds=False)  # at the window: the first
+    _schedule(t, 58, OPENS + timedelta(hours=1), status=MatchStatus.SCHEDULED, pred=False, odds=False)  # 300..357
+    _game(400, datetime(2026, 12, 12, 15, 0), t[:2], status=MatchStatus.SCHEDULED, pred=False, odds=False)  # the 60th
+    _game(401, datetime(2026, 12, 13, 15, 0), t[:2], status=MatchStatus.SCHEDULED, pred=False, odds=False)
+    copy = _backup(tmp_path / "iso.db", tmp_path / "copy" / "pl.db")
+    before = copy.read_bytes()
+    rc, out = _project(capsys, copy)
+    assert rc == 0, out
+    text = "\n".join(out)
+    assert out[0].startswith("PL AVAILABILITY WINDOW — THE COUNT FROM THE STORED SCHEDULE (pl-availability-v1; "
+                             "ARCHITECT 2026-11-02 13:10 ET, addendum 220 item 6")
+    assert "(a .backup copy, opened mode=ro&immutable=1)" in out[0]
+    assert out[1] == (f"window opens {OPENS_TEXT} (the entry's window_opens_at) · the first host page "
+                      "soccer_PL_2026-10-31_to_2026-11-03.json stamped 2026-11-02T17:30:18Z")
+    assert "stored PL 2026/27 games 65 · cancelled / postponed / stale_orphan 3 (left out) · kicking off before the " \
+           "window 1 (never in it)" in text
+    assert "strictly between the first host page and the window: 1 " in text and "NOT 0" in text   # game 1, 11-06
+    assert f"the first fixture at or after the window: kickoff {OPENS_TEXT} (match 5)" in text
+    assert ("the 60th fixture at or after the window: kickoff 2026-12-12 (UTC date; 15:00:00Z; match 400) · 61 stored "
+            "at or after the window") in text
+    assert ("the roadmap's step (the 60th window game is final): due 2026-12-20 · projected 2026-12-12 · 8 days before "
+            "the step's date (the step's date and any moved line are the architect's; nothing moves here)") in text
+    assert "12-12 1" in text and "12-13" not in text.split("fixtures per UTC kickoff date")[1].split("\n")[0]
+    assert not any(FORBIDDEN.search(x) for x in out)
+    # nothing written, no sidecar, the registry untouched
+    assert copy.read_bytes() == before and sorted(p.name for p in copy.parent.iterdir()) == ["pl.db"]
+    assert json.loads(Path(reg.LEDGER).read_text())[0]["first_host_page"] == PAGE
+    # THE FENCE: no outcome is read. The same schedule with every outcome, close and prediction changed prints the same
+    from src.db.database import session_scope
+    from src.db.schema import Match, Odds, Prediction
+    with session_scope() as s:
+        for m in s.query(Match).all():
+            m.home_score, m.away_score, m.home_score_90, m.away_score_90, m.status_raw = 7, 7, 7, 7, "AWD"
+        s.query(Odds).delete()
+        s.query(Prediction).delete()
+    copy2 = _backup(tmp_path / "iso.db", tmp_path / "copy2" / "pl.db")
+    rc2, out2 = _project(capsys, copy2)
+    assert rc2 == 0 and [x.replace(str(copy2.parent), str(copy.parent)) for x in out2] == out
+
+
+def test_project_with_fewer_than_60_stored_prints_the_count_and_no_date(iso_db, ledger, tmp_path, capsys):
+    t = _pl()
+    _schedule(t, 59, OPENS, status=MatchStatus.SCHEDULED, pred=False, odds=False)
+    rc, out = _project(capsys, _backup(tmp_path / "iso.db", tmp_path / "copy" / "pl.db"))
+    text = "\n".join(out)
+    assert rc == 0
+    assert "the 60th fixture at or after the window: not stored (only 59 stored at or after it); no date (law 4)" in text
+    assert "due 2026-12-20; no projected date to set beside it" in text
+    assert "the first host page not recorded in the entry" in out[1] and "strictly between" not in text
+
+
+def test_project_on_the_real_entry_reads_the_recorded_window(iso_db, tmp_path, capsys):
+    """The real registry (addendum 220 item 6): the window 2026-11-02T20:00:00Z and the page stamp from the entry; a
+    fixture at 17:30 is before the window and not between the page and the window; the 20:00 fixture is the first."""
+    t = _pl()
+    _game(1, datetime(2026, 11, 2, 17, 30), t[:2], status=MatchStatus.FINISHED)
+    _game(2, WINDOW_OPENS, t[2:4], status=MatchStatus.SCHEDULED, pred=False, odds=False)
+    rc, out = _project(capsys, _backup(tmp_path / "iso.db", tmp_path / "copy" / "pl.db"))
+    text = "\n".join(out)
+    assert rc == 0 and out[1].startswith(f"window opens {WINDOW_OPENS_TEXT} (the entry's window_opens_at) · the first "
+                                         "host page soccer_PL_2026-10-31_to_2026-11-03.json stamped 2026-11-02T17:30:18Z")
+    assert "strictly between the first host page and the window: 0 (" in text and "NOT 0" not in text
+    assert "kicking off before the window 1" in text and f"kickoff {WINDOW_OPENS_TEXT} (match 2)" in text
+    assert "only 1 stored at or after it); no date (law 4)" in text
+
+
+@pytest.mark.parametrize("args, want", [
+    (["--project"], "--project takes --db COPY"),
+    (["--db", "x.db"], "--db is --project's only"),
+    (["--project", "--db", "x.db", "--read"], "--project takes --db COPY"),
+    (["--project", "--db", "x.db", "--no-fetch"], "--project takes --db COPY"),
+])
+def test_project_and_db_go_together_or_refuse(iso_db, ledger, capsys, args, want):
+    assert script.main(args) == 2
+    out = capsys.readouterr().out
+    assert out.startswith("REFUSED:") and want in out
+
+
+@pytest.mark.parametrize("where", ["repo data/", "missing", "-wal", "-shm", "-journal", "null window"])
+def test_project_refuses_and_creates_nothing(iso_db, ledger, tmp_path, capsys, where):
+    _pl()
+    if where == "repo data/":
+        target, want = ROOT / "data" / "pl-project-test-copy.db", "resolves under the repo's data/"
+        assert not target.exists()
+    elif where == "missing":
+        target, want = tmp_path / "nowhere" / "pl.db", "no file at"
+    else:
+        target = _backup(tmp_path / "iso.db", tmp_path / "copy" / "pl.db")
+        if where == "null window":
+            ledger(window_opens_at=None)
+            want = "window_opens_at is null"
+        else:
+            Path(str(target) + where).write_bytes(b"")
+            want = f"has a {where} sidecar"
+    rc, out = _project(capsys, target)
+    assert rc == 2 and out[0].startswith("REFUSED:") and want in out[0] and out[0].endswith("nothing read"), out
+    assert len(out) == 1
+    if where in ("repo data/", "missing"):
+        assert not target.exists() and (where != "missing" or not target.parent.exists())
+
+
+@pytest.mark.parametrize("schema", ["create table matches(id integer)",
+                                    "create table matches(id integer); create table competitions(id integer)"])
+def test_project_refuses_a_copy_without_the_schema_it_needs(iso_db, ledger, tmp_path, capsys, schema):
+    """A copy whose matches table passes the open probe but lacks what the query reads: REFUSED (exit 2), one line, no
+    traceback; the copy unwritten and no sidecar."""
+    import sqlite3
+    copy = tmp_path / "copy" / "pl.db"
+    copy.parent.mkdir(parents=True)
+    c = sqlite3.connect(str(copy))
+    c.executescript(schema)
+    c.close()
+    before = copy.read_bytes()
+    rc, out = _project(capsys, copy)
+    assert rc == 2 and len(out) == 1, out
+    assert out[0].startswith(f"REFUSED: --db {copy.resolve()}: cannot be read as the schema the projection needs (")
+    assert out[0].endswith("; nothing read")
+    assert copy.read_bytes() == before and sorted(p.name for p in copy.parent.iterdir()) == ["pl.db"]
+
+
+@pytest.mark.parametrize("d, due, want", [("2026-12-20", "2026-12-20", "the step's date"),
+                                          ("2026-12-19", "2026-12-20", "1 day before the step's date"),
+                                          ("2026-12-27", "2026-12-20", "7 days after the step's date"),
+                                          ("2026-12-19", None, "the step's date not read")])
+def test_project_says_the_distance_from_the_step_never_a_verdict(d, due, want):
+    assert script._versus(d, due) == want

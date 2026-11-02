@@ -1639,8 +1639,14 @@
     "base_version": "v22",
     "rule": "an injury entry counts as a player missing a fixture only if its type is exactly \"Missing Fixture\" AND its fixture_source_id is THAT fixture's (this fixture only \u2014 not a later one: a later entry carries the European-squad class the receipt exposed, and the feed publishes this-fixture entries before the slate). \"Questionable\" entries, entries naming any other fixture, and entries naming no fixture count for nothing.",
     "window": "addendum 198 item 3, verbatim: the window opens at the first PL kickoff strictly after the shadow's FIRST HOST PAGE (the entry records declared_at = this addendum's instant and window_opens_at = that kickoff, written by Code's PR when the deploy receipt is in hand), and holds the first 60 FINISHED PL games with a three-way close from it, counted as the leagues' reader counts (cancelled / AWD-WO / no close excluded by cause; LIVE or un-ingested waits; postponed by actual kickoff); the Desk's floor and quarantine play no part in membership.",
-    "window_opens_at": null,
-    "window_opens_at_note": "null until Code's PR records it: the first PL kickoff strictly after the shadow's first host page, written when the deploy receipt of that page is in hand (addendum 198 item 3). While it is null the window reader refuses and the fence's cut is declared_at.",
+    "window_opens_at": "2026-11-02T20:00:00Z",
+    "window_opens_at_note": "RECORDED (ARCHITECT 2026-11-02 13:10 ET, addendum 220 item 6, verbatim): \"The pl-availability window, for the record: open at 2026-11-02T20:00:00Z on the first host page (soccer_PL_2026-10-31_to_2026-11-03.json, 2026-11-02T17:30:18Z, 98181976); the 12-20/12-21 projection stands until Code's count from the stored schedule says otherwise (a midweek PL round in early December would pull the 60th game to the 12-12/13 round \u2014 then a moved line, earlier, from me).\" window_opens_at is the instant item 6 records; addendum 198 item 3 defines it as the first PL kickoff strictly after the first host page, and the operator's --project receipt checks that (fixtures kicking off strictly between the page and the window: 0 expected); Code has no database and counted nothing. The window's members kick off at or after it, and it is the fence's cut until the verdict.",
+    "first_host_page": {
+      "file": "soccer_PL_2026-10-31_to_2026-11-03.json",
+      "stamp": "2026-11-02T17:30:18Z",
+      "sha_prefix": "98181976",
+      "note": "as addendum 220 item 6 gives them; 98181976 is a prefix as given, the rest is not recorded (law 4). The repo's tag v1.6.2 points at a commit beginning 98181976, the tag that carries #760's merge (0a72244f). Code reads 98181976 as the page's git_sha (the commit the export stamps on each page, src/walters/export.py), i.e. the v1.6.2 commit: not a hash of the file."
+    },
     "n": 60,
     "metric": "mean three-way log-loss of each arm over the 60, unrounded (addendum 198 item 3)",
     "bar": "PASS only if the candidate's mean log-loss is below v22's by at least 0.0050 (the house bar); less, or a tie, REJECTS (addendum 198 item 3)",

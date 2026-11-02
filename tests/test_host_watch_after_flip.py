@@ -47,6 +47,10 @@ from tests.test_desk_host_fence import NOW as FENCE_NOW, REASON, intl_unl, mun_f
 
 import sp_cutover  # noqa: E402  (deploy/hosting is on sys.path: tests.test_closing_runs puts it there)
 
+# addendum 214: this module pins the Desk chain on NFL rows (sizing, orders, legs, pages), which still runs under NFL
+# market-only; it runs with the rule off, as main ran it (tests/test_nfl_market_only_214.py pins the rule on).
+pytestmark = pytest.mark.usefixtures("nfl_market_only_off")
+
 UNIT = HOSTING / "systemd" / "sp-closing-watch.service"
 SETUP = ROOT / "scripts" / "setup_closing_watch.sh"
 EXAMPLE = HOSTING / "etc" / "host.env.example"

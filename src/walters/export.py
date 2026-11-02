@@ -1025,9 +1025,9 @@ def result_row(s, pred, oc, m) -> dict:
             "brier_score": oc.brier_score,
             # ARCHITECT 2026-10-19 (addendum 137 item 3, #612): the stored model-close divergence (RESULTS.md:
             # VERIFIED or RETAINED-LEGACY), model p minus close fair on the pick, a fraction (0.0453 =
-            # +4.53pp); NOT a closing-line value (close minus entry is the Cockpit P&L's, on fills)
+            # +4.53pp); NOT a closing-line value (close minus entry is the Cockpit P&L's, on fills). Its alias
+            # `clv` (ruled to go in the release after v1.5.0; shipped through v1.6.2) is removed (#621)
             "model_close_divergence": oc.clv,
-            "clv": oc.clv,                       # the alias, through v1.5.0 (the morning-run consumer reads it)
             "closing_price": oc.closing_price,
             **_close_block(s, m),                # q_close per side for entry-price CLV (#208)
         },

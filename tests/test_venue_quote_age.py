@@ -9,8 +9,14 @@ their own reason; base_v11() reproduces the old VENUE (the golden's policy); the
 records the switch; parlay tickets never carry a venue leg."""
 from datetime import datetime, timedelta, timezone
 
+import pytest
+
 from src.walters import desk_policy as dp
 from src.walters.venue import kalshi_exec
+
+# addendum 214: this module pins the Desk chain on NFL rows (sizing, orders, legs, pages), which still runs under NFL
+# market-only; it runs with the rule off, as main ran it (tests/test_nfl_market_only_214.py pins the rule on).
+pytestmark = pytest.mark.usefixtures("nfl_market_only_off")
 
 NOW = datetime(2026, 10, 8, 20, 0, tzinfo=timezone.utc)
 MS = float((NOW - datetime(1970, 1, 1, tzinfo=timezone.utc)) // timedelta(milliseconds=1))

@@ -18,6 +18,10 @@ from pathlib import Path
 
 import pytest
 
+# addendum 214: this module pins the Desk chain on NFL rows (sizing, orders, legs, pages), which still runs under NFL
+# market-only; it runs with the rule off, as main ran it (tests/test_nfl_market_only_214.py pins the rule on).
+pytestmark = pytest.mark.usefixtures("nfl_market_only_off")
+
 ROOT = Path(__file__).resolve().parent.parent
 HOSTING = ROOT / "deploy" / "hosting"
 sys.path.insert(0, str(HOSTING))

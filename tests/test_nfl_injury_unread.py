@@ -21,6 +21,10 @@ from src.walters import desk_policy as dp
 from tests.test_closing_runs import (  # noqa: F401  (box is a fixture)
     NOW, at, box, call_pages, mc, row, runs)
 
+# addendum 214: this module pins the Desk chain on NFL rows (sizing, orders, legs, pages), which still runs under NFL
+# market-only; it runs with the rule off, as main ran it (tests/test_nfl_market_only_214.py pins the rule on).
+pytestmark = pytest.mark.usefixtures("nfl_market_only_off")
+
 REASON = "injury list empty (Cleveland Browns): QB rule unread → half units"
 
 

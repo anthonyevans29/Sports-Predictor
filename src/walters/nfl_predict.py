@@ -5,8 +5,8 @@ predict_nfl(): walks the full finished stream (preseason excluded) with the
 gate-passed v1 Elo to current ratings, then writes win probabilities for
 upcoming games. Match-only upsert (the S13 lesson: one row per match, ever).
 
-export_nfl_predictions(): the LIVE file (nfl_elo_v1 live since Week 3,
-2026-09-22; rehearsal=false) — fixtures, model probabilities, tier, the
+export_nfl_predictions(): the NFL file (nfl_elo_v1 live since Week 3,
+2026-09-22; UNCERTIFIED since 2026-11-02, addendum 214: market-only, its rows a labelled shadow; rehearsal=false) — fixtures, model probabilities, tier, the
 market block with the quarantine contract, the STALE-BOOK? venue check, the
 Elo/rest "why" fields, and an input_quality block with QB status front and
 center.
@@ -40,6 +40,14 @@ QUARANTINE_ROUNDING_NOTE = ("The threshold is applied to the absolute value of m
                             "quarantined, the conservative side of the boundary.")
 
 MODEL_VERSION = "nfl_elo_v1"
+# ARCHITECT 2026-11-02 10:15 ET, addendum 214 item 4(a), verbatim in part: "the model's probabilities, divergence and
+# quarantine fields stay on the page labelled uncertified (the confirmation's record)". Item 2: "the model is
+# UNCERTIFIED as of this addendum. NFL goes MARKET-ONLY". The file's label is this one ADDITIVE top-level field (no field
+# renamed or removed; every row still reaches the Desk, which calls each one PASS: desk_policy.NFL_MARKET_ONLY_RULE),
+# and the note's lead sentence says the same. Item 3: its predictions keep being exported as a SHADOW, labelled
+# uncertified, until the forward confirmation is read.
+CERTIFICATION = ("uncertified (addendum 214): nfl_elo_v1 failed its frozen gate on the complete warm-up; a shadow, "
+                 "market-only until the confirmation read")
 
 
 def _current_ratings(progress=None) -> _State:
@@ -348,7 +356,9 @@ def export_nfl_predictions(days_ahead: int = 8, out_dir: str = "exports",
         "contains_predictions": True,
         "rehearsal": False,
         "live_since": f"{NFL_LIVE_SINCE:%Y-%m-%d} (Week 3; ratified after two graded weeks)",
-        "note": ("LIVE: gate-passed v1 Elo. CONTRACT RULE: rows whose "      # addendum 208: the clause, verbatim
+        "certification": CERTIFICATION,                                    # addendum 214 item 4(a): additive
+        "note": ("UNCERTIFIED (addendum 214): v1 Elo, a shadow; the Desk calls every row PASS, market-only "
+                 "until the confirmation read. CONTRACT RULE: rows whose "  # addendum 208: the clause, verbatim
                  "market_divergence_pp has an absolute value of 15 or more carry quarantine=true — "
                  "consumer treats them as watch-flagged, never straight "
                  "plays (rule earned 1-5 across Weeks 1-2). "
@@ -757,9 +767,9 @@ def export_nfl_results(days_back: int | None = None, out_dir: str = "exports") -
                            # ARCHITECT 2026-10-19 (addendum 137 item 3, #612): model p minus close fair on the pick
                            # (p >= 0.5 picks HOME), a fraction (0.0453 = +4.53pp), on the row's close above (the book,
                            # or the session's Kalshi mid by the stale-book rule); NOT a closing-line value (close
-                           # minus entry is the Cockpit P&L's, on fills)
+                           # minus entry is the Cockpit P&L's, on fills). Its alias `clv` (ruled to go in the release
+                           # after v1.5.0; shipped through v1.6.2) is removed (#621)
                            "model_close_divergence": round(clv, 4) if clv is not None else None,
-                           "clv": round(clv, 4) if clv is not None else None,   # the alias, through v1.5.0
                            # value side (additive, rulings 2026-09-29): null when unanchored
                            "value_side": vg["side"] if vg else None,
                            "value_side_clv": round(vg["value_side_clv"], 4) if vg else None,

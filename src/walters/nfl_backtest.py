@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
+from typing import NamedTuple
 
 
 @dataclass
@@ -135,20 +136,36 @@ def _apply_variant(p: float, cap: float | None, shrink: float | None) -> float:
     return p
 
 
-def run_backtest(progress=None, cap: float | None = None,
-                 shrink: float | None = None) -> dict:
-    """Walk-forward per the frozen gate; returns verdict dict and prints it."""
+class Game(NamedTuple):
+    """One stream row as the frozen protocol reads it (the walk's fields, plus the id and kickoff that order it)."""
+    match_id: int
+    utc_date: object
+    season: str
+    stage: str
+    home_id: int
+    away_id: int
+    home_score: int
+    away_score: int
+
+
+WARMUP_SEASON = "2024"     # the frozen gate: warm-up (update only)
+SCORED_SEASON = "2025"     # the frozen gate: scored (predict, then update)
+LL_MARGIN = 0.010          # criterion (1): model log-loss <= baseline - 0.010
+BAND_MIN_N = 30            # criterion (2): every 10pp band with n >= 30 ...
+BAND_MAX_GAP = 0.07        # ... within 7pp
+
+
+def is_preseason(stage: str | None) -> bool:
+    return "pre" in (stage or "").lower()
+
+
+def load_stream(label: str = "nfl-backtest", report=None) -> list[Game]:
+    """The frozen protocol's stream: every FINISHED NFL row (nfl_scoped) with both scores, by kickoff then id,
+    preseason excluded. Reports the scope line. Shared by nfl-backtest and nfl-v2-gate (addendum 215 item 3)."""
     from sqlalchemy import select
 
     from src.db.database import session_scope
     from src.db.schema import Match, MatchStatus
-
-    def report(msg: str) -> None:
-        if progress:
-            progress(msg)
-
-    cfg = NFLEloConfig()
-    st = _State()
 
     with session_scope() as s:
         games = list(s.execute(
@@ -158,61 +175,103 @@ def run_backtest(progress=None, cap: float | None = None,
                 Match.away_score.is_not(None),
             ).order_by(Match.utc_date, Match.id)
         ).scalars())
-        games = [m for m in games if "pre" not in (m.stage or "").lower()]
-        report(scope_line("nfl-backtest", games))
-        rows = [(m.home_team_id, m.away_team_id, m.season,
-                 m.home_score, m.away_score,
-                 (m.stage or "")) for m in games]
+        games = [m for m in games if not is_preseason(m.stage)]
+        if report:
+            report(scope_line(label, games))
+        return [Game(m.id, m.utc_date, m.season, (m.stage or ""), m.home_team_id, m.away_team_id,
+                     m.home_score, m.away_score) for m in games]
 
-    rows = [r for r in rows if "pre" not in r[5].lower()]  # preseason excluded
-    warmup = [r for r in rows if r[2] == "2024"]
-    scored = [r for r in rows if r[2] == "2025"]
-    report(f"stream: {len(rows)} games (preseason excluded) — warm-up {len(warmup)} (2024), scored {len(scored)} (2025)")
 
-    # Baseline: constant home prob = warm-up realized home win rate (frozen).
-    if not warmup or not scored:
-        return {"ok": False, "reason": "insufficient seasons for protocol"}
-    base_p = sum(1 for r in warmup if r[3] > r[4]) / len(warmup)
-    report(f"baseline home prob (2024 realized): {base_p:.4f}")
+def split(rows: list[Game]) -> tuple[list[Game], list[Game]]:
+    """(warm-up, scored): the 2024 rows and the 2025 rows, in stream order; no other season is walked."""
+    rows = [r for r in rows if not is_preseason(r.stage)]  # preseason excluded
+    return ([r for r in rows if r.season == WARMUP_SEASON], [r for r in rows if r.season == SCORED_SEASON])
+
+
+def baseline_rate(warmup: list[Game]) -> float:
+    """Baseline: constant home prob = warm-up realized home win rate (frozen)."""
+    return sum(1 for r in warmup if r.home_score > r.away_score) / len(warmup)
+
+
+def walk_protocol(warmup: list[Game], scored: list[Game], cfg: NFLEloConfig | None = None, price=None,
+                  report=None) -> dict:
+    """THE FROZEN PHASE-2 PROTOCOL (2026-09-09), unchanged: baseline = the warm-up's realized home rate; warm-up
+    update only; scored predict-then-update; (1) mean log-loss <= baseline - 0.010; (2) every 10pp band with n >= 30
+    within 7pp. `cfg` is the Elo walk's config (v1's NFLEloConfig by default); `price` maps the walk's home
+    probability to the stated one at SCORING time only (identity by default; ratings and updates untouched). Reports
+    the baseline, log-loss and n >= 30 band lines exactly as nfl-backtest always printed them. Both lists non-empty.
+    Returns every figure unrounded, the bands (all, each marked gated when n >= 30) and the scored ids."""
+    def say(msg: str) -> None:
+        if report:
+            report(msg)
+
+    cfg = cfg or NFLEloConfig()
+    st = _State()
+    base_p = baseline_rate(warmup)
+    say(f"baseline home prob (2024 realized): {base_p:.4f}")
 
     # Warm-up pass: update only.
-    for h, a, season, hs, as_, _ in warmup:
-        _update(cfg, st, h, a, season, hs, as_)
+    for g in warmup:
+        _update(cfg, st, g.home_id, g.away_id, g.season, g.home_score, g.away_score)
 
     # Scored pass: predict-then-update.
     eps = 1e-12
     ll_model = ll_base = 0.0
     bands: dict[int, list[tuple[float, int]]] = {}
-    for h, a, season, hs, as_, _ in scored:
-        p = _apply_variant(_expected_home(cfg, st, h, a), cap, shrink)
-        y = 1 if hs > as_ else 0  # ties count as home loss for scoring; rare
+    for g in scored:
+        p = _expected_home(cfg, st, g.home_id, g.away_id)
+        if price is not None:
+            p = price(p)
+        y = 1 if g.home_score > g.away_score else 0  # ties count as home loss for scoring; rare
         ll_model += -(y * math.log(max(p, eps)) + (1 - y) * math.log(max(1 - p, eps)))
         ll_base += -(y * math.log(base_p) + (1 - y) * math.log(1 - base_p))
         band = int(min(max(p, 0.0), 0.9999) * 10)
         bands.setdefault(band, []).append((p, y))
-        _update(cfg, st, h, a, season, hs, as_)
+        _update(cfg, st, g.home_id, g.away_id, g.season, g.home_score, g.away_score)
 
     n = len(scored)
     ll_model /= n
     ll_base /= n
-    crit1 = ll_model <= ll_base - 0.010
-    report(f"log-loss: model {ll_model:.4f} vs baseline {ll_base:.4f} "
-           f"(need <= {ll_base - 0.010:.4f}) -> {'PASS' if crit1 else 'FAIL'}")
+    crit1 = ll_model <= ll_base - LL_MARGIN
+    say(f"log-loss: model {ll_model:.4f} vs baseline {ll_base:.4f} "
+        f"(need <= {ll_base - LL_MARGIN:.4f}) -> {'PASS' if crit1 else 'FAIL'}")
 
     crit2 = True
+    out_bands = []
     for band in sorted(bands):
         obs = bands[band]
-        if len(obs) < 30:
-            continue
         stated = sum(p for p, _ in obs) / len(obs)
         realized = sum(y for _, y in obs) / len(obs)
         gap = abs(realized - stated)
-        ok = gap <= 0.07
+        gated = len(obs) >= BAND_MIN_N
+        ok = gap <= BAND_MAX_GAP
+        out_bands.append({"band": band, "n": len(obs), "stated": stated, "realized": realized, "gap": gap,
+                          "gated": gated, "ok": ok if gated else None})
+        if not gated:
+            continue
         crit2 = crit2 and ok
-        report(f"  band {band*10}-{band*10+10}%: n={len(obs)} stated {stated:.3f} "
-               f"realized {realized:.3f} gap {gap*100:.1f}pp -> {'ok' if ok else 'FAIL'}")
+        say(f"  band {band*10}-{band*10+10}%: n={len(obs)} stated {stated:.3f} "
+            f"realized {realized:.3f} gap {gap*100:.1f}pp -> {'ok' if ok else 'FAIL'}")
+    return {"baseline_home_rate": base_p, "ll_model": ll_model, "ll_baseline": ll_base,
+            "bar": ll_base - LL_MARGIN, "crit_logloss": crit1, "crit_bands": crit2, "pass": crit1 and crit2,
+            "bands": out_bands, "n_scored": n, "scored_ids": [g.match_id for g in scored]}
 
-    verdict = crit1 and crit2
+
+def run_backtest(progress=None, cap: float | None = None,
+                 shrink: float | None = None) -> dict:
+    """Walk-forward per the frozen gate; returns verdict dict and prints it."""
+    def report(msg: str) -> None:
+        if progress:
+            progress(msg)
+
+    rows = load_stream("nfl-backtest", report)
+    warmup, scored = split(rows)
+    report(f"stream: {len(rows)} games (preseason excluded) — warm-up {len(warmup)} (2024), scored {len(scored)} (2025)")
+
+    if not warmup or not scored:
+        return {"ok": False, "reason": "insufficient seasons for protocol"}
+    w = walk_protocol(warmup, scored, NFLEloConfig(), lambda p: _apply_variant(p, cap, shrink), report)
+    verdict = w["pass"]
     report(f"GATE VERDICT: {'PASS — provenance/regression check: the live model still clears its frozen gate' if verdict else 'FAIL — REGRESSION: the live model no longer clears its frozen gate; investigate before the next predict-nfl'}")
-    return {"ok": True, "pass": verdict, "ll_model": round(ll_model, 4),
-            "ll_baseline": round(ll_base, 4), "scored_games": n}
+    return {"ok": True, "pass": verdict, "ll_model": round(w["ll_model"], 4),
+            "ll_baseline": round(w["ll_baseline"], 4), "scored_games": w["n_scored"]}

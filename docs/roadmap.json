@@ -387,6 +387,62 @@
       "moved": []
     },
     {
+      "lane": "nfl-v2",
+      "title": "NFL: nfl_elo_v2, the calibration term, through the frozen gate on the corrected stream",
+      "issue": 783,
+      "registry_id": "nfl-elo-v2",
+      "competitions": ["NFL"],
+      "state": "to declare",
+      "steps": [
+        {
+          "what": "the harness PR: the candidate entry nfl_elo_v2 with its constants and bar, a one-run gate with the reservation pattern of ncaa-gate (the architect's word, the stream fingerprint, nothing recorded on a refusal; the corrected stream as the fingerprint)",
+          "owner": "code",
+          "due": "2026-11-03",
+          "done": null
+        },
+        {
+          "what": "my blocks: the laptop's NFL 2024 re-sync on the live DB after #775 is on main (backup first; the 16 games become FINISHED there), then nfl-backtest on the live laptop DB (the recorded FAIL of v1 on the corrected stream, for the registry) and the preflight of the v2 harness",
+          "owner": "operator",
+          "due": "2026-11-04",
+          "done": null
+        },
+        {
+          "what": "the declaration of nfl_elo_v2 (the form and the 2024-fitted value ruled; written before the run)",
+          "owner": "architect",
+          "due": "2026-11-05",
+          "done": null
+        },
+        {
+          "what": "the ONE run on my word, my block, the verdict the same day",
+          "owner": "operator",
+          "due": "2026-11-06",
+          "done": null
+        },
+        {
+          "what": "on PASS: the rehearsal on the host's pages from the next tag (weeks 10 and 11: 11-12 through 11-23)",
+          "owner": "calendar",
+          "due": "2026-11-23",
+          "done": null
+        },
+        {
+          "what": "on PASS: the dry read",
+          "owner": "architect",
+          "due": "2026-11-24",
+          "done": null
+        },
+        {
+          "what": "on PASS: LIVE by my ruling from the week-12 pages (Thanksgiving, 2026-11-26) at the earliest",
+          "owner": "architect",
+          "due": "2026-11-26",
+          "done": null
+        }
+      ],
+      "earliest_live": "2026-11-26",
+      "live_needs": "nfl_elo_v2 passes the frozen phase-2 gate on the corrected stream in ONE run on 11-06 and its two-week rehearsal reads clean, then my ruling (addendum 215 items 2-4). FAIL: NFL stays market-only for 2026, v1's forward read (addendum 215 item 1) stands, and the 2027 candidate declares in the offseason on 2024-2026 complete.",
+      "vs_close": "not read. nfl_elo_v2 has scored no game; nfl_elo_v1 (uncertified, addendum 214) keeps its own record against the close on the pages.",
+      "moved": []
+    },
+    {
       "lane": "mlb-pitchers",
       "title": "MLB: the pitcher layer, tested as of each game",
       "issue": 507,

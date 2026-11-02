@@ -30,6 +30,7 @@ from datetime import datetime, timedelta, timezone
 from playwright.sync_api import sync_playwright
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import cockpit_desk_files as cdf  # noqa: E402  (F1c: the Cockpit renders desk files only)
+from src.walters import desk_policy as dp  # noqa: E402  (cdf puts the repo root on the path)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 KICK = (datetime.now(timezone.utc) + timedelta(days=1)).replace(microsecond=0)
@@ -162,7 +163,10 @@ def main():
 
         print("STARTED (#313, rule on)")
         page.reload()
-        load("nfl_started.json", base=False)
+        # the started rule on, NFL market-only (addendum 214) off: this pins the started rendering beside a PLAY, as
+        # tests/test_desk_started_rule.py does (tests/test_nfl_market_only_214.py pins the market-only rule on)
+        with dp.nfl_market_only_rule_off():
+            load("nfl_started.json", base=False)
         rs = rows("slate")
         pit = row(rs, "Pittsburgh")
         check("started game with a clearing edge: PASS · 'started', greyed, reason from the file",

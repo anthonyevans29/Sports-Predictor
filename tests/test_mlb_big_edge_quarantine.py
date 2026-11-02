@@ -6,7 +6,13 @@ The edge is the Desk's own, so the book and the kalshi-only reference quarantine
 kalshi-only multipliers size shadow_units as they would have sized units. base_v11() keeps the frozen golden."""
 from datetime import datetime, timedelta, timezone
 
+import pytest
+
 from src.walters import desk_policy as dp
+
+# addendum 214: this module pins the Desk chain on NFL rows (sizing, orders, legs, pages), which still runs under NFL
+# market-only; it runs with the rule off, as main ran it (tests/test_nfl_market_only_214.py pins the rule on).
+pytestmark = pytest.mark.usefixtures("nfl_market_only_off")
 
 NOW = datetime(2026, 10, 7, 18, 0, tzinfo=timezone.utc)
 NOW_MS = float((NOW - datetime(1970, 1, 1, tzinfo=timezone.utc)) // timedelta(milliseconds=1))

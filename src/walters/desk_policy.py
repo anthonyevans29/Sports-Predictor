@@ -234,6 +234,34 @@ NO_CALL_KINDS = ("started", SHADOW_LEAGUE_KIND,    # PASS rows with no order, no
                  INJURIES_ONE_SIDED_KIND,           # + addendum 40 item 6 (2026-10-11)
                  KICKOFF_CLOCK_KIND,                # + addendum 72 item 1 (2026-10-15)
                  HOST_FENCE_KIND)                   # + addendum 109 item 3 (2026-10-17)
+# NFL MARKET-ONLY (ARCHITECT 2026-11-02 10:15 ET, addendum 214 item 2, RULED): "nfl_elo_v1's certification was earned
+# on defective data and is VOID on the evidence; the model is UNCERTIFIED as of this addendum. NFL goes MARKET-ONLY
+# (PAPER, exactly as NHL and NCAA: no model-edge call, no units, no position; the value shadow lines continue unstaked
+# as the record) until a forward confirmation passes." Item 4(a), verbatim: "THE POLICY PR, small: the NFL family's
+# Desk engine reads market-only — every NFL row's call is PASS with the reason "nfl_elo_v1 uncertified (addendum 214):
+# market-only until the confirmation read"; units 0; the model's probabilities, divergence and quarantine fields stay
+# on the page labelled uncertified (the confirmation's record); shadow_units as today; the Cockpit shows the state as it
+# shows NHL's. Tests pin: no NFL PLAY can be produced." Item 6: "the QB hold's measurement (#446) keeps accruing on the
+# shadow calls; the value shadow stays unstaked."
+# As built: the v1.1/v1.2 chain runs for an NFL row exactly as before (POLICY["NFL"] is unchanged, so its floor,
+# quarantine, QB and injury rules still size the record), and THEN the row is turned PASS (nfl_market_only): units 0,
+# class pass, pass_kind NFL_MARKET_ONLY_KIND, its reasons the ruled line alone, NFL_MARKET_ONLY_TAG appended to its
+# tags. Nothing else on the row moves: edge, market reference, shadow_units (a quarantine shadow keeps its size and its
+# tags), the exec block (priced at the order the chain sized), the value shadow. The chain's own call, units, class,
+# pass kind and reasons ride along in the desk block's `market_only_hold`, for the record only (never a call). It is
+# NOT passAll: passAll turns a row PASS before the quarantine and value-shadow lines run and so loses them (NHL's
+# pre-gate branch), and it skips the kalshi-only reference the record needs. The kind is not a NO_CALL_KIND: the value
+# shadow and the exec block follow the chain's own kind (a started row still has none). Its own switch: the frozen
+# golden predates it and runs with it off (base_v11()). Lifted only by the architect's ruling on the confirmation read
+# (addendum 214 item 3).
+NFL_MARKET_ONLY_RULE = {"on": True}
+NFL_MARKET_ONLY_SPORTS = ("NFL",)
+NFL_MARKET_ONLY_KIND = "market_only"
+NFL_MARKET_ONLY_REASON = "nfl_elo_v1 uncertified (addendum 214): market-only until the confirmation read"   # verbatim
+NFL_MARKET_ONLY_TAG = "market-only: nfl_elo_v1 uncertified (addendum 214)"
+# "no model-edge call, no units, no position": a market-only NFL fixtures row is no venue call either (the venue engine
+# is held for every sport by the quote-age rule today; this holds NFL whatever that rule does).
+NFL_MARKET_ONLY_VENUE_REASON = "NFL market-only (addendum 214): no units, no position — no venue call"
 # VENUE-EDGE: QUOTE AGE (ARCHITECT 2026-10-07, addendum 4 E, gate-class): "#91 means the age of the QUOTE. A fetch
 # time is not a quote age; where the quote's own time is not known the age is UNKNOWN, and the ratified rule for
 # unknown age is NO REFERENCE. [...] In code, from the next tag: venue-edge emits no call (PASS, noref, 'book quote
@@ -463,6 +491,9 @@ def _venue_edge(r, now_ms: float) -> dict:
     if not r["marketOnly"]:
         out["reason"] = "model sport — model_edge only (venue charter: market-only family)"
         return out
+    if NFL_MARKET_ONLY_RULE["on"] and r["sport"] in NFL_MARKET_ONLY_SPORTS:     # addendum 214: no units, no position
+        out["reason"] = NFL_MARKET_ONLY_VENUE_REASON
+        return out
     if r["sport"] == "UNL":
         out["reason"] = "single venue — no pair (UNL)"
         return out
@@ -580,9 +611,11 @@ def base_v11():
     was_skew = SKEW_TEST_VENUE_RULE["on"]      # addendum 61 item 3(1) postdates the frozen battery's CL rows
     was_clock = KICKOFF_CLOCK_RULE["on"]       # addendum 72 item 1: frozen verification files stay frozen
     was_fence = HOST_FENCE_RULE["on"]          # addendum 109 item 3: the golden holds whatever the machine's role
+    was_nfl_mo = NFL_MARKET_ONLY_RULE["on"]    # addendum 214: the frozen battery's NFL rows predate it
     EXEC_RULES["on"] = STARTED_RULE["on"] = MLB_QUARANTINE["on"] = QUOTE_AGE_RULE["on"] = False
     KALSHI_ONLY_MLB_SUSPENDED["on"] = INJURIES_ONE_SIDED_RULE["on"] = INJURY_EMPTY_RULE["on"] = False
     SKEW_TEST_VENUE_RULE["on"] = KICKOFF_CLOCK_RULE["on"] = HOST_FENCE_RULE["on"] = False
+    NFL_MARKET_ONLY_RULE["on"] = False
     try:
         yield
     finally:
@@ -591,6 +624,7 @@ def base_v11():
         KALSHI_ONLY_MLB_SUSPENDED["on"], INJURIES_ONE_SIDED_RULE["on"] = was_kos, was_one
         INJURY_EMPTY_RULE["on"], SKEW_TEST_VENUE_RULE["on"] = was_inj, was_skew
         KICKOFF_CLOCK_RULE["on"], HOST_FENCE_RULE["on"] = was_clock, was_fence
+        NFL_MARKET_ONLY_RULE["on"] = was_nfl_mo
 
 
 @contextmanager
@@ -702,6 +736,19 @@ def host_fence_rule_off():
         yield
     finally:
         HOST_FENCE_RULE["on"] = was
+
+
+@contextmanager
+def nfl_market_only_rule_off():
+    """The Desk without NFL market-only (addendum 214): the v1.1/v1.2 NFL calls as they were before it, for comparing a
+    file with and without it and for the tests that pin the NFL sizing rules the record still runs. Never used by an
+    export."""
+    was = NFL_MARKET_ONLY_RULE["on"]
+    NFL_MARKET_ONLY_RULE["on"] = False
+    try:
+        yield
+    finally:
+        NFL_MARKET_ONLY_RULE["on"] = was
 
 
 def has_started(r, now_ms: float) -> bool:
@@ -1095,7 +1142,34 @@ def host_fenced(r) -> str | None:
 def desk_call(r, now_ms: float, postseason_graded: int = 0, intl_graded: int = 0) -> dict:
     """The Desk's call for ONE model-sport row: the v1.1 policy (_desk_call), then Q3 K1 (ARCHITECT 2026-10-08):
     an MLB row whose reference would be the kalshi-only mid is PASS with no reference; its would-be call is kept
-    in `koHold` for the record (K3)."""
+    in `koHold` for the record (K3). Then NFL market-only (addendum 214): every NFL row is PASS (nfl_market_only)."""
+    return nfl_market_only(r, _desk_call_k1(r, now_ms, postseason_graded, intl_graded))
+
+
+def nfl_market_only(r, c: dict) -> dict:
+    """Addendum 214 item 4(a): an NFL row's call is PASS, units 0, class pass, pass_kind NFL_MARKET_ONLY_KIND, the ruled
+    reason alone, NFL_MARKET_ONLY_TAG appended to the chain's tags. Every other field is the chain's (edge, reference,
+    shadowUnits, execUnits), and the chain's own call rides in `mktOnlyHold` for the record. Other sports, or the rule
+    off: unchanged."""
+    if not (NFL_MARKET_ONLY_RULE["on"] and r["sport"] in NFL_MARKET_ONLY_SPORTS):
+        return c
+    out = dict(c)
+    out.update(call="PASS", units=0, cls="pass", passKind=NFL_MARKET_ONLY_KIND, reasons=[NFL_MARKET_ONLY_REASON],
+               tags=list(c["tags"]) + [NFL_MARKET_ONLY_TAG],
+               mktOnlyHold={"call": c["call"], "units": c["units"], "cls": c["cls"], "pass_kind": c["passKind"],
+                            "reasons": list(c["reasons"])})
+    return out
+
+
+def chain_kind(c: dict):
+    """The pass kind the Desk's own chain gave the row: under NFL market-only, the held call's (a started NFL row is
+    still a no-call kind for the value shadow and the exec block); else the row's."""
+    h = c.get("mktOnlyHold")
+    return h["pass_kind"] if h else c["passKind"]
+
+
+def _desk_call_k1(r, now_ms: float, postseason_graded: int = 0, intl_graded: int = 0) -> dict:
+    """_desk_call, then Q3 K1 (the MLB kalshi-only suspension)."""
     c = _desk_call(r, now_ms, postseason_graded, intl_graded)
     if not (c["kalOnly"] and kalshi_only_suspended(r)):
         return c
@@ -1494,7 +1568,8 @@ def evaluate(doc: dict, now_ms: float, counts: dict | None = None) -> dict:
         if not r["marketOnly"]:
             c = desk_call(r, now_ms, counts["postseason_graded"], intl_graded)
             calls.append((r, c))
-            v = None if c["passKind"] in NO_CALL_KINDS else value_side(r, POLICY.get(r["sport"]) or POLICY["DEFAULT"])
+            # addendum 214: an NFL market-only row's value shadow follows its chain's own kind (chain_kind)
+            v = None if chain_kind(c) in NO_CALL_KINDS else value_side(r, POLICY.get(r["sport"]) or POLICY["DEFAULT"])
             if v:
                 values.append((r, v))
     for r in rows:
@@ -1773,10 +1848,13 @@ def call_exec_block(r, c):
     on HOME, not the pick's leg) and for every no-call kind (no order: a suspended row is not priced). A quarantine
     shadow is priced at its shadow size. desk_block and the rescore read this one function (ARCHITECT 2026-10-08,
     addendum 15 item 2: "A cost is the cost of an order")."""
-    if (EXEC_RULES["on"] and c["call"] == "LADDER") or c["passKind"] in NO_CALL_KINDS:
+    # addendum 214: an NFL market-only row is priced as its chain sized it (the record), never as an order of its own
+    h = c.get("mktOnlyHold") or {}
+    call, units = h.get("call", c["call"]), h.get("units", c["units"])
+    if (EXEC_RULES["on"] and call == "LADDER") or chain_kind(c) in NO_CALL_KINDS:
         return None
     return exec_block(r, r["pick"], r["prob"], c.get("execUnits") or (c["shadowUnits"] or None),
-                      c["units"] if c.get("execUnits") and c["units"] else None)
+                      units if c.get("execUnits") and units else None)
 
 
 LADDER_EXEC_NOTE = ("informational (#689): the ordered NO leg's price; no call, no units and no floor read it, and "
@@ -1871,6 +1949,12 @@ def desk_block(r, c, v, ven) -> dict:
         out["ladder_exec"] = lx
     if c.get("koHold"):                                   # Q3 K3: for the record only; nothing reads it as a call
         out["kalshi_only_hold"] = {k: _num(x) for k, x in c["koHold"].items()}
+    if c.get("mktOnlyHold"):                              # addendum 214: the chain's own call, for the record only
+        h = c["mktOnlyHold"]
+        out["market_only_hold"] = {"rule": "addendum 214 (NFL market-only)", "certification": "uncertified",
+                                   "would_call": h["call"], "would_units": h["units"], "would_cls": h["cls"],
+                                   "would_pass_kind": h["pass_kind"], "would_reasons": h["reasons"],
+                                   "would_reason": " · ".join(h["reasons"]), "staked": False}
     if c.get("clockHold"):                                # addendum 72 item 1: both clocks, for the closing file
         from src.ingestion.kalshi_match import et_text
         stored, clock = c["clockHold"]
@@ -1957,6 +2041,8 @@ def annotate(doc: dict, *, now: datetime | None = None, counts: dict | None = No
                         # soccer model row is PASS host_fence (the role itself is not written here: it would part every
                         # laptop/host desk file in the compare)
                         "host_fence_rule": HOST_FENCE_RULE["on"],
+                        # addendum 214 (2026-11-02): every NFL row is PASS, market-only until the confirmation read
+                        "nfl_market_only_rule": NFL_MARKET_ONLY_RULE["on"],
                         # addendum 37 item 3 (2026-10-10): legs of two events are never a pair (read in the export)
                         "kalshi_leg_guard": _kalshi_leg_guard_on(),
                         # addendum 179 (v1.2): the day's unit, its state and the fractions (the label is the order's)
@@ -2090,7 +2176,10 @@ def _rescore(doc: dict) -> list[dict]:
                     # ... and so is one the Q3 suspension now holds (MLB kalshi-only, ARCHITECT 2026-10-08)
                     # ... and one the host fence now holds (addendum 109 item 3, 110 item 1; #410): it is on in both
                     # sides (addendum_off holds it), so 0u = 0u would read "unchanged" on a machine not the laptop
-                    "verdict": ("quarantined" if is_quarantine_shadow(c) else
+                    # addendum 214: on in both sides (addendum_off holds it), so 0u = 0u would read "unchanged"; it
+                    # comes first: a held NFL quarantine shadow is not a call the quarantine took
+                    "verdict": ("nfl market-only" if c.get("passKind") == NFL_MARKET_ONLY_KIND else
+                                "quarantined" if is_quarantine_shadow(c) else
                                 "kalshi-only suspended" if c.get("passKind") == KALSHI_ONLY_SUSPENDED_KIND else
                                 "host fence" if c.get("passKind") == HOST_FENCE_KIND else
                                 "halved" if c["units"] < b["units"] else "unchanged" if c["units"] == b["units"]

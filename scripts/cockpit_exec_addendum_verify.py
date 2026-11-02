@@ -101,7 +101,10 @@ def main():
         errors = []
         page.on("pageerror", lambda e: errors.append(str(e)))
         page.goto(f"http://127.0.0.1:{srv.server_address[1]}/cockpit.html")
-        with dp.quote_age_rule_off():         # the venue ENGINE's #87 verdicts (the 2026-10-07 hold has its own verify)
+        # the venue ENGINE's #87 verdicts (the 2026-10-07 hold has its own verify); the NFL sizing chain this verify
+        # pins runs under NFL market-only (addendum 214) with that rule off, as the pytest modules that pin the chain
+        # do (tests/conftest.py nfl_market_only_off; tests/test_nfl_market_only_214.py pins the rule on)
+        with dp.quote_age_rule_off(), dp.nfl_market_only_rule_off():
             cdf.upload(page, paths, base=False)
         page.wait_for_function("document.getElementById('summary').textContent.includes('rows')")
         page.click("#tabDesk")

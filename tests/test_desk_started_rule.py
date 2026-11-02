@@ -4,8 +4,14 @@ kickoff is unchanged (never guessed). Behind its own switch: the frozen golden h
 with it on only started rows change."""
 from datetime import datetime, timedelta, timezone
 
+import pytest
+
 from src.walters import desk_policy as dp
 from src.walters.venue import kalshi_exec
+
+# addendum 214: this module pins the Desk chain on NFL rows (sizing, orders, legs, pages), which still runs under NFL
+# market-only; it runs with the rule off, as main ran it (tests/test_nfl_market_only_214.py pins the rule on).
+pytestmark = pytest.mark.usefixtures("nfl_market_only_off")
 
 NOW = datetime(2026, 10, 11, 17, 0, tzinfo=timezone.utc)
 LEGS = {"HOME": {"ticker": "KXNFLGAME-26OCT11BUFKC-KC", "bid": 0.54, "ask": 0.55},

@@ -51,6 +51,12 @@ seasons it walks), the frozen logistic scale s from the registry entry (D1; the 
 the D10 second read on 2023 (its own stream from the same read, a cold start, scored from week 5, D4 from its own
 weeks 1-4; covered by the same fingerprint, read by the same run, and able only to block). The fit of s is
 src/walters/ncaa_scale_fit.py. Spec: docs/specs/ncaa-elo-v2.md.
+
+THE RESERVATION IS WHOLE OR ABSENT (#794, ARCHITECT 2026-11-02 15:55 ET, addendum 221 item 1: "the same shape #784 got
+for nfl-v2-gate (the reservation written whole or not at all; a write failure leaves nothing and the run is not spent;
+a refusal records nothing)"). reserve() serialises the body before the exclusive create, writes it whole, fsyncs the
+file and its directory; a failure removes our own file and refuses (exit 2); a failed removal says INSPECT THE FILE.
+A harness fix: the bar, the stream, the reservation's path, contents and timing, and --preflight are unchanged.
 """
 from __future__ import annotations
 
@@ -250,10 +256,43 @@ def _reserved_why(p: str, eid: str = EID) -> str:
             "the one run, recorded or not. Nothing reruns without an architect ruling")
 
 
+def _write_all(fd: int, data: bytes) -> None:
+    """The whole body onto `fd` (os.write may write less than asked), then fsync it. nfl_v2_gate._write_all's shape
+    (#784), mirrored here so the NCAA gate imports no other sport's gate (#794)."""
+    view = memoryview(data)
+    while view:
+        view = view[os.write(fd, view):]
+    os.fsync(fd)
+
+
+def _fsync_dir(p: str) -> None:
+    """fsync the reservation's directory, so the new file's directory entry is durable before the first game is
+    scored (review on #784, mirrored for #794). POSIX only: Windows cannot open a directory for fsync, and NTFS
+    journals the entry itself."""
+    if os.name == "nt":
+        return
+    dfd = os.open(os.path.dirname(os.path.abspath(p)), os.O_RDONLY)
+    try:
+        os.fsync(dfd)
+    finally:
+        os.close(dfd)
+
+
 def reserve(meta: dict | None = None, no_fetch: bool = False, echo=None, spec: Spec = V1R) -> str:
     """D6 "a reservation written before the first read": the exclusive create, after the cross-ref guard (#329
     RULED 2026-10-08: every one-run reservation calls it; a cohort, run record or reservation of this experiment on
-    any ref the clone knows refuses, naming the ref and the commit). The guard runs before the file is created."""
+    any ref the clone knows refuses, naming the ref and the commit). The guard runs before the file is created.
+
+    A reservation is whole or absent (#794, ARCHITECT 2026-11-02 addendum 221 item 1: the shape #784 got for
+    nfl-v2-gate): the body is serialised BEFORE the exclusive create (a serialisation error creates nothing), then
+    written whole, fsynced and closed, and its directory fsynced, inside a guard; on any failure there the fd is
+    closed and OUR file removed, and the run refuses (exit 2: nothing scored, the read is not spent). An empty or
+    partial file would otherwise read as a spent run to declared_unrun() and _reserved_why(). If the removal itself
+    fails the refusal says so and names the file to inspect. A KeyboardInterrupt is cleaned up the same way and
+    re-raised. A concurrent reserve fails at the exclusive create, so it never removes anything. The bytes written
+    on success are the ones json.dump + "\n" wrote before through a text-mode file (json.dumps, the same defaults;
+    the newline os.linesep, as text mode wrote it). A create that fails for any reason refuses the same way, nothing
+    created; a removal is followed by an fsync of the directory, and a removal that cannot be made durable is said."""
     reg = _reg()
     p = reservation_path(spec)
     if os.path.exists(p):
@@ -265,12 +304,54 @@ def reserve(meta: dict | None = None, no_fetch: bool = False, echo=None, spec: S
     if echo:
         echo(receipt)
     try:
+        data = (json.dumps({"id": spec.eid, "started_at": _iso(utc_now_naive()), "guard": receipt, **(meta or {})})
+                + os.linesep).encode("utf-8")          # the old text-mode "\n" was os.linesep on disk (#797)
+    except Exception as err:
+        raise GateRefused(f"{spec.eid}: the reservation could not be serialised ({type(err).__name__}: {err}); "
+                          "nothing written, nothing scored, the read is not spent") from err
+    try:
         fd = os.open(p, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
     except FileExistsError:
         raise GateRefused(_reserved_why(p, spec.eid))
-    with os.fdopen(fd, "w") as f:
-        json.dump({"id": spec.eid, "started_at": _iso(utc_now_naive()), "guard": receipt, **(meta or {})}, f)
-        f.write("\n")
+    except OSError as err:                                     # ENOSPC, EACCES, EIO...: nothing was created (#797)
+        raise GateRefused(f"{spec.eid}: the reservation {os.path.relpath(p)} could not be created "
+                          f"({type(err).__name__}: {err}); nothing written, nothing scored, the read is not spent"
+                          ) from err
+    fd_open = True
+    try:
+        _write_all(fd, data)
+        fd_open = False
+        os.close(fd)
+        _fsync_dir(p)                                          # the directory entry is durable too (review on #784)
+    except BaseException as err:
+        if fd_open:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+        try:
+            os.unlink(p)
+            removed = "removed"
+        except FileNotFoundError:
+            removed = "already gone"
+        except OSError as uerr:
+            raise GateRefused(f"{spec.eid}: the reservation {os.path.relpath(p)} could not be written "
+                              f"({type(err).__name__}: {err}) and could not be removed ({type(uerr).__name__}: "
+                              f"{uerr}): INSPECT THE FILE before anything else; it may be empty or partial and reads "
+                              "as a spent run while it stands. Nothing was scored") from err
+        # the removal is durable too, ours or another process's (reviews on #797; addendum 222 item 1)
+        try:
+            _fsync_dir(p)
+        except OSError as derr:
+            removed = (f"{removed}, but the removal could not be made durable ({type(derr).__name__}: {derr}): "
+                       f"if the machine restarts before its directory is flushed the file may return, so "
+                       f"check that {os.path.relpath(p)} is absent before the run")
+        if not isinstance(err, Exception):
+            raise
+        tail = ("nothing scored" if "could not be made durable" in removed else
+                "nothing scored, the read is not spent")
+        raise GateRefused(f"{spec.eid}: the reservation {os.path.relpath(p)} could not be written "
+                          f"({type(err).__name__}: {err}); {removed}: {tail}") from err
     return p
 
 

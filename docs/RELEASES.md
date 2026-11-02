@@ -35,9 +35,19 @@ It shows up in four places:
 ## Promotion ritual
 The ritual for every tag, v1.0.0 and hotfixes included, with no exceptions:
 
-1. **The day's laptop-vs-host compare passes.** The parallel week's
-   comparator, `deploy/hosting/compare_exports.py`, becomes the release
-   gate. Paste its verdict.
+1. **CI green, the host's receipts clean, and the day's compare run and
+   read** (ARCHITECT 2026-11-02 11:35 ET, addendum 218 item 1, #782; from the
+   tag after v1.6.2), verbatim: "CI green on the tag's commit, the host's
+   receipts since the last tag with no failing row (sp_receipts), AND the
+   day's compare run and read — it certifies the machine-neutral files it
+   can still see and names any divergence; an empty window is reported, not
+   treated as a pass of anything it did not compare". The comparator is
+   `deploy/hosting/compare_exports.py`; paste its verdict and the receipts'
+   line. Through v1.6.2 step 1 read: "The day's laptop-vs-host compare
+   passes. The parallel week's comparator, `deploy/hosting/compare_exports.py`,
+   becomes the release gate. Paste its verdict." Since the cutover the laptop
+   writes no production page, so that compare certified only the
+   machine-neutral files (one on 2026-11-02; #782).
 2. **Compile the ledger fragments, then draft the release notes.** On `main`
    (Anthony's lane, or a PR whose only change is the fold):
    ```
@@ -102,7 +112,7 @@ its compare verdict.
 | `v1.5.0` | 2026-10-22 13:24:24Z | `d15b9981edfa74379dd01089f7de23db51353d45` | `358777b00f6d39de1a92f97052f3756d9b89e5c1` | #647 |
 | `v1.6.0` | 2026-10-26 12:07:29Z | `4c106f5097cd4a47817d6a5cf988b7b9f21c00e6` | `01fa5d615cb0c9142b94ef816d0eb6e6d7f6f5da` | #678 |
 | `v1.6.1` | 2026-10-28 12:45:48Z | `23f86e3794a7c075eb7b668e980e2f41ee90ad8f` | `fd3fd51b0179b9fe97dc1b07f00843d69150bf15` | #777 (record backfilled 2026-11-02 (addendum 213 item 2)) |
-| `v1.6.2` | 2026-11-02 14:14:20Z | `98181976f9f4c98c2c3f6e3c8e576e8082d6477f` | `db8fde9c6680b46e77f843b0a5c2e779295bc9dd` | #776 |
+| `v1.6.2` | 2026-11-02 14:14:20Z | `98181976f9f4c98c2c3f6e3c8e576e8082d6477f` | `db8fde9c6680b46e77f843b0a5c2e779295bc9dd` | #776 (step 1 as it stood) |
 
 - **v1.4.0** (ARCHITECT 2026-10-16, addendum 87). The commit is the ledger
   compile over 53a0e83, the #551 merge over c546168.
@@ -178,7 +188,9 @@ its compare verdict.
     with `#`). It matches `python3 scripts/release_notes.py --to 98181976f9f4c98c2c3f6e3c8e576e8082d6477f` line
     for line, plus one trailing blank line. No AMENDED line.
   - **Deploy:** "11-02 14:22Z deploy exit 0 v1.6.1 -> v1.6.2 (98181976)" (addendum 212).
-  - **Compare:** addendum 210 item 1's verdict, on #776.
+  - **Compare (step 1 as it stood, addendum 218 item 1):** PASS (ARCHITECT 2026-11-02 08:50 ET, addendum 210
+    item 1): one file compared, `mlb_all_scored.json`, 879 rows both sides, 0 diffs; five host-only files, each
+    explained (the writer-of-record split; the operator's undated Kalshi trade-API probe). Verbatim on #776.
   - #776 carries the notes (two comments; they exceed one Issue body) and the deploy receipt.
 
 ## Hotfix path

@@ -57,7 +57,16 @@ v7"."
                    _current_production_version reads it), `predict-nfl` nfl_predict.MODEL_VERSION (no model_versions
                    row; the predict path writes that constant). The registry holds no live model (the three predate
                    it): the model of record is what the predict path resolves. No production row (or more than one):
-                   not LIVE, the reason kept on the line, and the derivation goes on.
+                   not LIVE, the reason kept on the line, and the derivation goes on. A registry entry whose
+                   `model_version` is the resolved model and whose certification is UNCERTIFIED (registry.
+                   uncertified_live; ARCHITECT 2026-11-02, addendum 214 item 4(b), and addendum 217 item 5: "the tile
+                   reads the registry") withholds it: not LIVE, the entry named on the line, and the competition is
+                   MARKET-ONLY from that entry (addendum 214 item 2: "NFL goes MARKET-ONLY"); its shadow is judged as
+                   any lane's (a confirming lane on the confirming entry: `MARKET-ONLY · shadow v1`). Its slate and
+                   its prediction rows are still watched as a LIVE model's (the SLATE gap and the rows gap; addendum
+                   214 item 3: "its predictions keep being exported on every NFL page"), beside the PAPER line. Not
+                   judged when the registry cannot be read (read_ledgers gives None; a roadmap that cannot be read
+                   leaves the registry judged): LIVE, its line saying "certification not judged: <why>".
       SHADOW       a roadmap lane whose `competitions` names it (addendum 111 item 2; never its prose) and (a) the lane
                    is confirming and its registry entry is confirming (a gate PASS in its declared confirmation window:
                    a shadow, never a call; not when a chain's export of that registry id refuses the competition,
@@ -338,19 +347,23 @@ def family_of(code: str) -> str | None:
     return next((f for f, d in cl.FAMILIES.items() if code in d["comps"]), None)
 
 
-def read_ledgers(roadmap_path=None, registry_path=None) -> tuple[list[dict], dict, str | None]:
-    """(roadmap lanes, {registry id: entry}, why they could not be read or None). Read-only."""
+def read_ledgers(roadmap_path=None, registry_path=None) -> tuple[list[dict], dict | None, str | None]:
+    """(roadmap lanes, {registry id: entry} or None when the registry cannot be read, why either could not be read or
+    None). Read-only. Each file is read on its own: a roadmap that cannot be read leaves the registry's entries, so a
+    live model's certification (registry.uncertified_live, addendum 214 item 4(b)) is still judged; a registry that
+    cannot be read gives None, never {}, so no line reads a certification it did not judge (law 4)."""
     from src import roadmap as rm
     from src.walters import registry as reg
+    lanes, entries, why = [], None, []
     try:
         lanes = rm.load(roadmap_path)["lanes"]
     except rm.RoadmapError as e:
-        return [], {}, f"the roadmap cannot be read: {e}"
+        why.append(f"the roadmap cannot be read: {e}")
     try:
         entries = {e["id"]: e for e in reg.load(registry_path or reg.LEDGER)}
     except (OSError, ValueError, KeyError, TypeError) as e:
-        return [], {}, f"the registry cannot be read: {type(e).__name__}"
-    return lanes, entries, None
+        why.append(f"the registry cannot be read: {type(e).__name__}")
+    return lanes, entries, "; ".join(why) or None
 
 
 def _predict_model(step: list[str], prod) -> tuple[str | None, str]:
@@ -492,33 +505,47 @@ def shadow_of(code: str, lanes: list[dict], entries: dict, day: date) -> tuple[s
     return None, "; ".join(whys)
 
 
-def model_status(code: str, lanes: list[dict], entries: dict, prod, unread: str | None = None,
+def model_status(code: str, lanes: list[dict], entries: dict | None, prod, unread: str | None = None,
                  day: date | None = None) -> dict:
     """{status: LIVE | SHADOW | MARKET-ONLY | UNKNOWN, label: as printed, from: where it was read, shadow: the shadow's
-    tag or None}, in the ruled order (addendum 111 item 2), on `day` (default today, ET). The table is the module
-    docstring's."""
+    tag or None, held: the registry id that withholds the family's model or None}, in the ruled order (addendum 111
+    item 2), on `day` (default today, ET). The table is the module docstring's. `entries` None: the registry could not
+    be read (read_ledgers), so a LIVE line says its certification was not judged."""
+    from src.walters import registry as reg
     fam = family_of(code)
+    held = None                       # the registry entry that withholds the family's model (addendum 214 item 4(b))
     if fam:
         model, src = live_model(fam, prod)
-        if model:
-            return {"status": "LIVE", "label": "LIVE", "from": f"closing family {fam}; {src}", "shadow": None}
+        held = reg.uncertified_live(model, entries.values()) if model and entries is not None else None
+        if model and not held:
+            if entries is None:       # law 4: a certification that was not read is never a silent LIVE
+                src = f"{src}; certification not judged: {unread or 'the registry cannot be read'}"
+            return {"status": "LIVE", "label": "LIVE", "from": f"closing family {fam}; {src}", "shadow": None,
+                    "held": None}
+        if held:                      # addendum 217 item 5: "the tile reads the registry"
+            src = f"{src}, and registry {held['id']} reads it {held['certification']}"
         why_not_live = f"closing family {fam}, but {src}"     # not LIVE: the derivation goes on, the reason kept
     else:
         why_not_live = f"no closing family covers {code}"
     market = [where for where, codes in market_only_sets() if code in codes]
+    if held:                          # its model withheld: the family's competitions are market-only (addendum 214 item 2)
+        market.append(f"registry {held['id']}: {held['model_version']} uncertified, market-only")
     day = day or cl.ny_date(cl.clock())
     tag, why = (None, f"shadow not judged: {unread}") if unread else shadow_of(code, lanes, entries, day)
     if tag and market:                # the ruling's both: "MARKET-ONLY · shadow v7"
         return {"status": "MARKET-ONLY", "label": f"MARKET-ONLY · shadow {tag}",
-                "from": "; ".join(([why_not_live] if fam else []) + [", ".join(market), why]), "shadow": tag}
+                "from": "; ".join(([why_not_live] if fam else []) + [", ".join(market), why]), "shadow": tag,
+                "held": held["id"] if held else None}
     if tag:
         return {"status": "SHADOW", "label": f"SHADOW {tag}",
-                "from": "; ".join(([why_not_live] if fam else []) + [why]), "shadow": tag}
+                "from": "; ".join(([why_not_live] if fam else []) + [why]), "shadow": tag, "held": held["id"] if held else None}
     if market:
         return {"status": "MARKET-ONLY", "label": "MARKET-ONLY",
-                "from": "; ".join(([why_not_live] if fam else []) + [", ".join(market), why]), "shadow": None}
+                "from": "; ".join(([why_not_live] if fam else []) + [", ".join(market), why]), "shadow": None,
+                "held": held["id"] if held else None}
     return {"status": "UNKNOWN", "label": "UNKNOWN",
-            "from": "; ".join([why_not_live, why, "in none of the code's market-only sets"]), "shadow": None}
+            "from": "; ".join([why_not_live, why, "in none of the code's market-only sets"]), "shadow": None,
+            "held": held["id"] if held else None}
 
 
 def writer_chains(fam: str) -> list[str]:
@@ -1066,12 +1093,14 @@ def coverage(day: date | None = None, now: datetime | None = None, roadmap_path=
             finished = [g["match_id"] for g in mine if g["match_id"] in v["finished"] and not cl.started(g, now)
                         and g["match_id"] not in shown]    # its run is no done line of the day
             closing_unread = v["unread"]
+        # a withheld model's slate is still the record (addendum 214 item 3: "its predictions keep being exported on
+        # every NFL page"): its slate and rows are watched as a LIVE one's, beside the PAPER line
         slate = (slate_view(fam, mine, day, refused, now=now, void={g["match_id"] for g in void})
-                 if fam and st["status"] == "LIVE" and mine else None)
+                 if fam and (st["status"] == "LIVE" or st["held"]) and mine else None)
         comps.append({"code": code, "games": [g["match_id"] for g in mine], "void": [(g["match_id"], g["status"])
                                                                                    for g in void],
                       "status": st["status"], "status_label": st["label"], "status_from": st["from"],
-                      "shadow": st["shadow"], "family": fam, "refused": refused,
+                      "shadow": st["shadow"], "held": st["held"], "family": fam, "refused": refused,
                       "rows": sorted(by_model.values(), key=lambda m: m["model_version"]),
                       "without_rows": [g["match_id"] for g in mine if not preds.get(g["match_id"])],
                       "writers": writer_chains(fam) if fam else [], "groups": groups, "started": started,
@@ -1096,7 +1125,8 @@ def gap_lines(comps: list[dict]) -> list[str]:
     for x in comps:
         rows = sum(m["rows"] for m in x["rows"])
         # refused here: its line names the refusal, the rows are another machine's
-        if x["status"] == "LIVE" and not x.get("refused") and x["without_rows"]:
+        # a withheld model's rows are the confirmation's record (addendum 214 item 3): their gap is claimed as LIVE's
+        if (x["status"] == "LIVE" or x.get("held")) and not x.get("refused") and x["without_rows"]:
             line = f"{x['code']}: {_n(len(x['games']), 'GAME')}, {_n(rows, 'PREDICTION ROW')}"
             if len(x["without_rows"]) < len(x["games"]):
                 line += f", NONE FOR {', '.join(map(str, x['without_rows']))}"
@@ -1209,11 +1239,12 @@ def _games_text(x: dict) -> str:
 
 def _rows_clauses(x: dict) -> tuple[str, str | None]:
     """The rows clause and the without-rows clause (None where the line leaves it out: no row and none expected)."""
+    expected = x["status"] not in NO_ROWS_EXPECTED or bool(x.get("held"))    # a withheld model still writes them
     if x["rows"]:
         rows = "rows: " + ", ".join(f"{m['model_version']} {m['rows']}" + _computed(m) for m in x["rows"])
     else:
-        rows = f"rows: none (none expected: {x['status']})" if x["status"] in NO_ROWS_EXPECTED else "rows: none"
-    if x["rows"] or x["status"] not in NO_ROWS_EXPECTED:
+        rows = "rows: none" if expected else f"rows: none (none expected: {x['status']})"
+    if x["rows"] or expected:
         return rows, "without rows: " + (", ".join(map(str, x["without_rows"])) or "none")
     return rows, None
 

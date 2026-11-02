@@ -576,7 +576,10 @@ def test_an_unreadable_roadmap_judges_no_shadow_never_a_guess(env):
 
 
 RULED = {   # addendum 111 item 2's examples, on the tracked roadmap and registry and the code as it stands
-    "MLB": ("LIVE", "LIVE"), "PL": ("LIVE", "LIVE"), "NFL": ("LIVE", "LIVE"),
+    # NFL: ARCHITECT 2026-11-02 10:15 ET, addendum 214 item 2 ("NFL goes MARKET-ONLY") and item 4(b) (the registry entry
+    # nfl-elo-v1, UNCERTIFIED); addendum 217 item 5: "the tile reads the registry". Its shadow is the confirming lane
+    # nfl-confirm on the confirming entry (214 item 3: "as a SHADOW").
+    "MLB": ("LIVE", "LIVE"), "PL": ("LIVE", "LIVE"), "NFL": ("MARKET-ONLY", "MARKET-ONLY · shadow v1"),
     "NHL": ("MARKET-ONLY", "MARKET-ONLY · shadow v7"), "UNL": ("MARKET-ONLY", "MARKET-ONLY · shadow v2"),
     "PD": ("MARKET-ONLY", "MARKET-ONLY · shadow v1"), "NCAA": ("MARKET-ONLY", "MARKET-ONLY"),
     **{c: ("MARKET-ONLY", "MARKET-ONLY") for c in ("CL", "EFL", "UEL", "SA", "BL1", "FL1", "ELC")},
@@ -601,6 +604,88 @@ def test_the_real_files_and_code_derive_the_ruled_statuses(tmp_path, monkeypatch
     assert got["UNL"]["from"].endswith("roadmap lane unl: confirming; registry intl-elo-v2: confirming")
     assert got["PD"]["from"].endswith("roadmap lane pd: confirming; registry soccer-expansion-v1: confirming")
     assert got["NHL"]["from"] == NHL_SHADOW
+    assert got["NFL"]["from"] == (
+        "closing family NFL, but predict-nfl writes nfl_predict.MODEL_VERSION nfl_elo_v1, and registry nfl-elo-v1 reads "
+        "it UNCERTIFIED — shadow, confirmation window (addendum 214 item 3); registry nfl-elo-v1: nfl_elo_v1 "
+        "uncertified, market-only; roadmap lane nfl-confirm: confirming; registry nfl-elo-v1: confirming")
+
+
+# ---------------------------------------------------------------- a live model the registry withholds (addendum 214) --
+# ARCHITECT 2026-11-02 10:15 ET, addendum 214 item 4(b), verbatim in part: "nfl_elo_v1's entry gets the regression line
+# verbatim [...] and the state "UNCERTIFIED — shadow, confirmation window (addendum 214 item 3)"". Addendum 217 item 5:
+# "The coverage tile reading LIVE until the registry entry lands is acceptable for the hours between: the records PR
+# carries the entry (214 item 4(b)); the tile reads the registry."
+NFL_HELD = {"id": "nfl-elo-v1", "status": "confirming", "model_version": "nfl_elo_v1",
+            "certification": "UNCERTIFIED — shadow, confirmation window (addendum 214 item 3)"}
+
+
+def test_an_uncertified_registry_entry_withholds_the_live_model(env):
+    """The NFL closing family's model (predict-nfl's nfl_elo_v1) with an UNCERTIFIED entry naming it: not LIVE, the entry
+    named on the line, MARKET-ONLY from it, and the PAPER line in place of the SLATE line. Without a lane naming NFL there
+    is no shadow tag. The withheld model's slate and rows are still watched (addendum 214 item 3: "its predictions keep
+    being exported on every NFL page"): no slate file is the SLATE gap, no rows the rows gap, as a LIVE model's."""
+    Path(reg.LEDGER).write_text(json.dumps(ENTRIES + [NFL_HELD]))
+    make_db(env, NFL_DAY, NFL_ROWS)
+    rc, out = run("--date", "2026-10-18")
+    assert rc == 0
+    nfl = line_of(out, "NFL")
+    assert ("· MARKET-ONLY (closing family NFL, but predict-nfl writes nfl_predict.MODEL_VERSION nfl_elo_v1, and "
+            "registry nfl-elo-v1 reads it UNCERTIFIED — shadow, confirmation window (addendum 214 item 3); registry "
+            "nfl-elo-v1: nfl_elo_v1 uncertified, market-only; no roadmap lane names NFL) ·") in nfl, nfl
+    assert out[out.index(nfl) + 1].startswith("NFL SLATE · PAPER, never a call"), out
+    assert gaps(out) == ["NFL: 2 GAMES, ROWS 2, NO SLATE FILE"]
+    cov = cm.coverage(datetime(2026, 10, 18).date(), NOW)["competitions"][0]
+    assert (cov["status"], cov["held"], cov["slate"]["file"]) == ("MARKET-ONLY", "nfl-elo-v1", None)
+    slate_doc("nfl_predictions_2026-10-18.json", [601, 602], "2026-10-18T11:02:00Z")
+    out = run("--date", "2026-10-18")[1]
+    assert out[out.index(line_of(out, "NFL")) + 1].startswith("NFL SLATE · PAPER, never a call"), out
+    assert out[-1] == "GAPS: none"
+
+
+def test_a_withheld_model_without_rows_is_a_gap_never_none_expected(env):
+    """The withheld model writes the confirmation's record: no row for a game is the rows gap, and the line never says
+    "none expected" for it (the PAPER line does not hide a predict step that stopped)."""
+    Path(reg.LEDGER).write_text(json.dumps(ENTRIES + [NFL_HELD]))
+    make_db(env, NFL_DAY, NFL_ROWS[:1])
+    slate_doc("nfl_predictions_2026-10-18.json", [601, 602], "2026-10-18T11:02:00Z")
+    out = run("--date", "2026-10-18")[1]
+    assert "· without rows: 602 ·" in line_of(out, "NFL")
+    assert gaps(out) == ["NFL: 2 GAMES, 1 PREDICTION ROW, NONE FOR 602"]
+    env.unlink()                      # the scratch DB again, without a row
+    make_db(env, NFL_DAY)
+    out = run("--date", "2026-10-18")[1]
+    assert "· rows: none · without rows: 601, 602 ·" in line_of(out, "NFL"), line_of(out, "NFL")
+    assert gaps(out) == ["NFL: 2 GAMES, 0 PREDICTION ROWS"]
+
+
+def test_the_certification_is_judged_without_the_roadmap_and_named_when_unread(env):
+    """Law 4. A roadmap that cannot be read leaves the registry read: NFL stays MARKET-ONLY from its entry, the shadow not
+    judged. A registry that cannot be read: NFL's LIVE line says its certification was not judged, and why."""
+    Path(reg.LEDGER).write_text(json.dumps(ENTRIES + [NFL_HELD]))
+    rm.ROADMAP_PATH.write_text("{not json")
+    make_db(env, NFL_DAY, NFL_ROWS)
+    nfl = line_of(run("--date", "2026-10-18")[1], "NFL")
+    assert ("· MARKET-ONLY (closing family NFL, but predict-nfl writes nfl_predict.MODEL_VERSION nfl_elo_v1, and "
+            "registry nfl-elo-v1 reads it UNCERTIFIED") in nfl, nfl
+    assert "nfl_elo_v1 uncertified, market-only; shadow not judged: the roadmap cannot be read:" in nfl, nfl
+    Path(reg.LEDGER).write_text("{not json")
+    nfl = line_of(run("--date", "2026-10-18")[1], "NFL")
+    assert ("· LIVE (closing family NFL; predict-nfl writes nfl_predict.MODEL_VERSION nfl_elo_v1; certification not "
+            "judged: the roadmap cannot be read:") in nfl, nfl
+    assert "; the registry cannot be read: JSONDecodeError) ·" in nfl, nfl
+
+
+def test_the_withheld_model_with_its_confirming_lane_reads_shadow_v1(env):
+    """With the confirming lane naming NFL on the confirming entry, the line is the ruling's both: MARKET-ONLY · shadow v1.
+    A certification that does not start with UNCERTIFIED, or an entry naming another model, withholds nothing."""
+    lanes = [lane("nfl-confirm", "confirming", "nfl-elo-v1", ["NFL"])]
+    for held, want in ((NFL_HELD, ("MARKET-ONLY", "MARKET-ONLY · shadow v1")),
+                       ({**NFL_HELD, "certification": "certified"}, ("LIVE", "LIVE")),
+                       ({**NFL_HELD, "model_version": "nfl_elo_v2"}, ("LIVE", "LIVE"))):
+        got = cm.model_status("NFL", lanes, {held["id"]: held}, {}, day=NOW.date())
+        assert (got["status"], got["label"]) == want, got
+    got = cm.model_status("NFL", lanes, {NFL_HELD["id"]: NFL_HELD}, {}, day=NOW.date())
+    assert got["from"].endswith("roadmap lane nfl-confirm: confirming; registry nfl-elo-v1: confirming"), got
 
 
 def test_the_market_only_sets_are_the_codes_own():

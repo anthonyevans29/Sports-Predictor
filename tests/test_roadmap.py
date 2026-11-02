@@ -153,7 +153,8 @@ def test_lanes_data_is_the_print_as_data_with_no_eta_for_an_undated_lane(tmp_pat
                                                                           ln.get("competitions"))
         assert g["eta"] == (f"earliest live {ln['earliest_live']}" if ln["earliest_live"] else "no ETA")
     assert {g["lane"] for g in got if g["eta"] == "no ETA"} == {"leagues", "nfl-qb", "mlb-pitchers",
-                                                                 "pl-availability"}      # addendum 198
+                                                                 "pl-availability",       # addendum 198
+                                                                 "nfl-confirm"}           # addendum 215 item 1
     ncaa = next(g for g in got if g["lane"] == "ncaa")           # its first three steps are done: the fourth is next
     assert ncaa["next"] == {"what": _lane(_real(), "ncaa")["steps"][3]["what"], "owner": "calendar",  # the 500th game
                             "due": "2026-11-08", "when": "in 21 days"}  # (the 2023 ingest done 11-01, addendum 201 item 5)
@@ -294,9 +295,11 @@ BROKEN = [
 # four-league lane [SA, BL1, FL1, ELC]; College [NCAA]; Hockey [NHL]; Cups [CL, EFL, UEL]; NFL QB [NFL]; MLB pitcher
 # [MLB]."
 # ARCHITECT 2026-11-01 10:05 ET, addendum 198 item 5: "the roadmap lane (declared; ...)": lane pl-availability, [PL].
+# ARCHITECT 2026-11-02 10:15 ET, addendum 214 item 4(d): "a new lane "nfl-confirm"" (item 3: nfl_elo_v1 "as a SHADOW:
+# its predictions keep being exported on every NFL page"), [NFL].
 RULED_COMPETITIONS = {"unl": ["UNL"], "pd": ["PD"], "leagues": ["SA", "BL1", "FL1", "ELC"], "ncaa": ["NCAA"],
                       "nhl": ["NHL"], "cups": ["CL", "EFL", "UEL"], "nfl-qb": ["NFL"], "mlb-pitchers": ["MLB"],
-                      "pl-availability": ["PL"]}
+                      "pl-availability": ["PL"], "nfl-confirm": ["NFL"]}
 
 
 def test_each_lane_carries_the_ruled_competitions():
@@ -907,15 +910,21 @@ def test_the_ci_step_fails_a_rewritten_base_line(tmp_path):
 def test_the_real_roadmap_records_the_quarterback_probe_done():
     """Addendum 62 item 4: lane nfl-qb, its first step, done on 2026-10-13, receipt "PR #489 merged at 7e6e88c".
     Addendum 157 item 10: the operator's run is done on 2026-10-23, its receipt the Summary lines on #427. No date
-    moves; the print reads the lane's next step as the architect's ruling, due 2026-11-02."""
+    moves; the print reads the lane's next step as the architect's ruling, due 2026-11-02. Addendum 209 marks that step done
+    and appends the 11-13 and 11-16 steps."""
     lane = _lane(_real(), "nfl-qb")
     assert lane["steps"][0]["done"] == {"date": "2026-10-13", "receipt": "PR #489 merged at 7e6e88c"}
     assert lane["steps"][1]["done"]["date"] == "2026-10-23" and "#427" in lane["steps"][1]["done"]["receipt"]
-    assert [st["due"] for st in lane["steps"]] == ["2026-10-21", "2026-10-23", "2026-11-02"] and lane["moved"] == []
+    # ARCHITECT 2026-11-02 08:30 ET, addendum 209 item 4: the 11-02 step done with the written no ("addendum 209");
+    # two steps appended, 11-13 (operator, the sourcing decision) and 11-16 (architect); no date moves.
+    assert lane["steps"][2]["done"] == {"date": "2026-11-02", "receipt": "addendum 209"}
+    assert [st["due"] for st in lane["steps"]] == ["2026-10-21", "2026-10-23", "2026-11-02", "2026-11-13",
+                                                  "2026-11-16"] and lane["moved"] == []
+    assert [st["owner"] for st in lane["steps"][3:]] == ["operator", "architect"]
     nx = rm.next_step(lane)
-    assert nx[0] == 3 and nx[1]["owner"] == "architect" and nx[1]["due"] == "2026-11-02"
-    lines, _ = rm.report(date(2026, 10, 23))
-    assert f"  next: {lane['steps'][2]['what']} · architect · due 2026-11-02 · in 10 days" in lines
+    assert nx[0] == 4 and nx[1]["owner"] == "operator" and nx[1]["due"] == "2026-11-13"
+    lines, _ = rm.report(date(2026, 11, 2))
+    assert f"  next: {lane['steps'][3]['what']} · operator · due 2026-11-13 · in 11 days" in lines
 
 
 def test_a_done_milestone_prints_done_and_is_never_overdue(tmp_path, monkeypatch):

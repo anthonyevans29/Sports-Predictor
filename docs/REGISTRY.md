@@ -39,6 +39,28 @@ has five prior reads already (v1 through v5).
    CONFIRMED in one second; the regression test pins that it now fails.
 4. A NOT_CONFIRMED outcome closes the entry. The bar does not move.
 
+## A live model's certification (addendum 214)
+
+**ARCHITECT 2026-11-02 10:15 ET, addendum 214 item 4(b)** (verbatim): "THE REGISTRY: nfl_elo_v1's entry gets the
+regression line verbatim (stream 676, the 70–80% band 7.7pp, #775 issuecomment-6580087145) and the state "UNCERTIFIED —
+shadow, confirmation window (addendum 214 item 3)", with the window's definition and bar written in."
+
+- **The entry:** `nfl-elo-v1`. Its gate predates the registry (the NFL phase-2 gate, frozen 2026-09-09; PASS that
+  day; LIVE from Week 3, 2026-09-22). On the complete 2024 warm-up (#775) the same gate reads FAIL, so its verdict is
+  `VOID` (the earlier PASS kept under `was`), its `regression` holds the before and after figures, and its
+  `certification` is the ruled state. The window and its bar are addendum 215 item 1's: every NFL regular-season and
+  postseason game with a kickoff strictly after 2026-11-02 15:15Z that reaches FINISHED with a stored close, through
+  the Super Bowl, read once after 2027-02-08.
+- **The status vocabulary has no "uncertified".** The entry's status is `confirming` (a forward confirmation window,
+  a shadow, never a call), the closest that keeps production off. `production_allowed()` refuses any entry whose
+  `certification` starts with UNCERTIFIED. With no executable `confirmation_plan` (the bar is two criteria against the
+  window's own baseline, not one fixed number), `record_confirmation()` and `freeze_confirmation_cohort()` refuse it.
+- **Where it is read:** an entry's `model_version` is the id a predict path writes (`nfl_predict.MODEL_VERSION`).
+  `registry.uncertified_live()` finds the entry that withholds that model. `cli.py coverage`, the Cockpit's Today tile,
+  then reads its competitions as not LIVE: `MARKET-ONLY`, with `shadow v1` from the confirming `nfl-confirm` lane.
+  Addendum 217 item 5: "the tile reads the registry". The Desk's own market-only rule is
+  `desk_policy.NFL_MARKET_ONLY_RULE` (#778); the registry entry changes no Desk call.
+
 ## Run records are never rewritten
 
 **ARCHITECT 2026-10-02:** "never rewrite a run record". A run record's stored

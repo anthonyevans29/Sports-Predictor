@@ -476,7 +476,8 @@ def test_the_registry_entry_is_declared_with_the_frozen_rule():
     assert pa.parse_instant(e["declared_at"]) == pa.DECLARED_AT
     raw = (ROOT / "docs" / "registry" / "experiments.json").read_text()
     assert raw == json.dumps(json.loads(raw), indent=2) + "\n"
-    assert reg.load()[-1]["id"] == pa.EID
+    ids = [x["id"] for x in reg.load()]                 # appended after mlb-pitchers-v1 (nfl-elo-v1 follows: #780)
+    assert ids.index(pa.EID) == ids.index("mlb-pitchers-v1") + 1
     assert hashlib.sha256(e["rule"].encode()).hexdigest() == hashlib.sha256(pa.RULE_TEXT.encode()).hexdigest()
 
 

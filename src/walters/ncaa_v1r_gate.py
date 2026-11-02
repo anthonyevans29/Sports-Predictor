@@ -290,7 +290,9 @@ def reserve(meta: dict | None = None, no_fetch: bool = False, echo=None, spec: S
     partial file would otherwise read as a spent run to declared_unrun() and _reserved_why(). If the removal itself
     fails the refusal says so and names the file to inspect. A KeyboardInterrupt is cleaned up the same way and
     re-raised. A concurrent reserve fails at the exclusive create, so it never removes anything. The bytes written
-    on success are the ones json.dump + "\n" wrote before (json.dumps, the same defaults)."""
+    on success are the ones json.dump + "\n" wrote before through a text-mode file (json.dumps, the same defaults;
+    the newline os.linesep, as text mode wrote it). A create that fails for any reason refuses the same way, nothing
+    created; a removal is followed by an fsync of the directory, and a removal that cannot be made durable is said."""
     reg = _reg()
     p = reservation_path(spec)
     if os.path.exists(p):
@@ -303,7 +305,7 @@ def reserve(meta: dict | None = None, no_fetch: bool = False, echo=None, spec: S
         echo(receipt)
     try:
         data = (json.dumps({"id": spec.eid, "started_at": _iso(utc_now_naive()), "guard": receipt, **(meta or {})})
-                + "\n").encode("utf-8")
+                + os.linesep).encode("utf-8")          # the old text-mode "\n" was os.linesep on disk (#797)
     except Exception as err:
         raise GateRefused(f"{spec.eid}: the reservation could not be serialised ({type(err).__name__}: {err}); "
                           "nothing written, nothing scored, the read is not spent") from err
@@ -311,6 +313,10 @@ def reserve(meta: dict | None = None, no_fetch: bool = False, echo=None, spec: S
         fd = os.open(p, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
     except FileExistsError:
         raise GateRefused(_reserved_why(p, spec.eid))
+    except OSError as err:                                     # ENOSPC, EACCES, EIO...: nothing was created (#797)
+        raise GateRefused(f"{spec.eid}: the reservation {os.path.relpath(p)} could not be created "
+                          f"({type(err).__name__}: {err}); nothing written, nothing scored, the read is not spent"
+                          ) from err
     fd_open = True
     try:
         _write_all(fd, data)
@@ -333,10 +339,19 @@ def reserve(meta: dict | None = None, no_fetch: bool = False, echo=None, spec: S
                               f"({type(err).__name__}: {err}) and could not be removed ({type(uerr).__name__}: "
                               f"{uerr}): INSPECT THE FILE before anything else; it may be empty or partial and reads "
                               "as a spent run while it stands. Nothing was scored") from err
+        else:
+            try:                                               # the removal is durable too (review on #797)
+                _fsync_dir(p)
+            except OSError as derr:
+                removed = (f"removed, but the removal could not be made durable ({type(derr).__name__}: {derr}): "
+                           f"if the machine restarts before its directory is flushed the file may return, so "
+                           f"check that {os.path.relpath(p)} is absent before the run")
         if not isinstance(err, Exception):
             raise
+        tail = ("nothing scored" if removed.startswith("removed, but") else
+                "nothing scored, the read is not spent")
         raise GateRefused(f"{spec.eid}: the reservation {os.path.relpath(p)} could not be written "
-                          f"({type(err).__name__}: {err}); {removed}: nothing scored, the read is not spent") from err
+                          f"({type(err).__name__}: {err}); {removed}: {tail}") from err
     return p
 
 

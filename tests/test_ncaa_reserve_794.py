@@ -221,12 +221,16 @@ def test_a_reservation_write_failure_leaves_no_file_and_a_later_reserve_succeeds
             vg.reserve({"architect_word": WORD}, no_fetch=True, spec=spec)
     msg = str(ei.value)
     assert msg.startswith(f"{eid}: the reservation ") and "could not be written (OSError" in msg
-    assert msg.endswith("removed: nothing scored, the read is not spent"), msg
+    if fault == "fsync":                                      # every fsync fails: the removal's directory fsync too
+        assert "removed, but the removal could not be made durable (OSError" in msg, msg
+        assert msg.endswith("is absent before the run: nothing scored"), msg      # never "the read is not spent"
+    else:
+        assert msg.endswith("removed: nothing scored, the read is not spent"), msg
     assert not os.path.exists(vg.reservation_path(spec))
     if fault == "partial write":
         assert len(calls) == 2                                # the loop asked for the rest
     if fault == "directory fsync":
-        assert len(synced) == 2
+        assert len(synced) == 3                               # the file, its directory (fails), the removal's directory
     # nothing spent: the gate's own checks pass again, and the one reservation is written whole
     vg.declared_unrun(spec)
     p = vg.reserve({"architect_word": WORD}, no_fetch=True, spec=spec)
@@ -324,7 +328,7 @@ def test_a_run_whose_reservation_cannot_be_written_records_nothing_and_a_later_r
     res = CliRunner().invoke(cli.cli, args)                   # the read is not spent: the one run proceeds
     assert res.exit_code == 0, res.output
     assert "recorded: " in res.output and reg.get(eid, str(ledger))["status"] == "run"
-    saved = json.load(open(vg.reservation_path(spec)))
+    saved = json.loads(Path(vg.reservation_path(spec)).read_text())
     assert saved["architect_word"] == WORD and saved["stream_fingerprint"] == _fp(spec)
 
 
@@ -419,3 +423,60 @@ def test_preflight_output_is_byte_identical_to_the_pre_fix_module(ledger, eid):
     it)." The whole console, every line, against the pre-fix module's on the same synthetic world."""
     assert preflight_output(eid) == PRE_FIX_PREFLIGHT[eid]
     assert not os.path.exists(vg.reservation_path(vg.spec_of(eid)))
+
+
+# --------------------------------------------------------------------------------- review on #797 (round 1, P2s) --
+
+@pytest.mark.parametrize("eid", IDS)
+@pytest.mark.parametrize("exc", [OSError(errno.ENOSPC, "No space left on device"),
+                                 PermissionError(errno.EACCES, "Permission denied"),
+                                 OSError(errno.EIO, "Input/output error")])
+def test_a_create_that_fails_for_another_reason_refuses_and_creates_nothing(ledger, monkeypatch, eid, exc):
+    """Not only FileExistsError: ENOSPC, EACCES or EIO at the exclusive create refuse (exit 2 at the CLI), nothing
+    created, the read not spent; a later reserve is whole."""
+    spec = vg.spec_of(eid)
+
+    def bad_open(*a, **k):
+        raise exc
+    with monkeypatch.context() as m:
+        m.setattr(vg.os, "open", bad_open)
+        with pytest.raises(vg.GateRefused, match=rf"{eid}: the reservation .*could not be created \({type(exc).__name__}"
+                                                 ".*nothing written, nothing scored, the read is not spent"):
+            vg.reserve({"architect_word": WORD}, no_fetch=True, spec=spec)
+    assert not os.path.exists(vg.reservation_path(spec))
+    vg.declared_unrun(spec)
+    assert json.loads(Path(vg.reserve({"architect_word": WORD}, no_fetch=True, spec=spec)).read_text())["id"] == eid
+
+
+def test_a_removal_is_followed_by_an_fsync_of_its_directory(ledger, monkeypatch):
+    """After a failed write the removal is made durable: unlink, then the directory's fsync, in that order."""
+    import stat
+    events, real_unlink, real_fsync = [], os.unlink, os.fsync
+
+    def bad_write(fd, data):
+        raise OSError(errno.ENOSPC, "No space left on device")
+
+    def spy_unlink(p):
+        events.append("unlink")
+        return real_unlink(p)
+
+    def spy_fsync(fd):
+        events.append("fsync dir" if stat.S_ISDIR(os.fstat(fd).st_mode) else "fsync file")
+        return real_fsync(fd)
+    with monkeypatch.context() as m:
+        m.setattr(vg.os, "write", bad_write)
+        m.setattr(vg.os, "unlink", spy_unlink)
+        m.setattr(vg.os, "fsync", spy_fsync)
+        with pytest.raises(vg.GateRefused, match="removed: nothing scored, the read is not spent"):
+            vg.reserve({"architect_word": WORD}, no_fetch=True, spec=vg.V2)
+    assert events == ["unlink", "fsync dir"]
+    assert not os.path.exists(vg.reservation_path(vg.V2))
+
+
+def test_the_newline_is_the_platforms_as_the_old_text_mode_wrote_it(ledger, monkeypatch):
+    """The pre-fix text-mode file turned "\\n" into os.linesep (CRLF on Windows): the bytes follow os.linesep."""
+    monkeypatch.setattr(vg.os, "linesep", "\r\n")
+    p = vg.reserve({"architect_word": WORD}, no_fetch=True, spec=vg.V2)
+    raw = Path(p).read_bytes()
+    assert raw.endswith(b"}\r\n") and raw.count(b"\n") == 1
+    assert json.loads(raw)["architect_word"] == WORD

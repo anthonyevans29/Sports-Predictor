@@ -7,9 +7,16 @@ cause, pending (scheduled, LIVE, un-ingested), rows present or missing; no runni
 nothing is read before its pre-committed n). A counts-only reader IS "in hand" once its scoring path exists and is
 test-pinned (the verdict at n = 60 is its function); it is merged before any league is declared."
 
-Per league (SA, BL1, FL1, ELC), from src/walters/leagues_window.py: NOT DECLARED (no registry entry; nothing else is
-printed), or the declaration's instant (declared_at, UTC) and frozen constants, members n of 60, the exclusions by
-cause, the pending games by kind (R2's list: scheduled, LIVE, un-ingested; then finished with no usable result, i.e. no
+Per league (PD, SA, BL1, FL1, ELC: leagues_window.READ_CODES; PD by ARCHITECT 2026-11-02 16:35 ET, addendum 222 item
+4(b)), from src/walters/leagues_window.py: NOT DECLARED (no registry entry; nothing else is printed), or the
+declaration's instant (declared_at, UTC) and frozen constants, members n of 60, the exclusions by cause (a window game
+with no stored prospective row under the entry on its own line, each named by match and kickoff: "no prospective row
+under the entry: the entry was not on the host's tag", addendum 222 item 4(a), the text as ARCHITECT 2026-11-02 18:05
+ET, addendum 223 item 2(c) amends it (one cause, one count, one line; a row under another entry's label, such as PD's
+rows under soccer-expansion-v1's, is never read), consuming no slot; a no-row game kicking off after the first page in
+--exports whose header binding carried the entry REFUSES the league, naming each such game (match, kickoff) and the
+page, nothing scored, no slot decided (addendum 223 item 2(b)); an export file that cannot be read REFUSES the league,
+naming it, never excludes its games), the pending games by kind (R2's list: scheduled, LIVE, un-ingested; then finished with no usable result, i.e. no
 score stored or a non-FT code with no 90-minute score, and a game at or before the instant not final, which every
 member's walk reads once final; and the score disagreement, an FT or no-raw-code row whose stored 90-minute score
 differs from its stored score, listed with both figures: ARCHITECT 2026-10-30, addendum 184 item 2, #736), the AWD / WO
@@ -21,14 +28,16 @@ state: accruing, waiting (R4: a game before the 60th pending) or ready. At ready
 WHERE TO RUN IT: the stored rows are written by the HOST's shadow export (addendum 178 R6) into the host's own
 exports/, and their match ids are the host DB's. Run the reader on the host, from the deployed checkout (host.env's
 DATABASE_URL, the default --exports exports); a read on the laptop finds none of the host's rows there (the laptop's
-exports/host/ copy is a separate folder this reader does not read) and says so: "none found in <the directory>".
+exports/host/ copy is a separate folder this reader does not read unless --exports names it) and excludes every game
+it finds no row for under addendum 222 item 4(a)'s cause, naming each, and says where it read.
 
 The DB is the one DATABASE_URL names (else ./data/sports.db), as scripts/leagues_close_receipt.py reads it. A path
 with no file is REFUSED (exit 2) before any import that could open it: the reader never creates a database. One
 mode=ro session per league (src.db.database.readonly_scope: no connect hook, no pragma, no commit); nothing written.
 
-Exit status: 0 the counts printed; 2 a refusal (no database; or a declared league whose entry names another league
-in its `competition` field (addendum 181 item 6), has no UTC declared_at, no frozen constants or constants that differ from the soccer-expansion-v1 run record's, or whose season stores a stage
+Exit status: 0 the counts printed; 2 a refusal (no database; or a declared league with a no-row window game kicking off
+after a page in --exports whose binding carried the entry (addendum 223 item 2(b)), or an export file there that cannot
+be read; or whose entry names another league in its `competition` field (addendum 181 item 6), has no UTC declared_at, no frozen constants or constants that differ from the soccer-expansion-v1 run record's, or whose season stores a stage
 label the code cannot place kicking off at or before the 60th member or the read clock, F3). A refused league prints its REFUSED line; the others still print.
 
 Run:  python3 scripts/leagues_window.py [--exports exports]
@@ -64,7 +73,7 @@ def main(argv=None) -> int:
     from src.timeutil import utc_now_naive
     from src.walters import leagues_window as lw
     now = utc_now_naive()
-    res = lw.read(lw.LEAGUES, now=now, export_dir=a.exports)
+    res = lw.read(lw.READ_CODES, now=now, export_dir=a.exports)
     for ln in lw.lines(res, now):
         print(ln)
     return REFUSED if any(w.get("refused") for w in res.values()) else 0

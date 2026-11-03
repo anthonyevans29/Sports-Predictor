@@ -7038,6 +7038,9 @@ def soccer_expansion_confirm_cmd(freeze_cohort, substitute, record, ruling, no_f
     if r["pending"]:
         click.echo(f"  pending {len(r['pending'])}: {dict(Counter(x['status'] for x in r['pending']))}"
                    + (f" — {r['release_due']} unscoreable: run --substitute" if r["release_due"] else ""))
+    if r.get("fenced_window"):                      # the leagues' window fence (addendum 222 item 4(b))
+        click.echo(f"  FENCED {len(r['fenced_window'])} cohort fixture(s), never scored here ({r['fence_note']}): "
+                   + "; ".join(f"{x['code']} {x['id']} {x['kickoff']:%Y-%m-%dT%H:%MZ}" for x in r["fenced_window"]))
     if r["n"]:
         click.echo(f"  so far (pooled): log-loss {r['log_loss']:.4f} · naive {r['naive_log_loss']:.4f} · reference "
                    f"(naive − 0.010) {r['reference_log_loss']:.4f} · bar {r['bar']:.4f} — not a verdict until the "

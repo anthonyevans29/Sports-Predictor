@@ -121,7 +121,47 @@ def _members(code, teams, n, base, start, legs=True, pairs=None):
     return out
 
 
-def _read(code):
+def _export(code, export_dir="exports"):
+    """ARCHITECT 2026-11-02 16:35 ET, addendum 222 item 4(a): a window game with no stored prospective row is excluded
+    by cause, so a member needs one. For every game of `code` kicking off after its entry's declared_at with no row in
+    `export_dir` yet and a candidate price, this writes the row the host's export would hold (the recompute at the
+    entry's frozen constants, rounded by the export's own function, labelled with the entry's declared_at, exported
+    before every kickoff) into a file of its own; a game that already holds a row gets none (no superseded row)."""
+    from src.db.database import session_scope
+    from src.db.schema import Competition, Match
+    from src.walters import leagues_candidate as lc
+    e = lw.declaration(code)
+    at = lw.parse_instant((e or {}).get("declared_at"))
+    if e is None or at is None or not isinstance(e.get("frozen_constants"), dict):
+        return
+    c = e["frozen_constants"]
+    have = lw.stored_rows(code, e["declared_at"], export_dir)
+    rows = []
+    with session_scope() as s:
+        done = lc._season_rows(s, code, SEASON)
+        for m in s.query(Match).join(Competition, Competition.id == Match.competition_id).filter(
+                Competition.code == code, Match.season == SEASON):
+            if m.utc_date is None or m.utc_date <= at or m.id in have:
+                continue
+            pred, _ = lc.predict_as_of(done, m, c["rho"], c["elo_goal_coeff"])
+            if pred is None:
+                continue
+            rows.append({"match_id": m.id, "competition": code, "utc_date": m.utc_date.isoformat(),
+                         "declared_at": e["declared_at"],
+                         "prediction": {"home_win_prob": sx.shadow_prob(pred.p_home),
+                                        "draw_prob": sx.shadow_prob(pred.p_draw),
+                                        "away_win_prob": sx.shadow_prob(pred.p_away)}})
+    if rows:
+        d = Path(export_dir)
+        d.mkdir(parents=True, exist_ok=True)
+        n = len(list(d.glob(f"{lw.EXPORT_PREFIX}*.json")))
+        (d / f"{lw.EXPORT_PREFIX}t222_{code}_{n}.json").write_text(json.dumps(
+            {"exported_at": "2026-01-01T00:00:00", "predictions": rows}))
+
+
+def _read(code, rows=True):
+    if rows:
+        _export(code)
     return lw.read((code,), now=NOW)[code]
 
 
@@ -134,20 +174,34 @@ def test_no_entry_reads_not_declared_and_prints_only_that(ledger):
     out = lw.lines(res, NOW)
     assert out[1:] == [f"{c} · NOT DECLARED (no registry entry {lw.DECLARATION_IDS[c]}): no window"
                        for c in paper.LEAGUES]
-    assert lw.DECLARATION_IDS == {"SA": "leagues-sa-v1", "BL1": "leagues-bl1-v1", "FL1": "leagues-fl1-v1",
-                                  "ELC": "leagues-elc-v1"}
+    assert lw.DECLARATION_IDS == {"PD": "leagues-pd-v1", "SA": "leagues-sa-v1", "BL1": "leagues-bl1-v1",
+                                  "FL1": "leagues-fl1-v1", "ELC": "leagues-elc-v1"}     # PD: addendum 222 item 4(b)
+    assert lw.READ_CODES == ("PD", "SA", "BL1", "FL1", "ELC")
 
 
-def test_the_real_registry_holds_no_league_declaration_yet():
-    """Today: NOT DECLARED everywhere, so the PRE-DECLARATION fence stands at its constant cut (addendum 181 item
-    1(b)); every other competition and every other season is never fenced."""
+def test_220_the_real_registry_declares_sa_fl1_elc_at_the_stamp_and_bl1_stays_behind_the_pre_declaration_fence():
+    """ARCHITECT 2026-11-02 13:10 ET, addendum 220 item 5: "The cohort reader's fail-closed fence for SA/FL1/ELC lifts
+    with the entries; BL1's stays closed until 11-09." On the real registry: SA, FL1 and ELC hold their entries, which
+    checked() accepts as written (their league, their instant 2026-11-02T18:10:00Z, the run record's constants), so
+    their cut moves from PRE_DECLARATION_CUT to the stamp; BL1 holds none, so its pre-declaration fence stands at its
+    constant cut (addendum 181 item 1(b)). PD (ARCHITECT 2026-11-02 16:35 ET, addendum 222 item 4(b)): leagues-pd-v1
+    is in DECLARATION_IDS, checked() reads it though PD is the surviving set, and its cut is the same stamp. Every
+    other competition and season is never fenced."""
+    stamp = datetime(2026, 11, 2, 18, 10)
     assert lw.PRE_DECLARATION_CUT == datetime(2026, 10, 30, 15, 0)
-    for code in paper.LEAGUES:
-        assert reg.get(lw.DECLARATION_IDS[code]) is None
-        assert lw.fence_cutoff(code, SEASON) == lw.PRE_DECLARATION_CUT
-        assert lw.fence_cutoff(code, None) == lw.PRE_DECLARATION_CUT
+    assert lw.surviving() == ["PD"] and "PD" in lw.SURVIVING_RULED
+    for code in ("PD", "SA", "FL1", "ELC"):
+        e = lw.declaration(code)
+        assert e is not None and e["declared_at"] == "2026-11-02T18:10:00Z" and e["status"] == "declared"
+        assert lw.checked(code, e) == (stamp, FROZEN)
+        assert not lw.verdict_recorded(e)
+        assert lw.fence_cutoff(code, SEASON) == stamp and lw.fence_cutoff(code, None) == stamp
         assert lw.fence_cutoff(code, "2025/26") is None
-    for code in ("PL", "PD", "NFL", "CL", "UNL", None):
+    assert reg.get(lw.DECLARATION_IDS["BL1"]) is None and lw.declaration("BL1") is None
+    assert lw.fence_cutoff("BL1", SEASON) == lw.PRE_DECLARATION_CUT == lw.fence_cutoff("BL1", None)
+    assert lw.fence_cutoff("BL1", "2025/26") is None
+    assert reg.get("leagues-pd-v1")["competition"] == "PD" and lw.DECLARATION_IDS["PD"] == "leagues-pd-v1"
+    for code in ("PL", "NFL", "CL", "UNL", None):
         assert lw.fence_cutoff(code, SEASON) is None and lw.fence_cutoff(code) is None
 
 
@@ -252,7 +306,7 @@ def test_every_membership_branch_is_counted_by_cause(ledger):
                                    "unpriced_none": 1, "unpriced_incomplete": 1, "no_strength": 1}
     assert dict(w["pending"]) == {"no_result_90": 1, "live": 1, "uningested": 1}
     assert (w["to_come"], w["not_placed"]) == (1, 1)
-    assert (w["stored_present"], w["stored_missing"]) == (0, 1)
+    assert (w["stored_present"], w["stored_missing"]) == (1, 0)       # a member holds its row (addendum 222 item 4(a))
 
 
 def test_below_min_prior_is_excluded_and_takes_no_slot(ledger):
@@ -510,8 +564,9 @@ def test_the_reader_opens_the_database_read_only(ledger, monkeypatch):
     t = _teams("SA")
     _priors("SA", t)
     _members("SA", t, 60, 2000, AT + timedelta(hours=1))
+    _export("SA")                                   # the stored rows (the test's own writer uses a session)
     monkeypatch.setattr(database, "session_scope", lambda: pytest.fail("a writable session"))
-    w = _read("SA")
+    w = _read("SA", rows=False)
     assert w["state"] == "ready"
     assert lw.score(w)["n"] == 60
 
@@ -540,6 +595,7 @@ def test_the_print_is_counts_only_at_every_state_and_ready_says_the_read_is_item
     tb = _teams("BL1")
     _priors("BL1", tb, base=5000)
     _members("BL1", tb, 5, 4000, AT + timedelta(hours=1))
+    _export("SA")                                   # SA's members hold rows; BL1's do not (addendum 222 item 4(a))
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{tmp_path / 'iso.db'}")
     assert script.main([]) == 0
     out = capsys.readouterr().out
@@ -547,10 +603,25 @@ def test_the_print_is_counts_only_at_every_state_and_ready_says_the_read_is_item
     assert ("SA · declared_at 2026-11-06T14:30:00Z (leagues-sa-v1; frozen v22, rho -0.1, Elo goal coefficient 0.0008, "
             "the run record's) · members 60 of 60 · state ready") in out
     assert "The one read is addendum 178 PR ORDER item 5's PR; nothing is scored here" in out
-    assert "BL1 · declared_at 2026-11-06T14:30:00Z" in out and "members 5 of 60 · state accruing" in out
-    # finding 17: the reader says what it read (the directory), never who wrote nothing
-    assert ("present 0 · missing 5 (no stored rows: none found in exports; the host's shadow export writes them in "
-            "the host's exports/, so a read elsewhere finds none there)") in out
+    assert "BL1 · declared_at 2026-11-06T14:30:00Z" in out and "members 0 of 60 · state accruing" in out
+    # addendum 222 item 4(a): BL1's five games hold no row: excluded by cause on their own line, each named; finding
+    # 17: the reader says what it read (the directory), never who wrote nothing
+    assert ("  - BL1 · excluded by cause (no slot): no prospective row under the entry: the entry was not on the host's "
+            "tag 5 (ARCHITECT 2026-11-02, addendum 222 item 4(a), the text as addendum 223 item 2(c) amends it; a "
+            "window game with no stored prospective row under the entry in the read's export directory, none or one "
+            "under another entry's label only, kicking off before the first page there whose binding carried the "
+            "entry, or with no such page)") in out
+    # the summary line accounts for the cause (never "none" above a counted no-row line)
+    assert ("  - excluded (no slot): no prospective row under the entry: the entry was not on the host's tag 5 "
+            "(listed below)" in out.splitlines())
+    assert "FINDING" not in out                     # one cause, one count, one line (addendum 223 item 2(c))
+    assert "    - match 4000 · kickoff 2026-11-06T15:30:00Z" in out and "    - match 4004 · kickoff" in out
+    # the directory holds SA's export file: the print says what it found there, never "a read elsewhere" (law 4)
+    assert ("members holding one 0 · read from exports (none labelled 2026-11-06T14:30:00Z among the 1 shadow export "
+            "file(s) there)") in out
+    assert ("  - SA · excluded by cause (no slot): no prospective row under the entry: the entry was not on the host's "
+            "tag 0") in out
+    assert "members holding one 60 · read from exports" in out
     assert "SA · NOT DECLARED" not in out
     assert "FL1 · NOT DECLARED (no registry entry leagues-fl1-v1): no window" in out
 
@@ -616,15 +687,22 @@ def test_score_recomputes_both_arms_on_the_60_and_refuses_before_ready(ledger):
         s.rollback()
     assert r["n"] == 60 and r["ll_candidate"] == sum(cand) / 60 and r["ll_close"] == sum(close) / 60
     assert r["verdict"] == lw.verdict_of(r["ll_candidate"], r["ll_close"])
-    assert r["audit"] == {"present": 0, "missing": 60, "findings": [], "expected": [], "unreadable": [],
-                          "superseded": 0}
-    # D4's two lines print with no stored row too, both counted 0 (findings 13/21: neither silent)
+    # every member holds its row (addendum 222 item 4(a)); _export wrote the recompute, rounded: no difference
+    assert r["audit"] == {"present": 60, "missing": 0, "findings": [], "expected": [], "unreadable": [],
+                          "superseded": 0, "no_prospective_row": []}
+    # D4's two lines print with no difference too, both counted 0 (findings 13/21: neither silent); 222 4(a)'s line too
     assert lw.audit_lines("SA", r["audit"]) == [
-        "  - SA · stored prospective rows: none (no stored rows; 60 members without one)",
+        "  - SA · stored prospective rows: present 60 · differ from the recompute 0 (R1: never resolved either way) · "
+        f"superseded 0 {lw.SUPERSEDED_NOTE}",
         "  - SA · FINDINGS 0: differences on rows with pending_before = 0, or with no pending_before on the row "
         "(addendum 185 D4)",
         "  - SA · EXPECTED 0: differences on rows with pending_before > 0 (exported before an earlier game was final; "
-        "addendum 185 D4)"]
+        "addendum 185 D4)",
+        "  - SA · excluded by cause (no slot): no prospective row under the entry: the entry was not on the host's tag 0 "
+        "(ARCHITECT 2026-11-02, addendum 222 item 4(a), the text as addendum 223 item 2(c) amends it; a window game "
+        "with no stored prospective row under the entry in the read's export directory, none or one under another "
+        "entry's label only, kicking off before the first page there whose binding carried the entry, or with no "
+        "such page)"]
     with pytest.raises(lw.WindowRefused, match="the one read is at the 60th member"):
         lw.score({**w, "state": "waiting"})
     with pytest.raises(lw.WindowRefused):
@@ -640,7 +718,6 @@ def test_the_audit_counts_a_stored_row_that_differs_from_the_recompute(ledger, t
     t = _teams("SA")
     _priors("SA", t)
     got = _members("SA", t, 60, 2000, AT + timedelta(hours=1))
-    w = _read("SA")
     with session_scope() as s:
         rows = lc._season_rows(s, "SA", SEASON)
         p0, _ = lc.predict_as_of(rows, s.get(Match, got[0][0]), -0.1, 0.0008)
@@ -655,22 +732,28 @@ def test_the_audit_counts_a_stored_row_that_differs_from_the_recompute(ledger, t
     doc = {"exported_at": (AT + timedelta(minutes=5)).isoformat(),
            "predictions": [row(got[0][0], got[0][1], same), row(got[1][0], got[1][1], off),
                            row(got[2][0], got[2][1], (0.9, 0.05, 0.05), label=None)]}   # unlabelled: not read
-    (tmp_path / "exports").mkdir()
+    (tmp_path / "exports").mkdir(exist_ok=True)
     (tmp_path / "exports" / "soccer_expansion_shadow_2026-11-06_1435.json").write_text(json.dumps(doc))
-    assert _read("SA")["stored_present"] == 2
+    w = _read("SA")                                  # _export: the 58 others' rows (got[2]'s unlabelled one not read)
+    assert w["stored_present"] == 60 and w["n"] == 60
     a = lw.score(w, export_dir=str(tmp_path / "exports"))["audit"]
     # a stored row with no inputs_read is a FINDING, never assumed EXPECTED (addendum 185 D4; law 4)
-    assert a["present"] == 2 and a["missing"] == 58 and [f["match_id"] for f in a["findings"]] == [got[1][0]]
+    assert a["present"] == 60 and a["missing"] == 0 and [f["match_id"] for f in a["findings"]] == [got[1][0]]
     assert a["expected"] == [] and a["findings"][0]["pending_before"] is None
     L = lw.audit_lines("SA", a)
-    assert L[0] == ("  - SA · stored prospective rows: present 2 · missing 58 · differ from the recompute 1 (R1: never "
+    assert L[0] == ("  - SA · stored prospective rows: present 60 · differ from the recompute 1 (R1: never "
                     "resolved either way) · superseded 0 " + lw.SUPERSEDED_NOTE)
     assert L[1] == ("  - SA · FINDINGS 1: differences on rows with pending_before = 0, or with no pending_before on "
                     "the row (addendum 185 D4)")
     assert L[2].startswith(f"    FINDING match {got[1][0]} · stored ") and L[2].endswith(
         " · pending_before not on the row")
     assert L[3:] == ["  - SA · EXPECTED 0: differences on rows with pending_before > 0 (exported before an earlier "
-                     "game was final; addendum 185 D4)"]
+                     "game was final; addendum 185 D4)",
+                     "  - SA · excluded by cause (no slot): no prospective row under the entry: the entry was not on "
+                     "the host's tag 0 (ARCHITECT 2026-11-02, addendum 222 item 4(a), the text as addendum 223 item "
+                     "2(c) amends it; a window game with no stored prospective row under the entry in the read's "
+                     "export directory, none or one under another entry's label only, kicking off before the first "
+                     "page there whose binding carried the entry, or with no such page)"]
 
 
 # ------------------------------------------------------------------------------------------------ the fence --
@@ -687,7 +770,11 @@ def test_guards_backtest_refuses_a_declared_leagues_window_and_leaves_the_rest(l
     why = sx.guards_backtest("BL1", SEASON)                                       # undeclared: the pre-declaration
     assert why and "not declared yet" in why and "2026-10-30T15:00:00Z" in why    # fence (addendum 181 item 1(b))
     assert sx.guards_backtest("BL1", SEASON, through=lw.PRE_DECLARATION_CUT) is None
-    assert sx.guards_backtest("PL", SEASON) is None and sx.guards_backtest("PD", SEASON) is None
+    assert sx.guards_backtest("PL", SEASON) is None
+    # PD is one of DECLARATION_IDS (ARCHITECT 2026-11-02, addendum 222 item 4(b)): with no leagues-pd-v1 entry it
+    # stands behind the pre-declaration fence, as BL1 does (addendum 181 item 1(b): the same code path)
+    why = sx.guards_backtest("PD", SEASON)
+    assert why and "PD 2026/27 is not declared yet (no entry leagues-pd-v1)" in why and "2026-10-30T15:00:00Z" in why
 
 
 def test_an_unreadable_declared_at_fences_the_whole_season(ledger):
@@ -778,7 +865,7 @@ def test_the_shadow_grade_counts_the_window_and_grades_the_rest(ledger, tmp_path
     _game(21, "ELC", AT + timedelta(days=1), (tb[0], tb[1]))
     rows = [{"match_id": mid, "utc_date": (AT + timedelta(days=1)).isoformat(), "competition": code,
              "prediction": {"top_pick": "home_win", "top_pick_prob": 0.5}} for mid, code in ((20, "FL1"), (21, "ELC"))]
-    (tmp_path / "exports").mkdir()
+    (tmp_path / "exports").mkdir(exist_ok=True)
     (tmp_path / "exports" / "soccer_expansion_shadow_2026-11-07_0900.json").write_text(json.dumps(
         {"engine": sx.ENGINE, "exported_at": (AT + timedelta(hours=2)).isoformat(), "predictions": rows}))
     g = sx.shadow_grade(days=60, export_dir=str(tmp_path / "exports"), now=NOW)
@@ -848,6 +935,7 @@ def test_codex_733_score_re_derives_the_cohort_and_refuses_when_it_moved(ledger)
     ko = got[0][1] + timedelta(minutes=30)
     _game(2970, "SA", ko, rest[0])
     _legs(2970, ko)
+    _export("SA")                                    # the late game's row, as the host's export would hold it
     with pytest.raises(lw.WindowRefused, match="the window moved between the read and the score"):
         lw.score(w, now=NOW)
 
@@ -890,7 +978,7 @@ def test_181_1b_the_pre_declaration_fence_cuts_every_receipt_at_the_constant_wit
     rows = [{"match_id": mid, "utc_date": ko.isoformat(), "competition": "SA",
              "prediction": {"top_pick": "home_win", "top_pick_prob": 0.5}} for mid, ko in ((3000, before),
                                                                                          (3001, between))]
-    (tmp_path / "exports").mkdir()
+    (tmp_path / "exports").mkdir(exist_ok=True)
     (tmp_path / "exports" / "soccer_expansion_shadow_2026-10-30_1000.json").write_text(json.dumps(
         {"engine": sx.ENGINE, "exported_at": (before - timedelta(hours=2)).isoformat(), "predictions": rows}))
     g = sx.shadow_grade(days=60, export_dir=str(tmp_path / "exports"), now=NOW)["per_league"]["SA"]
@@ -899,7 +987,8 @@ def test_181_1b_the_pre_declaration_fence_cuts_every_receipt_at_the_constant_wit
 
 def test_181_1b_with_an_entry_the_cut_becomes_its_declared_at_and_a_verdict_lifts_it(ledger):
     """When the entry lands the cut becomes its declared_at (later by construction: a game between the two was never
-    a window game and is released to the receipts); a verdict recorded lifts the fence. PL and PD: never fenced."""
+    a window game and is released to the receipts); a verdict recorded lifts the fence. PL: never fenced; PD (addendum
+    222 item 4(b)): one of DECLARATION_IDS, behind the pre-declaration fence with no entry."""
     cut = lw.PRE_DECLARATION_CUT
     _comps()
     t = _teams("SA")
@@ -917,8 +1006,8 @@ def test_181_1b_with_an_entry_the_cut_becomes_its_declared_at_and_a_verdict_lift
     assert lw.fence_cutoff("SA", SEASON) is None and sx.guards_backtest("SA", SEASON) is None
     rec = paper.close_record(60, now=NOW)["SA"]
     assert (rec["n"], rec["fenced_window"]) == (2, 0)
-    for code in ("PL", "PD"):
-        assert lw.fence_cutoff(code, SEASON) is None and lw.fence_refusal(code, None) is None
+    assert lw.fence_cutoff("PL", SEASON) is None and lw.fence_refusal("PL", None) is None
+    assert lw.fence_cutoff("PD", SEASON) == cut          # addendum 222 item 4(b): PD, no entry here: pre-declaration
 
 
 def test_181_6_an_entry_whose_league_field_is_not_its_code_is_refused(ledger):

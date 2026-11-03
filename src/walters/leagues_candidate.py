@@ -178,7 +178,8 @@ def parity(code: str, rho: float, coeff: float, season: str = CURRENT_SEASON, no
     THE WINDOW FENCE (ARCHITECT 2026-10-30, addendum 178 R8; addendum 181 item 1(b)): while the league's verdict is
     not recorded (leagues_window.fence_cutoff), both paths read only the 2026/27 games kicking off at or before the
     cut (its declared_at; PRE_DECLARATION_CUT while no entry exists); the finished regular-round games after it are
-    counted (`fenced`), never walked or compared. PL, PD and every other competition: unchanged."""
+    counted (`fenced`), never walked or compared. PD is fenced as the four are (leagues-pd-v1, ARCHITECT 2026-11-02,
+    addendum 222 item 4(b)); PL and every other competition: unchanged."""
     from src.walters.soccer_expansion import shadow_entry, unscoreable
     from src.db.database import session_scope
     from src.timeutil import utc_now_naive

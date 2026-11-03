@@ -265,9 +265,9 @@ BROKEN = [
     ("a confirming lane has a step left",
      lambda d: [st.__setitem__("done", {"date": "2026-11-12", "receipt": "r"}) for st in _lane(d, "unl")["steps"]],
      "lane 'unl': state 'confirming' and no step left to do"),
-    ("a lane to declare has a step left",
-     lambda d: [st.__setitem__("done", {"date": "2026-10-23", "receipt": "r"}) for st in _lane(d, "leagues")["steps"]],
-     "lane 'leagues': state 'to declare' and no step left to do"),
+    ("a lane to declare has a step left",      # nhl: leagues is declared since addendum 220
+     lambda d: [st.__setitem__("done", {"date": "2026-10-23", "receipt": "r"}) for st in _lane(d, "nhl")["steps"]],
+     "lane 'nhl': state 'to declare' and no step left to do"),
     ("within a lane no two steps share a what (addendum 60 item 3)",
      lambda d: _lane(d, "ncaa")["steps"][3].__setitem__("what", _lane(d, "ncaa")["steps"][1]["what"]),
      "lane 'ncaa' step 4: what"),

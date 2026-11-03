@@ -44,6 +44,9 @@ SHADOW_EXPORT_STEP = ["export-soccer-expansion-shadow"]
 KALSHI_CAPTURE_ONLY = EXPANSION_CODES
 # ncaa-schedule's forward window in days past today (ARCHITECT 2026-10-09: "the next seven days")
 NCAA_FORWARD_DAYS = 7
+# ncaa-schedule's last step (ARCHITECT 2026-11-03, addendum 230 item 1(b)): the v2 college shadow, dormant (exit 0,
+# nothing written) while the registry records no verdict or a verdict other than PASS for ncaa-elo-v2
+NCAA_SHADOW_STEP = ["export-ncaa-predictions", "--id", "ncaa-elo-v2", "--dormant-ok"]
 
 CUP_SCHEDULE = ("EFL", "CL", "UEL", "FAC")     # intl-daily's cup schedule read (#707), in this order
 COVERAGE_STEP = ["coverage", "--json"]         # intl-daily's LAST step (#805, addendum 225 item 5)
@@ -241,19 +244,37 @@ CHAINS: dict[str, dict] = {
     # (Tue-Sat) syncs only yesterday..tomorrow and the window service only its 24 hours, so on 10-09 the
     # host still held 30 of Saturday's games at 04:00Z. Single-day calls for today..today+7 (the
     # american-football adapter sends `date` only when from == to), twice a day (sp-ncaa-schedule.timer)
-    # so one failed run still leaves every stored kickoff under a day old. Sync only: no Kalshi, no export.
+    # so one failed run still leaves every stored kickoff under a day old. No Kalshi; one export, last (below).
     #
     # REFRESH BY ID (ARCHITECT 2026-10-09, addendum 21 item 1): "For NCAA, the kickoff, status and score of
     # every stored SCHEDULED game kicking off in the next seven days are refreshed from the provider by the
     # game's own id, at least once a day on the host and in the laptop's morning chain. The listing reads
     # stay: they find games we do not hold." The provider's listing no longer carries college games that
     # have not started; they still answer by id. So the listing reads stay first (new games), and the
-    # refresh by id runs LAST, over every stored SCHEDULED game today..today+7 (one GET per game).
+    # refresh by id runs after them, over every stored SCHEDULED game today..today+7 (one GET per game).
+    #
+    # THE COLLEGE SHADOW EXPORT (ARCHITECT 2026-11-03, addendum 230 item 1(b), verbatim in part: "the college shadow
+    # export on the ncaa-schedule chain (the NHL shadow's shape: the entry's probabilities per fixture, market-only,
+    # never a call) [...] dormant while the verdict is null or FAIL"): NCAA_SHADOW_STEP, the chain's LAST step, after
+    # the syncs it reads. While the registry records no verdict, or a verdict other than PASS, for ncaa-elo-v2 it
+    # prints DORMANT with the reason, writes nothing and exits 0 (--dormant-ok): the chain never fails on it. Every
+    # other refusal (coverage, s, rule, constants, a file that exists) exits 2 and fails the chain, as any export step
+    # does (sp_run.run_steps). Not a sync step: a real failure still pages. It reads the DB and the registry only
+    # (UNMETERED).
+    # THE ORDER (ARCHITECT 2026-11-03, addendum 236 item 3(4), verbatim in part): "the export runs whether or not
+    # refresh-by-id succeeded, on the stored state it finds, its rows stamped with the refresh it saw (the window
+    # chain's rule, 84 item 2(b): a sync step's failure does not stop the chain); the refresh failure pages as now."
+    # So `go_on` names refresh-by-id: a failed refresh is receipted, the run goes on to the export, the chain's exit is
+    # the first failure's (OnFailure pages as now) and its summary names the step (sp_run.run_steps). Only that step:
+    # a failed listing read (sync-matches) stops the chain as before (not continue_on_sync_failure: wider than ruled).
+    # A D6 coverage drop after a PASS is the export's refusal (exit 2, never DORMANT; item 3(4)): it pages.
     "ncaa-schedule": {
+        "go_on": ("refresh-by-id",),
         "steps": [
             *[["sync-matches", "--competition", "NCAA", "--season", "2026", "--date-from", d, "--date-to", d]
               for d in ("{today}", *[f"{{today_plus{n}}}" for n in range(1, NCAA_FORWARD_DAYS + 1)])],
             ["refresh-by-id", "--competition", "NCAA", "--days", str(NCAA_FORWARD_DAYS)],
+            NCAA_SHADOW_STEP,
         ],
     },
     # --- Weekly full-season sync (CLAUDE.md: "full-season weekly") ---
@@ -492,6 +513,7 @@ UNMETERED = frozenset({
     "improve", "results-tally", "export-results", "export-predictions", "window-card",
     "export-nfl-predictions", "export-nfl-results", "export-fixtures",
     "export-nhl-predictions",
+    "export-ncaa-predictions",  # reads the DB and the registry only (addendum 230 item 1(b): ncaa-schedule's last step)
     "nhl-shot-sync",          # api-web.nhle.com (the NHL's free API), never api-sports
     "export-unl-predictions",  # reads the DB only
     "export-soccer-expansion-shadow",  # reads the DB and the registry only (addendum 185 D2: its chain step)

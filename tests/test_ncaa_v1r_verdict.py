@@ -159,6 +159,8 @@ def test_the_shadow_refuses_once_the_registry_records_a_verdict_other_than_pass(
 def test_export_ncaa_predictions_exits_2_naming_the_ruling_before_reading(monkeypatch):
     from cli import cli
 
+    monkeypatch.setenv("SP_EXPORTS_MIRROR_ROLE", "host")      # addendum 236 item 3(5): the command is the host's
+
     monkeypatch.setattr(sh, "fit", _boom)
     monkeypatch.setattr(sh, "fbs_teams", _boom)
     res = CliRunner().invoke(cli, ["export-ncaa-predictions"])

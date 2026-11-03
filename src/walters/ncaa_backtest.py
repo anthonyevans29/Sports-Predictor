@@ -568,7 +568,7 @@ def v2_run_recorded(registry_path: str | None = None) -> bool:
     entry reads as not recorded (fenced)."""
     from src.walters import registry as reg
 
-    e = reg.get(V2_EID, registry_path) if registry_path else reg.get(V2_EID)
+    e = reg.get(V2_EID, registry_path or reg.LEDGER)          # registry.LEDGER at call time (addendum 236 item 3(7))
     return bool(e and e.get("run"))
 
 

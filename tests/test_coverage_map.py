@@ -109,7 +109,13 @@ LANES = [lane("unl", "confirming", "intl-elo-v9", ["UNL"]), lane("ncaa", "declar
          lane("ghost", "confirming", "ghost-v1", ["CZE"]), lane("split", "confirming", "split-v4", ["SCO"]),
          lane("prose", "confirming", "intl-elo-v9")]          # a lane naming nothing: never matched by its id
 ENTRIES = [{"id": "intl-elo-v9", "status": "confirming"}, {"id": "ncaa-elo-v8", "status": "declared"},
-           {"id": "el2-elo-v3", "status": "confirming"}, {"id": "split-v4", "status": "closed"}]
+           {"id": "el2-elo-v3", "status": "confirming"}, {"id": "split-v4", "status": "closed"},
+           {"id": "ncaa-elo-v2", "status": "declared", "verdict": None}]   # ncaa-schedule's shadow step (230 1(b))
+# ncaa-schedule's last step, export-ncaa-predictions --id ncaa-elo-v2 --dormant-ok (ARCHITECT 2026-11-03, addendum 230
+# item 1(b)): no verdict recorded, the step writes no row, so NCAA reads MARKET-ONLY with the export's own reason
+NCAA_DORMANT = ("no shadow export scheduled for NCAA (chains.py: ncaa-schedule run export-ncaa-predictions, which "
+                "writes no NCAA row: dormant: the registry records no verdict for ncaa-elo-v2: dormant while the "
+                "verdict is null or FAIL (ARCHITECT 2026-11-03, addendum 230 item 1(b)))")
 V7 = "nhl_elo_v7_xg_margin_no_na"                            # nhl_shadow.MODEL_VERSION, pinned below
 NHL_SHADOW = ("export._MARKET_ONLY_REASON; roadmap lane nhl: to declare; chain nhl-daily runs export-nhl-predictions "
               f"({V7})")
@@ -283,8 +289,8 @@ def test_a_market_only_sport(env):
     assert "· rows: none (none expected: MARKET-ONLY) ·" in nhl
     assert "without rows" not in nhl
     assert nhl.endswith("· closing: none (no closing family covers NHL)")
-    assert ("· MARKET-ONLY (export._MARKET_ONLY_REASON; roadmap lane ncaa: declared, no shadow export scheduled for "
-            "NCAA (chains.py)) ·" in line_of(out, "NCAA"))
+    assert (f"· MARKET-ONLY (export._MARKET_ONLY_REASON; roadmap lane ncaa: declared, {NCAA_DORMANT}) ·"
+            in line_of(out, "NCAA"))
     assert out[-1] == "GAPS: none"
 
 
@@ -393,16 +399,35 @@ def test_a_past_day_before_the_chains_py_gate_has_no_shadow(env):
 
 
 def test_a_declared_lane_is_shadow_only_where_a_chain_runs_its_shadow_export(env, monkeypatch):
-    """NCAA's lane is declared and no chain runs a college shadow (CLAUDE.md: "No college shadow ... until then"):
-    MARKET-ONLY. Were a chain to run export-ncaa-predictions it would be reported, never hidden: the tag falls back to
-    the full id, ncaa_elo_v1r having no vN token."""
+    """NCAA's lane is declared; ncaa-schedule runs export-ncaa-predictions --id ncaa-elo-v2 --dormant-ok as its last
+    step (ARCHITECT 2026-11-03, addendum 230 item 1(b): "dormant while the verdict is null or FAIL"). SHADOW_BINDS
+    reads the export's own registry preconditions for the step's --id: with no verdict, or a FAIL, it writes no row
+    and NCAA is MARKET-ONLY with the export's reason; with a PASS (and v1's constants, the gate's rule and the ruled
+    s) it is `MARKET-ONLY · shadow v2`, the model the step's --id binds (ncaa_elo_v2), never v1r's constant. A bare
+    step binds v1r, which the registry here does not hold: refused, never reported as a shadow."""
+    from src.walters import ncaa_shadow as sh
     make_db(env, [(601, "NCAA", "2026-10-17 16:00", "SCHEDULED")])
-    assert ("· MARKET-ONLY (export._MARKET_ONLY_REASON; roadmap lane ncaa: declared, no shadow export scheduled for "
-            "NCAA (chains.py)) ·") in line_of(run("--date", DAY)[1], "NCAA")
-    ch = cm.CHAINS["ncaa-market"]
-    monkeypatch.setitem(cm.CHAINS, "ncaa-market", {**ch, "steps": [*ch["steps"], ["export-ncaa-predictions"]]})
-    assert ("· MARKET-ONLY · shadow ncaa_elo_v1r (export._MARKET_ONLY_REASON; roadmap lane ncaa: declared; chain "
-            "ncaa-market runs export-ncaa-predictions (ncaa_elo_v1r)) ·") in line_of(run("--date", DAY)[1], "NCAA")
+    assert (f"· MARKET-ONLY (export._MARKET_ONLY_REASON; roadmap lane ncaa: declared, {NCAA_DORMANT}) ·"
+            in line_of(run("--date", DAY)[1], "NCAA"))
+    v1 = {"k_factor": 24.0, "home_advantage": 55.0, "mov_base": 2.2, "season_regression": 0.25,
+          "default_rating": 1500.0}
+    v2 = {"id": sh.V2_EID, "status": "declared", "constants": v1, "neutral_site_rule": sh.GATE_RULE,
+          "logistic_scale": {"s": sh.V2_FROZEN_S}}
+    Path(reg.LEDGER).write_text(json.dumps(ENTRIES[:-1] + [{**v2, "verdict": {"verdict": "FAIL", "ruling": "x"}}]))
+    assert ("which writes no NCAA row: dormant: the registry records the verdict FAIL for ncaa-elo-v2: dormant while "
+            "the verdict is null or FAIL") in line_of(run("--date", DAY)[1], "NCAA")
+    Path(reg.LEDGER).write_text(json.dumps(ENTRIES[:-1] + [{**v2, "verdict": {"verdict": "PASS", "ruling": "x"}}]))
+    assert ("· MARKET-ONLY · shadow v2 (export._MARKET_ONLY_REASON; roadmap lane ncaa: declared; chain ncaa-schedule "
+            "runs export-ncaa-predictions (ncaa_elo_v2)) ·") in line_of(run("--date", DAY)[1], "NCAA")
+    Path(reg.LEDGER).write_text(json.dumps(ENTRIES[:-1] + [{**v2, "verdict": {"verdict": "PASS", "ruling": "x"},
+                                                            "logistic_scale": {"s": 280.0}}]))
+    assert "which writes no NCAA row: REFUSED: ncaa-elo-v2's registry freezes s = 280.0" in line_of(
+        run("--date", DAY)[1], "NCAA")                         # a refusal past the verdict: no shadow, its reason
+    Path(reg.LEDGER).write_text(json.dumps(ENTRIES))
+    ch = cm.CHAINS["ncaa-schedule"]
+    monkeypatch.setitem(cm.CHAINS, "ncaa-schedule", {**ch, "steps": [*ch["steps"][:-1], ["export-ncaa-predictions"]]})
+    assert ("which writes no NCAA row: REFUSED: ncaa-elo-v1r is not declared in docs/registry"
+            in line_of(run("--date", DAY)[1], "NCAA"))
 
 
 def test_a_declared_league_reads_the_shadow_the_soccer_chains_run_and_an_undeclared_one_does_not(env):
@@ -859,15 +884,20 @@ def test_the_shadow_exports_are_the_clis_own():
     from src.walters import intl_shadow, nhl_shadow
     assert nhl_shadow.MODEL_VERSION == V7
     five = set(cm.EXPANSION_CODES)
+    sx = "soccer-expansion-v1"
     assert cm.scheduled_shadows() == [
         # addendum 185 D2: the last step of both soccer sync chains; the steps before it name PL and the five
-        {"chain": "soccer-prematch", "command": "export-soccer-expansion-shadow", "model": "soccer-expansion-v1",
-         "comps": {"PL", *five}},
-        {"chain": "soccer-morning-after", "command": "export-soccer-expansion-shadow", "model": "soccer-expansion-v1",
-         "comps": {"PL", *five}},
-        {"chain": "nhl-daily", "command": "export-nhl-predictions", "model": V7, "comps": {"NHL"}},
+        {"chain": "soccer-prematch", "command": "export-soccer-expansion-shadow", "model": sx,
+         "comps": {"PL", *five}, "step": ["export-soccer-expansion-shadow"], "registry_id": sx},
+        {"chain": "soccer-morning-after", "command": "export-soccer-expansion-shadow", "model": sx,
+         "comps": {"PL", *five}, "step": ["export-soccer-expansion-shadow"], "registry_id": sx},
+        {"chain": "nhl-daily", "command": "export-nhl-predictions", "model": V7, "comps": {"NHL"},
+         "step": ["export-nhl-predictions"], "registry_id": V7},
         {"chain": "intl-daily", "command": "export-unl-predictions", "model": intl_shadow.MODEL_VERSION,
-         "comps": set()}]
+         "comps": set(), "step": ["export-unl-predictions"], "registry_id": intl_shadow.MODEL_VERSION},
+        # addendum 230 item 1(b): ncaa-schedule's last step, the v2 binding its --id names (dormant until a PASS)
+        {"chain": "ncaa-schedule", "command": "export-ncaa-predictions", "model": "ncaa_elo_v2", "comps": {"NCAA"},
+         "step": ["export-ncaa-predictions", "--id", "ncaa-elo-v2", "--dormant-ok"], "registry_id": "ncaa-elo-v2"}]
 
 
 def test_the_live_model_is_the_one_the_predict_path_resolves():
@@ -1734,8 +1764,8 @@ PIN_TEXT = [
     "PL SLATE · NO SLATE FILE — slate run due 06:00 ET",
     "EL2 · 1 game · SHADOW v3 (roadmap lane el2: confirming; registry el2-elo-v3: confirming) · rows: none (none "
     "expected: SHADOW) · closing: none (no closing family covers EL2)",
-    "NCAA · 1 game · MARKET-ONLY (export._MARKET_ONLY_REASON; roadmap lane ncaa: declared, no shadow export scheduled "
-    "for NCAA (chains.py)) · rows: none (none expected: MARKET-ONLY) · closing: none (no closing family covers NCAA)",
+    f"NCAA · 1 game · MARKET-ONLY (export._MARKET_ONLY_REASON; roadmap lane ncaa: declared, {NCAA_DORMANT}) · rows: "
+    "none (none expected: MARKET-ONLY) · closing: none (no closing family covers NCAA)",
     f"NCAA {PAPER_HEAD} · 1 game · {PAPER_NOT_READ} · shadow 0 of 1",
     f"NCAA SLATE · PAPER · 601 Away @ Home 12:00 ET · Kalshi: not read (the DB has no odds_snapshots table) · {NO_SHADOW}",
     "NHL · 1 game · MARKET-ONLY · shadow v7 (export._MARKET_ONLY_REASON; roadmap lane nhl: to declare; chain nhl-daily "

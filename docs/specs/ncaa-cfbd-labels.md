@@ -5,6 +5,35 @@ SCOPE + JOIN (J1–J4) built 2026-10-08, re-ingest from the saved payloads
 pending.** No model change. GATE #79 (frozen 2026-09-30) is unchanged and stays
 SUSPENDED-PENDING-DATA until the architect reads the coverage receipt.
 
+## THE PREGAME NEUTRAL FLAG (ARCHITECT 2026-11-03, addendum 236 item 3(1))
+
+Verbatim: "THE NEUTRAL FLAG: option (iii) — CFBD's pregame neutral-site field for the fixture, read at the labels
+ingest and ruled as ours with its rule stated on every row ("neutral per CFBD's pregame field, read <stamp>; absent:
+unknown, D8"); (iv)'s "unknown" where CFBD has none; never a hand table for the current season (that is #608's NFL
+case). It LABELS the row; it PRICES only what the candidate's own backtest stream does with the same field — exactly
+that, no more, no less".
+
+- **Scope.** The same payload's games that CFBD serves as NOT completed (`completed` present and false) with both
+  classifications fbs (`pregame_reason`). A record without a `completed` field is never pregame (law 4).
+- **Join.** The first pass's exact name tier only, ±12h of CFBD's start (`pregame_join` calls `join_one` with no
+  scores). The substring tier and the J1 dateshift need agreeing scores, so a game before it is played never joins
+  by them: a substring-only fit is unmatched. Ambiguous fits and two source games on one fixture are refused, and so
+  is a fixture this run labels.
+- **Write.** `ncaa_cfbd_pregame` (`NCAACFBDPregame`), upserted by match id with CFBD's `neutralSite` as served (NULL
+  when the record carries none), the orientation (it prices the shadow row since addendum 239 item 2: a current `swapped` row gives the
+  home advantage to CFBD's home, read by `ncaa_shadow.live_game`), the source names and start, and the run's
+  `fetched_at` (L3's current rule). Never `ncaa_cfbd_labels`, never the stream, the FBS team set or the coverage
+  fact. Written only when `migrate_ncaa_cfbd_pregame.py`'s marker exists (`pregame_migrated`; an init_db()-created
+  table does not count). Without it the labels are written as before and the receipt prints `NOT WRITTEN
+  ncaa_cfbd_pregame`.
+- **Receipt.** One line per season: `PREGAME NEUTRAL FLAG`: in scope, joined (same / swapped), neutral, not neutral,
+  unknown, unmatched, ambiguous-refused, duplicate-target-refused, fixture labelled this run, unusable. Counts only.
+- **Reader.** `pregame_flags(s, ids)`: each row with `current` (its `fetched_at` equals its season's latest ingest
+  record's). The NCAA shadow reads current rows only; a stale row reads unknown.
+- **Run order (operator, after merge, on the host's tag):** the `.backup`, then `python migrate_ncaa_cfbd_pregame.py`,
+  then one non-dry `python cli.py ncaa-cfbd-labels --year 2026`. Until then every shadow row reads `absent: unknown,
+  D8`.
+
 ## THE WEEK AND THE 2023 INGEST (ARCHITECT 2026-10-23, addendum 158 item 1(a); ncaa-elo-v2 D10)
 
 Verbatim: "(a) The 2023 ingest (D10: the CFBD 2023 both-FBS labels with the WEEK persisted on NCAACFBDLabel — the

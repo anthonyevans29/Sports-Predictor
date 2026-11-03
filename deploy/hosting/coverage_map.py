@@ -77,9 +77,12 @@ v7"."
                    operator-only chain is no schedule; and, for a shadow export that binds its own leagues, only a
                    competition it binds: SHADOW_BINDS). (b) is how NHL qualifies (its lane is "to declare", and
                    nhl-daily runs export-nhl-predictions, v7, every day: the ruling's own example) and how a declared
-                   lane would (NCAA's has no shadow export scheduled: CLAUDE.md "No college shadow ... until then").
+                   lane would (NCAA's: ncaa-schedule runs export-ncaa-predictions --id ncaa-elo-v2, dormant until the
+                   registry records its PASS, ARCHITECT 2026-11-03, addendum 230 item 1(b); SHADOW_BINDS reads the
+                   export's own registry preconditions for the step's --id, so a dormant step is no shadow).
                    The tag is the vN token of the shadow's id as the code names it (the registry id in (a), the shadow
-                   module's model id in (b)), the full id where it has none; in (b), for a shadow export whose rows
+                   module's model id in (b), or the model of the binding the step's --id names, SHADOW_MODEL_OF_STEP),
+                   the full id where it has none; in (b), for a shadow export whose rows
                    a registry entry per competition labels (SHADOW_TAGS: export-soccer-expansion-shadow), the tag is
                    that entry's id and "declared <declared_at>" (ARCHITECT 2026-11-03 07:55 ET, addendum 226 item
                    4(b), verbatim: "SA, FL1, ELC and PD tagged from the registry entry (the id and "declared
@@ -253,7 +256,41 @@ SHADOW_EXPORTS = {
 _IN_CHUNK = 500              # ids per IN (...) list: under SQLite's variable limit
 
 
-def _expansion_binds(code: str, entries: dict) -> str | None:
+def _step_id(step) -> str | None:
+    """The `--id` a chain step passes (export-ncaa-predictions' registry id), or None."""
+    step = list(step or [])
+    return next((step[i + 1] for i, a in enumerate(step[:-1]) if a == "--id"), None)
+
+
+def _ncaa_binding(step):
+    """ncaa_shadow's binding for the step's `--id` (its default, ncaa-elo-v1r, for a bare step), the export's own."""
+    from src.walters import ncaa_shadow as sh
+    return sh.binding(_step_id(step) or sh.EID)
+
+
+def _ncaa_binds(code: str, entries: dict, step=None) -> str | None:
+    """None when export-ncaa-predictions, run as `step`, writes rows for `code`, else why it writes none. ARCHITECT
+    2026-11-03, addendum 230 item 1(b): "dormant while the verdict is null or FAIL": the export's own registry
+    preconditions, read as it reads them (ncaa_shadow.frozen and bound_scale for the step's `--id`, from
+    registry.LEDGER at call time; `entries` is taken for SHADOW_BINDS' signature and not read, as _expansion_binds). A dormant or
+    refused binding writes no row, so NCAA is never SHADOW here on it, and the line carries the export's reason. What
+    this cannot see: the D6 coverage guard (the side table, read per run after the registry passes); on a day it
+    refuses, NCAA still reads its shadow here, and the chain's failure page is the signal."""
+    from src.walters import ncaa_shadow as sh
+    if code != sh.COMPETITION:
+        return f"{code} is not the NCAA shadow's competition"
+    try:
+        b = _ncaa_binding(step)
+        e, _, _ = sh.frozen(eid=b.eid)     # addendum 236 item 3(7): frozen()'s own read, registry.LEDGER at call time
+        sh.bound_scale(b, e)
+    except sh.ShadowDormant as err:
+        return f"dormant: {sh.dormant_reason(err.eid, err.verdict)}"
+    except sh.ShadowRefused as err:
+        return str(err)
+    return None
+
+
+def _expansion_binds(code: str, entries: dict, step=None) -> str | None:
     """None when export-soccer-expansion-shadow writes rows for `code`, else why it writes none. ARCHITECT 2026-10-30
     09:30 ET, addendum 178 R5, verbatim: "BEFORE THE DECLARATION the four leagues get no prospective rows (nothing is a
     shadow before it is declared); after it, predict_as_of rows labelled with the league's declared_at." The step runs
@@ -264,7 +301,7 @@ def _expansion_binds(code: str, entries: dict) -> str | None:
     without that entry, the experiment's own surviving league, through confirming() and its checks). ONE registry source (pass-3
     findings 3/12): the answer is shadow_binding's alone, read from the registry the export itself reads at call time
     (soccer_expansion._reg_paths: registry.LEDGER), never `entries` (read_ledgers' copy, which coverage(registry_path=)
-    could point elsewhere): `entries` is taken for SHADOW_BINDS' signature and not read. A binding the export refuses
+    could point elsewhere): `entries` and `step` are taken for SHADOW_BINDS' signature and not read. A binding the export refuses
     writes no row, so its league is never SHADOW here (R5's lens), and the line carries the export's reason. What this
     cannot see: the export's DB-stage refusals (not stored, F3), made per run after the binding passes
     (soccer_expansion.shadow_binding's docstring); on such a day the league still reads its shadow here."""
@@ -284,10 +321,16 @@ def _expansion_binds(code: str, entries: dict) -> str | None:
     return None
 
 
-# {shadow export command: function(code, registry entries) -> None when it writes rows for the competition, else why
-# not}, for a shadow export whose step names no competition and binds its own: a chain's earlier steps naming a
-# competition do not make it that competition's shadow by themselves.
-SHADOW_BINDS = {"export-soccer-expansion-shadow": _expansion_binds}
+# {shadow export command: function(code, registry entries, the chain's step) -> None when it writes rows for the
+# competition, else why not}, for a shadow export whose step names no competition and binds its own, or whose binding
+# can be dormant (export-ncaa-predictions, addendum 230 item 1(b)): a chain's earlier steps naming a competition do
+# not make it that competition's shadow by themselves.
+SHADOW_BINDS = {"export-soccer-expansion-shadow": _expansion_binds, "export-ncaa-predictions": _ncaa_binds}
+# {shadow export command: function(step) -> the code's id for the model that step writes}, for a command whose step
+# picks its binding (`--id`): ncaa_shadow's binding's model_version (ncaa_elo_v2 for `--id ncaa-elo-v2`) and its
+# registry id. A command not here writes SHADOW_EXPORTS' model, whose id is its registry id where it has one.
+SHADOW_MODEL_OF_STEP = {"export-ncaa-predictions": lambda step: (_ncaa_binding(step).model_version,
+                                                                 _ncaa_binding(step).eid)}
 
 
 def _expansion_tag(code: str) -> tuple[str, str] | None:
@@ -464,7 +507,9 @@ def market_only_sets() -> list[tuple[str, frozenset]]:
 
 def scheduled_shadows() -> list[dict]:
     """The shadow exports a chain runs (chains.py), each {chain, command, model: the code's id for its model, comps:
-    the competitions the chain's steps before the export name}. An operator-only chain has no timer: no schedule."""
+    the competitions the chain's steps before the export name, step: the step's argv, registry_id: the registry id
+    its rows are written under (the model id where the command has no per-step binding)}. An operator-only chain has
+    no timer: no schedule."""
     out = []
     for name, ch in CHAINS.items():
         if ch.get("operator_only"):
@@ -476,8 +521,12 @@ def scheduled_shadows() -> list[dict]:
                 # schedule reads come after export-unl-predictions and are no shadow of the cups)
                 comps = {x[i + 1] for x in steps[:j] for i, a in enumerate(x[:-1]) if a == "--competition"}
                 mod, attr = SHADOW_EXPORTS[s[0]]
-                out.append({"chain": name, "command": s[0], "model": getattr(importlib.import_module(mod), attr),
-                            "comps": comps})
+                model = getattr(importlib.import_module(mod), attr)
+                rid = model
+                if s[0] in SHADOW_MODEL_OF_STEP:          # addendum 230 item 1(b): the step's own --id binding
+                    model, rid = SHADOW_MODEL_OF_STEP[s[0]](s)
+                out.append({"chain": name, "command": s[0], "model": model, "comps": comps, "step": list(s),
+                            "registry_id": rid})
     return out
 
 
@@ -514,10 +563,10 @@ def shadow_of(code: str, lanes: list[dict], entries: dict, day: date) -> tuple[s
     unbound_model: dict[tuple[str, str], str] = {}       # (command, why) -> the model id that export writes
     for r in runs:
         f = SHADOW_BINDS.get(r["command"])
-        why_not = f(code, entries) if f else None
+        why_not = f(code, entries, r["step"]) if f else None
         if why_not:
             unbound.setdefault((r["command"], why_not), []).append(r["chain"])
-            unbound_model[(r["command"], why_not)] = r["model"]
+            unbound_model[(r["command"], why_not)] = r["registry_id"]
     runs = [r for r in runs if not any(r["chain"] in v and r["command"] == k[0] for k, v in unbound.items())]
     off = {r["chain"]: chain_inactive(r["chain"], day) for r in runs}     # sp_run's season gate, on the day
     gated = "; ".join(sorted({v for v in off.values() if v})

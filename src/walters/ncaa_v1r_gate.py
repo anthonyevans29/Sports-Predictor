@@ -922,10 +922,11 @@ def run_lines(r: dict, spec: Spec = V1R) -> list[str]:
 
 # ------------------------------------------------------------------------------- D7: the confirmation read --
 
-def confirming(spec: Spec = V1R) -> dict:
-    """The entry, refusing unless it has its run record (with the D4 baseline) and a PASS verdict (confirming)."""
+def confirming(spec: Spec = V1R, path: str | None = None) -> dict:
+    """The entry, refusing unless it has its run record (with the D4 baseline) and a PASS verdict (confirming).
+    `path`: the registry read (default registry.LEDGER, read at call time)."""
     reg = _reg()
-    e = reg.get(spec.eid, reg.LEDGER)
+    e = reg.get(spec.eid, path or reg.LEDGER)
     if e is None or not e.get("run"):
         raise GateRefused(f"{spec.eid} has no run record in docs/registry: the confirmation follows the one run")
     if (e.get("verdict") or {}).get("verdict") != "PASS":
@@ -1053,11 +1054,20 @@ def score_cohort(games, cohort_ids, rate: float, model=None) -> dict:
 def confirmation_read(spec: Spec = V1R) -> dict:
     """The plan's read so far: refuses unless PASS (confirming) and 2024, 2025 and 2026 covered (D6). (v2: D7 "as
     v1r's D7", scored by the same replay as its gate: its stream, its D1 wrapper with the frozen s.)"""
+    e, co, st, v, live = _cohort_read(spec, "the confirmation read")
+    model = None if spec is V1R else model_for(spec, e)
+    sc = score_cohort(v.games, live, float(e["run"]["result"]["baseline_home_rate"]), model)
+    return {**sc, **_cohort_counts(e, co, st, sc["scored_ids"])}
+
+
+def _cohort_read(spec: Spec, what: str, path: str | None = None):
+    """(entry, cohort, statuses, the D2 stream, the cohort fixtures that can be scored): the part of the confirmation
+    read that names the games, shared by confirmation_read and confirmation_count. Refuses unless PASS (confirming)
+    and 2024, 2025 and 2026 are covered (D6). `path`: confirming()'s registry (default registry.LEDGER)."""
     from src.db.database import session_scope
 
-    e = confirming(spec)
-    require_coverage(coverage(spec.confirm_seasons), spec.confirm_seasons, "the confirmation read")
-    model = None if spec is V1R else model_for(spec, e)
+    e = confirming(spec, path)
+    require_coverage(coverage(spec.confirm_seasons), spec.confirm_seasons, what)
     with session_scope() as s:
         co = cohort(e, s)
         st = _statuses(s, co["ids"])
@@ -1070,15 +1080,34 @@ def confirmation_read(spec: Spec = V1R) -> dict:
     # D7: "A cancelled fixture is released and replaced by the next eligible one." A cancelled cohort fixture is never
     # scored, label or not: it stays pending (release due) until --substitute replaces it (Codex on #375).
     live = [i for i in co["ids"] if (st.get(i) or {}).get("status") != "cancelled"]
-    sc = score_cohort(v.games, live, float(e["run"]["result"]["baseline_home_rate"]), model)
+    return e, co, st, v, live
+
+
+def _cohort_counts(e, co, st, scored_ids) -> dict:
     plan = e["confirmation_plan"]
-    pending = sorted(set(co["ids"]) - set(sc["scored_ids"]))
-    return {**sc, "n_games": plan["n_games"], "bar": plan["bar"], "cohort_state": co["state"],
+    pending = sorted(set(co["ids"]) - set(scored_ids))
+    return {"n_games": plan["n_games"], "bar": plan["bar"], "cohort_state": co["state"],
             "cohort_size": len(co["ids"]), "eligible_stored": co["eligible_stored"],
             "pending": [{"id": i, "status": (st.get(i) or {}).get("status", "not stored")} for i in pending],
             "release_due": sum(1 for i in pending if (st.get(i) or {}).get("status") == "cancelled"
                                and co["state"] == "frozen"),
-            "complete": co["state"] == "frozen" and not pending and sc["n"] == plan["n_games"]}
+            "complete": co["state"] == "frozen" and not pending and len(scored_ids) == plan["n_games"]}
+
+
+def confirmation_count(spec: Spec = V1R, path: str | None = None) -> dict:
+    """THE CONFIRMATION COUNTER (ARCHITECT 2026-11-03, addendum 230 item 1(b): "the confirmation counter to 100"):
+    confirmation_read's games and counts, no figure of the games. `n` is the number of cohort fixtures the read would
+    score now (score_cohort scores exactly the cohort fixtures that are not cancelled and stand in the D2 stream, i.e.
+    final and carrying a current label), of `n_games` (the plan's 100); the cohort's state (provisional or frozen), its
+    size, the pending fixtures by status, the releases due, and `complete` as the read says it. No model is walked, no
+    log-loss, no baseline, no verdict: those are confirmation_read's and record_confirmation's, run by
+    `ncaa-confirm --id`. Refuses as confirmation_read refuses (GateRefused: no run, no PASS, D6 coverage). `path`:
+    the registry confirming() reads (default registry.LEDGER; the counter passes the one whose verdict it read, Codex
+    on #816)."""
+    e, co, st, v, live = _cohort_read(spec, "the confirmation counter", path)
+    want = set(live)
+    scored = [g.match_id for g in v.games if g.match_id in want]          # score_cohort's scored_ids, in its order
+    return {"n": len(scored), "scored_ids": scored, "cohort_ids": list(co["ids"]), **_cohort_counts(e, co, st, scored)}
 
 
 def freeze(no_fetch: bool = False, echo=None, spec: Spec = V1R) -> dict:

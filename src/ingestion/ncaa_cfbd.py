@@ -67,6 +67,16 @@ is a precondition — plus the provider's 2023 listing)"):
     matches of the year by status (the provider's listing the labels join to);
   * a non-dry run needs the week migration's marker (the v2 convention: an init_db()-created column does not
     count), a --dry-run does not.
+
+THE PREGAME NEUTRAL FLAG (ARCHITECT 2026-11-03, addendum 236 item 3(1), verbatim in part: "CFBD's pregame neutral-site
+field for the fixture, read at the labels ingest and ruled as ours with its rule stated on every row"):
+  * the same payload's NOT-completed both-FBS games (pregame_reason) join OUR stored fixtures by the exact name tier
+    only (pregame_join: no scores exist, so the substring tier and the dateshift never join one); CFBD's neutralSite
+    as served goes to ncaa_cfbd_pregame (upsert_pregame, the run's fetched_at), never to ncaa_cfbd_labels, the
+    stream, the FBS team set or the coverage fact;
+  * the receipt adds one PREGAME line (counts only); the table is written only with migrate_ncaa_cfbd_pregame.py's
+    marker (else the receipt says so and the labels are written as before);
+  * the shadow reads pregame_flags: current rows only (fetched_at = the season's latest ingest record's, L3's rule).
 """
 from __future__ import annotations
 
@@ -440,6 +450,7 @@ class YearResult:
     unlabelled: list[str] = field(default_factory=list)       # SCOPE: every in-scope game with no row, and why
     weeks: Counter = field(default_factory=Counter)           # D10: joined rows by (season_type, week as stored)
     week_field: str | None = None                             # D10: the payload key the week was read from
+    pregame_rows: list[dict] = field(default_factory=list)    # addendum 236 item 3(1): CFBD's pregame neutral flag
 
 
 def in_scope_reason(rec: dict, keys: dict, division: str | None) -> str | None:
@@ -456,6 +467,21 @@ def in_scope_reason(rec: dict, keys: dict, division: str | None) -> str | None:
     if division and (str(rec.get(keys["home_class"]) or "").lower() != division
                      or str(rec.get(keys["away_class"]) or "").lower() != division):
         return f"source_not_both_{division}"
+    return None
+
+
+def pregame_reason(rec: dict, keys: dict, division: str | None) -> str | None:
+    """None when the source game is in the PREGAME scope (ARCHITECT 2026-11-03, addendum 236 item 3(1): "CFBD's
+    pregame neutral-site field for the fixture, read at the labels ingest"): CFBD serves it as not completed (the
+    `completed` field present and False) and both classifications equal the division. Else the counter name of why
+    not. A record without a `completed` field is never pregame (law 4: it cannot be shown to be before the game)."""
+    if not keys.get("completed") or rec.get(keys["completed"]) is not False:
+        return "not_pregame"
+    if division and not (keys["home_class"] and keys["away_class"]):
+        return "no_classification"
+    if division and (str(rec.get(keys["home_class"]) or "").lower() != division
+                     or str(rec.get(keys["away_class"]) or "").lower() != division):
+        return f"not_both_{division}"
     return None
 
 
@@ -545,10 +571,13 @@ def build_labels(records: list, keys: dict, ours: list[Ours], teams: dict[int, s
     def masked(rid: int, text: str) -> str:
         return mask_scores(text) if rid in fenced else text
 
+    pregame: list[dict] = []                                  # addendum 236 item 3(1): not-completed source games
     for rec in records:
         out_of_scope = in_scope_reason(rec, keys, division)
         if out_of_scope:
             c[out_of_scope] += 1
+            if out_of_scope == "source_not_completed":
+                pregame.append(rec)
             continue
         hp, ap = rec.get(keys["home_pts"]), rec.get(keys["away_pts"])
         c["completed_in_scope"] += 1
@@ -635,7 +664,58 @@ def build_labels(records: list, keys: dict, ours: list[Ours], teams: dict[int, s
                                      f"vs CFBD year {row['season']}")
         r.rows.append({k: v for k, v in row.items() if not k.startswith("_")})
     r.unlabelled = [masked(id(rec), f"{desc} — {why_not[id(rec)]}") for rec, desc in in_scope if id(rec) in why_not]
+    pregame_join(r, pregame, keys, ours, dates, resolve, division)
     return r
+
+
+def pregame_join(r: YearResult, records: list, keys: dict, ours: list[Ours], dates: list[datetime], resolve,
+                 division: str | None) -> None:
+    """THE PREGAME NEUTRAL FLAG (ARCHITECT 2026-11-03, addendum 236 item 3(1)): each not-completed both-division CFBD
+    game (pregame_reason) joined to OUR stored fixture by the first pass's EXACT name tier (join_one with no scores:
+    the substring tier and the J1 dateshift need agreeing scores, so they never join a game before it is played; a
+    substring-only fit is unmatched), more than one fit refused (ambiguous), two source games on one fixture both
+    refused, a fixture this run labels refused (a label is the game's after it is played). Fills r.pregame_rows and
+    the pregame_* counters. Never touches r.rows (the labels), the coverage counts or the stream. Pure."""
+    c = r.counts
+    labelled = {x["match_id"] for x in r.rows}
+    by_target: dict[int, list[dict]] = {}
+    for rec in records:
+        if pregame_reason(rec, keys, division):
+            c["pregame_out_of_scope"] += 1
+            continue
+        c["pregame_in_scope"] += 1
+        home, away, start = rec.get(keys["home"]), rec.get(keys["away"]), parse_start(rec.get(keys["start"]))
+        if not home or not away or start is None:
+            c["pregame_unusable_row"] += 1
+            continue
+        (hn, h_alias), (an, a_alias) = resolve(home), resolve(away)
+        status, m, orient, tier, _ = join_one(hn, an, start, ours, dates)      # no scores: exact tier only
+        if status == "ambiguous":
+            c["pregame_ambiguous_refused"] += 1
+            continue
+        if status != "joined":
+            c["pregame_unmatched"] += 1
+            continue
+        nv = rec.get(keys["neutral"])
+        sid = rec.get(keys["id"]) if keys["id"] else None
+        by_target.setdefault(m.id, []).append({
+            "match_id": m.id, "source": SOURCE, "source_game_id": int(sid) if isinstance(sid, int) else None,
+            "season": str(r.year), "orientation": orient, "neutral": None if nv is None else bool(nv),
+            "source_home_team": home, "source_away_team": away, "source_start": start,
+            "join_via": "alias" if (h_alias or a_alias) else tier})
+    for mid, rows in by_target.items():
+        if len(rows) > 1:
+            c["pregame_duplicate_target_refused"] += len(rows)
+            continue
+        if mid in labelled:
+            c["pregame_fixture_labelled_refused"] += 1
+            continue
+        row = rows[0]
+        c["pregame_joined"] += 1
+        c[f"pregame_joined_{row['orientation']}"] += 1
+        c["pregame_neutral" if row["neutral"] else "pregame_not_neutral" if row["neutral"] is False
+          else "pregame_neutral_unknown"] += 1
+        r.pregame_rows.append(row)
 
 
 def fbs_coverage(in_scope: int, labelled: int) -> dict:
@@ -749,6 +829,32 @@ def upsert(s, rows: list[dict], fetched_at: datetime, payload_file: str | None) 
     return out
 
 
+PREGAME_FIELDS = ("source", "source_game_id", "season", "orientation", "neutral", "source_home_team",
+                  "source_away_team", "source_start", "join_via")
+
+
+def upsert_pregame(s, rows: list[dict], fetched_at: datetime, payload_file: str | None) -> Counter:
+    """Insert or update ncaa_cfbd_pregame by match id (addendum 236 item 3(1)), every row stamped with the run's
+    fetched_at (L3's current rule). Never deletes; never touches ncaa_cfbd_labels or matches."""
+    from src.db.schema import NCAACFBDPregame
+    from src.timeutil import utc_now_naive
+
+    out = Counter()
+    now = utc_now_naive()
+    for row in rows:
+        cur = s.get(NCAACFBDPregame, row["match_id"])
+        if cur is None:
+            s.add(NCAACFBDPregame(**row, payload_file=payload_file, fetched_at=fetched_at, updated_at=now))
+            out["inserted"] += 1
+            continue
+        out["unchanged" if all(getattr(cur, k) == row[k] for k in PREGAME_FIELDS) else "updated"] += 1
+        for k in PREGAME_FIELDS:
+            setattr(cur, k, row[k])
+        cur.payload_file, cur.fetched_at, cur.updated_at = payload_file, fetched_at, now
+    s.flush()
+    return out
+
+
 # --------------------------------------------------------------------------
 # Orchestration (the CLI calls this)
 # --------------------------------------------------------------------------
@@ -801,6 +907,7 @@ def run(years: list[int], from_file: str | None = None, dry_run: bool = False, s
         ready = migrated(s)
         v2_ready = ready and v2_migrated(s)
         week_ready = ready and week_migrated(s)
+        pregame_ready = pregame_migrated(s)
         s.rollback()
     if not ready and not dry_run:
         raise CFBDError("REFUSED: ncaa_cfbd_labels is not migrated (no migration marker "
@@ -861,12 +968,15 @@ def run(years: list[int], from_file: str | None = None, dry_run: bool = False, s
             teams = ncaa_teams(s)
             ours = load_ours(s, min(starts), max(starts), teams) if starts else []
             res = build_labels(recs, keys, ours, teams, aliases, year, div)
+            pg = None
             if dry_run:
                 wrote = None
                 s.rollback()
             else:
                 wrote = upsert(s, res.rows, fetched_at, pf)
                 write_record(s, year, res, len(recs), fetched_at, pf, div)   # L1: zero joins included
+                # addendum 236 item 3(1): the pregame neutral flag, the same run's stamp, only behind its own marker
+                pg = upsert_pregame(s, res.pregame_rows, fetched_at, pf) if pregame_ready else None
                 stored = s.execute(select(func.count()).select_from(NCAACFBDLabel)
                                    .where(NCAACFBDLabel.season == str(year))).scalar_one()
                 stale = s.execute(select(func.count()).select_from(NCAACFBDLabel).where(
@@ -879,6 +989,12 @@ def run(years: list[int], from_file: str | None = None, dry_run: bool = False, s
                 f"unchanged {wrote['unchanged']} · rows for {year} now {stored} (matches table untouched)"
                 + (f" · {stale} earlier row(s) not re-joined this run, KEPT as STALE (L3: counted and listed, "
                    f"never walked)" if stale else ""))
+            out(f"  WRITTEN {PREGAME_TABLE}: inserted {pg['inserted']} · updated {pg['updated']} · unchanged "
+                f"{pg['unchanged']} (the pregame neutral flag, addendum 236 item 3(1); stamped {fetched_at.isoformat()})"
+                if pg is not None else
+                f"  NOT WRITTEN {PREGAME_TABLE}: no migration marker {PREGAME_MIGRATION_MARKER} (an init_db()-created "
+                "table does not count) — take the .backup, then run `python migrate_ncaa_cfbd_pregame.py`; until then "
+                "every shadow row reads the neutral flag unknown (D8). The labels above are written as before.")
             out(f"  INGEST RECORD {year} written ({RECORD_TABLE}): records {len(recs)} · in scope "
                 f"{res.counts['completed_in_scope']} · joined {res.counts['joined']} · division {div} · "
                 f"fetched_at {fetched_at.isoformat(sep=' ')}")
@@ -928,6 +1044,19 @@ def week_line(r: YearResult) -> str:
             + (" | ".join(parts) or "none") + f" · served but not an integer (stored NULL) {r.counts['week_not_integer']}")
 
 
+def pregame_line(r: YearResult) -> str:
+    """Addendum 236 item 3(1): the pregame neutral flag's counts (no score exists; never an outcome)."""
+    c = r.counts
+    return (f"    PREGAME NEUTRAL FLAG (addendum 236 item 3(1); CFBD not completed, {r.scope_label}; exact name tier "
+            f"only): in scope {c['pregame_in_scope']} · joined {c['pregame_joined']} (same {c['pregame_joined_same']} "
+            f"· swapped {c['pregame_joined_swapped']}) · neutral {c['pregame_neutral']} · not neutral "
+            f"{c['pregame_not_neutral']} · unknown (no flag served) {c['pregame_neutral_unknown']} · unmatched "
+            f"{c['pregame_unmatched']} · ambiguous-refused {c['pregame_ambiguous_refused']} · duplicate-target-"
+            f"refused {c['pregame_duplicate_target_refused']} · fixture labelled this run "
+            f"{c['pregame_fixture_labelled_refused']} · unusable {c['pregame_unusable_row']} · never a label, never "
+            "the stream, never coverage")
+
+
 def receipt_lines(r: YearResult, limit: int = SAMPLE, unmatched_names: bool = False) -> list[str]:
     c = r.counts
     scope = c["completed_in_scope"]
@@ -946,6 +1075,7 @@ def receipt_lines(r: YearResult, limit: int = SAMPLE, unmatched_names: bool = Fa
          f"{c['join_via_alias']} · dateshift {c['join_via_dateshift']} · scores agree {c['score_agree']} · "
          f"ours unscored {c['ours_no_score']} · our season differs from the CFBD year {c['season_disagree']}",
          week_line(r),
+         pregame_line(r),
          f"    aliases: usable {r.aliases_usable} · refused {len(r.alias_refused)}"]
     if c["fenced_2023"]:
         from src.walters.ncaa_backtest import V2_2023_FENCE_RULING, V2_2023_SCOPE
@@ -1154,3 +1284,56 @@ def stored_coverage_lines(cov: dict[str, dict]) -> list[str]:
             L.append(f"    unlabelled ({len(c['unlabelled'])}, every one):")
             L += [f"      {x}" for x in c["unlabelled"]]
     return L
+
+
+# --------------------------------------------------------------------------
+# THE PREGAME NEUTRAL FLAG (ARCHITECT 2026-11-03, addendum 236 item 3(1))
+# --------------------------------------------------------------------------
+
+# Verbatim in part: "THE NEUTRAL FLAG: option (iii) — CFBD's pregame neutral-site field for the fixture, read at the
+# labels ingest and ruled as ours with its rule stated on every row ("neutral per CFBD's pregame field, read <stamp>;
+# absent: unknown, D8"); (iv)'s "unknown" where CFBD has none; never a hand table for the current season". The side
+# table ncaa_cfbd_pregame (mapped, NCAACFBDPregame) and its marker, the convention of the three above: the table's
+# existence does not prove migrate_ncaa_cfbd_pregame.py (the post-backup migration) ran, so the ingest writes it only
+# when that script's one-row marker exists; without it the labels are written as before and the receipt says the
+# pregame rows were not (never a refusal of the labels: the D6 coverage fact does not wait on it).
+PREGAME_TABLE = "ncaa_cfbd_pregame"
+PREGAME_MIGRATION_MARKER = "ncaa_cfbd_pregame_migration"
+
+
+def pregame_migrated(s) -> bool:
+    """True only when migrate_ncaa_cfbd_pregame.py ran: ncaa_cfbd_pregame exists AND the marker that script alone
+    writes holds its row."""
+    from sqlalchemy import inspect, text
+    try:
+        insp = inspect(s.connection())
+        if not (insp.has_table(PREGAME_TABLE) and insp.has_table(PREGAME_MIGRATION_MARKER)):
+            return False
+        return bool(s.execute(text(f"SELECT COUNT(*) FROM {PREGAME_MIGRATION_MARKER}")).scalar())
+    except Exception:
+        return False
+
+
+def pregame_flags(s, match_ids) -> dict[int, dict]:
+    """{match id: {"neutral", "fetched_at", "current", "season", "orientation", "source_game_id"}} for the stored
+    fixtures `match_ids` that hold a pregame row. `current`: the row's fetched_at equals its season's latest ingest
+    record's (latest_record_stamps; L3's rule, as a label is current); a reader treats a row that is not current as
+    absent (unknown, D8). {} on a DB without the table. Read-only, in chunks."""
+    from sqlalchemy import inspect, select
+
+    from src.db.schema import NCAACFBDPregame
+
+    ids = [int(x) for x in match_ids]
+    try:
+        if not ids or not inspect(s.connection()).has_table(PREGAME_TABLE):
+            return {}
+    except Exception:
+        return {}
+    stamps = latest_record_stamps(s)
+    out: dict[int, dict] = {}
+    for i in range(0, len(ids), 500):
+        for x in s.execute(select(NCAACFBDPregame).where(NCAACFBDPregame.match_id.in_(ids[i:i + 500]))).scalars():
+            out[x.match_id] = {"neutral": x.neutral, "fetched_at": x.fetched_at, "season": x.season,
+                               "current": stamps.get(x.season) == x.fetched_at, "orientation": x.orientation,
+                               "source_game_id": x.source_game_id}
+    return out

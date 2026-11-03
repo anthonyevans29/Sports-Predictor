@@ -774,3 +774,36 @@ def test_a_stale_orphan_is_never_eligible_at_the_freeze_or_as_a_replacement(worl
 def test_confirm_refuses_before_a_pass(ledger):
     with pytest.raises(vg.GateRefused, match="no run record"):
         vg.confirming()
+
+
+def test_the_confirmation_counter_counts_what_the_read_scores_and_no_figure(world):
+    """ARCHITECT 2026-11-03, addendum 230 item 1(b): "the confirmation counter to 100". confirmation_count names the
+    same games as confirmation_read (n, scored ids, pending, releases due, complete) at every stage, provisional and
+    frozen, and carries no log-loss, no baseline and no verdict."""
+    from src.db.schema import Match, MatchStatus
+    figures = {"log_loss", "baseline_log_loss", "reference_log_loss", "first_game_at"}
+
+    def same():
+        r, c = vg.confirmation_read(), vg.confirmation_count()
+        assert not figures & set(c)
+        assert {k: v for k, v in r.items() if k not in figures} == {k: v for k, v in c.items() if k != "cohort_ids"}
+        assert sorted(c["cohort_ids"]) == sorted(set(c["scored_ids"]) | {p["id"] for p in c["pending"]})
+        return c
+
+    c = same()
+    assert (c["cohort_state"], c["n"], c["cohort_size"], c["n_games"]) == ("provisional", 0, 100, 100)
+    vg.freeze()
+    cohort = reg.frozen_cohort(reg.get("ncaa-elo-v1r", reg.LEDGER), reg.IDS_DIR)
+    with world["db"].session_scope() as s:
+        for mid in cohort[:40]:
+            s.get(Match, mid).status = MatchStatus.FINISHED
+            world["label"](s, mid, "2026", 24, 17)
+        s.get(Match, cohort[3]).status = MatchStatus.CANCELLED           # labelled, cancelled: never counted
+        s.get(Match, cohort[50]).status = MatchStatus.FINISHED           # final without a label: pending
+    c = same()
+    assert (c["cohort_state"], c["n"], c["release_due"], c["complete"]) == ("frozen", 39, 1, False)
+    with pytest.raises(vg.GateRefused, match="no PASS verdict"):
+        entries = json.loads(Path(reg.LEDGER).read_text())
+        next(x for x in entries if x["id"] == "ncaa-elo-v1r")["verdict"] = {"verdict": "FAIL", "at": VERDICT_AT}
+        Path(reg.LEDGER).write_text(json.dumps(entries))
+        vg.confirmation_count()

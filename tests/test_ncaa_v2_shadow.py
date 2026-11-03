@@ -92,7 +92,10 @@ def test_parity_on_the_synthetic_stream_is_equal_and_can_fail(monkeypatch):
     games = sh.synthetic_stream()
     r = sh.parity(games)
     assert r["compared"] == r["gate_scored"] > 100 and r["unequal"] == 0 and r["max_diff"] <= sh.PARITY_TOL
-    assert r["neutral_scored"] > 0 and r["pregame_max_diff"] > 0                    # D8, reported
+    # addendum 236 item 3(1): priced with CFBD's pregame flag True a live row equals the gate; absent (D8) it differs
+    assert r["neutral_scored"] > 0 and r["pregame_flag_unequal"] == 0 and r["pregame_flag_max_diff"] <= sh.PARITY_TOL
+    assert r["pregame_absent_max_diff"] > 0
+    assert "· EQUAL; with the flag absent" in sh.parity_lines(r)[1]
     assert "· EQUAL" in sh.parity_lines(r)[0]
     assert len({(g.utc_date) for g in games}) < len(games)                          # several games per kickoff
     real = sh.V1R
@@ -109,8 +112,10 @@ def test_the_receipt_script_prints_equal_and_reads_no_db(tmp_path):
     assert "· EQUAL" in out.stdout and not (tmp_path / "absent.db").exists()
 
 
-def test_cli_id_v2_refusal_exits_2(mine):
+def test_cli_id_v2_refusal_exits_2(mine, monkeypatch):
     from cli import cli
+
+    monkeypatch.setenv("SP_EXPORTS_MIRROR_ROLE", "host")      # addendum 236 item 3(5): the command is the host's
 
     res = CliRunner().invoke(cli, ["export-ncaa-predictions", "--id", "ncaa-elo-v2"])
     assert res.exit_code == 2 and "ncaa-elo-v2" in res.output

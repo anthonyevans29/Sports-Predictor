@@ -456,21 +456,22 @@ def close_row_mismatched(read, tickers: dict, current: dict | None, match_id,
     return judge(by_side, homes or {}, match_id)
 
 
-def two_way_legs(s, games, snaps: dict) -> tuple[dict, dict, dict]:
+def two_way_legs(s, games, snaps: dict, captured_from=None) -> tuple[dict, dict, dict]:
     """(tickers, current, homes) for close_row_mismatched over `games` (a session's Match rows; `snaps` their stored
     rows by match id): the market_ticker of every row the two-way close reads (kalshi_close_read; capture_tickers, by
     row id), each game's newest legs (kalshi_legs.current_tickers, unchanged) and kalshi_legs.homes_of over all their
     events. ({}, {}, {}) with the legs guard off or before migrate_kalshi_ticker.py (every leg reads as untickered, as
-    kalshi_legs reads it). Read-only."""
+    kalshi_legs reads it). `captured_from` (default None, unchanged): the newest legs and the homes read only rows
+    captured on or after it (ncaa_shadow's Kalshi close, addendum 236 item 3(6)). Read-only."""
     from src.walters import kalshi_legs
     ids = [m.id for m in games]
     if not ids or not kalshi_legs.GUARD["on"] or not kalshi_legs.has_tickers(s):
         return {}, {}, {}
     tickers = capture_tickers(s, [x.id for m in games for x in kalshi_close_read(snaps.get(m.id, []), m.utc_date)])
-    current = kalshi_legs.current_tickers(s, ids)
+    current = kalshi_legs.current_tickers(s, ids, captured_from)
     events = {kalshi_legs.event_of(t) for t in tickers.values()}
     events |= {kalshi_legs.event_of(t) for legs in current.values() for ts in legs.values() for t in ts}
-    return tickers, current, kalshi_legs.homes_of(s, events)
+    return tickers, current, kalshi_legs.homes_of(s, events, captured_from)
 
 
 def favourite_3(fair: dict) -> str:
@@ -614,6 +615,30 @@ def _three_way_guards(s, ids, snaps) -> tuple[dict, dict, dict]:
     return tickers, current, homes
 
 
+NO_CLOSE = "no_close"
+
+
+def guarded_two_way_close(m, rows, mism: dict, tickers: dict, current: dict | None,
+                          homes: dict | None) -> tuple[dict | None, str | None]:
+    """The two-way close record's close of game `m` (close_record's NHL and NCAA rule, the KXNCAAFGAME series for
+    NCAA), behind its two guards in its order: (None, MISMATCHED) when the game's newest legs are mismatched
+    (`mism`, kalshi_legs.mismatched), or when the HOME row the close reads names another event judged with those
+    newest legs (close_row_mismatched over kalshi_close_read: Codex round 2 P1 on #640, R47); (None, NO_CLOSE) when
+    close.close_from_kalshi gives none (the last two-sided pre-kickoff HOME quote's mid under the 2c cap; books are
+    not read); else (the close, None). `rows`: the game's stored rows the Kalshi close reads (_kalshi_snaps);
+    `tickers`, `current` (the game's own), `homes`: two_way_legs'. One rule, read by close_record and by
+    ncaa_shadow.grade's Kalshi close (ARCHITECT 2026-11-03, addendum 230 item 1(b): "its grade against the Kalshi
+    close (the close record's KXNCAAFGAME rule)"). Pure."""
+    if m.id in mism:
+        return None, MISMATCHED
+    if close_row_mismatched(kalshi_close_read(rows, m.utc_date), tickers, current, m.id, homes):
+        return None, MISMATCHED          # the row the close reads names another event: no close (R47)
+    cl = _close.close_from_kalshi(rows, m.utc_date, _close.BINARY)
+    if cl is None:
+        return None, NO_CLOSE
+    return cl, None
+
+
 def close_record(days: int, now: datetime | None = None) -> dict:
     """{code: record}, each record naming its close kind (`kind`); the two kinds never pool. The FINISHED games of
     the last `days` days on the kickoff in this machine's DB.
@@ -694,16 +719,9 @@ def close_record(days: int, now: datetime | None = None) -> dict:
                 if why:
                     rec[why] += 1
                     continue
-                if m.id in mism:
-                    rec["mismatched"] += 1
-                    continue
-                cs = snaps.get(m.id, [])
-                if close_row_mismatched(kalshi_close_read(cs, m.utc_date), tickers, current.get(m.id), m.id, homes):
-                    rec["mismatched"] += 1     # the row the close reads names another event: no close (R47)
-                    continue
-                cl = _close.close_from_kalshi(cs, m.utc_date, _close.BINARY)
-                if cl is None:
-                    rec["no_close"] += 1
+                cl, why = guarded_two_way_close(m, snaps.get(m.id, []), mism, tickers, current.get(m.id), homes)
+                if why:
+                    rec[why] += 1
                     continue
                 fair = cl["fair"]
                 rec["n"] += 1

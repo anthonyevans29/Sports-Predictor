@@ -130,7 +130,11 @@ def test_the_nfl_confirm_lane():
     assert [(s["owner"], s["due"]) for s in ln["steps"]] == [("code", "2026-11-03"), ("operator", "2026-11-04"),
                                                              ("calendar", "2027-02-08"), ("architect", "2027-02-09")]
     assert ln["steps"][0]["done"] == {"date": "2026-11-02", "receipt": "#778 merged at 6b3bd076"}
-    assert all(s["done"] is None for s in ln["steps"][1:])
+    # ARCHITECT 2026-11-03 11:10 ET, addendum 232 item 3(ii) (227 item 4 restated): lane nfl-confirm's "tag deployed"
+    # step done 2026-11-03, receipt "v1.6.3 (0c88f5cc), deploy receipt 11-03 13:00Z (addendum 228)" (the records PR)
+    assert ln["steps"][1]["done"] == {"date": "2026-11-03",
+                                      "receipt": "v1.6.3 (0c88f5cc), deploy receipt 11-03 13:00Z (addendum 228)"}
+    assert all(s["done"] is None for s in ln["steps"][2:])
     assert ln["steps"][1]["what"] == "the tag carrying #775 and the policy, deployed (the architect's blocks)"
     assert "the Super Bowl, the window's last game" in ln["steps"][2]["what"]
     assert "100" not in json.dumps(ln["steps"])                                   # 215 item 1: no 100-game step

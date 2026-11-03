@@ -264,9 +264,59 @@ def _live(mks, implied_prob, spread, max_spread) -> list[dict]:
             and not (max_spread is not None and spread is not None and (spread(mk) or 0) > max_spread)]
 
 
-# KalshiAdapter.title_teams' separators (" vs ", " vs. ", " v ") and " v.": a title name carrying any of them is two
-# teams, never one (addendum 234 item 2(c): a two-name title only)
+# KalshiAdapter.title_teams' separators (" vs ", " vs. ", " v ") and " v.": a title name carrying any of them, in any
+# case, is two teams, never one (addendum 234 item 2(c): a two-name title only; addendum 237 item 2: "the separator
+# check lower-cased", so "Alabama VS Auburn" is two teams as "Alabama vs Auburn" is)
 _TITLE_SEPS = (" vs ", " vs. ", " v ", " v. ")
+_TITLE_SEP = re.compile(r" (?:vs\.?|v\.?) ", re.IGNORECASE)        # the four separators, in any case
+
+# THE QUESTION FORM'S LEAGUE PHRASES (ARCHITECT 2026-11-03, addendum 237 item 2: "question-form titles with a closed
+# league-phrase set"). Closed, and enumerated from the repo's own data: the only phrase evidenced anywhere in it is
+# "Pro Football", in the six KXNFLGAME titles of the kept historical page (tests/fixtures/kalshi_history/
+# historical_markets_page.json: "Will Los Angeles C win the Los Angeles C vs Houston Pro Football game?"). A question-
+# form title with a phrase outside this set is not read: it names no pair (NO_PAIR), never a guess at its two names.
+QUESTION_LEAGUES = ("Pro Football",)
+_QUESTION = re.compile(r"will (?P<yes>.+?) win the (?P<both>.+) (?:"
+                       + "|".join(re.escape(lg) for lg in QUESTION_LEAGUES) + r") game\?", re.IGNORECASE)
+
+
+def _title_teams(market: dict) -> list[str] | None:
+    """The two names the market's title gives, stripped, or None where it gives none; _pair's guards then decide
+    whether they are a two-name title. Two forms, and only two:
+    - the question form, "Will <Y> win the <A> vs <B> <LEAGUE> game?" (a title opening "Will ", in any case): parsed
+      strictly and whole (case-insensitive; the separator one of the four in any case; LEAGUE one of QUESTION_LEAGUES,
+      a closed set), and <Y>, the title's yes team, must be <A> or <B> (case-folded). A question-form title that does
+      not parse, whose league phrase is not in the set, or whose <Y> is neither name gives none: it is never handed to
+      the "A vs B" reader, whose split of it ("Will <Y> win the <A>" / "<B> <LEAGUE> game?") is no two names. That
+      <Y> is the market's own yes team (its non-empty yes_sub_title, case-folded) is _pair's check, not this one's:
+      a title naming one team as YES on a market whose yes_sub_title names the other is TITLE_CONFLICT, never placed;
+    - every other title: KalshiAdapter.title_teams ("A vs B Winner?"), unchanged, as its other callers read it."""
+    return _read_title(market)[0]
+
+
+def _read_title(market: dict) -> tuple[list[str] | None, str | None]:
+    """(_title_teams' names, the question form's stripped <Y>), <Y> None for the "A vs B" form or no reading."""
+    title = (market.get("title") or "").strip()
+    if title.casefold().startswith("will "):
+        q = _QUESTION.fullmatch(title)
+        if not q:
+            return None, None
+        both = [n.strip() for n in _TITLE_SEP.split(q["both"], maxsplit=1)]
+        yes = q["yes"].strip()
+        if len(both) != 2 or yes.casefold() not in {n.casefold() for n in both}:
+            return None, None
+        return both, yes
+    from src.adapters.kalshi import KalshiAdapter
+    tt = KalshiAdapter.title_teams(market)
+    return ([n.strip() for n in tt] if tt else None), None
+
+
+def _yes_conflict(market: dict) -> str | None:
+    """The question form's <Y> where the market's own non-empty yes_sub_title is another team (case-folded), else
+    None: a market whose title and yes team disagree is an inconsistency (addendum 234 item 2(b)), never placed."""
+    _, yes = _read_title(market)
+    own = (market.get("yes_sub_title") or "").strip()
+    return yes if yes is not None and own and own.casefold() != yes.casefold() else None
 
 
 def _pair(mks, first, is_tie) -> tuple[list[str], str | None]:
@@ -295,8 +345,20 @@ def _pair(mks, first, is_tie) -> tuple[list[str], str | None]:
     title separator, title_teams' or " v." ("A vs B vs C": KalshiAdapter.title_teams splits at the first separator
     only, so its second name would be "B vs C", which is not a two-name title under (c)). Without this guard the first
     two shapes end NO_FIT, never placed; the guard names their reason. The third would be placed on a name that is two
-    teams."""
-    from src.adapters.kalshi import KalshiAdapter
+    teams.
+
+    THE TWO CODEX P2s (ARCHITECT 2026-11-03 14:35 ET, addendum 237 item 2, verbatim): "The two Codex P2s on #812
+    (question-form titles with a closed league-phrase set; the separator check lower-cased) ride the receipt-flags
+    push, as Code has it; one push, one review round." The title is read by _title_teams: the "A vs B Winner?" form
+    through KalshiAdapter.title_teams, unchanged; the question form kalshi-history's API reads carry ("Will Los
+    Angeles C win the Los Angeles C vs Houston Pro Football game?", the kept historical page) parsed strictly, its
+    league phrase one of QUESTION_LEAGUES (closed: "Pro Football", the only one evidenced in the repo) and its yes
+    team one of its two names, else no two-name title (NO_PAIR, never guessed). Its two names then pass the same
+    guards and the same (b) check, and its yes team must be `first`'s own (its non-empty yes_sub_title, case-folded):
+    a title naming Houston as YES on a market whose yes_sub_title is "Los Angeles C" is an inconsistency, so
+    TITLE_CONFLICT under (b), never a placement on the side the title argues against (as HEAD c20f2f9a, reading that
+    title "A vs B", refused it). The embedded-separator guard compares case-folded: "Georgia vs Alabama VS Auburn
+    Winner?" is NO_PAIR, its second name "Alabama VS Auburn" being two teams."""
     names = []
     for mk in mks:
         if not is_tie(mk):
@@ -307,12 +369,13 @@ def _pair(mks, first, is_tie) -> tuple[list[str], str | None]:
         return names, None
     if len(names) > 2:
         return names, NO_PAIR                       # (a), (d): conflicting siblings; the title never overrides them
-    tt = KalshiAdapter.title_teams(first)
-    title = [n.strip() for n in tt] if tt else []
+    title = _title_teams(first) or []
     if (len(title) != 2 or not all(title) or title[0].casefold() == title[1].casefold()
-            or any(sep in f" {n} " for n in title for sep in _TITLE_SEPS)):
+            or any(sep in f" {n.casefold()} " for n in title for sep in _TITLE_SEPS)):
         return names, NO_PAIR                       # (c): only a title naming exactly two teams is a two-name title
     if any(nm not in title for nm in names):        # (b): a sibling's yes team that is neither of the title's names
+        return names, TITLE_CONFLICT
+    if _yes_conflict(first) is not None:            # (b): the title's yes team is not the market's own yes team
         return names, TITLE_CONFLICT
     return title, None                              # (c): a single market, or none named, agreeing with its title
 
@@ -461,9 +524,14 @@ def place(markets: list[dict], games: list, *, now: datetime, lo: datetime, hi: 
             if unformed == TITLE_CONFLICT:
                 # addendum 234 item 2(b): "any inconsistency REFUSES the event with its own sentinel (TITLE_CONFLICT,
                 # named in the receipt), never a placement"
-                from src.adapters.kalshi import KalshiAdapter
-                res.lines.append(f"  ✗ {ev}: the title reads {' vs '.join(KalshiAdapter.title_teams(live[0]))}; the "
-                                 f"markets name {', '.join(names)}: refused ({TITLE_CONFLICT})")
+                title = _title_teams(live[0])       # the names the decision read (the question form parsed)
+                if all(nm in title for nm in names):  # _pair's second (b) check: the title's yes team
+                    res.lines.append(f"  ✗ {ev}: the title names {_yes_conflict(live[0])} as its yes team; the "
+                                     f"market's yes team is {(live[0].get('yes_sub_title') or '').strip()}: "
+                                     f"refused ({TITLE_CONFLICT})")
+                else:
+                    res.lines.append(f"  ✗ {ev}: the title reads {' vs '.join(title)}; the "
+                                     f"markets name {', '.join(names)}: refused ({TITLE_CONFLICT})")
             continue
         day, clock = ticker_stamp(live[0])
         if day is None:

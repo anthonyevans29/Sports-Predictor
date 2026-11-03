@@ -202,6 +202,168 @@ def test_title_fallback_a_title_that_names_no_two_teams_is_no_pair(title):
     assert not res.placed and res.refused == {km.NO_PAIR: 1}, (title, res.refused)
 
 
+# --- the two Codex P2s on #812 (ARCHITECT 2026-11-03 14:35 ET, addendum 237 item 2), verbatim: "The two Codex P2s
+# on #812 (question-form titles with a closed league-phrase set; the separator check lower-cased) ride the
+# receipt-flags push, as Code has it; one push, one review round." ---
+
+def _kept_leg(ticker):
+    """A market of the kept historical page (the probe's payload of 2026-10-14), as the API wrote it."""
+    import json
+    from pathlib import Path
+    page = json.loads((Path(__file__).parent / "fixtures" / "kalshi_history" / "historical_markets_page.json")
+                      .read_text())
+    return next(m for m in page["markets"] if m["ticker"] == ticker)
+
+
+LAC_HOU = game(43001, "Los Angeles Chargers", "Houston Texans", Z("2026-08-14T00:00"))
+LAR_DAL = game(43002, "Los Angeles Rams", "Dallas Cowboys", Z("2026-08-14T00:30"))       # a decoy of one word
+NOW_LAC = Z("2026-08-13T12:00")
+
+
+@pytest.mark.parametrize("sfx,side", [("LAC", "AWAY"), ("HOU", "HOME")])
+def test_question_form_the_kept_page_s_single_listed_market_is_placed_on_its_own_side(sfx, side):
+    """P2-A: the kept page titles each market "Will <Y> win the <A> vs <B> Pro Football game?". KalshiAdapter's
+    reader splits it verbatim around "vs" (unchanged for its other callers), which is no two names; the matcher parses
+    the question form, so a single listed market of either side is placed on its own game and side through
+    kalshi-history's placement, never refused TITLE_CONFLICT, the one-word decoy never taking it."""
+    from src.adapters.kalshi import KalshiAdapter
+    from src.ingestion import kalshi_history as kh
+    leg = _kept_leg(f"KXNFLGAME-26AUG13LACHOU-{sfx}")
+    assert leg["title"].startswith("Will ") and leg["title"].endswith(" vs Houston Pro Football game?"), leg["title"]
+    assert KalshiAdapter.title_teams(leg) == (f"Will {leg['yes_sub_title']} win the Los Angeles C",
+                                              "Houston Pro Football game?")
+    assert km._title_teams(leg) == ["Los Angeles C", "Houston"]
+    assert km._pair([leg], leg, lambda m: False) == (["Los Angeles C", "Houston"], None)
+    placed_, why, _lines = kh.place_events([leg], [LAC_HOU, LAR_DAL], lambda m: False)
+    assert why == {} and placed_ == {leg["ticker"]: (LAC_HOU.id, LAC_HOU.utc_date, side)}, (placed_, why)
+    res = run([leg], [LAC_HOU, LAR_DAL], now=NOW_LAC, implied_prob=lambda m: 0.5)
+    assert placed(res) == {(LAC_HOU.id, side): sfx} and not res.refused, res.refused
+
+
+def test_question_form_both_kept_legs_place_both_sides():
+    """The kept event as listed (both legs): the siblings name the pair, the title never read; both sides placed."""
+    from src.ingestion import kalshi_history as kh
+    legs = [_kept_leg("KXNFLGAME-26AUG13LACHOU-LAC"), _kept_leg("KXNFLGAME-26AUG13LACHOU-HOU")]
+    placed_, why, _lines = kh.place_events(legs, [LAC_HOU, LAR_DAL], lambda m: False)
+    assert why == {} and {t: v[2] for t, v in placed_.items()} == {legs[0]["ticker"]: "AWAY",
+                                                                    legs[1]["ticker"]: "HOME"}, (placed_, why)
+
+
+@pytest.mark.parametrize("title", [
+    "Will Los Angeles C win the Los Angeles C vs Houston Pro Hockey game?",        # a league phrase not in the set
+    "Will Los Angeles C win the Los Angeles C vs Houston Football game?",
+    "Will Los Angeles C win the Los Angeles C vs Houston game?",                   # no league phrase at all
+    "Will Los Angeles C win the Los Angeles C vs Houston Pro Football match?",     # not the form
+    "Will Los Angeles C win the Los Angeles C vs Houston Pro Football game",
+    "Will Los Angeles C win?",
+])
+def test_question_form_a_title_outside_the_closed_form_is_no_pair_never_guessed(title):
+    """P2-A: the league phrase is one of a CLOSED set (QUESTION_LEAGUES: "Pro Football", the only phrase the repo
+    evidences); a question-form title outside it, or that does not parse whole, names no pair: NO_PAIR, labelled,
+    never handed to the "A vs B" reader and never guessed."""
+    assert km.QUESTION_LEAGUES == ("Pro Football",)
+    one = [dict(_kept_leg("KXNFLGAME-26AUG13LACHOU-LAC"), title=title)]
+    assert km._title_teams(one[0]) is None
+    res = run(one, [LAC_HOU, LAR_DAL], now=NOW_LAC, implied_prob=lambda m: 0.5)
+    assert not res.placed and res.refused == {km.NO_PAIR: 1}, (title, res.refused)
+
+
+@pytest.mark.parametrize("title", ["Will Dallas win the Los Angeles C vs Houston Pro Football game?",
+                                   "Will Los Angeles win the Los Angeles C vs Houston Pro Football game?"])
+def test_question_form_whose_yes_team_is_neither_of_its_names_is_no_pair(title):
+    """P2-A: <Y> must be <A> or <B> (case-folded); a title whose own team is neither names no pair: NO_PAIR."""
+    one = [dict(_kept_leg("KXNFLGAME-26AUG13LACHOU-LAC"), title=title)]
+    assert km._title_teams(one[0]) is None
+    res = run(one, [LAC_HOU, LAR_DAL], now=NOW_LAC, implied_prob=lambda m: 0.5)
+    assert not res.placed and res.refused == {km.NO_PAIR: 1}, (title, res.refused)
+
+
+def test_question_form_reads_case_insensitively_and_its_conflict_line_prints_the_parsed_names():
+    """The question form is read case-insensitively (its frame and its separator, as P2-B asks); a sibling's yes team
+    outside its two names is TITLE_CONFLICT, and the console line prints the names the decision used, never the "A vs
+    B" reader's verbatim split."""
+    leg = _kept_leg("KXNFLGAME-26AUG13LACHOU-LAC")
+    for title in ("will los angeles c win the Los Angeles C VS Houston PRO FOOTBALL GAME?",
+                  "Will Los Angeles C win the Los Angeles C v. Houston Pro Football game?"):
+        assert km._title_teams(dict(leg, title=title)) == ["Los Angeles C", "Houston"], title
+    lar = [dict(leg, yes_sub_title="Los Angeles R")]
+    res = run(lar, [LAC_HOU, LAR_DAL], now=NOW_LAC, implied_prob=lambda m: 0.5)
+    assert not res.placed and res.refused == {km.TITLE_CONFLICT: 1}, res.refused
+    assert ("  ✗ KXNFLGAME-26AUG13LACHOU: the title reads Los Angeles C vs Houston; the markets name Los Angeles R: "
+            "refused (the title's two names do not agree with the event's markets)") in km.console_lines(res)
+
+
+@pytest.mark.parametrize("sfx,own,other", [("LAC", "Los Angeles C", "Houston"), ("HOU", "Houston", "Los Angeles C")])
+def test_question_form_whose_yes_team_is_not_the_market_s_own_is_refused_never_placed(sfx, own, other):
+    """<Y> must be the market's own yes team (its non-empty yes_sub_title, case-folded), not only one of the title's
+    two names: a kept leg whose title names the other team as YES is an inconsistency, TITLE_CONFLICT (addendum 234
+    item 2(b): "any inconsistency REFUSES the event"), through place() and kalshi-history's placement alike, never
+    placed on the side its title argues against (HEAD c20f2f9a refused it TITLE_CONFLICT too). Both mutations: the
+    title's <Y> changed, and the yes_sub_title changed."""
+    from src.ingestion import kalshi_history as kh
+    leg = _kept_leg(f"KXNFLGAME-26AUG13LACHOU-{sfx}")
+    assert (leg["yes_sub_title"] or "").strip() == own
+    for mk in (dict(leg, title=f"Will {other} win the Los Angeles C vs Houston Pro Football game?"),
+               dict(leg, yes_sub_title=other)):
+        assert km._title_teams(mk) == ["Los Angeles C", "Houston"]
+        assert km._pair([mk], mk, lambda m: False)[1] == km.TITLE_CONFLICT
+        placed_, why, _lines = kh.place_events([mk], [LAC_HOU, LAR_DAL], lambda m: False)
+        assert placed_ == {} and why, (placed_, why)
+        res = run([mk], [LAC_HOU, LAR_DAL], now=NOW_LAC, implied_prob=lambda m: 0.5)
+        assert not res.placed and res.refused == {km.TITLE_CONFLICT: 1}, res.refused
+        yes, mine = (other, own) if mk["yes_sub_title"] == leg["yes_sub_title"] else (own, other)
+        assert (f"  ✗ KXNFLGAME-26AUG13LACHOU: the title names {yes} as its yes team; the market's yes team is "
+                f"{mine}: refused ({km.TITLE_CONFLICT})") in km.console_lines(res)
+    blank = dict(leg, title=f"Will {own} win the Los Angeles C vs Houston Pro Football game?")
+    assert km._pair([blank], blank, lambda m: False) == (["Los Angeles C", "Houston"], None)    # agrees: formed
+    cased = dict(leg, title=f"Will {own.upper()} win the Los Angeles C vs Houston Pro Football game?")
+    assert km._pair([cased], cased, lambda m: False) == (["Los Angeles C", "Houston"], None)    # case-folded
+
+
+@pytest.mark.parametrize("title", [
+    "Georgia vs Alabama VS Auburn Winner?", "Georgia vs Alabama Vs Auburn Winner?",
+    "Georgia vs Alabama V. Auburn Winner?", "Georgia vs Alabama V Auburn Winner?", "Georgia v Alabama VS. Auburn Winner?",
+    "Will Georgia win the Georgia VS Alabama vs Auburn Pro Football game?",
+    "Will Georgia win the Georgia vs Alabama V. Auburn Pro Football game?",
+])
+def test_a_mixed_case_embedded_separator_is_two_teams_no_pair(title):
+    """P2-B: the embedded-separator guard compares case-folded, so "Alabama VS Auburn" is two teams as "Alabama vs
+    Auburn" is: NO_PAIR, never placed on Georgia @ Alabama (before the fix, the old form's second name passed)."""
+    one = _titled(event("26OCT10UGAALA", [("UGA", "Georgia")]), title)
+    res = run(one, [UGA_ALA, DUKE_GT_42101], now=NOW_UGA)
+    assert not res.placed and res.refused == {km.NO_PAIR: 1}, (title, res.refused)
+
+
+@pytest.mark.parametrize("title", ["Will Georgia win the Georgia vs Alabama vs Auburn Pro Football game?",
+                                   "Will Alabama win the Georgia vs Alabama vs Auburn Pro Football game?",
+                                   "Will Auburn win the Georgia vs Alabama vs Auburn Pro Football game?"])
+def test_a_three_team_question_form_is_no_pair(title):
+    one = _titled(event("26OCT10UGAALA", [("UGA", "Georgia")]), title)
+    res = run(one, [UGA_ALA, DUKE_GT_42101], now=NOW_UGA)
+    assert not res.placed and res.refused == {km.NO_PAIR: 1}, (title, res.refused)
+
+
+@pytest.mark.parametrize("title", ["Georgia vs Alabama Winner?", "Georgia vs. Alabama Winner?",
+                                   "Georgia v Alabama Winner?", "St. Louis vs Chicago C Winner?", "Georgia wins",
+                                   "Georgia VS Alabama Winner?", "", None])
+def test_the_a_vs_b_form_is_read_as_before(title):
+    """The "A vs B Winner?" form is read by KalshiAdapter.title_teams, unchanged (its case-sensitive split included:
+    "Georgia VS Alabama Winner?" gives no names, NO_PAIR as before); the placement of the old form is unchanged."""
+    from src.adapters.kalshi import KalshiAdapter
+    mk = {"title": title}
+    tt = KalshiAdapter.title_teams(mk)
+    assert km._title_teams(mk) == ([n.strip() for n in tt] if tt else None), title
+    one = _titled(event("26OCT10UGAALA", [("UGA", "Georgia")]), "Georgia vs Alabama Winner?")
+    res = run(one, [UGA_ALA, DUKE_GT_42101], now=NOW_UGA)
+    assert placed(res) == {(32738, "AWAY"): "UGA"} and not res.refused, res.refused
+
+
+def test_the_codex_p2s_quote_addendum_237_item_2_verbatim_at_the_change():
+    ruling = ("The two Codex P2s on #812 (question-form titles with a closed league-phrase set; the separator check "
+              "lower-cased) ride the receipt-flags push, as Code has it; one push, one review round.")
+    assert ruling in " ".join(km._pair.__doc__.split())
+
+
 def test_title_conflict_reads_through_kalshi_history_s_placement_of_a_settled_event():
     """kalshi-history's API reads are where the narrowing bites (addendum 234 item 2): kalshi_history.place_events
     places each settled event through kalshi_match.place, so a settled one-market event whose yes team is not in its
@@ -235,7 +397,7 @@ def test_no_yes_team_reader_is_left_on_the_adapter_or_the_placement():
     for mod in (km, kalshi_sync):
         assert "yes_team(" not in inspect.getsource(mod)
     src = inspect.getsource(km._pair)
-    assert "yes_sub_title" in src and "title_teams(first)" in src      # siblings first; the narrowed title only
+    assert "yes_sub_title" in src and "_title_teams(first)" in src     # siblings first; the narrowed title only
     assert "_pair(" in inspect.getsource(km._names) and "_pair(" in inspect.getsource(km.place)
 
 

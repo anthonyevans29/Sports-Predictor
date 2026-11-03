@@ -200,7 +200,22 @@ def _reg_file(tmp_path, verdict):
     return str(p)
 
 
-def test_the_counter_is_dormant_until_a_pass_then_counts_without_a_figure(tmp_path, monkeypatch):
+def _row(s, mid, **over):
+    """A shadow row carrying stored match `mid`'s own teams and kickoff (same_fixture's identity), `over` replacing."""
+    m = s.get(Match, mid)
+    return {"match_id": mid, "home_team": m.home_team.name, "away_team": m.away_team.name,
+            "utc_date": m.utc_date.isoformat(), **over}
+
+
+def _shadow_file(d, rows, at="2034-01-02T00:00:00"):
+    d.mkdir(exist_ok=True)
+    (d / "ncaa_shadow_2034-01-02_000000.json").write_text(json.dumps({
+        "engine": "model_shadow", "competition": "NCAA", "registry_id": "ncaa-elo-v2", "exported_at": at,
+        "predictions": rows}))
+    return str(d)
+
+
+def test_the_counter_is_dormant_until_a_pass_then_counts_without_a_figure(mine, tmp_path, monkeypatch):
     from src.walters import ncaa_v1r_gate as g
 
     for verdict, what in ((None, "no verdict"), ("FAIL", "the verdict FAIL")):
@@ -210,27 +225,26 @@ def test_the_counter_is_dormant_until_a_pass_then_counts_without_a_figure(tmp_pa
                                                      f"records {what} for ncaa-elo-v2: dormant while the verdict is "
                                                      "null or FAIL (ARCHITECT 2026-11-03, addendum 230 item 1(b))")
     passed = _reg_file(tmp_path, "PASS")
-    monkeypatch.setattr(g, "confirmation_count", lambda spec: (_ for _ in ()).throw(g.GateRefused("no run record")))
+    monkeypatch.setattr(g, "confirmation_count",
+                        lambda spec, path=None: (_ for _ in ()).throw(g.GateRefused("no run record")))
     assert sh.confirmation_counter(registry_path=passed, export_dir=str(tmp_path)) == {"state": "refused",
                                                                                          "why": "no run record"}
-    count = {"n": 2, "scored_ids": [11, 12], "cohort_ids": [11, 12, 13, 14], "n_games": 100, "bar": 0.6931,
+    a, b = mine["finished"][-2:]                                      # two stored fixtures, scored
+    c, d = mine["up"], mine["far"]                                    # two stored fixtures, pending
+    count = {"n": 2, "scored_ids": [a, b], "cohort_ids": [a, b, c, d], "n_games": 100, "bar": 0.6931,
              "cohort_state": "frozen", "cohort_size": 4, "eligible_stored": 120, "release_due": 0, "complete": False,
-             "pending": [{"id": 13, "status": "scheduled"}, {"id": 14, "status": "finished"}]}
-    monkeypatch.setattr(g, "confirmation_count", lambda spec: dict(count))
-    ex = tmp_path / "ex"
-    ex.mkdir()
-    (ex / "ncaa_shadow_2034-06-01_120000.json").write_text(json.dumps({
-        "engine": "model_shadow", "competition": "NCAA", "registry_id": "ncaa-elo-v2",
-        "exported_at": "2034-06-01T12:00:00",
-        "predictions": [{"match_id": 12, "utc_date": "2034-06-01T18:00:00"},
-                        {"match_id": 13, "utc_date": "2034-06-01T19:00:00"},
-                        {"match_id": 99, "utc_date": "2034-06-01T19:00:00"}]}))
-    r = sh.confirmation_counter(registry_path=passed, export_dir=str(ex))
-    assert (r["state"], r["n"], r["shadow_rows"], r["shadow_rows_scored"]) == ("counting", 2, 2, 1)
+             "pending": [{"id": c, "status": "scheduled"}, {"id": d, "status": "finished"}]}
+    monkeypatch.setattr(g, "confirmation_count", lambda spec, path=None: dict(count))
+    with session_scope() as s:
+        rows = [_row(s, b), _row(s, c), _row(s, c, match_id=10 ** 9)]     # the last: no cohort fixture
+    r = sh.confirmation_counter(registry_path=passed, export_dir=_shadow_file(tmp_path / "ex", rows))
+    assert (r["state"], r["n"], r["shadow_rows"], r["shadow_rows_scored"], r["shadow_identity_mismatch"]) == (
+        "counting", 2, 2, 1, 0)
     line = sh.counter_line(r, "ncaa-elo-v2")
     assert line.startswith("confirmation counter ncaa-elo-v2: 2/100 scored · cohort FROZEN (4/100 fixtures; 120 "
                            "eligible stored) · pending 2 {'scheduled': 1, 'finished': 1}")
-    assert "shadow row before kickoff: 2 of the cohort, 1 of the scored" in line and line.endswith("not a verdict")
+    assert ("shadow row before kickoff: 2 of the cohort, 1 of the scored (0 not the fixture's teams and kickoff, "
+            "never counted)") in line and line.endswith("not a verdict")
     assert "log-loss" not in line and "0.6931" not in line and "CONFIRMED" not in line
 
 
@@ -248,3 +262,79 @@ def test_the_grade_cli_prints_the_kalshi_record_and_the_counter(tmp_path, monkey
     assert out[-1] == ("  ── confirmation counter ncaa-elo-v2: DORMANT — the registry records no verdict for "
                        "ncaa-elo-v2: dormant while the verdict is null or FAIL (ARCHITECT 2026-11-03, addendum 230 "
                        "item 1(b))")
+
+
+# ------------------------------------------------------------------------- Codex round 1 on #816 --
+
+def test_the_counter_refuses_a_registry_without_the_declaration_never_dormant(tmp_path):
+    """Codex on #816 (4459156514): a registry holding no ncaa-elo-v2 entry is the export's refusal (not declared),
+    never DORMANT (230 item 1(b)'s dormancy is a null or FAIL verdict on a declared entry)."""
+    empty = tmp_path / "empty.json"
+    empty.write_text("[]")
+    with pytest.raises(sh.ShadowRefused) as e:                        # the export's refusal: not dormant
+        sh.frozen(str(empty), eid=sh.V2_EID)
+    assert not isinstance(e.value, sh.ShadowDormant) and str(e.value) == f"REFUSED: {sh.not_declared(sh.V2_EID)}"
+    for eid in (sh.V2_EID, sh.EID):
+        r = sh.confirmation_counter(eid=eid, registry_path=str(empty), export_dir=str(tmp_path))
+        assert r == {"state": "refused", "why": sh.not_declared(eid)}
+        line = sh.counter_line(r, eid)
+        assert line.startswith(f"confirmation counter {eid}: REFUSED — {eid} is not declared in docs/registry")
+        assert "DORMANT" not in line and "230" not in line
+
+
+def test_the_counter_reads_one_registry_for_the_verdict_and_the_count(tmp_path, monkeypatch):
+    """Codex on #816 (4459156501): confirmation_counter(registry_path=X) reads X for the verdict AND for the count's
+    confirming(); the default registry (registry.LEDGER) is never read beside it."""
+    from src.walters import ncaa_v1r_gate as g
+    from src.walters import registry as reg
+
+    run = {"run_at": "2026-10-19T00:00:00Z", "n_scored": 0, "ids_file": None, "result": {"baseline_home_rate": 0.6}}
+    default = tmp_path / "default.json"                                # FAIL, with its run record
+    default.write_text(json.dumps([{"id": sh.V2_EID, "verdict": {"verdict": "FAIL", "ruling": "x"}, "run": run}]))
+    monkeypatch.setattr(reg, "LEDGER", str(default))
+    v2 = g.spec_of(sh.V2_EID)
+    with pytest.raises(g.GateRefused, match="no PASS verdict recorded"):
+        g.confirming(v2)                                               # the default stays registry.LEDGER
+    supplied = tmp_path / "supplied.json"                              # PASS, with its run record
+    supplied.write_text(json.dumps([{"id": sh.V2_EID, "verdict": {"verdict": "PASS", "ruling": "x"}, "run": run}]))
+    assert g.confirming(v2, str(supplied))["verdict"]["verdict"] == "PASS"
+    # the counter: PASS on the supplied registry, whose entry has no run record; the count refuses on THAT registry's
+    # entry ("no run record"), never on the default's FAIL ("no PASS verdict recorded")
+    no_run = _reg_file(tmp_path, "PASS")
+    r = sh.confirmation_counter(registry_path=no_run, export_dir=str(tmp_path))
+    assert r["state"] == "refused" and "has no run record" in r["why"] and "no PASS verdict" not in r["why"]
+    seen = []
+    monkeypatch.setattr(g, "confirmation_count", lambda spec, path=None: seen.append(path) or (_ for _ in ()).throw(
+        g.GateRefused("stop")))
+    sh.confirmation_counter(registry_path=no_run, export_dir=str(tmp_path))
+    sh.confirmation_counter(export_dir=str(tmp_path))                  # no path: the default's FAIL, dormant
+    assert seen == [no_run]
+
+
+def test_the_counter_counts_a_shadow_row_only_when_it_is_the_fixtures(mine, tmp_path, monkeypatch, capsys):
+    """Codex on #816 (4459156509): ids are machine-local (last_calls); a stale file whose id is reused for another
+    fixture (other teams, or another kickoff) is never the cohort fixture's shadow row: grade()'s identity guard
+    (same_fixture), counted apart and printed."""
+    from src.walters import ncaa_v1r_gate as g
+
+    a, b = mine["finished"][-2:]
+    c, d = mine["up"], mine["far"]
+    count = {"n": 2, "scored_ids": [a, b], "cohort_ids": [a, b, c, d], "n_games": 100, "bar": 0.6931,
+             "cohort_state": "provisional", "cohort_size": 4, "eligible_stored": 4, "release_due": 0,
+             "complete": False, "pending": [{"id": c, "status": "scheduled"}, {"id": d, "status": "scheduled"}]}
+    monkeypatch.setattr(g, "confirmation_count", lambda spec, path=None: dict(count))
+    with session_scope() as s:
+        rows = [_row(s, a),                                            # a's own: counted (scored)
+                _row(s, b, home_team="NSH Team 4"),                    # b's id, another fixture's teams: not b's
+                _row(s, c),                                            # c's own: counted
+                _row(s, d, utc_date=(s.get(Match, d).utc_date + timedelta(days=1)).isoformat())]  # another kickoff
+    r = sh.confirmation_counter(registry_path=_reg_file(tmp_path, "PASS"),
+                                export_dir=_shadow_file(tmp_path / "stale", rows))
+    assert (r["shadow_rows"], r["shadow_rows_scored"], r["shadow_identity_mismatch"]) == (2, 1, 2)
+    line = sh.counter_line(r, "ncaa-elo-v2")
+    assert ("shadow row before kickoff: 2 of the cohort, 1 of the scored (2 not the fixture's teams and kickoff, "
+            "never counted)") in line
+    # the same guard as grade()'s: a row it refuses is one grade() never grades
+    with session_scope() as s:
+        assert [sh.same_fixture(x, s.get(Match, x["match_id"])) for x in rows] == [True, False, True, False]
+        assert sh.same_fixture(rows[0], None) is False

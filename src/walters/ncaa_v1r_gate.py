@@ -922,10 +922,11 @@ def run_lines(r: dict, spec: Spec = V1R) -> list[str]:
 
 # ------------------------------------------------------------------------------- D7: the confirmation read --
 
-def confirming(spec: Spec = V1R) -> dict:
-    """The entry, refusing unless it has its run record (with the D4 baseline) and a PASS verdict (confirming)."""
+def confirming(spec: Spec = V1R, path: str | None = None) -> dict:
+    """The entry, refusing unless it has its run record (with the D4 baseline) and a PASS verdict (confirming).
+    `path`: the registry read (default registry.LEDGER, read at call time)."""
     reg = _reg()
-    e = reg.get(spec.eid, reg.LEDGER)
+    e = reg.get(spec.eid, path or reg.LEDGER)
     if e is None or not e.get("run"):
         raise GateRefused(f"{spec.eid} has no run record in docs/registry: the confirmation follows the one run")
     if (e.get("verdict") or {}).get("verdict") != "PASS":
@@ -1059,13 +1060,13 @@ def confirmation_read(spec: Spec = V1R) -> dict:
     return {**sc, **_cohort_counts(e, co, st, sc["scored_ids"])}
 
 
-def _cohort_read(spec: Spec, what: str):
+def _cohort_read(spec: Spec, what: str, path: str | None = None):
     """(entry, cohort, statuses, the D2 stream, the cohort fixtures that can be scored): the part of the confirmation
     read that names the games, shared by confirmation_read and confirmation_count. Refuses unless PASS (confirming)
-    and 2024, 2025 and 2026 are covered (D6)."""
+    and 2024, 2025 and 2026 are covered (D6). `path`: confirming()'s registry (default registry.LEDGER)."""
     from src.db.database import session_scope
 
-    e = confirming(spec)
+    e = confirming(spec, path)
     require_coverage(coverage(spec.confirm_seasons), spec.confirm_seasons, what)
     with session_scope() as s:
         co = cohort(e, s)
@@ -1093,15 +1094,17 @@ def _cohort_counts(e, co, st, scored_ids) -> dict:
             "complete": co["state"] == "frozen" and not pending and len(scored_ids) == plan["n_games"]}
 
 
-def confirmation_count(spec: Spec = V1R) -> dict:
+def confirmation_count(spec: Spec = V1R, path: str | None = None) -> dict:
     """THE CONFIRMATION COUNTER (ARCHITECT 2026-11-03, addendum 230 item 1(b): "the confirmation counter to 100"):
     confirmation_read's games and counts, no figure of the games. `n` is the number of cohort fixtures the read would
     score now (score_cohort scores exactly the cohort fixtures that are not cancelled and stand in the D2 stream, i.e.
     final and carrying a current label), of `n_games` (the plan's 100); the cohort's state (provisional or frozen), its
     size, the pending fixtures by status, the releases due, and `complete` as the read says it. No model is walked, no
     log-loss, no baseline, no verdict: those are confirmation_read's and record_confirmation's, run by
-    `ncaa-confirm --id`. Refuses as confirmation_read refuses (GateRefused: no run, no PASS, D6 coverage)."""
-    e, co, st, v, live = _cohort_read(spec, "the confirmation counter")
+    `ncaa-confirm --id`. Refuses as confirmation_read refuses (GateRefused: no run, no PASS, D6 coverage). `path`:
+    the registry confirming() reads (default registry.LEDGER; the counter passes the one whose verdict it read, Codex
+    on #816)."""
+    e, co, st, v, live = _cohort_read(spec, "the confirmation counter", path)
     want = set(live)
     scored = [g.match_id for g in v.games if g.match_id in want]          # score_cohort's scored_ids, in its order
     return {"n": len(scored), "scored_ids": scored, "cohort_ids": list(co["ids"]), **_cohort_counts(e, co, st, scored)}

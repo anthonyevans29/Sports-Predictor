@@ -226,6 +226,13 @@ VERDICT_REFUSAL = ("Addendum 6 item 1 put the verdict on every shadow row once t
                    "than PASS. The shadow's terms for the next candidate are part of its declaration.")
 
 
+def not_declared(eid: str) -> str:
+    """The refusal of a registry holding no entry for `eid`: the export's (frozen) and the counter's one text, never
+    dormancy (Codex on #816: an absent declaration is not a null verdict)."""
+    return (f"{eid} is not declared in docs/registry — the NCAA shadow starts only once it is (ARCHITECT 2026-10-07, "
+            "addendum 6 item 1)")
+
+
 def frozen(registry_path: str | None = None, eid: str = EID) -> tuple[dict, bool, str]:
     """(entry, home advantage at neutral sites?, rule) from the registry; refuses unless `eid` is declared and its
     declaration states the neutral-site rule and freezes v1's constants. v1r: refuses once the registry records a
@@ -236,8 +243,7 @@ def frozen(registry_path: str | None = None, eid: str = EID) -> tuple[dict, bool
     b = binding(eid)
     e = reg.get(b.eid, registry_path) if registry_path else reg.get(b.eid)
     if e is None:
-        raise ShadowRefused(f"REFUSED: {b.eid} is not declared in docs/registry — the NCAA shadow starts only once "
-                            "it is (ARCHITECT 2026-10-07, addendum 6 item 1)")
+        raise ShadowRefused(f"REFUSED: {not_declared(b.eid)}")
     verdict = (e.get("verdict") or {}).get("verdict")
     if b.pass_only and str(verdict or "").upper() != "PASS":
         raise ShadowDormant(f"export-ncaa-predictions --id {b.eid} REFUSED (exit 2): the registry records "
@@ -499,6 +505,15 @@ def _result(s, m) -> tuple[int, int, str] | None:
     return m.home_score, m.away_score, "matches"
 
 
+def same_fixture(c: dict, m) -> bool:
+    """Codex on #344: match ids are machine-local and reusable (init-db --force); a shadow row is this match's only
+    when its teams and kickoff are (and the match is stored, an NCAA fixture). grade() never grades a row against a
+    match that fails it; the confirmation counter never counts it as the cohort fixture's shadow row (Codex on #816)."""
+    return not (m is None or m.competition is None or m.competition.code != COMPETITION
+                or (c.get("home_team"), c.get("away_team")) != (m.home_team.name, m.away_team.name)
+                or c.get("utc_date") != m.utc_date.isoformat())
+
+
 def grade(days: int = 30, export_dir: str = "exports", now: datetime | None = None, progress=None,
           eid: str = EID) -> dict:
     """Results (hit rate, log-loss, Brier) and model-vs-close (pick-vs-close + value-side) for finished NCAA
@@ -545,11 +560,7 @@ def grade(days: int = 30, export_dir: str = "exports", now: datetime | None = No
             m = s.get(Match, mid)
             if m is None or m.status != MatchStatus.FINISHED or m.utc_date < now - timedelta(days=days):
                 continue
-            # Codex on #344: match ids are machine-local and reusable (init-db --force); the artifact row's teams and
-            # kickoff must be this match's, else it is never graded against it
-            if (m.competition is None or m.competition.code != COMPETITION
-                    or (c.get("home_team"), c.get("away_team")) != (m.home_team.name, m.away_team.name)
-                    or c.get("utc_date") != m.utc_date.isoformat()):
+            if not same_fixture(c, m):
                 identity_mismatch += 1
                 kx["identity_mismatch"] += 1                # the shadow's own guard: the row is not this match's
                 continue
@@ -650,19 +661,28 @@ KALSHI_CLOSE_RULE = ("the close record's two-way rule (paper.close_record; KXNCA
 def confirmation_counter(eid: str = V2_EID, export_dir: str = "exports", registry_path: str | None = None) -> dict:
     """THE CONFIRMATION COUNTER TO 100 (ARCHITECT 2026-11-03, addendum 230 item 1(b): "the confirmation counter to
     100; dormant while the verdict is null or FAIL"). A count, never a verdict and never a figure of the games:
+    - {"state": "refused", "why"} when the registry holds no entry for `eid` (the export's refusal, not_declared:
+      never dormant, Codex on #816);
     - {"state": "dormant", "why"} while the registry records no verdict, or a verdict other than PASS, for `eid`;
     - {"state": "refused", "why"} when the read refuses after a PASS (no run record, D6 coverage: GateRefused);
     - else {"state": "counting", ...ncaa_v1r_gate.confirmation_count (n scored of n_games, the cohort's state and
       size, pending by status, releases due, complete), "shadow_rows": cohort fixtures holding a row of this binding
-      written before kickoff (last_calls), "shadow_rows_scored": of the scored ones}.
-    The confirmation fixture is D7's, as ncaa-confirm reads it (any status, frozen once); a fixture without a shadow
-    row still counts (the shadow row is printed beside, never a condition). Read-only."""
+      written before kickoff (last_calls) whose teams and kickoff are that fixture's (same_fixture, grade()'s guard),
+      "shadow_rows_scored": of the scored ones, "shadow_identity_mismatch": cohort ids whose row fails that guard}.
+    `registry_path` (default registry.LEDGER) is the one registry read: the verdict here and the count's confirming()
+    (Codex on #816). The confirmation fixture is D7's, as ncaa-confirm reads it (any status, frozen once); a fixture
+    without a shadow row still counts (the shadow row is printed beside, never a condition). Read-only."""
+    from src.db.database import session_scope
+    from src.db.schema import Match
     from src.walters import ncaa_v1r_gate as g
     from src.walters import registry as reg
 
     b = binding(eid)
-    e = reg.get(b.eid, registry_path or reg.LEDGER)          # the registry confirming() reads (registry.LEDGER)
-    verdict = ((e or {}).get("verdict") or {}).get("verdict")
+    path = registry_path or reg.LEDGER                       # one registry for the verdict and the count
+    e = reg.get(b.eid, path)
+    if e is None:
+        return {"state": "refused", "why": not_declared(b.eid)}
+    verdict = (e.get("verdict") or {}).get("verdict")
     if str(verdict or "").upper() != "PASS":
         if b.pass_only:                                      # ncaa-elo-v2: addendum 230 item 1(b)'s dormancy
             return {"state": "dormant", "why": dormant_reason(b.eid, verdict)}
@@ -671,12 +691,16 @@ def confirmation_counter(eid: str = V2_EID, export_dir: str = "exports", registr
         return {"state": "refused", "why": f"the registry records {what} for {b.eid}: no confirmation to count"
                 + (f" (its shadow refuses on that verdict, {VERDICT_RULING})" if verdict else "")}
     try:
-        r = g.confirmation_count(g.spec_of(b.eid))
+        r = g.confirmation_count(g.spec_of(b.eid), path)
     except g.GateRefused as err:
         return {"state": "refused", "why": str(err)}
-    rows = set(last_calls(export_dir, eid=b.eid))
-    return {"state": "counting", **r, "shadow_rows": len(rows & set(r["cohort_ids"])),
-            "shadow_rows_scored": len(rows & set(r["scored_ids"]))}
+    calls = last_calls(export_dir, eid=b.eid)
+    held = set(calls) & set(r["cohort_ids"])
+    with session_scope() as s:                               # read-only: the guard reads the stored fixture
+        rows = {mid for mid in held if same_fixture(calls[mid], s.get(Match, mid))}
+        s.rollback()
+    return {"state": "counting", **r, "shadow_rows": len(rows), "shadow_rows_scored": len(rows & set(r["scored_ids"])),
+            "shadow_identity_mismatch": len(held - rows)}
 
 
 def counter_line(r: dict, eid: str) -> str:
@@ -690,6 +714,7 @@ def counter_line(r: dict, eid: str) -> str:
             f"{len(r['pending'])}{' ' + str(pend) if pend else ''}"
             + (f" · {r['release_due']} cancelled: release due" if r["release_due"] else "")
             + f" · shadow row before kickoff: {r['shadow_rows']} of the cohort, {r['shadow_rows_scored']} of the scored"
+            + f" ({r['shadow_identity_mismatch']} not the fixture's teams and kickoff, never counted)"
             + (" · COMPLETE (the read and its record are ncaa-confirm's)" if r["complete"] else "")
             + " · a count, not a verdict")
 

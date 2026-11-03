@@ -49,19 +49,59 @@ unscored rows rows of the count, so they carry it too); the label stays the ledg
 unscored row is not matched to fills". Local to positions(), as offered. One small PR for (a) and (c), read-only; then
 my two blocks (the laptop run, the host run on Monday's pulled backup)."
 
-ONCE PER MACHINE-ERA (231 item 2(a)): match ids are machine-local, so a run reads ONE machine's closing files with THAT
-machine's copy. The laptop run: --exports the laptop's own exports/ (its closing_NFL_*.json), --db the laptop's .backup
-copy, the rows through 10-25 (the hold's start 10-11 to the cutover). The host run: --exports the mirror checkout's
-host/ tree (host/<date>/closing_NFL_*.json), --db the host's pulled backup, the rows from 10-26 (the host the writer of
-record since). The two consoles are posted together; #446's count toward thirty is the two runs' counts' sum, stated
-on both consoles (each console prints the rule on its MACHINE-ERA line; the script holds no figure of the other run's
-and adds none). The script cannot tell a machine: the SOURCES line prints the directory read (resolved) and the copy
-read (resolved), and the architect's block pairs them; a directory and a copy of different machines is the operator's
-error that line makes visible. host/ is read like any directory (round 1's refusal is removed; a symlink into host/ is
-followed, 231 item 2(b)). No era filter is built: each run counts every row its closing files hold, whatever their
-dates, so the SOURCES line's "runs X to Y" is the era a run read; the mirror keeps only the last 14 days of dated
-folders (deploy/hosting/exports_mirror.py RETENTION_DAYS, expired() on each push), so a host/ tree read after a
-folder's expiry does not hold that folder's rows, and the first run on the SOURCES line shows it.
+Its follow-up's three questions (#810), ruled, verbatim (ARCHITECT 2026-11-03 11:10 ET, addendum 232 item 2): "#810
+(#807) — RULED, one push, then my block: (a) THE SUM: each console prints ONE RUN'S count, labelled with its era and
+its bound ("laptop era, runs through 2026-10-26T12:00:00Z: n of 30" / "host era, runs from 2026-10-26T12:00:00Z: m of
+30"); `thirty_reached` is per run and is renamed to say so; the script takes NO other run's count as an input (an
+input nobody verifies is not a receipt). The sum is my arithmetic on the two consoles, stated in my comment on #446.
+(b) THE ERA BOUNDARY is the CLOSING RUN'S START INSTANT, in UTC: 2026-10-26T12:00:00Z (the cutover day; the first
+closing the host wrote as writer of record was that evening's MNF; every earlier host closing was a P8 rehearsal).
+`--through INSTANT` and `--from INSTANT` bound the run start, printed in the header; a run start exactly at the bound
+belongs to the host era. KC@SEA (SNF 10-25 ET; the closing run started 2026-10-25 ~23:45Z) is the LAPTOP's row and
+only the laptop's; the host's rehearsal closing of it is not a record and is excluded by the bound, not by hand. My
+block passes the bounds. (c) THE HOST RUN'S SOURCE is the LAPTOP'S CUMULATIVE PULL, exports/host/ (pull_exports.py: a
+flat directory, `find -maxdepth 1` of the host's exports/, rsync without --delete — nothing pulled is ever removed,
+670 files today; the host's own exports/ is not pruned either: sp_prune.py is backups only), NOT the mirror checkout.
+The mirror's 14-day retention is therefore not in the receipt's path and the timing note of item 3 falls away; it
+stays as one line in the PR body for the record. The receipt reads a flat directory of closing_*.json OR a tree of
+dated folders alike (never a latest/ folder), so the mirror checkout still works as a second source if ever needed.
+The first host run is THIS WEEK on today's pulled backup, by my block, as soon as #810 merges; the laptop run the same
+day."
+
+ONCE PER MACHINE-ERA (231 item 2(a); 232 item 2): match ids are machine-local, so a run reads ONE machine's closing
+files with THAT machine's copy, and counts the rows of ONE era, bounded by the closing run's start instant in UTC
+(232 item 2(b)). The laptop run: --exports the laptop's own exports/ (its closing_NFL_*.json), --db the laptop's
+.backup copy, --through the era boundary (2026-10-26T12:00:00Z, the architect's block passes it). The host run:
+--exports the laptop's cumulative pull of the host's exports, exports/host/ (deploy/hosting/pull_exports.py: a flat
+directory, nothing pulled ever removed; 232 item 2(c)), --db the host's pulled backup, --from the era boundary. The
+mirror checkout's host/ tree (host/<YYYY-MM-DD>/closing_NFL_*.json) is read the same way and stays a second source;
+its 14-day retention is not in the receipt's path (232 item 2(c); a line for the record). The two consoles are posted
+together; each console's COUNT is ONE run's count, labelled with its era and its bound (232 item 2(a)); the script
+takes no other run's count as an input and adds none: the sum is the architect's arithmetic on the two consoles,
+stated on #446 (232 item 2(a), which replaces 231 item 2(a)'s "the two counts' sum, stated on both consoles": no
+console states a sum). The script cannot tell a machine: the SOURCES line prints the directory read
+(resolved) and the copy read (resolved), and the architect's block pairs them; a directory and a copy of different
+machines is the operator's error that line makes visible. host/ is read like any directory (round 1's refusal is
+removed; a symlink into host/ is followed, 231 item 2(b)). The laptop run's own exports/ never reads its host/
+subfolder (not a dated folder).
+
+THE BOUND (232 item 2(b)): --from INSTANT and --through INSTANT bound the CLOSING RUN'S START (redated.closing_rows'
+run start: the closing block's start, else the file name's stamp), each a UTC instant written YYYY-MM-DDTHH:MM:SSZ
+in ASCII digits (nothing else is taken: a malformed instant is refused, exit 2, nothing read). --from is inclusive (start >= from),
+--through exclusive (start < through): "a run start exactly at the bound belongs to the host era". Both bounds given
+is a window (--from before --through, else refused: the window holds no instant). The bound applies to every closing
+row BEFORE the one-row-per-game rule (and so before the void rule): a row of a run outside the bound is not read for
+any game, not counted, and counted on the BOUND line (by run, by closing file, by closing row, and the NFL games left
+with no row in the bound); a game of this receipt (a PLAY or would-be row on its newest run outside the bound) left
+with no row in the bound is NAMED on its own line, "outside the bound (not counted)", so the exclusion is the
+bound's and visible, never by hand. A closing row with NO run start (no closing block start, no stamp in the name)
+cannot be placed in an era: a bounded run excludes it and names it on its own line, "run start unknown, outside every
+bound", with its count (law 4: never guessed into an era); an unbounded run reads it as before. In a bounded run
+the SOURCES line prints two spans, each labelled: the runs of every file read (before the bound) and the runs in the
+bound. THE RUN'S LABEL
+(232 item 2(a)): --through T only, "laptop era, runs through T"; --from F only, "host era, runs from F"; both, "window,
+runs from F through T (no era: a window is neither era's run)"; neither, "unbounded run (no --from, no --through: no
+era; not an era's count)". The label is the bound's, not a machine the script detects.
 
 WHAT IT READS (each reading the conservative one, law 4; the keys are printed with the output):
 - THE ROWS: the NFL closing files of the --exports directory (redated.closing_rows, the one reader:
@@ -70,7 +110,9 @@ WHAT IT READS (each reading the conservative one, law 4; the keys are printed wi
   <exports>/<YYYY-MM-DD>/, so --exports the mirror's host/ tree reads host/<date>/closing_NFL_*.json, 231 item 2(a);
   latest/ is never read, its files being copies of a dated folder's newest, which would read one run twice; no other
   subfolder is read; a file name found in more than one dated folder is counted on the SOURCES line, each copy read,
-  the newest folder's copy the later of two equal runs), the closing family NFL. One row per game, exec_cohorts' rule (the void rule's selection): the newest
+  the newest folder's copy the later of two equal runs; a flat directory, exports/host/ the laptop's pull, and a tree
+  of dated folders, the mirror's, are read alike, 232 item 2(c)), the closing family NFL, the rows of the runs IN THE
+  BOUND only (THE BOUND above). One row per game, exec_cohorts' rule (the void rule's selection): the newest
   run's row whose recorded start is within the Desk's clock drift (desk_policy.DESK_CLOCK_DRIFT) of the match's
   current start; with none within it, the newest run's row, void when redated.void_label says so.
 - A PLAY ROW: desk.engine model_edge, desk.call PLAY, and one of the Desk's two QB tags on desk.tags
@@ -129,9 +171,13 @@ WHAT IT READS (each reading the conservative one, law 4; the keys are printed wi
   their label"), beside it each kind's W-L-P / void / open (the scored rows only) and its unscored rows by cause. The
   printed count is the count (225 item 3: "The count the script prints is the count"). The one figure that adds the
   two kinds; every other count (rows with fills, not established, unscored) is printed and keyed per kind. A running
-  count, never a verdict: the read is the architect's, at thirty rows or the season's end.
+  count, never a verdict: the read is the architect's, at thirty rows or the season's end. It is ONE RUN'S count
+  (232 item 2(a)), printed under the run's label (THE BOUND above: "laptop era, runs through T: n of 30" / "host era,
+  runs from F: m of 30"); the JSON's this_run_thirty_reached is this run's count alone at thirty; #446's count toward
+  thirty is the architect's sum of the two consoles, stated on #446, never an input or a figure of this script's.
 
-Refusals (exit 2, nothing read, nothing written): --db missing, empty, under the repo's data/ (the checkout's, and the
+Refusals (exit 2, nothing read, nothing written): --from or --through not a UTC instant YYYY-MM-DDTHH:MM:SSZ, or
+--from not before --through (232 item 2(b)); --db missing, empty, under the repo's data/ (the checkout's, and the
 main checkout's from a worktree; by path or identity: mlb_pitchers_gate.check_db; a data/ elsewhere is not refused),
 the app's configured database, no file there (never created), a -wal / -shm / -journal file beside it (immutable=1
 would ignore it: nfl_v2_gate.check_db's rule), or a copy that cannot be read as the schema the read needs; --exports
@@ -144,7 +190,8 @@ Writes nothing: no database row, no ledger, no file.
 
 Last line: QB-HOLD-RECEIPT {json} (counts only; no unit, size or dollar figure).
 
-    python3 scripts/qb_hold_receipt.py --db COPY --exports DIR [--ledger bd_ledger_v1_<date>.json]
+    python3 scripts/qb_hold_receipt.py --db COPY --exports DIR [--from INSTANT] [--through INSTANT]
+                                       [--ledger bd_ledger_v1_<date>.json]
 """
 from __future__ import annotations
 
@@ -219,16 +266,42 @@ RULING_231_2 = ("#807 — RULED: (a) ITEM 3 FIRST, THE SOURCE AFTER THE CUTOVER:
                 "line drops \"an unscored row is not matched to fills\". Local to positions(), as offered. One small PR "
                 "for (a) and (c), read-only; then my two blocks (the laptop run, the host run on Monday's pulled "
                 "backup).")
-MACHINE_ERA = ("MACHINE-ERA (231 item 2(a)): one run per machine-era, the two consoles posted together — the laptop run "
-               "(its own exports/, its own copy, rows through 10-25) and the host run (the mirror's host/ tree, the "
-               "host's pulled backup, rows from 10-26); #446's count toward thirty is the two runs' counts' sum (this "
-               "console's COUNT is one run's; the script holds no figure of the other run's and adds none; no era "
-               "filter: every row these closing files hold is counted); the SOURCES line names the directory and the "
-               "copy read, and the architect's block pairs them (a directory and a copy of different machines is the "
-               "operator's error, which the script cannot detect)")
-DATED = r"\d{4}-\d{2}-\d{2}"                  # the mirror's dated folder, <role>/<YYYY-MM-DD>/ (exports_mirror.plan)
+RULING_232_2 = ("#810 (#807) — RULED, one push, then my block: (a) THE SUM: each console prints ONE RUN'S count, labelled "
+                "with its era and its bound (\"laptop era, runs through 2026-10-26T12:00:00Z: n of 30\" / \"host era, runs "
+                "from 2026-10-26T12:00:00Z: m of 30\"); `thirty_reached` is per run and is renamed to say so; the script "
+                "takes NO other run's count as an input (an input nobody verifies is not a receipt). The sum is my "
+                "arithmetic on the two consoles, stated in my comment on #446. (b) THE ERA BOUNDARY is the CLOSING RUN'S "
+                "START INSTANT, in UTC: 2026-10-26T12:00:00Z (the cutover day; the first closing the host wrote as writer "
+                "of record was that evening's MNF; every earlier host closing was a P8 rehearsal). `--through INSTANT` "
+                "and `--from INSTANT` bound the run start, printed in the header; a run start exactly at the bound "
+                "belongs to the host era. KC@SEA (SNF 10-25 ET; the closing run started 2026-10-25 ~23:45Z) is the "
+                "LAPTOP's row and only the laptop's; the host's rehearsal closing of it is not a record and is excluded "
+                "by the bound, not by hand. My block passes the bounds. (c) THE HOST RUN'S SOURCE is the LAPTOP'S "
+                "CUMULATIVE PULL, exports/host/ (pull_exports.py: a flat directory, `find -maxdepth 1` of the host's "
+                "exports/, rsync without --delete — nothing pulled is ever removed, 670 files today; the host's own "
+                "exports/ is not pruned either: sp_prune.py is backups only), NOT the mirror checkout. The mirror's "
+                "14-day retention is therefore not in the receipt's path and the timing note of item 3 falls away; it "
+                "stays as one line in the PR body for the record. The receipt reads a flat directory of closing_*.json OR "
+                "a tree of dated folders alike (never a latest/ folder), so the mirror checkout still works as a second "
+                "source if ever needed. The first host run is THIS WEEK on today's pulled backup, by my block, as soon as "
+                "#810 merges; the laptop run the same day.")
+MACHINE_ERA = ("MACHINE-ERA (231 item 2(a); 232 item 2): one run per machine-era, the two consoles posted together — "
+               "the laptop run (--exports its own exports/, --db its own copy, --through the era boundary) and the host "
+               "run (--exports exports/host/, the laptop's cumulative pull of the host's exports, pull_exports.py, "
+               "flat, nothing pulled ever removed; --db the host's pulled backup; --from the era boundary); the era "
+               "boundary is the closing run's start instant in UTC, a run start exactly at it the host era's (232 item "
+               "2(b)); this console's COUNT is ONE run's count, labelled with its era and its bound; the script takes "
+               "no other run's count as an input and adds none: the sum is the architect's arithmetic on the two "
+               "consoles, stated on #446 (232 item 2(a)); the SOURCES line names the directory and the copy read, and "
+               "the architect's block pairs them (a directory and a copy of different machines is the operator's "
+               "error, which the script cannot detect)")
+INSTANT = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z")  # ASCII digits only   # a UTC instant, 2026-10-26T12:00:00Z (232 item 2(b))
+OUTSIDE = "outside the bound (not counted)"
+UNKNOWN = "run start unknown, outside every bound"
+DATED = r"[0-9]{4}-[0-9]{2}-[0-9]{2}"                       # the mirror's dated folder, <role>/<YYYY-MM-DD>/ (exports_mirror.plan)
 KEYS = ("rows = the NFL closing files (<exports>/closing_*.json and each dated folder's <exports>/<YYYY-MM-DD>/"
-        "closing_*.json, the mirror's layout; never latest/), one per game (exec_cohorts' rule: the newest run's row within the Desk's clock "
+        "closing_*.json, the mirror's layout; never latest/), the runs in the bound only (--from inclusive, --through "
+        "exclusive, on the closing run's start, UTC; 232 item 2(b)), one per game (exec_cohorts' rule: the newest run's row within the Desk's clock "
         "drift of the match's current start) · PLAY = desk.call PLAY with a QB tag (exec_cohorts.QB_TAGS) · would-be "
         "= desk.call PASS, pass_kind market_only, market_only_hold.would_call PLAY, with a QB tag · price named = a "
         "PLAY's desk.order.limit; a would-be row names none · close = close.grading_close_block's fair for the page's "
@@ -239,7 +312,8 @@ KEYS = ("rows = the NFL closing files (<exports>/closing_*.json and each dated f
         "opened, closed as held; never a quantity, price, fee or P&L; none: not established; matched to every row, "
         "scored or unscored (231 item 2(c); an unscored row on its closing row's own teams and start) · count toward thirty = "
         "each kind's scored rows + its unscored rows; the printed count is the count (225 item 3) · every count is "
-        "per kind; only the count toward thirty adds the two")
+        "per kind; only the count toward thirty adds the two · the count is ONE run's, under the run's label (232 "
+        "item 2(a)); #446's sum of the two runs is the architect's, on #446")
 
 
 class Refused(Exception):
@@ -369,17 +443,61 @@ def _num(x) -> float | None:
     return float(x)
 
 
-def read_closings(exports_dir) -> dict:
+def parse_instant(text, flag) -> datetime:
+    """A bound (232 item 2(b)): a UTC instant written YYYY-MM-DDTHH:MM:SSZ, as naive UTC (the run starts'
+    redated.as_utc form), or Refused: nothing else is taken (no offset, no date alone, no space for the T)."""
+    s = str(text)
+    try:
+        if not INSTANT.fullmatch(s):
+            raise ValueError
+        return datetime.strptime(s, "%Y-%m-%dT%H:%M:%SZ")
+    except ValueError:
+        raise Refused(f"{flag} {s!r}: not a UTC instant YYYY-MM-DDTHH:MM:SSZ (232 item 2(b)); nothing read") from None
+
+
+def _z(d: datetime) -> str:
+    return d.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def run_label(lo: datetime | None, hi: datetime | None) -> tuple[str, str]:
+    """(era, label) of the run (232 item 2(a)): the bound's, never a machine the script detects."""
+    if lo is None and hi is None:
+        return "unbounded", "unbounded run (no --from, no --through: no era; not an era's count)"
+    if lo is None:
+        return "laptop", f"laptop era, runs through {_z(hi)}"
+    if hi is None:
+        return "host", f"host era, runs from {_z(lo)}"
+    return "window", f"window, runs from {_z(lo)} through {_z(hi)} (no era: a window is neither era's run)"
+
+
+def in_bound(run: datetime | None, lo: datetime | None, hi: datetime | None) -> bool | None:
+    """True / False on a known run start (--from inclusive, --through exclusive: a run start exactly at the bound is
+    the host era's, 232 item 2(b)); None on an unknown run start under a bound (it cannot be placed in an era)."""
+    if lo is None and hi is None:
+        return True
+    if run is None:
+        return None
+    return (lo is None or run >= lo) and (hi is None or run < hi)
+
+
+def read_closings(exports_dir, lo: datetime | None = None, hi: datetime | None = None) -> dict:
     """redated.closing_rows (the one reader) on <exports_dir>, and on each dated folder <exports_dir>/<YYYY-MM-DD>/
     (the mirror's layout, deploy/hosting/exports_mirror.py: --exports the mirror's host/ tree reads
-    host/<date>/closing_*.json, 231 item 2(a)); latest/ and any other subfolder are never read. The same shape as closing_rows' ("rows", "files",
-    "unreadable", "runs"), merged: each match's entries from every folder, oldest run first (equal runs keep the folder
-    order, the newest dated folder last), plus "dated": the dated folders read, and "repeated": the closing-file names
-    found in more than one folder read (each copy read)."""
+    host/<date>/closing_*.json, 231 item 2(a); a flat directory, exports/host/, is its top alone, 232 item 2(c));
+    latest/ and any other subfolder are never read. The same shape as closing_rows' ("rows", "files", "unreadable",
+    "runs"), merged: each match's entries IN THE BOUND (in_bound: lo inclusive, hi exclusive, on the run start) from
+    every folder, oldest run first (equal runs keep the folder order, the newest dated folder last), plus "dated": the
+    dated folders read, "repeated": the closing-file names found in more than one folder read (each copy read),
+    "runs_in": the span of the run starts IN THE BOUND ("runs" is every file's, before the bound),
+    "outside": {match id: entries} of a known run start outside the bound, "unknown": {match id: entries} with no run
+    start under a bound, and "files_of": {match id: [file, ...]} beside "outside" / "unknown" (the folder-prefixed
+    file of each entry, for the BOUND line's by-file count)."""
     from src.walters.redated import CLOSING_GLOB, closing_rows
     d = Path(exports_dir)
     dirs = [d] + sorted(p for p in d.iterdir() if p.is_dir() and re.fullmatch(DATED, p.name))
     rows: dict = {}
+    out_rows: dict = {}
+    unk_rows: dict = {}
     files, bad, runs, names = 0, [], [], {}
     for sub in dirs:
         cr = closing_rows(sub)
@@ -391,16 +509,58 @@ def read_closings(exports_dir) -> dict:
         for n in (p.name for p in sub.glob(CLOSING_GLOB)):
             names[n] = names.get(n, 0) + 1
         for mid, v in cr["rows"].items():
-            rows.setdefault(mid, []).extend(v)
-    for v in rows.values():
-        v.sort(key=lambda x: (x[0] is not None, x[0] or datetime.min))
-    return {"rows": rows, "files": files, "unreadable": bad, "runs": (min(runs), max(runs)) if runs else None,
-            "dated": len(dirs) - 1, "repeated": sorted(n for n, k in names.items() if k > 1)}
+            srcs = cr["exports"].get(mid) or [{}] * len(v)
+            for e, src in zip(v, srcs):
+                where = {True: rows, False: out_rows, None: unk_rows}[in_bound(e[0], lo, hi)]
+                where.setdefault(mid, []).append((*e, pre + str(src.get("file"))))
+    for bucket in (rows, out_rows, unk_rows):
+        for v in bucket.values():
+            v.sort(key=lambda x: (x[0] is not None, x[0] or datetime.min))
+    return {"rows": {mid: [x[:3] for x in v] for mid, v in rows.items()}, "files": files, "unreadable": bad,
+            "runs": (min(runs), max(runs)) if runs else None, "dated": len(dirs) - 1,
+            "runs_in": (min(ins), max(ins)) if (ins := [x[0] for v in rows.values() for x in v if x[0] is not None])
+            else None,
+            "repeated": sorted(n for n, k in names.items() if k > 1),
+            "outside": {mid: [x[:3] for x in v] for mid, v in out_rows.items()},
+            "unknown": {mid: [x[:3] for x in v] for mid, v in unk_rows.items()},
+            "files_of": {k: {mid: [x[3] for x in v] for mid, v in b.items()}
+                         for k, b in (("outside", out_rows), ("unknown", unk_rows))}}
 
 
-def collect(s, exports_dir) -> dict:
-    """The receipt's rows from the closing files (read_closings) and the database copy `s` (read-only; nothing written):
-    "rows" (the scored rows), "unscored" (per kind, by cause, UNSCORED_HEADS: each {"text": named with its label, and
+def excluded(cr: dict) -> dict:
+    """The BOUND line's figures (232 item 2(b)): the NFL closing rows left out by the bound, by run (the distinct run
+    starts), by closing file and by row, the NFL games left with no row in the bound, and the receipt's own games
+    among those, NAMED: {"outside": {...}, "unknown": {...}}, each {"runs", "files", "rows", "games", "named":
+    [{"kind", "text"}]} ("runs" None for unknown). A game named is one with no row in the bound whose newest entry
+    of that bucket (outside: the newest known run; unknown: the newest file order) is an NFL row of this receipt
+    (classify): a PLAY or a would-be row; a game with an outside entry is named under outside only."""
+    res = {}
+    for key in ("outside", "unknown"):
+        ents = cr[key]
+        nfl = {mid: [(e, f) for e, f in zip(v, cr["files_of"][key][mid]) if e[1] == FAMILY] for mid, v in ents.items()}
+        nfl = {mid: v for mid, v in nfl.items() if v}
+        games = [mid for mid in nfl if mid not in cr["rows"] and (key == "outside" or mid not in cr["outside"])]
+        named = []
+        for mid in sorted(games):
+            run, _, row = nfl[mid][-1][0]
+            desk = row.get("desk") if isinstance(row.get("desk"), dict) else {}
+            kind = classify(desk)
+            if kind is None:
+                continue
+            tag = WOULD_LABEL if kind == "would" else "PLAY"
+            game = f"{row.get('away_team') or '?'} @ {row.get('home_team') or '?'}"
+            when = f", run {run:%Y-%m-%d %H:%M}Z" if run is not None else ", run start unknown"
+            named.append({"kind": kind, "text": f"match {mid} {game} ({tag}{when})"})
+        res[key] = {"runs": len({e[0] for v in nfl.values() for e, _ in v}) if key == "outside" else None,
+                    "files": len({f for v in nfl.values() for _, f in v}),
+                    "rows": sum(len(v) for v in nfl.values()), "games": len(games), "named": named}
+    return res
+
+
+def collect(s, exports_dir, lo: datetime | None = None, hi: datetime | None = None) -> dict:
+    """The receipt's rows from the closing files of the runs in the bound (read_closings; lo inclusive, hi exclusive,
+    232 item 2(b)) and the database copy `s` (read-only; nothing written): "bound" (excluded()'s figures: what the
+    bound left out, by run, file, row and game, the receipt's games among them named), "rows" (the scored rows), "unscored" (per kind, by cause, UNSCORED_HEADS: each {"text": named with its label, and
     the closing row's own key, events, home, away and kickoff_iso, the fields positions() matches on, 231 item 2(c)},
     never scored, kept outside the W-L-P) and "toward_thirty" (per kind: its scored rows + its unscored rows; 225 item
     3: a row the copy lacks, a teams-differ row and a void row each COUNT toward thirty as labelled, unscored rows)."""
@@ -409,7 +569,7 @@ def collect(s, exports_dir) -> dict:
     from src.walters.exec_cohorts import QB_TAGS, _within, result_of
     from src.walters.redated import as_utc, void_label
 
-    cr = read_closings(exports_dir)
+    cr = read_closings(exports_dir, lo, hi)
     rows = []
     unscored = {k: {key: [] for key, _ in UNSCORED_HEADS} for k in ("play", "would")}
     nfl_matches = 0
@@ -478,8 +638,9 @@ def collect(s, exports_dir) -> dict:
     toward = {k: sum(1 for r in rows if r["kind"] == k) + sum(len(v) for v in unscored[k].values())
               for k in ("play", "would")}
     return {"rows": rows, "unscored": unscored, "toward_thirty": toward, "files": cr["files"],
-            "unreadable": cr["unreadable"], "runs": cr["runs"], "nfl_matches": nfl_matches, "dated": cr["dated"],
-            "repeated": cr["repeated"]}
+            "unreadable": cr["unreadable"], "runs": cr["runs"], "runs_in": cr["runs_in"], "nfl_matches": nfl_matches,
+            "dated": cr["dated"],
+            "repeated": cr["repeated"], "bound": excluded(cr)}
 
 
 # -------------------------------------------------------------------------------------------------- the lines --
@@ -516,27 +677,53 @@ def _graded(rs: list[dict]) -> dict:
 
 
 def count_line(n_play: int, n_would: int, g_play: dict, g_would: dict, u_play: dict | None = None,
-               u_would: dict | None = None) -> str:
-    """The count toward thirty: n_play / n_would are each kind's count (its scored rows + its unscored rows, 225 item
-    3); beside it each kind's record (g_*, the scored rows only) and its unscored rows by cause (u_*, {cause: n})."""
+               u_would: dict | None = None, label: str = run_label(None, None)[1]) -> str:
+    """The count toward thirty, ONE RUN'S (232 item 2(a)), under the run's label (run_label: "laptop era, runs through
+    T: n of 30" / "host era, runs from F: m of 30"): n_play / n_would are each kind's count (its scored rows + its
+    unscored rows, 225 item 3); beside it each kind's record (g_*, the scored rows only) and its unscored rows by cause
+    (u_*, {cause: n}). No other run's count is an input; the sum of the two runs is the architect's, on #446."""
     total = n_play + n_would
-    tail = (f"thirty reached — for the architect's read (no verdict is computed here)" if total >= READ_AT
-            else "not read before thirty rows or the season's end (no verdict is computed here)")
+    tail = ("this run's count alone reaches thirty — for the architect's read (no verdict is computed here)"
+            if total >= READ_AT else
+            "this run's count; #446's count toward thirty is the architect's sum of the two runs' consoles, on #446 "
+            "(232 item 2(a)); not read before thirty rows or the season's end (no verdict is computed here)")
 
     def rec(g, u):
         u = u or {}
         n = sum(u.get(key, 0) for key, _ in UNSCORED_HEADS)
         return (f"W-L-P {g['win']}-{g['loss']}-{g['push']}, void {g['void']}, open {g['open']}, unscored {n} ("
                 + " · ".join(f"{head} {u.get(key, 0)}" for key, head in UNSCORED_HEADS) + ")")
-    return (f"COUNT toward thirty (#446; addendum 44 item 9, 209 item 3; would-be rows counted too, labelled, 217 item "
-            f"4; unscored rows counted too, labelled, outside the W-L-P, 225 item 3): PLAY {n_play} + {WOULD_LABEL} "
-            f"{n_would} = {total} of {READ_AT} — {tail} · PLAY {rec(g_play, u_play)} · {WOULD_LABEL} "
-            f"{rec(g_would, u_would)}")
+    return (f"COUNT toward thirty, THIS RUN'S (#446; addendum 44 item 9, 209 item 3; would-be rows counted too, "
+            f"labelled, 217 item 4; unscored rows counted too, labelled, outside the W-L-P, 225 item 3; one run's count, "
+            f"232 item 2(a)): {label}: {total} of {READ_AT} (PLAY {n_play} + {WOULD_LABEL} {n_would}) — {tail} · "
+            f"PLAY {rec(g_play, u_play)} · {WOULD_LABEL} {rec(g_would, u_would)}")
 
 
-def report(s, exports_dir, ledger: dict | None, db_text: str, ledger_text: str, echo=print) -> dict:
+def bound_lines(lo: datetime | None, hi: datetime | None, bx: dict) -> list[str]:
+    """The header's BOUND line, its named exclusions, and (a bounded run) the RUN START UNKNOWN line (232 item 2(b))."""
+    _, label = run_label(lo, hi)
+    head = (f"BOUND (232 item 2(b); the closing run's start instant, UTC; --from inclusive, --through exclusive: a run "
+            f"start exactly at the bound is the host era's): this run: {label} · --from {_z(lo) if lo else '—'} · "
+            f"--through {_z(hi) if hi else '—'}")
+    if lo is None and hi is None:
+        return [head + " · no bound: every run read, nothing excluded"]
+    o, u = bx["outside"], bx["unknown"]
+    lines = [head + f" · excluded by the bound (not counted, not read for any game): NFL closing rows {o['rows']}, "
+                    f"from {o['runs']} run(s) (closing files {o['files']}), NFL games left with no row in the bound "
+                    f"{o['games']}, of this receipt (named below) {len(o['named'])}"]
+    lines += [f"  {OUTSIDE}: {x['text']}" for x in o["named"]]
+    lines.append(f"{UNKNOWN.upper()} (232 item 2(b); law 4: a row with no run start is never placed in an era; not "
+                 f"counted): NFL closing rows {u['rows']} (closing files {u['files']}), NFL games left with no row in "
+                 f"the bound {u['games']}, of this receipt (named below) {len(u['named'])}")
+    lines += [f"  {UNKNOWN} (not counted): {x['text']}" for x in u["named"]]
+    return lines
+
+
+def report(s, exports_dir, ledger: dict | None, db_text: str, ledger_text: str, echo=print,
+           lo: datetime | None = None, hi: datetime | None = None) -> dict:
     from src.walters.redated import void_counts
-    out = collect(s, exports_dir)
+    out = collect(s, exports_dir, lo, hi)
+    era, this_run = run_label(lo, hi)
     rows = out["rows"]
     uo = out["unscored"]
     every = rows + [x for k in ("play", "would") for key, _ in UNSCORED_HEADS for x in uo[k][key]]  # 231 item 2(c)
@@ -551,7 +738,11 @@ def report(s, exports_dir, ledger: dict | None, db_text: str, ledger_text: str, 
     echo(f"RULING (ARCHITECT 2026-11-02 18:05 ET, addendum 223 item 5, verbatim): \"{RULING_223_5}\"")
     echo(f"RULING (ARCHITECT 2026-11-03 07:55 ET, addendum 225 item 3, verbatim): \"{RULING_225_3}\"")
     echo(f"RULING (ARCHITECT 2026-11-03 09:40 ET, addendum 231 item 2, verbatim): \"{RULING_231_2}\"")
-    runs = (f"runs {out['runs'][0]:%Y-%m-%d %H:%M}Z to {out['runs'][1]:%Y-%m-%d %H:%M}Z" if out["runs"] else "runs —")
+    echo(f"RULING (ARCHITECT 2026-11-03 11:10 ET, addendum 232 item 2, verbatim): \"{RULING_232_2}\"")
+    def span(r):
+        return f"{r[0]:%Y-%m-%d %H:%M}Z to {r[1]:%Y-%m-%d %H:%M}Z" if r else "—"
+    runs = (f"runs {span(out['runs'])}" if lo is None and hi is None else      # a bounded run: both spans, labelled
+            f"runs of every file read (before the bound) {span(out['runs'])}, runs in the bound {span(out['runs_in'])}")
     bad = (f" · unreadable {len(out['unreadable'])}: {', '.join(out['unreadable'])}" if out["unreadable"] else "")
     rep = (f" · names in more than one folder {len(out['repeated'])} (each copy read): {', '.join(out['repeated'])}"
            if out["repeated"] else "")
@@ -560,6 +751,8 @@ def report(s, exports_dir, ledger: dict | None, db_text: str, ledger_text: str, 
          f"<YYYY-MM-DD>/ {out['dated']}, never latest/; redated.closing_rows): {out['files']} read, {runs}, NFL games "
          f"{out['nfl_matches']}{rep}{bad}")
     echo(MACHINE_ERA)
+    for ln in bound_lines(lo, hi, out["bound"]):
+        echo(ln)
     echo(f"WHAT WAS DONE FROM: {ledger_text}")
     echo(f"KEYS: {KEYS}")
     plays = [r for r in rows if r["kind"] == "play"]
@@ -592,40 +785,65 @@ def report(s, exports_dir, ledger: dict | None, db_text: str, ledger_text: str, 
              f"{held_play} of {tw['play']} · {WOULD_LABEL} rows (scored + unscored) with {LEDGER_LABEL} on the game "
              f"{held_would} of {tw['would']}")
     g_play, g_would = _graded(plays), _graded(would)
-    echo(count_line(tw["play"], tw["would"], g_play, g_would, u_n["play"], u_n["would"]))
+    echo(count_line(tw["play"], tw["would"], g_play, g_would, u_n["play"], u_n["would"], this_run))
     summary = {"exports": d, "exports_read": str(resolved), "dated_folders": out["dated"], "closing_files": out["files"], "unreadable": len(out["unreadable"]),
                "nfl_games": out["nfl_matches"], "play_rows": len(plays), "would_be_rows": len(would),
                "counted": {"play": tw["play"], "would_be": tw["would"]},
                "toward_thirty": tw["play"] + tw["would"], "read_at": READ_AT,
-               "thirty_reached": tw["play"] + tw["would"] >= READ_AT, "play_record": g_play,
+               "this_run_thirty_reached": tw["play"] + tw["would"] >= READ_AT, "play_record": g_play,
                "would_be_record": g_would, "ledger_read": ledger_read,
                "what_was_done": ({"play": {LEDGER_LABEL: held_play, "not_established": tw["play"] - held_play},
                                   "would_be": {LEDGER_LABEL: held_would, "not_established": tw["would"] - held_would}}
                                  if ledger_read else None),
                "ambiguous_fills": pos["ambiguous"] if ledger_read else None,
-               "unscored": {"play": u_n["play"], "would_be": u_n["would"]}}
+               "unscored": {"play": u_n["play"], "would_be": u_n["would"]},
+               "run": {"era": era, "label": this_run, "from": _z(lo) if lo else None, "through": _z(hi) if hi else None},
+               "excluded_by_bound": _bx_json(out["bound"]["outside"]) if (lo or hi) else None,
+               "run_start_unknown": _bx_json(out["bound"]["unknown"]) if (lo or hi) else None}
     echo("QB-HOLD-RECEIPT " + json.dumps(summary, sort_keys=True))
     return {**out, "positions": pos, "summary": summary}
+
+
+def _bx_json(b: dict) -> dict:
+    return {"runs": b["runs"], "closing_files": b["files"], "nfl_closing_rows": b["rows"], "nfl_games": b["games"],
+            "named": {"play": sum(1 for x in b["named"] if x["kind"] == "play"),
+                      "would_be": sum(1 for x in b["named"] if x["kind"] == "would")}}
 
 
 # ------------------------------------------------------------------------------------------------------- main --
 
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(description="#446 (addendum 44 item 9; 209 item 3; 217 item 4): the QB hold, measured "
-                                             "— read-only")
+    ap = argparse.ArgumentParser(description="#446 (addendum 44 item 9; 209 item 3; 217 item 4; 232 item 2): the QB "
+                                             "hold, measured, ONE run's count under its era's bound — read-only")
     ap.add_argument("--db", default=None, help="a .backup copy of the database outside the repo's data/, opened "
                                                "mode=ro&immutable=1 (required)")
     ap.add_argument("--exports", default="exports", help="the directory holding closing_*.json, at its top and in "
-                                                         "its dated folders <YYYY-MM-DD>/ (the mirror's layout; "
-                                                         "latest/ never read). Default exports. One machine's "
-                                                         "pair with --db (231 item 2(a)): the laptop's own "
-                                                         "exports/ with the laptop's copy, or the mirror's host/ "
-                                                         "tree with the host's pulled backup")
+                                                         "its dated folders <YYYY-MM-DD>/ (a flat directory and the "
+                                                         "mirror's tree alike; latest/ never read). Default exports. "
+                                                         "One machine's pair with --db (231 item 2(a)): the laptop's "
+                                                         "own exports/ with the laptop's copy (--through), or "
+                                                         "exports/host/, the laptop's cumulative pull "
+                                                         "(pull_exports.py), with the host's pulled backup (--from; "
+                                                         "232 item 2(c)); the mirror's host/ tree a second source")
+    ap.add_argument("--from", dest="from_", default=None, metavar="INSTANT",
+                    help="bound the closing run's start, INCLUSIVE (start >= INSTANT), a UTC instant "
+                         "YYYY-MM-DDTHH:MM:SSZ (232 item 2(b)): the host era's run, --from 2026-10-26T12:00:00Z; "
+                         "the label 'host era, runs from INSTANT'")
+    ap.add_argument("--through", default=None, metavar="INSTANT",
+                    help="bound the closing run's start, EXCLUSIVE (start < INSTANT: a run start exactly at the bound "
+                         "is the host era's), a UTC instant YYYY-MM-DDTHH:MM:SSZ (232 item 2(b)): the laptop era's "
+                         "run, --through 2026-10-26T12:00:00Z; the label 'laptop era, runs through INSTANT'. Both "
+                         "bounds: a window. A row with no run start is outside every bound (named, not counted)")
     ap.add_argument("--ledger", default=None, help="the Cockpit's Export ledger (JSON) file, bd_ledger_v1_<date>.json "
                                                    "(optional: without it 'what was done' reads not read)")
     a = ap.parse_args(argv)
     from src.walters import mlb_pitchers_gate as mp
     try:
+        lo = parse_instant(a.from_, "--from") if a.from_ is not None else None
+        hi = parse_instant(a.through, "--through") if a.through is not None else None
+        if lo is not None and hi is not None and not lo < hi:
+            raise Refused(f"--from {_z(lo)} is not before --through {_z(hi)}: the window holds no run start (232 item "
+                          "2(b)); nothing read")
         path = mp.check_db(a.db)
         for sc in SIDECARS:
             if path.with_name(path.name + sc).exists():
@@ -648,7 +866,7 @@ def main(argv=None) -> int:
     lines: list[str] = []
     try:
         with mp.readonly_session(path) as s:
-            report(s, a.exports, ledger, db_text, ledger_text, echo=lines.append)
+            report(s, a.exports, ledger, db_text, ledger_text, echo=lines.append, lo=lo, hi=hi)
     except (SQLAlchemyError, sqlite3.Error, LookupError) as err:   # a copy without the schema the read needs
         why = (str(err).strip().splitlines() or [""])[0]
         print(f"REFUSED: --db {path}: cannot be read as the schema the receipt needs ({type(err).__name__}: {why}); "

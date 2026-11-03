@@ -5547,7 +5547,11 @@ def nhl_shadow_grade_cmd(days):
 @click.option("--id", "eid", type=click.Choice(["ncaa-elo-v1r", "ncaa-elo-v2"]), default="ncaa-elo-v1r",
               show_default=True, help="The registry id the shadow binds (ARCHITECT 2026-10-23, addendum 158 item 1(b)): "
               "ncaa-elo-v2 exports nothing unless the registry records its PASS.")
-def export_ncaa_predictions_cmd(hours, eid):
+@click.option("--dormant-ok", "dormant_ok", is_flag=True,
+              help="The ncaa-schedule chain's step (ARCHITECT 2026-11-03, addendum 230 item 1(b): \"dormant while the "
+                   "verdict is null or FAIL\"): a verdict refusal prints DORMANT with its reason, writes nothing and "
+                   "exits 0. Every other refusal still exits 2.")
+def export_ncaa_predictions_cmd(hours, eid, dormant_ok):
     """NCAA SHADOW (ARCHITECT 2026-10-07, addendum 6 item 1): ncaa_elo_v1r (v1,
     constants untouched) for every FBS game in the window. Every row: engine
     model_shadow, competition NCAA, family NCAAF, gate status (UNGATED — shadow
@@ -5561,10 +5565,21 @@ def export_ncaa_predictions_cmd(hours, eid):
     exports/ncaa_shadow_<stamp>.json; nothing to the DB. `--id ncaa-elo-v2`
     (addendum 158 item 1(b)): ncaa_elo_v2 at the frozen s, exporting nothing
     unless the registry records its PASS; every row carries the registry id,
-    the version, the input cutoff and the prediction stamp."""
-    from src.walters.ncaa_shadow import ShadowRefused, export
+    the version, the input cutoff and the prediction stamp. `--dormant-ok` (ARCHITECT 2026-11-03, addendum 230 item
+    1(b); the ncaa-schedule chain's last step, `--id ncaa-elo-v2 --dormant-ok`): while the registry records no
+    verdict or a verdict other than PASS the export is DORMANT: the reason printed, no file written, exit 0, so the
+    chain never fails on it. Without the flag that refusal exits 2 as before; every other refusal exits 2 either way.
+    Every row carries the neutral flag before kickoff and its rule (`neutral_rule`; D8's until a source is ruled)."""
+    from src.walters.ncaa_shadow import ShadowDormant, ShadowRefused, dormant_reason, export
     try:
         path, doc = export(hours=hours, eid=eid)
+    except ShadowDormant as e:
+        if dormant_ok:
+            print(f"DORMANT: {dormant_reason(e.eid, e.verdict)}. Nothing was read past the registry and nothing was "
+                  "written; exit 0")
+            return
+        print(str(e))
+        raise SystemExit(2)
     except ShadowRefused as e:
         print(str(e))
         raise SystemExit(2)
@@ -5588,8 +5603,12 @@ def ncaa_shadow_grade_cmd(days, eid):
     """NCAA SHADOW grade from the shadow exports on disk (the last row before
     kickoff): results (hit rate, log-loss, Brier) and model-vs-close
     (pick-vs-close + value-side). Read-only. NOT gate evidence. One binding's
-    files at a time (`--id`)."""
-    from src.walters.ncaa_shadow import grade
+    files at a time (`--id`). ARCHITECT 2026-11-03, addendum 230 item 1(b):
+    the record against the Kalshi close by the close record's KXNCAAFGAME rule
+    (paper.guarded_two_way_close; books not read), per name, its exclusions
+    counted; and the confirmation counter to 100 (counts only, never a figure
+    of the games or a verdict; DORMANT while the verdict is null or FAIL)."""
+    from src.walters.ncaa_shadow import confirmation_counter, counter_line, grade
     r = grade(days=days, progress=print, eid=eid)
     print(f"  ── NCAA shadow {eid} (not gate evidence) · graded {r['graded']} (calls on file {r['calls_on_file']}; "
           f"no result {r['no_result']}; ties {r['ties_skipped']}; identity mismatch {r['identity_mismatch']}) · hit rate {r['hit_rate']} · log-loss "
@@ -5599,6 +5618,13 @@ def ncaa_shadow_grade_cmd(days, eid):
     # ARCHITECT 2026-10-13 (addendum 64 item 2): the hit rate carries the line against the close, per the shadow's close
     from src.walters.vs_close import line as _vs_line
     print(f"  ── {_vs_line(r.get('vs_close'))}")
+    # addendum 230 item 1(b): the record against the Kalshi close, each name on its own, then the counter to 100
+    x = r["kalshi_close_excluded"]
+    print("  ── the record against the Kalshi close (" + r["kalshi_close_rule"] + "), each name on its own · left out: "
+          + ", ".join(f"{k} {v}" for k, v in x.items()) + ":")
+    for k, v in r["vs_kalshi_close"].items():
+        print(f"     {k}: {_vs_line(v)}")
+    print(f"  ── {counter_line(confirmation_counter(eid), eid)}")
 
 
 @cli.command("export-unl-predictions")

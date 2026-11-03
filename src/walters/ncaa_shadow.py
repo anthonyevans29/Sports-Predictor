@@ -92,6 +92,19 @@ read-only receipt on synthetic cases that the shadow's probabilities equal the g
     over the stream games kicking off before that game, then the prediction. scripts/ncaa_v2_shadow_parity.py prints
     it on a seeded synthetic stream; no DB is read.
   * Grading never pools: ncaa-shadow-grade --id reads only the files its binding wrote.
+
+ncaa-elo-v2's CONFIRMATION MACHINERY (ARCHITECT 2026-11-03, addendum 230 item 1(b), verbatim): "the college shadow
+export on the ncaa-schedule chain (the NHL shadow's shape: the entry's probabilities per fixture, market-only, never a
+call), its grade against the Kalshi close (the close record's KXNCAAFGAME rule), the neutral flag on each row before
+kickoff with its rule stated (never a provider fact), the confirmation counter to 100; dormant while the verdict is null
+or FAIL."
+  * The chain: ncaa-schedule's last step, `export-ncaa-predictions --id ncaa-elo-v2 --dormant-ok`. frozen()'s verdict
+    refusal is ShadowDormant: with --dormant-ok it prints DORMANT and its reason, writes nothing, exit 0; every other
+    refusal exits 2 (deploy/hosting/chains.py NCAA_SHADOW_STEP; coverage reads the same preconditions, SHADOW_BINDS).
+  * The neutral flag before kickoff: every row states its rule (NEUTRAL_PREGAME_RULE, D8's until a source is ruled).
+  * The grade against the Kalshi close: vs_kalshi_close per name, paper.guarded_two_way_close (close_record's own),
+    its exclusions counted; the book line stays beside it.
+  * The counter to 100: confirmation_counter (ncaa_v1r_gate.confirmation_count: counts, never a figure or a verdict).
 """
 from __future__ import annotations
 
@@ -121,6 +134,19 @@ CONSTANT_KEYS = ("k_factor", "home_advantage", "mov_base", "season_regression", 
 # listed home's advantage and says on the row that the neutral flag is unknown."
 NEUTRAL_FLAG_UNKNOWN = "unknown before the game"
 HOME_ADV_BASIS = "listed home (neutral flag unknown before the game)"
+# THE NEUTRAL FLAG BEFORE KICKOFF, ITS RULE STATED ON EVERY ROW (ARCHITECT 2026-11-03, addendum 230 item 1(b): "the
+# neutral flag on each row before kickoff with its rule stated (never a provider fact)"). The rule is D8's until the
+# architect rules a pregame source: nothing this repo stores carries a neutral flag for an upcoming college game that
+# is ours (ncaa_cfbd's side table labels completed games only, after the game; the american-football adapter stores no
+# venue), so the flag is unknown (law 4) and the price stays the listed home's. A rule that derives it changes this
+# text and the value together, by a ruling.
+NEUTRAL_PREGAME_RULE = (
+    "D8 (ncaa-elo-v1r's declaration, ARCHITECT 2026-10-08, addendum 11 item 3; ncaa-elo-v2's D8: \"As v1r's D8\"), "
+    "verbatim: \"Until then the shadow prices an upcoming game with the listed home's advantage and says on the row "
+    "that the neutral flag is unknown.\" Never a provider fact (ARCHITECT 2026-11-03, addendum 230 item 1(b)): no "
+    "stored source of ours carries the flag before kickoff (the CFBD side table labels completed games only; the "
+    "american-football adapter stores no venue), so the flag is unknown (law 4) and the listed home's advantage is "
+    "applied.")
 NOTE = ("NCAA SHADOW — ncaa_elo_v1r (v1, constants untouched) as a model shadow beside the market-only NCAA "
         "Desk. Never a call, never a venue input, never in the ledger. The shadow changes nothing about the "
         "gate: the one run, the verdict and the confirmation cohort stand as declared, and this live record "
@@ -129,6 +155,29 @@ NOTE = ("NCAA SHADOW — ncaa_elo_v1r (v1, constants untouched) as a model shado
 
 class ShadowRefused(RuntimeError):
     """A precondition the ruling names is not met: printed with its reason, exit 2, nothing written."""
+
+
+class ShadowDormant(ShadowRefused):
+    """The v2 binding's verdict refusal alone (frozen(), a pass_only binding: no verdict recorded, or a verdict other
+    than PASS). ARCHITECT 2026-11-03, addendum 230 item 1(b), for ncaa-elo-v2: "dormant while the verdict is null or
+    FAIL". The operator's command still exits 2 on it (a ShadowRefused); the ncaa-schedule chain's step (--dormant-ok)
+    prints it as DORMANT, writes nothing and exits 0. Every other refusal (not declared, the neutral rule, the
+    constants, s, D6 coverage, a file that exists) is not dormant and exits 2 on either path, and so is v1r's verdict
+    refusal (addendum 24 item 2(d): "refuses, exit 2, naming this ruling"): v1r never wakes, so it is never dormant."""
+
+    def __init__(self, msg: str, eid: str = "", verdict=None):
+        super().__init__(msg)
+        self.eid, self.verdict = eid, verdict
+
+
+DORMANT_RULING = "ARCHITECT 2026-11-03, addendum 230 item 1(b)"
+DORMANT_TEXT = "dormant while the verdict is null or FAIL"
+
+
+def dormant_reason(eid: str, verdict) -> str:
+    """The one short reason every dormant line prints (the chain step, coverage, the counter)."""
+    what = "no verdict" if not verdict else f"the verdict {verdict}"
+    return f"the registry records {what} for {eid}: {DORMANT_TEXT} ({DORMANT_RULING})"
 
 
 V2_EID = "ncaa-elo-v2"
@@ -191,10 +240,11 @@ def frozen(registry_path: str | None = None, eid: str = EID) -> tuple[dict, bool
                             "it is (ARCHITECT 2026-10-07, addendum 6 item 1)")
     verdict = (e.get("verdict") or {}).get("verdict")
     if b.pass_only and str(verdict or "").upper() != "PASS":
-        raise ShadowRefused(f"export-ncaa-predictions --id {b.eid} REFUSED (exit 2): the registry records "
+        raise ShadowDormant(f"export-ncaa-predictions --id {b.eid} REFUSED (exit 2): the registry records "
                             f"{'no verdict' if not verdict else 'the verdict ' + str(verdict)} for {b.eid}; the v2 "
-                            f"shadow exports nothing unless the registry verdict is PASS ({V2_RULING})")
+                            f"shadow exports nothing unless the registry verdict is PASS ({V2_RULING})", b.eid, verdict)
     if verdict and str(verdict).upper() != "PASS":
+        # v1r's refusal is its own ruling's (addendum 24 item 2(d)), never 230's dormancy: it stays a ShadowRefused
         raise ShadowRefused(f"export-ncaa-predictions REFUSED (exit 2): the registry records {b.eid}'s verdict as "
                             f"{verdict}. {VERDICT_RULING}, verbatim: \"{VERDICT_REFUSAL}\"")
     rule = e.get(NEUTRAL_RULE_KEY)
@@ -379,6 +429,7 @@ def build_rows(now: datetime | None = None, hours: int = WINDOW_HOURS, registry_
                                "home_adv_applied": model.home_adv(g),
                                "home_adv_basis": HOME_ADV_BASIS,
                                "neutral": None, "neutral_flag": NEUTRAL_FLAG_UNKNOWN,
+                               "neutral_rule": NEUTRAL_PREGAME_RULE,      # addendum 230 item 1(b): its rule stated
                                **({"logistic_scale": scale} if scale is not None else {})},
             })
             rows.append(row)
@@ -460,6 +511,11 @@ def grade(days: int = 30, export_dir: str = "exports", now: datetime | None = No
     from src.walters.nfl_predict import _book_anchor, value_side_grade
     from src.walters.vs_close import block
 
+    from src.walters import close as _close
+    from src.walters import kalshi_legs
+    from src.walters import ncaa_backtest as nb
+    from src.walters import paper
+
     now = now or utc_now_naive()
     b = binding(eid)
     tag = b.model_version.replace("ncaa_elo_", "")             # v1r_H= / v2_H= on each line
@@ -468,7 +524,23 @@ def grade(days: int = 30, export_dir: str = "exports", now: datetime | None = No
     pairs = []                         # addendum 64 item 2: (model p, close p) of the outcome, games with a close
     kalshi_fed = 0                     # of those, the closes a Kalshi mid priced (the stale-book rule)
     graded = unpriced = unanchored = ties = no_result = identity_mismatch = 0
+    # ARCHITECT 2026-11-03, addendum 230 item 1(b): "its grade against the Kalshi close (the close record's KXNCAAFGAME
+    # rule)", each name on its own as the NHL shadow's record against the close (addendum 63 item 3): this binding's
+    # one name. The close is paper.guarded_two_way_close, the record's own (books not read), in the record's order of
+    # exclusion; the record's 2026 / 2023 fences (ncaa_backtest.v2_run_recorded) apply as they apply to the record.
+    kpairs = []
+    # every finished call in the window lands in exactly one: n + sum(kalshi_close_excluded) == the window's calls
+    kx = {"identity_mismatch": 0, "fenced_2023": 0, "fenced_2026": 0, "three_way": 0, "no_result": 0, "tie": 0,
+          paper.MISMATCHED: 0, paper.NO_CLOSE: 0}
     with session_scope() as s:
+        window = [m for m in (s.get(Match, mid) for mid in calls)
+                  if m is not None and m.status == MatchStatus.FINISHED and m.utc_date >= now - timedelta(days=days)]
+        ids = [m.id for m in window]
+        snaps = paper._kalshi_snaps(s, ids)
+        mism = kalshi_legs.mismatched(s, ids) if ids else {}
+        tickers, current, homes = paper.two_way_legs(s, window, snaps)
+        fence_v2 = not nb.v2_run_recorded()
+        labs = nb.label_seasons(s, window) if fence_v2 else {}
         for mid, c in sorted(calls.items(), key=lambda kv: kv[1].get("utc_date") or ""):
             m = s.get(Match, mid)
             if m is None or m.status != MatchStatus.FINISHED or m.utc_date < now - timedelta(days=days):
@@ -479,14 +551,23 @@ def grade(days: int = 30, export_dir: str = "exports", now: datetime | None = No
                     or (c.get("home_team"), c.get("away_team")) != (m.home_team.name, m.away_team.name)
                     or c.get("utc_date") != m.utc_date.isoformat()):
                 identity_mismatch += 1
+                kx["identity_mismatch"] += 1                # the shadow's own guard: the row is not this match's
                 continue
+            # the Kalshi close's exclusions in the close record's order (paper.close_record): the fences and a
+            # three-way board BEFORE the result, so a fenced game with no result or a tie counts as fenced, as there
+            seasons = {str(m.season), labs.get(m.id, (None,))[0]}
+            kpre = ("fenced_2023" if fence_v2 and nb.V2_SECOND in seasons
+                    else "fenced_2026" if fence_v2 and nb.V2_TEST in seasons
+                    else "three_way" if tuple(_close.outcomes_for(m.sport)) != _close.BINARY else None)
             res = _result(s, m)
             if res is None:
                 no_result += 1
+                kx[kpre or "no_result"] += 1
                 continue
             hs, as_, src = res
             if hs == as_:
                 ties += 1                                   # college football cannot tie: a data defect
+                kx[kpre or "tie"] += 1
                 continue
             graded += 1
             p = c["prediction"]["home_win_prob"]
@@ -519,11 +600,22 @@ def grade(days: int = 30, export_dir: str = "exports", now: datetime | None = No
                 vclvs.append(vg["value_side_clv"])
             elif anchor_h is None:
                 unanchored += 1
+            # the Kalshi close, the close record's rule (paper.close_record's two-way order after the result)
+            kcl, kwhy = None, kpre
+            if kwhy is None:
+                kcl, kwhy = paper.guarded_two_way_close(m, snaps.get(m.id, []), mism, tickers, current.get(m.id),
+                                                        homes)
+            if kwhy:
+                kx[kwhy] += 1
+            else:
+                kside = "HOME" if y else "AWAY"
+                kpairs.append((p if y else 1 - p, kcl["fair"][kside]))
             line = (f"  {m.away_team.name[:16]:16} @ {m.home_team.name[:16]:16} {tag}_H={p:.3f} "
                     f"result {hs}-{as_} ({src}) {'HIT' if hits[-1] else 'miss'} · "
                     f"close_H={'%.3f' % close_h if close_h is not None else '  — '} "
                     f"div={'%+.1fpp' % (clv * 100) if clv is not None else '—'} "
                     f"value={(vg['side'] + ' %+.1fpp' % (vg['value_side_clv'] * 100)) if vg else '— (no anchor)'}"
+                    f" · kalshi_close_H={'%.3f' % kcl['fair']['HOME'] if kcl else '— (' + kwhy + ')'}"
                     " · NOT gate evidence")
             lines.append(line)
             if progress:
@@ -533,6 +625,10 @@ def grade(days: int = 30, export_dir: str = "exports", now: datetime | None = No
             "hit_rate": round(sum(hits) / len(hits), 4) if hits else None,
             # the line names the closes a Kalshi mid priced, as every results file's block does (addendum 137 item 4)
             "vs_close": {**block(pairs), "kalshi_only_closes": kalshi_fed},
+            # addendum 230 item 1(b): the record against the Kalshi close, per name (this binding's), never pooled
+            "vs_kalshi_close": {b.model_version: block(kpairs)},
+            "kalshi_close_excluded": kx,
+            "kalshi_close_rule": KALSHI_CLOSE_RULE,
             "log_loss": round(sum(lls) / len(lls), 4) if lls else None,
             "brier": round(sum(briers) / len(briers), 4) if briers else None,
             "priced": len(clvs), "unpriced": unpriced,
@@ -540,6 +636,62 @@ def grade(days: int = 30, export_dir: str = "exports", now: datetime | None = No
             "value_side_n": len(vclvs), "unanchored": unanchored,
             "mean_value_side_clv_pp": round(sum(vclvs) / len(vclvs) * 100, 2) if vclvs else None,
             "lines": lines}
+
+
+KALSHI_CLOSE_RULE = ("the close record's two-way rule (paper.close_record; KXNCAAFGAME for NCAA): the last "
+                     "two-sided pre-kickoff Kalshi HOME quote's mid under the 2c cap (close.close_from_kalshi), books "
+                     "not read; left out in order: first the shadow's own identity guard (the row's teams and "
+                     "kickoff are not this match's), then the record's order: the 2023 / 2026 fences until "
+                     "ncaa-elo-v2's run is recorded, a three-way board, no decided result, a tie (a data defect), "
+                     "mismatched legs (kalshi_legs.mismatched, then the HOME row the close reads, "
+                     "paper.close_row_mismatched), no close")
+
+
+def confirmation_counter(eid: str = V2_EID, export_dir: str = "exports", registry_path: str | None = None) -> dict:
+    """THE CONFIRMATION COUNTER TO 100 (ARCHITECT 2026-11-03, addendum 230 item 1(b): "the confirmation counter to
+    100; dormant while the verdict is null or FAIL"). A count, never a verdict and never a figure of the games:
+    - {"state": "dormant", "why"} while the registry records no verdict, or a verdict other than PASS, for `eid`;
+    - {"state": "refused", "why"} when the read refuses after a PASS (no run record, D6 coverage: GateRefused);
+    - else {"state": "counting", ...ncaa_v1r_gate.confirmation_count (n scored of n_games, the cohort's state and
+      size, pending by status, releases due, complete), "shadow_rows": cohort fixtures holding a row of this binding
+      written before kickoff (last_calls), "shadow_rows_scored": of the scored ones}.
+    The confirmation fixture is D7's, as ncaa-confirm reads it (any status, frozen once); a fixture without a shadow
+    row still counts (the shadow row is printed beside, never a condition). Read-only."""
+    from src.walters import ncaa_v1r_gate as g
+    from src.walters import registry as reg
+
+    b = binding(eid)
+    e = reg.get(b.eid, registry_path or reg.LEDGER)          # the registry confirming() reads (registry.LEDGER)
+    verdict = ((e or {}).get("verdict") or {}).get("verdict")
+    if str(verdict or "").upper() != "PASS":
+        if b.pass_only:                                      # ncaa-elo-v2: addendum 230 item 1(b)'s dormancy
+            return {"state": "dormant", "why": dormant_reason(b.eid, verdict)}
+        # v1r: 230 item 1(b) is v2's; v1r's own refusal names its own ruling (addendum 24 item 2(d)), never dormancy
+        what = "no verdict" if not verdict else f"the verdict {verdict}"
+        return {"state": "refused", "why": f"the registry records {what} for {b.eid}: no confirmation to count"
+                + (f" (its shadow refuses on that verdict, {VERDICT_RULING})" if verdict else "")}
+    try:
+        r = g.confirmation_count(g.spec_of(b.eid))
+    except g.GateRefused as err:
+        return {"state": "refused", "why": str(err)}
+    rows = set(last_calls(export_dir, eid=b.eid))
+    return {"state": "counting", **r, "shadow_rows": len(rows & set(r["cohort_ids"])),
+            "shadow_rows_scored": len(rows & set(r["scored_ids"]))}
+
+
+def counter_line(r: dict, eid: str) -> str:
+    """The printed line: counts only (no log-loss, no baseline, no verdict)."""
+    if r["state"] != "counting":
+        return f"confirmation counter {eid}: {r['state'].upper()} — {r['why']}"
+    from collections import Counter
+    pend = dict(Counter(p["status"] for p in r["pending"]))
+    return (f"confirmation counter {eid}: {r['n']}/{r['n_games']} scored · cohort {r['cohort_state'].upper()} "
+            f"({r['cohort_size']}/{r['n_games']} fixtures; {r['eligible_stored']} eligible stored) · pending "
+            f"{len(r['pending'])}{' ' + str(pend) if pend else ''}"
+            + (f" · {r['release_due']} cancelled: release due" if r["release_due"] else "")
+            + f" · shadow row before kickoff: {r['shadow_rows']} of the cohort, {r['shadow_rows_scored']} of the scored"
+            + (" · COMPLETE (the read and its record are ncaa-confirm's)" if r["complete"] else "")
+            + " · a count, not a verdict")
 
 
 # ----------------------------------------------------------------------------------------------------------------

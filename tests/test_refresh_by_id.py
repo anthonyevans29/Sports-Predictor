@@ -121,7 +121,18 @@ def _run_chain(monkeypatch, adapter, steps):
     return outs
 
 
-def test_a_scheduled_game_the_listing_omits_gets_the_kickoff_the_provider_answers_by_id(monkeypatch, _isolated):
+def _v2_unjudged(monkeypatch, tmp_path):
+    """The chain's last step reads a registry whose ncaa-elo-v2 records no verdict (the committed one's state on
+    2026-11-03), pinned here so the test never follows the committed registry's verdict."""
+    from src.walters import ncaa_shadow as sh
+    p = tmp_path / "experiments.json"
+    p.write_text(json.dumps([{"id": sh.V2_EID, "status": "declared", "verdict": None}]))
+    real = sh.frozen
+    monkeypatch.setattr(sh, "frozen", lambda registry_path=None, eid=sh.EID: real(str(p), eid=eid))
+
+
+def test_a_scheduled_game_the_listing_omits_gets_the_kickoff_the_provider_answers_by_id(monkeypatch, _isolated,
+                                                                                         tmp_path):
     """THE TEST THAT FAILS ON TODAY'S CHAIN (addendum 21 item 1): a stored SCHEDULED NCAA game in the next
     seven days that the listing omits, whose answer by id carries another kickoff. After the ncaa-schedule
     chain (its steps, resolved as sp_run resolves them, against a fake adapter and the throwaway DB) the
@@ -130,26 +141,35 @@ def test_a_scheduled_game_the_listing_omits_gets_the_kickoff_the_provider_answer
     _isolated.append(mid)
     answer = _nm("NCAA", "23653", "rbi-alabama", "rbi-georgia", ANNOUNCED)
     steps = sp_run.resolve("ncaa-schedule", {}, TODAY)
-    listing_only = [st for st in steps if st[0] != "refresh-by-id"]
+    listing_only = [st for st in steps if st[0] == "sync-matches"]
+    _v2_unjudged(monkeypatch, tmp_path)
 
     fake = FakeAdapter(listing=[], by_id={"23653": answer})   # the listing no longer carries the game
     _run_chain(monkeypatch, fake, listing_only)
     assert _row(mid)["utc"] == PLACEHOLDER                    # today's chain: still the placeholder
 
     outs = _run_chain(monkeypatch, fake, steps)
-    assert _row(mid)["utc"] == ANNOUNCED, outs[-1]            # after the chain: the provider's kickoff
+    assert _row(mid)["utc"] == ANNOUNCED, outs[-2]            # after the chain: the provider's kickoff
     assert _row(mid)["status"] == MatchStatus.SCHEDULED
     assert f"{PLACEHOLDER.isoformat(sep=' ', timespec='minutes')} -> " \
-           f"{ANNOUNCED.isoformat(sep=' ', timespec='minutes')}" in outs[-1]
+           f"{ANNOUNCED.isoformat(sep=' ', timespec='minutes')}" in outs[-2]     # refresh-by-id's receipt
     assert [c for c in fake.calls if c == ("id", "23653")] == [("id", "23653")]   # one GET per game
-    assert len(listing_only) == 8 and len(steps) == 9       # the forward-week listing reads stay
+    assert len(listing_only) == 8 and len(steps) == 10      # the forward-week listing reads stay
+    # addendum 230 item 1(b): the chain's last step, the v2 college shadow, is DORMANT on the registry's null verdict:
+    # it printed the reason, wrote nothing and exited 0 (_run_chain asserts every step's exit 0)
+    assert outs[-1].startswith("DORMANT: the registry records no verdict for ncaa-elo-v2") and "exit 0" in outs[-1]
 
 
-def test_the_chain_keeps_its_listing_reads_and_refreshes_by_id_last():
+def test_the_chain_keeps_its_listing_reads_and_refreshes_by_id_after_them():
+    """The listing reads, then refresh-by-id, then (ARCHITECT 2026-11-03, addendum 230 item 1(b)) the v2 college
+    shadow export as the LAST step: not a sync step (a real failure stops the chain and pages), UNMETERED (it reads
+    the DB and the registry only), dormant (exit 0, nothing written) while the verdict is null or FAIL."""
     steps = chains.CHAINS["ncaa-schedule"]["steps"]
-    assert [st[0] for st in steps] == ["sync-matches"] * 8 + ["refresh-by-id"]
-    assert steps[-1] == ["refresh-by-id", "--competition", "NCAA", "--days", "7"]
+    assert [st[0] for st in steps] == ["sync-matches"] * 8 + ["refresh-by-id", "export-ncaa-predictions"]
+    assert steps[-2] == ["refresh-by-id", "--competition", "NCAA", "--days", "7"]
+    assert steps[-1] == chains.NCAA_SHADOW_STEP == ["export-ncaa-predictions", "--id", "ncaa-elo-v2", "--dormant-ok"]
     assert "refresh-by-id" not in chains.UNMETERED          # api-sports: metered
+    assert "export-ncaa-predictions" in chains.UNMETERED and not steps[-1][0].startswith(sp_run.SYNC_PREFIX)
 
 
 def test_a_rate_limited_answer_is_deferred_and_retried_never_dropped(monkeypatch, _isolated):

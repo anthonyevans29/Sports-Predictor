@@ -454,7 +454,10 @@
           "what": "the harness PR: the candidate entry nfl_elo_v2 with its constants and bar, a one-run gate with the reservation pattern of ncaa-gate (the architect's word, the stream fingerprint, nothing recorded on a refusal; the corrected stream as the fingerprint)",
           "owner": "code",
           "due": "2026-11-03",
-          "done": null
+          "done": {
+            "date": "2026-11-02",
+            "receipt": "#784 merged at 8bef04c2 (addendum 219)"
+          }
         },
         {
           "what": "my blocks: the laptop's NFL 2024 re-sync on the live DB after #775 is on main (backup first; the 16 games become FINISHED there), then nfl-backtest on the live laptop DB (the recorded FAIL of v1 on the corrected stream, for the registry) and the preflight of the v2 harness",
@@ -523,7 +526,7 @@
           "due": "2026-11-04",
           "done": {
             "date": "2026-11-03",
-            "receipt": "v1.6.3, deploy receipt 11-03 13:00Z (ARCHITECT 2026-11-03 08:20 ET, addendum 228 item 3)"
+            "receipt": "v1.6.3 (0c88f5cc), deploy receipt 11-03 13:00Z (addendum 228)"
           }
         },
         {

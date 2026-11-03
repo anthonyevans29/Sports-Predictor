@@ -161,3 +161,24 @@ def test_228_the_release_record_row_and_section():
     assert ("twelve PRs: #774, #775, #778, #779, #784, #785, #793, #796, #797, #799, #800, #801 (62 commits with the "
             "fold commit; 61 to 6f6b9dac)") in sec
     assert "Addendum 228 item 1's list" in sec and "omits #774" in sec
+
+
+def test_the_two_done_marks_of_227_item_4_as_232_item_3_restates_them():
+    """ARCHITECT 2026-11-03 11:10 ET, addendum 232 item 3: (i) lane nfl-v2's harness step done 2026-11-02, receipt
+    "#784 merged at 8bef04c2 (addendum 219)"; (ii) lane nfl-confirm's tag-deployed step done 2026-11-03, receipt
+    "v1.6.3 (0c88f5cc), deploy receipt 11-03 13:00Z (addendum 228)". Done-marks, never moved lines (222 item 3(a))."""
+    import json
+    from pathlib import Path
+    lanes = {ln["lane"]: ln for ln in json.loads(
+        (Path(__file__).resolve().parent.parent / "docs" / "roadmap.json").read_text())["lanes"]}
+    v2 = lanes["nfl-v2"]["steps"][0]
+    assert v2["what"].startswith("the harness PR: the candidate entry nfl_elo_v2")
+    assert (v2["due"], v2["done"]) == ("2026-11-03", {"date": "2026-11-02",
+                                                      "receipt": "#784 merged at 8bef04c2 (addendum 219)"})
+    assert all(s["done"] is None for s in lanes["nfl-v2"]["steps"][1:])
+    nc = lanes["nfl-confirm"]["steps"][1]
+    assert nc["what"] == "the tag carrying #775 and the policy, deployed (the architect's blocks)"
+    assert (nc["due"], nc["done"]) == ("2026-11-04", {"date": "2026-11-03", "receipt":
+                                                      "v1.6.3 (0c88f5cc), deploy receipt 11-03 13:00Z (addendum 228)"})
+    assert not [m for m in lanes["nfl-v2"].get("moved", []) + lanes["nfl-confirm"].get("moved", [])
+                if m.get("moved_on") == "2026-11-03"]

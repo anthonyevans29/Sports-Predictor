@@ -364,6 +364,79 @@ def test_the_codex_p2s_quote_addendum_237_item_2_verbatim_at_the_change():
     assert ruling in " ".join(km._pair.__doc__.split())
 
 
+# --- THE CASE P2 (ARCHITECT 2026-11-03 16:00 ET, addendum 238 item 2(b)), verbatim: "the consistency check compares
+# names ignoring case (the matcher keys names by lower() already: kalshi_match line 322) and carries the market's own
+# spelling forward; a refusal on letter case alone was never the intent of "the matcher's own comparison"." ---
+
+@pytest.mark.parametrize("title", ["georgia vs Alabama Winner?", "GEORGIA vs ALABAMA Winner?",
+                                   "georgia vs ALABAMA Winner?"])
+def test_case_an_a_vs_b_title_differing_only_in_case_is_placed_on_the_market_s_side_in_its_spelling(title):
+    """(b): the one market "Georgia" under a title spelling it in another case is placed on Georgia's side (AWAY on
+    Georgia @ Alabama), never refused TITLE_CONFLICT on letter case alone; the pair carries the market's spelling
+    ("Georgia"), so place()'s exact side lookup holds; the title's other name is the title's (no market spells it)."""
+    one = _titled(event("26OCT10UGAALA", [("UGA", "Georgia")]), title)
+    names, why = km._pair(one, one[0], lambda m: False)
+    assert why is None and names[0] == "Georgia" and names[1].casefold() == "alabama", (names, why)
+    res = run(one, [UGA_ALA, DUKE_GT_42101], now=NOW_UGA)
+    assert placed(res) == {(32738, "AWAY"): "UGA"} and not res.refused, (title, res.refused)
+
+
+@pytest.mark.parametrize("sfx,side", [("LAC", "AWAY"), ("HOU", "HOME")])
+def test_case_a_question_form_title_differing_only_in_case_is_placed_on_its_own_side(sfx, side):
+    """(b) on the question form: the kept leg's title with its two names (and its yes team) in another case than the
+    market's yes_sub_title is placed on the market's own side, through place() and kalshi-history's placement; the
+    pair carries the market's spelling of its own name."""
+    from src.ingestion import kalshi_history as kh
+    leg = _kept_leg(f"KXNFLGAME-26AUG13LACHOU-{sfx}")
+    own = leg["yes_sub_title"].strip()
+    mk = dict(leg, title=f"Will {own.lower()} win the los angeles c vs HOUSTON Pro Football game?")
+    names, why = km._pair([mk], mk, lambda m: False)
+    assert why is None and own in names and {n.casefold() for n in names} == {"los angeles c", "houston"}, names
+    placed_, why_, _lines = kh.place_events([mk], [LAC_HOU, LAR_DAL], lambda m: False)
+    assert why_ == {} and placed_ == {mk["ticker"]: (LAC_HOU.id, LAC_HOU.utc_date, side)}, (placed_, why_)
+    res = run([mk], [LAC_HOU, LAR_DAL], now=NOW_LAC, implied_prob=lambda m: 0.5)
+    assert placed(res) == {(LAC_HOU.id, side): sfx} and not res.refused, res.refused
+
+
+def test_case_a_name_differing_by_more_than_case_is_still_title_conflict():
+    """(b): only letter case is forgiven. "Georgia Tech" under "georgia vs alabama Winner?" is TITLE_CONFLICT as
+    before, its line naming the title's names as read and the market's."""
+    one = _titled(event("26OCT10UGAALA", [("GT", "Georgia Tech")]), "georgia vs alabama Winner?")
+    assert km._pair(one, one[0], lambda m: False) == (["Georgia Tech"], km.TITLE_CONFLICT)
+    res = run(one, [UGA_ALA, DUKE_GT_42101], now=NOW_UGA)
+    assert not res.placed and res.refused == {km.TITLE_CONFLICT: 1}, res.refused
+    assert ("  ✗ KXNCAAFGAME-26OCT10UGAALA: the title reads georgia vs alabama; the markets name Georgia Tech: "
+            f"refused ({km.TITLE_CONFLICT})") in km.console_lines(res)
+
+
+@pytest.mark.parametrize("sfx,other", [("LAC", "HOUSTON"), ("HOU", "los angeles c")])
+def test_case_the_yes_team_check_stays_and_compares_ignoring_case(sfx, other):
+    """Addendum 238 item 2(c), verbatim: "The extra check (a question-form title whose yes team differs from the
+    market's own yes team) stays, sentinel TITLE_CONFLICT." It compares case-folded both ways: a title naming the
+    other team as YES in another case is TITLE_CONFLICT, its line the yes-team line (the names agreeing ignoring
+    case); the market's own team in another case is placed."""
+    leg = _kept_leg(f"KXNFLGAME-26AUG13LACHOU-{sfx}")
+    own = leg["yes_sub_title"].strip()
+    bad = dict(leg, title=f"Will {other} win the LOS ANGELES C vs houston Pro Football game?")
+    assert km._pair([bad], bad, lambda m: False)[1] == km.TITLE_CONFLICT
+    res = run([bad], [LAC_HOU, LAR_DAL], now=NOW_LAC, implied_prob=lambda m: 0.5)
+    assert not res.placed and res.refused == {km.TITLE_CONFLICT: 1}, res.refused
+    assert (f"  ✗ KXNFLGAME-26AUG13LACHOU: the title names {other} as its yes team; the market's yes team is "
+            f"{own}: refused ({km.TITLE_CONFLICT})") in km.console_lines(res)
+    good = dict(leg, title=f"Will {own.swapcase()} win the LOS ANGELES C vs houston Pro Football game?")
+    assert km._pair([good], good, lambda m: False)[1] is None
+
+
+def test_the_case_p2_quotes_addendum_238_item_2_b_and_c_verbatim_at_the_change():
+    doc = " ".join(km._pair.__doc__.split())
+    assert ("(b) THE CASE P2: FIX IT — the consistency check compares names ignoring case (the matcher keys names by "
+            "lower() already: kalshi_match line 322) and carries the market's own spelling forward; a refusal on "
+            "letter case alone was never the intent of \"the matcher's own comparison\".") in doc
+    assert ("(c) The extra check (a question-form title whose yes team differs from the market's own yes team) "
+            "stays, sentinel TITLE_CONFLICT.") in doc
+    assert "frozenset(n.lower() for n in names)" in inspect.getsource(km.behind_out_of_step)   # the line 322 cited
+
+
 def test_title_conflict_reads_through_kalshi_history_s_placement_of_a_settled_event():
     """kalshi-history's API reads are where the narrowing bites (addendum 234 item 2): kalshi_history.place_events
     places each settled event through kalshi_match.place, so a settled one-market event whose yes team is not in its

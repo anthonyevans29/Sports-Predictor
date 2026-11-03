@@ -166,7 +166,8 @@ def test_an_event_with_no_settled_row_is_not_formable_and_one_name_is_refused(co
     s = _summary(out)
     assert s == {"another_game": 3, "events": 9, "events_pair_formed": 3, "events_with_legs": 5, "not_formable": 1,
                  "not_stored": 0, "own_game": 3, "own_game_wrong_side": 0, "refused": 1, "split_events": 2,
-                 "stored_legs": 8, "title_conflict": 0, "title_fallback_candidates": 0}, s
+                 "stored_legs": 8, "title_conflict": 0, "title_fallback_candidates": 0, "title_fallback_follow_up": 0,
+                 "title_fallback_no_name": 0, "title_fallback_not_told": 0, "title_fallback_store_differs": 0}, s
     for ev in ("FAMUALST", "UNDUNI", "NDSUUNLV", "CCARMRSH"):
         assert f"EVENT {EV}{ev}: no stored leg in this copy" in out
 
@@ -280,6 +281,17 @@ def test_the_after_names_title_conflict_and_counts_it_apart(copy, capsys, monkey
                              "the narrowing re-verdicts") for ln in out), out
 
 
+def _head(rows, events, follow=0, no_name=0, not_told=0, differs=0):
+    """The candidate section's header line (addendum 236 item 1; its counts of the name fit, addendum 238 item 2(a))."""
+    return (f"TITLE-FALLBACK CANDIDATES (addendum 236 item 1): {rows} settled row(s) stored on a match, in {events} "
+            "event(s) the store names by other than two teams (the only rows the title fallback could ever have "
+            f"placed); {follow} with a stored leg verdicted \"other game\" or \"own game, WRONG SIDE\" by the name fit "
+            f"(the follow-up before the close); {no_name} with a stored leg the store holds no team name for (the name "
+            f"fit not read: the limit, on the row); {not_told} with a stored leg whose name fit is not told (its name "
+            f"fits both teams alike, or its game is not in this copy); {differs} with a stored leg on another game or "
+            "side than kalshi-history's stored decision (shown, not a verdict)")
+
+
 def _cand(out):
     """The TITLE-FALLBACK CANDIDATES section (addendum 236 item 1): its header line, then its lines."""
     i = next(k for k, ln in enumerate(out) if ln.startswith("TITLE-FALLBACK CANDIDATES (addendum 236 item 1): "))
@@ -294,21 +306,23 @@ def test_a_two_name_event_is_never_a_title_fallback_candidate(copy, capsys):
     rc, out = _run(capsys, "--db", copy)
     assert rc == 0, out
     cd = _cand(out)
-    assert cd[0] == ("TITLE-FALLBACK CANDIDATES (addendum 236 item 1): 0 settled row(s) stored on a match, in 0 "
-                     "event(s) the store names by other than two teams (the only rows the title fallback could ever "
-                     "have placed); 0 with a stored leg verdicted \"other game\" or \"own game, WRONG SIDE\" (the "
-                     "follow-up before the close)"), cd
+    assert cd[0] == _head(0, 0), cd
     assert cd[1] == ("  scope: every settled event of KXMLBGAME, KXNFLGAME, KXNHLGAME, KXNCAAFGAME in this copy (4 "
                      "events), never only --events; the store's names: the distinct non-tie yes_sub_title across the "
                      "event's settled markets; 1 row(s) of such events stored on no match, not flagged (the fallback "
                      "placed none)"), cd
-    assert cd[2].startswith("  each stored leg (odds_snapshots, by its ticker) is verdicted against kalshi-history's "
-                            "stored match and side: ") and "the AFTER places no flagged row but one placed by ruling" \
-        in cd[2] and "needs-ruling" in cd[2], cd
-    assert cd[3] == ("  THE READING'S LIMIT: \"own game\" means only that the leg agrees with kalshi-history's stored "
-                     "decision, not that the placement is right: that decision may itself be the title fallback's, so "
-                     "a leg the live sync and kalshi-history both put on the same wrong game reads \"own game\" "
-                     "here"), cd
+    assert cd[2] == ("  each stored leg (odds_snapshots, by its ticker) is verdicted by THE NAME FIT (addendum 238 "
+                     "item 2(a)): its team name in the store (odds_snapshots holds none: its ticker's settled row, "
+                     "yes_sub_title) against the two teams of the game it is stored on, by the matcher's own scoring "
+                     "(kalshi_match.side_score per side at fit's threshold, fit's distinctive tiebreak): fitting "
+                     "neither, other game; the other side, own game, WRONG SIDE; its stored side, own game; "
+                     "kalshi-history's stored match and side shown beside it, not a verdict"), cd
+    assert cd[3] == ("  THE READING'S LIMIT (ruled, addendum 238 item 2(a): agreement with kalshi-history's store is "
+                     "not a verdict; the name fit is): \"own game\" means the leg's team name fits the side it is "
+                     "stored on, by one name's word overlap (a name sharing a word with a team fits it: Georgia fits "
+                     "Georgia Tech), not that its placement is right; a leg the store holds no team name for is not "
+                     "read (the limit, on its row, counted above), never \"own game\""), cd
+    assert not any("needs-ruling" in ln for ln in cd), cd           # ruled: addendum 238 item 2(a)
     assert len(cd) == 4 and not any("UGAALA" in ln or "SCSTCHSO" in ln or "HOUKSU" in ln for ln in cd), cd
     assert _summary(out)["title_fallback_candidates"] == 0
     assert any(ln.startswith("  THE LIMIT: the store holds no title, so this receipt CANNOT tell which stored legs "
@@ -319,29 +333,35 @@ def test_a_two_name_event_is_never_a_title_fallback_candidate(copy, capsys):
 @pytest.mark.parametrize("selection,verdict", [("HOME", "own game"), ("AWAY", "own game, WRONG SIDE")])
 def test_a_one_name_event_stored_on_a_match_is_flagged(copy, capsys, selection, verdict):
     """Addendum 236 item 1: COOKAAMU's store names one team; kalshi-history's row stored on match 32823 HOME is a
-    candidate (only the title fallback could have placed it), its stored leg verdicted against that match and side,
-    whatever --events reads."""
+    candidate (only the title fallback could have placed it), whatever --events reads. Addendum 238 item 2(a): its
+    stored leg is verdicted by the name fit: "Alabama A&M" fits HOME Alabama A&M, not Bethune-Cookman, so a HOME leg
+    is "own game" (the names fit) and an AWAY leg "own game, WRONG SIDE"; the store's decision is shown beside it."""
     c2 = _edit(copy, ("UPDATE kalshi_settled_markets SET match_id = 32823, side = 'HOME', notes = NULL "
                       "WHERE ticker = ?", (f"{EV}COOKAAMU-AAMU",)),
                ("UPDATE odds_snapshots SET selection = ? WHERE market_ticker = ?", (selection, f"{EV}COOKAAMU-AAMU")))
     rc, out = _run(capsys, "--db", c2, "--match-ids", "", "--events", "")
     assert rc == 0, out
     cd = _cand(out)
-    assert cd[0].startswith("TITLE-FALLBACK CANDIDATES (addendum 236 item 1): 1 settled row(s) stored on a match, in "
-                            "1 event(s) the store names by other than two teams"), cd
-    assert f"; {1 if verdict != 'own game' else 0} with a stored leg verdicted" in cd[0], cd
+    wrong = int(verdict != "own game")
+    assert cd[0] == _head(1, 1, follow=wrong, differs=wrong), cd
     assert cd[4:] == [
         f"  {EV}COOKAAMU-AAMU · event {EV}COOKAAMU · the store's names: 1 (Alabama A&M) · kalshi-history stored: "
         "match 32823 HOME (Bethune-Cookman @ Alabama A&M · our kickoff 2026-10-10 17:00Z)",
         f"    stored leg {selection} on match 32823 (Bethune-Cookman @ Alabama A&M · our kickoff 2026-10-10 "
-        f"17:00Z) · 1 capture(s): {verdict}"], cd
-    assert _summary(out)["title_fallback_candidates"] == 1
+        f"17:00Z) · 1 capture(s): {verdict} · the name Alabama A&M fits HOME (side_score: HOME Alabama A&M 1, AWAY "
+        f"Bethune-Cookman 0) · kalshi-history's stored match and side: {'differs' if wrong else 'agrees'}"], cd
+    s = _summary(out)
+    assert (s["title_fallback_candidates"], s["title_fallback_follow_up"], s["title_fallback_no_name"],
+            s["title_fallback_not_told"], s["title_fallback_store_differs"]) == (1, wrong, 0, 0, wrong), s
 
 
 def test_a_three_name_event_stored_on_a_match_is_flagged(copy, capsys):
     """Addendum 236 item 1: an event the store names by three teams, two of its rows stored on a match, is flagged row
-    by row; a stored leg on another game is "other game", a row with no leg says so, the row on no match is counted
-    beside the flag; a one-name event of a series outside the four two-way ones is not read."""
+    by row; a row with no leg says so, the row on no match is counted beside the flag; a one-name event of a series
+    outside the four two-way ones is not read. Addendum 238 item 2(a): the KU row's leg sits on Houston @ Kansas State,
+    another game than kalshi-history's 32748, but its name "Kansas" fits HOME Kansas State by the matcher's word
+    overlap: "own game" by the name fit (the reading's limit), the store's "differs" shown and counted, never the
+    verdict."""
     ins = ("INSERT INTO kalshi_settled_markets (ticker, event_ticker, series, yes_sub_title, match_id, side, source, "
            "fetched_at) VALUES (?, ?, ?, ?, ?, ?, 'historical', '2026-10-15 12:00:00')")
     k = f"{EV}KUUTAH"
@@ -353,16 +373,14 @@ def test_a_three_name_event_stored_on_a_match_is_flagged(copy, capsys):
     rc, out = _run(capsys, "--db", c2, "--match-ids", "", "--events", f"{EV}UGAALA")
     assert rc == 0, out
     cd = _cand(out)
-    assert cd[0] == ("TITLE-FALLBACK CANDIDATES (addendum 236 item 1): 2 settled row(s) stored on a match, in 1 "
-                     "event(s) the store names by other than two teams (the only rows the title fallback could ever "
-                     "have placed); 1 with a stored leg verdicted \"other game\" or \"own game, WRONG SIDE\" (the "
-                     "follow-up before the close)"), cd
+    assert cd[0] == _head(2, 1, differs=1), cd
     assert "(5 events)" in cd[1] and "; 2 row(s) of such events stored on no match" in cd[1], cd
     assert cd[4:] == [
         f"  {k}-KU · event {k} · the store's names: 3 (Kansas / Utah / Utah Tech) · kalshi-history stored: match "
         "32748 AWAY (Kansas @ Utah · our kickoff 2026-10-11 02:15Z)",
         "    stored leg HOME on match 32747 (Houston @ Kansas State · our kickoff 2026-10-10 19:30Z) · 2 capture(s): "
-        "other game",
+        "own game · the name Kansas fits HOME (side_score: HOME Kansas State 1, AWAY Houston 0) · kalshi-history's "
+        "stored match and side: differs",
         f"  {k}-UTAH · event {k} · the store's names: 3 (Kansas / Utah / Utah Tech) · kalshi-history stored: match "
         "32748 HOME (Kansas @ Utah · our kickoff 2026-10-11 02:15Z)",
         "    no stored leg in odds_snapshots"], cd
@@ -388,7 +406,100 @@ def test_a_copy_without_the_settled_table_flags_nothing_and_says_it_could_not_re
     assert rc == 0, out
     assert _cand(out) == ["TITLE-FALLBACK CANDIDATES (addendum 236 item 1): NOT READ: kalshi_settled_markets is not in "
                           "this copy, so no settled row could be flagged; the count is unknown (null), not zero"], out
-    assert _summary(out)["title_fallback_candidates"] is None
+    s = _summary(out)
+    assert all(s[f"title_fallback_{k}"] is None for k in ("candidates", "follow_up", "no_name", "not_told",
+                                                          "store_differs")), s
+
+
+def _one_name(copy, *sql):
+    """COOKAAMU's one row stored on 32823 HOME (kalshi-history's decision), then the edits given."""
+    return _edit(copy, ("UPDATE kalshi_settled_markets SET match_id = 32823, side = 'HOME', notes = NULL "
+                        "WHERE ticker = ?", (f"{EV}COOKAAMU-AAMU",)), *sql)
+
+
+def test_the_name_fit_a_leg_whose_name_fits_neither_team_is_other_game(copy, capsys):
+    """Addendum 238 item 2(a): "a leg fitting neither is verdicted OTHER GAME". COOKAAMU's leg moved to 32749 Duke @
+    Georgia Tech: "Alabama A&M" fits neither team, so "other game", counted in the follow-up."""
+    c2 = _one_name(copy, ("UPDATE odds_snapshots SET match_id = 32749 WHERE market_ticker = ?",
+                          (f"{EV}COOKAAMU-AAMU",)))
+    rc, out = _run(capsys, "--db", c2, "--match-ids", "", "--events", "")
+    assert rc == 0, out
+    cd = _cand(out)
+    assert cd[0] == _head(1, 1, follow=1, differs=1), cd
+    assert cd[5] == ("    stored leg HOME on match 32749 (Duke @ Georgia Tech · our kickoff 2026-10-10 16:00Z) · 1 "
+                     "capture(s): other game · the name Alabama A&M fits neither team (side_score: HOME Georgia "
+                     "Tech 0, AWAY Duke 0) · kalshi-history's stored match and side: differs"), cd
+    assert _summary(out)["title_fallback_follow_up"] == 1
+
+
+def test_the_name_fit_a_leg_fitting_the_other_side_is_wrong_side_though_the_store_agrees(copy, capsys):
+    """Addendum 238 item 2(a): "agreement with kalshi-history's store is not a verdict". The leg and kalshi-history
+    both put COOKAAMU-AAMU on 32823 AWAY; its name fits HOME Alabama A&M: "own game, WRONG SIDE", the store "agrees"."""
+    c2 = _one_name(copy, ("UPDATE kalshi_settled_markets SET side = 'AWAY' WHERE ticker = ?", (f"{EV}COOKAAMU-AAMU",)),
+                   ("UPDATE odds_snapshots SET selection = 'AWAY' WHERE market_ticker = ?", (f"{EV}COOKAAMU-AAMU",)))
+    rc, out = _run(capsys, "--db", c2, "--match-ids", "", "--events", "")
+    assert rc == 0, out
+    cd = _cand(out)
+    assert cd[0] == _head(1, 1, follow=1), cd
+    assert cd[5].endswith(": own game, WRONG SIDE · the name Alabama A&M fits HOME (side_score: HOME Alabama A&M 1, "
+                          "AWAY Bethune-Cookman 0) · kalshi-history's stored match and side: agrees"), cd
+
+
+def test_the_name_fit_a_row_the_store_holds_no_team_name_for_prints_the_limit_and_counts_it(copy, capsys):
+    """Addendum 238 item 2(a): "where the store holds no leg team name the limit is printed": the row's yes_sub_title
+    empty, its line says so, its leg reads the limit, never "own game", and the header counts it apart from the
+    follow-up."""
+    for blank in (None, "  "):
+        c2 = _one_name(copy, ("UPDATE kalshi_settled_markets SET yes_sub_title = ? WHERE ticker = ?",
+                              (blank, f"{EV}COOKAAMU-AAMU")))
+        rc, out = _run(capsys, "--db", c2, "--match-ids", "", "--events", "")
+        assert rc == 0, out
+        cd = _cand(out)
+        assert cd[0] == _head(1, 1, no_name=1), cd
+        assert cd[4] == (f"  {EV}COOKAAMU-AAMU · event {EV}COOKAAMU · the store's names: 0 (none) · kalshi-history "
+                         "stored: match 32823 HOME (Bethune-Cookman @ Alabama A&M · our kickoff 2026-10-10 17:00Z) · "
+                         "THE LIMIT: the store holds no team name for this row's leg: the name fit is not read"), cd
+        assert cd[5] == ("    stored leg HOME on match 32823 (Bethune-Cookman @ Alabama A&M · our kickoff 2026-10-10 "
+                         "17:00Z) · 1 capture(s): the name fit is not read: the store holds no team name for this leg "
+                         "(its settled row's yes_sub_title is empty) · kalshi-history's stored match and side: "
+                         "agrees"), cd
+        s = _summary(out)
+        assert (s["title_fallback_no_name"], s["title_fallback_follow_up"]) == (1, 0), s
+        c2.unlink()
+
+
+def test_the_name_fit_a_name_fitting_both_teams_alike_is_not_told_never_own_game(copy, capsys):
+    """Conservative unknowns (law 4): a leg name fitting both teams of its game alike, by plain and distinctive score,
+    is not told and counted, never "own game". "Alabama" on Florida A&M @ Alabama State fits only HOME (side_score);
+    "Alabama" on a game of Alabama State and Alabama A&M fits both alike."""
+    c2 = _one_name(copy, ("UPDATE kalshi_settled_markets SET yes_sub_title = 'Alabama' WHERE ticker = ?",
+                          (f"{EV}COOKAAMU-AAMU",)),
+                   ("UPDATE teams SET name = 'Alabama State' WHERE id = (SELECT away_team_id FROM matches "
+                    "WHERE id = 32823)", ()))
+    rc, out = _run(capsys, "--db", c2, "--match-ids", "", "--events", "")
+    assert rc == 0, out
+    cd = _cand(out)
+    assert cd[0] == _head(1, 1, not_told=1), cd
+    assert cd[5].endswith("· 1 capture(s): the name fit is not told: the name fits both teams alike · the name "
+                          "Alabama fits both teams alike (side_score: HOME Alabama A&M 1, AWAY Alabama State 1) · "
+                          "kalshi-history's stored match and side: agrees"), cd
+
+
+def test_the_name_fit_calls_the_matcher_s_own_scoring():
+    """Addendum 238 item 2(a): "by the matcher's own `fit` (the same scoring place() uses)": name_fit calls
+    kalshi_match's side_score and _distinct_score (the pieces fit is made of), never a scoring of its own; and on the
+    shapes of fit's own two names it agrees with fit."""
+    import inspect
+
+    from src.ingestion import kalshi_match as km
+    src = inspect.getsource(script.name_fit)
+    assert "km.side_score(" in src and "km._distinct_score(" in src and "norm_tokens(home) & " in src
+    assert script.name_fit("Los Angeles C", "Los Angeles Chargers", "Los Angeles Rams")[0] == "HOME"
+    assert km.fit(("Los Angeles C", "Los Angeles R"), "Los Angeles Chargers", "Los Angeles Rams")[1] == "Los Angeles C"
+    assert script.name_fit("Los Angeles R", "Los Angeles Chargers", "Los Angeles Rams")[0] == "AWAY"
+    assert script.name_fit("Houston", "Los Angeles Chargers", "Los Angeles Rams")[0] is None
+    assert script.name_fit("Penn", "Penn State", "Pennsylvania")[0] == "AWAY"       # a pin scores its own team only
+    assert script.RULING_238_2A in " ".join(script.__doc__.split())          # addendum 238 item 2(a), verbatim
 
 
 def test_read_only_the_copy_is_unchanged_and_no_sidecar_is_made(copy, capsys):

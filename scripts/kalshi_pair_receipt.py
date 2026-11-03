@@ -60,16 +60,31 @@ WHAT IT READS (each reading the conservative one, law 4):
   kalshi-history stored on a match (match_id not null): the only rows the title fallback could ever have placed.
   Their count is the header line's, each named (event, ticker, the stored match and side, the store's names and their
   count; a row placed by ruling marked so); a row of such an event stored on no match is counted beside them, never
-  flagged (the fallback placed none). Each flagged row's stored legs (odds_snapshots, source 'kalshi', by its ticker)
-  are verdicted against kalshi-history's stored match and side: "own game" (that game and side), "own game, WRONG
-  SIDE" (that game, the other side), "other game" (another game), or "no stored leg in odds_snapshots"; the AFTER
-  places no such row but one placed by ruling (no title is stored: NO_PAIR; a ruled row it reads by its stored side),
-  so the stored decision is what the leg is read against: a reading put to the architect (needs-ruling), its limit on
-  the console: "own game" means only that the leg agrees with kalshi-history's stored decision, not that the placement
-  is right (that decision may itself be the title fallback's). The header line counts the flagged rows with a leg
-  verdicted "other game" or "own game, WRONG SIDE" (the follow-up before the close); the JSON's
-  `title_fallback_candidates` is the flagged count, null (and the line says NOT READ) on a copy without
-  kalshi_settled_markets: unknown, never zero.
+  flagged (the fallback placed none). Each flagged row's stored legs (odds_snapshots, source 'kalshi', by its
+  ticker) are verdicted by THE NAME FIT, as ruled (ARCHITECT 2026-11-03 16:00 ET, addendum 238 item 2(a), verbatim):
+  "(a) "OWN GAME" on the flagged rows: agreement with kalshi-history's store is not a verdict; add the name fit —
+  each flagged row's stored leg team must fit one of the game's two teams by the matcher's own `fit` (the same
+  scoring place() uses); a leg fitting neither is verdicted OTHER GAME, a leg fitting the other side WRONG SIDE, and
+  "own game" then means the names fit; where the store holds no leg team name the limit is printed." The leg's team
+  name in the store (law 1, read from src/db/schema.py: odds_snapshots holds match_id, market, selection 'HOME' /
+  'AWAY', the prices, captured_at, source, and the unmapped market_ticker and source_updated_at; no team name): the
+  yes_sub_title of its ticker's settled row, the flagged row itself. The game's two teams: the home and away team
+  names of the match the leg is stored on. The fit is the matcher's own scoring (name_fit: kalshi_match.fit takes an
+  event's two names and a flagged row's event has no two, so its one name is scored as fit scores each of its two,
+  kalshi_match.side_score per side at fit's threshold of 1, the higher plain score, then fit's distinctive tiebreak,
+  kalshi_match._distinct_score). A leg whose name fits neither team is "other game"; the other side than its stored
+  selection, "own game, WRONG SIDE"; its stored side, "own game" (the names fit). The limits, printed on the leg,
+  counted on the header, never "own game": no team name in the store (the row's yes_sub_title empty; the row's line
+  says so too), the leg's game or a team of it not in the copy, or a name fitting both teams alike (not told, never
+  guessed). "No stored leg in odds_snapshots" stays. Beside each verdict, kalshi-history's stored match and side:
+  "agrees" or "differs" (shown, counted, not a verdict). THE READING'S LIMIT, now ruled: agreement with the store is
+  not the verdict, the name fit is; "own game" means the leg's one name fits its stored side by word overlap (a name
+  sharing a word with a team fits it: Georgia fits Georgia Tech), not that its placement is right. The header line
+  counts the flagged rows, those with a leg verdicted "other game" or "own game, WRONG SIDE" (the follow-up before
+  the close), those with a leg the store holds no team name for, those with a leg not told, and those with a leg the
+  store's decision differs from; the JSON's `title_fallback_candidates`, `title_fallback_follow_up`,
+  `title_fallback_no_name`, `title_fallback_not_told` and `title_fallback_store_differs` are those counts, each null
+  (and the line says NOT READ) on a copy without kalshi_settled_markets: unknown, never zero.
   Placement is kalshi_history.place_events (km.place per event on the stored games of the series' own competition
   on the event's days, kalshi_sync.stored_games; now = EPOCH, the window unbounded) over
   EVERY settled event of the series in the copy, never only the selection, so the claims rule ("two markets claim one
@@ -140,6 +155,18 @@ RULING_236_1 = ("#812 / THE #413 CLOSE RECEIPT — RULED (ii) plus (i): the rece
 TWO_WAY_SERIES = ("KXMLBGAME", "KXNFLGAME", "KXNHLGAME", "KXNCAAFGAME")
 LEG_OWN, LEG_WRONG_SIDE, LEG_OTHER = "own game", "own game, WRONG SIDE", "other game"
 NO_LEG = "no stored leg in odds_snapshots"
+# addendum 238 item 2(a): the name fit's limits, printed on the row and counted on the header, never "own game"
+LEG_NO_NAME = ("the name fit is not read: the store holds no team name for this leg (its settled row's "
+               "yes_sub_title is empty)")
+LEG_NO_GAME = "the name fit is not read: the leg's game or one of its teams is not in this copy"
+LEG_BOTH = "the name fit is not told: the name fits both teams alike"
+LIMITS = (LEG_NO_NAME, LEG_NO_GAME, LEG_BOTH)
+BOTH = "BOTH"
+RULING_238_2A = ("(a) \"OWN GAME\" on the flagged rows: agreement with kalshi-history's store is not a verdict; add "
+                 "the name fit — each flagged row's stored leg team must fit one of the game's two teams by the "
+                 "matcher's own `fit` (the same scoring place() uses); a leg fitting neither is verdicted OTHER GAME, "
+                 "a leg fitting the other side WRONG SIDE, and \"own game\" then means the names fit; where the store "
+                 "holds no leg team name the limit is printed.")
 
 RULING_234_2 = ("THE \"A vs B\" TITLE FALLBACK — RULED: NARROWED, and it never overrides. Doctrine first "
                 "(CLAUDE.md): an ambiguous match is refused by design; a title-derived pair that can override "
@@ -307,7 +334,8 @@ def collect(s, match_ids, events) -> dict:
     games.update(games_of({a[1] for a in after.values() if a[0] == "ruled" and a[1] not in games}))
     # TITLE-FALLBACK CANDIDATES (addendum 236 item 1): every settled row of the four two-way series in the copy (never
     # only the selection) stored on a match, whose event the store names by other than two teams; each stored leg of
-    # its ticker read against kalshi-history's stored match and side
+    # its ticker verdicted by the name fit (addendum 238 item 2(a)), kalshi-history's stored match and side shown
+    # beside it as agrees/differs (never the verdict)
     legs_of: dict = defaultdict(lambda: defaultdict(list))      # ticker -> (match, selection) -> [captures]
     for mid, sel, tic, cap in rows:
         legs_of[tic][(mid, sel)].append(str(cap))
@@ -328,15 +356,20 @@ def collect(s, match_ids, events) -> dict:
                     unplaced += 1
                     continue
                 cand_events.add(ev)
-                legs = []
-                for (mid, sel), caps in sorted(legs_of.get(r["ticker"], {}).items(),
-                                               key=lambda x: (x[0][0] or 0, x[0][1] or "")):
-                    v = (LEG_OTHER if mid != r["match_id"] else LEG_OWN if sel == r["side"] else LEG_WRONG_SIDE)
-                    legs.append({"match_id": mid, "selection": sel, "captures": len(caps), "verdict": v})
+                legs = [{"match_id": mid, "selection": sel, "captures": len(caps),
+                         "store": "agrees" if (mid, sel) == (r["match_id"], r["side"]) else "differs"}
+                        for (mid, sel), caps in sorted(legs_of.get(r["ticker"], {}).items(),
+                                                       key=lambda x: (x[0][0] or 0, x[0][1] or ""))]
                 candidates.append({"event": ev, "ticker": r["ticker"], "match_id": r["match_id"], "side": r["side"],
-                                   "names": nm, "ruled": kh.RULED_NOTE in (r["notes"] or ""), "legs": legs})
+                                   "names": nm, "ruled": kh.RULED_NOTE in (r["notes"] or ""), "legs": legs,
+                                   "leg_name": (r["yes_sub_title"] or "").strip() or None})
     games.update(games_of({m for c in candidates for m in [c["match_id"]] + [lg["match_id"] for lg in c["legs"]]
                            if m is not None and m not in games}))
+    # THE NAME FIT (addendum 238 item 2(a)): each flagged row's stored leg is verdicted by its team name in the store
+    # (the settled row of its ticker: odds_snapshots holds no name) against the two teams of the game it is stored on
+    for cand in candidates:
+        for lg in cand["legs"]:
+            lg.update(leg_verdict(cand["leg_name"], lg["selection"], games.get(lg["match_id"])))
     # the verdict per stored leg: (its count key, its words)
     verdicts = {}
     for ev, legs in before.items():
@@ -362,6 +395,46 @@ def collect(s, match_ids, events) -> dict:
             "verdicts": verdicts, "events": sorted(wanted_events), "match_ids": list(match_ids),
             "settled_table": settled_ok, "scope": scope,
             "candidates": {"rows": candidates, "events": len(cand_events), "unplaced": unplaced, "scanned": scanned}}
+
+
+def name_fit(name: str, home: str, away: str) -> tuple[str | None, float, float]:
+    """(the side the one name fits: 'HOME', 'AWAY', None for neither, BOTH where it fits both alike; its score
+    against home; against away), by the matcher's own scoring, the pieces kalshi_match.fit is made of, called, never
+    rewritten: fit takes an event's TWO names, one a side, and a flagged row's event has no two (that is why it is
+    flagged), so the leg's one name is scored as fit scores each of its two: kalshi_match.side_score against each team,
+    a side fitted at fit's own threshold (at least 1); a name fitting both sides goes to the higher plain score, then
+    to fit's distinctive tiebreak (kalshi_match._distinct_score over the two teams' shared tokens), as fit's two ways
+    do; a tie there too is BOTH (not told, never guessed)."""
+    from src.ingestion import kalshi_match as km
+    h, a = km.side_score(name, home), km.side_score(name, away)
+    fh, fa = h >= 1, a >= 1
+    if not (fh or fa):
+        return None, h, a
+    if fh != fa:
+        return ("HOME" if fh else "AWAY"), h, a
+    if h != a:
+        return ("HOME" if h > a else "AWAY"), h, a
+    shared = km.norm_tokens(home) & km.norm_tokens(away)
+    dh, da = km._distinct_score(name, home, shared), km._distinct_score(name, away, shared)
+    if dh == da:
+        return BOTH, h, a
+    return ("HOME" if dh > da else "AWAY"), h, a
+
+
+def leg_verdict(name: str | None, selection: str, game: dict | None) -> dict:
+    """One flagged row's stored leg, verdicted by the name fit (addendum 238 item 2(a)): its kind (LEG_OWN,
+    LEG_WRONG_SIDE, LEG_OTHER, or a limit: LEG_NO_NAME, LEG_NO_GAME, LEG_BOTH) and the words of its fit."""
+    if not name:
+        return {"verdict": LEG_NO_NAME, "fit": None}
+    if game is None or "?" in (game["home"], game["away"]):
+        return {"verdict": LEG_NO_GAME, "fit": None}
+    side, h, a = name_fit(name, game["home"], game["away"])
+    fits = "neither team" if side is None else "both teams alike" if side == BOTH else side
+    fit_text = f"the name {name} fits {fits} (side_score: HOME {game['home']} {h:g}, AWAY {game['away']} {a:g})"
+    if side == BOTH:
+        return {"verdict": LEG_BOTH, "fit": fit_text}
+    v = LEG_OTHER if side is None else LEG_OWN if side == selection else LEG_WRONG_SIDE
+    return {"verdict": v, "fit": fit_text}
 
 
 def _after_text(a, games) -> str:
@@ -416,7 +489,7 @@ def report(c: dict, db_text: str, echo=print) -> dict:
               "stored_legs": len(c["verdicts"]), "own_game": 0, "own_game_wrong_side": 0, "another_game": 0,
               "refused": 0, "title_conflict": 0,
               "not_formable": 0, "not_stored": 0, "split_events": 0,
-              "title_fallback_candidates": len(c["candidates"]["rows"]) if c["settled_table"] else None}
+              **candidate_counts(c)}
     for ev in c["events"]:
         legs = c["before"].get(ev)
         if not legs:
@@ -455,40 +528,70 @@ def report(c: dict, db_text: str, echo=print) -> dict:
     return counts
 
 
+def candidate_counts(c: dict) -> dict:
+    """The header's counts of the flagged rows (addendum 236 item 1; the name fit, addendum 238 item 2(a)), each None
+    on a copy without kalshi_settled_markets (unknown, never zero)."""
+    keys = ("title_fallback_candidates", "title_fallback_follow_up", "title_fallback_no_name",
+            "title_fallback_not_told", "title_fallback_store_differs")
+    if not c["settled_table"]:
+        return dict.fromkeys(keys)
+    rows = c["candidates"]["rows"]
+
+    def n(test):
+        return sum(1 for r in rows if any(test(lg) for lg in r["legs"]))
+    return dict(zip(keys, (len(rows), n(lambda lg: lg["verdict"] in (LEG_OTHER, LEG_WRONG_SIDE)),
+                           n(lambda lg: lg["verdict"] == LEG_NO_NAME),
+                           n(lambda lg: lg["verdict"] in (LEG_NO_GAME, LEG_BOTH)),
+                           n(lambda lg: lg["store"] == "differs"))))
+
+
 def report_candidates(c: dict, echo=print) -> None:
     """Addendum 236 item 1: the settled rows the title fallback could ever have placed, named and counted on their own
-    line, each stored leg verdicted against kalshi-history's stored match and side."""
+    line; each stored leg verdicted by the name fit (addendum 238 item 2(a)), kalshi-history's stored match and side
+    shown beside it, never the verdict."""
     if not c["settled_table"]:
         echo("\nTITLE-FALLBACK CANDIDATES (addendum 236 item 1): NOT READ: kalshi_settled_markets is not in this copy, "
              "so no settled row could be flagged; the count is unknown (null), not zero")
         return
     cd = c["candidates"]
     rows = cd["rows"]
-    follow = sum(1 for r in rows if any(lg["verdict"] in (LEG_OTHER, LEG_WRONG_SIDE) for lg in r["legs"]))
+    k = candidate_counts(c)
     echo(f"\nTITLE-FALLBACK CANDIDATES (addendum 236 item 1): {len(rows)} settled row(s) stored on a match, in "
          f"{cd['events']} event(s) the store names by other than two teams (the only rows the title fallback could "
-         f"ever have placed); {follow} with a stored leg verdicted \"{LEG_OTHER}\" or \"{LEG_WRONG_SIDE}\" (the "
-         "follow-up before the close)")
+         f"ever have placed); {k['title_fallback_follow_up']} with a stored leg verdicted \"{LEG_OTHER}\" or "
+         f"\"{LEG_WRONG_SIDE}\" by the name fit (the follow-up before the close); {k['title_fallback_no_name']} with a "
+         f"stored leg the store holds no team name for (the name fit not read: the limit, on the row); "
+         f"{k['title_fallback_not_told']} with a stored leg whose name fit is not told (its name fits both teams "
+         f"alike, or its game is not in this copy); {k['title_fallback_store_differs']} with a stored leg on another "
+         "game or side than kalshi-history's stored decision (shown, not a verdict)")
     echo(f"  scope: every settled event of {', '.join(TWO_WAY_SERIES)} in this copy ({cd['scanned']} events), never "
          "only --events; the store's names: the distinct non-tie yes_sub_title across the event's settled markets; "
          f"{cd['unplaced']} row(s) of such events stored on no match, not flagged (the fallback placed none)")
-    echo("  each stored leg (odds_snapshots, by its ticker) is verdicted against kalshi-history's stored match and "
-         f"side: {LEG_OWN} / {LEG_WRONG_SIDE} / {LEG_OTHER}; the AFTER places no flagged row but one placed by ruling "
-         "(no title is stored: NO_PAIR; a row placed by ruling it reads by its stored side), so the stored decision is "
-         "what the leg is read against (a reading put to the architect: needs-ruling)")
-    echo(f"  THE READING'S LIMIT: \"{LEG_OWN}\" means only that the leg agrees with kalshi-history's stored decision, "
-         "not that the placement is right: that decision may itself be the title fallback's, so a leg the live sync "
-         f"and kalshi-history both put on the same wrong game reads \"{LEG_OWN}\" here")
+    echo("  each stored leg (odds_snapshots, by its ticker) is verdicted by THE NAME FIT (addendum 238 item 2(a)): its "
+         "team name in the store (odds_snapshots holds none: its ticker's settled row, yes_sub_title) against the two "
+         "teams of the game it is stored on, by the matcher's own scoring (kalshi_match.side_score per side at fit's "
+         f"threshold, fit's distinctive tiebreak): fitting neither, {LEG_OTHER}; the other side, {LEG_WRONG_SIDE}; its "
+         f"stored side, {LEG_OWN}; kalshi-history's stored match and side shown beside it, not a verdict")
+    echo(f"  THE READING'S LIMIT (ruled, addendum 238 item 2(a): agreement with kalshi-history's store is not a "
+         f"verdict; the name fit is): \"{LEG_OWN}\" means the leg's team name fits the side it is stored on, by one "
+         "name's word overlap (a name sharing a word with a team fits it: Georgia fits Georgia Tech), not that its "
+         "placement is right; a leg the store holds no team name for is not read (the limit, on its row, counted "
+         f"above), never \"{LEG_OWN}\"")
     for r in rows:
         nm = r["names"]
+        no_name = any(lg["verdict"] == LEG_NO_NAME for lg in r["legs"])
         echo(f"  {r['ticker']} · event {r['event']} · the store's names: {len(nm)} ({' / '.join(nm) or 'none'}) · "
              f"kalshi-history stored: match {r['match_id']} {r['side']} ({_game_text(c['games'].get(r['match_id']))})"
-             + (" · placed by ruling" if r["ruled"] else ""))
+             + (" · placed by ruling" if r["ruled"] else "")
+             + (" · THE LIMIT: the store holds no team name for this row's leg: the name fit is not read"
+                if no_name else ""))
         if not r["legs"]:
             echo(f"    {NO_LEG}")
         for lg in r["legs"]:
             echo(f"    stored leg {lg['selection']} on match {lg['match_id']} "
-                 f"({_game_text(c['games'].get(lg['match_id']))}) · {lg['captures']} capture(s): {lg['verdict']}")
+                 f"({_game_text(c['games'].get(lg['match_id']))}) · {lg['captures']} capture(s): {lg['verdict']}"
+                 + (f" · {lg['fit']}" if lg["fit"] else "")
+                 + f" · kalshi-history's stored match and side: {lg['store']}")
 
 
 def main(argv=None) -> int:

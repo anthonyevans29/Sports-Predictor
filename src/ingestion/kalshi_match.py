@@ -338,9 +338,11 @@ def _pair(mks, first, is_tie) -> tuple[list[str], str | None]:
 
     How it reads here: two sibling names are the pair and the title is never read; three or more sibling names are
     refused NO_PAIR and the title is never read ((a), (d)); fewer than two, the title of `first` (the event's first
-    priced market) is read, and its two names are the pair only when every sibling's yes team is one of them by
-    place()'s own comparison (the stripped yes_sub_title in the names, the YES_UNKNOWN check) ((b), (c)); a sibling
-    that is not is TITLE_CONFLICT for the whole event. No two-name title is NO_PAIR, as is a title that does not name
+    priced market) is read, and its two names are the pair only when every sibling's yes team is one of them, the
+    stripped yes_sub_title compared ignoring case (_agrees; addendum 238 item 2(b) below) ((b), (c)); a sibling that
+    is not is TITLE_CONFLICT for the whole event. The pair formed carries the market's own spelling (the siblings'
+    yes_sub_title) in place of the title's, so place()'s exact side lookup after it (the YES_UNKNOWN check, the side
+    by ==) holds. No two-name title is NO_PAIR, as is a title that does not name
     exactly two teams: one name empty, the same name twice (compared case-folded), or a name that itself carries a
     title separator, title_teams' or " v." ("A vs B vs C": KalshiAdapter.title_teams splits at the first separator
     only, so its second name would be "B vs C", which is not a two-name title under (c)). Without this guard the first
@@ -358,7 +360,17 @@ def _pair(mks, first, is_tie) -> tuple[list[str], str | None]:
     a title naming Houston as YES on a market whose yes_sub_title is "Los Angeles C" is an inconsistency, so
     TITLE_CONFLICT under (b), never a placement on the side the title argues against (as HEAD c20f2f9a, reading that
     title "A vs B", refused it). The embedded-separator guard compares case-folded: "Georgia vs Alabama VS Auburn
-    Winner?" is NO_PAIR, its second name "Alabama VS Auburn" being two teams."""
+    Winner?" is NO_PAIR, its second name "Alabama VS Auburn" being two teams.
+
+    THE CASE P2 AND THE YES-TEAM CHECK (ARCHITECT 2026-11-03 16:00 ET, addendum 238 item 2(b) and (c), verbatim):
+    "(b) THE CASE P2: FIX IT — the consistency check compares names ignoring case (the matcher keys names by lower()
+    already: kalshi_match line 322) and carries the market's own spelling forward; a refusal on letter case alone was
+    never the intent of "the matcher's own comparison". (c) The extra check (a question-form title whose yes team
+    differs from the market's own yes team) stays, sentinel TITLE_CONFLICT." Line 322 is main's out-of-step read
+    (`key = frozenset(n.lower() for n in names)`, in behind_out_of_step here). So a title "alabama vs Auburn Winner?"
+    on the one market "Alabama" forms ["Alabama", "Auburn"], and is placed on Alabama's side; a name that differs by
+    more than letter case is TITLE_CONFLICT as before; the question form's yes-team check (_yes_conflict) compares
+    case-folded, as built."""
     names = []
     for mk in mks:
         if not is_tie(mk):
@@ -373,11 +385,22 @@ def _pair(mks, first, is_tie) -> tuple[list[str], str | None]:
     if (len(title) != 2 or not all(title) or title[0].casefold() == title[1].casefold()
             or any(sep in f" {n.casefold()} " for n in title for sep in _TITLE_SEPS)):
         return names, NO_PAIR                       # (c): only a title naming exactly two teams is a two-name title
-    if any(nm not in title for nm in names):        # (b): a sibling's yes team that is neither of the title's names
+    if not _agrees(names, title):                   # (b): a sibling's yes team that is neither of the title's names
         return names, TITLE_CONFLICT
     if _yes_conflict(first) is not None:            # (b): the title's yes team is not the market's own yes team
         return names, TITLE_CONFLICT
-    return title, None                              # (c): a single market, or none named, agreeing with its title
+    # (c), and addendum 238 item 2(b): the title's names in the market's own spelling, so place()'s exact side lookup
+    # (the stripped yes_sub_title in the names, its side by ==) holds on a title differing from it in letter case only
+    own = {nm.casefold(): nm for nm in names}
+    return [own.get(t.casefold(), t) for t in title], None
+
+
+def _agrees(names, title) -> bool:
+    """(b)'s consistency check: every sibling name is one of the title's two, compared ignoring case (casefold), as
+    the matcher keys names by lower() (the out-of-step read: frozenset(n.lower() for n in names)); addendum 238 item
+    2(b): "a refusal on letter case alone was never the intent of 'the matcher's own comparison'"."""
+    folded = {t.casefold() for t in title}
+    return all(nm.casefold() in folded for nm in names)
 
 
 def _names(mks, first, is_tie) -> list[str]:
@@ -525,7 +548,7 @@ def place(markets: list[dict], games: list, *, now: datetime, lo: datetime, hi: 
                 # addendum 234 item 2(b): "any inconsistency REFUSES the event with its own sentinel (TITLE_CONFLICT,
                 # named in the receipt), never a placement"
                 title = _title_teams(live[0])       # the names the decision read (the question form parsed)
-                if all(nm in title for nm in names):  # _pair's second (b) check: the title's yes team
+                if _agrees(names, title):           # _pair's second (b) check: the title's yes team
                     res.lines.append(f"  ✗ {ev}: the title names {_yes_conflict(live[0])} as its yes team; the "
                                      f"market's yes team is {(live[0].get('yes_sub_title') or '').strip()}: "
                                      f"refused ({TITLE_CONFLICT})")

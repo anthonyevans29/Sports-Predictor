@@ -169,6 +169,20 @@ FAMILIES_TEXT = (
     f"{POOL} 0 of 30 — not read before n=30 · {BEFORE} 1\n")
 
 
+WOULD_BE_HEAD = ("- NFL · would-be PLAY (uncertified, unstaked) (addendum 217 item 4: the Desk's record-only would-be "
+                 "call, desk.market_only_hold, while the registry reads nfl_elo_v1 uncertified (nfl-elo-v1); notional "
+                 "at desk.exec.cost, never pooled with PLAY, never a position): ")
+C446 = ("#446's thirty-row count (addendum 44 item 9: rows with a QB flag or an unread list, closing runs from the hold "
+        "of 2026-10-11)")
+# The tracked registry reads nfl_elo_v1 UNCERTIFIED (addendum 214 item 4(b)): the NFL family gains the would-be line
+# (addendum 217 item 4), and nothing else in the section moves. Certified (a registry fixture), only the line's head text
+# moves: the fixture's QB-flagged NFL PLAY of 10-18 is a #446 row, so the line keeps printing (tests/test_would_be_446.py).
+FAMILIES_TEXT_UNCERTIFIED = FAMILIES_TEXT.replace(
+    "- NFL · left out: none\n",
+    "- NFL · left out: none\n" + WOULD_BE_HEAD + f"0 · {C446}: PLAY 1 + would-be PLAY (uncertified, unstaked) 0 = 1 of "
+    "30\n")
+
+
 def test_one_file_per_family_the_whole_section(tmp_path):
     """MLB: a >= 4 hit (+0.5 x (1/0.5 - 1)), a clean 0-4 miss, a <= 0 hit on AWAY (+0.5 x (1/0.62 - 1) = +0.31), a PLAY
     with no exec edge (open: unknown; nothing settled, so its units read "units —", never a +0.00u breakeven), a LADDER
@@ -178,7 +192,7 @@ def test_one_file_per_family_the_whole_section(tmp_path):
     the pre-registration (R41 RULED, addendum 151 item 2): printed beside the counter, never counted."""
     ex = _families(tmp_path)
     t = xc.tally(ex)
-    assert xc.section(t, ex) == FAMILIES_TEXT.format(ex=ex)
+    assert xc.section(t, ex) == FAMILIES_TEXT_UNCERTIFIED.format(ex=ex)
     assert (t["cohort_graded"], t["cohort_before"]) == (0, 1) and t["families"] == ["MLB", "NFL", "SOCCER"]
     assert xc.console_line(t) == CONSOLE.format(n=3, k=0, tail="not read before n=30", b=1)
 
@@ -301,10 +315,14 @@ def test_unreadable_files_are_named_and_hosts_copies_never_read(tmp_path):
 
 
 def test_no_closing_file(tmp_path):
+    """The tracked registry reads NFL uncertified: the no-files path prints the would-be line's zero line with its cause
+    named (ARCHITECT 2026-11-03 07:55 ET, addendum 225 item 2(b): "a labelled absence, never silence")."""
     ex = tmp_path / "none"
     assert _section(ex) == (
         "## EXEC COHORTS — PLAY calls by exec edge, per closing family (ARCHITECT 2026-10-20, addendum 146 item 1(v))"
         f"\n\nNo closing file in {ex}/ on this machine.\n\n"
+        f"{WOULD_BE_HEAD}0 · no NFL closing file in {ex}/ on this machine · {C446}: PLAY 0 + would-be PLAY "
+        "(uncertified, unstaked) 0 = 0 of 30\n"
         f"{POOL} 0 of 30 — not read before n=30 · {BEFORE} 0\n")
 
 

@@ -247,6 +247,33 @@ def uncertified_live(model_version: str, entries) -> dict | None:
                  and e.get("model_version") == model_version and uncertified(e)), None)
 
 
+def certification_of(model_version: str, path: str | None = None) -> tuple[str, str]:
+    """A live model's certification as the registry reads it now, for a line that is printed only while the model is
+    withheld (addendum 217 item 4: #446's "would-be PLAY (uncertified, unstaked)" line): ("uncertified", the withholding
+    entry's id) when uncertified_live finds it; ("certified", the entry's id) only when an entry naming `model_version`
+    is there and none withholds it; ("unread", why) when the file is not there or cannot be read, is not a list, or
+    holds no entry for `model_version` (law 4: a certification that was not read is never judged certified, and a
+    missing entry is not a certification, as production_allowed refuses an id the registry lacks). `path` None reads
+    LEDGER at call time. Read-only."""
+    p = path or LEDGER
+    try:
+        if not os.path.exists(p):
+            return "unread", f"no registry file at {p}"
+        entries = load(p)
+    except (OSError, ValueError) as e:
+        return "unread", f"the registry cannot be read: {type(e).__name__}"
+    if not isinstance(entries, list):
+        return "unread", "the registry is not a list of entries"
+    held = uncertified_live(model_version, entries)
+    if held:
+        return "uncertified", str(held.get("id") or "?")
+    named = next((e for e in entries if isinstance(e, dict) and model_version
+                  and e.get("model_version") == model_version), None)
+    if named is None:
+        return "unread", f"no registry entry for {model_version}"
+    return "certified", str(named.get("id") or "?")
+
+
 def production_allowed(eid: str, path: str = LEDGER) -> tuple[bool, str]:
     """Doctrine check: production only after a PASS AND a completed
     confirmation (recorded with record_confirmation). An UNCERTIFIED

@@ -37,7 +37,9 @@ file travels as every kind does, dated and latest (`<role>/<date>/coverage_<date
 `<role>/latest/coverage.json`; option 3, the latest copy only, was declined: "the dated file is the day's
 record"), and the compare never opens either copy. The Action compares the dated folders only, so it lists
 the dated copy on that one line, never a verdict; the latest copy is the same kind and is listed the same way
-when latest/ folders are compared by hand. The Action runs the comparator the last push shipped (each push
+when latest/ folders are compared by hand. The host's writer is the last step of `intl-daily`
+(`coverage --json`, daily 07:20 UTC; #805, ARCHITECT 2026-11-03, addendum 225 item 5); before it deployed,
+host/latest/coverage.json was the laptop's file of 2026-10-23. The Action runs the comparator the last push shipped (each push
 copies its own machine's `compare_exports.py` into `tools/`), so the rule holds there only once both writers
 run code that carries it.
 

@@ -4098,8 +4098,9 @@ def test_intl_daily_reads_the_four_cup_schedules_last():
                          ["intl-venue-sync", "--from-dir", "exports/intl_daily", "--venues-dir", "exports/intl_venues"],
                          ["export-unl-predictions"]]
     # #728 (ARCHITECT 2026-11-01, addendum 204 item 3(b)): each cup's sync-teams immediately before its sync-matches
-    assert steps[3:] == [[v, "--competition", c, "--season", "2026/27"] for c in ("EFL", "CL", "UEL", "FAC")
-                         for v in ("sync-teams", "sync-matches")]
+    assert steps[3:-1] == [[v, "--competition", c, "--season", "2026/27"] for c in ("EFL", "CL", "UEL", "FAC")
+                           for v in ("sync-teams", "sync-matches")]
+    assert steps[-1] == ["coverage", "--json"]                    # #805 (addendum 225 item 5): after the cups, last
     t = (HOSTING / "systemd" / "sp-intl-daily.timer").read_text()
     assert re.findall(r"^OnCalendar=(.+)$", t, re.M) == ["*-*-* 07:20:00 UTC"]           # daily
 

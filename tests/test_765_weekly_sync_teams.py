@@ -70,7 +70,7 @@ def test_the_readout_still_counts_one_competition_per_line(sandbox, monkeypatch)
 
 def test_intl_daily_runs_sync_teams_before_each_cups_sync_matches_four_a_day():
     steps = chains.CHAINS["intl-daily"]["steps"]
-    cups = steps[3:]
+    cups = steps[3:-1]                                                         # #805: coverage --json follows them
     assert [s[0] for s in cups] == ["sync-teams", "sync-matches"] * 4
     assert [s[2] for s in cups] == [code for code in chains.CUP_SCHEDULE for _ in range(2)]
     assert all(cups[k][1:] == cups[k + 1][1:] for k in range(0, 8, 2))       # same competition-season, teams first
@@ -413,10 +413,11 @@ def test_a_failed_sync_teams_runs_on_to_its_sync_matches_and_later_cups_with_the
     out = capsys.readouterr().out.rstrip("\n").split("\n")
     rs = receipts(sandbox)
     steps = [r for r in rs if r["kind"] == "step"]
-    assert [s_["step"] for s_ in steps] == list(range(1, 12))                         # every step ran
-    cmds = [s_["command"].split()[2:5:2] for s_ in steps[3:]]
+    assert [s_["step"] for s_ in steps] == list(range(1, 13))                         # every step ran
+    cmds = [s_["command"].split()[2:5:2] for s_ in steps[3:-1]]
     assert cmds == [[v, code] for code in ("EFL", "CL", "UEL", "FAC") for v in ("sync-teams", "sync-matches")]
-    assert [s_["exit"] for s_ in steps] == [0, 0, 0, 0, 0, 4, 0, 0, 0, 5, 0]
+    assert [s_["exit"] for s_ in steps] == [0, 0, 0, 0, 0, 4, 0, 0, 0, 5, 0, 0]
+    assert steps[-1]["command"] == "python cli.py coverage --json"                     # #805: last, it still ran
     assert steps[5]["continued"] == sp_run.TEAMS_GO_ON and "sync" not in steps[5]     # no faked teams count
     assert all("continued" not in s_ for s_ in steps if not s_["exit"])
     # CL's sync-matches ran after its failed sync-teams, and its skipped-listings line is in the receipt
@@ -425,7 +426,7 @@ def test_a_failed_sync_teams_runs_on_to_its_sync_matches_and_later_cups_with_the
     assert steps[8]["sync"]["matches"] == {"created": 0, "updated": 12, "skipped": 0}           # UEL
     assert steps[10]["exit"] == 0 and steps[10]["sync"]["matches"]["updated"] == 12          # FAC, past its own failure
     chain = rs[-1]
-    assert chain["kind"] == "chain" and chain["exit"] == 4 and chain["steps_ok"] == 9
+    assert chain["kind"] == "chain" and chain["exit"] == 4 and chain["steps_ok"] == 10
     assert chain["stopped_at"] is None and [f["step"] for f in chain["failed_steps"]] == [6, 10]
     assert chain["listings_skipped"] == [{"step": 7, "command": "python cli.py sync-matches --competition CL "
                                           "--season 2026/27", "n": 3, "ids": ["7001", "7002", "7003"]}]
@@ -436,9 +437,9 @@ def test_a_failed_sync_teams_runs_on_to_its_sync_matches_and_later_cups_with_the
             "(3 of clubs not in the DB)") in out
     assert not any("did not run" in x for x in out)
     text = "\n".join(out)
-    assert ("· sync-teams step 6/11 failed (exit 4): python cli.py sync-teams --competition CL --season 2026/27 — "
+    assert ("· sync-teams step 6/12 failed (exit 4): python cli.py sync-teams --competition CL --season 2026/27 — "
             "recorded; the chain runs on to its sync-matches and every later step (addendum 207 item 4)") in text
-    summary = next(x for x in out if x.startswith("✗ intl-daily: exit=4 steps 9/11"))
-    assert (" · sync-teams failed (the chain ran on, addendum 207 item 4): step 6/11 CL exit 4, step 10/11 FAC exit 5"
-            " · listings skipped (clubs not in the DB): step 7/11 CL 3 · running ") in summary
+    summary = next(x for x in out if x.startswith("✗ intl-daily: exit=4 steps 10/12"))
+    assert (" · sync-teams failed (the chain ran on, addendum 207 item 4): step 6/12 CL exit 4, step 10/12 FAC exit 5"
+            " · listings skipped (clubs not in the DB): step 7/12 CL 3 · running ") in summary
     assert not any(x.startswith("  ✗ stopped at") for x in out)

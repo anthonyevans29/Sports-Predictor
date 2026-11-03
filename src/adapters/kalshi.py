@@ -147,10 +147,9 @@ class KalshiAdapter:
             return last
         return None
 
-    @staticmethod
-    def yes_team(market: dict) -> str:
-        """The team this 'yes' contract pays on — cleanest from yes_sub_title."""
-        return market.get("yes_sub_title") or ""
+    # yes_team() is gone (#413; ARCHITECT 2026-11-03, addendum 230 item 0(a): "the yes-team fallback goes"): the yes
+    # team alone never places a market. The pair comes from the event's sibling markets (kalshi_match._names) and a
+    # market whose pair cannot be formed is refused, "the event's markets do not name two teams" (kalshi_match.NO_PAIR).
 
     @staticmethod
     def occurrence(market: dict):

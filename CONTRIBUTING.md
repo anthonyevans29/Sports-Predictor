@@ -17,6 +17,11 @@ This project runs on laws earned from incidents. They are not optional.
 5. **The database never travels.** Packaging excludes `data/` and `.git`,
    verified per tarball. Backups are `.backup`-API only, daily, plus
    before any refresh.
+   **Account data never enters the repo (ARCHITECT 2026-11-03, addendum
+   236 item 2(d)):** no raw Kalshi CSV row, no account id, no fill figure,
+   in any file — receipts carry tickers, sides and timestamps at most.
+   CI's tests/test_no_raw_kalshi_rows.py (#813) fails on a raw row or the
+   CSV header row in any tracked .md, .txt or .json outside tests/fixtures/.
 6. **Track by artifact.** BACKLOG.md is the decision record; CHANGELOG.md
    the change record; incident entries name root cause and the law that
    changed. Findings without a log entry didn't happen. Every known

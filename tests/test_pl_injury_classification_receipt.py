@@ -2,7 +2,7 @@
 
 A throwaway SQLite world (never data/), closing files as a closing run writes them, and a fake provider (no network).
 Covers the happy path, failed reads, empty answers, malformed rows, the call cap and the kept payloads, the refusals
-(--save / --db under data/, a missing DB), the DB opened read-only (bytes unchanged), and each ruling item (a)-(f)."""
+(--save / --db under data/, a missing DB, --db not given: 236 item 4), the DB opened read-only (bytes unchanged), and each ruling item (a)-(f)."""
 import hashlib
 import importlib.util
 import json
@@ -369,9 +369,10 @@ def test_no_key_and_no_fake_is_refused(world, monkeypatch):
     assert code == 2 and out == ["REFUSED: no API_FOOTBALL_KEY (environment or .env)"]
 
 
-def test_a_bad_since_is_argparses_exit_2(world):
+def test_since_is_replaced_by_the_bounds_argparses_exit_2(world):
+    """236 item 4: --since is gone (a second lower bound on the run start would conflict with --from)."""
     with pytest.raises(SystemExit) as e:
-        run(world, "--since", "2026-13-45")
+        run(world, "--since", "2026-10-20T18:42:00")
     assert e.value.code == 2
 
 
@@ -400,7 +401,7 @@ def test_a_fresh_wal_backup_copy_opens_immutable_and_leaves_no_sidecar(world, tm
     src.close()
     assert sorted(x.name for x in d.iterdir()) == ["sp.db"] and p.read_bytes()[18:20] == bytes([2, 2])
     before = _sha(p)
-    with rc.open_db(str(p)) as (s, label):
+    with rc.open_db(rc.check_copy(str(p))) as (s, label):
         assert "(mode=ro + immutable=1 URI" in label
         s.execute(__import__("sqlalchemy").text("SELECT count(*) FROM matches")).scalar()
     assert sorted(x.name for x in d.iterdir()) == ["sp.db"] and _sha(p) == before
@@ -410,41 +411,54 @@ def test_the_db_copy_is_opened_read_only_bytes_unchanged(world):
     before = _sha(world["db"])
     code, out, _ = run(world)
     assert code == 0 and _sha(world["db"]) == before
-    assert f"database --db {world['db'].resolve()} (mode=ro + immutable=1 URI" in out[0]
-    assert "machine role laptop (ruling 1(b) reads the LAPTOP's database" in out[0]       # conftest pins the role
+    assert f"database --db {world['db'].resolve()} (mode=ro + immutable=1 URI, mode=ro&immutable=1" in out[0]
+    assert f"closing files {world['ex'].resolve()} (--exports {world['ex']}; " in out[0]
+    assert "machine role laptop (the machine this ran on, SP_EXPORTS_MIRROR_ROLE; never the copy's" in out[0]
+    assert "LAPTOP's database" not in out[0]                                              # conftest pins the role
     assert not (world["db"].parent / "copy.db-journal").exists()
 
 
-def test_the_configured_db_goes_through_readonly_scope(world, monkeypatch):
+DB_REQUIRED = ("REFUSED: --db is required (236 item 4): a .backup copy outside data/, always a copy (the host run: "
+               "the host's pulled backup; the laptop run: a fresh .backup copy of the laptop's file); the app's "
+               "configured database is never read; nothing read")
+
+
+@pytest.mark.parametrize("db", [None, "", "  "])
+def test_236_4_db_missing_is_refused_exit_2_nothing_read(world, monkeypatch, db):
+    """236 item 4: --db REQUIRED, always a copy: without it, exit 2 before anything is read (no closing file, no
+    provider call, no payload folder, the configured database never opened)."""
     from src.db import database
-    eng = create_engine(f"sqlite:///{world['db']}", future=True)
-    monkeypatch.setattr(database, "SessionLocal", sessionmaker(bind=eng, future=True))
-    monkeypatch.setattr(database, "_engine", eng)
-    called = []
-    real = database.readonly_scope
-
-    def spy():
-        called.append(1)
-        return real()
-    monkeypatch.setattr(database, "readonly_scope", spy)
-    before = _sha(world["db"])
+    monkeypatch.setattr(database, "readonly_scope", lambda: pytest.fail("the configured database was opened"))
+    monkeypatch.setattr(rc, "population", lambda *a, **k: pytest.fail("a closing file was read"))
+    g = FakeGet(answers())
     out = []
-    code = rc.main(["--exports", str(world["ex"]), "--save", str(world["save"])], echo=out.append,
-                   get=FakeGet(answers()))
-    eng.dispose()
-    assert code == 0 and called == [1] and _sha(world["db"]) == before
-    assert "database.readonly_scope: mode=ro URI" in out[0]
-    assert summary(out)["rows"] == 3
+    argv = ["--exports", str(world["ex"]), "--save", str(world["save"])] + ([] if db is None else ["--db", db])
+    code = rc.main(argv, echo=out.append, get=g)
+    assert code == 2 and out == [DB_REQUIRED] and g.calls == [] and not world["save"].exists()
 
 
-def test_the_configured_db_missing_is_refused(world, monkeypatch):
-    from src.db import database
-    missing = world["tmp"] / "absent.db"
-    monkeypatch.setattr(database, "SessionLocal", sessionmaker(bind=create_engine(f"sqlite:///{missing}")))
+@pytest.mark.parametrize("content", [b"not a sqlite file\n" * 64, b""], ids=["text", "empty"])
+def test_236_4_a_db_that_is_not_a_readable_copy_is_refused_exit_2_nothing_read(world, monkeypatch, content):
+    """A --db that exists but is no readable copy (not SQLite, or no matches table) is refused as qb_hold_receipt
+    refuses it (mlb_pitchers_gate.open_ro before any read): exit 2, nothing read, never a traceback."""
+    bad = world["tmp"] / "not_a_copy.db"
+    bad.write_bytes(content)
+    before = bad.read_bytes()
+    monkeypatch.setattr(rc, "population", lambda *a, **k: pytest.fail("a closing file was read"))
+    g = FakeGet(answers())
     out = []
-    code = rc.main(["--exports", str(world["ex"]), "--save", str(world["save"])], echo=out.append,
-                   get=FakeGet(answers()))
-    assert code == 2 and "REFUSED: no DB file" in out[0] and not missing.exists()
+    code = rc.main(["--exports", str(world["ex"]), "--db", str(bad), "--save", str(world["save"])],
+                   echo=out.append, get=g)
+    assert code == 2 and len(out) == 1
+    assert out[0].startswith(f"REFUSED: --db {bad.resolve()}: cannot be read through a mode=ro + immutable=1 URI (")
+    assert out[0].endswith("; nothing read") and not out[0].endswith("nothing read; nothing read")
+    assert g.calls == [] and not world["save"].exists() and bad.read_bytes() == before
+
+
+def test_236_4_the_configured_database_path_is_gone():
+    assert "readonly_scope" not in Path(rc.__file__).read_text()
+    import inspect
+    assert list(inspect.signature(rc.open_db).parameters) == ["path"]
 
 
 def test_the_script_imports_no_src_db_module_at_import():
@@ -741,7 +755,7 @@ def test_the_db_copy_refuses_a_write(world):
     from sqlalchemy import text
     from sqlalchemy.exc import OperationalError
     before = _sha(world["db"])
-    with rc.open_db(str(world["db"])) as (s, _label):
+    with rc.open_db(rc.check_copy(str(world["db"]))) as (s, _label):
         with pytest.raises(OperationalError, match="readonly"):
             s.execute(text("CREATE TABLE t688 (x INTEGER)"))
     assert _sha(world["db"]) == before
@@ -844,3 +858,334 @@ def test_codex_722_a_match_id_with_the_teams_but_another_kickoff_is_never_used(w
     rc.main(["--exports", str(ex), "--db", str(world["db"]), "--save", str(world["save"])], echo=out.append,
             get=FakeGet(answers()))
     assert "DB: not in the database" in line(out, "  DB: ")
+
+
+# ---- the source after the cutover (ARCHITECT 2026-11-03, addendum 230 item 2(c)) ------------------------------------
+
+def _run_on(w, ex, table=None, db=None):
+    out = []
+    code = rc.main(["--exports", str(ex), "--db", str(db or w["db"]), "--save", str(w["save"])], echo=out.append,
+                   get=FakeGet(table if table is not None else answers()))
+    return code, out
+
+
+def _move_into_dated(ex: Path) -> None:
+    """The world's flat closing files moved into the mirror's layout, <ex>/<YYYY-MM-DD>/ by each file's run day."""
+    for f in sorted(ex.glob("closing_*.json")):
+        day = ex / f.name.split("_")[2][:10]
+        day.mkdir(exist_ok=True)
+        f.rename(day / f.name)
+
+
+def test_230_2c_a_flat_host_directory_is_read(world):
+    """exports/host/ (the laptop's cumulative pull: flat, 232 item 2(c)) is read as a flat directory."""
+    host = world["tmp"] / "pull" / "exports" / "host"
+    write_exports(host)
+    code, out = _run_on(world, host)
+    assert code == 0
+    sm = summary(out)
+    assert sm["matches"] == [9240, 9238, 9245] and sm["closing_files"] == 6 and sm["dated_folders"] == 0
+    assert sm["exports_dir"] == str(host.resolve())
+    assert f"closing files {host.resolve()} (--exports {host}; closing_*.json there and in its dated folders " \
+           "<YYYY-MM-DD>/ 0, never latest/" in out[0]
+    assert "closing_SOCCER_2026-10-25T1400Z.json, git_sha f0e4cbf3; earlier runs 1" in line(out, "== match 9238")
+
+
+def test_230_2c_a_tree_of_dated_folders_is_read_alike(world):
+    """The mirror's host/<YYYY-MM-DD>/closing_*.json: the same rows as the flat directory, each file printed with its
+    folder."""
+    host = world["tmp"] / "mirror" / "host"
+    write_exports(host)
+    _move_into_dated(host)
+    assert not list(host.glob("closing_*.json"))
+    code, out = _run_on(world, host)
+    assert code == 0
+    sm = summary(out)
+    assert sm["matches"] == [9240, 9238, 9245] and sm["closing_files"] == 6 and sm["dated_folders"] == 3
+    assert "in its dated folders <YYYY-MM-DD>/ 3, never latest/" in out[0]
+    assert "(2026-10-25/closing_SOCCER_2026-10-25T1400Z.json, git_sha f0e4cbf3; earlier runs 1)" in \
+        line(out, "== match 9238")
+    assert "the rows' runs 2026-10-24T16:30Z to 2026-10-25T16:30Z" in out[0]
+
+
+def test_230_2c_latest_and_other_subfolders_are_never_read(world):
+    """A row only in latest/ (or in a folder not named YYYY-MM-DD) is never counted."""
+    host = world["tmp"] / "mirror" / "host"
+    write_exports(host)
+    _move_into_dated(host)
+    for sub in ("latest", "2026-11", "misc"):
+        closing(host / sub, "2026-11-02T13:00:00", [row(9400, "Newcastle", "Everton", "2026-11-02T14:00:00",
+                                                        ["W. Osula"], [], 5, 0, "2026-11-02T12:25:00")])
+    code, out = _run_on(world, host)
+    assert code == 0
+    sm = summary(out)
+    assert 9400 not in sm["matches"] and sm["closing_files"] == 6 and sm["dated_folders"] == 3
+    assert not [ln for ln in out if "match 9400" in ln]
+
+
+def test_230_2c_a_name_in_two_dated_folders_is_one_run_never_an_earlier_one(world):
+    host = world["tmp"] / "mirror" / "host"
+    write_exports(host)
+    _move_into_dated(host)
+    (host / "2026-10-26").mkdir()
+    f = host / "2026-10-25" / "closing_SOCCER_2026-10-25T1630Z.json"
+    (host / "2026-10-26" / f.name).write_text(f.read_text())
+    code, out = _run_on(world, host)
+    assert code == 0
+    sm = summary(out)
+    assert sm["repeated_names"] == [f.name] and sm["closing_files"] == 7
+    assert f"names in more than one folder 1 (each copy read; one run, never an earlier run): {f.name}" in out[0]
+    assert f"(2026-10-26/{f.name}, git_sha f0e4cbf3; earlier runs 0)" in line(out, "== match 9245")
+
+
+def test_230_2c_a_latest_folder_as_exports_or_behind_a_dated_name_is_refused(world):
+    """'never a latest/ folder' (232 item 2(c)): --exports at host/latest/ (by name or through a symlink), or a
+    dated-named symlink into latest/, is refused before any read."""
+    host = world["tmp"] / "mirror" / "host"
+    write_exports(host)
+    _move_into_dated(host)
+    closing(host / "latest", "2026-11-02T13:00:00", [row(9401, "Newcastle", "Everton", "2026-11-02T14:00:00",
+                                                         ["W. Osula"], [], 5, 0, "2026-11-02T12:25:00")])
+    link = world["tmp"] / "newest"
+    link.symlink_to(host / "latest", target_is_directory=True)
+    for ex in (host / "latest", link):
+        code, out = _run_on(world, ex)
+        assert code == 2 and len(out) == 1 and out[0].startswith(f"REFUSED: --exports {ex}: a latest/ folder")
+    (host / "2026-11-02").symlink_to(host / "latest", target_is_directory=True)
+    code, out = _run_on(world, host)
+    assert code == 2 and out == [f"REFUSED: --exports {host}: the dated folder 2026-11-02/ resolves to "
+                                 f"{(host / 'latest').resolve()}, a latest/ folder; latest/ is never read; nothing read"]
+
+
+def test_230_2c_exports_not_a_directory_is_refused_nothing_read(world):
+    a_file = world["tmp"] / "closing_SOCCER_2026-10-25T1400Z.json"
+    a_file.write_text("{}")
+    for ex in (world["tmp"] / "no-such-dir", a_file):
+        code, out = _run_on(world, ex)
+        assert code == 2 and out == [f"REFUSED: --exports {ex}: not a directory; nothing read"]
+
+
+def test_230_2c_the_header_names_the_directory_the_copy_and_the_rulings(world):
+    host = world["tmp"] / "mirror" / "host"
+    write_exports(host)
+    _move_into_dated(host)
+    code, out = _run_on(world, host)
+    assert code == 0
+    assert out[0].startswith("PL INJURY CLASSIFICATION RECEIPT (ARCHITECT 2026-10-27, addendum 171 item 1; #688) · "
+                             f"READ-ONLY · database --db {world['db'].resolve()} (mode=ro + immutable=1 URI")
+    assert f"closing files {host.resolve()} (--exports {host}; " in out[0]
+    assert ("THE SOURCE AFTER THE CUTOVER (ARCHITECT 2026-11-03 09:00 ET, addendum 230 item 2(c), verbatim): "
+            f"\"{rc.RULING_230_2C}\"") in out
+    assert "the \"host/ is never read\" rule was the pre-cutover laptop's; it inverts" in rc.RULING_230_2C
+    assert line(out, "THE SOURCE READ (ARCHITECT 2026-11-03 11:10 ET, addendum 232 item 2(c)").endswith(
+        "\"The receipt reads a flat directory of closing_*.json OR a tree of dated folders alike (never a latest/ "
+        "folder), so the mirror checkout still works as a second source if ever needed.\"")
+    assert line(out, "THE COPY (ARCHITECT 2026-11-03 08:40 ET, addendum 229 item 1's standing rule, verbatim in part)").endswith(
+        "a leagues or PL-availability read runs on the host's pulled backup, never the laptop's database; the "
+        "console names the copy.\"")
+    assert "a mismatch is the operator's error" in line(out, "THE PAIRING: the header names the closing-file directory")
+    assert "(the one reader; host/ is never read)" not in rc.__doc__ and rc.__doc__.count("host/ is never read") == 1
+
+
+def test_230_2c_a_copy_with_a_sidecar_is_refused(world):
+    wal = world["db"].with_name(world["db"].name + "-wal")
+    wal.write_bytes(b"")
+    code, out = _run_on(world, world["ex"])
+    assert code == 2 and out[0].startswith(f"REFUSED: --db {world['db'].resolve()} has a -wal sidecar")
+
+
+def test_230_2c_the_app_s_configured_database_as_db_is_refused(world, monkeypatch):
+    from src.walters import mlb_pitchers_gate as mp
+    monkeypatch.setattr(mp, "_app_db", lambda: world["db"].resolve())
+    code, out = _run_on(world, world["ex"])
+    assert code == 2 and out[0].startswith("REFUSED: --db ") and "the app's configured database" in out[0]
+
+
+def xi(base, *slots):
+    """An XI of eleven named starters: the given slots, then fillers no listed name matches."""
+    return [*slots, *(slot(base + k, f"Filler Zz{base + k}") for k in range(11 - len(slots)))]
+
+
+def _add_newcastle_everton(db: Path, stamp: str) -> None:
+    """The Osula instance's shape (225 item 4): Newcastle v Everton 2026-11-02, five listed for Newcastle, one for
+    Everton, each side's stored list stamped as the closing row consumed it (synthetic ids)."""
+    from src.db.schema import Competition, Injury, Match, MatchStatus, Sport, Team
+    eng = create_engine(f"sqlite:///{db}")
+    with Session(eng) as s:
+        pl = s.query(Competition).filter_by(code="PL").one()
+        new = Team(sport=Sport.SOCCER, name="Newcastle", external_ids={"api_football": "34"})
+        s.add(new)
+        s.flush()
+        eve = s.query(Team).filter_by(name="Everton").one()
+        s.add(Match(id=9400, sport=Sport.SOCCER, competition_id=pl.id, season="2026/27",
+                    utc_date=_dt("2026-11-02T14:00:00"), status=MatchStatus.FINISHED, home_team_id=new.id,
+                    away_team_id=eve.id, home_score=1, away_score=1, external_ids={"api_football": "1600"}))
+        for n in ("T. Livramento", "W. Osula", "M. Jaouen", "A. Fernandez-Pardo", "L. Miley"):
+            s.add(Injury(team_id=new.id, player_name=n, type="Missing Fixture", reason="Injury",
+                         fixture_source_id="1600", refreshed_at=_dt(stamp)))
+        s.add(Injury(team_id=eve.id, player_name="J. Grealish", type="Missing Fixture", reason="Injury",
+                     fixture_source_id="1600", refreshed_at=_dt(stamp)))
+        s.commit()
+    eng.dispose()
+
+
+def test_225_4_the_osula_shaped_row_listed_missing_who_started_classes_started(world):
+    """225 item 4's shape on the host's dated tree: a player listed as missing on the closing row who STARTED (in the
+    provider's startXI) classes "started"; the other listed names that did not appear class as today."""
+    stamp = "2026-11-02T13:25:00"
+    _add_newcastle_everton(world["db"], stamp)
+    host = world["tmp"] / "mirror" / "host"
+    new_names = ["T. Livramento", "W. Osula", "M. Jaouen", "A. Fernandez-Pardo", "L. Miley"]
+    closing(host / "2026-11-02", "2026-11-02T13:30:00",
+            [row(9400, "Newcastle", "Everton", "2026-11-02T14:00:00", new_names, ["J. Grealish"], 5, 1, stamp,
+                 call="PASS")])
+    t = dict(answers())
+    nu = {"id": 34, "name": "Newcastle", "logo": ""}
+    ev = {"id": int(TEAMS["Everton"]), "name": "Everton", "logo": ""}
+    t[("fixtures/lineups", "1600")] = (200, {}, [
+        {"team": nu, "formation": "4-3-3", "coach": {}, "startXI": xi(600, slot(61, "William Osula")),
+         "substitutes": [slot(62, "Joe Willock")]},
+        {"team": ev, "formation": "4-2-3-1", "coach": {}, "startXI": xi(700), "substitutes": []}])
+    t[("fixtures/players", "1600")] = (200, {}, [
+        {"team": nu, "players": [pentry(61, "William Osula", 90, False), pentry(62, "Joe Willock", None, True)]},
+        {"team": ev, "players": [pentry(701, "Filler Zz701", 90, False)]}])
+    code, out = _run_on(world, host, table=t)
+    assert code == 0
+    sm = summary(out)
+    assert sm["matches"] == [9400]
+    assert "(2026-11-02/closing_SOCCER_2026-11-02T1330Z.json, git_sha f0e4cbf3; earlier runs 0)" in \
+        line(out, "== match 9400")
+    assert "recoverable" in line(out, "  HOME Newcastle: count 5")
+    osula = line(out, "    W. Osula")
+    assert "type 'Missing Fixture'" in osula and "· this fixture · started — William Osula (initial form" in osula
+    for n in ("T. Livramento", "M. Jaouen", "A. Fernandez-Pardo", "L. Miley"):
+        assert rc.DNP_ABSENT in line(out, f"    {n}")
+    assert rc.DNP_ABSENT in line(out, "    J. Grealish")
+    assert sm["by_type"]["Missing Fixture"][rc.STARTED] == 1
+
+
+# ---- 236 item 4: the closing run's start bounded as #810's qb_hold_receipt ----------------------------------------
+
+BOUND = "2026-10-26T12:00:00Z"
+
+
+def _host_tree(w) -> Path:
+    """A host directory: a P8 rehearsal closing (2026-10-25T23:45Z, before the cutover), a closing EXACTLY at the
+    bound, one after it, and a row with no run start (no closing block start, no stamp in the name)."""
+    host = w["tmp"] / "pull" / "exports" / "host"
+    lee = ["M. Joseph", "J. Rodon", "D. James", "D. Calvert-Lewin", "N. Okafor", "A. Stach"]
+    closing(host, "2026-10-25T23:45:00", [row(9240, "Chelsea", "Tottenham", "2026-10-24T16:30:00",
+                                              ["E. Emegha"], [], 5, 8, S_CHE, call="PLAY")])          # rehearsal
+    closing(host, "2026-10-26T12:00:00", [row(9238, "Liverpool", "Brighton", "2026-10-25T14:00:00", LIV,
+                                              ["E. Ferguson", "Y. Minteh", "K. Mitoma"], 12, 3, S_LIV)])  # at it
+    closing(host, "2026-10-26T13:00:00", [row(9245, "Sunderland", "Leeds", "2026-10-25T16:30:00", [], lee, 0, 6,
+                                              S_SUN)])
+    doc = {"git_sha": "abc1234", "predictions": [row(9300, "Everton", "Coventry", "2026-10-31T15:00:00", [], [], 0,
+                                                     0, None)], "closing": {"family": "SOCCER"}}
+    (host / "closing_SOCCER_nostamp.json").write_text(json.dumps(doc))
+    return host
+
+
+def _bounded(w, ex, *bound):
+    out = []
+    g = FakeGet(answers())
+    code = rc.main(["--exports", str(ex), "--db", str(w["db"]), "--save", str(w["save"]), *bound],
+                   echo=out.append, get=g)
+    return code, out, g
+
+
+def test_236_4_the_host_run_excludes_the_rehearsal_closing_by_from_and_names_it(world):
+    host = _host_tree(world)
+    code, out, _ = _bounded(world, host, "--from", BOUND)
+    assert code == 0
+    sm = summary(out)
+    assert sm["matches"] == [9238, 9245]                        # the rehearsal-era 9240 left out by the bound
+    assert sm["run"] == {"era": "host", "label": f"host era, runs from {BOUND}", "from": BOUND, "through": None}
+    assert f"this run: host era, runs from {BOUND} · rows 2 of 4 " in out[0]
+    b = line(out, "BOUND (236 item 4: #810's bound, 232 item 2(b);")
+    assert f"this run: host era, runs from {BOUND} · --from {BOUND} · --through —" in b
+    assert ("excluded by the bound (not read, not classified, not counted): PL closing rows 1, from 1 run(s) "
+            "(closing files 1), PL games left with no row in the bound 1 (named below)") in b
+    assert ("  outside the bound (not counted): match 9240 Chelsea v Tottenham (run 2026-10-25T23:45Z, "
+            "closing_SOCCER_2026-10-25T2345Z.json, desk PLAY)") in out
+    assert sm["bound"]["outside"] == {"runs": 1, "files": 1, "rows": 1, "games": 1, "named": [
+        "match 9240 Chelsea v Tottenham (run 2026-10-25T23:45Z, closing_SOCCER_2026-10-25T2345Z.json, desk PLAY)"]}
+    assert not [ln for ln in out if ln.startswith("== match 9240")]
+
+
+def test_236_4_a_run_start_exactly_at_the_bound_is_counted_by_from(world):
+    host = _host_tree(world)
+    code, out, _ = _bounded(world, host, "--from", BOUND)
+    assert code == 0 and 9238 in summary(out)["matches"]
+    assert "(closing_SOCCER_2026-10-26T1200Z.json, git_sha f0e4cbf3; earlier runs 0)" in line(out, "== match 9238")
+
+
+def test_236_4_the_laptop_run_is_through_the_bound_exclusive(world):
+    host = _host_tree(world)
+    code, out, _ = _bounded(world, host, "--through", BOUND)
+    assert code == 0
+    sm = summary(out)
+    assert sm["matches"] == [9240]                              # exactly at the bound is the host era's, not here
+    assert sm["run"]["era"] == "laptop" and sm["run"]["label"] == f"laptop era, runs through {BOUND}"
+    assert sm["bound"]["outside"]["games"] == 2 and sm["bound"]["outside"]["runs"] == 2
+    named = [ln for ln in out if ln.startswith("  outside the bound (not counted): ")]
+    assert [ln.split(" (run ")[0][len("  outside the bound (not counted): "):] for ln in named] == [
+        "match 9238 Liverpool v Brighton", "match 9245 Sunderland v Leeds"]
+
+
+def test_236_4_a_row_with_no_run_start_is_outside_every_bound_named(world):
+    host = _host_tree(world)
+    code, out, _ = _bounded(world, host, "--from", BOUND)
+    assert code == 0
+    u = line(out, "RUN START UNKNOWN, OUTSIDE EVERY BOUND (232 item 2(b); law 4")
+    assert "PL closing rows 1 (closing files 1), PL games left with no row in the bound 1 (named below)" in u
+    assert ("  run start unknown, outside every bound (not counted): match 9300 Everton v Coventry (run start "
+            "unknown, closing_SOCCER_nostamp.json, desk PASS)") in out
+    assert 9300 not in summary(out)["matches"]
+
+
+def test_236_4_an_unbounded_run_says_so_and_keeps_the_floor(world):
+    code, out, _ = run(world)
+    assert code == 0
+    sm = summary(out)
+    assert sm["run"]["era"] == "unbounded" and sm["floor"] == "2026-10-20T18:42:00Z" and sm["before_floor"] == 1
+    b = line(out, "BOUND (236 item 4")
+    assert "this run: unbounded run (no --from, no --through: no era; not an era's count)" in b
+    assert "PL closing rows before it, not the population, never classified: 1)" in b
+    assert b.endswith("no bound: every run from the floor read, nothing excluded by a bound (not an era's count)")
+
+
+@pytest.mark.parametrize("flag", ["--from", "--through"])
+@pytest.mark.parametrize("bad", ["2026-10-26T12:00:00", "2026-10-26", "2026-10-26 12:00:00Z",
+                                 "2026-10-26T12:00:00+00:00", "2026-10-26T12:00Z", "2026-13-26T12:00:00Z",
+                                 "\uff12026-10-26T12:00:00Z", "2026-10-26T12:00:00z", ""])
+def test_236_4_a_malformed_instant_is_refused_exit_2_nothing_read(world, monkeypatch, flag, bad):
+    monkeypatch.setattr(rc, "population", lambda *a, **k: pytest.fail("a closing file was read"))
+    code, out, g = _bounded(world, world["ex"], flag, bad)
+    assert code == 2 and g.calls == [] and not world["save"].exists()
+    assert out == [f"REFUSED: {flag} {bad!r}: not a UTC instant YYYY-MM-DDTHH:MM:SSZ (232 item 2(b)); nothing read"]
+
+
+@pytest.mark.parametrize("bound, why", [
+    (("--from", BOUND, "--through", BOUND), "is not before --through"),
+    (("--from", "2026-10-20T18:41:59Z"), "is before the issue's floor 2026-10-20T18:42:00Z"),
+    (("--through", "2026-10-20T18:42:00Z"), "is not after the issue's floor 2026-10-20T18:42:00Z"),
+])
+def test_236_4_a_bound_that_holds_no_row_of_the_population_is_refused(world, bound, why):
+    code, out, g = _bounded(world, world["ex"], *bound)
+    assert code == 2 and len(out) == 1 and why in out[0] and out[0].endswith("nothing read") and g.calls == []
+
+
+def test_236_4_the_floor_itself_is_a_valid_from(world):
+    code, out, _ = _bounded(world, world["ex"], "--from", "2026-10-20T18:42:00Z")
+    assert code == 0 and summary(out)["matches"] == [9240, 9238, 9245]
+
+
+def test_236_4_the_ruling_is_quoted_verbatim_in_the_header_and_the_docstring(world):
+    code, out, _ = run(world)
+    assert code == 0
+    assert line(out, "THE COPY AND THE BOUND (ARCHITECT 2026-11-03 14:20 ET, addendum 236 item 4, verbatim): ").startswith(
+        f"THE COPY AND THE BOUND (ARCHITECT 2026-11-03 14:20 ET, addendum 236 item 4, verbatim): \"{rc.RULING_236_4}\"")
+    assert rc.RULING_236_4.startswith("4. #688's RECEIPT (230 item 2(c)) — its two: --db REQUIRED, always a copy")
+    assert rc.RULING_236_4.endswith("one run per machine-era, two consoles. It opens when a slot frees.")
+    assert " ".join(rc.RULING_236_4.split()) in " ".join(rc.__doc__.split())

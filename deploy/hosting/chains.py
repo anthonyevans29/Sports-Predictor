@@ -46,6 +46,7 @@ KALSHI_CAPTURE_ONLY = EXPANSION_CODES
 NCAA_FORWARD_DAYS = 7
 
 CUP_SCHEDULE = ("EFL", "CL", "UEL", "FAC")     # intl-daily's cup schedule read (#707), in this order
+COVERAGE_STEP = ["coverage", "--json"]         # intl-daily's LAST step (#805, addendum 225 item 5)
 
 CHAINS: dict[str, dict] = {
     # --- MLB (docs/CLI.md "MLB daily operation") ---
@@ -199,12 +200,23 @@ CHAINS: dict[str, dict] = {
             # on an existing daily chain [...], listed in the chain's steps"): one listing read per cup, so a cup
             # game's stored kickoff is at most a day old on its match day. Nothing else re-read a cup's schedule
             # between the Sunday full-season sync and the 24h window (EFL round 4, four of eight dates a day wrong).
-            # Last in the chain, so a cup read that fails leaves the intl steps done.
+            # After the intl steps, so a cup read that fails leaves the intl steps done (#805 put coverage after it).
             # TEAMS BEFORE MATCHES (ARCHITECT 2026-11-01, addendum 204 item 3(b); #728): "intl-daily runs the same
             # sync-teams step before each cup's sync-matches (four calls a day; the cup rounds are where new clubs
             # enter)". Each cup's sync-teams runs immediately before its sync-matches, under the chain's one DB lock.
             *[[verb, "--competition", code, "--season", "2026/27"] for code in CUP_SCHEDULE
               for verb in ("sync-teams", "sync-matches")],
+            # THE COVERAGE FILE'S HOST WRITER (ARCHITECT 2026-11-03, addendum 225 item 5; #805), verbatim: "`coverage
+            # --json` becomes the LAST step of one daily host chain (intl-daily's tail is the candidate: daily, early,
+            # after its syncs; read-only, reads the DB and the registry; its failure never blocks a sync step — Code
+            # names the chain and the step's exit handling in the PR body)." COVERAGE_STEP, LAST, after the cups' pairs:
+            # it reads the DB mode=ro and writes exports/coverage_<date>.json (its default --out, the ET day; sp_run
+            # runs every step from the checkout), which the step's mirror push carries to host/latest/coverage.json.
+            # Exit handling is sp_run's, unchanged: no step follows it, so its failure blocks no sync (the chain's
+            # exit is the first failure's and systemd pages); a failed step before it that stops the chain (a cup's
+            # sync-matches, an intl step), or a failed daily backup before any step (sp_run skips every step), leaves
+            # that day without a host coverage file.
+            [*COVERAGE_STEP],
         ],
     },
     "ncaa-market": {
@@ -483,4 +495,5 @@ UNMETERED = frozenset({
     "nhl-shot-sync",          # api-web.nhle.com (the NHL's free API), never api-sports
     "export-unl-predictions",  # reads the DB only
     "export-soccer-expansion-shadow",  # reads the DB and the registry only (addendum 185 D2: its chain step)
+    "coverage",               # reads the DB (mode=ro), the registry, the roadmap and exports/ only (#805: its chain step)
 })

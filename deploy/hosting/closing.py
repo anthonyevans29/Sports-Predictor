@@ -153,6 +153,23 @@ CLOSING_HOLDS = (
     {"call": "PLAY", "tags_any": ("QB-flagged half units", "QB unread half units"),
      "text": "QB: paste to the architect before placing", "since": "2026-10-11", "families": ("NFL",)},
 )
+# THE WOULD-BE LINE (ARCHITECT 2026-11-02 11:20 ET, addendum 217 item 4, verbatim in src/walters/exec_cohorts.py
+# RULING_217_4): "#446's measurement keeps accruing on paper — exec_cohorts and the closing page's hold check gain one
+# cohort line for NFL while uncertified, "would-be PLAY (uncertified, unstaked)", reading the record-only would-be call
+# with the same QB-flag / unread-list classification, never pooled with PLAY, never a position." As built: an NFL row
+# the Desk called PASS market-only (desk_policy.NFL_MARKET_ONLY_KIND) whose desk.market_only_hold.would_call is PLAY
+# carries `would_be` (would_be_for) while the registry does not read the NFL model certified (registry.certification_of
+# on nfl_predict.MODEL_VERSION, read once per run; an unread registry, a missing entry or a failed read is never judged
+# certified, law 4, and never blocks the page). The summary block and the run receipt carry it
+# (the label, the would-be pick and units, the exec edge, the QB classification of the QB hold of 2026-10-11, its
+# tags_any, and "record only, not placed"); the phone page's text does NOT (ARCHITECT 2026-11-02 18:05 ET, addendum 223
+# item 3: "the per-game line comes OFF THE PHONE PAGE's text; it lives in the summary block and the receipt only"), so
+# #778's pin stands: no PLAY on the NFL closing or slate page. Never the PASS count's business (the row stays a PASS),
+# never high priority.
+WOULD_BE = "would-be PLAY (uncertified, unstaked)"     # the ruled label, verbatim (exec_cohorts.WOULD_BE)
+WOULD_BE_FAMILIES = ("NFL",)
+MARKET_ONLY_KIND = "market_only"                       # desk_policy.NFL_MARKET_ONLY_KIND (a test pins the two)
+QB_TEXT = {"QB-flagged half units": "QB-flagged", "QB unread half units": "QB list unread"}   # the QB hold's tags_any
 VOID = ("CANCELLED", "POSTPONED", "STALE_ORPHAN")      # never a game in any window
 STARTED_STATUSES = ("LIVE", "FINISHED")
 MIRROR_SETTING = "SP_EXPORTS_MIRROR_REMOTE"            # M1
@@ -711,6 +728,53 @@ def hold_for(d: dict, fam: str) -> str | None:
     return " · ".join(out) or None
 
 
+def nfl_certification() -> tuple[str, str]:
+    """The NFL model's certification as the registry reads it now (registry.certification_of on
+    nfl_predict.MODEL_VERSION, the id predict-nfl writes): "uncertified", "certified" or "unread". The page is a
+    money-path surface and this line is the record only: any failure to import or read degrades to ("unread", the
+    exception's name), so the line prints labelled "certification not read" and can never block the page (law 4)."""
+    try:
+        _close_contract()                              # puts the repo root on sys.path
+        from src.walters import registry
+        from src.walters.nfl_predict import MODEL_VERSION
+        return registry.certification_of(MODEL_VERSION)
+    except Exception as e:                             # noqa: BLE001  (never the page's failure)
+        return "unread", type(e).__name__
+
+
+def qb_class(d: dict) -> str:
+    """The QB classification of a Desk row: which of the Desk's two QB tags (QB_TEXT's keys, the tags_any the QB hold
+    of 2026-10-11 names) the row carries, else "QB inputs clean". Read from the stable tags, never from the hold's row:
+    lifting a hold is deleting its row from CLOSING_HOLDS, and the classification must not depend on it (Codex P1 on
+    #802: a bare next() over CLOSING_HOLDS would raise StopIteration and fail the closing run once the row is gone)."""
+    tags = set(d.get("tags") or [])
+    got = [text for tag, text in QB_TEXT.items() if tag in tags]
+    return " and ".join(got) or "QB inputs clean"
+
+
+def would_be_for(r: dict, d: dict, fam: str, cert: tuple[str, str] | None) -> dict | None:
+    """The record-only would-be PLAY of a market-only NFL row (addendum 217 item 4), or None: the family is one the
+    rule holds, the registry does not read its model certified, and the row is a PASS of the market-only kind whose
+    market_only_hold would call PLAY. Never a call, never a position."""
+    if fam not in WOULD_BE_FAMILIES or not cert or cert[0] == "certified":
+        return None
+    if d.get("call") != "PASS" or d.get("pass_kind") != MARKET_ONLY_KIND:
+        return None
+    h = d.get("market_only_hold")
+    if not isinstance(h, dict) or h.get("would_call") != "PLAY":
+        return None
+    return {"label": WOULD_BE, "pick": side_team(r, d.get("pick")), "units": h.get("would_units") or 0,
+            "exec_edge_pp": _r2((d.get("exec") or {}).get("edge_pp")), "qb": qb_class(d), "staked": False,
+            "certification": cert[0]}
+
+
+def would_be_text(w: dict) -> list[str]:
+    """The summary block's fields of a would-be line: the label, pick and units, exec edge, QB class (never the phone
+    page's text, addendum 223 item 3)."""
+    return [f"{w['label']} {w['pick']} {_units(w['units'])}", f"exec {_pp(w['exec_edge_pp'])}", w["qb"],
+            "record only, not placed"]
+
+
 def _pp(x) -> str:
     return "n/a" if x is None else f"{x:+.1f}pp"
 
@@ -764,6 +828,7 @@ def desk_rows(doc: dict, cover_ids: set, done: datetime, started_ids=frozenset()
     at `done`, the moment the steps finished: a stored status then LIVE or FINISHED (`started_ids`) or a start time
     at or before `done`."""
     out = []
+    cert = None
     for r in doc.get("predictions") or []:
         d = r.get("desk")
         if not d or not r.get("utc_date") or r.get("match_id") not in cover_ids:
@@ -772,6 +837,9 @@ def desk_rows(doc: dict, cover_ids: set, done: datetime, started_ids=frozenset()
         if r.get("match_id") in started_ids or st <= utc(done):
             continue
         vs = d.get("value_shadow") or None
+        if cert is None and fam in WOULD_BE_FAMILIES and isinstance(d.get("market_only_hold"), dict):
+            cert = nfl_certification()                  # addendum 217 item 4: read once, only when a hold is there
+        wb = would_be_for(r, d, fam, cert)
         out.append({"match_id": r.get("match_id"), "start": iso_z(st), "start_et": et(st),
                     "away": r.get("away_team"), "home": r.get("home_team"),
                     "call": d.get("call"), "call_text": call_text(r, d), "pick": side_team(r, d.get("pick")),
@@ -792,7 +860,8 @@ def desk_rows(doc: dict, cover_ids: set, done: datetime, started_ids=frozenset()
                                       "exec_edge_pp": _r2((vs.get("exec") or {}).get("edge_pp"))}
                                      if vs else None),
                     "starters_listed": ({k: (r.get("pitchers") or {}).get(k) is not None for k in ("home", "away")}
-                                        if "pitchers" in r else None)})
+                                        if "pitchers" in r else None),
+                    **({"would_be": wb} if wb else {})})      # addendum 217 item 4: only on a row that has one
     return sorted(out, key=lambda x: (x["start"], x["match_id"] or 0))
 
 
@@ -1093,6 +1162,9 @@ def summary_block(x: dict) -> str:
                      f"{k.get('ask')}, {k.get('spread_c')}c) · raw {_pp(k.get('raw_edge_pp'))} · equal footing "
                      f"{_pp(k.get('equal_footing_edge_pp'))} · would {k.get('would_call')} "
                      f"{_units(k.get('would_units'))}")
+    w = x.get("would_be")
+    if w:                                               # addendum 217 item 4: the record only, never a call
+        lines.append("   " + " · ".join(would_be_text(w)))
     for kind in ("value_shadow", "quarantine_shadow"):
         v = x.get(kind)
         if v:
@@ -1866,6 +1938,7 @@ def _closing(rec: dict, fam: str, s: datetime, covers: list[dict], folder: Path,
     rec["desk_rows"] = [{k: x[k] for k in ("match_id", "start", "call", "call_text", "pick", "units", "exec_edge_pp",
                                            "hold", "value_shadow", "quarantine_shadow", "starters_listed",
                                            "unresolved_injuries", "injuries_empty")}
+                        | ({"would_be": x["would_be"]} if x.get("would_be") else {})   # addendum 217 item 4
                        for x in rows]   # call_text: 26 2(b); injuries_empty: addendum 40 item 4
     print(f"\n=== {fam} closing summary · {len(rows)} game(s) starting {et(s)} to "
           f"{utc(s + timedelta(minutes=COVER_MIN)).astimezone(NY):%H:%M} ET")

@@ -172,7 +172,10 @@ def test_the_roadmap_lane_nfl_v2():
     assert [(s["owner"], s["due"]) for s in ln["steps"]] == [
         ("code", "2026-11-03"), ("operator", "2026-11-04"), ("architect", "2026-11-05"), ("operator", "2026-11-06"),
         ("calendar", "2026-11-23"), ("operator", "2026-11-24"), ("architect", "2026-11-26")]   # 219 item 7
-    assert all(s["done"] is None for s in ln["steps"])
+    # ARCHITECT 2026-11-03 11:10 ET, addendum 232 item 3(i) (227 item 4 restated): the harness step done 2026-11-02,
+    # receipt "#784 merged at 8bef04c2 (addendum 219)"; a done-mark, never a moved line (222 item 3(a))
+    assert ln["steps"][0]["done"] == {"date": "2026-11-02", "receipt": "#784 merged at 8bef04c2 (addendum 219)"}
+    assert all(s["done"] is None for s in ln["steps"][1:])
     assert ln["steps"][0]["what"].startswith("the harness PR")
     assert "the preflight of the v2 harness" in ln["steps"][1]["what"]
     assert ln["steps"][3]["what"] == "the ONE run on my word, my block, the verdict the same day"

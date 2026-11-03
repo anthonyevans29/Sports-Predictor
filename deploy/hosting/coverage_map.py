@@ -79,7 +79,16 @@ v7"."
                    nhl-daily runs export-nhl-predictions, v7, every day: the ruling's own example) and how a declared
                    lane would (NCAA's has no shadow export scheduled: CLAUDE.md "No college shadow ... until then").
                    The tag is the vN token of the shadow's id as the code names it (the registry id in (a), the shadow
-                   module's model id in (b)), the full id where it has none. A chain outside its season gate on the
+                   module's model id in (b)), the full id where it has none; in (b), for a shadow export whose rows
+                   a registry entry per competition labels (SHADOW_TAGS: export-soccer-expansion-shadow), the tag is
+                   that entry's id and "declared <declared_at>" (ARCHITECT 2026-11-03 07:55 ET, addendum 226 item
+                   4(b), verbatim: "SA, FL1, ELC and PD tagged from the registry entry (the id and "declared
+                   2026-11-02T18:10:00Z"); "shadow v1" goes"). A competition two lanes name (addendum 223 item 2(f)
+                   Q2: "a competition in two lanes is the truth") reads the first lane that makes it SHADOW, except
+                   that a confirming lane whose entry is not the one the scheduled export binds it to yields the tag
+                   to the lane the export's rows are read for and is named beside it in the line's reason ("beside
+                   it, the confirmation: ...", the tile's note: "the pd confirmation named on the same tile where
+                   the tile has the room"). A chain outside its season gate on the
                    day runs nothing (sp_run.active_from: its active_from_env setting, else chains.py's date; sp_run
                    skips it, or fails it on a malformed setting): no schedule that day, the gate named on the line.
       MARKET-ONLY  the code's own market-only sets, imported (market_only_sets): desk_policy.SHADOW_VENUE_COMPS (the set
@@ -279,6 +288,29 @@ def _expansion_binds(code: str, entries: dict) -> str | None:
 # not}, for a shadow export whose step names no competition and binds its own: a chain's earlier steps naming a
 # competition do not make it that competition's shadow by themselves.
 SHADOW_BINDS = {"export-soccer-expansion-shadow": _expansion_binds}
+
+
+def _expansion_tag(code: str) -> tuple[str, str] | None:
+    """(the registry entry export-soccer-expansion-shadow writes `code`'s rows under, the tag: "<id> · declared
+    <declared_at>", the entry's own id and declared_at text, verbatim), or None where it binds none. ARCHITECT
+    2026-11-03 07:55 ET, addendum 226 item 4(b), verbatim: "SA, FL1, ELC and PD tagged from the registry entry (the
+    id and "declared 2026-11-02T18:10:00Z"); "shadow v1" goes" (addendum 223 item 2(f) Q4: "the coverage tag for SA,
+    FL1 and ELC reads the registry entry (the id and "declared 2026-11-02T18:10:00Z"), not the export's model id").
+    The binding is soccer_expansion.shadow_binding's (the one registry source _expansion_binds reads): its `candidate`
+    and `declared_at`, the fields the rows' gate_verdict is made of."""
+    from src.walters import soccer_expansion as sx
+    if code not in sx.LEAGUES:
+        return None
+    b = sx.shadow_binding(code)
+    if b["state"] != sx.SHADOW_EXPORTING or not b["candidate"]:
+        return None
+    return b["candidate"], f"{b['candidate']} · declared {b['declared_at']}"
+
+
+# {shadow export command: function(code) -> (the registry entry it writes the competition's rows under, the tag) or
+# None}, for a shadow export whose rows are labelled by a registry entry per competition (addendum 226 item 4(b)): the
+# tag reads that entry, never the export's model id. A command not here is tagged by shadow_tag(its model id).
+SHADOW_TAGS = {"export-soccer-expansion-shadow": _expansion_tag}
 
 
 class Refused(RuntimeError):
@@ -492,6 +524,10 @@ def shadow_of(code: str, lanes: list[dict], entries: dict, day: date) -> tuple[s
                       + [f"{', '.join(chs)} run {cmd}, which writes no {code} row: {w}"
                          for (cmd, w), chs in unbound.items()])
     runs = [r for r in runs if not off[r["chain"]]]
+    # addendum 226 item 4(b): the registry entry a scheduled export writes the competition's rows under (SHADOW_TAGS)
+    bound = next((t for t in (SHADOW_TAGS[r["command"]](code) for r in runs if r["command"] in SHADOW_TAGS) if t),
+                 None)
+    hits: list[tuple[str | None, str, str]] = []           # (the confirming lane's registry id or None, tag, where)
     whys = []
     for ln in naming:
         src = f"roadmap lane {ln['lane']}: {ln['state']}"
@@ -511,12 +547,31 @@ def shadow_of(code: str, lanes: list[dict], entries: dict, day: date) -> tuple[s
             if refusing:
                 whys.append(f"{src}; registry {rid}: confirming, but " + "; ".join(refusing))
                 continue
-            return shadow_tag(rid), f"{src}; registry {rid}: confirming"
+            hits.append((rid, shadow_tag(rid), f"{src}; registry {rid}: confirming"))
+            continue
         if runs:
             r = runs[0]
-            return shadow_tag(r["model"]), f"{src}; chain {r['chain']} runs {r['command']} ({r['model']})"
+            if bound:                      # addendum 226 item 4(b): the tag reads the entry the rows are under
+                hits.append((None, bound[1], f"{src}; chain {r['chain']} runs {r['command']} ({r['model']}), its "
+                                             f"{code} rows under registry {bound[0]}"))
+            else:
+                hits.append((None, shadow_tag(r["model"]), f"{src}; chain {r['chain']} runs {r['command']} "
+                                                           f"({r['model']})"))
+            continue
         whys.append(f"{src}, no shadow export scheduled for {code} (chains.py{': ' + gated if gated else ''})")
-    return None, "; ".join(whys)
+    if not hits:
+        return None, "; ".join(whys)
+    # Addendum 223 item 2(f) Q2: "a competition in two lanes is the truth, and coverage shows PD under the leagues
+    # lane's state with the pd confirmation named on the same tile where the tile has the room — no new machinery".
+    # A confirming lane whose entry is not the one the scheduled export binds the competition to (addendum 223 item
+    # 2(c): "the arm the export writes UNDER THE ENTRY is the arm the window judges") yields the tag to the lane the
+    # export's rows are read for, and is named beside it on the line (the tile's note). Otherwise the first lane, as
+    # ever.
+    aside = [h for h in hits if bound and h[0] is not None and h[0] != bound[0]]
+    shown = next((h for h in hits if h[0] is None), None) if aside else None
+    if shown is None:
+        return hits[0][1], hits[0][2]
+    return shown[1], shown[2] + "".join(f"; beside it, the confirmation: {h[2]}" for h in aside)
 
 
 def model_status(code: str, lanes: list[dict], entries: dict | None, prod, unread: str | None = None,

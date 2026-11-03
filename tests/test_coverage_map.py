@@ -408,12 +408,19 @@ def test_a_declared_lane_is_shadow_only_where_a_chain_runs_its_shadow_export(env
 def test_a_declared_league_reads_the_shadow_the_soccer_chains_run_and_an_undeclared_one_does_not(env):
     """R5 (addendum 178) with D2 (addendum 185): export-soccer-expansion-shadow runs after the five leagues' syncs, and
     a league reads its shadow only once the registry holds its declaration (SHADOW_BINDS, read from the registry's
-    entries). SA declared: MARKET-ONLY · shadow v1 by (b); BL1 still MARKET-ONLY alone."""
+    entries). SA declared: MARKET-ONLY · shadow by (b), tagged from its registry entry (ARCHITECT 2026-11-03, addendum
+    226 item 4(b): the id and "declared <declared_at>"; "shadow v1" goes); BL1 still MARKET-ONLY alone."""
     make_db(env, [(860, "SA", "2026-10-17 19:00", "SCHEDULED"), (861, "BL1", "2026-10-17 19:00", "SCHEDULED")])
     Path(reg.LEDGER).write_text(json.dumps(ENTRIES + [SX_RUN, SA_DECL]))
     out = run("--date", DAY)[1]
-    assert (f"· MARKET-ONLY · shadow v1 ({EXPANSION_SETS}; roadmap lane leagues: to declare; chain soccer-prematch "
-            "runs export-soccer-expansion-shadow (soccer-expansion-v1)) ·") in line_of(out, "SA")
+    assert (f"· MARKET-ONLY · shadow leagues-sa-v1 · declared 2026-10-15T10:00:00Z ({EXPANSION_SETS}; roadmap lane "
+            "leagues: to declare; chain soccer-prematch runs export-soccer-expansion-shadow (soccer-expansion-v1), its "
+            "SA rows under registry leagues-sa-v1) ·") in line_of(out, "SA")
+    assert "shadow v1 " not in line_of(out, "SA")
+    assert cm.SHADOW_TAGS["export-soccer-expansion-shadow"]("SA") == ("leagues-sa-v1",
+                                                                      "leagues-sa-v1 · declared 2026-10-15T10:00:00Z")
+    assert cm.SHADOW_TAGS["export-soccer-expansion-shadow"]("BL1") is None      # not declared: no entry, no tag
+    assert cm.SHADOW_TAGS["export-soccer-expansion-shadow"]("PL") is None
     assert "which writes no BL1 row: BL1 is not declared (no registry entry leagues-bl1-v1" in line_of(out, "BL1")
     assert "· MARKET-ONLY (" in line_of(out, "BL1")
     assert cm.SHADOW_BINDS["export-soccer-expansion-shadow"]("PL", {}) == "PL is not a league of soccer-expansion-v1"
@@ -468,6 +475,38 @@ def test_pd_reads_no_shadow_when_the_export_refuses_pd(env):
     assert ("roadmap lane pd: confirming; registry soccer-expansion-v1: confirming, but soccer-prematch, "
             "soccer-morning-after run export-soccer-expansion-shadow, which writes no PD row: its binding of PD is "
             "refused: soccer-expansion-v1: the run record's surviving set ['SA'] does not hold PD") in got["from"], got
+
+
+@pytest.mark.parametrize("order", ["pd first", "leagues first"])
+def test_pd_in_two_lanes_reads_the_leagues_entry_with_the_confirmation_beside_it(env, order):
+    """ARCHITECT 2026-11-02 18:05 ET, addendum 223 item 2(f) Q2, verbatim: "a competition in two lanes is the truth, and
+    coverage shows PD under the leagues lane's state with the pd confirmation named on the same tile where the tile has
+    the room — no new machinery"; addendum 226 item 4(b): PD tagged from its registry entry. With leagues-pd-v1 in the
+    registry the export writes PD's rows under it (addendum 222 item 4(b)), so the confirming pd lane (its entry
+    soccer-expansion-v1, not the one the export binds PD to) yields the tag and is named beside it, in either lane
+    order. Without leagues-pd-v1 the export binds PD to soccer-expansion-v1 and the pd lane reads as before (v1)."""
+    pd_decl = {**SA_DECL, "id": "leagues-pd-v1", "competition": "PD", "declared_at": "2026-11-02T18:10:00Z"}
+    lanes = [lane("pd", "confirming", "soccer-expansion-v1", ["PD"]),
+             lane("leagues", "declared", None, ["PD", "SA", "BL1", "FL1", "ELC"])]
+    if order == "leagues first":
+        lanes.reverse()
+    Path(reg.LEDGER).write_text(json.dumps(ENTRIES + [SX_RUN, pd_decl]))
+    entries = {e["id"]: e for e in reg.load(reg.LEDGER)}
+    got = cm.model_status("PD", lanes, entries, {}, day=NOW.date())
+    assert got["label"] == "MARKET-ONLY · shadow leagues-pd-v1 · declared 2026-11-02T18:10:00Z", got
+    assert got["from"].endswith(
+        "roadmap lane leagues: declared; chain soccer-prematch runs export-soccer-expansion-shadow (soccer-expansion-v1), "
+        "its PD rows under registry leagues-pd-v1; beside it, the confirmation: roadmap lane pd: confirming; registry "
+        "soccer-expansion-v1: confirming"), got
+    Path(reg.LEDGER).write_text(json.dumps(ENTRIES + [SX_RUN]))
+    entries = {e["id"]: e for e in reg.load(reg.LEDGER)}
+    got = cm.model_status("PD", lanes, entries, {}, day=NOW.date())
+    if order == "pd first":          # the first lane, as ever: the confirming entry is the one the export binds PD to
+        assert got["label"] == "MARKET-ONLY · shadow v1", got
+        assert got["from"].endswith("roadmap lane pd: confirming; registry soccer-expansion-v1: confirming"), got
+    else:                            # the leagues lane first: the export's rows, under soccer-expansion-v1's entry
+        assert got["label"] == "MARKET-ONLY · shadow soccer-expansion-v1 · declared 2026-10-07T15:17:38Z", got
+        assert "beside it" not in got["from"], got
 
 
 def test_expansion_binds_reads_one_registry_the_exports_own(env):
@@ -581,11 +620,14 @@ RULED = {   # addendum 111 item 2's examples, on the tracked roadmap and registr
     # nfl-confirm on the confirming entry (214 item 3: "as a SHADOW").
     "MLB": ("LIVE", "LIVE"), "PL": ("LIVE", "LIVE"), "NFL": ("MARKET-ONLY", "MARKET-ONLY · shadow v1"),
     "NHL": ("MARKET-ONLY", "MARKET-ONLY · shadow v7"), "UNL": ("MARKET-ONLY", "MARKET-ONLY · shadow v2"),
-    "PD": ("MARKET-ONLY", "MARKET-ONLY · shadow v1"), "NCAA": ("MARKET-ONLY", "MARKET-ONLY"),
+    "NCAA": ("MARKET-ONLY", "MARKET-ONLY"),
     **{c: ("MARKET-ONLY", "MARKET-ONLY") for c in ("CL", "EFL", "UEL", "BL1")},
     # ARCHITECT 2026-11-02 13:10 ET, addendum 220: SA, FL1 and ELC declared (leagues-<code>-v1), so the export binds
-    # them (addendum 178 R5) and the declared leagues lane names them; BL1 is not declared (its moved line, 11-09)
-    **{c: ("MARKET-ONLY", "MARKET-ONLY · shadow v1") for c in ("SA", "FL1", "ELC")},
+    # them (addendum 178 R5) and the declared leagues lane names them; BL1 is not declared (its moved line, 11-09).
+    # ARCHITECT 2026-11-03 07:55 ET, addendum 226 item 4: PD joins the leagues lane's competitions; the four are tagged
+    # from the registry entry (the id and "declared 2026-11-02T18:10:00Z"), "shadow v1" goes (4(b)).
+    **{c: ("MARKET-ONLY", f"MARKET-ONLY · shadow leagues-{c.lower()}-v1 · declared 2026-11-02T18:10:00Z")
+       for c in ("PD", "SA", "FL1", "ELC")},
     "EL1": ("UNKNOWN", "UNKNOWN"),
 }
 
@@ -605,7 +647,16 @@ def test_the_real_files_and_code_derive_the_ruled_statuses(tmp_path, monkeypatch
     assert got["PL"]["from"] == "closing family SOCCER; production soccer_elo_poisson v22"
     assert got["MLB"]["from"] == "closing family MLB; production mlb_pythag_negbin v2"
     assert got["UNL"]["from"].endswith("roadmap lane unl: confirming; registry intl-elo-v2: confirming")
-    assert got["PD"]["from"].endswith("roadmap lane pd: confirming; registry soccer-expansion-v1: confirming")
+    # addendum 223 item 2(f) Q2: PD under the leagues lane's state, the pd confirmation named on the same tile
+    expansion = "SHADOW_VENUE_COMPS (_refuse_shadow_league), chains.EXPANSION_CODES, chains.KALSHI_CAPTURE_ONLY"
+    assert got["PD"]["from"] == (
+        f"{expansion}; roadmap lane leagues: declared; chain soccer-prematch runs export-soccer-expansion-shadow "
+        "(soccer-expansion-v1), its PD rows under registry leagues-pd-v1; beside it, the confirmation: roadmap lane pd: "
+        "confirming; registry soccer-expansion-v1: confirming"), got["PD"]["from"]
+    for code in ("SA", "FL1", "ELC"):
+        assert got[code]["from"] == (
+            f"{expansion}; roadmap lane leagues: declared; chain soccer-prematch runs export-soccer-expansion-shadow "
+            f"(soccer-expansion-v1), its {code} rows under registry leagues-{code.lower()}-v1"), got[code]["from"]
     assert got["NHL"]["from"] == NHL_SHADOW
     assert got["NFL"]["from"] == (
         "closing family NFL, but predict-nfl writes nfl_predict.MODEL_VERSION nfl_elo_v1, and registry nfl-elo-v1 reads "

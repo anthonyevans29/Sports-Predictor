@@ -518,14 +518,21 @@ def test_the_roadmap_lane_validates_and_is_declared():
                        "the export switch) is on the host, deploy receipt 11-02 14:22Z\"")
     assert steps[2]["done"] is None and steps[3]["done"] is None
     j, nxt = rm.next_step(ln)
-    assert nxt is steps[2] and (nxt["due"], rm.overdue_steps(ln, datetime(2026, 11, 2).date())) == ("2026-12-20", [])
-    # addendum 199 item 3: the two later steps are projections, not floors; each date move has its moved line
-    assert steps[2]["what"].startswith("the 60th window game is final") and steps[2]["due"] == "2026-12-20"
-    assert "projection from the PL schedule, not a floor" in steps[2]["what"]
-    assert steps[3]["what"].startswith("the one read and the verdict") and steps[3]["due"] == "2026-12-21"
-    assert [(m["which"], m["was"], m["now"]) for m in ln["moved"]] == [
-        (steps[2]["what"], "2026-11-06", "2026-12-20"), (steps[3]["what"], "2026-11-06", "2026-12-21")]
-    assert all(m["ruling"].startswith("ARCHITECT 2026-11-01 12:05 ET, addendum 199 item 3") for m in ln["moved"])
+    assert nxt is steps[2] and (nxt["due"], rm.overdue_steps(ln, datetime(2026, 11, 2).date())) == ("2026-12-14", [])
+    # addendum 199 item 3: the two later steps are projections, not floors; each date move has its moved line.
+    # ARCHITECT 2026-11-02 18:20 ET, addendum 224 item 3: 12-20 -> 12-14 and 12-21 -> 12-15 on #754's count, the step
+    # texts carrying the count in place of the six-rounds projection (224 item 4); the earlier lines stay, word for word
+    assert steps[2]["what"].startswith("the 60th window game is final") and steps[2]["due"] == "2026-12-14"
+    assert "A projection from the stored schedule, not a floor" in steps[2]["what"]
+    assert "six full rounds" not in steps[2]["what"] and "(match 9315, stored kickoff 2026-12-12T15:00:00Z)" in \
+        steps[2]["what"]
+    assert steps[3]["what"].startswith("the one read and the verdict") and steps[3]["due"] == "2026-12-15"
+    assert [(m["was"], m["now"]) for m in ln["moved"]] == [
+        ("2026-11-06", "2026-12-20"), ("2026-11-06", "2026-12-21"), ("2026-12-20", "2026-12-14"),
+        ("2026-12-21", "2026-12-15")]
+    assert [m["which"] for m in ln["moved"][2:]] == [steps[2]["what"], steps[3]["what"]]
+    assert all(m["ruling"].startswith("ARCHITECT 2026-11-01 12:05 ET, addendum 199 item 3") for m in ln["moved"][:2])
+    assert all(m["ruling"].startswith("ARCHITECT 2026-11-02 18:20 ET, addendum 224 item 3") for m in ln["moved"][2:])
 
 
 def test_the_entry_records_the_one_entry_per_player_limitation():
@@ -965,7 +972,7 @@ def test_project_prints_the_60th_fixture_from_the_window_and_reads_no_outcome(is
     assert f"the first fixture at or after the window: kickoff {OPENS_TEXT} (match 5)" in text
     assert ("the 60th fixture at or after the window: kickoff 2026-12-12 (UTC date; 15:00:00Z; match 400) · 61 stored "
             "at or after the window") in text
-    assert ("the roadmap's step (the 60th window game is final): due 2026-12-20 · projected 2026-12-12 · 8 days before "
+    assert ("the roadmap's step (the 60th window game is final): due 2026-12-14 · projected 2026-12-12 · 2 days before "
             "the step's date (the step's date and any moved line are the architect's; nothing moves here)") in text
     assert "12-12 1" in text and "12-13" not in text.split("fixtures per UTC kickoff date")[1].split("\n")[0]
     assert not any(FORBIDDEN.search(x) for x in out)
@@ -992,7 +999,7 @@ def test_project_with_fewer_than_60_stored_prints_the_count_and_no_date(iso_db, 
     text = "\n".join(out)
     assert rc == 0
     assert "the 60th fixture at or after the window: not stored (only 59 stored at or after it); no date (law 4)" in text
-    assert "due 2026-12-20; no projected date to set beside it" in text
+    assert "due 2026-12-14; no projected date to set beside it" in text
     assert "the first host page not recorded in the entry" in out[1] and "strictly between" not in text
 
 

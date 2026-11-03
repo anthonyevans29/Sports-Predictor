@@ -743,11 +743,12 @@ def nfl_certification() -> tuple[str, str]:
 
 
 def qb_class(d: dict) -> str:
-    """The QB hold's classification of a Desk row (CLOSING_HOLDS' QB hold, its tags_any): which of its tags the row
-    carries, else "QB inputs clean"."""
-    qb_hold = next(h for h in CLOSING_HOLDS if "tags_any" in h)
+    """The QB classification of a Desk row: which of the Desk's two QB tags (QB_TEXT's keys, the tags_any the QB hold
+    of 2026-10-11 names) the row carries, else "QB inputs clean". Read from the stable tags, never from the hold's row:
+    lifting a hold is deleting its row from CLOSING_HOLDS, and the classification must not depend on it (Codex P1 on
+    #802: a bare next() over CLOSING_HOLDS would raise StopIteration and fail the closing run once the row is gone)."""
     tags = set(d.get("tags") or [])
-    got = [QB_TEXT.get(t, t) for t in qb_hold["tags_any"] if t in tags]
+    got = [text for tag, text in QB_TEXT.items() if tag in tags]
     return " and ".join(got) or "QB inputs clean"
 
 

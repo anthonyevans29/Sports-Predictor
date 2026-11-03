@@ -440,3 +440,19 @@ def test_the_closing_runs_receipt_and_summary_carry_it_only_on_the_would_be_row_
 
 
 from tests.test_closing_runs import box  # noqa: E402,F401  (the closing-run frame's fixture)
+
+
+def test_qb_class_reads_the_stable_tags_and_survives_the_hold_row_being_lifted(monkeypatch):
+    """Codex P1 on #802: lifting the QB hold is deleting its row from CLOSING_HOLDS; the classification must not need
+    that row (a bare next() raised StopIteration and failed the closing run). The two tags stay the hold's tags_any."""
+    import deploy.hosting.closing as closing
+    hold = next(h for h in closing.CLOSING_HOLDS if "tags_any" in h)
+    assert tuple(closing.QB_TEXT) == hold["tags_any"]                  # the stable tags are the hold's own
+    flagged = {"tags": ["QB-flagged half units"]}
+    unread = {"tags": ["QB unread half units"]}
+    both = {"tags": ["QB unread half units", "QB-flagged half units"]}
+    clean = {"tags": ["something else"]}
+    before = [closing.qb_class(d) for d in (flagged, unread, both, clean)]
+    monkeypatch.setattr(closing, "CLOSING_HOLDS", tuple(h for h in closing.CLOSING_HOLDS if "tags_any" not in h))
+    after = [closing.qb_class(d) for d in (flagged, unread, both, clean)]
+    assert after == before == ["QB-flagged", "QB list unread", "QB-flagged and QB list unread", "QB inputs clean"]

@@ -15,7 +15,9 @@ ROOT = Path(__file__).resolve().parent.parent
 SUFFIXES = (".md", ".txt", ".json")
 EXCLUDED = ("tests/fixtures/",)
 UUID = re.compile(r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b")
-TICKER = re.compile(r"\bKX[A-Z0-9]+-[A-Z0-9]")
+# A Kalshi market ticker: today's KX prefix, or the ticker's own shape whatever its prefix (SERIES-YYMONDD..., the date
+# segment Kalshi's game tickers carry), because prefixes change (src/adapters/kalshi.py: the KX* clearinghouse migration).
+TICKER = re.compile(r"\bKX[A-Z0-9]+-[A-Z0-9]|\b[A-Z][A-Z0-9]{2,}-[0-9]{2}(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)[0-9]{2}")
 # (ii) the CSV header row: a run of field names joined by a CSV delimiter (comma, U+241F, tab, semicolon or pipe; a name
 # may be double-quoted) holding the three names in that order. A prose sentence that names the fields (a ruling quoting
 # them, `in backticks`, a list wrapped across lines) is not a header row and is not caught: the guard is for the row.
@@ -73,6 +75,9 @@ _T = "KX" + "TEST-26JAN01AAABBB-AAA"
     (f"{_T} yes · 2026-10-04T12:00:00Z", False),
     (f"id {_Z} with no ticker", False),
     ("a KXNFLGAME series name with no market suffix and " + _Z, False),
+    (f"{_Z}␟trade␟" + "NFL" + "GAME-26OCT10AAABBB-AAA␟no", True),        # a pre-KX prefix: the ticker's shape
+    (f"{_Z}," + "ZZQGAME" + "-27JAN03CCCDDD-CCC,yes", True),             # any future prefix
+    (f"{_Z} next to UTF-8 and ISO-2026", False),                         # no ticker shape
 ])
 def test_a_uuid_beside_a_ticker_is_a_row(line, hit):
     assert bool(offenders(line, "f")) is hit

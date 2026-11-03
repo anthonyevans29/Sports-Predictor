@@ -332,7 +332,10 @@ def test_no_other_family_gets_the_line_whatever_its_rows_carry(tmp_path):
     write_closing(ex, KO - timedelta(minutes=35), [row(1101, "Qb", "Qb away", mo["Qb"])], fam="MLB")
     t = xc.tally(ex)
     assert t["would_be"] == {} and t["count_446"] == {}
-    assert LABEL not in _section(ex) and xc._would_be_line("MLB", t) is None
+    assert xc._would_be_line("MLB", t) is None
+    # the only would-be line is NFL's zero line (addendum 225 item 2(b)): MLB's row is never read as a would-be row
+    assert [x[:len(HEAD.format(state=UNCERT))] for x in _section(ex).splitlines() if LABEL in x] == \
+        [HEAD.format(state=UNCERT)]
 
 
 def test_the_label_the_tags_and_the_kind_are_the_desks_and_the_closing_pages(tmp_path):
@@ -456,3 +459,153 @@ def test_qb_class_reads_the_stable_tags_and_survives_the_hold_row_being_lifted(m
     monkeypatch.setattr(closing, "CLOSING_HOLDS", tuple(h for h in closing.CLOSING_HOLDS if "tags_any" not in h))
     after = [closing.qb_class(d) for d in (flagged, unread, both, clean)]
     assert after == before == ["QB-flagged", "QB list unread", "QB-flagged and QB list unread", "QB inputs clean"]
+
+
+# ---- (7) THE THIRTY COUNTS ROWS (ARCHITECT 2026-11-03 07:55 ET, addendum 225 item 2(a)) ----------------------------
+
+UNSCORED = "counted, not scored (outside the W-L-P)"
+
+
+def _unscored_world(tmp_path):
+    """A closing run after the hold (KO2): QB-tagged rows each of the four ruled causes leaves out, once as a would-be
+    PLAY (annotate's own QB-flagged market-only block) and once as a PLAY: absent from this DB (not in this copy), the
+    DB's teams are not the row's (teams differ), the DB's start is three days on (re-dated void), the exec basis is not
+    taker (non-taker basis); plus one QB-tagged PLAY that is scored (a hit)."""
+    _comps()
+    ex = tmp_path / "exports"
+    q = _mo()["Qb"]
+    assert "QB-flagged half units" in q["tags"] and q["exec"]["edge_pp"] is not None
+    maker = {**q, "exec": {**q["exec"], "basis": "maker"}}
+    qbp = dict(edge=3.0, cost=0.6, tags=("QB-flagged half units",))
+    later = KO2 + timedelta(days=3)
+    _match(6002, "NFL", "Other W", "Other W away", ko=KO2, hs=21, aw=14)
+    _match(6003, "NFL", "Redated W", "Redated W away", ko=later, hs=21, aw=14)
+    _match(6004, "NFL", "Maker W", "Maker W away", ko=KO2, hs=21, aw=14)
+    _match(7002, "NFL", "Other P", "Other P away", ko=KO2, hs=21, aw=14)
+    _match(7003, "NFL", "Redated P", "Redated P away", ko=later, hs=21, aw=14)
+    _match(7004, "NFL", "Maker P", "Maker P away", ko=KO2, hs=21, aw=14)
+    _match(7005, "NFL", "Scored P", "Scored P away", ko=KO2, hs=21, aw=14)
+    write_closing(ex, KO2 - timedelta(minutes=35), [
+        row(6001, "Absent W", "Absent W away", q, ko=KO2),
+        row(6002, "Qb", "Qb away", q, ko=KO2),
+        row(6003, "Redated W", "Redated W away", q, ko=KO2),
+        row(6004, "Maker W", "Maker W away", maker, ko=KO2),
+        row(7001, "Absent P", "Absent P away", desk(**qbp), ko=KO2),
+        row(7002, "Qb P", "Qb P away", desk(**qbp), ko=KO2),
+        row(7003, "Redated P", "Redated P away", desk(**qbp), ko=KO2),
+        row(7004, "Maker P", "Maker P away", desk(**qbp, basis="maker"), ko=KO2),
+        row(7005, "Scored P", "Scored P away", desk(**qbp), ko=KO2)], fam="NFL")
+    return ex
+
+
+def test_the_thirty_counts_rows_before_the_eligibility_checks_named_by_cause_never_scored(tmp_path):
+    """Addendum 225 item 2(a): each QB-tagged row of a post-hold run counts toward thirty BEFORE the DB / result / cohort
+    checks; a row a check leaves out is named beside the count by its cause, per kind, and never enters a W-L-P (the
+    PLAY cells hold only the scored row; the would-be line scores none)."""
+    ex = _unscored_world(tmp_path)
+    t = xc.tally(ex)
+    assert t["count_446"] == {"NFL": {"play": 5, "would_be": 4, "before": 0, "undated": 0}}
+    every = {c: 1 for c in ("not in this copy", "teams differ", "re-dated void", "non-taker basis")}
+    assert t["unscored_446"] == {"NFL": {"play": every, "would_be": every}}
+    assert xc.CAUSES == tuple(every)
+    nfl = {k: (v["plays"], v["w"], v["l"], v["p"]) for (f, k), v in t["cells"].items() if f == "NFL"}
+    assert nfl == {"0 < exec < 4, QB": (1, 1, 0, 0)}                       # the scored PLAY only
+    w = t["would_be"]["NFL"]
+    assert w[xc.QB_OUT]["plays"] == w[xc.QB_CLEAN]["plays"] == 0           # no would-be row is scored
+    assert (w["not_in_db"], w["teams"], w["basis"], len(w["void"])) == (1, 1, 1, 1)
+    txt = _section(ex)
+    (line,) = _lines(txt, f"- NFL · {LABEL}")
+    causes = "not in this copy 1, teams differ 1, re-dated void 1, non-taker basis 1"
+    assert line.startswith(HEAD.format(state=UNCERT) + "0 · left out: ")
+    assert line.endswith(f"{C446}: PLAY 5 + {LABEL} 4 = 9 of 30 · {UNSCORED}: PLAY: {causes}; {LABEL}: {causes}")
+    (left,) = _lines(txt, "- NFL · left out:")
+    assert "not in this DB 1" in left and "teams differ 1" in left and "exec basis not taker 1" in left
+
+
+def test_the_count_reaches_thirty_on_rows_this_copy_lacks(tmp_path):
+    """"A copy that lacks games must not delay the read that the count triggers": thirty QB-tagged rows none of which
+    this DB holds read n=30 reached, every one named "not in this copy", none scored."""
+    _comps()
+    ex = tmp_path / "exports"
+    q = _mo()["Qb"]
+    rows = [row(8000 + i, f"H{i}", f"A{i}", q if i % 2 else desk(edge=3.0, cost=0.6, tags=("QB unread half units",)),
+                ko=KO2) for i in range(30)]
+    write_closing(ex, KO2 - timedelta(minutes=35), rows, fam="NFL")
+    t = xc.tally(ex)
+    assert t["count_446"]["NFL"] == {"play": 15, "would_be": 15, "before": 0, "undated": 0}
+    (line,) = _lines(_section(ex), f"- NFL · {LABEL}")
+    assert line.endswith(f"PLAY 15 + {LABEL} 15 = 30 n=30 reached — for the architect's read (no verdict is computed "
+                         f"here) · {UNSCORED}: PLAY: not in this copy 15; {LABEL}: not in this copy 15")
+    assert not any(v["plays"] for (f, _), v in t["cells"].items() if f == "NFL")
+
+
+def test_a_left_out_row_before_the_hold_is_beside_the_count_and_never_named_as_counted(tmp_path):
+    _comps()
+    ex = tmp_path / "exports"
+    early = KO - timedelta(days=9)                                  # 2026-10-09: before the hold of 10-11
+    write_closing(ex, early - timedelta(minutes=35), [
+        row(2102, "E2", "F2", desk(edge=2.0, cost=0.5, tags=("QB unread half units",)), ko=early)], fam="NFL")
+    t = xc.tally(ex)
+    assert t["count_446"]["NFL"]["before"] == 1 and t["unscored_446"] == {}
+    (line,) = _lines(_section(ex), f"- NFL · {LABEL}")
+    assert line.endswith(f"= 0 of 30 · before the hold, not counted 1") and UNSCORED not in line
+
+
+# ---- (8) THE ZERO LINE (ARCHITECT 2026-11-03 07:55 ET, addendum 225 item 2(b)) -------------------------------------
+
+def _zero(ex):
+    return (HEAD.format(state=UNCERT) + f"0 · no NFL closing file in {ex}/ on this machine · {C446}: PLAY 0 + "
+            f"{LABEL} 0 = 0 of 30")
+
+
+def test_the_zero_line_with_no_closing_file_at_all(tmp_path):
+    ex = tmp_path / "exports"
+    t = xc.tally(ex)
+    assert t["files"] == 0 and t["certification"] == ("uncertified", "nfl-elo-v1")
+    txt = xc.section(t, ex)
+    assert _lines(txt, f"- NFL · {LABEL}") == [_zero(ex)]
+    lines = txt.splitlines()
+    assert lines[2] == f"No closing file in {ex}/ on this machine." and lines[4] == _zero(ex)
+    assert lines[5].startswith("- The pre-registered cohort")                   # the pooled line follows it
+
+
+def test_the_zero_line_with_only_another_familys_files(tmp_path):
+    _comps()
+    ex = tmp_path / "exports"
+    _match(1101, "MLB", "H1", "A1", hs=5, aw=1)
+    write_closing(ex, LATE, [row(1101, "H1", "A1", desk(edge=2.0, cost=0.55))], fam="MLB")
+    t = xc.tally(ex)
+    assert t["families"] == ["MLB"]
+    lines = xc.section(t, ex).splitlines()
+    assert [x for x in lines if LABEL in x] == [_zero(ex)]
+    assert lines[-2] == _zero(ex) and lines[-1].startswith("- The pre-registered cohort")
+
+
+def test_the_zero_line_names_an_unreadable_directory_as_no_readable_nfl_file(tmp_path):
+    ex = tmp_path / "exports"
+    ex.mkdir()
+    (ex / "closing_NFL_bad.json").write_text("{not json")
+    (line,) = _lines(_section(ex), f"- NFL · {LABEL}")
+    assert line == _zero(ex).replace("no NFL closing file", "no readable NFL closing file")
+
+
+def test_the_zero_line_prints_while_the_registry_is_unread(tmp_path, monkeypatch):
+    """Law 4: an unread registry is never judged certified; the zero line prints, its head naming why."""
+    monkeypatch.setattr(reg, "LEDGER", str(tmp_path / "nope.json"))
+    ex = tmp_path / "exports"
+    (line,) = _lines(_section(ex), f"- NFL · {LABEL}")
+    assert line.startswith(HEAD.format(
+        state=f"certification not read for nfl_elo_v1: no registry file at {tmp_path / 'nope.json'}")
+        + f"0 · no NFL closing file in {ex}/ on this machine · ")
+
+
+@pytest.mark.parametrize("other", [False, True])
+def test_no_nfl_line_when_nfl_is_certified(tmp_path, certified, other):
+    _comps()
+    ex = tmp_path / "exports"
+    if other:
+        _match(1101, "MLB", "H1", "A1", hs=5, aw=1)
+        write_closing(ex, LATE, [row(1101, "H1", "A1", desk(edge=2.0, cost=0.55))], fam="MLB")
+    assert reg.certification_of("nfl_elo_v1")[0] == "certified"
+    txt = _section(ex)
+    assert LABEL not in txt and "#446" not in txt and "no NFL closing file" not in txt

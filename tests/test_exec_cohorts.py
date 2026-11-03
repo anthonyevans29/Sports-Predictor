@@ -315,10 +315,14 @@ def test_unreadable_files_are_named_and_hosts_copies_never_read(tmp_path):
 
 
 def test_no_closing_file(tmp_path):
+    """The tracked registry reads NFL uncertified: the no-files path prints the would-be line's zero line with its cause
+    named (ARCHITECT 2026-11-03 07:55 ET, addendum 225 item 2(b): "a labelled absence, never silence")."""
     ex = tmp_path / "none"
     assert _section(ex) == (
         "## EXEC COHORTS — PLAY calls by exec edge, per closing family (ARCHITECT 2026-10-20, addendum 146 item 1(v))"
         f"\n\nNo closing file in {ex}/ on this machine.\n\n"
+        f"{WOULD_BE_HEAD}0 · no NFL closing file in {ex}/ on this machine · {C446}: PLAY 0 + would-be PLAY "
+        "(uncertified, unstaked) 0 = 0 of 30\n"
         f"{POOL} 0 of 30 — not read before n=30 · {BEFORE} 0\n")
 
 

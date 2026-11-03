@@ -47,6 +47,12 @@ As built (each reading is the conservative one, law 4; the PR body lists them fo
   and it is never a position. Its tail is #446's thirty-row count (addendum 44 item 9): the NFL PLAY rows in a cell
   with a QB tag plus the QB-tagged would-be rows, each labelled, closing runs from the hold of 2026-10-11 (HOLD_446_FROM;
   earlier ones and undated ones beside it, not counted). Certified with neither a would-be row nor a #446 row: no line.
+- THE THIRTY COUNTS ROWS (ARCHITECT 2026-11-03 07:55 ET, addendum 225 item 2(a), RULING_225_2A): a #446 row (a PLAY or
+  a would-be PLAY with a QB tag) counts toward thirty BEFORE the DB / result / cohort eligibility checks; those checks
+  stay for W-L-P and units, and a counted row they leave out is named beside the count by its cause, per kind (CAUSES:
+  not in this copy, teams differ, re-dated void, non-taker basis), never scored. (b) the zero line (RULING_225_2B):
+  while the registry does not read NFL certified, the line prints even when no NFL closing file is in the directory
+  (the section's no-files path included): 0, with that cause named (NO_NFL_FILE), law 4.
 - Read-only: one session, nothing written; no verdict is computed (the n=30 read is the architect's).
 - The n=30 counter starts at the PRE-REGISTRATION (R41 RULED, ARCHITECT 2026-10-20 19:54 ET, addendum 151 item 2):
   it counts only the pre-registered cohort's graded rows whose closing run starts on or after 2026-10-19 07:40 ET
@@ -98,6 +104,18 @@ QB_OUT, QB_CLEAN = "QB-flagged or unread", "QB inputs clean"
 READ_446_AT_N = 30
 HOLD_446_FROM = as_utc(datetime(2026, 10, 11, 0, 0, tzinfo=ZoneInfo("America/New_York")))   # closing.CLOSING_HOLDS'
 HOLD_446_FROM_TEXT = "closing runs from the hold of 2026-10-11"                           # QB hold, "since"
+# THE THIRTY COUNTS ROWS (ARCHITECT 2026-11-03 07:55 ET, addendum 225 item 2), verbatim:
+RULING_225_2A = ("(a) THE THIRTY COUNTS ROWS. Addendum 44 item 9 reads \"thirty such rows\", and the hold's effect is per "
+                 "row, not per graded outcome: every post-hold NFL row the hold touched — a PLAY with a QB tag or an "
+                 "unread list, a would-be PLAY (uncertified, unstaked) with the same — counts toward thirty BEFORE the "
+                 "DB / result / cohort eligibility checks; those checks stay for W-L-P and units, and a row they leave "
+                 "out is named beside the count by its cause (not in this copy, teams differ, re-dated void, non-taker "
+                 "basis), never scored. A copy that lacks games must not delay the read that the count triggers.")
+RULING_225_2B = ("(b) THE ZERO LINE RENDERS whenever the registry reads NFL uncertified, independent of whether NFL is in "
+                 "the closing-file family set; with no NFL closing file in the directory it prints 0 with that cause "
+                 "named (law 4: a labelled absence, never silence).")
+NOT_IN_COPY, TEAMS_DIFFER, REDATED, NON_TAKER = "not in this copy", "teams differ", "re-dated void", "non-taker basis"
+CAUSES = (NOT_IN_COPY, TEAMS_DIFFER, REDATED, NON_TAKER)    # the ruled causes, in the ruling's order
 
 GE4, MID, LE0, UNKNOWN = "exec >= 4", "0 < exec < 4", "exec <= 0", "exec unknown"
 MID_QB = "0 < exec < 4, QB"              # the cell key of the QB-tagged half of MID (outside the cohort)
@@ -272,7 +290,9 @@ def tally(exports_dir, registry_path=None) -> dict:
     starts at or after COUNTED_FROM only (the n=30 counter), "cohort_before": its graded rows of earlier runs,
     "cohort_undated": its graded rows with no run start (neither is counted), "certification": the NFL model's
     (nfl_certification, the head's text only), "model_version": the id it was read on, "would_be": {family: the would-be
-    line's counts, each row by what it carries}, "count_446": {family: {"play", "would_be", "before", "undated"}}}.
+    line's counts, each row by what it carries}, "count_446": {family: {"play", "would_be", "before", "undated"}},
+    "unscored_446": {family: {"play" | "would_be": {cause: n}}}: the rows counted toward thirty that a DB / result /
+    cohort check leaves out of W-L-P (addendum 225 item 2(a))}.
     `registry_path` None: the tracked registry."""
     from src.db.database import session_scope
     from src.db.schema import Match
@@ -287,9 +307,20 @@ def tally(exports_dir, registry_path=None) -> dict:
     would: dict = {}
     c446: dict = {}
 
-    def count_446(fam, run, kind):
+    u446: dict = {}
+
+    def count_446(fam, run, kind) -> bool:
+        """One #446 row (225 2(a): counted before the eligibility checks); True when it counts toward thirty."""
         k = c446.setdefault(fam, {"play": 0, "would_be": 0, "before": 0, "undated": 0})
-        k["undated" if run is None else kind if run >= HOLD_446_FROM else "before"] += 1
+        slot = "undated" if run is None else kind if run >= HOLD_446_FROM else "before"
+        k[slot] += 1
+        return slot == kind
+
+    def unscored_446(counted, fam, kind, cause):
+        """A counted #446 row an eligibility check leaves out: named beside the count by its cause, never scored."""
+        if counted:
+            c = u446.setdefault(fam, {}).setdefault(kind, {})
+            c[cause] = c.get(cause, 0) + 1
 
     with session_scope() as s:
         for mid in sorted(cr["rows"]):
@@ -350,26 +381,29 @@ def tally(exports_dir, registry_path=None) -> dict:
             wb = would_be_play(desk) if fam in WOULD_BE_FAMILIES else None     # the row's own state, not today's
             if wb is not None:                                 # addendum 217 item 4: its own line, never a PLAY cell
                 w = would.setdefault(fam, _would())
+                qb = qb_tagged(desk)
+                counted = qb and count_446(fam, e[0], "would_be")    # 225 2(a): toward thirty BEFORE the checks
                 if m is None:
                     w["not_in_db"] += 1
+                    unscored_446(counted, fam, "would_be", NOT_IN_COPY)
                     continue
                 h = m.home_team.name if m.home_team else None
                 a = m.away_team.name if m.away_team else None
                 if (row.get("home_team"), row.get("away_team")) != (h, a):
                     w["teams"] += 1
+                    unscored_446(counted, fam, "would_be", TEAMS_DIFFER)
                     continue
                 if lab:
                     w["void"].append(f"match {m.id} {a or '?'} @ {h or '?'}: {lab}")
+                    unscored_446(counted, fam, "would_be", REDATED)
                     continue
                 ex = desk.get("exec") if isinstance(desk.get("exec"), dict) else None
                 edge = ex.get("edge_pp") if ex else None
                 if edge is not None and ex.get("basis") != "taker":
                     w["basis"] += 1
+                    unscored_446(counted, fam, "would_be", NON_TAKER)
                     continue
                 w["exec"][cohort_of(edge)] += 1
-                qb = qb_tagged(desk)
-                if qb:
-                    count_446(fam, e[0], "would_be")
                 res = result_of(m, desk.get("pick"))
                 c = w[QB_OUT if qb else QB_CLEAN]
                 c["plays"] += 1
@@ -384,28 +418,32 @@ def tally(exports_dir, registry_path=None) -> dict:
                 continue
             if call != "PLAY":
                 continue
+            # #446's rows: a QB tag, whatever the exec cell, counted toward thirty BEFORE the checks (225 2(a))
+            counted = fam in WOULD_BE_FAMILIES and qb_tagged(desk) and count_446(fam, e[0], "play")
             if m is None:
                 out["not_in_db"] += 1
+                unscored_446(counted, fam, "play", NOT_IN_COPY)
                 continue
             h = m.home_team.name if m.home_team else None
             a = m.away_team.name if m.away_team else None
             if (row.get("home_team"), row.get("away_team")) != (h, a):
                 out["teams"] += 1
+                unscored_446(counted, fam, "play", TEAMS_DIFFER)
                 continue
             if lab:
                 out["void"].append(f"match {m.id} {a or '?'} @ {h or '?'}: {lab}")
+                unscored_446(counted, fam, "play", REDATED)
                 continue
             ex = desk.get("exec") if isinstance(desk.get("exec"), dict) else None
             edge = ex.get("edge_pp") if ex else None
             if edge is not None and ex.get("basis") != "taker":
                 out["basis"] += 1
+                unscored_446(counted, fam, "play", NON_TAKER)
                 continue
             key = cohort_of(edge)
             tags = desk.get("tags") if isinstance(desk.get("tags"), list) else []
             if key == MID and {t for t in tags if isinstance(t, str)} & set(QB_TAGS):
                 key = MID_QB
-            if fam in WOULD_BE_FAMILIES and qb_tagged(desk):     # #446's rows: a QB tag, whatever the exec cell
-                count_446(fam, e[0], "play")
             res = result_of(m, desk.get("pick"))
             c = cells.setdefault((fam, key), _cell())
             c["plays"] += 1
@@ -424,7 +462,8 @@ def tally(exports_dir, registry_path=None) -> dict:
     return {"files": cr["files"], "unreadable": cr["unreadable"], "runs": cr["runs"], "families": sorted(fams),
             "cells": cells, "left_out": left, "floor_blocked": floor, "cohort_graded": pooled["graded"], "cohort_before": pooled["before"],
             "cohort_undated": pooled["undated"], "certification": cert,
-            "model_version": nfl_model_version(), "would_be": would, "count_446": c446}
+            "model_version": nfl_model_version(), "would_be": would, "count_446": c446,
+            "unscored_446": u446}
 
 
 def _units_text(c: dict) -> str:
@@ -475,11 +514,12 @@ def _floor_line(fam: str, c: dict | None) -> str | None:
             f"void {c['void']}" + (f" · left out: {', '.join(lo)}" if lo else ""))
 
 
-def _would_be_line(fam: str, t: dict) -> str | None:
+def _would_be_line(fam: str, t: dict, absent: str | None = None) -> str | None:
     """THE WOULD-BE LINE (addendum 217 item 4) of a family the market-only rule holds, printed while its model is not
     read certified (0 when nothing qualifies: the measurement is running), and after that whenever a would-be row or a
     #446 row is there (the rows carry their own state; the registry's is the head's text only). #446's thirty-row count
-    is its tail."""
+    is its tail, the counted rows a check leaves out named beside it by cause (addendum 225 item 2(a)). `absent`: the
+    cause named when the family has no closing file here (addendum 225 item 2(b): the zero line, never silence)."""
     cert = t.get("certification") or ("certified", "")
     if fam not in WOULD_BE_FAMILIES:
         return None
@@ -494,7 +534,7 @@ def _would_be_line(fam: str, t: dict) -> str | None:
     head = (f"- {fam} · {WOULD_BE} (addendum 217 item 4: the Desk's record-only would-be call, desk.market_only_hold, "
             f"{state}; notional at desk.exec.cost, never pooled with PLAY, never a position): ")
     n = w[QB_OUT]["plays"] + w[QB_CLEAN]["plays"]
-    body = f"{n}"
+    body = f"{n}" + (f" · {absent}" if absent else "")
     if n:
         def part(lab, c):
             if not c["plays"]:
@@ -514,9 +554,33 @@ def _would_be_line(fam: str, t: dict) -> str | None:
             if tot >= READ_446_AT_N else f"of {READ_446_AT_N}")
     body += (f" · #446's thirty-row count (addendum 44 item 9: rows with a QB flag or an unread list, "
              f"{HOLD_446_FROM_TEXT}): PLAY {k['play']} + {WOULD_BE} {k['would_be']} = {tot} {tail}"
+             + _unscored_text((t.get("unscored_446") or {}).get(fam) or {})
              + (f" · before the hold, not counted {k['before']}" if k["before"] else "")
              + (f" · undated, not counted {k['undated']}" if k["undated"] else ""))
     return head + body
+
+
+def _unscored_text(u: dict) -> str:
+    """The rows counted toward thirty that a check left out of W-L-P, per kind, by cause (addendum 225 item 2(a))."""
+    parts = [f"{lab}: " + ", ".join(f"{c} {u[kind][c]}" for c in CAUSES if u[kind].get(c))
+             for kind, lab in (("play", "PLAY"), ("would_be", WOULD_BE)) if any((u.get(kind) or {}).values())]
+    return f" · counted, not scored (outside the W-L-P): {'; '.join(parts)}" if parts else ""
+
+
+NO_NFL_FILE = "no {fam} closing file in {d}/ on this machine"           # 225 2(b): the zero line's cause
+NO_NFL_READABLE = "no readable {fam} closing file in {d}/ on this machine"
+
+
+def _zero_lines(t: dict, d: str, have: set) -> list[str]:
+    """THE ZERO LINE (ARCHITECT 2026-11-03 07:55 ET, addendum 225 item 2(b), RULING_225_2B): a would-be family with no
+    closing file here, while the registry does not read its model certified (an unread read is never judged certified,
+    law 4), prints its line at 0 with that cause named; certified, nothing."""
+    cert = (t.get("certification") or ("certified", ""))[0]
+    if cert == "certified":
+        return []
+    why = NO_NFL_READABLE if t.get("unreadable") else NO_NFL_FILE
+    return [ln for fam in WOULD_BE_FAMILIES if fam not in have
+            if (ln := _would_be_line(fam, t, why.format(fam=fam, d=d))) is not None]
 
 
 LADDER_TEXT = ("LADDER, the ordered NO leg priced, ungraded (#689: desk.ladder_exec, notional, never pooled with "
@@ -567,7 +631,8 @@ def section(t: dict, exports_dir) -> str:
     if not t["files"]:
         none = (f"No closing file in {d}/ on this machine." if not t["unreadable"] else
                 f"No readable closing file in {d}/ on this machine{bad}.")
-        return f"{HEADER}\n\n{none}\n\n{_pooled(t)}\n"
+        zero = "".join(f"{z}\n" for z in _zero_lines(t, d, set()))           # 225 2(b): never silence
+        return f"{HEADER}\n\n{none}\n\n{zero}{_pooled(t)}\n"
     runs = (f"runs {t['runs'][0]:%Y-%m-%d %H:%M}Z to {t['runs'][1]:%Y-%m-%d %H:%M}Z" if t["runs"] else "runs —")
     intro = (f"_Read-only, from this machine's closing files on disk ({d}/closing_*.json, every file, not the rolling "
              f"window; host/ is never read): {t['files']} files, {runs}{bad}. One PLAY row per game: the newest run's "
@@ -598,6 +663,7 @@ def section(t: dict, exports_dir) -> str:
             out.append(fl)
         if (wl := _would_be_line(fam, t)) is not None:
             out.append(wl)
+    out.extend(_zero_lines(t, d, set(t["families"])))                  # 225 2(b): no NFL closing file here
     out.append(_pooled(t))
     return "\n".join(out) + "\n"
 

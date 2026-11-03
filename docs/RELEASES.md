@@ -113,6 +113,7 @@ its compare verdict.
 | `v1.6.0` | 2026-10-26 12:07:29Z | `4c106f5097cd4a47817d6a5cf988b7b9f21c00e6` | `01fa5d615cb0c9142b94ef816d0eb6e6d7f6f5da` | #678 |
 | `v1.6.1` | 2026-10-28 12:45:48Z | `23f86e3794a7c075eb7b668e980e2f41ee90ad8f` | `fd3fd51b0179b9fe97dc1b07f00843d69150bf15` | #777 (record backfilled 2026-11-02 (addendum 213 item 2)) |
 | `v1.6.2` | 2026-11-02 14:14:20Z | `98181976f9f4c98c2c3f6e3c8e576e8082d6477f` | `db8fde9c6680b46e77f843b0a5c2e779295bc9dd` | #776 (step 1 as it stood) |
+| `v1.6.3` | 2026-11-03 12:59:11Z | `0c88f5cc4e9332bade5efd2043def40ab37a5def` | `7312627b5b39fc5f38e71718edb9d9cbd3f7be00` | #806 (step 1 as rewritten, #782) |
 
 - **v1.4.0** (ARCHITECT 2026-10-16, addendum 87). The commit is the ledger
   compile over 53a0e83, the #551 merge over c546168.
@@ -192,6 +193,31 @@ its compare verdict.
     item 1): one file compared, `mlb_all_scored.json`, 879 rows both sides, 0 diffs; five host-only files, each
     explained (the writer-of-record split; the operator's undated Kalshi trade-API probe). Verbatim on #776.
   - #776 carries the notes (two comments; they exceed one Issue body) and the deploy receipt.
+- **v1.6.3** (ARCHITECT 2026-11-03 08:20 ET, addendum 228: "v1.6.3 is PRODUCTION"). The commit is the ledger
+  compile 0c88f5cc (12 changelog fragments, 12 ledger entries) over 6f6b9dac (#801). The tag was cut by the operator:
+  tagger stamp 2026-11-03 12:59:11Z (07:59:11 ET). Verbatim (228 item 1): "tag v1.6.3: annotated, tag object
+  7312627b5b39fc5f38e71718edb9d9cbd3f7be00 on the fold commit 0c88f5cc4e9332bade5efd2043def40ab37a5def (the ledger
+  fold of main 6f6b9dac: 12 changelog fragments and 12 ledger entries folded), cut 2026-11-03T12:59:11Z by the
+  operator's block, 12 headings kept, notes = the CHANGELOG slice since v1.6.2; CI success on the commit."
+  - **The tag message:** `--cleanup=verbatim`, the header and all 12 `## ` section headings kept (13 lines beginning
+    with `#`). It matches `python3 scripts/release_notes.py --to 0c88f5cc4e9332bade5efd2043def40ab37a5def` line
+    for line. No AMENDED line.
+  - **Step 1 (rewritten, #782):** PASS, addendum 227, as 228 item 1 records it, verbatim: "step 1 (rewritten, #782):
+    CI green on the commit; the host's receipts since the v1.6.2 deploy 550 rows, 0 failing; the compare of 11-03
+    (--since 1) 1 file compared (mlb_all_scored.json, 879 rows, 0 diffs), 6 host-only files each in a known class
+    (closing_NFL and nfl_NFL_results: writer of record; unl_shadow: intl-daily host-only; window_24h;
+    kalshi_trade_probe.json; soccer_expansion_shadow_2026-11-03_095246.json: the export switch, host-only by 178 R6) —
+    PASS, addendum 227."
+  - **Deploy:** verbatim (228 item 1): "deploy: receipt "11-03 13:00 deploy exit 0 v1.6.2 -> v1.6.3 (0c88f5cc)", 80
+    files, no migration, requirements unchanged, timer files unchanged (the 3 MLB_LAPTOP_ONLY timers held off by T11
+    as before); running_release v1.6.3; the checkout carries nfl-elo-v1's entry, the four leagues' entries and the
+    market-only reason."
+  - **Carries:** git's `v1.6.2..v1.6.3` holds twelve PRs: #774, #775, #778, #779, #784, #785, #793, #796, #797, #799,
+    #800, #801 (62 commits with the fold commit; 61 to 6f6b9dac). Addendum 228 item 1's list ("carries: #775, #778,
+    #779, #784, #785, #793, #796, #797, #799, #800, #801 (61 commits since v1.6.2).") omits #774: it merged at
+    cbe4698e on 2026-11-02 at 14:42Z, after v1.6.2's cut at 14:14:20Z, so git puts it in v1.6.3. The record keeps
+    git's twelve; the architect has been told.
+  - #806 carries the notes (in comments; they exceed one Issue body) and the deploy receipt.
 
 ## Hotfix path
 A hotfix gets a patch tag (`vX.Y.Z+1`) through the same ritual. There is no

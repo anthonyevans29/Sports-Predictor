@@ -136,11 +136,13 @@ def _leagues():
     return next(ln for ln in doc["lanes"] if ln["lane"] == "leagues")
 
 
-def test_220_the_leagues_lane_the_11_06_step_done_bl1_moved_and_step_c_a_projection():
+def test_220_the_leagues_lane_the_11_06_step_done_bl1_moved_and_step_c_recounted():
     from src import roadmap as rm
     ln = _leagues()
     assert ln["state"] == "declared" and "declared (4 of 5)" in json.dumps(ln)   # roadmap.STATES: no "(4 of 5)"
-    assert ln["registry_id"] is None and ln["competitions"] == ["SA", "BL1", "FL1", "ELC"]
+    # ARCHITECT 2026-11-03 07:55 ET, addendum 226 item 4(a): PD into `competitions` and the title names La Liga
+    assert ln["registry_id"] is None and ln["competitions"] == ["PD", "SA", "BL1", "FL1", "ELC"]
+    assert ln["title"] == "La Liga, Serie A, Bundesliga, Ligue 1, Championship"
     decl = next(st for st in ln["steps"] if st["what"].startswith("the candidate declared per league"))
     assert decl["due"] == "2026-11-06" and decl["done"] == {"date": "2026-11-02", "receipt": "addendum 220"}
     bl1 = next(st for st in ln["steps"] if st["what"].startswith("BL1's declaration"))
@@ -150,17 +152,13 @@ def test_220_the_leagues_lane_the_11_06_step_done_bl1_moved_and_step_c_a_project
                                                     "LINE, verbatim in why)"}]
     c = ln["steps"][-1]
     assert (c["owner"], c["due"], c["done"]) == ("calendar", "2026-12-06", None)
-    assert "RECOUNTED from the declarations' stamp 2026-11-02T18:10:00Z" in c["what"]
-    assert "A PROJECTION pending its receipt" in c["what"] and "named here when it lands" in c["what"]
-    # the first page is the first shadow-export file on a tag carrying the entries (the host deploys tags; the export
-    # binds from the tag's own registry), never the v1.6.2 page of 11-03, which holds no row labelled with the stamp
-    assert "written on a release tag carrying the declaration entries" in c["what"]
-    assert "carries no row labelled 2026-11-02T18:10:00Z" in c["what"]
-    # addendum 222 item 4(a): those games are excluded by cause, the window still counting from the stamp
-    assert ("is EXCLUDED BY CAUSE, \"no prospective row under the entry: the entry was not on the host's tag\", named "
-            "and counted by the cohort reader and its receipt, consuming no slot (addendum 222 item 4(a), the text as "
-            "ARCHITECT 2026-11-02 18:05 ET, addendum 223 item 2(c) amends it") in c["what"]
-    assert "no prospective row: the entry" not in c["what"]
+    # addendum 226 item 2: step (c) STANDS at 2026-12-06, no moved line; its text carries the two consoles of 11-03
+    # (tests/test_records_226.py pins the text verbatim)
+    assert c["what"].startswith("step (c) (addendum 156 item 1): the 60th 2026/27 fixture per declared league kicking "
+                                "off after the declarations' stamp 2026-11-02T18:10:00Z is played, ELC first; "
+                                "RECOUNTED 11-03")
+    assert "A PROJECTION pending its receipt" not in c["what"]
+    assert len(ln["moved"]) == 1               # BL1's line only: the recount moved no date
     assert rm.next_step(ln)[1] is bl1
     assert ln["earliest_live"] is None
 

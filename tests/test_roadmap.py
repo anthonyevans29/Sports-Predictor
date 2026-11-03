@@ -261,7 +261,7 @@ BROKEN = [
      lambda d: _lane(d, "cups")["steps"][0].__setitem__("done", {"date": "2026-10-14", "receipt": " "}),
      "lane 'cups' step 1: done with no receipt"),
     ("moved a list", lambda d: _lane(d, "pd").__setitem__("moved", "none"), "lane 'pd': moved is not a list"),
-    ("a moved line an object", lambda d: _lane(d, "pd")["moved"].append("x"), "lane 'pd' moved 1: not an object"),
+    ("a moved line an object", lambda d: _lane(d, "pd")["moved"].insert(0, "x"), "lane 'pd' moved 1: not an object"),
     ("a confirming lane has a step left",
      lambda d: [st.__setitem__("done", {"date": "2026-11-12", "receipt": "r"}) for st in _lane(d, "unl")["steps"]],
      "lane 'unl': state 'confirming' and no step left to do"),
@@ -298,7 +298,9 @@ BROKEN = [
 # ARCHITECT 2026-11-02 10:15 ET, addendum 214 item 4(d): "a new lane "nfl-confirm"" (item 3: nfl_elo_v1 "as a SHADOW:
 # its predictions keep being exported on every NFL page"), [NFL].
 # ARCHITECT 2026-11-02 10:35 ET, addendum 215 item 3: "a lane "nfl-v2" on the roadmap": nfl_elo_v2's lane, [NFL].
-RULED_COMPETITIONS = {"unl": ["UNL"], "pd": ["PD"], "leagues": ["SA", "BL1", "FL1", "ELC"], "ncaa": ["NCAA"],
+# ARCHITECT 2026-11-03 07:55 ET, addendum 226 item 4(a): "lane leagues: PD into `competitions`" (223 item 2(f) Q2: "lane
+# pd keeps [PD] for its own confirmation; a competition in two lanes is the truth").
+RULED_COMPETITIONS = {"unl": ["UNL"], "pd": ["PD"], "leagues": ["PD", "SA", "BL1", "FL1", "ELC"], "ncaa": ["NCAA"],
                       "nhl": ["NHL"], "cups": ["CL", "EFL", "UEL"], "nfl-qb": ["NFL"], "nfl-v2": ["NFL"],
                       "nfl-confirm": ["NFL"], "mlb-pitchers": ["MLB"], "pl-availability": ["PL"]}
 

@@ -486,3 +486,90 @@ def test_the_data_refusal_is_the_repos_data_not_any_data(world, capsys, tmp_path
     assert elsewhere.read_bytes() == before and sorted(p.name for p in elsewhere.parent.iterdir()) == ["nfl.db"]
     doc = script.__doc__
     assert "under the repo's data/ (the checkout's, and the" in doc and "any data/" not in doc
+
+
+# ---- the review findings (Codex P2s): host/ never read, a figure in a printed field refused, every entry its own ----
+
+def test_an_exports_directory_named_host_is_refused_even_through_a_symlink(world, capsys, tmp_path):
+    """The SOURCES line says "host/ never read": a --exports that is (or resolves to) a host/ directory is refused,
+    nothing read (its closing files carry the host's match ids); a normal exports directory is still read."""
+    host = tmp_path / "mirror" / "host"
+    write_closing(host, KO_1011 - timedelta(minutes=35),
+                  annotated([cle_nyj(), bal_atl()], KO_1011, market_only=False), fam="NFL")
+    rc, out = _run(capsys, "--db", world["copy"], "--exports", host, "--ledger", world["ledger"])
+    assert rc == 2 and len(out) == 1, out
+    assert out[0].startswith(f"REFUSED: --exports {host}: names or resolves to a host/ directory") and \
+        "host/ is never read, its files carry the host's match ids; nothing read" == out[0].split("); ", 1)[1], out
+    link = tmp_path / "looks-fine"
+    link.symlink_to(host, target_is_directory=True)
+    rc, out = _run(capsys, "--db", world["copy"], "--exports", link)
+    assert rc == 2 and len(out) == 1 and out[0].startswith(f"REFUSED: --exports {link}: names or resolves to a "
+                                                           f"host/ directory ({host.resolve()})"), out
+    assert out[0].endswith("nothing read")
+    # a link NAMED host to a directory of another name is refused by its own name (review finding)
+    named = tmp_path / "links" / "host"
+    named.parent.mkdir()
+    named.symlink_to(world["ex"], target_is_directory=True)
+    rc, out = _run(capsys, "--db", world["copy"], "--exports", named)
+    assert rc == 2 and len(out) == 1 and out[0].startswith(f"REFUSED: --exports {named}: names or resolves to a "
+                                                           f"host/ directory ({Path(world['ex']).resolve()})"), out
+    # any case: a Mac's default volume opens exports/HOST as exports/host (review finding)
+    for spelt in ("HOST", "Host"):
+        upper = tmp_path / "cased" / spelt
+        upper.mkdir(parents=True)
+        rc, out = _run(capsys, "--db", world["copy"], "--exports", upper)
+        assert rc == 2 and len(out) == 1 and out[0].endswith("nothing read") and \
+            "names or resolves to a host/ directory" in out[0], out
+    rc, out = _run(capsys, "--db", world["copy"], "--exports", world["ex"])
+    assert rc == 0 and _line(out, "Cleveland Browns @ New York Jets")
+
+
+@pytest.mark.parametrize("field,value", [("title", {"qty": 137, "price": 0.43}), ("side", ["yes", 137]),
+                                         ("opened", 137), ("closed", True), ("ticker", 137.5)])
+def test_a_fill_whose_printed_field_is_not_a_string_is_refused_never_echoed(world, capsys, tmp_path, field, value):
+    """A fill's ticker, side, title, opened and closed are the Cockpit export's strings or null (tools/cockpit.html
+    importKalshiCSV: the CSV's cells): any other value there would be printed by "what was done", figures with it. The
+    ledger is refused, nothing read, the field named and the value never echoed."""
+    bad = _fill("f-lv", "KXNFLGAME-26OCT18KCLV-LV", "yes", "Las Vegas wins — Kansas City")
+    bad[field] = value
+    led = tmp_path / "led-obj.json"
+    led.write_text(json.dumps({**LEDGER, "fills": [bad]}))
+    rc, out = _run(capsys, "--db", world["copy"], "--exports", world["ex"], "--ledger", led)
+    assert rc == 2 and out == [f"REFUSED: --ledger {led}: a fill's {field} is not a string or null (the value is not "
+                               "printed); nothing read"], out
+    said = out[0].replace(str(led), "")
+    assert "137" not in said and "0.43" not in said, said
+    ok = {**_fill("f-x", "KXNFLGAME-26OCT18KCLV-LV", "yes", None, closed=False)}     # null stays readable
+    led.write_text(json.dumps({**LEDGER, "fills": [ok]}))
+    rc, out = _run(capsys, "--db", world["copy"], "--exports", world["ex"], "--ledger", led)
+    assert rc == 0, out
+
+
+def test_split_fills_on_one_game_print_as_their_own_entries_and_one_id_prints_once(world, capsys, tmp_path):
+    """Two entries on the same game whose printed fields match and whose hidden fields (id, qty, price, fee) differ are
+    two entries: each prints, agreeing with the entries read; no quantity or price of either reaches the output. The
+    same entry (the same id) twice prints once; an entry with no id is never deduped."""
+    a = _fill("f-lv-1", "KXNFLGAME-26OCT18KCLV-LV", "yes", "Las Vegas wins — Kansas City")
+    b = {**a, "id": "f-lv-2", "qty": 641, "entry": 0.5517, "staked": 353.64, "fees": 2.71, "pnl_net": 284.22}
+    held = '{"ticker": "KXNFLGAME-26OCT18KCLV-LV", "side": "yes", "title": "Las Vegas wins — Kansas City", ' \
+           '"opened": "2026-10-18T19:31:00Z", "closed": "2026-10-19T00:10:00Z"}'
+    led = tmp_path / "led-split.json"
+    led.write_text(json.dumps({**LEDGER, "fills": [a, b]}))
+    rc, out = _run(capsys, "--db", world["copy"], "--exports", world["ex"], "--ledger", led)
+    assert rc == 0, out
+    kc = _line(out, "Kansas City Chiefs @ Las Vegas Raiders")
+    assert kc.endswith(f"what was done: fills: {held}; {held}"), kc
+    assert [ln for ln in out if ln.startswith("LEDGER:")][0].startswith("LEDGER: NFL game fills entries read 2 · ")
+    body = "\n".join(ln for ln in out if not ln.startswith(("RULING", "SOURCES", "WHAT WAS DONE FROM")))
+    for fig in FILL_FIGURES + ("641", "0.5517", "353.64", "2.71", "284.22", "f-lv-1", "f-lv-2"):
+        assert fig not in body, fig
+    led.write_text(json.dumps({**LEDGER, "fills": [a, dict(a)]}))                     # the same entry twice
+    rc, out = _run(capsys, "--db", world["copy"], "--exports", world["ex"], "--ledger", led)
+    assert rc == 0
+    assert _line(out, "Kansas City Chiefs @ Las Vegas Raiders").endswith(f"what was done: fills: {held}")
+    assert [ln for ln in out if ln.startswith("LEDGER:")][0].startswith("LEDGER: NFL game fills entries read 1 · ")
+    no_id = {k: v for k, v in a.items() if k != "id"}                                # no id: never deduped
+    led.write_text(json.dumps({**LEDGER, "fills": [no_id, dict(no_id)]}))
+    rc, out = _run(capsys, "--db", world["copy"], "--exports", world["ex"], "--ledger", led)
+    assert rc == 0
+    assert _line(out, "Kansas City Chiefs @ Las Vegas Raiders").endswith(f"what was done: fills: {held}; {held}")

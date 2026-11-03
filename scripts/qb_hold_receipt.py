@@ -63,11 +63,12 @@ WHAT IT READS (each reading the conservative one, law 4; the keys are printed wi
   order ticker or Kalshi legs; else when the Cockpit's game matcher fits it (src/walters/ledger_fills.py parse_ticker
   / side_fields, then game_fits on the row's teams, within a day of the ticker's date, the nearest start:
   ledger_fills._start_nearest); an entry that fits more than one row is ambiguous, counted, given to none (refusals
-  stay refusals). NOTHING ELSE of an entry is printed: no quantity, price, fee, stake or P&L (qty, entry, exit,
-  staked, fees, open_fee, close_fee, pnl_pre, pnl_net are never printed), and never its id (the CSV row it was
-  imported from). A row with no entry is blank: "not established" (addendum 44 item 9 as addendum 46 item 4 amended
-  it, #446's first row: "What was done: blank, not established"). Without --ledger every row reads "not read (no
-  --ledger)", never "not established".
+  stay refusals). Each entry prints on its own (a split or partial fill is its own entry); only the same entry, the
+  same non-empty string id, is read once. NOTHING ELSE of an entry is printed: no quantity, price, fee, stake or P&L
+  (qty, entry, exit, staked, fees, open_fee, close_fee, pnl_pre, pnl_net are never printed), and never its id (the
+  CSV row it was imported from). A row with no entry is blank: "not established" (addendum 44 item 9 as addendum 46
+  item 4 amended it, #446's first row: "What was done: blank, not established"). Without --ledger every row reads
+  "not read (no --ledger)", never "not established".
 - THE COUNT toward thirty: PLAY rows + would-be rows (217 item 4: counted too, labelled), beside it the graded rows
   of each. The one figure that adds the two kinds; every other count (rows with fills, not established, left out) is
   printed and keyed per kind. A running count, never a verdict: the read is the architect's,
@@ -77,8 +78,11 @@ Refusals (exit 2, nothing read, nothing written): --db missing, empty, under the
 main checkout's from a worktree; by path or identity: mlb_pitchers_gate.check_db; a data/ elsewhere is not refused),
 the app's configured database, no file there (never created), a -wal / -shm / -journal file beside it (immutable=1
 would ignore it: nfl_v2_gate.check_db's rule), or a copy that cannot be read as the schema the read needs; --exports
-not a directory; --ledger unreadable, or not a bd_ledger_v1 export (no calls array; a call or a fill that is not an
-object; fills not an array). --db opens mode=ro&immutable=1 (mlb_pitchers_gate.readonly_session; addendum 198 item 6(ii)).
+not a directory, or a directory named host in any case (by its own name or through a symlink: host/ is never read,
+its files carry the host's match ids); --ledger unreadable, or not a bd_ledger_v1 export (no calls array; a call or a
+fill that is not an object; fills not an array; a fill whose ticker, side, title, opened or closed is present and not
+a string: the Cockpit's export writes each as the CSV's string or null, and the field is named, its value never
+echoed). --db opens mode=ro&immutable=1 (mlb_pitchers_gate.readonly_session; addendum 198 item 6(ii)).
 Writes nothing: no database row, no ledger, no file.
 
 Last line: QB-HOLD-RECEIPT {json} (counts only; no unit, size or dollar figure).
@@ -149,7 +153,8 @@ class Refused(Exception):
 
 def read_ledger(path) -> dict:
     """The Cockpit's ledger export, or Refused: not readable, not JSON, or not a bd_ledger_v1 export (no calls array;
-    a call or a fill that is not an object; fills present and not an array)."""
+    a call or a fill that is not an object; fills present and not an array; a fill's LEDGER_FIELDS value present and
+    not a string: the field named, the value never echoed)."""
     try:
         with open(path) as fh:
             L = json.load(fh)
@@ -164,6 +169,11 @@ def read_ledger(path) -> dict:
         fills = []
     if not isinstance(fills, list) or any(not isinstance(f, dict) for f in fills):
         raise Refused(f"--ledger {path}: fills is not an array of objects; nothing read")
+    for f in fills:          # the printable fields are the export's strings or null; a figure there is never printed
+        for k in LEDGER_FIELDS:
+            if f.get(k) is not None and not isinstance(f[k], str):
+                raise Refused(f"--ledger {path}: a fill's {k} is not a string or null (the value is not printed); "
+                              "nothing read")
     return {"calls": L["calls"], "fills": fills}
 
 
@@ -185,14 +195,22 @@ def _row_events(row: dict, desk: dict) -> set:
 
 
 def positions(L: dict, rows: list[dict]) -> dict:
-    """{row key: [{ticker, side, title, opened, closed}, ...] distinct}: each fills entry on the row's game, its own
-    field names and values as held (LEDGER_FIELDS; 223 item 5(a): never relabelled), "ambiguous": entries that fit
-    more than one row, "nfl_fills": the NFL game entries read. The matcher reads the ticker, side and title; nothing
-    else of an entry is kept: no quantity, price, fee, P&L or id."""
+    """{row key: [{ticker, side, title, opened, closed}, ...] one per entry}: each fills entry on the row's game, its
+    own field names and values as held (LEDGER_FIELDS; 223 item 5(a): never relabelled), "ambiguous": entries that fit
+    more than one row, "nfl_fills": the NFL game entries read. Every entry stays its own (a split or partial fill whose
+    printed fields match another's is still two entries); only the same entry (the same non-empty string id) is read
+    once, and an entry with no id is never deduped. The id is read for that and printed nowhere. The matcher reads the
+    ticker, side and title; nothing else of an entry is kept: no quantity, price, fee, P&L or id."""
     from src.walters import ledger_fills as lf
     found: dict = {}
     amb = nfl = 0
+    seen: set = set()
     for f in L["fills"]:
+        fid = f.get("id")
+        if isinstance(fid, str) and fid:
+            if fid in seen:
+                continue
+            seen.add(fid)
         fx = {**f, **lf.parse_ticker(f.get("ticker"))}
         if fx.get("kind") != "sport" or fx.get("family") != FAMILY:
             continue
@@ -210,10 +228,7 @@ def positions(L: dict, rows: list[dict]) -> dict:
             continue
         if not keys:
             continue
-        p = {k: f.get(k) for k in LEDGER_FIELDS}
-        lst = found.setdefault(keys[0], [])
-        if p not in lst:
-            lst.append(p)
+        found.setdefault(keys[0], []).append({k: f.get(k) for k in LEDGER_FIELDS})
     return {"by_row": found, "ambiguous": amb, "nfl_fills": nfl}
 
 
@@ -436,7 +451,9 @@ def main(argv=None) -> int:
     ap.add_argument("--db", default=None, help="a .backup copy of the database outside the repo's data/, opened "
                                                "mode=ro&immutable=1 (required)")
     ap.add_argument("--exports", default="exports", help="the exports directory holding closing_*.json "
-                                                         "(default exports; host/ is never read)")
+                                                         "(default exports; host/ is never read: a directory "
+                                                         "named host in any case, a symlink so named, or a "
+                                                         "symlink to one, is refused)")
     ap.add_argument("--ledger", default=None, help="the Cockpit's Export ledger (JSON) file, bd_ledger_v1_<date>.json "
                                                    "(optional: without it 'what was done' reads not read)")
     a = ap.parse_args(argv)
@@ -449,6 +466,10 @@ def main(argv=None) -> int:
                                      "immutable=1 would ignore it and read a stale file; take a fresh .backup copy")
         if not Path(a.exports).is_dir():
             raise Refused(f"--exports {a.exports}: not a directory; nothing read")
+        # by its own name or its target's, in any case (a Mac's default volume ignores case: HOST/ is host/)
+        if "host" in {Path(os.path.abspath(a.exports)).name.lower(), Path(a.exports).resolve().name.lower()}:
+            raise Refused(f"--exports {a.exports}: names or resolves to a host/ directory ({Path(a.exports).resolve()}); "
+                          "host/ is never read, its files carry the host's match ids; nothing read")
         ledger = read_ledger(a.ledger) if a.ledger else None
         mp.open_ro(path).close()
     except (mp.GateRefused, Refused) as err:

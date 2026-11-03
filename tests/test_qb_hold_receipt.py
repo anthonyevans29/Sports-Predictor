@@ -10,7 +10,8 @@ what was done printed as the ledger holds it, under its own label ("fills", each
 closed as held), never relabelled, the same rule on a would-be row (223 item 5(a)), and never a quantity, price, fee,
 P&L, unit or dollar figure of the ledger; the would-be rows on their own lines, labelled, counted toward thirty, no
 price but the page's (none); the two sources in the header and a game the copy lacks labelled "no result in this copy",
-never scored (223 item 5(b)); the refusals.
+never scored (223 item 5(b)); each unscored row (no result in this copy, teams differ, re-dated void) counted toward
+thirty, labelled, outside the W-L-P (225 item 3); the refusals.
 """
 import importlib.util
 import json
@@ -225,8 +226,8 @@ def test_what_was_done_is_what_the_ledger_holds_under_its_own_label(world, capsy
     assert kc.endswith('result: won 17-21 (away-home) · what was done: fills: {"ticker": "KXNFLGAME-26OCT18KCLV-LV", '
                        '"side": "yes", "title": "Las Vegas wins — Kansas City", "opened": "2026-10-18T19:31:00Z", '
                        '"closed": "2026-10-19T00:10:00Z"}'), kc
-    i_play = out.index("PLAY (the Desk's call), QB-flagged or unread — 3 rows, by kickoff")
-    i_would = out.index(f"{WOULD} — 1 row, by kickoff")
+    i_play = out.index("PLAY (the Desk's call), QB-flagged or unread — 3 scored rows, by kickoff")
+    i_would = out.index(f"{WOULD} — 1 scored row, by kickoff")
     sea = _line(out, "Seattle Seahawks @ Los Angeles Rams")
     assert out.index(sea) == i_would + 1 and i_play < i_would
     assert (f"page: PASS (market-only, addendum 214); {WOULD}: AWAY (Seattle Seahawks) · QB: QB-flagged half units — "
@@ -240,16 +241,20 @@ def test_what_was_done_is_what_the_ledger_holds_under_its_own_label(world, capsy
             continue
         for word in ("position", "operator's own", "the page's side", "the other side", "holds "):
             assert word not in ln, (word, ln)
-    assert ("LEDGER: NFL game fills entries read 2 · fitting more than one row (ambiguous, given to none) 0 · PLAY rows "
-            f"with fills on the game 1 of 3 · {WOULD} rows with fills on the game 1 of 1") in out
+    assert ("LEDGER: NFL game fills entries read 2 · fitting more than one row (ambiguous, given to none) 0 · PLAY scored "
+            f"rows with fills on the game 1 of 3 · {WOULD} scored rows with fills on the game 1 of 1 (an unscored row "
+            "is not matched to fills)") in out
     count = [ln for ln in out if ln.startswith("COUNT toward thirty")]
     assert count == [f"COUNT toward thirty (#446; addendum 44 item 9, 209 item 3; would-be rows counted too, labelled, "
-                     f"217 item 4): PLAY 3 + {WOULD} 1 = 4 of 30 — not read before thirty rows or the season's end (no "
-                     f"verdict is computed here) · PLAY W-L-P 2-1-0, void 0, open 0 · {WOULD} W-L-P 0-0-0, void 0, "
-                     "open 1"]
+                     f"217 item 4; unscored rows counted too, labelled, outside the W-L-P, 225 item 3): PLAY 4 + {WOULD} "
+                     "2 = 6 of 30 — not read before thirty rows or the season's end (no verdict is computed here) · "
+                     "PLAY W-L-P 2-1-0, void 0, open 0, unscored 1 (no result in this copy 1 · teams differ 0 · "
+                     f"re-dated void 0) · {WOULD} W-L-P 0-0-0, void 0, open 1, unscored 1 (no result in this copy 1 · "
+                     "teams differ 0 · re-dated void 0)"]
     assert out[-1].startswith("QB-HOLD-RECEIPT ")
     j = json.loads(out[-1][len("QB-HOLD-RECEIPT "):])
-    assert (j["play_rows"], j["would_be_rows"], j["toward_thirty"], j["thirty_reached"]) == (3, 1, 4, False)
+    assert (j["play_rows"], j["would_be_rows"], j["toward_thirty"], j["thirty_reached"]) == (3, 1, 6, False)
+    assert j["counted"] == {"play": 4, "would_be": 2}
     assert j["what_was_done"] == {"play": {"fills": 1, "not_established": 2},
                                   "would_be": {"fills": 1, "not_established": 0}}
 
@@ -268,7 +273,8 @@ def test_a_would_be_row_with_no_ledger_entry_stays_blank(world, capsys, tmp_path
 
 def test_the_two_sources_and_no_result_in_this_copy(world, capsys):
     """223 item 5(b): the results from the DB copy stay; the header names the copy and the closing-file directory as
-    the two sources; a row whose game the copy lacks is labelled "no result in this copy", never scored."""
+    the two sources; a row whose game the copy lacks is labelled "no result in this copy", never scored, and (225 item
+    3) counted toward thirty as a labelled, unscored row."""
     rc, out = _run(capsys, "--db", world["copy"], "--exports", world["ex"], "--ledger", world["ledger"])
     assert rc == 0
     src = [ln for ln in out if ln.startswith("SOURCES")]
@@ -277,15 +283,19 @@ def test_the_two_sources_and_no_result_in_this_copy(world, capsys):
                                                "results-tally reads them: exec_cohorts.result_of) · the closing-file "
                                                f"directory {world['ex']} (closing_*.json"), src
     assert f"WHAT WAS DONE FROM: ledger {world['ledger']} (bd_ledger_v1: calls 1, fills 3)" in out
-    assert (f"LEFT OUT (named, never counted, never scored; per kind, never pooled): PLAY — no result in this copy 1 · "
-            f"teams differ 0 · void 0; {WOULD} — no result in this copy 1 · teams differ 0 · void 0") in out
-    assert "  no result in this copy: match 999 Miami Dolphins @ Buffalo Bills (PLAY)" in out
-    assert f"  no result in this copy: match 998 New York Giants @ Philadelphia Eagles ({WOULD})" in out
+    assert (f"UNSCORED (counted toward thirty, labelled, never scored, outside the W-L-P, 225 item 3; per kind, never "
+            f"pooled): PLAY — no result in this copy 1 · teams differ 0 · re-dated void 0 (re-dated 0 · placeholder "
+            f"kickoff 0); {WOULD} — no result in this copy 1 · teams differ 0 · re-dated void 0 (re-dated 0 · "
+            "placeholder kickoff 0)") in out
+    assert "  no result in this copy (unscored, counted): match 999 Miami Dolphins @ Buffalo Bills (PLAY)" in out
+    assert (f"  no result in this copy (unscored, counted): match 998 New York Giants @ Philadelphia Eagles ({WOULD})"
+            in out)
     assert not [ln for ln in out if ln.startswith("- ") and ("[match 999]" in ln or "[match 998]" in ln)]
     assert not [ln for ln in out if "not in this database" in ln]
     j = json.loads(out[-1][len("QB-HOLD-RECEIPT "):])
-    assert j["left_out"] == {"play": {"no_result": 1, "teams": 0, "void": 0},
+    assert j["unscored"] == {"play": {"no_result": 1, "teams": 0, "void": 0},
                              "would_be": {"no_result": 1, "teams": 0, "void": 0}}
+    assert (j["counted"], j["toward_thirty"]) == ({"play": 4, "would_be": 2}, 6)
     assert (j["play_record"], j["would_be_record"]) == ({"win": 2, "loss": 1, "push": 0, "void": 0, "open": 0},
                                                         {"win": 0, "loss": 0, "push": 0, "void": 0, "open": 1})
 
@@ -301,16 +311,17 @@ def _numbers(j, path=()):
 def test_play_and_would_be_are_never_pooled_but_in_the_count_toward_thirty(world, capsys):
     """217 item 4: the would-be rows are "never pooled with PLAY"; "#446's read at thirty rows counts those rows too,
     labelled". The count toward thirty is the one figure that adds the two kinds: every other row count, printed or in
-    the JSON, is per kind. The world has PLAY 3 (one with fills, one more left out) and would-be 1 (with fills, one
-    more left out): a pooled figure would read 4 rows, 2 with fills, 2 with no result in this copy."""
+    the JSON, is per kind. The world has PLAY 3 scored (one with fills) + 1 unscored, and would-be 1 scored (with
+    fills) + 1 unscored (225 item 3: counted): a pooled figure would read 6 counted, 4 scored, 2 with fills, 2 with no
+    result in this copy."""
     rc, out = _run(capsys, "--db", world["copy"], "--exports", world["ex"], "--ledger", world["ledger"])
     assert rc == 0
     count = [ln for ln in out if ln.startswith("COUNT toward thirty")]
-    assert len(count) == 1 and f"PLAY 3 + {WOULD} 1 = 4 of 30" in count[0]
+    assert len(count) == 1 and f"PLAY 4 + {WOULD} 2 = 6 of 30" in count[0]
     for ln in out:
         if ln in count or ln.startswith(("RULING", "KEYS", "SOURCES", "WHAT WAS DONE FROM", "QB-HOLD-RECEIPT")):
             continue
-        assert not re.search(r"\bof 4\b", ln), ln                      # rows, both kinds: only the count's
+        assert not re.search(r"\bof [46]\b", ln), ln                   # rows, both kinds: only the count's
         assert not re.search(r"(fills on the game|no result in this copy) 2\b", ln), ln
         assert not re.search(r"\b2 of\b", ln), ln
     j = json.loads(out[-1][len("QB-HOLD-RECEIPT "):])
@@ -321,9 +332,11 @@ def test_play_and_would_be_are_never_pooled_but_in_the_count_toward_thirty(world
         if path in whole:
             continue
         assert path[0] in ("play_record", "would_be_record") or "play" in path or "would_be" in path, path
-    assert j["toward_thirty"] == j["play_rows"] + j["would_be_rows"]
+    assert j["toward_thirty"] == j["counted"]["play"] + j["counted"]["would_be"]
+    for k, rows in (("play", "play_rows"), ("would_be", "would_be_rows")):     # each kind: scored + unscored
+        assert j["counted"][k] == j[rows] + sum(j["unscored"][k].values())
     pooled = [path for path, v in _numbers(j)
-              if path not in {("toward_thirty",), ("nfl_games",), ("closing_files",), ("read_at",)} and v == 4]
+              if path not in {("toward_thirty",), ("nfl_games",), ("closing_files",), ("read_at",)} and v == 6]
     assert not pooled, pooled
 
 
@@ -393,23 +406,129 @@ def test_an_ambiguous_fill_is_given_to_no_row(world, capsys, tmp_path):
                                                             "Cleveland wins — New York J")]}))
     rc, out = _run(capsys, "--db", copy, "--exports", tmp_path / "ex2", "--ledger", led)
     assert rc == 0, out
-    assert ("LEDGER: NFL game fills entries read 1 · fitting more than one row (ambiguous, given to none) 1 · PLAY rows "
-            f"with fills on the game 0 of 2 · {WOULD} rows with fills on the game 0 of 0") in out
+    assert ("LEDGER: NFL game fills entries read 1 · fitting more than one row (ambiguous, given to none) 1 · PLAY scored "
+            f"rows with fills on the game 0 of 2 · {WOULD} scored rows with fills on the game 0 of 0 (an unscored row "
+            "is not matched to fills)") in out
 
 
-def test_a_re_dated_row_is_void_named_and_never_counted(world, capsys, tmp_path):
+def test_a_re_dated_row_is_void_named_unscored_and_counted(world, capsys, tmp_path):
     """exec_cohorts' rule: a game none of whose closing rows is within the hour of its current start is void with
-    redated's label, named under LEFT OUT and never counted toward thirty."""
+    redated's label, named under UNSCORED, never scored, and (225 item 3) counted toward thirty, labelled."""
     _world(tmp_path / "w3.db", moved={102: KO_1011 + timedelta(days=1)})
     copy = _backup(tmp_path / "w3.db", tmp_path / "c3" / "nfl.db")
     rc, out = _run(capsys, "--db", copy, "--exports", world["ex"])
     assert rc == 0, out
     assert not [ln for ln in out if ln.startswith("- ") and "Baltimore Ravens" in ln]
-    assert (f"LEFT OUT (named, never counted, never scored; per kind, never pooled): PLAY — no result in this copy 1 · "
-            f"teams differ 0 · void 1; {WOULD} — no result in this copy 1 · teams differ 0 · void 0") in out
-    assert ("  void: match 102 Baltimore Ravens @ Atlanta Falcons (PLAY): void: re-dated 2026-10-11 17:00Z → "
-            "2026-10-12 17:00Z") in out
-    assert json.loads(out[-1][len("QB-HOLD-RECEIPT "):])["toward_thirty"] == 3
+    assert (f"UNSCORED (counted toward thirty, labelled, never scored, outside the W-L-P, 225 item 3; per kind, never "
+            f"pooled): PLAY — no result in this copy 1 · teams differ 0 · re-dated void 1 (re-dated 1 · placeholder "
+            f"kickoff 0); {WOULD} — no result in this copy 1 · teams differ 0 · re-dated void 0 (re-dated 0 · "
+            "placeholder kickoff 0)") in out
+    assert ("  re-dated void (unscored, counted): match 102 Baltimore Ravens @ Atlanta Falcons (PLAY): void: re-dated "
+            "2026-10-11 17:00Z → 2026-10-12 17:00Z") in out
+    j = json.loads(out[-1][len("QB-HOLD-RECEIPT "):])
+    assert (j["toward_thirty"], j["counted"], j["play_rows"]) == (6, {"play": 4, "would_be": 2}, 2)
+    assert j["play_record"] == {"win": 1, "loss": 1, "push": 0, "void": 0, "open": 0}       # 102 not in the W-L-P
+
+
+def test_a_placeholder_kickoff_void_is_split_beside_the_void_head(world, capsys, tmp_path):
+    """One void state, two labels (addendum 109 item 2 Q2): a row recorded at the 04:00Z placeholder whose match is now
+    at 17:00Z reads redated's "void: placeholder kickoff". It counts toward thirty under 225 item 2(a)'s cause head,
+    unscored, and the UNSCORED line splits the head as redated.void_counts does: "re-dated 0 · placeholder kickoff 1"."""
+    ph = nfl_row(102, "Baltimore Ravens", "Atlanta Falcons", "BAL", "ATL", 0.48, 0.60, 0.62, 0.63,
+                 KO_1011.replace(hour=4), qb_side="away", qb=["Lamar Jackson"])
+    ex = tmp_path / "ex6"
+    write_closing(ex, KO_1011 - timedelta(minutes=35), annotated([cle_nyj()], KO_1011, market_only=False)
+                  + annotated([ph], KO_1011.replace(hour=4), market_only=False), fam="NFL")
+    rc, out = _run(capsys, "--db", world["copy"], "--exports", ex)
+    assert rc == 0, out
+    assert ("  re-dated void (unscored, counted): match 102 Baltimore Ravens @ Atlanta Falcons (PLAY): void: "
+            "placeholder kickoff") in out
+    assert (f"UNSCORED (counted toward thirty, labelled, never scored, outside the W-L-P, 225 item 3; per kind, never "
+            f"pooled): PLAY — no result in this copy 0 · teams differ 0 · re-dated void 1 (re-dated 0 · placeholder "
+            f"kickoff 1); {WOULD} — no result in this copy 0 · teams differ 0 · re-dated void 0 (re-dated 0 · "
+            "placeholder kickoff 0)") in out
+    assert not [ln for ln in out if ln.startswith("- ") and "Baltimore Ravens" in ln]
+    j = json.loads(out[-1][len("QB-HOLD-RECEIPT "):])
+    assert (j["counted"], j["play_rows"], j["unscored"]["play"]) == ({"play": 2, "would_be": 0}, 1,
+                                                                      {"no_result": 0, "teams": 0, "void": 1})
+
+
+# ---- 225 item 3 (Q1, by 225 item 2(a)): the unscored rows count toward thirty, labelled, outside the W-L-P -----------
+
+def test_each_unscored_kind_counts_toward_thirty_with_its_label_and_never_in_the_w_l_p(capsys, tmp_path):
+    """225 item 3: "a row the copy lacks ("no result in this copy"), a teams-differ row and a void row each COUNT toward
+    thirty as labelled, unscored rows, kept outside the W-L-P with their label". The world: PLAY 101 scored (lost),
+    999 the copy lacks, 103 whose teams are not the copy's match 103, 102 re-dated; would-be 105 scored (open), 998 the
+    copy lacks, 104 whose teams differ. Each of the three causes is counted, named with its label, never a row line,
+    never in the W-L-P; the printed count and the JSON agree."""
+    ex = tmp_path / "ex4"
+    other = nfl_row(103, "Green Bay Packers", "Minnesota Vikings", "GB", "MIN", 0.45, 0.58, 0.56, 0.57, KO_1011,
+                    qb_side="away", qb=["Jordan Love"])                     # the copy's match 103 is DET @ CHI
+    other_would = nfl_row(104, "Denver Broncos", "Houston Texans", "DEN", "HOU", 0.45, 0.58, 0.56, 0.57, KO_1109,
+                          qb_side="away", qb=["Bo Nix"])                    # the copy's match 104 is KC @ LV
+    write_closing(ex, KO_1011 - timedelta(minutes=35),
+                  annotated([cle_nyj(), bal_atl(), other], KO_1011, market_only=False), fam="NFL")
+    write_closing(ex, KO_1018 - timedelta(minutes=35), annotated([lost_row()], KO_1018, market_only=False), fam="NFL")
+    write_closing(ex, KO_1109 - timedelta(minutes=35),
+                  annotated([sea_lar(), lost_would(), other_would], KO_1109, market_only=True), fam="NFL")
+    _world(tmp_path / "w4.db", moved={102: KO_1011 + timedelta(days=1)})
+    copy = _backup(tmp_path / "w4.db", tmp_path / "c4" / "nfl.db")
+    rc, out = _run(capsys, "--db", copy, "--exports", ex)
+    assert rc == 0, out
+    labelled = {
+        "  no result in this copy (unscored, counted): match 999 Miami Dolphins @ Buffalo Bills (PLAY)",
+        "  teams differ (unscored, counted): match 103 Green Bay Packers @ Minnesota Vikings (PLAY; this database's "
+        "match 103 is Detroit Lions @ Chicago Bears)",
+        "  re-dated void (unscored, counted): match 102 Baltimore Ravens @ Atlanta Falcons (PLAY): void: re-dated "
+        "2026-10-11 17:00Z → 2026-10-12 17:00Z",
+        f"  no result in this copy (unscored, counted): match 998 New York Giants @ Philadelphia Eagles ({WOULD})",
+        f"  teams differ (unscored, counted): match 104 Denver Broncos @ Houston Texans ({WOULD}; this database's "
+        "match 104 is Kansas City Chiefs @ Las Vegas Raiders)"}
+    assert labelled <= set(out), sorted(labelled - set(out))
+    assert len([ln for ln in out if "(unscored, counted): " in ln]) == 5
+    rows = [ln for ln in out if ln.startswith("- ")]                       # the scored rows only: 101 and 105
+    assert [re.search(r"\[match (\d+)\]", ln).group(1) for ln in rows] == ["101", "105"], rows
+    assert (f"UNSCORED (counted toward thirty, labelled, never scored, outside the W-L-P, 225 item 3; per kind, never "
+            f"pooled): PLAY — no result in this copy 1 · teams differ 1 · re-dated void 1 (re-dated 1 · placeholder "
+            f"kickoff 0); {WOULD} — no result in this copy 1 · teams differ 1 · re-dated void 0 (re-dated 0 · "
+            "placeholder kickoff 0)") in out
+    count = [ln for ln in out if ln.startswith("COUNT toward thirty")]
+    assert count == [f"COUNT toward thirty (#446; addendum 44 item 9, 209 item 3; would-be rows counted too, labelled, "
+                     f"217 item 4; unscored rows counted too, labelled, outside the W-L-P, 225 item 3): PLAY 4 + {WOULD} "
+                     "3 = 7 of 30 — not read before thirty rows or the season's end (no verdict is computed here) · "
+                     "PLAY W-L-P 0-1-0, void 0, open 0, unscored 3 (no result in this copy 1 · teams differ 1 · "
+                     f"re-dated void 1) · {WOULD} W-L-P 0-0-0, void 0, open 1, unscored 2 (no result in this copy 1 · "
+                     "teams differ 1 · re-dated void 0)"], count
+    j = json.loads(out[-1][len("QB-HOLD-RECEIPT "):])
+    assert j["unscored"] == {"play": {"no_result": 1, "teams": 1, "void": 1},
+                             "would_be": {"no_result": 1, "teams": 1, "void": 0}}
+    assert (j["play_rows"], j["would_be_rows"]) == (1, 1)                  # the scored rows, the W-L-P's
+    assert j["play_record"] == {"win": 0, "loss": 1, "push": 0, "void": 0, "open": 0}
+    assert j["would_be_record"] == {"win": 0, "loss": 0, "push": 0, "void": 0, "open": 1}
+    assert (j["counted"], j["toward_thirty"], j["thirty_reached"]) == ({"play": 4, "would_be": 3}, 7, False)
+    assert "PLAY 4 + " in count[0] and f"{WOULD} 3 = 7 of 30" in count[0]   # the printed count is the JSON's
+
+
+def test_a_copy_that_lacks_every_game_does_not_delay_the_read(capsys, tmp_path):
+    """225 item 2(a): "A copy that lacks games must not delay the read that the count triggers." Thirty QB-flagged PLAY
+    rows whose games the copy lacks are thirty: "thirty reached", every one labelled "no result in this copy", none
+    scored."""
+    ex = tmp_path / "ex5"
+    rows = [nfl_row(900 + i, f"Away {i}", f"Home {i}", "AWY", "HME", 0.45, 0.58, 0.56, 0.57, KO_1011,
+                    qb_side="away", qb=[f"QB {i}"]) for i in range(30)]
+    write_closing(ex, KO_1011 - timedelta(minutes=35), annotated(rows, KO_1011, market_only=False), fam="NFL")
+    _world(tmp_path / "w5.db")
+    copy = _backup(tmp_path / "w5.db", tmp_path / "c5" / "nfl.db")
+    rc, out = _run(capsys, "--db", copy, "--exports", ex)
+    assert rc == 0, out
+    count = [ln for ln in out if ln.startswith("COUNT toward thirty")]
+    assert len(count) == 1 and (f"PLAY 30 + {WOULD} 0 = 30 of 30 — thirty reached — for the architect's read (no "
+                                "verdict is computed here) · PLAY W-L-P 0-0-0, void 0, open 0, unscored 30 (no result "
+                                "in this copy 30 · teams differ 0 · re-dated void 0)") in count[0], count
+    assert len([ln for ln in out if ln.startswith("  no result in this copy (unscored, counted): match 9")]) == 30
+    assert not [ln for ln in out if ln.startswith("- ")]
+    j = json.loads(out[-1][len("QB-HOLD-RECEIPT "):])
+    assert (j["toward_thirty"], j["thirty_reached"], j["play_rows"]) == (30, True, 0)
 
 
 def test_the_count_line_says_thirty_reached_and_never_a_verdict():
@@ -420,6 +539,11 @@ def test_the_count_line_says_thirty_reached_and_never_a_verdict():
         in line
     for w in ("PASS", "FAIL", "verdict:"):
         assert w not in line
+    line = script.count_line(20, 10, g, g, {"no_result": 4, "teams": 1, "void": 1}, {"no_result": 2})
+    assert f"PLAY 20 + {WOULD} 10 = 30 of 30 — thirty reached" in line
+    assert ("PLAY W-L-P 0-0-0, void 0, open 0, unscored 6 (no result in this copy 4 · teams differ 1 · re-dated void 1)"
+            in line), line
+    assert line.endswith("unscored 2 (no result in this copy 2 · teams differ 0 · re-dated void 0)"), line
 
 
 def test_read_only_the_copy_is_unchanged_and_no_sidecar_is_made(world, capsys):

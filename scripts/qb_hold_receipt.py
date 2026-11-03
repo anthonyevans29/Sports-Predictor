@@ -24,6 +24,14 @@ them, STAYS — opened mode=ro + immutable=1 (198 item 6(ii)), the header naming
 as the two sources, a row whose game the copy lacks labelled "no result in this copy", never scored. It takes the slot
 #800 freed."
 
+Its three questions, ruled, verbatim (ARCHITECT 2026-11-03 07:55 ET, addendum 225 item 3): "#804 (the QB-hold receipt)
+— its three questions: Q1 RULED by 2(a) above: a row the copy lacks ("no result in this copy"), a teams-differ row and a
+void row each COUNT toward thirty as labelled, unscored rows, kept outside the W-L-P with their label (the change local
+to collect(), as offered). Q2 CONFIRMED: "what was done" is the ledger's fills, never the Cockpit's claims (a claim is
+what the page said). Q3 CONFIRMED as built: a would-be row's price line reads "none (PASS on the page)"; its exec edge
+stays on the row. One push for Q1; CI green then my block. The count the script prints is the count; my "about fifteen"
+was a read of the pages, not a rule."
+
 WHAT IT READS (each reading the conservative one, law 4; the keys are printed with the output):
 - THE ROWS: the NFL closing files on this machine's disk (redated.closing_rows: <exports>/closing_*.json, every file,
   never host/), the closing family NFL. One row per game, exec_cohorts' rule (the void rule's selection): the newest
@@ -52,9 +60,14 @@ WHAT IT READS (each reading the conservative one, law 4; the keys are printed wi
   decides; a level score is a push; CANCELLED / POSTPONED / STALE_ORPHAN void; anything else open), with the final
   score away-home (223 item 5(b): the results from the DB copy STAY). The header names the two sources: the copy
   (--db) and the closing-file directory (--exports). No <sport>_results_<date>.json is opened.
-- LEFT OUT, named, never counted toward thirty and never scored (tallied per kind): a row whose game the copy lacks
-  (its match id is not in the copy), labelled "no result in this copy" (223 item 5(b)); a row whose teams are not the
-  copy's match (match ids are machine-local); a void row (re-dated, or the placeholder kickoff) with its label.
+- UNSCORED, COUNTED, LABELLED (225 item 3, by 225 item 2(a)): a row the hold touched counts toward thirty BEFORE the
+  copy's checks; a row they leave out is kept outside the W-L-P, named beside the count by its cause, never scored
+  (tallied per kind): a row whose game the copy lacks (its match id is not in the copy), labelled "no result in this
+  copy" (223 item 5(b)); a row whose teams are not the copy's match (match ids are machine-local), "teams differ"; a
+  void row, "re-dated void" (225 item 2(a)'s cause text), each with redated's own label (re-dated, or the placeholder
+  kickoff: one void state, two labels, addendum 109 item 2 Q2; the UNSCORED line prints the head's split beside it,
+  redated.void_counts: "re-dated N · placeholder kickoff M"). 225 item 2(a)'s fourth cause, non-taker basis, leaves no row out here: the receipt
+  reads no cohort eligibility (no exec basis check), so a row of any basis is a scored row.
 - WHAT WAS DONE (--ledger, the Cockpit's "Export ledger (JSON)" file, bd_ledger_v1_<date>.json): what the ledger holds
   on the row's game, under the ledger's own label for it (223 item 5(a)): the export's "fills" array, each entry
   printed under that key with its own field names (ticker, side, title, opened, closed) and its values as held,
@@ -68,11 +81,16 @@ WHAT IT READS (each reading the conservative one, law 4; the keys are printed wi
   (qty, entry, exit, staked, fees, open_fee, close_fee, pnl_pre, pnl_net are never printed), and never its id (the
   CSV row it was imported from). A row with no entry is blank: "not established" (addendum 44 item 9 as addendum 46
   item 4 amended it, #446's first row: "What was done: blank, not established"). Without --ledger every row reads
-  "not read (no --ledger)", never "not established".
-- THE COUNT toward thirty: PLAY rows + would-be rows (217 item 4: counted too, labelled), beside it the graded rows
-  of each. The one figure that adds the two kinds; every other count (rows with fills, not established, left out) is
-  printed and keyed per kind. A running count, never a verdict: the read is the architect's,
-  at thirty rows or the season's end.
+  "not read (no --ledger)", never "not established". What was done is matched to the scored rows only: the LEDGER
+  line's "of N" and the JSON's what_was_done are scored rows, and an unscored row is not matched to fills (said on the
+  LEDGER line; 225 item 3 rules the label, not what was done for an unscored row).
+- THE COUNT toward thirty: every row the hold touched, PLAY rows + would-be rows (217 item 4: counted too, labelled),
+  each kind's count its scored rows + its unscored rows (225 item 3: "a row the copy lacks ("no result in this copy"),
+  a teams-differ row and a void row each COUNT toward thirty as labelled, unscored rows, kept outside the W-L-P with
+  their label"), beside it each kind's W-L-P / void / open (the scored rows only) and its unscored rows by cause. The
+  printed count is the count (225 item 3: "The count the script prints is the count"). The one figure that adds the
+  two kinds; every other count (rows with fills, not established, unscored) is printed and keyed per kind. A running
+  count, never a verdict: the read is the architect's, at thirty rows or the season's end.
 
 Refusals (exit 2, nothing read, nothing written): --db missing, empty, under the repo's data/ (the checkout's, and the
 main checkout's from a worktree; by path or identity: mlb_pitchers_gate.check_db; a data/ elsewhere is not refused),
@@ -113,6 +131,8 @@ NOT_READ = "not read (no --ledger)"
 LEDGER_LABEL = "fills"                       # the bd_ledger_v1 export's own key for what it holds (223 item 5(a))
 LEDGER_FIELDS = ("ticker", "side", "title", "opened", "closed")  # an entry's own field names; never a figure, never id
 NO_RESULT = "no result in this copy"                           # addendum 223 item 5(b), the label verbatim
+# the unscored rows' causes (225 item 3, by 225 item 2(a)): each counted toward thirty, labelled, never scored
+UNSCORED_HEADS = (("no_result", NO_RESULT), ("teams", "teams differ"), ("void", "re-dated void"))
 QB_REASON_HEADS = ("QB-flagged (", "injury list empty (")       # desk_policy's two QB reasons, as it writes them
 ET = ZoneInfo("America/New_York")
 
@@ -134,15 +154,25 @@ RULING_223_5 = ("THE RECEIPT SCRIPT PR (#446, 209 item 3) — its two questions,
                 "opened mode=ro + immutable=1 (198 item 6(ii)), the header naming the copy and the closing-file "
                 "directory as the two sources, a row whose game the copy lacks labelled \"no result in this copy\", "
                 "never scored. It takes the slot #800 freed.")
+RULING_225_3 = ("#804 (the QB-hold receipt) — its three questions: Q1 RULED by 2(a) above: a row the copy lacks (\"no "
+                "result in this copy\"), a teams-differ row and a void row each COUNT toward thirty as labelled, "
+                "unscored rows, kept outside the W-L-P with their label (the change local to collect(), as offered). "
+                "Q2 CONFIRMED: \"what was done\" is the ledger's fills, never the Cockpit's claims (a claim is what the"
+                " page said). Q3 CONFIRMED as built: a would-be row's price line reads \"none (PASS on the page)\"; its"
+                " exec edge stays on the row. One push for Q1; CI green then my block. The count the script prints is"
+                " the count; my \"about fifteen\" was a read of the pages, not a rule.")
 KEYS = ("rows = the NFL closing files, one per game (exec_cohorts' rule: the newest run's row within the Desk's clock "
         "drift of the match's current start) · PLAY = desk.call PLAY with a QB tag (exec_cohorts.QB_TAGS) · would-be "
         "= desk.call PASS, pass_kind market_only, market_only_hold.would_call PLAY, with a QB tag · price named = a "
         "PLAY's desk.order.limit; a would-be row names none · close = close.grading_close_block's fair for the page's "
-        "side · result = the database copy, as results-tally reads it (exec_cohorts.result_of); a game the copy lacks: "
-        "\"no result in this copy\", never scored · what was done = what the ledger holds on the game (by event "
+        "side · result = the database copy, as results-tally reads it (exec_cohorts.result_of) · unscored = a row the "
+        "copy's checks leave out, labelled by its cause (a game the copy lacks: \"no result in this copy\"; teams "
+        "differ; re-dated void), never scored, outside the W-L-P, and COUNTED toward thirty (225 item 3) · what was done = what the ledger holds on the game (by event "
         "ticker, else the Cockpit's game matcher), under its own label: fills, each entry's ticker, side, title, "
-        "opened, closed as held; never a quantity, price, fee or P&L; none: not established · every count is per "
-        "kind; only the count toward thirty adds the two")
+        "opened, closed as held; never a quantity, price, fee or P&L; none: not established; matched to the scored rows "
+        "only · count toward thirty = "
+        "each kind's scored rows + its unscored rows; the printed count is the count (225 item 3) · every count is "
+        "per kind; only the count toward thirty adds the two")
 
 
 class Refused(Exception):
@@ -270,7 +300,10 @@ def _num(x) -> float | None:
 
 
 def collect(s, exports_dir) -> dict:
-    """The receipt's rows from the closing files and the database copy `s` (read-only; nothing written)."""
+    """The receipt's rows from the closing files and the database copy `s` (read-only; nothing written): "rows" (the
+    scored rows), "unscored" (per kind, by cause, UNSCORED_HEADS: each named with its label, never scored, kept
+    outside the W-L-P) and "toward_thirty" (per kind: its scored rows + its unscored rows; 225 item 3: a row the copy
+    lacks, a teams-differ row and a void row each COUNT toward thirty as labelled, unscored rows)."""
     from src.db.schema import Match
     from src.walters.close import grading_close_block
     from src.walters.exec_cohorts import QB_TAGS, _within, result_of
@@ -278,7 +311,7 @@ def collect(s, exports_dir) -> dict:
 
     cr = closing_rows(exports_dir)
     rows = []
-    left = {k: {"no_result": [], "teams": [], "void": []} for k in ("play", "would")}
+    unscored = {k: {key: [] for key, _ in UNSCORED_HEADS} for k in ("play", "would")}
     nfl_matches = 0
     for mid in sorted(cr["rows"]):
         entries = cr["rows"][mid]
@@ -304,16 +337,16 @@ def collect(s, exports_dir) -> dict:
         game = f"{row.get('away_team') or '?'} @ {row.get('home_team') or '?'}"
         tag = WOULD_LABEL if kind == "would" else "PLAY"
         if m is None:
-            left[kind]["no_result"].append(f"match {mid} {game} ({tag})")
+            unscored[kind]["no_result"].append(f"match {mid} {game} ({tag})")
             continue
         h = m.home_team.name if m.home_team else None
         a = m.away_team.name if m.away_team else None
         if (row.get("home_team"), row.get("away_team")) != (h, a):
-            left[kind]["teams"].append(f"match {mid} {game} ({tag}; this database's match {mid} is {a or '?'} @ "
+            unscored[kind]["teams"].append(f"match {mid} {game} ({tag}; this database's match {mid} is {a or '?'} @ "
                                        f"{h or '?'})")
             continue
         if lab:
-            left[kind]["void"].append(f"match {mid} {game} ({tag}): {lab}")
+            unscored[kind]["void"].append(f"match {mid} {game} ({tag}): {lab}")
             continue
         pick = desk.get("pick")
         hold = desk.get("market_only_hold") if isinstance(desk.get("market_only_hold"), dict) else {}
@@ -338,8 +371,10 @@ def collect(s, exports_dir) -> dict:
             "close": _num(fair), "close_reference": cb.get("close_reference"), "close_books": cb.get("close_books"),
             "result": res, "score": (m.away_score, m.home_score), "events": _row_events(row, desk)})
     rows.sort(key=lambda r: (r["kickoff_iso"], r["match_id"]))
-    return {"rows": rows, "left": left, "files": cr["files"], "unreadable": cr["unreadable"], "runs": cr["runs"],
-            "nfl_matches": nfl_matches}
+    toward = {k: sum(1 for r in rows if r["kind"] == k) + sum(len(v) for v in unscored[k].values())
+              for k in ("play", "would")}
+    return {"rows": rows, "unscored": unscored, "toward_thirty": toward, "files": cr["files"],
+            "unreadable": cr["unreadable"], "runs": cr["runs"], "nfl_matches": nfl_matches}
 
 
 # -------------------------------------------------------------------------------------------------- the lines --
@@ -375,19 +410,27 @@ def _graded(rs: list[dict]) -> dict:
     return {k: sum(1 for r in rs if r["result"] == k) for k in ("win", "loss", "push", "void", "open")}
 
 
-def count_line(n_play: int, n_would: int, g_play: dict, g_would: dict) -> str:
+def count_line(n_play: int, n_would: int, g_play: dict, g_would: dict, u_play: dict | None = None,
+               u_would: dict | None = None) -> str:
+    """The count toward thirty: n_play / n_would are each kind's count (its scored rows + its unscored rows, 225 item
+    3); beside it each kind's record (g_*, the scored rows only) and its unscored rows by cause (u_*, {cause: n})."""
     total = n_play + n_would
     tail = (f"thirty reached — for the architect's read (no verdict is computed here)" if total >= READ_AT
             else "not read before thirty rows or the season's end (no verdict is computed here)")
 
-    def rec(g):
-        return (f"W-L-P {g['win']}-{g['loss']}-{g['push']}, void {g['void']}, open {g['open']}")
+    def rec(g, u):
+        u = u or {}
+        n = sum(u.get(key, 0) for key, _ in UNSCORED_HEADS)
+        return (f"W-L-P {g['win']}-{g['loss']}-{g['push']}, void {g['void']}, open {g['open']}, unscored {n} ("
+                + " · ".join(f"{head} {u.get(key, 0)}" for key, head in UNSCORED_HEADS) + ")")
     return (f"COUNT toward thirty (#446; addendum 44 item 9, 209 item 3; would-be rows counted too, labelled, 217 item "
-            f"4): PLAY {n_play} + {WOULD_LABEL} {n_would} = {total} of {READ_AT} — {tail} · PLAY {rec(g_play)} · "
-            f"{WOULD_LABEL} {rec(g_would)}")
+            f"4; unscored rows counted too, labelled, outside the W-L-P, 225 item 3): PLAY {n_play} + {WOULD_LABEL} "
+            f"{n_would} = {total} of {READ_AT} — {tail} · PLAY {rec(g_play, u_play)} · {WOULD_LABEL} "
+            f"{rec(g_would, u_would)}")
 
 
 def report(s, exports_dir, ledger: dict | None, db_text: str, ledger_text: str, echo=print) -> dict:
+    from src.walters.redated import void_counts
     out = collect(s, exports_dir)
     rows = out["rows"]
     pos = positions(ledger, rows) if ledger is not None else {"by_row": {}, "ambiguous": 0, "nfl_fills": 0}
@@ -398,6 +441,7 @@ def report(s, exports_dir, ledger: dict | None, db_text: str, ledger_text: str, 
     echo(f"RULING (ARCHITECT 2026-11-02 08:30 ET, addendum 209 item 3, verbatim): \"{RULING_209_3}\"")
     echo(f"RULING (ARCHITECT 2026-11-02 11:20 ET, addendum 217 item 4, verbatim): \"{RULING_217_4}\"")
     echo(f"RULING (ARCHITECT 2026-11-02 18:05 ET, addendum 223 item 5, verbatim): \"{RULING_223_5}\"")
+    echo(f"RULING (ARCHITECT 2026-11-03 07:55 ET, addendum 225 item 3, verbatim): \"{RULING_225_3}\"")
     runs = (f"runs {out['runs'][0]:%Y-%m-%d %H:%M}Z to {out['runs'][1]:%Y-%m-%d %H:%M}Z" if out["runs"] else "runs —")
     bad = (f" · unreadable {len(out['unreadable'])}: {', '.join(out['unreadable'])}" if out["unreadable"] else "")
     echo(f"SOURCES (the two, 223 item 5(b)): the copy {db_text} · the closing-file directory {d} (closing_*.json, "
@@ -408,37 +452,41 @@ def report(s, exports_dir, ledger: dict | None, db_text: str, ledger_text: str, 
     would = [r for r in rows if r["kind"] == "would"]
     ledger_read = ledger is not None
     for label, rs in ((PLAY_LABEL, plays), (WOULD_LABEL, would)):
-        echo(f"{label} — {len(rs)} row{'s' if len(rs) != 1 else ''}, by kickoff")
+        echo(f"{label} — {len(rs)} scored row{'s' if len(rs) != 1 else ''}, by kickoff")
         for r in rs:
             echo(row_line(r, done_text(pos["by_row"].get(r["key"]), ledger_read)))
-    lo = out["left"]
-    heads = (("no_result", NO_RESULT), ("teams", "teams differ"), ("void", "void"))
-    echo("LEFT OUT (named, never counted, never scored; per kind, never pooled): "
-         + "; ".join(f"{lab} — " + " · ".join(f"{head} {len(lo[k][key])}" for key, head in heads)
-                     for k, lab in (("play", "PLAY"), ("would", WOULD_LABEL))))
+    uo = out["unscored"]
+    u_n = {k: {key: len(uo[k][key]) for key, _ in UNSCORED_HEADS} for k in ("play", "would")}
+    def u_head(k, key, head):      # the void head carries redated's split: one void state, two labels (109 item 2 Q2)
+        return f"{head} {u_n[k][key]}" + (f" ({void_counts(uo[k][key])})" if key == "void" else "")
+    echo("UNSCORED (counted toward thirty, labelled, never scored, outside the W-L-P, 225 item 3; per kind, never "
+         "pooled): " + "; ".join(f"{lab} — " + " · ".join(u_head(k, key, head) for key, head in UNSCORED_HEADS)
+                                 for k, lab in (("play", "PLAY"), ("would", WOULD_LABEL))))
     for k in ("play", "would"):
-        for key, head in heads:
-            for x in lo[k][key]:
-                echo(f"  {head}: {x}")
+        for key, head in UNSCORED_HEADS:
+            for x in uo[k][key]:
+                echo(f"  {head} (unscored, counted): {x}")
     held_play = sum(1 for r in plays if pos["by_row"].get(r["key"]))
     held_would = sum(1 for r in would if pos["by_row"].get(r["key"]))
     if ledger_read:
         echo(f"LEDGER: NFL game {LEDGER_LABEL} entries read {pos['nfl_fills']} · fitting more than one row (ambiguous, "
-             f"given to none) {pos['ambiguous']} · PLAY rows with {LEDGER_LABEL} on the game {held_play} of "
-             f"{len(plays)} · {WOULD_LABEL} rows with {LEDGER_LABEL} on the game {held_would} of {len(would)}")
+             f"given to none) {pos['ambiguous']} · PLAY scored rows with {LEDGER_LABEL} on the game {held_play} of "
+             f"{len(plays)} · {WOULD_LABEL} scored rows with {LEDGER_LABEL} on the game {held_would} of {len(would)} "
+             f"(an unscored row is not matched to {LEDGER_LABEL})")
     g_play, g_would = _graded(plays), _graded(would)
-    echo(count_line(len(plays), len(would), g_play, g_would))
-    left_n = {k: {key: len(v) for key, v in lo[src].items()} for k, src in (("play", "play"), ("would_be", "would"))}
+    tw = out["toward_thirty"]
+    echo(count_line(tw["play"], tw["would"], g_play, g_would, u_n["play"], u_n["would"]))
     summary = {"exports": d, "closing_files": out["files"], "unreadable": len(out["unreadable"]),
                "nfl_games": out["nfl_matches"], "play_rows": len(plays), "would_be_rows": len(would),
-               "toward_thirty": len(plays) + len(would), "read_at": READ_AT,
-               "thirty_reached": len(plays) + len(would) >= READ_AT, "play_record": g_play,
+               "counted": {"play": tw["play"], "would_be": tw["would"]},
+               "toward_thirty": tw["play"] + tw["would"], "read_at": READ_AT,
+               "thirty_reached": tw["play"] + tw["would"] >= READ_AT, "play_record": g_play,
                "would_be_record": g_would, "ledger_read": ledger_read,
                "what_was_done": ({"play": {LEDGER_LABEL: held_play, "not_established": len(plays) - held_play},
                                   "would_be": {LEDGER_LABEL: held_would, "not_established": len(would) - held_would}}
                                  if ledger_read else None),
                "ambiguous_fills": pos["ambiguous"] if ledger_read else None,
-               "left_out": left_n}
+               "unscored": {"play": u_n["play"], "would_be": u_n["would"]}}
     echo("QB-HOLD-RECEIPT " + json.dumps(summary, sort_keys=True))
     return {**out, "positions": pos, "summary": summary}
 

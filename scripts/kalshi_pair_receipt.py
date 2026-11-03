@@ -24,9 +24,31 @@ WHAT IT READS (each reading the conservative one, law 4):
   A snapshot carries no name, no title and no sibling (law 1: odds_snapshots stores match_id, selection and the
   ticker), so an event with no settled row is printed "pair not formable from the store: refused" and is never placed
   here; a stored leg whose ticker has no settled row is printed "not in the settled store: its name is not stored".
-  The title is not stored, so the two-name title fallback (kalshi_match._names) never reads here: the pair is the
-  siblings' or nothing. Placement is kalshi_history.place_events (km.place per event on the stored games of the
-  series' own competition on the event's days, kalshi_sync.stored_games; now = EPOCH, the window unbounded) over
+  The title is not stored, so the two-name title fallback (kalshi_match._pair) never reads here: the pair is the
+  siblings' or nothing. The fallback as ruled NARROWED (ARCHITECT 2026-11-03 13:05 ET, addendum 234 item 2,
+  verbatim): "THE "A vs B" TITLE FALLBACK — RULED: NARROWED, and it never overrides. Doctrine first (CLAUDE.md): an
+  ambiguous match is refused by design; a title-derived pair that can override conflicting siblings is a guess
+  dressed as a placement. So: (a) the fallback applies ONLY when the event's siblings name fewer than two teams; (b)
+  the title's two names must be CONSISTENT with every sibling's yes-team (each sibling's yes-team is one of the two,
+  or the sibling names none) — any inconsistency REFUSES the event with its own sentinel (TITLE_CONFLICT, named in
+  the receipt), never a placement; (c) a single listed market with a two-name title places on those two names only
+  under (b); (d) the override of conflicting siblings is REMOVED. The three tests pinning today's behaviour change to
+  pin this; the receipt's AFTER column shows any stored leg the narrowing re-verdicts. Live runs are unchanged today
+  (every live title reads "<Team> wins"); kalshi-history's API reads are where it bites, which is the paper close
+  record of the market-only families — the record a wrong-game leg would quietly corrupt." The AFTER is the narrowed
+  matcher's: three or more sibling names are refused NO_PAIR, never given a title's pair; a refusal TITLE_CONFLICT is
+  printed under its sentinel's name and counted under its own key (title_conflict), apart from the other refusals.
+  THE LIMIT, stated plainly: the store holds no title (kalshi_settled_markets has no title column), so this receipt
+  CANNOT tell which stored legs the narrowing re-verdicts. Its AFTER is the same before and after the narrowing on
+  any real copy: an event the store names by fewer than two teams is refused NO_PAIR whatever its API title said, an
+  event it names by three or more is NO_PAIR either way, and TITLE_CONFLICT and title_conflict cannot show on a real
+  copy (they read only where a title is read: a test stands one in). Kalshi-history's stored decision beside each
+  settled row (made on the API's titles) is printed as held; a row whose AFTER differs from it is not thereby a row
+  the narrowing changed (a one-row event stored through a CONSISTENT title differs too). Item 2's "the receipt's
+  AFTER column shows any stored leg the narrowing re-verdicts" is therefore not met by this receipt: open for a
+  ruling (needs-ruling), never closed here.
+  Placement is kalshi_history.place_events (km.place per event on the stored games of the series' own competition
+  on the event's days, kalshi_sync.stored_games; now = EPOCH, the window unbounded) over
   EVERY settled event of the series in the copy, never only the selection, so the claims rule ("two markets claim one
   side of one game") reads across them as kalshi-history's run reads every event it knows of and a verdict does not
   depend on --events; the identity hold (kalshi_history.identity_holds) over the same events, with no open list (a
@@ -39,9 +61,9 @@ WHAT IT READS (each reading the conservative one, law 4):
 - Per stored leg, the verdict: "stored on its own game: placed here on both names" (the matcher places that ticker on
   the game and side it is stored on), "stored on its own game, WRONG SIDE: placed here SIDE on both names" (the right
   game, the other side), "stored on ANOTHER game: placed on match N SIDE on both names" (the stored leg sits on a game
-  the matcher never gives it: the stored leg is wrong, and stays stored as history), "refused: <reason>" or "pair not
-  formable from the store: refused"; "by ruling" in place of "on both names" for a row placed by ruling. Each verdict
-  has its own count.
+  the matcher never gives it: the stored leg is wrong, and stays stored as history), "refused TITLE_CONFLICT:
+  <its reason>" (addendum 234 item 2(b)), "refused: <reason>" or "pair not formable from the store: refused"; "by
+  ruling" in place of "on both names" for a row placed by ruling. Each verdict has its own count.
 
 --db: a .backup copy outside the repo's data/ (mlb_pitchers_gate.check_db: the checkout's data/, and the main
 checkout's from a worktree, by path or identity; never the app's configured database; an existing file, never
@@ -75,6 +97,7 @@ NOT_STORED = "not in the settled store: its name is not stored"
 OWN = "stored on its own game: placed here {how}"
 WRONG_SIDE = "stored on its own game, WRONG SIDE: placed here {side} {how}"
 OTHER = "stored on ANOTHER game: placed on match {mid} {side} {how}"
+TITLE_CONFLICT_V = "refused TITLE_CONFLICT: {why}"        # addendum 234 item 2(b): its own sentinel, named here
 RULING_230_0A = ("#413, THE SHARED KALSHI MATCHER (one team name places a market; markets land on other games; found on "
                  "the college files, the mechanism on the shared path of all four series) — FIX NOW, its own PR: the "
                  "pair comes from the event's sibling markets as the soccer path does since 09-13; the yes-team "
@@ -82,6 +105,19 @@ RULING_230_0A = ("#413, THE SHARED KALSHI MATCHER (one team name places a market
                  "name); a read-only receipt over the stored snapshots (the ids of 44 item 2's receipt: 32749, 32763, "
                  "32810, the UGAALA split) shows each now refused or placed on both names. Gate-class by contract (the "
                  "K-track's placement) — the PR body quotes the before/after receipt. Size M.")
+
+RULING_234_2 = ("THE \"A vs B\" TITLE FALLBACK — RULED: NARROWED, and it never overrides. Doctrine first "
+                "(CLAUDE.md): an ambiguous match is refused by design; a title-derived pair that can override "
+                "conflicting siblings is a guess dressed as a placement. So: (a) the fallback applies ONLY when "
+                "the event's siblings name fewer than two teams; (b) the title's two names must be CONSISTENT "
+                "with every sibling's yes-team (each sibling's yes-team is one of the two, or the sibling names "
+                "none) — any inconsistency REFUSES the event with its own sentinel (TITLE_CONFLICT, named in the "
+                "receipt), never a placement; (c) a single listed market with a two-name title places on those "
+                "two names only under (b); (d) the override of conflicting siblings is REMOVED. The three tests "
+                "pinning today's behaviour change to pin this; the receipt's AFTER column shows any stored leg "
+                "the narrowing re-verdicts. Live runs are unchanged today (every live title reads \"<Team> wins\"); "
+                "kalshi-history's API reads are where it bites, which is the paper close record of the "
+                "market-only families — the record a wrong-game leg would quietly corrupt.")
 
 
 class Refused(Exception):
@@ -243,6 +279,8 @@ def collect(s, match_ids, events) -> dict:
                 verdicts[(mid, sel, tic)] = ("not_formable", NOT_FORMABLE)
             elif a is None:
                 verdicts[(mid, sel, tic)] = ("not_stored", NOT_STORED)
+            elif a[0] == "refused" and a[1] == km.TITLE_CONFLICT:
+                verdicts[(mid, sel, tic)] = ("title_conflict", TITLE_CONFLICT_V.format(why=a[1]))
             elif a[0] == "refused":
                 verdicts[(mid, sel, tic)] = ("refused", f"refused: {a[1]}")
             else:
@@ -259,6 +297,9 @@ def collect(s, match_ids, events) -> dict:
 
 
 def _after_text(a, games) -> str:
+    from src.ingestion import kalshi_match as km
+    if a[0] == "refused" and a[1] == km.TITLE_CONFLICT:
+        return TITLE_CONFLICT_V.format(why=a[1])
     if a[0] == "placed":
         return f"placed on match {a[1]} {a[2]} ({_game_text(games.get(a[1]))})"
     if a[0] == "ruled":
@@ -281,6 +322,13 @@ def report(c: dict, db_text: str, echo=print) -> dict:
          " · kalshi_settled_markets is not in this copy: no event's pair can be formed from the store"))
     echo("  after = kalshi_match.place on the store's siblings (kalshi_settled_markets: ticker, yes_sub_title), "
          "kalshi_history.place_events: now = EPOCH, window unbounded; the title is not stored")
+    echo("  the title fallback as narrowed (addendum 234 item 2): read only where an event's siblings name fewer than "
+         "two teams, and only where every sibling's yes team is one of the title's two names; any other is refused "
+         "TITLE_CONFLICT, counted apart; three or more names are refused NO_PAIR, never given a title's pair")
+    echo("  THE LIMIT: the store holds no title, so this receipt CANNOT tell which stored legs the narrowing "
+         "re-verdicts: an event named by fewer than two settled rows is refused NO_PAIR here whatever its title, "
+         "TITLE_CONFLICT cannot show on a real copy, and a row whose AFTER differs from kalshi-history's stored "
+         "decision is not thereby one the narrowing changed (open for a ruling)")
     for ser, sc in sorted(c["scope"].items()):
         echo(f"  after's scope, {ser}: every settled event of the series in this copy ({sc['events']} events, "
              f"{sc['markets']} markets), the claims rule across them; identity holds over them: {sc['held']} held "
@@ -297,7 +345,7 @@ def report(c: dict, db_text: str, echo=print) -> dict:
     counts = {"events": len(c["events"]), "events_with_legs": len(c["before"]),
               "events_pair_formed": sum(1 for ev in c["before"] if len(c["names"].get(ev, [])) == 2),
               "stored_legs": len(c["verdicts"]), "own_game": 0, "own_game_wrong_side": 0, "another_game": 0,
-              "refused": 0,
+              "refused": 0, "title_conflict": 0,
               "not_formable": 0, "not_stored": 0, "split_events": 0}
     for ev in c["events"]:
         legs = c["before"].get(ev)

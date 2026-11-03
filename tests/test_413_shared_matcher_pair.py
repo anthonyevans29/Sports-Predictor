@@ -5,7 +5,7 @@ be formed is REFUSED by the sentinel (never placed by one name)".
 The placement is kalshi_match.place, the one placement of both sync paths since the switch (#461, #475). These pins
 hold it on the shapes #413 and addendum 44 item 2 receipted, on each two-way series' ticker shape, with every market
 titled "<Team> wins" as Kalshi writes them (so the old "A vs B" title fallback reads nothing there); the fallback's
-own pins, as it reads today, are below. Synthetic games and a throwaway DB only (tests/conftest.py)."""
+own pins, as addendum 234 item 2 narrowed it, are below. Synthetic games and a throwaway DB only (tests/conftest.py)."""
 import inspect
 
 import pytest
@@ -81,44 +81,149 @@ def test_a_pair_that_cannot_be_formed_from_the_siblings_is_refused(names, why):
     assert not res.placed and res.refused == {km.NO_PAIR: len(mks)}, (why, res.refused)
 
 
-# --- the old two-name title fallback (kalshi_match._names), KEPT and pinned as it reads: the open question ---
-# The soccer path's 09-13 repair, which addendum 230 item 0(a) names as the model, kept it ("keep the old title parse as
-# fallback"; at 081d9fa: `tuple(_sibs) if len(_sibs) == 2 else KalshiAdapter.title_teams(mk)`), and _names carries it
-# unchanged. It never places by one name: where the siblings do not name two teams and the event's first priced market
-# carries an "A vs B" title, the title's two names are the pair. Whether that stands where the siblings conflict (three
-# names) is put to the architect on the PR (round-1 review); these pins hold today's reading so that a ruling changes
-# them visibly, never silently.
+# --- the "A vs B" title fallback, NARROWED (ARCHITECT 2026-11-03 13:05 ET, addendum 234 item 2) ---
+# Verbatim: "THE "A vs B" TITLE FALLBACK — RULED: NARROWED, and it never overrides. Doctrine first (CLAUDE.md): an
+# ambiguous match is refused by design; a title-derived pair that can override conflicting siblings is a guess dressed
+# as a placement. So: (a) the fallback applies ONLY when the event's siblings name fewer than two teams; (b) the
+# title's two names must be CONSISTENT with every sibling's yes-team (each sibling's yes-team is one of the two, or the
+# sibling names none) — any inconsistency REFUSES the event with its own sentinel (TITLE_CONFLICT, named in the
+# receipt), never a placement; (c) a single listed market with a two-name title places on those two names only under
+# (b); (d) the override of conflicting siblings is REMOVED. The three tests pinning today's behaviour change to pin
+# this; the receipt's AFTER column shows any stored leg the narrowing re-verdicts. Live runs are unchanged today (every
+# live title reads "<Team> wins"); kalshi-history's API reads are where it bites, which is the paper close record of
+# the market-only families — the record a wrong-game leg would quietly corrupt."
+
+DUKE_GT_42101 = game(42101, "Duke", "Georgia Tech", Z("2026-10-10T16:00"))
+NOW_UGA = Z("2026-10-10T11:52")
+
 
 def _titled(mks, title):
     return [dict(m, title=title) for m in mks]
 
 
-def test_title_fallback_one_market_with_an_a_vs_b_title_is_placed_on_the_title_s_two_names():
+def test_title_fallback_one_market_with_a_consistent_a_vs_b_title_is_placed_on_the_title_s_two_names():
+    """(c) under (b): the one market's yes team is one of the title's two names."""
     one = _titled(event("26OCT10UGAALA", [("UGA", "Georgia")]), "Georgia vs Alabama Winner?")
-    res = run(one, [UGA_ALA, game(42101, "Duke", "Georgia Tech", Z("2026-10-10T16:00"))], now=Z("2026-10-10T11:52"))
+    res = run(one, [UGA_ALA, DUKE_GT_42101], now=NOW_UGA)
     assert placed(res) == {(32738, "AWAY"): "UGA"} and not res.refused, res.refused
-    assert km._names(one, one[0], lambda m: False) == ["Georgia", "Alabama"]          # two names, never one
+    assert km._pair(one, one[0], lambda m: False) == (["Georgia", "Alabama"], None)       # two names, never one
+
+
+def test_title_fallback_one_market_whose_yes_team_is_not_in_the_title_is_refused_title_conflict():
+    """(b): the one market names Georgia Tech, the title Georgia vs Alabama: the event is refused under its own
+    sentinel, never placed on either game, and the console counts it and names the event."""
+    one = _titled(event("26OCT10UGAALA", [("GT", "Georgia Tech")]), "Georgia vs Alabama Winner?")
+    res = run(one, [UGA_ALA, DUKE_GT_42101], now=NOW_UGA)
+    assert not res.placed and res.refused == {km.TITLE_CONFLICT: 1}, res.refused
+    assert res.why == {one[0]["ticker"]: km.TITLE_CONFLICT}
+    assert km._pair(one, one[0], lambda m: False) == (["Georgia Tech"], km.TITLE_CONFLICT)
+    out = km.console_lines(res)
+    assert "       1  the title's two names do not agree with the event's markets" in out, out
+    assert ("  ✗ KXNCAAFGAME-26OCT10UGAALA: the title reads Georgia vs Alabama; the markets name Georgia Tech: "
+            "refused (the title's two names do not agree with the event's markets)") in out, out
+    counts = km.legacy_counts(res)
+    assert counts["ambiguous"] == 1 and counts["unmatched"] == 1 and counts["matched"] == 0, counts
 
 
 def test_title_fallback_never_reads_for_two_siblings_and_a_team_wins_title_is_refused():
     mks = event("26OCT10UGAALA", [("UGA", "Georgia"), ("ALA", "Alabama")])
     titled = _titled(mks, "Duke vs Georgia Tech Winner?")      # a title naming another game: the siblings decide
-    res = run(titled, [UGA_ALA, game(42101, "Duke", "Georgia Tech", Z("2026-10-10T16:00"))], now=Z("2026-10-10T11:52"))
-    assert placed(res) == {(32738, "AWAY"): "UGA", (32738, "HOME"): "ALA"}, res.refused
-    res = run(mks[:1], [UGA_ALA], now=Z("2026-10-10T11:52"))  # "<Team> wins": no title pair, refused NO_PAIR
+    res = run(titled, [UGA_ALA, DUKE_GT_42101], now=NOW_UGA)
+    assert placed(res) == {(32738, "AWAY"): "UGA", (32738, "HOME"): "ALA"} and not res.refused, res.refused
+    res = run(mks[:1], [UGA_ALA], now=NOW_UGA)               # "<Team> wins": no title pair, refused NO_PAIR
     assert not res.placed and res.refused == {km.NO_PAIR: 1}
 
 
-def test_title_fallback_on_three_conflicting_siblings_today_reads_the_title_the_open_question():
-    """Today's reading, pinned (the open question for the architect): three sibling names do not form the pair, and an
-    "A vs B" title on the event's first priced market then gives it. The markets whose yes team is neither title name
-    are refused YES_UNKNOWN; one that is a title name is placed on the title's game."""
+def test_title_fallback_never_reads_for_three_conflicting_siblings_refused_no_pair(monkeypatch):
+    """(a), (d): three sibling names are refused NO_PAIR whatever the title says; the title is never read (the
+    override of conflicting siblings is removed)."""
+    from src.adapters.kalshi import KalshiAdapter
     mks = _titled(event("26OCT10UGAALA", [("GT", "Georgia Tech"), ("UGA", "Georgia"), ("ALA", "Alabama")]),
                   "Duke vs Georgia Tech Winner?")
-    duke_gt = game(42101, "Duke", "Georgia Tech", Z("2026-10-10T16:00"))
-    res = run(mks, [UGA_ALA, duke_gt], now=Z("2026-10-10T11:52"))
-    assert placed(res) == {(42101, "HOME"): "GT"}, res.refused
-    assert res.refused == {km.YES_UNKNOWN: 2}, res.refused
+    res = run(mks, [UGA_ALA, DUKE_GT_42101], now=NOW_UGA)
+    assert not res.placed and res.refused == {km.NO_PAIR: 3}, res.refused
+    read = []
+    monkeypatch.setattr(KalshiAdapter, "title_teams",
+                        staticmethod(lambda m: read.append(m) or ("Duke", "Georgia Tech")))
+    for legs in ([("GT", "Georgia Tech"), ("UGA", "Georgia"), ("ALA", "Alabama")],
+                 [("UGA", "Georgia"), ("ALA", "Alabama")]):
+        mks = event("26OCT10UGAALA", legs)
+        km.place(mks, [UGA_ALA, DUKE_GT_42101], now=NOW_UGA, lo=NOW_UGA, hi=Z("2026-10-12T00:00"))
+    assert read == [], "the title is read only where the siblings name fewer than two teams"
+
+
+def test_title_fallback_a_sibling_with_no_name_and_a_consistent_title_is_placed():
+    """(b): "or the sibling names none": a market with no yes team does not conflict; the named one is placed on the
+    title's pair, and the unnamed one takes no side (refused YES_UNKNOWN, as place() refuses a yes team outside the
+    pair)."""
+    mks = _titled(event("26OCT10UGAALA", [("UGA", "Georgia"), ("X", "")]), "Georgia vs Alabama Winner?")
+    res = run(mks, [UGA_ALA, DUKE_GT_42101], now=NOW_UGA)
+    assert placed(res) == {(32738, "AWAY"): "UGA"}, res.refused
+    assert res.refused == {km.YES_UNKNOWN: 1} and res.why == {mks[1]["ticker"]: km.YES_UNKNOWN}, res.refused
+
+
+def test_title_fallback_a_draw_leg_names_none_beside_a_named_sibling():
+    """A draw leg is a sibling naming none (b): beside one named sibling the title's pair is read, consistent by (b),
+    and both legs are placed; a named sibling outside the title beside it is TITLE_CONFLICT for the whole event."""
+    tie = lambda m: m["yes_sub_title"] == "Tie"                          # noqa: E731
+    mks = _titled(event("26OCT10UGAALA", [("UGA", "Georgia"), ("TIE", "Tie")]), "Georgia vs Alabama Winner?")
+    res = run(mks, [UGA_ALA, DUKE_GT_42101], now=NOW_UGA, is_tie=tie)
+    assert placed(res) == {(32738, "AWAY"): "UGA", (32738, "DRAW"): "TIE"} and not res.refused, res.refused
+    gt = _titled(event("26OCT10UGAALA", [("GT", "Georgia Tech"), ("TIE", "Tie")]), "Georgia vs Alabama Winner?")
+    res = run(gt, [UGA_ALA, DUKE_GT_42101], now=NOW_UGA, is_tie=tie)
+    assert not res.placed and res.refused == {km.TITLE_CONFLICT: 2}, res.refused
+
+
+def test_title_fallback_no_sibling_names_a_team_the_title_is_read_and_consistent():
+    """(a) with zero names: no sibling names a team, so the title is read, and every sibling "names none", so it is
+    consistent by (b). A draw leg alone is placed DRAW on the title's game; one market with a blank name forms the
+    title's pair and takes no side (YES_UNKNOWN), never placed."""
+    tie = lambda m: m["yes_sub_title"] == "Tie"                          # noqa: E731
+    draw = _titled(event("26OCT10UGAALA", [("TIE", "Tie")]), "Georgia vs Alabama Winner?")
+    assert km._pair(draw, draw[0], tie) == (["Georgia", "Alabama"], None)
+    res = run(draw, [UGA_ALA, DUKE_GT_42101], now=NOW_UGA, is_tie=tie)
+    assert placed(res) == {(32738, "DRAW"): "TIE"} and not res.refused, res.refused
+    blank = _titled(event("26OCT10UGAALA", [("X", "")]), "Georgia vs Alabama Winner?")
+    assert km._pair(blank, blank[0], lambda m: False) == (["Georgia", "Alabama"], None)
+    res = run(blank, [UGA_ALA, DUKE_GT_42101], now=NOW_UGA)
+    assert not res.placed and res.refused == {km.YES_UNKNOWN: 1}, res.refused
+
+
+@pytest.mark.parametrize("title", ["Georgia vs Georgia Winner?", "Georgia vs georgia Winner?", " vs Alabama Winner?",
+                                   "Georgia wins", "Georgia vs Alabama vs Auburn Winner?",
+                                   "Georgia vs Alabama v. Auburn Winner?", "Georgia v Alabama vs. Auburn Winner?"])
+def test_title_fallback_a_title_that_names_no_two_teams_is_no_pair(title):
+    """(c) places only on a two-name title. A title that does not name exactly two teams (the same name twice, in any
+    case; an empty name; a name that is itself "B vs C", as title_teams splits at the first separator only) or no
+    "A vs B" title at all names no pair: NO_PAIR. Without the guard the first two shapes end NO_FIT (never placed);
+    "Georgia vs Alabama vs Auburn" would be placed on Georgia @ Alabama, its second name being "Alabama vs Auburn"."""
+    one = _titled(event("26OCT10UGAALA", [("UGA", "Georgia")]), title)
+    res = run(one, [UGA_ALA, DUKE_GT_42101], now=NOW_UGA)
+    assert not res.placed and res.refused == {km.NO_PAIR: 1}, (title, res.refused)
+
+
+def test_title_conflict_reads_through_kalshi_history_s_placement_of_a_settled_event():
+    """kalshi-history's API reads are where the narrowing bites (addendum 234 item 2): kalshi_history.place_events
+    places each settled event through kalshi_match.place, so a settled one-market event whose yes team is not in its
+    title is refused TITLE_CONFLICT there, and a consistent one is placed. The replay (kalshi_replay) calls the same
+    place()."""
+    import inspect as _inspect
+
+    from src.ingestion import kalshi_history as kh
+    from src.ingestion import kalshi_replay
+    bad = _titled(event("26OCT10UGAALA", [("GT", "Georgia Tech")]), "Georgia vs Alabama Winner?")
+    good = _titled(event("26OCT10FAMUALST", [("FAMU", "Florida A&M")]), "Florida A&M vs Alabama St. Winner?")
+    placed_, why, lines = kh.place_events(bad + good, [UGA_ALA, DUKE_GT_42101, FAMU_ALST], lambda m: False)
+    assert why == {bad[0]["ticker"]: km.TITLE_CONFLICT}, why
+    assert placed_ == {good[0]["ticker"]: (FAMU_ALST.id, FAMU_ALST.utc_date, "AWAY")}, placed_
+    assert any("26OCT10UGAALA: the title reads Georgia vs Alabama" in ln for ln in lines), lines
+    assert "km.place(" in _inspect.getsource(kalshi_replay)
+
+
+def test_the_narrowed_fallback_quotes_addendum_234_item_2_verbatim_at_the_change():
+    from tests.test_kalshi_pair_receipt import script
+    assert script.RULING_234_2 in " ".join(km._pair.__doc__.split())
+    assert km.TITLE_CONFLICT == "the title's two names do not agree with the event's markets"
 
 
 def test_no_yes_team_reader_is_left_on_the_adapter_or_the_placement():
@@ -129,8 +234,9 @@ def test_no_yes_team_reader_is_left_on_the_adapter_or_the_placement():
     assert not hasattr(KalshiAdapter, "yes_team")
     for mod in (km, kalshi_sync):
         assert "yes_team(" not in inspect.getsource(mod)
-    src = inspect.getsource(km._names)
-    assert "yes_sub_title" in src and "title_teams(first)" in src      # siblings first; the old two-name title only
+    src = inspect.getsource(km._pair)
+    assert "yes_sub_title" in src and "title_teams(first)" in src      # siblings first; the narrowed title only
+    assert "_pair(" in inspect.getsource(km._names) and "_pair(" in inspect.getsource(km.place)
 
 
 # --- addendum 44 item 2's two new rows: 32749 and 32763, one name placing another game's event ---

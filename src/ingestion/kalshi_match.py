@@ -93,6 +93,7 @@ NOT_GAMES = frozenset({"cancelled", "postponed", "stale_orphan"})   # addendum 5
 NO_PRICE = "no price"
 NO_DATE = "no date in the ticker"
 NO_PAIR = "the event's markets do not name two teams"
+TITLE_CONFLICT = "the title's two names do not agree with the event's markets"     # addendum 234 item 2(b)
 NO_FIT = "no game of the competition on the event's day fits both names"
 PAIR_TIE = "best fit shared by two pairs of teams"
 TWO_ROWS = "two stored rows of the pair on the ticker's date"
@@ -263,9 +264,38 @@ def _live(mks, implied_prob, spread, max_spread) -> list[dict]:
             and not (max_spread is not None and spread is not None and (spread(mk) or 0) > max_spread)]
 
 
-def _names(mks, first, is_tie) -> list[str]:
-    """The event's two names, from the event's own markets (siblings: one name each); the old "A vs B" title of
-    `first` is the fallback for an old-format title. The yes team alone never places a market."""
+# KalshiAdapter.title_teams' separators (" vs ", " vs. ", " v ") and " v.": a title name carrying any of them is two
+# teams, never one (addendum 234 item 2(c): a two-name title only)
+_TITLE_SEPS = (" vs ", " vs. ", " v ", " v. ")
+
+
+def _pair(mks, first, is_tie) -> tuple[list[str], str | None]:
+    """(the event's names, None) when they are two, else (the siblings' names, the refusal's reason). The names come
+    from the event's own markets (siblings: one name each; a draw leg names none). The yes team alone never places a
+    market.
+
+    THE "A vs B" TITLE FALLBACK, NARROWED (ARCHITECT 2026-11-03 13:05 ET, addendum 234 item 2, verbatim): "THE "A vs B"
+    TITLE FALLBACK — RULED: NARROWED, and it never overrides. Doctrine first (CLAUDE.md): an ambiguous match is
+    refused by design; a title-derived pair that can override conflicting siblings is a guess dressed as a placement.
+    So: (a) the fallback applies ONLY when the event's siblings name fewer than two teams; (b) the title's two names
+    must be CONSISTENT with every sibling's yes-team (each sibling's yes-team is one of the two, or the sibling names
+    none) — any inconsistency REFUSES the event with its own sentinel (TITLE_CONFLICT, named in the receipt), never a
+    placement; (c) a single listed market with a two-name title places on those two names only under (b); (d) the
+    override of conflicting siblings is REMOVED. The three tests pinning today's behaviour change to pin this; the
+    receipt's AFTER column shows any stored leg the narrowing re-verdicts. Live runs are unchanged today (every live
+    title reads "<Team> wins"); kalshi-history's API reads are where it bites, which is the paper close record of the
+    market-only families — the record a wrong-game leg would quietly corrupt."
+
+    How it reads here: two sibling names are the pair and the title is never read; three or more sibling names are
+    refused NO_PAIR and the title is never read ((a), (d)); fewer than two, the title of `first` (the event's first
+    priced market) is read, and its two names are the pair only when every sibling's yes team is one of them by
+    place()'s own comparison (the stripped yes_sub_title in the names, the YES_UNKNOWN check) ((b), (c)); a sibling
+    that is not is TITLE_CONFLICT for the whole event. No two-name title is NO_PAIR, as is a title that does not name
+    exactly two teams: one name empty, the same name twice (compared case-folded), or a name that itself carries a
+    title separator, title_teams' or " v." ("A vs B vs C": KalshiAdapter.title_teams splits at the first separator
+    only, so its second name would be "B vs C", which is not a two-name title under (c)). Without this guard the first
+    two shapes end NO_FIT, never placed; the guard names their reason. The third would be placed on a name that is two
+    teams."""
     from src.adapters.kalshi import KalshiAdapter
     names = []
     for mk in mks:
@@ -273,10 +303,23 @@ def _names(mks, first, is_tie) -> list[str]:
             nm = (mk.get("yes_sub_title") or "").strip()
             if nm and nm not in names:
                 names.append(nm)
-    if len(names) != 2:
-        tt = KalshiAdapter.title_teams(first)
-        names = list(tt) if tt else names
-    return names
+    if len(names) == 2:
+        return names, None
+    if len(names) > 2:
+        return names, NO_PAIR                       # (a), (d): conflicting siblings; the title never overrides them
+    tt = KalshiAdapter.title_teams(first)
+    title = [n.strip() for n in tt] if tt else []
+    if (len(title) != 2 or not all(title) or title[0].casefold() == title[1].casefold()
+            or any(sep in f" {n} " for n in title for sep in _TITLE_SEPS)):
+        return names, NO_PAIR                       # (c): only a title naming exactly two teams is a two-name title
+    if any(nm not in title for nm in names):        # (b): a sibling's yes team that is neither of the title's names
+        return names, TITLE_CONFLICT
+    return title, None                              # (c): a single market, or none named, agreeing with its title
+
+
+def _names(mks, first, is_tie) -> list[str]:
+    """The event's names (_pair): two exactly when the pair is formed, never two on a refusal."""
+    return _pair(mks, first, is_tie)[0]
 
 
 def _best_fits(names, day, games) -> list:
@@ -412,9 +455,15 @@ def place(markets: list[dict], games: list, *, now: datetime, lo: datetime, hi: 
                 live.append(mk)
         if not live:
             continue
-        names = _names(mks, live[0], is_tie)
-        if len(names) != 2:
-            refuse(live, NO_PAIR)
+        names, unformed = _pair(mks, live[0], is_tie)
+        if unformed:
+            refuse(live, unformed)
+            if unformed == TITLE_CONFLICT:
+                # addendum 234 item 2(b): "any inconsistency REFUSES the event with its own sentinel (TITLE_CONFLICT,
+                # named in the receipt), never a placement"
+                from src.adapters.kalshi import KalshiAdapter
+                res.lines.append(f"  ✗ {ev}: the title reads {' vs '.join(KalshiAdapter.title_teams(live[0]))}; the "
+                                 f"markets name {', '.join(names)}: refused ({TITLE_CONFLICT})")
             continue
         day, clock = ticker_stamp(live[0])
         if day is None:
@@ -534,8 +583,11 @@ def place(markets: list[dict], games: list, *, now: datetime, lo: datetime, hi: 
 
 
 def legacy_counts(res: Result) -> dict:
-    """The summary keys the consoles print today (matched / unmatched / ambiguous / in_play), from the reasons."""
-    amb = sum(res.refused.get(r, 0) for r in (PAIR_TIE, TWO_ROWS, DATE_TIE, TIME_TIE, SIDE_TIE, TWO_CLAIMS))
+    """The summary keys the consoles print today (matched / unmatched / ambiguous / in_play), from the reasons.
+    TITLE_CONFLICT is an ambiguity (addendum 234 item 2: the title and the markets disagree on the pair), counted
+    among the ambiguous, and among the unmatched as every refusal of placement is."""
+    amb = sum(res.refused.get(r, 0) for r in (PAIR_TIE, TWO_ROWS, DATE_TIE, TIME_TIE, SIDE_TIE, TWO_CLAIMS,
+                                               TITLE_CONFLICT))
     unmatched = sum(n for r, n in res.refused.items() if r not in (IN_PLAY, WIDE_SPREAD, NO_PRICE))
     return {"matched": len(res.placed), "unmatched": unmatched, "ambiguous": amb,
             "in_play": res.refused.get(IN_PLAY, 0), "refused": dict(res.refused)}

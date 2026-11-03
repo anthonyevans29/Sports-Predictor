@@ -166,7 +166,7 @@ def test_an_event_with_no_settled_row_is_not_formable_and_one_name_is_refused(co
     s = _summary(out)
     assert s == {"another_game": 3, "events": 9, "events_pair_formed": 3, "events_with_legs": 5, "not_formable": 1,
                  "not_stored": 0, "own_game": 3, "own_game_wrong_side": 0, "refused": 1, "split_events": 2,
-                 "stored_legs": 8}, s
+                 "stored_legs": 8, "title_conflict": 0}, s
     for ev in ("FAMUALST", "UNDUNI", "NDSUUNLV", "CCARMRSH"):
         assert f"EVENT {EV}{ev}: no stored leg in this copy" in out
 
@@ -249,6 +249,35 @@ def test_a_row_placed_by_ruling_is_read_by_its_stored_side(copy, capsys):
     assert f"    HOME {EV}COOKAAMU-AAMU on match 32823: stored on its own game: placed here by ruling" in b, b
 
 
+@pytest.mark.parametrize("title,verdict,kind", [
+    (("Duke", "Georgia Tech"), "refused TITLE_CONFLICT: the title's two names do not agree with the event's markets",
+     "title_conflict"),
+    (("Bethune-Cookman", "Alabama A&M"), "stored on its own game: placed here on both names", "own_game"),
+])
+def test_the_after_names_title_conflict_and_counts_it_apart(copy, capsys, monkeypatch, title, verdict, kind):
+    """ARCHITECT 2026-11-03, addendum 234 item 2(b): "any inconsistency REFUSES the event with its own sentinel
+    (TITLE_CONFLICT, named in the receipt), never a placement". The store holds no title; were one read (the adapter's
+    title parse, stood in here for COOKAAMU, whose store names one team), the AFTER is the narrowed matcher's: a title
+    that disagrees with the one settled row is named TITLE_CONFLICT and counted under its own key, one that agrees
+    places on its two names."""
+    from src.adapters.kalshi import KalshiAdapter
+    monkeypatch.setattr(KalshiAdapter, "title_teams",
+                        staticmethod(lambda m: title if "COOKAAMU" in (m.get("ticker") or "") else None))
+    rc, out = _run(capsys, "--db", copy, "--match-ids", "", "--events", f"{EV}COOKAAMU")
+    assert rc == 0, out
+    b = _block(out, "COOKAAMU")
+    assert f"    HOME {EV}COOKAAMU-AAMU on match 32823: {verdict}" in b, b
+    s = _summary(out)
+    assert s[kind] == 1 and s["refused"] == 0, s
+    if kind == "title_conflict":
+        assert any(ln.startswith(f"    {EV}COOKAAMU-AAMU (Alabama A&M): refused TITLE_CONFLICT: ") for ln in b), b
+        assert any(ln.startswith(f"  ✗ {EV}COOKAAMU: the title reads Duke vs Georgia Tech; the markets name "
+                                 "Alabama A&M: refused") for ln in out), out
+    assert any(ln.startswith("  the title fallback as narrowed (addendum 234 item 2): read only where") for ln in out)
+    assert any(ln.startswith("  THE LIMIT: the store holds no title, so this receipt CANNOT tell which stored legs "
+                             "the narrowing re-verdicts") for ln in out), out
+
+
 def test_a_copy_without_the_settled_table_forms_no_pair(tmp_path, capsys):
     """A copy where kalshi-history's table holds nothing: every event's pair is not formable from the store."""
     _world(tmp_path / "w.db", settled=False)
@@ -319,5 +348,6 @@ def test_refusals(copy, capsys, tmp_path):
 def test_the_receipt_quotes_the_ruling_and_places_with_the_shared_module():
     import inspect
     assert script.RULING_230_0A in " ".join(script.__doc__.split())
+    assert script.RULING_234_2 in " ".join(script.__doc__.split())          # addendum 234 item 2, verbatim
     src = inspect.getsource(script.collect)
     assert "kh.place_events(" in src and "stored_games(" in src and "network" not in src

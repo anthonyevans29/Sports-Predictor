@@ -277,12 +277,11 @@ def _ncaa_binds(code: str, entries: dict, step=None) -> str | None:
     this cannot see: the D6 coverage guard (the side table, read per run after the registry passes); on a day it
     refuses, NCAA still reads its shadow here, and the chain's failure page is the signal."""
     from src.walters import ncaa_shadow as sh
-    from src.walters import registry as reg
     if code != sh.COMPETITION:
         return f"{code} is not the NCAA shadow's competition"
     try:
         b = _ncaa_binding(step)
-        e, _, _ = sh.frozen(reg.LEDGER, eid=b.eid)
+        e, _, _ = sh.frozen(eid=b.eid)     # addendum 236 item 3(7): frozen()'s own read, registry.LEDGER at call time
         sh.bound_scale(b, e)
     except sh.ShadowDormant as err:
         return f"dormant: {sh.dormant_reason(err.eid, err.verdict)}"

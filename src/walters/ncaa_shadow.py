@@ -52,9 +52,12 @@ math of NCAAEloV1 verbatim. The only declared input is the neutral rule (D1:
 "no_home_advantage_at_neutral"): a game whose label says neutral prices and
 updates with home advantage 0 (ncaa_backtest.NeutralRuleElo, shared with the
 design receipt); a label without a neutral flag is non-neutral and counted.
-D8: every UPCOMING game (no label before the game) is priced with the listed
-home's advantage and the row says the neutral flag is unknown (law 4).
-Walk-forward over D2's stream, every game before now, then the predictions.
+An UPCOMING game (no label before the game) carries CFBD's PREGAME neutral flag
+where the labels ingest read one (ARCHITECT 2026-11-03, addendum 236 item 3(1):
+ncaa_cfbd_pregame, current rows only) and is priced exactly as the walk prices
+that field (True: home advantage 0; False or absent: the listed home's); where
+CFBD has none the flag is unknown and the listed home's advantage applies (D8,
+law 4). Walk-forward over D2's stream, every game before now, then the predictions.
 
 ROWS: engine "model_shadow" (window card and desk_policy already skip it;
 never a Desk call, never a venue input, never logged to the ledger),
@@ -101,18 +104,36 @@ or FAIL."
   * The chain: ncaa-schedule's last step, `export-ncaa-predictions --id ncaa-elo-v2 --dormant-ok`. frozen()'s verdict
     refusal is ShadowDormant: with --dormant-ok it prints DORMANT and its reason, writes nothing, exit 0; every other
     refusal exits 2 (deploy/hosting/chains.py NCAA_SHADOW_STEP; coverage reads the same preconditions, SHADOW_BINDS).
-  * The neutral flag before kickoff: every row states its rule (NEUTRAL_PREGAME_RULE, D8's until a source is ruled).
+  * The neutral flag before kickoff: every row states its rule (NEUTRAL_PREGAME_RULE, addendum 236 item 3(1)).
   * The grade against the Kalshi close: vs_kalshi_close per name, paper.guarded_two_way_close (close_record's own),
     its exclusions counted; the book line stays beside it.
   * The counter to 100: confirmation_counter (ncaa_v1r_gate.confirmation_count: counts, never a figure or a verdict).
+
+THE SEVEN, RULED (ARCHITECT 2026-11-03, addendum 236 item 3):
+  (1) the neutral flag: CFBD's pregame field (ncaa_cfbd_pregame, read at the labels ingest), "neutral per CFBD's
+      pregame field, read <stamp>; absent: unknown, D8" on every row; it prices exactly what the walk does with it;
+  (2) the close: the Kalshi close is THE close (KXNCAAFGAME), per name; the book close a reference line; the D4
+      baseline a second REFERENCE name (D4_REF_NAME), never a verdict's input; the 2023 / 2026 fences apply to the
+      Kalshi block until ncaa-elo-v2's run AND its verdict are recorded (kalshi_fenced);
+  (3) the confirmation fixture: D7's cohort is the COUNT (the 100); the RECORD against the close is on the counted
+      members holding a prospective shadow row; every member without one is named "no prospective row", unscored,
+      its count beside the 100 (confirmation_record);
+  (4) a D6 coverage drop after a PASS refuses (exit 2, never dormant); the export runs after refresh-by-id whatever
+      its exit (chains: ncaa-schedule's `go_on`), its rows stamped with the refresh it saw (refresh_seen);
+  (5) the host fence: the command refuses on any machine but the host (desk_policy.not_host_reason); `--dry-run`
+      prints the rows and writes nothing (export(dry_run=True));
+  (6) the Kalshi grade reads legs captured on or after KALSHI_LEGS_FROM (2026-10-13 00:00 ET, #475's switch to the
+      shared pair); earlier rows never enter it, the close nor its legs guard (legs_before_2026_10_13);
+  (7) one registry source: registry.LEDGER read at call time by frozen(), the counter and coverage alike.
 """
 from __future__ import annotations
 
 import json
 import math
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from src.timeutil import utc_now_naive
 
@@ -131,22 +152,36 @@ NEUTRAL_RULES = {"home_advantage_at_neutral": True, "no_home_advantage_at_neutra
 CONSTANTS_KEY = "constants"
 CONSTANT_KEYS = ("k_factor", "home_advantage", "mov_base", "season_regression", "default_rating")
 # D8 (ARCHITECT 2026-10-08, addendum 11 item 3, verbatim): "Until then the shadow prices an upcoming game with the
-# listed home's advantage and says on the row that the neutral flag is unknown."
-NEUTRAL_FLAG_UNKNOWN = "unknown before the game"
-HOME_ADV_BASIS = "listed home (neutral flag unknown before the game)"
-# THE NEUTRAL FLAG BEFORE KICKOFF, ITS RULE STATED ON EVERY ROW (ARCHITECT 2026-11-03, addendum 230 item 1(b): "the
-# neutral flag on each row before kickoff with its rule stated (never a provider fact)"). The rule is D8's until the
-# architect rules a pregame source: nothing this repo stores carries a neutral flag for an upcoming college game that
-# is ours (ncaa_cfbd's side table labels completed games only, after the game; the american-football adapter stores no
-# venue), so the flag is unknown (law 4) and the price stays the listed home's. A rule that derives it changes this
-# text and the value together, by a ruling.
-NEUTRAL_PREGAME_RULE = (
-    "D8 (ncaa-elo-v1r's declaration, ARCHITECT 2026-10-08, addendum 11 item 3; ncaa-elo-v2's D8: \"As v1r's D8\"), "
-    "verbatim: \"Until then the shadow prices an upcoming game with the listed home's advantage and says on the row "
-    "that the neutral flag is unknown.\" Never a provider fact (ARCHITECT 2026-11-03, addendum 230 item 1(b)): no "
-    "stored source of ours carries the flag before kickoff (the CFBD side table labels completed games only; the "
-    "american-football adapter stores no venue), so the flag is unknown (law 4) and the listed home's advantage is "
-    "applied.")
+# listed home's advantage and says on the row that the neutral flag is unknown." Met by addendum 236 item 3(1) below
+# where CFBD serves its pregame field; where it does not, D8's "unknown" stands.
+# THE NEUTRAL FLAG BEFORE KICKOFF (ARCHITECT 2026-11-03, addendum 236 item 3(1), verbatim): "THE NEUTRAL FLAG: option
+# (iii) — CFBD's pregame neutral-site field for the fixture, read at the labels ingest and ruled as ours with its rule
+# stated on every row ("neutral per CFBD's pregame field, read <stamp>; absent: unknown, D8"); (iv)'s "unknown" where
+# CFBD has none; never a hand table for the current season (that is #608's NFL case). It LABELS the row; it PRICES
+# only what the candidate's own backtest stream does with the same field — exactly that, no more, no less (parity
+# with the gate's walk; Code states which in the PR body, and a test pins the shadow row's probability equal to the
+# walk's for a neutral fixture)." The stream's treatment (ncaa_backtest.NeutralRuleElo.home_adv, the gate's model):
+# a flag True prices (and updates) with home advantage 0; False or absent, the listed home's 55. The row's Game
+# carries the fixture's CURRENT pregame flag (ncaa_cfbd.pregame_flags: fetched_at = its season's latest ingest
+# record's, L3's rule), so model.home_adv prices it exactly so; nothing else reads the field. A stale row, a row
+# whose record served no flag, or no row: unknown (law 4), the listed home's advantage.
+NEUTRAL_RULING = "ARCHITECT 2026-11-03, addendum 236 item 3(1)"
+NEUTRAL_PREGAME_RULE = "neutral per CFBD's pregame field, read {stamp}; absent: unknown, D8"   # the ruled form
+NO_READ = "no CFBD read"
+NEUTRAL_FLAG_NEUTRAL = "neutral (CFBD's pregame field)"
+NEUTRAL_FLAG_NOT = "not neutral (CFBD's pregame field)"
+NEUTRAL_FLAG_UNKNOWN = "absent: unknown, D8"
+HOME_ADV_BASIS = {True: "home advantage 0: CFBD's pregame field says neutral (D1, as the gate's walk prices it)",
+                  False: "listed home: CFBD's pregame field says not neutral",
+                  None: "listed home: the neutral flag is unknown before the game (D8)"}
+
+
+def neutral_rule(stamp) -> str:
+    """The rule every row states, in the ruled form, with the read it consulted: the fixture's current pregame row's
+    fetched_at, else its season's latest ingest record's (the read that served no flag), else NO_READ."""
+    return NEUTRAL_PREGAME_RULE.format(stamp=stamp.isoformat() if stamp else NO_READ)
+
+
 NOTE = ("NCAA SHADOW — ncaa_elo_v1r (v1, constants untouched) as a model shadow beside the market-only NCAA "
         "Desk. Never a call, never a venue input, never in the ledger. The shadow changes nothing about the "
         "gate: the one run, the verdict and the confirmation cohort stand as declared, and this live record "
@@ -241,7 +276,8 @@ def frozen(registry_path: str | None = None, eid: str = EID) -> tuple[dict, bool
     from src.walters import registry as reg
 
     b = binding(eid)
-    e = reg.get(b.eid, registry_path) if registry_path else reg.get(b.eid)
+    # addendum 236 item 3(7): ONE source, registry.LEDGER read at call time (never get()'s import-time default)
+    e = reg.get(b.eid, registry_path or reg.LEDGER)
     if e is None:
         raise ShadowRefused(f"REFUSED: {not_declared(b.eid)}")
     verdict = (e.get("verdict") or {}).get("verdict")
@@ -389,6 +425,7 @@ def build_rows(now: datetime | None = None, hours: int = WINDOW_HOURS, registry_
 
     from src.db.database import session_scope
     from src.db.schema import Competition, Match, MatchStatus, Sport
+    from src.ingestion import ncaa_cfbd as nc
     from src.walters import ncaa_backtest as nb
     from src.walters.export import _fixture_row
 
@@ -399,7 +436,8 @@ def build_rows(now: datetime | None = None, hours: int = WINDOW_HOURS, registry_
     label = gate_label(e)
     model, rc, merge = fit(now, neutral_ha, scale=scale)
     rc["neutral_site_rule"] = rule
-    rows, skipped = [], Counter()
+    seen = refresh_seen(now)                        # addendum 236 item 3(4): the refresh this export saw
+    rows, skipped, pregame = [], Counter(), Counter()
     with session_scope() as s:
         fbs = fbs_teams(s, merge)
         q = (select(Match).join(Competition, Match.competition_id == Competition.id)
@@ -407,9 +445,15 @@ def build_rows(now: datetime | None = None, hours: int = WINDOW_HOURS, registry_
                     Match.status == MatchStatus.SCHEDULED,
                     Match.utc_date >= now, Match.utc_date < now + timedelta(hours=hours))
              .order_by(Match.utc_date, Match.id))
-        for m in s.execute(q).scalars():
+        window = list(s.execute(q).scalars())
+        flags = nc.pregame_flags(s, [m.id for m in window])   # addendum 236 item 3(1): CFBD's pregame field
+        stamps = nc.latest_record_stamps(s)
+        for m in window:
+            pf = flags.get(m.id)
+            cur = pf if pf and pf["current"] else None          # L3's rule: a stale row is never read
+            nf = cur["neutral"] if cur else None
             g = nb.Game(merge(m.home_team_id), merge(m.away_team_id), m.season, m.utc_date, 0, 0, m.stage or "",
-                        match_id=m.id)                       # J2: merged ids, as walked
+                        neutral=nf, match_id=m.id)           # J2: merged ids, as walked; the flag as the walk reads it
             why = nb.exclusion_reason(g)
             if why:
                 skipped[why] += 1
@@ -417,6 +461,12 @@ def build_rows(now: datetime | None = None, hours: int = WINDOW_HOURS, registry_
             if g.home_id not in fbs or g.away_id not in fbs:
                 skipped["not_both_fbs"] += 1
                 continue
+            pregame["neutral" if nf else "not_neutral" if nf is False
+                    else "unknown_stale_row" if pf and not cur else "unknown_no_flag_served" if cur
+                    else "unknown_no_row"] += 1
+            if cur and cur["orientation"] == "swapped":
+                pregame["cfbd_home_is_our_away"] += 1          # information: the price reads the flag only
+            stamp = cur["fetched_at"] if cur else stamps.get(str(m.season))
             p = model.predict(g)
             row = _fixture_row(s, m, COMPETITION, Counter(), Counter())
             pick_home = p >= 0.5
@@ -426,29 +476,39 @@ def build_rows(now: datetime | None = None, hours: int = WINDOW_HOURS, registry_
                 # addendum 158 item 1(b): the input cutoff (the walk read every stream game kicking off before it)
                 # and the prediction stamp (this export's clock), on every row
                 "input_cutoff": now.isoformat(), "prediction_stamp": now.isoformat(),
+                # addendum 236 item 3(4): the refresh-by-id run this export saw (its receipt), whatever its exit
+                "refresh_seen": seen,
                 "prediction": {"home_win_prob": round(p, 4), "away_win_prob": round(1 - p, 4),
                                "top_pick": "home_win" if pick_home else "away_win",
                                "top_pick_prob": round(p if pick_home else 1 - p, 4),
                                "elo_home": round(model.rating(g.home_id), 1),
                                "elo_away": round(model.rating(g.away_id), 1),
-                               # D8: the listed home's advantage; the neutral flag is unknown before the game
+                               # addendum 236 item 3(1): the walk's own treatment of CFBD's flag (NeutralRuleElo)
                                "home_adv_applied": model.home_adv(g),
-                               "home_adv_basis": HOME_ADV_BASIS,
-                               "neutral": None, "neutral_flag": NEUTRAL_FLAG_UNKNOWN,
-                               "neutral_rule": NEUTRAL_PREGAME_RULE,      # addendum 230 item 1(b): its rule stated
+                               "home_adv_basis": HOME_ADV_BASIS[nf],
+                               "neutral": nf,
+                               "neutral_flag": (NEUTRAL_FLAG_NEUTRAL if nf else NEUTRAL_FLAG_NOT if nf is False
+                                                else NEUTRAL_FLAG_UNKNOWN),
+                               "neutral_source": "cfbd_pregame" if nf is not None else None,
+                               "neutral_read": stamp.isoformat() if stamp else None,
+                               "neutral_rule": neutral_rule(stamp),
+                               "pregame_orientation": cur["orientation"] if cur else None,
                                **({"logistic_scale": scale} if scale is not None else {})},
             })
             rows.append(row)
         s.rollback()
-    return {"rows": rows, "fit": rc, "skipped": dict(skipped), "label": label, "now": now, "binding": b}
+    rc["neutral_pregame"] = dict(sorted(pregame.items()))
+    return {"rows": rows, "fit": rc, "skipped": dict(skipped), "label": label, "now": now, "binding": b,
+            "refresh_seen": seen}
 
 
 def export(now: datetime | None = None, hours: int = WINDOW_HOURS, out_dir: str = "exports",
-           registry_path: str | None = None, eid: str = EID) -> tuple[str, dict]:
+           registry_path: str | None = None, eid: str = EID, dry_run: bool = False) -> tuple[str | None, dict]:
+    """The shadow file. `dry_run` (addendum 236 item 3(5): "a `--dry-run` prints the rows it would write and writes
+    nothing, for the laptop"): every precondition and refusal as a real run, the document built, no file (path None)."""
     r = build_rows(now, hours, registry_path, eid=eid)
     b = r["binding"]
     now = r["now"]
-    Path(out_dir).mkdir(parents=True, exist_ok=True)
     # Codex on #344: second precision and an exclusive create, so a rerun never replaces an earlier artifact
     path = str(Path(out_dir) / f"{FILE_PREFIX}{now.strftime('%Y-%m-%d_%H%M%S')}.json")
     doc = {"sport": "ncaa", "competition": COMPETITION, "family": FAMILY, "engine": ENGINE,
@@ -456,13 +516,113 @@ def export(now: datetime | None = None, hours: int = WINDOW_HOURS, out_dir: str 
            "contains_predictions": False,   # nothing here is a live prediction (doctrine)
            "gate_evidence": False,          # the shadow's live record is not gate evidence (ruling)
            "exported_at": now.isoformat(), "window_hours": hours, "note": b.note,
+           "refresh_seen": r["refresh_seen"],
            "fit": r["fit"], "skipped": r["skipped"], "count": len(r["rows"]), "predictions": r["rows"]}
+    if dry_run:
+        return None, doc
+    Path(out_dir).mkdir(parents=True, exist_ok=True)
     try:
         with open(path, "x") as f:
             json.dump(doc, f, indent=2, default=str)
     except FileExistsError:
         raise ShadowRefused(f"REFUSED: {path} already exists — an artifact is never overwritten; re-run next second")
     return path, doc
+
+
+# THE ORDER (ARCHITECT 2026-11-03, addendum 236 item 3(4), verbatim in part): "the export runs whether or not
+# refresh-by-id succeeded, on the stored state it finds, its rows stamped with the refresh it saw (the window chain's
+# rule, 84 item 2(b): a sync step's failure does not stop the chain); the refresh failure pages as now." The refresh
+# it saw is read from sp_common.receipts_path() at or before the export's clock, in log order: the latest NCAA
+# refresh_by_id receipt (refresh-by-id appends it once rbi.refresh returns, so a refresh that raises before then writes
+# none) and the latest chain step receipt of `refresh-by-id --competition NCAA` (sp_run.run_steps appends it after the
+# step, whatever its exit, before the next step runs). A refresh step receipt with no refresh_by_id receipt between it
+# and the step receipt before it (the same run's previous step, or an earlier refresh step) is a run that wrote none:
+# a nonzero exit reads "failed" with that step's exit and stamp, never an earlier receipt. None read: state "none"
+# with the reason.
+REFRESH_RULING = "ARCHITECT 2026-11-03, addendum 236 item 3(4)"
+
+
+def _receipts_path() -> Path:
+    import sys
+
+    hosting = str(Path(__file__).resolve().parents[2] / "deploy" / "hosting")
+    if hosting not in sys.path:
+        sys.path.insert(0, hosting)
+    try:
+        import sp_common                            # the path refresh-by-id appends to (SP_RECEIPTS, else logs/)
+    except ImportError:                             # a machine without fcntl: the same default, from the environment
+        import os
+        return Path(os.environ.get("SP_RECEIPTS") or Path(__file__).resolve().parents[2] / "logs" / "receipts.jsonl")
+    return Path(sp_common.receipts_path())
+
+
+def refresh_seen(now: datetime, competition: str = COMPETITION, path: str | Path | None = None) -> dict:
+    """The refresh-by-id run this export saw: {state ok | failed | none, ts, now, age_hours, selected, updated,
+    not_found, unresolved, still_rate_limited, error, rule[, step_exit]}. ok: no error, nothing unresolved, nothing
+    still rate limited (refresh-by-id's exit 0) and its chain step, when one is receipted after it, exited 0. A chain
+    refresh step that wrote no refresh_by_id receipt reads failed (its exit, its stamp), never the earlier run's.
+    Read-only; an unreadable receipts log reads none, with the reason."""
+    p = Path(path) if path else _receipts_path()
+    base = {"rule": f"the latest {competition} refresh_by_id receipt at or before the export, or the chain's "
+                    f"refresh-by-id step when that run wrote none ({REFRESH_RULING})"}
+    try:
+        lines = p.read_text(encoding="utf-8").splitlines()
+    except OSError as err:
+        return {**base, "state": "none", "why": f"no receipts log read at {p} ({type(err).__name__})"}
+    cmd = f"python cli.py refresh-by-id --competition {competition}"
+    step = None                                        # the latest refresh step receipt seen, walking back
+    for ln in reversed(lines):
+        rid = step[0].get("run_id") if step is not None else None
+        if '"refresh_by_id"' not in ln and "refresh-by-id" not in ln and not (rid and str(rid) in ln):
+            continue
+        try:
+            x = json.loads(ln)
+        except ValueError:
+            continue
+        is_step = (x.get("kind") == "step" and x.get("exit") is not None
+                   and (str(x.get("command") or "") + " ").startswith(cmd + " "))
+        if rid and not is_step and x.get("kind") == "step" and x.get("run_id") == rid:
+            break                                      # the run's step before the refresh: the refresh wrote none
+        if not is_step and (x.get("kind") != "refresh_by_id" or x.get("competition") != competition):
+            continue
+        try:
+            ts = datetime.strptime(str(x.get("ts")), "%Y-%m-%dT%H:%M:%SZ")
+        except ValueError:
+            continue
+        if ts > now:
+            continue
+        if is_step:
+            if step is not None:                       # two refresh steps with no receipt between: the later wrote none
+                break
+            step = (x, ts)
+            continue
+        n = (lambda k: len(x.get(k) or []))
+        bad = (bool(x.get("error")) or n("unresolved") > 0 or n("still_rate_limited") > 0
+               or (step is not None and step[0].get("exit") != 0))     # its own step failed after the receipt
+        return {**base, "state": "failed" if bad else "ok", "ts": x.get("ts"), "now": x.get("now"),
+                "age_hours": round((now - ts).total_seconds() / 3600, 2), "selected": x.get("selected"),
+                "updated": x.get("updated"), "not_found": n("not_found"), "unresolved": n("unresolved"),
+                "still_rate_limited": n("still_rate_limited"), "error": x.get("error"),
+                **({"step_exit": step[0].get("exit")} if step is not None else {})}
+    if step is not None:                               # the latest refresh step wrote no refresh_by_id receipt
+        x, ts = step
+        why = f"the refresh-by-id step exited {x.get('exit')} and wrote no refresh_by_id receipt"
+        return {**base, "state": "failed" if x.get("exit") != 0 else "none", "ts": x.get("ts"), "now": None,
+                "age_hours": round((now - ts).total_seconds() / 3600, 2), "selected": None, "updated": None,
+                "not_found": 0, "unresolved": 0, "still_rate_limited": 0, "error": why, "why": why,
+                "step_exit": x.get("exit")}
+    return {**base, "state": "none", "why": f"no {competition} refresh_by_id receipt at or before "
+                                            f"{now.isoformat()} in {p}"}
+
+
+def refresh_seen_text(x: dict) -> str:
+    if x.get("state") == "none":
+        return f"refresh seen: none — {x.get('why')}"
+    if x.get("selected") is None and x.get("step_exit") is not None:     # a refresh step that wrote no receipt
+        return f"refresh seen: {x['state'].upper()} at {x['ts']} ({x['age_hours']}h before the export) · {x['why']}"
+    return (f"refresh seen: {x['state'].upper()} at {x['ts']} ({x['age_hours']}h before the export) · selected "
+            f"{x['selected']} · updated {x['updated']} · not found {x['not_found']} · unresolved {x['unresolved']} · "
+            f"still rate limited {x['still_rate_limited']}" + (f" · error {x['error']}" if x.get("error") else ""))
 
 
 def last_calls(export_dir: str = "exports", eid: str | None = None) -> dict[int, dict]:
@@ -514,10 +674,131 @@ def same_fixture(c: dict, m) -> bool:
                 or c.get("utc_date") != m.utc_date.isoformat())
 
 
+# (6) #413, NO WAIT (ARCHITECT 2026-11-03, addendum 236 item 3(6), verbatim): "The confirmation's Kalshi grade reads
+# legs placed on or after 2026-10-13 (#475's switch to the shared pair); earlier placements never enter it, stated on
+# the console." The day is read as the project reads a ruled calendar date, 00:00 ET (exec_cohorts.HOLD_446_FROM's
+# precedent): 2026-10-13 00:00 America/New_York = 2026-10-13 04:00 naive UTC, captured_at's clock. A Kalshi row
+# captured before this instant is never read by the shadow's Kalshi close, nor by its legs guard (the newest legs,
+# the mismatched set and the events' homes: kalshi_legs' captured_from floor); a game whose every Kalshi row is
+# earlier is left out as LEGS_BEFORE.
+KALSHI_LEGS_FROM = (datetime(2026, 10, 13, 0, 0, tzinfo=ZoneInfo("America/New_York"))
+                    .astimezone(timezone.utc).replace(tzinfo=None))          # 2026-10-13 04:00 naive UTC
+LEGS_BEFORE = "legs_before_2026_10_13"
+LEGS_RULING = "ARCHITECT 2026-11-03, addendum 236 item 3(6)"
+LEGS_TEXT = ("legs placed before 2026-10-13 00:00 ET (#475's switch to the shared pair) never enter it, the close "
+             f"nor its legs guard; a game whose every Kalshi leg is earlier is left out ({LEGS_BEFORE}) "
+             f"({LEGS_RULING})")
+# (2) THE CLOSE (ARCHITECT 2026-11-03, addendum 236 item 3(2), verbatim): "the Kalshi close is THE close for college
+# (KXNCAAFGAME is the primary college market source — CLAUDE.md), scored per name, never pooled, as built; the book
+# close stays beside it as a reference line; the D4 baseline is a second REFERENCE name, never a verdict's input; the
+# 2023 and 2026 fences apply to the Kalshi block exactly as to the record until the 11-09 run's verdict is recorded,
+# then lift for 2026 as ruled."
+CLOSE_RULING = "ARCHITECT 2026-11-03, addendum 236 item 3(2)"
+D4_REF_NAME = "d4_baseline (reference)"
+D4_REF_TEXT = ("the D4 baseline (the run's frozen baseline_home_rate in a non-neutral game, 0.5 where the game's CFBD "
+               "label says neutral), a REFERENCE name against the same Kalshi close on the same games, never a "
+               f"verdict's input ({CLOSE_RULING})")
+BOOK_REF_TEXT = f"reference: the book close (close_1x2 + the stale-book rule), never THE close ({CLOSE_RULING})"
+
+
+def v2_verdict_recorded() -> bool:
+    """True once the registry (registry.LEDGER, read at call time) records a verdict for ncaa-elo-v2."""
+    from src.walters import registry as reg
+
+    e = reg.get(V2_EID, reg.LEDGER)
+    return bool(e and (e.get("verdict") or {}).get("verdict"))
+
+
+def kalshi_fenced() -> bool:
+    """Addendum 236 item 3(2): the 2023 / 2026 fences apply to the Kalshi block "exactly as to the record until the
+    11-09 run's verdict is recorded": fenced while ncaa-elo-v2's run (the record's own lift,
+    ncaa_backtest.v2_run_recorded) or its verdict is unrecorded; both lift together after (each fence's own ruling
+    lifts it on the run)."""
+    from src.walters import ncaa_backtest as nb
+
+    return not (nb.v2_run_recorded() and v2_verdict_recorded())
+
+
+def d4_rate(eid: str) -> tuple[float | None, str | None]:
+    """(the D4 baseline's frozen rate, None) from `eid`'s run record (registry.LEDGER at call time), or (None, why)."""
+    from src.walters import registry as reg
+
+    e = reg.get(eid, reg.LEDGER) or {}
+    rate = ((e.get("run") or {}).get("result") or {}).get("baseline_home_rate")
+    if not isinstance(rate, (int, float)) or isinstance(rate, bool):
+        return None, f"{eid} has no run record with baseline_home_rate (the D4 baseline is the run's frozen rate)"
+    return float(rate), None
+
+
+def _d4_home(s, m, rate: float) -> float:
+    """D4's home probability for OUR listed home (ncaa_v1r_gate.baseline_p on the game as the stream reads it: the
+    CFBD label's flag, 0.5 at a neutral site; the rate is CFBD's home's, so a 'swapped' label prices our home 1 - rate)."""
+    from src.db.schema import NCAACFBDLabel
+    from src.ingestion.ncaa_cfbd import has_table, label_load_options
+    from src.walters import ncaa_v1r_gate as g
+
+    lab = s.get(NCAACFBDLabel, m.id, options=label_load_options(s)) if has_table(s) else None
+    neutral = lab.neutral if lab is not None else None
+    from types import SimpleNamespace
+
+    p = g.baseline_p(SimpleNamespace(neutral=neutral), rate)
+    return 1 - p if lab is not None and lab.orientation == "swapped" and neutral is not True else p
+
+
+class KalshiClose:
+    """THE close for college (addendum 236 item 3(2)), the close record's two-way rule, over a session's finished
+    matches: the legs on or after KALSHI_LEGS_FROM only (item 3(6)); the 2023 / 2026 fences (kalshi_fenced) and a
+    three-way board BEFORE the result (pre), then no result / a tie (the caller's), then LEGS_BEFORE, mismatched legs
+    and no close (close: paper.guarded_two_way_close, the record's own function). One instance per read, shared by
+    grade() and confirmation_record()."""
+
+    def __init__(self, s, matches):
+        from src.walters import kalshi_legs
+        from src.walters import ncaa_backtest as nb
+        from src.walters import paper
+
+        ids = [m.id for m in matches]
+        every = paper._kalshi_snaps(s, ids)
+        self.snaps = {mid: [x for x in rows if x.captured_at is not None and x.captured_at >= KALSHI_LEGS_FROM]
+                      for mid, rows in every.items()}
+        self.before = {mid for mid, rows in every.items() if rows and not self.snaps.get(mid)}
+        # the legs guard reads the same floor (item 3(6)): an earlier leg is never judged, here or on another game
+        self.mism = kalshi_legs.mismatched(s, ids, KALSHI_LEGS_FROM) if ids else {}
+        self.tickers, self.current, self.homes = paper.two_way_legs(s, matches, self.snaps, KALSHI_LEGS_FROM)
+        self.fence = kalshi_fenced()
+        self.labs = nb.label_seasons(s, matches) if self.fence else {}
+
+    def pre(self, m) -> str | None:
+        from src.walters import close as _close
+        from src.walters import ncaa_backtest as nb
+
+        seasons = {str(m.season), self.labs.get(m.id, (None,))[0]}
+        return ("fenced_2023" if self.fence and nb.V2_SECOND in seasons
+                else "fenced_2026" if self.fence and nb.V2_TEST in seasons
+                else "three_way" if tuple(_close.outcomes_for(m.sport)) != _close.BINARY else None)
+
+    def close(self, m) -> tuple[dict | None, str | None]:
+        from src.walters import paper
+
+        if m.id in self.before:
+            return None, LEGS_BEFORE
+        return paper.guarded_two_way_close(m, self.snaps.get(m.id, []), self.mism, self.tickers,
+                                           self.current.get(m.id), self.homes)
+
+
+def _kx() -> dict:
+    from src.walters import paper
+
+    return {"identity_mismatch": 0, "fenced_2023": 0, "fenced_2026": 0, "three_way": 0, "no_result": 0, "tie": 0,
+            LEGS_BEFORE: 0, paper.MISMATCHED: 0, paper.NO_CLOSE: 0}
+
+
 def grade(days: int = 30, export_dir: str = "exports", now: datetime | None = None, progress=None,
           eid: str = EID) -> dict:
-    """Results (hit rate, log-loss, Brier) and model-vs-close (pick-vs-close + value-side) for finished NCAA
-    games whose call exists in a shadow export of the `eid` binding (never pooled). Not gate evidence."""
+    """Results (hit rate, log-loss, Brier) and model-vs-close for finished NCAA games whose call exists in a shadow
+    export of the `eid` binding (never pooled). THE close is Kalshi's (KalshiClose; addendum 236 item 3(2)), per name:
+    the binding's model and the D4 baseline as a REFERENCE name; the book close is a reference line beside it. Not
+    gate evidence."""
     from sqlalchemy import select
 
     from src.db.database import session_scope
@@ -526,36 +807,24 @@ def grade(days: int = 30, export_dir: str = "exports", now: datetime | None = No
     from src.walters.nfl_predict import _book_anchor, value_side_grade
     from src.walters.vs_close import block
 
-    from src.walters import close as _close
-    from src.walters import kalshi_legs
-    from src.walters import ncaa_backtest as nb
-    from src.walters import paper
-
     now = now or utc_now_naive()
     b = binding(eid)
     tag = b.model_version.replace("ncaa_elo_", "")             # v1r_H= / v2_H= on each line
     calls = last_calls(export_dir, eid=b.eid)
+    rate, rate_why = d4_rate(b.eid)
     hits, lls, briers, clvs, vclvs, lines = [], [], [], [], [], []
     pairs = []                         # addendum 64 item 2: (model p, close p) of the outcome, games with a close
     kalshi_fed = 0                     # of those, the closes a Kalshi mid priced (the stale-book rule)
     graded = unpriced = unanchored = ties = no_result = identity_mismatch = 0
-    # ARCHITECT 2026-11-03, addendum 230 item 1(b): "its grade against the Kalshi close (the close record's KXNCAAFGAME
-    # rule)", each name on its own as the NHL shadow's record against the close (addendum 63 item 3): this binding's
-    # one name. The close is paper.guarded_two_way_close, the record's own (books not read), in the record's order of
-    # exclusion; the record's 2026 / 2023 fences (ncaa_backtest.v2_run_recorded) apply as they apply to the record.
-    kpairs = []
+    # addendum 230 item 1(b) / 236 item 3(2): the record against THE (Kalshi) close, each name on its own: this
+    # binding's model, and the D4 baseline as a reference name on the same games (never pooled, never a verdict input)
+    kpairs, dpairs = [], []
     # every finished call in the window lands in exactly one: n + sum(kalshi_close_excluded) == the window's calls
-    kx = {"identity_mismatch": 0, "fenced_2023": 0, "fenced_2026": 0, "three_way": 0, "no_result": 0, "tie": 0,
-          paper.MISMATCHED: 0, paper.NO_CLOSE: 0}
+    kx = _kx()
     with session_scope() as s:
         window = [m for m in (s.get(Match, mid) for mid in calls)
                   if m is not None and m.status == MatchStatus.FINISHED and m.utc_date >= now - timedelta(days=days)]
-        ids = [m.id for m in window]
-        snaps = paper._kalshi_snaps(s, ids)
-        mism = kalshi_legs.mismatched(s, ids) if ids else {}
-        tickers, current, homes = paper.two_way_legs(s, window, snaps)
-        fence_v2 = not nb.v2_run_recorded()
-        labs = nb.label_seasons(s, window) if fence_v2 else {}
+        kc = KalshiClose(s, window)
         for mid, c in sorted(calls.items(), key=lambda kv: kv[1].get("utc_date") or ""):
             m = s.get(Match, mid)
             if m is None or m.status != MatchStatus.FINISHED or m.utc_date < now - timedelta(days=days):
@@ -566,10 +835,7 @@ def grade(days: int = 30, export_dir: str = "exports", now: datetime | None = No
                 continue
             # the Kalshi close's exclusions in the close record's order (paper.close_record): the fences and a
             # three-way board BEFORE the result, so a fenced game with no result or a tie counts as fenced, as there
-            seasons = {str(m.season), labs.get(m.id, (None,))[0]}
-            kpre = ("fenced_2023" if fence_v2 and nb.V2_SECOND in seasons
-                    else "fenced_2026" if fence_v2 and nb.V2_TEST in seasons
-                    else "three_way" if tuple(_close.outcomes_for(m.sport)) != _close.BINARY else None)
+            kpre = kc.pre(m)
             res = _result(s, m)
             if res is None:
                 no_result += 1
@@ -599,7 +865,7 @@ def grade(days: int = 30, export_dir: str = "exports", now: datetime | None = No
                 clvs.append(clv)
                 # ARCHITECT 2026-10-13 (addendum 64 item 2): the hit rate carries the line against the close, per the
                 # shadow's own close (close_1x2 on the odds table, then the stale-book rule, addendum 137 item 4), over
-                # the same graded games that have one
+                # the same graded games that have one. Addendum 236 item 3(2): a REFERENCE line beside THE close.
                 side = "HOME" if y else "AWAY"
                 pairs.append((p if y else 1 - p, cl["fair"][side]))
                 kalshi_fed += cl.get("source") in KALSHI_SOURCES
@@ -611,33 +877,40 @@ def grade(days: int = 30, export_dir: str = "exports", now: datetime | None = No
                 vclvs.append(vg["value_side_clv"])
             elif anchor_h is None:
                 unanchored += 1
-            # the Kalshi close, the close record's rule (paper.close_record's two-way order after the result)
+            # THE close (Kalshi), the close record's rule (paper.close_record's two-way order after the result)
             kcl, kwhy = None, kpre
             if kwhy is None:
-                kcl, kwhy = paper.guarded_two_way_close(m, snaps.get(m.id, []), mism, tickers, current.get(m.id),
-                                                        homes)
+                kcl, kwhy = kc.close(m)
             if kwhy:
                 kx[kwhy] += 1
             else:
                 kside = "HOME" if y else "AWAY"
                 kpairs.append((p if y else 1 - p, kcl["fair"][kside]))
+                if rate is not None:
+                    dh = _d4_home(s, m, rate)
+                    dpairs.append((dh if y else 1 - dh, kcl["fair"][kside]))
             line = (f"  {m.away_team.name[:16]:16} @ {m.home_team.name[:16]:16} {tag}_H={p:.3f} "
                     f"result {hs}-{as_} ({src}) {'HIT' if hits[-1] else 'miss'} · "
-                    f"close_H={'%.3f' % close_h if close_h is not None else '  — '} "
+                    f"kalshi_close_H={'%.3f' % kcl['fair']['HOME'] if kcl else '— (' + kwhy + ')'} (THE close)"
+                    f" · reference book close_H={'%.3f' % close_h if close_h is not None else '  — '} "
                     f"div={'%+.1fpp' % (clv * 100) if clv is not None else '—'} "
                     f"value={(vg['side'] + ' %+.1fpp' % (vg['value_side_clv'] * 100)) if vg else '— (no anchor)'}"
-                    f" · kalshi_close_H={'%.3f' % kcl['fair']['HOME'] if kcl else '— (' + kwhy + ')'}"
                     " · NOT gate evidence")
             lines.append(line)
             if progress:
                 progress(line)
+    vk = {b.model_version: block(kpairs)}
+    if rate is not None:
+        vk[D4_REF_NAME] = block(dpairs)                         # a reference name, same games, never pooled
     return {"graded": graded, "calls_on_file": len(calls), "ties_skipped": ties, "no_result": no_result,
             "identity_mismatch": identity_mismatch,
             "hit_rate": round(sum(hits) / len(hits), 4) if hits else None,
             # the line names the closes a Kalshi mid priced, as every results file's block does (addendum 137 item 4)
-            "vs_close": {**block(pairs), "kalshi_only_closes": kalshi_fed},
-            # addendum 230 item 1(b): the record against the Kalshi close, per name (this binding's), never pooled
-            "vs_kalshi_close": {b.model_version: block(kpairs)},
+            "vs_close": {**block(pairs), "kalshi_only_closes": kalshi_fed},    # a reference line ("references")
+            # addendum 230 item 1(b) / 236 item 3(2): the record against THE close (Kalshi), per name, never pooled
+            "vs_kalshi_close": vk,
+            "references": {"book_close": BOOK_REF_TEXT, D4_REF_NAME: D4_REF_TEXT if rate is not None
+                           else f"absent: {rate_why}"},
             "kalshi_close_excluded": kx,
             "kalshi_close_rule": KALSHI_CLOSE_RULE,
             "log_loss": round(sum(lls) / len(lls), 4) if lls else None,
@@ -649,16 +922,17 @@ def grade(days: int = 30, export_dir: str = "exports", now: datetime | None = No
             "lines": lines}
 
 
-KALSHI_CLOSE_RULE = ("the close record's two-way rule (paper.close_record; KXNCAAFGAME for NCAA): the last "
-                     "two-sided pre-kickoff Kalshi HOME quote's mid under the 2c cap (close.close_from_kalshi), books "
-                     "not read; left out in order: first the shadow's own identity guard (the row's teams and "
-                     "kickoff are not this match's), then the record's order: the 2023 / 2026 fences until "
-                     "ncaa-elo-v2's run is recorded, a three-way board, no decided result, a tie (a data defect), "
+KALSHI_CLOSE_RULE = ("THE close for college (KXNCAAFGAME, addendum 236 item 3(2)): the close record's two-way rule "
+                     "(paper.close_record): the last two-sided pre-kickoff Kalshi HOME quote's mid under the 2c cap "
+                     "(close.close_from_kalshi), books not read; " + LEGS_TEXT + "; left out in order: first the "
+                     "shadow's own identity guard (the row's teams and kickoff are not this match's), then the "
+                     "record's order: the 2023 / 2026 fences until ncaa-elo-v2's run and its verdict are recorded, a "
+                     "three-way board, no decided result, a tie (a data defect), legs before 2026-10-13 00:00 ET, "
                      "mismatched legs (kalshi_legs.mismatched, then the HOME row the close reads, "
                      "paper.close_row_mismatched), no close")
 
 
-def confirmation_counter(eid: str = V2_EID, export_dir: str = "exports", registry_path: str | None = None) -> dict:
+def confirmation_counter(eid: str = V2_EID, export_dir: str = "exports") -> dict:
     """THE CONFIRMATION COUNTER TO 100 (ARCHITECT 2026-11-03, addendum 230 item 1(b): "the confirmation counter to
     100; dormant while the verdict is null or FAIL"). A count, never a verdict and never a figure of the games:
     - {"state": "refused", "why"} when the registry holds no entry for `eid` (the export's refusal, not_declared:
@@ -669,16 +943,17 @@ def confirmation_counter(eid: str = V2_EID, export_dir: str = "exports", registr
       size, pending by status, releases due, complete), "shadow_rows": cohort fixtures holding a row of this binding
       written before kickoff (last_calls) whose teams and kickoff are that fixture's (same_fixture, grade()'s guard),
       "shadow_rows_scored": of the scored ones, "shadow_identity_mismatch": cohort ids whose row fails that guard}.
-    `registry_path` (default registry.LEDGER) is the one registry read: the verdict here and the count's confirming()
-    (Codex on #816). The confirmation fixture is D7's, as ncaa-confirm reads it (any status, frozen once); a fixture
-    without a shadow row still counts (the shadow row is printed beside, never a condition). Read-only."""
+    registry.LEDGER, read once at call time, is the one registry read: the verdict here and the count's confirming()
+    (Codex on #816; addendum 236 item 3(7): no path parameter, so no second source). The confirmation fixture is D7's,
+    as ncaa-confirm reads it (any status, frozen once); a fixture without a shadow row still counts (the shadow row is
+    printed beside, never a condition). Read-only."""
     from src.db.database import session_scope
     from src.db.schema import Match
     from src.walters import ncaa_v1r_gate as g
     from src.walters import registry as reg
 
     b = binding(eid)
-    path = registry_path or reg.LEDGER                       # one registry for the verdict and the count
+    path = reg.LEDGER                                        # one registry for the verdict and the count (236 3(7))
     e = reg.get(b.eid, path)
     if e is None:
         return {"state": "refused", "why": not_declared(b.eid)}
@@ -719,6 +994,99 @@ def counter_line(r: dict, eid: str) -> str:
             + " · a count, not a verdict")
 
 
+# (3) A CONFIRMATION FIXTURE (ARCHITECT 2026-11-03, addendum 236 item 3(3), verbatim): "D7's cohort as declared is the
+# COUNT (frozen: the 100 are D7's); the RECORD against the close is on the members holding a prospective shadow row
+# before kickoff, and a member without one is named "no prospective row" and unscored, its count printed beside the
+# 100. The 11-23 read reads both numbers; what a gap means is that read's ruling, not this PR's. (The first fixtures
+# after a 11-09 PASS have no row until the tag that carries the export — named, as the leagues' early games are.)"
+FIXTURE_RULING = "ARCHITECT 2026-11-03, addendum 236 item 3(3)"
+NO_ROW = "no prospective row"
+NO_ROW_OTHER = "no prospective row (a row of another fixture)"
+
+
+def confirmation_record(eid: str = V2_EID, export_dir: str = "exports") -> dict:
+    """The counter (confirmation_counter: D7's COUNT) and, after a PASS, the RECORD against THE close on the COUNTED
+    members holding a prospective shadow row (the last row of this binding written before kickoff, last_calls, whose
+    teams and kickoff are the fixture's, same_fixture): per name, the binding's model and the D4 baseline as a
+    reference (never pooled), the Kalshi exclusions counted (KalshiClose, grade()'s own). Every cohort member without
+    such a row is NAMED (id, teams, kickoff, counted or pending) as NO_ROW (NO_ROW_OTHER when the only row is another
+    fixture's) and is never scored. No days window: the cohort is the window. One registry (addendum 236 item 3(7)):
+    the counter, d4_rate and the Kalshi fences all read registry.LEDGER at call time; no path parameter. Read-only;
+    never a verdict."""
+    from src.db.database import session_scope
+    from src.db.schema import Match
+    from src.walters.vs_close import block
+
+    r = confirmation_counter(eid, export_dir)
+    if r["state"] != "counting":
+        return {"counter": r}
+    b = binding(eid)
+    calls = last_calls(export_dir, eid=b.eid)
+    rate, rate_why = d4_rate(b.eid)
+    counted = set(r["scored_ids"])
+    named, kpairs, dpairs, kx, with_row = [], [], [], _kx(), 0
+    with session_scope() as s:
+        members = {mid: s.get(Match, mid) for mid in r["cohort_ids"]}
+        held = {mid for mid, m in members.items() if mid in calls and same_fixture(calls[mid], m)}
+        scored = [members[mid] for mid in r["scored_ids"] if mid in held]
+        kc = KalshiClose(s, scored)
+        for mid in r["cohort_ids"]:
+            if mid in held:
+                continue
+            m = members[mid]
+            named.append({"id": mid, "home": m.home_team.name if m else None, "away": m.away_team.name if m else None,
+                          "kickoff": m.utc_date.isoformat() if m else None, "counted": mid in counted,
+                          "why": NO_ROW_OTHER if mid in calls else NO_ROW})
+        for m in scored:
+            with_row += 1
+            kpre = kc.pre(m)
+            res = _result(s, m)
+            if res is None or res[0] == res[1]:
+                kx[kpre or ("no_result" if res is None else "tie")] += 1
+                continue
+            y = 1 if res[0] > res[1] else 0
+            kcl, kwhy = (None, kpre) if kpre else kc.close(m)
+            if kwhy:
+                kx[kwhy] += 1
+                continue
+            p = calls[m.id]["prediction"]["home_win_prob"]
+            side = "HOME" if y else "AWAY"
+            kpairs.append((p if y else 1 - p, kcl["fair"][side]))
+            if rate is not None:
+                dh = _d4_home(s, m, rate)
+                dpairs.append((dh if y else 1 - dh, kcl["fair"][side]))
+        s.rollback()
+    rec = {b.model_version: block(kpairs)}
+    if rate is not None:
+        rec[D4_REF_NAME] = block(dpairs)
+    return {"counter": r, "count": r["n"], "n_games": r["n_games"], "counted_with_row": with_row,
+            "record": rec, "record_excluded": kx,
+            "references": {D4_REF_NAME: D4_REF_TEXT if rate is not None else f"absent: {rate_why}"},
+            "no_prospective_row": named,
+            "no_prospective_row_counted": sum(1 for x in named if x["counted"]),
+            "no_prospective_row_pending": sum(1 for x in named if not x["counted"])}
+
+
+def record_lines(x: dict, eid: str) -> list[str]:
+    """The printed lines: the COUNT beside the 100, the record against THE close on the members with a row, and every
+    member without one named. Never a verdict (the read and its record are ncaa-confirm's)."""
+    from src.walters.vs_close import line as _vs_line
+
+    r = x["counter"]
+    if r["state"] != "counting":
+        return [f"confirmation record {eid}: {r['state'].upper()} — {r['why']}"]
+    L = [f"confirmation record {eid} ({FIXTURE_RULING}): count {x['count']}/{x['n_games']} (D7's) · record against "
+         f"THE close (Kalshi) on {x['counted_with_row']} counted members holding a prospective row · {NO_ROW}: "
+         f"{x['no_prospective_row_counted']} of the counted (unscored) and {x['no_prospective_row_pending']} pending"
+         f" · left out of the record: " + ", ".join(f"{k} {v}" for k, v in x["record_excluded"].items() if v)
+         + (" none" if not any(x["record_excluded"].values()) else "") + " · a record, not a verdict"]
+    L += [f"     {k}: {_vs_line(v)}" for k, v in x["record"].items()]
+    L += [f"     {k}: {v}" for k, v in x["references"].items()]
+    L += [f"     {n['why']}: match {n['id']} · {n['away']} @ {n['home']} · {n['kickoff']} · "
+          f"{'counted' if n['counted'] else 'pending'}" for n in x["no_prospective_row"]]
+    return L
+
+
 # ----------------------------------------------------------------------------------------------------------------
 # THE PARITY RECEIPT (addendum 158 item 1(b)): "A read-only receipt on synthetic cases that the shadow's probabilities
 # equal the gate path's." Pure over its inputs: no DB, no file.
@@ -748,9 +1116,10 @@ def parity(games, scale: float = V2_FROZEN_S, neutral_home_advantage: bool = Fal
     - the gate path: ncaa_v1r_gate.run_gate on ncaa-elo-v2's gate read, the declared model at `scale` recorded;
     - the shadow path: for every game the gate scored, a fresh model at `scale` walked (walk()) over the stream games
       kicking off before it, then the prediction of that game with the same game record.
-    Returns per-game rows (match id, kickoff, the two probabilities, |diff|) and the counts. The pregame difference
-    (D8: a live row prices with the listed home's advantage and an unknown neutral flag) is counted apart: the
-    shadow's price of each neutral scored game with its flag unknown, against the gate's."""
+    Returns per-game rows (match id, kickoff, the two probabilities, |diff|) and the counts. THE PREGAME FLAG
+    (addendum 236 item 3(1)): each neutral scored game is priced again as a live row prices it, with CFBD's pregame
+    flag True (equal to the gate: `pregame_flag_max_diff` within PARITY_TOL), and with the flag absent (D8's unknown,
+    the listed home's advantage: `pregame_absent_max_diff`, reported, the gap a row without CFBD's flag carries)."""
     from dataclasses import replace
 
     from src.walters import ncaa_backtest as nb
@@ -760,7 +1129,7 @@ def parity(games, scale: float = V2_FROZEN_S, neutral_home_advantage: bool = Fal
     rec = _Recorder(nb.NeutralRuleElo(neutral_home_advantage, scale=scale))
     res = g.run_gate(games, model=rec, read=read)
     by_id = {x.match_id: x for x in games}
-    rows, pregame = [], []
+    rows, pregame, absent = [], [], []
     for mid, gp in rec.p.items():
         x = by_id[mid]
         m = V1R(neutral_home_advantage, scale=scale)
@@ -770,20 +1139,28 @@ def parity(games, scale: float = V2_FROZEN_S, neutral_home_advantage: bool = Fal
         if x.neutral is True:
             m2 = V1R(neutral_home_advantage, scale=scale)
             walk(m2, games, x.utc_date)
-            pregame.append(abs(m2.predict(replace(x, neutral=None)) - gp))
+            # the live row's Game: no score, CFBD's pregame flag True (build_rows), then absent (D8)
+            live = replace(x, home_score=0, away_score=0, label_source="matches", orientation=None, neutral=True)
+            pregame.append(abs(m2.predict(live) - gp))
+            absent.append(abs(m2.predict(replace(live, neutral=None)) - gp))
     diffs = [r["diff"] for r in rows]
     return {"scale": scale, "stream": len(games), "gate_scored": res.get("n_scored", 0), "compared": len(rows),
             "unequal": sum(d > PARITY_TOL for d in diffs), "max_diff": max(diffs, default=0.0), "rows": rows,
-            "neutral_scored": len(pregame), "pregame_max_diff": max(pregame, default=0.0)}
+            "neutral_scored": len(pregame), "pregame_flag_max_diff": max(pregame, default=0.0),
+            "pregame_flag_unequal": sum(d > PARITY_TOL for d in pregame),
+            "pregame_absent_max_diff": max(absent, default=0.0)}
 
 
 def parity_lines(r: dict, rows: bool = False) -> list[str]:
     L = [f"NCAA v2 SHADOW PARITY ({V2_RULING}) · synthetic · s {r['scale']!r} · stream {r['stream']} games · gate scored "
          f"{r['gate_scored']} · compared {r['compared']} · unequal {r['unequal']} (max |diff| {r['max_diff']:.3g}; "
          f"equal within {PARITY_TOL:g}) · {'EQUAL' if r['compared'] and not r['unequal'] else 'NOT EQUAL'}",
-         f"  pregame (D8, reported): {r['neutral_scored']} scored neutral games; priced as a live row prices them "
-         f"(the listed home's advantage, the neutral flag unknown) they differ from the gate by up to "
-         f"{r['pregame_max_diff']:.3g}: the pregame metadata (item 1(c)) is that difference's source"]
+         f"  pregame flag ({NEUTRAL_RULING}): {r['neutral_scored']} scored neutral games priced as a live row "
+         f"prices them with CFBD's pregame flag True: unequal {r['pregame_flag_unequal']} (max |diff| "
+         f"{r['pregame_flag_max_diff']:.3g}) · "
+         f"{'EQUAL' if r['neutral_scored'] and not r['pregame_flag_unequal'] else 'NOT EQUAL'}; with the flag "
+         f"absent (D8's unknown, the listed home's advantage) they differ by up to "
+         f"{r['pregame_absent_max_diff']:.3g} (reported)"]
     if rows:
         L += [f"  - game {x['match_id']} · {x['kickoff']:%Y-%m-%d %H:%M} · gate {x['gate']:.6f} · shadow "
               f"{x['shadow']:.6f} · |diff| {x['diff']:.2g}" for x in r["rows"]]

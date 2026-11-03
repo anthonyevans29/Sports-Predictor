@@ -254,6 +254,8 @@ def test_grade_reads_the_last_row_before_kickoff(mine, tmp_path):
 def test_cli_refusal_exits_2(mine, monkeypatch):
     from cli import cli
 
+    monkeypatch.setenv("SP_EXPORTS_MIRROR_ROLE", "host")      # addendum 236 item 3(5): the command is the host's
+
     monkeypatch.setattr(sh, "frozen", lambda *a, **k: (_ for _ in ()).throw(sh.ShadowRefused("REFUSED: test")))
     res = CliRunner().invoke(cli, ["export-ncaa-predictions"])
     assert res.exit_code == 2 and "REFUSED: test" in res.output
@@ -274,5 +276,7 @@ def test_upcoming_row_says_the_home_advantage_applied_and_that_the_neutral_flag_
     doc = sh.export(now=NOW, out_dir=str(tmp_path),
                     registry_path=_registry(tmp_path, neutral_site_rule="no_home_advantage_at_neutral"))[1]
     p = doc["predictions"][0]["prediction"]
-    assert p["home_adv_applied"] == 55.0 and p["home_adv_basis"] == "listed home (neutral flag unknown before the game)"
-    assert p["neutral"] is None and p["neutral_flag"] == "unknown before the game"
+    # addendum 236 item 3(1): no pregame row for the fixture: D8's unknown, the listed home's advantage
+    assert p["home_adv_applied"] == 55.0
+    assert p["home_adv_basis"] == "listed home: the neutral flag is unknown before the game (D8)"
+    assert p["neutral"] is None and p["neutral_flag"] == "absent: unknown, D8" and p["neutral_source"] is None

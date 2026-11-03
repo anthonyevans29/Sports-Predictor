@@ -714,6 +714,41 @@ class NCAACFBDIngestRecord(Base):
     unlabelled: Mapped[list] = mapped_column(JSON, default=list)               # as the receipt lists them
 
 
+class NCAACFBDPregame(Base):
+    """
+    NCAA CFBD PREGAME NEUTRAL FLAG (ARCHITECT 2026-11-03, addendum 236 item 3(1), verbatim in part): "THE NEUTRAL
+    FLAG: option (iii) — CFBD's pregame neutral-site field for the fixture, read at the labels ingest and ruled as
+    ours with its rule stated on every row ("neutral per CFBD's pregame field, read <stamp>; absent: unknown, D8");
+    (iv)'s "unknown" where CFBD has none; never a hand table for the current season".
+
+    One row per stored NCAA fixture joined, by the ingest's EXACT name tier only (no scores exist before the game, so
+    the substring tier and the J1 dateshift, which need agreeing scores, never join one), to a CFBD game that CFBD
+    serves as not completed with both classifications fbs. Upserted by match id by `ncaa-cfbd-labels`
+    (src/ingestion/ncaa_cfbd.py), stamped with the run's fetched_at. A row is CURRENT when its fetched_at equals its
+    season's latest ingest record's (L3's rule); the shadow reads current rows only, any other reads unknown.
+
+    NEVER a label: this table never enters ncaa_cfbd_labels, the D2 stream, the FBS team set or the coverage fact.
+    `neutral` is CFBD's neutralSite as served (NULL when the record carries none: unknown, law 4). Created by
+    migrate_ncaa_cfbd_pregame.py (its own marker); the ingest writes it only with that marker present.
+    """
+
+    __tablename__ = "ncaa_cfbd_pregame"
+
+    match_id: Mapped[int] = mapped_column(ForeignKey("matches.id"), primary_key=True)
+    source: Mapped[str] = mapped_column(String(32), default="cfbd")
+    source_game_id: Mapped[int | None] = mapped_column(Integer, index=True)    # CFBD game id, as served
+    season: Mapped[str] = mapped_column(String(16), index=True)                # the CFBD --year queried
+    orientation: Mapped[str] = mapped_column(String(8))                        # 'same' | 'swapped' (information)
+    neutral: Mapped[bool | None] = mapped_column(Boolean)                      # CFBD neutralSite, as served
+    source_home_team: Mapped[str | None] = mapped_column(String(128))
+    source_away_team: Mapped[str | None] = mapped_column(String(128))
+    source_start: Mapped[datetime | None] = mapped_column(DateTime)            # CFBD startDate (UTC, naive)
+    join_via: Mapped[str | None] = mapped_column(String(16))                   # exact | alias
+    payload_file: Mapped[str | None] = mapped_column(String(256))
+    fetched_at: Mapped[datetime] = mapped_column(DateTime)                     # the run's (L3's current rule)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now_naive)
+
+
 class TeamRating(Base):
     """Time-series of team ratings (Elo, xG attack/defense, etc.)"""
 

@@ -29,10 +29,18 @@ from tests.test_ncaa_v2_shadow import _v2_registry
 STEP = ["export-ncaa-predictions", "--id", "ncaa-elo-v2", "--dormant-ok"]
 
 
+@pytest.fixture(autouse=True)
+def _host(monkeypatch):
+    """The chain step is the host's (ARCHITECT 2026-11-03, addendum 236 item 3(5): "the command refuses on any machine
+    but the host"); conftest pins laptop, so this file runs as the host unless a test says otherwise."""
+    monkeypatch.setenv("SP_EXPORTS_MIRROR_ROLE", "host")
+
+
 def _pin_registry(monkeypatch, path):
-    """The export reads `path` (ncaa_shadow.frozen with that registry), whatever the committed registry says."""
-    real = sh.frozen
-    monkeypatch.setattr(sh, "frozen", lambda registry_path=None, eid=sh.EID: real(path, eid=eid))
+    """The export reads `path`, whatever the committed registry says: registry.LEDGER, the one source frozen() reads
+    at call time (ARCHITECT 2026-11-03, addendum 236 item 3(7))."""
+    from src.walters import registry as reg
+    monkeypatch.setattr(reg, "LEDGER", path)
 
 
 def _files(d):
@@ -84,7 +92,7 @@ def test_v1rs_verdict_refusal_is_never_dormant(mine, tmp_path, monkeypatch):
     res = CliRunner().invoke(cli, ["export-ncaa-predictions", "--dormant-ok"])
     assert res.exit_code == 2 and "addendum 24 item 2(d)" in res.output and "DORMANT" not in res.output
     assert "230" not in res.output and _files(tmp_path) == []
-    r = sh.confirmation_counter(eid=sh.EID, registry_path=reg, export_dir=str(tmp_path))
+    r = sh.confirmation_counter(eid=sh.EID, export_dir=str(tmp_path))       # registry.LEDGER: pinned above
     assert r["state"] == "refused" and "230" not in r["why"] and "addendum 24 item 2(d)" in r["why"]
 
 
@@ -99,10 +107,10 @@ def test_on_a_pass_the_step_writes_the_entrys_probabilities_never_a_call(mine, t
     assert 0 < p["home_win_prob"] < 1 and p["away_win_prob"] == round(1 - p["home_win_prob"], 4)
     assert not {"call", "desk", "stake", "units", "order"} & (set(r) | set(p))     # never a call
     assert r["market"]["fair_prob"]["HOME"] > 0.5                                     # market-only, beside it
-    # the neutral flag before kickoff, its rule stated: D8's, never a provider fact
-    assert p["neutral"] is None and p["neutral_flag"] == "unknown before the game"
-    assert p["neutral_rule"] == sh.NEUTRAL_PREGAME_RULE and "Never a provider fact" in p["neutral_rule"]
-    assert "Until then the shadow prices an upcoming game with the listed home's advantage" in p["neutral_rule"]
+    # the neutral flag before kickoff, its rule stated in the ruled form (addendum 236 item 3(1)); no pregame row for
+    # this fixture: absent, unknown (D8), the listed home's advantage
+    assert p["neutral"] is None and p["neutral_flag"] == "absent: unknown, D8"
+    assert p["neutral_rule"] == ("neutral per CFBD's pregame field, read 2034-06-01T12:00:00; absent: unknown, D8")
     assert p["home_adv_applied"] == 55.0                                              # the listed home's, unchanged
     # the chain's own command on the same PASS registry writes its file and exits 0
     from cli import cli
@@ -139,12 +147,14 @@ def test_the_grade_against_the_kalshi_close_is_the_close_records_rule_per_name(m
     v2 = lambda: sh.grade(days=3650, export_dir=str(ex), now=NOW + timedelta(days=1), eid=sh.V2_EID)  # noqa: E731
     try:
         monkeypatch.setattr(nb, "v2_run_recorded", lambda *a, **k: True)
+        monkeypatch.setattr(sh, "v2_verdict_recorded", lambda: True)    # 236 item 3(2): the run AND its verdict
+        monkeypatch.setattr(sh, "d4_rate", lambda eid: (None, "no run record (test)"))
         r = v2()
         assert r["graded"] == 1 and set(r["vs_kalshi_close"]) == {"ncaa_elo_v2"}     # each name on its own
         assert r["vs_kalshi_close"]["ncaa_elo_v2"] == block([(p, 0.71)])            # home won: the HOME mid
         assert r["kalshi_close_excluded"] == {"identity_mismatch": 0, "fenced_2023": 0, "fenced_2026": 0,
-                                              "three_way": 0, "no_result": 0, "tie": 0, "mismatched": 0,
-                                              "no_close": 0}
+                                              "three_way": 0, "no_result": 0, "tie": 0,
+                                              "legs_before_2026_10_13": 0, "mismatched": 0, "no_close": 0}
         assert "kalshi_close_H=0.710" in r["lines"][0] and "books not read" in r["kalshi_close_rule"]
         with session_scope() as s:                                    # the record's own function, the same close
             m = s.get(Match, up)
@@ -152,11 +162,11 @@ def test_the_grade_against_the_kalshi_close_is_the_close_records_rule_per_name(m
             assert why is None and cl["fair"]["HOME"] == pytest.approx(0.71)
             s.rollback()
         # mismatched legs: left out, never priced
-        monkeypatch.setattr(kalshi_legs, "mismatched", lambda conn, ids: {up: ["KXNCAAFGAME-A", "KXNCAAFGAME-B"]})
+        monkeypatch.setattr(kalshi_legs, "mismatched", lambda conn, ids, *a: {up: ["KXNCAAFGAME-A", "KXNCAAFGAME-B"]})
         r = v2()
         assert r["vs_kalshi_close"]["ncaa_elo_v2"]["games"] == 0 and r["kalshi_close_excluded"]["mismatched"] == 1
         assert "kalshi_close_H=— (mismatched)" in r["lines"][0]
-        monkeypatch.setattr(kalshi_legs, "mismatched", lambda conn, ids: {})
+        monkeypatch.setattr(kalshi_legs, "mismatched", lambda conn, ids, *a: {})
         # the last two-sided quote wider than the 2c cap: no close (an older, tighter one is never substituted)
         with session_scope() as s:
             _kalshi(s, up, 0.60, 0.70, NOW + timedelta(hours=4, minutes=30))
@@ -219,16 +229,17 @@ def test_the_counter_is_dormant_until_a_pass_then_counts_without_a_figure(mine, 
     from src.walters import ncaa_v1r_gate as g
 
     for verdict, what in ((None, "no verdict"), ("FAIL", "the verdict FAIL")):
-        r = sh.confirmation_counter(registry_path=_reg_file(tmp_path, verdict), export_dir=str(tmp_path))
+        _pin_registry(monkeypatch, _reg_file(tmp_path, verdict))
+        r = sh.confirmation_counter(export_dir=str(tmp_path))
         assert r == {"state": "dormant", "why": sh.dormant_reason("ncaa-elo-v2", verdict)}
         assert sh.counter_line(r, "ncaa-elo-v2") == (f"confirmation counter ncaa-elo-v2: DORMANT — the registry "
                                                      f"records {what} for ncaa-elo-v2: dormant while the verdict is "
                                                      "null or FAIL (ARCHITECT 2026-11-03, addendum 230 item 1(b))")
     passed = _reg_file(tmp_path, "PASS")
+    _pin_registry(monkeypatch, passed)
     monkeypatch.setattr(g, "confirmation_count",
                         lambda spec, path=None: (_ for _ in ()).throw(g.GateRefused("no run record")))
-    assert sh.confirmation_counter(registry_path=passed, export_dir=str(tmp_path)) == {"state": "refused",
-                                                                                         "why": "no run record"}
+    assert sh.confirmation_counter(export_dir=str(tmp_path)) == {"state": "refused", "why": "no run record"}
     a, b = mine["finished"][-2:]                                      # two stored fixtures, scored
     c, d = mine["up"], mine["far"]                                    # two stored fixtures, pending
     count = {"n": 2, "scored_ids": [a, b], "cohort_ids": [a, b, c, d], "n_games": 100, "bar": 0.6931,
@@ -237,7 +248,7 @@ def test_the_counter_is_dormant_until_a_pass_then_counts_without_a_figure(mine, 
     monkeypatch.setattr(g, "confirmation_count", lambda spec, path=None: dict(count))
     with session_scope() as s:
         rows = [_row(s, b), _row(s, c), _row(s, c, match_id=10 ** 9)]     # the last: no cohort fixture
-    r = sh.confirmation_counter(registry_path=passed, export_dir=_shadow_file(tmp_path / "ex", rows))
+    r = sh.confirmation_counter(export_dir=_shadow_file(tmp_path / "ex", rows))
     assert (r["state"], r["n"], r["shadow_rows"], r["shadow_rows_scored"], r["shadow_identity_mismatch"]) == (
         "counting", 2, 2, 1, 0)
     line = sh.counter_line(r, "ncaa-elo-v2")
@@ -257,8 +268,12 @@ def test_the_grade_cli_prints_the_kalshi_record_and_the_counter(tmp_path, monkey
     res = CliRunner().invoke(cli, ["ncaa-shadow-grade", "--id", "ncaa-elo-v2"])
     assert res.exit_code == 0, res.output
     out = res.output.splitlines()
-    assert any(x.startswith("  ── the record against the Kalshi close (the close record's two-way rule") for x in out)
+    assert any(x.startswith("  ── the record against THE close, Kalshi (THE close for college (KXNCAAFGAME") for x in out)
     assert "     ncaa_elo_v2: vs close: no decided game with a close" in out
+    # 236 item 3(2): the headline's pick-vs-close and value-side are the book close's, labelled as the reference
+    head = next(x for x in out if x.startswith("  ── NCAA shadow ncaa-elo-v2"))
+    assert "· reference (book close, never THE close): mean pick-vs-close " in head and "· value-side " in head
+    assert head.index("reference (book close") < head.index("mean pick-vs-close")
     assert out[-1] == ("  ── confirmation counter ncaa-elo-v2: DORMANT — the registry records no verdict for "
                        "ncaa-elo-v2: dormant while the verdict is null or FAIL (ARCHITECT 2026-11-03, addendum 230 "
                        "item 1(b))")
@@ -266,7 +281,7 @@ def test_the_grade_cli_prints_the_kalshi_record_and_the_counter(tmp_path, monkey
 
 # ------------------------------------------------------------------------- Codex round 1 on #816 --
 
-def test_the_counter_refuses_a_registry_without_the_declaration_never_dormant(tmp_path):
+def test_the_counter_refuses_a_registry_without_the_declaration_never_dormant(tmp_path, monkeypatch):
     """Codex on #816 (4459156514): a registry holding no ncaa-elo-v2 entry is the export's refusal (not declared),
     never DORMANT (230 item 1(b)'s dormancy is a null or FAIL verdict on a declared entry)."""
     empty = tmp_path / "empty.json"
@@ -275,7 +290,8 @@ def test_the_counter_refuses_a_registry_without_the_declaration_never_dormant(tm
         sh.frozen(str(empty), eid=sh.V2_EID)
     assert not isinstance(e.value, sh.ShadowDormant) and str(e.value) == f"REFUSED: {sh.not_declared(sh.V2_EID)}"
     for eid in (sh.V2_EID, sh.EID):
-        r = sh.confirmation_counter(eid=eid, registry_path=str(empty), export_dir=str(tmp_path))
+        _pin_registry(monkeypatch, str(empty))
+        r = sh.confirmation_counter(eid=eid, export_dir=str(tmp_path))
         assert r == {"state": "refused", "why": sh.not_declared(eid)}
         line = sh.counter_line(r, eid)
         assert line.startswith(f"confirmation counter {eid}: REFUSED — {eid} is not declared in docs/registry")
@@ -283,32 +299,29 @@ def test_the_counter_refuses_a_registry_without_the_declaration_never_dormant(tm
 
 
 def test_the_counter_reads_one_registry_for_the_verdict_and_the_count(tmp_path, monkeypatch):
-    """Codex on #816 (4459156501): confirmation_counter(registry_path=X) reads X for the verdict AND for the count's
-    confirming(); the default registry (registry.LEDGER) is never read beside it."""
-    from src.walters import ncaa_v1r_gate as g
-    from src.walters import registry as reg
+    """Codex on #816 (4459156501), then addendum 236 item 3(7): the counter reads ONE registry, registry.LEDGER at
+    call time, for the verdict AND for the count's confirming(); it takes no path, so there is no second source."""
+    import inspect
 
-    run = {"run_at": "2026-10-19T00:00:00Z", "n_scored": 0, "ids_file": None, "result": {"baseline_home_rate": 0.6}}
-    default = tmp_path / "default.json"                                # FAIL, with its run record
-    default.write_text(json.dumps([{"id": sh.V2_EID, "verdict": {"verdict": "FAIL", "ruling": "x"}, "run": run}]))
-    monkeypatch.setattr(reg, "LEDGER", str(default))
-    v2 = g.spec_of(sh.V2_EID)
-    with pytest.raises(g.GateRefused, match="no PASS verdict recorded"):
-        g.confirming(v2)                                               # the default stays registry.LEDGER
-    supplied = tmp_path / "supplied.json"                              # PASS, with its run record
-    supplied.write_text(json.dumps([{"id": sh.V2_EID, "verdict": {"verdict": "PASS", "ruling": "x"}, "run": run}]))
-    assert g.confirming(v2, str(supplied))["verdict"]["verdict"] == "PASS"
-    # the counter: PASS on the supplied registry, whose entry has no run record; the count refuses on THAT registry's
-    # entry ("no run record"), never on the default's FAIL ("no PASS verdict recorded")
+    from src.walters import ncaa_v1r_gate as g
+
+    assert "registry_path" not in inspect.signature(sh.confirmation_counter).parameters
+    assert "registry_path" not in inspect.signature(sh.confirmation_record).parameters
+    # PASS on LEDGER, whose entry has no run record: the count refuses on THAT entry ("no run record")
     no_run = _reg_file(tmp_path, "PASS")
-    r = sh.confirmation_counter(registry_path=no_run, export_dir=str(tmp_path))
+    _pin_registry(monkeypatch, no_run)
+    r = sh.confirmation_counter(export_dir=str(tmp_path))
     assert r["state"] == "refused" and "has no run record" in r["why"] and "no PASS verdict" not in r["why"]
     seen = []
     monkeypatch.setattr(g, "confirmation_count", lambda spec, path=None: seen.append(path) or (_ for _ in ()).throw(
         g.GateRefused("stop")))
-    sh.confirmation_counter(registry_path=no_run, export_dir=str(tmp_path))
-    sh.confirmation_counter(export_dir=str(tmp_path))                  # no path: the default's FAIL, dormant
-    assert seen == [no_run]
+    sh.confirmation_counter(export_dir=str(tmp_path))
+    run = {"run_at": "2026-10-19T00:00:00Z", "n_scored": 0, "ids_file": None, "result": {"baseline_home_rate": 0.6}}
+    failed = tmp_path / "failed.json"                                  # FAIL, with its run record: dormant, unread
+    failed.write_text(json.dumps([{"id": sh.V2_EID, "verdict": {"verdict": "FAIL", "ruling": "x"}, "run": run}]))
+    _pin_registry(monkeypatch, str(failed))
+    assert sh.confirmation_counter(export_dir=str(tmp_path))["state"] == "dormant"
+    assert seen == [no_run]                                            # the count read LEDGER's path as it stood
 
 
 def test_the_counter_counts_a_shadow_row_only_when_it_is_the_fixtures(mine, tmp_path, monkeypatch, capsys):
@@ -328,8 +341,8 @@ def test_the_counter_counts_a_shadow_row_only_when_it_is_the_fixtures(mine, tmp_
                 _row(s, b, home_team="NSH Team 4"),                    # b's id, another fixture's teams: not b's
                 _row(s, c),                                            # c's own: counted
                 _row(s, d, utc_date=(s.get(Match, d).utc_date + timedelta(days=1)).isoformat())]  # another kickoff
-    r = sh.confirmation_counter(registry_path=_reg_file(tmp_path, "PASS"),
-                                export_dir=_shadow_file(tmp_path / "stale", rows))
+    _pin_registry(monkeypatch, _reg_file(tmp_path, "PASS"))
+    r = sh.confirmation_counter(export_dir=_shadow_file(tmp_path / "stale", rows))
     assert (r["shadow_rows"], r["shadow_rows_scored"], r["shadow_identity_mismatch"]) == (2, 1, 2)
     line = sh.counter_line(r, "ncaa-elo-v2")
     assert ("shadow row before kickoff: 2 of the cohort, 1 of the scored (2 not the fixture's teams and kickoff, "

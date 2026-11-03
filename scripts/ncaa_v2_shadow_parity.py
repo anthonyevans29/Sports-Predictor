@@ -8,8 +8,10 @@ game in ten neutral, several games at each kickoff), ncaa_shadow.parity runs bot
   - the gate path: ncaa_v1r_gate.run_gate on ncaa-elo-v2's gate read, the declared model recorded;
   - the shadow path: for every game the gate scored, ncaa_shadow.walk over the stream games kicking off before it,
     then the prediction.
-It prints the count compared, the unequal count and the largest |diff| (equal within 1e-12), and the pregame
-difference (D8) on the neutral games, reported. No DB is read and nothing is written.
+It prints the count compared, the unequal count and the largest |diff| (equal within 1e-12), and THE PREGAME FLAG
+(ARCHITECT 2026-11-03, addendum 236 item 3(1)): each neutral scored game priced as a live row prices it with CFBD's
+pregame flag True (equal to the gate) and with the flag absent (D8's gap, reported). Exit 1 when either equality
+fails. No DB is read and nothing is written.
 
 Run:  python3 scripts/ncaa_v2_shadow_parity.py [--seed 158] [--rows]
 """
@@ -31,7 +33,7 @@ def main(argv=None) -> int:
     r = sh.parity(sh.synthetic_stream(seed=a.seed))
     for line in sh.parity_lines(r, rows=a.rows):
         print(line)
-    return 0 if r["compared"] and not r["unequal"] else 1
+    return 0 if r["compared"] and not r["unequal"] and not r["pregame_flag_unequal"] else 1
 
 
 if __name__ == "__main__":

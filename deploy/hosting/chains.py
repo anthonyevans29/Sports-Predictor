@@ -260,8 +260,16 @@ CHAINS: dict[str, dict] = {
     # prints DORMANT with the reason, writes nothing and exits 0 (--dormant-ok): the chain never fails on it. Every
     # other refusal (coverage, s, rule, constants, a file that exists) exits 2 and fails the chain, as any export step
     # does (sp_run.run_steps). Not a sync step: a real failure still pages. It reads the DB and the registry only
-    # (UNMETERED). A refresh-by-id failure (exit 1) stops the chain before it: that run writes no shadow file.
+    # (UNMETERED).
+    # THE ORDER (ARCHITECT 2026-11-03, addendum 236 item 3(4), verbatim in part): "the export runs whether or not
+    # refresh-by-id succeeded, on the stored state it finds, its rows stamped with the refresh it saw (the window
+    # chain's rule, 84 item 2(b): a sync step's failure does not stop the chain); the refresh failure pages as now."
+    # So `go_on` names refresh-by-id: a failed refresh is receipted, the run goes on to the export, the chain's exit is
+    # the first failure's (OnFailure pages as now) and its summary names the step (sp_run.run_steps). Only that step:
+    # a failed listing read (sync-matches) stops the chain as before (not continue_on_sync_failure: wider than ruled).
+    # A D6 coverage drop after a PASS is the export's refusal (exit 2, never DORMANT; item 3(4)): it pages.
     "ncaa-schedule": {
+        "go_on": ("refresh-by-id",),
         "steps": [
             *[["sync-matches", "--competition", "NCAA", "--season", "2026", "--date-from", d, "--date-to", d]
               for d in ("{today}", *[f"{{today_plus{n}}}" for n in range(1, NCAA_FORWARD_DAYS + 1)])],

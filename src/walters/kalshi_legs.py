@@ -68,22 +68,33 @@ def has_tickers(conn) -> bool:
         return False
 
 
-def current_tickers(conn, match_ids) -> dict:
+def _floor(captured_from) -> tuple[str, list]:
+    """(the SQL clause, its parameter) for an optional captured_at floor: rows captured on or after it only. The
+    stored text form (SQLAlchemy's 'YYYY-MM-DD HH:MM:SS[.ffffff]', naive UTC) compares in order as text. None: no
+    floor (every reader but ncaa_shadow's Kalshi close, addendum 236 item 3(6))."""
+    if captured_from is None:
+        return "", []
+    return " AND s.captured_at >= ?", [captured_from.strftime("%Y-%m-%d %H:%M:%S")]
+
+
+def current_tickers(conn, match_ids, captured_from=None) -> dict:
     """{match_id: {selection: set of tickers}}: per game and side the newest stored Kalshi leg(s) before kickoff
     (captured_at < the stored kickoff; a game with no kickoff takes the newest). Legs tied at that newest capture
     are all kept (Codex on #414): the readers keep whichever tied row SQLite returns first, so the guard judges
-    every one of them. An untickered leg contributes None."""
+    every one of them. An untickered leg contributes None. `captured_from` (default None, unchanged): only legs
+    captured on or after it are read."""
     ids = sorted({int(i) for i in match_ids if i is not None})
     out: dict = {}
     newest: dict = {}
+    fl, fp = _floor(captured_from)
     for k in range(0, len(ids), 500):
         chunk = ids[k:k + 500]
         sql = ("SELECT s.match_id, s.selection, s.market_ticker, s.captured_at FROM odds_snapshots s "
                "JOIN matches m ON m.id = s.match_id "
                f"WHERE s.source = 'kalshi' AND s.match_id IN ({','.join('?' * len(chunk))}) "
-               "AND s.captured_at IS NOT NULL AND (m.utc_date IS NULL OR s.captured_at < m.utc_date) "
+               "AND s.captured_at IS NOT NULL AND (m.utc_date IS NULL OR s.captured_at < m.utc_date)" + fl + " "
                "ORDER BY s.match_id, s.selection, s.captured_at DESC, s.id DESC")
-        for mid, sel, tic, cap in _rows(conn, sql, chunk):
+        for mid, sel, tic, cap in _rows(conn, sql, chunk + fp):
             key = (mid, sel)
             if key not in newest:
                 newest[key] = cap
@@ -92,35 +103,38 @@ def current_tickers(conn, match_ids) -> dict:
     return out
 
 
-def homes_of(conn, events) -> dict:
+def homes_of(conn, events, captured_from=None) -> dict:
     """{event: set of match ids whose CURRENT legs carry that event}. One scan of the Kalshi rows for all the
-    events together (Codex on #414: not one scan per event)."""
+    events together (Codex on #414: not one scan per event). `captured_from` (default None, unchanged): the scan and
+    the current legs read only rows captured on or after it."""
     events = sorted(set(e for e in events if e))
     if not events:
         return {}
     mids: set = set()
+    fl, fp = _floor(captured_from)
     for k in range(0, len(events), 200):
         chunk = events[k:k + 200]
-        cond = " OR ".join("substr(market_ticker, 1, ?) = ?" for _ in chunk)
+        cond = " OR ".join("substr(s.market_ticker, 1, ?) = ?" for _ in chunk)
         params = [x for ev in chunk for x in (len(ev) + 1, ev + "-")]
-        for (mid,) in _rows(conn, "SELECT DISTINCT match_id FROM odds_snapshots WHERE source = 'kalshi' "
-                                  f"AND market_ticker IS NOT NULL AND ({cond})", params):
+        for (mid,) in _rows(conn, "SELECT DISTINCT s.match_id FROM odds_snapshots s WHERE s.source = 'kalshi' "
+                                  f"AND s.market_ticker IS NOT NULL AND ({cond})" + fl, params + fp):
             mids.add(mid)
     homes: dict = {ev: set() for ev in events}
-    for mid, legs in current_tickers(conn, mids).items():
+    for mid, legs in current_tickers(conn, mids, captured_from).items():
         for e in set().union(*[_events(t) for t in legs.values()]):
             if e in homes:
                 homes[e].add(mid)
     return homes
 
 
-def mismatched(conn, match_ids) -> dict:
+def mismatched(conn, match_ids, captured_from=None) -> dict:
     """{match_id: [event tickers]} for every game among `match_ids` whose current legs are mismatched (addendum 37
-    item 3). {} when the guard is off or before migrate_kalshi_ticker.py (no ticker is stored)."""
+    item 3). {} when the guard is off or before migrate_kalshi_ticker.py (no ticker is stored). `captured_from`
+    (default None, unchanged): the legs judged and the events' homes read only rows captured on or after it."""
     if not GUARD["on"] or not match_ids or not has_tickers(conn):
         return {}
-    cur = current_tickers(conn, match_ids)
-    homes = homes_of(conn, {e for legs in cur.values() for t in legs.values() for e in _events(t)})
+    cur = current_tickers(conn, match_ids, captured_from)
+    homes = homes_of(conn, {e for legs in cur.values() for t in legs.values() for e in _events(t)}, captured_from)
     out = {}
     for mid, legs in cur.items():
         evs = judge(legs, homes, mid)

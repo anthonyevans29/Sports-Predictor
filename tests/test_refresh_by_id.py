@@ -113,6 +113,7 @@ def _isolated(monkeypatch, tmp_path):
 def _run_chain(monkeypatch, adapter, steps):
     import cli
     monkeypatch.setattr(cli, "_adapter_for_competition", lambda code: adapter)
+    monkeypatch.setenv("SP_EXPORTS_MIRROR_ROLE", "host")      # the chain is the host's (addendum 236 item 3(5))
     outs = []
     for st in steps:
         res = CliRunner().invoke(cli.cli, st)
@@ -127,8 +128,8 @@ def _v2_unjudged(monkeypatch, tmp_path):
     from src.walters import ncaa_shadow as sh
     p = tmp_path / "experiments.json"
     p.write_text(json.dumps([{"id": sh.V2_EID, "status": "declared", "verdict": None}]))
-    real = sh.frozen
-    monkeypatch.setattr(sh, "frozen", lambda registry_path=None, eid=sh.EID: real(str(p), eid=eid))
+    from src.walters import registry as reg
+    monkeypatch.setattr(reg, "LEDGER", str(p))      # frozen()'s one source, read at call time (addendum 236 item 3(7))
 
 
 def test_a_scheduled_game_the_listing_omits_gets_the_kickoff_the_provider_answers_by_id(monkeypatch, _isolated,
@@ -168,6 +169,9 @@ def test_the_chain_keeps_its_listing_reads_and_refreshes_by_id_after_them():
     assert [st[0] for st in steps] == ["sync-matches"] * 8 + ["refresh-by-id", "export-ncaa-predictions"]
     assert steps[-2] == ["refresh-by-id", "--competition", "NCAA", "--days", "7"]
     assert steps[-1] == chains.NCAA_SHADOW_STEP == ["export-ncaa-predictions", "--id", "ncaa-elo-v2", "--dormant-ok"]
+    # addendum 236 item 3(4): the export runs whether or not refresh-by-id succeeded (that step alone goes on)
+    assert chains.CHAINS["ncaa-schedule"]["go_on"] == ("refresh-by-id",)
+    assert not chains.CHAINS["ncaa-schedule"].get("continue_on_sync_failure")
     assert "refresh-by-id" not in chains.UNMETERED          # api-sports: metered
     assert "export-ncaa-predictions" in chains.UNMETERED and not steps[-1][0].startswith(sp_run.SYNC_PREFIX)
 

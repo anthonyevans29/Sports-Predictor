@@ -85,7 +85,8 @@ def drop_db() -> None:
     The v2 marker (ncaa_cfbd_v2_migration, written only by
     migrate_ncaa_cfbd_v2.py, #367) and the week marker
     (ncaa_cfbd_week_migration, written only by migrate_ncaa_cfbd_week.py;
-    addendum 158 item 1(a)) are dropped for the same reason, and so is
+    addendum 158 item 1(a)) and the pregame marker (ncaa_cfbd_pregame_migration, written only by
+    migrate_ncaa_cfbd_pregame.py; addendum 236 item 3(1)) are dropped for the same reason, and so is
     kalshi_settled_markets_migration (written only by
     migrate_kalshi_settled_markets.py; Codex on #521), and so is
     cup_lineup_observations_migration (written only by
@@ -96,13 +97,15 @@ def drop_db() -> None:
 
     from src.ingestion.cup_lineups_live import MIGRATION_MARKER as CUP_LINEUPS_MARKER
     from src.ingestion.kalshi_history import MIGRATION_MARKER as KALSHI_HISTORY_MARKER
-    from src.ingestion.ncaa_cfbd import MIGRATION_MARKER, V2_MIGRATION_MARKER, WEEK_MIGRATION_MARKER
+    from src.ingestion.ncaa_cfbd import (MIGRATION_MARKER, PREGAME_MIGRATION_MARKER, V2_MIGRATION_MARKER,
+                                         WEEK_MIGRATION_MARKER)
 
     Base.metadata.drop_all(_engine)
     with _engine.begin() as conn:
         conn.execute(text(f"DROP TABLE IF EXISTS {MIGRATION_MARKER}"))
         conn.execute(text(f"DROP TABLE IF EXISTS {V2_MIGRATION_MARKER}"))
         conn.execute(text(f"DROP TABLE IF EXISTS {WEEK_MIGRATION_MARKER}"))
+        conn.execute(text(f"DROP TABLE IF EXISTS {PREGAME_MIGRATION_MARKER}"))
         conn.execute(text(f"DROP TABLE IF EXISTS {KALSHI_HISTORY_MARKER}"))
         conn.execute(text(f"DROP TABLE IF EXISTS {CUP_LINEUPS_MARKER}"))
 

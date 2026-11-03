@@ -11,7 +11,12 @@ closed as held), never relabelled, the same rule on a would-be row (223 item 5(a
 P&L, unit or dollar figure of the ledger; the would-be rows on their own lines, labelled, counted toward thirty, no
 price but the page's (none); the two sources in the header and a game the copy lacks labelled "no result in this copy",
 never scored (223 item 5(b)); each unscored row (no result in this copy, teams differ, re-dated void) counted toward
-thirty, labelled, outside the W-L-P (225 item 3); the refusals.
+thirty, labelled, outside the W-L-P (225 item 3); one machine's pair (231 item 2(a), (b)): host/ read, the mirror's
+dated folders read and latest/ never, the SOURCES line naming the directory and the copy read; what was done on every
+row, scored or unscored, and the LEDGER line's counts over every row of a kind (231 item 2(c)); one run's count under
+its era's bound (232 item 2): --from inclusive, --through exclusive on the closing run's start, UTC, KC@SEA the laptop's
+row and the host's rehearsal of it excluded by the bound and named, a run start at the bound the host era's, a row with
+no run start outside every bound, the labels as ruled, this_run_thirty_reached; the refusals.
 """
 import importlib.util
 import json
@@ -37,6 +42,12 @@ KO_1011 = datetime(2026, 10, 11, 17, 0)        # 13:00 ET
 KO_1018 = datetime(2026, 10, 18, 20, 5)        # 16:05 ET
 KO_1109 = datetime(2026, 11, 9, 18, 0)         # 13:00 ET, after addendum 214
 WOULD = "would-be PLAY (uncertified, unstaked)"
+UNBOUNDED = "unbounded run (no --from, no --through: no era; not an era's count)"
+COUNT_HEAD = ("COUNT toward thirty, THIS RUN'S (#446; addendum 44 item 9, 209 item 3; would-be rows counted too, labelled, "
+              "217 item 4; unscored rows counted too, labelled, outside the W-L-P, 225 item 3; one run's count, 232 item "
+              "2(a)): ")
+BELOW = ("this run's count; #446's count toward thirty is the architect's sum of the two runs' consoles, on #446 (232 "
+         "item 2(a)); not read before thirty rows or the season's end (no verdict is computed here)")
 # figures a synthetic fill carries: none of them may ever reach the output
 FILL_FIGURES = ("137", "0.4321", "57.89", "1.23", "59.12")
 
@@ -102,7 +113,7 @@ def lost_would():                                  # a would-be row whose match 
                    qb_side="away", qb=["Jaxson Dart"])
 
 
-def _world(path: Path, moved: dict | None = None):
+def _world(path: Path, moved: dict | None = None, extra: tuple = ()):
     from src.db.schema import Base, Competition, Match, MatchStatus, Odds, Sport, Team
     eng = create_engine(f"sqlite:///{path}", future=True)
     Base.metadata.create_all(eng)
@@ -110,7 +121,8 @@ def _world(path: Path, moved: dict | None = None):
              (102, "Baltimore Ravens", "Atlanta Falcons", KO_1011, 23, 30, MatchStatus.FINISHED, (1.55, 2.5)),
              (103, "Detroit Lions", "Chicago Bears", KO_1011, 20, 24, MatchStatus.FINISHED, (1.65, 2.3)),
              (104, "Kansas City Chiefs", "Las Vegas Raiders", KO_1018, 21, 17, MatchStatus.FINISHED, (2.2, 1.7)),
-             (105, "Seattle Seahawks", "Los Angeles Rams", KO_1109, None, None, MatchStatus.SCHEDULED, None))
+             (105, "Seattle Seahawks", "Los Angeles Rams", KO_1109, None, None, MatchStatus.SCHEDULED, None),
+             *((mid, away, home, ko, hs, as_, MatchStatus.FINISHED, None) for mid, away, home, ko, hs, as_ in extra))
     with Session(eng) as s:
         c = Competition(sport=Sport.NFL, code="NFL", name="NFL", area="X", type="LEAGUE")
         s.add(c)
@@ -241,22 +253,21 @@ def test_what_was_done_is_what_the_ledger_holds_under_its_own_label(world, capsy
             continue
         for word in ("position", "operator's own", "the page's side", "the other side", "holds "):
             assert word not in ln, (word, ln)
-    assert ("LEDGER: NFL game fills entries read 2 · fitting more than one row (ambiguous, given to none) 0 · PLAY scored "
-            f"rows with fills on the game 1 of 3 · {WOULD} scored rows with fills on the game 1 of 1 (an unscored row "
-            "is not matched to fills)") in out
+    assert ("LEDGER: NFL game fills entries read 2 · fitting more than one row (ambiguous, given to none) 0 · PLAY rows "
+            f"(scored + unscored) with fills on the game 1 of 4 · {WOULD} rows (scored + unscored) with fills on the "
+            "game 1 of 2") in out
+    assert not [ln for ln in out if ln.startswith("LEDGER:") and "not matched to" in ln]   # 231 item 2(c): dropped
     count = [ln for ln in out if ln.startswith("COUNT toward thirty")]
-    assert count == [f"COUNT toward thirty (#446; addendum 44 item 9, 209 item 3; would-be rows counted too, labelled, "
-                     f"217 item 4; unscored rows counted too, labelled, outside the W-L-P, 225 item 3): PLAY 4 + {WOULD} "
-                     "2 = 6 of 30 — not read before thirty rows or the season's end (no verdict is computed here) · "
+    assert count == [f"{COUNT_HEAD}{UNBOUNDED}: 6 of 30 (PLAY 4 + {WOULD} 2) — {BELOW} · "
                      "PLAY W-L-P 2-1-0, void 0, open 0, unscored 1 (no result in this copy 1 · teams differ 0 · "
                      f"re-dated void 0) · {WOULD} W-L-P 0-0-0, void 0, open 1, unscored 1 (no result in this copy 1 · "
                      "teams differ 0 · re-dated void 0)"]
     assert out[-1].startswith("QB-HOLD-RECEIPT ")
     j = json.loads(out[-1][len("QB-HOLD-RECEIPT "):])
-    assert (j["play_rows"], j["would_be_rows"], j["toward_thirty"], j["thirty_reached"]) == (3, 1, 6, False)
+    assert (j["play_rows"], j["would_be_rows"], j["toward_thirty"], j["this_run_thirty_reached"]) == (3, 1, 6, False)
     assert j["counted"] == {"play": 4, "would_be": 2}
-    assert j["what_was_done"] == {"play": {"fills": 1, "not_established": 2},
-                                  "would_be": {"fills": 1, "not_established": 0}}
+    assert j["what_was_done"] == {"play": {"fills": 1, "not_established": 3},          # every row: 3 scored + 1
+                                  "would_be": {"fills": 1, "not_established": 1}}      # 1 scored + 1 unscored
 
 
 def test_a_would_be_row_with_no_ledger_entry_stays_blank(world, capsys, tmp_path):
@@ -268,7 +279,7 @@ def test_a_would_be_row_with_no_ledger_entry_stays_blank(world, capsys, tmp_path
     assert _line(out, "Seattle Seahawks @ Los Angeles Rams").endswith("what was done: not established")
     assert _line(out, "Cleveland Browns @ New York Jets").endswith("what was done: not established")
     j = json.loads(out[-1][len("QB-HOLD-RECEIPT "):])
-    assert j["what_was_done"]["would_be"] == {"fills": 0, "not_established": 1}
+    assert j["what_was_done"]["would_be"] == {"fills": 0, "not_established": 2}
 
 
 def test_the_two_sources_and_no_result_in_this_copy(world, capsys):
@@ -278,18 +289,21 @@ def test_the_two_sources_and_no_result_in_this_copy(world, capsys):
     rc, out = _run(capsys, "--db", world["copy"], "--exports", world["ex"], "--ledger", world["ledger"])
     assert rc == 0
     src = [ln for ln in out if ln.startswith("SOURCES")]
-    assert len(src) == 1 and src[0].startswith(f"SOURCES (the two, 223 item 5(b)): the copy --db {world['copy']} (a "
-                                               ".backup copy, opened mode=ro&immutable=1; the results, as "
-                                               "results-tally reads them: exec_cohorts.result_of) · the closing-file "
-                                               f"directory {world['ex']} (closing_*.json"), src
+    assert len(src) == 1 and src[0].startswith(f"SOURCES (the two, 223 item 5(b); one machine's pair, 231 item 2(a)): "
+                                               f"the copy read {Path(world['copy']).resolve()} (--db; a .backup copy, "
+                                               "opened mode=ro&immutable=1; the results, as results-tally reads them: "
+                                               "exec_cohorts.result_of) · the closing-file directory read "
+                                               f"{Path(world['ex']).resolve()} (--exports {world['ex']}; closing_*.json "
+                                               "there and in its dated folders <YYYY-MM-DD>/ 0, never latest/"), src
     assert f"WHAT WAS DONE FROM: ledger {world['ledger']} (bd_ledger_v1: calls 1, fills 3)" in out
     assert (f"UNSCORED (counted toward thirty, labelled, never scored, outside the W-L-P, 225 item 3; per kind, never "
             f"pooled): PLAY — no result in this copy 1 · teams differ 0 · re-dated void 0 (re-dated 0 · placeholder "
             f"kickoff 0); {WOULD} — no result in this copy 1 · teams differ 0 · re-dated void 0 (re-dated 0 · "
             "placeholder kickoff 0)") in out
-    assert "  no result in this copy (unscored, counted): match 999 Miami Dolphins @ Buffalo Bills (PLAY)" in out
-    assert (f"  no result in this copy (unscored, counted): match 998 New York Giants @ Philadelphia Eagles ({WOULD})"
-            in out)
+    assert ("  no result in this copy (unscored, counted): match 999 Miami Dolphins @ Buffalo Bills (PLAY) · what was "
+            "done: not established") in out
+    assert (f"  no result in this copy (unscored, counted): match 998 New York Giants @ Philadelphia Eagles ({WOULD}) · "
+            "what was done: not established" in out)
     assert not [ln for ln in out if ln.startswith("- ") and ("[match 999]" in ln or "[match 998]" in ln)]
     assert not [ln for ln in out if "not in this database" in ln]
     j = json.loads(out[-1][len("QB-HOLD-RECEIPT "):])
@@ -312,22 +326,22 @@ def test_play_and_would_be_are_never_pooled_but_in_the_count_toward_thirty(world
     """217 item 4: the would-be rows are "never pooled with PLAY"; "#446's read at thirty rows counts those rows too,
     labelled". The count toward thirty is the one figure that adds the two kinds: every other row count, printed or in
     the JSON, is per kind. The world has PLAY 3 scored (one with fills) + 1 unscored, and would-be 1 scored (with
-    fills) + 1 unscored (225 item 3: counted): a pooled figure would read 6 counted, 4 scored, 2 with fills, 2 with no
-    result in this copy."""
+    fills) + 1 unscored (225 item 3: counted): a pooled figure would read 6 counted (the LEDGER line's "of", every row
+    of a kind since 231 item 2(c)), 2 with fills, 2 with no result in this copy."""
     rc, out = _run(capsys, "--db", world["copy"], "--exports", world["ex"], "--ledger", world["ledger"])
     assert rc == 0
     count = [ln for ln in out if ln.startswith("COUNT toward thirty")]
-    assert len(count) == 1 and f"PLAY 4 + {WOULD} 2 = 6 of 30" in count[0]
+    assert len(count) == 1 and f"{UNBOUNDED}: 6 of 30 (PLAY 4 + {WOULD} 2)" in count[0]
     for ln in out:
         if ln in count or ln.startswith(("RULING", "KEYS", "SOURCES", "WHAT WAS DONE FROM", "QB-HOLD-RECEIPT")):
             continue
-        assert not re.search(r"\bof [46]\b", ln), ln                   # rows, both kinds: only the count's
+        assert not re.search(r"\bof 6\b", ln), ln                       # rows, both kinds: only the count's
         assert not re.search(r"(fills on the game|no result in this copy) 2\b", ln), ln
         assert not re.search(r"\b2 of\b", ln), ln
     j = json.loads(out[-1][len("QB-HOLD-RECEIPT "):])
     # every row count lives under a kind's key; the whitelisted top-level figures are not row tallies of both kinds
     whole = {("closing_files",), ("unreadable",), ("nfl_games",), ("read_at",), ("ambiguous_fills",),
-             ("toward_thirty",), ("play_rows",), ("would_be_rows",)}
+             ("toward_thirty",), ("play_rows",), ("would_be_rows",), ("dated_folders",)}
     for path, v in _numbers(j):
         if path in whole:
             continue
@@ -406,9 +420,9 @@ def test_an_ambiguous_fill_is_given_to_no_row(world, capsys, tmp_path):
                                                             "Cleveland wins — New York J")]}))
     rc, out = _run(capsys, "--db", copy, "--exports", tmp_path / "ex2", "--ledger", led)
     assert rc == 0, out
-    assert ("LEDGER: NFL game fills entries read 1 · fitting more than one row (ambiguous, given to none) 1 · PLAY scored "
-            f"rows with fills on the game 0 of 2 · {WOULD} scored rows with fills on the game 0 of 0 (an unscored row "
-            "is not matched to fills)") in out
+    assert ("LEDGER: NFL game fills entries read 1 · fitting more than one row (ambiguous, given to none) 1 · PLAY rows "
+            f"(scored + unscored) with fills on the game 0 of 2 · {WOULD} rows (scored + unscored) with fills on the game "
+            "0 of 0") in out
 
 
 def test_a_re_dated_row_is_void_named_unscored_and_counted(world, capsys, tmp_path):
@@ -424,7 +438,7 @@ def test_a_re_dated_row_is_void_named_unscored_and_counted(world, capsys, tmp_pa
             f"kickoff 0); {WOULD} — no result in this copy 1 · teams differ 0 · re-dated void 0 (re-dated 0 · "
             "placeholder kickoff 0)") in out
     assert ("  re-dated void (unscored, counted): match 102 Baltimore Ravens @ Atlanta Falcons (PLAY): void: re-dated "
-            "2026-10-11 17:00Z → 2026-10-12 17:00Z") in out
+            "2026-10-11 17:00Z → 2026-10-12 17:00Z · what was done: not read (no --ledger)") in out
     j = json.loads(out[-1][len("QB-HOLD-RECEIPT "):])
     assert (j["toward_thirty"], j["counted"], j["play_rows"]) == (6, {"play": 4, "would_be": 2}, 2)
     assert j["play_record"] == {"win": 1, "loss": 1, "push": 0, "void": 0, "open": 0}       # 102 not in the W-L-P
@@ -442,7 +456,7 @@ def test_a_placeholder_kickoff_void_is_split_beside_the_void_head(world, capsys,
     rc, out = _run(capsys, "--db", world["copy"], "--exports", ex)
     assert rc == 0, out
     assert ("  re-dated void (unscored, counted): match 102 Baltimore Ravens @ Atlanta Falcons (PLAY): void: "
-            "placeholder kickoff") in out
+            "placeholder kickoff · what was done: not read (no --ledger)") in out
     assert (f"UNSCORED (counted toward thirty, labelled, never scored, outside the W-L-P, 225 item 3; per kind, never "
             f"pooled): PLAY — no result in this copy 0 · teams differ 0 · re-dated void 1 (re-dated 0 · placeholder "
             f"kickoff 1); {WOULD} — no result in this copy 0 · teams differ 0 · re-dated void 0 (re-dated 0 · "
@@ -475,15 +489,16 @@ def test_each_unscored_kind_counts_toward_thirty_with_its_label_and_never_in_the
     copy = _backup(tmp_path / "w4.db", tmp_path / "c4" / "nfl.db")
     rc, out = _run(capsys, "--db", copy, "--exports", ex)
     assert rc == 0, out
+    nr = " · what was done: not read (no --ledger)"             # what was done on every row (231 item 2(c))
     labelled = {
-        "  no result in this copy (unscored, counted): match 999 Miami Dolphins @ Buffalo Bills (PLAY)",
+        "  no result in this copy (unscored, counted): match 999 Miami Dolphins @ Buffalo Bills (PLAY)" + nr,
         "  teams differ (unscored, counted): match 103 Green Bay Packers @ Minnesota Vikings (PLAY; this database's "
-        "match 103 is Detroit Lions @ Chicago Bears)",
+        "match 103 is Detroit Lions @ Chicago Bears)" + nr,
         "  re-dated void (unscored, counted): match 102 Baltimore Ravens @ Atlanta Falcons (PLAY): void: re-dated "
-        "2026-10-11 17:00Z → 2026-10-12 17:00Z",
-        f"  no result in this copy (unscored, counted): match 998 New York Giants @ Philadelphia Eagles ({WOULD})",
+        "2026-10-11 17:00Z → 2026-10-12 17:00Z" + nr,
+        f"  no result in this copy (unscored, counted): match 998 New York Giants @ Philadelphia Eagles ({WOULD})" + nr,
         f"  teams differ (unscored, counted): match 104 Denver Broncos @ Houston Texans ({WOULD}; this database's "
-        "match 104 is Kansas City Chiefs @ Las Vegas Raiders)"}
+        "match 104 is Kansas City Chiefs @ Las Vegas Raiders)" + nr}
     assert labelled <= set(out), sorted(labelled - set(out))
     assert len([ln for ln in out if "(unscored, counted): " in ln]) == 5
     rows = [ln for ln in out if ln.startswith("- ")]                       # the scored rows only: 101 and 105
@@ -493,9 +508,7 @@ def test_each_unscored_kind_counts_toward_thirty_with_its_label_and_never_in_the
             f"kickoff 0); {WOULD} — no result in this copy 1 · teams differ 1 · re-dated void 0 (re-dated 0 · "
             "placeholder kickoff 0)") in out
     count = [ln for ln in out if ln.startswith("COUNT toward thirty")]
-    assert count == [f"COUNT toward thirty (#446; addendum 44 item 9, 209 item 3; would-be rows counted too, labelled, "
-                     f"217 item 4; unscored rows counted too, labelled, outside the W-L-P, 225 item 3): PLAY 4 + {WOULD} "
-                     "3 = 7 of 30 — not read before thirty rows or the season's end (no verdict is computed here) · "
+    assert count == [f"{COUNT_HEAD}{UNBOUNDED}: 7 of 30 (PLAY 4 + {WOULD} 3) — {BELOW} · "
                      "PLAY W-L-P 0-1-0, void 0, open 0, unscored 3 (no result in this copy 1 · teams differ 1 · "
                      f"re-dated void 1) · {WOULD} W-L-P 0-0-0, void 0, open 1, unscored 2 (no result in this copy 1 · "
                      "teams differ 1 · re-dated void 0)"], count
@@ -505,8 +518,9 @@ def test_each_unscored_kind_counts_toward_thirty_with_its_label_and_never_in_the
     assert (j["play_rows"], j["would_be_rows"]) == (1, 1)                  # the scored rows, the W-L-P's
     assert j["play_record"] == {"win": 0, "loss": 1, "push": 0, "void": 0, "open": 0}
     assert j["would_be_record"] == {"win": 0, "loss": 0, "push": 0, "void": 0, "open": 1}
-    assert (j["counted"], j["toward_thirty"], j["thirty_reached"]) == ({"play": 4, "would_be": 3}, 7, False)
-    assert "PLAY 4 + " in count[0] and f"{WOULD} 3 = 7 of 30" in count[0]   # the printed count is the JSON's
+    assert (j["counted"], j["toward_thirty"], j["this_run_thirty_reached"]) == ({"play": 4, "would_be": 3}, 7, False)
+    assert f": 7 of 30 (PLAY 4 + {WOULD} 3)" in count[0]                    # the printed count is the JSON's
+    assert "thirty_reached" not in j                                        # renamed, no alias (232 item 2(a))
 
 
 def test_a_copy_that_lacks_every_game_does_not_delay_the_read(capsys, tmp_path):
@@ -522,25 +536,25 @@ def test_a_copy_that_lacks_every_game_does_not_delay_the_read(capsys, tmp_path):
     rc, out = _run(capsys, "--db", copy, "--exports", ex)
     assert rc == 0, out
     count = [ln for ln in out if ln.startswith("COUNT toward thirty")]
-    assert len(count) == 1 and (f"PLAY 30 + {WOULD} 0 = 30 of 30 — thirty reached — for the architect's read (no "
-                                "verdict is computed here) · PLAY W-L-P 0-0-0, void 0, open 0, unscored 30 (no result "
+    assert len(count) == 1 and (f"{UNBOUNDED}: 30 of 30 (PLAY 30 + {WOULD} 0) — this run's count alone reaches "
+                                "thirty — for the architect's read (no verdict is computed here) · PLAY W-L-P 0-0-0, void 0, open 0, unscored 30 (no result "
                                 "in this copy 30 · teams differ 0 · re-dated void 0)") in count[0], count
     assert len([ln for ln in out if ln.startswith("  no result in this copy (unscored, counted): match 9")]) == 30
     assert not [ln for ln in out if ln.startswith("- ")]
     j = json.loads(out[-1][len("QB-HOLD-RECEIPT "):])
-    assert (j["toward_thirty"], j["thirty_reached"], j["play_rows"]) == (30, True, 0)
+    assert (j["toward_thirty"], j["this_run_thirty_reached"], j["play_rows"]) == (30, True, 0)
 
 
 def test_the_count_line_says_thirty_reached_and_never_a_verdict():
     g = {"win": 0, "loss": 0, "push": 0, "void": 0, "open": 0}
-    assert "= 29 of 30 — not read before thirty rows" in script.count_line(29, 0, g, g)
+    assert f"{UNBOUNDED}: 29 of 30 (PLAY 29 + {WOULD} 0) — {BELOW} · " in script.count_line(29, 0, g, g)
     line = script.count_line(25, 5, g, g)
-    assert f"PLAY 25 + {WOULD} 5 = 30 of 30 — thirty reached — for the architect's read (no verdict is computed here)" \
-        in line
+    assert (f"{UNBOUNDED}: 30 of 30 (PLAY 25 + {WOULD} 5) — this run's count alone reaches thirty — for the "
+            "architect's read (no verdict is computed here)") in line
     for w in ("PASS", "FAIL", "verdict:"):
         assert w not in line
     line = script.count_line(20, 10, g, g, {"no_result": 4, "teams": 1, "void": 1}, {"no_result": 2})
-    assert f"PLAY 20 + {WOULD} 10 = 30 of 30 — thirty reached" in line
+    assert f"30 of 30 (PLAY 20 + {WOULD} 10) — this run's count alone reaches thirty" in line
     assert ("PLAY W-L-P 0-0-0, void 0, open 0, unscored 6 (no result in this copy 4 · teams differ 1 · re-dated void 1)"
             in line), line
     assert line.endswith("unscored 2 (no result in this copy 2 · teams differ 0 · re-dated void 0)"), line
@@ -612,41 +626,181 @@ def test_the_data_refusal_is_the_repos_data_not_any_data(world, capsys, tmp_path
     assert "under the repo's data/ (the checkout's, and the" in doc and "any data/" not in doc
 
 
-# ---- the review findings (Codex P2s): host/ never read, a figure in a printed field refused, every entry its own ----
+# ---- 231 item 2(a)/(b): one machine's pair; host/ is read, the header names the directory and the copy read ----------
 
-def test_an_exports_directory_named_host_is_refused_even_through_a_symlink(world, capsys, tmp_path):
-    """The SOURCES line says "host/ never read": a --exports that is (or resolves to) a host/ directory is refused,
-    nothing read (its closing files carry the host's match ids); a normal exports directory is still read."""
+def _mirror(tmp_path, world):
+    """The mirror's layout (deploy/hosting/exports_mirror.py): host/<date>/<file> and host/latest/<kind>.json. The 10-11
+    and 10-18 runs in their dated folders; latest/ holds a copy of the newest (a row that would be counted twice, and
+    one only it holds, never read); a folder not dated holds a file never read."""
     host = tmp_path / "mirror" / "host"
-    write_closing(host, KO_1011 - timedelta(minutes=35),
-                  annotated([cle_nyj(), bal_atl()], KO_1011, market_only=False), fam="NFL")
+    a = write_closing(host / "2026-10-11", KO_1011 - timedelta(minutes=35),
+                      annotated([cle_nyj(), bal_atl()], KO_1011, market_only=False), fam="NFL")
+    b = write_closing(host / "2026-10-18", KO_1018 - timedelta(minutes=35),
+                      annotated([kc_lv()], KO_1018, market_only=False), fam="NFL")
+    (host / "latest").mkdir()
+    (host / "latest" / "closing_NFL.json").write_text(b.read_text())
+    write_closing(host / "latest", KO_1018 - timedelta(minutes=35),
+                  annotated([lost_row()], KO_1018, market_only=False), fam="NFL")      # latest/ only: never read
+    write_closing(host / "raw", KO_1011 - timedelta(minutes=35),
+                  annotated([lost_row()], KO_1011, market_only=False), fam="NFL")      # not a dated folder: never read
+    return host, a, b
+
+
+def test_host_is_read_and_the_header_names_the_directory_and_the_copy(world, capsys, tmp_path):
+    """231 item 2(a): "The "host/ is never read" refusal of round 1 is REMOVED: the header prints which directory and
+    which copy were read, and my block pairs them". --exports the mirror's host/ tree reads host/<date>/closing_*.json
+    (never latest/, never a folder that is not dated); the SOURCES line names the directory read (resolved, beside the
+    path as given) and the copy read (resolved); the MACHINE-ERA line states the rule (the count toward thirty is the
+    two runs' sum); nothing refuses the directory for its name."""
+    host, _, _ = _mirror(tmp_path, world)
     rc, out = _run(capsys, "--db", world["copy"], "--exports", host, "--ledger", world["ledger"])
-    assert rc == 2 and len(out) == 1, out
-    assert out[0].startswith(f"REFUSED: --exports {host}: names or resolves to a host/ directory") and \
-        "host/ is never read, its files carry the host's match ids; nothing read" == out[0].split("); ", 1)[1], out
+    assert rc == 0, out
+    assert not [ln for ln in out if ln.startswith("REFUSED")]
+    src = [ln for ln in out if ln.startswith("SOURCES")]
+    assert len(src) == 1, out
+    assert src[0].startswith("SOURCES (the two, 223 item 5(b); one machine's pair, 231 item 2(a)): the copy read "
+                             f"{Path(world['copy']).resolve()} (--db; a .backup copy, opened mode=ro&immutable=1;"), src
+    assert (f" · the closing-file directory read {host.resolve()} (--exports {host}; closing_*.json there and in its "
+            "dated folders <YYYY-MM-DD>/ 2, never latest/; redated.closing_rows): 2 read, runs 2026-10-11 16:25Z to "
+            "2026-10-18 19:30Z, NFL games 3") in src[0], src
+    assert "never read" not in src[0] and "host/ never" not in "\n".join(out)
+    era = [ln for ln in out if ln.startswith("MACHINE-ERA")]
+    assert era == [script.MACHINE_ERA] and out.index(era[0]) == out.index(src[0]) + 1
+    assert "the sum is the architect's arithmetic on the two consoles, stated on #446 (232 item 2(a))" in era[0]
+    assert "two runs' counts' sum" not in era[0] and "exports/host/" in era[0]
+    assert [re.search(r"\[match (\d+)\]", ln).group(1) for ln in out if ln.startswith("- ")] == ["101", "102", "104"]
+    assert not [ln for ln in out if "Miami Dolphins" in ln]                  # latest/ and raw/ are never read
+    j = json.loads(out[-1][len("QB-HOLD-RECEIPT "):])
+    assert (j["exports"], j["exports_read"], j["dated_folders"], j["closing_files"]) == (str(host), str(host.resolve()),
+                                                                                         2, 2)
+    assert j["counted"] == {"play": 3, "would_be": 0}
+
+
+def test_a_symlink_into_host_and_any_spelling_of_host_are_read(world, capsys, tmp_path):
+    """231 item 2(b): "host/ is a legitimate source when paired with the host's copy. No refusal is built for it." A
+    link to host/, a link NAMED host, and HOST/Host spellings are each read; the SOURCES line names the resolved
+    directory, so a link shows where it led."""
+    host, _, _ = _mirror(tmp_path, world)
     link = tmp_path / "looks-fine"
     link.symlink_to(host, target_is_directory=True)
     rc, out = _run(capsys, "--db", world["copy"], "--exports", link)
-    assert rc == 2 and len(out) == 1 and out[0].startswith(f"REFUSED: --exports {link}: names or resolves to a "
-                                                           f"host/ directory ({host.resolve()})"), out
-    assert out[0].endswith("nothing read")
-    # a link NAMED host to a directory of another name is refused by its own name (review finding)
+    assert rc == 0, out
+    assert f"the closing-file directory read {host.resolve()} (--exports {link}; " in \
+        [ln for ln in out if ln.startswith("SOURCES")][0]
+    assert _line(out, "Cleveland Browns @ New York Jets")
     named = tmp_path / "links" / "host"
     named.parent.mkdir()
     named.symlink_to(world["ex"], target_is_directory=True)
     rc, out = _run(capsys, "--db", world["copy"], "--exports", named)
-    assert rc == 2 and len(out) == 1 and out[0].startswith(f"REFUSED: --exports {named}: names or resolves to a "
-                                                           f"host/ directory ({Path(world['ex']).resolve()})"), out
-    # any case: a Mac's default volume opens exports/HOST as exports/host (review finding)
+    assert rc == 0 and _line(out, "Seattle Seahawks @ Los Angeles Rams"), out
+    assert f"directory read {Path(world['ex']).resolve()} (--exports {named}; " in \
+        [ln for ln in out if ln.startswith("SOURCES")][0]
     for spelt in ("HOST", "Host"):
         upper = tmp_path / "cased" / spelt
-        upper.mkdir(parents=True)
+        write_closing(upper, KO_1011 - timedelta(minutes=35), annotated([cle_nyj()], KO_1011, market_only=False),
+                      fam="NFL")
         rc, out = _run(capsys, "--db", world["copy"], "--exports", upper)
-        assert rc == 2 and len(out) == 1 and out[0].endswith("nothing read") and \
-            "names or resolves to a host/ directory" in out[0], out
-    rc, out = _run(capsys, "--db", world["copy"], "--exports", world["ex"])
-    assert rc == 0 and _line(out, "Cleveland Browns @ New York Jets")
+        assert rc == 0 and _line(out, "Cleveland Browns @ New York Jets"), out
 
+
+def test_a_file_name_in_two_dated_folders_is_named_on_the_sources_line(world, capsys, tmp_path):
+    """A closing file copied into two dated folders is read from each (closing_rows is the one reader); the SOURCES
+    line counts and names it, so "N read" is never silently two runs where there was one; the game is one row."""
+    host, a, _ = _mirror(tmp_path, world)
+    (host / "2026-10-12").mkdir()
+    (host / "2026-10-12" / a.name).write_text(a.read_text())
+    rc, out = _run(capsys, "--db", world["copy"], "--exports", host)
+    assert rc == 0, out
+    src = [ln for ln in out if ln.startswith("SOURCES")][0]
+    assert f"dated folders <YYYY-MM-DD>/ 3, never latest/; redated.closing_rows): 3 read, " in src, src
+    assert src.endswith(f" · names in more than one folder 1 (each copy read): {a.name}"), src
+    assert len([ln for ln in out if ln.startswith("- ") and "Cleveland Browns" in ln]) == 1
+    assert json.loads(out[-1][len("QB-HOLD-RECEIPT "):])["counted"] == {"play": 3, "would_be": 0}
+
+
+# ---- 231 item 2(c): what was done on every row, scored or unscored -------------------------------------------------
+
+def test_an_unscored_row_of_each_cause_carries_what_was_done_and_the_ledger_counts_every_row(capsys, tmp_path):
+    """231 item 2(c): "positions() matches the ledger's fills to EVERY row the receipt holds, scored or not ... the label
+    stays the ledger's; the LEDGER line drops "an unscored row is not matched to fills"". The world of 225 item 3's
+    test (PLAY 101 scored; 999 the copy lacks, 103 teams differ, 102 re-dated; would-be 105 scored, 998 the copy lacks,
+    104 teams differ), with a fill on the game of each unscored row of every cause: one by event ticker (999), one by
+    the Cockpit's game matcher on the closing row's own teams and start (103: the copy's match 103 is another game),
+    one on the re-dated game (102), one on a would-be row (998); 104 holds none. Each prints under the ledger's label,
+    its five fields as held; the LEDGER line and the JSON count every row of a kind; no figure is printed."""
+    ex = tmp_path / "ex7"
+    other = nfl_row(103, "Green Bay Packers", "Minnesota Vikings", "GB", "MIN", 0.45, 0.58, 0.56, 0.57, KO_1011,
+                    qb_side="away", qb=["Jordan Love"])
+    other_would = nfl_row(104, "Denver Broncos", "Houston Texans", "DEN", "HOU", 0.45, 0.58, 0.56, 0.57, KO_1109,
+                          qb_side="away", qb=["Bo Nix"])
+    write_closing(ex, KO_1011 - timedelta(minutes=35),
+                  annotated([cle_nyj(), bal_atl(), other], KO_1011, market_only=False), fam="NFL")
+    write_closing(ex, KO_1018 - timedelta(minutes=35), annotated([lost_row()], KO_1018, market_only=False), fam="NFL")
+    write_closing(ex, KO_1109 - timedelta(minutes=35),
+                  annotated([sea_lar(), lost_would(), other_would], KO_1109, market_only=True), fam="NFL")
+    _world(tmp_path / "w7.db", moved={102: KO_1011 + timedelta(days=1)})
+    copy = _backup(tmp_path / "w7.db", tmp_path / "c7" / "nfl.db")
+    fills = [_fill("f-mia", "KXNFLGAME-26OCT18MIABUF-MIA", "yes", "Miami wins — Buffalo"),
+             _fill("f-gb", "KXNFLGAME-26OCT11GBMINX-GB", "yes", "Green Bay wins — Minnesota"),
+             _fill("f-bal", "KXNFLGAME-26OCT11BALATL-BAL", "no", "Baltimore wins — Atlanta"),
+             _fill("f-nyg", "KXNFLGAME-26NOV09NYGPHI-PHI", "yes", "Philadelphia wins — New York G", closed=False)]
+    led = tmp_path / "led7.json"
+    led.write_text(json.dumps({"calls": [], "fills": fills}))
+    rc, out = _run(capsys, "--db", copy, "--exports", ex, "--ledger", led)
+    assert rc == 0, out
+
+    def held(f):
+        return "fills: " + json.dumps({k: f[k] for k in ("ticker", "side", "title", "opened", "closed")},
+                                      ensure_ascii=False)
+    want = {
+        "  no result in this copy (unscored, counted): match 999 Miami Dolphins @ Buffalo Bills (PLAY) · what was "
+        f"done: {held(fills[0])}",
+        "  teams differ (unscored, counted): match 103 Green Bay Packers @ Minnesota Vikings (PLAY; this database's "
+        f"match 103 is Detroit Lions @ Chicago Bears) · what was done: {held(fills[1])}",
+        "  re-dated void (unscored, counted): match 102 Baltimore Ravens @ Atlanta Falcons (PLAY): void: re-dated "
+        f"2026-10-11 17:00Z → 2026-10-12 17:00Z · what was done: {held(fills[2])}",
+        f"  no result in this copy (unscored, counted): match 998 New York Giants @ Philadelphia Eagles ({WOULD}) · "
+        f"what was done: {held(fills[3])}",
+        f"  teams differ (unscored, counted): match 104 Denver Broncos @ Houston Texans ({WOULD}; this database's "
+        "match 104 is Kansas City Chiefs @ Las Vegas Raiders) · what was done: not established"}
+    assert want <= set(out), sorted(want - set(out))
+    assert _line(out, "Cleveland Browns @ New York Jets").endswith("what was done: not established")
+    assert ("LEDGER: NFL game fills entries read 4 · fitting more than one row (ambiguous, given to none) 0 · PLAY rows "
+            f"(scored + unscored) with fills on the game 3 of 4 · {WOULD} rows (scored + unscored) with fills on the game "
+            "1 of 3") in out
+    j = json.loads(out[-1][len("QB-HOLD-RECEIPT "):])
+    assert j["what_was_done"] == {"play": {"fills": 3, "not_established": 1},
+                                  "would_be": {"fills": 1, "not_established": 2}}
+    for k in ("play", "would_be"):                         # the LEDGER denominators are the kind's count toward thirty
+        assert sum(j["what_was_done"][k].values()) == j["counted"][k]
+    assert j["play_record"] == {"win": 0, "loss": 1, "push": 0, "void": 0, "open": 0}     # the W-L-P is unchanged
+    body = "\n".join(ln for ln in out if not ln.startswith(("RULING", "SOURCES", "WHAT WAS DONE FROM")))
+    for fig in FILL_FIGURES + ("f-mia", "f-gb", "f-bal", "f-nyg"):
+        assert fig not in body, fig
+    for key in ("qty", "entry", "exit", "staked", "fees", "pnl_net", "id"):
+        assert f'"{key}"' not in body, key
+
+
+def test_a_fill_fitting_a_scored_and_an_unscored_row_is_ambiguous(world, capsys, tmp_path):
+    """Matching every row widens the matcher's candidates: a fill with no event the rows name, fitting a scored row and
+    an unscored row of the same teams and day by the game matcher, is ambiguous, given to none (refusals stay
+    refusals), never to the scored row by default."""
+    rows = annotated([cle_nyj()], KO_1011, market_only=False)
+    twin = json.loads(json.dumps(rows[0]))
+    twin["match_id"] = 997                                                  # the copy lacks it: unscored
+    write_closing(tmp_path / "ex8", KO_1011 - timedelta(minutes=35), rows + [twin], fam="NFL")
+    led = tmp_path / "led8.json"
+    led.write_text(json.dumps({"calls": [], "fills": [_fill("f", "KXNFLGAME-26OCT11CLENYJX-CLE", "yes",
+                                                            "Cleveland wins — New York J")]}))
+    rc, out = _run(capsys, "--db", world["copy"], "--exports", tmp_path / "ex8", "--ledger", led)
+    assert rc == 0, out
+    assert ("LEDGER: NFL game fills entries read 1 · fitting more than one row (ambiguous, given to none) 1 · PLAY rows "
+            f"(scored + unscored) with fills on the game 0 of 2 · {WOULD} rows (scored + unscored) with fills on the game "
+            "0 of 0") in out
+    assert "match 997 Cleveland Browns @ New York Jets (PLAY) · what was done: not established" in "\n".join(out)
+
+
+# ---- the review findings (Codex P2s): a figure in a printed field refused, every entry its own ----------------------
 
 @pytest.mark.parametrize("field,value", [("title", {"qty": 137, "price": 0.43}), ("side", ["yes", 137]),
                                          ("opened", 137), ("closed", True), ("ticker", 137.5)])
@@ -697,3 +851,174 @@ def test_split_fills_on_one_game_print_as_their_own_entries_and_one_id_prints_on
     rc, out = _run(capsys, "--db", world["copy"], "--exports", world["ex"], "--ledger", led)
     assert rc == 0
     assert _line(out, "Kansas City Chiefs @ Las Vegas Raiders").endswith(f"what was done: fills: {held}; {held}")
+
+
+# ---- 232 item 2: one run's count, under its era's bound; --from / --through on the closing run's start, UTC --------
+
+BOUNDARY = "2026-10-26T12:00:00Z"                  # 232 item 2(b): the closing run's start instant, UTC
+KO_SNF = datetime(2026, 10, 26, 0, 20)             # KC@SEA, SNF 10-25 ET
+RUN_SNF = datetime(2026, 10, 25, 23, 45)           # "the closing run started 2026-10-25 ~23:45Z"
+KO_EDGE = datetime(2026, 10, 26, 12, 35)
+RUN_EDGE = datetime(2026, 10, 26, 12, 0)           # a run start exactly at the bound: the host era's
+KO_MNF = datetime(2026, 10, 27, 0, 15)             # MNF 10-26 ET: the host's first closing as writer of record
+RUN_MNF = datetime(2026, 10, 26, 23, 40)
+ERA_GAMES = ((106, "Kansas City Chiefs", "Seattle Seahawks", KO_SNF, 27, 20),
+             (107, "New York Giants", "Washington Commanders", KO_MNF, 13, 24),
+             (108, "Denver Broncos", "Houston Texans", KO_EDGE, 17, 10),
+             (109, "Tennessee Titans", "Indianapolis Colts", KO_MNF, 9, 31))
+
+
+def _qb_play(mid, away, home, ko):
+    ca, ch = away.split()[0][:3].upper(), home.split()[0][:3].upper()
+    return nfl_row(mid, away, home, ca, ch, 0.45, 0.58, 0.56, 0.57, ko, qb_side="away", qb=[f"QB {mid}"])
+
+
+def _era_world(tmp_path):
+    """KC@SEA (232 item 2(b)): the laptop's closing of it (run 2026-10-25 23:45Z) in the laptop's own exports/; the
+    host's pull, exports/host/ (flat, pull_exports.py), holding the host's rehearsal closing of the same game (the same
+    run start), a run started exactly at the bound (108), the MNF run (107) and a closing file with no run start (109:
+    no closing block start, no stamp in its name). Each row a QB-flagged PLAY."""
+    g = {mid: (away, home, ko) for mid, away, home, ko, _, _ in ERA_GAMES}
+    lap = tmp_path / "laptop" / "exports"
+    write_closing(lap, RUN_SNF, annotated([_qb_play(106, *g[106])], KO_SNF, market_only=False), fam="NFL")
+    host = tmp_path / "laptop" / "exports" / "host"         # the laptop's pull: a subfolder, never a dated one
+    write_closing(host, RUN_SNF, annotated([_qb_play(106, *g[106])], KO_SNF, market_only=False), fam="NFL")
+    write_closing(host, RUN_EDGE, annotated([_qb_play(108, *g[108])], KO_EDGE, market_only=False), fam="NFL")
+    write_closing(host, RUN_MNF, annotated([_qb_play(107, *g[107])], KO_MNF, market_only=False), fam="NFL")
+    p = write_closing(tmp_path / "scratch", RUN_MNF, annotated([_qb_play(109, *g[109])], KO_MNF, market_only=False),
+                      fam="NFL")
+    doc = json.loads(p.read_text())
+    del doc["closing"]["start"]
+    (host / "closing_NFL_manual.json").write_text(json.dumps(doc))   # no start, no stamp: the run start unknown
+    _world(tmp_path / "era.db", extra=ERA_GAMES)
+    copy = _backup(tmp_path / "era.db", tmp_path / "era-copy" / "nfl.db")
+    return lap, host, copy
+
+
+def _matches(out):
+    return [re.search(r"\[match (\d+)\]", ln).group(1) for ln in out if ln.startswith("- ")]
+
+
+def test_kc_sea_is_the_laptops_row_and_the_hosts_rehearsal_is_excluded_by_the_bound(capsys, tmp_path):
+    """232 item 2(b): "KC@SEA (SNF 10-25 ET; the closing run started 2026-10-25 ~23:45Z) is the LAPTOP's row and only
+    the laptop's; the host's rehearsal closing of it is not a record and is excluded by the bound, not by hand." The
+    laptop run (--through the boundary) counts it; the host run (--from the boundary, on exports/host/) does not, and
+    names the exclusion; each console prints ONE run's count under its era's label, exactly as ruled (232 item 2(a))."""
+    lap, host, copy = _era_world(tmp_path)
+    rc, out = _run(capsys, "--db", copy, "--exports", lap, "--through", BOUNDARY)
+    assert rc == 0, out
+    assert _matches(out) == ["106"]                                    # the laptop's row; its host/ never read
+    count = [ln for ln in out if ln.startswith("COUNT toward thirty")]
+    assert len(count) == 1 and f"): laptop era, runs through {BOUNDARY}: 1 of 30 (PLAY 1 + {WOULD} 0) — " in count[0]
+    bound = [ln for ln in out if ln.startswith("BOUND")]
+    assert bound == [f"BOUND (232 item 2(b); the closing run's start instant, UTC; --from inclusive, --through "
+                     f"exclusive: a run start exactly at the bound is the host era's): this run: laptop era, runs "
+                     f"through {BOUNDARY} · --from — · --through {BOUNDARY} · excluded by the bound (not counted, not "
+                     "read for any game): NFL closing rows 0, from 0 run(s) (closing files 0), NFL games left with no row "
+                     "in the bound 0, of this receipt (named below) 0"], bound
+    j = json.loads(out[-1][len("QB-HOLD-RECEIPT "):])
+    assert j["run"] == {"era": "laptop", "label": f"laptop era, runs through {BOUNDARY}", "from": None,
+                        "through": BOUNDARY}
+    assert (j["toward_thirty"], j["this_run_thirty_reached"]) == (1, False) and "thirty_reached" not in j
+
+    rc, out = _run(capsys, "--db", copy, "--exports", host, "--from", BOUNDARY)
+    assert rc == 0, out
+    assert _matches(out) == ["108", "107"]                             # the edge run (at the bound) and MNF
+    assert not [ln for ln in out if ln.startswith("- ") and "Kansas City Chiefs" in ln]
+    assert ("  outside the bound (not counted): match 106 Kansas City Chiefs @ Seattle Seahawks (PLAY, run 2026-10-25 "
+            "23:45Z)") in out
+    count = [ln for ln in out if ln.startswith("COUNT toward thirty")]
+    assert len(count) == 1 and f"): host era, runs from {BOUNDARY}: 2 of 30 (PLAY 2 + {WOULD} 0) — " in count[0]
+    bound = [ln for ln in out if ln.startswith("BOUND")][0]
+    assert bound.endswith(f"this run: host era, runs from {BOUNDARY} · --from {BOUNDARY} · --through — · excluded by "
+                          "the bound (not counted, not read for any game): NFL closing rows 1, from 1 run(s) "
+                          "(closing files 1), NFL games left with no row in the bound 1, of this receipt (named "
+                          "below) 1"), bound
+    src = [ln for ln in out if ln.startswith("SOURCES")][0]           # the span the bound kept, beside every file's
+    assert ("runs of every file read (before the bound) 2026-10-25 23:45Z to 2026-10-26 23:40Z, runs in the bound "
+            "2026-10-26 12:00Z to 2026-10-26 23:40Z, NFL games 2") in src, src
+    assert out.index(bound) == out.index([ln for ln in out if ln.startswith("MACHINE-ERA")][0]) + 1   # the header
+    j = json.loads(out[-1][len("QB-HOLD-RECEIPT "):])
+    assert j["run"] == {"era": "host", "label": f"host era, runs from {BOUNDARY}", "from": BOUNDARY, "through": None}
+    assert j["excluded_by_bound"] == {"runs": 1, "closing_files": 1, "nfl_closing_rows": 1, "nfl_games": 1,
+                                      "named": {"play": 1, "would_be": 0}}
+    assert (j["toward_thirty"], j["this_run_thirty_reached"]) == (2, False)
+
+
+def test_a_run_start_exactly_at_the_bound_is_the_host_eras(capsys, tmp_path):
+    """232 item 2(b): "a run start exactly at the bound belongs to the host era": --from is inclusive, --through
+    exclusive. The run started at 2026-10-26T12:00:00Z is counted by --from and excluded (named) by --through."""
+    _, host, copy = _era_world(tmp_path)
+    rc, out = _run(capsys, "--db", copy, "--exports", host, "--from", BOUNDARY)
+    assert rc == 0 and "108" in _matches(out), out
+    rc, out = _run(capsys, "--db", copy, "--exports", host, "--through", BOUNDARY)
+    assert rc == 0, out
+    assert "108" not in _matches(out) and "107" not in _matches(out)
+    assert ("  outside the bound (not counted): match 108 Denver Broncos @ Houston Texans (PLAY, run 2026-10-26 "
+            "12:00Z)") in out
+    j = json.loads(out[-1][len("QB-HOLD-RECEIPT "):])
+    assert j["excluded_by_bound"]["runs"] == 2 and j["excluded_by_bound"]["named"] == {"play": 2, "would_be": 0}
+
+
+def test_a_window_and_the_unbounded_run_are_labelled_by_their_bounds(capsys, tmp_path):
+    """Both bounds: a window, labelled with both and with no era; neither: the unbounded run, no era, every run read
+    (the conservative labels of #810's build: the label is the bound's, never a machine's)."""
+    _, host, copy = _era_world(tmp_path)
+    rc, out = _run(capsys, "--db", copy, "--exports", host, "--from", BOUNDARY, "--through", "2026-10-26T20:00:00Z")
+    assert rc == 0, out
+    assert _matches(out) == ["108"]
+    label = f"window, runs from {BOUNDARY} through 2026-10-26T20:00:00Z (no era: a window is neither era's run)"
+    assert f"): {label}: 1 of 30 (PLAY 1 + " in [ln for ln in out if ln.startswith("COUNT toward thirty")][0]
+    assert json.loads(out[-1][len("QB-HOLD-RECEIPT "):])["run"]["era"] == "window"
+    rc, out = _run(capsys, "--db", copy, "--exports", host)
+    assert rc == 0, out
+    assert sorted(_matches(out)) == ["106", "107", "108", "109"]       # no bound: every run read, the unknown one too
+    assert [ln for ln in out if ln.startswith("BOUND")][0].endswith(" · no bound: every run read, nothing excluded")
+    assert not [ln for ln in out if ln.startswith("RUN START UNKNOWN")]
+    assert f"): {UNBOUNDED}: 4 of 30 (PLAY 4 + " in [ln for ln in out if ln.startswith("COUNT toward thirty")][0]
+    j = json.loads(out[-1][len("QB-HOLD-RECEIPT "):])
+    assert (j["run"]["era"], j["excluded_by_bound"], j["run_start_unknown"]) == ("unbounded", None, None)
+
+
+def test_a_row_with_no_run_start_is_outside_every_bound_and_named(capsys, tmp_path):
+    """A closing row with no run start (no closing block start, no stamp in the file name) cannot be placed in an era
+    (law 4): a bounded run excludes it, counts it on its own RUN START UNKNOWN line and names its game; never counted."""
+    _, host, copy = _era_world(tmp_path)
+    for flag in ("--from", "--through"):
+        rc, out = _run(capsys, "--db", copy, "--exports", host, flag, BOUNDARY)
+        assert rc == 0, out
+        assert "109" not in _matches(out)
+        assert ("RUN START UNKNOWN, OUTSIDE EVERY BOUND (232 item 2(b); law 4: a row with no run start is never placed "
+                "in an era; not counted): NFL closing rows 1 (closing files 1), NFL games left with no row in the bound "
+                "1, of this receipt (named below) 1") in out, out
+        assert ("  run start unknown, outside every bound (not counted): match 109 Tennessee Titans @ Indianapolis "
+                "Colts (PLAY, run start unknown)") in out
+        j = json.loads(out[-1][len("QB-HOLD-RECEIPT "):])
+        assert j["run_start_unknown"] == {"runs": None, "closing_files": 1, "nfl_closing_rows": 1, "nfl_games": 1,
+                                          "named": {"play": 1, "would_be": 0}}
+
+
+@pytest.mark.parametrize("bad", ["2026-10-26", "2026-10-26T12:00:00", "2026-10-26T12:00:00+00:00",
+                                 "2026-10-26 12:00:00Z", "2026-10-26T12:00Z", "2026-13-26T12:00:00Z",
+                                 "2026-10-26T12:00:00.000Z", "2026-10-26t12:00:00z", "",
+                                 "\uff12\uff10\uff12\uff16-10-26T12:00:00Z",      # fullwidth digits: ASCII only
+                                 "\u0662\u0660\u0662\u0666-10-26T12:00:00Z"])     # Arabic-Indic digits
+def test_a_malformed_instant_is_refused_nothing_read(world, capsys, bad):
+    for flag in ("--from", "--through"):
+        rc, out = _run(capsys, "--db", world["copy"], "--exports", world["ex"], flag, bad)
+        assert rc == 2 and out == [f"REFUSED: {flag} {bad!r}: not a UTC instant YYYY-MM-DDTHH:MM:SSZ (232 item 2(b)); "
+                                   "nothing read"], out
+
+
+def test_a_window_holding_no_instant_is_refused(world, capsys):
+    for lo, hi in ((BOUNDARY, BOUNDARY), ("2026-10-27T00:00:00Z", BOUNDARY)):
+        rc, out = _run(capsys, "--db", world["copy"], "--exports", world["ex"], "--from", lo, "--through", hi)
+        assert rc == 2 and out == [f"REFUSED: --from {lo} is not before --through {hi}: the window holds no run start "
+                                   "(232 item 2(b)); nothing read"], out
+
+
+def test_no_option_takes_another_runs_count():
+    """232 item 2(a): "the script takes NO other run's count as an input"."""
+    opts = {a for a in script.main.__code__.co_consts if isinstance(a, str) and a.startswith("--")}
+    assert opts >= {"--db", "--exports", "--from", "--through", "--ledger"}
+    assert not [o for o in opts if re.search(r"count|sum|other|prior|previous|laptop|host", o)], opts

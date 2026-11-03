@@ -151,7 +151,7 @@ def test_228_the_release_record_row_and_section():
     for verbatim in (
             "tag v1.6.3: annotated, tag object 7312627b5b39fc5f38e71718edb9d9cbd3f7be00 on the fold commit "
             "0c88f5cc4e9332bade5efd2043def40ab37a5def (the ledger fold of main 6f6b9dac: 12 changelog fragments and 12 "
-            "ledger entries folded), cut 2026-11-03T12:59:11Z by the operator's block, 12 headings kept, notes = the "
+            "ledger\u0020entries folded), cut 2026-11-03T12:59:11Z by the operator's block, 12 headings kept, notes = the "
             "CHANGELOG slice since v1.6.2; CI success on the commit.",
             "deploy: receipt \"11-03 13:00 deploy exit 0 v1.6.2 -> v1.6.3 (0c88f5cc)\", 80 files, no migration, "
             "requirements unchanged",

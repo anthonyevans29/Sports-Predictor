@@ -766,8 +766,17 @@ LEGS_WHY = ("the repo record (docs/RELEASES.md, BACKLOG.md, CHANGELOG.md, docs/,
             "for the tag carrying #475, nor does v1.4.0's release Issue #556 (read: its Host section says \"Not deployed yet\" and no later comment records the deploy); the conservative bound is "
             "the next ET midnight, addendum 239 item 4 (#475 is first carried by v1.4.0, cut 2026-10-16 14:18:21Z, "
             "docs/RELEASES.md:111; its section has no Deploy line)")
+# ARCHITECT 2026-11-03 17:40 ET, addendum 240 item 3, verbatim: "the rows before 10-26 were the laptop's captures on
+# main, which carried #475 from its merge at 2026-10-13T13:03Z, so the instant that governs them is that merge, and the
+# ruled fallback 2026-10-14T04:00:00Z is LATER, i.e. conservative: it keeps ~15 h of correctly placed legs out of the
+# grade and lets none of the old path's in. It STANDS; the console prints both instants and why."
+LEGS_MERGE_FROM = "2026-10-13T13:03:38Z"     # #475's merge (1294960a): the instant that governs the laptop's captures
+LEGS_BOTH = (f"both instants (addendum 240 item 3): #475 merged to main at {LEGS_MERGE_FROM} (1294960a), the instant "
+             "that governs the rows before the 10-26 cutover (the laptop's captures on main); the ruled bound "
+             f"{LEGS_FROM_TEXT} is LATER, so conservative: it keeps about 15 h of correctly placed legs out of the "
+             "grade and lets none of the old path's in")
 LEGS_TEXT = (f"legs placed before {LEGS_FROM_TEXT} were the old path's (#475's switch to the shared pair) and never "
-             f"enter it, the close nor its legs guard: {LEGS_WHY}; a game whose every Kalshi leg is earlier is left "
+             f"enter it, the close nor its legs guard: {LEGS_WHY}; {LEGS_BOTH}; a game whose every Kalshi leg is earlier is left "
              f"out ({LEGS_BEFORE}) ({LEGS_RULING})")
 # (2) THE CLOSE (ARCHITECT 2026-11-03, addendum 236 item 3(2), verbatim): "the Kalshi close is THE close for college
 # (KXNCAAFGAME is the primary college market source — CLAUDE.md), scored per name, never pooled, as built; the book

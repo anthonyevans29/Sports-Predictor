@@ -177,6 +177,10 @@ def test_item_4_one_second_before_the_boundary_is_never_read_the_instant_is(fini
             "for the tag carrying #475, nor does v1.4.0's release Issue #556 (read: its Host section says \"Not deployed yet\" and no later comment records the deploy); the conservative bound is "
             "the next ET midnight, addendum 239 item 4") in r["kalshi_close_rule"]
     assert "legs placed before 2026-10-14T04:00:00Z (2026-10-14 00:00 ET)" in r["kalshi_close_rule"]
+    # addendum 240 item 3: the console prints both instants and why
+    assert ("both instants (addendum 240 item 3): #475 merged to main at 2026-10-13T13:03:38Z (1294960a), the instant "
+            "that governs the rows before the 10-26 cutover") in r["kalshi_close_rule"]
+    assert "is LATER, so conservative: it keeps about 15 h of correctly placed legs out" in r["kalshi_close_rule"]
     with session_scope() as s:
         _kalshi(s, up, 0.60, 0.62, datetime(2026, 10, 14, 4, 0, 0))      # at the instant: read
     r = _grade(finished_up)

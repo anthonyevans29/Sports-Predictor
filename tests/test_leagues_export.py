@@ -430,9 +430,7 @@ def test_9_the_audit_reads_the_exports_rows_present_and_equal(ledger, tmp_path):
     assert w["state"] == "ready" and w["stored_present"] == 60 and w["stored_missing"] == 0
     a = lw.score(w, export_dir=str(out), now=NOW)["audit"]
     assert a == {"present": 60, "missing": 0, "findings": [], "expected": [], "unreadable": [], "superseded": 0,
-                 "no_prospective_row": [], "no_row_on_carrying_page": [],   # addendum 222 item 4(a): none excluded
-                 # the first file whose header binding carried leagues-sa-v1 (export_shadow writes it in every file)
-                 "first_carrying_page": (AT + timedelta(hours=1) - timedelta(minutes=5)).isoformat()}
+                 "no_prospective_row": []}   # addendum 222 item 4(a): none excluded
 
 
 def test_9_rows_exported_before_earlier_games_finished_are_counted_and_expected(ledger, tmp_path):
@@ -455,12 +453,11 @@ def test_9_rows_exported_before_earlier_games_finished_are_counted_and_expected(
     assert L[1] == ("  - SA · FINDINGS 0: differences on rows with pending_before = 0, or with no pending_before on "
                     "the row (addendum 185 D4)")
     assert L[2].startswith(f"  - SA · EXPECTED {len(a['expected'])}: differences on rows with pending_before > 0")
-    assert all(x.startswith("    EXPECTED match ") and " · pending_before " in x for x in L[3:-2])
-    assert L[-2].startswith("  - SA · excluded by cause (no slot): no prospective row: the entry was not on the "
-                            "host's tag 0 (")                # addendum 222 item 4(a), counted 0
-    assert L[-1].startswith("  - SA · FINDING · no prospective row on a page whose tag carried the entry 0 (")
-    assert L[-1].endswith(f"export directory: exported_at {(AT + timedelta(minutes=5)).isoformat()})")
-    assert len(L) == 5 + len(a["expected"])
+    assert all(x.startswith("    EXPECTED match ") and " · pending_before " in x for x in L[3:-1])
+    assert L[-1].startswith("  - SA · excluded by cause (no slot): no prospective row under the entry: the entry was "
+                            "not on the host's tag 0 (")    # addendum 222 item 4(a), the text of 223 item 2(c), 0
+    assert not any("FINDING ·" in x for x in L)           # one cause, one line (addendum 223 item 2(c))
+    assert len(L) == 4 + len(a["expected"])
 
 
 # ------------------------------------------------------------------------------------------- 10. consumers --
@@ -978,8 +975,7 @@ def test_18_the_audits_row_is_the_last_before_kickoff_the_earlier_counted_supers
     w = lw.read(("SA",), now=NOW, export_dir=str(out))["SA"]
     a = lw.score(w, export_dir=str(out), now=NOW)["audit"]
     assert a == {"present": 60, "missing": 0, "findings": [], "expected": [], "unreadable": [], "superseded": 60,
-                 "no_prospective_row": [], "no_row_on_carrying_page": [],
-                 "first_carrying_page": (AT + timedelta(minutes=5)).isoformat()}
+                 "no_prospective_row": []}
     assert lw.audit_lines("SA", a)[0].endswith(" · superseded 60 " + lw.SUPERSEDED_NOTE)
 
 

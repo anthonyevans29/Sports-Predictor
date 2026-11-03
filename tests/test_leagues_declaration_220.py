@@ -107,7 +107,26 @@ def test_220_each_entrys_note_names_the_reader_the_code_runs_for_its_league(eid,
     if code == "PD":
         assert lw.surviving() == ["PD"] and "PD" in lw.SURVIVING_RULED
         assert "NO reader" not in note and lw.RULING_222_4B.split("verbatim: ", 1)[1] in note
-        assert "open for the architect" in note and "no reader" not in REAL[eid]["pd_note"].lower()
+        assert "no reader" not in REAL[eid]["pd_note"].lower() and "open for the architect" not in json.dumps(REAL[eid])
+        # the collision RULED (ARCHITECT 2026-11-02 18:05 ET, addendum 223 item 2(a)): the confirmation waits
+        assert "addendum 223 item 2(a), the confirmation WAITS" in note
+        assert f'"{lw.NO_ROW_TEXT}"' in note                      # the cause text as 223 item 2(c) amends it
+
+
+D2D = ('220 item 3\'s PASS clause reads as "the WINDOW step of the live needs is met": the confirmation follows, and '
+       "the Desk's calls are ruled in by their own addendum only after it.")
+
+
+@pytest.mark.parametrize("eid", DECLARED_IDS)
+def test_223_2d_each_note_says_a_pass_enters_the_60_more_confirmation_and_the_bar_stays_item_3(eid):
+    """ARCHITECT 2026-11-02 18:05 ET, addendum 223 item 2(d): "The four entries' bar text stays item 3 verbatim (the
+    test's pin); each entry's `confirmation_plan_note` gains one sentence saying a PASS enters the 60-more confirmation
+    of 158 item 2(a) — this addendum quoted." The sentence closes the note, once; the gate is item 3, unchanged."""
+    e = REAL[eid]
+    sentence = ("A PASS enters the confirmation of 60 more qualifying games at the same bar of addendum 158 item 2(a) "
+                f'(ARCHITECT 2026-11-02 18:05 ET, addendum 223 item 2(d), verbatim: "{D2D}").')
+    assert e["confirmation_plan_note"].endswith(" " + sentence) and e["confirmation_plan_note"].count(sentence) == 1
+    assert e["gate"] == ITEM3
 
 
 # -------------------------------------------------------------------------------------------- the roadmap --
@@ -138,8 +157,10 @@ def test_220_the_leagues_lane_the_11_06_step_done_bl1_moved_and_step_c_a_project
     assert "written on a release tag carrying the declaration entries" in c["what"]
     assert "carries no row labelled 2026-11-02T18:10:00Z" in c["what"]
     # addendum 222 item 4(a): those games are excluded by cause, the window still counting from the stamp
-    assert ("is EXCLUDED BY CAUSE, \"no prospective row: the entry was not on the host's tag\", named and counted by "
-            "the cohort reader and its receipt, consuming no slot (addendum 222 item 4(a)") in c["what"]
+    assert ("is EXCLUDED BY CAUSE, \"no prospective row under the entry: the entry was not on the host's tag\", named "
+            "and counted by the cohort reader and its receipt, consuming no slot (addendum 222 item 4(a), the text as "
+            "ARCHITECT 2026-11-02 18:05 ET, addendum 223 item 2(c) amends it") in c["what"]
+    assert "no prospective row: the entry" not in c["what"]
     assert rm.next_step(ln)[1] is bl1
     assert ln["earliest_live"] is None
 
@@ -459,12 +480,11 @@ from tests.test_leagues_window import _comps as w_comps  # noqa: E402
 from tests.test_leagues_window import _export as w_export  # noqa: E402
 from tests.test_leagues_window import _members, _priors, _teams, decl, ledger  # noqa: E402,F401  (ledger: a fixture)
 
-NO_ROW_LINE = ("excluded by cause (no slot): no prospective row: the entry was not on the host's tag {n} (ARCHITECT "
-               "2026-11-02, addendum 222 item 4(a); a window game with no stored prospective row in the read's export "
-               "directory, kicking off before the first page there whose tag carried the entry, or with no such page)")
-FINDING_LINE = ("FINDING · no prospective row on a page whose tag carried the entry {n} (excluded, no slot, as item "
-                "4(a)'s games are until the architect rules it; the first page carrying the entry in the read's export "
-                "directory: {first})")
+NO_ROW_LINE = ("excluded by cause (no slot): no prospective row under the entry: the entry was not on the host's tag "
+               "{n} (ARCHITECT 2026-11-02, addendum 222 item 4(a), the text as addendum 223 item 2(c) amends it; a "
+               "window game with no stored prospective row under the entry in the read's export directory, none or "
+               "one under another entry's label only, kicking off before the first page there whose binding carried "
+               "the entry, or with no such page)")
 
 
 def _drop_rows(ids, export_dir="exports"):
@@ -476,8 +496,13 @@ def _drop_rows(ids, export_dir="exports"):
 
 
 def test_222_4a_the_ruling_and_the_cause_text_are_verbatim():
-    assert lw.NO_ROW_TEXT == "no prospective row: the entry was not on the host's tag"
-    assert f'"{lw.NO_ROW_TEXT}"' in lw.RULING_222_4A
+    """ARCHITECT 2026-11-02 18:05 ET, addendum 223 item 2(c): the cause text amended, EXACTLY "no prospective row under
+    the entry: the entry was not on the host's tag"; 222 item 4(a)'s quote keeps its own words (a ruling is quoted as
+    posted)."""
+    assert lw.NO_ROW_TEXT == "no prospective row under the entry: the entry was not on the host's tag"
+    assert f'"{lw.NO_ROW_TEXT}"' in lw.RULING_223_2C
+    assert '"no prospective row: the entry was not on the host\'s tag"' in lw.RULING_222_4A
+    assert not hasattr(lw, "NO_ROW_ON_TAG") and not hasattr(lw, "NO_ROW_ON_TAG_TEXT")   # one cause, one line
     assert lw.RULING_222_4A.startswith("ARCHITECT 2026-11-02 16:35 ET, addendum 222 item 4(a), verbatim: \"the window "
                                        "of each league counts from the declaration stamp, 2026-11-02T18:10:00Z")
     assert lw.RULING_222_4A.endswith("the 60 are the first 60 SCOREABLE members in kickoff order.\"")
@@ -509,8 +534,8 @@ def test_222_4a_a_window_game_with_no_stored_row_is_excluded_by_cause_named_coun
     assert (w["stored_present"], w["stored_missing"]) == (60, 0)
     out = lw.lines({"SA": w}, W_NOW)
     i = out.index("  - SA · " + NO_ROW_LINE.format(n=2))                          # its own line, counted
-    assert out[i + 1:i + 4] == [f"    - match {m} · kickoff {ko:%Y-%m-%dT%H:%M:%SZ}" for m, ko in drop] + [
-        "  - SA · " + FINDING_LINE.format(n=0, first="none")]                    # the finding beside it, 0 counted
+    assert out[i + 1:i + 3] == [f"    - match {m} · kickoff {ko:%Y-%m-%dT%H:%M:%SZ}" for m, ko in drop]
+    assert not any("FINDING" in x for x in out)                  # one cause, one line (addendum 223 item 2(c))
     # the summary accounts for the cause (never "none" above a counted no-row line)
     assert f"  - excluded (no slot): no close: no capture 1 · {lw.NO_ROW_TEXT} 2 (listed below)" in out
     r = lw.score(w, now=W_NOW)                                                    # the receipt (R1's audit)
@@ -518,9 +543,9 @@ def test_222_4a_a_window_game_with_no_stored_row_is_excluded_by_cause_named_coun
     a = r["audit"]
     assert a[lw.NO_ROW] == drop and (a["present"], a["missing"]) == (60, 0)
     L = lw.audit_lines("SA", a)
-    assert L[-4:] == ["  - SA · " + NO_ROW_LINE.format(n=2)] + [
-        f"    - match {m} · kickoff {ko:%Y-%m-%dT%H:%M:%SZ}" for m, ko in drop] + [
-        "  - SA · " + FINDING_LINE.format(n=0, first="none")]
+    assert L[-3:] == ["  - SA · " + NO_ROW_LINE.format(n=2)] + [
+        f"    - match {m} · kickoff {ko:%Y-%m-%dT%H:%M:%SZ}" for m, ko in drop]
+    assert not any("FINDING ·" in x for x in L)
 
 
 @pytest.mark.usefixtures("iso_db")
@@ -558,16 +583,19 @@ def _page(name, exported_at, bindings, export_dir="exports"):
 
 
 @pytest.mark.usefixtures("iso_db")
-def test_222_4a_a_no_row_game_after_a_page_whose_tag_carried_the_entry_is_a_finding_never_the_rulings_text(ledger):
-    """Item 4(a)'s text says WHY a game has no row ("the host's tag carried no entry for the league when its page was
-    written"). A no-row game kicking off after the first page in the read's directory whose header binding carried
-    the entry (candidate = the entry's id, declared_at = its text) is not labelled with that text (law 4): it is a
-    FINDING, counted and named apart, on the reader's print and the audit receipt. Its slot treatment is item 4(a)'s
-    (excluded, no slot) until the architect rules it, so the members are exactly the test above's. A page whose
-    binding carried another label (soccer-expansion-v1's, another declared_at) carries nothing."""
+def test_223_2b_a_no_row_game_after_a_page_whose_binding_carried_the_entry_refuses_the_read_and_the_score(ledger):
+    """ARCHITECT 2026-11-02 18:05 ET, addendum 223 item 2(b), verbatim in part: "it REFUSES. The reader and the score
+    refuse the league's read, naming each such game (match, kickoff) and the page whose binding carried the entry, exit
+    2, nothing scored, no slot decided". A no-row game kicking off after the first page in the read's directory whose
+    header binding carried the entry (candidate = the entry's id, declared_at = its text) refuses read() and score(),
+    naming each such game and that page (its file); no FINDING line remains; a no-row game before that page keeps item
+    4(a)'s exclusion. A page whose binding carried another label (soccer-expansion-v1's, another declared_at) carries
+    nothing."""
     got = _window_62(ledger)
     w_export("SA")
-    _drop_rows({got[3][0], got[9][0]})
+    w = lw.read(("SA",), now=W_NOW)["SA"]
+    assert w["state"] == "ready" and w[lw.NO_ROW] == []                  # the window, every row present: scoreable
+    _drop_rows({got[3][0], got[9][0], got[12][0]})
     first = (got[3][1] + timedelta(hours=1)).isoformat()            # after got[3]'s kickoff, before got[9]'s
     _page("p1_other_label", (got[0][1] - timedelta(hours=1)).isoformat(),
           {"SA": {"state": "exporting", "candidate": "soccer-expansion-v1", "declared_at": "2026-10-07T15:17:38Z"}})
@@ -576,23 +604,82 @@ def test_222_4a_a_no_row_game_after_a_page_whose_tag_carried_the_entry_is_a_find
     _page("p3_carrying", first, {"SA": {"state": "exporting", "candidate": "leagues-sa-v1", "declared_at": W_AT_TEXT}})
     _page("p4_later", (got[20][1]).isoformat(),
           {"SA": {"state": "exporting", "candidate": "leagues-sa-v1", "declared_at": W_AT_TEXT}})
-    w = lw.read(("SA",), now=W_NOW)["SA"]
-    kept = [m for m, _ in got if m not in {got[3][0], got[9][0]}]
-    assert w["members"] == kept[:60] and w["n"] == 60 and w["state"] == "ready"          # slots as item 4(a)'s
-    assert w[lw.NO_ROW] == [got[3]] and w[lw.NO_ROW_ON_TAG] == [got[9]]
-    assert (w["excluded"][lw.NO_ROW], w["excluded"][lw.NO_ROW_ON_TAG]) == (1, 1)
-    assert w["first_carrying_page"] == first and w["first_carrying_file"] == f"{lw.EXPORT_PREFIX}p3_carrying.json"
-    out = lw.lines({"SA": w}, W_NOW)
-    assert (f"  - excluded (no slot): {lw.NO_ROW_TEXT} 1 (listed below) · {lw.NO_ROW_ON_TAG_TEXT} 1 (listed below)"
-            in out)
-    i = out.index("  - SA · " + NO_ROW_LINE.format(n=1))
-    assert out[i + 1:i + 4] == [f"    - match {got[3][0]} · kickoff {got[3][1]:%Y-%m-%dT%H:%M:%SZ}",
-                                "  - SA · " + FINDING_LINE.format(n=1, first=f"exported_at {first}"),
-                                f"    - match {got[9][0]} · kickoff {got[9][1]:%Y-%m-%dT%H:%M:%SZ}"]
-    assert not any(str(got[9][0]) in x for x in out[:i + 2])          # never under item 4(a)'s text
-    a = lw.score(w, now=W_NOW)["audit"]
-    assert a[lw.NO_ROW] == [got[3]] and a[lw.NO_ROW_ON_TAG] == [got[9]] and a["first_carrying_page"] == first
-    assert lw.audit_lines("SA", a)[-4:] == out[i:i + 4]               # the receipt carries the same lines
+    page = str(Path("exports") / f"{lw.EXPORT_PREFIX}p3_carrying.json")
+    r = lw.read(("SA",), now=W_NOW)["SA"]
+    assert set(r) == {"code", "declared", "id", "refused"}                 # nothing counted, no slot decided
+    why = r["refused"]
+    for mid, ko in (got[9], got[12]):                                     # each such game named (match, kickoff)
+        assert f"match {mid} kickoff {ko:%Y-%m-%dT%H:%M:%SZ}" in why
+    assert str(got[3][0]) not in why.split("): ", 1)[1]                    # before the page: item 4(a)'s, not here
+    assert f"the page whose binding carried the entry ({page}, exported_at {first})" in why
+    assert "2 window game(s)" in why and "addendum 223 item 2(b): it REFUSES" in why
+    out = lw.lines({"SA": r}, W_NOW)
+    assert out[1] == f"SA · REFUSED (leagues-sa-v1): {why}" and len(out) == 2
+    assert not any("FINDING" in x for x in out)
+    with pytest.raises(lw.WindowRefused) as err:                          # the score refuses as the read does
+        lw.score(w, now=W_NOW)
+    assert str(err.value) == why
+    # without a page carrying the entry, the same games are item 4(a)'s, excluded by cause on the one line
+    for f in Path("exports").glob(f"{lw.EXPORT_PREFIX}p[34]_*.json"):
+        f.unlink()
+    w2 = lw.read(("SA",), now=W_NOW)["SA"]
+    assert w2[lw.NO_ROW] == [got[3], got[9], got[12]] and w2["n"] == 59 and "refused" not in w2
+
+
+@pytest.mark.usefixtures("iso_db")
+def test_223_2b_the_reader_script_exits_2_on_the_refusal(ledger, tmp_path, monkeypatch, capsys):
+    """Exit 2 at the CLI (scripts/leagues_window.py): the league's REFUSED line names the game and the page."""
+    got = _window_62(ledger)
+    w_export("SA")
+    _drop_rows({got[9][0]})
+    first = (got[3][1] + timedelta(hours=1)).isoformat()
+    _page("p3_carrying", first, {"SA": {"state": "exporting", "candidate": "leagues-sa-v1", "declared_at": W_AT_TEXT}})
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{tmp_path / 'iso.db'}")
+    spec = importlib.util.spec_from_file_location("leagues_window_script_223", ROOT / "scripts" / "leagues_window.py")
+    script = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(script)
+    assert script.main([]) == 2
+    out = capsys.readouterr().out
+    assert (f"SA · REFUSED (leagues-sa-v1): SA: no prospective row under the entry for 1 window game(s) kicking off "
+            f"after the page whose binding carried the entry (exports/{lw.EXPORT_PREFIX}p3_carrying.json, exported_at "
+            f"{first}): match {got[9][0]} kickoff {got[9][1]:%Y-%m-%dT%H:%M:%SZ}") in out
+    assert "FINDING" not in out
+
+
+@pytest.mark.usefixtures("iso_db")
+def test_223_2c_a_pd_row_labelled_soccer_expansion_v1_after_the_stamp_is_not_a_member_and_is_not_read(ledger):
+    """ARCHITECT 2026-11-02 18:05 ET, addendum 223 item 2(c): "the reader NEVER reads a row under another entry's label
+    (one rule, a test pins it: a PD row labelled soccer-expansion-v1 after the stamp is not a member and is not
+    read)". PD declared at the real stamp; three PD window games hold ONLY a row labelled as v1.6.2's export labels
+    them (candidate soccer-expansion-v1, declared_at 2026-10-07T15:17:38Z, the same probabilities), on a page bound
+    to soccer-expansion-v1: none is read, none is a member, each is excluded under the one cause (no slot), and the
+    page carries nothing (no refusal)."""
+    _comps()                                                              # PD and the four
+    ledger(decl("PD", at=STAMP_TEXT))
+    t = _teams("PD")
+    _priors("PD", t, start=datetime(2026, 8, 15, 15, 0))
+    got = _members("PD", t, 62, 2000, STAMP + timedelta(hours=1))
+    w_export("PD")
+    other = {got[0][0], got[1][0], got[5][0]}
+    for f in Path("exports").glob(f"{lw.EXPORT_PREFIX}*.json"):           # those games: the old label only
+        doc = json.loads(f.read_text())
+        for r in doc["predictions"]:
+            if r["match_id"] in other:
+                r.update({"candidate": sx.EID, "declared_at": "2026-10-07T15:17:38Z"})
+        f.write_text(json.dumps(doc))
+    _page("v162_page", (STAMP + timedelta(minutes=30)).isoformat(),
+          {"PD": {"state": "exporting", "candidate": sx.EID, "declared_at": "2026-10-07T15:17:38Z"}})
+    stored = lw.stored_rows("PD", STAMP_TEXT)
+    assert not other & set(stored) and len(stored) == 59                  # not read
+    assert lw.stored_rows("PD", "2026-10-07T15:17:38Z").keys() == other   # the rows are there, under the other label
+    w = lw.read(("PD",), now=W_NOW)["PD"]
+    assert "refused" not in w and w["first_carrying_page"] is None
+    assert not other & set(w["members"]) and w["n"] == 59                 # not a member
+    assert w[lw.NO_ROW] == [got[0], got[1], got[5]] and w["excluded"][lw.NO_ROW] == 3   # one cause, one count
+    out = lw.lines({"PD": w}, W_NOW)
+    assert "  - PD · " + NO_ROW_LINE.format(n=3) in out
+    assert f"  - excluded (no slot): {lw.NO_ROW_TEXT} 3 (listed below)" in out
+    assert not any("FINDING" in x for x in out)
 
 
 @pytest.mark.usefixtures("iso_db")

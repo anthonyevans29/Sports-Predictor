@@ -41,10 +41,10 @@ when given (a UTC instant, "...Z"); a league with no entry (BL1 until its declar
 (a kickoff, a status, its raw code, the round label, an id; an AWD/WO row and a play-off-round row get no slot, as the
 cohort reader gives them none): no score, no capture, no price, so it reads no figure of either arm on any game. A
 projection: every other game is assumed to get a three-way close AND a stored prospective row; the window games the
-cohort reader excludes for having no row (addendum 222 item 4(a), "no prospective row: the entry was not on the host's
-tag") are named and counted by the reader (scripts/leagues_window.py) and its audit receipt, never here, and each one
-moves a league's 60th one fixture later. An entry
-whose declared_at is not a UTC instant, or whose competition is not the league's, is REFUSED (exit 2) for that league;
+cohort reader excludes for having no row (addendum 222 item 4(a), "no prospective row under the entry: the entry was
+not on the host's tag", the text as ARCHITECT 2026-11-02 18:05 ET, addendum 223 item 2(c) amends it) are named and
+counted by the reader (scripts/leagues_window.py) and its audit receipt, never here, and each one moves a league's
+60th one fixture later. An entry whose declared_at is not a UTC instant, or whose competition is not the league's, is REFUSED (exit 2) for that league;
 the others still print.
 
 --db PATH (ADDENDUM 198 item 6(ii), ARCHITECT 2026-11-01 10:05 ET: "every `--db` on a copy opens it with

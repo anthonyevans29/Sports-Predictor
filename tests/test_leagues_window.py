@@ -606,21 +606,21 @@ def test_the_print_is_counts_only_at_every_state_and_ready_says_the_read_is_item
     assert "BL1 · declared_at 2026-11-06T14:30:00Z" in out and "members 0 of 60 · state accruing" in out
     # addendum 222 item 4(a): BL1's five games hold no row: excluded by cause on their own line, each named; finding
     # 17: the reader says what it read (the directory), never who wrote nothing
-    assert ("  - BL1 · excluded by cause (no slot): no prospective row: the entry was not on the host's tag 5 "
-            "(ARCHITECT 2026-11-02, addendum 222 item 4(a); a window game with no stored prospective row in the "
-            "read's export directory, kicking off before the first page there whose tag carried the entry, or with no "
-            "such page)") in out
+    assert ("  - BL1 · excluded by cause (no slot): no prospective row under the entry: the entry was not on the host's "
+            "tag 5 (ARCHITECT 2026-11-02, addendum 222 item 4(a), the text as addendum 223 item 2(c) amends it; a "
+            "window game with no stored prospective row under the entry in the read's export directory, none or one "
+            "under another entry's label only, kicking off before the first page there whose binding carried the "
+            "entry, or with no such page)") in out
     # the summary line accounts for the cause (never "none" above a counted no-row line)
-    assert ("  - excluded (no slot): no prospective row: the entry was not on the host's tag 5 (listed below)"
-            in out.splitlines())
-    assert ("  - BL1 · FINDING · no prospective row on a page whose tag carried the entry 0 (excluded, no slot, as "
-            "item 4(a)'s games are until the architect rules it; the first page carrying the entry in the read's "
-            "export directory: none)") in out
+    assert ("  - excluded (no slot): no prospective row under the entry: the entry was not on the host's tag 5 "
+            "(listed below)" in out.splitlines())
+    assert "FINDING" not in out                     # one cause, one count, one line (addendum 223 item 2(c))
     assert "    - match 4000 · kickoff 2026-11-06T15:30:00Z" in out and "    - match 4004 · kickoff" in out
     # the directory holds SA's export file: the print says what it found there, never "a read elsewhere" (law 4)
     assert ("members holding one 0 · read from exports (none labelled 2026-11-06T14:30:00Z among the 1 shadow export "
             "file(s) there)") in out
-    assert "  - SA · excluded by cause (no slot): no prospective row: the entry was not on the host's tag 0" in out
+    assert ("  - SA · excluded by cause (no slot): no prospective row under the entry: the entry was not on the host's "
+            "tag 0") in out
     assert "members holding one 60 · read from exports" in out
     assert "SA · NOT DECLARED" not in out
     assert "FL1 · NOT DECLARED (no registry entry leagues-fl1-v1): no window" in out
@@ -689,8 +689,7 @@ def test_score_recomputes_both_arms_on_the_60_and_refuses_before_ready(ledger):
     assert r["verdict"] == lw.verdict_of(r["ll_candidate"], r["ll_close"])
     # every member holds its row (addendum 222 item 4(a)); _export wrote the recompute, rounded: no difference
     assert r["audit"] == {"present": 60, "missing": 0, "findings": [], "expected": [], "unreadable": [],
-                          "superseded": 0, "no_prospective_row": [], "no_row_on_carrying_page": [],
-                          "first_carrying_page": None}
+                          "superseded": 0, "no_prospective_row": []}
     # D4's two lines print with no difference too, both counted 0 (findings 13/21: neither silent); 222 4(a)'s line too
     assert lw.audit_lines("SA", r["audit"]) == [
         "  - SA · stored prospective rows: present 60 · differ from the recompute 0 (R1: never resolved either way) · "
@@ -699,12 +698,11 @@ def test_score_recomputes_both_arms_on_the_60_and_refuses_before_ready(ledger):
         "(addendum 185 D4)",
         "  - SA · EXPECTED 0: differences on rows with pending_before > 0 (exported before an earlier game was final; "
         "addendum 185 D4)",
-        "  - SA · excluded by cause (no slot): no prospective row: the entry was not on the host's tag 0 (ARCHITECT "
-        "2026-11-02, addendum 222 item 4(a); a window game with no stored prospective row in the read's export "
-        "directory, kicking off before the first page there whose tag carried the entry, or with no such page)",
-        "  - SA · FINDING · no prospective row on a page whose tag carried the entry 0 (excluded, no slot, as item "
-        "4(a)'s games are until the architect rules it; the first page carrying the entry in the read's export "
-        "directory: none)"]
+        "  - SA · excluded by cause (no slot): no prospective row under the entry: the entry was not on the host's tag 0 "
+        "(ARCHITECT 2026-11-02, addendum 222 item 4(a), the text as addendum 223 item 2(c) amends it; a window game "
+        "with no stored prospective row under the entry in the read's export directory, none or one under another "
+        "entry's label only, kicking off before the first page there whose binding carried the entry, or with no "
+        "such page)"]
     with pytest.raises(lw.WindowRefused, match="the one read is at the 60th member"):
         lw.score({**w, "state": "waiting"})
     with pytest.raises(lw.WindowRefused):
@@ -751,13 +749,11 @@ def test_the_audit_counts_a_stored_row_that_differs_from_the_recompute(ledger, t
         " · pending_before not on the row")
     assert L[3:] == ["  - SA · EXPECTED 0: differences on rows with pending_before > 0 (exported before an earlier "
                      "game was final; addendum 185 D4)",
-                     "  - SA · excluded by cause (no slot): no prospective row: the entry was not on the host's tag 0 "
-                     "(ARCHITECT 2026-11-02, addendum 222 item 4(a); a window game with no stored prospective row in "
-                     "the read's export directory, kicking off before the first page there whose tag carried the "
-                     "entry, or with no such page)",
-                     "  - SA · FINDING · no prospective row on a page whose tag carried the entry 0 (excluded, no "
-                     "slot, as item 4(a)'s games are until the architect rules it; the first page carrying the entry "
-                     "in the read's export directory: none)"]
+                     "  - SA · excluded by cause (no slot): no prospective row under the entry: the entry was not on "
+                     "the host's tag 0 (ARCHITECT 2026-11-02, addendum 222 item 4(a), the text as addendum 223 item "
+                     "2(c) amends it; a window game with no stored prospective row under the entry in the read's "
+                     "export directory, none or one under another entry's label only, kicking off before the first "
+                     "page there whose binding carried the entry, or with no such page)"]
 
 
 # ------------------------------------------------------------------------------------------------ the fence --

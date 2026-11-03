@@ -60,9 +60,13 @@ the bar is 155 item 4(b)'s (below the close's log-loss), not league_gate's."
   three-way close as paper scores it (paper._guarded_three_way at the kickoff: mismatched legs, or UNPRICED's cause
   -> excluded by cause); then the candidate (leagues_candidate.predict_as_of on the finished rows strictly before
   the kickoff, the entry's frozen constants): below_min_prior / no_strength -> excluded by cause, no slot; then
-  the stored prospective row (stored_rows, the read's own export directory): NONE -> EXCLUDED BY CAUSE, NO_ROW_TEXT,
-  no slot, named (match, kickoff) on its own line (RULING_222_4A below: addendum 199 item 4's pattern); else a
-  MEMBER. Counting stops at the 60th member: the 60 are the first 60 SCOREABLE members in kickoff order. A FINISHED row with no raw status code and both scores stored is a
+  the stored prospective row under the entry (stored_rows, the read's own export directory; a row under another
+  entry's label is never read, RULING_223_2C): NONE -> EXCLUDED BY CAUSE, NO_ROW_TEXT, no slot, named (match,
+  kickoff) on its own line (RULING_222_4A below: addendum 199 item 4's pattern; the text as RULING_223_2C amends it),
+  unless it kicks off after a page in that directory whose binding carried the entry: then the league's read
+  REFUSES (RULING_223_2B), naming each such game and the page; else a MEMBER. Counting stops at the 60th member:
+  the 60 are the first 60 SCOREABLE members in kickoff order. A FINISHED row with no raw status code and both scores
+  stored is a
   MEMBER scored on its stored score (C1 wins, addendum 181 item 3: it is not a non-FT row, its full-time score is its
   result) and is LISTED as C2 lists it (soccer_expansion.c2_line, walk_census's line: id, kickoff, teams, raw code,
   scores).
@@ -105,13 +109,21 @@ the bar is 155 item 4(b)'s (below the close's log-loss), not league_gate's."
 The reader prints COUNTS ONLY (R2): no log-loss, probability, hit or any running figure of either arm, before n = 60
 or (in this PR) at it.
 ADDENDUM 222 item 4 (ARCHITECT 2026-11-02 16:35 ET, THE LEAGUES PR, 220 item 5), (a) and (b) verbatim in RULING_222_4A
-and RULING_222_4B below. (a): the reader cannot see the host's tag; a window game with no stored row in the read's
-export directory is excluded under NO_ROW_TEXT whatever kept the row away, and is named, so a read where the host's
-files are not (another machine, another --exports) excludes every game it finds no row for and says so line by line.
+and RULING_222_4B below. (a): the reader cannot see the host's tag; a window game with no stored row under the entry in
+the read's export directory, kicking off before the first page there whose binding carried the entry (or with no such
+page), is excluded under NO_ROW_TEXT and named, so a read where the host's files are not (another machine, another
+--exports) excludes every game it finds no row for and says so line by line. ADDENDUM 223 item 2 (ARCHITECT
+2026-11-02 18:05 ET), (b) and (c) verbatim in RULING_223_2B and RULING_223_2C below: a no-row game kicking off after a
+page whose binding carried the entry REFUSES the league's read and the score (WindowRefused, exit 2 at the CLI: each
+game named (match, kickoff) and the page (its file); nothing scored, no slot decided) until a ruled exclusion clears
+it (a follow-up Issue, not built here); the cause text is amended to "no prospective row under the entry: the entry
+was not on the host's tag", one cause, one count, one line, and a row under another entry's label (PD's rows under
+soccer-expansion-v1's, declared_at 2026-10-07T15:17:38Z) is never read: its game is excluded under that one cause.
 (b): PD is in DECLARATION_IDS, so fence_cutoff / fence_refusal (guards_backtest), read(), checked() and score() cover
 it from 2026-11-02T18:10:00Z, and soccer_expansion.shadow_binding binds PD's export to leagues-pd-v1 when the entry is
 in the registry the export reads. The soccer-expansion-v1 confirmation (soccer_expansion.confirmation_read) walks PD
-only through the cut and leaves its cohort's games after it pending as fenced (the collision is the architect's).
+only through the cut and leaves its cohort's games after it pending as fenced (the collision RULED, ARCHITECT
+2026-11-02 18:05 ET, addendum 223 item 2(a): the confirmation waits; as built).
 """
 from __future__ import annotations
 
@@ -144,15 +156,20 @@ RULING_222_4B = ("ARCHITECT 2026-11-02 16:35 ET, addendum 222 item 4(b), verbati
 # The surviving-set leagues a window is ruled on (checked() refuses any other: its confirmation reads its results
 # outside the cohort reader, Codex on #733).
 SURVIVING_RULED = {"PD": RULING_222_4B}
-NO_ROW = "no_prospective_row"                 # addendum 222 item 4(a)'s cause: its key and its text, verbatim
-NO_ROW_TEXT = "no prospective row: the entry was not on the host's tag"
-# A window game with no stored row that kicks off AFTER the first export page in the read's directory whose header
-# binding carried the entry (candidate = the entry's id, declared_at = its text): item 4(a)'s premise ("the host's
-# tag carried no entry for the league when its page was written") does not hold for it, so it is never labelled with
-# NO_ROW_TEXT (law 4). A FINDING, counted and named apart; its slot treatment is item 4(a)'s (excluded, no slot)
-# until the architect rules it (the PR's open question 9): nothing new is decided here.
-NO_ROW_ON_TAG = "no_row_on_carrying_page"
-NO_ROW_ON_TAG_TEXT = "no prospective row on a page whose tag carried the entry"
+RULING_223_2B = ("ARCHITECT 2026-11-02 18:05 ET, addendum 223 item 2(b), verbatim in part: \"Q9, A MISSING ROW ON A "
+                 "PAGE WHOSE TAG CARRIED THE ENTRY — RULED: it REFUSES. The reader and the score refuse the league's "
+                 "read, naming each such game (match, kickoff) and the page whose binding carried the entry, exit "
+                 "2, nothing scored, no slot decided — law 4: a cause the reader did not establish is not a cause, "
+                 "and a partial `--exports` copy would otherwise drop a game whose row exists on the host.\"")
+RULING_223_2C = ("ARCHITECT 2026-11-02 18:05 ET, addendum 223 item 2(c), verbatim in part: \"Q11, PD'S ROWS UNDER THE "
+                 "OTHER LABEL — RULED: EXCLUDED BY CAUSE, no slot, under 4(a)'s mechanism, and the reader NEVER reads "
+                 "a row under another entry's label (one rule, a test pins it: a PD row labelled soccer-expansion-v1 "
+                 "after the stamp is not a member and is not read). The cause text is amended so its premise is "
+                 "literally true for both kinds — no row at all (ELC's midweek games) and a row under the earlier "
+                 "entry (PD's games priced on v1.6.2 after the stamp): \"no prospective row under the entry: the "
+                 "entry was not on the host's tag\". One cause, one count, one line.\"")
+NO_ROW = "no_prospective_row"         # addendum 222 item 4(a)'s cause: its key; its text as 223 item 2(c) amends it
+NO_ROW_TEXT = "no prospective row under the entry: the entry was not on the host's tag"
 LEAGUE_FIELD = "competition"                  # the entry's league field (181 item 6: equal to the code looked up)
 # Addendum 181 item 1(b): the pre-declaration fence's cut, the addendum's posted instant (11:00 ET), naive UTC as the
 # matches table and parse_instant read it. A UTC instant in code, never a date.
@@ -383,7 +400,9 @@ def stored_rows(code: str, declared_at: str | None, export_dir: str = "exports")
     the tied row is counted; with stamps to the second and an exclusive name per run, a tie needs a copied file).
     A reader's annotation beside `exported_at`, never a field of the file.
     The files are read by export_pages, which REFUSES naming any file it cannot read (never skipped: since addendum
-    222 item 4(a) a skipped file would exclude its games by a cause never established)."""
+    222 item 4(a) a skipped file would exclude its games by a cause never established).
+    RULING_223_2C's one rule: a row under another entry's label is never read (PD's rows under soccer-expansion-v1's
+    label, declared_at 2026-10-07T15:17:38Z, are not this entry's rows: their games hold no row under the entry)."""
     out: dict[int, dict] = {}
     if not declared_at:
         return out
@@ -433,18 +452,19 @@ def carrying_page(code: str, entry_id: str | None, declared_at: str | None, expo
     `exported_at` (naive isoformat, compared as text, as stored_rows compares it) among the files whose
     `bindings[code]` holds candidate == `entry_id` and declared_at == `declared_at` (soccer_expansion.export_shadow
     writes the binding of every league in each file's header, whatever its state). {"first": that exported_at or
-    None, "file": its name or None, "pages": the directory's export files}. Read so that addendum 222 item 4(a)'s
-    cause text is used only where its premise can hold (NO_ROW_ON_TAG). Refuses as export_pages does."""
+    None, "file": its name or None, "path": its path or None, "pages": the directory's export files}. Read so that
+    addendum 222 item 4(a)'s cause is used only where its premise can hold: a no-row game kicking off after that page
+    refuses the read (RULING_223_2B). Refuses as export_pages does."""
     pages = export_pages(export_dir)
-    first, name = None, None
+    first, name, path = None, None, None
     if entry_id and declared_at:
         for f, doc in pages:
             b = (doc.get("bindings") or {}).get(code) if isinstance(doc.get("bindings"), dict) else None
             at = doc.get("exported_at")
             if (isinstance(b, dict) and b.get("candidate") == entry_id and b.get("declared_at") == declared_at
                     and isinstance(at, str) and at and (first is None or at < first)):
-                first, name = at, f.name
-    return {"first": first, "file": name, "pages": len(pages)}
+                first, name, path = at, f.name, str(f)
+    return {"first": first, "file": name, "path": path, "pages": len(pages)}
 
 
 def _stored_probs(row: dict) -> tuple[float, float, float] | None:
@@ -515,16 +535,16 @@ def disagrees(m) -> bool:
 
 
 def membership(s, code: str, declared_at: datetime, constants: dict, now: datetime, stored: dict,
-               first_page: str | None = None) -> dict:
+               first_page: str | None = None, first_file: str | None = None) -> dict:
     """The window of one declared league as of `now` (the module docstring's order). Counts and ids only: the
     probabilities predict_as_of returns are discarded here and recomputed by score() at the read (R1).
     `stored`: stored_rows(code, the entry's declared_at text, the read's export directory). A game that passes every
     other step and has no row in it is EXCLUDED BY CAUSE (NO_ROW, NO_ROW_TEXT; RULING_222_4A), takes no slot and is
     listed in `no_prospective_row` as (match id, kickoff); only its presence is read here, never its figures.
-    `first_page`: carrying_page()'s "first" (the exported_at of the first page in that directory whose tag carried
-    the entry), or None. A no-row game kicking off AFTER it is not labelled with item 4(a)'s text (its premise does not
-    hold): it is a FINDING under NO_ROW_ON_TAG, listed in `no_row_on_carrying_page`, and takes no slot as item 4(a)'s
-    games do, until the architect rules it."""
+    `first_page`: carrying_page()'s "first" (the exported_at of the first page in that directory whose binding
+    carried the entry), or None; `first_file`: that page's file. A no-row game kicking off AFTER it REFUSES the read
+    (RULING_223_2B: WindowRefused naming each such game, match and kickoff, and the page; nothing scored, no slot
+    decided), never labelled with item 4(a)'s cause (its premise does not hold)."""
     from sqlalchemy import select
 
     from src.db.schema import Competition, Match
@@ -546,7 +566,8 @@ def membership(s, code: str, declared_at: datetime, constants: dict, now: dateti
            "stored_games": len(games), "at_or_before": 0, "postponed_before": 0, "members": [],
            "excluded": Counter(), "pending": Counter(), "to_come": 0, "not_placed": 0, "blocking": 0,
            "awarded_released": [], "no_raw_code_members": [], "score_disagreement": [], "disagreement_before": 0,
-           NO_ROW: [], NO_ROW_ON_TAG: [], "first_carrying_page": first_page}
+           NO_ROW: [], "first_carrying_page": first_page}
+    on_tag = []                      # RULING_223_2B: no row although a page carrying the entry precedes the kickoff
     for m in games:
         if m.utc_date is not None and m.utc_date > declared_at:
             continue
@@ -613,14 +634,22 @@ def membership(s, code: str, declared_at: datetime, constants: dict, now: dateti
             out["excluded"][why] += 1
             continue
         if m.id not in stored:       # addendum 222 item 4(a): no stored prospective row -> excluded by cause, no slot
-            # its text only where its premise can hold: no page carrying the entry, or one written after the kickoff
-            k = NO_ROW_ON_TAG if first_page is not None and m.utc_date.isoformat() > first_page else NO_ROW
-            out["excluded"][k] += 1
-            out[k].append((m.id, m.utc_date))
+            if first_page is not None and m.utc_date.isoformat() > first_page:
+                on_tag.append((m.id, m.utc_date))   # its premise does not hold: the read refuses (223 item 2(b))
+                continue
+            out["excluded"][NO_ROW] += 1
+            out[NO_ROW].append((m.id, m.utc_date))
             continue
         out["members"].append(m.id)
         if not _raw(m):              # 181 item 3: C1's member, scored on its stored score and listed as C2 lists it
             out["no_raw_code_members"].append(m)
+    if on_tag:
+        raise WindowRefused(
+            f"{code}: no prospective row under the entry for {len(on_tag)} window game(s) kicking off after the page "
+            f"whose binding carried the entry ({first_file or 'its file not named'}, exported_at {first_page}): "
+            + "; ".join(f"match {mid} kickoff {ko:%Y-%m-%dT%H:%M:%SZ}" for mid, ko in on_tag)
+            + " (ARCHITECT 2026-11-02 18:05 ET, addendum 223 item 2(b): it REFUSES; nothing scored, no slot decided; "
+            "cleared only by a ruled exclusion)")
     n = len(out["members"])
     mine = set(out["members"])
     last_ko = max((m.utc_date for m in after if m.id in mine), default=None)
@@ -658,7 +687,8 @@ def read(codes=READ_CODES, now: datetime | None = None, export_dir: str = "expor
     """{code: window | {"declared": False} | {"refused": why}} for each league (READ_CODES: PD and the four). Read-only:
     one mode=ro session per league (src.db.database.readonly_scope: no connect hook, no commit, a missing file
     refused, never created). The stored rows are read from `export_dir` BEFORE membership, which excludes a game
-    without one by cause (addendum 222 item 4(a)); an export file that cannot be read refuses the league (law 4,
+    without one by cause (addendum 222 item 4(a)), or refuses the league when the game kicks off after a page whose
+    binding carried the entry (addendum 223 item 2(b)); an export file that cannot be read refuses the league (law 4,
     export_pages), never excludes its games. Never scores (R2)."""
     from src.db.database import ReadOnlyRefused, readonly_scope
     from src.timeutil import utc_now_naive
@@ -674,7 +704,7 @@ def read(codes=READ_CODES, now: datetime | None = None, export_dir: str = "expor
             stored = stored_rows(code, e.get("declared_at"), export_dir)     # refuses on an unreadable export file
             page = carrying_page(code, e.get("id"), e.get("declared_at"), export_dir)
             with readonly_scope() as s:
-                w = membership(s, code, at, constants, now, stored, page["first"])
+                w = membership(s, code, at, constants, now, stored, page["first"], page["path"])
         except (WindowRefused, ReadOnlyRefused) as err:
             out[code] = {"code": code, "declared": True, "id": e["id"], "refused": str(err)}
             continue
@@ -752,19 +782,14 @@ def _game_lines(games) -> list[str]:
             for mid, ko in games]
 
 
-def no_row_lines(code: str, games, on_tag=(), first_page: str | None = None) -> list[str]:
-    """Addendum 222 item 4(a)'s exclusion on its own line, counted (0 included), each game named (match, kickoff);
-    then the FINDING line (NO_ROW_ON_TAG: no row although a page in the read's directory whose tag carried the entry
-    was written before the kickoff), counted (0 included) and each game named, with that first page's exported_at:
-    the reader's print and the audit receipt both carry both."""
+def no_row_lines(code: str, games) -> list[str]:
+    """Addendum 222 item 4(a)'s exclusion on its own line, counted (0 included), each game named (match, kickoff):
+    one cause, one count, one line (addendum 223 item 2(c)); the reader's print and the audit receipt both carry it."""
     return ([f"  - {code} · excluded by cause (no slot): {NO_ROW_TEXT} {len(games)} (ARCHITECT 2026-11-02, addendum "
-             "222 item 4(a); a window game with no stored prospective row in the read's export directory, kicking "
-             "off before the first page there whose tag carried the entry, or with no such page)"]
-            + _game_lines(games)
-            + [f"  - {code} · FINDING · {NO_ROW_ON_TAG_TEXT} {len(list(on_tag))} (excluded, no slot, as item 4(a)'s "
-               "games are until the architect rules it; the first page carrying the entry in the read's export "
-               f"directory: {'exported_at ' + first_page if first_page else 'none'})"]
-            + _game_lines(on_tag))
+             "222 item 4(a), the text as addendum 223 item 2(c) amends it; a window game with no stored prospective "
+             "row under the entry in the read's export directory, none or one under another entry's label only, "
+             "kicking off before the first page there whose binding carried the entry, or with no such page)"]
+            + _game_lines(games))
 
 
 def audit_lines(code: str, a: dict) -> list[str]:
@@ -793,7 +818,7 @@ def audit_lines(code: str, a: dict) -> list[str]:
              "before an earlier game was final; addendum 185 D4)")
     L.extend(one("EXPECTED", f) for f in a["expected"])
     if NO_ROW in a:                                      # addendum 222 item 4(a): named and counted on the receipt
-        L.extend(no_row_lines(code, a[NO_ROW], a.get(NO_ROW_ON_TAG) or (), a.get("first_carrying_page")))
+        L.extend(no_row_lines(code, a[NO_ROW]))
     return L
 
 
@@ -806,8 +831,9 @@ def score(window: dict, export_dir: str | None = None, now: datetime | None = No
     under the read: a finding, never silently dropped). Returns aggregate()'s figures and verdict on the 60, plus the
     audit of the stored rows. `export_dir`: the stored rows' directory, the window's own (read()'s) when not given;
     the cohort is re-derived on those rows, so its games with none (addendum 222 item 4(a)) are excluded by cause again
-    and named on the audit receipt (`audit`'s `no_prospective_row`). Read-only: one mode=ro session
-    (readonly_scope)."""
+    and named on the audit receipt (`audit`'s `no_prospective_row`), and a no-row game kicking off after a page whose
+    binding carried the entry refuses the score as it refuses the read (addendum 223 item 2(b)). Read-only: one
+    mode=ro session (readonly_scope)."""
     from src.db.database import readonly_scope
     from src.db.schema import Match
     from src.walters import kalshi_legs
@@ -830,7 +856,8 @@ def score(window: dict, export_dir: str | None = None, now: datetime | None = No
         # Codex on #733: the cohort is re-derived in THIS transaction; a fixture, result or close ingested since the
         # read could put another game before the 60th, so the ids and the state must match the read's or nothing
         # is scored (never games 2-61 for 1-60).
-        fresh = membership(s, code, window["declared_at"], c, now or utc_now_naive(), stored, page["first"])
+        fresh = membership(s, code, window["declared_at"], c, now or utc_now_naive(), stored, page["first"],
+                           page["path"])
         if fresh["state"] != "ready" or fresh["members"] != ids:
             raise WindowRefused(f"{code}: the window moved between the read and the score (state "
                                 f"{fresh['state']!r}; members {'unchanged' if fresh['members'] == ids else 'changed'}"
@@ -857,8 +884,6 @@ def score(window: dict, export_dir: str | None = None, now: datetime | None = No
     out = aggregate(pairs)
     a = audit(stored, recomputed)
     a[NO_ROW] = list(fresh[NO_ROW])          # addendum 222 item 4(a): named and counted on the receipt
-    a[NO_ROW_ON_TAG] = list(fresh[NO_ROW_ON_TAG])                  # and the FINDING beside it (NO_ROW_ON_TAG)
-    a["first_carrying_page"] = page["first"]
     out.update({"code": code, "match_ids": ids, "constants": dict(c), "audit": a})
     return out
 
@@ -894,9 +919,8 @@ def lines(res: dict, now: datetime) -> list[str]:
                  + (f" · score disagreement {w['disagreement_before']} (pending, below)"
                     if w.get("disagreement_before") else ""))
         L.append(f"  - excluded (no slot): "
-                 f"{_causes(w['excluded'], EXCLUDED, ((NO_ROW, NO_ROW_TEXT), (NO_ROW_ON_TAG, NO_ROW_ON_TAG_TEXT)))}")
-        L.extend(no_row_lines(code, w.get(NO_ROW) or [], w.get(NO_ROW_ON_TAG) or [],   # addendum 222 item 4(a): its
-                              w.get("first_carrying_page")))                           # own lines, each game named
+                 f"{_causes(w['excluded'], EXCLUDED, ((NO_ROW, NO_ROW_TEXT),))}")
+        L.extend(no_row_lines(code, w.get(NO_ROW) or []))   # addendum 222 item 4(a): its own line, each game named
         pend = Counter(w["pending"])
         L.append(f"  - pending (the read waits for them): scheduled {w['to_come']} · LIVE {pend['live']} · un-ingested "
                  f"{pend['uningested']}" + "".join(f" · {text} {pend[key]}" for key, text in PENDING[3:]
@@ -918,7 +942,7 @@ def lines(res: dict, now: datetime) -> list[str]:
         L.append(f"  - stored prospective rows (R1's audit receipt): members holding one {w['stored_present']}"
                  + (f" · members without one {w['stored_missing']}" if w["stored_missing"] else "")
                  + f" · read from {w.get('export_dir', 'exports')}"
-                 + ("" if w["stored_present"] or not (w.get(NO_ROW) or w.get(NO_ROW_ON_TAG)) else
+                 + ("" if w["stored_present"] or not w.get(NO_ROW) else
                     " (none found there; the host's shadow export writes them in the host's exports/, so a read "
                     "elsewhere finds none and excludes every game above by that cause)" if not w.get("export_pages")
                     else f" (none labelled {w.get('declared_at_text')} among the {w['export_pages']} shadow export "

@@ -150,11 +150,13 @@ The laptop closes every live-model family by itself (ARCHITECT 2026-10-09, adden
   **The would-be line (ARCHITECT 2026-11-02, addendum 217 item 4):** while the registry does not read the NFL model
   certified (`registry.certification_of` on `nfl_predict.MODEL_VERSION`; an unread registry, a missing entry or a
   failed read is never judged certified and never blocks the page), an NFL row the Desk called
-  PASS market-only whose record-only would-be call (`desk.market_only_hold.would_call`) is PLAY gets its own line,
-  naming its game: `<game> · would-be PLAY (uncertified, unstaked) <pick> <units>u · exec <edge> · <QB-flagged | QB list
-  unread | QB inputs clean> · record only, not placed`. The QB class reads the QB hold's own tags (`CLOSING_HOLDS`). No
-  order, no hold text, never a PLAY line; the row stays a PASS in the count and never makes the page high priority.
-  The summary block and the receipt's Desk row carry it too (`would_be`, only on such a row).
+  PASS market-only whose record-only would-be call (`desk.market_only_hold.would_call`) is PLAY gets one line in the
+  closing summary block (the console), under its game: `would-be PLAY (uncertified, unstaked) <pick> <units>u · exec
+  <edge> · <QB-flagged | QB list unread | QB inputs clean> · record only, not placed`, and the receipt's Desk row
+  carries it (`would_be`, only on such a row). The QB class reads the QB hold's own tags (`CLOSING_HOLDS`). It is NOT
+  on the phone page's text (ARCHITECT 2026-11-02 18:05 ET, addendum 223 item 3: "the per-game line comes OFF THE PHONE
+  PAGE's text; it lives in the summary block and the receipt only"): the NFL closing and slate pages carry no PLAY
+  (#778's pin). The row stays a PASS in the count and never makes the page high priority.
 - **Notices:** `Closing <FAMILY> <start ET>: FAILED: <what> · attempt n/3` (the third says no further attempt will
   run), `… REFUSED: <why>` (once per start time and reason), `… MISSED: <why>` (the lock came inside T-5; a start
   time first seen inside T-5), `MLB feed unreachable: VPN on, Tailscale off`.

@@ -11,10 +11,15 @@ the n=30 counter and the pooled line are what they are without the would-be rows
 carries, so a later certification (a registry fixture) moves no count and keeps the line (only its head text follows the
 registry); certified with neither a would-be row nor a #446 row, there is no line; an unread registry, a missing entry
 and an empty registry are never judged certified, and the head names nfl_predict.MODEL_VERSION; (4) #446's thirty-row count is PLAY + would-be, each labelled; (5) the other families' lines
-are byte-identical; (6) the closing page, its summary block and its receipt carry the line, the PASS count, the priority
-and every other family's rows unchanged, and a failed certification read or import never blocks the page. Read-only: the tracked registry is read, never written."""
+are byte-identical; (6) the closing summary block and the run receipt carry the line and the phone page's text does not
+(ARCHITECT 2026-11-02 18:05 ET, addendum 223 item 3: "the per-game line comes OFF THE PHONE PAGE's text; it lives in
+the summary block and the receipt only"; #778's pin, no PLAY on the NFL closing or slate page, stands byte for byte in
+tests/test_nfl_market_only_214.py), the PASS count, the priority and every other family's rows unchanged, and a failed
+certification read or import never blocks the page. Read-only: the tracked registry is read, never written."""
 import json
+import re
 from datetime import timedelta
+from pathlib import Path
 
 import pytest
 
@@ -40,7 +45,7 @@ C446 = ("#446's thirty-row count (addendum 44 item 9: rows with a QB flag or an 
 @pytest.fixture
 def certified(tmp_path, monkeypatch):
     """A registry fixture whose nfl-elo-v1 entry is certified (the state before addendum 214, and after a PASS read)."""
-    entries = json.loads(open(reg.LEDGER).read())
+    entries = json.loads(Path(reg.LEDGER).read_text())
     for e in entries:
         if e.get("model_version") == "nfl_elo_v1":
             e["certification"] = "certified (fixture)"
@@ -161,7 +166,7 @@ def test_rows_written_while_uncertified_count_the_same_after_a_certification(tmp
     ex, _ = _world(tmp_path)
     before = xc.tally(ex)
     line_before = _lines(_section(ex), f"- NFL · {LABEL}")
-    entries = json.loads(open(reg.LEDGER).read())
+    entries = json.loads(Path(reg.LEDGER).read_text())
     for e in entries:
         if e.get("model_version") == "nfl_elo_v1":
             e["certification"] = "certified (fixture)"
@@ -245,7 +250,7 @@ def test_the_line_names_the_model_the_registry_is_read_on(tmp_path, monkeypatch)
     assert line.startswith(HEAD.format(state="certification not read for nfl_elo_v2: no registry entry for "
                                              "nfl_elo_v2") + "3 · ")
     assert "nfl_elo_v1" not in line
-    entries = json.loads(open(reg.LEDGER).read()) + [{"id": "nfl-elo-v2", "model_version": "nfl_elo_v2",
+    entries = json.loads(Path(reg.LEDGER).read_text()) + [{"id": "nfl-elo-v2", "model_version": "nfl_elo_v2",
                                                       "certification": "UNCERTIFIED — fixture"}]
     p = tmp_path / "v2.json"
     p.write_text(json.dumps(entries))
@@ -358,7 +363,9 @@ def _page(fam="NFL"):
     return cl, rows, body, high
 
 
-def test_the_closing_page_gives_each_would_be_play_its_line_with_the_qb_class():
+def test_the_would_be_line_is_off_the_phone_page_and_in_the_summary_block_with_the_qb_class():
+    """Addendum 223 item 3: the per-game line is in the summary block (one per would-be game, its QB class) and never
+    in the phone page's text, which carries no PLAY at all."""
     cl, rows, body, high = _page()
     by = {x["home"]: x for x in rows}
     assert {h for h, x in by.items() if "would_be" in x} == {"Qb", "InjEmpty", "Play"}
@@ -368,18 +375,17 @@ def test_the_closing_page_gives_each_would_be_play_its_line_with_the_qb_class():
     lines = body.splitlines()
     q = by["Qb"]["would_be"]
     assert (q["units"], q["exec_edge_pp"]) == (0.5, 7.2)
-    assert lines[1:7] == [                         # one line per would-be game, its game named (B4), wrapped (C5)
-        f"Qb away @ Qb · {LABEL} Qb 0.5u · exec +7.2pp · QB-flagged",
-        "  record only, not placed",
-        f"InjEmpty away @ InjEmpty · {LABEL} InjEmpty 0.5u · exec +7.2pp",
-        "  QB list unread · record only, not placed",
-        f"Play away @ Play · {LABEL} Play 1u · exec +7.3pp · QB inputs clean",
-        "  record only, not placed"]
-    assert sum(1 for x in lines if LABEL in x) == 3 and all(len(x) <= cl.PAGE_MAX_CHARS for x in lines)
+    assert not any(LABEL in x or "would-be" in x or "record only, not placed" in x for x in lines), lines   # 223 item 3
+    assert not any(re.search(r"\bPLAY\b", x) for x in lines), lines                 # #778's pin: no PLAY on the page
+    assert all(len(x) <= cl.PAGE_MAX_CHARS for x in lines)
     assert not any("BUY " in x or "HOLD" in x or "paste to the architect" in x for x in lines)   # no order, no hold
     assert "PASS: 5 games" in lines and high is False                                           # never high priority
     assert f"   {LABEL} Qb {q['units']:g}u · exec {q['exec_edge_pp']:+.1f}pp · QB-flagged · record only, not placed" \
         in cl.summary_block(by["Qb"])
+    assert [ln for h in ("Qb", "InjEmpty", "Play") for ln in cl.summary_block(by[h]).splitlines() if LABEL in ln] == [
+        f"   {LABEL} Qb 0.5u · exec +7.2pp · QB-flagged · record only, not placed",
+        f"   {LABEL} InjEmpty 0.5u · exec +7.2pp · QB list unread · record only, not placed",
+        f"   {LABEL} Play 1u · exec +7.3pp · QB inputs clean · record only, not placed"]   # one line per would-be game
     assert "would-be" not in cl.summary_block(by["Floor"])
 
 
@@ -415,12 +421,17 @@ def test_a_failed_certification_read_never_blocks_the_page(monkeypatch, how):
     assert {h for h, x in by.items() if "would_be" in x} == {"Qb", "InjEmpty", "Play"}
     assert all(by[h]["would_be"]["certification"] == "unread" for h in ("Qb", "InjEmpty", "Play"))
     assert "PASS: 5 games" in body.splitlines() and high is False
-    assert sum(1 for x in body.splitlines() if LABEL in x) == 3
+    assert not any(LABEL in x for x in body.splitlines())                       # never on the page (223 item 3)
+    assert sum(1 for h in ("Qb", "InjEmpty", "Play") if LABEL in cl2.summary_block(by[h])) == 3
 
 
-def test_the_closing_runs_receipt_carries_it_only_on_the_would_be_row(box):
+def test_the_closing_runs_receipt_and_summary_carry_it_only_on_the_would_be_row_and_the_page_does_not(box, capsys):
     from tests.test_closing_runs import NOW as C_NOW, at, mc, runs
     assert mc.run("NFL", start=at(35), now=C_NOW) == 0
+    out = capsys.readouterr().out                                    # the run's console: the closing summary block
+    assert [ln for ln in out.splitlines() if LABEL in ln] == [
+        f"   {LABEL} Buffalo 1u · exec +5.3pp · QB inputs clean · record only, not placed"]
+    assert not any(LABEL in x or re.search(r"\bPLAY\b", x) for x in box.pages[-1]["body"].splitlines())   # 223 item 3
     got = {x["match_id"]: x for x in runs("NFL")[-1]["desk_rows"]}
     assert got[301]["would_be"] == {"label": LABEL, "pick": "Buffalo", "units": 1, "exec_edge_pp": 5.3,
                                     "qb": "QB inputs clean", "staked": False, "certification": "uncertified"}

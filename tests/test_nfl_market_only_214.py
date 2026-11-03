@@ -10,9 +10,8 @@ reason exactly the ruled text; (2) QB-flagged, empty-injury-list, big-edge, quar
 PASS 0 with the same reason; (3) no NFL PLAY or units through the kalshi-only reference, a parlay leg or the venue engine;
 (4) NHL, MLB and soccer rows are unchanged; (5) every shadow field of an NFL row is what it is without the rule (the
 code main runs), the chain's call held for the record; (6) the Cockpit renders the kind, the hold, the NHL-style policy
-line, the summary count and the Card's UNCERTIFIED state; (7) the NFL closing and slate pages carry no PLAY (the
-closing page's one exception, addendum 217 item 4: the labelled "would-be PLAY (uncertified, unstaked)" record line,
-never a call or an order); (8) the frozen golden battery changes only its NFL calls. The ruled reason is written out here, not imported, so the file runs
+line, the summary count and the Card's UNCERTIFIED state; (7) the NFL closing and slate pages carry no PLAY; (8) the
+frozen golden battery changes only its NFL calls. The ruled reason is written out here, not imported, so the file runs
 against main and fails there.
 """
 import json
@@ -34,7 +33,6 @@ MS = float((NOW - datetime(1970, 1, 1, tzinfo=timezone.utc)) // timedelta(millis
 REASON = "nfl_elo_v1 uncertified (addendum 214): market-only until the confirmation read"      # item 4(a), verbatim
 PRE_GATE = "pre-gate sport: no production model — market display only"
 STAKED = ("PLAY", "LADDER", "VENUE")
-WOULD_BE = "would-be PLAY (uncertified, unstaked)"      # addendum 217 item 4, verbatim: the page's record-only line
 
 
 def _rule_off():
@@ -346,12 +344,9 @@ def test_the_nfl_closing_page_has_no_play_line_and_keeps_the_shadow_lines(box):
     lines = pg["body"].splitlines()
     assert lines[0] == "NFL 13:00 ET · T-35m" and lines[-1] == MACHINE
     assert not any(" · PLAY " in x or "BUY YES" in x or "BUY NO" in x for x in lines), lines   # no placed call
-    # nor its hold: the only PLAY on the page is addendum 217 item 4's labelled would-be line (the record, never a call)
-    assert not any(re.search(r"\bPLAY\b", x) and WOULD_BE not in x for x in lines), lines
+    assert not any(re.search(r"\bPLAY\b", x) for x in lines), lines                              # nor its hold
     assert lines == [                      # rule off, the same run pages "PLAY Buffalo 1u · BUY YES ..." (test_c5)
         "NFL 13:00 ET · T-35m",
-        "Buffalo Visitors @ Buffalo · would-be PLAY (uncertified, unstaked) Buffalo 1u · exec +5.3pp",
-        "  QB inputs clean · record only, not placed",
         "Tampa Visitors @ Tampa · value shadow Tampa Visitors 0.25u · edge +10.0pp · exec +7.5pp",
         "  shadow, not staked",
         "Newark Visitors @ Newark · quarantine shadow Newark 0.5u · edge +20.0pp · exec +18.2pp",

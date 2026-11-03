@@ -160,10 +160,12 @@ CLOSING_HOLDS = (
 # the Desk called PASS market-only (desk_policy.NFL_MARKET_ONLY_KIND) whose desk.market_only_hold.would_call is PLAY
 # carries `would_be` (would_be_for) while the registry does not read the NFL model certified (registry.certification_of
 # on nfl_predict.MODEL_VERSION, read once per run; an unread registry, a missing entry or a failed read is never judged
-# certified, law 4, and never blocks the page). The page gives it a line of its own naming
-# its game (B4): the label, the would-be pick and units, the exec edge, the QB classification of the QB hold of
-# 2026-10-11 (its tags_any) and "record only, not placed". No order text, no hold text, never a PLAY line, never the
-# PASS count's business (the row stays a PASS), never high priority. The summary block and the receipt carry it too.
+# certified, law 4, and never blocks the page). The summary block and the run receipt carry it
+# (the label, the would-be pick and units, the exec edge, the QB classification of the QB hold of 2026-10-11, its
+# tags_any, and "record only, not placed"); the phone page's text does NOT (ARCHITECT 2026-11-02 18:05 ET, addendum 223
+# item 3: "the per-game line comes OFF THE PHONE PAGE's text; it lives in the summary block and the receipt only"), so
+# #778's pin stands: no PLAY on the NFL closing or slate page. Never the PASS count's business (the row stays a PASS),
+# never high priority.
 WOULD_BE = "would-be PLAY (uncertified, unstaked)"     # the ruled label, verbatim (exec_cohorts.WOULD_BE)
 WOULD_BE_FAMILIES = ("NFL",)
 MARKET_ONLY_KIND = "market_only"                       # desk_policy.NFL_MARKET_ONLY_KIND (a test pins the two)
@@ -766,7 +768,8 @@ def would_be_for(r: dict, d: dict, fam: str, cert: tuple[str, str] | None) -> di
 
 
 def would_be_text(w: dict) -> list[str]:
-    """The page's fields of a would-be line (after the game): the label, pick and units, exec edge, QB class."""
+    """The summary block's fields of a would-be line: the label, pick and units, exec edge, QB class (never the phone
+    page's text, addendum 223 item 3)."""
     return [f"{w['label']} {w['pick']} {_units(w['units'])}", f"exec {_pp(w['exec_edge_pp'])}", w["qb"],
             "record only, not placed"]
 
@@ -1239,10 +1242,6 @@ def page_text(fam: str, start: datetime, at: datetime, rows: list[dict], prev: d
         lines += wrap(parts)
         if x["match_id"] in starter_note:
             lines += wrap(starter_note.pop(x["match_id"]))
-    for x in rows:                                   # addendum 217 item 4: the would-be line, its game named (B4)
-        w = x.get("would_be")
-        if w:
-            lines += wrap([game_of(x)] + would_be_text(w))
     for x in rows:
         v = x.get("value_shadow")
         if v:

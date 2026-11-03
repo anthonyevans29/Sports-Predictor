@@ -14,7 +14,8 @@ synthetic payloads only (no real DB, no network):
     DORMANT;
 (5) the host fence: refused (exit 2) before any read on a laptop, an unset or a bad role; --dry-run prints and
     writes nothing;
-(6) legs captured before 2026-10-13 00:00 ET never enter the Kalshi grade, its legs guard included;
+(6) legs captured before the boundary (2026-10-14T04:00:00Z, addendum 239 item 4) never enter the Kalshi
+    grade, its legs guard included;
 (7) one registry source: frozen(), the counter and coverage read registry.LEDGER at call time."""
 import json
 import sys
@@ -291,26 +292,27 @@ def test_2_the_d4_reference_never_feeds_a_verdict():
         assert "ncaa_shadow import grade" not in src and "confirmation_record" not in src
 
 
-def test_6_legs_before_2026_10_13_never_enter_the_kalshi_grade(finished_up):
+def test_6_legs_before_the_boundary_never_enter_the_kalshi_grade(finished_up):
+    """Item 3(6), its boundary per addendum 239 item 4 (the repo record names no deploy instant for the tag carrying #475:
+    2026-10-14T04:00:00Z). tests/test_ncaa_v2_239_rulings.py pins the second before and the instant."""
     up = finished_up["up"]
     with session_scope() as s:
         s.query(OddsSnapshot).filter(OddsSnapshot.match_id == up, OddsSnapshot.source == "kalshi").delete()
         _kalshi(s, up, 0.50, 0.52, datetime(2026, 10, 12, 23, 59))       # before #475's switch: never read
     r = _grade(finished_up)
-    assert r["kalshi_close_excluded"]["legs_before_2026_10_13"] == 1 and r["vs_kalshi_close"]["ncaa_elo_v2"][
+    assert r["kalshi_close_excluded"][sh.LEGS_BEFORE] == 1 and r["vs_kalshi_close"]["ncaa_elo_v2"][
         "games"] == 0
-    assert ("legs placed before 2026-10-13 00:00 ET (#475's switch to the shared pair) never enter it, the close nor "
-            "its legs guard") in r["kalshi_close_rule"]
-    with session_scope() as s:                                            # 2026-10-12 23:59 ET: before the day
-        _kalshi(s, up, 0.55, 0.57, datetime(2026, 10, 13, 3, 59))
+    assert ("legs placed before 2026-10-14T04:00:00Z (2026-10-14 00:00 ET) were the old path's (#475's switch to the "
+            "shared pair) and never enter it, the close nor its legs guard") in r["kalshi_close_rule"]
+    with session_scope() as s:                                            # the old 00:00 ET floor: now before
+        _kalshi(s, up, 0.55, 0.57, datetime(2026, 10, 13, 4, 0))
     r = _grade(finished_up)
-    assert r["kalshi_close_excluded"]["legs_before_2026_10_13"] == 1
-    assert sh.KALSHI_LEGS_FROM == datetime(2026, 10, 13, 4, 0)           # 2026-10-13 00:00 ET, naive UTC
-    assert "legs placed before 2026-10-13 00:00 ET" in r["kalshi_close_rule"]
+    assert r["kalshi_close_excluded"][sh.LEGS_BEFORE] == 1
+    assert sh.KALSHI_LEGS_FROM == datetime(2026, 10, 14, 4, 0)           # 2026-10-14 00:00 ET, naive UTC
     with session_scope() as s:
-        _kalshi(s, up, 0.60, 0.62, datetime(2026, 10, 13, 4, 0))         # 00:00 ET on the day: read
+        _kalshi(s, up, 0.60, 0.62, datetime(2026, 10, 14, 4, 0))         # at the boundary: read
     r = _grade(finished_up)
-    assert r["kalshi_close_excluded"]["legs_before_2026_10_13"] == 0
+    assert r["kalshi_close_excluded"][sh.LEGS_BEFORE] == 0
     assert "kalshi_close_H=0.610" in r["lines"][0]
 
 

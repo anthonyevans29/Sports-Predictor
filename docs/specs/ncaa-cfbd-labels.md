@@ -20,7 +20,8 @@ that, no more, no less".
   by them: a substring-only fit is unmatched. Ambiguous fits and two source games on one fixture are refused, and so
   is a fixture this run labels.
 - **Write.** `ncaa_cfbd_pregame` (`NCAACFBDPregame`), upserted by match id with CFBD's `neutralSite` as served (NULL
-  when the record carries none), the orientation (information), the source names and start, and the run's
+  when the record carries none), the orientation (it prices the shadow row since addendum 239 item 2: a current `swapped` row gives the
+  home advantage to CFBD's home, read by `ncaa_shadow.live_game`), the source names and start, and the run's
   `fetched_at` (L3's current rule). Never `ncaa_cfbd_labels`, never the stream, the FBS team set or the coverage
   fact. Written only when `migrate_ncaa_cfbd_pregame.py`'s marker exists (`pregame_migrated`; an init_db()-created
   table does not count). Without it the labels are written as before and the receipt prints `NOT WRITTEN

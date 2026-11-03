@@ -55,9 +55,11 @@ design receipt); a label without a neutral flag is non-neutral and counted.
 An UPCOMING game (no label before the game) carries CFBD's PREGAME neutral flag
 where the labels ingest read one (ARCHITECT 2026-11-03, addendum 236 item 3(1):
 ncaa_cfbd_pregame, current rows only) and is priced exactly as the walk prices
-that field (True: home advantage 0; False or absent: the listed home's); where
-CFBD has none the flag is unknown and the listed home's advantage applies (D8,
-law 4). Walk-forward over D2's stream, every game before now, then the predictions.
+that field (True: home advantage 0; False or absent: the Game's home's, which is
+CFBD's home, our listed away, where the current pregame row is 'swapped',
+addendum 239 item 2, and the listed home otherwise); where CFBD has no flag it
+is unknown (D8, law 4), and only with no current row (none, or stale) does the
+listed home keep the advantage. Walk-forward over D2's stream, every game before now, then the predictions.
 
 ROWS: engine "model_shadow" (window card and desk_policy already skip it;
 never a Desk call, never a venue input, never logged to the ledger),
@@ -122,18 +124,31 @@ THE SEVEN, RULED (ARCHITECT 2026-11-03, addendum 236 item 3):
       its exit (chains: ncaa-schedule's `go_on`), its rows stamped with the refresh it saw (refresh_seen);
   (5) the host fence: the command refuses on any machine but the host (desk_policy.not_host_reason); `--dry-run`
       prints the rows and writes nothing (export(dry_run=True));
-  (6) the Kalshi grade reads legs captured on or after KALSHI_LEGS_FROM (2026-10-13 00:00 ET, #475's switch to the
-      shared pair); earlier rows never enter it, the close nor its legs guard (legs_before_2026_10_13);
+  (6) the Kalshi grade reads legs captured on or after KALSHI_LEGS_FROM (#475's switch to the shared pair; the
+      boundary per addendum 239 item 4: the repo record names no deploy instant for the tag carrying #475, and
+      v1.4.0's release Issue #556 names none either, so the conservative bound 2026-10-14T04:00:00Z); earlier rows never enter it, the close nor its legs guard
+      (legs_before_2026_10_14);
   (7) one registry source: registry.LEDGER read at call time by frozen(), the counter and coverage alike.
+
+ADDENDUM 239 (ARCHITECT 2026-11-03 16:15 ET), as built here:
+  item 2, orientation counts: a fixture whose CURRENT pregame row is 'swapped' is priced in CFBD's order (live_game,
+      the 55 to CFBD's home = our listed away, 0 when CFBD says neutral), its probabilities stated for our listed home
+      and away (listed_home_prob); 'same' prices our order; no current row: the listed home keeps it, "unknown"
+      (ORIENTATION_TEXT on every row; parity() pins a swapped fixture equal to the gate);
+  item 3, the fences: the 2023 and 2026 fences on the Kalshi block lift TOGETHER once the run and its verdict are
+      recorded (kalshi_fenced);
+  item 4, the legs boundary: KALSHI_LEGS_FROM = 2026-10-14T04:00:00Z, the conservative bound, because the repo
+      record names no deploy instant for the tag carrying #475 and release Issue #556 names none (LEGS_WHY, on
+      the console);
+  item 5, current rows only: a pregame row from an older ingest reads as unknown (pregame_flags' `current`).
 """
 from __future__ import annotations
 
 import json
 import math
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from pathlib import Path
-from zoneinfo import ZoneInfo
 
 from src.timeutil import utc_now_naive
 
@@ -161,10 +176,12 @@ CONSTANT_KEYS = ("k_factor", "home_advantage", "mov_base", "season_regression", 
 # only what the candidate's own backtest stream does with the same field — exactly that, no more, no less (parity
 # with the gate's walk; Code states which in the PR body, and a test pins the shadow row's probability equal to the
 # walk's for a neutral fixture)." The stream's treatment (ncaa_backtest.NeutralRuleElo.home_adv, the gate's model):
-# a flag True prices (and updates) with home advantage 0; False or absent, the listed home's 55. The row's Game
-# carries the fixture's CURRENT pregame flag (ncaa_cfbd.pregame_flags: fetched_at = its season's latest ingest
-# record's, L3's rule), so model.home_adv prices it exactly so; nothing else reads the field. A stale row, a row
-# whose record served no flag, or no row: unknown (law 4), the listed home's advantage.
+# a flag True prices (and updates) with home advantage 0; False or absent, the Game's home's 55 (CFBD's home where
+# the current row is swapped: addendum 239 item 2, ORIENTATION_TEXT below). The row's Game carries the fixture's
+# CURRENT pregame flag (ncaa_cfbd.pregame_flags: fetched_at = its season's latest ingest record's, L3's rule), so
+# model.home_adv prices it exactly so. A stale row, a row whose record served no flag, or no row: the flag is
+# unknown (law 4). The listed home keeps the advantage only with no current row (none, or stale); a current 'swapped'
+# row, one whose record served no flag included, gives it to CFBD's home (our listed away), as the gate's walk.
 NEUTRAL_RULING = "ARCHITECT 2026-11-03, addendum 236 item 3(1)"
 NEUTRAL_PREGAME_RULE = "neutral per CFBD's pregame field, read {stamp}; absent: unknown, D8"   # the ruled form
 NO_READ = "no CFBD read"
@@ -174,6 +191,48 @@ NEUTRAL_FLAG_UNKNOWN = "absent: unknown, D8"
 HOME_ADV_BASIS = {True: "home advantage 0: CFBD's pregame field says neutral (D1, as the gate's walk prices it)",
                   False: "listed home: CFBD's pregame field says not neutral",
                   None: "listed home: the neutral flag is unknown before the game (D8)"}
+# ORIENTATION COUNTS (ARCHITECT 2026-11-03 16:15 ET, addendum 239 item 2, verbatim): "the shadow prices EXACTLY as the
+# gate's walk prices — the gate's stream is CFBD's, so where CFBD lists the teams the other way round from our stored
+# fixture, the home advantage goes to CFBD's home, the row stating "orientation: CFBD's home is our listed away
+# (swapped); priced as the gate's walk"; with no CFBD row the listed home keeps it and the row says "unknown". Parity
+# with the gate is the rule, not our adapter's orientation (the 2023 census found 4 swapped of 792; the gate's PASS, if
+# it comes, is on CFBD's orientation). A test pins a swapped fixture's shadow probability equal to the walk's."
+# Built: a CURRENT pregame row (item 5: a row from an older ingest reads as unknown) whose orientation is 'swapped'
+# prices the Game in CFBD's order, as ncaa_backtest.game_from_rows walks a swapped label (the teams flip; the 55 goes
+# to CFBD's home = our listed away, 0 when CFBD says neutral); the row's probabilities stay stated for OUR listed home
+# and away (home_win_prob = 1 - P(CFBD's home wins)). 'same': our order, which is CFBD's. No current row, or an
+# orientation outside the two values (law 4, as game_from_rows): our listed order, the listed home keeps the 55.
+ORIENTATION_RULING = "ARCHITECT 2026-11-03, addendum 239 item 2"
+ORIENTATION_TEXT = {"swapped": "orientation: CFBD's home is our listed away (swapped); priced as the gate's walk",
+                    "same": "orientation: CFBD's home is our listed home (same); priced as the gate's walk",
+                    None: "orientation: unknown (no current CFBD pregame row); the listed home keeps the home "
+                          "advantage"}
+SWAPPED_BASIS = {False: "CFBD's home (our listed away): CFBD's pregame field says not neutral",
+                 None: "CFBD's home (our listed away): the neutral flag is unknown before the game (D8)"}
+
+
+def cfbd_orientation(cur) -> str | None:
+    """'same' / 'swapped' from the fixture's CURRENT pregame row (addendum 239 items 2 and 5), else None (unknown:
+    no row, a stale row, or a value outside the two, law 4)."""
+    o = cur.get("orientation") if cur else None
+    return o if o in ("same", "swapped") else None
+
+
+def live_game(home: int, away: int, season, utc_date, stage, neutral, orient, match_id=None):
+    """A live row's Game (addendum 239 item 2): our listed `home` / `away` (merged ids) in CFBD's order where `orient`
+    is 'swapped' (as ncaa_backtest.game_from_rows walks a swapped label), else in ours; no score; the pregame flag as
+    the walk reads it. Shared by build_rows and parity()."""
+    from src.walters import ncaa_backtest as nb
+
+    return nb.Game(*((away, home) if orient == "swapped" else (home, away)), season, utc_date, 0, 0, stage or "",
+                   neutral=neutral, match_id=match_id, orientation=orient)
+
+
+def listed_home_prob(model, g) -> float:
+    """P(OUR listed home wins) for a live_game: the model prices the Game's home (CFBD's, where swapped), and a
+    swapped Game's home is our listed away, so 1 - p there. The row is always stated in our orientation."""
+    q = model.predict(g)
+    return 1 - q if g.orientation == "swapped" else q
 
 
 def neutral_rule(stamp) -> str:
@@ -437,7 +496,7 @@ def build_rows(now: datetime | None = None, hours: int = WINDOW_HOURS, registry_
     model, rc, merge = fit(now, neutral_ha, scale=scale)
     rc["neutral_site_rule"] = rule
     seen = refresh_seen(now)                        # addendum 236 item 3(4): the refresh this export saw
-    rows, skipped, pregame = [], Counter(), Counter()
+    rows, skipped, pregame, orients = [], Counter(), Counter(), Counter()
     with session_scope() as s:
         fbs = fbs_teams(s, merge)
         q = (select(Match).join(Competition, Match.competition_id == Competition.id)
@@ -452,8 +511,10 @@ def build_rows(now: datetime | None = None, hours: int = WINDOW_HOURS, registry_
             pf = flags.get(m.id)
             cur = pf if pf and pf["current"] else None          # L3's rule: a stale row is never read
             nf = cur["neutral"] if cur else None
-            g = nb.Game(merge(m.home_team_id), merge(m.away_team_id), m.season, m.utc_date, 0, 0, m.stage or "",
-                        neutral=nf, match_id=m.id)           # J2: merged ids, as walked; the flag as the walk reads it
+            orient = cfbd_orientation(cur)                    # addendum 239 item 2: orientation counts
+            home, away = merge(m.home_team_id), merge(m.away_team_id)     # J2: merged ids, as walked
+            # the Game in CFBD's order, as game_from_rows walks a swapped label; the flag as the walk reads it
+            g = live_game(home, away, m.season, m.utc_date, m.stage, nf, orient, match_id=m.id)
             why = nb.exclusion_reason(g)
             if why:
                 skipped[why] += 1
@@ -464,10 +525,10 @@ def build_rows(now: datetime | None = None, hours: int = WINDOW_HOURS, registry_
             pregame["neutral" if nf else "not_neutral" if nf is False
                     else "unknown_stale_row" if pf and not cur else "unknown_no_flag_served" if cur
                     else "unknown_no_row"] += 1
-            if cur and cur["orientation"] == "swapped":
-                pregame["cfbd_home_is_our_away"] += 1          # information: the price reads the flag only
+            orients[orient or "unknown"] += 1                   # swapped: priced in CFBD's order (239 item 2)
             stamp = cur["fetched_at"] if cur else stamps.get(str(m.season))
-            p = model.predict(g)
+            p = listed_home_prob(model, g)                      # stated for OUR listed home (CFBD's order priced)
+            ha = model.home_adv(g)
             row = _fixture_row(s, m, COMPETITION, Counter(), Counter())
             pick_home = p >= 0.5
             row.update({
@@ -481,11 +542,17 @@ def build_rows(now: datetime | None = None, hours: int = WINDOW_HOURS, registry_
                 "prediction": {"home_win_prob": round(p, 4), "away_win_prob": round(1 - p, 4),
                                "top_pick": "home_win" if pick_home else "away_win",
                                "top_pick_prob": round(p if pick_home else 1 - p, 4),
-                               "elo_home": round(model.rating(g.home_id), 1),
-                               "elo_away": round(model.rating(g.away_id), 1),
-                               # addendum 236 item 3(1): the walk's own treatment of CFBD's flag (NeutralRuleElo)
-                               "home_adv_applied": model.home_adv(g),
-                               "home_adv_basis": HOME_ADV_BASIS[nf],
+                               "elo_home": round(model.rating(home), 1),      # our listed home's
+                               "elo_away": round(model.rating(away), 1),      # our listed away's
+                               # addendum 236 item 3(1): the walk's own treatment of CFBD's flag (NeutralRuleElo);
+                               # addendum 239 item 2: given to CFBD's home (home_adv_to names which of ours)
+                               "home_adv_applied": ha,
+                               "home_adv_to": (None if not ha else "listed_away" if orient == "swapped"
+                                               else "listed_home"),
+                               "home_adv_basis": (SWAPPED_BASIS[nf] if orient == "swapped" and nf is not True
+                                                  else HOME_ADV_BASIS[nf]),
+                               "orientation": orient or "unknown",
+                               "orientation_rule": ORIENTATION_TEXT[orient],
                                "neutral": nf,
                                "neutral_flag": (NEUTRAL_FLAG_NEUTRAL if nf else NEUTRAL_FLAG_NOT if nf is False
                                                 else NEUTRAL_FLAG_UNKNOWN),
@@ -498,6 +565,7 @@ def build_rows(now: datetime | None = None, hours: int = WINDOW_HOURS, registry_
             rows.append(row)
         s.rollback()
     rc["neutral_pregame"] = dict(sorted(pregame.items()))
+    rc["orientation_pregame"] = dict(sorted(orients.items()))   # addendum 239 item 2: same / swapped / unknown
     return {"rows": rows, "fit": rc, "skipped": dict(skipped), "label": label, "now": now, "binding": b,
             "refresh_seen": seen}
 
@@ -676,23 +744,39 @@ def same_fixture(c: dict, m) -> bool:
 
 # (6) #413, NO WAIT (ARCHITECT 2026-11-03, addendum 236 item 3(6), verbatim): "The confirmation's Kalshi grade reads
 # legs placed on or after 2026-10-13 (#475's switch to the shared pair); earlier placements never enter it, stated on
-# the console." The day is read as the project reads a ruled calendar date, 00:00 ET (exec_cohorts.HOLD_446_FROM's
-# precedent): 2026-10-13 00:00 America/New_York = 2026-10-13 04:00 naive UTC, captured_at's clock. A Kalshi row
-# captured before this instant is never read by the shadow's Kalshi close, nor by its legs guard (the newest legs,
-# the mismatched set and the events' homes: kalshi_legs' captured_from floor); a game whose every Kalshi row is
-# earlier is left out as LEGS_BEFORE.
-KALSHI_LEGS_FROM = (datetime(2026, 10, 13, 0, 0, tzinfo=ZoneInfo("America/New_York"))
-                    .astimezone(timezone.utc).replace(tzinfo=None))          # 2026-10-13 04:00 naive UTC
-LEGS_BEFORE = "legs_before_2026_10_13"
-LEGS_RULING = "ARCHITECT 2026-11-03, addendum 236 item 3(6)"
-LEGS_TEXT = ("legs placed before 2026-10-13 00:00 ET (#475's switch to the shared pair) never enter it, the close "
-             f"nor its legs guard; a game whose every Kalshi leg is earlier is left out ({LEGS_BEFORE}) "
-             f"({LEGS_RULING})")
+# the console." THE BOUNDARY, RULED (ARCHITECT 2026-11-03 16:15 ET, addendum 239 item 4, verbatim): "not midnight —
+# the INSTANT the tag carrying #475 was deployed to the host (RELEASES.md and the deploy receipt of that day name it;
+# Code reads it and writes it in the PR body and on the console); legs placed before that instant were the old path's.
+# If the record does not name it, the conservative bound is 2026-10-14T04:00:00Z (the next ET midnight) and the console
+# says why." Read (law 1): #475 merged as 1294960a (2026-10-13 13:03:38Z); the first tag carrying it is v1.4.0
+# (`git tag --contains 1294960a`; not an ancestor of v1.3.0), cut 2026-10-16 14:18:21Z (docs/RELEASES.md:111). The
+# v1.4.0 section of docs/RELEASES.md carries no "Deploy:" line (v1.5.0's does: "on the host at 13:40:09Z (v1.4.0 ->
+# v1.5.0 ...)"), and BACKLOG.md, CHANGELOG.md, docs/ and deploy/ name no v1.3.0 -> v1.4.0 deploy instant. v1.4.0's
+# release Issue (#556, docs/RELEASES.md:111), where a release's deploy receipt is filed (v1.6.2's #776), was read on
+# 2026-11-03: its Host section says "Not deployed yet. ... Its record follows here once the architect has read the
+# console." and none of its comments records the deploy. So the record names no instant, and the ruled
+# fallback: 2026-10-14T04:00:00Z, naive UTC as captured_at stores it. A Kalshi row captured before this instant is never
+# read by the shadow's Kalshi close, nor by its legs guard (the newest legs, the mismatched set and the events' homes:
+# kalshi_legs' captured_from floor); a game whose every Kalshi row is earlier is left out as LEGS_BEFORE.
+KALSHI_LEGS_FROM = datetime(2026, 10, 14, 4, 0, 0)              # 2026-10-14T04:00:00Z, naive UTC (the fallback)
+LEGS_FROM_TEXT = "2026-10-14T04:00:00Z (2026-10-14 00:00 ET)"
+LEGS_BEFORE = "legs_before_2026_10_14"
+LEGS_RULING = "ARCHITECT 2026-11-03, addendum 236 item 3(6); the boundary, addendum 239 item 4"
+LEGS_WHY = ("the repo record (docs/RELEASES.md, BACKLOG.md, CHANGELOG.md, docs/, deploy/) names no deploy instant "
+            "for the tag carrying #475, nor does v1.4.0's release Issue #556 (read: its Host section says \"Not deployed yet\" and no later comment records the deploy); the conservative bound is "
+            "the next ET midnight, addendum 239 item 4 (#475 is first carried by v1.4.0, cut 2026-10-16 14:18:21Z, "
+            "docs/RELEASES.md:111; its section has no Deploy line)")
+LEGS_TEXT = (f"legs placed before {LEGS_FROM_TEXT} were the old path's (#475's switch to the shared pair) and never "
+             f"enter it, the close nor its legs guard: {LEGS_WHY}; a game whose every Kalshi leg is earlier is left "
+             f"out ({LEGS_BEFORE}) ({LEGS_RULING})")
 # (2) THE CLOSE (ARCHITECT 2026-11-03, addendum 236 item 3(2), verbatim): "the Kalshi close is THE close for college
 # (KXNCAAFGAME is the primary college market source — CLAUDE.md), scored per name, never pooled, as built; the book
 # close stays beside it as a reference line; the D4 baseline is a second REFERENCE name, never a verdict's input; the
 # 2023 and 2026 fences apply to the Kalshi block exactly as to the record until the 11-09 run's verdict is recorded,
-# then lift for 2026 as ruled."
+# then lift for 2026 as ruled." THE FENCES, CONFIRMED (ARCHITECT 2026-11-03 16:15 ET, addendum 239 item 3, verbatim):
+# "the 2023 and 2026 fences lift TOGETHER when the 11-09 run and its verdict are recorded (both say "withheld until
+# the ncaa-elo-v2 run is recorded"); my "then lift for 2026" named the one that matters for the confirmation, not an
+# exception for 2023."
 CLOSE_RULING = "ARCHITECT 2026-11-03, addendum 236 item 3(2)"
 D4_REF_NAME = "d4_baseline (reference)"
 D4_REF_TEXT = ("the D4 baseline (the run's frozen baseline_home_rate in a non-neutral game, 0.5 where the game's CFBD "
@@ -712,8 +796,8 @@ def v2_verdict_recorded() -> bool:
 def kalshi_fenced() -> bool:
     """Addendum 236 item 3(2): the 2023 / 2026 fences apply to the Kalshi block "exactly as to the record until the
     11-09 run's verdict is recorded": fenced while ncaa-elo-v2's run (the record's own lift,
-    ncaa_backtest.v2_run_recorded) or its verdict is unrecorded; both lift together after (each fence's own ruling
-    lifts it on the run)."""
+    ncaa_backtest.v2_run_recorded) or its verdict is unrecorded; both lift TOGETHER after (addendum 239 item 3:
+    "the 2023 and 2026 fences lift TOGETHER when the 11-09 run and its verdict are recorded")."""
     from src.walters import ncaa_backtest as nb
 
     return not (nb.v2_run_recorded() and v2_verdict_recorded())
@@ -927,7 +1011,7 @@ KALSHI_CLOSE_RULE = ("THE close for college (KXNCAAFGAME, addendum 236 item 3(2)
                      "(close.close_from_kalshi), books not read; " + LEGS_TEXT + "; left out in order: first the "
                      "shadow's own identity guard (the row's teams and kickoff are not this match's), then the "
                      "record's order: the 2023 / 2026 fences until ncaa-elo-v2's run and its verdict are recorded, a "
-                     "three-way board, no decided result, a tie (a data defect), legs before 2026-10-13 00:00 ET, "
+                     "three-way board, no decided result, a tie (a data defect), legs before " + LEGS_FROM_TEXT + ", "
                      "mismatched legs (kalshi_legs.mismatched, then the HOME row the close reads, "
                      "paper.close_row_mismatched), no close")
 
@@ -1119,7 +1203,12 @@ def parity(games, scale: float = V2_FROZEN_S, neutral_home_advantage: bool = Fal
     Returns per-game rows (match id, kickoff, the two probabilities, |diff|) and the counts. THE PREGAME FLAG
     (addendum 236 item 3(1)): each neutral scored game is priced again as a live row prices it, with CFBD's pregame
     flag True (equal to the gate: `pregame_flag_max_diff` within PARITY_TOL), and with the flag absent (D8's unknown,
-    the listed home's advantage: `pregame_absent_max_diff`, reported, the gap a row without CFBD's flag carries)."""
+    the listed home's advantage: `pregame_absent_max_diff`, reported, the gap a row without CFBD's flag carries).
+    THE ORIENTATION (addendum 239 item 2): every scored game is priced again as a live row prices a fixture we list
+    the other way round with a current 'swapped' pregame row (live_game in CFBD's order, then listed_home_prob):
+    `swapped_compared` games, `swapped_unequal` beyond PARITY_TOL (0 is equal to the gate), `swapped_max_diff`; and in
+    our listed order without the orientation (the listed home's 55): `unoriented_max_diff`, reported, the gap a
+    swapped fixture would carry if orientation did not count."""
     from dataclasses import replace
 
     from src.walters import ncaa_backtest as nb
@@ -1129,13 +1218,21 @@ def parity(games, scale: float = V2_FROZEN_S, neutral_home_advantage: bool = Fal
     rec = _Recorder(nb.NeutralRuleElo(neutral_home_advantage, scale=scale))
     res = g.run_gate(games, model=rec, read=read)
     by_id = {x.match_id: x for x in games}
-    rows, pregame, absent = [], [], []
+    rows, pregame, absent, swapped, unoriented = [], [], [], [], []
     for mid, gp in rec.p.items():
         x = by_id[mid]
         m = V1R(neutral_home_advantage, scale=scale)
         walk(m, games, x.utc_date)
         sp = m.predict(x)
         rows.append({"match_id": mid, "kickoff": x.utc_date, "gate": gp, "shadow": sp, "diff": abs(sp - gp)})
+        # ORIENTATION (addendum 239 item 2): the same game stored by us the other way round (our listed home = the
+        # gate's away), its current pregame row 'swapped', priced as build_rows prices it (live_game, then
+        # listed_home_prob): the shadow's P(CFBD's home wins) = 1 - its row's home_win_prob, equal to the gate's p.
+        # Without the orientation (our listed order, the listed home's 55) the gap is reported.
+        lg = live_game(x.away_id, x.home_id, x.season, x.utc_date, x.stage, x.neutral, "swapped", match_id=mid)
+        swapped.append(abs((1 - listed_home_prob(m, lg)) - gp))
+        ug = live_game(x.away_id, x.home_id, x.season, x.utc_date, x.stage, x.neutral, None, match_id=mid)
+        unoriented.append(abs((1 - listed_home_prob(m, ug)) - gp))
         if x.neutral is True:
             m2 = V1R(neutral_home_advantage, scale=scale)
             walk(m2, games, x.utc_date)
@@ -1148,7 +1245,10 @@ def parity(games, scale: float = V2_FROZEN_S, neutral_home_advantage: bool = Fal
             "unequal": sum(d > PARITY_TOL for d in diffs), "max_diff": max(diffs, default=0.0), "rows": rows,
             "neutral_scored": len(pregame), "pregame_flag_max_diff": max(pregame, default=0.0),
             "pregame_flag_unequal": sum(d > PARITY_TOL for d in pregame),
-            "pregame_absent_max_diff": max(absent, default=0.0)}
+            "pregame_absent_max_diff": max(absent, default=0.0),
+            "swapped_compared": len(swapped), "swapped_max_diff": max(swapped, default=0.0),
+            "swapped_unequal": sum(d > PARITY_TOL for d in swapped),
+            "unoriented_max_diff": max(unoriented, default=0.0)}
 
 
 def parity_lines(r: dict, rows: bool = False) -> list[str]:
@@ -1160,7 +1260,12 @@ def parity_lines(r: dict, rows: bool = False) -> list[str]:
          f"{r['pregame_flag_max_diff']:.3g}) · "
          f"{'EQUAL' if r['neutral_scored'] and not r['pregame_flag_unequal'] else 'NOT EQUAL'}; with the flag "
          f"absent (D8's unknown, the listed home's advantage) they differ by up to "
-         f"{r['pregame_absent_max_diff']:.3g} (reported)"]
+         f"{r['pregame_absent_max_diff']:.3g} (reported)",
+         f"  orientation ({ORIENTATION_RULING}): {r['swapped_compared']} scored games priced as a live row prices a "
+         f"fixture we list the other way round with a current 'swapped' pregame row (the 55 to CFBD's home): "
+         f"unequal {r['swapped_unequal']} (max |diff| {r['swapped_max_diff']:.3g}) · "
+         f"{'EQUAL' if r['swapped_compared'] and not r['swapped_unequal'] else 'NOT EQUAL'}; in our listed order "
+         f"(no orientation, the listed home's 55) they differ by up to {r['unoriented_max_diff']:.3g} (reported)"]
     if rows:
         L += [f"  - game {x['match_id']} · {x['kickoff']:%Y-%m-%d %H:%M} · gate {x['gate']:.6f} · shadow "
               f"{x['shadow']:.6f} · |diff| {x['diff']:.2g}" for x in r["rows"]]

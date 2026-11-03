@@ -5604,7 +5604,8 @@ def export_ncaa_predictions_cmd(hours, eid, dormant_ok, dry_run):
         for r in doc["predictions"]:
             pr = r["prediction"]
             print(f"  {r['away_team']} @ {r['home_team']} · {r['utc_date']} · home {pr['home_win_prob']} · "
-                  f"{pr['neutral_flag']} · home advantage {pr['home_adv_applied']} · {pr['neutral_rule']}")
+                  f"{pr['neutral_flag']} · home advantage {pr['home_adv_applied']} · {pr['neutral_rule']} · "
+                  f"{pr['orientation_rule']}")
     else:
         console.print(f"[green]✓ Wrote NCAA shadow ({doc['gate_verdict']}) to {path}[/green]")
     print(f"  {refresh_seen_text(doc['refresh_seen'])}")
@@ -5617,6 +5618,8 @@ def export_ncaa_predictions_cmd(hours, eid, dormant_ok, dry_run):
           f"window skips {doc['skipped'] or 'none'}")
     print(f"  neutral flag before kickoff (CFBD's pregame field, addendum 236 item 3(1)): "
           f"{f.get('neutral_pregame') or 'no row in the window'}")
+    print(f"  orientation (CFBD's pregame row, addendum 239 item 2; swapped: the 55 to CFBD's home, priced as the "
+          f"gate's walk): {f.get('orientation_pregame') or 'no row in the window'}")
     for line in f["level_scores_listed"]:
         print(f"    level score (data defect, skipped): {line}")
 

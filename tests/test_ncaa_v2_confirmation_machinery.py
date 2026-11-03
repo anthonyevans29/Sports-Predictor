@@ -154,7 +154,7 @@ def test_the_grade_against_the_kalshi_close_is_the_close_records_rule_per_name(m
         assert r["vs_kalshi_close"]["ncaa_elo_v2"] == block([(p, 0.71)])            # home won: the HOME mid
         assert r["kalshi_close_excluded"] == {"identity_mismatch": 0, "fenced_2023": 0, "fenced_2026": 0,
                                               "three_way": 0, "no_result": 0, "tie": 0,
-                                              "legs_before_2026_10_13": 0, "mismatched": 0, "no_close": 0}
+                                              "legs_before_2026_10_14": 0, "mismatched": 0, "no_close": 0}
         assert "kalshi_close_H=0.710" in r["lines"][0] and "books not read" in r["kalshi_close_rule"]
         with session_scope() as s:                                    # the record's own function, the same close
             m = s.get(Match, up)

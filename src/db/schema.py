@@ -738,7 +738,7 @@ class NCAACFBDPregame(Base):
     source: Mapped[str] = mapped_column(String(32), default="cfbd")
     source_game_id: Mapped[int | None] = mapped_column(Integer, index=True)    # CFBD game id, as served
     season: Mapped[str] = mapped_column(String(16), index=True)                # the CFBD --year queried
-    orientation: Mapped[str] = mapped_column(String(8))                        # 'same' | 'swapped' (information)
+    orientation: Mapped[str] = mapped_column(String(8))                        # 'same' | 'swapped': prices (addendum 239 item 2; ncaa_shadow.live_game: a current 'swapped' row gives the 55 to CFBD's home, as the gate's walk)
     neutral: Mapped[bool | None] = mapped_column(Boolean)                      # CFBD neutralSite, as served
     source_home_team: Mapped[str | None] = mapped_column(String(128))
     source_away_team: Mapped[str | None] = mapped_column(String(128))

@@ -68,6 +68,20 @@ dated folders alike (never a latest/ folder), so the mirror checkout still works
 The first host run is THIS WEEK on today's pulled backup, by my block, as soon as #810 merges; the laptop run the same
 day."
 
+The fill matching, a finding (#811), verbatim (ARCHITECT 2026-11-03 12:45 ET, addendum 233 item 1): "FINDING (ops; an
+Issue, then a small read-only PR, the next slot after #413): THE RECEIPT MATCHED NONE OF THE LEDGER'S NFL FILLS. Both
+runs read the Cockpit's export (bd_ledger_v1: calls 46, fills 931), found 8 NFL game fills, matched 0 to any of the 16
+rows, and printed "what was done: not established" on every row — while the operator's Kalshi record of 11-02 (read by
+me, never in the repo) holds Desk-call fills on at least one of those games (Baltimore @ Buffalo, 11-01, match 15149:
+page PLAY HOME, QB-flagged). So the matcher's assumptions about the export's fill entries do not hold on the real file.
+Code reads the Cockpit's own export function (tools/cockpit.html, "Export ledger (JSON)", the fills array: the real
+keys for ticker, side, title, opened, closed, and whether the ticker is the market's or the event's, how a CSV-imported
+fill carries its date) — law 1, from the code, not from a guess — then fixes `positions()` with a fixture in exactly
+that shape with synthetic values; the test asserts the BUF-shaped case matches by event ticker and a CSV-imported fill
+matches by the Cockpit's game matcher. If the code read leaves the shape ambiguous, the operator pastes ONE fill
+entry's KEYS with every value redacted (never a quantity, price or fee) in the Issue. No fill figure enters the repo,
+the Issue or the PR."
+
 ONCE PER MACHINE-ERA (231 item 2(a); 232 item 2): match ids are machine-local, so a run reads ONE machine's closing
 files with THAT machine's copy, and counts the rows of ONE era, bounded by the closing run's start instant in UTC
 (232 item 2(b)). The laptop run: --exports the laptop's own exports/ (its closing_NFL_*.json), --db the laptop's
@@ -165,6 +179,19 @@ WHAT IT READS (each reading the conservative one, law 4; the keys are printed wi
   the closing row's own teams, recorded start and Kalshi events (the game as the page named it: the copy lacks the
   match, or the copy's match is another game, or the game was re-dated); the LEDGER line's "of N" and the JSON's
   what_was_done count every row of the kind (its scored rows + its unscored rows: that kind's count toward thirty).
+  THE ENTRY'S SHAPE, read from the Cockpit's code (#811; addendum 233 item 1, law 1): "Export ledger (JSON)" writes
+  the stored ledger as held (loadLedger), and every fills entry is what importKalshiCSV stored (or an earlier export's
+  entry merged as-is by id): {id (the CSV row's cells joined by U+241F: never printed), ticker (mapHeaders: the first
+  header holding "ticker" but not "event", market_ticker on Kalshi's confirmed header, so the MARKET ticker with its
+  -{SIDE} suffix, never the event's), side, the figures, opened / closed (Kalshi's open_timestamp / close_timestamp,
+  raw strings, read by no matcher), title (market_title)} plus parseTicker's kind, family ("NFL"), sports, date (the
+  ticker's own ET game date: a CSV-imported fill carries its date ONLY in its ticker), teams, sideCode, start (null
+  without the ticker's HHMM, as the NFL game tickers the repo holds read) and sideFields' eight keys. The receipt
+  re-parses the ticker as the Cockpit's classifyFills does (a stored kind or date is never trusted); positions()
+  matches that shape by event ticker and by the game matcher (the tests pin both on the Cockpit's own entry), so the
+  0 of 16 is not a key of the entry misread: what the real file's entries hold is open on #811. A Desk call's fill
+  recorded through the Cockpit's Record-fill control lives on the CALL (order_type, fill_price), not in fills, and is
+  not read (225 item 3 Q2: "the ledger's fills, never the Cockpit's claims").
 - THE COUNT toward thirty: every row the hold touched, PLAY rows + would-be rows (217 item 4: counted too, labelled),
   each kind's count its scored rows + its unscored rows (225 item 3: "a row the copy lacks ("no result in this copy"),
   a teams-differ row and a void row each COUNT toward thirty as labelled, unscored rows, kept outside the W-L-P with
@@ -310,7 +337,8 @@ KEYS = ("rows = the NFL closing files (<exports>/closing_*.json and each dated f
         "differ; re-dated void), never scored, outside the W-L-P, and COUNTED toward thirty (225 item 3) · what was done = what the ledger holds on the game (by event "
         "ticker, else the Cockpit's game matcher), under its own label: fills, each entry's ticker, side, title, "
         "opened, closed as held; never a quantity, price, fee or P&L; none: not established; matched to every row, "
-        "scored or unscored (231 item 2(c); an unscored row on its closing row's own teams and start) · count toward thirty = "
+        "scored or unscored (231 item 2(c); an unscored row on its closing row's own teams and start); an entry is the "
+        "Cockpit's importKalshiCSV entry (ticker the market ticker, its date the ticker's own; #811) · count toward thirty = "
         "each kind's scored rows + its unscored rows; the printed count is the count (225 item 3) · every count is "
         "per kind; only the count toward thirty adds the two · the count is ONE run's, under the run's label (232 "
         "item 2(a)); #446's sum of the two runs is the architect's, on #446")
@@ -374,7 +402,12 @@ def positions(L: dict, rows: list[dict]) -> dict:
     more than one row, "nfl_fills": the NFL game entries read. Every entry stays its own (a split or partial fill whose
     printed fields match another's is still two entries); only the same entry (the same non-empty string id) is read
     once, and an entry with no id is never deduped. The id is read for that and printed nowhere. The matcher reads the
-    ticker, side and title; nothing else of an entry is kept: no quantity, price, fee, P&L or id."""
+    ticker, side and title; nothing else of an entry is kept: no quantity, price, fee, P&L or id.
+    The entry is the export's as the Cockpit's importKalshiCSV stored it (tools/cockpit.html; #811, addendum 233 item
+    1): `ticker` the CSV's MARKET ticker (KX{FAM}GAME-{yyMONdd}[hhmm]{AWAY}{HOME}-{SIDE}), its date the ticker's own
+    (`opened` / `closed` are Kalshi's raw strings, read by no matcher). An event ticker with no side or another NFL
+    series is no sport market under the Cockpit's parseTicker, so it is not an NFL game entry (the Cockpit's parse is
+    the rule)."""
     from src.walters import ledger_fills as lf
     found: dict = {}
     amb = nfl = 0

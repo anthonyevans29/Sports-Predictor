@@ -1,4 +1,4 @@
-## 2026-11-04 (#000: 252-availability-record-schema — THE AVAILABILITY RECORD, the schema PR (ARCHITECT 2026-11-04 13:05 ET, addendum 252 items 1, 2, 6 and 7; lane availability-record): two append-only tables, their migration, the one writer, the one read path and the read-only `availability` command; no feed, no provider call, no model change)
+## 2026-11-04 (#831: 252-availability-record-schema — THE AVAILABILITY RECORD, the schema PR (ARCHITECT 2026-11-04 13:05 ET, addendum 252 items 1, 2, 6 and 7; lane availability-record): two append-only tables, their migration, the one writer, the one read path and the read-only `availability` command; no feed, no provider call, no model change)
 - **The store:**
   - `availability_observations`, one row per fetch, and `availability_assertions`, one row per fact a payload asserted (`src/db/schema.py`).
   - Their vocabularies: three sources, Step B's five statuses, seven kinds.

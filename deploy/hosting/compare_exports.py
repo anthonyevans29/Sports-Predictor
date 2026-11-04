@@ -17,7 +17,10 @@ compared or printed either, and counted on their own line beside that count
 graded-export keys of #755 (every key of a results row's `graded_export` object
 and of the file-level `graded_exports` block) are never compared or printed,
 and counted on their own line beside those two (ARCHITECT 2026-11-01, addendum
-206 item 1; GRADED-EXPORT KEYS below). Files
+206 item 1; GRADED-EXPORT KEYS below). The rehearsal-arm keys of nfl-elo-v2
+(every `rehearsal_*` key at any depth) are never compared or printed, and
+counted on their own line right after the shadow-arm one (ARCHITECT 2026-11-04,
+addendum 247 item 2(2); REHEARSAL-ARM KEYS below). Files
 present on one side only are listed. Output is paste-ready. Exit 0 =
 CLEAN (every compared file identical after the timestamp mask), 1 = DIVERGENT,
 2 = ERROR (the comparison could not run: bad arguments, a side directory
@@ -118,7 +121,32 @@ is every key of each object, a key on either side once (graded_count: 4 per
 results row, 6 for the file's block), by the file pair's own walk (past the
 diff limit and under pruned keys); a parent whose value is not an object on
 either side counts 1. Printed as "graded-export keys (machine-local): N" right
-after the shadow-arm line. cutover_readiness.compare_day reads the same diff().
+after the rehearsal-arm line (itself right after the shadow-arm line).
+cutover_readiness.compare_day reads the same diff().
+
+REHEARSAL-ARM KEYS (ARCHITECT 2026-11-04 09:55 ET, addendum 247 item 2(2),
+verbatim): "THE COMPARE: a SEPARATE key prefix `rehearsal_*` (rehearsal_version,
+rehearsal_probabilities, rehearsal_reason…), host-only, masked by
+compare_exports.py under its own line "rehearsal-arm keys (host-only,
+nfl-elo-v2)" beside the pl-availability line — #735's pattern, in the SAME PR (a
+compare that would fail the tag on its own arm is a defect, not a question).
+Never the `candidate_*` keys: those are pl-availability-v1's line and its
+count." nfl-elo-v2's rehearsal arm (src/walters/nfl_rehearsal.py) writes, on the
+host only, rehearsal_version, rehearsal_probabilities, rehearsal_term,
+rehearsal_verdict_stamp, rehearsal_label and rehearsal_reason on an NFL slate
+and closing row the window covers, `rehearsal_arm` on an NFL results row that
+stores the arm, and `rehearsal_arm` in that file's record block. A
+rehearsal-arm key (rehearsal_arm_key) is any key whose name starts with
+"rehearsal_", at any depth, as ruled. Law 1 (read on main, 2026-11-04): no other
+writer of a compared export in src/, deploy/, scripts/, tools/ or cli.py writes a
+key with that prefix (sp_cutover's `rehearsal_aside` is a cutover receipt in
+the receipts log, never an export), and the NFL file's top-level `rehearsal`
+(false, a fossil the Cockpit reads) does not start with it and is compared as
+before. Both modes leave the class out; a structural mismatch printed whole
+shows its values as "<masked>"; the count is the file pair's own walk (a key on
+either side once), printed as "rehearsal-arm keys (host-only, nfl-elo-v2): N"
+right after the shadow-arm line. The shadow-arm line and its count are
+unchanged.
 """
 from __future__ import annotations
 
@@ -184,6 +212,19 @@ def shadow_arm(key, *values) -> bool:
         isinstance(v, dict) and v.get("version") == SHADOW_EID for v in values))
 
 
+# THE REHEARSAL-ARM KEYS (ARCHITECT 2026-11-04 09:55 ET, addendum 247 item 2(2); the module docstring quotes it):
+# nfl-elo-v2's rehearsal arm, written on the host only, never compared or printed, counted on its own line.
+REHEARSAL_EID = "nfl-elo-v2"                    # nfl_rehearsal.EID (this file ships alone: copied, not imported)
+REHEARSAL_PREFIX = "rehearsal_"                 # nfl_rehearsal.PREFIX: ROW_KEYS, RESULT_KEY, RECORD_KEY, any depth
+REHEARSAL_LINE = "rehearsal-arm keys (host-only, nfl-elo-v2)"      # the ruling's name, verbatim
+
+
+def rehearsal_arm_key(key) -> bool:
+    """True for a rehearsal-arm key (addendum 247 item 2(2)): a name starting with "rehearsal_", at any depth. The NFL
+    file's top-level `rehearsal` and every `candidate_*` key (shadow_arm's) are not."""
+    return str(key).startswith(REHEARSAL_PREFIX)
+
+
 # THE GRADED-EXPORT KEYS (ARCHITECT 2026-11-01 15:45 ET, addendum 206 item 1; the module docstring quotes it): the
 # export a results row stands behind (#768), named by each machine from its OWN closing file: machine-local, never
 # compared or printed, counted.
@@ -237,6 +278,12 @@ def shadow_count(a, b, parent=None) -> int:
     return _masked_count(a, b, lambda p, k, x, y: shadow_arm(k, x, y), parent)
 
 
+def rehearsal_count(a, b, parent=None) -> int:
+    """The rehearsal-arm keys of one file pair (addendum 247 item 2(2)), a key on either side once, by the same walk:
+    6 per NFL slate or closing row carrying the arm, 1 per results row carrying it, 1 for the record's block."""
+    return _masked_count(a, b, lambda p, k, x, y: rehearsal_arm_key(k), parent)
+
+
 def graded_count(a, b, parent=None) -> int:
     """The graded-export keys of one file pair (addendum 206 item 1), by the same walk: every key of each
     `graded_export` / `graded_exports` object, a key on either side once (4 per results row, 6 for the file's block)."""
@@ -249,7 +296,8 @@ def redacted(v, parent=None):
     `desk_meta` object against null; Codex on #735; a PL row against null; a results row against null): neither a
     dollar figure, a candidate figure nor a graded export's file or run id reaches the output."""
     if isinstance(v, dict):
-        return {k: "<masked>" if unit_bearing(parent, k) or shadow_arm(k, x) or graded_export_class(k)
+        return {k: "<masked>" if (unit_bearing(parent, k) or shadow_arm(k, x) or rehearsal_arm_key(k)
+                                  or graded_export_class(k))
                 else redacted(x, k)
                 for k, x in v.items()}
     if isinstance(v, list):
@@ -351,15 +399,17 @@ def diff(a, b, path="$", out=None, limit=40, unmatched=None, ignore=None, parent
     """`ignore`: None = the generic mask (TS_KEY + MASKED). A set (--ignore-keys; the cutover PL check only, #420)
     REPLACES that mask: only those keys and git_sha (code, never read from the database) are left out, so every
     database-read timestamp and match_id is compared (Codex on #439). In both modes the unit-bearing fields
-    (addendum 182 item 4, unit_bearing), the shadow-arm keys (addendum 199 item 2, shadow_arm) and the graded-export
-    keys (addendum 206 item 1, graded_export_class) are left out and never printed: a mismatch printed whole is
-    redacted first; unit_count, shadow_count and graded_count count them."""
+    (addendum 182 item 4, unit_bearing), the shadow-arm keys (addendum 199 item 2, shadow_arm), the rehearsal-arm keys
+    (addendum 247 item 2(2), rehearsal_arm_key) and the graded-export keys (addendum 206 item 1, graded_export_class)
+    are left out and never printed: a mismatch printed whole is redacted first; unit_count, shadow_count,
+    rehearsal_count and graded_count count them."""
     out = [] if out is None else out
     if len(out) >= limit:
         return out
     if isinstance(a, dict) and isinstance(b, dict):
         for k in sorted(set(a) | set(b)):
-            if unit_bearing(parent, k) or shadow_arm(k, a.get(k), b.get(k)) or graded_export_class(k):
+            if (unit_bearing(parent, k) or shadow_arm(k, a.get(k), b.get(k)) or rehearsal_arm_key(k)
+                    or graded_export_class(k)):
                 continue
             if (ignore is None and (TS_KEY.search(str(k)) or k in MASKED)) or (
                     ignore is not None and (k in ignore or k == "git_sha")):
@@ -405,7 +455,10 @@ def _main(argv=None) -> int:
         "Never compared or printed, in either mode, and counted on their own lines: the unit-bearing fields "
         "(addendum 182 item 4), the shadow-arm keys (ARCHITECT 2026-11-01, addendum 199 item 2: \"compare_exports "
         "treats every `candidate_*` key as \"shadow-arm keys (host-only, pl-availability-v1)\": never compared, never "
-        "printed, counted on its own line beside the unit-bearing count\"; also a results row's `candidate` arm), and "
+        "printed, counted on its own line beside the unit-bearing count\"; also a results row's `candidate` arm), the "
+        "rehearsal-arm keys (ARCHITECT 2026-11-04, addendum 247 item 2(2): every `rehearsal_*` key, \"masked by "
+        "compare_exports.py under its own line \"rehearsal-arm keys (host-only, nfl-elo-v2)\" beside the "
+        "pl-availability line\"), and "
         "the graded-export keys (ARCHITECT 2026-11-01, addendum 206 item 1: \"graded-export keys (machine-local)\": "
         "every key of a results row's graded_export object and of the file-level graded_exports block, never "
         "compared, never printed as a diff, counted once per file on its own line)."))
@@ -458,6 +511,7 @@ def _main(argv=None) -> int:
     field_diffs, row_diffs, unparseable, one_sided = [], [], [], []
     unit_masked = 0                               # addendum 182 item 4: the unit-bearing fields left out, counted
     shadow_masked = 0                             # addendum 199 item 2: the shadow-arm keys left out, counted
+    rehearsal_masked = 0                          # addendum 247 item 2(2): the rehearsal-arm keys left out, counted
     graded_masked = 0                             # addendum 206 item 1: the graded-export keys left out, counted
     pred_rows = {"laptop": 0, "host": 0}
     for name in sorted(set(la) | set(ho)):
@@ -481,6 +535,7 @@ def _main(argv=None) -> int:
         d = diff(x, y, unmatched=um, ignore=ignore)
         unit_masked += unit_count(x, y)
         shadow_masked += shadow_count(x, y)
+        rehearsal_masked += rehearsal_count(x, y)
         graded_masked += graded_count(x, y)
         only = {s: [k for v in um.values() for k in v[s]] for s in ("laptop", "host")}
         ok = not d and not only["laptop"] and not only["host"]
@@ -509,6 +564,7 @@ def _main(argv=None) -> int:
                                           if other['laptop'] or other['host'] else ""))
     print(f"unit-bearing fields masked (policy v1.2): {unit_masked}")   # addendum 182 item 4
     print(f"{SHADOW_LINE}: {shadow_masked}")                            # addendum 199 item 2
+    print(f"{REHEARSAL_LINE}: {rehearsal_masked}")                      # addendum 247 item 2(2)
     print(f"{GRADED_LINE}: {graded_masked}")                            # addendum 206 item 1
     if a.require_predictions:
         print(f"predictions compared (rows with a prediction and its probabilities): laptop {pred_rows['laptop']} "

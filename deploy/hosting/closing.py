@@ -167,6 +167,16 @@ CLOSING_HOLDS = (
 # #778's pin stands: no PLAY on the NFL closing or slate page. Never the PASS count's business (the row stays a PASS),
 # never high priority.
 WOULD_BE = "would-be PLAY (uncertified, unstaked)"     # the ruled label, verbatim (exec_cohorts.WOULD_BE)
+# THE REHEARSAL ARM LINE (ARCHITECT 2026-11-04 09:55 ET, addendum 247 item 3, verbatim: "the arm labels every row with
+# the entry id, the term and "rehearsal — not a call"; the phone page carries no arm line (the summary block and receipt
+# do, as 223 item 3 ruled for the would-be line)"). nfl-elo-v2's rehearsal_* keys on an export row
+# (src/walters/nfl_rehearsal.ROW_KEYS, copied: a test pins the two) are read by rehearsal_arms, BESIDE desk_rows and
+# never inside it (desk_rows, would_be_for and page_text are byte-identical with and without the keys): the summary
+# block prints one arm line for the row, the run receipt's desk row carries `rehearsal_arm`, the phone page's text
+# carries none. Record only, never a call.
+REHEARSAL_KEYS = ("rehearsal_version", "rehearsal_probabilities", "rehearsal_term", "rehearsal_verdict_stamp",
+                  "rehearsal_label", "rehearsal_reason")
+REHEARSAL_PREFIX = "rehearsal_"
 WOULD_BE_FAMILIES = ("NFL",)
 MARKET_ONLY_KIND = "market_only"                       # desk_policy.NFL_MARKET_ONLY_KIND (a test pins the two)
 QB_TEXT = {"QB-flagged half units": "QB-flagged", "QB unread half units": "QB list unread"}   # the QB hold's tags_any
@@ -775,6 +785,31 @@ def would_be_text(w: dict) -> list[str]:
             "record only, not placed"]
 
 
+def rehearsal_arms(doc: dict, ids) -> dict:
+    """{match_id: the row's rehearsal arm} for the run's own games (`ids`) whose export row carries the arm's keys
+    (addendum 247 item 3): {version, probabilities, term, verdict_stamp, label, reason}, as the export wrote them. Read
+    beside desk_rows, never by it: the Desk rows and the phone page are what they are without the keys."""
+    ids = set(ids)
+    out = {}
+    for r in doc.get("predictions") or []:
+        if r.get("match_id") in ids and r.get("rehearsal_version") is not None:
+            out[r["match_id"]] = {k[len(REHEARSAL_PREFIX):]: r.get(k) for k in REHEARSAL_KEYS}
+    return out
+
+
+def rehearsal_text(a: dict, x: dict) -> list[str]:
+    """The summary block's fields of an arm line: the entry and its term, both probabilities (or why there are none),
+    the verdict stamp and the label (never the phone page's text, addendum 247 item 3)."""
+    t = a.get("term") if isinstance(a.get("term"), dict) else {}
+    pr = a.get("probabilities") if isinstance(a.get("probabilities"), dict) else {}
+    h, w = pr.get("home_win"), pr.get("away_win")
+    ok = all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in (h, w))
+    probs = (f"{x['home']} {h:.4f} / {x['away']} {w:.4f}" if ok
+             else f"no probabilities: {a.get('reason') or 'none stored'}")
+    return [f"rehearsal arm {a.get('version')} ({t.get('form')} {t.get('value')})", probs,
+            str(a.get("verdict_stamp")), str(a.get("label"))]
+
+
 def _pp(x) -> str:
     return "n/a" if x is None else f"{x:+.1f}pp"
 
@@ -1146,7 +1181,7 @@ def order_text(x: dict) -> str:
     return f"no order: {x['order_why'] or 'none written'}"
 
 
-def summary_block(x: dict) -> str:
+def summary_block(x: dict, arm: dict | None = None) -> str:
     lines = [f"── {x['start_et']} · {x['away']} @ {x['home']}  [match {x['match_id']}]",
              f"   call   {x['call']} · pick {x['pick']} · {_units(x['units'])} · edge {_pp(x['edge_pp'])} "
              f"· exec edge {_pp(x['exec_edge_pp'])}"]
@@ -1165,6 +1200,8 @@ def summary_block(x: dict) -> str:
     w = x.get("would_be")
     if w:                                               # addendum 217 item 4: the record only, never a call
         lines.append("   " + " · ".join(would_be_text(w)))
+    if arm:                                             # addendum 247 item 3: the rehearsal arm, never a call
+        lines.append("   " + " · ".join(rehearsal_text(arm, x)))
     for kind in ("value_shadow", "quarantine_shadow"):
         v = x.get(kind)
         if v:
@@ -1904,6 +1941,7 @@ def _closing(rec: dict, fam: str, s: datetime, covers: list[dict], folder: Path,
     off = rec.get("called_off") or []
     cover_ids = {g["match_id"] for g in covers} - {x["match_id"] for x in off}
     rows = desk_rows(doc, cover_ids, done, started_ids, fam)
+    arms = rehearsal_arms(doc, [x["match_id"] for x in rows])      # addendum 247 item 3: beside the Desk rows
     missing = missing_from_export(doc, covers, done, games)
     if missing:
         rec["failed"] = "missing from export"
@@ -1939,11 +1977,12 @@ def _closing(rec: dict, fam: str, s: datetime, covers: list[dict], folder: Path,
                                            "hold", "value_shadow", "quarantine_shadow", "starters_listed",
                                            "unresolved_injuries", "injuries_empty")}
                         | ({"would_be": x["would_be"]} if x.get("would_be") else {})   # addendum 217 item 4
+                        | ({"rehearsal_arm": arms[x["match_id"]]} if x["match_id"] in arms else {})   # 247 item 3
                        for x in rows]   # call_text: 26 2(b); injuries_empty: addendum 40 item 4
     print(f"\n=== {fam} closing summary · {len(rows)} game(s) starting {et(s)} to "
           f"{utc(s + timedelta(minutes=COVER_MIN)).astimezone(NY):%H:%M} ET")
     for x in rows:
-        print(summary_block(x))
+        print(summary_block(x, arms.get(x["match_id"])))
     # B1 (ARCHITECT 2026-10-09, addendum 23): "The page goes out as soon as the run's own checks have passed. The
     # mirror push follows. A closing whose page went out is not run again for a failed push: the failure is receipted
     # and notified, and the next push from this machine carries the file." C5/C6 + B2: ONE page per run, on the phone

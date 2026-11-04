@@ -1022,3 +1022,584 @@ def test_no_option_takes_another_runs_count():
     opts = {a for a in script.main.__code__.co_consts if isinstance(a, str) and a.startswith("--")}
     assert opts >= {"--db", "--exports", "--from", "--through", "--ledger"}
     assert not [o for o in opts if re.search(r"count|sum|other|prior|previous|laptop|host", o)], opts
+
+
+# ---- the fill entry as the Cockpit's export holds it (#811, addendum 233 item 1) -------------------------------------
+
+COCKPIT = ROOT / "tools" / "cockpit.html"
+# Kalshi's confirmed CSV header (tools/cockpit.html, the comment above mapHeaders), the columns importKalshiCSV maps
+KALSHI_HDR = ("subtrader_id", "type", "quantity_fp", "market_ticker", "side", "entry_price_dollars", "exit_price_dollars",
+              "open_fees_dollars", "close_fees_dollars", "realized_pnl_without_fees_dollars",
+              "realized_pnl_with_fees_dollars", "close_timestamp", "open_timestamp", "product", "period_start",
+              "market_title")
+IMPORT_KEYS = ("id", "ticker", "side", "qty", "entry", "exit", "staked", "fees", "open_fee", "close_fee", "pnl_pre",
+               "pnl_net", "opened", "closed", "title")                      # importKalshiCSV's fx literal, in order
+PARSE_KEYS = ("kind", "family", "sports", "date", "teams", "sideCode", "start")  # parseTicker's sport result
+SIDE_KEYS = ("backed", "backed_role", "teams_title", "resolve_note", "resolved_via", "no_on", "no_on_role", "composite")
+# the synthetic CSV cells' figures (quantity, entry, fee, P&L) and the stake the import computes: never printed
+CSV_FIGURES = ("2113", "0.3719", "4.0817", "73.6911", "69.6094", "785.8247")
+KO_1101 = datetime(2026, 11, 1, 18, 0)         # 13:00 ET: Baltimore @ Buffalo, the finding's game (match 15149)
+
+
+def _csv_cells(ticker, side, title, opened, exit_="1"):
+    return ["sub-s1", "trade", "2113", ticker, side, "0.3719", exit_, "4.0817", "0", "73.6911", "69.6094",
+            "2026-11-01T21:30:00Z", opened, "sports", "2026-11-01", title]
+
+
+def _cockpit_entry(cells):
+    """The entry the Cockpit's importKalshiCSV stores for one CSV row of KALSHI_HDR (tools/cockpit.html), the shape
+    "Export ledger (JSON)" writes as held: the fx literal, parseTicker's fields spread in, sideFields' for a sport
+    ticker. Synthetic figures only. test_the_fixture_is_the_cockpits_import_shape pins it to the Cockpit's own output."""
+    from src.walters import ledger_fills as lf
+    g = dict(zip(KALSHI_HDR, cells))
+    num = float
+    qty, entry, of, cf, pre, net = (num(g[k]) for k in ("quantity_fp", "entry_price_dollars", "open_fees_dollars",
+                                                         "close_fees_dollars", "realized_pnl_without_fees_dollars",
+                                                         "realized_pnl_with_fees_dollars"))
+    fx = {"id": "\u241f".join(cells), "ticker": g["market_ticker"], "side": g["side"], "qty": qty, "entry": entry,
+          "exit": num(g["exit_price_dollars"]), "staked": round(qty * entry, 4), "fees": round(of + cf, 4),
+          "open_fee": of, "close_fee": cf, "pnl_pre": pre, "pnl_net": net, "opened": g["open_timestamp"],
+          "closed": g["close_timestamp"], "title": g["market_title"]}
+    p = lf.parse_ticker(fx["ticker"])
+    fx.update(p)
+    if p["kind"] == "sport":
+        fx.update(lf.side_fields(p, fx["title"], fx["side"]))
+    return fx
+
+
+BUF_CELLS = _csv_cells("KXNFLGAME-26NOV01BALBUF-BUF", "yes", "Buffalo wins — Baltimore", "2026-11-01T17:20:00Z")
+# the entry the Cockpit's own importKalshiCSV stored for BUF_CELLS (its functions run in node on the synthetic row,
+# 2026-11-03; the PR body pastes that node run's output, synthetic values only), the id left out (it is the cells joined by U+241F)
+BUF_ENTRY = {"ticker": "KXNFLGAME-26NOV01BALBUF-BUF", "side": "yes", "qty": 2113, "entry": 0.3719, "exit": 1,
+             "staked": 785.8247, "fees": 4.0817, "open_fee": 4.0817, "close_fee": 0, "pnl_pre": 73.6911,
+             "pnl_net": 69.6094, "opened": "2026-11-01T17:20:00Z", "closed": "2026-11-01T21:30:00Z",
+             "title": "Buffalo wins — Baltimore", "kind": "sport", "family": "NFL", "sports": ["NFL"],
+             "date": "2026-11-01", "teams": "BALBUF", "sideCode": "BUF", "start": None, "backed": "Buffalo",
+             "backed_role": "HOME", "teams_title": ["Buffalo", "Baltimore"], "resolve_note": None,
+             "resolved_via": "ticker", "no_on": None, "no_on_role": None, "composite": False}
+# an EVENT ticker in the ticker column (no -SIDE): the Cockpit stores it as no sport market at all
+EVENT_ONLY_CELLS = _csv_cells("KXNFLGAME-26NOV01BALBUF", "yes", "Buffalo wins — Baltimore", "2026-11-01T17:23:00Z")
+EVENT_ONLY_ENTRY = {**{k: BUF_ENTRY[k] for k in IMPORT_KEYS if k != "id"}, "ticker": "KXNFLGAME-26NOV01BALBUF",
+                    "opened": "2026-11-01T17:23:00Z", "kind": "non_sport",
+                    "category": "non-sport / unrecognised market"}
+
+
+def _js_keys(literal: str) -> list[str]:
+    """The key names of a JS object literal's top level (shorthand `id` and `k:v` alike; a spread is left out; a `//`
+    comment dropped)."""
+    parts, depth, cur = [], 0, ""
+    for ch in re.sub(r"//[^\n]*", "", literal).strip()[1:-1]:          # a line comment is not a key
+        depth += ch in "([{"
+        depth -= ch in ")]}"
+        if ch == "," and depth == 0:
+            parts.append(cur)
+            cur = ""
+        else:
+            cur += ch
+    parts.append(cur)
+    return [p.split(":")[0].strip() for p in parts if p.strip() and not p.strip().startswith("...")]
+
+
+def test_the_fixture_is_the_cockpits_import_shape():
+    """Law 1, from the code (addendum 233 item 1): the Cockpit's "Export ledger (JSON)" writes loadLedger() as held,
+    every fills entry is what importKalshiCSV stored: the fx literal's keys, `ticker` from the first header holding
+    "ticker" but not "event" (market_ticker: the MARKET ticker), `opened`/`closed` the raw open/close timestamps, the
+    date only in the ticker (parseTicker), sideFields' keys for a sport ticker. The fixture is that shape exactly."""
+    html = COCKPIT.read_text()
+    assert 'new Blob([JSON.stringify(loadLedger(),null,1)]' in html               # the export: the ledger as held
+    imp = html[html.index("function importKalshiCSV("):html.index("function mveLegs(")]
+    lit = re.search(r"const fx=(\{.*?\.\.\.p\});", imp, re.S).group(1)
+    assert _js_keys(lit) == list(IMPORT_KEYS), _js_keys(lit)
+    for want in ('ticker:g(r,"ticker")', 'side:g(r,"side")', 'opened:g(r,"openTs")', 'closed:g(r,"closeTs")',
+                 'title:g(r,"title")', "const id=r.join(\"\\u241f\")"):
+        assert want in imp, want
+    assert 'ticker:find(h=>has(h,"ticker")&&!has(h,"event"))' in html            # the market ticker, never the event's
+    sf = html[html.index("function sideFields("):html.index("function importKalshiCSV(")]
+    assert _js_keys(re.search(r"return (\{.*?\});", sf, re.S).group(1)) == list(SIDE_KEYS)
+    pt = html[html.index("function parseTicker("):html.index("function etOffsetMs(")]
+    assert _js_keys(re.search(r'return (\{kind:"sport".*?\});', pt, re.S).group(1)) == list(PARSE_KEYS)
+    got = _cockpit_entry(BUF_CELLS)
+    assert list(got) == list(IMPORT_KEYS + PARSE_KEYS + SIDE_KEYS)
+    assert got["id"] == "\u241f".join(BUF_CELLS) and {k: v for k, v in got.items() if k != "id"} == BUF_ENTRY
+    ev = _cockpit_entry(EVENT_ONLY_CELLS)
+    assert {k: v for k, v in ev.items() if k != "id"} == EVENT_ONLY_ENTRY
+
+
+def _rows_1101(events=True, names=("Buffalo Bills", "Baltimore Ravens")):
+    return [{"key": 15149, "home": names[0], "away": names[1], "kickoff_iso": "2026-11-01T18:00:00",
+             "events": {"KXNFLGAME-26NOV01BALBUF"} if events else set()}]
+
+
+def _held(f):
+    return {k: f[k] for k in script.LEDGER_FIELDS}
+
+
+def test_the_buf_shaped_entry_matches_by_event_ticker():
+    """233 item 1: "the BUF-shaped case matches by event ticker". The entry exactly as the export holds it (the market
+    ticker KXNFLGAME-26NOV01BALBUF-BUF); its event, the ticker less its side, is the event the closing row's order and
+    Kalshi legs name. Matched on the event alone: with teams the game matcher could never fit, it is still the row's;
+    with no event on the row and those teams, it is no row's (so the event did it)."""
+    f = _cockpit_entry(BUF_CELLS)
+    L = {"calls": [], "fills": [f]}
+    pos = script.positions(L, _rows_1101(names=("Synthetic Home", "Synthetic Away")))
+    assert pos["by_row"] == {15149: [_held(f)]} and pos["ambiguous"] == 0 and pos["nfl_fills"] == 1
+    pos = script.positions(L, _rows_1101(events=False, names=("Synthetic Home", "Synthetic Away")))
+    assert pos["by_row"] == {} and pos["ambiguous"] == 0 and pos["nfl_fills"] == 1
+
+
+def test_a_csv_imported_entry_matches_by_the_cockpits_game_matcher():
+    """233 item 1: "a CSV-imported fill matches by the Cockpit's game matcher". With no event on the row (a closing
+    row whose legs carry no ticker), the entry fits the row's full names by the ticker's codes (codesFit: BAL ~
+    Baltimore Ravens, BUF ~ Buffalo Bills) within a day of the ticker's own date, the only date a CSV-imported entry
+    carries; the same with a ticker carrying the ET start (HHMM: startNearest within 3h), whose event the row never
+    names. opened/closed are read by no matcher: an entry whose opened is another day still matches."""
+    f = _cockpit_entry(BUF_CELLS)
+    hhmm = _cockpit_entry(_csv_cells("KXNFLGAME-26NOV011300BALBUF-BUF", "yes", "Buffalo wins — Baltimore",
+                                     "2026-11-01T17:21:00Z"))
+    assert hhmm["start"] == "2026-11-01T18:00:00"
+    late = _cockpit_entry(_csv_cells("KXNFLGAME-26NOV01BALBUF-BAL", "no", "Baltimore wins — Buffalo",
+                                     "2026-10-29T15:00:00Z"))
+    for title in ("Buffalo wins — Baltimore", "Baltimore at Buffalo Winner?", None):
+        g = {**f, "title": title, "id": f"{f['id']}|{title}"}
+        pos = script.positions({"calls": [], "fills": [g]}, _rows_1101(events=False))
+        assert pos["by_row"] == {15149: [_held(g)]}, title
+    pos = script.positions({"calls": [], "fills": [f, hhmm, late]}, _rows_1101(events=False))
+    assert pos["by_row"] == {15149: [_held(f), _held(hhmm), _held(late)]} and pos["ambiguous"] == 0
+    pos = script.positions({"calls": [], "fills": [hhmm]}, _rows_1101(events=True))   # event differs: the matcher
+    assert pos["by_row"] == {15149: [_held(hhmm)]}
+
+
+def test_an_entry_on_another_game_does_not_match_and_ambiguity_is_still_refused():
+    """Another game the same day (Miami @ New England), the same teams a week earlier, an event ticker with no side
+    and another NFL series are no row's; the event-only and spread entries are not NFL game entries at all (the
+    Cockpit's parseTicker is the rule). Two rows of the same teams and day with no event: ambiguous, given to none."""
+    f = _cockpit_entry(BUF_CELLS)
+    others = [_cockpit_entry(_csv_cells("KXNFLGAME-26NOV01MIANE-NE", "no", "New England wins — Miami",
+                                        "2026-11-01T17:22:00Z", exit_="0")),
+              _cockpit_entry(_csv_cells("KXNFLGAME-26OCT25BALBUF-BUF", "yes", "Buffalo wins — Baltimore",
+                                        "2026-10-25T17:20:00Z")),
+              _cockpit_entry(EVENT_ONLY_CELLS),
+              _cockpit_entry(_csv_cells("KXNFLSPREAD-26NOV01BALBUF-BUF3", "yes", "Buffalo wins by more than three?",
+                                        "2026-11-01T17:24:00Z")),
+              _cockpit_entry(_csv_cells("KXMLBGAME-26OCT18NYYBOS-BOS", "yes", "Boston wins — New York Y",
+                                        "2026-10-18T17:20:00Z"))]
+    pos = script.positions({"calls": [], "fills": others}, _rows_1101())
+    assert pos["by_row"] == {} and pos["ambiguous"] == 0 and pos["nfl_fills"] == 2
+    twins = _rows_1101(events=False) + [{**_rows_1101(events=False)[0], "key": 15150}]
+    pos = script.positions({"calls": [], "fills": [f]}, twins)
+    assert pos["by_row"] == {} and pos["ambiguous"] == 1
+    twins = _rows_1101() + [{**_rows_1101()[0], "key": 15150}]                       # the event on both: refused too
+    pos = script.positions({"calls": [], "fills": [f]}, twins)
+    assert pos["by_row"] == {} and pos["ambiguous"] == 1
+
+
+def test_the_receipt_reads_a_cockpit_export_and_prints_no_figure(capsys, tmp_path):
+    """End to end on a bd_ledger_v1 export in exactly the Cockpit's shape (meta, calls, fills as importKalshiCSV stored
+    them; synthetic figures): Baltimore @ Buffalo (match 15149, a QB-flagged PLAY HOME) prints its entries under the
+    ledger's own label, the BUF market-ticker entry and the HHMM one (by the game matcher); the LEDGER line counts
+    the four NFL game entries (the event-only and spread entries are none). Without --unmatched no new line is
+    printed (235 item 2(c): the diagnostic is behind its flag). No quantity, price, fee, stake, P&L or id is printed."""
+    ex = tmp_path / "ex11"
+    buf = nfl_row(15149, "Baltimore Ravens", "Buffalo Bills", "BAL", "BUF", 0.55, 0.43, 0.42, 0.43, KO_1101,
+                  qb_side="home", qb=["Josh Allen"])
+    write_closing(ex, KO_1101 - timedelta(minutes=35), annotated([buf], KO_1101, market_only=False), fam="NFL")
+    _world(tmp_path / "w11.db", extra=((15149, "Baltimore Ravens", "Buffalo Bills", KO_1101, 30, 13),))
+    copy = _backup(tmp_path / "w11.db", tmp_path / "c11" / "nfl.db")
+    fills = [_cockpit_entry(BUF_CELLS),
+             _cockpit_entry(_csv_cells("KXNFLGAME-26NOV011300BALBUF-BUF", "yes", "Buffalo wins — Baltimore",
+                                       "2026-11-01T17:21:00Z")),
+             _cockpit_entry(_csv_cells("KXNFLGAME-26NOV01MIANE-NE", "no", "New England wins — Miami",
+                                       "2026-11-01T17:22:00Z", exit_="0")),
+             _cockpit_entry(_csv_cells("KXNFLGAME-26OCT25BALBUF-BUF", "yes", "Buffalo wins — Baltimore",
+                                       "2026-10-25T17:20:00Z")),
+             _cockpit_entry(EVENT_ONLY_CELLS),
+             _cockpit_entry(_csv_cells("KXNFLSPREAD-26NOV01BALBUF-BUF3", "yes", "Buffalo wins by more than three?",
+                                       "2026-11-01T17:24:00Z"))]
+    led = tmp_path / "bd_ledger_v1_2026-11-03.json"
+    led.write_text(json.dumps({"meta": {"policy_version": "v1.2"}, "calls": [], "fills": fills}, indent=1,
+                              ensure_ascii=False))
+    rc, out = _run(capsys, "--db", copy, "--exports", ex, "--ledger", led)
+    assert rc == 0, out
+    ln = _line(out, "Baltimore Ravens @ Buffalo Bills")
+    assert "page: PLAY HOME (Buffalo Bills)" in ln and "QB-flagged half units" in ln, ln
+    assert ln.endswith("what was done: fills: " + "; ".join(json.dumps(_held(f), ensure_ascii=False)
+                                                            for f in fills[:2])), ln
+    assert ("LEDGER: NFL game fills entries read 4 · fitting more than one row (ambiguous, given to none) 0 · PLAY rows "
+            f"(scored + unscored) with fills on the game 1 of 1 · {WOULD} rows (scored + unscored) with fills on the "
+            "game 0 of 0") in out
+    led_lines = [x for x in out if x.startswith("LEDGER")]
+    assert len(led_lines) == 1 and led_lines[0].startswith("LEDGER: "), led_lines
+    j = json.loads(out[-1][len("QB-HOLD-RECEIPT "):])
+    assert j["ambiguous_fills"] == 0 and "unmatched_nfl_fills" not in j and "not_game_market_fills" not in j
+    assert j["what_was_done"] == {"play": {"fills": 1, "not_established": 0},
+                                  "would_be": {"fills": 0, "not_established": 0}}
+    body = "\n".join(x for x in out if not x.startswith(("RULING", "SOURCES", "WHAT WAS DONE FROM")))
+    for fig in CSV_FIGURES + ("sub-s1", "\u241f", "category", "non-sport"):
+        assert fig not in body, fig
+    for key in IMPORT_KEYS[3:12] + ("id", "kind", "backed", "sideCode", "start"):    # ("teams": an unscored cause)
+        assert f'"{key}"' not in body, key
+
+
+
+# ---- the real Kalshi CSV's shape (#811, addendum 235 item 1): recognition of every NFL game fill ---------------------
+
+# 235 item 1: "the header row is `type, quantity_fp, market_ticker, side, entry_price_dollars, exit_price_dollars,
+# open_fees_dollars, close_fees_dollars, realized_pnl_without_fees_dollars, realized_pnl_with_fees_dollars,
+# close_timestamp, open_timestamp, product, period_start, market_title`, plus the account-id column first" (its name
+# here the one the Cockpit's own comment above mapHeaders records; its value synthetic and never printed)
+RULING_HDR = ("subtrader_id", "type", "quantity_fp", "market_ticker", "side", "entry_price_dollars",
+              "exit_price_dollars", "open_fees_dollars", "close_fees_dollars", "realized_pnl_without_fees_dollars",
+              "realized_pnl_with_fees_dollars", "close_timestamp", "open_timestamp", "product", "period_start",
+              "market_title")
+# mapHeaders' predicates, the Cockpit's own text (tools/cockpit.html): the test pins each line, then ports it
+MAP_HEADERS_JS = (
+    'ticker:find(h=>has(h,"ticker")&&!has(h,"event")) ?? find(h=>has(h,"ticker")),',
+    'side:find(h=>h==="side"||h.endsWith("_side")),',
+    'qty:find(h=>h.startsWith("quantity")||h.startsWith("qty")||has(h,"contracts")||h==="count"),',
+    'entry:find(h=>has(h,"entry")&&has(h,"price")),',
+    'exit:find(h=>has(h,"exit")&&has(h,"price")),',
+    'openFee:find(h=>has(h,"open")&&has(h,"fee")),',
+    'closeFee:find(h=>has(h,"close")&&has(h,"fee")),',
+    'openTs:find(h=>has(h,"open")&&(has(h,"time")||has(h,"ts")||has(h,"date"))&&!has(h,"fee")),',
+    'closeTs:find(h=>has(h,"close")&&(has(h,"time")||has(h,"ts")||has(h,"date"))&&!has(h,"fee")),',
+    'title:find(h=>has(h,"title")),')
+# the ten event codes of 235 item 1 ("2 or 3 letters each"), each on a synthetic game: (date code, block, side code,
+# away, home, the title's team, the start, naive UTC, and the ET offset the timestamps carry)
+RULING_GAMES = (
+    ("26OCT04", "GBTB", "GB", "Green Bay Packers", "Tampa Bay Buccaneers", "Green Bay", "2026-10-04T17:00:00", "-04:00"),
+    ("26OCT05", "KCSEA", "KC", "Kansas City Chiefs", "Seattle Seahawks", "Kansas City", "2026-10-06T00:20:00", "-04:00"),
+    ("26OCT11", "NYJNE", "NE", "New York Jets", "New England Patriots", "New England", "2026-10-11T17:00:00", "-04:00"),
+    ("26OCT11", "BUFLV", "LV", "Buffalo Bills", "Las Vegas Raiders", "Las Vegas", "2026-10-11T20:05:00", "-04:00"),
+    ("26OCT18", "WASSF", "WAS", "Washington Commanders", "San Francisco 49ers", "Washington", "2026-10-18T20:25:00",
+     "-04:00"),
+    ("26OCT18", "CARGB", "GB", "Carolina Panthers", "Green Bay Packers", "Green Bay", "2026-10-18T17:00:00", "-04:00"),
+    ("26OCT25", "TBDAL", "TB", "Tampa Bay Buccaneers", "Dallas Cowboys", "Tampa Bay", "2026-10-25T17:00:00", "-04:00"),
+    ("26OCT25", "DENARI", "ARI", "Denver Broncos", "Arizona Cardinals", "Arizona", "2026-10-25T20:05:00", "-04:00"),
+    ("26NOV01", "BALBUF", "BUF", "Baltimore Ravens", "Buffalo Bills", "Buffalo", "2026-11-01T18:00:00", "-05:00"),
+    ("26NOV01", "CLEPIT", "CLE", "Cleveland Browns", "Pittsburgh Steelers", "Cleveland", "2026-11-01T18:00:00", "-05:00"))
+SPLITS = {"GBTB": "2+2", "KCSEA": "2+3", "TBDAL": "2+3", "NYJNE": "3+2", "BUFLV": "3+2", "WASSF": "3+2",
+          "CARGB": "3+2", "DENARI": "3+3", "BALBUF": "3+3", "CLEPIT": "3+3"}
+RULING_FIGURES = ("4417", "0.3863", "1.9131", "47.2209", "45.3078", "sub-r1")   # synthetic; never printed
+
+
+def _ruling_day(code):
+    from src.walters import ledger_fills as lf
+    return f"20{code[:2]}-{lf.MONTHS[code[2:5]]:02d}-{code[5:7]}"
+
+
+def _ruling_cells(g, side_code=None):
+    """One CSV row of RULING_HDR in the ruling's forms (235 item 1): the MARKET ticker with its side suffix, the title
+    "<Team> wins — <Team>" (an em dash), the timestamps with their offset, side lower-case yes; synthetic figures."""
+    d, block, side, _away, _home, team, _ko, off = g
+    day = _ruling_day(d)
+    return ["sub-r1", "trade", "4417", f"KXNFLGAME-{d}{block}-{side_code or side}", "yes", "0.3863", "1", "1.9131", "0",
+            "47.2209", "45.3078", f"{day}T15:31:07{off}", f"{day}T12:29:43{off}", "sports", day,
+            f"{team} wins — {team}"]
+
+
+def _map_headers(hdr):
+    """mapHeaders (tools/cockpit.html), ported predicate by predicate (MAP_HEADERS_JS pins the Cockpit's text)."""
+    n = [re.sub(r"[^a-z0-9]+", "_", str(h).lower()) for h in hdr]
+
+    def find(pred):
+        return next((i for i, h in enumerate(n) if pred(h)), None)
+
+    def has(h, *ks):
+        return all(k in h for k in ks)
+    t = find(lambda h: has(h, "ticker") and not has(h, "event"))
+    return {"ticker": t if t is not None else find(lambda h: has(h, "ticker")),
+            "side": find(lambda h: h == "side" or h.endswith("_side")),
+            "qty": find(lambda h: h.startswith(("quantity", "qty")) or has(h, "contracts") or h == "count"),
+            "entry": find(lambda h: has(h, "entry") and has(h, "price")),
+            "exit": find(lambda h: has(h, "exit") and has(h, "price")),
+            "openFee": find(lambda h: has(h, "open") and has(h, "fee")),
+            "closeFee": find(lambda h: has(h, "close") and has(h, "fee")),
+            "openTs": find(lambda h: has(h, "open") and (has(h, "time") or has(h, "ts") or has(h, "date"))
+                           and not has(h, "fee")),
+            "closeTs": find(lambda h: has(h, "close") and (has(h, "time") or has(h, "ts") or has(h, "date"))
+                            and not has(h, "fee")),
+            "title": find(lambda h: has(h, "title"))}
+
+
+def test_map_headers_reads_the_rulings_header_row_exactly():
+    """235 item 1: "Code reads ... `mapHeaders` against exactly this header row (`market_ticker`, `market_title`,
+    `open_timestamp`, `close_timestamp`, `quantity_fp`)". On the Cockpit's own predicates (pinned from its text): the
+    ticker is market_ticker, qty quantity_fp, entry entry_price_dollars, the timestamps open_timestamp /
+    close_timestamp (never a fee column: open_fees_dollars holds "open" too), the title market_title; the account-id
+    column, product and period_start map to nothing. The fixture helper's header is this row, column for column."""
+    html = COCKPIT.read_text()
+    mh = html[html.index("function mapHeaders("):html.index("function num(")]
+    for line in MAP_HEADERS_JS:
+        assert line in mh, line
+    assert 'const need=["ticker","qty","entry"].filter(k=>H[k]==null);' in html     # the import's required three
+    assert RULING_HDR == KALSHI_HDR
+    got = {k: RULING_HDR[v] for k, v in _map_headers(RULING_HDR).items()}
+    assert got == {"ticker": "market_ticker", "side": "side", "qty": "quantity_fp", "entry": "entry_price_dollars",
+                   "exit": "exit_price_dollars", "openFee": "open_fees_dollars", "closeFee": "close_fees_dollars",
+                   "openTs": "open_timestamp", "closeTs": "close_timestamp", "title": "market_title"}
+    assert not {"subtrader_id", "type", "product", "period_start"} & set(got.values())
+
+
+def test_every_kalshi_nfl_game_ticker_is_recognised_whatever_its_codes_lengths():
+    """235 item 1: "any parser that assumes two 3-letter codes drops roughly a third of the NFL fills". Neither the
+    Cockpit's parseTicker nor its Python port assumes a length (the teams block is one [A-Z0-9]+ group): all ten
+    event codes of the ruling, 2+2, 2+3, 3+2 and 3+3, parse as NFL game markets, the side resolved by the ticker's
+    suffix (the block's prefix is AWAY, its suffix HOME), the date the ticker's own. The title in the ruling's form
+    names one team, so the title's two teams are that team twice and the backed name stays unresolved (the role is
+    the ticker's); positions() counts all ten as NFL game entries."""
+    html = COCKPIT.read_text()
+    assert r"/^KX([A-Z]+?)GAME-(\d{2})([A-Z]{3})(\d{2})(\d{4})?([A-Z0-9]+)-([A-Z0-9]+)$/" in html
+    entries = []
+    for g in RULING_GAMES:
+        d, block, side, away, home, team, _ko, _off = g
+        f = _cockpit_entry(_ruling_cells(g))
+        a_len = len(side) if block.startswith(side) else len(block) - len(side)
+        assert f"{a_len}+{len(block) - a_len}" == SPLITS[block], block
+        assert (f["kind"], f["family"], f["teams"], f["sideCode"], f["date"], f["start"]) == (
+            "sport", "NFL", block, side, _ruling_day(d), None), block
+        assert f["backed_role"] == ("AWAY" if block.startswith(side) else "HOME"), block
+        assert f["resolved_via"] == "ticker" and f["resolve_note"] is None and f["backed"] is None, block
+        assert f["teams_title"] == [team, team] and f["opened"].endswith(_off), block
+        entries.append(f)
+    assert sorted(set(SPLITS.values())) == ["2+2", "2+3", "3+2", "3+3"]
+    pos = script.positions({"calls": [], "fills": entries}, [])
+    assert pos["nfl_fills"] == 10 and pos["by_row"] == {} and len(pos["unmatched"]) == 10
+
+
+def _ruling_rows(events):
+    return [{"key": 9000 + i, "home": g[4], "away": g[3], "kickoff_iso": g[6],
+             "events": {f"KXNFLGAME-{g[0]}{g[1]}"} if events else set()} for i, g in enumerate(RULING_GAMES)]
+
+
+def test_every_ruling_shaped_fill_matches_its_own_row_by_the_game_matcher_and_by_event():
+    """Each of the ten entries, in the export's shape on the ruling's CSV forms, matches its own row and no other: by
+    the Cockpit's game matcher on the row's full names (no event on the row) and by event ticker; the away or the home
+    side alike. A reversed game (the same two teams, home and away swapped) fits no split. Nothing is ambiguous."""
+    for side_of in ("given", "other"):
+        entries = []
+        for g in RULING_GAMES:
+            block, side = g[1], g[2]
+            other = block[len(side):] if block.startswith(side) else block[:-len(side)]
+            entries.append(_cockpit_entry(_ruling_cells(g, side if side_of == "given" else other)))
+        for events in (False, True):
+            pos = script.positions({"calls": [], "fills": entries}, _ruling_rows(events))
+            assert pos["nfl_fills"] == 10 and pos["ambiguous"] == 0 and pos["unmatched"] == [], (side_of, events)
+            assert pos["by_row"] == {9000 + i: [_held(f)] for i, f in enumerate(entries)}, (side_of, events)
+        flipped = [{**r, "home": r["away"], "away": r["home"]} for r in _ruling_rows(False)]
+        pos = script.positions({"calls": [], "fills": entries}, flipped)
+        assert pos["by_row"] == {} and len(pos["unmatched"]) == 10, side_of
+
+
+def test_the_teams_block_split_is_settled_by_the_rows_names_never_by_length(monkeypatch):
+    """The block's split is never fixed by length (235 item 1's 2-or-3 letters): the game matcher (ledger_fills.
+    _codes_fit, the Cockpit's codesFit) tries every split with two letters or more a side, shortest away code first, and
+    takes the game at the first split where BOTH codes fit the row's own names. Pinned on the matcher itself: a spy on
+    its code_fits records the splits it tried, and the split it returned True on is the last one tried. GBTB has one
+    split only (2+2; 3+1 and 1+3 are never tried); KCSEA is KC+SEA at the first try; NYJNE is NYJ+NE after NY+JNE is
+    rejected; DENARI is DEN+ARI after DE+NARI is rejected; CARGB is CAR+GB after CA+RGB is rejected; TBDAL is TB+DAL.
+    A reversed game rejects every split it tries, and the splits tried are exactly the 2-or-more-a-side ones. The side's
+    role is the ticker's suffix, exact (GBTB-GB AWAY, GBTB-TB HOME), so a four-letter block of two two-letter codes is
+    never ambiguous; a suffix that is both the block's prefix and its suffix is never guessed (no role)."""
+    from src.walters import ledger_fills as lf
+    real = lf.code_fits
+    tried = []
+
+    def spy(code, name):
+        tried.append(code)
+        return real(code, name)
+    monkeypatch.setattr(lf, "code_fits", spy)
+
+    def run(T, away, home):
+        tried.clear()
+        ok = lf._codes_fit(T, {"away": away, "home": home})
+        pairs = [(tried[i], tried[i + 1]) for i in range(0, len(tried), 2)]
+        assert all(a + h == T for a, h in pairs), (T, pairs)
+        return ok, pairs
+
+    expect = {   # block: (away, home, the splits the matcher tries in order, the last being the one it takes)
+        "GBTB": ("Green Bay Packers", "Tampa Bay Buccaneers", [("GB", "TB")]),
+        "KCSEA": ("Kansas City Chiefs", "Seattle Seahawks", [("KC", "SEA")]),
+        "NYJNE": ("New York Jets", "New England Patriots", [("NY", "JNE"), ("NYJ", "NE")]),
+        "DENARI": ("Denver Broncos", "Arizona Cardinals", [("DE", "NARI"), ("DEN", "ARI")]),
+        "CARGB": ("Carolina Panthers", "Green Bay Packers", [("CA", "RGB"), ("CAR", "GB")]),
+        "TBDAL": ("Tampa Bay Buccaneers", "Dallas Cowboys", [("TB", "DAL")]),
+    }
+    for T, (away, home, pairs) in expect.items():
+        assert run(T, away, home) == (True, pairs), T
+    every = {4: [(2, 2)], 5: [(2, 3), (3, 2)], 6: [(2, 4), (3, 3), (4, 2)]}
+    for g in RULING_GAMES:                       # all ten, on the row's names: taken; the game reversed: every split out
+        T, away, home = g[1], g[3], g[4]
+        ok, pairs = run(T, away, home)
+        assert ok and pairs[-1] == (T[:len(T) - len(pairs[-1][1])], pairs[-1][1]), T
+        assert SPLITS[T] == f"{len(pairs[-1][0])}+{len(pairs[-1][1])}", (T, pairs[-1])
+        ok, pairs = run(T, home, away)
+        assert not ok and [(len(a), len(h)) for a, h in pairs] == every[len(T)], (T, pairs)
+    monkeypatch.undo()
+    for block, side, role in (("GBTB", "GB", "AWAY"), ("GBTB", "TB", "HOME"), ("KCSEA", "KC", "AWAY"),
+                              ("KCSEA", "SEA", "HOME"), ("CARGB", "GB", "HOME"), ("TBDAL", "TB", "AWAY")):
+        assert lf.ticker_role({"teams": block, "sideCode": side})["role"] == role, (block, side)
+    assert lf.ticker_role({"teams": "GBGB", "sideCode": "GB"})["role"] is None        # both: never guessed
+
+
+def test_a_code_that_fits_no_name_matches_by_event_only_under_the_one_team_title():
+    """The export's title names one team, so the strict two-team title fallback (game_fits' docstring) never fits it:
+    a code that prefixes no team name matches by the row's event ticker only. The synthetic code here (QQX) is not a
+    provider code; Kalshi's real code per team is not enumerated in this repo, so whether any NFL team carries such a
+    code is NOT established (law 1). A code that does prefix its name (a JAC-style code for "Jacksonville") fits by
+    code with no event on the row."""
+    from src.walters import ledger_fills as lf
+    away, home = "Jacksonville Jaguars", "Tennessee Titans"
+    assert not lf._codes_fit("QQXTEN", {"away": away, "home": home})
+    assert lf._codes_fit("JACTEN", {"away": away, "home": home})
+    g = ("26NOV01", "QQXTEN", "QQX", away, home, "Jacksonville", "2026-11-01T18:00:00", "-05:00")
+    f = _cockpit_entry(_ruling_cells(g))
+    assert f["teams_title"] == ["Jacksonville", "Jacksonville"] and not lf._title_fits_strict(f["teams_title"],
+                                                                                            {"away": away, "home": home})
+    row = {"key": 15150, "home": home, "away": away, "kickoff_iso": g[6], "events": set()}
+    assert script.positions({"calls": [], "fills": [f]}, [row])["by_row"] == {}
+    row["events"] = {"KXNFLGAME-26NOV01QQXTEN"}
+    assert script.positions({"calls": [], "fills": [f]}, [row])["by_row"] == {15150: [_held(f)]}
+    g2 = ("26NOV01", "JACTEN", "JAC", away, home, "Jacksonville", "2026-11-01T18:00:00", "-05:00")
+    f2 = _cockpit_entry(_ruling_cells(g2))
+    row2 = {"key": 15150, "home": home, "away": away, "kickoff_iso": g2[6], "events": set()}
+    assert script.positions({"calls": [], "fills": [f2]}, [row2])["by_row"] == {15150: [_held(f2)]}
+
+
+def test_the_one_team_title_never_matches_on_its_own():
+    """The ruling's title ("Buffalo wins — Buffalo") names one team: the title fallback (two title teams on two
+    different sides) can never fit, so the match rests on the ticker's codes or the event. Names the codes cannot fit
+    and no event on the row: no row; the event on the row: matched."""
+    g = RULING_GAMES[8]
+    f = _cockpit_entry(_ruling_cells(g))
+    assert f["title"] == "Buffalo wins — Buffalo" and f["teams_title"] == ["Buffalo", "Buffalo"]
+    row = {"key": 15149, "home": "Synthetic Home", "away": "Synthetic Away", "kickoff_iso": g[6], "events": set()}
+    assert script.positions({"calls": [], "fills": [f]}, [row])["by_row"] == {}
+    row["events"] = {"KXNFLGAME-26NOV01BALBUF"}
+    assert script.positions({"calls": [], "fills": [f]}, [row])["by_row"] == {15149: [_held(f)]}
+
+
+# ---- 235 item 2(b): a Record-fill on the call, a hand entry; 235 item 2(c): --unmatched -----------------------------
+
+HAND = "recorded on the call, a hand entry"
+FILL_PRICE = "0.5317"                                           # synthetic Record-fill price: never printed
+
+
+def _hand_call(**kw):
+    c = {"id": "h1", "sport": "NFL", "game": "Baltimore Ravens @ Buffalo Bills", "home": "Buffalo Bills",
+         "away": "Baltimore Ravens", "match_id": 15149, "kickoff": "2026-11-01T18:00:00Z", "pick": "HOME",
+         "call_type": "straight", "engine": "model_edge", "status": "open", "units": 0.5,
+         "order_type": "limit", "fill_price": float(FILL_PRICE), "fill_recorded_at": "2026-11-01T17:41:09.000Z"}
+    c.update(kw)
+    return {k: v for k, v in c.items() if v is not None}
+
+
+def test_hand_entries_match_a_call_by_its_own_match_id_teams_and_kickoff():
+    """235 item 2(b): a call is the row's game by its own identity (addendum 109 item 2: match id and recorded kickoff),
+    its teams the row's: the field NAMES present come back, never a value. Another match id, other teams, a kickoff
+    beyond the Desk's clock drift, no match id, no kickoff, another sport, or no Record-fill field: no row's. A call
+    with only some of the fields names only those."""
+    rows = _rows_1101()
+    assert script.hand_entries({"calls": [_hand_call()]}, rows) == {
+        15149: [["order_type", "fill_price", "fill_recorded_at"]]}
+    assert script.hand_entries({"calls": [_hand_call(order_type=None, fill_recorded_at=None)]}, rows) == {
+        15149: [["fill_price"]]}
+    assert script.hand_entries({"calls": [_hand_call(kickoff="2026-11-01T18:59:00")]}, rows) == {
+        15149: [["order_type", "fill_price", "fill_recorded_at"]]}                 # within the hour: the same start
+    for bad in (dict(match_id=15150), dict(match_id=None), dict(match_id="15149"), dict(match_id=True),
+                dict(kickoff=None), dict(kickoff="2026-11-01T19:01:00Z"), dict(home="Miami Dolphins"),
+                dict(sport="MLB"), dict(order_type=None, fill_price=None, fill_recorded_at=None)):
+        assert script.hand_entries({"calls": [_hand_call(**bad)]}, rows) == {}, bad
+    assert script.hand_text(None) == "" and script.hand_text([]) == ""
+    assert script.hand_text([["order_type", "fill_price"]]) == f" · {HAND}: order_type, fill_price"
+
+
+def _export_world(tmp_path, fills, calls):
+    ex = tmp_path / "ex35"
+    buf = nfl_row(15149, "Baltimore Ravens", "Buffalo Bills", "BAL", "BUF", 0.55, 0.43, 0.42, 0.43, KO_1101,
+                  qb_side="home", qb=["Josh Allen"])
+    write_closing(ex, KO_1101 - timedelta(minutes=35), annotated([buf], KO_1101, market_only=False), fam="NFL")
+    _world(tmp_path / "w35.db", extra=((15149, "Baltimore Ravens", "Buffalo Bills", KO_1101, 30, 13),))
+    copy = _backup(tmp_path / "w35.db", tmp_path / "c35" / "nfl.db")
+    led = tmp_path / "bd_ledger_v1_2026-11-03.json"
+    led.write_text(json.dumps({"meta": {"policy_version": "v1.2"}, "calls": calls, "fills": fills}, indent=1,
+                              ensure_ascii=False))
+    return ex, copy, led
+
+
+def test_a_record_fill_prints_under_its_own_label_never_merged_into_fills(capsys, tmp_path):
+    """235 item 2(b): "a Record-fill written onto a call is the operator's hand entry and, if the export carries it,
+    prints under its own label ("recorded on the call, a hand entry"), never merged into fills and never relabelled".
+    With no fills on the game, "what was done" stays "not established" and the hand entry follows under its own label;
+    with a fill, the fills print as before and the hand entry after them. The LEDGER line and the JSON's
+    what_was_done count fills only. No price, order type or time of the Record-fill is printed."""
+    for fills in ([], [_cockpit_entry(_ruling_cells(RULING_GAMES[8]))]):
+        sub = tmp_path / f"f{len(fills)}"
+        sub.mkdir()
+        ex, copy, led = _export_world(sub, fills, [_hand_call()])
+        rc, out = _run(capsys, "--db", copy, "--exports", ex, "--ledger", led)
+        assert rc == 0, out
+        ln = _line(out, "Baltimore Ravens @ Buffalo Bills")
+        done = ("fills: " + json.dumps(_held(fills[0]), ensure_ascii=False)) if fills else "not established"
+        assert ln.endswith(f"what was done: {done} · {HAND}: order_type, fill_price, fill_recorded_at"), ln
+        j = json.loads(out[-1][len("QB-HOLD-RECEIPT "):])
+        assert j["what_was_done"]["play"] == {"fills": len(fills), "not_established": 1 - len(fills)}
+        assert (f"PLAY rows (scored + unscored) with fills on the game {len(fills)} of 1") in "\n".join(out)
+        body = "\n".join(x for x in out if not x.startswith(("RULING", "SOURCES", "WHAT WAS DONE FROM", "KEYS")))
+        for fig in (FILL_PRICE, "0.53", "17:41", '"h1"') + RULING_FIGURES:
+            assert fig not in body, fig
+        tail = ln.split(" · what was done: ", 1)[1]                    # the order type's value is never printed
+        assert "limit" not in tail and "market" not in tail, tail
+    # no Record-fill on the call: nothing of it prints
+    sub = tmp_path / "none"
+    sub.mkdir()
+    ex, copy, led = _export_world(sub, [], [_hand_call(order_type=None, fill_price=None, fill_recorded_at=None)])
+    rc, out = _run(capsys, "--db", copy, "--exports", ex, "--ledger", led)
+    assert rc == 0 and HAND not in "\n".join(x for x in out if not x.startswith("KEYS"))
+
+
+def test_unmatched_prints_each_unmatched_nfl_fill_event_and_date_only_behind_the_flag(capsys, tmp_path):
+    """235 item 2(c): "a diagnostic line naming the event ticker and date of each NFL fill that matched no row — behind
+    a flag (`--unmatched`), printed to the console only". The flag adds a head line (not for posting) and one line per
+    unmatched NFL game entry: its event ticker and the ticker's date, nothing else (no side, title, figure or id); the
+    entry on the row's game and a non-NFL entry print none. Without the flag nothing of it prints and every other line
+    and the JSON are the same."""
+    fills = [_cockpit_entry(_ruling_cells(g)) for g in RULING_GAMES]         # one on match 15149 (BALBUF), nine not
+    fills.append(_cockpit_entry(_csv_cells("KXMLBGAME-26OCT18NYYBOS-BOS", "yes", "Boston wins — Boston",
+                                           "2026-10-18T12:29:43-04:00")))
+    ex, copy, led = _export_world(tmp_path, fills, [])
+    rc0, out0 = _run(capsys, "--db", copy, "--exports", ex, "--ledger", led)
+    rc1, out1 = _run(capsys, "--db", copy, "--exports", ex, "--ledger", led, "--unmatched")
+    assert rc0 == rc1 == 0, out1
+    assert not [x for x in out0 if "UNMATCHED" in x or "unmatched NFL" in x]
+    extra = [x for x in out1 if x not in out0]
+    assert out0 == [x for x in out1 if x not in extra]                          # nothing else changes, the JSON included
+    assert extra[0] == (f"{script.UNMATCHED_HEAD}: NFL game fills entries read that matched no row 9")
+    assert "NOT FOR POSTING" in extra[0]
+    want = [f"  unmatched NFL game fill (not for posting): KXNFLGAME-{g[0]}{g[1]} · {_ruling_day(g[0])}"
+            for g in RULING_GAMES if g[1] != "BALBUF"]
+    assert extra[1:] == want
+    for x in extra:
+        for fig in RULING_FIGURES + ("yes", "wins", "-05:00", "-04:00", "KXMLB"):
+            assert fig not in x, (fig, x)
+    assert "LEDGER: NFL game fills entries read 10 " in "\n".join(out1)
+    # the flag without --ledger: one line saying so, nothing else
+    rc, out = _run(capsys, "--db", copy, "--exports", ex, "--unmatched")
+    assert rc == 0 and [x for x in out if "UNMATCHED" in x] == [f"{script.UNMATCHED_HEAD}: not read (no --ledger)"]
+
+
+def test_a_record_fill_on_an_unscored_row_prints_at_the_end_of_its_line(capsys, tmp_path):
+    """231 item 2(c) keeps "what was done" on every row: an unscored row (here the copy lacks match 15149, "no result
+    in this copy") carries the hand entry after it too, matched on the closing row's own teams and recorded start."""
+    ex = tmp_path / "exu"
+    buf = nfl_row(15149, "Baltimore Ravens", "Buffalo Bills", "BAL", "BUF", 0.55, 0.43, 0.42, 0.43, KO_1101,
+                  qb_side="home", qb=["Josh Allen"])
+    write_closing(ex, KO_1101 - timedelta(minutes=35), annotated([buf], KO_1101, market_only=False), fam="NFL")
+    _world(tmp_path / "wu.db")
+    copy = _backup(tmp_path / "wu.db", tmp_path / "cu" / "nfl.db")
+    led = tmp_path / "bd_ledger_v1_2026-11-03.json"
+    led.write_text(json.dumps({"calls": [_hand_call()], "fills": []}))
+    rc, out = _run(capsys, "--db", copy, "--exports", ex, "--ledger", led)
+    assert rc == 0, out
+    hit = [x for x in out if x.startswith("  no result in this copy (unscored, counted): match 15149 ")]
+    assert len(hit) == 1 and hit[0].endswith(
+        f"what was done: not established · {HAND}: order_type, fill_price, fill_recorded_at"), hit

@@ -68,6 +68,64 @@ dated folders alike (never a latest/ folder), so the mirror checkout still works
 The first host run is THIS WEEK on today's pulled backup, by my block, as soon as #810 merges; the laptop run the same
 day."
 
+The fill matching, a finding (#811), verbatim (ARCHITECT 2026-11-03 12:45 ET, addendum 233 item 1): "FINDING (ops; an
+Issue, then a small read-only PR, the next slot after #413): THE RECEIPT MATCHED NONE OF THE LEDGER'S NFL FILLS. Both
+runs read the Cockpit's export (bd_ledger_v1: calls 46, fills 931), found 8 NFL game fills, matched 0 to any of the 16
+rows, and printed "what was done: not established" on every row — while the operator's Kalshi record of 11-02 (read by
+me, never in the repo) holds Desk-call fills on at least one of those games (Baltimore @ Buffalo, 11-01, match 15149:
+page PLAY HOME, QB-flagged). So the matcher's assumptions about the export's fill entries do not hold on the real file.
+Code reads the Cockpit's own export function (tools/cockpit.html, "Export ledger (JSON)", the fills array: the real
+keys for ticker, side, title, opened, closed, and whether the ticker is the market's or the event's, how a CSV-imported
+fill carries its date) — law 1, from the code, not from a guess — then fixes `positions()` with a fixture in exactly
+that shape with synthetic values; the test asserts the BUF-shaped case matches by event ticker and a CSV-imported fill
+matches by the Cockpit's game matcher. If the code read leaves the shape ambiguous, the operator pastes ONE fill
+entry's KEYS with every value redacted (never a quantity, price or fee) in the Issue. No fill figure enters the repo,
+the Issue or the PR."
+
+The recognition, verbatim (ARCHITECT 2026-11-03 13:20 ET, addendum 235 item 1): "WHAT THE REAL KALSHI CSV LOOKS LIKE (I
+hold the operator's three exports of 10-26, 10-30 and 11-02; nothing from them enters the repo; the account-id column is
+never printed anywhere): the header row is `type, quantity_fp, market_ticker, side, entry_price_dollars,
+exit_price_dollars, open_fees_dollars, close_fees_dollars, realized_pnl_without_fees_dollars,
+realized_pnl_with_fees_dollars, close_timestamp, open_timestamp, product, period_start, market_title`, plus the
+account-id column first. The ticker is the MARKET ticker with its side suffix, e.g. `KXNFLGAME-26NOV01BALBUF-BUF`; the
+title reads `Buffalo wins — Buffalo` (an em dash); the timestamps carry an offset, `2026-11-01T12:29:43-05:00`; `side`
+is lower-case `yes`. The event code is the two Kalshi team codes run together, 2 or 3 letters each — `GBTB`, `KCSEA`,
+`NYJNE`, `BUFLV`, `WASSF`, `CARGB`, `TBDAL` beside `DENARI`, `BALBUF`, `CLEPIT` — so any parser that assumes two
+3-letter codes drops roughly a third of the NFL fills. The full-history export of 10-26 holds 24 NFL game fills from
+09-28 to 10-25, the 11-02 export 5 more (10-26 to 11-01): at least 27 distinct NFL game fills exist, against "NFL game
+fills entries read 8". So the first question is not the matcher but the RECOGNITION: which entries the receipt (or the
+Cockpit's import) counts as an NFL game fill, and why 8 and not 27. Code reads `parseTicker` and `sideFields` for the
+2-letter-code case and for `mapHeaders` against exactly this header row (`market_ticker`, `market_title`,
+`open_timestamp`, `close_timestamp`, `quantity_fp`), with a fixture in this shape and synthetic values."
+
+Code's three questions, ruled, verbatim (addendum 235 item 2): "CODE'S THREE QUESTIONS: (a) OPEN the branch as "Refs
+#811" now — the fixture pins the export's shape and is wanted whatever the cause; the recognition fix of item 1 rides
+the same PR once found. (b) "What was done" stays the ledger's FILLS (225 item 3 Q2); a Record-fill written onto a call
+is the operator's hand entry and, if the export carries it, prints under its own label ("recorded on the call, a hand
+entry"), never merged into fills and never relabelled. (c) YES to a diagnostic line naming the event ticker and date of
+each NFL fill that matched no row — behind a flag (`--unmatched`), printed to the console only; my block never posts
+that console to #446 (it names the operator's own games); it comes to me."
+
+THE RECOGNITION, READ (#811; 235 item 1): on a synthetic CSV in exactly that header row (the account-id column first;
+values in the ruling's forms: the market ticker with its side suffix, 2- and 3-letter codes, the title "<Team> wins —
+<Team>", offset timestamps, side yes), the Cockpit's own importKalshiCSV (run in node) maps ticker←market_ticker,
+qty←quantity_fp, entry←entry_price_dollars, openTs←open_timestamp, closeTs←close_timestamp (never a fee column),
+title←market_title, leaves product and period_start unmapped and harmless, does not throw, and stores every row;
+parseTicker reads the teams block as ONE string (([A-Z0-9]+), no code length assumed) and its family NFL, so every
+KXNFLGAME market ticker is an NFL game entry here and in the Cockpit, whatever its codes' lengths (2+2 GBTB, 2+3 KCSEA /
+TBDAL, 3+2 NYJNE / BUFLV / WASSF / CARGB, 3+3 DENARI / BALBUF / CLEPIT: the tests pin all ten). The side is the ticker's
+suffix: the prefix of the block is AWAY, the suffix HOME (tickerRole; a suffix that is both or neither is never
+guessed). The block's split into two codes is never fixed by length: the game matcher tries every split with at least
+two letters a side (codesFit: 2+2 only for four letters, so GBTB is never 3+1; 2+3 and 3+2 for five; 2+4, 3+3, 4+2 for
+six), shortest away code first, and takes the game at the first split where BOTH codes fit the row's own two names
+(KCSEA: KC+SEA, the first tried, fits Kansas City @ Seattle; NYJNE: NY+JNE is rejected, NYJ+NE taken; a reversed game
+rejects every split). The title in this form names one team (teams_title the backed team twice), so the title fallback
+(two teams on two sides) never fits and the match rests on the codes or the event: a code that prefixes no team name
+(none among the ruling's ten; Kalshi's per-team codes are not enumerated here, law 1) matches by event only. So no
+recognition defect is in the code (the repo's tools/cockpit.html and src/walters/ledger_fills.py, which mirror each
+other; the live Cockpit is published separately and is not read here): the receipt counts every NFL game entry the
+export holds; why the export holds 8 is open on #811 (235 item 3: the imports).
+
 ONCE PER MACHINE-ERA (231 item 2(a); 232 item 2): match ids are machine-local, so a run reads ONE machine's closing
 files with THAT machine's copy, and counts the rows of ONE era, bounded by the closing run's start instant in UTC
 (232 item 2(b)). The laptop run: --exports the laptop's own exports/ (its closing_NFL_*.json), --db the laptop's
@@ -165,6 +223,25 @@ WHAT IT READS (each reading the conservative one, law 4; the keys are printed wi
   the closing row's own teams, recorded start and Kalshi events (the game as the page named it: the copy lacks the
   match, or the copy's match is another game, or the game was re-dated); the LEDGER line's "of N" and the JSON's
   what_was_done count every row of the kind (its scored rows + its unscored rows: that kind's count toward thirty).
+  THE ENTRY'S SHAPE, read from the Cockpit's code (#811; addendum 233 item 1, law 1): "Export ledger (JSON)" writes
+  the stored ledger as held (loadLedger), and every fills entry is what importKalshiCSV stored (or an earlier export's
+  entry merged as-is by id): {id (the CSV row's cells joined by U+241F: never printed), ticker (mapHeaders: the first
+  header holding "ticker" but not "event", market_ticker on Kalshi's confirmed header, so the MARKET ticker with its
+  -{SIDE} suffix, never the event's), side, the figures, opened / closed (Kalshi's open_timestamp / close_timestamp,
+  raw strings, read by no matcher), title (market_title)} plus parseTicker's kind, family ("NFL"), sports, date (the
+  ticker's own ET game date: a CSV-imported fill carries its date ONLY in its ticker), teams, sideCode, start (null
+  without the ticker's HHMM, as the NFL game tickers the repo holds read) and sideFields' eight keys. The receipt
+  re-parses the ticker as the Cockpit's classifyFills does (a stored kind or date is never trusted); positions()
+  matches that shape by event ticker and by the game matcher (the tests pin both on the Cockpit's own entry), so the
+  0 of 16 is not a key of the entry misread: what the real file's entries hold is open on #811.
+  A RECORD-FILL ON THE CALL (235 item 2(b)): the Cockpit's Record-fill control (recordFill) writes order_type,
+  fill_price and fill_recorded_at onto the CALL, never into fills. "What was done" stays the ledger's fills; a call on
+  the row's game that carries any of those three fields prints after it under its own label, "recorded on the call, a
+  hand entry", with the NAMES of the fields present only (never their values: no price, no order type, no time), never
+  merged into fills, never counted as a fill, never relabelled. A call is the row's game by its own identity (addendum
+  109 item 2: "a Desk call is identified by its match id and its recorded kickoff"): sport NFL, its match_id the row's
+  match id, its home and away the row's (normTeam), its kickoff within the Desk's clock drift of the row's start; a call
+  with no match id or no kickoff is no row's (law 4: never joined on a guess).
 - THE COUNT toward thirty: every row the hold touched, PLAY rows + would-be rows (217 item 4: counted too, labelled),
   each kind's count its scored rows + its unscored rows (225 item 3: "a row the copy lacks ("no result in this copy"),
   a teams-differ row and a void row each COUNT toward thirty as labelled, unscored rows, kept outside the W-L-P with
@@ -188,10 +265,17 @@ a string: the Cockpit's export writes each as the CSV's string or null, and the 
 echoed). --db opens mode=ro&immutable=1 (mlb_pitchers_gate.readonly_session; addendum 198 item 6(ii)).
 Writes nothing: no database row, no ledger, no file.
 
+--unmatched (235 item 2(c)): with --ledger, one console line per NFL game fill entry read that matched no row (fitting
+none; an entry fitting more than one row stays on the LEDGER line's ambiguous count): its event ticker (the ticker less
+its side) and the ticker's own date only; no side, no title, no figure, no id. Printed to the console only, never in the
+JSON; without the flag nothing of it prints and the JSON is unchanged. THE CONSOLE WITH --unmatched IS NOT FOR POSTING:
+it names the operator's own games (235 item 2(c): "my block never posts that console to #446 (it names the operator's
+own games); it comes to me"); its lines say so.
+
 Last line: QB-HOLD-RECEIPT {json} (counts only; no unit, size or dollar figure).
 
     python3 scripts/qb_hold_receipt.py --db COPY --exports DIR [--from INSTANT] [--through INSTANT]
-                                       [--ledger bd_ledger_v1_<date>.json]
+                                       [--ledger bd_ledger_v1_<date>.json] [--unmatched]
 """
 from __future__ import annotations
 
@@ -217,6 +301,10 @@ NOT_ESTABLISHED = "not established"                            # addendum 46 ite
 NOT_READ = "not read (no --ledger)"
 LEDGER_LABEL = "fills"                       # the bd_ledger_v1 export's own key for what it holds (223 item 5(a))
 LEDGER_FIELDS = ("ticker", "side", "title", "opened", "closed")  # an entry's own field names; never a figure, never id
+HAND_LABEL = "recorded on the call, a hand entry"             # addendum 235 item 2(b), the label verbatim
+HAND_FIELDS = ("order_type", "fill_price", "fill_recorded_at")  # recordFill's fields on a CALL (tools/cockpit.html): names only
+UNMATCHED_HEAD = ("UNMATCHED (--unmatched, 235 item 2(c); console only, NOT FOR POSTING: it names the operator's own "
+                  "games, it goes to the architect, never to #446)")
 NO_RESULT = "no result in this copy"                           # addendum 223 item 5(b), the label verbatim
 # the unscored rows' causes (225 item 3, by 225 item 2(a)): each counted toward thirty, labelled, never scored
 UNSCORED_HEADS = (("no_result", NO_RESULT), ("teams", "teams differ"), ("void", "re-dated void"))
@@ -310,7 +398,11 @@ KEYS = ("rows = the NFL closing files (<exports>/closing_*.json and each dated f
         "differ; re-dated void), never scored, outside the W-L-P, and COUNTED toward thirty (225 item 3) · what was done = what the ledger holds on the game (by event "
         "ticker, else the Cockpit's game matcher), under its own label: fills, each entry's ticker, side, title, "
         "opened, closed as held; never a quantity, price, fee or P&L; none: not established; matched to every row, "
-        "scored or unscored (231 item 2(c); an unscored row on its closing row's own teams and start) · count toward thirty = "
+        "scored or unscored (231 item 2(c); an unscored row on its closing row's own teams and start); an entry is the "
+        "Cockpit's importKalshiCSV entry (ticker the market ticker, its date the ticker's own; #811), every "
+        "KXNFLGAME market ticker an NFL game entry whatever its codes' lengths (235 item 1) · recorded on the call, a "
+        "hand entry = a Record-fill (order_type, fill_price, fill_recorded_at) on a call of the row's game (its match "
+        "id, teams and kickoff), the field names only, never fills, never a value (235 item 2(b)) · count toward thirty = "
         "each kind's scored rows + its unscored rows; the printed count is the count (225 item 3) · every count is "
         "per kind; only the count toward thirty adds the two · the count is ONE run's, under the run's label (232 "
         "item 2(a)); #446's sum of the two runs is the architect's, on #446")
@@ -371,12 +463,19 @@ def positions(L: dict, rows: list[dict]) -> dict:
     unscored row: its closing row's own, or None where the row records no start, then matched by its events only).
     {row key: [{ticker, side, title, opened, closed}, ...] one per entry}: each fills entry on the row's game, its
     own field names and values as held (LEDGER_FIELDS; 223 item 5(a): never relabelled), "ambiguous": entries that fit
-    more than one row, "nfl_fills": the NFL game entries read. Every entry stays its own (a split or partial fill whose
+    more than one row, "nfl_fills": the NFL game entries read, "unmatched": [{event, date}] per NFL game entry that
+    fits no row (235 item 2(c): its event ticker and the ticker's date only; printed only with --unmatched). Every entry stays its own (a split or partial fill whose
     printed fields match another's is still two entries); only the same entry (the same non-empty string id) is read
     once, and an entry with no id is never deduped. The id is read for that and printed nowhere. The matcher reads the
-    ticker, side and title; nothing else of an entry is kept: no quantity, price, fee, P&L or id."""
+    ticker, side and title; nothing else of an entry is kept: no quantity, price, fee, P&L or id.
+    The entry is the export's as the Cockpit's importKalshiCSV stored it (tools/cockpit.html; #811, addendum 233 item
+    1): `ticker` the CSV's MARKET ticker (KX{FAM}GAME-{yyMONdd}[hhmm]{AWAY}{HOME}-{SIDE}), its date the ticker's own
+    (`opened` / `closed` are Kalshi's raw strings, read by no matcher). An event ticker with no side or another NFL
+    series is no sport market under the Cockpit's parseTicker, so it is not an NFL game entry (the Cockpit's parse is
+    the rule)."""
     from src.walters import ledger_fills as lf
     found: dict = {}
+    unmatched: list = []
     amb = nfl = 0
     seen: set = set()
     for f in L["fills"]:
@@ -401,9 +500,45 @@ def positions(L: dict, rows: list[dict]) -> dict:
             amb += 1
             continue
         if not keys:
+            unmatched.append({"event": ev, "date": fx.get("date")})       # 235 item 2(c): these two fields only
             continue
         found.setdefault(keys[0], []).append({k: f.get(k) for k in LEDGER_FIELDS})
-    return {"by_row": found, "ambiguous": amb, "nfl_fills": nfl}
+    return {"by_row": found, "ambiguous": amb, "nfl_fills": nfl, "unmatched": unmatched}
+
+
+def hand_entries(L: dict, rows: list[dict]) -> dict:
+    """235 item 2(b): {row key: [[field name, ...] per call]}, the Record-fill fields (HAND_FIELDS) a CALL on the row's
+    game carries, NAMES only (never a value: no price, no order type, no time). Never fills: printed under HAND_LABEL
+    after "what was done", never merged into it, never counted as a fill, never relabelled. A call is the row's game by
+    its own identity (addendum 109 item 2: "a Desk call is identified by its match id and its recorded kickoff"): sport
+    NFL, an int match_id equal to the row's match id, home and away the row's (ledger_fills.norm_team), and its kickoff
+    within the Desk's clock drift of the row's start (desk_policy.DESK_CLOCK_DRIFT). A call with no match id, no
+    kickoff or other teams is no row's (law 4: never joined on a guess)."""
+    from src.walters import desk_policy
+    from src.walters import ledger_fills as lf
+    from src.walters.redated import as_utc
+    out: dict = {}
+    for c in L.get("calls") or []:
+        names = [k for k in HAND_FIELDS if c.get(k) is not None]
+        mid, ko = c.get("match_id"), as_utc(c.get("kickoff"))
+        if not names or c.get("sport") != FAMILY or isinstance(mid, bool) or not isinstance(mid, int) or ko is None:
+            continue
+        for r in rows:
+            rk = as_utc(r.get("kickoff_iso"))
+            if (r["key"] == mid and rk is not None and abs(rk - ko) <= desk_policy.DESK_CLOCK_DRIFT
+                    and lf.norm_team(c.get("home")) == lf.norm_team(r.get("home"))
+                    and lf.norm_team(c.get("away")) == lf.norm_team(r.get("away"))):
+                out.setdefault(r["key"], []).append(names)
+                break
+    return out
+
+
+def hand_text(hs: list[list[str]] | None) -> str:
+    """The row's Record-fill segment (235 item 2(b)), empty when no call on the game carries one: its own label and the
+    field names present, one group per call; never a value."""
+    if not hs:
+        return ""
+    return f" · {HAND_LABEL}: " + "; ".join(", ".join(h) for h in hs)
 
 
 def done_text(ps: list[dict] | None, ledger_read: bool) -> str:
@@ -652,7 +787,7 @@ def _f(x, nd=2) -> str:
     return "—" if x is None else f"{x:.{nd}f}"
 
 
-def row_line(r: dict, done: str) -> str:
+def row_line(r: dict, done: str, hand: str = "") -> str:
     side = f"{r['pick'] or '-'}" + (f" ({r['team']})" if r["team"] else "")
     if r["kind"] == "play":
         said = f"PLAY {side}"
@@ -669,7 +804,7 @@ def row_line(r: dict, done: str) -> str:
     score = f" {a}-{h} (away-home)" if r["result"] in ("win", "loss", "push") and a is not None else ""
     return (f"- {r['kickoff_et']} · {r['away']} @ {r['home']} [match {r['match_id']}] · page: {said} · QB: {qb} · "
             f"{edge} · market ref {_f(r['market_ref'], 3)} · price named: {price} · {close} · result: "
-            f"{RESULT_TEXT[r['result']]}{score} · what was done: {done}")
+            f"{RESULT_TEXT[r['result']]}{score} · what was done: {done}{hand}")
 
 
 def _graded(rs: list[dict]) -> dict:
@@ -720,14 +855,16 @@ def bound_lines(lo: datetime | None, hi: datetime | None, bx: dict) -> list[str]
 
 
 def report(s, exports_dir, ledger: dict | None, db_text: str, ledger_text: str, echo=print,
-           lo: datetime | None = None, hi: datetime | None = None) -> dict:
+           lo: datetime | None = None, hi: datetime | None = None, unmatched: bool = False) -> dict:
     from src.walters.redated import void_counts
     out = collect(s, exports_dir, lo, hi)
     era, this_run = run_label(lo, hi)
     rows = out["rows"]
     uo = out["unscored"]
     every = rows + [x for k in ("play", "would") for key, _ in UNSCORED_HEADS for x in uo[k][key]]  # 231 item 2(c)
-    pos = positions(ledger, every) if ledger is not None else {"by_row": {}, "ambiguous": 0, "nfl_fills": 0}
+    pos = (positions(ledger, every) if ledger is not None
+           else {"by_row": {}, "ambiguous": 0, "nfl_fills": 0, "unmatched": []})
+    hands = hand_entries(ledger, every) if ledger is not None else {}       # 235 item 2(b): names only, never fills
     d = str(exports_dir).rstrip("/")
     resolved = Path(exports_dir).resolve()
     echo("QB-HOLD RECEIPT — every NFL row the Desk called PLAY with a QB flag or an unread list, and the would-be PLAY "
@@ -761,7 +898,7 @@ def report(s, exports_dir, ledger: dict | None, db_text: str, ledger_text: str, 
     for label, rs in ((PLAY_LABEL, plays), (WOULD_LABEL, would)):
         echo(f"{label} — {len(rs)} scored row{'s' if len(rs) != 1 else ''}, by kickoff")
         for r in rs:
-            echo(row_line(r, done_text(pos["by_row"].get(r["key"]), ledger_read)))
+            echo(row_line(r, done_text(pos["by_row"].get(r["key"]), ledger_read), hand_text(hands.get(r["key"]))))
     u_n = {k: {key: len(uo[k][key]) for key, _ in UNSCORED_HEADS} for k in ("play", "would")}
     def u_head(k, key, head):      # the void head carries redated's split: one void state, two labels (109 item 2 Q2)
         return f"{head} {u_n[k][key]}" + (f" ({void_counts(x['text'] for x in uo[k][key])})" if key == "void" else "")
@@ -772,7 +909,7 @@ def report(s, exports_dir, ledger: dict | None, db_text: str, ledger_text: str, 
         for key, head in UNSCORED_HEADS:
             for x in uo[k][key]:      # what was done on every row, scored or not (231 item 2(c)), the same label
                 echo(f"  {head} (unscored, counted): {x['text']} · what was done: "
-                     f"{done_text(pos['by_row'].get(x['key']), ledger_read)}")
+                     f"{done_text(pos['by_row'].get(x['key']), ledger_read)}{hand_text(hands.get(x['key']))}")
     tw = out["toward_thirty"]
     # every row of the kind, scored + unscored (231 item 2(c)): the denominator is the kind's count toward thirty
     held = {k: sum(1 for r in rows if r["kind"] == k and pos["by_row"].get(r["key"]))
@@ -784,6 +921,12 @@ def report(s, exports_dir, ledger: dict | None, db_text: str, ledger_text: str, 
              f"given to none) {pos['ambiguous']} · PLAY rows (scored + unscored) with {LEDGER_LABEL} on the game "
              f"{held_play} of {tw['play']} · {WOULD_LABEL} rows (scored + unscored) with {LEDGER_LABEL} on the game "
              f"{held_would} of {tw['would']}")
+    if unmatched:     # 235 item 2(c): console only, never in the JSON; the event ticker and the ticker's date only
+        um = pos["unmatched"]
+        echo(f"{UNMATCHED_HEAD}: " + (f"NFL game {LEDGER_LABEL} entries read that matched no row {len(um)}"
+                                      if ledger_read else "not read (no --ledger)"))
+        for u in um:
+            echo(f"  unmatched NFL game fill (not for posting): {u['event']} · {u['date']}")
     g_play, g_would = _graded(plays), _graded(would)
     echo(count_line(tw["play"], tw["would"], g_play, g_would, u_n["play"], u_n["would"], this_run))
     summary = {"exports": d, "exports_read": str(resolved), "dated_folders": out["dated"], "closing_files": out["files"], "unreadable": len(out["unreadable"]),
@@ -836,6 +979,11 @@ def main(argv=None) -> int:
                          "bounds: a window. A row with no run start is outside every bound (named, not counted)")
     ap.add_argument("--ledger", default=None, help="the Cockpit's Export ledger (JSON) file, bd_ledger_v1_<date>.json "
                                                    "(optional: without it 'what was done' reads not read)")
+    ap.add_argument("--unmatched", action="store_true",
+                    help="235 item 2(c): with --ledger, one console line per NFL game fill entry that matched no row, "
+                         "its event ticker and the ticker's date only (no side, title, figure or id); console only, "
+                         "never in the JSON. NOT FOR POSTING: it names the operator's own games (it goes to the "
+                         "architect, never to #446)")
     a = ap.parse_args(argv)
     from src.walters import mlb_pitchers_gate as mp
     try:
@@ -866,7 +1014,7 @@ def main(argv=None) -> int:
     lines: list[str] = []
     try:
         with mp.readonly_session(path) as s:
-            report(s, a.exports, ledger, db_text, ledger_text, echo=lines.append, lo=lo, hi=hi)
+            report(s, a.exports, ledger, db_text, ledger_text, echo=lines.append, lo=lo, hi=hi, unmatched=a.unmatched)
     except (SQLAlchemyError, sqlite3.Error, LookupError) as err:   # a copy without the schema the read needs
         why = (str(err).strip().splitlines() or [""])[0]
         print(f"REFUSED: --db {path}: cannot be read as the schema the receipt needs ({type(err).__name__}: {why}); "

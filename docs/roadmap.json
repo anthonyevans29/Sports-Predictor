@@ -685,6 +685,38 @@
           "ruling": "ARCHITECT 2026-11-02 18:20 ET, addendum 224 item 3 (MOVED LINES, lane pl-availability, #754; verbatim in why; the count: #754 issuecomment-6590791400, the laptop, 2026-11-02T23:08Z, main e9e7cbe9; entered by the records PR of addendum 226 item 4(a))"
         }
       ]
+    },
+    {
+      "lane": "soccer-v23",
+      "title": "Soccer: the joint log-linear successor to v22 (μ + h + α_i + δ_j + β·ΔE, per-team early-season continuity)",
+      "issue": 656,
+      "registry_id": null,
+      "competitions": ["PL"],
+      "state": "to declare",
+      "steps": [
+        {
+          "what": "the design PR (addendum 216 item 3; addendum 230 item 1(d); addendum 248 item 2(b)): the fit, its constraints, the early-season treatment, the harness (one run at the frozen soccer gate on the frozen pot, the reservation pattern), the frozen-bar text written before any result; no run and no declaration before 11-20",
+          "owner": "code",
+          "due": "2026-11-13",
+          "done": null
+        },
+        {
+          "what": "the declaration with the bar written before any result (addendum 216 item 3; addendum 251 item 2): the pot's log-loss at least 0.0050 below BOTH v22's recorded figure AND v22's figure re-walked on v23's harness, a tie on either a rejection, the early-season matches INCLUDED in the scored set (the declared within-season skip is zero); the declaration slots (v22's recorded figure and its source among them) and the registry entry soccer-v23 are the architect's",
+          "owner": "architect",
+          "due": "2026-11-20",
+          "done": null
+        },
+        {
+          "what": "the one run on the architect's word, the operator's block, on a .backup copy opened immutable=1 (addendum 216 item 3; soccer-v23-gate)",
+          "owner": "operator",
+          "due": "2026-11-27",
+          "done": null
+        }
+      ],
+      "earliest_live": null,
+      "live_needs": "addendum 216 item 3: a PASS at the frozen bar in the one run, then a 60-game prospective shadow on the host's PL pages beside v22 (the pl-availability pattern, its own window counted from its first host page) and the architect's read; earliest_live the day after that read (null until then: the read decides, never a date). A REJECT: v22 stays live and the lane names its next candidate the same day (addendum 59 item 5(c)). ARCHITECT 2026-11-02 10:50 ET, addendum 216 item 3, verbatim in part: \"Roadmap lane \\\"soccer-v23\\\" (Issue #656): 11-13 code — the design PR (the fit, its constraints, the early-season treatment, the harness: one run at the frozen soccer gate on the frozen pot, the reservation pattern); 11-20 architect — the declaration with the bar written before any result: the pot's log-loss below v22's by at least 0.0050, a tie a rejection (the improve bar as it stands), with the early-season matches INCLUDED in the scored set (no 40-match skip for this candidate: its own declared window states the skip, and it is zero); 11-27 operator — the one run on my word, my block, on a .backup copy opened immutable=1; PASS → a 60-game prospective shadow on the host's PL pages beside v22 (the pl-availability pattern, its own window counted from its first host page), the read by me; earliest_live the day after that read. No date moves a bar.\"",
+      "vs_close": "not read. soccer-v23 has priced no game; its harness reads no close and the market gates nothing (doctrine: the market is a reference, never a feature). v22 reads behind the close over the rolling 30 (addendum 216 item 3).",
+      "moved": []
     }
   ]
 }

@@ -33,6 +33,29 @@ that, no more, no less".
 - **Run order (operator, after merge, on the host's tag):** the `.backup`, then `python migrate_ncaa_cfbd_pregame.py`,
   then one non-dry `python cli.py ncaa-cfbd-labels --year 2026`. Until then every shadow row reads `absent: unknown,
   D8`.
+- **The host's weekly read (ARCHITECT 2026-11-03 17:40 ET, addendum 240 item 4).** Verbatim: "THE HOST'S CFBD READ
+  (239 item 1(b)): no host chain calls CFBD and the key left the host's checkout at the cutover — so the pregame flag
+  reaches the host only by a hand run after the migration. RULED: (a) for the 11-09 run's window the hand run is mine,
+  by block, on the host via systemd-run with host.env, once CFBD_API_KEY is in host.env (the operator's hand step,
+  NAME checked by my Thursday block, the value never printed); (b) a small ruled PR after #816 puts `ncaa-cfbd-labels
+  --year 2026` on the host's weekly-fullseason chain (Sunday 06:00Z; metered, one read a week — the neutral flags of a
+  week's games are known days ahead and seldom change), its failure a sync-step failure that stops nothing after it;
+  the daily ncaa-schedule chain stays as it is." Item (b) is built (addendum 240 item 4(b)): `weekly-fullseason` runs
+  `ncaa-cfbd-labels --year 2026` as its LAST step, after the full-season syncs, because both joins read our stored
+  NCAA fixtures (the pregame flag by the exact name tier; a substring-tier label only where our stored score agrees):
+  so that, when the host's list carries `NCAA|2026`, the week's sync of them runs first (the host list's NCAA line is
+  not verified here; first or last is the architect's to rule). Metered; the chain's `go_on` names it (a failure is
+  receipted, pages through the chain's exit, and stops nothing after it). It runs only when the list resolves (the
+  setting is set, the file exists and it lists a competition), the daily backup succeeds and no earlier `sync-matches`
+  fails; in every other case that week's read waits for a hand run or the next Sunday. Each Sunday run is a full
+  non-dry ingest of 2026: labels upserted and re-stamped, one new ingest record (the season's latest: D6's coverage
+  fact and L3's current rule for 2026 labels and pregame rows read it from then on), pregame rows behind the marker,
+  the raw payload under `exports/cfbd/`. An HTTP 200 with an empty list exits 0 and does not page, yet its 0-record
+  ingest record becomes 2026's latest: every 2026 label and pregame row then reads non-current (L3), D6's 2026
+  coverage fact reads not covered, and the stream walks no 2026 label until a later non-empty read; a payload missing
+  its required fields also writes such a record but refuses with exit 2 and pages. A CFBD 500, 502 or 503 is not
+  retried by sp_run (urllib's `HTTP Error 50x` text is outside its transient pattern): exit 1, no record, it pages.
+  The step reaches the host only on a tagged release (docs/RELEASES.md); item (a)'s hand run is unchanged by it.
 
 ## THE WEEK AND THE 2023 INGEST (ARCHITECT 2026-10-23, addendum 158 item 1(a); ncaa-elo-v2 D10)
 

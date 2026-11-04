@@ -32,8 +32,12 @@
   names the failed step. Every other step stops a chain as before, except a
   step the chain names in its `go_on` (ARCHITECT 2026-11-03, addendum 236
   item 3(4): ncaa-schedule's refresh-by-id, so its export runs whether or not
-  the refresh succeeded): receipted, the run goes on, the exit is the FIRST
+  the refresh succeeded; and weekly-fullseason's ncaa-cfbd-labels, ARCHITECT
+  2026-11-03, addendum 240 item 4(b): "its failure a sync-step failure that
+  stops nothing after it"): receipted, the run goes on, the exit is the FIRST
   failure's, and the closing lines name the failed step.
+- weekly-fullseason runs the list's steps, then its own `steps` (the weekly
+  CFBD read, last; addendum 240 item 4(b)).
 """
 from __future__ import annotations
 
@@ -243,7 +247,9 @@ def resolve(name: str, overrides: dict, today: date, now=None) -> list[list[str]
     if chain.get("window_plan"):
         steps = window_steps(now or c.utc_now().replace(tzinfo=None))
     elif chain.get("fullseason"):
-        return fullseason_steps(v)      # filled by fullseason_resolve, the path cutover-readiness counts through
+        # the list's steps (fullseason_resolve, the path cutover-readiness counts through), then the chain's own steps
+        # after them (addendum 240 item 4(b): NCAA_CFBD_STEP), filled as every chain's are
+        return fullseason_steps(v) + [format_step(st, v) for st in chain["steps"]]
     else:
         steps = chain["steps"]
     return [format_step(st, v) for st in steps]
@@ -432,10 +438,13 @@ TEAMS_GO_ON = "addendum 207 item 4: a failed sync-teams does not stop the chain"
 # or not refresh-by-id succeeded"): a failed step whose command a chain names in `go_on` is receipted and the run goes
 # on, as a failed sync-teams does: in `failed` (the exit is the first failure's), never `stopped_at`.
 CHAIN_GO_ON = "addendum 236 item 3(4): this chain's export runs whether or not this step succeeded"
+# A chain may name its own reason (`go_on_why`, the receipt's `continued`; its ruling is the text before the first ':',
+# the one printed): weekly-fullseason's CFBD read (addendum 240 item 4(b), chains.CFBD_GO_ON). Default CHAIN_GO_ON.
 
 
 def run_steps(steps, label: str, unit: str, run_id: str, today: date, quota: dict,
-              continue_sync: bool = False, report: dict | None = None, go_on: tuple = ()) -> tuple[int, int]:
+              continue_sync: bool = False, report: dict | None = None, go_on: tuple = (),
+              go_on_why: str = CHAIN_GO_ON) -> tuple[int, int]:
     """Run steps in order (caller holds the DB lock); receipt each; stop at the
     first failure. Transient failures are retried (RETRY_BACKOFF_S) and the
     receipt says "retried N". Returns (exit, steps_ok).
@@ -449,7 +458,8 @@ def run_steps(steps, label: str, unit: str, run_id: str, today: date, quota: dic
     receipt's line per competition and its skipped listings).
     A failed `sync-teams` step (addendum 207 item 4, TEAMS_GO_ON) is receipted and the run goes on, whatever
     `continue_sync` says; it is in `failed` (so the exit is the first failure's) and never `stopped_at`. So is a
-    failed step whose command is in `go_on` (the chain's own list, addendum 236 item 3(4), CHAIN_GO_ON)."""
+    failed step whose command is in `go_on` (the chain's own list, addendum 236 item 3(4)), its `continued` the
+    chain's `go_on_why` (default CHAIN_GO_ON; weekly-fullseason's CFBD read: addendum 240 item 4(b))."""
     ok, first_rc = 0, 0
     if report is not None:
         report.update(failed=[], stopped_at=None, sync=[])
@@ -491,7 +501,7 @@ def run_steps(steps, label: str, unit: str, run_id: str, today: date, quota: dic
         elif rc != 0 and teams_goes_on:
             rec["continued"] = TEAMS_GO_ON
         elif rc != 0 and chain_goes_on:
-            rec["continued"] = CHAIN_GO_ON
+            rec["continued"] = go_on_why
         counts = sync_counts(marks)
         if counts or st[0] in ("sync-teams", "sync-matches"):
             if counts:
@@ -518,7 +528,7 @@ def run_steps(steps, label: str, unit: str, run_id: str, today: date, quota: dic
                 continue
             if chain_goes_on:
                 print(f"· step {i}/{len(steps)} failed (exit {rc}): {line} — recorded; the chain runs on to every later "
-                      "step on the stored state, the exit stays the first failure's (addendum 236 item 3(4))",
+                      f"step on the stored state, the exit stays the first failure's ({go_on_why.split(':', 1)[0]})",
                       flush=True)
                 continue
             if report is not None:
@@ -753,7 +763,8 @@ def main(argv=None) -> int:
         if chain_exit == 0:
             chain_exit, ok = run_steps(steps, a.chain, unit, run_id, today, quota,
                                        continue_sync=bool(chain.get("continue_on_sync_failure")), report=step_report,
-                                       go_on=tuple(chain.get("go_on") or ()))
+                                       go_on=tuple(chain.get("go_on") or ()),
+                                       go_on_why=chain.get("go_on_why") or CHAIN_GO_ON)
 
     exports = sorted(str(p.relative_to(c.REPO)) for p in (c.REPO / "exports").glob("*")
                      if exports_before.get(p) != p.stat().st_mtime) \

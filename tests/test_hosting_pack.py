@@ -324,7 +324,8 @@ def test_inactive_and_fullseason_guard(sandbox, monkeypatch):
         ["sync-teams", "--competition", "PL", "--season", "2026/27"],
         ["sync-matches", "--competition", "PL", "--season", "2026/27"],
         ["sync-teams", "--competition", "NFL", "--season", "2026"],
-        ["sync-matches", "--competition", "NFL", "--season", "2026"]]
+        ["sync-matches", "--competition", "NFL", "--season", "2026"],
+        ["ncaa-cfbd-labels", "--year", "2026"]]                                 # addendum 240 item 4(b): last
 
 
 # ------------------------------------------------------- backup / prune ----

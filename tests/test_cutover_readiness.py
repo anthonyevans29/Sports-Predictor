@@ -271,7 +271,9 @@ def test_t9_count_is_fullseason_steps_own_resolution(no_settings, monkeypatch, c
                    "Y|{{b}}\n")
     monkeypatch.setenv("SP_FULLSEASON_LIST", str(lst))
     steps = sp_run.fullseason_steps()
-    assert steps == sp_run.resolve("weekly-fullseason", {}, cr.date(2026, 10, 25))
+    # the chain runs the list's steps, then its own (addendum 240 item 4(b): the weekly CFBD read, never counted)
+    assert steps + [["ncaa-cfbd-labels", "--year", "2026"]] == sp_run.resolve("weekly-fullseason", {},
+                                                                              cr.date(2026, 10, 25))
     st = cr.fullseason_state(c.setting("SP_FULLSEASON_LIST"))
     # #765 (addendum 204 item 3(a)): two steps per line, sync-teams then sync-matches; one competition per line
     assert [s[0] for s in steps] == ["sync-teams", "sync-matches"] * 6
@@ -331,7 +333,7 @@ def test_t9_a_half_str_format_leaves_empty_and_a_leading_bom(no_settings, monkey
     assert t9[1] == f"    fullseason list: UNPARSEABLE → NOT-YET · {ei.value} (weekly-fullseason fails on this line too)"
     assert rc == 1 and "(T9) fullseason list UNPARSEABLE" in last
     lst.write_bytes(b"\xef\xbb\xbfMLB|2026\nNFL|2026\n")
-    steps = sp_run.resolve("weekly-fullseason", {}, cr.date(2026, 10, 25))
+    steps = sp_run.resolve("weekly-fullseason", {}, cr.date(2026, 10, 25))[:-1]   # the CFBD read last (addendum 240)
     assert [s[2] for s in steps] == ["MLB", "MLB", "NFL", "NFL"]          # #765: sync-teams, then sync-matches
     st = cr.fullseason_state(str(lst), cr.date(2026, 10, 22))
     assert st["state"] == "ok" and st["entries"] == ["MLB|2026", "NFL|2026"]

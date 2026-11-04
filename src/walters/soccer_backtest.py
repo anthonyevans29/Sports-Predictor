@@ -96,7 +96,8 @@ def run_soccer_backtest(competition_code: str = "PL", season: str | None = None,
                         stage_filter=None,
                         batch_same_kickoff: bool = False,
                         confirmation_scoring: bool = False,
-                        through=None):
+                        through=None,
+                        context: CompetitionScoringContext | None = None):
     """
     Walk `competition_code`/`season` in date order, predict each match using only
     prior matches (leakage-free). Returns a list of per-match result dicts:
@@ -153,6 +154,15 @@ def run_soccer_backtest(competition_code: str = "PL", season: str | None = None,
     the league's cut: its entry's declared_at, or leagues_window.PRE_DECLARATION_CUT while no entry exists
     (ARCHITECT 2026-10-30, addendum 181 item 1(b); leagues_window.fence_refusal). The walk is predict-then-update
     in kickoff order, so every row it returns equals the uncut walk's row for the same game. None (the default) = unchanged.
+
+    context (ARCHITECT 2026-11-04 11:50 ET, addendum 251 item 2(a), the parity acceptance test only): the scoring
+    context every row of the walk is deflated and priced with. None (the default) = CompetitionScoringContext(), the
+    dataclass default (g 1.4, b 1.15), exactly as before: the gate's walk and every soccer record stand as measured
+    (tests/test_soccer_backtest_default_golden.py pins it). The default is NOT the production row's stored context
+    (training.py:514) and must never become it: that context is fitted on the whole training pot, the same games this
+    walk scores, so reading it here would leak the pot's own totals into every prior-only step (option 2, REJECTED by
+    addendum 251 item 2). No CLI flag passes it: tests/test_soccer_parity_acceptance.py injects production's stored
+    context to show the shared path reproduces production row for row.
     """
     # soccer-expansion-v1 (ARCHITECT 2026-10-07; Codex on #326): its leagues' test seasons are read ONCE, by its gate.
     # Every caller of this walk (soccer-backtest, the rho / coefficient sweeps, the candidate harnesses) is refused
@@ -197,7 +207,8 @@ def run_soccer_backtest(competition_code: str = "PL", season: str | None = None,
         if not matches:
             return None
 
-        context = CompetitionScoringContext()
+        if context is None:
+            context = CompetitionScoringContext()
         elo = EloState(config=EloConfig())
         poisson_cfg = PoissonConfig()
         import dataclasses

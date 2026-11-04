@@ -297,9 +297,10 @@ def _stubbed(monkeypatch):
     monkeypatch.setattr(reh, "record_block", lambda *a, **k: None)
 
 
-def _hand_walk(world, cfg, price_cfg=None):
+def _hand_walk(world, cfg, price_cfg=None, floor=None):
     """An independent walk: every FINISHED NFL non-preseason game with both scores, by kickoff then id, by
-    nfl_backtest._update under `cfg` (written here, not nfl_predict._current_ratings); priced under `price_cfg`."""
+    nfl_backtest._update under `cfg` (written here, not nfl_predict._current_ratings); priced under `price_cfg`.
+    `floor`: games of an earlier season (an int-style year) left out (251 item 3(3), written here by hand)."""
     from sqlalchemy import select
 
     from src.db.schema import Competition, Match, MatchStatus
@@ -311,7 +312,7 @@ def _hand_walk(world, cfg, price_cfg=None):
                               Match.home_score.is_not(None), Match.away_score.is_not(None))
                        .order_by(Match.utc_date, Match.id)).scalars().all()
         for m in gs:
-            if "pre" not in (m.stage or "").lower():
+            if "pre" not in (m.stage or "").lower() and (floor is None or int(m.season) >= int(floor)):
                 nb._update(cfg, st, m.home_team_id, m.away_team_id, m.season, m.home_score, m.away_score)
         pairs = {mid: (s.get(Match, mid).home_team_id, s.get(Match, mid).away_team_id) for mid in world.games}
     return {mid: nb._expected_home(price_cfg or cfg, st, h, a) for mid, (h, a) in pairs.items()}
@@ -384,10 +385,10 @@ def test_on_v1_is_unchanged_and_the_arm_is_v1s_live_walk_under_the_declared_term
         h, a, mv, fb = st[mid]
         assert (h, a, mv) == v1_only[mid][:3] and mv == "nfl_elo_v1" and h == round(hand1[mid], 4)   # v1, unchanged
         arm = fb[reh.FB_KEY]
-        assert arm == {"version": "nfl-elo-v2", "model_version": "nfl_elo_v2", "p_home": round(hand2[mid], 4),
-                       "p_away": round(1 - hand2[mid], 4), "term": {"form": "home_advantage", "value": 33.0},
-                       "verdict": "PASS", "verdict_at": PASS["at"]}
-        assert arm["p_home"] != h and arm["p_home"] != round(upd48[mid], 4)      # the term on price AND update
+        assert arm == {"version": "nfl-elo-v2", "model_version": "nfl_elo_v2", "p_home": hand2[mid],
+                       "p_away": 1 - hand2[mid], "term": {"form": "home_advantage", "value": 33.0},
+                       "verdict": "PASS", "verdict_at": PASS["at"]}                # FULL precision (Codex on #825)
+        assert round(arm["p_home"], 4) != h and arm["p_home"] != upd48[mid]      # the term on price AND update
     assert lines[-1].startswith("rehearsal arm nfl-elo-v2 (nfl-elo-v2 PASS 2026-11-06T19:00:00Z, home_advantage "
                                 "33.0): 3 of 3 covered rows priced")
     assert lines[-1].endswith(LABEL) and nb.NFLEloConfig().home_advantage == 48.0      # no constant moved
@@ -402,7 +403,7 @@ def test_on_a_shrink_term_prices_only(world):
     _predict()
     hand = _hand_walk(world, NFLEloConfig())
     for mid, (h, _, _, fb) in _stored(world).items():
-        assert fb[reh.FB_KEY]["p_home"] == round(0.5 + 0.8 * (hand[mid] - 0.5), 4) and h == round(hand[mid], 4)
+        assert fb[reh.FB_KEY]["p_home"] == 0.5 + 0.8 * (hand[mid] - 0.5) and h == round(hand[mid], 4)
 
 
 def test_a_row_written_before_the_window_for_a_game_inside_carries_the_arm_one_outside_never(world):
@@ -433,7 +434,8 @@ def test_on_the_slate_and_closing_rows_carry_the_rehearsal_keys_beside_v1(world)
             fb = st[r["match_id"]][3][reh.FB_KEY]
             assert {k: r[k] for k in reh.ROW_KEYS} == {
                 "rehearsal_version": "nfl-elo-v2",
-                "rehearsal_probabilities": {"home_win": fb["p_home"], "away_win": fb["p_away"]},
+                "rehearsal_probabilities": {"home_win": round(fb["p_home"], 4),        # presented at four places
+                                            "away_win": round(fb["p_away"], 4)},
                 "rehearsal_term": {"form": "home_advantage", "value": 33.0},
                 "rehearsal_verdict_stamp": "nfl-elo-v2 PASS 2026-11-06T19:00:00Z",
                 "rehearsal_label": LABEL, "rehearsal_reason": None}
@@ -454,9 +456,11 @@ def test_on_a_missing_failed_or_restamped_arm_says_why_and_never_shows_a_probabi
     from src.walters import nfl_predict as npd
     real = npd._current_ratings
 
-    def boom(progress=None, cfg=None):
+    def boom(progress=None, cfg=None, floor=None, receipt=None):
         if cfg is not None:
+            assert floor == reh.WALK_FLOOR and receipt == {}                  # the arm's walk, from the floor
             raise RuntimeError("synthetic walk failure")
+        assert floor is None and receipt is None                            # v1's walk: no floor, as before
         return real(progress)
     monkeypatch.setattr(npd, "_current_ratings", boom)
     lines = _predict()
@@ -464,6 +468,7 @@ def test_on_a_missing_failed_or_restamped_arm_says_why_and_never_shows_a_probabi
     assert all(fb[reh.FB_KEY]["error"] == "RuntimeError: synthetic walk failure" and h is not None
                for h, _, _, fb in st.values())                              # v1's rows written as always
     assert "0 of 3 covered rows priced" in lines[-1]
+    assert "walk floor 2024; the stored games before it were not counted (the walk's read failed)" in lines[-1]
     r = _export(world, "b")["predictions"][0]
     assert r["rehearsal_probabilities"] is None and "the second walk failed" in r["rehearsal_reason"]
     monkeypatch.setattr(npd, "_current_ratings", real)
@@ -494,7 +499,9 @@ def test_the_results_rows_and_the_record_per_week_by_hand(world):
     y = {g1: 1, g2: 0, g3: 0}                                              # the gate's y: the tie a home loss
     for m in world.games:
         a = rows[m][reh.RESULT_KEY]
-        assert a["home_win_prob"] == p2[m] and a["verdict_stamp"] == "nfl-elo-v2 PASS 2026-11-06T19:00:00Z"
+        assert a["p_home"] == p2[m] and a["home_win_prob"] == round(p2[m], 4)      # graded full, presented at four
+        assert a["away_win_prob"] == round(1 - p2[m], 4) and p2[m] != round(p2[m], 4)
+        assert a["verdict_stamp"] == "nfl-elo-v2 PASS 2026-11-06T19:00:00Z"
         assert a["label"] == LABEL and a["term"] == {"form": "home_advantage", "value": 33.0}
         assert a["log_loss"] == round(_ll(p2[m], y[m]), 4) and a["brier_score"] == round((p2[m] - y[m]) ** 2, 4)
         assert rows[m]["graded"]["log_loss"] == round(_ll(p1[m], y[m]), 4)    # v1's, the same convention
@@ -570,8 +577,32 @@ def test_a_failed_arm_row_is_read_counted_and_out_of_the_figures(world, monkeypa
     doc = _results(world)
     rec = doc["record"][reh.RECORD_KEY]
     assert rec["unpriced_arm_rows"] == 3 and rec["total"]["games"] == 0 and rec["by_week"] == {}
-    assert all(r[reh.RESULT_KEY]["home_win_prob"] is None and "the second walk failed" in r[reh.RESULT_KEY]["reason"]
+    assert all(r[reh.RESULT_KEY]["home_win_prob"] is None and r[reh.RESULT_KEY]["p_home"] is None
+               and "the second walk failed" in r[reh.RESULT_KEY]["reason"]
                for r in doc["results"])
+
+
+def test_the_arm_is_stored_and_graded_at_full_precision_and_presented_at_four_places():
+    """Codex on #825: the stored copy is the one graded, so a probability that is not exactly four-decimal is stored
+    as the walk gave it, and the results row's log-loss and Brier, and the record's, are the gate's arithmetic on
+    THAT float, rounded only on output; the slate row and the results row's home_win_prob present it at four."""
+    g = reh.state(entry())
+    q = 0.612345678
+    pred = SimpleNamespace(factor_breakdown=json.loads(json.dumps({reh.FB_KEY: reh.arm_block(g, q)})))
+    assert pred.factor_breakdown[reh.FB_KEY]["p_home"] == q and pred.factor_breakdown[reh.FB_KEY]["p_away"] == 1 - q
+    kick = datetime(2026, 11, 15, 18, 0)
+    assert reh.export_fields(g, pred, kick)["rehearsal_probabilities"] == {"home_win": 0.6123, "away_win": 0.3877}
+    a = reh.result_arm(pred, 10, 27, None)                                  # an away win: y = 0
+    assert a["p_home"] == q and (a["home_win_prob"], a["away_win_prob"]) == (0.6123, 0.3877)
+    assert a["log_loss"] == round(reh.game_log_loss(q, 0), 4) == 0.9476 != round(reh.game_log_loss(0.6123, 0), 4)
+    assert a["brier_score"] == round(q ** 2, 4) == 0.375 != round(0.6123 ** 2, 4)
+    row = {"week": 10, "predicted": {"model_version": "nfl_elo_v1", "home_win_prob": 0.6123},
+           "actual": {"home_score": 10, "away_score": 27, "result": "A"}, "graded": {"push": False},
+           reh.RESULT_KEY: a}
+    rec = reh.record_block([row])
+    for blk in (rec["total"], rec["by_week"]["10"]):
+        assert blk["v2"]["log_loss"] == 0.9476 and blk["v2"]["brier_score"] == 0.375      # from q, unrounded
+        assert blk["v1"]["log_loss"] == 0.9475 and blk["v1"]["brier_score"] == 0.3749     # v1's stored four places
 
 
 # ================================================================================== (5) THE PARITY (247 (6)) --
@@ -601,10 +632,13 @@ def test_the_arms_2025_probabilities_equal_the_gates_scored_ones_game_for_game(t
         live.append((season, reh.price(g, npd._expected_home(c, st, h, a)), hs, as_))
         return real(c, st, h, a, season, hs, as_)
     monkeypatch.setattr(npd, "_update", rec)
-    npd._current_ratings(cfg=g.cfg)
+    npd._current_ratings(cfg=g.cfg, floor=reh.WALK_FLOOR)                 # the arm's walk, as predict-nfl runs it
     live25 = [p for s, p, *_ in live if s == "2025"]
     assert len(gate_ps) == wp["n_scored"] == len(scored) > 200
     assert live25 == gate_ps                                               # exact floats, game for game
+    # ... and as STORED (Codex on #825): the block predict-nfl stores, through the JSON column, keeps the gate's float
+    kept = [json.loads(json.dumps(reh.arm_block(g, p)))["p_home"] for p in live25]   # live25 is already priced
+    assert kept == gate_ps and any(p != round(p, 4) for p in kept)
     assert [s for s, *_ in live][-1] == "2026"                            # the live walk continues into 2026
     # the rehearsal's log-loss is the gate's arithmetic, to the bit
     ys = [reh.gate_y(hs, as_) for s, _, hs, as_ in live if s == "2025"]
@@ -613,12 +647,307 @@ def test_the_arms_2025_probabilities_equal_the_gates_scored_ones_game_for_game(t
 
 
 def test_the_tie_rule_of_the_log_loss_is_walk_protocols_line():
+    """251 item 3(4), by TEXT: the test reads the frozen gate's source and asserts the expressions (the outcome, the
+    per-game log-loss, the floor, and the band index parity reproduces); no refactor of the gate's code."""
     src = inspect.getsource(__import__("src.walters.nfl_backtest", fromlist=["walk_protocol"]).walk_protocol)
     assert "y = 1 if g.home_score > g.away_score else 0  # ties count as home loss for scoring" in src
     assert "ll_model += -(y * math.log(max(p, eps)) + (1 - y) * math.log(max(1 - p, eps)))" in src
     assert "eps = 1e-12" in src
+    assert "band = int(min(max(p, 0.0), 0.9999) * 10)" in src                   # parity's band index (251 (1))
+    assert "stated = sum(p for p, _ in obs) / len(obs)" in src and "realized = sum(y for _, y in obs) / len(obs)" in src
     body = inspect.getsource(reh.game_log_loss)
     assert "-(y * math.log(max(p_home, EPS)) + (1 - y) * math.log(max(1 - p_home, EPS)))" in body
+    assert "return 1 if home_score > away_score else 0" in inspect.getsource(reh.gate_y)
+    par = inspect.getsource(reh.parity)
+    assert "int(min(max(p, 0.0), 0.9999) * 10)" in par and "sum(p for p, _ in o) / len(o)" in par
+
+
+@pytest.mark.parametrize("hs,as_", [(20, 20), (0, 0), (27, 10), (10, 27)])
+def test_the_tie_rule_by_value_is_the_gates_figure_on_a_tie_and_a_decided_game(hs, as_):
+    """251 item 3(4), by VALUE: walk_protocol itself scores a one-game 2025 stream (a tie, a 0-0 tie, a home win, an
+    away win) after a two-game warm-up; the rehearsal's game_log_loss on gate_y gives its ll_model to the bit, and on a
+    tie y = 0 (a home loss: -ln(1 - p)) while the W-L-P calls it a push (RULES)."""
+    from src.walters import nfl_backtest as nb
+    warm = [nb.Game(1, datetime(2024, 9, 5), "2024", "Regular Season", 10, 11, 27, 10),
+            nb.Game(2, datetime(2024, 9, 12), "2024", "Regular Season", 11, 10, 10, 27)]
+    scored = [nb.Game(3, datetime(2025, 9, 4), "2025", "Regular Season", 10, 11, hs, as_)]
+    ps: list = []
+    w = nb.walk_protocol(warm, scored, nb.NFLEloConfig(), lambda p: ps.append(p) or p)
+    (p,) = ps
+    y = reh.gate_y(hs, as_)
+    assert reh.game_log_loss(p, y) == w["ll_model"]                             # the gate's figure, to the bit
+    assert y == (1 if hs > as_ else 0)
+    if hs == as_:
+        assert y == 0 and w["ll_model"] == -math.log(1 - p) and reh.brier(p, y) == p ** 2
+        assert "a TIE COUNTS AS A HOME LOSS" in reh.RULES["log_loss"] and "a TIE IS A PUSH" in reh.RULES["wlp"]
+
+
+# ============================================================================== (5b) THE WALK'S FLOOR (251 (3)) --
+
+def test_the_floor_is_the_gates_warmup_season_and_reads_seasons_conservatively():
+    from src.walters import nfl_backtest as nb
+    assert reh.WALK_FLOOR is nb.WARMUP_SEASON and reh.WALK_FLOOR == "2024"
+    src = (ROOT / "src" / "walters" / "nfl_rehearsal.py").read_text()
+    assert "WALK_FLOOR = nb.WARMUP_SEASON" in src and not re.search(r"WALK_FLOOR\s*=\s*[\"']?2024", src)
+    assert [reh.before_floor(s) for s in ("2023", "2024", "2025", "2026", 2023, "", None, "2023/24")] == [
+        True, False, False, False, True, True, True, True]                     # a non-year is never walked silently
+    games = [SimpleNamespace(season=s) for s in ("2022", "2023", "2024", "2025")]
+    kept, n = reh.floor_split(games)
+    assert [g.season for g in kept] == ["2024", "2025"] and n == 2
+    assert reh.floor_line(1) == "walk floor 2024; 1 stored games before it, excluded"
+    assert reh.floor_line(0) == "walk floor 2024; 0 stored games before it, excluded"
+    assert reh.floor_line(None).startswith("walk floor 2024; ")
+
+
+def test_a_stored_pre_2024_finished_game_never_enters_the_arms_walk_and_is_counted_v1_unchanged(world):
+    """251 item 3(3): a FINISHED 2023 NFL game is stored. The arm's probabilities equal an independent walk from 2024
+    (and differ from one that walks 2023), the predict run's arm line counts it "walk floor 2024; 1 stored games before
+    it, excluded", and v1's own walk still walks it (v1 is not changed in this lane: its stored probabilities equal an
+    independent walk over every stored game, 2023 included)."""
+    from src.walters.nfl_backtest import NFLEloConfig
+    lines0 = _predict()
+    arm0 = {mid: fb[reh.FB_KEY]["p_home"] for mid, (*_, fb) in _stored(world).items()}
+    v1_0 = {mid: h for mid, (h, *_) in _stored(world).items()}
+    assert "; walk floor 2024; 0 stored games before it, excluded; " + LABEL in lines0[-1]
+    world.w.add_game(world.db, "2023", datetime(2023, 12, 3, 18, 0), 4, 5, 45, 3)   # teams of the first upcoming game
+    lines = _predict()
+    st = _stored(world)
+    v2 = replace(NFLEloConfig(), home_advantage=33.0)
+    floored, walked = _hand_walk(world, v2, floor="2024"), _hand_walk(world, v2)
+    v1_all, v1_floored = _hand_walk(world, NFLEloConfig()), _hand_walk(world, NFLEloConfig(), floor="2024")
+    for mid in world.games:
+        h, _, _, fb = st[mid]
+        assert fb[reh.FB_KEY]["p_home"] == floored[mid] == arm0[mid]          # the 2023 game is not in the arm's walk
+        assert h == round(v1_all[mid], 4)                                       # v1 walks every stored game, as before
+    g1 = world.games[0]
+    assert walked[g1] != floored[g1]                                            # teeth: the 2023 game moves a walk
+    assert v1_0[g1] == round(v1_floored[g1], 4) != round(v1_all[g1], 4) == st[g1][0]   # v1 walked it (unchanged)
+    assert lines[-1].endswith("closes_at excluded); walk floor 2024; 1 stored games before it, excluded; " + LABEL)
+    assert lines[-1].startswith("rehearsal arm nfl-elo-v2 (nfl-elo-v2 PASS 2026-11-06T19:00:00Z, home_advantage "
+                                "33.0): 3 of 3 covered rows priced")
+
+
+def test_the_arms_pure_walk_is_the_live_walk_from_the_floor(tmp_path, monkeypatch):
+    """`walk` (the pure walk parity re-runs) over nfl_backtest.load_stream's rows ends in the same state as
+    nfl_predict._current_ratings(cfg=..., floor=WALK_FLOOR), the arm's DB walk, with a stored 2023 game counted and
+    excluded by both; without the floor v1's walk keeps it."""
+    from src.walters import nfl_backtest as nb
+    from src.walters import nfl_predict as npd
+    from tests import nfl_v2_world as w
+    db = w.fresh(tmp_path / "f.db", monkeypatch)
+    w.build(db)
+    w.add_game(db, "2023", datetime(2023, 12, 3, 18, 0), 4, 5, 45, 3)
+    g = reh.state(entry())
+    rc: dict = {}
+    live = npd._current_ratings(cfg=g.cfg, floor=reh.WALK_FLOOR, receipt=rc)
+    pure, n = reh.walk(nb.load_stream("floor"), g.cfg, g.price)
+    assert (pure.ratings, pure.last_season) == (live.ratings, live.last_season) and n == rc["before_floor"] == 1
+    v1 = npd._current_ratings()                                                 # v1's walk: no floor, as before
+    assert v1.ratings != npd._current_ratings(floor=reh.WALK_FLOOR).ratings     # the 2023 game is in v1's walk
+    v1_pure, n23 = reh.walk(nb.load_stream("floor"), nb.NFLEloConfig(), floor="2023")
+    assert (v1_pure.ratings, v1_pure.last_season) == (v1.ratings, v1.last_season) and n23 == 0
+
+
+# ======================================================================= (5c) THE POST-FRIDAY PARITY (251 (1)) --
+
+def _synthetic_record(tmp_path, monkeypatch, pre_floor=True):
+    """The synthetic stream (plus a FINISHED 2023 game) in a tmp DB, run through the frozen gate's walk
+    (walk_protocol on load_stream's split, nfl_v2_gate.candidate's config) and recorded by the real writers
+    (nfl_v2_gate.result_record, registry.record_run: the sidecar and its sha256) into a tmp registry."""
+    from src.walters import nfl_backtest as nb
+    from src.walters import nfl_v2_gate as g2
+    from tests import nfl_v2_world as w
+    db = w.fresh(tmp_path / "r.db", monkeypatch)
+    w.build(db)
+    if pre_floor:
+        w.add_game(db, "2023", datetime(2023, 12, 3, 18, 0), 4, 5, 45, 3)
+    cfg, price = g2.candidate(*g2.declared_term(real_entry()))
+    stream = nb.load_stream("parity")
+    wp = nb.walk_protocol(*nb.split(stream), cfg, price)
+    led, ids_dir = tmp_path / "experiments.json", tmp_path / "ids"
+    led.write_text(json.dumps([real_entry()]))
+    reg.record_run(reh.EID, list(wp["scored_ids"]), g2.result_record(wp, "synthetic word"), str(led), str(ids_dir))
+    return SimpleNamespace(stream=stream, entry=reg.get(reh.EID, str(led)), ids_dir=str(ids_dir), cfg=cfg,
+                           price=price, wp=wp)
+
+
+def test_the_parity_reproduces_the_records_own_figures_on_the_synthetic_run(tmp_path, monkeypatch):
+    """251 item 3(1), on the synthetic stream: the arm's live walk (`walk`, from the floor) over the sidecar's scored
+    ids (sha256-checked) reproduces the record's log-loss (`ll_model`, stored at full precision) exactly and every
+    band's n, stated and realized means to the record's six places; the 2023 game is excluded and counted."""
+    r = _synthetic_record(tmp_path, monkeypatch)
+    res = r.entry["run"]["result"]
+    assert "ll_model" in res and "scored_ids" not in res and all(
+        b["stated"] == round(b["stated"], 6) for b in res["bands"])               # result_record's shape, as written
+    ids = reh.scored_ids(r.entry, r.ids_dir)
+    assert len(ids) == r.entry["run"]["n_scored"] == r.wp["n_scored"] > 200
+    out = reh.parity(r.stream, ids, res, r.cfg, r.price)
+    assert out["ok"] and out["mismatches"] == [] and out["before_floor"] == 1 and out["n"] == len(ids)
+    assert out["log_loss"] == res["ll_model"] == r.wp["ll_model"]               # the stored precision: every digit
+    assert [(b["band"], b["n"]) for b in out["bands"]] == [(b["band"], b["n"]) for b in res["bands"]]
+    assert len(res["bands"]) >= 3
+
+
+def test_the_parity_has_teeth(tmp_path, monkeypatch):
+    """A walk without the floor (the 2023 game walked), a record one unit off in its last stored place, a band off
+    by 1e-6, a dropped scored id, and a sidecar that does not match its sha256: each is a named mismatch or refusal."""
+    r = _synthetic_record(tmp_path, monkeypatch)
+    res = r.entry["run"]["result"]
+    ids = reh.scored_ids(r.entry, r.ids_dir)
+    walked = reh.parity(r.stream, ids, res, r.cfg, r.price, floor="2023")       # the 2023 game inside the walk
+    assert not walked["ok"] and any("ll_model" in m for m in walked["mismatches"]) and walked["before_floor"] == 0
+    off = copy.deepcopy(res)
+    off["ll_model"] = math.nextafter(res["ll_model"], 1.0)
+    assert any("ll_model" in m for m in reh.parity(r.stream, ids, off, r.cfg, r.price)["mismatches"])
+    off = copy.deepcopy(res)
+    off["bands"][1]["stated"] = round(off["bands"][1]["stated"] + 1e-6, 6)
+    assert any("stated" in m for m in reh.parity(r.stream, ids, off, r.cfg, r.price)["mismatches"])
+    off = copy.deepcopy(res)
+    off["bands"][1]["realized"] = round(off["bands"][1]["realized"] - 1e-6, 6)
+    assert any("realized" in m for m in reh.parity(r.stream, ids, off, r.cfg, r.price)["mismatches"])
+    short = reh.parity(r.stream, ids[:-1], res, r.cfg, r.price)
+    assert not short["ok"] and any("ll_model" in m for m in short["mismatches"])
+    side = Path(r.ids_dir) / Path(r.entry["run"]["ids_file"]).name
+    side.write_text("\n".join(str(i) for i in ids[:-1]) + "\n")
+    with pytest.raises(reh.ParityRefused, match="does not match the record's count and sha256"):
+        reh.scored_ids(r.entry, r.ids_dir)
+    side.unlink()
+    with pytest.raises(reh.ParityRefused, match="does not exist"):
+        reh.scored_ids(r.entry, r.ids_dir)
+    assert reh.at_stored_precision(0.123457, 0.123457) and reh.at_stored_precision(0.12345678, 0.123457)
+    assert not reh.at_stored_precision(0.1234562, 0.123457) and not reh.at_stored_precision(0.5, None)
+
+
+def test_the_parity_skip_is_named_never_silent():
+    """251 item 3(1): "skipped (named, with the reason) until the record exists; a skip is never silent". The two
+    reasons, asserted by text."""
+    e = real_entry()
+    assert reh.parity_skip({**e, "run": None}, None) == reh.PARITY_SKIP_NO_RECORD
+    assert reh.parity_skip({**e, "run": None}, "/tmp/copy.db") == reh.PARITY_SKIP_NO_RECORD
+    assert reh.parity_skip(None, None) == reh.PARITY_SKIP_NO_RECORD
+    assert reh.PARITY_SKIP_NO_RECORD == ("nfl-elo-v2's run record does not exist yet (Friday 11-06's one run; the "
+                                         "verdict-record PR lands it) — addendum 251 item 3(1)")
+    ran = {**e, "run": {"result": {"ll_model": 0.65}}}
+    assert reh.parity_skip(ran, None) == reh.parity_skip(ran, "  ") == reh.PARITY_SKIP_NO_DB
+    assert reh.PARITY_SKIP_NO_DB.startswith("nfl-elo-v2's run record exists but no database copy is given (CI has no "
+                                            "database: set SP_REHEARSAL_PARITY_DB")
+    assert reh.PARITY_SKIP_NO_DB.endswith("— addendum 251 item 3(1)") and reh.PARITY_DB_ENV == "SP_REHEARSAL_PARITY_DB"
+    assert reh.parity_skip(ran, "/tmp/copy.db") is None
+    if e.get("run") is None:                                                     # today: the real entry has no record
+        assert reh.parity_skip(e, None) == reh.PARITY_SKIP_NO_RECORD
+    assert "the sidecar's count and sha256 and the record's shape were checked, the walk alone is skipped" in (
+        reh.PARITY_SKIP_NO_DB)
+    assert issubclass(reh.ParitySkipped, UserWarning)
+
+
+def test_the_real_record_test_warns_its_skip_where_a_plain_q_run_shows_it():
+    """251 item 3(1), "a skip is never silent", on CI's own path (`pytest -q tests`, no -rs: the skip reason is not in
+    its report, the warnings summary is). The real-record test warns each named reason beside its pytest.skip, and on
+    the no-database path it runs the sidecar and shape checks first (read by text from the test's own source)."""
+    src = inspect.getsource(test_the_real_run_record_parity)
+    assert src.count("warnings.warn(why, reh.ParitySkipped)") == 2
+    assert src.count("pytest.skip(why)") == 2
+    for k in (src.index("warnings.warn(why, reh.ParitySkipped)"), src.rindex("warnings.warn(why, reh.ParitySkipped)")):
+        assert src[k:].lstrip().split("\n")[1].strip() == "pytest.skip(why)"
+    nodb = src.rindex("warnings.warn(why, reh.ParitySkipped)")
+    assert src.index("reh.scored_ids(e, reg.IDS_DIR)") < nodb and src.index("reh.record_shape(e) == []") < nodb
+    assert src.index("why == reh.PARITY_SKIP_NO_RECORD") < src.index("reh.scored_ids(e, reg.IDS_DIR)")
+
+
+def test_once_the_record_exists_ci_still_checks_the_sidecar_and_the_shape(tmp_path, monkeypatch):
+    """251 item 3(1), by value: with a run record and no database copy (CI), the real-record test is not a bare skip.
+    It reads the sidecar first: a sidecar off its sha256 FAILS (ParityRefused) instead of skipping; a sound one and a
+    sound shape reach the no-database skip, named and warned (ParitySkipped). The synthetic record stands in for the
+    real one (real_entry and registry.IDS_DIR pointed at it)."""
+    r = _synthetic_record(tmp_path, monkeypatch)
+    monkeypatch.delenv(reh.PARITY_DB_ENV, raising=False)
+    monkeypatch.setattr(sys.modules[__name__], "real_entry", lambda: copy.deepcopy(r.entry))
+    monkeypatch.setattr(reg, "IDS_DIR", r.ids_dir)
+    with pytest.warns(reh.ParitySkipped, match="no database copy is given"):
+        with pytest.raises(pytest.skip.Exception, match="the walk alone is skipped"):
+            test_the_real_run_record_parity(monkeypatch)
+    side = Path(r.ids_dir) / Path(r.entry["run"]["ids_file"]).name
+    ids = side.read_text().split()
+    side.write_text("\n".join(ids[:-1]) + "\n")
+    with pytest.raises(reh.ParityRefused, match="does not match the record's count and sha256"):
+        test_the_real_run_record_parity(monkeypatch)
+    side.write_text("\n".join(ids) + "\n")
+    bad = copy.deepcopy(r.entry)
+    bad["run"]["result"]["bands"][0]["stated"] = 0.1234567
+    monkeypatch.setattr(sys.modules[__name__], "real_entry", lambda: copy.deepcopy(bad))
+    with pytest.raises(AssertionError):
+        test_the_real_run_record_parity(monkeypatch)
+
+
+def test_the_record_shape_needs_no_database(tmp_path, monkeypatch):
+    """What runs without a database once the record exists (251 item 3(1)): result_record's shape, on the synthetic
+    record the real writers make, and a named problem for each way off it."""
+    r = _synthetic_record(tmp_path, monkeypatch)
+    assert reh.record_shape(r.entry) == []
+    for path, val, want in ((("ll_model",), None, "ll_model"), (("ll_model",), float("nan"), "ll_model"),
+                            (("bands",), [], "bands"), (("bands", 0, "n"), 3.0, "n is not an int"),
+                            (("bands", 0, "stated"), 0.1234567, "stated is not a number at 6 places"),
+                            (("bands", 1, "realized"), None, "realized is not a number at 6 places")):
+        e = copy.deepcopy(r.entry)
+        tgt = e["run"]["result"]
+        for k in path[:-1]:
+            tgt = tgt[k]
+        tgt[path[-1]] = val
+        assert any(want in m for m in reh.record_shape(e)), (path, val)
+    assert reh.record_shape({"run": None}) == ["the run record holds no result"]
+
+
+def test_the_real_run_record_parity(monkeypatch):
+    """251 item 3(1), on the REAL record: nfl-elo-v2's run.result in docs/registry/experiments.json, its sidecar under
+    registry.IDS_DIR (sha256-checked), and the arm's live walk over the stream of a fresh .backup copy of the database
+    the run read (SP_REHEARSAL_PARITY_DB; nfl_v2_gate.check_db's fence, opened read-only). Skipped with a named reason
+    until the record exists (the verdict-record PR lands it). Once it exists, what needs no database runs everywhere,
+    CI included: the sidecar's count and sha256 against the record (scored_ids) and the record's shape (record_shape);
+    only the walk is skipped without a database copy. Every skip's reason is also warned (ParitySkipped), so the
+    warnings summary of a plain `pytest -q` run names it (CI passes no -rs)."""
+    import os
+    import warnings
+
+    from src.walters import nfl_backtest as nb
+    from src.walters import nfl_v2_gate as g2
+    e = real_entry()
+    db = os.environ.get(reh.PARITY_DB_ENV)
+    why = reh.parity_skip(e, db)
+    if why == reh.PARITY_SKIP_NO_RECORD:
+        warnings.warn(why, reh.ParitySkipped)
+        pytest.skip(why)
+    ids = reh.scored_ids(e, reg.IDS_DIR)                                      # no database needed: count and sha256
+    assert reh.record_shape(e) == [] and len(ids) == e["run"]["n_scored"]       # no database needed: the shape
+    if why is not None:
+        warnings.warn(why, reh.ParitySkipped)
+        pytest.skip(why)
+    cfg, price = g2.candidate(*g2.declared_term(e))
+    path = g2.check_db(db)
+    with g2.db_session(path) as s:
+        stream = nb.load_stream("rehearsal-parity", session=s)
+    out = reh.parity(stream, ids, e["run"]["result"], cfg, price)
+    assert out["ok"], out["mismatches"]
+    print(f"parity: {out['n']} scored ids, log-loss {out['log_loss']!r}, {len(out['bands'])} bands; "
+          f"{reh.floor_line(out['before_floor'])}")
+
+
+# ===================================================================== (5d) THE PRECISION LINE (251 (3), P1) --
+
+def test_the_weekly_comparison_names_the_precision_on_its_own_line():
+    """251 item 3 (the Codex P1): the weekly comparison names the precision on its own line, verbatim, in the record
+    block's `rules` (total and every week carry the rules once, beside the figures)."""
+    want = ("v2 at full precision as stored; v1 at four places as stored; the difference is bounded at about 1e-4 of "
+            "log-loss")
+    assert reh.PRECISION_LINE == want and reh.RULES["precision"] == want
+    assert f'("{want}")' in reh.RULING_251_TEXT[-1]
+    g = reh.state(entry())
+    pred = SimpleNamespace(factor_breakdown={reh.FB_KEY: reh.arm_block(g, 0.612345678)})
+    a = reh.result_arm(pred, 10, 27, None)
+    row = {"week": 10, "predicted": {"model_version": "nfl_elo_v1", "home_win_prob": 0.6123},
+           "actual": {"home_score": 10, "away_score": 27, "result": "A"}, "graded": {"push": False}, reh.RESULT_KEY: a}
+    rec = reh.record_block([row])
+    assert rec["rules"]["precision"] == want and "\n" not in want
+    assert sum(1 for v in rec["rules"].values() if v == want) == 1
 
 
 # ========================================================================================== (6) THE DESK PIN --
@@ -827,8 +1156,10 @@ def test_the_rulings_are_quoted_verbatim_in_the_spec_and_the_entry():
     txt = flat(entry_text("2026-11-04-230-1a-nfl-rehearsal-arm", "**2026-11-04 — BUILT (ARCHITECT 2026-11-03, "
                                                                  "addendum 230 item 1(a), as ruled by"))
     spec = _spec()
-    for t in (reh.RULING_230_TEXT, *reh.RULING_247_TEXT):
+    for t in (reh.RULING_230_TEXT, *reh.RULING_247_TEXT, *reh.RULING_251_TEXT):
         assert flat(t) in txt and flat(t) in spec, t[:60]
+    assert reh.RULING_251 == "ARCHITECT 2026-11-04 11:50 ET, addendum 251 item 3"
+    assert '("walk floor 2024; N stored games before it, excluded")' in reh.RULING_251_TEXT[3]
     assert reh.LABEL == LABEL and f'"{LABEL}"' in reh.RULING_247_TEXT[-1]
     assert '"rehearsal-arm keys (host-only, nfl-elo-v2)"' in reh.RULING_247_TEXT[2]
 

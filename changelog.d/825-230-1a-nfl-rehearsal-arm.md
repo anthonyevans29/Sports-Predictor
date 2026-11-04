@@ -1,4 +1,4 @@
-## 2026-11-04 (#825: 230-1a-nfl-rehearsal-arm — nfl-elo-v2's rehearsal arm, as ruled by addendum 247: nfl_elo_v2's probabilities as a second arm (the rehearsal_* keys) on the NFL slate and closing rows and the grader's second arm, host-only, dormant unless the registry reads the architect's PASS, status rehearsal and a window covering the game's kickoff; the Desk reads nothing from it; the compare masks it under its own line; addendum 230 item 1(a))
+## 2026-11-04 (#825: 230-1a-nfl-rehearsal-arm — nfl-elo-v2's rehearsal arm, as ruled by addendum 247: nfl_elo_v2's probabilities as a second arm (the rehearsal_* keys) on the NFL slate and closing rows and the grader's second arm, host-only, dormant unless the registry reads the architect's PASS, status rehearsal and a window covering the game's kickoff; the Desk reads nothing from it; the compare masks it under its own line; addendum 230 item 1(a); #825's four points as ruled by addendum 251 item 3)
 - Addendum 230 item 1(a) (ARCHITECT 2026-11-03 09:00 ET), verbatim: "(a) nfl-v2's REHEARSAL (lane nfl-v2, the 11-23 step: "on PASS: the rehearsal on the host's pages from the next tag, weeks 10 and 11, 11-12 through 11-23") — PR BY 11-09, on a tag by 11-11: nfl_elo_v2's probabilities as a SECOND ARM on the NFL slate and closing pages beside v1's record-only would-be (the pl-availability shadow's shape: two probability sets, the grader's second arm, the arm labelled with the entry and its verdict stamp), written only while the entry's verdict reads PASS and its rehearsal window is open (registry state 'rehearsal', 11-12 to 11-23); the Desk reads nothing from it (market-only stands until my live ruling of 11-26); the results export carries both arms' log-loss against the close and Brier per week; a FAIL on 11-06 leaves every line of it dormant. Gate-class (an export contract): the PR body shows a synthetic page with both arms and the pin that the Desk's call never reads the second arm."
 - Addendum 247 items 2-3 (ARCHITECT 2026-11-04 09:55 ET), verbatim:
   - "2. THE REHEARSAL ARM (230 item 1(a)), the six, RULED:"
@@ -9,6 +9,13 @@
   - "(5) TIES: each figure keeps the rule it already has, stated on its line — the log-loss treats a tie as the gate's protocol does (walk_protocol's own rule, unchanged: the rehearsal's log-loss must be the gate's arithmetic), the W-L-P and the vs-close figure treat a tie as a push, as results-tally does. "Per week" = the NFL game week as nfl_predict assigns it (weeks 10 and 11), never the calendar week."
   - "(6) THE LIVE WALK: the same games as nfl_elo_v1's live walk (2024 to date, every non-preseason FINISHED game, in order), with the declared term for the whole walk — the gate's walk continued into 2026, so the arm's 2025 probabilities EQUAL the gate run's scored 2025 probabilities game for game: a parity test pins it (the gate's run record will hold them after Friday; before that, the test walks the synthetic stream both ways). Never the gate's cold start re-run on the host."
   - "3. The Desk reads nothing from the arm (a byte-identical pin, as planned); the arm labels every row with the entry id, the term and "rehearsal — not a call"; the phone page carries no arm line (the summary block and receipt do, as 223 item 3 ruled for the would-be line)."
+- Addendum 251 item 3 (ARCHITECT 2026-11-04 11:50 ET), verbatim:
+  - "3. #825 (the rehearsal arm) — the four points, RULED:"
+  - "(1) POST-FRIDAY PARITY: the gate stays UNCHANGED — no per-game dump is added before Friday's one run. The post-Friday pin is the run record's own figures: the arm's live walk over the sidecar's scored ids (registry IDS_DIR, sha256-checked) reproduces the record's `log_loss` to its stored precision and every band's `stated` and `realized` means to the record's six places; with 285 warm-up and the scored set that pins the probabilities to any divergence a reader could care about. Per-game equality stays pinned on the synthetic stream both ways, as the PR already does. The test reads the record after the verdict PR lands and is skipped (named, with the reason) until the record exists; a skip is never silent."
+  - "(2) THE VERDICT-RECORD PR carries the five status-aware places with `rehearsal` added and a test over the enum; #825's body names that dependency and the arm stays dormant until the record reads PASS and `status: "rehearsal"`. #825 does not pre-empt it."
+  - "(3) THE WALK'S FLOOR: the arm's live walk takes an EXPLICIT floor at the gate's warm-up season (`nb.WARMUP_SEASON`, 2024), pinned by a test in which a stored pre-2024 FINISHED NFL game does not enter the arm's walk and is counted on the export's summary line ("walk floor 2024; N stored games before it, excluded"). v1's own walk is NOT changed in this lane (the live row's walk is a v1 question, 230's scope); a pre-2024 finished NFL game appearing in the DB is a data event with its own Issue, never a silent inclusion."
+  - "(4) THE TIE RULE: agreed — pinned by text (the test reads the gate's source and asserts the expression) and by value; no refactor of frozen gate code before Friday's run. A refactor to one shared function after the run is optional, its own small PR, and must leave the gate's bytes-as-run reproducible from the tag."
+  - "THE CODEX P1 (rounding): the fix is right and is round 1 — the arm stores full precision and rounds only where it is shown (the slate and closing rows, the results row, the summary line, the receipt); the new test fails on the current code and passes on the fix. v1's four-place storage (nfl_predict.py:139) is UNCHANGED: it is the live row and this lane does not touch it. The weekly comparison line names the precision on its own line ("v2 at full precision as stored; v1 at four places as stored; the difference is bounded at about 1e-4 of log-loss") — immaterial against the 0.010 bar and the 7.0pp band, and stated so no reader mistakes it for a divergence."
 - New `src/walters/nfl_rehearsal.py`:
   - **The state read, never written:** `read_gate` / `state`. The arm is on only when all of these hold:
     - this machine is the host (`desk_policy.not_host_reason`);
@@ -19,13 +26,15 @@
 
     Anything else is dormant, with its reason.
   - **Per game:** the arm keys on the game's kickoff in [opens_at, closes_at) and never reads the write clock.
-  - **The stored arm:** `arm_block` / `failed_block`, kept on v1's Prediction row as `factor_breakdown.nfl_elo_v2_rehearsal`.
+  - **The stored arm:** `arm_block` / `failed_block`, kept on v1's Prediction row as `factor_breakdown.nfl_elo_v2_rehearsal`. The arm is stored at full precision and graded from that float, and the pages and the results row's `home_win_prob` / `away_win_prob` present it at four places (Codex on #825); the results row also carries the full-precision `p_home` it is graded from. v1's own stored `home_win_prob` stays at four places (nfl_predict's pre-existing round, unchanged; 251 item 3). The record block names the precision on its own line, `rules.precision`: "v2 at full precision as stored; v1 at four places as stored; the difference is bounded at about 1e-4 of log-loss".
   - **The row keys:** `export_fields`.
   - **The grader's arm:** `result_arm` and `record_block`. Each tie rule is stated in `RULES`.
   - **The gate's arithmetic:** `game_log_loss` and `mean_as_the_gate`.
+  - **The walk's floor (251 item 3(3)):** `WALK_FLOOR` (`nfl_backtest.WARMUP_SEASON`, 2024, imported), `before_floor`, `floor_split` and `floor_line`. The arm's walk leaves out a stored game before 2024 and the predict run's arm line counts it: "walk floor 2024; N stored games before it, excluded". A pre-2024 FINISHED NFL game in the DB is a data event with its own Issue, never a silent inclusion.
+  - **The post-Friday parity (251 item 3(1)):** `walk` (the arm's live walk on a stream, pure), `scored_ids` (the sidecar, sha256-checked), `parity` (the record's `ll_model` to its stored precision, each band's n, stated and realized to six places), `parity_skip` (the named skip reasons), `record_shape` (the record's shape, checked with the sidecar without a database) and `ParitySkipped` (each skip reason warned, so a plain `pytest -q` run shows it).
 - src/walters/nfl_predict.py:
-  - `_current_ratings(progress, cfg=None)` is v1's live walk; v1 is unchanged when `cfg` is None.
-  - `predict_nfl` stores the arm for covered games, walking once more under the declared term while the state reads on. It prints one receipt line.
+  - `_current_ratings(progress, cfg=None, floor=None, receipt=None)` is v1's live walk; v1 is unchanged when `cfg` and `floor` are None. Only the arm passes `floor` (251 item 3(3)), and the count before it lands in `receipt`.
+  - `predict_nfl` stores the arm for covered games, walking once more under the declared term, from the walk floor, while the state reads on. It prints one receipt line, which now carries the floor clause.
   - `export_nfl_predictions` adds the six `rehearsal_*` keys to covered rows. This covers the slate file and the closing run's file.
   - `export_nfl_results` reads every stored arm on the host, whatever the registry reads now. It writes:
     - a per-row `rehearsal_arm`;
@@ -44,7 +53,7 @@
   - `nfl_backtest.walk_protocol` (the frozen gate's code);
   - every constant, bar, gate threshold, roadmap date and registry value. The nfl-elo-v2 entry is not touched.
 - Docs:
-  - docs/specs/nfl-rehearsal-arm.md (new): the contract, with both rulings verbatim;
+  - docs/specs/nfl-rehearsal-arm.md (new): the contract, with the three rulings verbatim (230 item 1(a), 247 items 2-3, 251 item 3);
   - docs/CLI.md: `predict-nfl`, `export-nfl-predictions`, `export-nfl-results` and `compare_exports.py`.
 - Tests: tests/test_nfl_rehearsal_arm.py (new) covers:
   - the ruled shape and instants;
@@ -55,6 +64,10 @@
   - a row written before the window;
   - results read after the window, checked by hand;
   - the parity with the gate's scored 2025 probabilities;
+  - the walk's floor: a stored 2023 game out of the arm's walk, counted on its line, and still in v1's (251 item 3(3));
+  - the post-Friday parity on the synthetic record, with its teeth, and the named, warned skip of the real-record test, whose sidecar and shape checks run without a database once the record exists (251 item 3(1));
+  - the tie rule by text and by value (251 item 3(4));
+  - the precision line (251 item 3);
   - the Desk pin;
   - the summary, receipt and page;
   - the compare line;

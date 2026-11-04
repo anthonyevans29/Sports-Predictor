@@ -50,10 +50,13 @@ CERTIFICATION = ("uncertified (addendum 214): nfl_elo_v1 failed its frozen gate 
                  "market-only until the confirmation read")
 
 
-def _current_ratings(progress=None, cfg: NFLEloConfig | None = None) -> _State:
+def _current_ratings(progress=None, cfg: NFLEloConfig | None = None, floor: str | None = None,
+                     receipt: dict | None = None) -> _State:
     """v1's live walk: every FINISHED non-preseason NFL game with both scores, by kickoff then id. `cfg` (ARCHITECT
     2026-11-04, addendum 247 item 2(6), the rehearsal arm): nfl_elo_v2's config over the SAME games for the whole walk;
-    None is v1's NFLEloConfig(), unchanged."""
+    None is v1's NFLEloConfig(), unchanged. `floor` (ARCHITECT 2026-11-04 11:50 ET, addendum 251 item 3(3), the
+    rehearsal arm only: nfl_rehearsal.WALK_FLOOR, the gate's warm-up season): the games before it are excluded from
+    this walk and counted into receipt["before_floor"]; None (v1's walk, every caller but the arm) is unchanged."""
     cfg = cfg if cfg is not None else NFLEloConfig()
     st = _State()
     with session_scope() as s:
@@ -65,6 +68,11 @@ def _current_ratings(progress=None, cfg: NFLEloConfig | None = None) -> _State:
             ).order_by(Match.utc_date, Match.id)
         ).scalars())
         games = [m for m in games if "pre" not in (m.stage or "").lower()]
+        if floor is not None:                           # 251 item 3(3): the arm's walk only
+            from src.walters.nfl_rehearsal import floor_split
+            games, before = floor_split(games, floor)
+            if receipt is not None:
+                receipt["before_floor"] = before
         if progress:
             progress(scope_line("ratings", games))
         for m in games:
@@ -101,9 +109,10 @@ def predict_nfl(days_ahead: int = 8, progress=None) -> int:
     from src.walters import nfl_rehearsal as reh
     gate = reh.read_gate()
     st2 = err2 = None
-    if gate.on:                                         # 247 item 2(6): v1's live walk under the declared term
-        try:
-            st2 = _current_ratings(cfg=gate.cfg)
+    walk_rc: dict = {}
+    if gate.on:                                         # 247 item 2(6): v1's live walk under the declared term,
+        try:                                            # from the walk floor (251 item 3(3))
+            st2 = _current_ratings(cfg=gate.cfg, floor=reh.WALK_FLOOR, receipt=walk_rc)
         except Exception as e:                          # noqa: BLE001  (stored per row; never stops v1's rows)
             err2 = e
     written = armed = covered = 0
@@ -146,10 +155,11 @@ def predict_nfl(days_ahead: int = 8, progress=None) -> int:
         if gate.on and progress:
             progress(f"rehearsal arm {reh.EID} ({gate.stamp}, {gate.form} {gate.value}): {armed} of {covered} "
                      f"covered rows priced (kickoff window {gate.opens_at:%Y-%m-%dT%H:%M:%SZ} to "
-                     f"{gate.closes_at:%Y-%m-%dT%H:%M:%SZ}, closes_at excluded); {reh.LABEL}")
+                     f"{gate.closes_at:%Y-%m-%dT%H:%M:%SZ}, closes_at excluded); "
+                     f"{reh.floor_line(walk_rc.get('before_floor'))}; {reh.LABEL}")
     log.info("Wrote %d NFL predictions using %s", written, MODEL_VERSION)
-    log.info("rehearsal arm %s: %s", reh.EID, f"{armed} of {covered} covered rows priced" if gate.on else
-             f"dormant ({gate.why})")
+    log.info("rehearsal arm %s: %s", reh.EID, f"{armed} of {covered} covered rows priced; "
+             f"{reh.floor_line(walk_rc.get('before_floor'))}" if gate.on else f"dormant ({gate.why})")
     return written
 
 

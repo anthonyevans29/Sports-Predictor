@@ -28,7 +28,7 @@ from src.walters import soccer_v23 as v
 
 ROOT = Path(__file__).resolve().parent.parent
 V22P = {"dixon_coles_rho": -0.10, "elo_goal_coeff": 0.0008}
-PJ = v.canon_params(V22P, False)
+PJ = v.canon_params(V22P, False, "LEAGUE")
 
 
 # ------------------------------------------------------------------------------------------ the store --
@@ -253,7 +253,7 @@ def test_the_v22_arm_is_the_real_production_path_at_the_same_instant(tmp_path, m
     from src.db.schema import ModelVersion
     with db.session_scope() as s:
         poisson = s.execute(select(ModelVersion)).scalars().first().parameters["poisson"]
-        snap = v.snapshot_from_session(s, fx.utc_date, v.canon_params(poisson, False), "day")
+        snap = v.snapshot_from_session(s, fx.utc_date, v.canon_params(poisson, False, "LEAGUE"), "day")
     p = v.predict(snap, fx, "v22")
     assert max(abs(a - b) for a, b in zip(prod, (p["p_home"], p["p_draw"], p["p_away"]))) <= 1e-12
     assert p["info"]["backfilled"] == (cur_rows < v.V22_MIN_MATCHES)
@@ -282,7 +282,7 @@ def test_the_v22_arm_is_production_past_the_500_limit_with_tied_kickoffs(tmp_pat
     from src.db.schema import ModelVersion
     with db.session_scope() as s:
         poisson = s.execute(select(ModelVersion)).scalars().first().parameters["poisson"]
-        snap = v.snapshot_from_session(s, fx.utc_date, v.canon_params(poisson, False), "day")
+        snap = v.snapshot_from_session(s, fx.utc_date, v.canon_params(poisson, False, "LEAGUE"), "day")
     p = v.predict(snap, fx, "v22")
     assert p["info"]["backfilled"] is True and p["info"]["n_cur"] == 12
     assert max(abs(a - b) for a, b in zip(prod, (p["p_home"], p["p_draw"], p["p_away"]))) <= 1e-12
@@ -315,7 +315,7 @@ def _arm_and_production(db, ids):
     prod = _production(db, fx.code, fx.season, fx.id)
     with db.session_scope() as s:
         poisson = s.execute(select(ModelVersion)).scalars().first().parameters["poisson"]
-        snap = v.snapshot_from_session(s, fx.utc_date, v.canon_params(poisson, False), "day")
+        snap = v.snapshot_from_session(s, fx.utc_date, v.canon_params(poisson, False, "LEAGUE"), "day")
     p = v.predict(snap, fx, "v22")
     return prod, (p["p_home"], p["p_draw"], p["p_away"]), p["info"]["g"]
 
@@ -742,7 +742,7 @@ def test_253_row_4_the_match_factors_come_only_from_the_record_in_both_paths(sto
     target = [r for r in rows if r.code == "PL" and r.season == "2025/26"][20]
     early = [r for r in rows if r.code == "PL" and r.season == "2024/25"][5]
     fx = v.Fixture.of(target)
-    on = v.canon_params(V22P, True)
+    on = v.canon_params(V22P, True, "LEAGUE")
     base, w = _both_paths(db, [early, target], rule, params=on)
     assert v.availability_lines(w["availability"]) == [
         v.availability_lines([])[0],
@@ -1130,10 +1130,32 @@ def test_the_scope_and_first_season_slots_change_the_scored_set():
 
 def test_the_fingerprint_binds_every_slot():
     rows = _stage_rows()[:1]
-    base = v.stream_fingerprint(rows, rows, dict(SLOTS), V22P)[0]
+    base = v.stream_fingerprint(rows, rows, dict(SLOTS), V22P, v.ROWS_ONLY)[0]
     for k, alt in (("visibility", "kickoff"), ("scope", "LEAGUE"), ("first_season", "exclude_as_warmup"),
                    ("availability_on", True), ("cut", "2026-10-29T15:00:00Z")):
-        assert v.stream_fingerprint(rows, rows, {**SLOTS, k: alt}, V22P)[0] != base, k
+        assert v.stream_fingerprint(rows, rows, {**SLOTS, k: alt}, V22P, v.ROWS_ONLY)[0] != base, k
+
+
+def test_the_fingerprint_binds_every_availability_read():
+    """Codex on #832, round 1: the fingerprint carries every as-of read of the availability record the walk makes (one
+    per decision instant), so a copy whose record differs (another state or reason, one fact more, a fact recorded
+    earlier) is a different stream, whatever its rows; a fact the walk can never read (recorded after every decision
+    instant) changes nothing."""
+    rows = _stage_rows()[:2]
+    fx = v.Fixture.of(rows[1])
+    d = v.visibility_bound(rows[1].utc_date, SLOTS["visibility"])
+    fp = lambda rec: v.stream_fingerprint(rows, rows, dict(SLOTS), V22P, rec)[0]     # noqa: E731
+    base = fp(v.NoRecord(v.ABSENT_REASON))
+    assert fp(v.NoRecord(v.ABSENT_REASON)) == base
+    one = [{"source": "s", "id": 1, "recorded_at": d, "facts": (_fact(1, fx, 1, d),)}]
+    for rec in (v.NoRecord("another reason"), v.ROWS_ONLY, _Record(one),
+                _Record(one + [{"source": "s", "id": 2, "recorded_at": d, "facts": (_fact(1, fx, 1, d),
+                                                                                   _fact(2, fx, 2, d))}])):
+        assert fp(rec) != base
+    later = [{"source": "s", "id": 9, "recorded_at": d + timedelta(days=400), "facts": (_fact(9, fx, 1, d),)}]
+    assert fp(_Record(later)) == fp(_Record([]))
+    reads = v.availability_reads(_Record(one), rows, SLOTS["visibility"])
+    assert [r[0] for r in reads] == sorted({v._ts(v.visibility_bound(r.utc_date, SLOTS["visibility"])) for r in rows})
 
 
 def _first_season_rows(seed: int, n_teams: int = 10):
@@ -1210,7 +1232,7 @@ def test_on_the_pot_the_multiplier_is_exactly_one_and_the_walk_stops_otherwise(s
     db, _ = store
     rows = rows_of(db)
     fx = rows[-3:]
-    w = v.walk(rows, fx, v.canon_params(V22P, True), "day")
+    w = v.walk(rows, fx, v.canon_params(V22P, True, "LEAGUE"), "day")
     assert len(w["soccer-v23"]) == 3
     monkeypatch.setattr(v, "availability", lambda *a, **k: (0.9, 1.0, []))
     with pytest.raises(v.GateRefused, match="never manufactured|not 1.0"):
@@ -1586,6 +1608,115 @@ def test_an_unplaceable_stage_refuses_the_run_and_is_named_in_the_preflight(decl
     with pytest.raises(v.GateRefused, match="stage label cannot be placed"):
         v.run("w", "0" * 64, db=copy)
     _nothing(declared)
+
+
+def test_a_copy_whose_availability_record_changed_after_the_preflight_is_refused(declared, monkeypatch):
+    """Codex on #832, round 1 (fail-first: before the fix the run accepted the preflight's fingerprint and reserved):
+    the copy's record read by the run differs from the one the preflight fingerprinted, so the fingerprint differs and
+    the run refuses before the reservation, nothing recorded."""
+    from src.walters import registry as reg
+    fp = _fp(v.preflight_lines(reg.get(v.EID, reg.LEDGER), declared["copy"]))
+    monkeypatch.setattr(v, "availability_record", lambda s: v.NoRecord("a different record on this copy"))
+    monkeypatch.setattr(v, "walk", lambda *a, **k: (_ for _ in ()).throw(AssertionError("walked")))
+    with pytest.raises(v.GateRefused, match="fingerprint"):
+        v.run("w", fp, db=declared["copy"])
+    _nothing(declared)
+
+
+def _second_production(declared, version: str, row_id: int) -> str:
+    """The declared store plus a second soccer_elo_poisson row marked production (`row_id` places it before or after
+    v22's), backed up to a new copy."""
+    db = sqlite3.connect(str(declared["tmp"] / "store.db"))
+    db.execute("INSERT INTO model_versions (id, sport, model_family, version, status, parameters, train_size, "
+               "created_at) SELECT ?, sport, model_family, ?, status, parameters, train_size, created_at FROM "
+               "model_versions WHERE version = 'v22'", (row_id, version))
+    db.commit()
+    db.close()
+    return str(_backup(declared["tmp"] / "store.db", declared["tmp"] / "copies" / f"copy-{version}.db"))
+
+
+@pytest.mark.parametrize("version, row_id", [("v21", -1), ("v23x", 10_000)])
+def test_a_copy_with_two_production_rows_is_refused(declared, version, row_id):
+    """Codex on #832, round 1 (fail-first: before the fix the newest id was picked silently; with an OLDER second row,
+    v22 was the newest and the run went on): every production soccer_elo_poisson row is loaded and the copy refused
+    unless there is exactly one, in the preflight and the run alike, nothing reserved."""
+    from src.walters import registry as reg
+    copy = _second_production(declared, version, row_id)
+    with pytest.raises(v.GateRefused, match="2 soccer_elo_poisson rows marked production"):
+        v.preflight_lines(reg.get(v.EID, reg.LEDGER), copy)
+    with pytest.raises(v.GateRefused, match="2 soccer_elo_poisson rows marked production"):
+        v.run("w", "0" * 64, db=copy)
+    _nothing(declared)
+
+
+def _playoff_history():
+    """One competition-season: twelve regular rounds, then a play-off row (a lop-sided 7-0), then two regular
+    fixtures."""
+    t0, rows, i = datetime(2025, 8, 1, 15), [], 1
+    for d in range(12):
+        for h, a in ((1, 2), (3, 4), (2, 3), (4, 1)):
+            rows.append(v.Row(i, "XX", "2025/26", t0 + timedelta(days=7 * d, hours=i % 3), h, a, (i * 7) % 4,
+                              (i * 3) % 3, f"Regular Season - {d + 1}"))
+            i += 1
+    playoff = v.Row(999, "XX", "2025/26", t0 + timedelta(days=84), 1, 2, 7, 0, "Relegation Round - 1")
+    later = [v.Row(1000 + j, "XX", "2025/26", t0 + timedelta(days=91 + j), h, a, 1, 1, "Regular Season - 13")
+             for j, (h, a) in enumerate(((1, 2), (3, 4)))]
+    return rows, playoff, later
+
+
+def test_a_play_off_row_never_touches_the_regular_only_walk():
+    """Codex on #832, round 1 (fail-first: before the fix the play-off row stayed in every snapshot under
+    LEAGUE_REGULAR and moved both arms' later prices): under LEAGUE_REGULAR the history is in_scope's (soccer_expansion
+    F3, "only regular-season rounds are scored and walked"), for BOTH arms: the walk with the play-off row in its input
+    equals the walk without it, bitwise, and no snapshot holds it; under LEAGUE it is history and moves the prices."""
+    rows, playoff, later = _playoff_history()
+    allr = rows + [playoff] + later
+    reg_pj, lg_pj = v.canon_params(V22P, False, "LEAGUE_REGULAR"), v.canon_params(V22P, False, "LEAGUE")
+    assert {r.id for r in v.scored_rows(allr, {**SLOTS, "scope": "LEAGUE_REGULAR"})} == {r.id for r in rows + later}
+    with_po = v.walk(allr, later, reg_pj, "day")
+    without = v.walk(rows + later, later, reg_pj, "day")
+    for arm in v.ARMS:
+        assert with_po[arm] == without[arm], arm
+    assert with_po["context"] == without["context"]
+    snap = v.snapshot_from_rows(allr, later[0].utc_date, reg_pj, "day")
+    assert playoff not in snap.rows and len(snap.rows) == len(rows)
+    assert playoff in v.snapshot_from_rows(allr, later[0].utc_date, lg_pj, "day").rows
+    league = v.walk(allr, later, lg_pj, "day")
+    assert any(league[arm][0]["p_home"] != with_po[arm][0]["p_home"] for arm in v.ARMS)
+    bad = rows + [v.Row(998, "XX", "2025/26", playoff.utc_date, 1, 2, 0, 0, "Apertura - 3")] + later
+    with pytest.raises(v.GateRefused, match="cannot be placed"):
+        v.snapshot_from_rows(bad, later[0].utc_date, reg_pj, "day")
+    with pytest.raises(ValueError, match="scope"):
+        v.canon_params(V22P, False, "CUP")
+
+
+def test_the_run_walks_and_fingerprints_the_scoped_history(declared, monkeypatch):
+    """Codex on #832, round 1: the run hands the walk, and the fingerprint binds, the history in the declared scope
+    (a play-off row in the copy under LEAGUE_REGULAR is neither walked nor fingerprinted), and its params carry the
+    scope, so the one builder applies the same rule."""
+    from src.db.schema import Match
+    from src.walters import registry as reg
+    import src.db.database as dbm
+    with dbm.session_scope() as s:
+        m = s.query(Match).order_by(Match.utc_date.desc()).first()
+        po = Match(sport=m.sport, competition_id=m.competition_id, season=m.season,
+                   utc_date=m.utc_date - timedelta(days=1, minutes=1), stage="Relegation Round - 1",
+                   home_team_id=m.home_team_id, away_team_id=m.away_team_id, status=m.status, status_raw="FT",
+                   home_score=9, away_score=0)
+        s.add(po)
+        s.flush()
+        po_id = po.id
+    copy = str(_backup(declared["tmp"] / "store.db", declared["tmp"] / "copies" / "copy-po.db"))
+    fp = _fp(v.preflight_lines(reg.get(v.EID, reg.LEDGER), copy))
+    seen = {}
+
+    def spy(rows, sc, pj, rule, **k):
+        seen.update(rows=[r.id for r in rows], pj=json.loads(pj))
+        raise RuntimeError("stop")
+    monkeypatch.setattr(v, "walk", spy)
+    with pytest.raises(RuntimeError, match="stop"):
+        v.run("w", fp, db=copy)
+    assert po_id not in seen["rows"] and seen["pj"]["scope"] == "LEAGUE_REGULAR"
 
 
 def test_a_failure_after_the_reservation_leaves_it_standing(declared, monkeypatch):

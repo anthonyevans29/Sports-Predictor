@@ -94,9 +94,11 @@ log λ_A(r) = μ     + α_{b,s} + δ_{a,s} − β·ΔE_r
   K_PRIOR·G0. The pull identities Σ(y − λ) = τ_μ(μ − μ0) and Σ(y_H − λ_H) = τ_μ(h − h0) are pinned in place of exact
   equality.
 - **Fit:** damped Newton from a cold start, never warm-started; Cholesky positive-definiteness check, then
-  `np.linalg.solve`; up to 60 step halvings; converged at max|Δθ| < 1e-12; 100 iterations; `FitRefused` refuses the
-  whole run, with no fallback. β is fixed at 0 and labelled `beta_unidentified` when the window's ΔE takes fewer than
-  two distinct values.
+  `np.linalg.solve`; up to 60 step halvings; converged only when the FULL Newton step max|H⁻¹g| < 1e-12, never on a
+  damped step's displacement; a line search that cannot lower the objective while the Newton decrement ½·gᵀH⁻¹g is
+  above PRECISION_FLOOR·|objective| refuses ("the line search stalled"), one below it takes the full step (Codex on
+  #832, round 1); 100 iterations; `FitRefused` refuses the whole run, with no fallback. β is fixed at 0 and labelled
+  `beta_unidentified` when the window's ΔE takes fewer than two distinct values.
 - **Pricing:** λ goes to the REAL `poisson.predict_match` through an adaptor: context (1, 1), `TeamStrength(λ_H, 1)` /
   `TeamStrength(λ_A, 1)`, `elo_goal_coeff` 0, equal Elo, so home_xg = λ_H and away_xg = λ_A exactly (pinned at
   1e-15), and the 0.05 floor, v22's stored ρ (the copy's production ModelVersion `parameters["poisson"]`; the run
@@ -217,15 +219,17 @@ and `fixture_age` equal to the script's.
   27).
 - **Admission:** a finished soccer row of a LEAGUE-type competition with a kickoff and both scores, through the
   confirmation predicate (`soccer_expansion.unscoreable`: AWD / WO and cancelled released; a non-FT code with a stored
-  90-minute score walked on that score). Both arms read the same admitted rows. Two labelled differences from the live
+  90-minute score walked on that score). Both arms read the same admitted rows. Three labelled differences from the live
   path, which reads the raw `home_score` / `away_score` on every FINISHED row: an AWD / WO row it would read is left out
   of both arms; and on an AET / PEN row of a LEAGUE-type competition (a play-off final, e.g.) the v22 arm reads the
   stored 90-minute score where live v22's contexts (training.py:196-214), strengths input and Elo ladder (`train_elo`
   through `_to_train`) read the full score with extra-time goals. v22's own gate walk (`confirmation_scoring` False)
   reads the full score too; the 90-minute reading is the `confirmation_scoring` convention, applied to both arms
-  alike. Such rows stay in every snapshot under either scope (a play-off row is left out of the SCORED set under
-  LEAGUE_REGULAR, not out of the history), so on the real store this reaches v22's re-walked figure. Not changed ahead
-  of a ruling: open question 22.
+  alike; this score reading is not changed ahead of a ruling (open question 22). Under scope LEAGUE the rows stay in
+  every snapshot, so on the real store this reaches v22's re-walked figure. Third: under LEAGUE_REGULAR a play-off row is out of the HISTORY as well as the scored set, for BOTH arms (`in_scope`,
+  applied by the one builder and the walk; soccer_expansion F3: "only regular-season rounds are scored and walked";
+  Codex on #832, round 1): v22's re-walk skips it in its contexts, strengths, backfill and ladder exactly as
+  soccer-v23 does, a labelled difference from live v22, which reads every FINISHED row.
 - **Printed strata, reported only, gating nothing:** the league's season count below 30 / at least 30 (the boundary
   216 item 2 found unevaluated); the lower of the two teams' own season counts; per competition; β̂ and the I1/I2
   residuals. RPS and Brier beside the log-loss. The close is never read.
@@ -278,8 +282,9 @@ turn these tests red.
 
 **v22's arm under this harness, per row:** it keeps v22's own inputs as v22 defines them (training.py's context
 formulas, the ladder, estimate_strengths with the backfill, the promoted default, predict_match with the stored ρ),
-read from the same snapshot as soccer-v23, so the comparison is like for like; its two labelled readings stand (the
-90-minute score on an AET / PEN league row, open question 22; the backfill's tie order, 17); it reads no factor
+read from the same snapshot as soccer-v23, so the comparison is like for like; its three labelled readings stand (the
+90-minute score on an AET / PEN league row, open question 22; the backfill's tie order, 17; under LEAGUE_REGULAR a
+play-off row out of its history, §4 Admission); it reads no factor
 (row 4). v22 itself, its code and its production path do not change.
 
 ## 5. The scored set and the pot
@@ -303,8 +308,10 @@ read from the same snapshot as soccer-v23, so the comparison is like for like; i
   before each declared league's declared_at).
 - **The pot:** "16,546 matches / 24 competitions" is printed as a label, never a pass condition. The scored ids and
   their sha256 are written by `registry.record_run`.
-- **The stream fingerprint** ("soccer-v23 stream fingerprint v1"): the walked rows' fields in walk order, the scored
-  ids, the slots, v22's stored poisson params, the design's constants and the snapshot version.
+- **The stream fingerprint** ("soccer-v23 stream fingerprint v2"): the walked rows' fields in walk order (the history
+  in the declared stage scope), the scored ids, the slots, v22's stored poisson params, the design's constants, the
+  snapshot version and every as-of read of the availability record the walk makes (one per decision instant: state,
+  reason, clock, facts, excluded; Codex on #832, round 1: a copy whose record differs is a different stream).
 
 ## 5a. The context gap (251 item 2)
 
@@ -417,7 +424,7 @@ any difference.
 | `PROMOTED_ATTACK_MULT`, `PROMOTED_DEFENCE_MULT` | 0.85, 1.15 | v22's PoissonConfig promoted priors, as log offsets on S−1's zero mean |
 | `CARRY` | 1.0 | no extra regression of S−1 into S |
 | `ELO_SCALE` | 100.0 | conditioning only (β is reported per point) |
-| `MAX_ITER`, `MAX_HALVINGS`, `TOL`, `PRECISION_FLOOR` | 100, 60, 1e-12, 1e-9 | the fit's numerics |
+| `MAX_ITER`, `MAX_HALVINGS`, `TOL`, `PRECISION_FLOOR` | 100, 60, 1e-12, 1e-12 | the fit's numerics: TOL on the full Newton step max\|H⁻¹g\| (the only convergence test); PRECISION_FLOOR the objective's relative resolution, read only when the line search stalls (Codex on #832, round 1) |
 | `V22_MIN_MATCHES`, `V22_BACKFILL_LIMIT` | 30, 500 | training.py:476, :500 (the v22 arm; test-pinned to the file) |
 | `WITHIN_SEASON_SKIP` | 0 | 216 item 3 |
 | `RESULT_LAG_HOURS` | 4 | when a result is known (§4 Visibility): kickoff + 4 h covers extra time and a shoot-out with margin; the store holds no final-whistle stamp (proposed; open question 4) |
@@ -431,8 +438,9 @@ any difference.
 `soccer-v23-gate` refuses, reserving nothing and recording nothing, when: there is no entry, its status is not
 declared, `run` is not null, or a reservation exists; a slot is null or invalid; the entry's constants or gate differ
 from the code's; the word is empty; `--db` is missing or fails `nfl_v2_gate.check_db` (outside data/, not the app's
-database, never created, no -wal/-shm/-journal); the copy's production version is not v22; a fence refuses at the
-cut; under LEAGUE_REGULAR a walked row's stage label cannot be placed; a club's arrival cannot be placed on the
+database, never created, no -wal/-shm/-journal); the copy holds more than one soccer_elo_poisson row marked
+production (never the newest picked; Codex on #832, round 1) or its production version is not v22; a fence refuses at
+the cut; under LEAGUE_REGULAR a walked row's stage label cannot be placed; a club's arrival cannot be placed on the
 declared pyramid; the fingerprint is missing or does not match. Then `registry.cross_ref_guard`, then the reservation
 (`docs/registry/soccer-v23.started.json`, exclusive create, written and fsynced with its directory, removed if the
 write fails), then the walk (both arms: v22 re-walked beside v23), `compare_candidate`, `decide` (both comparisons,

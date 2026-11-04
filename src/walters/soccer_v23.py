@@ -78,7 +78,7 @@ ADMISSION (one predicate, both builders): a finished soccer row of a LEAGUE-type
 with a kickoff and both scores, passed through the confirmation predicate (soccer_expansion.unscoreable: AWD / WO and
 cancelled released; a non-FT raw code with a stored 90-minute score walked on that score; soccer_backtest
 ._confirmation_rows's rule). Both arms read the same admitted rows; v22's live path reads raw home_score on every
-FINISHED row, so it differs from the v22 arm in two places, both labelled: an AWD / WO row it would read is left out
+FINISHED row, so it differs from the v22 arm in three places, all labelled: an AWD / WO row it would read is left out
 of both arms here, and on an AET / PEN row of a LEAGUE-type competition (a play-off final, e.g.) the v22 arm reads the
 stored 90-minute score where live v22 reads the full score with extra-time goals (training.py: the contexts at
 196-214, the strengths input and train_elo through _to_train all read home_score / away_score). That is the
@@ -86,7 +86,11 @@ confirmation_scoring convention, applied to both arms alike; v22's own gate walk
 full score too. So the v22 arm equals the real production path at 1e-12 only on a store without such rows; with an AET
 row it differs by exactly the score substitution (a test pins both: the arm equals production run on the same store
 with that row's full score set to its 90-minute score). Which reading "v22 re-walked" takes on such rows is open
-question 22 (docs/specs/soccer-v23.md §11), the architect's to rule; the code is not changed ahead of it.
+question 22 (docs/specs/soccer-v23.md §11), the architect's to rule; the code is not changed ahead of it. Under scope
+LEAGUE_REGULAR a play-off row (an AET final included) is in neither arm's history at all (in_scope; soccer_expansion
+F3, "only regular-season rounds are scored and walked"; Codex on #832, round 1): the v22 arm's contexts, strengths,
+backfill and ladder skip it as soccer-v23's do, a third labelled difference from live v22, which reads every FINISHED
+row of the competition.
 
 THE CONTEXT GAP (ARCHITECT 2026-11-04 11:50 ET, addendum 251 item 2; docs/specs/soccer-v23.md "The context gap"). The
 soccer gate's walk scores v22 under the default context (soccer_backtest.py: CompetitionScoringContext(), g 1.4, b 1.15)
@@ -134,7 +138,7 @@ CONTEXT_DEFINITION = ("as-of (addendum 251 item 2): g and b (the v22 arm's Compe
 #: v2 (253 item 2(d)): the snapshot carries the Elo state (elo_pre, elo_state) and the availability record read at the
 #: instant (availability) beside the rows; v1 carried the rows and caller-supplied entries.
 SNAPSHOT_VERSION = "soccer-snapshot v2"
-FINGERPRINT_TAG = f"{EID} stream fingerprint v1"
+FINGERPRINT_TAG = f"{EID} stream fingerprint v2"         # v2: the availability reads bound (Codex on #832, round 1)
 ARMS = ("v22", "soccer-v23")
 
 V22_MIN_MATCHES = 30                            # training.py:476 MIN_MATCHES_FOR_STRENGTHS (a test greps it)
@@ -639,9 +643,38 @@ class Snapshot:
                                          allow_nan=False).encode("ascii")).hexdigest()
 
 
-def canon_params(v22_poisson: dict, availability_on: bool) -> str:
-    return json.dumps({"v22_poisson": dict(v22_poisson), "availability_on": bool(availability_on)}, sort_keys=True,
-                      separators=(",", ":"), ensure_ascii=True, allow_nan=False)
+def canon_params(v22_poisson: dict, availability_on: bool, scope: str) -> str:
+    """The snapshot's params: v22's stored poisson config, the availability switch and the declared stage SCOPE (the
+    one builder reads it: in_scope). `scope` is required, never defaulted."""
+    if scope not in SLOT_VALUES["scope"]:
+        raise ValueError(f"scope {scope!r} is not one of {SLOT_VALUES['scope']}")
+    return json.dumps({"v22_poisson": dict(v22_poisson), "availability_on": bool(availability_on), "scope": scope},
+                      sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False)
+
+
+def in_scope(rows, scope: str) -> list:
+    """THE STAGE SCOPE OF THE HISTORY (Codex on #832, round 1; soccer_expansion F3, ruled: "only regular-season rounds
+    are scored and walked"): under LEAGUE every row; under LEAGUE_REGULAR only the rows soccer_expansion.placement
+    reads "regular": a play-off row is left out of the HISTORY as well as the scored set, so it touches neither arm's
+    walk (no Elo step, no context, no v22 strength or backfill, no v23 window), and a label the code cannot place
+    REFUSES (never guessed). The one builder applies it (both arms, the replay and live alike) and the walk applies it
+    to its own rows first, so the memo's rows are the builder's."""
+    if scope == "LEAGUE":
+        return list(rows)
+    if scope != "LEAGUE_REGULAR":
+        raise ValueError(f"scope {scope!r} is not one of {SLOT_VALUES['scope']}")
+    from src.walters.soccer_expansion import placement
+    out, bad = [], {}
+    for r in rows:
+        pl = placement(r.stage)
+        if pl == "regular":
+            out.append(r)
+        elif pl != "playoff":
+            bad[(r.code, r.season)] = bad.get((r.code, r.season), 0) + 1
+    if bad:
+        raise GateRefused("a row's stage label cannot be placed under scope LEAGUE_REGULAR (soccer_expansion F3: never "
+                          "guessed): " + "; ".join(f"{c} {se}: {n}" for (c, se), n in sorted(bad.items())))
+    return out
 
 
 def visible(r: Row, as_of: datetime, rule: str) -> bool:
@@ -717,11 +750,12 @@ def snapshot_from_rows(rows, as_of: datetime, params_json: str, visibility_rule:
     """THE ONE BUILDER (253 item 2(d); replay and live alike, each calling it at every instant): the admitted rows
     visible at `as_of` (rows 1, 3, 5), the ladder walked over them by walk_ladder (row 2) and the availability record
     read under the recorded clock at the DECISION INSTANT, the rows' own bound b = visibility_bound(as_of) (row 4):
-    rows kicking off before b, facts recorded at or before b. A function of the instant, never of a fixture. Cost: one
-    pass of the ladder and the digest over the visible rows per call (about 0.15 s at the pot's size on a synthetic
-    16,546-row probe)."""
+    rows kicking off before b, facts recorded at or before b; the rows in the params' declared stage scope only
+    (in_scope: under LEAGUE_REGULAR a play-off row never enters the history). A function of the instant, never of a
+    fixture. Cost: one pass of the ladder and the digest over the visible rows per call (about 0.15 s at the pot's
+    size on a synthetic 16,546-row probe)."""
     b = visibility_bound(as_of, visibility_rule)
-    vis = tuple(sorted((r for r in rows if r.utc_date < b), key=Row.key))
+    vis = tuple(sorted(in_scope((r for r in rows if r.utc_date < b), json.loads(params_json)["scope"]), key=Row.key))
     pre, state, last = walk_ladder(vis)
     return Snapshot(SNAPSHOT_VERSION, as_of, visibility_rule, vis, prefix_digest(vis), params_json, tuple(pre),
                     _elo_state(state.ratings, last), read_availability(record, b))
@@ -1223,7 +1257,7 @@ def walk(rows, fixtures, params_json: str, visibility_rule: str, use_cache: bool
     holds, per fixture, the g and b each arm priced with (soccer-v23: mu and h; 251 item 2), reported only;
     "availability", per fixture, the record's state at the decision instant, the term's and the backfilled facts
     excluded (availability_lines prints them per era)."""
-    rows = sorted(rows, key=Row.key)
+    rows = sorted(in_scope(rows, json.loads(params_json)["scope"]), key=Row.key)   # the history the builder keeps
     cache = Prefix(rows) if use_cache else None
     out = {"v22": [], "soccer-v23": [], "strata": [], "context": [], "availability": []}
     for t, group in by_instant(fixtures):
@@ -1377,16 +1411,24 @@ def declared_unrun() -> dict:
 
 
 def production_params(session) -> tuple[str | None, dict | None]:
-    """The copy's soccer production ModelVersion: (version, parameters["poisson"])."""
+    """The copy's soccer production ModelVersion: (version, parameters["poisson"]). Every soccer_elo_poisson row
+    marked production is loaded, and the copy is REFUSED unless there is exactly one (Codex on #832, round 1: the live
+    resolver reads it with scalar-one semantics, so a store holding two has no unambiguous production model; never
+    the newest id picked). None of them: (None, None), which the run refuses as "not v22"."""
     from sqlalchemy import select
 
     from src.db.schema import ModelVersion, Sport
-    mv = session.execute(select(ModelVersion).where(ModelVersion.sport == Sport.SOCCER,
-                                                    ModelVersion.model_family == "soccer_elo_poisson",
-                                                    ModelVersion.status == "production")
-                         .order_by(ModelVersion.id.desc())).scalars().first()
-    if mv is None:
+    mvs = session.execute(select(ModelVersion).where(ModelVersion.sport == Sport.SOCCER,
+                                                     ModelVersion.model_family == "soccer_elo_poisson",
+                                                     ModelVersion.status == "production")
+                          .order_by(ModelVersion.id)).scalars().all()
+    if not mvs:
         return None, None
+    if len(mvs) > 1:
+        raise GateRefused(f"the copy holds {len(mvs)} soccer_elo_poisson rows marked production ("
+                          + ", ".join(f"id {m.id} {m.version!r}" for m in mvs) + "): no unambiguous production "
+                          "model (the live resolver reads exactly one); never the newest picked; nothing reserved")
+    mv = mvs[0]
     return mv.version, dict((mv.parameters or {}).get("poisson") or {})
 
 
@@ -1403,12 +1445,29 @@ def fence_refusals(codes, cut: datetime) -> list[str]:
     return out
 
 
-def stream_fingerprint(rows, scored, slots: dict, v22_poisson: dict) -> tuple[str, int]:
-    """sha256 over the walked rows (ROW_FIELDS, walk order), the scored ids, the slots, v22's stored poisson params,
-    the design's constants and SNAPSHOT_VERSION. JSON, sorted keys, no whitespace."""
+def availability_reads(record: AvailabilityRecord, scored, rule: str) -> list:
+    """Every as-of read of the availability record the walk can make over `scored` (one per decision instant,
+    visibility_bound of each scored kickoff under `rule`, ascending), each through the builder's own checked read
+    (read_availability), canonical: [instant, state, reason, clock, facts, excluded]. While the tables are absent each
+    is the adapter's NoRecord with its reason (the tables' absence, said so)."""
+    out = []
+    for d in sorted({visibility_bound(r.utc_date, rule) for r in scored}):
+        av = read_availability(record, d)
+        out.append([_ts(d), av.state, av.reason, av.clock, [f.canon() for f in av.facts],
+                    [f.canon() for f in av.excluded]])
+    return out
+
+
+def stream_fingerprint(rows, scored, slots: dict, v22_poisson: dict,
+                       record: AvailabilityRecord) -> tuple[str, int]:
+    """sha256 over the walked rows (ROW_FIELDS, walk order: the history in the declared stage scope, in_scope), the
+    scored ids, the slots, v22's stored poisson params, the design's constants, SNAPSHOT_VERSION and EVERY as-of read
+    of the availability record the walk makes (availability_reads; Codex on #832, round 1: a copy whose record differs
+    is a different stream, whatever its rows). JSON, sorted keys, no whitespace."""
     body = {"tag": FINGERPRINT_TAG, "fields": list(ROW_FIELDS), "rows": [r.canon() for r in rows],
             "scored": [r.id for r in scored], "slots": slots, "v22_poisson": v22_poisson,
-            "constants": code_constants(), "snapshot_version": SNAPSHOT_VERSION}
+            "constants": code_constants(), "snapshot_version": SNAPSHOT_VERSION,
+            "availability_reads": availability_reads(record, scored, slots["visibility"])}
     blob = json.dumps(body, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False)
     return hashlib.sha256(blob.encode("ascii")).hexdigest(), len(rows)
 
@@ -1480,7 +1539,8 @@ def preflight_lines(entry: dict | None, db) -> list[str]:
                      f"LEAGUE_REGULAR) {_labels(cen['playoff']) or 'none'} · CANNOT BE PLACED "
                      f"{_labels(cen['unplaced']) or 'none'}")
     sr = stage_refusals(rows, slots)
-    ar = arrival_refusals(rows)
+    hist = rows if sr else in_scope(rows, slots["scope"])   # F3: the history the walk keeps (in_scope)
+    ar = arrival_refusals(hist)
     L.append("  stage labels: " + ("every walked label placed (or scope LEAGUE: no stage rule)" if not sr else
                                    "REFUSED under LEAGUE_REGULAR — " + "; ".join(sr)))
     L.append("  arrivals: " + ("every club arriving in a competition placed (promoted or relegated)" if not ar else
@@ -1491,18 +1551,19 @@ def preflight_lines(entry: dict | None, db) -> list[str]:
                  "guessed); the architect rules first.")
         return L
     sc = scored_rows(rows, slots)
-    L.append(f"  walked {len(rows)} admitted rows at or before the cut {slots['cut']} · scored {len(sc)} (counts "
-             f"only; within-season skip {WITHIN_SEASON_SKIP})")
+    L.append(f"  walked {len(hist)} admitted rows at or before the cut {slots['cut']} (scope {slots['scope']}: "
+             f"{len(rows) - len(hist)} play-off row(s) out of the history and the scored set, F3) · scored {len(sc)} "
+             f"(counts only; within-season skip {WITHIN_SEASON_SKIP})")
     L += availability_lines([{"code": r.code, "season": r.season, "reason": av.reason,
                               "term": term_state(slots["availability_on"], av), "excluded": len(av.excluded)}
                              for r in sc for av in (read_availability(record, visibility_bound(r.utc_date,
                                                                                                slots["visibility"])),)])
-    thin = thin_seasons(rows)
+    thin = thin_seasons(hist)
     L.append("  thin seasons: " + ("none" if not thin else "; ".join(thin) + " — a window holding only these refuses "
                                    "the fit (the run would stop after the reservation): the architect rules first"))
     fr = fence_refusals({r.code for r in rows}, parse_instant(slots["cut"]))
     L.append("  fences at the cut: " + ("clear" if not fr else "REFUSED — " + " | ".join(fr)))
-    fp, n = stream_fingerprint(rows, sc, slots, v22p or {})
+    fp, n = stream_fingerprint(hist, sc, slots, v22p or {}, record)
     L.append("PREFLIGHT only: nothing fitted, nothing priced, nothing reserved, nothing recorded.")
     L.append(f"STREAM FINGERPRINT {fp} ({n} rows; the run takes it as --stream-fingerprint)")
     return L
@@ -1562,7 +1623,8 @@ def _now() -> datetime:
 def run(word: str | None, fingerprint: str | None, db=None, no_fetch: bool = False, echo=None) -> dict:
     """THE ONE RUN. Refused, nothing reserved and nothing recorded, in this order: no declared unrun entry (or a
     reservation); a null or invalid slot; the entry's constants or gate not the code's; no word; no --db or a copy
-    check_db refuses; the copy's availability record half present or present (availability_record, in _load: refused
+    check_db refuses; the copy holding more than one soccer_elo_poisson row marked production (production_params, in
+    _load: never the newest picked); the copy's availability record half present or present (availability_record, in _load: refused
     until 252 item 2's query function is wired; open question 23); the copy's production version not v22; a fence
     refusing at the cut; under LEAGUE_REGULAR a walked stage label that cannot be placed; a club's arrival the declared
     pyramid cannot place; no fingerprint or one that does not match. Then the cross-ref guard and the reservation BEFORE any outcome is read; then the walk of
@@ -1594,12 +1656,13 @@ def run(word: str | None, fingerprint: str | None, db=None, no_fetch: bool = Fal
     if sr:
         raise GateRefused("a walked row's stage label cannot be placed under scope LEAGUE_REGULAR (soccer_expansion "
                           "F3: never guessed): " + "; ".join(sr) + "; nothing reserved")
-    ar = arrival_refusals(rows)
+    hist = in_scope(rows, slots["scope"])              # F3: the history the walk keeps (a play-off row never in it)
+    ar = arrival_refusals(hist)
     if ar:
         raise GateRefused("a club's arrival cannot be placed on the declared pyramid: " + "; ".join(ar)
                           + "; nothing reserved")
     sc = scored_rows(rows, slots)
-    fp, n = stream_fingerprint(rows, sc, slots, v22p)
+    fp, n = stream_fingerprint(hist, sc, slots, v22p, record)
     if not fingerprint or str(fingerprint).strip() != fp:
         raise GateRefused(f"the stream fingerprint given ({fingerprint!r}) is not the stream about to be walked ({fp}, "
                           f"{n} rows): re-run {COMMAND} --preflight and take the word on it; nothing reserved")
@@ -1607,8 +1670,8 @@ def run(word: str | None, fingerprint: str | None, db=None, no_fetch: bool = Fal
             "db": str(path)}
     reserve(meta, no_fetch=no_fetch, echo=echo)
     # from here on, the one run is spent
-    params_json = canon_params(v22p, slots["availability_on"])
-    w = walk(rows, sc, params_json, slots["visibility"], record=record)
+    params_json = canon_params(v22p, slots["availability_on"], slots["scope"])
+    w = walk(hist, sc, params_json, slots["visibility"], record=record)
     from src.walters.soccer_backtest import compare_candidate
     from src.walters.training import DEFAULT_PROMOTION_DELTA
     cmp_ = decide(compare_candidate(w["v22"], w["soccer-v23"], DEFAULT_PROMOTION_DELTA),

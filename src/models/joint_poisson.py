@@ -48,8 +48,12 @@ as a ratio, which is 216 item 1's own mismatch), precision τ_μ = K_PRIOR·G0. 
 
 THE FIT: damped Newton from a COLD start (θ = 0, μ = ln of the window's mean goals per observation, or μ0 when the
 window holds no goal-bearing row), never warm-started from another fit; the Hessian is checked positive definite by
-Cholesky, then np.linalg.solve; up to MAX_HALVINGS step halvings until the objective does not increase; converged at
-max|Δθ| < TOL; MAX_ITER iterations. Any failure raises FitRefused, which refuses the run: there is no fallback.
+Cholesky, then np.linalg.solve; up to MAX_HALVINGS step halvings (the full step accepted when the objective does not
+increase, a damped one only when it strictly decreases); converged when the FULL Newton step max|H⁻¹g| < TOL, never on
+a damped displacement (Codex on #832, round 1); a line search that cannot lower the objective while the decrease is
+resolvable (its Newton decrement above PRECISION_FLOOR·|objective|) refuses ("the line search stalled"), one below it
+takes the full step; MAX_ITER iterations (_newton). Any failure raises
+FitRefused, which refuses the run: there is no fallback.
 β is fixed at 0 and labelled `beta_unidentified` when the window's ΔE takes fewer than two distinct values (one value
 cannot be told from μ and h; all zero leaves the column empty).
 
@@ -93,9 +97,11 @@ BETA_PRIOR_PRECISION = K_PRIOR * G0
 MAX_ITER = 100
 MAX_HALVINGS = 60
 TOL = 1e-12
-#: When no step of the line search lowers the objective, the fit is accepted only if the full Newton step is already
-#: below this (float precision reached); otherwise it refuses.
-PRECISION_FLOOR = 1e-9
+#: THE OBJECTIVE'S RESOLUTION (relative; Codex on #832, round 1): when no step of the line search lowers the objective,
+#: a Newton decrement ½·gᵀH⁻¹g at or below PRECISION_FLOOR·max(1, |objective|) is under what the objective's float
+#: evaluation resolves (a sum of 2n terms carries about n·ε of relative rounding; ε 2.2e-16), so the full step is
+#: taken and the loop goes on; above it the fit refuses. It never declares convergence: only max|H⁻¹g| < TOL does.
+PRECISION_FLOOR = 1e-12
 
 MU0 = math.log(G0 * (2.0 - B0))
 H0 = math.log(B0 / (2.0 - B0))
@@ -162,6 +168,63 @@ def rates(fit: JointFit, home: int, away: int, elo_diff: float) -> tuple[float, 
     aa, da, _ = fit.strength(away)
     x = fit.beta * elo_diff
     return math.exp(fit.mu + fit.h + ah + da + x), math.exp(fit.mu + aa + dh - x)
+
+
+def _newton(objective, derivs, th: np.ndarray) -> tuple[np.ndarray, int, float]:
+    """THE DAMPED NEWTON LOOP (pure; `objective(θ)` -> float, `derivs(θ)` -> (gradient, Hessian)). Returns (θ, the
+    iterations, the last FULL Newton step max|H⁻¹g|).
+
+    CONVERGENCE IS ON THE FULL NEWTON STEP ONLY: converged when max|H⁻¹g| < TOL at the current θ, never on the
+    displacement a damped step made (Codex on #832, round 1: a line search halved until rounding makes the objective
+    tie can move θ by less than TOL while the full step and the gradient stay large). The line search accepts the
+    full step when it does not raise the objective, and a damped step only when it STRICTLY lowers it. When no step
+    does (MAX_HALVINGS halvings), the Newton decrement ½·gᵀH⁻¹g (the decrease the full step predicts) decides:
+      * at or below PRECISION_FLOOR·max(1, |objective|), the objective's float evaluation cannot resolve the decrease
+        (the line search is blind there, not failed): the full Newton step is taken unchecked and the loop goes on;
+        convergence is still only max|H⁻¹g| < TOL at a later iteration (pure Newton is quadratic that close);
+      * above it (or not positive: the step is no descent direction), the fit is REFUSED, "the line search stalled":
+        a damped tie is never read as convergence.
+    MAX_ITER iterations without convergence refuse too."""
+    obj = objective(th)
+    it, full = 0, float("inf")
+    while it < MAX_ITER:
+        it += 1
+        g, H = derivs(th)
+        try:
+            np.linalg.cholesky(H)
+        except np.linalg.LinAlgError:
+            raise FitRefused("the Hessian is not positive definite: the window does not identify the model")
+        try:
+            step = np.linalg.solve(H, g)
+        except np.linalg.LinAlgError:
+            raise FitRefused("the Hessian is singular: the window does not identify the model")
+        if not np.all(np.isfinite(step)):
+            raise FitRefused("a non-finite Newton step: the window does not identify the model")
+        full = float(np.max(np.abs(step))) if step.size else 0.0
+        if full < TOL:
+            return th, it, full
+        t_ = 1.0
+        for _ in range(MAX_HALVINGS + 1):
+            cand = th - t_ * step
+            oc = objective(cand)
+            if math.isfinite(oc) and (oc < obj or (oc == obj and t_ == 1.0)):
+                break
+            t_ /= 2.0
+        else:
+            dec = 0.5 * float(g @ step)
+            if not (0.0 < dec <= PRECISION_FLOOR * max(1.0, abs(obj))):
+                gmax = float(np.max(np.abs(g))) if g.size else 0.0
+                raise FitRefused(f"the line search stalled: no step lowers the objective after {MAX_HALVINGS} halvings "
+                                 f"while the full Newton step is max|Δθ| {full:.3e} (TOL {TOL:.0e}), max|gradient| "
+                                 f"{gmax:.3e} and the Newton decrement {dec:.3e} is resolvable (PRECISION_FLOOR "
+                                 f"{PRECISION_FLOOR:.0e} x |objective| {abs(obj):.3e}): not converged, never accepted")
+            cand = th - step                                  # below the objective's resolution: pure Newton
+            oc = objective(cand)
+            if not math.isfinite(oc):
+                raise FitRefused("a non-finite objective at the full Newton step: the window does not identify the "
+                                 "model")
+        th, obj = cand, oc
+    raise FitRefused(f"no convergence in {MAX_ITER} iterations (last full max|Δθ| {full:.3e})")
 
 
 def fit(obs: list[Obs] | tuple, relegated=frozenset()) -> JointFit:
@@ -286,51 +349,16 @@ def fit(obs: list[Obs] | tuple, relegated=frozenset()) -> JointFit:
         r_ = Dt @ th - dv
         return float(np.sum(np.exp(eta) - y * eta) + 0.5 * np.sum(wv * r_ * r_))
 
+    def derivs(th: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        lam = np.exp(Xt @ th)
+        g = Xt.T @ (lam - y) + Dt.T @ (wv * (Dt @ th - dv))
+        H = (Xt * lam[:, None]).T @ Xt + (Dt * wv[:, None]).T @ Dt
+        return g, H
+
     th = np.zeros(len(free))
     ybar = float(y.mean()) if len(y) else 0.0
     th[0] = math.log(ybar) if ybar > 0 else MU0
-    obj = objective(th)
-    it, last = 0, float("inf")
-    converged = False
-    while it < MAX_ITER:
-        it += 1
-        eta = Xt @ th
-        lam = np.exp(eta)
-        g = Xt.T @ (lam - y) + Dt.T @ (wv * (Dt @ th - dv))
-        H = (Xt * lam[:, None]).T @ Xt + (Dt * wv[:, None]).T @ Dt
-        try:
-            np.linalg.cholesky(H)
-        except np.linalg.LinAlgError:
-            raise FitRefused("the Hessian is not positive definite: the window does not identify the model")
-        try:
-            step = np.linalg.solve(H, g)
-        except np.linalg.LinAlgError:
-            raise FitRefused("the Hessian is singular: the window does not identify the model")
-        if not np.all(np.isfinite(step)):
-            raise FitRefused("a non-finite Newton step: the window does not identify the model")
-        full = float(np.max(np.abs(step))) if step.size else 0.0
-        if full < TOL:
-            last, converged = full, True
-            break
-        t_ = 1.0
-        for _ in range(MAX_HALVINGS + 1):
-            cand = th - t_ * step
-            oc = objective(cand)
-            if math.isfinite(oc) and oc <= obj:
-                break
-            t_ /= 2.0
-        else:
-            if full < PRECISION_FLOOR:
-                last, converged = full, True
-                break
-            raise FitRefused(f"no step lowers the objective after {MAX_HALVINGS} halvings (max|Δθ| {full:.3e})")
-        th, obj = cand, oc
-        last = t_ * full
-        if last < TOL:
-            converged = True
-            break
-    if not converged:
-        raise FitRefused(f"no convergence in {MAX_ITER} iterations (last max|Δθ| {last:.3e})")
+    th, it, last = _newton(objective, derivs, th)
 
     phi = A @ th
     lam = np.exp(Xt @ th)

@@ -229,6 +229,48 @@ def test_no_convergence_refuses(monkeypatch):
         jp.fit(random_league(3))
 
 
+def test_a_damped_tie_is_never_convergence(monkeypatch):
+    """Codex on #832, round 1 (fail-first: before the fix this fit returned silently after one iteration, its "last
+    step" the 1e-16 displacement of a step halved until rounding made the objective tie, its μ the cold start's and its
+    home residual 86 goals). A solve poisoned to return an ascent direction (what rounding does to an ill-conditioned
+    window's Newton step) leaves the line search no step that lowers the objective while the full step and the
+    gradient stay large: the fit refuses, named, and never returns."""
+    obs = random_league(3)
+    real = np.linalg.solve
+    monkeypatch.setattr(np.linalg, "solve", lambda H, g: -real(H, g))
+    with pytest.raises(jp.FitRefused, match="the line search stalled") as e:
+        jp.fit(obs)
+    assert "max|gradient|" in str(e.value)
+
+
+def test_convergence_is_on_the_full_newton_step():
+    """Every fit returns only at a full Newton step max|H⁻¹g| < TOL (last_step IS that step, never a damped
+    displacement): checked here by recomputing the full step at the returned parameters through the same objective.
+    The stalled-line-search rule (_newton) reads PRECISION_FLOOR only to decide whether the objective can resolve the
+    step; it never declares convergence."""
+    for seed in (3, 21, 937, 943):
+        f = jp.fit(random_league(seed))
+        assert f.last_step < jp.TOL and f.iterations <= jp.MAX_ITER
+
+
+def test_newton_on_a_blind_objective_takes_the_full_step_and_converges_on_it():
+    """_newton alone, on a quadratic whose minimum is `target`. (1) An objective that cannot resolve the last step
+    (every move off the start reads 1e-12 higher: rounding noise) never refuses where the Newton decrement is under
+    PRECISION_FLOOR·|objective|: it takes the full step and converges on max|H⁻¹g| < TOL, at the minimum. (2) Where the
+    decrement is resolvable and every move raises the objective (the start is its minimum: a direction rounding has
+    turned), it refuses, named; it never returns the start as converged."""
+    target = np.array([1e-7, -2e-7])
+    H = np.diag([3.0, 5.0])
+    derivs = lambda th: (H @ (th - target), H)                               # noqa: E731
+    start = np.zeros(2)
+    noisy = lambda th: 1000.0 + (1e-12 if np.any(th != start) else 0.0)     # noqa: E731
+    th, it, last = jp._newton(noisy, derivs, start.copy())
+    assert last < jp.TOL and np.allclose(th, target, rtol=0, atol=1e-18) and it == 2
+    far = np.array([1.0, 1.0])
+    with pytest.raises(jp.FitRefused, match="the line search stalled"):
+        jp._newton(lambda th: 1000.0 + float(np.sum(np.abs(th - far))), derivs, far.copy())
+
+
 def test_deterministic_and_cold_started():
     obs = random_league(21)
     a, b = jp.fit(obs), jp.fit(list(obs))

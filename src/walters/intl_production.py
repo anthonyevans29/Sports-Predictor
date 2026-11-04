@@ -45,6 +45,8 @@ import os
 from datetime import datetime
 from pathlib import Path
 
+from src.walters.provenance import git_sha as _git_sha
+
 EID = "intl-elo-v2"
 MODEL_VERSION = "intl_elo_v2"   # the file's and the history's model_version (the shadow's MODEL_VERSION)
 SPORT = "intl"
@@ -125,7 +127,9 @@ def export(now: datetime | None = None, hours: int | None = None, out_dir: str =
     b = build(now, hours)
     now = b["now"]
     doc = {"sport": SPORT, "engine": ENGINE, "model_version": MODEL_VERSION, "production_allowed": b["why"],
-           "exported_at": now.isoformat(), "count": len(b["rows"]), "fit": b["fit"], "predictions": b["rows"]}
+           "exported_at": now.isoformat(),
+           "git_sha": _git_sha(),  # addendum 249 item 2: the producing checkout (export.py's stamp)
+           "count": len(b["rows"]), "fit": b["fit"], "predictions": b["rows"]}
     dp.maybe_annotate(doc, desk, now=now)     # one decision clock: desk_meta.as_of == exported_at (Codex on #325)
     return _export_with_history(doc, now, out_dir, session_scope, has_prediction_history, append_prediction_history)
 
@@ -311,7 +315,9 @@ def export_results(now: datetime | None = None, days: int | None = None,
     now, rows = r["now"], r["rows"]
     redated = label_rows(rows, out_dir, "utc_date")
     tallied = [x for x in rows if not x.get("redated")]
-    doc = {"exported_at": now.isoformat() + "Z", "sport": SPORT, "model_version": MODEL_VERSION,
+    doc = {"exported_at": now.isoformat() + "Z",
+           "git_sha": _git_sha(),  # addendum 249 item 2: the producing checkout (export.py's stamp)
+           "sport": SPORT, "model_version": MODEL_VERSION,
            "grading": "90-minute result only (ARCHITECT 2026-10-07 addendum 3, item C): a score including extra "
                       "time or penalties is never graded on; such a game without a stored 90-minute score is "
                       "listed under `ungraded`",

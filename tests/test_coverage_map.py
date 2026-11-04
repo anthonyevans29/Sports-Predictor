@@ -2136,7 +2136,8 @@ def nhl_shadow_file(rows, exported_at="2026-10-16T16:00:00", name="nhl_shadow_20
     plus the shadow's keys."""
     doc = {"sport": "nhl", "engine": "model_shadow", "model_version": V7, "gate_verdict": V7_VERDICT,
            "reference_model": {"model_version": "nhl_elo_v1", "gate_verdict": "FAILED"},
-           "contains_predictions": False, "exported_at": exported_at, "window_hours": 36, "note": "shadow",
+           "contains_predictions": False, "exported_at": exported_at, "git_sha": "abc1234", "window_hours": 36,
+           "note": "shadow",
            "fit": {"xg_model": "frozen 2023-24", "goal_margin_fallbacks": 0}, "skipped": {}, "count": len(rows),
            "predictions": rows}
     (c.REPO / "exports" / name).write_text(json.dumps(doc))
@@ -2545,8 +2546,8 @@ def test_paper_a_row_whose_away_team_differs_is_not_shown(env):
 def unl_file(rows, exported_at="2026-10-16T16:00:00"):
     """A UNL shadow export (intl_shadow's doc shape) in the scratch exports/."""
     doc = {"sport": "unl", "engine": "model_shadow", "model_version": "intl-elo-v2", "gate_verdict": "PASS",
-           "contains_predictions": False, "exported_at": exported_at, "window_hours": 36, "note": "n", "fit": {},
-           "count": len(rows), "predictions": rows}
+           "contains_predictions": False, "exported_at": exported_at, "git_sha": "abc1234", "window_hours": 36,
+           "note": "n", "fit": {}, "count": len(rows), "predictions": rows}
     (c.REPO / "exports" / "unl_shadow_2026-10-16_1600.json").write_text(json.dumps(doc))
 
 

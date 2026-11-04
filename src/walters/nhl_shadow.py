@@ -52,6 +52,7 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from src.timeutil import utc_now_naive
+from src.walters.provenance import git_sha as _git_sha
 
 ENGINE = "model_shadow"
 # ARCHITECT 2026-10-02: "the shadow engine switches from v1 to v7 (best measured
@@ -231,7 +232,9 @@ def export(now: datetime | None = None, hours: int = WINDOW_HOURS, out_dir: str 
            "gate_verdict": GATE_VERDICT if v7 else REFERENCE_VERDICT,
            "reference_model": {"model_version": REFERENCE_VERSION, "gate_verdict": REFERENCE_VERDICT},
            "contains_predictions": False,   # nothing here is a live prediction (doctrine)
-           "exported_at": now.isoformat(), "window_hours": hours,
+           "exported_at": now.isoformat(),
+           "git_sha": _git_sha(),           # addendum 244 item 4(a): the producing checkout (export.py's stamp)
+           "window_hours": hours,
            "note": NOTE_NO_FIT if not v7 else NOTE_FALLBACK if name == FALLBACK_VERSION else NOTE,
            **({} if v7 else {"v7_unavailable": f"{MODEL_VERSION} was not available: the xG fit could not be made "
                                                f"({r['fit'].get('xg_model')})"}),

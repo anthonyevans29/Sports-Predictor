@@ -143,7 +143,7 @@ def test_the_ignore_keys_mode_leaves_them_out_too(tmp_path, capsys):
     assert out.rstrip().splitlines()[-1] == "VERDICT: CLEAN" and rc == ce.EXIT_CLEAN
 
 
-def test_its_own_line_after_the_shadow_arm_line_and_both_counts_unchanged(tmp_path, capsys):
+def test_its_own_line_after_the_shadow_and_rehearsal_arm_lines_and_both_counts_unchanged(tmp_path, capsys):
     """Beside a results row carrying a desk order (unit-bearing) and the pl-availability-v1 arm (shadow-arm), the two
     earlier counts read exactly as on the same pair without the graded-export keys."""
     def extras(doc, unit):
@@ -165,7 +165,10 @@ def test_its_own_line_after_the_shadow_arm_line_and_both_counts_unchanged(tmp_pa
     assert LINE + "0" in base.splitlines()
     lines = out.splitlines()
     shadow_i = next(i for i, x in enumerate(lines) if x.startswith(SHADOW))
-    assert lines[shadow_i - 1].startswith(UNIT) and lines[shadow_i + 1] == LINE + str(2 * 4 + 6)
+    # addendum 247 item 2(2): the rehearsal-arm line sits right after the shadow-arm line, beside it; then this one
+    assert lines[shadow_i - 1].startswith(UNIT)
+    assert lines[shadow_i + 1] == "rehearsal-arm keys (host-only, nfl-elo-v2): 0"
+    assert lines[shadow_i + 2] == LINE + str(2 * 4 + 6)
     assert rc == ce.EXIT_CLEAN
 
 

@@ -332,6 +332,7 @@ def test_the_v22_arm_on_an_aet_league_row_differs_from_live_v22_by_the_90_minute
     prod_full, arm, g = _arm_and_production(db, ids)
     gap = max(abs(a - b) for a, b in zip(prod_full, arm))
     assert gap > 1e-5, gap
+    assert round(gap, 5) == 0.00037, gap       # the "about 3.7e-4" BAR_TEXT and the run record label (254 item 3 Q22)
     db, ids = _aet_only_store(tmp_path, monkeypatch, "aet90.db", full_as_90=True)
     prod_90, arm_90, g_90 = _arm_and_production(db, ids)
     assert arm_90 == arm and g_90 == g
@@ -1726,3 +1727,72 @@ def test_a_failure_after_the_reservation_leaves_it_standing(declared, monkeypatc
     with pytest.raises(RuntimeError):
         v.run("w", fp, db=declared["copy"])
     assert Path(v.reservation_path()).exists()                         # open question 13: kept, conservatively
+
+
+# --------------------------------------------------------------------------- addendum 254 item 3 (ruled) --
+
+def _labels_run(declared, monkeypatch, copy):
+    """run() on `copy` with the walk replaced by synthetic arms (the labels need no fit)."""
+    from src.walters import registry as reg
+    fp = _fp(v.preflight_lines(reg.get(v.EID, reg.LEDGER), copy))
+
+    def fake_walk(rows_, fixtures, params_json, rule, use_cache=True, record=v.ROWS_ONLY):
+        ids = [r.id for r in fixtures]
+        return {"v22": _arm(ids, 0.45), "soccer-v23": _arm(ids, 0.5), "strata": [], "context": [], "availability": []}
+    monkeypatch.setattr(v, "walk", fake_walk)
+    return v.run("ARCHITECT test word", fp, db=copy)
+
+
+def test_the_run_record_labels_the_day_rule_residual_and_v22_rewalked_with_the_aet_rows_counted(declared,
+                                                                                               monkeypatch):
+    """ARCHITECT 2026-11-04 15:45 ET, addendum 254 item 3: Q4, the day rule's residual "LABELLED in the run record,
+    never silent" (no chain run time is declared in code, so its count is said not computed, never guessed); Q22,
+    "v22 re-walked" is v22 on THIS harness, not live v22 reproduced, the ~3.7e-4 labelled as the synthetic probe's,
+    and the rows read at their 90-minute score COUNTED (scored and in the walked history). Printed before the verdict
+    and recorded."""
+    import src.db.database as dbm
+    from src.db.schema import Match
+    with dbm.session_scope() as s:                                     # one regular-round AET row, an extra-time goal
+        m = s.query(Match).filter(Match.home_score.isnot(None)).order_by(Match.utc_date, Match.id).first()
+        m.status_raw, m.home_score_90, m.away_score_90 = "AET", m.home_score, m.away_score
+        m.home_score = m.home_score + 1
+    copy = str(_backup(declared["tmp"] / "store.db", declared["tmp"] / "copies" / "copy-aet.db"))
+    r = _labels_run(declared, monkeypatch, copy)
+    assert r["aet_pen"] == {"scored": 1, "history": 1}
+    assert v.DAY_RULE_RESIDUAL == ("a fixture kicking off before the morning chain's run is priced by the previous "
+                                   "day's chain (labelled residual of the day rule, addendum 254 item 3 Q4)")
+    assert v.DAY_RULE_RESIDUAL_COUNT.startswith("count not computed: no chain run time is declared in code")
+    for must in ("\"v22 re-walked\" is v22 on THIS harness, not live v22 reproduced", "about 3.7e-4",
+                 "a synthetic receipt, not a pot figure", "addendum 254 item 3 Q22"):
+        assert must in v.V22_REWALKED_LABEL, must
+    want = [f"  residual (visibility 'day'): {v.DAY_RULE_RESIDUAL}; {v.DAY_RULE_RESIDUAL_COUNT}",
+            f"  {v.V22_REWALKED_LABEL}; rows read at their 90-minute score (a non-FT raw code: AET / PEN): 1 scored, "
+            "1 in the walked history"]
+    assert v.record_labels(r) == want
+    lines = v.run_lines(r)
+    assert lines[-3:-1] == want and lines[-1].startswith("  VERDICT")
+    e = v.record(r, "ARCHITECT test word")
+    assert e["run"]["result"]["labels"] == want and e["run"]["result"]["aet_pen_rows"] == {"scored": 1, "history": 1}
+
+
+def test_the_labels_on_an_invalid_verdict_and_off_the_day_rule():
+    """On every verdict (INVALID included), as the per-era line is; under a 'kickoff' slot the day rule's residual is
+    said not this run's, never silently dropped."""
+    r = {"compare": {"verdict": "INVALID", "reason": "empty"}, "walk": {"availability": []}, "rows": 0,
+         "stream_fingerprint": "0" * 64, "slots": {**SLOTS, "visibility": "day"}, "aet_pen": {"scored": 0, "history": 2}}
+    lines = v.run_lines(r)
+    assert lines[-3:-1] == v.record_labels(r) and lines[-1].startswith("  VERDICT (computed; the architect rules): "
+                                                                       "INVALID")
+    assert "0 scored, 2 in the walked history" in lines[-2]
+    k = v.record_labels({**r, "slots": {**SLOTS, "visibility": "kickoff"}})
+    assert k[0] == ("  residual (visibility 'kickoff'): visibility 'kickoff' is not the day rule addendum 254 item 3 "
+                    "Q4 ruled; the day rule's residual is not this run's")
+
+
+def test_ninety_minute_read_is_admits_substitution():
+    """The count's predicate is admit()'s: a non-FT raw code (AET / PEN) is read at its 90-minute score; FT, an empty
+    code and no code are not."""
+    from dataclasses import replace
+    row = v.Row(1, "XX", "2024/25", datetime(2024, 9, 1), 1, 2, 1, 0)
+    assert [v.ninety_minute_read(replace(row, status_raw=c)) for c in ("AET", " pen ", "FT", "", None)] == [
+        True, True, False, False, False]

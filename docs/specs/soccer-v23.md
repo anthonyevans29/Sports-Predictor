@@ -185,7 +185,8 @@ and `fixture_age` equal to the script's.
   kickoff). **That equality holds on a store with no AET / PEN row in a LEAGUE-type competition** (see Admission
   below): with one, the arm differs from live v22 by exactly the 90-minute substitution, and a test pins it so (the
   arm differs from production on the store as it is, about 3.7e-4 on the synthetic probe, and equals at 1e-12 the
-  production run on the same store with that row's full score set to its 90-minute score). Open question 22. **The tie order is a declared reading, labelled:** production's `ORDER BY utc_date DESC LIMIT 500` has no
+  production run on the same store with that row's full score set to its 90-minute score). Open question 22, RULED AS
+  BUILT by addendum 254 item 3 Q22 (a): "v22 re-walked" is v22 on this harness. **The tie order is a declared reading, labelled:** production's `ORDER BY utc_date DESC LIMIT 500` has no
   tie-break, so SQL leaves the order of tied rows undefined; SQLite returns them in id-ascending scan order, and the
   arm follows that (the earlier id-descending order kept a different 500 rows at the boundary: max|Δp| up to 0.0196
   on the review's probe).
@@ -203,7 +204,8 @@ and `fixture_age` equal to the script's.
 - **Visibility (slot):** a row is visible at t only once its result is known before t. The store holds no
   final-whistle stamp (`schema.Match`: `utc_date` is the kickoff; no finished-at or recorded-at column), so "known" is
   a declared bound, kickoff + `RESULT_LAG_HOURS` (4 h: 90 minutes, half-time, stoppage, extra time, its break and a
-  shoot-out, with margin for a delayed start; a proposed constant, §8). "day": the result known before t AND a kickoff
+  shoot-out, with margin for a delayed start; RULED by addendum 254 item 3 Q4 as the bound a result is known, frozen
+  by the declaration, §8). "day" (the rule addendum 254 item 3 Q4 RULED; the slot still admits "kickoff", §7): the result known before t AND a kickoff
   on a UTC date strictly before the fixture's (the morning chain's reading; it batches every same-day fixture kicking
   off at least 4 h after midnight; an earlier one also loses the previous evening's games still inside the lag);
   "kickoff": the result known before t. `visibility_bound` is the one bound (the builder and `predict`'s check), so a
@@ -216,7 +218,8 @@ and `fixture_age` equal to the script's.
   a result the live store has not synced by the call, and, for a call made BEFORE the decision instant (a previous
   day's chain under "day"; any call earlier than t − 4 h under "kickoff"), a result or fact arriving between the call
   and the decision instant, is absent live and present in a replay on a later copy; never the reverse (open question
-  27).
+  27, RULED AS BUILT by addendum 254 item 3 Q27 (a): the decision instant is the cut-off; a call before it is the
+  labelled residual).
 - **Admission:** a finished soccer row of a LEAGUE-type competition with a kickoff and both scores, through the
   confirmation predicate (`soccer_expansion.unscoreable`: AWD / WO and cancelled released; a non-FT code with a stored
   90-minute score walked on that score). Both arms read the same admitted rows. Three labelled differences from the live
@@ -225,7 +228,8 @@ and `fixture_age` equal to the script's.
   stored 90-minute score where live v22's contexts (training.py:196-214), strengths input and Elo ladder (`train_elo`
   through `_to_train`) read the full score with extra-time goals. v22's own gate walk (`confirmation_scoring` False)
   reads the full score too; the 90-minute reading is the `confirmation_scoring` convention, applied to both arms
-  alike; this score reading is not changed ahead of a ruling (open question 22). Under scope LEAGUE the rows stay in
+  alike; RULED AS BUILT (addendum 254 item 3 Q22 (a); open question 22): "v22 re-walked" is v22 on this harness, not
+  live v22 reproduced, and BAR_TEXT and the run record say so. Under scope LEAGUE the rows stay in
   every snapshot, so on the real store this reaches v22's re-walked figure. Third: under LEAGUE_REGULAR a play-off row is out of the HISTORY as well as the scored set, for BOTH arms (`in_scope`,
   applied by the one builder and the walk; soccer_expansion F3: "only regular-season rounds are scored and walked";
   Codex on #832, round 1): v22's re-walk skips it in its contexts, strengths, backfill and ladder exactly as
@@ -283,7 +287,7 @@ turn these tests red.
 **v22's arm under this harness, per row:** it keeps v22's own inputs as v22 defines them (training.py's context
 formulas, the ladder, estimate_strengths with the backfill, the promoted default, predict_match with the stored ρ),
 read from the same snapshot as soccer-v23, so the comparison is like for like; its three labelled readings stand (the
-90-minute score on an AET / PEN league row, open question 22; the backfill's tie order, 17; under LEAGUE_REGULAR a
+90-minute score on an AET / PEN league row, open question 22, RULED AS BUILT by addendum 254 item 3 Q22 (a); the backfill's tie order, 17; under LEAGUE_REGULAR a
 play-off row out of its history, §4 Admission); it reads no factor
 (row 4). v22 itself, its code and its production path do not change.
 
@@ -380,7 +384,7 @@ Rewritten by 251 item 2 (D8: "THE BAR, so it never loosens: v23's pot log-loss m
 v22's recorded figure AND v22's figure re-walked on v23's harness; a tie on either is a rejection"), still before any
 result:
 
-THE BAR (ARCHITECT, addendum 216 item 3; addendum 230 item 1(d); addendum 248 item 2(b); addendum 251 item 2), written before any result: soccer-v23's mean three-way log-loss on the frozen pot must be at least 0.0050 BELOW BOTH v22's recorded figure AND v22's figure re-walked on soccer-v23's harness. PASS iff BOTH (v22's recorded mean three-way log-loss − soccer-v23's mean three-way log-loss) ≥ 0.0050 AND (v22's re-walked mean three-way log-loss − soccer-v23's mean three-way log-loss) ≥ 0.0050, every figure unrounded. v22's recorded figure STANDS as measured and is never recomputed: the run reads it from the declaration slot v22_recorded_log_loss, which the architect fills from where v22's gate recorded it and names in v22_recorded_source. v22's re-walked figure is v22 walked by the same harness beside soccer-v23, on the identical scored set, under the same context definition (as-of: g and b, and soccer-v23's mu and h, estimated at each fixture's instant from the finished games visible before it under the declared visibility rule, a game visible only once its result is known, at its kickoff plus RESULT_LAG_HOURS = 4 hours; the stored trained context never read; the default context (g 1.4, b 1.15) only where the competition has no visible game, which is production's own fallback, and G0 and B0 as frozen constants, never pot figures: the first season's prior centre, G0 also setting that season's prior precision (K_PRIOR·G0) and, in every window, beta's weak prior precision (BETA_PRIOR_PRECISION = K_PRIOR·G0); in the harness and the production path alike) and the same within-season skip (zero). The recorded figure is read from the slot as measured, by whatever scorer its own gate used, and is never recomputed; the re-walked figures (soccer-v23's and v22's, on this harness) are computed by soccer_backtest.soccer_calibration. Each comparison is decided by soccer_backtest.candidate_gate_verdict with min_delta = training.DEFAULT_PROMOTION_DELTA (0.005). Written as "below", so a tie on EITHER is a rejection: a difference of zero, or any difference under 0.0050, on either comparison REJECTS; a difference of exactly 0.0050 passes that comparison. INVALID, never a pass, when the two arms' scored sets differ, are empty, or number under MIN_GATE_N = 30 (soccer_backtest.compare_candidate). The early-season matches are INCLUDED in the scored set: this candidate's declared within-season skip is zero (no 40-match skip). RPS and Brier are printed for the record and gate nothing; the market is a reference, never a feature, and gates nothing. One run, on the architect's word, on a .backup copy opened mode=ro&immutable=1. No date moves this bar.
+THE BAR (ARCHITECT, addendum 216 item 3; addendum 230 item 1(d); addendum 248 item 2(b); addendum 251 item 2), written before any result: soccer-v23's mean three-way log-loss on the frozen pot must be at least 0.0050 BELOW BOTH v22's recorded figure AND v22's figure re-walked on soccer-v23's harness. PASS iff BOTH (v22's recorded mean three-way log-loss − soccer-v23's mean three-way log-loss) ≥ 0.0050 AND (v22's re-walked mean three-way log-loss − soccer-v23's mean three-way log-loss) ≥ 0.0050, every figure unrounded. v22's recorded figure STANDS as measured and is never recomputed: the run reads it from the declaration slot v22_recorded_log_loss, which the architect fills from where v22's gate recorded it and names in v22_recorded_source. v22's re-walked figure is v22 walked by the same harness beside soccer-v23, on the identical scored set, under the same context definition (as-of: g and b, and soccer-v23's mu and h, estimated at each fixture's instant from the finished games visible before it under the day visibility rule (addendum 254 item 3 Q4: a game kicking off on a UTC date before the fixture's), a game visible only once its result is known, at its kickoff plus RESULT_LAG_HOURS = 4 hours, the bound a result is known, frozen by the declaration; the stored trained context never read; for the v22 arm, the default context (g 1.4, b 1.15) only where the competition has no visible game, which is production's own fallback (training.py:217), and for soccer-v23, G0 and B0 as frozen constants, never pot figures: the first season's prior centre, G0 also setting that season's prior precision (K_PRIOR·G0) and, in every window, beta's weak prior precision (BETA_PRIOR_PRECISION = K_PRIOR·G0); neither fallback is a pot figure; in the harness and the production path alike; "v22 re-walked" is v22 on THIS harness, not live v22 reproduced: both arms read the harness's admitted rows, an AET or PEN league row at its 90-minute score where live v22 reads the full score, so on a store holding such a row it differs from live v22, by about 3.7e-4 in a probability on the design's synthetic one-row probe (a synthetic receipt, not a pot figure; the run record counts the AET and PEN rows; addendum 254 item 3 Q22)) and the same within-season skip (zero). The recorded figure is read from the slot as measured, by whatever scorer its own gate used, and is never recomputed; the re-walked figures (soccer-v23's and v22's, on this harness) are computed by soccer_backtest.soccer_calibration. Each comparison is decided by soccer_backtest.candidate_gate_verdict with min_delta = training.DEFAULT_PROMOTION_DELTA (0.005). Written as "below", so a tie on EITHER is a rejection: a difference of zero, or any difference under 0.0050, on either comparison REJECTS; a difference of exactly 0.0050 passes that comparison. INVALID, never a pass, when the two arms' scored sets differ, are empty, or number under MIN_GATE_N = 30 (soccer_backtest.compare_candidate). The early-season matches are INCLUDED in the scored set: this candidate's declared within-season skip is zero (no 40-match skip). RPS and Brier are printed for the record and gate nothing; the market is a reference, never a feature, and gates nothing. One run, on the architect's word, on a .backup copy opened mode=ro&immutable=1. No date moves this bar.
 
 **The decision path** (`soccer_v23.decide`, the only one): `compare_candidate(v22 re-walked, soccer-v23,
 DEFAULT_PROMOTION_DELTA)` scores both arms of the walk on the identical scored set (INVALID stays INVALID) and decides
@@ -406,7 +410,7 @@ The declared registry entry carries them as `declaration_slots`; the code holds 
 |---|---|---|---|
 | `scope` | "LEAGUE", "LEAGUE_REGULAR" | "LEAGUE_REGULAR" | 2 |
 | `first_season` | "score_under_prior", "exclude_as_warmup" | "score_under_prior" | 3 |
-| `visibility` | "day", "kickoff" (each with the result known: kickoff + `RESULT_LAG_HOURS` before t, §4) | "day" | 4 |
+| `visibility` | "day", "kickoff" (each with the result known: kickoff + `RESULT_LAG_HOURS` before t, §4) | "day" | 4, RULED by addendum 254 item 3 (the DAY rule, stated in BAR_TEXT); the slot STILL ADMITS "kickoff" and nothing refuses it, against a BAR_TEXT that names the day rule: escalated to the architect, not narrowed here |
 | `cut` | an ISO-8601 UTC instant clearing every fence | "2026-10-30T15:00:00Z" | 7 |
 | `availability_on` | true, false | false | 6 |
 | `v22_recorded_log_loss` | a finite positive number: v22's recorded gate figure, as recorded (measured on v22's own scored set by its own gate's scorer, not on this candidate's pot; never recomputed) | none: the record is the architect's to read (no machine-readable figure exists in the repository, §5a) | 18 |
@@ -427,13 +431,28 @@ any difference.
 | `MAX_ITER`, `MAX_HALVINGS`, `TOL`, `PRECISION_FLOOR` | 100, 60, 1e-12, 1e-12 | the fit's numerics: TOL on the full Newton step max\|H⁻¹g\| (the only convergence test); PRECISION_FLOOR the objective's relative resolution, read only when the line search stalls (Codex on #832, round 1) |
 | `V22_MIN_MATCHES`, `V22_BACKFILL_LIMIT` | 30, 500 | training.py:476, :500 (the v22 arm; test-pinned to the file) |
 | `WITHIN_SEASON_SKIP` | 0 | 216 item 3 |
-| `RESULT_LAG_HOURS` | 4 | when a result is known (§4 Visibility): kickoff + 4 h covers extra time and a shoot-out with margin; the store holds no final-whistle stamp (proposed; open question 4) |
+| `RESULT_LAG_HOURS` | 4 | when a result is known (§4 Visibility): kickoff + 4 h covers extra time and a shoot-out with margin; the store holds no final-whistle stamp (RULED, addendum 254 item 3 Q4: the bound a result is known, frozen by the declaration) |
 | `BETA_PRIOR_MEAN`, `BETA_PRIOR_PRECISION` | 0.0, 7.0 (= K_PRIOR·G0) | β's weak prior on ΔE/100 (§1); no new number |
 | `RELEGATED_ATTACK`, `RELEGATED_DEFENCE` | 0.0, 0.0 | no directional prior for a club relegated into the competition |
 | `PYRAMIDS` | [["PL", "ELC", "EL1", "EL2"]] | the declared pyramid, top tier first (src/adapters/api_football.py's England LEAGUE codes) |
-| `SOURCE_CADENCE_HOURS` | {} (none declared) | 252 item 1's backfill rule: each availability source's feed cadence in hours; a fact recorded later than its `source_stamp` by more than its source's cadence, or carrying a `source_stamp` from a source with no declared cadence, is excluded from both paths (open question 27) |
+| `SOURCE_CADENCE_HOURS` | {} (none declared) | 252 item 1's backfill rule: each availability source's feed cadence in hours; a fact recorded later than its `source_stamp` by more than its source's cadence, or carrying a `source_stamp` from a source with no declared cadence, is excluded from both paths (open question 27, RULED AS BUILT by addendum 254 item 3 Q27 (b): a soccer source's cadence is declared by the architect with its feed) |
 
-## 9. The run order (the reservation before any outcome is read)
+## 9. The run order (the reservation before any outcome is scored or priced; RULED, addendum 254 item 3)
+
+The order is the two precedent gates' (ARCHITECT 2026-11-04 15:45 ET, addendum 254 item 3: "the run's order matches
+the nfl-v2 and NCAA gates' (preflight → fingerprint → cross_ref_guard → reservation → walk → record)"), checked
+against both, line by line: `--preflight` is its own earlier invocation in all three (cli.py's `nfl-v2-gate`,
+`ncaa-gate`, `soccer-v23-gate`); `run()` loads the outcome-bearing stream (the rows with their goals) and computes and
+compares its fingerprint BEFORE the reservation (nfl_v2_gate.py: load :655, fingerprint :667-668, `reserve` :678;
+ncaa_v1r_gate.py: load :798, fingerprint :799-800, `reserve` :824; soccer_v23.run likewise); `registry.cross_ref_guard`
+runs inside `reserve()`, before the exclusive create (nfl_v2_gate.py:427, ncaa_v1r_gate.py:301, soccer_v23.reserve
+likewise); then the walk; the caller records. What holds is therefore "the reservation before any outcome is scored
+or priced": the goals are read and fingerprinted before it, as in both precedents, and nothing is fitted, scored or
+priced before it. (The earlier heading put the reservation before any outcome was read; that was inaccurate and is
+corrected here.) ONE SUB-STEP DIFFERS, named and not changed (addendum 254 item 3 rules the order the precedents
+share; this is not among its steps, and the architect says whether it moves): both precedents refuse a MISSING
+`--stream-fingerprint` before the load (nfl_v2_gate.py:642, ncaa_v1r_gate.py:792); soccer-v23 refuses it only at the
+compare, after `_load` (one check, "no fingerprint or one that does not match"). Either way nothing is reserved.
 
 `soccer-v23-gate` refuses, reserving nothing and recording nothing, when: there is no entry, its status is not
 declared, `run` is not null, or a reservation exists; a slot is null or invalid; the entry's constants or gate differ
@@ -445,7 +464,10 @@ declared pyramid; the fingerprint is missing or does not match. Then `registry.c
 (`docs/registry/soccer-v23.started.json`, exclusive create, written and fsynced with its directory, removed if the
 write fails), then the walk (both arms: v22 re-walked beside v23), `compare_candidate`, `decide` (both comparisons,
 §6) and `registry.record_run`. A failure after the reservation leaves it standing (the pot may have been read; open
-question 13).
+question 13). The run record carries addendum 254 item 3's two labels
+(`record_labels`): the day rule's residual (Q4, its count not computed: no chain run time is declared in code for this model's live
+path; the systemd timers and soccer_expansion.SYNC_CHAIN_TIMERS are other jobs' chains) and
+"v22 re-walked" as v22 on this harness, with the rows read at their 90-minute score counted (Q22).
 
 `--preflight --db COPY` fits nothing and prices nothing: the slots, the constants, the bar, the context definition
 (251 item 2), v22's recorded figure as the slots carry it, the copy's production
@@ -500,7 +522,12 @@ gives no fingerprint.
 - **The roadmap's done-marks** are written by the records PR after a merge (the nfl-v2 and mlb-pitchers lanes'
   precedent), so this PR appends the lane with every step open.
 
-## 11. Open questions for the architect (needs-ruling; none settled here; 8 settled by 251 item 2; 22 raised by the review of the 251 follow-up; 23-26 raised by 253 item 2(d); 27 by the review of the five rows)
+## 11. Open questions for the architect (needs-ruling; none settled by Code; 4, 18, 20, 22, 27 and 28 ruled by addendum 254 item 3; 8 settled by 251 item 2; 22 raised by the review of the 251 follow-up; 23-26 raised by 253 item 2(d); 27 by the review of the five rows; 28 by Codex round 1)
+
+**RULED by addendum 254 item 3 (ARCHITECT 2026-11-04 15:45 ET): 4, 18, 20, 22, 27 and 28 (the reservation order),
+each marked below with its one-line quote.** The rest (1-3, 5-7, 9-17, 19, 21, 23-26) stays open, "ruled by a
+dedicated addendum on 11-05" (254 item 3: "each gets a ruling or a named date before 11-20; the PR may merge with them
+open, since a slot left null refuses the run and the declaration is mine").
 
 1. **Naming.** May the registry id be `soccer-v23` (the lane's name)? Who owns the "v23" ModelVersion string, given
    pl-availability-v1's promise ("v23 by a ruling and a version bump") and `_next_version_string` minting over
@@ -514,6 +541,15 @@ gives no fingerprint.
    holds no final-whistle stamp). Under "day", morning-chain parity holds only for fixtures that kick off after the
    chain's run on their own UTC date (and at least 4 h after midnight); a fixture before the chain's run is priced live
    by the previous day's chain. Is 4 h the bound, and is that parity statement accepted?
+   **RULED (254 item 3):** "Q4 VISIBILITY: the DAY rule (morning-chain parity), with `RESULT_LAG_HOURS` = 4 as the
+   bound a result is known — frozen by the declaration, stated in BAR_TEXT; the parity statement accepted with its
+   residual (a fixture before the chain's run priced by the previous day's chain) LABELLED in the run record, never
+   silent." Built: BAR_TEXT states it; `record_labels` labels the residual on every verdict and in the record, its
+   count not computed (no chain run time is declared in code for this model's live path; never guessed). NOT FULLY
+   BUILT: the `visibility` slot still admits "kickoff" and nothing refuses it (`SLOT_VALUES`, `slots_state`), against
+   a BAR_TEXT that names the day rule, so a declaration could contradict its own frozen bar (`record_labels` only
+   prints that "kickoff" is not the ruled rule). Escalated: whether the slot narrows to "day" is the architect's; if
+   so, in that ruling's push.
 5. **Constants.** K_PRIOR = 5; the promoted prior ln 0.85 / ln 1.15 (it sat on v22's deflated scale); the S−1 carry
    1.0; β's weak prior (BUILT, a proposed ruling: centred at 0, precision K_PRIOR·G0 on ΔE/100, every window), or
    centred at a declared constant, or β fixed at 0 below a declared minimum of rows (a count switch, which 216 item 2
@@ -556,6 +592,10 @@ gives no fingerprint.
     written. It was also computed by that gate's own scorer, not necessarily `soccer_calibration` (the improve gate's
     holdout uses `evaluation.score_1x2`, which clamps each probability at 1e-12 without renormalising; `soccer_calibration`
     renormalises first): the bar reads the slot as measured and says so. Confirm, and fill both slots.
+    **RULED (254 item 3):** "the improve gate's figure at v22's promotion of 2026-09-21, as the laptop's ModelVersion
+    row holds it — read by MY BLOCK on a fresh .backup copy ... and written into the two slots at the 11-20
+    declaration with its source string." As built: no code change; both slots stay null until the declaration and
+    the run refuses while either is null (`slots_state`; pinned by `test_the_run_refuses_in_order_and_records_nothing`).
 19. **The re-walked v22 arm's context window.** BUILT: g and b over the competition's visible rows of EVERY season
     (production's own training.py:196-214 formula, applied as-of), while soccer-v23's μ and h read seasons S−1 and S.
     Both are as-of from the prior finished games. Is every-visible-season the reading of "v22 re-walked" the ruling
@@ -569,6 +609,10 @@ gives no fingerprint.
     untrue to joint_poisson.py:92/:277, and the text was corrected before any declaration). Accepted under
     `first_season` = "score_under_prior"? BAR_TEXT states this fallback in its context parenthesis, as
     `CONTEXT_DEFINITION` and the code do.
+    **RULED (254 item 3):** "the v22 arm's default-context fallback is production's own (training.py:217) and
+    soccer-v23's G0/B0 prior centre is a frozen constant; neither is a pot figure; BAR_TEXT states the fallback as
+    corrected." Built: BAR_TEXT's parenthesis now names the v22 arm's fallback with training.py:217 and says "neither
+    fallback is a pot figure".
 21. **The finding Issue.** 251 item 2 files it with the parity PR (248 item 2(a)), `Refs #789`, `Refs #786`. This PR
     names it once it has a number; until then it cites #656 and #789 only.
 22. **The v22 arm on AET / PEN league rows.** BUILT (labelled, §4 Admission): both arms read the admitted rows, where
@@ -577,6 +621,11 @@ gives no fingerprint.
     rows for both arms (like for like with soccer-v23, the confirmation convention), or (b) the full score for the v22
     arm's context, strengths and ladder (closer to live v22; its own ladder and a second row field), the 90-minute
     score kept for the outcome. Which?
+    **RULED (254 item 3):** "(a) AS BUILT — both arms on the harness's admitted rows (the 90-minute score), like for
+    like with soccer-v23, the confirmation convention." Built: BAR_TEXT's parenthesis and the run record
+    (`V22_REWALKED_LABEL`) say "v22 re-walked" is v22 on this harness, not live v22 reproduced, with the ~3.7e-4 (the
+    synthetic probe's largest probability difference, 3.66e-4, a synthetic receipt) labelled as such; the record counts
+    the rows read at their 90-minute score, scored and in the walked history.
 23. **The record's reader, once its tables exist (253 item 2(d), row 4).** BUILT: the adapter `availability_record`
     answers "no record" while addendum 252's two tables are absent (today), refuses a store holding one without the
     other, and refuses a store holding both until it calls 252 item 2's query function (the schema PR's; "there is no
@@ -591,7 +640,8 @@ gives no fingerprint.
     kickoff the observation carried); other kinds (`projected_starter`, `confirmed_starter`, `inactive`, `depth_rank`,
     `eventual_starter`, `plays_for`) are no input of soccer-v23, which has no lineup or XI term; an unmapped team's
     fact is noted and counts for nothing. A fact is read when recorded at or before the snapshot's decision instant
-    (252's "<= T" with T = `visibility_bound(t)`, open question 27); one recorded later, at the kickoff included, is
+    (252's "<= T" with T = `visibility_bound(t)`, open question 27, RULED AS BUILT by addendum 254 item 3 Q27 (a));
+    one recorded later, at the kickoff included, is
     read by neither path. Accepted, and which soccer source and attrs key carry the type when a soccer feed is named?
 26. **The v22 arm and the record.** BUILT: the v22 arm reads no factor (live v22's factor tables are not as-of); on
     the pot soccer-v23's term is off too (no record), so the bar's comparison is factor-free on both arms. In the PASS
@@ -609,6 +659,16 @@ gives no fingerprint.
     fact carrying a `source_stamp` is excluded until its source's cadence is declared with its feed; a fact with no
     `source_stamp` is read by the recorded clock alone. Is exclusion (not refusal) the ruling, and who declares a soccer
     source's cadence?
+    **RULED AS BUILT (254 item 3):** "(a) the DECISION INSTANT, `visibility_bound(t)`, is the cut-off ... (b)
+    EXCLUSION with count and label, not refusal ... a soccer source's cadence is declared by ME with its feed". No
+    code change.
+28. **The reservation and the pot's outcomes (Codex round 1, P1, escalated).** `run()` loads and fingerprints the
+    outcome-bearing stream before `reserve()`, as both precedent gates do (§9). **RULED (254 item 3):** "THE
+    RESERVATION ORDER: the run's order matches the nfl-v2 and NCAA gates' (preflight → fingerprint → cross_ref_guard
+    → reservation → walk → record)". Verified: the two precedents agree with each other, and soccer-v23 agrees with
+    both on every ruled step (§9, file:line); no order changed; run()'s docstring and §9 now say "before any outcome is
+    scored or priced". One sub-step differs and is named for the architect, not changed (§9): the precedents refuse a
+    MISSING fingerprint before the load (nfl_v2_gate.py:642, ncaa_v1r_gate.py:792); soccer-v23 only after `_load`.
 
 ## 12. What is NOT done
 

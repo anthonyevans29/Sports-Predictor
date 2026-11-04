@@ -15,7 +15,7 @@ from src.walters import soccer_v23 as v
 ROOT = Path(__file__).resolve().parent.parent
 SPEC = (ROOT / "docs" / "specs" / "soccer-v23.md").read_text()
 
-BAR_SHA256 = "3038dbc9b064a6124f410e4e7ce7713399ff7e0bfeeebbbf2e907eb77e92c422"   # 251 item 2's bar, repaired before any declaration (G0's precision role stated)
+BAR_SHA256 = "15002742f71996b0d3422fcc7a0576bcb44ff6e6dd4833a91b2f8d42eec1feb5"   # 251 item 2's bar, repaired before any declaration (G0's precision role stated); addendum 254 item 3 (Q4 the day rule and the lag, Q20 the fallback, Q22 "v22 re-walked")
 
 # the rulings, verbatim (each must appear in the spec exactly)
 RULINGS = {
@@ -90,7 +90,21 @@ def test_the_bar_is_pinned_and_the_spec_carries_it_character_for_character():
                  "that season's prior precision (K_PRIOR·G0) and, in every window, beta's weak prior precision "
                  "(BETA_PRIOR_PRECISION = K_PRIOR·G0)",
                  f"a game visible only once its result is known, at its kickoff plus RESULT_LAG_HOURS = "
-                 f"{v.RESULT_LAG_HOURS} hours"):
+                 f"{v.RESULT_LAG_HOURS} hours",
+                 # ARCHITECT 2026-11-04 15:45 ET, addendum 254 item 3: Q4 (the day rule; the lag the bound a result is
+                 # known, frozen by the declaration), Q20 (the v22 arm's fallback is production's own, training.py:217;
+                 # neither fallback a pot figure), Q22 ("v22 re-walked" is v22 on this harness; the ~3.7e-4 labelled
+                 # as the synthetic probe's)
+                 "under the day visibility rule (addendum 254 item 3 Q4",
+                 "the bound a result is known, frozen by the declaration",
+                 "for the v22 arm, the default context (g 1.4, b 1.15) only where the competition has no visible game, "
+                 "which is production's own fallback (training.py:217), and for soccer-v23, G0 and B0 as frozen "
+                 "constants",
+                 "neither fallback is a pot figure",
+                 "\"v22 re-walked\" is v22 on THIS harness, not live v22 reproduced",
+                 "an AET or PEN league row at its 90-minute score where live v22 reads the full score",
+                 "about 3.7e-4 in a probability on the design's synthetic one-row probe (a synthetic receipt, not a pot "
+                 "figure; the run record counts the AET and PEN rows; addendum 254 item 3 Q22)"):
         assert must in v.BAR_TEXT, must
     assert "Each log-loss is computed by" not in v.BAR_TEXT          # the recorded figure is never recomputed
     assert "only as the first season's frozen prior centre" not in v.BAR_TEXT + v.CONTEXT_DEFINITION
@@ -101,6 +115,61 @@ def test_the_bar_is_pinned_and_the_spec_carries_it_character_for_character():
     assert f"(g {d.avg_goals_per_team_per_match}, b {d.home_field_goal_boost})" in v.BAR_TEXT
     assert "on the frozen pot" not in v.SLOT_VALUES["v22_recorded_log_loss"]
     assert v.WITHIN_SEASON_SKIP == 0
+
+
+def test_addendum_254_item_3_is_marked_and_the_run_order_is_stated_accurately():
+    """ARCHITECT 2026-11-04 15:45 ET, addendum 254 item 3: Q4, Q18, Q20, Q22, Q27 and 28 (the reservation order) RULED in
+    §11, the rest left to the 11-05 addendum; the order "preflight → fingerprint → cross_ref_guard → reservation → walk
+    → record" is the precedents', and run()'s docstring, §9 and docs/CLI.md say what holds ("before any outcome is
+    scored or priced": the goals are loaded and fingerprinted before the reservation, as in both precedents), never
+    "before any outcome is read"."""
+    flat = " ".join(SPEC.split())
+    assert "RULED by addendum 254 item 3 (ARCHITECT 2026-11-04 15:45 ET): 4, 18, 20, 22, 27 and 28" in flat
+    assert '"ruled by a dedicated addendum on 11-05"' in flat
+    sec11 = SPEC[SPEC.index("## 11. "):SPEC.index("## 12. ")]
+    for q in ("4. **Visibility.**", "18. **v22's recorded figure", "20. **A competition's first fixture.**",
+              "22. **The v22 arm on AET / PEN league rows.**", "27. **The facts' cut-off", "28. **The reservation"):
+        start = sec11.index(q)
+        nxt = sec11.find("\n" + str(int(q.split(".")[0]) + 1) + ". ", start)
+        assert "RULED" in sec11[start:nxt if nxt > 0 else None], q
+    for q in ("1. **Naming.**", "2. **Scope.**", "13. **Failure after the reservation.**", "19. **The re-walked"):
+        start = sec11.index(q)
+        nxt = sec11.find("\n" + str(int(q.split(".")[0]) + 1) + ". ", start)
+        assert "RULED" not in sec11[start:nxt], q
+    cli_row = next(ln for ln in (ROOT / "docs" / "CLI.md").read_text().splitlines()
+                   if ln.startswith("| `soccer-v23-gate` "))
+    for text in (v.run.__doc__.replace("\n    ", " "), SPEC[SPEC.index("## 9. "):SPEC.index("## 10. ")], cli_row):
+        assert "before any outcome is read" not in text.replace("BEFORE", "before")
+        assert "before any outcome is scored or priced" in text.replace("BEFORE", "before")
+    assert "preflight → fingerprint → cross_ref_guard → reservation → walk → record" in v.run.__doc__
+
+
+def test_the_ruled_questions_are_marked_where_they_are_named_and_q4_is_not_called_fully_built():
+    """addendum 254 item 3: every place that named Q4, Q22 or Q27 open or proposed now says ruled; Q4 is NOT described
+    as fully built, since the visibility slot still admits "kickoff" against a BAR_TEXT naming the day rule (escalated,
+    not narrowed); the one sub-step where the run differs from both precedents (a MISSING fingerprint, refused after
+    the load) is named in run()'s docstring, §9, §11 Q28 and docs/CLI.md."""
+    flat = " ".join(SPEC.split())
+    assert "Open question 22. **The tie order" not in flat                     # §4, the v22 arm's AET paragraph
+    assert "a proposed constant, §8" not in flat                               # §4 Visibility, RESULT_LAG_HOURS
+    assert "Open question 22, RULED AS BUILT by addendum 254 item 3 Q22 (a)" in flat
+    vis_row = next(ln for ln in SPEC.splitlines() if ln.startswith("| `visibility` |"))
+    assert "RULED by addendum 254 item 3" in vis_row and "STILL ADMITS \"kickoff\"" in vis_row
+    sec11 = " ".join(SPEC[SPEC.index("## 11. "):SPEC.index("## 12. ")].split())
+    q4 = sec11[sec11.index("4. **Visibility.**"):sec11.index("5. **Constants.**")]
+    assert "NOT FULLY BUILT: the `visibility` slot still admits \"kickoff\"" in q4
+    assert v.SLOT_VALUES["visibility"] == ("day", "kickoff")                  # unchanged until the architect rules
+    assert "open question 4)" not in v.visible.__doc__ and "RULED by addendum 254 item 3 Q4" in v.visible.__doc__
+    src = (ROOT / "src" / "walters" / "soccer_v23.py").read_text()
+    assert "RULED AS BUILT by addendum 254 item 3 Q27 (b)" in src
+    assert "#: (open question 27). A fact" not in src
+    cli_row = next(ln for ln in (ROOT / "docs" / "CLI.md").read_text().splitlines()
+                   if ln.startswith("| `soccer-v23-gate` "))
+    for text in (" ".join(v.run.__doc__.split()), " ".join(SPEC[SPEC.index("## 9. "):SPEC.index("## 10. ")].split()),
+                 sec11[sec11.index("28. **The reservation"):]):
+        assert "nfl_v2_gate.py:642" in text and "ncaa_v1r_gate.py:792" in text, text[:80]
+    assert "a MISSING fingerprint is refused here, after the load" in cli_row
+    assert "AFTER THE RESERVATION" not in cli_row                              # Codex round 2: unruled, not built
 
 
 def test_the_context_gap_section_carries_the_definition():

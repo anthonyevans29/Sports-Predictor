@@ -85,8 +85,9 @@ stored 90-minute score where live v22 reads the full score with extra-time goals
 confirmation_scoring convention, applied to both arms alike; v22's own gate walk (confirmation_scoring False) reads the
 full score too. So the v22 arm equals the real production path at 1e-12 only on a store without such rows; with an AET
 row it differs by exactly the score substitution (a test pins both: the arm equals production run on the same store
-with that row's full score set to its 90-minute score). Which reading "v22 re-walked" takes on such rows is open
-question 22 (docs/specs/soccer-v23.md §11), the architect's to rule; the code is not changed ahead of it. Under scope
+with that row's full score set to its 90-minute score). RULED AS BUILT (ARCHITECT 2026-11-04 15:45 ET, addendum 254
+item 3 Q22 (a)): "v22 re-walked" is v22 on THIS harness, not live v22 reproduced; BAR_TEXT and the run record say so
+(V22_REWALKED_LABEL) and the record counts the rows read at their 90-minute score (record_labels). Under scope
 LEAGUE_REGULAR a play-off row (an AET final included) is in neither arm's history at all (in_scope; soccer_expansion
 F3, "only regular-season rounds are scored and walked"; Codex on #832, round 1): the v22 arm's contexts, strengths,
 backfill and ladder skip it as soccer-v23's do, a third labelled difference from live v22, which reads every FINISHED
@@ -135,6 +136,23 @@ CONTEXT_DEFINITION = ("as-of (addendum 251 item 2): g and b (the v22 arm's Compe
                       "never pot figures: the first season's prior centre, G0 also setting that season's prior "
                       "precision (K_PRIOR·G0) and, in every window, beta's weak prior precision (BETA_PRIOR_PRECISION "
                       "= K_PRIOR·G0)")
+#: ARCHITECT 2026-11-04 15:45 ET, addendum 254 item 3 Q4: "the parity statement accepted with its residual (a fixture
+#: before the chain's run priced by the previous day's chain) LABELLED in the run record, never silent". The residual
+#: is counted only against a chain run time declared in code for this model's live path, and none is (law 4: a time is
+#: never guessed; soccer_expansion.SYNC_CHAIN_TIMERS are the leagues export's chains, not soccer-v23's).
+DAY_RULE_RESIDUAL = ("a fixture kicking off before the morning chain's run is priced by the previous day's chain "
+                     "(labelled residual of the day rule, addendum 254 item 3 Q4)")
+DAY_RULE_RESIDUAL_COUNT = ("count not computed: no chain run time is declared in code (none for soccer-v23's live "
+                           "path; never guessed)")
+#: addendum 254 item 3 Q22: "v22 re-walked" is v22 on THIS harness by definition, not live v22 reproduced, and "the
+#: ~3.7e-4 difference from live v22 is labelled in the run record". The figure is the design's SYNTHETIC probe
+#: (tests/test_soccer_v23_harness.py, the AET test: the largest probability difference, 3.66e-4 on its one-AET-row
+#: store), never a figure of the pot.
+V22_REWALKED_LABEL = ("\"v22 re-walked\" is v22 on THIS harness, not live v22 reproduced: both arms read the admitted "
+                      "rows, an AET or PEN league row at its 90-minute score where live v22 reads the full score; on a "
+                      "store holding such a row it differs from live v22, by about 3.7e-4 in a probability on the "
+                      "design's synthetic one-row probe (a synthetic receipt, not a pot figure; addendum 254 item 3 "
+                      "Q22)")
 #: v2 (253 item 2(d)): the snapshot carries the Elo state (elo_pre, elo_state) and the availability record read at the
 #: instant (availability) beside the rows; v1 carried the rows and caller-supplied entries.
 SNAPSHOT_VERSION = "soccer-snapshot v2"
@@ -150,9 +168,10 @@ V22_FACTORS = ("none (labelled: live v22's factor inputs are the injuries, lineu
 #: WHEN A RESULT IS KNOWN (the visibility rules; review of the 251 follow-up): a row is visible at t only if its result
 #: is known before t. The store holds no final-whistle stamp (schema.Match: utc_date is the kickoff; no finished-at or
 #: recorded-at column, law 1), so "known" is a DECLARED bound after kickoff: kickoff + RESULT_LAG_HOURS, which covers 90
-#: minutes, half-time, stoppage, extra time, its break and a shoot-out with margin for a delayed start (a proposed
-#: constant, frozen by the declaration: code_constants, the fingerprint). Applied identically by both builders, the
-#: cache and predict's own check (visibility_bound is the one bound).
+#: minutes, half-time, stoppage, extra time, its break and a shoot-out with margin for a delayed start (RULED: ARCHITECT
+#: 2026-11-04 15:45 ET, addendum 254 item 3 Q4, the day rule with RESULT_LAG_HOURS = 4 as the bound a result is known,
+#: frozen by the declaration: code_constants, the fingerprint; stated in BAR_TEXT). Applied identically by both
+#: builders, the cache and predict's own check (visibility_bound is the one bound).
 RESULT_LAG_HOURS = 4
 RESULT_LAG = timedelta(hours=RESULT_LAG_HOURS)
 POT_LABEL = ("the frozen pot as CLAUDE.md names it: 16,546 matches / 24 competitions (v22's); printed as a label, "
@@ -178,12 +197,19 @@ BAR_TEXT = (
     "architect fills from where v22's gate recorded it and names in v22_recorded_source. v22's re-walked figure is v22 "
     "walked by the same harness beside soccer-v23, on the identical scored set, under the same context definition "
     "(as-of: g and b, and soccer-v23's mu and h, estimated at each fixture's instant from the finished games visible "
-    "before it under the declared visibility rule, a game visible only once its result is known, at its kickoff plus "
-    "RESULT_LAG_HOURS = 4 hours; the stored trained context never read; the default context (g 1.4, b 1.15) only where "
-    "the competition has no visible game, which is production's own fallback, and G0 and B0 as frozen constants, "
+    "before it under the day visibility rule (addendum 254 item 3 Q4: a game kicking off on a UTC date before the "
+    "fixture's), a game visible only once its result is known, at its kickoff plus "
+    "RESULT_LAG_HOURS = 4 hours, the bound a result is known, frozen by the declaration; the stored trained context "
+    "never read; for the v22 arm, the default context (g 1.4, b 1.15) only where "
+    "the competition has no visible game, which is production's own fallback (training.py:217), and for soccer-v23, "
+    "G0 and B0 as frozen constants, "
     "never pot figures: the first season's prior centre, G0 also setting that season's prior precision (K_PRIOR·G0) "
-    "and, in every window, beta's weak prior precision (BETA_PRIOR_PRECISION = K_PRIOR·G0); in the harness and the "
-    "production path alike) and the same within-season skip "
+    "and, in every window, beta's weak prior precision (BETA_PRIOR_PRECISION = K_PRIOR·G0); neither fallback is a pot "
+    "figure; in the harness and the production path alike; \"v22 re-walked\" is v22 on THIS harness, not live v22 "
+    "reproduced: both arms read the harness's admitted rows, an AET or PEN league row at its 90-minute score where "
+    "live v22 reads the full score, so on a store holding such a row it differs from live v22, by about 3.7e-4 in a "
+    "probability on the design's synthetic one-row probe (a synthetic receipt, not a pot figure; the run record "
+    "counts the AET and PEN rows; addendum 254 item 3 Q22)) and the same within-season skip "
     "(zero). The recorded figure is read from the slot as measured, by whatever scorer its own gate used, and is never "
     "recomputed; the re-walked figures (soccer-v23's and v22's, on this harness) are computed by "
     "soccer_backtest.soccer_calibration. Each comparison is decided by soccer_backtest.candidate_gate_verdict with "
@@ -207,6 +233,8 @@ SLOT_VALUES = {
     "first_season": ("score_under_prior", "exclude_as_warmup"),  # Q3: each competition's first pot season
     "visibility": ("day", "kickoff"),                            # Q4: results known before the fixture's UTC date
                                                                  # and its kickoff / before its kickoff (RESULT_LAG)
+    # Q4 RULED (addendum 254 item 3): the DAY rule, stated in BAR_TEXT. The slot still admits "kickoff" and nothing
+    # refuses it, against a BAR_TEXT that names the day rule: escalated to the architect, not narrowed here.
     "cut": "an ISO-8601 UTC instant clearing every fence",       # Q7
     "availability_on": (True, False),                            # Q6: the availability term in the shadow
     # 251 item 2: v22's RECORDED gate figure, read from where it is recorded and never recomputed. No figure of v22 on
@@ -349,9 +377,10 @@ TERM_KIND = "injury_status"
 #: from every snapshot (both paths; kept in `AvailabilityAsOf.excluded`, counted in the notes and the per-era line,
 #: never read by the term). Each source's cadence, in hours, is a declared constant frozen by the declaration
 #: (code_constants); NONE is declared: 252 names no soccer source, and a source's cadence is declared with its feed
-#: (open question 27). A fact carrying a source_stamp from a source with no declared cadence cannot be told from a
-#: backfill and is excluded too (law 4: never guessed); a fact with no source_stamp (the source gives none, 252 item
-#: 1(b)) is read by the recorded clock alone.
+#: (open question 27, RULED AS BUILT by addendum 254 item 3 Q27 (b): exclusion with count and label, not refusal;
+#: a soccer source's cadence is declared by the architect with its feed). A fact carrying a source_stamp from a source
+#: with no declared cadence cannot be told from a backfill and is excluded too (law 4: never guessed); a fact with no
+#: source_stamp (the source gives none, 252 item 1(b)) is read by the recorded clock alone.
 SOURCE_CADENCE_HOURS: dict[str, float] = {}
 
 
@@ -678,7 +707,8 @@ def in_scope(rows, scope: str) -> list:
 
 
 def visible(r: Row, as_of: datetime, rule: str) -> bool:
-    """S-VIS (open question 4): a row is visible at `as_of` only if its result is known before it (kickoff +
+    """S-VIS (open question 4, RULED by addendum 254 item 3 Q4: the DAY rule; the slot still admits "kickoff",
+    escalated): a row is visible at `as_of` only if its result is known before it (kickoff +
     RESULT_LAG < as_of) and, under "day", it kicked off on a UTC date strictly before the fixture's (the morning
     chain's reading; batches every same-day fixture kicking off at least RESULT_LAG after midnight); "kickoff" = the
     result-known bound alone. The one bound is visibility_bound's."""
@@ -1627,7 +1657,15 @@ def run(word: str | None, fingerprint: str | None, db=None, no_fetch: bool = Fal
     _load: never the newest picked); the copy's availability record half present or present (availability_record, in _load: refused
     until 252 item 2's query function is wired; open question 23); the copy's production version not v22; a fence
     refusing at the cut; under LEAGUE_REGULAR a walked stage label that cannot be placed; a club's arrival the declared
-    pyramid cannot place; no fingerprint or one that does not match. Then the cross-ref guard and the reservation BEFORE any outcome is read; then the walk of
+    pyramid cannot place; no fingerprint or one that does not match. Then the cross-ref guard and the reservation,
+    BEFORE any outcome is scored or priced: the outcome-bearing stream (the admitted rows with their goals) is loaded
+    and fingerprinted before the reservation, as in both precedent gates (nfl_v2_gate.run: load :655, fingerprint
+    :667-668, reserve :678, its guard inside reserve :427; ncaa_v1r_gate.run: load :798, fingerprint :799-800, reserve
+    :824, its guard inside reserve :301), and nothing is fitted, scored or priced before it (ARCHITECT 2026-11-04
+    15:45 ET, addendum 254 item 3: "preflight → fingerprint → cross_ref_guard → reservation → walk → record", the
+    three gates' common order; --preflight is its own earlier invocation in all three). One sub-step differs, named
+    for the architect and not changed: both precedents refuse a MISSING fingerprint before the load
+    (nfl_v2_gate.py:642, ncaa_v1r_gate.py:792); this run refuses it only at the compare, after _load. Then the walk of
     both arms (v22 re-walked beside soccer-v23 on the same harness: the same scored set, the same as-of context
     definition, the same skip zero), the comparison (soccer_backtest.compare_candidate) and decide (THE BAR, 251 item
     2: at least DEFAULT_PROMOTION_DELTA below BOTH v22's recorded figure, read from its declaration slot, AND the
@@ -1677,7 +1715,32 @@ def run(word: str | None, fingerprint: str | None, db=None, no_fetch: bool = Fal
     cmp_ = decide(compare_candidate(w["v22"], w["soccer-v23"], DEFAULT_PROMOTION_DELTA),
                   slots["v22_recorded_log_loss"], slots["v22_recorded_source"], DEFAULT_PROMOTION_DELTA)
     return {"compare": cmp_, "walk": w, "stream_fingerprint": fp, "rows": n, "slots": slots, "db": str(path),
-            "scored_ids": [r.id for r in sc], "v22_poisson": v22p}
+            "scored_ids": [r.id for r in sc], "v22_poisson": v22p,
+            # addendum 254 item 3 Q22: the rows the 90-minute reading touches, counted (admit()'s substitution)
+            "aet_pen": {"scored": sum(1 for r in sc if ninety_minute_read(r)),
+                        "history": sum(1 for r in hist if ninety_minute_read(r))}}
+
+
+def ninety_minute_read(r: Row) -> bool:
+    """admit()'s substitution, read back from the row: an admitted row whose raw code is not FT (AET / PEN ...) is
+    walked and scored at its stored 90-minute score (soccer_expansion.unscoreable admits no non-FT row without one, and
+    releases AWD / WO), where live v22 reads the full score."""
+    return (r.status_raw or "").strip().upper() not in ("", "FT")
+
+
+def record_labels(r: dict) -> list[str]:
+    """The run record's two labels (ARCHITECT 2026-11-04 15:45 ET, addendum 254 item 3), printed on every verdict and
+    recorded: Q4's day-rule residual, never silent (counted only against a chain run time declared in code: none is,
+    so the count is said not computed), and Q22's "v22 re-walked" (v22 on this harness, not live v22 reproduced) with
+    the AET / PEN rows read at their 90-minute score counted, scored and in the walked history."""
+    vis = r["slots"]["visibility"]
+    q4 = (f"{DAY_RULE_RESIDUAL}; {DAY_RULE_RESIDUAL_COUNT}" if vis == "day" else
+          f"visibility {vis!r} is not the day rule addendum 254 item 3 Q4 ruled; the day rule's residual is not this "
+          "run's")
+    a = r["aet_pen"]
+    return [f"  residual (visibility {vis!r}): {q4}",
+            f"  {V22_REWALKED_LABEL}; rows read at their 90-minute score (a non-FT raw code: AET / PEN): "
+            f"{a['scored']} scored, {a['history']} in the walked history"]
 
 
 def decide(cmp_: dict, recorded: float, source: str, min_delta: float) -> dict:
@@ -1705,6 +1768,7 @@ def run_lines(r: dict) -> list[str]:
          f"{json.dumps(r['slots'], sort_keys=True)}"]
     if c["verdict"] == "INVALID":                         # the per-era line on every verdict (253 item 2(d))
         L += availability_lines(r["walk"]["availability"])
+        L += record_labels(r)                             # 254 item 3 Q4 / Q22: on every verdict too
         L.append(f"  VERDICT (computed; the architect rules): INVALID — {c['reason']}")
         return L
     L.append(f"  n={c['n']} · soccer-v23 log-loss {c['v23_log_loss']:.6f} · min delta {c['min_delta']} · context "
@@ -1717,6 +1781,7 @@ def run_lines(r: dict) -> list[str]:
              "(v22 re-walked / soccer-v23; printed for the record; gate nothing)")
     L += strata_lines(r["walk"])
     L += availability_lines(r["walk"]["availability"])
+    L += record_labels(r)
     L.append(f"  VERDICT (computed; the architect rules): {c['verdict']}")
     return L
 
@@ -1727,5 +1792,7 @@ def record(r: dict, word: str) -> dict:
     res.update({"architect_word": word, "stream_fingerprint": r["stream_fingerprint"], "slots": r["slots"],
                 "db": r["db"],
                 # 253 item 2(d): the per-era availability line, on the record as on the console (every verdict)
-                "availability": availability_lines(r["walk"]["availability"])})
+                "availability": availability_lines(r["walk"]["availability"]),
+                # 254 item 3 Q4 / Q22: the day rule's residual and "v22 re-walked", labelled, the AET / PEN rows counted
+                "labels": record_labels(r), "aet_pen_rows": dict(r["aet_pen"])})
     return reg.record_run(EID, list(r["scored_ids"]), res, reg.LEDGER, reg.IDS_DIR)

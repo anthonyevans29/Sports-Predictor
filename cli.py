@@ -495,7 +495,9 @@ def dedupe_matches_cmd(competition_code, source, apply, backup_path, sample, orp
     odds and snapshots reference): fresh status/scores/kickoff, new id (old
     kept as <source>_prev), every referencing row re-pointed, then the empty
     newer row deleted. Clusters of 3+, swapped pairs and unique-table
-    conflicts are reported, never merged."""
+    conflicts are reported, never merged. Every run (the pair path and
+    --orphans) ends with one record line (addendum 254 item 2(4)): "record
+    rows on retired match ids: N", or n/a with its reason; a SELECT only."""
     import json as _json
 
     from src.db.schema import Match as _M
@@ -536,6 +538,7 @@ def dedupe_matches_cmd(competition_code, source, apply, backup_path, sample, orp
         for x in r["refused"][:20]:
             click.echo(f"  REFUSED keeper {x['keeper']} / newer {x['newer']}: {x['why']}")
     _dedupe_state_lines(r, source)
+    _dedupe_record_line(r)
 
 
 
@@ -633,6 +636,19 @@ def _dedupe_state_lines(r, source):
                    f"(a prior apply or the sync re-key), not missed")
 
 
+def _dedupe_record_line(r):
+    """ARCHITECT 2026-11-04 15:45 ET, addendum 254 item 2(4), verbatim: "dedupe-matches prints one receipt line,
+    "record rows on retired match ids: N", and rewrites nothing." N: the availability record's rows (both tables carry
+    our match_id, no foreign key) on the newer row of every merge this run made; on a dry run, the newer row of every
+    planned merge (a merge refused at apply is not known on a dry run, so a dry run's N can exceed the apply's)
+    (match_dedupe.record_rows_on, a SELECT). A DB without the record's tables prints "n/a (availability tables
+    absent)"; a DB whose tables cannot be inspected prints "n/a (the live DB's tables could not be read)"; never a 0
+    it did not count (law 4)."""
+    from src.ingestion import match_dedupe as md
+
+    click.echo(f"  {md.record_line(r['record_rows_on_retired'])}")
+
+
 def _dedupe_orphans(competition_code, source, apply, sample):
     import os as _os
     import time as _time
@@ -664,6 +680,7 @@ def _dedupe_orphans(competition_code, source, apply, sample):
         for x in r["refused_at_apply"][:20]:
             click.echo(f"  REFUSED id {x['id']}: {x['why']}")
     _dedupe_state_lines(r, source)
+    _dedupe_record_line(r)
 
 
 @cli.command("retire-orphans")

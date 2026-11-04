@@ -847,3 +847,243 @@ def test_the_writer_requires_the_source_game_id_on_an_nhl_per_game_fact():
     with _ro() as s:
         (row,) = rec.load_rows(s, "nhl")
     assert row.attrs["source_match_id"] == GID
+
+
+# ---- dedupe-matches' record line (ARCHITECT 2026-11-04 15:45 ET, addendum 254 item 2(4)) -----------------------------
+# Verbatim: "our match_id is read as recorded; dedupe-matches prints one receipt line, "record rows on retired match
+# ids: N", and rewrites nothing in the record." N counts both tables' rows on the ids the run retires (a dry run: the
+# ids it would retire); a DB without the record's tables prints "n/a (availability tables absent)", never a 0.
+
+DD_CODE = "AVD"
+DD_KO = datetime(2091, 10, 2, 0, 0)
+DD_SRC = "api_american_football"
+
+
+def _dd_world():
+    """A twin pair under the dedupe's rule (same home and away, same kickoff, different source ids): keeper (the
+    older row) and newer (the row a merge retires), and a third game the run never touches."""
+    from src.db.database import session_scope
+    from src.db.schema import Competition, Match, MatchStatus, Sport, Team
+    with session_scope() as s:
+        c = Competition(sport=Sport.NHL, code=DD_CODE, name=DD_CODE, area="US", type="LEAGUE")
+        ts = [Team(sport=Sport.NHL, name=f"{DD_CODE} T{i}", external_ids={DD_SRC: f"t{i}"}) for i in range(4)]
+        s.add(c)
+        s.add_all(ts)
+        s.flush()
+
+        def m(h, a, sid, **kw):
+            row = Match(sport=Sport.NHL, competition_id=c.id, season="2091", utc_date=DD_KO, status=kw.pop(
+                "status", MatchStatus.SCHEDULED), home_team_id=ts[h].id, away_team_id=ts[a].id,
+                external_ids={DD_SRC: sid}, **kw)
+            s.add(row)
+            s.flush()
+            return row.id
+        keeper = m(0, 1, "100")
+        newer = m(0, 1, "9100", status=MatchStatus.FINISHED, home_score=3, away_score=1)
+        other = m(2, 3, "500")
+    return keeper, newer, other
+
+
+def _dd_record(keeper, newer, other):
+    """Record rows: a per-game observation and its fact on the newer id (2 rows the line counts), one on the keeper
+    and one on the untouched game (not counted), and a league-wide nflverse fetch (match_id NULL, not counted)."""
+    _migrate()
+    rec.write_observation(_nhl("T-60", KO - timedelta(minutes=60), match_id=newer),
+                          [_goalie(1, "G One", None, "home", match_id=newer, source_team="AAA")])
+    rec.write_observation(_nhl("T-30", KO - timedelta(minutes=30), match_id=keeper), [])
+    rec.write_observation(_nhl("T-0", KO, match_id=other), [])
+    rec.write_observation(_nfl(datetime(2026, 11, 5, 9)), [_depth("A", "00-1", 1, datetime(2026, 11, 5, 7))])
+
+
+def _record_bytes(path) -> bytes:
+    """Every row of both record tables, in id order, as bytes: the byte-identity a rewrite would break."""
+    con = sqlite3.connect(f"file:{Path(path).as_posix()}?mode=ro", uri=True)
+    try:
+        return repr([con.execute(f"SELECT * FROM {t} ORDER BY id").fetchall() for t in rec.TABLES]).encode()
+    finally:
+        con.close()
+
+
+def _dedupe_cli(monkeypatch, *args, code=DD_CODE):
+    from click.testing import CliRunner
+
+    import cli as climod
+    monkeypatch.setattr(climod, "_verify_backup", lambda *a, **k: "verified (test)")   # law 5's check: not under test
+    return CliRunner().invoke(climod.cli, ["dedupe-matches", "--competition", code, *args])
+
+
+def _record_lines(out: str) -> list[str]:
+    return [ln.strip() for ln in out.splitlines() if ln.strip().startswith("record rows on retired match ids")]
+
+
+@pytest.mark.parametrize("apply", [False, True], ids=["dry-run", "apply"])
+def test_dedupe_matches_prints_the_record_rows_on_the_retired_ids(fresh_db, monkeypatch, apply):
+    keeper, newer, other = _dd_world()
+    _dd_record(keeper, newer, other)
+    before = _record_bytes(fresh_db)
+    r = _dedupe_cli(monkeypatch, *(["--apply", "--backup", "x.backup"] if apply else []))
+    assert r.exit_code == 0, r.output
+    assert _record_lines(r.output) == ["record rows on retired match ids: 2"], r.output
+    assert _record_bytes(fresh_db) == before                       # the record: nothing rewritten, dry run or apply
+    con = sqlite3.connect(fresh_db)
+    try:
+        left = sorted(x for (x,) in con.execute("SELECT id FROM matches"))
+    finally:
+        con.close()
+    assert left == (sorted([keeper, other]) if apply else sorted([keeper, newer, other]))
+
+
+def test_dedupe_matches_record_rows_are_byte_identical_after_an_apply(fresh_db, monkeypatch):
+    """The ruling's "rewrites nothing": every row of both tables, every column, the same bytes after --apply; the
+    rows on the retired id keep that id as recorded (no foreign key re-points them)."""
+    keeper, newer, other = _dd_world()
+    _dd_record(keeper, newer, other)
+    before = _record_bytes(fresh_db)
+    r = _dedupe_cli(monkeypatch, "--apply", "--backup", "x.backup")
+    assert r.exit_code == 0 and "merged 1" in r.output, r.output
+    assert _record_bytes(fresh_db) == before
+    con = sqlite3.connect(fresh_db)
+    try:
+        assert con.execute("SELECT COUNT(*) FROM availability_observations WHERE match_id = ?", (newer,)).fetchone() \
+            == (1,)
+        assert con.execute("SELECT COUNT(*) FROM availability_assertions WHERE match_id = ?", (newer,)).fetchone() \
+            == (1,)
+        assert con.execute("SELECT COUNT(*) FROM matches WHERE id = ?", (newer,)).fetchone() == (0,)
+    finally:
+        con.close()
+
+
+@pytest.mark.parametrize("apply", [False, True], ids=["dry-run", "apply"])
+def test_dedupe_matches_labels_the_record_line_n_a_where_the_record_tables_are_absent(tmp_path, monkeypatch, apply):
+    """A DB the migration has not reached (no availability tables): the line says n/a and why, never a 0 it did not
+    count (law 4); the dedupe itself runs as before."""
+    from sqlalchemy import create_engine, inspect
+    from sqlalchemy.orm import sessionmaker
+
+    import src.db.database as db
+    from src.db.schema import Base
+    path = tmp_path / "pre_migration.db"
+    eng = create_engine(f"sqlite:///{path}", future=True)
+    Base.metadata.create_all(eng, tables=[t for t in Base.metadata.sorted_tables if t.name not in rec.TABLES])
+    monkeypatch.setattr(db, "_engine", eng)
+    monkeypatch.setattr(db, "SessionLocal", sessionmaker(bind=eng, autoflush=False, future=True,
+                                                         expire_on_commit=False))
+    try:
+        assert not set(rec.TABLES) & set(inspect(eng).get_table_names())
+        keeper, newer, _ = _dd_world()
+        r = _dedupe_cli(monkeypatch, *(["--apply", "--backup", "x.backup"] if apply else []))
+        assert r.exit_code == 0, r.output
+        assert _record_lines(r.output) == ["record rows on retired match ids: n/a (availability tables absent)"]
+        assert ("merged 1" in r.output) is apply
+        assert not set(rec.TABLES) & set(inspect(eng).get_table_names())     # read-only: nothing created
+    finally:
+        eng.dispose()
+
+
+@pytest.mark.parametrize("apply", [False, True], ids=["dry-run", "apply"])
+def test_dedupe_matches_orphans_counts_the_record_rows_on_the_merge_it_retires(fresh_db, monkeypatch, apply):
+    """--orphans: a merge retires the newer row (whichever is stale); a relink or an orphan mark retires no id. The
+    stale row (sid 1, absent at the provider) and its live twin (sid 2) merge; the twin is the newer row."""
+    from src.adapters.normalized import NormalizedMatch
+    from src.db.database import session_scope
+    from src.db.schema import Competition, Match, MatchStatus, Sport, Team
+    from src.ingestion import match_dedupe as md
+    from src.timeutil import utc_now_naive
+    now = utc_now_naive().replace(microsecond=0)
+    with session_scope() as s:
+        c = Competition(sport=Sport.NFL, code="AVO", name="AVO", area="US", type="LEAGUE")
+        ts = [Team(sport=Sport.NFL, name=f"AVO T{i}", external_ids={DD_SRC: f"o{i}"}) for i in range(2)]
+        s.add(c)
+        s.add_all(ts)
+        s.flush()
+        rows = [Match(sport=Sport.NFL, competition_id=c.id, season="2026", utc_date=when, status=MatchStatus.SCHEDULED,
+                      home_team_id=ts[0].id, away_team_id=ts[1].id, external_ids={DD_SRC: sid})
+                for sid, when in (("1", now + timedelta(days=2)), ("2", now + timedelta(days=2, hours=30)))]
+        s.add_all(rows)
+        s.flush()
+        stale, twin = rows[0].id, rows[1].id
+    live = NormalizedMatch(sport=Sport.NFL, competition_code="AVO", season="2026", utc_date=now + timedelta(days=3),
+                           status=MatchStatus.SCHEDULED, home_team_source_id="o0", away_team_source_id="o1",
+                           source=DD_SRC, source_id="2", status_raw="NS")
+
+    class Provider:
+        def get_game(self, sid, code):
+            return (True, live) if sid == "2" else (False, None)
+
+        def list_matches(self, *a, **k):
+            return []
+    _dd_record(stale, twin, stale)
+    before = _record_bytes(fresh_db)
+    r = md.orphans("AVO", Provider(), apply=False, now=now)               # the plan: the merge it would make
+    assert r["retired_ids"] == [twin] and r["record_rows_on_retired"] == 2 and r["applied_counts"] == {}, r
+    import src.adapters.api_american_football as aaf
+    monkeypatch.setattr(aaf, "APIAmericanFootballAdapter", Provider)
+    monkeypatch.setenv("SP_ODDS_FOOTBALL_RPM", "600000")
+    out = _dedupe_cli(monkeypatch, "--orphans", *(["--apply", "--backup", "x.backup"] if apply else []), code="AVO")
+    assert out.exit_code == 0, out.output
+    assert _record_lines(out.output) == ["record rows on retired match ids: 2"], out.output
+    assert ("applied {'merge': 1}" in out.output) is apply, out.output
+    assert _record_bytes(fresh_db) == before
+
+
+@pytest.mark.parametrize("apply", [False, True], ids=["dry-run", "apply"])
+def test_dedupe_matches_labels_the_record_line_n_a_where_the_tables_cannot_be_read(fresh_db, monkeypatch, apply):
+    """The third form: a DB whose table list cannot be inspected (match_dedupe._live_tables returns None) prints
+    "n/a (the live DB's tables could not be read)", never a count it did not make (law 4); the dedupe runs as before."""
+    from src.ingestion import match_dedupe as md
+    keeper, newer, other = _dd_world()
+    _dd_record(keeper, newer, other)
+    before = _record_bytes(fresh_db)
+    monkeypatch.setattr(md, "_live_tables", lambda s: None)
+    r = _dedupe_cli(monkeypatch, *(["--apply", "--backup", "x.backup"] if apply else []))
+    assert r.exit_code == 0, r.output
+    assert _record_lines(r.output) == ["record rows on retired match ids: n/a (the live DB's tables could not be read)"]
+    assert ("merged 1" in r.output) is apply, r.output
+    assert _record_bytes(fresh_db) == before
+
+
+def test_dedupe_matches_record_line_leaves_a_refused_merge_out_of_the_apply_count(fresh_db, monkeypatch):
+    """Two pairs: A, whose rows both hold a match_stats entry (a unique table), so merge() refuses it at apply; and B,
+    which merges. Record rows: 2 on A's newer id, 1 on B's. The dry run counts the newer row of every planned pair (3:
+    a refusal at apply is not known on a dry run); the apply counts only the merge it made (1)."""
+    from src.db.database import session_scope
+    from src.db.schema import Competition, Match, MatchStats, MatchStatus, Sport, Team
+    with session_scope() as s:
+        c = Competition(sport=Sport.NHL, code=DD_CODE, name=DD_CODE, area="US", type="LEAGUE")
+        ts = [Team(sport=Sport.NHL, name=f"{DD_CODE} T{i}", external_ids={DD_SRC: f"t{i}"}) for i in range(4)]
+        s.add(c)
+        s.add_all(ts)
+        s.flush()
+
+        def m(h, a, sid):
+            row = Match(sport=Sport.NHL, competition_id=c.id, season="2091", utc_date=DD_KO,
+                        status=MatchStatus.SCHEDULED, home_team_id=ts[h].id, away_team_id=ts[a].id,
+                        external_ids={DD_SRC: sid})
+            s.add(row)
+            s.flush()
+            return row.id
+        a_keep, a_new = m(0, 1, "100"), m(0, 1, "9100")
+        b_keep, b_new = m(2, 3, "200"), m(2, 3, "9200")
+        s.add_all([MatchStats(match_id=mid, team_id=ts[0].id) for mid in (a_keep, a_new)])
+    _migrate()
+    rec.write_observation(_nhl("T-60", KO - timedelta(minutes=60), match_id=a_new),
+                          [_goalie(1, "G One", None, "home", match_id=a_new, source_team="AAA")])
+    rec.write_observation(_nhl("T-30", KO - timedelta(minutes=30), match_id=b_new), [])
+    before = _record_bytes(fresh_db)
+
+    dry = _dedupe_cli(monkeypatch)
+    assert dry.exit_code == 0, dry.output
+    assert _record_lines(dry.output) == ["record rows on retired match ids: 3"], dry.output
+
+    applied = _dedupe_cli(monkeypatch, "--apply", "--backup", "x.backup")
+    assert applied.exit_code == 0, applied.output
+    assert "merged 1 · refused 1" in applied.output, applied.output
+    assert f"REFUSED keeper {a_keep} / newer {a_new}: match_stats: both rows hold an entry" in applied.output
+    assert _record_lines(applied.output) == ["record rows on retired match ids: 1"], applied.output
+    assert _record_bytes(fresh_db) == before
+    con = sqlite3.connect(fresh_db)
+    try:
+        left = sorted(x for (x,) in con.execute("SELECT id FROM matches"))
+    finally:
+        con.close()
+    assert left == sorted([a_keep, a_new, b_keep])

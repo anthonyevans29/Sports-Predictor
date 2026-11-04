@@ -50,8 +50,14 @@ CERTIFICATION = ("uncertified (addendum 214): nfl_elo_v1 failed its frozen gate 
                  "market-only until the confirmation read")
 
 
-def _current_ratings(progress=None) -> _State:
-    cfg = NFLEloConfig()
+def _current_ratings(progress=None, cfg: NFLEloConfig | None = None, floor: str | None = None,
+                     receipt: dict | None = None) -> _State:
+    """v1's live walk: every FINISHED non-preseason NFL game with both scores, by kickoff then id. `cfg` (ARCHITECT
+    2026-11-04, addendum 247 item 2(6), the rehearsal arm): nfl_elo_v2's config over the SAME games for the whole walk;
+    None is v1's NFLEloConfig(), unchanged. `floor` (ARCHITECT 2026-11-04 11:50 ET, addendum 251 item 3(3), the
+    rehearsal arm only: nfl_rehearsal.WALK_FLOOR, the gate's warm-up season): the games before it are excluded from
+    this walk and counted into receipt["before_floor"]; None (v1's walk, every caller but the arm) is unchanged."""
+    cfg = cfg if cfg is not None else NFLEloConfig()
     st = _State()
     with session_scope() as s:
         games = list(s.execute(
@@ -62,6 +68,11 @@ def _current_ratings(progress=None) -> _State:
             ).order_by(Match.utc_date, Match.id)
         ).scalars())
         games = [m for m in games if "pre" not in (m.stage or "").lower()]
+        if floor is not None:                           # 251 item 3(3): the arm's walk only
+            from src.walters.nfl_rehearsal import floor_split
+            games, before = floor_split(games, floor)
+            if receipt is not None:
+                receipt["before_floor"] = before
         if progress:
             progress(scope_line("ratings", games))
         for m in games:
@@ -92,7 +103,19 @@ def _tier(p: float) -> str:
 def predict_nfl(days_ahead: int = 8, progress=None) -> int:
     cfg = NFLEloConfig()
     st = _current_ratings(progress)
-    written = 0
+    # THE REHEARSAL ARM (addendum 230 item 1(a) as ruled by 247; src/walters/nfl_rehearsal.py): nfl_elo_v2 priced beside
+    # v1 for a game whose KICKOFF the registry's window covers, stored on v1's own row; dormant (nothing walked, nothing
+    # stored) unless the host's registry reads PASS, status rehearsal and a window. v1's row is written exactly as before.
+    from src.walters import nfl_rehearsal as reh
+    gate = reh.read_gate()
+    st2 = err2 = None
+    walk_rc: dict = {}
+    if gate.on:                                         # 247 item 2(6): v1's live walk under the declared term,
+        try:                                            # from the walk floor (251 item 3(3))
+            st2 = _current_ratings(cfg=gate.cfg, floor=reh.WALK_FLOOR, receipt=walk_rc)
+        except Exception as e:                          # noqa: BLE001  (stored per row; never stops v1's rows)
+            err2 = e
+    written = armed = covered = 0
     with session_scope() as s:
         now = utc_now_naive()
         upcoming = list(s.execute(
@@ -106,6 +129,17 @@ def predict_nfl(days_ahead: int = 8, progress=None) -> int:
             progress(scope_line("prediction set", upcoming, per_week=True))
         for m in upcoming:
             p_home = _expected_home(cfg, st, m.home_team_id, m.away_team_id)
+            arm = {}
+            if gate.covers(m.utc_date):                 # 247 item 2(3): the game's kickoff, never the write clock
+                covered += 1
+                try:
+                    if err2 is not None:
+                        raise err2
+                    arm = {"factor_breakdown": {reh.FB_KEY: reh.arm_block(gate, reh.price(
+                        gate, _expected_home(gate.cfg, st2, m.home_team_id, m.away_team_id)))}}
+                    armed += 1
+                except Exception as e:                  # noqa: BLE001
+                    arm = {"factor_breakdown": {reh.FB_KEY: reh.failed_block(gate, e)}}
             # Match-only upsert (S13): one prediction row per match, ever.
             s.query(Prediction).filter(Prediction.match_id == m.id).delete()
             s.add(Prediction(
@@ -115,9 +149,17 @@ def predict_nfl(days_ahead: int = 8, progress=None) -> int:
                 away_win_prob=round(1 - p_home, 4),
                 draw_prob=None,
                 computed_at=utc_now_naive(),
+                **arm,
             ))
             written += 1
+        if gate.on and progress:
+            progress(f"rehearsal arm {reh.EID} ({gate.stamp}, {gate.form} {gate.value}): {armed} of {covered} "
+                     f"covered rows priced (kickoff window {gate.opens_at:%Y-%m-%dT%H:%M:%SZ} to "
+                     f"{gate.closes_at:%Y-%m-%dT%H:%M:%SZ}, closes_at excluded); "
+                     f"{reh.floor_line(walk_rc.get('before_floor'))}; {reh.LABEL}")
     log.info("Wrote %d NFL predictions using %s", written, MODEL_VERSION)
+    log.info("rehearsal arm %s: %s", reh.EID, f"{armed} of {covered} covered rows priced; "
+             f"{reh.floor_line(walk_rc.get('before_floor'))}" if gate.on else f"dormant ({gate.why})")
     return written
 
 
@@ -202,6 +244,8 @@ def export_nfl_predictions(days_ahead: int = 8, out_dir: str = "exports",
     # preseason excluded), taken at export time.
     elo_cfg = NFLEloConfig()
     elo = _current_ratings()
+    from src.walters import nfl_rehearsal as reh       # addendum 230 item 1(a) as ruled by 247: the second arm
+    gate = reh.read_gate()
     with session_scope() as s:
         now = utc_now_naive()
         hi = now + (timedelta(hours=hours_ahead) if hours_ahead is not None
@@ -331,6 +375,11 @@ def export_nfl_predictions(days_ahead: int = 8, out_dir: str = "exports",
                 },
                 **({"kalshi": status_block(_kmm)} if _kmm else {}),
             })
+            # THE REHEARSAL ARM (247 items 2(2), 3): the rehearsal_* keys, absent unless the gate covers the game's
+            # kickoff; outside `prediction` and under no name the Desk reads (desk_policy.normalize)
+            _arm = reh.export_fields(gate, pred, m.utc_date)
+            if _arm is not None:
+                rows[-1].update(_arm)
         # U2 drift receipt (architect 2026-09-27): games that finished after
         # the earliest exported prediction was written.
         if receipts is not None:
@@ -707,6 +756,8 @@ def export_nfl_results(days_back: int | None = None, out_dir: str = "exports") -
     from src.walters.value import MarketSnapshot
 
     rows = []
+    from src.walters import nfl_rehearsal as reh       # addendum 230 item 1(a) as ruled by 247: the grader's second arm
+    host_why = reh.host_reason()                       # host-only; every STORED arm is read (247 item 2(4))
     with session_scope() as s:
         now = utc_now_naive()
         finished = (nfl_scoped(select(Prediction, Match)
@@ -782,6 +833,9 @@ def export_nfl_results(days_back: int | None = None, out_dir: str = "exports") -
                            "value_prediction_at": (vg["prediction_at"].isoformat()
                                                    if vg and vg["prediction_at"] else None)},
             })
+            _arm = reh.result_arm(pred, m.home_score, m.away_score, host_why)   # absent unless an arm is stored
+            if _arm is not None:
+                rows[-1][reh.RESULT_KEY] = _arm
     _os.makedirs(out_dir, exist_ok=True)
     path = _os.path.join(out_dir, f"nfl_NFL_results_{utc_now_naive().strftime('%Y-%m-%d')}.json")
     flags = [r.pop("_pre_live") for r in rows]
@@ -798,6 +852,11 @@ def export_nfl_results(days_back: int | None = None, out_dir: str = "exports") -
         return {**_season_record([r for r in rs if not r.get("redated")]),
                 "redated": sum(1 for r in rs if r.get("redated"))}
     record = {"live_since": f"{NFL_LIVE_SINCE:%Y-%m-%d}", **_rec(live)}
+    # 247 items 2(4)-(5): both arms' log-loss, Brier, W-L-P and vs-close, in total and per game week, over the season
+    # record's own rows that carry a stored arm; absent when none does (a dormant file is as before)
+    _both = reh.record_block([r for r in live if not r.get("redated")], [r for r in live if r.get("redated")])
+    if _both is not None:
+        record[reh.RECORD_KEY] = _both
     pre_live = {"note": "preseason + pre-live rows (before Week 3); never pooled into the season record",
                 "count": len(pre), "record": _rec(pre), "results": pre}
     with open(path, "w") as f:

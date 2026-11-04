@@ -32,12 +32,20 @@ WHAT IT COMPARES. One store, two paths, the same instant, the same match:
     (EVERY soccer match kicking off at or after M's kickoff, whatever its competition or season, SCHEDULED, its score
     held aside), production trains and prices M, and the store is restored. The walks run on the restored store.
 
+THE DECLARED SCOPE (ARCHITECT 2026-11-04 13:20 ET, addendum 253 item 2(a), verbatim): "same inputs, shared path" —
+production and the walk given the SAME context, the SAME Elo state, the SAME history and NO factor inputs produce the
+SAME probabilities, row for row. Test (a) pins the shared computation (Elo update, estimate_strengths, Poisson,
+Dixon-Coles) and nothing else; its store's precondition is no prior season, no factor rows and unique kickoffs. It is
+never "production equals the walk": FIVE strict-xfail pins on v22 name where it does not ((b), (c), and the three
+located pins below).
+
 THE THREE TESTS (`run_parity` gathers what all three read; each has its own assertion and failure type):
-  (a) THE PARITY TEST, the context INJECTED (`ParityRun.parity`, `assert_parity`, raises ParityFailure): for every row
-      the default walk scores, the walk is run with production's stored context at that row's instant
-      (`walk(code, season, context=<it>)`) and its row is compared with production's. CRITERION: for every row, max
-      |p_prod − p_walk| over home/draw/away <= TOLERANCE (1e-12). No average: one row outside fails the report; a row
-      missing from either path fails it; an empty report never passes. v22 PASSES (no xfail).
+  (a) THE PARITY TEST, the context INJECTED (`ParityRun.parity`, `assert_same_inputs_parity`, raises ParityFailure or
+      a located gap): for every row the default walk scores, the walk is run with production's stored context at
+      that row's instant (`walk(code, season, context=<it>)`) and its row is compared with production's. CRITERION:
+      for every row, max |p_prod − p_walk| over home/draw/away <= TOLERANCE (1e-12) AND every resolved input equal. No
+      average: one row outside fails the report; a row missing from either path fails it; an empty report never
+      passes. v22 PASSES (no xfail).
   (b) THE CONTEXT-GAP PIN (`ParityRun.context_gap`, `assert_no_context_gap`, raises ContextGap): for every row, the
       DEFAULT walk's effective context (the g and b its estimate_strengths deflated with and its predict_match priced
       with, recorded by the spy) equals production's stored context. v22 is a STRICT xfail (the walk's 1.4 / 1.15
@@ -50,6 +58,12 @@ THE THREE TESTS (`run_parity` gathers what all three read; each has its own asse
       must price at the context's own rates: total 2g and home/away ratio b/(2−b). v22 is a STRICT xfail (216's lean:
       g(1+b)((3−b)/2)^2 and ratio b); the positive control (`DATA_RATE_CONTROL`, predict_match fed unit strengths at
       the data's rates) passes.
+
+THE THREE LOCATED PINS (addendum 253 item 2(b)): (a)'s comparison on a store SEEDED so one live/replay difference
+shows, each its own failure type (`located_gap`; a ParityFailure subclass), each a strict xfail on v22 that accepts
+its own type only: the PRIOR-SEASON ELO pin (`seed_prior_season`, EloStateGap, #788's "Elo state" row), the MATCH
+FACTORS pin (`seed_match_factors`, FactorGap, #788's "match factors" row) and the SIMULTANEOUS KICKOFFS pin
+(`share_kickoff`, KickoffBatchingGap, a new row on #788; its positive control `V22_BATCHED_WALK_CONTROL`).
 
 THE TOLERANCE, 1e-12: both paths end in the same deterministic `predict_match` in one process, so identical inputs give
 identical floats; the only noise left is the last bits of a mean summed in another order (about 1e-16 on these
@@ -87,6 +101,7 @@ the same keys where they apply. docs/specs/soccer-parity-acceptance.md.
 """
 from __future__ import annotations
 
+import math
 import random
 import tempfile
 from contextlib import contextmanager
@@ -129,7 +144,31 @@ AVERAGE_LEAGUE_TEAMS = 20
 
 
 class ParityFailure(AssertionError):
-    """Test (a)'s own failure: at least one row outside TOLERANCE (or missing, or no rows)."""
+    """Test (a)'s own failure: at least one row outside TOLERANCE or with a resolved input that differs (or missing,
+    malformed, or no rows). Raised as itself whenever the failure is not one of the three located gaps below, so a
+    pin's strict xfail (raises=<its gap>) never accepts it."""
+
+
+#: The inputs each located gap is read from (addendum 253 item 2(b): one pin per finding, each its own failure type).
+ELO_KEYS = frozenset({"home_elo", "away_elo"})
+FACTOR_KEYS = frozenset({"factor"})
+HISTORY_KEYS = frozenset({"history"})
+
+
+class EloStateGap(ParityFailure):
+    """THE PRIOR-SEASON ELO PIN's failure (addendum 253 item 2(b); #788's "Elo state" row): (a)'s comparison fails
+    and on every failing row the inputs that differ are Elo ratings (home_elo / away_elo) and nothing else."""
+
+
+class FactorGap(ParityFailure):
+    """THE MATCH FACTORS PIN's failure (addendum 253 item 2(b); #788's "match factors" row): (a)'s comparison fails
+    and on every failing row the one input that differs is the factor (the (home, away) xG multipliers)."""
+
+
+class KickoffBatchingGap(ParityFailure):
+    """THE SIMULTANEOUS KICKOFFS PIN's failure (addendum 253 item 2(b); a NEW ROW on #788): (a)'s comparison fails
+    and on every failing row the one input that differs is the history, on a row whose kickoff another match of its
+    competition-season shares (`ParityReport.same_kickoff`)."""
 
 
 class ContextGap(AssertionError):
@@ -140,6 +179,12 @@ class ContextGap(AssertionError):
 class NormalisationLean(AssertionError):
     """Test (c)'s own failure: two average teams at equal Elo do not price at the context's own total 2g and
     home/away ratio b/(2−b)."""
+
+
+class NonFiniteNormalisation(AssertionError):
+    """Test (c)'s HARD failure: a computed figure (the implied home/away scores, a total, the ratio, the deficit) is
+    not finite. Deliberately NOT a NormalisationLean: v22's strict xfail accepts NormalisationLean only, so a NaN or an
+    infinity from any path is red, never swallowed as the known lean."""
 
 
 class StoreRefused(RuntimeError):
@@ -170,10 +215,25 @@ class ParityRow:
         return self.max_abs_diff is not None and self.max_abs_diff <= TOLERANCE
 
 
+def _legs(vector, spec: str) -> str:
+    """A vector for a table: each leg at `spec` when every leg is a finite number, else the vector's repr (a
+    malformed vector is named in the table, never formatted into a crash that hides the ParityFailure)."""
+    try:
+        legs = tuple(vector)
+    except TypeError:
+        return repr(vector)
+    if not all(isinstance(x, (int, float)) and math.isfinite(x) for x in legs):
+        return repr(vector)
+    return "/".join(f"{x:{spec}}" for x in legs)
+
+
 @dataclass(frozen=True)
 class ParityReport:
     name: str
     rows: tuple
+    #: The rows whose kickoff another match of the competition-season shares (run_parity fills it; the simultaneous
+    #: kickoffs pin's location reads it).
+    same_kickoff: frozenset = frozenset()
 
     @property
     def passed(self) -> bool:
@@ -189,15 +249,17 @@ class ParityReport:
     def table(self) -> str:
         diffs = [r.max_abs_diff for r in self.rows if r.max_abs_diff is not None]
         out = [f"PARITY {self.name}: {len(self.rows)} rows, {len(self.failing)} outside {TOLERANCE:g} on H/D/A "
-               f"(max |dp| {max(diffs) if diffs else float('nan'):.3e}) -> {'PASS' if self.passed else 'FAIL'}",
+               f"(max |dp| {max(diffs) if diffs else float('nan'):.3e}), "
+               f"{sum(1 for r in self.rows if r.differing)} with an input that differs -> "
+               f"{'PASS' if located_gap(self) is None else 'FAIL'} (same inputs, shared path)",
                f"{'match':>5}  {'production H/D/A':<26}  {'walk H/D/A':<26}  {'max|dp|':>9}  "
                f"{'prod xg':<15}  {'walk xg':<15}  differs at"]
         for r in self.rows:
             p, w = r.production, r.walk
-            fp = "/".join(f"{x:.6f}" for x in p.probs) if p else "-"
-            fw = "/".join(f"{x:.6f}" for x in w.probs) if w else "-"
-            xp = "/".join(f"{x:.4f}" for x in p.xg) if p else "-"
-            xw = "/".join(f"{x:.4f}" for x in w.xg) if w else "-"
+            fp = _legs(p.probs, ".6f") if p else "-"
+            fw = _legs(w.probs, ".6f") if w else "-"
+            xp = _legs(p.xg, ".4f") if p else "-"
+            xw = _legs(w.xg, ".4f") if w else "-"
             d = f"{r.max_abs_diff:.3e}" if r.max_abs_diff is not None else "-"
             out.append(f"{r.match_id:>5}  {fp:<26}  {fw:<26}  {d:>9}  {xp:<15}  {xw:<15}  "
                        f"{', '.join(r.differing) or 'none'}")
@@ -221,23 +283,84 @@ def differing_inputs(prod: dict, walk: dict) -> tuple:
     return tuple(k for k in LOCATION_KEYS if (k in prod) != (k in walk) or _differs(prod.get(k), walk.get(k)))
 
 
-def compare(name: str, production: dict, walk: dict, targets) -> ParityReport:
-    """Row for row, in `targets` order: the max |dp| over H/D/A and the inputs that differ."""
+def malformed_probs(probs):
+    """None when `probs` is exactly three finite legs (home, draw, away); else what is wrong with it."""
+    try:
+        legs = tuple(probs)
+    except TypeError:
+        return f"not a vector ({type(probs).__name__})"
+    if len(legs) != 3:
+        return f"{len(legs)} legs, not 3"
+    if not all(isinstance(x, (int, float)) for x in legs):
+        return "a non-numeric leg"
+    if not all(math.isfinite(x) for x in legs):
+        return "a non-finite leg"
+    return None
+
+
+def compare(name: str, production: dict, walk: dict, targets, same_kickoff=frozenset()) -> ParityReport:
+    """Row for row, in `targets` order: the max |dp| over H/D/A and the inputs that differ. A row whose probability
+    vector on either path is not exactly three finite legs fails (max_abs_diff None), never compared by a truncating
+    zip. `same_kickoff`: the rows whose kickoff another match of the competition-season shares (run_parity)."""
     rows = []
     for mid in targets:
         p, w = production.get(mid), walk.get(mid)
         if p is None or w is None:
             rows.append(ParityRow(mid, p, w, None, ("missing: " + ("production" if p is None else "walk"),)))
             continue
+        bad = tuple(f"malformed probs: {path} has {why}" for path, why in
+                    (("production", malformed_probs(p.probs)), ("walk", malformed_probs(w.probs))) if why)
+        if bad:
+            rows.append(ParityRow(mid, p, w, None, bad))
+            continue
         d = max(abs(a - b) for a, b in zip(p.probs, w.probs))
         rows.append(ParityRow(mid, p, w, d, differing_inputs(p.inputs, w.inputs)))
-    return ParityReport(name, tuple(rows))
+    return ParityReport(name, tuple(rows), frozenset(same_kickoff))
 
 
 def assert_parity(report: ParityReport) -> None:
-    """TEST (a)'S ASSERTION: every row inside TOLERANCE. Raises ParityFailure (with the table) otherwise."""
+    """The probability half of (a)'s comparison: every row inside TOLERANCE. Raises ParityFailure (with the table)
+    otherwise. Test (a) and the three located pins assert `assert_same_inputs_parity`, which adds the inputs."""
     if not report.passed:
         raise ParityFailure("production != the backtest walk, row for row\n" + report.table())
+
+
+def located_gap(report: ParityReport):
+    """What (a)'s comparison raises on `report`: None when every row is inside TOLERANCE with no input differing;
+    else the located gap (addendum 253 item 2(b)) when EVERY failing row is located at that gap's inputs alone:
+      * EloStateGap: the inputs that differ are Elo ratings only (home_elo / away_elo);
+      * FactorGap: the one input that differs is the factor;
+      * KickoffBatchingGap: the one input that differs is the history, and every such row shares its kickoff with
+        another match of its competition-season (report.same_kickoff);
+    and plain ParityFailure for anything else: no rows, a missing or malformed row, a row outside TOLERANCE with no
+    input differing, a history difference on a row with its own kickoff (#788's early-season row, not this pin), or
+    two gaps at once. A pin's strict xfail accepts its own gap only, so every one of those is red."""
+    if not report.rows:
+        return ParityFailure
+    failing = [r for r in report.rows if not r.ok or r.differing]
+    if not failing:
+        return None
+    if any(not r.differing or not set(r.differing) <= set(LOCATION_KEYS) for r in failing):
+        return ParityFailure
+    keys = frozenset().union(*(r.differing for r in failing))
+    if keys <= ELO_KEYS:
+        return EloStateGap
+    if keys == FACTOR_KEYS:
+        return FactorGap
+    if keys == HISTORY_KEYS and all(r.match_id in report.same_kickoff for r in failing):
+        return KickoffBatchingGap
+    return ParityFailure
+
+
+def assert_same_inputs_parity(report: ParityReport) -> None:
+    """TEST (a)'S COMPARISON ("same inputs, shared path", addendum 253 item 2(a)): every row inside TOLERANCE AND every
+    resolved input equal (LOCATION_KEYS). Raises what `located_gap` names, with the table, otherwise."""
+    exc = located_gap(report)
+    if exc is not None:
+        failing = [r for r in report.rows if not r.ok or r.differing]
+        where = sorted(set().union(*(r.differing for r in failing))) if failing else ["no rows"]
+        raise exc(f"production != the backtest walk on the same inputs ({exc.__name__}: {len(failing)} of "
+                  f"{len(report.rows)} rows; differs at {', '.join(where)})\n" + report.table())
 
 
 # ------------------------------------------------------- the context gap --
@@ -273,8 +396,8 @@ class GapReport:
                f"is not production's stored context -> {'PASS' if self.passed else 'FAIL'}",
                f"{'match':>5}  {'production stored g/b':<24}  {'walk deflation g/b, forecast g/b':<40}"]
         for r in self.rows:
-            fs = "/".join(f"{x:.6f}" for x in r.stored) if r.stored else "-"
-            fw = "/".join(f"{x:.6f}" for x in r.walk) if r.walk else "-"
+            fs = _legs(r.stored, ".6f") if r.stored else "-"
+            fw = _legs(r.walk, ".6f") if r.walk else "-"
             out.append(f"{r.match_id:>5}  {fs:<24}  {fw:<40}")
         return "\n".join(out)
 
@@ -335,7 +458,12 @@ def normalisation_line(name: str, n: dict) -> str:
 
 def assert_self_consistent(name: str, n: dict) -> None:
     """TEST (c)'S ASSERTION: the implied total equals 2g and the implied ratio b/(2−b), within 1e-9. Raises
-    NormalisationLean otherwise."""
+    NormalisationLean otherwise. A non-finite figure raises NonFiniteNormalisation first (a hard failure that v22's
+    xfail does not accept), since NaN compares false and would otherwise pass."""
+    bad = sorted(k for k, v in n.items() if isinstance(v, (int, float)) and not math.isfinite(v))
+    if bad:
+        raise NonFiniteNormalisation(f"non-finite normalisation figures {bad}: g {n.get('g')!r} b {n.get('b')!r} "
+                                     f"home {n.get('home')!r} away {n.get('away')!r}")
     if abs(n["model_total"] - n["context_total"]) > 1e-9 or abs(n["model_ratio"] - n["context_ratio"]) > 1e-9:
         raise NormalisationLean("average teams do not price at the context's own rates\n" + normalisation_line(name, n))
 
@@ -477,6 +605,97 @@ def seed_v22_shape_store(code: str, season: str) -> dict:
     return {"teams": tid, "average_matches": ids[:n], "targets": ids[n:], "average_row": ids[n]}
 
 
+# THE PINS' STORE VARIANTS (ARCHITECT 2026-11-04 13:20 ET, addendum 253 item 2(b)): each pin seeds ONE of these on its
+# OWN fresh store, on top of seed_v22_shape_store. Test (a)'s store is never seeded with any of them: its scope's
+# precondition is no prior season, no factor rows and unique kickoffs (253 item 2(a)).
+
+#: The prior season's first kickoff: a year before START, so all of its 60 matches finish before (a)'s season.
+PRIOR_SEASON_START = START - timedelta(days=365)
+#: The team index the factor rows are seeded for: TARGETS[2]'s home side.
+FACTOR_TEAM = 1
+#: Its eleven regulars (three earlier confirmed XIs) and the newcomer who replaces REGULARS[-1] in the target's XI.
+REGULARS = tuple(f"Parity Regular {i}" for i in range(11))
+NEWCOMER = "Parity Newcomer"
+
+
+def seed_prior_season(code: str, prior_season: str, teams) -> list:
+    """THE PRIOR-SEASON ELO PIN's variant: a season of the same competition before (a)'s, 60 FINISHED matches (two
+    double round robins of the same six teams, kickoffs PRIOR_SEASON_START + i × STEP, all before START), the
+    lower-numbered team winning every one 2-1 at either venue (an Elo ladder, so the ratings production carries into
+    the next season are not the walk's fresh 1500s). Returns the ids."""
+    from sqlalchemy import select
+    from src.db.database import session_scope
+    from src.db.schema import Competition, Match, MatchStatus, Sport
+
+    require_tmp_store()
+    rng = random.Random(253)
+    fixtures = []
+    for _ in range(DOUBLE_ROUND_ROBINS):
+        block = [(h, a) for h in range(N_TEAMS) for a in range(N_TEAMS) if h != a]
+        rng.shuffle(block)
+        fixtures += block
+    with session_scope() as s:
+        comp = s.execute(select(Competition).where(Competition.code == code)).scalar_one()
+        rows = [Match(sport=Sport.SOCCER, competition_id=comp.id, season=prior_season,
+                      utc_date=PRIOR_SEASON_START + i * STEP, status=MatchStatus.FINISHED,
+                      home_team_id=teams[h], away_team_id=teams[a],
+                      home_score=2 if h < a else 1, away_score=1 if h < a else 2)
+                for i, (h, a) in enumerate(fixtures)]
+        s.add_all(rows)
+        s.flush()
+        if max(m.utc_date for m in rows) >= START:
+            raise AssertionError("the prior season must finish before START")
+        return [m.id for m in rows]
+
+
+def seed_match_factors(target_id: int, teams) -> dict:
+    """THE MATCH FACTORS PIN's variant, for team FACTOR_TEAM (the target's home side):
+      * one Injury row: an Attacker, fixture_source_id None, refreshed the day before the target's kickoff;
+      * three confirmed XIs of the same eleven REGULARS on its three earliest matches (rows before the walk's
+        min_prior, never scored), each refreshed 20 minutes before its kickoff;
+      * a confirmed XI for the target with REGULARS[-1] dropped for NEWCOMER, refreshed 20 minutes before it.
+    Synthetic rows in a synthetic store are allowed (addendum 253 item 2(b): 216 item 4's "historical injuries are
+    never manufactured" governs a real backtest's inputs, not a test's fixtures). Returns the ids."""
+    from sqlalchemy import or_, select
+    from src.db.database import session_scope
+    from src.db.schema import Injury, Lineup, Match
+
+    require_tmp_store()
+    team = teams[FACTOR_TEAM]
+    with session_scope() as s:
+        target = s.get(Match, target_id)
+        if target.home_team_id != team:
+            raise AssertionError(f"match {target_id}'s home side is not team {FACTOR_TEAM}")
+        earlier = list(s.execute(select(Match).where(
+            Match.competition_id == target.competition_id, Match.season == target.season,
+            or_(Match.home_team_id == team, Match.away_team_id == team)).order_by(Match.utc_date).limit(3)).scalars())
+        injury = Injury(team_id=team, player_name="Parity Striker", player_position="Attacker", reason="Knee Injury",
+                        type="Missing Fixture", fixture_source_id=None, source="synthetic",
+                        refreshed_at=target.utc_date - timedelta(days=1))
+        lineups = [Lineup(match_id=m.id, team_id=team, kind="confirmed", is_starter=True, player_name=name,
+                          source="synthetic", refreshed_at=m.utc_date - timedelta(minutes=20))
+                   for m in earlier for name in REGULARS]
+        lineups += [Lineup(match_id=target.id, team_id=team, kind="confirmed", is_starter=True, player_name=name,
+                           source="synthetic", refreshed_at=target.utc_date - timedelta(minutes=20))
+                    for name in REGULARS[:-1] + (NEWCOMER,)]
+        s.add(injury)
+        s.add_all(lineups)
+        s.flush()
+        return {"injury": injury.id, "xi_matches": [m.id for m in earlier], "target": target.id,
+                "lineups": [ln.id for ln in lineups]}
+
+
+def share_kickoff(match_id: int, with_match_id: int) -> None:
+    """THE SIMULTANEOUS KICKOFFS PIN's variant: `match_id` kicks off at `with_match_id`'s kickoff (a pair of fixtures
+    sharing a kickoff; on the pin's pair the teams are disjoint, a real calendar's shape)."""
+    from src.db.database import session_scope
+    from src.db.schema import Match
+
+    require_tmp_store()
+    with session_scope() as s:
+        s.get(Match, match_id).utc_date = s.get(Match, with_match_id).utc_date
+
+
 @contextmanager
 def at_instant(code: str, season: str, match_id: int):
     """The store as it stood at `match_id`'s kickoff: it and EVERY soccer match kicking off at or after it, whatever
@@ -513,6 +732,21 @@ def kickoff_order(match_ids) -> list:
     with session_scope() as s:
         kick = dict(s.execute(select(Match.id, Match.utc_date).where(Match.id.in_(list(match_ids)))).all())
     return sorted(match_ids, key=lambda i: (kick[i], i))
+
+
+def shared_kickoffs(code: str, season: str, match_ids) -> frozenset:
+    """The ids among `match_ids` whose kickoff another match of the competition-season shares (the walk's own rows:
+    the simultaneous kickoffs pin's location)."""
+    from collections import Counter
+    from sqlalchemy import select
+    from src.db.database import session_scope
+    from src.db.schema import Competition, Match
+    with session_scope() as s:
+        comp = s.execute(select(Competition).where(Competition.code == code)).scalar_one()
+        kick = dict(s.execute(select(Match.id, Match.utc_date).where(Match.competition_id == comp.id,
+                                                                      Match.season == season)).all())
+    count = Counter(kick.values())
+    return frozenset(i for i in match_ids if i in kick and count[kick[i]] > 1)
 
 
 # ------------------------------------------------------------- the paths --
@@ -564,10 +798,11 @@ def run_parity(paths: SoccerPaths, code: str, season: str, targets=None) -> Pari
         injected[mid] = (g, b)
         if mid in walks[(g, b)]:
             injected_rows[mid] = walks[(g, b)][mid]
+    same = shared_kickoffs(code, season, order)
     return ParityRun(paths.name,
-                     compare(paths.name, production, injected_rows, order),
+                     compare(paths.name, production, injected_rows, order, same),
                      context_gap(paths.name, production, default_rows, order),
-                     compare(paths.name + " [default walk]", production, default_rows, order),
+                     compare(paths.name + " [default walk]", production, default_rows, order, same),
                      injected)
 
 
@@ -629,10 +864,11 @@ def v22_production(code: str, season: str, match_id: int, context_override=None)
     return row
 
 
-def v22_walk(code: str, season: str, context=None) -> dict:
+def v22_walk(code: str, season: str, context=None, batch_same_kickoff: bool = False) -> dict:
     """v22's replay: run_soccer_backtest as soccer-backtest's plain report calls it; `context` None = that call
     exactly (the gate's walk, the dataclass default context), else the context every row is deflated and priced
-    with."""
+    with. `batch_same_kickoff` True is the simultaneous kickoffs pin's positive control only (the walk's batched mode,
+    soccer_backtest.py:228-234); False (v22's walk) passes nothing, as soccer-backtest's plain report does."""
     import cli
     from src.walters import soccer_backtest as sb
 
@@ -640,6 +876,8 @@ def v22_walk(code: str, season: str, context=None) -> dict:
     rho = prod[1] if prod else 0.0
     coeff = prod[2] if prod else None
     kw = {} if context is None else {"context": context}
+    if batch_same_kickoff:
+        kw["batch_same_kickoff"] = True
     with recording(sb) as events:
         results = sb.run_soccer_backtest(code, season, WALK_MIN_PRIOR, dixon_coles_rho=rho, elo_goal_coeff=coeff,
                                          detail=True, **kw) or []
@@ -692,6 +930,17 @@ def _v22_production_walk_context(code, season, match_id):
 #: one on this store: (b) passes for it, and (a) with it.
 V22_WALK_CONTEXT_CONTROL = SoccerPaths("control: v22 production priced with the walk's context",
                                        _v22_production_walk_context, v22_walk, v22_implied)
+
+
+def _v22_walk_batched(code, season, context=None):
+    return v22_walk(code, season, context=context, batch_same_kickoff=True)
+
+
+#: THE POSITIVE CONTROL for the simultaneous kickoffs pin (not a predictor): v22's production against the walk in its
+#: batched mode (batch_same_kickoff=True, soccer_backtest.py:228-234: every fixture sharing a kickoff predicted from
+#: the same state), which is how production's instant sees a shared kickoff: (a)'s comparison passes for it.
+V22_BATCHED_WALK_CONTROL = SoccerPaths("control: v22 production vs the walk batched by kickoff",
+                                       v22_production, _v22_walk_batched, v22_implied)
 
 
 def data_rate_implied(g: float, b: float) -> dict:

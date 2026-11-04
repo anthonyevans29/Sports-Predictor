@@ -13,15 +13,30 @@ red (xpass) the day the two paths agree, which is the successor's obligation, an
 docstring so nobody "fixes" it by reading the stored context into the walk. (c) THE NORMALISATION PIN, 249 item 1(b),
 unchanged: strict xfail on v22 with its positive control."
 
-WHAT THIS FILE HOLDS:
-  (a) test_a_parity_production_equals_the_walk_with_production_s_context_injected, over soccer_parity.PREDICTORS, NO
-      mark: v22 passes on all 23 rows at 0.
+253 item 2(a) (ARCHITECT 2026-11-04 13:20 ET, verbatim): "THE PARITY TEST'S SCOPE IS DECLARED, in its docstring, its
+name and the PR body: "same inputs, shared path" — production and the walk given the SAME context, the SAME Elo state,
+the SAME history and NO factor inputs produce the SAME probabilities, row for row. It pins the shared computation (Elo
+update, estimate_strengths, Poisson, Dixon-Coles) and nothing else; it passes on v22 and fails on a real divergence in
+that path. Nobody may read it as "production equals the walk"; the pins below say where it does not."
+
+WHAT THIS FILE HOLDS: ONE passing parity test and FIVE strict xfails on v22 (253 item 2(c): "parity where parity is
+claimed, a named pin for each place it is not"):
+  (a) test_a_same_inputs_shared_path_production_equals_the_walk_with_one_context_one_elo_one_history_no_factors, over
+      soccer_parity.PREDICTORS, NO mark: v22 passes on all 23 rows at 0, on (a)'s store (no prior season, no factor
+      rows, unique kickoffs: the scope's precondition).
   (b) test_b_context_gap_the_walk_s_effective_context_is_production_s_stored_context, over PREDICTORS: v22 a STRICT
       xfail that only ContextGap satisfies; a successor takes no mark. Its positive control passes.
   (c) test_c_normalisation_average_teams_price_at_the_context_s_own_rates, over PREDICTORS: v22 a STRICT xfail that
       only NormalisationLean satisfies; its positive control (predict_match at the data's rates) passes.
-  Beside them: the marks pinned (only v22, only (b) and (c), strict, the specific failure type); receipts (the store's
-  shape, the gap's size on the default walk, 216's equations on the average row, 249's figures); the harness's units.
+  THE THREE LOCATED PINS (253 item 2(b)), over PREDICTORS, each on its OWN seeded store and under (a)'s comparison,
+  v22 a STRICT xfail that only its own gap satisfies (any other failure is red):
+      test_pin_prior_season_elo_..., EloStateGap (#788's "Elo state" row);
+      test_pin_match_factors_..., FactorGap (#788's "match factors" row);
+      test_pin_simultaneous_kickoffs_..., KickoffBatchingGap (a NEW ROW on #788, 253 item 2(b)); its positive control
+      (the walk batched by kickoff) passes.
+  Beside them: the marks pinned (only v22, only the five pins, strict, each its own failure type); receipts (the
+  store's shape, (a)'s precondition, the gap's size on the default walk, 216's equations on the average row, 249's
+  figures, each pin's figures); the harness's units.
 """
 from __future__ import annotations
 
@@ -57,6 +72,26 @@ KNOWN_NORMALISATION_LEAN = {
     P.V22.name: ("v22 on main: 216's lean, estimate_strengths deflates home goals by b and divides by the undeflated g "
                  "(addendum 249 item 1(b); Refs #786); v22 does not change"),
 }
+#: The three located pins' known gaps (addendum 253 item 2(b)): v22 only. A successor takes no entry: v23's design PR
+#: shows each row identical BY CONSTRUCTION (253 item 2(d)).
+KNOWN_ELO_STATE_GAP = {
+    P.V22.name: ("v22 on main: production trains Elo on every finished soccer match with per-team season regression; "
+                 "the walk starts each competition-season at a fresh EloState (#788 Elo state; addendum 253 item 2(b))"),
+}
+KNOWN_FACTOR_GAP = {
+    P.V22.name: ("v22 on main: production composes injury x lineup x XI into factor_adjustment; the walk passes none "
+                 "(#788 match factors; addendum 253 item 2(b))"),
+}
+KNOWN_KICKOFF_BATCHING_GAP = {
+    P.V22.name: ("v22 on main: production's instant hides every match at or after the target kickoff; the walk with "
+                 "batch_same_kickoff=False updates between same-kickoff rows (a new row on #788; addendum 253 item "
+                 "2(b))"),
+}
+#: The prior-season Elo pin's earlier season of the same competition (before SEASON).
+PRIOR_SEASON = "2092/93"
+#: The located pins' figures on v22 (2026-11-04, Python 3.12.3; receipts, each pin's docstring prints them).
+PIN_ELO_MAX_DP = 3.481158e-02             # 23 of 23 rows, at home_elo / away_elo
+PIN_FACTOR_MAX_DP = 3.486242e-02          # 7 of 23 rows, at the factor (the target's, injury x lineup)
 
 
 @pytest.fixture(scope="module")
@@ -73,6 +108,53 @@ def world(tmp_path_factory):
 
     yield ids, run
     mp.undo()
+
+
+def _variant(tmp_path_factory, name, seed, controls=()):
+    """A located pin's OWN store (never (a)'s): seed_v22_shape_store, then `seed(ids)`; every predictor's run (and the
+    controls') is computed here and the binding undone before any test reads them, so the module's other stores stay
+    bound as they were. Returns (ids, what the seed returned, {paths.name: ParityRun})."""
+    mp = pytest.MonkeyPatch()
+    try:
+        P.fresh_store(tmp_path_factory.mktemp(name) / "store.db", mp)
+        ids = P.seed_v22_shape_store(CODE, SEASON)
+        seeded = seed(ids)
+        runs = {paths.name: P.run_parity(paths, CODE, SEASON) for paths in P.PREDICTORS + tuple(controls)}
+        from sqlalchemy import select
+        from src.db.database import session_scope
+        from src.db.schema import Injury, Match
+        with session_scope() as s:                       # what the receipts read, read while the store is bound
+            ms = s.execute(select(Match.id, Match.utc_date, Match.home_team_id, Match.away_team_id)).all()
+            ids = {**ids, "kickoffs": {m[0]: m[1] for m in ms}, "sides": {m[0]: (m[2], m[3]) for m in ms},
+                   "injury_refreshed_at": [i.refreshed_at for i in s.execute(select(Injury)).scalars()]}
+    finally:
+        mp.undo()
+    return ids, seeded, runs
+
+
+@pytest.fixture(scope="module")
+def elo_world(tmp_path_factory):
+    """THE PRIOR-SEASON ELO PIN's store: (a)'s store plus a prior season of the same competition (seed_prior_season)."""
+    return _variant(tmp_path_factory, "parity-prior-season",
+                    lambda ids: P.seed_prior_season(CODE, PRIOR_SEASON, ids["teams"]))
+
+
+@pytest.fixture(scope="module")
+def factor_world(tmp_path_factory):
+    """THE MATCH FACTORS PIN's store: (a)'s store plus an injury row and confirmed lineups for team 1, the home side of
+    the third target (seed_match_factors)."""
+    return _variant(tmp_path_factory, "parity-factors",
+                    lambda ids: P.seed_match_factors(ids["targets"][2], ids["teams"]))
+
+
+@pytest.fixture(scope="module")
+def kickoff_world(tmp_path_factory):
+    """THE SIMULTANEOUS KICKOFFS PIN's store: (a)'s store with the third target moved onto the second's kickoff
+    (share_kickoff; disjoint teams); its positive control's run (the walk batched by kickoff) beside it."""
+    def seed(ids):
+        P.share_kickoff(ids["targets"][2], ids["targets"][1])
+        return (ids["targets"][1], ids["targets"][2])
+    return _variant(tmp_path_factory, "parity-kickoffs", seed, controls=(P.V22_BATCHED_WALK_CONTROL,))
 
 
 def _elo_mult(inputs) -> float:
@@ -96,18 +178,32 @@ def _params(known: dict, raises):
 # ------------------------------------------------------------------ (a) --
 
 @pytest.mark.parametrize("paths", _params({}, None))
-def test_a_parity_production_equals_the_walk_with_production_s_context_injected(world, paths):
-    """TEST (a), THE PARITY TEST, the context INJECTED (251 item 2(a)), NO xfail: for every row the default walk
-    scores, production at the row's instant (the real training, the real pricing) against the walk run with the
-    stored context production read at that instant: equal within 1e-12, row for row, every resolved input equal. It
-    PASSES on v22: the shared path (Elo, estimate_strengths, Poisson, Dixon-Coles) reproduces its gate. It fails the
-    day a real replay/live divergence appears."""
+def test_a_same_inputs_shared_path_production_equals_the_walk_with_one_context_one_elo_one_history_no_factors(world,
+                                                                                                             paths):
+    """TEST (a), THE PARITY TEST, its scope DECLARED (addendum 253 item 2(a)): "same inputs, shared path" — production
+    and the walk given the SAME context, the SAME Elo state, the SAME history and NO factor inputs produce the SAME
+    probabilities, row for row.
+
+    It pins the shared computation (Elo update, estimate_strengths, Poisson, Dixon-Coles) and nothing else; it passes
+    on v22 and fails on a real divergence in that path. Nobody may read it as "production equals the walk"; the five
+    pins say where it does not: (b) the context, (c) the normalisation, and the three located pins of 253 item 2(b)
+    (prior-season Elo, match factors, simultaneous kickoffs).
+
+    HOW (251 item 2(a), NO xfail): for every row the default walk scores, production at the row's instant (the real
+    training, the real pricing) against the walk run with the stored context production read at that instant (the
+    SAME context, injected): equal within 1e-12, row for row, AND every resolved input equal
+    (`assert_same_inputs_parity`; a differing Elo, history or factor fails it, located).
+
+    THE SCOPE'S PRECONDITION, the store it runs on (seed_v22_shape_store, kept exactly as it is): ONE season (no prior
+    season, so the Elo state is the same), NO injury or lineup rows (no factor inputs) and UNIQUE kickoffs (the same
+    history); test_a_the_store_meets_the_scope_s_precondition checks it. The pins seed each of those on their own
+    stores."""
     ids, run = world
     r = run(paths)
     print("\n" + r.parity.table())
     print(f"INJECTED contexts: {len(set(r.injected.values()))} distinct over {len(r.injected)} rows; average row "
           f"{ids['average_row']}: g/b {'/'.join(f'{x:.6f}' for x in r.injected.get(ids['average_row'], ()))}")
-    P.assert_parity(r.parity)
+    P.assert_same_inputs_parity(r.parity)
     assert all(row.differing == () for row in r.parity.rows)
     for row in r.parity.rows:                     # production priced with exactly the context it stored
         p = row.production.inputs
@@ -123,6 +219,24 @@ def test_a_v22_passes_on_every_row_at_zero(world):
     worst = max(row.max_abs_diff for row in r.parity.rows)
     print(f"\nV22 (a): 23 rows, max |dp| {worst:.3e}")
     assert worst == 0.0
+
+
+def test_a_the_store_meets_the_scope_s_precondition(world):
+    """(a)'s scope's precondition on its store (253 item 2(a)): one season of the competition (no prior season), no
+    injury or lineup rows (no factor inputs), every kickoff unique (no simultaneous kickoffs), so the report's
+    same-kickoff set is empty."""
+    from sqlalchemy import func, select
+    from src.db.database import session_scope
+    from src.db.schema import Injury, Lineup, Match
+    ids, run = world
+    with session_scope() as s:
+        seasons = set(s.execute(select(Match.season)).scalars())
+        kicks = list(s.execute(select(Match.utc_date)).scalars())
+        n_inj = s.execute(select(func.count()).select_from(Injury)).scalar_one()
+        n_lu = s.execute(select(func.count()).select_from(Lineup)).scalar_one()
+    assert seasons == {SEASON} and len(kicks) == 63 and len(set(kicks)) == 63
+    assert n_inj == n_lu == 0
+    assert run(P.V22).parity.same_kickoff == frozenset()
 
 
 # ------------------------------------------------------------------ (b) --
@@ -245,22 +359,294 @@ def test_c_v22_s_figures_are_249_s_a_receipt():
         P.assert_self_consistent(P.V22.name, n)
 
 
+# ------------------------------------------------- the three located pins --
+# ARCHITECT 2026-11-04 13:20 ET, addendum 253 item 2(b): "THREE MORE STRICT-XFAIL PINS, one per finding, each SEEDED so
+# the gap shows, each red (xpass) the day its gap closes, each carrying in its docstring the probe's figures (rows
+# affected, the size of the gap, the cause by file and line) and the #788 row it pins". Each runs (a)'s comparison
+# (assert_same_inputs_parity) on its own store; v22's strict xfail accepts its own gap only.
+
+def _pin_figures(report):
+    failing = [r for r in report.rows if not r.ok or r.differing]
+    dps = [r.max_abs_diff for r in report.rows if r.max_abs_diff is not None]
+    where = sorted(set().union(*(r.differing for r in failing))) if failing else []
+    return failing, max(dps) if dps else None, where
+
+
+def _print_pin(label, report):
+    """Prints a pin's table and its one-line figures; never raises on them. With no row carrying a numeric max |dp|
+    (every row malformed), the figure prints as "-": a crash here would hide the ParityFailure the pin then raises
+    (Codex on #828: the same bug class as ParityReport.table()'s)."""
+    failing, worst, where = _pin_figures(report)
+    print("\n" + report.table())
+    print(f"PIN {label}: {len(failing)} of {len(report.rows)} rows differ; outside 1e-12 on H/D/A "
+          f"{len(report.failing)}; max |dp| {'-' if worst is None else f'{worst:.3e}'}; differs at "
+          f"{', '.join(where) or 'none'}; located "
+          f"{getattr(P.located_gap(report), '__name__', 'none (passes)')}")
+
+
+@pytest.mark.parametrize("paths", _params(KNOWN_ELO_STATE_GAP, P.EloStateGap))
+def test_pin_prior_season_elo_production_equals_the_walk_on_a_two_season_store(elo_world, paths):
+    """THE PRIOR-SEASON ELO PIN (addendum 253 item 2(b); #788's "Elo state" row), (a)'s comparison on a store with
+    TWO seasons: (a)'s store plus a prior season of the same competition (PRIOR_SEASON, 60 FINISHED, the lower-numbered
+    team winning every one 2-1: an Elo ladder; soccer_parity.seed_prior_season). A STRICT xfail on v22 that only
+    EloStateGap satisfies; it turns red (xpass) the day production and the walk carry the same Elo state across the
+    season boundary.
+
+    THE FIGURES (v22, this store, Python 3.12.3): 23 of 23 rows differ, all 23 outside 1e-12; max |dp| 3.481e-02;
+    located at home_elo and away_elo alone (history, factor and the injected context equal). The #828 probe's case A
+    (a prior season of its own seeding) measured 23 / 23 at 4.685e-02, located at the same two inputs; the size
+    follows the seeded ladder, the rows and the location do not.
+
+    THE CAUSE, both paths:
+      * production: src/walters/training.py:152 `_load_finished_matches` (every FINISHED soccer match, every season and
+        competition), :177 the Elo stream's season key `<code>:<season>`, :182 `train_elo(...)`, which regresses each
+        team toward the mean when its own season changes (src/models/elo.py:199-201, `regress_team` at :136): the
+        regressed prior-season Elo is carried into season two;
+      * the walk: src/walters/soccer_backtest.py:194-195 (`Match.season == season`: one season only) and :212
+        (`EloState(config=EloConfig())`: every team at a fresh 1500): season two starts fresh.
+    """
+    _, _, runs = elo_world
+    r = runs[paths.name]
+    _print_pin("prior-season Elo " + paths.name, r.parity)
+    P.assert_same_inputs_parity(r.parity)
+
+
+@pytest.mark.parametrize("paths", _params(KNOWN_FACTOR_GAP, P.FactorGap))
+def test_pin_match_factors_production_equals_the_walk_with_an_injury_and_a_lineup_row(factor_world, paths):
+    """THE MATCH FACTORS PIN (addendum 253 item 2(b); #788's "match factors" row), (a)'s comparison on a store with an
+    injury row and a lineup row for a target fixture: (a)'s store plus, for team 1 (the home side of the third target),
+    one Injury row (an Attacker, fixture_source_id None) and confirmed XIs (three earlier XIs of eleven regulars; the
+    target's XI drops one regular) (soccer_parity.seed_match_factors). A STRICT xfail on v22 that only FactorGap
+    satisfies; it turns red (xpass) the day both paths price the same factor inputs.
+
+    SYNTHETIC ROWS (addendum 253 item 2(b), verbatim): "Synthetic rows in the synthetic store are allowed — 216 item 4's
+    "historical injuries are never manufactured" governs a real backtest's inputs, not a test's fixtures, and the
+    docstring says so."
+
+    THE FIGURES (v22, this store, Python 3.12.3): 7 of 23 rows differ (every scored row team 1 plays), all 7 outside
+    1e-12; max |dp| 3.486e-02 (the target); located at the factor alone (Elo, history and context equal). On the target
+    the factor is injury x lineup, 0.94 x 0.97 = 0.9118 on team 1's side; on team 1's other six rows the injury alone
+    (0.94 on its side), all six priced before the injury row's own refreshed_at. Seeded one at a time on this
+    store they reproduce the #828 probe exactly: the injury alone (case B1) 7 / 23 at 2.403e-02, the lineup alone
+    (case B2) 1 / 23 at 1.173e-02.
+
+    THE CAUSE, both paths:
+      * production: src/walters/training.py:569 reads EVERY Injury row (no as-of filter: the row reaches team 1's rows
+        priced before its own refreshed_at), :578-586 the lineup kinds, :596-600 the starters per match, :606-627 the
+        recent-XI frequency (ordered by refreshed_at, not as-of), :795 `injury_adjustment`, :799 `lineup_adjustment`,
+        :858 `inj_factor.combine(lu_factor).combine(xi_factor)`, :867 `factor_adjustment=factor`;
+      * the walk: src/walters/soccer_backtest.py:259-264 calls `predict_match` with no factor_adjustment: it
+        reconstructs none.
+    """
+    _, _, runs = factor_world
+    r = runs[paths.name]
+    _print_pin("match factors " + paths.name, r.parity)
+    P.assert_same_inputs_parity(r.parity)
+
+
+@pytest.mark.parametrize("paths", _params(KNOWN_KICKOFF_BATCHING_GAP, P.KickoffBatchingGap))
+def test_pin_simultaneous_kickoffs_production_equals_the_walk_on_a_shared_kickoff(kickoff_world, paths):
+    """THE SIMULTANEOUS KICKOFFS PIN (addendum 253 item 2(b); a NEW ROW on #788 per addendum 253 item 2(b)), (a)'s
+    comparison on a store where a pair of fixtures shares a kickoff after min_prior: (a)'s store with the third target
+    (teams 1 v 4) moved onto the second's kickoff (teams 3 v 5; disjoint teams, a real calendar's shape;
+    soccer_parity.share_kickoff), the walk at its default batch_same_kickoff=False, as the gate runs it. A STRICT
+    xfail on v22 that only KickoffBatchingGap satisfies; it turns red (xpass) the day both paths price a shared
+    kickoff from the same state. Its positive control (the walk batched by kickoff) passes.
+
+    THE FIGURES (v22, this store, Python 3.12.3): 1 of 23 rows differs (the second row of the pair), 0 outside 1e-12;
+    max |dp| 0.000e+00; located at the history on that row (the walk's prior holds the first row of the pair,
+    production's does not). The probabilities stay equal because the teams are disjoint and the context is injected;
+    the differing-input half of (a)'s comparison fails, and that is the gap. The probe's case C1 measured the same:
+    0 rows outside 1e-12, |dp| 0, history on row 63.
+
+    THE CAUSE, both paths:
+      * production: tests/soccer_parity.py:716, `at_instant`'s `Match.utc_date >= kick`, hides every match at or after
+        the target kickoff, the instant production's training reads (src/walters/training.py:152 reads what is
+        FINISHED): both rows of the pair are priced from the same state;
+      * the walk: src/walters/soccer_backtest.py:228-236 (batch_same_kickoff False: one row per group) and :294-302
+        (Elo and the prior updated after each group): the first row of the pair is in the second's prior. The
+        harness's v22_walk passes no batch_same_kickoff (tests/soccer_parity.py:882, as soccer-backtest's plain report
+        calls the walk).
+    """
+    _, _, runs = kickoff_world
+    r = runs[paths.name]
+    _print_pin("simultaneous kickoffs " + paths.name, r.parity)
+    P.assert_same_inputs_parity(r.parity)
+
+
+def test_pin_prior_season_elo_v22_s_figures_a_receipt(elo_world):
+    """What the prior-season Elo pin's xfail stands on, on v22 (a receipt): located at the Elo ratings alone."""
+    _, prior, runs = elo_world
+    r = runs[P.V22.name].parity
+    failing, worst, where = _pin_figures(r)
+    _print_pin("prior-season Elo receipt", r)
+    assert len(prior) == 60 and len(r.rows) == 23
+    assert P.located_gap(r) is P.EloStateGap
+    with pytest.raises(P.EloStateGap):
+        P.assert_same_inputs_parity(r)
+    assert len(failing) == len(r.failing) == 23
+    assert set(where) == P.ELO_KEYS
+    for row in r.rows:
+        p, w = row.production.inputs, row.walk.inputs
+        assert p["history"] == w["history"] and p["factor"] == w["factor"] == (1.0, 1.0)
+        assert (p["forecast_g"], p["forecast_b"]) == (w["forecast_g"], w["forecast_b"])
+    first = r.rows[0]
+    print(f"ELO RECEIPT: max |dp| {worst:.6e}; first row {first.match_id}: production Elo "
+          f"{first.production.inputs['home_elo']:.3f}/{first.production.inputs['away_elo']:.3f}, the walk's "
+          f"{first.walk.inputs['home_elo']:.3f}/{first.walk.inputs['away_elo']:.3f}")
+    assert worst == pytest.approx(PIN_ELO_MAX_DP, abs=1e-8)
+
+
+def test_pin_match_factors_v22_s_figures_a_receipt(factor_world):
+    """What the match factors pin's xfail stands on, on v22 (a receipt): located at the factor alone, on every scored
+    row team 1 plays and no other; the XIs' own matches are never scored; the target carries injury x lineup, the other
+    six the injury alone, every one of them priced before the injury row's refreshed_at (production's read is not
+    as-of)."""
+    ids, seeded, runs = factor_world
+    r = runs[P.V22.name].parity
+    failing, worst, where = _pin_figures(r)
+    _print_pin("match factors receipt", r)
+    assert P.located_gap(r) is P.FactorGap
+    with pytest.raises(P.FactorGap):
+        P.assert_same_inputs_parity(r)
+    assert where == ["factor"] and not set(seeded["xi_matches"]) & {row.match_id for row in r.rows}
+    team = ids["teams"][P.FACTOR_TEAM]
+    assert {row.match_id for row in failing} == {row.match_id for row in r.rows if team in ids["sides"][row.match_id]}
+    assert len(failing) == len(r.failing) == 7
+    for row in failing:
+        p, w = row.production.inputs, row.walk.inputs
+        assert w["factor"] == (1.0, 1.0) and p["home_elo"] == w["home_elo"] and p["history"] == w["history"]
+    target = r.row(seeded["target"])
+    assert target.production.inputs["factor"] == pytest.approx((0.94 * 0.97, 1.0), abs=1e-12)
+    others = [row for row in failing if row.match_id != target.match_id]
+    (refreshed,) = ids["injury_refreshed_at"]
+    for row in others:
+        home, _ = ids["sides"][row.match_id]
+        assert row.production.inputs["factor"] == ((0.94, 1.0) if home == team else (1.0, 0.94))
+        assert ids["kickoffs"][row.match_id] < refreshed
+    print(f"FACTOR RECEIPT: {len(failing)} rows; max |dp| {worst:.6e}; target {target.match_id} factor "
+          f"{target.production.inputs['factor']} |dp| {target.max_abs_diff:.6e}; {len(others)} other rows at 0.94, "
+          f"all before the injury's refreshed_at {refreshed}")
+    assert worst == target.max_abs_diff == pytest.approx(PIN_FACTOR_MAX_DP, abs=1e-8)
+
+
+def test_pin_simultaneous_kickoffs_v22_s_figures_a_receipt(kickoff_world):
+    """What the simultaneous kickoffs pin's xfail stands on, on v22 (a receipt): the second row of the pair differs at
+    the history alone with |dp| 0; the pair is the report's only same-kickoff rows."""
+    ids, pair, runs = kickoff_world
+    r = runs[P.V22.name].parity
+    failing, worst, where = _pin_figures(r)
+    _print_pin("simultaneous kickoffs receipt", r)
+    assert r.same_kickoff == frozenset(pair) and len(r.rows) == 23
+    assert P.located_gap(r) is P.KickoffBatchingGap
+    with pytest.raises(P.KickoffBatchingGap):
+        P.assert_same_inputs_parity(r)
+    assert [row.match_id for row in failing] == [pair[1]] and where == ["history"]
+    assert r.passed and worst == 0.0                     # the probabilities equal; the inputs do not
+    from collections import Counter
+    row = r.row(pair[1])
+    extra = Counter(row.walk.inputs["history"]) - Counter(row.production.inputs["history"])
+    assert not Counter(row.production.inputs["history"]) - Counter(row.walk.inputs["history"])
+    (only,) = extra.elements()                           # the walk holds exactly one more result: the pair's first
+    sides = ids["sides"][pair[0]]
+    assert only[:2] == sides and not set(sides) & set(ids["sides"][pair[1]])   # disjoint teams
+    assert ids["kickoffs"][pair[0]] == ids["kickoffs"][pair[1]]
+    print(f"KICKOFF RECEIPT: row {pair[1]}'s walk history holds {only} (row {pair[0]}, same kickoff "
+          f"{ids['kickoffs'][pair[0]]}); production's does not; |dp| {row.max_abs_diff:.3e}")
+
+
+#: The causes the three pins cite by file:line (their docstrings), each with text the cited line holds.
+PIN_CITATIONS = (
+    ("src/walters/training.py", 152, "finished = _load_finished_matches(s, sport)"),
+    ("src/walters/training.py", 177, 'season=f"{m.competition.code}:{m.season}"'),
+    ("src/walters/training.py", 182, "elo_state_league = train_elo(_to_train(league_matches))"),
+    ("src/models/elo.py", 136, "def regress_team("),
+    ("src/models/elo.py", 201, "regress_team(state, tid)"),
+    ("src/walters/soccer_backtest.py", 195, "q = q.where(Match.season == season)"),
+    ("src/walters/soccer_backtest.py", 212, "elo = EloState(config=EloConfig())"),
+    ("src/walters/training.py", 569, "for inj in s.execute(select(Injury)).scalars():"),
+    ("src/walters/training.py", 579, "select(Lineup.match_id, Lineup.team_id, Lineup.kind).distinct()"),
+    ("src/walters/training.py", 597, "select(Lineup).where(Lineup.is_starter == True"),
+    ("src/walters/training.py", 606, "for team_id in upcoming_team_ids:"),
+    ("src/walters/training.py", 614, ".order_by(Lineup.refreshed_at.desc())"),
+    ("src/walters/training.py", 795, "inj_factor = injury_adjustment("),
+    ("src/walters/training.py", 799, "lu_factor = lineup_adjustment("),
+    ("src/walters/training.py", 858, "factor = inj_factor.combine(lu_factor).combine(xi_factor)"),
+    ("src/walters/training.py", 867, "factor_adjustment=factor,"),
+    ("src/walters/soccer_backtest.py", 259, "pred = predict_match("),
+    ("src/walters/soccer_backtest.py", 264, ")"),
+    ("src/walters/soccer_backtest.py", 228, "if batch_same_kickoff:"),
+    ("src/walters/soccer_backtest.py", 236, "groups = [[m] for m in matches]"),
+    ("src/walters/soccer_backtest.py", 295, "# --- AFTER predicting, update Elo + add to prior"),
+    ("src/walters/soccer_backtest.py", 302, "prior.append(m)"),
+    ("tests/soccer_parity.py", 716, "Match.utc_date >= kick"),
+    ("tests/soccer_parity.py", 882, "results = sb.run_soccer_backtest(code, season, WALK_MIN_PRIOR"),
+)
+
+
+def test_the_pins_cite_the_lines_that_hold_their_causes():
+    """Every file:line the three located pins cite holds the code it names (read-before-edit: a moved line fails here,
+    and the pin's docstring is corrected with it)."""
+    import re
+    from pathlib import Path
+    root = Path(__file__).resolve().parent.parent
+    docs = " ".join(" ".join(t.__doc__.split()) for t, _, _ in PINS[2:])
+    spans = [(int(a), int(b or a)) for a, b in re.findall(r":(\d+)(?:-(\d+))?", docs)]
+    for path, line, text in PIN_CITATIONS:
+        held = (root / path).read_text().splitlines()[line - 1]
+        assert text in held, (path, line, held)
+        assert any(a <= line <= b for a, b in spans), (path, line)      # a cited line, or inside a cited range
+
+
+def test_pin_simultaneous_kickoffs_positive_control_the_walk_batched_by_kickoff_passes(kickoff_world):
+    """The simultaneous kickoffs pin's positive control: on the same store, v22's production against the walk with
+    batch_same_kickoff=True (soccer_backtest.py:228-234, every fixture sharing a kickoff predicted from the same state)
+    passes (a)'s comparison on every row. The pin is the batching, nothing else."""
+    _, pair, runs = kickoff_world
+    r = runs[P.V22_BATCHED_WALK_CONTROL.name].parity
+    _print_pin("simultaneous kickoffs control", r)
+    assert len(r.rows) == 23 and r.same_kickoff == frozenset(pair)
+    P.assert_same_inputs_parity(r)
+
+
 # ---------------------------------------------------------------- marks --
 
-def test_the_marks_only_v22_only_b_and_c_strict_on_their_own_failure_types():
-    """(a) carries no mark for any predictor (251 item 2: an xfail over the whole parity test would blind it). (b) and
-    (c) mark v22 only, strict (an XPASS is a CI failure), satisfied only by ContextGap / NormalisationLean (any other
-    exception is red). A successor carries no mark."""
+#: The five pins (253 item 2(c): "ONE passing parity test and FIVE strict xfails"): (test, its known table, the one
+#: failure type its strict xfail on v22 accepts).
+PINS = (
+    (test_b_context_gap_the_walk_s_effective_context_is_production_s_stored_context, KNOWN_CONTEXT_GAP, P.ContextGap),
+    (test_c_normalisation_average_teams_price_at_the_context_s_own_rates, KNOWN_NORMALISATION_LEAN,
+     P.NormalisationLean),
+    (test_pin_prior_season_elo_production_equals_the_walk_on_a_two_season_store, KNOWN_ELO_STATE_GAP, P.EloStateGap),
+    (test_pin_match_factors_production_equals_the_walk_with_an_injury_and_a_lineup_row, KNOWN_FACTOR_GAP, P.FactorGap),
+    (test_pin_simultaneous_kickoffs_production_equals_the_walk_on_a_shared_kickoff, KNOWN_KICKOFF_BATCHING_GAP,
+     P.KickoffBatchingGap),
+)
+
+
+def test_the_marks_only_v22_only_the_five_pins_strict_on_their_own_failure_types():
+    """(a) carries no mark for any predictor (251 item 2: an xfail over the whole parity test would blind it). The five
+    pins ((b), (c) and the three located pins of 253 item 2(b)) mark v22 only, strict (an XPASS is a CI failure), each
+    satisfied only by its own failure type: no pin's type is another's, or a subclass of another's, so any other
+    failure is red. A successor carries no mark."""
     assert P.PREDICTORS[0] is P.V22
-    assert set(KNOWN_CONTEXT_GAP) == set(KNOWN_NORMALISATION_LEAN) == {P.V22.name}
+    assert all(set(known) == {P.V22.name} for _, known, _ in PINS)
     assert all(not p.marks for p in _params({}, None))
-    for known, raises in ((KNOWN_CONTEXT_GAP, P.ContextGap), (KNOWN_NORMALISATION_LEAN, P.NormalisationLean)):
+    for test, known, raises in PINS:
         params = {p.values[0].name: p.marks for p in _params(known, raises)}
         (mark,) = params[P.V22.name]
         assert mark.name == "xfail" and mark.kwargs["strict"] is True and mark.kwargs["raises"] is raises
         assert all(not marks for name, marks in params.items() if name != P.V22.name)
-    for exc in (P.ParityFailure, P.ContextGap, P.NormalisationLean):
-        assert issubclass(exc, AssertionError)
+        (decorated,) = [m for m in test.pytestmark if m.name == "parametrize"]
+        assert [p.marks for p in decorated.args[1]] == [p.marks for p in _params(known, raises)], test.__name__
+    types = [raises for _, _, raises in PINS]
+    assert len(set(types)) == 5
+    for a in types:
+        assert issubclass(a, AssertionError)
+        for b in types:
+            assert a is b or not issubclass(a, b), (a, b)
+    for gap in (P.EloStateGap, P.FactorGap, P.KickoffBatchingGap):     # (a)'s failures, located; ParityFailure is not
+        assert issubclass(gap, P.ParityFailure) and not issubclass(P.ParityFailure, gap)
     assert len({P.ParityFailure, P.ContextGap, P.NormalisationLean}) == 3
     assert not issubclass(P.ContextGap, P.ParityFailure) and not issubclass(P.NormalisationLean, P.ParityFailure)
     assert "never fix this by reading the stored context into the walk (option 2, REJECTED by addendum 251 item 2)" \
@@ -354,6 +740,45 @@ def test_harness_units_tolerance_missing_rows_and_the_location():
         P.assert_parity(off)
 
 
+def test_harness_units_the_located_gaps_each_pin_accepts_its_own_failure_only():
+    """(a)'s comparison (assert_same_inputs_parity) raises a located gap ONLY when every failing row is located at that
+    gap's inputs alone; anything else is plain ParityFailure, which no pin's strict xfail accepts (addendum 253 item
+    2(b): each pin its own failure type)."""
+    good = (0.5, 0.3, 0.2)
+
+    def report(prod_inputs, walk_inputs, same=frozenset(), probs=good, n=1):
+        prod = {i: _row(i, good, **prod_inputs) for i in range(1, n + 1)}
+        walk = {i: _row(i, probs, **walk_inputs) for i in range(1, n + 1)}
+        return P.compare("t", prod, walk, list(range(1, n + 1)), same)
+
+    hist = ((1, 2, 2, 1),)
+    cases = (
+        (report({}, {}), None),
+        (report({"home_elo": 1510.0}, {}, probs=(0.49, 0.3, 0.21)), P.EloStateGap),
+        (report({"home_elo": 1510.0, "away_elo": 1490.0}, {}), P.EloStateGap),
+        (report({"factor": (0.94, 1.0)}, {}, probs=(0.48, 0.3, 0.22)), P.FactorGap),
+        (report({}, {"history": hist}, same=frozenset({1})), P.KickoffBatchingGap),
+        (report({}, {"history": hist}), P.ParityFailure),                       # its own kickoff: not this pin
+        (report({}, {"history": hist}, same=frozenset({1}), n=2), P.ParityFailure),  # row 2 not shared
+        (report({"home_elo": 1510.0, "factor": (0.94, 1.0)}, {}), P.ParityFailure),  # two gaps at once
+        (report({"home_elo": 1510.0}, {"history": hist}, same=frozenset({1})), P.ParityFailure),
+        (report({"deflation_g": 1.4}, {}), P.ParityFailure),                    # the context: (b)'s, not a pin here
+        (report({}, {}, probs=(0.5 + 1e-9, 0.3, 0.2 - 1e-9)), P.ParityFailure),  # outside 1e-12, no input differs
+        (P.compare("t", {1: _row(1, good)}, {}, [1]), P.ParityFailure),         # missing
+        (P.compare("t", {}, {}, []), P.ParityFailure),                          # no rows
+    )
+    for i, (r, expected) in enumerate(cases):
+        assert P.located_gap(r) is expected, (i, P.located_gap(r), expected)
+        if expected is None:
+            P.assert_same_inputs_parity(r)
+            continue
+        with pytest.raises(AssertionError) as caught:
+            P.assert_same_inputs_parity(r)
+        assert type(caught.value) is expected, (i, type(caught.value))
+        for gap in (P.EloStateGap, P.FactorGap, P.KickoffBatchingGap):         # only its own pin's xfail takes it
+            assert isinstance(caught.value, gap) is (gap is expected), (i, gap)
+
+
 def test_harness_units_the_context_gap():
     ctx = dict(deflation_g=1.5, deflation_b=1.2, forecast_g=1.5, forecast_b=1.2)
     prod = _row(1, (0.5, 0.3, 0.2), stored_context=(1.5, 1.2))
@@ -381,6 +806,71 @@ def test_harness_units_the_normalisation():
     assert len(league) == 380
     ctx = P.league_context(league)
     assert (ctx.avg_goals_per_team_per_match, ctx.home_field_goal_boost) == pytest.approx((1.5, 1.2), abs=1e-12)
+
+
+def test_harness_units_a_malformed_probability_vector_fails_its_row():
+    """Codex on #828, round 1: compare() zips the two vectors, so a short or long vector (or a NaN leg, which max()
+    skips past) once passed at a difference of 0. Exactly three finite legs on both paths, or the row fails, named.
+    Review on round 1: the table that names the row must not crash on the vector it names (a None vector or a
+    non-numeric leg once raised TypeError / ValueError out of report.table(), hiding the ParityFailure): a vector is
+    formatted leg by leg only when every leg is a finite number, else printed as its repr."""
+    import re
+    nan, inf, good = float("nan"), float("inf"), (0.5, 0.3, 0.2)
+    for prod, walk, why in (((0.5, 0.3), good, "production has 2 legs, not 3"),
+                            (good, (0.5, 0.3), "walk has 2 legs, not 3"),
+                            ((0.5, 0.3), (0.5, 0.3), "production has 2 legs, not 3"),
+                            ((0.5, 0.3, 0.2, 0.0), good, "production has 4 legs, not 3"),
+                            ((), good, "production has 0 legs, not 3"),
+                            ((0.5, nan, 0.2), good, "production has a non-finite leg"),
+                            (good, (0.5, 0.3, inf), "walk has a non-finite leg"),
+                            (None, good, "production has not a vector (NoneType)"),
+                            (good, None, "walk has not a vector (NoneType)"),
+                            ((0.5, "0.3", 0.2), good, "production has a non-numeric leg"),
+                            (good, (0.5, None, 0.2), "walk has a non-numeric leg")):
+        report = P.compare("t", {7: _row(7, prod)}, {7: _row(7, walk)}, [7])
+        assert not report.passed, (prod, walk)
+        assert report.rows[0].max_abs_diff is None and any(why in d for d in report.rows[0].differing), (prod, walk)
+        table = report.table()                                   # never raises on the vector it names
+        if why.endswith(("(NoneType)", "a non-numeric leg", "a non-finite leg")):
+            assert repr(prod if why.startswith("production") else walk) in table, (prod, walk)
+        with pytest.raises(P.ParityFailure, match=re.escape(why)):
+            P.assert_parity(report)
+        with pytest.raises(P.ParityFailure, match=re.escape(why)):
+            P.assert_same_inputs_parity(report)
+        assert P.located_gap(report) is P.ParityFailure          # a malformed row is never a located gap
+    assert P.compare("t", {7: _row(7, list(good))}, {7: _row(7, good)}, [7]).passed   # three finite legs, any sequence
+
+
+def test_harness_units_a_pin_s_print_never_hides_the_parity_failure_on_an_all_malformed_report(capsys):
+    """Codex on #828: _print_pin once formatted max |dp| with :.3e before the pin asserted anything; on a report with
+    no numeric max |dp| (every row malformed) that raised TypeError and hid the located ParityFailure. It prints "-"
+    and the pin's comparison then raises the ParityFailure, named."""
+    good = (0.5, 0.3, 0.2)
+    report = P.compare("t", {7: _row(7, (0.5, 0.3)), 8: _row(8, None)}, {7: _row(7, good), 8: _row(8, good)}, [7, 8])
+    assert _pin_figures(report)[1] is None
+    _print_pin("all-malformed", report)                          # never raises
+    assert "max |dp| -;" in capsys.readouterr().out
+    with pytest.raises(P.ParityFailure, match="production has 2 legs, not 3") as caught:
+        P.assert_same_inputs_parity(report)
+    assert type(caught.value) is P.ParityFailure                 # not a located gap any pin's xfail accepts
+
+
+def test_harness_units_a_non_finite_normalisation_is_a_hard_failure_not_the_known_lean():
+    """Codex on #828, round 1: NaN compares false, so a NaN figure once passed (c); an infinity raised
+    NormalisationLean, which v22's strict xfail (raises=NormalisationLean) would swallow. A non-finite figure raises
+    NonFiniteNormalisation, which is not a NormalisationLean: pytest's xfail fails any exception that is not an
+    instance of its `raises`, so a NaN from v22 or from a successor is red."""
+    nan, inf = float("nan"), float("inf")
+    for home, away in ((nan, 1.2), (1.8, nan), (inf, 1.2), (1.8, inf), (nan, nan)):
+        n = P.normalisation(lambda g, b, h=home, a=away: {"home": h, "away": a}, 1.5, 1.2)
+        with pytest.raises(AssertionError) as caught:
+            P.assert_self_consistent("t", n)
+        assert type(caught.value).__name__ == "NonFiniteNormalisation", (home, away, type(caught.value))
+        assert not isinstance(caught.value, P.NormalisationLean)
+    (mark,) = [p.marks for p in _params(KNOWN_NORMALISATION_LEAN, P.NormalisationLean)
+               if p.values[0].name == P.V22.name][0]
+    assert not issubclass(P.NonFiniteNormalisation, mark.kwargs["raises"])
+    assert issubclass(P.NonFiniteNormalisation, AssertionError)
 
 
 def test_harness_refuses_a_store_outside_the_temp_directory():

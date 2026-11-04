@@ -171,7 +171,7 @@ def test_the_roadmap_lane_nfl_v2():
     (ln,) = [x for x in doc["lanes"] if x["lane"] == "nfl-v2"]
     assert ln["issue"] == 783                                        # the lane's Issue (no placeholder)
     assert (ln["registry_id"], ln["state"], ln["competitions"], ln["earliest_live"], ln["moved"]) == \
-           (EID, "to declare", ["NFL"], "2026-11-26", [])
+           (EID, "declared", ["NFL"], "2026-11-26", [])
     assert [(s["owner"], s["due"]) for s in ln["steps"]] == [
         ("code", "2026-11-03"), ("operator", "2026-11-04"), ("architect", "2026-11-05"), ("operator", "2026-11-06"),
         ("calendar", "2026-11-23"), ("operator", "2026-11-24"), ("architect", "2026-11-26")]   # 219 item 7
@@ -1048,6 +1048,8 @@ def test_preflight_output_does_not_depend_on_any_2025_outcome(db, ledger, declar
     if declared:
         warmup, _ = nb.split(nb.load_stream())
         declare(ledger, shrink=0.9, fit={"warmup_fingerprint": g.warmup_fingerprint(warmup)[0]})
+    else:
+        declare(ledger, fit=None)                       # the undeclared term (the real entry's before addendum 245)
 
     def out():
         res = CliRunner().invoke(cli.cli, ["nfl-v2-gate", "--preflight"])

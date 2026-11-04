@@ -19,7 +19,7 @@ from src.walters import registry as reg
 
 ROOT = Path(__file__).resolve().parent.parent
 V1, V2 = "nfl-elo-v1", "nfl-elo-v2"
-STAMP = "2026-11-04T13:00:31Z"           # the PR's stamp (245 item 3: "declared_at": "<the PR's stamp>")
+STAMP = "2026-11-04T14:03:09Z"           # the PR's stamp (245 item 3: "declared_at": "<the PR's stamp>")
 WARMUP_FP = "d11ba700990b170ced875088144ad4885506d2cb11e0bd6177ff2a6d1a29c6f0"   # the console's, both tools
 METHOD = ("the h minimizing the 2024 walk's mean log-loss re-run with home_advantage = h, grid 0.0..120.0 step 0.5, "
           "ties to the nearest 48.0")                    # 245 item 3's text (the ruling's wording, not the console's)
@@ -237,4 +237,4 @@ def test_the_lane_nfl_v2s_steps_11_04_and_11_05_are_done_and_the_run_step_stands
                                       "ET); the 11-04 console #783 issuecomment-6631134603"}
     assert ln["steps"][3]["what"] == "the ONE run on my word, my block, the verdict the same day"
     assert all(s["done"] is None for s in ln["steps"][3:])
-    assert (ln["moved"], ln["earliest_live"], ln["state"]) == ([], "2026-11-26", "to declare")
+    assert (ln["moved"], ln["earliest_live"], ln["state"]) == ([], "2026-11-26", "declared")  # addendum 245: the lane advances with its declaration (Codex on #822)

@@ -448,7 +448,7 @@
       "issue": 783,
       "registry_id": "nfl-elo-v2",
       "competitions": ["NFL"],
-      "state": "to declare",
+      "state": "declared",
       "steps": [
         {
           "what": "the harness PR: the candidate entry nfl_elo_v2 with its constants and bar, a one-run gate with the reservation pattern of ncaa-gate (the architect's word, the stream fingerprint, nothing recorded on a refusal; the corrected stream as the fingerprint)",

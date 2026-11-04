@@ -40,12 +40,12 @@ never "production equals the walk": FIVE strict-xfail pins on v22 name where it 
 located pins below).
 
 THE THREE TESTS (`run_parity` gathers what all three read; each has its own assertion and failure type):
-  (a) THE PARITY TEST, the context INJECTED (`ParityRun.parity`, `assert_same_inputs_parity`, raises ParityFailure or
-      a located gap): for every row the default walk scores, the walk is run with production's stored context at
-      that row's instant (`walk(code, season, context=<it>)`) and its row is compared with production's. CRITERION:
-      for every row, max |p_prod − p_walk| over home/draw/away <= TOLERANCE (1e-12) AND every resolved input equal. No
-      average: one row outside fails the report; a row missing from either path fails it; an empty report never
-      passes. v22 PASSES (no xfail).
+  (a) THE PARITY TEST, the context INJECTED (`ParityRun.parity`, `assert_same_inputs_parity`, raises ParityFailure or a
+      located gap): for every row of the store's inventory (`expected_scored`, never a walk's output), the walk is run
+      with production's stored context at that row's instant (`walk(code, season, context=<it>)`) and its row is
+      compared with production's. CRITERION: for every row, max |p_prod − p_walk| over home/draw/away <= TOLERANCE
+      (1e-12) AND every resolved input equal. No average: one row outside, a row missing, or a walk scoring other than
+      the inventory fails it; an empty report never passes. v22 PASSES (no xfail).
   (b) THE CONTEXT-GAP PIN (`ParityRun.context_gap`, `assert_no_context_gap`, raises ContextGap): for every row, the
       DEFAULT walk's effective context (the g and b its estimate_strengths deflated with and its predict_match priced
       with, recorded by the spy) equals production's stored context. v22 is a STRICT xfail (the walk's 1.4 / 1.15
@@ -749,6 +749,34 @@ def shared_kickoffs(code: str, season: str, match_ids) -> frozenset:
     return frozenset(i for i in match_ids if i in kick and count[kick[i]] > 1)
 
 
+def expected_scored(code: str, season: str, min_prior: int = WALK_MIN_PRIOR) -> list:
+    """THE TARGET INVENTORY, read from the store and never from a walk's output (Codex on #828, round 2, P1): the
+    competition-season's FINISHED matches with both scores, in kickoff order (ties by id), after the first `min_prior`
+    (every one has at least `min_prior` finished matches of the competition-season strictly before it in that order).
+    Every walk run_parity reads must score exactly these rows; on these stores every team has history by then. A
+    kickoff shared across the min_prior boundary makes the inventory ambiguous and is refused (no store here has one)."""
+    from sqlalchemy import select
+    from src.db.database import session_scope
+    from src.db.schema import Competition, Match, MatchStatus
+    with session_scope() as s:
+        comp = s.execute(select(Competition).where(Competition.code == code)).scalar_one()
+        rows = sorted(s.execute(select(Match.id, Match.utc_date).where(
+            Match.competition_id == comp.id, Match.season == season, Match.status == MatchStatus.FINISHED,
+            Match.home_score.is_not(None), Match.away_score.is_not(None))).all(), key=lambda r: (r[1], r[0]))
+    if 0 < min_prior < len(rows) and rows[min_prior - 1][1] == rows[min_prior][1]:
+        raise AssertionError(f"a kickoff shared across min_prior {min_prior}: the expected inventory is ambiguous")
+    return [r[0] for r in rows[min_prior:]]
+
+
+def require_inventory(name: str, which: str, rows, expected) -> None:
+    """A walk's rows are exactly the expected inventory: a row missing or extra is a plain ParityFailure naming the ids
+    (never a located gap, so no pin's strict xfail accepts it), raised before anything is compared."""
+    got, want = set(rows), set(expected)
+    if got != want:
+        raise ParityFailure(f"{name}: {which} scored {len(got)} rows, the store's inventory is {len(want)}; missing "
+                            f"{sorted(want - got)}, extra {sorted(got - want)}")
+
+
 # ------------------------------------------------------------- the paths --
 
 @dataclass(frozen=True)
@@ -774,12 +802,15 @@ class ParityRun:
 def run_parity(paths: SoccerPaths, code: str, season: str, targets=None) -> ParityRun:
     """The default walk once on the store; production at each row's instant; then, for each row, the walk run with
     the stored context production read at that instant (each distinct context walked once), compared row for row.
-    Every row the default walk scores unless `targets` names a subset."""
+    Every row of the store's inventory (`expected_scored`, read from the store, never from the walk) unless `targets`
+    names a subset; the default walk and every injected walk must score exactly that inventory (`require_inventory`)."""
     from src.models.poisson import CompetitionScoringContext
 
     require_tmp_store()
+    expected = expected_scored(code, season)
     default_rows = paths.walk(code, season)
-    order = kickoff_order(list(default_rows) if targets is None else list(targets))
+    require_inventory(paths.name, "the default walk", default_rows, expected)
+    order = kickoff_order(list(expected) if targets is None else list(targets))
     production = {}
     for mid in order:
         with at_instant(code, season, mid):
@@ -795,6 +826,7 @@ def run_parity(paths: SoccerPaths, code: str, season: str, targets=None) -> Pari
         if (g, b) not in walks:
             walks[(g, b)] = paths.walk(code, season, context=CompetitionScoringContext(
                 avg_goals_per_team_per_match=g, home_field_goal_boost=b))
+            require_inventory(paths.name, f"the walk at g {g!r} b {b!r}", walks[(g, b)], expected)
         injected[mid] = (g, b)
         if mid in walks[(g, b)]:
             injected_rows[mid] = walks[(g, b)][mid]

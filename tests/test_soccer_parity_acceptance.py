@@ -127,6 +127,7 @@ def _variant(tmp_path_factory, name, seed, controls=()):
             ms = s.execute(select(Match.id, Match.utc_date, Match.home_team_id, Match.away_team_id)).all()
             ids = {**ids, "kickoffs": {m[0]: m[1] for m in ms}, "sides": {m[0]: (m[2], m[3]) for m in ms},
                    "injury_refreshed_at": [i.refreshed_at for i in s.execute(select(Injury)).scalars()]}
+        ids["inventory"] = P.expected_scored(CODE, SEASON)
     finally:
         mp.undo()
     return ids, seeded, runs
@@ -189,7 +190,8 @@ def test_a_same_inputs_shared_path_production_equals_the_walk_with_one_context_o
     pins say where it does not: (b) the context, (c) the normalisation, and the three located pins of 253 item 2(b)
     (prior-season Elo, match factors, simultaneous kickoffs).
 
-    HOW (251 item 2(a), NO xfail): for every row the default walk scores, production at the row's instant (the real
+    HOW (251 item 2(a), NO xfail): for every row of the store's inventory (soccer_parity.expected_scored, read from
+    the store, never from a walk's output; every walk must score exactly it), production at the row's instant (the real
     training, the real pricing) against the walk run with the stored context production read at that instant (the
     SAME context, injected): equal within 1e-12, row for row, AND every resolved input equal
     (`assert_same_inputs_parity`; a differing Elo, history or factor fails it, located).
@@ -465,7 +467,7 @@ def test_pin_simultaneous_kickoffs_production_equals_the_walk_on_a_shared_kickof
         FINISHED): both rows of the pair are priced from the same state;
       * the walk: src/walters/soccer_backtest.py:228-236 (batch_same_kickoff False: one row per group) and :294-302
         (Elo and the prior updated after each group): the first row of the pair is in the second's prior. The
-        harness's v22_walk passes no batch_same_kickoff (tests/soccer_parity.py:882, as soccer-backtest's plain report
+        harness's v22_walk passes no batch_same_kickoff (tests/soccer_parity.py:914, as soccer-backtest's plain report
         calls the walk).
     """
     _, _, runs = kickoff_world
@@ -580,7 +582,7 @@ PIN_CITATIONS = (
     ("src/walters/soccer_backtest.py", 295, "# --- AFTER predicting, update Elo + add to prior"),
     ("src/walters/soccer_backtest.py", 302, "prior.append(m)"),
     ("tests/soccer_parity.py", 716, "Match.utc_date >= kick"),
-    ("tests/soccer_parity.py", 882, "results = sb.run_soccer_backtest(code, season, WALK_MIN_PRIOR"),
+    ("tests/soccer_parity.py", 914, "results = sb.run_soccer_backtest(code, season, WALK_MIN_PRIOR"),
 )
 
 
@@ -871,6 +873,74 @@ def test_harness_units_a_non_finite_normalisation_is_a_hard_failure_not_the_know
                if p.values[0].name == P.V22.name][0]
     assert not issubclass(P.NonFiniteNormalisation, mark.kwargs["raises"])
     assert issubclass(P.NonFiniteNormalisation, AssertionError)
+
+
+def _inventory_of_the_seed(ids) -> list:
+    """The scored rows the seed defines, from its own ids (never from a walk): the 60 in kickoff order after the
+    walk's min_prior 40, then the three targets."""
+    return ids["average_matches"][P.WALK_MIN_PRIOR:] + ids["targets"]
+
+
+def test_the_inventory_is_the_seed_s_on_a_s_store_and_on_every_pin_s(world, elo_world, factor_world, kickoff_world):
+    """Codex on #828, round 2, P1: the rows run_parity compares come from the store (expected_scored), never from the
+    walk under test. On (a)'s store and on each pin's store variant the inventory is the seed's 23 rows, and every run's
+    reports (the injected, the default, the context gap) hold exactly those rows."""
+    ids, run = world
+    assert P.expected_scored(CODE, SEASON) == _inventory_of_the_seed(ids) and len(_inventory_of_the_seed(ids)) == 23
+    for p in P.PREDICTORS + (P.V22_WALK_CONTEXT_CONTROL,):
+        r = run(p)
+        for rep in (r.parity, r.default_parity, r.context_gap):
+            assert [x.match_id for x in rep.rows] == _inventory_of_the_seed(ids), (p.name, rep.name)
+    for v_ids, _, runs in (elo_world, factor_world, kickoff_world):
+        assert sorted(v_ids["inventory"]) == sorted(_inventory_of_the_seed(v_ids))
+        for name, r in runs.items():
+            for rep in (r.parity, r.default_parity, r.context_gap):
+                assert sorted(x.match_id for x in rep.rows) == sorted(v_ids["inventory"]), (name, rep.name)
+
+
+def test_harness_a_walk_that_omits_or_adds_a_fixture_fails_as_plain_parity_failure(tmp_path, monkeypatch):
+    """FAIL-FIRST (Codex on #828, round 2, P1): a successor's walk that omits ONE eligible fixture, in the default walk
+    or only in the injected walk, or scores one fixture the inventory does not hold, fails run_parity with a plain
+    ParityFailure naming the id (never a located gap: no pin's strict xfail accepts it). On 491d9e7b's harness the
+    omitting walk passed (a): the target list was the walk's own output, so the dropped row was never priced or
+    compared (22 rows, PASS)."""
+    P.fresh_store(tmp_path / "inventory.db", monkeypatch)
+    ids = P.seed_v22_shape_store(CODE, SEASON)
+    dropped, early = ids["targets"][1], ids["average_matches"][0]
+
+    def omits(code, season, context=None):
+        rows = P.v22_walk(code, season, context=context)
+        del rows[dropped]
+        return rows
+
+    def omits_injected_only(code, season, context=None):
+        rows = P.v22_walk(code, season, context=context)
+        if context is not None:
+            del rows[dropped]
+        return rows
+
+    def adds(code, season, context=None):
+        rows = P.v22_walk(code, season, context=context)
+        rows[early] = P.PathRow(early, rows[dropped].probs, rows[dropped].xg, rows[dropped].inputs)
+        return rows
+
+    for walk, missing, extra in ((omits, [dropped], []), (omits_injected_only, [dropped], []), (adds, [], [early])):
+        paths = P.SoccerPaths(f"inventory probe: {walk.__name__}", P.v22_production, walk, P.v22_implied)
+        with pytest.raises(P.ParityFailure) as caught:
+            P.run_parity(paths, CODE, SEASON)
+        assert type(caught.value) is P.ParityFailure, walk.__name__
+        assert f"missing {missing}, extra {extra}" in str(caught.value), str(caught.value)
+
+
+def test_harness_the_inventory_refuses_a_kickoff_shared_across_min_prior(tmp_path, monkeypatch):
+    """expected_scored refuses an inventory a shared kickoff makes ambiguous (the 40th and 41st rows at one kickoff:
+    which one the walk scores would rest on its tie order), rather than guess."""
+    P.fresh_store(tmp_path / "boundary.db", monkeypatch)
+    ids = P.seed_v22_shape_store(CODE, SEASON)
+    assert len(P.expected_scored(CODE, SEASON)) == 23
+    P.share_kickoff(ids["average_matches"][P.WALK_MIN_PRIOR], ids["average_matches"][P.WALK_MIN_PRIOR - 1])
+    with pytest.raises(AssertionError, match="ambiguous"):
+        P.expected_scored(CODE, SEASON)
 
 
 def test_harness_refuses_a_store_outside_the_temp_directory():

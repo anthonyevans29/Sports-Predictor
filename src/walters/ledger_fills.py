@@ -282,8 +282,10 @@ def _contract_oriented(fx: dict, g: dict) -> bool:
 
 def game_fits(fx: dict, g: dict) -> bool:
     """gameFits: with ticker codes, the codes fit OR a strict two-team title fit (one shared word such as
-    "United" is never identity; a standard non-prefix code such as JAX or BHA still matches through the
-    title, Codex on #299). Tickers without codes keep the original title rule."""
+    "United" is never identity; a non-prefix code such as JAX or BHA still matches through a TWO-team title,
+    Codex on #299). The export's own title names ONE team ("Buffalo wins — Buffalo", addendum 235 item 1), which
+    never fits the strict two-team rule: with that title a code that fits no name matches by the row's event
+    ticker only. Tickers without codes keep the original title rule."""
     if fx.get("teams"):
         return _codes_fit(fx["teams"], g, fx.get("teams_title"), _title_by_side(fx)) or (_title_fits_strict(fx.get("teams_title"), g)
                                               and _contract_oriented(fx, g))

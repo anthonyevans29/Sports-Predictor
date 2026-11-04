@@ -1652,20 +1652,20 @@ def _now() -> datetime:
 
 def run(word: str | None, fingerprint: str | None, db=None, no_fetch: bool = False, echo=None) -> dict:
     """THE ONE RUN. Refused, nothing reserved and nothing recorded, in this order: no declared unrun entry (or a
-    reservation); a null or invalid slot; the entry's constants or gate not the code's; no word; no --db or a copy
-    check_db refuses; the copy holding more than one soccer_elo_poisson row marked production (production_params, in
-    _load: never the newest picked); the copy's availability record half present or present (availability_record, in _load: refused
+    reservation); a null or invalid slot; the entry's constants or gate not the code's; no word; no fingerprint; no
+    --db or a copy check_db refuses; the copy holding more than one soccer_elo_poisson row marked production
+    (production_params, in _load: never the newest picked); the copy's availability record half present or present (availability_record, in _load: refused
     until 252 item 2's query function is wired; open question 23); the copy's production version not v22; a fence
     refusing at the cut; under LEAGUE_REGULAR a walked stage label that cannot be placed; a club's arrival the declared
-    pyramid cannot place; no fingerprint or one that does not match. Then the cross-ref guard and the reservation,
+    pyramid cannot place; a fingerprint that does not match. Then the cross-ref guard and the reservation,
     BEFORE any outcome is scored or priced: the outcome-bearing stream (the admitted rows with their goals) is loaded
     and fingerprinted before the reservation, as in both precedent gates (nfl_v2_gate.run: load :655, fingerprint
     :667-668, reserve :678, its guard inside reserve :427; ncaa_v1r_gate.run: load :798, fingerprint :799-800, reserve
     :824, its guard inside reserve :301), and nothing is fitted, scored or priced before it (ARCHITECT 2026-11-04
     15:45 ET, addendum 254 item 3: "preflight → fingerprint → cross_ref_guard → reservation → walk → record", the
-    three gates' common order; --preflight is its own earlier invocation in all three). One sub-step differs, named
-    for the architect and not changed: both precedents refuse a MISSING fingerprint before the load
-    (nfl_v2_gate.py:642, ncaa_v1r_gate.py:792); this run refuses it only at the compare, after _load. Then the walk of
+    three gates' common order; --preflight is its own earlier invocation in all three). A MISSING fingerprint is
+    refused right after the word, before any load, MATCHING both precedents (soccer_v23.py:1683, nfl_v2_gate.py:642,
+    ncaa_v1r_gate.py:792); a WRONG one is refused at the compare, after the load, as in both. Then the walk of
     both arms (v22 re-walked beside soccer-v23 on the same harness: the same scored set, the same as-of context
     definition, the same skip zero), the comparison (soccer_backtest.compare_candidate) and decide (THE BAR, 251 item
     2: at least DEFAULT_PROMOTION_DELTA below BOTH v22's recorded figure, read from its declaration slot, AND the
@@ -1680,6 +1680,9 @@ def run(word: str | None, fingerprint: str | None, db=None, no_fetch: bool = Fal
             raise GateRefused(f"{EID}: {w_}; nothing read, nothing reserved")
     if not word or not str(word).strip():
         raise GateRefused("the run starts only on the architect's word (216 item 3): pass --architect-word verbatim")
+    if not fingerprint or not str(fingerprint).strip():  # 254 item 3: before any load, as nfl_v2_gate / ncaa_v1r_gate
+        raise GateRefused("the word refers to one stream (addendum 17 item 1): pass --stream-fingerprint with the last "
+                          f"line of {COMMAND} --preflight; nothing read, nothing reserved")
     if db is None or not str(db).strip():
         raise GateRefused("the ONE run reads a .backup copy outside data/ opened immutable=1 (216 item 3): pass --db")
     path, version, v22p, rows, record = _load(db, slots)

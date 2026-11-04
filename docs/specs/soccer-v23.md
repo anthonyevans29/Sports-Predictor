@@ -449,18 +449,18 @@ runs inside `reserve()`, before the exclusive create (nfl_v2_gate.py:427, ncaa_v
 likewise); then the walk; the caller records. What holds is therefore "the reservation before any outcome is scored
 or priced": the goals are read and fingerprinted before it, as in both precedents, and nothing is fitted, scored or
 priced before it. (The earlier heading put the reservation before any outcome was read; that was inaccurate and is
-corrected here.) ONE SUB-STEP DIFFERS, named and not changed (addendum 254 item 3 rules the order the precedents
-share; this is not among its steps, and the architect says whether it moves): both precedents refuse a MISSING
-`--stream-fingerprint` before the load (nfl_v2_gate.py:642, ncaa_v1r_gate.py:792); soccer-v23 refuses it only at the
-compare, after `_load` (one check, "no fingerprint or one that does not match"). Either way nothing is reserved.
+corrected here.) The missing-fingerprint refusal MATCHES the precedents (addendum 254 item 3: the run's order
+matches theirs): a MISSING `--stream-fingerprint` is refused right after the word, before any load and before `--db`
+is read (soccer_v23.py:1683, nfl_v2_gate.py:642, ncaa_v1r_gate.py:792); a WRONG one is refused at the compare, after
+the load, as in both. Either way nothing is reserved.
 
 `soccer-v23-gate` refuses, reserving nothing and recording nothing, when: there is no entry, its status is not
 declared, `run` is not null, or a reservation exists; a slot is null or invalid; the entry's constants or gate differ
-from the code's; the word is empty; `--db` is missing or fails `nfl_v2_gate.check_db` (outside data/, not the app's
+from the code's; the word is empty; the fingerprint is missing (before any load); `--db` is missing or fails `nfl_v2_gate.check_db` (outside data/, not the app's
 database, never created, no -wal/-shm/-journal); the copy holds more than one soccer_elo_poisson row marked
 production (never the newest picked; Codex on #832, round 1) or its production version is not v22; a fence refuses at
 the cut; under LEAGUE_REGULAR a walked row's stage label cannot be placed; a club's arrival cannot be placed on the
-declared pyramid; the fingerprint is missing or does not match. Then `registry.cross_ref_guard`, then the reservation
+declared pyramid; the fingerprint does not match. Then `registry.cross_ref_guard`, then the reservation
 (`docs/registry/soccer-v23.started.json`, exclusive create, written and fsynced with its directory, removed if the
 write fails), then the walk (both arms: v22 re-walked beside v23), `compare_candidate`, `decide` (both comparisons,
 §6) and `registry.record_run`. A failure after the reservation leaves it standing (the pot may have been read; open
@@ -666,9 +666,9 @@ open, since a slot left null refuses the run and the declaration is mine").
     outcome-bearing stream before `reserve()`, as both precedent gates do (§9). **RULED (254 item 3):** "THE
     RESERVATION ORDER: the run's order matches the nfl-v2 and NCAA gates' (preflight → fingerprint → cross_ref_guard
     → reservation → walk → record)". Verified: the two precedents agree with each other, and soccer-v23 agrees with
-    both on every ruled step (§9, file:line); no order changed; run()'s docstring and §9 now say "before any outcome is
-    scored or priced". One sub-step differs and is named for the architect, not changed (§9): the precedents refuse a
-    MISSING fingerprint before the load (nfl_v2_gate.py:642, ncaa_v1r_gate.py:792); soccer-v23 only after `_load`.
+    both on every ruled step (§9, file:line); no ruled step's order changed; run()'s docstring and §9 now say
+    "before any outcome is scored or priced". The missing-fingerprint refusal now MATCHES both precedents (§9):
+    refused right after the word, before any load (soccer_v23.py:1683, nfl_v2_gate.py:642, ncaa_v1r_gate.py:792).
 
 ## 12. What is NOT done
 

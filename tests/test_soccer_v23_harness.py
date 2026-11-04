@@ -1410,6 +1410,22 @@ def test_the_run_refuses_in_order_and_records_nothing(declared, monkeypatch):
     _nothing(declared)
 
 
+def test_a_missing_fingerprint_is_refused_before_any_load_as_in_both_precedents(declared, monkeypatch):
+    """ARCHITECT 2026-11-04, addendum 254 item 3 (the reservation order): a MISSING --stream-fingerprint is refused
+    right after the word, before any read and before the reservation, as nfl_v2_gate.run (:642) and
+    ncaa_v1r_gate.run (:792) refuse it. The loader (_load, which holds check_db) and the reservation fail loudly
+    if reached."""
+    def boom(what):
+        return lambda *a, **k: (_ for _ in ()).throw(AssertionError(f"{what} reached before the fingerprint check"))
+    monkeypatch.setattr(v, "_load", boom("_load"))
+    monkeypatch.setattr(v, "reserve", boom("reserve"))
+    for fp in (None, "", "  "):
+        for db in (declared["copy"], None):                            # before --db as well, as nfl_v2_gate orders it
+            with pytest.raises(v.GateRefused, match=r"--stream-fingerprint.*nothing read, nothing reserved"):
+                v.run("ARCHITECT test word", fp, db=db)
+    _nothing(declared)
+
+
 def test_the_run_refuses_a_copy_whose_production_is_not_v22(declared, monkeypatch):
     from src.walters import registry as reg
     monkeypatch.setattr(v, "production_params", lambda s: ("v23", dict(V22P)))

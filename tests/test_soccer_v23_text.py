@@ -147,8 +147,9 @@ def test_addendum_254_item_3_is_marked_and_the_run_order_is_stated_accurately():
 def test_the_ruled_questions_are_marked_where_they_are_named_and_q4_is_not_called_fully_built():
     """addendum 254 item 3: every place that named Q4, Q22 or Q27 open or proposed now says ruled; Q4 is NOT described
     as fully built, since the visibility slot still admits "kickoff" against a BAR_TEXT naming the day rule (escalated,
-    not narrowed); the one sub-step where the run differs from both precedents (a MISSING fingerprint, refused after
-    the load) is named in run()'s docstring, §9, §11 Q28 and docs/CLI.md."""
+    not narrowed); the one sub-step where the run differed from both precedents (a MISSING fingerprint) now MATCHES
+    them, refused before any load, and run()'s docstring, §9, §11 Q28 and docs/CLI.md say so with the three
+    file:lines (addendum 254 item 3: the run's order matches the precedents')."""
     flat = " ".join(SPEC.split())
     assert "Open question 22. **The tie order" not in flat                     # §4, the v22 arm's AET paragraph
     assert "a proposed constant, §8" not in flat                               # §4 Visibility, RESULT_LAG_HOURS
@@ -168,8 +169,23 @@ def test_the_ruled_questions_are_marked_where_they_are_named_and_q4_is_not_calle
     for text in (" ".join(v.run.__doc__.split()), " ".join(SPEC[SPEC.index("## 9. "):SPEC.index("## 10. ")].split()),
                  sec11[sec11.index("28. **The reservation"):]):
         assert "nfl_v2_gate.py:642" in text and "ncaa_v1r_gate.py:792" in text, text[:80]
-    assert "a MISSING fingerprint is refused here, after the load" in cli_row
+        assert "MATCH" in text and "named for the architect" not in text and "after `_load`" not in text, text[:80]
+    line = next(i for i, ln in enumerate(src.splitlines(), 1)
+                if ln.strip().startswith("if not fingerprint or not str(fingerprint).strip():"))
+    word = next(i for i, ln in enumerate(src.splitlines(), 1) if "the run starts only on the architect's word" in ln)
+    load = next(i for i, ln in enumerate(src.splitlines(), 1) if i > word and "= _load(db, slots)" in ln)
+    assert word + 1 == line < load and f"soccer_v23.py:{line}" in cli_row
+    for text in (" ".join(v.run.__doc__.split()), " ".join(SPEC[SPEC.index("## 9. "):SPEC.index("## 10. ")].split()),
+                 sec11[sec11.index("28. **The reservation"):]):
+        assert f"soccer_v23.py:{line}" in text, text[:80]
+    assert "MATCHING nfl-v2-gate and ncaa-gate" in cli_row
+    assert "a MISSING fingerprint is refused here, after the load" not in cli_row
     assert "AFTER THE RESERVATION" not in cli_row                              # Codex round 2: unruled, not built
+    # the missing-fingerprint refusal moved ahead of _load, so "no order changed" is true only of the ruled steps
+    for p in ("docs/specs/soccer-v23.md", "changelog.d/832-230-1d-soccer-v23-design.md",
+              "docs/ledger/entries/2026-11-04-230-1d-soccer-v23-design.md"):
+        flat_p = " ".join((ROOT / p).read_text().split())
+        assert "no order changed" not in flat_p and "no ruled step's order changed" in flat_p, p
 
 
 def test_the_context_gap_section_carries_the_definition():

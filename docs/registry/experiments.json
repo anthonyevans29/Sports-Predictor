@@ -1693,6 +1693,24 @@
         "at": "2026-09-09"
       }
     },
+    "recorded_fail_corrected_stream": {
+      "on": "2026-11-04",
+      "where": "the laptop, main 26943179: nfl-backtest on the live laptop database (read-only), after the NFL 2024 re-sync with #775's adapter (2024: 334 FINISHED, 318 with status_raw, 0 without a status)",
+      "receipt": "#783 issuecomment-6631134603 (the 11-04 console, section (4): nfl-backtest's full output)",
+      "console": [
+        "stream: 676 games (preseason excluded) \u2014 warm-up 285 (2024), scored 285 (2025)",
+        "baseline home prob (2024 realized): 0.5474",
+        "log-loss: model 0.6366 vs baseline 0.6913 (need <= 0.6813) -> PASS",
+        "  band 40-50%: n=54 stated 0.451 realized 0.389 gap 6.2pp -> ok",
+        "  band 50-60%: n=60 stated 0.549 realized 0.500 gap 4.9pp -> ok",
+        "  band 60-70%: n=45 stated 0.644 realized 0.667 gap 2.2pp -> ok",
+        "  band 70-80%: n=45 stated 0.744 realized 0.667 gap 7.7pp -> FAIL",
+        "GATE VERDICT: FAIL \u2014 REGRESSION: the live model no longer clears its frozen gate; investigate before the next predict-nfl"
+      ],
+      "verdict": "FAIL",
+      "ruling": "ARCHITECT 2026-11-04 08:20 ET, addendum 245 item 1, verbatim: \"THE 11-04 STEP'S RECORD (the laptop, main 26943179): the NFL 2024 re-sync with #775's adapter turned the 16 SCHEDULED-with-scores games FINISHED (2024: 334 FINISHED, 318 with status_raw, 0 without a status); nfl-backtest on the corrected stream (676 games; warm-up 285 of 2024, scored 285 of 2025; baseline 0.5474): log-loss 0.6366 vs 0.6913 (need \u2264 0.6813) PASS; bands 40\u201350% n=54 gap 6.2 ok, 50\u201360% n=60 4.9 ok, 60\u201370% n=45 2.2 ok, 70\u201380% n=45 stated 0.744 realized 0.667 gap 7.7pp FAIL \u2014 GATE VERDICT: FAIL. This is nfl_elo_v1's RECORDED FAIL on the corrected stream, for the registry: Code's PR writes it into nfl-elo-v1's entry beside the VOID (the console quoted; the verdict stays VOID, the certification stays withdrawn). The preflight on a fresh copy: warm-up 285 (= addendum 215's 285), scored 285, preseason excluded, the constants frozen = NFLEloConfig()'s (k 20.0, home advantage 48.0, season regression 0.25, mov base 2.2, default 1500.0), the warm-up fingerprint d11ba700990b170ced875088144ad4885506d2cb11e0bd6177ff2a6d1a29c6f0, the term undeclared (the run refuses, as designed).\"",
+      "note": "the RECORDED FAIL of nfl_elo_v1 on the corrected stream (the 676-game stream, the complete 2024 warm-up), written beside the VOID: the verdict stays VOID (addendum 214 item 2) and the certification stays withdrawn (UNCERTIFIED, addendum 214 item 3); no other key of this entry moves"
+    },
     "model_version": "nfl_elo_v1",
     "competitions": [
       "NFL"
@@ -1771,9 +1789,19 @@
       "default_rating": 1500.0
     },
     "calibration_term": {
+      "form": "home_advantage",
       "shrink": null,
-      "home_advantage": null,
-      "fit": null,
+      "home_advantage": 33.0,
+      "fit": {
+        "warmup_fingerprint": "d11ba700990b170ced875088144ad4885506d2cb11e0bd6177ff2a6d1a29c6f0",
+        "warmup_games": 285,
+        "method": "the h minimizing the 2024 walk's mean log-loss re-run with home_advantage = h, grid 0.0..120.0 step 0.5, ties to the nearest 48.0",
+        "value": 33.0,
+        "log_loss_2024": 0.622175,
+        "v1_log_loss_2024": 0.623122,
+        "declared_at": "2026-11-04T13:00:31Z",
+        "ruling": "addendum 245"
+      },
       "forms": {
         "shrink": "p' = 0.5 + s\u00b7(p \u2212 0.5) on the stated home probability, at pricing only: ratings and updates are nfl_elo_v1's (0 < s < 1)",
         "home_advantage": "NFLEloConfig.home_advantage (nfl_elo_v1: 48.0 Elo points) replaced by the declared value for the whole walk, warm-up and scored, price and update (0 \u2264 h < 48.0)"

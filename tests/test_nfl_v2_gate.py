@@ -3,7 +3,7 @@ SQLite file under tmp_path (tests/nfl_v2_world.py), every registry read and writ
 the reservation to a tmp path; no test reads data/, runs a gate on real data or touches the real registry.
 
 Pins: nfl-backtest's output is byte-identical to main's on a synthetic stream (the protocol was refactored into a
-shared walk); the registry entry (declared, unrun, v1's constants read from code, the term null, 215's bar verbatim)
+shared walk); the registry entry (declared, unrun, v1's constants read from code, the term 245's, 215's bar verbatim)
 and the roadmap lane nfl-v2; the gate refuses on each missing condition (no term, both forms, an invalid value, no
 word, no fingerprint, a stream that no longer matches it, a season missing, a reservation already there, a run already
 recorded) with nothing written; the reservation after the #329 guard and before the first scored game, carrying the
@@ -118,7 +118,7 @@ def test_nfl_backtest_cli_unchanged(db):
 
 # ============================================================================ the registry entry and the lane --
 
-def test_the_entry_is_declared_unrun_with_v1s_constants_the_term_unset_and_215s_bar():
+def test_the_entry_is_declared_unrun_with_v1s_constants_the_term_of_245_and_215s_bar():
     e = reg.get(EID)
     assert e is not None, "nfl-elo-v2 must be in docs/registry/experiments.json"
     assert (e["status"], e["run"], e["verdict"], e["sport"]) == ("declared", None, None, "nfl")
@@ -128,7 +128,10 @@ def test_the_entry_is_declared_unrun_with_v1s_constants_the_term_unset_and_215s_
                               "season_regression": c.season_regression, "mov_base": c.mov_base,
                               "default_rating": c.default_rating}
     t = e["calibration_term"]
-    assert t["shrink"] is None and t["home_advantage"] is None and t["fit"] is None
+    # ARCHITECT 2026-11-04 08:20 ET, addendum 245 item 3: the term declared (home advantage 33.0, shrink null, the fit's
+    # receipt); tests/test_245_nfl_v2_declaration.py pins the whole object against the 11-04 console
+    assert t["shrink"] is None and t["home_advantage"] == 33.0 and t["form"] == "home_advantage"
+    assert t["fit"]["warmup_fingerprint"] == "d11ba700990b170ced875088144ad4885506d2cb11e0bd6177ff2a6d1a29c6f0"
     assert set(t["forms"]) == {"shrink", "home_advantage"}
     assert t["rule"].startswith("ruled by the architect's declaration of 2026-11-05 (addendum 215 item 3); written "
                                 "before the run")
@@ -156,9 +159,9 @@ def test_the_entry_is_declared_unrun_with_v1s_constants_the_term_unset_and_215s_
     assert all(x["declared_at"] > e["declared_at"] for x in reg.load()[ids.index(EID) + 1:])
     assert not (ROOT / "docs" / "registry" / f"{EID}.started.json").exists()
     assert not (ROOT / "docs" / "registry" / "ids" / f"{EID}.txt").exists()
-    # the gate reads the real entry as NOT DECLARED: it refuses until the declaration writes the term
+    # the gate reads the real entry as DECLARED since addendum 245 (it refused until the declaration wrote the term)
     g = _g()
-    assert g.term_state(e)[0] is None and "not declared" in g.term_state(e)[2]
+    assert g.term_state(e) == ("home_advantage", 33.0, None)
 
 
 def test_the_roadmap_lane_nfl_v2():
@@ -175,7 +178,14 @@ def test_the_roadmap_lane_nfl_v2():
     # ARCHITECT 2026-11-03 11:10 ET, addendum 232 item 3(i) (227 item 4 restated): the harness step done 2026-11-02,
     # receipt "#784 merged at 8bef04c2 (addendum 219)"; a done-mark, never a moved line (222 item 3(a))
     assert ln["steps"][0]["done"] == {"date": "2026-11-02", "receipt": "#784 merged at 8bef04c2 (addendum 219)"}
-    assert all(s["done"] is None for s in ln["steps"][1:])
+    # ARCHITECT 2026-11-04 08:20 ET, addendum 245 item 5: the 11-05 declaration step done 2026-11-04 (an earlier done
+    # is a done-mark, never a moved line); item 1 is the 11-04 step's record; the 11-06 run step stands
+    assert ln["steps"][1]["done"] == {"date": "2026-11-04", "receipt": "the 11-04 console #783 "
+                                      "issuecomment-6631134603 (the laptop, main 26943179; its record: addendum 245 "
+                                      "item 1)"}
+    assert ln["steps"][2]["done"] == {"date": "2026-11-04", "receipt": "addendum 245 (ARCHITECT 2026-11-04 08:20 ET); "
+                                      "the 11-04 console #783 issuecomment-6631134603"}
+    assert all(s["done"] is None for s in ln["steps"][3:])
     assert ln["steps"][0]["what"].startswith("the harness PR")
     assert "the preflight of the v2 harness" in ln["steps"][1]["what"]
     assert ln["steps"][3]["what"] == "the ONE run on my word, my block, the verdict the same day"
@@ -448,8 +458,8 @@ def _no_scoring(monkeypatch):
 def test_the_run_refuses_on_each_missing_condition_and_writes_nothing(db, ledger, monkeypatch, tmp_path, case):
     import cli
     g = _g()
-    if case == "no term":
-        pass
+    if case == "no term":                               # the undeclared term (the real entry's before addendum 245)
+        declare(ledger, fit=None)
     elif case == "null fit":                            # 219 item 4: "the run REFUSES when `fit` is null"
         declare(ledger, shrink=0.9, fit=None)
     elif case == "fit not an object":
@@ -873,6 +883,7 @@ def test_the_fingerprint_is_the_corrected_stream(db, ledger):
 
     from src.db.schema import Match, MatchStatus
     g = _g()
+    declare(ledger, fit=None)                           # the undeclared term (the real entry's before addendum 245)
     before = FP()
     assert FP() == before                                               # stable
     w0, s0 = nb.split(nb.load_stream())
@@ -979,6 +990,7 @@ def test_a_word_taken_before_a_term_edit_refuses_after_it(db, ledger, monkeypatc
 def test_preflight_scores_nothing_writes_nothing_and_prints_no_2025_figure(db, ledger, monkeypatch, tmp_path):
     import cli
     g = _g()
+    declare(ledger, fit=None)                           # the undeclared term (the real entry's before addendum 245)
     before = Path(ledger).read_bytes()
     _no_scoring(monkeypatch)
     monkeypatch.setattr(reg, "cross_ref_guard", lambda *a, **k: (_ for _ in ()).throw(AssertionError("guard")))

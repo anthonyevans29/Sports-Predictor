@@ -314,6 +314,8 @@ def preflight_output(ledger, case) -> str:
     import cli
     if CASES[case]:
         _declare(ledger, **CASES[case])
+    else:                                       # the undeclared term (the real entry's before addendum 245)
+        _declare(ledger, fit=None)
     res = CliRunner().invoke(cli.cli, ["nfl-v2-gate", "--preflight"])
     assert res.exit_code == 0, res.output
     return res.output

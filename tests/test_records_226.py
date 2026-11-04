@@ -175,7 +175,9 @@ def test_the_two_done_marks_of_227_item_4_as_232_item_3_restates_them():
     assert v2["what"].startswith("the harness PR: the candidate entry nfl_elo_v2")
     assert (v2["due"], v2["done"]) == ("2026-11-03", {"date": "2026-11-02",
                                                       "receipt": "#784 merged at 8bef04c2 (addendum 219)"})
-    assert all(s["done"] is None for s in lanes["nfl-v2"]["steps"][1:])
+    # ARCHITECT 2026-11-04 08:20 ET, addendum 245: the 11-04 and 11-05 steps done 2026-11-04 (done-marks); the rest open
+    assert [s["done"]["date"] for s in lanes["nfl-v2"]["steps"][1:3]] == ["2026-11-04", "2026-11-04"]
+    assert all(s["done"] is None for s in lanes["nfl-v2"]["steps"][3:])
     nc = lanes["nfl-confirm"]["steps"][1]
     assert nc["what"] == "the tag carrying #775 and the policy, deployed (the architect's blocks)"
     assert (nc["due"], nc["done"]) == ("2026-11-04", {"date": "2026-11-03", "receipt":

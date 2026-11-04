@@ -1426,6 +1426,37 @@ def test_a_missing_fingerprint_is_refused_before_any_load_as_in_both_precedents(
     _nothing(declared)
 
 
+def test_a_declared_kickoff_visibility_is_refused_before_any_load(declared, monkeypatch):
+    """Codex on #832, round 3 (P1), settled by ARCHITECT 2026-11-04 15:45 ET, addendum 254 item 3 Q4 ("VISIBILITY: the
+    DAY rule ... frozen by the declaration, stated in BAR_TEXT"): the visibility slot admits only "day", so a
+    declaration naming "kickoff" (a history BAR_TEXT does not describe) is refused by slots_state, by run() and by the
+    preflight, before any read and before the reservation. The loader and the reservation fail loudly if reached."""
+    from src.walters import registry as reg
+    def boom(what):
+        return lambda *a, **k: (_ for _ in ()).throw(AssertionError(f"{what} reached under a 'kickoff' slot"))
+    monkeypatch.setattr(v, "_load", boom("_load"))
+    monkeypatch.setattr(v, "reserve", boom("reserve"))
+    entries = json.loads(declared["ledger"].read_text())
+    e = next(x for x in entries if x["id"] == v.EID)
+    e[v.SLOTS_KEY]["visibility"] = "kickoff"
+    declared["ledger"].write_text(json.dumps(entries))
+    with pytest.raises(v.GateRefused, match=r"'visibility' is 'kickoff'.*nothing read, nothing reserved"):
+        v.run("ARCHITECT test word", "0" * 64, db=declared["copy"])
+    entry = reg.get(v.EID, reg.LEDGER)
+    slots, why = v.slots_state(entry)
+    assert slots is None and why == "the declaration slot 'visibility' is 'kickoff', not one of ('day',)"
+    L = v.preflight_lines(entry, declared["copy"])
+    assert any(x.startswith("  slots: NOT DECLARED — the run refuses: the declaration slot 'visibility' is 'kickoff'")
+               for x in L)
+    assert L[-1].startswith("PREFLIGHT only: nothing loaded") and not any("STREAM FINGERPRINT" in x for x in L)
+    e[v.SLOTS_KEY]["visibility"] = "day"                               # the positive control: the ruled rule loads
+    declared["ledger"].write_text(json.dumps(entries))
+    with pytest.raises(AssertionError, match="_load reached"):
+        v.run("ARCHITECT test word", "0" * 64, db=declared["copy"])
+    assert v.SLOT_VALUES["visibility"] == ("day",) and v.RECOMMENDED["visibility"] == "day"
+    _nothing(declared)
+
+
 def test_the_run_refuses_a_copy_whose_production_is_not_v22(declared, monkeypatch):
     from src.walters import registry as reg
     monkeypatch.setattr(v, "production_params", lambda s: ("v23", dict(V22P)))
@@ -1792,17 +1823,17 @@ def test_the_run_record_labels_the_day_rule_residual_and_v22_rewalked_with_the_a
 
 
 def test_the_labels_on_an_invalid_verdict_and_off_the_day_rule():
-    """On every verdict (INVALID included), as the per-era line is; under a 'kickoff' slot the day rule's residual is
-    said not this run's, never silently dropped."""
+    """On every verdict (INVALID included), as the per-era line is; a record off the ruled day rule is never labelled
+    (Codex on #832, round 3, P1; addendum 254 item 3 Q4): slots_state refuses a 'kickoff' slot before any load, and
+    record_labels refuses one loudly should anything else hand it one, never a silent label."""
     r = {"compare": {"verdict": "INVALID", "reason": "empty"}, "walk": {"availability": []}, "rows": 0,
          "stream_fingerprint": "0" * 64, "slots": {**SLOTS, "visibility": "day"}, "aet_pen": {"scored": 0, "history": 2}}
     lines = v.run_lines(r)
     assert lines[-3:-1] == v.record_labels(r) and lines[-1].startswith("  VERDICT (computed; the architect rules): "
                                                                        "INVALID")
     assert "0 scored, 2 in the walked history" in lines[-2]
-    k = v.record_labels({**r, "slots": {**SLOTS, "visibility": "kickoff"}})
-    assert k[0] == ("  residual (visibility 'kickoff'): visibility 'kickoff' is not the day rule addendum 254 item 3 "
-                    "Q4 ruled; the day rule's residual is not this run's")
+    with pytest.raises(ValueError, match="'kickoff' is not the day rule addendum 254 item 3 Q4 ruled"):
+        v.record_labels({**r, "slots": {**SLOTS, "visibility": "kickoff"}})
 
 
 def test_ninety_minute_read_is_admits_substitution():

@@ -205,10 +205,11 @@ and `fixture_age` equal to the script's.
   final-whistle stamp (`schema.Match`: `utc_date` is the kickoff; no finished-at or recorded-at column), so "known" is
   a declared bound, kickoff + `RESULT_LAG_HOURS` (4 h: 90 minutes, half-time, stoppage, extra time, its break and a
   shoot-out, with margin for a delayed start; RULED by addendum 254 item 3 Q4 as the bound a result is known, frozen
-  by the declaration, §8). "day" (the rule addendum 254 item 3 Q4 RULED; the slot still admits "kickoff", §7): the result known before t AND a kickoff
+  by the declaration, §8). "day" (the rule addendum 254 item 3 Q4 RULED; the slot's only value, §7): the result known before t AND a kickoff
   on a UTC date strictly before the fixture's (the morning chain's reading; it batches every same-day fixture kicking
   off at least 4 h after midnight; an earlier one also loses the previous evening's games still inside the lag);
-  "kickoff": the result known before t. `visibility_bound` is the one bound (the builder and `predict`'s check), so a
+  "kickoff" (a builder rule kept for the tests' invariance probes, `VISIBILITY_RULES`; never declarable): the result
+  known before t. `visibility_bound` is the one bound (the builder and `predict`'s check), so a
   game still in play at t is visible to neither the harness nor the production path. It is also THE DECISION INSTANT
   (`Snapshot.decision`): the availability record is read there, never at the kickoff, so a fact recorded after it (a
   match-day poll under "day"; a T-60 .. T-0 poll under "kickoff") is read by neither path, and a live call made at or
@@ -410,7 +411,7 @@ The declared registry entry carries them as `declaration_slots`; the code holds 
 |---|---|---|---|
 | `scope` | "LEAGUE", "LEAGUE_REGULAR" | "LEAGUE_REGULAR" | 2 |
 | `first_season` | "score_under_prior", "exclude_as_warmup" | "score_under_prior" | 3 |
-| `visibility` | "day", "kickoff" (each with the result known: kickoff + `RESULT_LAG_HOURS` before t, §4) | "day" | 4, RULED by addendum 254 item 3 (the DAY rule, stated in BAR_TEXT); the slot STILL ADMITS "kickoff" and nothing refuses it, against a BAR_TEXT that names the day rule: escalated to the architect, not narrowed here |
+| `visibility` | "day" only (the result known: kickoff + `RESULT_LAG_HOURS` before t, and a kickoff on a UTC date before the fixture's, §4) | "day" | 4, RULED by addendum 254 item 3 (the DAY rule, stated in BAR_TEXT); the slot ADMITS ONLY "day": `slots_state` refuses "kickoff" or any other value before any load, nothing reserved (Codex on #832, round 3, P1) |
 | `cut` | an ISO-8601 UTC instant clearing every fence | "2026-10-30T15:00:00Z" | 7 |
 | `availability_on` | true, false | false | 6 |
 | `v22_recorded_log_loss` | a finite positive number: v22's recorded gate figure, as recorded (measured on v22's own scored set by its own gate's scorer, not on this candidate's pot; never recomputed) | none: the record is the architect's to read (no machine-readable figure exists in the repository, §5a) | 18 |
@@ -451,7 +452,7 @@ or priced": the goals are read and fingerprinted before it, as in both precedent
 priced before it. (The earlier heading put the reservation before any outcome was read; that was inaccurate and is
 corrected here.) The missing-fingerprint refusal MATCHES the precedents (addendum 254 item 3: the run's order
 matches theirs): a MISSING `--stream-fingerprint` is refused right after the word, before any load and before `--db`
-is read (soccer_v23.py:1683, nfl_v2_gate.py:642, ncaa_v1r_gate.py:792); a WRONG one is refused at the compare, after
+is read (soccer_v23.py:1689, nfl_v2_gate.py:642, ncaa_v1r_gate.py:792); a WRONG one is refused at the compare, after
 the load, as in both. Either way nothing is reserved.
 
 `soccer-v23-gate` refuses, reserving nothing and recording nothing, when: there is no entry, its status is not
@@ -545,11 +546,11 @@ open, since a slot left null refuses the run and the declaration is mine").
    bound a result is known — frozen by the declaration, stated in BAR_TEXT; the parity statement accepted with its
    residual (a fixture before the chain's run priced by the previous day's chain) LABELLED in the run record, never
    silent." Built: BAR_TEXT states it; `record_labels` labels the residual on every verdict and in the record, its
-   count not computed (no chain run time is declared in code for this model's live path; never guessed). NOT FULLY
-   BUILT: the `visibility` slot still admits "kickoff" and nothing refuses it (`SLOT_VALUES`, `slots_state`), against
-   a BAR_TEXT that names the day rule, so a declaration could contradict its own frozen bar (`record_labels` only
-   prints that "kickoff" is not the ruled rule). Escalated: whether the slot narrows to "day" is the architect's; if
-   so, in that ruling's push.
+   count not computed (no chain run time is declared in code for this model's live path; never guessed). BUILT IN
+   FULL: the `visibility` slot admits only "day" (`SLOT_VALUES`), so `slots_state` refuses a declaration naming
+   "kickoff" before any load and nothing is reserved (`run()` and `--preflight` alike; Codex on #832, round 3, P1,
+   settled by this ruling), and `record_labels` refuses a non-day slot loudly; a declaration can no longer contradict
+   its own frozen bar. "kickoff" stays a builder rule for the tests' invariance probes only (`VISIBILITY_RULES`).
 5. **Constants.** K_PRIOR = 5; the promoted prior ln 0.85 / ln 1.15 (it sat on v22's deflated scale); the S−1 carry
    1.0; β's weak prior (BUILT, a proposed ruling: centred at 0, precision K_PRIOR·G0 on ΔE/100, every window), or
    centred at a declared constant, or β fixed at 0 below a declared minimum of rows (a count switch, which 216 item 2
@@ -668,7 +669,7 @@ open, since a slot left null refuses the run and the declaration is mine").
     → reservation → walk → record)". Verified: the two precedents agree with each other, and soccer-v23 agrees with
     both on every ruled step (§9, file:line); no ruled step's order changed; run()'s docstring and §9 now say
     "before any outcome is scored or priced". The missing-fingerprint refusal now MATCHES both precedents (§9):
-    refused right after the word, before any load (soccer_v23.py:1683, nfl_v2_gate.py:642, ncaa_v1r_gate.py:792).
+    refused right after the word, before any load (soccer_v23.py:1689, nfl_v2_gate.py:642, ncaa_v1r_gate.py:792).
 
 ## 12. What is NOT done
 

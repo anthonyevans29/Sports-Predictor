@@ -144,23 +144,28 @@ def test_addendum_254_item_3_is_marked_and_the_run_order_is_stated_accurately():
     assert "preflight → fingerprint → cross_ref_guard → reservation → walk → record" in v.run.__doc__
 
 
-def test_the_ruled_questions_are_marked_where_they_are_named_and_q4_is_not_called_fully_built():
-    """addendum 254 item 3: every place that named Q4, Q22 or Q27 open or proposed now says ruled; Q4 is NOT described
-    as fully built, since the visibility slot still admits "kickoff" against a BAR_TEXT naming the day rule (escalated,
-    not narrowed); the one sub-step where the run differed from both precedents (a MISSING fingerprint) now MATCHES
-    them, refused before any load, and run()'s docstring, §9, §11 Q28 and docs/CLI.md say so with the three
-    file:lines (addendum 254 item 3: the run's order matches the precedents')."""
+def test_the_ruled_questions_are_marked_where_they_are_named_and_q4_is_built_in_full():
+    """addendum 254 item 3: every place that named Q4, Q22 or Q27 open or proposed now says ruled; Q4 is built in full
+    (Codex on #832, round 3, P1): the visibility slot admits only "day", the rule BAR_TEXT names, and the texts no
+    longer say it admits "kickoff" or call Q4 not fully built; the one sub-step where the run differed from both
+    precedents (a MISSING fingerprint) now MATCHES them, refused before any load, and run()'s docstring, §9, §11 Q28
+    and docs/CLI.md say so with the three file:lines (addendum 254 item 3: the run's order matches the
+    precedents')."""
     flat = " ".join(SPEC.split())
     assert "Open question 22. **The tie order" not in flat                     # §4, the v22 arm's AET paragraph
     assert "a proposed constant, §8" not in flat                               # §4 Visibility, RESULT_LAG_HOURS
     assert "Open question 22, RULED AS BUILT by addendum 254 item 3 Q22 (a)" in flat
     vis_row = next(ln for ln in SPEC.splitlines() if ln.startswith("| `visibility` |"))
-    assert "RULED by addendum 254 item 3" in vis_row and "STILL ADMITS \"kickoff\"" in vis_row
+    assert "RULED by addendum 254 item 3" in vis_row and "the slot ADMITS ONLY \"day\"" in vis_row
+    assert "STILL ADMITS" not in vis_row and "| \"day\" only " in vis_row
     sec11 = " ".join(SPEC[SPEC.index("## 11. "):SPEC.index("## 12. ")].split())
     q4 = sec11[sec11.index("4. **Visibility.**"):sec11.index("5. **Constants.**")]
-    assert "NOT FULLY BUILT: the `visibility` slot still admits \"kickoff\"" in q4
-    assert v.SLOT_VALUES["visibility"] == ("day", "kickoff")                  # unchanged until the architect rules
+    assert "NOT FULLY BUILT" not in q4 and "still admits" not in q4
+    assert "BUILT IN FULL: the `visibility` slot admits only \"day\" (`SLOT_VALUES`)" in q4
+    assert v.SLOT_VALUES["visibility"] == ("day",)                            # 254 item 3 Q4: the ruled rule only
+    assert "still admits" not in " ".join(SPEC.split())
     assert "open question 4)" not in v.visible.__doc__ and "RULED by addendum 254 item 3 Q4" in v.visible.__doc__
+    assert "still admits" not in v.visible.__doc__
     src = (ROOT / "src" / "walters" / "soccer_v23.py").read_text()
     assert "RULED AS BUILT by addendum 254 item 3 Q27 (b)" in src
     assert "#: (open question 27). A fact" not in src

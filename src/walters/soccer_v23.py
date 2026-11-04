@@ -174,6 +174,11 @@ V22_FACTORS = ("none (labelled: live v22's factor inputs are the injuries, lineu
 #: builders, the cache and predict's own check (visibility_bound is the one bound).
 RESULT_LAG_HOURS = 4
 RESULT_LAG = timedelta(hours=RESULT_LAG_HOURS)
+#: The visibility rules the builders implement: "day" (RULED, addendum 254 item 3 Q4; the only DECLARABLE rule,
+#: SLOT_VALUES["visibility"]) and "kickoff" (the result-known bound alone), kept as code for the tests' invariance
+#: probes (each pins its property under both rules). No declaration can select "kickoff": slots_state refuses it
+#: before any load (Codex on #832, round 3, P1).
+VISIBILITY_RULES = ("day", "kickoff")
 POT_LABEL = ("the frozen pot as CLAUDE.md names it: 16,546 matches / 24 competitions (v22's); printed as a label, "
              "never a pass condition")
 #: THE DECLARED PYRAMID (a proposed ruling, spec §11): the store's only multi-tier LEAGUE family, top tier first, read
@@ -231,10 +236,11 @@ SLOTS_KEY = "declaration_slots"
 SLOT_VALUES = {
     "scope": ("LEAGUE", "LEAGUE_REGULAR"),                       # Q2: LEAGUE-type rows; or only regular rounds
     "first_season": ("score_under_prior", "exclude_as_warmup"),  # Q3: each competition's first pot season
-    "visibility": ("day", "kickoff"),                            # Q4: results known before the fixture's UTC date
-                                                                 # and its kickoff / before its kickoff (RESULT_LAG)
-    # Q4 RULED (addendum 254 item 3): the DAY rule, stated in BAR_TEXT. The slot still admits "kickoff" and nothing
-    # refuses it, against a BAR_TEXT that names the day rule: escalated to the architect, not narrowed here.
+    "visibility": ("day",),                                      # Q4: results known before the fixture's UTC date
+                                                                 # and its kickoff (RESULT_LAG)
+    # Q4 RULED (addendum 254 item 3): the DAY rule, stated in BAR_TEXT, so the slot admits "day" alone and
+    # slots_state refuses any other value before any load (Codex on #832, round 3, P1): a declaration cannot select
+    # a history BAR_TEXT does not describe. "kickoff" stays a builder rule for tests only (VISIBILITY_RULES).
     "cut": "an ISO-8601 UTC instant clearing every fence",       # Q7
     "availability_on": (True, False),                            # Q6: the availability term in the shadow
     # 251 item 2: v22's RECORDED gate figure, read from where it is recorded and never recomputed. No figure of v22 on
@@ -707,11 +713,11 @@ def in_scope(rows, scope: str) -> list:
 
 
 def visible(r: Row, as_of: datetime, rule: str) -> bool:
-    """S-VIS (open question 4, RULED by addendum 254 item 3 Q4: the DAY rule; the slot still admits "kickoff",
-    escalated): a row is visible at `as_of` only if its result is known before it (kickoff +
-    RESULT_LAG < as_of) and, under "day", it kicked off on a UTC date strictly before the fixture's (the morning
-    chain's reading; batches every same-day fixture kicking off at least RESULT_LAG after midnight); "kickoff" = the
-    result-known bound alone. The one bound is visibility_bound's."""
+    """S-VIS (open question 4, RULED by addendum 254 item 3 Q4: the DAY rule, the slot's only value): a row is
+    visible at `as_of` only if its result is known before it (kickoff + RESULT_LAG < as_of) and, under "day", it
+    kicked off on a UTC date strictly before the fixture's (the morning chain's reading; batches every same-day
+    fixture kicking off at least RESULT_LAG after midnight); "kickoff" (VISIBILITY_RULES, never declarable) = the
+    result-known bound alone, for the tests' invariance probes. The one bound is visibility_bound's."""
     return r.utc_date < visibility_bound(as_of, rule)
 
 
@@ -725,7 +731,7 @@ def visibility_bound(as_of: datetime, rule: str) -> datetime:
         return min(datetime(as_of.year, as_of.month, as_of.day), known)
     if rule == "kickoff":
         return known
-    raise ValueError(f"visibility {rule!r} is not one of {SLOT_VALUES['visibility']}")
+    raise ValueError(f"visibility {rule!r} is not one of {VISIBILITY_RULES}")
 
 
 def admit(m, code: str, ctype: str | None) -> Row | None:
@@ -1664,7 +1670,7 @@ def run(word: str | None, fingerprint: str | None, db=None, no_fetch: bool = Fal
     :824, its guard inside reserve :301), and nothing is fitted, scored or priced before it (ARCHITECT 2026-11-04
     15:45 ET, addendum 254 item 3: "preflight → fingerprint → cross_ref_guard → reservation → walk → record", the
     three gates' common order; --preflight is its own earlier invocation in all three). A MISSING fingerprint is
-    refused right after the word, before any load, MATCHING both precedents (soccer_v23.py:1683, nfl_v2_gate.py:642,
+    refused right after the word, before any load, MATCHING both precedents (soccer_v23.py:1689, nfl_v2_gate.py:642,
     ncaa_v1r_gate.py:792); a WRONG one is refused at the compare, after the load, as in both. Then the walk of
     both arms (v22 re-walked beside soccer-v23 on the same harness: the same scored set, the same as-of context
     definition, the same skip zero), the comparison (soccer_backtest.compare_candidate) and decide (THE BAR, 251 item
@@ -1737,11 +1743,11 @@ def record_labels(r: dict) -> list[str]:
     so the count is said not computed), and Q22's "v22 re-walked" (v22 on this harness, not live v22 reproduced) with
     the AET / PEN rows read at their 90-minute score counted, scored and in the walked history."""
     vis = r["slots"]["visibility"]
-    q4 = (f"{DAY_RULE_RESIDUAL}; {DAY_RULE_RESIDUAL_COUNT}" if vis == "day" else
-          f"visibility {vis!r} is not the day rule addendum 254 item 3 Q4 ruled; the day rule's residual is not this "
-          "run's")
+    if vis not in SLOT_VALUES["visibility"]:          # unreachable through run(): slots_state refuses it before any load
+        raise ValueError(f"visibility {vis!r} is not the day rule addendum 254 item 3 Q4 ruled: no record is labelled "
+                         "under it")
     a = r["aet_pen"]
-    return [f"  residual (visibility {vis!r}): {q4}",
+    return [f"  residual (visibility {vis!r}): {DAY_RULE_RESIDUAL}; {DAY_RULE_RESIDUAL_COUNT}",
             f"  {V22_REWALKED_LABEL}; rows read at their 90-minute score (a non-FT raw code: AET / PEN): "
             f"{a['scored']} scored, {a['history']} in the walked history"]
 

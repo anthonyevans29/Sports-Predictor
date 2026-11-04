@@ -47,6 +47,12 @@ NCAA_FORWARD_DAYS = 7
 # ncaa-schedule's last step (ARCHITECT 2026-11-03, addendum 230 item 1(b)): the v2 college shadow, dormant (exit 0,
 # nothing written) while the registry records no verdict or a verdict other than PASS for ncaa-elo-v2
 NCAA_SHADOW_STEP = ["export-ncaa-predictions", "--id", "ncaa-elo-v2", "--dormant-ok"]
+# weekly-fullseason's last step (ARCHITECT 2026-11-03 17:40 ET, addendum 240 item 4(b)): the host's one CFBD read a
+# week, METERED (not in UNMETERED), its failure receipted and paged as a sync-step failure that stops nothing after it
+# (the chain's `go_on`, CFBD_GO_ON)
+NCAA_CFBD_STEP = ["ncaa-cfbd-labels", "--year", "2026"]
+CFBD_GO_ON = ("addendum 240 item 4(b): the weekly CFBD read's failure is a sync-step failure that stops nothing "
+              "after it")
 
 CUP_SCHEDULE = ("EFL", "CL", "UEL", "FAC")     # intl-daily's cup schedule read (#707), in this order
 COVERAGE_STEP = ["coverage", "--json"]         # intl-daily's LAST step (#805, addendum 225 item 5)
@@ -287,10 +293,28 @@ CHAINS: dict[str, dict] = {
     # line, sync-teams then sync-matches (sp_run.fullseason_resolve). `sync-teams --competition MLB` routes as
     # `sync-matches` does where SP_SKIP_FAMILIES names MLB (cli.py's api-sports fallback, its own sync_teams);
     # nothing here special-cases it.
+    #
+    # THE HOST'S CFBD READ (ARCHITECT 2026-11-03 17:40 ET, addendum 240 item 4(b), verbatim in part: "a small ruled PR
+    # after #816 puts `ncaa-cfbd-labels --year 2026` on the host's weekly-fullseason chain (Sunday 06:00Z; metered, one
+    # read a week — the neutral flags of a week's games are known days ahead and seldom change), its failure a
+    # sync-step failure that stops nothing after it; the daily ncaa-schedule chain stays as it is."): `steps` holds the
+    # steps AFTER the list's (sp_run.resolve appends them to fullseason_resolve's; the cutover readout still counts the
+    # list alone). NCAA_CFBD_STEP is the LAST step: its two joins read OUR stored NCAA fixtures (the pregame flag by the
+    # exact name tier; a substring-tier label only where our stored score agrees), so that, WHEN the host's list carries
+    # an NCAA|2026 line, the week's full-season sync of them runs first, as teams run before matches (the host list's
+    # NCAA line is not verified here; first or last is the architect's to rule). METERED (not in UNMETERED): under
+    # SP_PARALLEL_MODE=designated it runs only on a designated day. `go_on` names it: a failed read is receipted
+    # (`continued`: CFBD_GO_ON), the run goes on to any later step, the chain's exit is the first failure's (OnFailure
+    # pages) and the closing lines name the step (sp_run.run_steps). The read runs only when the list resolves (the
+    # setting is set, the file exists and lists a competition; else resolve refuses before any step), the daily backup
+    # succeeds, and no earlier sync-matches fails (a failed one still stops the chain before it, as before); in every
+    # other case that week's read waits for a hand run or the next Sunday.
     "weekly-fullseason": {
         "backup": "daily",
         "fullseason": True,
-        "steps": [],
+        "go_on": ("ncaa-cfbd-labels",),
+        "go_on_why": CFBD_GO_ON,
+        "steps": [NCAA_CFBD_STEP],
     },
 }
 

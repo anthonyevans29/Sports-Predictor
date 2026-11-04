@@ -37,10 +37,11 @@ def test_the_weekly_chain_runs_sync_teams_immediately_before_each_sync_matches_l
     lst.write_text("# the host's list\nPL|2026/27\nFAC|2026/27\n\nNFL|2026\nMLB|2026\n")
     monkeypatch.setenv("SP_FULLSEASON_LIST", str(lst))
     steps = sp_run.resolve("weekly-fullseason", {}, date(2026, 11, 1))
-    assert steps == [[verb, "--competition", code, "--season", season]
-                     for code, season in (("PL", "2026/27"), ("FAC", "2026/27"), ("NFL", "2026"), ("MLB", "2026"))
-                     for verb in ("sync-teams", "sync-matches")]
-    assert steps == sp_run.fullseason_steps()                     # the one path (resolve and the readout's)
+    assert steps == [*[[verb, "--competition", code, "--season", season]
+                       for code, season in (("PL", "2026/27"), ("FAC", "2026/27"), ("NFL", "2026"), ("MLB", "2026"))
+                       for verb in ("sync-teams", "sync-matches")],
+                     ["ncaa-cfbd-labels", "--year", "2026"]]   # addendum 240 item 4(b): the weekly CFBD read, last
+    assert steps[:-1] == sp_run.fullseason_steps()                # the one path (resolve and the readout's)
     # the MLB line is the same two plain steps: no special case here; cli.py routes it (below)
     assert ["sync-teams", "--competition", "MLB", "--season", "2026"] in steps
 
@@ -193,6 +194,9 @@ def test_the_service_records_the_ids_and_the_line_is_the_ruled_text(cup_db):
 
 FAKE_SYNC_CLI = '''import sys
 a = sys.argv[1:]
+if "--competition" not in a:                 # the chain's last step, ncaa-cfbd-labels (addendum 240 item 4(b))
+    print("ran", " ".join(a))
+    sys.exit(0)
 code = a[a.index("--competition") + 1]
 print("ran", " ".join(a))
 if a[0] == "sync-teams":
@@ -221,11 +225,11 @@ def test_the_chain_receipt_carries_each_competitions_line_and_the_summary_names_
     out = capsys.readouterr().out.rstrip("\n").split("\n")
     rs = receipts(sandbox)
     steps = [r for r in rs if r["kind"] == "step"]
-    assert [s["command"].split()[2] for s in steps] == ["sync-teams", "sync-matches"] * 2
+    assert [s["command"].split()[2] for s in steps] == ["sync-teams", "sync-matches"] * 2 + ["ncaa-cfbd-labels"]
     assert steps[2]["sync"] == {"teams": {"created": 2, "updated": 30, "skipped": 0}}
     assert steps[3]["sync"]["not_in_db"]["n"] == 21 and steps[3]["exit"] == 0
     chain = rs[-1]
-    assert chain["kind"] == "chain" and chain["exit"] == 0 and chain["steps_ok"] == 4
+    assert chain["kind"] == "chain" and chain["exit"] == 0 and chain["steps_ok"] == 5
     assert chain["competitions"] == [
         {"competition": "PL", "season": "2026/27", "teams_step": 1, "teams_exit": 0, "teams_created": 0,
          "teams_updated": 30, "matches_step": 2, "matches_exit": 0, "matches_skipped": 0, "not_in_db": 0},
@@ -237,13 +241,13 @@ def test_the_chain_receipt_carries_each_competitions_line_and_the_summary_names_
     assert "  · PL 2026/27: sync-teams created 0 · updated 30 · sync-matches skipped 0" in out
     assert ("  · FAC 2026/27: sync-teams created 2 · updated 30 · sync-matches skipped 23 (21 of clubs not in the DB)"
             in out)
-    assert "⚠ step 4/4 skipped 21 listing(s) of clubs not in the DB (exit stays 0: skipped, not faked)" in text
-    summary = next(x for x in out if x.startswith("✓ weekly-fullseason: exit=0 steps 4/4"))
-    assert " · listings skipped (clubs not in the DB): step 4/4 FAC 21 · running " in summary
-    assert out[-1].startswith("  ⚠ step 4/4 python cli.py sync-matches --competition FAC --season 2026/27: "
+    assert "⚠ step 4/5 skipped 21 listing(s) of clubs not in the DB (exit stays 0: skipped, not faked)" in text
+    summary = next(x for x in out if x.startswith("✓ weekly-fullseason: exit=0 steps 5/5"))
+    assert " · listings skipped (clubs not in the DB): step 4/5 FAC 21 · running " in summary
+    assert out[-1].startswith("  ⚠ step 4/5 python cli.py sync-matches --competition FAC --season 2026/27: "
                               "skipped 21 listing(s) of clubs not in the DB: 1200, 1201, ")
     # the receipts table's chain key line says so too
-    assert sp_receipts.key_line(chain).startswith("steps 4/4; exports 0; listings skipped (clubs not in the DB) 21 "
+    assert sp_receipts.key_line(chain).startswith("steps 5/5; exports 0; listings skipped (clubs not in the DB) 21 "
                                                   "in 1 step(s)")
 
 

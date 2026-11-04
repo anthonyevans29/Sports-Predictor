@@ -17,6 +17,7 @@
   - The nflverse backfill cadence of 24 h is proposed.
   - The lane's state `declared` and its Issue number are open.
   - The migration must not ride Thursday's tag.
+- **Codex on #831, round 1 (three repairs):** POST HOC reads the kickoff `matches` stores when a league-wide file stores none, as stored at read time, not as of the instant (none anywhere: `kickoff unknown`; the frozen alternative is listed for the architect, spec section 7 (n)); filters and printed ids take each id from the interval's latest member that carries one, in either mapping direction; per-game facts are keyed on the source's game id (`attrs.source_match_id`, required from `nhl_api_landing`).
 - **Receipts:** see the PR body (tests, the suite, `check-roadmap`, `check-fragments`).
 - **Addendum 252, verbatim (items 1, 2, 6, 7):**
 

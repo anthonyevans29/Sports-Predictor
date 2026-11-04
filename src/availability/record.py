@@ -12,16 +12,19 @@ transaction, rows_asserted = len(assertions), every assertion's recorded_at = th
 never by the caller). It refuses, before any session opens: a source, status or kind outside the vocabulary; a column
 name it does not know (law 1); assertions on an observation that is not complete or partial; a missed row with a
 fetched_at, or any other row without one; an endpoint that carries a secret; a payload_path outside
-logs/availability/<source>/<YYYY-MM-DD>/ (so never under data/); a missing DB file (never created, law 5); a store
-migrate_availability_record.py has not migrated. The error text is redacted, then cut to 256 characters. A poll the
+logs/availability/<source>/<YYYY-MM-DD>/ (so never under data/); a per-game fact without attrs.source_match_id from
+a source in SOURCE_MATCH_IDS; a missing DB file (never created, law 5); a store migrate_availability_record.py has not
+migrated. The error text is redacted, then cut to 256 characters. A poll the
 store already holds (the unique key: source, match, stored kickoff, poll) is counted "already", its row standing.
 There is no update, delete or upsert function here, and the tables' triggers abort one from anywhere else.
 
 THE MAPPING (item 1, law 4): a player or team the caller cannot map is written with player_id / team_id NULL and the
 source's id and text beside it; the receipt counts the unmapped players, teams and per-game facts without a match.
 Nothing here maps by name. The read keys a fact and a slot on the SOURCE'S OWN identifiers (its player id, else the
-name verbatim; its team text), ours only where the source gave none: our ids are joined for display, so a mapping that
-lands between two fetches never splits one source fact into two.
+name verbatim; its team text; a per-game fact's attrs.source_match_id, which the writer requires from a source in
+SOURCE_MATCH_IDS), ours only where the source gave none: our ids are joined for display, from the interval's LATEST
+member that carries each id, and filter from it too, so a mapping that lands between two fetches, in either direction,
+never splits one source fact into two and never hides it (Codex on #831, round 1).
 
 THE READ. derive() turns assertions into intervals (item 1(b): "a fact holds from its observation to the next
 observation of the same source that asserts the same (kind, player, team[, match]) differently, or that asserts the
@@ -32,6 +35,10 @@ clock an assertion exists from its fetch, so a backfilled row never appears befo
 assertion with no source stamp is not read (counted, never filled from recorded_at). Every fact carries both stamps.
 A fact reads BACKFILLED only while every member of its interval is backfilled: one fresh restatement puts it in the
 live-era record, from that row's recorded_at (Fact.live_since). A --history line carries its own row's labels.
+POST HOC (item 5) compares a per-game fact's recorded_at with its observation's stored kickoff (as stored at fetch
+time), else with the kickoff our matches table stores for its match (a league-wide file stores none) AS STORED AT READ
+TIME, not as of the instant, so a later re-date can change a past read's label; with neither, the fact reads "kickoff
+unknown", never pregame (law 4).
 """
 from __future__ import annotations
 
@@ -39,6 +46,7 @@ import json
 import os
 import re
 from dataclasses import dataclass, field
+from dataclasses import replace as _with   # private: the module exposes no name matching update/replace (test 6(a))
 from datetime import date, datetime, timedelta, timezone
 from pathlib import PurePosixPath
 from typing import Iterable, Sequence
@@ -70,6 +78,12 @@ CADENCE = {"nflverse_depth_charts": timedelta(hours=24)}
 # attrs keys a restatement may change without asserting the fact differently: the source's raw time text (its stamp
 # is source_stamp, compared nowhere as a fact)
 VOLATILE_ATTRS = ("dt_raw",)
+# THE SOURCE'S OWN GAME ID (Codex on #831, round 1): a per-game fact (GAME_KINDS) from a source listed here must carry
+# attrs.source_match_id, the source's id for the game, so a fact first recorded before its game maps to our match_id
+# and restated after is ONE fact (and its slot closes). nhl_api_landing: the NHL gameId (item 3(b): the landing and
+# boxscore URLs' game id). nflverse_depth_charts asserts no per-game fact (item 3(a): depth_rank only). The paid feed's
+# entry comes with its adapter's specification (item 3(c)). A source not listed keys its per-game facts on match_id.
+SOURCE_MATCH_IDS = {"nhl_api_landing": "the NHL gameId"}
 
 OBS_TABLE = "availability_observations"
 ASR_TABLE = "availability_assertions"
@@ -318,6 +332,18 @@ def _check_assertion(a: dict, i: int) -> dict:
     return row
 
 
+def _with_source_match_id(attrs: dict | None, i: int, source: str) -> dict:
+    """attrs with source_match_id as text, or Refused: a per-game fact from a source in SOURCE_MATCH_IDS keeps the
+    source's own game id (the stable identity across our match mapping)."""
+    v = (attrs or {}).get("source_match_id")
+    if isinstance(v, bool) or not isinstance(v, (str, int)) or not str(v).strip():
+        raise Refused(f"REFUSED: assertion {i}: a per-game fact from {source} carries attrs.source_match_id "
+                      f"({SOURCE_MATCH_IDS[source]}); none given, nothing written")
+    if len(str(v)) > 64:
+        raise Refused(f"REFUSED: assertion {i}: attrs.source_match_id is longer than 64 characters")
+    return {**attrs, "source_match_id": str(v)}
+
+
 # ---- the store --------------------------------------------------------------------------------------------------------
 
 def _db_file():
@@ -372,6 +398,10 @@ def write_observation(obs: dict, assertions: Sequence[dict] = ()) -> Receipt:
     if rows and row["status"] not in ASSERTING:
         raise Refused(f"REFUSED: a {row['status']} observation asserts nothing (only {' or '.join(ASSERTING)} "
                       f"observations carry facts); {len(rows)} assertion(s) given, nothing written")
+    if row["source"] in SOURCE_MATCH_IDS:
+        for i, r in enumerate(rows, 1):
+            if r["kind"] in GAME_KINDS:
+                r["attrs"] = _with_source_match_id(r["attrs"], i, row["source"])
     path = _db_file()
     if path is None or not path.is_file():
         raise Refused(f"REFUSED: no DB file at {path or 'a non-file database URL'}: the record never creates one "
@@ -430,6 +460,7 @@ class Row:
     attrs: dict | None
     source_stamp: datetime | None
     recorded_at: datetime
+    match_kickoff: datetime | None = None   # matches.utc_date for match_id, read in the same session (not a column)
 
 
 @dataclass(eq=False)
@@ -446,19 +477,26 @@ class Interval:
 
 
 def load_rows(s, sport, kind: str | None = None) -> list[Row]:
-    """Every assertion of the sport (and kind), with its observation. Read only; the caller's session."""
+    """Every assertion of the sport (and kind), with its observation, and the kickoff our matches table stores for its
+    match_id (Row.match_kickoff; None where the match is unmapped or not stored). Read only; the caller's session."""
     from sqlalchemy import select
 
     from src.db.schema import AvailabilityAssertion as A
     from src.db.schema import AvailabilityObservation as O
+    from src.db.schema import Match
     q = (select(A, O).join(O, O.id == A.observation_id).where(A.sport == _sport(sport)))
     if kind is not None:
         q = q.where(A.kind == kind)
+    got = s.execute(q.order_by(A.id)).all()
+    ids = sorted({a.match_id for a, _ in got if a.match_id is not None})
+    kickoff = {mid: ko for i in range(0, len(ids), 500)          # SQLite's bound-parameter limit
+               for mid, ko in s.execute(select(Match.id, Match.utc_date).where(Match.id.in_(ids[i:i + 500]))).all()}
     out = []
-    for a, o in s.execute(q.order_by(A.id)).all():
+    for a, o in got:
         out.append(Row(a.id, a.observation_id, o.source, o.endpoint, o.poll_label, o.status, o.kickoff_at,
                        getattr(a.sport, "value", a.sport), a.kind, a.player_id, a.source_player_id, a.player_name,
-                       a.team_id, a.source_team, a.match_id, a.attrs, a.source_stamp, a.recorded_at))
+                       a.team_id, a.source_team, a.match_id, a.attrs, a.source_stamp, a.recorded_at,
+                       _naive_utc(kickoff.get(a.match_id), "matches.utc_date")))
     return out
 
 
@@ -484,9 +522,19 @@ def team_key(r: Row) -> tuple:
     return ("src", r.source_team) if r.source_team is not None else ("id", r.team_id)
 
 
+def match_key(r: Row) -> tuple | None:
+    """The game's identity in the record: the source's own game id (attrs.source_match_id; the writer requires it from
+    a source in SOURCE_MATCH_IDS), else our match_id, else None (a team-level fact, or a per-game fact of a source with
+    no game id whose match is unmapped). The source's id never changes when our match maps (Codex on #831, round 1)."""
+    v = (r.attrs or {}).get("source_match_id")
+    if v is not None:
+        return ("src", str(v))
+    return ("id", r.match_id) if r.match_id is not None else None
+
+
 def fact_key(r: Row) -> tuple:
     """Item 1(b): the same (kind, player, team[, match]), per source, on the source's own identifiers."""
-    return (r.source, r.kind, player_key(r), team_key(r), r.match_id)
+    return (r.source, r.kind, player_key(r), team_key(r), match_key(r))
 
 
 def slot_key(r: Row) -> tuple | None:
@@ -499,7 +547,8 @@ def slot_key(r: Row) -> tuple | None:
             return None
         return (r.source, r.kind, team_key(r), at.get("pos_grp"), str(at["pos_slot"]), str(at["pos_rank"]))
     if r.kind in STARTER_KINDS:
-        return (r.source, r.kind, r.match_id, team_key(r)) if r.match_id is not None else None
+        mk = match_key(r)
+        return (r.source, r.kind, mk, team_key(r)) if mk is not None else None
     if r.kind == "plays_for":
         return (r.source, r.kind, player_key(r))
     return None
@@ -544,8 +593,8 @@ def derive(rows: Iterable[Row], clock: str = "recorded") -> list[Interval]:
         continuing: set = set()
         opened: dict = {}
         by_fact: dict = {}
-        for iv in open_:
-            by_fact.setdefault((fact_key(iv.first), _sig(iv.first)), []).append(iv)
+        for iv in open_:                  # the interval's LATEST member: the mapping it carries now
+            by_fact.setdefault((fact_key(iv.last), _sig(iv.last)), []).append(iv)
         for r in g:
             k = (fact_key(r), _sig(r))
             hit = by_fact.get(k)
@@ -574,11 +623,11 @@ def derive(rows: Iterable[Row], clock: str = "recorded") -> list[Interval]:
             if id(iv) in continuing:
                 still.append(iv)
                 continue
-            fk, sk = fact_key(iv.first), slot_key(iv.first)
+            fk, sk, pk = fact_key(iv.last), slot_key(iv.last), player_key(iv.last)
             if fk in facts:
                 iv.end, iv.closed_by, iv.why_closed = c, facts[fk], "asserted differently"
-            elif sk in slots and set(slots[sk]) - {player_key(iv.first)}:
-                other = next(r for p, r in slots[sk].items() if p != player_key(iv.first))
+            elif sk in slots and set(slots[sk]) - {pk}:
+                other = next(r for p, r in slots[sk].items() if p != pk)
                 iv.end, iv.closed_by, iv.why_closed = c, other, "slot asserted to someone else"
             else:
                 still.append(iv)
@@ -597,7 +646,7 @@ class Fact:
     recorded_at of the first member that is not backfilled: the earliest instant the fact is in the live-era record."""
     interval: Interval
     backfilled: bool | None               # None: the source has no ruled cadence (law 4: unknown, not "no")
-    post_hoc: bool | None                 # None: no stored kickoff to compare (a league-wide file)
+    post_hoc: bool | None                 # None: no kickoff stored anywhere (law 4: "kickoff unknown", never pregame)
     live_since: datetime | None = None    # the first fresh member's recorded_at; None while every member is backfilled
 
 
@@ -627,13 +676,52 @@ def live_since(iv: Interval) -> datetime | None:
     return min(fresh) if fresh else None
 
 
-def post_hoc(r: Row) -> bool | None:
-    """Item 5: "a fact recorded after its game is post hoc and labelled so"; eventual_starter always is (item 3(b))."""
+def mapped_now(iv: Interval) -> Row:
+    """The interval's latest member, carrying the mapping the fact has now: each of our ids (player_id, team_id,
+    match_id, with the match's stored kickoff) from the LATEST member that carries one, so neither direction of a
+    mapping change hides the fact: unmapped then mapped is found by the new id, and mapped then restated unmapped (a
+    "partial" fetch, item 6(c); a poll whose match did not map that time) is still found by the id it had (Codex on
+    #831, round 1). The first member keeps the interval's start and its original stamps."""
+    members = iv.members or [iv.first, iv.last]
+    pid = next((r.player_id for r in reversed(members) if r.player_id is not None), None)
+    tid = next((r.team_id for r in reversed(members) if r.team_id is not None), None)
+    m = next((r for r in reversed(members) if r.match_id is not None), None)
+    return _with(iv.last, player_id=pid, team_id=tid, match_id=m.match_id if m else None,
+                   match_kickoff=m.match_kickoff if m else None)
+
+
+def kickoff_of(r: Row, iv: Interval | None = None) -> datetime | None:
+    """The kickoff a fact is compared to, in order (Codex on #831, round 1):
+    1. its observation's stored kickoff (kickoff_at): the kickoff as stored at FETCH time, a per-game fetch;
+    2. else the kickoff our matches table stores (utc_date) for the match the interval names now (mapped_now: the latest
+       member that carries a match_id). A league-wide file stores no kickoff, and a fact recorded before its match
+       mapped names it later. This is matches.utc_date AS STORED AT READ TIME, the current kickoff, not as of the
+       instant: a match re-dated later can change a past as-of read's POST HOC label, where step 1 cannot;
+    3. else the kickoff utc_date stores for the match the row itself names (no interval given);
+    4. else None: "kickoff unknown", never read as pregame (law 4)."""
+    if r.kickoff_at is not None:
+        return r.kickoff_at
+    if iv is not None:
+        now = mapped_now(iv)
+        if now.match_kickoff is not None:
+            return now.match_kickoff
+    return r.match_kickoff
+
+
+def post_hoc(r: Row, iv: Interval | None = None) -> bool | None:
+    """Item 5: "a fact recorded after its game is post hoc and labelled so"; eventual_starter always is (item 3(b)).
+    None where no kickoff is stored anywhere (kickoff_of): "kickoff unknown", never read as pregame (law 4)."""
     if r.kind in POST_HOC_KINDS:
         return True
-    if r.kickoff_at is None:
+    ko = kickoff_of(r, iv)
+    if ko is None:
         return None
-    return r.recorded_at >= r.kickoff_at
+    return r.recorded_at >= ko
+
+
+def per_game(r: Row) -> bool:
+    """A per-game fact: a per-game kind, or a row that names a game (ours or the source's)."""
+    return r.kind in GAME_KINDS or match_key(r) is not None
 
 
 def _team_matches(r: Row, team) -> bool:
@@ -643,7 +731,11 @@ def _team_matches(r: Row, team) -> bool:
     return r.source_team == t or (t.isdigit() and r.team_id == int(t))
 
 
-def _keep(r: Row, match_id, team) -> bool:
+def _keep(iv: Interval, match_id, team) -> bool:
+    """The --match-id / --team filter, read on the mapping the interval carries now (mapped_now: each id from the latest
+    member that carries one; Codex on #831, round 1): a fact first recorded unmapped and restated after its team or
+    match mapped is found by our id, and so is a mapped fact restated unmapped."""
+    r = mapped_now(iv)
     return (match_id is None or r.match_id == match_id) and _team_matches(r, team)
 
 
@@ -662,21 +754,22 @@ def as_of(s, sport, instant: datetime, clock: str = "recorded", match_id: int | 
         raise Refused(f"REFUSED: kind {kind!r} is not in the vocabulary ({', '.join(KINDS)})")
     t = _instant(instant)
     rows = [r for r in load_rows(s, sport, kind) if (clock_of(r, clock) is not None and clock_of(r, clock) <= t)]
-    return [Fact(iv, interval_backfilled(iv), post_hoc(iv.first), live_since(iv)) for iv in derive(rows, clock)
-            if iv.end is None and _keep(iv.first, match_id, team)]
+    return [Fact(iv, interval_backfilled(iv), post_hoc(iv.first, iv), live_since(iv)) for iv in derive(rows, clock)
+            if iv.end is None and _keep(iv, match_id, team)]
 
 
 def history(s, sport, instant: datetime, clock: str = "recorded", match_id: int | None = None, team=None,
             kind: str | None = None) -> list[tuple[Row, Interval]]:
     """--history (item 2): every assertion for the key with its clock at or before the instant, in time order, each
-    with the interval it opened or restated (its derived end), so a flip shows. The same derive() as as_of."""
+    with the interval it opened or restated (its derived end), so a flip shows. The same derive() as as_of; the key is
+    read on each interval's latest member, so every row of a fact that mapped later is listed under our id."""
     if kind is not None and kind not in KINDS:
         raise Refused(f"REFUSED: kind {kind!r} is not in the vocabulary ({', '.join(KINDS)})")
     t = _instant(instant)
     rows = [r for r in load_rows(s, sport, kind) if (clock_of(r, clock) is not None and clock_of(r, clock) <= t)]
     member = {r.id: iv for iv in derive(rows, clock) for r in iv.members}
     order = [r for _, g in _groups(rows, clock) for r in g]          # time order: the derivation's own
-    return [(r, member[r.id]) for r in order if _keep(r, match_id, team)]
+    return [(r, member[r.id]) for r in order if _keep(member[r.id], match_id, team)]
 
 
 def unread_under_source_clock(s, sport, kind: str | None = None) -> int:
@@ -706,7 +799,7 @@ def _obs(r: Row) -> str:
     return f"obs #{r.observation_id} {r.source}{poll} {r.obs_status} <{r.endpoint}>"
 
 
-def _labels(bf: bool | None, ph: bool | None, stamped: bool) -> str:
+def _labels(bf: bool | None, ph: bool | None, stamped: bool, game: bool = False) -> str:
     """The labels a fact line (as of) and a history line (per assertion) both carry, the same words."""
     labels = []
     if bf:
@@ -715,31 +808,46 @@ def _labels(bf: bool | None, ph: bool | None, stamped: bool) -> str:
         labels.append("backfill unknown (no ruled cadence)")
     if ph:
         labels.append("POST HOC")
+    elif ph is None and game:
+        labels.append("kickoff unknown (post hoc undecidable; never read as pregame)")
     return "".join(f" · {x}" for x in labels)
 
 
+def _match(r: Row) -> str:
+    gid = (r.attrs or {}).get("source_match_id")
+    if r.match_id is not None:
+        return f" · match #{r.match_id}"
+    return f" · match UNMAPPED (src {gid})" if gid is not None else ""
+
+
 def fact_line(f: Fact) -> str:
-    iv, r = f.interval, f.interval.first
-    match = f" · match #{r.match_id}" if r.match_id is not None else ""
+    """A fact: its kind, attrs, stamps and observation from the row that opened it; its ids (ours, or UNMAPPED with
+    the source's) from mapped_now, the mapping it carries now (Codex on #831, round 1)."""
+    iv, r, now = f.interval, f.interval.first, mapped_now(f.interval)
     rest = (f" · restated {iv.restated}x, last {_obs(iv.last)} recorded_at {_z(iv.last.recorded_at)}"
             if iv.restated else "")
     live = (f" · live-era from {_z(f.live_since)} (first seen in backfilled history, restated fresh)"
             if f.live_since is not None and backfilled(r) else "")
-    return (f"  {r.kind} · {_who(r)} · {_team(r)}{match} · attrs {json.dumps(r.attrs or {}, sort_keys=True)} · "
-            f"recorded_at {_z(r.recorded_at)} · source_stamp {_z(r.source_stamp)} · {_obs(r)}{rest}{live}"
-            + _labels(f.backfilled, f.post_hoc, r.source_stamp is not None))
+    return (f"  {r.kind} · {_who(now)} · {_team(now)}{_match(now)} · "
+            f"attrs {json.dumps(r.attrs or {}, sort_keys=True)} · recorded_at {_z(r.recorded_at)} · "
+            f"source_stamp {_z(r.source_stamp)} · {_obs(r)}{rest}{live}"
+            + _labels(f.backfilled, f.post_hoc, r.source_stamp is not None, per_game(now)))
 
 
 def history_line(r: Row, iv: Interval) -> str:
     """One assertion, with the interval it opened or restated, and its own labels (the row's: a history line is one
-    assertion, so BACKFILLED here is that row's, as recorded)."""
+    assertion, so BACKFILLED here is that row's, as recorded). Its ids print as recorded; where the interval maps them
+    differently now (mapped_now), the line adds "mapped now" with those ids (Codex on #831, round 1)."""
+    now = mapped_now(iv)
+    mapped = (f" · mapped now: {_who(now)} · {_team(now)}{_match(now)}"
+              if (now.player_id, now.team_id, now.match_id) != (r.player_id, r.team_id, r.match_id) else "")
     role = "opened" if iv.first.id == r.id else f"restated #{iv.first.id}"
     end = (f"ended {_z(iv.end)} ({iv.why_closed}, by assertion #{iv.closed_by.id})" if iv.end is not None
            else "open")
-    return (f"  #{r.id} {r.kind} · {_who(r)} · {_team(r)}" + (f" · match #{r.match_id}" if r.match_id else "")
+    return (f"  #{r.id} {r.kind} · {_who(r)} · {_team(r)}{_match(r)}{mapped}"
             + f" · attrs {json.dumps(r.attrs or {}, sort_keys=True)} · recorded_at {_z(r.recorded_at)} · "
               f"source_stamp {_z(r.source_stamp)} · {_obs(r)} · {role} · {end}"
-            + _labels(backfilled(r), post_hoc(r), r.source_stamp is not None))
+            + _labels(backfilled(r), post_hoc(r, iv), r.source_stamp is not None, per_game(now)))
 
 
 def attributions(sources: Iterable[str]) -> list[str]:
@@ -750,4 +858,4 @@ def attributions(sources: Iterable[str]) -> list[str]:
 __all__ = ["SOURCES", "STATUSES", "KINDS", "CLOCKS", "CADENCE", "TABLES", "TRIGGERS", "MIGRATION_MARKER", "APPEND_ONLY",
            "Refused", "Receipt", "write_observation", "migrated", "redact", "payload_path_refusal", "Row", "Interval",
            "Fact", "load_rows", "derive", "as_of", "history", "backfilled", "interval_backfilled", "live_since",
-           "post_hoc", "attributions"]
+           "post_hoc", "kickoff_of", "mapped_now", "match_key", "SOURCE_MATCH_IDS", "attributions"]

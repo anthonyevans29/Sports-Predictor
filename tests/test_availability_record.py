@@ -91,9 +91,12 @@ def _nhl(label, fetched_at, status="complete", match_id=77, **kw):
             "status": status, "http_status": 200 if status != "missed" else None, **kw}
 
 
-def _goalie(pid, name, team_id, side, match_id=77, kind="projected_starter", source_team=None):
+GID = "2025020123"                             # the NHL gameId of LANDING (attrs.source_match_id)
+
+
+def _goalie(pid, name, team_id, side, match_id=77, kind="projected_starter", source_team=None, gid=GID):
     return {"kind": kind, "source_player_id": str(pid), "player_name": name, "team_id": team_id,
-            "source_team": source_team, "match_id": match_id, "attrs": {"side": side}}
+            "source_team": source_team, "match_id": match_id, "attrs": {"side": side, "source_match_id": gid}}
 
 
 def _ro():
@@ -706,3 +709,141 @@ def test_cli_history_carries_the_backfilled_and_post_hoc_labels():
     assert not any("BACKFILLED" in ln for ln in h.output.splitlines() if "B Starter" in ln)
     n = _cli("--sport", "nhl", "--as-of", "2026-11-10T01:00:00Z", "--history")
     assert n.exit_code == 0 and any("G One" in ln and "POST HOC" in ln for ln in n.output.splitlines()), n.output
+
+
+# ---- Codex on #831, round 1: kickoff from the match, the latest member's mapping, the source's game id ----------------
+
+def _match_row(mid: int, kickoff: datetime) -> None:
+    """A stored match (the synthetic minimum of matches' NOT NULL columns): its utc_date is the kickoff a league-wide
+    fact is compared to."""
+    with _engine().begin() as c:
+        c.execute(text("INSERT INTO matches (id, sport, competition_id, season, utc_date, status, home_team_id, "
+                       "away_team_id, external_ids) VALUES (:i, 'NHL', 1, '2026', :k, 'SCHEDULED', 1, 2, '{}')"),
+                  {"i": mid, "k": kickoff.strftime("%Y-%m-%d %H:%M:%S.%f")})
+
+
+def test_a_league_wide_per_game_fact_recorded_after_its_kickoff_is_post_hoc():
+    """A league-wide observation stores no kickoff (kickoff_at NULL). A per-game fact on it names our match 77: the
+    kickoff our matches table stores for 77 decides POST HOC. A fact whose match is unmapped, with no kickoff stored
+    anywhere, reads "kickoff unknown", never pregame (law 4)."""
+    _migrate()
+    _match_row(77, KO)
+    lw = {"sport": "nhl", "source": "sportsdataio_goalies", "endpoint": "https://example.test/goalies/2026-11-09",
+          "status": "partial"}
+    rec.write_observation({**lw, "fetched_at": KO - timedelta(hours=3)},
+                          [_goalie(1, "G Pre", 1, "home", gid=None)])
+    rec.write_observation({**lw, "fetched_at": KO + timedelta(minutes=5)},
+                          [_goalie(2, "G Late", 2, "away", gid=None),
+                           _goalie(3, "G Nowhere", None, "home", match_id=None, source_team="UTA", gid=None)])
+    with _ro() as s:
+        facts = {f.interval.first.player_name: f for f in rec.as_of(s, "nhl", KO + timedelta(hours=1))}
+        hist = {r.player_name: (r, iv) for r, iv in rec.history(s, "nhl", KO + timedelta(hours=1))}
+    assert (facts["G Pre"].post_hoc, facts["G Late"].post_hoc, facts["G Nowhere"].post_hoc) == (False, True, None)
+    assert "POST HOC" in rec.fact_line(facts["G Late"]) and "POST HOC" in rec.history_line(*hist["G Late"])
+    assert "POST HOC" not in rec.fact_line(facts["G Pre"]) and "kickoff unknown" not in rec.fact_line(facts["G Pre"])
+    for line in (rec.fact_line(facts["G Nowhere"]), rec.history_line(*hist["G Nowhere"])):
+        assert "kickoff unknown" in line and "POST HOC" not in line
+
+
+def test_a_fact_restated_after_its_team_maps_is_found_and_shown_by_our_id():
+    """Day 1 partial: BAL unmapped (team_id NULL). Day 2 complete: the same fact restated with BAL mapped to team 1.
+    One interval; --team 1 finds it and prints team #1 (its latest member); --history lists both rows under --team 1,
+    the first as recorded with "mapped now"."""
+    _migrate()
+    d1, d2 = datetime(2026, 11, 5, 9), datetime(2026, 11, 6, 9)
+    rec.write_observation(_nfl(d1, status="partial"), [_depth("A QB", "00-A", 1, d1 - timedelta(hours=2))])
+    rec.write_observation(_nfl(d2), [_depth("A QB", "00-A", 1, d2 - timedelta(hours=2), team_id=1)])
+    with _ro() as s:
+        (f,) = rec.as_of(s, "nfl", d2 + timedelta(hours=1), team="1")
+        assert len(rec.as_of(s, "nfl", d2 + timedelta(hours=1), team="BAL")) == 1      # the source text too
+        hist = rec.history(s, "nfl", d2 + timedelta(hours=1), team="1")
+    assert f.interval.restated == 1 and f.interval.first.team_id is None and f.interval.start == d1
+    line = rec.fact_line(f)
+    assert "team #1" in line and "UNMAPPED ('BAL')" not in line and "recorded_at 2026-11-05T09:00:00Z" in line
+    assert [r.recorded_at for r, _ in hist] == [d1, d2]
+    first = rec.history_line(*hist[0])
+    assert "team UNMAPPED ('BAL')" in first and "mapped now: " in first and "team #1" in first
+
+
+def test_a_mapped_fact_restated_unmapped_is_still_found_and_shown_by_our_id():
+    """The reverse direction. Day 1 complete: BAL mapped to team 1. Day 2 partial (item 6(c): a team unmapped): the
+    same fact restated with team_id NULL. And an NHL poll at T-60 on match 77, restated at T-30 by a partial poll whose
+    match did not map. Each is one interval; --team 1 and --match-id 77 still find it, and its line prints our ids
+    (each from the latest member that carries one), never UNMAPPED."""
+    _migrate()
+    d1, d2 = datetime(2026, 11, 5, 9), datetime(2026, 11, 6, 9)
+    rec.write_observation(_nfl(d1), [_depth("A QB", "00-A", 1, d1 - timedelta(hours=2), team_id=1)])
+    rec.write_observation(_nfl(d2, status="partial"), [_depth("A QB", "00-A", 1, d2 - timedelta(hours=2))])
+    _match_row(77, KO)
+    rec.write_observation(_nhl("T-60", KO - timedelta(minutes=60)), [_goalie(1, "G One", 1, "home")])
+    rec.write_observation(_nhl("T-30", KO - timedelta(minutes=30), status="partial", match_id=None),
+                          [_goalie(1, "G One", 1, "home", match_id=None)])
+    with _ro() as s:
+        (nf,) = rec.as_of(s, "nfl", d2 + timedelta(hours=1), team="1")
+        nhist = rec.history(s, "nfl", d2 + timedelta(hours=1), team="1")
+        (hf,) = rec.as_of(s, "nhl", KO - timedelta(minutes=20), match_id=77)
+        hhist = rec.history(s, "nhl", KO - timedelta(minutes=20), match_id=77)
+    assert nf.interval.restated == 1 and nf.interval.last.team_id is None
+    assert "team #1" in rec.fact_line(nf) and "UNMAPPED ('BAL')" not in rec.fact_line(nf)
+    assert [r.recorded_at for r, _ in nhist] == [d1, d2]
+    second = rec.history_line(*nhist[1])
+    assert "team UNMAPPED ('BAL')" in second and "mapped now: " in second and "team #1" in second
+    assert hf.interval.restated == 1 and hf.interval.last.match_id is None
+    assert "match #77" in rec.fact_line(hf) and "match UNMAPPED" not in rec.fact_line(hf)
+    assert len(hhist) == 2
+
+
+def test_post_hoc_reads_the_current_kickoff_where_none_was_stored_at_fetch():
+    """Spec section 4: a league-wide fact has no kickoff stored at fetch, so POST HOC reads matches.utc_date as it stands
+    at READ time, not as of the instant. Pinned: a re-date after T changes the same as_of(T)'s label (section 7 (n))."""
+    _migrate()
+    _match_row(77, KO)
+    lw = {"sport": "nhl", "source": "sportsdataio_goalies", "endpoint": "https://example.test/goalies/2026-11-09",
+          "status": "complete", "fetched_at": KO + timedelta(minutes=5)}
+    rec.write_observation(lw, [_goalie(2, "G Late", 2, "away", gid=None)])
+    t = KO + timedelta(minutes=10)
+    with _ro() as s:
+        before = [f.post_hoc for f in rec.as_of(s, "nhl", t)]
+    with _engine().begin() as c:     # the tmp DB's match is re-dated a day later (a postponement)
+        c.execute(text("UPDATE matches SET utc_date = :k WHERE id = 77"),
+                  {"k": (KO + timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S.%f")})
+    with _ro() as s:
+        after = [f.post_hoc for f in rec.as_of(s, "nhl", t)]
+    assert (before, after) == ([True], [False])
+
+
+def test_a_per_game_fact_restated_after_its_match_maps_is_one_fact_and_its_slot_closes():
+    """T-60: G One projected for game 2025020123, our match not yet mapped (match_id NULL). T-30: the same fact, the
+    match now mapped to 77. T-0: G Two projected for the same side. Keyed on the source's game id, T-30 restates T-60
+    and T-0 closes it: one fact in force at each instant, never the stale unmapped one beside the mapped one."""
+    _migrate()
+    rec.write_observation(_nhl("T-60", KO - timedelta(minutes=60), status="partial", match_id=None),
+                          [_goalie(1, "G One", 1, "home", match_id=None)])
+    rec.write_observation(_nhl("T-30", KO - timedelta(minutes=30)), [_goalie(1, "G One", 1, "home")])
+    with _ro() as s:
+        mid = rec.as_of(s, "nhl", KO - timedelta(minutes=20))
+        by_match = rec.as_of(s, "nhl", KO - timedelta(minutes=20), match_id=77)
+    assert [(f.interval.first.player_name, f.interval.restated, f.interval.start) for f in mid] == [
+        ("G One", 1, KO - timedelta(minutes=60))]
+    assert [f.interval.first.id for f in by_match] == [mid[0].interval.first.id]
+    assert "match #77" in rec.fact_line(mid[0])
+    rec.write_observation(_nhl("T-0", KO), [_goalie(2, "G Two", 1, "home")])
+    with _ro() as s:
+        now = rec.as_of(s, "nhl", KO + timedelta(minutes=1))
+        ivs = rec.derive(rec.load_rows(s, "nhl"))
+    assert _names(now) == ["G Two"]
+    assert [(iv.first.player_name, iv.end, iv.why_closed) for iv in ivs] == [
+        ("G One", KO, "slot asserted to someone else"), ("G Two", None, None)]
+
+
+def test_the_writer_requires_the_source_game_id_on_an_nhl_per_game_fact():
+    """nhl_api_landing's per-game facts carry attrs.source_match_id (the NHL gameId), stored as text."""
+    _migrate()
+    for gid in (None, "", True):
+        with pytest.raises(rec.Refused, match="carries attrs.source_match_id"):
+            rec.write_observation(_nhl("T-60", KO - timedelta(minutes=60)), [_goalie(1, "G", 1, "home", gid=gid)])
+    assert _counts() == (0, 0)
+    rec.write_observation(_nhl("T-60", KO - timedelta(minutes=60)), [_goalie(1, "G", 1, "home", gid=2025020123)])
+    with _ro() as s:
+        (row,) = rec.load_rows(s, "nhl")
+    assert row.attrs["source_match_id"] == GID

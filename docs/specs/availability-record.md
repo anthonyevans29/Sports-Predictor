@@ -137,10 +137,31 @@ with one source stamp. Groups are read in the chosen clock's order. For each gro
   `inactive` and `injury_status` have no slot.
 - **Opened:** any other assertion opens an interval at the group's clock.
 
-The player and the team in a fact and a slot are the SOURCE'S OWN identifiers: its player id, else the name verbatim,
-and its team text; ours only where the source gave none. Our ids are joined for display and never used for identity,
-so a mapping that lands between two fetches (an unmapped `partial` fetch, then a mapped one; or player-id mapping
-arriving for every NFL and NHL player) never splits one source fact into two.
+The player, the team and the game in a fact and a slot are the SOURCE'S OWN identifiers: its player id, else the name
+verbatim; its team text; its game id. Ours are used only where the source gave none. Our ids are joined for display
+and never used for identity, so a mapping that lands between two fetches (an unmapped `partial` fetch, then a mapped
+one; or player-id mapping arriving for every NFL and NHL player) never splits one source fact into two.
+
+- **The game's identity (Codex on #831, round 1):** a per-game fact (`projected_starter`, `confirmed_starter`,
+  `eventual_starter`, `inactive`) is keyed on `attrs.source_match_id`, the source's own game id, stored as text. It
+  falls back to our `match_id` only where the source has no game id. The writer refuses a per-game fact without it from
+  a source in `record.SOURCE_MATCH_IDS`:
+  - `nhl_api_landing` (3(b)) sets the NHL gameId, the id in the landing and boxscore URLs.
+  - `nflverse_depth_charts` (3(a)) asserts no per-game fact (`depth_rank` only), so it sets none.
+  - The paid feed's entry (3(c)) comes with its adapter's specification.
+
+  A starter first recorded while its match is unmapped (`match_id` NULL) and restated after the match maps is
+  therefore one fact, and its slot (game, team) closes when another player is given it. No column is added: the id
+  lives in `attrs`.
+- **The mapping it carries now (Codex on #831, round 1):** an interval's first member keeps its start and its original
+  stamps. The mapping it carries now (`record.mapped_now`) takes each of our ids (`player_id`, `team_id`, `match_id`
+  with its stored kickoff) from the LATEST member that carries one. A mapping change in either direction therefore
+  never hides a fact: unmapped then mapped is found by the new id, and mapped then restated unmapped (a `partial`
+  fetch, item 6(c); a poll whose match did not map that time) is still found by the id it had.
+  - `--match-id` and `--team` filter on those ids (or the source's team text), in both `as_of` and `history`;
+  - a fact line prints those ids;
+  - a `--history` line prints its own row's ids as recorded, and adds `mapped now: …` where those ids differ;
+  - `derive` reads the latest member's fact and slot keys (the members of one interval share them).
 
 Two rules hold across all of this. The facts of different sources never touch. Assertions made together never close
 each other, so two goalies in net are two open intervals.
@@ -165,8 +186,21 @@ The build therefore reads "as of T" through the derived interval of the same ite
 architect's ruling (section 7).
 
 **`post_hoc` (item 5: "a fact recorded after its game is post hoc and labelled so"):** a fact is post hoc when it was
-recorded at or after its observation's stored kickoff. `eventual_starter` is always post hoc (item 3(b): "post hoc,
-kind-labelled, never a pregame fact").
+recorded at or after its kickoff. `eventual_starter` is always post hoc (item 3(b): "post hoc, kind-labelled, never a
+pregame fact"). The kickoff is, in order (`record.kickoff_of`, Codex on #831, round 1):
+1. the observation's stored kickoff (`kickoff_at`, a per-game fetch), as stored at FETCH time;
+2. else the kickoff our `matches` table stores (`utc_date`) for the match the interval names now (`mapped_now`). A
+   league-wide file stores no kickoff, and its per-game facts are compared to this one. It is read in the same
+   read-only session, as stored at READ time: the current kickoff, not the kickoff as of the instant;
+3. else the kickoff `matches` stores for the match the row itself names (a call without its interval);
+4. else none: a per-game fact reads `kickoff unknown (post hoc undecidable; never read as pregame)` (law 4).
+
+**The label is not frozen as of the instant.** Step 1 keeps the kickoff stored at fetch time; steps 2 and 3 read the
+current one. A match re-dated after the instant can therefore change a past as-of read's POST HOC label (the same
+`as_of(T)` reads differently before and after the re-date), and a per-game fetch and a league-wide fetch of the same
+game, recorded at the same instant, can be labelled against different kickoffs. A model term or a backtest must not
+assume the label is reproducible as of T. Using the actual kickoff for "recorded after its game" is the build's
+choice; a label frozen at T is listed for the architect (section 7).
 
 ## 5. Mapping (law 4; item 1, verbatim)
 
@@ -249,6 +283,9 @@ So every NFL and NHL `player_id` is NULL until a ruling allows a mapping store (
   standing fence.
 - **(m) The tag.** The migration must not ride Thursday's tag (item 7). The deploy finds any new top-level
   `migrate_*.py`, so the PR merges after that tag is cut.
+- **(n) POST HOC against the current kickoff** (section 4). For a fact without a stored kickoff, the label reads
+  `matches.utc_date` as it stands at read time, so a later re-date can change a past as-of read's label. Keep that,
+  or freeze the label at T (which needs the kickoff as of T, and the record stores none for a league-wide file)?
 
 ## 8. What the lane never does (item 5, verbatim)
 

@@ -182,10 +182,9 @@ def test_the_ruled_questions_are_marked_where_they_are_named_and_q4_is_not_calle
     assert "a MISSING fingerprint is refused here, after the load" not in cli_row
     assert "AFTER THE RESERVATION" not in cli_row                              # Codex round 2: unruled, not built
     # the missing-fingerprint refusal moved ahead of _load, so "no order changed" is true only of the ruled steps
-    for p in ("docs/specs/soccer-v23.md", "changelog.d/832-230-1d-soccer-v23-design.md",
-              "docs/ledger/entries/2026-11-04-230-1d-soccer-v23-design.md"):
-        flat_p = " ".join((ROOT / p).read_text().split())
-        assert "no order changed" not in flat_p and "no ruled step's order changed" in flat_p, p
+    # (the spec only: a fragment is deleted by the tag's compile, so no test reads one; test_ledger_text.py)
+    flat_spec = " ".join(SPEC.split())
+    assert "no order changed" not in flat_spec and "no ruled step's order changed" in flat_spec
 
 
 def test_the_context_gap_section_carries_the_definition():

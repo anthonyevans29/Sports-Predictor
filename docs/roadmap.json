@@ -448,7 +448,7 @@
       "issue": 783,
       "registry_id": "nfl-elo-v2",
       "competitions": ["NFL"],
-      "state": "to declare",
+      "state": "declared",
       "steps": [
         {
           "what": "the harness PR: the candidate entry nfl_elo_v2 with its constants and bar, a one-run gate with the reservation pattern of ncaa-gate (the architect's word, the stream fingerprint, nothing recorded on a refusal; the corrected stream as the fingerprint)",
@@ -463,13 +463,19 @@
           "what": "my blocks: the laptop's NFL 2024 re-sync on the live DB after #775 is on main (backup first; the 16 games become FINISHED there), then nfl-backtest on the live laptop DB (the recorded FAIL of v1 on the corrected stream, for the registry) and the preflight of the v2 harness",
           "owner": "operator",
           "due": "2026-11-04",
-          "done": null
+          "done": {
+            "date": "2026-11-04",
+            "receipt": "the 11-04 console #783 issuecomment-6631134603 (the laptop, main 26943179; its record: addendum 245 item 1)"
+          }
         },
         {
           "what": "the declaration of nfl_elo_v2 (the form and the 2024-fitted value ruled; written before the run)",
           "owner": "architect",
           "due": "2026-11-05",
-          "done": null
+          "done": {
+            "date": "2026-11-04",
+            "receipt": "addendum 245 (ARCHITECT 2026-11-04 08:20 ET); the 11-04 console #783 issuecomment-6631134603"
+          }
         },
         {
           "what": "the ONE run on my word, my block, the verdict the same day",

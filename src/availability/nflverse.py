@@ -70,11 +70,17 @@ How it reads and writes (law 1: every column by its name, as 259 item 1 read the
     (never data/, never mirrored), created EXCLUSIVELY (O_EXCL: the same bytes there are reused, other bytes refused,
     never overwritten; Codex on #841, round 1), its ETag beside it, then read;
   - a raised call, a broken stream, any other status, or a refused file: a `failed` observation, the error redacted
-    (record.redact, after every URL's query string is cut: a release asset redirects to a signed URL). A 5xx or a 429
+    (record.redact, after every URL's query string is cut: a release asset redirects to a signed URL). EVERY refusal
+    (a refused fetched file's, a store refusal's, one that ends the run) is scrubbed so BEFORE its 256-character cut,
+    before it is printed or kept; the receipt prints the error as stored (a second scrub would regrow a placeholder
+    the cut split) and scrubs the team texts it prints (Codex on #841, round 2). A 5xx or a 429
     is worded as requests words it ("503 Server Error", "429 Client Error: Too Many Requests"), so the chain's retry
     (sp_run's transient classes: connection errors, timeouts, HTTP 5xx and 429; two retries) treats it as it treats a
     connection error. Each attempt the chain makes is its own run and its own `failed` observation (a fetch that
     raised is a row, 252 item 1(a)): one chain run can write up to three.
+  THE CLOCK (Codex on #841, round 2): a 200's fetched_at (every assertion's recorded_at) is our clock AFTER its body
+  has fully streamed and, when changed, been kept; a 304's the answer's; a failure's the raise, or the headers'
+  arrival (fetch()'s docstring).
   The endpoint string is the requested release URL (no secret is needed or sent), never the redirect's signed one.
 - --file PATH: a local file (the operator's hand-carried release file; the tests) read the same way, endpoint
   "file:<its name>"; refused (exit 2, nothing written) when the header or a row is refused; kept under the payload
@@ -131,7 +137,8 @@ USER_AGENT = "sports-predictor availability-record (nflverse depth charts; CC BY
 NFL_COMPETITION = "NFL"
 ATTRIBUTION = rec.SOURCES[SOURCE]
 assert ATTRIBUTION == "Depth charts: nflverse (CC BY 4.0)"
-_QUERY = re.compile(r"(https?://[^\s?#'\"<>]+)\?[^\s'\"<>]*")
+# a URL's query string; never a whole "?[query removed]" a scrub left (so _scrub leaves its own output unchanged)
+_QUERY = re.compile(r"(https?://[^\s?#'\"<>]+)\?(?!\[query removed\](?:[\s'\"<>]|$))[^\s'\"<>]*")
 
 # where logs/availability/... lives: the checkout (the host's /opt/sports-predictor, the laptop's clone); the tests
 # point it at their tmp directory
@@ -446,7 +453,15 @@ def _refresh_etag(payload_path: str, stored: str | None, new: str | None) -> str
 
 def fetch(season: int, prev: tuple[str, str] | None, *, http_get, now_fn) -> Got:
     """One conditional GET of the season's release asset (the module docstring). Never raises for the call: a raised
-    call is a Got with error (a failed observation)."""
+    call is a Got with error (a failed observation).
+
+    THE OBSERVATION'S CLOCK (Codex on #841, round 2): a 200's fetched_at (the record's recorded_at for every assertion
+    it carries) is our clock AFTER its body is fully streamed and, when it changed, retained at its kept path: never
+    the headers' arrival, so no fact is recorded as known before its bytes were on disk. A 304 carries no body: its
+    clock is the answer's arrival. A failure keeps its own rule: a raised call is our clock when it raised; a refused
+    status, a broken stream, or a failure keeping the file is our clock when the answer's headers arrived (the
+    attempt's time; a failed observation asserts nothing). The kept file is named by the headers' arrival (the
+    download's start: <UTC date>/<HHMMSS>Z), taken before the body is read."""
     url = release_url(season)
     etag = stored_etag(prev[1]) if prev else None
     headers = {"User-Agent": USER_AGENT}
@@ -458,19 +473,19 @@ def fetch(season: int, prev: tuple[str, str] | None, *, http_get, now_fn) -> Got
         resp = http_get(url, headers=headers, timeout=TIMEOUT, stream=True, allow_redirects=True)
     except Exception as e:  # noqa: BLE001 - a raised call is a failed observation, its error kept (redacted)
         return Got(url, now_fn(), error=_scrub(f"{type(e).__name__}: {e}")[:256], etag=f"{sent}; the call raised")
-    fetched = now_fn()
+    answered = now_fn()                 # the headers' arrival: a 304's, a refused status's and a failure's clock
     try:
         code = int(resp.status_code)
         if code == 304:
             if not prev:
-                return Got(url, fetched, 304, error="HTTP 304 with no stored payload to carry (refused)",
+                return Got(url, answered, 304, error="HTTP 304 with no stored payload to carry (refused)",
                            etag=f"{sent}; 304")
-            return Got(url, fetched, 304, prev[0], prev[1], etag=f"{sent}; 304 not modified")
+            return Got(url, answered, 304, prev[0], prev[1], etag=f"{sent}; 304 not modified")
         if code != 200:
-            return Got(url, fetched, code, error=status_error(code), etag=f"{sent}; HTTP {code}")
-        abs_dir = _payload_dir(fetched)[1]
+            return Got(url, answered, code, error=status_error(code), etag=f"{sent}; HTTP {code}")
+        abs_dir = _payload_dir(answered)[1]
         abs_dir.mkdir(parents=True, exist_ok=True)
-        fd, name = tempfile.mkstemp(prefix=f".{fetched:%H%M%S}Z-depth_charts_{int(season)}.", suffix=".csv.part",
+        fd, name = tempfile.mkstemp(prefix=f".{answered:%H%M%S}Z-depth_charts_{int(season)}.", suffix=".csv.part",
                                     dir=abs_dir)          # a name of its own: two runs never share a partial file
         part = Path(name)
         h = hashlib.sha256()
@@ -484,16 +499,18 @@ def fetch(season: int, prev: tuple[str, str] | None, *, http_get, now_fn) -> Got
         if prev and sha == prev[0]:
             part.unlink()
             part = None
-            return Got(url, fetched, 200, prev[0], prev[1],
+            done = now_fn()                               # the body fully streamed and hashed: this fetch's clock
+            return Got(url, done, 200, prev[0], prev[1],
                        etag=f"{sent}; 200 byte-identical (not kept again)" + _refresh_etag(prev[1], etag, new_etag))
-        rel, final = _kept(fetched, f"depth_charts_{int(season)}.csv", sha)
+        rel, final = _kept(answered, f"depth_charts_{int(season)}.csv", sha)
         _retain(part, final, sha)                         # exclusive: another payload's file is never overwritten
+        done = now_fn()                                   # streamed AND retained: this fetch's clock (round 2)
         if new_etag:
             (final.parent / (final.name + ".etag")).write_text(str(new_etag) + "\n", encoding="utf-8")
-        return Got(url, fetched, 200, sha, rel, changed=True,
+        return Got(url, done, 200, sha, rel, changed=True,
                    etag=f"{sent}; 200 changed" + ("" if new_etag else " (the answer carried no ETag)"))
     except Exception as e:  # noqa: BLE001 - a broken stream is a failed observation
-        return Got(url, fetched, getattr(resp, "status_code", None),
+        return Got(url, answered, getattr(resp, "status_code", None),
                    error=_scrub(f"{type(e).__name__}: {e}")[:256], etag=f"{sent}; the read broke")
     finally:
         if part is not None:
@@ -570,25 +587,29 @@ class Ingest:
 
     def lines(self) -> list[str]:
         g = self.got
+        t = _scrub                        # a team's text is the payload's: scrubbed where the receipt prints it
         z = (lambda d: d.isoformat(timespec="seconds") + "Z" if d else "none held")
         out = [f"AVAILABILITY-NFLVERSE · observation #{self.observation_id} · {self.status} · <{g.endpoint}> · "
                f"fetched_at {z(g.fetched_at)}" + (f" · HTTP {g.http_status}" if g.http_status is not None else "")]
         if g.error:
+            # printed AS STORED: every producer scrubs before its 256-character cut (fetch()'s raises, run()'s
+            # refusals; the 304 and status errors are constant text), and a second scrub here would regrow a cut
+            # placeholder ("?[query rem") and print other text than the row holds (round 2)
             out.append(f"  error (redacted): {g.error}")
         out.append(f"  rows read {self.rows_read} · loads {self.loads} (new {self.new_loads}) · new rows "
                    f"{self.new_rows} · rows asserted {self.rows_asserted} · older rows not asserted again "
                    f"{self.old_rows} (watermark: newest source_stamp held {z(self.watermark)})")
         out.append(f"  partial team groups: {len(self.partial_groups) + len(self.no_espn_groups)}, closing nothing"
-                   + "".join(f"\n    {z(dt)} {team}: {n} row(s) < half of {prev}" for dt, team, n, prev
+                   + "".join(f"\n    {z(dt)} {t(team)}: {n} row(s) < half of {prev}" for dt, team, n, prev
                              in self.partial_groups)
-                   + "".join(f"\n    {z(dt)} {team}: {k} row(s) with no espn_id refused ({n} asserted)"
+                   + "".join(f"\n    {z(dt)} {t(team)}: {k} row(s) with no espn_id refused ({n} asserted)"
                              for dt, team, k, n in self.no_espn_groups))
         out.append(f"  rows with no espn_id: {self.no_espn_rows}, refused, never keyed by gsis_id or name (addendum "
                    f"262 item 5); their team groups partial: {len(self.no_espn_groups)}")
-        um = ", ".join(f"{t} ({n} row(s))" for t, n in sorted(self.unmapped_teams.items())) or "none"
+        um = ", ".join(f"{t(k)} ({n} row(s))" for k, n in sorted(self.unmapped_teams.items())) or "none"
         out.append(f"  unmapped teams: {len(self.unmapped_teams)} ({um})"
-                   + (f"; ambiguous tla (more than one NFL team): {', '.join(sorted(self.ambiguous_teams))}"
-                      if self.ambiguous_teams else "")
+                   + (f"; ambiguous tla (more than one NFL team): "
+                      f"{', '.join(t(k) for k in sorted(self.ambiguous_teams))}" if self.ambiguous_teams else "")
                    + f" · unmapped players: {self.unmapped_players} row(s) (no NFL player table: addendum 254 item "
                      f"2(3))")
         out.append(f"  backfilled rows (recorded more than {rec.SOURCE_CADENCE_HOURS[SOURCE]} h after their dt): "
@@ -714,7 +735,18 @@ def run(season: int | None = None, file: str | None = None, *, http_get=None, no
     """THE INGEST (the module docstring): one observation, its new rows, its receipt. Refused (nothing written, no
     call) on a missing DB file, an unmigrated store, a season before 2025, or a --file that is not the 2025+ shape,
     holds a load from the future, or holds only loads older than the source's watermark. A --file is read ONCE, into
-    a temporary copy that is hashed, parsed and kept (262 item 6), and removed whatever the run's end."""
+    a temporary copy that is hashed, parsed and kept (262 item 6), and removed whatever the run's end. EVERY REFUSAL IS
+    SCRUBBED (Codex on #841, round 2): one that ends the run (exit 2: a --file's refused row can quote its text) is
+    re-raised scrubbed as an observation's error is (_scrub: every URL's query cut, then record.redact), before the
+    command prints it."""
+    try:
+        return _run_args(season, file, http_get=http_get, now_fn=now_fn)
+    except (Refused, rec.Refused) as e:
+        raise type(e)(_scrub(str(e))) from None
+
+
+def _run_args(season, file, *, http_get, now_fn) -> Ingest:
+    """run() itself: its argument checks, then _run."""
     season = current_season() if season is None else int(season)
     why = season_refusal(season)
     if why and file is None:
@@ -792,8 +824,9 @@ def _run(season: int, local, endpoint: str, *, http_get, now_fn) -> Ingest:
                     if why:
                         raise Refused(why)          # the writer's own rule: the same failed observation, file kept
             except Refused as e:
-                ing = Ingest(got=got, watermark=wm, status="failed", refused=str(e))
-                got.error = str(e)[:256]
+                why = _scrub(str(e))                # a refusal can quote the payload: scrubbed before the cut, before
+                ing = Ingest(got=got, watermark=wm, status="failed", refused=why)    # it is printed or kept (round 2)
+                got.error = why[:256]
                 parsed, rows = None, []
             if parsed is not None:
                 ing.rows_read, ing.loads = len(parsed.rows), len(parsed.loads)
@@ -808,8 +841,9 @@ def _run(season: int, local, endpoint: str, *, http_get, now_fn) -> Ingest:
             r = rec.write_observation(obs, rows if ing.status in rec.ASSERTING else [])
         except rec.Refused as e:
             _after_a_refused_write(got, e, hand_carried=local is not None)       # raises unless a fetch kept a file
-            ing = Ingest(got=got, watermark=wm, status="failed", refused=str(e))
-            got.error = str(e)[:256]
+            why = _scrub(str(e))                    # the same scrub, before the cut (Codex on #841, round 2)
+            ing = Ingest(got=got, watermark=wm, status="failed", refused=why)
+            got.error = why[:256]
             r = rec.write_observation({**obs, "status": "failed", "error": got.error}, [])
     ing.observation_id = r.observation_id
     ing.rows_asserted = r.assertions

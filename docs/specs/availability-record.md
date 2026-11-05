@@ -667,7 +667,24 @@ logs/availability/nflverse_depth_charts/<date>/ only when it changed."
 | a raised call or a broken stream | `failed`, the error redacted | none (a partial `.part` file is removed) |
 
   The error text has every URL's query string cut first (a release asset redirects to a signed URL), then
-  `record.redact`, then 256 characters.
+  `record.redact`, then 256 characters (`nflverse._scrub`, then the cut). EVERY refusal goes through the same scrub
+  before the cut, before it is printed or kept (Codex on #841, round 2): a refused fetched file's reason (its error and
+  the run's refusal; the reason can quote the payload, a `dt` holding `api_token=...`), a store refusal after the keep,
+  and a refusal that ends the run (exit 2, printed by the command). The receipt prints the error (`error (redacted)`)
+  AS STORED, never scrubbed a second time: the cut can split a placeholder the scrub left (`?[query rem`,
+  `api_token=[REDAC`), and a second scrub would regrow it and print other text than the row holds; every producer
+  scrubs before its cut (the 304 and status errors are constant text). The team texts it prints (payload text) are
+  scrubbed where it prints them.
+- **The observation's clock (Codex on #841, round 2).** A 200's `fetched_at`, and so the `recorded_at` of every
+  assertion it carries, is our clock AFTER its body has fully streamed and, when it changed, been kept at its payload
+  path (a byte-identical 200: after its body has streamed and been hashed): never the headers' arrival, so no fact is
+  recorded as known before its bytes were on disk, and a fetch that finishes after a kickoff never reads pregame. A
+  304 (no body) is our clock at the answer. A failure keeps its own rule: a raised call is our clock when it raised; a
+  refused status, a broken stream, or a failure keeping the file is our clock when the answer's headers arrived (the
+  attempt's time; a failed observation asserts nothing). A fetched file refused after the keep carries the completed
+  fetch's time. The kept file is named by the headers' arrival (`<UTC date>/<HHMMSS>Z`: the download's start, taken
+  before the body is read), so on a download that crosses midnight UTC its date directory is the start's. A `--file`
+  reads our clock once: its name and its `fetched_at` are the same instant.
 - **Retries.** The chain's runner retries a step whose output falls in its transient classes (connection errors,
   timeouts, HTTP 5xx and 429; `sp_run.RETRY_BACKOFF_S`, two retries); the 5xx and 429 wording above puts those answers
   in that class, like a connection error, and every other status is never retried. Each attempt is its own run of the
@@ -717,10 +734,11 @@ logs/availability/nflverse_depth_charts/<date>/ only when it changed."
   copy; an ingest writes, and a copy is never written, so the ingest writes the live DB only.
 - It holds the chains' DB lock (`sp_common.sync_lock`, a no-op inside a chain step) across the store's read (mode=ro),
   the fetch and the write. A missing DB file or an unmigrated store is refused (exit 2) before any call.
-- The receipt: the observation id, its status, endpoint, `fetched_at` and HTTP status; the error (redacted) where
-  failed; rows read, loads (and new loads), new rows, rows asserted, older rows not asserted again with the watermark;
+- The receipt: the observation id, its status, endpoint, `fetched_at` (a 200's: our clock after its body streamed and
+  was kept, Codex on #841 round 2) and HTTP status; the error (redacted: scrubbed before the cut, printed as stored)
+  where failed; rows read, loads (and new loads), new rows, rows asserted, older rows not asserted again with the watermark;
   "partial team groups: N, closing nothing" with each group; "rows with no espn_id: N, refused, never keyed by gsis_id
-  or name" (262 item 5); unmapped teams by name with their rows, ambiguous codes, unmapped players; backfilled rows;
+  or name" (262 item 5); unmapped teams by name (scrubbed: payload text) with their rows, ambiguous codes, unmapped players; backfilled rows;
   the clock skew where the newest load is ahead of our fetch (262 item 3); the payload sha256's first 16 characters and
   path; the ETag line (sent or not, and the answer); then "Depth charts: nflverse (CC BY 4.0)".
 - Exit 0 for complete, partial or empty; 1 for a failed observation (written); 2 for a refusal (nothing written).

@@ -690,8 +690,14 @@ def test_the_conditional_get_200_304_identical_changed_and_failed(tmp_path):
                     FakeResp(200, b2, '"etag-2"'),
                     ConnectionError(f"HTTPSConnectionPool: Max retries exceeded with url: "
                                     f"https://release-assets.githubusercontent.com/x?sig=SECRETSIG123&jwt=eyJSECRET"))
-    times = iter([F1, F1 + timedelta(hours=1), F1 + timedelta(hours=2), F2, F2 + timedelta(hours=1)])
+    # our clock: a 200 reads it twice (its headers, then its body streamed and kept: Codex on #841, round 2); a 304
+    # and a raised call once
+    m = timedelta(minutes=1)
+    times = iter([F1, F1 + m, F1 + timedelta(hours=1), F1 + timedelta(hours=2), F1 + timedelta(hours=2) + m, F2,
+                  F2 + m, F2 + timedelta(hours=1)])
     runs = [nv.run(2026, http_get=http, now_fn=lambda: next(times)) for _ in range(5)]
+    assert [r.got.fetched_at for r in runs] == [F1 + m, F1 + timedelta(hours=1), F1 + timedelta(hours=2) + m, F2 + m,
+                                                F2 + timedelta(hours=1)]
     assert [r.status for r in runs] == ["complete", "complete", "complete", "complete", "failed"]
     assert [r.rows_asserted for r in runs] == [3, 0, 0, 3, 0]
     o = _obs()
@@ -743,7 +749,7 @@ def test_a_byte_identical_200_with_a_new_etag_stores_it_and_the_next_call_sends_
     _teams("BAL")
     b1 = _body(_chart(D1, "BAL", 3))
     http = FakeHTTP(FakeResp(200, b1, '"old"'), FakeResp(200, b1, '"new"'), FakeResp(304))
-    times = iter([F1, F2, F2 + timedelta(hours=1)])
+    times = iter([F1, F1, F2, F2, F2 + timedelta(hours=1)])     # a 200 reads our clock twice (round 2), a 304 once
     runs = [nv.run(2026, http_get=http, now_fn=lambda: next(times)) for _ in range(3)]
     assert [kw["headers"].get("If-None-Match") for _, kw in http.calls] == [None, '"old"', '"new"']
     assert [r.status for r in runs] == ["complete"] * 3 and [r.rows_asserted for r in runs] == [3, 0, 0]
@@ -1124,3 +1130,123 @@ def test_assertion_refusal_is_the_writers_own_check():
     assert "names no team" in rec.assertion_refusal({**ok, "source_team": None}, 3)
     assert "per-game fact from nhl_api_landing" in rec.assertion_refusal(
         {**ok, "kind": "projected_starter"}, 1, "nhl_api_landing")
+
+
+# ---- Codex on #841, round 2 -------------------------------------------------------------------------------------------
+
+def _asr_recorded() -> list:
+    with _engine().connect() as c:
+        return [r[0] for r in c.execute(text("SELECT DISTINCT recorded_at FROM availability_assertions"))]
+
+
+def test_a_200s_fetched_at_is_our_clock_after_its_body_is_streamed_and_kept(tmp_path, monkeypatch):
+    """Codex on #841, round 2 (P1): a slow 200's fetched_at, and so every assertion's recorded_at, is our clock AFTER
+    the body has fully arrived and been kept at its path, never the headers' arrival (a fact is never recorded as
+    known before its bytes were on disk). The kept file is named by the headers' arrival (the download's start)."""
+    _teams("BAL")
+    clock = {"t": F1}
+    tick = timedelta(minutes=1)
+
+    class Slow(FakeResp):
+        def iter_content(self, chunk_size=1):
+            for b in super().iter_content(chunk_size):
+                clock["t"] += tick                       # the body takes minutes to arrive
+                yield b
+    real_retain = nv._retain
+
+    def slow_retain(src, final, sha):
+        out = real_retain(src, final, sha)
+        clock["t"] += tick                               # the keep takes its own time
+        return out
+    monkeypatch.setattr(nv, "_retain", slow_retain)
+    b1 = _body(_chart(D1, "BAL", 3))
+    ing = nv.run(2026, http_get=FakeHTTP(Slow(200, b1, '"e1"')), now_fn=lambda: clock["t"])
+    kept_at = clock["t"]
+    assert kept_at > F1 + tick
+    (o,) = _obs()
+    assert ing.status == "complete" and ing.got.fetched_at == kept_at
+    assert _asr_recorded() == [kept_at.strftime("%Y-%m-%d %H:%M:%S.%f")]           # recorded_at = the kept instant
+    assert f"fetched_at {kept_at.isoformat(timespec='seconds')}Z" in ing.lines()[0]
+    assert re.fullmatch(r"logs/availability/nflverse_depth_charts/2026-10-03/084500Z-[0-9a-f]{16}-depth_charts_2026"
+                        r"\.csv", o["payload_path"])                             # named by the headers' arrival
+    # a byte-identical 200: our clock after its body has streamed (nothing is kept again)
+    start = clock["t"] = kept_at + timedelta(hours=1)
+    same = nv.run(2026, http_get=FakeHTTP(Slow(200, b1, '"e1"')), now_fn=lambda: clock["t"])
+    assert same.status == "complete" and same.got.fetched_at == clock["t"] > start
+
+
+def test_a_failed_fetch_keeps_its_own_clock_rule():
+    """Round 2: a failure keeps its rule. A raised call is our clock when it raised; a refused status and a broken
+    stream are our clock when the answer's headers arrived (the attempt's time; a failed observation asserts
+    nothing); a 304 (no body) is the answer's arrival."""
+    class Broken(FakeResp):
+        def iter_content(self, chunk_size=1):
+            yield b"dt,team"
+            raise OSError("connection reset")
+    for answer in (ConnectionError("boom"), FakeResp(503), Broken(200)):
+        times = iter([F1, F2])                           # a second reading would be F2
+        ing = nv.run(2026, http_get=FakeHTTP(answer), now_fn=lambda: next(times))
+        assert ing.status == "failed" and ing.got.fetched_at == F1, answer
+    assert [o["status"] for o in _obs()] == ["failed"] * 3
+
+
+SECRET = "SYNTHETICSECRET0123456789"
+
+
+def test_a_refusal_quoting_the_payload_is_scrubbed_before_it_is_printed_or_kept(tmp_path):
+    """Codex on #841, round 2 (P2, the safer fix): a fetched file refused with its own text in the reason (a dt holding
+    a credential-like value, a signed URL's query) is scrubbed by the writer's scrubber (_scrub: the query cut, then
+    record.redact) BEFORE the 256-character cut, before it is printed on the receipt (the chain journal) or kept as
+    the observation's error and the run's refusal; the stored row and the printed line say the same."""
+    _teams("BAL")
+    # the third straddles the 256-character cut: cut first, its first 24 characters would survive the stored redact
+    for n, bad in enumerate((f"api_token={SECRET}", f"https://x.example/a?sig={SECRET}",
+                             "x" * 200 + f" api_token={SECRET}")):
+        rows = _chart(D1 + timedelta(days=n), "BAL", 3)
+        rows[1] = {**rows[1], "dt": bad}
+        ing = nv.run(2026, http_get=FakeHTTP(FakeResp(200, _body(rows))), now_fn=lambda: F1 + timedelta(days=n))
+        o = _obs()[-1]
+        assert ing.status == o["status"] == "failed" and o["error"].startswith("REFUSED: line 3: dt '")
+        printed = "\n".join(ing.lines())
+        for where in (ing.got.error, ing.refused, printed, o["error"]):
+            assert SECRET not in where and SECRET[:12] not in where, where
+        err_line = [ln for ln in ing.lines() if ln.startswith("  error (redacted): ")]
+        assert err_line == [f"  error (redacted): {o['error']}"]               # printed = stored
+    assert "[REDACTED]" in _obs()[0]["error"] and "?[query removed]" in _obs()[1]["error"]
+
+
+def test_the_printed_error_is_the_stored_one_when_the_cut_splits_a_placeholder(tmp_path):
+    """Round 2, the fix's own claim (printed = stored): the 256-character cut can land INSIDE a placeholder the scrub
+    left ("?[query rem", "api_token=[REDAC"). The receipt prints the error as stored (every producer scrubs before
+    its cut); a second scrub at print would grow the cut tail back into a whole placeholder and print other text."""
+    _teams("BAL")
+    head = len("REFUSED: line 3: dt '")
+    url = "https://x.example/a"
+    cases = [(" " + url, "?[query removed]", f"?sig={SECRET}", j) for j in range(1, len("?[query removed]"))]
+    cases += [(" api_token=", "[REDACTED]", SECRET, j) for j in range(1, len("[REDACTED]"))]
+    for n, (lead, placeholder, raw, j) in enumerate(cases):
+        rows = _chart(D1 + timedelta(days=n), "BAL", 3)
+        rows[1] = {**rows[1], "dt": "x" * (256 - head - len(lead) - j) + lead + raw}
+        ing = nv.run(2026, http_get=FakeHTTP(FakeResp(200, _body(rows))), now_fn=lambda: F1 + timedelta(days=n))
+        o = _obs()[-1]
+        assert o["error"].endswith(lead + placeholder[:j]) and len(o["error"]) == 256, o["error"][-40:]  # split
+        err_line = [ln for ln in ing.lines() if ln.startswith("  error (redacted): ")]
+        assert err_line == [f"  error (redacted): {o['error']}"], (placeholder, j, err_line)       # printed = stored
+        assert ing.got.error == o["error"]
+        assert SECRET[:12] not in "\n".join(ing.lines()) and SECRET[:12] not in o["error"]
+
+
+def test_a_refusal_that_ends_the_run_and_a_teams_text_are_scrubbed_on_the_receipt(tmp_path):
+    """Round 2: a refusal that ends the run (a --file's refused row, exit 2) is printed scrubbed by the command; a team
+    text the file holds (payload-derived) is scrubbed where the receipt prints it."""
+    rows = _chart(D1, "BAL", 3)
+    rows[1] = {**rows[1], "dt": f"api_token={SECRET}"}
+    path = _write(tmp_path / "depth_charts_2026.csv", rows)
+    r = CliRunner().invoke(_cli(), ["availability-nflverse", "--file", str(path)])
+    assert r.exit_code == 2 and "is not an ISO-8601 instant" in r.output and SECRET not in r.output, r.output
+    with pytest.raises(nv.Refused) as e:
+        nv.run(file=str(path), now_fn=lambda: F1)
+    assert SECRET not in str(e.value) and "[REDACTED]" in str(e.value)
+    ing = _ingest(tmp_path, _chart(D1, f"api_key={SECRET}"[:40], 3), F1)
+    assert ing.status == "partial" and ing.unmapped_teams
+    assert SECRET[:12] not in "\n".join(ing.lines()) and "unmapped teams: 1 (" in "\n".join(ing.lines())

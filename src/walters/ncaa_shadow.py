@@ -151,6 +151,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from src.timeutil import utc_now_naive
+from src.walters.provenance import git_sha as _git_sha
 
 ENGINE = "model_shadow"
 EID = "ncaa-elo-v1r"
@@ -583,7 +584,9 @@ def export(now: datetime | None = None, hours: int = WINDOW_HOURS, out_dir: str 
            "model_version": b.model_version, "registry_id": b.eid, "gate_verdict": r["label"],
            "contains_predictions": False,   # nothing here is a live prediction (doctrine)
            "gate_evidence": False,          # the shadow's live record is not gate evidence (ruling)
-           "exported_at": now.isoformat(), "window_hours": hours, "note": b.note,
+           "exported_at": now.isoformat(),
+           "git_sha": _git_sha(),  # addendum 249 item 2: the producing checkout (export.py's stamp)
+           "window_hours": hours, "note": b.note,
            "refresh_seen": r["refresh_seen"],
            "fit": r["fit"], "skipped": r["skipped"], "count": len(r["rows"]), "predictions": r["rows"]}
     if dry_run:

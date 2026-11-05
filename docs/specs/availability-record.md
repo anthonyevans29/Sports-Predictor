@@ -483,7 +483,7 @@ falling back to `gsis_id` only where `espn_id` is empty. `dt_raw`, `espn_id` and
 attrs only, never the key, and does not read as a flip (pinned by a test). THE RESIDUAL, not hidden: a row with no
 `espn_id` (keyed on `gsis_id`, or on its name where both are empty) that gains an `espn_id` later still closes and
 reopens. The blank rate of each id column on the real files is UNREAD here (the excerpt of 259 item 3 is not in this
-container); it is read when the fixture lands, and the residual is the PR's named limitation until then.
+container); it is read when the fixture lands, and the residual is the named limitation #840 until then.
 `pos_grp_id`, `pos_id` and `pos_name` are not asserted (the ruling names four attrs); the raw file keeps them.
 
 **The team mapping (law 4).** The existing mapping of an NFL abbreviation to our team: the NFL competition's teams

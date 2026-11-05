@@ -11,7 +11,12 @@ data/, and an import graph that opens no DB. The review round added: the NBA JSO
 quoted first (no URL typed; none given is REFUSED for ingest), each game counted once in the vocabulary, a key echoed at
 any length never printed in part, data/ refused in any case and by resolved path, --out checked before any call, every
 /status attempt counted with its headers, a league with no season refused in the receipt, an answer of the wrong shape
-or a raising section FAILED (never a traceback), the honest scored-game labels, and --skip of every section refused."""
+or a raising section FAILED (never a traceback), the honest scored-game labels, and --skip of every section refused.
+The PR review's round 1 added: every game of the day checked, a box score with no status or score refused, an empty
+filtered Kalshi listing whose fallback failed FAILED, an empty or malformed team list refused, a terms page with nothing
+to quote refused, an existing unwritable --out (a symlink's target included) refused before any call, a league override
+matched against every served league, a /status of the wrong shape never choosing the key, and a date not zero-padded
+refused before any call."""
 import ast
 import importlib.util
 import json
@@ -285,8 +290,8 @@ def test_a_required_field_not_served_refuses_the_read(env, capsys):
     env.setattr(requests, "get", router({"/games": lambda u, h, p: Resp({"errors": [], "response": bare})}))
     rc, out = run(["--skip", "nba", "--skip", "kalshi"], capsys)
     assert rc == 2
-    assert "REFUSED: required field(s) not found in the first game: date, status, teams.home, teams.away, scores" \
-        in out
+    assert "REFUSED: required field(s) not found in 1 of 1 games (the first such, item 0: date, status, teams.home, " \
+        "teams.away, scores;" in out
 
 
 def test_no_finished_game_on_the_day_refuses(env, capsys):
@@ -533,3 +538,124 @@ def test_skipping_every_section_is_refused_not_exit_0(env, capsys):
     rc, out = run(["--skip", "apisports", "--skip", "nba", "--skip", "kalshi"], capsys)
     assert rc == 2 and "REFUSED: --skip names every section; nothing would be read" in out
     assert "EXIT 0" not in out
+
+
+# ---- the PR review's round-1 pins (each failed first on 3fea1a2c) -------------------------------------------------
+
+@pytest.mark.parametrize("how", ["absent", "null"])
+def test_every_game_of_the_day_is_checked_for_its_required_fields(env, capsys, tmp_path, how):
+    """A later game whose id and status are absent or null, with both totals, is never the scored game: the read is
+    REFUSED (null is not served, the box-score and team rule)."""
+    bad = game(2, "Synthetic Home B", "Synthetic Away B", 101, 99, "SFT", "Synthetic Finished")
+    if how == "absent":
+        del bad["id"], bad["status"]
+    else:
+        bad["id"] = bad["status"] = None
+    day = {"errors": [], "response": [DAY_GAMES[0], bad]}
+    env.setattr(requests, "get", router({"/games": lambda u, h, p: Resp(day if "date" in (p or {}) else
+                                                                          {"errors": [], "response": SEASON_GAMES})}))
+    out_file = tmp_path / "r.json"
+    rc, out = run(["--skip", "nba", "--skip", "kalshi", "--out", str(out_file)], capsys)
+    assert rc == 2, out
+    assert "REFUSED: required field(s) not found in 1 of 2 games (the first such, item 1: id, status;" in out
+    assert "ONE GAME WITH BOTH TOTALS" not in out
+    assert "both_totals" not in json.loads(out_file.read_text())["sections"]["apisports"]["leagues"]["NBA"]
+
+
+def test_a_box_score_without_its_status_or_scores_is_refused(env, capsys):
+    """homeTeam and awayTeam served, gameStatus/gameStatusText/score not: the final score and status were not read."""
+    side = lambda t: {"teamId": 1, "teamTricode": t}                                # noqa: E731
+    box = {"game": {"gameId": "SYN0001", "homeTeam": side("SHH"), "awayTeam": side("SAA")}}
+    env.setattr(requests, "get", router({"https://synthetic.invalid/box_": Resp(box, headers={})}))
+    rc, out = run(["--skip", "apisports", "--skip", "kalshi"], capsys)
+    assert rc == 2, out
+    assert "REFUSED: the box score serves no gameStatus, gameStatusText, homeTeam.score, awayTeam.score" in out
+    assert "EXIT 0" not in out
+
+
+def test_an_empty_filtered_listing_whose_unfiltered_fallback_fails_is_failed(env, capsys):
+    """find_series falls back to the unfiltered /series when the category listing is empty; that fallback failing is
+    a listing that did not answer, never zero basketball series."""
+    def series(u, h, p):
+        if p:
+            return Resp({"series": []}, headers={})
+        raise requests.ConnectionError("synthetic: the unfiltered listing refused")
+    env.setattr(requests, "get", router({"/series": series}))
+    rc, out = run(["--skip", "apisports", "--skip", "nba"], capsys)
+    assert rc == 1, out
+    assert '/series {"category": "Sports"} · 0 series listed' in out
+    assert "FAILED: ConnectionError: synthetic: the unfiltered listing refused" in out
+    assert "FAILED: the series listing did not answer" in out and "0 series match" not in out
+
+
+@pytest.mark.parametrize("teams, line", [
+    ([], "REFUSED: /teams served no team"),
+    ([{"synthetic": 1}, {"id": 2, "name": "Synthetic Team 2"}],
+     "REFUSED: required field(s) not found in 1 of 2 teams (the first such, item 0: id, name; required: id, name)")])
+def test_an_empty_or_malformed_team_list_is_refused(env, capsys, teams, line):
+    env.setattr(requests, "get", router({"/teams": Resp({"errors": [], "response": teams})}))
+    rc, out = run(["--skip", "nba", "--skip", "kalshi"], capsys)
+    assert rc == 2, out
+    assert line in out
+
+
+@pytest.mark.parametrize("page", ["", "<html><script>render()</script><style>p{}</style></html>"])
+def test_a_terms_page_with_nothing_to_quote_leaves_section_ii_refused(env, capsys, tmp_path, page):
+    env.setattr(requests, "get", router({TERMS_URL: Resp(ValueError("synthetic: not JSON"), text=page,
+                                                         headers={"Content-Type": "text/html"})}))
+    out_file = tmp_path / "r.json"
+    rc, out = run(["--skip", "apisports", "--skip", "kalshi", "--out", str(out_file)], capsys)
+    assert rc == 2, out
+    assert "TERMS NOT QUOTED (the page yields no text to quote)" in out and "TERMS QUOTED" not in out
+    t = json.loads(out_file.read_text())["sections"]["nba"]["terms"]
+    assert t["read"] is False and t["quoted"] == []
+
+
+@pytest.mark.parametrize("link", [False, True])
+def test_an_existing_out_file_that_is_not_writable_is_refused_before_any_call(env, capsys, tmp_path, link):
+    """Root writes a mode-0444 file, so the unwritable target is os.access's answer, patched for that file only."""
+    seen = []
+    env.setattr(requests, "get", router(seen=seen))
+    target = tmp_path / "locked.json"
+    target.write_text("synthetic")
+    out = target
+    if link:
+        out = tmp_path / "link.json"
+        out.symlink_to(target)
+    real = probe.os.access
+    env.setattr(probe.os, "access", lambda p, m, *a, **k: False if Path(p).resolve() == target.resolve()
+                else real(p, m, *a, **k))
+    rc, text = run(["--out", str(out)], capsys)
+    assert rc == 2, text
+    assert f"REFUSED: --out {out}: the file is not writable" in text and seen == []
+    assert target.read_text() == "synthetic"
+
+
+def test_a_league_override_matches_against_every_served_league(env, capsys):
+    """A served name holding neither 'NBA' nor 'NCAA' is still found by its exact name when named."""
+    more = {"errors": [], "response": LEAGUES + [lg(9200, "Synthetic Basketball Association", "SYN-2026")]}
+    env.setattr(requests, "get", router({"/leagues": Resp(more)}))
+    rc, out = run(["--skip", "nba", "--skip", "kalshi", "--nba-league", "Synthetic Basketball Association"], capsys)
+    assert rc == 0, out
+    assert "NBA: id 9200 read by exact name 'Synthetic Basketball Association'" in out
+    assert "id 9200 ·" not in out                                    # the printed candidates stay the NBA/NCAA names
+
+
+@pytest.mark.parametrize("resp, why", [([], "'response' is list, not an object"),
+                                       ([{"synthetic": 1}], "'response' is list, not an object"),
+                                       ({}, "'response' is an empty object")])
+def test_a_status_answer_of_the_wrong_shape_does_not_choose_the_key(env, capsys, resp, why):
+    env.setattr(requests, "get", router({"/status": lambda u, h, p: Resp(
+        {"errors": [], "response": resp} if h.get(probe.KEY_HEADER) == KEY_B else STATUS)}))
+    rc, out = run(["--skip", "nba", "--skip", "kalshi"], capsys)
+    assert rc == 0, out
+    assert f"key API_BASKETBALL_KEY: set, refused: /status {why}" in out
+    assert "key used: API_FOOTBALL_KEY (the value is never printed)" in out
+
+
+@pytest.mark.parametrize("bad", ["2026-11-4", "2026-1-04", "26-11-04", " 2026-11-04"])
+def test_a_date_not_written_yyyy_mm_dd_is_refused_before_any_call(env, capsys, bad):
+    seen = []
+    env.setattr(requests, "get", router(seen=seen))
+    rc, out = run(["--date", bad], capsys)
+    assert rc == 2 and f"REFUSED: --date {bad!r} is not YYYY-MM-DD" in out and seen == []

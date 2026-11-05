@@ -29,12 +29,12 @@ Three sections, each independent (a failure in one does not stop the next; the e
         block is never printed.
   (ii)  The NBA's public JSON (no key). FIRST the site's terms (261 item 4: "no scraping of a source whose terms
         forbid it (the probe quotes the terms)"): the page the operator names with --nba-terms-url (NO default: no
-        URL is typed from memory) is read and its access clauses quoted, markup stripped. With no terms URL, or a
-        terms read that fails, the terms are NOT READ and section (ii) is REFUSED (or FAILED) for ingest; its reads
-        still print. Then the schedule file (--nba-schedule-url): field presence, the status vocabulary, the NBA team
-        list (the distinct homeTeam/awayTeam teamId · teamTricode · teamCity · teamName), the day's games, and one
-        box score (--nba-boxscore-url, "{game_id}" in it). The schedule and box-score DEFAULTS ARE UNVERIFIED HERE
-        (no network): the operator confirms them on the first run.
+        URL is typed from memory) is read and its access clauses quoted, markup stripped. With no terms URL, a
+        terms read that fails, or a page with nothing to quote, the terms are NOT READ and section (ii) is REFUSED
+        (or FAILED) for ingest; its reads still print. Then the schedule file (--nba-schedule-url): field presence,
+        the status vocabulary, the NBA team list (the distinct homeTeam/awayTeam teamId · teamTricode · teamCity ·
+        teamName), the day's games, and one box score (--nba-boxscore-url, "{game_id}" in it). The schedule and
+        box-score DEFAULTS ARE UNVERIFIED HERE (no network): the operator confirms them on the first run.
   (iii) Kalshi's series listing, read through src/adapters/kalshi.py find_series (the repo's own listing path, the
         one `cli.py kalshi-probe` uses; public data, no key), filtered for basketball. Each matching series' ticker,
         title, category and tags print AS SERVED, a ticker ending "GAME" marked (the game-winner shape every wired
@@ -91,6 +91,7 @@ NBA_GAME_FIELDS = ("gameId", "gameCode", "gameStatus", "gameStatusText", "gameDa
 NBA_DATE_FIELDS = ("gameDateTimeUTC", "gameTimeUTC", "gameDateUTC", "gameDateEst")
 NBA_TEAM_FIELDS = ("teamId", "teamName", "teamCity", "teamTricode", "score")
 NBA_TEAM_ID_FIELDS = ("teamId", "teamTricode", "teamCity", "teamName")     # the team list's fields, by name
+NBA_BOX_REQUIRED = ("gameStatus", "gameStatusText", "homeTeam.score", "awayTeam.score")   # the box score's reads
 KALSHI_KEYWORDS = ("basketball", "nba", "ncaab", "ncaam", "college basketball")
 SAMPLE = 40
 
@@ -166,7 +167,8 @@ def choose_key(env, get=http_get) -> tuple[str | None, str | None, dict | None, 
                                           int]:
     """(the env NAME that answered, its value, the /status body, [(name, outcome, rate-limit headers or None)], the
     number of /status calls made). Each set name in KEY_NAMES' order is tried on /status; the first that answers with
-    no provider error is used for every call. Every attempt is metered, so every attempt is counted."""
+    no provider error and a non-empty 'response' object is used for every call. Every attempt is metered, so every
+    attempt is counted."""
     tried: list[tuple[str, str, dict | None]] = []
     n = 0
     for name in KEY_NAMES:
@@ -177,6 +179,11 @@ def choose_key(env, get=http_get) -> tuple[str | None, str | None, dict | None, 
         status, hdr, body, err = get(f"{APISPORTS_BASE}/status", headers={KEY_HEADER: key})
         n += 1
         err = err or provider_errors(body)
+        resp = body.get("response") if isinstance(body, dict) else None
+        if err is None and not isinstance(resp, dict):     # a shape it cannot read never chooses the key
+            err = f"/status 'response' is {type(resp).__name__}, not an object"
+        elif err is None and not resp:
+            err = "/status 'response' is an empty object"
         if err:
             tried.append((name, f"set, refused: {err}", rate_headers(hdr)))
             continue
@@ -203,14 +210,15 @@ def league_parts(item: dict) -> tuple[dict, dict, list]:
 
 
 def league_candidates(items: list, words=("nba", "ncaa")) -> list[dict]:
-    """Every league whose served name holds one of `words` (case-insensitive): id, name, type, country, seasons."""
+    """Every league whose served name holds one of `words` (case-insensitive; every league when `words` is None): id,
+    name, type, country, seasons."""
     out = []
     for it in items or []:
         if not isinstance(it, dict):
             continue
         lg, country, seasons = league_parts(it)
         name = str(lg.get("name") or "")
-        if any(w in name.lower() for w in words):
+        if words is None or any(w in name.lower() for w in words):
             out.append({"id": lg.get("id"), "name": name, "type": lg.get("type"), "country": country.get("name"),
                         "seasons": [s.get("season") if isinstance(s, dict) else s for s in seasons]})
     return out
@@ -226,6 +234,9 @@ def pick_league(cands: list[dict], name: str, country: str | None = None) -> tup
     where = f" in {country!r}" if country else ""
     return None, (f"{len(hits)} leagues named exactly {name!r}{where} (exactly one required; pass --nba-league / "
                   f"--ncaa-league with the served name, or --league-country)")
+
+
+TEAM_REQUIRED = ("id", "name")
 
 
 def team_rows(items: list) -> list[dict]:
@@ -253,9 +264,10 @@ def game_row(g: dict) -> dict:
         return x.get("total") if isinstance(x, dict) else x
 
     home, away = teams.get("home"), teams.get("away")
-    missing = [f for f, ok in (("id", "id" in game), ("date", "date" in game), ("status", "status" in game),
+    missing = [f for f, ok in (("id", game.get("id") is not None), ("date", d is not None),   # absent or null:
+                               ("status", st is not None),                                   # not served
                                ("teams.home", isinstance(home, dict)), ("teams.away", isinstance(away, dict)),
-                               ("scores", "scores" in g)) if not ok]
+                               ("scores", g.get("scores") is not None)) if not ok]
     return {"id": game.get("id"),
             "date": d.get("date") if isinstance(d, dict) else d,
             "timestamp": d.get("timestamp") if isinstance(d, dict) else game.get("timestamp"),
@@ -324,8 +336,9 @@ def apisports_section(a, env, say: Out, get=http_get) -> tuple[int, dict]:
         say(f"    id {c['id']} · {c['name']!r} · type {c['type']!r} · country {c['country']!r} · "
             f"seasons tail {c['seasons'][-4:]}")
     rec["leagues"] = {}
+    every = league_candidates(leagues, words=None)  # an override names a served league, whatever its name holds
     for label, want in (("NBA", a.nba_league), ("NCAA men's Division I", a.ncaa_league)):
-        lg, how = pick_league(cands, want, a.league_country)
+        lg, how = pick_league(every, want, a.league_country)
         say(f"\n  {label}: {how}")
         if lg is None:
             rc = max(rc, REFUSED)
@@ -350,6 +363,16 @@ def apisports_section(a, env, say: Out, get=http_get) -> tuple[int, dict]:
             names = sorted(str(t["name"]) for t in tr)
             more = f" · (+{len(names) - SAMPLE} more)" if len(names) > SAMPLE else ""
             say("    " + " · ".join(names[:SAMPLE]) + more)
+            bad_t = [(i, [f for f in TEAM_REQUIRED if t[f] is None]) for i, t in enumerate(tr)]
+            bad_t = [(i, m) for i, m in bad_t if m]
+            if not tr or len(tr) < len(teams):
+                say("  REFUSED: /teams served no team" if not teams else
+                    f"  REFUSED: /teams served {len(teams) - len(tr)} item(s) that are not objects")
+                rc = max(rc, REFUSED)
+            elif bad_t:
+                say(f"  REFUSED: required field(s) not found in {len(bad_t)} of {len(tr)} teams (the first such, item "
+                    f"{bad_t[0][0]}: {', '.join(bad_t[0][1])}; required: {', '.join(TEAM_REQUIRED)})")
+                rc = max(rc, REFUSED)
         day, err = call("games", {"league": lg["id"], "season": season, "date": a.date})
         rows: list[dict] = []
         if err:
@@ -359,9 +382,10 @@ def apisports_section(a, env, say: Out, get=http_get) -> tuple[int, dict]:
             L["day"] = {"date": a.date, "games": rows}
             say(f"  ONE DAY'S SCHEDULE ({a.date}): {len(rows)} game{'' if len(rows) == 1 else 's'} · first item's "
                 f"keys {item_keys(day[0]) if day else []}")
-            if rows and rows[0]["missing"]:
-                say(f"  REFUSED: required field(s) not found in the first game: {', '.join(rows[0]['missing'])} "
-                    f"(required: {', '.join(GAME_REQUIRED)})")
+            bad = [(i, r["missing"]) for i, r in enumerate(rows) if r["missing"]]
+            if bad:
+                say(f"  REFUSED: required field(s) not found in {len(bad)} of {len(rows)} games (the first such, item "
+                    f"{bad[0][0]}: {', '.join(bad[0][1])}; required: {', '.join(GAME_REQUIRED)})")
                 rc = max(rc, REFUSED)
                 rows = []
             else:
@@ -460,6 +484,10 @@ def nba_terms(a, say: Out, get=http_get) -> tuple[int, dict]:
         say("  TERMS NOT READ: section (ii) is not cleared for ingest until they are quoted (261 item 4)")
         return FAILED, {"url": a.nba_terms_url, "read": False, "http": status, "error": err}
     quoted = terms_excerpt(page)
+    if not quoted:
+        say("  TERMS NOT QUOTED (the page yields no text to quote): section (ii) is REFUSED for ingest until the "
+            "terms are quoted (261 item 4)")
+        return REFUSED, {"url": a.nba_terms_url, "read": False, "http": status, "chars": len(page), "quoted": []}
     say(f"  TERMS QUOTED ({len(quoted)} passage{'' if len(quoted) == 1 else 's'} holding an access word "
         f"{list(TERMS_WORDS)}, or the page's head; the architect reads what they allow):")
     for q in quoted:
@@ -542,6 +570,14 @@ def _nba_reads(a, say: Out, get=http_get) -> tuple[int, dict]:
     r = nba_row(g)
     rec["scored_game"].update({"keys": item_keys(g)[:80], "row": r})
     say(f"    keys {item_keys(g)[:40]}")
+    served = {"gameStatus": r["gameStatus"], "gameStatusText": r["gameStatusText"],
+              "homeTeam.score": r["home"]["score"], "awayTeam.score": r["away"]["score"]}
+    absent = [f for f in NBA_BOX_REQUIRED if served[f] is None]
+    if absent:
+        rec["scored_game"]["refused"] = f"not served: {', '.join(absent)}"
+        say(f"  REFUSED: the box score serves no {', '.join(absent)} (by name, or null): the final score and status "
+            "were not read")
+        return REFUSED, rec
     say(f"    {r['gameId']} · gameStatus {r['gameStatus']!r} | gameStatusText {r['gameStatusText']!r} · "
         f"{r['away']['teamTricode']} {r['away']['score']} @ {r['home']['teamTricode']} {r['home']['score']} "
         "(status as served; the status map is the wiring PR's)")
@@ -584,8 +620,8 @@ def kalshi_section(say: Out, adapter: ListingRead | None = None) -> tuple[int, d
     for c in ad.calls:
         say(f"  /{c['path']} {json.dumps(c['params'])} · " + (f"FAILED: {c['error']}" if c["error"]
                                                               else f"{c['n']} series listed"))
-    if not any(c["error"] is None for c in ad.calls):
-        say("  FAILED: the series listing did not answer")
+    if not ad.calls or ad.calls[-1]["error"] is not None:   # find_series reads the last call it made (an empty
+        say("  FAILED: the series listing did not answer")   # filtered listing falls back to the unfiltered one)
         return FAILED, rec
     rows = [series_row(s) for s in found]
     rec["series"] = rows
@@ -619,14 +655,19 @@ def refuse_out(path: Path | None) -> str | None:
 
 def prepare_out(path: Path) -> str | None:
     """Before any call (a metered run is never lost to an unwritable --out): not an existing directory, its parent
-    made and writable. None when it can be written; else the REFUSED line."""
+    made, and the file itself writable when it exists (a symlink's target included), else its folder writable. None
+    when it can be written; else the REFUSED line."""
     if path.is_dir():
         return f"REFUSED: --out {path} is a directory; name a file"
+    target = path.resolve()                          # a symlink's target is the file written
     try:
-        path.parent.mkdir(parents=True, exist_ok=True)
+        target.parent.mkdir(parents=True, exist_ok=True)
     except OSError as e:
         return f"REFUSED: --out {path}: its folder cannot be made: {type(e).__name__}: {e}"
-    if not os.access(path.parent, os.W_OK):
+    if target.exists():
+        if not os.access(target, os.W_OK):
+            return f"REFUSED: --out {path}: the file is not writable"
+    elif not os.access(target.parent, os.W_OK):
         return f"REFUSED: --out {path}: its folder is not writable"
     return None
 
@@ -658,7 +699,8 @@ def main(argv=None) -> int:
         say(refused)
         return REFUSED
     try:
-        datetime.strptime(a.date, "%Y-%m-%d")
+        if datetime.strptime(a.date, "%Y-%m-%d").strftime("%Y-%m-%d") != a.date:   # zero-padded, as matched
+            raise ValueError(a.date)
     except ValueError:
         say(f"REFUSED: --date {a.date!r} is not YYYY-MM-DD")
         return REFUSED

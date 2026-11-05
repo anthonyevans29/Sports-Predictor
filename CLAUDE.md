@@ -145,15 +145,18 @@ become MORE binding under an income goal, never less."
   margin, level and range passed. 2025 is RETIRED as a college test season; the
   next candidate declares the 2026 regular season as it accrues. No college
   shadow and no ncaa-backtest until then. The bar did not move.
-- **UNL / cups (EFL, CL, UEL)**: market-only. CUP MODEL TRACK:
-  reopened 2026-10-15 on a dated plan (addendum 71, corrected by 73):
-  Step A timing probes (CL 10-20, UEL 10-22, EFL next round), Step B
-  as-of lineup ingest (PR by 10-29), Step C declaration 11-05 at
-  cup_exam's frozen gate; earliest_live 2027-02-16; EFL/CL/UEL stay
-  MARKET-ONLY until a PASS and its confirmation. The exam harness +
-  fix-v2 machinery stay merged. Reopens only via a
-  rotation-aware candidate on as-of lineup data (R-track, winter).
-  UNL likely market-only permanently.
+- **UNL / cups (EFL, CL, UEL)**: market-only. CUP MODEL TRACK: Step A
+  (CL 10-20, UEL 10-22) found the confirmed XI between T-30 and T-15 and
+  nothing at T-35; Step B's live T-15 observation store runs
+  (cup_lineup_observations, append-only); Step C CLOSED 2026-11-05 as a
+  WRITTEN NO (addendum 256) — the exam's 14.76pp FAIL is a cross-league
+  pricing gap, not a rotation one. earliest_live CLEARED. Reopens only
+  (a) on the perfect-XI probe (read-only, 11-20; declare a context
+  candidate only at <= 6.0pp, else the R-track is closed for the season)
+  or (b) on soccer-v23's harness after v23 passes, in both cases at
+  cup_exam's unchanged gate. EFL Step A 12-15 gates nothing. The exam
+  harness + fix-v2 machinery stay merged. UNL likely market-only
+  permanently.
 - Season strings: soccer clubs "2026/27"; WC "2026"; UNL "2026/27";
   MLB/NFL/NHL/NCAA int-style "2026". Per-comp truth is what the DB
   stores — check, don't assume.

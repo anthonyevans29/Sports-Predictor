@@ -146,7 +146,8 @@ REL_ROW = ("| `v1.6.3` | 2026-11-03 12:59:11Z | `0c88f5cc4e9332bade5efd2043def40
 def test_228_the_release_record_row_and_section():
     text = (ROOT / "docs" / "RELEASES.md").read_text(encoding="utf-8")
     table = [ln for ln in text.splitlines() if ln.startswith("| `v")]
-    assert table[-2:] == [ln for ln in table if "`v1.6.2`" in ln or "`v1.6.3`" in ln] and table[-1] == REL_ROW
+    i = table.index(REL_ROW)                                       # v1.6.4's row follows it (addendum 257 item 1)
+    assert "`v1.6.2`" in table[i - 1] and [ln for ln in table if "`v1.6.3`" in ln] == [REL_ROW]
     sec = " ".join(text[text.index("- **v1.6.3**"):text.index("## Hotfix path")].split())
     for verbatim in (
             "tag v1.6.3: annotated, tag object 7312627b5b39fc5f38e71718edb9d9cbd3f7be00 on the fold commit "

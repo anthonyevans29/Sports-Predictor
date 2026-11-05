@@ -114,6 +114,7 @@ its compare verdict.
 | `v1.6.1` | 2026-10-28 12:45:48Z | `23f86e3794a7c075eb7b668e980e2f41ee90ad8f` | `fd3fd51b0179b9fe97dc1b07f00843d69150bf15` | #777 (record backfilled 2026-11-02 (addendum 213 item 2)) |
 | `v1.6.2` | 2026-11-02 14:14:20Z | `98181976f9f4c98c2c3f6e3c8e576e8082d6477f` | `db8fde9c6680b46e77f843b0a5c2e779295bc9dd` | #776 (step 1 as it stood) |
 | `v1.6.3` | 2026-11-03 12:59:11Z | `0c88f5cc4e9332bade5efd2043def40ab37a5def` | `7312627b5b39fc5f38e71718edb9d9cbd3f7be00` | #806 (step 1 as rewritten, #782) |
+| `v1.6.4` | 2026-11-05 13:03:31Z | `284c575847379d545408bf88bb3939041e253ad8` | `fbb6e46a9348d2430b61ab475c3b5faa84b10025` | not yet opened (step 1 as rewritten, #782) |
 
 - **v1.4.0** (ARCHITECT 2026-10-16, addendum 87). The commit is the ledger
   compile over 53a0e83, the #551 merge over c546168.
@@ -218,6 +219,35 @@ its compare verdict.
     cbe4698e on 2026-11-02 at 14:42Z, after v1.6.2's cut at 14:14:20Z, so git puts it in v1.6.3. The record keeps
     git's twelve; the architect has been told.
   - #806 carries the notes (in comments; they exceed one Issue body) and the deploy receipt.
+- **v1.6.4** (ARCHITECT 2026-11-05 08:05 ET, addendum 255, the tag ruling; ARCHITECT 2026-11-05 09:30 ET, addendum 257
+  item 1: "Production is v1.6.4"): a migration tag. The commit is the ledger compile 284c5758 (16 changelog fragments, 16
+  ledger entries) over 87a5766b (#828). The tag was cut by the operator: tagger stamp 2026-11-05 13:03:31Z
+  (08:03:31 ET); the ruling's header reads 08:05 ET. Verbatim (255 item 2): "RULING: v1.6.4 is CUT on 87a5766b (the fold commit on it), A
+  MIGRATION TAG: the release block now; the deploy block in its window (09:15–10:50 ET or 11:15–12:15 ET, never
+  :00–:10); its dry run must name exactly migrate_ncaa_cfbd_pregame.py and nothing else; the migration by the deploy's
+  own printed command (backup, then the migration, one lock); the four markers read back. Then the CFBD hand-run block
+  (the first host read; Sunday's chain repeats it). Then, and only then, #831 by my block when Code names its head."
+  - **The tag message:** the header and all 16 `## ` section headings kept (17 lines beginning with `#`). It matches
+    `python3 scripts/release_notes.py --to 284c575847379d545408bf88bb3939041e253ad8` line for line (332 lines). No
+    AMENDED line.
+  - **Step 1 (rewritten, #782):** PASS, addendum 255 item 1, its three clauses read from the Tailscale console of
+    12:40Z: (a) the compare (--since 1, the laptop at 87a5766b, the host at v1.6.3), "ONE compared file,
+    mlb_all_scored.json, 879 = 879 rows, 0 diffs", three host-only files each explained by its kind (window_24h.json,
+    unl_shadow_2026-11-05_0720.json, kalshi_trade_probe.json), none a divergence; (b) the receipts since the v1.6.3
+    deploy (48h), "every row exit 0", "No failing row; the release block's awk gate reads 0"; (c) the reads.
+  - **Deploy, with its migration:** verbatim (257 item 1): "THE DEPLOY (receipts 14:15Z): v1.6.3 -> v1.6.4 (284c5758,
+    76 files), the dry run naming exactly migrate_ncaa_cfbd_pregame.py; the migration by the deploy's printed command
+    under one lock after the backup sports_2026-11-05_141512.db (integrity ok); four NCAA markers present; the registry
+    on the host carries nfl-elo-v2 and the four leagues' entries; the rehearsal module present and dormant. Production
+    is v1.6.4 (docs/RELEASES.md by Code's records PR, the deploy row as the receipt)." The deploy row is this record's
+    receipt. git agrees: `git diff --stat v1.6.3 v1.6.4` reads 76 files changed, and the one new `migrate_*.py` among
+    them is `migrate_ncaa_cfbd_pregame.py`.
+  - **Carries:** git's `v1.6.3..v1.6.4` holds sixteen PRs: #802, #804, #808, #809, #810, #812, #814, #816, #817, #818,
+    #819, #820, #822, #824, #825, #828 (83 commits with the fold commit; 82 to 87a5766b). Counted from `git log
+    --merges --oneline v1.6.3..v1.6.4`: 25 merge commits, of which 16 are "Merge pull request #N" and 9 merge `main`
+    into a branch; sixteen PRs, as the fold's sixteen fragments and the notes' sixteen sections.
+  - **Release Issue:** not yet opened at this record (ritual step 4); the deploy row of addendum 257 item 1 is the
+    receipt this record carries.
 
 ## Hotfix path
 A hotfix gets a patch tag (`vX.Y.Z+1`) through the same ritual. There is no

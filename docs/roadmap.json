@@ -115,7 +115,10 @@
           "what": "the 500th both-FBS regular-season game of 2026 is final and labelled (274 were at the run of 2026-10-09)",
           "owner": "calendar",
           "due": "2026-11-08",
-          "done": null
+          "done": {
+            "date": "2026-11-05",
+            "receipt": "the host's first CFBD read, 2026-11-05 14:17Z (ARCHITECT 2026-11-05 09:30 ET, addendum 257 items 2-3; #79 comment 6660320768): RECEIPT 2026: both-FBS completed 505 · joined 505 (100.0%) · same 504 · swapped 1 · neutral 10 · unmatched 0 · ambiguous-refused 0; joined via exact 485, alias 20; scores agree 490 · ours unscored 5 · SCORE-DISAGREE 9 · score-reversed 1."
+          }
         },
         {
           "what": "the one run, on my word, and the verdict",

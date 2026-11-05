@@ -1,12 +1,16 @@
 # THE AVAILABILITY RECORD
 
-Spec for lane `availability-record` (ARCHITECT 2026-11-04 13:05 ET, addendum 252). This file covers the schema PR:
-the two tables, the migration, the writer, the one read path and the `availability` command. The feeds (item 3) and
-the graph projection (item 4) are later PRs and get their own sections when they land.
+Spec for lane `availability-record` (ARCHITECT 2026-11-04 13:05 ET, addendum 252). Sections 1-8 cover the schema PR:
+the two tables, the migration, the writer, the one read path and the `availability` command. Section 9 covers the
+first feed, nflverse depth charts (item 3(a); addenda 258 and 259), with the snapshot closure it brings to the read
+(section 4). The NHL landing feed (3(b)) and the graph projection (item 4) are later PRs and get their own sections
+when they land.
 
 Code: `src/db/schema.py` (`AvailabilityObservation`, `AvailabilityAssertion`, `AVAILABILITY_TRIGGERS`),
-`migrate_availability_record.py`, `src/availability/record.py`, `cli.py availability`. Tests:
-`tests/test_availability_record.py`.
+`migrate_availability_record.py`, `src/availability/record.py`, `cli.py availability`; the feed:
+`src/availability/nflverse.py`, `cli.py availability-nflverse`, the chain `availability-daily`
+(`deploy/hosting/chains.py`) and `sp-availability-daily.timer`. Tests: `tests/test_availability_record.py`,
+`tests/test_availability_nflverse.py`.
 
 ---
 
@@ -110,19 +114,19 @@ As built:
 - **Source clock:** an assertion exists from its `source_stamp`. An assertion with no stamp is not read, and the
   command counts it. It is never filled from `recorded_at` (law 4).
 - **Labels:** every fact carries both stamps and its observation. A row is backfilled when `recorded_at` is later
-  than `source_stamp` by more than the source's cadence (`record.CADENCE`; nflverse 24 hours, PROPOSED). A
-  source with no ruled cadence reads "backfill unknown", never "not backfilled".
+  than `source_stamp` by more than the source's cadence (`record.SOURCE_CADENCE_HOURS`; nflverse 24 hours, FROZEN by
+  addendum 259 item 2(d)). A source with no ruled cadence reads "backfill unknown", never "not backfilled".
   - **The cadence, RULED (addendum 254 item 2(2)):** "THE BACKFILL CADENCE is per source and is DECLARED WITH THE
     SOURCE'S ADAPTER PR, by my addendum on that PR, as a frozen constant per source word (`SOURCE_CADENCE_HOURS`):
     nflverse 24 h (proposed now, frozen with 3(a)'s PR); a per-game polled source with no source stamp has no cadence
     and its facts read under the recorded clock alone. "backfill unknown", never "not backfilled", where no cadence is
-    declared — as built." This PR adds no source to the constant and freezes none: `record.CADENCE` stays as built
-    (its one entry, nflverse 24 hours, is the proposal), and the nflverse adapter's PR (3(a)) carries the frozen value
-    under the architect's addendum on it.
-  - **The constant's name and shape: OPEN.** The ruling names `SOURCE_CADENCE_HOURS`, an hours value per source word.
-    The built constant is `record.CADENCE` (`src/availability/record.py:77`), a `timedelta` per source word under
-    another name. This PR renames nothing; the rename (or an alias) is proposed for 3(a)'s PR, where the value is
-    frozen, and waits on the architect's word.
+    declared — as built."
+  - **FROZEN (ARCHITECT 2026-11-05 10:10 ET, addendum 259 item 2(d)):** "THE CADENCE CONSTANT:
+    SOURCE_CADENCE_HOURS["nflverse_depth_charts"] = 24, frozen with the PR (254 item 2(2))." The nflverse feed's PR
+    renamed the schema PR's `record.CADENCE` (a `timedelta` per source word, the proposal) to
+    `record.SOURCE_CADENCE_HOURS = {"nflverse_depth_charts": 24}`: hours, an int, per source word, read-only at run time
+    (a mapping proxy), no alias left. `record.backfilled` reads it as `timedelta(hours=...)`. Its one reader is
+    `record.backfilled` (and the feed's receipt count); no other code named the old constant.
   - **A fact** (the as-of read) is labelled `BACKFILLED` only while every row of its interval is backfilled. nflverse's
     first fetch carries weeks of history, so a fact that never changed (a QB1 since the early charts) opens on a
     backfilled row; the first fresh row that restates it puts it in the live-era record, and the line prints
@@ -143,9 +147,13 @@ with one source stamp. Groups are read in the chosen clock's order. For each gro
 - **Closed, "slot asserted to someone else":** an open interval whose slot the group gives to another player, and
   which the group does not restate, closes. The slots are:
   - `depth_rank`: team, `pos_grp`, `pos_slot`, `pos_rank`;
-  - the three starter kinds: match and team;
+  - the three starter kinds: match and team, PER KIND;
   - `plays_for`: the player.
-  `inactive` and `injury_status` have no slot.
+  `inactive` and `injury_status` have no slot. Every slot is per source and PER KIND (`record.slot_key` carries the
+  kind): a `projected_starter`, a `confirmed_starter` and an `eventual_starter` of one game and team are three slots.
+  RULED, addendum 258 item 2(3) (#835 item 3): "THE STARTER SLOT PER KIND: AS DESIGNED, confirmed — a post-hoc
+  `eventual_starter` must never close a pregame `projected_starter` (the comparison the NHL lane exists to make). The
+  spec's §4 says "per kind" explicitly in the feed PR; nothing else changes."
 - **Opened:** any other assertion opens an interval at the group's clock.
 
 The player, the team and the game in a fact and a slot are the SOURCE'S OWN identifiers: its player id, else the name
@@ -177,13 +185,51 @@ one; or player-id mapping arriving for every NFL and NHL player) never splits on
 Two rules hold across all of this. The facts of different sources never touch. Assertions made together never close
 each other, so two goalies in net are two open intervals.
 
-**Snapshot closure: RULED FOR THE FEED PR, NOT BUILT HERE (addendum 254 item 2(6)):** "a new `dt` is read as a FULL
-SNAPSHOT PER TEAM PRESENT in the load — every fact of a team that appears at that dt and is not restated there closes
-at that observation; a team absent from the load keeps its facts open. The feed PR VERIFIES this against the real
-files first (law 1: whether a team's rows at one dt are its whole chart or only its changes); if they are only
-changes, the rule is wrong, the feed PR says so with the receipt and proposes the alternative, and nothing closes until
-I rule again." As built here, only the fact or its slot closes a fact (the rules above); `derive` gains the snapshot
-closure only in the nflverse feed's PR (3(a)), after that verification.
+**Snapshot closure: BUILT in the nflverse feed's PR (addendum 254 item 2(6); addendum 259 items 1 and 2(a)-(b)).**
+254 item 2(6) ruled it for the feed PR, subject to a read of the real files: "a new `dt` is read as a FULL SNAPSHOT PER
+TEAM PRESENT in the load [...] The feed PR VERIFIES this against the real files first". The architect read them
+(259 item 1, verbatim in part): "EVERY LOAD IS A FULL 32-TEAM SNAPSHOT [...] A team's rows at one dt are its WHOLE
+chart, not its changes [...] PARTIAL GROUPS EXIST AND ARE RARE: 10 of 8,896 groups in 2026 hold fewer than 40 rows
+[...] A partial group read as a full snapshot would close most of a team's slots wrongly." Ruled (259 item 2):
+"(a) SNAPSHOT CLOSURE, as 254 item 2(6) proposed and the data confirms: a load (one dt) is a full snapshot for EVERY
+team present in it; a team's facts not restated at that dt CLOSE at that observation; a team absent from a load (none
+observed in either file, but law 4) keeps its facts open. (b) THE PARTIAL-GROUP GUARD: a (dt, team) group with fewer
+than HALF the rows of that team's previous complete group is `partial` FOR THAT TEAM — its rows are asserted (a fact
+seen is a fact), it CLOSES NOTHING, the prior facts stay open, and the receipt counts it ("partial team groups: N,
+closing nothing"). The first group ever seen for a team is complete by definition."
+
+As built (`record.derive`, `record.snapshot_load`, `record.guard_load`, `record.partial_group`):
+- **Which groups are loads.** A per-source rule: `record.SNAPSHOT_SOURCES = {"nflverse_depth_charts": "depth_rank"}`.
+  A group (one observation, one source stamp) is a LOAD when every row is that source and kind AND its observation
+  keeps a payload hash (`payload_sha256`): the adapter's rows, from a fetched or hand-carried release file whose bytes
+  are on disk. Rows of that source written without a payload hash (the schema PR's synthetic histories in
+  `tests/test_availability_record.py`, one row per "load") are not a load of the file and keep the generic rules; those
+  67 tests pass unchanged. No other source is read this way. **NEEDS RULING (open on the feed PR, not decided by
+  Code):** 259 item 2(a) rules every load of the source a full snapshot and does not mention the payload hash; the
+  writer does not require `payload_sha256` on an asserting `nflverse_depth_charts` observation, so a writer that omits
+  it (a second adapter for the 2023-2024 shape, 252 item 3(a)) would get the generic "changes only" rules the read of
+  the real files refuted. The two ways out: the writer refuses such an observation without a hash (and #831's one-row
+  nflverse fixtures are rewritten as full charts), or the architect rules the gate as built.
+- **The closure.** For each team present in a load, every open `depth_rank` fact of that source and team that the
+  load does not restate closes at the load. The generic rules are tried first and keep their reasons ("asserted
+  differently", "slot asserted to someone else"); a fact neither of them closes is closed "not restated in its team's
+  snapshot", `closed_by` the team's first row in the load. A team absent from the load: nothing of it closes.
+- **The partial guard.** The rows of each team in a load are counted. A team whose count is below half its previous
+  COMPLETE group's (`rows < previous * 0.5`, `PARTIAL_GROUP_FRACTION`; exactly half is complete) is partial at that
+  load: its rows restate or open as any rows do, and NO rule closes that team's facts at that load (not the snapshot,
+  not "asserted differently", not the slot), so the prior facts stay open beside any new ones. The team's previous
+  complete group stays the one before. The first group ever seen for a team is complete. The adapter's receipt counts
+  the same groups with the same function (`guard_load`), reading the previous complete groups from the store's loads.
+- **"Close at that load" under each clock.** A fact closes at the load's group clock, the clock its interval opens on:
+  - **source clock:** the load's `dt`. The facts in force at T are the last load at or before T, as the file says;
+  - **recorded clock:** the observation's `recorded_at`. One fetch carries many loads (the first fetch carries the
+    whole season), all recorded at one instant; `_groups` reads them in `dt` order, so an earlier load's intervals open
+    and close at the same `recorded_at` (empty intervals: never in force under this clock, still listed by
+    `--history`), and the facts in force from that `recorded_at` are the fetch's LAST load's. Nothing a fetch carries is
+    in force before it was on our disk (item 1's recorded clock).
+  The two clocks read the same sequence of loads in the same order, since the adapter asserts only rows newer than
+  every stamp held (section 9), so each clock's as-of read is the cut of its own derivation (test 6(g)'s pin, on loads:
+  `test_both_clocks_read_the_loads_and_as_of_is_the_history_cut`).
 
 **`as_of(s, sport, instant, clock, match_id, team, kind)`** runs `derive` over the assertions whose clock is at or
 before the instant, and keeps the intervals still open. **`history(...)`** returns the same assertions in the same
@@ -322,14 +368,16 @@ part that rules it, with a one-line quote. An item the ten do not cover is marke
 - **(d) Snapshot closure.** Should an nflverse `dt` close the facts it does not restate? As built it does not: only
   the fact or its slot closes a fact. **RULED FOR THE FEED PR, 254 item 2(6):** "a new `dt` is read as a FULL
   SNAPSHOT PER TEAM PRESENT in the load [...] The feed PR VERIFIES this against the real files first" (section 4).
-  Not built here.
+  Not built here. **Verified by the architect's read and RULED with its guard, 259 items 1 and 2(a)-(b); BUILT in the
+  nflverse feed's PR (section 4).**
 - **(e) NULL `source_stamp` under the source clock.** As built such rows are not read, and the command counts them.
   **NOT RULED:** not among the PR body's ten (its question 2 asked only about the cadence); stands as built. It is
   consistent with 254 item 2(2)'s "a per-game polled source with no source stamp has no cadence and its facts read
   under the recorded clock alone", which the builder reads as covering it; that reading is the architect's to confirm.
 - **(f) The backfill cadence.** nflverse is set to 24 hours (proposed). Under the recorded clock, backfilled facts are
   shown and labelled, not removed. **RULED, 254 item 2(2):** "nflverse 24 h (proposed now, frozen with 3(a)'s PR)";
-  "backfill unknown" where no cadence is declared, "as built" (section 3).
+  "backfill unknown" where no cadence is declared, "as built" (section 3). **FROZEN, 259 item 2(d)**, as
+  `record.SOURCE_CADENCE_HOURS` (section 3).
 - **(g) What `partial` means.** The feed decides it, and the writer does not derive it. Unmapped players alone do not
   make a fetch partial, since every NFL and NHL player is unmapped today. **RULED, 254 item 2(7):** "`partial` = a
   team or match left unmapped; unmapped players counted but not status-changing — accepted".
@@ -381,3 +429,212 @@ terms come with the decision)."
 
 The schema PR adds two tables and their triggers, and touches no existing table. It makes no provider call, adds no
 chain or timer, and sets no model or Desk input. The one changed write path is `drop_db`, which drops the new marker.
+
+## 9. The nflverse depth-chart feed (item 3(a); addenda 258 and 259)
+
+Verbatim (252 item 3(a), in part): "nflverse DEPTH CHARTS (source `nflverse_depth_charts`): the release file for the
+season (github.com/nflverse/nflverse-data, release tag depth_charts, the 2025+ format: dt, team, player_name, espn_id,
+gsis_id, pos_grp_id, pos_grp, pos_id, pos_name, pos_abb, pos_slot, pos_rank — the dictionary as published; the
+2023–2024 weekly files are a DIFFERENT shape and are NOT ingested by this feed [...]). One fetch a day on the host
+after nflverse's ~07:00 UTC load (a new chain `availability-daily`, timer 08:45 UTC, inside no other chain; UNMETERED;
+failure receipted and paged as a sync-step failure, stopping nothing). Each fetch is one observation; its NEW rows (dt
+later than the newest source_stamp we hold for the source) become assertions of kind depth_rank (attrs: pos_grp,
+pos_abb, pos_slot, pos_rank), one per player-slot; the fetch's payload sha256 is kept, and a fetch whose file is
+byte-identical to the last is a `complete` observation with rows_asserted 0. Licence CC BY 4.0 [...] A QB1 from this
+feed is a DAILY RANK, not a game-day confirmation (the report's own limit): kind depth_rank says so; nothing here writes
+projected_starter."
+
+Code: `src/availability/nflverse.py`; `cli.py availability-nflverse`. Tests: `tests/test_availability_nflverse.py`,
+on SYNTHETIC rows only (labelled so in the file); the real-rows excerpt of 259 item 3 lands with its own tests when the
+operator hands it over.
+
+### The file (law 1)
+
+- `csv.DictReader`, every column by its NAME. The header must hold exactly `nflverse.COLUMNS`, the twelve of 259 item 1
+  ("COLUMNS, both files, exactly the dictionary's twelve"), each once; their order is not read. Anything else is
+  REFUSED with the missing, unexpected and repeated names; a header holding the 2023–2024 weekly dictionary's names
+  (`season`, `week`, `club_code`, `depth_team`, ...) is named "the 2023-2024 weekly shape, which this feed does NOT
+  ingest" first.
+- Every row: `dt` an ISO-8601 instant with `Z` or an offset (a time with no zone is never assumed UTC), `team`
+  non-empty, and one of `player_name`, `gsis_id`, `espn_id` non-empty; else the whole file is refused naming the line.
+- `--season` below 2025 is refused with the same reason (259 item 2(c): "2023–2024 are not ingested (the other shape;
+  refused by the column check with its reason)").
+
+### A row, one assertion
+
+| Column | Value |
+|---|---|
+| `kind` | `depth_rank` (never `projected_starter`: 252 item 3(a)) |
+| `source_stamp` | `dt`, UTC |
+| `source_player_id` | `espn_id`; `gsis_id` where `espn_id` is empty; the column holds one id (the key: below) |
+| `player_id` | NULL: no NFL player table to map by (254 item 2(3)); every row counted unmapped |
+| `player_name` | verbatim |
+| `source_team` | `team` verbatim |
+| `team_id` | ours by the existing NFL team mapping (below); NULL when unmapped |
+| `match_id` | NULL (a team-level fact) |
+| `attrs` | `pos_grp`, `pos_abb`, `pos_slot`, `pos_rank` verbatim strings (252 item 3(a)); `dt_raw` (the file's `dt` text); `espn_id` and `gsis_id` verbatim (both ids kept, so `attrs.espn_id` empty says the source id is the GSIS one) |
+
+**The player's key.** `record.player_key` keys every fact and slot on `source_player_id`, so the key must be ONE id
+that does not move between loads: an id switch (an empty `gsis_id` filled in later, under a "gsis else espn" key)
+would close the player's interval "slot asserted to someone else" (the same player) and open a new one, a false flip
+in exactly the QB1 reading the record exists for. The key is therefore `espn_id` (the chart is ESPN's: its own id),
+falling back to `gsis_id` only where `espn_id` is empty. `dt_raw`, `espn_id` and `gsis_id` are in
+`record.VOLATILE_ATTRS` (identity and the source's time text, not the fact), so a `gsis_id` filled in later changes
+attrs only, never the key, and does not read as a flip (pinned by a test). THE RESIDUAL, not hidden: a row with no
+`espn_id` (keyed on `gsis_id`, or on its name where both are empty) that gains an `espn_id` later still closes and
+reopens. The blank rate of each id column on the real files is UNREAD here (the excerpt of 259 item 3 is not in this
+container); it is read when the fixture lands, and the residual is the PR's named limitation until then.
+`pos_grp_id`, `pos_id` and `pos_name` are not asserted (the ruling names four attrs); the raw file keeps them.
+
+**The team mapping (law 4).** The existing mapping of an NFL abbreviation to our team: the NFL competition's teams
+(`competition_teams` joined to the competition with code `NFL`) whose `teams.tla` equals the file's `team` EXACTLY.
+`tla` is the api-american-football team `code` that `sync-teams` stores (`src/adapters/api_american_football.py`). A
+team text no NFL team holds, or one that more than one holds (ambiguous), is UNMAPPED: `team_id` NULL with the text
+beside it, counted by name, and the observation is `partial` (254 item 2(7): "`partial` = a team or match left
+unmapped"). Teams of other competitions (an NCAA program is a `Sport.NFL` team too) are never candidates. Section 5's
+read of the schema PR said no team row carries an nflverse abbreviation; whether the host's stored codes equal
+nflverse's is read by the first host run's receipt (its unmapped-team line), not assumed here.
+
+### Only new rows; both seasons; backfill
+
+- A row is asserted only when its `dt` is later than the newest `source_stamp` the record holds for the source
+  (`nflverse.watermark`, across every season's file: the ruling's "for the source"). The others are read and counted
+  ("older rows not asserted again"). So each `dt` is asserted once, in one observation, and the record's loads arrive
+  in `dt` order (section 4's two clocks rely on it).
+- 2025 and 2026 alike (259 item 2(c): "2025 IS IN SCOPE"). Because the watermark is the source's, the 2025 file must
+  be read BEFORE the first 2026 read. hosting-h1.md's live-host recipe makes that read REQUIRED and FIRST, and stops
+  unless it exits 0; T11 states the same order for a fresh host.
+- **A file that cannot add anything is never silent.** A changed file whose newest `dt` is EARLIER than the watermark
+  (the 2025 file after a 2026 read; any older or smaller file) is REFUSED, naming both instants
+  (`nflverse.older_refusal`): a `--file` exits 2 with nothing written; a fetched file is a `failed` observation (the
+  file kept), exit 1, paged by the chain. A changed file whose newest `dt` IS the watermark (rebuilt, nothing new) is
+  `complete` with 0 rows and the receipt line "no new load". The residual this check cannot see: a `--file` holding
+  NEWER loads than the record but fewer teams (an excerpt) moves the watermark forward, and the full file's older
+  loads are then never asserted; the live DB takes whole release files only.
+- **No load from the future.** A row whose `dt` is later than our fetch's time plus `nflverse.FUTURE_SKEW` (1 hour of
+  clock skew) refuses the file naming its line (`nflverse.future_refusal`; a `--file` exits 2, nothing written; a
+  fetched file is a `failed` observation, kept). One such stamp, once held, would be the source's watermark for good
+  (append-only) and every real load after it would read "older".
+- Every row recorded more than `SOURCE_CADENCE_HOURS["nflverse_depth_charts"]` (24) hours after its `dt` reads
+  BACKFILLED by the record's rule (section 3): every 2025 row and every 2026 row before the first fetch (259 item
+  2(c)). The receipt counts them.
+
+### The partial guard's count
+
+The receipt's "partial team groups: N, closing nothing" lists each new (dt, team) group below half its team's
+previous complete group, with both counts. The previous complete groups come from the store's own loads first
+(`nflverse.stored_complete_groups`, folded by `record.guard_load`, the function `derive` closes by), then from the
+fetch's loads in `dt` order.
+
+### The fetch: a conditional GET (259 item 2(e))
+
+Verbatim: "the fetch sends If-None-Match with the stored ETag of the last payload (GitHub release assets serve one; the
+redirect is followed — the asset host today is release-assets.githubusercontent.com); a 304 is a `complete`
+observation with rows_asserted 0 carrying the previous payload's sha256 (the byte-identical case of 252 item 3(a)), so
+the daily cost is one small request on an unchanged day and a ~70 MB file otherwise; the whole file is kept under
+logs/availability/nflverse_depth_charts/<date>/ only when it changed."
+
+- **The request:** `GET https://github.com/nflverse/nflverse-data/releases/download/depth_charts/depth_charts_<season>.csv`,
+  redirects followed, streamed, `timeout=(10, 120)` (connect, per-read seconds: `nflverse.TIMEOUT`), a `User-Agent`
+  naming the project, `If-None-Match` when an ETag is stored. No secret is needed or sent; the endpoint written is the
+  requested URL, never the redirect's signed one.
+- **Where the ETag is stored:** BESIDE THE PAYLOAD FILE, `<payload_path>.etag`, written when the file is kept, and
+  REWRITTEN when a byte-identical 200 carries a different ETag (the sidecar is not the record: no row changes), so the
+  next unchanged day sends a validator the server matches instead of downloading the file again. No
+  column of `availability_observations` holds a validator (`endpoint`, `http_status`, `payload_sha256`,
+  `payload_path` and `error` each mean something else), and no column or table is added. "The last payload" is the
+  newest complete or partial observation of the same endpoint that kept one (`nflverse.previous_payload`); a missing
+  sidecar sends no `If-None-Match` (an unconditional GET, said on the receipt).
+- **The answers:**
+
+| Answer | Observation | Payload |
+|---|---|---|
+| 304 | `complete`, rows_asserted 0, `http_status` 304 | the previous payload's sha256 and path |
+| 200, byte-identical to the last kept payload | `complete`, rows_asserted 0 | the streamed copy removed; the previous sha256 and path; the answer's ETag, where it differs, written beside that payload |
+| 200, changed | `complete` or `partial` (or `empty`: a header and no row) with its new rows | kept: `logs/availability/nflverse_depth_charts/<UTC date>/<HHMMSS>Z-depth_charts_<season>.csv`, its ETag beside it |
+| 200, a file the adapter refuses | `failed`, the refusal as its error | kept (the raw answer is the evidence) |
+| any other status | `failed`, `HTTP <status> from the release asset (refused): <class>`, the class worded as requests words it (`503 Server Error`, `429 Client Error: Too Many Requests`, `404 Client Error`) | none |
+| a raised call or a broken stream | `failed`, the error redacted | none (a partial `.part` file is removed) |
+
+  The error text has every URL's query string cut first (a release asset redirects to a signed URL), then
+  `record.redact`, then 256 characters.
+- **Retries.** The chain's runner retries a step whose output falls in its transient classes (connection errors,
+  timeouts, HTTP 5xx and 429; `sp_run.RETRY_BACKOFF_S`, two retries); the 5xx and 429 wording above puts those answers
+  in that class, like a connection error, and every other status is never retried. Each attempt is its own run of the
+  command and its own `failed` observation (a fetch that raised is a row, item 1(a)): one chain run can write up to
+  three.
+- **The disk:** a changed day keeps a whole file (~70 MB for 2026 per 259 item 1); unchanged days keep nothing. Under
+  `logs/` (git-ignored, never under data/, never mirrored: the exports mirror carries `exports/` only).
+- **`--file PATH`** reads a local release file the same way (endpoint `file:<its name>`, no HTTP status); a refused
+  file exits 2 with nothing written and nothing copied; its bytes are kept under the payload directory when they differ
+  from the last kept payload of that endpoint.
+
+### The command: `availability-nflverse`
+
+`python cli.py availability-nflverse [--season YEAR] [--file PATH]`
+
+- `--season`: the release file's season, 2025 or later. Default: the current season, the calendar year from March on,
+  else the year before (the season file turns over in March: 259 item 1 read the 2025 file's last load at
+  2026-03-14T07:32:09Z and the 2026 file's first on 2026-03-22).
+- `--file`: a local file instead of the fetch; `--season` is not read.
+- No `--db`. 254 item 2(9) ("`--db` STAYS (198 item 6(ii))") is the query command's fence for reading a `.backup`
+  copy; an ingest writes, and a copy is never written, so the ingest writes the live DB only.
+- It holds the chains' DB lock (`sp_common.sync_lock`, a no-op inside a chain step) across the store's read (mode=ro),
+  the fetch and the write. A missing DB file or an unmigrated store is refused (exit 2) before any call.
+- The receipt: the observation id, its status, endpoint, `fetched_at` and HTTP status; the error (redacted) where
+  failed; rows read, loads (and new loads), new rows, rows asserted, older rows not asserted again with the watermark;
+  "partial team groups: N, closing nothing" with each group; unmapped teams by name with their rows, ambiguous codes,
+  unmapped players; backfilled rows; the payload sha256's first 16 characters and path; the ETag line (sent or not,
+  and the answer); then "Depth charts: nflverse (CC BY 4.0)".
+- Exit 0 for complete, partial or empty; 1 for a failed observation (written); 2 for a refusal (nothing written).
+- The write is one `record.write_observation` (one fetch, one observation; a retried chain step is another run). The
+  writer inserts the assertions as one executemany INSERT per 5,000 rows (`record.WRITE_CHUNK`), in the same one
+  transaction, every row through the insert triggers as before; a whole season file is ~750,000 rows (measured here on
+  750,000 synthetic rows: 45 s, peak memory about 0.9 GB with the rows in hand; the ORM objects it replaced took about
+  twice the time and three times the memory at 100,000 rows).
+
+### The chain and the timer
+
+- `availability-daily` (`deploy/hosting/chains.py`): one step, `availability-nflverse --season 2026` (the season is
+  explicit, as every chain's is, and moves with them). `go_on` names it (`AVAILABILITY_GO_ON`): a failed read is
+  receipted with that reason, the chain's exit is its exit, so `OnFailure` pages, and no later step exists to stop. No
+  `backup` key (the daily backup stands as it is). `availability-nflverse` is in `UNMETERED` (github.com, never
+  api-sports). It is inside no other chain. A transient failure is retried by `sp_run` like every step's, each attempt
+  its own `failed` observation (the fetch's "Retries", above).
+- `sp-availability-daily.timer`: daily 08:45 UTC (259 item 2(d): "08:45Z daily stands — it captures the ~07:00Z load
+  about 1.7 h later, before any kickoff of the day; a second load of the day lands the next morning, which the recorded
+  clock states truthfully"). On hosting-h1.md's Schedule table and T11 `TIMERS` list, CI-checked.
+- **Enablement: the architect's block** (252 item 7: "the first host reads and the timers' enablement are my blocks").
+  The precedent followed is every timer since H1 (`sp-ncaa-schedule`, `sp-cup-observe`): shipped on `TIMERS`,
+  `install.sh` enables nothing and `sp_deploy.py` installs no unit, so nothing runs until hosting-h1.md's live-host
+  recipe is run, in that block, after the migration tag that carries `migrate_availability_record.py` is deployed.
+  Until then the deploy receipt's timers line names it as a `TIMERS` timer not enabled.
+
+### Attribution
+
+`record.SOURCES["nflverse_depth_charts"]` is "Depth charts: nflverse (CC BY 4.0)" (252 item 3(a)): the `availability`
+command prints it whenever an nflverse fact is shown, and the ingest's receipt prints it last.
+
+### Percent-encoded credentials (#835 item 1; addendum 258 item 2(1))
+
+Verbatim: "`_endpoint_secret` checks the percent-decoded endpoint too (unquote) for credential names and for
+environment values; `_PARAM` admits `%` escapes and classifies the decoded name; `redact` runs on the decoded string as
+well as the raw one; percent-encoded cases join the endpoint-refusal and redact tests (positive controls: `api%5Ftoken`,
+`s%69g`, `%6Bey` refused; a token behind an encoded name redacted). No feed PR merges without them".
+
+As built in `record.py`: a parameter NAME may hold `%XX` escapes and is classified decoded; `_endpoint_secret` runs
+every check on the endpoint and again on its decoded form (decoded until stable, at most three rounds), and its reason
+says "(percent-decoded)" when only that form carried it; `redact` redacts the raw text, then its decoded form, and
+returns the DECODED redacted text when that found what the raw reading did not (an encoded separator, an encoded
+environment value). Tests fail-first against the schema PR's `record.py`.
+
+### What this feed does NOT do
+
+- The 2023–2024 weekly files: refused, a different shape; a second adapter later if a backtest wants them (252 item
+  3(a)).
+- `projected_starter`: never written by this feed (a daily rank is not a game-day confirmation).
+- No player mapping (254 item 2(3)); no row in any existing table; no provider call from a closing run; nothing under
+  data/; no update or delete path (the schema PR's triggers stand untouched).
+- The real-rows excerpt's tests (252 items 6(d) and 6(g) on real rows, 259 item 2(b) on CAR's 2-row group, BAL's QB1
+  flip): with the fixture, when the operator hands it over (259 item 3).
+- The NHL landing feed's poll key (#835 item 2, 258 item 2(2)): the NHL feed's PR.

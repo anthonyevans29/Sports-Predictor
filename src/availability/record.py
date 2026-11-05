@@ -30,6 +30,9 @@ THE READ. derive() turns assertions into intervals (item 1(b): "a fact holds fro
 observation of the same source that asserts the same (kind, player, team[, match]) differently, or that asserts the
 slot to someone else"); as_of() is derive() over the assertions whose chosen clock is at or before the instant, keeping
 the intervals still open; history() is every assertion, in time order, with the end of the interval it belongs to.
+A LOAD of a snapshot source (SNAPSHOT_SOURCES: nflverse_depth_charts' depth_rank rows from a kept payload) also closes
+every fact of each team it holds that it does not restate, a partial team group closing nothing (ARCHITECT 2026-11-05,
+addendum 259 item 2(a)-(b); derive()).
 THE TWO CLOCKS (item 1, ruled): `recorded_at` is our knowledge, `source_stamp` the source's claim. Under the recorded
 clock an assertion exists from its fetch, so a backfilled row never appears before it; under the source clock an
 assertion with no source stamp is not read (counted, never filled from recorded_at). Every fact carries both stamps.
@@ -49,8 +52,9 @@ from dataclasses import dataclass, field
 from dataclasses import replace as _with   # private: the module exposes no name matching update/replace (test 6(a))
 from datetime import date, datetime, timedelta, timezone
 from pathlib import PurePosixPath
+from types import MappingProxyType
 from typing import Iterable, Sequence
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 
 from src.db.schema import (APPEND_ONLY, AVAILABILITY_KINDS, AVAILABILITY_SOURCES, AVAILABILITY_STATUSES,
                            AVAILABILITY_TRIGGERS, Sport)
@@ -71,13 +75,25 @@ ASSERTING = ("complete", "partial")                  # the statuses that carry f
 GAME_KINDS = ("projected_starter", "confirmed_starter", "eventual_starter", "inactive")   # per-game facts
 STARTER_KINDS = ("projected_starter", "confirmed_starter", "eventual_starter")
 POST_HOC_KINDS = ("eventual_starter",)               # item 3(b): "post hoc, kind-labelled, never a pregame fact"
-# THE BACKFILL THRESHOLD, PROPOSED (item 1: "recorded_at later than source_stamp by more than the feed's cadence"):
-# nflverse loads daily, so 24 hours. A source with no entry has no ruled cadence: its stamped facts read "backfill
-# unknown", never "not backfilled" (law 4).
-CADENCE = {"nflverse_depth_charts": timedelta(hours=24)}
+# THE BACKFILL CADENCE, in hours per source word (item 1: "recorded_at later than source_stamp by more than the feed's
+# cadence"), frozen by addendum 259 item 2(d): "THE CADENCE CONSTANT: SOURCE_CADENCE_HOURS["nflverse_depth_charts"] =
+# 24, frozen with the PR (254 item 2(2))". 254 item 2(2): "a frozen constant per source word (`SOURCE_CADENCE_HOURS`)
+# [...] "backfill unknown", never "not backfilled", where no cadence is declared". A source with no entry has no ruled
+# cadence: its stamped facts read "backfill unknown" (law 4). Read-only (a mapping proxy): a cadence moves only by a
+# ruling and a PR, never at run time.
+SOURCE_CADENCE_HOURS = MappingProxyType({"nflverse_depth_charts": 24})
 # attrs keys a restatement may change without asserting the fact differently: the source's raw time text (its stamp
-# is source_stamp, compared nowhere as a fact)
-VOLATILE_ATTRS = ("dt_raw",)
+# is source_stamp, compared nowhere as a fact) and the source's player ids kept beside source_player_id (identity, not
+# the fact: nflverse_depth_charts' espn_id and gsis_id, addendum 252 item 3(a))
+VOLATILE_ATTRS = ("dt_raw", "espn_id", "gsis_id")
+# THE SNAPSHOT SOURCES (ARCHITECT 2026-11-05 10:10 ET, addendum 259 item 2(a)-(b); 254 item 2(6)): a source whose
+# every load (one source stamp in one observation) is the WHOLE chart of each team present in it. 259 item 1 read the
+# real files: "EVERY LOAD IS A FULL 32-TEAM SNAPSHOT [...] A team's rows at one dt are its WHOLE chart, not its
+# changes". The kind each one snapshots: only it closes by the rule (derive, below). No other source reads this way.
+SNAPSHOT_SOURCES = MappingProxyType({"nflverse_depth_charts": "depth_rank"})
+# 259 item 2(b): "a (dt, team) group with fewer than HALF the rows of that team's previous complete group is `partial`
+# FOR THAT TEAM [...] The first group ever seen for a team is complete by definition."
+PARTIAL_GROUP_FRACTION = 0.5
 # THE SOURCE'S OWN GAME ID (Codex on #831, round 1): a per-game fact (GAME_KINDS) from a source listed here must carry
 # attrs.source_match_id, the source's id for the game, so a fact first recorded before its game maps to our match_id
 # and restated after is ONE fact (and its slot closes). nhl_api_landing: the NHL gameId (item 3(b): the landing and
@@ -90,6 +106,7 @@ ASR_TABLE = "availability_assertions"
 TABLES = (OBS_TABLE, ASR_TABLE)
 TRIGGERS = tuple(name for name, _, _ in AVAILABILITY_TRIGGERS)
 MIGRATION_MARKER = "availability_record_migration"
+WRITE_CHUNK = 5000                                   # assertions per INSERT batch (one transaction for them all)
 PAYLOAD_ROOT = ("logs", "availability")              # item 1(a): logs/availability/<source>/<date>/, never data/
 
 OBS_FIELDS = ("sport", "source", "endpoint", "match_id", "kickoff_at", "poll_label", "scheduled_at", "fetched_at",
@@ -110,7 +127,9 @@ _SECRET_NAME = re.compile(r"(KEY|TOKEN|SECRET|PASSWORD)$")
 _CRED_WORDS = frozenset({"key", "apikey", "accesskey", "token", "secret", "password", "passwd", "pwd", "auth",
                          "authorization", "bearer", "credential", "credentials", "sig", "signature", "jwt"})
 _CRED_SUFFIXES = ("token", "secret", "password", "passwd", "apikey", "accesskey")
-_PARAM = re.compile(r"(?<![\w-])([A-Za-z][\w-]*)([\"']?\s*[=:]\s*[\"']?)"
+# A NAME may carry percent escapes (#835 item 1; ARCHITECT 2026-11-05 09:40 ET, addendum 258 item 2(1): "`_PARAM` admits
+# `%` escapes and classifies the decoded name"): "api%5Ftoken", "s%69g" and "%6Bey" are read as api_token, sig, key.
+_PARAM = re.compile(r"(?<![\w%-])((?:[A-Za-z]|%[0-9A-Fa-f]{2})(?:[\w-]|%[0-9A-Fa-f]{2})*)([\"']?\s*[=:]\s*[\"']?)"
                     r"(?=((?:(?:bearer|basic|token|digest)\s+)?[^\s&\"',;}?#]+))", re.I)
 _BEARER = re.compile(r"(?i)\b(bearer)\s+(?!\[REDACTED\])[^\s\"',;}]+")
 _USERINFO = re.compile(r"(?i)\b([a-z][a-z0-9+.\-]*://)[^/\s@?#]+@")
@@ -134,18 +153,25 @@ def _cred_name(name: str) -> bool:
 
 
 def _cred_spans(text: str) -> list[tuple[str, int, int]]:
-    """(name, value start, value end) for every credential-like name=value / name: value in the text."""
-    return [(m.group(1), m.end(2), m.end(2) + len(m.group(3))) for m in _PARAM.finditer(text) if _cred_name(m.group(1))]
+    """(name, value start, value end) for every credential-like name=value / name: value in the text. The name is
+    classified percent-decoded (#835 item 1: "classifies the decoded name"); the span is the raw text's."""
+    return [(m.group(1), m.end(2), m.end(2) + len(m.group(3))) for m in _PARAM.finditer(text)
+            if _cred_name(unquote(m.group(1)))]
 
 
-def redact(text: str | None) -> str | None:
-    """The error text with every secret the environment holds, every URL's userinfo (user:password@), every
-    credential-like value (a URL parameter, a header, a quoted dict or JSON key, with its auth scheme's token) and
-    every bearer token replaced (the deploy's redact rule, deploy/hosting/sp_common.py, widened: addendum 252 item
-    1(a), "error (redacted)"; the rows are append-only, so a secret that got through could never be removed)."""
-    if text is None:
-        return None
-    out = str(text)
+def _decoded(text: str) -> str:
+    """The text percent-decoded until it no longer changes (at most three rounds: a doubly encoded name is read too)."""
+    out = text
+    for _ in range(3):
+        nxt = unquote(out)
+        if nxt == out:
+            break
+        out = nxt
+    return out
+
+
+def _redact_once(text: str) -> str:
+    out = text
     for v in _secret_values():
         out = out.replace(v, "[REDACTED]")
     out = _USERINFO.sub(lambda m: m.group(1) + "[REDACTED]@", out)
@@ -159,20 +185,50 @@ def redact(text: str | None) -> str | None:
     return _BEARER.sub(lambda m: m.group(1) + " [REDACTED]", out)
 
 
+def redact(text: str | None) -> str | None:
+    """The error text with every secret the environment holds, every URL's userinfo (user:password@), every
+    credential-like value (a URL parameter, a header, a quoted dict or JSON key, with its auth scheme's token) and
+    every bearer token replaced (the deploy's redact rule, deploy/hosting/sp_common.py, widened: addendum 252 item
+    1(a), "error (redacted)"; the rows are append-only, so a secret that got through could never be removed).
+    PERCENT-ENCODED (#835 item 1; ARCHITECT 2026-11-05 09:40 ET, addendum 258 item 2(1): "`redact` runs on the decoded
+    string as well as the raw one"): the raw text is redacted first; then its percent-decoded form is redacted too, and
+    where that finds something the raw reading did not (an encoded separator, "api_token%3D…", or an encoded value of a
+    secret environment variable), the DECODED, redacted text is the one returned: a secret is never kept for the sake
+    of the raw spelling."""
+    if text is None:
+        return None
+    out = _redact_once(str(text))
+    dec = _decoded(out)
+    if dec != out:
+        dec_r = _redact_once(dec)
+        if dec_r != dec:
+            return dec_r
+    return out
+
+
 def _endpoint_secret(endpoint: str) -> str | None:
     """Why the endpoint carries a secret, or None (item 5: "no secret in an endpoint string"): a secret environment
-    value, credentials in the URL itself (user:password@ or a token as the user), or a credential-like parameter."""
-    if any(v in endpoint for v in _secret_values()):
-        return "it holds a value of a secret environment variable"
-    try:
-        u = urlsplit(endpoint)
-        userinfo = u.username is not None or u.password is not None
-    except ValueError:
-        return "it is not a URL the check can read (refused, never guessed)"
-    if userinfo or _USERINFO.search(endpoint):
-        return "it carries credentials in the URL (userinfo before '@')"
-    spans = _cred_spans(endpoint)
-    return f"it holds a credential-like parameter ({spans[0][0]!r})" if spans else None
+    value, credentials in the URL itself (user:password@ or a token as the user), or a credential-like parameter.
+    PERCENT-ENCODED (#835 item 1; addendum 258 item 2(1): "`_endpoint_secret` checks the percent-decoded endpoint too
+    (unquote) for credential names and for environment values"): every check runs on the raw endpoint and again on its
+    decoded form, and the reason says which form carried it."""
+    dec = _decoded(endpoint)
+    for text, form in ((endpoint, ""), (dec, " (percent-decoded)")):
+        if form and text == endpoint:
+            break
+        if any(v in text for v in _secret_values()):
+            return f"it holds a value of a secret environment variable{form}"
+        try:
+            u = urlsplit(text)
+            userinfo = u.username is not None or u.password is not None
+        except ValueError:
+            return f"it is not a URL the check can read{form} (refused, never guessed)"
+        if userinfo or _USERINFO.search(text):
+            return f"it carries credentials in the URL (userinfo before '@'){form}"
+        spans = _cred_spans(text)
+        if spans:
+            return f"it holds a credential-like parameter ({unquote(spans[0][0])!r}){form}"
+    return None
 
 
 # ---- validation (pure, before any DB) ---------------------------------------------------------------------------------
@@ -406,6 +462,7 @@ def write_observation(obs: dict, assertions: Sequence[dict] = ()) -> Receipt:
     if path is None or not path.is_file():
         raise Refused(f"REFUSED: no DB file at {path or 'a non-file database URL'}: the record never creates one "
                       "(law 5)")
+    from sqlalchemy import insert
     from sqlalchemy.exc import IntegrityError
 
     from src.db.database import session_scope
@@ -419,9 +476,12 @@ def write_observation(obs: dict, assertions: Sequence[dict] = ()) -> Receipt:
             o = AvailabilityObservation(**row, rows_asserted=len(rows))
             s.add(o)
             s.flush()
-            s.add_all([AvailabilityAssertion(**r, observation_id=o.id, sport=row["sport"],
-                                             recorded_at=row["fetched_at"]) for r in rows])
-            s.flush()
+            # one executemany INSERT, in chunks (a season file is ~750,000 rows: no ORM object per row), in the same
+            # transaction: the insert triggers fire for every row as before (no backdating, recorded_at, sport)
+            for i in range(0, len(rows), WRITE_CHUNK):
+                s.execute(insert(AvailabilityAssertion),
+                          [{**r, "observation_id": o.id, "sport": row["sport"], "recorded_at": row["fetched_at"]}
+                           for r in rows[i:i + WRITE_CHUNK]])
             rec.observation_id = o.id
     except IntegrityError as e:
         msg = str(getattr(e, "orig", e))
@@ -461,6 +521,7 @@ class Row:
     source_stamp: datetime | None
     recorded_at: datetime
     match_kickoff: datetime | None = None   # matches.utc_date for match_id, read in the same session (not a column)
+    payload_sha256: str | None = None       # its observation's payload hash (a load of a kept file: snapshot_load)
 
 
 @dataclass(eq=False)
@@ -471,7 +532,8 @@ class Interval:
     start: datetime
     end: datetime | None = None
     closed_by: Row | None = None
-    why_closed: str | None = None         # "asserted differently" | "slot asserted to someone else"
+    why_closed: str | None = None         # "asserted differently" | "slot asserted to someone else" |
+    #                                       "not restated in its team's snapshot" (a snapshot source's load, 259 2(a))
     restated: int = 0
     members: list = field(default_factory=list)
 
@@ -496,7 +558,7 @@ def load_rows(s, sport, kind: str | None = None) -> list[Row]:
         out.append(Row(a.id, a.observation_id, o.source, o.endpoint, o.poll_label, o.status, o.kickoff_at,
                        getattr(a.sport, "value", a.sport), a.kind, a.player_id, a.source_player_id, a.player_name,
                        a.team_id, a.source_team, a.match_id, a.attrs, a.source_stamp, a.recorded_at,
-                       _naive_utc(kickoff.get(a.match_id), "matches.utc_date")))
+                       _naive_utc(kickoff.get(a.match_id), "matches.utc_date"), o.payload_sha256))
     return out
 
 
@@ -577,6 +639,37 @@ def _groups(rows: Iterable[Row], clock: str) -> list[tuple[datetime, list[Row]]]
     return [(clock_of(g[0], clock), sorted(g, key=lambda r: r.id)) for g in sorted(by.values(), key=order)]
 
 
+def snapshot_load(g: Sequence[Row]) -> bool:
+    """True when the group (one observation, one source stamp) is a LOAD of a snapshot source (SNAPSHOT_SOURCES): every
+    row of that source and kind, from an observation that keeps its payload's hash (the adapter's: a fetched or a
+    hand-carried release file, whose bytes are on disk). Rows written without a payload hash are not a load of the
+    file, and keep the generic rules (the schema PR's synthetic histories, tests/test_availability_record.py)."""
+    if not g:
+        return False
+    src = g[0].source
+    kind = SNAPSHOT_SOURCES.get(src)
+    return kind is not None and all(r.source == src and r.kind == kind and r.payload_sha256 is not None for r in g)
+
+
+def partial_group(rows: int, previous_complete: int | None) -> bool:
+    """259 item 2(b): a (dt, team) group is partial for its team when it holds fewer than HALF the rows of that team's
+    previous complete group; the first group ever seen for a team (no previous complete group) is complete."""
+    return previous_complete is not None and rows < previous_complete * PARTIAL_GROUP_FRACTION
+
+
+def guard_load(team_rows: dict, last_complete: dict) -> set:
+    """The partial-group guard over one load: `team_rows` maps each team present to its row count, `last_complete`
+    each team to the row count of its previous complete group (updated here for every complete group). Returns the
+    teams whose group is partial (259 item 2(b)). One rule for derive() and the adapter's receipt."""
+    partial = set()
+    for team, n in team_rows.items():
+        if partial_group(n, last_complete.get(team)):
+            partial.add(team)
+        else:
+            last_complete[team] = n
+    return partial
+
+
 def derive(rows: Iterable[Row], clock: str = "recorded") -> list[Interval]:
     """THE DERIVED INTERVAL (item 1(b)). Each group of assertions made together restates, closes or opens:
     - an open interval whose fact the group asserts with the same attrs is RESTATED (it stays open);
@@ -586,10 +679,35 @@ def derive(rows: Iterable[Row], clock: str = "recorded") -> list[Interval]:
       ("slot asserted to someone else");
     - every assertion that restates nothing OPENS an interval at the group's clock.
     Facts of different sources never touch. Assertions made together never close each other (two goalies in net are
-    two open intervals). Returns every interval in the order opened."""
+    two open intervals). Returns every interval in the order opened.
+    THE SNAPSHOT CLOSURE (ARCHITECT 2026-11-05 10:10 ET, addendum 259 item 2(a)-(b); 254 item 2(6)), for a LOAD of a
+    snapshot source only (snapshot_load: SNAPSHOT_SOURCES, nflverse_depth_charts' depth_rank rows from a kept payload):
+    - "a load (one dt) is a full snapshot for EVERY team present in it; a team's facts not restated at that dt CLOSE at
+      that observation" ("not restated in its team's snapshot", closed by the team's first row of the load), unless an
+      earlier rule above closes it first, with that rule's reason;
+    - "a team absent from a load [...] keeps its facts open" (nothing of it closes);
+    - THE PARTIAL GUARD: a team whose group at the load holds fewer than HALF the rows of its previous complete group is
+      partial: "its rows are asserted (a fact seen is a fact), it CLOSES NOTHING, the prior facts stay open" (no rule
+      closes that team's intervals at that load); the first group ever seen for a team is complete.
+    "Close at that load" is the group's clock: under the source clock the load's dt; under the recorded clock the
+    observation's recorded_at, the groups of one fetch read in dt order (_groups), so the facts a fetch holds at its
+    recorded_at are its last load's (an earlier load's intervals open and close at the same recorded_at, and history
+    still lists them). No other source and no row without a payload hash is read this way."""
     out: list[Interval] = []
     open_: list[Interval] = []
+    last_complete: dict = {}              # (source, team key) -> rows of that team's previous complete group
     for c, g in _groups(rows, clock):
+        snap: dict = {}                   # team key -> its first row in this load (a snapshot load only)
+        partial: set = set()
+        snap_src = snap_kind = None
+        if snapshot_load(g):
+            counts: dict = {}
+            for r in g:
+                counts[team_key(r)] = counts.get(team_key(r), 0) + 1
+                snap.setdefault(team_key(r), r)
+            src = g[0].source
+            partial = {t for _, t in guard_load({(src, t): n for t, n in counts.items()}, last_complete)}
+            snap_src, snap_kind = src, SNAPSHOT_SOURCES[src]
         continuing: set = set()
         opened: dict = {}
         by_fact: dict = {}
@@ -624,11 +742,16 @@ def derive(rows: Iterable[Row], clock: str = "recorded") -> list[Interval]:
                 still.append(iv)
                 continue
             fk, sk, pk = fact_key(iv.last), slot_key(iv.last), player_key(iv.last)
-            if fk in facts:
+            mine = bool(snap) and iv.last.source == snap_src and iv.last.kind == snap_kind     # this load's source and kind
+            if mine and team_key(iv.last) in partial:
+                still.append(iv)          # 259 item 2(b): a partial team group closes nothing; the prior facts stay open
+            elif fk in facts:
                 iv.end, iv.closed_by, iv.why_closed = c, facts[fk], "asserted differently"
             elif sk in slots and set(slots[sk]) - {pk}:
                 other = next(r for p, r in slots[sk].items() if p != pk)
                 iv.end, iv.closed_by, iv.why_closed = c, other, "slot asserted to someone else"
+            elif mine and team_key(iv.last) in snap:
+                iv.end, iv.closed_by, iv.why_closed = c, snap[team_key(iv.last)], "not restated in its team's snapshot"
             else:
                 still.append(iv)
         new = list(opened.values())
@@ -655,10 +778,10 @@ def backfilled(r: Row) -> bool | None:
     stamp; None where the source has no ruled cadence."""
     if r.source_stamp is None:
         return False
-    cad = CADENCE.get(r.source)
-    if cad is None:
+    hours = SOURCE_CADENCE_HOURS.get(r.source)
+    if hours is None:
         return None
-    return r.recorded_at - r.source_stamp > cad
+    return r.recorded_at - r.source_stamp > timedelta(hours=hours)
 
 
 def interval_backfilled(iv: Interval) -> bool | None:
@@ -855,7 +978,8 @@ def attributions(sources: Iterable[str]) -> list[str]:
     return [SOURCES[x] for x in sorted(set(sources)) if SOURCES.get(x)]
 
 
-__all__ = ["SOURCES", "STATUSES", "KINDS", "CLOCKS", "CADENCE", "TABLES", "TRIGGERS", "MIGRATION_MARKER", "APPEND_ONLY",
+__all__ = ["SOURCES", "STATUSES", "KINDS", "CLOCKS", "SOURCE_CADENCE_HOURS", "TABLES", "TRIGGERS", "MIGRATION_MARKER", "APPEND_ONLY",
            "Refused", "Receipt", "write_observation", "migrated", "redact", "payload_path_refusal", "Row", "Interval",
            "Fact", "load_rows", "derive", "as_of", "history", "backfilled", "interval_backfilled", "live_since",
-           "post_hoc", "kickoff_of", "mapped_now", "match_key", "SOURCE_MATCH_IDS", "attributions"]
+           "post_hoc", "kickoff_of", "mapped_now", "match_key", "SOURCE_MATCH_IDS", "attributions", "SNAPSHOT_SOURCES",
+           "PARTIAL_GROUP_FRACTION", "snapshot_load", "partial_group", "guard_load"]

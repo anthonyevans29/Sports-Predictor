@@ -33,8 +33,14 @@ PJ = v.canon_params(V22P, False, "LEAGUE")
 
 # ------------------------------------------------------------------------------------------ the store --
 
-def fresh(path, monkeypatch):
-    """Bind src.db.database to a fresh SQLite file at `path` (tmp_path only) and create the tables."""
+def fresh(path, monkeypatch, record_tables=False):
+    """Bind src.db.database to a fresh SQLite file at `path` (tmp_path only) and create the tables.
+
+    Since #831 the availability record's two tables are mapped, so `init_db` creates them on every store, and the
+    adapter REFUSES a store holding both until 252 item 2's reader lands (ARCHITECT 2026-11-05 12:50 ET, addendum 263
+    item 23: "until it lands, REFUSAL (not \"no record\") when both tables exist is right"). The synthetic stores here
+    test the walk, so by default they are created WITHOUT those two tables (the absent-record path, the term off in
+    both paths, labelled); `record_tables=True` creates the schema exactly as `init_db` does."""
     from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
 
@@ -43,7 +49,11 @@ def fresh(path, monkeypatch):
     monkeypatch.setattr(db, "_engine", eng)
     monkeypatch.setattr(db, "SessionLocal", sessionmaker(bind=eng, autoflush=False, future=True,
                                                          expire_on_commit=False))
-    db.init_db()
+    if record_tables:
+        db.init_db()
+    else:
+        db.Base.metadata.create_all(eng, tables=[t for t in db.Base.metadata.sorted_tables
+                                                 if t.name not in v.RECORD_TABLES])
     return db
 
 
@@ -832,10 +842,10 @@ def test_253_row_4_the_match_factors_come_only_from_the_record_in_both_paths(sto
 
 
 def test_253_row_4_the_adapter_reads_no_record_while_the_tables_are_absent_and_refuses_otherwise(store, monkeypatch):
-    """The adapter (availability_record): addendum 252's tables are not on main, so on today's store it answers "no
-    record" (the term off everywhere, labelled); a store holding one table without the other, or both (whose reader is
-    252 item 2's query function, not merged), refuses: never a guessed query. The inspector is faked here: no table is
-    created by this design, in a test or anywhere."""
+    """The adapter (availability_record): on a store without addendum 252's tables it answers "no record" (the term
+    off everywhere, labelled); a store holding one table without the other, or both (whose reader is 252 item 2's
+    query function, which this adapter does not yet call: addendum 263 item 23), refuses: never a guessed query. The
+    inspector is faked here; the real tables, as #831's `init_db` creates them, are the next test's."""
     import sqlalchemy
     db, _ = store
     rec = rec_of(db)
@@ -852,6 +862,18 @@ def test_253_row_4_the_adapter_reads_no_record_while_the_tables_are_absent_and_r
         with db.session_scope() as s, pytest.raises(v.GateRefused, match=why):
             v.availability_record(s)
         monkeypatch.setattr(sqlalchemy, "inspect", real)
+
+
+def test_263_item_23_a_store_with_the_record_s_real_tables_refuses_until_the_reader_lands(tmp_path, monkeypatch):
+    """ARCHITECT 2026-11-05 12:50 ET, addendum 263 item 23, verbatim in part: "until it lands, REFUSAL (not \"no
+    record\") when both tables exist is right: a record that exists and cannot be read is a stop, not an absence."
+    Since #831 `init_db` creates both tables on every store, so a store built exactly as production builds one refuses
+    here, before any read, until the follow-up that calls 252 item 2's query function lands (before 11-20)."""
+    db = fresh(tmp_path / "with_record.db", monkeypatch, record_tables=True)
+    from sqlalchemy import inspect
+    assert all(inspect(db._engine).has_table(t) for t in v.RECORD_TABLES)
+    with db.session_scope() as s, pytest.raises(v.GateRefused, match="present on this store"):
+        v.availability_record(s)
 
 
 @pytest.mark.parametrize("rule", ["day", "kickoff"])

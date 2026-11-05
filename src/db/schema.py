@@ -19,8 +19,10 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy import (
+    DDL,
     JSON,
     Boolean,
+    CheckConstraint,
     DateTime,
     Enum,
     Float,
@@ -29,6 +31,8 @@ from sqlalchemy import (
     Integer,
     String,
     UniqueConstraint,
+    event,
+    text,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from src.timeutil import utc_now_naive
@@ -1111,6 +1115,177 @@ class CupLineupObservation(Base):
     __table_args__ = (
         UniqueConstraint("match_id", "kickoff_at", "poll_label", name="uq_cup_lineup_obs_match_kickoff_poll"),
     )
+
+
+# ---------------------------------------------------------------------------
+# THE AVAILABILITY RECORD (ARCHITECT 2026-11-04 13:05 ET, addendum 252; lane availability-record)
+# ---------------------------------------------------------------------------
+
+# The fixed vocabularies, verbatim from the ruling. Sources: item 3's three words (the third is the paid feed's, used
+# only if the operator names one on 11-13). Statuses: item 1(a), "Step B's five, the same meanings". Kinds: item 1(b).
+AVAILABILITY_SOURCES = ("nflverse_depth_charts", "nhl_api_landing", "sportsdataio_goalies")
+AVAILABILITY_STATUSES = ("complete", "partial", "empty", "failed", "missed")
+AVAILABILITY_KINDS = ("depth_rank", "projected_starter", "confirmed_starter", "eventual_starter", "inactive",
+                      "injury_status", "plays_for")
+APPEND_ONLY = "is append-only (addendum 252 item 1: NOTHING UPDATES OR DELETES A ROW)"
+
+
+def _sql_words(words) -> str:
+    return ", ".join("'" + w.replace("'", "''") + "'" for w in words)
+
+
+class AvailabilityObservation(Base):
+    """
+    THE AVAILABILITY RECORD, ITS OBSERVATIONS (ARCHITECT 2026-11-04 13:05 ET, addendum 252 item 1(a); lane
+    availability-record). Verbatim: "`availability_observations` — one row per fetch: sport; source (a fixed vocabulary,
+    item 3); endpoint (the URL or file name, no secrets); the match_id where the fetch is per game (NULL for a
+    league-wide file), the stored kickoff then; poll_label where polled on a schedule (the probe's T-120 … T-0);
+    scheduled_at; fetched_at (OUR clock, UTC); http_status; payload_sha256; payload_path (the raw answer kept on disk
+    under logs/availability/<source>/<date>/, never under data/, never mirrored); status: complete | partial | empty |
+    failed | missed (Step B's five, the same meanings); late; error (redacted); rows_asserted. NOTHING UPDATES OR
+    DELETES A ROW. A fetch that raised is a row; a poll whose time passed with no call is a row."
+
+    APPEND-ONLY, enforced in the file itself: the triggers below (AVAILABILITY_TRIGGERS) abort every UPDATE and DELETE
+    on both tables, whoever runs it, and refuse a source outside the vocabulary. They are created with the table (the
+    after_create hook, so init_db(), the tests and the migration all make them) and again by
+    migrate_availability_record.py (CREATE TRIGGER IF NOT EXISTS). Written ONLY by src/availability/record.py
+    (write_observation), which also refuses an endpoint that carries a secret and a payload path outside
+    logs/availability/<source>/<date>/. match_id is a plain integer, no foreign key: the row keeps the id as recorded
+    and dedupe-matches never re-points it (the update trigger would abort its run; see the spec). fetched_at is
+    NULL exactly when the status is 'missed' (no call was made). created_at is our insert time.
+    """
+
+    __tablename__ = "availability_observations"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    sport: Mapped[Sport] = mapped_column(Enum(Sport), index=True)
+    source: Mapped[str] = mapped_column(String(32))
+    endpoint: Mapped[str] = mapped_column(String(512))
+    match_id: Mapped[int | None] = mapped_column(Integer, index=True)       # ours, as recorded; NULL league-wide
+    kickoff_at: Mapped[datetime | None] = mapped_column(DateTime)           # the stored kickoff then (UTC, naive)
+    poll_label: Mapped[str | None] = mapped_column(String(16))              # "T-120" … "T-0", "T+20"; NULL unpolled
+    scheduled_at: Mapped[datetime | None] = mapped_column(DateTime)         # the poll's time; a missed row has one
+    fetched_at: Mapped[datetime | None] = mapped_column(DateTime)           # OUR clock, UTC; NULL only when missed
+    http_status: Mapped[int | None] = mapped_column(Integer)
+    payload_sha256: Mapped[str | None] = mapped_column(String(64))
+    payload_path: Mapped[str | None] = mapped_column(String(512))           # logs/availability/<source>/<date>/…
+    status: Mapped[str] = mapped_column(String(16))                         # complete|partial|empty|failed|missed
+    late: Mapped[bool] = mapped_column(Boolean, default=False)
+    error: Mapped[str | None] = mapped_column(String(256))                  # redacted
+    rows_asserted: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now_naive)
+
+    __table_args__ = (
+        CheckConstraint(f"status IN ({_sql_words(AVAILABILITY_STATUSES)})", name="ck_avail_obs_status"),
+        CheckConstraint("(status = 'missed' AND fetched_at IS NULL) OR (status <> 'missed' AND fetched_at IS NOT NULL)",
+                        name="ck_avail_obs_missed_has_no_fetch"),
+        CheckConstraint("status <> 'missed' OR scheduled_at IS NOT NULL", name="ck_avail_obs_missed_was_scheduled"),
+        CheckConstraint("rows_asserted >= 0 AND (rows_asserted = 0 OR status IN ('complete', 'partial'))",
+                        name="ck_avail_obs_rows_asserted"),
+        # Step B's key: one poll of one game at one stored kickoff is asked once (a re-dated game starts a fresh set)
+        Index("uq_avail_obs_source_match_kickoff_poll", "source", "match_id", "kickoff_at", "poll_label",
+              unique=True,
+              sqlite_where=text("match_id IS NOT NULL AND kickoff_at IS NOT NULL AND poll_label IS NOT NULL")),
+        Index("ix_avail_obs_sport_source_fetched", "sport", "source", "fetched_at"),
+    )
+
+
+class AvailabilityAssertion(Base):
+    """
+    THE AVAILABILITY RECORD, ITS ASSERTIONS (ARCHITECT 2026-11-04 13:05 ET, addendum 252 item 1(b)). Verbatim:
+    "`availability_assertions` — one row per fact a payload asserted, keyed to its observation: observation_id; sport;
+    kind (a fixed vocabulary: depth_rank | projected_starter | confirmed_starter | eventual_starter | inactive |
+    injury_status | plays_for); player_id (ours, NULL with the source's id beside it when unmapped: source_player_id,
+    player_name verbatim); team_id (ours; NULL + source_team verbatim when unmapped); match_id (NULL for a team-level
+    fact); attrs JSON (pos_abb, pos_slot, pos_rank, status text, the side); source_stamp (THE SOURCE'S OWN TIME for the
+    fact: nflverse's `dt`; NULL where the source gives none — the NHL landing gives none); recorded_at (= the
+    observation's fetched_at, denormalised for the as-of query). No valid_to column and no update: an interval is
+    DERIVED".
+
+    APPEND-ONLY as the observations are (the triggers abort UPDATE and DELETE). The insert guard refuses a kind outside
+    the vocabulary, an observation that does not exist, an observation other than the newest one (O(1) on the rowid:
+    only the observation just inserted receives assertions, so nothing is appended to an older fetch and reported as
+    known since it; item 5, "no backdating"), one whose status is not complete or partial, a sport other than the
+    observation's, and a recorded_at other than the observation's fetched_at. player_id and match_id are
+    plain integers, no foreign key: no NFL or NHL player row exists to map to today, so player_id stays NULL with the
+    source's id and name beside it (law 4: counted, never guessed), and dedupe-matches (which re-points the foreign
+    keys to matches.id) leaves a record row's match id as recorded. team_id declares its reference to teams.id (not
+    enforced: the app runs with foreign_keys off) so merge-teams knows the column: a merge whose retired team holds
+    record rows is refused by the update trigger, the pair left and the reason receipted. The interval and the as-of
+    reading are derived in src/availability/record.py; nothing here stores an end.
+    """
+
+    __tablename__ = "availability_assertions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    observation_id: Mapped[int] = mapped_column(ForeignKey("availability_observations.id"), index=True)
+    sport: Mapped[Sport] = mapped_column(Enum(Sport))
+    kind: Mapped[str] = mapped_column(String(24))
+    player_id: Mapped[int | None] = mapped_column(Integer)                  # ours; NULL when unmapped
+    source_player_id: Mapped[str | None] = mapped_column(String(64))        # the source's id, verbatim
+    player_name: Mapped[str | None] = mapped_column(String(128))            # verbatim
+    team_id: Mapped[int | None] = mapped_column(ForeignKey("teams.id"))     # ours; NULL when unmapped
+    source_team: Mapped[str | None] = mapped_column(String(64))             # verbatim
+    match_id: Mapped[int | None] = mapped_column(Integer)                   # NULL for a team-level fact
+    attrs: Mapped[dict | None] = mapped_column(JSON)
+    source_stamp: Mapped[datetime | None] = mapped_column(DateTime)         # the source's own time (UTC, naive)
+    recorded_at: Mapped[datetime] = mapped_column(DateTime)                 # = the observation's fetched_at
+
+    __table_args__ = (
+        CheckConstraint("player_id IS NOT NULL OR source_player_id IS NOT NULL OR player_name IS NOT NULL",
+                        name="ck_avail_asr_names_a_player"),
+        CheckConstraint("team_id IS NOT NULL OR source_team IS NOT NULL", name="ck_avail_asr_names_a_team"),
+        Index("ix_avail_asr_kind_team_recorded", "kind", "team_id", "recorded_at"),
+        Index("ix_avail_asr_kind_match_recorded", "kind", "match_id", "recorded_at"),
+        Index("ix_avail_asr_source_player_recorded", "source_player_id", "recorded_at"),
+        Index("ix_avail_asr_sport_stamp", "sport", "source_stamp"),
+    )
+
+
+def _abort(msg: str) -> str:
+    return "SELECT RAISE(ABORT, '" + msg.replace("'", "''") + "')"
+
+
+# (name, table, CREATE TRIGGER IF NOT EXISTS …): the append-only enforcement and the insert guards (addendum 252 items 1
+# and 3). One list, used by the after_create hooks below and by migrate_availability_record.py.
+# The insert guards also refuse a row whose id (or, for a polled observation, whose poll) is already stored: an
+# INSERT OR REPLACE deletes the row it conflicts with WITHOUT firing a delete trigger (recursive_triggers is off),
+# so the conflict is refused before it can happen. An upsert's DO UPDATE fires the update trigger.
+_OBS, _ASR = "availability_observations", "availability_assertions"
+AVAILABILITY_TRIGGERS = tuple(
+    [(f"trg_{t}_no_{op.lower()}", t,
+      f"CREATE TRIGGER IF NOT EXISTS trg_{t}_no_{op.lower()} BEFORE {op} ON {t} "
+      f"BEGIN {_abort(f'{t} {APPEND_ONLY}')}; END")
+     for t in (_OBS, _ASR) for op in ("UPDATE", "DELETE")]
+    + [("trg_availability_observations_insert_guard", _OBS,
+        f"CREATE TRIGGER IF NOT EXISTS trg_availability_observations_insert_guard BEFORE INSERT ON {_OBS} BEGIN "
+        f"{_abort(f'{_OBS}: source is not in the vocabulary (addendum 252 item 3)')} "
+        f"WHERE NEW.source NOT IN ({_sql_words(AVAILABILITY_SOURCES)}); "
+        f"{_abort(f'{_OBS} {APPEND_ONLY}: a row with this id exists')} "
+        f"WHERE EXISTS (SELECT 1 FROM {_OBS} x WHERE x.id = NEW.id); "
+        f"{_abort(f'{_OBS}: this poll is already observed (its row stands; append-only)')} "
+        f"WHERE NEW.match_id IS NOT NULL AND NEW.kickoff_at IS NOT NULL AND NEW.poll_label IS NOT NULL "
+        f"AND EXISTS (SELECT 1 FROM {_OBS} x WHERE x.source = NEW.source AND x.match_id = NEW.match_id "
+        f"AND x.kickoff_at = NEW.kickoff_at AND x.poll_label = NEW.poll_label); END"),
+       ("trg_availability_assertions_insert_guard", _ASR,
+        f"CREATE TRIGGER IF NOT EXISTS trg_availability_assertions_insert_guard BEFORE INSERT ON {_ASR} BEGIN "
+        f"{_abort(f'{_ASR}: kind is not in the vocabulary (addendum 252 item 1(b))')} "
+        f"WHERE NEW.kind NOT IN ({_sql_words(AVAILABILITY_KINDS)}); "
+        f"{_abort(f'{_ASR} {APPEND_ONLY}: a row with this id exists')} "
+        f"WHERE EXISTS (SELECT 1 FROM {_ASR} x WHERE x.id = NEW.id); "
+        f"{_abort(f'{_ASR}: no such observation')} "
+        f"WHERE NOT EXISTS (SELECT 1 FROM {_OBS} o WHERE o.id = NEW.observation_id); "
+        f"{_abort(f'{_ASR}: only the newest observation receives assertions (no backdating, addendum 252 item 5)')} "
+        f"WHERE NEW.observation_id <> (SELECT MAX(o.id) FROM {_OBS} o); "
+        f"{_abort(f'{_ASR}: only a complete or partial observation asserts a fact')} "
+        f"WHERE (SELECT o.status FROM {_OBS} o WHERE o.id = NEW.observation_id) NOT IN ('complete', 'partial'); "
+        f"{_abort(f'{_ASR}: sport is not the observation sport')} "
+        f"WHERE NEW.sport IS NOT (SELECT o.sport FROM {_OBS} o WHERE o.id = NEW.observation_id); "
+        f"{_abort(f'{_ASR}: recorded_at is not the observation fetched_at (addendum 252 item 1(b))')} "
+        f"WHERE NEW.recorded_at IS NOT (SELECT o.fetched_at FROM {_OBS} o WHERE o.id = NEW.observation_id); END")])
+
+for _name, _table, _sql in AVAILABILITY_TRIGGERS:
+    event.listen(Base.metadata.tables[_table], "after_create", DDL(_sql).execute_if(dialect="sqlite"))
 
 
 # ---------------------------------------------------------------------------

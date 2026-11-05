@@ -711,6 +711,61 @@
           "ruling": "ARCHITECT 2026-11-02 18:20 ET, addendum 224 item 3 (MOVED LINES, lane pl-availability, #754; verbatim in why; the count: #754 issuecomment-6590791400, the laptop, 2026-11-02T23:08Z, main e9e7cbe9; entered by the records PR of addendum 226 item 4(a))"
         }
       ]
+    },
+    {
+      "lane": "availability-record",
+      "title": "Availability record: bitemporal, append-only, our clock (tooling that unblocks the NHL and NFL-QB lanes)",
+      "issue": 830,
+      "registry_id": null,
+      "state": "declared",
+      "steps": [
+        {
+          "what": "the schema PR (addendum 252 item 1, the migration, the query command, tests 6(a)-(c), (g), (h)): the two tables availability_observations and availability_assertions, migrate_availability_record.py, the read-only `availability` command; opens in the next free slot after #825's merge-from-main push and the parity PR",
+          "owner": "code",
+          "due": "2026-11-10",
+          "done": null
+        },
+        {
+          "what": "the nflverse depth-charts feed (addendum 252 item 3(a)): its ingest command and adapter, the chain availability-daily and its timer at 08:45 UTC, so the first host observations precede the 11-13 decision",
+          "owner": "code",
+          "due": "2026-11-12",
+          "done": null
+        },
+        {
+          "what": "the paid feed's adapter specified, if the operator names one on 11-13 (addendum 252 item 3(c): \"its adapter is specified with the decision, not before\")",
+          "owner": "architect",
+          "due": "2026-11-14",
+          "done": null
+        },
+        {
+          "what": "the NHL landing feed (addendum 252 item 3(b)): its ingest command and adapter, and its watch (the availability-observe timer, every five minutes)",
+          "owner": "code",
+          "due": "2026-11-17",
+          "done": null
+        },
+        {
+          "what": "the graph projection's candidate comparison (addendum 252 item 4): a one-page comparison of the embedded candidates, the architect picks on it; nothing installed before the pick",
+          "owner": "code",
+          "due": "2026-11-20",
+          "done": null
+        },
+        {
+          "what": "the paid feed's adapter, if one is named (addendum 252 item 3(c))",
+          "owner": "code",
+          "due": "2026-11-21",
+          "done": null
+        },
+        {
+          "what": "the graph projection's rebuild (addendum 252 item 4): `availability-graph-rebuild`, the last step of availability-daily",
+          "owner": "code",
+          "due": "2026-11-25",
+          "done": null
+        }
+      ],
+      "earliest_live": null,
+      "live_needs": "Tooling, not a model (addendum 252 item 7: \"the first tooling that unblocks a model lane rather than waits beside one\"): the lane is done when its steps are done. No model goes live from it; the first host reads and the timers' enablement are the architect's blocks.",
+      "vs_close": "n/a: no model; the record prices nothing (addendum 252 item 5: no model change, no Desk input)",
+      "moved": []
     }
   ]
 }

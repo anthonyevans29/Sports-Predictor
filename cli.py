@@ -25,7 +25,7 @@ from sqlalchemy import func, select
 from config import settings
 from src.adapters.registry import get_adapter
 from src.db.database import drop_db, init_db, session_scope
-from src.db.schema import Competition, Match, MatchStats, MatchStatus, Sport, Team
+from src.db.schema import AVAILABILITY_KINDS, Competition, Match, MatchStats, MatchStatus, Sport, Team
 from src.ingestion.service import IngestionService
 from src.timeutil import utc_now_naive
 
@@ -495,7 +495,9 @@ def dedupe_matches_cmd(competition_code, source, apply, backup_path, sample, orp
     odds and snapshots reference): fresh status/scores/kickoff, new id (old
     kept as <source>_prev), every referencing row re-pointed, then the empty
     newer row deleted. Clusters of 3+, swapped pairs and unique-table
-    conflicts are reported, never merged."""
+    conflicts are reported, never merged. Every run (the pair path and
+    --orphans) ends with one record line (addendum 254 item 2(4)): "record
+    rows on retired match ids: N", or n/a with its reason; a SELECT only."""
     import json as _json
 
     from src.db.schema import Match as _M
@@ -536,6 +538,7 @@ def dedupe_matches_cmd(competition_code, source, apply, backup_path, sample, orp
         for x in r["refused"][:20]:
             click.echo(f"  REFUSED keeper {x['keeper']} / newer {x['newer']}: {x['why']}")
     _dedupe_state_lines(r, source)
+    _dedupe_record_line(r)
 
 
 
@@ -633,6 +636,19 @@ def _dedupe_state_lines(r, source):
                    f"(a prior apply or the sync re-key), not missed")
 
 
+def _dedupe_record_line(r):
+    """ARCHITECT 2026-11-04 15:45 ET, addendum 254 item 2(4), verbatim: "dedupe-matches prints one receipt line,
+    "record rows on retired match ids: N", and rewrites nothing." N: the availability record's rows (both tables carry
+    our match_id, no foreign key) on the newer row of every merge this run made; on a dry run, the newer row of every
+    planned merge (a merge refused at apply is not known on a dry run, so a dry run's N can exceed the apply's)
+    (match_dedupe.record_rows_on, a SELECT). A DB without the record's tables prints "n/a (availability tables
+    absent)"; a DB whose tables cannot be inspected prints "n/a (the live DB's tables could not be read)"; never a 0
+    it did not count (law 4)."""
+    from src.ingestion import match_dedupe as md
+
+    click.echo(f"  {md.record_line(r['record_rows_on_retired'])}")
+
+
 def _dedupe_orphans(competition_code, source, apply, sample):
     import os as _os
     import time as _time
@@ -664,6 +680,7 @@ def _dedupe_orphans(competition_code, source, apply, sample):
         for x in r["refused_at_apply"][:20]:
             click.echo(f"  REFUSED id {x['id']}: {x['why']}")
     _dedupe_state_lines(r, source)
+    _dedupe_record_line(r)
 
 
 @cli.command("retire-orphans")
@@ -9912,6 +9929,81 @@ def coverage_cmd(date_s, as_json, out_path):
     rc = _cm.run(date_s, echo=click.echo, as_json=as_json, out=out_path)
     if rc:
         raise SystemExit(rc)
+
+
+@cli.command("availability")
+@click.option("--sport", required=True, type=click.Choice([s.value for s in Sport]), help="The sport's facts.")
+@click.option("--as-of", "as_of_s", required=True, metavar="INSTANT",
+              help="ISO-8601 with Z or an offset (2026-11-09T17:00:00Z); a time with neither is refused.")
+@click.option("--clock", default="recorded", show_default=True, type=click.Choice(("recorded", "source")),
+              help="recorded: our fetch time (what we had on disk); source: the source's own stamp.")
+@click.option("--match-id", type=int, default=None, help="Only facts of our match N.")
+@click.option("--team", default=None, metavar="T", help="Our team id (digits), or the source's team text verbatim.")
+@click.option("--kind", default=None, type=click.Choice(AVAILABILITY_KINDS), help="One kind of fact.")
+@click.option("--history", "show_history", is_flag=True, help="Every assertion for the key in time order.")
+@click.option("--db", "db_path", default=None, metavar="PATH",
+              help="A .backup copy (mode=ro + immutable=1; never under data/, never the configured DB).")
+def availability_cmd(sport, as_of_s, clock, match_id, team, kind, show_history, db_path):
+    """THE AVAILABILITY RECORD'S QUERY (ARCHITECT 2026-11-04 13:05 ET, addendum 252 item 2; lane availability-record):
+    "prints the facts in force at the instant under the chosen clock, each with both stamps and its observation;
+    `--history` prints every assertion for the key in time order so a flip shows. The same function is the one a model
+    term, the bulletin's teams section and the Cockpit will read; there is no second path." (src/availability/record.py
+    as_of / history.) Read-only: the configured DB opened mode=ro (database.readonly_scope), or --db, a copy, opened
+    mode=ro + immutable=1 (mlb_pitchers_gate.check_db, the standing --db fence); no row written, no provider call.
+    A missing DB, an unmigrated store (migrate_availability_record.py not run) or a refused argument exits 2; "no
+    facts" exits 0."""
+    from datetime import datetime as _dt
+    from datetime import timezone as _tz
+
+    from src.availability import record as rec
+    from src.db.database import ReadOnlyRefused, readonly_scope
+    from src.walters import mlb_pitchers_gate as mp
+    if match_id is not None and team is not None:
+        click.echo("AVAILABILITY REFUSED: --match-id and --team are exclusive (one key per read)")
+        raise SystemExit(2)
+    try:
+        instant = _dt.fromisoformat(as_of_s.strip().replace("Z", "+00:00").replace("z", "+00:00"))
+    except ValueError:
+        instant = None
+    if instant is None or instant.tzinfo is None:
+        click.echo(f"AVAILABILITY REFUSED: --as-of {as_of_s!r} is not an ISO-8601 instant with Z or an offset")
+        raise SystemExit(2)
+    try:
+        scope = mp.readonly_session(mp.check_db(db_path)) if db_path is not None else readonly_scope()
+    except mp.GateRefused as e:
+        click.echo(f"AVAILABILITY REFUSED: {e}")
+        raise SystemExit(2)
+    try:
+        with scope as s:
+            if not rec.migrated(s):
+                click.echo("AVAILABILITY REFUSED: migrate_availability_record.py has not run on this database (the "
+                           "tables and their marker); nothing read")
+                raise SystemExit(2)
+            if show_history:
+                rows = rec.history(s, sport, instant, clock, match_id, team, kind)
+                srcs = {r.source for r, _ in rows}
+                lines = [rec.history_line(r, iv) for r, iv in rows]
+                what = "assertion(s)"
+            else:
+                facts = rec.as_of(s, sport, instant, clock, match_id, team, kind)
+                srcs = {f.interval.first.source for f in facts}
+                lines = [rec.fact_line(f) for f in facts]
+                what = "fact(s) in force"
+            unread = rec.unread_under_source_clock(s, sport, kind) if clock == "source" else 0
+    except (ReadOnlyRefused, rec.Refused, mp.GateRefused) as e:
+        click.echo(f"AVAILABILITY REFUSED: {e}")
+        raise SystemExit(2)
+    key = " · ".join(x for x in (f"match #{match_id}" if match_id is not None else "",
+                                 f"team {team}" if team is not None else "", f"kind {kind}" if kind else "") if x)
+    z = instant.astimezone(_tz.utc).replace(tzinfo=None).isoformat(timespec="seconds")
+    click.echo(f"AVAILABILITY · {sport} · as of {z}Z · clock {clock}" + (f" · {key}" if key else "")
+               + f" · {len(lines)} {what}" + (" · --history" if show_history else ""))
+    for line in lines or ["  no facts" if not show_history else "  no assertions"]:
+        click.echo(line)
+    if unread:
+        click.echo(f"  ({unread} assertion(s) of the sport carry no source stamp: not read under the source clock)")
+    for line in rec.attributions(srcs):
+        click.echo(line)
 
 
 if __name__ == "__main__":

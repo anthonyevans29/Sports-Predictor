@@ -155,7 +155,8 @@ def test_lanes_data_is_the_print_as_data_with_no_eta_for_an_undated_lane(tmp_pat
     assert {g["lane"] for g in got if g["eta"] == "no ETA"} == {"leagues", "nfl-qb", "mlb-pitchers",
                                                                  "pl-availability",       # addendum 198
                                                                  "nfl-confirm",           # addendum 215 item 1
-                                                                 "cups"}                  # addendum 256 item 5
+                                                                 "cups",                  # addendum 256 item 5
+                                                                 "availability-record"}   # addendum 252 item 7
     ncaa = next(g for g in got if g["lane"] == "ncaa")           # its first four steps are done: the fifth is next
     assert ncaa["next"] == {"what": _lane(_real(), "ncaa")["steps"][4]["what"], "owner": "architect",  # the one run
                             "due": "2026-11-09", "when": "in 22 days"}  # (the 2023 ingest done 11-01, addendum 201 item 5;
@@ -304,7 +305,8 @@ BROKEN = [
 # pd keeps [PD] for its own confirmation; a competition in two lanes is the truth").
 RULED_COMPETITIONS = {"unl": ["UNL"], "pd": ["PD"], "leagues": ["PD", "SA", "BL1", "FL1", "ELC"], "ncaa": ["NCAA"],
                       "nhl": ["NHL"], "cups": ["CL", "EFL", "UEL"], "nfl-qb": ["NFL"], "nfl-v2": ["NFL"],
-                      "nfl-confirm": ["NFL"], "mlb-pitchers": ["MLB"], "pl-availability": ["PL"]}
+                      "nfl-confirm": ["NFL"], "mlb-pitchers": ["MLB"], "pl-availability": ["PL"],
+                      "availability-record": None}   # addendum 252: tooling, prices nothing (never SHADOW evidence)
 
 
 def test_each_lane_carries_the_ruled_competitions():
@@ -314,7 +316,7 @@ def test_each_lane_carries_the_ruled_competitions():
 
 def test_competitions_is_optional():
     """A lane without the field validates (the field is the only optional key); the print does not show it."""
-    assert rm.validate(_broken(lambda d: [ln.pop("competitions") for ln in d["lanes"]])) == []
+    assert rm.validate(_broken(lambda d: [ln.pop("competitions", None) for ln in d["lanes"]])) == []
     printed = _cli("--today", "2026-10-17").output.splitlines()
     assert printed and not any("competitions" in line or "'UNL'" in line for line in printed)
 

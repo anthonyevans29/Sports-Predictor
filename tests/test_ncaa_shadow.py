@@ -280,3 +280,14 @@ def test_upcoming_row_says_the_home_advantage_applied_and_that_the_neutral_flag_
     assert p["home_adv_applied"] == 55.0
     assert p["home_adv_basis"] == "listed home: the neutral flag is unknown before the game (D8)"
     assert p["neutral"] is None and p["neutral_flag"] == "absent: unknown, D8" and p["neutral_source"] is None
+
+
+def test_the_ncaa_shadow_file_carries_the_producing_git_sha_and_none_stays_none(mine, tmp_path, monkeypatch):
+    """ARCHITECT 2026-11-04 (addendum 249 item 2): "the git_sha stamp goes on ALL FIVE exports (... the NCAA shadow,
+    ...) — the same one-line header stamp, null when git has no SHA, nothing else in any file; the compare masks
+    git_sha so no field difference appears across the deploy." tests/git_sha_stamp.py holds the checks; the dry run
+    builds the same header."""
+    from tests.git_sha_stamp import check_stamp
+    reg = _registry(tmp_path, neutral_site_rule="no_home_advantage_at_neutral")
+    check_stamp(lambda out, i: sh.export(now=NOW, out_dir=out, registry_path=reg), tmp_path, monkeypatch)
+    assert "git_sha" in sh.export(now=NOW, out_dir=str(tmp_path / "dry"), registry_path=reg, dry_run=True)[1]

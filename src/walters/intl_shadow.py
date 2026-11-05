@@ -42,6 +42,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from src.timeutil import utc_now_naive
+from src.walters.provenance import git_sha as _git_sha
 
 ENGINE = "model_shadow"
 MODEL_VERSION = "intl_elo_v2"
@@ -258,7 +259,9 @@ def export(now: datetime | None = None, hours: int = WINDOW_HOURS, out_dir: str 
     path = str(Path(out_dir) / f"{FILE_PREFIX}{now.strftime('%Y-%m-%d_%H%M')}.json")
     doc = {"sport": "unl", "engine": ENGINE, "model_version": MODEL_VERSION, "gate_verdict": r["label"],
            "contains_predictions": False,   # nothing here is a live prediction (doctrine)
-           "exported_at": now.isoformat(), "window_hours": hours, "note": NOTE,
+           "exported_at": now.isoformat(),
+           "git_sha": _git_sha(),  # addendum 249 item 2: the producing checkout (export.py's stamp)
+           "window_hours": hours, "note": NOTE,
            "fit": r["fit"], "count": len(r["rows"]), "predictions": r["rows"]}
     with open(path, "w") as f:
         json.dump(doc, f, indent=2, default=str)

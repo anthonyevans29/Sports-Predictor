@@ -225,3 +225,12 @@ def test_intl_daily_chain_and_cli_refusal(monkeypatch):
     monkeypatch.setattr(reg, "get", lambda eid, path=None: None)
     out = CliRunner().invoke(cli, ["export-unl-predictions"])
     assert out.exit_code == 2 and "REFUSED" in out.output
+
+
+def test_the_unl_shadow_file_carries_the_producing_git_sha_and_none_stays_none(world, frozen_ok, tmp_path,
+                                                                               monkeypatch):
+    """ARCHITECT 2026-11-04 (addendum 249 item 2): "the git_sha stamp goes on ALL FIVE exports (the NHL shadow, the
+    UNL shadow, ...) — the same one-line header stamp, null when git has no SHA, nothing else in any file; the compare
+    masks git_sha so no field difference appears across the deploy." tests/git_sha_stamp.py holds the checks."""
+    from tests.git_sha_stamp import check_stamp
+    check_stamp(lambda out, i: us.export(now=NOW, out_dir=out), tmp_path, monkeypatch)

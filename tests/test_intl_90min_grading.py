@@ -298,3 +298,25 @@ def test_history_rows_store_no_desk_call_and_a_pass_row_is_still_history():
     assert [r["match_id"] for r in h] == [1, 2, 3]                    # the PASS row is a prediction like any other
     for r in h:
         assert set(r) == {"match_id", "model_version", "computed_at", "home_win_prob", "draw_prob", "away_win_prob"}
+
+
+def test_the_intl_predictions_file_carries_the_producing_git_sha_and_none_stays_none(world, monkeypatch, tmp_path):
+    """ARCHITECT 2026-11-04 (addendum 249 item 2): "the git_sha stamp goes on ALL FIVE exports (... the intl
+    predictions, the intl results) — the same one-line header stamp, null when git has no SHA, nothing else in any
+    file; the compare masks git_sha so no field difference appears across the deploy." tests/git_sha_stamp.py holds
+    the checks. Each run is its own minute, so the history rows each appends are distinct."""
+    from tests.git_sha_stamp import check_stamp
+
+    def run(out, i):
+        _one_row_export(world, monkeypatch, datetime(2098, 5, 27, 16, i))
+        return ip.export(out_dir=out)
+    check_stamp(run, tmp_path, monkeypatch)
+
+
+def test_the_intl_results_file_carries_the_producing_git_sha_and_none_stays_none(world, monkeypatch, tmp_path):
+    """addendum 249 item 2, the intl results (export_results, intl_INTL_results_<day>.json): the same stamp beside
+    exported_at, whose trailing "Z" stays."""
+    from tests.git_sha_stamp import check_stamp
+    check_stamp(lambda out, i: ip.export_results(now=NOW, out_dir=out), tmp_path, monkeypatch)
+    _, doc = ip.export_results(now=NOW, out_dir=str(tmp_path / "z"))
+    assert doc["exported_at"] == "2098-06-01T12:00:00Z"

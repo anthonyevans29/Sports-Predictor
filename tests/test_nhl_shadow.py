@@ -502,3 +502,38 @@ def test_a_game_without_a_decided_score_is_left_out_of_the_record_against_the_cl
         assert "1 graded without a decided score left out" in sh.results_section(10000, export_dir=str(tmp_path))
     finally:
         _scheduled(nhl)
+
+
+def test_the_shadow_file_carries_the_producing_git_sha_and_none_stays_none(nhl, tmp_path, fit_full, monkeypatch):
+    """ARCHITECT 2026-11-04 (addendum 244 item 4(a)): "the NHL shadow export carries no git_sha field (every other
+    export does; the 11-03 16:00Z file read None) — a one-line stamp, a records-class PR". The header carries
+    provenance.git_sha(), export.py's helper (SP_GIT_SHA overrides), so compare_exports' code-version-skew
+    line can be claimed on an nhl_shadow pair; where git cannot say, the field is present and null (law 4)."""
+    from src.walters import provenance
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "deploy" / "hosting"))
+    import compare_exports as ce
+    provenance.git_sha.cache_clear()
+    try:
+        monkeypatch.setenv("SP_GIT_SHA", "abc1234")
+        path, doc = sh.export(now=NOW, out_dir=str(tmp_path / "laptop"))
+        assert doc["git_sha"] == provenance.git_sha() == "abc1234"
+        on_disk = json.loads(Path(path).read_text())
+        assert on_disk["git_sha"] == "abc1234"
+        assert list(on_disk).index("git_sha") == list(on_disk).index("exported_at") + 1   # beside exported_at
+        other = {**on_disk, "git_sha": "def5678"}
+        assert ce.sha_line(on_disk, other) == "code-version skew: laptop abc1234 ≠ host def5678"
+        assert ce.diff(on_disk, other) == []                     # code, never a field diff (MASKED)
+        # git cannot say: no override, a directory that is no checkout -> None, written as null, never guessed
+        provenance.git_sha.cache_clear()
+        monkeypatch.delenv("SP_GIT_SHA", raising=False)
+        for k in ("GIT_DIR", "GIT_WORK_TREE"):
+            monkeypatch.delenv(k, raising=False)
+        (tmp_path / "nogit").mkdir()
+        monkeypatch.setenv("GIT_CEILING_DIRECTORIES", str(tmp_path))
+        monkeypatch.setattr(provenance, "_REPO", tmp_path / "nogit")
+        path, doc = sh.export(now=NOW, out_dir=str(tmp_path / "host"))
+        assert provenance.git_sha() is None and "git_sha" in doc and doc["git_sha"] is None
+        assert json.loads(Path(path).read_text())["git_sha"] is None
+        assert ce.sha_line(on_disk, doc) == "git_sha missing on host — code-version skew NOT claimable"
+    finally:
+        provenance.git_sha.cache_clear()

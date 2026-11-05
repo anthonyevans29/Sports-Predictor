@@ -114,7 +114,7 @@ its compare verdict.
 | `v1.6.1` | 2026-10-28 12:45:48Z | `23f86e3794a7c075eb7b668e980e2f41ee90ad8f` | `fd3fd51b0179b9fe97dc1b07f00843d69150bf15` | #777 (record backfilled 2026-11-02 (addendum 213 item 2)) |
 | `v1.6.2` | 2026-11-02 14:14:20Z | `98181976f9f4c98c2c3f6e3c8e576e8082d6477f` | `db8fde9c6680b46e77f843b0a5c2e779295bc9dd` | #776 (step 1 as it stood) |
 | `v1.6.3` | 2026-11-03 12:59:11Z | `0c88f5cc4e9332bade5efd2043def40ab37a5def` | `7312627b5b39fc5f38e71718edb9d9cbd3f7be00` | #806 (step 1 as rewritten, #782) |
-| `v1.6.4` | 2026-11-05 13:03:31Z | `284c575847379d545408bf88bb3939041e253ad8` | `fbb6e46a9348d2430b61ab475c3b5faa84b10025` | not yet opened (step 1 as rewritten, #782) |
+| `v1.6.4` | 2026-11-05 13:03:31Z | `284c575847379d545408bf88bb3939041e253ad8` | `fbb6e46a9348d2430b61ab475c3b5faa84b10025` | #837 (step 1 as rewritten, #782) |
 
 - **v1.4.0** (ARCHITECT 2026-10-16, addendum 87). The commit is the ledger
   compile over 53a0e83, the #551 merge over c546168.
@@ -246,8 +246,9 @@ its compare verdict.
     #819, #820, #822, #824, #825, #828 (83 commits with the fold commit; 82 to 87a5766b). Counted from `git log
     --merges --oneline v1.6.3..v1.6.4`: 25 merge commits, of which 16 are "Merge pull request #N" and 9 merge `main`
     into a branch; sixteen PRs, as the fold's sixteen fragments and the notes' sixteen sections.
-  - **Release Issue:** not yet opened at this record (ritual step 4); the deploy row of addendum 257 item 1 is the
-    receipt this record carries.
+  - **Release Issue:** #837 (ritual step 4), opened 2026-11-05 by ARCHITECT 2026-11-05 10:35 ET, addendum 260 item 1:
+    the notes line for line, the tag, 255 item 1's verdict and receipts, the deploy and migration rows, 255 item 2
+    verbatim. The deploy row of addendum 257 item 1 is the receipt this record carries.
 
 ## Hotfix path
 A hotfix gets a patch tag (`vX.Y.Z+1`) through the same ritual. There is no

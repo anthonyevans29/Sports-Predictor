@@ -13,7 +13,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 
 REL_ROW = ("| `v1.6.4` | 2026-11-05 13:03:31Z | `284c575847379d545408bf88bb3939041e253ad8` | "
-           "`fbb6e46a9348d2430b61ab475c3b5faa84b10025` | not yet opened (step 1 as rewritten, #782) |")
+           "`fbb6e46a9348d2430b61ab475c3b5faa84b10025` | #837 (step 1 as rewritten, #782) |")
 
 # addendum 257 item 1, verbatim
 DEPLOY = ("THE DEPLOY (receipts 14:15Z): v1.6.3 -> v1.6.4 (284c5758, 76 files), the dry run naming exactly "

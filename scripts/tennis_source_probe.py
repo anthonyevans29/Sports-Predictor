@@ -18,7 +18,9 @@ printed as served; nothing is typed from memory as fact):
   K1  THE SERIES LISTING   KalshiAdapter.find_series(["tennis"]) (GET /series, the adapter's own listing path and
                            filter: title / category / tags / ticker mention the word). Every tennis series is printed,
                            ticker and title as served. The match-level series are those whose ticker or title says
-                           "match" (MATCH_RULE), or the --series given; none found is a refusal, never a guess.
+                           "match" (MATCH_RULE), or the --series given (each must be a ticker the listing serves; one
+                           it does not serve is refused before its markets are read); none found is a refusal, never
+                           a guess.
   K2  ONE SERIES' FIXTURES per selected series: GET /events (status open, one page) and the adapter's
                            open_markets_for_series. Printed: the keys served, the status words, every time field and
                            its zone as written, and per event (up to --sample) the two players as served: the shared
@@ -26,8 +28,9 @@ printed as served; nothing is typed from memory as fact):
                            only where they name fewer than two) beside the title / subtitle fields.
   K3  THE WEEK'S EVENTS    per selected series, /markets paged by cursor for each of MARKET_STATUSES; an event is in
                            the week when its ticker's date (kalshi_match.ticker_stamp, the day rule of addendum 44)
-                           falls in --week .. --week + 6 days. Printed per series: the status words served across every
-                           market read (open, closed and settled), the keys of one market read under status=settled and
+                           falls in --week .. --week + 6 days. A status still holding a cursor at MAX_PAGES is a
+                           refusal (the market set is incomplete). Printed per series: the status words served across
+                           every market read (open, closed and settled), the keys of one market read under status=settled and
                            the distinct values of every result / settlement field (a key naming result, settle or
                            expiration_value), as served: how a retirement or a walkover settles is read here.
   R1  THE RESULTS SOURCE   the index page (--index-url) and the data-file links on it, printed; the index page's
@@ -78,8 +81,9 @@ operator names (refused under any data/ directory, law 5).
 
 Exit: 0 every read done and the match count run on one or more of the week's events; 1 a call failed (network, HTTP
 status, an answer that is not JSON or not of the shape its reader needs); 2 a refusal (an argument, a --week that is not
-a completed week, an --out under data/ or not writable, no match-level series, a tour file not named or not readable, a
-role column or the date format not found, no --terms-url, no Kalshi event dated in the week). Both: 1 (a failed call is
+a completed week, an --out under data/ or not writable, a --series the listing does not serve, no match-level series, a
+status still paged at MAX_PAGES, a tour file not named or not readable, a role column or the date format not found, no
+--terms-url, no Kalshi event dated in the week). Both: 1 (a failed call is
 fixed first). Every reason is printed.
 
     python3 scripts/tennis_source_probe.py --week 2026-10-26 --terms-url <the terms page from the index> \\
@@ -387,6 +391,10 @@ def kalshi_series(k: ProbeKalshi, wanted: list[str] | None, echo) -> tuple[list[
         listed = {s.get("ticker") for s in found}
         echo("  selected by --series: " + ", ".join(f"{t}{'' if t in listed else ' (NOT in the listing)'}"
                                                   for t in dict.fromkeys(wanted)))
+        absent = [t for t in dict.fromkeys(wanted) if t not in listed]
+        if absent:
+            raise Refused(f"--series {', '.join(absent)} is not in the tennis listing above; pass a ticker the listing "
+                          "serves (never guessed, never read as tennis)")
         return found, list(dict.fromkeys(wanted))
     sel = [s.get("ticker") for s in found
            if MATCH_RULE.search(str(s.get("ticker") or "")) or MATCH_RULE.search(str(s.get("title") or ""))]
@@ -448,9 +456,10 @@ def fixtures(k: ProbeKalshi, series: str, sample: int, echo) -> dict:
     return rec
 
 
-def week_markets(k: ProbeKalshi, series: str, echo) -> dict[str, list[dict]]:
+def week_markets(k: ProbeKalshi, series: str, echo, capped: list | None = None) -> dict[str, list[dict]]:
     """K3: /markets for the series, each status paged by cursor to MAX_PAGES, by the status filter it was read under.
-    A failed status is printed and skipped."""
+    A failed status is printed and skipped. A status still holding a cursor at MAX_PAGES is appended to `capped`
+    (the caller's refusal: the market set is incomplete)."""
     by_filter: dict[str, list[dict]] = {}
     for st in MARKET_STATUSES:
         out = by_filter.setdefault(st, [])
@@ -470,6 +479,9 @@ def week_markets(k: ProbeKalshi, series: str, echo) -> dict[str, list[dict]]:
                     break
             echo(f"  {series} /markets status={st}: {n} markets, {pages} page(s)"
                  + (f" · MAX_PAGES {MAX_PAGES} reached: later pages not read" if cursor else ""))
+            if cursor and capped is not None:
+                capped.append(f"K3 {series} status={st}: MAX_PAGES {MAX_PAGES} reached with a cursor left: the market "
+                              "set is incomplete (the week's count below is partial)")
         except CallFailed as x:
             echo(f"  {series} /markets status={st}: failed after {n} markets: {x}")
     return by_filter
@@ -781,12 +793,21 @@ def refuse_out(path: str | None) -> str | None:
     if not path:
         return None
     p = Path(path).expanduser()
-    if "data" in p.resolve().parts:
+    q = p.resolve()                                          # the file a write lands in (a symlink's target): the
+    if "data" in q.parts:                                    # checks below run on it, never on the link itself
         return f"REFUSED: --out {path} is under a data/ directory (law 5); name another path"
-    if p.is_dir():
+    if q.is_dir():
         return f"REFUSED: --out {path} is a directory; name a file"
-    if not p.parent.is_dir():
-        return f"REFUSED: --out {path}: its directory {p.parent} does not exist"
+    if not q.parent.is_dir():
+        return f"REFUSED: --out {path}: its directory {q.parent} does not exist"
+    existed = q.exists()
+    try:
+        with q.open("a"):                                    # opened to append, nothing written: an existing file is
+            pass                                             # left as it was, a new one is removed again below
+    except OSError as x:
+        return f"REFUSED: --out {path} cannot be written ({type(x).__name__}: {x})"
+    if not existed:
+        q.unlink(missing_ok=True)                            # the file the check made, not a link that names it
     return None
 
 
@@ -858,7 +879,9 @@ def main(argv=None, get=None, echo=print, today: date | None = None) -> int:
         echo(f"\nK3 THE WEEK'S EVENTS ({week} .. {week + timedelta(days=6)}, the ticker's date)")
         receipt["kalshi"]["week_markets"] = {}
         for s in selected:
-            by_filter = week_markets(k, s, echo)
+            capped: list[str] = []
+            by_filter = week_markets(k, s, echo, capped)
+            refusals.extend(capped)
             receipt["kalshi"]["week_markets"][s] = settlement_shape(s, by_filter, echo)
             pairs = event_pairs([m for ms in by_filter.values() for m in ms])
             for p in pairs:

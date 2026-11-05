@@ -376,8 +376,11 @@ def test_no_match_level_series_refuses_and_names_the_listing(capsys):
                           "category": "Sports", "tags": ["Tennis"]}]}
     rc, out = run(FULL, fake_http(series=series), capsys)
     assert rc == 2 and "pass --series from the listing above (never guessed)" in out
-    rc, out = run(FULL + ["--series", "SYNTHMATCHX"], fake_http(series=series), capsys)
-    assert rc == 0 and "selected by --series: SYNTHMATCHX (NOT in the listing)" in out
+    rc, out = run(FULL + ["--series", "SYNTHTOURNEY"], fake_http(series=series), capsys)     # from the listing: read
+    assert rc == 0 and "selected by --series: SYNTHTOURNEY\n" in out
+    rc, out = run(FULL + ["--series", "SYNTHMATCHX"], fake_http(series=series), capsys)      # not in it: refused
+    assert rc == 2 and "selected by --series: SYNTHMATCHX (NOT in the listing)" in out
+    assert "REFUSED: K1: --series SYNTHMATCHX is not in the tennis listing above" in out
 
 
 def test_a_denied_network_exits_1_with_every_call_listed(capsys):
@@ -524,3 +527,73 @@ def test_a_series_given_twice_is_read_once(capsys):
     assert line in once and line in twice and rc == 0
     assert "selected by --series: SYNTHMATCHX (NOT in the listing)" not in twice
     assert sum(1 for u, p in seen if u == f"{KB}/markets" and p.get("status") == "settled") == 1
+
+
+# ------------------------------------------------------------------------------------------- review round 1 (P2s) --
+
+def test_a_status_whose_pages_pass_max_pages_refuses_the_run(capsys, monkeypatch):
+    """A cursor still left at MAX_PAGES is an incomplete market set: a refusal (exit 2), never an exit-0 count."""
+    monkeypatch.setattr(tsp, "MAX_PAGES", 2)
+    seen = []
+
+    def get(url, params=None):
+        if url == f"{KB}/markets" and (params or {}).get("status") == "closed":
+            seen.append(params.get("cursor"))
+            return 200, {}, json.dumps({"markets": [], "cursor": f"SYNTHCURSOR{len(seen)}"}).encode()
+        return fake_http()(url, params)
+    rc, out = run(FULL, get, capsys)
+    assert seen == [None, "SYNTHCURSOR1"]                                 # MAX_PAGES pages read, then stopped
+    assert rc == 2, out
+    assert ("REFUSED: K3 SYNTHMATCHX status=closed: MAX_PAGES 2 reached with a cursor left: the market set is "
+            "incomplete") in out
+
+
+def test_a_series_override_absent_from_the_listing_is_refused_before_its_markets(capsys):
+    """--series must name a ticker the tennis listing serves; one it does not is refused, never read as tennis."""
+    seen = []
+    rc, out = run(FULL + ["--series", "SYNTHMATCHX", "--series", "SYNTHGOLF"], fake_http(seen), capsys)
+    assert rc == 2, out
+    assert "REFUSED: K1: --series SYNTHGOLF is not in the tennis listing above" in out
+    assert not [u for u, _ in seen if u in (f"{KB}/events", f"{KB}/markets")]
+
+
+def _unwritable_targets(tmp_path):
+    out = []
+    if Path("/sys/kernel").is_dir():
+        out.append(Path("/sys/kernel") / "synthetic_tennis_receipt.json")     # unwritable even for root
+    if hasattr(os, "geteuid") and os.geteuid() != 0:
+        ro_dir = tmp_path / "ro"
+        ro_dir.mkdir()
+        ro_dir.chmod(0o500)
+        ro_file = tmp_path / "ro_file.json"
+        ro_file.write_text("{}")
+        ro_file.chmod(0o400)
+        out += [ro_dir / "r.json", ro_file]
+    return out
+
+
+def test_an_out_that_exists_but_cannot_be_written_refuses_before_any_call(tmp_path, capsys):
+    targets = _unwritable_targets(tmp_path)
+    if not targets:
+        pytest.skip("no unwritable target on this platform")
+    for target in targets:
+        seen = []
+        rc, out = run(FULL + ["--out", str(target)], fake_http(seen), capsys)
+        assert rc == 2 and seen == [], (target, out)
+        assert f"REFUSED: --out {target} cannot be written" in out
+
+
+def test_a_writable_out_is_checked_without_leaving_a_file_or_changing_one(tmp_path, capsys):
+    new = tmp_path / "new.json"
+    assert tsp.refuse_out(str(new)) is None and not new.exists()
+    old = tmp_path / "old.json"
+    old.write_text("synthetic")
+    assert tsp.refuse_out(str(old)) is None and old.read_text() == "synthetic"
+
+
+def test_a_dangling_symlink_out_is_checked_without_leaving_its_target_or_removing_the_link(tmp_path):
+    link = tmp_path / "link"
+    link.symlink_to("target.json")                           # dangling: target.json does not exist
+    assert tsp.refuse_out(str(link)) is None
+    assert sorted(x.name for x in tmp_path.iterdir()) == ["link"], sorted(x.name for x in tmp_path.iterdir())
+    assert link.is_symlink() and not (tmp_path / "target.json").exists()

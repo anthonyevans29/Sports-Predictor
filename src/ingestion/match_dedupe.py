@@ -72,6 +72,48 @@ def _fk_tables(s=None):
     return out
 
 
+# THE RECORD ON A RETIRED ID (ARCHITECT 2026-11-04 15:45 ET, addendum 254 item 2(4)), verbatim: "our match_id is
+# read as recorded; dedupe-matches prints one receipt line, "record rows on retired match ids: N", and rewrites
+# nothing in the record." Both record tables carry our match_id as a plain integer with no foreign key
+# (src/db/schema.py), so _fk_tables never lists them and merge() never re-points them: the rows stay on the retired id
+# as recorded, and a per-game fact keeps the source's own game id in attrs (record.SOURCE_MATCH_IDS). N counts the rows
+# of both tables whose match_id is the newer row of a merge the run made (apply: a refused merge retires nothing and is
+# left out) or, on a dry run, of every planned merge (a refusal at apply is not known on a dry run, so the dry run's N
+# can exceed the apply's). Read-only: SELECT COUNT only. A database without the record's tables (pre-migration) prints
+# RECORD_ABSENT; one whose tables cannot be inspected prints RECORD_UNREADABLE; never a 0 it did not count (law 4).
+RECORD_TABLES = ("availability_observations", "availability_assertions")
+RECORD_LINE = "record rows on retired match ids"
+RECORD_ABSENT = "n/a (availability tables absent)"
+RECORD_UNREADABLE = "n/a (the live DB's tables could not be read)"
+_IN_CHUNK = 500                       # SQLite's bound-variable limit is 999 on older builds
+
+
+def record_rows_on(s, ids) -> int | str:
+    """The record's rows (both tables) whose match_id is among `ids`: an int, or the n/a label when the record's tables
+    are absent from the live DB or the DB cannot be inspected. Read-only (SELECT COUNT)."""
+    from sqlalchemy import func, select
+
+    from src.db.schema import AvailabilityAssertion, AvailabilityObservation
+
+    live = _live_tables(s)
+    if live is None:
+        return RECORD_UNREADABLE
+    if any(t not in live for t in RECORD_TABLES):
+        return RECORD_ABSENT
+    ids = sorted({int(i) for i in ids})
+    n = 0
+    for model in (AvailabilityObservation, AvailabilityAssertion):
+        for k in range(0, len(ids), _IN_CHUNK):
+            n += s.execute(select(func.count()).select_from(model)
+                           .where(model.match_id.in_(ids[k:k + _IN_CHUNK]))).scalar()
+    return n
+
+
+def record_line(n) -> str:
+    """The one receipt line, exactly as ruled: "record rows on retired match ids: N"."""
+    return f"{RECORD_LINE}: {n}"
+
+
 def find_pairs(s, competition_code: str, source: str):
     """(pairs, report): pairs = [(keeper, newer)]; report counts the rest."""
     from sqlalchemy import select
@@ -197,17 +239,22 @@ def run(competition_code: str, source: str = "api_american_football", apply: boo
         out["differs"] = dict(Counter(f for k, n in pairs for f in describe(k, n, source)["differs"]))
         out["sample"] = [describe(k, n, source) for k, n in pairs[:sample]]
         moved, refused, merged = Counter(), [], 0
+        retired = []                     # the newer rows' ids: merged (apply) or every planned pair's (dry run)
         if apply:
             for k, n in pairs:
+                nid = n.id
                 r = merge(s, k, n, source)
                 if "refused" in r:
-                    refused.append({"keeper": k.id, "newer": n.id, "why": r["refused"]})
+                    refused.append({"keeper": k.id, "newer": nid, "why": r["refused"]})
                     continue
                 merged += 1
+                retired.append(nid)
                 moved.update(r)
         else:
+            retired = [n.id for _k, n in pairs]
             s.rollback()
-        out.update(merged=merged, refused=refused, repointed=dict(moved))
+        out.update(merged=merged, refused=refused, repointed=dict(moved), retired_ids=sorted(retired))
+        out["record_rows_on_retired"] = record_rows_on(s, retired)       # addendum 254 item 2(4): a SELECT only
         s.flush()
         out["after"] = state(s, competition_code, source)
     return out
@@ -455,17 +502,21 @@ def orphans(competition_code: str, adapter, source: str = "api_american_football
         out["counts"] = dict(Counter(p["action"] for p in plan))
         out["provider_lookups"] = {"games_by_id": len(cache), "dates_searched": len(day_cache)}
         applied, refused = Counter(), []
+        # the merges' newer rows are the ids retired (relink and orphan retire none: the row stays, re-keyed or marked)
+        retired = [] if apply else [max(p["id"], p["twin"]) for p in plan if p["action"] == "merge"]
         if apply:
             guard = _check_allows_orphan(s)
             for p in plan:
                 if p["action"] == "merge":
                     m, t = p["_rows"]
                     keeper, newer = (m, t) if m.id < t.id else (t, m)
+                    nid = newer.id
                     r = merge(s, keeper, newer, source, take_state=(keeper is m), via="orphan-merge")
                     if "refused" in r:
                         refused.append({"id": p["id"], "why": r["refused"]})
                     else:
                         applied["merge"] += 1
+                        retired.append(nid)
                 elif p["action"] == "relink":
                     m, nm = p["_row"], p["_nm"]
                     ext = dict(m.external_ids or {})
@@ -489,6 +540,8 @@ def orphans(competition_code: str, adapter, source: str = "api_american_football
             s.rollback()
         out["applied_counts"] = dict(applied)
         out["refused_at_apply"] = refused
+        out["retired_ids"] = sorted(retired)
+        out["record_rows_on_retired"] = record_rows_on(s, retired)       # addendum 254 item 2(4): a SELECT only
         out["plan"] = [{k: v for k, v in p.items() if not k.startswith("_")} for p in plan]
         out["after"] = state(s, competition_code, source) if apply else out["before"]
     return out

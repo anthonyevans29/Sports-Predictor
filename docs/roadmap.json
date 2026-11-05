@@ -115,7 +115,10 @@
           "what": "the 500th both-FBS regular-season game of 2026 is final and labelled (274 were at the run of 2026-10-09)",
           "owner": "calendar",
           "due": "2026-11-08",
-          "done": null
+          "done": {
+            "date": "2026-11-05",
+            "receipt": "the host's first CFBD read, 2026-11-05 14:17Z (ARCHITECT 2026-11-05 09:30 ET, addendum 257 items 2-3; #79 comment 6660320768): RECEIPT 2026: both-FBS completed 505 · joined 505 (100.0%) · same 504 · swapped 1 · neutral 10 · unmatched 0 · ambiguous-refused 0; joined via exact 485, alias 20; scores agree 490 · ours unscored 5 · SCORE-DISAGREE 9 · score-reversed 1."
+          }
         },
         {
           "what": "the one run, on my word, and the verdict",
@@ -306,7 +309,7 @@
       "issue": 106,
       "registry_id": null,
       "competitions": ["CL", "EFL", "UEL"],
-      "state": "declared",
+      "state": "to declare",
       "steps": [
         {
           "what": "the lineup-history probe run (scripts/lineup_history_probe.py, #78), its receipt to me",
@@ -366,6 +369,21 @@
           "what": "Step C: the R-track candidate declaration, its frozen bar written before any result: a PASS at cup_exam's frozen gate as it stood at the 2026-09-25 FAIL (mean error <= 8.0pp, <= 13 rows over 8pp, sign >= 80%), on the same exam set, split and metric; the prior result, fix-v2's 14.76pp, is the record it has to better and not the bar; a rotation term built only from lineups readable at or before the time Step A shows; one attempt. Or, if Step A shows lineups only after T-45 for most fixtures, a post-lineup closing design or a written no (the bar does not loosen)",
           "owner": "architect",
           "due": "2026-11-05",
+          "done": {
+            "date": "2026-11-05",
+            "receipt": "ARCHITECT 2026-11-05 08:35 ET, addendum 256: \"the R-track candidate is NOT declared today; the step closes as a WRITTEN NO WITH ONE BOUNDED PROBE\" (the perfect-XI price, due 11-20, its declaration threshold written before the probe runs, item 3); \"The bar does not loosen.\" Items 1-4 verbatim on #106, comment 6658765453"
+          }
+        },
+        {
+          "what": "the perfect-XI price receipt on #106 (addendum 256 item 3: the exam set priced exactly as cup-exam prices it, with each fixture's stored history XI (#538) through production's existing XI/lineup multipliers in factor_adjustment, nothing fitted, nothing new; read-only, no table written; cup-exam --with-history-xi on the report-only path)",
+          "owner": "code",
+          "due": "2026-11-20",
+          "done": null
+        },
+        {
+          "what": "the R-track's declaration-or-close on the probe's figures, the threshold of 256 item 3 (it declares a context candidate only if the perfect-XI mean |Δ_HOME| is <= 6.0pp with <= 13 rows over 8pp and the sign share >= 80%; above 6.0pp the R-track is CLOSED for the season)",
+          "owner": "architect",
+          "due": "2026-11-21",
           "done": null
         },
         {
@@ -375,8 +393,8 @@
           "done": null
         }
       ],
-      "earliest_live": "2027-02-16",
-      "live_needs": "a PASS at cup_exam's frozen gate as it stood at the 2026-09-25 FAIL (mean error <= 8.0pp, <= 13 rows over 8pp, sign >= 80%), on the same exam set, split and metric, with a rotation term built only from lineups readable at or before the time Step A shows; the prior result, fix-v2's 14.76pp, is the record it has to better and not the bar. Then the forward confirmation every lane carries. Until then cups stay market-only; no venue call on CL (#505).",
+      "earliest_live": null,
+      "live_needs": "Step C closed 2026-11-05 as a written no (addendum 256): no T-35 rotation term is declared on the evidence. Two ways back, both at cup_exam's UNCHANGED gate (mean |Δ_HOME| <= 8.0pp, <= 13 rows over 8pp, sign >= 80% on EFL round 2; the same exam set, split and metric): (a) the perfect-XI probe (read-only, due 11-20) reads <= 6.0pp mean |Δ_HOME| with <= 13 rows over 8pp and the sign share >= 80% — then a context candidate is declared on a dated plan and examined once; above 6.0pp the R-track is closed for the season on evidence; (b) a cup candidate on soccer-v23's harness after v23 passes its own bar (addenda 251 item 2, 254 item 3), examined at the same gate. Then the forward confirmation every lane carries. Until then CL, UEL and EFL stay market-only (the PAPER record continues); Step B's T-15 store keeps running; no venue call on CL (#505).",
       "vs_close": "not read",
       "moved": [
         {
@@ -386,6 +404,14 @@
           "now": "2026-12-15",
           "why": "the fourth round was played in the week of 10-26 with no probe run; the quarter-final week (the week of 12-14; the operator names the matchday from the stored rows). It gates nothing, as ruled 2026-10-22",
           "ruling": "ARCHITECT 2026-11-01 13:15 ET, addendum 200 item 4(b), MOVED LINE: \"EFL Step A moves from 2026-10-27 to 2026-12-15, the quarter-final week (the week of 12-14; the operator names the matchday from the stored rows); it gates nothing, as ruled 2026-10-22; no bar, no other date moves.\""
+        },
+        {
+          "moved_on": "2026-11-05",
+          "which": "earliest_live",
+          "was": "2027-02-16",
+          "now": null,
+          "why": "Step C closed as a written no with one bounded probe (addendum 256): no candidate is declared, so no live date stands; a declaration, if it comes, sets its own dates. The bar does not loosen",
+          "ruling": "ARCHITECT 2026-11-05 08:35 ET, addendum 256 item 5, MOVED LINE: \"earliest_live 2027-02-16 CLEARED (a move with `now` null, quoting this item — a declaration, if it comes, sets its own dates)\""
         }
       ]
     },
@@ -685,6 +711,61 @@
           "ruling": "ARCHITECT 2026-11-02 18:20 ET, addendum 224 item 3 (MOVED LINES, lane pl-availability, #754; verbatim in why; the count: #754 issuecomment-6590791400, the laptop, 2026-11-02T23:08Z, main e9e7cbe9; entered by the records PR of addendum 226 item 4(a))"
         }
       ]
+    },
+    {
+      "lane": "availability-record",
+      "title": "Availability record: bitemporal, append-only, our clock (tooling that unblocks the NHL and NFL-QB lanes)",
+      "issue": 830,
+      "registry_id": null,
+      "state": "declared",
+      "steps": [
+        {
+          "what": "the schema PR (addendum 252 item 1, the migration, the query command, tests 6(a)-(c), (g), (h)): the two tables availability_observations and availability_assertions, migrate_availability_record.py, the read-only `availability` command; opens in the next free slot after #825's merge-from-main push and the parity PR",
+          "owner": "code",
+          "due": "2026-11-10",
+          "done": null
+        },
+        {
+          "what": "the nflverse depth-charts feed (addendum 252 item 3(a)): its ingest command and adapter, the chain availability-daily and its timer at 08:45 UTC, so the first host observations precede the 11-13 decision",
+          "owner": "code",
+          "due": "2026-11-12",
+          "done": null
+        },
+        {
+          "what": "the paid feed's adapter specified, if the operator names one on 11-13 (addendum 252 item 3(c): \"its adapter is specified with the decision, not before\")",
+          "owner": "architect",
+          "due": "2026-11-14",
+          "done": null
+        },
+        {
+          "what": "the NHL landing feed (addendum 252 item 3(b)): its ingest command and adapter, and its watch (the availability-observe timer, every five minutes)",
+          "owner": "code",
+          "due": "2026-11-17",
+          "done": null
+        },
+        {
+          "what": "the graph projection's candidate comparison (addendum 252 item 4): a one-page comparison of the embedded candidates, the architect picks on it; nothing installed before the pick",
+          "owner": "code",
+          "due": "2026-11-20",
+          "done": null
+        },
+        {
+          "what": "the paid feed's adapter, if one is named (addendum 252 item 3(c))",
+          "owner": "code",
+          "due": "2026-11-21",
+          "done": null
+        },
+        {
+          "what": "the graph projection's rebuild (addendum 252 item 4): `availability-graph-rebuild`, the last step of availability-daily",
+          "owner": "code",
+          "due": "2026-11-25",
+          "done": null
+        }
+      ],
+      "earliest_live": null,
+      "live_needs": "Tooling, not a model (addendum 252 item 7: \"the first tooling that unblocks a model lane rather than waits beside one\"): the lane is done when its steps are done. No model goes live from it; the first host reads and the timers' enablement are the architect's blocks.",
+      "vs_close": "n/a: no model; the record prices nothing (addendum 252 item 5: no model change, no Desk input)",
+      "moved": []
     },
     {
       "lane": "soccer-v23",

@@ -90,11 +90,16 @@ def drop_db() -> None:
     kalshi_settled_markets_migration (written only by
     migrate_kalshi_settled_markets.py; Codex on #521), and so is
     cup_lineup_observations_migration (written only by
-    migrate_cup_lineup_observations.py; addendum 158 item 3(a)). They are the only
+    migrate_cup_lineup_observations.py; addendum 158 item 3(a)), and so is
+    availability_record_migration (written only by migrate_availability_record.py;
+    addendum 252 item 1). They are the only
     unmapped tables in the schema (migrate_*.py otherwise add columns/indexes to
-    mapped tables, which drop with them)."""
+    mapped tables, which drop with them). The availability record's triggers drop
+    with their tables (DROP TABLE fires no trigger: the record's append-only rule
+    stops a row's UPDATE or DELETE, never a rebuild by init-db --force)."""
     from sqlalchemy import text
 
+    from src.availability.record import MIGRATION_MARKER as AVAILABILITY_MARKER
     from src.ingestion.cup_lineups_live import MIGRATION_MARKER as CUP_LINEUPS_MARKER
     from src.ingestion.kalshi_history import MIGRATION_MARKER as KALSHI_HISTORY_MARKER
     from src.ingestion.ncaa_cfbd import (MIGRATION_MARKER, PREGAME_MIGRATION_MARKER, V2_MIGRATION_MARKER,
@@ -108,6 +113,7 @@ def drop_db() -> None:
         conn.execute(text(f"DROP TABLE IF EXISTS {PREGAME_MIGRATION_MARKER}"))
         conn.execute(text(f"DROP TABLE IF EXISTS {KALSHI_HISTORY_MARKER}"))
         conn.execute(text(f"DROP TABLE IF EXISTS {CUP_LINEUPS_MARKER}"))
+        conn.execute(text(f"DROP TABLE IF EXISTS {AVAILABILITY_MARKER}"))
 
 
 @contextmanager

@@ -6080,6 +6080,55 @@ def nfl_v2_fit_warmup_cmd(db):
         click.echo(line)
 
 
+@cli.command("soccer-v23-gate")
+@click.option("--preflight", is_flag=True,
+              help="Fits nothing, prices nothing: the slots, the constants, the bar, the copy's production version "
+                   "and poisson params, the counts per competition and season, the scored n, the fences at the cut; "
+                   "its last line is the stream fingerprint.")
+@click.option("--architect-word", "word", default=None,
+              help="The architect's word to start the ONE run, verbatim (216 item 3: 11-27, the operator's block).")
+@click.option("--stream-fingerprint", "fingerprint", default=None,
+              help="The fingerprint printed on --preflight's last line; the run refuses a stream that differs.")
+@click.option("--db", "db", default=None,
+              help="A .backup copy OUTSIDE data/ (law 5), opened mode=ro + immutable=1 (nfl-v2-gate's check_db: "
+                   "never created, refused under data/, when missing, or with a -wal/-shm/-journal beside it). "
+                   "REQUIRED.")
+@click.option("--no-fetch", "no_fetch", is_flag=True,
+              help="Cross-ref guard (#329): skip fetching origin laptop/*.")
+def soccer_v23_gate_cmd(preflight, word, fingerprint, db, no_fetch):
+    """soccer-v23 GATE (ARCHITECT 2026-11-04, addendum 248 item 2(b); addendum 230 item 1(d); addendum 216 items
+    1-3; addendum 251 item 2; GATE-CLASS; lane soccer-v23, #656). REGISTERED, NEVER RUN BEFORE THE DECLARATION: the
+    run refuses (exit 2, nothing reserved, nothing recorded) while the registry holds no declared soccer-v23 entry, and
+    it holds none until the architect's declaration (11-20); the one run is the operator's block on the architect's
+    word (11-27). THE BAR (src/walters/soccer_v23.py BAR_TEXT, docs/specs/soccer-v23.md): soccer-v23's mean three-way
+    log-loss on the frozen pot at least 0.0050 BELOW BOTH v22's recorded figure (a declaration slot, never
+    recomputed) AND v22 re-walked on this harness (as-of context, same scored set, skip zero); a tie on either a
+    rejection; the early-season matches included."""
+    from src.walters import registry as reg
+    from src.walters import soccer_v23 as g
+
+    try:
+        if preflight:
+            e = reg.get(g.EID, reg.LEDGER)
+            for line in g.preflight_lines(e, db):
+                click.echo(line)
+            return
+        click.echo(f"SOCCER-V23 · ONE RUN · {g.RULING} · word: {word!r} · stream fingerprint {fingerprint!r}")
+        r = g.run(word, fingerprint, db=db, no_fetch=no_fetch, echo=lambda line: click.echo(f"  {line}"))
+    except g.GateRefused as err:
+        click.echo(f"REFUSED: {err}")
+        raise SystemExit(2)
+    for line in g.run_lines(r):
+        click.echo(line)
+    try:
+        e = g.record(r, word)
+    except reg.RegistryError as err:
+        click.echo(f"NOT RECORDED: {err} (the reservation stands: the run is spent)")
+        raise SystemExit(2)
+    click.echo(f"  recorded: {e['run']['n_scored']} scored ids · sha {e['run']['ids_sha256'][:12]}… · "
+               f"{e['run']['ids_file']} (commit docs/registry/ in a PR)")
+
+
 @cli.command("capture-weather-nfl")
 def capture_weather_nfl_cmd():
     """Tracking-only weather capture for upcoming NFL games (N1 phase 1).

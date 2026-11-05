@@ -1087,3 +1087,266 @@ def test_dedupe_matches_record_line_leaves_a_refused_merge_out_of_the_apply_coun
     finally:
         con.close()
     assert left == sorted([a_keep, a_new, b_keep])
+
+
+# ---- the bounded read (Codex on #841, round 1): the answer of the full materialisation, from bounded reads ----------------
+
+def _reference_rows(s, sport, kind=None):
+    """HEAD 01a52c99's load_rows, verbatim in effect: every assertion of the sport (and kind) as ORM objects, the kickoff
+    by a second query. The reference the bounded read is compared with."""
+    from sqlalchemy import select
+
+    from src.db.schema import AvailabilityAssertion as A
+    from src.db.schema import AvailabilityObservation as O
+    from src.db.schema import Match
+    q = select(A, O).join(O, O.id == A.observation_id).where(A.sport == rec._sport(sport))
+    if kind is not None:
+        q = q.where(A.kind == kind)
+    got = s.execute(q.order_by(A.id)).all()
+    ids = sorted({a.match_id for a, _ in got if a.match_id is not None})
+    kickoff = {mid: ko for i in range(0, len(ids), 500)
+               for mid, ko in s.execute(select(Match.id, Match.utc_date).where(Match.id.in_(ids[i:i + 500]))).all()}
+    return [rec.Row(a.id, a.observation_id, o.source, o.endpoint, o.poll_label, o.status, o.kickoff_at,
+                    getattr(a.sport, "value", a.sport), a.kind, a.player_id, a.source_player_id, a.player_name,
+                    a.team_id, a.source_team, a.match_id, a.attrs, a.source_stamp, a.recorded_at,
+                    rec._naive_utc(kickoff.get(a.match_id), "matches.utc_date"), o.payload_sha256) for a, o in got]
+
+
+def _reference_as_of(rows, t, clock, match_id=None, team=None):
+    """HEAD's as_of over the reference rows: the whole derivation, cut in Python, the open intervals kept."""
+    cut = [r for r in rows if rec.clock_of(r, clock) is not None and rec.clock_of(r, clock) <= t]
+    return [rec.Fact(iv, rec.interval_backfilled(iv), rec.post_hoc(iv.first, iv), rec.live_since(iv))
+            for iv in rec.derive(cut, clock) if iv.end is None and rec._keep(iv, match_id, team)]
+
+
+def _reference_history(rows, t, clock, match_id=None, team=None):
+    cut = [r for r in rows if rec.clock_of(r, clock) is not None and rec.clock_of(r, clock) <= t]
+    member = {r.id: iv for iv in rec.derive(cut, clock) for r in iv.members}
+    order = [r for _, g in rec._groups(cut, clock) for r in g]
+    return [(r, member[r.id]) for r in order if rec._keep(member[r.id], match_id, team)]
+
+
+def _iv_sig(iv):
+    return (iv.first.id, iv.last.id, iv.start, iv.end, iv.closed_by.id if iv.closed_by else None, iv.why_closed,
+            iv.restated, tuple(m.id for m in iv.members))
+
+
+def _fact_sig(f):
+    return (_iv_sig(f.interval), f.backfilled, f.post_hoc, f.live_since, rec.fact_line(f))
+
+
+def _random_history(seed):
+    """A SYNTHETIC randomized history written through the writer (its triggers): nflverse loads with and without a
+    payload hash (snapshot closure and generic rules), partial team groups, several loads per fetch, backfilled and
+    fresh stamps, team ids mapped and unmapped between fetches, a depth group mixed with another kind in one load (not
+    a load), NHL starters on two games (one with a stored match), plays_for moving players across teams, inactive and
+    injury rows, and rows with no source stamp."""
+    import random
+    rnd = random.Random(seed)
+    _migrate()
+    _match_row(501, datetime(2026, 10, 20, 0, 0))
+    teams = ["BAL", "KC", "BUF"]
+    tid = {"BAL": 1, "KC": 2, "BUF": 3}
+    pool = {t: [(f"00-{t}{i}" if i % 5 else None, f"Syn {t} {i}") for i in range(8)] for t in teams}
+    chart = {t: list(range(6)) for t in teams}
+    at = datetime(2026, 10, 1, 9)
+    for _ in range(34):
+        at += timedelta(hours=rnd.randint(4, 40))
+        src = rnd.choices(["snap", "nohash", "nhl", "sdio"], [5, 2, 2, 2])[0]
+        rows = []
+        if src in ("snap", "nohash"):
+            stamp = at - timedelta(hours=rnd.choice([1, 2, 30, 80]))
+            for _ in range(rnd.choice([1, 1, 2, 3])):
+                stamp += timedelta(minutes=rnd.randint(5, 600))
+                if stamp > at:
+                    break
+                for t in teams:
+                    if rnd.random() < 0.15:
+                        continue                                        # a team absent from the load
+                    if rnd.random() < 0.3:
+                        i, j = rnd.sample(range(6), 2)
+                        chart[t][i], chart[t][j] = chart[t][j], chart[t][i]
+                    if rnd.random() < 0.15:
+                        chart[t][rnd.randrange(6)] = rnd.choice([6, 7])
+                    size = 2 if rnd.random() < 0.15 else rnd.choice([5, 6])   # a partial group now and then
+                    for slot in range(size):
+                        spid, name = pool[t][chart[t][slot]]
+                        rows.append({"kind": "depth_rank", "source_player_id": spid, "player_name": name,
+                                     "source_team": t, "team_id": tid[t] if rnd.random() < 0.6 else None,
+                                     "source_stamp": stamp,
+                                     "attrs": {"pos_grp": "Offense", "pos_abb": "QB" if slot < 2 else f"P{slot}",
+                                               "pos_slot": "1" if slot < 2 else str(slot),
+                                               "pos_rank": str(slot + 1) if slot < 2 else "1",
+                                               "dt_raw": stamp.isoformat() + "Z"}})
+                if rnd.random() < 0.15:                                 # a mixed group: not a load
+                    rows.append({"kind": "inactive", "source_player_id": "00-BAL1", "player_name": "Syn BAL 1",
+                                 "source_team": "BAL", "source_stamp": stamp, "attrs": {"note": "mixed"}})
+            obs = {"sport": "nfl", "source": "nflverse_depth_charts", "endpoint": NFLVERSE, "status": "complete",
+                   "fetched_at": at, "payload_sha256": hashlib.sha256(str(at).encode()).hexdigest() if src == "snap"
+                   else None}
+        elif src == "nhl":
+            for gid, mid in (("2025020001", rnd.choice([None, 501])), ("2025020002", None)):
+                for t in rnd.sample(teams, 2):
+                    for kind in rnd.sample(["projected_starter", "confirmed_starter", "eventual_starter",
+                                            "inactive"], 2):
+                        spid, name = rnd.choice(pool[t][:3])
+                        rows.append({"kind": kind, "source_player_id": spid, "player_name": name,
+                                     "source_team": t if rnd.random() < 0.8 else None, "team_id": tid[t],
+                                     "match_id": mid, "attrs": {"source_match_id": gid, "side": t},
+                                     "source_stamp": None if rnd.random() < 0.5 else at - timedelta(minutes=5)})
+            obs = {"sport": "nfl", "source": "nhl_api_landing", "endpoint": LANDING, "status": "complete",
+                   "fetched_at": at, "kickoff_at": rnd.choice([None, at + timedelta(hours=3), at - timedelta(hours=1)])}
+        else:
+            for _ in range(rnd.randint(1, 4)):
+                t = rnd.choice(teams)
+                spid, name = rnd.choice(pool["BAL"][:4])                 # plays_for: one player, any team
+                rows.append({"kind": rnd.choice(["plays_for", "plays_for", "injury_status"]),
+                             "source_player_id": spid, "player_name": name, "source_team": t,
+                             "team_id": tid[t] if rnd.random() < 0.5 else None,
+                             "attrs": {"status": rnd.choice(["active", "out"])},
+                             "source_stamp": None if rnd.random() < 0.3 else at - timedelta(hours=rnd.randint(0, 50))})
+            obs = {"sport": "nfl", "source": "sportsdataio_goalies", "endpoint": "https://example.invalid/goalies",
+                   "status": "complete", "fetched_at": at}
+        rec.write_observation(obs, rows)
+
+
+@pytest.mark.parametrize("seed", [1, 2, 3, 4])
+def test_the_bounded_read_equals_the_full_materialisation_on_randomized_histories(seed):
+    """Codex on #841, round 1 (P1): as_of and history read bounded (the clock and the key in SQL, the derivation per
+    partition). Every fact and every history line equals HEAD's full materialisation (every row loaded, one derive),
+    interval by interval and in the same order, under both clocks, at every group's own instant and around it, with no
+    key, a team (the source's text, our id) and a match, and per kind."""
+    import random
+    _random_history(seed)
+    rnd = random.Random(seed * 7919)
+    with _ro() as s:
+        rows = _reference_rows(s, "nfl")
+        assert len(rows) > 150 and {r.source for r in rows} == set(rec.SOURCES)
+        whys = {iv.why_closed for clock in rec.CLOCKS for iv in rec.derive(rows, clock)}
+        assert whys >= {"asserted differently", "slot asserted to someone else",
+                        "not restated in its team's snapshot"}, whys     # every closing rule is exercised
+        mixed = rec._mixed_groups(s, "nfl", "recorded", datetime(2027, 1, 1), None)
+        assert mixed                                                  # a depth group that is not a load
+        last, partial = {}, 0
+        for _, g in rec._groups(rows, "source"):
+            if rec.snapshot_load(g) and (g[0].observation_id, g[0].source_stamp) not in mixed:
+                counts: dict = {}
+                for r in g:
+                    counts[rec.team_key(r)] = counts.get(rec.team_key(r), 0) + 1
+                partial += len(rec.guard_load(counts, last))
+        assert partial                                                # a partial team group, closing nothing
+        # the partition holds every pair of rows a rule compares (fact key, slot key)
+        for keyf in (rec.fact_key, rec.slot_key):
+            parts: dict = {}
+            for r in rows:
+                if keyf(r) is not None:
+                    parts.setdefault(keyf(r), set()).add(rec._partition(r))
+            assert all(len(p) == 1 for p in parts.values())
+        for clock in rec.CLOCKS:
+            stamps = sorted({rec.clock_of(r, clock) for r in rows if rec.clock_of(r, clock) is not None})
+            ts = ([stamps[0] - timedelta(days=1), stamps[-1] + timedelta(days=1),
+                   datetime(9999, 12, 31, 23, 59, 59), datetime.max]               # the last date: no day after it
+                  + [x + d for x in rnd.sample(stamps, 12) for d in (timedelta(0), timedelta(seconds=-1),
+                                                                    timedelta(microseconds=1))])
+            keys = [{}, {"team": "BAL"}, {"team": "2"}, {"team": "BUF"}, {"match_id": 501}]
+            for t in ts:
+                for key in keys:
+                    new = rec.as_of(s, "nfl", t, clock, **key)
+                    old = _reference_as_of(rows, t, clock, **key)
+                    assert [_fact_sig(f) for f in new] == [_fact_sig(f) for f in old], (clock, t, key)
+                    hn = rec.history(s, "nfl", t, clock, **key)
+                    ho = _reference_history(rows, t, clock, **key)
+                    assert [(r.id, _iv_sig(iv)) for r, iv in hn] == [(r.id, _iv_sig(iv)) for r, iv in ho]
+            for kind in ("depth_rank", "plays_for", "projected_starter"):
+                kr = _reference_rows(s, "nfl", kind)
+                for t in rnd.sample(stamps, 4):
+                    assert ([_fact_sig(f) for f in rec.as_of(s, "nfl", t, clock, kind=kind)]
+                            == [_fact_sig(f) for f in _reference_as_of(kr, t, clock)]), (clock, t, kind)
+                    assert ([_fact_sig(f) for f in rec.as_of(s, "nfl", t, clock, team="KC", kind=kind)]
+                            == [_fact_sig(f) for f in _reference_as_of(kr, t, clock, team="KC")]), (clock, t, kind)
+        assert rec.unread_under_source_clock(s, "nfl") == sum(r.source_stamp is None for r in rows)
+        assert rec.unread_under_source_clock(s, "nfl", "plays_for") == sum(
+            r.source_stamp is None for r in rows if r.kind == "plays_for")
+
+
+class _CountingSession:
+    """The read's session, counting every row its SELECTs hand back, on the session (HEAD's reads) or on its
+    connection (the bounded read's): an instrumented reader."""
+
+    def __init__(self, s, owner=None):
+        self.s, self.owner = s, owner or self
+        self.fetched = 0
+
+    def execute(self, *a, **kw):
+        return _Counted(self.s.execute(*a, **kw), self.owner)
+
+    def connection(self, *a, **kw):
+        return _CountingSession(self.s.connection(*a, **kw), self.owner)
+
+    def __getattr__(self, name):
+        return getattr(self.s, name)
+
+
+class _Counted:
+    def __init__(self, res, owner):
+        self.res, self.owner = res, owner
+
+    def __iter__(self):
+        for row in self.res:
+            self.owner.fetched += 1
+            yield row
+
+    def all(self):
+        got = self.res.all()
+        self.owner.fetched += len(got)
+        return got
+
+    def __getattr__(self, name):
+        return getattr(self.res, name)
+
+
+def test_a_team_read_loads_that_teams_rows_not_the_records_whole_history():
+    """Codex on #841, round 1 (P1), fail-first: a --team read at a mid-history instant fetches that team's rows up to
+    the instant (and a few rows of the key's own lookup), not every row of the sport: on HEAD 01a52c99 it fetched all
+    of them (load_rows, then a cut in Python)."""
+    _migrate()
+    teams = [f"T{i:02d}" for i in range(8)]
+    at = datetime(2026, 9, 1, 9)
+    for day in range(10):
+        stamp = at - timedelta(hours=2)
+        rec.write_observation(_nfl(at), [_depth(f"Syn {t} {n}", f"00-{t}{n}", n % 3 + 1, stamp, team=t, slot=n)
+                                         for t in teams for n in range(6)])
+        at += timedelta(days=1)
+    mid = datetime(2026, 9, 5, 12)
+    with _ro() as s:
+        cs = _CountingSession(s)
+        facts = rec.as_of(cs, "nfl", mid, team="T03")
+        assert {f.interval.first.source_team for f in facts} == {"T03"} and len(facts) == 6
+        total = _counts()[1]
+        own = 5 * 6                                                   # T03's rows recorded at or before mid
+        assert total == 480 and cs.fetched <= own + 6, (cs.fetched, own, total)
+        cs2 = _CountingSession(s)
+        assert len(rec.as_of(cs2, "nfl", datetime(2026, 9, 12), clock="source")) == 48
+        assert cs2.fetched <= total, cs2.fetched                       # the unfiltered read: every row once, no more
+
+
+def test_an_instant_on_the_last_representable_date_reads_everything_never_an_overflow():
+    """Codex on #841, round 1 (the bounded read's own boundary), fail-first: the bounded read's clock bound added one day to the instant's date, so an
+    instant on 9999-12-31 (a plausible "everything" instant) raised OverflowError from as_of and history, and the cli
+    ended in a traceback. On that date the bound is the column's NULL test alone (a superset; the exact cut runs in
+    Python): the answer is every fact in force, under both clocks, through the API and the cli."""
+    _history_b()
+    with _ro() as s:
+        for clock in rec.CLOCKS:
+            for t in (datetime(9999, 12, 31, 23, 59, tzinfo=timezone.utc), datetime.max):
+                rows = _reference_rows(s, "nfl")
+                assert ([_fact_sig(f) for f in rec.as_of(s, "nfl", t, clock)]
+                        == [_fact_sig(f) for f in _reference_as_of(rows, rec._instant(t), clock)]), (clock, t)
+                assert len(rec.history(s, "nfl", t, clock)) == len(_reference_history(rows, rec._instant(t), clock))
+                assert len(rec.as_of(s, "nfl", t, clock, team="BAL")) == len(
+                    _reference_as_of(rows, rec._instant(t), clock, team="BAL"))
+    r = _cli("--sport", "nfl", "--as-of", "9999-12-31T23:59:59Z")
+    assert r.exit_code == 0 and r.exception is None, r.output
+    assert "2 fact(s) in force" in r.output.splitlines()[0]
+    h = _cli("--sport", "nfl", "--as-of", "9999-12-31T23:59:59Z", "--history", "--clock", "source")
+    assert h.exit_code == 0 and h.exception is None, h.output

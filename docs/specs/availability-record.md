@@ -237,6 +237,53 @@ order, each with the end of the interval it opened or restated. One function ser
 history cut at the instant (test 6(g)). Item 2, verbatim: "The same function is the one a model term, the bulletin's
 teams section and the Cockpit will read; there is no second path."
 
+**The bounded read (Codex on #841, round 1; `record._partitions`, `_key_filter`, `_mixed_groups`, `_derive`).** The
+first build loaded every assertion of the sport (`load_rows`), cut it at the instant in Python and derived once: 57.9 s
+and 2.2 GB on 750,000 synthetic rows. `as_of` and `history` now read only what their answer can depend on, and their
+answer is the full derivation's, interval by interval and in the same order. What is bounded and what is not: a
+`--team` or `--match-id` read is bounded by its key (its partitions' rows); an UNFILTERED read is not bounded by the
+history (the memory and scan lines below):
+- **The clock, in SQL.** The chosen clock's column (`recorded_at`, or `source_stamp` with NULL excluded) is bounded
+  before the day after the instant's date. That is a superset of "at or before the instant": the stored text begins
+  with its ISO date, and the writer stores every stamp in SQLAlchemy's one form. On the last representable date
+  (9999-12-31, no day after it) the bound is the NULL test alone, still a superset (the first
+  bound raised OverflowError there). The exact cut (`clock <= instant`) is still applied to each row in Python. A group (one observation, one source stamp) shares both clocks, so the cut
+  never splits one. A backfilled row is cut by the chosen clock like any row (under the recorded clock from its fetch,
+  under the source clock from its stamp); BACKFILLED stays a label read over the interval, never a filter.
+- **The partition.** Every rule of `derive` compares two rows of one source and kind only through the fact key (which
+  holds the team and the player), the slot key (the team, for every kind but `plays_for`; the player, for `plays_for`)
+  and, for a snapshot load, the team (its closure and its partial guard). So the intervals of a (source, kind, team),
+  or a (source, kind, player) for `plays_for`, depend on that partition's rows alone, and on one fact about each group:
+  whether it is a load. `snapshot_load` reads the whole group, so a group of a snapshot source whose rows in the read
+  include another kind is named "not a load" to every partition (`_mixed_groups`; a read of one kind holds none). The
+  SELECT is ordered by the partition's columns and read in batches; each partition is derived as it completes, and
+  `as_of` keeps only its open intervals. A partition met twice (a broken order) is refused, never derived in halves.
+- **The key, in SQL.** A `--team` or `--match-id` read loads, whole, only the partitions holding a row that names that
+  team (the source's text, or our id) or that match. An interval the filter keeps names it on a member (`mapped_now`
+  takes each id from the latest member that carries one), so its partition is loaded.
+- **Pinned** by `tests/test_availability_record.py::test_the_bounded_read_equals_the_full_materialisation_on_randomized_histories`
+  (four seeds, both clocks, at instants that include 9999-12-31 and `datetime.max`, with and without each key, per
+  kind: every fact, every history line, and every interval's
+  members, end and closing row equal HEAD's full materialisation, on histories with snapshot loads, partial groups, a
+  mixed group, mapping changes, starters, `plays_for` and rows with no source stamp) and
+  `test_a_team_read_loads_that_teams_rows_not_the_records_whole_history` (an instrumented reader: 480 rows fetched
+  before, at most the team's 30 plus the key's lookup after).
+- **Memory: bounded for a keyed read, NOT for an unfiltered one.** A `--team` / `--match-id` read holds its
+  partitions and its answer. An unfiltered `as_of` holds every open interval with all its members (an interval keeps
+  its members: the labels read them), so every restatement of every fact still in force: on a daily snapshot feed
+  whose depth facts mostly stand, nearly every row up to the instant. Its memory is therefore still linear in the
+  stored history and grows each season (202 MB at 746,140 synthetic rows, 47 MB before the read). The rows share equal
+  values (`record._Rows`) and `Row` is slotted. Compacting what `as_of` keeps per open interval (first, last, the
+  restated count, the running label ids; full members only for `history`) is the named fix, NOT built: it changes
+  `Interval.members` for `as_of`'s callers, and it is put to the architect with the index below (money-path read:
+  the architect says whether it blocks).
+- **No index is added.** The existing `ix_avail_asr_sport_stamp` (sport, source_stamp) serves both clocks' reads
+  (a range under the source clock); there is no (sport, recorded_at) index, so a recorded-clock read walks ALL the
+  sport's rows through it (the scan is O(history) under that clock, keyed or not), and the ordering is a temporary
+  B-tree. Measured on 746,140 synthetic rows (the PR body's table), a team's read takes under a second; the unfiltered
+  newest read 19.7 s. An index would be a schema change on the next migration tag; it is proposed, not built.
+- `unread_under_source_clock` is a `COUNT` in SQL.
+
 **Where this reads the ruling's sentence differently** (item 1(b): "'As of T' is one query: the newest observation per
 source with the chosen clock <= T, and its assertions"):
 - **The two readings agree** for a feed whose every observation restates every fact. The NHL landing polls are such a
@@ -551,7 +598,7 @@ logs/availability/nflverse_depth_charts/<date>/ only when it changed."
 |---|---|---|
 | 304 | `complete`, rows_asserted 0, `http_status` 304 | the previous payload's sha256 and path |
 | 200, byte-identical to the last kept payload | `complete`, rows_asserted 0 | the streamed copy removed; the previous sha256 and path; the answer's ETag, where it differs, written beside that payload |
-| 200, changed | `complete` or `partial` (or `empty`: a header and no row) with its new rows | kept: `logs/availability/nflverse_depth_charts/<UTC date>/<HHMMSS>Z-depth_charts_<season>.csv`, its ETag beside it |
+| 200, changed | `complete` or `partial` (or `empty`: a header and no row) with its new rows | kept: `logs/availability/nflverse_depth_charts/<UTC date>/<HHMMSS>Z-<sha256, first 16 hex>-depth_charts_<season>.csv`, created exclusively, its ETag beside it |
 | 200, a file the adapter refuses | `failed`, the refusal as its error | kept (the raw answer is the evidence) |
 | any other status | `failed`, `HTTP <status> from the release asset (refused): <class>`, the class worded as requests words it (`503 Server Error`, `429 Client Error: Too Many Requests`, `404 Client Error`) | none |
 | a raised call or a broken stream | `failed`, the error redacted | none (a partial `.part` file is removed) |
@@ -567,7 +614,25 @@ logs/availability/nflverse_depth_charts/<date>/ only when it changed."
   `logs/` (git-ignored, never under data/, never mirrored: the exports mirror carries `exports/` only).
 - **`--file PATH`** reads a local release file the same way (endpoint `file:<its name>`, no HTTP status); a refused
   file exits 2 with nothing written and nothing copied; its bytes are kept under the payload directory when they differ
-  from the last kept payload of that endpoint.
+  from the last kept payload of that endpoint, as `<HHMMSS>Z-<sha256, first 16 hex>-<its name>`.
+- **The kept file (Codex on #841, round 1).** Its name carries the payload's sha256 prefix, so two different payloads
+  kept in one second never share a path, and it is created exclusively (`O_EXCL`): a path that already holds the same
+  bytes is reused, one that holds other bytes is refused (a fetch: a `failed` observation; a `--file`: exit 2), and the
+  evidence there is never overwritten. The partial download is a temporary file of its own (`mkstemp`).
+- **Checked before any file (Codex on #841, round 1).** The endpoint is checked by the writer's own rule
+  (`record.endpoint_refusal`: none given, longer than 512 characters, or a secret) before any call, copy or file; the
+  kept path by `record.payload_path_refusal` and the file name's length (255 bytes) before any directory or file is
+  made. A refused `--file` (a name like `api_token=secret.csv`, or one too long to keep) leaves nothing on disk and no
+  row. A file name cannot reach 512 characters (NAME_MAX), so the endpoint's length rule is the writer's, run first.
+- **Every row to be asserted, by the writer's own checks.** `record.assertion_refusal` (the same
+  `_check_assertion` the writer runs: `player_name` at most 128 characters, `source_team` and `source_player_id` (the
+  `espn_id`, else the `gsis_id`) at most 64, a player and a team named, `attrs` as JSON) runs on every row a run
+  would assert. On a `--file` it runs before the copy: a refusal exits 2, nothing copied, nothing written. On a fetch
+  the payload is kept before it is read (the evidence), so a refusal is a `failed` observation that keeps the
+  payload's path, the writer's reason its error. A refusal the pre-checks cannot see (the store's own, a trigger) is
+  never left as an orphan either: a `--file`'s copy made by the run is removed and the run exits 2; a fetch is
+  written as a `failed` observation keeping the path. Rows at or before the watermark are not asserted and not
+  checked.
 
 ### The command: `availability-nflverse`
 

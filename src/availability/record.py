@@ -30,6 +30,8 @@ THE READ. derive() turns assertions into intervals (item 1(b): "a fact holds fro
 observation of the same source that asserts the same (kind, player, team[, match]) differently, or that asserts the
 slot to someone else"); as_of() is derive() over the assertions whose chosen clock is at or before the instant, keeping
 the intervals still open; history() is every assertion, in time order, with the end of the interval it belongs to.
+Both READ BOUNDED (Codex on #841, round 1; the section "the bounded read" below): the clock and the key in SQL, the
+derivation partition by partition, the answer the full derivation's (pinned against load_rows + derive).
 A LOAD of a snapshot source (SNAPSHOT_SOURCES: nflverse_depth_charts' depth_rank rows from a kept payload) also closes
 every fact of each team it holds that it does not restate, a partial team group closing nothing (ARCHITECT 2026-11-05,
 addendum 259 item 2(a)-(b); derive()).
@@ -271,6 +273,23 @@ def _sport(v) -> Sport:
         raise Refused(f"REFUSED: sport {v!r} is not one of {', '.join(s.value for s in Sport)}") from None
 
 
+ENDPOINT_LIMIT = 512                                 # characters (the column's width)
+
+
+def endpoint_refusal(ep) -> str | None:
+    """Why the writer refuses this endpoint, or None: none given, longer than ENDPOINT_LIMIT, or carrying a secret
+    (item 5). The writer's one check (_check_observation); an adapter runs it BEFORE it writes any file, so a refused
+    endpoint leaves nothing on disk (Codex on #841, round 1)."""
+    if not isinstance(ep, str) or not ep.strip():
+        return "REFUSED: no endpoint (the URL or file name)"
+    if len(ep) > ENDPOINT_LIMIT:
+        return f"REFUSED: the endpoint is longer than {ENDPOINT_LIMIT} characters"
+    why = _endpoint_secret(ep)
+    if why:
+        return f"REFUSED: the endpoint carries a secret: {why} (addendum 252 item 5); nothing written"
+    return None
+
+
 def payload_path_refusal(path: str, source: str) -> str | None:
     """Why `path` is not a payload path for `source`, or None. A payload path is relative, under
     logs/availability/<source>/<YYYY-MM-DD>/, with no '..' (item 1(a); item 5: "no payload under data/")."""
@@ -307,13 +326,9 @@ def _check_observation(obs: dict) -> dict:
         raise Refused(f"REFUSED: status {status!r} is not one of {', '.join(STATUSES)}")
     row["status"] = status
     ep = obs.get("endpoint")
-    if not isinstance(ep, str) or not ep.strip():
-        raise Refused("REFUSED: no endpoint (the URL or file name)")
-    if len(ep) > 512:
-        raise Refused("REFUSED: the endpoint is longer than 512 characters")
-    why = _endpoint_secret(ep)
+    why = endpoint_refusal(ep)
     if why:
-        raise Refused(f"REFUSED: the endpoint carries a secret: {why} (addendum 252 item 5); nothing written")
+        raise Refused(why)
     row["endpoint"] = ep
     row["match_id"] = _int_or_none(obs.get("match_id"), "match_id")
     row["http_status"] = _int_or_none(obs.get("http_status"), "http_status")
@@ -386,6 +401,21 @@ def _check_assertion(a: dict, i: int) -> dict:
             raise Refused(f"REFUSED: assertion {i}: attrs is not JSON ({e})") from None
     row["attrs"] = attrs
     return row
+
+
+def assertion_refusal(a, i, source: str | None = None) -> str | None:
+    """Why the writer refuses this assertion, or None: the writer's own checks (_check_assertion: the columns, the
+    vocabulary, the widths -- source_player_id and source_team 64 characters, player_name 128 -- a player and a team
+    named, attrs as JSON) and, for a per-game fact from a source in SOURCE_MATCH_IDS, the source's game id. The same
+    functions write_observation runs; an adapter runs it on every row it will assert BEFORE it keeps any file, so a row
+    the writer would refuse leaves nothing on disk (Codex on #841, round 1). `i` names the row in the reason."""
+    try:
+        r = _check_assertion(a, i)
+        if source in SOURCE_MATCH_IDS and r["kind"] in GAME_KINDS:
+            _with_source_match_id(r["attrs"], i, source)
+    except Refused as e:
+        return str(e)
+    return None
 
 
 def _with_source_match_id(attrs: dict | None, i: int, source: str) -> dict:
@@ -499,9 +529,9 @@ def write_observation(obs: dict, assertions: Sequence[dict] = ()) -> Receipt:
 
 # ---- the read: one path ------------------------------------------------------------------------------------------------
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class Row:
-    """One assertion with the observation it came from."""
+    """One assertion with the observation it came from. Slotted (no per-row __dict__): a read may hold a season's rows."""
     id: int
     observation_id: int
     source: str
@@ -538,28 +568,71 @@ class Interval:
     members: list = field(default_factory=list)
 
 
-def load_rows(s, sport, kind: str | None = None) -> list[Row]:
-    """Every assertion of the sport (and kind), with its observation, and the kickoff our matches table stores for its
-    match_id (Row.match_kickoff; None where the match is unmapped or not stored). Read only; the caller's session."""
+READ_BATCH = 2000                                    # rows per cursor fetch on a bounded read (yield_per)
+
+
+def _select(sport, kind: str | None = None):
+    """The read's one SELECT: each assertion's columns, its observation's, and the kickoff our matches table stores for
+    its match_id (a LEFT JOIN on matches.id, the primary key: None where the match is unmapped or not stored). Plain
+    columns, no ORM object per row."""
     from sqlalchemy import select
 
     from src.db.schema import AvailabilityAssertion as A
     from src.db.schema import AvailabilityObservation as O
     from src.db.schema import Match
-    q = (select(A, O).join(O, O.id == A.observation_id).where(A.sport == _sport(sport)))
-    if kind is not None:
-        q = q.where(A.kind == kind)
-    got = s.execute(q.order_by(A.id)).all()
-    ids = sorted({a.match_id for a, _ in got if a.match_id is not None})
-    kickoff = {mid: ko for i in range(0, len(ids), 500)          # SQLite's bound-parameter limit
-               for mid, ko in s.execute(select(Match.id, Match.utc_date).where(Match.id.in_(ids[i:i + 500]))).all()}
-    out = []
-    for a, o in got:
-        out.append(Row(a.id, a.observation_id, o.source, o.endpoint, o.poll_label, o.status, o.kickoff_at,
-                       getattr(a.sport, "value", a.sport), a.kind, a.player_id, a.source_player_id, a.player_name,
-                       a.team_id, a.source_team, a.match_id, a.attrs, a.source_stamp, a.recorded_at,
-                       _naive_utc(kickoff.get(a.match_id), "matches.utc_date"), o.payload_sha256))
-    return out
+    q = (select(A.id, A.observation_id, O.source, O.endpoint, O.poll_label, O.status, O.kickoff_at, A.sport, A.kind,
+                A.player_id, A.source_player_id, A.player_name, A.team_id, A.source_team, A.match_id, A.attrs,
+                A.source_stamp, A.recorded_at, Match.utc_date, O.payload_sha256)
+         .join(O, O.id == A.observation_id).outerjoin(Match, Match.id == A.match_id)
+         .where(A.sport == _sport(sport)))
+    return q.where(A.kind == kind) if kind is not None else q
+
+
+class _Rows:
+    """Builds Row objects from the SELECT's tuples, sharing one object per equal value: per observation its columns
+    (source, endpoint, poll label, status, kickoff, payload hash, recorded_at), per match its stored kickoff, and one
+    object per equal text or stamp among the row's own columns and its attrs' keys and short text values (each row keeps
+    its own attrs dict). The values are equal either way; only the memory differs."""
+
+    def __init__(self):
+        self.obs: dict = {}
+        self.kickoff: dict = {}
+        self.same: dict = {}
+
+    def _one(self, v):
+        if v is None or (isinstance(v, str) and len(v) > 64):
+            return v
+        return self.same.setdefault(v, v) if isinstance(v, (str, datetime)) else v
+
+    def __call__(self, t) -> Row:
+        (aid, oid, source, endpoint, poll, status, ko, sport, kind, pid, spid, name, tid, steam, mid, attrs, stamp,
+         recorded, mko, sha) = t
+        o = self.obs.get(oid)
+        if o is None:
+            o = self.obs[oid] = (source, endpoint, poll, status, ko, sha, recorded)
+        if mid is not None and mid not in self.kickoff:
+            self.kickoff[mid] = _naive_utc(mko, "matches.utc_date")
+        one = self._one
+        if type(attrs) is dict:
+            attrs = {one(k): one(v) for k, v in attrs.items()}
+        return Row(aid, oid, o[0], o[1], o[2], o[3], o[4], getattr(sport, "value", sport), one(kind), pid, one(spid),
+                   one(name), tid, one(steam), mid, attrs, one(stamp), o[6] if recorded == o[6] else recorded,
+                   self.kickoff.get(mid) if mid is not None else None, o[5])
+
+
+def load_rows(s, sport, kind: str | None = None) -> list[Row]:
+    """Every assertion of the sport (and kind), with its observation, and the kickoff our matches table stores for its
+    match_id (Row.match_kickoff; None where the match is unmapped or not stored), in id order. Read only; the caller's
+    session. THE FULL MATERIALISATION: as_of and history no longer call it (Codex on #841, round 1: they read bounded,
+    partition by partition, _partitions); it stays the reference the equivalence tests compare them with."""
+    from src.db.schema import AvailabilityAssertion as A
+    build = _Rows()
+    return [build(t) for t in _run(s, _select(sport, kind).order_by(A.id))]
+
+
+def _run(s, q):
+    """A read's SELECT on the session's connection (Core: no ORM loading layer per row)."""
+    return s.connection().execute(q)
 
 
 def clock_of(r: Row, clock: str) -> datetime | None:
@@ -630,13 +703,15 @@ def _groups(rows: Iterable[Row], clock: str) -> list[tuple[datetime, list[Row]]]
         if c is None:
             continue
         by.setdefault((r.observation_id, r.source_stamp), []).append(r)
-    other = (lambda r: r.source_stamp) if clock == "recorded" else (lambda r: r.recorded_at)
+    return [(clock_of(g[0], clock), sorted(g, key=lambda r: r.id))
+            for g in sorted(by.values(), key=lambda g: _group_order(g[0], clock))]
 
-    def order(g):
-        r = g[0]
-        o = other(r)
-        return (clock_of(r, clock), o is not None, o or datetime.min, r.observation_id)
-    return [(clock_of(g[0], clock), sorted(g, key=lambda r: r.id)) for g in sorted(by.values(), key=order)]
+
+def _group_order(r: Row, clock: str) -> tuple:
+    """The place of r's group (one observation, one source stamp) in the derivation: the chosen clock, then the other
+    stamp, then the observation. Every row of a group has the same, and no two groups share one."""
+    o = r.source_stamp if clock == "recorded" else r.recorded_at
+    return (clock_of(r, clock), o is not None, o or datetime.min, r.observation_id)
 
 
 def snapshot_load(g: Sequence[Row]) -> bool:
@@ -693,14 +768,22 @@ def derive(rows: Iterable[Row], clock: str = "recorded") -> list[Interval]:
     observation's recorded_at, the groups of one fetch read in dt order (_groups), so the facts a fetch holds at its
     recorded_at are its last load's (an earlier load's intervals open and close at the same recorded_at, and history
     still lists them). No other source and no row without a payload hash is read this way."""
+    return _derive(rows, clock)
+
+
+def _derive(rows: Iterable[Row], clock: str, not_loads: frozenset = frozenset()) -> list[Interval]:
+    """derive(), over `rows`; `not_loads` names the groups (observation id, source stamp) that are NOT a load although
+    the rows given of them are all the snapshot kind: a partition's share of a group whose other rows (another kind)
+    the partition does not hold (_mixed_groups). derive() passes none: it holds every row of each group."""
     out: list[Interval] = []
     open_: list[Interval] = []
     last_complete: dict = {}              # (source, team key) -> rows of that team's previous complete group
+    key_of: dict = {}                     # id(interval) -> its (fact key, attrs signature): fixed when it opens
     for c, g in _groups(rows, clock):
         snap: dict = {}                   # team key -> its first row in this load (a snapshot load only)
         partial: set = set()
         snap_src = snap_kind = None
-        if snapshot_load(g):
+        if snapshot_load(g) and (g[0].observation_id, g[0].source_stamp) not in not_loads:
             counts: dict = {}
             for r in g:
                 counts[team_key(r)] = counts.get(team_key(r), 0) + 1
@@ -711,10 +794,10 @@ def derive(rows: Iterable[Row], clock: str = "recorded") -> list[Interval]:
         continuing: set = set()
         opened: dict = {}
         by_fact: dict = {}
-        for iv in open_:                  # the interval's LATEST member: the mapping it carries now
-            by_fact.setdefault((fact_key(iv.last), _sig(iv.last)), []).append(iv)
-        for r in g:
-            k = (fact_key(r), _sig(r))
+        for iv in open_:                  # its key: every member's (a restatement has the opening row's key)
+            by_fact.setdefault(key_of[id(iv)], []).append(iv)
+        keyed = [((fact_key(r), _sig(r)), r) for r in g]
+        for k, r in keyed:
             hit = by_fact.get(k)
             if hit:
                 for iv in hit:
@@ -729,10 +812,11 @@ def derive(rows: Iterable[Row], clock: str = "recorded") -> list[Interval]:
                 opened[k].members.append(r)
                 continue
             opened[k] = Interval(first=r, last=r, start=c, members=[r])
+            key_of[id(opened[k])] = k
         facts = {}
         slots: dict = {}
-        for r in g:
-            facts.setdefault(fact_key(r), r)
+        for (fk, _), r in keyed:
+            facts.setdefault(fk, r)
             sk = slot_key(r)
             if sk is not None:
                 slots.setdefault(sk, {}).setdefault(player_key(r), r)
@@ -741,7 +825,7 @@ def derive(rows: Iterable[Row], clock: str = "recorded") -> list[Interval]:
             if id(iv) in continuing:
                 still.append(iv)
                 continue
-            fk, sk, pk = fact_key(iv.last), slot_key(iv.last), player_key(iv.last)
+            fk, sk, pk = key_of[id(iv)][0], slot_key(iv.last), player_key(iv.last)
             mine = bool(snap) and iv.last.source == snap_src and iv.last.kind == snap_kind     # this load's source and kind
             if mine and team_key(iv.last) in partial:
                 still.append(iv)          # 259 item 2(b): a partial team group closes nothing; the prior facts stay open
@@ -868,36 +952,198 @@ def _instant(v) -> datetime:
     return v.astimezone(timezone.utc).replace(tzinfo=None) if v.tzinfo is not None else v
 
 
+# ---- the bounded read (Codex on #841, round 1) ------------------------------------------------------------------------
+# as_of and history read only what their answer can depend on, and derive it partition by partition, so a read's memory
+# follows one partition and its answer, not the record's whole history. Three bounds, none of which changes an answer:
+# 1. THE CLOCK, in SQL: the chosen clock's column (recorded_at, or source_stamp, NULL excluded) before the day after the
+#    instant's date: a SUPERSET of "at or before the instant" (the column's stored text begins with its ISO date, and
+#    the writer stores every stamp in SQLAlchemy's one form), the exact cut (clock <= the instant) applied to each row in
+#    Python, as before. A group (one observation, one source stamp) shares both clocks, so a cut never splits one.
+#    Backfilled rows are cut by the chosen clock like any row: under the recorded clock a backfilled row is read from
+#    its fetch, under the source clock from its stamp; BACKFILLED stays a label read over the interval, not a filter.
+# 2. THE PARTITION: every rule of the derivation compares two rows of one source and kind only through fact_key (which
+#    holds the team and the player), slot_key (the team for every kind but plays_for; the player for plays_for) and, for
+#    a snapshot load, the team (its closure and its partial guard). So the intervals of a (source, kind, team) -- for
+#    plays_for, a (source, kind, player) -- depend on that partition's rows alone and on one fact about each group: is
+#    it a load (snapshot_load reads the whole group; _mixed_groups supplies the groups whose other rows are of another
+#    kind). The SELECT is ordered by the partition's columns; each partition is derived as it completes and its closed
+#    intervals dropped (as_of keeps the open ones).
+# 3. THE KEY, in SQL: a --team or --match-id read loads only the partitions holding a row that names that team or match
+#    (_key_filter). An interval the filter keeps (on mapped_now: the latest member's ids, the source's team text) has a
+#    member that names it, so its partition is loaded, whole.
+# The answers are put back in the full derivation's order (_group_order, then the row id). Equivalence with the full
+# materialisation (load_rows + derive) on randomized histories, both clocks: tests/test_availability_record.py.
+
+def _partition(r: Row) -> tuple:
+    """The partition whose rows alone decide r's intervals (point 2 above)."""
+    return (r.source, r.kind, player_key(r) if r.kind == "plays_for" else team_key(r))
+
+
+def _clock_bound(clock: str, t: datetime):
+    """Point 1: the chosen clock's column before the day after t's date (a superset of clock <= t; NULL excluded). On
+    the last representable date (9999-12-31: no day after it) the bound is the column's NULL test alone, still a
+    superset: the exact cut runs in Python either way, so the answer does not change (Codex on #841, round 1)."""
+    from sqlalchemy import and_
+
+    from src.db.schema import AvailabilityAssertion as A
+    col = A.recorded_at if clock == "recorded" else A.source_stamp
+    if t.date() == date.max:
+        return col.is_not(None)
+    return and_(col.is_not(None), col < datetime.combine(t.date() + timedelta(days=1), datetime.min.time()))
+
+
+def _mixed_groups(s, sport, clock: str, t: datetime, kind: str | None) -> frozenset:
+    """The groups (observation id, source stamp) read at t that are NOT a load although a partition's share of them is
+    all the snapshot kind: a snapshot source's observation with a payload hash whose group, in this read, also holds a
+    row of another kind. A read of one kind holds no such group. Usually none."""
+    if kind is not None or not SNAPSHOT_SOURCES:
+        return frozenset()
+    from sqlalchemy import and_, or_, select
+
+    from src.db.schema import AvailabilityAssertion as A
+    from src.db.schema import AvailabilityObservation as O
+    q = (select(A.observation_id, A.source_stamp, A.recorded_at).join(O, O.id == A.observation_id)
+         .where(A.sport == _sport(sport), O.payload_sha256.is_not(None), _clock_bound(clock, t),
+                or_(*[and_(O.source == src, A.kind != k) for src, k in SNAPSHOT_SOURCES.items()])).distinct())
+    out = set()
+    for oid, stamp, recorded in _run(s, q):
+        c = recorded if clock == "recorded" else stamp
+        if c is not None and c <= t:
+            out.add((oid, stamp))
+    return frozenset(out)
+
+
+KEY_FILTER_LIMIT = 5000                    # past this many partition keys, the read streams every partition instead
+
+
+def _key_filter(s, sport, clock: str, t: datetime, kind: str | None, match_id, team):
+    """Point 3: the WHERE clause that loads, whole, every partition holding a row that names the match (else the
+    team), or None (no key: every partition). False when no row names it."""
+    if match_id is None and team is None:
+        return None
+    from sqlalchemy import and_, false, or_, select
+
+    from src.db.schema import AvailabilityAssertion as A
+    from src.db.schema import AvailabilityObservation as O
+    if match_id is not None:
+        names = A.match_id == match_id
+    else:
+        tt = str(team)
+        names = or_(A.source_team == tt, A.team_id == int(tt)) if tt.isdigit() else A.source_team == tt
+    q = (select(A.kind, A.source_team, A.team_id, A.source_player_id, A.player_name, A.player_id)
+         .join(O, O.id == A.observation_id)
+         .where(A.sport == _sport(sport), _clock_bound(clock, t), names).distinct())
+    if kind is not None:
+        q = q.where(A.kind == kind)
+    teams_src, teams_id, p_src, p_name, p_id = set(), set(), set(), set(), set()
+    for k, steam, tid, spid, name, pid in _run(s, q):
+        if k == "plays_for":
+            (p_src.add(spid) if spid is not None else p_name.add(name) if name is not None else p_id.add(pid))
+        else:
+            (teams_src.add(steam) if steam is not None else teams_id.add(tid))
+    if sum(map(len, (teams_src, teams_id, p_src, p_name, p_id))) > KEY_FILTER_LIMIT:
+        return None
+    pf = A.kind == "plays_for"
+    alts = []
+    if teams_src:
+        alts.append(and_(~pf, A.source_team.in_(sorted(teams_src))))
+    if teams_id:
+        alts.append(and_(~pf, A.source_team.is_(None), A.team_id.in_(sorted(teams_id))))
+    if p_src:
+        alts.append(and_(pf, A.source_player_id.in_(sorted(p_src))))
+    if p_name:
+        alts.append(and_(pf, A.source_player_id.is_(None), A.player_name.in_(sorted(p_name))))
+    if p_id:
+        alts.append(and_(pf, A.source_player_id.is_(None), A.player_name.is_(None), A.player_id.in_(sorted(p_id))))
+    return or_(*alts) if alts else false()
+
+
+def _partitions(s, sport, clock: str, t: datetime, kind: str | None = None, match_id=None, team=None):
+    """The rows a read at t under the clock derives from (clock <= t), one partition (point 2) at a time, each whole.
+    The SELECT is bounded by the clock (point 1) and the key (point 3) and ordered by the partition's columns, read in
+    batches of READ_BATCH; a partition met twice would be a broken order, and is refused, never derived in halves."""
+    from sqlalchemy import case, null
+
+    from src.db.schema import AvailabilityAssertion as A
+    from src.db.schema import AvailabilityObservation as O
+    where = _key_filter(s, sport, clock, t, kind, match_id, team)
+    q = _select(sport, kind).where(_clock_bound(clock, t))
+    if where is not None:
+        q = q.where(where)
+    pf = A.kind == "plays_for"
+    q = q.order_by(O.source, A.kind, case((pf, A.source_player_id), else_=A.source_team),
+                   case((pf, A.player_name), else_=null()), case((pf, A.player_id), else_=A.team_id), A.id)
+    build = _Rows()
+    cur, rows, seen = None, [], set()
+    for tup in _run(s, q.execution_options(yield_per=READ_BATCH)):
+        r = build(tup)
+        c = clock_of(r, clock)
+        if c is None or c > t:                    # the exact cut (point 1)
+            continue
+        p = _partition(r)
+        if p != cur:
+            if rows:
+                yield rows
+            if p in seen:
+                raise RuntimeError(f"the read's order met partition {p!r} twice: refused, never derived in halves")
+            seen.add(p)
+            cur, rows = p, []
+        rows.append(r)
+    if rows:
+        yield rows
+
+
+def _checked(clock: str, kind: str | None, instant) -> datetime:
+    if clock not in CLOCKS:
+        raise Refused(f"REFUSED: clock {clock!r} is not one of {', '.join(CLOCKS)}")
+    if kind is not None and kind not in KINDS:
+        raise Refused(f"REFUSED: kind {kind!r} is not in the vocabulary ({', '.join(KINDS)})")
+    return _instant(instant)
+
+
 def as_of(s, sport, instant: datetime, clock: str = "recorded", match_id: int | None = None, team=None,
           kind: str | None = None) -> list[Fact]:
     """THE AS-OF QUERY (item 2): the facts in force at `instant` under `clock`: derive() over the assertions whose
-    clock is at or before the instant, the intervals still open. The derivation runs over the sport (and kind) whole;
-    the match and team filters pick from its result, so a closure by another team's row (plays_for) is never lost."""
-    if kind is not None and kind not in KINDS:
-        raise Refused(f"REFUSED: kind {kind!r} is not in the vocabulary ({', '.join(KINDS)})")
-    t = _instant(instant)
-    rows = [r for r in load_rows(s, sport, kind) if (clock_of(r, clock) is not None and clock_of(r, clock) <= t)]
-    return [Fact(iv, interval_backfilled(iv), post_hoc(iv.first, iv), live_since(iv)) for iv in derive(rows, clock)
-            if iv.end is None and _keep(iv, match_id, team)]
+    clock is at or before the instant, the intervals still open, in the order the derivation opened them. The match
+    and team filters pick from the derivation of every partition that holds a row naming them, so a closure by another
+    team's row (plays_for) is never lost. Read bounded (the section above): the answer is the full derivation's."""
+    t = _checked(clock, kind, instant)
+    not_loads = _mixed_groups(s, sport, clock, t, kind)
+    out = []
+    for part in _partitions(s, sport, clock, t, kind, match_id, team):
+        out.extend(iv for iv in _derive(part, clock, not_loads) if iv.end is None and _keep(iv, match_id, team))
+    out.sort(key=lambda iv: (_group_order(iv.first, clock), iv.first.id))
+    return [Fact(iv, interval_backfilled(iv), post_hoc(iv.first, iv), live_since(iv)) for iv in out]
 
 
 def history(s, sport, instant: datetime, clock: str = "recorded", match_id: int | None = None, team=None,
             kind: str | None = None) -> list[tuple[Row, Interval]]:
     """--history (item 2): every assertion for the key with its clock at or before the instant, in time order, each
     with the interval it opened or restated (its derived end), so a flip shows. The same derive() as as_of; the key is
-    read on each interval's latest member, so every row of a fact that mapped later is listed under our id."""
-    if kind is not None and kind not in KINDS:
-        raise Refused(f"REFUSED: kind {kind!r} is not in the vocabulary ({', '.join(KINDS)})")
-    t = _instant(instant)
-    rows = [r for r in load_rows(s, sport, kind) if (clock_of(r, clock) is not None and clock_of(r, clock) <= t)]
-    member = {r.id: iv for iv in derive(rows, clock) for r in iv.members}
-    order = [r for _, g in _groups(rows, clock) for r in g]          # time order: the derivation's own
-    return [(r, member[r.id]) for r in order if _keep(member[r.id], match_id, team)]
+    read on each interval's latest member, so every row of a fact that mapped later is listed under our id. Read
+    bounded, as as_of."""
+    t = _checked(clock, kind, instant)
+    not_loads = _mixed_groups(s, sport, clock, t, kind)
+    out = []
+    for part in _partitions(s, sport, clock, t, kind, match_id, team):
+        member = {r.id: iv for iv in _derive(part, clock, not_loads) for r in iv.members}
+        out.extend((r, member[r.id]) for r in part if _keep(member[r.id], match_id, team))
+    out.sort(key=lambda x: (_group_order(x[0], clock), x[0].id))     # time order: the derivation's own
+    return out
 
 
 def unread_under_source_clock(s, sport, kind: str | None = None) -> int:
-    """How many assertions carry no source stamp (law 4: counted where the source clock does not read them)."""
-    return sum(r.source_stamp is None for r in load_rows(s, sport, kind))
+    """How many assertions carry no source stamp (law 4: counted where the source clock does not read them). A COUNT in
+    SQL over the same join load_rows reads."""
+    from sqlalchemy import func, select
+
+    from src.db.schema import AvailabilityAssertion as A
+    from src.db.schema import AvailabilityObservation as O
+    q = (select(func.count()).select_from(A).join(O, O.id == A.observation_id)
+         .where(A.sport == _sport(sport), A.source_stamp.is_(None)))
+    if kind is not None:
+        q = q.where(A.kind == kind)
+    return int(_run(s, q).scalar() or 0)
 
 
 # ---- printing (the cli's lines; the same objects a term reads) ----------------------------------------------------------
@@ -979,7 +1225,8 @@ def attributions(sources: Iterable[str]) -> list[str]:
 
 
 __all__ = ["SOURCES", "STATUSES", "KINDS", "CLOCKS", "SOURCE_CADENCE_HOURS", "TABLES", "TRIGGERS", "MIGRATION_MARKER", "APPEND_ONLY",
-           "Refused", "Receipt", "write_observation", "migrated", "redact", "payload_path_refusal", "Row", "Interval",
+           "Refused", "Receipt", "write_observation", "migrated", "redact", "payload_path_refusal", "endpoint_refusal",
+           "assertion_refusal", "ENDPOINT_LIMIT", "Row", "Interval",
            "Fact", "load_rows", "derive", "as_of", "history", "backfilled", "interval_backfilled", "live_since",
            "post_hoc", "kickoff_of", "mapped_now", "match_key", "SOURCE_MATCH_IDS", "attributions", "SNAPSHOT_SOURCES",
            "PARTIAL_GROUP_FRACTION", "snapshot_load", "partial_group", "guard_load"]

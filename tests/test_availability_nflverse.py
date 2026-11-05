@@ -805,3 +805,153 @@ def test_a_failed_read_is_receipted_pages_and_stops_nothing(sandbox, capsys):
     chain = rs[-1]
     assert chain["kind"] == "chain" and chain["exit"] == 1 and chain["stopped_at"] is None
     assert "stopped at step" not in capsys.readouterr().out
+
+
+# ---- Codex on #841, round 1: the kept payload's path is collision-safe; a refused endpoint leaves nothing on disk ---------
+
+def _kept_files(tmp_path):
+    root = tmp_path / "logs" / "availability"
+    return sorted(p.relative_to(tmp_path).as_posix() for p in root.rglob("*")) if root.exists() else []
+
+
+def test_two_different_payloads_kept_in_one_second_both_stay_and_neither_is_overwritten(tmp_path):
+    """Fail-first (HEAD 01a52c99 named a kept file <HHMMSS>Z-<name>: the second payload of the same second replaced
+    the first, under the first observation's payload_path). The name now carries the payload's sha256 prefix and the
+    file is created exclusively: two fetches and two hand-carried files in one second keep four files."""
+    _teams("BAL")
+    b1 = _body(_chart(D1, "BAL", 3))
+    b2 = _body(_chart(D1, "BAL", 3) + _chart(D2, "BAL", 3, qb1=2, qb2=1))
+    http = FakeHTTP(FakeResp(200, b1, '"e1"'), FakeResp(200, b2, '"e2"'))
+    runs = [nv.run(2026, http_get=http, now_fn=lambda: F1) for _ in range(2)]
+    assert [r.status for r in runs] == ["complete", "complete"] and [r.rows_asserted for r in runs] == [3, 3]
+    o = _obs()
+    assert o[0]["payload_path"] != o[1]["payload_path"]
+    assert (tmp_path / o[0]["payload_path"]).read_bytes() == b1                  # the first payload, unaltered
+    assert (tmp_path / o[1]["payload_path"]).read_bytes() == b2
+    assert hashlib.sha256(b1).hexdigest()[:16] in o[0]["payload_path"]
+    assert re.fullmatch(r"logs/availability/nflverse_depth_charts/2026-10-03/084500Z-[0-9a-f]{16}-depth_charts_2026\.csv",
+                        o[0]["payload_path"])
+    # the same through --file: two different files of one name, one second
+    f1 = _ingest(tmp_path, _chart(D3, "BAL", 3), F2, name="hand.csv")
+    f2 = _ingest(tmp_path, _chart(D3 + timedelta(hours=1), "BAL", 4), F2, name="hand.csv")
+    assert f1.got.payload_path != f2.got.payload_path
+    for ing in (f1, f2):
+        assert nv.sha256_file(tmp_path / ing.got.payload_path) == ing.got.sha256
+    assert len([k for k in _kept_files(tmp_path) if k.endswith(".csv")]) == 4
+
+
+def test_the_kept_path_is_created_exclusively_reused_for_the_same_bytes_and_refused_for_others(tmp_path):
+    src = tmp_path / "src.csv"
+    src.write_bytes(b"payload")
+    sha = nv.sha256_file(src)
+    rel, final = nv._kept(F1, "x.csv", sha)
+    assert nv._retain(src, final, sha) is True and final.read_bytes() == b"payload"
+    assert nv._retain(src, final, sha) is False                                   # the same bytes: reused
+    other = tmp_path / "other.csv"
+    other.write_bytes(b"other bytes")
+    with pytest.raises(nv.Refused, match="already holds other bytes"):
+        nv._retain(other, final, nv.sha256_file(other))                          # never written over
+    assert final.read_bytes() == b"payload"
+
+
+@pytest.mark.parametrize("name, why", [
+    ("api_token=secret.csv", "the endpoint carries a secret"),
+    ("x" * 246 + ".csv", "longer than 255"),
+])
+def test_a_refused_file_name_leaves_no_file_and_no_row(tmp_path, name, why):
+    """Fail-first (HEAD 01a52c99 copied the file under logs/availability BEFORE the writer checked the endpoint: a
+    secret-bearing name stayed on disk as an orphan payload with no row; a name too long for the kept file raised an
+    OSError). The endpoint (the writer's own rule) and the kept path are checked before any file or directory is
+    made: refused, exit 2, nothing on disk, nothing written."""
+    d = tmp_path / "in"
+    d.mkdir()
+    path = _write(d / name, _chart(D1, "BAL", 3))
+    with pytest.raises((nv.Refused, rec.Refused), match=why):
+        nv.run(file=str(path), now_fn=lambda: F1)
+    assert _kept_files(tmp_path) == [] and _counts() == (0, 0)
+    out = CliRunner().invoke(_cli(), ["availability-nflverse", "--file", str(path)])
+    assert out.exit_code == 2 and why in out.output and _kept_files(tmp_path) == [] and _counts() == (0, 0)
+
+
+def test_an_endpoint_past_the_columns_width_is_refused_by_the_one_rule():
+    """A file name cannot reach 512 characters (NAME_MAX is 255 bytes), so this is the writer's rule itself, the one the
+    adapter now runs first."""
+    assert "longer than 512" in rec.endpoint_refusal("file:" + "x" * 600)
+    assert rec.endpoint_refusal(nv.release_url(2026)) is None
+
+
+# ---- Codex on #841, round 1 (finding C, its row widths): a row the writer refuses leaves no orphan payload ----------------
+
+@pytest.mark.parametrize("field, value, why", [
+    ("player_name", "N" * 200, "player_name is longer than 128 characters"),
+    ("team", "T" * 70, "source_team is longer than 64 characters"),
+    ("espn_id", "9" * 70, "source_player_id is longer than 64 characters"),
+])
+def test_a_row_past_the_writers_width_refuses_the_file_before_anything_is_copied(tmp_path, field, value, why):
+    """Fail-first (round 1's head: read_file did not run the writer's widths, so --file copied the payload under
+    logs/availability, then write_observation refused the row: an orphan payload with no row). Every row to be asserted
+    now goes through record.assertion_refusal (the writer's own checks) BEFORE the copy: exit 2, nothing copied,
+    nothing written, through run and through the cli."""
+    _teams("BAL")
+    rows = _chart(D1, "BAL", 3)
+    rows[0] = {**rows[0], field: value}
+    d = tmp_path / "in"
+    d.mkdir()
+    path = _write(d / "depth_charts_2026.csv", rows)
+    with pytest.raises(nv.Refused, match=re.escape(why) + ".*nothing copied, nothing written"):
+        nv.run(file=str(path), now_fn=lambda: F1)
+    assert _kept_files(tmp_path) == [] and _counts() == (0, 0)
+    out = CliRunner().invoke(_cli(), ["availability-nflverse", "--file", str(path)])
+    assert out.exit_code == 2 and why in out.output, out.output
+    assert _kept_files(tmp_path) == [] and _counts() == (0, 0)
+
+
+def test_a_fetched_row_past_the_writers_width_is_a_failed_observation_that_keeps_its_payload(tmp_path):
+    """The fetch path: the payload is kept before it is read (evidence), so a row the writer would refuse is a `failed`
+    observation whose payload_path names the kept file, the writer's reason its error; never a refused write that
+    leaves the kept file with no row pointing to it."""
+    _teams("BAL")
+    rows = _chart(D1, "BAL", 3)
+    rows[1] = {**rows[1], "player_name": "N" * 200}
+    body = _body(rows)
+    ing = nv.run(2026, http_get=FakeHTTP(FakeResp(200, body, '"e1"')), now_fn=lambda: F1)
+    (o,) = _obs()
+    assert ing.status == "failed" and o["status"] == "failed" and o["rows_asserted"] == 0 and _counts() == (1, 0)
+    assert "assertion 2 player_name is longer than 128 characters" in o["error"]
+    assert o["http_status"] == 200 and o["payload_sha256"] == hashlib.sha256(body).hexdigest()
+    assert (tmp_path / o["payload_path"]).read_bytes() == body                   # the kept file, named by its row
+    assert [k for k in _kept_files(tmp_path) if k.endswith(".csv")] == [o["payload_path"]]
+    assert ing.rows_read == 0 and ing.new_rows == 0 and ing.refused
+
+
+def test_a_store_refusal_after_the_keep_leaves_no_orphan_payload(tmp_path, monkeypatch):
+    """Belt and braces for what no pre-check can see (the store's own refusal, e.g. a trigger): a --file's copy made by
+    the run is removed and the refusal stands (exit 2); a fetch is written as a `failed` observation keeping its path."""
+    _teams("BAL")
+    real = rec.write_observation
+
+    def refuse_rows(obs, assertions=()):
+        if assertions:
+            raise rec.Refused("REFUSED: the store refused the write (a SYNTHETIC trigger refusal); nothing written")
+        return real(obs, assertions)
+    monkeypatch.setattr(rec, "write_observation", refuse_rows)
+    with pytest.raises(rec.Refused, match="SYNTHETIC trigger refusal"):
+        _ingest(tmp_path, _chart(D1, "BAL", 3), F1)
+    assert _kept_files(tmp_path) == [] and _counts() == (0, 0)
+    body = _body(_chart(D1, "BAL", 3))
+    ing = nv.run(2026, http_get=FakeHTTP(FakeResp(200, body)), now_fn=lambda: F1)
+    (o,) = _obs()
+    assert ing.status == "failed" and o["status"] == "failed" and "SYNTHETIC trigger refusal" in o["error"]
+    assert (tmp_path / o["payload_path"]).read_bytes() == body and _counts() == (1, 0)
+    assert [k for k in _kept_files(tmp_path) if k.endswith(".csv")] == [o["payload_path"]]
+
+
+def test_assertion_refusal_is_the_writers_own_check():
+    """record.assertion_refusal answers exactly as write_observation's row check does (one rule, two callers)."""
+    ok = {"kind": "depth_rank", "source_player_id": "1", "player_name": "A", "source_team": "BAL"}
+    assert rec.assertion_refusal(ok, 1, nv.SOURCE) is None
+    assert "player_name is longer than 128" in rec.assertion_refusal({**ok, "player_name": "x" * 129}, 1)
+    assert rec.assertion_refusal({**ok, "player_name": "x" * 128}, 1) is None
+    assert "names no team" in rec.assertion_refusal({**ok, "source_team": None}, 3)
+    assert "per-game fact from nhl_api_landing" in rec.assertion_refusal(
+        {**ok, "kind": "projected_starter"}, 1, "nhl_api_landing")

@@ -57,7 +57,9 @@ How it reads and writes (law 1: every column by its name, as 259 item 1 read the
     observation with rows_asserted 0 carrying that payload's sha256 and path, and the answer's ETag, where it differs
     from the stored one, written beside that payload (the sidecar is not the record: no row changes), so the next
     unchanged day sends a validator the server matches; changed: kept under
-    logs/availability/nflverse_depth_charts/<UTC date>/ (never data/, never mirrored), its ETag beside it, then read;
+    logs/availability/nflverse_depth_charts/<UTC date>/<HHMMSS>Z-<sha256, first 16 hex>-depth_charts_<season>.csv
+    (never data/, never mirrored), created EXCLUSIVELY (O_EXCL: the same bytes there are reused, other bytes refused,
+    never overwritten; Codex on #841, round 1), its ETag beside it, then read;
   - a raised call, a broken stream, any other status, or a refused file: a `failed` observation, the error redacted
     (record.redact, after every URL's query string is cut: a release asset redirects to a signed URL). A 5xx or a 429
     is worded as requests words it ("503 Server Error", "429 Client Error: Too Many Requests"), so the chain's retry
@@ -67,7 +69,17 @@ How it reads and writes (law 1: every column by its name, as 259 item 1 read the
   The endpoint string is the requested release URL (no secret is needed or sent), never the redirect's signed one.
 - --file PATH: a local file (the operator's hand-carried release file; the tests) read the same way, endpoint
   "file:<its name>"; refused (exit 2, nothing written) when the header or a row is refused; kept under the payload
-  directory when its bytes differ from the last kept payload of that endpoint.
+  directory (<HHMMSS>Z-<sha256, first 16 hex>-<its name>, exclusive) when its bytes differ from the last kept payload
+  of that endpoint.
+- CHECKED BEFORE ANY FILE (Codex on #841, round 1): the endpoint by the writer's own rule (record.endpoint_refusal)
+  before any call, copy or file, and the kept path (record.payload_path_refusal, the name's 255 bytes) before any
+  directory or file is made: a refused name (a credential-like one, "api_token=secret.csv"; one too long to keep)
+  leaves nothing on disk and no row. Every row to be asserted goes through the writer's own row checks
+  (record.assertion_refusal: its widths among them, player_name 128 characters, source_team and source_player_id 64)
+  BEFORE a --file is copied (refused: exit 2, nothing copied, nothing written) and, on a fetched file, before the
+  write (refused: a `failed` observation keeping the payload's path, the refusal its error). A store refusal after a
+  payload was kept leaves no orphan either: a --file's copy made by the run is removed (exit 2); a fetch is written
+  as a `failed` observation keeping the path (Codex on #841, round 1).
 - THE WRITE: one record.write_observation per run (one fetch, one observation, 252 item 3(a); a retried chain step
   is another run), under the chains' DB
   lock (sp_common.sync_lock, a no-op inside a chain), the store's state read mode=ro under the same lock. A missing DB
@@ -80,6 +92,7 @@ import hashlib
 import os
 import re
 import shutil
+import tempfile
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -334,13 +347,48 @@ class Got:
     changed: bool = False                 # a new payload, kept and to be read
     error: str | None = None              # the call raised / the status was refused (failed)
     etag: str = "none"                    # the ETag line: sent/not sent, the answer
+    created: bool = False                 # this run created the kept file (not an earlier run's same bytes, reused)
 
 
-def _keep(now: datetime, name: str) -> tuple[str, Path]:
+NAME_MAX = 255                            # bytes in one file name (Linux's NAME_MAX): a longer kept name is refused
+
+
+def _kept(now: datetime, name: str, sha: str) -> tuple[str, Path]:
+    """The kept payload's (relative path, absolute path): logs/availability/<source>/<UTC date>/<HHMMSS>Z-<the payload's
+    sha256, first 16 hex>-<name>, so two different payloads kept in one second never share a path (Codex on #841, round
+    1). Checked BEFORE any directory or file is made: the writer's payload_path rule and the file-name length; a refusal
+    leaves nothing on disk. Creates nothing."""
     rel_dir, abs_dir = _payload_dir(now)
-    abs_dir.mkdir(parents=True, exist_ok=True)
-    final = f"{now:%H%M%S}Z-{name}"
-    return f"{rel_dir}/{final}", abs_dir / final
+    final = f"{now:%H%M%S}Z-{sha[:16]}-{name}"
+    rel = f"{rel_dir}/{final}"
+    why = rec.payload_path_refusal(rel, SOURCE)
+    if why:
+        raise Refused(f"REFUSED: {why}; nothing kept, nothing written")
+    if len(final.encode("utf-8")) > NAME_MAX:
+        raise Refused(f"REFUSED: the kept payload's file name would be {len(final.encode('utf-8'))} bytes, longer than "
+                      f"{NAME_MAX}; nothing kept, nothing written")
+    return rel, abs_dir / final
+
+
+def _retain(src: Path, final: Path, sha: str) -> bool:
+    """The payload's bytes at `final`, created EXCLUSIVELY (O_EXCL: never over another file). True when written; False
+    when `final` already holds exactly these bytes (its sha256 is the payload's: reused, not written again); Refused
+    when it holds other bytes (the evidence there is never overwritten). A failed copy removes its partial file."""
+    final.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        fd = os.open(final, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+    except FileExistsError:
+        if sha256_file(final) == sha:
+            return False
+        raise Refused(f"REFUSED: {final.name} already holds other bytes (sha256 {sha256_file(final)[:16]}, not "
+                      f"{sha[:16]}): the kept evidence is never overwritten; nothing written") from None
+    try:
+        with os.fdopen(fd, "wb") as out, open(src, "rb") as inp:
+            shutil.copyfileobj(inp, out, CHUNK)
+    except BaseException:
+        final.unlink(missing_ok=True)
+        raise
+    return True
 
 
 def status_error(code: int) -> str:
@@ -397,9 +445,11 @@ def fetch(season: int, prev: tuple[str, str] | None, *, http_get, now_fn) -> Got
             return Got(url, fetched, code, error=status_error(code), etag=f"{sent}; HTTP {code}")
         abs_dir = _payload_dir(fetched)[1]
         abs_dir.mkdir(parents=True, exist_ok=True)
-        part = abs_dir / f".{fetched:%H%M%S}Z-depth_charts_{int(season)}.csv.part"
+        fd, name = tempfile.mkstemp(prefix=f".{fetched:%H%M%S}Z-depth_charts_{int(season)}.", suffix=".csv.part",
+                                    dir=abs_dir)          # a name of its own: two runs never share a partial file
+        part = Path(name)
         h = hashlib.sha256()
-        with open(part, "wb") as f:
+        with os.fdopen(fd, "wb") as f:
             for b in resp.iter_content(chunk_size=CHUNK):
                 if b:
                     h.update(b)
@@ -411,9 +461,8 @@ def fetch(season: int, prev: tuple[str, str] | None, *, http_get, now_fn) -> Got
             part = None
             return Got(url, fetched, 200, prev[0], prev[1],
                        etag=f"{sent}; 200 byte-identical (not kept again)" + _refresh_etag(prev[1], etag, new_etag))
-        rel, final = _keep(fetched, f"depth_charts_{int(season)}.csv")
-        os.replace(part, final)
-        part = None
+        rel, final = _kept(fetched, f"depth_charts_{int(season)}.csv", sha)
+        _retain(part, final, sha)                         # exclusive: another payload's file is never overwritten
         if new_etag:
             (final.parent / (final.name + ".etag")).write_text(str(new_etag) + "\n", encoding="utf-8")
         return Got(url, fetched, 200, sha, rel, changed=True,
@@ -432,15 +481,24 @@ def fetch(season: int, prev: tuple[str, str] | None, *, http_get, now_fn) -> Got
             close()
 
 
+def file_endpoint(path: Path) -> str:
+    return f"file:{path.name}"
+
+
 def from_file(path: Path, prev: tuple[str, str] | None, now: datetime) -> Got:
-    """A hand-carried file: hashed; kept under the payload directory when its bytes differ from the last kept one."""
+    """A hand-carried file: hashed; kept under the payload directory when its bytes differ from the last kept one.
+    The endpoint and the kept path are checked (the writer's endpoint rule, the payload path rule, the name's length)
+    BEFORE anything is copied: a refusal leaves no file (Codex on #841, round 1)."""
+    ep = file_endpoint(path)
+    why = rec.endpoint_refusal(ep)
+    if why:
+        raise Refused(why)
     sha = sha256_file(path)
-    ep = f"file:{path.name}"
     if prev and sha == prev[0]:
         return Got(ep, now, None, prev[0], prev[1], etag="n/a (--file); byte-identical to the last kept payload")
-    rel, final = _keep(now, path.name)
-    shutil.copyfile(path, final)
-    return Got(ep, now, None, sha, rel, changed=True, etag="n/a (--file)")
+    rel, final = _kept(now, path.name, sha)
+    created = _retain(path, final, sha)
+    return Got(ep, now, None, sha, rel, changed=True, etag="n/a (--file)", created=created)
 
 
 # ---- the ingest -------------------------------------------------------------------------------------------------------
@@ -495,6 +553,19 @@ class Ingest:
         return out
 
 
+def writer_refusal(rows: list[dict]) -> str | None:
+    """Why the writer would refuse these assertions, or None: record.assertion_refusal (the writer's own checks, its
+    widths among them: player_name 128 characters, source_team and source_player_id 64) on every row, numbered as the
+    writer numbers them. Run BEFORE a --file is copied (a refusal: exit 2, nothing copied, nothing written) and, on a
+    fetched file, before the write (a refusal: a failed observation that keeps the payload's path) (Codex on #841,
+    round 1)."""
+    for i, a in enumerate(rows, 1):
+        why = rec.assertion_refusal(a, i, SOURCE)
+        if why:
+            return why
+    return None
+
+
 def _assertions(parsed: Parsed, wm: datetime | None, tmap: dict, ambiguous: set, fetched: datetime,
                 last_complete: dict, ing: Ingest) -> list[dict]:
     out = []
@@ -546,6 +617,26 @@ def _db_lock():
                                                        "it)", flush=True))
 
 
+def _after_a_refused_write(got: Got, e: Exception, *, hand_carried: bool) -> None:
+    """The writer refused a write AFTER a payload was kept (every check the writer runs on the rows is run before the
+    keep: what is left is the store's own refusal). Never an orphan payload (Codex on #841, round 1): a --file's copy
+    made by this run is removed and the refusal stands (exit 2, nothing copied, nothing written); a fetched file's
+    payload stays as evidence and returns here, so the caller writes the fetch as a `failed` observation that keeps
+    its path, the refusal its error. A write that kept nothing is re-raised as it was."""
+    if not (got.changed and got.payload_path):
+        raise e
+    if hand_carried:
+        if got.created:
+            final = PAYLOAD_BASE / got.payload_path
+            final.unlink(missing_ok=True)
+            for d in (final.parent, final.parent.parent):    # the date and source directories, only when left empty
+                try:
+                    d.rmdir()
+                except OSError:
+                    break
+        raise e
+
+
 def _now() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
@@ -568,22 +659,33 @@ def run(season: int | None = None, file: str | None = None, *, http_get=None, no
         src_file = Path(file)
         if not src_file.is_file():
             raise Refused(f"REFUSED: --file {file!r} is not a file")
+    endpoint = file_endpoint(src_file) if src_file is not None else release_url(season)
+    why = rec.endpoint_refusal(endpoint)            # the writer's rule, before any call, copy or file (Codex #841 r1)
+    if why:
+        raise Refused(why)
+    if src_file is not None:
         parsed_local = read_file(src_file)          # refused before anything is copied or written
     with _db_lock():
         with readonly_scope() as s:
             if not rec.migrated(s):
                 raise Refused("REFUSED: migrate_availability_record.py has not run (the tables and their marker); "
                               "nothing fetched, nothing written")
-            endpoint = f"file:{src_file.name}" if src_file is not None else release_url(season)
             prev = previous_payload(s, endpoint)
             wm = watermark(s)
             tmap, ambiguous = team_map(s)
             last_complete = stored_complete_groups(s)
+        pre = None
         if src_file is not None:
             now = now_fn()
             why = future_refusal(parsed_local, now) or older_refusal(parsed_local, wm)
             if why:
                 raise Refused(why)                  # an operator's file: nothing copied, nothing written (exit 2)
+            # every row it would assert, through the writer's own checks, BEFORE anything is copied (Codex #841 r1)
+            pre = Ingest(got=Got(endpoint, now), watermark=wm)
+            pre_rows = _assertions(parsed_local, wm, tmap, ambiguous, now, last_complete, pre)
+            why = writer_refusal(pre_rows)
+            if why:
+                raise Refused(f"{why}; nothing copied, nothing written")
             got = from_file(src_file, prev, now)
         else:
             if http_get is None:
@@ -596,22 +698,35 @@ def run(season: int | None = None, file: str | None = None, *, http_get=None, no
             ing.status = "failed"
         elif got.changed:
             try:
-                parsed = parsed_local if src_file is not None else read_file(PAYLOAD_BASE / got.payload_path)
-                why = future_refusal(parsed, got.fetched_at) or older_refusal(parsed, wm)
-                if why:
-                    raise Refused(why)              # a fetched file: a failed observation, the file kept (evidence)
+                if pre is not None:                 # the --file: read and checked above, before its copy
+                    parsed, ing, rows = parsed_local, pre, pre_rows
+                    ing.got = got
+                else:
+                    parsed = read_file(PAYLOAD_BASE / got.payload_path)
+                    why = future_refusal(parsed, got.fetched_at) or older_refusal(parsed, wm)
+                    if why:
+                        raise Refused(why)          # a fetched file: a failed observation, the file kept (evidence)
+                    rows = _assertions(parsed, wm, tmap, ambiguous, got.fetched_at, last_complete, ing)
+                    why = writer_refusal(rows)
+                    if why:
+                        raise Refused(why)          # the writer's own rule: the same failed observation, file kept
             except Refused as e:
-                ing.status, ing.refused = "failed", str(e)
+                ing = Ingest(got=got, watermark=wm, status="failed", refused=str(e))
                 got.error = str(e)[:256]
-                parsed = None
+                parsed, rows = None, []
             if parsed is not None:
                 ing.rows_read, ing.loads = len(parsed.rows), len(parsed.loads)
-                rows = _assertions(parsed, wm, tmap, ambiguous, got.fetched_at, last_complete, ing)
                 ing.status = ("empty" if not parsed.rows else "partial" if ing.unmapped_teams else "complete")
         obs = {"sport": "nfl", "source": SOURCE, "endpoint": got.endpoint, "fetched_at": got.fetched_at,
                "http_status": got.http_status, "payload_sha256": got.sha256, "payload_path": got.payload_path,
                "status": ing.status, "error": got.error}
-        r = rec.write_observation(obs, rows if ing.status in rec.ASSERTING else [])
+        try:
+            r = rec.write_observation(obs, rows if ing.status in rec.ASSERTING else [])
+        except rec.Refused as e:
+            _after_a_refused_write(got, e, hand_carried=src_file is not None)      # raises unless a fetch kept a file
+            ing = Ingest(got=got, watermark=wm, status="failed", refused=str(e))
+            got.error = str(e)[:256]
+            r = rec.write_observation({**obs, "status": "failed", "error": got.error}, [])
     ing.observation_id = r.observation_id
     ing.rows_asserted = r.assertions
     return ing
@@ -620,4 +735,4 @@ def run(season: int | None = None, file: str | None = None, *, http_get=None, no
 __all__ = ["SOURCE", "KIND", "COLUMNS", "ATTR_COLUMNS", "FIRST_SEASON", "RELEASE_URL", "TIMEOUT", "ATTRIBUTION",
            "Refused", "Parsed", "Got", "Ingest", "current_season", "release_url", "season_refusal", "header_refusal",
            "read_file", "future_refusal", "older_refusal", "status_error", "FUTURE_SKEW", "team_map", "watermark",
-           "stored_complete_groups", "previous_payload", "stored_etag", "fetch", "from_file", "run"]
+           "stored_complete_groups", "previous_payload", "stored_etag", "fetch", "from_file", "writer_refusal", "run"]

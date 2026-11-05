@@ -20,13 +20,20 @@ How it reads and writes (law 1: every column by its name, as 259 item 1 read the
   player_name / gsis_id / espn_id non-empty, else the file is refused naming the line (never a guessed row).
 - A ROW -> ONE ASSERTION of kind depth_rank: attrs pos_grp, pos_abb, pos_slot, pos_rank VERBATIM (strings, as the file
   holds them), dt_raw (the file's dt text), espn_id and gsis_id verbatim (both ids kept; the record's VOLATILE_ATTRS,
-  identity not the fact); source_stamp = dt (UTC); source_player_id = espn_id, else gsis_id where espn_id is empty
-  (attrs says which: espn_id "" there). THE KEY IS ONE ID THAT DOES NOT MOVE: record.player_key keys facts and slots on
+  identity not the fact); source_stamp = dt (UTC); source_player_id = espn_id, ONLY (ARCHITECT 2026-11-05 11:55 ET,
+  addendum 262 item 5, #840). THE KEY IS ONE ID THAT DOES NOT MOVE: record.player_key keys facts and slots on
   source_player_id, so a key that switched ids when nflverse filled one in later would close the player's interval
-  "slot asserted to someone else" (the same player) and open a new one: a false flip. espn_id first because the chart
-  is ESPN's (its own id); a gsis_id filled in later then changes attrs only (VOLATILE_ATTRS), never the key. The
-  RESIDUAL: a row with NO espn_id keyed on gsis_id (or its name) that gains an espn_id later still reads as a flip; the
-  blank rate of each id on the real files is unread here (the excerpt is not in this container: the PR body's TODO).
+  "slot asserted to someone else" (the same player) and open a new one: a false flip. espn_id because the chart is
+  ESPN's (its own id); a gsis_id filled in later changes attrs only (VOLATILE_ATTRS), never the key (that fix stays:
+  262 item 5, "correct even though the data has not produced the case yet"). 262 item 5 read the real files: blank
+  espn_id 0 of 554,215 rows (2025) and 0 of 747,450 (2026); "RULED: keying on `espn_id` is right [...] the residual
+  case has frequency zero and gets a GUARD, not a design: a row with a blank `espn_id` is counted and refused into the
+  group's `partial` status, never keyed by name". So a row with a blank espn_id is NEVER asserted (never keyed on its
+  gsis_id or its name): it is counted (the receipt's "rows with no espn_id" line), its (dt, team) group is partial (the
+  rest of the group is asserted carrying attrs.rows_refused = the count, record.ROWS_REFUSED_ATTR, so derive() closes
+  nothing for that team at that load and never takes it as a previous complete group). The OBSERVATION's status keeps
+  254 item 2(7)'s meaning (`partial` = a team or match left unmapped): a refused row makes its group partial, not the
+  observation. The record's writer refuses any snapshot-source row with no source_player_id (never keyed by name).
   player_id NULL (addendum 254 item 2(3): no player table maps an NFL id today;
   every player counted unmapped); player_name verbatim; source_team = team verbatim and team_id = OUR teams.id by the
   existing NFL team mapping: the NFL competition's teams (competition_teams, competition code NFL) whose `tla` (the
@@ -44,7 +51,9 @@ How it reads and writes (law 1: every column by its name, as 259 item 1 read the
 - NO LOAD FROM THE FUTURE: a row whose dt is later than our fetch's time plus FUTURE_SKEW (1 h of clock skew) refuses
   the file naming its line (a --file: exit 2, nothing written; a fetch: a `failed` observation, the file kept). One such
   stamp held would become the watermark for good (the record is append-only) and drop every real load after it as
-  "older".
+  "older". 262 item 3: "the 1-hour future-skew tolerance stands [...] within the hour it is accepted and the skew is
+  printed on the receipt -- clock drift is a fact, not a fault": a newest dt ahead of our fetch by up to the hour is
+  asserted, and the receipt's "clock skew" line names it and by how much.
 - THE PARTIAL-GROUP GUARD'S COUNT (259 item 2(b)): the receipt counts the new (dt, team) groups that hold fewer than
   half the rows of the team's previous complete group (record.guard_load, the rule derive() closes by), the previous
   complete groups read from the store's own loads first.
@@ -70,16 +79,20 @@ How it reads and writes (law 1: every column by its name, as 259 item 1 read the
 - --file PATH: a local file (the operator's hand-carried release file; the tests) read the same way, endpoint
   "file:<its name>"; refused (exit 2, nothing written) when the header or a row is refused; kept under the payload
   directory (<HHMMSS>Z-<sha256, first 16 hex>-<its name>, exclusive) when its bytes differ from the last kept payload
-  of that endpoint.
+  of that endpoint. ONE READ OF THE ORIGINAL (Codex on #841, round 1; 262 item 6: "copy once to a temporary file, then
+  hash, parse and keep that same copy"): the file is copied ONCE to a private temporary file (tempfile.mkstemp, outside
+  the checkout), and that copy is hashed, parsed and kept (copied into place from the copy, the copy's hash checked
+  again on the way); the original is never read again, so a file changed while the run reads it cannot make the hash,
+  the rows and the kept bytes disagree. The temporary copy is removed whatever the run's end.
 - CHECKED BEFORE ANY FILE (Codex on #841, round 1): the endpoint by the writer's own rule (record.endpoint_refusal)
   before any call, copy or file, and the kept path (record.payload_path_refusal, the name's 255 bytes) before any
   directory or file is made: a refused name (a credential-like one, "api_token=secret.csv"; one too long to keep)
   leaves nothing on disk and no row. Every row to be asserted goes through the writer's own row checks
   (record.assertion_refusal: its widths among them, player_name 128 characters, source_team and source_player_id 64)
-  BEFORE a --file is copied (refused: exit 2, nothing copied, nothing written) and, on a fetched file, before the
-  write (refused: a `failed` observation keeping the payload's path, the refusal its error). A store refusal after a
-  payload was kept leaves no orphan either: a --file's copy made by the run is removed (exit 2); a fetch is written
-  as a `failed` observation keeping the path (Codex on #841, round 1).
+  BEFORE a --file is kept (on its temporary copy; refused: exit 2, nothing kept, nothing written) and, on a fetched
+  file, before the write (refused: a `failed` observation keeping the payload's path, the refusal its error). A store
+  refusal after a payload was kept leaves no orphan either: a --file's copy made by the run is removed (exit 2); a
+  fetch is written as a `failed` observation keeping the path (Codex on #841, round 1).
 - THE WRITE: one record.write_observation per run (one fetch, one observation, 252 item 3(a); a retried chain step
   is another run), under the chains' DB
   lock (sp_common.sync_lock, a no-op inside a chain), the store's state read mode=ro under the same lock. A missing DB
@@ -278,26 +291,30 @@ def watermark(s) -> datetime | None:
 
 def stored_complete_groups(s) -> dict:
     """Each team's previous complete group size, from the store's own loads (the groups derive() reads as loads:
-    observations that keep a payload hash), folded in dt order by record.guard_load."""
+    observations that keep a payload hash), folded in dt order by record.guard_load; a group whose rows carry
+    attrs.rows_refused (a row refused there, 262 item 5) is partial, never a previous complete group."""
     from sqlalchemy import func, select
 
     from src.db.schema import AvailabilityAssertion as A
     from src.db.schema import AvailabilityObservation as O
-    got = s.execute(select(A.observation_id, A.source_stamp, A.source_team, func.count())
+    got = s.execute(select(A.observation_id, A.source_stamp, A.source_team, func.count(),
+                           func.max(func.json_extract(A.attrs, f"$.{rec.ROWS_REFUSED_ATTR}")))
                     .join(O, O.id == A.observation_id)
                     .where(O.source == SOURCE, A.kind == KIND, O.payload_sha256.is_not(None))
                     .group_by(A.observation_id, A.source_stamp, A.source_team)
                     .order_by(A.source_stamp, A.observation_id)).all()
     last: dict = {}
-    load_key, counts = None, {}
-    for oid, stamp, team, n in got:
+    load_key, counts, refused = None, {}, set()
+    for oid, stamp, team, n, k in got:
         if (oid, stamp) != load_key:
             if counts:
-                rec.guard_load(counts, last)
-            load_key, counts = (oid, stamp), {}
+                rec.guard_load(counts, last, refused)
+            load_key, counts, refused = (oid, stamp), {}, set()
         counts[(SOURCE, ("src", team))] = n
+        if k:
+            refused.add((SOURCE, ("src", team)))
     if counts:
-        rec.guard_load(counts, last)
+        rec.guard_load(counts, last, refused)
     return last
 
 
@@ -373,7 +390,9 @@ def _kept(now: datetime, name: str, sha: str) -> tuple[str, Path]:
 def _retain(src: Path, final: Path, sha: str) -> bool:
     """The payload's bytes at `final`, created EXCLUSIVELY (O_EXCL: never over another file). True when written; False
     when `final` already holds exactly these bytes (its sha256 is the payload's: reused, not written again); Refused
-    when it holds other bytes (the evidence there is never overwritten). A failed copy removes its partial file."""
+    when it holds other bytes (the evidence there is never overwritten). The bytes are hashed as they are copied: a
+    copy whose bytes are not `sha` is removed and refused (262 item 6: the kept bytes are the hashed bytes). A failed
+    copy removes its partial file."""
     final.parent.mkdir(parents=True, exist_ok=True)
     try:
         fd = os.open(final, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
@@ -382,9 +401,15 @@ def _retain(src: Path, final: Path, sha: str) -> bool:
             return False
         raise Refused(f"REFUSED: {final.name} already holds other bytes (sha256 {sha256_file(final)[:16]}, not "
                       f"{sha[:16]}): the kept evidence is never overwritten; nothing written") from None
+    h = hashlib.sha256()
     try:
         with os.fdopen(fd, "wb") as out, open(src, "rb") as inp:
-            shutil.copyfileobj(inp, out, CHUNK)
+            for b in iter(lambda: inp.read(CHUNK), b""):
+                h.update(b)
+                out.write(b)
+        if h.hexdigest() != sha:
+            raise Refused(f"REFUSED: the bytes copied to {final.name} are not the hashed payload (sha256 "
+                          f"{h.hexdigest()[:16]}, not {sha[:16]}): nothing kept, nothing written")
     except BaseException:
         final.unlink(missing_ok=True)
         raise
@@ -485,19 +510,35 @@ def file_endpoint(path: Path) -> str:
     return f"file:{path.name}"
 
 
-def from_file(path: Path, prev: tuple[str, str] | None, now: datetime) -> Got:
-    """A hand-carried file: hashed; kept under the payload directory when its bytes differ from the last kept one.
-    The endpoint and the kept path are checked (the writer's endpoint rule, the payload path rule, the name's length)
-    BEFORE anything is copied: a refusal leaves no file (Codex on #841, round 1)."""
-    ep = file_endpoint(path)
+def snapshot_copy(path: Path) -> tuple[Path, str]:
+    """262 item 6: the --file's ONE read. Its bytes copied once to a private temporary file (tempfile.mkstemp, outside
+    the checkout: nothing under logs/ until the keep), and that copy hashed. Returns (the copy, its sha256); the caller
+    parses and keeps the same copy and removes it whatever happens. A failed copy removes its partial file."""
+    fd, name = tempfile.mkstemp(prefix=".nflverse-file-", suffix=".csv")
+    copy = Path(name)
+    try:
+        with os.fdopen(fd, "wb") as out, open(path, "rb") as inp:
+            shutil.copyfileobj(inp, out, CHUNK)
+        return copy, sha256_file(copy)
+    except BaseException:
+        copy.unlink(missing_ok=True)
+        raise
+
+
+def from_file(copy: Path, name: str, sha: str, prev: tuple[str, str] | None, now: datetime) -> Got:
+    """A hand-carried file, by its one temporary copy (snapshot_copy: `copy` and its `sha`; `name` the original's
+    file name): kept under the payload directory, FROM THAT COPY, when its bytes differ from the last kept one (262 item
+    6: never a second read of the original). The endpoint and the kept path are checked (the writer's endpoint rule,
+    the payload path rule, the name's length) BEFORE anything is kept: a refusal leaves no file (Codex on #841, round
+    1)."""
+    ep = f"file:{name}"
     why = rec.endpoint_refusal(ep)
     if why:
         raise Refused(why)
-    sha = sha256_file(path)
     if prev and sha == prev[0]:
         return Got(ep, now, None, prev[0], prev[1], etag="n/a (--file); byte-identical to the last kept payload")
-    rel, final = _kept(now, path.name, sha)
-    created = _retain(path, final, sha)
+    rel, final = _kept(now, name, sha)
+    created = _retain(copy, final, sha)
     return Got(ep, now, None, sha, rel, changed=True, etag="n/a (--file)", created=created)
 
 
@@ -522,6 +563,10 @@ class Ingest:
     unmapped_players: int = 0
     backfilled: int = 0
     refused: str | None = None            # a fetched file the adapter refused (a failed observation)
+    # 262 item 5 (#840): rows with a blank espn_id, never asserted (never keyed by gsis_id or name), and their groups
+    no_espn_rows: int = 0
+    no_espn_groups: list = field(default_factory=list)     # (dt, team, rows refused, rows asserted)
+    newest_load: datetime | None = None   # the file's newest dt (262 item 3: its skew past our fetch is printed)
 
     def lines(self) -> list[str]:
         g = self.got
@@ -533,9 +578,13 @@ class Ingest:
         out.append(f"  rows read {self.rows_read} · loads {self.loads} (new {self.new_loads}) · new rows "
                    f"{self.new_rows} · rows asserted {self.rows_asserted} · older rows not asserted again "
                    f"{self.old_rows} (watermark: newest source_stamp held {z(self.watermark)})")
-        out.append(f"  partial team groups: {len(self.partial_groups)}, closing nothing"
+        out.append(f"  partial team groups: {len(self.partial_groups) + len(self.no_espn_groups)}, closing nothing"
                    + "".join(f"\n    {z(dt)} {team}: {n} row(s) < half of {prev}" for dt, team, n, prev
-                             in self.partial_groups))
+                             in self.partial_groups)
+                   + "".join(f"\n    {z(dt)} {team}: {k} row(s) with no espn_id refused ({n} asserted)"
+                             for dt, team, k, n in self.no_espn_groups))
+        out.append(f"  rows with no espn_id: {self.no_espn_rows}, refused, never keyed by gsis_id or name (addendum "
+                   f"262 item 5); their team groups partial: {len(self.no_espn_groups)}")
         um = ", ".join(f"{t} ({n} row(s))" for t, n in sorted(self.unmapped_teams.items())) or "none"
         out.append(f"  unmapped teams: {len(self.unmapped_teams)} ({um})"
                    + (f"; ambiguous tla (more than one NFL team): {', '.join(sorted(self.ambiguous_teams))}"
@@ -544,7 +593,14 @@ class Ingest:
                      f"2(3))")
         out.append(f"  backfilled rows (recorded more than {rec.SOURCE_CADENCE_HOURS[SOURCE]} h after their dt): "
                    f"{self.backfilled}")
-        if g.changed and self.rows_read and not self.new_rows and not self.refused:
+        if self.newest_load is not None and g.fetched_at is not None and self.newest_load > g.fetched_at:
+            ahead = int((self.newest_load - g.fetched_at).total_seconds())
+            out.append(f"  clock skew: the newest load (dt {z(self.newest_load)}) is {ahead} s ahead of our fetch "
+                       f"({z(g.fetched_at)}), within the {int(FUTURE_SKEW.total_seconds() // 60)} min tolerance: "
+                       f"accepted (addendum 262 item 3: clock drift is a fact, not a fault)")
+        # no load newer than the watermark (not "no new row": a new load whose rows were all refused, 262 item 5, is
+        # counted in new_loads and is not "nothing new")
+        if g.changed and self.rows_read and not self.new_loads and not self.refused:
             out.append(f"  no new load: the file's newest dt is the watermark ({z(self.watermark)}); nothing to "
                        f"assert")
         out.append(f"  payload sha256 {g.sha256[:16] if g.sha256 else 'none'}"
@@ -556,7 +612,7 @@ class Ingest:
 def writer_refusal(rows: list[dict]) -> str | None:
     """Why the writer would refuse these assertions, or None: record.assertion_refusal (the writer's own checks, its
     widths among them: player_name 128 characters, source_team and source_player_id 64) on every row, numbered as the
-    writer numbers them. Run BEFORE a --file is copied (a refusal: exit 2, nothing copied, nothing written) and, on a
+    writer numbers them. Run BEFORE a --file is kept (a refusal: exit 2, nothing kept, nothing written) and, on a
     fetched file, before the write (a refusal: a failed observation that keeps the payload's path) (Codex on #841,
     round 1)."""
     for i, a in enumerate(rows, 1):
@@ -570,36 +626,49 @@ def _assertions(parsed: Parsed, wm: datetime | None, tmap: dict, ambiguous: set,
                 last_complete: dict, ing: Ingest) -> list[dict]:
     out = []
     by_load: dict = {}
+    no_espn: dict = {}                    # (dt, team) -> rows refused there (262 item 5)
     cad = timedelta(hours=rec.SOURCE_CADENCE_HOURS[SOURCE])
     for dt, row in parsed.rows:
         if wm is not None and dt <= wm:
             ing.old_rows += 1
             continue
         team = row["team"]
+        espn = row["espn_id"] if row["espn_id"].strip() else None
+        if espn is None:
+            # 262 item 5: "a row with a blank `espn_id` is counted and refused into the group's `partial` status, never
+            # keyed by name": never asserted, never keyed by gsis_id or the name; its (dt, team) group is partial
+            no_espn[(dt, team)] = no_espn.get((dt, team), 0) + 1
+            continue
         tid = tmap.get(team) if team not in ambiguous else None
         if tid is None:
             ing.unmapped_teams[team] = ing.unmapped_teams.get(team, 0) + 1
             if team in ambiguous:
                 ing.ambiguous_teams.add(team)
-        gsis = row["gsis_id"] if row["gsis_id"].strip() else None
-        espn = row["espn_id"] if row["espn_id"].strip() else None
         attrs = {**{c: row[c] for c in ATTR_COLUMNS},
                  "dt_raw": row["dt"], "espn_id": row["espn_id"], "gsis_id": row["gsis_id"]}
-        # ONE id that does not move: the chart's own (espn_id), else gsis_id; a gsis_id filled in later changes attrs
-        # only (VOLATILE_ATTRS), never the key (record.player_key), so it never reads as a flip (the module docstring)
-        out.append({"kind": KIND, "player_id": None, "source_player_id": espn or gsis,
+        # ONE id that does not move: the chart's own (espn_id), ONLY (262 item 5); a gsis_id filled in later changes
+        # attrs only (VOLATILE_ATTRS), never the key (record.player_key), so it never reads as a flip (the docstring)
+        out.append({"kind": KIND, "player_id": None, "source_player_id": espn,
                     "player_name": row["player_name"] or None, "team_id": tid, "source_team": team,
                     "match_id": None, "attrs": attrs, "source_stamp": dt})
         by_load.setdefault(dt, {}).setdefault(team, 0)
         by_load[dt][team] += 1
         if fetched - dt > cad:
             ing.backfilled += 1
-    ing.new_loads = len(by_load)
+    for a in out:                         # the rest of a group that lost a row: partial, and says how many
+        k = no_espn.get((a["source_stamp"], a["source_team"]))
+        if k:
+            a["attrs"][rec.ROWS_REFUSED_ATTR] = k
+    ing.no_espn_rows = sum(no_espn.values())
+    ing.new_loads = len(set(by_load) | {dt for dt, _ in no_espn})
     for dt in sorted(by_load):
         counts = {(SOURCE, ("src", t)): n for t, n in by_load[dt].items()}
+        refused = {(SOURCE, ("src", t)) for d, t in no_espn if d == dt}
         prev = dict(last_complete)
-        for key in rec.guard_load(counts, last_complete):
-            ing.partial_groups.append((dt, key[1][1], counts[key], prev[key]))
+        for key in rec.guard_load(counts, last_complete, refused):
+            if key not in refused:
+                ing.partial_groups.append((dt, key[1][1], counts[key], prev[key]))
+    ing.no_espn_groups = sorted((dt, t, k, by_load.get(dt, {}).get(t, 0)) for (dt, t), k in no_espn.items())
     ing.partial_groups.sort(key=lambda x: (x[0], x[1]))
     ing.new_rows = len(out)
     ing.unmapped_players = len(out)
@@ -644,8 +713,8 @@ def _now() -> datetime:
 def run(season: int | None = None, file: str | None = None, *, http_get=None, now_fn=_now) -> Ingest:
     """THE INGEST (the module docstring): one observation, its new rows, its receipt. Refused (nothing written, no
     call) on a missing DB file, an unmigrated store, a season before 2025, or a --file that is not the 2025+ shape,
-    holds a load from the future, or holds only loads older than the source's watermark."""
-    from src.db.database import readonly_scope
+    holds a load from the future, or holds only loads older than the source's watermark. A --file is read ONCE, into
+    a temporary copy that is hashed, parsed and kept (262 item 6), and removed whatever the run's end."""
     season = current_season() if season is None else int(season)
     why = season_refusal(season)
     if why and file is None:
@@ -663,8 +732,20 @@ def run(season: int | None = None, file: str | None = None, *, http_get=None, no
     why = rec.endpoint_refusal(endpoint)            # the writer's rule, before any call, copy or file (Codex #841 r1)
     if why:
         raise Refused(why)
-    if src_file is not None:
-        parsed_local = read_file(src_file)          # refused before anything is copied or written
+    if src_file is None:
+        return _run(season, None, endpoint, http_get=http_get, now_fn=now_fn)
+    copy, sha = snapshot_copy(src_file)             # 262 item 6: the original's one read
+    try:
+        return _run(season, (src_file.name, copy, sha), endpoint, http_get=http_get, now_fn=now_fn)
+    finally:
+        copy.unlink(missing_ok=True)
+
+
+def _run(season: int, local, endpoint: str, *, http_get, now_fn) -> Ingest:
+    """run() past its argument checks; `local` is a --file's (name, temporary copy, its sha256), else None."""
+    from src.db.database import readonly_scope
+    if local is not None:
+        parsed_local = read_file(local[1])          # the copy: refused before anything is kept or written
     with _db_lock():
         with readonly_scope() as s:
             if not rec.migrated(s):
@@ -675,18 +756,18 @@ def run(season: int | None = None, file: str | None = None, *, http_get=None, no
             tmap, ambiguous = team_map(s)
             last_complete = stored_complete_groups(s)
         pre = None
-        if src_file is not None:
+        if local is not None:
             now = now_fn()
             why = future_refusal(parsed_local, now) or older_refusal(parsed_local, wm)
             if why:
                 raise Refused(why)                  # an operator's file: nothing copied, nothing written (exit 2)
-            # every row it would assert, through the writer's own checks, BEFORE anything is copied (Codex #841 r1)
+            # every row it would assert, through the writer's own checks, BEFORE anything is kept (Codex #841 r1)
             pre = Ingest(got=Got(endpoint, now), watermark=wm)
             pre_rows = _assertions(parsed_local, wm, tmap, ambiguous, now, last_complete, pre)
             why = writer_refusal(pre_rows)
             if why:
                 raise Refused(f"{why}; nothing copied, nothing written")
-            got = from_file(src_file, prev, now)
+            got = from_file(local[1], local[0], local[2], prev, now)
         else:
             if http_get is None:
                 import requests
@@ -698,7 +779,7 @@ def run(season: int | None = None, file: str | None = None, *, http_get=None, no
             ing.status = "failed"
         elif got.changed:
             try:
-                if pre is not None:                 # the --file: read and checked above, before its copy
+                if pre is not None:                 # the --file: its copy read and checked above, before the keep
                     parsed, ing, rows = parsed_local, pre, pre_rows
                     ing.got = got
                 else:
@@ -716,14 +797,17 @@ def run(season: int | None = None, file: str | None = None, *, http_get=None, no
                 parsed, rows = None, []
             if parsed is not None:
                 ing.rows_read, ing.loads = len(parsed.rows), len(parsed.loads)
-                ing.status = ("empty" if not parsed.rows else "partial" if ing.unmapped_teams else "complete")
+                ing.newest_load = parsed.loads[-1] if parsed.loads else None
+                # 254 item 2(7): `partial` = a team or match left unmapped. A row refused (no espn_id, 262 item 5)
+                # makes its GROUP partial (attrs.rows_refused), never the observation: the ruled meaning stands
+                ing.status = "empty" if not parsed.rows else "partial" if ing.unmapped_teams else "complete"
         obs = {"sport": "nfl", "source": SOURCE, "endpoint": got.endpoint, "fetched_at": got.fetched_at,
                "http_status": got.http_status, "payload_sha256": got.sha256, "payload_path": got.payload_path,
                "status": ing.status, "error": got.error}
         try:
             r = rec.write_observation(obs, rows if ing.status in rec.ASSERTING else [])
         except rec.Refused as e:
-            _after_a_refused_write(got, e, hand_carried=src_file is not None)      # raises unless a fetch kept a file
+            _after_a_refused_write(got, e, hand_carried=local is not None)       # raises unless a fetch kept a file
             ing = Ingest(got=got, watermark=wm, status="failed", refused=str(e))
             got.error = str(e)[:256]
             r = rec.write_observation({**obs, "status": "failed", "error": got.error}, [])
@@ -735,4 +819,5 @@ def run(season: int | None = None, file: str | None = None, *, http_get=None, no
 __all__ = ["SOURCE", "KIND", "COLUMNS", "ATTR_COLUMNS", "FIRST_SEASON", "RELEASE_URL", "TIMEOUT", "ATTRIBUTION",
            "Refused", "Parsed", "Got", "Ingest", "current_season", "release_url", "season_refusal", "header_refusal",
            "read_file", "future_refusal", "older_refusal", "status_error", "FUTURE_SKEW", "team_map", "watermark",
-           "stored_complete_groups", "previous_payload", "stored_etag", "fetch", "from_file", "writer_refusal", "run"]
+           "stored_complete_groups", "previous_payload", "stored_etag", "fetch", "snapshot_copy", "from_file",
+           "writer_refusal", "run"]

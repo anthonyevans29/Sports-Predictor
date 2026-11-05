@@ -72,16 +72,54 @@ LANDING = "https://api-web.nhle.com/v1/gamecenter/2025020123/landing"
 KO = datetime(2026, 11, 10, 0, 0)
 
 
-def _depth(name, gsis, rank, stamp, team="BAL", slot=1, team_id=None):
+def _depth(name, gsis, rank, stamp, team="BAL", slot=1, team_id=None, abb="QB"):
     return {"kind": "depth_rank", "source_player_id": gsis, "player_name": name, "source_team": team,
             "team_id": team_id, "source_stamp": stamp,
-            "attrs": {"pos_grp": "Offense", "pos_abb": "QB", "pos_slot": slot, "pos_rank": rank,
+            "attrs": {"pos_grp": "Offense", "pos_abb": abb, "pos_slot": slot, "pos_rank": rank,
                       "dt_raw": stamp.isoformat() + "Z" if stamp else None}}
 
 
 def _nfl(fetched_at, status="complete", **kw):
     return {"sport": "nfl", "source": "nflverse_depth_charts", "endpoint": NFLVERSE, "status": status,
             "fetched_at": fetched_at, **kw}
+
+
+# THE SMALL FULL CHART (ARCHITECT 2026-11-05 11:55 ET, addendum 262 item 1): "#831's one-row test histories that
+# exercise nflverse semantics are rewritten as small full charts; the generic record tests on synthetic non-snapshot
+# sources keep their shape (the rule is per source, not global)". The writer requires a payload hash on every nflverse
+# observation that asserts a row, so each load below is a WHOLE chart of each team present (a snapshot), carrying a
+# hash: the team's rows the test names, two filler rows of the same team, and a second team's three rows. The fillers
+# and the second team are restated by every load, so the facts a test names behave as before; _names leaves them out.
+FILL = (("Fill WR", "WR", 3), ("Fill TE", "TE", 4))          # the named team's other rows: the same every load
+OTHER = (("Fill KC QB", "QB", 1), ("Fill KC WR", "WR", 3), ("Fill KC TE", "TE", 4))   # a second team, KC
+
+
+def _chart(stamp, *named, team="BAL", team_id=None):
+    """One SYNTHETIC load at `stamp`: the named rows (_depth), `team`'s filler rows, and KC's chart."""
+    return (list(named)
+            + [_depth(n, f"00-{team}-{abb}", 1, stamp, team, slot, team_id, abb) for n, abb, slot in FILL]
+            + [_depth(n, f"00-KC-{abb}", 1, stamp, "KC", slot, None, abb) for n, abb, slot in OTHER])
+
+
+def _loaded(fetched_at, rows, status="complete", **kw):
+    """(an nflverse observation that asserts `rows`, carrying its payload's hash, 262 item 1; the rows): the hash of the
+    synthetic payload (the rows and the fetch)."""
+    sha = hashlib.sha256(repr((fetched_at, [sorted(r.items(), key=str) for r in rows])).encode()).hexdigest()
+    return _nfl(fetched_at, status, payload_sha256=sha, **kw), rows
+
+
+def _load(fetched_at, rows, status="complete", **kw):
+    return rec.write_observation(*_loaded(fetched_at, rows, status, **kw))
+
+
+def _bal_qb(facts_or_rows):
+    """The named team's QB rows (facts, intervals, rows, or history's (row, interval) pairs): what the one-row
+    histories asserted."""
+    def row(x):
+        if isinstance(x, tuple):
+            return x[0]
+        return x.interval.first if hasattr(x, "interval") else x.first if hasattr(x, "first") else x
+    return [x for x in facts_or_rows if row(x).source_team == "BAL" and row(x).attrs["pos_abb"] == "QB"]
 
 
 def _nhl(label, fetched_at, status="complete", match_id=77, **kw):
@@ -110,7 +148,7 @@ def test_migration_creates_the_triggers_and_the_marker_and_is_idempotent(capsys)
     out1 = _migrate(capsys)
     assert "· availability_observations already exists." in out1          # init_db made the mapped tables
     assert "+ Wrote migration marker availability_record_migration" in out1
-    assert f"triggers on the record ({len(rec.TRIGGERS)})" in out1 and len(rec.TRIGGERS) == 6
+    assert f"triggers on the record ({len(rec.TRIGGERS)})" in out1 and len(rec.TRIGGERS) == 7   # 262 item 1
     out2 = _migrate(capsys)
     assert "· Kept migration marker" in out2 and "+ Created trigger" not in out2
     with _engine().connect() as c:
@@ -135,7 +173,8 @@ def test_the_migration_refuses_a_missing_db_and_creates_nothing(tmp_path, monkey
 
 def test_writes_refuse_an_unmigrated_store():
     with pytest.raises(rec.Refused, match="migrate_availability_record.py has not run"):
-        rec.write_observation(_nfl(datetime(2026, 11, 5, 9)), [_depth("A", "00-1", 1, datetime(2026, 11, 5, 7))])
+        _load(datetime(2026, 11, 5, 9), _chart(datetime(2026, 11, 5, 7), _depth("A", "00-1", 1,
+                                                                           datetime(2026, 11, 5, 7))))
     assert _counts() == (0, 0)
 
 
@@ -157,8 +196,9 @@ def test_the_writer_refuses_a_missing_db_file_and_never_creates_it(tmp_path, mon
 
 def test_6a_update_and_delete_abort_on_both_tables_whoever_runs_them():
     _migrate()
-    r = rec.write_observation(_nfl(datetime(2026, 11, 5, 9)), [_depth("A", "00-1", 1, datetime(2026, 11, 5, 7))])
-    assert r.written and r.assertions == 1
+    r = _load(datetime(2026, 11, 5, 9), _chart(datetime(2026, 11, 5, 7), _depth("A", "00-1", 1,
+                                                                               datetime(2026, 11, 5, 7))))
+    assert r.written and r.assertions == 6
     for sql in ("UPDATE availability_observations SET status = 'empty'",
                 "UPDATE availability_observations SET match_id = 5 WHERE id = 1",
                 "DELETE FROM availability_observations",
@@ -173,7 +213,7 @@ def test_6a_update_and_delete_abort_on_both_tables_whoever_runs_them():
         with pytest.raises(IntegrityError, match="append-only"):
             with _engine().begin() as c:
                 c.execute(text(sql))
-    assert _counts() == (1, 1)
+    assert _counts() == (1, 6)
     with _engine().connect() as c:
         assert c.execute(text("SELECT status, endpoint FROM availability_observations")).one() == ("complete",
                                                                                                    NFLVERSE)
@@ -195,7 +235,7 @@ def test_6a_row_counts_only_grow_across_a_replay():
     store holds is "already" (its row stands), and the counts never fall."""
     _migrate()
     t = datetime(2026, 11, 5, 9)
-    seq = [(_nfl(t), [_depth("A", "00-1", 1, t - timedelta(hours=2))]),
+    seq = [_loaded(t, _chart(t - timedelta(hours=2), _depth("A", "00-1", 1, t - timedelta(hours=2)))),
            (_nfl(t + timedelta(days=1)), []),                                    # byte-identical: complete, 0 rows
            (_nhl("T-60", KO - timedelta(minutes=59)), [_goalie(8478406, "G One", 1, "home")]),
            (_nhl("T-30", None, status="missed"), [])]
@@ -207,7 +247,7 @@ def test_6a_row_counts_only_grow_across_a_replay():
                 assert r.already and not r.written
             seen.append(_counts())
     assert all(b[0] >= a[0] and b[1] >= a[1] for a, b in zip(seen, seen[1:]))
-    assert seen[-1] == (6, 3)                                    # 4 + the 2 league-wide replays; 2 + 1 assertions
+    assert seen[-1] == (6, 13)                                   # 4 + the 2 league-wide replays; 2 x 6 + 1 assertions
 
 
 # ---- 6(c) the five statuses ---------------------------------------------------------------------------------------------
@@ -287,6 +327,7 @@ def test_6c_the_checks_refuse_what_the_ruling_forbids():
         (_nfl(t), [{**_depth("A", "1", 1, t), "source_team": None}], "names no team"),
         (_nfl(t), [{"kind": "inactive", "team_id": 3}], "names no player"),
         (_nfl(t), [{**_depth("A", "1", 1, t), "gsis_id": "00-1"}], "names gsis_id"),
+        (_nfl(t), _chart(t, _depth("A", "1", 1, t)), "keeps no payload_sha256"),          # addendum 262 item 1
     ]
     for o, a, why in bad:
         with pytest.raises(rec.Refused, match=re.escape(why)):
@@ -297,15 +338,121 @@ def test_6c_the_checks_refuse_what_the_ruling_forbids():
     assert ok.written and _counts() == (1, 0)
 
 
+def test_262_1_the_writer_refuses_a_snapshot_sources_rows_without_a_payload_hash():
+    """ARCHITECT 2026-11-05 11:55 ET, addendum 262 item 1 (fail-first: on HEAD d327d299 the hashless chart was
+    written): "for a SNAPSHOT source [...] the WRITER REQUIRES `payload_sha256` on every observation that asserts a row
+    [...] An observation of a snapshot source with rows and no hash is REFUSED by the insert guard with its reason;
+    `failed` and `missed` observations carry no payload and assert nothing, as before" -- "the rule is per source, not
+    global". And "the snapshot gate as built (read as a snapshot only with a hash) stays"."""
+    _migrate()
+    t = datetime(2026, 11, 5, 9)
+    s = t - timedelta(hours=2)
+    for status in ("complete", "partial"):
+        with pytest.raises(rec.Refused, match=r"the snapshot source nflverse_depth_charts asserts 6 row\(s\) and keeps "
+                                              r"no payload_sha256: the hash is the load's identity.*262 item 1"):
+            rec.write_observation(_nfl(t, status), _chart(s, _depth("A", "00-1", 1, s)))
+    assert _counts() == (0, 0)
+    # no row, no payload, as before: failed, missed, empty, and a complete fetch that asserts nothing
+    for o in (_nfl(t, "failed", error="ConnectionError: synthetic"), _nfl(None, "missed", scheduled_at=t),
+              _nfl(t, "empty"), _nfl(t + timedelta(hours=1))):
+        assert rec.write_observation(o).written
+    # per source: a non-snapshot source's rows need no hash
+    assert rec.write_observation(_nhl("T-60", KO - timedelta(minutes=60)), [_goalie(1, "G One", 1, "home")]).written
+    # with the hash, the same chart is written
+    r = _load(t + timedelta(hours=2), _chart(s, _depth("A", "00-1", 1, s)))
+    assert r.written and r.assertions == 6 and _counts() == (6, 7)
+    assert dict(rec.SNAPSHOT_SOURCES) == {"nflverse_depth_charts": "depth_rank"}
+    # the gate as built: a group read without a hash (a store written before this rule) is not a load
+    with _ro() as ro:
+        g = [x for x in rec.load_rows(ro, "nfl") if x.observation_id == r.observation_id]
+    from dataclasses import replace
+    assert rec.snapshot_load(g) and not rec.snapshot_load([replace(x, payload_sha256=None) for x in g])
+
+
+SNAP_GUARD = "trg_availability_assertions_snapshot_hash_guard"
+
+
+def _raw_obs_and_row(c, source, sha, at, spid="1"):
+    """Around the app: one raw observation of `source` (its payload_sha256 `sha`) and one raw assertion on it. `at`
+    goes in as the stored text (python 3.12 deprecates sqlite3's default datetime adapter)."""
+    at = at.strftime("%Y-%m-%d %H:%M:%S.%f")
+    c.execute(text("INSERT INTO availability_observations (sport, source, endpoint, fetched_at, status, late, "
+                   "rows_asserted, created_at, payload_sha256) VALUES ('NFL', :src, 'file:x.csv', :at, 'complete', "
+                   "0, 1, :at, :sha)"), {"src": source, "at": at, "sha": sha})
+    oid = c.execute(text("SELECT MAX(id) FROM availability_observations")).scalar()
+    c.execute(text("INSERT INTO availability_assertions (observation_id, sport, kind, source_player_id, player_name, "
+                   "source_team, recorded_at, source_stamp, attrs) VALUES (:o, 'NFL', 'depth_rank', :spid, 'P', "
+                   "'BAL', :at, :at, '{}')"), {"o": oid, "at": at, "spid": spid})
+
+
+def test_262_1_the_insert_guard_refuses_a_raw_hashless_snapshot_assertion():
+    """Addendum 262 item 1: "An observation of a snapshot source with rows and no hash is REFUSED by the insert guard
+    with its reason". The insert guards are the triggers (schema.AVAILABILITY_TRIGGERS): a raw INSERT, around the
+    writer, is refused too (fail-first: on the first 262 build a raw hashless nflverse assertion was stored). Per
+    source: a non-snapshot source's raw row needs no hash, and a hashed nflverse row goes in."""
+    _migrate()
+    at = datetime(2026, 11, 5, 9)
+    with pytest.raises(IntegrityError, match=r"a snapshot source.*no payload_sha256.*addendum 262 item 1"):
+        with _engine().begin() as c:
+            _raw_obs_and_row(c, "nflverse_depth_charts", None, at)
+    assert _counts() == (0, 0)
+    with _engine().begin() as c:
+        _raw_obs_and_row(c, "sportsdataio_goalies", None, at)
+        _raw_obs_and_row(c, "nflverse_depth_charts", "c" * 64, at + timedelta(hours=1))
+    assert _counts() == (2, 2)
+    assert SNAP_GUARD in rec.TRIGGERS
+
+
+def test_262_1_a_store_migrated_before_the_hash_guard_gains_it_on_a_rerun(tmp_path, monkeypatch, capsys):
+    """The hash guard is a trigger of its own (CREATE TRIGGER IF NOT EXISTS cannot change the existing insert guard on
+    a migrated store): a store migrated by #831 (six triggers) gains it on a rerun of migrate_availability_record.py,
+    additive and idempotent, as the recorded-clock index does (262 item 4: one migration ritual); a third run keeps it.
+    Then the raw hashless nflverse row is refused on that store."""
+    _migrate(capsys)
+    with _engine().begin() as c:                                   # a tmp store: #831's trigger set, without it
+        c.execute(text(f"DROP TRIGGER {SNAP_GUARD}"))
+    at = datetime(2026, 11, 5, 9)
+    out1 = _migrate(capsys)
+    assert f"+ Created trigger {SNAP_GUARD}" in out1 and out1.count("+ Created trigger") == 1
+    assert out1.count("· Kept trigger") == len(rec.TRIGGERS) - 1 and "MISSING" not in out1
+    out2 = _migrate(capsys)
+    assert f"· Kept trigger {SNAP_GUARD}" in out2 and "+ Created trigger" not in out2
+    with pytest.raises(IntegrityError, match="addendum 262 item 1"):
+        with _engine().begin() as c:
+            _raw_obs_and_row(c, "nflverse_depth_charts", None, at)
+    assert _counts() == (0, 0)
+
+
+def test_262_5_the_writer_refuses_a_snapshot_sources_row_with_no_source_player_id():
+    """Addendum 262 item 5: a row with a blank `espn_id` is "never keyed by name". The adapter refuses it into its
+    group's partial status; the writer, the record's only writer, refuses a snapshot source's assertion that carries
+    no source_player_id (record.player_key would key it by name), with its reason, and so does assertion_refusal (the
+    adapter's pre-check). Fail-first: on the first 262 build a hashed nflverse load with a name-only row was written
+    and keyed ("name", ...). Per source: a non-snapshot source's name-only row is written as before."""
+    _migrate()
+    t = datetime(2026, 11, 5, 9)
+    s = t - timedelta(hours=2)
+    name_only = _depth("Name Only", None, 1, s)
+    with pytest.raises(rec.Refused, match=r"assertion 1 of the snapshot source nflverse_depth_charts carries no "
+                                          r"source_player_id.*never keyed by name.*262 item 5"):
+        _load(t, _chart(s, name_only))
+    assert _counts() == (0, 0)
+    assert "never keyed by name" in rec.assertion_refusal(name_only, 1, "nflverse_depth_charts")
+    assert rec.assertion_refusal(name_only, 1, "sportsdataio_goalies") is None
+    assert rec.write_observation({"sport": "nfl", "source": "sportsdataio_goalies", "status": "complete",
+                                  "endpoint": "https://example.invalid/goalies", "fetched_at": t},
+                                 [{**name_only, "kind": "plays_for"}]).written
+
+
 def test_6c_an_aware_stamp_is_stored_as_naive_utc():
     _migrate()
     et = timezone(timedelta(hours=-5))
-    r = rec.write_observation(_nfl(datetime(2026, 11, 5, 4, tzinfo=et)),
-                              [_depth("A", "00-1", 1, datetime(2026, 11, 5, 2, tzinfo=et))])
+    r = _load(datetime(2026, 11, 5, 4, tzinfo=et), _chart(datetime(2026, 11, 5, 2, tzinfo=et),
+                                                          _depth("A", "00-1", 1, datetime(2026, 11, 5, 2, tzinfo=et))))
     with _ro() as s:
-        (row,) = rec.load_rows(s, "nfl")
-    assert (row.recorded_at, row.source_stamp, row.observation_id) == (datetime(2026, 11, 5, 9),
-                                                                      datetime(2026, 11, 5, 7), r.observation_id)
+        rows = rec.load_rows(s, "nfl")
+    assert len(rows) == 6 and {(row.recorded_at, row.source_stamp, row.observation_id) for row in rows} == {
+        (datetime(2026, 11, 5, 9), datetime(2026, 11, 5, 7), r.observation_id)}
 
 
 # ---- 6(b) the as-of query under each clock --------------------------------------------------------------------------------
@@ -318,33 +465,35 @@ T4 = datetime(2026, 11, 8, 9)
 
 
 def _history_b():
-    """obs1 at T1: QB1 = A. obs2: the 11-06 fetch missed. obs3 at T3: QB1 = B (the flip). obs4 at T4: C at QB2,
-    stamped S0, weeks before T1 (a backfilled row)."""
+    """Small full charts (262 item 1). obs1 at T1: QB1 = A, QB2 = X. obs2: the 11-06 fetch missed. obs3 at T3: QB1 = B
+    (the flip), QB2 = X. obs4 at T4: the chart stamped S0, weeks before T1 (backfilled rows): QB1 = B, QB2 = C."""
     _migrate()
-    rec.write_observation(_nfl(T1), [_depth("A Starter", "00-A", 1, S1)])
+    _load(T1, _chart(S1, _depth("A Starter", "00-A", 1, S1), _depth("X Backup", "00-X", 2, S1)))
     rec.write_observation(_nfl(None, status="missed", scheduled_at=T2))
-    rec.write_observation(_nfl(T3), [_depth("B Starter", "00-B", 1, S3)])
-    rec.write_observation(_nfl(T4), [_depth("C Backup", "00-C", 2, S0)])
+    _load(T3, _chart(S3, _depth("B Starter", "00-B", 1, S3), _depth("X Backup", "00-X", 2, S3)))
+    _load(T4, _chart(S0, _depth("B Starter", "00-B", 1, S0), _depth("C Backup", "00-C", 2, S0)))
 
 
 def _names(facts):
-    return sorted(f.interval.first.player_name for f in facts)
+    """The named players in force (the small full charts' filler rows left out)."""
+    return sorted(f.interval.first.player_name for f in facts if not f.interval.first.player_name.startswith("Fill"))
 
 
 def test_6b_the_recorded_clock_never_returns_the_backfilled_row_before_its_fetch():
     _history_b()
     with _ro() as s:
         assert _names(rec.as_of(s, "nfl", T1 - timedelta(seconds=1))) == []
-        assert _names(rec.as_of(s, "nfl", T1)) == ["A Starter"]
-        assert _names(rec.as_of(s, "nfl", T3 - timedelta(seconds=1))) == ["A Starter"]
-        assert _names(rec.as_of(s, "nfl", T3)) == ["B Starter"]                  # the flip
+        assert _names(rec.as_of(s, "nfl", T1)) == ["A Starter", "X Backup"]
+        assert _names(rec.as_of(s, "nfl", T3 - timedelta(seconds=1))) == ["A Starter", "X Backup"]
+        assert _names(rec.as_of(s, "nfl", T3)) == ["B Starter", "X Backup"]      # the flip
         for t in (S0, S1, T1, T2, T3, T4 - timedelta(seconds=1)):
             assert "C Backup" not in _names(rec.as_of(s, "nfl", t))             # never before its fetch
         after = rec.as_of(s, "nfl", T4)
         assert _names(after) == ["B Starter", "C Backup"]
         c = next(f for f in after if f.interval.first.player_name == "C Backup")
         assert c.backfilled is True and c.interval.first.recorded_at == T4 and c.interval.first.source_stamp == S0
-        assert next(f for f in after if f.interval.first.player_name == "B Starter").backfilled is False
+        assert next(f for f in after if f.interval.first.player_name == "B Starter").backfilled is False   # T3: fresh
+        assert len(rec.as_of(s, "nfl", T4)) == 7                                 # and the chart's 5 filler rows
         line = rec.fact_line(c)
         assert "BACKFILLED" in line and "recorded_at 2026-11-08T09:00:00Z" in line
         assert "source_stamp 2026-10-20T07:00:00Z" in line and f"<{NFLVERSE}>" in line
@@ -354,18 +503,20 @@ def test_6b_the_source_clock_reads_the_source_stamp_and_labels_the_backfill():
     _history_b()
     with _ro() as s:
         assert _names(rec.as_of(s, "nfl", S0 - timedelta(seconds=1), clock="source")) == []
-        early = rec.as_of(s, "nfl", S0, clock="source")
-        assert _names(early) == ["C Backup"] and early[0].backfilled is True
-        assert _names(rec.as_of(s, "nfl", S1, clock="source")) == ["A Starter", "C Backup"]
-        assert _names(rec.as_of(s, "nfl", S3, clock="source")) == ["B Starter", "C Backup"]
+        early = rec.as_of(s, "nfl", S0, clock="source")                         # the S0 chart, read first
+        assert _names(early) == ["B Starter", "C Backup"]
+        assert next(f for f in early if f.interval.first.player_name == "C Backup").backfilled is True
+        assert _names(rec.as_of(s, "nfl", S1, clock="source")) == ["A Starter", "X Backup"]
+        assert _names(rec.as_of(s, "nfl", S3, clock="source")) == ["B Starter", "X Backup"]
 
 
 def test_6b_the_missed_poll_changes_nothing_and_every_fact_carries_both_stamps():
     _history_b()
     with _ro() as s:
-        before = [f.interval.first.id for f in rec.as_of(s, "nfl", T2 - timedelta(minutes=1))]
-        after = [f.interval.first.id for f in rec.as_of(s, "nfl", T2 + timedelta(hours=1))]
-        assert before == after and len(before) == 1
+        before = rec.as_of(s, "nfl", T2 - timedelta(minutes=1))
+        after = rec.as_of(s, "nfl", T2 + timedelta(hours=1))
+        assert [f.interval.first.id for f in before] == [f.interval.first.id for f in after]
+        assert _names(before) == ["A Starter", "X Backup"] and len(before) == 7
         for clock in rec.CLOCKS:
             for f in rec.as_of(s, "nfl", T4 + timedelta(days=1), clock=clock):
                 line = rec.fact_line(f)
@@ -391,10 +542,10 @@ def test_6g_the_derived_intervals_are_the_flips_the_history_shows():
     _migrate()
     days = [datetime(2026, 11, d, 9) for d in (1, 2, 3, 4, 5)]
     for t, who in zip(days, "AABBA"):
-        rec.write_observation(_nfl(t), [_depth(f"{who} QB", f"00-{who}", 1, t - timedelta(hours=2))])
+        _load(t, _chart(t - timedelta(hours=2), _depth(f"{who} QB", f"00-{who}", 1, t - timedelta(hours=2))))
     with _ro() as s:
-        ivs = rec.derive(rec.load_rows(s, "nfl"))
-        hist = rec.history(s, "nfl", days[-1])
+        ivs = _bal_qb(rec.derive(rec.load_rows(s, "nfl")))
+        hist = _bal_qb(rec.history(s, "nfl", days[-1]))
     assert [(iv.first.player_name, iv.start, iv.end, iv.restated) for iv in ivs] == [
         ("A QB", days[0], days[2], 1), ("B QB", days[2], days[4], 1), ("A QB", days[4], None, 0)]
     assert [iv.why_closed for iv in ivs] == ["slot asserted to someone else"] * 2 + [None]
@@ -423,13 +574,14 @@ def test_6g_as_of_is_the_history_cut_at_the_instant():
 def test_6g_the_same_player_asserted_differently_closes_and_two_in_net_both_hold():
     _migrate()
     t = datetime(2026, 11, 1, 9)
-    rec.write_observation(_nfl(t), [_depth("A QB", "00-A", 1, t)])
-    rec.write_observation(_nfl(t + timedelta(days=1)), [_depth("A QB", "00-A", 2, t + timedelta(days=1))])
+    t1 = t + timedelta(days=1)
+    _load(t, _chart(t, _depth("A QB", "00-A", 1, t), _depth("X QB", "00-X", 2, t)))
+    _load(t1, _chart(t1, _depth("X QB", "00-X", 1, t1), _depth("A QB", "00-A", 2, t1)))
     rec.write_observation(_nhl("T+20", KO + timedelta(minutes=21)),
                           [_goalie(1, "G One", 1, "home", kind="eventual_starter"),
                            _goalie(2, "G Two", 1, "home", kind="eventual_starter")])
     with _ro() as s:
-        nfl = rec.derive(rec.load_rows(s, "nfl"))
+        nfl = [iv for iv in rec.derive(rec.load_rows(s, "nfl")) if iv.first.player_name == "A QB"]
         assert [(iv.first.attrs["pos_rank"], iv.why_closed) for iv in nfl] == [(1, "asserted differently"),
                                                                                (2, None)]
         net = rec.as_of(s, "nhl", KO + timedelta(hours=1), kind="eventual_starter", match_id=77)
@@ -442,10 +594,12 @@ def test_a_restatement_with_a_new_raw_stamp_is_not_a_flip():
     _migrate()
     for d in (1, 2):
         t = datetime(2026, 11, d, 9)
-        rec.write_observation(_nfl(t), [_depth("A QB", "00-A", 1, t - timedelta(hours=2))])
+        _load(t, _chart(t - timedelta(hours=2), _depth("A QB", "00-A", 1, t - timedelta(hours=2))))
     with _ro() as s:
-        (iv,) = rec.derive(rec.load_rows(s, "nfl"))
+        ivs = rec.derive(rec.load_rows(s, "nfl"))
+    (iv,) = _bal_qb(ivs)
     assert iv.restated == 1 and iv.end is None
+    assert len(ivs) == 6 and all(x.restated == 1 and x.end is None for x in ivs)       # the whole chart, restated
 
 
 # ---- the read-only command ------------------------------------------------------------------------------------------------
@@ -467,12 +621,12 @@ def test_cli_prints_the_facts_and_the_history_and_writes_nothing(fresh_db):
     r = _cli("--sport", "nfl", "--as-of", "2026-11-08T09:00:00Z")
     assert r.exit_code == 0, r.output
     lines = r.output.splitlines()
-    assert lines[0] == "AVAILABILITY · nfl · as of 2026-11-08T09:00:00Z · clock recorded · 2 fact(s) in force"
+    assert lines[0] == "AVAILABILITY · nfl · as of 2026-11-08T09:00:00Z · clock recorded · 7 fact(s) in force"
     assert any("B Starter" in ln for ln in lines) and any("C Backup" in ln and "BACKFILLED" in ln for ln in lines)
     assert lines[-1] == "Depth charts: nflverse (CC BY 4.0)"
     h = _cli("--sport", "nfl", "--as-of", "2026-11-08T04:00:00-05:00", "--history", "--team", "BAL")
     assert h.exit_code == 0, h.output
-    assert "3 assertion(s) · --history" in h.output.splitlines()[0] and "team BAL" in h.output
+    assert "12 assertion(s) · --history" in h.output.splitlines()[0] and "team BAL" in h.output     # 3 loads x 4
     early = _cli("--sport", "nfl", "--as-of", "2026-11-05T08:59:59Z")
     assert early.exit_code == 0 and "  no facts" in early.output and "nflverse (CC BY" not in early.output
     src = _cli("--sport", "nfl", "--as-of", "2026-10-21T00:00:00Z", "--clock", "source", "--kind", "depth_rank")
@@ -502,7 +656,7 @@ def test_cli_reads_a_backup_copy_through_db(fresh_db, tmp_path):
     dst.close()
     r = _cli("--sport", "nfl", "--as-of", "2026-11-07T09:00:00Z", "--db", str(copy))
     assert r.exit_code == 0, r.output
-    assert "1 fact(s) in force" in r.output and "B Starter" in r.output
+    assert "7 fact(s) in force" in r.output and "B Starter" in r.output
 
 
 def test_cli_a_missing_db_is_refused_and_never_created(tmp_path, monkeypatch):
@@ -529,15 +683,17 @@ def test_merge_teams_refuses_a_pair_whose_retired_team_holds_record_rows(fresh_d
         s.add_all([keep, other])
         s.flush()
         keep_id, other_id = keep.id, other.id
-    rec.write_observation(_nfl(datetime(2026, 11, 5, 9)), [_depth("A", "00-1", 1, datetime(2026, 11, 5, 7),
-                                                                  team="HAW", team_id=other_id)])
+    stamp = datetime(2026, 11, 5, 7)
+    _load(datetime(2026, 11, 5, 9), _chart(stamp, _depth("A", "00-1", 1, stamp, team="HAW", team_id=other_id),
+                                           team="HAW", team_id=other_id))
     con = sqlite3.connect(fresh_db, isolation_level=None)
     try:
         p = tm.plan(con)
         assert "availability_assertions.team_id" in p["refs"] and not p["unknown_refs"]
         res = tm.apply(con, "T", [(keep_id, other_id)])
         assert not res["merged"] and "append-only" in res["refused"][0]["why"], res
-        assert con.execute("SELECT team_id FROM availability_assertions").fetchone() == (other_id,)
+        assert con.execute("SELECT DISTINCT team_id FROM availability_assertions WHERE source_team = 'HAW'"
+                           ).fetchall() == [(other_id,)]
         assert con.execute("SELECT COUNT(*) FROM teams").fetchone() == (2,)
     finally:
         con.close()
@@ -556,7 +712,8 @@ def test_drop_db_drops_the_marker(tmp_path, monkeypatch):
     import src.db.database as db
     from sqlalchemy import inspect
     _migrate()
-    rec.write_observation(_nfl(datetime(2026, 11, 5, 9)), [_depth("A", "00-1", 1, datetime(2026, 11, 5, 7))])
+    _load(datetime(2026, 11, 5, 9), _chart(datetime(2026, 11, 5, 7), _depth("A", "00-1", 1,
+                                                                       datetime(2026, 11, 5, 7))))
     db.drop_db()
     db.init_db()
     assert not inspect(_engine()).has_table(rec.MIGRATION_MARKER)
@@ -587,15 +744,16 @@ def test_a_fact_first_seen_backfilled_then_restated_fresh_is_not_backfilled():
     the fact enters the live-era record at the first fresh member's recorded_at."""
     _migrate()
     f1, f2 = datetime(2026, 11, 8, 9), datetime(2026, 11, 9, 9)
-    rec.write_observation(_nfl(f1), [_depth("A QB", "00-A", 1, f1 - timedelta(days=20)),
-                                     _depth("A QB", "00-A", 1, f1 - timedelta(hours=2))])
-    rec.write_observation(_nfl(f2), [_depth("A QB", "00-A", 1, f2 - timedelta(hours=2))])
-    rec.write_observation(_nfl(f2 + timedelta(hours=1)), [_depth("D Old", "00-D", 3, f1 - timedelta(days=30))])
+    s20, s2, s3, s30 = (f1 - timedelta(days=20), f1 - timedelta(hours=2), f2 - timedelta(hours=2),
+                        f1 - timedelta(days=30))
+    _load(f1, _chart(s20, _depth("A QB", "00-A", 1, s20)) + _chart(s2, _depth("A QB", "00-A", 1, s2)))  # two loads
+    _load(f2, _chart(s3, _depth("A QB", "00-A", 1, s3)))
+    _load(f2 + timedelta(hours=1), _chart(s30, _depth("A QB", "00-A", 1, s30), _depth("D Old", "00-D", 3, s30)))
     with _ro() as s:
         facts = rec.as_of(s, "nfl", f2 + timedelta(hours=2))
     a = next(f for f in facts if f.interval.first.player_name == "A QB")
     assert len([f for f in facts if f.interval.first.player_name == "A QB"]) == 1
-    assert a.interval.restated == 2 and rec.backfilled(a.interval.first) is True
+    assert a.interval.restated == 3 and rec.backfilled(a.interval.first) is True    # the last chart restates A too
     assert a.backfilled is False and a.live_since == f1
     line = rec.fact_line(a)
     assert "BACKFILLED" not in line and "live-era from 2026-11-08T09:00:00Z" in line
@@ -609,13 +767,12 @@ def test_a_mapping_that_lands_between_fetches_never_splits_a_fact():
     two facts are in force, shown with our ids."""
     _migrate()
     d1, d2 = datetime(2026, 11, 5, 9), datetime(2026, 11, 6, 9)
-    rec.write_observation(_nfl(d1, status="partial"), [_depth("A QB", "00-A", 1, d1 - timedelta(hours=2)),
-                                                       _depth("B QB", "00-B", 2, d1 - timedelta(hours=2))])
-    rec.write_observation(_nfl(d2), [{**_depth("B QB", "00-B", 1, d2 - timedelta(hours=2), team_id=1)},
-                                     {**_depth("A QB", "00-A", 2, d2 - timedelta(hours=2), team_id=1),
-                                      "player_id": 501}])
+    s1, s2 = d1 - timedelta(hours=2), d2 - timedelta(hours=2)
+    _load(d1, _chart(s1, _depth("A QB", "00-A", 1, s1), _depth("B QB", "00-B", 2, s1)), status="partial")
+    _load(d2, _chart(s2, _depth("B QB", "00-B", 1, s2, team_id=1),
+                     {**_depth("A QB", "00-A", 2, s2, team_id=1), "player_id": 501}, team_id=1))
     with _ro() as s:
-        facts = rec.as_of(s, "nfl", d2 + timedelta(hours=1))
+        facts = _bal_qb(rec.as_of(s, "nfl", d2 + timedelta(hours=1)))
         ivs = rec.derive(rec.load_rows(s, "nfl"))
     assert sorted((f.interval.first.player_name, f.interval.first.attrs["pos_rank"], f.interval.first.team_id)
                   for f in facts) == [("A QB", 2, 1), ("B QB", 1, 1)]
@@ -627,16 +784,16 @@ def test_a_late_assertion_on_an_older_observation_is_refused_by_the_file():
     """No backdating (item 5): only the observation just inserted receives assertions, whoever writes."""
     _migrate()
     t = datetime(2026, 11, 8, 9)
-    first = rec.write_observation(_nfl(t), [_depth("A", "00-1", 1, t - timedelta(hours=2))])
+    first = _load(t, _chart(t - timedelta(hours=2), _depth("A", "00-1", 1, t - timedelta(hours=2))))
     rec.write_observation(_nfl(t + timedelta(days=1)), [])
     with pytest.raises(IntegrityError, match="only the newest observation receives assertions"):
         with _engine().begin() as c:
             c.execute(text("INSERT INTO availability_assertions (observation_id, sport, kind, source_player_id, "
                            "player_name, source_team, recorded_at) VALUES (:o, 'NFL', 'depth_rank', 'g9', 'Z', 'BAL', "
                            "'2026-11-08 09:00:00.000000')"), {"o": first.observation_id})
-    assert _counts() == (2, 1)
-    r = rec.write_observation(_nfl(t + timedelta(days=2)), [_depth("B", "00-2", 1, t + timedelta(days=2))])
-    assert r.written and _counts() == (3, 2)                     # the writer's own path is unchanged
+    assert _counts() == (2, 6)
+    r = _load(t + timedelta(days=2), _chart(t + timedelta(days=2), _depth("B", "00-2", 1, t + timedelta(days=2))))
+    assert r.written and _counts() == (3, 12)                    # the writer's own path is unchanged
 
 
 def test_the_migration_on_a_db_from_before_the_record_says_it_created_the_triggers(tmp_path, monkeypatch, capsys):
@@ -654,10 +811,91 @@ def test_the_migration_on_a_db_from_before_the_record_says_it_created_the_trigge
     assert not any(inspect(eng).has_table(t) for t in rec.TABLES)
     monkeypatch.setattr(db, "_engine", eng)
     out1 = _migrate(capsys)
-    assert out1.count("+ Created trigger") == 6 and "· Kept trigger" not in out1
+    assert out1.count("+ Created trigger") == 7 and "· Kept trigger" not in out1
     assert "+ Creating availability_observations..." in out1 and "+ Creating availability_assertions..." in out1
+    assert f"+ Created index {RECORDED_IX}" in out1 and "· Kept index" not in out1
     out2 = _migrate(capsys)
-    assert out2.count("· Kept trigger") == 6 and "+ Created trigger" not in out2
+    assert out2.count("· Kept trigger") == 7 and "+ Created trigger" not in out2
+    assert f"· Kept index {RECORDED_IX}" in out2 and "+ Created index" not in out2
+    eng.dispose()
+
+
+# ---- the recorded-clock index (ARCHITECT 2026-11-05 11:55 ET, addendum 262 item 4) -----------------------------------
+RECORDED_IX = "ix_avail_asr_sport_recorded"
+
+
+def _indexes(eng) -> set:
+    with eng.connect() as c:
+        return {r[0] for r in c.execute(text("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name IN "
+                                             "('availability_observations', 'availability_assertions')"))}
+
+
+def _plan(eng, clock: str, t: datetime) -> list[str]:
+    """EXPLAIN QUERY PLAN of the bounded read's partition SELECT (rec._select + rec._clock_bound, as _partitions
+    issues it), on the engine's file."""
+    q = rec._select("nfl").where(rec._clock_bound(clock, t))
+    sql = q.compile(eng, compile_kwargs={"literal_binds": True})
+    with eng.connect() as c:
+        return [r[3] for r in c.execute(text("EXPLAIN QUERY PLAN " + str(sql)))]
+
+
+def test_262_4_the_mapped_model_declares_the_recorded_clock_index_and_a_fresh_store_has_it(capsys):
+    """262 item 4: "AN INDEX IS ALLOWED in this PR if the query needs one". A fresh store (init_db: the mapped models)
+    has it, and the migration on it keeps it, naming it; the recorded-clock read uses it, the source clock its own."""
+    from src.db.schema import AvailabilityAssertion
+    ix = next(i for i in AvailabilityAssertion.__table__.indexes if i.name == RECORDED_IX)
+    assert [c.name for c in ix.columns] == ["sport", "recorded_at"] and not ix.unique
+    assert RECORDED_IX in _indexes(_engine())
+    out = _migrate(capsys)
+    assert f"· Kept index {RECORDED_IX}" in out and "+ Created index" not in out
+    assert "indexes on the record (10 of 10 declared)" in out
+    t = datetime(2026, 11, 5, 12)
+    assert any(f"USING INDEX {RECORDED_IX} (sport=? AND recorded_at" in ln for ln in _plan(_engine(), "recorded", t))
+    assert any("USING INDEX ix_avail_asr_sport_stamp (sport=? AND source_stamp" in ln
+               for ln in _plan(_engine(), "source", t))
+
+
+def test_262_4_a_store_migrated_before_the_index_gains_it_on_a_rerun_and_the_rerun_is_idempotent(
+        tmp_path, monkeypatch, capsys):
+    """262 item 4: the index "joins #831's migration (additive, idempotent, the same marker file or its own)". A store
+    migrated by #831's migrate_availability_record.py (the tables, the triggers and the marker, no recorded-clock
+    index), holding rows: a rerun creates the index (CREATE INDEX IF NOT EXISTS), keeps the marker as written (its
+    migrated_at unchanged), the triggers and every row; the recorded-clock read then uses it; a third run keeps it."""
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+
+    import src.db.database as db
+    from src.db.schema import AvailabilityAssertion, Base
+    eng = create_engine(f"sqlite:///{tmp_path / 'm831.db'}", future=True)
+    Base.metadata.create_all(eng, tables=[t for t in Base.metadata.sorted_tables if t.name not in rec.TABLES])
+    monkeypatch.setattr(db, "_engine", eng)
+    monkeypatch.setattr(db, "SessionLocal", sessionmaker(bind=eng, autoflush=False, future=True,
+                                                         expire_on_commit=False))
+    tbl = AvailabilityAssertion.__table__
+    with monkeypatch.context() as m:                                  # #831's model: no recorded-clock index
+        m.setattr(tbl, "indexes", {i for i in tbl.indexes if i.name != RECORDED_IX})
+        out0 = _migrate(capsys)
+    assert RECORDED_IX not in out0 and RECORDED_IX not in _indexes(eng)
+    t0 = datetime(2026, 11, 5, 9)
+    _load(t0, _chart(t0 - timedelta(hours=2), _depth("A Starter", "00-1", 1, t0 - timedelta(hours=2))))
+    with eng.connect() as c:
+        marker = c.execute(text(f"SELECT script, migrated_at FROM {rec.MIGRATION_MARKER}")).one()
+    counts = _counts()
+    assert counts == (1, 6)
+    assert not any(RECORDED_IX in ln for ln in _plan(eng, "recorded", t0))     # the sport's rows walked
+    out1 = _migrate(capsys)
+    assert f"+ Created index {RECORDED_IX}" in out1 and out1.count("+ Created index") == 1
+    assert "· Kept migration marker availability_record_migration" in out1
+    assert out1.count("· Kept trigger") == 7 and "+ Created trigger" not in out1
+    assert RECORDED_IX in _indexes(eng) and _counts() == counts
+    with eng.connect() as c:
+        assert c.execute(text(f"SELECT script, migrated_at FROM {rec.MIGRATION_MARKER}")).one() == marker
+        assert c.execute(text("PRAGMA integrity_check")).scalar() == "ok"
+    assert any(f"USING INDEX {RECORDED_IX} (sport=? AND recorded_at" in ln for ln in _plan(eng, "recorded", t0))
+    with _ro() as s:
+        assert len(rec.as_of(s, "nfl", t0)) == 6
+    out2 = _migrate(capsys)
+    assert f"· Kept index {RECORDED_IX}" in out2 and "+ Created index" not in out2 and _counts() == counts
     eng.dispose()
 
 
@@ -706,7 +944,8 @@ def test_cli_history_carries_the_backfilled_and_post_hoc_labels():
     assert h.exit_code == 0, h.output
     c_line = next(ln for ln in h.output.splitlines() if "C Backup" in ln)
     assert "BACKFILLED (source-stamped backtests only; never the live-era record)" in c_line
-    assert not any("BACKFILLED" in ln for ln in h.output.splitlines() if "B Starter" in ln)
+    b_lines = [ln for ln in h.output.splitlines() if "B Starter" in ln]           # a history line labels its own row
+    assert len(b_lines) == 2 and [("BACKFILLED" in ln) for ln in b_lines] == [False, True]   # T3's fresh, T4's S0
     n = _cli("--sport", "nhl", "--as-of", "2026-11-10T01:00:00Z", "--history")
     assert n.exit_code == 0 and any("G One" in ln and "POST HOC" in ln for ln in n.output.splitlines()), n.output
 
@@ -751,12 +990,15 @@ def test_a_fact_restated_after_its_team_maps_is_found_and_shown_by_our_id():
     the first as recorded with "mapped now"."""
     _migrate()
     d1, d2 = datetime(2026, 11, 5, 9), datetime(2026, 11, 6, 9)
-    rec.write_observation(_nfl(d1, status="partial"), [_depth("A QB", "00-A", 1, d1 - timedelta(hours=2))])
-    rec.write_observation(_nfl(d2), [_depth("A QB", "00-A", 1, d2 - timedelta(hours=2), team_id=1)])
+    s1, s2 = d1 - timedelta(hours=2), d2 - timedelta(hours=2)
+    _load(d1, _chart(s1, _depth("A QB", "00-A", 1, s1)), status="partial")
+    _load(d2, _chart(s2, _depth("A QB", "00-A", 1, s2, team_id=1), team_id=1))
     with _ro() as s:
-        (f,) = rec.as_of(s, "nfl", d2 + timedelta(hours=1), team="1")
-        assert len(rec.as_of(s, "nfl", d2 + timedelta(hours=1), team="BAL")) == 1      # the source text too
-        hist = rec.history(s, "nfl", d2 + timedelta(hours=1), team="1")
+        by_id = rec.as_of(s, "nfl", d2 + timedelta(hours=1), team="1")
+        assert len(by_id) == 3 and {f.interval.first.source_team for f in by_id} == {"BAL"}   # BAL's chart, not KC's
+        (f,) = _bal_qb(by_id)
+        assert len(rec.as_of(s, "nfl", d2 + timedelta(hours=1), team="BAL")) == 3      # the source text too
+        hist = _bal_qb(rec.history(s, "nfl", d2 + timedelta(hours=1), team="1"))
     assert f.interval.restated == 1 and f.interval.first.team_id is None and f.interval.start == d1
     line = rec.fact_line(f)
     assert "team #1" in line and "UNMAPPED ('BAL')" not in line and "recorded_at 2026-11-05T09:00:00Z" in line
@@ -772,15 +1014,16 @@ def test_a_mapped_fact_restated_unmapped_is_still_found_and_shown_by_our_id():
     (each from the latest member that carries one), never UNMAPPED."""
     _migrate()
     d1, d2 = datetime(2026, 11, 5, 9), datetime(2026, 11, 6, 9)
-    rec.write_observation(_nfl(d1), [_depth("A QB", "00-A", 1, d1 - timedelta(hours=2), team_id=1)])
-    rec.write_observation(_nfl(d2, status="partial"), [_depth("A QB", "00-A", 1, d2 - timedelta(hours=2))])
+    s1, s2 = d1 - timedelta(hours=2), d2 - timedelta(hours=2)
+    _load(d1, _chart(s1, _depth("A QB", "00-A", 1, s1, team_id=1), team_id=1))
+    _load(d2, _chart(s2, _depth("A QB", "00-A", 1, s2)), status="partial")
     _match_row(77, KO)
     rec.write_observation(_nhl("T-60", KO - timedelta(minutes=60)), [_goalie(1, "G One", 1, "home")])
     rec.write_observation(_nhl("T-30", KO - timedelta(minutes=30), status="partial", match_id=None),
                           [_goalie(1, "G One", 1, "home", match_id=None)])
     with _ro() as s:
-        (nf,) = rec.as_of(s, "nfl", d2 + timedelta(hours=1), team="1")
-        nhist = rec.history(s, "nfl", d2 + timedelta(hours=1), team="1")
+        (nf,) = _bal_qb(rec.as_of(s, "nfl", d2 + timedelta(hours=1), team="1"))
+        nhist = _bal_qb(rec.history(s, "nfl", d2 + timedelta(hours=1), team="1"))
         (hf,) = rec.as_of(s, "nhl", KO - timedelta(minutes=20), match_id=77)
         hhist = rec.history(s, "nhl", KO - timedelta(minutes=20), match_id=77)
     assert nf.interval.restated == 1 and nf.interval.last.team_id is None
@@ -791,6 +1034,34 @@ def test_a_mapped_fact_restated_unmapped_is_still_found_and_shown_by_our_id():
     assert hf.interval.restated == 1 and hf.interval.last.match_id is None
     assert "match #77" in rec.fact_line(hf) and "match UNMAPPED" not in rec.fact_line(hf)
     assert len(hhist) == 2
+
+
+def test_262_4_as_ofs_summary_carries_the_latest_ids_its_members_carry():
+    """Addendum 262 item 4 (the unfiltered as_of's memory): as_of keeps a Summary in place of an interval's members.
+    One league-wide goalie fact restated over four fetches while our ids move: team 1, then 11, then none; player 5,
+    then none, then 6; match none, then 501 (its kickoff already past), then 502 (re-mapped, a day later), then none.
+    as_of names what the latest member carrying each id names (team 11, player 6, match 502 and 502's kickoff, so not
+    POST HOC), exactly as the full derivation's members give it, and keeps no member rows."""
+    _migrate()
+    _match_row(501, KO - timedelta(hours=4))
+    _match_row(502, KO + timedelta(days=1))
+    ep = "https://example.test/goalies/2026-11-09"
+    for at, team_id, pid, mid in ((KO - timedelta(hours=3), 1, 5, None), (KO - timedelta(hours=2), 11, None, 501),
+                                  (KO - timedelta(minutes=90), None, 6, 502),
+                                  (KO + timedelta(hours=1), None, None, None)):
+        g = {**_goalie(9, "G Moves", team_id, "home", match_id=mid, gid="2025020999"), "player_id": pid,
+             "source_team": "HOM"}
+        rec.write_observation({"sport": "nhl", "source": "sportsdataio_goalies", "endpoint": ep, "status": "complete",
+                               "fetched_at": at}, [g])
+    t = KO + timedelta(hours=2)
+    with _ro() as s:
+        (f,) = rec.as_of(s, "nhl", t)
+        (ref,) = _reference_as_of(_reference_rows(s, "nhl"), t, "recorded")
+    now = rec.mapped_now(f.interval)
+    assert f.interval.members is None and f.interval.restated == 3
+    assert (now.team_id, now.player_id, now.match_id, now.match_kickoff) == (11, 6, 502, KO + timedelta(days=1))
+    assert f.post_hoc is False and "match #502" in rec.fact_line(f) and "POST HOC" not in rec.fact_line(f)
+    assert _fact_sig(f) == _fact_sig(ref) and len(ref.interval.members) == 4
 
 
 def test_post_hoc_reads_the_current_kickoff_where_none_was_stored_at_fetch():
@@ -892,7 +1163,8 @@ def _dd_record(keeper, newer, other):
                           [_goalie(1, "G One", None, "home", match_id=newer, source_team="AAA")])
     rec.write_observation(_nhl("T-30", KO - timedelta(minutes=30), match_id=keeper), [])
     rec.write_observation(_nhl("T-0", KO, match_id=other), [])
-    rec.write_observation(_nfl(datetime(2026, 11, 5, 9)), [_depth("A", "00-1", 1, datetime(2026, 11, 5, 7))])
+    _load(datetime(2026, 11, 5, 9), _chart(datetime(2026, 11, 5, 7), _depth("A", "00-1", 1,
+                                                                       datetime(2026, 11, 5, 7))))
 
 
 def _record_bytes(path) -> bytes:
@@ -1126,25 +1398,40 @@ def _reference_history(rows, t, clock, match_id=None, team=None):
     return [(r, member[r.id]) for r in order if rec._keep(member[r.id], match_id, team)]
 
 
-def _iv_sig(iv):
+def _iv_core(iv):
     return (iv.first.id, iv.last.id, iv.start, iv.end, iv.closed_by.id if iv.closed_by else None, iv.why_closed,
-            iv.restated, tuple(m.id for m in iv.members))
+            iv.restated)
+
+
+def _iv_sig(iv):
+    """An interval with every member (history's, and the full derivation's)."""
+    return _iv_core(iv) + (tuple(m.id for m in iv.members),)
 
 
 def _fact_sig(f):
-    return (_iv_sig(f.interval), f.backfilled, f.post_hoc, f.live_since, rec.fact_line(f))
+    """A fact as as_of answers it (addendum 262 item 4: as_of keeps a Summary, not the members): the interval without
+    its members, the mapping it carries now (mapped_now: the latest ids and the match's stored kickoff, which the
+    members gave), its labels and its printed line. The reference computes every one of them from the members."""
+    now = rec.mapped_now(f.interval)
+    return (_iv_core(f.interval), (now.player_id, now.team_id, now.match_id, now.match_kickoff), f.backfilled,
+            f.post_hoc, f.live_since, rec.fact_line(f))
 
 
 def _random_history(seed):
-    """A SYNTHETIC randomized history written through the writer (its triggers): nflverse loads with and without a
-    payload hash (snapshot closure and generic rules), partial team groups, several loads per fetch, backfilled and
-    fresh stamps, team ids mapped and unmapped between fetches, a depth group mixed with another kind in one load (not
-    a load), NHL starters on two games (one with a stored match), plays_for moving players across teams, inactive and
-    injury rows, and rows with no source stamp."""
+    """A SYNTHETIC randomized history written through the writer (its triggers): nflverse loads, each carrying its
+    payload hash (addendum 262 item 1: the writer requires it), and nflverse failed fetches (no payload, no row);
+    partial team groups (short ones, and groups that lost a refused row: attrs.rows_refused, 262 item 5), several
+    loads per fetch, backfilled and fresh stamps, team ids mapped and unmapped between fetches, a depth group mixed
+    with another kind in one load (not a load), NHL starters on two games (one with a stored match), plays_for
+    moving players across teams, inactive and injury rows, and rows with no source stamp. Our ids change between the
+    members of one fact now and then (a team id re-mapped, a player id given then changed, a game mapped to one match
+    then to another with another kickoff): the latest member's ids are what as_of's Summary keeps (262 item 4)."""
     import random
     rnd = random.Random(seed)
+    ids = random.Random(seed * 31)                       # the id changes draw apart: the history's shape is rnd's
     _migrate()
     _match_row(501, datetime(2026, 10, 20, 0, 0))
+    _match_row(502, datetime(2026, 10, 9, 0, 0))
     teams = ["BAL", "KC", "BUF"]
     tid = {"BAL": 1, "KC": 2, "BUF": 3}
     pool = {t: [(f"00-{t}{i}" if i % 5 else None, f"Syn {t} {i}") for i in range(8)] for t in teams}
@@ -1152,9 +1439,12 @@ def _random_history(seed):
     at = datetime(2026, 10, 1, 9)
     for _ in range(34):
         at += timedelta(hours=rnd.randint(4, 40))
-        src = rnd.choices(["snap", "nohash", "nhl", "sdio"], [5, 2, 2, 2])[0]
+        src = rnd.choices(["snap", "failed", "nhl", "sdio"], [6, 1, 2, 2])[0]
         rows = []
-        if src in ("snap", "nohash"):
+        if src == "failed":                                             # a fetch that raised: no payload, no row
+            obs = {"sport": "nfl", "source": "nflverse_depth_charts", "endpoint": NFLVERSE, "status": "failed",
+                   "fetched_at": at, "error": "ConnectionError: synthetic"}
+        elif src == "snap":
             stamp = at - timedelta(hours=rnd.choice([1, 2, 30, 80]))
             for _ in range(rnd.choice([1, 1, 2, 3])):
                 stamp += timedelta(minutes=rnd.randint(5, 600))
@@ -1169,23 +1459,30 @@ def _random_history(seed):
                     if rnd.random() < 0.15:
                         chart[t][rnd.randrange(6)] = rnd.choice([6, 7])
                     size = 2 if rnd.random() < 0.15 else rnd.choice([5, 6])   # a partial group now and then
+                    refused = {rec.ROWS_REFUSED_ATTR: 1} if rnd.random() < 0.1 else {}   # a row refused (262 5)
                     for slot in range(size):
                         spid, name = pool[t][chart[t][slot]]
+                        # 262 item 5: a snapshot source's row is never keyed by name (the writer refuses one with no
+                        # id): the nflverse rows carry an id; the pool's name-only players stay for the other sources
+                        spid = spid or f"00-{t}{chart[t][slot]}-NV"
                         rows.append({"kind": "depth_rank", "source_player_id": spid, "player_name": name,
-                                     "source_team": t, "team_id": tid[t] if rnd.random() < 0.6 else None,
+                                     "source_team": t, "team_id": ((tid[t] + 10 if ids.random() < 0.15 else tid[t])
+                                                                   if rnd.random() < 0.6 else None),
+                                     "player_id": ids.choice([None, None, 900 + chart[t][slot],
+                                                              950 + chart[t][slot]]),
                                      "source_stamp": stamp,
                                      "attrs": {"pos_grp": "Offense", "pos_abb": "QB" if slot < 2 else f"P{slot}",
                                                "pos_slot": "1" if slot < 2 else str(slot),
                                                "pos_rank": str(slot + 1) if slot < 2 else "1",
-                                               "dt_raw": stamp.isoformat() + "Z"}})
+                                               "dt_raw": stamp.isoformat() + "Z", **refused}})
                 if rnd.random() < 0.15:                                 # a mixed group: not a load
                     rows.append({"kind": "inactive", "source_player_id": "00-BAL1", "player_name": "Syn BAL 1",
                                  "source_team": "BAL", "source_stamp": stamp, "attrs": {"note": "mixed"}})
             obs = {"sport": "nfl", "source": "nflverse_depth_charts", "endpoint": NFLVERSE, "status": "complete",
-                   "fetched_at": at, "payload_sha256": hashlib.sha256(str(at).encode()).hexdigest() if src == "snap"
-                   else None}
+                   "fetched_at": at, "payload_sha256": hashlib.sha256(str(at).encode()).hexdigest()}
         elif src == "nhl":
-            for gid, mid in (("2025020001", rnd.choice([None, 501])), ("2025020002", None)):
+            m1 = rnd.choice([None, 501])                                # mapped to 502 from 10-12 on (re-mapped)
+            for gid, mid in (("2025020001", 502 if m1 and at >= datetime(2026, 10, 12) else m1), ("2025020002", None)):
                 for t in rnd.sample(teams, 2):
                     for kind in rnd.sample(["projected_starter", "confirmed_starter", "eventual_starter",
                                             "inactive"], 2):
@@ -1215,7 +1512,10 @@ def test_the_bounded_read_equals_the_full_materialisation_on_randomized_historie
     """Codex on #841, round 1 (P1): as_of and history read bounded (the clock and the key in SQL, the derivation per
     partition). Every fact and every history line equals HEAD's full materialisation (every row loaded, one derive),
     interval by interval and in the same order, under both clocks, at every group's own instant and around it, with no
-    key, a team (the source's text, our id) and a match, and per kind."""
+    key, a team (the source's text, our id) and a match, and per kind. as_of keeps a Summary in place of each
+    interval's members (addendum 262 item 4): its facts are compared on the interval, the mapping it carries now and
+    every label, each of which the reference reads from the members; history keeps the members and is compared on
+    every member."""
     import random
     _random_history(seed)
     rnd = random.Random(seed * 7919)
@@ -1227,14 +1527,16 @@ def test_the_bounded_read_equals_the_full_materialisation_on_randomized_historie
                         "not restated in its team's snapshot"}, whys     # every closing rule is exercised
         mixed = rec._mixed_groups(s, "nfl", "recorded", datetime(2027, 1, 1), None)
         assert mixed                                                  # a depth group that is not a load
-        last, partial = {}, 0
+        last, partial, refused_partial = {}, 0, 0
         for _, g in rec._groups(rows, "source"):
             if rec.snapshot_load(g) and (g[0].observation_id, g[0].source_stamp) not in mixed:
                 counts: dict = {}
+                refused = {rec.team_key(r) for r in g if (r.attrs or {}).get(rec.ROWS_REFUSED_ATTR)}
                 for r in g:
                     counts[rec.team_key(r)] = counts.get(rec.team_key(r), 0) + 1
-                partial += len(rec.guard_load(counts, last))
-        assert partial                                                # a partial team group, closing nothing
+                partial += len(rec.guard_load(counts, last, refused))
+                refused_partial += len(refused)
+        assert partial and refused_partial                            # partial groups (both kinds), closing nothing
         # the partition holds every pair of rows a rule compares (fact key, slot key)
         for keyf in (rec.fact_key, rec.slot_key):
             parts: dict = {}
@@ -1254,6 +1556,8 @@ def test_the_bounded_read_equals_the_full_materialisation_on_randomized_historie
                     new = rec.as_of(s, "nfl", t, clock, **key)
                     old = _reference_as_of(rows, t, clock, **key)
                     assert [_fact_sig(f) for f in new] == [_fact_sig(f) for f in old], (clock, t, key)
+                    assert all(f.interval.members is None and f.interval.summary is not None for f in new)
+                    assert all(f.interval.members for f in old)            # the reference labels from members
                     hn = rec.history(s, "nfl", t, clock, **key)
                     ho = _reference_history(rows, t, clock, **key)
                     assert [(r.id, _iv_sig(iv)) for r, iv in hn] == [(r.id, _iv_sig(iv)) for r, iv in ho]
@@ -1314,8 +1618,8 @@ def test_a_team_read_loads_that_teams_rows_not_the_records_whole_history():
     at = datetime(2026, 9, 1, 9)
     for day in range(10):
         stamp = at - timedelta(hours=2)
-        rec.write_observation(_nfl(at), [_depth(f"Syn {t} {n}", f"00-{t}{n}", n % 3 + 1, stamp, team=t, slot=n)
-                                         for t in teams for n in range(6)])
+        _load(at, [_depth(f"Syn {t} {n}", f"00-{t}{n}", n % 3 + 1, stamp, team=t, slot=n)    # 8 full charts
+                   for t in teams for n in range(6)])
         at += timedelta(days=1)
     mid = datetime(2026, 9, 5, 12)
     with _ro() as s:
@@ -1347,6 +1651,6 @@ def test_an_instant_on_the_last_representable_date_reads_everything_never_an_ove
                     _reference_as_of(rows, rec._instant(t), clock, team="BAL"))
     r = _cli("--sport", "nfl", "--as-of", "9999-12-31T23:59:59Z")
     assert r.exit_code == 0 and r.exception is None, r.output
-    assert "2 fact(s) in force" in r.output.splitlines()[0]
+    assert "7 fact(s) in force" in r.output.splitlines()[0]
     h = _cli("--sport", "nfl", "--as-of", "9999-12-31T23:59:59Z", "--history", "--clock", "source")
     assert h.exit_code == 0 and h.exception is None, h.output

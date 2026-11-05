@@ -13,9 +13,13 @@ never by the caller). It refuses, before any session opens: a source, status or 
 name it does not know (law 1); assertions on an observation that is not complete or partial; a missed row with a
 fetched_at, or any other row without one; an endpoint that carries a secret; a payload_path outside
 logs/availability/<source>/<YYYY-MM-DD>/ (so never under data/); a per-game fact without attrs.source_match_id from
-a source in SOURCE_MATCH_IDS; a missing DB file (never created, law 5); a store migrate_availability_record.py has not
-migrated. The error text is redacted, then cut to 256 characters. A poll the
-store already holds (the unique key: source, match, stored kickoff, poll) is counted "already", its row standing.
+a source in SOURCE_MATCH_IDS; an observation of a snapshot source (SNAPSHOT_SOURCES) that asserts a row and keeps no
+payload_sha256 (ARCHITECT 2026-11-05 11:55 ET, addendum 262 item 1: the hash is the load's identity; the insert guard
+trg_availability_assertions_snapshot_hash_guard refuses it around the writer too); an assertion of a snapshot source
+with no source_player_id (262 item 5: never keyed by name); a missing DB
+file (never created, law 5); a store migrate_availability_record.py has not migrated. The error text is redacted,
+then cut to 256 characters. A poll the store already holds (the unique key: source, match, stored kickoff, poll) is
+counted "already", its row standing.
 There is no update, delete or upsert function here, and the tables' triggers abort one from anywhere else.
 
 THE MAPPING (item 1, law 4): a player or team the caller cannot map is written with player_id / team_id NULL and the
@@ -34,7 +38,8 @@ Both READ BOUNDED (Codex on #841, round 1; the section "the bounded read" below)
 derivation partition by partition, the answer the full derivation's (pinned against load_rows + derive).
 A LOAD of a snapshot source (SNAPSHOT_SOURCES: nflverse_depth_charts' depth_rank rows from a kept payload) also closes
 every fact of each team it holds that it does not restate, a partial team group closing nothing (ARCHITECT 2026-11-05,
-addendum 259 item 2(a)-(b); derive()).
+addendum 259 item 2(a)-(b); derive()); every such load carries its payload hash (the writer requires it, addendum 262
+item 1), and a team group that lost a refused row (attrs.rows_refused, 262 item 5) is partial.
 THE TWO CLOCKS (item 1, ruled): `recorded_at` is our knowledge, `source_stamp` the source's claim. Under the recorded
 clock an assertion exists from its fetch, so a backfilled row never appears before it; under the source clock an
 assertion with no source stamp is not read (counted, never filled from recorded_at). Every fact carries both stamps.
@@ -58,8 +63,8 @@ from types import MappingProxyType
 from typing import Iterable, Sequence
 from urllib.parse import unquote, urlsplit
 
-from src.db.schema import (APPEND_ONLY, AVAILABILITY_KINDS, AVAILABILITY_SOURCES, AVAILABILITY_STATUSES,
-                           AVAILABILITY_TRIGGERS, Sport)
+from src.db.schema import (APPEND_ONLY, AVAILABILITY_KINDS, AVAILABILITY_SNAPSHOT_SOURCES, AVAILABILITY_SOURCES,
+                           AVAILABILITY_STATUSES, AVAILABILITY_TRIGGERS, Sport)
 
 # Each source word and the attribution any output that uses its facts prints (item 3(a): "the source word carries the
 # attribution, and any output that uses the facts (a bulletin, a page) prints "Depth charts: nflverse (CC BY 4.0)"").
@@ -87,12 +92,30 @@ SOURCE_CADENCE_HOURS = MappingProxyType({"nflverse_depth_charts": 24})
 # attrs keys a restatement may change without asserting the fact differently: the source's raw time text (its stamp
 # is source_stamp, compared nowhere as a fact) and the source's player ids kept beside source_player_id (identity, not
 # the fact: nflverse_depth_charts' espn_id and gsis_id, addendum 252 item 3(a))
-VOLATILE_ATTRS = ("dt_raw", "espn_id", "gsis_id")
+# and ROWS_REFUSED_ATTR below (a count the adapter keeps on a load's team group, not the fact: addendum 262 item 5)
+VOLATILE_ATTRS = ("dt_raw", "espn_id", "gsis_id", "rows_refused")
 # THE SNAPSHOT SOURCES (ARCHITECT 2026-11-05 10:10 ET, addendum 259 item 2(a)-(b); 254 item 2(6)): a source whose
 # every load (one source stamp in one observation) is the WHOLE chart of each team present in it. 259 item 1 read the
 # real files: "EVERY LOAD IS A FULL 32-TEAM SNAPSHOT [...] A team's rows at one dt are its WHOLE chart, not its
 # changes". The kind each one snapshots: only it closes by the rule (derive, below). No other source reads this way.
-SNAPSHOT_SOURCES = MappingProxyType({"nflverse_depth_charts": "depth_rank"})
+SNAPSHOT_SOURCES = MappingProxyType(dict(AVAILABILITY_SNAPSHOT_SOURCES))   # schema.py declares it (its insert guard)
+# WHAT COUNTS AS A LOAD (ARCHITECT 2026-11-05 11:55 ET, addendum 262 item 1, verbatim in part): "for a SNAPSHOT source
+# [...] the WRITER REQUIRES `payload_sha256` on every observation that asserts a row -- the hash is the load's identity
+# (252 item 1(a)) and "has a hash" then means exactly "is a real load". An observation of a snapshot source with rows
+# and no hash is REFUSED by the insert guard with its reason; `failed` and `missed` observations carry no payload and
+# assert nothing, as before." The insert guard is the trigger schema.py names trg_availability_assertions_snapshot_
+# hash_guard (a raw INSERT is refused with the reason); write_observation refuses the same before any session opens;
+# snapshot_load's hash test stays, redundant by construction.
+# THE REFUSED-ROW GUARD (addendum 262 item 5, #840): "a row with a blank `espn_id` is counted and refused into the
+# group's `partial` status, never keyed by name". The adapter asserts the rest of that (dt, team) group with
+# attrs[ROWS_REFUSED_ATTR] = the count of its rows refused; derive() reads such a team group of a load as partial (it
+# closes nothing, and is never a previous complete group), as the partial guard reads a short one. "Never keyed by
+# name" holds at the record too: the writer refuses an assertion of a snapshot source that carries no
+# source_player_id (player_key would key it by its name), with its reason (_snapshot_id_refusal; assertion_refusal
+# runs it, so the adapter's pre-check does). The writer refuses the observation; the adapter, which never passes such
+# a row, is what counts it into its group's partial status.
+ROWS_REFUSED_ATTR = "rows_refused"
+assert ROWS_REFUSED_ATTR in VOLATILE_ATTRS
 # 259 item 2(b): "a (dt, team) group with fewer than HALF the rows of that team's previous complete group is `partial`
 # FOR THAT TEAM [...] The first group ever seen for a team is complete by definition."
 PARTIAL_GROUP_FRACTION = 0.5
@@ -415,6 +438,15 @@ def assertion_refusal(a, i, source: str | None = None) -> str | None:
             _with_source_match_id(r["attrs"], i, source)
     except Refused as e:
         return str(e)
+    return _snapshot_id_refusal(r, i, source)
+
+
+def _snapshot_id_refusal(r: dict, i: int, source: str | None) -> str | None:
+    """Why an assertion of a snapshot source is refused for want of the source's player id, or None (addendum 262 item
+    5: a row with no id is "never keyed by name"; player_key keys a row with no source_player_id by its name)."""
+    if source in SNAPSHOT_SOURCES and r["source_player_id"] is None:
+        return (f"REFUSED: assertion {i} of the snapshot source {source} carries no source_player_id: a row is never "
+                f"keyed by name (addendum 262 item 5); nothing written")
     return None
 
 
@@ -484,6 +516,14 @@ def write_observation(obs: dict, assertions: Sequence[dict] = ()) -> Receipt:
     if rows and row["status"] not in ASSERTING:
         raise Refused(f"REFUSED: a {row['status']} observation asserts nothing (only {' or '.join(ASSERTING)} "
                       f"observations carry facts); {len(rows)} assertion(s) given, nothing written")
+    if rows and row["source"] in SNAPSHOT_SOURCES and row["payload_sha256"] is None:
+        raise Refused(f"REFUSED: an observation of the snapshot source {row['source']} asserts {len(rows)} row(s) and "
+                      f"keeps no payload_sha256: the hash is the load's identity, so a load without one is not a load "
+                      f"(addendum 262 item 1; 252 item 1(a)); nothing written")
+    for i, r in enumerate(rows, 1):
+        why = _snapshot_id_refusal(r, i, row["source"])
+        if why:
+            raise Refused(why)
     if row["source"] in SOURCE_MATCH_IDS:
         for i, r in enumerate(rows, 1):
             if r["kind"] in GAME_KINDS:
@@ -556,7 +596,11 @@ class Row:
 
 @dataclass(eq=False)
 class Interval:
-    """A derived interval: the assertion that opened it, its latest restatement, and the group that closed it."""
+    """A derived interval: the assertion that opened it, its latest restatement, and the group that closed it.
+    `members` is every row it holds (the opening row and each restatement, in derivation order): derive() and history
+    keep them. as_of keeps NO members (members None) but a Summary (summary): the labels' running values, so an open
+    interval restated daily for a season holds two rows, not three hundred (Codex on #841, round 1; addendum 262 item
+    4). Every label reads either one alike (interval_backfilled, live_since, mapped_now)."""
     first: Row
     last: Row
     start: datetime
@@ -565,7 +609,37 @@ class Interval:
     why_closed: str | None = None         # "asserted differently" | "slot asserted to someone else" |
     #                                       "not restated in its team's snapshot" (a snapshot source's load, 259 2(a))
     restated: int = 0
-    members: list = field(default_factory=list)
+    members: list | None = field(default_factory=list)
+    summary: Summary | None = None        # as_of's: the labels' running values in place of the members
+
+
+class Summary:
+    """What as_of's labels read of an interval's members, kept as each member is added (in derivation order, the
+    order `members` holds them), so the members themselves need not be: for interval_backfilled, whether any member is
+    fresh (backfilled False) and whether every member is backfilled (True); for live_since, the earliest recorded_at of
+    a fresh member; for mapped_now, the latest player_id, team_id and match_id (with that member's match_kickoff) that
+    a member carries. The same values the members give: the equivalence test compares the two on randomized histories.
+    """
+    __slots__ = ("any_fresh", "all_backfilled", "live", "player_id", "team_id", "match_id", "match_kickoff")
+
+    def __init__(self, r: Row):
+        self.any_fresh, self.all_backfilled, self.live = False, True, None
+        self.player_id = self.team_id = self.match_id = self.match_kickoff = None
+        self.add(r)
+
+    def add(self, r: Row) -> None:
+        m = backfilled(r)
+        if m is False:
+            self.any_fresh = True
+            self.live = r.recorded_at if self.live is None or r.recorded_at < self.live else self.live
+        if m is not True:
+            self.all_backfilled = False
+        if r.player_id is not None:
+            self.player_id = r.player_id
+        if r.team_id is not None:
+            self.team_id = r.team_id
+        if r.match_id is not None:
+            self.match_id, self.match_kickoff = r.match_id, r.match_kickoff
 
 
 READ_BATCH = 2000                                    # rows per cursor fetch on a bounded read (yield_per)
@@ -717,8 +791,9 @@ def _group_order(r: Row, clock: str) -> tuple:
 def snapshot_load(g: Sequence[Row]) -> bool:
     """True when the group (one observation, one source stamp) is a LOAD of a snapshot source (SNAPSHOT_SOURCES): every
     row of that source and kind, from an observation that keeps its payload's hash (the adapter's: a fetched or a
-    hand-carried release file, whose bytes are on disk). Rows written without a payload hash are not a load of the
-    file, and keep the generic rules (the schema PR's synthetic histories, tests/test_availability_record.py)."""
+    hand-carried release file, whose bytes are on disk). Since addendum 262 item 1 the writer refuses a snapshot
+    source's rows without a hash, so the hash test is redundant by construction ("the right kind of redundancy"): it
+    stays, so a store written before that rule never reads a hashless group as a load."""
     if not g:
         return False
     src = g[0].source
@@ -732,13 +807,16 @@ def partial_group(rows: int, previous_complete: int | None) -> bool:
     return previous_complete is not None and rows < previous_complete * PARTIAL_GROUP_FRACTION
 
 
-def guard_load(team_rows: dict, last_complete: dict) -> set:
+def guard_load(team_rows: dict, last_complete: dict, refused: Iterable = ()) -> set:
     """The partial-group guard over one load: `team_rows` maps each team present to its row count, `last_complete`
     each team to the row count of its previous complete group (updated here for every complete group). Returns the
-    teams whose group is partial (259 item 2(b)). One rule for derive() and the adapter's receipt."""
+    teams whose group is partial (259 item 2(b)). `refused` names the teams whose group lost a row the adapter refused
+    (attrs[ROWS_REFUSED_ATTR]; addendum 262 item 5): partial whatever their size, never a previous complete group. One
+    rule for derive() and the adapter's receipt."""
     partial = set()
+    refused = set(refused)
     for team, n in team_rows.items():
-        if partial_group(n, last_complete.get(team)):
+        if team in refused or partial_group(n, last_complete.get(team)):
             partial.add(team)
         else:
             last_complete[team] = n
@@ -763,7 +841,9 @@ def derive(rows: Iterable[Row], clock: str = "recorded") -> list[Interval]:
     - "a team absent from a load [...] keeps its facts open" (nothing of it closes);
     - THE PARTIAL GUARD: a team whose group at the load holds fewer than HALF the rows of its previous complete group is
       partial: "its rows are asserted (a fact seen is a fact), it CLOSES NOTHING, the prior facts stay open" (no rule
-      closes that team's intervals at that load); the first group ever seen for a team is complete.
+      closes that team's intervals at that load); the first group ever seen for a team is complete. A team group that
+      lost a row the adapter refused (a blank espn_id: its rows carry attrs[ROWS_REFUSED_ATTR], addendum 262 item 5) is
+      partial the same way, whatever its size.
     "Close at that load" is the group's clock: under the source clock the load's dt; under the recorded clock the
     observation's recorded_at, the groups of one fetch read in dt order (_groups), so the facts a fetch holds at its
     recorded_at are its last load's (an earlier load's intervals open and close at the same recorded_at, and history
@@ -771,10 +851,23 @@ def derive(rows: Iterable[Row], clock: str = "recorded") -> list[Interval]:
     return _derive(rows, clock)
 
 
-def _derive(rows: Iterable[Row], clock: str, not_loads: frozenset = frozenset()) -> list[Interval]:
+def _add(iv: Interval, r: Row) -> None:
+    """r restates iv: its latest member, counted, and kept (members) or summarised (summary, as_of's)."""
+    iv.last = r
+    iv.restated += 1
+    if iv.members is not None:
+        iv.members.append(r)
+    else:
+        iv.summary.add(r)
+
+
+def _derive(rows: Iterable[Row], clock: str, not_loads: frozenset = frozenset(),
+            keep_members: bool = True) -> list[Interval]:
     """derive(), over `rows`; `not_loads` names the groups (observation id, source stamp) that are NOT a load although
     the rows given of them are all the snapshot kind: a partition's share of a group whose other rows (another kind)
-    the partition does not hold (_mixed_groups). derive() passes none: it holds every row of each group."""
+    the partition does not hold (_mixed_groups). derive() passes none: it holds every row of each group.
+    keep_members False (as_of's): each interval keeps a Summary in place of its members (Interval); the derivation's
+    rules read first, last and the keys fixed at opening, never the members, so the intervals are the same."""
     out: list[Interval] = []
     open_: list[Interval] = []
     last_complete: dict = {}              # (source, team key) -> rows of that team's previous complete group
@@ -785,11 +878,14 @@ def _derive(rows: Iterable[Row], clock: str, not_loads: frozenset = frozenset())
         snap_src = snap_kind = None
         if snapshot_load(g) and (g[0].observation_id, g[0].source_stamp) not in not_loads:
             counts: dict = {}
+            refused: set = set()
+            src = g[0].source
             for r in g:
                 counts[team_key(r)] = counts.get(team_key(r), 0) + 1
                 snap.setdefault(team_key(r), r)
-            src = g[0].source
-            partial = {t for _, t in guard_load({(src, t): n for t, n in counts.items()}, last_complete)}
+                if (r.attrs or {}).get(ROWS_REFUSED_ATTR):
+                    refused.add((src, team_key(r)))      # 262 item 5: a row of this group refused: the group is partial
+            partial = {t for _, t in guard_load({(src, t): n for t, n in counts.items()}, last_complete, refused)}
             snap_src, snap_kind = src, SNAPSHOT_SOURCES[src]
         continuing: set = set()
         opened: dict = {}
@@ -801,17 +897,14 @@ def _derive(rows: Iterable[Row], clock: str, not_loads: frozenset = frozenset())
             hit = by_fact.get(k)
             if hit:
                 for iv in hit:
-                    iv.last = r
-                    iv.restated += 1
-                    iv.members.append(r)
+                    _add(iv, r)
                     continuing.add(id(iv))
                 continue
             if k in opened:
-                opened[k].last = r
-                opened[k].restated += 1
-                opened[k].members.append(r)
+                _add(opened[k], r)
                 continue
-            opened[k] = Interval(first=r, last=r, start=c, members=[r])
+            opened[k] = (Interval(first=r, last=r, start=c, members=[r]) if keep_members
+                         else Interval(first=r, last=r, start=c, members=None, summary=Summary(r)))
             key_of[id(opened[k])] = k
         facts = {}
         slots: dict = {}
@@ -871,6 +964,9 @@ def backfilled(r: Row) -> bool | None:
 def interval_backfilled(iv: Interval) -> bool | None:
     """The interval's label: False when any member is fresh (not backfilled), True when every member is backfilled,
     else None (no ruled cadence)."""
+    if iv.members is None and iv.summary is not None:            # as_of's (Summary)
+        sm = iv.summary
+        return False if sm.any_fresh else True if sm.all_backfilled else None
     marks = [backfilled(r) for r in (iv.members or [iv.first])]
     if any(m is False for m in marks):
         return False
@@ -879,6 +975,8 @@ def interval_backfilled(iv: Interval) -> bool | None:
 
 def live_since(iv: Interval) -> datetime | None:
     """The recorded_at of the first member that is not backfilled (our clock), or None."""
+    if iv.members is None and iv.summary is not None:            # as_of's (Summary)
+        return iv.summary.live
     fresh = [r.recorded_at for r in (iv.members or [iv.first]) if backfilled(r) is False]
     return min(fresh) if fresh else None
 
@@ -889,6 +987,10 @@ def mapped_now(iv: Interval) -> Row:
     mapping change hides the fact: unmapped then mapped is found by the new id, and mapped then restated unmapped (a
     "partial" fetch, item 6(c); a poll whose match did not map that time) is still found by the id it had (Codex on
     #831, round 1). The first member keeps the interval's start and its original stamps."""
+    if iv.members is None and iv.summary is not None:            # as_of's (Summary): the same latest ids
+        sm = iv.summary
+        return _with(iv.last, player_id=sm.player_id, team_id=sm.team_id, match_id=sm.match_id,
+                     match_kickoff=sm.match_kickoff)
     members = iv.members or [iv.first, iv.last]
     pid = next((r.player_id for r in reversed(members) if r.player_id is not None), None)
     tid = next((r.team_id for r in reversed(members) if r.team_id is not None), None)
@@ -971,6 +1073,11 @@ def _instant(v) -> datetime:
 # 3. THE KEY, in SQL: a --team or --match-id read loads only the partitions holding a row that names that team or match
 #    (_key_filter). An interval the filter keeps (on mapped_now: the latest member's ids, the source's team text) has a
 #    member that names it, so its partition is loaded, whole.
+# 4. THE ANSWER (addendum 262 item 4): as_of keeps, per open interval, its first and last rows, its restated count and a
+#    Summary (the labels' running values), never its members, so an unfiltered read holds one partition's rows and the
+#    open facts, not every restatement of every fact in force. history keeps every member (its lines name them).
+#    THE INDEX: ix_avail_asr_sport_recorded (sport, recorded_at) makes point 1 an index range under the recorded clock
+#    (ix_avail_asr_sport_stamp under the source clock); migrate_availability_record.py creates it IF NOT EXISTS.
 # The answers are put back in the full derivation's order (_group_order, then the row id). Equivalence with the full
 # materialisation (load_rows + derive) on randomized histories, both clocks: tests/test_availability_record.py.
 
@@ -1106,12 +1213,14 @@ def as_of(s, sport, instant: datetime, clock: str = "recorded", match_id: int | 
     """THE AS-OF QUERY (item 2): the facts in force at `instant` under `clock`: derive() over the assertions whose
     clock is at or before the instant, the intervals still open, in the order the derivation opened them. The match
     and team filters pick from the derivation of every partition that holds a row naming them, so a closure by another
-    team's row (plays_for) is never lost. Read bounded (the section above): the answer is the full derivation's."""
+    team's row (plays_for) is never lost. Read bounded (the section above): the answer is the full derivation's, its
+    intervals carrying a Summary in place of their members (Interval; point 4 above): every label is the same."""
     t = _checked(clock, kind, instant)
     not_loads = _mixed_groups(s, sport, clock, t, kind)
     out = []
     for part in _partitions(s, sport, clock, t, kind, match_id, team):
-        out.extend(iv for iv in _derive(part, clock, not_loads) if iv.end is None and _keep(iv, match_id, team))
+        out.extend(iv for iv in _derive(part, clock, not_loads, keep_members=False)
+                   if iv.end is None and _keep(iv, match_id, team))
     out.sort(key=lambda iv: (_group_order(iv.first, clock), iv.first.id))
     return [Fact(iv, interval_backfilled(iv), post_hoc(iv.first, iv), live_since(iv)) for iv in out]
 
@@ -1226,7 +1335,7 @@ def attributions(sources: Iterable[str]) -> list[str]:
 
 __all__ = ["SOURCES", "STATUSES", "KINDS", "CLOCKS", "SOURCE_CADENCE_HOURS", "TABLES", "TRIGGERS", "MIGRATION_MARKER", "APPEND_ONLY",
            "Refused", "Receipt", "write_observation", "migrated", "redact", "payload_path_refusal", "endpoint_refusal",
-           "assertion_refusal", "ENDPOINT_LIMIT", "Row", "Interval",
+           "assertion_refusal", "ENDPOINT_LIMIT", "ROWS_REFUSED_ATTR", "Row", "Interval",
            "Fact", "load_rows", "derive", "as_of", "history", "backfilled", "interval_backfilled", "live_since",
            "post_hoc", "kickoff_of", "mapped_now", "match_key", "SOURCE_MATCH_IDS", "attributions", "SNAPSHOT_SOURCES",
            "PARTIAL_GROUP_FRACTION", "snapshot_load", "partial_group", "guard_load"]

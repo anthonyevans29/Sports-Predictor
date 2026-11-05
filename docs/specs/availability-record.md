@@ -202,14 +202,21 @@ As built (`record.derive`, `record.snapshot_load`, `record.guard_load`, `record.
 - **Which groups are loads.** A per-source rule: `record.SNAPSHOT_SOURCES = {"nflverse_depth_charts": "depth_rank"}`.
   A group (one observation, one source stamp) is a LOAD when every row is that source and kind AND its observation
   keeps a payload hash (`payload_sha256`): the adapter's rows, from a fetched or hand-carried release file whose bytes
-  are on disk. Rows of that source written without a payload hash (the schema PR's synthetic histories in
-  `tests/test_availability_record.py`, one row per "load") are not a load of the file and keep the generic rules; those
-  67 tests pass unchanged. No other source is read this way. **NEEDS RULING (open on the feed PR, not decided by
-  Code):** 259 item 2(a) rules every load of the source a full snapshot and does not mention the payload hash; the
-  writer does not require `payload_sha256` on an asserting `nflverse_depth_charts` observation, so a writer that omits
-  it (a second adapter for the 2023-2024 shape, 252 item 3(a)) would get the generic "changes only" rules the read of
-  the real files refuted. The two ways out: the writer refuses such an observation without a hash (and #831's one-row
-  nflverse fixtures are rewritten as full charts), or the architect rules the gate as built.
+  are on disk. **RULED (ARCHITECT 2026-11-05 11:55 ET, addendum 262 item 1, verbatim in part):** "for a SNAPSHOT
+  source [...] the WRITER REQUIRES `payload_sha256` on every observation that asserts a row — the hash is the load's
+  identity (252 item 1(a)) and "has a hash" then means exactly "is a real load". An observation of a snapshot source
+  with rows and no hash is REFUSED by the insert guard with its reason; `failed` and `missed` observations carry no
+  payload and assert nothing, as before. #831's one-row test histories that exercise nflverse semantics are rewritten
+  as small full charts; the generic record tests on synthetic non-snapshot sources keep their shape (the rule is per
+  source, not global). The snapshot gate as built (read as a snapshot only with a hash) stays and becomes redundant by
+  construction, which is the right kind of redundancy." Built: the insert guard is a trigger of its own,
+  `trg_availability_assertions_snapshot_hash_guard` (section 6), which refuses an assertion whose observation is of a
+  snapshot source and keeps no `payload_sha256`, with the reason, a raw INSERT included; `write_observation` refuses
+  the same before any session opens ("the snapshot source nflverse_depth_charts asserts N row(s) and keeps no
+  payload_sha256 [...] nothing written"). And "never keyed by name" (262 item 5) holds at the writer: an assertion of a
+  snapshot source with no `source_player_id` is refused with its reason (section 9). The record's tests
+  write each nflverse history as small full charts (the named rows, two filler rows of the team, a second team's
+  three rows), each load carrying a hash. No other source is read this way.
 - **The closure.** For each team present in a load, every open `depth_rank` fact of that source and team that the
   load does not restate closes at the load. The generic rules are tried first and keep their reasons ("asserted
   differently", "slot asserted to someone else"); a fact neither of them closes is closed "not restated in its team's
@@ -220,6 +227,10 @@ As built (`record.derive`, `record.snapshot_load`, `record.guard_load`, `record.
   not "asserted differently", not the slot), so the prior facts stay open beside any new ones. The team's previous
   complete group stays the one before. The first group ever seen for a team is complete. The adapter's receipt counts
   the same groups with the same function (`guard_load`), reading the previous complete groups from the store's loads.
+  A team group that lost a row the adapter refused (a blank `espn_id`, addendum 262 item 5; section 9) is partial
+  the same way whatever its size: its asserted rows carry `attrs.rows_refused` (the count; `record.ROWS_REFUSED_ATTR`,
+  in `VOLATILE_ATTRS`, so it never makes a restatement read "asserted differently"), `guard_load` takes those teams as
+  partial (`refused`), and they never become a previous complete group.
 - **"Close at that load" under each clock.** A fact closes at the load's group clock, the clock its interval opens on:
   - **source clock:** the load's `dt`. The facts in force at T are the last load at or before T, as the file says;
   - **recorded clock:** the observation's `recorded_at`. One fetch carries many loads (the first fetch carries the
@@ -241,8 +252,9 @@ teams section and the Cockpit will read; there is no second path."
 first build loaded every assertion of the sport (`load_rows`), cut it at the instant in Python and derived once: 57.9 s
 and 2.2 GB on 750,000 synthetic rows. `as_of` and `history` now read only what their answer can depend on, and their
 answer is the full derivation's, interval by interval and in the same order. What is bounded and what is not: a
-`--team` or `--match-id` read is bounded by its key (its partitions' rows); an UNFILTERED read is not bounded by the
-history (the memory and scan lines below):
+`--team` or `--match-id` read is bounded by its key (its partitions' rows); an UNFILTERED read still reads every row
+up to the instant once (its time is linear in that history), and since addendum 262 item 4 holds one partition's rows
+and a Summary per open interval, never every restatement (the memory, index and scan lines below):
 - **The clock, in SQL.** The chosen clock's column (`recorded_at`, or `source_stamp` with NULL excluded) is bounded
   before the day after the instant's date. That is a superset of "at or before the instant": the stored text begins
   with its ISO date, and the writer stores every stamp in SQLAlchemy's one form. On the last representable date
@@ -263,25 +275,46 @@ history (the memory and scan lines below):
   takes each id from the latest member that carries one), so its partition is loaded.
 - **Pinned** by `tests/test_availability_record.py::test_the_bounded_read_equals_the_full_materialisation_on_randomized_histories`
   (four seeds, both clocks, at instants that include 9999-12-31 and `datetime.max`, with and without each key, per
-  kind: every fact, every history line, and every interval's
-  members, end and closing row equal HEAD's full materialisation, on histories with snapshot loads, partial groups, a
-  mixed group, mapping changes, starters, `plays_for` and rows with no source stamp) and
+  kind: every fact (its interval's first and last rows, start, end, closing row, reason and restated count, the
+  mapping it carries now, every label and its printed line) and every history line (with every member of its
+  interval) equal HEAD's full materialisation, whose labels are read from the members, on histories with snapshot
+  loads, partial groups, a mixed group, mapping changes (our team, player and match ids moving between the members of
+  one fact), starters, `plays_for` and rows with no source stamp),
+  `test_262_4_as_ofs_summary_carries_the_latest_ids_its_members_carry` (one fact restated four times while its team,
+  player and match ids move, the match re-mapped to one with a later kickoff) and
   `test_a_team_read_loads_that_teams_rows_not_the_records_whole_history` (an instrumented reader: 480 rows fetched
   before, at most the team's 30 plus the key's lookup after).
-- **Memory: bounded for a keyed read, NOT for an unfiltered one.** A `--team` / `--match-id` read holds its
-  partitions and its answer. An unfiltered `as_of` holds every open interval with all its members (an interval keeps
-  its members: the labels read them), so every restatement of every fact still in force: on a daily snapshot feed
-  whose depth facts mostly stand, nearly every row up to the instant. Its memory is therefore still linear in the
-  stored history and grows each season (202 MB at 746,140 synthetic rows, 47 MB before the read). The rows share equal
-  values (`record._Rows`) and `Row` is slotted. Compacting what `as_of` keeps per open interval (first, last, the
-  restated count, the running label ids; full members only for `history`) is the named fix, NOT built: it changes
-  `Interval.members` for `as_of`'s callers, and it is put to the architect with the index below (money-path read:
-  the architect says whether it blocks).
-- **No index is added.** The existing `ix_avail_asr_sport_stamp` (sport, source_stamp) serves both clocks' reads
-  (a range under the source clock); there is no (sport, recorded_at) index, so a recorded-clock read walks ALL the
-  sport's rows through it (the scan is O(history) under that clock, keyed or not), and the ordering is a temporary
-  B-tree. Measured on 746,140 synthetic rows (the PR body's table), a team's read takes under a second; the unfiltered
-  newest read 19.7 s. An index would be a schema change on the next migration tag; it is proposed, not built.
+- **Memory: what `as_of` keeps per open interval (ARCHITECT 2026-11-05 11:55 ET, addendum 262 item 4; Codex on #841,
+  round 1, P1).** Round 1's unfiltered `as_of` held every open interval with all its members, so every restatement of
+  every fact still in force (on a daily snapshot feed whose depth facts mostly stand, nearly every row up to the
+  instant): 202 MB at 746,140 synthetic rows, 47 MB before the read. `as_of` now derives with `keep_members=False`:
+  each interval keeps its first and last rows, its restated count and a `record.Summary` (`members` is None), the
+  labels' running values kept as each member is added in derivation order: whether any member is fresh and whether
+  every member is backfilled (`interval_backfilled`), the earliest recorded_at of a fresh member (`live_since`), and
+  the latest player_id, team_id and match_id (with that member's stored kickoff) a member carries (`mapped_now`, which
+  `_keep`, `kickoff_of`, `post_hoc` and `fact_line` read). The derivation's rules read first, last and the keys fixed
+  at opening, never the members, so the intervals are the same. `history` and `derive` keep every member (a history
+  line names the interval each row opened or restated). The callers, enumerated before it was built: `as_of` is called
+  by `cli.py` (`availability`: `f.interval.first.source` and `fact_line`) and by tests only; `Interval.members` is read
+  by `record.py` itself (the labels, `_derive`, `history`) and by tests only (the equivalence test's reference and its
+  history comparison); nothing in src, deploy, scripts or tools reads either. So the unfiltered read holds one
+  partition's rows (one team's facts of one kind) and the open intervals' first and last rows: 86 MB on the same
+  store, 72 MB at a mid-season instant (the PR body's table).
+- **The index (ARCHITECT 2026-11-05 11:55 ET, addendum 262 item 4, verbatim: "AN INDEX IS ALLOWED in this PR if the
+  query needs one: it joins #831's migration (additive, idempotent, the same marker file or its own, named in the PR
+  body) and rides the SAME next tag — one migration ritual, not two. Named, never quiet.").** Round 1 found no (sport,
+  recorded_at) index, so a recorded-clock read walked ALL the sport's rows through `ix_avail_asr_sport_stamp` (sport)
+  and filtered the time cut on each. `ix_avail_asr_sport_recorded` (sport, recorded_at) on `availability_assertions`
+  is declared on the mapped model (`init_db` creates it) and created by `migrate_availability_record.py`, the same
+  script and the same marker: `CREATE INDEX IF NOT EXISTS ix_avail_asr_sport_recorded ON availability_assertions
+  (sport, recorded_at)`, with every other index the two models declare, on every run (a store the script migrated
+  before the index gains it on a rerun; the marker is kept as written; the receipt says "+ Created index" or "· Kept
+  index" by name and fails on a declared index missing after the run). Every SELECT of the recorded-clock read (the
+  mixed-group probe, the key lookup, the partition read) is then `SEARCH availability_assertions USING INDEX
+  ix_avail_asr_sport_recorded (sport=? AND recorded_at<?)`; the source clock keeps `ix_avail_asr_sport_stamp (sport=?
+  AND source_stamp>? AND source_stamp<?)`. The ordering is still a temporary B-tree. On the 746,140-row store the
+  index took about a second to build. The migration is not in v1.6.4 (that tag's one migration was
+  `migrate_ncaa_cfbd_pregame.py`): the next tag that carries #831 and this PR runs it once, as a new migration.
 - `unread_under_source_clock` is a `COUNT` in SQL.
 
 **Where this reads the ruling's sentence differently** (item 1(b): "'As of T' is one query: the newest observation per
@@ -353,6 +386,14 @@ when a players table for the sport exists, and it maps by id, never by name."
 - **Insert guards:** the insert triggers also refuse a row whose id, or whose poll, is already stored. An
   `INSERT OR REPLACE` deletes the row it conflicts with without firing a delete trigger, so the conflict is refused
   before it happens. An upsert's `DO UPDATE` fires the update trigger.
+- **The snapshot hash guard (ARCHITECT 2026-11-05 11:55 ET, addendum 262 item 1: "An observation of a snapshot
+  source with rows and no hash is REFUSED by the insert guard with its reason"):** the trigger
+  `trg_availability_assertions_snapshot_hash_guard` refuses an assertion whose observation's source is in
+  `SNAPSHOT_SOURCES` (declared in `schema.AVAILABILITY_SNAPSHOT_SOURCES`) and whose `payload_sha256` IS NULL. A trigger
+  of its own: `CREATE TRIGGER IF NOT EXISTS` never changes the assertions' insert guard on a store #831 already
+  migrated, so `migrate_availability_record.py` creates this one there on its next run ("+ Created trigger", then
+  "· Kept trigger"), additive and idempotent, the same ritual and the same tag as the recorded-clock index (262 item 4).
+  Seven triggers in all.
 - **No backdating (item 5):** the assertions' insert guard refuses an assertion on any observation but the newest
   (`NEW.observation_id <> (SELECT MAX(id) FROM availability_observations)`, O(1) on the rowid). Only the observation
   just inserted receives assertions, so nothing is appended to an older fetch and reported as known since it.
@@ -513,24 +554,41 @@ operator hands it over.
 |---|---|
 | `kind` | `depth_rank` (never `projected_starter`: 252 item 3(a)) |
 | `source_stamp` | `dt`, UTC |
-| `source_player_id` | `espn_id`; `gsis_id` where `espn_id` is empty; the column holds one id (the key: below) |
+| `source_player_id` | `espn_id`, ONLY (the key: below); a row with a blank `espn_id` is never asserted (262 item 5) |
 | `player_id` | NULL: no NFL player table to map by (254 item 2(3)); every row counted unmapped |
 | `player_name` | verbatim |
 | `source_team` | `team` verbatim |
 | `team_id` | ours by the existing NFL team mapping (below); NULL when unmapped |
 | `match_id` | NULL (a team-level fact) |
-| `attrs` | `pos_grp`, `pos_abb`, `pos_slot`, `pos_rank` verbatim strings (252 item 3(a)); `dt_raw` (the file's `dt` text); `espn_id` and `gsis_id` verbatim (both ids kept, so `attrs.espn_id` empty says the source id is the GSIS one) |
+| `attrs` | `pos_grp`, `pos_abb`, `pos_slot`, `pos_rank` verbatim strings (252 item 3(a)); `dt_raw` (the file's `dt` text); `espn_id` and `gsis_id` verbatim (both ids kept); `rows_refused` (the count) on the rows of a (dt, team) group that lost a row with no `espn_id` (262 item 5) |
 
 **The player's key.** `record.player_key` keys every fact and slot on `source_player_id`, so the key must be ONE id
 that does not move between loads: an id switch (an empty `gsis_id` filled in later, under a "gsis else espn" key)
 would close the player's interval "slot asserted to someone else" (the same player) and open a new one, a false flip
-in exactly the QB1 reading the record exists for. The key is therefore `espn_id` (the chart is ESPN's: its own id),
-falling back to `gsis_id` only where `espn_id` is empty. `dt_raw`, `espn_id` and `gsis_id` are in
-`record.VOLATILE_ATTRS` (identity and the source's time text, not the fact), so a `gsis_id` filled in later changes
-attrs only, never the key, and does not read as a flip (pinned by a test). THE RESIDUAL, not hidden: a row with no
-`espn_id` (keyed on `gsis_id`, or on its name where both are empty) that gains an `espn_id` later still closes and
-reopens. The blank rate of each id column on the real files is UNREAD here (the excerpt of 259 item 3 is not in this
-container); it is read when the fixture lands, and the residual is the named limitation #840 until then.
+in exactly the QB1 reading the record exists for. The key is therefore `espn_id` (the chart is ESPN's: its own id).
+`dt_raw`, `espn_id` and `gsis_id` are in `record.VOLATILE_ATTRS` (identity and the source's time text, not the fact),
+so a `gsis_id` filled in later changes attrs only, never the key, and does not read as a flip (pinned by a test; 262
+item 5: "Code's P1 fix (the gsis-filled-later false flip) stays — it is correct even though the data has not produced
+the case yet").
+
+**#840, RULED on the real files (ARCHITECT 2026-11-05 11:55 ET, addendum 262 item 5, verbatim in part):** "READ on the
+real files by me (the probe over both files, by column name; the receipt): depth_charts_2025.csv, 554,215 rows — blank
+`espn_id` 0 (0.00%), blank `gsis_id` 5,577 (1.01%); depth_charts_2026.csv, 747,450 rows — blank `espn_id` 0 (0.00%),
+blank `gsis_id` 24,382 (3.26%). Players first seen WITHOUT an espn_id that later gained one: 0 in both files [...]
+RULED: keying on `espn_id` is right (never blank in 1.3M rows); the residual case has frequency zero and gets a GUARD,
+not a design: a row with a blank `espn_id` is counted and refused into the group's `partial` status, never keyed by
+name." Built: `source_player_id` is the `espn_id` only. A row whose `espn_id` is blank is NEVER asserted (not keyed by
+its `gsis_id`, not by its name); it is counted on the receipt ("rows with no espn_id: N, refused, never keyed by
+gsis_id or name"); its (dt, team) group is `partial`: the group's other rows are asserted carrying `attrs.rows_refused`
+(the count), `derive` and the receipt's guard read that team at that load as partial (it closes nothing; it is never
+the team's previous complete group: section 4), and the receipt lists the group under "partial team groups" ("K
+row(s) with no espn_id refused (N asserted)"). The OBSERVATION's status keeps its ruled meaning (254 item 2(7),
+section 6(g): `partial` = a team or match left unmapped): a refused row makes its GROUP partial, not the observation.
+A new load whose rows were all refused is still a new load: the receipt counts it ("new N") and never says "no new
+load". The file is not refused for it (the row check still refuses a row naming no player at all). At the record,
+"never keyed by name" is the writer's too: `write_observation` (and `assertion_refusal`, the adapter's pre-check)
+refuses an assertion of a snapshot source with no `source_player_id` ("carries no source_player_id: a row is never
+keyed by name"); the adapter never passes one.
 `pos_grp_id`, `pos_id` and `pos_name` are not asserted (the ruling names four attrs); the raw file keeps them.
 
 **The team mapping (law 4).** The existing mapping of an NFL abbreviation to our team: the NFL competition's teams
@@ -561,7 +619,11 @@ nflverse's is read by the first host run's receipt (its unmapped-team line), not
 - **No load from the future.** A row whose `dt` is later than our fetch's time plus `nflverse.FUTURE_SKEW` (1 hour of
   clock skew) refuses the file naming its line (`nflverse.future_refusal`; a `--file` exits 2, nothing written; a
   fetched file is a `failed` observation, kept). One such stamp, once held, would be the source's watermark for good
-  (append-only) and every real load after it would read "older".
+  (append-only) and every real load after it would read "older". RULED (262 item 3): "the 1-hour future-skew tolerance
+  stands (a load stamped more than one hour ahead of our clock is refused with its reason; within the hour it is
+  accepted and the skew is printed on the receipt — clock drift is a fact, not a fault)". A file whose newest `dt` is
+  ahead of our fetch by up to the hour is asserted, and the receipt prints "clock skew: the newest load (dt ...) is N s
+  ahead of our fetch (...), within the 60 min tolerance: accepted"; a file not ahead prints no skew line.
 - Every row recorded more than `SOURCE_CADENCE_HOURS["nflverse_depth_charts"]` (24) hours after its `dt` reads
   BACKFILLED by the record's rule (section 3): every 2025 row and every 2026 row before the first fetch (259 item
   2(c)). The receipt counts them.
@@ -569,7 +631,8 @@ nflverse's is read by the first host run's receipt (its unmapped-team line), not
 ### The partial guard's count
 
 The receipt's "partial team groups: N, closing nothing" lists each new (dt, team) group below half its team's
-previous complete group, with both counts. The previous complete groups come from the store's own loads first
+previous complete group, with both counts, and each group that lost a row with no `espn_id` (262 item 5), with the
+rows refused and asserted; the line after it counts the rows with no `espn_id`. The previous complete groups come from the store's own loads first
 (`nflverse.stored_complete_groups`, folded by `record.guard_load`, the function `derive` closes by), then from the
 fetch's loads in `dt` order.
 
@@ -615,6 +678,13 @@ logs/availability/nflverse_depth_charts/<date>/ only when it changed."
 - **`--file PATH`** reads a local release file the same way (endpoint `file:<its name>`, no HTTP status); a refused
   file exits 2 with nothing written and nothing copied; its bytes are kept under the payload directory when they differ
   from the last kept payload of that endpoint, as `<HHMMSS>Z-<sha256, first 16 hex>-<its name>`.
+- **One read of a `--file` (Codex on #841, round 1, finding F; RULED by 262 item 6: "copy once to a temporary file,
+  then hash, parse and keep that same copy").** `nflverse.snapshot_copy` copies the file ONCE to a private temporary
+  file (`tempfile.mkstemp`, outside the checkout, so a refusal still leaves nothing under `logs/`) and hashes that copy;
+  the parse, the row checks and the keep all read the copy, never the original again, and the keep hashes the bytes as
+  it copies them (a mismatch is removed and refused). A file changed while the run reads it therefore cannot make the
+  hash, the asserted rows and the kept bytes disagree (pinned by a test that rewrites the original after every read
+  step). The temporary copy is removed whatever the run's end.
 - **The kept file (Codex on #841, round 1).** Its name carries the payload's sha256 prefix, so two different payloads
   kept in one second never share a path, and it is created exclusively (`O_EXCL`): a path that already holds the same
   bytes is reused, one that holds other bytes is refused (a fetch: a `failed` observation; a `--file`: exit 2), and the
@@ -626,8 +696,9 @@ logs/availability/nflverse_depth_charts/<date>/ only when it changed."
   row. A file name cannot reach 512 characters (NAME_MAX), so the endpoint's length rule is the writer's, run first.
 - **Every row to be asserted, by the writer's own checks.** `record.assertion_refusal` (the same
   `_check_assertion` the writer runs: `player_name` at most 128 characters, `source_team` and `source_player_id` (the
-  `espn_id`, else the `gsis_id`) at most 64, a player and a team named, `attrs` as JSON) runs on every row a run
-  would assert. On a `--file` it runs before the copy: a refusal exits 2, nothing copied, nothing written. On a fetch
+  `espn_id`) at most 64, a player and a team named, `attrs` as JSON) runs on every row a run
+  would assert. On a `--file` it runs before the keep (on the run's temporary copy): a refusal exits 2, nothing kept,
+  nothing written. On a fetch
   the payload is kept before it is read (the evidence), so a refusal is a `failed` observation that keeps the
   payload's path, the writer's reason its error. A refusal the pre-checks cannot see (the store's own, a trigger) is
   never left as an orphan either: a `--file`'s copy made by the run is removed and the run exits 2; a fetch is
@@ -648,9 +719,10 @@ logs/availability/nflverse_depth_charts/<date>/ only when it changed."
   the fetch and the write. A missing DB file or an unmigrated store is refused (exit 2) before any call.
 - The receipt: the observation id, its status, endpoint, `fetched_at` and HTTP status; the error (redacted) where
   failed; rows read, loads (and new loads), new rows, rows asserted, older rows not asserted again with the watermark;
-  "partial team groups: N, closing nothing" with each group; unmapped teams by name with their rows, ambiguous codes,
-  unmapped players; backfilled rows; the payload sha256's first 16 characters and path; the ETag line (sent or not,
-  and the answer); then "Depth charts: nflverse (CC BY 4.0)".
+  "partial team groups: N, closing nothing" with each group; "rows with no espn_id: N, refused, never keyed by gsis_id
+  or name" (262 item 5); unmapped teams by name with their rows, ambiguous codes, unmapped players; backfilled rows;
+  the clock skew where the newest load is ahead of our fetch (262 item 3); the payload sha256's first 16 characters and
+  path; the ETag line (sent or not, and the answer); then "Depth charts: nflverse (CC BY 4.0)".
 - Exit 0 for complete, partial or empty; 1 for a failed observation (written); 2 for a refusal (nothing written).
 - The write is one `record.write_observation` (one fetch, one observation; a retried chain step is another run). The
   writer inserts the assertions as one executemany INSERT per 5,000 rows (`record.WRITE_CHUNK`), in the same one
@@ -663,7 +735,9 @@ logs/availability/nflverse_depth_charts/<date>/ only when it changed."
 - `availability-daily` (`deploy/hosting/chains.py`): one step, `availability-nflverse --season 2026` (the season is
   explicit, as every chain's is, and moves with them). `go_on` names it (`AVAILABILITY_GO_ON`): a failed read is
   receipted with that reason, the chain's exit is its exit, so `OnFailure` pages, and no later step exists to stop. No
-  `backup` key (the daily backup stands as it is). `availability-nflverse` is in `UNMETERED` (github.com, never
+  `backup` key (the daily backup stands as it is; RULED, 262 item 3: "no `backup` key on the chain — the 07:20Z and
+  09:30Z daily backups bracket the 08:45Z timer, and the record is append-only, so the chain carries no backup step of
+  its own, as built"). `availability-nflverse` is in `UNMETERED` (github.com, never
   api-sports). It is inside no other chain. A transient failure is retried by `sp_run` like every step's, each attempt
   its own `failed` observation (the fetch's "Retries", above).
 - `sp-availability-daily.timer`: daily 08:45 UTC (259 item 2(d): "08:45Z daily stands — it captures the ~07:00Z load

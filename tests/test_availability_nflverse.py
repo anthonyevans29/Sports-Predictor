@@ -205,7 +205,7 @@ def test_a_row_the_adapter_cannot_read_refuses_the_file_naming_its_line(tmp_path
 
 def test_a_row_becomes_one_depth_rank_assertion_verbatim_with_both_ids_and_the_mapped_team(tmp_path):
     ids = _teams("BAL")
-    rows = [_row(D1, "BAL", 1, "1"), _row(D1, "BAL", 2, "2", gsis="00-SYN777", espn=""), _row(D1, "LV", 1, "1")]
+    rows = [_row(D1, "BAL", 1, "1"), _row(D1, "BAL", 2, "2", gsis="00-SYN777", espn="4242"), _row(D1, "LV", 1, "1")]
     ing = _ingest(tmp_path, rows, F1)
     assert ing.status == "partial" and ing.rows_asserted == 3 and ing.unmapped_teams == {"LV": 1}  # 254 item 2(7)
     with _ro() as s:
@@ -217,8 +217,7 @@ def test_a_row_becomes_one_depth_rank_assertion_verbatim_with_both_ids_and_the_m
                        "dt_raw": "2026-10-01T07:01:33Z", "espn_id": "900001", "gsis_id": "00-SYNBAL0001"}
     assert a.source_stamp == D1 and a.recorded_at == F1 and a.payload_sha256 is not None
     b = got[("BAL", "Synthetic BAL 2")]
-    assert b.source_player_id == "00-SYN777" and b.attrs["espn_id"] == "" and b.attrs["gsis_id"] == "00-SYN777"  # gsis
-    #                                                                       only where espn_id is empty
+    assert b.source_player_id == "4242" and b.attrs["gsis_id"] == "00-SYN777"   # espn_id ONLY (262 item 5); gsis kept
     lv = got[("LV", "Synthetic LV 1")]
     assert lv.team_id is None and lv.source_team == "LV"                    # law 4: NULL + the text, never guessed
     assert ing.unmapped_players == 3                                          # 254 item 2(3): every player, counted
@@ -359,10 +358,12 @@ def test_a_team_absent_from_a_load_keeps_its_facts_open(tmp_path):
     assert all(f.interval.first.source_stamp == D1 for f in now if f.interval.first.source_team == "JAX")
 
 
-def test_rows_without_a_payload_hash_keep_the_generic_rules(tmp_path):
-    """The snapshot rule reads LOADS of the kept file only (record.snapshot_load): nflverse rows written without a
-    payload hash (the schema PR's synthetic histories) keep the generic rules, as tests/test_availability_record.py
-    pins unchanged; and no other source is touched."""
+def test_262_1_nflverse_rows_without_a_payload_hash_are_refused_and_every_written_load_closes(tmp_path):
+    """Addendum 262 item 1: "the WRITER REQUIRES `payload_sha256` on every observation that asserts a row [...] An
+    observation of a snapshot source with rows and no hash is REFUSED by the insert guard with its reason". Before it,
+    nflverse rows written without a hash kept the generic rules (not a load); now they are never written, so every
+    nflverse group of the snapshot kind alone is a load and closes by the snapshot rule (a group that also holds
+    another kind is still not one: record._mixed_groups)."""
     def obs(t, sha=None):
         return {"sport": "nfl", "source": nv.SOURCE, "endpoint": "file:synthetic.csv", "status": "complete",
                 "fetched_at": t, "payload_sha256": sha}
@@ -371,8 +372,11 @@ def test_rows_without_a_payload_hash_keep_the_generic_rules(tmp_path):
         return {"kind": "depth_rank", "source_player_id": f"00-{n}", "player_name": f"Synthetic {n}",
                 "source_team": "BAL", "source_stamp": stamp,
                 "attrs": {"pos_grp": "Offense", "pos_abb": "WR", "pos_slot": str(n), "pos_rank": rank}}
-    rec.write_observation(obs(F1), [a(1, D1), a(2, D1)])
-    rec.write_observation(obs(F2), [a(1, D2)])                                   # no hash: not a load
+    rec.write_observation(obs(F1, "b" * 64), [a(1, D1), a(2, D1)])
+    before = _counts()
+    with pytest.raises(rec.Refused, match=r"keeps no payload_sha256.*262 item 1"):
+        rec.write_observation(obs(F2), [a(1, D2)])                               # no hash: refused, nothing written
+    assert _counts() == before
     assert sorted(f.interval.first.player_name for f in _facts(F2)) == ["Synthetic 1", "Synthetic 2"]
     rec.write_observation(obs(F2 + timedelta(days=1), "a" * 64), [a(1, D3)])     # a load: closes player 2
     assert [f.interval.first.player_name for f in _facts(F2 + timedelta(days=1))] == ["Synthetic 1"]
@@ -418,6 +422,171 @@ def test_the_guard_reads_the_stored_loads_across_fetches(tmp_path):
     assert len(_facts(F2, team="CAR")) == 79                                     # the recorded clock: nothing closed
     with _ro() as s:
         assert nv.stored_complete_groups(s) == {(nv.SOURCE, ("src", "CAR")): 79}
+
+
+def test_262_5_a_row_with_no_espn_id_is_counted_refused_and_its_group_closes_nothing(tmp_path):
+    """ARCHITECT 2026-11-05 11:55 ET, addendum 262 item 5 (#840), fail-first: "keying on `espn_id` is right [...] a
+    row with a blank `espn_id` is counted and refused into the group's `partial` status, never keyed by name". D1:
+    BAL's and JAX's full charts (5 rows each). D2: BAL drops player 5 and player 3's row has no espn_id (its gsis_id and
+    name present); JAX drops player 5. BAL's D2 group is partial: player 3's row is never asserted (not under its
+    gsis_id, not under its name), counted on the receipt and on the group's rows (attrs.rows_refused), and nothing of
+    BAL closes; JAX's complete group closes player 5. D3: BAL's full chart (players 1-4) is complete and closes player
+    5: the full-chart case is unaffected. (On HEAD d327d299 the row was asserted keyed by its gsis_id.)"""
+    _teams("BAL", "JAX")
+    blank = _row(D2, "BAL", 3, espn="", gsis="00-SYNBLANK3")
+    d2_bal = [r for r in _chart(D2, "BAL", 4) if r["player_name"] != "Synthetic BAL 3"] + [blank]
+    ing = _ingest(tmp_path, _chart(D1, "BAL", 5) + _chart(D1, "JAX", 5) + d2_bal + _chart(D2, "JAX", 4), F1)
+    # the GROUP is partial (262 item 5); the observation's status keeps 254 item 2(7)'s meaning (a team or match left
+    # unmapped): every team here is mapped, so it is complete
+    assert ing.status == "complete" and ing.no_espn_rows == 1 and ing.rows_asserted == 5 + 5 + 3 + 4
+    assert ing.no_espn_groups == [(D2, "BAL", 1, 3)] and ing.partial_groups == []
+    text_ = "\n".join(ing.lines())
+    assert "  partial team groups: 1, closing nothing" in text_
+    assert "    2026-10-02T07:02:10Z BAL: 1 row(s) with no espn_id refused (3 asserted)" in text_
+    assert ("  rows with no espn_id: 1, refused, never keyed by gsis_id or name (addendum 262 item 5); their team "
+            "groups partial: 1") in text_
+    with _ro() as s:
+        rows = rec.load_rows(s, "nfl")
+        assert nv.stored_complete_groups(s) == {(nv.SOURCE, ("src", "BAL")): 5, (nv.SOURCE, ("src", "JAX")): 4}
+    assert not [r for r in rows if r.source_player_id in ("00-SYNBLANK3", None)
+                or (r.source_stamp == D2 and r.player_name == "Synthetic BAL 3")]     # never keyed by gsis or name
+    d2_rows = [r for r in rows if r.source_stamp == D2]
+    assert {r.attrs.get(rec.ROWS_REFUSED_ATTR) for r in d2_rows if r.source_team == "BAL"} == {1}
+    assert not any(rec.ROWS_REFUSED_ATTR in r.attrs for r in rows if r.source_team == "JAX" or r.source_stamp == D1)
+    bal = _facts(D2, "source", team="BAL")
+    assert sorted(f.interval.first.player_name for f in bal) == [f"Synthetic BAL {n}" for n in range(1, 6)]
+    assert all(f.interval.first.source_stamp == D1 for f in bal)                 # restated or open: nothing closed
+    assert len(_facts(D2, "source", team="JAX")) == 4                           # complete: player 5 closed
+    full = _ingest(tmp_path, _chart(D3, "BAL", 4), F2)
+    assert (full.status, full.no_espn_rows, full.no_espn_groups, full.partial_groups) == ("complete", 0, [], [])
+    assert "  rows with no espn_id: 0, refused" in "\n".join(full.lines())
+    after = {f.interval.first.player_name: f for f in _facts(D3, "source", team="BAL")}
+    assert sorted(after) == [f"Synthetic BAL {n}" for n in range(1, 5)]
+    with _ro() as s:
+        (gone,) = [iv for iv in rec.derive(rec.load_rows(s, "nfl"), "source")
+                   if iv.first.player_name == "Synthetic BAL 5"]
+    assert (gone.end, gone.why_closed) == (D3, "not restated in its team's snapshot")
+
+
+def test_262_5_the_guard_reads_a_refused_team_as_partial_whatever_its_size():
+    last = {"A": 10, "B": 10}
+    assert rec.guard_load({"A": 10, "B": 10}, last, refused={"A"}) == {"A"} and last == {"A": 10, "B": 10}
+    assert rec.guard_load({"C": 3}, last, refused={"C"}) == {"C"} and "C" not in last   # never a previous complete
+    assert rec.guard_load({"A": 4}, last) == {"A"} and rec.guard_load({"A": 5}, last) == set()
+
+
+def test_262_5_a_new_load_whose_rows_are_all_refused_is_never_called_no_new_load(tmp_path):
+    """262 item 5 on the receipt (law 2), fail-first: BAL's chart at D1 (F1), then a file holding D1's chart again and
+    a NEW load at D2 whose every BAL row has a blank espn_id (F2). Nothing is asserted (the D2 rows are refused, D1's
+    are at the watermark), but the file DOES hold a newer load: the receipt counts it ("new 1"), lists the refused
+    group and never says "no new load: the file's newest dt is the watermark" (on the first 262 build it did, naming
+    D1 as the file's newest dt). The observation's status is 254 item 2(7)'s: complete (no team or match unmapped);
+    the refused rows make their GROUP partial. A file that adds nothing still says "no new load"."""
+    _teams("BAL")
+    _ingest(tmp_path, _chart(D1, "BAL", 4), F1)
+    blank_d2 = [_row(D2, "BAL", n, espn="") for n in range(1, 5)]
+    ing = _ingest(tmp_path, _chart(D1, "BAL", 4) + blank_d2, F2)
+    text_ = "\n".join(ing.lines())
+    assert (ing.status, ing.new_loads, ing.new_rows, ing.rows_asserted, ing.no_espn_rows) == ("complete", 1, 0, 0, 4)
+    assert "loads 2 (new 1) · new rows 0 · rows asserted 0" in text_
+    assert "    2026-10-02T07:02:10Z BAL: 4 row(s) with no espn_id refused (0 asserted)" in text_
+    assert "  rows with no espn_id: 4, refused" in text_
+    assert "no new load" not in text_
+    same = _ingest(tmp_path, _chart(D1, "BAL", 4), F2 + timedelta(hours=1))
+    assert ("  no new load: the file's newest dt is the watermark (2026-10-01T07:01:33Z); nothing to assert"
+            in same.lines()) and same.new_loads == 0
+
+
+def test_262_6_the_keep_hashes_the_bytes_it_copies_and_a_mismatch_is_removed_and_refused(tmp_path):
+    """262 item 6's keep (nflverse._retain): the bytes are hashed as they are copied to the kept file, and a copy whose
+    bytes are not the hashed payload is removed and refused, so a kept file is always the hashed bytes. Fail-first by
+    mutation: with the comparison disabled the wrong bytes stayed kept under the payload's name. The right hash keeps
+    them (created exclusively); the same bytes again are reused, not written."""
+    src = tmp_path / "copy.csv"
+    src.write_bytes(b"dt,team\n2026-10-01T07:01:33Z,BAL\n")
+    sha = hashlib.sha256(src.read_bytes()).hexdigest()
+    final = tmp_path / "kept" / "kept.csv"
+    with pytest.raises(nv.Refused, match=r"the bytes copied to kept\.csv are not the hashed payload \(sha256 "
+                                         + sha[:16] + r", not 0000000000000000\): nothing kept, nothing written"):
+        nv._retain(src, final, "0" * 64)
+    assert not final.exists()
+    assert nv._retain(src, final, sha) is True and final.read_bytes() == src.read_bytes()
+    assert nv._retain(src, final, sha) is False
+
+
+def test_262_3_a_load_ahead_of_our_clock_within_the_hour_is_accepted_and_its_skew_printed(tmp_path):
+    """Addendum 262 item 3, fail-first: "the 1-hour future-skew tolerance stands (a load stamped more than one hour
+    ahead of our clock is refused with its reason; within the hour it is accepted and the skew is printed on the
+    receipt -- clock drift is a fact, not a fault)". A --file stamped 30 min ahead and a fetch 59 min ahead: asserted,
+    and the receipt says by how much; a load behind our clock prints no skew line. (No `backup` key on the chain: the
+    chain test above pins it.)"""
+    _teams("BAL")
+    ahead = F1 + timedelta(minutes=30)
+    ing = _ingest(tmp_path, _chart(ahead, "BAL", 3), F1)
+    assert (ing.status, ing.rows_asserted, ing.newest_load) == ("complete", 3, ahead)
+    assert ("  clock skew: the newest load (dt 2026-10-03T09:15:00Z) is 1800 s ahead of our fetch "
+            "(2026-10-03T08:45:00Z), within the 60 min tolerance: accepted (addendum 262 item 3: clock drift is a "
+            "fact, not a fault)") in ing.lines()
+    later = F2 + timedelta(minutes=59)
+    got = nv.run(2026, http_get=FakeHTTP(FakeResp(200, _body(_chart(later, "BAL", 3)))), now_fn=lambda: F2)
+    assert got.status == "complete" and got.rows_asserted == 3
+    assert any(ln.startswith("  clock skew: the newest load (dt 2026-10-04T09:44:00Z) is 3540 s ahead")
+               for ln in got.lines())
+    behind = _ingest(tmp_path, _chart(F2 + timedelta(days=1), "BAL", 3), F2 + timedelta(days=1, hours=2))
+    assert behind.rows_asserted == 3 and not any("clock skew" in ln for ln in behind.lines())
+    assert "backup" not in chains.CHAINS["availability-daily"]                    # 262 item 3: none, as built
+
+
+def test_262_6_a_file_changed_while_it_is_read_cannot_split_the_hash_the_rows_and_the_kept_bytes(tmp_path,
+                                                                                                  monkeypatch):
+    """Codex on #841, round 1 (finding F), ruled by addendum 262 item 6: "copy once to a temporary file, then hash,
+    parse and keep that same copy". Fail-first: the original --file is rewritten after EVERY read step of the run
+    (the hook wraps the parse and the hash). The kept bytes, the stored hash and the asserted rows still agree, and
+    they are the bytes the file held when the run began; the temporary copy is gone after the run, and after a refused
+    run. (On HEAD d327d299 the rows were parsed from the first bytes, the hash read from the second, the kept copy
+    from the third.)"""
+    import tempfile
+    _teams("BAL")
+    tmpdir = tmp_path / "tmpdir"
+    tmpdir.mkdir()
+    monkeypatch.setattr(tempfile, "tempdir", str(tmpdir))
+    d = tmp_path / "in"
+    d.mkdir()
+    src = _write(d / "depth_charts_2026.csv", _chart(D1, "BAL", 4))
+    original = src.read_bytes()
+    real_read, real_sha = nv.read_file, nv.sha256_file
+    edits = []
+
+    def change_the_original():
+        edits.append(1)
+        _write(src, _chart(D1, "BAL", 4 + len(edits), qb1=2, qb2=1))         # other bytes, more rows, every time
+
+    def read_then_change(p):
+        out = real_read(p)
+        change_the_original()
+        return out
+
+    def hash_then_change(p):
+        out = real_sha(p)
+        change_the_original()
+        return out
+    monkeypatch.setattr(nv, "read_file", read_then_change)
+    monkeypatch.setattr(nv, "sha256_file", hash_then_change)
+    ing = nv.run(file=str(src), now_fn=lambda: F1)
+    assert len(edits) >= 2 and src.read_bytes() != original                       # the file did change under the run
+    kept = (tmp_path / ing.got.payload_path).read_bytes()
+    assert kept == original and hashlib.sha256(kept).hexdigest() == ing.got.sha256
+    with _ro() as s:
+        rows = rec.load_rows(s, "nfl")
+    assert {r.payload_sha256 for r in rows} == {ing.got.sha256}
+    kept_rows = real_read(tmp_path / ing.got.payload_path).rows
+    assert sorted((r.player_name, r.attrs["pos_rank"]) for r in rows) == sorted(
+        (row["player_name"], row["pos_rank"]) for _, row in kept_rows) and ing.rows_asserted == len(kept_rows) == 4
+    assert list(tmpdir.iterdir()) == []                                          # the temporary copy removed
+    bad = _write(d / "x.csv", [{"season": "2024"}], columns=WEEKLY)
+    with pytest.raises(nv.Refused):
+        nv.run(file=str(bad), now_fn=lambda: F2)
+    assert list(tmpdir.iterdir()) == []                                          # and after a refusal
 
 
 # ---- both clocks -----------------------------------------------------------------------------------------------------------
@@ -695,9 +864,9 @@ def test_6a_counts_only_grow_across_a_replay_and_the_feed_has_no_update_or_delet
                 r"\.merge\(", r"import[^\n]*\b(update|delete)\b", r"\bUPDATE\s+\w+\s+SET\b", r"\bDELETE\s+FROM\b",
                 r"\bs\.add(_all)?\(", r"session_scope", r"\.execute\((?!select\()"):
         assert not re.search(pat, src), pat          # record.write_observation only (h.update: the sha256 hasher)
-    with _engine().connect() as c:                                               # #831's triggers stand
+    with _engine().connect() as c:                         # #831's triggers stand, and 262 item 1's hash guard
         assert c.execute(text("SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger' "
-                              "AND tbl_name LIKE 'availability_%'")).scalar() == 6
+                              "AND tbl_name LIKE 'availability_%'")).scalar() == len(rec.TRIGGERS) == 7
 
 
 # ---- #835 item 1 (258 item 2(1)): percent-encoded credential names --------------------------------------------------------

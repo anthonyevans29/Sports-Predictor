@@ -572,7 +572,9 @@ def test_the_lane_is_in_the_roadmap_with_no_competitions_and_no_moved_date():
     from src import roadmap as rm
     doc = rm.load()
     (ln,) = [x for x in doc["lanes"] if x["lane"] == "availability-record"]
-    assert doc["lanes"][-1] is ln and "competitions" not in ln and ln["moved"] == [] and ln["earliest_live"] is None
+    names = [x["lane"] for x in doc["lanes"]]       # appended after pl-availability; later lanes append after it (#832)
+    assert names.index("availability-record") == names.index("pl-availability") + 1
+    assert "competitions" not in ln and ln["moved"] == [] and ln["earliest_live"] is None
     assert [(st["owner"], st["due"]) for st in ln["steps"]] == [
         ("code", "2026-11-10"), ("code", "2026-11-12"), ("architect", "2026-11-14"), ("code", "2026-11-17"),
         ("code", "2026-11-20"), ("code", "2026-11-21"), ("code", "2026-11-25")]

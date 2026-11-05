@@ -1,5 +1,0 @@
-**2026-11-04 — FIXED (live and wrong: main's `smoke` red since #814's merge at 54833460): #814's two fragments quoted addendum 235 item 1's Kalshi CSV header as one comma-joined backtick span, which the #817 guard reads as the header row; each field name is now its own backtick span, the words unchanged.**
-- **Root cause:** #814's branch predated #817's guard (tests/test_no_raw_kalshi_rows.py), so the guard never ran on it before merge; the merge put two offending lines on main (`changelog.d/814-811-receipt-fill-matching.md:3`, `docs/ledger/entries/2026-11-03-811-receipt-fill-matching.md:3`).
-- **The change:** the header names inside 235 item 1's verbatim quote keep their words and order; only the backticks move, one span per name (the guard's prose form, and #817's own precedent). The guard and its rules do not change.
-- **The law that changed:** none; law 5's addendum (CONTRIBUTING.md, 236 item 2(d)) stands. The lesson for Code: a branch cut before a new CI guard merges from main before it merges, so the guard runs on it.
-- **Receipt:** the guard fails on main 54833460 (1 failed, 33 passed) and passes on this branch (34 passed).

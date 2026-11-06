@@ -1600,7 +1600,7 @@
     "confirmation_window": "none: the lane has no go-live (addendum 190 item 7: earliest_live stays null; its exit is the 2027 model); the verdict's effect is item 4",
     "confirmation_plan": null,
     "declared_at": "2026-10-31T15:45:00Z",
-    "status": "run",
+    "status": "closed",
     "run": {
       "run_at": "2026-11-06T14:12:32Z",
       "n_scored": 1553,
@@ -1690,7 +1690,11 @@
       "prior_reads": [],
       "prior_read_count": 0
     },
-    "verdict": null,
+    "verdict": {
+      "verdict": "REJECT",
+      "ruling": "ARCHITECT 2026-11-06 09:25 ET, addendum 266, verbatim (its line breaks stripped): \"ARCHITECT 2026-11-06 09:25 ET \u2014 addendum 266: mlb-pitchers-v1's ONE RUN \u2014 VERDICT: REJECT (OFF \u2212 ON = 0.0014 against the bar 0.0050; addendum 190 item 3's rule, unchanged). The lane had no go-live and loses none; the finding goes to the 2027 model's design as a finding, never a parameter. Code's verdict-record PR merges the laptop's branch.\" Item 1: \"1. THE RUN, as recorded (the LAPTOP, 2026-11-06 ~14:10Z, main 0ad8b82a; the copy sports_mlbpitchers_run_2026-11-06.db, mode=ro + immutable=1, the same copy for the freeze and the gate; the console on #507): THE FREEZE \u2014 2026 regular-season games read 2,429; both sides on a live path 1,553 (declared 1,553: the same), one side 67, neither 809; per-side paths: starter+bullpen blend 3,072, bullpen half-weighted 101, no pitcher input 1,685; first kickoff 2026-05-23, last 2026-09-27; by month 122 / 369 / 358 / 409 / 295; frozen as docs/registry/ids/mlb-pitchers-v1.cohort.txt, sha256 5d2cc5d9\u2026, the copy's fingerprint 696182d5\u2026 (games 2,483, appearances 21,208, starters 3,250, config 1). THE GATE \u2014 the cross-ref guard clean (75 refs); the production config v2 as stored on the copy, no constant moved; the cohort re-classified to the same 1,553 ids and sha; scored 1,553 exactly; home win rate 0.5261. log-loss OFF 0.690177 \u00b7 ON 0.688769 \u00b7 OFF \u2212 ON = 0.001409 against the bar 0.0050 \u2192 REJECT (190 item 3: \"less, or a tie, REJECTS\"). Reported, not gated: Brier OFF 0.24852, ON 0.24783; per month (LL off \u2192 on): May 0.6781 \u2192 0.6819 (worse), June 0.6941 \u2192 0.6943 (flat), July 0.6887 \u2192 0.6858, August 0.6873 \u2192 0.6863, September 0.6960 \u2192 0.6918. VERDICT (computed by the gate; ruled here): REJECT. Nothing promotes; the pitcher layer stays OFF in production; no constant moves.\" Item 2: \"2. THE READING, for the record: the as-of pitcher layer is a small, real improvement that grows as the season's appearance history accrues (negative in May on 122 games with thin as-of sums, flat in June, positive from July) \u2014 the shape one expects of an as-of construction with no prior for early-season starters. That is a FINDING for the 2027 model's design (lane #97, the off-season lane: an early-season prior on the starter sums, or the layer switched on by accrued appearances \u2014 either is a design to declare, not a tweak to make), and it is no reason to re-run, re-bar or re-cut this cohort: 1,553 games is the test, 0.0014 is the answer. The MLB `improve` bar of 0.0050 (63 item 4) stands.\" Item 3: \"3. CONSEQUENCES (190 item 7): the lane had no go-live (earliest_live null) and its exit was always the 2027 model, so nothing clears; the lane closes as RUN AND REJECTED with the finding of item 2 carried to #97's design brief; the registry entry records the run and the verdict; the MLB backtest's pitcher-layer fence on 2026 (190's precedent) LIFTS with the recorded verdict \u2014 the layer may be read for receipts again, and never for a price without a declaration.\"",
+      "at": "2026-11-06T14:25:00Z"
+    },
     "arms": {
       "on": "mlb v2 with the pitcher layer fed the as-of reconstruction (#702's receipt: the season's appearances of games started strictly before the game; the starter + bullpen blend where the starter is listed, the half-weighted bullpen where the starter is unknown \u2014 the live path's own fallbacks, nothing new)",
       "off": "the same model with the pitcher layer off (as src/walters/backtest.py runs today)"

@@ -579,7 +579,7 @@
       "issue": 507,
       "registry_id": "mlb-pitchers-v1",
       "competitions": ["MLB"],
-      "state": "declared",
+      "state": "closed",
       "steps": [
         {
           "what": "the as-of reconstruction of the pitcher statistics the live model reads, from the stored appearances (docs/historical_backfill_assessment.md tier 1), as a read-only receipt: coverage per season",
@@ -612,11 +612,14 @@
           "what": "the one run on the laptop and the verdict (190 item 7: on a .backup copy outside data/ with --db, the architect's block; the verdict recorded in the entry by Code's PR)",
           "owner": "architect",
           "due": "2026-11-06",
-          "done": null
+          "done": {
+            "date": "2026-11-06",
+            "receipt": "the console on #507 (issuecomment-6686854988: the laptop, 2026-11-06T14:12Z, main 0ad8b82a, the copy sports_mlbpitchers_run_2026-11-06.db, mode=ro + immutable=1, the same copy for the freeze and the gate; its record: addendum 266 item 1); the verdict REJECT, ARCHITECT 2026-11-06 09:25 ET, addendum 266"
+          }
         }
       ],
       "earliest_live": null,
-      "live_needs": "MLB is live. The lane's exit is a measured contribution of the pitcher layer, on or off, before the 2027 season; a layer that does not clear the margin is retired from the live model by a ruling. A PASS also requires the live path to read the as-of sums and never the snapshot before opening day (addendum 190 items 4–5; #746).",
+      "live_needs": "RUN AND REJECTED 2026-11-06 (ARCHITECT 2026-11-06 09:25 ET, addendum 266): mlb-pitchers-v1 ran once and was REJECTED (OFF − ON = 0.0014 against the bar 0.0050; addendum 190 item 3's rule, unchanged); nothing promotes, no constant moves, the MLB `improve` bar of 0.0050 (63 item 4) stands. Addendum 266 item 3, verbatim: \"CONSEQUENCES (190 item 7): the lane had no go-live (earliest_live null) and its exit was always the 2027 model, so nothing clears; the lane closes as RUN AND REJECTED with the finding of item 2 carried to #97's design brief; the registry entry records the run and the verdict; the MLB backtest's pitcher-layer fence on 2026 (190's precedent) LIFTS with the recorded verdict — the layer may be read for receipts again, and never for a price without a declaration.\" As declared: MLB is live. The lane's exit is a measured contribution of the pitcher layer, on or off, before the 2027 season; a layer that does not clear the margin is retired from the live model by a ruling. A PASS also requires the live path to read the as-of sums and never the snapshot before opening day (addendum 190 items 4–5; #746).",
       "vs_close": "ahead on the small 2026 sample the mirror holds (27 decided games from 09-29, 14 picks right; the 16 with a close: model 0.6923 against the close's 0.7098), too few to say.",
       "moved": [
         {

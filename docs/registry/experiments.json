@@ -1777,8 +1777,121 @@
     "confirmation_plan": null,
     "confirmation_plan_note": "As built, ruled (ARCHITECT 2026-11-02 12:20 ET, addendum 219 item 8, verbatim): \"confirmation_plan null \u2014 as built: production stays refused by the registry until the live ruling; the PR that rules v2 live records the rehearsal and the dry read as the entry's confirmation record so production_allowed() reads true from that commit. Live is by ruling, never by the registry alone.\"",
     "declared_at": "2026-11-02T15:35:00Z",
-    "status": "declared",
-    "run": null,
+    "status": "run",
+    "run": {
+      "run_at": "2026-11-06T13:11:36Z",
+      "n_scored": 285,
+      "ids_sha256": "43afd218869d7a1d33c0b5356d4260a9310a585f6c1b1af02c27d39ebdb3ac74",
+      "ids_file": "docs/registry/ids/nfl-elo-v2.txt",
+      "result": {
+        "baseline_home_rate": 0.5473684210526316,
+        "ll_model": 0.634887260520438,
+        "ll_baseline": 0.691320187700119,
+        "bar": 0.681320187700119,
+        "crit_logloss": true,
+        "crit_bands": false,
+        "pass": false,
+        "bands": [
+          {
+            "band": 1,
+            "n": 6,
+            "stated": 0.15412,
+            "realized": 0.333333,
+            "gap": 0.179213,
+            "gated": false,
+            "ok": null
+          },
+          {
+            "band": 2,
+            "n": 28,
+            "stated": 0.246171,
+            "realized": 0.285714,
+            "gap": 0.039543,
+            "gated": false,
+            "ok": null
+          },
+          {
+            "band": 3,
+            "n": 30,
+            "stated": 0.358779,
+            "realized": 0.3,
+            "gap": 0.058779,
+            "gated": true,
+            "ok": true
+          },
+          {
+            "band": 4,
+            "n": 57,
+            "stated": 0.451435,
+            "realized": 0.438596,
+            "gap": 0.012839,
+            "gated": true,
+            "ok": true
+          },
+          {
+            "band": 5,
+            "n": 60,
+            "stated": 0.550731,
+            "realized": 0.55,
+            "gap": 0.000731,
+            "gated": true,
+            "ok": true
+          },
+          {
+            "band": 6,
+            "n": 41,
+            "stated": 0.651731,
+            "realized": 0.682927,
+            "gap": 0.031196,
+            "gated": true,
+            "ok": true
+          },
+          {
+            "band": 7,
+            "n": 37,
+            "stated": 0.739875,
+            "realized": 0.648649,
+            "gap": 0.091226,
+            "gated": true,
+            "ok": false
+          },
+          {
+            "band": 8,
+            "n": 26,
+            "stated": 0.847157,
+            "realized": 0.884615,
+            "gap": 0.037458,
+            "gated": false,
+            "ok": null
+          }
+        ],
+        "n_scored": 285,
+        "verdict": "FAIL \u2014 (2) bands: 70-80% (215 item 3: NFL stays market-only for 2026; v1's forward read of item 1 stands; the 2027 candidate declares in the offseason)",
+        "scope": "scope[nfl-v2-gate]: teams=32, games=676, competitions={NFL} \u00b7 db --db /Users/anthonyevans/backups/sports_nflv2_run_2026-11-06.db (a .backup copy, opened mode=ro&immutable=1)",
+        "stream_fingerprint": "557221dbef504dadc1c64cba2e50067672049bd7acf472fe2013f456c5f5cfc4",
+        "stream_fingerprint_tag": "nfl-elo-v2 stream fingerprint v2",
+        "stream_games": 570,
+        "warmup_n": 285,
+        "scored_n": 285,
+        "calibration_term": {
+          "form": "home_advantage",
+          "value": 33.0
+        },
+        "warmup_fingerprint": "d11ba700990b170ced875088144ad4885506d2cb11e0bd6177ff2a6d1a29c6f0",
+        "fit_warmup_fingerprint": "d11ba700990b170ced875088144ad4885506d2cb11e0bd6177ff2a6d1a29c6f0",
+        "db": "/Users/anthonyevans/backups/sports_nflv2_run_2026-11-06.db",
+        "constants": {
+          "k_factor": 20.0,
+          "home_advantage": 33.0,
+          "season_regression": 0.25,
+          "mov_base": 2.2,
+          "default_rating": 1500.0
+        },
+        "architect_word": "ARCHITECT 2026-11-06: nfl_elo_v2's one run \u2014 home advantage 33.0, addendum 245"
+      },
+      "prior_reads": [],
+      "prior_read_count": 0
+    },
     "verdict": null,
     "declared_at_note": "the stamp of addendum 215 (2026-11-02 10:35 ET), which names the candidate, its base, its bar and its one run; the calibration term's form and value are declared 2026-11-05 (calibration_term) and the gate refuses until then. As built, ruled (ARCHITECT 2026-11-02 12:20 ET, addendum 219 item 1, verbatim): \"STATUS before the declaration \u2014 `declared` with declared_at = 215's stamp and the note, as built (the ncaa-elo-v2 precedent); the null term is what stops a run until 11-05.\"",
     "constants": {

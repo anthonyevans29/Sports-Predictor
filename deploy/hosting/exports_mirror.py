@@ -55,7 +55,16 @@ Action glob never sees a bulletin and the compare is untouched (no new kind, no 
   regular file, a path with a `.git` component (git cannot carry it), a folder that cannot be read, a file that
   cannot be read when the push copies it (no read permission, or gone since the plan: `unreadable: <error>`), and a
   path git itself refuses (`git refused the path`: git decides, by `add --ignore-errors`, not a list kept here;
-  with core.protectNTFS, its default, that is `.git`'s other spellings GIT~1, `.git.`, `.git `). One bad bulletin
+  with core.protectNTFS, its default, that is `.git`'s other spellings GIT~1, `.git.`, `.git `). The DESTINATION is
+  never followed either (Codex on #847): the mirror's own tree may already track a symlink, so before a bulletin is
+  read back or written, every component from <role>/ down to the file is lstat'ed, and a symlink there (the role
+  folder, bulletins/, a family or date folder, or the file itself: `destination path has a symlink`), a component
+  above the file that is not a folder (`destination path has a non-folder`) or a file that is not a regular file
+  (`destination not a regular file`) skips that bulletin, receipted; what the mirror tracks there is left as it is
+  (never unlinked, never written through), the missing folders are made only below real ones, and git's own check
+  never walks a <role>/ or <role>/bulletins/ that is not a real folder. A submodule the index holds on the path
+  (a gitlink checks out as an empty real folder) is refused too (`destination path has a submodule`), and git's
+  check never walks into one. One bad bulletin
   is local to that file: the copy is removed from the working clone, so it never fails the whole-tree add nor
   jams a later push, and the top-level files and the other bulletins still go.
   Absent exports/bulletins/: nothing happens.
@@ -275,7 +284,44 @@ def _unpushed(clone: Path) -> int:
     return int(_git(clone, "rev-list", "--count", f"origin/{BRANCH}..HEAD").stdout.strip() or 0)
 
 
-def _refused_by_git(clone: Path, role: str) -> list[str]:
+def _gitlinks(clone: Path, role: str) -> frozenset[str]:
+    """The submodule entries (gitlinks, mode 160000) the clone's index holds at or under <role>/, as NFC paths: git
+    checks one out as an empty REAL folder, so an lstat never sees it (review of #847's round-1 fix)."""
+    out = _git(clone, "ls-files", "-s", "-z", "--", role, text=False).stdout
+    return frozenset(unicodedata.normalize("NFC", os.fsdecode(e.split(b"\t", 1)[1]))
+                     for e in out.split(b"\0") if e.startswith(b"160000 ") and b"\t" in e)
+
+
+def _dest_refusal(clone: Path, dest: str, gitlinks: frozenset[str] = frozenset()) -> str | None:
+    """None when <clone>/<dest> may be read and written as a plain file; else why not (Codex on #847). Every component
+    from <role>/ down to the file is lstat'ed, never followed: a symlink anywhere on the path (the mirror's own tree
+    may track one, and a relative or absolute link would carry the write out of the clone), a component above the
+    file that is not a folder, or a file that is not a regular file is refused. A component the index holds as a
+    submodule (one of `gitlinks`, from _gitlinks) is refused before its lstat: its checkout is an empty real folder,
+    and a write into it is one git never carries. A component that does not exist ends the walk: everything below
+    it is made by mkdir as real folders under real folders."""
+    parts = Path(dest).parts
+    p = clone
+    for i, part in enumerate(parts):
+        p = p / part
+        if unicodedata.normalize("NFC", "/".join(parts[:i + 1])) in gitlinks:
+            return "destination path has a submodule"
+        try:
+            mode = p.lstat().st_mode
+        except FileNotFoundError:
+            return None
+        except OSError as e:
+            return f"destination unreadable: {e.__class__.__name__}"
+        if st.S_ISLNK(mode):
+            return "destination path has a symlink"
+        if i < len(parts) - 1 and not st.S_ISDIR(mode):
+            return "destination path has a non-folder"
+        if i == len(parts) - 1 and not st.S_ISREG(mode):
+            return "destination not a regular file"
+    return None
+
+
+def _refused_by_git(clone: Path, role: str, gitlinks: frozenset[str] = frozenset()) -> list[str]:
     """Git decides which paths under <role>/bulletins/ it carries (review of the kept subtree's PR): `add
     --ignore-errors` stages every path there git accepts and refuses the rest (with core.protectNTFS, git's default,
     `.git`'s other spellings GIT~1, `.git.` and `.git ` among them), so a file still on disk there and not in the index
@@ -283,25 +329,42 @@ def _refused_by_git(clone: Path, role: str) -> list[str]:
     it and it never jams a later push (a reset leaves untracked files in place). Returns their paths under <role>/
     (bulletins/<rel>, the plan's form). Bytes throughout: a name that is not UTF-8 never breaks the read. Names are
     compared in NFC on both sides, so a git that precomposes Unicode (macOS's default) never reads a decomposed
-    name on disk as refused."""
+    name on disk as refused. Never walked unless <role>/ and <role>/bulletins/ are both real folders and neither is a
+    submodule (Codex on #847: a tracked symlink there would carry the walk, and its unlink, out of the clone; review of
+    its fix: a pathspec inside a submodule makes git's add exit 128 and abort the push). The walk never enters a
+    submodule's folder, and only the folders a refused file's unlink emptied are removed (deepest first, never
+    <role>/bulletins/ itself), so a tracked submodule's empty checkout folder is never deleted (its deletion would be
+    staged by the whole-tree add)."""
     sub = clone / role / BULLETINS
-    if not sub.is_dir():
+    if {role, f"{role}/{BULLETINS}"} & gitlinks:
         return []
+    for p in (clone / role, sub):
+        try:
+            if not st.S_ISDIR(p.lstat().st_mode):
+                return []
+        except OSError:
+            return []
     r = _git(clone, "add", "--ignore-errors", "-A", "--", f"{role}/{BULLETINS}", check=False, text=False)
     if r.returncode not in (0, 1):                  # 1 = some path refused; anything else is not a path's fault
         raise subprocess.CalledProcessError(r.returncode, r.args, r.stdout, r.stderr)
     out = _git(clone, "ls-files", "-z", "--", f"{role}/{BULLETINS}", text=False).stdout
     indexed = {unicodedata.normalize("NFC", os.fsdecode(p)) for p in out.split(b"\0") if p}
-    refused = []
-    for dirpath, _, filenames in os.walk(sub, topdown=False):
+    refused, emptied = [], set()
+    for dirpath, dirnames, filenames in os.walk(sub):
+        here = Path(dirpath)
+        dirnames[:] = [d for d in dirnames                 # never into a submodule's checkout folder
+                       if unicodedata.normalize("NFC", (here / d).relative_to(clone).as_posix()) not in gitlinks]
         for f in filenames:
-            p = Path(dirpath) / f
+            p = here / f
             rel = p.relative_to(clone).as_posix()
             if unicodedata.normalize("NFC", rel) not in indexed:
                 p.unlink()
                 refused.append(rel[len(role) + 1:])
-        if Path(dirpath) != sub and not os.listdir(dirpath):
-            os.rmdir(dirpath)                         # the refused file's now-empty folder
+                emptied.add(here)
+    for d in sorted(emptied, key=lambda q: len(q.parts), reverse=True):
+        while d != sub and d.is_dir() and not os.listdir(d):
+            os.rmdir(d)                                   # the refused file's now-empty folder, and its emptied parents
+            d = d.parent
     return sorted(refused)
 
 
@@ -320,6 +383,7 @@ def push(role: str, exports: Path, label: str, remote: str, clone: Path, today: 
         _sync_to_remote(clone)
         pl = plan(files, role, today)
         copied, late, fresh = 0, [], set()
+        gl = _gitlinks(clone, role)                               # review of #847's round 1: submodules, by the index
         for dest, name in {**pl["dated"], **pl["latest"]}.items():
             src, dst = exports / name, clone / dest
             if dst.exists() and dst.read_bytes() == src.read_bytes():
@@ -329,6 +393,10 @@ def push(role: str, exports: Path, label: str, remote: str, clone: Path, today: 
             copied += 1
         for dest, src in bp["kept"].items():                      # one bad bulletin is local to that file
             dst = clone / dest
+            why = _dest_refusal(clone, dest, gl)                  # Codex on #847: never through a tracked link
+            if why:
+                late.append((dest[len(role) + 1:], why))
+                continue
             try:
                 data = src.read_bytes()                           # read whole first: never a half-written copy
             except OSError as e:                                  # no read permission, or gone since the plan
@@ -352,7 +420,7 @@ def push(role: str, exports: Path, label: str, remote: str, clone: Path, today: 
             if src.exists() and (not dest.exists() or dest.read_bytes() != src.read_bytes()):
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(src, dest)
-        for rel in _refused_by_git(clone, role):                  # git decides; removed from the clone
+        for rel in _refused_by_git(clone, role, gl):              # git decides; removed from the clone
             late.append((rel, "git refused the path"))
             if f"{role}/{rel}" in fresh:
                 copied -= 1

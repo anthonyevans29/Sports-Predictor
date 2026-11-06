@@ -729,6 +729,166 @@ def test_a_path_git_refuses_is_skipped_and_never_jams_the_mirror(tmp_path):
     assert "host/2026-10-04/fixtures_NHL_2026-10-04.json" in tree
 
 
+def _seeded_remote(tmp: Path, tracked: dict) -> str:
+    """A bare remote whose main already TRACKS the given entries: rel -> ("link", target), ("file", bytes) or
+    ("gitlink", commit sha)."""
+    remote = _remote(tmp)
+    seed = tmp / "seed"
+    subprocess.run(["git", "init", "-q", "-b", "main", str(seed)], check=True)
+    for rel, (what, val) in tracked.items():
+        q = seed / rel
+        q.parent.mkdir(parents=True, exist_ok=True)
+        if what == "gitlink":                          # a submodule entry (mode 160000): staged below, no folder
+            continue
+        q.parent.mkdir(parents=True, exist_ok=True)
+        os.symlink(val, q) if what == "link" else q.write_bytes(val)
+    (seed / "README").write_text("seed\n")
+    subprocess.run(["git", "-C", str(seed), "add", "-A"], check=True, capture_output=True)
+    for rel, (what, val) in tracked.items():
+        if what == "gitlink":
+            subprocess.run(["git", "-C", str(seed), "update-index", "--add", "--cacheinfo", f"160000,{val},{rel}"],
+                           check=True, capture_output=True)
+    for args in (["-c", "user.name=s", "-c", "user.email=s@x", "commit", "-q", "-m", "seed"],
+                 ["push", "-q", remote, "HEAD:main"]):
+        subprocess.run(["git", "-C", str(seed), *args], check=True, capture_output=True)
+    return remote
+
+
+def _gitlinks(remote: str) -> list[str]:
+    """The remote main's submodule entries (mode 160000), read from the bare repo itself."""
+    out = subprocess.run(["git", "-C", remote, "ls-tree", "-r", "main"], check=True, capture_output=True, text=True)
+    return sorted(line.split("\t", 1)[1] for line in out.stdout.splitlines() if line.startswith("160000 "))
+
+
+def _outside(tmp: Path) -> tuple[Path, dict]:
+    """A folder beside the clone, never the mirror's: what a tracked link would carry a write (or a walk's unlink) to."""
+    out = tmp / "outside"
+    files = {"target.md": b"outside, never the mirror's\n", "2026-10-03/900001_x.md": b"outside, a dated name\n",
+             "keep.txt": b"outside, kept\n"}
+    for rel, body in files.items():
+        (out / rel).parent.mkdir(parents=True, exist_ok=True)
+        (out / rel).write_bytes(body)
+    return out, files
+
+
+@pytest.mark.parametrize("where, target", [
+    ("bulletins/NFL/2026-10-03/900001_x.md", "../../../../../outside/target.md"),   # the file itself, relative escape
+    ("bulletins/NFL/2026-10-03/900001_x.md", "ABS/target.md"),                      # the file itself, absolute
+    ("bulletins/NFL", "../../../outside"),                                          # a parent folder, relative escape
+    ("bulletins/NFL", "ABS"),                                                       # a parent folder, absolute
+    ("bulletins", "../../outside"),                                                 # bulletins/ itself
+])
+def test_a_tracked_symlink_on_a_bulletin_destination_is_never_followed(tmp_path, where, target):
+    """Codex on #847: the mirror's own tree may already TRACK a symlink where a bulletin goes, the file itself or a
+    folder above it (relative escape or absolute). The push never reads or writes through it: that bulletin is skipped
+    with "destination path has a symlink", receipted on the result and the console line; the outside target is byte
+    for byte as it was (no write through the link, and git's own check never walks it, so nothing outside is unlinked);
+    the tracked link stays as the mirror holds it; the top-level files and the other bulletins still push."""
+    out, before = _outside(tmp_path)
+    ex = _exports(tmp_path, [("fixtures_NHL_2026-10-03.json", TODAY, '{"a":1}')])
+    mine, other = "bulletins/NFL/2026-10-03/900001_x.md", "bulletins/SOCCER/2026-10-03/900002_y.md"
+    _bulletins(ex, {mine: b"# new bulletin bytes\n", other: b"# another bulletin\n"})
+    link = target.replace("ABS", str(out))
+    remote, clone = _seeded_remote(tmp_path, {f"host/{where}": ("link", link)}), tmp_path / "clone"
+    r = em.push("host", ex, "t", remote, clone, today=TODAY)
+    linked = [mine, other] if where == "bulletins" else [mine]
+    assert r["pushed"] and r["copied"] == 2 + 2 - len(linked), r
+    assert r["skipped"] == [(rel, "destination path has a symlink") for rel in linked], r
+    assert em.skipped_line(r["skipped"]) == f"bulletins: {len(linked)} skipped (destination path has a symlink {len(linked)})"
+    assert {str(q.relative_to(out)): q.read_bytes() for q in out.rglob("*") if q.is_file()} == before   # untouched
+    assert os.readlink(clone / "host" / where) == link                       # the tracked link stays as it was
+    co, tree = _tree(remote, tmp_path)
+    assert {"host/2026-10-03/fixtures_NHL_2026-10-03.json", "host/latest/fixtures_NHL.json"} <= set(tree)
+    assert os.readlink(co / "host" / where) == link                          # the remote's link unchanged
+    if where != "bulletins":
+        assert (co / "host" / other).read_bytes() == b"# another bulletin\n"    # the other bulletin still goes
+    again = em.push("host", ex, "t", remote, clone, today=TODAY)
+    assert again["why"] == "nothing changed" and again["skipped"] == r["skipped"], again
+
+
+def test_a_tracked_symlink_role_folder_never_carries_a_bulletin_or_the_walk_out(tmp_path):
+    """The walk starts at <role>/ (Codex on #847): a tracked `host -> ../outside` skips every bulletin with "destination
+    path has a symlink" and git's own check never walks or unlinks through it (on 3441675a its `add -- host/bulletins`
+    beyond the link aborted the whole push). No bulletin bytes land outside and the outside's own files stay; the
+    top-level rule's writes under a linked role folder are the top-level rule's, unchanged by this PR (a follow-up)."""
+    out, before = _outside(tmp_path)
+    ex = _exports(tmp_path, [("fixtures_NHL_2026-10-03.json", TODAY, '{"a":1}')])
+    mine = "bulletins/NFL/2026-10-03/900001_x.md"
+    _bulletins(ex, {mine: b"# new bulletin bytes\n"})
+    remote, clone = _seeded_remote(tmp_path, {"host": ("link", "../outside")}), tmp_path / "clone"
+    r = em.push("host", ex, "t", remote, clone, today=TODAY)
+    assert r["skipped"] == [(mine, "destination path has a symlink")], r
+    assert not (out / "bulletins").exists()                                  # no bulletin written through the link
+    assert all((out / rel).read_bytes() == body for rel, body in before.items())
+    assert os.readlink(clone / "host") == "../outside"
+
+
+def test_a_bulletin_destination_that_is_a_folder_or_under_a_file_is_skipped_never_overwritten(tmp_path):
+    """The destination is lstat'ed, not trusted (Codex on #847): a FOLDER sitting where a bulletin goes (left in the
+    working clone) is "destination not a regular file", and a tracked FILE where a bulletin's folder goes is
+    "destination path has a non-folder". Each is skipped and receipted, never removed or overwritten (on 3441675a the
+    write raised and the whole push aborted); the top-level files and the other bulletins still push."""
+    ex = _exports(tmp_path, [("fixtures_NHL_2026-10-03.json", TODAY, '{"a":1}')])
+    as_dir, under_file, ok = ("bulletins/NFL/2026-10-03/900001_x.md", "bulletins/MLB/2026-10-03/900003_z.md",
+                              "bulletins/SOCCER/2026-10-03/900002_y.md")
+    _bulletins(ex, {as_dir: b"# a\n", under_file: b"# z\n", ok: b"# y\n"})
+    remote = _seeded_remote(tmp_path, {"host/bulletins/MLB": ("file", b"a tracked file where a folder goes\n")})
+    clone = tmp_path / "clone"
+    em._ensure_clone(clone, remote)
+    em._sync_to_remote(clone)
+    (clone / "host" / as_dir / "inner").mkdir(parents=True)
+    (clone / "host" / as_dir / "inner" / "keep.md").write_bytes(b"left in the clone\n")
+    r = em.push("host", ex, "t", remote, clone, today=TODAY)
+    assert r["pushed"] and sorted(r["skipped"]) == sorted([(as_dir, "destination not a regular file"),
+                                                           (under_file, "destination path has a non-folder")]), r
+    assert (clone / "host" / as_dir / "inner" / "keep.md").read_bytes() == b"left in the clone\n"
+    co, tree = _tree(remote, tmp_path)
+    assert {"host/2026-10-03/fixtures_NHL_2026-10-03.json", "host/latest/fixtures_NHL.json"} <= set(tree)
+    assert (co / "host" / ok).read_bytes() == b"# y\n"
+    assert (co / "host/bulletins/MLB").read_bytes() == b"a tracked file where a folder goes\n"
+
+
+GITLINK_SHA = "1234567890123456789012345678901234567890"
+
+
+@pytest.mark.parametrize("where", ["", "bulletins", "bulletins/NFL", "bulletins/NFL/2026-10-03/900001_x.md"])
+def test_a_tracked_submodule_on_a_bulletin_destination_is_skipped_kept_and_never_aborts_the_push(tmp_path, where):
+    """Codex round 1's fix, reviewed: the mirror's own tree may track a SUBMODULE entry (a gitlink, mode 160000) at the
+    role folder, at bulletins/, at a folder above a bulletin or at the bulletin's own place. Git checks one out as an
+    empty real folder, so an lstat alone lets it through. Each bulletin under it is skipped and receipted
+    ("destination path has a submodule"), never written into it; git's own check never runs a pathspec inside it (a
+    gitlink at `host` made `add -- host/bulletins` exit 128, "is in submodule", and every push raised); its empty
+    checkout folder is never removed, so the push never stages the gitlink's deletion; the remote still tracks it, the
+    skip holds on the next push (a stray an earlier push left inside it neither aborts that push nor is touched), and
+    the tools and the other bulletins still go."""
+    ex = _exports(tmp_path, [("fixtures_NHL_2026-10-03.json", TODAY, '{"a":1}')])
+    mine, other = "bulletins/NFL/2026-10-03/900001_x.md", "bulletins/SOCCER/2026-10-03/900002_y.md"
+    _bulletins(ex, {mine: b"# new bulletin bytes\n", other: b"# another bulletin\n"})
+    gl = "/".join(x for x in ("host", where) if x)
+    remote, clone = _seeded_remote(tmp_path, {gl: ("gitlink", GITLINK_SHA)}), tmp_path / "clone"
+    r = em.push("host", ex, "t", remote, clone, today=TODAY)
+    under = [mine, other] if where in ("", "bulletins") else [mine]
+    assert r["pushed"] and r["skipped"] == [(rel, "destination path has a submodule") for rel in under], r
+    assert em.skipped_line(r["skipped"]) == f"bulletins: {len(under)} skipped (destination path has a submodule {len(under)})"
+    assert _gitlinks(remote) == [gl]                                         # still tracked, never deleted
+    if where:                                                                # no bulletin written into it
+        assert (clone / gl).is_dir() and not any((clone / gl).iterdir())
+    else:          # the top-level rule still writes host/<date>/ and host/latest/ there, which git never carries: main's
+        assert not (clone / gl / "bulletins").exists()                      # behaviour, outside this diff (architect)
+    co, tree = _tree(remote, tmp_path)
+    assert {"tools/compare_exports.py", ".github/workflows/compare.yml"} <= set(tree)
+    if where:                                                                # the role folder is real: the top level goes
+        assert {"host/2026-10-03/fixtures_NHL_2026-10-03.json", "host/latest/fixtures_NHL.json"} <= set(tree)
+    if other not in under:
+        assert (co / "host" / other).read_bytes() == b"# another bulletin\n"
+    stray = clone / gl / (mine if not where else "stray.md")                # left in it by a 3441675a push
+    stray.parent.mkdir(parents=True, exist_ok=True)
+    stray.write_bytes(b"left by an earlier push\n")
+    again = em.push("host", ex, "t", remote, clone, today=TODAY)
+    assert again["why"] == "nothing changed" and again["skipped"] == r["skipped"], again
+    assert _gitlinks(remote) == [gl] and stray.read_bytes() == b"left by an earlier push\n"
+
+
 def test_the_compare_never_sees_the_subtree(tmp_path):
     """The compare is untouched and never sees a bulletin: in a mirror both writers pushed, with bulletins and a .json
     planted under exports/bulletins/, the compare's own `*.json` glob (its --glob default, read from its source) over

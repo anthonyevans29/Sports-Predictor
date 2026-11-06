@@ -46,6 +46,17 @@ subtree), anything that is not a regular file, a `.git` path component (git cann
 read, a file the push cannot read when it copies it (no read permission, or gone since the plan: `unreadable: <error>`),
 and a path git itself refuses (`git refused the path`; git decides, by `add --ignore-errors` over `<role>/bulletins/`, not
 a list kept in the mirror: under core.protectNTFS, git's default, `.git`'s other spellings `GIT~1`, `.git.`, `.git `).
+The destination is never followed either (Codex on #847): the mirror's own tree may already track a symlink, so before a
+bulletin is read back or written, every component from `<role>/` down to the file is `lstat`'ed, and a bulletin is
+skipped, receipted, when the path there holds a symlink (the role folder, `bulletins/`, a family or date folder, or the
+file itself, a relative escape or an absolute link: `destination path has a symlink`), a component above the file that
+is not a folder (`destination path has a non-folder`), or a file that is not a regular file (`destination not a regular
+file`); what the mirror tracks there is left as it is (never unlinked, never written through), missing folders are made
+only below real ones, and git's own check never walks a `<role>/` or `<role>/bulletins/` that is not a real folder. A
+component the index holds as a submodule (a gitlink: git checks one out as an empty real folder, so an lstat never sees
+it) is refused the same way (`destination path has a submodule`), git's own check never takes a `<role>/` or
+`<role>/bulletins/` submodule as its pathspec (git's add exits 128 there), its walk never enters a submodule's folder,
+and it removes only the folders a refused file's unlink emptied.
 One bad bulletin is local to that file: a refused copy is removed from the working clone, so it never fails the
 whole-tree add nor jams a later push, and the top-level files and the other bulletins still go. No `exports/bulletins/`:
 nothing happens. The compare is untouched: the Action picks the newest

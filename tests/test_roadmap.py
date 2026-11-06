@@ -327,7 +327,18 @@ def test_competitions_is_optional():
     """A lane without the field validates (the field is the only optional key); the print does not show it."""
     assert rm.validate(_broken(lambda d: [ln.pop("competitions", None) for ln in d["lanes"]])) == []
     printed = _cli("--today", "2026-10-17").output.splitlines()
-    assert printed and not any("competitions" in line or "'UNL'" in line for line in printed)
+    # A step's own what, as it stands in docs/roadmap.json, is prose and may say "competitions": tennis's wiring step
+    # ("competitions ATP and WTA", unchanged) became the lane's printed next step when the records PR marked the probe
+    # step done (addendum 269 item 5, addendum 270 item 6). Only that verbatim what text is removed before the check;
+    # the field never prints, on any line of any lane.
+    whats = sorted({st["what"] for ln in _real()["lanes"] for st in ln["steps"]}, key=len, reverse=True)
+
+    def _without_whats(line):
+        for what in whats:
+            line = line.replace(what, "")
+        return line
+
+    assert printed and not any("competitions" in _without_whats(line) or "'UNL'" in line for line in printed)
 
 # (d): "the day it was moved, which date, what it was, what it is now, why, and the addendum and item"
 SIX_PARTS = ("moved_on", "which", "was", "now", "why", "ruling")

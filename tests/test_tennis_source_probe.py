@@ -431,9 +431,11 @@ def test_the_lane_is_appended_with_261s_dates_and_no_date_moved():
     assert names.index("tennis-market-only") > names.index("soccer-v23")          # appended after every older lane
     assert ln["issue"] == 838 and ln["registry_id"] is None and ln["competitions"] == ["ATP", "WTA"]
     assert ln["state"] in rm.STATES and ln["state"] == "to declare"
-    assert [(s["owner"], s["due"], s["done"]) for s in ln["steps"]] == [
-        ("code", "2026-11-14", None), ("code", "2026-12-12", None), ("operator", "2026-12-28", None),
+    # addendum 269 item 5 / 270 item 6 (the records PR): "the 11-14 probe step DONE on the stage-1 receipt"
+    assert [(s["owner"], s["due"], s["done"] and s["done"]["date"]) for s in ln["steps"]] == [
+        ("code", "2026-11-14", "2026-11-06"), ("code", "2026-12-12", None), ("operator", "2026-12-28", None),
         ("code", "2027-01-10", None)]
+    assert "#838 issuecomment-6690719842" in ln["steps"][0]["done"]["receipt"]
     assert ln["steps"][0]["what"].startswith("the provider probe (addendum 261 item 2(b))")
     assert "scripts/tennis_source_probe.py" in ln["steps"][0]["what"]
     assert ln["earliest_live"] is None and ln["moved"] == []

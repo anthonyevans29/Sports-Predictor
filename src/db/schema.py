@@ -52,6 +52,12 @@ class Sport(str, enum.Enum):
     NFL = "nfl"
     MLB = "mlb"
     NHL = "nhl"
+    # ARCHITECT 2026-11-05, addendum 261 items 0 and 1 (lane basketball-market-only): "a new sport is a Sport enum
+    # value (schema.Sport, stored as a string column — Code verifies on the laptop's schema that no CHECK constraint
+    # pins the set; if one does, the value is a migration, not an edit)". The metadata creates no CHECK (Enum's
+    # create_constraint is False); the column stores the member NAME ('BASKETBALL'), on SQLite a VARCHAR whose
+    # declared length is not enforced. The laptop's own schema is the operator's read (the PR body names it).
+    BASKETBALL = "basketball"
 
 
 class MatchStatus(str, enum.Enum):

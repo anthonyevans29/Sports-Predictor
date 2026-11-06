@@ -70,6 +70,11 @@ class NormalizedMatch:
     # adapter reads no series fields (every adapter but statsapi, the api-sports fallback included): nothing is
     # written for the row.
     series: dict | None = None
+    # THE RAW PAYLOAD (ARCHITECT 2026-11-06, addendum 271 item 3(g)): "the Match row stores the totals; the quarters go
+    # to the raw payload only (no schema change for a market-only record)". The provider's item for THIS game as
+    # served, held on the normalized record only: the ingestion service never writes it (no column, no external_ids
+    # key). Filled by api_basketball only; None everywhere else, so nothing changes for any other adapter.
+    raw: dict | None = None
 
 
 @dataclass

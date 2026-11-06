@@ -75,14 +75,34 @@ KALSHI_FEE_M = {                       # series -> (taker M, maker M), pre-live
     # schedule ruling (#93) names UCL. It costs a fill. It prices no call." (CL is not in
     # KALSHI_SERIES_BY_COMPETITION, so no call is priced through it.)
     "KXUCLGAME": (1.0, 1.0),
+    # KXNBAGAME (NBA, addendum 271 item 3(h)) is NOT listed, on purpose. 261 item 0: "the taker/maker M from Kalshi's
+    # published fee schedule for that series, READ from the schedule, never assumed; an unlisted series prices no
+    # call"; 268 item 1(iii): "the fee M for venue.KALSHI_FEE_M still comes from the published schedule, matched by
+    # series". The repo holds no copy of the schedule's per-series table (BACKLOG "KALSHI FEE SCHEDULE": the PDF could
+    # not be opened) and #93's ruling names NFL/NHL/EPL/UCL/NCAAF/MLB only. The series listing's own fee fields on
+    # #839 ('fee_multiplier': 1, 'fee_type': 'quadratic_with_maker_fees') are the API's listing, not the schedule, so
+    # they are not typed in here. Until the M is read from the schedule or ruled, kalshi_exec gives an NBA row NO M
+    # and NO executable cost, taker or maker, either side (the mapped-but-unread rule in kalshi_exec: 261 item 0,
+    # "READ from the schedule, never assumed"); the quotes are kept. No NBA call exists to price (no model, no Desk
+    # family: the record is PAPER).
 }
 # Competition code -> the Kalshi game series its quotes come from (cli
 # sync-kalshi-* and adapters/kalshi.py SOCCER_GAME_SERIES). A code missing
 # here gets the schedule's default taker M=1 and NO maker cost: the maker M of
-# an unlisted series is not assumed (conservative unknowns).
+# an unlisted series is not assumed (conservative unknowns). A code mapped HERE
+# whose series has no KALSHI_FEE_M entry (KXNBAGAME today) gets NO M and NO
+# executable cost at all: its M is the schedule's for that series, not read yet
+# (261 item 0, "READ from the schedule, never assumed").
 KALSHI_SERIES_BY_COMPETITION = {
     "NFL": "KXNFLGAME", "NHL": "KXNHLGAME", "NCAA": "KXNCAAFGAME",
     "PL": "KXEPLGAME", "MLB": "KXMLBGAME",
+    # ARCHITECT 2026-11-06, addendum 271 item 3(h): ""NBA": "KXNBAGAME" (fee type quadratic_with_maker_fees as
+    # listed; the fee M from the published schedule matched by series)". The ticker is READ from Kalshi's own series
+    # listing on #839 (the laptop's probe receipt, 2026-11-06 16:01Z: "KXNBAGAME · 'NBA Game' · 'Sports' · tags
+    # ['Basketball'] · GAME", re-read at 17:18Z, addendum 268 item 1(iii)), never typed from memory (261 item 4). Its
+    # fee M is not in KALSHI_FEE_M (above). Two-way (the shared path, kalshi_sync.sync_kalshi_mlb with
+    # series_override, cli `sync-kalshi-nba`); market-only, PAPER, no call.
+    "NBA": "KXNBAGAME",
 }
 
 
@@ -138,7 +158,10 @@ def kalshi_exec(bid: float | None, ask: float | None, competition: str | None = 
     rounded by KALSHI_FEE_ROUNDING (nearest, #88 re-fit).
     exec_cost_maker is null when there is no bid, when bid + 1c reaches the
     ask (a 1c spread: joining = taking, so no maker price exists), or when the
-    series' maker M is unknown. The pre-split alias kalshi_exec_cost (= taker)
+    series' maker M is unknown. BOTH costs (both sides) are null when the
+    competition's series is mapped but its M is not in KALSHI_FEE_M (261 item 0:
+    the M "READ from the schedule, never assumed"; KXNBAGAME today), while the
+    quotes are kept. The pre-split alias kalshi_exec_cost (= taker)
     was RETIRED after two Cockpit republishes (#130); the ledger's own
     kalshi_exec_cost field is a different thing and keeps its taker meaning.
     Fees are per FILL of K_ORDER_CONTRACTS contracts
@@ -152,14 +175,19 @@ def kalshi_exec(bid: float | None, ask: float | None, competition: str | None = 
     with exactly the home rules mirrored: same M, same per-fill fee, maker null
     when there is no NO bid (no home ask), when the join reaches the NO ask (a
     1c spread: joining = taking), or when the maker M is unknown.
-    TWO-WAY ONLY (two_way=True: NFL / NHL / NCAA / MLB). On a three-way 1X2
+    TWO-WAY ONLY (two_way=True: NFL / NHL / NCAA / MLB / NBA). On a three-way 1X2
     market (soccer HOME/DRAW/AWAY) NO on HOME is DRAW-OR-AWAY, not an away bet,
     so every away field stays null. The caller states two_way from the row's
     own sport; the default False keeps the away fields null when the caller
     does not know (conservative unknowns, law 4)."""
     series = KALSHI_SERIES_BY_COMPETITION.get(competition or "")
-    m_taker, m_maker = KALSHI_FEE_M.get(series, (1.0, None))
-    fee_t = kalshi_fee(ask, m_taker)
+    if series is not None and series not in KALSHI_FEE_M:
+        # MAPPED BUT UNREAD (ARCHITECT 2026-11-05, addendum 261 item 0: the M "READ from the schedule, never assumed";
+        # KXNBAGAME today): no M, so no fee is priced and every executable cost stays null; the quotes are kept.
+        m_taker, m_maker = None, None
+    else:
+        m_taker, m_maker = KALSHI_FEE_M.get(series, (1.0, None))
+    fee_t = kalshi_fee(ask, m_taker) if m_taker is not None else None
     taker = round(ask + fee_t, 4) if ask is not None and fee_t is not None else None
     maker = None
     if bid is not None and m_maker is not None:
@@ -172,7 +200,7 @@ def kalshi_exec(bid: float | None, ask: float | None, competition: str | None = 
     if two_way:
         away_ask = round(1.0 - bid, 4) if bid is not None else None     # NO ask = 1 - YES bid
         away_bid = round(1.0 - ask, 4) if ask is not None else None     # NO bid = 1 - YES ask
-        fee_ta = kalshi_fee(away_ask, m_taker)
+        fee_ta = kalshi_fee(away_ask, m_taker) if m_taker is not None else None
         taker_away = (round(away_ask + fee_ta, 4)
                       if away_ask is not None and fee_ta is not None else None)
         if away_bid is not None and m_maker is not None:

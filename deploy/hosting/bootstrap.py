@@ -105,8 +105,9 @@ ANCHORS = [
     # MLB: no certification fingerprint in BACKLOG. The laptop reference is
     # the only yardstick (completed seasons exact).
 ]
-SPORT_CLI = {"SOCCER": "soccer", "MLB": "mlb", "NFL": "nfl", "NHL": "nhl"}  # sync-competitions choices
-FAMILY_ORDER = ["MLB", "NFL", "NHL", "SOCCER"]
+SPORT_CLI = {"SOCCER": "soccer", "MLB": "mlb", "NFL": "nfl", "NHL": "nhl",  # sync-competitions choices
+             "BASKETBALL": "basketball"}    # addendum 261 item 0: the bootstrap ORDER for a new sport
+FAMILY_ORDER = ["MLB", "NFL", "NHL", "SOCCER", "BASKETBALL"]
 IN_PLAY = ("SCHEDULED", "LIVE", "POSTPONED")
 SEED = "__seed-model-registry__"  # a bootstrap-internal step, not a cli command
 
@@ -290,6 +291,13 @@ def plan(ref: dict) -> list[list[str]]:
         steps.append(["sync-odds-football"])
     steps += [["sync-kalshi"], ["sync-kalshi-soccer"], ["sync-kalshi-nfl"],
               ["sync-kalshi-nhl"], ["sync-kalshi-ncaa"]]
+    # NBA (addendum 261 item 0, "the hourly capture tier"; 271 item 3(h)): the
+    # day-one Kalshi market for a reference that holds basketball rows, as every
+    # other two-way sport the bootstrap routes gets; UNMETERED, and it exits 0
+    # with a printed reason when it refuses. A reference without basketball
+    # plans exactly the block above (no existing bootstrap changes).
+    if "BASKETBALL" in sports:
+        steps.append(["sync-kalshi-nba"])
     return steps
 
 

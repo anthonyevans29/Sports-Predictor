@@ -904,7 +904,8 @@ def test_the_t11_lists_are_read_from_the_real_runbook_as_it_holds_them():
     lists = c.t11_lists()
     assert list(lists) == ["TIMERS", "MLB_LAPTOP_ONLY"] == list(c.T11_LISTS)
     assert {"sp-nfl-prematch.timer", "sp-cup-observe.timer", "sp-closing-watch.timer"} <= set(lists["TIMERS"])
-    assert len(lists["TIMERS"]) == 18
+    assert len(lists["TIMERS"]) == 19                # sp-nba-daily.timer: ARCHITECT 2026-11-05, addendum 261 item 1(b)
+    assert lists["TIMERS"][-1] == "sp-nba-daily.timer"
     assert lists["MLB_LAPTOP_ONLY"] == ["sp-mlb-morning.timer", "sp-mlb-preslate.timer", "sp-clv-capture.timer"]
     assert sp_cutover.runbook_timers() == lists["TIMERS"]
 
@@ -933,14 +934,17 @@ def test_the_timers_line_for_the_v1_6_1_host_names_only_the_two_timers_timers(tm
     sp-nfl-prematch.timer and sp-cup-observe.timer (16), plus one name this tree does not ship (sp-nfl-predict.timer
     here: a name not shipped never reaches the line). Run by the code that expected HELD_FOR_CUTOVER, and by today's."""
     lists = c.t11_lists()
-    host = [t for t in lists["TIMERS"] if t not in ("sp-nfl-prematch.timer", "sp-cup-observe.timer")]
+    # that host's file predates sp-nba-daily.timer (addendum 261 item 1(b)), which today's tree ships on TIMERS: the
+    # same 16 names, and the line names the new one too, as the deploy of the tag carrying it would print
+    host = [t for t in lists["TIMERS"] if t not in ("sp-nfl-prematch.timer", "sp-cup-observe.timer",
+                                                     "sp-nba-daily.timer")]
     path = _enabled(tmp_path, [*host, "sp-nfl-predict.timer"])
     assert len(path.read_text().split()) == 17
-    want = (f"\n  ! shipped timers not in {c.TIMERS_ENABLED}: sp-cup-observe.timer, sp-nfl-prematch.timer (TIMERS)"
-            " · 3 on MLB_LAPTOP_ONLY (held off by T11) — a TIMERS timer not enabled: install and enable it by "
-            "hosting-h1.md T11's recipe for a live host")
+    want = (f"\n  ! shipped timers not in {c.TIMERS_ENABLED}: sp-cup-observe.timer, sp-nba-daily.timer, "
+            "sp-nfl-prematch.timer (TIMERS) · 3 on MLB_LAPTOP_ONLY (held off by T11) — a TIMERS timer not enabled: "
+            "install and enable it by hosting-h1.md T11's recipe for a live host")
     st = sp_deploy.timers_state(enabled_path=path)
-    assert st["by_list"] == {"TIMERS": ["sp-cup-observe.timer", "sp-nfl-prematch.timer"],
+    assert st["by_list"] == {"TIMERS": ["sp-cup-observe.timer", "sp-nba-daily.timer", "sp-nfl-prematch.timer"],
                              "MLB_LAPTOP_ONLY": sorted(lists["MLB_LAPTOP_ONLY"])} and "error" not in st
     line = sp_deploy.timers_line(st)
     assert line == want and not any(t in line for t in lists["MLB_LAPTOP_ONLY"]) and "unlisted" not in line

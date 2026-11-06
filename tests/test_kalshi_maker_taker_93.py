@@ -22,7 +22,9 @@ def test_ruled_multipliers_per_series():
     for s in ("KXNFLGAME", "KXNHLGAME", "KXNCAAFGAME", "KXEPLGAME"):
         assert venue.KALSHI_FEE_M[s] == (1.0, 1.0)
     assert venue.KALSHI_SERIES_BY_COMPETITION == {
-        "NFL": "KXNFLGAME", "NHL": "KXNHLGAME", "NCAA": "KXNCAAFGAME", "PL": "KXEPLGAME", "MLB": "KXMLBGAME"}
+        "NFL": "KXNFLGAME", "NHL": "KXNHLGAME", "NCAA": "KXNCAAFGAME", "PL": "KXEPLGAME", "MLB": "KXMLBGAME",
+        "NBA": "KXNBAGAME"}         # NBA: ARCHITECT 2026-11-06, addendum 271 item 3(h), the ticker READ on #839
+    assert "KXNBAGAME" not in venue.KALSHI_FEE_M   # its M is the published schedule's, not yet read (261 item 0)
 
 
 def test_fee_formula_takes_m_and_rate():

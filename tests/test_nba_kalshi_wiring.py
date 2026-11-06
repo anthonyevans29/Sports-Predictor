@@ -1,7 +1,7 @@
 """THE NBA'S MARKET-ONLY WIRING, the Kalshi and host half (ARCHITECT 2026-11-05, addendum 261 items 0 and 1(b);
 2026-11-06, addendum 271 item 3(h), addendum 272 items 3-4; lane basketball-market-only, #839).
 
-The series "NBA": "KXNBAGAME" READ on #839's series listing; no fee M until the published schedule is read; the shared
+The series "NBA": "KXNBAGAME" READ on #839's series listing, its fee M (1.0, 1.0) as RULED (addendum 274 item 1(a)); the shared
 matcher on the 30 franchise names the provider serves, ambiguity refused by its sentinel; pairing by the stored kickoff
 instant read as a US Eastern day and the two names, never the provider's date string; `sync-kalshi-nba`; the hourly
 capture tier; the PAPER line and coverage's NBA line (totals SCHEDULED + FINISHED + POSTPONED, not CANCELLED; the day
@@ -86,31 +86,48 @@ Z = datetime.fromisoformat                                         # naive UTC
 
 # ---- the series and its fee M ----------------------------------------------------------------------------------------
 
-def test_the_series_is_read_from_the_receipt_and_its_fee_m_is_not_assumed():
-    """271 item 3(h): "NBA": "KXNBAGAME". 261 item 0 / 268 item 1(iii): the M from the published schedule, never the
-    listing; the repo holds no schedule copy, so KXNBAGAME is unlisted. 261 item 0: "READ from the schedule, never
-    assumed": a series that IS mapped but whose M is not listed carries no M and no executable cost (taker and maker,
-    both sides); the quotes themselves are kept, since they are the venue's own."""
+def test_the_series_is_read_from_the_receipt_and_its_fee_m_is_the_ruled_one():
+    """271 item 3(h): "NBA": "KXNBAGAME". ARCHITECT 2026-11-06, addendum 274 item 1(a): "RULED:
+    KALSHI_FEE_M["KXNBAGAME"] = (1.0, 1.0) — the taker M the schedule's default (certain; the K-track's binding number
+    is the taker cost), the maker M the API listing's own figure, taken as the HIGHER of the two readings"; "The entry's
+    comment carries both readings and this addendum". NBA rows price both costs, both sides, at M = 1 (274 item 2(1)),
+    exactly as NHL's (the same M), and the quotes are kept."""
     from src.ingestion.kalshi_replay import shared_series
     from src.ingestion.kalshi_sync import series_competition
     assert venue.KALSHI_SERIES_BY_COMPETITION["NBA"] == "KXNBAGAME"
     assert series_competition("KXNBAGAME") == "NBA" and shared_series()["KXNBAGAME"] == "NBA"
-    assert "KXNBAGAME" not in venue.KALSHI_FEE_M
+    assert venue.KALSHI_FEE_M["KXNBAGAME"] == (1.0, 1.0)
     src = (ROOT / "src" / "walters" / "venue.py").read_text()
     assert "KXNBAGAME · 'NBA Game'" in src and "#839" in src           # the receipt cited beside the entry
+    # both readings and the addendum, on the entry's comment
+    assert "addendum 274 item 1(a)" in src and "Last updated and effective: July 7, 2026" in src
+    assert "'quadratic_with_maker_fees'" in src and "fee_multiplier 1" in src and "first NBA maker fill" in src
+    # no line says KXNBAGAME is unlisted any more (274 item 1(a): "replaced by the entry")
+    assert "NOT listed, on purpose" not in src and "KXNBAGAME today" not in src
+    assert not [ln for ln in src.splitlines() if "KXNBAGAME" in ln and re.search(r"unlisted|not in KALSHI_FEE_M", ln)]
     e = venue.kalshi_exec(0.53, 0.55, "NBA", two_way=True)
-    assert (e["fee_series"], e["fee_m_taker"], e["fee_m_maker"]) == ("KXNBAGAME", None, None)
-    assert (e["exec_cost_taker"], e["exec_cost_maker"], e["exec_cost_taker_away"], e["exec_cost_maker_away"]) == (
-        None, None, None, None)
+    n = venue.kalshi_exec(0.53, 0.55, "NHL", two_way=True)
+    assert (e["fee_series"], e["fee_m_taker"], e["fee_m_maker"]) == ("KXNBAGAME", 1.0, 1.0)
+    costs = ("exec_cost_taker", "exec_cost_maker", "exec_cost_taker_away", "exec_cost_maker_away")
+    assert all(e[k] is not None for k in costs), e                    # taker and maker, home and away: priced
+    assert [e[k] for k in costs] == [n[k] for k in costs]              # M = 1 both sides, as NHL's
     assert (e["kalshi_bid"], e["kalshi_ask"], e["away_bid"], e["away_ask"]) == (0.53, 0.55, 0.45, 0.47)
-    assert set(e) == set(venue.kalshi_exec(0.53, 0.55, "NHL", two_way=True))   # the row's shape is unchanged
+    assert set(e) == set(n)                                            # the row's shape is unchanged
 
 
-def test_the_unread_m_rule_is_scoped_to_mapped_unlisted_series_only():
-    """Every listed series keeps its ruled M (#93) and an UNMAPPED competition keeps today's default (taker M=1, maker
-    null): the null-cost rule reaches only a series in KALSHI_SERIES_BY_COMPETITION with no KALSHI_FEE_M entry."""
-    unread = [s for s in venue.KALSHI_SERIES_BY_COMPETITION.values() if s not in venue.KALSHI_FEE_M]
-    assert unread == ["KXNBAGAME"]
+def test_the_mapped_but_unlisted_rule_still_holds_for_any_future_series(monkeypatch):
+    """274 item 1(a): "The mapped-but-unlisted rule Code added to kalshi_exec STAYS for any future series: no M read, no
+    cost, no call." Pinned on a SYNTHETIC competition mapped to a SYNTHETIC series with no KALSHI_FEE_M entry: no M,
+    every executable cost null (taker and maker, both sides), the quotes kept. Every listed series keeps its ruled M
+    (#93, 274) and an UNMAPPED competition keeps today's default (taker M=1, maker null)."""
+    assert [s for s in venue.KALSHI_SERIES_BY_COMPETITION.values() if s not in venue.KALSHI_FEE_M] == []
+    monkeypatch.setitem(venue.KALSHI_SERIES_BY_COMPETITION, "SYNX", "KXSYNXGAME")
+    assert "KXSYNXGAME" not in venue.KALSHI_FEE_M
+    s = venue.kalshi_exec(0.53, 0.55, "SYNX", two_way=True)
+    assert (s["fee_series"], s["fee_m_taker"], s["fee_m_maker"]) == ("KXSYNXGAME", None, None)
+    assert (s["exec_cost_taker"], s["exec_cost_maker"], s["exec_cost_taker_away"], s["exec_cost_maker_away"]) == (
+        None, None, None, None)
+    assert (s["kalshi_bid"], s["kalshi_ask"], s["away_bid"], s["away_ask"]) == (0.53, 0.55, 0.45, 0.47)
     for comp, series in venue.KALSHI_SERIES_BY_COMPETITION.items():
         if series in venue.KALSHI_FEE_M:
             e = venue.kalshi_exec(0.53, 0.55, comp, two_way=True)
@@ -122,9 +139,11 @@ def test_the_unread_m_rule_is_scoped_to_mapped_unlisted_series_only():
         assert u["exec_cost_taker"] == venue.kalshi_exec(0.53, 0.55, "NHL")["exec_cost_taker"]
 
 
-def test_an_nba_window_card_row_carries_no_taker_cost_until_the_m_is_read(iso_db, monkeypatch):
+def test_an_nba_window_card_row_is_priced_at_the_ruled_m_both_sides(iso_db, monkeypatch):
     """The hourly window card (window.build_card -> export._fixture_row -> kalshi_exec) is what the Cockpit renders:
-    an NBA row with both Kalshi legs two-sided shows the venue's quotes and NO executable cost under KXNBAGAME."""
+    an NBA row with both Kalshi legs two-sided shows the venue's quotes and its executable costs under KXNBAGAME at
+    (1.0, 1.0), taker and maker, home and away (addendum 274 items 1(a), 2(1): "NBA rows price both costs from the
+    merge")."""
     from src.db import database
     from src.db.database import session_scope
     # iso_db swaps SessionLocal only; has_kalshi_ticker inspects the suite's shared engine, which an earlier test may
@@ -151,9 +170,11 @@ def test_an_nba_window_card_row_carries_no_taker_cost_until_the_m_is_read(iso_db
     assert len(rows) == 1, rows
     r = rows[0]
     assert (r["kalshi_bid"], r["kalshi_ask"]) == (0.55, 0.57)
-    assert (r["fee_series"], r["fee_m_taker"], r["fee_m_maker"]) == ("KXNBAGAME", None, None)
-    assert all(r[k] is None for k in ("exec_cost_taker", "exec_cost_maker", "exec_cost_taker_away",
-                                      "exec_cost_maker_away")), r
+    assert (r["fee_series"], r["fee_m_taker"], r["fee_m_maker"]) == ("KXNBAGAME", 1.0, 1.0)
+    costs = ("exec_cost_taker", "exec_cost_maker", "exec_cost_taker_away", "exec_cost_maker_away")
+    assert all(r[k] is not None for k in costs), r
+    want = venue.kalshi_exec(0.55, 0.57, "NHL", two_way=True)          # the same M = 1, both sides
+    assert [r[k] for k in costs] == [want[k] for k in costs], r
 
 
 def test_the_k_track_receipt_reads_an_nba_home_away_ladder_as_complete():
@@ -161,7 +182,8 @@ def test_the_k_track_receipt_reads_an_nba_home_away_ladder_as_complete():
     HOME+AWAY ladders reach its completeness rule: a two-way ladder of two legs is COMPLETE and two-sided, as NHL's,
     never 'incomplete ladder (a leg missing)'. The two-way set is the shared path's own (kalshi_replay.shared_series:
     the series map less soccer), so the five existing two-way competitions read exactly as before and PL stays
-    three-way. The NBA's costs are null until its M is read (above), so neither basis prices it."""
+    three-way. The NBA's legs are priced at its ruled M (1.0, 1.0) (addendum 274 item 1(a)): taker and maker on each
+    leg, exactly NHL's at the same quotes."""
     from src.walters.k_receipt import ladder_row
     two = {"HOME": NS(yes_bid=0.55, yes_ask=0.57), "AWAY": NS(yes_bid=0.43, yes_ask=0.45)}
     t = Z("2026-11-06T20:00")
@@ -169,8 +191,10 @@ def test_the_k_track_receipt_reads_an_nba_home_away_ladder_as_complete():
         r = ladder_row(comp, t, two, [], [])
         assert (r["complete"], r["two_sided"]) == (True, True), (comp, r)
         assert r["fee_clear"]["book"] == {"reason": "no book session at or before the capture"}, (comp, r)
-    nba = ladder_row("NBA", t, two, [], [])
-    assert all(v["taker"] is None and v["maker"] is None for v in nba["legs"].values()), nba
+    nba, nhl = ladder_row("NBA", t, two, [], []), ladder_row("NHL", t, two, [], [])
+    assert all(v["taker"] is not None and v["maker"] is not None for v in nba["legs"].values()), nba
+    assert {k: (v["taker"], v["maker"]) for k, v in nba["legs"].items()} == {
+        k: (v["taker"], v["maker"]) for k, v in nhl["legs"].items()}
     for comp in ("PL", "CL", "UNL"):
         assert ladder_row(comp, t, two, [], [])["complete"] is False      # a three-way ladder lacks its DRAW leg
 
@@ -354,13 +378,26 @@ def test_sync_kalshi_nba_stores_both_sides_on_the_ml_market(nba_db, kalshi_fake,
 
 # ---- the chain, the capture tier, the timer ---------------------------------------------------------------------------
 
-def test_nba_daily_is_the_two_day_utc_window_then_its_kalshi_sync():
+def test_nba_daily_is_the_three_day_utc_window_then_its_kalshi_sync():
+    """ARCHITECT 2026-11-06, addendum 274 item 2(3): "THE WINDOW — THREE UTC DAYS, {yesterday, today, tomorrow},
+    nhl-daily's own"; 2(9): "each day its own step: /leagues + /games, 6 calls a day"."""
     ch = chains.CHAINS["nba-daily"]
     assert ch["steps"] == [
         ["sync-matches", "--competition", "NBA", "--season", "2026", "--date-from", "{yesterday}", "--date-to",
          "{yesterday}"],
         ["sync-matches", "--competition", "NBA", "--season", "2026", "--date-from", "{today}", "--date-to", "{today}"],
+        ["sync-matches", "--competition", "NBA", "--season", "2026", "--date-from", "{tomorrow}", "--date-to",
+         "{tomorrow}"],
         ["sync-kalshi-nba"]]
+    # nhl-daily's own shape: the same three single-day steps, NHL's competition in place of NBA's
+    nhl = [st for st in chains.CHAINS["nhl-daily"]["steps"] if st[0] == "sync-matches"]
+    assert [[("NBA" if x == "NHL" else x) for x in st] for st in nhl] == ch["steps"][:3]
+    src = (HOSTING / "chains.py").read_text()
+    blk = src[src.index('# --- NBA, market-only'):src.index('"nba-daily": {')]
+    assert "addendum 274 item 2(3)" in blk and "2(9)" in blk and "6 calls a day" in blk
+    assert "two single-day" not in blk and "the PR body names the difference" not in blk
+    # 274 item 2(2): intl-daily's write is THE coverage write, "No second writer, ever." -- no longer put to anyone
+    assert "No second writer, ever." in blk and "put to the architect" not in blk
     assert ch["backup"] == "daily" and "active_from" not in ch and "go_on" not in ch
     assert chains.COVERAGE_STEP not in ch["steps"]                     # intl-daily's write is the one (addendum 225)
     assert "sync-kalshi-nba" in chains.UNMETERED
@@ -486,3 +523,28 @@ def test_the_docs_name_the_command_the_chain_and_the_basis():
     doc = (ROOT / "docs" / "CLI.md").read_text()
     assert "| `sync-kalshi-nba` |" in doc and "**NBA daily (host `sp-nba-daily`" in doc
     assert "paper.COVERAGE_COUNTS_POSTPONED" in doc and "| `python3 scripts/nba_certification_receipt.py` |" in doc
+    # 274 item 2(3) / 2(9): three UTC days, 6 calls a day; item 1(a): the NBA priced at its ruled M
+    nba = doc[doc.index("**NBA daily (host `sp-nba-daily`"):]
+    nba = nba[:nba.index("\n\n")]
+    assert "yesterday, today, tomorrow" in nba and "6 calls a day" in nba and "two-day" not in nba
+    row = next(ln for ln in doc.splitlines() if ln.startswith("| `sync-kalshi-nba` |"))
+    assert "addendum 274 item 1(a)" in row and "(1.0, 1.0)" in row and "Its fee M is NOT in" not in row
+    h1 = (ROOT / "docs" / "specs" / "hosting-h1.md").read_text()
+    nba_h1 = [ln for ln in h1.splitlines() if "sp-nba-daily" in ln or "nba-daily" in ln]
+    assert not [ln for ln in nba_h1 if "two single-day" in ln], nba_h1
+    assert "`{yesterday}`, `{today}` and `{tomorrow}`" in h1
+
+
+def test_the_ledger_fragment_holds_all_thirteen_as_ruled_and_none_open():
+    """ARCHITECT 2026-11-06, addendum 274 item 2: "#848, THE THIRTEEN" -- every item ruled or confirmed; the entry's
+    list of what was put to the architect says so item by item, and no item still reads as an open question."""
+    from ledger_text import entry_text
+    ent = entry_text("2026-11-06-271-3-basketball-wiring",
+                     "**2026-11-06 — BUILT (ARCHITECT 2026-11-06 12:35 ET, addendum 271 items 2-3")
+    assert "NEEDS RULING" not in ent and "The alternative is" not in ent and "the alternative is" not in ent
+    assert "Put to the architect, item 11" not in ent
+    put = next(ln for ln in ent.splitlines() if ln.startswith("- **Put to the architect"))
+    assert all(f"({n}) " in put for n in range(1, 14)), put
+    for n in (1, 2, 3, 7, 9, 10, 11, 12, 13):
+        assert f"274 item 2({n})" in put or (n == 1 and "274 item 1(a)" in put), n
+    assert "No second writer, ever." in put and "NO FLAG" in put and "no timer after intl-daily" in put

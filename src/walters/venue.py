@@ -75,24 +75,30 @@ KALSHI_FEE_M = {                       # series -> (taker M, maker M), pre-live
     # schedule ruling (#93) names UCL. It costs a fill. It prices no call." (CL is not in
     # KALSHI_SERIES_BY_COMPETITION, so no call is priced through it.)
     "KXUCLGAME": (1.0, 1.0),
-    # KXNBAGAME (NBA, addendum 271 item 3(h)) is NOT listed, on purpose. 261 item 0: "the taker/maker M from Kalshi's
-    # published fee schedule for that series, READ from the schedule, never assumed; an unlisted series prices no
-    # call"; 268 item 1(iii): "the fee M for venue.KALSHI_FEE_M still comes from the published schedule, matched by
-    # series". The repo holds no copy of the schedule's per-series table (BACKLOG "KALSHI FEE SCHEDULE": the PDF could
-    # not be opened) and #93's ruling names NFL/NHL/EPL/UCL/NCAAF/MLB only. The series listing's own fee fields on
-    # #839 ('fee_multiplier': 1, 'fee_type': 'quadratic_with_maker_fees') are the API's listing, not the schedule, so
-    # they are not typed in here. Until the M is read from the schedule or ruled, kalshi_exec gives an NBA row NO M
-    # and NO executable cost, taker or maker, either side (the mapped-but-unread rule in kalshi_exec: 261 item 0,
-    # "READ from the schedule, never assumed"); the quotes are kept. No NBA call exists to price (no model, no Desk
-    # family: the record is PAPER).
+    # KXNBAGAME (NBA, addendum 271 item 3(h)): ARCHITECT 2026-11-06 17:30 ET, addendum 274 item 1(a), RULED. The two
+    # readings, both kept here:
+    # - THE SCHEDULE (kalshi.com/docs/kalshi-fee-schedule.pdf, "Last updated and effective: July 7, 2026", read 11-06
+    #   ~17:00 ET, the Non-Standard Fees table row by row): "KXNBAGAME: the schedule does not list it, so by the
+    #   schedule's own words its taker M is 1 and its maker M is 0" (taker M "default is 1 unless otherwise
+    #   indicated"; maker M "default is 0 unless otherwise indicated").
+    # - THE API: "the venue's series listing on #839 serves fee_type 'quadratic_with_maker_fees', fee_multiplier 1 —
+    #   the API saying maker fees apply". "The two disagree on the maker side only."
+    # "RULED: KALSHI_FEE_M["KXNBAGAME"] = (1.0, 1.0) — the taker M the schedule's default (certain; the K-track's
+    # binding number is the taker cost), the maker M the API listing's own figure, taken as the HIGHER of the two
+    # readings (a cost assumed too high never overstates an edge; law 4)." "the first NBA maker fill, if ever (the
+    # doctrine is take), is the receipt that settles it, as #88's fills settled rounding." NBA rows price both costs,
+    # both sides (274 item 2(1)); the record is PAPER and no NBA call exists to price (no model, no Desk family).
+    "KXNBAGAME": (1.0, 1.0),
 }
 # Competition code -> the Kalshi game series its quotes come from (cli
 # sync-kalshi-* and adapters/kalshi.py SOCCER_GAME_SERIES). A code missing
 # here gets the schedule's default taker M=1 and NO maker cost: the maker M of
 # an unlisted series is not assumed (conservative unknowns). A code mapped HERE
-# whose series has no KALSHI_FEE_M entry (KXNBAGAME today) gets NO M and NO
-# executable cost at all: its M is the schedule's for that series, not read yet
-# (261 item 0, "READ from the schedule, never assumed").
+# whose series has no KALSHI_FEE_M entry gets NO M and NO executable cost at
+# all: its M is the schedule's for that series, not read yet (261 item 0, "READ
+# from the schedule, never assumed"). Every mapped series carries its M today;
+# the rule STAYS for any future series (addendum 274 item 1(a): "no M read, no
+# cost, no call").
 KALSHI_SERIES_BY_COMPETITION = {
     "NFL": "KXNFLGAME", "NHL": "KXNHLGAME", "NCAA": "KXNCAAFGAME",
     "PL": "KXEPLGAME", "MLB": "KXMLBGAME",
@@ -100,8 +106,8 @@ KALSHI_SERIES_BY_COMPETITION = {
     # listed; the fee M from the published schedule matched by series)". The ticker is READ from Kalshi's own series
     # listing on #839 (the laptop's probe receipt, 2026-11-06 16:01Z: "KXNBAGAME · 'NBA Game' · 'Sports' · tags
     # ['Basketball'] · GAME", re-read at 17:18Z, addendum 268 item 1(iii)), never typed from memory (261 item 4). Its
-    # fee M is not in KALSHI_FEE_M (above). Two-way (the shared path, kalshi_sync.sync_kalshi_mlb with
-    # series_override, cli `sync-kalshi-nba`); market-only, PAPER, no call.
+    # fee M is KALSHI_FEE_M's entry above, (1.0, 1.0) as RULED in addendum 274 item 1(a). Two-way (the shared path,
+    # kalshi_sync.sync_kalshi_mlb with series_override, cli `sync-kalshi-nba`); market-only, PAPER, no call.
     "NBA": "KXNBAGAME",
 }
 
@@ -160,8 +166,8 @@ def kalshi_exec(bid: float | None, ask: float | None, competition: str | None = 
     ask (a 1c spread: joining = taking, so no maker price exists), or when the
     series' maker M is unknown. BOTH costs (both sides) are null when the
     competition's series is mapped but its M is not in KALSHI_FEE_M (261 item 0:
-    the M "READ from the schedule, never assumed"; KXNBAGAME today), while the
-    quotes are kept. The pre-split alias kalshi_exec_cost (= taker)
+    the M "READ from the schedule, never assumed"; kept for any future series,
+    addendum 274 item 1(a)), while the quotes are kept. The pre-split alias kalshi_exec_cost (= taker)
     was RETIRED after two Cockpit republishes (#130); the ledger's own
     kalshi_exec_cost field is a different thing and keeps its taker meaning.
     Fees are per FILL of K_ORDER_CONTRACTS contracts
@@ -183,7 +189,8 @@ def kalshi_exec(bid: float | None, ask: float | None, competition: str | None = 
     series = KALSHI_SERIES_BY_COMPETITION.get(competition or "")
     if series is not None and series not in KALSHI_FEE_M:
         # MAPPED BUT UNREAD (ARCHITECT 2026-11-05, addendum 261 item 0: the M "READ from the schedule, never assumed";
-        # KXNBAGAME today): no M, so no fee is priced and every executable cost stays null; the quotes are kept.
+        # STAYS for any future series, addendum 274 item 1(a): "no M read, no cost, no call"): no M, so no fee is
+        # priced and every executable cost stays null; the quotes are kept.
         m_taker, m_maker = None, None
     else:
         m_taker, m_maker = KALSHI_FEE_M.get(series, (1.0, None))

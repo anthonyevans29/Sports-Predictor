@@ -25,8 +25,11 @@ differences ruled in 271 item 3(a)-(g). NBA ONLY in this PR (addendum 272 item 5
   (d) THE DATE: the kickoff is the served top-level `timestamp` (UTC), else the served ISO date with its offset; a
       date with no offset is never given a zone (the listing is dropped and counted). A range (date_from ≠ date_to)
       is never sent upstream: the whole season's listing is read, and a RANGE line says so before the fetch.
-  (g) THE SCORES: home/away_score = scores.<side>.total as served (a 0 stays 0: api_hockey's falsy-zero lesson);
-      quarter_1..4 and over_time stay in the item, held on NormalizedMatch.raw only (no schema change).
+  (g) THE SCORES: home/away_score = scores.<side>.total as served (a 0 stays 0: api_hockey's falsy-zero lesson).
+      THE QUARTERS ARE NOT KEPT (ARCHITECT 2026-11-06, addendum 274 item 2(10): "the transient reading STANDS;
+      nothing is kept, no file under exports/, no column"; 271 item 3(g) CORRECTED to "not persisted"):
+      quarter_1..4 and over_time are read nowhere and written nowhere; the served item rides NormalizedMatch.raw
+      for the sync's life only and is gone when it exits.
   METERING (3(f)): each call prints one line with the provider's x-ratelimit-requests-remaining as served.
   NO /odds: list_odds is NOT overridden (base: [] with no call); /odds for basketball was never probed.
 """
@@ -360,7 +363,7 @@ class APIBasketballAdapter(DataAdapter):
                 status_raw=short,                              # 'AOT' is the overtime flag (the hockey precedent)
                 home_score=side_total(scores, "home"),
                 away_score=side_total(scores, "away"),
-                raw=g,                                         # the quarters live here only (271 item 3(g))
+                raw=g,                                         # transient: NOT KEPT (274 item 2(10)), read nowhere
             ))
         self._report_dropped("games", dropped)
         return out

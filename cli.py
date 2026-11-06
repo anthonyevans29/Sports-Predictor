@@ -6303,7 +6303,7 @@ def sync_kalshi_nba_cmd():
     two names fit one stored NBA game one each on the ticker's US Eastern day, read on our stored kickoff (the served
     timestamp, naive UTC), never the provider's date string (addendum 272 item 4); ambiguity is refused by its
     sentinel and counted. Market-only: no model, no call; the prices feed the PAPER record and the close's record.
-    Its fee M is not in KALSHI_FEE_M until the published schedule is read (venue.py)."""
+    Its fee M is KALSHI_FEE_M's (1.0, 1.0), RULED in addendum 274 item 1(a) (venue.py carries both readings)."""
     from src.ingestion.kalshi_sync import sync_kalshi_mlb
     from src.db.schema import Sport
     r = sync_kalshi_mlb(progress=lambda m: console.print(m),

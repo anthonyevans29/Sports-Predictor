@@ -21,10 +21,12 @@ def test_ruled_multipliers_per_series():
     assert venue.KALSHI_FEE_M["KXMLBGAME"] == (0.5, 0.5)
     for s in ("KXNFLGAME", "KXNHLGAME", "KXNCAAFGAME", "KXEPLGAME"):
         assert venue.KALSHI_FEE_M[s] == (1.0, 1.0)
+    assert venue.KALSHI_FEE_M["KXNBAGAME"] == (1.0, 1.0)   # NBA: ARCHITECT 2026-11-06, addendum 274 item 1(a), RULED
     assert venue.KALSHI_SERIES_BY_COMPETITION == {
         "NFL": "KXNFLGAME", "NHL": "KXNHLGAME", "NCAA": "KXNCAAFGAME", "PL": "KXEPLGAME", "MLB": "KXMLBGAME",
         "NBA": "KXNBAGAME"}         # NBA: ARCHITECT 2026-11-06, addendum 271 item 3(h), the ticker READ on #839
-    assert "KXNBAGAME" not in venue.KALSHI_FEE_M   # its M is the published schedule's, not yet read (261 item 0)
+    # every mapped series carries its M (the mapped-but-unlisted rule stays for a future series: test_nba_kalshi_wiring)
+    assert set(venue.KALSHI_SERIES_BY_COMPETITION.values()) <= set(venue.KALSHI_FEE_M)
 
 
 def test_fee_formula_takes_m_and_rate():

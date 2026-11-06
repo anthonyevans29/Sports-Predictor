@@ -10,6 +10,7 @@ only (tests/conftest.py)."""
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from pathlib import Path
 
 import pytest
 from click.testing import CliRunner
@@ -19,6 +20,7 @@ from src.adapters.api_basketball import APIBasketballAdapter, Refused, pick_seas
 from src.adapters.base import DataAdapter
 from src.db.schema import MatchStatus, Sport
 
+ROOT = Path(__file__).resolve().parent.parent
 SERVED = ("2013-2014", "2026-2027", "2012-2013", "2025-2026", "2024-2025")     # unsorted, as /leagues serves them
 T0 = int(datetime(2026, 11, 5, 0, 30, tzinfo=timezone.utc).timestamp())       # a synthetic UTC kickoff
 
@@ -222,17 +224,36 @@ def test_the_kickoff_is_utc_from_the_timestamp_then_the_offset_date(capsys):
     assert a.last_dropped == {"no readable kickoff": [13, 14]}
 
 
-# ---- (g) totals stored; quarters on the raw payload only -------------------------------------------------------------
+# ---- (g) totals stored; the quarters NOT KEPT (274 item 2(10)) -------------------------------------------------------
 
-def test_totals_are_read_with_no_falsy_default_and_quarters_stay_in_the_raw_payload():
+def test_totals_are_read_with_no_falsy_default_and_the_quarters_are_not_kept():
+    """ARCHITECT 2026-11-06, addendum 274 item 2(10): "the transient reading STANDS; nothing is kept, no file under
+    exports/, no column"; 271 item 3(g) CORRECTED to "not persisted". The served item rides the normalized record for
+    the sync's life only (nothing reads it); no column, no field named for a quarter, and the records say NOT KEPT."""
+    import re as _re
     g = game(15, "FT", "Game Finished", hs=0, as_=97)
     (m,) = adapter_with(FakeProvider(games={"2026-2027": [g]})).list_matches("NBA", "2026")
     assert (m.home_score, m.away_score) == (0, 97)                         # a 0 stays 0
-    assert m.raw is g and m.raw["scores"]["away"]["quarter_4"] == 4
+    assert m.raw is g and m.raw["scores"]["away"]["quarter_4"] == 4       # transient: the served item, as served
     from src.adapters.normalized import NormalizedMatch
     from src.db.schema import Match
     assert not [f for f in NormalizedMatch.__dataclass_fields__ if "quarter" in f or "over_time" in f]
     assert not [c.name for c in Match.__table__.columns if "quarter" in c.name or "raw" == c.name]
+    # nothing on any path reads the field (274 item 2(10): "nothing on any path reads a quarter")
+    readers = []
+    for f in [*ROOT.joinpath("src").rglob("*.py"), *ROOT.joinpath("deploy").rglob("*.py"),
+              *ROOT.joinpath("scripts").rglob("*.py"), ROOT / "cli.py"]:
+        for i, ln in enumerate(f.read_text().splitlines(), 1):
+            if _re.search(r"(?<!NormalizedMatch)\.raw\b(?!_)", ln) and "self.raw" not in ln:
+                readers.append(f"{f.relative_to(ROOT)}:{i}")
+    assert readers == [], readers
+    # the wording: NOT KEPT / not persisted, never "the raw payload"
+    adapter_src = (ROOT / "src" / "adapters" / "api_basketball.py").read_text()
+    norm_src = (ROOT / "src" / "adapters" / "normalized.py").read_text()
+    for src in (adapter_src, norm_src):
+        assert "addendum 274 item 2(10)" in src and "NOT KEPT" in src
+        assert "raw payload" not in src.lower() and "live here only" not in src
+    assert "not persisted" in norm_src
 
 
 def test_stage_and_week_are_kept_as_served_and_a_week_is_never_digit_mined():

@@ -112,7 +112,7 @@ become MORE binding under an income goal, never less."
 - Never push a change that alters prediction outputs without running
   the relevant backtest/gate and including its verdict.
 
-## Current production state (2026-09-25)
+## Current production state (maintained; last 2026-11-06)
 - **MLB**: model v2 live; ~57% sides over 400+ graded; candidate
   `improve` rejections are routine and CORRECT (bar: 0.0050 log-loss).
   Predictions are a LAPTOP duty (PHASE B negative, 2026-09-29); the host

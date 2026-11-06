@@ -15,8 +15,8 @@ This project runs on laws earned from incidents. They are not optional.
 4. **Conservative unknowns.** Unmapped statuses stay SCHEDULED; missing
    data stays null and labeled; nothing is faked to look complete.
 5. **The database never travels.** Packaging excludes `data/` and `.git`,
-   verified per tarball. Backups are `.backup`-API only, daily, plus
-   before any refresh.
+   and the host deploys a git tag (docs/RELEASES.md). Backups are
+   `.backup`-API only, daily, plus before any refresh.
    **Account data never enters the repo (ARCHITECT 2026-11-03, addendum
    236 item 2(d)):** no raw Kalshi CSV row, no account id, no fill figure,
    in any file — receipts carry tickers, sides and timestamps at most.

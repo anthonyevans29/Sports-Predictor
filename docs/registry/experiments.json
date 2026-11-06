@@ -1600,8 +1600,96 @@
     "confirmation_window": "none: the lane has no go-live (addendum 190 item 7: earliest_live stays null; its exit is the 2027 model); the verdict's effect is item 4",
     "confirmation_plan": null,
     "declared_at": "2026-10-31T15:45:00Z",
-    "status": "declared",
-    "run": null,
+    "status": "run",
+    "run": {
+      "run_at": "2026-11-06T14:12:32Z",
+      "n_scored": 1553,
+      "ids_sha256": "5d2cc5d913fa7411b1345350d5957149ef13a99b4a52fd8db40be67557e82233",
+      "ids_file": "docs/registry/ids/mlb-pitchers-v1.txt",
+      "result": {
+        "verdict": "REJECT",
+        "n": 1553,
+        "ll_off": 0.6901771522903986,
+        "ll_on": 0.6887685961079708,
+        "delta": 0.0014085561824277448,
+        "bar": 0.005,
+        "brier_off": 0.24852423222747322,
+        "brier_on": 0.247826425728514,
+        "by_month": {
+          "2026-05": {
+            "n": 122,
+            "ll_off": 0.6781406548115798,
+            "ll_on": 0.6819291783269879,
+            "brier_off": 0.24290017242165204,
+            "brier_on": 0.24453698742071733
+          },
+          "2026-06": {
+            "n": 369,
+            "ll_off": 0.6941219223328506,
+            "ll_on": 0.6942813795004389,
+            "brier_off": 0.25049455873683907,
+            "brier_on": 0.25057001166382753
+          },
+          "2026-07": {
+            "n": 358,
+            "ll_off": 0.6886803127042772,
+            "ll_on": 0.6857972203535071,
+            "brier_off": 0.24776645091715735,
+            "brier_on": 0.2463750669542624
+          },
+          "2026-08": {
+            "n": 409,
+            "ll_off": 0.6873187894130088,
+            "ll_on": 0.6862618136217621,
+            "brier_off": 0.24700697391833337,
+            "brier_on": 0.246528617877623
+          },
+          "2026-09": {
+            "n": 295,
+            "ll_off": 0.6960001066478056,
+            "ll_on": 0.6917828959534507,
+            "brier_off": 0.2514087378948815,
+            "brier_on": 0.24931563967975784
+          }
+        },
+        "home_win_rate": 0.5260785576303928,
+        "cohort_sha256": "5d2cc5d913fa7411b1345350d5957149ef13a99b4a52fd8db40be67557e82233",
+        "fingerprint_sha256": "696182d5817f0bae3630dec8d2ed42a1ce85be2c6394e07756877b13b116ded5",
+        "production_version": "v2",
+        "baseball_config": {
+          "pyth_exponent": 1.83,
+          "league_runs_per_game": 8.83,
+          "dispersion_k": 4.0,
+          "home_run_boost": 0.08,
+          "league_era": 4.2,
+          "max_runs": 20,
+          "default_total_line": 8.5,
+          "pitcher_anchor_mode": "team_ra",
+          "pitcher_damping": 0.35,
+          "recal_enabled": true,
+          "recal_lo": 0.6,
+          "recal_hi": 0.7,
+          "recal_target": 0.555,
+          "market_blend_enabled": true,
+          "market_blend_w": 0.5,
+          "run_shrink_enabled": true,
+          "run_shrink_frac": 0.35,
+          "run_shrink_mean": 4.4,
+          "starter_eff_ip_enabled": true,
+          "starter_ip_per_start": 7.0
+        },
+        "paths": {
+          "blend: starter and bullpen / blend: starter and bullpen": 1455,
+          "bullpen half-weighted, starter unknown / blend: starter and bullpen": 46,
+          "blend: starter and bullpen / bullpen half-weighted, starter unknown": 51,
+          "bullpen half-weighted, starter unknown / bullpen half-weighted, starter unknown": 1
+        },
+        "metric": "mean home-side log-loss, -(y ln p + (1 - y) ln(1 - p)), p floored at 1e-12; Brier (p - y)^2",
+        "ruling": "ARCHITECT 2026-10-31 11:45 ET, addendum 190 (pre-run, frozen; docs/specs/mlb-pitchers-v1.md)"
+      },
+      "prior_reads": [],
+      "prior_read_count": 0
+    },
     "verdict": null,
     "arms": {
       "on": "mlb v2 with the pitcher layer fed the as-of reconstruction (#702's receipt: the season's appearances of games started strictly before the game; the starter + bullpen blend where the starter is listed, the half-weighted bullpen where the starter is unknown \u2014 the live path's own fallbacks, nothing new)",
@@ -1614,7 +1702,59 @@
     },
     "metric": "mean log-loss of the home-win probability over the 1553, both arms, unrounded (190 item 3)",
     "bar": "PASS only if OFF \u2212 ON >= 0.0050 (the MLB `improve` bar, addendum 63 item 4); less, or a tie, REJECTS (190 item 3)",
-    "test_cohort": null,
+    "test_cohort": {
+      "n": 1553,
+      "ids_sha256": "5d2cc5d913fa7411b1345350d5957149ef13a99b4a52fd8db40be67557e82233",
+      "ids_file": "docs/registry/ids/mlb-pitchers-v1.cohort.txt",
+      "frozen_at": "2026-11-06T14:12:24Z",
+      "basis": {
+        "rule": "the 2026 regular-season games with BOTH sides reconstructed on a live path (addendum 190 item 2): per game, both sides' P label in the receipt's PATHS (blend: starter and bullpen; starter, league bullpen; bullpen half-weighted, starter unknown; neutral (no data)), classified by src/walters/mlb_pitcher_asof.classify (the #702 receipt's per-side classification, #703's pregame identity and complete ERAs) on the --db copy",
+        "season": "2026",
+        "regular_games": 2429,
+        "games_by_sides_on_a_path": {
+          "both": 1553,
+          "one": 67,
+          "neither": 809
+        },
+        "by_month": {
+          "2026-05": 122,
+          "2026-06": 369,
+          "2026-07": 358,
+          "2026-08": 409,
+          "2026-09": 295
+        },
+        "first_kickoff": "2026-05-23T17:10:00Z",
+        "last_kickoff": "2026-09-27T19:10:00Z",
+        "p_counts_per_side": {
+          "blend: starter and bullpen": 3072,
+          "bullpen half-weighted, starter unknown": 101,
+          "no pitcher input (no starter listed)": 1685
+        },
+        "selected_at": "2026-11-06T14:12:24Z"
+      },
+      "fingerprint": {
+        "sha256": "696182d5817f0bae3630dec8d2ed42a1ce85be2c6394e07756877b13b116ded5",
+        "parts": {
+          "games": {
+            "n": 2483,
+            "sha256": "52fbd1ecea145c37328d6796e8ef4a8cc30b62f80768665f45e8069f503d2de2"
+          },
+          "appearances": {
+            "n": 21208,
+            "sha256": "a235cfa4daca485b26f04769ae496b526e53d3c1cd733ec80119c1726fb94be3"
+          },
+          "starters": {
+            "n": 3250,
+            "sha256": "1f94fa969a3abc14a39871e701c7f2a9843b1cd51e320c4d7322ed446902f5d6"
+          },
+          "config": {
+            "n": 1,
+            "sha256": "d95581383f60eb945fff725c2cefc6aaf47c4f225809c132fe583e599b57a216"
+          }
+        },
+        "rule": "the freeze records a fingerprint of the rows the run reads, and the run refuses before its reservation unless the copy it is given reproduces it (ARCHITECT 2026-10-31 13:15 ET, addendum 193 item 1). Parts, each the sha256 of its rows as sorted JSON lines: games, every 2026 MLB match row the walk and the reconstruction read (id, kickoff, status, stage, teams, final scores, the statsapi id; it holds the cohort games' ids, kickoffs and final scores); appearances, the pitcher_appearances rows the as-of reconstruction attributes to the season's games (game, side, pitcher, outs, starter, earned runs); starters, the starting_pitcher rows it reads (game, side, kind, source id, source, refreshed at, rows held); config, the production config the arms run with (version, baseball_config). A mismatch is a finding on #507 (the copy is not the frozen one), never a re-freeze and never a run on the other copy"
+      }
+    },
     "live_needs": "WHAT THE VERDICT DOES (live_needs): PASS \u2014 the layer stays in the live model for 2027, AND the live path must then read the as-of sums, never the snapshot (item 5), before opening day; REJECT \u2014 the layer is retired from the live model by a ruling before 2027, and the 2027 model is the OFF arm. Either way the result is the record, not a reason to retune: no constant moves on this run.",
     "snapshot_note": "190 item 5: \"The snapshot as the model actually read it each day is NOT reconstructable (only the last refresh survives), so no third arm is run; said in the entry.\" The finding is Issue #746 (pitcher_season_stats a stale snapshot).",
     "prior_reads_note": "the #702 receipt (2026-10-28) and the 10-31 console counted coverage only (games, sides, paths); no arm's log-loss on 2026 has been read.",

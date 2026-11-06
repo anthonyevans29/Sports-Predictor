@@ -117,6 +117,9 @@ become MORE binding under an income goal, never less."
   `improve` rejections are routine and CORRECT (bar: 0.0050 log-loss).
   Predictions are a LAPTOP duty (PHASE B negative, 2026-09-29); the host
   keeps MLB history from the api-sports fallback (PHASE A).
+  mlb-pitchers-v1 (the as-of pitcher layer) ran once 11-06 and was
+  REJECTED (OFF − ON 0.0014 vs the 0.0050 bar; addendum 266); the layer
+  stays off; the finding goes to the 2027 model.
 - **Soccer**: soccer_elo_poisson **v22** on the 16,546-match / 24-comp
   pot; PL predictions live; positive-edge cohort (>=+5pp vs market) is
   6/16 — big anti-market edges are ANTI-PREDICTIVE; n=30 pre-committed
@@ -125,9 +128,12 @@ become MORE binding under an income goal, never less."
   since 2026-11-02 (addendum 214): on the corrected 2024 warm-up it
   fails the frozen phase-2 gate's calibration band (70–80%: 7.7pp vs
   7.0). NFL is MARKET-ONLY; the pages, shadows and record keep running;
-  nfl_elo_v2 (one calibration term fitted on 2024 only) is declared
-  11-05 and run once through the UNCHANGED gate on 11-06 (addendum 215);
-  v1's forward read is after the Super Bowl. The bar did not move.
+  v1's forward read is after the Super Bowl. nfl_elo_v2 (home advantage
+  33.0, fitted on 2024 only) ran ONCE through the UNCHANGED gate on 11-06
+  and FAILED on the 70-80% band (9.1pp vs 7.0; log-loss 0.6349 passed) —
+  addendum 265; NFL is MARKET-ONLY for 2026; the rehearsal arm is
+  dormant; the 2027 candidate declares in the off-season. The bar did
+  not move.
 - **NHL**: data certified (4,410 games, FT/AOT/AP mapped, true-zero
   nulls); Kalshi KXNHLGAME live. NO MODEL YET — the frozen gate stands
   (`nhl-backtest`). **PHASE 2 CLOSED 2026-09-25:** v1-v4 all FAILED

@@ -7,7 +7,8 @@ real ledger (a tmp copy of docs/registry/experiments.json; the ids and the reser
   - ON equals live: the ON arm's PitcherStats and p_home equal the live _generate_predictions_mlb's on a DB whose
     pitcher_season_stats / bullpen_season_stats rows equal the as-of sums.
   - The classification equals the receipt's; the cohort is the both-sides-on-a-path games.
-  - The fence; the freeze and the run's refusals; INVALID; the verdict arithmetic; the entry.
+  - The fence; the freeze and the run's refusals; INVALID; the verdict arithmetic; the entry (its one run and the
+    REJECT, addendum 266, read from the real registry; the fixtures put a tmp copy back to declared and unrun); the lane.
 """
 import hashlib
 import importlib.util
@@ -470,9 +471,15 @@ def test_the_recent_window_carries_its_earned_runs(tmp_path):
 
 @pytest.fixture
 def ledger(tmp_path, monkeypatch):
-    """A tmp copy of the real registry; the ids and the reservation in tmp (tests/test_ncaa_elo_v2.py's pattern)."""
+    """A tmp copy of the real registry; the ids and the reservation in tmp (tests/test_ncaa_elo_v2.py's pattern). The
+    real entry holds the frozen cohort, the one run and the REJECT verdict (ARCHITECT 2026-11-06 09:25 ET, addendum
+    266); the copy's entry is put back to declared, unfrozen and unrun, so the harness's mechanics stay exercised as
+    built (the ncaa-elo-v1r precedent, #393; nfl-elo-v2's, addendum 265)."""
     p = tmp_path / "experiments.json"
-    p.write_text((ROOT / "docs" / "registry" / "experiments.json").read_text())
+    entries = json.loads((ROOT / "docs" / "registry" / "experiments.json").read_text())
+    e = next(x for x in entries if x["id"] == mp.EID)
+    e.update({"status": "declared", "test_cohort": None, "run": None, "verdict": None})
+    p.write_text(json.dumps(entries, indent=2) + "\n")
     monkeypatch.setattr(reg, "LEDGER", str(p))
     monkeypatch.setattr(reg, "IDS_DIR", str(tmp_path / "ids"))
     monkeypatch.setattr(mp, "RESERVATION", str(tmp_path / "mlb-pitchers-v1.started.json"))
@@ -1060,17 +1067,62 @@ def test_pass_reject_and_a_tie_end_to_end_on_constructed_rows(gate, monkeypatch,
 DECLARED_GATE_SHA256 = "3d633bb4408d4f26eb7e5eca110bb39906cf0cac43deb975bcd1360502ec1030"
 
 
-def test_the_entry_is_declared_unrun_with_the_verbatim_plan():
+COHORT_SHA256 = "5d2cc5d913fa7411b1345350d5957149ef13a99b4a52fd8db40be67557e82233"     # the #507 console's
+FINGERPRINT_SHA256 = "696182d5817f0bae3630dec8d2ed42a1ce85be2c6394e07756877b13b116ded5"
+
+
+def test_the_entry_holds_its_frozen_cohort_its_one_run_and_the_reject_with_the_verbatim_plan():
     e = reg.get(mp.EID)
     assert e is not None, "mlb-pitchers-v1 must be declared in docs/registry/experiments.json"
-    assert (e["status"], e["run"], e["verdict"]) == ("declared", None, None)
+    # ARCHITECT 2026-11-06 09:25 ET, addendum 266: the freeze and the one run as the laptop wrote them (87abf190) and
+    # the verdict REJECT (registry.record_verdict: status closed); the declaration below is unchanged
+    assert (e["status"], e["verdict"]["verdict"], e["verdict"]["at"]) == ("closed", "REJECT", "2026-11-06T14:25:00Z")
+    assert e["verdict"]["ruling"].startswith("ARCHITECT 2026-11-06 09:25 ET, addendum 266, verbatim")
+    for said in ("log-loss OFF 0.690177 · ON 0.688769 · OFF − ON = 0.001409 against the bar 0.0050 → REJECT",
+                 "Nothing promotes; the pitcher layer stays OFF in production; no constant moves.",
+                 # item 2 whole: its first sentence is the reading itself, the finding item 3 carries to #97
+                 'Item 2: "2. THE READING, for the record: the as-of pitcher layer is a small, real improvement that '
+                 "grows as the season's appearance history accrues (negative in May on 122 games with thin as-of sums, "
+                 "flat in June, positive from July)",
+                 "1,553 games is the test, 0.0014 is the answer. The MLB `improve` bar of 0.0050 (63 item 4) stands.",
+                 "the lane closes as RUN AND REJECTED with the finding of item 2 carried to #97's design brief",
+                 "LIFTS with the recorded verdict — the layer may be read for receipts again, and never for a price "
+                 "without a declaration."):
+        assert said in e["verdict"]["ruling"], said
+    run = e["run"]
+    assert (run["run_at"], run["n_scored"], run["ids_sha256"], run["prior_read_count"]) == (
+        "2026-11-06T14:12:32Z", 1553, COHORT_SHA256, 0)
+    r = run["result"]
+    assert (r["verdict"], r["n"], r["bar"], r["production_version"]) == ("REJECT", 1553, 0.005, "v2")
+    assert (round(r["ll_off"], 6), round(r["ll_on"], 6), round(r["delta"], 6)) == (0.690177, 0.688769, 0.001409)
+    assert r["delta"] == r["ll_off"] - r["ll_on"] and mp.verdict(r["ll_off"], r["ll_on"]) == "REJECT"
+    assert (round(r["brier_off"], 5), round(r["brier_on"], 5), round(r["home_win_rate"], 4)) == (0.24852, 0.24783,
+                                                                                                0.5261)
+    assert {m: v["n"] for m, v in r["by_month"].items()} == {"2026-05": 122, "2026-06": 369, "2026-07": 358,
+                                                             "2026-08": 409, "2026-09": 295}
+    assert (r["cohort_sha256"], r["fingerprint_sha256"]) == (COHORT_SHA256, FINGERPRINT_SHA256)
+    tc = e["test_cohort"]
+    assert (tc["n"], tc["ids_sha256"], tc["ids_file"]) == (1553, COHORT_SHA256,
+                                                            "docs/registry/ids/mlb-pitchers-v1.cohort.txt")
+    assert tc["fingerprint"]["sha256"] == FINGERPRINT_SHA256
+    assert tc["basis"]["games_by_sides_on_a_path"] == {"both": 1553, "one": 67, "neither": 809}
+    # the frozen cohort and the scored ids: one content, the sha registry._ids_sha writes; the reservation kept as the
+    # record that the one run was spent; a second run is refused on the real entry
+    cohort = (ROOT / tc["ids_file"]).read_text()
+    assert (ROOT / run["ids_file"]).read_text() == cohort
+    ids = [int(x) for x in cohort.split()]
+    assert len(ids) == len(set(ids)) == 1553 and reg._ids_sha(ids) == COHORT_SHA256
+    started = json.loads((ROOT / "docs" / "registry" / f"{mp.EID}.started.json").read_text())
+    assert (started["id"], started["cohort_n"], started["cohort_sha256"]) == (mp.EID, 1553, COHORT_SHA256)
+    with pytest.raises(mp.GateRefused, match="must be declared and unrun"):
+        mp.declared_unrun()
     assert e["declared_at"] == "2026-10-31T15:45:00Z" and e["sport"] == "mlb"
     assert all(e.get(k) for k in reg.DECLARE_FIELDS)
     assert e["declaration"] == "docs/specs/mlb-pitchers-v1.md" and (ROOT / e["declaration"]).is_file()
     assert hashlib.sha256(e["gate"].encode()).hexdigest() == DECLARED_GATE_SHA256
     assert e["gate"].startswith("THE METRIC AND THE BAR: mean log-loss of the home-win probability over the 1553")
     assert mp.FENCE_TEXT in e["gate"]
-    assert e["confirmation_plan"] is None and e["test_cohort"] is None and "confirmation_cohort" not in e
+    assert e["confirmation_plan"] is None and "confirmation_cohort" not in e
     assert e["cohort"] == {"n_declared": 1553, "rule": e["cohort"]["rule"], "counted_on": "the 10-31 console"}
     assert set(e["arms"]) == {"on", "off"} and e["arms"]["off"].endswith("(as src/walters/backtest.py runs today)")
     assert e["live_needs"].startswith("WHAT THE VERDICT DOES (live_needs): PASS")
@@ -1084,6 +1136,51 @@ def test_the_entry_is_declared_unrun_with_the_verbatim_plan():
     # appended, never inserted: every entry after it was declared after it (pl-availability-v1, addendum 198)
     ids = [x["id"] for x in reg.load()]
     assert all(x["declared_at"] > e["declared_at"] for x in reg.load()[ids.index(mp.EID) + 1:])
+
+
+def test_the_2026_fence_is_lifted_on_the_real_registry_by_the_recorded_run_and_verdict():
+    """ARCHITECT 2026-11-06 09:25 ET, addendum 266 item 3: "the MLB backtest's pitcher-layer fence on 2026 (190's
+    precedent) LIFTS with the recorded verdict — the layer may be read for receipts again, and never for a price
+    without a declaration." The fence keys on the recorded run (fence_walk, no code change); the run and the verdict
+    reach main in one merge. The gate itself stays refused (a second run of the entry never happens)."""
+    e = reg.get(mp.EID)
+    assert e["run"] and e["verdict"]["verdict"] == "REJECT" and mp.run_recorded()
+    for season in ("2026", None, " 2026 "):
+        assert mp.fence_walk("MLB", season) is None and mp.sealed_refusal("MLB", season) is None
+    bt.run_backtest(season="2026", competition_code="MLB", pitcher_layer=True, pitcher_inputs={})   # receipts again
+    with pytest.raises(mp.GateRefused, match="must be declared and unrun"):
+        mp.declared_unrun()
+
+
+def test_the_roadmap_lane_mlb_pitchers_closes_run_and_rejected():
+    """ARCHITECT 2026-11-06 09:25 ET, addendum 266 item 4: "the roadmap lane mlb-pitchers: the 11-06 step done with
+    the console as its receipt, the lane's state the vocabulary's word for run-and-rejected, no date moves (none
+    existed)"; item 3: "the lane closes as RUN AND REJECTED"."""
+    from src import roadmap as rm
+    doc = json.loads((ROOT / "docs" / "roadmap.json").read_text())
+    assert rm.validate(doc) == []
+    (ln,) = [x for x in doc["lanes"] if x["lane"] == "mlb-pitchers"]
+    assert (ln["issue"], ln["registry_id"], ln["competitions"], ln["state"], ln["earliest_live"]) == (
+        507, mp.EID, ["MLB"], "closed", None)
+    assert [(s["owner"], s["due"]) for s in ln["steps"]] == [
+        ("code", "2026-10-28"), ("architect", "2026-10-31"), ("code", "2026-11-05"), ("architect", "2026-11-06")]
+    assert [s["done"]["date"] for s in ln["steps"]] == ["2026-10-28", "2026-10-31", "2026-11-01", "2026-11-06"]
+    last = ln["steps"][3]
+    assert last["what"].startswith("the one run on the laptop and the verdict (190 item 7")
+    assert last["done"]["receipt"].startswith("the console on #507 (issuecomment-6686854988: the laptop, "
+                                              "2026-11-06T14:12Z, main 0ad8b82a")
+    assert last["done"]["receipt"].endswith("the verdict REJECT, ARCHITECT 2026-11-06 09:25 ET, addendum 266")
+    assert rm.next_step(ln) is None
+    # no date moved: the one moved line is 190 item 6's scope line of 10-31, unchanged
+    assert [(m["moved_on"], m["was"], m["now"]) for m in ln["moved"]] == [("2026-10-31", "2026-10-31", "2026-10-31")]
+    assert ln["live_needs"].startswith("RUN AND REJECTED 2026-11-06 (ARCHITECT 2026-11-06 09:25 ET, addendum 266)")
+    assert ("the lane closes as RUN AND REJECTED with the finding of item 2 carried to #97's design brief"
+            in ln["live_needs"])
+    assert ln["live_needs"].endswith("As declared: MLB is live. The lane's exit is a measured contribution of the "
+                                     "pitcher layer, on or off, before the 2027 season; a layer that does not clear "
+                                     "the margin is retired from the live model by a ruling. A PASS also requires the "
+                                     "live path to read the as-of sums and never the snapshot before opening day "
+                                     "(addendum 190 items 4–5; #746).")
 
 
 def test_the_spec_holds_addendum_190_verbatim_and_the_readings():

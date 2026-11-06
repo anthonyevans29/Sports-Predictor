@@ -155,6 +155,7 @@ def test_lanes_data_is_the_print_as_data_with_no_eta_for_an_undated_lane(tmp_pat
     assert {g["lane"] for g in got if g["eta"] == "no ETA"} == {"leagues", "nfl-qb", "mlb-pitchers",
                                                                  "pl-availability",       # addendum 198
                                                                  "nfl-confirm",           # addendum 215 item 1
+                                                                 "nfl-v2",                # addendum 265 item 4
                                                                  "cups",                  # addendum 256 item 5
                                                                  "availability-record",   # addendum 252 item 7
                                                                  "soccer-v23",            # addendum 216 item 3

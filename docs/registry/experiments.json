@@ -1600,9 +1600,101 @@
     "confirmation_window": "none: the lane has no go-live (addendum 190 item 7: earliest_live stays null; its exit is the 2027 model); the verdict's effect is item 4",
     "confirmation_plan": null,
     "declared_at": "2026-10-31T15:45:00Z",
-    "status": "declared",
-    "run": null,
-    "verdict": null,
+    "status": "closed",
+    "run": {
+      "run_at": "2026-11-06T14:12:32Z",
+      "n_scored": 1553,
+      "ids_sha256": "5d2cc5d913fa7411b1345350d5957149ef13a99b4a52fd8db40be67557e82233",
+      "ids_file": "docs/registry/ids/mlb-pitchers-v1.txt",
+      "result": {
+        "verdict": "REJECT",
+        "n": 1553,
+        "ll_off": 0.6901771522903986,
+        "ll_on": 0.6887685961079708,
+        "delta": 0.0014085561824277448,
+        "bar": 0.005,
+        "brier_off": 0.24852423222747322,
+        "brier_on": 0.247826425728514,
+        "by_month": {
+          "2026-05": {
+            "n": 122,
+            "ll_off": 0.6781406548115798,
+            "ll_on": 0.6819291783269879,
+            "brier_off": 0.24290017242165204,
+            "brier_on": 0.24453698742071733
+          },
+          "2026-06": {
+            "n": 369,
+            "ll_off": 0.6941219223328506,
+            "ll_on": 0.6942813795004389,
+            "brier_off": 0.25049455873683907,
+            "brier_on": 0.25057001166382753
+          },
+          "2026-07": {
+            "n": 358,
+            "ll_off": 0.6886803127042772,
+            "ll_on": 0.6857972203535071,
+            "brier_off": 0.24776645091715735,
+            "brier_on": 0.2463750669542624
+          },
+          "2026-08": {
+            "n": 409,
+            "ll_off": 0.6873187894130088,
+            "ll_on": 0.6862618136217621,
+            "brier_off": 0.24700697391833337,
+            "brier_on": 0.246528617877623
+          },
+          "2026-09": {
+            "n": 295,
+            "ll_off": 0.6960001066478056,
+            "ll_on": 0.6917828959534507,
+            "brier_off": 0.2514087378948815,
+            "brier_on": 0.24931563967975784
+          }
+        },
+        "home_win_rate": 0.5260785576303928,
+        "cohort_sha256": "5d2cc5d913fa7411b1345350d5957149ef13a99b4a52fd8db40be67557e82233",
+        "fingerprint_sha256": "696182d5817f0bae3630dec8d2ed42a1ce85be2c6394e07756877b13b116ded5",
+        "production_version": "v2",
+        "baseball_config": {
+          "pyth_exponent": 1.83,
+          "league_runs_per_game": 8.83,
+          "dispersion_k": 4.0,
+          "home_run_boost": 0.08,
+          "league_era": 4.2,
+          "max_runs": 20,
+          "default_total_line": 8.5,
+          "pitcher_anchor_mode": "team_ra",
+          "pitcher_damping": 0.35,
+          "recal_enabled": true,
+          "recal_lo": 0.6,
+          "recal_hi": 0.7,
+          "recal_target": 0.555,
+          "market_blend_enabled": true,
+          "market_blend_w": 0.5,
+          "run_shrink_enabled": true,
+          "run_shrink_frac": 0.35,
+          "run_shrink_mean": 4.4,
+          "starter_eff_ip_enabled": true,
+          "starter_ip_per_start": 7.0
+        },
+        "paths": {
+          "blend: starter and bullpen / blend: starter and bullpen": 1455,
+          "bullpen half-weighted, starter unknown / blend: starter and bullpen": 46,
+          "blend: starter and bullpen / bullpen half-weighted, starter unknown": 51,
+          "bullpen half-weighted, starter unknown / bullpen half-weighted, starter unknown": 1
+        },
+        "metric": "mean home-side log-loss, -(y ln p + (1 - y) ln(1 - p)), p floored at 1e-12; Brier (p - y)^2",
+        "ruling": "ARCHITECT 2026-10-31 11:45 ET, addendum 190 (pre-run, frozen; docs/specs/mlb-pitchers-v1.md)"
+      },
+      "prior_reads": [],
+      "prior_read_count": 0
+    },
+    "verdict": {
+      "verdict": "REJECT",
+      "ruling": "ARCHITECT 2026-11-06 09:25 ET, addendum 266, verbatim (its line breaks stripped): \"ARCHITECT 2026-11-06 09:25 ET \u2014 addendum 266: mlb-pitchers-v1's ONE RUN \u2014 VERDICT: REJECT (OFF \u2212 ON = 0.0014 against the bar 0.0050; addendum 190 item 3's rule, unchanged). The lane had no go-live and loses none; the finding goes to the 2027 model's design as a finding, never a parameter. Code's verdict-record PR merges the laptop's branch.\" Item 1: \"1. THE RUN, as recorded (the LAPTOP, 2026-11-06 ~14:10Z, main 0ad8b82a; the copy sports_mlbpitchers_run_2026-11-06.db, mode=ro + immutable=1, the same copy for the freeze and the gate; the console on #507): THE FREEZE \u2014 2026 regular-season games read 2,429; both sides on a live path 1,553 (declared 1,553: the same), one side 67, neither 809; per-side paths: starter+bullpen blend 3,072, bullpen half-weighted 101, no pitcher input 1,685; first kickoff 2026-05-23, last 2026-09-27; by month 122 / 369 / 358 / 409 / 295; frozen as docs/registry/ids/mlb-pitchers-v1.cohort.txt, sha256 5d2cc5d9\u2026, the copy's fingerprint 696182d5\u2026 (games 2,483, appearances 21,208, starters 3,250, config 1). THE GATE \u2014 the cross-ref guard clean (75 refs); the production config v2 as stored on the copy, no constant moved; the cohort re-classified to the same 1,553 ids and sha; scored 1,553 exactly; home win rate 0.5261. log-loss OFF 0.690177 \u00b7 ON 0.688769 \u00b7 OFF \u2212 ON = 0.001409 against the bar 0.0050 \u2192 REJECT (190 item 3: \"less, or a tie, REJECTS\"). Reported, not gated: Brier OFF 0.24852, ON 0.24783; per month (LL off \u2192 on): May 0.6781 \u2192 0.6819 (worse), June 0.6941 \u2192 0.6943 (flat), July 0.6887 \u2192 0.6858, August 0.6873 \u2192 0.6863, September 0.6960 \u2192 0.6918. VERDICT (computed by the gate; ruled here): REJECT. Nothing promotes; the pitcher layer stays OFF in production; no constant moves.\" Item 2: \"2. THE READING, for the record: the as-of pitcher layer is a small, real improvement that grows as the season's appearance history accrues (negative in May on 122 games with thin as-of sums, flat in June, positive from July) \u2014 the shape one expects of an as-of construction with no prior for early-season starters. That is a FINDING for the 2027 model's design (lane #97, the off-season lane: an early-season prior on the starter sums, or the layer switched on by accrued appearances \u2014 either is a design to declare, not a tweak to make), and it is no reason to re-run, re-bar or re-cut this cohort: 1,553 games is the test, 0.0014 is the answer. The MLB `improve` bar of 0.0050 (63 item 4) stands.\" Item 3: \"3. CONSEQUENCES (190 item 7): the lane had no go-live (earliest_live null) and its exit was always the 2027 model, so nothing clears; the lane closes as RUN AND REJECTED with the finding of item 2 carried to #97's design brief; the registry entry records the run and the verdict; the MLB backtest's pitcher-layer fence on 2026 (190's precedent) LIFTS with the recorded verdict \u2014 the layer may be read for receipts again, and never for a price without a declaration.\"",
+      "at": "2026-11-06T14:25:00Z"
+    },
     "arms": {
       "on": "mlb v2 with the pitcher layer fed the as-of reconstruction (#702's receipt: the season's appearances of games started strictly before the game; the starter + bullpen blend where the starter is listed, the half-weighted bullpen where the starter is unknown \u2014 the live path's own fallbacks, nothing new)",
       "off": "the same model with the pitcher layer off (as src/walters/backtest.py runs today)"
@@ -1614,7 +1706,59 @@
     },
     "metric": "mean log-loss of the home-win probability over the 1553, both arms, unrounded (190 item 3)",
     "bar": "PASS only if OFF \u2212 ON >= 0.0050 (the MLB `improve` bar, addendum 63 item 4); less, or a tie, REJECTS (190 item 3)",
-    "test_cohort": null,
+    "test_cohort": {
+      "n": 1553,
+      "ids_sha256": "5d2cc5d913fa7411b1345350d5957149ef13a99b4a52fd8db40be67557e82233",
+      "ids_file": "docs/registry/ids/mlb-pitchers-v1.cohort.txt",
+      "frozen_at": "2026-11-06T14:12:24Z",
+      "basis": {
+        "rule": "the 2026 regular-season games with BOTH sides reconstructed on a live path (addendum 190 item 2): per game, both sides' P label in the receipt's PATHS (blend: starter and bullpen; starter, league bullpen; bullpen half-weighted, starter unknown; neutral (no data)), classified by src/walters/mlb_pitcher_asof.classify (the #702 receipt's per-side classification, #703's pregame identity and complete ERAs) on the --db copy",
+        "season": "2026",
+        "regular_games": 2429,
+        "games_by_sides_on_a_path": {
+          "both": 1553,
+          "one": 67,
+          "neither": 809
+        },
+        "by_month": {
+          "2026-05": 122,
+          "2026-06": 369,
+          "2026-07": 358,
+          "2026-08": 409,
+          "2026-09": 295
+        },
+        "first_kickoff": "2026-05-23T17:10:00Z",
+        "last_kickoff": "2026-09-27T19:10:00Z",
+        "p_counts_per_side": {
+          "blend: starter and bullpen": 3072,
+          "bullpen half-weighted, starter unknown": 101,
+          "no pitcher input (no starter listed)": 1685
+        },
+        "selected_at": "2026-11-06T14:12:24Z"
+      },
+      "fingerprint": {
+        "sha256": "696182d5817f0bae3630dec8d2ed42a1ce85be2c6394e07756877b13b116ded5",
+        "parts": {
+          "games": {
+            "n": 2483,
+            "sha256": "52fbd1ecea145c37328d6796e8ef4a8cc30b62f80768665f45e8069f503d2de2"
+          },
+          "appearances": {
+            "n": 21208,
+            "sha256": "a235cfa4daca485b26f04769ae496b526e53d3c1cd733ec80119c1726fb94be3"
+          },
+          "starters": {
+            "n": 3250,
+            "sha256": "1f94fa969a3abc14a39871e701c7f2a9843b1cd51e320c4d7322ed446902f5d6"
+          },
+          "config": {
+            "n": 1,
+            "sha256": "d95581383f60eb945fff725c2cefc6aaf47c4f225809c132fe583e599b57a216"
+          }
+        },
+        "rule": "the freeze records a fingerprint of the rows the run reads, and the run refuses before its reservation unless the copy it is given reproduces it (ARCHITECT 2026-10-31 13:15 ET, addendum 193 item 1). Parts, each the sha256 of its rows as sorted JSON lines: games, every 2026 MLB match row the walk and the reconstruction read (id, kickoff, status, stage, teams, final scores, the statsapi id; it holds the cohort games' ids, kickoffs and final scores); appearances, the pitcher_appearances rows the as-of reconstruction attributes to the season's games (game, side, pitcher, outs, starter, earned runs); starters, the starting_pitcher rows it reads (game, side, kind, source id, source, refreshed at, rows held); config, the production config the arms run with (version, baseball_config). A mismatch is a finding on #507 (the copy is not the frozen one), never a re-freeze and never a run on the other copy"
+      }
+    },
     "live_needs": "WHAT THE VERDICT DOES (live_needs): PASS \u2014 the layer stays in the live model for 2027, AND the live path must then read the as-of sums, never the snapshot (item 5), before opening day; REJECT \u2014 the layer is retired from the live model by a ruling before 2027, and the 2027 model is the OFF arm. Either way the result is the record, not a reason to retune: no constant moves on this run.",
     "snapshot_note": "190 item 5: \"The snapshot as the model actually read it each day is NOT reconstructable (only the last refresh survives), so no third arm is run; said in the entry.\" The finding is Issue #746 (pitcher_season_stats a stale snapshot).",
     "prior_reads_note": "the #702 receipt (2026-10-28) and the 10-31 console counted coverage only (games, sides, paths); no arm's log-loss on 2026 has been read.",
@@ -1777,9 +1921,126 @@
     "confirmation_plan": null,
     "confirmation_plan_note": "As built, ruled (ARCHITECT 2026-11-02 12:20 ET, addendum 219 item 8, verbatim): \"confirmation_plan null \u2014 as built: production stays refused by the registry until the live ruling; the PR that rules v2 live records the rehearsal and the dry read as the entry's confirmation record so production_allowed() reads true from that commit. Live is by ruling, never by the registry alone.\"",
     "declared_at": "2026-11-02T15:35:00Z",
-    "status": "declared",
-    "run": null,
-    "verdict": null,
+    "status": "closed",
+    "run": {
+      "run_at": "2026-11-06T13:11:36Z",
+      "n_scored": 285,
+      "ids_sha256": "43afd218869d7a1d33c0b5356d4260a9310a585f6c1b1af02c27d39ebdb3ac74",
+      "ids_file": "docs/registry/ids/nfl-elo-v2.txt",
+      "result": {
+        "baseline_home_rate": 0.5473684210526316,
+        "ll_model": 0.634887260520438,
+        "ll_baseline": 0.691320187700119,
+        "bar": 0.681320187700119,
+        "crit_logloss": true,
+        "crit_bands": false,
+        "pass": false,
+        "bands": [
+          {
+            "band": 1,
+            "n": 6,
+            "stated": 0.15412,
+            "realized": 0.333333,
+            "gap": 0.179213,
+            "gated": false,
+            "ok": null
+          },
+          {
+            "band": 2,
+            "n": 28,
+            "stated": 0.246171,
+            "realized": 0.285714,
+            "gap": 0.039543,
+            "gated": false,
+            "ok": null
+          },
+          {
+            "band": 3,
+            "n": 30,
+            "stated": 0.358779,
+            "realized": 0.3,
+            "gap": 0.058779,
+            "gated": true,
+            "ok": true
+          },
+          {
+            "band": 4,
+            "n": 57,
+            "stated": 0.451435,
+            "realized": 0.438596,
+            "gap": 0.012839,
+            "gated": true,
+            "ok": true
+          },
+          {
+            "band": 5,
+            "n": 60,
+            "stated": 0.550731,
+            "realized": 0.55,
+            "gap": 0.000731,
+            "gated": true,
+            "ok": true
+          },
+          {
+            "band": 6,
+            "n": 41,
+            "stated": 0.651731,
+            "realized": 0.682927,
+            "gap": 0.031196,
+            "gated": true,
+            "ok": true
+          },
+          {
+            "band": 7,
+            "n": 37,
+            "stated": 0.739875,
+            "realized": 0.648649,
+            "gap": 0.091226,
+            "gated": true,
+            "ok": false
+          },
+          {
+            "band": 8,
+            "n": 26,
+            "stated": 0.847157,
+            "realized": 0.884615,
+            "gap": 0.037458,
+            "gated": false,
+            "ok": null
+          }
+        ],
+        "n_scored": 285,
+        "verdict": "FAIL \u2014 (2) bands: 70-80% (215 item 3: NFL stays market-only for 2026; v1's forward read of item 1 stands; the 2027 candidate declares in the offseason)",
+        "scope": "scope[nfl-v2-gate]: teams=32, games=676, competitions={NFL} \u00b7 db --db /Users/anthonyevans/backups/sports_nflv2_run_2026-11-06.db (a .backup copy, opened mode=ro&immutable=1)",
+        "stream_fingerprint": "557221dbef504dadc1c64cba2e50067672049bd7acf472fe2013f456c5f5cfc4",
+        "stream_fingerprint_tag": "nfl-elo-v2 stream fingerprint v2",
+        "stream_games": 570,
+        "warmup_n": 285,
+        "scored_n": 285,
+        "calibration_term": {
+          "form": "home_advantage",
+          "value": 33.0
+        },
+        "warmup_fingerprint": "d11ba700990b170ced875088144ad4885506d2cb11e0bd6177ff2a6d1a29c6f0",
+        "fit_warmup_fingerprint": "d11ba700990b170ced875088144ad4885506d2cb11e0bd6177ff2a6d1a29c6f0",
+        "db": "/Users/anthonyevans/backups/sports_nflv2_run_2026-11-06.db",
+        "constants": {
+          "k_factor": 20.0,
+          "home_advantage": 33.0,
+          "season_regression": 0.25,
+          "mov_base": 2.2,
+          "default_rating": 1500.0
+        },
+        "architect_word": "ARCHITECT 2026-11-06: nfl_elo_v2's one run \u2014 home advantage 33.0, addendum 245"
+      },
+      "prior_reads": [],
+      "prior_read_count": 0
+    },
+    "verdict": {
+      "verdict": "FAIL",
+      "ruling": "ARCHITECT 2026-11-06 08:55 ET, addendum 265, verbatim (its markdown bold and line breaks stripped): \"ARCHITECT 2026-11-06 08:55 ET \u2014 addendum 265: nfl_elo_v2's ONE RUN \u2014 VERDICT: FAIL (the frozen phase-2 gate, unchanged; 215 item 3's consequence applies: NFL stays MARKET-ONLY for 2026; the rehearsal arm stays dormant for the season; v1's forward read after the Super Bowl stands; the 2027 candidate declares in the off-season). Code's verdict-record PR commits the run as the laptop holds it.\" Item 1: \"1. THE RUN, as recorded (the LAPTOP, 2026-11-06 ~13:45Z, main 0ad8b82a, the copy sports_nflv2_run_2026-11-06.db opened mode=ro + immutable=1; the console on #783): the preflight's counts matched the declaration exactly (warm-up 2024: 285 games \u2014 272 regular, 13 post; scored 2025: 285 \u2014 the same split; preseason excluded 49/49/49; the fit's warm-up fingerprint d11ba700\u2026 SAME as the loaded rows'; the entry's frozen constants SAME as NFLEloConfig()'s); the stream fingerprint 557221dbef504dadc1c64cba2e50067672049bd7acf472fe2013f456c5f5cfc4 (570 games and the declared term) checked before the reservation; the cross-ref guard clean (73 refs); the word recorded verbatim. The candidate: v1's constants with home advantage 33.0 for the whole walk. Baseline (2024 realized home rate) 0.5474; the log-loss bar 0.6813. (1) LOG-LOSS: model 0.6349 vs baseline 0.6913, need <= 0.6813 \u2192 PASS. (2) THE BANDS (n >= 30 within 7.0pp): 30-40% n=30 gap 5.9 ok \u00b7 40-50% n=57 gap 1.3 ok \u00b7 50-60% n=60 gap 0.1 ok \u00b7 60-70% n=41 gap 3.1 ok \u00b7 70-80% n=37: stated 0.740, realized 0.649, gap 9.1pp \u2192 FAIL \u00b7 10-20% (n=6), 20-30% (n=28), 80-90% (n=26) reported, not scored. VERDICT (computed by the gate; ruled here): FAIL on (2). The 285 scored ids are recorded (sha 43afd218869d\u2026, docs/registry/ids/nfl-elo-v2.txt).\" Item 2, its operative sentence (the rest of item 2 is \"THE READING, for the record and nothing more\"): \"No figure here becomes a parameter; no threshold moves; nothing is re-fitted this season.\" Item 3: \"3. CONSEQUENCES (215 item 3, verbatim in effect): NFL is MARKET-ONLY for the 2026 season; the pages, the would-be record and the #446 count keep running on v1 as today; the rehearsal arm (#825) is DORMANT for the season \u2014 on FAIL nothing is written (247 item 2(1)) and no window opens; v1's forward confirmation read (lane nfl-confirm) after the Super Bowl stands unchanged; the QB term (lane nfl-qb) and the operator's 11-13 sourcing decision stand on their own; the 2027 candidate declares in the off-season on 2024-2026 data at the SAME gate (an undated step on the lane until a declaration addendum dates it).\"",
+      "at": "2026-11-06T13:55:00Z"
+    },
     "declared_at_note": "the stamp of addendum 215 (2026-11-02 10:35 ET), which names the candidate, its base, its bar and its one run; the calibration term's form and value are declared 2026-11-05 (calibration_term) and the gate refuses until then. As built, ruled (ARCHITECT 2026-11-02 12:20 ET, addendum 219 item 1, verbatim): \"STATUS before the declaration \u2014 `declared` with declared_at = 215's stamp and the note, as built (the ncaa-elo-v2 precedent); the null term is what stops a run until 11-05.\"",
     "constants": {
       "k_factor": 20.0,

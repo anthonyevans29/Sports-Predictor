@@ -474,7 +474,7 @@
       "issue": 783,
       "registry_id": "nfl-elo-v2",
       "competitions": ["NFL"],
-      "state": "declared",
+      "state": "closed",
       "steps": [
         {
           "what": "the harness PR: the candidate entry nfl_elo_v2 with its constants and bar, a one-run gate with the reservation pattern of ncaa-gate (the architect's word, the stream fingerprint, nothing recorded on a refusal; the corrected stream as the fingerprint)",
@@ -507,31 +507,25 @@
           "what": "the ONE run on my word, my block, the verdict the same day",
           "owner": "operator",
           "due": "2026-11-06",
-          "done": null
-        },
-        {
-          "what": "on PASS: the rehearsal on the host's pages from the next tag (weeks 10 and 11: 11-12 through 11-23)",
-          "owner": "calendar",
-          "due": "2026-11-23",
-          "done": null
-        },
-        {
-          "what": "on PASS: the dry read (addendum 219 item 7, verbatim: \"the dry read step is the OPERATOR's (he pastes the rehearsal pages to his GPT; the read comes to me), the live ruling the architect's\")",
-          "owner": "operator",
-          "due": "2026-11-24",
-          "done": null
-        },
-        {
-          "what": "on PASS: LIVE by my ruling from the week-12 pages (Thanksgiving, 2026-11-26) at the earliest",
-          "owner": "architect",
-          "due": "2026-11-26",
-          "done": null
+          "done": {
+            "date": "2026-11-06",
+            "receipt": "the console on #783 (issuecomment-6685613162: the laptop, 2026-11-06T13:11Z, main 0ad8b82a, the copy sports_nflv2_run_2026-11-06.db, mode=ro + immutable=1; its record: addendum 265 item 1); the verdict FAIL, ARCHITECT 2026-11-06 08:55 ET, addendum 265"
+          }
         }
       ],
-      "earliest_live": "2026-11-26",
-      "live_needs": "nfl_elo_v2 passes the frozen phase-2 gate on the corrected stream in ONE run on 11-06 and its two-week rehearsal reads clean, then my ruling (addendum 215 items 2-4). FAIL: NFL stays market-only for 2026, v1's forward read (addendum 215 item 1) stands, and the 2027 candidate declares in the offseason on 2024-2026 complete.",
+      "earliest_live": null,
+      "live_needs": "FAILED 2026-11-06 (ARCHITECT 2026-11-06 08:55 ET, addendum 265): nfl_elo_v2 ran ONCE through the UNCHANGED gate and FAILED on the 70-80% band (9.1pp vs 7.0; log-loss 0.6349 passed); NFL is MARKET-ONLY for 2026, the rehearsal arm is dormant, v1's forward read (lane nfl-confirm) stands, the bar did not move. This lane is CLOSED by ruling (ARCHITECT 2026-11-06 10:50 ET, addendum 267 item 2(1)): \"nfl_elo_v2 is run and rejected; a lane holds one candidate and one run; the 2027 candidate is a NEW lane, declared in the off-season by its own addendum, on 2024-2026 data at the same gate.\" The 2027 line lives on lane nfl-confirm's live_needs and in CLAUDE.md (267 item 2(2)). As declared (addendum 215 items 2-4): nfl_elo_v2 passes the frozen phase-2 gate on the corrected stream in ONE run on 11-06 and its two-week rehearsal reads clean, then my ruling (addendum 215 items 2-4). FAIL: NFL stays market-only for 2026, v1's forward read (addendum 215 item 1) stands, and the 2027 candidate declares in the offseason on 2024-2026 complete.",
       "vs_close": "not read. nfl_elo_v2 has scored no game; nfl_elo_v1 (uncertified, addendum 214) keeps its own record against the close on the pages.",
-      "moved": []
+      "moved": [
+        {
+          "moved_on": "2026-11-06",
+          "which": "earliest_live",
+          "was": "2026-11-26",
+          "now": null,
+          "why": "nfl_elo_v2's one run of 2026-11-06 FAILED the frozen phase-2 gate on criterion (2), the 70-80% band (n=37, stated 0.740, realized 0.649, gap 9.1pp against 7.0pp; log-loss 0.6349 passed against the bar 0.6813): no PASS, so no rehearsal, no dry read and no live ruling this season, and no live date stands. The three on-PASS steps are cleared with it, by the same item: \"on PASS: the rehearsal on the host's pages from the next tag (weeks 10 and 11: 11-12 through 11-23)\" due 2026-11-23; \"on PASS: the dry read (addendum 219 item 7, verbatim: \"the dry read step is the OPERATOR's (he pastes the rehearsal pages to his GPT; the read comes to me), the live ruling the architect's\")\" due 2026-11-24; \"on PASS: LIVE by my ruling from the week-12 pages (Thanksgiving, 2026-11-26) at the earliest\" due 2026-11-26 (a step's due is never cleared, addendum 61 item 4: the steps are removed by the quoted ruling and their dates are recorded here). The bar did not move",
+          "ruling": "ARCHITECT 2026-11-06 08:55 ET, addendum 265 item 4, MOVED LINE: \"the roadmap lane nfl-v2: the 11-06 step done with the console as its receipt, the three \"on PASS\" steps (11-23, 11-24, 11-26) CLEARED by their moved lines quoting this item, earliest_live 2026-11-26 CLEARED (a move with `now` null), the lane's state the vocabulary's word for failed/rejected, a new undated step \"the 2027 candidate's declaration in the off-season (2024-2026 data, the same gate)\"\""
+        }
+      ]
     },
     {
       "lane": "nfl-confirm",
@@ -575,7 +569,7 @@
         }
       ],
       "earliest_live": null,
-      "live_needs": "addendum 215 item 1, verbatim in part: \"Its purpose is the record and the 2027 declaration, not a return to production in 2026: on this path alone nfl_elo_v1 does not come back this season.\" Until then NFL is MARKET-ONLY (addendum 214 item 2: no model-edge call, no units, no position) and the model's rows are a shadow labelled uncertified (item 3). The faster path to NFL production is a successor through the unchanged gate (nfl_elo_v2, addendum 215 items 2-3, its own lane).",
+      "live_needs": "addendum 215 item 1, verbatim in part: \"Its purpose is the record and the 2027 declaration, not a return to production in 2026: on this path alone nfl_elo_v1 does not come back this season.\" Until then NFL is MARKET-ONLY (addendum 214 item 2: no model-edge call, no units, no position) and the model's rows are a shadow labelled uncertified (item 3). The faster path to NFL production is a successor through the unchanged gate (nfl_elo_v2, addendum 215 items 2-3, its own lane). The 2027 line (ARCHITECT 2026-11-06 10:50 ET, addendum 267 item 2(2)): v1's forward read after the Super Bowl stands; \"the 2027 candidate declares in the off-season, a new lane, the same gate\" (on 2024-2026 data, 267 item 2(1)); nfl_elo_v2 ran once and FAILED (addendum 265; lane nfl-v2, closed).",
       "vs_close": "not read for this window: the close's log-loss is printed beside the one read, gating nothing (addendum 214 item 3). Before the window, the nfl-qb lane's figure: 0.6104 against the close's 0.6419 over the 46 games with a close and a result to 2026-10-13.",
       "moved": []
     },
@@ -585,7 +579,7 @@
       "issue": 507,
       "registry_id": "mlb-pitchers-v1",
       "competitions": ["MLB"],
-      "state": "declared",
+      "state": "closed",
       "steps": [
         {
           "what": "the as-of reconstruction of the pitcher statistics the live model reads, from the stored appearances (docs/historical_backfill_assessment.md tier 1), as a read-only receipt: coverage per season",
@@ -618,11 +612,14 @@
           "what": "the one run on the laptop and the verdict (190 item 7: on a .backup copy outside data/ with --db, the architect's block; the verdict recorded in the entry by Code's PR)",
           "owner": "architect",
           "due": "2026-11-06",
-          "done": null
+          "done": {
+            "date": "2026-11-06",
+            "receipt": "the console on #507 (issuecomment-6686854988: the laptop, 2026-11-06T14:12Z, main 0ad8b82a, the copy sports_mlbpitchers_run_2026-11-06.db, mode=ro + immutable=1, the same copy for the freeze and the gate; its record: addendum 266 item 1); the verdict REJECT, ARCHITECT 2026-11-06 09:25 ET, addendum 266"
+          }
         }
       ],
       "earliest_live": null,
-      "live_needs": "MLB is live. The lane's exit is a measured contribution of the pitcher layer, on or off, before the 2027 season; a layer that does not clear the margin is retired from the live model by a ruling. A PASS also requires the live path to read the as-of sums and never the snapshot before opening day (addendum 190 items 4–5; #746).",
+      "live_needs": "RUN AND REJECTED 2026-11-06 (ARCHITECT 2026-11-06 09:25 ET, addendum 266): mlb-pitchers-v1 ran once and was REJECTED (OFF − ON = 0.0014 against the bar 0.0050; addendum 190 item 3's rule, unchanged); nothing promotes, no constant moves, the MLB `improve` bar of 0.0050 (63 item 4) stands. Addendum 266 item 3, verbatim: \"CONSEQUENCES (190 item 7): the lane had no go-live (earliest_live null) and its exit was always the 2027 model, so nothing clears; the lane closes as RUN AND REJECTED with the finding of item 2 carried to #97's design brief; the registry entry records the run and the verdict; the MLB backtest's pitcher-layer fence on 2026 (190's precedent) LIFTS with the recorded verdict — the layer may be read for receipts again, and never for a price without a declaration.\" As declared: MLB is live. The lane's exit is a measured contribution of the pitcher layer, on or off, before the 2027 season; a layer that does not clear the margin is retired from the live model by a ruling. A PASS also requires the live path to read the as-of sums and never the snapshot before opening day (addendum 190 items 4–5; #746).",
       "vs_close": "ahead on the small 2026 sample the mirror holds (27 decided games from 09-29, 14 picks right; the 16 with a close: model 0.6923 against the close's 0.7098), too few to say.",
       "moved": [
         {

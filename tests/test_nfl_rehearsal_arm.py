@@ -182,10 +182,15 @@ def test_the_registry_read_never_raises_and_the_real_one_reads_dormant(tmp_path,
     assert "not a list of entries" in reh.read_gate(str(p)).why
     p.write_text(json.dumps([entry()]))
     assert reh.read_gate(str(p)).on
-    g = reh.read_gate(REAL_REGISTRY)                                         # main today: declared, verdict null
-    assert not g.on and "verdict reads null, not PASS" in g.why
+    # the real registry since 2026-11-06 (ARCHITECT 08:55 ET, addendum 265): the one run recorded and the verdict FAIL
+    # (status closed); 265 item 3: "the rehearsal arm (#825) is DORMANT for the season — on FAIL nothing is written
+    # (247 item 2(1)) and no window opens"
+    g = reh.read_gate(REAL_REGISTRY)
+    assert not g.on and "verdict reads FAIL, not PASS" in g.why and f'"{reh.DORMANT_TEXT}"' in g.why
+    assert g.opens_at is None and g.closes_at is None and g.term is None
     e = real_entry()
-    assert e["status"] == "declared" and e["verdict"] is None and reh.WINDOW_KEY not in e
+    assert e["status"] == "closed" and e["verdict"]["verdict"] == "FAIL" and e["run"]["n_scored"] == 285
+    assert reh.WINDOW_KEY not in e and e["status"] != reh.STATUS                # nothing of the PASS path is written
 
     def boom(*a, **k):
         raise RuntimeError("synthetic")
@@ -765,7 +770,9 @@ def _synthetic_record(tmp_path, monkeypatch, pre_floor=True):
     stream = nb.load_stream("parity")
     wp = nb.walk_protocol(*nb.split(stream), cfg, price)
     led, ids_dir = tmp_path / "experiments.json", tmp_path / "ids"
-    led.write_text(json.dumps([real_entry()]))
+    # the real entry holds the one run and the FAIL since 2026-11-06 (addendum 265): the tmp copy is put back to
+    # declared and unrun, so the real writers record the synthetic run as they recorded the real one (#393's precedent)
+    led.write_text(json.dumps([{**real_entry(), "status": "declared", "run": None, "verdict": None}]))
     reg.record_run(reh.EID, list(wp["scored_ids"]), g2.result_record(wp, "synthetic word"), str(led), str(ids_dir))
     return SimpleNamespace(stream=stream, entry=reg.get(reh.EID, str(led)), ids_dir=str(ids_dir), cfg=cfg,
                            price=price, wp=wp)
@@ -833,8 +840,10 @@ def test_the_parity_skip_is_named_never_silent():
                                             "database: set SP_REHEARSAL_PARITY_DB")
     assert reh.PARITY_SKIP_NO_DB.endswith("— addendum 251 item 3(1)") and reh.PARITY_DB_ENV == "SP_REHEARSAL_PARITY_DB"
     assert reh.parity_skip(ran, "/tmp/copy.db") is None
-    if e.get("run") is None:                                                     # today: the real entry has no record
-        assert reh.parity_skip(e, None) == reh.PARITY_SKIP_NO_RECORD
+    # since 2026-11-06 (addendum 265 item 4) the real entry holds the run record: without a database copy its parity
+    # test reaches the no-database reason (the sidecar and the shape checked first), with one it walks
+    assert e.get("run") is not None
+    assert reh.parity_skip(e, None) == reh.PARITY_SKIP_NO_DB and reh.parity_skip(e, "/tmp/copy.db") is None
     assert "the sidecar's count and sha256 and the record's shape were checked, the walk alone is skipped" in (
         reh.PARITY_SKIP_NO_DB)
     assert issubclass(reh.ParitySkipped, UserWarning)

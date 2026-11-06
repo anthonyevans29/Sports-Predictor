@@ -37,7 +37,28 @@ The day's coverage file (`coverage --json`, exports/coverage_<date>.json; ARCHIT
 "the mirror carries it (laptop/latest/coverage.json, host/latest after the cutover)") is a kind like any other:
 <role>/<date>/coverage_<date>.json and <role>/latest/coverage.json, by the rule above (tests/test_exports_mirror.py).
 Dated folders older than RETENTION_DAYS are deleted. COPIES only: exports/ is
-never modified. Subdirectories of exports/ (raw provider caches) are not mirrored.
+never modified. Subdirectories of exports/ (raw provider caches) are not mirrored, but ONE: the kept subtree below.
+
+THE KEPT SUBTREE (ARCHITECT 2026-11-04, addendum 250 item 4, the bulletins lane, #826): "exports_mirror.py gains ONE
+kept subtree: `exports/bulletins/**` is copied verbatim to `<role>/bulletins/**` (suffixes .md and .png there; the
+top-level rule is unchanged), NEVER pruned by RETENTION_DAYS (the dated-folder rule applies to `<role>/<date>/` only;
+the weekly squash keeps files, as it does today), and NO JSON is ever written under it, so the compare's `*.json`
+Action glob never sees a bulletin and the compare is untouched (no new kind, no new mask, kind_of unchanged)."
+  <role>/bulletins/<rel>       every exports/bulletins/<rel> whose name ends .md or .png, at its own relative path
+                               (<FAMILY>/<date>/ and <FAMILY>/weeks/ kept as they are), whatever its mtime
+  Never pruned: expired() reads only <role>/<YYYY-MM-DD>/ folders, so <role>/bulletins/ (and any dated folder
+  nested in it) is never deleted; a bulletin removed from exports/ stays in the mirror, as a dated copy whose
+  source is gone stays until its folder expires (the push copies, it never deletes a copy for a missing source).
+  Never copied, and RECEIPTED (law 2: the push's result carries `skipped`, its console line the count by reason):
+  any other suffix (a .json above all: no JSON is ever written under the subtree by the mirror), a symlink (file
+  or folder, the subtree's own root included: never followed, in or out of the subtree), anything that is not a
+  regular file, a path with a `.git` component (git cannot carry it), a folder that cannot be read, a file that
+  cannot be read when the push copies it (no read permission, or gone since the plan: `unreadable: <error>`), and a
+  path git itself refuses (`git refused the path`: git decides, by `add --ignore-errors`, not a list kept here;
+  with core.protectNTFS, its default, that is `.git`'s other spellings GIT~1, `.git.`, `.git `). One bad bulletin
+  is local to that file: the copy is removed from the working clone, so it never fails the whole-tree add nor
+  jams a later push, and the top-level files and the other bulletins still go.
+  Absent exports/bulletins/: nothing happens.
 """
 from __future__ import annotations
 
@@ -45,8 +66,10 @@ import argparse
 import os
 import re
 import shutil
+import stat as st
 import subprocess
 import sys
+import unicodedata
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
@@ -57,6 +80,8 @@ import sp_common as c  # noqa: E402  (setting(): environment, host.env, the chec
 RETENTION_DAYS = 14
 BRANCH = "main"
 SUFFIXES = (".json", ".md")
+BULLETINS = "bulletins"                     # addendum 250 item 4: exports/bulletins/** -> <role>/bulletins/**
+BULLETIN_SUFFIXES = (".md", ".png")         # the only suffixes ever written under <role>/bulletins/ (never .json)
 STAMP = re.compile(r"_?\d{4}-\d{2}-\d{2}(?:[T_]\d{2}:?\d{2}(?::?\d{2})?Z?)?")
 WORKFLOW_SRC = REPO / "deploy" / "exports-mirror" / "compare.yml"
 ETC_KEY = Path("/etc/sports-predictor/exports_deploy_key")
@@ -130,6 +155,72 @@ def plan(files: list[tuple[str, float]], role: str, today: date) -> dict:
     return {"dated": dated, "latest": latest}
 
 
+def _shown(rel: str) -> str:
+    """A path as text that always prints (a name that is not UTF-8 shows its bytes escaped)."""
+    return os.fsencode(rel).decode("utf-8", "backslashreplace")
+
+
+def bulletin_plan(exports: Path, role: str) -> dict:
+    """THE KEPT SUBTREE (addendum 250 item 4). Returns {"kept": {dest: src Path}, "skipped": [(rel, why)]}:
+    dest = <role>/bulletins/<rel> for every regular .md / .png file under exports/bulletins/, at its own relative
+    path, whatever its date (no retention window here). Never followed: a symlink anywhere (the subtree's root
+    included). Skipped with the reason, never copied: any other suffix (a .json above all), a symlink, a non-regular
+    file, a `.git` path component, an unreadable folder. Absent subtree: {"kept": {}, "skipped": []}. The push adds
+    two reasons of its own, per file: a kept file it cannot read, and a path git refuses (_refused_by_git)."""
+    root = exports / BULLETINS
+    kept: dict[str, Path] = {}
+    skipped: list[tuple[str, str]] = []
+    if root.is_symlink():
+        return {"kept": kept, "skipped": [(BULLETINS, "symlink: not followed")]}
+    if not root.is_dir():
+        return {"kept": kept, "skipped": skipped}
+
+    def unreadable(e: OSError) -> None:
+        try:
+            where = Path(e.filename).relative_to(exports).as_posix()
+        except (TypeError, ValueError):
+            where = BULLETINS
+        skipped.append((where, f"unreadable folder: {e.__class__.__name__}"))
+
+    for dirpath, dirnames, filenames in os.walk(root, onerror=unreadable, followlinks=False):
+        here = Path(dirpath)
+        keep_dirs = []
+        for d in sorted(dirnames):
+            rel = (here / d).relative_to(exports).as_posix()
+            if (here / d).is_symlink():
+                skipped.append((rel, "symlink: not followed"))
+            elif d.lower() == ".git":                  # git refuses .git (and .GIT) as a path component
+                skipped.append((rel, "a .git path: git cannot carry it"))
+            else:
+                keep_dirs.append(d)
+        dirnames[:] = keep_dirs                       # os.walk descends only into these
+        for f in sorted(filenames):
+            p = here / f
+            rel = p.relative_to(exports).as_posix()
+            try:
+                mode = p.lstat().st_mode
+            except OSError as e:
+                skipped.append((rel, f"unreadable: {e.__class__.__name__}"))
+                continue
+            if st.S_ISLNK(mode):
+                skipped.append((rel, "symlink: not followed"))
+            elif not st.S_ISREG(mode):
+                skipped.append((rel, "not a regular file"))
+            elif not f.endswith(BULLETIN_SUFFIXES):
+                skipped.append((rel, "suffix: not .md or .png"))
+            else:
+                kept[f"{role}/{rel}"] = p
+    return {"kept": kept, "skipped": skipped}
+
+
+def skipped_line(skipped: list[tuple[str, str]]) -> str:
+    """The console's count by reason: "bulletins: 2 skipped (suffix: not .md or .png 1 · symlink: not followed 1)"."""
+    by: dict[str, int] = {}
+    for _, why in skipped:
+        by[why] = by.get(why, 0) + 1
+    return f"bulletins: {len(skipped)} skipped (" + " · ".join(f"{w} {n}" for w, n in by.items()) + ")"
+
+
 def expired(role_dir: Path, today: date) -> list[Path]:
     lo = today - timedelta(days=RETENTION_DAYS - 1)
     out = []
@@ -142,7 +233,7 @@ def expired(role_dir: Path, today: date) -> list[Path]:
     return out
 
 
-def _git(clone: Path, *args, check=True, capture=True):
+def _git(clone: Path, *args, check=True, capture=True, text=True):
     env = dict(os.environ)
     key = str(key_path())
     if os.path.isfile(key):
@@ -152,7 +243,7 @@ def _git(clone: Path, *args, check=True, capture=True):
         # time, past ssh_remote(). With no key file, any SSH transport git starts is REFUSED here, so a push can
         # never run on an agent or default identity; HTTPS is unaffected.
         env["GIT_SSH_COMMAND"] = REFUSE_SSH
-    return subprocess.run(["git", "-C", str(clone), *args], check=check, env=env, text=True,
+    return subprocess.run(["git", "-C", str(clone), *args], check=check, env=env, text=text,
                           capture_output=capture)
 
 
@@ -184,15 +275,51 @@ def _unpushed(clone: Path) -> int:
     return int(_git(clone, "rev-list", "--count", f"origin/{BRANCH}..HEAD").stdout.strip() or 0)
 
 
+def _refused_by_git(clone: Path, role: str) -> list[str]:
+    """Git decides which paths under <role>/bulletins/ it carries (review of the kept subtree's PR): `add
+    --ignore-errors` stages every path there git accepts and refuses the rest (with core.protectNTFS, git's default,
+    `.git`'s other spellings GIT~1, `.git.` and `.git ` among them), so a file still on disk there and not in the index
+    afterwards is one git refused. Each is removed from the working clone, so the whole-tree `add -A` never fails on
+    it and it never jams a later push (a reset leaves untracked files in place). Returns their paths under <role>/
+    (bulletins/<rel>, the plan's form). Bytes throughout: a name that is not UTF-8 never breaks the read. Names are
+    compared in NFC on both sides, so a git that precomposes Unicode (macOS's default) never reads a decomposed
+    name on disk as refused."""
+    sub = clone / role / BULLETINS
+    if not sub.is_dir():
+        return []
+    r = _git(clone, "add", "--ignore-errors", "-A", "--", f"{role}/{BULLETINS}", check=False, text=False)
+    if r.returncode not in (0, 1):                  # 1 = some path refused; anything else is not a path's fault
+        raise subprocess.CalledProcessError(r.returncode, r.args, r.stdout, r.stderr)
+    out = _git(clone, "ls-files", "-z", "--", f"{role}/{BULLETINS}", text=False).stdout
+    indexed = {unicodedata.normalize("NFC", os.fsdecode(p)) for p in out.split(b"\0") if p}
+    refused = []
+    for dirpath, _, filenames in os.walk(sub, topdown=False):
+        for f in filenames:
+            p = Path(dirpath) / f
+            rel = p.relative_to(clone).as_posix()
+            if unicodedata.normalize("NFC", rel) not in indexed:
+                p.unlink()
+                refused.append(rel[len(role) + 1:])
+        if Path(dirpath) != sub and not os.listdir(dirpath):
+            os.rmdir(dirpath)                         # the refused file's now-empty folder
+    return sorted(refused)
+
+
 def push(role: str, exports: Path, label: str, remote: str, clone: Path, today: date | None = None,
          attempts: int = 3) -> dict:
     today = today or datetime.now(timezone.utc).date()
     files = [(p.name, p.stat().st_mtime) for p in exports.iterdir() if p.is_file()] if exports.is_dir() else []
+    bp = bulletin_plan(exports, role)                             # addendum 250 item 4: the kept subtree
+    late: list[tuple[str, str]] = []                              # the push's own skips, per attempt
+
+    def _extra() -> dict:                                         # receipted whenever anything was left out
+        skipped = [(_shown(rel), why) for rel, why in bp["skipped"] + late]
+        return {"skipped": skipped} if skipped else {}
     _ensure_clone(clone, remote)
     for attempt in range(1, attempts + 1):
         _sync_to_remote(clone)
         pl = plan(files, role, today)
-        copied = 0
+        copied, late, fresh = 0, [], set()
         for dest, name in {**pl["dated"], **pl["latest"]}.items():
             src, dst = exports / name, clone / dest
             if dst.exists() and dst.read_bytes() == src.read_bytes():
@@ -200,6 +327,19 @@ def push(role: str, exports: Path, label: str, remote: str, clone: Path, today: 
             dst.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(src, dst)
             copied += 1
+        for dest, src in bp["kept"].items():                      # one bad bulletin is local to that file
+            dst = clone / dest
+            try:
+                data = src.read_bytes()                           # read whole first: never a half-written copy
+            except OSError as e:                                  # no read permission, or gone since the plan
+                late.append((dest[len(role) + 1:], f"unreadable: {e.__class__.__name__}"))
+                continue
+            if dst.is_file() and dst.read_bytes() == data:
+                continue
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            dst.write_bytes(data)
+            copied += 1
+            fresh.add(dest)
         latest_dir = clone / role / "latest"                      # rewritten each push
         for p in latest_dir.glob("*") if latest_dir.is_dir() else []:
             if f"{role}/latest/{p.name}" not in pl["latest"]:
@@ -212,6 +352,10 @@ def push(role: str, exports: Path, label: str, remote: str, clone: Path, today: 
             if src.exists() and (not dest.exists() or dest.read_bytes() != src.read_bytes()):
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(src, dest)
+        for rel in _refused_by_git(clone, role):                  # git decides; removed from the clone
+            late.append((rel, "git refused the path"))
+            if f"{role}/{rel}" in fresh:
+                copied -= 1
         _git(clone, "add", "-A")
         staged = _git(clone, "diff", "--cached", "--quiet", check=False).returncode != 0
         # ARCHITECT 2026-10-03 (host first push): "changed" is judged against the REMOTE's tip, not
@@ -219,16 +363,16 @@ def push(role: str, exports: Path, label: str, remote: str, clone: Path, today: 
         # is not on an empty remote, and must not read as "nothing changed".
         unpushed = _unpushed(clone)
         if not staged and not unpushed:
-            return {"role": role, "pushed": False, "copied": 0, "pruned": pruned, "why": "nothing changed"}
+            return {"role": role, "pushed": False, "copied": 0, "pruned": pruned, "why": "nothing changed", **_extra()}
         if staged:
             _git(clone, "commit", "-q", "-m", f"{role}: {label} · {copied} file(s) · pruned {len(pruned)}")
         r = _git(clone, "push", "-q", "origin", f"HEAD:{BRANCH}", check=False)
         if r.returncode == 0:
             sha = _git(clone, "rev-parse", "HEAD").stdout.strip()
             return {"role": role, "pushed": True, "copied": copied, "pruned": pruned, "sha": sha,
-                    "attempt": attempt, "unpushed_before": unpushed}
+                    "attempt": attempt, "unpushed_before": unpushed, **_extra()}
     return {"role": role, "pushed": False, "copied": copied, "pruned": pruned,
-            "why": f"push rejected {attempts}x: {(r.stderr or '').strip()[-200:]}"}
+            "why": f"push rejected {attempts}x: {(r.stderr or '').strip()[-200:]}", **_extra()}
 
 
 def squash(remote: str, clone: Path) -> dict:
@@ -301,7 +445,8 @@ def main(argv=None) -> int:
                                            + (f" · incl. {r['unpushed_before']} earlier unpushed commit(s)"
                                               if r.get("unpushed_before") else "")
                                            if r["pushed"] else f"not pushed — {r['why']}")
-          + (f" · pruned {r['pruned']}" if r["pruned"] else ""))
+          + (f" · pruned {r['pruned']}" if r["pruned"] else "")
+          + (f" · {skipped_line(r['skipped'])}" if r.get("skipped") else ""))
     return 0 if (r["pushed"] or r.get("why") == "nothing changed") else 1
 
 

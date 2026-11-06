@@ -204,7 +204,12 @@ def test_the_roadmap_lane_nfl_v2():
         assert f"due {d}" in mv["why"]
     assert "he pastes the rehearsal pages to his GPT; the read comes to me" in mv["why"]          # 219 item 7's step
     assert all(not s["what"].startswith("on PASS") for s in ln["steps"])
-    assert "the 2027 candidate's declaration in the off-season (2024-2026 data, the same gate)" in ln["live_needs"]
+    # ARCHITECT 2026-11-06 10:50 ET, addendum 267 item 2(1)-(2): the lane CLOSES; the 2027 candidate is a NEW lane, and
+    # the 2027 line lives on lane nfl-confirm's live_needs and in CLAUDE.md, never as a step
+    assert "This lane is CLOSED by ruling" in ln["live_needs"] and "addendum 267 item 2(1)" in ln["live_needs"]
+    (cf,) = [x for x in rm.load()["lanes"] if x["lane"] == "nfl-confirm"]
+    assert '"the 2027 candidate declares in the off-season, a new lane, the same gate"' in cf["live_needs"]
+    assert not any("2027" in s["what"] for s in ln["steps"] + cf["steps"])
     # ARCHITECT 2026-11-03 11:10 ET, addendum 232 item 3(i) (227 item 4 restated): the harness step done 2026-11-02,
     # receipt "#784 merged at 8bef04c2 (addendum 219)"; a done-mark, never a moved line (222 item 3(a))
     assert ln["steps"][0]["done"] == {"date": "2026-11-02", "receipt": "#784 merged at 8bef04c2 (addendum 219)"}

@@ -158,6 +158,7 @@ def test_lanes_data_is_the_print_as_data_with_no_eta_for_an_undated_lane(tmp_pat
                                                                  "cups",                  # addendum 256 item 5
                                                                  "availability-record",   # addendum 252 item 7
                                                                  "soccer-v23",            # addendum 216 item 3
+                                                                 "basketball-market-only",  # addendum 261 item 1(f)
                                                                  "tennis-market-only"}    # addendum 261 item 2(e)
     ncaa = next(g for g in got if g["lane"] == "ncaa")           # its first four steps are done: the fifth is next
     assert ncaa["next"] == {"what": _lane(_real(), "ncaa")["steps"][4]["what"], "owner": "architect",  # the one run
@@ -305,11 +306,14 @@ BROKEN = [
 # ARCHITECT 2026-11-02 10:35 ET, addendum 215 item 3: "a lane "nfl-v2" on the roadmap": nfl_elo_v2's lane, [NFL].
 # ARCHITECT 2026-11-03 07:55 ET, addendum 226 item 4(a): "lane leagues: PD into `competitions`" (223 item 2(f) Q2: "lane
 # pd keeps [PD] for its own confirmation; a competition in two lanes is the truth").
+# ARCHITECT 2026-11-05 11:40 ET, addendum 261 item 1: "LANE basketball-market-only (Issue: Code files it; competitions
+# NBA, NCAAMB, WNBA; Sport.BASKETBALL = "basketball")".
 RULED_COMPETITIONS = {"unl": ["UNL"], "pd": ["PD"], "leagues": ["PD", "SA", "BL1", "FL1", "ELC"], "ncaa": ["NCAA"],
                       "nhl": ["NHL"], "cups": ["CL", "EFL", "UEL"], "nfl-qb": ["NFL"], "nfl-v2": ["NFL"],
                       "nfl-confirm": ["NFL"], "mlb-pitchers": ["MLB"], "pl-availability": ["PL"],
                       "availability-record": None,   # addendum 252: tooling, prices nothing (never SHADOW evidence)
                       "soccer-v23": ["PL"],       # addendum 216 item 3: the PASS shadow is on the host's PL pages
+                      "basketball-market-only": ["NBA", "NCAAMB", "WNBA"],   # addendum 261 item 1: market-only
                       "tennis-market-only": ["ATP", "WTA"]}   # addendum 261 item 2: "competitions ATP, WTA"
 
 

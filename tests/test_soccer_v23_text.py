@@ -223,7 +223,7 @@ def test_the_lane_is_appended_as_216_item_3_dates_it():
     assert "earliest_live the day after that read. No date moves a bar." in ln["live_needs"]
     assert "the lane names its next candidate the same day" in ln["live_needs"]
     assert ln["vs_close"].startswith("not read.")
-    names = list(lanes)       # appended after availability-record; later lanes append after it (addendum 261 item 3)
+    names = list(lanes)                  # appended after availability-record; later lanes append after it (261)
     assert names.index("soccer-v23") == names.index("availability-record") + 1
 
 

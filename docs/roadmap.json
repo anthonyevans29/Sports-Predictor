@@ -800,6 +800,44 @@
       "moved": []
     },
     {
+      "lane": "basketball-market-only",
+      "title": "Basketball, market-only: the NBA now, NCAA men's next (NCAAMB), the WNBA in May (tooling while the models wait; no model declared)",
+      "issue": 839,
+      "registry_id": null,
+      "competitions": ["NBA", "NCAAMB", "WNBA"],
+      "state": "to declare",
+      "steps": [
+        {
+          "what": "the provider probe (addendum 261 item 1(a)): scripts/basketball_source_probe.py, read-only, one small PR with no adapter; candidates (i) API-Sports basketball (API_BASKETBALL_KEY, else API_FOOTBALL_KEY) and (ii) the NBA's public schedule and box-score JSON, beside Kalshi's series listing read through find_series; its receipt on #839 from the operator's run",
+          "owner": "code",
+          "due": "2026-11-10",
+          "done": null
+        },
+        {
+          "what": "the wiring PR (addendum 261 item 1(b)), after the architect's ruling on the probe's receipt: the adapter cloned from api_hockey, Sport.BASKETBALL, competition NBA (season int-style \"2026\" for 2026-27), the three syncs, the status map, the data certification receipt (2026-27 to date plus 2024-25 and 2025-26 as history, metered, counts on #839), the Kalshi series \"NBA\": \"KXNBAGAME\" with its fee M read from the schedule, the matcher's NBA codes, the capture tier, the PAPER record line, coverage's NBA line, the chain nba-daily at a UTC minute off every existing timer (its enablement is the architect's block)",
+          "owner": "code",
+          "due": "2026-11-19",
+          "done": null
+        },
+        {
+          "what": "the first host NBA PAPER page (addendum 261 item 1(b)): the first NBA page the host writes on a tag carrying the wiring PR, after the architect's block enables nba-daily",
+          "owner": "operator",
+          "due": "2026-11-21",
+          "done": null
+        },
+        {
+          "what": "NCAA men's (addendum 261 item 1(c)): competition NCAAMB (never \"NCAA\", which is football), the same adapter, the Kalshi college-basketball game series with its ticker READ from the API's series listing (find_series) and printed on the PR, the matcher on a 360-team universe (refusals expected and correct), the PAPER record",
+          "owner": "code",
+          "due": "2026-12-05",
+          "done": null
+        }
+      ],
+      "earliest_live": null,
+      "live_needs": "Market-only tooling, no model (addendum 261 item 1(f), verbatim: \"A MODEL: NONE DECLARED. The NBA moneyline is the most efficient game market there is and a public-data Elo loses to it; a candidate is declared, if ever, ONLY with an as-of availability term from (e) in its design, at a frozen gate of the NHL/NFL form (log-loss at or below the declared cohort's home-rate baseline minus 0.010 AND calibration bands within 7.0pp on every n >= 30 band; the cohort and the warm-up named at the declaration) written before any result. earliest_live null. The record accrues meanwhile, which is the point of wiring now.\"). Undated lines: the architect's ruling on the adapter follows the probe's receipt (item 1(a): \"My ruling on the adapter follows the receipt; (i) is preferred because one adapter serves three competitions.\"); WNBA (item 1(d)): \"the same adapter; wire in April for the May season\", nothing built now. The NBA injury-report probe (item 1(e), by 11-24) is placed by 261 on lane availability-record (\"after the NHL landing feed\") and is not a step here.",
+      "vs_close": "n/a: no model; the PAPER record reads the close once the wiring PR lands and prices no call (addendum 261: \"NO model and NO call until a candidate is declared at its own frozen gate written before any result\")",
+      "moved": []
+    },
+    {
       "lane": "tennis-market-only",
       "title": "Tennis, market-only: ATP and WTA for the 2027 season (players as teams; data certified, the Kalshi series matched, the close captured, the PAPER record kept; no model, no call)",
       "issue": 838,

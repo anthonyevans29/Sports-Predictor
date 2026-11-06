@@ -1128,6 +1128,9 @@ AVAILABILITY_STATUSES = ("complete", "partial", "empty", "failed", "missed")
 AVAILABILITY_KINDS = ("depth_rank", "projected_starter", "confirmed_starter", "eventual_starter", "inactive",
                       "injury_status", "plays_for")
 APPEND_ONLY = "is append-only (addendum 252 item 1: NOTHING UPDATES OR DELETES A ROW)"
+# THE SNAPSHOT SOURCES and the kind each one snapshots (addendum 259 item 2; record.SNAPSHOT_SOURCES reads this one
+# mapping): declared here so the insert guard below can name them (addendum 262 item 1)
+AVAILABILITY_SNAPSHOT_SOURCES = {"nflverse_depth_charts": "depth_rank"}
 
 
 def _sql_words(words) -> str:
@@ -1239,6 +1242,11 @@ class AvailabilityAssertion(Base):
         Index("ix_avail_asr_kind_match_recorded", "kind", "match_id", "recorded_at"),
         Index("ix_avail_asr_source_player_recorded", "source_player_id", "recorded_at"),
         Index("ix_avail_asr_sport_stamp", "sport", "source_stamp"),
+        # the as-of read under the recorded clock: its time cut (recorded_at before the day after the instant) as an
+        # index range, where (sport) alone walked every row of the sport (Codex on #841, round 1; ARCHITECT
+        # 2026-11-05, addendum 262 item 4: "AN INDEX IS ALLOWED [...] it joins #831's migration (additive,
+        # idempotent [...])": migrate_availability_record.py creates it on a store migrated before it, IF NOT EXISTS)
+        Index("ix_avail_asr_sport_recorded", "sport", "recorded_at"),
     )
 
 
@@ -1248,6 +1256,11 @@ def _abort(msg: str) -> str:
 
 # (name, table, CREATE TRIGGER IF NOT EXISTS …): the append-only enforcement and the insert guards (addendum 252 items 1
 # and 3). One list, used by the after_create hooks below and by migrate_availability_record.py.
+# THE SNAPSHOT HASH GUARD (ARCHITECT 2026-11-05 11:55 ET, addendum 262 item 1: "An observation of a snapshot source with
+# rows and no hash is REFUSED by the insert guard with its reason"): an insert guard of its own, because CREATE TRIGGER
+# IF NOT EXISTS never changes the assertions' guard on a store #831 already migrated; migrate_availability_record.py
+# creates it there on its next run (additive and idempotent, the same ritual as the recorded-clock index, 262 item 4).
+# record.write_observation refuses the same before any session opens; this refuses a raw INSERT around the writer.
 # The insert guards also refuse a row whose id (or, for a polled observation, whose poll) is already stored: an
 # INSERT OR REPLACE deletes the row it conflicts with WITHOUT firing a delete trigger (recursive_triggers is off),
 # so the conflict is refused before it can happen. An upsert's DO UPDATE fires the update trigger.
@@ -1282,7 +1295,13 @@ AVAILABILITY_TRIGGERS = tuple(
         f"{_abort(f'{_ASR}: sport is not the observation sport')} "
         f"WHERE NEW.sport IS NOT (SELECT o.sport FROM {_OBS} o WHERE o.id = NEW.observation_id); "
         f"{_abort(f'{_ASR}: recorded_at is not the observation fetched_at (addendum 252 item 1(b))')} "
-        f"WHERE NEW.recorded_at IS NOT (SELECT o.fetched_at FROM {_OBS} o WHERE o.id = NEW.observation_id); END")])
+        f"WHERE NEW.recorded_at IS NOT (SELECT o.fetched_at FROM {_OBS} o WHERE o.id = NEW.observation_id); END"),
+       ("trg_availability_assertions_snapshot_hash_guard", _ASR,
+        f"CREATE TRIGGER IF NOT EXISTS trg_availability_assertions_snapshot_hash_guard BEFORE INSERT ON {_ASR} BEGIN "
+        f"{_abort(_ASR + ': an observation of a snapshot source asserts a row and keeps no payload_sha256: the hash '
+                  'is the load identity (addendum 262 item 1)')} "
+        f"WHERE EXISTS (SELECT 1 FROM {_OBS} o WHERE o.id = NEW.observation_id "
+        f"AND o.source IN ({_sql_words(AVAILABILITY_SNAPSHOT_SOURCES)}) AND o.payload_sha256 IS NULL); END")])
 
 for _name, _table, _sql in AVAILABILITY_TRIGGERS:
     event.listen(Base.metadata.tables[_table], "after_create", DDL(_sql).execute_if(dialect="sqlite"))

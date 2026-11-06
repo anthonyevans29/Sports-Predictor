@@ -1,0 +1,16 @@
+# The availability record's daily nflverse read (ARCHITECT 2026-11-04 13:05 ET, addendum 252 item 3(a): "a new chain
+# `availability-daily`, timer 08:45 UTC, inside no other chain"; addendum 259 item 2(d): "08:45Z daily stands — it
+# captures the ~07:00Z load about 1.7 h later, before any kickoff of the day"). Shipped like every timer and enabled
+# only by hosting-h1.md T11's live-host recipe: "the first host reads and the timers' enablement are my blocks" (252
+# item 7). H0-3: 08:45 UTC is outside the 04:15-05:15 UTC reboot buffer (tests/test_hosting_pack.py).
+[Unit]
+Description=sports-predictor timer: sp-availability-daily
+
+[Timer]
+OnCalendar=*-*-* 08:45:00 UTC
+Unit=sp-chain@availability-daily.service
+Persistent=true
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target

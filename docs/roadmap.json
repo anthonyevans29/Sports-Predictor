@@ -836,6 +836,44 @@
       "live_needs": "Market-only tooling, no model (addendum 261 item 1(f), verbatim: \"A MODEL: NONE DECLARED. The NBA moneyline is the most efficient game market there is and a public-data Elo loses to it; a candidate is declared, if ever, ONLY with an as-of availability term from (e) in its design, at a frozen gate of the NHL/NFL form (log-loss at or below the declared cohort's home-rate baseline minus 0.010 AND calibration bands within 7.0pp on every n >= 30 band; the cohort and the warm-up named at the declaration) written before any result. earliest_live null. The record accrues meanwhile, which is the point of wiring now.\"). Undated lines: the architect's ruling on the adapter follows the probe's receipt (item 1(a): \"My ruling on the adapter follows the receipt; (i) is preferred because one adapter serves three competitions.\"); WNBA (item 1(d)): \"the same adapter; wire in April for the May season\", nothing built now. The NBA injury-report probe (item 1(e), by 11-24) is placed by 261 on lane availability-record (\"after the NHL landing feed\") and is not a step here.",
       "vs_close": "n/a: no model; the PAPER record reads the close once the wiring PR lands and prices no call (addendum 261: \"NO model and NO call until a candidate is declared at its own frozen gate written before any result\")",
       "moved": []
+    },
+    {
+      "lane": "tennis-market-only",
+      "title": "Tennis, market-only: ATP and WTA for the 2027 season (players as teams; data certified, the Kalshi series matched, the close captured, the PAPER record kept; no model, no call)",
+      "issue": 838,
+      "registry_id": null,
+      "competitions": ["ATP", "WTA"],
+      "state": "to declare",
+      "steps": [
+        {
+          "what": "the provider probe (addendum 261 item 2(b)), read-only, one small PR: scripts/tennis_source_probe.py (the Kalshi tennis series listing and one series' open events and markets; tennis-data.co.uk's per-season files read in memory, their header, result shape, date and name formats and closing-price columns; its terms page quoted; a week's Kalshi matches counted against the results files by an exact rule, refusals expected); its receipt from the operator's run on #838",
+          "owner": "code",
+          "due": "2026-11-14",
+          "done": null
+        },
+        {
+          "what": "the wiring PR (addendum 261 item 2(c)), after the architect's ruling on the probe's receipt: the adapter(s), Sport.TENNIS, competitions ATP and WTA, players as teams (item 2(a): sport TENNIS, external_ids kind player), matches from the chosen fixture source, results from the chosen results source with retirements and walkovers as their own status, the series KXATPMATCH and KXWTAMATCH (the tickers READ from the API and printed), the player-name matcher with the ambiguity sentinel and an alias table built only from receipts, the capture tier, the PAPER record, the chain tennis-daily",
+          "owner": "code",
+          "due": "2026-12-12",
+          "done": null
+        },
+        {
+          "what": "the first PAPER record at the United Cup (addendum 261 item 2(c)): the first host tennis PAPER page on a tag that carries the wiring PR, its deploy receipt (the chain's timer enabled by the architect's block, item 0)",
+          "owner": "operator",
+          "due": "2026-12-28",
+          "done": null
+        },
+        {
+          "what": "the history pot (addendum 261 item 2(d)): the results-and-odds history (2015 → 2026, or whatever the source's terms allow) ingested as history, never an as-of feature, certified by counts per season and surface",
+          "owner": "code",
+          "due": "2027-01-10",
+          "done": null
+        }
+      ],
+      "earliest_live": null,
+      "live_needs": "No model and no call (addendum 261 item 4). ARCHITECT 2026-11-05 11:40 ET, addendum 261 item 2(e), verbatim: \"A MODEL: NONE DECLARED. Tennis is the one new sport with a known public mechanism (surface-specific Elo) and a literature in which it has held its own against the market — modestly, and mostly before 2015. A candidate declares only on the certified pot, at a frozen gate written before any result; earliest_live null.\" Undated lines: the probe's run on the operator's laptop (no provider host is reachable from the container) and its receipt on #838; the architect's ruling on the sources, which follows the receipt (item 2(b)); the wiring waits for that ruling and the off-season window (item 3); the chain's timer is the architect's block (item 0).",
+      "vs_close": "n/a: no model; the lane prices nothing (addendum 261 item 4: no model, no call, no Desk family). The close is captured for the PAPER record from the wiring PR on (item 0).",
+      "moved": []
     }
   ]
 }

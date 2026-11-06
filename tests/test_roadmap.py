@@ -158,7 +158,8 @@ def test_lanes_data_is_the_print_as_data_with_no_eta_for_an_undated_lane(tmp_pat
                                                                  "cups",                  # addendum 256 item 5
                                                                  "availability-record",   # addendum 252 item 7
                                                                  "soccer-v23",            # addendum 216 item 3
-                                                                 "basketball-market-only"}  # addendum 261 item 1(f)
+                                                                 "basketball-market-only",  # addendum 261 item 1(f)
+                                                                 "tennis-market-only"}    # addendum 261 item 2(e)
     ncaa = next(g for g in got if g["lane"] == "ncaa")           # its first four steps are done: the fifth is next
     assert ncaa["next"] == {"what": _lane(_real(), "ncaa")["steps"][4]["what"], "owner": "architect",  # the one run
                             "due": "2026-11-09", "when": "in 22 days"}  # (the 2023 ingest done 11-01, addendum 201 item 5;
@@ -312,7 +313,8 @@ RULED_COMPETITIONS = {"unl": ["UNL"], "pd": ["PD"], "leagues": ["PD", "SA", "BL1
                       "nfl-confirm": ["NFL"], "mlb-pitchers": ["MLB"], "pl-availability": ["PL"],
                       "availability-record": None,   # addendum 252: tooling, prices nothing (never SHADOW evidence)
                       "soccer-v23": ["PL"],       # addendum 216 item 3: the PASS shadow is on the host's PL pages
-                      "basketball-market-only": ["NBA", "NCAAMB", "WNBA"]}   # addendum 261 item 1: market-only
+                      "basketball-market-only": ["NBA", "NCAAMB", "WNBA"],   # addendum 261 item 1: market-only
+                      "tennis-market-only": ["ATP", "WTA"]}   # addendum 261 item 2: "competitions ATP, WTA"
 
 
 def test_each_lane_carries_the_ruled_competitions():

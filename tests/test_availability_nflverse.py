@@ -1250,3 +1250,205 @@ def test_a_refusal_that_ends_the_run_and_a_teams_text_are_scrubbed_on_the_receip
     ing = _ingest(tmp_path, _chart(D1, f"api_key={SECRET}"[:40], 3), F1)
     assert ing.status == "partial" and ing.unmapped_teams
     assert SECRET[:12] not in "\n".join(ing.lines()) and "unmapped teams: 1 (" in "\n".join(ing.lines())
+
+
+# ---- addendum 274 item 3(1) (ARCHITECT 2026-11-06 17:30 ET): Codex on #841 round 2, the three record-integrity P2s
+
+def _unreadable(case: str) -> bytes:
+    """A SYNTHETIC release file the parser cannot read: invalid UTF-8, a field past csv's limit (131072), or a valid
+    ISO instant that leaves datetime's range when converted to UTC."""
+    rows = _chart(D1, "BAL", 3)
+    if case == "invalid utf-8":
+        rows[1] = {**rows[1], "player_name": "BADBYTES"}
+        return _body(rows).replace(b"BADBYTES", b"Synthetic \xff\xfe QB")
+    if case == "field past the csv limit":
+        rows[1] = {**rows[1], "player_name": "N" * 200_000}
+        return _body(rows)
+    rows[1] = {**rows[1], "dt": {"instant before year 1 in UTC": "0001-01-01T00:30:00+01:00",
+                                 "instant after year 9999 in UTC": "9999-12-31T23:30:00-05:00"}[case]}
+    return _body(rows)
+
+
+UNREADABLE = [("invalid utf-8", "UnicodeDecodeError"), ("field past the csv limit", "csv.Error"),
+              ("instant before year 1 in UTC", "leaves the range a datetime holds in UTC"),
+              ("instant after year 9999 in UTC", "leaves the range a datetime holds in UTC")]
+
+
+@pytest.mark.parametrize("case, why", UNREADABLE)
+def test_274_3_a_fetched_file_the_parser_cannot_read_is_a_failed_observation_naming_its_kept_payload(tmp_path, case,
+                                                                                                      why):
+    """274 item 3(1), thread 4485290365: "a parser error after the keep must still write the FAILED observation (a load
+    that failed is a fact the record holds; law 4 — never fake completeness)". Fail-first: on 9a95b8ab the parser's
+    UnicodeDecodeError / csv.Error / OverflowError escaped run() after the keep, with no observation written."""
+    _teams("BAL")
+    body = _unreadable(case)
+    ing = nv.run(2026, http_get=FakeHTTP(FakeResp(200, body, '"e1"')), now_fn=lambda: F1)
+    (o,) = _obs()
+    assert ing.status == o["status"] == "failed" and o["rows_asserted"] == 0 and _counts() == (1, 0)
+    assert o["error"].startswith("REFUSED: ") and why in o["error"], o["error"]
+    assert o["http_status"] == 200 and o["payload_sha256"] == hashlib.sha256(body).hexdigest()
+    assert (tmp_path / o["payload_path"]).read_bytes() == body                   # the kept file, named by its row
+    err_line = [ln for ln in ing.lines() if ln.startswith("  error (redacted): ")]
+    assert err_line == [f"  error (redacted): {o['error']}"]                     # printed = stored (scrubbed once)
+
+
+@pytest.mark.parametrize("case, why", UNREADABLE)
+def test_274_3_a_hand_carried_file_the_parser_cannot_read_is_refused_exit_2_nothing_kept(tmp_path, case, why):
+    """The --file side of the same: the copy is parsed before anything is kept, so a parser error is a refusal (exit
+    2, nothing kept, nothing written), never a traceback."""
+    d = tmp_path / "in"
+    d.mkdir()
+    path = d / "depth_charts_2026.csv"
+    path.write_bytes(_unreadable(case))
+    with pytest.raises(nv.Refused, match=re.escape(why)):
+        nv.run(file=str(path), now_fn=lambda: F1)
+    r = CliRunner().invoke(_cli(), ["availability-nflverse", "--file", str(path)])
+    assert r.exit_code == 2 and why in r.output and "Traceback" not in r.output, r.output
+    assert _kept_files(tmp_path) == [] and _counts() == (0, 0)
+
+
+def test_274_3_a_failed_etag_sidecar_write_after_the_keep_is_a_failed_observation_naming_the_kept_file(tmp_path,
+                                                                                                         monkeypatch):
+    """274 item 3(1), thread 4485290377: "a failed ETag sidecar write after the keep writes a failed observation that
+    NAMES the kept file and its sha256 (a record that cannot be found again is no record)". Fail-first: on 9a95b8ab
+    the broad handler returned a failed Got with no sha256 and no path while the kept file stayed on disk."""
+    import errno
+    _teams("BAL")
+    real = Path.write_text
+
+    def no_space_for_etags(self, *a, **kw):
+        if self.name.endswith(".etag"):
+            raise OSError(errno.ENOSPC, "No space left on device", str(self))
+        return real(self, *a, **kw)
+    monkeypatch.setattr(Path, "write_text", no_space_for_etags)
+    body = _body(_chart(D1, "BAL", 3))
+    ing = nv.run(2026, http_get=FakeHTTP(FakeResp(200, body, '"e1"')), now_fn=lambda: F1)
+    (o,) = _obs()
+    assert ing.status == o["status"] == "failed" and o["rows_asserted"] == 0 and _counts() == (1, 0)
+    assert o["http_status"] == 200 and o["payload_sha256"] == hashlib.sha256(body).hexdigest()
+    assert o["payload_path"] and (tmp_path / o["payload_path"]).read_bytes() == body   # the kept file, named
+    assert "ETag sidecar" in o["error"] and "OSError" in o["error"], o["error"]
+    assert [k for k in _kept_files(tmp_path) if k.endswith(".csv")] == [o["payload_path"]]
+    assert not (tmp_path / (o["payload_path"] + ".etag")).exists()
+    assert "its ETag NOT stored" in ing.got.etag
+    # the next call: no validator (a failed observation is no previous payload), the load asserted then
+    monkeypatch.setattr(Path, "write_text", real)
+    http = FakeHTTP(FakeResp(200, body, '"e1"'))
+    nxt = nv.run(2026, http_get=http, now_fn=lambda: F2)
+    assert http.calls[0][1]["headers"].get("If-None-Match") is None
+    assert nxt.status == "complete" and nxt.rows_asserted == 3
+
+
+def _lose(tmp_path, how: str) -> dict:
+    """One kept payload (a fetched 200 with its ETag), then its kept file lost: deleted (its sidecar left, or both
+    gone) or altered in place (its sidecar left)."""
+    _teams("BAL")
+    body = _body(_chart(D1, "BAL", 3))
+    first = nv.run(2026, http_get=FakeHTTP(FakeResp(200, body, '"e1"')), now_fn=lambda: F1)
+    assert first.status == "complete" and first.rows_asserted == 3
+    kept = tmp_path / first.got.payload_path
+    assert (tmp_path / (first.got.payload_path + ".etag")).read_text() == '"e1"\n'
+    if how == "deleted":
+        kept.unlink()
+    elif how == "deleted with its sidecar":
+        kept.unlink()
+        (tmp_path / (first.got.payload_path + ".etag")).unlink()
+    else:
+        kept.write_bytes(body.replace(b"Synthetic BAL 1", b"Synthetic BAL X"))
+    return {"body": body, "path": first.got.payload_path, "sha": first.got.sha256}
+
+
+@pytest.mark.parametrize("how", ["deleted", "altered"])
+def test_274_3_a_lost_kept_payload_is_not_trusted_through_its_surviving_etag(tmp_path, how):
+    """274 item 3(1), thread 4485290390: "a kept payload that has gone missing is NOT trusted through its surviving
+    ETag — the sidecar is sent only when the kept file exists and its sha256 matches, else no If-None-Match". Fail-
+    first: on 9a95b8ab the old ETag was sent and the 304 was a `complete` observation naming the lost file."""
+    lost = _lose(tmp_path, how)
+    http = FakeHTTP(FakeResp(304))
+    ing = nv.run(2026, http_get=http, now_fn=lambda: F2)
+    assert http.calls[0][1]["headers"].get("If-None-Match") is None
+    o = _obs()[-1]
+    assert ing.status == o["status"] == "failed" and "304 with no stored payload" in o["error"]
+    assert o["payload_path"] is None and o["payload_sha256"] is None             # never the lost file's name
+    assert "not sent" in ing.got.etag and ("missing" in ing.got.etag if how == "deleted" else "altered" in ing.got.etag)
+    assert lost
+
+
+@pytest.mark.parametrize("how", ["deleted", "deleted with its sidecar", "altered"])
+def test_274_3_an_identical_200_restores_a_lost_kept_payload(tmp_path, how):
+    """274 item 3(1), thread 4485290390, "and the next 200 restores it": a 200 byte-identical to the recorded payload
+    whose kept file is missing or altered is KEPT (a new path, its bytes the recorded sha256's, its ETag beside it),
+    never dropped as "not kept again"; nothing is asserted twice (the watermark) and no sidecar is written beside the
+    lost file. Fail-first: on 9a95b8ab the identical 200 was dropped and the row named the lost path."""
+    lost = _lose(tmp_path, how)
+    http = FakeHTTP(FakeResp(200, lost["body"], '"e2"'))
+    ing = nv.run(2026, http_get=http, now_fn=lambda: F2)
+    assert http.calls[0][1]["headers"].get("If-None-Match") is None
+    o = _obs()[-1]
+    assert ing.status == o["status"] == "complete" and o["rows_asserted"] == 0 and _counts() == (2, 3)
+    assert o["payload_sha256"] == lost["sha"] and o["payload_path"] != lost["path"]
+    assert (tmp_path / o["payload_path"]).read_bytes() == lost["body"]            # the evidence restored
+    assert (tmp_path / (o["payload_path"] + ".etag")).read_text() == '"e2"\n'
+    assert "kept again (restored)" in ing.got.etag and ing.got.changed and ing.got.restored
+    sidecar = tmp_path / (lost["path"] + ".etag")
+    assert sidecar.exists() == (how != "deleted with its sidecar")                # never one written beside it
+    if sidecar.exists():
+        assert sidecar.read_text() == '"e1"\n'
+    # and the restored payload is trusted from now on: its own ETag sent, the 304 carries it
+    http = FakeHTTP(FakeResp(304))
+    nxt = nv.run(2026, http_get=http, now_fn=lambda: F2 + timedelta(hours=1))
+    assert http.calls[0][1]["headers"].get("If-None-Match") == '"e2"'
+    assert nxt.status == "complete" and nxt.got.payload_path == o["payload_path"]
+
+
+def test_274_3_an_identical_hand_carried_file_whose_kept_payload_is_lost_is_kept_again(tmp_path):
+    """The --file side of the same reading: a hand-carried file byte-identical to the recorded payload whose kept file
+    is missing is kept (a new path), never recorded under the lost path."""
+    _teams("BAL")
+    rows = _chart(D1, "BAL", 3)
+    first = _ingest(tmp_path, rows, F1)
+    (tmp_path / first.got.payload_path).unlink()
+    again = _ingest(tmp_path, rows, F2)
+    assert again.status == "complete" and again.rows_asserted == 0
+    assert again.got.payload_path != first.got.payload_path and again.got.sha256 == first.got.sha256
+    assert nv.sha256_file(tmp_path / again.got.payload_path) == first.got.sha256
+    assert again.got.restored and "restored" in again.got.etag
+
+
+def test_274_3_an_older_seasons_identical_200_restores_its_lost_payload_past_the_watermark(tmp_path):
+    """274 item 3(1), "the next 200 restores it", where the source's watermark has moved past the lost payload's loads
+    (the 2025 file kept, then 2026 loads held). The identical 200 is a RESTORE, recorded as the byte-identical answer
+    was before the loss (complete, rows_asserted 0, the restored path, the same sha256), never refused as a new load
+    older than the watermark; the restored copy is the previous payload from then on (its ETag sent, a 304 carries
+    it, an identical 200 is not kept again). Fail-first: on 9a95b8ab the surviving ETag was sent; on the first fix it
+    was a `failed` observation refused by the watermark, every later run one more unconditional GET, one more copy
+    kept, one more failed row."""
+    _teams("BAL")
+    b25 = _body(_chart(D1 - timedelta(days=200), "BAL", 3))
+    first = nv.run(2025, http_get=FakeHTTP(FakeResp(200, b25, '"e25"')), now_fn=lambda: F1)
+    assert first.status == "complete" and first.rows_asserted == 3
+    b26 = _body(_chart(D2, "BAL", 3))
+    assert nv.run(2026, http_get=FakeHTTP(FakeResp(200, b26, '"e26"')),
+                  now_fn=lambda: F1 + timedelta(hours=1)).rows_asserted == 3          # the watermark moves past 2025
+    (tmp_path / first.got.payload_path).unlink()                                      # its sidecar survives
+    http = FakeHTTP(FakeResp(200, b25, '"e25"'))
+    ing = nv.run(2025, http_get=http, now_fn=lambda: F2)
+    assert http.calls[0][1]["headers"].get("If-None-Match") is None
+    o = _obs()[-1]
+    assert ing.status == o["status"] == "complete" and o["error"] is None, o["error"]
+    assert o["rows_asserted"] == 0 and _counts() == (3, 6)
+    assert o["payload_sha256"] == first.got.sha256 and o["payload_path"] != first.got.payload_path
+    assert (tmp_path / o["payload_path"]).read_bytes() == b25
+    assert (tmp_path / (o["payload_path"] + ".etag")).read_text() == '"e25"\n'
+    assert ing.got.restored and "kept again (restored)" in ing.got.etag
+    # the restore holds: the next call sends its ETag and the 304 carries the restored path
+    http = FakeHTTP(FakeResp(304))
+    nxt = nv.run(2025, http_get=http, now_fn=lambda: F2 + timedelta(hours=1))
+    assert http.calls[0][1]["headers"].get("If-None-Match") == '"e25"'
+    assert nxt.status == "complete" and nxt.got.payload_path == o["payload_path"]
+    # and an identical 200 now is byte-identical to a payload that is there: not kept again
+    again = nv.run(2025, http_get=FakeHTTP(FakeResp(200, b25, '"e25"')), now_fn=lambda: F2 + timedelta(hours=2))
+    assert again.status == "complete" and again.got.payload_path == o["payload_path"] and not again.got.restored
+    kept25 = [k for k in _kept_files(tmp_path) if k.endswith("depth_charts_2025.csv")]
+    assert kept25 == [o["payload_path"]]
+    assert [x["status"] for x in _obs()] == ["complete"] * 5

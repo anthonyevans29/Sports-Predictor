@@ -61,6 +61,13 @@ How it reads and writes (law 1: every column by its name, as 259 item 1 read the
   Match with the ETag stored for the last kept payload of the same endpoint. The ETag is stored BESIDE THE PAYLOAD FILE
   (`<payload>.etag`): no column of availability_observations holds a validator (the endpoint, http_status,
   payload_sha256, payload_path and error columns each mean something else), and no column or table is added.
+  A KEPT PAYLOAD IS TRUSTED ONLY WHEN IT IS THERE (ARCHITECT 2026-11-06, addendum 274 item 3(1)): "the sidecar is sent
+  only when the kept file exists and its sha256 matches, else no If-None-Match and the next 200 restores it"
+  (lost_refusal): a missing or altered kept file is no previous payload, so a byte-identical 200 is kept again (a new
+  path) and a 304 is refused; the same holds for a --file byte-identical to a lost one. That kept-again copy is a
+  RESTORE (Got.restored), recorded as the byte-identical answer is (complete, rows_asserted 0, nothing read: those
+  bytes' facts are held), never as a new load, so the source's watermark never refuses it (an older season's file
+  fetched after newer loads) and the restored copy is the previous payload, its ETag sent, from the next run on.
   - 304: a `complete` observation, rows_asserted 0, carrying the previous payload's sha256 and path;
   - 200: the body streamed to disk and hashed; byte-identical to the last kept payload: the copy removed, a `complete`
     observation with rows_asserted 0 carrying that payload's sha256 and path, and the answer's ETag, where it differs
@@ -68,8 +75,13 @@ How it reads and writes (law 1: every column by its name, as 259 item 1 read the
     unchanged day sends a validator the server matches; changed: kept under
     logs/availability/nflverse_depth_charts/<UTC date>/<HHMMSS>Z-<sha256, first 16 hex>-depth_charts_<season>.csv
     (never data/, never mirrored), created EXCLUSIVELY (O_EXCL: the same bytes there are reused, other bytes refused,
-    never overwritten; Codex on #841, round 1), its ETag beside it, then read;
-  - a raised call, a broken stream, any other status, or a refused file: a `failed` observation, the error redacted
+    never overwritten; Codex on #841, round 1), its ETag beside it, then read. A failed ETag sidecar write after the
+    keep is a `failed` observation that NAMES the kept file and its sha256 (274 item 3(1): "a record that cannot be
+    found again is no record");
+  - a raised call, a broken stream, any other status, or a refused file (the parser's own errors among them: bytes
+    that are not UTF-8, a CSV csv cannot read, an instant out of datetime's range in UTC, each Refused naming its class
+    and line, 274 item 3(1): "a parser error after the keep must still write the FAILED observation"): a `failed`
+    observation, the error redacted
     (record.redact, after every URL's query string is cut: a release asset redirects to a signed URL). EVERY refusal
     (a refused fetched file's, a store refusal's, one that ends the run) is scrubbed so BEFORE its 256-character cut,
     before it is printed or kept; the receipt prints the error as stored (a second scrub would regrow a placeholder
@@ -186,6 +198,8 @@ def header_refusal(fieldnames) -> str | None:
 
 
 def _instant(text: str) -> datetime | None:
+    """The instant in naive UTC, or None (not an ISO-8601 instant with Z or an offset). An instant that leaves
+    datetime's range when converted to UTC raises OverflowError: read_file refuses its line (addendum 274 item 3(1))."""
     s = (text or "").strip()
     if not s:
         return None
@@ -206,30 +220,45 @@ class Parsed:
 
 
 def read_file(path: Path) -> Parsed:
-    """The file read by column name, every row checked; Refused (with the reason and line) on anything else."""
+    """The file read by column name, every row checked; Refused (with the reason and line) on anything else. THE
+    PARSER'S OWN ERRORS ARE REFUSALS (ARCHITECT 2026-11-06, addendum 274 item 3(1): "a parser error after the keep must
+    still write the FAILED observation"): bytes that are not UTF-8 (UnicodeDecodeError), a CSV csv cannot read
+    (csv.Error, e.g. a field past its limit) and an instant out of datetime's range in UTC (OverflowError) are Refused
+    naming the class and the line, so a fetched file is a `failed` observation keeping its payload and a --file exits
+    2 with nothing kept; the reason is scrubbed by its caller as every refusal is."""
     out = Parsed()
     seen = set()
     newest = None
     with open(path, newline="", encoding="utf-8-sig") as f:
         reader = csv.DictReader(f)
-        why = header_refusal(reader.fieldnames)
-        if why:
-            raise Refused(why)
-        for row in reader:
-            line = reader.line_num
-            if None in row or any(v is None for v in row.values()):
-                raise Refused(f"REFUSED: line {line} does not hold the twelve columns (a short or long row)")
-            dt = _instant(row["dt"])
-            if dt is None:
-                raise Refused(f"REFUSED: line {line}: dt {row['dt']!r} is not an ISO-8601 instant with Z or an offset")
-            if not row["team"].strip():
-                raise Refused(f"REFUSED: line {line} names no team")
-            if not (row["player_name"].strip() or row["gsis_id"].strip() or row["espn_id"].strip()):
-                raise Refused(f"REFUSED: line {line} names no player (player_name, gsis_id and espn_id all empty)")
-            out.rows.append((dt, row))
-            seen.add(dt)
-            if newest is None or dt > newest:
-                newest, out.newest_line = dt, line
+        try:
+            why = header_refusal(reader.fieldnames)
+            if why:
+                raise Refused(why)
+            for row in reader:
+                line = reader.line_num
+                if None in row or any(v is None for v in row.values()):
+                    raise Refused(f"REFUSED: line {line} does not hold the twelve columns (a short or long row)")
+                try:
+                    dt = _instant(row["dt"])
+                except OverflowError:
+                    raise Refused(f"REFUSED: line {line}: dt {row['dt']!r} leaves the range a datetime holds in UTC "
+                                  f"(OverflowError)") from None
+                if dt is None:
+                    raise Refused(f"REFUSED: line {line}: dt {row['dt']!r} is not an ISO-8601 instant with Z or an "
+                                  f"offset")
+                if not row["team"].strip():
+                    raise Refused(f"REFUSED: line {line} names no team")
+                if not (row["player_name"].strip() or row["gsis_id"].strip() or row["espn_id"].strip()):
+                    raise Refused(f"REFUSED: line {line} names no player (player_name, gsis_id and espn_id all empty)")
+                out.rows.append((dt, row))
+                seen.add(dt)
+                if newest is None or dt > newest:
+                    newest, out.newest_line = dt, line
+        except (UnicodeDecodeError, csv.Error) as e:
+            kind = "csv.Error" if isinstance(e, csv.Error) else type(e).__name__
+            raise Refused(f"REFUSED: the file cannot be read as UTF-8 CSV after line {reader.line_num} ({kind}: {e}); "
+                          f"nothing asserted") from None
     out.loads = sorted(seen)
     return out
 
@@ -337,6 +366,23 @@ def previous_payload(s, endpoint: str) -> tuple[str, str] | None:
     return (got[0], got[1]) if got else None
 
 
+def lost_refusal(prev: tuple[str, str]) -> str | None:
+    """Why the previous kept payload cannot be trusted, or None (ARCHITECT 2026-11-06, addendum 274 item 3(1): "a kept
+    payload that has gone missing is NOT trusted through its surviving ETag — the sidecar is sent only when the kept
+    file exists and its sha256 matches, else no If-None-Match and the next 200 restores it"): its file missing,
+    unreadable, or holding bytes that are not the recorded sha256's. An untrusted payload is no previous payload: no
+    ETag is sent, a 304 is refused as one with no stored payload, and a byte-identical answer is KEPT (a new path),
+    never recorded under the lost one."""
+    p = PAYLOAD_BASE / prev[1]
+    try:
+        if not p.is_file():
+            return "missing"
+        got = sha256_file(p)
+    except OSError as e:
+        return f"unreadable ({type(e).__name__})"
+    return None if got == prev[0] else f"altered (sha256 {got[:16]}, not {prev[0][:16]})"
+
+
 def stored_etag(payload_path: str | None) -> str | None:
     if not payload_path:
         return None
@@ -372,6 +418,10 @@ class Got:
     error: str | None = None              # the call raised / the status was refused (failed)
     etag: str = "none"                    # the ETag line: sent/not sent, the answer
     created: bool = False                 # this run created the kept file (not an earlier run's same bytes, reused)
+    # 274 item 3(1), "the next 200 restores it": the recorded payload's own bytes kept again because its kept file was
+    # lost; recorded as the byte-identical answer is (complete, nothing read or asserted: those bytes' facts are held),
+    # so no watermark check refuses it and the restored copy is the previous payload from then on
+    restored: bool = False
 
 
 NAME_MAX = 255                            # bytes in one file name (Linux's NAME_MAX): a longer kept name is refused
@@ -463,11 +513,16 @@ def fetch(season: int, prev: tuple[str, str] | None, *, http_get, now_fn) -> Got
     attempt's time; a failed observation asserts nothing). The kept file is named by the headers' arrival (the
     download's start: <UTC date>/<HHMMSS>Z), taken before the body is read."""
     url = release_url(season)
+    lost = lost_refusal(prev) if prev else None
+    lost_prev = prev if lost else None
+    if lost:
+        prev = None                     # 274 item 3(1): never trusted through its surviving ETag; the next 200 kept
     etag = stored_etag(prev[1]) if prev else None
     headers = {"User-Agent": USER_AGENT}
     if etag:
         headers["If-None-Match"] = etag
-    sent = "ETag sent" if etag else "no ETag stored (unconditional GET)"
+    sent = ("ETag sent" if etag else f"the last kept payload {lost}: its ETag not sent (unconditional GET)" if lost
+            else "no ETag stored (unconditional GET)")
     part = None
     try:
         resp = http_get(url, headers=headers, timeout=TIMEOUT, stream=True, allow_redirects=True)
@@ -506,7 +561,22 @@ def fetch(season: int, prev: tuple[str, str] | None, *, http_get, now_fn) -> Got
         _retain(part, final, sha)                         # exclusive: another payload's file is never overwritten
         done = now_fn()                                   # streamed AND retained: this fetch's clock (round 2)
         if new_etag:
-            (final.parent / (final.name + ".etag")).write_text(str(new_etag) + "\n", encoding="utf-8")
+            try:
+                (final.parent / (final.name + ".etag")).write_text(str(new_etag) + "\n", encoding="utf-8")
+            except OSError as e:
+                # 274 item 3(1): "a failed ETag sidecar write after the keep writes a failed observation that NAMES the
+                # kept file and its sha256 (a record that cannot be found again is no record)"
+                return Got(url, done, 200, sha, rel, changed=True,
+                           error=_scrub(f"REFUSED: the ETag sidecar write failed after the payload was kept "
+                                        f"({type(e).__name__}: {e}); the kept file is this row's payload_path and "
+                                        f"payload_sha256; nothing asserted")[:256],
+                           etag=f"{sent}; 200 changed; its ETag NOT stored ({type(e).__name__})")
+        if lost_prev and sha == lost_prev[0]:
+            # 274 item 3(1): "the next 200 restores it": the recorded bytes, kept again, recorded as a byte-identical
+            # answer (complete, nothing asserted); never refused as a new load older than the watermark
+            return Got(url, done, 200, sha, rel, changed=True, restored=True,
+                       etag=f"{sent}; 200 byte-identical to the lost payload: kept again (restored)"
+                       + ("" if new_etag else " (the answer carried no ETag)"))
         return Got(url, done, 200, sha, rel, changed=True,
                    etag=f"{sent}; 200 changed" + ("" if new_etag else " (the answer carried no ETag)"))
     except Exception as e:  # noqa: BLE001 - a broken stream is a failed observation
@@ -552,11 +622,17 @@ def from_file(copy: Path, name: str, sha: str, prev: tuple[str, str] | None, now
     why = rec.endpoint_refusal(ep)
     if why:
         raise Refused(why)
+    lost = lost_refusal(prev) if prev else None
+    restoring = bool(lost) and sha == prev[0]
+    if lost:
+        prev = None                       # 274 item 3(1), the same reading: a lost kept payload is restored, not named
     if prev and sha == prev[0]:
         return Got(ep, now, None, prev[0], prev[1], etag="n/a (--file); byte-identical to the last kept payload")
     rel, final = _kept(now, name, sha)
     created = _retain(copy, final, sha)
-    return Got(ep, now, None, sha, rel, changed=True, etag="n/a (--file)", created=created)
+    return Got(ep, now, None, sha, rel, changed=True, created=created, restored=restoring,
+               etag="n/a (--file)" + (f"; the last kept payload {lost}: kept again"
+                                      + (" (restored: byte-identical to it)" if restoring else "") if lost else ""))
 
 
 # ---- the ingest -------------------------------------------------------------------------------------------------------
@@ -809,7 +885,7 @@ def _run(season: int, local, endpoint: str, *, http_get, now_fn) -> Ingest:
         rows: list = []
         if got.error:
             ing.status = "failed"
-        elif got.changed:
+        elif got.changed and not got.restored:   # a restore is recorded as a byte-identical answer (274 item 3(1))
             try:
                 if pre is not None:                 # the --file: its copy read and checked above, before the keep
                     parsed, ing, rows = parsed_local, pre, pre_rows
@@ -853,5 +929,5 @@ def _run(season: int, local, endpoint: str, *, http_get, now_fn) -> Ingest:
 __all__ = ["SOURCE", "KIND", "COLUMNS", "ATTR_COLUMNS", "FIRST_SEASON", "RELEASE_URL", "TIMEOUT", "ATTRIBUTION",
            "Refused", "Parsed", "Got", "Ingest", "current_season", "release_url", "season_refusal", "header_refusal",
            "read_file", "future_refusal", "older_refusal", "status_error", "FUTURE_SKEW", "team_map", "watermark",
-           "stored_complete_groups", "previous_payload", "stored_etag", "fetch", "snapshot_copy", "from_file",
-           "writer_refusal", "run"]
+           "stored_complete_groups", "previous_payload", "lost_refusal", "stored_etag", "fetch", "snapshot_copy",
+           "from_file", "writer_refusal", "run"]

@@ -37,9 +37,14 @@ WORD = "Run it. ARCHITECT 2026-11-06"
 @pytest.fixture
 def ledger(tmp_path, monkeypatch):
     """A tmp copy of the real registry; every registry read/write goes there; the reservation to tmp; the #329
-    guard a stub."""
+    guard a stub. The real entry holds the one run and the FAIL verdict (ARCHITECT 2026-11-06 08:55 ET, addendum 265);
+    the copy's entry is put back to declared and unrun, so the reservation's mechanics stay exercised as built (the
+    ncaa-elo-v1r precedent, #393)."""
     p = tmp_path / "experiments.json"
-    p.write_text((ROOT / "docs" / "registry" / "experiments.json").read_text())
+    entries = json.loads((ROOT / "docs" / "registry" / "experiments.json").read_text())
+    e = next(x for x in entries if x["id"] == EID)
+    e.update({"status": "declared", "run": None, "verdict": None})
+    p.write_text(json.dumps(entries, indent=2) + "\n")
     monkeypatch.setattr(reg, "LEDGER", str(p))
     monkeypatch.setattr(reg, "IDS_DIR", str(tmp_path / "ids"))
     monkeypatch.setattr(g, "RESERVATION", str(tmp_path / f"{EID}.started.json"))

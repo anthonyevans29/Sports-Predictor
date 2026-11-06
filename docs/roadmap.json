@@ -474,7 +474,7 @@
       "issue": 783,
       "registry_id": "nfl-elo-v2",
       "competitions": ["NFL"],
-      "state": "declared",
+      "state": "closed",
       "steps": [
         {
           "what": "the harness PR: the candidate entry nfl_elo_v2 with its constants and bar, a one-run gate with the reservation pattern of ncaa-gate (the architect's word, the stream fingerprint, nothing recorded on a refusal; the corrected stream as the fingerprint)",
@@ -507,31 +507,25 @@
           "what": "the ONE run on my word, my block, the verdict the same day",
           "owner": "operator",
           "due": "2026-11-06",
-          "done": null
-        },
-        {
-          "what": "on PASS: the rehearsal on the host's pages from the next tag (weeks 10 and 11: 11-12 through 11-23)",
-          "owner": "calendar",
-          "due": "2026-11-23",
-          "done": null
-        },
-        {
-          "what": "on PASS: the dry read (addendum 219 item 7, verbatim: \"the dry read step is the OPERATOR's (he pastes the rehearsal pages to his GPT; the read comes to me), the live ruling the architect's\")",
-          "owner": "operator",
-          "due": "2026-11-24",
-          "done": null
-        },
-        {
-          "what": "on PASS: LIVE by my ruling from the week-12 pages (Thanksgiving, 2026-11-26) at the earliest",
-          "owner": "architect",
-          "due": "2026-11-26",
-          "done": null
+          "done": {
+            "date": "2026-11-06",
+            "receipt": "the console on #783 (issuecomment-6685613162: the laptop, 2026-11-06T13:11Z, main 0ad8b82a, the copy sports_nflv2_run_2026-11-06.db, mode=ro + immutable=1; its record: addendum 265 item 1); the verdict FAIL, ARCHITECT 2026-11-06 08:55 ET, addendum 265"
+          }
         }
       ],
-      "earliest_live": "2026-11-26",
-      "live_needs": "nfl_elo_v2 passes the frozen phase-2 gate on the corrected stream in ONE run on 11-06 and its two-week rehearsal reads clean, then my ruling (addendum 215 items 2-4). FAIL: NFL stays market-only for 2026, v1's forward read (addendum 215 item 1) stands, and the 2027 candidate declares in the offseason on 2024-2026 complete.",
+      "earliest_live": null,
+      "live_needs": "FAILED 2026-11-06 (ARCHITECT 2026-11-06 08:55 ET, addendum 265): nfl_elo_v2 ran ONCE through the UNCHANGED gate and FAILED on the 70-80% band (9.1pp vs 7.0; log-loss 0.6349 passed); NFL is MARKET-ONLY for 2026, the rehearsal arm is dormant, v1's forward read (lane nfl-confirm) stands, the bar did not move. Next, undated: the 2027 candidate's declaration in the off-season (2024-2026 data, the same gate) (addendum 265 item 4's new step, \"an undated step on the lane until a declaration addendum dates it\", item 3; written here because roadmap.validate admits no step without a due date). As declared (addendum 215 items 2-4): nfl_elo_v2 passes the frozen phase-2 gate on the corrected stream in ONE run on 11-06 and its two-week rehearsal reads clean, then my ruling (addendum 215 items 2-4). FAIL: NFL stays market-only for 2026, v1's forward read (addendum 215 item 1) stands, and the 2027 candidate declares in the offseason on 2024-2026 complete.",
       "vs_close": "not read. nfl_elo_v2 has scored no game; nfl_elo_v1 (uncertified, addendum 214) keeps its own record against the close on the pages.",
-      "moved": []
+      "moved": [
+        {
+          "moved_on": "2026-11-06",
+          "which": "earliest_live",
+          "was": "2026-11-26",
+          "now": null,
+          "why": "nfl_elo_v2's one run of 2026-11-06 FAILED the frozen phase-2 gate on criterion (2), the 70-80% band (n=37, stated 0.740, realized 0.649, gap 9.1pp against 7.0pp; log-loss 0.6349 passed against the bar 0.6813): no PASS, so no rehearsal, no dry read and no live ruling this season, and no live date stands. The three on-PASS steps are cleared with it, by the same item: \"on PASS: the rehearsal on the host's pages from the next tag (weeks 10 and 11: 11-12 through 11-23)\" due 2026-11-23; \"on PASS: the dry read (addendum 219 item 7, verbatim: \"the dry read step is the OPERATOR's (he pastes the rehearsal pages to his GPT; the read comes to me), the live ruling the architect's\")\" due 2026-11-24; \"on PASS: LIVE by my ruling from the week-12 pages (Thanksgiving, 2026-11-26) at the earliest\" due 2026-11-26 (a step's due is never cleared, addendum 61 item 4: the steps are removed by the quoted ruling and their dates are recorded here). The bar did not move",
+          "ruling": "ARCHITECT 2026-11-06 08:55 ET, addendum 265 item 4, MOVED LINE: \"the roadmap lane nfl-v2: the 11-06 step done with the console as its receipt, the three \"on PASS\" steps (11-23, 11-24, 11-26) CLEARED by their moved lines quoting this item, earliest_live 2026-11-26 CLEARED (a move with `now` null), the lane's state the vocabulary's word for failed/rejected, a new undated step \"the 2027 candidate's declaration in the off-season (2024-2026 data, the same gate)\"\""
+        }
+      ]
     },
     {
       "lane": "nfl-confirm",

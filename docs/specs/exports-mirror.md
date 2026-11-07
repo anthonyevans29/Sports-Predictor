@@ -111,6 +111,18 @@ the console line, on every push it remains (the bulletins' own `skipped` is unch
 left as the mirror holds it, and the rest of the push (the other copies, the other expired folders, the bulletins, the
 tools) proceeds.
 
+The tools copy's destination (#858; ARCHITECT addendum 282 item 3, verbatim): "the tools copy (tools/compare_exports.py
+and the workflow file written through a tracked link) is the same defect in the same module and is BUILT in #858 by the
+same rule — each tool path through _dest_refusal, skipped and receipted, never written through". As built: each of
+`tools/compare_exports.py` and `.github/workflows/compare.yml` is `lstat`'ed by `_dest_refusal` from the clone root down
+before it is read back or written; a symlink at `tools/`, `.github/`, `.github/workflows/` or the file itself (a relative
+escape or an absolute link: `destination path has a symlink`), a submodule the index holds there (`destination path has
+a submodule`), a component that is not a folder or a file that is not a regular file skips that tool: never written
+through, never written into the submodule's folder, never staged. Every skip is receipted: `tools_skipped`
+(clone-relative path, reason) on the result and `· tools: N skipped (<reason> <count> · …)` on the console line, on
+every push it remains; the tracked entry is left as the mirror holds it, and the other tool, the top-level copies and
+the bulletins still go.
+
 The Action compares the newest date that BOTH writers have pushed and posts commit status
 `compare_exports`: success = clean, failure = DIVERGENT, pending = one side has not pushed that
 date yet. The full report is in the run's step summary.

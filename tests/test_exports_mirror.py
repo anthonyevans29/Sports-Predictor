@@ -1297,3 +1297,95 @@ def test_a_tracked_submodule_on_a_top_level_path_is_skipped_kept_and_receipted(t
     again = em.push("host", ex, "t", remote, clone, today=TODAY)
     assert again["why"] == "nothing changed" and again["top_level_skipped"] == r["top_level_skipped"], again
     assert _gitlinks(remote) == [gl]
+
+
+# #858 (ARCHITECT addendum 282 item 3): "the tools copy (tools/compare_exports.py and the workflow file written through a
+# tracked link) is the same defect in the same module and is BUILT in #858 by the same rule — each tool path through
+# _dest_refusal, skipped and receipted, never written through". The two tool paths (clone-relative) and an outside
+# folder holding the names a link there would carry their writes to.
+TOOL_PY, TOOL_YML = "tools/compare_exports.py", ".github/workflows/compare.yml"
+
+
+def _outside_tools(tmp: Path) -> Path:
+    out = tmp / "outside"
+    for rel, body in {"compare_exports.py": b"OUTSIDE COMPARE\n", "compare.yml": b"OUTSIDE YML\n",
+                      "workflows/compare.yml": b"OUTSIDE NESTED YML\n", "keep.txt": b"OUTSIDE KEEP\n"}.items():
+        (out / rel).parent.mkdir(parents=True, exist_ok=True)
+        (out / rel).write_bytes(body)
+    return out
+
+
+@pytest.mark.parametrize("where, target, skipped", [
+    ("tools", "../outside", TOOL_PY),                                         # tools/ itself, relative escape
+    ("tools", "ABS", TOOL_PY),                                                # tools/ itself, absolute
+    (".github", "../outside", TOOL_YML),                                      # .github/
+    (".github/workflows", "../../outside", TOOL_YML),                         # .github/workflows/, relative
+    (".github/workflows", "ABS", TOOL_YML),                                   # .github/workflows/, absolute
+    (TOOL_PY, "../../outside/compare_exports.py", TOOL_PY),                   # the file itself, relative
+    (TOOL_PY, "ABS/compare_exports.py", TOOL_PY),                             # the file itself, absolute
+    (TOOL_YML, "ABS/compare.yml", TOOL_YML),
+])
+def test_a_tracked_symlink_on_a_tool_destination_is_never_written_through(tmp_path, monkeypatch, capsys, where, target,
+                                                                           skipped):
+    """#858, addendum 282 item 3: the mirror's own tree may TRACK a symlink at tools/, .github/, .github/workflows/ or at
+    a tool file itself (a relative escape or an absolute link). Before this, the tools copy wrote compare_exports.py (or
+    compare.yml) through it, outside the clone, and the push reported success. Now that tool is skipped ("destination
+    path has a symlink"), receipted on the result (`tools_skipped`, clone-relative) and the console line (`tools: N
+    skipped (...)`), never written through, never staged; the outside folder is byte for byte as it was; the tracked link
+    stays, in the clone and on the remote; the top-level files and the other tool still push; the next push is "nothing
+    changed", same receipt."""
+    out = _outside_tools(tmp_path)
+    before = _snapshot(out)
+    ex = _exports(tmp_path, [("fixtures_NHL_2026-10-03.json", TODAY, '{"a":1}')])
+    link = target.replace("ABS", str(out))
+    remote, clone = _seeded_remote(tmp_path, {where: ("link", link)}), tmp_path / "clone"
+    r = em.push("host", ex, "t", remote, clone, today=TODAY)
+    assert _snapshot(out) == before                                          # outside untouched, byte for byte
+    assert r["pushed"] and r["tools_skipped"] == [(skipped, "destination path has a symlink")], r
+    assert "skipped" not in r and "top_level_skipped" not in r, r
+    assert os.readlink(clone / where) == link                                # the tracked link stays as it was
+    co, tree = _tree(remote, tmp_path)
+    assert os.readlink(co / where) == link                                   # the remote's link unchanged
+    assert {f"host/{TOP_DATED}", f"host/{TOP_LATEST}"} <= set(tree)          # the top-level files still push
+    other = TOOL_YML if skipped == TOOL_PY else TOOL_PY
+    assert other in tree and (co / other).read_bytes() == (em.HERE / "compare_exports.py" if other == TOOL_PY
+                                                           else em.WORKFLOW_SRC).read_bytes()
+    again = em.push("host", ex, "t", remote, clone, today=TODAY)
+    assert again["why"] == "nothing changed" and again["tools_skipped"] == r["tools_skipped"], again
+    line = _console(monkeypatch, capsys, remote, clone, ex)
+    assert line.endswith(" · tools: 1 skipped (destination path has a symlink 1)"), line
+    assert _snapshot(out) == before
+
+
+@pytest.mark.parametrize("where, what, skipped, why", [
+    ("tools", "gitlink", TOOL_PY, "destination path has a submodule"),        # a tracked submodule at tools/
+    (".github/workflows", "gitlink", TOOL_YML, "destination path has a submodule"),
+    ("tools", "file", TOOL_PY, "destination path has a non-folder"),          # a tracked FILE where tools/ goes
+])
+def test_a_tracked_submodule_or_file_on_a_tool_path_is_skipped_kept_and_receipted(tmp_path, where, what, skipped, why):
+    """#858, addendum 282 item 3: a tracked SUBMODULE (a gitlink, checked out as an empty real folder) at tools/ or
+    .github/workflows/, or a tracked FILE at tools/. Before this, the tools copy wrote compare_exports.py into the
+    submodule's folder (where git never carries it) and reported `pushed: True` with nothing receipted, or raised on the
+    file. Now that tool is skipped (`tools_skipped`), nothing is written into the submodule's folder, the gitlink (or
+    the file) stays tracked as it was, nothing outside the clone changes, and the top-level files and the other tool
+    still push."""
+    out = _outside_tools(tmp_path)
+    before = _snapshot(out)
+    ex = _exports(tmp_path, [("fixtures_NHL_2026-10-03.json", TODAY, '{"a":1}')])
+    body = b"a tracked file where tools/ goes\n"
+    remote = _seeded_remote(tmp_path, {where: ("gitlink", GITLINK_SHA) if what == "gitlink" else ("file", body)})
+    clone = tmp_path / "clone"
+    r = em.push("host", ex, "t", remote, clone, today=TODAY)
+    assert _snapshot(out) == before
+    assert r["pushed"] and r["tools_skipped"] == [(skipped, why)], r
+    co, tree = _tree(remote, tmp_path)
+    if what == "gitlink":
+        held = sorted(str(q.relative_to(clone)) for q in (clone / where).rglob("*"))
+        assert held == [], held                                              # nothing written into it
+        assert _gitlinks(remote) == [where]                                  # still tracked, never removed
+    else:
+        assert (clone / where).read_bytes() == body and (co / where).read_bytes() == body
+    assert {f"host/{TOP_DATED}", f"host/{TOP_LATEST}"} <= set(tree)
+    assert (TOOL_YML if skipped == TOOL_PY else TOOL_PY) in tree
+    again = em.push("host", ex, "t", remote, clone, today=TODAY)
+    assert again["why"] == "nothing changed" and again["tools_skipped"] == r["tools_skipped"], again

@@ -108,6 +108,17 @@ and the push goes on; inside a real expired folder a submodule entry is skipped 
 go. Every skip is RECEIPTED: `top_level_skipped` (role-relative path, reason) on the result and `· top-level: N skipped
 (<reason> <count> · …)` on the console line, on every push it remains; the tracked link or submodule is left as the
 mirror holds it; the rest of the push (the other copies, the other expired folders, the bulletins, the tools) proceeds.
+
+THE TOOLS COPY'S DESTINATION (#858; ARCHITECT addendum 282 item 3): "the tools copy (tools/compare_exports.py and the
+workflow file written through a tracked link) is the same defect in the same module and is BUILT in #858 by the same
+rule — each tool path through _dest_refusal, skipped and receipted, never written through". As built: each of
+tools/compare_exports.py and .github/workflows/compare.yml is lstat'ed by _dest_refusal from the clone root down before
+it is read back or written; a symlink at tools/, .github/, .github/workflows/ or the file itself (relative or absolute:
+`destination path has a symlink`), a submodule the index holds there (`destination path has a submodule`), a component
+that is not a folder or a file that is not a regular file skips that tool: never written through, never written into
+the submodule's folder, never staged. RECEIPTED: `tools_skipped` (clone-relative path, reason) on the result and
+`· tools: N skipped (<reason> <count> · …)` on the console line, on every push it remains; the tracked entry stays as
+the mirror holds it; the other tool, the top-level copies and the bulletins still go.
 """
 from __future__ import annotations
 
@@ -264,7 +275,7 @@ def bulletin_plan(exports: Path, role: str) -> dict:
 
 def skipped_line(skipped: list[tuple[str, str]], what: str = "bulletins") -> str:
     """The console's count by reason: "bulletins: 2 skipped (suffix: not .md or .png 1 · symlink: not followed 1)";
-    what="top-level" for the top-level rule's own skips (#852)."""
+    what="top-level" for the top-level rule's own skips (#852), what="tools" for the tools copy's (#858)."""
     by: dict[str, int] = {}
     for _, why in skipped:
         by[why] = by.get(why, 0) + 1
@@ -497,18 +508,20 @@ def push(role: str, exports: Path, label: str, remote: str, clone: Path, today: 
     bp = bulletin_plan(exports, role)                             # addendum 250 item 4: the kept subtree
     late: list[tuple[str, str]] = []                              # the push's own skips, per attempt
     top: list[tuple[str, str]] = []                               # #852: the top-level rule's skips, per attempt
+    tools: list[tuple[str, str]] = []                             # #858: the tools copy's skips, per attempt
 
     def _extra() -> dict:                                         # receipted whenever anything was left out
         skipped = [(_shown(rel), why) for rel, why in bp["skipped"] + late]
         return {**({"skipped": skipped} if skipped else {}),
                 **({"top_level_skipped": [(_shown(rel), why) for rel, why in top]} if top else {}),
+                **({"tools_skipped": list(tools)} if tools else {}),
                 **({"untracked_skipped": untracked} if untracked else {})}
     _ensure_clone(clone, remote)
     untracked: list[str] = []
     for attempt in range(1, attempts + 1):
         _sync_to_remote(clone)
         pl = plan(files, role, today)
-        copied, late, top, fresh, planned, carried = 0, [], [], set(), [], []
+        copied, late, top, tools, fresh, planned, carried = 0, [], [], [], set(), [], []
         gl = _gitlinks(clone)                                     # review of #847's round 1: submodules, by the index
         for dest, name in {**pl["dated"], **pl["latest"]}.items():
             why = _dest_refusal(clone, dest, gl)                  # #852: never through a tracked link or into a
@@ -568,6 +581,10 @@ def push(role: str, exports: Path, label: str, remote: str, clone: Path, today: 
                     pruned.append(p.name)
         for src, rel in ((HERE / "compare_exports.py", "tools/compare_exports.py"),
                          (WORKFLOW_SRC, ".github/workflows/compare.yml")):
+            why = _dest_refusal(clone, rel, gl)                   # #858 (282 item 3): never through a tracked link or
+            if why:                                               # into a submodule at tools/, .github/, .github/workflows/
+                tools.append((rel, why))                          # or the file itself: skipped, receipted, never staged
+                continue
             dest = clone / rel
             if src.exists() and (not dest.exists() or dest.read_bytes() != src.read_bytes()):
                 dest.parent.mkdir(parents=True, exist_ok=True)
@@ -675,6 +692,7 @@ def main(argv=None) -> int:
           + (f" · pruned {r['pruned']}" if r["pruned"] else "")
           + (f" · {skipped_line(r['skipped'])}" if r.get("skipped") else "")
           + (f" · {skipped_line(r['top_level_skipped'], 'top-level')}" if r.get("top_level_skipped") else "")
+          + (f" · {skipped_line(r['tools_skipped'], 'tools')}" if r.get("tools_skipped") else "")
           + (f" · {untracked_line(r['untracked_skipped'])}" if r.get("untracked_skipped") else ""))
     return 0 if (r["pushed"] or r.get("why") == "nothing changed") else 1
 

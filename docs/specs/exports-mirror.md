@@ -79,7 +79,7 @@ abort the push (core.protectNTFS still refuses a path; review of the fix). Its p
 paths only: the latest cleanup (a tracked `<role>/latest/` file no planned kind holds) and the prune (the tracked
 contents of an expired `<role>/<YYYY-MM-DD>/` folder; `pruned` names the folders that held any). A planned path beyond a
 symlink or inside a submodule is never staged (git refuses that pathspec, and the whole-tree add never carried it
-either; the top-level rule's own hole there has its own Issue and PR by 277 item 1). Any other untracked file in the
+either); the top-level rule never writes one (#852, below). Any other untracked file in the
 working clone (a killed run's leftover whose source is gone, a file another writer dropped there: under `<role>/bulletins/`,
 `<role>/`, `<role>/latest/`, an expired folder or the clone root) is not staged, so it never reaches the remote; it is
 never deleted (no clean, no unlink); and every push names it, `untracked_skipped` (clone-relative paths) on the result
@@ -88,6 +88,28 @@ tracked file the plan does not write, edited in the clone by another writer betw
 either (the remote keeps its tracked bytes); it is not untracked, so it is not on the receipt, and the next sync's
 `reset --hard` puts the tracked bytes back, as on main. The weekly squash commits the index as the sync left it (the remote tip's tree), never a whole-tree add, and names the same
 files on its result.
+
+The top-level rule's destination (#852; ARCHITECT 2026-11-06, addendum 277 item 1, verbatim): "THE PRE-EXISTING HOLE
+(main's top-level rule follows a tracked symlink out of the clone: the latest cleanup can unlink files OUTSIDE the clone,
+the dated copy can write outside it, the prune can abort every push; a tracked submodule at <role> silently swallows the
+day's files): NOT in #847, as Code says. RULED: a limitation Issue now (class the ledger's; the probe output quoted as
+its receipt), and its OWN PR in the next free code slot — the review's fix as proposed (lstat every component as
+_dest_refusal does; refuse a symlinked or submodule <role>, <role>/latest, <role>/<date>; receipt the skip; follow
+nothing, unlink nothing through a link)." As built, by `_dest_refusal` itself (the bulletins' rule, not a copy of it):
+every planned dated and latest copy's path is `lstat`'ed from `<role>/` down before it is read back or written, and a
+symlink there (`<role>`, `<role>/latest`, `<role>/<date>` or the file itself, a relative escape or an absolute link:
+`destination path has a symlink`), a component that is not a folder, a file that is not a regular file, or a component
+the index holds as a submodule (`destination path has a submodule`) skips that copy: never written through, never
+written into the submodule's folder, never staged. The latest cleanup never reads a `<role>/` or `<role>/latest/` that is
+not a real folder and never removes a gitlink (a stale submodule entry there is skipped). The prune picks each expired
+`<role>/<YYYY-MM-DD>` by its name, then `lstat`, never a stat through it, and `lstat`'s it again
+(`_dest_refusal(..., folder=True)`): a symlinked one (whatever its target: a folder, a file, nothing, one whose stat
+raises) or a submodule one is skipped, never followed, never unlinked, never removed, and the push goes on; inside a
+real expired folder a submodule entry is skipped and the rest of its tracked contents go. Every skip is receipted:
+`top_level_skipped` (role-relative path, reason) on the result and `· top-level: N skipped (<reason> <count> · …)` on
+the console line, on every push it remains (the bulletins' own `skipped` is unchanged); the tracked link or submodule is
+left as the mirror holds it, and the rest of the push (the other copies, the other expired folders, the bulletins, the
+tools) proceeds.
 
 The Action compares the newest date that BOTH writers have pushed and posts commit status
 `compare_exports`: success = clean, failure = DIVERGENT, pending = one side has not pushed that

@@ -80,7 +80,7 @@ planned path or makes the add abort the push; core.protectNTFS still refuses); i
 deletions go through `git rm` on TRACKED paths only (the latest cleanup: a tracked <role>/latest/ file no planned kind
 holds; the prune: the tracked contents of an expired <role>/<YYYY-MM-DD>/ folder, `pruned` naming the folders that
 held any). A planned path beyond a symlink or inside a submodule is never staged (git refuses that pathspec, and the
-whole-tree add never carried it either; the top-level rule's own hole there has its own Issue and PR, 277 item 1). Any
+whole-tree add never carried it either); the top-level rule never writes one (#852, below). Any
 OTHER untracked file in the working clone (a killed run's leftover whose source is gone, a file another writer dropped
 there, under <role>/bulletins/, <role>/, <role>/latest/, an expired folder or the clone root) is not staged, so it never
 reaches the remote; it is never deleted (no clean, no unlink); and every push names it: `untracked_skipped`
@@ -89,6 +89,25 @@ line. A TRACKED file the plan does not write, edited in the clone by another wri
 not staged either (the remote keeps its tracked bytes); it is not untracked, so it is not on the receipt, and the next
 sync's `reset --hard` puts the tracked bytes back, as on main. The weekly squash commits the index as the sync left it
 (the remote tip's tree), never a whole-tree add, and names the same files on its result.
+
+THE TOP-LEVEL RULE'S DESTINATION (#852; ARCHITECT 2026-11-06, addendum 277 item 1): "THE PRE-EXISTING HOLE (main's
+top-level rule follows a tracked symlink out of the clone: the latest cleanup can unlink files OUTSIDE the clone, the
+dated copy can write outside it, the prune can abort every push; a tracked submodule at <role> silently swallows the
+day's files): [...] RULED: [...] the review's fix as proposed (lstat every component as _dest_refusal does; refuse a
+symlinked or submodule <role>, <role>/latest, <role>/<date>; receipt the skip; follow nothing, unlink nothing through a
+link)." As built, by _dest_refusal itself (one rule, the bulletins' own): every planned dated and latest copy's path is
+lstat'ed from <role>/ down before it is read back or written, and a symlink there (<role>, <role>/latest, <role>/<date>
+or the file itself, a relative escape or an absolute link: `destination path has a symlink`), a component that is not a
+folder, a file that is not a regular file, or a component the index holds as a submodule (`destination path has a
+submodule`) skips that copy: never written through, never written into the submodule's folder, never staged. The latest
+cleanup never reads a <role>/ or <role>/latest/ that is not a real folder, and never removes a gitlink (a stale
+submodule entry there is skipped). The prune picks each expired <role>/<YYYY-MM-DD> by its name, then lstat, never a
+stat through it, and lstat's it again (_dest_refusal, folder=True): a symlinked one (whatever its target: a folder, a
+file, nothing, one whose stat raises) or a submodule one is skipped, never followed, never unlinked, never removed,
+and the push goes on; inside a real expired folder a submodule entry is skipped and the rest of its tracked contents
+go. Every skip is RECEIPTED: `top_level_skipped` (role-relative path, reason) on the result and `· top-level: N skipped
+(<reason> <count> · …)` on the console line, on every push it remains; the tracked link or submodule is left as the
+mirror holds it; the rest of the push (the other copies, the other expired folders, the bulletins, the tools) proceeds.
 """
 from __future__ import annotations
 
@@ -243,23 +262,37 @@ def bulletin_plan(exports: Path, role: str) -> dict:
     return {"kept": kept, "skipped": skipped}
 
 
-def skipped_line(skipped: list[tuple[str, str]]) -> str:
-    """The console's count by reason: "bulletins: 2 skipped (suffix: not .md or .png 1 · symlink: not followed 1)"."""
+def skipped_line(skipped: list[tuple[str, str]], what: str = "bulletins") -> str:
+    """The console's count by reason: "bulletins: 2 skipped (suffix: not .md or .png 1 · symlink: not followed 1)";
+    what="top-level" for the top-level rule's own skips (#852)."""
     by: dict[str, int] = {}
     for _, why in skipped:
         by[why] = by.get(why, 0) + 1
-    return f"bulletins: {len(skipped)} skipped (" + " · ".join(f"{w} {n}" for w, n in by.items()) + ")"
+    return f"{what}: {len(skipped)} skipped (" + " · ".join(f"{w} {n}" for w, n in by.items()) + ")"
 
 
 def expired(role_dir: Path, today: date) -> list[Path]:
+    """The <role>/<YYYY-MM-DD> entries older than the retention window: by NAME first, then lstat, never a stat through
+    the entry (#852 review: a tracked link's target is never read, so a target whose stat raises never aborts the
+    push). A real folder or a symlink of any target (dangling, a file, a folder) is listed: the prune's _dest_refusal
+    (folder=True) refuses and receipts every link; an entry lstat cannot read is listed for the same receipt."""
     lo = today - timedelta(days=RETENTION_DAYS - 1)
     out = []
-    for p in role_dir.glob("*") if role_dir.is_dir() else []:
+    for p in role_dir.iterdir() if role_dir.is_dir() else []:
         try:
-            if p.is_dir() and date.fromisoformat(p.name) < lo:
-                out.append(p)
+            if date.fromisoformat(p.name) >= lo:
+                continue
         except ValueError:
             continue
+        try:
+            mode = p.lstat().st_mode
+        except FileNotFoundError:
+            continue
+        except OSError:
+            out.append(p)
+            continue
+        if st.S_ISDIR(mode) or st.S_ISLNK(mode):
+            out.append(p)
     return out
 
 
@@ -315,14 +348,15 @@ def _gitlinks(clone: Path, role: str | None = None) -> frozenset[str]:
                      for e in out.split(b"\0") if e.startswith(b"160000 ") and b"\t" in e)
 
 
-def _dest_refusal(clone: Path, dest: str, gitlinks: frozenset[str] = frozenset()) -> str | None:
+def _dest_refusal(clone: Path, dest: str, gitlinks: frozenset[str] = frozenset(), folder: bool = False) -> str | None:
     """None when <clone>/<dest> may be read and written as a plain file; else why not (Codex on #847). Every component
     from <role>/ down to the file is lstat'ed, never followed: a symlink anywhere on the path (the mirror's own tree
     may track one, and a relative or absolute link would carry the write out of the clone), a component above the
     file that is not a folder, or a file that is not a regular file is refused. A component the index holds as a
     submodule (one of `gitlinks`, from _gitlinks) is refused before its lstat: its checkout is an empty real folder,
     and a write into it is one git never carries. A component that does not exist ends the walk: everything below
-    it is made by mkdir as real folders under real folders."""
+    it is made by mkdir as real folders under real folders. folder=True (the prune's expired <role>/<date>/, #852): the
+    last component must be a real folder too, else "destination path has a non-folder"."""
     parts = Path(dest).parts
     p = clone
     for i, part in enumerate(parts):
@@ -337,9 +371,9 @@ def _dest_refusal(clone: Path, dest: str, gitlinks: frozenset[str] = frozenset()
             return f"destination unreadable: {e.__class__.__name__}"
         if st.S_ISLNK(mode):
             return "destination path has a symlink"
-        if i < len(parts) - 1 and not st.S_ISDIR(mode):
+        if (i < len(parts) - 1 or folder) and not st.S_ISDIR(mode):
             return "destination path has a non-folder"
-        if i == len(parts) - 1 and not st.S_ISREG(mode):
+        if i == len(parts) - 1 and not folder and not st.S_ISREG(mode):
             return "destination not a regular file"
     return None
 
@@ -462,19 +496,25 @@ def push(role: str, exports: Path, label: str, remote: str, clone: Path, today: 
     files = [(p.name, p.stat().st_mtime) for p in exports.iterdir() if p.is_file()] if exports.is_dir() else []
     bp = bulletin_plan(exports, role)                             # addendum 250 item 4: the kept subtree
     late: list[tuple[str, str]] = []                              # the push's own skips, per attempt
+    top: list[tuple[str, str]] = []                               # #852: the top-level rule's skips, per attempt
 
     def _extra() -> dict:                                         # receipted whenever anything was left out
         skipped = [(_shown(rel), why) for rel, why in bp["skipped"] + late]
         return {**({"skipped": skipped} if skipped else {}),
+                **({"top_level_skipped": [(_shown(rel), why) for rel, why in top]} if top else {}),
                 **({"untracked_skipped": untracked} if untracked else {})}
     _ensure_clone(clone, remote)
     untracked: list[str] = []
     for attempt in range(1, attempts + 1):
         _sync_to_remote(clone)
         pl = plan(files, role, today)
-        copied, late, fresh, planned, carried = 0, [], set(), [], []
+        copied, late, top, fresh, planned, carried = 0, [], [], set(), [], []
         gl = _gitlinks(clone)                                     # review of #847's round 1: submodules, by the index
         for dest, name in {**pl["dated"], **pl["latest"]}.items():
+            why = _dest_refusal(clone, dest, gl)                  # #852: never through a tracked link or into a
+            if why:                                               # submodule at <role>, <role>/latest, <role>/<date>
+                top.append((dest[len(role) + 1:], why))
+                continue
             src, dst = exports / name, clone / dest
             planned.append(dest)                                  # addendum 277 item 1: staged by name, nothing else
             if dst.exists() and dst.read_bytes() == src.read_bytes():
@@ -502,17 +542,29 @@ def push(role: str, exports: Path, label: str, remote: str, clone: Path, today: 
             fresh.add(dest)
         # The planned deletions go through git on TRACKED paths only (addendum 277 item 1: the mirror deletes nothing
         # it did not plan): an untracked file in latest/ or in an expired dated folder is left on disk and receipted.
+        # #852: never through a link (a linked <role>/ or <role>/latest/ is never read; a linked expired folder is
+        # skipped), never a submodule (a gitlink is never removed): each skip receipted on top_level_skipped.
         pruned = []
+
+        def _rm(paths: list[str]) -> bool:                        # tracked paths only, gitlinks never among them
+            subs = [q for q in paths if _nfc(q) in gl]
+            top.extend((q[len(role) + 1:], "destination path has a submodule") for q in subs)
+            gone = [q for q in paths if _nfc(q) not in gl]
+            if gone:
+                _git(clone, "rm", "-q", "-f", "--pathspec-from-file=-", "--pathspec-file-nul", text=False,
+                     input=_pathspec_input(clone, gone))
+            return bool(gone)
         if _real_path(clone, role, gl, last_is_dir=True):
             if _real_path(clone, f"{role}/latest", gl, last_is_dir=True):     # latest/ is rewritten each push
                 want = {_nfc(d) for d in pl["latest"]}
-                stale = [q for q in _tracked(clone, f"{role}/latest") if _nfc(q) not in want]
-                if stale:
-                    _git(clone, "rm", "-q", "-f", "--", *stale)
-            for p in expired(clone / role, today):
+                _rm([q for q in _tracked(clone, f"{role}/latest") if _nfc(q) not in want])
+            for p in sorted(expired(clone / role, today)):
                 rel = f"{role}/{p.name}"
-                if _tracked(clone, rel):
-                    _git(clone, "rm", "-r", "-q", "-f", "--", rel)
+                why = _dest_refusal(clone, rel, gl, folder=True)
+                if why:
+                    top.append((p.name, why))
+                    continue
+                if _rm(_tracked(clone, rel)):
                     pruned.append(p.name)
         for src, rel in ((HERE / "compare_exports.py", "tools/compare_exports.py"),
                          (WORKFLOW_SRC, ".github/workflows/compare.yml")):
@@ -622,6 +674,7 @@ def main(argv=None) -> int:
                                            if r["pushed"] else f"not pushed — {r['why']}")
           + (f" · pruned {r['pruned']}" if r["pruned"] else "")
           + (f" · {skipped_line(r['skipped'])}" if r.get("skipped") else "")
+          + (f" · {skipped_line(r['top_level_skipped'], 'top-level')}" if r.get("top_level_skipped") else "")
           + (f" · {untracked_line(r['untracked_skipped'])}" if r.get("untracked_skipped") else ""))
     return 0 if (r["pushed"] or r.get("why") == "nothing changed") else 1
 

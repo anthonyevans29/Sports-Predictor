@@ -26,7 +26,8 @@ Layout in the mirror: `host/<YYYY-MM-DD>/<file>` and `laptop/<YYYY-MM-DD>/<file>
 taken from the file's UTC mtime. Only top-level `exports/*.json|*.md` are mirrored; subfolders
 (raw provider caches) are not, except the one kept subtree, `exports/bulletins/` (below). `host/latest/<kind>.json` and `laptop/latest/<kind>.json` hold the
 newest file per kind (the name with its date/time stamp removed) and are rewritten each push.
-Dated folders older than 14 days are deleted. `exports/` itself is never modified.
+Dated folders older than 14 days are deleted (their tracked contents, by `git rm`; addendum 277 item 1, below).
+`exports/` itself is never modified.
 
 The kept subtree (ARCHITECT 2026-11-04, addendum 250 item 4, the bulletins lane, #826, verbatim): "exports_mirror.py
 gains ONE kept subtree: `exports/bulletins/**` is copied verbatim to `<role>/bulletins/**` (suffixes .md and .png there;
@@ -44,8 +45,8 @@ mirror receipts keep): any other suffix (a `.json` above all, so no JSON is ever
 `.PNG` too), a symlink anywhere (file or folder, the subtree's own root included: never followed, in or out of the
 subtree), anything that is not a regular file, a `.git` path component (git cannot carry it), a folder that cannot be
 read, a file the push cannot read when it copies it (no read permission, or gone since the plan: `unreadable: <error>`),
-and a path git itself refuses (`git refused the path`; git decides, by `add --ignore-errors` over `<role>/bulletins/`, not
-a list kept in the mirror: under core.protectNTFS, git's default, `.git`'s other spellings `GIT~1`, `.git.`, `.git `).
+and a path git itself refuses (`git refused the path`; git decides, by `add --force --ignore-errors` over the bulletins the push
+carries, not a list kept in the mirror: under core.protectNTFS, git's default, `.git`'s other spellings `GIT~1`, `.git.`, `.git `).
 The destination is never followed either (Codex on #847): the mirror's own tree may already track a symlink, so before a
 bulletin is read back or written, every component from `<role>/` down to the file is `lstat`'ed, and a bulletin is
 skipped, receipted, when the path there holds a symlink (the role folder, `bulletins/`, a family or date folder, or the
@@ -55,14 +56,38 @@ file`); what the mirror tracks there is left as it is (never unlinked, never wri
 only below real ones, and git's own check never walks a `<role>/` or `<role>/bulletins/` that is not a real folder. A
 component the index holds as a submodule (a gitlink: git checks one out as an empty real folder, so an lstat never sees
 it) is refused the same way (`destination path has a submodule`), git's own check never takes a `<role>/` or
-`<role>/bulletins/` submodule as its pathspec (git's add exits 128 there), its walk never enters a submodule's folder,
-and it removes only the folders a refused file's unlink emptied.
-One bad bulletin is local to that file: a refused copy is removed from the working clone, so it never fails the
-whole-tree add nor jams a later push, and the top-level files and the other bulletins still go. No `exports/bulletins/`:
+`<role>/bulletins/` submodule as its pathspec (git's add exits 128 there), and it removes only the folders a refused
+file's unlink emptied.
+One bad bulletin is local to that file: a copy git refused is removed from the working clone (it is the push's own
+planned copy), so it never jams a later push, and the top-level files and the other bulletins still go. No `exports/bulletins/`:
 nothing happens. The compare is untouched: the Action picks the newest
 `YYYY-MM-DD` folder both writers hold (`bulletins/` never matches), and the `*.json` glob finds nothing under
 `<role>/bulletins/`. The renderer's own writer refusing a `.json` under the subtree comes with the renderer (step 1's
 second PR).
+
+What a push publishes (ARCHITECT 2026-11-06, addendum 277 item 1, R2-1 on #847, verbatim): "the mirror publishes ONLY
+the paths its plan copied. The whole-tree `add -A` is main's mechanism, and it means any stray file in the clone — a
+leftover of a killed run, a file another writer dropped there — goes to the mirror unplanned; the mirror is private, and
+the Desk's privacy rules still say nothing leaves a machine that was not planned to. The fix is the add limited to
+planned paths (never `git clean -fd`: the mirror deletes nothing it did not plan either); a leftover from a killed run is
+then never published and the next run's receipt names it as untracked-and-skipped." As built: no whole-tree add. The
+push stages, by name (the list goes to git on stdin, NUL-separated, as literal pathspecs), exactly the dated and latest
+copies of the top-level plan, the bulletins it carried (minus the skipped and the refused),
+`tools/compare_exports.py` and `.github/workflows/compare.yml`, with `git add --force`: the list is the plan, so no
+ignore rule (a stray untracked `.gitignore`, or a `.git/info/exclude` entry) vetoes a planned path or makes the add
+abort the push (core.protectNTFS still refuses a path; review of the fix). Its planned deletions go through `git rm` on tracked
+paths only: the latest cleanup (a tracked `<role>/latest/` file no planned kind holds) and the prune (the tracked
+contents of an expired `<role>/<YYYY-MM-DD>/` folder; `pruned` names the folders that held any). A planned path beyond a
+symlink or inside a submodule is never staged (git refuses that pathspec, and the whole-tree add never carried it
+either; the top-level rule's own hole there has its own Issue and PR by 277 item 1). Any other untracked file in the
+working clone (a killed run's leftover whose source is gone, a file another writer dropped there: under `<role>/bulletins/`,
+`<role>/`, `<role>/latest/`, an expired folder or the clone root) is not staged, so it never reaches the remote; it is
+never deleted (no clean, no unlink); and every push names it, `untracked_skipped` (clone-relative paths) on the result
+and `· untracked-and-skipped N (<first five paths>[, +K more])` on the console line, until the operator removes it. A
+tracked file the plan does not write, edited in the clone by another writer between the sync and the add, is not staged
+either (the remote keeps its tracked bytes); it is not untracked, so it is not on the receipt, and the next sync's
+`reset --hard` puts the tracked bytes back, as on main. The weekly squash commits the index as the sync left it (the remote tip's tree), never a whole-tree add, and names the same
+files on its result.
 
 The Action compares the newest date that BOTH writers have pushed and posts commit status
 `compare_exports`: success = clean, failure = DIVERGENT, pending = one side has not pushed that

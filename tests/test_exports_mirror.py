@@ -697,8 +697,9 @@ def test_a_path_git_refuses_is_skipped_and_never_jams_the_mirror(tmp_path):
     """Git decides which paths it carries (review of this PR): with core.protectNTFS (git's default) it refuses
     `.git`'s NTFS spellings, GIT~1, `.git.` and `.git ` (trailing space), which a `.git` test alone does not catch.
     Each is skipped with the reason "git refused the path" and removed from the working clone; the top-level files and
-    the other bulletins still push. A refused file already sitting in the clone (a push killed before its add) is
-    removed and receipted the same way, so it never jams a later push after its source is gone."""
+    the other bulletins still push. A refused name already sitting in the clone whose source is gone (a push killed
+    before its add) is no planned path (addendum 277 item 1): it is never staged, so it never jams a later push, never
+    deleted, and receipted as untracked-and-skipped."""
     ex = _exports(tmp_path, [("fixtures_NHL_2026-10-03.json", TODAY, '{"a":1}')])
     files = _three(ex)
     odd = ["bulletins/GIT~1/x.md", "bulletins/.git./x.md", "bulletins/.git /x.md", "bulletins/SOCCER/git~1/y.png"]
@@ -723,8 +724,8 @@ def test_a_path_git_refuses_is_skipped_and_never_jams_the_mirror(tmp_path):
     (ex / "fixtures_NHL_2026-10-04.json").write_text('{"a":2}')
     os.utime(ex / "fixtures_NHL_2026-10-04.json", (_mt(later), _mt(later)))
     r = em.push("host", ex, "t2", remote, clone, today=later)
-    assert r["pushed"] and r["skipped"] == [("bulletins/GIT~1/z.md", "git refused the path")], r
-    assert not stray.exists()
+    assert r["pushed"] and "skipped" not in r and r["untracked_skipped"] == ["host/bulletins/GIT~1/z.md"], r
+    assert stray.read_bytes() == b"left by a killed push"                  # 277 item 1: never deleted, never staged
     _, tree = _tree(remote, tmp_path)
     assert "host/2026-10-04/fixtures_NHL_2026-10-04.json" in tree
 
@@ -929,3 +930,198 @@ def test_the_compare_never_sees_the_subtree(tmp_path):
     for rel in (f"{B_CLOSE}.md", f"{B_CLOSE}.png", f"{B_WEEK}.md"):
         name = Path(rel).name
         assert ce.kind_of(name) == em.kind_of(name) and ce.machine_state_kind(name) is None
+
+
+# ---- THE PUSH PUBLISHES ONLY ITS PLAN (ARCHITECT 2026-11-06, addendum 277 item 1, R2-1 on #847) --------------------
+# "the mirror publishes ONLY the paths its plan copied. [...] The fix is the add limited to planned paths (never `git
+# clean -fd`: the mirror deletes nothing it did not plan either); a leftover from a killed run is then never published
+# and the next run's receipt names it as untracked-and-skipped."
+
+STRAYS = {"host/bulletins/NFL/2026-10-03/stray.json": b'{"never": "published"}',      # a .json under the subtree
+          "host/bulletins/stray.md": b"# dropped by another writer\n",              # a .md no plan copied
+          "host/stray.md": b"# under the role folder\n",
+          "host/latest/stray.json": b'{"not": "a planned kind"}',
+          "stray-root.txt": b"at the clone root\n"}
+
+
+def _plant(clone: Path, files: dict) -> None:
+    for rel, body in files.items():
+        (clone / rel).parent.mkdir(parents=True, exist_ok=True)
+        (clone / rel).write_bytes(body)
+
+
+def test_a_stray_untracked_file_in_the_clone_is_never_published_never_deleted_and_receipted(tmp_path, monkeypatch,
+                                                                                            capsys):
+    """277 item 1 R2-1: files no plan copied, sitting untracked in the working clone (under <role>/bulletins/, a .json
+    there included; under <role>/ and <role>/latest/; at the clone root), are not staged, so they never reach the
+    remote, even on a push that commits; each is left on disk byte for byte (never deleted) and named on the receipt:
+    `untracked_skipped` on the result, `untracked-and-skipped N (...)` on the console line, on every push they remain.
+    The planned files still go."""
+    remote, clone = _remote(tmp_path), tmp_path / "clone"
+    ex = _exports(tmp_path, [("fixtures_NHL_2026-10-03.json", TODAY, '{"a":1}')])
+    files = _three(ex)
+    assert em.push("host", ex, "t", remote, clone, today=TODAY)["pushed"]
+    _plant(clone, STRAYS)
+    (ex / f"{B_CLOSE}.md").write_bytes(b"# re-rendered\n")                     # a planned change: the push commits
+    (ex / "fixtures_NHL_2026-10-03.json").write_text('{"a":22}')
+    os.utime(ex / "fixtures_NHL_2026-10-03.json", (_mt(TODAY), _mt(TODAY)))
+    r = em.push("host", ex, "t", remote, clone, today=TODAY)
+    assert r["pushed"] and r["copied"] == 3, r
+    assert r["untracked_skipped"] == sorted(STRAYS), r
+    assert "skipped" not in r, r                                                # the bulletins' own skips: none
+    co, tree = _tree(remote, tmp_path)
+    assert not set(STRAYS) & set(tree), tree                                    # never published
+    assert (co / "host" / f"{B_CLOSE}.md").read_bytes() == b"# re-rendered\n"
+    assert (co / "host/latest/fixtures_NHL.json").read_text() == '{"a":22}'
+    assert {f"host/{rel}" for rel in files} <= set(tree)
+    assert {rel: (clone / rel).read_bytes() for rel in STRAYS} == STRAYS        # never deleted
+    again = em.push("host", ex, "t", remote, clone, today=TODAY)
+    assert again["why"] == "nothing changed" and again["untracked_skipped"] == sorted(STRAYS), again
+    for k in ("SP_EXPORTS_MIRROR_KEY", "SP_EXPORTS_MIRROR_ROLE"):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("SP_EXPORTS_MIRROR_REMOTE", remote)
+    monkeypatch.setenv("SP_EXPORTS_MIRROR_DIR", str(clone))
+    (ex / f"{B_WEEK}.md").write_bytes(b"# week 7, rewritten\n")
+    assert em.main(["push", "--exports", str(ex), "--label", "t"]) == 0
+    line = capsys.readouterr().out.strip().splitlines()[-1]
+    assert line.startswith("EXPORTS-MIRROR host: pushed 1 file(s)"), line
+    assert line.endswith(" · untracked-and-skipped 5 (host/bulletins/NFL/2026-10-03/stray.json, "
+                         "host/bulletins/stray.md, host/latest/stray.json, host/stray.md, stray-root.txt)"), line
+    _, tree = _tree(remote, tmp_path)
+    assert not set(STRAYS) & set(tree) and f"host/{B_WEEK}.md" in tree
+
+
+def test_a_killed_runs_leftover_is_never_published_and_the_next_run_receipts_it(tmp_path, monkeypatch):
+    """277 item 1 R2-1, the case it names: a push killed after its copies and before its add leaves planned-at-the-time
+    copies untracked in the clone (a dated file, its latest copy, a bulletin). Their sources are then gone, so the next
+    run's plan no longer holds them: that run publishes only its own plan, never the leftovers, leaves them on disk
+    and names each as untracked-and-skipped."""
+    remote, clone = _remote(tmp_path), tmp_path / "clone"
+    ex = _exports(tmp_path, [("fixtures_NHL_2026-10-03.json", TODAY, '{"a":1}')])
+    assert em.push("host", ex, "t", remote, clone, today=TODAY)["pushed"]
+    gone = {"gone_2026-10-03.json": '{"gone": 1}'}
+    for name, body in gone.items():
+        (ex / name).write_text(body)
+        os.utime(ex / name, (_mt(TODAY), _mt(TODAY)))
+    _bulletins(ex, {"bulletins/NFL/2026-10-03/900009_gone.md": b"# a bulletin whose source goes\n"})
+    real_git = em._git
+
+    def killed(clone_, *args, **kw):
+        if args and args[0] == "add":                                         # killed before its first add
+            raise KeyboardInterrupt("killed")
+        return real_git(clone_, *args, **kw)
+    monkeypatch.setattr(em, "_git", killed)
+    with pytest.raises(KeyboardInterrupt):
+        em.push("host", ex, "killed", remote, clone, today=TODAY)
+    monkeypatch.setattr(em, "_git", real_git)
+    leftovers = ["host/2026-10-03/gone_2026-10-03.json", "host/bulletins/NFL/2026-10-03/900009_gone.md",
+                 "host/latest/gone.json"]
+    assert all((clone / rel).is_file() for rel in leftovers)                    # the killed run's copies, untracked
+    (ex / "gone_2026-10-03.json").unlink()                                      # their sources are gone
+    shutil.rmtree(ex / "bulletins")
+    (ex / "fixtures_NHL_2026-10-03.json").write_text('{"a":22}')                # and the next run has its own change
+    os.utime(ex / "fixtures_NHL_2026-10-03.json", (_mt(TODAY), _mt(TODAY)))
+    r = em.push("host", ex, "next", remote, clone, today=TODAY)
+    assert r["pushed"] and r["copied"] == 2 and r["untracked_skipped"] == leftovers, r
+    _, tree = _tree(remote, tmp_path)
+    assert not set(leftovers) & set(tree), tree                                 # never published
+    assert all((clone / rel).is_file() for rel in leftovers)                    # never deleted
+    assert "host/2026-10-03/fixtures_NHL_2026-10-03.json" in tree
+
+
+def test_the_squash_publishes_only_the_tracked_tree(tmp_path):
+    """277 item 1 R2-1, the squash kept consistent: the weekly orphan commit is the remote tip's tree as tracked, never
+    a whole-tree add, so a stray untracked file in the clone is not in the squashed commit; it stays on disk and the
+    squash's result names it (untracked_skipped)."""
+    remote, clone = _remote(tmp_path), tmp_path / "clone"
+    ex = _exports(tmp_path, [("a_2026-10-03.json", TODAY, "1")])
+    _three(ex)
+    assert em.push("host", ex, "one", remote, clone, today=TODAY)["pushed"]
+    _, before = _tree(remote, tmp_path)
+    _plant(clone, STRAYS)
+    r = em.squash(remote, clone)
+    assert r["squashed"] and r["untracked_skipped"] == sorted(STRAYS), r
+    co, tree = _tree(remote, tmp_path)
+    n = subprocess.run(["git", "-C", str(co), "rev-list", "--count", "HEAD"], capture_output=True, text=True).stdout
+    assert n.strip() == "1" and tree == before, tree                           # the tracked tree exactly, no stray
+    assert {rel: (clone / rel).read_bytes() for rel in STRAYS} == STRAYS
+
+
+def test_the_planned_deletions_remove_tracked_paths_only(tmp_path):
+    """277 item 1 R2-1, the deletions: the latest cleanup and the prune are planned, and go through git on TRACKED
+    paths only. A tracked latest/ file no planned kind holds is removed from the remote, and so is an expired dated
+    folder's tracked content (`pruned` names it); an untracked file in latest/ and one in the expired folder stay on
+    disk, never published, receipted as untracked-and-skipped; the planned latest copy and the new dated folder go."""
+    remote, clone = _remote(tmp_path), tmp_path / "clone"
+    ex = _exports(tmp_path, [("fixtures_NHL_2026-10-03.json", TODAY, '{"a":1}'),
+                             ("old_kind_2026-10-03.json", TODAY, "1")])
+    assert em.push("host", ex, "t", remote, clone, today=TODAY)["pushed"]
+    _, tree = _tree(remote, tmp_path)
+    assert {"host/latest/old_kind.json", "host/2026-10-03/old_kind_2026-10-03.json"} <= set(tree)
+    strays = {"host/latest/stray.json": b"{}", "host/2026-10-03/stray.md": b"# left\n"}
+    _plant(clone, strays)
+    later = TODAY + timedelta(days=14)                                      # 2026-10-03 now past retention
+    ex2 = _exports(tmp_path / "x2", [("fixtures_NHL_2026-10-17.json", later, '{"a":3}')])
+    r = em.push("host", ex2, "later", remote, clone, today=later)
+    assert r["pushed"] and r["pruned"] == ["2026-10-03"] and r["untracked_skipped"] == sorted(strays), r
+    co, tree = _tree(remote, tmp_path)
+    assert not any(f.startswith("host/2026-10-03/") for f in tree) and "host/latest/old_kind.json" not in tree
+    assert not set(strays) & set(tree)
+    assert (co / "host/latest/fixtures_NHL.json").read_text() == '{"a":3}'
+    assert "host/2026-10-17/fixtures_NHL_2026-10-17.json" in tree
+    assert {rel: (clone / rel).read_bytes() for rel in strays} == strays    # never deleted
+    assert not (clone / "host/latest/old_kind.json").exists()                # the tracked stale copy: removed
+    assert sorted(p.name for p in (clone / "host/2026-10-03").iterdir()) == ["stray.md"]
+
+
+@pytest.mark.parametrize("where", [".gitignore", "host/.gitignore", ".git/info/exclude"])
+def test_an_ignore_rule_in_the_clone_never_vetoes_a_planned_path_or_jams_the_push(tmp_path, where):
+    """277 item 1 R2-1, review of the fix: the planned-path add is the plan, so no ignore rule vetoes a path in it. A
+    stray untracked .gitignore (at the clone root or under <role>/) or a .git/info/exclude entry matching the next
+    day's dated, latest and bulletin copies never makes git's add exit 1 and abort the push (a stray is never deleted,
+    so that jam would be every push): the planned files reach the remote, the stray .gitignore is not published, stays
+    on disk, and is receipted as untracked-and-skipped; nothing is skipped as refused."""
+    remote, clone = _remote(tmp_path), tmp_path / "clone"
+    ex = _exports(tmp_path, [("fixtures_NHL_2026-10-03.json", TODAY, '{"a":1}')])
+    _three(ex)
+    assert em.push("host", ex, "t", remote, clone, today=TODAY)["pushed"]
+    rules = b"*.json\n*.md\n*.png\nhost/2026-10-04/\n"
+    (clone / where).parent.mkdir(parents=True, exist_ok=True)
+    (clone / where).write_bytes(rules)
+    later = TODAY + timedelta(days=1)
+    (ex / "fixtures_NHL_2026-10-04.json").write_text('{"a":2}')
+    os.utime(ex / "fixtures_NHL_2026-10-04.json", (_mt(later), _mt(later)))
+    new_bulletin = "bulletins/NFL/2026-10-04/900002_new.md"
+    _bulletins(ex, {new_bulletin: b"# new\n"})
+    r = em.push("host", ex, "t2", remote, clone, today=later)
+    assert r["pushed"] and "skipped" not in r, r
+    assert r.get("untracked_skipped", []) == ([] if where.startswith(".git/") else [where]), r
+    co, tree = _tree(remote, tmp_path)
+    assert {"host/2026-10-04/fixtures_NHL_2026-10-04.json", f"host/{new_bulletin}"} <= set(tree), tree
+    assert (co / "host/latest/fixtures_NHL.json").read_text() == '{"a":2}'
+    assert where not in tree and (clone / where).read_bytes() == rules          # never published, never deleted
+
+
+def test_a_tracked_file_another_writer_edits_after_the_sync_is_never_published(tmp_path, monkeypatch):
+    """277 item 1 R2-1, review of the fix: a tracked file the plan does not write (a bulletin whose source is gone),
+    edited in the clone by another writer between the sync and the add, is never staged: the remote keeps its tracked
+    bytes. (It is not untracked, so it is not on untracked_skipped; the next sync's reset puts the tracked bytes back,
+    as on main.)"""
+    remote, clone = _remote(tmp_path), tmp_path / "clone"
+    ex = _exports(tmp_path, [("fixtures_NHL_2026-10-03.json", TODAY, '{"a":1}')])
+    files = _three(ex)
+    assert em.push("host", ex, "t", remote, clone, today=TODAY)["pushed"]
+    (ex / f"{B_CLOSE}.md").unlink()                                             # its source is gone: unplanned now
+    (ex / "fixtures_NHL_2026-10-03.json").write_text('{"a":22}')                # and the push has its own change
+    os.utime(ex / "fixtures_NHL_2026-10-03.json", (_mt(TODAY), _mt(TODAY)))
+    real_sync = em._sync_to_remote
+
+    def sync_then_edit(clone_):
+        real_sync(clone_)
+        (clone_ / "host" / f"{B_CLOSE}.md").write_bytes(b"# edited by another writer\n")
+    monkeypatch.setattr(em, "_sync_to_remote", sync_then_edit)
+    r = em.push("host", ex, "t2", remote, clone, today=TODAY)
+    assert r["pushed"] and "untracked_skipped" not in r, r
+    co, _ = _tree(remote, tmp_path)
+    assert (co / "host" / f"{B_CLOSE}.md").read_bytes() == files[f"{B_CLOSE}.md"]
+    assert (co / "host/latest/fixtures_NHL.json").read_text() == '{"a":22}'

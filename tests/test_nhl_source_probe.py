@@ -1630,3 +1630,106 @@ def test_282_a_bare_answer_that_is_not_the_documented_year_prints_its_type_only(
     assert rc == 0, out
     assert "year as served" not in out and f"a {type(body).__name__} as served (its value not printed" in out
     assert str(body) not in out.replace(path or "\0", "")
+
+
+# ---- Codex #857, automatic review after the cap: the four P1s, each failing first (synthetic values only; 100) ------
+
+@pytest.mark.parametrize("text", ["Retain data | 100 TRY", "100 PHP", "PHP 100", "TRY 100", "100 KES", "100 NGN",
+                                  "100 EGP", "100 VND", "100 UAH", "100 RON", "100 BGN", "100 HRK", "100 ISK",
+                                  "100 PKR", "100 MAD", "100 PEN", "100 GEL", "100 KZT", "100 XOF", "100 COP"])
+def test_p1_1_a_price_with_an_unlisted_upper_case_iso_code_is_replaced(text):
+    got = probe.figures(text)
+    assert "100" not in got and "<figure not printed>" in got, got
+
+
+@pytest.mark.parametrize("text", ["give it 100 try", "100 php scripts", "try 100 times", "php 100 lines",
+                                  "100 tries", "Ron 100 saves", "100 pen strokes"])
+def test_p1_1_the_new_codes_match_upper_case_only_so_prose_is_whole(text):
+    assert probe.figures(text) == text
+
+
+def test_p1_1_a_terms_page_price_in_an_unlisted_code_never_prints(env, capsys, tmp_path):
+    page = "<p>Retain data | 100 TRY</p><p>On termination you must delete all stored data.</p>"
+    env.setattr(requests, "get", router({TERMS_URL: Resp(None, text=page)}))
+    out_file = tmp_path / "r.json"
+    rc, out = run([*TERMS_ONLY, "--out", str(out_file)], capsys)
+    assert "100" not in out and "100" not in out_file.read_text(), out
+
+
+@pytest.mark.parametrize("opt", ["--date", "--served-zone", "--out", "--stamp-field", "--skip"])
+@pytest.mark.parametrize("name", ["SPORTSDATAIO_NHL_KEY", "SPORTSDATAIO_API_KEY"])
+def test_p1_2_a_key_pasted_into_an_echoed_option_never_prints_in_its_refusal(env, capsys, tmp_path, opt, name):
+    if name == "SPORTSDATAIO_API_KEY":
+        env.delenv("SPORTSDATAIO_NHL_KEY")
+        env.setenv("SPORTSDATAIO_API_KEY", f" {KEY} ")
+    seen = []
+    env.setattr(requests, "get", router(seen=seen))
+    value = str(tmp_path / "data" / KEY) if opt == "--out" else KEY
+    rc = probe.main([*FULL, opt, value] + (["--skip", "status", "--skip", "games", "--skip", "terms"]
+                                           if opt == "--stamp-field" else []))
+    cap = capsys.readouterr()
+    text = cap.out + cap.err
+    assert rc == 2, text
+    assert KEY not in text and KEY.casefold() not in text.casefold() and KEY[:12] not in text, text
+    if opt != "--stamp-field":
+        assert seen == [], seen                                     # a preflight refusal: no call made
+
+
+def test_p1_2_the_key_is_registered_before_the_first_preflight_line(env, capsys):
+    loaded = []
+    env.setattr(probe, "_load_env", lambda: loaded.append(True))
+    rc, out = run(["--date", KEY], capsys)
+    assert rc == 2 and loaded == [True] and "REFUSED: --date" in out and KEY not in out, out
+
+
+@pytest.mark.parametrize("base", ["http://synthetic.invalid", "HTTP://synthetic.invalid", "ftp://synthetic.invalid",
+                                  "synthetic.invalid"])
+def test_p1_3_a_plaintext_base_url_is_refused_before_any_keyed_call(env, capsys, base):
+    seen = []
+    env.setattr(requests, "get", router(seen=seen))
+    rc, out = run(["--base-url", base], capsys)
+    assert rc == 2, out
+    assert "REFUSED: --base-url" in out and "not https://" in out and seen == [], (out, seen)
+    assert KEY not in out
+
+
+def test_p1_3_an_upper_case_https_scheme_is_https(env, capsys):
+    seen = []
+    env.setattr(requests, "get", router(seen=seen))
+    rc, out = run(["--base-url", "HTTPS://synthetic.invalid", "--skip", "games", "--skip", "starters",
+                   "--skip", "terms"], capsys)
+    assert "not https://" not in out and [u for u, h, p in seen] == ["HTTPS://synthetic.invalid/v3/nhl/scores/json/"
+                                                                       "CurrentSeason"], out
+
+
+def test_p1_3_the_terms_page_alone_is_not_covered_and_a_skipped_keyed_section_is_not_checked(env, capsys):
+    seen = []
+    env.setattr(requests, "get", router(seen=seen))
+    rc, out = run(["--base-url", "http://synthetic.invalid", *TERMS_ONLY], capsys)
+    assert "not https://" not in out and [u for u, h, p in seen] == [TERMS_URL], out
+    env.setattr(requests, "get", router({"http://plain.invalid/terms": Resp(None, text=TERMS_HTML)}, seen=seen))
+    rc, out = run(["--terms-url", "http://plain.invalid/terms", *TERMS_ONLY], capsys)
+    assert "not https://" not in out and seen[-1][0] == "http://plain.invalid/terms" and seen[-1][1] == {}, out
+
+
+@pytest.mark.parametrize("page", ["<p>Cancel data download</p>", "<p>cancel data download</p>",
+                                  "<p>Cancel data export now</p>", "<nav>Home | Cancel data download | Pricing</nav>",
+                                  "<p>Cancel and download data</p>", "<p>CANCEL DATA DOWNLOAD</p>"])
+def test_p1_4_a_cancel_control_with_a_lower_case_label_is_not_retention_evidence(env, capsys, tmp_path, page):
+    env.setattr(requests, "get", router({TERMS_URL: Resp(None, text=page)}))
+    out_file = tmp_path / "r.json"
+    rc, out = run([*TERMS_ONLY, "--out", str(out_file)], capsys)
+    assert rc == 2, out
+    assert json.loads(out_file.read_text())["sections"]["terms"]["retention_data_passages"] == 0
+
+
+@pytest.mark.parametrize("clause", ["You may cancel and we delete the data.",
+                                    "If you cancel, stored data is deleted.",
+                                    "Upon cancellation the data must be destroyed.",
+                                    "Cancel at any time; your data will be deleted.",
+                                    "Cancel and all data must be deleted.",
+                                    "Cancellation deletes the data."])
+def test_p1_4_real_cancellation_clauses_still_count(env, capsys, clause):
+    env.setattr(requests, "get", router({TERMS_URL: Resp(None, text=f"<p>{clause}</p>")}))
+    rc, out = run(TERMS_ONLY, capsys)
+    assert rc == 0, out

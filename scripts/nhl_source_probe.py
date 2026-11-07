@@ -42,8 +42,13 @@ and SPORTSDATAIO_API_KEY as the fallback (the API-Sports pattern of 271 item 2);
 one."): SPORTSDATAIO_NHL_KEY first, SPORTSDATAIO_API_KEY when the first is not set or blank (the repo's
 `os.getenv(A) or os.getenv(B)` pattern), read from .env or the environment. The console and the receipt (key_name) name
 WHICH name was read, never its value; every value found under either name, raw and trimmed, is in the redactor's
-secrets (every line and the receipt pass through it) and in the URL check below, so neither value ever prints. Neither
-set: sections 1-3 make no call and are REFUSED. The key travels in one request header (--key-header, UNVERIFIED
+secrets (every line and the receipt pass through it) and in the URL check below, so neither value ever prints; both are
+loaded and registered BEFORE the arguments are read (Codex #857 after the cap), so a key pasted into an option echoed
+by a refusal (--date, --served-zone, --out, argparse's own "invalid choice") never prints there. Neither
+set: sections 1-3 make no call and are REFUSED. Every keyed request URL (status, games, starters; a skipped section's
+not) must be https://, its scheme read on the URL as rendered without case: a plaintext --base-url is REFUSED before
+any call, the option named, never the key (Codex #857 after the cap; the terms page, sent no key, is not covered).
+The key travels in one request header (--key-header, UNVERIFIED
 default Ocp-Apim-Subscription-Key), never in a URL: a base or path naming a key is REFUSED before any call, and so is
 any URL this run would call (the base with each path, the date rendered, and the terms URL) that carries either name's
 VALUE under any name or in the path, raw, trimmed or URL-quoted, in any letter case (key_in_urls; the option and the
@@ -116,7 +121,10 @@ Four sections, each independent (a failure in one does not stop the next), in th
                  word in page furniture, TERMS_NOT_RETENTION, "the App Store", "app stores", "our online store", "the
                  store page", "visit our Data Store", "store credit", "your session has expired", "clear your browser
                  cache", a "Cancel" or "Delete account" button, "News archive", a menu item such as "Home | Store |
-                 Pricing" or "Historical Data Archive", is masked on a copy before the data test, the quote never
+                 Pricing" or "Historical Data Archive", a Cancel control whatever its label's case ("Cancel data
+                 download": a passage or menu item of at most five words opening with Cancel and holding no verb of
+                 obligation or being, Codex #857 after the cap), is masked on a copy before the data test,
+                 the quote never
                  changed); a retention
                  passage too long to quote whole; and a retention passage in which the price rule replaced a number
                  with no currency sign beside it (the probe cannot tell a price from the clause's own number, so the
@@ -130,7 +138,10 @@ by NAME only, at any depth (a goaltender, a stamp, a team, a status or an id ser
 value prints as its safe text and never travels raw); any currency figure in any printed text (a terms page included)
 is replaced by "<figure not printed>", the sign before or after the number ("$100", "100 €", "1.299,00 €", "¥100",
 "CAD 100", "100 US dollars"; a currency word too, "100 pounds", "100 British pounds", "100 Indian rupees", "100 yen",
-"100 million yen", "100-pound fee", "100 złoty", "Rs. 100", "100 Rs", Codex #857 round 2), and so is the number of a price written without a currency sign or word (PRICE_FIGURES:
+"100 million yen", "100-pound fee", "100 złoty", "Rs. 100", "100 Rs", Codex #857 round 2; an upper-case ISO
+code that reads as a word, "100 TRY", "100 PHP", "100 RON", "PEN 100", matched case-sensitively so "try" or "php"
+in prose is whole, Codex #857 after the cap), and so is the number of a price written without a currency sign
+or word (PRICE_FIGURES:
 "100 per month", "100/yr", "2.5k/month", "100 monthly", "100 billed annually", "100 p.a.", "costs 100", "a fee of 100",
 "Price (USD): 100", "The Pro plan is 100", "Total: 100", "1 000 per year", both ends of "100-500 per month", every
 item of "100, 200 or 300 € a month"; the words around it kept; over-redaction is the conservative side; a number is
@@ -166,7 +177,8 @@ Exit: 0 every read answered; 1 a call failed (network, HTTP other than 401/403, 
 shape its reader needs, a section that raised, a receipt that could not be written); 2 a read REFUSED (the key not set
 or not accepted, a required field not served, a stamp missing or unparseable, a value with no zone and no
 --served-zone, no --stamp-field or --stamp-quote, a 200 carrying an error body, a duplicated game id, the terms not
-read or holding no retention passage, --skip naming every section, a key or the key's value in a URL, --out under
+read or holding no retention passage, --skip naming every section, a key or the key's value in a URL, a keyed URL that
+is not https://, --out under
 data/ in any case or not writable, a bad --date or --served-zone). Both: 1 (a failed call is fixed first, the tennis
 probe's rule). Writes nothing unless --out is given (home-expanded once, that one path checked, made and
 written; never under data/: law 5; checked before any call).
@@ -247,8 +259,16 @@ _DIGITS = rf"\d(?:{_DEC}?\d|{_GS}\d{{3}}(?!\d))*"
 # Replaced whole before any line or receipt shows it, the number whole with its decimals (_AMOUNT, _DIGITS:
 # "€ 1 299,00", "1 000.50 USD", "CHF 1'299.00"). A digit is any decimal digit ("１００" included).
 _CUR_SIGN = "[$＄﹩€£¥￥₹₩₽₺₪₫฿¢]"
+# Codex #857 after the cap (P1): more ISO 4217 codes, among them ones that read as English words or names (TRY, PHP,
+# RON, PEN, MAD, GEL, BOB: "Retain data | 100 TRY" was copied verbatim), matched CASE-SENSITIVELY as upper-case codes
+# only, so "try", "php", "Ron" or "pen" in prose never matches; the first list keeps its case-insensitive match (the
+# conservative side). Left out: codes that are also NHL team abbreviations (LAK) or common upper-case words (ALL, CUP,
+# TOP, MOP, SOS).
 _CUR_CODE = (r"(?:USD|EUR|GBP|CAD|AUD|NZD|CHF|JPY|INR|CNY|RMB|HKD|SGD|KRW|TWD|SEK|NOK|DKK|ISK|PLN|CZK|HUF|RUB|ZAR|ILS|"
-             r"NIS|AED|SAR|QAR|THB|MYR|IDR|MXN|BRL|ARS|CLP|COP)")
+             r"NIS|AED|SAR|QAR|THB|MYR|IDR|MXN|BRL|ARS|CLP|COP"
+             r"|(?-i:TRY|PHP|KES|NGN|EGP|VND|UAH|RON|BGN|HRK|RSD|MKD|BAM|MDL|BYN|GEL|AMD|AZN|KZT|UZS|MNT|PKR|BDT|LKR|"
+             r"NPR|MMK|KHR|MAD|TND|DZD|GHS|ETB|TZS|UGX|ZMW|BWP|NAD|MUR|XOF|XAF|PEN|UYU|PYG|BOB|CRC|DOP|GTQ|HNL|NIO|JMD|"
+             r"TTD|JOD|KWD|BHD|OMR|LBP|IQD|IRR))")
 # Codex #857 round 2: the currency words after a number widened ("100 pounds", "100 yen", "100 rupees"; "Retain data |
 # 100 pounds" copied verbatim), with "reais", the Polish spellings ("złoty", "złotych", "zł"), "lei", "forint" and
 # "Rs" after the number (capital R only: "ids 1234 RS" is not a price). Left out as ordinary English or too short to
@@ -395,6 +415,12 @@ TERMS_NOT_RETENTION = re.compile(
     r"|\b(?:clear|empty|delete|refresh)\s+(?:your\s+|the\s+)?(?:browser(?:\s+s)?\s+)?cache\b"   # clear your cache
     r"|\bcancel\s+buttons?\b|(?-i:\bCancel)(?:\W*$|(?=\W+(?-i:[A-Z])))"  # a Cancel button, "Cancel Download data"
     r"|(?-i:^\W*Delete)\s+(?:my\s+|your\s+)?account\b"                   # a "Delete account" button
+    r"|(?:^|[|•·])[^\w|•·]*cancel\b(?![^|•·]*\b(?:must|may|might|shall|should|will|would|can|cannot|could|is|are|be|"
+    r"been|was|were)\b)(?:[^\w|•·]+\w+){0,4}[^\w|•·]*(?=[|•·]|$)"
+    #     Codex #857 after the cap (P1): a Cancel control in any case, its label in any case ("Cancel data download",
+    #     "cancel data download", a menu item "Home | Cancel data download | Pricing"): a passage or item of at most
+    #     five words that begins with Cancel and holds no verb of obligation or being (must, may, shall, will, is ...),
+    #     masked whole; "you may cancel and we delete the data", "If you cancel, stored data is deleted" still count
     r"|\b(?:news|blog|press|posts?|articles?|events?)\s+archives?\b"                       # News archive
     r"|(?:^|[|•·])\s*(?-i:(?:[A-Z][\w&-]*\s+){0,2})(?:cancel|archives?|stores?)\s*(?=[|•·]|$)"
     #                                    a menu item: "Home | Store | Pricing", "Historical Data Archive", "Data Store"
@@ -1300,12 +1326,42 @@ def key_in_urls(a, raws: dict[str, str]) -> str | None:
     return None
 
 
+class _Parser(argparse.ArgumentParser):
+    """argparse's refusal ("invalid choice: '<the value>'") passes the run's redactor (`say`, set before parsing)."""
+    say = None
+
+    def error(self, message):
+        text = f"{self.format_usage()}{self.prog}: error: {message}"
+        print(self.say.redact(text) if self.say else text, file=sys.stderr)
+        raise SystemExit(2)
+
+
+def plaintext_url(a) -> str | None:
+    """Codex #857 after the cap (P1): every keyed request URL (status, games, starters; a skipped section's not) is
+    https://, the scheme read on the URL as rendered, without case ("HTTPS://" is https), before any call: a plaintext
+    base sends the key in the clear. The option is named, the key's value never. The terms page (sent no key) is not
+    covered. None when every keyed URL is https://."""
+    def scheme(u: str) -> str:
+        try:
+            return urlsplit(u).scheme.casefold()
+        except ValueError:
+            return ""
+    base = a.base_url.rstrip("/")
+    for name, opt, path in (("status", "--status-path", a.status_path), ("games", "--games-path", a.games_path),
+                            ("starters", "--starters-path", a.starters_path)):
+        if name not in a.skip and scheme(base + render(path, a.date)) != "https":
+            label = "--base-url" if scheme(base) != "https" else f"--base-url with {opt}"
+            return (f"REFUSED: {label} is not https:// (section {name} sends the key in a header, never over "
+                    "plaintext); no call made")
+    return None
+
+
 def main(argv=None) -> int:
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     U = "UNVERIFIED default; the operator confirms it against the vendor's documentation"
     V = (f"VERIFIED default (the vendor's OpenAPI 3.1 document {OPENAPI_DOC}, read by the architect 2026-11-07, "
          "addendum 282 item 2(b); the {format} segment written json, lower case)")
-    ap = argparse.ArgumentParser(description="NHL source probe (addendum 279 item 3(a); read-only)")
+    ap = _Parser(description="NHL source probe (addendum 279 item 3(a); read-only)")
     ap.add_argument("--date", default=today, help="the game day, YYYY-MM-DD, a UTC calendar day (default: today UTC)")
     ap.add_argument("--stamp-field", action="append", default=None,
                     help="the starters answer's field that says when the projection was published, named from the "
@@ -1338,13 +1394,22 @@ def main(argv=None) -> int:
     ap.add_argument("--away-goalie-field", default=AWAY_GOALIE_FIELD, help=U + " (the starters answer)")
     ap.add_argument("--skip", action="append", default=[], choices=SECTIONS)
     ap.add_argument("--out", type=Path, default=None, help="write the JSON receipt here (never under data/)")
+    # Codex #857 after the cap (P1): the key is loaded and BOTH names' values registered in the redactor BEFORE any
+    # line that echoes an option (argparse's own error, --date, --served-zone, --out ...), so a key pasted into an
+    # option never prints in its refusal. A lookup spends no call; no call is made earlier than before.
+    say = Out()
+    _load_env()
+    key_name_read, raw, raws = read_key()                       # 282 item 2(a): the first name, else the fallback
+    say.secrets.update(f for r in raws.values() for x in (r, r.strip()) if x.strip()
+                       for f in (x, repr(x)[1:-1]))             # both names' values, raw and trimmed, their reprs too
+    ap.say = say                                                # argparse's own refusal passes the redactor too
     try:
         a = ap.parse_args(argv)
     except SystemExit as e:
         return REFUSED if e.code else OK
+    a.key_name = key_name_read
     a.status_value_field = a.status_value_field or list(STATUS_VALUE_FIELDS)
     a.out = a.out.expanduser() if a.out else None    # once: the preflight, the write and the line name this one path
-    say = Out()
     if set(SECTIONS) <= set(a.skip):
         say("REFUSED: --skip names every section; nothing would be read")
         return REFUSED
@@ -1374,12 +1439,8 @@ def main(argv=None) -> int:
         if KEY_IN_URL.search(v):
             say(f"REFUSED: {label} names a key in the URL; the key travels in --key-header only, never in a URL")
             return REFUSED
-    _load_env()
-    a.key_name, raw, raws = read_key()                          # 282 item 2(a): the first name, else the fallback
-    say.secrets.update(f for r in raws.values() for x in (r, r.strip()) if x.strip()
-                       for f in (x, repr(x)[1:-1]))             # both names' values, raw and trimmed, their reprs too
     key = raw.strip()
-    refused = key_in_urls(a, raws)                              # before any call, the terms page's included
+    refused = key_in_urls(a, raws) or plaintext_url(a)          # before any call, the terms page's included
     if refused:
         say(refused)
         return REFUSED

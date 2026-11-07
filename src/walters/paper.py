@@ -71,8 +71,15 @@ PAPER_RULING = "ARCHITECT 2026-10-20, addendum 146 item 5(a)"
 # CL; the ruling's text is kept verbatim above), placed beside the other two-way records so the section reads by kind,
 # and the two-way record beside NHL's: always printed, scored on the kalshi_only two-way close, its FINISHED games only
 # (a CANCELLED row, the FT-twin CANC listings of addendum 272 item 3 among them, is never read).
-CLOSE_RECORD_COMPS = ("NHL", "NCAA", "NBA", "CL")     # the ruling's own list (5(b)) and NBA (261 item 0): always printed
-TWO_WAY_RECORD = ("NHL", "NCAA", "NBA")                # scored by the kalshi_only two-way close, as built
+# Tennis (lane tennis-market-only, #838) joins on the same words of 261 item 0, ATP and WTA beside NBA. ARCHITECT
+# 2026-11-06, addendum 269 item 2, verbatim in part: "for the MARKET-ONLY record, KALSHI'S OWN SETTLEMENT IS THE RESULTS
+# SOURCE. The PAPER record measures the market — the close captured, what the market then paid — and the settled
+# market says exactly that: the winner by name on yes/no, the fraction on a scalar." A tennis row has no score (NULL
+# AND LABELLED, 269 item 2), so its result is the settlement's winner (matches.full_time_result, TENNIS_RECORD in
+# _result); a SETTLED_SCALAR row is never FINISHED, so it is never read here: no winner, never scored.
+CLOSE_RECORD_COMPS = ("NHL", "NCAA", "NBA", "ATP", "WTA", "CL")   # 5(b)'s list, NBA and tennis (261 item 0)
+TWO_WAY_RECORD = ("NHL", "NCAA", "NBA", "ATP", "WTA")  # scored by the kalshi_only two-way close, as built
+TENNIS_RECORD = ("ATP", "WTA")                         # result = the settlement's winner (269 items 2-3(b))
 # THE COVERAGE BASIS (ARCHITECT 2026-11-06 12:50 ET, addendum 272 item 3, verbatim in part): "a CANC row with an FT
 # twin is kept as served and EXCLUDED from the game counts by the provider's own ids (never deduplicated by guess,
 # never deleted); the coverage page's totals count SCHEDULED + FINISHED + POSTPONED, not CANCELLED." Read by
@@ -511,6 +518,11 @@ def _result(s, m, code: str) -> tuple[str | None, str | None]:
         if hs == as_:
             return None, "tie"
         return ("HOME" if hs > as_ else "AWAY"), None
+    if code in TENNIS_RECORD:
+        # addendum 269 item 3(b): "'yes' / 'no' → the winner = expiration_value, the loser the other market's player";
+        # the adapter stores that as full_time_result (HOME / AWAY); nothing else decides a tennis row
+        r = str(getattr(m.full_time_result, "name", m.full_time_result))
+        return (r, None) if r in ("HOME", "AWAY") else (None, "no_result")
     if m.home_score is None or m.away_score is None or m.home_score == m.away_score:
         return None, "no_result"
     return ("HOME" if m.home_score > m.away_score else "AWAY"), None
@@ -530,7 +542,7 @@ def three_way_comps() -> tuple[str, ...]:
     """The market-only competitions the three-way close may score beside CL (addendum 150 item 1: "every three-way
     competition the replay prices"): the code's own market-only sets, imported, never copied (the src side of
     coverage_map.market_only_sets: desk_policy.SHADOW_VENUE_COMPS, which chains.EXPANSION_CODES and
-    KALSHI_CAPTURE_ONLY equal; cup_coeff.EXAM_COMPS; export._MARKET_ONLY_REASON), less CLOSE_RECORD_COMPS (the ruling's own three and NBA).
+    KALSHI_CAPTURE_ONLY equal; cup_coeff.EXAM_COMPS; export._MARKET_ONLY_REASON), less CLOSE_RECORD_COMPS (the ruling's own three, NBA and tennis).
     close_record keeps the soccer ones (a three-way board) and prints one only when a FINISHED game of its window
     holds a stored Kalshi 1X2 leg (the reading of "the replay prices")."""
     from src.walters.cup_coeff import EXAM_COMPS
@@ -653,7 +665,7 @@ def guarded_two_way_close(m, rows, mism: dict, tickers: dict, current: dict | No
 def close_record(days: int, now: datetime | None = None) -> dict:
     """{code: record}, each record naming its close kind (`kind`); the two kinds never pool. The FINISHED games of
     the last `days` days on the kickoff in this machine's DB.
-    NHL, NCAA and NBA (TWO_WAY_RECORD; NBA by addendum 261 item 0), as built: each game scored against close.close_from_kalshi (the kalshi_only close,
+    NHL, NCAA, NBA, ATP and WTA (TWO_WAY_RECORD; NBA and tennis by addendum 261 item 0), as built: each game scored against close.close_from_kalshi (the kalshi_only close,
     called directly: books are not read) after the mismatched-legs guard (kalshi_legs.mismatched, each side's newest
     leg), then the HOME row the close reads judged with those newest legs (close_row_mismatched: Codex round 2 P1 on
     #640, R47; close.py unchanged), in this order of exclusion: a three-way board (the rule is two-way only), no
@@ -1014,7 +1026,8 @@ def close_record_section(rec: dict, days: int) -> str:
     intro = (f"_The bar a college or cup candidate is scored against (roadmap: \"no college candidate has been scored "
              f"against a close\"). Per competition, the FINISHED games of the last {days} days on the kickoff in this "
              "machine's DB that have a decided result and a close; every line names its close kind, and the two "
-             f"kinds never pool. close: {KIND_TWO} (NHL, NCAA, NBA): the mid of the last two-sided Kalshi HOME quote "
+             f"kinds never pool. close: {KIND_TWO} (NHL, NCAA, NBA, ATP, WTA; tennis decided by Kalshi's settlement): "
+             "the mid of the last two-sided Kalshi HOME quote "
              "before kickoff within the 2c spread cap (src/walters/close.py close_from_kalshi); the favourite is the "
              "side the close prices above the other. close: "
              f"{KIND_THREE} (CL, and each other market-only three-way competition with a stored Kalshi 1X2 leg in the "

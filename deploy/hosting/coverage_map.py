@@ -96,7 +96,7 @@ v7"."
                    skips it, or fails it on a malformed setting): no schedule that day, the gate named on the line.
       MARKET-ONLY  the code's own market-only sets, imported (market_only_sets): desk_policy.SHADOW_VENUE_COMPS (the set
                    cli._refuse_shadow_league refuses), chains.EXPANSION_CODES, chains.KALSHI_CAPTURE_ONLY,
-                   export._MARKET_ONLY_REASON (the market-only fixtures file's NHL, NCAA, UNL, NBA) and cup_coeff.EXAM_COMPS
+                   export._MARKET_ONLY_REASON (the market-only fixtures file's NHL, NCAA, UNL, NBA, ATP, WTA) and cup_coeff.EXAM_COMPS
                    (the cup track's competitions, market-only until its gate passes; EL is the adapter's alias for
                    UEL). SHADOW and MARKET-ONLY both: `MARKET-ONLY · shadow <tag>`.
       UNKNOWN      none applies (law 4), with every reason: no closing family or no live model, no lane names it or

@@ -242,6 +242,30 @@ CHAINS: dict[str, dict] = {
             ["sync-kalshi-nba"],
         ],
     },
+    # --- TENNIS, market-only (ARCHITECT 2026-11-05, addendum 261 item 2(c): "the chain tennis-daily"; 2026-11-06,
+    # addendum 269 items 1-3: Kalshi's two tour series are the fixture source AND the results source; lane
+    # tennis-market-only, #838). As built, on the NBA's pattern where tennis does not differ:
+    # - THE WINDOW: one step per tour, `sync-matches` over the ticker days {yesterday} .. {tomorrow} (the adapter reads
+    #   the series' whole listing to its last page, 269 item 3(d), and writes the events dated inside the window, the
+    #   players first, from the same read). No --season: the tennis season is the ticker's year (int-style, the
+    #   adapter stamps each row), and a fixed one would drop January's rows after 12-31. The window is three days and
+    #   never wider than cli.TENNIS_MAX_WINDOW_DAYS: addendum 270 item 5, "no backfill is scheduled". {yesterday} reads
+    #   the results settled since the last run; {tomorrow} gives the window chain the rows it plans from.
+    # - THE KALSHI STEPS are `sync-kalshi-atp` and `sync-kalshi-wta` (the shared matcher, then tennis's player check).
+    # - NO COVERAGE STEP: intl-daily's 07:20 UTC `coverage --json` is THE coverage write (addendum 274 item 2(2):
+    #   "No second writer, ever."); this chain's timer (06:53 UTC) runs before it.
+    # - backup "daily", as nba-daily; no active_from (the chain's timer is the architect's block, 261 item 0, and the
+    #   first PAPER record is "the first KXATPMATCH / KXWTAMATCH event the chain captures on or after 12-28", 269
+    #   item 2); no export, no predict, no shadow: no model is declared (261 item 2(e)).
+    "tennis-daily": {
+        "backup": "daily",
+        "steps": [
+            *[["sync-matches", "--competition", code, "--date-from", "{yesterday}", "--date-to", "{tomorrow}"]
+              for code in ("ATP", "WTA")],
+            ["sync-kalshi-atp"],
+            ["sync-kalshi-wta"],
+        ],
+    },
     # --- International (ARCHITECT 2026-10-02): intl-elo-v2 PASSED; the UNL
     # shadow runs through its 60-game confirmation window. The daily intl
     # sync is INCREMENTAL (--since {today}: only seasons still running), its
@@ -407,6 +431,10 @@ WINDOW_KALSHI: dict[str, list[list[str]]] = {
     # precedent, tiered as every entry (near / imminent only). Like NHL's, its line moves page (sp_window_page reads
     # this live list); the soccer capture-only table is pinned to the expansion leagues and is not the NBA's.
     "NBA": [["sync-kalshi-nba"]],
+    # ATP / WTA (ARCHITECT 2026-11-05, addendum 261 item 0: "the hourly capture tier"; 269 item 3(a)): the NBA's
+    # precedent, tiered as every entry (near / imminent only).
+    "ATP": [["sync-kalshi-atp"]],
+    "WTA": [["sync-kalshi-wta"]],
     "PL": [["sync-kalshi-soccer", "--competition", "PL"]],
     "UNL": [["sync-kalshi-soccer", "--competition", "UNL"]],
     # CL (ARCHITECT 2026-10-13, addendum 58): market-only like UNL, read on the window card. "The host takes it with
@@ -591,7 +619,7 @@ FRESHEN_MIN_INTERVAL_S = 3600
 # in H0-16(b) designated-days mode. tests/test_hosting_pack.py re-checks it.
 UNMETERED = frozenset({
     "sync-kalshi", "sync-kalshi-soccer", "sync-kalshi-nfl", "sync-kalshi-nhl",
-    "sync-kalshi-ncaa", "sync-kalshi-nba", "evaluate", "nfl-grade", "predict", "predict-nfl",
+    "sync-kalshi-ncaa", "sync-kalshi-nba", "sync-kalshi-atp", "sync-kalshi-wta", "evaluate", "nfl-grade", "predict", "predict-nfl",
     "improve", "results-tally", "export-results", "export-predictions", "window-card",
     "export-nfl-predictions", "export-nfl-results", "export-fixtures",
     "export-nhl-predictions",

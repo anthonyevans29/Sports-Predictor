@@ -89,6 +89,16 @@ KALSHI_FEE_M = {                       # series -> (taker M, maker M), pre-live
     # doctrine is take), is the receipt that settles it, as #88's fills settled rounding." NBA rows price both costs,
     # both sides (274 item 2(1)); the record is PAPER and no NBA call exists to price (no model, no Desk family).
     "KXNBAGAME": (1.0, 1.0),
+    # KXATPMATCH and KXWTAMATCH (lane tennis-market-only, #838): ARCHITECT 2026-11-06, addendum 274 item 1(b), "read
+    # from the schedule" on 11-06 (the schedule above, "Last updated and effective: July 7, 2026"), as the repo records
+    # the ruling: the roadmap's tennis lane, "the fee M for the two series READ from the schedule, KXATPMATCH and
+    # KXWTAMATCH (1.0, 1.0) (274 item 1(b), not in #848)", and #838 issuecomment-6698343173, "269 item 3(e)'s fee M is
+    # satisfied (addendum 274 item 1(b)): KXATPMATCH and KXWTAMATCH (1.0, 1.0), read from the schedule; the tennis
+    # wiring PR carries it". Addendum 269 item 3(e): "the fee M for the two series from the published schedule, matched
+    # by series". Tennis rows price both costs, both sides (two-way); the record is PAPER and no tennis call exists to
+    # price (no model, no Desk family: 261 item 4).
+    "KXATPMATCH": (1.0, 1.0),
+    "KXWTAMATCH": (1.0, 1.0),
 }
 # Competition code -> the Kalshi game series its quotes come from (cli
 # sync-kalshi-* and adapters/kalshi.py SOCCER_GAME_SERIES). A code missing
@@ -109,6 +119,15 @@ KALSHI_SERIES_BY_COMPETITION = {
     # fee M is KALSHI_FEE_M's entry above, (1.0, 1.0) as RULED in addendum 274 item 1(a). Two-way (the shared path,
     # kalshi_sync.sync_kalshi_mlb with series_override, cli `sync-kalshi-nba`); market-only, PAPER, no call.
     "NBA": "KXNBAGAME",
+    # ARCHITECT 2026-11-06, addendum 269 item 1 K1 (lane tennis-market-only, #838): "the two tour series READ as served:
+    # KXATPMATCH 'ATP Tennis Match' and KXWTAMATCH 'WTA Tennis Match' (category Sports, tags Tennis, frequency custom)
+    # [...] the market-only record is the two tour series and nothing else" (the stage-1 digest, #838
+    # issuecomment-6690719842). Two-way, one market per player (269 item 1 K2); the fixtures are the series' own events
+    # (adapters/kalshi_tennis.py), the capture the shared matcher's (ingestion/tennis_kalshi.py, cli
+    # `sync-kalshi-atp` / `sync-kalshi-wta`). Their fee M is KALSHI_FEE_M's entries above (274 item 1(b)).
+    # Market-only, PAPER, no call.
+    "ATP": "KXATPMATCH",
+    "WTA": "KXWTAMATCH",
 }
 
 
@@ -181,7 +200,7 @@ def kalshi_exec(bid: float | None, ask: float | None, competition: str | None = 
     with exactly the home rules mirrored: same M, same per-fill fee, maker null
     when there is no NO bid (no home ask), when the join reaches the NO ask (a
     1c spread: joining = taking), or when the maker M is unknown.
-    TWO-WAY ONLY (two_way=True: NFL / NHL / NCAA / MLB / NBA). On a three-way 1X2
+    TWO-WAY ONLY (two_way=True: NFL / NHL / NCAA / MLB / NBA / ATP / WTA). On a three-way 1X2
     market (soccer HOME/DRAW/AWAY) NO on HOME is DRAW-OR-AWAY, not an away bet,
     so every away field stays null. The caller states two_way from the row's
     own sport; the default False keeps the away fields null when the caller

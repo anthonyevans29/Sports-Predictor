@@ -377,7 +377,8 @@ def test_the_bootstrap_routes_basketball_after_every_existing_family():
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "deploy" / "hosting"))
     import bootstrap
     assert bootstrap.SPORT_CLI["BASKETBALL"] == "basketball"
-    assert bootstrap.FAMILY_ORDER == ["MLB", "NFL", "NHL", "SOCCER", "BASKETBALL"]
+    # TENNIS after it (addendum 261 item 2(c), lane tennis-market-only): basketball's place is unchanged
+    assert bootstrap.FAMILY_ORDER == ["MLB", "NFL", "NHL", "SOCCER", "BASKETBALL", "TENNIS"]
 
 
 def test_the_bootstrap_plans_the_nba_kalshi_sync_only_when_the_reference_holds_basketball():

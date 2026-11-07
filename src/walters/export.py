@@ -1173,6 +1173,10 @@ _MARKET_ONLY_REASON = {
     # one of the code's market-only sets, which gives coverage its MARKET-ONLY status and PAPER lines
     # (coverage_map.market_only_sets) and export-fixtures its note.
     "NBA": "NBA basketball is market-only (addendum 261 item 1): no model declared, no call; the record is PAPER.",
+    # ARCHITECT 2026-11-05, addendum 261 item 4 (lane tennis-market-only, #838): no model and no call; 2(e): "A MODEL:
+    # NONE DECLARED". As NBA's line above: coverage's MARKET-ONLY status and PAPER lines, export-fixtures' note.
+    "ATP": "ATP tennis is market-only (addendum 261 item 4): no model declared, no call; the record is PAPER.",
+    "WTA": "WTA tennis is market-only (addendum 261 item 4): no model declared, no call; the record is PAPER.",
 }
 _CUP_REASON = ("Cup model track SUSPENDED 2026-09-25 (rotation information "
                "floor) — market-only for the season.")
@@ -1648,7 +1652,7 @@ def results_tally(days: int = 30, out_path: str = "RESULTS.md", report=None, exp
     except Exception:
         lines.append("## UNL — SHADOW, CONFIRMATION WINDOW\n\nGrade unavailable.\n")
     # THE CLOSE'S RECORD (ARCHITECT 2026-10-20, addendum 146 item 5(b)): the market-only competitions on their two
-    # close kinds, never pooled: the kalshi_only two-way close (NHL, NCAA; NBA by addendum 261 item 0) and the three-way Kalshi close of addendum
+    # close kinds, never pooled: the kalshi_only two-way close (NHL, NCAA; NBA, ATP, WTA by addendum 261 item 0) and the three-way Kalshi close of addendum
     # 150 (CL and the other market-only three-way competitions); the bar a college or cup candidate is scored
     # against; PAPER, never a call
     try:

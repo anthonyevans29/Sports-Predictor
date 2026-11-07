@@ -106,8 +106,16 @@ ANCHORS = [
     # the only yardstick (completed seasons exact).
 ]
 SPORT_CLI = {"SOCCER": "soccer", "MLB": "mlb", "NFL": "nfl", "NHL": "nhl",  # sync-competitions choices
-             "BASKETBALL": "basketball"}    # addendum 261 item 0: the bootstrap ORDER for a new sport
-FAMILY_ORDER = ["MLB", "NFL", "NHL", "SOCCER", "BASKETBALL"]
+             "BASKETBALL": "basketball",    # addendum 261 item 0: the bootstrap ORDER for a new sport
+             "TENNIS": "tennis"}            # addendum 261 item 2(c), lane tennis-market-only
+FAMILY_ORDER = ["MLB", "NFL", "NHL", "SOCCER", "BASKETBALL", "TENNIS"]
+# THE SPORTS WHOSE ROWS ACCRUE, NEVER BACKFILLED (ARCHITECT 2026-11-06, addendum 270 item 5, verbatim in part: "The pot
+# ACCRUES from 12-28 under the chain as the PAPER record itself; a ONE-TIME read-only backfill of the 2026 season's
+# settled markets [...] is possible on the day a model lane asks for it, by a block of mine, and not before"). A
+# season-wide sync of these is that backfill (cli refuses a tennis sync-matches without a date window), so neither the
+# bootstrap nor the catch-up plans one: the competitions are created and the Kalshi capture is planned; the rows come
+# from the chain (tennis-daily) and the window chain.
+ACCRUE_ONLY = ("TENNIS",)
 IN_PLAY = ("SCHEDULED", "LIVE", "POSTPONED")
 SEED = "__seed-model-registry__"  # a bootstrap-internal step, not a cli command
 
@@ -277,6 +285,8 @@ def plan(ref: dict) -> list[list[str]]:
         raise SystemExit(f"✗ reference has sports with no sync-competitions route: {unknown}")
     steps += [["sync-competitions", "--sport", SPORT_CLI[s]] for s in sports]
     for _sport, comp, season in pairs(ref):
+        if _sport in ACCRUE_ONLY:
+            continue                    # addendum 270 item 5: accrues under the chain, never a season pull
         steps.append(["sync-teams", "--competition", comp, "--season", season])
         steps.append(["sync-matches", "--competition", comp, "--season", season])
     # market day-one block: first book prices for every in-season competition
@@ -298,6 +308,10 @@ def plan(ref: dict) -> list[list[str]]:
     # plans exactly the block above (no existing bootstrap changes).
     if "BASKETBALL" in sports:
         steps.append(["sync-kalshi-nba"])
+    # TENNIS (addendum 261 item 2(c), 269 item 3(a)): the two tour series' capture, as NBA's; a reference without
+    # tennis plans exactly the block above
+    if "TENNIS" in sports:
+        steps += [["sync-kalshi-atp"], ["sync-kalshi-wta"]]
     return steps
 
 
@@ -330,6 +344,10 @@ def catch_up_plan(lap: dict, ref: dict, skip: set = frozenset()) -> dict:
         row = {"sport": sport, "comp": comp, "season": season, "laptop": lap_n,
                "reference": ref_n, "short": ref_n - lap_n, "new_comp": comp not in lap_comps,
                "skipped": sport in skip, "steps": []}
+        if sport in ACCRUE_ONLY:
+            row["accrues"] = True       # addendum 270 item 5: listed, never a season pull (the chain accrues it)
+            behind.append(row)
+            continue
         if not row["skipped"]:
             if row["new_comp"] and sport in SPORT_CLI and sport not in comps_done:
                 row["steps"].append(["sync-competitions", "--sport", SPORT_CLI[sport]])

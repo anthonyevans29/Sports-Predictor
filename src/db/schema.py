@@ -58,6 +58,11 @@ class Sport(str, enum.Enum):
     # create_constraint is False); the column stores the member NAME ('BASKETBALL'), on SQLite a VARCHAR whose
     # declared length is not enforced. The laptop's own schema is the operator's read (the PR body names it).
     BASKETBALL = "basketball"
+    # ARCHITECT 2026-11-05, addendum 261 item 2(a) and 2(c) (lane tennis-market-only, #838): "Sport.TENNIS,
+    # competitions ATP and WTA, players as teams (item 2(a): sport TENNIS, external_ids kind player)". Stored as the
+    # member NAME ('TENNIS'), as BASKETBALL above: no CHECK constraint in the metadata; the laptop's own schema is the
+    # operator's read (the PR body names it).
+    TENNIS = "tennis"
 
 
 class MatchStatus(str, enum.Enum):
@@ -70,6 +75,13 @@ class MatchStatus(str, enum.Enum):
     # provider id is retired (NOT FOUND), with no live twin and no provider
     # game for the pair: never deleted, never a fixture, never an odds target.
     STALE_ORPHAN = "stale_orphan"
+    # ARCHITECT 2026-11-06, addendum 269 item 3(b) (lane tennis-market-only, #838): "'scalar' → the status
+    # SETTLED_SCALAR (or the vocabulary's word Code proposes), NO winner, the fraction kept as the settlement value".
+    # The ruling's own word, proposed as is. Written by the kalshi_tennis adapter only (a finalized KXATPMATCH /
+    # KXWTAMATCH event whose markets both settled 'scalar'): never FINISHED, never a winner, never a score; the fraction
+    # as served is on the row's external_ids["kalshi_settlement"]. Not void (closing.VOID): the market existed and
+    # settled. Stored as the member NAME (14 characters; SQLite does not enforce the column's declared length).
+    SETTLED_SCALAR = "settled_scalar"
 
 
 class Result(str, enum.Enum):

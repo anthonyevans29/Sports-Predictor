@@ -547,3 +547,59 @@ def test_a_non_object_market_entry_refuses_the_listing_never_dropped(bad):
     answers = [{"markets": [{"ticker": "KXATPMATCH-26DEC28AAABBB-AAA"}, bad], "cursor": ""}]
     with pytest.raises(kt.Refused, match="not an object: the market set is incomplete"):
         kt.read_all(lambda p, q: answers.pop(0), "KXATPMATCH", "settled")
+
+
+# ---- addendum 286 item 4(c): the scalar correction on the update path ---------------------------------------------------
+
+def test_a_finished_row_re_synced_as_scalar_is_settled_scalar_with_no_winner_and_the_receipt_reads_zero(
+        monkeypatch, tennis_rows, tmp_path, capsys):
+    """ARCHITECT 2026-11-07, addendum 286 item 4(c): "on the update path, an incoming SETTLED_SCALAR clears
+    full_time_result explicitly — a SETTLED_SCALAR row carries no winner, ever". A row stored FINISHED with its winner,
+    then served as a scalar settlement (a correction), is SETTLED_SCALAR with full_time_result NULL, its fraction kept;
+    the stored receipt's "SETTLED_SCALAR carrying a winner" check reads 0 on a .backup copy of that database."""
+    import sqlite3
+
+    import cli
+    from sqlalchemy import text
+    from scripts import tennis_certification_receipt as R
+    from src.db.database import session_scope
+    ev = "26DEC28AAABBB"
+    fake = FakeKalshi({("KXATPMATCH", "settled"): [pair(ev, "Ana Synthwood", "Bea Fakely", results=("yes", "no"),
+                                                        exps=("Ana Synthwood", "Ana Synthwood"), status="finalized")]})
+    _fake_http(monkeypatch, fake)
+    run = CliRunner()
+    assert run.invoke(cli.cli, ["sync-competitions", "--sport", "tennis"]).exit_code == 0
+    window = ["sync-matches", "--competition", "ATP", "--date-from", "2026-12-27", "--date-to", "2026-12-29"]
+
+    def row():
+        with session_scope() as s:
+            return s.execute(text(
+                "SELECT m.status, m.full_time_result, json_extract(m.external_ids, '$.kalshi_settlement') "
+                "FROM matches m JOIN competitions c ON c.id = m.competition_id WHERE c.code = 'ATP'")).all()
+    res = run.invoke(cli.cli, window)
+    assert res.exit_code == 0, res.output
+    (first,) = row()
+    assert first[:2] == ("FINISHED", "HOME")
+    # the correction: the same event served as a scalar settlement
+    fake.pages = {("KXATPMATCH", "settled"): [pair(ev, "Ana Synthwood", "Bea Fakely", results=("scalar", "scalar"),
+                                                   values=("0.4000", "0.6000"), status="finalized")]}
+    res = run.invoke(cli.cli, window)
+    assert res.exit_code == 0, res.output
+    (after,) = row()
+    assert after[:2] == ("SETTLED_SCALAR", None), after
+    assert {k: v["settlement_value_dollars"] for k, v in json.loads(after[2]).items()} == {
+        f"KXATPMATCH-{ev}-AAA": "0.4000", f"KXATPMATCH-{ev}-BBB": "0.6000"}
+    # the stored receipt on a .backup copy of the (throwaway) database: no SETTLED_SCALAR carries a winner
+    from src.db.database import get_engine
+    copy = tmp_path / "copy.db"
+    src = sqlite3.connect(get_engine().url.database)
+    dst = sqlite3.connect(str(copy))
+    try:
+        src.backup(dst)
+    finally:
+        dst.close()
+        src.close()
+    capsys.readouterr()
+    assert R.main(["--db", str(copy), "--tour", "ATP"]) == R.OK
+    out = capsys.readouterr().out
+    assert "SETTLED_SCALAR: 1" in out and "SETTLED_SCALAR carrying a winner: 0 (must read 0: TRUE ZERO)" in out, out

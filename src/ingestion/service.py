@@ -656,6 +656,12 @@ class IngestionService:
             match.away_score_90 = nm.away_score_90
         if nm.full_time_result is not None:
             match.full_time_result = nm.full_time_result
+        # ARCHITECT 2026-11-07, addendum 286 item 4(c): "on the update path, an incoming SETTLED_SCALAR clears
+        # full_time_result explicitly — a SETTLED_SCALAR row carries no winner, ever" (a FINISHED row corrected to a
+        # scalar settlement). Keyed on the incoming status, which only kalshi_tennis emits: every other source's update
+        # keeps the never-blank rule above unchanged.
+        if nm.status == MatchStatus.SETTLED_SCALAR:
+            match.full_time_result = None
         if nm.referee:
             match.referee = nm.referee
 

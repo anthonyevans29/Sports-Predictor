@@ -3,10 +3,12 @@ the adapter, the snapshot closure and its partial guard, the conditional GET, th
 command, and the chain and timer, on a throwaway SQLite file (fresh_db below) with a fake HTTP layer: NO NETWORK.
 
 EVERY ROW IN THIS FILE IS SYNTHETIC. Team abbreviations, player names ("Synthetic QB A"), ids ("00-SYN0001") and
-stamps are made up for the tests and do not describe any real depth chart. The real-rows excerpt of addendum 259 item 3
-(nflverse_depth_charts_2026_excerpt.csv, 1,236 real rows, attributed "nflverse (CC BY 4.0)") is not in this container;
-its tests (252 item 6(d) and (g) on real rows, 259 item 2(b) on CAR's 2-row group, BAL's QB1 flip) are listed in the
-PR body and land with the fixture.
+stamps are made up for the tests and do not describe any real depth chart. The real-row tests (252 item 6(d) and (g)
+on real rows, 259 item 2(b) on CAR's 2-row group, BAL's QB1 flip, 259 item 2's counts) are
+tests/test_availability_nflverse_real.py (ARCHITECT 2026-11-07, addendum 284 item 1(a)): it reads the two whole real
+release files, from the directory NFLVERSE_REAL_DIR names (never committed, never downloaded by a test; skipped when
+unset), through this adapter. The hand-carried excerpt of addendum 259 item 3 (nflverse_depth_charts_2026_excerpt.csv)
+was never committed and no test reads it: retired by 284 item 1(a), nothing to delete.
 
 Item 6, the parts this feed carries, verbatim in part: "(a) append-only — the ingest commands expose no update or
 delete path, and a test asserts the tables' row counts only grow across a replay of saved payloads; [...] (d) the

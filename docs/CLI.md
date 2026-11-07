@@ -456,6 +456,9 @@ until the clocks change on 2026-11-01.
 `localhost:8000`) — dashboard, competitions, teams, matches, and the MLB
 card. NFL and cup views are not yet built (backlog U1); the CLI is the
 complete interface for those.
+The operated surface is the Cockpit, not this app (addendum 276 item 1): a
+Claude artifact published separately, whose repo copy is `tools/cockpit.html`
+(CLAUDE.md, opening; docs/specs/exports-mirror.md, "Published artifact").
 
 ---
 

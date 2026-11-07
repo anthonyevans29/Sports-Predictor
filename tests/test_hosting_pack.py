@@ -431,6 +431,33 @@ def test_redact(monkeypatch):
     assert c.redact("token: abc") == "token: [REDACTED]"
 
 
+def test_a_bare_basketball_key_value_is_redacted_from_a_receipt_line(sandbox, monkeypatch):
+    """ARCHITECT 2026-11-06, addendum 277 item 2 R2-1: API_BASKETBALL_KEY joins SECRET_ENV. A bare value (no
+    name=value shape for _KEYISH to catch) printed by a failing step is redacted, set in the process environment,
+    in host.env (load_host_env), or in the laptop's .env."""
+    line = "HTTPError: 403 for https://v1.basketball.api-sports.io/games?league=12 x-apisports-key bk-0123456789abcdef"
+    monkeypatch.setenv("API_BASKETBALL_KEY", "bk-0123456789abcdef")
+    assert "bk-0123456789abcdef" not in c.redact(line) and "[REDACTED]" in c.redact(line)
+    monkeypatch.setenv("API_BASKETBALL_KEY", "")            # recorded first, so the teardown undoes load_host_env
+    monkeypatch.delenv("API_BASKETBALL_KEY")
+    c.HOST_ENV.write_text("API_BASKETBALL_KEY=bk-0123456789abcdef\n")
+    c.load_host_env()
+    assert "bk-0123456789abcdef" not in c.redact(line)
+    monkeypatch.delenv("API_BASKETBALL_KEY")
+    c.HOST_ENV.unlink()
+    (c.REPO / ".env").write_text('API_BASKETBALL_KEY="bk-0123456789abcdef"\n')
+    monkeypatch.setattr(c, "_DOTENV_CACHE", None)
+    assert "bk-0123456789abcdef" not in c.redact(line)
+
+
+def test_every_key_name_the_basketball_adapter_reads_is_a_redacted_secret():
+    """The guard (addendum 277 item 2 R2-1): a redaction list that lags the key list is how a value reaches a page,
+    so every name api_basketball.KEY_NAMES reads is in SECRET_ENV, the hockey adapter's two names with them."""
+    from src.adapters import api_basketball
+    assert set(api_basketball.KEY_NAMES) <= set(c.SECRET_ENV), sorted(set(api_basketball.KEY_NAMES) - set(c.SECRET_ENV))
+    assert {"API_HOCKEY_KEY", "API_FOOTBALL_KEY"} <= set(c.SECRET_ENV)
+
+
 # ---------------------------------------- final-four rulings (2026-09-27) ----
 
 import pull_backup  # noqa: E402
@@ -904,7 +931,8 @@ def test_the_t11_lists_are_read_from_the_real_runbook_as_it_holds_them():
     lists = c.t11_lists()
     assert list(lists) == ["TIMERS", "MLB_LAPTOP_ONLY"] == list(c.T11_LISTS)
     assert {"sp-nfl-prematch.timer", "sp-cup-observe.timer", "sp-closing-watch.timer"} <= set(lists["TIMERS"])
-    assert len(lists["TIMERS"]) == 19          # 18 + sp-availability-daily.timer (addendum 252 item 3(a))
+    assert len(lists["TIMERS"]) == 20   # 18 + sp-availability-daily.timer (252 item 3(a)) + sp-nba-daily.timer (261 item 1(b))
+    assert lists["TIMERS"][-2:] == ["sp-availability-daily.timer", "sp-nba-daily.timer"]
     assert lists["MLB_LAPTOP_ONLY"] == ["sp-mlb-morning.timer", "sp-mlb-preslate.timer", "sp-clv-capture.timer"]
     assert sp_cutover.runbook_timers() == lists["TIMERS"]
 
@@ -933,16 +961,19 @@ def test_the_timers_line_for_the_v1_6_1_host_names_only_the_two_timers_timers(tm
     sp-nfl-prematch.timer and sp-cup-observe.timer (16), plus one name this tree does not ship (sp-nfl-predict.timer
     here: a name not shipped never reaches the line). Run by the code that expected HELD_FOR_CUTOVER, and by today's."""
     lists = c.t11_lists()
-    host = [t for t in lists["TIMERS"] if t not in ("sp-nfl-prematch.timer", "sp-cup-observe.timer")]
+    # that host's file predates sp-nba-daily.timer (addendum 261 item 1(b)), which today's tree ships on TIMERS: the
+    # same 16 names, and the line names the new one too, as the deploy of the tag carrying it would print
+    host = [t for t in lists["TIMERS"] if t not in ("sp-nfl-prematch.timer", "sp-cup-observe.timer",
+                                                     "sp-nba-daily.timer")]
     path = _enabled(tmp_path, [*host, "sp-nfl-predict.timer"])
     # v1.6.1's 17, plus sp-availability-daily.timer: shipped after v1.6.1 (addendum 252 item 3(a)), on TIMERS, and
-    # enabled in this reconstruction so the line reads v1.6.1's two missing timers alone
+    # enabled in this reconstruction so the line reads v1.6.1's two missing timers and sp-nba-daily.timer alone
     assert len(path.read_text().split()) == 18 and "sp-availability-daily.timer" in host
-    want = (f"\n  ! shipped timers not in {c.TIMERS_ENABLED}: sp-cup-observe.timer, sp-nfl-prematch.timer (TIMERS)"
-            " · 3 on MLB_LAPTOP_ONLY (held off by T11) — a TIMERS timer not enabled: install and enable it by "
-            "hosting-h1.md T11's recipe for a live host")
+    want = (f"\n  ! shipped timers not in {c.TIMERS_ENABLED}: sp-cup-observe.timer, sp-nba-daily.timer, "
+            "sp-nfl-prematch.timer (TIMERS) · 3 on MLB_LAPTOP_ONLY (held off by T11) — a TIMERS timer not enabled: "
+            "install and enable it by hosting-h1.md T11's recipe for a live host")
     st = sp_deploy.timers_state(enabled_path=path)
-    assert st["by_list"] == {"TIMERS": ["sp-cup-observe.timer", "sp-nfl-prematch.timer"],
+    assert st["by_list"] == {"TIMERS": ["sp-cup-observe.timer", "sp-nba-daily.timer", "sp-nfl-prematch.timer"],
                              "MLB_LAPTOP_ONLY": sorted(lists["MLB_LAPTOP_ONLY"])} and "error" not in st
     line = sp_deploy.timers_line(st)
     assert line == want and not any(t in line for t in lists["MLB_LAPTOP_ONLY"]) and "unlisted" not in line

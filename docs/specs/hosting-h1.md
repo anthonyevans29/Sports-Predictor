@@ -69,6 +69,7 @@ set by `SP_IMPROVE_HOLD_ON_PASS=1`, which the chain template sets.
 | sp-mlb-preslate | mlb-preslate | daily 14:30 UTC | — |
 | sp-nfl-lines | nfl-lines | daily 15:00 UTC | — |
 | sp-nhl-daily | nhl-daily (inactive before 2026-09-29; override `SP_NHL_ACTIVE_FROM`) | daily 16:00 UTC | daily |
+| sp-nba-daily | nba-daily (ARCHITECT 2026-11-05, addendum 261 item 1(b); 271 item 3(d), (h): market-only, no model, no call): `sync-matches --competition NBA --season 2026` as three single-day UTC steps, `{yesterday}`, `{today}` and `{tomorrow}` (ARCHITECT 2026-11-06, addendum 274 item 2(3): "THE WINDOW — THREE UTC DAYS", nhl-daily's own; api_basketball sends a date only when from == to; 274 item 2(9): "6 calls a day"), then `sync-kalshi-nba` (KXNBAGAME, the shared matcher); no coverage step: it runs before intl-daily's 07:20 UTC `coverage --json` (#805, addendum 225 item 5: one writer), so that write reads the fresh NBA rows. Shipped on `TIMERS`; the architect's TERMINAL (host) block enables it (T11, below) | daily 06:47 UTC | daily |
 | sp-ncaa-market | ncaa-market (H0-11: enabled with the rest); from 2026-10-02 `sync-matches` NCAA yesterday + today runs first (#254), plus tomorrow from 2026-10-07 | Tue + Wed 16:00 (midweek FBS games, added 2026-10-07), Thu 16:00 (Thursday-night slates, added 2026-09-28), Fri 16:00, Sat 13:00 UTC | — |
 | sp-ncaa-schedule | ncaa-schedule (ARCHITECT 2026-10-09, addendum 19 item 3: "the stored kickoff of every NCAA game in the next seven days is at most one day old"): `sync-matches` NCAA, single-day calls today..today+7, then `refresh-by-id --competition NCAA --days 7` (addendum 21 item 1: every stored SCHEDULED game in those days refreshed by its own id; the listing no longer carries games that have not started); then, last, `export-ncaa-predictions --id ncaa-elo-v2 --dormant-ok` (ARCHITECT 2026-11-03, addendum 230 item 1(b): the college shadow, dormant, exit 0 and nothing written, while the verdict is null or FAIL); the export runs whether or not `refresh-by-id` succeeded (`go_on`, ARCHITECT 2026-11-03, addendum 236 item 3(4): the chain's exit stays the refresh's, so it pages) | daily 10:35 + 22:35 UTC | — |
 | sp-nfl-prematch | nfl-prematch (was sp-nfl-predict / nfl-predict; ARCHITECT 2026-10-25, addendum 166 item 6(B): `predict-nfl` and `export-nfl-predictions` are retired, the closing watch's slate stage writes `nfl_predictions_<date>.json`): `sync-injuries` NFL, `capture-weather-nfl` | Thu 18:00, Sun 14:00 UTC | — |
@@ -765,7 +766,7 @@ TIMERS="sp-backup.timer sp-backup-prune.timer sp-soccer-friday.timer sp-soccer-s
   sp-soccer-morning-after.timer sp-nfl-lines.timer sp-nfl-grade.timer sp-nfl-prematch.timer
   sp-nhl-daily.timer sp-weekly-fullseason.timer sp-ncaa-market.timer sp-window.timer
   sp-mlb-history.timer sp-intl-daily.timer sp-exports-squash.timer sp-ncaa-schedule.timer
-  sp-closing-watch.timer sp-cup-observe.timer sp-availability-daily.timer"
+  sp-closing-watch.timer sp-cup-observe.timer sp-availability-daily.timer sp-nba-daily.timer"
 MLB_LAPTOP_ONLY="sp-mlb-morning.timer sp-mlb-preslate.timer sp-clv-capture.timer"   # NOT enabled: statsapi 406 on the DO ASN (H1b note)
 echo $TIMERS | sudo tee /etc/sports-predictor/timers.enabled   # the list H2 steps 2 and 6 reuse
 systemctl enable --now sp-boot-receipt.service sp-web.service
@@ -881,6 +882,23 @@ systemctl list-timers 'sp-*' --no-pager     # receipt: next-elapse for each
     && echo sp-availability-daily.timer | sudo tee -a /etc/sports-predictor/timers.enabled \
     && systemctl list-timers sp-availability-daily.timer --no-pager   # receipt: next elapse at 08:45 UTC
   [ "$rc" = 0 ] && sudo -u sp venv/bin/python deploy/hosting/sp_run.py availability-daily   # first 2026 run, receipted
+  ```
+- `sp-nba-daily.timer` (ARCHITECT 2026-11-05, addendum 261 item 1(b): "the chain `nba-daily` [...] at a UTC minute
+  off every existing timer (Code lists the timers and picks; my block enables it)"; daily 06:47 UTC): the NBA's
+  market-only daily, three single-day `sync-matches` steps (`{yesterday}`, `{today}`, `{tomorrow}`, UTC; addendum
+  274 item 2(3)) and `sync-kalshi-nba`. 06:47
+  is off every chain timer's minute and off the five-minute marks of sp-window and sp-cup-observe (sp-closing-watch
+  ticks every minute, its exemption by name), outside H0-3's buffer, and before intl-daily's 07:20 coverage write.
+  On Sundays sp-weekly-fullseason (06:00) may still hold the lock at 06:47; the chain then waits (Locking, above).
+  Enabling it is the architect's TERMINAL (host) block, after the deploy of the tag that carries it; until then
+  sp_deploy's receipt names it as a `TIMERS` timer not enabled. The block's shape (the recipe ends with the
+  timers.enabled line, addendum 168 item 2):
+  ```
+  sudo install -m 0644 deploy/hosting/systemd/sp-nba-daily.timer /etc/systemd/system/
+  sudo systemctl daemon-reload
+  sudo systemctl enable --now sp-nba-daily.timer
+  echo sp-nba-daily.timer | sudo tee -a /etc/sports-predictor/timers.enabled
+  systemctl list-timers sp-nba-daily.timer --no-pager   # receipt: next elapse at 06:47 UTC
   ```
 - **A CHANGED timer on a live host** (e.g. `sp-ncaa-market.timer` gained Tue + Wed 16:00 UTC, ARCHITECT
   2026-10-07, addendum 2 item 8a). `sp_deploy.py` checks out the tag but does not install unit files, so

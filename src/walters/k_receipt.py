@@ -106,7 +106,10 @@ def ladder_row(comp: str, t: datetime, legs: dict, book, preds) -> dict:
         lg[k] = {"bid": x.yes_bid, "ask": x.yes_ask, "two_sided": two,
                  "spread_c": round((x.yes_ask - x.yes_bid) * 100, 2) if two else None,
                  **(leg_costs(x.yes_bid, x.yes_ask, comp) if two else {"taker": None, "maker": None})}
-    complete = len(sels) == (3 if "DRAW" in sels or comp not in ("MLB", "NFL", "NHL", "NCAA") else 2)
+    # The two-way set is the shared path's own (kalshi_replay.shared_series: the series map less soccer), so a two-way
+    # sport wired onto the map is read as two-way here too: MLB / NFL / NHL / NCAA as before, NBA by addendum 261 item 0.
+    from src.ingestion.kalshi_replay import shared_series
+    complete = len(sels) == (3 if "DRAW" in sels or comp not in set(shared_series().values()) else 2)
     row = {"comp": comp, "captured_at": t, "legs": lg, "complete": complete,
            "two_sided": complete and all(v["two_sided"] for v in lg.values()),
            "fee_clear": {}}

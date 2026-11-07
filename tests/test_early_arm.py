@@ -309,16 +309,28 @@ def test_the_arm_table(tmp_path):
     assert t["read"] == ea.READ_BELOW and t["read_net_cents_per_game"] is None
 
 
+FORBIDDEN = ("$", "4711", "0.4913", "0.4512", "0.0123", "0.0101", "0.53", "0.48", "0.49", "777", "syn-", "FIXTURE",
+             "staked", "pnl", "qty", "contracts")
+
+
+def _no_figures(out: str, ex: Path | None = None) -> str:
+    """The receipt's output carries no fixture figure: no dollar, quantity, contract count, fee, stake, P&L, fill
+    price or fill id (the invented figures of the worlds, each of which the attribution reads). Returns the output with
+    the tmp exports path masked (the path is the test's, not the receipt's)."""
+    if ex is not None:
+        out = out.replace(str(Path(ex).resolve()), "<exports>")
+    for figure in FORBIDDEN:
+        assert figure not in out, figure
+    return out
+
+
 def test_the_receipt_prints_cents_and_units_only(tmp_path, capsys):
     p, ex = _receipt_world(tmp_path)
     assert script.main(["--ledger", str(p), "--exports", str(ex)]) == 0
-    out = capsys.readouterr().out.replace(str(ex.resolve()), "<exports>")    # the tmp path is not the receipt's
+    out = _no_figures(capsys.readouterr().out, ex)
     assert "EARLY (" in out and "ARM FLIP" in out and "ARM BREACH" in out and "INTEREST" in out
     assert "¢" in out and "0.5u 1" in out and "2 of 30" in out and "lots 3" in out
     assert "arm breach: match 9001 Testford @ Mockley (kickoff 2026-11-08T14:00:00Z): opened at or after kickoff" in out
-    for figure in ("$", "4711", "0.4913", "0.4512", "0.0123", "0.0101", "0.53", "0.48", "0.49", "777", "syn-",
-                   "FIXTURE", "staked", "pnl", "qty", "contracts"):
-        assert figure not in out, figure
     last = json.loads(out.strip().splitlines()[-1].split(" ", 1)[1])
     assert last["toward_thirty"] == 2 and last["breaches"] == 1
 
@@ -472,7 +484,7 @@ def test_latest_is_refused_directly_and_through_a_dated_symlink(tmp_path, capsys
 def test_the_breach_listing_is_console_only_and_held_from_posting(tmp_path, capsys):
     p, ex = _receipt_world(tmp_path)
     assert script.main(["--ledger", str(p), "--exports", str(ex)]) == 0
-    lines = capsys.readouterr().out.splitlines()
+    lines = _no_figures(capsys.readouterr().out, ex).splitlines()
     i = next(k for k, ln in enumerate(lines) if "arm breach: match 9001" in ln)
     assert "CONSOLE ONLY, NOT FOR POSTING" in lines[i - 1] and lines[i - 1].startswith("BREACHES LISTED")
     assert "9001" not in lines[-1] and "Testford" not in lines[-1]                       # never in the JSON
@@ -595,20 +607,6 @@ def test_285_2_6_both_gates_not_either(tmp_path):
     assert both["arm"] == ea.ARM_EARLY
 
 
-def test_285_2_4_a_same_day_side_change_with_a_prematch_page_is_an_arm_flip(tmp_path):
-    """285 item 2(4), the reading: the Cockpit re-logged the call in place on the closing side (the matcher's straight
-    PLAY call for the game now holds the close's pick); the prematch page before the fill PLAYs the fill's side, so
-    the prematch page gives the arm's side and the fill is an arm flip, booked to the arm."""
-    f = entry(opened="2026-11-08T06:30:00-05:00", closed="2026-11-08T13:10:00Z", exit_=EXIT_, close_fee=0.0101)
-    L, ex = world(tmp_path, [(RUN, [row(pick="HOME", order=MCK)])], [f], [call(pick="HOME", log_date="2026-11-08")])
-    assert lf.classify_fills(L)[0]["category"] == ea.MATCHER_SIDE_DISAGREES
-    a = ea.attribute(L, ex)[0]
-    assert a["arm"] == ea.ARM_FLIP and a["relogged"] is True and a["book"] == ea.ARM_BOOK and a["call_id"] is None
-    assert a["prematch_page"]["pick"] == "AWAY" and a["closing_call"]["pick"] == "HOME"
-    assert a["flip_exit"] == ea.FLIP_EXITED and a["flip_cost_cents"] is not None
-    assert ea.arm_table([a])["flip_games"] == 1
-
-
 def test_285_2_6_the_prematch_globs_are_the_families_slate_exports():
     assert set(ea.PREMATCH_GLOBS) == {f["export_glob"] for f in CL.FAMILIES.values()}
     assert set(ea.PREMATCH_GLOBS).isdisjoint({"closing_*.json"})
@@ -674,7 +672,9 @@ def lot(i, clv=1.0, cost=None, arm=ea.ARM_EARLY, breach=False, unread=False, qty
     ev = f"KXEPLGAME-26NOV08G{i:02d}H{i:02d}"
     opened = (datetime(2026, 11, 1) + timedelta(hours=i if hours is None else hours)).isoformat() + "Z"
     return {"kind": "sport", "ticker": f"{ev}-G{i:02d}", "arm": arm, "arm_note": None, "opened": opened, "qty": qty,
-            "entry": 0.5, "exit": None, "prematch_page": {"units": 0.5}, "closing_call": {"units": 0.5},
+            "entry": 0.5, "early_price": 0.5, "closing_ask": 0.5 if arm == ea.ARM_EARLY else None,
+            "prematch_ask": 0.5, "above_prematch_ask": False,
+            "exit": None, "prematch_page": {"units": 0.5}, "closing_call": {"units": 0.5},
             "early_clv_cents": clv if arm == ea.ARM_EARLY else None,
             "flip_exit": ea.FLIP_EXITED if arm == ea.ARM_FLIP else None, "flip_cost_cents": cost,
             "arm_breach": breach, "breach_why": ea.BREACH_OPENED if breach else None, "breach_unread": unread}
@@ -697,18 +697,13 @@ def test_285_2_3_the_read_at_thirty_games():
     assert (t["read"], t["read_net_cents_per_game"]) == (ea.READ_STOP, 0.0)
     t = ea.arm_table([lot(i, clv=-0.5) for i in range(30)])
     assert t["read"] == ea.READ_STOP
-    rows = [lot(i, breach=(i == 4)) for i in range(30)]
-    t = ea.arm_table(rows)
-    assert (t["read"], t["read_blocking"], t["read_net_cents_per_game"]) == (ea.READ_BREACH, 1, None)
-    assert "breach in the thirty: 1 — the continuation is the architect's ruling on the record" in _read(t)
-    assert "¢" not in _read(t)
     late = [lot(i) for i in range(30)] + [lot(30, breach=True, clv=-99.0)]           # game 31: outside the thirty
     t = ea.arm_table(list(reversed(late)))
     assert (t["read"], t["toward_thirty"], t["read_net_cents_per_game"]) == (ea.READ_CONTINUE, 31, 1.0)
     t = ea.arm_table([lot(i) for i in range(30)] + [{"kind": "sport", "ticker": TST, "arm": None,
                                                      "arm_note": ea.NO_PAGE}])
     assert (t["read"], t["read_blocking"], t["read_net_cents_per_game"]) == (ea.READ_REFUSED, 1, None)
-    assert "REFUSED: 1 rows NOT CLASSIFIED" in _read(t) and "¢" not in _read(t)
+    assert "REFUSED: 1 rows not classified (NOT CLASSIFIED 1 · NOT RULED 0)" in _read(t) and "¢" not in _read(t)
     t = ea.arm_table([lot(i, clv=None if i == 7 else 1.0) for i in range(30)])
     assert (t["read"], t["read_blocking"]) == (ea.READ_UNPRICED, 1)
 
@@ -757,9 +752,10 @@ def test_285_2_2_the_unit_of_the_thirty_is_games_contract_weighted(tmp_path):
 def test_285_2_2_the_receipt_json_keys(tmp_path, capsys):
     p, ex = _receipt_world(tmp_path)
     assert script.main(["--ledger", str(p), "--exports", str(ex)]) == 0
-    last = json.loads(capsys.readouterr().out.strip().splitlines()[-1].split(" ", 1)[1])
+    last = json.loads(_no_figures(capsys.readouterr().out, ex).strip().splitlines()[-1].split(" ", 1)[1])
     assert sorted(last) == sorted([
         "arm_games", "early_games", "flip_games", "lots", "early_games_priced", "early_lots_ask_unread",
+        "arm_lots_entry_unread", "arm_lots_above_prematch_ask", "arm_lots_prematch_ask_unread",
         "mean_early_clv_cents_per_game", "early_games_by_units", "flip_games_exited", "flip_games_priced",
         "mean_flip_cost_cents_per_game", "total_flip_cost_cents", "flip_games_not_exited",
         "flip_held_to_settlement_games", "flip_held_settlement_units", "flip_held_unpriced_games", "breaches",
@@ -776,7 +772,7 @@ def test_285_2_5_a_held_flip_is_listed_console_only_its_count_in_the_json(tmp_pa
     q.update(closed="2026-11-09T16:00:00Z", exit=1.0, close_fee=0.0)                   # held to settlement
     p.write_text(json.dumps(L))
     assert script.main(["--ledger", str(p), "--exports", str(ex)]) == 0
-    lines = capsys.readouterr().out.splitlines()
+    lines = _no_figures(capsys.readouterr().out, ex).splitlines()
     i = next(k for k, ln in enumerate(lines) if ln.startswith("BREACHES LISTED"))
     assert "CONSOLE ONLY, NOT FOR POSTING" in lines[i]
     assert any("match 9002 Quillby @ Rexham" in ln and ln.endswith("flip held to settlement") for ln in lines[i:])
@@ -788,7 +784,7 @@ def test_285_2_5_a_held_flip_is_listed_console_only_its_count_in_the_json(tmp_pa
 def test_285_2_7_interest_not_carried_is_never_zero(tmp_path, capsys):
     p, ex = _receipt_world(tmp_path, with_type=False)
     assert script.main(["--ledger", str(p), "--exports", str(ex)]) == 0
-    out = capsys.readouterr().out
+    out = _no_figures(capsys.readouterr().out, ex)
     assert "interest rows: not carried by this export" in out
     last = json.loads(out.strip().splitlines()[-1].split(" ", 1)[1])
     assert last["interest_rows"] is None and last["interest_carried"] is False
@@ -796,6 +792,7 @@ def test_285_2_7_interest_not_carried_is_never_zero(tmp_path, capsys):
     t = ea.arm_table(ea.attribute(json.loads(p2.read_text()), ex2))
     assert (t["interest_carried"], t["interest_rows"]) == (True, 1)
     assert any("interest rows: 1" in ln for ln in ea.table_lines(t))
+    _no_figures("\n".join(ea.table_lines(t)))
 
 
 def test_285_1c_the_boundary_is_stated_the_closing_pages_export_time():
@@ -803,3 +800,159 @@ def test_285_1c_the_boundary_is_stated_the_closing_pages_export_time():
     doc = " ".join(ea.__doc__.split())
     assert "the closing numbers exist at the export" in doc
     assert "a fill after the export is a fill at the closing call's own numbers" in doc
+
+
+# ---- addendum 285, the review of f7a6d030: each behaviour test failed first on f7a6d030 ----------------------------
+
+def test_285b_1a_a_same_day_relog_is_never_an_arm_fill_even_on_a_prematch_play(tmp_path):
+    """285 items 1(a), 2(4), 2(6), gate (i) strict: the fill is on AWAY, the only logged call is the HOME closing call
+    (the same-day re-log), and the prematch page before the fill PLAYs AWAY. The matcher booked the fill to no call, so
+    it is never an arm fill: SIDE_RELOGGED, UNESTABLISHED, listed and never counted (f7a6d030 made it an arm flip)."""
+    f = entry(opened="2026-11-08T06:30:00-05:00", closed="2026-11-08T13:10:00Z", exit_=EXIT_, close_fee=0.0101)
+    L, ex = world(tmp_path, [(RUN, [row(pick="HOME", order=MCK)])], [f], [call(pick="HOME", log_date="2026-11-08")])
+    assert lf.classify_fills(L)[0]["category"] == ea.MATCHER_SIDE_DISAGREES
+    a = ea.attribute(L, ex)[0]
+    assert a["arm"] is None and a["arm_note"] == ea.SIDE_RELOGGED and not a["early"]
+    assert (a["book"], a.get("call_id")) == ("off_book_sports", None) and "relogged" not in a
+    assert a["flip_cost_cents"] is None and a["prematch_page"] is None
+    t = ea.arm_table([a])
+    assert (t["unestablished"]["same-day re-log"], t["toward_thirty"], t["flip_games"]) == (1, 0, 0)
+
+
+def test_285b_1a_a_straight_call_of_another_kickoff_is_no_relog(tmp_path):
+    """The re-log label needs THIS game's call: a HOME straight call of the day before (the matcher's one-day window,
+    no start in the ticker) is another game, so the fill is booked to no call and not the arm's (f7a6d030 made it an
+    arm flip on the strength of that call)."""
+    f = entry(opened="2026-11-08T06:30:00-05:00", closed="2026-11-08T13:10:00Z", exit_=EXIT_, close_fee=0.0101)
+    L, ex = world(tmp_path, [(RUN, [row(pick="HOME", order=MCK)])], [f],
+                  [call(pick="HOME", kickoff="2026-11-07T14:00:00Z", log_date="2026-11-07")])
+    assert lf.classify_fills(L)[0]["category"] == ea.MATCHER_SIDE_DISAGREES
+    a = ea.attribute(L, ex)[0]
+    assert a["arm"] is None and a["arm_note"] == ea.PRE_CLOSE_OFF_ARM
+
+
+def test_285b_2_3_a_breach_in_the_thirty_reports_its_net_with_no_verdict():
+    """285 item 2(3): "a breach in the thirty is reported WITH the read and the continuation is my ruling on the
+    record": the net over the thirty is computed when every game is priced, printed, and no verdict is given
+    (f7a6d030 left the net null and printed no figure)."""
+    t = ea.arm_table([lot(i, breach=(i == 4)) for i in range(30)])
+    assert (t["read"], t["read_blocking"], t["read_net_cents_per_game"]) == (ea.READ_BREACH, 1, 1.0)
+    ln = _read(t)
+    assert "breach in the thirty: 1 games" in ln and "+1.00¢ per game over the first 30" in ln
+    assert ln.endswith("no verdict: the continuation is the architect's ruling on the record")
+    assert ea.READ_CONTINUE not in ln and ea.READ_STOP not in ln
+    t = ea.arm_table([lot(i, breach=(i == 4), clv=None if i == 9 else 1.0) for i in range(30)])
+    assert (t["read"], t["read_blocking"], t["read_net_cents_per_game"]) == (ea.READ_BREACH, 1, None)
+    assert "net not computed: a game of the thirty is unpriced" in _read(t) and "¢" not in _read(t)
+
+
+def test_285b_1b_a_gate_admitted_fill_on_a_ladder_close_refuses_the_read(tmp_path):
+    """285 item 1(b), "refused while any row is unclassified": a fill both gates admit whose closing page is a LADDER
+    is neither early, flip nor ordinary. It stays on its NOT RULED line and holds the read (f7a6d030 read CONTINUE)."""
+    a, _, _ = one(tmp_path, row(call="LADDER", order=MCK, side="NO"), entry())
+    assert a["arm_note"] == ea.NOT_RULED_CALL and a["prematch_page"] is not None        # both gates admitted it
+    t = ea.arm_table([lot(i) for i in range(30)] + [a])
+    assert (t["read"], t["read_blocking"], t["not_ruled"], t["read_net_cents_per_game"]) == (ea.READ_REFUSED, 1, 1,
+                                                                                           None)
+    assert "REFUSED: 1 rows not classified (NOT CLASSIFIED 0 · NOT RULED 1)" in _read(t) and "¢" not in _read(t)
+    assert any("NOT RULED (a LADDER or VENUE close; it holds the read): 1" in ln for ln in ea.table_lines(t))
+
+
+def test_285b_2_4_a_fill_above_the_prematch_pages_ask_is_counted_never_excluded(tmp_path):
+    """283 item 2(b) "never above it" and 285 item 2(4) ("the source of the arm's side and ask"): the prematch page's
+    own ask on the fill's contract is read and recorded. A lot above it is counted on its own line, still the arm's,
+    never a breach (not ruled). f7a6d030 never read the prematch page's ask."""
+    above, _, _ = one(tmp_path / "a", row(), entry(), prematch=[(PRE_AT, [row(ask=0.40)])])
+    at, _, _ = one(tmp_path / "b", row(), entry(entry_=0.40), prematch=[(PRE_AT, [row(ask=0.40)])])
+    flip, _, _ = one(tmp_path / "c", row(call="PASS"), entry(closed="2026-11-08T13:10:00Z", exit_=EXIT_,
+                                                             close_fee=0.0101), prematch=[(PRE_AT, [row(ask=0.40)])])
+    assert above["arm"] == ea.ARM_EARLY and above["prematch_ask"] == 0.40 and above["above_prematch_ask"] is True
+    assert not above["arm_breach"] and above["early_clv_cents"] == pytest.approx((ASK - ENTRY) * 100)
+    assert at["arm"] == ea.ARM_EARLY and at["above_prematch_ask"] is False                  # at the ask: within it
+    assert flip["arm"] == ea.ARM_FLIP and flip["above_prematch_ask"] is True
+    t = ea.arm_table([above, at, flip])
+    assert (t["arm_lots_above_prematch_ask"], t["arm_lots_prematch_ask_unread"], t["toward_thirty"]) == (2, 0, 1)
+    assert t["breaches"] == 0
+    ln = next(x for x in ea.table_lines(t) if x.startswith("ABOVE THE PREMATCH PAGE'S ASK"))
+    assert "above the prematch page's ask: 2 lots" in ln and "¢" not in ln
+    bare = row(legs={"HOME": {"ticker": MCK, "bid": 0.29, "ask": 0.31}})                   # no quote on Testford
+    b, _, _ = one(tmp_path / "d", row(), entry(), prematch=[(PRE_AT, [bare])])
+    assert b["arm"] == ea.ARM_EARLY and b["prematch_ask"] is None and b["above_prematch_ask"] is None
+    assert ea.arm_table([b])["arm_lots_prematch_ask_unread"] == 1
+
+
+@pytest.mark.parametrize("bad", [0, 0.0, 1.0, 1.5, -0.2])
+def test_285b_an_entry_outside_zero_to_one_is_unread(tmp_path, bad):
+    """Law 4: the Cockpit stores a blank entry cell as 0 (importKalshiCSV's num(...)||0). An entry outside (0, 1) is
+    unread in the CLV, the flip cost and the settlement result: labelled, its game unpriced, never a figure (f7a6d030
+    booked an early CLV of the whole ask on an entry of 0)."""
+    e, _, _ = one(tmp_path / "e", row(), entry(entry_=bad))
+    assert e["arm"] == ea.ARM_EARLY and e["early_price"] is None and e["early_clv_cents"] is None
+    assert e["arm_note"] == ea.ENTRY_UNREAD and e["above_prematch_ask"] is None
+    f, _, _ = one(tmp_path / "f", row(call="PASS"), entry(entry_=bad, closed="2026-11-08T13:10:00Z", exit_=0.45,
+                                                          close_fee=0.0101))
+    assert f["arm"] == ea.ARM_FLIP and f["flip_exit"] == ea.FLIP_EXITED and f["flip_cost_cents"] is None
+    h, _, _ = one(tmp_path / "h", row(call="PASS"), entry(entry_=bad, exit_=1.0, close_fee=0.0))
+    assert h["flip_exit"] == ea.FLIP_SETTLED
+    for rows in ([e], [f], [h]):
+        t = ea.arm_table(rows)
+        assert t["arm_lots_entry_unread"] == 1 and sum(t["not_classified"].values()) == 0
+        assert t["mean_early_clv_cents_per_game"] is None and t["mean_flip_cost_cents_per_game"] is None
+        assert t["flip_held_settlement_units"] is None
+    assert ea.arm_table([h])["flip_held_unpriced_games"] == 1
+    assert ea.arm_games([e])[0]["priced"] is False and ea.arm_games([f])[0]["priced"] is False
+
+
+def _thirty_world(tmp_path, breach_game=None):
+    """Thirty fictional games, Testford at Mockley every other day from 2026-11-01: one prematch page PLAYing Testford
+    on every game (exported 2026-10-31), a closing page per game PLAYing Testford (its run 13:26Z on the day), a
+    straight PLAY call per game, and one early lot per game opened the evening before. `breach_game` gains an add
+    after kickoff. The receipt run end to end."""
+    ex = tmp_path / "exports"
+    pre_rows, fills, calls = [], [], []
+    for i in range(30):
+        day = datetime(2026, 11, 1) + timedelta(days=2 * i)
+        ev = f"KXEPLGAME-{day:%y}{day:%b}{day:%d}TSTMCK".upper()
+        legs = {"HOME": {"ticker": f"{ev}-MCK", "bid": 0.29, "ask": 0.31},
+                "AWAY": {"ticker": f"{ev}-TST", "bid": 0.47, "ask": ASK},
+                "DRAW": {"ticker": f"{ev}-TIE", "bid": 0.23, "ask": 0.25}}
+        ko = day.replace(hour=14)
+        r = row(order=f"{ev}-TST", mid=9100 + i, ko=f"{ko:%Y-%m-%dT%H:%M:%S}", legs=legs)
+        write_page(ex, day.replace(hour=13, minute=26, second=7), [r], start=ko)
+        pre_rows.append(r)
+        iso = "%Y-%m-%dT%H:%M:%SZ"
+        calls.append(call(cid=f"g{i}", kickoff=ko.strftime(iso), log_date=f"{day - timedelta(days=1):%Y-%m-%d}"))
+        settled = (ko + timedelta(hours=2)).strftime(iso)
+        fills.append(entry(ticker=f"{ev}-TST", fid=f"syn-g{i}", opened=(day - timedelta(hours=3, minutes=30)).strftime(iso),
+                           closed=settled, exit_=1.0, close_fee=0.0))
+        if i == breach_game:                                                   # an add 20 minutes after kickoff
+            fills.append(entry(ticker=f"{ev}-TST", fid=f"syn-b{i}", opened=(ko + timedelta(minutes=20)).strftime(iso),
+                               closed=settled, exit_=1.0, close_fee=0.0))
+    write_prematch(ex, datetime(2026, 10, 31, 11, 0, 7), pre_rows)
+    p = tmp_path / "bd_ledger_v1_2027-01-01.json"
+    p.write_text(json.dumps({"calls": calls, "fills": fills, "meta": {}}))
+    return p, ex
+
+
+def test_285b_the_receipt_at_thirty_continue_prints_no_figure(tmp_path, capsys):
+    p, ex = _thirty_world(tmp_path)
+    assert script.main(["--ledger", str(p), "--exports", str(ex)]) == 0
+    out = _no_figures(capsys.readouterr().out, ex)
+    last = json.loads(out.strip().splitlines()[-1].split(" ", 1)[1])
+    assert (last["toward_thirty"], last["early_games_priced"], last["read"]) == (30, 30, ea.READ_CONTINUE)
+    assert last["read_net_cents_per_game"] == pytest.approx((ASK - ENTRY) * 100)
+    assert "CONTINUE: mean early CLV net of flip costs +0.87¢ per game over the first 30" in out
+
+
+def test_285b_the_receipt_at_thirty_with_a_breach_reports_the_net_no_verdict_no_figure(tmp_path, capsys):
+    p, ex = _thirty_world(tmp_path, breach_game=4)
+    assert script.main(["--ledger", str(p), "--exports", str(ex)]) == 0
+    out = _no_figures(capsys.readouterr().out, ex)
+    last = json.loads(out.strip().splitlines()[-1].split(" ", 1)[1])
+    assert (last["toward_thirty"], last["read"], last["read_blocking"]) == (30, ea.READ_BREACH, 1)
+    assert last["read_net_cents_per_game"] == pytest.approx((ASK - ENTRY) * 100)
+    ln = next(x for x in out.splitlines() if x.startswith("THE READ"))
+    assert "breach in the thirty: 1 games · mean early CLV net of flip costs +0.87¢ per game over the first 30" in ln
+    assert ln.endswith("no verdict: the continuation is the architect's ruling on the record")
+    assert "CONTINUE" not in ln and "STOP" not in ln
+    assert "arm breach: match 9104 Testford @ Mockley" in out and "9104" not in out.strip().splitlines()[-1]

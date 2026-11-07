@@ -18,12 +18,16 @@ ledger_fills.classify_fills, unchanged). The table (addendum 285 item 2(2): the 
 them): early games, priced, mean early CLV in cents per game (the closing page's ask less the contract-weighted early
 price, 2(1)); flip games, exited, flip cost in cents per game (fees in, 2(1)); flips held to settlement (a breach,
 their result in units, 2(3)); breaches by cause; interest rows ("not carried by this export" when no fill carries a
-`type`, 2(7)); the not-the-arm's, unestablished, not-ruled and ordinary counts; NOT CLASSIFIED by cause (1(b)); the
-count toward thirty (games) and THE READ line (refused while any row is not classified; no verdict on a breach in the
-thirty; else CONTINUE / STOP on the mean net of flip costs; below thirty "n of 30").
+`type`, 2(7)); the lots above the prematch page's own ask (283 2(b), a count: never excluded, never a breach) and the
+entries not read (outside 0 to 1); the not-the-arm's, unestablished, not-ruled and ordinary counts; NOT CLASSIFIED by
+cause (1(b)); the count toward thirty (games) and THE READ line (refused while any row is NOT CLASSIFIED or NOT RULED;
+a breach in the thirty reported with the net over the thirty when every game is priced, no verdict, the continuation
+the architect's ruling on the record, 2(3); else CONTINUE / STOP on the mean net of flip costs; below thirty
+"n of 30").
 ADDENDUM 285 item 2(5), verbatim in part: "THE BREACH LIST: CONSOLE ONLY, never posted — ids and prices; the COUNTS
-may be posted. The "CONSOLE ONLY, NOT FOR POSTING" head stays." The breaches are LISTED by the closing page's match id
-and teams and the breach's cause only, under that head, and never in the JSON. Everything above that head is counts,
+may be posted. The "CONSOLE ONLY, NOT FOR POSTING" head stays." The breaches are LISTED by the closing page's match id,
+teams, kickoff and the breach's cause only, under that head, and never in the JSON: no price, stricter than the
+ruling's "ids and prices", because no fill price is printed anywhere (a reading, open for the architect). Everything above that head is counts,
 cents and units only.
 
 Never printed: a dollar figure, a quantity or contract count, a fee, a stake, a P&L, a fill's id (it carries the

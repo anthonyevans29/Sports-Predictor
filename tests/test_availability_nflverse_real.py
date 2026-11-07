@@ -26,7 +26,14 @@ THE SHA256s READ 2026-11-07 are pinned below. 2025 is a CLOSED season: a 2025 fi
 FAILS, with the reason (its counts are pinned exactly). 2026 is LIVE (nflverse adds loads twice a day): its sha256 as
 read today is recorded; the counts pinned on today's whole file are SKIPPED, saying so, when the sha256 differs, while
 259's counts are asserted on every read, cut at the newest load 259's read could have seen (THE CUT, below), since
-growth only appends loads after it.
+growth only appends loads after it. THREE INVARIANTS run on every read of the whole 2026 file, whatever its sha256:
+every load 32 teams, no row without an espn_id, the payload hash on every stored row. A later live load that breaks
+one FAILS, with the message naming it a FINDING (to be ruled before any fix), never skips.
+
+THE GUARD (259 item 2(b)) is worked out twice: by the adapter's ingest, and by this module from the csv rows alone
+(_guard: each (dt, team) group in dt order, 2025 then 2026, partial when it holds fewer than HALF the team's previous
+complete group, else it becomes the previous complete one; a group that lost a blank-espn_id row is partial and never a
+previous complete group). The two must agree on both files; the dated pins below record today's result.
 
 THE CUT (how 259's 2026 count is compared, from the repo record, not by fitting it): 262 item 5 recorded the 2026
 file's rows at that read, 747,450 (src/availability/nflverse.py's docstring; #841's ledger entry); the file's rows
@@ -86,11 +93,12 @@ GUARD_2026_THROUGH_CUT = [
     (datetime(2026, 6, 11, 11, 20, 22), "NO", 27, 100), (datetime(2026, 6, 15, 13, 9, 41), "CHI", 5, 99),
     (datetime(2026, 7, 15, 9, 6, 57), "TB", 31, 98), (datetime(2026, 7, 22, 9, 23, 35), "IND", 28, 99),
     (datetime(2026, 7, 24, 9, 16, 54), "ARI", 42, 100), (datetime(2026, 10, 10, 13, 32, 40), "LAC", 22, 74)]
-# BAL's QB1 (pos_abb QB, pos_rank 1, the 3WR 1TE group's slot 9): the load where each holder starts and the holder's
-# espn_id (the key), read in the files with csv; one interval across the two files while the holder is unchanged
-BAL_QB1_THROUGH_CUT = [(datetime(2025, 8, 3, 10, 9, 7), "3916387"), (datetime(2026, 11, 2, 17, 1, 29), "4035671"),
-                       (datetime(2026, 11, 5, 7, 1, 33), "4429582")]
-BAL_QB1_TODAY_AFTER_CUT = [(datetime(2026, 11, 7, 7, 2, 5), "2578570")]     # today's file only (its sha256)
+# BAL's QB1 (pos_abb QB, pos_rank 1, the 3WR 1TE group's slot 9): the load where each holder starts, read in the files
+# with csv; one interval across the two files while the holder is unchanged. Only the instants are pinned (derived
+# facts); the holders' espn_ids are compared against the csv census at run time, never committed
+BAL_QB1_THROUGH_CUT = [datetime(2025, 8, 3, 10, 9, 7), datetime(2026, 11, 2, 17, 1, 29),
+                       datetime(2026, 11, 5, 7, 1, 33)]
+BAL_QB1_TODAY_AFTER_CUT = [datetime(2026, 11, 7, 7, 2, 5)]     # today's file only (its sha256)
 ATTRIBUTION = "Depth charts: nflverse (CC BY 4.0)"
 
 
@@ -129,6 +137,7 @@ def _utc(s: str) -> datetime:
 def _census(p: Path) -> dict:
     """The file read with csv alone (not the adapter): the counts the adapter's reading is compared with."""
     groups: Counter = Counter()
+    blank_groups: Counter = Counter()
     rows = blank = 0
     qb1: dict = defaultdict(list)
     with open(p, newline="", encoding="utf-8-sig") as f:
@@ -140,11 +149,35 @@ def _census(p: Path) -> dict:
             groups[(dt, row["team"])] += 1
             if not row["espn_id"].strip():
                 blank += 1
+                blank_groups[(dt, row["team"])] += 1
             if row["team"] == "BAL" and row["pos_abb"] == "QB" and row["pos_rank"] == "1":
                 qb1[dt].append(row["espn_id"])
     teams_per_load: Counter = Counter(dt for dt, _ in groups)
-    return {"header": header, "rows": rows, "blank_espn": blank, "groups": groups, "teams_per_load": teams_per_load,
+    return {"header": header, "rows": rows, "blank_espn": blank, "groups": groups, "blank_groups": blank_groups,
+            "teams_per_load": teams_per_load,
             "loads": sorted(teams_per_load), "teams": sorted({t for _, t in groups}), "bal_qb1": dict(qb1)}
+
+
+def _guard(censuses) -> list:
+    """259 item 2(b) worked out from the csv censuses alone (not record.guard_load): the censuses in order (2025, then
+    2026; the previous complete group carried across), each (dt, team) group in dt order. A group that lost a row with
+    no espn_id is partial (the adapter's no_espn_groups, not listed here) and never a previous complete group; any
+    other is partial when its rows are fewer than HALF the team's previous complete group's, else it becomes that
+    team's previous complete group. Returns, per census, [(dt, team, rows, previous complete rows)] sorted."""
+    last: dict = {}
+    out = []
+    for c in censuses:
+        got = []
+        for (dt, team) in sorted(c["groups"]):
+            if c["blank_groups"].get((dt, team)):
+                continue
+            n, prev = c["groups"][(dt, team)], last.get(team)
+            if prev is not None and 2 * n < prev:
+                got.append((dt, team, n, prev))
+            else:
+                last[team] = n
+        out.append(sorted(got))
+    return out
 
 
 def _seed_teams(tlas):
@@ -177,6 +210,7 @@ def real(tmp_path_factory):
     out = {"path": paths, "sha": {y: _sha(p) for y, p in paths.items()},
            "size": {y: p.stat().st_size for y, p in paths.items()},
            "census": {y: _census(p) for y, p in paths.items()}}
+    out["guard"] = dict(zip((2025, 2026), _guard([out["census"][2025], out["census"][2026]])))
     tmp = tmp_path_factory.mktemp("nflverse-real")
     repo_data_existed = (REPO / "data").exists()
     mp = pytest.MonkeyPatch()
@@ -206,6 +240,9 @@ def real(tmp_path_factory):
                     "ORDER BY a.source_stamp"), {"i": out["ingest"][y].observation_id}).all()
                 out["groups"][y] = [(st if isinstance(st, datetime) else datetime.fromisoformat(str(st)), n, t, un,
                                      nohash) for st, n, t, un, nohash in got]
+            out["kinds"] = dict(c.execute(text(
+                "SELECT a.kind, COUNT(*) FROM availability_assertions a JOIN availability_observations o ON "
+                "o.id = a.observation_id WHERE o.source = :s GROUP BY a.kind"), {"s": nv.SOURCE}).all())
             out["no_hash_rows"] = c.execute(text(
                 "SELECT COUNT(*) FROM availability_assertions a JOIN availability_observations o ON "
                 "o.id = a.observation_id WHERE o.source = 'nflverse_depth_charts' AND o.payload_sha256 IS NULL")
@@ -252,6 +289,9 @@ def test_the_receipt_prints_each_files_sha256_and_counts(real):
         print(f"  payload hash: {hashed:,} of {total:,} stored rows carry it (observation payload_sha256 "
               f"{(obs['payload_sha256'] or 'NONE')[:16]}; the kept copy hashes to {real['kept'][y][:16]})")
         print(f"  rows with no espn_id: census {c['blank_espn']} · adapter {ing.no_espn_rows}")
+        print(f"  header (as written): {', '.join(c['header'])}")
+        print(f"  the guard from the csv rows alone: {len(real['guard'][y])} partial group(s) · the adapter's: "
+              f"{len(ing.partial_groups)} · agree: {real['guard'][y] == ing.partial_groups}")
         if y == 2026:
             through = [g for g in groups if g[0] <= CUT_2026]
             print(f"  through THE CUT {CUT_2026.isoformat()}Z: loads {len(through)}, rows "
@@ -272,8 +312,9 @@ def test_the_receipt_prints_each_files_sha256_and_counts(real):
 
 def test_6d_the_real_headers_are_the_twelve_and_a_reordered_real_header_reads_the_same(real, tmp_path):
     from src.availability import nflverse as nv
-    for y in (2025, 2026):
-        assert real["census"][y]["header"] == list(nv.COLUMNS), (y, real["census"][y]["header"])
+    for y in (2025, 2026):                     # the adapter's rule: the twelve by name, each once, order not read
+        h = real["census"][y]["header"]
+        assert nv.header_refusal(h) is None and len(h) == 12 and sorted(h) == sorted(nv.COLUMNS), (y, h)
     # the first 3,000 real 2025 rows, columns written in reverse order (a throwaway copy under tmp_path, never kept)
     src = real["path"][2025]
     with open(src, newline="", encoding="utf-8-sig") as f:
@@ -323,7 +364,8 @@ def test_2026_reproduces_259s_counts_through_the_cut(real):
     assert (ing.rows_read, ing.loads, ing.new_loads, ing.rows_asserted, ing.old_rows) == (
         c["rows"], len(c["loads"]), len(c["loads"]), c["rows"], 0)
     assert ing.watermark == REC_2025["newest"] and (ing.status, ing.unmapped_teams) == ("complete", {})
-    assert {t for _, _, t, _, _ in groups} == {32}                             # every load, 32 teams
+    short = [(st.isoformat() + "Z", t) for st, _, t, _, _ in groups if t != 32]
+    assert not short, f"FINDING (to be ruled before any fix): 2026 load(s) not 32 teams: {short}"   # every read
     assert sum(un for _, _, _, un, _ in groups) == 0 and c["teams"] == list(TLAS)
 
 
@@ -343,9 +385,14 @@ def test_2026_todays_whole_file(real):
 
 def test_every_stored_load_carries_its_files_payload_hash(real):
     """One --file run, one observation (252 item 3(a)): its payload_sha256 is the file's sha256 and the kept copy
-    hashes to it; every stored row of the source belongs to an observation that keeps it, so every (observation,
-    source_stamp) group is a LOAD by record.snapshot_load's rule (262 item 1: the hash is the load's identity)."""
+    hashes to it; every stored row of the source belongs to an observation that keeps it and is of the source's
+    snapshot kind (record.SNAPSHOT_SOURCES), the two halves of record.snapshot_load's rule, so every (observation,
+    source_stamp) group is a LOAD by it (262 item 1: the hash is the load's identity)."""
+    from src.availability import nflverse as nv
+    from src.availability import record as rec
     assert real["no_hash_rows"] == 0
+    assert rec.SNAPSHOT_SOURCES.get(nv.SOURCE) == nv.KIND
+    assert real["kinds"] == {nv.KIND: real["ingest"][2025].rows_asserted + real["ingest"][2026].rows_asserted}
     for y in (2025, 2026):
         obs = real["obs"][y]
         assert obs["payload_sha256"] == real["sha"][y] == real["kept"][y], y
@@ -357,7 +404,10 @@ def test_rows_with_no_espn_id_are_none_in_either_file(real):
     """262 item 5 recorded 0 blank espn_id in both files; the adapter's guard counts the same on today's files."""
     for y in (2025, 2026):
         ing = real["ingest"][y]
-        assert real["census"][y]["blank_espn"] == ing.no_espn_rows == 0 and ing.no_espn_groups == [], y
+        assert real["census"][y]["blank_espn"] == ing.no_espn_rows == 0 and ing.no_espn_groups == [], (
+            f"FINDING (to be ruled before any fix): {y} rows with no espn_id: census "
+            f"{real['census'][y]['blank_espn']}, "
+            f"adapter {ing.no_espn_rows}, groups {ing.no_espn_groups}")
         assert "  rows with no espn_id: 0, refused" in "\n".join(ing.lines())
     assert real["ingest"][2026].lines()[-1] == ATTRIBUTION
 
@@ -370,11 +420,21 @@ def test_259_2b_cars_2_row_group_is_counted_by_the_guard_and_closes_nothing(real
     assert c["groups"][(CAR_PARTIAL, "CAR")] == 2                               # found in the file, read with csv
     car = [g for g in ing.partial_groups if g[1] == "CAR" and g[0] == CAR_PARTIAL]
     assert len(car) == 1 and car[0][2] == 2, ing.partial_groups
+    # the guard worked out from the csv rows alone (_guard) against the adapter's reading, both files
+    for y in (2025, 2026):
+        assert real["ingest"][y].partial_groups == real["guard"][y], (
+            f"FINDING (to be ruled before any fix): {y} the adapter's partial groups differ from the csv rows' "
+            f"half rule: adapter {real['ingest'][y].partial_groups}, csv {real['guard'][y]}")
+    # the dated pins (read 2026-11-07)
     assert real["ingest"][2025].partial_groups == GUARD_2025
     assert [g for g in ing.partial_groups if g[0] <= CUT_2026] == GUARD_2026_THROUGH_CUT
     if _today(real, 2026):
         assert ing.partial_groups == GUARD_2026_THROUGH_CUT                     # none after THE CUT in today's file
-    n = len(ing.partial_groups)
+    # 259 item 1's descriptive "fewer than 40 rows" groups through THE CUT are all among the guard's
+    under_40 = {(dt, team) for (dt, team), k in c["groups"].items() if dt <= CUT_2026 and k < 40}
+    assert len(under_40) == REC_2026["under_40"]
+    assert under_40 <= {(dt, team) for dt, team, _, _ in ing.partial_groups}, under_40
+    n = len(ing.partial_groups) + len(ing.no_espn_groups)                       # the adapter's own count (lines())
     assert f"  partial team groups: {n}, closing nothing" in "\n".join(ing.lines())
     loads = c["loads"]
     before, after = loads[loads.index(CAR_PARTIAL) - 1], loads[loads.index(CAR_PARTIAL) + 1]
@@ -411,6 +471,6 @@ def test_6g_bals_qb1_intervals_are_the_flips_the_file_shows(real):
     assert got == flips
     ends = sorted((iv.start, iv.end) for iv in ivs.values())
     assert [e for _, e in ends[:-1]] == [st for st, _ in ends[1:]] and ends[-1][1] is None
-    assert [f for f in flips if f[0] <= CUT_2026] == BAL_QB1_THROUGH_CUT
+    assert [dt for dt, _ in flips if dt <= CUT_2026] == BAL_QB1_THROUGH_CUT
     if _today(real, 2026):
-        assert flips == BAL_QB1_THROUGH_CUT + BAL_QB1_TODAY_AFTER_CUT
+        assert [dt for dt, _ in flips] == BAL_QB1_THROUGH_CUT + BAL_QB1_TODAY_AFTER_CUT

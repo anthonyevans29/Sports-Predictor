@@ -87,6 +87,9 @@ REKEY_SOURCES = frozenset({"api_american_football"})
 # ARCHITECT 2026-10-21, addendum 153 item 2: "The statsapi upsert looks a gamePk up across the sport's rows, not the
 # competition's"): a gamePk is one game whatever competition row holds it, so a sync never creates a second row for it.
 SPORT_WIDE_SOURCES = frozenset({"mlb_stats_api"})
+# The external_ids key a tennis row keeps Kalshi's settlement under, verbatim as served (ARCHITECT 2026-11-06, addendum
+# 269 item 3(b): "the fraction kept as the settlement value"; NormalizedMatch.settlement, kalshi_tennis only).
+SETTLEMENT_KEY = "kalshi_settlement"
 
 
 def _db_lock():
@@ -585,6 +588,8 @@ class IngestionService:
             self._apply_match_updates(match, nm)
             ext = dict(match.external_ids or {})
             ext[nm.source] = nm.source_id
+            if nm.settlement is not None:          # kalshi_tennis only (addendum 269 item 3(b)); None elsewhere
+                ext[SETTLEMENT_KEY] = nm.settlement
             match.external_ids = ext
             result.updated += 1
             return match
@@ -609,7 +614,8 @@ class IngestionService:
             full_time_result=nm.full_time_result,
             venue=nm.venue,
             referee=nm.referee,
-            external_ids={nm.source: nm.source_id},
+            external_ids={nm.source: nm.source_id,
+                          **({SETTLEMENT_KEY: nm.settlement} if nm.settlement is not None else {})},
         )
         s.add(match)
         if cache is not None and nm.source_id:
@@ -650,6 +656,12 @@ class IngestionService:
             match.away_score_90 = nm.away_score_90
         if nm.full_time_result is not None:
             match.full_time_result = nm.full_time_result
+        # ARCHITECT 2026-11-07, addendum 286 item 4(c): "on the update path, an incoming SETTLED_SCALAR clears
+        # full_time_result explicitly — a SETTLED_SCALAR row carries no winner, ever" (a FINISHED row corrected to a
+        # scalar settlement). Keyed on the incoming status, which only kalshi_tennis emits: every other source's update
+        # keeps the never-blank rule above unchanged.
+        if nm.status == MatchStatus.SETTLED_SCALAR:
+            match.full_time_result = None
         if nm.referee:
             match.referee = nm.referee
 

@@ -46,6 +46,8 @@ def _sport_for_competition(code: str) -> str:
         return "nhl"
     if code.upper() == "NBA":  # addendum 271 item 3 (lane basketball-market-only): the api_basketball adapter
         return "basketball"
+    if code.upper() in ("ATP", "WTA"):  # addendum 261 item 2(c), 269 items 1-3 (lane tennis-market-only): kalshi_tennis
+        return "tennis"
     return "soccer"
 
 
@@ -226,6 +228,98 @@ def sync_teams_cmd(competition_code: str, season: str | None):
             print(f"    ... and {len(result.names_kept) - NAMES_KEPT_SHOWN} more")
 
 
+TENNIS_MAX_WINDOW_DAYS = 7     # a tennis sync-matches reads at most this many ticker days (addendum 270 item 5)
+
+
+def _tennis_sync_matches(service, competition_code, season, seasons, date_from, date_to, named) -> None:
+    """sync-matches for a tennis tour (ATP, WTA): Kalshi's own events are the fixtures and their settlement the
+    results (ARCHITECT 2026-11-06, addendum 269 items 1-3; src/adapters/kalshi_tennis.py). Where it differs from every
+    other competition, by the rulings:
+    - THE PLAYERS FIRST, FROM THE SAME READ: players are teams (261 item 2(a)), and every player a fixture names is
+      upserted (sync_teams, linked to --season when one is given) from the same listing before the fixtures are
+      written, so no fixture is ever skipped for a player not yet stored. One listing read serves both.
+    - A DATE WINDOW IS REQUIRED, at most TENNIS_MAX_WINDOW_DAYS ticker days, and --seasons is refused: ARCHITECT
+      2026-11-06, addendum 270 item 5, verbatim in part: "The pot ACCRUES from 12-28 under the chain as the PAPER record
+      itself; a ONE-TIME read-only backfill of the 2026 season's settled markets [...] is possible on the day a model
+      lane asks for it, by a block of mine, and not before — no model lane exists, so no backfill is scheduled." A
+      season-wide or open-ended tennis sync would be that backfill.
+    - THE RE-READ (late settlements): after the window, every STORED SCHEDULED row of the tour whose event's ticker day
+      is in the TENNIS_MAX_WINDOW_DAYS days before --date-from is re-read from the SAME listing (no further call) and
+      written when its settlement has moved. It updates rows already stored and creates none (so it is no backfill,
+      270 item 5): an event settled after the chain's next-day run is not left SCHEDULED by the window alone (K3:
+      "result '' on the 10 ATP markets closed but not yet settled"). A row older than that stays SCHEDULED and is
+      counted by the receipt's stored phase.
+    - A paging refusal (a cursor left, 269 item 3(d)) writes nothing and exits 1 with its reason."""
+    from datetime import date as _date
+
+    from src.adapters.kalshi_tennis import Refused as _TennisRefused
+    code = competition_code.upper()
+    if seasons > 0:
+        raise click.UsageError(f"--seasons is refused for {code}: a season-wide tennis sync is the backfill addendum "
+                               "270 item 5 holds for the architect's block (no model lane exists)")
+    if not date_from or not date_to:
+        raise click.UsageError(f"{code}: --date-from and --date-to are required (at most {TENNIS_MAX_WINDOW_DAYS} "
+                               "ticker days; addendum 270 item 5: no backfill is scheduled)")
+    try:
+        span = (_date.fromisoformat(date_to) - _date.fromisoformat(date_from)).days + 1
+    except ValueError as e:
+        raise click.UsageError(f"{code}: --date-from / --date-to must be YYYY-MM-DD ({e})")
+    if span < 1 or span > TENNIS_MAX_WINDOW_DAYS:
+        raise click.UsageError(f"{code}: the window {date_from}..{date_to} is {span} day(s); 1 to "
+                               f"{TENNIS_MAX_WINDOW_DAYS} are read (addendum 270 item 5: no backfill is scheduled)")
+    if season is not None and not (season.isdigit() and len(season) == 4):
+        raise click.UsageError(f"{code}: --season is int-style, the ticker's year (e.g. 2026), not {season!r}")
+    service.adapter.window = (date_from, date_to)
+    try:
+        teams = service.sync_teams(code, season)
+        console.print(f"[green]✓ Players ({code}, as teams): {teams}[/green]")
+        held: set | None = set() if named is not None else None
+        result = service.sync_matches(code, season=season, date_from=date_from, date_to=date_to,
+                                      progress=lambda m: console.print(f"[dim]{m}[/dim]"),
+                                      **({"held_ids": held} if held is not None else {}))
+    except _TennisRefused as e:
+        print(f"✗ {code}: {e}", flush=True)
+        raise SystemExit(1)
+    lst = service.adapter.listing(code)
+    print(f"  {code} listing: {lst.markets} markets, pages {lst.pages} (each status to its last page) · "
+          f"{len(lst.fixtures)} events accepted · refused {dict(lst.refused) or 'none'}", flush=True)
+    console.print(f"[green]✓ Matches ({code}): {result}[/green]")
+    _print_skipped_listings(result)
+    _tennis_reread(service, code, season, lst, date_from)
+    if named is not None:
+        missing = sorted(named - held)
+        if missing:
+            print(f"✗ STRICT: {len(missing)} of {len(named)} named game(s) not in the listing ({code} "
+                  f"{date_from}..{date_to}): " + ", ".join(f"match {m}" for m in missing), flush=True)
+            raise SystemExit(1)
+
+
+def _tennis_reread(service, code, season, lst, date_from) -> None:
+    """THE RE-READ of _tennis_sync_matches (its docstring): the stored SCHEDULED rows of `code` whose event's ticker
+    day is in [date_from - TENNIS_MAX_WINDOW_DAYS, date_from), written again from the listing already read. Rows only
+    (no new row, no new player); prints its count, always."""
+    from datetime import date as _date, timedelta as _td
+
+    from src.adapters.kalshi_tennis import SOURCE as _SRC
+    lo = _date.fromisoformat(date_from) - _td(days=TENNIS_MAX_WINDOW_DAYS)
+    hi = _date.fromisoformat(date_from)
+    with session_scope() as s:
+        stored = {str((m.external_ids or {}).get(_SRC)) for m in s.execute(
+            select(Match).join(Competition, Competition.id == Match.competition_id)
+            .where(Competition.code == code, Match.status == MatchStatus.SCHEDULED)).scalars()
+            if (m.external_ids or {}).get(_SRC)}
+    due = {fx.event for fx in lst.fixtures if fx.event in stored and lo <= fx.day < hi}
+    moved = sorted(fx.event for fx in lst.fixtures if fx.event in due and fx.settlement.status != MatchStatus.SCHEDULED)
+    if due:
+        service.adapter.events = due
+        try:
+            service.sync_matches(code, season=season)
+        finally:
+            service.adapter.events = None
+    print(f"  {code} re-read (stored SCHEDULED rows dated {lo}..{hi - _td(days=1)}, no new row): {len(due)} re-read · "
+          f"{len(moved)} settled since" + (f": {', '.join(moved[:10])}" if moved else ""), flush=True)
+
+
 def _print_skipped_listings(result) -> None:
     """NEVER SILENT AGAIN (ARCHITECT 2026-11-01, addendum 204 item 3(c); #728, #765): "sync_matches' skipped-listings
     warning becomes a line the chain prints in its own receipt (the journal digest shows it), never only a log
@@ -274,6 +368,9 @@ def sync_matches_cmd(
                           date_from, date_to)
         return
     service = IngestionService(_adapter_for_competition(competition_code))
+    if _sport_for_competition(competition_code) == "tennis":
+        _tennis_sync_matches(service, competition_code, season, seasons, date_from, date_to, named)
+        return
 
     if seasons > 0:
         current_year = utc_now_naive().year
@@ -6320,6 +6417,35 @@ def sync_kalshi_nba_cmd():
         console.print(f"[yellow]✗ Kalshi NBA: {r.get('reason')}[/yellow]")
         if r.get("sports_available"):
             console.print(f"  Kalshi sports: {', '.join(r['sports_available'][:12])}")
+
+
+def _sync_kalshi_tennis(code: str) -> None:
+    """ARCHITECT 2026-11-05, addendum 261 item 0 ("the hourly capture tier") and 2026-11-06, addendum 269 item 3(a)
+    ("the matcher on yes_sub_title with the ambiguity sentinel"), lane tennis-market-only: the tour's open markets read
+    to the last page (269 item 3(d)), placed by the shared matcher on the stored rows, then the player check
+    (src/ingestion/tennis_kalshi.py). Market-only: no model, no call; the prices feed the PAPER record and the close's
+    record. UNMETERED (Kalshi's public market data). A refusal exits 0 with its printed reason, as sync-kalshi-nba."""
+    from src.ingestion.tennis_kalshi import sync_kalshi_tennis
+    r = sync_kalshi_tennis(code, progress=lambda m: console.print(m))
+    if r.get("ok"):
+        console.print(f"[green]✓ Kalshi {code}: {r.get('stored', 0)} prices stored[/green]")
+        console.print(f"  series {r.get('series')} · {r.get('markets')} markets · "
+                      f"matched {r.get('matched')} · unmatched {r.get('unmatched')} "
+                      f"(ambiguous {r.get('ambiguous')}) · in-play {r.get('in_play')} ")
+    else:
+        console.print(f"[yellow]✗ Kalshi {code}: {r.get('reason')}[/yellow]")
+
+
+@cli.command("sync-kalshi-atp")
+def sync_kalshi_atp_cmd():
+    """Pull open Kalshi ATP match markets (KXATPMATCH) and store snapshots (addendum 269; lane tennis-market-only)."""
+    _sync_kalshi_tennis("ATP")
+
+
+@cli.command("sync-kalshi-wta")
+def sync_kalshi_wta_cmd():
+    """Pull open Kalshi WTA match markets (KXWTAMATCH) and store snapshots (addendum 269; lane tennis-market-only)."""
+    _sync_kalshi_tennis("WTA")
 
 
 @cli.command("sync-kalshi-nfl")

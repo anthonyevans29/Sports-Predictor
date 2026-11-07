@@ -107,8 +107,10 @@ def test_the_value_side_is_judged_at_the_printed_precision(home_p, side, why, di
 
 
 def test_the_rulings_and_the_label():
-    assert paper.PAPER_LABEL == "PAPER, never a call" and paper.CLOSE_RECORD_COMPS == ("NHL", "NCAA", "NBA", "CL")
-    assert paper.TWO_WAY_RECORD == ("NHL", "NCAA", "NBA")        # NBA: addendum 261 item 0, "as NHL's"
+    assert paper.PAPER_LABEL == "PAPER, never a call" and paper.CLOSE_RECORD_COMPS == (
+        "NHL", "NCAA", "NBA", "ATP", "WTA", "CL")
+    # NBA: addendum 261 item 0, "as NHL's"; ATP / WTA: the same words, the result Kalshi's settlement (269 item 2)
+    assert paper.TWO_WAY_RECORD == ("NHL", "NCAA", "NBA", "ATP", "WTA")
     assert paper.RULING_5A.startswith("(a) coverage's SLATE line for a market-only competition carries, per game, ")
     assert paper.RULING_5B.endswith("(roadmap: \"no college candidate has been scored against a close\").")
 

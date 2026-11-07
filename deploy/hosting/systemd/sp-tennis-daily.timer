@@ -1,0 +1,15 @@
+# Tennis market-only daily (ARCHITECT 2026-11-05, addendum 261 item 2(c); 2026-11-06, addendum 269 items 1-3): shipped,
+# enabled by the architect's TERMINAL (host) block (hosting-h1.md T11). 06:53 UTC: off every chain timer's minute and
+# off the five-minute marks; before intl-daily's 07:20 UTC coverage write. H0-3: no timer fires inside the 04:15-05:15
+# UTC reboot buffer (tests/test_hosting_pack.py).
+[Unit]
+Description=sports-predictor timer: sp-tennis-daily
+
+[Timer]
+OnCalendar=*-*-* 06:53:00 UTC
+Unit=sp-chain@tennis-daily.service
+Persistent=true
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target

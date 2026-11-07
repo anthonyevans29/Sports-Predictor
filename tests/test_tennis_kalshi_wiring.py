@@ -1,0 +1,393 @@
+"""THE TENNIS WIRING, the Kalshi and host half (ARCHITECT 2026-11-05, addendum 261 items 0 and 2(c); 2026-11-06,
+addendum 269 item 3(a), (e), (f), addendum 274 item 1(b); 2026-11-07, addendum 284 item 1(b); lane tennis-market-only,
+#838).
+
+The two series on the venue's maps and their fee M (1.0, 1.0) read from the schedule (274 item 1(b)); the capture:
+the shared matcher's placement, then tennis's player check on yes_sub_title (a market naming neither player, or both,
+REFUSED by its sentinel, never guessed); `sync-kalshi-atp` / `sync-kalshi-wta`; the hourly capture tier; the PAPER
+line and coverage; the close's record decided by Kalshi's settlement (a SETTLED_SCALAR row never scored); the chain
+tennis-daily and its timer, shipped not enabled.
+
+Every market, ticker and player name here is SYNTHETIC. The throwaway DBs only; no network (the HTTP layer is a
+fake)."""
+from __future__ import annotations
+
+import math
+import re
+import sqlite3
+import sys
+from datetime import datetime, timedelta
+from pathlib import Path
+from types import SimpleNamespace as NS
+
+import pytest
+from click.testing import CliRunner
+
+ROOT = Path(__file__).resolve().parent.parent
+HOSTING = ROOT / "deploy" / "hosting"
+sys.path.insert(0, str(HOSTING))
+
+import chains  # noqa: E402
+
+from src.adapters import kalshi_tennis as kt  # noqa: E402
+from src.ingestion import kalshi_match as km  # noqa: E402
+from src.ingestion import tennis_kalshi as tk  # noqa: E402
+from src.walters import venue  # noqa: E402
+from tests import test_coverage_map as tcm  # noqa: E402
+from tests.test_coverage_map import env  # noqa: E402,F401  (a fixture)
+from tests.test_record_vs_close import iso_db  # noqa: E402,F401  (a fixture)
+from tests.test_tennis_wiring import FakeKalshi, OPEN, _fake_http, pair, tennis_rows  # noqa: E402,F401
+
+Z = datetime.fromisoformat
+
+
+# ---- the series and the fee M ------------------------------------------------------------------------------------------
+
+def test_the_two_series_are_mapped_and_priced_at_the_m_read_from_the_schedule():
+    """274 item 1(b) (as the roadmap's tennis lane and #838 record it): "KXATPMATCH and KXWTAMATCH (1.0, 1.0), read
+    from the schedule". Tennis rows price both costs, both sides, at M = 1, exactly as NBA's; no other entry moved."""
+    from src.ingestion.kalshi_replay import shared_series
+    from src.ingestion.kalshi_sync import series_competition
+    assert venue.KALSHI_SERIES_BY_COMPETITION["ATP"] == "KXATPMATCH"
+    assert venue.KALSHI_SERIES_BY_COMPETITION["WTA"] == "KXWTAMATCH"
+    assert venue.KALSHI_FEE_M["KXATPMATCH"] == venue.KALSHI_FEE_M["KXWTAMATCH"] == (1.0, 1.0)
+    assert series_competition("KXATPMATCH") == "ATP" and shared_series()["KXWTAMATCH"] == "WTA"
+    assert venue.KALSHI_FEE_M == {"KXNFLGAME": (1.0, 1.0), "KXNHLGAME": (1.0, 1.0), "KXNCAAFGAME": (1.0, 1.0),
+                                  "KXEPLGAME": (1.0, 1.0), "KXMLBGAME": (0.5, 0.5), "KXUCLGAME": (1.0, 1.0),
+                                  "KXNBAGAME": (1.0, 1.0), "KXATPMATCH": (1.0, 1.0), "KXWTAMATCH": (1.0, 1.0)}
+    src = (ROOT / "src" / "walters" / "venue.py").read_text()
+    blk = src[src.index("# KXATPMATCH and KXWTAMATCH"):src.index('"KXATPMATCH": (1.0, 1.0)')]
+    assert "addendum 274 item 1(b)" in blk and "read" in blk and "from the schedule" in blk
+    costs = ("exec_cost_taker", "exec_cost_maker", "exec_cost_taker_away", "exec_cost_maker_away")
+    nba = venue.kalshi_exec(0.53, 0.55, "NBA", two_way=True)
+    for code, series in (("ATP", "KXATPMATCH"), ("WTA", "KXWTAMATCH")):
+        e = venue.kalshi_exec(0.53, 0.55, code, two_way=True)
+        assert (e["fee_series"], e["fee_m_taker"], e["fee_m_maker"]) == (series, 1.0, 1.0)
+        assert [e[k] for k in costs] == [nba[k] for k in costs] and all(e[k] is not None for k in costs)
+
+
+def test_the_k_track_reads_a_tennis_home_away_ladder_as_complete():
+    from src.walters.k_receipt import ladder_row
+    t = Z("2026-12-28T05:00")
+    legs = {"HOME": NS(yes_bid=0.55, yes_ask=0.57), "AWAY": NS(yes_bid=0.43, yes_ask=0.45)}
+    for comp in ("ATP", "WTA"):
+        r = ladder_row(comp, t, legs, [], [])
+        assert (r["complete"], r["two_sided"]) == (True, True), (comp, r)
+        assert all(v["taker"] is not None and v["maker"] is not None for v in r["legs"].values()), r
+
+
+def test_no_tennis_call_exists_to_price():
+    """261 item 4: no model, no call, no Desk family."""
+    from src.walters import desk_policy
+    fams = repr(getattr(desk_policy, "FAMILIES", "")) + repr(getattr(desk_policy, "DESK_FAMILIES", ""))
+    assert "ATP" not in fams and "WTA" not in fams and "tennis" not in fams.lower()
+    from src.walters import training
+    assert not [k for k in training.MODEL_FAMILIES if "tennis" in str(k).lower()]
+
+
+# ---- the player check (269 item 3(a)) ----------------------------------------------------------------------------------
+
+def _row(mid, home, away, event):
+    return NS(id=mid, home_team=NS(name=home), away_team=NS(name=away), external_ids={kt.SOURCE: event})
+
+
+def _placed(*items):
+    res = km.Result()
+    for (mid, side), name, event in items:
+        res.placed[(mid, side)] = {"ticker": f"{event}-{name[:3].upper()}", "event_ticker": event, "yes_sub_title": name}
+    return res
+
+
+E1 = "KXATPMATCH-26DEC29AAABBB"
+
+
+@pytest.mark.parametrize("side,name,event,rows,why", [
+    ("HOME", "Ana Synthwood", E1, [_row(1, "Ana Synthwood", "Bea Fakely", E1)], None),
+    ("AWAY", "bea fakely", E1, [_row(1, "Ana Synthwood", "Bea Fakely", E1)], None),            # letter case only
+    ("HOME", "Cal Mockton", E1, [_row(1, "Ana Synthwood", "Bea Fakely", E1)], tk.PLAYER_NEITHER),
+    ("HOME", "Ana Synthwood", E1, [_row(1, "Ana Synthwood", "Ana Synthwood", E1)], tk.PLAYER_BOTH),
+    ("AWAY", "Ana Synthwood", E1, [_row(1, "Ana Synthwood", "Bea Fakely", E1)], tk.PLAYER_SIDE),
+    ("HOME", "Ana Synthwood", E1, [_row(1, "Ana Synthwood", "Bea Fakely", "KXATPMATCH-26DEC28CCCDDD")],
+     tk.EVENT_OTHER),
+    ("HOME", "Ana Synthwood", E1, [], tk.EVENT_OTHER),
+])
+def test_the_player_check_keeps_only_the_named_player_on_their_own_event_and_side(side, name, event, rows, why):
+    res = tk.player_check(_placed(((1, side), name, event)), rows)
+    if why is None:
+        assert list(res.placed) == [(1, side)] and not res.refused
+    else:
+        assert res.placed == {} and res.refused == {why: 1} and why in res.why.values()
+
+
+def test_a_refused_market_is_counted_in_the_unmatched_never_stored():
+    res = tk.player_check(_placed(((1, "HOME"), "Cal Mockton", E1)), [_row(1, "Ana Synthwood", "Bea Fakely", E1)])
+    c = km.legacy_counts(res)
+    assert c["matched"] == 0 and c["unmatched"] == 1 and c["refused"] == {tk.PLAYER_NEITHER: 1}
+
+
+# ---- sync-kalshi-atp end to end ----------------------------------------------------------------------------------------
+
+def test_sync_kalshi_atp_refuses_without_the_competition(monkeypatch, tennis_rows):
+    import cli
+    fake = FakeKalshi({("KXATPMATCH", "open"): [OPEN]})
+    _fake_http(monkeypatch, fake)
+    out = CliRunner().invoke(cli.cli, ["sync-kalshi-atp"])
+    assert out.exit_code == 0 and "✗ Kalshi ATP: competition ATP not in DB" in out.output, out.output
+    assert {p["series_ticker"] for path, p in fake.calls if path == "markets"} == {"KXATPMATCH"}
+
+
+def test_sync_kalshi_atp_refuses_a_cursor_left_and_stores_nothing(monkeypatch, tennis_rows):
+    import cli
+    fake = FakeKalshi({("KXATPMATCH", "open"): [OPEN, OPEN]},
+                      cursors={(("KXATPMATCH", "open"), 0): "c1", (("KXATPMATCH", "open"), 1): "c1"})
+    _fake_http(monkeypatch, fake)
+    out = CliRunner().invoke(cli.cli, ["sync-kalshi-atp"])
+    flat = " ".join(out.output.split())
+    assert out.exit_code == 0 and "✗ Kalshi ATP: REFUSED" in flat and "cursor already read" in flat, flat
+
+
+def test_sync_kalshi_atp_stores_both_players_on_the_ml_market(monkeypatch, tennis_rows):
+    """The event's own row (created from the same event by sync-matches), both players placed on their sides by the
+    shared matcher and kept by the player check; an event with no stored row is refused by the shared matcher's
+    NO_FIT, counted and printed; a WTA market is never read by the ATP sync."""
+    import cli
+    from src.db.database import session_scope
+    from src.db.schema import Match, OddsSnapshot
+    fake = FakeKalshi({("KXATPMATCH", "open"): [OPEN]})
+    _fake_http(monkeypatch, fake)
+    run = CliRunner()
+    assert run.invoke(cli.cli, ["sync-competitions", "--sport", "tennis"]).exit_code == 0
+    res = run.invoke(cli.cli, ["sync-matches", "--competition", "ATP", "--date-from", "2026-12-28",
+                               "--date-to", "2026-12-30"])
+    assert res.exit_code == 0, res.output
+    monkeypatch.setattr(tk, "utc_now_naive", lambda: Z("2026-12-27T05:00"))
+    fake.pages[("KXATPMATCH", "open")] = [OPEN + pair("26DEC29GGGHHH", "Nowhere Person", "Elsewhere Person")]
+    out = run.invoke(cli.cli, ["sync-kalshi-atp"])
+    assert out.exit_code == 0, out.output
+    assert "✓ Kalshi ATP: 2 prices stored" in out.output and "series KXATPMATCH · 4 markets" in out.output, out.output
+    assert km.NO_FIT in out.output
+    with session_scope() as s:
+        m = next(x for x in s.query(Match).all()
+                 if (x.external_ids or {}).get("kalshi_tennis") == "KXATPMATCH-26DEC29EEEFFF")
+        assert (m.home_team.name, m.away_team.name) == ("Ana Synthwood", "Eli Sampleton")
+        snaps = {x.selection: (x.market, x.source, x.yes_bid, x.yes_ask)
+                 for x in s.query(OddsSnapshot).filter(OddsSnapshot.match_id == m.id)}
+    assert snaps == {"HOME": ("ML", "kalshi", 0.40, 0.42), "AWAY": ("ML", "kalshi", 0.40, 0.42)}
+    # in play on our kickoff (the first instant of the ticker's date anywhere): nothing more is stored
+    monkeypatch.setattr(tk, "utc_now_naive", lambda: Z("2026-12-28T10:00"))
+    out = run.invoke(cli.cli, ["sync-kalshi-atp"])
+    assert "✓ Kalshi ATP: 0 prices stored" in out.output and km.IN_PLAY in out.output, out.output
+
+
+def test_the_kickoff_rule_refuses_a_d_event_open_on_d_minus_1_afternoon_as_in_play(monkeypatch, tennis_rows):
+    """REVIEW P1, ON RECORD UNTIL THE ARCHITECT RULES THE KICKOFF (kalshi_tennis THE KICKOFF): the stored kickoff of an
+    event dated D is D-1 10:00 UTC, so a market of that event still open at D-1 15:12 UTC (the stage-1 digest's
+    KXWTAMATCH-26NOV07... was open at ~15:12Z on 11-06) is refused IN_PLAY although its match had not started. The
+    capture is conservative (never an in-play price stored as pre-match) and close to empty by construction."""
+    import cli
+    from src.db.database import session_scope
+    from src.db.schema import Match, OddsSnapshot, Sport
+    ev = pair("26DEC29EEEFFF", "Eli Sampleton", "Ana Synthwood")
+    fake = FakeKalshi({("KXATPMATCH", "open"): [ev]})
+    _fake_http(monkeypatch, fake)
+    run = CliRunner()
+    assert run.invoke(cli.cli, ["sync-competitions", "--sport", "tennis"]).exit_code == 0
+    assert run.invoke(cli.cli, ["sync-matches", "--competition", "ATP", "--date-from", "2026-12-28",
+                                "--date-to", "2026-12-30"]).exit_code == 0
+    assert kt.kickoff_utc(datetime(2026, 12, 29).date()) == Z("2026-12-28T10:00")
+    monkeypatch.setattr(tk, "utc_now_naive", lambda: Z("2026-12-28T15:12"))
+    out = run.invoke(cli.cli, ["sync-kalshi-atp"])
+    assert "✓ Kalshi ATP: 0 prices stored" in out.output and km.IN_PLAY in out.output, out.output
+    with session_scope() as s:
+        assert s.query(OddsSnapshot).join(Match, Match.id == OddsSnapshot.match_id).filter(
+            Match.sport == Sport.TENNIS).count() == 0
+
+
+def test_a_same_pair_row_dated_the_day_after_takes_the_day_rule_and_the_player_check_refuses_it(monkeypatch,
+                                                                                                 tennis_rows):
+    """REVIEW NIT, ON RECORD: a tennis row's stored kickoff reads on the US Eastern day BEFORE its ticker's date, so the
+    shared matcher's date-only rule (a row whose ET day is the ticker's date takes the market) picks a same-pair row
+    dated D+1 for an event dated D. Tennis's player check refuses it (EVENT_OTHER): conservative, never stored on the
+    wrong row, but the event's own market is refused rather than placed. It resolves with the kickoff ruling."""
+    import cli
+    from src.db.database import session_scope
+    from src.db.schema import Match, OddsSnapshot, Sport
+    d29 = pair("26DEC29AAABBB", "Ana Synthwood", "Bea Fakely")
+    d30 = pair("26DEC30CCCDDD", "Ana Synthwood", "Bea Fakely")
+    fake = FakeKalshi({("KXATPMATCH", "open"): [d29 + d30]})
+    _fake_http(monkeypatch, fake)
+    run = CliRunner()
+    assert run.invoke(cli.cli, ["sync-competitions", "--sport", "tennis"]).exit_code == 0
+    assert run.invoke(cli.cli, ["sync-matches", "--competition", "ATP", "--date-from", "2026-12-28",
+                                "--date-to", "2026-12-30"]).exit_code == 0
+    fake.pages[("KXATPMATCH", "open")] = [d29]                 # the D event's markets only (no two-claims refusal)
+    monkeypatch.setattr(tk, "utc_now_naive", lambda: Z("2026-12-27T11:00"))
+    out = run.invoke(cli.cli, ["sync-kalshi-atp"])
+    flat = " ".join(out.output.split())
+    assert "✓ Kalshi ATP: 0 prices stored" in flat and tk.EVENT_OTHER in flat, flat
+    with session_scope() as s:
+        assert s.query(OddsSnapshot).join(Match, Match.id == OddsSnapshot.match_id).filter(
+            Match.sport == Sport.TENNIS).count() == 0
+
+
+@pytest.mark.parametrize("series", ["KXATPMATCH", "KXWTAMATCH"])
+def test_the_settled_market_history_pull_refuses_the_tennis_series_before_any_call(series, monkeypatch):
+    """Review P2: the venue map now names the two tour series, which would open `kalshi-history --series` (the
+    settled-market history pull) for them. That pull is the ONE-TIME backfill addendum 270 item 5 holds for the
+    architect's block, and it places with the shared matcher without tennis's player check (269 item 3(a)): REFUSED
+    before any call, by the CLI's pull, the ruled re-place (place-held) and the anchored chain (place-chain)."""
+    import inspect
+
+    import cli
+    from src.ingestion import kalshi_history as kh
+    called = []
+    monkeypatch.setattr(kh, "competition_for", lambda *a, **k: called.append(a) or ("ATP", False))
+    with pytest.raises(ValueError, match="addendum 270 item 5"):
+        kh.run_history(series, adapter=FakeKalshi(), echo=lambda *_: None, dry_run=True)
+    with pytest.raises(ValueError, match="addendum 270 item 5"):
+        kh._ruled_target(None, {"ticker": f"{series}-26DEC29AAABBB-AAA", "series": series}, 1, None)
+    assert called == []
+    src = inspect.getsource(kh._plan_chain)
+    assert src.index("refuse_held_series(series)") < src.index("competition_for(series, adapter)")
+    kh.refuse_held_series("KXNBAGAME")                       # every other series passes unchanged
+    res = CliRunner().invoke(cli.cli, ["kalshi-history", "--series", series, "--dry-run"])
+    assert res.exit_code == 2 and "addendum 270 item 5" in " ".join(res.output.split()), res.output
+
+
+# ---- the chain, the capture tier, the timer ----------------------------------------------------------------------------
+
+def test_tennis_daily_is_both_tours_window_then_their_kalshi_syncs():
+    ch = chains.CHAINS["tennis-daily"]
+    assert ch["steps"] == [
+        ["sync-matches", "--competition", "ATP", "--date-from", "{yesterday}", "--date-to", "{tomorrow}"],
+        ["sync-matches", "--competition", "WTA", "--date-from", "{yesterday}", "--date-to", "{tomorrow}"],
+        ["sync-kalshi-atp"], ["sync-kalshi-wta"]]
+    assert ch["backup"] == "daily" and "active_from" not in ch and "go_on" not in ch
+    assert chains.COVERAGE_STEP not in ch["steps"]
+    assert {"sync-kalshi-atp", "sync-kalshi-wta"} <= chains.UNMETERED
+    assert chains.WINDOW_KALSHI["ATP"] == [["sync-kalshi-atp"]] and chains.WINDOW_KALSHI["WTA"] == [["sync-kalshi-wta"]]
+    assert "ATP" not in chains.WINDOW_KALSHI_CAPTURE_ONLY
+    src = (HOSTING / "chains.py").read_text()
+    blk = src[src.index("# --- TENNIS, market-only"):src.index('"tennis-daily": {')]
+    assert "addendum 270 item 5" in blk and "No second writer, ever." in blk and "269 item 3(d)" in blk
+
+
+def _calendars():
+    return {p.stem: re.findall(r"^OnCalendar=(.+)$", p.read_text(), re.M)
+            for p in sorted((HOSTING / "systemd").glob("*.timer"))}
+
+
+def test_the_timer_minute_is_off_every_existing_timer_and_before_the_coverage_write():
+    cal = _calendars()
+    assert cal["sp-tennis-daily"] == ["*-*-* 06:53:00 UTC"]
+    assert "Unit=sp-chain@tennis-daily.service" in (HOSTING / "systemd" / "sp-tennis-daily.timer").read_text()
+    minutes = set()
+    for name, lines in cal.items():
+        if name in ("sp-tennis-daily", "sp-closing-watch"):
+            continue
+        for ln in lines:
+            minutes.add(int(re.search(r"(\d{2}|\*):(\d{2}):00", ln).group(2)))
+    assert 53 not in minutes and 53 % 5 != 0, sorted(minutes)
+    assert cal["sp-intl-daily"] == ["*-*-* 07:20:00 UTC"] and cal["sp-nba-daily"] == ["*-*-* 06:47:00 UTC"]
+
+
+def test_the_timer_ships_on_t11_timers_and_the_schedule_table_and_nothing_enables_it():
+    import sp_common as c
+    lists = c.t11_lists()
+    assert "sp-tennis-daily.timer" in lists["TIMERS"] and "sp-tennis-daily.timer" not in lists["MLB_LAPTOP_ONLY"]
+    h1 = (ROOT / "docs" / "specs" / "hosting-h1.md").read_text()
+    assert len(re.findall(r"^\| sp-tennis-daily \|", h1, re.M)) == 1
+    assert "echo sp-tennis-daily.timer | sudo tee -a /etc/sports-predictor/timers.enabled" in h1
+    assert "systemctl enable" not in (HOSTING / "install.sh").read_text()          # install.sh enables nothing
+
+
+def test_the_window_chain_captures_tennis_near_its_kickoff(tmp_path, monkeypatch):
+    import sp_common as c
+    import sp_run
+    now = datetime(2026, 12, 27, 4, 0)
+    db = tmp_path / "w.db"
+    con = sqlite3.connect(db)
+    con.executescript("CREATE TABLE competitions(id INTEGER PRIMARY KEY, sport TEXT, code TEXT);"
+                      "CREATE TABLE matches(id INTEGER PRIMARY KEY, competition_id INT, season TEXT, status TEXT,"
+                      " utc_date TEXT);")
+    con.execute("INSERT INTO competitions VALUES (1, 'TENNIS', 'WTA')")
+    con.execute("INSERT INTO matches(competition_id, season, status, utc_date) VALUES (1, '2026', 'SCHEDULED', ?)",
+                ((now + timedelta(hours=6)).strftime("%Y-%m-%d %H:%M:%S"),))
+    con.commit()
+    con.close()
+    monkeypatch.setattr(c, "HOST_ENV", tmp_path / "no-host.env")
+    monkeypatch.setattr(c, "_DOTENV_CACHE", None)
+    monkeypatch.delenv("SP_SKIP_FAMILIES", raising=False)
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{db}")
+    steps = [" ".join(s) for s in sp_run.window_plan(now)["steps"]]
+    # the window chain's schedule check is a bounded one-day tennis sync (cli refuses an unbounded one)
+    assert "sync-matches --competition WTA --season 2026 --date-from 2026-12-27 --date-to 2026-12-27" in steps
+    assert "sync-kalshi-wta" in steps
+
+
+# ---- the close's record and coverage ------------------------------------------------------------------------------------
+
+def _tennis(s, games):
+    from src.db.schema import Competition, Match, MatchStatus, Sport, Team
+    comp = Competition(sport=Sport.TENNIS, code="ATP", name="ATP Tennis Match", area="World", type="LEAGUE")
+    s.add(comp)
+    s.flush()
+    teams = {}
+    for gid, home, away, ko, st, res in games:
+        for nm in (home, away):
+            if nm not in teams:
+                teams[nm] = Team(sport=Sport.TENNIS, name=nm)
+                s.add(teams[nm])
+        s.flush()
+        s.add(Match(id=gid, sport=Sport.TENNIS, competition_id=comp.id, season="2026", utc_date=ko,
+                    status=st or MatchStatus.SCHEDULED, home_team_id=teams[home].id, away_team_id=teams[away].id,
+                    full_time_result=res, status_raw="finalized"))
+    s.flush()
+
+
+def test_the_close_record_scores_tennis_on_the_settlements_winner_never_a_scalar(iso_db):
+    """269 item 2: "the settled market says exactly that: the winner by name on yes/no, the fraction on a scalar". A
+    tennis row has no score (NULL AND LABELLED), so the record reads full_time_result; a SETTLED_SCALAR row is never
+    FINISHED and never read, whatever quotes it holds."""
+    from src.db.database import session_scope
+    from src.db.schema import MatchStatus, OddsSnapshot, Result
+    from src.walters import paper
+    ko = Z("2026-12-27T10:00")
+    with session_scope() as s:
+        _tennis(s, [(9801, "Ana Synthwood", "Bea Fakely", ko, MatchStatus.FINISHED, Result.HOME),
+                    (9802, "Cal Mockton", "Dov Testerly", ko, MatchStatus.FINISHED, Result.AWAY),
+                    (9803, "Eli Sampleton", "Fay Dummer", ko, MatchStatus.SETTLED_SCALAR, None),
+                    (9804, "Gus Oldfield", "Hal Pastly", ko, MatchStatus.FINISHED, None)])
+        for mid, bid, ask in ((9801, 0.60, 0.61), (9802, 0.44, 0.45), (9803, 0.50, 0.51), (9804, 0.50, 0.51)):
+            s.add(OddsSnapshot(match_id=mid, market="ML", selection="HOME", devig_prob=0.5, n_books=1,
+                               captured_at=ko - timedelta(hours=1), source="kalshi", yes_bid=bid, yes_ask=ask))
+    rec = paper.close_record(30, now=Z("2026-12-29T12:00"))
+    r = rec["ATP"]
+    assert r["kind"] == paper.KIND_TWO and r["finished"] == 3 and r["n"] == 2 and r["no_result"] == 1
+    assert r["ll_sum"] == pytest.approx(-math.log(0.605) - math.log(1 - 0.445))
+    assert rec["WTA"]["finished"] == 0
+    assert "ATP n=2" in paper.close_record_console(rec, 30)
+
+
+def test_coverage_prints_tennis_market_only_with_paper_lines(env, monkeypatch):
+    monkeypatch.setitem(tcm.COMPS, "ATP", 98)
+    tcm.make_db(env, [(951, "ATP", "2026-10-17 10:00", "SCHEDULED"),
+                     (952, "ATP", "2026-10-17 11:00", "FINISHED"),
+                     (953, "ATP", "2026-10-17 12:00", "SETTLED_SCALAR")])
+    rc, out = tcm.run("--date", tcm.DAY)
+    assert rc == 0, out
+    atp = tcm.line_of(out, "ATP")
+    assert atp.startswith("ATP · 3 games · MARKET-ONLY ("), atp
+    assert "export._MARKET_ONLY_REASON" in atp
+    assert any(x.startswith("ATP SLATE · PAPER, never a call") for x in out), out
+
+
+# ---- the docs name what was built ---------------------------------------------------------------------------------------
+
+def test_the_docs_name_the_commands_the_chain_and_the_receipt():
+    doc = (ROOT / "docs" / "CLI.md").read_text()
+    assert "| `sync-kalshi-atp` · `sync-kalshi-wta` |" in doc and "**Tennis daily (host `sp-tennis-daily`" in doc
+    assert "| `python3 scripts/tennis_certification_receipt.py` |" in doc
+    row = next(ln for ln in doc.splitlines() if ln.startswith("| `sync-kalshi-atp` · `sync-kalshi-wta` |"))
+    assert "addendum 274 item 1(b)" in row and "(1.0, 1.0)" in row and "never guessed" in row
+    assert "ATP (`KXATPMATCH`) and WTA (`KXWTAMATCH`)" in doc

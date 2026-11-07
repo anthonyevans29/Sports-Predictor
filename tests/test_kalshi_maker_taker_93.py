@@ -22,9 +22,12 @@ def test_ruled_multipliers_per_series():
     for s in ("KXNFLGAME", "KXNHLGAME", "KXNCAAFGAME", "KXEPLGAME"):
         assert venue.KALSHI_FEE_M[s] == (1.0, 1.0)
     assert venue.KALSHI_FEE_M["KXNBAGAME"] == (1.0, 1.0)   # NBA: ARCHITECT 2026-11-06, addendum 274 item 1(a), RULED
+    for s in ("KXATPMATCH", "KXWTAMATCH"):          # tennis: ARCHITECT 2026-11-06, addendum 274 item 1(b), read from the schedule
+        assert venue.KALSHI_FEE_M[s] == (1.0, 1.0)
     assert venue.KALSHI_SERIES_BY_COMPETITION == {
         "NFL": "KXNFLGAME", "NHL": "KXNHLGAME", "NCAA": "KXNCAAFGAME", "PL": "KXEPLGAME", "MLB": "KXMLBGAME",
-        "NBA": "KXNBAGAME"}         # NBA: ARCHITECT 2026-11-06, addendum 271 item 3(h), the ticker READ on #839
+        "NBA": "KXNBAGAME",         # NBA: ARCHITECT 2026-11-06, addendum 271 item 3(h), the ticker READ on #839
+        "ATP": "KXATPMATCH", "WTA": "KXWTAMATCH"}   # tennis: addendum 269 item 1 K1, the two tour series READ on #838
     # every mapped series carries its M (the mapped-but-unlisted rule stays for a future series: test_nba_kalshi_wiring)
     assert set(venue.KALSHI_SERIES_BY_COMPETITION.values()) <= set(venue.KALSHI_FEE_M)
 

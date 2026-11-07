@@ -77,6 +77,13 @@ class NormalizedMatch:
     # (no reader of a quarter exists; a lane that needs them declares the field when it exists). Filled by
     # api_basketball only; None everywhere else, so nothing changes for any other adapter.
     raw: dict | None = None
+    # THE SETTLEMENT AS SERVED (ARCHITECT 2026-11-06, addendum 269 item 3(b): "'scalar' → [...] NO winner, the fraction
+    # kept as the settlement value — it is the ledger's truth for any position"). {market ticker: {"result",
+    # "settlement_value_dollars", "expiration_value"}}, each value verbatim as Kalshi serves it, for a KXATPMATCH /
+    # KXWTAMATCH event with a settled market. The ingestion service writes it under the row's
+    # external_ids["kalshi_settlement"] (SETTLEMENT_KEY); filled by kalshi_tennis only; None everywhere else, so nothing
+    # changes for any other adapter.
+    settlement: dict | None = None
 
 
 @dataclass

@@ -342,6 +342,22 @@ class Calls:
         return None, why
 
 
+TENNIS_HELD = ("REFUSED: {series} is a tennis tour series (lane tennis-market-only, #838): its settled-market history "
+               "is the ONE-TIME backfill ARCHITECT 2026-11-06, addendum 270 item 5 holds for a block of the "
+               "architect's (\"possible on the day a model lane asks for it, by a block of mine, and not before — no "
+               "model lane exists, so no backfill is scheduled\"), and this path places with the shared matcher "
+               "without tennis's player check (269 item 3(a)): nothing is listed, placed or written")
+
+
+def refuse_held_series(series: str) -> None:
+    """Raise ValueError (the paths' own refusal) for a series whose history pull no ruling opens: the two tennis tour
+    series (kalshi_tennis.SERIES; addendum 270 item 5). Every other series passes unchanged. Read by run_history, the
+    ruled re-place (_ruled_target, place-held) and the anchored chain (_plan_chain, place-chain), before any call."""
+    from src.adapters.kalshi_tennis import SERIES as _TENNIS
+    if (series or "").strip() in _TENNIS.values():
+        raise ValueError(TENNIS_HELD.format(series=series.strip()))
+
+
 def competition_for(series: str, adapter) -> tuple[str | None, bool]:
     """(the series' own competition, whether it is a soccer series with a Tie leg). The one map the syncs read
     (kalshi_sync.series_competition), and the soccer path's own (KalshiAdapter.SOCCER_GAME_SERIES)."""
@@ -649,6 +665,7 @@ def run_history(series: str, *, since: date | None = None, until: date | None = 
     from src.walters.venue_quote_age import readonly_session
 
     adapter = adapter or KalshiAdapter()
+    refuse_held_series(series)
     run = Run(series=series, dry_run=dry_run)
     fetched_at = now or utc_now_naive()
     comp_code, soccer = competition_for(series, adapter)
@@ -1071,6 +1088,7 @@ def _ruled_target(rs, before: dict, match_id: int, adapter) -> dict:
 
     from src.db.schema import Competition, KalshiSettledMarket as K, Match
     ticker = before["ticker"]
+    refuse_held_series(before["series"])
     comp_code, soccer = competition_for(before["series"], adapter)
     comp_id = (rs.execute(select(Competition.id).where(Competition.code == comp_code)).scalar_one_or_none()
                if comp_code else None)
@@ -1389,6 +1407,7 @@ def _plan_chain(rs, anchor: str, ruling: str, adapter) -> dict:
         raise ValueError(f"REFUSED: the rows of {anchor} are of {len(series)} series ({', '.join(series)}): "
                          "nothing is placed")
     series = series[0]
+    refuse_held_series(series)
     comp_code, soccer = competition_for(series, adapter)
     comp_id = (rs.execute(select(Competition.id).where(Competition.code == comp_code)).scalar_one_or_none()
                if comp_code else None)

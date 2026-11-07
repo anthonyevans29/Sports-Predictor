@@ -728,9 +728,11 @@ def test_fetch_keeps_the_markets_under_logs_and_reads_every_series(tmp_path, mon
     asked = []
     monkeypatch.setattr(KalshiAdapter, "open_markets_for_series", lambda self, s: asked.append(s) or KUUTAH)
     payload = kr.fetch(progress=lambda _: None)
-    # KXNBAGAME: ARCHITECT 2026-11-06, addendum 271 item 3(h) (the shared series' fifth)
-    assert set(asked[:5]) == {"KXMLBGAME", "KXNFLGAME", "KXNHLGAME", "KXNCAAFGAME", "KXNBAGAME"}
-    assert set(asked[5:]) == set(KalshiAdapter.SOCCER_GAME_SERIES.values())          # each soccer series resolved
+    # KXNBAGAME: ARCHITECT 2026-11-06, addendum 271 item 3(h) (the shared series' fifth); KXATPMATCH / KXWTAMATCH:
+    # addendum 269 item 1 K1 (the two tour series, two-way, the shared matcher's placement)
+    assert set(asked[:7]) == {"KXMLBGAME", "KXNFLGAME", "KXNHLGAME", "KXNCAAFGAME", "KXNBAGAME", "KXATPMATCH",
+                              "KXWTAMATCH"}
+    assert set(asked[7:]) == set(KalshiAdapter.SOCCER_GAME_SERIES.values())          # each soccer series resolved
     kept = tmp_path / payload["kept_at"]
     assert kept.parent == tmp_path / "logs" and json.loads(kept.read_text())["series"]["KXNCAAFGAME"]["markets"] == KUUTAH
     assert payload["series"]["KXEPLGAME"]["path"] == "soccer" and payload["series"]["KXEPLGAME"]["competition"] == "PL"
@@ -834,7 +836,8 @@ def test_one_map_of_series_to_competition_for_the_syncs_and_the_replay():
     from src.ingestion.kalshi_sync import series_competition
     from src.walters.venue import KALSHI_SERIES_BY_COMPETITION
     assert kr.shared_series() == {"KXNFLGAME": "NFL", "KXNHLGAME": "NHL", "KXNCAAFGAME": "NCAA", "KXMLBGAME": "MLB",
-                                  "KXNBAGAME": "NBA"}           # NBA: addendum 271 item 3(h)
+                                  "KXNBAGAME": "NBA",           # NBA: addendum 271 item 3(h)
+                                  "KXATPMATCH": "ATP", "KXWTAMATCH": "WTA"}     # tennis: addendum 269 item 1 K1
     assert all(series_competition(s) == c for s, c in kr.shared_series().items())
     assert series_competition(KalshiAdapter.GAME_SERIES[0]) == "MLB" and series_competition("KXNOSUCHGAME") is None
     # a competition in both maps has one series

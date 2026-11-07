@@ -96,7 +96,7 @@ v7"."
                    skips it, or fails it on a malformed setting): no schedule that day, the gate named on the line.
       MARKET-ONLY  the code's own market-only sets, imported (market_only_sets): desk_policy.SHADOW_VENUE_COMPS (the set
                    cli._refuse_shadow_league refuses), chains.EXPANSION_CODES, chains.KALSHI_CAPTURE_ONLY,
-                   export._MARKET_ONLY_REASON (the market-only fixtures file's NHL, NCAA, UNL) and cup_coeff.EXAM_COMPS
+                   export._MARKET_ONLY_REASON (the market-only fixtures file's NHL, NCAA, UNL, NBA) and cup_coeff.EXAM_COMPS
                    (the cup track's competitions, market-only until its gate passes; EL is the adapter's alias for
                    UEL). SHADOW and MARKET-ONLY both: `MARKET-ONLY · shadow <tag>`.
       UNKNOWN      none applies (law 4), with every reason: no closing family or no live model, no lane names it or
@@ -372,6 +372,7 @@ def read_day(day: date) -> tuple[list[dict], dict, dict | str]:
     """The day's stored games (every competition, closing.schedule's shape plus `comp`; VOID ones included, marked),
     {match_id: [(model_version, computed_at)]} for them, and the production model rows {(sport, model_family):
     [version]} (or why model_versions could not be read). One read-only connection; nothing else is read."""
+    from src.walters.paper import COVERAGE_COUNTS_POSTPONED    # addendum 272 item 3: its competitions count POSTPONED
     lo, hi = day_bounds(day)
     fmt = "%Y-%m-%d %H:%M:%S"
     try:
@@ -400,8 +401,12 @@ def read_day(day: date) -> tuple[list[dict], dict, dict | str]:
             if cl.ny_date(start) != day:
                 continue
             st = str(s or "").upper()
+            # closing.VOID, except POSTPONED for a competition of paper.COVERAGE_COUNTS_POSTPONED (ARCHITECT
+            # 2026-11-06, addendum 272 item 3: "the coverage page's totals count SCHEDULED + FINISHED + POSTPONED, not
+            # CANCELLED"); imported, no competition is named here
+            void = st in cl.VOID and not (st == "POSTPONED" and code in COVERAGE_COUNTS_POSTPONED)
             games.append({"match_id": i, "start": start, "status": st, "home": h, "away": a, "comp": code,
-                          "void": st in cl.VOID})
+                          "void": void})
         ids = [g["match_id"] for g in games]
         preds: dict = {}
         for k in range(0, len(ids), _IN_CHUNK):

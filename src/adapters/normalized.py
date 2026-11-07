@@ -70,6 +70,13 @@ class NormalizedMatch:
     # adapter reads no series fields (every adapter but statsapi, the api-sports fallback included): nothing is
     # written for the row.
     series: dict | None = None
+    # THE SERVED ITEM, NOT KEPT (ARCHITECT 2026-11-06, addendum 274 item 2(10): "the transient reading STANDS; nothing
+    # is kept, no file under exports/, no column"; 271 item 3(g) CORRECTED to "not persisted"). The provider's item
+    # for THIS game as served, held on the normalized record for the sync's life only and not persisted: the
+    # ingestion service never writes it (no column, no external_ids key, no file) and nothing on any path reads it
+    # (no reader of a quarter exists; a lane that needs them declares the field when it exists). Filled by
+    # api_basketball only; None everywhere else, so nothing changes for any other adapter.
+    raw: dict | None = None
 
 
 @dataclass

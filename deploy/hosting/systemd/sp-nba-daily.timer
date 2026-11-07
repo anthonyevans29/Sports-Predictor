@@ -1,0 +1,15 @@
+# NBA market-only daily (ARCHITECT 2026-11-05, addendum 261 item 1(b); 271 item 3(h)): shipped, enabled by the
+# architect's TERMINAL (host) block (hosting-h1.md T11). 06:47 UTC: off every chain timer's minute and off the
+# five-minute marks; before intl-daily's 07:20 UTC coverage write. H0-3: no timer fires inside the 04:15-05:15 UTC
+# reboot buffer (tests/test_hosting_pack.py).
+[Unit]
+Description=sports-predictor timer: sp-nba-daily
+
+[Timer]
+OnCalendar=*-*-* 06:47:00 UTC
+Unit=sp-chain@nba-daily.service
+Persistent=true
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target

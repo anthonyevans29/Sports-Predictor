@@ -209,6 +209,39 @@ CHAINS: dict[str, dict] = {
             ["export-nhl-predictions"],
         ],
     },
+    # --- NBA, market-only (ARCHITECT 2026-11-05, addendum 261 item 1(b): "the chain `nba-daily` (sync-matches on a
+    # [...] window, sync-kalshi, the coverage write) at a UTC minute off every existing timer (Code lists the timers
+    # and picks; my block enables it)"; the window CORRECTED by ARCHITECT 2026-11-06, addendum 274 item 2(3): "THE
+    # WINDOW — THREE UTC DAYS, {yesterday, today, tomorrow}, nhl-daily's own: [...] the US evening's games fall on
+    # the NEXT UTC date, so at 06:47Z a {yesterday, today} window has no row for tonight's games, and the hourly
+    # window chain plans NBA only from rows that exist (item 7). Without tomorrow, tonight's PAPER page has nothing
+    # to capture. CORRECTS 271 item 3(d)"; and item 2(9): "ship the three-day window as nhl-daily runs it (each day
+    # its own step: /leagues + /games, 6 calls a day, plus the window chain's 4 an hour while games are in its
+    # window: well under 7,500; 271 item 3(f)'s "two or three" was my estimate and is CORRECTED by this item"). As
+    # built:
+    # - THE WINDOW: three single-day UTC steps, {yesterday}, {today} and {tomorrow}, nhl-daily's shape
+    #   (api_basketball sends `date` only when from == to; a range is one whole-season pull). At the timer's 06:47
+    #   UTC, {today} holds last night's US evening (00:00-03:30Z) and {yesterday} the afternoon tips before it
+    #   (17:00-23:59Z), so every result of the previous US day is read; {tomorrow} holds tonight's US evening, so its
+    #   rows exist for the window chain (WINDOW_KALSHI's tier, below), which plans every competition with an
+    #   unfinished game in its 24 hours.
+    # - THE KALSHI STEP is `sync-kalshi-nba` (KXNBAGAME): plain `sync-kalshi` is MLB's (adapters/kalshi.py
+    #   GAME_SERIES), so 261's "sync-kalshi" is read as the NBA's own Kalshi sync.
+    # - THE COVERAGE WRITE is NOT a step here: `coverage --json` is "the LAST step of one daily host chain"
+    #   (addendum 225 item 5; COVERAGE_STEP, intl-daily's, test_805_coverage_step pins one holder). This chain runs at
+    #   06:47 UTC, before intl-daily's 07:20 UTC write, so the day's one coverage file reads the fresh NBA rows. RULED
+    #   by addendum 274 item 2(2): "intl-daily's 07:20 UTC `coverage --json` is THE coverage write [...] 261 item
+    #   1(b)'s "the coverage write" in nba-daily is read as satisfied by the ordering. No second writer, ever."
+    # - backup "daily", as nhl-daily (a morning chain opens with the backup line); no active_from (the 2026-27 season
+    #   is under way); no export, no predict, no shadow: no model is declared (261 item 1(f)).
+    "nba-daily": {
+        "backup": "daily",
+        "steps": [
+            *[["sync-matches", "--competition", "NBA", "--season", "2026", "--date-from", d, "--date-to", d]
+              for d in ("{yesterday}", "{today}", "{tomorrow}")],
+            ["sync-kalshi-nba"],
+        ],
+    },
     # --- International (ARCHITECT 2026-10-02): intl-elo-v2 PASSED; the UNL
     # shadow runs through its 60-game confirmation window. The daily intl
     # sync is INCREMENTAL (--since {today}: only seasons still running), its
@@ -370,6 +403,10 @@ WINDOW_KALSHI: dict[str, list[list[str]]] = {
     "NFL": [["sync-kalshi-nfl"]],
     "NCAA": [["sync-kalshi-ncaa"]],
     "NHL": [["sync-kalshi-nhl"]],
+    # NBA (ARCHITECT 2026-11-05, addendum 261 item 0: "the hourly capture tier"; addendum 271 item 3(h)): the NHL
+    # precedent, tiered as every entry (near / imminent only). Like NHL's, its line moves page (sp_window_page reads
+    # this live list); the soccer capture-only table is pinned to the expansion leagues and is not the NBA's.
+    "NBA": [["sync-kalshi-nba"]],
     "PL": [["sync-kalshi-soccer", "--competition", "PL"]],
     "UNL": [["sync-kalshi-soccer", "--competition", "UNL"]],
     # CL (ARCHITECT 2026-10-13, addendum 58): market-only like UNL, read on the window card. "The host takes it with
@@ -554,7 +591,7 @@ FRESHEN_MIN_INTERVAL_S = 3600
 # in H0-16(b) designated-days mode. tests/test_hosting_pack.py re-checks it.
 UNMETERED = frozenset({
     "sync-kalshi", "sync-kalshi-soccer", "sync-kalshi-nfl", "sync-kalshi-nhl",
-    "sync-kalshi-ncaa", "evaluate", "nfl-grade", "predict", "predict-nfl",
+    "sync-kalshi-ncaa", "sync-kalshi-nba", "evaluate", "nfl-grade", "predict", "predict-nfl",
     "improve", "results-tally", "export-results", "export-predictions", "window-card",
     "export-nfl-predictions", "export-nfl-results", "export-fixtures",
     "export-nhl-predictions",

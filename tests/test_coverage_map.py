@@ -861,10 +861,11 @@ def test_the_market_only_sets_are_the_codes_own():
                     "chains.KALSHI_CAPTURE_ONLY": frozenset(cm.KALSHI_CAPTURE_ONLY),
                     "export._MARKET_ONLY_REASON": frozenset(export._MARKET_ONLY_REASON),
                     "cup_coeff.EXAM_COMPS": frozenset(cup_coeff.EXAM_COMPS)}
+    # NBA: export._MARKET_ONLY_REASON (ARCHITECT 2026-11-05, addendum 261 item 1, lane basketball-market-only)
     assert frozenset().union(*sets.values()) == {"NHL", "NCAA", "UNL", "CL", "EFL", "UEL", "EL", "PD", "SA", "BL1",
-                                                 "FL1", "ELC"}
+                                                 "FL1", "ELC", "NBA"}
     src = inspect.getsource(cm)
-    assert not re.search(r'"(NHL|NCAA|UNL|CL|EFL|UEL|PD|SA|BL1|FL1|ELC|MLB|NFL|PL)"', src)   # no competition named
+    assert not re.search(r'"(NHL|NCAA|UNL|CL|EFL|UEL|PD|SA|BL1|FL1|ELC|MLB|NFL|PL|NBA)"', src)   # no competition named
 
 
 def test_the_shadow_exports_are_the_clis_own():

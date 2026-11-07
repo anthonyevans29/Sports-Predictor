@@ -44,6 +44,8 @@ def _sport_for_competition(code: str) -> str:
         return "nfl"
     if code.upper() == "NHL":  # NHL phase 1, 2026-09-23
         return "nhl"
+    if code.upper() == "NBA":  # addendum 271 item 3 (lane basketball-market-only): the api_basketball adapter
+        return "basketball"
     return "soccer"
 
 
@@ -281,7 +283,8 @@ def sync_matches_cmd(
         # soccer uses "2026/27"; MLB and NFL use single years. The EFL
         # aliasing quirk showed both formats can work for cups, but leagues
         # are strict — generate the right shape per sport.
-        _single_year = _sport_for_competition(competition_code) in ("baseball", "nfl", "nhl")
+        # basketball (addendum 261 item 1(b)): NBA's season is int-style "2026" for 2026-27, the hockey convention
+        _single_year = _sport_for_competition(competition_code) in ("baseball", "nfl", "nhl", "basketball")
         for offset in range(seasons):
             year = current_year - offset
             season_str = str(year) if _single_year else f"{year}/{str(year + 1)[-2:]}"
@@ -6290,6 +6293,31 @@ def sync_kalshi_nhl_cmd():
                       f"(ambiguous {r.get('ambiguous')}) · in-play {r.get('in_play')} ")
     else:                                   # the sync answers with a reason, as for NFL (addendum 54 item 4(a))
         console.print(f"[yellow]✗ Kalshi NHL: {r.get('reason')}[/yellow]")
+        if r.get("sports_available"):
+            console.print(f"  Kalshi sports: {', '.join(r['sports_available'][:12])}")
+
+
+@cli.command("sync-kalshi-nba")
+def sync_kalshi_nba_cmd():
+    """Pull open Kalshi NBA game markets (KXNBAGAME) and store snapshots.
+
+    ARCHITECT 2026-11-06, addendum 271 item 3(h) (lane basketball-market-only): the series READ on #839's receipt
+    (venue.KALSHI_SERIES_BY_COMPETITION), the shared two-sided matcher's fifth series, as sync-kalshi-nhl: the event's
+    two names fit one stored NBA game one each on the ticker's US Eastern day, read on our stored kickoff (the served
+    timestamp, naive UTC), never the provider's date string (addendum 272 item 4); ambiguity is refused by its
+    sentinel and counted. Market-only: no model, no call; the prices feed the PAPER record and the close's record.
+    Its fee M is KALSHI_FEE_M's (1.0, 1.0), RULED in addendum 274 item 1(a) (venue.py carries both readings)."""
+    from src.ingestion.kalshi_sync import sync_kalshi_mlb
+    from src.db.schema import Sport
+    r = sync_kalshi_mlb(progress=lambda m: console.print(m),
+                        sport=Sport.BASKETBALL, series_override="KXNBAGAME")
+    if r.get("ok"):
+        console.print(f"[green]✓ Kalshi NBA: {r.get('stored', 0)} prices stored[/green]")
+        console.print(f"  series {r.get('series')} · {r.get('markets')} markets · "
+                      f"matched {r.get('matched')} · unmatched {r.get('unmatched')} "
+                      f"(ambiguous {r.get('ambiguous')}) · in-play {r.get('in_play')} ")
+    else:                                   # the sync answers with a reason, as for NHL (addendum 54 item 4(a))
+        console.print(f"[yellow]✗ Kalshi NBA: {r.get('reason')}[/yellow]")
         if r.get("sports_available"):
             console.print(f"  Kalshi sports: {', '.join(r['sports_available'][:12])}")
 

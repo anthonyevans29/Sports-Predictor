@@ -524,7 +524,7 @@ def test_every_unverified_default_is_flagged_and_no_stamp_default_exists():
         assert opt in src
 
 
-ALLOWED_IMPORTS = {"__future__", "argparse", "html", "json", "os", "re", "sys", "datetime", "pathlib", "urllib.parse",
+ALLOWED_IMPORTS = {"__future__", "argparse", "html", "json", "os", "re", "sys", "datetime", "pathlib", "urllib.parse", "unicodedata",
                    "zoneinfo", "requests", "dotenv"}
 
 
@@ -1804,3 +1804,33 @@ def test_lak_elsewhere_stays_a_team_abbreviation_and_a_lak_price_does_not_refuse
     t = probe.terms_read("<p>You may retain the data under the licence for 100 LAK.</p>")
     assert t["retention_data"] == 1 and t["retention_figure"] == 0                      # a currency figure: quoted, OK
     assert "100" not in " ".join(t["quoted"])
+
+
+# ---------------------- Codex on #857 after the cap: every currency sign; every short destructive or export control --
+
+@pytest.mark.parametrize("text", ["You may retain the data for ₱100 after termination.", "Retain data | 100 ₴",
+                                  "Retain data | ₦ 1 000", "Retain data | ₸100", "Retain data | ¤100",
+                                  "Retain data | ₾ 100"])
+def test_every_unicode_currency_sign_marks_a_figure(text):
+    out = probe.figures(text, terms=True)
+    assert not any(c.isdigit() for c in out), out
+
+
+def test_the_currency_sign_class_is_unicode_category_sc():
+    import unicodedata
+    for c in "$¢£¥₱₴₦₹₩₽₺₪₫฿€":
+        assert unicodedata.category(c) == "Sc" and probe.re.search(probe._CUR_SIGN, c), c
+
+
+@pytest.mark.parametrize("page", ["<button>Delete data</button>", "<p>Delete my data</p>", "<p>remove data</p>",
+                                  "<h2>Settings</h2><p>Erase data</p>", "<p>Account › Clear data</p>",
+                                  "<ul><li>Home</li><li>Purge data</li></ul>", "<p>Export data</p>"])
+def test_a_short_destructive_or_export_control_is_not_retention_evidence(page):
+    assert probe.terms_read(page)["retention_data"] == 0, page
+
+
+@pytest.mark.parametrize("page", ["<p>We delete the data within 30 days of termination.</p>",
+                                  "<p>Customer must delete all data upon termination.</p>",
+                                  "<p>Delete the data upon termination of the licence.</p>"])
+def test_a_real_deletion_clause_still_counts(page):
+    assert probe.terms_read(page)["retention_data"] == 1, page

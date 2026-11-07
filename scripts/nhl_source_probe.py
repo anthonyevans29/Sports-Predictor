@@ -191,6 +191,7 @@ import html
 import json
 import os
 import re
+import unicodedata
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -258,7 +259,9 @@ _DIGITS = rf"\d(?:{_DEC}?\d|{_GS}\d{{3}}(?!\d))*"
 # number beside a currency code or word ("CAD 100", "100 US dollars", "100 bucks", "100 pounds", "100 yen", "Rs. 100").
 # Replaced whole before any line or receipt shows it, the number whole with its decimals (_AMOUNT, _DIGITS:
 # "€ 1 299,00", "1 000.50 USD", "CHF 1'299.00"). A digit is any decimal digit ("１００" included).
-_CUR_SIGN = "[$＄﹩€£¥￥₹₩₽₺₪₫฿¢]"
+# Every currency sign Unicode knows (category Sc: $ ¢ £ ¤ ¥ ₱ ₴ ₦ ₹ ₩ ₽ ₺ ₪ ₫ ฿ ...), not a hand-written list (Codex on
+# #857 after the cap, P1: "You may retain the data for ₱100" printed its figure; the class is closed, not the example).
+_CUR_SIGN = "[" + "".join(re.escape(chr(c)) for c in range(0x20000) if unicodedata.category(chr(c)) == "Sc") + "]"
 # Codex #857 after the cap (P1): more ISO 4217 codes, among them ones that read as English words or names (TRY, PHP,
 # RON, PEN, MAD, GEL, BOB: "Retain data | 100 TRY" was copied verbatim), matched CASE-SENSITIVELY as upper-case codes
 # only, so "try", "php", "Ron" or "pen" in prose never matches; the first list keeps its case-insensitive match (the
@@ -426,7 +429,8 @@ TERMS_NOT_RETENTION = re.compile(
     r"|\b(?:clear|empty|delete|refresh)\s+(?:your\s+|the\s+)?(?:browser(?:\s+s)?\s+)?cache\b"   # clear your cache
     r"|\bcancel\s+buttons?\b|(?-i:\bCancel)(?:\W*$|(?=\W+(?-i:[A-Z])))"  # a Cancel button, "Cancel Download data"
     r"|(?-i:^\W*Delete)\s+(?:my\s+|your\s+)?account\b"                   # a "Delete account" button
-    r"|(?:^|[|•·›»/>\\:])[^\w|•·›»/>\\:]*cancel\b(?![^|•·›»/>\\:]*\b(?:must|may|might|shall|should|will|would|can|"
+    r"|(?:^|[|•·›»/>\\:])[^\w|•·›»/>\\:]*(?:cancel|delete|remove|erase|clear|purge|reset|download|export)\b"
+    r"(?![^|•·›»/>\\:]*\b(?:must|may|might|shall|should|will|would|can|"
     r"cannot|could|is|are|be|been|was|were)\b)(?:[^\w|•·›»/>\\:]+\w+){0,4}[^\w|•·›»/>\\:]*(?=[|•·›»/>\\:]|$)"
     #     Codex #857 after the cap (P1): a Cancel control in any case, its label in any case ("Cancel data download",
     #     "cancel data download", a menu item "Home | Cancel data download | Pricing"): a passage or item of at most
@@ -434,7 +438,11 @@ TERMS_NOT_RETENTION = re.compile(
     #     masked whole; "you may cancel and we delete the data", "If you cancel, stored data is deleted" still count.
     #     Review of that fix: after a breadcrumb or label separator too ("Account › Cancel data download", "Account /
     #     cancel data download", "Menu: cancel data download"), and terms_read masks each lead-in piece of a passage as
-    #     its own passage (_passage_pieces: "Settings" + "Cancel data download" under a heading or a list lead-in)
+    #     its own passage (_passage_pieces: "Settings" + "Cancel data download" under a heading or a list lead-in).
+    #     Codex on #857 after the cap (P1): the same for every short UI control a settings or login page carries
+    #     ("Delete data", "Remove my data", "Erase data", "Clear data", "Purge data", "Reset data", "Download data",
+    #     "Export data"), masked by the same rule; "We delete the data within 30 days of termination" and "Customer
+    #     must delete all data upon termination" still count
     r"|\b(?:news|blog|press|posts?|articles?|events?)\s+archives?\b"                       # News archive
     r"|(?:^|[|•·])\s*(?-i:(?:[A-Z][\w&-]*\s+){0,2})(?:cancel|archives?|stores?)\s*(?=[|•·]|$)"
     #                                    a menu item: "Home | Store | Pricing", "Historical Data Archive", "Data Store"

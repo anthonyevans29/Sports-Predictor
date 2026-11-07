@@ -262,13 +262,17 @@ _CUR_SIGN = "[$＄﹩€£¥￥₹₩₽₺₪₫฿¢]"
 # Codex #857 after the cap (P1): more ISO 4217 codes, among them ones that read as English words or names (TRY, PHP,
 # RON, PEN, MAD, GEL, BOB: "Retain data | 100 TRY" was copied verbatim), matched CASE-SENSITIVELY as upper-case codes
 # only, so "try", "php", "Ron" or "pen" in prose never matches; the first list keeps its case-insensitive match (the
-# conservative side). Left out: codes that are also NHL team abbreviations (LAK) or common upper-case words (ALL, CUP,
-# TOP, MOP, SOS).
+# conservative side). Review of that fix: every other active code too (VES, FJD, XCD, XPF ... and the upper-case
+# words ALL, CUP, TOP, MOP, SOS: over-redaction is the conservative side). Left out: LAK only, an NHL team
+# abbreviation a served row may carry beside a number ("2 LAK").
 _CUR_CODE = (r"(?:USD|EUR|GBP|CAD|AUD|NZD|CHF|JPY|INR|CNY|RMB|HKD|SGD|KRW|TWD|SEK|NOK|DKK|ISK|PLN|CZK|HUF|RUB|ZAR|ILS|"
              r"NIS|AED|SAR|QAR|THB|MYR|IDR|MXN|BRL|ARS|CLP|COP"
              r"|(?-i:TRY|PHP|KES|NGN|EGP|VND|UAH|RON|BGN|HRK|RSD|MKD|BAM|MDL|BYN|GEL|AMD|AZN|KZT|UZS|MNT|PKR|BDT|LKR|"
              r"NPR|MMK|KHR|MAD|TND|DZD|GHS|ETB|TZS|UGX|ZMW|BWP|NAD|MUR|XOF|XAF|PEN|UYU|PYG|BOB|CRC|DOP|GTQ|HNL|NIO|JMD|"
-             r"TTD|JOD|KWD|BHD|OMR|LBP|IQD|IRR))")
+             r"TTD|JOD|KWD|BHD|OMR|LBP|IQD|IRR|"
+             r"AFN|ALL|ANG|AOA|AWG|BBD|BIF|BMD|BND|BSD|BTN|BZD|CDF|CUP|CVE|DJF|ERN|FJD|FKP|GIP|GMD|GNF|GYD|HTG|KGS|"
+             r"KMF|KPW|KYD|LRD|LSL|LYD|MGA|MOP|MRU|MVR|MWK|MZN|PAB|PGK|RWF|SBD|SCR|SDG|SHP|SLE|SOS|SRD|SSP|STN|SYP|"
+             r"SZL|TJS|TMT|TOP|VES|VUV|WST|XCD|XPF|YER|ZWL))")
 # Codex #857 round 2: the currency words after a number widened ("100 pounds", "100 yen", "100 rupees"; "Retain data |
 # 100 pounds" copied verbatim), with "reais", the Polish spellings ("złoty", "złotych", "zł"), "lei", "forint" and
 # "Rs" after the number (capital R only: "ids 1234 RS" is not a price). Left out as ordinary English or too short to
@@ -415,12 +419,15 @@ TERMS_NOT_RETENTION = re.compile(
     r"|\b(?:clear|empty|delete|refresh)\s+(?:your\s+|the\s+)?(?:browser(?:\s+s)?\s+)?cache\b"   # clear your cache
     r"|\bcancel\s+buttons?\b|(?-i:\bCancel)(?:\W*$|(?=\W+(?-i:[A-Z])))"  # a Cancel button, "Cancel Download data"
     r"|(?-i:^\W*Delete)\s+(?:my\s+|your\s+)?account\b"                   # a "Delete account" button
-    r"|(?:^|[|•·])[^\w|•·]*cancel\b(?![^|•·]*\b(?:must|may|might|shall|should|will|would|can|cannot|could|is|are|be|"
-    r"been|was|were)\b)(?:[^\w|•·]+\w+){0,4}[^\w|•·]*(?=[|•·]|$)"
+    r"|(?:^|[|•·›»/>\\:])[^\w|•·›»/>\\:]*cancel\b(?![^|•·›»/>\\:]*\b(?:must|may|might|shall|should|will|would|can|"
+    r"cannot|could|is|are|be|been|was|were)\b)(?:[^\w|•·›»/>\\:]+\w+){0,4}[^\w|•·›»/>\\:]*(?=[|•·›»/>\\:]|$)"
     #     Codex #857 after the cap (P1): a Cancel control in any case, its label in any case ("Cancel data download",
     #     "cancel data download", a menu item "Home | Cancel data download | Pricing"): a passage or item of at most
     #     five words that begins with Cancel and holds no verb of obligation or being (must, may, shall, will, is ...),
-    #     masked whole; "you may cancel and we delete the data", "If you cancel, stored data is deleted" still count
+    #     masked whole; "you may cancel and we delete the data", "If you cancel, stored data is deleted" still count.
+    #     Review of that fix: after a breadcrumb or label separator too ("Account › Cancel data download", "Account /
+    #     cancel data download", "Menu: cancel data download"), and terms_read masks each lead-in piece of a passage as
+    #     its own passage (_passage_pieces: "Settings" + "Cancel data download" under a heading or a list lead-in)
     r"|\b(?:news|blog|press|posts?|articles?|events?)\s+archives?\b"                       # News archive
     r"|(?:^|[|•·])\s*(?-i:(?:[A-Z][\w&-]*\s+){0,2})(?:cancel|archives?|stores?)\s*(?=[|•·]|$)"
     #                                    a menu item: "Home | Store | Pricing", "Historical Data Archive", "Data Store"
@@ -1071,6 +1078,13 @@ def _passages(page: str) -> list[str]:
     """The page's sentences, unredacted, in page order, each list item opened with its list's lead-in and each
     sentence after a lead-in (a sentence ending in ":", or a heading) opened with it; a lead-in so carried is not a
     passage of its own."""
+    return [" ".join(p) for p in _passage_pieces(page)]
+
+
+def _passage_pieces(page: str) -> list[list[str]]:
+    """_passages, each passage as its pieces: the lead-ins it was opened with, then its own sentence (joined with a
+    space, the passage). terms_read masks page furniture in each piece as its own passage too (a "Cancel data
+    download" control under a heading or in a nav list)."""
     t = re.sub(r"[\x00-\x08]", " ", page or "")
     t = re.sub(r"(?is)<(script|style)\b.*?</\1>", " ", t)
     t = re.sub(r"(?s)<!--.*?-->", " ", t)
@@ -1087,6 +1101,7 @@ def _passages(page: str) -> list[str]:
     t = re.sub(r"(?s)<[^>]+>", " ", t)                      # any other inline tag: a space, never a glued word
     t = re.sub(r"[\r\n\f\v  ]+", " ", html.unescape(t))   # an entity's line break too
     out: list[str] = []
+    out_p: list[list[str]] = []                             # each passage's pieces (out[i] == " ".join(out_p[i]))
     stack: list[dict] = []          # per open list: its lead-in, whether an item is open, where its passages start
     pending: tuple[int, str] | None = None                  # (index in out, text) of a lead-in awaiting what follows
     prev: int | None = None                                 # the sentence just before: a list opening now takes it
@@ -1100,9 +1115,10 @@ def _passages(page: str) -> list[str]:
                 at, lead = prev, out[prev]
             else:
                 at, lead = None, (stack[-1]["lead"] if stack else None)
+            lead_p = out_p[at] if at is not None else (stack[-1]["lead_p"] if stack else None)
             if at is not None:
                 used.add(at)
-            stack.append({"lead": lead, "at": at, "item": False, "start": len(out)})
+            stack.append({"lead": lead, "lead_p": lead_p, "at": at, "item": False, "start": len(out)})
             pending, prev = None, None
             continue
         if mark == _LIST_CLOSE:
@@ -1123,18 +1139,25 @@ def _passages(page: str) -> list[str]:
         parts = [x for x in (y.strip(" |") for y in _SENTENCE.split(block)) if x]
         for j, x in enumerate(parts):
             lead = stack[-1]["lead"] if item else None
+            lead_p = stack[-1]["lead_p"] if item else None
             if pending:
-                held = pending[1]
-                lead = held if lead is None or held.startswith(lead) else lead + " " + held
+                held, held_p = pending[1], out_p[pending[0]]
+                if lead is None or held.startswith(lead):
+                    lead, lead_p = held, held_p
+                else:
+                    lead, lead_p = lead + " " + held, [*lead_p, *held_p]
                 used.add(pending[0])
                 pending = None
+            pieces = [x]
             if lead:
                 x = lead + " " + x
+                pieces = [*lead_p, *pieces]
             out.append(x)
+            out_p.append(pieces)
             prev = len(out) - 1
             if x.endswith(":") or (opens and j == len(parts) - 1):
                 pending = (len(out) - 1, x)
-    return [x for i, x in enumerate(out) if i not in used]
+    return [p for i, p in enumerate(out_p) if i not in used]
 
 
 def terms_read(page: str) -> dict:
@@ -1155,22 +1178,26 @@ def terms_read(page: str) -> dict:
     stores", a "Cancel" button, "your session has expired", a menu item such as "Home | Store | Pricing"; the quote is
     never changed). The probe quotes; it does not decide what
     the terms allow."""
-    parts = _passages(page)
+    pieces = _passage_pieces(page)
+    parts = [" ".join(p) for p in pieces]
     def words(ws):
         return re.compile(r"\b(?:" + "|".join(re.escape(w) for w in ws) + ")", re.I)   # at a word's start
     ret_w, gen_w, data_w = words(TERMS_RETENTION_WORDS), words(TERMS_GENERIC_WORDS), words(TERMS_DATA_WORDS)
-    def clause(x: str) -> bool:                             # a retention word outside page furniture: on a copy
-        return bool(ret_w.search(TERMS_NOT_RETENTION.sub(" ", x)))
+    def clause(i: int) -> bool:                             # a retention word outside page furniture: on a copy
+        whole = TERMS_NOT_RETENTION.sub(" ", parts[i])      # masked whole, and each piece masked as its own passage
+        each = " ".join(TERMS_NOT_RETENTION.sub(" ", p) for p in pieces[i])
+        return bool(ret_w.search(whole)) and bool(ret_w.search(each))
     def shown(x: str, n: int) -> tuple[str, bool]:
         return cut(figures(x, terms=True), n)               # redacted whole, then cut: a cut never splits a figure
-    ret_parts = [x for x in parts if ret_w.search(x)]
+    ret_at = [i for i, x in enumerate(parts) if ret_w.search(x)]
+    ret_parts = [parts[i] for i in ret_at]
     ret = [shown(x, TERMS_RETENTION_CHARS) for x in ret_parts]
     gen = [x for x in parts if not ret_w.search(x) and gen_w.search(x)]
     room = max(TERMS_QUOTES - len(ret), 0)
     quoted = [q for q, _ in ret] + [shown(x, TERMS_QUOTE_CHARS)[0] for x in gen[:room]]
     out = {"quoted": quoted, "retention": len(ret), "retention_cut": sum(1 for _, c in ret if c),
-           "retention_data": sum(1 for x in ret_parts if clause(x) and data_w.search(x)
-                                 and not re.search(r"(?i)cookie", x)),
+           "retention_data": sum(1 for i in ret_at if clause(i) and data_w.search(parts[i])
+                                 and not re.search(r"(?i)cookie", parts[i])),
            "retention_figure": sum(1 for x in ret_parts if figures(x, terms=True) != FIGURE.sub(_FIG, x)),
            "not_quoted": max(len(gen) - room, 0), "head": False}
     if not quoted:

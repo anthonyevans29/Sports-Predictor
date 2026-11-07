@@ -1733,3 +1733,58 @@ def test_p1_4_real_cancellation_clauses_still_count(env, capsys, clause):
     env.setattr(requests, "get", router({TERMS_URL: Resp(None, text=f"<p>{clause}</p>")}))
     rc, out = run(TERMS_ONLY, capsys)
     assert rc == 0, out
+
+
+# ---- review of the post-cap fix: the remaining ISO codes and a Cancel control after a lead-in (synthetic only) -------
+
+_ISO_REST = ("AFN ALL ANG AOA AWG BBD BIF BMD BND BSD BTN BZD CDF CUP CVE DJF ERN FJD FKP GIP GMD GNF GYD HTG KGS KMF "
+             "KPW KYD LRD LSL LYD MGA MOP MRU MVR MWK MZN PAB PGK RWF SBD SCR SDG SHP SLE SOS SRD SSP STN SYP SZL TJS "
+             "TMT TOP VES VUV WST XCD XPF YER ZWL").split()
+
+
+@pytest.mark.parametrize("code", _ISO_REST)
+def test_p1_1_every_active_iso_code_but_an_nhl_team_abbreviation_is_a_price(code):
+    got = probe.figures(f"Retain data | 100 {code}")
+    assert "100" not in got and "<figure not printed>" in got, got
+    got = probe.figures(f"{code} 100")
+    assert "100" not in got, got
+
+
+@pytest.mark.parametrize("text", ["all 100 games", "100 top shelf", "the cup 100", "100 sos", "Top 100 saves",
+                                  "100 Cup games", "LAK 3 · BOS 2"])
+def test_p1_1_the_added_codes_match_upper_case_only(text):
+    assert probe.figures(text) == text
+
+
+@pytest.mark.parametrize("page", ["<h2>Settings</h2><p>Cancel data download</p>",
+                                  "<h3>Account</h3><ul><li>Cancel data download</li></ul>",
+                                  "<nav><p>Menu:</p><ul><li>Home</li><li>Cancel data download</li></ul></nav>",
+                                  "<p>Account › Cancel data download</p>", "<p>Account / cancel data download</p>",
+                                  "<p>Account » cancel data download</p>", "<p>Menu: cancel data download</p>",
+                                  "<h2>Settings</h2><h3>Account</h3><p>cancel data download</p>"])
+def test_p1_4_a_cancel_control_under_a_heading_lead_in_or_breadcrumb_is_not_retention_evidence(env, capsys, tmp_path,
+                                                                                               page):
+    env.setattr(requests, "get", router({TERMS_URL: Resp(None, text=page)}))
+    out_file = tmp_path / "r.json"
+    rc, out = run([*TERMS_ONLY, "--out", str(out_file)], capsys)
+    assert rc == 2, out
+    assert json.loads(out_file.read_text())["sections"]["terms"]["retention_data_passages"] == 0
+
+
+@pytest.mark.parametrize("page", ["<h2>Termination</h2><p>If you cancel, stored data is deleted.</p>",
+                                  "<h3>Account</h3><ul><li>Upon cancellation the data must be destroyed.</li></ul>",
+                                  "<p>Data rules:</p><ul><li>You may cancel and we delete the data.</li></ul>",
+                                  "<p>Account › If you cancel, stored data is deleted.</p>",
+                                  "<h2>Settings</h2><p>Cancel and all data must be deleted.</p>"])
+def test_p1_4_real_cancellation_clauses_under_a_lead_in_still_count(env, capsys, page):
+    env.setattr(requests, "get", router({TERMS_URL: Resp(None, text=page)}))
+    rc, out = run(TERMS_ONLY, capsys)
+    assert rc == 0, out
+
+
+def test_p1_4_the_passages_are_unchanged_by_the_pieces():
+    page = ("<h2>Settings</h2><h3>Account</h3><p>Menu:</p><ul><li>Home<ul><li>Cancel data download</li></ul></li>"
+            "</ul><p>Data rules:</p><ol><li>We retain data.</li></ol><p>Lead sentence.</p><ul><li>x</li></ul>")
+    pieces = probe._passage_pieces(page)
+    assert [" ".join(p) for p in pieces] == probe._passages(page)
+    assert all(len(p) >= 1 and all(q for q in p) for p in pieces)

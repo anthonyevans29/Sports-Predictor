@@ -14,15 +14,18 @@ Sources: --ledger, the Cockpit's "Export ledger (JSON)" file (bd_ledger_v1_<date
 the closing files (closing_*.json at its top and in its dated folders <YYYY-MM-DD>/, never latest/). The attribution is
 src/walters/early_arm.attribute (the arm's kinds over ledger_fills.classify_fills, unchanged). The table: early fills,
 mean early CLV in cents per contract, flips, flip cost in cents per contract, breaches, interest rows (their own kind),
-the count toward thirty (early + flips). The breaches are LISTED by the closing page's match id and teams and the
-breach's cause only.
+the count toward thirty (early + flips, the export's rows, with the distinct games beside it). The breaches are
+LISTED by the closing page's match id and teams and the breach's cause only, under their own head: CONSOLE ONLY, NOT
+FOR POSTING until the architect rules where the list goes (it names the operator's own games; the 235 item 2(c)
+--unmatched precedent), and never in the JSON. Everything above that head is counts and cents only.
 
 Never printed: a dollar figure, a quantity or contract count, a fee, a stake, a P&L, a fill's id (it carries the
 account id), a fill price (early_price and flip_exit_price are read, never printed: only the cents difference per
 contract is), an order's text or contracts, the interest's amount or rate. Writes nothing.
 
 Refusals (exit 2, nothing printed but the refusal): --ledger missing or unreadable, or not a bd_ledger_v1 export (no
-calls array; fills not an array of objects); --exports not a directory.
+calls array; fills not an array of objects); --exports not a directory; --exports a latest/ folder, or a dated-named
+folder of it resolving to one (early_arm.LatestRefused, the 232 item 2(c) rule).
 
 Last line: EARLY-ARM-RECEIPT {json} (counts and cents only).
 
@@ -49,6 +52,10 @@ RULING_283_4 = ("the import's attribution gains the early fill — a fill on a m
                 "beyond the word \"early\" on a call line.")
 
 
+BREACH_HEAD = ("BREACHES LISTED (console only, NOT FOR POSTING until ruled: they name the operator's own games; "
+               "never in the JSON)")
+
+
 class Refused(Exception):
     """A refusal: printed as REFUSED, exit 2."""
 
@@ -70,7 +77,7 @@ def read_ledger(path) -> dict:
 
 def report(L: dict, exports_dir, echo=print) -> dict:
     from src.walters import early_arm as ea
-    pages = ea.closing_pages(exports_dir)
+    pages = ea.closing_pages(exports_dir)            # LatestRefused propagates: main refuses before printing
     rows = ea.attribute(L, pages=pages)
     t = ea.arm_table(rows)
     echo("EARLY-ARM RECEIPT — the early-entry arm's fills, attributed (#862), read-only")
@@ -81,11 +88,13 @@ def report(L: dict, exports_dir, echo=print) -> dict:
          f"latest/): {pages['files']} read, events {len(pages['by_event'])}{bad}")
     for ln in ea.table_lines(t):
         echo(ln)
-    for r in rows:
-        if r.get("arm_breach"):
-            page = pages["by_event"].get(ea.event_of(r.get("ticker"))) or {}
-            echo(f"  {ea.ARM_BREACH}: match {page.get('match_id')} {page.get('away') or '?'} @ "
-                 f"{page.get('home') or '?'} (kickoff {ea._iso(page.get('kickoff'))}): {r['breach_why']}")
+    breaches = [r for r in rows if r.get("arm_breach")]
+    if breaches:
+        echo(BREACH_HEAD)
+    for r in breaches:
+        page = pages["by_event"].get(ea.event_of(r.get("ticker"))) or {}
+        echo(f"  {ea.ARM_BREACH}: match {page.get('match_id')} {page.get('away') or '?'} @ "
+             f"{page.get('home') or '?'} (kickoff {ea._iso(page.get('kickoff'))}): {r['breach_why']}")
     summary = {k: v for k, v in t.items()}
     summary.update(closing_files=pages["files"], unreadable=len(pages["unreadable"]))
     echo("EARLY-ARM-RECEIPT " + json.dumps(summary, sort_keys=True))
@@ -98,6 +107,7 @@ def main(argv=None) -> int:
     ap.add_argument("--exports", default="exports", help="the directory holding closing_*.json, at its top and in its "
                                                          "dated folders <YYYY-MM-DD>/ (latest/ never read)")
     a = ap.parse_args(argv)
+    from src.walters.early_arm import LatestRefused
     try:
         L = read_ledger(a.ledger)
         if not Path(a.exports).is_dir():
@@ -106,7 +116,11 @@ def main(argv=None) -> int:
         print(f"REFUSED: {err}")
         return REFUSED
     lines: list[str] = []
-    report(L, a.exports, echo=lines.append)
+    try:
+        report(L, a.exports, echo=lines.append)
+    except LatestRefused as err:
+        print(f"REFUSED: {err}")
+        return REFUSED
     for ln in lines:
         print(ln)
     return 0

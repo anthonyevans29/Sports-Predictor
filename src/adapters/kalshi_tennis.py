@@ -40,6 +40,14 @@ What stays NULL AND LABELLED (269 item 2, verbatim): "the score, the sets, the r
 winner of an incomplete match are facts the record stores as NULL AND LABELLED (law 4) until a source serves them under
 terms we have read." So every tennis row's scores are null (SCORES_NULL_LABEL), a retirement or a walkover that settled
 yes/no is not told apart from a completed match (Kalshi serves no such word), and a scalar match has no winner.
+
+NOT BUILT, PUT TO THE ARCHITECT: 261 item 2(c)'s wiring list (the roadmap's tennis wiring step) names "results from
+the chosen results source with retirements and walkovers as their own status". Kalshi serves no retirement or
+walkover word on a yes/no settlement (269 item 1 K3: the result words are 'yes' / 'no' / 'scalar' / ''), and the
+venue's own rule on incomplete matches waits on the contract-terms quote (269 item 3(c), below), so no such status
+exists here. A yes/no settlement is stored FINISHED with full_time_result set; whether that should hold for a match
+the venue settled yes/no after a retirement or walkover, given 269 item 2's "the official winner of an incomplete
+match" NULL AND LABELLED, is the ruling's question.
 """
 from __future__ import annotations
 
@@ -81,20 +89,31 @@ OUT_OF_SCOPE = ("KXUNITEDCUPMATCH", "KXATPEXACTMATCH", "KXWTAEXACTMATCH", "KXATP
 # The alias table (261 item 2(c): "built only from receipts"): EMPTY, no receipt names one. {served name: player name}.
 ALIASES: dict[str, str] = {}
 
-# The listing, as the probe read it (269 item 1 K3: "/markets status=open", "status=closed", "status=settled", each to
-# its last page). Read in this order; a market read twice (its status moved between two reads) is taken from the later.
+# The listing, as the probe read it: the stage-1 digest's K3 console lines (#838 issuecomment-6690719842, e.g.
+# "KXATPMATCH /markets status=settled: 1392 markets, 7 page(s)") and scripts/tennis_source_probe.py's MARKET_STATUSES,
+# each status to its last page. (The words "active, closed, finalized" quoted elsewhere here are the ruling's, 269
+# item 1 K3; these three listing filters are the digest's and the probe's, not the ruling's text.) Read in this order;
+# a market read twice (its status moved between two reads) is taken from the later.
 MARKET_STATUSES = ("open", "closed", "settled")
 PAGE_LIMIT = 200                 # the adapter's page size (KalshiAdapter.open_markets_for_series)
 MAX_PAGES = 200                  # a safety bound only: reaching it with a cursor left is a REFUSAL, never a count
 
-# THE KICKOFF (law 4). The receipt serves no field this lane has read as a match's start (269 item 1 K2: "Times Z; the
-# ticker's date is the event's day"). A row needs an instant (matches.utc_date), and the shared matcher's in-play gate
-# refuses a market once that instant has passed (kalshi_match.IN_PLAY), so the instant chosen decides whether an
-# in-play price can ever be stored as a pre-match one. The conservative instant: the FIRST instant of the ticker's
-# date anywhere on earth, 00:00 at UTC+14, i.e. the day before at 10:00 UTC. No match dated D starts before it,
-# whatever zone the ticker's date is read in; captures stop there, so a stored price is pre-match. The cost: the close
-# is older than a true start would give, and the row reads on the coverage page's US Eastern day before D. Put to the
-# architect on the PR (the start-time field is the laptop's read of the probe's K2 time lines).
+# THE KICKOFF (law 4), OPEN FOR A RULING (P1 on the PR). Time keys ARE served on every KXATPMATCH / KXWTAMATCH market:
+# the stage-1 digest (#838 issuecomment-6690719842, K3 "keys served") lists occurrence_datetime, open_time,
+# close_time, expected_expiration_time, expiration_time and latest_expiration_time. What is UNREAD is their tennis
+# semantics: no record prints their values beside the ticker's date, and the shared matcher's own ruling reads
+# occurrence_datetime on a date-only ticker as "an expected expiration" that "places nothing and refuses nothing"
+# (addendum 44 item 1, kalshi_match's docstring), not as a start; 269 item 1 K2 says only "Times Z; the ticker's date
+# is the event's day". So no served key is read as a start here. A row needs an instant (matches.utc_date), and the
+# shared matcher's in-play gate refuses a market once that instant has passed (kalshi_match.IN_PLAY), so the instant
+# chosen decides whether an in-play price can ever be stored as a pre-match one. The conservative instant: the FIRST
+# instant of the ticker's date anywhere on earth, 00:00 at UTC+14, i.e. the day before at 10:00 UTC. No match dated D
+# starts before it, whatever zone the ticker's date is read in, so a stored price is pre-match. THE COST IS LARGE: every
+# market of an event dated D is IN_PLAY from D-1 10:00 UTC, and the digest shows a Nov 7 event (KXWTAMATCH-26NOV07...)
+# open at ~15:12Z on Nov 6, already past that instant: the capture and the close are close to empty by construction
+# (tests/test_tennis_kalshi_wiring.py pins it). The timer ships disabled, so nothing captures until the architect's
+# block; the receipt's served phase prints the time keys beside the ticker's date (THE TIMES) so a start field, or
+# another instant, can be ruled on that receipt. The row also reads on the coverage page's US Eastern day before D.
 EARLIEST_OFFSET = timedelta(hours=14)
 KICKOFF_LABEL = "kickoff = 00:00 of the ticker's date at UTC+14 (no served start time read; law 4)"
 SCORES_NULL_LABEL = ("score, sets, the retirement's point and an incomplete match's official winner: NULL AND "
@@ -117,7 +136,8 @@ def read_all(get, series: str, status: str, *, max_pages: int = MAX_PAGES) -> tu
     item 3(d): "the adapter pages to the last page always: a cursor left is a refusal, never a partial count").
     The last page is the one that serves no cursor (absent, null or empty). A cursor served twice is a loop the read
     cannot leave: REFUSED. `max_pages` reached with a cursor still served: REFUSED. An answer that is not an object,
-    or whose 'markets' is not a list: REFUSED. Never loops, never returns a partial list."""
+    or that serves no 'markets' key, or whose 'markets' is not a list (an error body mid-listing included): REFUSED,
+    never read as an empty last page. Never loops, never returns a partial list."""
     out: list[dict] = []
     seen: set[str] = set()
     cursor = None
@@ -126,10 +146,12 @@ def read_all(get, series: str, status: str, *, max_pages: int = MAX_PAGES) -> tu
         if cursor:
             params["cursor"] = cursor
         data = get("markets", params)
-        if not isinstance(data, dict) or not isinstance(data.get("markets", []), list):
+        if not isinstance(data, dict) or not isinstance(data.get("markets"), list):
+            shape = (f"keys {sorted(data)}" if isinstance(data, dict) else type(data).__name__)
             raise Refused(f"REFUSED: {series} /markets status={status} page {page}: the answer is not "
-                          f"{{'markets': [...]}} ({type(data).__name__}); nothing is written")
-        out.extend(m for m in data.get("markets") or [] if isinstance(m, dict))
+                          f"{{'markets': [...]}} ({shape}): the market set is incomplete (269 item 3(d)); "
+                          "nothing is written")
+        out.extend(m for m in data["markets"] if isinstance(m, dict))
         cursor = data.get("cursor")
         if not cursor:
             return out, page
@@ -347,6 +369,9 @@ class KalshiTennisAdapter(DataAdapter):
         self.calls = 0
         self._cache: dict[str, Listing] = {}
         self.window: tuple[str | None, str | None] = (None, None)   # list_teams' scope (set by the sync's caller)
+        # THE RE-READ's scope (cli._tennis_sync_matches): when a set, list_matches serves only these events (stored
+        # rows already, re-read from the same listing), whatever their day; None (the default) reads the window.
+        self.events: set[str] | None = None
 
     def _get(self, path: str, params: dict) -> dict:
         self.calls += 1
@@ -399,12 +424,18 @@ class KalshiTennisAdapter(DataAdapter):
         lst = self.listing(tour)
         out = []
         for fx in lst.fixtures:
-            if not in_window(fx.day, season, date_from, date_to):
+            if self.events is not None:
+                if fx.event not in self.events or not in_window(fx.day, season, None, None):
+                    continue
+            elif not in_window(fx.day, season, date_from, date_to):
                 continue
             st = fx.settlement
             res = None
             if st.status == MatchStatus.FINISHED:
                 res = Result.HOME if st.winner.casefold() == fx.home.casefold() else Result.AWAY
+            # THE SEASON (OPEN, put to the architect): no ruling names a tennis season string; it is the ticker's
+            # calendar year, int-style as NBA / NHL. The lane is "ATP and WTA for the 2027 season" and its first PAPER
+            # record is on or after 12-28 (269 item 2), so the 2027 tour season's late-December events read as "2026".
             out.append(NormalizedMatch(
                 sport=Sport.TENNIS, competition_code=tour, season=str(fx.day.year),
                 utc_date=kickoff_utc(fx.day), status=st.status, status_raw=st.status_raw,

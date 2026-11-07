@@ -250,7 +250,9 @@ CHAINS: dict[str, dict] = {
     #   players first, from the same read). No --season: the tennis season is the ticker's year (int-style, the
     #   adapter stamps each row), and a fixed one would drop January's rows after 12-31. The window is three days and
     #   never wider than cli.TENNIS_MAX_WINDOW_DAYS: addendum 270 item 5, "no backfill is scheduled". {yesterday} reads
-    #   the results settled since the last run; {tomorrow} gives the window chain the rows it plans from.
+    #   the results settled since the last run; {tomorrow} gives the window chain the rows it plans from. Each step
+    #   also RE-READS, from the same listing, the stored SCHEDULED rows dated in the TENNIS_MAX_WINDOW_DAYS days before
+    #   {yesterday} (a late settlement; rows only, none created: cli._tennis_reread).
     # - THE KALSHI STEPS are `sync-kalshi-atp` and `sync-kalshi-wta` (the shared matcher, then tennis's player check).
     # - NO COVERAGE STEP: intl-daily's 07:20 UTC `coverage --json` is THE coverage write (addendum 274 item 2(2):
     #   "No second writer, ever."); this chain's timer (06:53 UTC) runs before it.

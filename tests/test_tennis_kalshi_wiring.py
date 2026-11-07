@@ -179,6 +179,81 @@ def test_sync_kalshi_atp_stores_both_players_on_the_ml_market(monkeypatch, tenni
     assert "✓ Kalshi ATP: 0 prices stored" in out.output and km.IN_PLAY in out.output, out.output
 
 
+def test_the_kickoff_rule_refuses_a_d_event_open_on_d_minus_1_afternoon_as_in_play(monkeypatch, tennis_rows):
+    """REVIEW P1, ON RECORD UNTIL THE ARCHITECT RULES THE KICKOFF (kalshi_tennis THE KICKOFF): the stored kickoff of an
+    event dated D is D-1 10:00 UTC, so a market of that event still open at D-1 15:12 UTC (the stage-1 digest's
+    KXWTAMATCH-26NOV07... was open at ~15:12Z on 11-06) is refused IN_PLAY although its match had not started. The
+    capture is conservative (never an in-play price stored as pre-match) and close to empty by construction."""
+    import cli
+    from src.db.database import session_scope
+    from src.db.schema import Match, OddsSnapshot, Sport
+    ev = pair("26DEC29EEEFFF", "Eli Sampleton", "Ana Synthwood")
+    fake = FakeKalshi({("KXATPMATCH", "open"): [ev]})
+    _fake_http(monkeypatch, fake)
+    run = CliRunner()
+    assert run.invoke(cli.cli, ["sync-competitions", "--sport", "tennis"]).exit_code == 0
+    assert run.invoke(cli.cli, ["sync-matches", "--competition", "ATP", "--date-from", "2026-12-28",
+                                "--date-to", "2026-12-30"]).exit_code == 0
+    assert kt.kickoff_utc(datetime(2026, 12, 29).date()) == Z("2026-12-28T10:00")
+    monkeypatch.setattr(tk, "utc_now_naive", lambda: Z("2026-12-28T15:12"))
+    out = run.invoke(cli.cli, ["sync-kalshi-atp"])
+    assert "✓ Kalshi ATP: 0 prices stored" in out.output and km.IN_PLAY in out.output, out.output
+    with session_scope() as s:
+        assert s.query(OddsSnapshot).join(Match, Match.id == OddsSnapshot.match_id).filter(
+            Match.sport == Sport.TENNIS).count() == 0
+
+
+def test_a_same_pair_row_dated_the_day_after_takes_the_day_rule_and_the_player_check_refuses_it(monkeypatch,
+                                                                                                 tennis_rows):
+    """REVIEW NIT, ON RECORD: a tennis row's stored kickoff reads on the US Eastern day BEFORE its ticker's date, so the
+    shared matcher's date-only rule (a row whose ET day is the ticker's date takes the market) picks a same-pair row
+    dated D+1 for an event dated D. Tennis's player check refuses it (EVENT_OTHER): conservative, never stored on the
+    wrong row, but the event's own market is refused rather than placed. It resolves with the kickoff ruling."""
+    import cli
+    from src.db.database import session_scope
+    from src.db.schema import Match, OddsSnapshot, Sport
+    d29 = pair("26DEC29AAABBB", "Ana Synthwood", "Bea Fakely")
+    d30 = pair("26DEC30CCCDDD", "Ana Synthwood", "Bea Fakely")
+    fake = FakeKalshi({("KXATPMATCH", "open"): [d29 + d30]})
+    _fake_http(monkeypatch, fake)
+    run = CliRunner()
+    assert run.invoke(cli.cli, ["sync-competitions", "--sport", "tennis"]).exit_code == 0
+    assert run.invoke(cli.cli, ["sync-matches", "--competition", "ATP", "--date-from", "2026-12-28",
+                                "--date-to", "2026-12-30"]).exit_code == 0
+    fake.pages[("KXATPMATCH", "open")] = [d29]                 # the D event's markets only (no two-claims refusal)
+    monkeypatch.setattr(tk, "utc_now_naive", lambda: Z("2026-12-27T11:00"))
+    out = run.invoke(cli.cli, ["sync-kalshi-atp"])
+    flat = " ".join(out.output.split())
+    assert "✓ Kalshi ATP: 0 prices stored" in flat and tk.EVENT_OTHER in flat, flat
+    with session_scope() as s:
+        assert s.query(OddsSnapshot).join(Match, Match.id == OddsSnapshot.match_id).filter(
+            Match.sport == Sport.TENNIS).count() == 0
+
+
+@pytest.mark.parametrize("series", ["KXATPMATCH", "KXWTAMATCH"])
+def test_the_settled_market_history_pull_refuses_the_tennis_series_before_any_call(series, monkeypatch):
+    """Review P2: the venue map now names the two tour series, which would open `kalshi-history --series` (the
+    settled-market history pull) for them. That pull is the ONE-TIME backfill addendum 270 item 5 holds for the
+    architect's block, and it places with the shared matcher without tennis's player check (269 item 3(a)): REFUSED
+    before any call, by the CLI's pull, the ruled re-place (place-held) and the anchored chain (place-chain)."""
+    import inspect
+
+    import cli
+    from src.ingestion import kalshi_history as kh
+    called = []
+    monkeypatch.setattr(kh, "competition_for", lambda *a, **k: called.append(a) or ("ATP", False))
+    with pytest.raises(ValueError, match="addendum 270 item 5"):
+        kh.run_history(series, adapter=FakeKalshi(), echo=lambda *_: None, dry_run=True)
+    with pytest.raises(ValueError, match="addendum 270 item 5"):
+        kh._ruled_target(None, {"ticker": f"{series}-26DEC29AAABBB-AAA", "series": series}, 1, None)
+    assert called == []
+    src = inspect.getsource(kh._plan_chain)
+    assert src.index("refuse_held_series(series)") < src.index("competition_for(series, adapter)")
+    kh.refuse_held_series("KXNBAGAME")                       # every other series passes unchanged
+    res = CliRunner().invoke(cli.cli, ["kalshi-history", "--series", series, "--dry-run"])
+    assert res.exit_code == 2 and "addendum 270 item 5" in " ".join(res.output.split()), res.output
+
+
 # ---- the chain, the capture tier, the timer ----------------------------------------------------------------------------
 
 def test_tennis_daily_is_both_tours_window_then_their_kalshi_syncs():

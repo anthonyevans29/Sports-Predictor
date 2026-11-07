@@ -243,6 +243,12 @@ def _tennis_sync_matches(service, competition_code, season, seasons, date_from, 
       itself; a ONE-TIME read-only backfill of the 2026 season's settled markets [...] is possible on the day a model
       lane asks for it, by a block of mine, and not before — no model lane exists, so no backfill is scheduled." A
       season-wide or open-ended tennis sync would be that backfill.
+    - THE RE-READ (late settlements): after the window, every STORED SCHEDULED row of the tour whose event's ticker day
+      is in the TENNIS_MAX_WINDOW_DAYS days before --date-from is re-read from the SAME listing (no further call) and
+      written when its settlement has moved. It updates rows already stored and creates none (so it is no backfill,
+      270 item 5): an event settled after the chain's next-day run is not left SCHEDULED by the window alone (K3:
+      "result '' on the 10 ATP markets closed but not yet settled"). A row older than that stays SCHEDULED and is
+      counted by the receipt's stored phase.
     - A paging refusal (a cursor left, 269 item 3(d)) writes nothing and exits 1 with its reason."""
     from datetime import date as _date
 
@@ -279,12 +285,39 @@ def _tennis_sync_matches(service, competition_code, season, seasons, date_from, 
           f"{len(lst.fixtures)} events accepted · refused {dict(lst.refused) or 'none'}", flush=True)
     console.print(f"[green]✓ Matches ({code}): {result}[/green]")
     _print_skipped_listings(result)
+    _tennis_reread(service, code, season, lst, date_from)
     if named is not None:
         missing = sorted(named - held)
         if missing:
             print(f"✗ STRICT: {len(missing)} of {len(named)} named game(s) not in the listing ({code} "
                   f"{date_from}..{date_to}): " + ", ".join(f"match {m}" for m in missing), flush=True)
             raise SystemExit(1)
+
+
+def _tennis_reread(service, code, season, lst, date_from) -> None:
+    """THE RE-READ of _tennis_sync_matches (its docstring): the stored SCHEDULED rows of `code` whose event's ticker
+    day is in [date_from - TENNIS_MAX_WINDOW_DAYS, date_from), written again from the listing already read. Rows only
+    (no new row, no new player); prints its count, always."""
+    from datetime import date as _date, timedelta as _td
+
+    from src.adapters.kalshi_tennis import SOURCE as _SRC
+    lo = _date.fromisoformat(date_from) - _td(days=TENNIS_MAX_WINDOW_DAYS)
+    hi = _date.fromisoformat(date_from)
+    with session_scope() as s:
+        stored = {str((m.external_ids or {}).get(_SRC)) for m in s.execute(
+            select(Match).join(Competition, Competition.id == Match.competition_id)
+            .where(Competition.code == code, Match.status == MatchStatus.SCHEDULED)).scalars()
+            if (m.external_ids or {}).get(_SRC)}
+    due = {fx.event for fx in lst.fixtures if fx.event in stored and lo <= fx.day < hi}
+    moved = sorted(fx.event for fx in lst.fixtures if fx.event in due and fx.settlement.status != MatchStatus.SCHEDULED)
+    if due:
+        service.adapter.events = due
+        try:
+            service.sync_matches(code, season=season)
+        finally:
+            service.adapter.events = None
+    print(f"  {code} re-read (stored SCHEDULED rows dated {lo}..{hi - _td(days=1)}, no new row): {len(due)} re-read · "
+          f"{len(moved)} settled since" + (f": {', '.join(moved[:10])}" if moved else ""), flush=True)
 
 
 def _print_skipped_listings(result) -> None:

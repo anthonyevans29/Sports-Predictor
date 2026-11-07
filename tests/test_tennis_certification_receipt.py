@@ -193,3 +193,24 @@ def test_the_stored_phase_refuses_a_path_under_data_and_creates_nothing(capsys):
     assert R.main(["--db", str(target)]) == R.REFUSED
     assert "REFUSED" in capsys.readouterr().out
     assert not target.exists() and (ROOT / "data").exists() == existed
+
+
+def test_the_served_phase_prints_the_time_keys_beside_the_tickers_date_for_the_kickoff_ruling(capsys):
+    """Review P1 (the kickoff is open for a ruling): THE TIMES prints every time key the stage-1 digest lists as served,
+    its offset in hours from 00:00 UTC of the ticker's date, the active markets already past the stored kickoff (the
+    capture refuses them as in play), and the active markets with every time key verbatim. SYNTHETIC values."""
+    ev = pair("26DEC29EEEFFF", "Eli Sampleton", "Ana Synthwood")
+    for m in ev:
+        m.update(occurrence_datetime="2026-12-29T09:00:00Z", open_time="2026-12-27T20:00:00Z")
+    code, out, _ = run(capsys, "--tour", "ATP", fake=provider(pages={("KXATPMATCH", "open"): [ev]}))
+    assert code == R.OK, out
+    t = out[out.index("THE TIMES"):out.index("  NULLS")]
+    assert "occurrence_datetime: served on 2 of" in t and "+9: 2" in t and "open_time: served on 2 of" in t
+    assert "close_time: served on 0 of" in t
+    assert "active markets: 2 · already past the stored kickoff at this run" in t
+    assert ('KXATPMATCH-26DEC29EEEFFF-AAA · ticker date 2026-12-29 · stored kickoff 2026-12-28 10:00Z · '
+            'occurrence_datetime "2026-12-29T09:00:00Z"') in t
+    assert "OPEN: no ruling names a tennis season" in out
+    tail = json.loads(out.strip().splitlines()[-1].split(" ", 1)[1])
+    atp = tail["tours"]["ATP"]
+    assert atp["time_keys_served"]["occurrence_datetime"] == 2 and atp["active"] == 2

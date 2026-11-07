@@ -146,6 +146,18 @@ def test_an_answer_of_the_wrong_shape_is_refused():
         kt.read_all(lambda p, q: ["not", "an", "object"], "KXATPMATCH", "open")
 
 
+@pytest.mark.parametrize("body", [{"error": {"code": "SYNTHETIC", "message": "x"}}, {"cursor": ""}, {},
+                                  {"markets": None, "cursor": ""}])
+def test_an_answer_with_no_markets_list_mid_listing_is_refused_never_an_empty_last_page(body):
+    """Review P2 (269 item 3(d): "a cursor left is a refusal, never a partial count"): page 1 serves a market and a
+    cursor; page 2 is an error body (or serves no 'markets' list at all). That is REFUSED, never read as an empty last
+    page that would end the read 'complete' with page 1's markets only."""
+    answers = [{"markets": [{"ticker": "KXATPMATCH-26DEC28AAABBB-AAA"}], "cursor": "c1"}, body]
+    with pytest.raises(kt.Refused, match="market set is incomplete"):
+        kt.read_all(lambda p, q: answers.pop(0), "KXATPMATCH", "settled")
+    assert answers == []
+
+
 # ---- the fixture: players as teams, the yes_sub_title matcher --------------------------------------------------------
 
 def test_an_event_is_a_fixture_of_its_two_players_named_by_yes_sub_title_never_the_title():
@@ -471,3 +483,47 @@ def test_a_paging_refusal_writes_nothing_and_exits_1(monkeypatch, tennis_rows):
     with session_scope() as s:
         assert s.execute(text("SELECT COUNT(*) FROM teams WHERE sport = 'TENNIS'")).scalar() == 0
         assert s.execute(text("SELECT COUNT(*) FROM matches WHERE sport = 'TENNIS'")).scalar() == 0
+
+
+def test_a_stored_scheduled_row_settled_after_the_window_is_re_read_and_no_row_is_created(monkeypatch, tennis_rows):
+    """Review P2 (late settlements): an event stored SCHEDULED that settles after the chain's next-day run has left
+    the {yesterday}..{tomorrow} window. The next sync re-reads it from the SAME listing (no further call) and writes its
+    settlement; an event of the same days never stored is NOT created (no backfill, addendum 270 item 5); a row older
+    than TENNIS_MAX_WINDOW_DAYS before --date-from is not re-read."""
+    import cli
+    from sqlalchemy import text
+    from src.db.database import session_scope
+    open_now = (pair("26DEC28AAABBB", "Ana Synthwood", "Bea Fakely", status="closed")
+                + pair("26DEC10MMMNNN", "Max Oldrow", "Ned Oldrow", status="closed"))
+    fake = FakeKalshi({("KXATPMATCH", "closed"): [open_now]})
+    _fake_http(monkeypatch, fake)
+    run = CliRunner()
+    assert run.invoke(cli.cli, ["sync-competitions", "--sport", "tennis"]).exit_code == 0
+    for lo, hi in (("2026-12-27", "2026-12-29"), ("2026-12-09", "2026-12-11")):
+        res = run.invoke(cli.cli, ["sync-matches", "--competition", "ATP", "--date-from", lo, "--date-to", hi])
+        assert res.exit_code == 0, res.output
+
+    def rows():
+        with session_scope() as s:
+            return dict(s.execute(text(
+                "SELECT json_extract(m.external_ids, '$.kalshi_tennis'), m.status || '|' || "
+                "COALESCE(m.full_time_result, '-') FROM matches m JOIN competitions c ON c.id = m.competition_id "
+                "WHERE c.code = 'ATP'")).all())
+    assert rows() == {"KXATPMATCH-26DEC28AAABBB": "SCHEDULED|-", "KXATPMATCH-26DEC10MMMNNN": "SCHEDULED|-"}
+    # three days on: both events settle; an event of 12-28 never stored is now served too
+    fake.pages = {("KXATPMATCH", "settled"): [
+        pair("26DEC28AAABBB", "Ana Synthwood", "Bea Fakely", results=("yes", "no"),
+             exps=("Ana Synthwood", "Ana Synthwood"), status="finalized")
+        + pair("26DEC10MMMNNN", "Max Oldrow", "Ned Oldrow", results=("yes", "no"),
+               exps=("Max Oldrow", "Max Oldrow"), status="finalized")
+        + pair("26DEC28PPPQQQ", "Pia Unstored", "Quin Unstored", results=("yes", "no"),
+               exps=("Pia Unstored", "Pia Unstored"), status="finalized")]}
+    calls = len(fake.calls)
+    res = run.invoke(cli.cli, ["sync-matches", "--competition", "ATP", "--date-from", "2026-12-31",
+                               "--date-to", "2027-01-02"])
+    assert res.exit_code == 0, res.output
+    assert len(fake.calls) - calls == 3                        # one listing read (open, closed, settled), no more
+    flat = " ".join(res.output.split())
+    assert "ATP re-read (stored SCHEDULED rows dated 2026-12-24..2026-12-30, no new row): 1 re-read · 1 settled " \
+           "since: KXATPMATCH-26DEC28AAABBB" in flat, flat
+    assert rows() == {"KXATPMATCH-26DEC28AAABBB": "FINISHED|HOME", "KXATPMATCH-26DEC10MMMNNN": "SCHEDULED|-"}

@@ -17,7 +17,10 @@ run in this order on the laptop:
        clause from this console (no wording is typed by Code) ·
        THE MAP (269 item 3(b), kalshi_tennis.settle): the projection by our status, every event left SCHEDULED by
        its reason, the events refused as fixtures by their reason ·
-       GAME COUNTS by the ticker's year (our int-style season) · NULLS · INTEGRITY (out-of-scope series never read).
+       GAME COUNTS by the ticker's year (our int-style season; late-December events of the next tour season read as
+       the ticker's year, an open item) · THE TIMES (the kickoff, open for a ruling: every served time key beside the
+       ticker's date, and the open markets already past the stored kickoff) · NULLS · INTEGRITY (out-of-scope series
+       never read).
   2. STORED (--db COPY, no network): after the first syncs, on a .backup copy outside data/ opened
      mode=ro&immutable=1 (the NBA receipt's guards): counts per season by stored status, status_raw as stored, the
      settlement's truth (FINISHED with a winner and its settlement kept; SETTLED_SCALAR with no winner and its
@@ -52,6 +55,22 @@ TAIL = "TENNIS-CERTIFICATION-RECEIPT"
 TERMS_KEYS = ("rules_secondary", "early_close_condition")       # printed verbatim, every distinct value
 FEE_KEYS = ("fee_type", "fee_multiplier")                       # the listing's fee fields, as the NBA receipt read them
 MAX_DISTINCT = 25                                               # distinct texts printed per key; the rest counted
+# THE TIMES: the time keys the stage-1 digest lists among those served (#838 issuecomment-6690719842, K3 "keys
+# served"), printed beside the ticker's date so the kickoff can be ruled on a receipt (kalshi_tennis's THE KICKOFF)
+TIME_KEYS = ("occurrence_datetime", "open_time", "close_time", "expected_expiration_time", "expiration_time",
+             "latest_expiration_time")
+TIME_SAMPLE = 12                                                # open markets printed with every time key
+
+
+def ts(x):
+    """A served time (ISO, 'Z' or an offset) as naive UTC, else None. Read only for the offsets the receipt prints."""
+    if not isinstance(x, str) or not x:
+        return None
+    try:
+        d = datetime.fromisoformat(x.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return d.astimezone(timezone.utc).replace(tzinfo=None) if d.tzinfo else d
 
 
 def v(x) -> str:
@@ -150,9 +169,35 @@ def tour_report(tour: str, adapter, get, say) -> tuple[int, dict]:
     by_year = defaultdict(Counter)
     for fx in lst.fixtures:
         by_year[str(fx.day.year)][fx.settlement.status.name] += 1
-    say("  GAME COUNTS (accepted events, by the ticker's year: our int-style season)")
+    say("  GAME COUNTS (accepted events, by the ticker's year: our int-style season; OPEN: no ruling names a tennis "
+        "season, so a late-December event of the next tour season reads as the ticker's year)")
     for y in sorted(by_year):
         say(f"    {y}: {sum(by_year[y].values())} · {counts(by_year[y])}")
+    # 5b. THE TIMES (the kickoff, open for a ruling) ---------------------------------------------------------------
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    say(f"  THE TIMES (the kickoff is OPEN for a ruling; stored now: {kt.KICKOFF_LABEL}); offsets in hours from 00:00 "
+        "UTC of the ticker's date")
+    day_of = {m.get("ticker"): fx.day for fx in lst.fixtures for m in fx.markets}
+    times_out = {}
+    for key in TIME_KEYS:
+        served = [m for m in markets if key in m]
+        offs = Counter()
+        for m in served:
+            t, d = ts(m.get(key)), day_of.get(m.get("ticker"))
+            if t is not None and d is not None:
+                offs[round((t - datetime(d.year, d.month, d.day)).total_seconds() / 3600)] += 1
+        say(f"    {key}: served on {len(served)} of {len(markets)} markets · offsets (h: markets) "
+            + (" · ".join(f"{h:+d}: {n}" for h, n in sorted(offs.items(), key=lambda kv: -kv[1])[:10]) or "none"))
+        times_out[key] = len(served)
+    live = [(fx, m) for fx in lst.fixtures for m in fx.markets if str(m.get("status")) == "active"]
+    past = [m.get("ticker") for fx, m in live if kt.kickoff_utc(fx.day) <= now]
+    say(f"    active markets: {len(live)} · already past the stored kickoff at this run (the capture refuses them as "
+        f"in play): {len(past)}")
+    for fx, m in live[:TIME_SAMPLE]:
+        say(f"      {m.get('ticker')} · ticker date {fx.day} · stored kickoff {kt.kickoff_utc(fx.day):%Y-%m-%d %H:%M}Z · "
+            + " · ".join(f"{k} {v(m.get(k, '<not served>'))}" for k in TIME_KEYS))
+    if len(live) > TIME_SAMPLE:
+        say(f"      ... {len(live) - TIME_SAMPLE} more active market(s), not printed")
     # 6. NULLS -----------------------------------------------------------------------------------------------------
     no_winner = [fx.event for fx in lst.fixtures if fx.settlement.status == MatchStatus.FINISHED and not fx.settlement.winner]
     say("  NULLS")
@@ -173,7 +218,8 @@ def tour_report(tour: str, adapter, get, say) -> tuple[int, dict]:
     out.update(markets=lst.markets, pages=lst.pages, events=len(lst.fixtures), projected=dict(proj),
                scheduled_why=dict(why), refused=dict(lst.refused), status_words=dict(lst.status_words),
                result_words=dict(lst.result_words), finished_no_winner=len(no_winner), players=len(names),
-               by_year={y: dict(c) for y, c in by_year.items()})
+               by_year={y: dict(c) for y, c in by_year.items()}, time_keys_served=times_out,
+               active=len(live), active_past_kickoff=len(past))
     return OK, out
 
 

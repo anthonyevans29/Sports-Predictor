@@ -6118,7 +6118,10 @@ def soccer_v23_gate_cmd(preflight, word, fingerprint, db, no_fetch):
             return
         click.echo(f"SOCCER-V23 · ONE RUN · {g.RULING} · word: {word!r} · stream fingerprint {fingerprint!r}")
         r = g.run(word, fingerprint, db=db, no_fetch=no_fetch, echo=lambda line: click.echo(f"  {line}"))
-    except g.GateRefused as err:
+    except (g.GateRefused, g.FitRefused) as err:
+        # ARCHITECT 2026-11-05 13:50 ET, addendum 264 item 2(b): "a one-run gate prints its refusals, never a
+        # traceback". A refusal after the reservation (g.SpentRefused: the fit refused, or a walk guard) says so in
+        # its reason: the reservation stands, the one run is spent (263 item 13).
         click.echo(f"REFUSED: {err}")
         raise SystemExit(2)
     for line in g.run_lines(r):

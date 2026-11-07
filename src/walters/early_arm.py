@@ -188,7 +188,9 @@ def closing_pages(exports_dir) -> dict:
             top = [p for p in known if p["run"] == last] + [p for p in pages if p["run"] is None]
         else:
             top = pages
-        sig = {tuple(p[k] for k in ("match_id", "call", "pick", "order_ticker", "order_side", "cost", "kickoff"))
+        # The page's own fields, its units among them (they feed closing_call and early_by_units); never match_id,
+        # which is machine-local (the join is the event ticker): the page kept is the latest timed one, top[0].
+        sig = {tuple(p[k] for k in ("call", "pick", "units", "order_ticker", "order_side", "cost", "kickoff"))
                for p in top}
         out[ev] = top[0] if len(sig) == 1 else {"refused": DISAGREE}
     return {"by_event": out, "files": files, "unreadable": bad, "dated": len(subs)}
@@ -357,7 +359,9 @@ def arm_table(rows: list[dict]) -> dict:
     not_exited = {v: sum(1 for r in flips if r.get("flip_exit") == k) for k, v in NOT_EXITED_KEYS.items()}
     return {"early": len(early), "early_priced": len(clv), "mean_early_clv_cents": _mean(clv),
             "early_by_units": dict(sorted(units.items())),
-            "flips": len(flips), "flips_exited_before_kickoff": len(fc),
+            "flips": len(flips),
+            "flips_exited_before_kickoff": sum(1 for r in flips if r.get("flip_exit") == FLIP_EXITED),
+            "flips_exited_priced": len(fc),
             "flips_not_exited_before_kickoff": not_exited,
             "mean_flip_cost_cents": _mean(fc), "total_flip_cost_cents": round(sum(fc), 4) if fc else None,
             "breaches": sum(1 for r in rows if r.get("arm_breach")),
@@ -384,7 +388,8 @@ def table_lines(t: dict) -> list[str]:
         f"contract (closing_cost − early_price, × 100; positive = early was cheaper) · by the closing page's units: "
         f"{by_u}",
         f"ARM FLIP (the close PASSed or changed side; booked to the arm): {t['flips']} fills · exited before kickoff "
-        f"{t['flips_exited_before_kickoff']} · flip cost mean {_c(t['mean_flip_cost_cents'])} per contract, total "
+        f"{t['flips_exited_before_kickoff']} (priced {t['flips_exited_priced']}) · flip cost mean "
+        f"{_c(t['mean_flip_cost_cents'])} per contract, total "
         f"{_c(t['total_flip_cost_cents'])} (early_price − flip_exit_price, × 100; positive = a cost)",
         f"ARM FLIP NOT EXITED before kickoff (2(c)(iii)): {ne} — their cost is not in the flip cost (open on #862)",
         f"ARM BREACH (a fill opened or sold at or after kickoff on an arm position, 2(d)): {t['breaches']} · not read "

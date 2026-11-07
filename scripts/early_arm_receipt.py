@@ -69,10 +69,15 @@ def read_ledger(path) -> dict:
     if not isinstance(L, dict) or not isinstance(L.get("calls"), list) or any(not isinstance(c, dict)
                                                                             for c in L["calls"]):
         raise Refused(f"--ledger {path}: not a bd_ledger_v1 export (no calls array of objects); nothing read")
-    fills = L.get("fills") or []
+    fills = L.get("fills", [])            # absent or null is no fills; any other non-array is refused, never [] (law 4)
+    fills = [] if fills is None else fills
     if not isinstance(fills, list) or any(not isinstance(f, dict) for f in fills):
         raise Refused(f"--ledger {path}: fills is not an array of objects; nothing read")
-    return {"calls": L["calls"], "fills": fills, "system_picks": L.get("system_picks") or []}
+    picks = L.get("system_picks", [])
+    picks = [] if picks is None else picks
+    if not isinstance(picks, list) or any(not isinstance(x, dict) for x in picks):
+        raise Refused(f"--ledger {path}: system_picks is not an array of objects; nothing read")
+    return {"calls": L["calls"], "fills": fills, "system_picks": picks}
 
 
 def report(L: dict, exports_dir, echo=print) -> dict:

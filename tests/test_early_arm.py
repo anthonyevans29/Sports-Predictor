@@ -447,3 +447,49 @@ def test_the_table_prints_the_arms_distinct_games_beside_the_lot_count(tmp_path)
     t = ea.arm_table(ea.attribute(json.loads(p.read_text()), ex))
     assert (t["toward_thirty"], t["arm_games"]) == (3, 2)
     assert any("distinct games 2" in ln for ln in ea.table_lines(t))
+
+
+# ---- Codex on #864, round 1 ---------------------------------------------------------------------------------------
+
+def test_pages_of_one_run_that_differ_only_in_units_are_refused(tmp_path):
+    """The units feed closing_call and early_by_units: two copies of the latest run disagreeing there are refused,
+    never one picked by the files' order."""
+    L, ex = world(tmp_path, [(RUN, [row(units=0.5)]), (RUN, [row(units=1.0)], KO_DT, "2026-11-08")], [entry()],
+                  [call()])
+    a = ea.attribute(L, ex)[0]
+    assert a["arm"] is None and a["arm_note"] == ea.DISAGREE
+
+
+def test_pages_that_differ_only_in_the_machine_local_match_id_agree(tmp_path):
+    """The join is the event ticker (match ids are machine-local): an untimed copy under another id that otherwise
+    agrees does not refuse the event; the latest timed page is the one kept."""
+    L, ex = world(tmp_path, [(RUN, [row(mid=9001)]), (None, [row(mid=4242)], KO_DT, "2026-11-08")], [entry()],
+                  [call()])
+    a = ea.attribute(L, ex)[0]
+    assert a["arm"] == ea.ARM_EARLY and a["closing_call"]["match_id"] == 9001
+
+
+def test_an_exited_flip_with_an_unread_price_is_counted_exited_not_priced(tmp_path):
+    f = {**entry(closed="2026-11-08T13:10:00Z", exit_=EXIT_, close_fee=0.0101), "entry": None}   # entry unread
+    a, _, _ = one(tmp_path, row(call="PASS"), f)
+    assert a["arm"] == ea.ARM_FLIP and a["flip_exit"] == ea.FLIP_EXITED and a["flip_cost_cents"] is None
+    t = ea.arm_table([a])
+    assert (t["flips"], t["flips_exited_before_kickoff"], t["flips_exited_priced"]) == (1, 1, 0)
+    assert t["mean_flip_cost_cents"] is None
+    assert "exited before kickoff 1 (priced 0)" in "\n".join(ea.table_lines(t))
+
+
+@pytest.mark.parametrize("key,bad", [("fills", {}), ("fills", "x"), ("fills", 0), ("system_picks", {}),
+                                     ("system_picks", "x")])
+def test_a_non_array_fills_or_system_picks_is_refused_never_read_as_empty(tmp_path, capsys, key, bad):
+    p = tmp_path / "L.json"
+    p.write_text(json.dumps({"calls": [], "fills": [], key: bad}))
+    assert script.main(["--ledger", str(p), "--exports", str(tmp_path)]) == script.REFUSED
+    assert f"{key} is not an array of objects" in capsys.readouterr().out
+
+
+def test_absent_or_null_fills_is_no_fills(tmp_path):
+    for doc in ({"calls": []}, {"calls": [], "fills": None, "system_picks": None}):
+        p = tmp_path / "L.json"
+        p.write_text(json.dumps(doc))
+        assert script.read_ledger(p) == {"calls": [], "fills": [], "system_picks": []}

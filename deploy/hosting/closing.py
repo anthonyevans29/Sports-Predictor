@@ -216,6 +216,9 @@ def parse_utc(s: str) -> datetime:
     explicit offset such as '...T13:00:00-04:00', converted to UTC) as aware UTC. Codex on #385: a '-hh:mm' offset
     was truncated and the local time read as UTC."""
     s = str(s).strip().replace("Z", "+00:00")
+    # a compact offset ('-0400') gains its colon: Python 3.10's fromisoformat reads only '-04:00' (3.11+ reads both;
+    # the laptop runs 3.10, ARCHITECT 2026-11-07, addendum 280). The result is unchanged on 3.11+.
+    s = s[:10] + re.sub(r"([+-]\d{2})(\d{2})$", r"\1:\2", s[10:])
     d = datetime.fromisoformat(s if _OFFSET.search(s[10:]) else s[:19])
     return utc(d).astimezone(timezone.utc)
 

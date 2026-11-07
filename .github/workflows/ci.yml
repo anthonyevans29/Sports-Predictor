@@ -26,6 +26,34 @@ jobs:
           PY
       - name: Tests (throwaway SQLite; never touches data/)
         run: python -m pytest -q tests
+  smoke-py310:
+    # ARCHITECT 2026-11-07 07:05 ET, addendum 280 item 2(b): "the laptop's Python is the BETA's Python and CI must
+    # run it". The laptop runs Python 3.10; a PEP 701 f-string (3.12 only) broke every cli.py command there after
+    # #841 merged while the 3.12 job passed. This job parses, imports and tests on 3.10.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.10"}
+      - name: Parse every source file on 3.10 (the laptop's floor)
+        run: python -m compileall -q src cli.py config.py scripts deploy tests
+      - name: Install deps
+        run: pip install -q -r requirements.txt
+      - name: Import smoke on 3.10
+        env:
+          API_FOOTBALL_KEY: ci-dummy
+        run: |
+          python - << 'PY'
+          import sys; sys.path.insert(0, ".")
+          import importlib
+          for mod in ("src.db.schema", "src.adapters.registry",
+                      "src.models.elo", "src.walters.nfl_predict",
+                      "src.ingestion.service"):
+              importlib.import_module(mod)
+          print("import smoke OK (3.10)")
+          PY
+      - name: Tests on 3.10 (throwaway SQLite; never touches data/)
+        run: python -m pytest -q tests
   fragments:
     # ARCHITECT-RULE 2026-10-02: per-PR ledger fragments. A PR adds
     # changelog.d/<PR>-<slug>.md + docs/ledger/entries/<date>-<slug>.md and never

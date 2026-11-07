@@ -3,8 +3,9 @@ SYNTHETIC responses only. Every game, team, goalie, stamp, field value and URL a
 labelled synthetic; none is the vendor's real value, and no field name here is confirmed against a live answer (the
 probe exists to read them). HTTP is monkeypatched: no provider is reached.
 
-Pinned: the key read by NAME (SPORTSDATAIO_NHL_KEY) and never printed or written, sent in the header only and never in a
-URL; a key not set or not accepted makes no metered call; the rate-limit headers printed as served on every call line;
+Pinned: the key read by NAME (SPORTSDATAIO_NHL_KEY, else SPORTSDATAIO_API_KEY: 282 item 2(a)) and never printed or
+written, sent in the header only and never in a URL; a key not set or not accepted makes no metered call; the
+rate-limit headers printed as served on every call line;
 field names printed as served, a price-class field by NAME only (279 item 3(c)) and any figure replaced (a price with
 no currency sign included, the receipt's text too); the
 stamp-before-start comparison read from the served values only (Z, offsets, and a value with no zone read only in the
@@ -33,7 +34,7 @@ spec.loader.exec_module(probe)
 
 DAY = "2026-11-07"                                    # synthetic game day
 KEY = "SYNTH-NHL-TRIAL-KEY-5e1b9c"                    # synthetic secret: must never appear in any output
-BASE = "https://synthetic.invalid/v3/nhl"
+BASE = "https://synthetic.invalid"                   # the base; the paths carry /v3/nhl (282 item 2(b))
 TERMS_URL = "https://synthetic.invalid/terms"
 QUOTE = "Synthetic documentation: Updated is the time the projection was last published."
 RATE = {"X-RateLimit-Remaining": "9", "x-ratelimit-limit": "10", "Retry-After": "1", "Content-Type": "application/json"}
@@ -115,6 +116,7 @@ def router(overrides=None, seen=None):
 def env(monkeypatch):
     monkeypatch.setattr(probe, "_load_env", lambda: None)
     monkeypatch.setenv("SPORTSDATAIO_NHL_KEY", KEY)
+    monkeypatch.delenv("SPORTSDATAIO_API_KEY", raising=False)        # the fallback name (282 item 2(a)): unset here
     return monkeypatch
 
 
@@ -162,8 +164,9 @@ def test_every_section_reads_and_the_stamp_is_compared_from_served_values(env, c
     v = {str(g["game"]): g["verdict"] for g in rec["sections"]["starters"]["games"]}
     assert v == {"9101": "PREGAME", "9102": "NOT PREGAME"}
     urls = [u for u, h, p in seen]
-    assert urls == [f"{BASE}/scores/json/CurrentSeason", f"{BASE}/scores/json/GamesByDate/2026-NOV-07",
-                    f"{BASE}/projections/json/StartingGoaltendersByDate/2026-NOV-07", TERMS_URL]
+    assert urls == [f"{BASE}/v3/nhl/scores/json/CurrentSeason",
+                    f"{BASE}/v3/nhl/scores/json/GamesByDate/2026-NOV-07",
+                    f"{BASE}/v3/nhl/projections/json/StartingGoaltendersByDate/2026-NOV-07", TERMS_URL]
     assert not any("kalshi" in u.lower() for u in urls)
 
 
@@ -188,8 +191,8 @@ def test_a_key_not_set_makes_no_metered_call(env, capsys):
     env.setattr(requests, "get", router(seen=seen))
     rc, out = run([], capsys)
     assert rc == 2, out
-    assert "key SPORTSDATAIO_NHL_KEY: not set" in out
-    assert out.count("SPORTSDATAIO_NHL_KEY is not set: no call made") == 3
+    assert "key SPORTSDATAIO_NHL_KEY (fallback SPORTSDATAIO_API_KEY): not set" in out
+    assert out.count("neither SPORTSDATAIO_NHL_KEY nor its fallback SPORTSDATAIO_API_KEY is set: no call made") == 3
     assert [u for u, h, p in seen] == [TERMS_URL]                                    # the terms need no key
 
 
@@ -205,7 +208,7 @@ def test_a_status_read_that_does_not_answer_stops_the_metered_calls(env, capsys,
     assert got == rc, out
     assert word in out
     assert out.count("the status read did not answer: no call made") == 2
-    assert [u for u, h, p in seen] == [f"{BASE}/scores/json/CurrentSeason", TERMS_URL]
+    assert [u for u, h, p in seen] == [f"{BASE}/v3/nhl/scores/json/CurrentSeason", TERMS_URL]
 
 
 def test_skip_status_runs_the_metered_sections_without_it(env, capsys):
@@ -645,7 +648,7 @@ def test_a_200_carrying_an_error_body_is_refused_and_stops_the_metered_calls(env
     assert "REFUSED: HTTP 200 carrying an error body" in out
     assert "the key named SPORTSDATAIO_NHL_KEY answered" not in out
     assert out.count("the status read did not answer: no call made") == 2
-    assert [u for u, h, p in seen] == [f"{BASE}/scores/json/CurrentSeason", TERMS_URL]
+    assert [u for u, h, p in seen] == [f"{BASE}/v3/nhl/scores/json/CurrentSeason", TERMS_URL]
 
 
 def test_every_field_name_is_read_from_every_element_of_a_nested_list():
@@ -1252,7 +1255,7 @@ def test_round2_a_redirect_on_the_status_read_is_refused_and_the_key_not_sent_on
     assert rc == 2, out
     assert f"HTTP {status}" in out and "https://elsewhere.invalid:8443" in out and "the key is not sent onward" in out
     assert "synthetic-moved-path" not in out + text and KEY not in out + text      # scheme and host only
-    assert [c[0] for c in calls] == [BASE + "/scores/json/CurrentSeason"]          # no retry, no metered call after
+    assert [c[0] for c in calls] == [BASE + "/v3/nhl/scores/json/CurrentSeason"]   # no retry, no metered call after
     assert json.loads(text)["sections"]["status"]["exit"] == 2
 
 
@@ -1505,3 +1508,125 @@ def test_round3_review_the_comma_joiner_needs_a_replaced_figure(line):
 def test_round3_review_a_long_choice_or_range_chain_keeps_no_item(text):
     for got in (probe.Out().redact(f"Synthetic: {text}."), probe.figures(f"Retain data | {text}", True)):
         assert not any(ch.isdigit() for ch in got) and "<figure not printed>" in got, got
+
+
+# ---- addendum 282 item 2 ------------------------------------------------------------------------------------------
+# (a) "the probe reads SPORTSDATAIO_NHL_KEY first and SPORTSDATAIO_API_KEY as the fallback (the API-Sports pattern of
+# 271 item 2); a name lookup spends no call". (b) the base, the games, starters and current-season paths VERIFIED from
+# the vendor's OpenAPI 3.1 document (read by the architect 2026-11-07); the key header and field names stay UNVERIFIED.
+
+OTHER = "SYNTH-SDIO-SHARED-KEY-7a2f0d"                # synthetic second secret: must never appear in any output either
+
+
+def test_282_the_first_name_wins_when_both_are_set_and_neither_value_prints(env, capsys, tmp_path):
+    env.setenv("SPORTSDATAIO_API_KEY", OTHER)
+    seen = []
+    env.setattr(requests, "get", router({"GamesByDate": requests.ConnectionError(
+        f"synthetic: echo {KEY} and {OTHER} and {KEY.lower()}")}, seen=seen))
+    out_file = tmp_path / "r.json"
+    rc, out = run(["--out", str(out_file)], capsys)
+    text = out + out_file.read_text(encoding="utf-8")
+    assert rc == 1, out
+    assert "key SPORTSDATAIO_NHL_KEY: set (the value is never printed)" in out
+    assert "the key named SPORTSDATAIO_NHL_KEY answered" in out
+    keyed = [h for u, h, p in seen if u != TERMS_URL]
+    assert keyed and all(h == {probe.KEY_HEADER: KEY} for h in keyed)              # the first name's value is sent
+    assert KEY not in text and OTHER not in text and KEY[:10] not in text and OTHER[:10] not in text
+    assert text.count("<redacted>") >= 2
+    assert json.loads(out_file.read_text())["key_name"] == "SPORTSDATAIO_NHL_KEY"
+
+
+@pytest.mark.parametrize("first", [None, "", "   "])             # not set, or blank as .env.example leaves it
+def test_282_the_fallback_name_is_read_when_only_it_is_set(env, capsys, tmp_path, first):
+    if first is None:
+        env.delenv("SPORTSDATAIO_NHL_KEY")
+    else:
+        env.setenv("SPORTSDATAIO_NHL_KEY", first)
+    env.setenv("SPORTSDATAIO_API_KEY", f" {KEY} ")
+    seen = []
+    env.setattr(requests, "get", router({"GamesByDate": requests.ConnectionError(f"synthetic: echo {KEY}")},
+                                        seen=seen))
+    out_file = tmp_path / "r.json"
+    rc, out = run(["--out", str(out_file)], capsys)
+    text = out + out_file.read_text(encoding="utf-8")
+    assert rc == 1, out                                                            # the games call failed (synthetic)
+    assert ("key SPORTSDATAIO_API_KEY: set (the value is never printed; the fallback: SPORTSDATAIO_NHL_KEY "
+            "is not set)") in out
+    assert "the key named SPORTSDATAIO_API_KEY answered (the value is never printed)" in out
+    keyed = [h for u, h, p in seen if u != TERMS_URL]
+    assert keyed and all(h == {probe.KEY_HEADER: KEY} for h in keyed)              # trimmed, as the first name's
+    assert KEY not in text and KEY[:10] not in text and "<redacted>" in text
+    rec = json.loads(out_file.read_text())
+    assert rec["key_name"] == "SPORTSDATAIO_API_KEY" and rec["key_set"] is True
+
+
+def test_282_neither_name_set_is_refused_and_the_receipt_names_no_key(env, capsys, tmp_path):
+    env.delenv("SPORTSDATAIO_NHL_KEY")
+    seen = []
+    env.setattr(requests, "get", router(seen=seen))
+    out_file = tmp_path / "r.json"
+    rc, out = run(["--out", str(out_file)], capsys)
+    assert rc == 2, out
+    assert [u for u, h, p in seen] == [TERMS_URL]
+    rec = json.loads(out_file.read_text())
+    assert rec["key_name"] is None and rec["key_set"] is False
+    assert rec["key_names"] == ["SPORTSDATAIO_NHL_KEY", "SPORTSDATAIO_API_KEY"]
+
+
+def test_282_the_fallback_value_in_a_url_is_refused_before_any_call(env, capsys):
+    env.delenv("SPORTSDATAIO_NHL_KEY")
+    env.setenv("SPORTSDATAIO_API_KEY", KEY)
+    seen = []
+    env.setattr(requests, "get", router(seen=seen))
+    rc, out = run(["--games-path", "/v3/nhl/scores/json/GamesByDate/{date_mon}?token=" + KEY], capsys)
+    assert rc == 2 and "REFUSED: --games-path carries the value of SPORTSDATAIO_API_KEY" in out and seen == []
+    assert KEY not in out
+
+
+def test_282_the_three_verified_defaults_from_the_vendors_openapi_document():
+    assert probe.BASE_URL == "https://api.sportsdata.io"
+    assert probe.GAMES_PATH == "/v3/nhl/scores/json/GamesByDate/{date_mon}"
+    assert probe.STARTERS_PATH == "/v3/nhl/projections/json/StartingGoaltendersByDate/{date_mon}"
+    assert probe.STATUS_PATH == "/v3/nhl/scores/json/CurrentSeason"
+    assert probe.KEY_NAMES == ("SPORTSDATAIO_NHL_KEY", "SPORTSDATAIO_API_KEY")
+    src = SCRIPT.read_text()
+    assert "cdn.sportsdata.io/openapi/NHL-openapi-3.1.json" in src and "VERIFIED" in src
+    assert probe.render(probe.GAMES_PATH, "2018-01-31").endswith("/GamesByDate/2018-JAN-31")   # the document's example
+    assert probe.render(probe.STARTERS_PATH, "2021-10-12").endswith("/StartingGoaltendersByDate/2021-OCT-12")
+
+
+def test_282_a_run_on_the_defaults_calls_the_documented_urls_and_no_key_guard_fires(env, capsys):
+    seen = []
+    env.setattr(requests, "get", router(seen=seen))
+    base = [x for x in FULL if x not in ("--base-url", BASE)]
+    rc, out = run([], capsys, base=base)
+    assert rc == 0, out
+    assert [u for u, h, p in seen] == ["https://api.sportsdata.io/v3/nhl/scores/json/CurrentSeason",
+                                       "https://api.sportsdata.io/v3/nhl/scores/json/GamesByDate/2026-NOV-07",
+                                       "https://api.sportsdata.io/v3/nhl/projections/json/"
+                                       "StartingGoaltendersByDate/2026-NOV-07", TERMS_URL]
+    assert "names a key in the URL" not in out and "carries the value of" not in out
+    assert out.count("VERIFIED default path: the vendor's OpenAPI document") == 3 and "(header UNVERIFIED)" in out
+    rc, out = run([], capsys)                                                      # FULL: the synthetic base
+    assert rc == 0 and out.count("the operator's base or path, not the documented default") == 3, out
+
+
+def test_282_current_season_served_as_a_bare_year_prints_as_the_year_and_reads_ok(env, capsys, tmp_path):
+    env.setattr(requests, "get", router({"CurrentSeason": Resp(2027)}))
+    out_file = tmp_path / "r.json"
+    rc, out = run(["--skip", "terms", "--out", str(out_file)], capsys)
+    assert rc == 0, out
+    assert "the current season's year as served = 2027" in out
+    assert "the key named SPORTSDATAIO_NHL_KEY answered" in out
+    st = json.loads(out_file.read_text())["sections"]["status"]
+    assert st["exit"] == 0 and st["answer_type"] == "int" and st["season_year"] == 2027
+
+
+@pytest.mark.parametrize("body, path", [(2027.0, None), (True, None), (12345, None), ("2027", "/v3/nhl/other/json/X"),
+                                        (2027, "/v3/nhl/other/json/X")])
+def test_282_a_bare_answer_that_is_not_the_documented_year_prints_its_type_only(env, capsys, body, path):
+    env.setattr(requests, "get", router({"CurrentSeason": Resp(body), "/other/": Resp(body)}))
+    rc, out = run(["--skip", "terms", *(["--status-path", path] if path else [])], capsys)
+    assert rc == 0, out
+    assert "year as served" not in out and f"a {type(body).__name__} as served (its value not printed" in out
+    assert str(body) not in out.replace(path or "\0", "")

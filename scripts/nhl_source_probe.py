@@ -16,22 +16,40 @@ Item 3(c), verbatim in part: "the figure never written into the repo, an Issue o
 prices as to units: the decision is recorded, the number is not)."
 
 NOTHING HERE WAS CONFIRMED AGAINST A LIVE ANSWER. The probe was written where every provider host is refused by the
-proxy and the vendor's documentation cannot be read. EVERY endpoint path, the base URL, the key header and every field
-name default below is UNVERIFIED: a CLI option the operator confirms against the vendor's documentation on the first
-run. The stamp field has NO default at all (--stamp-field, required for section 3): it is named from the documentation,
-never typed from memory, and its documentation sentence is quoted on the command line (--stamp-quote). The probe prints
-every field name as served; a required field it cannot find REFUSES that read (law 1), never guessed.
+proxy: this container cannot read cdn.sportsdata.io (the proxy answers 403) nor call the API.
 
-THE KEY: the env NAME SPORTSDATAIO_NHL_KEY, read from .env or the environment, never printed (every line and the
-receipt pass through a redactor holding its value). One name, no fallback: the vendor issues a key per product (the
-operator confirms), and the repo names a key by its product (API_HOCKEY_KEY, API_BASEBALL_KEY); there is no shared
-SportsDataIO key in .env to fall back to, and a second name tried would spend a metered trial call on a key that is not
-the NHL product's. The key travels in one request header (--key-header, UNVERIFIED default Ocp-Apim-Subscription-Key),
-never in a URL: a base or path naming a key is REFUSED before any call, and so is any URL this run would call (the
-base with each path, the date rendered, and the terms URL) that carries the key's VALUE under any name or in the path,
-raw, trimmed or URL-quoted, in any letter case (key_in_urls; the option named, the value never; the redactor ignores
-case too). The terms page is read with no key. A keyed call NEVER follows a redirect (Requests keeps a custom header
-such as the key's on a cross-host redirect; it strips only Authorization): a 3xx answer is REFUSED for that section,
+VERIFIED (ARCHITECT 2026-11-07, addendum 282 item 2(b), "THREE DEFAULTS NOW VERIFIED, from the vendor's own OpenAPI
+3.1 document"): the architect read cdn.sportsdata.io/openapi/NHL-openapi-3.1.json on 2026-11-07 (~08:50 ET), and these
+defaults are that document's: the base URL https://api.sportsdata.io (servers[].url); the games path
+/v3/nhl/scores/{format}/GamesByDate/{date}, the date written YYYY-MON-DD with the month upper case (the document's
+"Examples: 2018-JAN-31, 2017-OCT-01": the probe's {date_mon}); the starters path
+/v3/nhl/projections/{format}/StartingGoaltendersByDate/{date} (summary "Starting Goaltenders - by Date", examples
+2021-OCT-12); and the current-season path /v3/nhl/scores/{format}/CurrentSeason ("Year of the current season"), the
+status read's default. The {format} segment is written "json", lower case, the segment's case as written in the
+vendor's URLs; the document's format value as the architect read it is "JSON"; the case was not read here (no access),
+and a path option takes the other case if the first run answers so.
+STILL UNVERIFIED ("the components section was beyond my read, so the field names and the key header stay
+unverified"): the key header and every field name default below (and the status value fields) are CLI options the
+operator confirms against the vendor's documentation page on the first run. The stamp field, the served zone and the
+terms URL have NO default at all: the operator passes them from that page. The stamp field (--stamp-field, required
+for section 3) is named from the documentation, never typed from memory, and its documentation sentence is quoted on
+the command line (--stamp-quote). The probe prints every field name as served; a required field it cannot find REFUSES
+that read (law 1), never guessed.
+
+THE KEY, by NAME (ARCHITECT 2026-11-07, addendum 282 item 2(a), verbatim: "the probe reads SPORTSDATAIO_NHL_KEY first
+and SPORTSDATAIO_API_KEY as the fallback (the API-Sports pattern of 271 item 2); a name lookup spends no call, so Code's
+'a second name tried would spend a metered trial call' does not apply — only a request spends one, and the probe sends
+one."): SPORTSDATAIO_NHL_KEY first, SPORTSDATAIO_API_KEY when the first is not set or blank (the repo's
+`os.getenv(A) or os.getenv(B)` pattern), read from .env or the environment. The console and the receipt (key_name) name
+WHICH name was read, never its value; every value found under either name, raw and trimmed, is in the redactor's
+secrets (every line and the receipt pass through it) and in the URL check below, so neither value ever prints. Neither
+set: sections 1-3 make no call and are REFUSED. The key travels in one request header (--key-header, UNVERIFIED
+default Ocp-Apim-Subscription-Key), never in a URL: a base or path naming a key is REFUSED before any call, and so is
+any URL this run would call (the base with each path, the date rendered, and the terms URL) that carries either name's
+VALUE under any name or in the path, raw, trimmed or URL-quoted, in any letter case (key_in_urls; the option and the
+env name named, the value never; the redactor ignores case too). The terms page is read with no key. A
+keyed call NEVER follows a redirect (Requests keeps a custom header such as the key's on a cross-host redirect; it
+strips only Authorization): a 3xx answer is REFUSED for that section,
 its HTTP status and the Location's scheme and host printed (never its path or query; a scheme-relative "//host"
 Location prints as "//host", another host, and an IPv6 host in its brackets), the key not sent onward and no
 call retried. The terms page, sent no key, follows its redirects (nothing secret travels); its final host prints when
@@ -39,12 +57,15 @@ it changed.
 
 Four sections, each independent (a failure in one does not stop the next), in this order:
 
-  (1) STATUS     the vendor's status read or its equivalent (--status-path, UNVERIFIED default a current-season read):
+  (1) STATUS     the vendor's status read or its equivalent (--status-path, VERIFIED default the CurrentSeason read):
                  one GET with the key by NAME. Printed: HTTP status, the rate-limit headers as served, every field
                  NAME of the answer as served, and the VALUES of the --status-value-field names only (an allow-list,
                  the basketball probe's status rule; UNVERIFIED default season fields): no billing figure under a name
                  the price rule misses, no account field. A price-class name (PRICE_FIELD / PRICE_WORD: price, cost,
-                 fee, plan, subscription, rate, tier ...) never prints its value; a bare answer prints its type only.
+                 fee, plan, subscription, rate, tier ...) never prints its value; a bare answer prints its type only,
+                 but one: the CurrentSeason read (a --status-path ending /CurrentSeason, the documented "Year of the
+                 current season") served a bare integer year (1900-2100, not a bool or a float) prints that year,
+                 reads OK and goes on the receipt as season_year (a year is not a price).
                  A 401/403 is REFUSED (the key not accepted); so is a 200 whose object answer carries an error field
                  (ERROR_KEYS: code, message, error ...); any other failure FAILED. When the read does not answer,
                  sections 2 and 3 make no call (REFUSED: a metered trial is not spent on a key that did not answer);
@@ -128,6 +149,12 @@ them still replaced. The raw answers are never written: the receipt holds the pr
 TRIAL DATA: whether the vendor alters the values a trial key is served is the vendor's documentation's to say, and the
 operator's to quote with the receipt; the probe cannot tell.
 
+SCRAMBLED TRIAL VALUES (ARCHITECT 2026-11-07, addendum 282 item 2(c): "the probe cannot tell a scrambled value from a
+real one, and must not pretend to"): the probe cannot tell a scrambled trial value from a real one, and does not try.
+It reads STRUCTURE: the field names as served, the stamp's relation to the start (BEFORE or NOT BEFORE, from the
+served values), and the terms' passages. Whether a value is real is not on its receipt; 282 item 2(c)'s condition (the
+vendor's written statement) is the operator's to obtain and quote, not the probe's.
+
     python3 scripts/nhl_source_probe.py --stamp-field <FIELD FROM THE DOCS> --stamp-quote "<THE DOCS' SENTENCE>" \\
         --terms-url <THE VENDOR'S TERMS PAGE> [--served-zone <IANA ZONE FROM THE DOCS>] [--date YYYY-MM-DD] \\
         [--base-url URL] [--key-header NAME] [--status-path P] [--games-path P] [--starters-path P] \\
@@ -165,14 +192,18 @@ ROOT = Path(__file__).resolve().parents[1]
 OK, FAILED, REFUSED = 0, 1, 2
 SECTIONS = ("status", "games", "starters", "terms")
 
-KEY_NAME = "SPORTSDATAIO_NHL_KEY"           # the product's key, by NAME (the docstring says why one name)
-# UNVERIFIED defaults (no network and no vendor documentation where this was written): the operator confirms each one
-# against the vendor's documentation on the first run, and passes the documented value where it differs.
-BASE_URL = "https://api.sportsdata.io/v3/nhl"
+# The key by NAME (282 item 2(a)): the first name, else the fallback; a lookup spends no call, only a request does.
+KEY_NAME, KEY_FALLBACK = "SPORTSDATAIO_NHL_KEY", "SPORTSDATAIO_API_KEY"
+KEY_NAMES = (KEY_NAME, KEY_FALLBACK)
+# VERIFIED defaults (282 item 2(b)): the vendor's OpenAPI 3.1 document, read by the architect 2026-11-07.
+OPENAPI_DOC = "cdn.sportsdata.io/openapi/NHL-openapi-3.1.json"
+BASE_URL = "https://api.sportsdata.io"                                      # servers[].url
+GAMES_PATH = "/v3/nhl/scores/json/GamesByDate/{date_mon}"                   # {format} written "json"; YYYY-MON-DD
+STARTERS_PATH = "/v3/nhl/projections/json/StartingGoaltendersByDate/{date_mon}"
+STATUS_PATH = "/v3/nhl/scores/json/CurrentSeason"                           # "Year of the current season"
+# UNVERIFIED defaults (the document's components section was beyond the architect's read): the operator confirms each
+# one against the vendor's documentation on the first run, and passes the documented value where it differs.
 KEY_HEADER = "Ocp-Apim-Subscription-Key"
-STATUS_PATH = "/scores/json/CurrentSeason"
-GAMES_PATH = "/scores/json/GamesByDate/{date_mon}"
-STARTERS_PATH = "/projections/json/StartingGoaltendersByDate/{date_mon}"
 GAME_ID_FIELD, START_FIELD, STATUS_FIELD = "GameID", "DateTime", "Status"
 HOME_TEAM_FIELD, AWAY_TEAM_FIELD = "HomeTeam", "AwayTeam"
 HOME_GOALIE_FIELD, AWAY_GOALIE_FIELD = "HomeGoaltender", "AwayGoaltender"
@@ -658,9 +689,32 @@ def render(path: str, day: str) -> str:
 
 # ---- (1) the status read -----------------------------------------------------------------------------------------
 
+def key_name(a) -> str:
+    """The env NAME the key was read from (282 item 2(a)), for the lines; the first name when none was read."""
+    return getattr(a, "key_name", None) or KEY_NAME
+
+
+def path_note(a, path: str, default: str) -> str:
+    """Whether the URL called is the documented default (VERIFIED, 282 item 2(b)) or the operator's own."""
+    if a.base_url.rstrip("/") == BASE_URL and path == default:
+        return f"VERIFIED default path: the vendor's OpenAPI document {OPENAPI_DOC}, 282 item 2(b)"
+    return "the operator's base or path, not the documented default"
+
+
+def season_year(a, v) -> int | None:
+    """The CurrentSeason read's bare answer, documented "Year of the current season" (282 item 2(b)): an integer year
+    printed as such, on that path only; any other bare answer (a float, a bool, another number, another path) prints
+    its type only, as before (a year is not a price; another bare number might be)."""
+    if (a.status_path.rstrip("/").endswith("/CurrentSeason") and type(v) is int and 1900 <= v <= 2100):
+        return v
+    return None
+
+
 def status_section(a, key: str, say: Out, get=http_get) -> tuple[int, dict]:
+    name = key_name(a)                              # the name read (282 item 2(a)) in every line of this section
     url = a.base_url.rstrip("/") + a.status_path
-    say(f"\n(1) STATUS (or equivalent) · GET {url} · key by NAME {KEY_NAME} in header {a.key_header} (UNVERIFIED)")
+    say(f"\n(1) STATUS (or equivalent) · GET {url} ({path_note(a, a.status_path, STATUS_PATH)}) · key by NAME "
+        f"{name} in header {a.key_header} (header UNVERIFIED)")
     status, hdr, body, err, _ = get(url, headers={a.key_header: key})
     rec: dict = {"url": url, "http": status, "rate_limit": rate_headers(hdr)}
     say(f"  HTTP {status} · rate-limit {rate_headers(hdr)}" + (f" · {'REFUSED' if moved(status) else 'FAILED'}: {err}"
@@ -668,11 +722,11 @@ def status_section(a, key: str, say: Out, get=http_get) -> tuple[int, dict]:
     if err:
         rec["error"] = err
         if moved(status):
-            say(f"  REFUSED: the read answered with a redirect, not followed: the key named {KEY_NAME} is not sent "
+            say(f"  REFUSED: the read answered with a redirect, not followed: the key named {name} is not sent "
                 "onward; the operator checks --base-url and the path against the vendor's documentation")
             return REFUSED, rec
         if status in (401, 403):
-            say(f"  REFUSED: the key named {KEY_NAME} was not accepted (HTTP {status}); the operator checks the "
+            say(f"  REFUSED: the key named {name} was not accepted (HTTP {status}); the operator checks the "
                 "trial key, the header name and the path against the vendor's documentation")
             return REFUSED, rec
         return FAILED, rec
@@ -687,7 +741,7 @@ def status_section(a, key: str, say: Out, get=http_get) -> tuple[int, dict]:
             for k, v in rec["error_body"].items():
                 say(f"    {k} = {v}")
             say(f"  REFUSED: HTTP 200 carrying an error body (field(s) {', '.join(map(str, errs))}): the key named "
-                f"{KEY_NAME} is not shown to have answered; the operator checks the key, the header and the path")
+                f"{name} is not shown to have answered; the operator checks the key, the header and the path")
             return REFUSED, rec
         rec["values"] = {}
         say(f"  VALUES of the --status-value-field names only (the rest by NAME above):")
@@ -708,10 +762,14 @@ def status_section(a, key: str, say: Out, get=http_get) -> tuple[int, dict]:
         rec["items"] = len(body)
         rec["fields"] = field_union(body)
         say(f"  a list of {len(body)} · FIELDS as served: {names_line(rec['fields'])}")
+    elif season_year(a, body) is not None:
+        rec["season_year"] = body
+        say(f"  the current season's year as served = {body} (CurrentSeason, documented \"Year of the current "
+            "season\": a year, not a price)")
     else:
         say(f"  a {type(body).__name__} as served (its value not printed: a bare answer has no field name the price "
             "rule can read)")
-    say(f"  the key named {KEY_NAME} answered (the value is never printed)")
+    say(f"  the key named {name} answered (the value is never printed)")
     return OK, rec
 
 
@@ -742,7 +800,8 @@ def game_row(a, g: dict) -> dict:
 def games_section(a, key: str, say: Out, get=http_get) -> tuple[int, dict, dict]:
     url = a.base_url.rstrip("/") + render(a.games_path, a.date)
     say(f"\n(2) THE NHL GAMES OF THE DAY · --date {a.date} (a UTC calendar day, as given; the vendor's day boundary is "
-        f"its documentation's: the games print as served, unfiltered) · GET {url} (UNVERIFIED path)")
+        f"its documentation's: the games print as served, unfiltered) · GET {url} "
+        f"({path_note(a, a.games_path, GAMES_PATH)})")
     status, hdr, body, err, _ = get(url, headers={a.key_header: key})
     rec: dict = {"url": url, "date_utc": a.date, "http": status, "rate_limit": rate_headers(hdr)}
     if err is None and not isinstance(body, list):
@@ -835,8 +894,8 @@ def compare(stamp_v, start_v, zone: ZoneInfo | None) -> dict:
 def starters_section(a, key: str, say: Out, games: dict | None, zone: ZoneInfo | None,
                      get=http_get) -> tuple[int, dict]:
     url = a.base_url.rstrip("/") + render(a.starters_path, a.date)
-    say(f"\n(3) THE PROJECTED STARTERS · GET {url} (UNVERIFIED path) · stamp field(s) {a.stamp_field} (named by the "
-        "operator from the vendor's documentation; no default)")
+    say(f"\n(3) THE PROJECTED STARTERS · GET {url} ({path_note(a, a.starters_path, STARTERS_PATH)}) · stamp "
+        f"field(s) {a.stamp_field} (named by the operator from the vendor's documentation; no default)")
     rec: dict = {"url": url, "stamp_fields": a.stamp_field, "stamp_quote": a.stamp_quote,
                  "served_zone": zone.key if zone else None}
     code = OK
@@ -1215,23 +1274,37 @@ def request_urls(a) -> list[tuple[str, str]]:
             + [(f"--base-url with {opt}", base + p) for opt, p in paths])
 
 
-def key_in_urls(a, raw: str) -> str | None:
-    """Codex #857 round 1: the loaded key's VALUE in any URL this run would call, under any name or in the path
-    ("token=<key>" included), as given or trimmed, raw or URL-quoted (quote, quote_plus), in any letter case, each URL
-    compared as written and URL-decoded (KEY_IN_URL only reads a spelling). The option is named; the value never is.
-    None when no URL carries it."""
-    forms = {f.casefold() for k in {raw, raw.strip()} if k.strip()
-             for f in (k, quote(k, safe=""), quote(k), quote_plus(k))}
-    for label, url in request_urls(a):
-        if any(f in v.casefold() for f in forms for v in (url, unquote(url), unquote_plus(url))):
-            return (f"REFUSED: {label} carries the value of {KEY_NAME} (the value is not printed): the key travels in "
-                    "--key-header only, never in a URL; no call made")
+def read_key() -> tuple[str | None, str, dict[str, str]]:
+    """282 item 2(a): SPORTSDATAIO_NHL_KEY first, SPORTSDATAIO_API_KEY as the fallback (a name not set or blank falls
+    to the next: the repo's API-Sports pattern). A lookup spends no call. (the name read or None, its raw value, every
+    name's raw value: each goes into the redactor and the URL check)."""
+    raws = {n: os.environ.get(n) or "" for n in KEY_NAMES}
+    for n in KEY_NAMES:
+        if raws[n].strip():
+            return n, raws[n], raws
+    return None, "", raws
+
+
+def key_in_urls(a, raws: dict[str, str]) -> str | None:
+    """Codex #857 round 1: a loaded key's VALUE (either name's, 282 item 2(a)) in any URL this run would call, under
+    any name or in the path ("token=<key>" included), as given or trimmed, raw or URL-quoted (quote, quote_plus), in any
+    letter case, each URL compared as written and URL-decoded (KEY_IN_URL only reads a spelling). The option and the env
+    name are named; the value never is. None when no URL carries one."""
+    for name, raw in raws.items():
+        forms = {f.casefold() for k in {raw, raw.strip()} if k.strip()
+                 for f in (k, quote(k, safe=""), quote(k), quote_plus(k))}
+        for label, url in request_urls(a):
+            if any(f in v.casefold() for f in forms for v in (url, unquote(url), unquote_plus(url))):
+                return (f"REFUSED: {label} carries the value of {name} (the value is not printed): the key travels in "
+                        "--key-header only, never in a URL; no call made")
     return None
 
 
 def main(argv=None) -> int:
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     U = "UNVERIFIED default; the operator confirms it against the vendor's documentation"
+    V = (f"VERIFIED default (the vendor's OpenAPI 3.1 document {OPENAPI_DOC}, read by the architect 2026-11-07, "
+         "addendum 282 item 2(b); the {format} segment written json, lower case)")
     ap = argparse.ArgumentParser(description="NHL source probe (addendum 279 item 3(a); read-only)")
     ap.add_argument("--date", default=today, help="the game day, YYYY-MM-DD, a UTC calendar day (default: today UTC)")
     ap.add_argument("--stamp-field", action="append", default=None,
@@ -1246,11 +1319,13 @@ def main(argv=None) -> int:
                          "without it such a time refuses its game)")
     ap.add_argument("--terms-url", default=TERMS_URL,
                     help="the vendor's terms page (NO default: without it the terms are NOT READ, section 4 REFUSED)")
-    ap.add_argument("--base-url", default=BASE_URL, help=U)
-    ap.add_argument("--key-header", default=KEY_HEADER, help=f"the header carrying {KEY_NAME}'s value; {U}")
-    ap.add_argument("--status-path", default=STATUS_PATH, help=U)
-    ap.add_argument("--games-path", default=GAMES_PATH, help=U + "; {date} or {date_mon} in it")
-    ap.add_argument("--starters-path", default=STARTERS_PATH, help=U + "; {date} or {date_mon} in it")
+    ap.add_argument("--base-url", default=BASE_URL, help=V.replace("; the {format} segment written json, lower case",
+                                                                  ""))
+    ap.add_argument("--key-header", default=KEY_HEADER,
+                    help=f"the header carrying the key's value ({KEY_NAME}, else {KEY_FALLBACK}); {U}")
+    ap.add_argument("--status-path", default=STATUS_PATH, help=V + "; documented \"Year of the current season\"")
+    ap.add_argument("--games-path", default=GAMES_PATH, help=V + "; {date} or {date_mon} in it")
+    ap.add_argument("--starters-path", default=STARTERS_PATH, help=V + "; {date} or {date_mon} in it")
     ap.add_argument("--game-id-field", default=GAME_ID_FIELD, help=U + " (both answers)")
     ap.add_argument("--start-field", default=START_FIELD, help=U + " (the games answer)")
     ap.add_argument("--home-team-field", default=HOME_TEAM_FIELD, help=U)
@@ -1300,27 +1375,34 @@ def main(argv=None) -> int:
             say(f"REFUSED: {label} names a key in the URL; the key travels in --key-header only, never in a URL")
             return REFUSED
     _load_env()
-    raw = os.environ.get(KEY_NAME) or ""
-    say.secrets.update(f for x in (raw, raw.strip()) if x.strip() for f in (x, repr(x)[1:-1]))   # its repr too
+    a.key_name, raw, raws = read_key()                          # 282 item 2(a): the first name, else the fallback
+    say.secrets.update(f for r in raws.values() for x in (r, r.strip()) if x.strip()
+                       for f in (x, repr(x)[1:-1]))             # both names' values, raw and trimmed, their reprs too
     key = raw.strip()
-    refused = key_in_urls(a, raw) if key else None              # before any call, the terms page's included
+    refused = key_in_urls(a, raws)                              # before any call, the terms page's included
     if refused:
         say(refused)
         return REFUSED
     say.urls.update(u for _, u in request_urls(a))              # printed as given (Out): the receipt names each page
     say(f"NHL SOURCE PROBE (addendum 279 item 3(a), lane nhl, #105) · read-only · day {a.date} (UTC) · "
         f"{datetime.now(timezone.utc):%Y-%m-%dT%H:%M:%SZ} (our clock: printed for the record, never compared)")
-    say(f"  key {KEY_NAME}: {'set (the value is never printed)' if key else 'not set'} · KALSHI: none (KXNHLGAME "
-        "untouched, 279 item 5)")
+    if not key:
+        held = f"key {KEY_NAME} (fallback {KEY_FALLBACK}): not set"
+    elif a.key_name == KEY_NAME:
+        held = f"key {KEY_NAME}: set (the value is never printed)"
+    else:
+        held = f"key {a.key_name}: set (the value is never printed; the fallback: {KEY_NAME} is not set)"
+    say(f"  {held} · KALSHI: none (KXNHLGAME untouched, 279 item 5)")
     receipt: dict = {"probe": "nhl_source_probe", "ruling": "ARCHITECT 2026-11-06 19:40 ET, addendum 279 item 3(a)",
                      "date_utc": a.date, "run_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                     "key_name": KEY_NAME, "key_set": bool(key), "sections": {}}
+                     "key_name": a.key_name, "key_names": list(KEY_NAMES), "key_set": bool(key), "sections": {}}
     codes: list[int] = []
     keyed_ok = True                      # a status read that did not answer stops the metered sections' calls
     games: dict | None = None
 
     def no_key(name):
-        why = (f"{KEY_NAME} is not set: no call made (the operator puts the trial key in .env by that NAME)" if not key
+        why = (f"neither {KEY_NAME} nor its fallback {KEY_FALLBACK} is set: no call made (the operator puts the "
+               "trial key in .env by one of those NAMES)" if not key
                else "the status read did not answer: no call made (a metered trial is not spent on a key that did "
                     "not answer; --skip status runs this section without it)")
         say(f"\n({name}) REFUSED: {why}")

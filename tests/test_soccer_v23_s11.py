@@ -304,6 +304,66 @@ def test_263_15_an_arrival_off_the_pyramid_takes_the_outside_the_store_prior():
     assert seen and all(7 not in r for r in seen)                      # not relegated: the promoted prior
 
 
+def test_263_15_an_arrival_from_two_places_is_off_pyramid_whichever_their_direction():
+    """ARCHITECT addendum 282 item 4, fail-first (Codex round 2, thread 4499416689): "two S−1 competitions for one
+    club — whichever their direction — classify OFF_PYRAMID, counted and labelled; 263 item 15 prices an arrival from
+    two places like an off-pyramid one". The probe store of the thread's reply: club 7 plays PL AND ELC in 2020/21
+    (both above EL1) and arrives in EL1 2021/22; club 9 plays EL1 AND EL2 (both below ELC) and arrives in ELC. On
+    c6fce198 `_classify` reduced the two directions to one: club 7 'relegated' (in the fit's relegated set, p_home
+    0.48703585236963975 on EL1 22 v 7), club 9 'promoted', the census empty. Only a data defect reaches this (a club
+    plays one league tier per season), so it is refused a reduction (law 4). BAR_TEXT is unchanged (the harness, not
+    the bar)."""
+    import hashlib
+
+    from src.models import joint_poisson as jp
+    from tests.test_soccer_v23_text import BAR_SHA256
+    n = iter(range(1, 100))
+    R = lambda c, se, d, h, a, hg, ag: _row(next(n), c, se, datetime(2020 + d // 400, 9, 1) + timedelta(  # noqa
+        days=d % 400), h, a, hg, ag)
+    rows = [R("PL", "2020/21", 0, 7, 1, 2, 1), R("PL", "2020/21", 1, 1, 7, 1, 1),
+            R("ELC", "2020/21", 2, 7, 11, 1, 2), R("ELC", "2020/21", 3, 11, 12, 2, 1),
+            R("EL1", "2020/21", 4, 21, 22, 1, 1), R("EL1", "2020/21", 5, 22, 9, 2, 1),
+            R("EL2", "2020/21", 6, 9, 31, 1, 2), R("EL2", "2020/21", 7, 31, 32, 0, 1),
+            R("PL", "2021/22", 400, 1, 2, 1, 1), R("PL", "2021/22", 401, 2, 1, 2, 1),
+            R("ELC", "2021/22", 402, 11, 9, 1, 0), R("ELC", "2021/22", 403, 12, 11, 1, 2),
+            R("EL1", "2021/22", 404, 21, 22, 2, 1), R("EL1", "2021/22", 405, 7, 21, 1, 1),
+            R("EL1", "2021/22", 406, 22, 7, 0, 1), R("ELC", "2021/22", 407, 9, 12, 2, 1)]
+    assert v.thin_season_keys(rows) == []                              # item 14 is not in play
+    prev = [x for x in rows if x.season == "2020/21"]
+    assert v.arrival_class("EL1", 7, prev) == (v.OFF_PYRAMID, ["ELC", "PL"])     # both above: not 'relegated'
+    assert v.arrival_class("ELC", 9, prev) == (v.OFF_PYRAMID, ["EL1", "EL2"])    # both below: not 'promoted'
+    assert v._classify("EL1", ["PL"]) == ("relegated", ["PL"])                    # one place: as before
+    assert v._classify("PL", ["ELC"]) == ("promoted", ["ELC"])
+    assert v._classify("PL", []) == ("promoted", [])
+    # counted: the census names both, one line each
+    assert v.off_pyramid_arrivals(rows, v.thin_season_keys(rows)) == [
+        "EL1 2021/22: club 7 arrives from ['ELC', 'PL'] (S−1 2020/21), off the declared pyramid: the outside-the-store "
+        "prior",
+        "ELC 2021/22: club 9 arrives from ['EL1', 'EL2'] (S−1 2020/21), off the declared pyramid: the outside-the-store "
+        "prior"]
+    # its treatment: the outside-the-store (promoted) prior, never the relegated one; labelled in predict's info
+    fx = rows[-2]
+    assert (fx.code, fx.season, fx.home_id, fx.away_id) == ("EL1", "2021/22", 22, 7)
+    snap = v.snapshot_from_rows(rows, fx.utc_date, PJ_LEAGUE, "kickoff")
+    seen = []
+    real = jp.fit
+    jp_fit = lambda obs, relegated=frozenset(): seen.append(relegated) or real(obs, relegated=relegated)  # noqa
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(jp, "fit", jp_fit)
+        p = v.predict(snap, v.Fixture.of(fx), "soccer-v23")
+    assert seen and all(7 not in r for r in seen)
+    assert p["info"]["arrivals_off_pyramid"] == {7: ["ELC", "PL"]}
+    assert p["p_home"] == pytest.approx(0.6032105892625845, abs=1e-12)          # not 0.48703585236963975
+    snap_c = v.snapshot_from_rows(rows, rows[-1].utc_date, PJ_LEAGUE, "kickoff")
+    assert v.predict(snap_c, v.Fixture.of(rows[-1]), "soccer-v23")["info"]["arrivals_off_pyramid"] == {
+        9: ["EL1", "EL2"]}
+    assert len(v.walk(rows, rows[-2:], PJ_LEAGUE, "kickoff")["soccer-v23"]) == 2   # priced, never refused
+    assert hashlib.sha256(v.BAR_TEXT.encode("utf-8")).hexdigest() == BAR_SHA256    # the harness, not the bar
+
+
+PJ_LEAGUE = v.canon_params(V22P, False, "LEAGUE")
+
+
 def _thin_and_off_store():
     """On the declared store: XL2, a LEAGUE competition with a 2024/25 holding no away goal (two rows, a thin season:
     263 item 14) and a 2025/26 with goals; and a PL club arriving in 2025/26 that also played in XL1, off the declared

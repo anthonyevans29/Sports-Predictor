@@ -196,8 +196,9 @@ POT_LABEL = ("the frozen pot as CLAUDE.md names it: 16,546 matches / 24 competit
 #: (_CODE_TO_META, law 1). A club absent from a competition's S−1 rows whose S−1 rows (the same season label) lie in a
 #: HIGHER tier of the same pyramid is RELEGATED (no directional prior: joint_poisson.RELEGATED_*); from a lower tier or
 #: from outside the store it is PROMOTED (the persistent promoted prior); from a LEAGUE competition off the pyramid, or
-#: from two places, it is OFF_PYRAMID: "NOT a refusal: it takes the outside-the-store prior, is counted and labelled.
-#: The run never stops on a club's provenance." (263 item 15).
+#: from two places (two S−1 competitions, whichever their direction: 282 item 4), it is OFF_PYRAMID: "NOT a refusal:
+#: it takes the outside-the-store prior, is counted and labelled. The run never stops on a club's provenance." (263
+#: item 15).
 PYRAMIDS = (("PL", "ELC", "EL1", "EL2"),)
 
 # ------------------------------------------------------------------------------------------------- THE BAR --
@@ -1125,14 +1126,14 @@ def arrival_class(code: str, team: int, prev_season_rows) -> tuple[str, list[str
 def _classify(code: str, codes: list[str]) -> tuple[str, list[str]]:
     """ARCHITECT 2026-11-05 12:50 ET, addendum 263 item 15: "An arrival OFF the declared pyramid is NOT a refusal: it
     takes the outside-the-store prior, is counted and labelled. The run never stops on a club's provenance." Relegated
-    or promoted only when every S−1 competition of the club places it the same way on one declared pyramid; any other
-    provenance (a competition off the pyramid, or two places) is OFF_PYRAMID: not relegated, so the fit centres it on
-    the promoted prior, the prior of an arrival from outside the store (joint_poisson's penalty rows), counted and
-    labelled (off_pyramid_arrivals, the run record, predict's info)."""
+    or promoted only from ONE S−1 competition on the declared pyramid; a competition off it, or two places (two S−1
+    competitions, "whichever their direction", addendum 282 item 4: a data defect, refused a reduction) is OFF_PYRAMID:
+    not relegated, so the fit centres it on the promoted prior, the prior of an arrival from outside the store
+    (joint_poisson's penalty rows), counted and labelled (off_pyramid_arrivals, the run record, predict's info)."""
     if not codes:
         return "promoted", codes
-    got = {_direction(code, c) for c in codes}
-    return (got.pop() if len(got) == 1 and None not in got else OFF_PYRAMID), codes
+    got = _direction(code, codes[0]) if len(codes) == 1 else None      # 282 item 4: two places never reduce to one
+    return (got if got is not None else OFF_PYRAMID), codes
 
 
 def window_arrivals(view, code: str, season: str, sp: str | None, crows) -> tuple[frozenset, dict[int, list[str]]]:
@@ -1455,9 +1456,10 @@ def off_pyramid_arrivals(rows, thin) -> list[str]:
     """THE CENSUS OF 263 item 15 (ARCHITECT 2026-11-05 12:50 ET: "An arrival OFF the declared pyramid is NOT a refusal:
     it takes the outside-the-store prior, is counted and labelled. The run never stops on a club's provenance."): every
     club, absent from a competition's S−1 rows, whose S−1 rows lie in a competition off the declared pyramid (PYRAMIDS)
-    or in two places: one line each, printed by the preflight before the reservation and counted in the run record.
-    `thin` is 263 item 14's frozen set (the_pot's; required, never defaulted), read as the walk reads it (window_obs):
-    a thin S is not priced, and a thin S−1 leaves S a first season (the weak prior, no arrival), so neither is listed."""
+    or in two places (two S−1 competitions, whichever their direction: addendum 282 item 4): one line each, printed by
+    the preflight before the reservation and counted in the run record. `thin` is 263 item 14's frozen set (the_pot's;
+    required, never defaulted), read as the walk reads it (window_obs): a thin S is not priced, and a thin S−1 leaves S
+    a first season (the weak prior, no arrival), so neither is listed."""
     thin = set(map(tuple, thin))
     out = []
     for code in sorted({r.code for r in rows}):
@@ -1930,7 +1932,7 @@ def run(word: str | None, fingerprint: str | None, db=None, no_fetch: bool = Fal
     :824, its guard inside reserve :301), and nothing is fitted, scored or priced before it (ARCHITECT 2026-11-04
     15:45 ET, addendum 254 item 3: "preflight → fingerprint → cross_ref_guard → reservation → walk → record", the
     three gates' common order; --preflight is its own earlier invocation in all three). A MISSING fingerprint is
-    refused right after the word, before any load, MATCHING both precedents (soccer_v23.py:1952, nfl_v2_gate.py:642,
+    refused right after the word, before any load, MATCHING both precedents (soccer_v23.py:1954, nfl_v2_gate.py:642,
     ncaa_v1r_gate.py:792); a WRONG one is refused at the compare, after the load, as in both. Then the walk of
     both arms (v22 re-walked beside soccer-v23 on the same harness: the same scored set, the same as-of context
     definition, the same skip zero), the comparison (soccer_backtest.compare_candidate) and decide (THE BAR, 251 item

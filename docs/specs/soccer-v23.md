@@ -73,7 +73,8 @@ log λ_A(r) = μ     + α_{b,s} + δ_{a,s} − β·ΔE_r
   store's only multi-tier family, from src/adapters/api_football.py's England LEAGUE codes): from a lower tier or from
   outside the store (promoted), the persistent promoted prior (ln 0.85, ln 1.15 on S−1's zero mean); from a HIGHER tier
   (relegated), no directional prior (`RELEGATED_ATTACK` = `RELEGATED_DEFENCE` = 0, S−1's zero mean); from a competition
-  off the pyramid, or from two places, the outside-the-store prior (the promoted prior), counted and labelled, never a
+  off the pyramid, or from two places (two S−1 competitions, whichever their direction: addendum 282 item 4), the
+  outside-the-store prior (the promoted prior), counted and labelled, never a
   refusal (RULED, addendum 263 item 15: "The run never stops on a club's provenance."; the preflight names each before
   the reservation, `off_pyramid_arrivals`, and the run record counts them; the census reads 263 item 14's thin set as
   the walk does, so a season whose S−1 is thin, a first season, lists no arrival). τ = K_PRIOR·λ̄_{S−1} (λ̄ the window's S−1 goals per team per match), derived
@@ -490,7 +491,7 @@ or priced": the goals are read and fingerprinted before it, as in both precedent
 priced before it. (The earlier heading put the reservation before any outcome was read; that was inaccurate and is
 corrected here.) The missing-fingerprint refusal MATCHES the precedents (addendum 254 item 3: the run's order
 matches theirs): a MISSING `--stream-fingerprint` is refused right after the word, before any load and before `--db`
-is read (soccer_v23.py:1952, nfl_v2_gate.py:642, ncaa_v1r_gate.py:792); a WRONG one is refused at the compare, after
+is read (soccer_v23.py:1954, nfl_v2_gate.py:642, ncaa_v1r_gate.py:792); a WRONG one is refused at the compare, after
 the load, as in both. Either way nothing is reserved.
 
 `soccer-v23-gate` refuses, reserving nothing and recording nothing, when: there is no entry, its status is not
@@ -649,7 +650,7 @@ rewritten; the finding Issue #827 cited." No run before the declaration.
     directional prior (0 / 0); the promoted prior stays for arrivals from below or from outside the store. Or a
     declared relegated prior of its own? Is `PYRAMIDS` (PL > ELC > EL1 > EL2) the right declaration, and is a refusal
     the ruling for an arrival off the pyramid?
-    **RULED (addendum 263 item 15):** "RELEGATED CLUBS — as built: an arrival from a higher tier of the declared pyramid carries no directional prior (0 / 0); the promoted prior for an arrival from below or from outside the store; `PYRAMIDS` declared from the pot's own competitions (England's PL > ELC > EL1 > EL2 as the pot holds them; a pyramid with one tier in the pot is a single rung). An arrival OFF the declared pyramid is NOT a refusal: it takes the outside-the-store prior, is counted and labelled. The run never stops on a club's provenance." Built: an arrival off the pyramid or from two places is `OFF_PYRAMID`, not relegated, so the fit centres it on the promoted prior (the outside-the-store prior); `off_pyramid_arrivals` counts and names each (preflight, run record), reading item 14's thin set as the walk does (a thin S is not priced; a thin S−1 makes S a first season, so no arrival is listed for it), and predict's info labels the window's (`arrivals_off_pyramid`); `arrival_refusals` and `_refuse_arrivals` are gone. BAR_TEXT states it.
+    **RULED (addendum 263 item 15):** "RELEGATED CLUBS — as built: an arrival from a higher tier of the declared pyramid carries no directional prior (0 / 0); the promoted prior for an arrival from below or from outside the store; `PYRAMIDS` declared from the pot's own competitions (England's PL > ELC > EL1 > EL2 as the pot holds them; a pyramid with one tier in the pot is a single rung). An arrival OFF the declared pyramid is NOT a refusal: it takes the outside-the-store prior, is counted and labelled. The run never stops on a club's provenance." Built: an arrival off the pyramid or from two places is `OFF_PYRAMID`, not relegated (two places: two S−1 competitions for one club, "whichever their direction", RULED by addendum 282 item 4: "THE ROUND-2 P2 (4499416689) BLOCKS AND IS BUILT: two S−1 competitions for one club — whichever their direction — classify OFF_PYRAMID, counted and labelled; 263 item 15 prices an arrival from two places like an off-pyramid one"; only a data defect reaches it, so `_classify` refuses the reduction, law 4), so the fit centres it on the promoted prior (the outside-the-store prior); `off_pyramid_arrivals` counts and names each (preflight, run record), reading item 14's thin set as the walk does (a thin S is not priced; a thin S−1 makes S a first season, so no arrival is listed for it), and predict's info labels the window's (`arrivals_off_pyramid`); `arrival_refusals` and `_refuse_arrivals` are gone. BAR_TEXT states it.
 16. **Unplaceable stage labels.** BUILT: under LEAGUE_REGULAR any walked label `placement` cannot place refuses the run
     (F3's rule), and the preflight names each with its count. Should the architect rule a label's placement, the
     ruling is a code change through this PR's successor, never a guess.
@@ -748,7 +749,7 @@ rewritten; the finding Issue #827 cited." No run before the declaration.
     → reservation → walk → record)". Verified: the two precedents agree with each other, and soccer-v23 agrees with
     both on every ruled step (§9, file:line); no ruled step's order changed; run()'s docstring and §9 now say
     "before any outcome is scored or priced". The missing-fingerprint refusal now MATCHES both precedents (§9):
-    refused right after the word, before any load (soccer_v23.py:1952, nfl_v2_gate.py:642, ncaa_v1r_gate.py:792).
+    refused right after the word, before any load (soccer_v23.py:1954, nfl_v2_gate.py:642, ncaa_v1r_gate.py:792).
 
 ## 12. What is NOT done
 

@@ -603,6 +603,17 @@ def zone_of(v) -> str:
     return "no zone stated"
 
 
+def _iso_offset(s: str) -> str:
+    """An offset written '+05', '+0530' or '+053000' gains its colons ('+05:00', '+05:30', '+05:30:00'): Python
+    3.10's fromisoformat reads only the colon form, 3.11+ reads all of them (the laptop runs 3.10, ARCHITECT
+    2026-11-07, addendum 280). The instant is unchanged on 3.11+; the zone label is still read from the text as served."""
+    m = re.search(r"([+-])(\d{2})(\d{2})?(\d{2}(?:\.\d+)?)?$", s[10:])
+    if not m:
+        return s
+    sign, hh, mm, ss = m.groups()
+    return s[:10 + m.start()] + sign + hh + ":" + (mm or "00") + (":" + ss if ss else "")
+
+
 def read_instant(v, zone: ZoneInfo | None) -> tuple[datetime | None, str]:
     """(the instant, how it was read) from a served value only, or (None, why not). An ISO 8601 date and time with Z or
     an offset is read as written; one with no zone is read only in the operator's --served-zone; a bare number (unit
@@ -619,7 +630,7 @@ def read_instant(v, zone: ZoneInfo | None) -> tuple[datetime | None, str]:
     if not re.match(r"^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}", s):
         return None, f"not an ISO 8601 date and time as written: {safe_repr(s)}"
     try:
-        dt = datetime.fromisoformat(s[:-1] + "+00:00" if s.endswith("Z") else s)
+        dt = datetime.fromisoformat(_iso_offset(s[:-1] + "+00:00" if s.endswith("Z") else s))
     except ValueError:
         return None, f"not an ISO 8601 date and time as written: {safe_repr(s)}"
     if dt.tzinfo is None:

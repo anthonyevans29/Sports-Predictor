@@ -355,6 +355,10 @@ PRICE_FIGURES = (
                r"(?:billed|charged|invoiced|payable)\b)(?![A-Za-z])", re.I),
     _per(_MONEY_UNIT, _MONEY_SLASH))
 TERMS_PRICE_FIGURES = (_per(_COUNT_UNIT, _COUNT_UNIT),)
+# LAK (the Lao kip) is a currency code in a TERMS QUOTE, where no team abbreviation belongs (Codex on #857 after the
+# cap: "You may retain the data under the licence for 100 LAK" printed its figure). Elsewhere it stays out of
+# _CUR_CODE: a served row may carry the NHL team "2 LAK" beside a number. Upper case only, as the other codes.
+TERMS_FIGURE = re.compile(rf"(?<![\dA-Za-z]){_AMOUNT}{_SCALE}{_B}*(?-i:LAK)(?![A-Za-z])|(?<![A-Za-z])(?-i:LAK){_B}*{_AMOUNT}")
 _FIG = "<figure not printed>"
 # The other end of a range or a choice whose one end was replaced: a number before "-", "to", "and", "or" or a comma
 # and a blank (", and", ", or") and a replaced figure, or after a replaced figure and "-" or "to". A comma joins a
@@ -375,7 +379,10 @@ def figures(text: str, terms: bool = False) -> str:
     """Every currency figure (FIGURE) and every price written without one (PRICE_FIGURES; with `terms`, a terms quote,
     TERMS_PRICE_FIGURES too) replaced, the number only, then every other item of any range or choice one of whose
     items was."""
-    text = _numbers(PRICE_FIGURES, FIGURE.sub(_FIG, text))
+    text = FIGURE.sub(_FIG, text)
+    if terms:
+        text = TERMS_FIGURE.sub(_FIG, text)
+    text = _numbers(PRICE_FIGURES, text)
     if terms:
         text = _numbers(TERMS_PRICE_FIGURES, text)
     # "100 to 200 to 300", "10, 20, ... or 500 €": one item per pass, until nothing changes. No cap (a capped loop
@@ -1198,7 +1205,8 @@ def terms_read(page: str) -> dict:
     out = {"quoted": quoted, "retention": len(ret), "retention_cut": sum(1 for _, c in ret if c),
            "retention_data": sum(1 for i in ret_at if clause(i) and data_w.search(parts[i])
                                  and not re.search(r"(?i)cookie", parts[i])),
-           "retention_figure": sum(1 for x in ret_parts if figures(x, terms=True) != FIGURE.sub(_FIG, x)),
+           "retention_figure": sum(1 for x in ret_parts
+                                   if figures(x, terms=True) != TERMS_FIGURE.sub(_FIG, FIGURE.sub(_FIG, x))),
            "not_quoted": max(len(gen) - room, 0), "head": False}
     if not quoted:
         head = " ".join(parts)

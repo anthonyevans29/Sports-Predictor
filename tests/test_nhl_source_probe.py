@@ -1788,3 +1788,19 @@ def test_p1_4_the_passages_are_unchanged_by_the_pieces():
     pieces = probe._passage_pieces(page)
     assert [" ".join(p) for p in pieces] == probe._passages(page)
     assert all(len(p) >= 1 and all(q for q in p) for p in pieces)
+
+
+# ----------------------------------------- Codex on #857 after the cap: LAK, a currency code in a terms quote only --
+
+@pytest.mark.parametrize("text", ["You may retain the data under the licence for 100 LAK.",
+                                  "Retain data | 1 299,00 LAK", "Retain data | LAK 100", "Retain data | 100k LAK"])
+def test_lak_is_a_currency_code_in_a_terms_quote(text):
+    out = probe.figures(text, terms=True)
+    assert not any(c.isdigit() for c in out), out
+
+
+def test_lak_elsewhere_stays_a_team_abbreviation_and_a_lak_price_does_not_refuse_the_clause():
+    assert probe.figures("Final: 2 LAK 3 SJS") == "Final: 2 LAK 3 SJS"                  # a served score line, whole
+    t = probe.terms_read("<p>You may retain the data under the licence for 100 LAK.</p>")
+    assert t["retention_data"] == 1 and t["retention_figure"] == 0                      # a currency figure: quoted, OK
+    assert "100" not in " ".join(t["quoted"])

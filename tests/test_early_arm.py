@@ -1017,6 +1017,38 @@ def test_286_3_2_a_closing_page_without_a_kickoff_is_breach_unread(tmp_path):
     assert not ok["arm_breach"] and not ok["breach_unread"]
 
 
+
+def test_286_3_2_a_held_flip_on_a_page_without_a_kickoff_is_breach_unread_and_holds_the_read(tmp_path):
+    """286 item 3(2), no exception for a breach: a held flip (a breach, 2(3)) on a PASS closing page without a
+    kickoff cannot read its opened-at-or-after-kickoff cause, so it is breach_unread and the read is HELD (no net).
+    75afbdf1 skipped the check on a lot that was a breach already: it read "breach in the thirty" with its net."""
+    a, _, _ = one(tmp_path, row(call="PASS", ko=None), entry(exit_=1.0, close_fee=0.0))
+    assert a["arm"] == ea.ARM_FLIP and a["flip_exit"] == ea.FLIP_SETTLED
+    assert a["arm_breach"] is True and a["breach_unread"] is True
+    g = ea.arm_games([a])[0]
+    assert g["breach"] is True and g["breach_unread"] is True
+    t = ea.arm_table([lot(i) for i in range(29)] + [a])
+    assert t["toward_thirty"] == 30
+    assert (t["read"], t["read_blocking"], t["read_net_cents_per_game"]) == (ea.READ_BREACH_UNREAD, 1, None)
+    ln = _read(t)
+    assert "HELD: breach not read in the thirty: 1 games" in ln and "¢" not in ln
+
+
+def test_286_3_2_a_breach_sold_with_an_unread_clock_is_breach_unread(tmp_path):
+    """286 item 3(2), no exception for a breach: a fill on the arm's event opened after kickoff (BREACH_OPENED) and
+    sold (close_fee > 0) with its closing time unread: its sold-after-kickoff cause is not read, so breach_unread.
+    75afbdf1 read it a breach only."""
+    late = entry(fid="syn-FIXTURE\u241ffixture\u241f0002", opened="2026-11-08T14:30:00Z", closed=None, exit_=0.55,
+                 close_fee=0.0101)
+    L, ex = world(tmp_path, [(RUN, [row()])], [entry(), late], (call(),), None)
+    rows = ea.attribute(L, ex)
+    early = next(r for r in rows if r.get("arm") == ea.ARM_EARLY)
+    b = next(r for r in rows if r is not early and r.get("kind") == "sport")
+    assert b["arm_breach"] is True and ea.BREACH_OPENED in b["breach_why"] and b["breach_unread"] is True
+    assert not early["arm_breach"] and not early["breach_unread"]
+    g = ea.arm_games(rows)[0]
+    assert g["breach"] is True and g["breach_unread"] is True
+
 def test_286_3_2_the_read_is_held_while_a_game_of_the_thirty_has_a_breach_not_read():
     """286 item 3(2): "the read is HELD while any game in the thirty has one (the discipline count is a count, never a
     guess)": ahead of a breach read, the count printed, no mean, no verdict. 28d0fec6 read a breach in the thirty

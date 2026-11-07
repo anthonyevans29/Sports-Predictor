@@ -111,7 +111,7 @@ THE KINDS, per fill (the field `arm`; `arm_note` says why a fill is none of them
   kickoff, or sold at or after kickoff (2(d)), and a flip held to settlement (2(3)). A settlement of an early lot is
   no breach. A lot closed at or after kickoff whose sale is NOT READ is breach_unread, never "no breach"; so is a lot
   whose sale is not ruled out (a sale, or a sale not read) with its closing time unread, and every lot of an arm event
-  whose closing page carries no kickoff (286 item 3(2)), unless the lot is a breach already.
+  whose closing page carries no kickoff (286 item 3(2)), a breach already or not (a cause not read is not a count).
 - INTEREST_KIND ("interest", 2(f)): a fill entry whose stored `type` holds the word interest: kind and book
   "interest", call_id None, arm None, never attributed to a call or to the arm, its amount never read. 2(7): when no
   fill of the export carries a `type` key the export does not carry interest rows: the table says so, never zero.
@@ -600,9 +600,11 @@ def attribute(L: dict, exports_dir=None, pages: dict | None = None, prematch: di
                 why.append(BREACH_SOLD)
         if why:
             a["arm_breach"], a["breach_why"] = True, " and ".join(why)
-        elif (ko is None                              # 286 item 3(2): a closing page without a kickoff
-              or (sale is not False and closed is None)   # 286 item 3(2): a sale (or a sale not read), its clock unread
-              or (sale is None and closed >= ko)):    # closed after kickoff, its sale not read
+        # 286 item 3(2), breach or not (the ruling has no exception: a cause not read is not a count): a closing page
+        # without a kickoff, or a sale (or a sale not read) whose clock is unread, marks the lot breach_unread.
+        if ko is None or (sale is not False and closed is None):
+            a["breach_unread"] = True
+        elif not why and sale is None and closed >= ko:   # closed after kickoff, its sale not read
             a["breach_unread"] = True                 # never "no breach": the discipline count is a count, never a guess
     return out
 

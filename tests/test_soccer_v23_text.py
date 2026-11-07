@@ -256,8 +256,10 @@ def test_the_lane_is_appended_as_216_item_3_dates_it():
     lanes = {ln["lane"]: ln for ln in json.loads((ROOT / "docs" / "roadmap.json").read_text())["lanes"]}
     ln = lanes["soccer-v23"]
     assert ln["issue"] == 656 and ln["registry_id"] is None and ln["state"] == "to declare"
-    assert [(s["owner"], s["due"], s["done"]) for s in ln["steps"]] == [
-        ("code", "2026-11-13", None), ("architect", "2026-11-20", None), ("operator", "2026-11-27", None)]
+    assert [(s["owner"], s["due"], s["done"] and s["done"]["date"]) for s in ln["steps"]] == [
+        ("code", "2026-11-13", "2026-11-05"), ("architect", "2026-11-20", None), ("operator", "2026-11-27", None)]
+    # addendum 281 item 4(a): the design PR step done-marked by #832 (merged 2026-11-05); its due stays as the record
+    assert ln["steps"][0]["done"]["receipt"].startswith("#832 merged 2026-11-05")
     assert ln["earliest_live"] is None and ln["moved"] == [] and ln["competitions"] == ["PL"]
     assert "earliest_live the day after that read. No date moves a bar." in ln["live_needs"]
     assert "the lane names its next candidate the same day" in ln["live_needs"]

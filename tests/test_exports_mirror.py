@@ -671,6 +671,10 @@ def test_an_unreadable_or_vanished_bulletin_is_skipped_and_the_top_level_still_p
         return opener
     monkeypatch.setattr(builtins, "open", refusing(real_open))                # shutil.copyfile reads through it
     monkeypatch.setattr(io, "open", refusing(real_io_open))                   # Path.read_bytes reads through it
+    import pathlib
+    if hasattr(pathlib, "_NormalAccessor"):                                   # Python 3.10: Path.open is the
+        monkeypatch.setattr(pathlib._NormalAccessor, "open",                  # accessor's io.open, bound at import
+                            staticmethod(refusing(real_io_open)))             # (addendum 280: CI runs 3.10)
 
     def plan_then_delete(exports, role):
         pl = real_plan(exports, role)

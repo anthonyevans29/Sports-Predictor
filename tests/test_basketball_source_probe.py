@@ -374,8 +374,10 @@ def test_the_lane_is_appended_with_261_item_1s_dates_and_no_existing_date_moves(
     assert ln["competitions"] == ["NBA", "NCAAMB", "WNBA"]
     # addendum 271 item 5 (the records PR): "the probe step DONE on the two receipts (11-06)"
     assert [(s["owner"], s["due"], s["done"] and s["done"]["date"]) for s in ln["steps"]] == [
-        ("code", "2026-11-10", "2026-11-06"), ("code", "2026-11-19", None), ("operator", "2026-11-21", None),
+        ("code", "2026-11-10", "2026-11-06"), ("code", "2026-11-19", "2026-11-07"), ("operator", "2026-11-21", None),
         ("code", "2026-12-05", None)]
+    # addendum 282 item 1: the wiring step DONE EARLY (11-07, #848 and the stored receipt); its due stays as the record
+    assert "#848 merged 2026-11-07" in ln["steps"][1]["done"]["receipt"]
     assert "issuecomment-6690809214" in ln["steps"][0]["done"]["receipt"]
     assert "scripts/basketball_source_probe.py" in ln["steps"][0]["what"]
     assert "NCAAMB" in ln["steps"][3]["what"] and "never \"NCAA\", which is football" in ln["steps"][3]["what"]

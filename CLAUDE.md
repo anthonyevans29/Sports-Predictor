@@ -174,8 +174,9 @@ become MORE binding under an income goal, never less."
 - **Basketball (NBA, NCAAMB, WNBA)**: market-only on API-Sports
   basketball (the Pro plan on the shared account; API_BASKETBALL_KEY
   falling back to API_FOOTBALL_KEY; addendum 271), no model and no call;
-  the NBA wiring (#848) is pending, NCAA men's follows 12-05 and the
-  WNBA in May; the quarters are not kept (addendum 274).
+  the NBA wiring (#848, merged 11-07) is loaded and certified on the
+  laptop (addendum 282; the host from v1.6.5), NCAA men's follows 12-05
+  and the WNBA in May; the quarters are not kept (addendum 274).
 - Season strings: soccer clubs "2026/27"; WC "2026"; UNL "2026/27";
   MLB/NFL/NHL/NCAA int-style "2026". Per-comp truth is what the DB
   stores — check, don't assume.

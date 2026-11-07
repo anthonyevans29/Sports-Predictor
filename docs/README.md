@@ -115,6 +115,8 @@ run's files arrive on `main` as the laptop wrote them (each one's adding commit 
 - `docs/ledger/entries/2026-11-06-271-3-basketball-wiring.md`: BUILT, the NBA's market-only wiring. **record**. Addenda 271 items 2-3, 261 items 0 and 1(b), 272 items 3-5; #839.
 - `docs/ledger/entries/2026-11-06-276-a-readme-truth.md`: RECORDED, the repo truth pass, PR A (README.md). **record**. Addendum 276 items 2-3; #866.
 - `docs/ledger/entries/2026-11-07-276-b-docs-index.md`: RECORDED, the repo truth pass, PR B (this index, the archive, CLI.md's Cockpit sentence). **record**. Addendum 276 items 2-3.
+- `docs/ledger/entries/2026-11-07-276-c-scripts-index.md`: RECORDED, the repo truth pass, PR C (scripts/README.md, the two routine lines). **record**. Addendum 276 item 3; addendum 286 item 2(b).
+- `docs/ledger/entries/2026-11-07-284-1a-nflverse-real-rows.md`: BUILT, the nflverse real-row tests (#869). **record**. Addenda 284 item 1(a), 286 item 1; #830.
 - `docs/ledger/entries/2026-11-07-279-3a-nhl-source-probe.md`: BUILT, the NHL source probe. **record**. Addendum 279 items 3(a) and 5; lane nhl (#105).
 - `docs/ledger/entries/2026-11-07-280-281-records.md`: RECORDED, the 280 hotfix, the main ruleset, roadmap done-marks. **record**. Addenda 278, 281 item 4, 282 items 1 and 5.
 - `docs/ledger/entries/2026-11-07-280-py310-hotfix.md`: HOTFIX, main imports on Python 3.10; CI's 3.10 job. **record**. Addendum 280 item 2.

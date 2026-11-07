@@ -833,9 +833,16 @@ def test_253_row_4_the_match_factors_come_only_from_the_record_in_both_paths(sto
     assert any("1 backfilled fact(s) excluded" in n for n in i_bf["availability_notes"])
     assert "PL 2025/26: 1 fixture(s) term on" in "\n".join(v.availability_lines(w_bf["availability"]))
     assert "1 backfilled fact(s) excluded" in "\n".join(v.availability_lines(w_bf["availability"]))
-    for cadence, read in ((24.0, False), (24.0 * 40, True)):            # a declared cadence: beyond it out, within it in
+    # a declared cadence (addendum 262 item 2: record.SOURCE_CADENCE_HOURS, filtered to SOCCER_SOURCES, is the one
+    # constant; the synthetic source is declared soccer's here): beyond it out, within it in
+    from types import MappingProxyType
+
+    from src.availability import record as avr
+    for cadence, read in ((24.0, False), (24.0 * 40, True)):
         with pytest.MonkeyPatch.context() as mp:
-            mp.setitem(v.SOURCE_CADENCE_HOURS, "synthetic_bf", cadence)
+            mp.setattr(v, "SOCCER_SOURCES", ("synthetic_bf",))
+            mp.setattr(avr, "SOURCE_CADENCE_HOURS", MappingProxyType({**avr.SOURCE_CADENCE_HOURS,
+                                                                      "synthetic_bf": cadence}))
             got_c, _ = _both_paths(db, [early, target], rule, params=on, rec=_Record([obs1, obs_bf]))
         mult = got_c["soccer-v23"][target.id]["info"]["availability"]
         assert mult == ([ref.home_xg_multiplier, ref.home_xg_multiplier] if read else i23["availability"]), cadence
@@ -843,15 +850,16 @@ def test_253_row_4_the_match_factors_come_only_from_the_record_in_both_paths(sto
 
 def test_253_row_4_the_adapter_reads_no_record_while_the_tables_are_absent_and_refuses_otherwise(store, monkeypatch):
     """The adapter (availability_record): on a store without addendum 252's tables it answers "no record" (the term
-    off everywhere, labelled); a store holding one table without the other, or both (whose reader is 252 item 2's
-    query function, which this adapter does not yet call: addendum 263 item 23), refuses: never a guessed query. The
-    inspector is faked here; the real tables, as #831's `init_db` creates them, are the next test's."""
+    off everywhere, labelled); a store holding one table without the other, or both without the migration's marker,
+    refuses: never a guessed query. The inspector is faked here; the real tables, as #831's `init_db` creates them,
+    are the next test's, and a migrated record read through record.as_of is tests/test_soccer_v23_s11.py's (addendum
+    263 item 23)."""
     import sqlalchemy
     db, _ = store
     rec = rec_of(db)
     assert isinstance(rec, v.NoRecord) and rec.at(datetime(2026, 1, 1)).reason == v.ABSENT_REASON
     real = sqlalchemy.inspect
-    for present, why in ((("availability_observations",), "half present"), (v.RECORD_TABLES, "not merged")):
+    for present, why in ((("availability_observations",), "half present"), (v.RECORD_TABLES, "has not run on it")):
         class _Insp:
             def __init__(self, bind):
                 self.real = real(bind)
@@ -864,15 +872,16 @@ def test_253_row_4_the_adapter_reads_no_record_while_the_tables_are_absent_and_r
         monkeypatch.setattr(sqlalchemy, "inspect", real)
 
 
-def test_263_item_23_a_store_with_the_record_s_real_tables_refuses_until_the_reader_lands(tmp_path, monkeypatch):
-    """ARCHITECT 2026-11-05 12:50 ET, addendum 263 item 23, verbatim in part: "until it lands, REFUSAL (not \"no
-    record\") when both tables exist is right: a record that exists and cannot be read is a stop, not an absence."
-    Since #831 `init_db` creates both tables on every store, so a store built exactly as production builds one refuses
-    here, before any read, until the follow-up that calls 252 item 2's query function lands (before 11-20)."""
+def test_263_item_23_a_store_with_the_record_s_real_tables_and_no_migration_refuses(tmp_path, monkeypatch):
+    """ARCHITECT 2026-11-05 12:50 ET, addendum 263 item 23, verbatim in part: "a record that exists and cannot be read
+    is a stop, not an absence." Since #831 `init_db` creates both tables on every store; a store built that way and not
+    migrated (no marker) refuses here, before any read, as the record's own reader refuses it. The reader of a
+    migrated record (record.as_of) is tests/test_soccer_v23_s11.py's."""
     db = fresh(tmp_path / "with_record.db", monkeypatch, record_tables=True)
     from sqlalchemy import inspect
     assert all(inspect(db._engine).has_table(t) for t in v.RECORD_TABLES)
-    with db.session_scope() as s, pytest.raises(v.GateRefused, match="present on this store"):
+    with db.session_scope() as s, pytest.raises(v.GateRefused, match="present on this store but "
+                                                                    "migrate_availability_record.py has not run"):
         v.availability_record(s)
 
 
@@ -1094,7 +1103,7 @@ def test_the_relegated_and_promoted_clubs_are_told_apart_by_cause(store):
     assert v.arrival_class("ELC", down, [x for x in rows if x.season == "2023/24"]) == ("relegated", ["PL"])
     assert v.arrival_class("PL", up, [x for x in rows if x.season == "2023/24"]) == ("promoted", ["ELC"])
     assert v.arrival_class("PL", 10 ** 6, rows) == ("promoted", [])                   # from outside the store
-    assert v.arrival_refusals(rows) == []
+    assert v.off_pyramid_arrivals(rows, v.thin_season_keys(rows)) == []
     cache = v.Prefix(rows)
     fx_row = next(x for x in rows if x.code == "ELC" and x.season == "2024/25" and down in (x.home_id, x.away_id))
     snap = cache.snapshot(fx_row.utc_date, PJ, "kickoff")
@@ -1102,15 +1111,20 @@ def test_the_relegated_and_promoted_clubs_are_told_apart_by_cause(store):
     assert v.predict(snap, v.Fixture.of(fx_row), "soccer-v23", cache)["info"][side] == "relegated prior"
 
 
-def test_an_arrival_off_the_pyramid_refuses_and_is_named():
-    R = lambda i, c, se, d, h, a: v.Row(i, c, se, datetime(2020 + d // 400, 9, 1) + timedelta(days=d % 400), h, a,  # noqa
-                                        1, 0, "Regular Season - 1")
-    rows = [R(1, "BL1", "2020/21", 0, 7, 8), R(2, "PL", "2020/21", 0, 1, 2), R(3, "PL", "2020/21", 1, 2, 1),
-            R(4, "PL", "2021/22", 400, 7, 1), R(5, "PL", "2021/22", 401, 1, 7)]
-    got = v.arrival_refusals(rows)
-    assert len(got) == 1 and "PL 2021/22: club 7 arrives from ['BL1']" in got[0]
-    with pytest.raises(v.GateRefused, match="cannot place"):
-        v.walk(rows, rows[-1:], PJ, "kickoff")
+def test_an_arrival_off_the_pyramid_is_named_and_never_refused():
+    """ARCHITECT 2026-11-05 12:50 ET, addendum 263 item 15: "An arrival OFF the declared pyramid is NOT a refusal: it
+    takes the outside-the-store prior, is counted and labelled." (Before the ruling this test pinned a refusal.) The
+    walk's price is tests/test_soccer_v23_s11.py's."""
+    R = lambda i, c, se, d, h, a, ag=0: v.Row(i, c, se, datetime(2020 + d // 400, 9, 1) + timedelta(  # noqa: E731
+        days=d % 400), h, a, 1, ag, "Regular Season - 1")
+    # an away goal in every competition-season, so 263 item 14's thin set is empty and the census is the only rule here
+    rows = [R(1, "BL1", "2020/21", 0, 7, 8, 1), R(2, "PL", "2020/21", 0, 1, 2), R(3, "PL", "2020/21", 1, 2, 1, 1),
+            R(4, "PL", "2021/22", 400, 7, 1), R(5, "PL", "2021/22", 401, 1, 7, 1)]
+    assert v.thin_season_keys(rows) == []
+    got = v.off_pyramid_arrivals(rows, v.thin_season_keys(rows))
+    assert len(got) == 1 and "PL 2021/22: club 7 arrives from ['BL1']" in got[0] and "outside-the-store prior" in got[0]
+    assert v.arrival_class("PL", 7, [x for x in rows if x.season == "2020/21"]) == (v.OFF_PYRAMID, ["BL1"])
+    assert not hasattr(v, "arrival_refusals") and not hasattr(v, "_refuse_arrivals")
 
 
 def _stage_rows():
@@ -1140,9 +1154,10 @@ def test_an_unplaceable_stage_label_refuses_never_a_silent_drop():
 def test_the_scope_and_first_season_slots_change_the_scored_set():
     rows = [v.Row(1, "XX", "2024/25", datetime(2024, 9, 1), 1, 2, 1, 0, "Regular Season - 1"),
             v.Row(2, "XX", "2024/25", datetime(2024, 9, 8), 2, 1, 1, 1, "Regular Season - 2"),
-            v.Row(3, "XX", "2025/26", datetime(2025, 9, 1), 1, 2, 2, 0, "Regular Season - 1"),
+            v.Row(3, "XX", "2025/26", datetime(2025, 9, 1), 1, 2, 2, 1, "Regular Season - 1"),
             v.Row(4, "XX", "2025/26", datetime(2026, 5, 20), 1, 2, 0, 0, "Relegation Round - 1"),
-            v.Row(5, "YY", "2025/26", datetime(2025, 9, 2), 3, 4, 0, 1, "Regular Season - 1")]
+            v.Row(5, "YY", "2025/26", datetime(2025, 9, 2), 3, 4, 1, 1, "Regular Season - 1")]
+    assert v.thin_season_keys(v.in_scope(rows, "LEAGUE_REGULAR")) == []   # goals both ways: 263 item 14 not in play
     ids = lambda sl: [r.id for r in v.scored_rows(rows, {**SLOTS, **sl})]     # noqa: E731
     assert ids({"scope": "LEAGUE"}) == [1, 2, 3, 5, 4]
     assert ids({}) == [1, 2, 3, 5]                                       # the play-off round out, by cause
@@ -1317,6 +1332,14 @@ def test_slots_state():
     assert v.slots_state({v.SLOTS_KEY: good}) == (good, None)
     for k in v.SLOT_KEYS:
         assert v.slots_state({v.SLOTS_KEY: {**good, k: None}})[1]
+    # ARCHITECT 2026-11-05 12:50 ET, addendum 263 items 2 and 3 (stated in BAR_TEXT): the two slots admit only the ruled
+    # values, as visibility admits only "day" (addendum 254 item 3 Q4); the other builder rules stay for the probes
+    assert v.SLOT_VALUES["scope"] == ("LEAGUE_REGULAR",) and v.SLOT_VALUES["first_season"] == ("score_under_prior",)
+    assert v.SCOPE_RULES == ("LEAGUE", "LEAGUE_REGULAR")
+    assert v.FIRST_SEASON_RULES == ("score_under_prior", "exclude_as_warmup")
+    for k, bad in (("scope", "LEAGUE"), ("first_season", "exclude_as_warmup")):
+        assert v.slots_state({v.SLOTS_KEY: {**good, k: bad}})[1] == (f"the declaration slot {k!r} is {bad!r}, not one "
+                                                                     f"of {v.SLOT_VALUES[k]}")
     for k, bad in (("scope", "ALL"), ("first_season", "skip40"), ("visibility", "close"), ("cut", "soon"),
                    ("availability_on", "no"), ("v22_recorded_log_loss", True), ("v22_recorded_log_loss", "1.0"),
                    ("v22_recorded_log_loss", 0.0), ("v22_recorded_log_loss", -1.0),
@@ -1836,10 +1859,16 @@ def test_the_run_record_labels_the_day_rule_residual_and_v22_rewalked_with_the_a
         assert must in v.V22_REWALKED_LABEL, must
     want = [f"  residual (visibility 'day'): {v.DAY_RULE_RESIDUAL}; {v.DAY_RULE_RESIDUAL_COUNT}",
             f"  {v.V22_REWALKED_LABEL}; rows read at their 90-minute score (a non-FT raw code: AET / PEN): 1 scored, "
-            "1 in the walked history"]
+            "1 in the walked history",
+            # ARCHITECT 2026-11-05 12:50 ET, addendum 263 items 17, 14 and 15: the tie order stated in the record; the
+            # thin seasons excluded and the off-pyramid arrivals, counted (none on this store)
+            f"  {v.V22_TIE_ORDER_LABEL}",
+            "  thin seasons excluded by cause (addendum 263 item 14): 0 competition-season(s), 0 row(s), out of the "
+            "scored set and soccer-v23's window",
+            "  arrivals off the declared pyramid (addendum 263 item 15): 0, each priced on the outside-the-store prior"]
     assert v.record_labels(r) == want
     lines = v.run_lines(r)
-    assert lines[-3:-1] == want and lines[-1].startswith("  VERDICT")
+    assert lines[-6:-1] == want and lines[-1].startswith("  VERDICT")
     e = v.record(r, "ARCHITECT test word")
     assert e["run"]["result"]["labels"] == want and e["run"]["result"]["aet_pen_rows"] == {"scored": 1, "history": 1}
 
@@ -1849,11 +1878,12 @@ def test_the_labels_on_an_invalid_verdict_and_off_the_day_rule():
     (Codex on #832, round 3, P1; addendum 254 item 3 Q4): slots_state refuses a 'kickoff' slot before any load, and
     record_labels refuses one loudly should anything else hand it one, never a silent label."""
     r = {"compare": {"verdict": "INVALID", "reason": "empty"}, "walk": {"availability": []}, "rows": 0,
-         "stream_fingerprint": "0" * 64, "slots": {**SLOTS, "visibility": "day"}, "aet_pen": {"scored": 0, "history": 2}}
+         "stream_fingerprint": "0" * 64, "slots": {**SLOTS, "visibility": "day"}, "aet_pen": {"scored": 0, "history": 2},
+         "thin_excluded": [], "thin_rows": 0, "off_pyramid": []}
     lines = v.run_lines(r)
-    assert lines[-3:-1] == v.record_labels(r) and lines[-1].startswith("  VERDICT (computed; the architect rules): "
+    assert lines[-6:-1] == v.record_labels(r) and lines[-1].startswith("  VERDICT (computed; the architect rules): "
                                                                        "INVALID")
-    assert "0 scored, 2 in the walked history" in lines[-2]
+    assert "0 scored, 2 in the walked history" in lines[-5]
     with pytest.raises(ValueError, match="'kickoff' is not the day rule addendum 254 item 3 Q4 ruled"):
         v.record_labels({**r, "slots": {**SLOTS, "visibility": "kickoff"}})
 

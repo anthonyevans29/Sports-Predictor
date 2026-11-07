@@ -1,0 +1,2 @@
+## 2026-11-07 (#863: 283-arm-policy-text — ARCHITECT addendum 283, the early-entry arm's policy text, its own small PR first (the review stop rule's item (5)); records only)
+- `docs/specs/desk-policy-v1.2.md` gains §(The early-entry arm): addendum 283's declaration and its items 2 and 3, verbatim (283 item 4: "the desk_policy text gains §(the arm) quoting items 2–3 verbatim"). It also says the ledger attribution follows in its own PR and the Desk's engine is unchanged. Refs #862.

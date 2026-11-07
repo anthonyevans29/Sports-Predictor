@@ -142,7 +142,9 @@ become MORE binding under an income goal, never less."
   MARKET-ONLY via `export-fixtures --competition NHL` (season gate
   2026-09-29, the operator-confirmed opening day). The goalie probe came
   back NEGATIVE (2026-09-26): the reopening condition is an EXTERNAL
-  goalie/lineup source. The bar did not move.
+  goalie/lineup source (lane nhl, #105, is TO DECLARE on the roadmap: the
+  operator's sourcing decision 11-13, the one run 12-29, earliest_live
+  2027-01-22). The bar did not move.
 - **NCAA**: data certified (9,245 games, 743 programs); market-only
   doctrine; Kalshi (KXNCAAFGAME) is the PRIMARY college market source,
   books post thin and near-kickoff. NO model; own gate later.
@@ -161,8 +163,9 @@ become MORE binding under an income goal, never less."
   candidate only at <= 6.0pp, else the R-track is closed for the season)
   or (b) on soccer-v23's harness after v23 passes, in both cases at
   cup_exam's unchanged gate. EFL Step A 12-15 gates nothing. The exam
-  harness + fix-v2 machinery stay merged. UNL likely market-only
-  permanently.
+  harness + fix-v2 machinery stay merged. UNL: market-only today; lane
+  unl (#220) is CONFIRMING on the roadmap — the 60th cohort fixture 11-11,
+  the confirmation record 11-12, earliest_live 11-12.
 - Season strings: soccer clubs "2026/27"; WC "2026"; UNL "2026/27";
   MLB/NFL/NHL/NCAA int-style "2026". Per-comp truth is what the DB
   stores — check, don't assume.

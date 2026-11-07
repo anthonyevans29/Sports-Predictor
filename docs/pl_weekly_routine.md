@@ -7,11 +7,11 @@ matchweek, coexisting with the MLB daily chain (which is unchanged). Written
 ---
 
 ## STEP ZERO — every session that follows a Claude build day
-Re-extract the latest tarball BEFORE running anything
-(`cd ~/Downloads && tar -xzf sports_predictor.tar.gz`). The 2026-08-20
+Pull `main` BEFORE running anything: work arrives by branch + PR, Anthony
+merges, and `main` is the laptop's code (CLAUDE.md "Workflow"). The 2026-08-20
 dress rehearsal ran on stale code and shipped an export missing two
 input_quality fields — caught only because the missing keys were compared
-against the packaged source. Extraction preserves venv/ and the DB.
+against the packaged source.
 
 ## FRIDAY — pre-matchweek run (~afternoon UK time)
 
@@ -46,7 +46,8 @@ Notes:
   in-window games by Friday (spreads tighten near kickoff); a high in-window
   skip count means thin liquidity — the export's kalshi column will show
   `partial`/`absent` accordingly.
-* Hand the export to the GPT layer WITH the standing consumer notes:
+* Read the export in the Cockpit, the operated surface (addendum 276 item 1;
+  docs/CLI.md "Web UI"), WITH the standing consumer notes:
   (1) positive model-vs-market edges in soccer are historically
   anti-predictive (two-season verdict) — market-is-right is the default
   reading; (2) `strengths_backfilled: true` means "matches" = last season —

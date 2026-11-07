@@ -30,7 +30,12 @@ the NHL product's. The key travels in one request header (--key-header, UNVERIFI
 never in a URL: a base or path naming a key is REFUSED before any call, and so is any URL this run would call (the
 base with each path, the date rendered, and the terms URL) that carries the key's VALUE under any name or in the path,
 raw, trimmed or URL-quoted, in any letter case (key_in_urls; the option named, the value never; the redactor ignores
-case too). The terms page is read with no key.
+case too). The terms page is read with no key. A keyed call NEVER follows a redirect (Requests keeps a custom header
+such as the key's on a cross-host redirect; it strips only Authorization): a 3xx answer is REFUSED for that section,
+its HTTP status and the Location's scheme and host printed (never its path or query; a scheme-relative "//host"
+Location prints as "//host", another host, and an IPv6 host in its brackets), the key not sent onward and no
+call retried. The terms page, sent no key, follows its redirects (nothing secret travels); its final host prints when
+it changed.
 
 Four sections, each independent (a failure in one does not stop the next), in this order:
 
@@ -86,7 +91,12 @@ Four sections, each independent (a failure in one does not stop the next), in th
                  section is REFUSED; a read that fails is FAILED; REFUSED too: a page with nothing to quote; a page
                  with NO retention passage, or none that names the data (TERMS_DATA_WORDS; a "Cancel" button, an
                  expired session, an app store link or a cookie notice is not the retention clause: a login, welcome,
-                 cookie or wrong page, its passages or head printed FOR THE RECORD ONLY, labelled so); a retention
+                 cookie or wrong page, its passages or head printed FOR THE RECORD ONLY, labelled so; a retention
+                 word in page furniture, TERMS_NOT_RETENTION, "the App Store", "app stores", "our online store", "the
+                 store page", "visit our Data Store", "store credit", "your session has expired", "clear your browser
+                 cache", a "Cancel" or "Delete account" button, "News archive", a menu item such as "Home | Store |
+                 Pricing" or "Historical Data Archive", is masked on a copy before the data test, the quote never
+                 changed); a retention
                  passage too long to quote whole; and a retention passage in which the price rule replaced a number
                  with no currency sign beside it (the probe cannot tell a price from the clause's own number, so the
                  clause is not shown whole). The probe quotes; it does not decide what the terms allow.
@@ -98,7 +108,8 @@ PRICES: no price, quote or billing figure is read into a receipt or printed (279
 by NAME only, at any depth (a goaltender, a stamp, a team, a status or an id served as an object included: such a
 value prints as its safe text and never travels raw); any currency figure in any printed text (a terms page included)
 is replaced by "<figure not printed>", the sign before or after the number ("$100", "100 €", "1.299,00 €", "¥100",
-"CAD 100", "100 US dollars"), and so is the number of a price written without a currency sign or word (PRICE_FIGURES:
+"CAD 100", "100 US dollars"; a currency word too, "100 pounds", "100 British pounds", "100 Indian rupees", "100 yen",
+"100 million yen", "100-pound fee", "100 złoty", "Rs. 100", "100 Rs", Codex #857 round 2), and so is the number of a price written without a currency sign or word (PRICE_FIGURES:
 "100 per month", "100/yr", "2.5k/month", "100 monthly", "100 billed annually", "100 p.a.", "costs 100", "a fee of 100",
 "Price (USD): 100", "The Pro plan is 100", "Total: 100", "1 000 per year", both ends of "100-500 per month"; the words
 around it kept; over-redaction is the conservative side), on every line and in the receipt (written as UTF-8 text, no
@@ -141,7 +152,7 @@ import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from urllib.parse import quote, quote_plus, unquote, unquote_plus
+from urllib.parse import quote, quote_plus, unquote, unquote_plus, urlsplit
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import requests
@@ -190,16 +201,31 @@ _B = "[ \t    ]"
 _GROUP = r"(?:[     ]\d{3}(?!\d))*"     # a thousands group written with a space: "1 000"
 # A currency figure in any printed text: a currency sign before or after a number (the #813 guard's dollar rule,
 # widened: "$100", "100 €", "1.299,00 €", "100,- €", "¥100"), or a number beside a currency code or word ("CAD 100",
-# "100 US dollars", "100 bucks"). Replaced whole before any line or receipt shows it. A digit is any decimal digit
-# ("１００" included).
+# "100 US dollars", "100 bucks", "100 pounds", "100 yen", "Rs. 100"). Replaced whole before any line or receipt shows
+# it. A digit is any decimal digit ("１００" included).
 _CUR_SIGN = "[$＄﹩€£¥￥₹₩₽₺₪₫฿¢]"
-_CUR_CODE = r"(?:USD|EUR|GBP|CAD|AUD|NZD|CHF|JPY|INR|CNY|SEK|NOK|DKK|MXN|BRL)"
+_CUR_CODE = (r"(?:USD|EUR|GBP|CAD|AUD|NZD|CHF|JPY|INR|CNY|RMB|HKD|SGD|KRW|TWD|SEK|NOK|DKK|ISK|PLN|CZK|HUF|RUB|ZAR|ILS|"
+             r"NIS|AED|SAR|QAR|THB|MYR|IDR|MXN|BRL|ARS|CLP|COP)")
+# Codex #857 round 2: the currency words after a number widened ("100 pounds", "100 yen", "100 rupees"; "Retain data |
+# 100 pounds" copied verbatim), with "reais", the Polish spellings ("złoty", "złotych", "zł"), "lei", "forint" and
+# "Rs" after the number (capital R only: "ids 1234 RS" is not a price). Left out as ordinary English or too short to
+# read alone: won, real, rand, p, kr. Up to two capitalised words may stand between the number and the currency word
+# ("100 Indian rupees", "100 British pounds", "100 HK dollars", "100 New Taiwan dollars"), a scale word too ("100
+# million yen", "100k dollars"), and the number may be hyphenated to it ("100-pound fee"). Over-redaction ("100 pounds
+# of weight", "100 Rangers dollars") is the conservative side.
+_CUR_WORD = (r"(?:dollars?|bucks|euros?|pounds?(?:{_B}+sterling)?|sterling|pence|cents?|yen|yuan|renminbi|rupees?|"
+             r"francs?|pesos?|reais|kron(?:a|or|e|er|ur)|z[lł]ot(?:y|ys|ych)|zł|lira|lire|lei|forint|rubles?|"
+             r"roubles?|dinars?|dirhams?|riyals?|rials?|shekels?|baht|ringgit|rupiah|quid|(?-i:Rs)\.?)"
+             ).replace("{_B}", _B)
+_CUR_QUAL = rf"(?-i:(?:[A-Z][A-Za-z.]*{_B}+){{0,2}})"          # "Indian ", "U.S. ", "New Taiwan ": capitalised only
+_SCALE = rf"(?:{_B}*(?:k|K|M|mn|bn|thousand|million|billion|trillion)(?![A-Za-z]))?"   # "100k", "100 million"
+_CUR_BEFORE = r"(?:Rs\.?|INR|Rp\.?|rupees?)"     # a currency word written before its number ("Rs. 100", "Rupees 100")
 _AMOUNT = r"\d[\d,.]*" + _GROUP
 FIGURE = re.compile(
     rf"{_CUR_SIGN}{_B}*[+\-−]?{_B}*\.?{_AMOUNT}"
-    rf"|(?<![\dA-Za-z]){_AMOUNT}(?:,-)?{_B}*(?:{_CUR_SIGN}|(?:{_CUR_CODE}"
-    rf"|(?:US|U\.S\.|Canadian|Australian){_B}+dollars?|dollars?|bucks|euros?)(?![A-Za-z]))"
-    rf"|\b{_CUR_CODE}{_B}*{_AMOUNT}", re.I)
+    rf"|(?<![\dA-Za-z]){_AMOUNT}{_SCALE}(?:,-)?(?:{_B}*-{_B}*|{_B}*)"
+    rf"(?:{_CUR_SIGN}|(?:{_CUR_CODE}|{_CUR_QUAL}{_CUR_WORD})(?![A-Za-z]))"
+    rf"|\b(?:{_CUR_CODE}|{_CUR_BEFORE}){_B}*{_AMOUNT}", re.I)
 # A price written with no currency sign or word (Codex #857 round 1, widened on its two reviews): ONLY THE NUMBER is
 # replaced, never the words around it (a retention clause naming the subscription or billing keeps every word but
 # the figure).
@@ -301,6 +327,29 @@ TERMS_WORDS = TERMS_RETENTION_WORDS + TERMS_GENERIC_WORDS
 # and one that names cookies does not count. Every retention passage is still quoted.
 TERMS_DATA_WORDS = ("data", "content", "information", "record", "database", "feed", "material", "statistic",
                     "projection", "file", "copy", "copies")
+# Codex #857 round 2: a retention word used as page furniture (a noun or a UI word, not a clause) is no evidence that a
+# retention passage names the data ("Download our sports data app from the App Store" is not the clause). These
+# phrases are removed from a COPY of the passage before its retention word is looked for, for the retention_data count
+# only: the passage is still quoted, its text never changed, and a verb or a clause ("you may not store the data",
+# "data stored in our systems", "the store of data", "you may not store credit card data", "archive the data", "data
+# cached on your servers") still counts. Plurals ("app stores") and menu items (a passage of "|"-, "•"- or
+# "·"-separated items, one ending in Store, Archive or Cancel after up to two capitalised words: "Home | Data Store |
+# Pricing") are masked too. Masking more refuses more: the conservative side.
+TERMS_NOT_RETENTION = re.compile(
+    r"\b(?:(?:apple|google|amazon)\s+)?(?:app|play|microsoft|apple|online|web|e-?)\s*stores?\b"  # App Store(s), webstore
+    r"|\bstores?\s*(?:locators?|fronts?|page)\b"                     # store locator, storefront, store page
+    r"|\bstore\s+credits?\b(?!\s*cards?)"                            # store credit (not "store credit card data")
+    r"|\b(?:our|the|my)\s+stores?\s+(?:page|app|link|website|site|section|home)s?\b"     # the store page
+    r"|\b(?:visit|shop(?:\s+(?:at|in))?|browse)\s+(?:our|the)\s+(?:\w+\s+){0,2}(?:stores?|archives?)\b"
+    #                                                               visit our (Data) Store, browse the data archive
+    r"|\bsession\s+(?:has\s+|had\s+|is\s+|was\s+|will\s+)?(?:expir\w*|timed?\s+out)"     # your session has expired
+    r"|\b(?:clear|empty|delete|refresh)\s+(?:your\s+|the\s+)?(?:browser(?:\s+s)?\s+)?cache\b"   # clear your cache
+    r"|\bcancel\s+buttons?\b|(?-i:\bCancel)(?:\W*$|(?=\W+(?-i:[A-Z])))"  # a Cancel button, "Cancel Download data"
+    r"|(?-i:^\W*Delete)\s+(?:my\s+|your\s+)?account\b"                   # a "Delete account" button
+    r"|\b(?:news|blog|press|posts?|articles?|events?)\s+archives?\b"                       # News archive
+    r"|(?:^|[|•·])\s*(?-i:(?:[A-Z][\w&-]*\s+){0,2})(?:cancel|archives?|stores?)\s*(?=[|•·]|$)"
+    #                                    a menu item: "Home | Store | Pricing", "Historical Data Archive", "Data Store"
+    r"|^\W*(?:cancel|archives?|stores?)\W*$", re.I)                                       # a lone UI word
 TERMS_QUOTES, TERMS_QUOTE_CHARS, TERMS_HEAD_CHARS = 20, 600, 600
 TERMS_RETENTION_CHARS = 3000                 # a retention passage longer than this is cut, marked, and REFUSED
 SAMPLE = 40
@@ -347,15 +396,48 @@ class Out:
         print(line)
 
 
-def http_get(url: str, headers: dict | None = None, params: dict | None = None, timeout: int = 30,
-             text: bool = False):
-    """(status or None, response headers, JSON body (or the text when `text`) or None, error text or None). Never
-    raises. Error text is whole (never cut): Out redacts it before any line or receipt shows it."""
+def where(url) -> str:
+    """A URL's scheme and host (and port) only, never its path, query or user part (a key echoed there never
+    travels): the redirect line's "to". A scheme-relative Location ("//other.host/path") names another host and
+    prints as "//other.host"; an IPv6 host prints in its brackets ("http://[::1]:8080"); only a Location with no host
+    at all is "a relative Location" (the same host)."""
+    if not url:
+        return "no Location served"
+    u = urlsplit(str(url))
+    if not u.hostname:
+        return "a relative Location (its path not printed)"
+    host = f"[{u.hostname}]" if ":" in u.hostname else u.hostname
     try:
-        r = requests.get(url, headers=headers or {}, params=params or {}, timeout=timeout)
+        port = f":{u.port}" if u.port else ""
+    except ValueError:
+        port = ""
+    return f"{u.scheme}://{host}{port}" if u.scheme else f"//{host}{port}"
+
+
+def moved(status) -> bool:
+    """A 3xx answer to a keyed call: not followed, REFUSED (http_get)."""
+    return isinstance(status, int) and 300 <= status < 400
+
+
+def http_get(url: str, headers: dict | None = None, params: dict | None = None, timeout: int = 30,
+             text: bool = False, follow: bool = False):
+    """(status or None, response headers, JSON body (or the text when `text`) or None, error text or None, the final
+    URL). Never raises. Error text is whole (never cut): Out redacts it before any line or receipt shows it.
+    Codex #857 round 2: a redirect is NEVER followed unless `follow` (Requests keeps a custom header such as the key's
+    on a cross-host redirect; it strips only Authorization): a keyed call's 3xx comes back as its error, the
+    Location's scheme and host only (where()), the key not sent onward and no call retried; the section REFUSES it
+    (moved()). `follow` is the terms page's alone, read with NO key: following its redirects sends nothing secret, and
+    the final URL comes back so its host prints when it changed."""
+    try:
+        r = requests.get(url, headers=headers or {}, params=params or {}, timeout=timeout, allow_redirects=follow)
     except Exception as e:                          # the key travels in a header, never in the URL or this text
-        return None, {}, None, f"{type(e).__name__}: {e}"
+        return None, {}, None, f"{type(e).__name__}: {e}", None
     hdr = dict(r.headers or {})
+    final = getattr(r, "url", None) or url
+    if moved(r.status_code) and not follow:
+        loc = next((v for k, v in hdr.items() if str(k).casefold() == "location"), None)
+        return r.status_code, hdr, None, (f"HTTP {r.status_code}: a redirect to {where(loc)}, not followed (the key "
+                                          "is not sent onward; no call retried)"), final
     if text:
         body = getattr(r, "text", None)
     else:
@@ -366,7 +448,7 @@ def http_get(url: str, headers: dict | None = None, params: dict | None = None, 
     err = None if r.status_code == 200 else f"HTTP {r.status_code}"
     if err is None and body is None:
         err = "the answer is not JSON" if not text else "the answer has no text"
-    return r.status_code, hdr, body, err
+    return r.status_code, hdr, body, err, final
 
 
 def rate_headers(hdr: dict) -> dict:
@@ -550,11 +632,16 @@ def render(path: str, day: str) -> str:
 def status_section(a, key: str, say: Out, get=http_get) -> tuple[int, dict]:
     url = a.base_url.rstrip("/") + a.status_path
     say(f"\n(1) STATUS (or equivalent) · GET {url} · key by NAME {KEY_NAME} in header {a.key_header} (UNVERIFIED)")
-    status, hdr, body, err = get(url, headers={a.key_header: key})
+    status, hdr, body, err, _ = get(url, headers={a.key_header: key})
     rec: dict = {"url": url, "http": status, "rate_limit": rate_headers(hdr)}
-    say(f"  HTTP {status} · rate-limit {rate_headers(hdr)}" + (f" · FAILED: {err}" if err else ""))
+    say(f"  HTTP {status} · rate-limit {rate_headers(hdr)}" + (f" · {'REFUSED' if moved(status) else 'FAILED'}: {err}"
+                                                              if err else ""))
     if err:
         rec["error"] = err
+        if moved(status):
+            say(f"  REFUSED: the read answered with a redirect, not followed: the key named {KEY_NAME} is not sent "
+                "onward; the operator checks --base-url and the path against the vendor's documentation")
+            return REFUSED, rec
         if status in (401, 403):
             say(f"  REFUSED: the key named {KEY_NAME} was not accepted (HTTP {status}); the operator checks the "
                 "trial key, the header name and the path against the vendor's documentation")
@@ -627,15 +714,15 @@ def games_section(a, key: str, say: Out, get=http_get) -> tuple[int, dict, dict]
     url = a.base_url.rstrip("/") + render(a.games_path, a.date)
     say(f"\n(2) THE NHL GAMES OF THE DAY · --date {a.date} (a UTC calendar day, as given; the vendor's day boundary is "
         f"its documentation's: the games print as served, unfiltered) · GET {url} (UNVERIFIED path)")
-    status, hdr, body, err = get(url, headers={a.key_header: key})
+    status, hdr, body, err, _ = get(url, headers={a.key_header: key})
     rec: dict = {"url": url, "date_utc": a.date, "http": status, "rate_limit": rate_headers(hdr)}
     if err is None and not isinstance(body, list):
         err = f"the answer is {type(body).__name__}, not a list of games"
     say(f"  HTTP {status} · {len(body) if isinstance(body, list) else '?'} items · rate-limit {rate_headers(hdr)}"
-        + (f" · FAILED: {err}" if err else ""))
+        + (f" · {'REFUSED' if moved(status) else 'FAILED'}: {err}" if err else ""))
     if err:
         rec["error"] = err
-        return (REFUSED if status in (401, 403) else FAILED), rec, {}
+        return (REFUSED if status in (401, 403) or moved(status) else FAILED), rec, {}
     items = [g for g in body if isinstance(g, dict)]
     rec["fields"] = field_union(items)
     say(f"  FIELDS as served (every game's, {len(rec['fields'])}): {names_line(rec['fields'])}")
@@ -730,15 +817,15 @@ def starters_section(a, key: str, say: Out, games: dict | None, zone: ZoneInfo |
         say("  REFUSED: no --stamp-quote: the documentation's sentence naming the stamp field is not on the receipt "
             "(279 item 5: \"the stamp field identified by the vendor's documentation, quoted\"); the reads still print")
         code = REFUSED
-    status, hdr, body, err = get(url, headers={a.key_header: key})
+    status, hdr, body, err, _ = get(url, headers={a.key_header: key})
     rec.update(http=status, rate_limit=rate_headers(hdr))
     if err is None and not isinstance(body, list):
         err = f"the answer is {type(body).__name__}, not a list"
     say(f"  HTTP {status} · {len(body) if isinstance(body, list) else '?'} items · rate-limit {rate_headers(hdr)}"
-        + (f" · FAILED: {err}" if err else ""))
+        + (f" · {'REFUSED' if moved(status) else 'FAILED'}: {err}" if err else ""))
     if err:
         rec["error"] = err
-        return (REFUSED if status in (401, 403) else FAILED), rec
+        return (REFUSED if status in (401, 403) or moved(status) else FAILED), rec
     items = [x for x in body if isinstance(x, dict)]
     rec["fields"] = field_union(items)
     say(f"  FIELDS as served (every item's, {len(rec['fields'])}): {names_line(rec['fields'])}")
@@ -949,12 +1036,17 @@ def terms_read(page: str) -> dict:
     generic word (TERMS_GENERIC_WORDS) fill the quote up to TERMS_QUOTES, each up to TERMS_QUOTE_CHARS with a cut
     marked, the rest counted as not quoted; the page's head when no sentence holds a listed word. With no retention
     sentence that names the data (TERMS_DATA_WORDS, cookies not counted) the passages or the head are for the record
-    only: terms_section REFUSES (a login, welcome, cookie or wrong page is never read as the terms). The probe quotes;
-    it does not decide what the terms allow."""
+    only: terms_section REFUSES (a login, welcome, cookie or wrong page is never read as the terms); a retention word
+    counts toward naming the data only outside page furniture (TERMS_NOT_RETENTION, on a copy: "the App Store", "app
+    stores", a "Cancel" button, "your session has expired", a menu item such as "Home | Store | Pricing"; the quote is
+    never changed). The probe quotes; it does not decide what
+    the terms allow."""
     parts = _passages(page)
     def words(ws):
         return re.compile(r"\b(?:" + "|".join(re.escape(w) for w in ws) + ")", re.I)   # at a word's start
     ret_w, gen_w, data_w = words(TERMS_RETENTION_WORDS), words(TERMS_GENERIC_WORDS), words(TERMS_DATA_WORDS)
+    def clause(x: str) -> bool:                             # a retention word outside page furniture: on a copy
+        return bool(ret_w.search(TERMS_NOT_RETENTION.sub(" ", x)))
     def shown(x: str, n: int) -> tuple[str, bool]:
         return cut(figures(x, terms=True), n)               # redacted whole, then cut: a cut never splits a figure
     ret_parts = [x for x in parts if ret_w.search(x)]
@@ -963,7 +1055,8 @@ def terms_read(page: str) -> dict:
     room = max(TERMS_QUOTES - len(ret), 0)
     quoted = [q for q, _ in ret] + [shown(x, TERMS_QUOTE_CHARS)[0] for x in gen[:room]]
     out = {"quoted": quoted, "retention": len(ret), "retention_cut": sum(1 for _, c in ret if c),
-           "retention_data": sum(1 for x in ret_parts if data_w.search(x) and not re.search(r"(?i)cookie", x)),
+           "retention_data": sum(1 for x in ret_parts if clause(x) and data_w.search(x)
+                                 and not re.search(r"(?i)cookie", x)),
            "retention_figure": sum(1 for x in ret_parts if figures(x, terms=True) != FIGURE.sub(_FIG, x)),
            "not_quoted": max(len(gen) - room, 0), "head": False}
     if not quoted:
@@ -984,14 +1077,18 @@ def terms_section(a, say: Out, get=http_get) -> tuple[int, dict]:
         say("  TERMS NOT READ (no --terms-url given; no URL is typed here): REFUSED until the terms page is named and "
             "its retention clause quoted (279 items 3(b) and 5)")
         return REFUSED, {"url": None, "read": False}
-    status, hdr, page, err = get(a.terms_url, text=True)          # no key is sent to the terms page
-    say(f"  TERMS {a.terms_url} · HTTP {status}" + (f" · FAILED: {err}" if err else ""))
+    # no key is sent to the terms page, so its redirects are followed (http_get); a changed host prints
+    status, hdr, page, err, final = get(a.terms_url, text=True, follow=True)
+    host = where(final) if final and where(final) != where(a.terms_url) else None
+    say(f"  TERMS {a.terms_url} · HTTP {status}" + (f" · redirected to {host} (followed: no key is sent to the "
+                                                    "terms page)" if host else "") + (f" · FAILED: {err}" if err else ""))
     if err:
         say("  TERMS NOT READ: the retention clause is not quoted")
-        return FAILED, {"url": a.terms_url, "read": False, "http": status, "error": err}
+        return FAILED, {"url": a.terms_url, "read": False, "http": status, "error": err, "final_host": host}
     t = terms_read(page)
     quoted = t["quoted"]
-    rec = {"url": a.terms_url, "read": bool(quoted), "http": status, "chars": len(page), "quoted": quoted,
+    rec = {"url": a.terms_url, "final_host": host, "read": bool(quoted), "http": status, "chars": len(page),
+           "quoted": quoted,
            "retention_passages": t["retention"], "retention_quoted": t["retention"] > 0, "head": t["head"],
            "retention_cut": t["retention_cut"], "retention_data_passages": t["retention_data"],
            "retention_figure": t["retention_figure"], "not_quoted": t["not_quoted"]}

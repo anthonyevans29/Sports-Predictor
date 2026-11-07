@@ -73,9 +73,10 @@ TERMS_HTML = ("<html><head><style>p{}</style><script>var leak=1;</script></head>
 
 
 class Resp:
-    def __init__(self, body, status=200, headers=None, text=None):
+    def __init__(self, body, status=200, headers=None, text=None, url=None):
         self._body, self.status_code, self.headers = body, status, dict(headers if headers is not None else RATE)
         self.text = text if text is not None else json.dumps(body, default=str)
+        self.url = url                                # the final URL after any redirect followed (None: as asked)
 
     def json(self):
         if isinstance(self._body, Exception):
@@ -88,7 +89,7 @@ def router(overrides=None, seen=None):
     exception."""
     overrides = overrides or {}
 
-    def get(url, headers=None, params=None, timeout=None):
+    def get(url, headers=None, params=None, timeout=None, **kw):
         if seen is not None:
             seen.append((url, dict(headers or {}), dict(params or {})))
         for frag, r in overrides.items():
@@ -1215,3 +1216,217 @@ def test_r3_a_sibling_lead_in_is_not_repeated():
 def test_r3_an_abbreviation_does_not_split_a_sentence():
     assert probe.terms_excerpt("<p>You must not store Licensed Data, e.g. odds, after expiry of the Term.</p>") == \
         ["You must not store Licensed Data, e.g. odds, after expiry of the Term."]
+
+
+# ---- Codex review round 2 (#857): the three P1s, each reproduced by a failing test first (synthetic values only) --
+
+def recording(base=None):
+    """A fake requests.get recording (url, headers, allow_redirects as passed; requests' own default is True)."""
+    calls, base = [], base or router()
+
+    def get(url, headers=None, params=None, timeout=None, **kw):
+        calls.append((url, dict(headers or {}), kw.get("allow_redirects", True)))
+        return base(url, headers, params, timeout)
+    return calls, get
+
+
+def test_round2_a_keyed_call_never_follows_a_redirect_and_the_terms_page_does(env, capsys):
+    calls, get = recording()
+    env.setattr(requests, "get", get)
+    run([], capsys)
+    keyed = [c for c in calls if c[0] != TERMS_URL]
+    terms = [c for c in calls if c[0] == TERMS_URL]
+    assert len(keyed) == 3 and all(c[1].get(probe.KEY_HEADER) == KEY for c in keyed)
+    assert all(c[2] is False for c in keyed), keyed               # a redirect would carry the key header onward
+    assert len(terms) == 1 and terms[0][2] is True and probe.KEY_HEADER not in terms[0][1]   # no key: safe to follow
+
+
+@pytest.mark.parametrize("status", [301, 302, 307, 308])
+def test_round2_a_redirect_on_the_status_read_is_refused_and_the_key_not_sent_onward(env, capsys, tmp_path, status):
+    loc = f"https://elsewhere.invalid:8443/synthetic-moved-path?echo={KEY}"
+    calls, get = recording(router({"CurrentSeason": Resp({}, status=status, headers={"Location": loc})}))
+    env.setattr(requests, "get", get)
+    out_file = tmp_path / "r.json"
+    rc, out = run(["--skip", "terms", "--out", str(out_file)], capsys)
+    text = out_file.read_text(encoding="utf-8")
+    assert rc == 2, out
+    assert f"HTTP {status}" in out and "https://elsewhere.invalid:8443" in out and "the key is not sent onward" in out
+    assert "synthetic-moved-path" not in out + text and KEY not in out + text      # scheme and host only
+    assert [c[0] for c in calls] == [BASE + "/scores/json/CurrentSeason"]          # no retry, no metered call after
+    assert json.loads(text)["sections"]["status"]["exit"] == 2
+
+
+@pytest.mark.parametrize("frag, loc, shown", [
+    ("GamesByDate", "https://elsewhere.invalid/x", "https://elsewhere.invalid"),
+    ("StartingGoaltendersByDate", "/relative/synthetic-path", "a relative Location"),
+    ("GamesByDate", None, "no Location served")])
+def test_round2_a_redirect_on_a_metered_read_is_refused_not_failed(env, capsys, frag, loc, shown):
+    calls, get = recording(router({frag: Resp({}, status=302, headers={"Location": loc} if loc else {})}))
+    env.setattr(requests, "get", get)
+    rc, out = run(["--skip", "terms"], capsys)
+    assert rc == 2, out
+    assert "HTTP 302" in out and shown in out and "the key is not sent onward" in out
+    assert "synthetic-path" not in out and sum(frag in c[0] for c in calls) == 1
+
+
+def test_round2_a_terms_page_redirect_is_followed_and_its_final_host_printed(env, capsys, tmp_path):
+    page = "<p>Synthetic: on termination you must delete all stored data.</p>"
+    env.setattr(requests, "get", router({TERMS_URL: Resp(None, text=page,
+                                                          url="https://legal.synthetic-other.invalid/terms/v9")}))
+    out_file = tmp_path / "r.json"
+    rc, out = run([*TERMS_ONLY, "--out", str(out_file)], capsys)
+    assert rc == 0, out
+    assert "redirected to https://legal.synthetic-other.invalid" in out
+    assert json.loads(out_file.read_text())["sections"]["terms"]["final_host"] == \
+        "https://legal.synthetic-other.invalid"
+
+
+def test_round2_a_terms_page_not_redirected_prints_no_final_host(env, capsys):
+    env.setattr(requests, "get", router({TERMS_URL: Resp(None, text=TERMS_HTML, url=TERMS_URL)}))
+    rc, out = run(TERMS_ONLY, capsys)
+    assert "redirected" not in out
+
+
+@pytest.mark.parametrize("page", [
+    "<p>Download our sports data app from the App Store.</p>",
+    "<p>Get the statistics app on the Google Play Store or the Microsoft Store.</p>",
+    "<p>Data packs and merchandise are in our online store.</p>",
+    "<p>Visit the store page for our data feeds.</p>",
+    "<p>Find a data partner with our store locator.</p>",
+    "<p>Your session has expired; your data is safe.</p>",
+    "<div>Edit your data preferences <button>Cancel</button></div>",
+    "<nav><a>Data feeds</a> <a>News archive</a></nav>"])
+def test_round2_b_a_store_link_or_ui_word_is_not_retention_evidence(env, capsys, tmp_path, page):
+    env.setattr(requests, "get", router({TERMS_URL: Resp(None, text=page)}))
+    out_file = tmp_path / "r.json"
+    rc, out = run([*TERMS_ONLY, "--out", str(out_file)], capsys)
+    assert rc == 2, out
+    assert "FOR THE RECORD ONLY" in out and "TERMS QUOTED" not in out
+    assert json.loads(out_file.read_text())["sections"]["terms"]["retention_data_passages"] == 0
+
+
+@pytest.mark.parametrize("clause", ["You may not store the data after the subscription ends.",
+                                    "Data stored in our systems is deleted on termination.",
+                                    "The store of data you build must be destroyed.",
+                                    "You may not store credit card data or store pages of the data feed.",
+                                    "Download our data app from the App Store. You must not store the Data after "
+                                    "termination."])
+def test_round2_b_a_real_storage_clause_still_counts_and_is_quoted_unchanged(env, capsys, clause):
+    env.setattr(requests, "get", router({TERMS_URL: Resp(None, text=f"<p>{clause}</p>")}))
+    rc, out = run(TERMS_ONLY, capsys)
+    assert rc == 0, out
+    for sentence in probe._passages(f"<p>{clause}</p>"):
+        assert f'"{sentence}"' in out                                    # the quoted text is never masked
+
+
+@pytest.mark.parametrize("text", ["100 pounds", "100 pound", "100 sterling", "100 pence", "100 cents", "100 yen",
+                                  "100 yuan", "100 renminbi", "100 rupees", "100 Swiss francs", "100 pesos",
+                                  "100 kronor", "100 krone", "100 zloty", "100 lira", "100 roubles", "100 rubles",
+                                  "100 dinars", "100 dirhams", "100 riyals", "100 shekels", "100 baht", "100 ringgit",
+                                  "100 rupiah", "100 quid", "Rs. 100", "Rs 100", "100 HKD", "SGD 100", "ZAR 100",
+                                  "100 RMB", "PLN 100"])
+def test_round2_c_a_price_in_another_currency_word_is_replaced(text):
+    for got in (probe.Out().redact(f"The plan is billed at {text}."), probe.figures(f"Retain data | {text}", True)):
+        assert not leaks(got, "100") and "<figure not printed>" in got, got
+
+
+def test_round2_c_a_retention_clause_with_a_currency_word_price_reads_ok_with_the_figure_replaced(env, capsys,
+                                                                                                    tmp_path):
+    page = "<table><tr><td>Retain data</td><td>100 pounds</td></tr></table>"
+    env.setattr(requests, "get", router({TERMS_URL: Resp(None, text=page)}))
+    out_file = tmp_path / "r.json"
+    rc, out = run([*TERMS_ONLY, "--out", str(out_file)], capsys)
+    assert rc == 0, out
+    assert "100" not in out and "100" not in out_file.read_text(encoding="utf-8")
+    assert '"Retain data | <figure not printed>"' in out
+
+
+@pytest.mark.parametrize("line", ["game 9101 at 2026-11-07T19:00:00-05:00, 30 minutes", "the team won 100 games",
+                                  "a 100 rand sample", "100 real values"])
+def test_round2_c_the_widened_currency_words_leave_other_numbers_whole(line):
+    assert probe.Out().redact(line) == line
+
+
+# ---- Codex review round 2 (#857), the fix-review's findings on the three P1s (each failing first) -------------------
+
+@pytest.mark.parametrize("loc, shown", [("//elsewhere.invalid/synthetic-path?echo=K", "//elsewhere.invalid"),
+                                        ("//elsewhere.invalid:8443/synthetic-path", "//elsewhere.invalid:8443"),
+                                        ("http://[::1]:8080/synthetic-path", "http://[::1]:8080"),
+                                        ("https://[2001:db8::1]/synthetic-path", "https://[2001:db8::1]")])
+def test_round2_a_where_names_a_scheme_relative_or_ipv6_host(loc, shown):
+    assert probe.where(loc) == shown
+    assert "relative" not in probe.where(loc) and "synthetic-path" not in probe.where(loc)
+
+
+def test_round2_a_a_scheme_relative_redirect_names_its_other_host(env, capsys):
+    loc = f"//elsewhere.invalid/synthetic-moved-path?echo={KEY}"
+    calls, get = recording(router({"CurrentSeason": Resp({}, status=302, headers={"Location": loc})}))
+    env.setattr(requests, "get", get)
+    rc, out = run(["--skip", "terms"], capsys)
+    assert rc == 2, out
+    assert "a redirect to //elsewhere.invalid" in out and "relative Location" not in out
+    assert "synthetic-moved-path" not in out and KEY not in out and len(calls) == 1
+
+
+@pytest.mark.parametrize("text", ["100 Indian rupees", "100 British pounds", "100 Japanese yen", "100 Mexican pesos",
+                                  "100 Chinese yuan", "100 Swedish kronor", "100 HK dollars", "100 American dollars",
+                                  "100 New Taiwan dollars", "100 Brazilian reais", "100 reais", "100 złoty",
+                                  "100 złotych", "100 zł", "100 NIS", "NIS 100", "100 lei", "100 forint", "100 Rs.",
+                                  "100 Rs", "Rupees 100", "100-pound fee", "100-yen fee", "100-dollar fee",
+                                  "100 million yen", "100 million dollars", "100k yen", "100k dollars",
+                                  "100 billion euros", "100 thousand pounds"])
+def test_round2_c_a_qualified_scaled_or_hyphenated_currency_word_price_is_replaced(text):
+    for got in (probe.Out().redact(f"The plan is billed at {text}."), probe.figures(f"Retain data | {text}", True)):
+        assert not leaks(got, "100") and "<figure not printed>" in got, got
+
+
+def test_round2_c_a_retention_row_priced_in_british_pounds_shows_no_figure(env, capsys, tmp_path):
+    page = "<table><tr><td>Retain data</td><td>500 British pounds</td></tr></table>"
+    env.setattr(requests, "get", router({TERMS_URL: Resp(None, text=page)}))
+    out_file = tmp_path / "r.json"
+    rc, out = run([*TERMS_ONLY, "--out", str(out_file)], capsys)
+    assert "500" not in out and "500" not in out_file.read_text(encoding="utf-8")
+    assert rc == 0, out
+
+
+@pytest.mark.parametrize("line", ["ids 1234 RS", "Goalie Sterling 31", "game 18234 rand", "Penguins 3 Senators 2",
+                                  "4 Rangers games", "HTTP 302 Found", "2026-11-07T19:00:00Z", "the 2025-26 season",
+                                  "3 New York games"])
+def test_round2_c_the_qualified_currency_words_leave_other_numbers_whole(line):
+    assert probe.Out().redact(line) == line
+
+
+@pytest.mark.parametrize("page", [
+    "<h1>Welcome</h1><p>Get our sports data app on all major app stores.</p>",
+    "<p>Our data app is available in the App Store and Google Play stores.</p>",
+    "<p>Shop our online stores for data packs.</p>",
+    "<p>Install the data extension from the web stores.</p>",
+    "<nav>Home | Data | Store | Pricing</nav><p>Welcome back!</p>",
+    "<nav>Home | Historical Data Archive | Pricing</nav>",
+    "<nav>Home | Data Store | Pricing</nav>",
+    "<p>Visit our Data Store for historical feeds.</p>",
+    "<p>Browse the data archive.</p>",
+    "<h1>Oops</h1><p>Please clear your browser cache to load the latest data.</p>",
+    "<p>Use store credit toward any data plan.</p>",
+    "<p>Delete account and data</p>",
+    "<p>Cancel Download data</p>"])
+def test_round2_b_plural_stores_nav_items_and_other_furniture_are_not_retention_evidence(env, capsys, tmp_path, page):
+    env.setattr(requests, "get", router({TERMS_URL: Resp(None, text=page)}))
+    out_file = tmp_path / "r.json"
+    rc, out = run([*TERMS_ONLY, "--out", str(out_file)], capsys)
+    assert rc == 2, out
+    assert json.loads(out_file.read_text())["sections"]["terms"]["retention_data_passages"] == 0
+
+
+@pytest.mark.parametrize("clause", ["You may not store the data on any app store server.",
+                                    "Customer may archive the data for 30 days.",
+                                    "Data in the press archive may not be retained.",
+                                    "All data must be destroyed when you Cancel.",
+                                    "If you Cancel Your Subscription, stored data is deleted.",
+                                    "You may not store credit card data.",
+                                    "The data archive is purged after the term.",
+                                    "Data cached on your servers must be deleted on termination."])
+def test_round2_b_the_wider_mask_leaves_real_clauses_counting(env, capsys, clause):
+    env.setattr(requests, "get", router({TERMS_URL: Resp(None, text=f"<p>{clause}</p>")}))
+    rc, out = run(TERMS_ONLY, capsys)
+    assert rc == 0, out

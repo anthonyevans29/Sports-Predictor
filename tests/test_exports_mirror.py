@@ -403,3 +403,993 @@ def test_a_rewritten_https_remote_never_runs_ssh_keyless(monkeypatch, tmp_path):
     monkeypatch.setenv("SP_EXPORTS_MIRROR_KEY", str(tmp_path / "key"))
     em._git(tmp_path, "push")
     assert seen["GIT_SSH_COMMAND"].startswith("ssh -i ") and "IdentitiesOnly=yes" in seen["GIT_SSH_COMMAND"]
+
+
+# ---- THE KEPT SUBTREE (ARCHITECT 2026-11-04, addendum 250 item 4, #826) --------------------------------------------
+# "exports_mirror.py gains ONE kept subtree: `exports/bulletins/**` is copied verbatim to `<role>/bulletins/**` (suffixes
+# .md and .png there; the top-level rule is unchanged), NEVER pruned by RETENTION_DAYS (the dated-folder rule applies to
+# `<role>/<date>/` only; the weekly squash keeps files, as it does today), and NO JSON is ever written under it, so the
+# compare's `*.json` Action glob never sees a bulletin and the compare is untouched (no new kind, no new mask, kind_of
+# unchanged); tests pin all three (copied; not pruned; a .json planted under it is refused by the renderer's writer and
+# ignored by the plan)." The writer's refusal comes with the renderer (step 1's second PR); these pin the plan's half.
+# Invented teams and match ids only: no real bulletin, closing row or ticker.
+
+PNG = b"\x89PNG\r\n\x1a\n" + bytes(range(256))                   # binary bytes: copied verbatim, never re-encoded
+B_CLOSE = "bulletins/NFL/2026-10-03/900001_alpha-owls_at_beta-hawks_closing"
+B_SLATE = "bulletins/SOCCER/2026-10-03/900002_gamma-fc_at_delta-united_slate"
+B_WEEK = "bulletins/SOCCER/weeks/2026-27_7"
+
+
+def _bulletins(ex: Path, files: dict, mtime: float | None = None) -> Path:
+    """Writes exports/bulletins/** (rel path under exports/ -> bytes); an old mtime proves no window applies."""
+    for rel, body in files.items():
+        p = ex / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_bytes(body)
+        if mtime is not None:
+            os.utime(p, (mtime, mtime))
+    return ex
+
+
+def _three(ex: Path, mtime: float | None = None) -> dict:
+    files = {f"{B_CLOSE}.md": b"# Alpha Owls at Beta Hawks\nPASS\n", f"{B_CLOSE}.png": PNG,
+             f"{B_SLATE}.md": b"# Gamma FC at Delta United\n", f"{B_SLATE}.png": PNG[::-1],
+             f"{B_WEEK}.md": b"# week 7\n", f"{B_WEEK}.png": PNG + b"wk"}
+    _bulletins(ex, files, mtime)
+    return files
+
+
+def test_bulletins_are_copied_verbatim_to_role_bulletins_and_the_top_level_rule_is_unchanged(tmp_path):
+    """Pin 1, copied: every .md and .png under exports/bulletins/ lands at <role>/bulletins/<the same relative path>,
+    byte for byte, nested <FAMILY>/<date>/ and <FAMILY>/weeks/ kept as they are, whatever the file's mtime (60 days
+    old here: no retention window applies to the subtree). The top-level rule is unchanged: the dated and latest
+    copies are the same as without the subtree, latest/ holds no bulletin, and the other subfolders still are not
+    mirrored."""
+    ex = _exports(tmp_path, [("fixtures_NHL_2026-10-03.json", TODAY, '{"a":1}')])
+    files = _three(ex, mtime=_mt(TODAY - timedelta(days=60)))
+    pl = em.bulletin_plan(ex, "host")
+    assert pl == {"kept": {f"host/{rel}": ex / rel for rel in files}, "skipped": []}
+    top = em.plan([(p.name, p.stat().st_mtime) for p in ex.iterdir() if p.is_file()], "host", TODAY)
+    assert top == {"dated": {"host/2026-10-03/fixtures_NHL_2026-10-03.json": "fixtures_NHL_2026-10-03.json"},
+                   "latest": {"host/latest/fixtures_NHL.json": "fixtures_NHL_2026-10-03.json"}}
+    remote = _remote(tmp_path)
+    r = em.push("host", ex, "t", remote, tmp_path / "clone", today=TODAY)
+    assert r["pushed"] and r["copied"] == 2 + 6 and "skipped" not in r, r
+    co, tree = _tree(remote, tmp_path)
+    assert sorted(f for f in tree if "/bulletins/" in f or f.startswith("host/bulletins")) == sorted(
+        f"host/{rel}" for rel in files)
+    for rel, body in files.items():
+        assert (co / "host" / rel).read_bytes() == body                    # verbatim
+    assert not any(f.startswith("host/latest/") and "bulletin" in f for f in tree)
+    assert not any("intl_daily" in f for f in tree)                        # other subfolders: still not mirrored
+    assert {"host/2026-10-03/fixtures_NHL_2026-10-03.json", "host/latest/fixtures_NHL.json"} <= set(tree)
+    lap = _exports(tmp_path / "lap", [])
+    _three(lap)
+    assert em.push("laptop", lap, "t", remote, tmp_path / "lap_clone", today=TODAY)["pushed"]
+    _, tree = _tree(remote, tmp_path)
+    assert {f"laptop/{rel}" for rel in files} <= set(tree) and {f"host/{rel}" for rel in files} <= set(tree)
+    again = em.push("host", ex, "t", remote, tmp_path / "clone", today=TODAY)
+    assert again == {"role": "host", "pushed": False, "copied": 0, "pruned": [], "why": "nothing changed"}
+    (ex / f"{B_CLOSE}.md").write_bytes(b"# re-rendered\n")                 # a changed bulletin is copied again
+    r = em.push("host", ex, "t", remote, tmp_path / "clone", today=TODAY)
+    assert r["pushed"] and r["copied"] == 1
+    co, _ = _tree(remote, tmp_path)
+    assert (co / "host" / f"{B_CLOSE}.md").read_bytes() == b"# re-rendered\n"
+
+
+def test_bulletins_are_never_pruned_a_removed_source_stays_and_the_squash_keeps_them(tmp_path):
+    """Pin 2, not pruned: 30 days on, the dated folder of the first push is pruned (the dated-folder rule, unchanged)
+    and <role>/bulletins/** is not, its own nested <date>/ folders included. A bulletin removed from exports/ stays in
+    the mirror, as the top-level rule leaves a dated copy whose source is gone until its folder expires (the push copies
+    and never deletes for a missing source; the subtree never expires). The weekly squash keeps every file."""
+    remote, clone = _remote(tmp_path), tmp_path / "clone"
+    ex = _exports(tmp_path, [("fixtures_NHL_2026-10-03.json", TODAY, '{"a":1}')])
+    files = _three(ex)
+    assert em.push("host", ex, "t", remote, clone, today=TODAY)["pushed"]
+    later = TODAY + timedelta(days=30)
+    ex2 = _exports(tmp_path / "x2", [("fixtures_NHL_2026-11-02.json", later, '{"a":2}')])   # no bulletins/ at all
+    assert not (ex2 / "bulletins").exists()
+    r = em.push("host", ex2, "later", remote, clone, today=later)
+    assert r["pushed"] and r["pruned"] == ["2026-10-03"] and "skipped" not in r, r
+    assert em.expired(clone / "host", later + timedelta(days=365)) == [clone / "host" / "2026-11-02"]
+    co, tree = _tree(remote, tmp_path)
+    assert not any(f.startswith("host/2026-10-03/") for f in tree)
+    assert {f"host/{rel}" for rel in files} <= set(tree)
+    assert (co / "host" / f"{B_CLOSE}.png").read_bytes() == PNG
+    assert em.squash(remote, clone)["squashed"]
+    co, tree = _tree(remote, tmp_path)
+    n = subprocess.run(["git", "-C", str(co), "rev-list", "--count", "HEAD"], capture_output=True, text=True).stdout
+    assert n.strip() == "1" and {f"host/{rel}" for rel in files} <= set(tree)
+    assert "host/2026-11-02/fixtures_NHL_2026-11-02.json" in tree
+
+
+def test_a_json_or_any_other_suffix_under_bulletins_is_ignored_by_the_plan_and_receipted(tmp_path, monkeypatch, capsys):
+    """Pin 3, the plan's half: a .json planted under exports/bulletins/ (and any suffix but .md / .png, an upper-case
+    .PNG included) is never copied, so no JSON is ever written under <role>/bulletins/. It is not silent (law 2): the
+    push's result carries `skipped` (path, reason) and its console line the count by reason, the line the chain hooks'
+    receipts keep. The renderer's writer refusing a .json is the second PR's (it does not exist yet)."""
+    ex = _exports(tmp_path, [])
+    files = _three(ex)
+    _bulletins(ex, {"bulletins/NFL/2026-10-03/planted.json": b'{"rows": []}', "bulletins/planted.json": b"{}",
+                    "bulletins/NFL/notes.txt": b"x", "bulletins/NFL/2026-10-03/card.PNG": PNG,
+                    "bulletins/NFL/2026-10-03/.x.md.4242.tmp": b"half"})
+    pl = em.bulletin_plan(ex, "host")
+    assert set(pl["kept"]) == {f"host/{rel}" for rel in files}
+    assert not any(d.endswith(".json") for d in pl["kept"])
+    assert sorted(pl["skipped"]) == sorted([
+        ("bulletins/NFL/2026-10-03/planted.json", "suffix: not .md or .png"),
+        ("bulletins/planted.json", "suffix: not .md or .png"),
+        ("bulletins/NFL/notes.txt", "suffix: not .md or .png"),
+        ("bulletins/NFL/2026-10-03/card.PNG", "suffix: not .md or .png"),
+        ("bulletins/NFL/2026-10-03/.x.md.4242.tmp", "suffix: not .md or .png")])
+    remote = _remote(tmp_path)
+    r = em.push("host", ex, "t", remote, tmp_path / "clone", today=TODAY)
+    assert r["pushed"] and r["copied"] == 6 and sorted(r["skipped"]) == sorted(pl["skipped"]), r
+    _, tree = _tree(remote, tmp_path)
+    under = [f for f in tree if f.startswith("host/bulletins/")]
+    assert sorted(under) == sorted(f"host/{rel}" for rel in files)
+    assert not any(f.endswith(".json") for f in under)                      # no JSON is ever written under it
+    again = em.push("host", ex, "t", remote, tmp_path / "clone", today=TODAY)
+    assert again["why"] == "nothing changed" and len(again["skipped"]) == 5  # receipted on every push
+    for k in ("SP_EXPORTS_MIRROR_KEY", "SP_EXPORTS_MIRROR_ROLE"):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("SP_EXPORTS_MIRROR_REMOTE", remote)
+    monkeypatch.setenv("SP_EXPORTS_MIRROR_DIR", str(tmp_path / "clone"))
+    (ex / f"{B_WEEK}.md").write_bytes(b"# week 7, rewritten\n")
+    assert em.main(["push", "--exports", str(ex), "--label", "t"]) == 0
+    line = capsys.readouterr().out.strip().splitlines()[-1]
+    assert line.startswith("EXPORTS-MIRROR host: pushed 1 file(s)")
+    assert line.endswith(" · bulletins: 5 skipped (suffix: not .md or .png 5)"), line
+
+
+def test_the_subtree_absent_is_nothing_no_error(tmp_path):
+    """No exports/bulletins/ (every machine today): an empty plan, no `skipped` key, the push exactly as before. No
+    exports/ at all, or a FILE named bulletins at the top (not a .json or .md: the top-level rule ignores it), the
+    same."""
+    assert em.bulletin_plan(tmp_path / "missing", "host") == {"kept": {}, "skipped": []}
+    ex = _exports(tmp_path, [("fixtures_NHL_2026-10-03.json", TODAY, '{"a":1}')])
+    assert em.bulletin_plan(ex, "host") == {"kept": {}, "skipped": []}
+    remote = _remote(tmp_path)
+    r = em.push("host", ex, "t", remote, tmp_path / "clone", today=TODAY)
+    assert r["pushed"] and r["copied"] == 2 and "skipped" not in r
+    (ex / "bulletins").write_text("not a folder")
+    assert em.bulletin_plan(ex, "host") == {"kept": {}, "skipped": []}
+    assert em.push("host", ex, "t", remote, tmp_path / "clone", today=TODAY)["why"] == "nothing changed"
+    _, tree = _tree(remote, tmp_path)
+    assert not any("bulletins" in f for f in tree)
+
+
+def test_symlinks_under_the_subtree_are_never_followed(tmp_path):
+    """No symlink is followed, in or out of the subtree: a file link to a secret outside exports/bulletins/, a file
+    link to a bulletin inside it, a broken link, a folder link to an outside folder holding a .md, and the subtree's
+    own root as a link. Each is skipped with its reason; the outside bytes never reach the mirror; the real files
+    still go."""
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "secret.md").write_text("never mirrored\n")
+    (outside / "dir").mkdir()
+    (outside / "dir" / "inner.md").write_text("never mirrored either\n")
+    ex = _exports(tmp_path, [])
+    files = _three(ex)
+    b = ex / "bulletins" / "NFL" / "2026-10-03"
+    (b / "out_link.md").symlink_to(outside / "secret.md")
+    (b / "in_link.md").symlink_to(ex / f"{B_CLOSE}.md")
+    (b / "dangling.png").symlink_to(tmp_path / "nowhere.png")
+    (ex / "bulletins" / "LINKED").symlink_to(outside / "dir", target_is_directory=True)
+    pl = em.bulletin_plan(ex, "host")
+    assert set(pl["kept"]) == {f"host/{rel}" for rel in files}
+    assert sorted(pl["skipped"]) == sorted([
+        ("bulletins/LINKED", "symlink: not followed"),
+        ("bulletins/NFL/2026-10-03/dangling.png", "symlink: not followed"),
+        ("bulletins/NFL/2026-10-03/in_link.md", "symlink: not followed"),
+        ("bulletins/NFL/2026-10-03/out_link.md", "symlink: not followed")])
+    remote = _remote(tmp_path)
+    r = em.push("host", ex, "t", remote, tmp_path / "clone", today=TODAY)
+    assert r["pushed"] and r["copied"] == 6 and len(r["skipped"]) == 4
+    co, tree = _tree(remote, tmp_path)
+    assert sorted(f for f in tree if f.startswith("host/bulletins/")) == sorted(f"host/{rel}" for rel in files)
+    assert not any("never mirrored" in (co / f).read_text(errors="replace") for f in tree if f.endswith(".md"))
+    ex2 = _exports(tmp_path / "x2", [])                                     # the subtree's root itself a link
+    (ex2 / "bulletins").symlink_to(outside, target_is_directory=True)
+    assert em.bulletin_plan(ex2, "host") == {"kept": {}, "skipped": [("bulletins", "symlink: not followed")]}
+
+
+def test_unusual_names_never_crash_the_plan_or_the_push(tmp_path, monkeypatch, capsys):
+    """Item 1's slugs are ASCII, but the plan must not crash on any name: spaces, quotes, '#', '%', non-ASCII, a
+    newline, a name that is not UTF-8 (copied as it is, printed escaped), a `.git` folder (git cannot carry it:
+    skipped) and a folder that cannot be read (skipped with its reason, the rest still copied; the read is refused
+    by a stand-in for os.scandir, since root, as in this container, reads a mode-000 folder anyway)."""
+    ex = _exports(tmp_path, [])
+    odd = {"bulletins/NFL/2026-10-03/a b 'c' #1 50%.md": b"spaces",
+           "bulletins/SOCCER/2026-10-03/café_münchen_at_øst.md": b"utf8",
+           "bulletins/SOCCER/2026-10-03/line\nbreak.png": PNG,
+           "bulletins/SOCCER/.git/HEAD.md": b"never", "bulletins/SOCCER/.GIT/x.md": b"never"}
+    _bulletins(ex, odd)
+    want = {f"host/{rel}" for rel in odd if ".git" not in rel.lower()}
+    skipped_want = [("bulletins/SOCCER/.GIT", "a .git path: git cannot carry it"),
+                    ("bulletins/SOCCER/.git", "a .git path: git cannot carry it")]
+    try:                                                                    # a byte name only some file systems take
+        bad = Path(os.fsdecode(str(ex / "bulletins" / "NFL").encode() + b"/bad\xff.md"))
+        bad.write_bytes(b"bytes")
+        badj = Path(os.fsdecode(str(ex / "bulletins" / "NFL").encode() + b"/bad\xfe.json"))
+        badj.write_bytes(b"{}")
+        want.add("host/" + bad.relative_to(ex).as_posix())
+        skipped_want.append((badj.relative_to(ex).as_posix(), "suffix: not .md or .png"))
+    except (OSError, UnicodeError):
+        bad = None
+    locked = ex / "bulletins" / "LOCKED"
+    locked.mkdir()
+    (locked / "hidden.md").write_text("x")
+    real_scandir = os.scandir
+
+    def scandir(path="."):
+        if Path(os.fsdecode(path)) == locked:
+            raise PermissionError(13, "Permission denied", os.fsdecode(path))
+        return real_scandir(path)
+    monkeypatch.setattr(os, "scandir", scandir)                             # os.walk reads folders through it
+    skipped_want.append(("bulletins/LOCKED", "unreadable folder: PermissionError"))
+    pl = em.bulletin_plan(ex, "host")
+    assert set(pl["kept"]) == want
+    assert sorted(pl["skipped"]) == sorted(skipped_want)
+    remote = _remote(tmp_path)
+    for k in ("SP_EXPORTS_MIRROR_KEY", "SP_EXPORTS_MIRROR_ROLE"):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("SP_EXPORTS_MIRROR_REMOTE", remote)
+    monkeypatch.setenv("SP_EXPORTS_MIRROR_DIR", str(tmp_path / "clone"))
+    assert em.main(["push", "--exports", str(ex), "--label", "odd"]) == 0
+    out = capsys.readouterr().out
+    assert f"pushed {len(want)} file(s)" in out and f"bulletins: {len(skipped_want)} skipped" in out
+    if bad is not None:
+        r = em.push("host", ex, "t", remote, tmp_path / "clone", today=TODAY)
+        assert r["why"] == "nothing changed"
+        assert ("bulletins/NFL/bad\\xfe.json", "suffix: not .md or .png") in r["skipped"]   # printable
+    co = tmp_path / "co_odd"
+    subprocess.run(["git", "clone", "-q", remote, str(co)], check=True)
+    got = {p.relative_to(co).as_posix() for p in co.rglob("*") if p.is_file() and ".git" not in p.parts}
+    assert {f for f in got if f.startswith("host/bulletins/")} == want
+    assert (co / "host" / "bulletins/SOCCER/2026-10-03/line\nbreak.png").read_bytes() == PNG
+    assert "host/bulletins/LOCKED/hidden.md" not in got
+
+
+def test_an_unreadable_or_vanished_bulletin_is_skipped_and_the_top_level_still_pushes(tmp_path, monkeypatch):
+    """One bad bulletin never stops the push (review of this PR): a kept .md that lstat accepts but that cannot be
+    opened (a 0600 file another user owns; refused here by a stand-in for open, since root, as in this container,
+    reads a mode-000 file anyway) and a kept .png deleted between the plan and the copy are each skipped with the
+    reason, on the result and the console line; the top-level dated and latest files and the other bulletins still go."""
+    import builtins
+    import io
+    ex = _exports(tmp_path, [("fixtures_NHL_2026-10-03.json", TODAY, '{"a":1}')])
+    files = _three(ex)
+    locked, gone = ex / f"{B_CLOSE}.md", ex / f"{B_SLATE}.png"
+    real_open, real_io_open, real_plan = builtins.open, io.open, em.bulletin_plan
+
+    def refusing(f):
+        def opener(file, *a, **k):
+            if isinstance(file, (str, bytes, os.PathLike)) and Path(os.fsdecode(file)) == locked:
+                raise PermissionError(13, "Permission denied", os.fsdecode(file))
+            return f(file, *a, **k)
+        return opener
+    monkeypatch.setattr(builtins, "open", refusing(real_open))                # shutil.copyfile reads through it
+    monkeypatch.setattr(io, "open", refusing(real_io_open))                   # Path.read_bytes reads through it
+    import pathlib
+    if hasattr(pathlib, "_NormalAccessor"):                                   # Python 3.10: Path.open is the
+        monkeypatch.setattr(pathlib._NormalAccessor, "open",                  # accessor's io.open, bound at import
+                            staticmethod(refusing(real_io_open)))             # (addendum 280: CI runs 3.10)
+
+    def plan_then_delete(exports, role):
+        pl = real_plan(exports, role)
+        if gone.exists():
+            gone.unlink()                                                     # gone after the plan, before the copy
+        return pl
+    monkeypatch.setattr(em, "bulletin_plan", plan_then_delete)
+    remote = _remote(tmp_path)
+    r = em.push("host", ex, "t", remote, tmp_path / "clone", today=TODAY)
+    assert r["pushed"] and r["copied"] == 2 + 4, r                                  # 2 top-level + 4 bulletins
+    assert r["skipped"] == [(f"{B_CLOSE}.md", "unreadable: PermissionError"),
+                            (f"{B_SLATE}.png", "unreadable: FileNotFoundError")], r
+    assert em.skipped_line(r["skipped"]) == (                                       # main's console line ends so
+        "bulletins: 2 skipped (unreadable: PermissionError 1 · unreadable: FileNotFoundError 1)")
+    co, tree = _tree(remote, tmp_path)
+    assert {"host/2026-10-03/fixtures_NHL_2026-10-03.json", "host/latest/fixtures_NHL.json"} <= set(tree)
+    assert sorted(f for f in tree if f.startswith("host/bulletins/")) == sorted(
+        f"host/{rel}" for rel in files if rel not in (f"{B_CLOSE}.md", f"{B_SLATE}.png"))
+    r = em.push("host", ex, "t", remote, tmp_path / "clone", today=TODAY)
+    assert r["why"] == "nothing changed" and r["skipped"] == [(f"{B_CLOSE}.md", "unreadable: PermissionError")], r
+
+
+def test_a_path_git_refuses_is_skipped_and_never_jams_the_mirror(tmp_path):
+    """Git decides which paths it carries (review of this PR): with core.protectNTFS (git's default) it refuses
+    `.git`'s NTFS spellings, GIT~1, `.git.` and `.git ` (trailing space), which a `.git` test alone does not catch.
+    Each is skipped with the reason "git refused the path" and removed from the working clone; the top-level files and
+    the other bulletins still push. A refused name already sitting in the clone whose source is gone (a push killed
+    before its add) is no planned path (addendum 277 item 1): it is never staged, so it never jams a later push, never
+    deleted, and receipted as untracked-and-skipped."""
+    ex = _exports(tmp_path, [("fixtures_NHL_2026-10-03.json", TODAY, '{"a":1}')])
+    files = _three(ex)
+    odd = ["bulletins/GIT~1/x.md", "bulletins/.git./x.md", "bulletins/.git /x.md", "bulletins/SOCCER/git~1/y.png"]
+    _bulletins(ex, {rel: b"never" for rel in odd})
+    assert set(em.bulletin_plan(ex, "host")["kept"]) == {f"host/{rel}" for rel in [*files, *odd]}   # the plan takes them
+    remote, clone = _remote(tmp_path), tmp_path / "clone"
+    r = em.push("host", ex, "t", remote, clone, today=TODAY)
+    assert r["pushed"] and r["copied"] == 2 + 6, r
+    assert sorted(r["skipped"]) == sorted((rel, "git refused the path") for rel in odd)
+    _, tree = _tree(remote, tmp_path)
+    assert {"host/2026-10-03/fixtures_NHL_2026-10-03.json", "host/latest/fixtures_NHL.json"} <= set(tree)
+    assert sorted(f for f in tree if f.startswith("host/bulletins/")) == sorted(f"host/{rel}" for rel in files)
+    assert not any((clone / "host" / rel).exists() for rel in odd)          # removed from the clone
+    again = em.push("host", ex, "t", remote, clone, today=TODAY)
+    assert again["why"] == "nothing changed" and len(again["skipped"]) == 4, again
+    for rel in odd:                                                         # the sources go; a stray copy stays behind
+        shutil.rmtree(ex / Path(rel).parent)
+    stray = clone / "host" / "bulletins" / "GIT~1" / "z.md"
+    stray.parent.mkdir(parents=True)
+    stray.write_bytes(b"left by a killed push")
+    later = TODAY + timedelta(days=1)
+    (ex / "fixtures_NHL_2026-10-04.json").write_text('{"a":2}')
+    os.utime(ex / "fixtures_NHL_2026-10-04.json", (_mt(later), _mt(later)))
+    r = em.push("host", ex, "t2", remote, clone, today=later)
+    assert r["pushed"] and "skipped" not in r and r["untracked_skipped"] == ["host/bulletins/GIT~1/z.md"], r
+    assert stray.read_bytes() == b"left by a killed push"                  # 277 item 1: never deleted, never staged
+    _, tree = _tree(remote, tmp_path)
+    assert "host/2026-10-04/fixtures_NHL_2026-10-04.json" in tree
+
+
+def _seeded_remote(tmp: Path, tracked: dict) -> str:
+    """A bare remote whose main already TRACKS the given entries: rel -> ("link", target), ("file", bytes) or
+    ("gitlink", commit sha)."""
+    remote = _remote(tmp)
+    seed = tmp / "seed"
+    subprocess.run(["git", "init", "-q", "-b", "main", str(seed)], check=True)
+    for rel, (what, val) in tracked.items():
+        q = seed / rel
+        q.parent.mkdir(parents=True, exist_ok=True)
+        if what == "gitlink":                          # a submodule entry (mode 160000): staged below, no folder
+            continue
+        q.parent.mkdir(parents=True, exist_ok=True)
+        os.symlink(val, q) if what == "link" else q.write_bytes(val)
+    (seed / "README").write_text("seed\n")
+    subprocess.run(["git", "-C", str(seed), "add", "-A"], check=True, capture_output=True)
+    for rel, (what, val) in tracked.items():
+        if what == "gitlink":
+            subprocess.run(["git", "-C", str(seed), "update-index", "--add", "--cacheinfo", f"160000,{val},{rel}"],
+                           check=True, capture_output=True)
+    for args in (["-c", "user.name=s", "-c", "user.email=s@x", "commit", "-q", "-m", "seed"],
+                 ["push", "-q", remote, "HEAD:main"]):
+        subprocess.run(["git", "-C", str(seed), *args], check=True, capture_output=True)
+    return remote
+
+
+def _gitlinks(remote: str) -> list[str]:
+    """The remote main's submodule entries (mode 160000), read from the bare repo itself."""
+    out = subprocess.run(["git", "-C", remote, "ls-tree", "-r", "main"], check=True, capture_output=True, text=True)
+    return sorted(line.split("\t", 1)[1] for line in out.stdout.splitlines() if line.startswith("160000 "))
+
+
+def _outside(tmp: Path) -> tuple[Path, dict]:
+    """A folder beside the clone, never the mirror's: what a tracked link would carry a write (or a walk's unlink) to."""
+    out = tmp / "outside"
+    files = {"target.md": b"outside, never the mirror's\n", "2026-10-03/900001_x.md": b"outside, a dated name\n",
+             "keep.txt": b"outside, kept\n"}
+    for rel, body in files.items():
+        (out / rel).parent.mkdir(parents=True, exist_ok=True)
+        (out / rel).write_bytes(body)
+    return out, files
+
+
+@pytest.mark.parametrize("where, target", [
+    ("bulletins/NFL/2026-10-03/900001_x.md", "../../../../../outside/target.md"),   # the file itself, relative escape
+    ("bulletins/NFL/2026-10-03/900001_x.md", "ABS/target.md"),                      # the file itself, absolute
+    ("bulletins/NFL", "../../../outside"),                                          # a parent folder, relative escape
+    ("bulletins/NFL", "ABS"),                                                       # a parent folder, absolute
+    ("bulletins", "../../outside"),                                                 # bulletins/ itself
+])
+def test_a_tracked_symlink_on_a_bulletin_destination_is_never_followed(tmp_path, where, target):
+    """Codex on #847: the mirror's own tree may already TRACK a symlink where a bulletin goes, the file itself or a
+    folder above it (relative escape or absolute). The push never reads or writes through it: that bulletin is skipped
+    with "destination path has a symlink", receipted on the result and the console line; the outside target is byte
+    for byte as it was (no write through the link, and git's own check never walks it, so nothing outside is unlinked);
+    the tracked link stays as the mirror holds it; the top-level files and the other bulletins still push."""
+    out, before = _outside(tmp_path)
+    ex = _exports(tmp_path, [("fixtures_NHL_2026-10-03.json", TODAY, '{"a":1}')])
+    mine, other = "bulletins/NFL/2026-10-03/900001_x.md", "bulletins/SOCCER/2026-10-03/900002_y.md"
+    _bulletins(ex, {mine: b"# new bulletin bytes\n", other: b"# another bulletin\n"})
+    link = target.replace("ABS", str(out))
+    remote, clone = _seeded_remote(tmp_path, {f"host/{where}": ("link", link)}), tmp_path / "clone"
+    r = em.push("host", ex, "t", remote, clone, today=TODAY)
+    linked = [mine, other] if where == "bulletins" else [mine]
+    assert r["pushed"] and r["copied"] == 2 + 2 - len(linked), r
+    assert r["skipped"] == [(rel, "destination path has a symlink") for rel in linked], r
+    assert em.skipped_line(r["skipped"]) == f"bulletins: {len(linked)} skipped (destination path has a symlink {len(linked)})"
+    assert {str(q.relative_to(out)): q.read_bytes() for q in out.rglob("*") if q.is_file()} == before   # untouched
+    assert os.readlink(clone / "host" / where) == link                       # the tracked link stays as it was
+    co, tree = _tree(remote, tmp_path)
+    assert {"host/2026-10-03/fixtures_NHL_2026-10-03.json", "host/latest/fixtures_NHL.json"} <= set(tree)
+    assert os.readlink(co / "host" / where) == link                          # the remote's link unchanged
+    if where != "bulletins":
+        assert (co / "host" / other).read_bytes() == b"# another bulletin\n"    # the other bulletin still goes
+    again = em.push("host", ex, "t", remote, clone, today=TODAY)
+    assert again["why"] == "nothing changed" and again["skipped"] == r["skipped"], again
+
+
+def test_a_tracked_symlink_role_folder_never_carries_a_bulletin_or_the_walk_out(tmp_path):
+    """The walk starts at <role>/ (Codex on #847): a tracked `host -> ../outside` skips every bulletin with "destination
+    path has a symlink" and git's own check never walks or unlinks through it (on 3441675a its `add -- host/bulletins`
+    beyond the link aborted the whole push). No bulletin bytes land outside and the outside's own files stay; the
+    top-level rule's writes under a linked role folder are refused too, since #852 (receipted on `top_level_skipped`)."""
+    out, before = _outside(tmp_path)
+    ex = _exports(tmp_path, [("fixtures_NHL_2026-10-03.json", TODAY, '{"a":1}')])
+    mine = "bulletins/NFL/2026-10-03/900001_x.md"
+    _bulletins(ex, {mine: b"# new bulletin bytes\n"})
+    remote, clone = _seeded_remote(tmp_path, {"host": ("link", "../outside")}), tmp_path / "clone"
+    r = em.push("host", ex, "t", remote, clone, today=TODAY)
+    assert r["skipped"] == [(mine, "destination path has a symlink")], r
+    assert not (out / "bulletins").exists()                                  # no bulletin written through the link
+    assert all((out / rel).read_bytes() == body for rel, body in before.items())
+    assert os.readlink(clone / "host") == "../outside"
+
+
+def test_a_bulletin_destination_that_is_a_folder_or_under_a_file_is_skipped_never_overwritten(tmp_path):
+    """The destination is lstat'ed, not trusted (Codex on #847): a FOLDER sitting where a bulletin goes (left in the
+    working clone) is "destination not a regular file", and a tracked FILE where a bulletin's folder goes is
+    "destination path has a non-folder". Each is skipped and receipted, never removed or overwritten (on 3441675a the
+    write raised and the whole push aborted); the top-level files and the other bulletins still push."""
+    ex = _exports(tmp_path, [("fixtures_NHL_2026-10-03.json", TODAY, '{"a":1}')])
+    as_dir, under_file, ok = ("bulletins/NFL/2026-10-03/900001_x.md", "bulletins/MLB/2026-10-03/900003_z.md",
+                              "bulletins/SOCCER/2026-10-03/900002_y.md")
+    _bulletins(ex, {as_dir: b"# a\n", under_file: b"# z\n", ok: b"# y\n"})
+    remote = _seeded_remote(tmp_path, {"host/bulletins/MLB": ("file", b"a tracked file where a folder goes\n")})
+    clone = tmp_path / "clone"
+    em._ensure_clone(clone, remote)
+    em._sync_to_remote(clone)
+    (clone / "host" / as_dir / "inner").mkdir(parents=True)
+    (clone / "host" / as_dir / "inner" / "keep.md").write_bytes(b"left in the clone\n")
+    r = em.push("host", ex, "t", remote, clone, today=TODAY)
+    assert r["pushed"] and sorted(r["skipped"]) == sorted([(as_dir, "destination not a regular file"),
+                                                           (under_file, "destination path has a non-folder")]), r
+    assert (clone / "host" / as_dir / "inner" / "keep.md").read_bytes() == b"left in the clone\n"
+    co, tree = _tree(remote, tmp_path)
+    assert {"host/2026-10-03/fixtures_NHL_2026-10-03.json", "host/latest/fixtures_NHL.json"} <= set(tree)
+    assert (co / "host" / ok).read_bytes() == b"# y\n"
+    assert (co / "host/bulletins/MLB").read_bytes() == b"a tracked file where a folder goes\n"
+
+
+GITLINK_SHA = "1234567890123456789012345678901234567890"
+
+
+@pytest.mark.parametrize("where", ["", "bulletins", "bulletins/NFL", "bulletins/NFL/2026-10-03/900001_x.md"])
+def test_a_tracked_submodule_on_a_bulletin_destination_is_skipped_kept_and_never_aborts_the_push(tmp_path, where):
+    """Codex round 1's fix, reviewed: the mirror's own tree may track a SUBMODULE entry (a gitlink, mode 160000) at the
+    role folder, at bulletins/, at a folder above a bulletin or at the bulletin's own place. Git checks one out as an
+    empty real folder, so an lstat alone lets it through. Each bulletin under it is skipped and receipted
+    ("destination path has a submodule"), never written into it; git's own check never runs a pathspec inside it (a
+    gitlink at `host` made `add -- host/bulletins` exit 128, "is in submodule", and every push raised); its empty
+    checkout folder is never removed, so the push never stages the gitlink's deletion; the remote still tracks it, the
+    skip holds on the next push (a stray an earlier push left inside it neither aborts that push nor is touched), and
+    the tools and the other bulletins still go."""
+    ex = _exports(tmp_path, [("fixtures_NHL_2026-10-03.json", TODAY, '{"a":1}')])
+    mine, other = "bulletins/NFL/2026-10-03/900001_x.md", "bulletins/SOCCER/2026-10-03/900002_y.md"
+    _bulletins(ex, {mine: b"# new bulletin bytes\n", other: b"# another bulletin\n"})
+    gl = "/".join(x for x in ("host", where) if x)
+    remote, clone = _seeded_remote(tmp_path, {gl: ("gitlink", GITLINK_SHA)}), tmp_path / "clone"
+    r = em.push("host", ex, "t", remote, clone, today=TODAY)
+    under = [mine, other] if where in ("", "bulletins") else [mine]
+    assert r["pushed"] and r["skipped"] == [(rel, "destination path has a submodule") for rel in under], r
+    assert em.skipped_line(r["skipped"]) == f"bulletins: {len(under)} skipped (destination path has a submodule {len(under)})"
+    assert _gitlinks(remote) == [gl]                                         # still tracked, never deleted
+    if where:                                                                # no bulletin written into it
+        assert (clone / gl).is_dir() and not any((clone / gl).iterdir())
+    else:          # since #852 the top-level rule writes nothing there either (receipted on `top_level_skipped`); this
+        assert not (clone / gl / "bulletins").exists()                      # test checks the bulletins only
+    co, tree = _tree(remote, tmp_path)
+    assert {"tools/compare_exports.py", ".github/workflows/compare.yml"} <= set(tree)
+    if where:                                                                # the role folder is real: the top level goes
+        assert {"host/2026-10-03/fixtures_NHL_2026-10-03.json", "host/latest/fixtures_NHL.json"} <= set(tree)
+    if other not in under:
+        assert (co / "host" / other).read_bytes() == b"# another bulletin\n"
+    stray = clone / gl / (mine if not where else "stray.md")                # left in it by a 3441675a push
+    stray.parent.mkdir(parents=True, exist_ok=True)
+    stray.write_bytes(b"left by an earlier push\n")
+    again = em.push("host", ex, "t", remote, clone, today=TODAY)
+    assert again["why"] == "nothing changed" and again["skipped"] == r["skipped"], again
+    assert _gitlinks(remote) == [gl] and stray.read_bytes() == b"left by an earlier push\n"
+
+
+def test_the_compare_never_sees_the_subtree(tmp_path):
+    """The compare is untouched and never sees a bulletin: in a mirror both writers pushed, with bulletins and a .json
+    planted under exports/bulletins/, the compare's own `*.json` glob (its --glob default, read from its source) over
+    every folder of the tree yields no path under bulletins/; the shipped Action's date pick never takes bulletins/ for
+    a date (a tree holding only bulletins is pending, never a verdict) and posts CLEAN on the common dated folder; the
+    shipped tool run on the two bulletins/ folders compares 0 JSON (NO-COVERAGE, never CLEAN). kind_of is the mirror's
+    own, unchanged (compare_exports.py is not in this diff)."""
+    import compare_exports as ce
+    src = (ROOT / "deploy" / "hosting" / "compare_exports.py").read_text()
+    assert 'ap.add_argument("--glob", default="*.json")' in src
+    glob = "*.json"
+    remote = _remote(tmp_path)
+    for role in ("host", "laptop"):                                         # bulletins only: no dated folder yet
+        ex = _exports(tmp_path / f"b_{role}", [])
+        _three(ex)
+        _bulletins(ex, {"bulletins/NFL/2026-10-03/planted.json": b'{"rows": []}'})
+        assert em.push(role, ex, "b", remote, tmp_path / f"{role}_clone", today=TODAY)["pushed"]
+    co, tree = _tree(remote, tmp_path)
+    assert sorted(os.listdir(co / "host")) == ["bulletins"] and sorted(os.listdir(co / "laptop")) == ["bulletins"]
+    got = _run_action(co, tmp_path)
+    assert got["state"] == "pending" and "date" not in got, got            # bulletins/ is never a date
+    body = '[{"utc_date":"2026-10-03T23:00Z","home_team":"A","away_team":"B","p":0.5}]'
+    for role in ("host", "laptop"):
+        ex = _exports(tmp_path / f"d_{role}", [("fixtures_NHL_2026-10-03.json", TODAY, body)])
+        _three(ex)
+        _bulletins(ex, {"bulletins/NFL/2026-10-03/planted.json": b'{"rows": []}'})
+        assert em.push(role, ex, "d", remote, tmp_path / f"{role}_clone", today=TODAY)["pushed"]
+    co, tree = _tree(remote, tmp_path)
+    assert any(f.startswith("host/bulletins/") for f in tree) and any(f.startswith("laptop/bulletins/") for f in tree)
+    seen = [p for d in [co, *(p for p in co.rglob("*") if p.is_dir() and ".git" not in p.parts)] for p in d.glob(glob)]
+    assert seen and not any("bulletins" in p.relative_to(co).parts for p in seen), seen
+    assert not any(f.endswith(".json") and "/bulletins/" in f for f in tree)
+    assert _run_action(co, tmp_path) == {"date": "2026-10-03", "state": "success", "desc": "CLEAN · 2026-10-03"}
+    env = {k: v for k, v in os.environ.items() if k not in ("PYTHONPATH", "SP_WRITER_OF_RECORD")}
+    r = subprocess.run([sys.executable, "tools/compare_exports.py", "laptop/bulletins", "host/bulletins", "--since", "0"],
+                       cwd=co, env=env, capture_output=True, text=True)
+    assert r.returncode == 3 and "coverage: 0 JSON file(s) compared" in r.stdout, r.stdout + r.stderr
+    for rel in (f"{B_CLOSE}.md", f"{B_CLOSE}.png", f"{B_WEEK}.md"):
+        name = Path(rel).name
+        assert ce.kind_of(name) == em.kind_of(name) and ce.machine_state_kind(name) is None
+
+
+# ---- THE PUSH PUBLISHES ONLY ITS PLAN (ARCHITECT 2026-11-06, addendum 277 item 1, R2-1 on #847) --------------------
+# "the mirror publishes ONLY the paths its plan copied. [...] The fix is the add limited to planned paths (never `git
+# clean -fd`: the mirror deletes nothing it did not plan either); a leftover from a killed run is then never published
+# and the next run's receipt names it as untracked-and-skipped."
+
+STRAYS = {"host/bulletins/NFL/2026-10-03/stray.json": b'{"never": "published"}',      # a .json under the subtree
+          "host/bulletins/stray.md": b"# dropped by another writer\n",              # a .md no plan copied
+          "host/stray.md": b"# under the role folder\n",
+          "host/latest/stray.json": b'{"not": "a planned kind"}',
+          "stray-root.txt": b"at the clone root\n"}
+
+
+def _plant(clone: Path, files: dict) -> None:
+    for rel, body in files.items():
+        (clone / rel).parent.mkdir(parents=True, exist_ok=True)
+        (clone / rel).write_bytes(body)
+
+
+def test_a_stray_untracked_file_in_the_clone_is_never_published_never_deleted_and_receipted(tmp_path, monkeypatch,
+                                                                                            capsys):
+    """277 item 1 R2-1: files no plan copied, sitting untracked in the working clone (under <role>/bulletins/, a .json
+    there included; under <role>/ and <role>/latest/; at the clone root), are not staged, so they never reach the
+    remote, even on a push that commits; each is left on disk byte for byte (never deleted) and named on the receipt:
+    `untracked_skipped` on the result, `untracked-and-skipped N (...)` on the console line, on every push they remain.
+    The planned files still go."""
+    remote, clone = _remote(tmp_path), tmp_path / "clone"
+    ex = _exports(tmp_path, [("fixtures_NHL_2026-10-03.json", TODAY, '{"a":1}')])
+    files = _three(ex)
+    assert em.push("host", ex, "t", remote, clone, today=TODAY)["pushed"]
+    _plant(clone, STRAYS)
+    (ex / f"{B_CLOSE}.md").write_bytes(b"# re-rendered\n")                     # a planned change: the push commits
+    (ex / "fixtures_NHL_2026-10-03.json").write_text('{"a":22}')
+    os.utime(ex / "fixtures_NHL_2026-10-03.json", (_mt(TODAY), _mt(TODAY)))
+    r = em.push("host", ex, "t", remote, clone, today=TODAY)
+    assert r["pushed"] and r["copied"] == 3, r
+    assert r["untracked_skipped"] == sorted(STRAYS), r
+    assert "skipped" not in r, r                                                # the bulletins' own skips: none
+    co, tree = _tree(remote, tmp_path)
+    assert not set(STRAYS) & set(tree), tree                                    # never published
+    assert (co / "host" / f"{B_CLOSE}.md").read_bytes() == b"# re-rendered\n"
+    assert (co / "host/latest/fixtures_NHL.json").read_text() == '{"a":22}'
+    assert {f"host/{rel}" for rel in files} <= set(tree)
+    assert {rel: (clone / rel).read_bytes() for rel in STRAYS} == STRAYS        # never deleted
+    again = em.push("host", ex, "t", remote, clone, today=TODAY)
+    assert again["why"] == "nothing changed" and again["untracked_skipped"] == sorted(STRAYS), again
+    for k in ("SP_EXPORTS_MIRROR_KEY", "SP_EXPORTS_MIRROR_ROLE"):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("SP_EXPORTS_MIRROR_REMOTE", remote)
+    monkeypatch.setenv("SP_EXPORTS_MIRROR_DIR", str(clone))
+    (ex / f"{B_WEEK}.md").write_bytes(b"# week 7, rewritten\n")
+    assert em.main(["push", "--exports", str(ex), "--label", "t"]) == 0
+    line = capsys.readouterr().out.strip().splitlines()[-1]
+    assert line.startswith("EXPORTS-MIRROR host: pushed 1 file(s)"), line
+    assert line.endswith(" · untracked-and-skipped 5 (host/bulletins/NFL/2026-10-03/stray.json, "
+                         "host/bulletins/stray.md, host/latest/stray.json, host/stray.md, stray-root.txt)"), line
+    _, tree = _tree(remote, tmp_path)
+    assert not set(STRAYS) & set(tree) and f"host/{B_WEEK}.md" in tree
+
+
+def test_a_killed_runs_leftover_is_never_published_and_the_next_run_receipts_it(tmp_path, monkeypatch):
+    """277 item 1 R2-1, the case it names: a push killed after its copies and before its add leaves planned-at-the-time
+    copies untracked in the clone (a dated file, its latest copy, a bulletin). Their sources are then gone, so the next
+    run's plan no longer holds them: that run publishes only its own plan, never the leftovers, leaves them on disk
+    and names each as untracked-and-skipped."""
+    remote, clone = _remote(tmp_path), tmp_path / "clone"
+    ex = _exports(tmp_path, [("fixtures_NHL_2026-10-03.json", TODAY, '{"a":1}')])
+    assert em.push("host", ex, "t", remote, clone, today=TODAY)["pushed"]
+    gone = {"gone_2026-10-03.json": '{"gone": 1}'}
+    for name, body in gone.items():
+        (ex / name).write_text(body)
+        os.utime(ex / name, (_mt(TODAY), _mt(TODAY)))
+    _bulletins(ex, {"bulletins/NFL/2026-10-03/900009_gone.md": b"# a bulletin whose source goes\n"})
+    real_git = em._git
+
+    def killed(clone_, *args, **kw):
+        if args and args[0] == "add":                                         # killed before its first add
+            raise KeyboardInterrupt("killed")
+        return real_git(clone_, *args, **kw)
+    monkeypatch.setattr(em, "_git", killed)
+    with pytest.raises(KeyboardInterrupt):
+        em.push("host", ex, "killed", remote, clone, today=TODAY)
+    monkeypatch.setattr(em, "_git", real_git)
+    leftovers = ["host/2026-10-03/gone_2026-10-03.json", "host/bulletins/NFL/2026-10-03/900009_gone.md",
+                 "host/latest/gone.json"]
+    assert all((clone / rel).is_file() for rel in leftovers)                    # the killed run's copies, untracked
+    (ex / "gone_2026-10-03.json").unlink()                                      # their sources are gone
+    shutil.rmtree(ex / "bulletins")
+    (ex / "fixtures_NHL_2026-10-03.json").write_text('{"a":22}')                # and the next run has its own change
+    os.utime(ex / "fixtures_NHL_2026-10-03.json", (_mt(TODAY), _mt(TODAY)))
+    r = em.push("host", ex, "next", remote, clone, today=TODAY)
+    assert r["pushed"] and r["copied"] == 2 and r["untracked_skipped"] == leftovers, r
+    _, tree = _tree(remote, tmp_path)
+    assert not set(leftovers) & set(tree), tree                                 # never published
+    assert all((clone / rel).is_file() for rel in leftovers)                    # never deleted
+    assert "host/2026-10-03/fixtures_NHL_2026-10-03.json" in tree
+
+
+def test_the_squash_publishes_only_the_tracked_tree(tmp_path):
+    """277 item 1 R2-1, the squash kept consistent: the weekly orphan commit is the remote tip's tree as tracked, never
+    a whole-tree add, so a stray untracked file in the clone is not in the squashed commit; it stays on disk and the
+    squash's result names it (untracked_skipped)."""
+    remote, clone = _remote(tmp_path), tmp_path / "clone"
+    ex = _exports(tmp_path, [("a_2026-10-03.json", TODAY, "1")])
+    _three(ex)
+    assert em.push("host", ex, "one", remote, clone, today=TODAY)["pushed"]
+    _, before = _tree(remote, tmp_path)
+    _plant(clone, STRAYS)
+    r = em.squash(remote, clone)
+    assert r["squashed"] and r["untracked_skipped"] == sorted(STRAYS), r
+    co, tree = _tree(remote, tmp_path)
+    n = subprocess.run(["git", "-C", str(co), "rev-list", "--count", "HEAD"], capture_output=True, text=True).stdout
+    assert n.strip() == "1" and tree == before, tree                           # the tracked tree exactly, no stray
+    assert {rel: (clone / rel).read_bytes() for rel in STRAYS} == STRAYS
+
+
+def test_the_planned_deletions_remove_tracked_paths_only(tmp_path):
+    """277 item 1 R2-1, the deletions: the latest cleanup and the prune are planned, and go through git on TRACKED
+    paths only. A tracked latest/ file no planned kind holds is removed from the remote, and so is an expired dated
+    folder's tracked content (`pruned` names it); an untracked file in latest/ and one in the expired folder stay on
+    disk, never published, receipted as untracked-and-skipped; the planned latest copy and the new dated folder go."""
+    remote, clone = _remote(tmp_path), tmp_path / "clone"
+    ex = _exports(tmp_path, [("fixtures_NHL_2026-10-03.json", TODAY, '{"a":1}'),
+                             ("old_kind_2026-10-03.json", TODAY, "1")])
+    assert em.push("host", ex, "t", remote, clone, today=TODAY)["pushed"]
+    _, tree = _tree(remote, tmp_path)
+    assert {"host/latest/old_kind.json", "host/2026-10-03/old_kind_2026-10-03.json"} <= set(tree)
+    strays = {"host/latest/stray.json": b"{}", "host/2026-10-03/stray.md": b"# left\n"}
+    _plant(clone, strays)
+    later = TODAY + timedelta(days=14)                                      # 2026-10-03 now past retention
+    ex2 = _exports(tmp_path / "x2", [("fixtures_NHL_2026-10-17.json", later, '{"a":3}')])
+    r = em.push("host", ex2, "later", remote, clone, today=later)
+    assert r["pushed"] and r["pruned"] == ["2026-10-03"] and r["untracked_skipped"] == sorted(strays), r
+    co, tree = _tree(remote, tmp_path)
+    assert not any(f.startswith("host/2026-10-03/") for f in tree) and "host/latest/old_kind.json" not in tree
+    assert not set(strays) & set(tree)
+    assert (co / "host/latest/fixtures_NHL.json").read_text() == '{"a":3}'
+    assert "host/2026-10-17/fixtures_NHL_2026-10-17.json" in tree
+    assert {rel: (clone / rel).read_bytes() for rel in strays} == strays    # never deleted
+    assert not (clone / "host/latest/old_kind.json").exists()                # the tracked stale copy: removed
+    assert sorted(p.name for p in (clone / "host/2026-10-03").iterdir()) == ["stray.md"]
+
+
+@pytest.mark.parametrize("where", [".gitignore", "host/.gitignore", ".git/info/exclude"])
+def test_an_ignore_rule_in_the_clone_never_vetoes_a_planned_path_or_jams_the_push(tmp_path, where):
+    """277 item 1 R2-1, review of the fix: the planned-path add is the plan, so no ignore rule vetoes a path in it. A
+    stray untracked .gitignore (at the clone root or under <role>/) or a .git/info/exclude entry matching the next
+    day's dated, latest and bulletin copies never makes git's add exit 1 and abort the push (a stray is never deleted,
+    so that jam would be every push): the planned files reach the remote, the stray .gitignore is not published, stays
+    on disk, and is receipted as untracked-and-skipped; nothing is skipped as refused."""
+    remote, clone = _remote(tmp_path), tmp_path / "clone"
+    ex = _exports(tmp_path, [("fixtures_NHL_2026-10-03.json", TODAY, '{"a":1}')])
+    _three(ex)
+    assert em.push("host", ex, "t", remote, clone, today=TODAY)["pushed"]
+    rules = b"*.json\n*.md\n*.png\nhost/2026-10-04/\n"
+    (clone / where).parent.mkdir(parents=True, exist_ok=True)
+    (clone / where).write_bytes(rules)
+    later = TODAY + timedelta(days=1)
+    (ex / "fixtures_NHL_2026-10-04.json").write_text('{"a":2}')
+    os.utime(ex / "fixtures_NHL_2026-10-04.json", (_mt(later), _mt(later)))
+    new_bulletin = "bulletins/NFL/2026-10-04/900002_new.md"
+    _bulletins(ex, {new_bulletin: b"# new\n"})
+    r = em.push("host", ex, "t2", remote, clone, today=later)
+    assert r["pushed"] and "skipped" not in r, r
+    assert r.get("untracked_skipped", []) == ([] if where.startswith(".git/") else [where]), r
+    co, tree = _tree(remote, tmp_path)
+    assert {"host/2026-10-04/fixtures_NHL_2026-10-04.json", f"host/{new_bulletin}"} <= set(tree), tree
+    assert (co / "host/latest/fixtures_NHL.json").read_text() == '{"a":2}'
+    assert where not in tree and (clone / where).read_bytes() == rules          # never published, never deleted
+
+
+def test_a_tracked_file_another_writer_edits_after_the_sync_is_never_published(tmp_path, monkeypatch):
+    """277 item 1 R2-1, review of the fix: a tracked file the plan does not write (a bulletin whose source is gone),
+    edited in the clone by another writer between the sync and the add, is never staged: the remote keeps its tracked
+    bytes. (It is not untracked, so it is not on untracked_skipped; the next sync's reset puts the tracked bytes back,
+    as on main.)"""
+    remote, clone = _remote(tmp_path), tmp_path / "clone"
+    ex = _exports(tmp_path, [("fixtures_NHL_2026-10-03.json", TODAY, '{"a":1}')])
+    files = _three(ex)
+    assert em.push("host", ex, "t", remote, clone, today=TODAY)["pushed"]
+    (ex / f"{B_CLOSE}.md").unlink()                                             # its source is gone: unplanned now
+    (ex / "fixtures_NHL_2026-10-03.json").write_text('{"a":22}')                # and the push has its own change
+    os.utime(ex / "fixtures_NHL_2026-10-03.json", (_mt(TODAY), _mt(TODAY)))
+    real_sync = em._sync_to_remote
+
+    def sync_then_edit(clone_):
+        real_sync(clone_)
+        (clone_ / "host" / f"{B_CLOSE}.md").write_bytes(b"# edited by another writer\n")
+    monkeypatch.setattr(em, "_sync_to_remote", sync_then_edit)
+    r = em.push("host", ex, "t2", remote, clone, today=TODAY)
+    assert r["pushed"] and "untracked_skipped" not in r, r
+    co, _ = _tree(remote, tmp_path)
+    assert (co / "host" / f"{B_CLOSE}.md").read_bytes() == files[f"{B_CLOSE}.md"]
+    assert (co / "host/latest/fixtures_NHL.json").read_text() == '{"a":22}'
+
+
+# #852 (ARCHITECT 2026-11-06, addendum 277 item 1, the pre-existing hole): the TOP-LEVEL rule (the dated copy, the latest
+# copy, the latest cleanup, the prune) applies _dest_refusal's rule: a symlinked or submodule <role>, <role>/latest or
+# <role>/<date> is skipped and receipted (`top_level_skipped` + its console segment), never followed, never unlinked
+# through, never touched; the rest of the push proceeds.
+TOP_DATED, TOP_LATEST = "2026-10-03/fixtures_NHL_2026-10-03.json", "latest/fixtures_NHL.json"
+
+
+def _outside_top(tmp: Path) -> Path:
+    """A folder beside the clone holding names the top-level rule writes (a latest-like file, a dated-like file, the
+    role layout's own folders) and one it never would: what a tracked link would carry a write or an unlink to."""
+    out = tmp / "outside"
+    for rel, body in {"fixtures_NHL.json": b"OUTSIDE LATEST-LIKE\n", "fixtures_NHL_2026-10-03.json": b"OUTSIDE DATED\n",
+                      "keep.txt": b"OUTSIDE KEEP\n", "target.md": b"OUTSIDE ORIGINAL\n",
+                      "2026-10-03/fixtures_NHL_2026-10-03.json": b"OUTSIDE NESTED DATED\n",
+                      "latest/fixtures_NHL.json": b"OUTSIDE NESTED LATEST\n", "latest/keep.json": b"{}"}.items():
+        (out / rel).parent.mkdir(parents=True, exist_ok=True)
+        (out / rel).write_bytes(body)
+    return out
+
+
+def _snapshot(d: Path) -> dict:
+    """Every entry under d, byte for byte (a folder as None): an extra file, a lost one or a changed byte all show."""
+    return {str(q.relative_to(d)): (None if q.is_dir() else q.read_bytes()) for q in sorted(d.rglob("*"))}
+
+
+def _console(monkeypatch, capsys, remote: str, clone: Path, ex: Path) -> str:
+    for k in ("SP_EXPORTS_MIRROR_KEY", "SP_EXPORTS_MIRROR_ROLE"):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("SP_EXPORTS_MIRROR_REMOTE", remote)
+    monkeypatch.setenv("SP_EXPORTS_MIRROR_DIR", str(clone))
+    real_push = em.push
+    monkeypatch.setattr(em, "push", lambda *a, **k: real_push(*a, today=TODAY, **k))   # main's own clock: TODAY
+    capsys.readouterr()
+    assert em.main(["push", "--exports", str(ex), "--label", "t"]) == 0
+    return capsys.readouterr().out.strip().splitlines()[-1]
+
+
+@pytest.mark.parametrize("where, target, skipped", [
+    ("host/latest", "../../outside", [TOP_LATEST]),                  # F: the latest copy (and its cleanup)
+    ("host/latest", "ABS", [TOP_LATEST]),
+    ("host/2026-10-03", "../../outside", [TOP_DATED]),               # H: today's dated folder
+    ("host/2026-10-03", "ABS", [TOP_DATED]),
+    ("host", "../outside", [TOP_DATED, TOP_LATEST]),                 # the role folder itself
+    ("host", "ABS", [TOP_DATED, TOP_LATEST]),
+])
+def test_a_tracked_symlink_on_a_top_level_destination_is_never_followed(tmp_path, monkeypatch, capsys, where, target,
+                                                                        skipped):
+    """#852, 277 item 1 (probe cases F and H, and the linked role folder): the mirror's own tree may TRACK a symlink at
+    <role>/latest, at today's <role>/<date> or at <role> itself (a relative escape or an absolute link). Before this,
+    the latest copy overwrote an outside file, the dated copy wrote into the outside folder and the push reported
+    success. Now each top-level copy whose path holds the link is skipped ("destination path has a symlink"), receipted
+    on the result (`top_level_skipped`) and the console line (`top-level: N skipped (...)`); nothing outside changes,
+    byte for byte (no write, no unlink through the link); the tracked link stays, in the clone and on the remote; the
+    top-level copy the link does not hold and the tools still go; the next push is "nothing changed", same receipt."""
+    out = _outside_top(tmp_path)
+    before = _snapshot(out)
+    ex = _exports(tmp_path, [("fixtures_NHL_2026-10-03.json", TODAY, '{"a":1}')])
+    link = target.replace("ABS", str(out))
+    remote, clone = _seeded_remote(tmp_path, {where: ("link", link)}), tmp_path / "clone"
+    r = em.push("host", ex, "t", remote, clone, today=TODAY)
+    assert _snapshot(out) == before                                          # outside untouched, byte for byte
+    assert r["pushed"] and r["copied"] == 2 - len(skipped), r                # the copy the link does not hold
+    assert r["top_level_skipped"] == [(rel, "destination path has a symlink") for rel in skipped], r
+    assert "skipped" not in r, r                                             # the bulletins' own receipt: none
+    assert os.readlink(clone / where) == link                                # the tracked link stays as it was
+    co, tree = _tree(remote, tmp_path)
+    assert os.readlink(co / where) == link                                   # the remote's link unchanged
+    assert {"tools/compare_exports.py", ".github/workflows/compare.yml"} <= set(tree)
+    for rel in (TOP_DATED, TOP_LATEST):
+        assert (f"host/{rel}" in tree) == (rel not in skipped), tree         # the rest of the push proceeds
+    again = em.push("host", ex, "t", remote, clone, today=TODAY)
+    assert again["why"] == "nothing changed" and again["top_level_skipped"] == r["top_level_skipped"], again
+    line = _console(monkeypatch, capsys, remote, clone, ex)
+    n = len(skipped)
+    assert line.endswith(f" · top-level: {n} skipped (destination path has a symlink {n})"), line
+    assert _snapshot(out) == before
+
+
+@pytest.mark.parametrize("target", ["../../outside", "ABS",
+                                    "../../outside/nope",                # dangling
+                                    "../../outside/keep.txt"])           # a file
+def test_a_tracked_symlink_expired_dated_folder_is_skipped_never_aborts_the_push(tmp_path, target):
+    """#852, 277 item 1 (probe case G): a tracked symlink at an EXPIRED <role>/<date> (the prune's own target). Main's
+    prune followed it (an rmtree raised: every push aborted) or removed the tracked link. Now it is skipped and
+    receipted ("destination path has a symlink" on `top_level_skipped`), never followed, never unlinked: the outside
+    is byte for byte as it was and the link stays tracked; the prune of a real expired folder and today's copies still
+    go, and the next push is "nothing changed", same receipt."""
+    out = _outside_top(tmp_path)
+    before = _snapshot(out)
+    ex = _exports(tmp_path, [("fixtures_NHL_2026-10-03.json", TODAY, '{"a":1}')])
+    link = target.replace("ABS", str(out))
+    remote = _seeded_remote(tmp_path, {"host/2026-09-01": ("link", link),
+                                       "host/2026-09-02/old_2026-09-02.json": ("file", b'{"old": 1}')})
+    clone = tmp_path / "clone"
+    r = em.push("host", ex, "t", remote, clone, today=TODAY)
+    assert _snapshot(out) == before
+    assert r["pushed"] and r["pruned"] == ["2026-09-02"], r
+    assert r["top_level_skipped"] == [("2026-09-01", "destination path has a symlink")], r
+    assert os.readlink(clone / "host/2026-09-01") == link
+    co, tree = _tree(remote, tmp_path)
+    assert os.readlink(co / "host/2026-09-01") == link                       # still tracked, as it was
+    assert not any(f.startswith("host/2026-09-02/") for f in tree)           # the real expired folder: pruned
+    assert {f"host/{TOP_DATED}", f"host/{TOP_LATEST}"} <= set(tree)
+    again = em.push("host", ex, "t", remote, clone, today=TODAY)
+    assert again["why"] == "nothing changed" and again["top_level_skipped"] == r["top_level_skipped"], again
+    assert _snapshot(out) == before
+
+
+def test_a_tracked_symlink_under_the_role_folder_is_never_stat_followed_to_pick_the_prune(tmp_path):
+    """#852 review: the prune picks expired folders by NAME, then lstat, never by a stat through the entry: a tracked
+    link whose target's stat raises (ENAMETOOLONG here; EACCES on a target the service user cannot read) never aborts
+    the push: at a future <role>/<date> or a name that is no date it is never touched or receipted (it is not an expired
+    folder and nothing is planned there); at an expired <role>/<date> it is skipped and receipted, as an expired link
+    to a dangling target is."""
+    ex = _exports(tmp_path, [("fixtures_NHL_2026-10-03.json", TODAY, '{"a":1}')])
+    bad = "/" + "a" * 300
+    remote = _seeded_remote(tmp_path, {"host/2026-12-01": ("link", bad), "host/notadate": ("link", bad),
+                                       "host/2026-08-31": ("link", bad),
+                                       "host/2026-09-01": ("link", "../../outside/nope")})
+    clone = tmp_path / "clone"
+    r = em.push("host", ex, "t", remote, clone, today=TODAY)
+    assert r["pushed"] and r["pruned"] == [], r
+    assert r["top_level_skipped"] == [(d, "destination path has a symlink") for d in ("2026-08-31", "2026-09-01")], r
+    # read from the bare repo itself: a checkout's rglob would stat through the too-long link (_tree cannot)
+    ls = subprocess.run(["git", "-C", remote, "ls-tree", "-r", "main"], check=True, capture_output=True, text=True)
+    tree = {line.split("\t", 1)[1]: line.split()[:3] for line in ls.stdout.splitlines()}
+    for rel, link in (("host/2026-12-01", bad), ("host/notadate", bad), ("host/2026-08-31", bad),
+                      ("host/2026-09-01", "../../outside/nope")):
+        assert tree[rel][0] == "120000", tree                                # still tracked as a link, as it was
+        blob = subprocess.run(["git", "-C", remote, "cat-file", "blob", tree[rel][2]], check=True, capture_output=True)
+        assert blob.stdout.decode() == link
+    assert {f"host/{TOP_DATED}", f"host/{TOP_LATEST}"} <= set(tree)
+    again = em.push("host", ex, "t", remote, clone, today=TODAY)
+    assert again["why"] == "nothing changed" and again["top_level_skipped"] == r["top_level_skipped"], again
+
+
+@pytest.mark.parametrize("gl, extra, skipped, pruned", [
+    ("host", {}, [TOP_DATED, TOP_LATEST], []),                                  # the role folder: the day's files
+    ("host/latest", {}, [TOP_LATEST], []),
+    ("host/2026-10-03", {}, [TOP_DATED], []),
+    ("host/2026-09-01", {}, ["2026-09-01"], []),                                # an expired dated folder
+    ("host/2026-09-02/sub", {"host/2026-09-02/old_2026-09-02.json": ("file", b"{}")}, ["2026-09-02/sub"],
+     ["2026-09-02"]),                                                           # one inside a real expired folder
+    ("host/latest/old_kind.json", {}, ["latest/old_kind.json"], []),            # a stale latest entry (the cleanup)
+])
+def test_a_tracked_submodule_on_a_top_level_path_is_skipped_kept_and_receipted(tmp_path, gl, extra, skipped, pruned):
+    """#852, 277 item 1: a tracked SUBMODULE (a gitlink, checked out as an empty real folder) at <role>, <role>/latest,
+    <role>/<date> (today's or an expired one, or inside an expired one) or at a stale latest entry. Main wrote the
+    day's top-level files into its folder, where git never carries them, and reported `pushed: True` with nothing
+    receipted; its prune and cleanup removed the gitlink. Now each such path is skipped ("destination path has a
+    submodule", on `top_level_skipped`), nothing is written into the submodule's folder, the gitlink stays tracked on
+    the remote, and the rest of the push (the other copy, the real expired folder's prune, the tools) proceeds."""
+    ex = _exports(tmp_path, [("fixtures_NHL_2026-10-03.json", TODAY, '{"a":1}')])
+    remote = _seeded_remote(tmp_path, {**extra, gl: ("gitlink", GITLINK_SHA)})
+    clone = tmp_path / "clone"
+    r = em.push("host", ex, "t", remote, clone, today=TODAY)
+    held = sorted(str(q.relative_to(clone)) for q in (clone / gl).rglob("*")) if (clone / gl).is_dir() else "gone"
+    assert held == [], held                                                     # nothing written into it, kept
+    assert _gitlinks(remote) == [gl]                                            # still tracked, never removed
+    assert r["pushed"] and r["pruned"] == pruned, r
+    assert r["top_level_skipped"] == [(rel, "destination path has a submodule") for rel in skipped], r
+    co, tree = _tree(remote, tmp_path)
+    assert {"tools/compare_exports.py", ".github/workflows/compare.yml"} <= set(tree)
+    for rel in (TOP_DATED, TOP_LATEST):
+        assert (f"host/{rel}" in tree) == (rel not in skipped), tree
+    if pruned:
+        assert not any(f.startswith("host/2026-09-02/old") for f in tree), tree
+    again = em.push("host", ex, "t", remote, clone, today=TODAY)
+    assert again["why"] == "nothing changed" and again["top_level_skipped"] == r["top_level_skipped"], again
+    assert _gitlinks(remote) == [gl]
+
+
+# #858 (ARCHITECT addendum 282 item 3): "the tools copy (tools/compare_exports.py and the workflow file written through a
+# tracked link) is the same defect in the same module and is BUILT in #858 by the same rule — each tool path through
+# _dest_refusal, skipped and receipted, never written through". The two tool paths (clone-relative) and an outside
+# folder holding the names a link there would carry their writes to.
+TOOL_PY, TOOL_YML = "tools/compare_exports.py", ".github/workflows/compare.yml"
+
+
+def _outside_tools(tmp: Path) -> Path:
+    out = tmp / "outside"
+    for rel, body in {"compare_exports.py": b"OUTSIDE COMPARE\n", "compare.yml": b"OUTSIDE YML\n",
+                      "workflows/compare.yml": b"OUTSIDE NESTED YML\n", "keep.txt": b"OUTSIDE KEEP\n"}.items():
+        (out / rel).parent.mkdir(parents=True, exist_ok=True)
+        (out / rel).write_bytes(body)
+    return out
+
+
+@pytest.mark.parametrize("where, target, skipped", [
+    ("tools", "../outside", TOOL_PY),                                         # tools/ itself, relative escape
+    ("tools", "ABS", TOOL_PY),                                                # tools/ itself, absolute
+    (".github", "../outside", TOOL_YML),                                      # .github/
+    (".github/workflows", "../../outside", TOOL_YML),                         # .github/workflows/, relative
+    (".github/workflows", "ABS", TOOL_YML),                                   # .github/workflows/, absolute
+    (TOOL_PY, "../../outside/compare_exports.py", TOOL_PY),                   # the file itself, relative
+    (TOOL_PY, "ABS/compare_exports.py", TOOL_PY),                             # the file itself, absolute
+    (TOOL_YML, "ABS/compare.yml", TOOL_YML),
+])
+def test_a_tracked_symlink_on_a_tool_destination_is_never_written_through(tmp_path, monkeypatch, capsys, where, target,
+                                                                           skipped):
+    """#858, addendum 282 item 3: the mirror's own tree may TRACK a symlink at tools/, .github/, .github/workflows/ or at
+    a tool file itself (a relative escape or an absolute link). Before this, the tools copy wrote compare_exports.py (or
+    compare.yml) through it, outside the clone, and the push reported success. Now that tool is skipped ("destination
+    path has a symlink"), receipted on the result (`tools_skipped`, clone-relative) and the console line (`tools: N
+    skipped (...)`), never written through, never staged; the outside folder is byte for byte as it was; the tracked link
+    stays, in the clone and on the remote; the top-level files and the other tool still push; the next push is "nothing
+    changed", same receipt."""
+    out = _outside_tools(tmp_path)
+    before = _snapshot(out)
+    ex = _exports(tmp_path, [("fixtures_NHL_2026-10-03.json", TODAY, '{"a":1}')])
+    link = target.replace("ABS", str(out))
+    remote, clone = _seeded_remote(tmp_path, {where: ("link", link)}), tmp_path / "clone"
+    r = em.push("host", ex, "t", remote, clone, today=TODAY)
+    assert _snapshot(out) == before                                          # outside untouched, byte for byte
+    assert r["pushed"] and r["tools_skipped"] == [(skipped, "destination path has a symlink")], r
+    assert "skipped" not in r and "top_level_skipped" not in r, r
+    assert os.readlink(clone / where) == link                                # the tracked link stays as it was
+    co, tree = _tree(remote, tmp_path)
+    assert os.readlink(co / where) == link                                   # the remote's link unchanged
+    assert {f"host/{TOP_DATED}", f"host/{TOP_LATEST}"} <= set(tree)          # the top-level files still push
+    other = TOOL_YML if skipped == TOOL_PY else TOOL_PY
+    assert other in tree and (co / other).read_bytes() == (em.HERE / "compare_exports.py" if other == TOOL_PY
+                                                           else em.WORKFLOW_SRC).read_bytes()
+    again = em.push("host", ex, "t", remote, clone, today=TODAY)
+    assert again["why"] == "nothing changed" and again["tools_skipped"] == r["tools_skipped"], again
+    line = _console(monkeypatch, capsys, remote, clone, ex)
+    assert line.endswith(" · tools: 1 skipped (destination path has a symlink 1)"), line
+    assert _snapshot(out) == before
+
+
+@pytest.mark.parametrize("where, what, skipped, why", [
+    ("tools", "gitlink", TOOL_PY, "destination path has a submodule"),        # a tracked submodule at tools/
+    (".github/workflows", "gitlink", TOOL_YML, "destination path has a submodule"),
+    ("tools", "file", TOOL_PY, "destination path has a non-folder"),          # a tracked FILE where tools/ goes
+])
+def test_a_tracked_submodule_or_file_on_a_tool_path_is_skipped_kept_and_receipted(tmp_path, where, what, skipped, why):
+    """#858, addendum 282 item 3: a tracked SUBMODULE (a gitlink, checked out as an empty real folder) at tools/ or
+    .github/workflows/, or a tracked FILE at tools/. Before this, the tools copy wrote compare_exports.py into the
+    submodule's folder (where git never carries it) and reported `pushed: True` with nothing receipted, or raised on the
+    file. Now that tool is skipped (`tools_skipped`), nothing is written into the submodule's folder, the gitlink (or
+    the file) stays tracked as it was, nothing outside the clone changes, and the top-level files and the other tool
+    still push."""
+    out = _outside_tools(tmp_path)
+    before = _snapshot(out)
+    ex = _exports(tmp_path, [("fixtures_NHL_2026-10-03.json", TODAY, '{"a":1}')])
+    body = b"a tracked file where tools/ goes\n"
+    remote = _seeded_remote(tmp_path, {where: ("gitlink", GITLINK_SHA) if what == "gitlink" else ("file", body)})
+    clone = tmp_path / "clone"
+    r = em.push("host", ex, "t", remote, clone, today=TODAY)
+    assert _snapshot(out) == before
+    assert r["pushed"] and r["tools_skipped"] == [(skipped, why)], r
+    co, tree = _tree(remote, tmp_path)
+    if what == "gitlink":
+        held = sorted(str(q.relative_to(clone)) for q in (clone / where).rglob("*"))
+        assert held == [], held                                              # nothing written into it
+        assert _gitlinks(remote) == [where]                                  # still tracked, never removed
+    else:
+        assert (clone / where).read_bytes() == body and (co / where).read_bytes() == body
+    assert {f"host/{TOP_DATED}", f"host/{TOP_LATEST}"} <= set(tree)
+    assert (TOOL_YML if skipped == TOOL_PY else TOOL_PY) in tree
+    again = em.push("host", ex, "t", remote, clone, today=TODAY)
+    assert again["why"] == "nothing changed" and again["tools_skipped"] == r["tools_skipped"], again

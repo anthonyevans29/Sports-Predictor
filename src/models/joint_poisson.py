@@ -26,10 +26,12 @@ log y! term dropped) plus the penalty rows:
   * every S team k not seen in S−1 and arriving from a HIGHER tier (relegated; the caller names them, from its declared
                                    pyramid: soccer_v23.PYRAMIDS): α_{k,S} → RELEGATED_ATTACK (0), δ_{k,S} →
                                    RELEGATED_DEFENCE (0), weight τ: no directional prior (a club relegated into the
-                                   competition is never centred on the promoted side; a proposed ruling, spec §11);
+                                   competition is never centred on the promoted side; RULED as built, addendum
+                                   263 item 15; an arrival OFF the pyramid, not named relegated, takes the
+                                   promoted prior, the outside-the-store one);
   * β (every window, one rule): β → BETA_PRIOR_MEAN (0), precision BETA_PRIOR_PRECISION = K_PRIOR·G0 on the column
                                    ΔE/ELO_SCALE: a weak prior, so a competition's first few rows cannot drive β to an
-                                   extreme (a proposed ruling, spec §11);
+                                   extreme (RULED as built, addendum 263 item 5);
   * IDENTIFICATION: a HARD sum-to-zero on α_{·,S−1} and on δ_{·,S−1}, by substitution (the highest team id, last in
                                    sorted order, is the dependent one). μ and h are UNPENALISED whenever S−1 exists.
   τ = K_PRIOR·λ̄_{S−1}, λ̄_{S−1} the window's S−1 goals per team per match (the Poisson information per observation of
@@ -40,7 +42,7 @@ and ∂/∂h: Σ(y_H − λ_H) = 0, so Σλ̂_H = Σy_H and Σλ̂_A = Σy_A EXA
 gives e^ĥ = b/(2−b) (the data's home/away ratio) and a forecast total of 2g. No deflate-then-divide step exists. The
 fit reports both residuals (I1 home, I2 away) so a test and the harness print them.
 
-THE FIRST SEASON OF A COMPETITION IN THE WINDOW (no S−1 visible; a ruling, open question 3): α and δ penalised toward
+THE FIRST SEASON OF A COMPETITION IN THE WINDOW (no S−1 visible; RULED as built, addendum 263 item 3): α and δ penalised toward
 0 with τ = K_PRIOR·G0; μ and h get a weak prior centred at μ0 = ln(G0·(2−B0)) and h0 = ln(B0/(2−B0)) (G0, B0 the
 defaults of CompetitionScoringContext() converted coherently: away mean g·(2−b), home/away ratio b/(2−b); NOT b reused
 as a ratio, which is 216 item 1's own mismatch), precision τ_μ = K_PRIOR·G0. There the identity is a pull, pinned as
@@ -62,9 +64,9 @@ estimated here; pricing applies v22's stored ρ to the fitted λ (soccer_v23.pri
 leave E[X] and E[Y] unchanged (p10·λ_A·ρ − p11·ρ = 0 for X; alike for Y), so fitting λ under independent Poisson and
 applying DC only at pricing is coherent.
 
-THE CONSTANTS (proposed, every one an open question for the declaration, never fitted to the pot): K_PRIOR 5.0
+THE CONSTANTS (RULED as built and FROZEN by the declaration, addendum 263 item 5; never fitted to the pot): K_PRIOR 5.0
 (poisson.py's own n/(n+5), reused), the promoted prior ln 0.85 / ln 1.15 (v22's PoissonConfig promoted priors, read
-as log offsets on S−1's zero mean), the relegated prior 0 / 0 (no directional prior), CARRY 1.0 (no extra
+as log offsets on S−1's zero mean: they sit on v22's deflated scale, as BAR_TEXT states), the relegated prior 0 / 0 (no directional prior), CARRY 1.0 (no extra
 regression), G0 1.4 and B0 1.15 (CompetitionScoringContext()'s defaults), β's prior 0 with precision K_PRIOR·G0 (the
 first season's μ/h precision reused; chosen before any probe, never tuned). The declaration freezes them; the harness refuses a run whose entry differs (soccer_v23.constants_state).
 """
@@ -249,7 +251,7 @@ def fit(obs: list[Obs] | tuple, relegated=frozenset()) -> JointFit:
     if first:
         tau = K_PRIOR * G0
         tau_mu = tau
-        labels.append("first season: weak mu/h prior (open question 3)")
+        labels.append("first season: weak mu/h prior (addendum 263 item 3)")
     else:
         lam_bar = sum(o.home_goals + o.away_goals for o in prev_rows) / (2.0 * len(prev_rows))
         if lam_bar <= 0:

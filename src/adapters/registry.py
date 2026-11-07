@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from src.adapters.api_football import APIFootballAdapter
 from src.adapters.api_american_football import APIAmericanFootballAdapter
+from src.adapters.api_basketball import APIBasketballAdapter
 from src.adapters.api_hockey import APIHockeyAdapter
 from src.adapters.base import DataAdapter
 from src.adapters.mlb_stats_api import MLBStatsAPIAdapter
@@ -17,6 +18,7 @@ _REGISTRY: dict[str, type[DataAdapter]] = {
     APIFootballAdapter.source_name: APIFootballAdapter,
     APIAmericanFootballAdapter.source_name: APIAmericanFootballAdapter,
     MLBStatsAPIAdapter.source_name: MLBStatsAPIAdapter,
+    APIBasketballAdapter.source_name: APIBasketballAdapter,     # addendum 271 item 3(a), lane basketball-market-only
 }
 
 #: The default adapter for a given sport. CLI/web use this when no
@@ -29,6 +31,7 @@ DEFAULT_FOR_SPORT: dict[str, str] = {
     "nhl": APIHockeyAdapter.source_name,
     "hockey": APIHockeyAdapter.source_name,
     "mlb": MLBStatsAPIAdapter.source_name,
+    "basketball": APIBasketballAdapter.source_name,             # Sport.BASKETBALL's value (sync-competitions --sport)
 }
 
 

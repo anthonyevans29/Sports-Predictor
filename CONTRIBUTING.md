@@ -44,3 +44,5 @@ This project runs on laws earned from incidents. They are not optional.
   export contracts): branch + pull request using the template — the PR
   carries the backtest verdicts and gate output before merge.
 - CI must pass (parse + import smoke) on every push.
+- Python 3.10 is the floor (the laptop); no PEP 701 f-strings (a replacement field never spans lines or reuses the
+  enclosing quote); CI parses on 3.10. (ARCHITECT 2026-11-07, addendum 280 item 2(c).)

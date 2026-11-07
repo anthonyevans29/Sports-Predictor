@@ -52,6 +52,12 @@ class Sport(str, enum.Enum):
     NFL = "nfl"
     MLB = "mlb"
     NHL = "nhl"
+    # ARCHITECT 2026-11-05, addendum 261 items 0 and 1 (lane basketball-market-only): "a new sport is a Sport enum
+    # value (schema.Sport, stored as a string column — Code verifies on the laptop's schema that no CHECK constraint
+    # pins the set; if one does, the value is a migration, not an edit)". The metadata creates no CHECK (Enum's
+    # create_constraint is False); the column stores the member NAME ('BASKETBALL'), on SQLite a VARCHAR whose
+    # declared length is not enforced. The laptop's own schema is the operator's read (the PR body names it).
+    BASKETBALL = "basketball"
 
 
 class MatchStatus(str, enum.Enum):
@@ -1265,6 +1271,11 @@ def _abort(msg: str) -> str:
 # INSERT OR REPLACE deletes the row it conflicts with WITHOUT firing a delete trigger (recursive_triggers is off),
 # so the conflict is refused before it can happen. An upsert's DO UPDATE fires the update trigger.
 _OBS, _ASR = "availability_observations", "availability_assertions"
+# The snapshot hash guard's message, built OUTSIDE the trigger's f-string: a replacement field that spans lines is
+# PEP 701 (Python 3.12 only) and a SyntaxError on the laptop's 3.10 (ARCHITECT 2026-11-07, addendum 280 item 2(a)).
+# The rendered trigger SQL is byte-identical to the one it replaces (tests/test_schema_py310.py pins it).
+_ASR_SNAPSHOT_HASH_MSG = (_ASR + ": an observation of a snapshot source asserts a row and keeps no payload_sha256: "
+                          "the hash is the load identity (addendum 262 item 1)")
 AVAILABILITY_TRIGGERS = tuple(
     [(f"trg_{t}_no_{op.lower()}", t,
       f"CREATE TRIGGER IF NOT EXISTS trg_{t}_no_{op.lower()} BEFORE {op} ON {t} "
@@ -1298,8 +1309,7 @@ AVAILABILITY_TRIGGERS = tuple(
         f"WHERE NEW.recorded_at IS NOT (SELECT o.fetched_at FROM {_OBS} o WHERE o.id = NEW.observation_id); END"),
        ("trg_availability_assertions_snapshot_hash_guard", _ASR,
         f"CREATE TRIGGER IF NOT EXISTS trg_availability_assertions_snapshot_hash_guard BEFORE INSERT ON {_ASR} BEGIN "
-        f"{_abort(_ASR + ': an observation of a snapshot source asserts a row and keeps no payload_sha256: the hash '
-                  'is the load identity (addendum 262 item 1)')} "
+        f"{_abort(_ASR_SNAPSHOT_HASH_MSG)} "
         f"WHERE EXISTS (SELECT 1 FROM {_OBS} o WHERE o.id = NEW.observation_id "
         f"AND o.source IN ({_sql_words(AVAILABILITY_SNAPSHOT_SOURCES)}) AND o.payload_sha256 IS NULL); END")])
 

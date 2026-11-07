@@ -32,8 +32,9 @@ CHAIN_COUNT_TABLES = ("matches", "predictions", "prediction_outcomes",
                       "odds_snapshots", "model_versions", "prediction_history")
 
 # Env names whose VALUES are secrets and must never reach a receipt.
+# API_BASKETBALL_KEY: ARCHITECT 2026-11-06, addendum 277 item 2 R2-1 (every api_basketball.KEY_NAMES name; tested).
 SECRET_ENV = ("API_FOOTBALL_KEY", "API_BASEBALL_KEY", "API_AMERICAN_FOOTBALL_KEY",
-              "API_HOCKEY_KEY", "ODDS_API_KEY", "CFBD_API_KEY", "NTFY_TOPIC", "NTFY_CARD_TOPIC")
+              "API_HOCKEY_KEY", "API_BASKETBALL_KEY", "ODDS_API_KEY", "CFBD_API_KEY", "NTFY_TOPIC", "NTFY_CARD_TOPIC")
 _KEYISH = re.compile(r"(?i)\b(api[_-]?key|token|secret|password|authorization)\b(\s*[=:]\s*)\S+")
 
 

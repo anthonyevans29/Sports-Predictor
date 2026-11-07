@@ -112,7 +112,7 @@ become MORE binding under an income goal, never less."
 - Never push a change that alters prediction outputs without running
   the relevant backtest/gate and including its verdict.
 
-## Current production state (maintained; last 2026-11-06)
+## Current production state (maintained; last 2026-11-07)
 - **MLB**: model v2 live; ~57% sides over 400+ graded; candidate
   `improve` rejections are routine and CORRECT (bar: 0.0050 log-loss).
   Predictions are a LAPTOP duty (PHASE B negative, 2026-09-29); the host
@@ -166,6 +166,20 @@ become MORE binding under an income goal, never less."
   harness + fix-v2 machinery stay merged. UNL: market-only today; lane
   unl (#220) is CONFIRMING on the roadmap — the 60th cohort fixture 11-11,
   the confirmation record 11-12, earliest_live 11-12.
+- **Tennis (ATP, WTA)**: market-only, no model, no call. Kalshi's two
+  tour series (KXATPMATCH, KXWTAMATCH) are the fixture source and the
+  results source: a settled market names its winner; a scalar
+  settlement is its own status, never a winner (addendum 269). The
+  history pot is Kalshi's own settled markets; tennis-data.co.uk is
+  closed by access from the US (a geo-block) and the GitHub match
+  archive by its non-commercial licence (addendum 270). The wiring 12-12;
+  the first PAPER record on or after 12-28.
+- **Basketball (NBA, NCAAMB, WNBA)**: market-only on API-Sports
+  basketball (the Pro plan on the shared account; API_BASKETBALL_KEY
+  falling back to API_FOOTBALL_KEY; addendum 271), no model and no call;
+  the NBA wiring (#848, merged 11-07) is loaded and certified on the
+  laptop (addendum 282; the host from v1.6.5), NCAA men's follows 12-05
+  and the WNBA in May; the quarters are not kept (addendum 274).
 - Season strings: soccer clubs "2026/27"; WC "2026"; UNL "2026/27";
   MLB/NFL/NHL/NCAA int-style "2026". Per-comp truth is what the DB
   stores — check, don't assume.

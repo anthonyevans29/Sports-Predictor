@@ -13,7 +13,7 @@ Issue (addendum 276 item 2). This file describes; the rules are in
   commodities, every game an asset class, optimized for prediction markets
   (Kalshi-native)."
 - Sports and status: CLAUDE.md "Current production state" (MLB, soccer, NFL,
-  NHL, NCAA, UNL, the cups), the one place status is kept (addendum 276 item
+  NHL, NCAA, UNL, the cups, tennis, basketball), the one place status is kept (addendum 276 item
   2(c)). Lanes and dates: `python cli.py roadmap` (docs/roadmap.json).
 - Key names: `.env.example`; docs/CLI.md "Required external services"
   describes the providers it lists. Desk sizing: docs/specs/desk-policy-v1.2.md (#732).
@@ -100,10 +100,10 @@ python -m pytest -q tests       # throwaway SQLite (tests/conftest.py), never da
 `OnCalendar=`, UTC unless a zone is named); the host runs the latest tag
 (docs/RELEASES.md "Release record"). A chain timer starts the templated
 `sp-chain` service, which runs `deploy/hosting/sp_run.py` over the chain's steps
-in `deploy/hosting/chains.py` `CHAINS`. Of the 22 timers, hosting-h1 T11 lists 19
-to enable and holds back 3 (`MLB_LAPTOP_ONLY`). `sp-availability-daily` reached
-`main` after v1.6.4; its enablement is the architect's block
-(docs/specs/hosting-h1.md, T11; addendum 252 item 7).
+in `deploy/hosting/chains.py` `CHAINS`. Of the 23 timers, hosting-h1 T11 lists 20
+to enable and holds back 3 (`MLB_LAPTOP_ONLY`). `sp-availability-daily` and
+`sp-nba-daily` reached `main` after v1.6.4; their enablement is the architect's
+block (docs/specs/hosting-h1.md, T11; addendum 252 item 7; addendum 271 item 3(h)).
 
 | Timer | Runs | When |
 |---|---|---|
@@ -112,6 +112,7 @@ to enable and holds back 3 (`MLB_LAPTOP_ONLY`). `sp-availability-daily` reached
 | sp-soccer-morning-after | chain soccer-morning-after | Sun-Tue 09:50 |
 | sp-nfl-lines · sp-nfl-grade · sp-nfl-prematch | chains of those names | daily 15:00 · Mon, Tue, Fri 10:00 · Thu 18:00, Sun 14:00 |
 | sp-nhl-daily · sp-intl-daily · sp-availability-daily | chains of those names | 16:00 · 07:20 · 08:45 |
+| sp-nba-daily | chain nba-daily | 06:47 |
 | sp-ncaa-market · sp-ncaa-schedule · sp-mlb-history | chains of those names | Tue-Fri 16:00, Sat 13:00 · 10:35, 22:35 · 10:30 |
 | sp-weekly-fullseason · sp-exports-squash | chain weekly-fullseason · mirror squash | Sun 06:00 · Sun 06:10 |
 | sp-window · sp-cup-observe · sp-closing-watch | chain window · `observe-cup-lineups` · closing watch | :05 · every 5 min (both in hours 00-03, 06-23) · every minute |

@@ -458,6 +458,43 @@ def test_264_2a_263_14_a_thin_s_minus_1_is_a_first_season_in_the_census_and_the_
     assert ("XX", "2024/25") not in {(r.code, r.season) for r in v.the_pot(rows, warm)[2]}
 
 
+def test_263_14_the_v23_context_block_reports_the_rows_window_obs_fits():
+    """251 item 2's context receipt (Codex, #856 round 1, thread 4499181942): soccer-v23's block names the rows that fed
+    mu and h, its count and the latest kickoff among them, by window_obs's own predicate (window_rows): a thin S−1
+    (263 item 14) and a season older than S−1 fed nothing, so neither is counted and neither's last kickoff is the
+    block's `through`; `window` names only the seasons read. The v22 arm's block still counts every visible season
+    (263 item 19: v22 re-walked is not redefined), and the walk records what predict_live returns."""
+    rows = _xx_rows([("2021/22", 2021, [1, 2, 3, 4], False), ("2022/23", 2022, [1, 2, 3, 4], False),
+                     ("2023/24", 2023, [1, 2, 3, 4], True), ("2024/25", 2024, [1, 2, 3, 4], False)])
+    hist, thin, sc = v.the_pot(rows, RSL)
+    assert thin == [("XX", "2023/24")]
+    pj = v.canon_params(V22P, False, "LEAGUE_REGULAR", thin_excluded=thin)
+    s4 = [r for r in sc if r.season == "2024/25"]
+    for r, n_fed in ((s4[0], 0), (s4[5], 5)):
+        snap = v.snapshot_from_rows(hist, r.utc_date, pj, "day")
+        info = v.predict(snap, v.Fixture.of(r), "soccer-v23")["info"]
+        c = info["context"]
+        fed = [x for x in s4 if v.visible(x, r.utc_date, "day")]
+        assert len(fed) == n_fed and info["prev_season"] is None and c["window"] == ["2024/25"]
+        assert c["n_rows"] == c["window_rows"] == n_fed, c
+        assert c["through"] == (v._ts(max(x.utc_date for x in fed)) if fed else None), c
+        c22 = v.predict(snap, v.Fixture.of(r), "v22")["info"]["context"]
+        assert c22["n_rows"] == sum(1 for x in hist if v.visible(x, r.utc_date, "day"))   # every season, thin included
+        w = v.walk(hist, [r], pj, "day")
+        assert w["context"][0]["soccer-v23"] == c
+    # a season older than S−1 (2021/22) fed nothing either: 2023/24's window is 2022/23 and 2023/24 (the thin set
+    # empty here, so S−1 is read)
+    pj0 = v.canon_params(V22P, False, "LEAGUE_REGULAR")
+    r = [x for x in hist if x.season == "2023/24"][3]
+    c = v.predict(v.snapshot_from_rows(hist, r.utc_date, pj0, "day"), v.Fixture.of(r), "soccer-v23")["info"]["context"]
+    fed = [x for x in hist if x.season in ("2022/23", "2023/24") and v.visible(x, r.utc_date, "day")]
+    assert c["window"] == ["2022/23", "2023/24"] and c["n_rows"] == c["window_rows"] == len(fed) == 15, c
+    # an excluded S (a fixture of the thin season itself: window_obs gives it no row) is not named in the window
+    r = [x for x in hist if x.season == "2023/24"][3]
+    c = v.predict(v.snapshot_from_rows(hist, r.utc_date, pj, "day"), v.Fixture.of(r), "soccer-v23")["info"]["context"]
+    assert c["window"] == ["2022/23"] and c["n_rows"] == c["window_rows"] == 12, c
+
+
 def test_263_25_a_soccer_fact_of_another_kind_is_no_input_and_never_refuses(tmp_path, monkeypatch):
     """263 item 25: "`injury_status` is one entry ..., the other kinds no input of v23". A soccer depth_rank or
     plays_for fact in force at the decision instant is not read by the term's reader (record.as_of with

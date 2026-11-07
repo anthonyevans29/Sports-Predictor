@@ -1067,16 +1067,17 @@ def _season_order(crows, fixture: Fixture) -> str | None:
     return max(earlier)[1] if earlier else None
 
 
-def window_obs(crows, fixture: Fixture, thin=frozenset()) -> tuple[list[jp.Obs], str | None]:
-    """The fixture's window (seasons S−1 and S as visible) as the fit's observations, and S−1. A competition-season in
-    `thin` (263 item 14: excluded by cause, the run's frozen set) gives the window no row: an excluded S−1 leaves the
-    window without one (a first season: the weak prior), an excluded S without its own rows. S−1 is still the season
-    the ordering names (an excluded season is never skipped over to an older one)."""
+def window_rows(crows, fixture: Fixture, thin=frozenset()) -> tuple[list[tuple], str | None, list[str]]:
+    """The fixture's window (seasons S−1 and S as visible): its rows as (row, ratings, slot), S−1, and the seasons it
+    reads. The one predicate: window_obs fits these rows and soccer-v23's context block reports them (Codex, #856
+    round 1). A competition-season in `thin` (263 item 14: excluded by cause, the run's frozen set) gives the window
+    no row: an excluded S−1 leaves the window without one (a first season: the weak prior), an excluded S without its
+    own rows. S−1 is still the season the ordering names (an excluded season is never skipped over to an older one)."""
     sp = _season_order(crows, fixture)
     if sp is not None and (fixture.code, sp) in thin:
         sp = None
-    obs = []
-    for r, (eh, ea) in crows:
+    out = []
+    for r, e in crows:
         if (r.code, r.season) in thin:
             continue
         if r.season == fixture.season:
@@ -1085,8 +1086,20 @@ def window_obs(crows, fixture: Fixture, thin=frozenset()) -> tuple[list[jp.Obs],
             slot = jp.PREV
         else:
             continue
-        obs.append(jp.Obs(r.home_id, r.away_id, slot, float(r.home_goals), float(r.away_goals), eh - ea))
-    return obs, sp
+        out.append((r, e, slot))
+    seasons = sorted(se for se in {fixture.season, sp} if se is not None and (fixture.code, se) not in thin)
+    return out, sp, seasons
+
+
+def _obs(wrows) -> list[jp.Obs]:
+    return [jp.Obs(r.home_id, r.away_id, slot, float(r.home_goals), float(r.away_goals), eh - ea)
+            for r, (eh, ea), slot in wrows]
+
+
+def window_obs(crows, fixture: Fixture, thin=frozenset()) -> tuple[list[jp.Obs], str | None]:
+    """The fixture's window (window_rows) as the fit's observations, and S−1."""
+    wrows, sp, _ = window_rows(crows, fixture, thin)
+    return _obs(wrows), sp
 
 
 def _direction(to_code: str, from_code: str) -> str | None:
@@ -1229,13 +1242,17 @@ def _v22(view, snap, fixture, memo):
                                          b=ctx.home_field_goal_boost)}
 
 
-def _context_block(view, fixture: Fixture, **values) -> dict:
+def _context_block(view, fixture: Fixture, fed=None, **values) -> dict:
     """251 item 2: what the arm's g and b (soccer-v23: mu and h, with the average team's implied g and b) were read
     from: CONTEXT_DEFINITION, and the competition's visible rows feeding them (their count and the latest kickoff
-    among them, which a test holds strictly before the visibility bound). The values are the ones the arm priced with."""
-    crows = view.comp(fixture.code)
-    last = max((r.utc_date for r, _ in crows), default=None)
-    return {"definition": CONTEXT_DEFINITION, **values, "n_rows": len(crows), "through": _ts(last) if last else None}
+    among them, which a test holds strictly before the visibility bound). The values are the ones the arm priced with.
+    `fed` is (count, latest kickoff) of the rows that fed them: soccer-v23's window (window_rows, the thin set
+    excluded); None, the v22 arm's, every visible row of the competition (263 item 19)."""
+    if fed is None:
+        crows = view.comp(fixture.code)
+        fed = (len(crows), max((r.utc_date for r, _ in crows), default=None))
+    n, last = fed
+    return {"definition": CONTEXT_DEFINITION, **values, "n_rows": n, "through": _ts(last) if last else None}
 
 
 def _v23(view, snap, fixture, memo):
@@ -1244,13 +1261,15 @@ def _v23(view, snap, fixture, memo):
     got = memo.get(key) if key[1] is not None else None
     if got is None:
         crows = view.comp(fixture.code)
-        obs, sp = window_obs(crows, fixture, thin)
+        wrows, sp, seasons = window_rows(crows, fixture, thin)
+        obs = _obs(wrows)
         rel, off = window_arrivals(view, fixture.code, fixture.season, sp, crows)
         in_s = frozenset(t for o in obs if o.slot == jp.CUR for t in (o.home, o.away))
-        got = (jp.fit(obs, relegated=rel), sp, sum(1 for o in obs if o.slot == jp.CUR), off, in_s)
+        fed = (len(wrows), max((r.utc_date for r, _, _ in wrows), default=None))
+        got = (jp.fit(obs, relegated=rel), sp, sum(1 for o in obs if o.slot == jp.CUR), off, in_s, fed, seasons)
         if key[1] is not None:
             memo[key] = got
-    f, sp, n_cur, off, in_s = got
+    f, sp, n_cur, off, in_s, fed, seasons = got
     # 263 item 15: an arrival off the declared pyramid is priced on the outside-the-store prior, labelled here (the
     # clubs of the window's season S and the fixture's, as the fit saw them), never refused
     off_here = {t: off[t] for t in sorted(off)
@@ -1268,9 +1287,8 @@ def _v23(view, snap, fixture, memo):
         lh, la = lh * mh, la * ma
     p = price(lh, la, snap.params()["v22_poisson"])
     g_imp = (math.exp(f.mu + f.h) + math.exp(f.mu)) / 2.0
-    return p, {"context": _context_block(view, fixture, mu=f.mu, h=f.h, g=g_imp, b=math.exp(f.mu + f.h) / g_imp,
-                                         window=sorted({fixture.season} | ({sp} if sp else set())),
-                                         window_rows=f.n_obs),
+    return p, {"context": _context_block(view, fixture, fed=fed, mu=f.mu, h=f.h, g=g_imp,
+                                         b=math.exp(f.mu + f.h) / g_imp, window=seasons, window_rows=f.n_obs),
                "mu": f.mu, "h": f.h, "beta": f.beta, "prev_season": sp, "first_season": f.first_season,
                "n_cur": n_cur, "labels": list(f.labels), "resid_home": f.resid_home, "resid_away": f.resid_away,
                "iterations": f.iterations, "availability": [mh, ma], "availability_notes": notes,
@@ -1912,7 +1930,7 @@ def run(word: str | None, fingerprint: str | None, db=None, no_fetch: bool = Fal
     :824, its guard inside reserve :301), and nothing is fitted, scored or priced before it (ARCHITECT 2026-11-04
     15:45 ET, addendum 254 item 3: "preflight → fingerprint → cross_ref_guard → reservation → walk → record", the
     three gates' common order; --preflight is its own earlier invocation in all three). A MISSING fingerprint is
-    refused right after the word, before any load, MATCHING both precedents (soccer_v23.py:1934, nfl_v2_gate.py:642,
+    refused right after the word, before any load, MATCHING both precedents (soccer_v23.py:1952, nfl_v2_gate.py:642,
     ncaa_v1r_gate.py:792); a WRONG one is refused at the compare, after the load, as in both. Then the walk of
     both arms (v22 re-walked beside soccer-v23 on the same harness: the same scored set, the same as-of context
     definition, the same skip zero), the comparison (soccer_backtest.compare_candidate) and decide (THE BAR, 251 item

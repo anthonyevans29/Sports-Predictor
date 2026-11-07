@@ -201,8 +201,10 @@ and `fixture_age` equal to the script's.
 - **The production path is `predict_live_slate(session, fixtures, arm, params_json, visibility)`** (251 item 2;
   `predict_live` is its one-fixture form): the design's only live entry point, which the PASS shadow calls: per kickoff
   instant (`by_instant`) one `snapshot_from_session`, then `predict` for each fixture of the instant. It reads no ModelVersion (no stored context, no stored state). Every prediction's `info`
-  carries a `context` block: `CONTEXT_DEFINITION`, the values the arm priced with, the count of the competition's
-  visible rows and the latest kickoff among them; the walk records it per fixture (`walk(...)["context"]`).
+  carries a `context` block: `CONTEXT_DEFINITION`, the values the arm priced with, the count of the rows that fed
+  them and the latest kickoff among them (v22: the competition's visible rows, every season; soccer-v23: its window's
+  rows, `window_rows`, the one predicate `window_obs` fits, 263 item 14's thin set excluded, with `window` naming only
+  the seasons read); the walk records it per fixture (`walk(...)["context"]`).
 - **No import of the unmerged parity code.** A parity harness can call `predict` from replay order and live order alike.
 - **The memo:** `Prefix` is NOT a builder (the review of the five rows found the earlier cache assembling snapshots
   from its own ladder history and index lists, agreeing with live only because tests pinned them equal): it memoises
@@ -488,7 +490,7 @@ or priced": the goals are read and fingerprinted before it, as in both precedent
 priced before it. (The earlier heading put the reservation before any outcome was read; that was inaccurate and is
 corrected here.) The missing-fingerprint refusal MATCHES the precedents (addendum 254 item 3: the run's order
 matches theirs): a MISSING `--stream-fingerprint` is refused right after the word, before any load and before `--db`
-is read (soccer_v23.py:1934, nfl_v2_gate.py:642, ncaa_v1r_gate.py:792); a WRONG one is refused at the compare, after
+is read (soccer_v23.py:1952, nfl_v2_gate.py:642, ncaa_v1r_gate.py:792); a WRONG one is refused at the compare, after
 the load, as in both. Either way nothing is reserved.
 
 `soccer-v23-gate` refuses, reserving nothing and recording nothing, when: there is no entry, its status is not
@@ -746,7 +748,7 @@ rewritten; the finding Issue #827 cited." No run before the declaration.
     → reservation → walk → record)". Verified: the two precedents agree with each other, and soccer-v23 agrees with
     both on every ruled step (§9, file:line); no ruled step's order changed; run()'s docstring and §9 now say
     "before any outcome is scored or priced". The missing-fingerprint refusal now MATCHES both precedents (§9):
-    refused right after the word, before any load (soccer_v23.py:1934, nfl_v2_gate.py:642, ncaa_v1r_gate.py:792).
+    refused right after the word, before any load (soccer_v23.py:1952, nfl_v2_gate.py:642, ncaa_v1r_gate.py:792).
 
 ## 12. What is NOT done
 

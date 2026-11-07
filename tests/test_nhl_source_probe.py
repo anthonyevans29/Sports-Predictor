@@ -5,11 +5,14 @@ probe exists to read them). HTTP is monkeypatched: no provider is reached.
 
 Pinned: the key read by NAME (SPORTSDATAIO_NHL_KEY) and never printed or written, sent in the header only and never in a
 URL; a key not set or not accepted makes no metered call; the rate-limit headers printed as served on every call line;
-field names printed as served, a price-class field by NAME only (279 item 3(c)) and any currency figure replaced; the
+field names printed as served, a price-class field by NAME only (279 item 3(c)) and any figure replaced (a price with
+no currency sign included, the receipt's text too); the
 stamp-before-start comparison read from the served values only (Z, offsets, and a value with no zone read only in the
 operator's --served-zone); a missing, null, numeric, date-only or unparseable stamp refusing that game; no --stamp-field
 refused before any call, no --stamp-quote refusing section 3; the terms section refused without --terms-url and its
-retention clauses quoted with markup stripped; --out under data/ refused before any call; the exit codes (0 / 1 / 2,
+retention clauses quoted with markup stripped (an inline tag kept inside its sentence), a page with no retention passage
+refused; the key's value in any URL refused before any call; --out home-expanded, and under data/ refused before any
+call; the exit codes (0 / 1 / 2,
 a failed call first); no Kalshi call and no import that opens the DB."""
 import ast
 import importlib.util
@@ -517,8 +520,8 @@ def test_every_unverified_default_is_flagged_and_no_stamp_default_exists():
         assert opt in src
 
 
-ALLOWED_IMPORTS = {"__future__", "argparse", "html", "json", "os", "re", "sys", "datetime", "pathlib", "zoneinfo",
-                   "requests", "dotenv"}
+ALLOWED_IMPORTS = {"__future__", "argparse", "html", "json", "os", "re", "sys", "datetime", "pathlib", "urllib.parse",
+                   "zoneinfo", "requests", "dotenv"}
 
 
 def test_the_probe_imports_nothing_that_opens_the_db_and_no_kalshi_code():
@@ -597,10 +600,11 @@ def test_a_cut_terms_passage_is_marked_with_its_full_length():
     assert len(got) == 1 and got[0].endswith(f"[cut at {probe.TERMS_QUOTE_CHARS} of {len(long)} characters]")
 
 
-def test_a_terms_page_with_no_listed_word_quotes_its_head(env, capsys):
+def test_a_terms_page_with_no_listed_word_quotes_its_head_for_the_record_and_is_refused(env, capsys):
     env.setattr(requests, "get", router({TERMS_URL: Resp(None, text="<p>Synthetic welcome text only.</p>")}))
     rc, out = run(["--skip", "status", "--skip", "games", "--skip", "starters"], capsys)
-    assert rc == 0 and '"Synthetic welcome text only."' in out
+    assert rc == 2 and '"Synthetic welcome text only."' in out                    # quoted for the record only
+    assert "FOR THE RECORD ONLY (1 passage: the page's head;" in out
     assert probe.terms_excerpt("<p>Synthetic welcome text only.</p>") == ["Synthetic welcome text only."]
 
 
@@ -730,3 +734,484 @@ def test_a_status_value_field_holding_an_object_prints_its_names_not_its_values(
     assert rc == 0, out
     assert "4242" not in out and "Details = '<dict: its names above>'" in out and "Details.Inner" in out
     assert "Season = 2027" in out and "SeasonType" not in out.split("VALUES of")[1].split("\n(2)")[0]
+
+
+# ---- Codex review round 1 (#857): each finding reproduced first, then pinned (synthetic values only) -----------
+
+TERMS_ONLY = ["--skip", "status", "--skip", "games", "--skip", "starters"]
+
+
+@pytest.mark.parametrize("page", ["<p>Synthetic: please sign in to continue.</p>",
+                                  "<p>Synthetic: you own this licence.</p>"])
+def test_f1_a_terms_page_with_no_retention_passage_is_refused(env, capsys, tmp_path, page):
+    """A login, welcome or wrong page (no retention word): what it holds may print for the record, labelled so, but the
+    section never reads OK without a retention passage quoted."""
+    env.setattr(requests, "get", router({TERMS_URL: Resp(None, text=page)}))
+    out_file = tmp_path / "r.json"
+    rc, out = run([*TERMS_ONLY, "--out", str(out_file)], capsys)
+    assert rc == 2, out
+    assert "REFUSED: no passage holding a retention or storage word" in out
+    assert "FOR THE RECORD ONLY" in out and "TERMS QUOTED" not in out
+    t = json.loads(out_file.read_text())["sections"]["terms"]
+    assert t["exit"] == 2 and t["retention_passages"] == 0 and t["retention_quoted"] is False
+
+
+@pytest.mark.parametrize("text", ["the license costs 100 per month", "a fee of 100 applies", "100/month",
+                                  "100 per seat per year", "billed 100 annually", "100 monthly", "100 a year",
+                                  "Price: 1,000.00", "you pay 100", "100 each season", "the quoted rate is 100",
+                                  "subscription 100 / yr", "charged at 100 for each call"])
+def test_f2_a_price_written_as_a_per_period_amount_is_replaced(text):
+    got = probe.Out().redact(text)
+    assert "100" not in got and "1,000" not in got and "<figure not printed>" in got, got
+
+
+def test_f2_the_widened_figure_rule_leaves_the_probes_own_lines_whole(env, capsys, tmp_path):
+    """The widened rule runs on every line and the receipt: the probe's own reads (dates, times, ids, HTTP status,
+    minutes, counts, rate-limit headers, URLs, season strings) are not touched, and the receipt still parses."""
+    say = probe.Out()
+    for line in ("HTTP 200 · 3 items · rate-limit {'X-RateLimit-Remaining': '9', 'Retry-After': '1'}",
+                 "game 9101 · 'SAA' @ 'SHA' · Status 'Scheduled' · DateTime = '2026-11-07T19:00:00' (no zone)",
+                 "(210.0 minutes, from the served values) · GAMES: 2 · PREGAME 1 · NOT PREGAME 1 · REFUSED 0",
+                 '"minutes_before_start": 210.0, "not_quoted": 0, "retention_passages": 1, "chars": 512',
+                 "GET https://synthetic.invalid/v3/nhl/scores/json/GamesByDate/2026-NOV-07 · Season = '2026/27'",
+                 "TERMS QUOTED (2 passages: first every one holding a retention or storage word (1)"):
+        assert say.redact(line) == line, line
+    env.setattr(requests, "get", router())
+    out_file = tmp_path / "r.json"
+    rc, out = run(["--out", str(out_file)], capsys)
+    assert rc == 0, out
+    rec = json.loads(out_file.read_text())                                       # still valid JSON
+    assert rec["sections"]["starters"]["games"][0]["stamps"][0]["minutes_before_start"] == 210.0
+    assert out.count("<figure not printed>") == 1                               # the terms page's figure only
+
+
+def test_f2_a_figure_in_the_terms_quote_is_replaced_in_the_receipt_too(env, capsys, tmp_path):
+    """The receipt's quote is redacted at the source, and the receipt is written as UTF-8 text (a JSON escape of a
+    currency sign would otherwise hide the figure from the redactor)."""
+    page = f"<p>Synthetic: on termination delete stored data; the plan costs {chr(0x20ac)}100 or 100 per month.</p>"
+    env.setattr(requests, "get", router({TERMS_URL: Resp(None, text=page)}))
+    out_file = tmp_path / "r.json"
+    rc, out = run([*TERMS_ONLY, "--out", str(out_file)], capsys)
+    assert rc == 2, out                     # a bare number replaced in a retention passage: not shown whole (review 2)
+    text = out_file.read_text(encoding="utf-8")
+    assert "100" not in text and "100" not in out and "<figure not printed>" in text
+    assert all("100" not in q for q in json.loads(text)["sections"]["terms"]["quoted"])
+
+
+@pytest.mark.parametrize("value", [{"Candidates": []}, {"Candidates": [None, ""]}, {"A": {"B": [{}, {"C": None}]}},
+                                   [{"Candidates": []}]])
+def test_f3_a_goalie_whose_every_nested_value_is_empty_refuses_that_game(env, capsys, value):
+    items = [starter(9101, f"{DAY}T15:30:00", HomeGoaltender=value), STARTERS[1]]
+    env.setattr(requests, "get", router({"StartingGoaltendersByDate": Resp(items)}))
+    rc, out = run(["--skip", "terms"], capsys)
+    assert rc == 2, out
+    assert "every value null or empty (at any depth) served for the home side under HomeGoaltender" in out
+    assert "PREGAME 0" in out
+
+
+def test_f3_a_goalie_with_a_nested_value_served_is_read():
+    assert probe.goalie_refusal(True, {"Candidates": [{"Name": "Synthetic G"}]}, "home", "H") is None
+    assert probe.goalie_refusal(True, {"PlayerID": 0}, "home", "H") is None                 # zero is a value
+
+
+@pytest.mark.parametrize("opt, value", [
+    ("--games-path", "/scores/json/GamesByDate/{date_mon}?token=" + KEY),
+    ("--base-url", BASE + "/" + KEY),
+    ("--starters-path", "/projections/json/StartingGoaltendersByDate/{date}?t=%20" + KEY),
+    ("--terms-url", TERMS_URL + "?k=" + KEY)])
+def test_f4_a_url_carrying_the_loaded_key_under_any_name_is_refused_before_any_call(env, capsys, opt, value):
+    seen = []
+    env.setattr(requests, "get", router(seen=seen))
+    rc, out = run([opt, value], capsys)
+    assert rc == 2, out
+    assert f"REFUSED: {opt} carries the value of SPORTSDATAIO_NHL_KEY" in out and seen == []
+    assert KEY not in out
+
+
+@pytest.mark.parametrize("form", [lambda k: k, lambda k: __import__("urllib.parse").parse.quote(k, safe=""),
+                                  lambda k: __import__("urllib.parse").parse.quote_plus(k)])
+def test_f4_the_key_is_found_in_its_trimmed_and_url_quoted_forms(env, capsys, form):
+    secret = "SYNTH key/+&=9c"                                                  # synthetic, URL-special characters
+    env.setenv("SPORTSDATAIO_NHL_KEY", f"  {secret}  ")
+    seen = []
+    env.setattr(requests, "get", router(seen=seen))
+    rc, out = run(["--games-path", "/g/{date}?x=" + form(secret)], capsys)
+    assert rc == 2 and "REFUSED: --games-path carries the value of SPORTSDATAIO_NHL_KEY" in out and seen == []
+    assert "SYNTH key" not in out
+
+
+def test_f5_out_is_home_expanded_once_and_used_throughout(env, capsys, tmp_path):
+    env.setattr(requests, "get", router())
+    env.setenv("HOME", str(tmp_path / "home"))
+    cwd = tmp_path / "cwd"
+    cwd.mkdir()
+    env.chdir(cwd)
+    rc, out = run(["--out", "~/x/run.json"], capsys)
+    assert rc == 0, out
+    written = tmp_path / "home" / "x" / "run.json"
+    assert json.loads(written.read_text())["exit"] == 0
+    assert not (cwd / "~").exists()
+    assert f"receipt written to {written}" in out
+
+
+def test_f6_inline_markup_stays_inside_its_sentence():
+    got = probe.terms_excerpt("<p>You must <strong>not</strong> retain data after <a href='#'>termination</a>.</p>"
+                              "<div>Synthetic: <em>never</em> store<br>it.</div>")
+    assert got == ["You must not retain data after termination.", "Synthetic: never store it."]  # <br> is a space
+    assert probe.terms_excerpt("<p>Synthetic: <span>do</span><span>not</span> <i>store</i> it.</p>") == \
+        ["Synthetic: do not store it."]                                                 # never a glued word
+    assert probe.terms_excerpt("<p>Synthetic: delete&nbsp;<b>all</b>   stored &amp; cached data.</p>") == \
+        ["Synthetic: delete all stored & cached data."]
+
+
+def test_f7_time_fields_inside_list_elements_print_with_indexed_paths(env, capsys):
+    g = game(9101, f"{DAY}T19:00:00", "SHA", "SAA",
+             Periods=[{"Number": 1, "StartTime": f"{DAY}T19:05:00Z", "FeeTime": SECRET_COST},
+                      {"Number": 2, "StartTime": f"{DAY}T19:45:00Z"}])
+    env.setattr(requests, "get", router({"GamesByDate": Resp([g, GAMES[1]])}))
+    rc, out = run(["--skip", "terms"], capsys)
+    assert rc == 0, out
+    assert f"Periods[0].StartTime = '{DAY}T19:05:00Z' (Z)" in out
+    assert f"Periods[1].StartTime = '{DAY}T19:45:00Z' (Z)" in out
+    assert "Periods[].StartTime" in out and str(SECRET_COST) not in out
+
+
+def test_f2_a_currency_sign_in_an_error_body_is_replaced_in_the_receipt_too(env, capsys, tmp_path):
+    """json.dumps escapes a non-ASCII sign by default; the receipt is written unescaped so the redactor sees it."""
+    body = {"message": f"Synthetic: upgrade for {chr(0x20ac)}100"}
+    env.setattr(requests, "get", router({"CurrentSeason": Resp(body)}))
+    out_file = tmp_path / "r.json"
+    rc, out = run(["--skip", "terms", "--out", str(out_file)], capsys)
+    assert rc == 2, out
+    text = out_file.read_text(encoding="utf-8")
+    assert "100" not in text and "100" not in out and "<figure not printed>" in text
+    assert json.loads(text)["sections"]["status"]["error_body"]
+
+
+# ---- review of the round-1 fixes: each problem reproduced first, then pinned (synthetic values only) ---------------
+
+@pytest.mark.parametrize("page, first", [
+    ("<p>Billing records are retained 7 years.</p><p>Subscription data is stored 30 days after cancellation.</p>"
+     "<p>This licence is personal.</p>", "Billing records are retained 7 years."),
+    ("<p>Billing data is retained for 7 years.</p><p>Read the licence.</p>", "Billing data is retained for 7 years."),
+    ("<p>Paid subscriber data is deleted 30 days after the term.</p>",
+     "Paid subscriber data is deleted 30 days after the term."),
+    ("<p>After the subscription we retain data for 30 days.</p><p>You may not copy the database.</p>",
+     "After the subscription we retain data for 30 days."),
+    ("<p>Data is stored until the end of the billing period plus 30 days.</p>",
+     "Data is stored until the end of the billing period plus 30 days.")])
+def test_r2_a_price_word_never_eats_a_retention_clause(page, first):
+    """Retention is read on the unredacted sentence and the price rule replaces only the number: a retention clause
+    that names a price word (billing, subscription, paid) is quoted whole, its retention period kept (a duration is
+    not a price)."""
+    t = probe.terms_read(page)
+    assert t["retention"] >= 1 and t["quoted"][0] == first, t
+    assert page.count("retain") + page.count("stored") + page.count("deleted") == t["retention"]
+
+
+def test_r2_a_page_whose_retention_clause_names_the_subscription_reads_ok(env, capsys, tmp_path):
+    page = "<p>After the subscription we retain data for 30 days.</p><p>You may not copy the database.</p>"
+    env.setattr(requests, "get", router({TERMS_URL: Resp(None, text=page)}))
+    out_file = tmp_path / "r.json"
+    rc, out = run([*TERMS_ONLY, "--out", str(out_file)], capsys)
+    assert rc == 0, out
+    t = json.loads(out_file.read_text())["sections"]["terms"]
+    assert t["retention_passages"] == 1 and t["quoted"][0] == "After the subscription we retain data for 30 days."
+
+
+def test_r2_the_price_word_rule_replaces_only_the_number():
+    assert probe.Out().redact("the license costs 100 per month") == "the license costs <figure not printed> per month"
+    assert probe.Out().redact("a fee of 100 applies") == "a fee of <figure not printed> applies"
+
+
+@pytest.mark.parametrize("text", ["Price (USD): 100", "Cost — 100", "Fee - 100", "100k per year",
+                                  "the plan is 2.5k/month", "100 per calendar month", "the amount is 100", "rate 100",
+                                  "Premium tier: 100"])
+def test_r2_more_price_phrasings_are_replaced_on_every_line(text):
+    got = probe.Out().redact(text)
+    assert "100" not in got and "2.5" not in got and "<figure not printed>" in got, got
+
+
+@pytest.mark.parametrize("text", ["100 per 1,000 calls", "100 each season", "100/day", "100 per request"])
+def test_r2_count_unit_prices_are_replaced_in_the_terms_quote(text):
+    got = probe.terms_excerpt(f"<p>Synthetic: data is stored; the plan is {text}.</p>")[0]
+    assert "100" not in got and "<figure not printed>" in got, got
+
+
+@pytest.mark.parametrize("line", [
+    "Projections are updated daily at 10 AM ET",
+    "Projections are updated daily at 10:00 AM ET.",
+    "updated daily 2026-11-07T19:00:00Z",
+    "Updated: refreshed daily at 10:00 AM ET, 4 times a day",
+    "refreshed 4 times a week",
+    "rate-limit {'X-RateLimit-Limit': '1000/day'}",
+    "rate-limit {'X-RateLimit-Policy': '100 per hour'}",
+    "rate-limit {'X-RateLimit-Limit': '1000', 'Retry-After': '30'}",
+    "billed on 2026-11-07 and 11/07/2026 at 19:00"])
+def test_r2_schedule_times_dates_and_rate_limit_quotas_are_not_figures(line):
+    assert probe.Out().redact(line) == line
+
+
+def test_r2_the_stamp_quote_prints_whole(env, capsys):
+    env.setattr(requests, "get", router())
+    quote = "Updated: refreshed daily at 10:00 AM ET, 4 times a day"
+    rc, out = run(["--skip", "terms", "--stamp-quote", quote], capsys)
+    assert rc == 0, out
+    assert f'as quoted by the operator: "{quote}"' in out
+
+
+def test_r6_a_br_inside_a_sentence_keeps_the_negation():
+    assert probe.terms_excerpt("<p>You must not<br>retain data after expiry.</p>") == \
+        ["You must not retain data after expiry."]
+
+
+def test_r6_a_list_item_is_quoted_with_its_lead_in():
+    assert probe.terms_excerpt("<p>You must not:</p><ul><li>retain data after expiry</li>"
+                               "<li>copy the database</li></ul><p>Synthetic: data is stored.</p>") == \
+        ["You must not: retain data after expiry", "Synthetic: data is stored.", "You must not: copy the database"]
+    assert probe.terms_excerpt("<ul><li>Synthetic: never:<ol><li>store it</li></ol></li><li>cache it</li></ul>") == \
+        ["Synthetic: never: store it", "cache it"]
+
+
+# ---- second review of the round-1 fixes: each problem reproduced first, then pinned (synthetic values only) --------
+
+def leaks(text: str, *figs: str) -> bool:
+    return any(f in text for f in figs)
+
+
+@pytest.mark.parametrize("text", ["100 \u20ac", "100\u20ac per month", "100 \u20ac per month", "1.100,00 \u20ac",
+                                  "100\u00a3", "100,- \u20ac", "100\u00a0\u20ac per month"])
+def test_r3_a_currency_sign_after_the_number_is_replaced(text):
+    got = probe.Out().redact(text)
+    assert not leaks(got, "100", "1.100") and "<figure not printed>" in got, got
+
+
+def test_r3_a_sign_after_the_number_in_a_retention_clause_is_replaced_and_the_clause_reads_ok(env, capsys, tmp_path):
+    page = "<p>EU customers: 100&nbsp;&euro; per month, data retained 30 days after cancellation.</p>"
+    env.setattr(requests, "get", router({TERMS_URL: Resp(None, text=page)}))
+    out_file = tmp_path / "r.json"
+    rc, out = run([*TERMS_ONLY, "--out", str(out_file)], capsys)
+    text = out_file.read_text(encoding="utf-8")
+    assert rc == 0, out
+    assert "100" not in out and "100" not in text and "data retained 30 days after cancellation." in out
+
+
+@pytest.mark.parametrize("text", ["100-200 per month", "100\u2013200 per month", "100 to 200 a month",
+                                  "between 100 and 200 a month", "fees of 100-200", "plans of 100-200 per month",
+                                  "100 or 200 per month", f"{chr(36)}100-200", f"{chr(36)}100 to 200"])
+def test_r3_both_ends_of_a_price_range_are_replaced(text):
+    for terms in (False, True):
+        got = probe.figures(text, terms)
+        assert not leaks(got, "100", "200") and "<figure not printed>" in got, got
+
+
+@pytest.mark.parametrize("text", ["100 billed annually", "100 billed monthly", "100 Billed yearly",
+                                  "Annual plans (100 billed annually) may be cancelled", "100 charged monthly"])
+def test_r3_a_number_billed_by_period_is_replaced(text):
+    got = probe.Out().redact(text)
+    assert "100" not in got and "<figure not printed>" in got, got
+
+
+@pytest.mark.parametrize("text", ["The Pro plan is 100", "starts at 100", "Plans start at 100", "Plans from 100",
+                                  "invoiced 100", "an invoice of 100", "Total: 100", "a total of 100", "subtotal 100",
+                                  "a sum of 100"])
+def test_r3_more_price_words_reach_their_number(text):
+    got = probe.Out().redact(text)
+    assert "100" not in got and "<figure not printed>" in got, got
+
+
+@pytest.mark.parametrize("text", ["Price: 100 month-to-month", "Subscription: 100 month to month",
+                                  "the subscription fee is 1,100 year-round"])
+def test_r3_a_billing_term_after_a_price_does_not_shield_it(text):
+    got = probe.Out().redact(text)
+    assert not leaks(got, "100") and "<figure not printed>" in got, got
+
+
+@pytest.mark.parametrize("sep", [" ", "\u00a0", "\u202f"])
+def test_r3_a_number_grouped_with_a_space_is_replaced_whole(sep):
+    assert probe.Out().redact(f"1{sep}100 per year") == "<figure not printed> per year"
+
+
+@pytest.mark.parametrize("text", ["100 * per month",
+                                  "100/mth", "100 per mth", "100/m", "100 p.a.", "100 pa", "Fee, 100",
+                                  "Price \u00b7 100", "\u00a5100", "\u20b9100", "CAD 100", "100 CAD", "AUD 100",
+                                  "100 US dollars", "100 bucks", "\uff11\uff10\uff10 per month", "$\uff11\uff10\uff10",
+                                  "100\u202fper month"])
+def test_r3_other_price_spellings_are_replaced(text):
+    got = probe.Out().redact(text)
+    assert not leaks(got, "100", "\uff11\uff10\uff10") and "<figure not printed>" in got, got
+
+
+def test_r3_a_footnote_mark_between_price_and_period_is_replaced_in_the_terms_quote():
+    got = probe.terms_excerpt("<p>Storage add-on: 100<sup>*</sup> per month; deleted on cancellation.</p>")
+    assert got == ["Storage add-on: <figure not printed> * per month; deleted on cancellation."], got
+
+
+def test_r3_a_no_break_space_in_an_error_body_does_not_hide_its_price(env, capsys, tmp_path):
+    body = {"Message": "Synthetic: trial ended: renew at 100\u00a0per month"}
+    env.setattr(requests, "get", router({"CurrentSeason": Resp(body)}))
+    out_file = tmp_path / "r.json"
+    rc, out = run(["--skip", "terms", "--out", str(out_file)], capsys)
+    text = out_file.read_text(encoding="utf-8")
+    assert rc == 2, out
+    assert "100" not in out and "100" not in text and "<figure not printed>" in text
+    assert "<figure not printed>" in probe.safe_repr("renew at 100\u00a0per month")
+
+
+def test_r3_a_stamp_or_id_served_as_an_object_never_prints_its_price_class_values(env, capsys, tmp_path):
+    items = [starter(9101, f"{DAY}T15:30:00", Projection={"Updated": f"{DAY}T15:00:00Z",
+                                                         "FanDuelSalary": SECRET_SALARY}), STARTERS[1]]
+    games = [game(9101, f"{DAY}T19:00:00", {"Code": "SHA", "TicketPrice": SECRET_COST}, "SAA",
+                  Status={"Name": "Scheduled", "FeeCode": SECRET_LINE}), GAMES[1]]
+    env.setattr(requests, "get", router({"StartingGoaltendersByDate": Resp(items), "GamesByDate": Resp(games)}))
+    out_file = tmp_path / "r.json"
+    rc, out = run(["--skip", "terms", "--stamp-field", "Projection", "--out", str(out_file)], capsys)
+    text = out_file.read_text(encoding="utf-8")
+    assert rc == 2, out
+    for secret in (str(SECRET_SALARY), str(SECRET_COST), str(SECRET_LINE)):
+        assert secret not in out and secret not in text
+    assert "FanDuelSalary='<value not printed: price-class field>'" in out
+    assert "HomeTeam (an object or list, not a value)" in out
+
+
+def test_r3_the_key_in_a_url_in_another_case_is_refused_and_never_printed(env, capsys):
+    secret = "synthkey0123abcdef"
+    env.setenv("SPORTSDATAIO_NHL_KEY", secret)
+    seen = []
+    env.setattr(requests, "get", router(seen=seen))
+    rc, out = run(["--terms-url", TERMS_URL + "?token=" + secret.upper()], capsys)
+    assert rc == 2 and "REFUSED: --terms-url carries the value of SPORTSDATAIO_NHL_KEY" in out and seen == []
+    assert secret.upper() not in out and secret not in out
+    say = probe.Out()
+    say.secrets.add(secret)
+    assert say.redact("echo " + secret.upper()) == "echo <redacted>"
+
+
+@pytest.mark.parametrize("line", [
+    "Updated is the time the projection was last changed; projections are available to paid subscribers by 9 AM ET "
+    "and refreshed every 15 minutes",
+    "Updated refreshes on all subscription tiers at 7 PM ET",
+    "Premium tier projections post at 10 AM ET",
+    "Premium tier projections post at 10am",
+    "paid tiers refresh at 6 p.m. ET",
+    "Updated: refreshed at a rate of 1 every 15 minutes",
+    "updated 1 time per week",
+    "subscription data from the 2025-26 season is deleted"])
+def test_r3_a_clock_time_or_a_frequency_near_a_price_word_is_not_a_figure(line):
+    assert probe.Out().redact(line) == line
+    assert probe.figures(line, True) == line
+
+
+def test_r3_the_stamp_quote_with_a_clock_time_prints_whole(env, capsys, tmp_path):
+    env.setattr(requests, "get", router())
+    quote = "Synthetic: Updated is when the projection changed; available to paid subscribers by 9 AM ET"
+    out_file = tmp_path / "r.json"
+    rc, out = run(["--skip", "terms", "--stamp-quote", quote, "--out", str(out_file)], capsys)
+    assert rc == 0, out
+    assert f'as quoted by the operator: "{quote}"' in out
+    assert json.loads(out_file.read_text())["sections"]["starters"]["stamp_quote"] == quote
+
+
+@pytest.mark.parametrize("url", ["https://synthetic.invalid/subscription-agreement-2024",
+                                 "https://synthetic.invalid/legal/terms#fees-3",
+                                 "https://synthetic.invalid/terms?rate=1"])
+def test_r3_the_terms_url_prints_as_given(env, capsys, tmp_path, url):
+    page = "<p>Synthetic: on termination you must delete all stored data.</p>"
+    env.setattr(requests, "get", router({url: Resp(None, text=page)}))
+    out_file = tmp_path / "r.json"
+    rc, out = run([*TERMS_ONLY, "--terms-url", url, "--out", str(out_file)], capsys)
+    assert rc == 0, out
+    assert f"TERMS {url} \u00b7 HTTP 200" in out
+    assert json.loads(out_file.read_text())["sections"]["terms"]["url"] == url
+
+
+@pytest.mark.parametrize("text", ["Licensee may cache Data for no longer than 72 hours per game",
+                                  "data is kept 30 days per season; 2 hours per user",
+                                  "data is cached 24 hours a day"])
+def test_r3_a_duration_before_per_is_never_a_figure(text):
+    assert probe.figures(text) == text and probe.figures(text, True) == text
+
+
+def test_r3_a_retention_period_before_per_keeps_the_page_ok(env, capsys):
+    page = ("<p>Licensee may cache Data for no longer than 72 hours per game and must delete it when the subscription "
+            "terminates or 30 days per season.</p>")
+    env.setattr(requests, "get", router({TERMS_URL: Resp(None, text=page)}))
+    rc, out = run(TERMS_ONLY, capsys)
+    assert rc == 0, out
+    assert "72 hours per game" in out and "30 days per season" in out
+
+
+def test_r3_a_retention_passage_with_a_number_replaced_is_refused(env, capsys, tmp_path):
+    """The probe cannot tell a price from the clause's own number: a retention passage whose bare number the price rule
+    replaced is not shown whole, so the page is not read OK (a currency figure is a price, and leaves it OK)."""
+    page = "<p>Subscribers on the 100 per month plan must delete stored data on termination.</p>"
+    env.setattr(requests, "get", router({TERMS_URL: Resp(None, text=page)}))
+    out_file = tmp_path / "r.json"
+    rc, out = run([*TERMS_ONLY, "--out", str(out_file)], capsys)
+    assert rc == 2, out
+    assert "100" not in out and "a number replaced by the price rule" in out
+    assert json.loads(out_file.read_text())["sections"]["terms"]["retention_figure"] == 1
+
+
+@pytest.mark.parametrize("line", ["    message = 'Rate limit exceeded: 1000 calls per day'",
+                                  "rate limit: 100 requests per minute"])
+def test_r3_a_rate_limit_message_keeps_its_quota(line):
+    assert probe.Out().redact(line) == line
+
+
+def test_r3_a_source_line_break_never_splits_a_clause():
+    assert probe._passages("<p>You must not\nretain the Data after the subscription ends.</p>") == \
+        ["You must not retain the Data after the subscription ends."]
+    assert probe.terms_excerpt("<p>You may not:</p>\n<ul>\n  <li>\n    store or cache the Data after termination\n"
+                               "  </li>\n</ul>") == ["You may not: store or cache the Data after termination"]
+
+
+def test_r3_a_list_item_wrapped_in_a_block_tag_keeps_its_lead_in():
+    assert probe.terms_excerpt("<p>You may not:</p><ul><li><p>retain the Data after termination.</p></li></ul>") == \
+        ["You may not: retain the Data after termination."]
+    assert probe.terms_excerpt("<p>You may not:</p><ul><li><p>retain the Data.</p><p>Cache it after expiry.</p></li>"
+                               "</ul>") == ["You may not: retain the Data.", "You may not: Cache it after expiry."]
+
+
+@pytest.mark.parametrize("page", [
+    "<form><p>Email</p><p>Password</p><button>Sign in</button><button>Cancel</button></form>",
+    "<div>Your session has expired. Please sign in again.</div><form><p>Email</p></form>",
+    "<p>Sign in</p><footer><a>Download on the App Store</a></footer>",
+    "<h1>Cookie policy</h1><p>We store cookies on your device to remember your settings.</p>"])
+def test_r3_a_login_or_cookie_page_is_not_read_as_the_terms(env, capsys, page):
+    env.setattr(requests, "get", router({TERMS_URL: Resp(None, text=page)}))
+    rc, out = run(TERMS_ONLY, capsys)
+    assert rc == 2, out
+    assert "FOR THE RECORD ONLY" in out and "TERMS QUOTED" not in out
+
+
+def test_r3_a_table_row_and_a_heading_keep_the_subject_they_govern():
+    assert probe.terms_excerpt("<table><tr><th>Data</th><th>Rule</th></tr><tr><td>Odds</td><td>Must be deleted upon "
+                               "termination.</td></tr><tr><td>Scores</td><td>May be retained indefinitely.</td></tr>"
+                               "</table>") == \
+        ["Odds | Must be deleted upon termination.", "Scores | May be retained indefinitely."]
+    assert probe.terms_excerpt("<h2>Odds data</h2><p>May be cached for 24 hours.</p>") == \
+        ["Odds data May be cached for 24 hours."]
+    assert probe.terms_excerpt("<dl><dt>Odds</dt><dd>Must be deleted upon termination.</dd></dl>") == \
+        ["Odds Must be deleted upon termination."]
+
+
+def test_r3_a_lead_in_governs_its_list_across_an_intro_and_without_a_colon():
+    assert probe.terms_excerpt("<h3>You may not:</h3><p>The following apply to all plans.</p><ul><li>store the Data "
+                               "after termination</li></ul>") == \
+        ["You may not: The following apply to all plans. store the Data after termination"]
+    assert probe.terms_excerpt("<p>You agree that you will not</p><ul><li>retain any Data after termination; or</li>"
+                               "<li>sublicense the Data.</li></ul>") == \
+        ["You agree that you will not retain any Data after termination; or"]          # the other holds no listed word
+    assert probe.terms_excerpt("<p>Data must be deleted on termination.</p><ul></ul>") == \
+        ["Data must be deleted on termination."]                                    # an empty list takes nothing
+
+
+def test_r3_a_sibling_lead_in_is_not_repeated():
+    assert probe.terms_excerpt("<p>Customer agrees:</p><ul><li>Restrictions:</li><li>to retain no Data after expiry"
+                               "</li></ul>") == ["Customer agrees: Restrictions: to retain no Data after expiry"]
+
+
+def test_r3_an_abbreviation_does_not_split_a_sentence():
+    assert probe.terms_excerpt("<p>You must not store Licensed Data, e.g. odds, after expiry of the Term.</p>") == \
+        ["You must not store Licensed Data, e.g. odds, after expiry of the Term."]

@@ -27,7 +27,10 @@ receipt pass through a redactor holding its value). One name, no fallback: the v
 operator confirms), and the repo names a key by its product (API_HOCKEY_KEY, API_BASEBALL_KEY); there is no shared
 SportsDataIO key in .env to fall back to, and a second name tried would spend a metered trial call on a key that is not
 the NHL product's. The key travels in one request header (--key-header, UNVERIFIED default Ocp-Apim-Subscription-Key),
-never in a URL: a base or path naming a key is REFUSED before any call. The terms page is read with no key.
+never in a URL: a base or path naming a key is REFUSED before any call, and so is any URL this run would call (the
+base with each path, the date rendered, and the terms URL) that carries the key's VALUE under any name or in the path,
+raw, trimmed or URL-quoted, in any letter case (key_in_urls; the option named, the value never; the redactor ignores
+case too). The terms page is read with no key.
 
 Four sections, each independent (a failure in one does not stop the next), in this order:
 
@@ -46,8 +49,9 @@ Four sections, each independent (a failure in one does not stop the next), in th
                  assumed here): --games-path, "{date}" (YYYY-MM-DD) or "{date_mon}" (YYYY-MON-DD, month upper case) in
                  it. Printed: the field names as served, and per game its id, teams, status, the start field
                  (--start-field) AS SERVED with its zone or offset as written, and every other time-like field as
-                 served with its zone. Required per game: the id, start, home and away fields; one not served (absent,
-                 null or empty) REFUSES that game; a game id served more than once REFUSES every row for it (none is
+                 served with its zone (a list element's by its index, Periods[0].StartTime). Required per game: the id,
+                 start, home and away fields; one not served (absent, null or empty) or served as an object or list
+                 (not a value; its safe text printed) REFUSES that game; a game id served more than once REFUSES every row for it (none is
                  picked).
   (3) STARTERS   the projected-starters endpoint (--starters-path): every field name as served (the union over items),
                  and per game the projected starting goaltender per team (--home-goalie-field, --away-goalie-field: the
@@ -55,33 +59,57 @@ Four sections, each independent (a failure in one does not stop the next), in th
                  dotted path such as A.B for a per-goalie stamp; REQUIRED, no default) against the game's start time
                  from section 2 (joined by --game-id-field). Per game and stamp: the stamp AS SERVED, the start AS
                  SERVED, how each was read, and whether the stamp is BEFORE the start, from the response values only,
-                 never our clock. A value with no zone stated is read only in --served-zone (an IANA name the
+                 never our clock (a stamp served as an object is not read; its safe text prints). A value with no zone
+                 stated is read only in --served-zone (an IANA name the
                  operator takes from the vendor's documentation; NO default); without it, a value with no zone REFUSES
                  that game, and so does a wall time that zone skips or repeats at a clock change (never a guessed
                  reading). Stamp and start are compared as instants in UTC. A stamp that is missing, null, empty, a
                  bare number or unparseable REFUSES that game; so does a game with no goaltender served for a side
-                 (absent, null, empty, an empty list, an object whose every value is null or empty), more than one
+                 (absent, null, empty, an empty list, an object whose every value is null or empty at any depth,
+                 {"Candidates": []} included), more than one
                  goaltender served for a side (every entry printed, none picked), no start time read, a GameID served
                  by more than one starters item (every item printed, the game counted once), or (a game of section 2)
                  no starters item.
                  Without --stamp-quote (the documentation's sentence naming the stamp field, quoted by the operator)
                  the section prints its reads and is REFUSED: the stamp's identification is not on the receipt.
   (4) TERMS      the vendor's terms (279 item 3(b): "the vendor's terms on storing and keeping the data after the
-                 subscription ends"): the page --terms-url names (NO default: no URL is typed here) is read, markup
-                 stripped, and EVERY sentence holding a retention or storage word (TERMS_RETENTION_WORDS) quoted first,
-                 none dropped; sentences holding only a generic word (TERMS_GENERIC_WORDS) fill the quote up to
-                 TERMS_QUOTES, the rest counted on the receipt, a cut marked with its full length. With no terms URL
-                 the terms are NOT READ and the section is REFUSED; a read that fails is FAILED; a page with nothing to
-                 quote, or a retention passage too long to quote whole, is REFUSED. The probe quotes; it does not
-                 decide what the terms allow.
+                 subscription ends"): the page --terms-url names (NO default: no URL is typed here; printed and kept
+                 as given) is read, markup stripped (a block-level tag a passage break; an inline tag such as <strong>
+                 or <br> and a line break in the page's source kept inside its sentence; a list item, an item wrapped
+                 in <p> included, quoted with its list's lead-in, the sentence just before the list whatever its
+                 punctuation; a heading or a definition term opening what follows it; a table row one passage, its
+                 cells joined by " | "; no sentence split after an abbreviation such as "e.g."; so a negation or a
+                 subject is never cut off its clause), and EVERY sentence holding a retention or storage word
+                 (TERMS_RETENTION_WORDS, read before any figure is replaced) quoted first, none dropped; sentences
+                 holding only a generic word (TERMS_GENERIC_WORDS) fill the quote up to TERMS_QUOTES, the rest counted
+                 on the receipt, a cut marked with its full length. With no terms URL the terms are NOT READ and the
+                 section is REFUSED; a read that fails is FAILED; REFUSED too: a page with nothing to quote; a page
+                 with NO retention passage, or none that names the data (TERMS_DATA_WORDS; a "Cancel" button, an
+                 expired session, an app store link or a cookie notice is not the retention clause: a login, welcome,
+                 cookie or wrong page, its passages or head printed FOR THE RECORD ONLY, labelled so); a retention
+                 passage too long to quote whole; and a retention passage in which the price rule replaced a number
+                 with no currency sign beside it (the probe cannot tell a price from the clause's own number, so the
+                 clause is not shown whole). The probe quotes; it does not decide what the terms allow.
 
   KALSHI: NONE. KXNHLGAME is untouched (279 item 5): this probe imports no Kalshi code and makes no Kalshi call; the
   nhl-daily market-only chain and KXNHLGAME run on regardless (279 item 3).
 
 PRICES: no price, quote or billing figure is read into a receipt or printed (279 item 3(c)). A price-class field prints
-by NAME only, at any depth (a goaltender served as a list included); any currency figure in any printed text (a terms
-page included) is replaced by "<figure not printed>". The raw answers are never written: the receipt holds the printed
-reads only.
+by NAME only, at any depth (a goaltender, a stamp, a team, a status or an id served as an object included: such a
+value prints as its safe text and never travels raw); any currency figure in any printed text (a terms page included)
+is replaced by "<figure not printed>", the sign before or after the number ("$100", "100 €", "1.299,00 €", "¥100",
+"CAD 100", "100 US dollars"), and so is the number of a price written without a currency sign or word (PRICE_FIGURES:
+"100 per month", "100/yr", "2.5k/month", "100 monthly", "100 billed annually", "100 p.a.", "costs 100", "a fee of 100",
+"Price (USD): 100", "The Pro plan is 100", "Total: 100", "1 000 per year", both ends of "100-500 per month"; the words
+around it kept; over-redaction is the conservative side), on every line and in the receipt (written as UTF-8 text, no
+JSON escapes; a served string replaced before its repr, so an escaped no-break space never hides one; a terms quote
+replaced at the source, after its retention words are read, and there also a count-unit price, "100 per 1,000 calls"
+or "100/day", TERMS_PRICE_FIGURES: on other lines that form is a rate-limit quota and prints). A duration ("30 days",
+"72 hours per game"), a schedule ("daily at 10:00", "by 9 AM ET", "4 times a day", "1 every 15 minutes"), a season
+("the 2025-26 season"), an ISO date or time, an id, a count and a rate-limit message ("Rate limit exceeded: 1000 calls
+per day") are not figures; a rate-limit HEADER served as a money unit ("999/month") reads like a price and is replaced
+(the conservative side). The request URLs this run names (the operator's options) print as given, a currency figure in
+them still replaced. The raw answers are never written: the receipt holds the printed reads only.
 
 TRIAL DATA: whether the vendor alters the values a trial key is served is the vendor's documentation's to say, and the
 operator's to quote with the receipt; the probe cannot tell.
@@ -97,9 +125,10 @@ Exit: 0 every read answered; 1 a call failed (network, HTTP other than 401/403, 
 shape its reader needs, a section that raised, a receipt that could not be written); 2 a read REFUSED (the key not set
 or not accepted, a required field not served, a stamp missing or unparseable, a value with no zone and no
 --served-zone, no --stamp-field or --stamp-quote, a 200 carrying an error body, a duplicated game id, the terms not
-read, --skip naming every section, a key in a URL, --out under data/ in any case or not writable, a bad --date or
---served-zone). Both: 1 (a failed call is fixed first,
-the tennis probe's rule). Writes nothing unless --out is given (never under data/: law 5; checked before any call).
+read or holding no retention passage, --skip naming every section, a key or the key's value in a URL, --out under
+data/ in any case or not writable, a bad --date or --served-zone). Both: 1 (a failed call is fixed first, the tennis
+probe's rule). Writes nothing unless --out is given (home-expanded once, that one path checked, made and
+written; never under data/: law 5; checked before any call).
 Imports nothing that opens the DB.
 """
 from __future__ import annotations
@@ -112,6 +141,7 @@ import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import quote, quote_plus, unquote, unquote_plus
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import requests
@@ -155,11 +185,110 @@ STATUS_VALUE_FIELDS = ("Season", "SeasonType", "ApiSeason")
 ERROR_KEYS = ("code", "statuscode", "status_code", "message", "error", "errors", "errormessage", "error_message",
               "fault")
 TIME_FIELD = re.compile(r"date|time|day|updated|stamp|created|modified|published", re.I)
-# A currency figure in any printed text: a currency sign then a digit (the #813 guard's dollar rule, widened to the
-# euro and pound signs), or a number beside a currency word. Replaced before any line or receipt shows it.
-FIGURE = re.compile("[$＄﹩€£][ \t ]*[+\\-−]?[ \t ]*\\.?[0-9][0-9,.]*"
-                    r"|\b[0-9][0-9,.]*[ \t ]*(?:USD|EUR|GBP|dollars?)\b|\b(?:USD|EUR|GBP)[ \t ]*[0-9][0-9,.]*",
-                    re.I)
+# Blanks as a page or an answer serves them (a no-break, figure, thin or narrow no-break space included).
+_B = "[ \t    ]"
+_GROUP = r"(?:[     ]\d{3}(?!\d))*"     # a thousands group written with a space: "1 000"
+# A currency figure in any printed text: a currency sign before or after a number (the #813 guard's dollar rule,
+# widened: "$100", "100 €", "1.299,00 €", "100,- €", "¥100"), or a number beside a currency code or word ("CAD 100",
+# "100 US dollars", "100 bucks"). Replaced whole before any line or receipt shows it. A digit is any decimal digit
+# ("１００" included).
+_CUR_SIGN = "[$＄﹩€£¥￥₹₩₽₺₪₫฿¢]"
+_CUR_CODE = r"(?:USD|EUR|GBP|CAD|AUD|NZD|CHF|JPY|INR|CNY|SEK|NOK|DKK|MXN|BRL)"
+_AMOUNT = r"\d[\d,.]*" + _GROUP
+FIGURE = re.compile(
+    rf"{_CUR_SIGN}{_B}*[+\-−]?{_B}*\.?{_AMOUNT}"
+    rf"|(?<![\dA-Za-z]){_AMOUNT}(?:,-)?{_B}*(?:{_CUR_SIGN}|(?:{_CUR_CODE}"
+    rf"|(?:US|U\.S\.|Canadian|Australian){_B}+dollars?|dollars?|bucks|euros?)(?![A-Za-z]))"
+    rf"|\b{_CUR_CODE}{_B}*{_AMOUNT}", re.I)
+# A price written with no currency sign or word (Codex #857 round 1, widened on its two reviews): ONLY THE NUMBER is
+# replaced, never the words around it (a retention clause naming the subscription or billing keeps every word but
+# the figure).
+#  * a number within four words after a price word, any of " :=(),·-—–" between ("costs 100", "a fee of 100",
+#    "Price (USD): 100", "Fee - 100", "rate 100", "Premium tier: 100", "The Pro plan is 100", "starts at 100",
+#    "Total: 100"; after quote/quoted/quotation only blanks and one ":" or "=", so the probe's own "TERMS QUOTED (2
+#    passages" prints whole), unless what follows the number makes it a duration, a count or a frequency ("billing
+#    period plus 30 days", "subscription data is stored 30 days", "the 2025-26 season", "4 times", "1000 calls",
+#    "1 every 15 minutes": a retention period, a season, a quota or a schedule, not a price; "month-to-month" and
+#    "year-round" are billing terms and do not shield it); "rate limit" is not a price word;
+#  * a number then an adverb of period or a billing verb ("100 monthly", "100 per annum", "100 p.a.", "100 billed
+#    annually"; "daily" is not one: "updated daily at 10" is a schedule, the --stamp-quote's own fact);
+#  * a number with a per-unit qualifier, per/a/an/each/every (an optional quantity or adjective between: "100 per
+#    1,000 calls", "100 per calendar month") or "/" ("100/yr", "2.5k/month", "100/m"), a footnote mark between
+#    allowed ("100 * per month"). On EVERY line and the receipt the units are the money-only ones (month, year, annum,
+#    week, seat, user, licence, season); the count units that also make a quota or a schedule (day, hour, call,
+#    request, query, game, unit) are replaced in the TERMS QUOTE only (TERMS_PRICE_FIGURES, at the source, so the
+#    receipt's quote as the console's), so a rate-limit header served as "1000/day" or "100 per hour" and "4 times a
+#    day" print whole. Never after a duration or "N times" ("72 hours per game", "30 days per season", "1 time per
+#    week": a retention period or a frequency);
+#  * the other end of a range or a choice whose one end was replaced ("100-500 per month", "100 to 500 a month",
+#    "between 100 and 500 a month", "$100-500": both ends).
+# A number with a k/M/bn suffix is a number; one grouped with spaces ("1 000") is one number. Over-redaction is the
+# conservative side. Never a number inside an ISO date or a time (followed by "-", ":", "/" or "T" and a digit), a clock
+# time ("9 AM", "7 p.m.", "10 ET"), an id or a word's tail, so the probe's own reads (JSON keys, counts, minutes, HTTP
+# status, season strings such as 2026/27, URLs) are not touched.
+_CLOCK = (rf"(?!{_B}*(?:[AaPp]\.?[Mm]\.?|o'clock|noon|midnight|(?-i:ET|EST|EDT|CT|CST|CDT|MT|MST|MDT|PT|PST|PDT|UTC|"
+          r"GMT))(?![A-Za-z]))")
+_NUM = (r"(?<![\dA-Za-z])(?P<n>[+\-−]?\.?\d(?:[\d,.]*\d)?" + _GROUP + r"(?:(?:k|K|M|bn)(?![A-Za-z]))?)"
+        r"(?!\d|[,.]\d|[-:/T]\d)" + _CLOCK)
+_SEP = "[ \t    :=(),·•|\\-—–]"
+_DURATION = (r"(?:seconds?|secs?|minutes?|mins?|hours?|hrs?|days?|weeks?|wks?|months?|mos?|years?|yrs?|business|"
+             r"calendar|working)")
+_PRICE_WORD = (rf"(?:costs?|costing|prices?|priced|pricing|fees?|charges?|charged|charging|pays?|paid|payable|"
+               rf"payments?|billed|billing|bills?|subscriptions?|amounts?|rates?\b(?!{_B}*-?{_B}*limit)|tiers?|premium|"
+               rf"plans?|invoic(?:e|es|ed|ing)|totals?|subtotals?|sums?|(?:starts?|starting){_B}+(?:at|from))")
+_QUOTE_WORD = r"(?:quotes?|quoted|quotation)"       # blanks, ":" or "=" only before its number: "TERMS QUOTED (2" whole
+_MONEY_UNIT = r"(?:months?|mos?|mths?|years?|yrs?|annum|weeks?|wks?|seats?|users?|licen[cs]es?|seasons?)"
+_MONEY_SLASH = r"(?:months?|mos?|mths?|m|years?|yrs?|annum|weeks?|wks?|seats?|users?|licen[cs]es?)"
+_COUNT_UNIT = r"(?:days?|hours?|hrs?|calls?|requests?|quer(?:y|ies)|hits?|games?|units?)"
+_MARK = rf"(?:{_B}*[*†‡])*"                                  # a footnote mark beside a price ("100* per month")
+# What follows a number after a price word and makes it a duration, a season, a count or a frequency, not a price.
+_NOT_PRICE = (rf"(?!{_SEP}*{_DURATION}\b(?![- ]to[- ](?:months?|years?|weeks?)\b|[- ]round\b))"
+              rf"(?!{_SEP}*(?:seasons?|times?|x|calls?|requests?|quer(?:y|ies)|hits?)\b)"
+              rf"(?!{_SEP}*(?:every|per|each){_B}+\d[\d,.]*{_B}*{_DURATION}\b)")
+_LOW = rf"(?:\d[\d,.]*{_B}*(?:[-–—]|to\b|and\b){_B}*)?"       # a range's low end before the number ("fees of 100-500")
+
+
+def _per(units: str, slash: str) -> re.Pattern:
+    return re.compile(
+        _NUM + rf"{_MARK}(?:{_B}+(?!(?:times?|x|{_DURATION})\b)[A-Za-z]+)?{_MARK}{_B}*"
+        rf"(?:(?:per|a|an|each|every){_B}+(?:\d[\d,.]*{_B}+)?(?:[A-Za-z]+{_B}+)?{units}|/{_B}*{slash})\b", re.I)
+
+
+PRICE_FIGURES = (
+    re.compile(rf"\b{_PRICE_WORD}\b(?:{_SEP}*[A-Za-z]+){{0,4}}?{_SEP}*{_LOW}" + _NUM + _NOT_PRICE, re.I),
+    re.compile(rf"\b{_QUOTE_WORD}\b(?:{_B}+[A-Za-z]+){{0,4}}?{_B}*[:=]?{_B}*" + _NUM + _NOT_PRICE, re.I),
+    re.compile(_NUM + rf"{_MARK}{_B}*(?:monthly|annually|yearly|weekly|quarterly|per{_B}+annum|p\.a\.|pa|"
+               r"(?:billed|charged|invoiced|payable)\b)(?![A-Za-z])", re.I),
+    _per(_MONEY_UNIT, _MONEY_SLASH))
+TERMS_PRICE_FIGURES = (_per(_COUNT_UNIT, _COUNT_UNIT),)
+_FIG = "<figure not printed>"
+# The other end of a range or a choice whose one end was replaced: a number before "-", "to", "and" or "or" and a
+# replaced figure, or after a replaced figure and "-" or "to".
+_RANGE = (re.compile(r"(?<![\dA-Za-z])(?P<n>\d[\d,.]*" + _GROUP + r"(?:k|K|M|bn)?)"
+                     rf"(?={_B}*(?:[-–—]|to\b|and\b|or\b){_B}*{_FIG})", re.I),
+          re.compile(rf"{_FIG}{_B}*(?:[-–—]|to\b){_B}*" + _NUM, re.I))
+
+
+def _numbers(rules, text: str) -> str:
+    for rule in rules:
+        text = rule.sub(lambda m: m.string[m.start():m.start("n")] + _FIG + m.string[m.end("n"):m.end()], text)
+    return text
+
+
+def figures(text: str, terms: bool = False) -> str:
+    """Every currency figure (FIGURE) and every price written without one (PRICE_FIGURES; with `terms`, a terms quote,
+    TERMS_PRICE_FIGURES too) replaced, the number only, then the other end of any range whose one end was."""
+    text = _numbers(PRICE_FIGURES, FIGURE.sub(_FIG, text))
+    if terms:
+        text = _numbers(TERMS_PRICE_FIGURES, text)
+    for _ in range(8):                                       # "100 to 200 to 300": until nothing changes
+        done = _numbers(_RANGE, text)
+        if done == text:
+            break
+        text = done
+    return text
+
+
 KEY_IN_URL = re.compile(r"key\s*=|\{key", re.I)
 # Retention words first: every passage holding one is quoted, ahead of the generic ones, never dropped (279 items 3(b)
 # and 5: "the retention clause quoted"). Generic words fill the quote up to TERMS_QUOTES, the rest counted.
@@ -167,25 +296,50 @@ TERMS_RETENTION_WORDS = ("retain", "retention", "store", "stored", "storing", "s
                          "destroy", "purg", "terminat", "expir", "cancel", "archiv", "persist")
 TERMS_GENERIC_WORDS = ("database", "licen", "redistribut", "copy", "copies", "own")
 TERMS_WORDS = TERMS_RETENTION_WORDS + TERMS_GENERIC_WORDS
+# A retention word also sits in page furniture (a "Cancel" button, "your session has expired", the App Store, "we store
+# cookies"): the page reads OK only when a retention passage also names the DATA (a word starting with one of these),
+# and one that names cookies does not count. Every retention passage is still quoted.
+TERMS_DATA_WORDS = ("data", "content", "information", "record", "database", "feed", "material", "statistic",
+                    "projection", "file", "copy", "copies")
 TERMS_QUOTES, TERMS_QUOTE_CHARS, TERMS_HEAD_CHARS = 20, 600, 600
 TERMS_RETENTION_CHARS = 3000                 # a retention passage longer than this is cut, marked, and REFUSED
 SAMPLE = 40
 
 
+_TOKEN = re.compile("[\ue000-\ue1ff]")                      # private-use: a kept URL's place while figures run
+
+
 class Out:
-    """Every printed line and the receipt pass through here: any secret value and any currency figure is replaced
-    before it is shown. No error text is cut before it gets here (a cut inside an echoed key would leave a prefix no
-    longer equal to the secret)."""
+    """Every printed line and the receipt pass through here: any secret value (in any letter case) and any figure is
+    replaced before it is shown. The request URLs this run names (`urls`: the operator's options, never a served value)
+    print as given, a secret and a currency figure in them still replaced: a number in a URL is its path or query, and
+    the receipt names the page read ("subscription-agreement-2024"). No error text is cut before it gets here (a cut
+    inside an echoed key would leave a prefix no longer equal to the secret)."""
 
     def __init__(self):
         self.secrets: set[str] = set()
+        self.urls: set[str] = set()
         self.lines: list[str] = []
 
-    def redact(self, text: str) -> str:
+    def _secrets(self, text: str) -> str:
         for s in sorted(self.secrets, key=len, reverse=True):
             if s:
-                text = text.replace(s, "<redacted>")
-        return FIGURE.sub("<figure not printed>", text)
+                text = re.sub(re.escape(s), "<redacted>", text, flags=re.I)
+        return text
+
+    def redact(self, text: str) -> str:
+        text = self._secrets(text)
+        kept: dict[str, str] = {}
+        if not _TOKEN.search(text):
+            for u in sorted({self._secrets(u) for u in self.urls if u}, key=len, reverse=True)[:256]:
+                if u in text:
+                    tok = chr(0xE000) + chr(0xE100 + len(kept)) + chr(0xE000)
+                    text = text.replace(u, tok)
+                    kept[tok] = FIGURE.sub(_FIG, u)
+        text = figures(text)
+        for tok, u in kept.items():
+            text = text.replace(tok, u)
+        return text
 
     def __call__(self, line: str = "") -> None:
         line = self.redact(str(line))
@@ -274,14 +428,39 @@ def safe_scalars(o, prefix: str = "") -> dict:
     return out
 
 
+def indexed_scalars(o, prefix: str = "") -> dict:
+    """Every scalar of a served value at any depth, a list element by its index ("Periods[0].StartTime"), a price-class
+    path's value replaced (its name kept). The time-field read only (game_row): safe_scalars' other callers keep a list
+    as "<list of N>"."""
+    out: dict = {}
+    if isinstance(o, dict):
+        for k, v in o.items():
+            out.update(indexed_scalars(v, f"{prefix}.{k}" if prefix else str(k)))
+    elif isinstance(o, list):
+        for i, v in enumerate(o):
+            out.update(indexed_scalars(v, f"{prefix}[{i}]"))
+    elif prefix:
+        out[prefix] = "<value not printed: price-class field>" if priced(prefix) else o
+    return out
+
+
 def safe_repr(v) -> str:
     """Any served value as text with every price-class value replaced, at any depth: a dict by its safe scalars, a list
-    entry by entry, a scalar as served. Never a raw repr of a container."""
+    entry by entry, a scalar as served (a string's figures replaced before its repr). Never a raw repr of a
+    container."""
     if isinstance(v, dict):
-        return "{" + ", ".join(f"{k}={x!r}" for k, x in safe_scalars(v).items()) + "}"
+        return "{" + ", ".join(f"{k}={safe_repr(x)}" for k, x in safe_scalars(v).items()) + "}"
     if isinstance(v, list):
         return "[" + ", ".join(safe_repr(x) for x in v) + "]"
+    if isinstance(v, str):
+        return repr(figures(v))        # replaced before repr: an escaped "\xa0" would hide a figure from the redactor
     return repr(v)
+
+
+def shown(v):
+    """A served value as the receipt keeps it: a scalar as served, an object or a list as its safe_repr text (a
+    price-class value inside never travels)."""
+    return safe_repr(v) if isinstance(v, (dict, list)) else v
 
 
 def get_path(o, path: str) -> tuple[bool, object]:
@@ -296,6 +475,17 @@ def get_path(o, path: str) -> tuple[bool, object]:
 
 def blank(v) -> bool:
     return v is None or (isinstance(v, str) and not v.strip())
+
+
+def empty(v) -> bool:
+    """Nothing served at any depth: null, a blank string, or a dict or list whose every value is empty (an empty one
+    included). Read on the served value, never its display ("<list of 0>" is text, not a goaltender). Zero and False
+    are values."""
+    if isinstance(v, dict):
+        return all(empty(x) for x in v.values())
+    if isinstance(v, list):
+        return all(empty(x) for x in v)
+    return blank(v)
 
 
 def zone_of(v) -> str:
@@ -321,25 +511,28 @@ def read_instant(v, zone: ZoneInfo | None) -> tuple[datetime | None, str]:
         return None, "null"
     if isinstance(v, bool) or isinstance(v, (int, float)):
         return None, f"a number ({v!r}), not a time as written: its unit and epoch are the vendor's documentation's"
+    if isinstance(v, (dict, list)):
+        return None, f"an object or list ({safe_repr(v)}), not a time as written"
     s = str(v).strip()
     if not s:
         return None, "empty"
     if not re.match(r"^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}", s):
-        return None, f"not an ISO 8601 date and time as written: {s!r}"
+        return None, f"not an ISO 8601 date and time as written: {safe_repr(s)}"
     try:
         dt = datetime.fromisoformat(s[:-1] + "+00:00" if s.endswith("Z") else s)
     except ValueError:
-        return None, f"not an ISO 8601 date and time as written: {s!r}"
+        return None, f"not an ISO 8601 date and time as written: {safe_repr(s)}"
     if dt.tzinfo is None:
         if zone is None:
-            return None, (f"{s!r} states no zone; pass --served-zone with the zone the vendor's documentation gives "
-                          "for its times (quoted with the receipt)")
+            return None, (f"{safe_repr(s)} states no zone; pass --served-zone with the zone the vendor's documentation "
+                          "gives for its times (quoted with the receipt)")
         a0, a1 = dt.replace(tzinfo=zone, fold=0), dt.replace(tzinfo=zone, fold=1)
         if a0.utcoffset() != a1.utcoffset():          # a wall time a clock change skips or repeats: no guessed reading
             back = a0.astimezone(timezone.utc).astimezone(zone).replace(tzinfo=None)
             kind = ("does not exist (the clock change skips it)" if back != dt
                     else "is ambiguous (the clock change repeats it)")
-            return None, f"{s!r} states no zone and {kind} in --served-zone {zone.key}: not read, never guessed"
+            return None, (f"{safe_repr(s)} states no zone and {kind} in --served-zone {zone.key}: not read, never "
+                          "guessed")
         return a0, f"no zone stated; read in --served-zone {zone.key}"
     label = zone_of(s)
     if not (label == "Z" or label.startswith("offset ")):
@@ -388,13 +581,13 @@ def status_section(a, key: str, say: Out, get=http_get) -> tuple[int, dict]:
                 say(f"    {f}: not served")
                 continue
             if priced(f):
-                shown = "<value not printed: price-class field>"
+                val = "<value not printed: price-class field>"
             elif isinstance(v, (dict, list)):
-                shown = f"<{type(v).__name__}: its names above>"
+                val = f"<{type(v).__name__}: its names above>"
             else:
-                shown = v
-            rec["values"][f] = shown
-            say(f"    {f} = {shown!r}")
+                val = v
+            rec["values"][f] = val
+            say(f"    {f} = {safe_repr(val)}")
     elif isinstance(body, list):
         rec["items"] = len(body)
         rec["fields"] = field_union(body)
@@ -409,19 +602,23 @@ def status_section(a, key: str, say: Out, get=http_get) -> tuple[int, dict]:
 # ---- (2) the games of the day ------------------------------------------------------------------------------------
 
 def game_row(a, g: dict) -> dict:
-    """One games item, read by the field names the options give; a required field absent, null or empty is missing."""
+    """One games item, read by the field names the options give; a required field absent, null or empty is missing,
+    and one served as an object or list is not a value (its safe text kept, never its price-class values). Every other
+    time-like field prints as served at any depth, a list element by its index (indexed_scalars)."""
     req = (("id", a.game_id_field), ("start", a.start_field), ("home", a.home_team_field),
            ("away", a.away_team_field))
     row: dict = {"missing": []}
     for label, f in req:
         served, v = get_path(g, f)
-        row[label] = v if served else None
+        row[label] = shown(v) if served else None
         if not served or blank(v):
             row["missing"].append(f)
+        elif isinstance(v, (dict, list)):
+            row["missing"].append(f"{f} (an object or list, not a value)")
     served, v = get_path(g, a.status_field)
-    row["status"] = v if served else "<not served>"
+    row["status"] = shown(v) if served else "<not served>"
     row["start_zone"] = zone_of(row["start"])
-    row["times"] = {k: (v, zone_of(v)) for k, v in safe_scalars(g).items()
+    row["times"] = {k: (v, zone_of(v)) for k, v in indexed_scalars(g).items()          # list elements included
                     if TIME_FIELD.search(k) and k != a.start_field and not priced(k)}
     return row
 
@@ -453,13 +650,13 @@ def games_section(a, key: str, say: Out, get=http_get) -> tuple[int, dict, dict]
         code = REFUSED
     games: dict = {}
     for r in rows[:SAMPLE * 2]:
-        say(f"    game {r['id']!r} · {r['away']!r} @ {r['home']!r} · {a.status_field} {r['status']!r} · "
-            f"{a.start_field} = {r['start']!r} ({r['start_zone']})")
+        say(f"    game {safe_repr(r['id'])} · {safe_repr(r['away'])} @ {safe_repr(r['home'])} · {a.status_field} "
+            f"{safe_repr(r['status'])} · {a.start_field} = {safe_repr(r['start'])} ({r['start_zone']})")
         for k, (v, z) in r["times"].items():
-            say(f"      {k} = {v!r} ({z})")
+            say(f"      {k} = {safe_repr(v)} ({z})")
     bad = [r for r in rows if r["missing"]]
     for r in bad:
-        say(f"  REFUSED: game {r['id']!r}: required field(s) not served: {', '.join(r['missing'])} (required: "
+        say(f"  REFUSED: game {safe_repr(r['id'])}: required field(s) not served: {', '.join(r['missing'])} (required: "
             f"{', '.join((a.game_id_field, a.start_field, a.home_team_field, a.away_team_field))})")
         code = REFUSED
     n_id: dict = {}
@@ -468,8 +665,8 @@ def games_section(a, key: str, say: Out, get=http_get) -> tuple[int, dict, dict]
             n_id[str(r["id"])] = n_id.get(str(r["id"]), 0) + 1
     dups = sorted(k for k, n in n_id.items() if n > 1)
     for k in dups:
-        say(f"  REFUSED: game id {k!r} served {n_id[k]} times (exactly once required; none is picked): every row "
-            "for it is refused")
+        say(f"  REFUSED: game id {safe_repr(k)} served {n_id[k]} times (exactly once required; none is picked): every "
+            "row for it is refused")
         code = REFUSED
     for r in rows:
         if not r["missing"] and str(r["id"]) not in dups:
@@ -487,7 +684,8 @@ def goalie_text(v) -> str:
 
 def goalie_refusal(served: bool, g, side: str, f: str) -> str | None:
     """Why a side's projected goaltender is not read, or None: not served, null or empty; an empty list; more than one
-    entry (none is picked); an object whose every value is null or empty."""
+    entry (none is picked); an object whose every value is null or empty at any depth (empty(): {"Candidates": []}
+    included)."""
     where = f"for the {side} side under {f}"
     if not served or blank(g):
         return f"no projected goaltender served {where}"
@@ -497,8 +695,8 @@ def goalie_refusal(served: bool, g, side: str, f: str) -> str | None:
         if len(g) > 1:
             return f"{len(g)} goaltenders served {where} (exactly one required; none is picked)"
         return goalie_refusal(True, g[0], side, f)
-    if isinstance(g, dict) and all(blank(x) or x == {} or x == [] for x in safe_scalars(g).values()):
-        return f"a goaltender with every value null or empty served {where}"
+    if isinstance(g, dict) and empty(g):
+        return f"a goaltender with every value null or empty (at any depth) served {where}"
     return None
 
 
@@ -506,7 +704,7 @@ def compare(stamp_v, start_v, zone: ZoneInfo | None) -> dict:
     """One stamp against one start, from the served values only: BEFORE / NOT BEFORE, or REFUSED with the reason."""
     s_dt, s_how = read_instant(stamp_v, zone)
     t_dt, t_how = read_instant(start_v, zone)
-    out = {"stamp": stamp_v, "stamp_read": s_how, "start": start_v, "start_read": t_how}
+    out = {"stamp": shown(stamp_v), "stamp_read": s_how, "start": shown(start_v), "start_read": t_how}
     if s_dt is None:
         out.update(verdict="REFUSED", why=f"the stamp is not read: {s_how}")
     elif t_dt is None:
@@ -555,17 +753,18 @@ def starters_section(a, key: str, say: Out, games: dict | None, zone: ZoneInfo |
     n_items: dict = {}
     for it in items:
         s_, g_ = get_path(it, a.game_id_field)
-        if s_ and not blank(g_):
+        if s_ and not blank(g_) and not isinstance(g_, (dict, list)):
             n_items[str(g_)] = n_items.get(str(g_), 0) + 1
     rows, seen = [], set()
     for i, it in enumerate(items):
         id_served, gid = get_path(it, a.game_id_field)
-        has_id = id_served and not blank(gid)
-        row: dict = {"item": i, "game": gid if id_served else None, "goalies": {}, "stamps": [], "refused": []}
+        has_id = id_served and not blank(gid) and not isinstance(gid, (dict, list))
+        row: dict = {"item": i, "game": shown(gid) if id_served else None, "goalies": {}, "stamps": [], "refused": []}
         rows.append(row)
         row["key"] = str(gid) if has_id else f"item {i}"
         if not has_id:
-            row["refused"].append(f"no {a.game_id_field} served")
+            row["refused"].append(f"no {a.game_id_field} served" + (" as a value (an object or list)"
+                                                                     if id_served and not blank(gid) else ""))
         else:
             seen.add(str(gid))
             if n_items[str(gid)] > 1:
@@ -585,11 +784,11 @@ def starters_section(a, key: str, say: Out, games: dict | None, zone: ZoneInfo |
         for f in a.stamp_field:
             s_served, s_v = get_path(it, f)
             if not s_served or blank(s_v):
-                row["stamps"].append({"field": f, "stamp": s_v, "verdict": "REFUSED", "why": "the stamp is not "
+                row["stamps"].append({"field": f, "stamp": shown(s_v), "verdict": "REFUSED", "why": "the stamp is not "
                                       + ("served" if not s_served else "null or empty")})
                 row["refused"].append(f"stamp {f} not served" if not s_served else f"stamp {f} null or empty")
                 continue
-            c = compare(s_v, start, zone) if game else {"stamp": s_v, "stamp_read": read_instant(s_v, zone)[1],
+            c = compare(s_v, start, zone) if game else {"stamp": shown(s_v), "stamp_read": read_instant(s_v, zone)[1],
                                                         "start": None, "verdict": "REFUSED",
                                                         "why": "no start time read"}
             c["field"] = f
@@ -598,16 +797,16 @@ def starters_section(a, key: str, say: Out, games: dict | None, zone: ZoneInfo |
                 row["refused"].append(f"stamp {f}: {c['why']}")
         row["verdict"] = ("REFUSED" if row["refused"] else
                           "PREGAME" if all(s["verdict"] == "BEFORE" for s in row["stamps"]) else "NOT PREGAME")
-        say(f"    game {row['game']!r}" + (f" · {game['away']!r} @ {game['home']!r}" if game else "")
-            + f" · start {a.start_field} = {start!r}")
+        say(f"    game {safe_repr(row['game'])}" + (f" · {safe_repr(game['away'])} @ {safe_repr(game['home'])}"
+                                                 if game else "") + f" · start {a.start_field} = {safe_repr(start)}")
         say(f"      projected home goaltender ({a.home_goalie_field}): {row['goalies']['home']}")
         say(f"      projected away goaltender ({a.away_goalie_field}): {row['goalies']['away']}")
         for s in row["stamps"]:
-            line = f"      STAMP {s['field']} = {s['stamp']!r}"
+            line = f"      STAMP {s['field']} = {safe_repr(s['stamp'])}"
             if s.get("stamp_read"):
                 line += f" ({s['stamp_read']})"
             if s["verdict"] in ("BEFORE", "NOT BEFORE"):
-                line += (f" vs start {s['start']!r} ({s['start_read']}): {s['verdict']} the start "
+                line += (f" vs start {safe_repr(s['start'])} ({s['start_read']}): {s['verdict']} the start "
                          f"({s['minutes_before_start']} minutes, from the served values)")
             else:
                 line += f": REFUSED: {s['why']}"
@@ -618,7 +817,7 @@ def starters_section(a, key: str, say: Out, games: dict | None, zone: ZoneInfo |
                                                  " (a stamp at or after the start, read from the response)"))
     missing = sorted(set(games or {}) - seen)
     for gid in missing:
-        say(f"    game {gid!r} (section 2): REFUSED: no starters item served for it")
+        say(f"    game {safe_repr(gid)} (section 2): REFUSED: no starters item served for it")
         rows.append({"item": None, "game": gid, "key": gid, "goalies": {}, "stamps": [], "verdict": "REFUSED",
                      "refused": ["no starters item served"]})
     rec["games"] = rows
@@ -642,30 +841,135 @@ def cut(x: str, n: int) -> tuple[str, bool]:
     return (x, False) if len(x) <= n else (x[:n] + f" ... [cut at {n} of {len(x)} characters]", True)
 
 
+# Block-level tags end a passage; every other tag (strong, em, b, i, a, span, code, br ...) is a space inside its
+# sentence (nothing before punctuation), so "You must <strong>not</strong> retain" and "You must not<br>retain" stay one
+# sentence with their negation (Codex #857 round 1 and its review: <br> breaks a line, not a sentence), and so is a line
+# break in the page's source (a wrapped <p> or <li> is one passage). A table row is one passage, its cells joined by
+# " | " (a rule keeps the row's label); a heading or a definition term opens what follows it. What governs a list goes
+# with every item of it (nested lists stacked; an item wrapped in <p> included): the lead-in, which is the sentence
+# just before the list opens, whatever its punctuation ("You must not:", "You agree that you will not", an intro that
+# took a heading's "You may not:"), so a negation never comes off "<li>retain data</li>". A sentence ending in ":" or a
+# heading also opens the next sentence. Sentences split after ".", "!" or "?" before anything but a lower-case
+# letter, never after an abbreviation ("e.g.", "i.e.", "Sec.").
+TERMS_BLOCK_TAGS = ("p", "div", "li", "ul", "ol", "h1", "h2", "h3", "h4", "h5", "h6", "tr", "table",
+                    "thead", "tbody", "tfoot", "section", "article", "header", "footer", "nav", "aside", "blockquote",
+                    "dd", "dt", "dl", "pre", "hr", "form", "main", "figure", "figcaption", "details", "summary",
+                    "title", "option", "caption")
+_BLOCK_TAG = re.compile(r"(?i)</?(?:" + "|".join(TERMS_BLOCK_TAGS) + r")\b[^>]*>")
+# markers, stripped from the page before they are set: an item opens / closes, a list opens / closes, a lead-in ends,
+# a block ends
+_ITEM, _LIST_OPEN, _LIST_CLOSE, _ITEM_CLOSE, _LEAD, _BR = "\x01", "\x02", "\x03", "\x04", "\x05", "\x06"
+_ABBREV = ("e.g.", "i.e.", "etc.", "vs.", "cf.", "viz.", "incl.", "approx.", "Sec.", "No.", "Art.", "art.", "para.",
+           "Inc.", "Ltd.", "Co.", "Corp.", "U.S.", "St.", "Mr.", "Ms.", "Dr.", "Fig.", "p.", "pp.")
+_SENTENCE = re.compile(r"(?<=[.!?])" + "".join(rf"(?<!\b{re.escape(x)})" if x[0].isalpha() else ""
+                                               for x in _ABBREV + tuple(x.capitalize() for x in _ABBREV))
+                       + r" +(?![a-z])")
+
+
+def _passages(page: str) -> list[str]:
+    """The page's sentences, unredacted, in page order, each list item opened with its list's lead-in and each
+    sentence after a lead-in (a sentence ending in ":", or a heading) opened with it; a lead-in so carried is not a
+    passage of its own."""
+    t = re.sub(r"[\x00-\x08]", " ", page or "")
+    t = re.sub(r"(?is)<(script|style)\b.*?</\1>", " ", t)
+    t = re.sub(r"(?s)<!--.*?-->", " ", t)
+    t = re.sub(r"[\r\n\f\v  ]+", " ", t)          # a source line break is a space, never a passage break
+    t = re.sub(r"(?i)<li\b[^>]*>", _BR + _ITEM + _BR, t)
+    t = re.sub(r"(?i)</li\s*>", _BR + _ITEM_CLOSE + _BR, t)
+    t = re.sub(r"(?i)<(?:ul|ol)\b[^>]*>", _BR + _LIST_OPEN + _BR, t)
+    t = re.sub(r"(?i)</(?:ul|ol)\s*>", _BR + _LIST_CLOSE + _BR, t)
+    t = re.sub(r"(?i)</(?:h[1-6]|dt)\s*>", _LEAD + _BR, t)  # a heading or a term opens what follows it
+    t = re.sub(r"(?i)</t[dh]\s*>", " | ", t)                # a row's cells, one passage
+    t = re.sub(r"(?i)<t[dh]\b[^>]*>", " ", t)
+    t = _BLOCK_TAG.sub(_BR, t)
+    t = re.sub(r"(?s)<[^>]+>(?=[.,;:!?)\]])", "", t)        # an inline tag before punctuation: nothing
+    t = re.sub(r"(?s)<[^>]+>", " ", t)                      # any other inline tag: a space, never a glued word
+    t = re.sub(r"[\r\n\f\v  ]+", " ", html.unescape(t))   # an entity's line break too
+    out: list[str] = []
+    stack: list[dict] = []          # per open list: its lead-in, whether an item is open, where its passages start
+    pending: tuple[int, str] | None = None                  # (index in out, text) of a lead-in awaiting what follows
+    prev: int | None = None                                 # the sentence just before: a list opening now takes it
+    used: set[int] = set()
+    for block in t.split(_BR):
+        mark = block.strip()
+        if mark == _LIST_OPEN:
+            if pending:
+                at, lead = pending
+            elif prev is not None:
+                at, lead = prev, out[prev]
+            else:
+                at, lead = None, (stack[-1]["lead"] if stack else None)
+            if at is not None:
+                used.add(at)
+            stack.append({"lead": lead, "at": at, "item": False, "start": len(out)})
+            pending, prev = None, None
+            continue
+        if mark == _LIST_CLOSE:
+            if stack:
+                closed = stack.pop()
+                if closed["at"] is not None and len(out) == closed["start"]:
+                    used.discard(closed["at"])                     # an empty list takes nothing
+            pending, prev = None, None
+            continue
+        if mark in (_ITEM, _ITEM_CLOSE):
+            if stack:
+                stack[-1]["item"] = mark == _ITEM
+            prev = None
+            continue
+        opens = _LEAD in block
+        block = re.sub(r"\s+", " ", block.replace(_LEAD, " ")).strip()
+        item = bool(stack) and stack[-1]["item"]
+        parts = [x for x in (y.strip(" |") for y in _SENTENCE.split(block)) if x]
+        for j, x in enumerate(parts):
+            lead = stack[-1]["lead"] if item else None
+            if pending:
+                held = pending[1]
+                lead = held if lead is None or held.startswith(lead) else lead + " " + held
+                used.add(pending[0])
+                pending = None
+            if lead:
+                x = lead + " " + x
+            out.append(x)
+            prev = len(out) - 1
+            if x.endswith(":") or (opens and j == len(parts) - 1):
+                pending = (len(out) - 1, x)
+    return [x for i, x in enumerate(out) if i not in used]
+
+
 def terms_read(page: str) -> dict:
-    """The terms page's retention and storage clauses, quoted: script/style dropped, tags stripped, entities
-    unescaped, split into sentences. EVERY sentence holding a word that starts with one of TERMS_RETENTION_WORDS is
-    quoted first, in page order, none dropped (each up to TERMS_RETENTION_CHARS; one longer is cut, marked, and counted
-    as cut); then the sentences holding only a generic word (TERMS_GENERIC_WORDS) fill the quote up to TERMS_QUOTES,
-    each up to TERMS_QUOTE_CHARS with a cut marked, the rest counted as not quoted; the page's head when no sentence
-    holds a listed word. The probe quotes; it does not decide what the terms allow."""
-    t = re.sub(r"(?is)<(script|style)\b.*?</\1>", " ", page or "")
-    t = re.sub(r"(?s)<[^>]+>", "\n", t)
-    t = html.unescape(t)
-    parts = [re.sub(r"\s+", " ", x).strip() for x in re.split(r"(?<=[.!?])\s+|\n+", t)]
-    parts = [x for x in parts if x]
+    """The terms page's retention and storage clauses, quoted: script/style dropped, a block-level tag
+    (TERMS_BLOCK_TAGS) a passage break, every other tag (<br> included) and a source line break a space inside its
+    sentence, nothing before punctuation (an inline negation is never cut off its clause), entities unescaped, blanks
+    collapsed, split into sentences, a list item opened with its lead-in, a table row's cells joined (_passages). Each
+    sentence is CLASSIFIED ON ITS UNREDACTED TEXT (a retention word is never lost to the figure rule), then every
+    figure in it replaced (figures(terms=True): the receipt's quote as the console's), then cut. EVERY sentence holding
+    a word that starts with one of TERMS_RETENTION_WORDS is quoted first, in page order, none dropped (each up to
+    TERMS_RETENTION_CHARS; one longer is cut, marked, and counted as cut; one whose bare number the price rule replaced
+    is counted too: the probe cannot tell a price from the clause's own number); then the sentences holding only a
+    generic word (TERMS_GENERIC_WORDS) fill the quote up to TERMS_QUOTES, each up to TERMS_QUOTE_CHARS with a cut
+    marked, the rest counted as not quoted; the page's head when no sentence holds a listed word. With no retention
+    sentence that names the data (TERMS_DATA_WORDS, cookies not counted) the passages or the head are for the record
+    only: terms_section REFUSES (a login, welcome, cookie or wrong page is never read as the terms). The probe quotes;
+    it does not decide what the terms allow."""
+    parts = _passages(page)
     def words(ws):
         return re.compile(r"\b(?:" + "|".join(re.escape(w) for w in ws) + ")", re.I)   # at a word's start
-    ret_w, gen_w = words(TERMS_RETENTION_WORDS), words(TERMS_GENERIC_WORDS)
-    ret = [cut(x, TERMS_RETENTION_CHARS) for x in parts if ret_w.search(x)]
+    ret_w, gen_w, data_w = words(TERMS_RETENTION_WORDS), words(TERMS_GENERIC_WORDS), words(TERMS_DATA_WORDS)
+    def shown(x: str, n: int) -> tuple[str, bool]:
+        return cut(figures(x, terms=True), n)               # redacted whole, then cut: a cut never splits a figure
+    ret_parts = [x for x in parts if ret_w.search(x)]
+    ret = [shown(x, TERMS_RETENTION_CHARS) for x in ret_parts]
     gen = [x for x in parts if not ret_w.search(x) and gen_w.search(x)]
     room = max(TERMS_QUOTES - len(ret), 0)
-    quoted = [q for q, _ in ret] + [cut(x, TERMS_QUOTE_CHARS)[0] for x in gen[:room]]
+    quoted = [q for q, _ in ret] + [shown(x, TERMS_QUOTE_CHARS)[0] for x in gen[:room]]
     out = {"quoted": quoted, "retention": len(ret), "retention_cut": sum(1 for _, c in ret if c),
-           "not_quoted": max(len(gen) - room, 0)}
+           "retention_data": sum(1 for x in ret_parts if data_w.search(x) and not re.search(r"(?i)cookie", x)),
+           "retention_figure": sum(1 for x in ret_parts if figures(x, terms=True) != FIGURE.sub(_FIG, x)),
+           "not_quoted": max(len(gen) - room, 0), "head": False}
     if not quoted:
         head = " ".join(parts)
-        out["quoted"] = [cut(head, TERMS_HEAD_CHARS)[0]] if head else []
+        out["quoted"] = [shown(head, TERMS_HEAD_CHARS)[0]] if head else []
+        out["head"] = bool(head)
     return out
 
 
@@ -688,25 +992,51 @@ def terms_section(a, say: Out, get=http_get) -> tuple[int, dict]:
     t = terms_read(page)
     quoted = t["quoted"]
     rec = {"url": a.terms_url, "read": bool(quoted), "http": status, "chars": len(page), "quoted": quoted,
-           "retention_passages": t["retention"], "retention_cut": t["retention_cut"], "not_quoted": t["not_quoted"]}
+           "retention_passages": t["retention"], "retention_quoted": t["retention"] > 0, "head": t["head"],
+           "retention_cut": t["retention_cut"], "retention_data_passages": t["retention_data"],
+           "retention_figure": t["retention_figure"], "not_quoted": t["not_quoted"]}
     if not quoted:
         say("  TERMS NOT QUOTED (the page yields no text to quote): REFUSED")
         return REFUSED, rec
+    if not t["retention"]:
+        say(f"  TERMS PAGE TEXT, FOR THE RECORD ONLY ({len(quoted)} passage{'' if len(quoted) == 1 else 's'}: "
+            + ("the page's head" if t["head"] else f"those holding {list(TERMS_GENERIC_WORDS)}")
+            + f"; none holds a retention or storage word {list(TERMS_RETENTION_WORDS)}; markup stripped):")
+        for q in quoted:
+            say(f'    "{q}"')
+        say("  REFUSED: no passage holding a retention or storage word: the retention clause is not quoted (279 items "
+            "3(b) and 5); the page may be a login, welcome or wrong page: the operator checks --terms-url")
+        return REFUSED, rec
+    if not t["retention_data"]:
+        say(f"  TERMS PAGE TEXT, FOR THE RECORD ONLY ({len(quoted)} passage{'' if len(quoted) == 1 else 's'}: "
+            f"{t['retention']} holding a retention or storage word, none naming the data {list(TERMS_DATA_WORDS)} "
+            "(cookies not counted); markup stripped):")
+        for q in quoted:
+            say(f'    "{q}"')
+        say("  REFUSED: no retention passage names the data: a \"Cancel\" button, an expired session, an app store or "
+            "a cookie notice is not the retention clause (279 items 3(b) and 5); the page may be a login, cookie or "
+            "wrong page: the operator checks --terms-url")
+        return REFUSED, rec
     say(f"  TERMS QUOTED ({len(quoted)} passage{'' if len(quoted) == 1 else 's'}: first every one holding a retention "
         f"or storage word {list(TERMS_RETENTION_WORDS)} ({t['retention']}), then those holding "
-        f"{list(TERMS_GENERIC_WORDS)}, "
-        "or the page's head; markup stripped; the operator quotes the clause on #105 and the architect reads what it "
-        "allows):")
+        f"{list(TERMS_GENERIC_WORDS)}; markup stripped; the operator quotes the clause on #105 and the architect reads "
+        "what it allows):")
     for q in quoted:
         say(f'    "{q}"')
     if t["not_quoted"]:
         say(f"  (+{t['not_quoted']} more passage{'' if t['not_quoted'] == 1 else 's'} holding only a generic word, not "
             "quoted; every retention passage is quoted above)")
+    code = OK
     if t["retention_cut"]:
         say(f"  REFUSED: {t['retention_cut']} retention passage(s) longer than {TERMS_RETENTION_CHARS} characters were "
             "cut (marked above): the clause is not quoted whole; the operator quotes it from the page")
-        return REFUSED, rec
-    return OK, rec
+        code = REFUSED
+    if t["retention_figure"]:
+        say(f"  REFUSED: {t['retention_figure']} retention passage(s) with a number replaced by the price rule (marked "
+            "above, no currency sign beside it): the probe cannot tell a price from the clause's own number, so the "
+            "clause is not shown whole; the operator quotes it from the page, any price left out")
+        code = REFUSED
+    return code, rec
 
 
 # ---- main --------------------------------------------------------------------------------------------------------
@@ -744,6 +1074,32 @@ def prepare_out(path: Path) -> str | None:
             return f"REFUSED: --out {path}: the file is not writable"
     elif not os.access(target.parent, os.W_OK):
         return f"REFUSED: --out {path}: its folder is not writable"
+    return None
+
+
+def request_urls(a) -> list[tuple[str, str]]:
+    """(option, text) for every request URL this run's options name, as sent (the date rendered in the paths): each
+    option's own text first (so a refusal names it), then each URL whole (a key split across the base and a path), the
+    terms page included; a skipped section's too (a key pasted into any option is refused, called or not)."""
+    base = a.base_url.rstrip("/")
+    paths = [("--status-path", render(a.status_path, a.date)), ("--games-path", render(a.games_path, a.date)),
+             ("--starters-path", render(a.starters_path, a.date))]
+    terms = [("--terms-url", a.terms_url)] if a.terms_url else []
+    return ([("--base-url", base)] + paths + terms
+            + [(f"--base-url with {opt}", base + p) for opt, p in paths])
+
+
+def key_in_urls(a, raw: str) -> str | None:
+    """Codex #857 round 1: the loaded key's VALUE in any URL this run would call, under any name or in the path
+    ("token=<key>" included), as given or trimmed, raw or URL-quoted (quote, quote_plus), in any letter case, each URL
+    compared as written and URL-decoded (KEY_IN_URL only reads a spelling). The option is named; the value never is.
+    None when no URL carries it."""
+    forms = {f.casefold() for k in {raw, raw.strip()} if k.strip()
+             for f in (k, quote(k, safe=""), quote(k), quote_plus(k))}
+    for label, url in request_urls(a):
+        if any(f in v.casefold() for f in forms for v in (url, unquote(url), unquote_plus(url))):
+            return (f"REFUSED: {label} carries the value of {KEY_NAME} (the value is not printed): the key travels in "
+                    "--key-header only, never in a URL; no call made")
     return None
 
 
@@ -786,6 +1142,7 @@ def main(argv=None) -> int:
     except SystemExit as e:
         return REFUSED if e.code else OK
     a.status_value_field = a.status_value_field or list(STATUS_VALUE_FIELDS)
+    a.out = a.out.expanduser() if a.out else None    # once: the preflight, the write and the line name this one path
     say = Out()
     if set(SECTIONS) <= set(a.skip):
         say("REFUSED: --skip names every section; nothing would be read")
@@ -818,8 +1175,13 @@ def main(argv=None) -> int:
             return REFUSED
     _load_env()
     raw = os.environ.get(KEY_NAME) or ""
-    say.secrets.update(x for x in (raw, raw.strip()) if x.strip())
+    say.secrets.update(f for x in (raw, raw.strip()) if x.strip() for f in (x, repr(x)[1:-1]))   # its repr too
     key = raw.strip()
+    refused = key_in_urls(a, raw) if key else None              # before any call, the terms page's included
+    if refused:
+        say(refused)
+        return REFUSED
+    say.urls.update(u for _, u in request_urls(a))              # printed as given (Out): the receipt names each page
     say(f"NHL SOURCE PROBE (addendum 279 item 3(a), lane nhl, #105) · read-only · day {a.date} (UTC) · "
         f"{datetime.now(timezone.utc):%Y-%m-%dT%H:%M:%SZ} (our clock: printed for the record, never compared)")
     say(f"  key {KEY_NAME}: {'set (the value is never printed)' if key else 'not set'} · KALSHI: none (KXNHLGAME "
@@ -868,7 +1230,9 @@ def main(argv=None) -> int:
         "this receipt.")
     if a.out:
         try:
-            a.out.write_text(say.redact(json.dumps(receipt, indent=1, default=str)))
+            # UTF-8 text, no JSON escapes: a currency sign written as an escape would hide its figure from the redactor
+            a.out.write_text(say.redact(json.dumps(receipt, indent=1, default=str, ensure_ascii=False)),
+                             encoding="utf-8")
         except OSError as e:
             say(f"FAILED: the receipt was not written: {type(e).__name__}: {e} (the console above is the receipt)")
             return FAILED

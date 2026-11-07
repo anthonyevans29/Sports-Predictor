@@ -112,7 +112,7 @@ become MORE binding under an income goal, never less."
 - Never push a change that alters prediction outputs without running
   the relevant backtest/gate and including its verdict.
 
-## Current production state (2026-09-25)
+## Current production state (maintained; last 2026-11-07)
 - **MLB**: model v2 live; ~57% sides over 400+ graded; candidate
   `improve` rejections are routine and CORRECT (bar: 0.0050 log-loss).
   Predictions are a LAPTOP duty (PHASE B negative, 2026-09-29); the host
@@ -142,7 +142,9 @@ become MORE binding under an income goal, never less."
   MARKET-ONLY via `export-fixtures --competition NHL` (season gate
   2026-09-29, the operator-confirmed opening day). The goalie probe came
   back NEGATIVE (2026-09-26): the reopening condition is an EXTERNAL
-  goalie/lineup source. The bar did not move.
+  goalie/lineup source (lane nhl, #105, is TO DECLARE on the roadmap: the
+  operator's sourcing decision 11-13, the one run 12-29, earliest_live
+  2027-01-22). The bar did not move.
 - **NCAA**: data certified (9,245 games, 743 programs); market-only
   doctrine; Kalshi (KXNCAAFGAME) is the PRIMARY college market source,
   books post thin and near-kickoff. NO model; own gate later.
@@ -161,8 +163,9 @@ become MORE binding under an income goal, never less."
   candidate only at <= 6.0pp, else the R-track is closed for the season)
   or (b) on soccer-v23's harness after v23 passes, in both cases at
   cup_exam's unchanged gate. EFL Step A 12-15 gates nothing. The exam
-  harness + fix-v2 machinery stay merged. UNL likely market-only
-  permanently.
+  harness + fix-v2 machinery stay merged. UNL: market-only today; lane
+  unl (#220) is CONFIRMING on the roadmap — the 60th cohort fixture 11-11,
+  the confirmation record 11-12, earliest_live 11-12.
 - **Tennis (ATP, WTA)**: market-only, no model, no call. Kalshi's two
   tour series (KXATPMATCH, KXWTAMATCH) are the fixture source and the
   results source: a settled market names its winner; a scalar

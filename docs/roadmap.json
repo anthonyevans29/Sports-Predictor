@@ -720,7 +720,10 @@
           "what": "the schema PR (addendum 252 item 1, the migration, the query command, tests 6(a)-(c), (g), (h)): the two tables availability_observations and availability_assertions, migrate_availability_record.py, the read-only `availability` command; opens in the next free slot after #825's merge-from-main push and the parity PR",
           "owner": "code",
           "due": "2026-11-10",
-          "done": null
+          "done": {
+            "date": "2026-11-05",
+            "receipt": "#831 merged 2026-11-05 (b51d5e85); done-marked by addendum 281 item 4(a) (ARCHITECT 2026-11-07 08:35 ET)"
+          }
         },
         {
           "what": "the nflverse depth-charts feed (addendum 252 item 3(a)): its ingest command and adapter, the chain availability-daily and its timer at 08:45 UTC, so the first host observations precede the 11-13 decision",
@@ -776,7 +779,10 @@
           "what": "the design PR (addendum 216 item 3; addendum 230 item 1(d); addendum 248 item 2(b)): the fit, its constraints, the early-season treatment, the harness (one run at the frozen soccer gate on the frozen pot, the reservation pattern), the frozen-bar text written before any result; no run and no declaration before 11-20",
           "owner": "code",
           "due": "2026-11-13",
-          "done": null
+          "done": {
+            "date": "2026-11-05",
+            "receipt": "#832 merged 2026-11-05 (0ad8b82a); done-marked by addendum 281 item 4(a) (ARCHITECT 2026-11-07 08:35 ET)"
+          }
         },
         {
           "what": "the declaration with the bar written before any result (addendum 216 item 3; addendum 251 item 2): the pot's log-loss at least 0.0050 below BOTH v22's recorded figure AND v22's figure re-walked on v23's harness, a tie on either a rejection, the early-season matches INCLUDED in the scored set (the declared within-season skip is zero); the declaration slots (v22's recorded figure and its source among them) and the registry entry soccer-v23 are the architect's",
@@ -817,7 +823,10 @@
           "what": "the wiring PR (addendum 261 item 1(b)), after the architect's ruling on the probe's receipt: the adapter cloned from api_hockey, Sport.BASKETBALL, competition NBA (season int-style \"2026\" for 2026-27), the three syncs, the status map, the data certification receipt (2026-27 to date plus 2024-25 and 2025-26 as history, metered, counts on #839), the Kalshi series \"NBA\": \"KXNBAGAME\" with its fee M read from the schedule, the matcher's NBA codes, the capture tier, the PAPER record line, coverage's NBA line, the chain nba-daily at a UTC minute off every existing timer (its enablement is the architect's block)",
           "owner": "code",
           "due": "2026-11-19",
-          "done": null
+          "done": {
+            "date": "2026-11-07",
+            "receipt": "#848 merged 2026-11-07 (17dc8a52) and the NBA first load's stored certification receipt on #839, certified by addendum 282 item 1 (ARCHITECT 2026-11-07 09:10 ET); done early: its due 2026-11-19 stays as the record (222 item 3(a))"
+          }
         },
         {
           "what": "the first host NBA PAPER page (addendum 261 item 1(b)): the first NBA page the host writes on a tag carrying the wiring PR, after the architect's block enables nba-daily",
@@ -826,7 +835,7 @@
           "done": null
         },
         {
-          "what": "NCAA men's (addendum 261 item 1(c)): competition NCAAMB (never \"NCAA\", which is football), the same adapter, the Kalshi college-basketball game series with its ticker READ from the API's series listing (find_series) and printed on the PR, the matcher on a 360-team universe (refusals expected and correct), the PAPER record",
+          "what": "NCAA men's (addendum 261 item 1(c)): competition NCAAMB (never \"NCAA\", which is football), the same adapter, the Kalshi college-basketball game series with its ticker READ from the API's series listing (find_series) and printed on the PR, the matcher's universe game-derived with a Kalshi market, never the provider's team list (272 item 2; the 'NCAA' league served 740 teams on 2026-27); refusals expected and correct, the PAPER record",
           "owner": "code",
           "due": "2026-12-05",
           "done": null
@@ -861,20 +870,14 @@
           "done": null
         },
         {
-          "what": "the first PAPER record at the United Cup (addendum 261 item 2(c)): the first host tennis PAPER page on a tag that carries the wiring PR, its deploy receipt (the chain's timer enabled by the architect's block, item 0)",
+          "what": "the first PAPER record: the first KXATPMATCH / KXWTAMATCH event the chain captures on or after 12-28 (269 item 2; the United Cup's own series KXUNITEDCUPMATCH is out of scope); the first host tennis PAPER page on a tag that carries the wiring PR, its deploy receipt (the chain's timer enabled by the architect's block)",
           "owner": "operator",
           "due": "2026-12-28",
-          "done": null
-        },
-        {
-          "what": "the history pot (addendum 261 item 2(d)): the results-and-odds history (2015 → 2026, or whatever the source's terms allow) ingested as history, never an as-of feature, certified by counts per season and surface",
-          "owner": "code",
-          "due": "2027-01-10",
           "done": null
         }
       ],
       "earliest_live": null,
-      "live_needs": "No model and no call (addendum 261 item 4). ARCHITECT 2026-11-05 11:40 ET, addendum 261 item 2(e), verbatim: \"A MODEL: NONE DECLARED. Tennis is the one new sport with a known public mechanism (surface-specific Elo) and a literature in which it has held its own against the market — modestly, and mostly before 2015. A candidate declares only on the certified pot, at a frozen gate written before any result; earliest_live null.\" NOTE (ARCHITECT 2026-11-06 12:20 ET, addendum 270 item 6, verbatim): \"results source: Kalshi settlement (269); history pot: Kalshi settled markets (270); tennis-data.co.uk closed by access from the US (270 item 1), its terms and listing on #838; the GitHub archive closed by licence (270 item 3)\". THE SOURCES, RULED on the stage-1 receipt (ARCHITECT 2026-11-06, addendum 269 items 1-3, 11:40 ET, and addendum 270 items 1-5, 12:20 ET; verbatim in the records PR's ledger entry): the market-only record is the two tour series KXATPMATCH and KXWTAMATCH \"and nothing else\" (269 item 1, K1); \"THE MATCHER KEYS ON THE MARKET'S yes_sub_title, NEVER THE EVENT TITLE\" (K2); \"for the MARKET-ONLY record, KALSHI'S OWN SETTLEMENT IS THE RESULTS SOURCE\" (269 item 2): 'yes' / 'no' names the winner (expiration_value), 'scalar' is its own status with the fraction kept and NO winner, '' is not settled (269 item 3(b)); the score, the sets, the retirement's point and the official winner of an incomplete match are \"NULL AND LABELLED (law 4) until a source serves them under terms we have read\" (269 item 2). The wiring PR (12-12) reads 269 item 3(a)-(f) before anything is mapped: the series' contract_terms_url clause on incomplete matches QUOTED on the PR before the status map (3(c)); the adapter pages to the last page, a cursor left a refusal (3(d)); the fee M for the two series READ from the schedule, KXATPMATCH and KXWTAMATCH (1.0, 1.0) (274 item 1(b), not in #848). \"the first PAPER record is the first KXATPMATCH / KXWTAMATCH event the chain captures on or after 12-28\" (269 item 2). tennis-data.co.uk is CLOSED as a SOURCE \"by ACCESS, not by terms\" (270): \"a source is readable for this project only from where the project's machines run — the laptop and the host, both in the US — by a plain client, under terms we have quoted\" (270 item 1); stage 2 does not run, block_1106_tennis_stage2.txt is WITHDRAWN and the --user-agent PR of 269 item 4(c)(ii) is NOT built (270). The GitHub match archive is CLOSED by its licence, Creative Commons Attribution-NonCommercial-ShareAlike 4.0 (270 item 3: \"A non-commercial licence closes a source for this project\"). THE HISTORY POT is Kalshi's own settled markets (270 item 5): it ACCRUES from 12-28 under the chain as the PAPER record itself; a ONE-TIME read-only backfill of the 2026 season's settled markets only on the day a model lane asks for it, \"by a block of mine, and not before — no model lane exists, so no backfill is scheduled\"; \"A future tennis model candidate is declared on this pot or not at all; a paid results API is named in that declaration, not bought before it (261 item 3).\" No date moves (269, 270). Undated lines: the operator's paste on #838, verbatim, of the 'Legal disclaimer' and 'Liability Disclaimer' pages and the data pages' listing for 2025 and 2026, men's and women's (270 item 2); the licence line from the original repository's README, read on the laptop (270 item 3); the wiring waits for the off-season window (261 item 3); the chain's timer is the architect's block (261 item 0).",
+      "live_needs": "No model and no call (addendum 261 item 4). ARCHITECT 2026-11-05 11:40 ET, addendum 261 item 2(e), verbatim: \"A MODEL: NONE DECLARED. Tennis is the one new sport with a known public mechanism (surface-specific Elo) and a literature in which it has held its own against the market — modestly, and mostly before 2015. A candidate declares only on the certified pot, at a frozen gate written before any result; earliest_live null.\" NOTE (ARCHITECT 2026-11-06 12:20 ET, addendum 270 item 6, verbatim): \"results source: Kalshi settlement (269); history pot: Kalshi settled markets (270); tennis-data.co.uk closed by access from the US (270 item 1), its terms and listing on #838; the GitHub archive closed by licence (270 item 3)\". THE SOURCES, RULED on the stage-1 receipt (ARCHITECT 2026-11-06, addendum 269 items 1-3, 11:40 ET, and addendum 270 items 1-5, 12:20 ET; verbatim in the records PR's ledger entry): the market-only record is the two tour series KXATPMATCH and KXWTAMATCH \"and nothing else\" (269 item 1, K1); \"THE MATCHER KEYS ON THE MARKET'S yes_sub_title, NEVER THE EVENT TITLE\" (K2); \"for the MARKET-ONLY record, KALSHI'S OWN SETTLEMENT IS THE RESULTS SOURCE\" (269 item 2): 'yes' / 'no' names the winner (expiration_value), 'scalar' is its own status with the fraction kept and NO winner, '' is not settled (269 item 3(b)); the score, the sets, the retirement's point and the official winner of an incomplete match are \"NULL AND LABELLED (law 4) until a source serves them under terms we have read\" (269 item 2). The wiring PR (12-12) reads 269 item 3(a)-(f) before anything is mapped: the series' contract_terms_url clause on incomplete matches QUOTED on the PR before the status map (3(c)); the adapter pages to the last page, a cursor left a refusal (3(d)); the fee M for the two series READ from the schedule, KXATPMATCH and KXWTAMATCH (1.0, 1.0) (274 item 1(b), not in #848). \"the first PAPER record is the first KXATPMATCH / KXWTAMATCH event the chain captures on or after 12-28\" (269 item 2). tennis-data.co.uk is CLOSED as a SOURCE \"by ACCESS, not by terms\" (270): \"a source is readable for this project only from where the project's machines run — the laptop and the host, both in the US — by a plain client, under terms we have quoted\" (270 item 1); stage 2 does not run, block_1106_tennis_stage2.txt is WITHDRAWN and the --user-agent PR of 269 item 4(c)(ii) is NOT built (270). The GitHub match archive is CLOSED by its licence, Creative Commons Attribution-NonCommercial-ShareAlike 4.0 (270 item 3: \"A non-commercial licence closes a source for this project\"). THE HISTORY POT is Kalshi's own settled markets (270 item 5): it ACCRUES from 12-28 under the chain as the PAPER record itself; a ONE-TIME read-only backfill of the 2026 season's settled markets only on the day a model lane asks for it, \"by a block of mine, and not before — no model lane exists, so no backfill is scheduled\"; \"A future tennis model candidate is declared on this pot or not at all; a paid results API is named in that declaration, not bought before it (261 item 3).\" No date moves (269, 270). Undated lines: the operator's paste on #838, verbatim, of the 'Legal disclaimer' and 'Liability Disclaimer' pages and the data pages' listing for 2025 and 2026, men's and women's (270 item 2); the licence line from the original repository's README, read on the laptop (270 item 3); the wiring waits for the off-season window (261 item 3); the chain's timer is the architect's block (261 item 0). THE HISTORY-POT STEP (due 2027-01-10) REMOVED by a quoted ruling (ARCHITECT 2026-11-06 19:35 ET, addendum 278 item 1; the validator's rule, addendum 61 item 4: \"A step's due is never cleared: a step is done, moved, or removed by a quoted ruling\"), on addendum 270 item 5, verbatim: \"THE HISTORY POT, RULED: Kalshi's own settled markets are the pot — Kalshi-native, the mission's own word. [...] The pot ACCRUES from 12-28 under the chain as the PAPER record itself; a ONE-TIME read-only backfill of the 2026 season's settled markets (704 ATP and 864 WTA events read in stage 1) is possible on the day a model lane asks for it, by a block of mine, and not before — no model lane exists, so no backfill is scheduled.\"",
       "vs_close": "n/a: no model; the lane prices nothing (addendum 261 item 4: no model, no call, no Desk family). The close is captured for the PAPER record from the wiring PR on (item 0).",
       "moved": []
     }

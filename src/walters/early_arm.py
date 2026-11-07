@@ -152,8 +152,9 @@ NOT_STRAIGHT_PLAY = ("booked to a call that is not a straight PLAY on its side (
                      "another kind): never an arm fill")
 PREMATCH_NOT_PLAY = "the prematch page before the fill does not PLAY its side (a PASS or another side): not the arm's"
 NO_PREMATCH = "UNESTABLISHED: no prematch page before the fill"
-SIDE_RELOGGED = ("UNESTABLISHED: on the side a same-day re-log replaced (the close PLAYs the other side), and no "
-                 "prematch page before the fill gives its side")
+SIDE_RELOGGED = ("UNESTABLISHED: on the side a same-day re-log replaced (the close PLAYs the other side): never an "
+                 "arm fill, whether or not a prematch page before the fill PLAYs its side (gate (i) strict; waits "
+                 "for #865)")
 PREMATCH_DISAGREE = "the latest prematch pages before the fill disagree on the game (refused, none picked)"
 PREMATCH_UNTIMED = "only untimed prematch pages (no exported_at) name its event: before the fill not established"
 NOT_RULED_CALL = "the closing page's call is neither PLAY nor PASS: not ruled for the arm"

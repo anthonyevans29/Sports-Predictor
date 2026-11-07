@@ -10083,5 +10083,41 @@ def availability_cmd(sport, as_of_s, clock, match_id, team, kind, show_history, 
         click.echo(line)
 
 
+@cli.command("availability-nflverse")
+@click.option("--season", type=int, default=None, metavar="YEAR",
+              help="The release file's season (2025 or later; the 2023-2024 weekly files are another shape and are "
+                   "refused). Default: the current season (the calendar year from March on, else the year before).")
+@click.option("--file", "file_path", default=None, metavar="PATH",
+              help="Ingest this local file (a hand-carried release file) instead of fetching; --season is not read.")
+def availability_nflverse_cmd(season, file_path):
+    """THE NFLVERSE DEPTH-CHART FEED (ARCHITECT 2026-11-04 13:05 ET, addendum 252 item 3(a); 259 item 2; lane
+    availability-record): one observation of source nflverse_depth_charts written to the availability record. Fetches
+    the season's release file (github.com/nflverse/nflverse-data, release tag depth_charts; If-None-Match with the
+    stored ETag, redirects followed, explicit timeouts) or reads --file, checks the twelve columns by name (the 2023-2024
+    shape refused), and asserts its NEW rows (dt later than the newest source_stamp held for the source) as depth_rank
+    facts, players unmapped (counted), teams mapped by the NFL competition's stored tla (unmapped: NULL with the text,
+    the observation `partial`). A 304 or a byte-identical file is `complete` with 0 rows; a raised call is `failed`
+    (exit 1). Writes the live DB only (no --db: a copy is never written), under the chains' DB lock; the raw file under
+    logs/availability/nflverse_depth_charts/<date>/ when it changed, never under data/. Prints the receipt and "Depth
+    charts: nflverse (CC BY 4.0)". A missing DB, an unmigrated store or a refused --file exits 2, nothing written.
+    src/availability/nflverse.py; docs/specs/availability-record.md section 9."""
+    from src.availability import nflverse as nv
+    from src.availability import record as rec
+    if file_path is None and season is not None:
+        why = nv.season_refusal(season)
+        if why:
+            click.echo(f"AVAILABILITY-NFLVERSE {why}")
+            raise SystemExit(2)
+    try:
+        ing = nv.run(season, file_path)
+    except (nv.Refused, rec.Refused) as e:
+        click.echo(f"AVAILABILITY-NFLVERSE {e}")
+        raise SystemExit(2)
+    for line in ing.lines():
+        click.echo(line)
+    if ing.status == "failed":
+        raise SystemExit(1)
+
+
 if __name__ == "__main__":
     cli()

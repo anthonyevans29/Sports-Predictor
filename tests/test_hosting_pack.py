@@ -931,8 +931,8 @@ def test_the_t11_lists_are_read_from_the_real_runbook_as_it_holds_them():
     lists = c.t11_lists()
     assert list(lists) == ["TIMERS", "MLB_LAPTOP_ONLY"] == list(c.T11_LISTS)
     assert {"sp-nfl-prematch.timer", "sp-cup-observe.timer", "sp-closing-watch.timer"} <= set(lists["TIMERS"])
-    assert len(lists["TIMERS"]) == 19                # sp-nba-daily.timer: ARCHITECT 2026-11-05, addendum 261 item 1(b)
-    assert lists["TIMERS"][-1] == "sp-nba-daily.timer"
+    assert len(lists["TIMERS"]) == 20   # 18 + sp-availability-daily.timer (252 item 3(a)) + sp-nba-daily.timer (261 item 1(b))
+    assert lists["TIMERS"][-2:] == ["sp-availability-daily.timer", "sp-nba-daily.timer"]
     assert lists["MLB_LAPTOP_ONLY"] == ["sp-mlb-morning.timer", "sp-mlb-preslate.timer", "sp-clv-capture.timer"]
     assert sp_cutover.runbook_timers() == lists["TIMERS"]
 
@@ -966,7 +966,9 @@ def test_the_timers_line_for_the_v1_6_1_host_names_only_the_two_timers_timers(tm
     host = [t for t in lists["TIMERS"] if t not in ("sp-nfl-prematch.timer", "sp-cup-observe.timer",
                                                      "sp-nba-daily.timer")]
     path = _enabled(tmp_path, [*host, "sp-nfl-predict.timer"])
-    assert len(path.read_text().split()) == 17
+    # v1.6.1's 17, plus sp-availability-daily.timer: shipped after v1.6.1 (addendum 252 item 3(a)), on TIMERS, and
+    # enabled in this reconstruction so the line reads v1.6.1's two missing timers and sp-nba-daily.timer alone
+    assert len(path.read_text().split()) == 18 and "sp-availability-daily.timer" in host
     want = (f"\n  ! shipped timers not in {c.TIMERS_ENABLED}: sp-cup-observe.timer, sp-nba-daily.timer, "
             "sp-nfl-prematch.timer (TIMERS) · 3 on MLB_LAPTOP_ONLY (held off by T11) — a TIMERS timer not enabled: "
             "install and enable it by hosting-h1.md T11's recipe for a live host")

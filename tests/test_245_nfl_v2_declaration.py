@@ -12,6 +12,8 @@ import hashlib
 import json
 from pathlib import Path
 
+import pytest
+
 from src import roadmap as rm
 from src.walters import nfl_backtest as nb
 from src.walters import nfl_v2_gate as g
@@ -132,8 +134,10 @@ def test_the_v2_terms_kept_keys_are_mains():
 def test_nothing_else_in_the_v2_entry_moves():
     e = _e(V2)
     assert list(e) == V2_KEYS
-    assert (e["id"], e["sport"], e["status"], e["run"], e["verdict"], e["confirmation_plan"]) == \
-           (V2, "nfl", "declared", None, None, None)
+    # ARCHITECT 2026-11-06 08:55 ET, addendum 265: the one run (the laptop's record, b2d4cd97) and the FAIL verdict are
+    # recorded since (registry.record_run / record_verdict write status, run and verdict); every other key is 245's
+    assert (e["id"], e["sport"], e["status"], e["run"]["n_scored"], e["verdict"]["verdict"], e["confirmation_plan"]) \
+        == (V2, "nfl", "closed", 285, "FAIL", None)
     assert e["declared_at"] == "2026-11-02T15:35:00Z"                    # 215's stamp; the term carries 245's
     assert e["constants"] == {"k_factor": 20.0, "home_advantage": 48.0, "season_regression": 0.25, "mov_base": 2.2,
                               "default_rating": 1500.0}                  # v1's, unchanged (the term replaces h only)
@@ -177,10 +181,14 @@ def test_the_pure_preflight_reads_the_term_and_the_fit_and_the_fingerprint_binds
 
 
 def test_the_run_reads_the_entry_as_declared_and_unrun():
-    """declared_unrun() reads the real ledger only (status, run, the reservation's absence): 245 keeps `declared`."""
+    """declared_unrun() reads the real ledger only (status, run, the reservation's absence): 245 kept `declared` until
+    the one run; since 2026-11-06 (addendum 265) the real entry is run and closed and the reservation is the record that
+    the run was spent, so a second run is refused. The term 245 declared is the one the run walked."""
     assert g.reservation_path().endswith("nfl-elo-v2.started.json")
-    assert not Path(g.reservation_path()).exists()
-    assert g.declared_unrun()["calibration_term"]["home_advantage"] == 33.0
+    assert Path(g.reservation_path()).exists()
+    with pytest.raises(g.GateRefused, match=r"must be declared and unrun in the registry \(status closed\)"):
+        g.declared_unrun()
+    assert g.declared_term(_e(V2)) == ("home_advantage", 33.0)
 
 
 # ================================================================ nfl-elo-v1: the RECORDED FAIL beside the VOID --
@@ -218,7 +226,9 @@ def test_the_v1_recorded_fail_quotes_the_console():
 def test_the_ledger_stays_one_json_file_in_its_format():
     raw = (ROOT / "docs" / "registry" / "experiments.json").read_text()
     assert raw == json.dumps(json.loads(raw), indent=2) + "\n"
-    assert not (ROOT / "docs" / "registry" / f"{V2}.started.json").exists()
+    # addendum 265 item 4: the reservation kept, as the laptop wrote it, beside the one run's record
+    started = json.loads((ROOT / "docs" / "registry" / f"{V2}.started.json").read_text())
+    assert (started["id"], started["started_at"]) == (V2, _e(V2)["run"]["run_at"])
 
 
 # ========================================================================= the roadmap: done-marks, never moves --
@@ -227,14 +237,18 @@ def test_the_lane_nfl_v2s_steps_11_04_and_11_05_are_done_and_the_run_step_stands
     doc = rm.load()
     assert rm.validate(doc) == []
     (ln,) = [x for x in doc["lanes"] if x["lane"] == "nfl-v2"]
+    # no date the first four steps carry moves; the three on-PASS steps are cleared by addendum 265 item 4 (the FAIL)
     assert [(s["owner"], s["due"]) for s in ln["steps"]] == [
-        ("code", "2026-11-03"), ("operator", "2026-11-04"), ("architect", "2026-11-05"), ("operator", "2026-11-06"),
-        ("calendar", "2026-11-23"), ("operator", "2026-11-24"), ("architect", "2026-11-26")]   # no date moves
+        ("code", "2026-11-03"), ("operator", "2026-11-04"), ("architect", "2026-11-05"), ("operator", "2026-11-06")]
     assert ln["steps"][1]["done"] == {"date": "2026-11-04", "receipt": "the 11-04 console #783 "
                                       "issuecomment-6631134603 (the laptop, main 26943179; its record: addendum 245 "
                                       "item 1)"}
     assert ln["steps"][2]["done"] == {"date": "2026-11-04", "receipt": "addendum 245 (ARCHITECT 2026-11-04 08:20 "
                                       "ET); the 11-04 console #783 issuecomment-6631134603"}
     assert ln["steps"][3]["what"] == "the ONE run on my word, my block, the verdict the same day"
-    assert all(s["done"] is None for s in ln["steps"][3:])
-    assert (ln["moved"], ln["earliest_live"], ln["state"]) == ([], "2026-11-26", "declared")  # addendum 245: the lane advances with its declaration (Codex on #822)
+    # addendum 265 item 4: the run step done 2026-11-06 with the console as its receipt (a done-mark, no moved line);
+    # earliest_live 2026-11-26 cleared by its one moved line (now null); the lane closed. Addendum 245 advanced the lane
+    # to "declared" with its declaration (Codex on #822); the FAIL ends that candidate's path
+    assert ln["steps"][3]["done"]["date"] == "2026-11-06" and "the console on #783" in ln["steps"][3]["done"]["receipt"]
+    assert [(m["which"], m["was"], m["now"]) for m in ln["moved"]] == [("earliest_live", "2026-11-26", None)]
+    assert (ln["earliest_live"], ln["state"]) == (None, "closed")

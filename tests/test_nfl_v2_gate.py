@@ -118,10 +118,24 @@ def test_nfl_backtest_cli_unchanged(db):
 
 # ============================================================================ the registry entry and the lane --
 
-def test_the_entry_is_declared_unrun_with_v1s_constants_the_term_of_245_and_215s_bar():
+def test_the_entry_holds_its_one_run_and_the_fail_with_v1s_constants_the_term_of_245_and_215s_bar():
     e = reg.get(EID)
     assert e is not None, "nfl-elo-v2 must be in docs/registry/experiments.json"
-    assert (e["status"], e["run"], e["verdict"], e["sport"]) == ("declared", None, None, "nfl")
+    # ARCHITECT 2026-11-06 08:55 ET, addendum 265: the one run is recorded as the laptop wrote it (b2d4cd97) and the
+    # verdict is FAIL (registry.record_verdict: status closed); the declaration below is unchanged
+    assert (e["status"], e["verdict"]["verdict"], e["sport"]) == ("closed", "FAIL", "nfl")
+    assert (e["run"]["run_at"], e["run"]["n_scored"], e["run"]["prior_read_count"]) == ("2026-11-06T13:11:36Z", 285, 0)
+    r = e["run"]["result"]
+    assert (r["crit_logloss"], r["crit_bands"], r["pass"], r["scored_n"], r["warmup_n"]) == (True, False, False, 285,
+                                                                                               285)
+    assert r["stream_fingerprint"] == "557221dbef504dadc1c64cba2e50067672049bd7acf472fe2013f456c5f5cfc4"
+    assert e["verdict"]["at"] == "2026-11-06T13:55:00Z"
+    assert e["verdict"]["ruling"].startswith("ARCHITECT 2026-11-06 08:55 ET, addendum 265, verbatim")
+    for said in ("FAIL on (2). The 285 scored ids are recorded (sha 43afd218869d…, docs/registry/ids/nfl-elo-v2.txt).",
+                 "No figure here becomes a parameter; no threshold moves; nothing is re-fitted this season.",
+                 "the rehearsal arm (#825) is DORMANT for the season — on FAIL nothing is written (247 item 2(1)) and "
+                 "no window opens"):
+        assert said in e["verdict"]["ruling"], said
     assert all(e.get(k) for k in reg.DECLARE_FIELDS)
     c = nb.NFLEloConfig()
     assert e["constants"] == {"k_factor": c.k_factor, "home_advantage": c.home_advantage,
@@ -157,11 +171,18 @@ def test_the_entry_is_declared_unrun_with_v1s_constants_the_term_of_245_and_215s
     assert raw == json.dumps(json.loads(raw), indent=2) + "\n"
     ids = [x["id"] for x in reg.load()]
     assert all(x["declared_at"] > e["declared_at"] for x in reg.load()[ids.index(EID) + 1:])
-    assert not (ROOT / "docs" / "registry" / f"{EID}.started.json").exists()
-    assert not (ROOT / "docs" / "registry" / "ids" / f"{EID}.txt").exists()
-    # the gate reads the real entry as DECLARED since addendum 245 (it refused until the declaration wrote the term)
+    # addendum 265 item 4: the reservation kept as the record that the one run was spent, and the scored ids; the
+    # sidecar is what the recorded sha256 hashes (registry._ids_sha over its ids)
+    started = json.loads((ROOT / "docs" / "registry" / f"{EID}.started.json").read_text())
+    assert (started["id"], started["started_at"]) == (EID, e["run"]["run_at"])
+    assert started["stream_fingerprint"] == r["stream_fingerprint"]
+    ids = [int(x) for x in (ROOT / "docs" / "registry" / "ids" / f"{EID}.txt").read_text().split()]
+    assert len(ids) == len(set(ids)) == 285 and reg._ids_sha(ids) == e["run"]["ids_sha256"]
+    # the term the run walked is still the declared one (addendum 245); a second run is refused on the real entry
     g = _g()
     assert g.term_state(e) == ("home_advantage", 33.0, None)
+    with pytest.raises(g.GateRefused, match="must be declared and unrun"):
+        g.declared_unrun()
 
 
 def test_the_roadmap_lane_nfl_v2():
@@ -170,11 +191,25 @@ def test_the_roadmap_lane_nfl_v2():
     assert rm.validate(doc) == []
     (ln,) = [x for x in doc["lanes"] if x["lane"] == "nfl-v2"]
     assert ln["issue"] == 783                                        # the lane's Issue (no placeholder)
-    assert (ln["registry_id"], ln["state"], ln["competitions"], ln["earliest_live"], ln["moved"]) == \
-           (EID, "declared", ["NFL"], "2026-11-26", [])
+    # ARCHITECT 2026-11-06 08:55 ET, addendum 265 item 4: the FAIL closes the run's path. The 11-06 step done with the
+    # console as its receipt; the three on-PASS steps (219 item 7's 11-23, 11-24, 11-26) cleared, their dates kept in
+    # the moved line of earliest_live 2026-11-26, cleared with now null (addendum 61 item 4); the state "closed"
+    assert (ln["registry_id"], ln["state"], ln["competitions"], ln["earliest_live"]) == (EID, "closed", ["NFL"], None)
     assert [(s["owner"], s["due"]) for s in ln["steps"]] == [
-        ("code", "2026-11-03"), ("operator", "2026-11-04"), ("architect", "2026-11-05"), ("operator", "2026-11-06"),
-        ("calendar", "2026-11-23"), ("operator", "2026-11-24"), ("architect", "2026-11-26")]   # 219 item 7
+        ("code", "2026-11-03"), ("operator", "2026-11-04"), ("architect", "2026-11-05"), ("operator", "2026-11-06")]
+    (mv,) = ln["moved"]
+    assert (mv["moved_on"], mv["which"], mv["was"], mv["now"]) == ("2026-11-06", "earliest_live", "2026-11-26", None)
+    assert mv["ruling"].startswith("ARCHITECT 2026-11-06 08:55 ET, addendum 265 item 4, MOVED LINE: ")
+    for d in ("2026-11-23", "2026-11-24", "2026-11-26"):                       # the cleared steps' dates, kept
+        assert f"due {d}" in mv["why"]
+    assert "he pastes the rehearsal pages to his GPT; the read comes to me" in mv["why"]          # 219 item 7's step
+    assert all(not s["what"].startswith("on PASS") for s in ln["steps"])
+    # ARCHITECT 2026-11-06 10:50 ET, addendum 267 item 2(1)-(2): the lane CLOSES; the 2027 candidate is a NEW lane, and
+    # the 2027 line lives on lane nfl-confirm's live_needs and in CLAUDE.md, never as a step
+    assert "This lane is CLOSED by ruling" in ln["live_needs"] and "addendum 267 item 2(1)" in ln["live_needs"]
+    (cf,) = [x for x in rm.load()["lanes"] if x["lane"] == "nfl-confirm"]
+    assert '"the 2027 candidate declares in the off-season, a new lane, the same gate"' in cf["live_needs"]
+    assert not any("2027" in s["what"] for s in ln["steps"] + cf["steps"])
     # ARCHITECT 2026-11-03 11:10 ET, addendum 232 item 3(i) (227 item 4 restated): the harness step done 2026-11-02,
     # receipt "#784 merged at 8bef04c2 (addendum 219)"; a done-mark, never a moved line (222 item 3(a))
     assert ln["steps"][0]["done"] == {"date": "2026-11-02", "receipt": "#784 merged at 8bef04c2 (addendum 219)"}
@@ -185,11 +220,12 @@ def test_the_roadmap_lane_nfl_v2():
                                       "item 1)"}
     assert ln["steps"][2]["done"] == {"date": "2026-11-04", "receipt": "addendum 245 (ARCHITECT 2026-11-04 08:20 ET); "
                                       "the 11-04 console #783 issuecomment-6631134603"}
-    assert all(s["done"] is None for s in ln["steps"][3:])
+    assert ln["steps"][3]["done"]["date"] == "2026-11-06"
+    assert ln["steps"][3]["done"]["receipt"].startswith("the console on #783 (issuecomment-6685613162")
+    assert rm.next_step(ln) is None
     assert ln["steps"][0]["what"].startswith("the harness PR")
     assert "the preflight of the v2 harness" in ln["steps"][1]["what"]
     assert ln["steps"][3]["what"] == "the ONE run on my word, my block, the verdict the same day"
-    assert "he pastes the rehearsal pages to his GPT; the read comes to me" in ln["steps"][5]["what"]
     # the records PR (#785, addendum 214 item 4(d)) adds nfl-confirm; it sits right after this lane
     names = [x["lane"] for x in doc["lanes"]]
     assert names.count("nfl-confirm") == 1 and names.index("nfl-confirm") == names.index("nfl-v2") + 1
@@ -394,10 +430,15 @@ def test_the_log_loss_criterion_holds_at_equality(monkeypatch):
 
 @pytest.fixture
 def ledger(tmp_path, monkeypatch):
-    """A tmp copy of the real registry; every registry read/write goes there; the reservation to tmp."""
+    """A tmp copy of the real registry; every registry read/write goes there; the reservation to tmp. The real entry
+    holds the one run and the FAIL verdict (ARCHITECT 2026-11-06 08:55 ET, addendum 265); the copy's entry is put back
+    to declared and unrun, so the gate's mechanics stay exercised as built (the ncaa-elo-v1r precedent, #393)."""
     g = _g()
     p = tmp_path / "experiments.json"
-    p.write_text((ROOT / "docs" / "registry" / "experiments.json").read_text())
+    entries = json.loads((ROOT / "docs" / "registry" / "experiments.json").read_text())
+    e = next(x for x in entries if x["id"] == EID)
+    e.update({"status": "declared", "run": None, "verdict": None})
+    p.write_text(json.dumps(entries, indent=2) + "\n")
     monkeypatch.setattr(reg, "LEDGER", str(p))
     monkeypatch.setattr(reg, "IDS_DIR", str(tmp_path / "ids"))
     monkeypatch.setattr(g, "RESERVATION", str(tmp_path / f"{EID}.started.json"))

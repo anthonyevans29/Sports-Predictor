@@ -60,6 +60,7 @@ set by `SP_IMPROVE_HOLD_ON_PASS=1`, which the chain template sets.
 | Timer | Chain | When | Backup rule |
 |---|---|---|---|
 | sp-backup | (daily .backup) | daily 09:30 UTC | — |
+| sp-availability-daily | availability-daily (ARCHITECT 2026-11-04, addendum 252 item 3(a); 259 item 2(d)): one step, `availability-nflverse --season 2026`, the nflverse depth-chart release file into the availability record (a conditional GET; UNMETERED: github.com, never api-sports); inside no other chain; `go_on`: its failure is receipted and paged as a sync-step failure, stopping nothing; needs `migrate_availability_record.py` run (else it refuses, exit 2, and pages); enabled only by the architect's block (252 item 7) | daily 08:45 UTC | — |
 | sp-mlb-morning | mlb-morning (improve HOLDS on PASS; results-tally last) | daily 09:45 UTC | daily |
 | sp-soccer-morning-after | soccer-morning-after, its last step the bare `export-soccer-expansion-shadow` (ARCHITECT 2026-10-30, addendum 185 D2: the shadow export closes every soccer sync chain; rows until the next chain's export: its fire + `EXPORT_WINDOW_MARGIN`, 2 h, addendum 188 item 4; each run its own new file) | Sun/Mon/Tue 09:50 UTC | daily |
 | sp-nfl-grade | nfl-grade | Mon/Tue/Fri 10:00 UTC | daily |
@@ -765,7 +766,7 @@ TIMERS="sp-backup.timer sp-backup-prune.timer sp-soccer-friday.timer sp-soccer-s
   sp-soccer-morning-after.timer sp-nfl-lines.timer sp-nfl-grade.timer sp-nfl-prematch.timer
   sp-nhl-daily.timer sp-weekly-fullseason.timer sp-ncaa-market.timer sp-window.timer
   sp-mlb-history.timer sp-intl-daily.timer sp-exports-squash.timer sp-ncaa-schedule.timer
-  sp-closing-watch.timer sp-cup-observe.timer sp-nba-daily.timer"
+  sp-closing-watch.timer sp-cup-observe.timer sp-availability-daily.timer sp-nba-daily.timer"
 MLB_LAPTOP_ONLY="sp-mlb-morning.timer sp-mlb-preslate.timer sp-clv-capture.timer"   # NOT enabled: statsapi 406 on the DO ASN (H1b note)
 echo $TIMERS | sudo tee /etc/sports-predictor/timers.enabled   # the list H2 steps 2 and 6 reuse
 systemctl enable --now sp-boot-receipt.service sp-web.service
@@ -773,6 +774,11 @@ systemctl enable --now $TIMERS
 systemctl list-timers 'sp-*' --no-pager     # receipt: next-elapse for each
 ```
 - Every shipped timer is on `TIMERS` or `MLB_LAPTOP_ONLY`; CI checks it.
+- **`sp-availability-daily.timer` on a fresh host: an ORDER** (259 item 2(c): "2025 IS IN SCOPE"). After
+  `migrate_availability_record.py` and BEFORE the `systemctl enable --now $TIMERS` above, run the 2025 read
+  (`sudo -u sp venv/bin/python cli.py availability-nflverse --season 2025`) and go on only on exit 0 with its rows
+  asserted; otherwise leave `sp-availability-daily.timer` out of that enable (and of `timers.enabled`) until it has.
+  The record's watermark is the source's: a first 2026 read loses the 2025 history to this feed for good.
 - **The file's form (#725; ARCHITECT 2026-10-28, addendum 174 item 4: "hosting-h1's T11 recipes must not assume one
   timer name per line in timers.enabled (the file holds several per line)").** `timers.enabled` is a list of names
   separated by whitespace, not one per line: the `echo $TIMERS` above writes the whole list on ONE line, and each
@@ -854,6 +860,28 @@ systemctl list-timers 'sp-*' --no-pager     # receipt: next-elapse for each
   echo sp-cup-observe.timer | sudo tee -a /etc/sports-predictor/timers.enabled
   systemctl list-timers sp-cup-observe.timer --no-pager   # receipt: next elapse on a five-minute mark
   journalctl -u sp-cup-observe -n 20 --no-pager           # receipt: the first tick's line
+  ```
+- `sp-availability-daily.timer` (ARCHITECT 2026-11-04 13:05 ET, addendum 252 item 3(a); 259 item 2(d); daily 08:45
+  UTC): the availability record's daily nflverse read, chain `availability-daily`, one step `availability-nflverse
+  --season 2026`. Its ENABLEMENT IS THE ARCHITECT'S BLOCK (252 item 7: "the first host reads and the timers' enablement
+  are my blocks"), as every timer before it on a live host: shipped on `TIMERS` (so the deploy receipt names it until
+  it is enabled), installed and enabled only by this recipe, run in that block, after the deploy of the migration tag
+  that carries `migrate_availability_record.py` (without it the step refuses, exit 2, and pages). The first run's
+  receipt is the first host read; the first fetch of the 2026 file writes its whole history (every load before the fetch
+  BACKFILLED, 259 item 2(c)). **The 2025 read is REQUIRED and FIRST** (259 item 2(c), verbatim: "2025 IS IN SCOPE:
+  the adapter ingests depth_charts_2025.csv and depth_charts_2026.csv alike"). The watermark is the source's, so once
+  any 2026 load is asserted the 2025 file can never be asserted by this feed (the adapter then refuses it, naming both
+  instants, rather than reading `complete`). The block below stops at the first line unless it exits 0; the receipt
+  to check is its `rows asserted` (above 0: the 2025 history; 0 with "byte-identical" only on a rerun of this
+  recipe). Nothing after it runs on a non-zero exit (1: a failed read, retry later; 2: a refusal, read its reason):
+  ```
+  sudo -u sp venv/bin/python cli.py availability-nflverse --season 2025; rc=$?; echo "exit $rc"   # REQUIRED, FIRST
+  [ "$rc" = 0 ] && sudo install -m 0644 deploy/hosting/systemd/sp-availability-daily.timer /etc/systemd/system/ \
+    && sudo systemctl daemon-reload \
+    && sudo systemctl enable --now sp-availability-daily.timer \
+    && echo sp-availability-daily.timer | sudo tee -a /etc/sports-predictor/timers.enabled \
+    && systemctl list-timers sp-availability-daily.timer --no-pager   # receipt: next elapse at 08:45 UTC
+  [ "$rc" = 0 ] && sudo -u sp venv/bin/python deploy/hosting/sp_run.py availability-daily   # first 2026 run, receipted
   ```
 - `sp-nba-daily.timer` (ARCHITECT 2026-11-05, addendum 261 item 1(b): "the chain `nba-daily` [...] at a UTC minute
   off every existing timer (Code lists the timers and picks; my block enables it)"; daily 06:47 UTC): the NBA's

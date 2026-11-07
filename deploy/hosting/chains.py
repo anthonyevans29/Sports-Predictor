@@ -54,6 +54,21 @@ NCAA_CFBD_STEP = ["ncaa-cfbd-labels", "--year", "2026"]
 CFBD_GO_ON = ("addendum 240 item 4(b): the weekly CFBD read's failure is a sync-step failure that stops nothing "
               "after it")
 
+# THE AVAILABILITY RECORD'S DAILY READ (ARCHITECT 2026-11-04 13:05 ET, addendum 252 item 3(a), verbatim in part: "One
+# fetch a day on the host after nflverse's ~07:00 UTC load (a new chain `availability-daily`, timer 08:45 UTC, inside no
+# other chain; UNMETERED; failure receipted and paged as a sync-step failure, stopping nothing)"; addendum 259 item
+# 2(d): "THE TIMER: 08:45Z daily stands"). One step, the season's release file (github.com, never api-sports:
+# UNMETERED). `go_on` names it (the weekly CFBD read's form, addendum 240 item 4(b)): a failed read is receipted
+# (`continued`: AVAILABILITY_GO_ON), the chain's exit is its exit, so OnFailure pages, and no later step exists to stop.
+# No backup key: the step appends to the record's two tables only, and the daily backup (sp-backup, 09:30 UTC; intl-daily
+# at 07:20 UTC takes it first) stands as it is. The season is explicit, as every chain's is ("2026"), and moves with them.
+# A TRANSIENT failure (a connection error, a timeout, HTTP 5xx or 429: the adapter words the last two as requests does)
+# is retried by sp_run (RETRY_BACKOFF_S, two retries) like every step's; each attempt is its own run of the step and its
+# own `failed` observation in the record (a fetch that raised is a row, 252 item 1(a)): up to three for one chain run.
+AVAILABILITY_NFLVERSE_STEP = ["availability-nflverse", "--season", "2026"]
+AVAILABILITY_GO_ON = ("addendum 252 item 3(a): the nflverse read's failure is receipted and paged as a sync-step "
+                      "failure, stopping nothing")
+
 CUP_SCHEDULE = ("EFL", "CL", "UEL", "FAC")     # intl-daily's cup schedule read (#707), in this order
 COVERAGE_STEP = ["coverage", "--json"]         # intl-daily's LAST step (#805, addendum 225 item 5)
 
@@ -260,6 +275,12 @@ CHAINS: dict[str, dict] = {
             # that day without a host coverage file.
             [*COVERAGE_STEP],
         ],
+    },
+    # --- The availability record (ARCHITECT 2026-11-04, addendum 252 item 3(a); lane availability-record) ---
+    "availability-daily": {
+        "go_on": ("availability-nflverse",),
+        "go_on_why": AVAILABILITY_GO_ON,
+        "steps": [AVAILABILITY_NFLVERSE_STEP],
     },
     "ncaa-market": {
         "steps": [
@@ -579,4 +600,5 @@ UNMETERED = frozenset({
     "export-unl-predictions",  # reads the DB only
     "export-soccer-expansion-shadow",  # reads the DB and the registry only (addendum 185 D2: its chain step)
     "coverage",               # reads the DB (mode=ro), the registry, the roadmap and exports/ only (#805: its chain step)
+    "availability-nflverse",  # github.com's nflverse release file, never api-sports (addendum 252 item 3(a): UNMETERED)
 })

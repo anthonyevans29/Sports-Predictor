@@ -1430,3 +1430,78 @@ def test_round2_b_the_wider_mask_leaves_real_clauses_counting(env, capsys, claus
     env.setattr(requests, "get", router({TERMS_URL: Resp(None, text=f"<p>{clause}</p>")}))
     rc, out = run(TERMS_ONLY, capsys)
     assert rc == 0, out
+
+
+# ---- Codex review round 3 (#857, the review stop rule's cap): the P1, failing first (synthetic figures only) ---------
+
+_G = ["\u20ac 1 299,00", "1 000.50 USD", "1\u00a0299,00 \u20ac", "1\u2009299.00 USD", "1\u202f299,00 EUR",
+      "CHF 1'299.00", "1'299.00 CHF", "1\u2019299.00 Swiss francs", "1.299,00 \u20ac", "1,299.00 USD", "$1,299.00",
+      "EUR 1 299,00", "\u00a3 1 000.50", "1 299,00 dollars", "- 1 299,00 \u20ac", "\u20ac -1 299,00",
+      "costs 1 299,00", "Price: 1 000.50 per year", "1 299,00 per month", "1'299.00 per year", "1.299,00 per month",
+      "Price: 1\u2009299.00", "1 299,00 billed annually", "fees of 1 299,00-2 000,00", "1 299,00-2 000,00 per month",
+      "a fee of 1\u202f000,50", "Total: 1'000.50"]
+
+
+@pytest.mark.parametrize("text", _G)
+def test_round3_a_space_or_apostrophe_grouped_amount_is_replaced_whole_with_its_decimals(text):
+    for got in (probe.Out().redact(f"Synthetic: the plan is {text}."), probe.figures(f"Retain data | {text}", True)):
+        assert not any(ch.isdigit() for ch in got) and "<figure not printed>" in got, got
+
+
+def test_round3_a_grouped_amount_in_an_error_body_leaves_no_digit_on_the_console_or_the_receipt(env, capsys, tmp_path):
+    body = {"Message": "Synthetic: trial ended: renew at \u20ac 1 299,00 or 1 000.50 USD"}
+    env.setattr(requests, "get", router({"CurrentSeason": Resp(body)}))
+    out_file = tmp_path / "r.json"
+    rc, out = run(["--skip", "terms", "--out", str(out_file)], capsys)
+    text = out_file.read_text(encoding="utf-8")
+    assert rc == 2, out
+    for got in (out, text):
+        assert not leaks(got, "299", ",00", "000.50", " 1 <figure") and "<figure not printed>" in got, got
+
+
+@pytest.mark.parametrize("line", ["game 9101 at 2026-11-07T19:00:00-05:00, 30 minutes", "the 2025-26 season",
+                                  "season 2026/27", "game 9101: 3 goalies, 2 stamps",
+                                  "rate-limit {'X-RateLimit-Limit': '1000', 'Retry-After': '30'}",
+                                  "Projections are updated daily at 10:00 AM ET", "ids 1 299 300 Penguins",
+                                  "['9101', '9102']", "{'GameID': 9101, 'Season': 2026}", "HTTP 302 Found"])
+def test_round3_the_grouped_amount_rule_leaves_dates_ids_counts_and_seasons_whole(line):
+    assert probe.Out().redact(line) == line and probe.figures(line, True) == line
+
+
+# The round-3 fix's review (failing first): a comma-separated choice keeps no item ("100, 200 or 300 € a month": the
+# old number rule had taken "100, 200" as one number, the whole-number rule does not, so "," is a choice's joiner); a
+# dash decimal after the number ("1'299.– CHF", "1.299,– €"); a hair space or an Arabic thousands separator as the
+# group separator, an Arabic decimal separator as the decimal one.
+_G2 = ["choose 100, 200 or 300 € a month", "choose 100, 200, and 300 € a month", "10, 20 and 30 €",
+       "49, 99 or 199 per month", "1 299,00, 2 499,00 or 3 999,00 €",
+       "1'299.– CHF", "1.299,– €", "1 299,– €", "1.299,— €", "1,299.– USD",
+       "1.299,-- €", "1 299,00 €", "1٬299.00 USD", "١٬٢٩٩ USD",
+       "١٬٢٩٩٫٠٠ USD"]
+
+
+@pytest.mark.parametrize("text", _G2)
+def test_round3_review_a_choice_a_dash_decimal_and_other_separators_leave_no_digit(text):
+    for got in (probe.Out().redact(f"Synthetic: {text}."), probe.figures(f"Retain data | {text}", True)):
+        assert not any(ch.isdigit() for ch in got) and "<figure not printed>" in got, got
+
+
+def test_round3_review_a_choice_leaves_no_item_on_the_console_the_terms_quote_or_the_receipt():
+    s = "Synthetic: choose 100, 200 or 300 € a month."
+    want = "Synthetic: choose <figure not printed>, <figure not printed> or <figure not printed> a month."
+    assert probe.Out().redact(s) == want and probe.figures(s, True) == want
+    assert probe.Out().redact(json.dumps({"Message": s}, ensure_ascii=False)) == json.dumps({"Message": want})
+    assert probe.terms_read("<p>Data retention: choose 100, 200 or 300 € a month.</p>")["quoted"] == [
+        "Data retention: choose <figure not printed>, <figure not printed> or <figure not printed> a month."]
+
+
+@pytest.mark.parametrize("line", ["In 2025, 3 goalies", "game 9101, 9102 and 9103", "Season 2026, SeasonType 1",
+                                  "games: 9101, 9102, 9103", "HTTP 200, 3 passages, 2 stamps"])
+def test_round3_review_the_comma_joiner_needs_a_replaced_figure(line):
+    assert probe.Out().redact(line) == line and probe.figures(line, True) == line
+
+
+@pytest.mark.parametrize("text", ["choose " + ", ".join(str(10 * i) for i in range(1, 12)) + " or 500 € a month",
+                                  " to ".join(str(100 * i) for i in range(1, 12)) + " €"])
+def test_round3_review_a_long_choice_or_range_chain_keeps_no_item(text):
+    for got in (probe.Out().redact(f"Synthetic: {text}."), probe.figures(f"Retain data | {text}", True)):
+        assert not any(ch.isdigit() for ch in got) and "<figure not printed>" in got, got

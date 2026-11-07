@@ -111,8 +111,11 @@ is replaced by "<figure not printed>", the sign before or after the number ("$10
 "CAD 100", "100 US dollars"; a currency word too, "100 pounds", "100 British pounds", "100 Indian rupees", "100 yen",
 "100 million yen", "100-pound fee", "100 złoty", "Rs. 100", "100 Rs", Codex #857 round 2), and so is the number of a price written without a currency sign or word (PRICE_FIGURES:
 "100 per month", "100/yr", "2.5k/month", "100 monthly", "100 billed annually", "100 p.a.", "costs 100", "a fee of 100",
-"Price (USD): 100", "The Pro plan is 100", "Total: 100", "1 000 per year", both ends of "100-500 per month"; the words
-around it kept; over-redaction is the conservative side), on every line and in the receipt (written as UTF-8 text, no
+"Price (USD): 100", "The Pro plan is 100", "Total: 100", "1 000 per year", both ends of "100-500 per month", every
+item of "100, 200 or 300 € a month"; the words around it kept; over-redaction is the conservative side; a number is
+replaced WHOLE with its decimals, grouped by a space, a no-break, thin or hair space, an apostrophe or the Arabic
+separator, "€ 1 299,00", "1 000.50 USD", "CHF 1'299.00", "1.299,00 €", "1,299.00 USD", "1'299.– CHF", no digit of it
+left, Codex #857 round 3), on every line and in the receipt (written as UTF-8 text, no
 JSON escapes; a served string replaced before its repr, so an escaped no-break space never hides one; a terms quote
 replaced at the source, after its retention words are read, and there also a count-unit price, "100 per 1,000 calls"
 or "100/day", TERMS_PRICE_FIGURES: on other lines that form is a rate-limit quota and prints). A duration ("30 days",
@@ -196,13 +199,22 @@ STATUS_VALUE_FIELDS = ("Season", "SeasonType", "ApiSeason")
 ERROR_KEYS = ("code", "statuscode", "status_code", "message", "error", "errors", "errormessage", "error_message",
               "fault")
 TIME_FIELD = re.compile(r"date|time|day|updated|stamp|created|modified|published", re.I)
-# Blanks as a page or an answer serves them (a no-break, figure, thin or narrow no-break space included).
-_B = "[ \t    ]"
-_GROUP = r"(?:[     ]\d{3}(?!\d))*"     # a thousands group written with a space: "1 000"
+# Blanks as a page or an answer serves them (a no-break, figure, thin, hair or narrow no-break space included).
+_B = "[ \t     ]"
+# One number, consumed WHOLE with its decimals (Codex #857 round 3: "€ 1 299,00" left ",00" and "1 000.50 USD" its
+# "1"): digits with ",", "." or the Arabic decimal separator between ("1,299.00", "1.299,00", "2.5"), and a thousands
+# group of three digits after a space, a no-break, figure, thin, hair or narrow no-break space, an apostrophe or the
+# Arabic thousands separator ("1 299,00", "1'299.00", Swiss "1’299.00", "١٬٢٩٩"), a decimal suffix after the group
+# too. It ends on a digit (a sentence's full stop is not eaten). No digit of an amount survives its replacement: a rule
+# that cannot take the whole number takes none of it (_NUM's tail guard).
+_GS = "[      '’٬]"
+_DEC = "[,.٫]"
+_DIGITS = rf"\d(?:{_DEC}?\d|{_GS}\d{{3}}(?!\d))*"
 # A currency figure in any printed text: a currency sign before or after a number (the #813 guard's dollar rule,
-# widened: "$100", "100 €", "1.299,00 €", "100,- €", "¥100"), or a number beside a currency code or word ("CAD 100",
-# "100 US dollars", "100 bucks", "100 pounds", "100 yen", "Rs. 100"). Replaced whole before any line or receipt shows
-# it. A digit is any decimal digit ("１００" included).
+# widened: "$100", "100 €", "1.299,00 €", "100,- €", a dash decimal "1'299.– CHF" or "1.299,— €", "¥100"), or a
+# number beside a currency code or word ("CAD 100", "100 US dollars", "100 bucks", "100 pounds", "100 yen", "Rs. 100").
+# Replaced whole before any line or receipt shows it, the number whole with its decimals (_AMOUNT, _DIGITS:
+# "€ 1 299,00", "1 000.50 USD", "CHF 1'299.00"). A digit is any decimal digit ("１００" included).
 _CUR_SIGN = "[$＄﹩€£¥￥₹₩₽₺₪₫฿¢]"
 _CUR_CODE = (r"(?:USD|EUR|GBP|CAD|AUD|NZD|CHF|JPY|INR|CNY|RMB|HKD|SGD|KRW|TWD|SEK|NOK|DKK|ISK|PLN|CZK|HUF|RUB|ZAR|ILS|"
              r"NIS|AED|SAR|QAR|THB|MYR|IDR|MXN|BRL|ARS|CLP|COP)")
@@ -220,10 +232,10 @@ _CUR_WORD = (r"(?:dollars?|bucks|euros?|pounds?(?:{_B}+sterling)?|sterling|pence
 _CUR_QUAL = rf"(?-i:(?:[A-Z][A-Za-z.]*{_B}+){{0,2}})"          # "Indian ", "U.S. ", "New Taiwan ": capitalised only
 _SCALE = rf"(?:{_B}*(?:k|K|M|mn|bn|thousand|million|billion|trillion)(?![A-Za-z]))?"   # "100k", "100 million"
 _CUR_BEFORE = r"(?:Rs\.?|INR|Rp\.?|rupees?)"     # a currency word written before its number ("Rs. 100", "Rupees 100")
-_AMOUNT = r"\d[\d,.]*" + _GROUP
+_AMOUNT = _DIGITS
 FIGURE = re.compile(
     rf"{_CUR_SIGN}{_B}*[+\-−]?{_B}*\.?{_AMOUNT}"
-    rf"|(?<![\dA-Za-z]){_AMOUNT}{_SCALE}(?:,-)?(?:{_B}*-{_B}*|{_B}*)"
+    rf"|(?<![\dA-Za-z]){_AMOUNT}{_SCALE}(?:[,.][-–—]{{1,2}})?(?:{_B}*-{_B}*|{_B}*)"
     rf"(?:{_CUR_SIGN}|(?:{_CUR_CODE}|{_CUR_QUAL}{_CUR_WORD})(?![A-Za-z]))"
     rf"|\b(?:{_CUR_CODE}|{_CUR_BEFORE}){_B}*{_AMOUNT}", re.I)
 # A price written with no currency sign or word (Codex #857 round 1, widened on its two reviews): ONLY THE NUMBER is
@@ -248,15 +260,16 @@ FIGURE = re.compile(
 #    week": a retention period or a frequency);
 #  * the other end of a range or a choice whose one end was replaced ("100-500 per month", "100 to 500 a month",
 #    "between 100 and 500 a month", "$100-500": both ends).
-# A number with a k/M/bn suffix is a number; one grouped with spaces ("1 000") is one number. Over-redaction is the
-# conservative side. Never a number inside an ISO date or a time (followed by "-", ":", "/" or "T" and a digit), a clock
-# time ("9 AM", "7 p.m.", "10 ET"), an id or a word's tail, so the probe's own reads (JSON keys, counts, minutes, HTTP
-# status, season strings such as 2026/27, URLs) are not touched.
+# A number with a k/M/bn suffix is a number; one grouped with spaces or apostrophes ("1 000", "1 000.50", "1'299,00")
+# is one number, taken whole with its decimals or not at all (a tail that would continue it refuses the shorter
+# match). Over-redaction is the conservative side. Never a number inside an ISO date or a time (followed by "-", ":",
+# "/" or "T" and a digit), a clock time ("9 AM", "7 p.m.", "10 ET"), an id or a word's tail, so the probe's own reads
+# (JSON keys, counts, minutes, HTTP status, season strings such as 2026/27, URLs) are not touched.
 _CLOCK = (rf"(?!{_B}*(?:[AaPp]\.?[Mm]\.?|o'clock|noon|midnight|(?-i:ET|EST|EDT|CT|CST|CDT|MT|MST|MDT|PT|PST|PDT|UTC|"
           r"GMT))(?![A-Za-z]))")
-_NUM = (r"(?<![\dA-Za-z])(?P<n>[+\-−]?\.?\d(?:[\d,.]*\d)?" + _GROUP + r"(?:(?:k|K|M|bn)(?![A-Za-z]))?)"
-        r"(?!\d|[,.]\d|[-:/T]\d)" + _CLOCK)
-_SEP = "[ \t    :=(),·•|\\-—–]"
+_NUM = (r"(?<![\dA-Za-z])(?P<n>[+\-−]?\.?" + _DIGITS + r"(?:(?:k|K|M|bn)(?![A-Za-z]))?)"
+        rf"(?!\d|{_DEC}\d|[-:/T]\d|{_GS}\d{{3}}(?!\d))" + _CLOCK)
+_SEP = "[ \t     :=(),·•|\\-—–]"
 _DURATION = (r"(?:seconds?|secs?|minutes?|mins?|hours?|hrs?|days?|weeks?|wks?|months?|mos?|years?|yrs?|business|"
              r"calendar|working)")
 _PRICE_WORD = (rf"(?:costs?|costing|prices?|priced|pricing|fees?|charges?|charged|charging|pays?|paid|payable|"
@@ -270,14 +283,14 @@ _MARK = rf"(?:{_B}*[*†‡])*"                                  # a footnote ma
 # What follows a number after a price word and makes it a duration, a season, a count or a frequency, not a price.
 _NOT_PRICE = (rf"(?!{_SEP}*{_DURATION}\b(?![- ]to[- ](?:months?|years?|weeks?)\b|[- ]round\b))"
               rf"(?!{_SEP}*(?:seasons?|times?|x|calls?|requests?|quer(?:y|ies)|hits?)\b)"
-              rf"(?!{_SEP}*(?:every|per|each){_B}+\d[\d,.]*{_B}*{_DURATION}\b)")
-_LOW = rf"(?:\d[\d,.]*{_B}*(?:[-–—]|to\b|and\b){_B}*)?"       # a range's low end before the number ("fees of 100-500")
+              rf"(?!{_SEP}*(?:every|per|each){_B}+{_DIGITS}{_B}*{_DURATION}\b)")
+_LOW = rf"(?:{_DIGITS}{_B}*(?:[-–—]|to\b|and\b){_B}*)?"       # a range's low end before the number ("fees of 100-500")
 
 
 def _per(units: str, slash: str) -> re.Pattern:
     return re.compile(
         _NUM + rf"{_MARK}(?:{_B}+(?!(?:times?|x|{_DURATION})\b)[A-Za-z]+)?{_MARK}{_B}*"
-        rf"(?:(?:per|a|an|each|every){_B}+(?:\d[\d,.]*{_B}+)?(?:[A-Za-z]+{_B}+)?{units}|/{_B}*{slash})\b", re.I)
+        rf"(?:(?:per|a|an|each|every){_B}+(?:{_DIGITS}{_B}+)?(?:[A-Za-z]+{_B}+)?{units}|/{_B}*{slash})\b", re.I)
 
 
 PRICE_FIGURES = (
@@ -288,10 +301,12 @@ PRICE_FIGURES = (
     _per(_MONEY_UNIT, _MONEY_SLASH))
 TERMS_PRICE_FIGURES = (_per(_COUNT_UNIT, _COUNT_UNIT),)
 _FIG = "<figure not printed>"
-# The other end of a range or a choice whose one end was replaced: a number before "-", "to", "and" or "or" and a
-# replaced figure, or after a replaced figure and "-" or "to".
-_RANGE = (re.compile(r"(?<![\dA-Za-z])(?P<n>\d[\d,.]*" + _GROUP + r"(?:k|K|M|bn)?)"
-                     rf"(?={_B}*(?:[-–—]|to\b|and\b|or\b){_B}*{_FIG})", re.I),
+# The other end of a range or a choice whose one end was replaced: a number before "-", "to", "and", "or" or a comma
+# and a blank (", and", ", or") and a replaced figure, or after a replaced figure and "-" or "to". A comma joins a
+# choice ("100, 200 or 300 € a month": every item replaced, the earlier ones on the following passes); a number is
+# never read through ", " (_DIGITS), so without the comma the head of the list would print.
+_RANGE = (re.compile(r"(?<![\dA-Za-z])(?P<n>" + _DIGITS + r"(?:k|K|M|bn)?)"
+                     rf"(?={_B}*(?:[-–—]|to\b|,?{_B}*(?:and|or)\b|,(?={_B})){_B}*{_FIG})", re.I),
           re.compile(rf"{_FIG}{_B}*(?:[-–—]|to\b){_B}*" + _NUM, re.I))
 
 
@@ -303,11 +318,14 @@ def _numbers(rules, text: str) -> str:
 
 def figures(text: str, terms: bool = False) -> str:
     """Every currency figure (FIGURE) and every price written without one (PRICE_FIGURES; with `terms`, a terms quote,
-    TERMS_PRICE_FIGURES too) replaced, the number only, then the other end of any range whose one end was."""
+    TERMS_PRICE_FIGURES too) replaced, the number only, then every other item of any range or choice one of whose
+    items was."""
     text = _numbers(PRICE_FIGURES, FIGURE.sub(_FIG, text))
     if terms:
         text = _numbers(TERMS_PRICE_FIGURES, text)
-    for _ in range(8):                                       # "100 to 200 to 300": until nothing changes
+    # "100 to 200 to 300", "10, 20, ... or 500 €": one item per pass, until nothing changes. No cap (a capped loop
+    # printed a long list's head); a pass that changes the text replaces a number, so the loop ends.
+    while True:
         done = _numbers(_RANGE, text)
         if done == text:
             break

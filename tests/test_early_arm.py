@@ -15,7 +15,8 @@ refused; latest/ is refused), the CLV formula (the closing ask less the fill), t
 the unit, a breach (an entry after kickoff, a sale after kickoff, a flip held to settlement; a settlement of an early
 lot is none; a sale not read is labelled), NOT CLASSIFIED, the read at thirty, interest rows (their own kind; not
 carried when no fill has a type), the matcher untouched and a flip out of executed_positions, the receipt's table in
-cents and units only, and the bulletin's one word. The tests named test_285_* each failed first on bed68361.
+cents and units only, and the bulletin's one word. The tests named test_285_* each failed first on bed68361; the tests
+named test_286_3_* (addendum 286 item 3) each failed first on 28d0fec6, but the one control (a held flip priced).
 """
 import importlib.util
 import json
@@ -655,7 +656,7 @@ def test_285_1b_not_classified_is_counted_by_cause(tmp_path):
 @pytest.mark.parametrize("name", ["PRE_CLOSE_OFF_ARM", "NOT_STRAIGHT_PLAY", "AFTER_RUN", "TIME_UNREAD",
                                   "SIDE_RELOGGED", "NO_PREMATCH", "PREMATCH_UNTIMED", "PREMATCH_DISAGREE",
                                   "SIDE_UNREAD", "PREMATCH_NOT_PLAY", "NO_PAGE", "DISAGREE", "RUN_UNKNOWN",
-                                  "NOT_RULED_CALL", None])
+                                  "NOT_RULED_CALL", "AMBIGUOUS_CALLS", None])
 def test_285_1b_every_arm_note_is_counted_on_a_line(name):
     """Every arm_note attribute() sets is counted on one table line; an unknown one is NOT CLASSIFIED "other"."""
     note = "a note no line names" if name is None else getattr(ea, name)
@@ -763,6 +764,9 @@ def test_285_2_2_the_receipt_json_keys(tmp_path, capsys):
         "not_the_arms", "unestablished", "not_ruled", "not_classified", "toward_thirty", "read_at", "read",
         "read_net_cents_per_game", "read_blocking", "closing_files", "unreadable", "prematch_files",
         "prematch_unreadable", "prematch_not_desk"])
+    # 286 item 3(1): the ambiguous attribution is its own UNESTABLISHED cause (no top-level key changes)
+    assert sorted(last["unestablished"]) == ["ambiguous attribution", "no prematch page before the fill",
+                                             "same-day re-log"]
 
 
 def test_285_2_5_a_held_flip_is_listed_console_only_its_count_in_the_json(tmp_path, capsys):
@@ -841,9 +845,11 @@ def test_285b_2_3_a_breach_in_the_thirty_reports_its_net_with_no_verdict():
     assert "breach in the thirty: 1 games" in ln and "+1.00¢ per game over the first 30" in ln
     assert ln.endswith("no verdict: the continuation is the architect's ruling on the record")
     assert ea.READ_CONTINUE not in ln and ea.READ_STOP not in ln
+    # 286 item 3(3) supersedes the unpriced half: a breach beside an unpriced game is HELD unpriced (no net, no
+    # verdict), the hold ahead of the breach read (a held flip is a breach, so a breach first would never hold).
     t = ea.arm_table([lot(i, breach=(i == 4), clv=None if i == 9 else 1.0) for i in range(30)])
-    assert (t["read"], t["read_blocking"], t["read_net_cents_per_game"]) == (ea.READ_BREACH, 1, None)
-    assert "net not computed: a game of the thirty is unpriced" in _read(t) and "¢" not in _read(t)
+    assert (t["read"], t["read_blocking"], t["read_net_cents_per_game"]) == (ea.READ_UNPRICED, 1, None)
+    assert "HELD: unpriced in the thirty: 1 games" in _read(t) and "¢" not in _read(t)
 
 
 def test_285b_1b_a_gate_admitted_fill_on_a_ladder_close_refuses_the_read(tmp_path):
@@ -956,3 +962,111 @@ def test_285b_the_receipt_at_thirty_with_a_breach_reports_the_net_no_verdict_no_
     assert ln.endswith("no verdict: the continuation is the architect's ruling on the record")
     assert "CONTINUE" not in ln and "STOP" not in ln
     assert "arm breach: match 9104 Testford @ Mockley" in out and "9104" not in out.strip().splitlines()[-1]
+
+
+# ---- addendum 286 item 3 (ARCHITECT 2026-11-07 14:55 ET): the three on #862, each failing first on 28d0fec6 ------
+
+def _two_calls():
+    """Two straight PLAY calls of one game on Testford, alike but for their ids (a doubleheader the matcher cannot
+    tell apart): match_fill books the first and sets ambiguous_calls."""
+    return (call(cid="c1"), call(cid="c2"))
+
+
+@pytest.mark.parametrize("close", ["PLAY", "PASS"])
+def test_286_3_1_an_ambiguous_booking_is_unestablished_never_an_arm_fill(tmp_path, close):
+    """286 item 3(1): "a fill carrying ambiguous_calls is UNESTABLISHED — its own line, never an arm fill, never in
+    the thirty". 28d0fec6 read it early on a PLAY close and an arm flip on a PASS close (popping the warning)."""
+    f = entry(closed="2026-11-08T13:10:00Z", exit_=EXIT_, close_fee=0.0101) if close == "PASS" else entry()
+    L, ex = world(tmp_path, [(RUN, [row(call=close)])], [f], _two_calls())
+    base = lf.classify_fills(L)[0]
+    assert base["book"] == "system_matched" and base["call_id"] == "c1" and base["ambiguous_calls"] == ["c1", "c2"]
+    a = ea.attribute(L, ex)[0]
+    assert a["arm"] is None and not a["early"] and a["arm_note"] == ea.AMBIGUOUS_CALLS
+    assert a["ambiguous_calls"] == ["c1", "c2"]                      # the warning kept on the row, never popped
+    assert (a["book"], a["call_id"]) == ("system_matched", "c1")     # the matcher's booking unchanged
+    assert a["early_clv_cents"] is None and a["flip_cost_cents"] is None and not a["arm_breach"]
+    t = ea.arm_table([a])
+    assert (t["unestablished"]["ambiguous attribution"], t["toward_thirty"], t["early_games"], t["flip_games"]) == \
+        (1, 0, 0, 0)
+    assert any(ln.startswith("NOT THE ARM'S") and "UNESTABLISHED" in ln and "ambiguous attribution 1" in ln
+               for ln in ea.table_lines(t))
+    t = ea.arm_table([lot(i) for i in range(29)] + [a])               # never in the thirty
+    assert (t["toward_thirty"], t["read"]) == (29, ea.READ_BELOW)
+
+
+def test_286_3_2_a_sale_with_an_unread_clock_is_breach_unread(tmp_path):
+    """286 item 3(2): "an unreadable sale clock [...] marks the game breach_unread". A sale (close_fee > 0) whose
+    closing time is not read: 28d0fec6 skipped it (no breach, no breach_unread)."""
+    early, _, _ = one(tmp_path / "e", row(), entry(closed=None, exit_=0.55, close_fee=0.0101))
+    flip, _, _ = one(tmp_path / "f", row(call="PASS"), entry(closed=None, exit_=EXIT_, close_fee=0.0101))
+    assert early["arm"] == ea.ARM_EARLY and flip["arm"] == ea.ARM_FLIP and flip["flip_exit"] == ea.FLIP_TIME_UNREAD
+    for a in (early, flip):
+        assert not a["arm_breach"] and a["breach_unread"] is True
+    assert ea.arm_games([early])[0]["breach_unread"] is True
+    assert ea.arm_table([early, flip])["breaches_not_read"] == 2
+
+
+def test_286_3_2_a_closing_page_without_a_kickoff_is_breach_unread(tmp_path):
+    """286 item 3(2): "a closing page without a kickoff marks the game breach_unread": 28d0fec6 skipped the check."""
+    a, _, _ = one(tmp_path, row(ko=None), entry())
+    assert a["arm"] == ea.ARM_EARLY and a["closing_call"] is not None
+    assert not a["arm_breach"] and a["breach_unread"] is True
+    g = ea.arm_games([a])[0]
+    assert g["breach_unread"] is True and g["priced"] is True
+    ok, _, _ = one(tmp_path / "ok", row(), entry())                  # the same lot with a kickoff: read, no breach
+    assert not ok["arm_breach"] and not ok["breach_unread"]
+
+
+def test_286_3_2_the_read_is_held_while_a_game_of_the_thirty_has_a_breach_not_read():
+    """286 item 3(2): "the read is HELD while any game in the thirty has one (the discipline count is a count, never a
+    guess)": ahead of a breach read, the count printed, no mean, no verdict. 28d0fec6 read a breach in the thirty
+    (its net printed) beside a game whose breach was not read."""
+    t = ea.arm_table([lot(i, breach=(i == 4), unread=(i == 11)) for i in range(30)])
+    assert (t["read"], t["read_blocking"], t["read_net_cents_per_game"]) == (ea.READ_BREACH_UNREAD, 1, None)
+    ln = _read(t)
+    assert "HELD: breach not read in the thirty: 1 games" in ln and "no mean, no verdict" in ln
+    assert "¢" not in ln and ea.READ_CONTINUE not in ln and ea.READ_STOP not in ln
+
+
+def test_286_3_2_the_receipt_at_thirty_holds_on_an_unread_sale_clock(tmp_path, capsys):
+    """End to end: thirty games, one early lot sold with its closing time not read. 28d0fec6 read CONTINUE."""
+    p, ex = _thirty_world(tmp_path)
+    L = json.loads(p.read_text())
+    L["fills"][7].update(closed=None, exit=0.55, close_fee=0.0101)
+    p.write_text(json.dumps(L))
+    assert script.main(["--ledger", str(p), "--exports", str(ex)]) == 0
+    out = _no_figures(capsys.readouterr().out, ex)
+    last = json.loads(out.strip().splitlines()[-1].split(" ", 1)[1])
+    assert (last["toward_thirty"], last["read"], last["read_blocking"], last["read_net_cents_per_game"],
+            last["breaches_not_read"]) == (30, ea.READ_BREACH_UNREAD, 1, None, 1)
+    ln = next(x for x in out.splitlines() if x.startswith("THE READ"))
+    assert "HELD: breach not read in the thirty: 1 games" in ln and "¢" not in ln and "CONTINUE" not in ln
+
+
+@pytest.mark.parametrize("cause", ["entry", "units"])
+def test_286_3_3_a_held_flip_with_its_settlement_unread_is_unpriced_and_holds_the_read(tmp_path, cause):
+    """286 item 3(3): "a held-flip game whose settlement result is unread is UNPRICED — no net, no verdict — and the
+    read is held while any game in the thirty is unpriced (the denominator holds only numbers)". 28d0fec6 priced the
+    game and read a breach in the thirty WITH a net over thirty games, one of them with no number of its own."""
+    held = entry(entry_=0 if cause == "entry" else ENTRY, exit_=1.0, close_fee=0.0)        # blank entry: unread
+    pre = [(PRE_AT, [row(units=None if cause == "units" else 0.5)])]                       # no units on the page
+    a, _, _ = one(tmp_path, row(call="PASS"), held, prematch=pre)
+    assert a["arm"] == ea.ARM_FLIP and a["flip_exit"] == ea.FLIP_SETTLED and a["arm_breach"]
+    g = ea.arm_games([a])[0]
+    assert g["held"] and g["settle_units"] is None and g["priced"] is False
+    t = ea.arm_table([lot(i) for i in range(29)] + [a])
+    assert t["toward_thirty"] == 30 and t["flip_held_unpriced_games"] == 1
+    assert (t["read"], t["read_blocking"], t["read_net_cents_per_game"]) == (ea.READ_UNPRICED, 1, None)
+    ln = _read(t)
+    assert "HELD: unpriced in the thirty: 1 games — no net, no verdict" in ln and "¢" not in ln
+    assert ea.READ_CONTINUE not in ln and ea.READ_STOP not in ln
+
+
+def test_286_3_3_a_held_flip_with_its_settlement_read_is_priced_a_breach_with_its_net(tmp_path):
+    """The control: a held flip whose settlement result is read stays priced; the thirty read a breach with its net
+    (285 item 2(3)), the held flip adding no cents to it."""
+    a, _, _ = one(tmp_path, row(call="PASS"), entry(exit_=1.0, close_fee=0.0))
+    assert ea.arm_games([a])[0]["priced"] is True
+    t = ea.arm_table([lot(i) for i in range(29)] + [a])
+    assert (t["read"], t["read_blocking"], t["read_net_cents_per_game"]) == (ea.READ_BREACH, 1,
+                                                                           pytest.approx(29 / 30, abs=1e-4))

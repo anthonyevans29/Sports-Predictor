@@ -73,7 +73,11 @@ THE GATE (addendum 285 items 1(a) and 2(6): "both, not either"). An arm fill (ea
   (the call's kickoff is the closing page's, within desk_policy.DESK_CLOCK_DRIFT: the same game, never a neighbouring
   day's). Such a fill is SIDE_RELOGGED, UNESTABLISHED (listed, never counted), whether or not a prematch page before
   it PLAYs its side. It is never an arm fill.
-ORDER (a reading, not a ruling): interest; a fill opened at or after a timed closing run is ordinary (AFTER_RUN); the
+AN AMBIGUOUS BOOKING (addendum 286 item 3(1)): a fill carrying ambiguous_calls (ledger_fills.match_fill's field: more
+  than one call fits, e.g. a doubleheader with no start time, and the matcher booked the first) is AMBIGUOUS_CALLS,
+  UNESTABLISHED on its own line: never an arm fill, never in the thirty. It is checked before any other test, and the
+  row keeps its ambiguous_calls (the flip path no longer pops it).
+ORDER (a reading, not a ruling): interest; an ambiguous booking (286 item 3(1)); a fill opened at or after a timed closing run is ordinary (AFTER_RUN); the
   gate's (i); the fill's time; the gate's (ii); then the closing page's unknowns (NO_PAGE, DISAGREE, RUN_UNKNOWN). A
   row a gate rejects is classified by that gate whatever its closing page; only a row both gates admit can be NOT
   CLASSIFIED for want of a closing page or a fill time (a fill that cannot be the arm's never holds the read).
@@ -105,7 +109,9 @@ THE KINDS, per fill (the field `arm`; `arm_note` says why a fill is none of them
   listed on the NOT RULED line, and it holds the read (1(b): refused while any row is unclassified).
 - ARM BREACH ("arm breach", the flag arm_breach and breach_why): any fill on an ARM POSITION's event opened at or after
   kickoff, or sold at or after kickoff (2(d)), and a flip held to settlement (2(3)). A settlement of an early lot is
-  no breach. A lot closed at or after kickoff whose sale is NOT READ is breach_unread, never "no breach".
+  no breach. A lot closed at or after kickoff whose sale is NOT READ is breach_unread, never "no breach"; so is a lot
+  whose sale is not ruled out (a sale, or a sale not read) with its closing time unread, and every lot of an arm event
+  whose closing page carries no kickoff (286 item 3(2)), unless the lot is a breach already.
 - INTEREST_KIND ("interest", 2(f)): a fill entry whose stored `type` holds the word interest: kind and book
   "interest", call_id None, arm None, never attributed to a call or to the arm, its amount never read. 2(7): when no
   fill of the export carries a `type` key the export does not carry interest rows: the table says so, never zero.
@@ -123,7 +129,10 @@ THE TABLE (arm_table, 2(2): "THE UNIT OF THE THIRTY: GAMES"): a game is an event
   never the mean. A breach in those games (any cause) gives no verdict: the continuation is the architect's ruling on
   the record. The net over the thirty is reported WITH that read when every game of the thirty is priced (2(3)); a
   held flip or a late exit adds no cents to it (its result is in units, outside the mean). A breach not read, or a
-  game whose figure is unread, gives no verdict either (law 4, readings). Else CONTINUE only if (Σ per-game early CLV
+  game whose figure is unread, gives no verdict either (law 4, readings). 286 item 3: the read is HELD (its count
+  printed, no mean, no verdict) while any game of the thirty has a breach not read, then while any game of the thirty
+  is unpriced (a held flip whose settlement result is unread is unpriced: "the denominator holds only numbers"),
+  both ahead of the breach read, so a breach's net is always over priced games. Else CONTINUE only if (Σ per-game early CLV
   − Σ per-game flip cost) / games > 0 (a tie rejects, law 3), else STOP. Below thirty: "n of 30", no verdict.
 
 Never read or printed: id (it carries the account id), staked, fees, pnl_*, desk.exec.contracts, order.contracts. qty
@@ -155,6 +164,9 @@ NO_PREMATCH = "UNESTABLISHED: no prematch page before the fill"
 SIDE_RELOGGED = ("UNESTABLISHED: on the side a same-day re-log replaced (the close PLAYs the other side): never an "
                  "arm fill, whether or not a prematch page before the fill PLAYs its side (gate (i) strict; waits "
                  "for #865)")
+AMBIGUOUS_CALLS = ("UNESTABLISHED: the matcher could not tell its calls apart (ambiguous_calls: booked to the first "
+                   "of several that fit, e.g. a doubleheader with no start time): never an arm fill, never in the "
+                   "thirty (addendum 286 item 3(1))")
 PREMATCH_DISAGREE = "the latest prematch pages before the fill disagree on the game (refused, none picked)"
 PREMATCH_UNTIMED = "only untimed prematch pages (no exported_at) name its event: before the fill not established"
 NOT_RULED_CALL = "the closing page's call is neither PLAY nor PASS: not ruled for the arm"
@@ -184,7 +196,8 @@ NOT_EXITED_KEYS = {FLIP_OPEN: "open at the export", FLIP_LATE: "exited at or aft
 # CLASSIFIED "other", never nowhere).
 NOT_THE_ARMS_KEYS = {PRE_CLOSE_OFF_ARM: "no straight PLAY call", NOT_STRAIGHT_PLAY: "not a straight PLAY call",
                      PREMATCH_NOT_PLAY: "prematch page not PLAY on its side"}
-UNESTABLISHED_KEYS = {NO_PREMATCH: "no prematch page before the fill", SIDE_RELOGGED: "same-day re-log"}
+UNESTABLISHED_KEYS = {NO_PREMATCH: "no prematch page before the fill", SIDE_RELOGGED: "same-day re-log",
+                      AMBIGUOUS_CALLS: "ambiguous attribution"}
 NOT_CLASSIFIED_KEYS = {NO_PAGE: "no closing page", RUN_UNKNOWN: "closing run time unknown",
                        TIME_UNREAD: "fill open time not read", DISAGREE: "closing pages disagree",
                        SIDE_UNREAD: "side not comparable", PREMATCH_DISAGREE: "prematch pages disagree",
@@ -484,6 +497,11 @@ def attribute(L: dict, exports_dir=None, pages: dict | None = None, prematch: di
             continue
         if fx.get("kind") != "sport":
             continue
+        # 286 item 3(1): a fill the matcher could not resolve to one call is UNESTABLISHED, whatever else holds: its
+        # own line, never an arm fill, never in the thirty. Checked first; its ambiguous_calls stays on the row.
+        if fx.get("ambiguous_calls"):
+            a["arm_note"] = AMBIGUOUS_CALLS
+            continue
         ev = event_of(fx.get("ticker"))
         page = by_event.get(ev)
         timed = page is not None and "refused" not in page and page["run"] is not None
@@ -552,7 +570,6 @@ def attribute(L: dict, exports_dir=None, pages: dict | None = None, prematch: di
         a.update(arm=ARM_FLIP, ledger_call_id=fx.get("call_id"), book=ARM_BOOK, call_id=None,
                  category="arm flip (booked to the arm, 2(c)(iii))", early_price=price,
                  closing_call={**cc, "call": page["call"]}, arm_note=ENTRY_UNREAD if price is None else None)
-        a.pop("ambiguous_calls", None)
         closed, ko = as_utc(fx.get("closed")), page["kickoff"]
         sale = _sale(fx)
         if sale is False:
@@ -583,8 +600,10 @@ def attribute(L: dict, exports_dir=None, pages: dict | None = None, prematch: di
                 why.append(BREACH_SOLD)
         if why:
             a["arm_breach"], a["breach_why"] = True, " and ".join(why)
-        elif ko is not None and sale is None and closed is not None and closed >= ko:
-            a["breach_unread"] = True                 # closed after kickoff, its sale not read: never "no breach"
+        elif (ko is None                              # 286 item 3(2): a closing page without a kickoff
+              or (sale is not False and closed is None)   # 286 item 3(2): a sale (or a sale not read), its clock unread
+              or (sale is None and closed >= ko)):    # closed after kickoff, its sale not read
+            a["breach_unread"] = True                 # never "no breach": the discipline count is a count, never a guess
     return out
 
 
@@ -638,36 +657,42 @@ def arm_games(rows: list[dict]) -> list[dict]:
              "breach": any(r.get("arm_breach") for r in on_ev),
              "breach_unread": any(r.get("breach_unread") for r in on_ev)}
         # A game's number for the read: its early CLV where it has early lots, its flip cost where it has exited flip
-        # lots (a flip held or exited late is a breach, outside the mean); an exit not established is unpriced (law 4).
+        # lots (a flip held or exited late is a breach, outside the mean); an exit not established is unpriced (law 4);
+        # a held flip whose settlement result is unread is unpriced (286 item 3(3): the denominator holds only numbers).
         g["priced"] = ((not early or g["early_clv_cents"] is not None)
-                       and (not exited or g["flip_cost_cents"] is not None) and not pending)
+                       and (not exited or g["flip_cost_cents"] is not None) and not pending
+                       and (not held or g["settle_units"] is not None))
         out.append(g)
     return sorted(out, key=lambda g: (g["first"] or datetime.max, g["event"] or ""))
 
 
 def the_read(games: list[dict], unclassified: int) -> dict:
     """THE READ AT THIRTY (283 item 3; 285 items 1(b), 2(2), 2(3)), on the first READ_AT games: {"read", "net",
-    "blocking"}. `unclassified` counts the NOT CLASSIFIED and NOT RULED rows. net on CONTINUE / STOP, and on a breach
-    in the thirty when every game of the thirty is priced (2(3): "reported with the read"; no verdict)."""
+    "blocking"}. `unclassified` counts the NOT CLASSIFIED and NOT RULED rows. In order: refused while unclassified;
+    HELD while any game of the thirty has a breach not read (286 item 3(2)), then while any is unpriced (286 item
+    3(3)), the count printed, no net, no verdict; a breach in the thirty with its net (2(3): "reported with the read";
+    no verdict); else CONTINUE / STOP with the net."""
     if len(games) < READ_AT:
         return {"read": READ_BELOW, "net": None, "blocking": None}
     if unclassified:
         return {"read": READ_REFUSED, "net": None, "blocking": unclassified}
     thirty = games[:READ_AT]
-    unpriced = sum(1 for g in thirty if not g["priced"])
-    net = None
-    if not unpriced:
-        clv = sum(g["early_clv_cents"] for g in thirty if g["early"])
-        cost = sum(g["flip_cost_cents"] for g in thirty if g["flip_cost_cents"] is not None)
-        net = round((clv - cost) / len(thirty), 4)
-    n = sum(1 for g in thirty if g["breach"])
-    if n:
-        return {"read": READ_BREACH, "net": net, "blocking": n}
+    # 286 item 3(2): HELD while any game of the thirty has a breach not read (the discipline count is a count, never
+    # a guess), ahead of a breach: a breach count beside an unread one is not a count.
     n = sum(1 for g in thirty if g["breach_unread"])
     if n:
         return {"read": READ_BREACH_UNREAD, "net": None, "blocking": n}
+    # 286 item 3(3): HELD while any game of the thirty is unpriced (the denominator holds only numbers), ahead of a
+    # breach: a held flip is a breach, so a breach first would never hold.
+    unpriced = sum(1 for g in thirty if not g["priced"])
     if unpriced:
         return {"read": READ_UNPRICED, "net": None, "blocking": unpriced}
+    clv = sum(g["early_clv_cents"] for g in thirty if g["early"])
+    cost = sum(g["flip_cost_cents"] for g in thirty if g["flip_cost_cents"] is not None)
+    net = round((clv - cost) / len(thirty), 4)
+    n = sum(1 for g in thirty if g["breach"])
+    if n:
+        return {"read": READ_BREACH, "net": net, "blocking": n}
     return {"read": READ_CONTINUE if net > 0 else READ_STOP, "net": net, "blocking": None}
 
 
@@ -763,14 +788,16 @@ def read_line(t: dict) -> str:
                        f"{t['not_ruled']}) — no mean is computed while any row is unclassified (285 item 1(b))")
     if rd == READ_BREACH:
         net = (f"mean early CLV net of flip costs {_c(t['read_net_cents_per_game'])} per game over the first "
-               f"{t['read_at']}" if t["read_net_cents_per_game"] is not None
-               else "net not computed: a game of the thirty is unpriced (law 4)")
+               f"{t['read_at']}")             # 286 item 3(3): a breach is read only when every game is priced
         return head + (f"breach in the thirty: {t['read_blocking']} games · {net} (reported with the read, 285 item "
                        "2(3)) — no verdict: the continuation is the architect's ruling on the record")
     if rd == READ_BREACH_UNREAD:
-        return head + f"breach not read in the thirty: {t['read_blocking']} games — no verdict (law 4)"
+        return head + (f"HELD: breach not read in the thirty: {t['read_blocking']} games (a sale or kickoff clock not "
+                       "read) — no mean, no verdict (law 4; 286 item 3(2): the discipline count is a count, never a "
+                       "guess)")
     if rd == READ_UNPRICED:
-        return head + f"unpriced in the thirty: {t['read_blocking']} games — no verdict (law 4)"
+        return head + (f"HELD: unpriced in the thirty: {t['read_blocking']} games — no net, no verdict (law 4; 286 "
+                       "item 3(3): the denominator holds only numbers)")
     return head + (f"{rd}: mean early CLV net of flip costs {_c(t['read_net_cents_per_game'])} per game over the "
                    f"first {t['read_at']} (positive continues; a tie rejects, law 3) — the read is the architect's, "
                    "by a block")
@@ -799,7 +826,8 @@ def table_lines(t: dict) -> list[str]:
         f"the prematch page's call × (settle − entry) / entry, contract-weighted) · unpriced "
         f"{t['flip_held_unpriced_games']}",
         f"ARM BREACH (2(d), 2(3)): fills {t['breaches']} ({_kv(t['breaches_by_cause'])}) · games "
-        f"{t['breach_games']} · not read (closed at or after kickoff, its sale not read): {t['breaches_not_read']}",
+        f"{t['breach_games']} · not read (closed at or after kickoff, its sale not read; a sale whose clock is not "
+        f"read; a closing page without a kickoff, 286 item 3(2)): {t['breaches_not_read']}",
         f"ABOVE THE PREMATCH PAGE'S ASK (283 item 2(b) \"never above it\": counted, never excluded, not a breach; not "
         f"ruled): above the prematch page's ask: {t['arm_lots_above_prematch_ask']} lots · not compared (the page's "
         f"ask or the entry not read) {t['arm_lots_prematch_ask_unread']} · entry price not read (outside 0 to 1) "

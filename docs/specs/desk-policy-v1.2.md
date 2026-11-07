@@ -110,6 +110,27 @@ Each order line is written on that unit:
 - **The Cockpit.** The NFL policy line reads "PASS all (market-only since 2026-11-02, addendum 214 …)", as NHL's reads "PASS all (pre-gate …)"; a `market_only` row is tagged "market-only · uncertified", shows the hold (record only), and the Desk summary counts it.
 - **Lifted** only by the architect's ruling on the forward confirmation (item 3).
 
+## The early-entry arm (ARCHITECT 2026-11-07 08:55 ET, addendum 283; Issue #862)
+
+The declaration, verbatim: "THE EARLY-ENTRY ARM, declared on the operator's decision (08:42 ET: "Let's do it"): the operator may open a position when a PREMATCH page shows a PLAY, days before kickoff if the page does; the CLOSING page stays THE call and settles what happens to the early position; never in play; measured from the first fill with a pre-committed read at 30 fills; the ledger attributes every fill. The venue's interest on open positions is a ledger line, not a reason. Nothing else about the Desk changes."
+
+**Items 2 and 3, verbatim** (the arm's rules, standing from 2026-11-07, and its pre-committed measurement):
+
+2. THE ARM, THE RULES (standing from today):
+   (a) WHEN: a position may be opened on any match whose latest PREMATCH page (the family's export: today only SOCCER/PL has calls; NFL is market-only and its pages print PASS; MLB is off-season) shows desk.call PLAY — from the moment that page is published, any number of days before kickoff.
+   (b) WHAT: the SAME SIDE the page picks; the SIZE the page's units (0.5u or 1u — the page's half-unit rules apply as printed); the PRICE at or below THAT PAGE's own ask (the exec basis printed on the page; the page's all-in cost less its fee is the ask it priced) — never above it, never at a later ask that is higher. The page's number is the limit, exactly as the closing page's number is the limit for the closing call.
+   (c) THE CLOSING PAGE SETTLES IT: (i) the closing page PLAYs the same side → the early position IS the call's position; no second entry unless the closing units are LARGER, in which case the difference may be added at the closing limit (the ordinary call); (ii) the closing page PLAYs the same side at SMALLER units → the excess is sold before kickoff; (iii) the closing page PASSes, or picks another side → the early position is EXITED before kickoff at the market, whatever the price — the flip is the arm's cost and is booked to the arm, never hidden; the other side is entered only by the ordinary closing call if there is one.
+   (d) NEVER IN PLAY: from kickoff a position is held to settlement. No sale, no add, no hedge after the start — the Desk makes no call after kickoff, the model has no in-play edge, and a live market is a counterparty that is watching the game. An exit after kickoff is a breach of the arm and is recorded as such.
+   (e) THE PASS DISCIPLINE IS UNTOUCHED: a PASS on the prematch page is a PASS; a value shadow is a shadow; the floor, the half-unit rules, the exec rules, the QB rule and the no-NFL-position rule stand. The arm changes WHEN a PLAY may be filled, not WHAT is a PLAY.
+   (f) INTEREST: the venue's interest on open positions is a LEDGER LINE of its own (the CSV import's interest rows, if the export carries them, under their own kind; never attributed to a call or to the arm); at single-digit annual rates it is about a hundredth of a cent per contract per day — against price moves of a cent or more it enters the read as a line, never as a reason to enter early. The rate is never written into the repo.
+
+3. THE MEASUREMENT, pre-committed before the first fill: per early fill the ledger records early_price (the fill), closing_cost (the closing page's all-in cost on the same side; null if the close PASSed), early_clv_cents = (closing_cost − early_price) × 100 (positive = early was cheaper than the close would have been), flip_exit_price and flip_cost_cents where (c)(iii) applied. THE READ at n = 30 early fills (flips counted in the 30): the arm CONTINUES only if the mean early_clv_cents net of flip costs is GREATER than zero (a tie is a rejection — law 3); otherwise the arm CLOSES that day and the record says so. No read before 30; no re-cut of the 30. The read is mine, on the laptop's ledger, by a block.
+
+- **What this section is.** The policy text of the arm (283 item 4: "the desk_policy text gains §(the arm) quoting items 2–3 verbatim"). It ships first, as its own small PR, by the review stop rule's item (5).
+- **What follows it.** The ledger's attribution of early fills (`early`, `early_price`, `early_clv_cents`; "arm flip" paired with its exit and `flip_cost_cents`; "arm breach"), the receipt script's arm table and the bulletins' word "early" follow in their own PR (283 item 4).
+- **What does not change.** The Desk's engine: the arm changes WHEN a PLAY may be filled, not WHAT is a PLAY (item 2(e)). `POLICY_VERSION` stays v1.2. No roadmap date, no model lane, no bar moves.
+- **No figure is written here** (items 2(f) and 4): no dollar figure, no contract count, no interest rate.
+
 ## Not changed
 
 - W-L and units stay the record.

@@ -100,10 +100,11 @@ python -m pytest -q tests       # throwaway SQLite (tests/conftest.py), never da
 `OnCalendar=`, UTC unless a zone is named); the host runs the latest tag
 (docs/RELEASES.md "Release record"). A chain timer starts the templated
 `sp-chain` service, which runs `deploy/hosting/sp_run.py` over the chain's steps
-in `deploy/hosting/chains.py` `CHAINS`. Of the 23 timers, hosting-h1 T11 lists 20
-to enable and holds back 3 (`MLB_LAPTOP_ONLY`). `sp-availability-daily` and
-`sp-nba-daily` reached `main` after v1.6.4; their enablement is the architect's
-block (docs/specs/hosting-h1.md, T11; addendum 252 item 7; addendum 271 item 3(h)).
+in `deploy/hosting/chains.py` `CHAINS`. Of the 24 timers, hosting-h1 T11 lists 21
+to enable and holds back 3 (`MLB_LAPTOP_ONLY`). `sp-availability-daily`,
+`sp-nba-daily` and `sp-tennis-daily` reached `main` after v1.6.4; their enablement
+is the architect's block (docs/specs/hosting-h1.md, T11; addendum 252 item 7;
+addendum 271 item 3(h); addendum 284 item 1(b)).
 
 | Timer | Runs | When |
 |---|---|---|
@@ -113,6 +114,7 @@ block (docs/specs/hosting-h1.md, T11; addendum 252 item 7; addendum 271 item 3(h
 | sp-nfl-lines · sp-nfl-grade · sp-nfl-prematch | chains of those names | daily 15:00 · Mon, Tue, Fri 10:00 · Thu 18:00, Sun 14:00 |
 | sp-nhl-daily · sp-intl-daily · sp-availability-daily | chains of those names | 16:00 · 07:20 · 08:45 |
 | sp-nba-daily | chain nba-daily | 06:47 |
+| sp-tennis-daily | chain tennis-daily | 06:53 |
 | sp-ncaa-market · sp-ncaa-schedule · sp-mlb-history | chains of those names | Tue-Fri 16:00, Sat 13:00 · 10:35, 22:35 · 10:30 |
 | sp-weekly-fullseason · sp-exports-squash | chain weekly-fullseason · mirror squash | Sun 06:00 · Sun 06:10 |
 | sp-window · sp-cup-observe · sp-closing-watch | chain window · `observe-cup-lineups` · closing watch | :05 · every 5 min (both in hours 00-03, 06-23) · every minute |

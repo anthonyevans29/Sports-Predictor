@@ -7,6 +7,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import re
 import tokenize
 from pathlib import Path
 
@@ -15,7 +16,12 @@ from src.walters import soccer_v23 as v
 ROOT = Path(__file__).resolve().parent.parent
 SPEC = (ROOT / "docs" / "specs" / "soccer-v23.md").read_text()
 
-BAR_SHA256 = "15002742f71996b0d3422fcc7a0576bcb44ff6e6dd4833a91b2f8d42eec1feb5"   # 251 item 2's bar, repaired before any declaration (G0's precision role stated); addendum 254 item 3 (Q4 the day rule and the lag, Q20 the fallback, Q22 "v22 re-walked")
+# RE-PINNED UNDER ADDENDUM 263 (ARCHITECT 2026-11-05 12:50 ET, item 27: "with the bar text's sha256 RE-PINNED under this
+# addendum (named in the test's docstring)"), in the §11 follow-up of addendum 264 item 3: the §11 rulings' text (263
+# items 2, 3, 5, 9, 14, 15) and 262 item 2's soccer cadence entries ("no soccer source declared; ..."). The pin before
+# it, 15002742f71996b0d3422fcc7a0576bcb44ff6e6dd4833a91b2f8d42eec1feb5, was 251 item 2's bar repaired before any
+# declaration with addendum 254 item 3's Q4, Q20 and Q22.
+BAR_SHA256 = "e5fd61888014dc8f4ce81511a4d2c13b27c529d7e206a1e957748f38f6d9cfe3"
 
 # the rulings, verbatim (each must appear in the spec exactly)
 RULINGS = {
@@ -68,6 +74,11 @@ def test_the_five_rows_section_names_each_row_its_field_and_its_test():
 
 
 def test_the_bar_is_pinned_and_the_spec_carries_it_character_for_character():
+    """THE BAR's sha256, RE-PINNED under addendum 263 (ARCHITECT 2026-11-05 12:50 ET, item 27: the §11 rulings change
+    BAR_TEXT's context, items 2, 5, 9, 14 and 15, "with the bar text's sha256 RE-PINNED under this addendum (named in
+    the test's docstring)"; addendum 264 item 3: "263's text and BAR_TEXT changes with the fingerprint re-pinned under
+    263"), with addendum 262 item 2's soccer cadence entries named. The spec carries it character for character; the
+    phrases below are each ruling's, as BAR_TEXT states it. No number of the bar moved."""
     assert hashlib.sha256(v.BAR_TEXT.encode("utf-8")).hexdigest() == BAR_SHA256
     assert v.BAR_TEXT in SPEC
     for must in ("at least 0.0050 BELOW BOTH v22's recorded figure AND v22's figure re-walked on soccer-v23's harness",
@@ -104,8 +115,33 @@ def test_the_bar_is_pinned_and_the_spec_carries_it_character_for_character():
                  "\"v22 re-walked\" is v22 on THIS harness, not live v22 reproduced",
                  "an AET or PEN league row at its 90-minute score where live v22 reads the full score",
                  "about 3.7e-4 in a probability on the design's synthetic one-row probe (a synthetic receipt, not a pot "
-                 "figure; the run record counts the AET and PEN rows; addendum 254 item 3 Q22)"):
+                 "figure; the run record counts the AET and PEN rows; addendum 254 item 3 Q22)",
+                 # ARCHITECT 2026-11-05 12:50 ET, addendum 263: items 2, 3, 5, 9, 14, 15 (item 27's list, and item 3)
+                 "THE §11 RULINGS (ARCHITECT, addendum 263), frozen with this text",
+                 "the LEAGUE-type competitions' regular rounds only (item 2: scope LEAGUE_REGULAR; cups take "
+                 "cup_strengths in production and have their own exam, and are not in this pot's log-loss)",
+                 "each competition's first pot season is scored under soccer-v23's weak prior, as built, and the v22 "
+                 "arm reads its own fallback for the same rows, like for like (item 3)",
+                 "K_PRIOR = 5, the promoted prior ln 0.85 / ln 1.15, which sits on v22's scale",
+                 "the S−1 carry 1.0, and beta's weak prior centred at 0 with precision K_PRIOR·G0 on ΔE/100 in every "
+                 "window",
+                 "v22's ρ and c were selected on this pot, and S19, dc-fit, s14 and soccer-expansion-v1 read it: a tilt "
+                 "toward the incumbent, the conservative direction, accepted, and a PASS is read against it (item 9)",
+                 "a competition-season with no home or no away goal is excluded by cause",
+                 "the preflight naming every such season before the reservation, so the exclusion set is frozen with "
+                 "the declaration and an exclusion that first appears after the reservation is a failure (item 14)",
+                 "an arrival off the declared pyramid (PYRAMIDS: PL > ELC > EL1 > EL2) takes the outside-the-store "
+                 "prior, counted and labelled: the run never stops on a club's provenance (item 15)",
+                 # addendum 262 item 2: the fingerprinted gate text names the soccer cadence entries (none today)
+                 "record.SOURCE_CADENCE_HOURS filtered to soccer sources (addendum 262 item 2): " + v.NO_SOCCER_CADENCE):
         assert must in v.BAR_TEXT, must
+    # 262 item 2: the bar names every entry of the soccer view, or, while there is none, says so
+    assert all(f"{src}" in v.BAR_TEXT for src in v.source_cadence_hours())
+    assert (v.NO_SOCCER_CADENCE in v.BAR_TEXT) == (v.source_cadence_hours() == {})
+    from src.models import joint_poisson as jp_
+    assert (jp_.K_PRIOR, jp_.PROMOTED_ATTACK_MULT, jp_.PROMOTED_DEFENCE_MULT, jp_.CARRY, jp_.BETA_PRIOR_MEAN,
+            jp_.ELO_SCALE) == (5.0, 0.85, 1.15, 1.0, 0.0, 100.0)               # 263 item 5: as built, no value moved
+    assert v.PYRAMIDS == (("PL", "ELC", "EL1", "EL2"),)
     assert "Each log-loss is computed by" not in v.BAR_TEXT          # the recorded figure is never recomputed
     assert "only as the first season's frozen prior centre" not in v.BAR_TEXT + v.CONTEXT_DEFINITION
     from src.models import joint_poisson as jp
@@ -135,7 +171,7 @@ def test_addendum_254_item_3_is_marked_and_the_run_order_is_stated_accurately():
     for q in ("1. **Naming.**", "2. **Scope.**", "13. **Failure after the reservation.**", "19. **The re-walked"):
         start = sec11.index(q)
         nxt = sec11.find("\n" + str(int(q.split(".")[0]) + 1) + ". ", start)
-        assert "RULED" not in sec11[start:nxt], q
+        assert "RULED (254 item 3)" not in sec11[start:nxt], q             # 263's, not 254's (the next test)
     cli_row = next(ln for ln in (ROOT / "docs" / "CLI.md").read_text().splitlines()
                    if ln.startswith("| `soccer-v23-gate` "))
     for text in (v.run.__doc__.replace("\n    ", " "), SPEC[SPEC.index("## 9. "):SPEC.index("## 10. ")], cli_row):
@@ -185,7 +221,10 @@ def test_the_ruled_questions_are_marked_where_they_are_named_and_q4_is_built_in_
         assert f"soccer_v23.py:{line}" in text, text[:80]
     assert "MATCHING nfl-v2-gate and ncaa-gate" in cli_row
     assert "a MISSING fingerprint is refused here, after the load" not in cli_row
-    assert "AFTER THE RESERVATION" not in cli_row                              # Codex round 2: unruled, not built
+    # ARCHITECT 2026-11-05 13:50 ET, addendum 264 item 2(b): the fit's refusal after the reservation is the gate's
+    # REFUSED line with its reason (Codex round 2's finding, ruled; before the ruling this test pinned it unbuilt)
+    assert "prints the REFUSED line with its reason, saying the reservation stands and the one run is spent" in cli_row
+    assert "addendum 264 item 2(b)" in cli_row
     # the missing-fingerprint refusal moved ahead of _load, so "no order changed" is true only of the ruled steps
     # (the spec only: a fragment is deleted by the tag's compile, so no test reads one; test_ledger_text.py)
     flat_spec = " ".join(SPEC.split())
@@ -259,3 +298,50 @@ def test_v22_is_untouched_by_the_design():
     for p in ("src/models/joint_poisson.py", "src/walters/soccer_v23.py"):
         src = (ROOT / p).read_text()
         assert "setattr(" not in src and "\n    global " not in src
+
+
+def test_addendum_263_rules_every_remaining_question_and_the_follow_up_is_stated():
+    """ARCHITECT 2026-11-05 12:50 ET, addendum 263 (1-3, 5-7, 9-17, 19, 21, 23-26) and 13:50 ET, addendum 264 item 3
+    (the §11 follow-up): every one of them is marked in §11 with its ruling VERBATIM (read from the addendum's own
+    words as the spec quotes them), the header says all are ruled, Q21 names the finding Issue #827 (cited, never
+    closed: its pin turns red only when a successor joins soccer_parity.PREDICTORS), and no text still calls a ruled
+    item open or the record's reader unmerged."""
+    flat = " ".join(SPEC.split())
+    sec11 = SPEC[SPEC.index("## 11. "):SPEC.index("## 12. ")]
+    assert SPEC.splitlines()[[i for i, ln in enumerate(SPEC.splitlines()) if ln.startswith("## 11. ")][0]].startswith(
+        "## 11. Open questions for the architect (ALL RULED:")
+    assert "RULED by addendum 263 (ARCHITECT 2026-11-05 12:50 ET): 1-3, 5-7, 9-17, 19, 21 and 23-26" in flat
+    for n, words in ((1, "NAMING — the registry id is `soccer-v23`"), (2, "SCOPE — LEAGUE-type regular rounds only."),
+                     (3, "EACH COMPETITION'S FIRST POT SEASON — scored under the weak prior, as built"),
+                     (5, "CONSTANTS — as built and FROZEN by the declaration: K_PRIOR = 5"),
+                     (6, "AVAILABILITY — OFF in the shadow"), (7, "THE CUT — at or before 2026-10-30T15:00:00Z"),
+                     (9, "PRIOR READS — v22's ρ and c were selected on this pot"), (10, "FENCING v22's READS — NO fence."),
+                     (11, "THE LANE'S `competitions` — [\"PL\"]"), (12, "GATE OUTPUT IN THE PR BODY"),
+                     (13, "FAILURE AFTER THE RESERVATION — as built"), (14, "THIN SEASONS — EXCLUSION BY CAUSE, not refusal"),
+                     (15, "An arrival OFF the declared pyramid is NOT a refusal"), (16, "UNPLACEABLE STAGE LABELS — as built"),
+                     (17, "THE v22 ARM'S TIE ORDER — SQLite's id-ascending, pinned"),
+                     (19, "THE RE-WALKED v22 ARM'S CONTEXT WINDOW — every visible season"),
+                     (21, "THE FINDING ISSUE — cite the number #828's body carries"),
+                     (23, "THE RECORD'S READER — the follow-up that calls 252 item 2's query function (record.as_of"),
+                     (24, "THE ERA — competition-season, as built."), (25, "THE RECORD'S FACTS AS ENTRIES — as built"),
+                     (26, "THE v22 ARM AND THE RECORD — two different comparisons, kept apart")):
+        start = sec11.index(f"\n{n}. **")
+        # bounded on the NEXT numbered question whatever its markup (Q8 is "8. *(Settled"), never on §11's end
+        nxt = re.search(r"\n\d+\. ", sec11[start + 1:])
+        block = " ".join(sec11[start:start + 1 + nxt.start() if nxt else None].split())
+        assert f"**RULED (addendum 263 item {n}):** \"" in block and words in block, n
+    q21 = " ".join(sec11[sec11.index("\n21. **"):sec11.index("\n22. **")].split())
+    assert "#827" in q21 and "Refs #827" in q21 and "Closes #827" not in SPEC
+    for stale in ("not on main", "which is not merged", "schema PR is not merged", "is not built (it waits on 252 item 2"):
+        assert stale not in flat, stale
+    src = (ROOT / "src" / "walters" / "soccer_v23.py").read_text() + (ROOT / "src" / "models" / "joint_poisson.py").read_text()
+    for stale in ("not on main", "not merged", "a proposed ruling", "open question 1)", "open question 3)",
+                  "open question 13)", "open question 23)", "proposed, every one an open question"):
+        assert stale not in src, stale
+    cli_row = next(ln for ln in (ROOT / "docs" / "CLI.md").read_text().splitlines()
+                   if ln.startswith("| `soccer-v23-gate` "))
+    for must in ("record.as_of", "addendum 263 item 23", "addendum 263 item 15", "addendum 263 item 14",
+                 "first season IN SCOPE (addendum 264 item 2(a))"):
+        assert must in cli_row, must
+    assert "spec open question 23" not in cli_row and "cannot place;" not in cli_row
+    assert "## 8. The frozen constants (RULED as built, addendum 263 item 5" in SPEC

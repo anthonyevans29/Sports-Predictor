@@ -39,11 +39,13 @@ the snapshot and the fixture:
       fixture's UTC midnight, the morning chain's reading; under "kickoff" t − RESULT_LAG), never at the kickoff, so
       the replay reads exactly what a live call made at or after the decision instant had on disk; a backfilled fact
       (252 item 1: recorded later than its source_stamp by more than its source's declared cadence,
-      SOURCE_CADENCE_HOURS) is excluded, labelled, in both paths. No other factor input exists (the injuries, lineups
-      and XI tables are read by neither path). Where the record has nothing, the term is OFF in both paths and the
-      walk, the run's lines (every verdict, INVALID included) and the preflight print it per era (`availability_lines`).
-      The record's tables are not on main: the adapter (`availability_record`) answers "no record" while they are
-      absent, so the term is off everywhere today.
+      record.SOURCE_CADENCE_HOURS filtered to soccer sources: source_cadence_hours, addendum 262 item 2) is excluded,
+      labelled, in both paths. No other factor input exists (the injuries, lineups and XI tables are read by neither
+      path). Where the record has nothing, the term is OFF in both paths and the walk, the run's lines (every verdict,
+      INVALID included) and the preflight print it per era (`availability_lines`). The adapter (`availability_record`)
+      reads a migrated record through record.as_of, the one read path (StoreRecord; addendum 263 item 23), and answers
+      "no record" where it holds no soccer fact; no soccer source is in the record's vocabulary, so the term is off
+      everywhere today.
   (5) SIMULTANEOUS KICKOFFS: `as_of` + `visibility`: the snapshot is a function of the instant, never of the fixture,
       and holds no row kicking off at or after visibility_bound(t) (itself at or before t − RESULT_LAG); fixtures
       sharing a kickoff share ONE snapshot (`by_instant`, in the walk and in predict_live_slate alike).
@@ -118,11 +120,12 @@ import os
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 
+from src.availability import record as avr
 from src.models import joint_poisson as jp
 
 EID = "soccer-v23"
 COMMAND = "soccer-v23-gate"
-ENGINE = "soccer_joint_poisson"                 # proposed engine string (open question 1); no ModelVersion is minted
+ENGINE = "soccer_joint_poisson"                 # RULED (addendum 263 item 1); no ModelVersion is minted
 BASE_VERSION = "v22"
 RULING = ("ARCHITECT 2026-11-04 10:10 ET, addendum 248 item 2(b); addendum 230 item 1(d); addendum 216 items 1-3; "
           "addendum 243 item 4; ARCHITECT 2026-11-04 11:50 ET, addendum 251 item 2")
@@ -153,6 +156,12 @@ V22_REWALKED_LABEL = ("\"v22 re-walked\" is v22 on THIS harness, not live v22 re
                       "store holding such a row it differs from live v22, by about 3.7e-4 in a probability on the "
                       "design's synthetic one-row probe (a synthetic receipt, not a pot figure; addendum 254 item 3 "
                       "Q22)")
+#: ARCHITECT 2026-11-05 12:50 ET, addendum 263 item 17: "THE v22 ARM'S TIE ORDER — SQLite's id-ascending, pinned,
+#: accepted as "v22's" for the bar and stated in the record (production's own order is SQL-undefined; a pinned order is
+#: the only reproducible one)." The run record's line (record_labels).
+V22_TIE_ORDER_LABEL = ("the v22 arm's backfill below V22_MIN_MATCHES takes tied kickoffs in SQLite's id-ascending "
+                       "order, pinned and accepted as v22's for the bar (production's ORDER BY utc_date DESC is "
+                       "SQL-undefined on ties; addendum 263 item 17)")
 #: v2 (253 item 2(d)): the snapshot carries the Elo state (elo_pre, elo_state) and the availability record read at the
 #: instant (availability) beside the rows; v1 carried the rows and caller-supplied entries.
 SNAPSHOT_VERSION = "soccer-snapshot v2"
@@ -181,12 +190,14 @@ RESULT_LAG = timedelta(hours=RESULT_LAG_HOURS)
 VISIBILITY_RULES = ("day", "kickoff")
 POT_LABEL = ("the frozen pot as CLAUDE.md names it: 16,546 matches / 24 competitions (v22's); printed as a label, "
              "never a pass condition")
-#: THE DECLARED PYRAMID (a proposed ruling, spec §11): the store's only multi-tier LEAGUE family, top tier first, read
-#: from src/adapters/api_football.py's England LEAGUE codes (_CODE_TO_META, law 1). A club absent from a competition's
-#: S−1 rows whose S−1 rows (the same season label) lie in a HIGHER tier of the same pyramid is RELEGATED (no
-#: directional prior: joint_poisson.RELEGATED_*); from a lower tier or from outside the store it is PROMOTED (the
-#: persistent promoted prior); from a LEAGUE competition off the pyramid, or from two places, it cannot be placed and
-#: the run refuses before the reservation (never guessed).
+#: THE DECLARED PYRAMID (RULED as built, ARCHITECT 2026-11-05 12:50 ET, addendum 263 item 15: "`PYRAMIDS` declared
+#: from the pot's own competitions (England's PL > ELC > EL1 > EL2 as the pot holds them ...)"): the store's only
+#: multi-tier LEAGUE family, top tier first, read from src/adapters/api_football.py's England LEAGUE codes
+#: (_CODE_TO_META, law 1). A club absent from a competition's S−1 rows whose S−1 rows (the same season label) lie in a
+#: HIGHER tier of the same pyramid is RELEGATED (no directional prior: joint_poisson.RELEGATED_*); from a lower tier or
+#: from outside the store it is PROMOTED (the persistent promoted prior); from a LEAGUE competition off the pyramid, or
+#: from two places, it is OFF_PYRAMID: "NOT a refusal: it takes the outside-the-store prior, is counted and labelled.
+#: The run never stops on a club's provenance." (263 item 15).
 PYRAMIDS = (("PL", "ELC", "EL1", "EL2"),)
 
 # ------------------------------------------------------------------------------------------------- THE BAR --
@@ -223,7 +234,24 @@ BAR_TEXT = (
     "comparison REJECTS; a difference of exactly 0.0050 passes that comparison. INVALID, never a pass, when the two "
     "arms' scored sets differ, are empty, or number under MIN_GATE_N = 30 (soccer_backtest.compare_candidate). The "
     "early-season matches are INCLUDED in the scored set: this candidate's declared within-season skip is zero (no "
-    "40-match skip). RPS and Brier are printed for the record and gate nothing; the market is a reference, never a "
+    "40-match skip). THE §11 RULINGS (ARCHITECT, addendum 263), frozen with this text: the frozen pot is the "
+    "LEAGUE-type competitions' regular rounds only (item 2: scope LEAGUE_REGULAR; cups take cup_strengths in "
+    "production and have their own exam, and are not in this pot's log-loss); each competition's first pot season is "
+    "scored under soccer-v23's weak prior, as built, and the v22 arm reads its own fallback for the same rows, like "
+    "for like (item 3); the constants are as built and frozen by the declaration (item 5): K_PRIOR = 5, the promoted "
+    "prior ln 0.85 / ln 1.15, which sits on v22's scale (v22's PoissonConfig promoted priors, set on v22's deflated "
+    "ratings, read here as log offsets on S−1's zero mean), the S−1 carry 1.0, and beta's weak prior centred at 0 "
+    "with precision K_PRIOR·G0 on ΔE/100 in every window; v22's ρ and c were selected on this pot, and S19, dc-fit, "
+    "s14 and soccer-expansion-v1 read it: a tilt toward the incumbent, the conservative direction, accepted, and a "
+    "PASS is read against it (item 9); a competition-season with no home or no away goal is excluded by cause, out of "
+    "the scored set and out of soccer-v23's window (the v22 arm's history and the ladder keep it), counted and "
+    "labelled in the run record, the preflight naming every such season before the reservation, so the exclusion set "
+    "is frozen with the declaration and an exclusion that first appears after the reservation is a failure (item "
+    "14); an arrival off the declared pyramid (PYRAMIDS: PL > ELC > EL1 > EL2) takes the outside-the-store prior, "
+    "counted and labelled: the run never stops on a club's provenance (item 15). The availability record's backfill "
+    "cadence is record.SOURCE_CADENCE_HOURS filtered to soccer sources (addendum 262 item 2): no soccer source "
+    "declared; every fact carrying a source_stamp is excluded, counted. RPS and Brier are printed for the record and "
+    "gate nothing; the market is a reference, never a "
     "feature, and gates nothing. One run, on the architect's word, on a .backup copy opened mode=ro&immutable=1. No "
     "date moves this bar.")
 WITHIN_SEASON_SKIP = 0                          # 216 item 3: "no 40-match skip for this candidate ... it is zero"
@@ -233,9 +261,15 @@ WITHIN_SEASON_SKIP = 0                          # 216 item 3: "no 40-match skip 
 # declared registry entry's `declaration_slots` and refuses while any is missing or null. RECOMMENDED is printed for
 # the architect; it is never a default.
 SLOTS_KEY = "declaration_slots"
+#: The stage scopes and first-season rules the builders implement. The slots admit only the RULED ones (ARCHITECT
+#: 2026-11-05 12:50 ET, addendum 263 items 2 and 3, stated in BAR_TEXT; Q4's precedent, addendum 254 item 3: a
+#: declaration cannot select a history or a scored set BAR_TEXT does not describe); "LEAGUE" and "exclude_as_warmup"
+#: stay builder rules for the tests' probes only, as "kickoff" does (VISIBILITY_RULES).
+SCOPE_RULES = ("LEAGUE", "LEAGUE_REGULAR")
+FIRST_SEASON_RULES = ("score_under_prior", "exclude_as_warmup")
 SLOT_VALUES = {
-    "scope": ("LEAGUE", "LEAGUE_REGULAR"),                       # Q2: LEAGUE-type rows; or only regular rounds
-    "first_season": ("score_under_prior", "exclude_as_warmup"),  # Q3: each competition's first pot season
+    "scope": ("LEAGUE_REGULAR",),       # Q2 RULED (263 item 2): "LEAGUE-type regular rounds only"
+    "first_season": ("score_under_prior",),  # Q3 RULED (263 item 3): "scored under the weak prior, as built"
     "visibility": ("day",),                                      # Q4: results known before the fixture's UTC date
                                                                  # and its kickoff (RESULT_LAG)
     # Q4 RULED (addendum 254 item 3): the DAY rule, stated in BAR_TEXT, so the slot admits "day" alone and
@@ -284,7 +318,19 @@ TYPE_NOT_RULED = "type not ruled: nothing"
 
 class GateRefused(RuntimeError):
     """A precondition is not met: printed with its reason, exit 2; nothing written, nothing reserved, nothing
-    recorded."""
+    recorded (except SpentRefused, its one subclass, raised only after the reservation)."""
+
+
+class SpentRefused(GateRefused):
+    """A refusal AFTER the reservation (ARCHITECT 2026-11-05 13:50 ET, addendum 264 item 2(b): "THE GATE COMMAND NOT
+    CATCHING `FitRefused` (a traceback where the REFUSED line belongs) ... the same follow-up PR catches it and prints
+    the REFUSED line with its reason"): the walk stopped (the fit refused, or a walk guard), the reservation STANDS and
+    the one run is spent (263 item 13: "The only release is a ruling of mine on the failure's receipt"); nothing is
+    recorded. Printed as the gate's REFUSED line, exit 2."""
+
+
+#: the fit's refusal (src/models/joint_poisson.py), named here for the gate command, which catches it (264 item 2(b))
+FitRefused = jp.FitRefused
 
 
 def _iso(d: datetime | None) -> str | None:
@@ -365,11 +411,14 @@ def availability(entries, home_id: int, away_id: int, on: bool) -> tuple[float, 
 # ---------------------------------------------------- THE AVAILABILITY RECORD (addendum 252; 253 item 2(d), row 4) --
 # "the as-of factor inputs come only from stored as-of data (the availability record of addendum 252 is the source
 # going forward; where the record has nothing for an era, the term is off in BOTH paths for that era and the harness
-# says so)" (253 item 2(d)). The record's two tables are created by 252 item 1's schema PR, not here, and are not on
-# main: the adapter answers "no record" while they are absent, so the term is off in both paths everywhere today.
+# says so)" (253 item 2(d)). The record is src/availability/record.py (#831, its tables created by init_db and
+# migrate_availability_record.py, never here); soccer-v23 reads it through record.as_of, the one read path
+# (ARCHITECT 2026-11-05 12:50 ET, addendum 263 item 23; 252 item 2: "there is no second path"). No soccer source is in
+# the record's vocabulary (record.SOURCES), so on every store today a read finds no soccer fact and the term is off in
+# both paths, labelled.
 
-#: 252 item 1: the record's two tables, as the ruling names them (the schema PR's migration creates them; never here).
-RECORD_TABLES = ("availability_observations", "availability_assertions")
+#: 252 item 1: the record's two tables, the record module's own names (record.TABLES; never a second spelling).
+RECORD_TABLES = avr.TABLES
 #: 252 item 1, THE TWO CLOCKS: "A live-era record, a forward confirmation and a closing-time input use `recorded_at`
 #: only". A source-stamped read is a labelled backtest that its bar must declare; soccer-v23's bar declares none.
 RECORDED_CLOCK = "recorded"
@@ -381,13 +430,30 @@ TERM_KIND = "injury_status"
 #: ...) is usable ONLY in a backtest labelled "source-stamped" in its run record and its gate text, never in the
 #: live-era record". soccer-v23's bar declares no source-stamped backtest, so the one builder EXCLUDES a backfilled fact
 #: from every snapshot (both paths; kept in `AvailabilityAsOf.excluded`, counted in the notes and the per-era line,
-#: never read by the term). Each source's cadence, in hours, is a declared constant frozen by the declaration
-#: (code_constants); NONE is declared: 252 names no soccer source, and a source's cadence is declared with its feed
-#: (open question 27, RULED AS BUILT by addendum 254 item 3 Q27 (b): exclusion with count and label, not refusal;
-#: a soccer source's cadence is declared by the architect with its feed). A fact carrying a source_stamp from a source
-#: with no declared cadence cannot be told from a backfill and is excluded too (law 4: never guessed); a fact with no
-#: source_stamp (the source gives none, 252 item 1(b)) is read by the recorded clock alone.
-SOURCE_CADENCE_HOURS: dict[str, float] = {}
+#: never read by the term). (Open question 27, RULED AS BUILT by addendum 254 item 3 Q27 (b): exclusion with count and
+#: label, not refusal; a soccer source's cadence is declared by the architect with its feed.) A fact carrying a
+#: source_stamp from a source with no declared cadence cannot be told from a backfill and is excluded too (law 4: never
+#: guessed); a fact with no source_stamp (the source gives none, 252 item 1(b)) is read by the recorded clock alone.
+#:
+#: ONE CADENCE CONSTANT (ARCHITECT 2026-11-05 11:55 ET, addendum 262 item 2): "`record.SOURCE_CADENCE_HOURS` is the
+#: single source of truth; soccer-v23 (#832) deletes its own empty copy and READS the record's constant FILTERED TO
+#: SOCCER SOURCES at its declaration; its fingerprinted gate text names those soccer entries explicitly (today: "no
+#: soccer source declared; every fact carrying a source_stamp is excluded, counted" — 254 item 3 Q27(b)) and the
+#: fingerprint hashes that filtered view, so an entry for another sport (nflverse at 24, the NHL landing feed later)
+#: never moves v23's fingerprint." The filter is SOCCER_SOURCES: the record's source words that carry soccer facts, a
+#: declared tuple, empty today (263 item 25: "The soccer source and its attrs key are named by the soccer feed's adapter
+#: PR when one is declared (none today)"); every name in it is one of record.SOURCES (a test holds it).
+SOCCER_SOURCES: tuple[str, ...] = ()
+#: BAR_TEXT's words for the filtered view while it is empty (262 item 2, quoting 254 item 3 Q27(b)); a test holds
+#: BAR_TEXT to name every entry of source_cadence_hours() or, while there is none, this sentence.
+NO_SOCCER_CADENCE = "no soccer source declared; every fact carrying a source_stamp is excluded, counted"
+
+
+def source_cadence_hours() -> dict:
+    """262 item 2: record.SOURCE_CADENCE_HOURS (the single source of truth) FILTERED TO SOCCER SOURCES, read at call
+    time; the view the backfill rule reads, code_constants freezes and the stream fingerprint hashes. Another sport's
+    entry is never in it."""
+    return {src: avr.SOURCE_CADENCE_HOURS[src] for src in sorted(avr.SOURCE_CADENCE_HOURS) if src in SOCCER_SOURCES}
 
 
 @dataclass(frozen=True)
@@ -433,7 +499,7 @@ class AvailabilityAsOf:
 
 class AvailabilityRecord:
     """THE INTERFACE the one snapshot builder calls (both paths): at(instant) -> AvailabilityAsOf under the recorded
-    clock. The store's reader is 252 item 2's query function once the schema PR merges (there is no second query path:
+    clock. The store's reader is 252 item 2's query function, record.as_of (StoreRecord; there is no second query path:
     "The same function is the one a model term ... will read"); `availability_record` is the adapter that picks it."""
 
     def at(self, as_of: datetime) -> AvailabilityAsOf:                  # pragma: no cover - the interface
@@ -453,14 +519,79 @@ class NoRecord(AvailabilityRecord):
 #: A replay given rows and no store (tests, the uncached builders called bare): no record, said so.
 ROWS_ONLY = NoRecord("no availability record supplied (a replay of rows alone): the term is off")
 ABSENT_REASON = ("the availability record's tables (availability_observations, availability_assertions) are absent on "
-                 "this store: addendum 252's schema PR is not merged; the term is off")
+                 "this store (a store built before #831's schema): no record; the term is off")
+#: What a read of a present record answers where it holds no soccer fact in force at the instant (253 item 2(d): the
+#: term off in both paths, and the harness says so).
+NO_SOCCER_FACT_REASON = ("the availability record (record.as_of, the one read path, under the recorded clock, kind "
+                         "injury_status) holds no soccer injury_status fact in force at the decision instant (the other "
+                         "kinds are no input of v23; no soccer source is declared, addendum 263 item 25); the term is "
+                         "off")
+
+
+class StoreRecord(AvailabilityRecord):
+    """THE RECORD'S READER (ARCHITECT 2026-11-05 12:50 ET, addendum 263 item 23: "the follow-up that calls 252 item 2's
+    query function (record.as_of, the one path)"): at(instant) is record.as_of(session, soccer, instant, the recorded
+    clock, kind=TERM_KIND), on the caller's open session: 263 item 25, "`injury_status` is one entry ..., the other
+    kinds no input of v23", so a fact of another kind is never read here and neither refuses nor turns the term on. No
+    soccer injury_status fact in force: NO_RECORD (NO_SOCCER_FACT_REASON; the term off). Any in force: REFUSED, never
+    guessed: the term's entry needs the soccer source's attrs key for its status and position, and 263 item 25 leaves
+    that key to the soccer feed's adapter PR ("none today ... I rule the mapping with it"), so a fact this reader cannot
+    map is a record that exists and cannot be read: "a stop, not an absence" (263 item 23). A refusal of the record's
+    own read is refused here with its reason."""
+
+    def __init__(self, session):
+        self.session = session
+
+    def at(self, as_of: datetime) -> AvailabilityAsOf:
+        from src.db.schema import Sport
+        try:
+            facts = avr.as_of(self.session, Sport.SOCCER, as_of, clock=RECORDED_CLOCK, kind=TERM_KIND)
+        except avr.Refused as err:
+            raise GateRefused(f"the availability record refused the read at {_ts(as_of)}: {err}; nothing read") from err
+        if not facts:
+            return AvailabilityAsOf(NO_RECORD, NO_SOCCER_FACT_REASON)
+        by: dict[tuple[str, str], int] = {}
+        for f in facts:
+            k = (f.interval.first.source, f.interval.first.kind)
+            by[k] = by.get(k, 0) + 1
+        raise GateRefused(f"the availability record holds {len(facts)} soccer {TERM_KIND} fact(s) in force at "
+                          f"{_ts(as_of)} ("
+                          + ", ".join(f"{src} {kind} {n}" for (src, kind), n in sorted(by.items()))
+                          + "): they cannot be mapped to soccer-v23's term (its status and position need the soccer "
+                          "source's attrs key, which addendum 263 item 25 leaves to the soccer feed's adapter PR; none "
+                          "is declared): never guessed; nothing read")
+
+
+class ReadRecord(AvailabilityRecord):
+    """The copy's record READ ONCE, at every decision instant the run can need, while the copy is open (_load; the
+    copy's session closes before the fingerprint and the walk): each answer is StoreRecord's, through record.as_of.
+    An instant it did not read is refused, never guessed and never read from a closed copy."""
+
+    def __init__(self, reads: dict):
+        self.reads = dict(reads)
+
+    def at(self, as_of: datetime) -> AvailabilityAsOf:
+        got = self.reads.get(as_of)
+        if got is None:
+            raise GateRefused(f"the availability record at {_ts(as_of)} was not read while the copy was open (the run "
+                              "reads it at every decision instant of its rows, in _load): never guessed")
+        return got
+
+
+def read_at(record: AvailabilityRecord, instants) -> AvailabilityRecord:
+    """The record answered at each of `instants` now (inside the copy's session): a NoRecord stays itself (it reads
+    nothing); any other reader becomes a ReadRecord of its answers."""
+    if isinstance(record, NoRecord):
+        return record
+    return ReadRecord({d: record.at(d) for d in sorted(set(instants))})
 
 
 def availability_record(session) -> AvailabilityRecord:
-    """THE ADAPTER (select-free: the inspector's table list only). Both tables absent: NoRecord (the term off in both
-    paths, labelled). One present without the other: refused (a half-migrated store is never guessed at). Both present:
-    refused until 252 item 2's query function is merged and this adapter calls it; its columns are read from the merged
-    schema (law 1), never from the ruling's text (open question 23)."""
+    """THE ADAPTER. Both tables absent: NoRecord (the term off in both paths, labelled). One present without the other:
+    refused (a half-migrated store is never guessed at). Both present but not migrated (record.migrated: the tables
+    and the marker migrate_availability_record.py alone writes): refused, as the record's own reader (cli availability)
+    refuses it. Migrated: StoreRecord, record.as_of on this session (addendum 263 item 23; its columns are the record
+    module's, never guessed)."""
     from sqlalchemy import inspect
     insp = inspect(session.get_bind())
     present = [t for t in RECORD_TABLES if insp.has_table(t)]
@@ -469,22 +600,24 @@ def availability_record(session) -> AvailabilityRecord:
     if len(present) != len(RECORD_TABLES):
         raise GateRefused(f"the availability record is half present on this store ({present} of {list(RECORD_TABLES)}):"
                           " never guessed at; nothing read")
-    raise GateRefused("the availability record's tables are present on this store, and soccer-v23's reader of them is "
-                      "252 item 2's query function, which is not merged: the adapter is built on it (never a second "
-                      "query path, never guessed column names) before any read; nothing read")
+    if not avr.migrated(session):
+        raise GateRefused("the availability record's tables are present on this store but migrate_availability_record.py"
+                          " has not run on it (the tables without their marker): the record's own reader refuses such "
+                          "a store, and so does soccer-v23's; nothing read")
+    return StoreRecord(session)
 
 
 def backfill_reason(f: Fact) -> str | None:
     """252 item 1's backfill rule on one fact (None: not a backfill, the term may read it). A fact with no source_stamp
-    makes no claim to compare and is read by the recorded clock alone; one whose source has no declared cadence
-    (SOURCE_CADENCE_HOURS) cannot be told from a backfill; one recorded later than its source_stamp by more than the
+    makes no claim to compare and is read by the recorded clock alone; one whose source has no declared soccer cadence
+    (source_cadence_hours: the record's constant filtered to soccer sources) cannot be told from a backfill; one recorded later than its source_stamp by more than the
     declared cadence IS a backfill. Both are excluded from the snapshot's facts by the one builder."""
     if f.source_stamp is None:
         return None
-    cadence = SOURCE_CADENCE_HOURS.get(f.source)
+    cadence = source_cadence_hours().get(f.source)
     if cadence is None:
-        return (f"source {f.source!r} stamps its facts and declares no cadence (SOURCE_CADENCE_HOURS): a backfill "
-                "cannot be ruled out")
+        return (f"source {f.source!r} stamps its facts and declares no soccer cadence (record.SOURCE_CADENCE_HOURS "
+                "filtered to SOCCER_SOURCES, addendum 262 item 2): a backfill cannot be ruled out")
     if f.recorded_at - f.source_stamp > timedelta(hours=cadence):
         return (f"recorded {f.recorded_at - f.source_stamp} after its source_stamp, beyond {f.source!r}'s declared "
                 f"cadence of {cadence} h")
@@ -678,13 +811,18 @@ class Snapshot:
                                          allow_nan=False).encode("ascii")).hexdigest()
 
 
-def canon_params(v22_poisson: dict, availability_on: bool, scope: str) -> str:
-    """The snapshot's params: v22's stored poisson config, the availability switch and the declared stage SCOPE (the
-    one builder reads it: in_scope). `scope` is required, never defaulted."""
-    if scope not in SLOT_VALUES["scope"]:
-        raise ValueError(f"scope {scope!r} is not one of {SLOT_VALUES['scope']}")
-    return json.dumps({"v22_poisson": dict(v22_poisson), "availability_on": bool(availability_on), "scope": scope},
-                      sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False)
+def canon_params(v22_poisson: dict, availability_on: bool, scope: str, thin_excluded=()) -> str:
+    """The snapshot's params: v22's stored poisson config, the availability switch, the declared stage SCOPE (the one
+    builder reads it: in_scope) and THE THIN SEASONS EXCLUDED BY CAUSE (ARCHITECT 2026-11-05 12:50 ET, addendum 263
+    item 14: the run's frozen exclusion set, thin_season_keys of the walked history, named by the preflight before the
+    reservation; soccer-v23's window reads it, both paths alike). `scope` is required, never defaulted; the thin set is
+    empty unless the caller names it (a replay of rows alone, the tests)."""
+    if scope not in SCOPE_RULES:
+        raise ValueError(f"scope {scope!r} is not one of {SCOPE_RULES}")
+    thin = sorted([str(c), str(se)] for c, se in thin_excluded)
+    return json.dumps({"v22_poisson": dict(v22_poisson), "availability_on": bool(availability_on), "scope": scope,
+                       "thin_excluded": thin}, sort_keys=True, separators=(",", ":"), ensure_ascii=True,
+                      allow_nan=False)
 
 
 def in_scope(rows, scope: str) -> list:
@@ -697,7 +835,7 @@ def in_scope(rows, scope: str) -> list:
     if scope == "LEAGUE":
         return list(rows)
     if scope != "LEAGUE_REGULAR":
-        raise ValueError(f"scope {scope!r} is not one of {SLOT_VALUES['scope']}")
+        raise ValueError(f"scope {scope!r} is not one of {SCOPE_RULES}")
     from src.walters.soccer_expansion import placement
     out, bad = [], {}
     for r in rows:
@@ -837,7 +975,7 @@ def walk_ladder(rows):
 
 
 class _RowsList:
-    """season_rows over a plain row list (arrival_refusals' census and tests; no ladder walked)."""
+    """season_rows over a plain row list (off_pyramid_arrivals' census and tests; no ladder walked)."""
 
     def __init__(self, rows):
         self.rows = rows
@@ -929,10 +1067,18 @@ def _season_order(crows, fixture: Fixture) -> str | None:
     return max(earlier)[1] if earlier else None
 
 
-def window_obs(crows, fixture: Fixture) -> tuple[list[jp.Obs], str | None]:
+def window_obs(crows, fixture: Fixture, thin=frozenset()) -> tuple[list[jp.Obs], str | None]:
+    """The fixture's window (seasons S−1 and S as visible) as the fit's observations, and S−1. A competition-season in
+    `thin` (263 item 14: excluded by cause, the run's frozen set) gives the window no row: an excluded S−1 leaves the
+    window without one (a first season: the weak prior), an excluded S without its own rows. S−1 is still the season
+    the ordering names (an excluded season is never skipped over to an older one)."""
     sp = _season_order(crows, fixture)
+    if sp is not None and (fixture.code, sp) in thin:
+        sp = None
     obs = []
     for r, (eh, ea) in crows:
+        if (r.code, r.season) in thin:
+            continue
         if r.season == fixture.season:
             slot = jp.CUR
         elif sp is not None and r.season == sp:
@@ -945,32 +1091,42 @@ def window_obs(crows, fixture: Fixture) -> tuple[list[jp.Obs], str | None]:
 
 def _direction(to_code: str, from_code: str) -> str | None:
     """'relegated' (from a higher tier of the same declared pyramid), 'promoted' (from a lower one), None (not on one
-    pyramid together: cannot be placed)."""
+    pyramid together: off the declared pyramid)."""
     for pyr in PYRAMIDS:
         if to_code in pyr and from_code in pyr and to_code != from_code:
             return "relegated" if pyr.index(from_code) < pyr.index(to_code) else "promoted"
     return None
 
 
-def arrival_class(code: str, team: int, prev_season_rows) -> tuple[str | None, list[str]]:
+OFF_PYRAMID = "off-pyramid"
+
+
+def arrival_class(code: str, team: int, prev_season_rows) -> tuple[str, list[str]]:
     """How `team`, absent from `code`'s S−1 rows, arrives: from the rows of S−1's season label in OTHER competitions
-    (`prev_season_rows`). ('promoted' | 'relegated' | None, the other codes). No such row: promoted (from outside the
-    store)."""
+    (`prev_season_rows`). ('promoted' | 'relegated' | OFF_PYRAMID, the other codes). No such row: promoted (from
+    outside the store)."""
     return _classify(code, sorted({r.code for r in prev_season_rows if r.code != code and team in (r.home_id,
                                                                                          r.away_id)}))
 
 
-def _classify(code: str, codes: list[str]) -> tuple[str | None, list[str]]:
+def _classify(code: str, codes: list[str]) -> tuple[str, list[str]]:
+    """ARCHITECT 2026-11-05 12:50 ET, addendum 263 item 15: "An arrival OFF the declared pyramid is NOT a refusal: it
+    takes the outside-the-store prior, is counted and labelled. The run never stops on a club's provenance." Relegated
+    or promoted only when every S−1 competition of the club places it the same way on one declared pyramid; any other
+    provenance (a competition off the pyramid, or two places) is OFF_PYRAMID: not relegated, so the fit centres it on
+    the promoted prior, the prior of an arrival from outside the store (joint_poisson's penalty rows), counted and
+    labelled (off_pyramid_arrivals, the run record, predict's info)."""
     if not codes:
         return "promoted", codes
     got = {_direction(code, c) for c in codes}
-    return (got.pop() if len(got) == 1 and None not in got else None), codes
+    return (got.pop() if len(got) == 1 and None not in got else OFF_PYRAMID), codes
 
 
 def window_arrivals(view, code: str, season: str, sp: str | None, crows) -> tuple[frozenset, dict[int, list[str]]]:
-    """(the relegated teams, {team: codes} that cannot be placed) among the clubs of `code`'s season S (its visible
-    rows) absent from its S−1 rows, plus every club of S−1's season label elsewhere that a fixture could bring in. The
-    relegated set does not depend on the fixture, so the memoised fit serves every fixture of the snapshot."""
+    """(the relegated teams, {team: codes} OFF the declared pyramid: 263 item 15, the outside-the-store prior, counted
+    and labelled, never refused) among the clubs of `code`'s season S (its visible rows) absent from its S−1 rows, plus
+    every club of S−1's season label elsewhere that a fixture could bring in. The relegated set does not depend on the
+    fixture, so the memoised fit serves every fixture of the snapshot."""
     if sp is None:
         return frozenset(), {}
     prev_teams = {t for r, _ in crows if r.season == sp for t in (r.home_id, r.away_id)}
@@ -986,7 +1142,7 @@ def window_arrivals(view, code: str, season: str, sp: str | None, crows) -> tupl
         cls, codes = _classify(code, sorted(where.get(t, ())))
         if cls == "relegated":
             rel.add(t)
-        elif cls is None:
+        elif cls == OFF_PYRAMID:
             bad[t] = codes
     return frozenset(rel), bad
 
@@ -1082,28 +1238,23 @@ def _context_block(view, fixture: Fixture, **values) -> dict:
     return {"definition": CONTEXT_DEFINITION, **values, "n_rows": len(crows), "through": _ts(last) if last else None}
 
 
-def _refuse_arrivals(fixture: Fixture, bad: dict, teams) -> None:
-    """The walk's own guard (arrival_refusals refuses first, before the reservation): a club of the window or of the
-    fixture whose arrival the declared pyramid cannot place stops the walk, never guessed."""
-    for t in sorted({fixture.home_id, fixture.away_id} | set(teams)):
-        if t in bad:
-            raise GateRefused(f"{fixture.code} {fixture.season}: club {t} arrives from {bad[t]}, which the declared "
-                              "pyramid cannot place (never guessed); the walk stops")
-
-
 def _v23(view, snap, fixture, memo):
-    key = ("v23", getattr(view, "digest", None), fixture.code, fixture.season)
+    thin = frozenset((c, se) for c, se in snap.params()["thin_excluded"])
+    key = ("v23", getattr(view, "digest", None), fixture.code, fixture.season, tuple(sorted(thin)))
     got = memo.get(key) if key[1] is not None else None
     if got is None:
         crows = view.comp(fixture.code)
-        obs, sp = window_obs(crows, fixture)
-        rel, bad = window_arrivals(view, fixture.code, fixture.season, sp, crows)
-        _refuse_arrivals(fixture, bad, {t for o in obs if o.slot == jp.CUR for t in (o.home, o.away)})
-        got = (jp.fit(obs, relegated=rel), sp, sum(1 for o in obs if o.slot == jp.CUR), bad)
+        obs, sp = window_obs(crows, fixture, thin)
+        rel, off = window_arrivals(view, fixture.code, fixture.season, sp, crows)
+        in_s = frozenset(t for o in obs if o.slot == jp.CUR for t in (o.home, o.away))
+        got = (jp.fit(obs, relegated=rel), sp, sum(1 for o in obs if o.slot == jp.CUR), off, in_s)
         if key[1] is not None:
             memo[key] = got
-    f, sp, n_cur, bad = got
-    _refuse_arrivals(fixture, bad, ())
+    f, sp, n_cur, off, in_s = got
+    # 263 item 15: an arrival off the declared pyramid is priced on the outside-the-store prior, labelled here (the
+    # clubs of the window's season S and the fixture's, as the fit saw them), never refused
+    off_here = {t: off[t] for t in sorted(off)
+                if not f.first_season and t in in_s | {fixture.home_id, fixture.away_id}}
     eh, ea = _fixture_ratings(view, fixture, pending_regression=True)
     lh, la = jp.rates(f, fixture.home_id, fixture.away_id, eh - ea)
     av, term = snap.availability, term_state(snap.params()["availability_on"], snap.availability)
@@ -1124,7 +1275,9 @@ def _v23(view, snap, fixture, memo):
                "n_cur": n_cur, "labels": list(f.labels), "resid_home": f.resid_home, "resid_away": f.resid_away,
                "iterations": f.iterations, "availability": [mh, ma], "availability_notes": notes,
                "availability_term": term, "availability_record": av.state, "availability_reason": av.reason,
-               "home_source": f.strength(fixture.home_id)[2], "away_source": f.strength(fixture.away_id)[2]}
+               "home_source": f.strength(fixture.home_id)[2], "away_source": f.strength(fixture.away_id)[2],
+               "arrivals_off_pyramid": off_here,
+               "thin_excluded_in_window": sorted(se for c, se in thin if c == fixture.code)}
 
 
 def predict(snap: Snapshot, fixture: Fixture, arm: str, cache: Prefix | None = None) -> dict:
@@ -1200,14 +1353,53 @@ def _actual(r: Row) -> str:
     return "H" if r.home_goals > r.away_goals else "A" if r.home_goals < r.away_goals else "D"
 
 
-def first_seasons(rows) -> dict[str, str]:
-    """Each competition's first season among `rows` (by earliest kickoff): the season with no S−1."""
-    first: dict[str, dict[str, datetime]] = {}
-    for r in rows:
-        d = first.setdefault(r.code, {})
-        if r.season not in d or r.utc_date < d[r.season]:
-            d[r.season] = r.utc_date
-    return {c: min(d.items(), key=lambda kv: (kv[1], kv[0]))[0] for c, d in first.items()}
+def _first_season_census(rows, scope: str) -> tuple[dict[str, list[str]], dict[str, list[str]]]:
+    """({code: every season soccer-v23 prices as a first season, in season order}, {code: its thin seasons before the
+    first of them}), over `rows` IN THE STAGE SCOPE less 263 item 14's thin set (thin_season_keys of that history, the
+    set the_pot freezes). A season is priced as a first season when its S−1 (_season_order, window_obs's own rule) is
+    None or thin: window_obs gives a thin S−1 no row, and never skips over it to an older season. Under LEAGUE_REGULAR
+    only the rows soccer_expansion.placement reads "regular" count (in_scope's rule; a label it cannot place is not
+    regular, and the stage refusal names it); `scope` is required, never defaulted."""
+    if scope not in SCOPE_RULES:
+        raise ValueError(f"scope {scope!r} is not one of {SCOPE_RULES}")
+    if scope == "LEAGUE_REGULAR":
+        from src.walters.soccer_expansion import placement
+        rows = [r for r in rows if placement(r.stage) == "regular"]
+    thin = set(thin_season_keys(rows))
+    windows: dict[str, list[str]] = {}
+    before: dict[str, list[str]] = {}
+    for code in sorted({r.code for r in rows}):
+        crows = [(r, None) for r in rows if r.code == code]
+        first: dict[str, datetime] = {}
+        for r, _ in crows:
+            if r.season not in first or r.utc_date < first[r.season]:
+                first[r.season] = r.utc_date
+        for season, d in sorted(first.items(), key=lambda kv: (kv[1], kv[0])):
+            if (code, season) in thin:
+                if code not in windows:
+                    before.setdefault(code, []).append(season)
+                continue
+            sp = _season_order(crows, Fixture(0, code, season, d, 0, 0))
+            if sp is None or (code, sp) in thin:
+                windows.setdefault(code, []).append(season)
+    return windows, before
+
+
+def first_season_windows(rows, scope: str) -> dict[str, list[str]]:
+    """Per competition, every season soccer-v23 prices as a first season (the weak prior, 263 item 3): its first
+    in-scope season outside the thin set, and every season whose S−1 is thin (263 item 14: out of soccer-v23's
+    window). The preflight prints them, so the season the walk treats as a first season is the one it names."""
+    return _first_season_census(rows, scope)[0]
+
+
+def first_seasons(rows, scope: str) -> dict[str, str]:
+    """Each competition's first season among `rows` IN THE STAGE SCOPE and outside 263 item 14's thin set (by earliest
+    kickoff): the season with no S−1 in soccer-v23's window. ARCHITECT 2026-11-05 13:50 ET, addendum 264 item 2(a):
+    "`first_seasons` COMPUTED BEFORE THE STAGE SCOPE — a real harness defect: a competition whose first stored season
+    holds only out-of-scope rows would have its first IN-SCOPE season read as a continuing one"; a thin first season is
+    the same defect one layer up (window_obs gives it no row, so the season after it is the walk's first). A
+    competition with no in-scope season outside the thin set has no entry."""
+    return {c: ses[0] for c, ses in first_season_windows(rows, scope).items()}
 
 
 def stage_census(rows) -> dict[tuple[str, str], dict]:
@@ -1241,21 +1433,30 @@ def stage_refusals(rows, slots: dict) -> list[str]:
             if v_["unplaced"]]
 
 
-def arrival_refusals(rows) -> list[str]:
-    """Every club, absent from a competition's S−1 rows, whose S−1 rows lie in a competition the declared pyramid
-    cannot place against it (PYRAMIDS): one line each. The run refuses before the reservation on any."""
+def off_pyramid_arrivals(rows, thin) -> list[str]:
+    """THE CENSUS OF 263 item 15 (ARCHITECT 2026-11-05 12:50 ET: "An arrival OFF the declared pyramid is NOT a refusal:
+    it takes the outside-the-store prior, is counted and labelled. The run never stops on a club's provenance."): every
+    club, absent from a competition's S−1 rows, whose S−1 rows lie in a competition off the declared pyramid (PYRAMIDS)
+    or in two places: one line each, printed by the preflight before the reservation and counted in the run record.
+    `thin` is 263 item 14's frozen set (the_pot's; required, never defaulted), read as the walk reads it (window_obs):
+    a thin S is not priced, and a thin S−1 leaves S a first season (the weak prior, no arrival), so neither is listed."""
+    thin = set(map(tuple, thin))
     out = []
     for code in sorted({r.code for r in rows}):
         crows = [(r, None) for r in rows if r.code == code]
         for season in sorted({r.season for r, _ in crows}):
+            if (code, season) in thin:
+                continue
             first = min(r.utc_date for r, _ in crows if r.season == season)
             sp = _season_order(crows, Fixture(0, code, season, first, 0, 0))
+            if sp is not None and (code, sp) in thin:
+                continue                                  # window_obs: a first season, the weak prior
             view = _RowsList(rows)
             _, bad = window_arrivals(view, code, season, sp, [(r, p_) for r, p_ in crows if r.season in (season, sp)])
             in_s = {t for r, _ in crows if r.season == season for t in (r.home_id, r.away_id)}
             for t in sorted(set(bad) & in_s):
-                out.append(f"{code} {season}: club {t} arrives from {bad[t]} (S−1 {sp}), not placeable on the "
-                           "declared pyramid")
+                out.append(f"{code} {season}: club {t} arrives from {bad[t]} (S−1 {sp}), off the declared pyramid: "
+                           "the outside-the-store prior")
     return out
 
 
@@ -1270,7 +1471,7 @@ def scored_rows(rows, slots: dict) -> list[Row]:
     if refused:
         raise GateRefused("a walked row's stage label cannot be placed under scope LEAGUE_REGULAR (soccer_expansion "
                           "F3: never guessed; the architect rules first): " + "; ".join(refused))
-    fs = first_seasons(rows)
+    fs = first_seasons(rows, slots["scope"])              # 264 item 2(a): the first IN-SCOPE season
     out = []
     for r in rows:
         if r.utc_date > cut:
@@ -1281,6 +1482,17 @@ def scored_rows(rows, slots: dict) -> list[Row]:
             continue
         out.append(r)
     return sorted(out, key=Row.key)
+
+
+def the_pot(rows, slots: dict) -> tuple[list[Row], list[tuple[str, str]], list[Row]]:
+    """(the walked history, the thin set, the scored set), the preflight's and the run's one computation, BEFORE the
+    reservation: the history in the declared stage scope (in_scope), the competition-seasons 263 item 14 excludes by
+    cause (thin_season_keys of that history), and scored_rows less those seasons' rows. Each thin season is named by the
+    preflight and frozen in the fingerprint (its rows and the scored ids) and in the walk's params."""
+    hist = in_scope(rows, slots["scope"])
+    thin = thin_season_keys(hist)
+    out = set(thin)
+    return hist, thin, [r for r in scored_rows(rows, slots) if (r.code, r.season) not in out]
 
 
 def walk(rows, fixtures, params_json: str, visibility_rule: str, use_cache: bool = True,
@@ -1372,7 +1584,9 @@ def code_constants() -> dict:
             "RESULT_LAG_HOURS": RESULT_LAG_HOURS,
             "BETA_PRIOR_MEAN": jp.BETA_PRIOR_MEAN, "BETA_PRIOR_PRECISION": jp.BETA_PRIOR_PRECISION,
             "RELEGATED_ATTACK": jp.RELEGATED_ATTACK, "RELEGATED_DEFENCE": jp.RELEGATED_DEFENCE,
-            "PYRAMIDS": [list(p) for p in PYRAMIDS], "SOURCE_CADENCE_HOURS": dict(SOURCE_CADENCE_HOURS)}
+            "PYRAMIDS": [list(p) for p in PYRAMIDS],
+            # 262 item 2: the record's constant filtered to soccer sources (another sport's entry never moves it)
+            "SOURCE_CADENCE_HOURS": source_cadence_hours()}
 
 
 def constants_state(e: dict | None) -> str | None:
@@ -1517,15 +1731,31 @@ def _load(db, slots):
     with ng.db_session(path) as s:
         version, v22p = production_params(s)
         rows = load_rows(s, through=parse_instant(slots["cut"]))
-        record = availability_record(s)                   # 253 item 2(d) row 4: the copy's own record (or none)
+        # 253 item 2(d) row 4: the copy's own record (or none), read through record.as_of (263 item 23) at every
+        # decision instant its rows can need (the scored set's are among them) while the copy is open
+        record = read_at(availability_record(s), {visibility_bound(r.utc_date, slots["visibility"]) for r in rows})
     return path, version, v22p, rows, record
 
 
+def thin_season_keys(rows) -> list[tuple[str, str]]:
+    """THE EXCLUSION SET OF 263 item 14 (ARCHITECT 2026-11-05 12:50 ET: "THIN SEASONS — EXCLUSION BY CAUSE, not
+    refusal: a competition-season with no home or no away goal in a window is excluded, counted and labelled in the run
+    record; the preflight names every such season BEFORE the reservation so the exclusion set is known and frozen with
+    the declaration"): each (code, season) of `rows` (the walked history) naming no home goal or no away goal, sorted.
+    A goal total only: no figure of either arm."""
+    tot: dict[tuple[str, str], list[int]] = {}
+    for r in rows:
+        t = tot.setdefault((r.code, r.season), [0, 0])
+        t[0] += r.home_goals
+        t[1] += r.away_goals
+    return sorted(k for k, (h, a) in tot.items() if h == 0 or a == 0)
+
+
 def thin_seasons(rows) -> list[str]:
-    """The census preflight prints (counts and goal totals only, no figure of either arm): each competition-season a
-    window could hold that names no home goal or no away goal. The fit cannot converge on a window whose only rows
-    are those (μ or h runs to minus infinity) and refuses; the run would then stop after the reservation, so the
-    architect reads this line first."""
+    """The census preflight prints (counts and goal totals only, no figure of either arm): each competition-season of
+    thin_season_keys with its row count and the side that has no goal. The fit cannot converge on a window whose only
+    rows are those (μ or h runs to minus infinity), so each is excluded by cause (263 item 14): out of the scored set
+    and out of soccer-v23's window (window_obs), the v22 arm's history and the ladder untouched."""
     tot: dict[tuple[str, str], list[int]] = {}
     for r in rows:
         t = tot.setdefault((r.code, r.season), [0, 0, 0])
@@ -1566,27 +1796,34 @@ def preflight_lines(entry: dict | None, db) -> list[str]:
     for r in rows:
         by.setdefault(r.code, {}).setdefault(r.season, 0)
         by[r.code][r.season] += 1
-    fs = first_seasons(rows)
+    # 264 item 2(a): the first IN-SCOPE season, outside 263 item 14's thin set, and every later season the walk prices
+    # as a first season (its S−1 thin): the seasons the walk treats as first are the ones this line names
+    fw, fb = _first_season_census(rows, slots["scope"])
     for c in sorted(by):
-        L.append(f"  {c}: " + ", ".join(f"{s} {n}" for s, n in sorted(by[c].items())) + f" · first season {fs[c]}")
+        ws = fw.get(c, [])
+        L.append(f"  {c}: " + ", ".join(f"{s} {n}" for s, n in sorted(by[c].items()))
+                 + f" · first season in scope {ws[0] if ws else 'none (no in-scope season outside the thin set)'}"
+                 + (f" ({', '.join(f'{c} {se}' for se in fb[c])} excluded by cause, addendum 263 item 14)"
+                    if fb.get(c) else "")
+                 + (f" · priced as a first season again after a thin S−1 (addendum 263 item 14): {', '.join(ws[1:])}"
+                    if len(ws) > 1 else ""))
     for (c, se), cen in sorted(stage_census(rows).items()):
         if cen["playoff"] or cen["unplaced"]:
             L.append(f"  stages {c} {se}: regular {cen['regular']} · play-off (left out by cause under "
                      f"LEAGUE_REGULAR) {_labels(cen['playoff']) or 'none'} · CANNOT BE PLACED "
                      f"{_labels(cen['unplaced']) or 'none'}")
     sr = stage_refusals(rows, slots)
-    hist = rows if sr else in_scope(rows, slots["scope"])   # F3: the history the walk keeps (in_scope)
-    ar = arrival_refusals(hist)
     L.append("  stage labels: " + ("every walked label placed (or scope LEAGUE: no stage rule)" if not sr else
                                    "REFUSED under LEAGUE_REGULAR — " + "; ".join(sr)))
-    L.append("  arrivals: " + ("every club arriving in a competition placed (promoted or relegated)" if not ar else
-                               "REFUSED — " + "; ".join(ar)))
-    if sr or ar:
+    if sr:
         L.append("PREFLIGHT only: nothing fitted, nothing priced, nothing reserved, nothing recorded; NO fingerprint: "
-                 "the run refuses while a walked row's stage label or a club's arrival cannot be placed (never "
-                 "guessed); the architect rules first.")
+                 "the run refuses while a walked row's stage label cannot be placed (never guessed); the architect "
+                 "rules first.")
         return L
-    sc = scored_rows(rows, slots)
+    hist, thin, sc = the_pot(rows, slots)                 # F3's history; 263 item 14's set; the scored set
+    ar = off_pyramid_arrivals(hist, thin)
+    L.append(f"  arrivals off the declared pyramid (addendum 263 item 15: the outside-the-store prior, counted and "
+             f"labelled, never a refusal): {len(ar)}" + ("" if not ar else " — " + "; ".join(ar)))
     L.append(f"  walked {len(hist)} admitted rows at or before the cut {slots['cut']} (scope {slots['scope']}: "
              f"{len(rows) - len(hist)} play-off row(s) out of the history and the scored set, F3) · scored {len(sc)} "
              f"(counts only; within-season skip {WITHIN_SEASON_SKIP})")
@@ -1594,9 +1831,11 @@ def preflight_lines(entry: dict | None, db) -> list[str]:
                               "term": term_state(slots["availability_on"], av), "excluded": len(av.excluded)}
                              for r in sc for av in (read_availability(record, visibility_bound(r.utc_date,
                                                                                                slots["visibility"])),)])
-    thin = thin_seasons(hist)
-    L.append("  thin seasons: " + ("none" if not thin else "; ".join(thin) + " — a window holding only these refuses "
-                                   "the fit (the run would stop after the reservation): the architect rules first"))
+    tl = thin_seasons(hist)
+    L.append(f"  thin seasons excluded by cause (addendum 263 item 14): {len(thin)} competition-season(s), "
+             f"{sum(1 for r in hist if (r.code, r.season) in set(thin))} row(s)"
+             + (" — " + "; ".join(tl) + " (out of the scored set and out of soccer-v23's window; the v22 arm's "
+                "history and the ladder keep them; frozen with the declaration)" if tl else ""))
     fr = fence_refusals({r.code for r in rows}, parse_instant(slots["cut"]))
     L.append("  fences at the cut: " + ("clear" if not fr else "REFUSED — " + " | ".join(fr)))
     fp, n = stream_fingerprint(hist, sc, slots, v22p or {}, record)
@@ -1660,23 +1899,29 @@ def run(word: str | None, fingerprint: str | None, db=None, no_fetch: bool = Fal
     """THE ONE RUN. Refused, nothing reserved and nothing recorded, in this order: no declared unrun entry (or a
     reservation); a null or invalid slot; the entry's constants or gate not the code's; no word; no fingerprint; no
     --db or a copy check_db refuses; the copy holding more than one soccer_elo_poisson row marked production
-    (production_params, in _load: never the newest picked); the copy's availability record half present or present (availability_record, in _load: refused
-    until 252 item 2's query function is wired; open question 23); the copy's production version not v22; a fence
-    refusing at the cut; under LEAGUE_REGULAR a walked stage label that cannot be placed; a club's arrival the declared
-    pyramid cannot place; a fingerprint that does not match. Then the cross-ref guard and the reservation,
+    (production_params, in _load: never the newest picked); the copy's availability record half present, present and
+    not migrated, or holding a soccer fact the reader cannot map (availability_record and read_at, in _load: the record
+    read through record.as_of, addendum 263 item 23); the copy's production version not v22; a fence refusing at the
+    cut; under LEAGUE_REGULAR a walked stage label that cannot be placed; a fingerprint that does not match. A club's
+    provenance never refuses (263 item 15: an arrival off the declared pyramid is counted and takes the
+    outside-the-store prior), nor does a thin season (263 item 14: excluded by cause, the_pot, before the reservation,
+    named by the preflight). Then the cross-ref guard and the reservation,
     BEFORE any outcome is scored or priced: the outcome-bearing stream (the admitted rows with their goals) is loaded
     and fingerprinted before the reservation, as in both precedent gates (nfl_v2_gate.run: load :655, fingerprint
     :667-668, reserve :678, its guard inside reserve :427; ncaa_v1r_gate.run: load :798, fingerprint :799-800, reserve
     :824, its guard inside reserve :301), and nothing is fitted, scored or priced before it (ARCHITECT 2026-11-04
     15:45 ET, addendum 254 item 3: "preflight → fingerprint → cross_ref_guard → reservation → walk → record", the
     three gates' common order; --preflight is its own earlier invocation in all three). A MISSING fingerprint is
-    refused right after the word, before any load, MATCHING both precedents (soccer_v23.py:1689, nfl_v2_gate.py:642,
+    refused right after the word, before any load, MATCHING both precedents (soccer_v23.py:1934, nfl_v2_gate.py:642,
     ncaa_v1r_gate.py:792); a WRONG one is refused at the compare, after the load, as in both. Then the walk of
     both arms (v22 re-walked beside soccer-v23 on the same harness: the same scored set, the same as-of context
     definition, the same skip zero), the comparison (soccer_backtest.compare_candidate) and decide (THE BAR, 251 item
     2: at least DEFAULT_PROMOTION_DELTA below BOTH v22's recorded figure, read from its declaration slot, AND the
     re-walked one; pinned by tests that drive run itself at each side of each comparison) and the record. A failure
-    after the reservation leaves it standing (the pot may have been read; open question 13)."""
+    after the reservation leaves it standing (the pot may have been read; RULED, addendum 263 item 13: the one run
+    SPENT, "never a code path that releases it on its own"): the fit refusing or a walk guard refusing is raised as
+    SpentRefused, which the gate prints as its REFUSED line with its reason (addendum 264 item 2(b)), nothing
+    recorded."""
     e = declared_unrun()
     slots, why = slots_state(e)
     if why:
@@ -1703,28 +1948,36 @@ def run(word: str | None, fingerprint: str | None, db=None, no_fetch: bool = Fal
     if sr:
         raise GateRefused("a walked row's stage label cannot be placed under scope LEAGUE_REGULAR (soccer_expansion "
                           "F3: never guessed): " + "; ".join(sr) + "; nothing reserved")
-    hist = in_scope(rows, slots["scope"])              # F3: the history the walk keeps (a play-off row never in it)
-    ar = arrival_refusals(hist)
-    if ar:
-        raise GateRefused("a club's arrival cannot be placed on the declared pyramid: " + "; ".join(ar)
-                          + "; nothing reserved")
-    sc = scored_rows(rows, slots)
+    # F3: the history the walk keeps (a play-off row never in it); 263 item 14's thin set, out of the scored set;
+    # 263 item 15: an arrival off the pyramid is counted and labelled, never a refusal
+    hist, thin, sc = the_pot(rows, slots)
+    ar = off_pyramid_arrivals(hist, thin)
     fp, n = stream_fingerprint(hist, sc, slots, v22p, record)
     if not fingerprint or str(fingerprint).strip() != fp:
         raise GateRefused(f"the stream fingerprint given ({fingerprint!r}) is not the stream about to be walked ({fp}, "
                           f"{n} rows): re-run {COMMAND} --preflight and take the word on it; nothing reserved")
     meta = {"architect_word": word, "stream_fingerprint": fp, "rows": n, "scored": len(sc), "slots": slots,
             "db": str(path)}
-    reserve(meta, no_fetch=no_fetch, echo=echo)
+    held = reserve(meta, no_fetch=no_fetch, echo=echo)
     # from here on, the one run is spent
-    params_json = canon_params(v22p, slots["availability_on"], slots["scope"])
-    w = walk(hist, sc, params_json, slots["visibility"], record=record)
+    params_json = canon_params(v22p, slots["availability_on"], slots["scope"], thin_excluded=thin)
+    try:
+        w = walk(hist, sc, params_json, slots["visibility"], record=record)
+    except (jp.FitRefused, GateRefused) as err:          # 264 item 2(b): the REFUSED line, never a traceback
+        raise SpentRefused(f"after the reservation ({os.path.relpath(held)}), the walk stopped: "
+                           f"{'the fit refused' if isinstance(err, jp.FitRefused) else 'a walk guard refused'}: {err}; "
+                           "the reservation stands and the one run is spent (addendum 263 item 13: its only release is "
+                           "the architect's ruling on this receipt); nothing recorded") from err
     from src.walters.soccer_backtest import compare_candidate
     from src.walters.training import DEFAULT_PROMOTION_DELTA
     cmp_ = decide(compare_candidate(w["v22"], w["soccer-v23"], DEFAULT_PROMOTION_DELTA),
                   slots["v22_recorded_log_loss"], slots["v22_recorded_source"], DEFAULT_PROMOTION_DELTA)
+    out_ = set(thin)
     return {"compare": cmp_, "walk": w, "stream_fingerprint": fp, "rows": n, "slots": slots, "db": str(path),
             "scored_ids": [r.id for r in sc], "v22_poisson": v22p,
+            # 263 items 14 and 15: the exclusion set and the off-pyramid arrivals, counted for the record
+            "thin_excluded": [list(k) for k in thin], "thin_rows": sum(1 for r in hist if (r.code, r.season) in out_),
+            "off_pyramid": list(ar),
             # addendum 254 item 3 Q22: the rows the 90-minute reading touches, counted (admit()'s substitution)
             "aet_pen": {"scored": sum(1 for r in sc if ninety_minute_read(r)),
                         "history": sum(1 for r in hist if ninety_minute_read(r))}}
@@ -1738,18 +1991,27 @@ def ninety_minute_read(r: Row) -> bool:
 
 
 def record_labels(r: dict) -> list[str]:
-    """The run record's two labels (ARCHITECT 2026-11-04 15:45 ET, addendum 254 item 3), printed on every verdict and
-    recorded: Q4's day-rule residual, never silent (counted only against a chain run time declared in code: none is,
+    """The run record's labels, printed on every verdict and recorded: addendum 254 item 3's two (ARCHITECT 2026-11-04
+    15:45 ET: Q4's day-rule residual, never silent (counted only against a chain run time declared in code: none is,
     so the count is said not computed), and Q22's "v22 re-walked" (v22 on this harness, not live v22 reproduced) with
-    the AET / PEN rows read at their 90-minute score counted, scored and in the walked history."""
+    the AET / PEN rows read at their 90-minute score counted, scored and in the walked history) and addendum 263's
+    three (ARCHITECT 2026-11-05 12:50 ET: item 17's tie order "stated in the record"; item 14's thin seasons excluded
+    by cause, counted; item 15's arrivals off the declared pyramid, counted)."""
     vis = r["slots"]["visibility"]
     if vis not in SLOT_VALUES["visibility"]:          # unreachable through run(): slots_state refuses it before any load
         raise ValueError(f"visibility {vis!r} is not the day rule addendum 254 item 3 Q4 ruled: no record is labelled "
                          "under it")
     a = r["aet_pen"]
+    thin = r["thin_excluded"]
     return [f"  residual (visibility {vis!r}): {DAY_RULE_RESIDUAL}; {DAY_RULE_RESIDUAL_COUNT}",
             f"  {V22_REWALKED_LABEL}; rows read at their 90-minute score (a non-FT raw code: AET / PEN): "
-            f"{a['scored']} scored, {a['history']} in the walked history"]
+            f"{a['scored']} scored, {a['history']} in the walked history",
+            f"  {V22_TIE_ORDER_LABEL}",
+            f"  thin seasons excluded by cause (addendum 263 item 14): {len(thin)} competition-season(s), "
+            f"{r['thin_rows']} row(s), out of the scored set and soccer-v23's window"
+            + (": " + ", ".join(f"{c} {se}" for c, se in thin) if thin else ""),
+            f"  arrivals off the declared pyramid (addendum 263 item 15): {len(r['off_pyramid'])}, each priced on the "
+            "outside-the-store prior" + (": " + "; ".join(r["off_pyramid"]) if r["off_pyramid"] else "")]
 
 
 def decide(cmp_: dict, recorded: float, source: str, min_delta: float) -> dict:
@@ -1802,6 +2064,8 @@ def record(r: dict, word: str) -> dict:
                 "db": r["db"],
                 # 253 item 2(d): the per-era availability line, on the record as on the console (every verdict)
                 "availability": availability_lines(r["walk"]["availability"]),
-                # 254 item 3 Q4 / Q22: the day rule's residual and "v22 re-walked", labelled, the AET / PEN rows counted
-                "labels": record_labels(r), "aet_pen_rows": dict(r["aet_pen"])})
+                # 254 item 3 Q4 / Q22: the day rule's residual and "v22 re-walked", labelled, the AET / PEN rows counted;
+                # 263 items 14, 15, 17: the thin seasons excluded, the off-pyramid arrivals, the tie order
+                "labels": record_labels(r), "aet_pen_rows": dict(r["aet_pen"]),
+                "thin_excluded": [list(k) for k in r["thin_excluded"]], "off_pyramid_arrivals": list(r["off_pyramid"])})
     return reg.record_run(EID, list(r["scored_ids"]), res, reg.LEDGER, reg.IDS_DIR)

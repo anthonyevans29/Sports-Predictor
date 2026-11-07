@@ -431,6 +431,33 @@ def test_redact(monkeypatch):
     assert c.redact("token: abc") == "token: [REDACTED]"
 
 
+def test_a_bare_basketball_key_value_is_redacted_from_a_receipt_line(sandbox, monkeypatch):
+    """ARCHITECT 2026-11-06, addendum 277 item 2 R2-1: API_BASKETBALL_KEY joins SECRET_ENV. A bare value (no
+    name=value shape for _KEYISH to catch) printed by a failing step is redacted, set in the process environment,
+    in host.env (load_host_env), or in the laptop's .env."""
+    line = "HTTPError: 403 for https://v1.basketball.api-sports.io/games?league=12 x-apisports-key bk-0123456789abcdef"
+    monkeypatch.setenv("API_BASKETBALL_KEY", "bk-0123456789abcdef")
+    assert "bk-0123456789abcdef" not in c.redact(line) and "[REDACTED]" in c.redact(line)
+    monkeypatch.setenv("API_BASKETBALL_KEY", "")            # recorded first, so the teardown undoes load_host_env
+    monkeypatch.delenv("API_BASKETBALL_KEY")
+    c.HOST_ENV.write_text("API_BASKETBALL_KEY=bk-0123456789abcdef\n")
+    c.load_host_env()
+    assert "bk-0123456789abcdef" not in c.redact(line)
+    monkeypatch.delenv("API_BASKETBALL_KEY")
+    c.HOST_ENV.unlink()
+    (c.REPO / ".env").write_text('API_BASKETBALL_KEY="bk-0123456789abcdef"\n')
+    monkeypatch.setattr(c, "_DOTENV_CACHE", None)
+    assert "bk-0123456789abcdef" not in c.redact(line)
+
+
+def test_every_key_name_the_basketball_adapter_reads_is_a_redacted_secret():
+    """The guard (addendum 277 item 2 R2-1): a redaction list that lags the key list is how a value reaches a page,
+    so every name api_basketball.KEY_NAMES reads is in SECRET_ENV, the hockey adapter's two names with them."""
+    from src.adapters import api_basketball
+    assert set(api_basketball.KEY_NAMES) <= set(c.SECRET_ENV), sorted(set(api_basketball.KEY_NAMES) - set(c.SECRET_ENV))
+    assert {"API_HOCKEY_KEY", "API_FOOTBALL_KEY"} <= set(c.SECRET_ENV)
+
+
 # ---------------------------------------- final-four rulings (2026-09-27) ----
 
 import pull_backup  # noqa: E402

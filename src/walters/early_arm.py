@@ -1,4 +1,5 @@
-"""THE EARLY-ENTRY ARM, ATTRIBUTED (#862; ARCHITECT 2026-11-07 08:55 ET, addendum 283 item 4) — READ-ONLY.
+"""THE EARLY-ENTRY ARM, ATTRIBUTED (#862; ARCHITECT 2026-11-07 08:55 ET, addendum 283 item 4; ruled further 12:00 ET,
+addendum 285) — READ-ONLY.
 
 Addendum 283 item 4, verbatim in part: "the import's attribution gains the early fill — a fill on a match BEFORE that
 match's closing run, on the side the closing page PLAYs → attributed to the closing call with early = true, early_price
@@ -7,76 +8,111 @@ flip", paired with its pre-kickoff exit fill and its flip_cost_cents; a fill AFT
 breach", listed; the #446-class receipt script gains the arm's table (count, mean early CLV, flip count and cost,
 breaches) in cents and units only — never a dollar figure, never a contract count on a public surface (238, 250); the
 bulletins carry nothing of the arm beyond the word "early" on a call line."
-
-Item 3, verbatim in part: "per early fill the ledger records early_price (the fill), closing_cost (the closing page's
-all-in cost on the same side; null if the close PASSed), early_clv_cents = (closing_cost − early_price) × 100 (positive
-= early was cheaper than the close would have been), flip_exit_price and flip_cost_cents where (c)(iii) applied."
 Item 2(f), verbatim in part: "the venue's interest on open positions is a LEDGER LINE of its own (the CSV import's
 interest rows, if the export carries them, under their own kind; never attributed to a call or to the arm) [...] The
 rate is never written into the repo."
 
+Addendum 285 (ARCHITECT 2026-11-07 12:00 ET) rules the round-2 P2s and the seven open readings; each is built below
+and named where it is: 1(a) the straight-PLAY gate, 1(b) NOT CLASSIFIED, 1(c) the boundary (no change), 2(1) the fee
+basis, 2(2) games, 2(3) a flip held to settlement, 2(4) the prematch page as the side's source, 2(5) the breach list
+(console only: scripts/early_arm_receipt.py), 2(6) both gates, 2(7) the interest wording.
+
 A LAYER, NOT A CHANGE TO THE MATCHER: ledger_fills.classify_fills (the Cockpit's classifyFills, line for line, its
 parity checked by scripts/ledger_fills_parity_verify.py) is called unchanged; attribute() reads its output beside the
-closing pages and adds the arm's fields. It never writes the ledger (the ledger is the Cockpit's browser storage; the
-Cockpit's view gains the arm's line at its next republish, on the operator's word, item 4) and writes nothing at all.
+closing and prematch pages and adds the arm's fields. It never writes the ledger (the ledger is the Cockpit's browser
+storage; the Cockpit's view gains the arm's line at its next republish, on the operator's word, item 4) and writes
+nothing at all.
 
-THE JOIN (the closing pages, redated.closing_rows, the one reader, on <exports> and each dated folder <YYYY-MM-DD>/):
-a fill is a closing row's game when its EVENT ticker (the market ticker less its last "-" part) is one the row names
-(its desk.order ticker or a kalshi_legs ticker): match ids are machine-local, an event ticker is the venue's own. The
-match's CLOSING RUN is the latest page that holds the event (addendum 41: the later page is the close), ordered by
-the file's exported_at, naive UTC: the time the run's page went out. NEVER the closing block's start (nor the file
-name's stamp): deploy/hosting/closing.closing_doc writes closing.start = the COVERED start, a kickoff, and the run goes
-at that start less RUN_LEAD_MIN (35 minutes), so "before the start" would take every ordinary closing-call fill
-placed after the page went out for an early one (review of 7ddac1a8). A page with no exported_at has no run time
-(RUN_UNKNOWN, law 4); one that disagrees with the latest timed page, or two pages of that latest export time that
-disagree on the call, side, contract or cost, are refused (never picked). The covered start is kept as the closing
-call's `start`. Kickoff is the closing row's utc_date. latest/ is refused, given directly or behind a dated-named
-folder (LatestRefused, the 232 item 2(c) rule of pl_injury_classification_receipt.population): its files are copies.
+THE JOIN (by EVENT ticker: the market ticker less its last "-" part, against a row's desk.order ticker and its
+kalshi_legs tickers; match ids are machine-local, an event ticker is the venue's own). Both page kinds are read on
+<exports> and each dated folder <YYYY-MM-DD>/; latest/ is refused, given directly or behind a dated-named folder
+(LatestRefused, the 232 item 2(c) rule of pl_injury_classification_receipt.population): its files are copies.
+- THE CLOSING PAGE (redated.closing_rows, the one reader of closing_*.json): the match's CLOSING RUN is the latest page
+  that holds the event (addendum 41: the later page is the close), ordered by the file's exported_at, naive UTC: the
+  time the run's page went out. NEVER the closing block's start (nor the file name's stamp): closing_doc writes
+  closing.start = the COVERED start, a kickoff, and the run goes at that start less RUN_LEAD_MIN (35 minutes).
+  THE BOUNDARY (addendum 285 item 1(c), closed by ruling, no change): early is before the closing page's exported_at,
+  because the closing numbers exist at the export; a fill after the export is a fill at the closing call's own
+  numbers (the ordinary call, not an early one), whatever the page's send-and-retry time. A page with no exported_at
+  has no run time (RUN_UNKNOWN, law 4); one that disagrees with the latest timed page, or two pages of that latest
+  export time that disagree on the call, side, contract, units, cost, quotes or kickoff, are refused (never picked).
+  Kickoff is the closing row's utc_date.
+- THE PREMATCH PAGE (addendum 285 items 2(4) and 2(6)): the family's slate export, PREMATCH_GLOBS (closing.FAMILIES'
+  export_glob: soccer_PL_*.json, nfl_predictions_*.json, mlb_MLB_*.json; a closing run writes its own slate under
+  logs/, never into exports/, addendum 40 item 2), a Desk page (a dict with a predictions list and a desk_meta block,
+  no closing block; any other file of the glob is counted, never read as a page); a row is a page of its events when
+  it carries a desk block. A page's time is its file's exported_at. For a fill, THE prematch page is the latest page
+  of its event whose exported_at is strictly BEFORE the fill's opened time; pages of that time that disagree on the
+  call, pick, units or order contract are refused; untimed pages are never placed before a fill.
+
+THE GATE (addendum 285 items 1(a) and 2(6): "both, not either"). An arm fill (early or flip) is a fill that
+  (i) the matcher booked system_matched to a STRAIGHT PLAY call on the fill's side: its call_id resolved against
+      L["calls"], call_type "straight" (the Cockpit's vocabulary: straight, ladder, quarantine_shadow, value_shadow,
+      parlay_leg), not a shadow, units > 0, its pick the fill's backed_role. A LADDER call, a composite NO, a value
+      shadow or any other kind is never an arm fill, on a PLAY page or a PASS page (NOT_STRAIGHT_PLAY); a fill the
+      matcher booked to no call is PRE_CLOSE_OFF_ARM; and
+  (ii) THE prematch page before it shows desk.call PLAY on the fill's side (its own order contract, else desk.pick ==
+      the fill's backed_role). That page is the source of the arm's SIDE (2(4): "never the Cockpit's re-logged call").
+      No prematch page before the fill: NO_PREMATCH, UNESTABLISHED (listed, never counted); a PASS or another side:
+      PREMATCH_NOT_PLAY (not the arm's).
+  THE SAME-DAY SIDE CHANGE (2(4)), A READING: the Cockpit's callKey has no pick, so a closing page that changes side
+  the same ET day re-logs the prematch call in place on the new side and the matcher books the old side's fill
+  "logged call exists but the side disagrees" (MATCHER_SIDE_DISAGREES). When the closing page PLAYs the other side
+  and a straight PLAY call of that game holds the closing side (the re-log), gate (i) is read as met by that re-logged
+  call, and the prematch page before the fill decides: PLAY on the fill's side makes it an arm fill (an arm flip,
+  `relogged` true); no prematch page before it keeps SIDE_RELOGGED (UNESTABLISHED).
+ORDER: interest; a fill opened at or after a timed closing run is ordinary (AFTER_RUN); the gate's (i); the fill's
+  time; the gate's (ii); then the closing page's unknowns (NO_PAGE, DISAGREE, RUN_UNKNOWN). A row a gate rejects is
+  classified by that gate whatever its closing page; only a row both gates admit can be NOT CLASSIFIED for want of a
+  closing page or a fill time (a reading: a fill that cannot be the arm's never holds the read).
 
 THE KINDS, per fill (the field `arm`; `arm_note` says why a fill is none of them, never a guess, law 4):
-- THE ONE GATE (early and flip alike): the matcher booked the fill system_matched, to a logged PLAY call on the fill's
-  own side (a page said PLAY on it and the Cockpit logged it). A pre-closing fill with no such booking (no logged
-  call, an off-book bet, a value shadow on its side: 2(e)) keeps its booking, arm None, arm_note PRE_CLOSE_OFF_ARM,
-  counted neither early nor flip, so the read's sample holds only fills the ledger ties to a PLAY call.
-  One exception is listed, never counted: a fill the matcher booked "logged call exists but the side disagrees" on a
-  close that PLAYs the other side, a logged call of that game on the close's side (the Cockpit's callKey has no pick,
-  so a same-ET-day side change re-logs the prematch call in place and the old side's call is gone): arm None,
-  arm_note SIDE_RELOGGED, the table's UNESTABLISHED line. It may be a (c)(iii) flip or an off-book bet; the ledger
-  cannot tell (an open question on #862).
-- ARM_EARLY ("early"): opened BEFORE the closing run (the page's exported_at) on a match whose closing page's desk.call
-  is PLAY, on the page's side, booked system_matched (the gate): the fill's market ticker and side are the page's
-  desk.order ticker and side, else (no order contract on the page, or another contract) its resolved role is
-  desk.pick. early = True, early_price = the fill's entry,
-  closing_cost = desk.exec.cost (the page's all-in cost) when the fill holds the page's own order contract, else null
-  (the page printed no cost for that contract), early_clv_cents = (closing_cost − early_price) × 100, null when either
-  is. The fill keeps the book and call the matcher gave it (the closing call's position, 2(c)(i)), and
-  closing_call names the page: its match id, run (the page's export time), start (the covered start), pick and units.
-- ARM_FLIP ("arm flip"): opened BEFORE the closing run on a match whose closing page PASSes, or PLAYs another side,
-  booked system_matched (the gate). closing_cost null. Its book becomes ARM_BOOK ("booked to the arm, never hidden",
-  2(c)(iii)), its call_id None (never attributed to a call; the matcher's call is kept as ledger_call_id for the record), so
-  ledger_fills.executed_positions over attribute()'s output never counts a flip. Paired with its pre-kickoff exit: the
-  CSV row is a position lot, entry and exit on one row. A SALE is close_fee > 0 (the fee-class rule); NO SALE is
-  close_fee 0 on an exit of 0 or 1 (a settlement) or a lot with no exit and no close yet (open); anything else
-  (close_fee unread, None, or 0 on an exit strictly between 0 and 1) is a sale NOT READ (law 4), never "no sale". A
-  sale closed before kickoff gives flip_exit_price = its exit and flip_cost_cents = (early_price − flip_exit_price) ×
-  100 (positive = the flip cost the arm; fees excluded, as early_clv_cents excludes the fill's fee: the basis is an
-  open question on #862); otherwise null, with flip_exit saying why (FLIP_HELD, FLIP_LATE, FLIP_SALE_UNREAD,
-  FLIP_TIME_UNREAD), and the table counts each on its own ARM FLIP NOT EXITED line (their cost is not in the flip cost).
-- A closing page whose call is neither PLAY nor PASS (LADDER, VENUE) is not ruled for the arm: arm None, arm_note
-  NOT_RULED_CALL, listed.
-- ARM BREACH ("arm breach", the flag arm_breach and breach_why): any fill on an ARM POSITION's event (one with an early
-  or flip fill) opened at or after kickoff, or sold (a SALE, above) at or after kickoff (2(d): "from kickoff a position
-  is held to settlement"). A settlement is no breach. A lot closed at or after kickoff whose sale is NOT READ is
-  breach_unread (its own count), never "no breach". A breach flags the fill whatever its kind.
-- INTEREST_KIND ("interest", 2(f)): a fill entry whose stored `type` holds the word interest. kind and book become
-  "interest", call_id None, arm None: a ledger line of its own, never attributed to a call or to the arm, its amount
-  never read here. The Cockpit's importKalshiCSV does not store the CSV's `type` today, so no entry of today's export
-  can be one (an open question on #862, never guessed from the account-id-bearing id).
+- ARM_EARLY ("early"): through the gate, before the closing run, on a match whose closing page PLAYs the prematch
+  page's pick. early = True, early_price = the fill's entry, closing_ask = THE CLOSING PAGE'S ASK on the fill's
+  contract (2(1): "price against price, fees out of both"): its kalshi_legs quote for that ticker, YES the leg's ask,
+  NO 1 − the leg's bid (desk_policy.order_line / side_quotes: the number exec_block's cost = ask + kalshi_fee(ask, M,
+  n) was priced from; the fee cancels, paid on either path); null when the page carries no quote for the fill's
+  contract. early_clv_cents (the lot's) = (closing_ask − early_price) × 100. The fill keeps the book and call the
+  matcher gave it (the closing call's position, 2(c)(i)); closing_call names the closing page; prematch_page the
+  prematch page that admitted it.
+- ARM_FLIP ("arm flip"): through the gate, before the closing run, on a match whose closing page PASSes or PLAYs
+  another side than the prematch page's. Its book becomes ARM_BOOK ("booked to the arm, never hidden", 2(c)(iii)), its
+  call_id None (the matcher's kept as ledger_call_id), so ledger_fills.executed_positions over attribute()'s output
+  never counts a flip. Paired with its pre-kickoff exit: the CSV row is a position lot, entry and exit on one row. A
+  SALE is close_fee > 0 (the fee-class rule); NO SALE is close_fee 0 on an exit of 0 or 1 (a settlement) or a lot
+  with no exit and no close yet (open); anything else is a sale NOT READ (law 4), never "no sale". A sale closed
+  before kickoff: flip_exit_price = its exit and flip_cost_cents (the lot's, 2(1)) = (early_price − flip_exit_price)
+  × 100 + (open_fee + close_fee) / qty × 100: both legs' taker fees in cents per contract, "a cost the closing-call
+  path never pays" (qty read to divide, never printed); null when a figure is unread. Otherwise flip_exit says why:
+  FLIP_SETTLED (held to settlement: a BREACH of 2(c)(iii), 2(3)), FLIP_OPEN, FLIP_LATE (a breach: sold after kickoff),
+  FLIP_SALE_UNREAD, FLIP_TIME_UNREAD.
+- NOT_RULED_CALL: a closing page whose call is neither PLAY nor PASS (LADDER, VENUE): listed.
+- ARM BREACH ("arm breach", the flag arm_breach and breach_why): any fill on an ARM POSITION's event opened at or after
+  kickoff, or sold at or after kickoff (2(d)), and a flip held to settlement (2(3)). A settlement of an early lot is
+  no breach. A lot closed at or after kickoff whose sale is NOT READ is breach_unread, never "no breach".
+- INTEREST_KIND ("interest", 2(f)): a fill entry whose stored `type` holds the word interest: kind and book
+  "interest", call_id None, arm None, never attributed to a call or to the arm, its amount never read. 2(7): when no
+  fill of the export carries a `type` key the export does not carry interest rows: the table says so, never zero.
 
-Never read or printed: id (it carries the account id), qty, staked, fees, pnl_*, desk.exec.contracts, order.contracts.
+THE TABLE (arm_table, 2(2): "THE UNIT OF THE THIRTY: GAMES"): a game is an event with an early or flip lot. Per game:
+  early CLV = the contract-weighted (qty) mean of its early lots' early_clv_cents (= the closing ask less the
+  contract-weighted early price, one contract), flip cost = the contract-weighted mean of its exited flip lots'
+  flip_cost_cents, the settlement result of a flip held to settlement = units × Σ qty·(settle − entry) / Σ qty·entry
+  (= units × (settle − ē)/ē, ē the contract-weighted entry; the units of the prematch page that admitted the game's
+  first arm lot; price only, fees out: a reading), in units, outside the CLV mean. A figure is null when any lot of it
+  is unread (never a partial mean). toward_thirty = the arm's games; lots are a count beside them. THE READ AT THIRTY
+  (283 item 3, 285 items 1(b) and 2(3)), on the first READ_AT games by their first arm fill's time: refused while any
+  row is NOT CLASSIFIED (the count printed, never the mean); a breach in those games (any cause) gives no verdict, the
+  continuation the architect's ruling on the record; a breach not read, or a game whose figure is unread, gives none
+  either (law 4, readings); else CONTINUE only if (Σ per-game early CLV − Σ per-game flip cost) / games > 0 (a tie
+  rejects, law 3), else STOP. Below thirty: "n of 30", no verdict.
+
+Never read or printed: id (it carries the account id), staked, fees, pnl_*, desk.exec.contracts, order.contracts. qty
+is read to weight and to divide the fees, never printed.
 """
 from __future__ import annotations
 
+import json
 import re
 from datetime import datetime
 from pathlib import Path
@@ -87,8 +123,20 @@ ARM_BREACH = "arm breach"                  # addendum 283 item 4, the label verb
 ARM_BOOK = "arm"                           # 2(c)(iii): "booked to the arm, never hidden"
 INTEREST_KIND = "interest"                 # 2(f): a ledger line of its own kind
 EARLY_WORD = "early"                       # item 4: "nothing of the arm beyond the word "early" on a call line"
-PRE_CLOSE_OFF_ARM = ("opened before the closing run, but no logged PLAY call on its side (not system_matched): "
-                     "not the arm's")
+STRAIGHT = "straight"                      # the Cockpit's call_type of a straight call (ledger call vocabulary)
+ROLES = ("HOME", "AWAY", "DRAW")
+# The families' prematch (slate) exports: deploy/hosting/closing.FAMILIES[fam]["export_glob"] (a test pins the two).
+PREMATCH_GLOBS = ("mlb_MLB_*.json", "nfl_predictions_*.json", "soccer_PL_*.json")
+
+PRE_CLOSE_OFF_ARM = "no straight PLAY call on its side (the matcher booked it to no call): not the arm's"
+NOT_STRAIGHT_PLAY = ("booked to a call that is not a straight PLAY on its side (a LADDER, a composite NO, a shadow, "
+                     "another kind): never an arm fill")
+PREMATCH_NOT_PLAY = "the prematch page before the fill does not PLAY its side (a PASS or another side): not the arm's"
+NO_PREMATCH = "UNESTABLISHED: no prematch page before the fill"
+SIDE_RELOGGED = ("UNESTABLISHED: on the side a same-day re-log replaced (the close PLAYs the other side), and no "
+                 "prematch page before the fill gives its side")
+PREMATCH_DISAGREE = "the latest prematch pages before the fill disagree on the game (refused, none picked)"
+PREMATCH_UNTIMED = "only untimed prematch pages (no exported_at) name its event: before the fill not established"
 NOT_RULED_CALL = "the closing page's call is neither PLAY nor PASS: not ruled for the arm"
 NO_PAGE = "no closing page names its event"
 DISAGREE = "the latest closing run's pages disagree on the game (refused, none picked)"
@@ -96,24 +144,43 @@ RUN_UNKNOWN = "closing run time unknown (the page's file has no exported_at)"
 TIME_UNREAD = "fill open time not read"
 SIDE_UNREAD = "side not comparable to the page's"
 AFTER_RUN = "opened at or after the closing page went out (its exported_at): an ordinary fill"
-SIDE_RELOGGED = ("opened before the closing run on the side a logged call of this game no longer holds (the close "
-                 "PLAYs the other side; a same-day re-log keeps one pick): a flip or an off-book bet, not established "
-                 "— listed, never counted")
 MATCHER_SIDE_DISAGREES = "logged call exists but the side disagrees"     # ledger_fills.match_fill's own category
+ASK_UNREAD = "the closing page carries no quote for the fill's contract"
 FLIP_EXITED = "exited before kickoff"
-FLIP_HELD = "no sale (held to settlement or still open): not exited before kickoff"
+FLIP_SETTLED = "held to settlement (a breach of 2(c)(iii))"
+FLIP_OPEN = "open at the export (not exited, not settled)"
 FLIP_LATE = "exited at or after kickoff"
 FLIP_SALE_UNREAD = ("sale not read (close_fee unread, or no fee on an exit between 0 and 1): exit before kickoff not "
                     "established")
 FLIP_TIME_UNREAD = "kickoff or exit time not read"
-NOT_EXITED_KEYS = {FLIP_HELD: "held to settlement or open", FLIP_LATE: "exited at or after kickoff",
+BREACH_OPENED = "opened at or after kickoff"
+BREACH_SOLD = "sold at or after kickoff"
+BREACH_HELD = "flip held to settlement"     # 285 item 2(3): its own line and its own cause
+BREACH_CAUSES = (BREACH_OPENED, BREACH_SOLD, BREACH_HELD)
+NOT_EXITED_KEYS = {FLIP_OPEN: "open at the export", FLIP_LATE: "exited at or after kickoff (a breach)",
                    FLIP_SALE_UNREAD: "sale not read", FLIP_TIME_UNREAD: "time not read"}
+# Every arm_note, by the table line that counts it (1(b): none is dropped; arm_table counts an unknown one NOT
+# CLASSIFIED "other", never nowhere).
+NOT_THE_ARMS_KEYS = {PRE_CLOSE_OFF_ARM: "no straight PLAY call", NOT_STRAIGHT_PLAY: "not a straight PLAY call",
+                     PREMATCH_NOT_PLAY: "prematch page not PLAY on its side"}
+UNESTABLISHED_KEYS = {NO_PREMATCH: "no prematch page before the fill", SIDE_RELOGGED: "same-day re-log"}
+NOT_CLASSIFIED_KEYS = {NO_PAGE: "no closing page", RUN_UNKNOWN: "closing run time unknown",
+                       TIME_UNREAD: "fill open time not read", DISAGREE: "closing pages disagree",
+                       SIDE_UNREAD: "side not comparable", PREMATCH_DISAGREE: "prematch pages disagree",
+                       PREMATCH_UNTIMED: "prematch page time unknown"}
+OTHER_NOTE = "other"
 DATED = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
+READ_AT = 30                               # item 3: "THE READ at n = 30"; 285 item 2(2): thirty GAMES
+READ_BELOW = "below thirty"
+READ_REFUSED = "refused: rows not classified"
+READ_BREACH = "breach in the thirty"
+READ_BREACH_UNREAD = "breach not read in the thirty"
+READ_UNPRICED = "unpriced in the thirty"
+READ_CONTINUE, READ_STOP = "CONTINUE", "STOP"
 
 
 class LatestRefused(ValueError):
     """--exports is, or a dated-named folder of it resolves to, a latest/ folder: never read (232 item 2(c))."""
-READ_AT = 30                               # item 3: "THE READ at n = 30 early fills (flips counted in the 30)"
 
 
 def event_of(ticker) -> str | None:
@@ -137,6 +204,16 @@ def _num(x) -> float | None:
     return float(x) if isinstance(x, (int, float)) and not isinstance(x, bool) else None
 
 
+def _legs(row: dict) -> dict:
+    """{TICKER: (yes bid, yes ask)}: the row's kalshi_legs quotes (venue.kalshi_legs: ticker, bid, ask per leg)."""
+    legs = row.get("kalshi_legs") if isinstance(row.get("kalshi_legs"), dict) else {}
+    out = {}
+    for v in legs.values():
+        if isinstance(v, dict) and v.get("ticker"):
+            out[str(v["ticker"]).strip().upper()] = (_num(v.get("bid")), _num(v.get("ask")))
+    return out
+
+
 def _page(run, start, row: dict) -> dict:
     desk = row.get("desk") if isinstance(row.get("desk"), dict) else {}
     order = desk.get("order") if isinstance(desk.get("order"), dict) else {}
@@ -148,18 +225,11 @@ def _page(run, start, row: dict) -> dict:
             "units": _num(desk.get("units")),
             "order_ticker": str(order.get("ticker")).upper() if order.get("ticker") else None,
             "order_side": str(order.get("side")).lower() if order.get("side") else None,
-            "cost": _num(ex.get("cost"))}
+            "cost": _num(ex.get("cost")), "legs": _legs(row)}
 
 
-def closing_pages(exports_dir) -> dict:
-    """The closing page of each event: {"by_event": {event: page or {"refused": DISAGREE}}, "files": n,
-    "unreadable": [names], "dated": n dated folders}. Read with redated.closing_rows on <exports_dir> and each dated
-    folder <exports_dir>/<YYYY-MM-DD>/; latest/ is refused (LatestRefused), given directly or behind a dated-named
-    folder. A page's run is its file's exported_at (redated.closing_rows' "exports"), never the closing block's
-    start (the covered start, kept as the page's `start`). An event's page is its LATEST export's; a page with no
-    exported_at has run None and is refused with the rest when it disagrees with that page; an event whose every page
-    has none keeps its page with run None (RUN_UNKNOWN downstream) when they agree."""
-    from src.walters.redated import as_utc, closing_rows
+def _dirs(exports_dir) -> list[Path]:
+    """<exports_dir> and its dated folders; latest/ refused, given directly or behind a dated-named folder."""
     d = Path(exports_dir)
     if "latest" in (d.name, d.resolve().name):
         raise LatestRefused(f"--exports {d}: a latest/ folder (resolves to {d.resolve()}); latest/ is never read (its "
@@ -169,9 +239,31 @@ def closing_pages(exports_dir) -> dict:
         if sub.resolve().name == "latest":
             raise LatestRefused(f"--exports {d}: the dated folder {sub.name}/ resolves to {sub.resolve()}, a latest/ "
                                 "folder; latest/ is never read; nothing read")
+    return [d] + subs
+
+
+_CLOSE_SIG = ("call", "pick", "units", "order_ticker", "order_side", "cost", "kickoff")
+_PRE_SIG = ("call", "pick", "units", "order_ticker", "order_side")
+
+
+def _sig(p: dict, keys) -> tuple:
+    return tuple(p[k] for k in keys) + (tuple(sorted(p["legs"].items())),)
+
+
+def closing_pages(exports_dir) -> dict:
+    """The closing page of each event: {"by_event": {event: page or {"refused": DISAGREE}}, "files": n,
+    "unreadable": [names], "dated": n dated folders}. Read with redated.closing_rows on <exports_dir> and each dated
+    folder <exports_dir>/<YYYY-MM-DD>/; latest/ is refused (LatestRefused). A page's run is its file's exported_at
+    (redated.closing_rows' "exports"), never the closing block's start (the covered start, kept as the page's
+    `start`). An event's page is its LATEST export's; a page with no exported_at has run None and is refused with the
+    rest when it disagrees with that page; an event whose every page has none keeps its page with run None
+    (RUN_UNKNOWN downstream) when they agree."""
+    from src.walters.redated import as_utc, closing_rows
+    dirs = _dirs(exports_dir)
+    d = dirs[0]
     by: dict = {}
     files, bad = 0, []
-    for sub in [d] + subs:
+    for sub in dirs:
         cr = closing_rows(sub)
         files += cr["files"]
         bad += [("" if sub == d else f"{sub.name}/") + n for n in cr["unreadable"]]
@@ -188,12 +280,63 @@ def closing_pages(exports_dir) -> dict:
             top = [p for p in known if p["run"] == last] + [p for p in pages if p["run"] is None]
         else:
             top = pages
-        # The page's own fields, its units among them (they feed closing_call and early_by_units); never match_id,
-        # which is machine-local (the join is the event ticker): the page kept is the latest timed one, top[0].
-        sig = {tuple(p[k] for k in ("call", "pick", "units", "order_ticker", "order_side", "cost", "kickoff"))
-               for p in top}
+        # The page's own fields (units and quotes among them: they feed closing_call, the units line and the ask);
+        # never match_id, which is machine-local (the join is the event ticker): the page kept is top[0].
+        sig = {_sig(p, _CLOSE_SIG) for p in top}
         out[ev] = top[0] if len(sig) == 1 else {"refused": DISAGREE}
-    return {"by_event": out, "files": files, "unreadable": bad, "dated": len(subs)}
+    return {"by_event": out, "files": files, "unreadable": bad, "dated": len(dirs) - 1}
+
+
+def prematch_pages(exports_dir) -> dict:
+    """The prematch (slate) Desk pages of each event (285 items 2(4), 2(6)): {"by_event": {event: [page, ...]} (timed
+    pages, page["run"] = the file's exported_at), "untimed": {events named only by a page with no exported_at},
+    "files": n Desk pages read, "not_desk": n files of the globs that are no Desk page, "unreadable": [names],
+    "dated": n}. PREMATCH_GLOBS on <exports_dir> and its dated folders; latest/ refused (the same _dirs)."""
+    from src.walters.redated import CLOSING_GLOB, as_utc
+    dirs = _dirs(exports_dir)
+    d = dirs[0]
+    by: dict = {}
+    untimed: set = set()
+    files, not_desk, bad = 0, 0, []
+    for sub in dirs:
+        names = sorted({p for g in PREMATCH_GLOBS for p in sub.glob(g)}) if sub.is_dir() else []
+        for p in names:
+            if p.match(CLOSING_GLOB):
+                continue
+            label = ("" if sub == d else f"{sub.name}/") + p.name
+            try:
+                doc = json.loads(p.read_text())
+            except (OSError, ValueError):
+                bad.append(label)
+                continue
+            if not (isinstance(doc, dict) and isinstance(doc.get("predictions"), list)
+                    and isinstance(doc.get("desk_meta"), dict) and "closing" not in doc):
+                not_desk += 1
+                continue
+            files += 1
+            at = as_utc(doc.get("exported_at"))
+            for r in doc["predictions"]:
+                if not (isinstance(r, dict) and isinstance(r.get("desk"), dict)):
+                    continue
+                for ev in _row_events(r):
+                    if at is None:
+                        untimed.add(ev)
+                    else:
+                        by.setdefault(ev, []).append(_page(at, None, r))
+    return {"by_event": by, "untimed": untimed, "files": files, "not_desk": not_desk, "unreadable": bad,
+            "dated": len(dirs) - 1}
+
+
+def prematch_before(pre: dict, event, t: datetime):
+    """THE prematch page of a fill opened at `t`: the latest timed page of `event` strictly before t; {"refused":
+    PREMATCH_DISAGREE} when the pages of that time disagree; PREMATCH_UNTIMED when none is timed before t and an
+    untimed page names the event; None when no page is before t."""
+    pages = [p for p in (pre.get("by_event") or {}).get(event, []) if p["run"] < t]
+    if not pages:
+        return PREMATCH_UNTIMED if event in (pre.get("untimed") or set()) else None
+    last = max(p["run"] for p in pages)
+    top = [p for p in pages if p["run"] == last]
+    return top[0] if len({_sig(p, _PRE_SIG) for p in top}) == 1 else {"refused": PREMATCH_DISAGREE}
 
 
 def is_interest(f: dict) -> bool:
@@ -202,16 +345,34 @@ def is_interest(f: dict) -> bool:
     return isinstance(t, str) and re.search(r"\binterest\b", t, flags=re.I) is not None
 
 
-def _side(f: dict, page: dict) -> tuple[str | None, bool]:
-    """("same" / "other" / None not comparable, whether the fill holds the page's own order contract)."""
+def _on_side(f: dict, page: dict) -> bool | None:
+    """Whether the fill is on the page's side: its own order contract, else the fill's resolved role == desk.pick;
+    None when not comparable (a composite contract, a role or pick not HOME / AWAY / DRAW)."""
     tk, sd = str(f.get("ticker") or "").strip().upper(), str(f.get("side") or "").strip().lower()
-    own = bool(page["order_ticker"]) and tk == page["order_ticker"] and sd == page["order_side"]
-    if own:
-        return "same", True
+    if page["order_ticker"] and tk == page["order_ticker"] and sd == page["order_side"]:
+        return True
     role = f.get("backed_role")
-    if f.get("composite") or role not in ("HOME", "AWAY", "DRAW") or page["pick"] not in ("HOME", "AWAY", "DRAW"):
-        return None, False
-    return ("same" if role == page["pick"] else "other"), False
+    if f.get("composite") or role not in ROLES or page["pick"] not in ROLES:
+        return None
+    return role == page["pick"]
+
+
+def page_ask(page: dict, ticker, side) -> float | None:
+    """The page's ask on a contract (285 item 2(1)): its kalshi_legs quote for the ticker, YES the leg's ask, NO
+    1 − the leg's bid (desk_policy.order_line / side_quotes); None when the page carries none."""
+    q = page["legs"].get(str(ticker or "").strip().upper())
+    if q is None:
+        return None
+    bid, ask = q
+    if str(side or "").strip().lower().startswith("n"):
+        return None if bid is None else round(1 - bid, 4)
+    return ask
+
+
+def _straight_play(c: dict | None, role) -> bool:
+    from src.walters import ledger_fills as lf
+    return (isinstance(c, dict) and c.get("call_type") == STRAIGHT and not lf.is_shadow(c)
+            and (_num(c.get("units")) or 0) > 0 and role in ROLES and c.get("pick") == role)
 
 
 def _sale(fx: dict) -> bool | None:
@@ -231,21 +392,42 @@ def _cents(a, b) -> float | None:
     return None if a is None or b is None else round((a - b) * 100, 4)
 
 
-def attribute(L: dict, exports_dir=None, pages: dict | None = None) -> list[dict]:
+def _flip_cost(fx: dict) -> float | None:
+    """285 item 2(1): (entry − exit) × 100 + (open_fee + close_fee) / qty × 100, cents per contract; None if unread."""
+    e, x, q = _num(fx.get("entry")), _num(fx.get("exit")), _num(fx.get("qty"))
+    of, cf = _num(fx.get("open_fee")), _num(fx.get("close_fee"))
+    if None in (e, x, q, of, cf) or q <= 0:
+        return None
+    return round(((e - x) + (of + cf) / q) * 100, 4)
+
+
+def _brief(p: dict) -> dict:
+    return {"run": p["run"], "call": p["call"], "pick": p["pick"], "units": p["units"]}
+
+
+def attribute(L: dict, exports_dir=None, pages: dict | None = None, prematch: dict | None = None) -> list[dict]:
     """ledger_fills.classify_fills(L), each fill with the arm's fields (the module docstring): arm, arm_note, early,
-    early_price, closing_cost, early_clv_cents, closing_call, flip_exit_price, flip_cost_cents, flip_exit,
-    ledger_call_id, arm_breach, breach_why; interest rows relabelled. `pages` is closing_pages(exports_dir)."""
+    early_price, closing_ask, early_clv_cents, closing_call, prematch_page, relogged, flip_exit_price,
+    flip_cost_cents, flip_exit, ledger_call_id, arm_breach, breach_why, breach_unread; interest rows relabelled.
+    `pages` is closing_pages(exports_dir), `prematch` prematch_pages(exports_dir)."""
     from src.walters import ledger_fills as lf
     from src.walters.redated import as_utc
     if pages is None:
         pages = closing_pages(exports_dir)
+    if prematch is None:
+        prematch = prematch_pages(exports_dir) if exports_dir is not None else {"by_event": {}, "untimed": set()}
     by_event = pages["by_event"]
+    calls = [c for c in (L.get("calls") or []) if isinstance(c, dict)]
+    by_id = {}
+    for c in calls:
+        if c.get("id") is not None:
+            by_id.setdefault(c["id"], c)
     out = []
     for fx in lf.classify_fills(L):
-        a = {**fx, "arm": None, "arm_note": None, "early": False, "early_price": None, "closing_cost": None,
-             "early_clv_cents": None, "closing_call": None, "flip_exit_price": None, "flip_cost_cents": None,
-             "flip_exit": None, "ledger_call_id": None, "arm_breach": False, "breach_why": None,
-             "breach_unread": False}
+        a = {**fx, "arm": None, "arm_note": None, "early": False, "early_price": None, "closing_ask": None,
+             "early_clv_cents": None, "closing_call": None, "prematch_page": None, "relogged": False,
+             "flip_exit_price": None, "flip_cost_cents": None, "flip_exit": None, "ledger_call_id": None,
+             "arm_breach": False, "breach_why": None, "breach_unread": False}
         out.append(a)
         if is_interest(fx):
             a.update(kind=INTEREST_KIND, book=INTEREST_KIND, category="interest (a ledger line of its own, 2(f))",
@@ -254,55 +436,76 @@ def attribute(L: dict, exports_dir=None, pages: dict | None = None) -> list[dict
             continue
         if fx.get("kind") != "sport":
             continue
-        page = by_event.get(event_of(fx.get("ticker")))
+        ev = event_of(fx.get("ticker"))
+        page = by_event.get(ev)
+        timed = page is not None and "refused" not in page and page["run"] is not None
+        role = fx.get("backed_role")
+        opened = as_utc(fx.get("opened"))
+        if timed and opened is not None and opened >= page["run"]:
+            a["arm_note"] = AFTER_RUN                     # 1(c): at the closing call's own numbers, the ordinary call
+            continue
+        # THE GATE (i), 285 item 1(a): the matcher's booking, to a straight PLAY call on the fill's side.
+        booked = fx.get("book") == "system_matched"
+        straight = booked and not fx.get("composite") and _straight_play(by_id.get(fx.get("call_id")), role)
+        relogged = (not booked and timed and page["call"] == "PLAY" and page["pick"] in ROLES and role in ROLES
+                    and role != page["pick"] and fx.get("category") == MATCHER_SIDE_DISAGREES
+                    and not fx.get("composite")
+                    and any(c.get("id") is not None and _straight_play(c, page["pick"])
+                            and c.get("sport") in (fx.get("sports") or ()) and lf.game_fits(fx, c) for c in calls))
+        if not (straight or relogged):
+            a["arm_note"] = NOT_STRAIGHT_PLAY if booked else PRE_CLOSE_OFF_ARM
+            continue
+        if opened is None:
+            a["arm_note"] = TIME_UNREAD
+            continue
+        # THE GATE (ii), 285 items 2(4) and 2(6): the prematch page before the fill PLAYs its side.
+        pre = prematch_before(prematch, ev, opened)
+        if pre is None:
+            a["arm_note"] = SIDE_RELOGGED if relogged else NO_PREMATCH
+            continue
+        if pre == PREMATCH_UNTIMED or "refused" in pre:
+            a["arm_note"] = PREMATCH_UNTIMED if pre == PREMATCH_UNTIMED else pre["refused"]
+            continue
+        on = _on_side(fx, pre) if pre["call"] == "PLAY" else False
+        if on is None:
+            a["arm_note"] = SIDE_UNREAD
+            continue
+        if not on:
+            a["arm_note"] = PREMATCH_NOT_PLAY
+            continue
+        a["prematch_page"] = _brief(pre)
+        # The closing page's unknowns, for a fill both gates admit (1(b): NOT CLASSIFIED, never dropped).
         if page is None:
             a["arm_note"] = NO_PAGE
             continue
         if "refused" in page:
             a["arm_note"] = page["refused"]
             continue
-        opened = as_utc(fx.get("opened"))
         if page["run"] is None:
             a["arm_note"] = RUN_UNKNOWN
             continue
-        if opened is None:
-            a["arm_note"] = TIME_UNREAD
-            continue
-        if opened >= page["run"]:
-            a["arm_note"] = AFTER_RUN
-            continue
-        side, own = _side(fx, page)
         if page["call"] not in ("PLAY", "PASS"):
             a["arm_note"] = NOT_RULED_CALL
             continue
-        if page["call"] == "PLAY" and side is None:
+        if page["call"] == "PLAY" and (page["pick"] not in ROLES or pre["pick"] not in ROLES):
             a["arm_note"] = SIDE_UNREAD
             continue
-        if fx.get("book") != "system_matched":
-            relogged = (page["call"] == "PLAY" and side == "other" and fx.get("category") == MATCHER_SIDE_DISAGREES
-                        and any(c.get("pick") == page["pick"] and c.get("id") is not None
-                                for c in (L.get("calls") or []) if isinstance(c, dict)
-                                and c.get("sport") in (fx.get("sports") or ()) and c.get("call_type") != "parlay_leg"
-                                and lf.game_fits(fx, c)))
-            a["arm_note"] = SIDE_RELOGGED if relogged else PRE_CLOSE_OFF_ARM
+        cc = {"match_id": page["match_id"], "run": page["run"], "start": page["start"], "pick": page["pick"],
+              "units": page["units"]}
+        price = _num(fx.get("entry"))
+        if page["call"] == "PLAY" and page["pick"] == pre["pick"]:
+            ask = page_ask(page, fx.get("ticker"), fx.get("side"))
+            a.update(arm=ARM_EARLY, early=True, early_price=price, closing_ask=ask, early_clv_cents=_cents(ask, price),
+                     closing_call=cc, arm_note=ASK_UNREAD if ask is None else None)
             continue
-        if page["call"] == "PLAY" and side == "same":
-            price = _num(fx.get("entry"))
-            cost = page["cost"] if own else None
-            a.update(arm=ARM_EARLY, early=True, early_price=price, closing_cost=cost,
-                     early_clv_cents=_cents(cost, price),
-                     closing_call={"match_id": page["match_id"], "run": page["run"], "start": page["start"],
-                                   "pick": page["pick"], "units": page["units"]})
-            continue
-        a.update(arm=ARM_FLIP, ledger_call_id=fx.get("call_id"), book=ARM_BOOK, call_id=None,
-                 category="arm flip (booked to the arm, 2(c)(iii))", early_price=_num(fx.get("entry")),
-                 closing_call={"match_id": page["match_id"], "run": page["run"], "start": page["start"],
-                               "pick": page["pick"], "units": page["units"], "call": page["call"]})
+        a.update(arm=ARM_FLIP, ledger_call_id=fx.get("call_id"), book=ARM_BOOK, call_id=None, relogged=relogged,
+                 category="arm flip (booked to the arm, 2(c)(iii))", early_price=price,
+                 closing_call={**cc, "call": page["call"]})
         a.pop("ambiguous_calls", None)
         closed, ko = as_utc(fx.get("closed")), page["kickoff"]
         sale = _sale(fx)
         if sale is False:
-            a["flip_exit"] = FLIP_HELD
+            a["flip_exit"] = FLIP_SETTLED if _num(fx.get("exit")) in (0.0, 1.0) else FLIP_OPEN
         elif ko is None or closed is None:
             a["flip_exit"] = FLIP_TIME_UNREAD
         elif sale is None:
@@ -310,27 +513,26 @@ def attribute(L: dict, exports_dir=None, pages: dict | None = None) -> list[dict
         elif closed < ko:
             a["flip_exit"] = FLIP_EXITED
             a["flip_exit_price"] = _num(fx.get("exit"))
-            a["flip_cost_cents"] = _cents(a["early_price"], a["flip_exit_price"])
+            a["flip_cost_cents"] = _flip_cost(fx)
         else:
             a["flip_exit"] = FLIP_LATE
     arm_events = {event_of(a.get("ticker")) for a in out if a["arm"] in (ARM_EARLY, ARM_FLIP)}
     for a in out:
         if a.get("kind") != "sport" or event_of(a.get("ticker")) not in arm_events:
             continue
+        why = [BREACH_HELD] if a["arm"] == ARM_FLIP and a["flip_exit"] == FLIP_SETTLED else []
         page = by_event.get(event_of(a.get("ticker")))
         ko = page.get("kickoff") if isinstance(page, dict) else None
-        if ko is None:
-            continue
         opened, closed = as_utc(a.get("opened")), as_utc(a.get("closed"))
-        why = []
-        if opened is not None and opened >= ko:
-            why.append("opened at or after kickoff")
         sale = _sale(a)
-        if sale and closed is not None and closed >= ko:
-            why.append("sold at or after kickoff")
+        if ko is not None:
+            if opened is not None and opened >= ko:
+                why.insert(0, BREACH_OPENED)
+            if sale and closed is not None and closed >= ko:
+                why.append(BREACH_SOLD)
         if why:
             a["arm_breach"], a["breach_why"] = True, " and ".join(why)
-        elif sale is None and closed is not None and closed >= ko:
+        elif ko is not None and sale is None and closed is not None and closed >= ko:
             a["breach_unread"] = True                 # closed after kickoff, its sale not read: never "no breach"
     return out
 
@@ -339,68 +541,209 @@ def _mean(xs: list) -> float | None:
     return round(sum(xs) / len(xs), 4) if xs else None
 
 
+def _wmean(lots: list, key: str) -> float | None:
+    """The contract-weighted (qty) mean of the lots' `key`; None when any lot's qty or value is unread."""
+    pairs = [(_num(r.get("qty")), _num(r.get(key))) for r in lots]
+    if not pairs or any(q is None or q <= 0 or v is None for q, v in pairs):
+        return None
+    return round(sum(q * v for q, v in pairs) / sum(q for q, _ in pairs), 4)
+
+
+def _settle_units(lots: list, units) -> float | None:
+    """285 item 2(3), a reading: units × Σ qty·(settle − entry) / Σ qty·entry; None when any figure is unread."""
+    u = _num(units)
+    trip = [(_num(r.get("qty")), _num(r.get("entry")), _num(r.get("exit"))) for r in lots]
+    if u is None or not trip or any(q is None or q <= 0 or e is None or e <= 0 or x is None for q, e, x in trip):
+        return None
+    return round(u * sum(q * (x - e) for q, e, x in trip) / sum(q * e for q, e, _ in trip), 4)
+
+
+def arm_games(rows: list[dict]) -> list[dict]:
+    """The arm's games (285 item 2(2)), by the time of their first arm fill: per event its early CLV, flip cost and
+    settlement result (the module docstring), whether a breach or a breach not read falls on it, and its lots."""
+    from src.walters.redated import as_utc
+    by: dict = {}
+    for r in rows:
+        if r.get("arm") in (ARM_EARLY, ARM_FLIP):
+            by.setdefault(event_of(r.get("ticker")), []).append(r)
+    out = []
+    for ev, lots in by.items():
+        lots = sorted(lots, key=lambda r: as_utc(r.get("opened")) or datetime.max)
+        early = [r for r in lots if r["arm"] == ARM_EARLY]
+        flips = [r for r in lots if r["arm"] == ARM_FLIP]
+        exited = [r for r in flips if r.get("flip_exit") == FLIP_EXITED]
+        held = [r for r in flips if r.get("flip_exit") == FLIP_SETTLED]
+        pending = [r for r in flips if r.get("flip_exit") in (FLIP_OPEN, FLIP_SALE_UNREAD, FLIP_TIME_UNREAD)]
+        on_ev = [r for r in rows if r.get("kind") == "sport" and event_of(r.get("ticker")) == ev]
+        units = (lots[0].get("prematch_page") or {}).get("units")
+        g = {"event": ev, "first": as_utc(lots[0].get("opened")), "lots": len(lots),
+             "early": bool(early), "flip": bool(flips),
+             "early_clv_cents": _wmean(early, "early_clv_cents") if early else None,
+             "flip_cost_cents": (_wmean(exited, "flip_cost_cents") if exited and not pending else None),
+             "flip_exited": bool(exited), "held": bool(held),
+             "settle_units": _settle_units(held, units) if held else None,
+             "flip_not_exited": sorted({r["flip_exit"] for r in flips if r.get("flip_exit") in NOT_EXITED_KEYS}),
+             "closing_units": (early[0].get("closing_call") or {}).get("units") if early else None,
+             "breach": any(r.get("arm_breach") for r in on_ev),
+             "breach_unread": any(r.get("breach_unread") for r in on_ev)}
+        # A game's number for the read: its early CLV where it has early lots, its flip cost where it has exited flip
+        # lots (a flip held or exited late is a breach, outside the mean); an exit not established is unpriced (law 4).
+        g["priced"] = ((not early or g["early_clv_cents"] is not None)
+                       and (not exited or g["flip_cost_cents"] is not None) and not pending)
+        out.append(g)
+    return sorted(out, key=lambda g: (g["first"] or datetime.max, g["event"] or ""))
+
+
+def the_read(games: list[dict], not_classified: int) -> dict:
+    """THE READ AT THIRTY (283 item 3; 285 items 1(b), 2(2), 2(3)), on the first READ_AT games: {"read", "net",
+    "blocking"} (net only on CONTINUE / STOP)."""
+    if len(games) < READ_AT:
+        return {"read": READ_BELOW, "net": None, "blocking": None}
+    if not_classified:
+        return {"read": READ_REFUSED, "net": None, "blocking": not_classified}
+    thirty = games[:READ_AT]
+    for key, label in (("breach", READ_BREACH), ("breach_unread", READ_BREACH_UNREAD)):
+        n = sum(1 for g in thirty if g[key])
+        if n:
+            return {"read": label, "net": None, "blocking": n}
+    n = sum(1 for g in thirty if not g["priced"])
+    if n:
+        return {"read": READ_UNPRICED, "net": None, "blocking": n}
+    clv = sum(g["early_clv_cents"] for g in thirty if g["early"])
+    cost = sum(g["flip_cost_cents"] for g in thirty if g["flip_cost_cents"] is not None)
+    net = round((clv - cost) / len(thirty), 4)
+    return {"read": READ_CONTINUE if net > 0 else READ_STOP, "net": net, "blocking": None}
+
+
 def arm_table(rows: list[dict]) -> dict:
-    """The arm's table (item 4: "count, mean early CLV, flip count and cost, breaches"), in cents and units only:
-    counts of fills, means and totals of cents per contract, unweighted over the export's entries (each CSV lot one;
-    no quantity is read), the early fills by the closing page's units. Never a dollar figure, never a contract
-    count. toward_thirty is early + flips (item 3: "flips counted in the 30"), counted in the export's rows (lots);
-    arm_games, the distinct games those rows are on, is printed beside it (the unit of the 30 is open on #862); no
-    read is computed here. A flip not exited before kickoff is counted by why (flips_not_exited_before_kickoff); its
-    cost is not in the flip cost (open on #862)."""
-    early = [r for r in rows if r.get("arm") == ARM_EARLY]
-    flips = [r for r in rows if r.get("arm") == ARM_FLIP]
-    clv = [r["early_clv_cents"] for r in early if r.get("early_clv_cents") is not None]
-    fc = [r["flip_cost_cents"] for r in flips if r.get("flip_cost_cents") is not None]
+    """The arm's table (item 4: "count, mean early CLV, flip count and cost, breaches"; 285: games, not lots), in
+    cents and units only: counts of games (lots a count beside them), means and totals of cents per contract over
+    games, the early games by the closing page's units, the settlement result in units, breaches by cause, every
+    arm_note counted on a line (NOT CLASSIFIED by cause), interest rows (None when the export carries no `type`), and
+    the read at thirty (the_read). Never a dollar figure, never a contract count."""
+    games = arm_games(rows)
+    early = [g for g in games if g["early"]]
+    flips = [g for g in games if g["flip"]]
+    clv = [g["early_clv_cents"] for g in early if g["early_clv_cents"] is not None]
+    fc = [g["flip_cost_cents"] for g in flips if g["flip_cost_cents"] is not None]
+    held = [g for g in flips if g["held"]]
+    su = [g["settle_units"] for g in held if g["settle_units"] is not None]
     units: dict = {}
-    for r in early:
-        u = (r.get("closing_call") or {}).get("units")
+    for g in early:
+        u = g["closing_units"]
         k = f"{u:g}u" if isinstance(u, (int, float)) else "units not printed"
         units[k] = units.get(k, 0) + 1
-    not_exited = {v: sum(1 for r in flips if r.get("flip_exit") == k) for k, v in NOT_EXITED_KEYS.items()}
-    return {"early": len(early), "early_priced": len(clv), "mean_early_clv_cents": _mean(clv),
-            "early_by_units": dict(sorted(units.items())),
-            "flips": len(flips),
-            "flips_exited_before_kickoff": sum(1 for r in flips if r.get("flip_exit") == FLIP_EXITED),
-            "flips_exited_priced": len(fc),
-            "flips_not_exited_before_kickoff": not_exited,
-            "mean_flip_cost_cents": _mean(fc), "total_flip_cost_cents": round(sum(fc), 4) if fc else None,
-            "breaches": sum(1 for r in rows if r.get("arm_breach")),
+    not_the_arms = {v: 0 for v in NOT_THE_ARMS_KEYS.values()}
+    unest = {v: 0 for v in UNESTABLISHED_KEYS.values()}
+    nc = {v: 0 for v in NOT_CLASSIFIED_KEYS.values()}
+    ordinary = not_ruled = ask_unread = 0
+    for r in rows:
+        n = r.get("arm_note")
+        if n is None or (n == ASK_UNREAD and r.get("arm") == ARM_EARLY):
+            ask_unread += n == ASK_UNREAD
+            continue
+        if n in NOT_THE_ARMS_KEYS:
+            not_the_arms[NOT_THE_ARMS_KEYS[n]] += 1
+        elif n in UNESTABLISHED_KEYS:
+            unest[UNESTABLISHED_KEYS[n]] += 1
+        elif n in NOT_CLASSIFIED_KEYS:
+            nc[NOT_CLASSIFIED_KEYS[n]] += 1
+        elif n == AFTER_RUN:
+            ordinary += 1
+        elif n == NOT_RULED_CALL:
+            not_ruled += 1
+        else:
+            nc[OTHER_NOTE] = nc.get(OTHER_NOTE, 0) + 1
+    breach_rows = [r for r in rows if r.get("arm_breach")]
+    by_cause = {c: sum(1 for r in breach_rows if c in (r.get("breach_why") or "").split(" and "))
+                for c in BREACH_CAUSES}
+    carried = any(isinstance(r, dict) and "type" in r for r in rows)
+    read = the_read(games, sum(nc.values()))
+    return {"arm_games": len(games), "early_games": len(early), "flip_games": len(flips),
+            "lots": sum(g["lots"] for g in games),
+            "early_games_priced": len(clv), "early_lots_ask_unread": ask_unread,
+            "mean_early_clv_cents_per_game": _mean(clv),
+            "early_games_by_units": dict(sorted(units.items())),
+            "flip_games_exited": sum(1 for g in flips if g["flip_exited"]), "flip_games_priced": len(fc),
+            "mean_flip_cost_cents_per_game": _mean(fc), "total_flip_cost_cents": round(sum(fc), 4) if fc else None,
+            "flip_games_not_exited": {v: sum(1 for g in flips if k in g["flip_not_exited"])
+                                      for k, v in NOT_EXITED_KEYS.items()},
+            "flip_held_to_settlement_games": len(held), "flip_held_settlement_units": round(sum(su), 4) if su else None,
+            "flip_held_unpriced_games": len(held) - len(su),
+            "breaches": len(breach_rows), "breaches_by_cause": by_cause,
+            "breach_games": sum(1 for g in games if g["breach"]),
             "breaches_not_read": sum(1 for r in rows if r.get("breach_unread")),
-            "interest_rows": sum(1 for r in rows if r.get("kind") == INTEREST_KIND),
-            "not_the_arms": sum(1 for r in rows if r.get("arm_note") == PRE_CLOSE_OFF_ARM),
-            "unestablished": sum(1 for r in rows if r.get("arm_note") == SIDE_RELOGGED),
-            "not_ruled": sum(1 for r in rows if r.get("arm_note") in (NOT_RULED_CALL, SIDE_UNREAD, DISAGREE)),
-            "toward_thirty": len(early) + len(flips),
-            "arm_games": len({event_of(r.get("ticker")) for r in early + flips}), "read_at": READ_AT}
+            "interest_carried": carried,
+            "interest_rows": sum(1 for r in rows if r.get("kind") == INTEREST_KIND) if carried else None,
+            "ordinary": ordinary, "not_the_arms": not_the_arms, "unestablished": unest, "not_ruled": not_ruled,
+            "not_classified": nc, "toward_thirty": len(games), "read_at": READ_AT,
+            "read": read["read"], "read_net_cents_per_game": read["net"], "read_blocking": read["blocking"]}
 
 
 def _c(x) -> str:
     return "—" if x is None else f"{x:+.2f}¢"
 
 
+def _u(x) -> str:
+    return "—" if x is None else f"{x:+.2f}u"
+
+
+def _kv(d: dict) -> str:
+    return " · ".join(f"{k} {v}" for k, v in d.items()) or "none"
+
+
+def read_line(t: dict) -> str:
+    n, rd = t["toward_thirty"], t["read"]
+    head = f"THE READ at {t['read_at']} games (283 item 3; 285 items 1(b), 2(3)): "
+    if rd == READ_BELOW:
+        return head + f"{n} of {t['read_at']} — no read before thirty, no verdict"
+    if rd == READ_REFUSED:
+        return head + (f"REFUSED: {t['read_blocking']} rows NOT CLASSIFIED — no mean is computed while any row is "
+                       "unclassified (285 item 1(b))")
+    if rd == READ_BREACH:
+        return head + (f"breach in the thirty: {t['read_blocking']} — the continuation is the architect's ruling on "
+                       "the record (285 item 2(3)); no verdict")
+    if rd == READ_BREACH_UNREAD:
+        return head + f"breach not read in the thirty: {t['read_blocking']} games — no verdict (law 4)"
+    if rd == READ_UNPRICED:
+        return head + f"unpriced in the thirty: {t['read_blocking']} games — no verdict (law 4)"
+    return head + (f"{rd}: mean early CLV net of flip costs {_c(t['read_net_cents_per_game'])} per game over the "
+                   f"first {t['read_at']} (positive continues; a tie rejects, law 3) — the read is the architect's, "
+                   "by a block")
+
+
 def table_lines(t: dict) -> list[str]:
-    """The table as printed: counts of fills, cents per contract and the page's units; nothing else."""
-    by_u = " · ".join(f"{k} {v}" for k, v in t["early_by_units"].items()) or "none"
-    ne = " · ".join(f"{k} {v}" for k, v in t["flips_not_exited_before_kickoff"].items())
+    """The table as printed: counts of games (lots a count), cents per contract, units; nothing else."""
+    nc = sum(t["not_classified"].values())
+    interest = ("interest rows: not carried by this export" if not t["interest_carried"]
+                else f"interest rows: {t['interest_rows']}")
     return [
-        f"EARLY (item 4: before the closing run, on the side the closing page PLAYs, booked to its logged call): "
-        f"{t['early']} fills · priced {t['early_priced']} · mean early CLV {_c(t['mean_early_clv_cents'])} per "
-        f"contract (closing_cost − early_price, × 100; positive = early was cheaper) · by the closing page's units: "
-        f"{by_u}",
-        f"ARM FLIP (the close PASSed or changed side; booked to the arm): {t['flips']} fills · exited before kickoff "
-        f"{t['flips_exited_before_kickoff']} (priced {t['flips_exited_priced']}) · flip cost mean "
-        f"{_c(t['mean_flip_cost_cents'])} per contract, total "
-        f"{_c(t['total_flip_cost_cents'])} (early_price − flip_exit_price, × 100; positive = a cost)",
-        f"ARM FLIP NOT EXITED before kickoff (2(c)(iii)): {ne} — their cost is not in the flip cost (open on #862)",
-        f"ARM BREACH (a fill opened or sold at or after kickoff on an arm position, 2(d)): {t['breaches']} · not read "
-        f"(closed at or after kickoff, its sale not read): {t['breaches_not_read']}",
-        f"INTEREST (its own kind, never attributed to a call or to the arm, 2(f)): {t['interest_rows']} rows",
-        f"NOT THE ARM'S (pre-closing, no logged PLAY on its side): {t['not_the_arms']} · UNESTABLISHED (pre-closing, "
-        f"on the side a same-day re-log may have replaced; never counted): {t['unestablished']} · NOT RULED (a LADDER "
-        f"or VENUE close, a side not comparable, pages that disagree): {t['not_ruled']}",
-        f"COUNT toward thirty (early + flips, item 3): {t['toward_thirty']} of {t['read_at']} (export rows; distinct "
-        f"games {t['arm_games']}) — no read before thirty; the read is the architect's, on the laptop's ledger, by a "
-        "block (no verdict is computed here)",
+        f"EARLY (before the closing run, on the prematch page's side, which the closing page PLAYs; a straight PLAY "
+        f"call): games {t['early_games']} · priced {t['early_games_priced']} · mean early CLV "
+        f"{_c(t['mean_early_clv_cents_per_game'])} per game (the closing page's ask on the side − the "
+        f"contract-weighted early price, × 100; fees out of both; positive = early was cheaper) · lots whose "
+        f"contract the closing page quotes no ask for {t['early_lots_ask_unread']} · by the closing page's units: "
+        f"{_kv(t['early_games_by_units'])}",
+        f"ARM FLIP (the close PASSed or changed side; booked to the arm): games {t['flip_games']} · exited before "
+        f"kickoff {t['flip_games_exited']} (priced {t['flip_games_priced']}) · flip cost mean "
+        f"{_c(t['mean_flip_cost_cents_per_game'])} per game, total {_c(t['total_flip_cost_cents'])} ((early entry − "
+        f"pre-kickoff exit) × 100 + both legs' taker fees per contract, contract-weighted; positive = a cost)",
+        f"ARM FLIP NOT EXITED before kickoff (games, by cause): {_kv(t['flip_games_not_exited'])} — not in the flip "
+        "cost",
+        f"FLIP HELD TO SETTLEMENT (a breach of 2(c)(iii), outside the CLV mean, 285 item 2(3)): games "
+        f"{t['flip_held_to_settlement_games']} · settlement result {_u(t['flip_held_settlement_units'])} (units of "
+        f"the prematch page's call × (settle − entry) / entry, contract-weighted) · unpriced "
+        f"{t['flip_held_unpriced_games']}",
+        f"ARM BREACH (2(d), 2(3)): fills {t['breaches']} ({_kv(t['breaches_by_cause'])}) · games "
+        f"{t['breach_games']} · not read (closed at or after kickoff, its sale not read): {t['breaches_not_read']}",
+        f"INTEREST (its own kind, never attributed to a call or to the arm, 2(f)): {interest}",
+        f"NOT THE ARM'S: {_kv(t['not_the_arms'])} · UNESTABLISHED (listed, never counted): "
+        f"{_kv(t['unestablished'])} · NOT RULED (a LADDER or VENUE close): {t['not_ruled']} · ORDINARY (opened at "
+        f"or after the closing page went out): {t['ordinary']}",
+        f"NOT CLASSIFIED (counts by cause, 285 item 1(b)): {nc} — {_kv(t['not_classified'])}",
+        f"COUNT toward thirty (the arm's games, early or flip, 285 item 2(2)): {t['toward_thirty']} of "
+        f"{t['read_at']} (lots {t['lots']})",
+        read_line(t),
     ]
 
 

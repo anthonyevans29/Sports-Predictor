@@ -11,21 +11,29 @@ cents, while qb_hold_receipt is NFL's QB hold and prints no price at all (223 it
 sibling script, not a section of that one (an open question on #862).
 
 Sources: --ledger, the Cockpit's "Export ledger (JSON)" file (bd_ledger_v1_<date>.json: calls, fills), and --exports,
-the closing files (closing_*.json at its top and in its dated folders <YYYY-MM-DD>/, never latest/). The attribution is
-src/walters/early_arm.attribute (the arm's kinds over ledger_fills.classify_fills, unchanged). The table: early fills,
-mean early CLV in cents per contract, flips, flip cost in cents per contract, breaches, interest rows (their own kind),
-the count toward thirty (early + flips, the export's rows, with the distinct games beside it). The breaches are
-LISTED by the closing page's match id and teams and the breach's cause only, under their own head: CONSOLE ONLY, NOT
-FOR POSTING until the architect rules where the list goes (it names the operator's own games; the 235 item 2(c)
---unmatched precedent), and never in the JSON. Everything above that head is counts and cents only.
+read at its top and in its dated folders <YYYY-MM-DD>/, never latest/: the closing files (closing_*.json) and the
+prematch Desk pages (early_arm.PREMATCH_GLOBS, the families' slate exports: the source of the arm's side and its gate,
+addendum 285 items 2(4), 2(6)). The attribution is src/walters/early_arm.attribute (the arm's kinds over
+ledger_fills.classify_fills, unchanged). The table (addendum 285 item 2(2): the unit is GAMES, lots a count beside
+them): early games, priced, mean early CLV in cents per game (the closing page's ask less the contract-weighted early
+price, 2(1)); flip games, exited, flip cost in cents per game (fees in, 2(1)); flips held to settlement (a breach,
+their result in units, 2(3)); breaches by cause; interest rows ("not carried by this export" when no fill carries a
+`type`, 2(7)); the not-the-arm's, unestablished, not-ruled and ordinary counts; NOT CLASSIFIED by cause (1(b)); the
+count toward thirty (games) and THE READ line (refused while any row is not classified; no verdict on a breach in the
+thirty; else CONTINUE / STOP on the mean net of flip costs; below thirty "n of 30").
+ADDENDUM 285 item 2(5), verbatim in part: "THE BREACH LIST: CONSOLE ONLY, never posted — ids and prices; the COUNTS
+may be posted. The "CONSOLE ONLY, NOT FOR POSTING" head stays." The breaches are LISTED by the closing page's match id
+and teams and the breach's cause only, under that head, and never in the JSON. Everything above that head is counts,
+cents and units only.
 
 Never printed: a dollar figure, a quantity or contract count, a fee, a stake, a P&L, a fill's id (it carries the
 account id), a fill price (early_price and flip_exit_price are read, never printed: only the cents difference per
-contract is), an order's text or contracts, the interest's amount or rate. Writes nothing.
+contract is), an order's text or contracts, the interest's amount or rate. qty is read to weight, never printed.
+Writes nothing.
 
 Refusals (exit 2, nothing printed but the refusal): --ledger missing or unreadable, or not a bd_ledger_v1 export (no
 calls array; fills not an array of objects); --exports not a directory; --exports a latest/ folder, or a dated-named
-folder of it resolving to one (early_arm.LatestRefused, the 232 item 2(c) rule).
+folder of it resolving to one (early_arm.LatestRefused, the 232 item 2(c) rule), for either page kind.
 
 Last line: EARLY-ARM-RECEIPT {json} (counts and cents only).
 
@@ -52,8 +60,8 @@ RULING_283_4 = ("the import's attribution gains the early fill — a fill on a m
                 "beyond the word \"early\" on a call line.")
 
 
-BREACH_HEAD = ("BREACHES LISTED (console only, NOT FOR POSTING until ruled: they name the operator's own games; "
-               "never in the JSON)")
+BREACH_HEAD = ("BREACHES LISTED (CONSOLE ONLY, NOT FOR POSTING: they name the operator's own games, addendum 285 "
+               "item 2(5); the counts above may be posted; never in the JSON)")
 
 
 class Refused(Exception):
@@ -83,14 +91,18 @@ def read_ledger(path) -> dict:
 def report(L: dict, exports_dir, echo=print) -> dict:
     from src.walters import early_arm as ea
     pages = ea.closing_pages(exports_dir)            # LatestRefused propagates: main refuses before printing
-    rows = ea.attribute(L, pages=pages)
+    pre = ea.prematch_pages(exports_dir)
+    rows = ea.attribute(L, pages=pages, prematch=pre)
     t = ea.arm_table(rows)
     echo("EARLY-ARM RECEIPT — the early-entry arm's fills, attributed (#862), read-only")
     echo(f"RULING (ARCHITECT 2026-11-07 08:55 ET, addendum 283 item 4, verbatim in part): \"{RULING_283_4}\"")
     bad = f" · unreadable {len(pages['unreadable'])}: {', '.join(pages['unreadable'])}" if pages["unreadable"] else ""
+    pbad = f" · unreadable {len(pre['unreadable'])}: {', '.join(pre['unreadable'])}" if pre["unreadable"] else ""
     echo(f"SOURCES: the ledger (bd_ledger_v1: calls {len(L['calls'])}, fills {len(L['fills'])}) · the closing files "
          f"{Path(exports_dir).resolve()} (closing_*.json there and in its dated folders {pages['dated']}, never "
-         f"latest/): {pages['files']} read, events {len(pages['by_event'])}{bad}")
+         f"latest/): {pages['files']} read, events {len(pages['by_event'])}{bad} · the prematch pages "
+         f"({', '.join(ea.PREMATCH_GLOBS)}, the same folders): {pre['files']} read, events {len(pre['by_event'])}, "
+         f"not a Desk page {pre['not_desk']}{pbad}")
     for ln in ea.table_lines(t):
         echo(ln)
     breaches = [r for r in rows if r.get("arm_breach")]
@@ -101,7 +113,8 @@ def report(L: dict, exports_dir, echo=print) -> dict:
         echo(f"  {ea.ARM_BREACH}: match {page.get('match_id')} {page.get('away') or '?'} @ "
              f"{page.get('home') or '?'} (kickoff {ea._iso(page.get('kickoff'))}): {r['breach_why']}")
     summary = {k: v for k, v in t.items()}
-    summary.update(closing_files=pages["files"], unreadable=len(pages["unreadable"]))
+    summary.update(closing_files=pages["files"], unreadable=len(pages["unreadable"]), prematch_files=pre["files"],
+                   prematch_unreadable=len(pre["unreadable"]), prematch_not_desk=pre["not_desk"])
     echo("EARLY-ARM-RECEIPT " + json.dumps(summary, sort_keys=True))
     return {"rows": rows, "table": t, "summary": summary}
 
@@ -109,8 +122,9 @@ def report(L: dict, exports_dir, echo=print) -> dict:
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="#862 (addendum 283 item 4): the early-entry arm's table — read-only")
     ap.add_argument("--ledger", required=True, help="the Cockpit's Export ledger (JSON) file, bd_ledger_v1_<date>.json")
-    ap.add_argument("--exports", default="exports", help="the directory holding closing_*.json, at its top and in its "
-                                                         "dated folders <YYYY-MM-DD>/ (latest/ never read)")
+    ap.add_argument("--exports", default="exports", help="the directory holding closing_*.json and the prematch "
+                                                         "pages, at its top and in its dated folders <YYYY-MM-DD>/ "
+                                                         "(latest/ never read)")
     a = ap.parse_args(argv)
     from src.walters.early_arm import LatestRefused
     try:

@@ -151,7 +151,12 @@ def read_all(get, series: str, status: str, *, max_pages: int = MAX_PAGES) -> tu
             raise Refused(f"REFUSED: {series} /markets status={status} page {page}: the answer is not "
                           f"{{'markets': [...]}} ({shape}): the market set is incomplete (269 item 3(d)); "
                           "nothing is written")
-        out.extend(m for m in data["markets"] if isinstance(m, dict))
+        bad = sum(1 for m in data["markets"] if not isinstance(m, dict))
+        if bad:                           # all or nothing (269 item 3(d)): a malformed entry is never dropped
+            raise Refused(f"REFUSED: {series} /markets status={status} page {page}: {bad} market entr"
+                          f"{'y is' if bad == 1 else 'ies are'} not an object: the market set is incomplete "
+                          "(269 item 3(d)); nothing is written")
+        out.extend(data["markets"])
         cursor = data.get("cursor")
         if not cursor:
             return out, page
@@ -225,6 +230,7 @@ RESULT_ABSENT = "no result key served"
 NOT_FINALIZED = "settled word on a market not 'finalized'"
 DISAGREE = "the two markets' results disagree"
 WINNER_MISMATCH = "expiration_value is not the 'yes' market's player"
+SCALAR_VALUE_UNREAD = "a 'scalar' settlement whose settlement_value_dollars is not a fraction in [0, 1] on both markets"
 
 
 @dataclass
@@ -240,10 +246,22 @@ def _word(v) -> str:
     return "none" if v is None else str(v)
 
 
+def _fraction(v) -> float | None:
+    """settlement_value_dollars as served (a decimal string, e.g. "0.3300") read as a fraction in [0, 1], else None."""
+    if isinstance(v, bool) or v is None:
+        return None
+    try:
+        x = float(str(v).strip())
+    except ValueError:
+        return None
+    return x if 0.0 <= x <= 1.0 else None
+
+
 def settle(markets: list[dict]) -> Settlement:
     """The event's status from its two markets as served (269 item 3(b)):
       - both '' (or not served as settled): not settled -> SCHEDULED;
-      - both 'scalar', both 'finalized' -> SETTLED_SCALAR, NO winner, the fraction kept (served);
+      - both 'scalar', both 'finalized', each serving settlement_value_dollars as a fraction in [0, 1] -> SETTLED_SCALAR,
+        NO winner, the fraction kept (served); a scalar pair without both fractions -> SCHEDULED, SCALAR_VALUE_UNREAD;
       - one 'yes' and one 'no', both 'finalized', every non-empty expiration_value the 'yes' market's player (compared
         case-folded, addendum 238 item 2(b)) -> FINISHED, the winner = expiration_value's player, the loser the other;
       - anything else -> SCHEDULED, labelled `why`, never a winner (law 4).
@@ -267,6 +285,10 @@ def settle(markets: list[dict]) -> Settlement:
     if any(str(m.get("status")) != FINALIZED for m in markets):
         return Settlement(MatchStatus.SCHEDULED, raw, why=NOT_FINALIZED, served=served)
     if all(r == RESULT_SCALAR for r in results):
+        # the fraction is the ledger's truth for a scalar settlement: both markets must serve it, or the event stays
+        # SCHEDULED, labelled (law 4), never a settled row without its fraction
+        if not all(_fraction(m.get("settlement_value_dollars")) is not None for m in markets):
+            return Settlement(MatchStatus.SCHEDULED, raw, why=SCALAR_VALUE_UNREAD, served=served)
         return Settlement(MatchStatus.SETTLED_SCALAR, raw, served=served)  # never a winner
     if sorted(results) == [RESULT_NO, RESULT_YES]:
         yes = next(m for m in markets if m.get("result") == RESULT_YES)

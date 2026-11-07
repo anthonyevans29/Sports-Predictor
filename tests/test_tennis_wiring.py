@@ -527,3 +527,23 @@ def test_a_stored_scheduled_row_settled_after_the_window_is_re_read_and_no_row_i
     assert "ATP re-read (stored SCHEDULED rows dated 2026-12-24..2026-12-30, no new row): 1 re-read · 1 settled " \
            "since: KXATPMATCH-26DEC28AAABBB" in flat, flat
     assert rows() == {"KXATPMATCH-26DEC28AAABBB": "FINISHED|HOME", "KXATPMATCH-26DEC10MMMNNN": "SCHEDULED|-"}
+
+
+# ---- Codex on #868, round 1 -------------------------------------------------------------------------------------------
+
+@pytest.mark.parametrize("values", [(None, "0.6700"), ("0.3300", None), ("", "0.6700"), ("abc", "0.6700"),
+                                    ("1.5000", "0.6700"), ("-0.1000", "0.6700"), (None, None)])
+def test_a_scalar_pair_without_both_fractions_stays_scheduled_labelled_never_settled(values):
+    """A scalar settlement's fraction is the ledger's truth: without a fraction in [0, 1] on both markets the event is
+    SCHEDULED with SCALAR_VALUE_UNREAD, never SETTLED_SCALAR without its fraction (law 4)."""
+    st = kt.settle(F(("scalar", "scalar"), values=values))
+    assert (st.status, st.winner, st.why) == (MatchStatus.SCHEDULED, None, kt.SCALAR_VALUE_UNREAD)
+
+
+@pytest.mark.parametrize("bad", [None, "x", 7, ["a"]])
+def test_a_non_object_market_entry_refuses_the_listing_never_dropped(bad):
+    """269 item 3(d), all or nothing: one malformed entry in a page's markets list refuses the read, never a page
+    read as complete with the entry silently omitted."""
+    answers = [{"markets": [{"ticker": "KXATPMATCH-26DEC28AAABBB-AAA"}, bad], "cursor": ""}]
+    with pytest.raises(kt.Refused, match="not an object: the market set is incomplete"):
+        kt.read_all(lambda p, q: answers.pop(0), "KXATPMATCH", "settled")

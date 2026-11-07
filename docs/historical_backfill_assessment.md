@@ -1,3 +1,5 @@
+> **ARCHIVE** — written 2026-07-06 (its title); in git since 2026-09-21 (09387a98, the repository's first commit). Superseded in part: its tier-3 line on odds history no longer holds for a game Kalshi listed (finding #496, ARCHITECT 2026-10-13, addendum 60 item 7; BACKLOG.md 2026-10-13; `scripts/kalshi_history_probe.py`), and its steps 1-3 are recorded as built in BACKLOG.md 2026-07-06 "historical backfill: backbone + weather archive" (`backfill-weather`, cli.py). Its tier 1 is still cited by docs/roadmap.json (lane mlb-pitchers) and `scripts/mlb_pitcher_asof_receipt.py`. Not current (addendum 276 item 2(e)). The text below is unchanged.
+
 # Historical Database — Feasibility Assessment (2026-07-06)
 
 Question: can we pull last season (2025) and run our prediction + tracking

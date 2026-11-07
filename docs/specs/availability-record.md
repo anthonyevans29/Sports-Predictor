@@ -533,8 +533,10 @@ feed is a DAILY RANK, not a game-day confirmation (the report's own limit): kind
 projected_starter."
 
 Code: `src/availability/nflverse.py`; `cli.py availability-nflverse`. Tests: `tests/test_availability_nflverse.py`,
-on SYNTHETIC rows only (labelled so in the file); the real-rows excerpt of 259 item 3 lands with its own tests when the
-operator hands it over.
+on SYNTHETIC rows only (labelled so in the file); the real-row tests are `tests/test_availability_nflverse_real.py`
+(addendum 284 item 1(a)): the two whole release files, read from the directory `NFLVERSE_REAL_DIR` names (never
+committed, never downloaded by a test, skipped when unset), through the adapter; the excerpt of 259 item 3 was never
+committed and is retired.
 
 ### The file (law 1)
 
@@ -792,6 +794,4 @@ environment value). Tests fail-first against the schema PR's `record.py`.
 - `projected_starter`: never written by this feed (a daily rank is not a game-day confirmation).
 - No player mapping (254 item 2(3)); no row in any existing table; no provider call from a closing run; nothing under
   data/; no update or delete path (the schema PR's triggers stand untouched).
-- The real-rows excerpt's tests (252 items 6(d) and 6(g) on real rows, 259 item 2(b) on CAR's 2-row group, BAL's QB1
-  flip): with the fixture, when the operator hands it over (259 item 3).
 - The NHL landing feed's poll key (#835 item 2, 258 item 2(2)): the NHL feed's PR.

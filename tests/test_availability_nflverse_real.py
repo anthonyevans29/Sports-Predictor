@@ -104,7 +104,7 @@ ATTRIBUTION = "Depth charts: nflverse (CC BY 4.0)"
 
 def _dir() -> Path | None:
     d = os.environ.get(ENV)
-    return Path(d) if d else None
+    return Path(d).resolve() if d else None    # absolute: the fixture chdirs to its tmp dir before ingesting
 
 
 def _skip_reason() -> str | None:

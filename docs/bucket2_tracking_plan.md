@@ -1,3 +1,5 @@
+> **ARCHIVE** — written 2026-06-29 (its title); in git since 2026-09-21 (09387a98, the repository's first commit). Superseded for its items 1-4 by BACKLOG.md's three entries of 2026-06-29 "Bucket 2 tracking" (umpire, weather, bullpen/starter usage instruments), which record them built: tables `umpire_games`, `game_weather` and `pitcher_appearances` (src/db/schema.py), commands `sync-umpires`, `capture-weather` and `sync-appearances` (cli.py). Not current (addendum 276 item 2(e)). The text below is unchanged.
+
 # Bucket 2 — Tracking Plan (2026-06-29)
 
 Goal: start **logging** each data point into append-only tables now, with

@@ -978,3 +978,40 @@ def test_the_re_read_honours_season_and_counts_the_rows_it_does_not_write(monkey
            f"KXATPMATCH-{RETRACT_EV}" in flat, flat
     assert "not re-read (outside --season" not in flat, flat                         # printed only with --season
     assert [r[:3] for r in _atp_rows()] == [("SCHEDULED", "closed", None)]
+
+
+@pytest.mark.parametrize("named,stored_too,why", [
+    # Kalshi corrects a player's name after the event has left the window: the corrected name is no stored player, and
+    # the window's sync_teams does not add a lookback player, so the re-read's sync skips the fixture
+    ("Bea Fakely-Moore", False, "player not stored"),
+    # the corrected name is ANOTHER stored player: the pair is neither the stored one nor its reverse, refused
+    ("Eli Sampleton", True, "teams refused"),
+])
+def test_the_re_read_counts_only_the_rows_its_sync_wrote_and_names_the_others(monkeypatch, tennis_rows, named,
+                                                                             stored_too, why):
+    """Codex on #887 (cli.py:362, P2): "Count only rows actually written by the re-read." A stored FINISHED row three
+    days back whose event the listing now serves RETRACTED, naming a player the row does not hold: the re-read's sync
+    does not write it (SyncResult.skipped_ids, a player not stored; teams_mismatch_refused, a pair refused). The line
+    does not count it re-read, does not mask it with its before-state ("0 retracted or changed" would claim the
+    retraction checked), and names it with its reason (law 2). The row keeps its stored state (never written)."""
+    import cli
+    first = pair(RETRACT_EV, _A, _B, **_FIN_A)
+    if stored_too:
+        first += pair("26DEC29EEEFFF", "Eli Sampleton", "Cal Mockton")
+    fake = FakeKalshi({("KXATPMATCH", "settled"): [first]})
+    _fake_http(monkeypatch, fake)
+    run = CliRunner()
+    assert run.invoke(cli.cli, ["sync-competitions", "--sport", "tennis"]).exit_code == 0
+    assert run.invoke(cli.cli, ["sync-matches", "--competition", "ATP", "--date-from", "2026-12-27",
+                                "--date-to", "2026-12-29"]).exit_code == 0
+    before = [r for r in _atp_rows() if r[0] == "FINISHED"]
+    assert len(before) == 1, before
+    fake.pages = {("KXATPMATCH", "closed"): [pair(RETRACT_EV, _A, named, status="closed")]}   # retracted, renamed
+    res = run.invoke(cli.cli, ["sync-matches", "--competition", "ATP", "--date-from", "2026-12-31",
+                               "--date-to", "2027-01-02"])
+    assert res.exit_code == 0, res.output
+    flat = " ".join(res.output.split())
+    assert ("ATP re-read (stored SCHEDULED, FINISHED and SETTLED_SCALAR rows dated 2026-12-24..2026-12-30, no new "
+            "row): 0 re-read (SCHEDULED 0, FINISHED 0, SETTLED_SCALAR 0) · 0 settled since · 0 retracted or changed · "
+            f"1 not re-read (player not stored / teams refused): KXATPMATCH-{RETRACT_EV} ({why})") in flat, flat
+    assert [r for r in _atp_rows() if r[0] == "FINISHED"] == before        # not written, and not claimed checked

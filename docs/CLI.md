@@ -305,7 +305,10 @@ SCHEDULED, FINISHED and SETTLED_SCALAR rows dated in the 7 ticker days before `-
 settlement that came after the window, or one the venue retracted or re-settled; rows only, none created, no further
 call), each written as served and counted ("settled since", "retracted or changed"); with `--season`, a held row of
 another ticker year is not re-read (the adapter writes that season's events only) and is named on the line ("not
-re-read (outside --season)"), never counted re-read. An event the listing refuses (and does not also accept: an
+re-read (outside --season)"), never counted re-read. A held row the re-read's sync does not write (its listing names
+a player not stored, or a pair neither the stored one nor its reverse) is not counted re-read and never enters "settled
+since" or "retracted or changed": the line names it with its reason, always printed last ("N not re-read (player not
+stored / teams refused): <event> (<reason>)"; Codex on #887). An event the listing refuses (and does not also accept: an
 event with one stray market outside the series is accepted from its two markets and never labelled) that a stored
 row dated in the window or that lookback holds has its refusal label written to the row's
 `external_ids["kalshi_kickoff"]` and nothing else (addendum 294 item 13(b): status, winner, settlement receipt and

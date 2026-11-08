@@ -331,7 +331,12 @@ def _tennis_reread(service, code, season, lst, date_from) -> None:
     SETTLED_SCALAR rows the venue has retracted or changed (status, winner or settlement receipt not as stored). With
     --season, a held row whose ticker year is not the season is not re-read (the adapter writes that season's events
     only) and not counted re-read: the line names it "not re-read (outside --season)" (law 2); the next run without
-    --season (the daily chain) re-reads it."""
+    --season (the daily chain) re-reads it. A due row the re-read's sync does NOT write (Codex on #887: its listing
+    names a player not stored, SyncResult.skipped_ids by event ticker, since the window's sync_teams adds no lookback
+    player; or a pair neither stored nor reversed, teams_mismatch_refused by match id) is not counted re-read, never
+    enters "settled since" or "retracted or changed" (its before-state never stands in for the unread row), and is
+    named with its reason: "N not re-read (player not stored / teams refused): <event> (<reason>)", printed always,
+    after the other segments (law 2)."""
     from collections import Counter as _Counter
     from datetime import date as _date, timedelta as _td
 
@@ -353,17 +358,33 @@ def _tennis_reread(service, code, season, lst, date_from) -> None:
         finally:
             service.adapter.events = None
     after = _tennis_rows(code) if due else {}
-    was = _Counter(before[ev][1] for ev in due)
-    settled = sorted(ev for ev in due if before[ev][1] == MatchStatus.SCHEDULED
-                     and after.get(ev, before[ev])[1] != MatchStatus.SCHEDULED)
-    changed = sorted(ev for ev in due if before[ev][1] != MatchStatus.SCHEDULED
-                     and after.get(ev, before[ev])[1:] != before[ev][1:])
+    # Codex on #887 (cli.py:362): only the rows the sync WROTE are re-read. A fixture skipped for a player not stored
+    # is reported by its source id (the event ticker), a refused pair by the stored match id; neither row is written
+    skipped_ev = {str(i) for i in (getattr(reread, "skipped_ids", None) or [])}
+    refused_mid = set(getattr(reread, "teams_mismatch_refused", None) or [])
+    unwritten = {}
+    for ev in due:
+        if ev in skipped_ev:
+            unwritten[ev] = "player not stored"
+        elif before[ev][0] in refused_mid:
+            unwritten[ev] = "teams refused"
+        elif ev not in after:
+            unwritten[ev] = "row not found after the sync"       # never read from its before-state
+    written = sorted(set(due) - set(unwritten))
+    was = _Counter(before[ev][1] for ev in written)
+    settled = sorted(ev for ev in written if before[ev][1] == MatchStatus.SCHEDULED
+                     and after[ev][1] != MatchStatus.SCHEDULED)
+    changed = sorted(ev for ev in written if before[ev][1] != MatchStatus.SCHEDULED
+                     and after[ev][1:] != before[ev][1:])
     print(f"  {code} re-read (stored SCHEDULED, FINISHED and SETTLED_SCALAR rows dated {lo}..{hi - _td(days=1)}, no new "
-          f"row): {len(due)} re-read (" + ", ".join(f"{st.name} {was.get(st, 0)}" for st in TENNIS_REREAD_STATUSES)
+          f"row): {len(written)} re-read (" + ", ".join(f"{st.name} {was.get(st, 0)}" for st in TENNIS_REREAD_STATUSES)
           + f") · {len(settled)} settled since" + (f": {', '.join(settled[:10])}" if settled else "")
           + f" · {len(changed)} retracted or changed" + (f": {', '.join(changed)}" if changed else "")
           + (f" · {len(off_season)} not re-read (outside --season {season})"
-             + (f": {', '.join(off_season)}" if off_season else "") if season else ""), flush=True)
+             + (f": {', '.join(off_season)}" if off_season else "") if season else "")
+          + f" · {len(unwritten)} not re-read (player not stored / teams refused)"
+          + (": " + ", ".join(f"{ev} ({why})" for ev, why in sorted(unwritten.items())) if unwritten else ""),
+          flush=True)
 
     if hasattr(reread, "orientation_reversed") and hasattr(reread, "teams_mismatch_refused"):
         from src.ingestion.service import scores_by_team_line    # addendum 292 item 3(c): the re-read's sync too

@@ -12,9 +12,10 @@ The ruling, verbatim, and the operational definitions: docs/specs/soccer-expansi
                                         the four, priced by leagues_candidate.predict_as_of at the run record's frozen
                                         constants (164 item 3; R5: a league not declared has no rows); engine
                                         model_shadow (no Desk call, no order line, no prediction row); the LAST step
-                                        of the soccer sync chains, its rows until the next chain's export (addendum
-                                        185 D2; the next fire + EXPORT_WINDOW_MARGIN, 188 item 4); one new file per
-                                        run, never a row rewritten
+                                        of the soccer sync chains (soccer-morning-after: last but for results-tally
+                                        --host-export, addendum 230 item 2(b); after every sync), its rows until the
+                                        next chain's export (addendum 185 D2; the next fire + EXPORT_WINDOW_MARGIN,
+                                        188 item 4); one new file per run, never a row rewritten
     soccer-expansion-shadow-grade       read-only: the shadow's top pick vs the three-way book close
     soccer-expansion-confirm            the confirmation window (ARCHITECT 2026-10-08, addendum 11, item 4): freeze,
                                         substitute, progress, record, on the intl-elo-confirm pattern (section at the
@@ -578,8 +579,9 @@ SYNC_CHAIN_TIMERS = (
 # two rows; the audit's row for a fixture is the LAST row whose export time is before its kickoff (the lowest
 # pending_before by construction), the earlier rows counted as superseded on the audit's line. A run never reads or
 # edits another run's file."
-# So the chain step's window is (the run, the next of these fires + EXPORT_WINDOW_MARGIN): the next chain's export is
-# that chain's LAST step (chains.py) and runs after every step before it. The value is the ruling's, not derived here
+# So the chain step's window is (the run, the next of these fires + EXPORT_WINDOW_MARGIN): the next chain's export runs
+# after every sync step of its chain (chains.py; the LAST step, but on soccer-morning-after the host's results-tally
+# follows it, addendum 230 item 2(b)). The value is the ruling's, not derived here
 # from the unit files: a chain whose export runs more than 2 h after its fire leaves the games kicking off between its
 # fire + 2 h and its export without a row (the reader's "row missing"; accepted under the ruling, the ledger says so).
 # The same `end` bounds the F3 unplaced-label scope (shadow_unplaced). Overlapping rows are free: each run its own

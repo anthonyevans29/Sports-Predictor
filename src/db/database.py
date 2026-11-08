@@ -141,6 +141,18 @@ def readonly_scope() -> Generator[Session, None, None]:
     URI: no connect hook (no directory made, no pragma), no commit, and SQLite itself refuses a write. A missing file or
     a non-file URL is refused (ReadOnlyRefused), never created. The session is closed, not rolled back, so the rows it
     loaded keep their attributes after the block (as session_scope's expire_on_commit=False does)."""
+    eng = _readonly_engine()
+    session = Session(eng, autoflush=False, expire_on_commit=False)
+    try:
+        yield session
+    finally:
+        session.close()
+        eng.dispose()
+
+
+def _readonly_engine():
+    """A mode=ro engine on the file the app's sessions are bound to (readonly_scope's open, #706): a missing file or a
+    non-file URL is refused (ReadOnlyRefused), never created; no connect hook (no directory made, no pragma)."""
     url = SessionLocal.kw["bind"].url
     if url.get_backend_name() != "sqlite" or not url.database or url.database == ":memory:":
         raise ReadOnlyRefused(f"REFUSED: a read-only read needs a SQLite database file (got {url.get_backend_name()})")
@@ -148,13 +160,28 @@ def readonly_scope() -> Generator[Session, None, None]:
     path = Path(url.database[len("file:"):] if url.database.startswith("file:") else url.database).resolve()
     if not path.is_file():
         raise ReadOnlyRefused(f"REFUSED: no DB file at {path}: a read-only read never creates one")
-    eng = create_engine(f"sqlite:///file:{path.as_posix()}?mode=ro&uri=true",
-                        connect_args={"uri": True, "check_same_thread": False})
-    session = Session(eng, autoflush=False, expire_on_commit=False)
+    return create_engine(f"sqlite:///file:{path.as_posix()}?mode=ro&uri=true",
+                         connect_args={"uri": True, "check_same_thread": False})
+
+
+@contextmanager
+def readonly_binding() -> Generator[None, None, None]:
+    """EVERY session of the block READ-ONLY (ARCHITECT 2026-11-03, addendum 230 item 2(b): "results-tally on the host (DB
+    mode=ro)"; the host's results-tally export, addendum 289 item 3). For the block, the module's engine and
+    SessionLocal are a mode=ro engine on the same file (readonly_scope's open, _readonly_engine), so session_scope,
+    readonly_scope and every reader that opens its own session inside it read through mode=ro: SQLite itself refuses a
+    write, and a missing file or a non-file URL is refused (ReadOnlyRefused) before the block runs, never created. The
+    engine and SessionLocal are restored on exit, whatever happens; the read-only engine is disposed. Not reentrant
+    across threads: one command's read, as a receipt's own rebinding is."""
+    global _engine, SessionLocal
+    eng = _readonly_engine()
+    saved = (_engine, SessionLocal)
+    _engine = eng
+    SessionLocal = sessionmaker(bind=eng, autoflush=False, autocommit=False, future=True, expire_on_commit=False)
     try:
-        yield session
+        yield
     finally:
-        session.close()
+        _engine, SessionLocal = saved
         eng.dispose()
 
 

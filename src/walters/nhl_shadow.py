@@ -395,9 +395,11 @@ def grade(days: int = 30, export_dir: str = "exports", now: datetime | None = No
             "reference_mean_clv_pp": round(sum(ref_clvs) / len(ref_clvs) * 100, 2) if ref_clvs else None}
 
 
-def results_section(days: int, export_dir: str = "exports") -> str:
+def results_section(days: int, export_dir: str = "exports", graded: dict | None = None) -> str:
+    """`graded`: grade()'s own result for these days and export_dir, when the caller already holds it (results-tally's
+    JSON beside RESULTS.md, addendum 289 item 3: the section's figures read once); None: graded here, as before."""
     from src.walters.vs_close import line
-    r = grade(days=days, export_dir=export_dir)
+    r = graded if graded is not None else grade(days=days, export_dir=export_dir)
     head = f"## NHL — REFERENCE MODEL, FAILED GATE (shadow · {MODEL_VERSION} · {GATE_VERDICT})\n\n"
     if not r["graded"]:
         return head + ("Live model-close divergence and the record against the close. No graded shadow calls in "

@@ -13,7 +13,9 @@ Pinned here, each on its own throwaway SQLite file (SessionLocal rebound under t
   other than yesterday writes nothing; a day before the window is never read; yesterday is written last; a rewritten
   older day keeps its name; the console's window line names every day.
 - --days above 1 with --date or --out refuses, exit 2, nothing written; --days 0 is refused by click; an unknown
-  competition code still refuses, exit 2, nothing written.
+  competition code still refuses, exit 2, nothing written. An empty --date or --out is given, so it refuses too.
+- --days 7 calls the earlier days ascending, then yesterday; an earlier day that raises outside the writer is
+  that day's "failed", and yesterday's file is still written.
 - soccer-morning-after's step carries --days 7, and no other chain's export-results changes.
 - The Friday case (iv): a Friday game (Everton v Coventry, 2026-11-06) with no Saturday run is graded by Sunday's
   evaluate and exported by Sunday's export-results --days 7; under --days 1 (the chain before this PR) its file is
@@ -204,9 +206,54 @@ def test_days_7_writes_the_days_with_graded_games_and_yesterday(iso_db, pinned):
     assert line == ["results window: --days 7, slate days 2026-11-01 .. 2026-11-07 (08:00 UTC each) · written 3 "
                     "(2026-11-02, 2026-11-06, 2026-11-07), yesterday's always · no graded game, not written 4 "
                     "(2026-11-01, 2026-11-03, 2026-11-04, 2026-11-05) · failed 0"]
-    ex = iso_db / "exports"                                                      # written oldest first, yesterday last
+    ex = iso_db / "exports"                                                      # mtimes never run backwards
     ns = [(ex / n).stat().st_mtime_ns for n in got]
     assert ns == sorted(ns)
+
+
+def test_days_7_writes_oldest_first_and_yesterday_last(iso_db, pinned, monkeypatch):
+    """The call order itself, pinned (an mtime tie on a coarse filesystem would pass any order): the earlier days
+    ascending, then yesterday, once each; host/latest/ reads yesterday's file only because it is written last."""
+    import cli
+    from src.db.database import session_scope
+    with session_scope() as s:
+        c = seed_golden(s)
+        seed_game(s, c, "M2", datetime(2026, 11, 2, 20, 0), 1, 0)
+    calls, real = [], cli._export_results_day
+
+    def rec(sport_enum, competition_code, day, out_path, **kw):
+        calls.append((day.strftime("%Y-%m-%d"), kw.get("only_if_graded", False)))
+        return real(sport_enum, competition_code, day, out_path, **kw)
+    monkeypatch.setattr(cli, "_export_results_day", rec)
+    r = _run("--days", "7")
+    assert r.exit_code == 0, r.output
+    assert calls == [("2026-11-01", True), ("2026-11-02", True), ("2026-11-03", True), ("2026-11-04", True),
+                     ("2026-11-05", True), ("2026-11-06", True), ("2026-11-07", False)]
+
+
+def test_an_earlier_day_that_raises_after_the_writer_does_not_stop_yesterdays_file(iso_db, pinned, monkeypatch):
+    """An earlier day's exception outside the writer's own try (here the vs-close console line) is that day's
+    "failed", named; yesterday's file is still written, as ruled ("Yesterday's file is always written, as today")."""
+    from src.db.database import session_scope
+    from src.walters import vs_close
+    with session_scope() as s:
+        seed_golden(s)                                                           # graded on 11-06 and on 11-07
+    real, n = vs_close.line, []
+
+    def boom(block):
+        n.append(1)
+        if len(n) == 1:                                                          # the first day printed: 11-06
+            raise RuntimeError("console boom")
+        return real(block)
+    monkeypatch.setattr(vs_close, "line", boom)
+    r = _run("--days", "7")
+    assert r.exit_code == 0, r.output
+    assert "soccer_PL_results_2026-11-07.json" in _files(iso_db)
+    assert json.loads(_files(iso_db)["soccer_PL_results_2026-11-07.json"])["count"] == 3
+    assert "console boom" in r.output and "slate day 2026-11-06" in r.output
+    line = [ln for ln in r.output.splitlines() if ln.startswith("results window:")]
+    assert len(line) == 1 and line[0].endswith("· failed 1 (2026-11-06)")
+    assert "written 1 (2026-11-07)" in line[0]
 
 
 def test_a_day_with_no_graded_game_other_than_yesterday_writes_nothing(iso_db, pinned):
@@ -242,7 +289,7 @@ def test_a_rewritten_older_day_keeps_its_name(iso_db, pinned):
 
 # ---- refusals -----------------------------------------------------------------------------------------------------
 
-@pytest.mark.parametrize("extra", [["--date", "2026-11-07"], ["--out", "x.json"]])
+@pytest.mark.parametrize("extra", [["--date", "2026-11-07"], ["--out", "x.json"], ["--date", ""], ["--out", ""]])
 def test_days_above_1_with_date_or_out_refuses_and_writes_nothing(iso_db, pinned, extra):
     from src.db.database import session_scope
     with session_scope() as s:
@@ -323,5 +370,5 @@ def test_a_friday_game_is_graded_and_exported_by_the_next_sundays_run(iso_db, pi
     rows = json.loads(got["soccer_PL_results_2026-11-06.json"])["results"]
     assert [(x["match_id"], x["home_team"], x["away_team"]) for x in rows] == [(fri, "Everton", "Coventry City")]
     assert rows[0]["graded"]["top_pick_hit"] is True and rows[0]["actual"]["result"] == "H"
-    # 10-09 is outside the seven days: graded, never back-written by this run (the one-off command's, not the chain's)
+    # 10-09 is outside the seven days: graded, never back-written (294 D(iv): earlier days are listed, not written)
     assert not any("2026-10-0" in n for n in got) and old

@@ -9639,9 +9639,9 @@ def export_results_cmd(sport, competition_code, date_str, out_path, days):
     from datetime import datetime, timedelta
     from src.db.schema import Sport
 
-    if days > 1 and (date_str or out_path):
+    if days > 1 and (date_str is not None or out_path is not None):
         # law 4: the ruling names the N days ending YESTERDAY, one file per day; neither another anchor day nor one
-        # path for several days is ruled, so neither is guessed
+        # path for several days is ruled, so neither is guessed (an option given empty is given: refused, not dropped)
         click.echo(f"REFUSED: --days {days} reads the {days} slate days ending yesterday, one file per day under "
                    "exports/; it takes neither --date nor --out (addendum 294 item D; nothing written)")
         raise SystemExit(2)
@@ -9661,8 +9661,14 @@ def export_results_cmd(sport, competition_code, date_str, out_path, days):
     earlier = [day - timedelta(days=k) for k in range(days - 1, 0, -1)]
     outcome: dict[str, list[str]] = {"written": [], "none": [], "failed": []}
     for d in earlier:
-        outcome[_export_results_day(sport_enum, competition_code, d, None, only_if_graded=True)].append(
-            d.strftime("%Y-%m-%d"))
+        try:
+            got = _export_results_day(sport_enum, competition_code, d, None, only_if_graded=True)
+        except Exception as e:                   # an earlier day never stops yesterday's file (UnknownCompetition's
+            # SystemExit is not an Exception and still refuses, exit 2); the day is named, its file may be on disk
+            console.print(f"[red]✗ Results export failed: {e}[/red] [red](slate day {d.strftime('%Y-%m-%d')}; its "
+                          "file may be on disk)[/red]")
+            got = "failed"
+        outcome[got].append(d.strftime("%Y-%m-%d"))
     last = _export_results_day(sport_enum, competition_code, day, None)
     stamp = day.strftime("%Y-%m-%d")
     outcome["written" if last != "failed" else "failed"].append(stamp)

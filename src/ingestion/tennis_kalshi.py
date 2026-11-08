@@ -19,6 +19,13 @@ How it reads, and where it differs from the NBA's `sync-kalshi-nba` (kalshi_sync
   neither player is refused (PLAYER_NEITHER); naming both (two players stored under one name) is refused
   (PLAYER_BOTH); naming the other side's player is refused (PLAYER_SIDE); another event's row, refused (EVENT_OTHER).
   Never a guess: a refused market is counted and printed, never stored.
+- THEN THE KICKOFF CHECK (ARCHITECT 2026-11-08, addendum 288 item 1: "absent on all four → the row is stored with the
+  conservative UTC+14 instant AND the label START_UNREAD, so it is never captured and the receipt counts it"): a market
+  that passed the player check is kept only when its row's stored kickoff source (external_ids["kalshi_kickoff"],
+  written by the ingestion service from kalshi_tennis on every sync) is a served key, occurrence_datetime or
+  expected_expiration_time. A START_UNREAD row is refused (START_UNREAD_ROW); a row carrying no kickoff source at all
+  (written before this rule) is refused too (KICKOFF_SOURCE_MISSING) until a sync re-reads it. Counted and printed,
+  never stored.
 """
 from __future__ import annotations
 
@@ -38,6 +45,9 @@ PLAYER_NEITHER = "the market's yes_sub_title names neither player of the row"
 PLAYER_BOTH = "the market's yes_sub_title names both players of the row"
 PLAYER_SIDE = "the market's yes_sub_title names the other side's player"
 EVENT_OTHER = "the row is another event's (its event ticker differs)"
+START_UNREAD_ROW = "the row's kickoff is START_UNREAD (no start served; addendum 288 item 1): never captured"
+KICKOFF_SOURCE_MISSING = "the row carries no kickoff source (stored before addendum 288 item 1): never captured"
+CAPTURED_SOURCES = (kt.OCCURRENCE_KEY, kt.EXPIRATION_KEY)        # the served kickoff sources a captured row carries
 
 
 def player_check(res: km.Result, games: list) -> km.Result:
@@ -69,9 +79,33 @@ def player_check(res: km.Result, games: list) -> km.Result:
     return res
 
 
+def kickoff_check(res: km.Result, games: list) -> km.Result:
+    """The START_UNREAD refusal over the placements left by player_check (module docstring): a placement is kept only
+    when its row's stored kickoff source (external_ids[kalshi_tennis.KICKOFF_EXT_KEY]) is one of CAPTURED_SOURCES.
+    Refusals move a placement to res.refused by reason; nothing is ever moved to another side or row."""
+    by_id = {g.id: g for g in games}
+    keep = {}
+    for (mid, side), mk in res.placed.items():
+        g = by_id.get(mid)
+        src = ((getattr(g, "external_ids", None) or {}) if g is not None else {}).get(kt.KICKOFF_EXT_KEY)
+        why = None
+        if src is None:
+            why = KICKOFF_SOURCE_MISSING
+        elif src not in CAPTURED_SOURCES:
+            why = START_UNREAD_ROW
+        if why:
+            res.refused[why] += 1
+            res.why[mk.get("ticker")] = why
+        else:
+            keep[(mid, side)] = mk
+    res.placed = keep
+    return res
+
+
 def sync_kalshi_tennis(competition_code: str, date_from=None, date_to=None, progress=None, get=None) -> dict:
     """Pull the tour's open markets (to the last page), place them with the shared matcher on the stored rows of the
-    tour's competition, apply the player check, store each placed side as OddsSnapshot(source="kalshi", market="ML").
+    tour's competition, apply the player check and the kickoff check, store each placed side as
+    OddsSnapshot(source="kalshi", market="ML").
     Returns a summary dict ({"ok": False, "reason"} on a refusal). `get` is the HTTP layer (tests)."""
     def report(m):
         if progress:
@@ -113,6 +147,7 @@ def sync_kalshi_tennis(competition_code: str, date_from=None, date_to=None, prog
         report(f"  {len(games)} stored {code} rows on the events' days")
         res = km.place(markets, games, now=now, lo=lo, hi=hi, implied_prob=KalshiAdapter.implied_prob)
         res = player_check(res, games)
+        res = kickoff_check(res, games)           # addendum 288 item 1: a START_UNREAD row is never captured
         if outside:
             res.refused[kt.OUTSIDE_SERIES] += outside
         for ln in km.console_lines(res):

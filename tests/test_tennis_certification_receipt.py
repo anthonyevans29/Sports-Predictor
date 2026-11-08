@@ -8,7 +8,7 @@ import json
 import os
 import subprocess
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -61,7 +61,13 @@ def test_the_served_phase_prints_the_series_terms_before_the_map(capsys):
     assert '[8] "SYNTHETIC rules text"' in atp and '"SYNTHETIC condition"' in atp
     for word in ("no", "yes", "scalar", ""):
         assert f"rules_primary, one market with result {word!r}" in atp
-    assert "NOT QUOTED IN CODE: kalshi_tennis.CONTRACT_TERMS_QUOTE is null" in atp
+    assert "THE QUOTE IN CODE (addendum 288 item 3): kalshi_tennis.CONTRACT_TERMS_QUOTE, verbatim:" in atp
+    for key, text in kt.CONTRACT_TERMS_QUOTE.items():
+        assert f"      {key}: {json.dumps(text, ensure_ascii=False)}" in atp
+    # the synthetic markets carry synthetic rules text: none carries the quoted clause, and the count says so
+    assert "markets whose rules_secondary carries the quoted clause: 0 of 8 · whose early_close_condition is the " \
+           "quoted one: 0 of 8" in atp
+    assert atp.index("THE QUOTE IN CODE") < atp.index("THE MAP (addendum 269 item 3(b))")
 
 
 def test_the_listing_is_read_to_its_last_page_and_the_map_projection_counts_every_reason(capsys):
@@ -169,6 +175,8 @@ def test_the_stored_phase_counts_per_season_and_the_true_zero_checks(tmp_path, c
     assert "SETTLED_SCALAR carrying a winner: 0 (must read 0" in out
     assert "a score stored (NULL AND LABELLED by 269 item 2): 1 (must read 0" in out
     assert "more than 2 days before this run (unsettled, or settled after the chain's window): 1" in out
+    assert ("by stored kickoff source (external_ids['kalshi_kickoff'], addendum 288 item 1; START_UNREAD rows are never "
+            "captured): <none stored>: 4") in out, out
     tail = json.loads(out.strip().splitlines()[-1].split(" ", 1)[1])
     assert tail["phase"] == "stored" and tail["tours"]["ATP"]["seasons"]["2026"]["rows"] == 4
 
@@ -195,22 +203,93 @@ def test_the_stored_phase_refuses_a_path_under_data_and_creates_nothing(capsys):
     assert not target.exists() and (ROOT / "data").exists() == existed
 
 
-def test_the_served_phase_prints_the_time_keys_beside_the_tickers_date_for_the_kickoff_ruling(capsys):
-    """Review P1 (the kickoff is open for a ruling): THE TIMES prints every time key the stage-1 digest lists as served,
-    its offset in hours from 00:00 UTC of the ticker's date, the active markets already past the stored kickoff (the
-    capture refuses them as in play), and the active markets with every time key verbatim. SYNTHETIC values."""
-    ev = pair("26DEC29EEEFFF", "Eli Sampleton", "Ana Synthwood")
+def test_the_served_phase_prints_the_time_keys_and_the_ruled_kickoff_ahead_of_the_run(capsys):
+    """THE TIMES (addendum 288 item 1, RULED; 5(c): "the kickoffs shown ahead of now"): every time key the stage-1
+    digest lists as served, its offset in hours from 00:00 UTC of the ticker's date; the stored kickoff by source and
+    the kickoff refusals by label; the events whose served kickoff's US Eastern day is not the ticker's date; the active
+    markets with their stored (ruled) kickoff, ahead of or past the run. SYNTHETIC values."""
+    ahead = (datetime.now(timezone.utc) + timedelta(days=3)).replace(hour=14, minute=0, second=0, microsecond=0)
+    day = ahead.strftime("%y%b%d").upper()
+    ev = pair(f"{day}EEEFFF", "Eli Sampleton", "Ana Synthwood")
     for m in ev:
-        m.update(occurrence_datetime="2026-12-29T09:00:00Z", open_time="2026-12-27T20:00:00Z")
-    code, out, _ = run(capsys, "--tour", "ATP", fake=provider(pages={("KXATPMATCH", "open"): [ev]}))
+        m.update(occurrence_datetime=ahead.strftime("%Y-%m-%dT%H:%M:%SZ"), open_time="2026-12-27T20:00:00Z")
+    late = pair(f"{day}MMMNNN", "Max Lately", "Ned Lately")                 # past midnight ET: the next US Eastern day
+    nxt = (ahead + timedelta(days=1)).replace(hour=5)
+    for m in late:
+        m.update(occurrence_datetime=nxt.strftime("%Y-%m-%dT%H:%M:%SZ"))
+    bad = pair(f"{day}PPPQQQ", "Pia Twotimes", "Quin Twotimes")
+    bad[0]["occurrence_datetime"], bad[1]["occurrence_datetime"] = "2026-12-29T14:00:00Z", "2026-12-29T15:30:00Z"
+    unread = pair(f"{day}RRRSSS", "Rae Notime", "Sam Notime")
+    code, out, _ = run(capsys, "--tour", "ATP", fake=provider(pages={("KXATPMATCH", "open"): [ev + late + bad + unread]}))
     assert code == R.OK, out
     t = out[out.index("THE TIMES"):out.index("  NULLS")]
-    assert "occurrence_datetime: served on 2 of" in t and "+9: 2" in t and "open_time: served on 2 of" in t
+    assert "the kickoff RULED, addendum 288 item 1" in t and kt.START_UNREAD_LABEL in t
+    assert "occurrence_datetime: served on 4 of" in t and "+14: 2" in t and "open_time: served on 2 of" in t
     assert "close_time: served on 0 of" in t
-    assert "active markets: 2 · already past the stored kickoff at this run" in t
-    assert ('KXATPMATCH-26DEC29EEEFFF-AAA · ticker date 2026-12-29 · stored kickoff 2026-12-28 10:00Z · '
-            'occurrence_datetime "2026-12-29T09:00:00Z"') in t
+    assert "+29: 2" in t                                    # the late event: 05:00Z of the next day
+    assert "THE STORED KICKOFF by source (accepted events): START_UNREAD: 4 · occurrence_datetime: 2 · " \
+           "expected_expiration_time: 0" in t, t
+    assert f"events REFUSED by the kickoff rule (never a fixture), by label: {kt.OCCURRENCE_DIFFER}: 1" in t
+    assert f"KXATPMATCH-{day}PPPQQQ: {kt.OCCURRENCE_DIFFER}" in t
+    assert "kickoff's US Eastern day is NOT the ticker's date" in t and f"KXATPMATCH-{day}MMMNNN: ticker date" in t
+    assert ("active markets: 6 · their stored kickoff ahead of this run: 6 · already past it (the capture refuses them "
+            "as in play): 0 · on a START_UNREAD row (never captured): 2") in t, t
+    assert (f"KXATPMATCH-{day}EEEFFF-AAA · ticker date {ahead.date()} · stored kickoff {ahead:%Y-%m-%d} 14:00Z "
+            f"(occurrence_datetime; ahead of this run) · occurrence_datetime") in t, t
     assert "OPEN: no ruling names a tennis season" in out
     tail = json.loads(out.strip().splitlines()[-1].split(" ", 1)[1])
     atp = tail["tours"]["ATP"]
-    assert atp["time_keys_served"]["occurrence_datetime"] == 2 and atp["active"] == 2
+    assert atp["time_keys_served"]["occurrence_datetime"] == 4 and atp["active"] == 6 and atp["active_ahead"] == 6
+    assert atp["kickoff_sources"] == {"occurrence_datetime": 2, "expected_expiration_time": 0, "START_UNREAD": 4}
+    assert atp["kickoff_refused"] == {kt.OCCURRENCE_DIFFER: 1} and atp["kickoff_et_day_not_ticker"] == 1
+    assert atp["active_start_unread"] == 2
+    assert "START_UNREAD (the stored kickoff is the UTC+14 instant, the row never captured; 288 item 1): 4 of 6" in out
+
+
+def _mismatch(event, a, b, ea, eb, yes_first=True):
+    """A finalized yes/no event whose expiration_values are (ea on a's market, eb on b's); a's market is 'yes'."""
+    return pair(event, a, b, results=("yes", "no") if yes_first else ("no", "yes"), exps=(ea, eb), status="finalized")
+
+
+def test_the_expiration_value_shapes_of_the_winner_mismatch_events_are_printed_verbatim(capsys):
+    """ARCHITECT 2026-11-08, addendum 288 item 2(b): "a line per distinct expiration_value SHAPE on the unmapped events
+    (the value verbatim, the count, the 'yes' player beside it for three samples)". settle()'s guard also fires when
+    EVERY expiration_value is empty, so a shape is the PAIR (the 'yes' market's value, the 'no' market's), each classed
+    as served: empty, the 'yes' market's player, the 'no' market's player, else the value itself verbatim (repr)."""
+    settled = (_mismatch("26DEC20AAABBB", "Ana Synthwood", "Bea Fakely", "Yes", "Yes")
+               + _mismatch("26DEC20CCCDDD", "Cal Mockton", "Dov Testerly", "Yes", "Yes")
+               + _mismatch("26DEC20EEEFFF", "Eli Sampleton", "Fay Dummer", "", "")
+               + _mismatch("26DEC20GGGHHH", "Gus Oldfield", "Hal Pastly", "hal pastly", "Hal Pastly")
+               + _mismatch("26DEC20IIIJJJ", "Ivy Solo", "Jo Duo", " ", None)
+               + _mismatch("26DEC20KKKLLL", "Kim Trialson", "Lea Pretendo", "Kim Trialson", "Kim Trialson")  # FINISHED
+               + _mismatch("26DEC20MMMNNN", "Max Oldrow", "Ned Oldrow", "Oldrow", "")
+               + _mismatch("26DEC20OOOPPP", "Oto Yes", "Pat Yes", "Yes", "Yes")
+               + _mismatch("26DEC20QQQRRR", "Quin Yes", "Rae Yes", "Yes", "Yes"))
+    code, out, _ = run(capsys, "--tour", "ATP", fake=provider(pages={("KXATPMATCH", "settled"): [settled]}))
+    assert code == R.OK, out
+    blk = out[out.index("THE expiration_value SHAPES"):out.index("SETTLED_SCALAR events:")]
+    assert f"left SCHEDULED by {kt.WINNER_MISMATCH!r}" in blk and "8 event(s) · 4 shape(s)" in blk, blk
+    lines = blk.splitlines()
+    assert [ln.strip() for ln in lines if ln.strip().startswith("[")] == [
+        "[4] yes market: 'Yes' · no market: 'Yes'",                       # one token, one shape, its count
+        f"[2] yes market: {R.EMPTY} · no market: {R.EMPTY}",              # every value empty: settle's any(exp) guard
+        f"[1] yes market: 'Oldrow' · no market: {R.EMPTY}",
+        f"[1] yes market: {R.NO_PLAYER} · no market: {R.NO_PLAYER}"]      # the other side's name, in two letter cases
+    # the values verbatim (repr), empties, None and whitespace visible
+    assert "values verbatim (yes / no): '' / '' [1] · ' ' / None [1]" in blk, blk
+    assert "values verbatim (yes / no): 'hal pastly' / 'Hal Pastly' [1]" in blk
+    # three samples per shape at most, the 'yes' market's player beside each
+    yes_samples = [ln for ln in lines if "sample" in ln and "expiration_value 'Yes' / 'Yes'" in ln]
+    assert len(yes_samples) == 3, yes_samples
+    assert "sample KXATPMATCH-26DEC20AAABBB: the 'yes' market's player 'Ana Synthwood' · expiration_value 'Yes' / " \
+           "'Yes'" in blk
+    assert "KXATPMATCH-26DEC20KKKLLL" not in blk                       # FINISHED: not a mismatch
+    tail = json.loads(out.strip().splitlines()[-1].split(" ", 1)[1])
+    assert tail["tours"]["ATP"]["winner_mismatch_events"] == 8 and tail["tours"]["ATP"]["exp_shapes"] == 4
+
+
+@pytest.mark.parametrize("raw,want", [("", R.EMPTY), (None, R.EMPTY), ("  ", R.EMPTY), ("ANA SYNTHWOOD", R.YES_PLAYER),
+                                      ("bea fakely ", R.NO_PLAYER), ("Yes", "'Yes'"), ("Synthwood", "'Synthwood'"),
+                                      (0, R.EMPTY), (1, "1")])
+def test_an_expiration_value_is_classed_as_served_never_interpreted(raw, want):
+    assert R.exp_class(raw, "Ana Synthwood", "Bea Fakely") == want

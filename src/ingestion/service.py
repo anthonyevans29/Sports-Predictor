@@ -90,6 +90,15 @@ SPORT_WIDE_SOURCES = frozenset({"mlb_stats_api"})
 # The external_ids key a tennis row keeps Kalshi's settlement under, verbatim as served (ARCHITECT 2026-11-06, addendum
 # 269 item 3(b): "the fraction kept as the settlement value"; NormalizedMatch.settlement, kalshi_tennis only).
 SETTLEMENT_KEY = "kalshi_settlement"
+# The external_ids key a tennis row keeps its kickoff's source under (ARCHITECT 2026-11-08, addendum 288 item 1;
+# NormalizedMatch.kickoff_source, kalshi_tennis only): one of kalshi_tennis.KICKOFF_SOURCES, rewritten on every sync.
+KICKOFF_KEY = "kalshi_kickoff"
+# THE RETRACTION FIX (ARCHITECT 2026-11-07, addendum 287 item 2(1); 2026-11-08, addendum 288 item 5(b), verbatim: "an
+# incoming unsettled or changed result clears full_time_result and returns the row to its served state", law 4). For
+# these sources ONLY, the update path writes the row as served: full_time_result and status_raw take the incoming
+# values (None included), and the stored settlement receipt (SETTLEMENT_KEY) is replaced by the incoming one, or
+# removed when none is served. Every other source keeps "never blank a stored value with an absent one" unchanged.
+SERVED_STATE_SOURCES = frozenset({"kalshi_tennis"})
 
 
 def _db_lock():
@@ -590,6 +599,10 @@ class IngestionService:
             ext[nm.source] = nm.source_id
             if nm.settlement is not None:          # kalshi_tennis only (addendum 269 item 3(b)); None elsewhere
                 ext[SETTLEMENT_KEY] = nm.settlement
+            elif nm.source in SERVED_STATE_SOURCES:
+                ext.pop(SETTLEMENT_KEY, None)      # addendum 288 item 5(b): no settlement served, none kept
+            if nm.kickoff_source is not None:      # kalshi_tennis only (addendum 288 item 1): re-read every sync
+                ext[KICKOFF_KEY] = nm.kickoff_source
             match.external_ids = ext
             result.updated += 1
             return match
@@ -615,7 +628,8 @@ class IngestionService:
             venue=nm.venue,
             referee=nm.referee,
             external_ids={nm.source: nm.source_id,
-                          **({SETTLEMENT_KEY: nm.settlement} if nm.settlement is not None else {})},
+                          **({SETTLEMENT_KEY: nm.settlement} if nm.settlement is not None else {}),
+                          **({KICKOFF_KEY: nm.kickoff_source} if nm.kickoff_source is not None else {})},
         )
         s.add(match)
         if cache is not None and nm.source_id:
@@ -629,8 +643,9 @@ class IngestionService:
 
     @staticmethod
     def _apply_match_updates(match: Match, nm: NormalizedMatch) -> None:
+        served_state = nm.source in SERVED_STATE_SOURCES       # addendum 288 item 5(b): the row as served (tennis)
         match.status = nm.status
-        if nm.status_raw:  # never blank a stored code with an absent one
+        if nm.status_raw or served_state:  # never blank a stored code with an absent one (the served state excepted)
             match.status_raw = nm.status_raw
         # Correct the season if the adapter now reports a different one. This
         # matters for re-syncs that fix a previously mis-stamped season (e.g.
@@ -654,7 +669,9 @@ class IngestionService:
             match.home_score_90 = nm.home_score_90
         if nm.away_score_90 is not None:
             match.away_score_90 = nm.away_score_90
-        if nm.full_time_result is not None:
+        if nm.full_time_result is not None or served_state:
+            # SERVED_STATE_SOURCES: an incoming unsettled or changed result replaces the stored one, None included
+            # (addendum 288 item 5(b); 287 item 2(1)): a retracted settlement never keeps its old winner
             match.full_time_result = nm.full_time_result
         # ARCHITECT 2026-11-07, addendum 286 item 4(c): "on the update path, an incoming SETTLED_SCALAR clears
         # full_time_result explicitly — a SETTLED_SCALAR row carries no winner, ever" (a FINISHED row corrected to a

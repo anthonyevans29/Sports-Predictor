@@ -81,6 +81,15 @@ class MatchStatus(str, enum.Enum):
     # KXWTAMATCH event whose markets both settled 'scalar'): never FINISHED, never a winner, never a score; the fraction
     # as served is on the row's external_ids["kalshi_settlement"]. Not void (closing.VOID): the market existed and
     # settled. Stored as the member NAME (14 characters; SQLite does not enforce the column's declared length).
+    # THE MEANING (ARCHITECT 2026-11-08, addendum 288 item 3, verbatim): "SETTLED_SCALAR = the match did not occur
+    # (injury, walkover, forfeiture or cancellation before a ball was played) and the venue settled at "a fair price"
+    # — 20 ATP and the WTA scalar events, the fractions kept verbatim; a retirement AFTER a ball is played produces a
+    # yes/no settlement, the advancing player the winner — FINISHED, as built (287's reading confirmed by the venue's
+    # words)". The venue's clause, quoted from the markets' rules_secondary (288 item 3, verbatim; also
+    # kalshi_tennis.CONTRACT_TERMS_QUOTE): "If the match does not occur (signaled by a ball being played) due to a
+    # player injury, walkover, forfeiture, or any other cancellation (all before the match starts), the market will
+    # resolve to a fair price in accordance with the rules. If this match is postponed or delayed, the market will
+    # remain open and close after the rescheduled match has finished (within two weeks)."
     SETTLED_SCALAR = "settled_scalar"
 
 

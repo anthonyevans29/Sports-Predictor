@@ -26,13 +26,15 @@ from src.db.schema import MatchStatus, Result, Sport
 ROOT = Path(__file__).resolve().parent.parent
 
 
-def mk(event, sfx, name, *, status="active", result="", exp="", value="0.0000", series="KXATPMATCH"):
-    """One SYNTHETIC market of `event` (its ticker suffix, its player), with the served fields the map reads."""
+def mk(event, sfx, name, *, status="active", result="", exp="", value="0.0000", series="KXATPMATCH", times=None):
+    """One SYNTHETIC market of `event` (its ticker suffix, its player), with the served fields the map reads; `times`
+    adds served time keys (occurrence_datetime, expected_expiration_time, ...) verbatim. None served by default, so a
+    row built from it is START_UNREAD (addendum 288 item 1)."""
     e = f"{series}-{event}"
     return {"event_ticker": e, "ticker": f"{e}-{sfx}", "yes_sub_title": name, "status": status, "result": result,
             "expiration_value": exp, "settlement_value_dollars": value, "title": "Who wins?",
             "yes_bid_dollars": "0.40", "yes_ask_dollars": "0.42", "rules_primary": f"If {name} wins ...",
-            "rules_secondary": "SYNTHETIC rules text", "early_close_condition": "SYNTHETIC condition"}
+            "rules_secondary": "SYNTHETIC rules text", "early_close_condition": "SYNTHETIC condition", **(times or {})}
 
 
 def pair(event, a, b, **kw):
@@ -210,23 +212,181 @@ def test_players_are_teams_keyed_by_tour_and_name_with_no_alias_table_yet():
     assert a.list_competitions(Sport.SOCCER) == [] and a.get_match_stats("x") == []
 
 
-def test_the_kickoff_is_the_first_instant_of_the_tickers_date_anywhere():
-    """Law 4 (no served start time read): 00:00 at UTC+14 of the ticker's date = the day before at 10:00 UTC, so the
-    in-play gate stops captures before any match dated that day could start."""
+def test_the_start_unread_fallback_is_the_first_instant_of_the_tickers_date_anywhere():
+    """ARCHITECT 2026-11-08, addendum 288 item 1: "absent on all four → the row is stored with the conservative UTC+14
+    instant AND the label START_UNREAD". 00:00 at UTC+14 of the ticker's date = the day before at 10:00 UTC."""
     assert kt.kickoff_utc(date(2026, 12, 28)) == datetime(2026, 12, 27, 10, 0)
     assert kt.EARLIEST_OFFSET.total_seconds() == 14 * 3600
+    assert kt.kickoff(pair("26DEC28AAABBB", "Ana Synthwood", "Bea Fakely"), date(2026, 12, 28)) == (
+        datetime(2026, 12, 27, 10, 0), kt.START_UNREAD)
+
+
+# ---- THE KICKOFF, RULED (addendum 288 item 1) -------------------------------------------------------------------------
+
+OCC, EXP = kt.OCCURRENCE_KEY, kt.EXPIRATION_KEY
+D28 = date(2026, 12, 28)
+
+
+def _ev(a_times, b_times):
+    return [mk("26DEC28AAABBB", "AAA", "Ana Synthwood", times=a_times),
+            mk("26DEC28AAABBB", "BBB", "Bea Fakely", times=b_times)]
+
+
+@pytest.mark.parametrize("a,b,want", [
+    # 1. occurrence_datetime on both, equal: that instant, as served, UTC
+    ({OCC: "2026-12-28T14:00:00Z"}, {OCC: "2026-12-28T14:00:00Z"}, (datetime(2026, 12, 28, 14), OCC)),
+    # the same instant in another offset is the same value (the comparison is of the instant; an OPEN ITEM)
+    ({OCC: "2026-12-28T14:00:00Z"}, {OCC: "2026-12-28T09:00:00-05:00"}, (datetime(2026, 12, 28, 14), OCC)),
+    # occurrence_datetime decides; expected_expiration_time is not read when it is served on both
+    ({OCC: "2026-12-28T14:00:00Z", EXP: "2026-12-29T01:00:00Z"}, {OCC: "2026-12-28T14:00:00Z"},
+     (datetime(2026, 12, 28, 14), OCC)),
+    # 3. occurrence_datetime absent on both: expected_expiration_time by the same rule
+    ({EXP: "2026-12-28T19:30:00Z"}, {EXP: "2026-12-28T19:30:00Z"}, (datetime(2026, 12, 28, 19, 30), EXP)),
+    # a JSON null or a blank string is not served (an OPEN ITEM): the next key is read
+    ({OCC: None, EXP: "2026-12-28T19:30:00Z"}, {OCC: "  ", EXP: "2026-12-28T19:30:00Z"},
+     (datetime(2026, 12, 28, 19, 30), EXP)),
+    # 4. absent on all four: the UTC+14 instant, START_UNREAD
+    ({}, {}, (datetime(2026, 12, 27, 10), kt.START_UNREAD)),
+    ({OCC: "", EXP: None}, {}, (datetime(2026, 12, 27, 10), kt.START_UNREAD)),
+    # 2. occurrence_datetime on both but different: REFUSED with its own label
+    ({OCC: "2026-12-28T14:00:00Z"}, {OCC: "2026-12-28T15:30:00Z"}, (None, kt.OCCURRENCE_DIFFER)),
+    # ... and the same for expected_expiration_time when occurrence_datetime is absent on both
+    ({EXP: "2026-12-28T14:00:00Z"}, {EXP: "2026-12-28T15:30:00Z"}, (None, kt.EXPIRATION_DIFFER)),
+    # NOT NAMED BY THE RULING (OPEN ITEMS): one market only -> refused, never the next key
+    ({OCC: "2026-12-28T14:00:00Z", EXP: "2026-12-28T14:00:00Z"}, {EXP: "2026-12-28T14:00:00Z"},
+     (None, kt.OCCURRENCE_ONE_MARKET)),
+    ({EXP: "2026-12-28T14:00:00Z"}, {}, (None, kt.EXPIRATION_ONE_MARKET)),
+    # ... a served value that is no ISO instant with an offset -> refused
+    ({OCC: "2026-12-28T14:00:00"}, {OCC: "2026-12-28T14:00:00"}, (None, kt.OCCURRENCE_UNREAD)),
+    ({OCC: "tomorrow"}, {OCC: "2026-12-28T14:00:00Z"}, (None, kt.OCCURRENCE_UNREAD)),
+    ({OCC: 1798466400}, {OCC: 1798466400}, (None, kt.OCCURRENCE_UNREAD)),
+    ({EXP: "2026-13-28T14:00:00Z"}, {EXP: "2026-13-28T14:00:00Z"}, (None, kt.EXPIRATION_UNREAD)),
+])
+def test_the_kickoff_rule_its_four_cases_and_the_cases_it_does_not_name(a, b, want):
+    assert kt.kickoff(_ev(a, b), D28) == want
+    assert kt.kickoff(_ev(b, a), D28) == want                      # the market order is never read
+
+
+@pytest.mark.parametrize("raw,want", [
+    ("2026-11-08T14:00:00Z", datetime(2026, 11, 8, 14)), ("2026-11-08T14:00Z", datetime(2026, 11, 8, 14)),
+    ("2026-11-08T14:00:00.123456789Z", datetime(2026, 11, 8, 14, 0, 0, 123456)),
+    ("2026-11-09T00:30:00+00:00", datetime(2026, 11, 9, 0, 30)), ("2026-11-08T19:00:00-05:00", datetime(2026, 11, 9)),
+    ("2026-11-08T14:00:00", None), ("2026-11-08", None), ("", None), (None, None), ("2026-11-08T14:00:00+24:00", None),
+    ("x2026-11-08T14:00:00Z", None)])
+def test_a_served_instant_is_read_only_with_its_offset_the_same_on_every_python(raw, want):
+    assert kt.read_instant(raw) == want
+
+
+def test_the_listing_counts_every_kickoff_source_and_refuses_the_kickoff_refusals_by_label():
+    mks = (pair("26DEC28AAABBB", "Ana Synthwood", "Bea Fakely", times={OCC: "2026-12-28T14:00:00Z"})
+           + pair("26DEC28CCCDDD", "Cal Mockton", "Dov Testerly", times={EXP: "2026-12-28T17:00:00Z"})
+           + pair("26DEC28EEEFFF", "Eli Sampleton", "Fay Dummer")
+           + _ev({OCC: "2026-12-28T14:00:00Z"}, {OCC: "2026-12-28T16:00:00Z"}))
+    for m in mks[-2:]:
+        m.update(event_ticker="KXATPMATCH-26DEC28GGGHHH", ticker=m["ticker"].replace("AAABBB", "GGGHHH"))
+    lst = kt.build("ATP", mks)
+    assert {f.event: (f.kickoff, f.kickoff_source) for f in lst.fixtures} == {
+        "KXATPMATCH-26DEC28AAABBB": (datetime(2026, 12, 28, 14), OCC),
+        "KXATPMATCH-26DEC28CCCDDD": (datetime(2026, 12, 28, 17), EXP),
+        "KXATPMATCH-26DEC28EEEFFF": (datetime(2026, 12, 27, 10), kt.START_UNREAD)}
+    assert lst.kickoff_sources == {OCC: 1, EXP: 1, kt.START_UNREAD: 1}
+    assert lst.refused == {kt.OCCURRENCE_DIFFER: 1}
+    assert lst.refused_events == {"KXATPMATCH-26DEC28GGGHHH": kt.OCCURRENCE_DIFFER}
+    ms = {m.source_id: m for m in kt.KalshiTennisAdapter(get=FakeKalshi({("KXATPMATCH", "open"): [mks]})).list_matches(
+        "ATP", None, "2026-12-28", "2026-12-28")}
+    assert {k: (m.utc_date, m.kickoff_source) for k, m in ms.items()} == {
+        f.event: (f.kickoff, f.kickoff_source) for f in lst.fixtures}
+
+
+def test_every_kickoff_label_is_a_module_constant_and_the_comment_carries_the_ruling():
+    labels = [r for rs in kt.KICKOFF_REFUSALS.values() for r in rs]
+    assert len(set(labels)) == 6 and not set(labels) & {kt.NO_DATE, kt.NOT_TWO_MARKETS, kt.NOT_TWO_PLAYERS,
+                                                         kt.OUTSIDE_SERIES}
+    assert kt.KICKOFF_SOURCES == ("occurrence_datetime", "expected_expiration_time", "START_UNREAD")
+    from src.ingestion import service
+    assert service.KICKOFF_KEY == kt.KICKOFF_EXT_KEY == "kalshi_kickoff"
+    src = (ROOT / "src" / "adapters" / "kalshi_tennis.py").read_text()
+    assert "OPEN FOR A RULING" not in src
+    blk = " ".join(src[src.index("# THE KICKOFF, RULED"):src.index("EARLIEST_OFFSET = ")].replace("#", " ").split())
+    for ruled in ("RULED: a tennis row's kickoff = the event's occurrence_datetime, as served, UTC; both markets of the "
+                  "event must carry the same value (a difference refuses the event with its own label, counted);",
+                  "absent on all four → the row is stored with the conservative UTC+14 instant AND the label "
+                  "START_UNREAD, so it is never captured and the receipt counts it.",
+                  "The stored kickoff is re-read on every sync",
+                  "the IN_PLAY refusal fires at the real start."):
+        assert ruled in blk, ruled
+
+
+def test_a_postponed_match_moves_its_stored_kickoff_on_the_next_sync(monkeypatch, tennis_rows):
+    """288 item 1: "The stored kickoff is re-read on every sync (a postponed match's market "will remain open and close
+    after the rescheduled match has finished (within two weeks)" [...] so the instant moves and the row follows it)".
+    In the window, and by the late re-read once the ticker's day has left the window."""
+    import cli
+    from sqlalchemy import text
+    from src.db.database import session_scope
+    ev = "26DEC28AAABBB"
+
+    def served(at, status="active"):
+        return {("KXATPMATCH", "open"): [pair(ev, "Ana Synthwood", "Bea Fakely", status=status, times={OCC: at})]}
+    fake = FakeKalshi(served("2026-12-28T14:00:00Z"))
+    _fake_http(monkeypatch, fake)
+    run = CliRunner()
+    assert run.invoke(cli.cli, ["sync-competitions", "--sport", "tennis"]).exit_code == 0
+
+    def stored():
+        with session_scope() as s:
+            return s.execute(text(
+                "SELECT m.utc_date, json_extract(m.external_ids, '$.kalshi_kickoff') FROM matches m "
+                "JOIN competitions c ON c.id = m.competition_id WHERE c.code = 'ATP'")).all()
+    window = ["sync-matches", "--competition", "ATP", "--date-from", "2026-12-27", "--date-to", "2026-12-29"]
+    assert run.invoke(cli.cli, window).exit_code == 0
+    assert [(str(a)[:16], b) for a, b in stored()] == [("2026-12-28 14:00", OCC)]
+    fake.pages = served("2026-12-29T19:30:00Z")                    # postponed a day: the same event, a new instant
+    assert run.invoke(cli.cli, window).exit_code == 0
+    assert [(str(a)[:16], b) for a, b in stored()] == [("2026-12-29 19:30", OCC)]
+    # the ticker's day has left the chain's window: the late re-read (a stored SCHEDULED row) follows it again
+    fake.pages = {("KXATPMATCH", "closed"): [pair(ev, "Ana Synthwood", "Bea Fakely", status="closed",
+                                                  times={OCC: "2027-01-03T16:00:00Z"})]}
+    res = run.invoke(cli.cli, ["sync-matches", "--competition", "ATP", "--date-from", "2027-01-02",
+                               "--date-to", "2027-01-04"])
+    assert res.exit_code == 0, res.output
+    assert "1 re-read" in " ".join(res.output.split())
+    assert [(str(a)[:16], b) for a, b in stored()] == [("2027-01-03 16:00", OCC)]
+    # the venue stops serving the start: the row follows to START_UNREAD (never captured)
+    fake.pages = {("KXATPMATCH", "closed"): [pair(ev, "Ana Synthwood", "Bea Fakely", status="closed")]}
+    assert run.invoke(cli.cli, ["sync-matches", "--competition", "ATP", "--date-from", "2027-01-02",
+                                "--date-to", "2027-01-04"]).exit_code == 0
+    assert [(str(a)[:16], b) for a, b in stored()] == [("2026-12-27 10:00", kt.START_UNREAD)]
 
 
 # ---- the result map (269 item 3(b)) -----------------------------------------------------------------------------------
 
-def test_the_contract_terms_are_not_invented_and_sit_before_the_status_map():
-    """269 item 3(c): the clause is QUOTED on the PR "BEFORE the status map", from the venue's own text. No record holds
-    it, so the adapter carries a TODO-for-receipt marker and its source, and no quote (never invented wording); the
-    marker comes before the map in the module."""
-    assert kt.CONTRACT_TERMS_QUOTE is None and "contract_terms_url" in kt.CONTRACT_TERMS_SOURCE
+def test_the_contract_terms_are_quoted_verbatim_from_the_ruling_and_sit_before_the_status_map():
+    """269 item 3(c): the clause QUOTED "BEFORE the status map", from the venue's own text; ARCHITECT 2026-11-08,
+    addendum 288 item 3 quotes it from the served receipt (rules_secondary, rules_primary, early_close_condition), and
+    CONTRACT_TERMS_QUOTE "fills from this". The values are pinned verbatim; the quote comes before the map; THE MEANING
+    and the clause are on MatchStatus.SETTLED_SCALAR's comment."""
+    assert kt.CONTRACT_TERMS_QUOTE == {
+        "rules_secondary": "If the match does not occur (signaled by a ball being played) due to a player injury, "
+                           "walkover, forfeiture, or any other cancellation (all before the match starts), the market "
+                           "will resolve to a fair price in accordance with the rules. If this match is postponed or "
+                           "delayed, the market will remain open and close after the rescheduled match has finished "
+                           "(within two weeks).",
+        "rules_primary": "If <player> wins the <A> vs <B> professional tennis match in the <event> after a ball has "
+                         "been played, then the market resolves to Yes.",
+        "early_close_condition": "This market will close and expire after a winner is declared."}
+    assert "addendum 288 item 3" in kt.CONTRACT_TERMS_SOURCE and '"ACHIEVEMENTS.pdf"' in kt.CONTRACT_TERMS_SOURCE
     src = (ROOT / "src" / "adapters" / "kalshi_tennis.py").read_text()
-    assert src.index("TODO-FOR-RECEIPT") < src.index("THE STATUS MAP (269 item 3(b))") < src.index("def settle(")
+    assert "TODO-FOR-RECEIPT" not in src
+    assert src.index("THE CLAUSE, QUOTED") < src.index("THE STATUS MAP (269 item 3(b))") < src.index("def settle(")
     assert src.index("CONTRACT_TERMS_QUOTE") < src.index("RESULT_WORDS = ")
+    schema = (ROOT / "src" / "db" / "schema.py").read_text()
+    blk = " ".join(schema[schema.index("class MatchStatus"):schema.index('SETTLED_SCALAR = "settled_scalar"')]
+                   .replace("#", " ").split())
+    assert ("SETTLED_SCALAR = the match did not occur (injury, walkover, forfeiture or cancellation before a ball was "
+            "played) and the venue settled at \"a fair price\"") in blk
+    assert "a retirement AFTER a ball is played produces a yes/no settlement, the advancing player the winner" in blk
+    assert kt.CONTRACT_TERMS_QUOTE["rules_secondary"] in blk
 
 
 def test_the_result_words_are_exactly_the_four_served():
@@ -301,6 +461,7 @@ def test_list_matches_maps_the_winner_side_keeps_scores_null_and_filters_by_the_
         MatchStatus.FINISHED, Result.AWAY, None, None, "2026")          # Bea Fakely sorts after Ana Synthwood: AWAY
     assert (m1.home_team_source_id, m1.away_team_source_id) == ("ATP|ana synthwood", "ATP|bea fakely")
     assert m1.utc_date == datetime(2026, 12, 27, 10, 0) and m1.sport == Sport.TENNIS and m1.source == "kalshi_tennis"
+    assert m1.kickoff_source == kt.START_UNREAD                        # no time served: the fallback (288 item 1)
     m2 = ms["KXATPMATCH-26DEC29CCCDDD"]
     assert (m2.status, m2.full_time_result) == (MatchStatus.SETTLED_SCALAR, None) and len(m2.settlement) == 2
     assert ms["KXATPMATCH-27JAN02EEEFFF"].season == "2027" and ms["KXATPMATCH-27JAN02EEEFFF"].settlement is None
@@ -603,6 +764,7 @@ def test_a_finished_row_re_synced_as_scalar_is_settled_scalar_with_no_winner_and
     assert R.main(["--db", str(copy), "--tour", "ATP"]) == R.OK
     out = capsys.readouterr().out
     assert "SETTLED_SCALAR: 1" in out and "SETTLED_SCALAR carrying a winner: 0 (must read 0: TRUE ZERO)" in out, out
+    assert "captured): START_UNREAD: 1" in out, out             # no time served: counted by the receipt (288 item 1)
 
 
 # ---- addendum 288 item 5(b): the retraction fix (287 item 2(1)) ----------------------------------------------------------

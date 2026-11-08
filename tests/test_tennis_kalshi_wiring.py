@@ -146,22 +146,41 @@ def test_sync_kalshi_atp_refuses_a_cursor_left_and_stores_nothing(monkeypatch, t
     assert out.exit_code == 0 and "✗ Kalshi ATP: REFUSED" in flat and "cursor already read" in flat, flat
 
 
-def test_sync_kalshi_atp_stores_both_players_on_the_ml_market(monkeypatch, tennis_rows):
-    """The event's own row (created from the same event by sync-matches), both players placed on their sides by the
-    shared matcher and kept by the player check; an event with no stored row is refused by the shared matcher's
-    NO_FIT, counted and printed; a WTA market is never read by the ATP sync."""
+OCC = kt.OCCURRENCE_KEY
+# the stage-1 digest's open event, its served start a SYNTHETIC 14:00Z on its ticker's date (+14 h, inside 288 item 1's
+# +7 h to +29 h)
+OPEN_T = pair("26DEC29EEEFFF", "Eli Sampleton", "Ana Synthwood", times={OCC: "2026-12-29T14:00:00Z"})
+
+
+def _synced(monkeypatch, pages, lo="2026-12-28", hi="2026-12-30"):
     import cli
-    from src.db.database import session_scope
-    from src.db.schema import Match, OddsSnapshot
-    fake = FakeKalshi({("KXATPMATCH", "open"): [OPEN]})
+    fake = FakeKalshi(pages)
     _fake_http(monkeypatch, fake)
     run = CliRunner()
     assert run.invoke(cli.cli, ["sync-competitions", "--sport", "tennis"]).exit_code == 0
-    res = run.invoke(cli.cli, ["sync-matches", "--competition", "ATP", "--date-from", "2026-12-28",
-                               "--date-to", "2026-12-30"])
+    res = run.invoke(cli.cli, ["sync-matches", "--competition", "ATP", "--date-from", lo, "--date-to", hi])
     assert res.exit_code == 0, res.output
-    monkeypatch.setattr(tk, "utc_now_naive", lambda: Z("2026-12-27T05:00"))
-    fake.pages[("KXATPMATCH", "open")] = [OPEN + pair("26DEC29GGGHHH", "Nowhere Person", "Elsewhere Person")]
+    return fake, run
+
+
+def _tennis_snaps():
+    from src.db.database import session_scope
+    from src.db.schema import Match, OddsSnapshot, Sport
+    with session_scope() as s:
+        return s.query(OddsSnapshot).join(Match, Match.id == OddsSnapshot.match_id).filter(
+            Match.sport == Sport.TENNIS).count()
+
+
+def test_sync_kalshi_atp_stores_both_players_on_the_ml_market(monkeypatch, tennis_rows):
+    """The event's own row (created from the same event by sync-matches), both players placed on their sides by the
+    shared matcher and kept by the player check and the kickoff check; an event with no stored row is refused by the
+    shared matcher's NO_FIT, counted and printed; a WTA market is never read by the ATP sync."""
+    import cli
+    from src.db.database import session_scope
+    from src.db.schema import Match, OddsSnapshot
+    fake, run = _synced(monkeypatch, {("KXATPMATCH", "open"): [OPEN_T]})
+    monkeypatch.setattr(tk, "utc_now_naive", lambda: Z("2026-12-28T05:00"))
+    fake.pages[("KXATPMATCH", "open")] = [OPEN_T + pair("26DEC29GGGHHH", "Nowhere Person", "Elsewhere Person")]
     out = run.invoke(cli.cli, ["sync-kalshi-atp"])
     assert out.exit_code == 0, out.output
     assert "✓ Kalshi ATP: 2 prices stored" in out.output and "series KXATPMATCH · 4 markets" in out.output, out.output
@@ -173,61 +192,274 @@ def test_sync_kalshi_atp_stores_both_players_on_the_ml_market(monkeypatch, tenni
         snaps = {x.selection: (x.market, x.source, x.yes_bid, x.yes_ask)
                  for x in s.query(OddsSnapshot).filter(OddsSnapshot.match_id == m.id)}
     assert snaps == {"HOME": ("ML", "kalshi", 0.40, 0.42), "AWAY": ("ML", "kalshi", 0.40, 0.42)}
-    # in play on our kickoff (the first instant of the ticker's date anywhere): nothing more is stored
-    monkeypatch.setattr(tk, "utc_now_naive", lambda: Z("2026-12-28T10:00"))
+    # in play at the real start (the served occurrence_datetime, 288 item 1): nothing more is stored
+    monkeypatch.setattr(tk, "utc_now_naive", lambda: Z("2026-12-29T14:00"))
     out = run.invoke(cli.cli, ["sync-kalshi-atp"])
     assert "✓ Kalshi ATP: 0 prices stored" in out.output and km.IN_PLAY in out.output, out.output
 
 
-def test_the_kickoff_rule_refuses_a_d_event_open_on_d_minus_1_afternoon_as_in_play(monkeypatch, tennis_rows):
-    """REVIEW P1, ON RECORD UNTIL THE ARCHITECT RULES THE KICKOFF (kalshi_tennis THE KICKOFF): the stored kickoff of an
-    event dated D is D-1 10:00 UTC, so a market of that event still open at D-1 15:12 UTC (the stage-1 digest's
-    KXWTAMATCH-26NOV07... was open at ~15:12Z on 11-06) is refused IN_PLAY although its match had not started. The
-    capture is conservative (never an in-play price stored as pre-match) and close to empty by construction."""
+def test_a_d_event_open_on_d_minus_1_afternoon_is_captured_ahead_of_its_served_start(monkeypatch, tennis_rows):
+    """ARCHITECT 2026-11-08, addendum 288 item 1 (RULED, replacing the conservative rule #868 pinned here): the stored
+    kickoff is the event's served occurrence_datetime, so a market of an event dated D still open at D-1 15:12 UTC (the
+    stage-1 digest's KXWTAMATCH-26NOV07... open at ~15:12Z on 11-06) is captured, its kickoff ahead; IN_PLAY fires at
+    the real start, a minute before it still captured."""
+    import cli
+    fake, run = _synced(monkeypatch, {("KXATPMATCH", "open"): [OPEN_T]})
+    for now, stored in (("2026-12-28T15:12", 2), ("2026-12-29T13:59", 2), ("2026-12-29T14:00", 0)):
+        monkeypatch.setattr(tk, "utc_now_naive", lambda now=now: Z(now))
+        out = run.invoke(cli.cli, ["sync-kalshi-atp"])
+        assert f"✓ Kalshi ATP: {stored} prices stored" in out.output, (now, out.output)
+        assert (km.IN_PLAY in out.output) == (stored == 0), (now, out.output)
+
+
+def test_a_start_unread_row_is_never_captured(monkeypatch, tennis_rows):
+    """288 item 1: "absent on all four → the row is stored with the conservative UTC+14 instant AND the label
+    START_UNREAD, so it is never captured". The row's stored kickoff source (external_ids['kalshi_kickoff']) is
+    START_UNREAD: the shared matcher places the market (its UTC+14 instant still ahead, inside the run's window) and
+    the kickoff check refuses it, counted and printed; nothing is stored. A row with no stored source at all (written
+    before this rule) is refused too."""
     import cli
     from src.db.database import session_scope
-    from src.db.schema import Match, OddsSnapshot, Sport
-    ev = pair("26DEC29EEEFFF", "Eli Sampleton", "Ana Synthwood")
-    fake = FakeKalshi({("KXATPMATCH", "open"): [ev]})
-    _fake_http(monkeypatch, fake)
-    run = CliRunner()
-    assert run.invoke(cli.cli, ["sync-competitions", "--sport", "tennis"]).exit_code == 0
-    assert run.invoke(cli.cli, ["sync-matches", "--competition", "ATP", "--date-from", "2026-12-28",
-                                "--date-to", "2026-12-30"]).exit_code == 0
-    assert kt.kickoff_utc(datetime(2026, 12, 29).date()) == Z("2026-12-28T10:00")
-    monkeypatch.setattr(tk, "utc_now_naive", lambda: Z("2026-12-28T15:12"))
-    out = run.invoke(cli.cli, ["sync-kalshi-atp"])
-    assert "✓ Kalshi ATP: 0 prices stored" in out.output and km.IN_PLAY in out.output, out.output
+    from src.db.schema import Match
+    fake, run = _synced(monkeypatch, {("KXATPMATCH", "open"): [OPEN]})     # OPEN serves no time key
     with session_scope() as s:
-        assert s.query(OddsSnapshot).join(Match, Match.id == OddsSnapshot.match_id).filter(
-            Match.sport == Sport.TENNIS).count() == 0
-
-
-def test_a_same_pair_row_dated_the_day_after_takes_the_day_rule_and_the_player_check_refuses_it(monkeypatch,
-                                                                                                 tennis_rows):
-    """REVIEW NIT, ON RECORD: a tennis row's stored kickoff reads on the US Eastern day BEFORE its ticker's date, so the
-    shared matcher's date-only rule (a row whose ET day is the ticker's date takes the market) picks a same-pair row
-    dated D+1 for an event dated D. Tennis's player check refuses it (EVENT_OTHER): conservative, never stored on the
-    wrong row, but the event's own market is refused rather than placed. It resolves with the kickoff ruling."""
-    import cli
-    from src.db.database import session_scope
-    from src.db.schema import Match, OddsSnapshot, Sport
-    d29 = pair("26DEC29AAABBB", "Ana Synthwood", "Bea Fakely")
-    d30 = pair("26DEC30CCCDDD", "Ana Synthwood", "Bea Fakely")
-    fake = FakeKalshi({("KXATPMATCH", "open"): [d29 + d30]})
-    _fake_http(monkeypatch, fake)
-    run = CliRunner()
-    assert run.invoke(cli.cli, ["sync-competitions", "--sport", "tennis"]).exit_code == 0
-    assert run.invoke(cli.cli, ["sync-matches", "--competition", "ATP", "--date-from", "2026-12-28",
-                                "--date-to", "2026-12-30"]).exit_code == 0
-    fake.pages[("KXATPMATCH", "open")] = [d29]                 # the D event's markets only (no two-claims refusal)
-    monkeypatch.setattr(tk, "utc_now_naive", lambda: Z("2026-12-27T11:00"))
+        (m,) = [x for x in s.query(Match).all() if (x.external_ids or {}).get(kt.SOURCE)]
+        assert (m.external_ids or {}).get(kt.KICKOFF_EXT_KEY) == kt.START_UNREAD
+        assert m.utc_date == kt.kickoff_utc(datetime(2026, 12, 29).date())
+    monkeypatch.setattr(tk, "utc_now_naive", lambda: Z("2026-12-28T05:00"))   # before the UTC+14 instant
     out = run.invoke(cli.cli, ["sync-kalshi-atp"])
     flat = " ".join(out.output.split())
-    assert "✓ Kalshi ATP: 0 prices stored" in flat and tk.EVENT_OTHER in flat, flat
+    assert "✓ Kalshi ATP: 0 prices stored" in flat and tk.START_UNREAD_ROW in flat and km.IN_PLAY not in flat, flat
+    assert _tennis_snaps() == 0
+    with session_scope() as s:                                          # a row stored before the rule: no source
+        (m,) = [x for x in s.query(Match).all() if (x.external_ids or {}).get(kt.SOURCE)]
+        m.external_ids = {k: v for k, v in (m.external_ids or {}).items() if k != kt.KICKOFF_EXT_KEY}
+    out = run.invoke(cli.cli, ["sync-kalshi-atp"])
+    flat = " ".join(out.output.split())
+    assert "✓ Kalshi ATP: 0 prices stored" in flat and tk.KICKOFF_SOURCE_MISSING in flat, flat
+    assert _tennis_snaps() == 0
+
+
+def _now_served(kind):
+    """OPEN_T's event as the venue might serve it after the row was stored (14:00Z, occurrence_datetime): `kind` is a
+    kickoff-rule refusal of 288 item 1 (differ, one market, unread), no start served at all, or a moved start."""
+    ev = pair("26DEC29EEEFFF", "Eli Sampleton", "Ana Synthwood", times={OCC: "2026-12-29T14:00:00Z"})
+    if kind == "differ":
+        ev[0][OCC] = "2026-12-29T10:00:00Z"
+    elif kind == "one":
+        del ev[0][OCC]
+    elif kind == "unread":
+        ev[0][OCC] = ev[1][OCC] = "2026-12-29 14:00"            # no zone: not read (law 4)
+    elif kind == "none":
+        del ev[0][OCC], ev[1][OCC]
+    elif kind == "earlier":
+        ev[0][OCC] = ev[1][OCC] = "2026-12-29T10:00:00Z"
+    elif kind == "later":
+        ev[0][OCC] = ev[1][OCC] = "2026-12-29T19:30:00Z"
+    return ev
+
+
+@pytest.mark.parametrize("kind,why,label", [
+    ("differ", tk.KICKOFF_REFUSED_NOW, kt.OCCURRENCE_DIFFER),
+    ("one", tk.KICKOFF_REFUSED_NOW, kt.OCCURRENCE_ONE_MARKET),
+    ("unread", tk.KICKOFF_REFUSED_NOW, kt.OCCURRENCE_UNREAD),
+])
+def test_a_stored_row_whose_event_the_kickoff_rule_now_refuses_is_never_captured(monkeypatch, tennis_rows, kind, why,
+                                                                                   label):
+    """288 item 1: "a difference refuses the event with its own label, counted". The row was stored from a served start (occurrence_datetime, 14:00Z); the venue now serves the event in a
+    way the rule refuses. sync-matches refuses the event (no fixture), so the stored row is NOT touched (its stored
+    state is an OPEN ITEM for the architect); the capture reads the kickoff rule over the event's markets it holds and
+    refuses every placement, counted and printed, before 10:00Z (one served start) and before the stored 14:00Z."""
+    import cli
+    from src.db.database import session_scope
+    from src.db.schema import Match
+    fake, run = _synced(monkeypatch, {("KXATPMATCH", "open"): [OPEN_T]})
+    fake.pages[("KXATPMATCH", "open")] = [_now_served(kind)]
+    res = run.invoke(cli.cli, ["sync-matches", "--competition", "ATP", "--date-from", "2026-12-28",
+                               "--date-to", "2026-12-30"])
+    assert res.exit_code == 0, res.output
+    with session_scope() as s:                       # the refused event's stored row is left as it was (an OPEN ITEM)
+        (m,) = [x for x in s.query(Match).all() if (x.external_ids or {}).get(kt.SOURCE)]
+        assert (m.utc_date, (m.external_ids or {}).get(kt.KICKOFF_EXT_KEY)) == (Z("2026-12-29T14:00"), OCC)
+    monkeypatch.setattr(tk, "utc_now_naive", lambda: Z("2026-12-29T09:00"))
+    out = run.invoke(cli.cli, ["sync-kalshi-atp"])
+    flat = " ".join(out.output.split())
+    assert "✓ Kalshi ATP: 0 prices stored" in flat and why in flat and label in flat, flat
+    assert _tennis_snaps() == 0
+
+
+@pytest.mark.parametrize("kind,at", [("earlier", "2026-12-29T11:00"), ("later", "2026-12-29T13:00")])
+def test_a_start_moved_since_the_rows_sync_is_never_captured_until_a_sync_re_reads_it(monkeypatch, tennis_rows, kind,
+                                                                                      at):
+    """288 item 1: "the IN_PLAY refusal fires at the real start" and "the row follows it". The row was stored at 14:00Z;
+    the venue now serves the start moved on both markets, and no sync has re-read the row (a manual capture, or a sync
+    step that failed while the window chain went on). The capture never prices against the stale stored kickoff: it
+    refuses (KICKOFF_MOVED, counted, the two instants printed; law 4), an hour past the earlier start or the hour
+    before the stored one. After a sync re-reads the row, the row follows the served start and the shared matcher's
+    IN_PLAY reads it (earlier: in play; later: captured)."""
+    import cli
+    fake, run = _synced(monkeypatch, {("KXATPMATCH", "open"): [OPEN_T]})
+    fake.pages[("KXATPMATCH", "open")] = [_now_served(kind)]
+    monkeypatch.setattr(tk, "utc_now_naive", lambda: Z(at))
+    out = run.invoke(cli.cli, ["sync-kalshi-atp"])
+    flat = " ".join(out.output.split())
+    assert "✓ Kalshi ATP: 0 prices stored" in flat and tk.KICKOFF_MOVED in flat, flat
+    assert "2026-12-29 14:00Z" in flat, flat                          # the stored instant, printed beside the served
+    assert _tennis_snaps() == 0
+    res = run.invoke(cli.cli, ["sync-matches", "--competition", "ATP", "--date-from", "2026-12-28",
+                               "--date-to", "2026-12-30"])
+    assert res.exit_code == 0, res.output
+    out = run.invoke(cli.cli, ["sync-kalshi-atp"])
+    flat = " ".join(out.output.split())
+    assert tk.KICKOFF_MOVED not in flat, flat
+    if kind == "earlier":
+        assert "✓ Kalshi ATP: 0 prices stored" in flat and km.IN_PLAY in flat, flat
+        assert _tennis_snaps() == 0
+    else:
+        assert "✓ Kalshi ATP: 2 prices stored" in flat, flat
+
+
+def test_a_start_no_longer_served_is_never_captured_before_or_after_the_sync_re_reads_it(monkeypatch, tennis_rows):
+    """288 item 1: "absent on all four → the row is stored with the conservative UTC+14 instant AND the label
+    START_UNREAD, so it is never captured". The row was stored from a served start; the venue now serves no time key.
+    Before a sync re-reads the row, the capture reads it off the markets it holds (KICKOFF_UNREAD_NOW); after the sync,
+    the row follows (START_UNREAD, the UTC+14 instant) and the stored-source check refuses it (START_UNREAD_ROW)."""
+    import cli
+    from src.db.database import session_scope
+    from src.db.schema import Match
+    fake, run = _synced(monkeypatch, {("KXATPMATCH", "open"): [OPEN_T]})
+    fake.pages[("KXATPMATCH", "open")] = [_now_served("none")]
+    monkeypatch.setattr(tk, "utc_now_naive", lambda: Z("2026-12-28T05:00"))
+    out = run.invoke(cli.cli, ["sync-kalshi-atp"])
+    flat = " ".join(out.output.split())
+    assert "✓ Kalshi ATP: 0 prices stored" in flat and tk.KICKOFF_UNREAD_NOW in flat, flat
+    res = run.invoke(cli.cli, ["sync-matches", "--competition", "ATP", "--date-from", "2026-12-28",
+                               "--date-to", "2026-12-30"])
+    assert res.exit_code == 0, res.output
     with session_scope() as s:
-        assert s.query(OddsSnapshot).join(Match, Match.id == OddsSnapshot.match_id).filter(
-            Match.sport == Sport.TENNIS).count() == 0
+        (m,) = [x for x in s.query(Match).all() if (x.external_ids or {}).get(kt.SOURCE)]
+        assert (m.external_ids or {}).get(kt.KICKOFF_EXT_KEY) == kt.START_UNREAD
+    out = run.invoke(cli.cli, ["sync-kalshi-atp"])
+    flat = " ".join(out.output.split())
+    assert "✓ Kalshi ATP: 0 prices stored" in flat and tk.START_UNREAD_ROW in flat, flat
+    assert _tennis_snaps() == 0
+
+
+def test_the_served_kickoff_check_needs_both_of_the_events_markets_in_hand():
+    """The ruling reads the kickoff on BOTH markets of the event ("both markets of the event must carry the same
+    value"); a capture holding one market of the event cannot read it, so the placement is refused (law 4; an OPEN
+    ITEM), never read off the one market."""
+    row = _row(1, "Ana Synthwood", "Bea Fakely", E1)
+    row.utc_date = Z("2026-12-29T14:00")
+    both = pair("26DEC29AAABBB", "Ana Synthwood", "Bea Fakely", times={OCC: "2026-12-29T14:00:00Z"})
+    res = _placed(((1, "HOME"), "Ana Synthwood", E1))
+    res.placed[(1, "HOME")] = both[0]
+    kept = tk.served_kickoff_check(res, [row], both)
+    assert list(kept.placed) == [(1, "HOME")] and not kept.refused
+    res = _placed(((1, "HOME"), "Ana Synthwood", E1))
+    res.placed[(1, "HOME")] = both[0]
+    got = tk.served_kickoff_check(res, [row], both[:1])
+    assert got.placed == {} and got.refused == {tk.KICKOFF_HELD_NOT_TWO: 1}
+
+
+@pytest.mark.parametrize("src,why", [(kt.START_UNREAD, tk.START_UNREAD_ROW), (None, tk.KICKOFF_SOURCE_MISSING),
+                                     ("something else", tk.START_UNREAD_ROW), (kt.OCCURRENCE_KEY, None),
+                                     (kt.EXPIRATION_KEY, None)])
+def test_the_kickoff_check_keeps_only_a_row_whose_kickoff_was_read_from_a_served_key(src, why):
+    row = _row(1, "Ana Synthwood", "Bea Fakely", E1)
+    if src is not None:
+        row.external_ids[kt.KICKOFF_EXT_KEY] = src
+    res = tk.kickoff_check(_placed(((1, "HOME"), "Ana Synthwood", E1)), [row])
+    if why is None:
+        assert list(res.placed) == [(1, "HOME")] and not res.refused
+    else:
+        assert res.placed == {} and res.refused == {why: 1}
+
+
+def test_a_same_pair_row_dated_the_day_after_no_longer_takes_the_days_market(monkeypatch, tennis_rows):
+    """#868's REVIEW NIT, RESOLVED by the ruling (288 item 1: "the shared matcher's date-only rule therefore reads the
+    right row"): with the served kickoffs, the D event's row reads on its own US Eastern day, so the date-only rule
+    places the D event's markets on the D row, never on the same pair's D+1 row."""
+    import cli
+    from src.db.database import session_scope
+    from src.db.schema import Match, OddsSnapshot
+    d29 = pair("26DEC29AAABBB", "Ana Synthwood", "Bea Fakely", times={OCC: "2026-12-29T14:00:00Z"})
+    d30 = pair("26DEC30CCCDDD", "Ana Synthwood", "Bea Fakely", times={OCC: "2026-12-30T14:00:00Z"})
+    fake, run = _synced(monkeypatch, {("KXATPMATCH", "open"): [d29 + d30]})
+    fake.pages[("KXATPMATCH", "open")] = [d29]
+    monkeypatch.setattr(tk, "utc_now_naive", lambda: Z("2026-12-28T11:00"))
+    out = run.invoke(cli.cli, ["sync-kalshi-atp"])
+    flat = " ".join(out.output.split())
+    assert "✓ Kalshi ATP: 2 prices stored" in flat and tk.EVENT_OTHER not in flat, flat
+    with session_scope() as s:
+        got = {(x.external_ids or {}).get(kt.SOURCE): s.query(OddsSnapshot).filter(OddsSnapshot.match_id == x.id).count()
+               for x in s.query(Match).all() if (x.external_ids or {}).get(kt.SOURCE)}
+    assert got == {"KXATPMATCH-26DEC29AAABBB": 2, "KXATPMATCH-26DEC30CCCDDD": 0}
+
+
+# ---- the ruled offset range, the coverage day and the matcher's date-only rule (288 item 1) ---------------------------
+# "occurrence_datetime [...] sits +7 h to +29 h after 00:00 UTC of the ticker's date — the ticker's date is the
+# US-Eastern calendar day of the start (02:00–24:00 ET)". THE BOUNDARY, determined here (a FINDING put to the
+# architect, the rule unchanged): US Eastern's day D is [05:00Z D, 05:00Z D+1) in EST and [04:00Z D, 04:00Z D+1) in
+# EDT, so +29 h (EST) and +28 h / +29 h (EDT) fall on the US Eastern day D+1: "24:00 ET" is 00:00 of D+1 by the
+# calendar. There the coverage page reads the row on D+1, not the ticker's date; the shared matcher's date-only rule
+# still places the event's markets on the row (a game a day either side is on the event's day, and the one row of the
+# pair is chosen), unless the same pair holds another row within a day of D (then the event is refused DATE_TIE, never
+# placed on the other row).
+
+EST_D, EDT_D = datetime(2026, 12, 29), datetime(2026, 7, 15)
+ET_OFFSET_CASES = ([(EST_D, h, h < 29) for h in (7, 12, 19, 24, 28, 29)]      # (the day, +h, on the ticker's ET day)
+                   + [(EDT_D, h, h < 28) for h in (7, 12, 24, 27, 28, 29)])
+
+
+def _game(gid, ko, home="Ana Synthwood", away="Bea Fakely"):
+    return NS(id=gid, utc_date=ko, home_team=NS(name=home), away_team=NS(name=away), home_team_id=1, away_team_id=2,
+              status="scheduled")
+
+
+def _mkts(day: datetime, ev="AAABBB"):
+    stamp = day.strftime("%y%b%d").upper()
+    return pair(f"{stamp}{ev}", "Ana Synthwood", "Bea Fakely")
+
+
+@pytest.mark.parametrize("day,h,on_day", ET_OFFSET_CASES)
+def test_the_coverage_day_is_the_tickers_date_inside_the_offset_range_and_the_next_day_at_its_edge(day, h, on_day):
+    import coverage_map as cm
+    from datetime import timezone
+    ko = day + timedelta(hours=h)
+    lo, hi = cm.day_bounds(day.date())
+    nlo, nhi = cm.day_bounds(day.date() + timedelta(days=1))
+    aware = ko.replace(tzinfo=timezone.utc)
+    assert (lo <= aware < hi) == on_day and (nlo <= aware < nhi) == (not on_day), (ko, lo, hi)
+    assert (km.et_day(ko) == day.date()) == on_day
+
+
+@pytest.mark.parametrize("day,h,on_day", ET_OFFSET_CASES)
+def test_the_matchers_date_only_rule_places_the_one_row_and_in_play_fires_at_the_real_start(day, h, on_day):
+    ko = day + timedelta(hours=h)
+    g = _game(7, ko)
+    lo, hi = ko - timedelta(days=2), ko + timedelta(days=2)
+    res = km.place(_mkts(day), [g], now=ko - timedelta(minutes=1), lo=lo, hi=hi)
+    assert set(res.placed) == {(7, "HOME"), (7, "AWAY")} and not res.refused, (h, res.refused)
+    res = km.place(_mkts(day), [g], now=ko, lo=lo, hi=hi)
+    assert res.placed == {} and res.refused == {km.IN_PLAY: 2}
+
+
+@pytest.mark.parametrize("day,h,on_day", ET_OFFSET_CASES)
+def test_at_the_edge_a_same_pair_row_of_the_next_day_refuses_the_event_never_misplaces_it(day, h, on_day):
+    """The D event's row at +h, and the same pair's D+1 event's row at +14 h on D+1. Inside the range each event takes
+    its own row; at the edge (both rows on US Eastern day D+1) the D event is refused DATE_TIE and the D+1 event
+    TWO_ROWS: never a market on the other event's row."""
+    d_row, n_row = _game(7, day + timedelta(hours=h)), _game(8, day + timedelta(days=1, hours=14))
+    now = day - timedelta(days=1)
+    lo, hi = now, now + timedelta(days=5)
+    res = km.place(_mkts(day) + _mkts(day + timedelta(days=1), "CCCDDD"), [d_row, n_row], now=now, lo=lo, hi=hi)
+    if on_day:
+        assert set(res.placed) == {(7, "HOME"), (7, "AWAY"), (8, "HOME"), (8, "AWAY")}, res.refused
+        ev_d = next(k for k in res.placed if k[0] == 7)
+        assert res.placed[ev_d]["event_ticker"].endswith(day.strftime("%y%b%d").upper() + "AAABBB")
+    else:
+        assert res.placed == {} and res.refused == {km.DATE_TIE: 2, km.TWO_ROWS: 2}, res.refused
 
 
 @pytest.mark.parametrize("series", ["KXATPMATCH", "KXWTAMATCH"])

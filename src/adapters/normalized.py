@@ -84,6 +84,12 @@ class NormalizedMatch:
     # external_ids["kalshi_settlement"] (SETTLEMENT_KEY); filled by kalshi_tennis only; None everywhere else, so nothing
     # changes for any other adapter.
     settlement: dict | None = None
+    # THE KICKOFF'S SOURCE (ARCHITECT 2026-11-08, addendum 288 item 1): where utc_date was read from, one of
+    # kalshi_tennis.KICKOFF_SOURCES ('occurrence_datetime', 'expected_expiration_time', or 'START_UNREAD' when no start
+    # is served and utc_date is the conservative UTC+14 instant). The ingestion service writes it under the row's
+    # external_ids["kalshi_kickoff"] on every sync; the tennis capture never captures a row whose stored source is not a
+    # served key. Filled by kalshi_tennis only; None everywhere else, so nothing changes for any other adapter.
+    kickoff_source: str | None = None
 
 
 @dataclass

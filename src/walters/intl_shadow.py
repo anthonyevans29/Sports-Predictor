@@ -459,10 +459,11 @@ def confirmation_read(now: datetime | None = None) -> dict:
     return out
 
 
-def results_section(days: int, export_dir: str = "exports") -> str:
+def results_section(days: int, export_dir: str = "exports", graded: dict | None = None) -> str:
     """RESULTS.md: the UNL shadow's live CLV in its own section (NHL-style),
-    never a record line beside the live sports."""
-    r = grade(days=days, export_dir=export_dir)
+    never a record line beside the live sports. `graded`: grade()'s own result for these days and export_dir, when the
+    caller already holds it (results-tally's JSON, addendum 289 item 3); None: graded here, as before."""
+    r = graded if graded is not None else grade(days=days, export_dir=export_dir)
     head = f"## UNL — SHADOW, CONFIRMATION WINDOW ({MODEL_VERSION} · PASS, production only on CONFIRMED)\n\n"
     if not r["graded"]:
         return head + (f"Live model-close divergence and the record against the close. No graded shadow calls in window "

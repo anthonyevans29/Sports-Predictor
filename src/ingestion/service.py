@@ -90,6 +90,16 @@ SPORT_WIDE_SOURCES = frozenset({"mlb_stats_api"})
 # The external_ids key a tennis row keeps Kalshi's settlement under, verbatim as served (ARCHITECT 2026-11-06, addendum
 # 269 item 3(b): "the fraction kept as the settlement value"; NormalizedMatch.settlement, kalshi_tennis only).
 SETTLEMENT_KEY = "kalshi_settlement"
+# The external_ids key a tennis row keeps its kickoff's source under (ARCHITECT 2026-11-08, addendum 288 item 1;
+# NormalizedMatch.kickoff_source, kalshi_tennis only): one of kalshi_tennis.KICKOFF_SOURCES, rewritten on every sync.
+KICKOFF_KEY = "kalshi_kickoff"
+# THE RETRACTION FIX (ARCHITECT 2026-11-07, addendum 287 item 2(1); 2026-11-08, addendum 288 item 5(b), verbatim: "an
+# incoming unsettled or changed result clears full_time_result and returns the row to its served state", law 4). For
+# these sources ONLY, the update path writes the row as served: full_time_result takes the incoming value (None
+# included), status_raw the incoming status words (a blank word included), and the stored settlement receipt
+# (SETTLEMENT_KEY) is replaced by the incoming one, or removed when none is served. Every other source keeps "never
+# blank a stored value with an absent one" unchanged.
+SERVED_STATE_SOURCES = frozenset({"kalshi_tennis"})
 
 
 def _db_lock():
@@ -145,6 +155,14 @@ class SyncResult:
     # Never silent: sync_teams' log line, the sync-teams command (on its own line, unwrapped) and the admin job each
     # carry "names kept: N (a historical-season listing)". Not printed by __str__ (the CLI prints its own line, once).
     names_kept: list = field(default_factory=list)
+    # SCORES BY TEAM (ARCHITECT 2026-11-08, addendum 292 item 3(c), #876): "two new counts on the sync result and its
+    # printed receipt, each with the match ids LISTED: `orientation_reversed` and `teams_mismatch_refused`". The stored
+    # match id of every row a listing updated with its pair REVERSED (the scores written by team, the orientation kept,
+    # item 3(d)), and of every row whose update was REFUSED because the listing's pair is neither the stored pair nor
+    # its reverse (the row untouched; also counted in `skipped`). Not printed by __str__ (default output unchanged):
+    # the sync-matches command prints scores_by_team_line on its own line.
+    orientation_reversed: list = field(default_factory=list)
+    teams_mismatch_refused: list = field(default_factory=list)
 
     def __str__(self) -> str:
         out = f"created={self.created} updated={self.updated} skipped={self.skipped}"
@@ -158,6 +176,15 @@ def skipped_listings_line(ids) -> str:
     the DB: <ids>", the ids comma-separated in listing order. sp_run reads it back (SKIPPED_LISTINGS_LINE)."""
     ids = [str(i) for i in ids]
     return f"skipped {len(ids)} listing(s) of clubs not in the DB: {', '.join(ids)}"
+
+
+def scores_by_team_line(result) -> str:
+    """Addendum 292 item 3(c): the two counts, each with its match ids listed, on one plain line, always printed:
+    "orientation_reversed N: <ids> · teams_mismatch_refused M: <ids>" (a count of 0 prints no ids)."""
+    def part(name, ids):
+        return f"{name} {len(ids)}" + (f": {', '.join(str(i) for i in ids)}" if ids else "")
+    return (f"{part('orientation_reversed', result.orientation_reversed)} · "
+            f"{part('teams_mismatch_refused', result.teams_mismatch_refused)}")
 
 
 def names_kept_line(n: int) -> str:
@@ -569,6 +596,14 @@ class IngestionService:
             if match is not None:
                 from src.ingestion.match_dedupe import stamp_rekey
 
+                claimed_sid = (match.external_ids or {}).get(nm.source)
+                nm = self._scores_by_team(match, home.id, away.id, nm, result, comp)
+                if nm is None:                     # neither pair: refused, the row untouched (not re-keyed either)
+                    # #884 review (Codex round 1): _rekey_candidate claimed the row's current id; nothing was re-keyed,
+                    # so the claim is released and a later valid listing for this row in the same run can take it
+                    if claimed_sid:
+                        cache.get("__claimed__", set()).discard(claimed_sid)
+                    return None
                 ext = dict(match.external_ids or {})
                 old = ext.get(nm.source)
                 stamp_rekey(ext, nm.source, old, nm.source_id, "sync")
@@ -585,11 +620,18 @@ class IngestionService:
                 return match
 
         if match:
+            nm = self._scores_by_team(match, home.id, away.id, nm, result, comp)
+            if nm is None:                         # neither pair: refused, the row untouched
+                return None
             self._apply_match_updates(match, nm)
             ext = dict(match.external_ids or {})
             ext[nm.source] = nm.source_id
             if nm.settlement is not None:          # kalshi_tennis only (addendum 269 item 3(b)); None elsewhere
                 ext[SETTLEMENT_KEY] = nm.settlement
+            elif nm.source in SERVED_STATE_SOURCES:
+                ext.pop(SETTLEMENT_KEY, None)      # addendum 288 item 5(b): no settlement served, none kept
+            if nm.kickoff_source is not None:      # kalshi_tennis only (addendum 288 item 1): re-read every sync
+                ext[KICKOFF_KEY] = nm.kickoff_source
             match.external_ids = ext
             result.updated += 1
             return match
@@ -615,7 +657,8 @@ class IngestionService:
             venue=nm.venue,
             referee=nm.referee,
             external_ids={nm.source: nm.source_id,
-                          **({SETTLEMENT_KEY: nm.settlement} if nm.settlement is not None else {})},
+                          **({SETTLEMENT_KEY: nm.settlement} if nm.settlement is not None else {}),
+                          **({KICKOFF_KEY: nm.kickoff_source} if nm.kickoff_source is not None else {})},
         )
         s.add(match)
         if cache is not None and nm.source_id:
@@ -628,9 +671,48 @@ class IngestionService:
         return match
 
     @staticmethod
+    def _scores_by_team(match: Match, home_id: int, away_id: int, nm: NormalizedMatch, result: SyncResult,
+                        comp: Competition) -> NormalizedMatch | None:
+        """SCORES BY TEAM (ARCHITECT 2026-11-08, addendum 292 item 3(a)-(d); #876): the listing `nm` as the update
+        writes it onto the stored `match`, through the one shared helper (src/ingestion/score_orientation.py). The
+        same pair: `nm` itself (today's writes, exactly). The REVERSED pair: a copy with every score field swapped
+        into the stored orientation and full_time_result H<->A, the kickoff and status as served; listed in
+        result.orientation_reversed. NEITHER: None, the caller writes nothing; listed in
+        result.teams_mismatch_refused and counted in `skipped`. The stored home/away is never flipped (item 3(d))."""
+        from dataclasses import replace
+
+        from sqlalchemy.orm import object_session
+
+        from src.ingestion.score_orientation import (MISMATCH, RESULT_FIELD, REVERSED, SAME, SCORE_PAIRS,
+                                                     scores_by_team)
+
+        fields = [f for pair in SCORE_PAIRS for f in pair] + [RESULT_FIELD]
+        verdict, values = scores_by_team((match.home_team_id, match.away_team_id), (home_id, away_id),
+                                         {f: getattr(nm, f) for f in fields})
+        if verdict != SAME and match.id is None:
+            # #884 review (Codex round 1): a row created earlier in this listing (the same id served twice) is cached
+            # unflushed (autoflush=False); flushed here so the receipt lists its id, never None. The create path and
+            # the same-pair path flush nothing new.
+            object_session(match).flush()
+        if verdict == MISMATCH:
+            log.warning("sync_matches(%s): %s id %s REFUSED for match %s — the listing's teams %s/%s are neither the "
+                        "stored pair %s/%s nor its reverse; the row untouched", comp.code, nm.source, nm.source_id,
+                        match.id, home_id, away_id, match.home_team_id, match.away_team_id)
+            result.teams_mismatch_refused.append(match.id)
+            result.skipped += 1
+            return None
+        if verdict == REVERSED:
+            log.warning("sync_matches(%s): %s id %s lists match %s with home/away REVERSED; scores written by team, "
+                        "the stored orientation kept", comp.code, nm.source, nm.source_id, match.id)
+            result.orientation_reversed.append(match.id)
+            return replace(nm, **values)
+        return nm
+
+    @staticmethod
     def _apply_match_updates(match: Match, nm: NormalizedMatch) -> None:
+        served_state = nm.source in SERVED_STATE_SOURCES       # addendum 288 item 5(b): the row as served (tennis)
         match.status = nm.status
-        if nm.status_raw:  # never blank a stored code with an absent one
+        if nm.status_raw or served_state:  # never blank a stored code with an absent one (the served state excepted)
             match.status_raw = nm.status_raw
         # Correct the season if the adapter now reports a different one. This
         # matters for re-syncs that fix a previously mis-stamped season (e.g.
@@ -654,7 +736,9 @@ class IngestionService:
             match.home_score_90 = nm.home_score_90
         if nm.away_score_90 is not None:
             match.away_score_90 = nm.away_score_90
-        if nm.full_time_result is not None:
+        if nm.full_time_result is not None or served_state:
+            # SERVED_STATE_SOURCES: an incoming unsettled or changed result replaces the stored one, None included
+            # (addendum 288 item 5(b); 287 item 2(1)): a retracted settlement never keeps its old winner
             match.full_time_result = nm.full_time_result
         # ARCHITECT 2026-11-07, addendum 286 item 4(c): "on the update path, an incoming SETTLED_SCALAR clears
         # full_time_result explicitly — a SETTLED_SCALAR row carries no winner, ever" (a FINISHED row corrected to a

@@ -19,6 +19,31 @@ How it reads, and where it differs from the NBA's `sync-kalshi-nba` (kalshi_sync
   neither player is refused (PLAYER_NEITHER); naming both (two players stored under one name) is refused
   (PLAYER_BOTH); naming the other side's player is refused (PLAYER_SIDE); another event's row, refused (EVENT_OTHER).
   Never a guess: a refused market is counted and printed, never stored.
+- THEN THE KICKOFF CHECK (ARCHITECT 2026-11-08, addendum 288 item 1: "absent on all four → the row is stored with the
+  conservative UTC+14 instant AND the label START_UNREAD, so it is never captured and the receipt counts it"): a market
+  that passed the player check is kept only when its row's stored kickoff source (external_ids["kalshi_kickoff"],
+  written by the ingestion service from kalshi_tennis on every sync) is a served key, occurrence_datetime or
+  expected_expiration_time. A START_UNREAD row is refused (START_UNREAD_ROW); a row carrying no kickoff source at all
+  (written before this rule) is refused too (KICKOFF_SOURCE_MISSING) until a sync re-reads it; a row carrying a
+  refusal label (ARCHITECT 2026-11-08, addendum 294 item 13(b): the sync that refused the row's event wrote the label
+  there and nothing else) is refused (KICKOFF_REFUSED_ROW) until a sync reads the event again. Counted and printed,
+  never stored.
+- THEN THE SERVED KICKOFF CHECK (288 item 1: "a difference refuses the event with its own label, counted"; "the
+  IN_PLAY refusal fires at the real start"): the stored source says how the row was read at its last sync, not what
+  the venue serves now. A sync that refuses the event writes nothing, so its stored row keeps its last kickoff and
+  source; a start moved between a sync and a capture is not on the row yet. So the kickoff rule is read again over the
+  event's two markets this capture holds, and a placement is kept only when it reads a served start equal to the row's
+  stored kickoff: the rule refusing the event (KICKOFF_REFUSED_NOW), no start served (KICKOFF_UNREAD_NOW), a served
+  start not the stored one (KICKOFF_MOVED) or the capture not holding both markets (KICKOFF_HELD_NOT_TWO) refuse it,
+  counted and printed with both instants (law 4). The capture never moves the row; the next sync does.
+- THE KICKOFF RULE'S COUNT AND THE ALARM (ARCHITECT 2026-11-08, addendum 294 item 9, verbatim: "for the tennis caller
+  only, a row whose stored source is not a served key (START_UNREAD, no source) is not "due", so a run whose every
+  placement is refused by the kickoff rule does not raise "matcher may be broken"; the alarm's text and the shared
+  code's behaviour for the other series unchanged; one receipt line says how many placements the kickoff rule
+  refused"): KICKOFF_RULE_LINE counts every refusal of KICKOFF_RULE_REFUSALS, printed on every run; the shared
+  kalshi_sync._alarm is called with is_due=due_for_alarm, so only a row whose stored source is a served key is due.
+  A row with a served source whose placements the served kickoff check refuses (KICKOFF_MOVED, ...) is still due,
+  as ruled.
 """
 from __future__ import annotations
 
@@ -38,6 +63,28 @@ PLAYER_NEITHER = "the market's yes_sub_title names neither player of the row"
 PLAYER_BOTH = "the market's yes_sub_title names both players of the row"
 PLAYER_SIDE = "the market's yes_sub_title names the other side's player"
 EVENT_OTHER = "the row is another event's (its event ticker differs)"
+START_UNREAD_ROW = "the row's kickoff is START_UNREAD (no start served; addendum 288 item 1): never captured"
+KICKOFF_SOURCE_MISSING = "the row carries no kickoff source (stored before addendum 288 item 1): never captured"
+KICKOFF_REFUSED_ROW = ("the row's stored kickoff source is a refusal label (its last sync refused the event; addendum 294 "
+                       "item 13(b)): never captured until a sync reads the event again")
+CAPTURED_SOURCES = (kt.OCCURRENCE_KEY, kt.EXPIRATION_KEY)        # the served kickoff sources a captured row carries
+# THE SERVED KICKOFF CHECK (served_kickoff_check): the kickoff rule read again over the event's markets this capture
+# holds, so a row is never priced against a kickoff the venue no longer serves (288 item 1). Each refusal is counted
+# and printed; the stored row is never moved from the capture path (a sync re-reads it).
+KICKOFF_REFUSED_NOW = ("the event's open markets now fail the kickoff rule (addendum 288 item 1: the event is "
+                       "refused): never captured")
+KICKOFF_UNREAD_NOW = ("the event's open markets now serve no start on any key (START_UNREAD, addendum 288 item 1): "
+                      "never captured")
+KICKOFF_MOVED = ("the served kickoff differs from the row's stored kickoff (moved since the row was synced; addendum "
+                 "288 item 1): never captured until a sync re-reads the row")
+KICKOFF_HELD_NOT_TWO = ("the capture does not hold both of the event's markets, so its kickoff cannot be read on both "
+                        "(addendum 288 item 1): never captured")
+# Every refusal of the kickoff rule at capture (kickoff_check and served_kickoff_check), counted on one receipt line
+# (ARCHITECT 2026-11-08, addendum 294 item 9: "one receipt line says how many placements the kickoff rule refused").
+KICKOFF_RULE_REFUSALS = (START_UNREAD_ROW, KICKOFF_SOURCE_MISSING, KICKOFF_REFUSED_ROW, KICKOFF_REFUSED_NOW,
+                         KICKOFF_UNREAD_NOW, KICKOFF_MOVED, KICKOFF_HELD_NOT_TWO)
+KICKOFF_RULE_LINE = ("  kickoff rule refused {n} placement(s) (addendum 294 item 9: a row whose stored kickoff source is "
+                     "not a served key is not due for the zero-placement alarm)")
 
 
 def player_check(res: km.Result, games: list) -> km.Result:
@@ -69,9 +116,98 @@ def player_check(res: km.Result, games: list) -> km.Result:
     return res
 
 
+def due_for_alarm(g) -> bool:
+    """The tennis caller's narrowing of the zero-placement alarm's "due" rows (kalshi_sync._alarm's `is_due`).
+    ARCHITECT 2026-11-08, addendum 294 item 9, verbatim: "for the tennis caller only, a row whose stored source is not
+    a served key (START_UNREAD, no source) is not "due", so a run whose every placement is refused by the kickoff rule
+    does not raise "matcher may be broken"". A row counts only when its stored kickoff source is one of
+    CAPTURED_SOURCES; a START_UNREAD row, a row with no source and a row carrying a refusal label (294 item 13(b)) are
+    never captured, so they are not due."""
+    return (getattr(g, "external_ids", None) or {}).get(kt.KICKOFF_EXT_KEY) in CAPTURED_SOURCES
+
+
+def kickoff_check(res: km.Result, games: list) -> km.Result:
+    """The stored-source refusal over the placements left by player_check (module docstring): a placement is kept only
+    when its row's stored kickoff source (external_ids[kalshi_tennis.KICKOFF_EXT_KEY]) is one of CAPTURED_SOURCES. A
+    row carrying no source is KICKOFF_SOURCE_MISSING; a row carrying a refusal label (kalshi_tennis.REFUSAL_LABELS: its
+    last sync refused the event, addendum 294 item 13(b)) is KICKOFF_REFUSED_ROW, one line per event naming the label;
+    any other value (START_UNREAD) is START_UNREAD_ROW. Refusals move a placement to res.refused by reason; nothing is
+    ever moved to another side or row."""
+    by_id = {g.id: g for g in games}
+    keep = {}
+    for (mid, side), mk in res.placed.items():
+        g = by_id.get(mid)
+        src = ((getattr(g, "external_ids", None) or {}) if g is not None else {}).get(kt.KICKOFF_EXT_KEY)
+        why = None
+        if src is None:
+            why = KICKOFF_SOURCE_MISSING
+        elif src in kt.REFUSAL_LABELS:
+            why = KICKOFF_REFUSED_ROW
+            line = f"  ✗ {mk.get('event_ticker')}: {why} · stored: {src}"
+            if line not in res.lines:
+                res.lines.append(line)
+        elif src not in CAPTURED_SOURCES:
+            why = START_UNREAD_ROW
+        if why:
+            res.refused[why] += 1
+            res.why[mk.get("ticker")] = why
+        else:
+            keep[(mid, side)] = mk
+    res.placed = keep
+    return res
+
+
+def served_kickoff_check(res: km.Result, games: list, markets: list) -> km.Result:
+    """THE SERVED KICKOFF CHECK over the placements left by kickoff_check (module docstring): the kickoff rule
+    (kalshi_tennis.kickoff, addendum 288 item 1) read over the event's markets in `markets` (this capture's open read,
+    the two tour series only). A placement is kept only when the capture holds exactly two markets of its event, the
+    rule reads a served start from them, and that start is the row's stored kickoff. Otherwise it is refused, counted,
+    with one line per event naming the rule's label and both instants: KICKOFF_HELD_NOT_TWO, KICKOFF_REFUSED_NOW (the
+    rule refuses the event), KICKOFF_UNREAD_NOW (no start served), KICKOFF_MOVED (a served start that is not the
+    stored one). The stored row is never moved here: the next sync re-reads it (288 item 1: "the row follows it")."""
+    held: dict[str, dict[str, dict]] = {}
+    for m in markets:
+        held.setdefault(str(m.get("event_ticker") or ""), {})[str(m.get("ticker") or "")] = m
+    by_id = {g.id: g for g in games}
+    read: dict[str, tuple] = {}
+    keep = {}
+    for (mid, side), mk in res.placed.items():
+        ev = str(mk.get("event_ticker") or "")
+        g = by_id.get(mid)
+        if ev not in read:
+            mks = list(held.get(ev, {}).values())
+            day = kt.event_day(mk)
+            read[ev] = (None, None) if len(mks) != 2 or day is None else kt.kickoff(mks, day)
+        ko, src = read[ev]
+        stored = getattr(g, "utc_date", None) if g is not None else None
+        why = None
+        if src is None:
+            why = KICKOFF_HELD_NOT_TWO
+        elif ko is None:
+            why = KICKOFF_REFUSED_NOW
+        elif src == kt.START_UNREAD:
+            why = KICKOFF_UNREAD_NOW
+        elif stored != ko:
+            why = KICKOFF_MOVED
+        if why:
+            res.refused[why] += 1
+            res.why[mk.get("ticker")] = why
+            line = (f"  ✗ {ev}: {why} · served: "
+                    + (f"{ko:%Y-%m-%d %H:%M}Z ({src})" if ko is not None and src != kt.START_UNREAD
+                       else str(src or f"{len(held.get(ev, {}))} market(s) of the event held"))
+                    + " · stored: " + (f"{stored:%Y-%m-%d %H:%M}Z" if stored is not None else "none"))
+            if line not in res.lines:
+                res.lines.append(line)
+        else:
+            keep[(mid, side)] = mk
+    res.placed = keep
+    return res
+
+
 def sync_kalshi_tennis(competition_code: str, date_from=None, date_to=None, progress=None, get=None) -> dict:
     """Pull the tour's open markets (to the last page), place them with the shared matcher on the stored rows of the
-    tour's competition, apply the player check, store each placed side as OddsSnapshot(source="kalshi", market="ML").
+    tour's competition, apply the player check, the kickoff check and the served kickoff check, store each placed
+    side as OddsSnapshot(source="kalshi", market="ML").
     Returns a summary dict ({"ok": False, "reason"} on a refusal). `get` is the HTTP layer (tests)."""
     def report(m):
         if progress:
@@ -113,13 +249,18 @@ def sync_kalshi_tennis(competition_code: str, date_from=None, date_to=None, prog
         report(f"  {len(games)} stored {code} rows on the events' days")
         res = km.place(markets, games, now=now, lo=lo, hi=hi, implied_prob=KalshiAdapter.implied_prob)
         res = player_check(res, games)
+        res = kickoff_check(res, games)           # addendum 288 item 1: a START_UNREAD row is never captured
+        res = served_kickoff_check(res, games, markets)   # 288 item 1, read again on the markets in hand
         if outside:
             res.refused[kt.OUTSIDE_SERIES] += outside
         for ln in km.console_lines(res):
             report(ln)
+        kickoff_refused = sum(res.refused.get(r, 0) for r in KICKOFF_RULE_REFUSALS)
+        report(KICKOFF_RULE_LINE.format(n=kickoff_refused))         # 294 item 9: always printed, 0 included
         stored = ks._store(sess, res, now=now, market="ML", implied_prob=KalshiAdapter.implied_prob,
                            yes_quotes=KalshiAdapter.yes_quotes)
-        alarm = ks._alarm(sess, [comp.id], res, markets, now, lo, hi, report)
+        # 294 item 9: a row whose stored kickoff source is not a served key is not due (the tennis caller only)
+        alarm = ks._alarm(sess, [comp.id], res, markets, now, lo, hi, report, is_due=due_for_alarm)
     counts = km.legacy_counts(res)
     return {"ok": True, "series": series, "markets": len(markets), **counts, "stored": stored, "alarm": alarm,
-            "pages": pages}
+            "pages": pages, "kickoff_refused": kickoff_refused}

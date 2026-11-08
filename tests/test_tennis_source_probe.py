@@ -433,7 +433,16 @@ def test_the_lane_is_appended_with_261s_dates_and_no_date_moved():
     assert ln["state"] in rm.STATES and ln["state"] == "to declare"
     # addendum 269 item 5 / 270 item 6 (the records PR): "the 11-14 probe step DONE on the stage-1 receipt"
     assert [(s["owner"], s["due"], s["done"] and s["done"]["date"]) for s in ln["steps"]] == [
-        ("code", "2026-11-14", "2026-11-06"), ("code", "2026-12-12", None), ("operator", "2026-12-28", None)]
+        ("code", "2026-11-14", "2026-11-06"), ("code", "2026-12-12", "2026-11-07"), ("operator", "2026-12-28", None)]
+    # addendum 286 item 4(f): the wiring step DONE EARLY (11-07, #868); its due stays as the record (222 item 3(a));
+    # addendum 287 item 2: the undated step is a live_needs note (the validator has no undated step)
+    assert "#868 merged 2026-11-07" in ln["steps"][1]["done"]["receipt"]
+    assert "the retraction fix; the timer enabled by the architect's block after both" in ln["live_needs"]
+    # addendum 289 item 1(a)-(b): the undated step's text beside 288 item 1's RULED sentences; 288 item 3's clause
+    assert ("the kickoff = the served occurrence_datetime; the retraction fix; the expiration_value shape read; the "
+            "timer enabled by the architect's block after the stored receipt") in ln["live_needs"]
+    assert "RULED: a tennis row's kickoff = the event's occurrence_datetime, as served, UTC;" in ln["live_needs"]
+    assert "This market will close and expire after a winner is declared." in ln["live_needs"]
     # addenda 278 item 1 and 282 item 5: the history-pot step (2027-01-10) removed on 270 item 5, quoted in live_needs
     # (a step is "removed by a quoted ruling", addendum 61 item 4; no moved line, whose now may be null only for
     # earliest_live)

@@ -27,8 +27,9 @@ PL = ("--competition", "PL", "--season", "2026/27")
 # addendum 185 D2, verbatim in part: "THE EXPORT RUNS AS THE LAST STEP OF EVERY EXISTING SOCCER SYNC CHAIN
 # (soccer-friday 14:00Z, soccer-saturday 10:30 London, soccer-morning-after Sun/Mon/Tue 09:50Z, and intl-daily's tail
 # only if a league sync precedes it there — it does not, so not intl-daily) [...] No new timer, no daily league
-# sync"): SHADOW_EXPORT_STEP, bare, is the last step of soccer-prematch (sp-soccer-friday and sp-soccer-saturday) and
-# soccer-morning-after. Bare: no --competition (it binds its own leagues from the registry: PD and each declared one
+# sync"): SHADOW_EXPORT_STEP, bare, is the last step of soccer-prematch (sp-soccer-friday and sp-soccer-saturday) and,
+# after every sync, of soccer-morning-after but for the host's results-tally after it (HOST_TALLY_STEP, addendum 230
+# item 2(b): "as the last step of soccer-morning-after"). Bare: no --competition (it binds its own leagues from the registry: PD and each declared one
 # of the four, R5) and no --hours (its window runs to the next of those three timers' fires plus
 # soccer_expansion.EXPORT_WINDOW_MARGIN, 2 h, so it reaches the next chain's export step: soccer_expansion.
 # next_chain_run; ARCHITECT 2026-10-30 14:50 ET, addendum 188 item 4; each run writes its own new file, never a row
@@ -68,6 +69,32 @@ CFBD_GO_ON = ("addendum 240 item 4(b): the weekly CFBD read's failure is a sync-
 AVAILABILITY_NFLVERSE_STEP = ["availability-nflverse", "--season", "2026"]
 AVAILABILITY_GO_ON = ("addendum 252 item 3(a): the nflverse read's failure is receipted and paged as a sync-step "
                       "failure, stopping nothing")
+
+# soccer-morning-after's LAST step (ARCHITECT 2026-11-03, addendum 230 item 2(b), verbatim in part: "results-tally on
+# the host (DB mode=ro) as the last step of soccer-morning-after, its RESULTS.md and a JSON beside it to the mirror";
+# 248 item 2(c); ARCHITECT 2026-11-08, addendum 289 item 3: "written on the HOST by the morning-after chain and
+# mirrored [...] a file under exports/, the mirror's top-level rule carries it"): exports/RESULTS.md and
+# exports/results_tally.json, the mirror's sp_run push after the step carrying both. After the shadow export, so D2's
+# "after every sync" stands (ARCHITECT 2026-11-08 09:55 ET, addendum 294 item A.2: "230 item 2(b) supersedes 185 D2 on
+# soccer-morning-after ONLY"). A shadow export that exits 2 (D7) no longer blacks out the tally: the chain's `go_on`
+# names it (addendum 294 item A.3, verbatim in part: "build the `go_on` naming `export-soccer-expansion-shadow` with
+# its `go_on_why` [...]; the chain's exit stays the refusal's and OnFailure still pages"), so the refusal is receipted
+# (`continued`: SHADOW_GO_ON), the tally runs, and the chain's exit is the refusal's (sp_run.run_steps).
+# UNMETERED (results-tally is). Never ./RESULTS.md: mlb-morning's H0-9 tally, and sp_deploy's restore of it, unchanged.
+HOST_TALLY_STEP = ["results-tally", "--host-export"]
+SHADOW_GO_ON = ("addendum 294 item A.3: the tally is a read-only record export; a refused shadow league must not black "
+                "out the production record")
+
+# soccer-morning-after's results export (ARCHITECT 2026-11-08 09:55 ET, addendum 294 item D, verbatim in part: "(i)
+# `export-results` gains `--days N`, default 1, which is today's behaviour. For each slate day in the N days ending
+# yesterday, it writes that day's `<sport>_<comp>_results_<day>.json` when the day has at least one graded game.
+# Yesterday's file is always written, as today. (ii) soccer-morning-after passes `--days 7`."). The chain's timer fires
+# Sun/Mon/Tue only, so a Friday game, or a Tuesday-Thursday one, has no next-morning run. With seven days, slate day d
+# is in the window of every run from d+1 to d+7, a span holding one Sunday, one Monday and one Tuesday: each day is
+# read by three runs (Friday 11-06 by Sunday 11-08's, Monday 11-09's and Tuesday 11-10's). THIS chain only:
+# mlb-morning's and soccer-refresh's export-results stay bare (--days 1).
+PL_RESULTS_DAYS = 7
+PL_RESULTS_STEP = ["export-results", "--sport", "soccer", "--competition", "PL", "--days", str(PL_RESULTS_DAYS)]
 
 CUP_SCHEDULE = ("EFL", "CL", "UEL", "FAC")     # intl-daily's cup schedule read (#707), in this order
 COVERAGE_STEP = ["coverage", "--json"]         # intl-daily's LAST step (#805, addendum 225 item 5)
@@ -137,12 +164,15 @@ CHAINS: dict[str, dict] = {
     },
     "soccer-morning-after": {
         "backup": "daily",
+        "go_on": (SHADOW_EXPORT_STEP[0],),   # addendum 294 item A.3: a D7 refusal does not stop the tally
+        "go_on_why": SHADOW_GO_ON,
         "steps": [
             ["sync-matches", *PL],
             *[["sync-matches", *x] for x in EXPANSION],
             ["evaluate", "--sport", "soccer"],
-            ["export-results", "--sport", "soccer", "--competition", "PL"],
-            [*SHADOW_EXPORT_STEP],       # LAST (addendum 185 D2): reads the DB only, after every sync above
+            [*PL_RESULTS_STEP],          # addendum 294 item D(ii): the seven slate days ending yesterday
+            [*SHADOW_EXPORT_STEP],       # after every sync above (addendum 185 D2): reads the DB only
+            [*HOST_TALLY_STEP],          # LAST (addendum 230 item 2(b), 248 item 2(c), 289 item 3): DB mode=ro
         ],
     },
     "soccer-refresh": {  # H0-6: OPERATOR-STARTED ONLY — no timer exists
@@ -251,8 +281,10 @@ CHAINS: dict[str, dict] = {
     #   adapter stamps each row), and a fixed one would drop January's rows after 12-31. The window is three days and
     #   never wider than cli.TENNIS_MAX_WINDOW_DAYS: addendum 270 item 5, "no backfill is scheduled". {yesterday} reads
     #   the results settled since the last run; {tomorrow} gives the window chain the rows it plans from. Each step
-    #   also RE-READS, from the same listing, the stored SCHEDULED rows dated in the TENNIS_MAX_WINDOW_DAYS days before
-    #   {yesterday} (a late settlement; rows only, none created: cli._tennis_reread).
+    #   also RE-READS, from the same listing, the stored SCHEDULED, FINISHED and SETTLED_SCALAR rows dated in the
+    #   TENNIS_MAX_WINDOW_DAYS days before {yesterday} (a late settlement, a retraction or a re-settlement; rows only,
+    #   none created: cli._tennis_reread, addendum 294 item 7), and a refused event's held row takes the refusal label
+    #   and nothing else (cli._tennis_mark_refused, 294 item 13(b)).
     # - THE KALSHI STEPS are `sync-kalshi-atp` and `sync-kalshi-wta` (the shared matcher, then tennis's player check).
     # - NO COVERAGE STEP: intl-daily's 07:20 UTC `coverage --json` is THE coverage write (addendum 274 item 2(2):
     #   "No second writer, ever."); this chain's timer (06:53 UTC) runs before it.

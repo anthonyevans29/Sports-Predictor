@@ -25,7 +25,7 @@ from sqlalchemy import select
 from src.adapters.registry import get_adapter
 from src.db.database import session_scope
 from src.db.schema import Competition, Sport
-from src.ingestion.service import IngestionService
+from src.ingestion.service import IngestionService, SyncResult, scores_by_team_line
 from src.web.guards import require_localhost
 from src.web.jobs import Job, runner
 from src.timeutil import utc_now_naive
@@ -82,6 +82,7 @@ def _job_sync_matches(
         if not is_mlb and utc_now_naive().month < 7:
             current_year -= 1
         totals = {"created": 0, "updated": 0, "skipped": 0}
+        both = SyncResult()                          # addendum 292 item 3(c): the two lists over every season
         for offset in range(seasons):
             year = current_year - offset
             if is_mlb:
@@ -94,16 +95,20 @@ def _job_sync_matches(
             totals["created"] += r.created
             totals["updated"] += r.updated
             totals["skipped"] += r.skipped
+            both.orientation_reversed += r.orientation_reversed
+            both.teams_mismatch_refused += r.teams_mismatch_refused
             if job:
                 job.append_log(
                     f"  created={r.created} updated={r.updated} skipped={r.skipped}"
                 )
+                job.append_log(f"  {scores_by_team_line(r)}")
         return (
             f"created={totals['created']} updated={totals['updated']} "
-            f"skipped={totals['skipped']}"
+            f"skipped={totals['skipped']} {scores_by_team_line(both)}"
         )
     r = service.sync_matches(competition_code, season=season)
-    return f"created={r.created} updated={r.updated} skipped={r.skipped}"
+    # SCORES BY TEAM (ARCHITECT 2026-11-08, addendum 292 item 3(c), #876): the two counts with their match ids
+    return f"created={r.created} updated={r.updated} skipped={r.skipped} {scores_by_team_line(r)}"
 
 
 def _job_sync_stats(*, competition_code: str, season: str, limit: int, **kwargs) -> str:

@@ -788,7 +788,11 @@ def test_185_d2_the_shadow_export_is_the_last_step_of_every_soccer_sync_chain_an
     holders = sorted(n for n, ch in chains.CHAINS.items() if step in (ch.get("steps") or []))
     assert holders == ["soccer-morning-after", "soccer-prematch"]
     for n in holders:
-        assert chains.CHAINS[n]["steps"][-1] == step and chains.CHAINS[n]["steps"].count(step) == 1
+        # soccer-morning-after: the host's results-tally after it (addendum 230 item 2(b): "as the last step of
+        # soccer-morning-after"), so the shadow export is last but for that one read-only step; after every sync still
+        after = [chains.HOST_TALLY_STEP] if n == "soccer-morning-after" else []
+        assert chains.CHAINS[n]["steps"][-1 - len(after):] == [step, *after], n
+        assert chains.CHAINS[n]["steps"].count(step) == 1
     assert "export-soccer-expansion-shadow" in chains.UNMETERED
     timers = _timers()
     runs = {t: u for t, (_, u) in timers.items() if u in {f"sp-chain@{n}.service" for n in holders}}

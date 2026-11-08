@@ -17,14 +17,19 @@ run in this order on the laptop:
        clause from this console (no wording is typed by Code) ·
        THE MAP (269 item 3(b), kalshi_tennis.settle): the projection by our status, every event left SCHEDULED by
        its reason, the events refused as fixtures by their reason ·
+       THE expiration_value SHAPES (ARCHITECT 2026-11-08, addendum 288 item 2(b): "a line per distinct
+       expiration_value SHAPE on the unmapped events (the value verbatim, the count, the 'yes' player beside it for
+       three samples)") of the events left SCHEDULED by WINNER_MISMATCH ·
        GAME COUNTS by the ticker's year (our int-style season; late-December events of the next tour season read as
-       the ticker's year, an open item) · THE TIMES (the kickoff, open for a ruling: every served time key beside the
-       ticker's date, and the open markets already past the stored kickoff) · NULLS · INTEGRITY (out-of-scope series
-       never read).
+       the ticker's year, an open item) · THE TIMES (every served time key beside the ticker's date; the kickoff as
+       RULED, addendum 288 item 1: the counts by kickoff source and the kickoff refusals by label, the events whose
+       kickoff's US Eastern day is not the ticker's date, and the active markets with their stored kickoff, behind or
+       ahead of the run) · NULLS · INTEGRITY (out-of-scope series never read).
   2. STORED (--db COPY, no network): after the first syncs, on a .backup copy outside data/ opened
      mode=ro&immutable=1 (the NBA receipt's guards): counts per season by stored status, status_raw as stored, the
      settlement's truth (FINISHED with a winner and its settlement kept; SETTLED_SCALAR with no winner and its
-     fraction kept), the scores null by ruling (269 item 2: "NULL AND LABELLED"), the players stored.
+     fraction kept), the scores null by ruling (269 item 2: "NULL AND LABELLED"), the rows by stored kickoff source
+     (START_UNREAD counted: addendum 288 item 1, "the receipt counts it"), the players stored.
 
 Exit: 0 every read answered; 1 a call failed; 2 a read REFUSED (a cursor left, a repeated cursor, a series the listing
 does not serve, a --db that is not a fresh copy outside data/). Last line: TENNIS-CERTIFICATION-RECEIPT {json}
@@ -60,6 +65,8 @@ MAX_DISTINCT = 25                                               # distinct texts
 TIME_KEYS = ("occurrence_datetime", "open_time", "close_time", "expected_expiration_time", "expiration_time",
              "latest_expiration_time")
 TIME_SAMPLE = 12                                                # open markets printed with every time key
+SHAPE_SAMPLES = 3            # addendum 288 item 2(b): "the 'yes' player beside it for three samples"
+EMPTY, YES_PLAYER, NO_PLAYER = "empty", "the 'yes' market's player", "the 'no' market's player"
 
 
 def ts(x):
@@ -79,6 +86,47 @@ def v(x) -> str:
 
 def counts(c: Counter) -> str:
     return " · ".join(f"{k}: {n}" for k, n in sorted(c.items(), key=lambda kv: (-kv[1], str(kv[0])))) or "none"
+
+
+def exp_class(raw, yes: str, no: str) -> str:
+    """One market's expiration_value classed as served, WITHOUT inventing semantics (addendum 288 item 2(b); law 1):
+    EMPTY (nothing once stripped: kalshi_tennis.settle reads it as str(value or '').strip()), YES_PLAYER / NO_PLAYER
+    (equal, case-folded, to that market's yes_sub_title player, as settle compares), otherwise the value itself, its
+    repr verbatim (so a repeated token is one shape with its count)."""
+    e = str(raw or "").strip()
+    if not e:
+        return EMPTY
+    if e.casefold() == yes.casefold():
+        return YES_PLAYER
+    if e.casefold() == no.casefold():
+        return NO_PLAYER
+    return repr(raw)
+
+
+def exp_shapes(events) -> tuple[list, int]:
+    """([(shape, events, Counter of the verbatim (yes value, no value) reprs, samples)], events read) over the
+    (event, markets) pairs whose kalshi_tennis.settle reads WINNER_MISMATCH: the shape is the pair (the 'yes' market's
+    class, the 'no' market's class), read from the markets as served. Most events first. Every shape is returned: the
+    caller prints them all (288 item 2(b): "a line per distinct expiration_value SHAPE")."""
+    by: dict = defaultdict(lambda: [0, Counter(), []])
+    n = 0
+    for event, mks in events:
+        if kt.settle(mks).why != kt.WINNER_MISMATCH:
+            continue
+        yes = next((m for m in mks if m.get("result") == kt.RESULT_YES), None)
+        no = next((m for m in mks if m.get("result") == kt.RESULT_NO), None)
+        if yes is None or no is None:
+            continue
+        n += 1
+        py, pn = kt.name_of(yes), kt.name_of(no)
+        ry, rn = yes.get("expiration_value"), no.get("expiration_value")
+        rec = by[(exp_class(ry, py, pn), exp_class(rn, py, pn))]
+        rec[0] += 1
+        rec[1][f"{ry!r} / {rn!r}"] += 1
+        if len(rec[2]) < SHAPE_SAMPLES:
+            rec[2].append((event, py, ry, rn))
+    out = sorted(((k, *r) for k, r in by.items()), key=lambda x: (-x[1], str(x[0])))
+    return out, n
 
 
 def series_entry(get, series: str) -> tuple[dict | None, str]:
@@ -144,8 +192,15 @@ def tour_report(tour: str, adapter, get, say) -> tuple[int, dict]:
         one = next((m for m in markets if m.get("result") == word), None)
         if one is not None:
             say(f"    rules_primary, one market with result {word!r} ({one.get('ticker')}): {v(one.get('rules_primary'))}")
-    say(f"    NOT QUOTED IN CODE: kalshi_tennis.CONTRACT_TERMS_QUOTE is {v(kt.CONTRACT_TERMS_QUOTE)} "
-        "(the map below reads the result word only and infers nothing about retirement, walkover or suspension)")
+    say("    THE QUOTE IN CODE (addendum 288 item 3): kalshi_tennis.CONTRACT_TERMS_QUOTE, verbatim:")
+    for key, text in kt.CONTRACT_TERMS_QUOTE.items():
+        say(f"      {key}: {v(text)}")
+    sec = kt.CONTRACT_TERMS_QUOTE["rules_secondary"]
+    eco = kt.CONTRACT_TERMS_QUOTE["early_close_condition"]
+    say(f"    markets whose rules_secondary carries the quoted clause: "
+        f"{sum(1 for m in markets if sec in str(m.get('rules_secondary') or ''))} of {len(markets)} · whose "
+        f"early_close_condition is the quoted one: {sum(1 for m in markets if m.get('early_close_condition') == eco)} "
+        f"of {len(markets)} (the map below reads the result word only; THE MEANING is in MatchStatus's docstring)")
     # 4. THE MAP ---------------------------------------------------------------------------------------------------
     say("  THE MAP (addendum 269 item 3(b)): 'yes' / 'no' on two 'finalized' markets, expiration_value the 'yes' "
         "market's player -> FINISHED, that player the winner · 'scalar' on both, 'finalized' -> SETTLED_SCALAR, no "
@@ -158,6 +213,23 @@ def tour_report(tour: str, adapter, get, say) -> tuple[int, dict]:
         if fx.settlement.why:
             say(f"      {fx.event}: {fx.settlement.why} · status {fx.settlement.status_raw} · results "
                 f"{v([m.get('result') for m in fx.markets])}")
+    # the accepted events AND the events the kickoff rule refused (never fixtures, so absent from the projection above):
+    # the SHAPES read every unmapped event (288 item 2(b)), and the total reconciles with the map's 106 (2(a))
+    shapes, n_mis = exp_shapes([(fx.event, fx.markets) for fx in lst.fixtures]
+                               + sorted(lst.kickoff_refused_markets.items()))
+    _, n_mis_ko = exp_shapes(sorted(lst.kickoff_refused_markets.items()))
+    say(f"    THE expiration_value SHAPES (addendum 288 item 2(b)) of the events left SCHEDULED by "
+        f"{kt.WINNER_MISMATCH!r}: each event read as the pair (the 'yes' market's value, the 'no' market's), each "
+        f"value classed as served ({EMPTY} · {YES_PLAYER} · {NO_PLAYER} · else the value itself, verbatim); nothing "
+        f"is inferred; every shape printed: {n_mis} event(s) ({n_mis - n_mis_ko} accepted · {n_mis_ko} refused by "
+        f"the kickoff rule, so not in the projection above) · {len(shapes)} shape(s)")
+    for (cy, cn), n, raw, samples in shapes:
+        say(f"      [{n}] yes market: {cy} · no market: {cn}")
+        say("        values verbatim (yes / no): " + " · ".join(f"{k} [{c}]" for k, c in
+                                                             sorted(raw.items(), key=lambda kv: -kv[1])[:MAX_DISTINCT])
+            + (f" · ... {len(raw) - MAX_DISTINCT} more" if len(raw) > MAX_DISTINCT else ""))
+        for ev, py, ry, rn in samples:
+            say(f"        sample {ev}: the 'yes' market's player {py!r} · expiration_value {ry!r} / {rn!r}")
     scal = [fx for fx in lst.fixtures if fx.settlement.status == MatchStatus.SETTLED_SCALAR]
     vals = Counter(str(s.get("settlement_value_dollars")) for fx in scal for s in fx.settlement.served.values())
     say(f"    SETTLED_SCALAR events: {len(scal)} · their markets' settlement values: {sum(vals.values())} kept, "
@@ -173,10 +245,10 @@ def tour_report(tour: str, adapter, get, say) -> tuple[int, dict]:
         "season, so a late-December event of the next tour season reads as the ticker's year)")
     for y in sorted(by_year):
         say(f"    {y}: {sum(by_year[y].values())} · {counts(by_year[y])}")
-    # 5b. THE TIMES (the kickoff, open for a ruling) ---------------------------------------------------------------
+    # 5b. THE TIMES (the kickoff, RULED: addendum 288 item 1) --------------------------------------------------------
     now = datetime.now(timezone.utc).replace(tzinfo=None)
-    say(f"  THE TIMES (the kickoff is OPEN for a ruling; stored now: {kt.KICKOFF_LABEL}); offsets in hours from 00:00 "
-        "UTC of the ticker's date")
+    say(f"  THE TIMES (the kickoff RULED, addendum 288 item 1: {kt.KICKOFF_LABEL}; {kt.START_UNREAD_LABEL}); offsets in "
+        "hours from 00:00 UTC of the ticker's date")
     day_of = {m.get("ticker"): fx.day for fx in lst.fixtures for m in fx.markets}
     times_out = {}
     for key in TIME_KEYS:
@@ -189,12 +261,33 @@ def tour_report(tour: str, adapter, get, say) -> tuple[int, dict]:
         say(f"    {key}: served on {len(served)} of {len(markets)} markets · offsets (h: markets) "
             + (" · ".join(f"{h:+d}: {n}" for h, n in sorted(offs.items(), key=lambda kv: -kv[1])[:10]) or "none"))
         times_out[key] = len(served)
+    src = Counter({k: lst.kickoff_sources.get(k, 0) for k in kt.KICKOFF_SOURCES})
+    say(f"    THE STORED KICKOFF by source (accepted events): {counts(src)}")
+    labels = [r for rs in kt.KICKOFF_REFUSALS.values() for r in rs]
+    ko_ref = Counter({r: lst.refused[r] for r in labels if lst.refused.get(r)})
+    say(f"    events REFUSED by the kickoff rule (never a fixture), by label: {counts(ko_ref)}")
+    for ev, r in sorted(lst.refused_events.items()):
+        if r in labels:
+            say(f"      {ev}: {r}")
+    from src.ingestion.kalshi_match import et_day
+    off_day = [fx for fx in lst.fixtures if fx.kickoff_source != kt.START_UNREAD and et_day(fx.kickoff) != fx.day]
+    say(f"    accepted events whose served kickoff's US Eastern day is NOT the ticker's date (288 item 1: \"The coverage "
+        f"day is the ET day of the kickoff, which is the ticker's date\"): {len(off_day)}")
+    for fx in off_day[:TIME_SAMPLE]:
+        say(f"      {fx.event}: ticker date {fx.day} · kickoff {fx.kickoff:%Y-%m-%d %H:%M}Z ({fx.kickoff_source}) · "
+            f"US Eastern day {et_day(fx.kickoff)}")
     live = [(fx, m) for fx in lst.fixtures for m in fx.markets if str(m.get("status")) == "active"]
-    past = [m.get("ticker") for fx, m in live if kt.kickoff_utc(fx.day) <= now]
-    say(f"    active markets: {len(live)} · already past the stored kickoff at this run (the capture refuses them as "
-        f"in play): {len(past)}")
+    # three counts that partition the active markets: a served kickoff ahead of the run, a served kickoff already past,
+    # a START_UNREAD row (never captured, whatever its UTC+14 instant)
+    unread = [m.get("ticker") for fx, m in live if fx.kickoff_source == kt.START_UNREAD]
+    past = [m.get("ticker") for fx, m in live if fx.kickoff_source != kt.START_UNREAD and fx.kickoff <= now]
+    ahead = [m.get("ticker") for fx, m in live if fx.kickoff_source != kt.START_UNREAD and fx.kickoff > now]
+    say(f"    active markets: {len(live)} · a served kickoff ahead of this run: {len(ahead)} · a served kickoff already "
+        f"past it (the capture refuses them as in play): {len(past)} · on a START_UNREAD row (never captured, its "
+        f"UTC+14 instant ahead or not): {len(unread)}")
     for fx, m in live[:TIME_SAMPLE]:
-        say(f"      {m.get('ticker')} · ticker date {fx.day} · stored kickoff {kt.kickoff_utc(fx.day):%Y-%m-%d %H:%M}Z · "
+        say(f"      {m.get('ticker')} · ticker date {fx.day} · stored kickoff {fx.kickoff:%Y-%m-%d %H:%M}Z "
+            f"({fx.kickoff_source}; {'ahead of' if fx.kickoff > now else 'past'} this run) · "
             + " · ".join(f"{k} {v(m.get(k, '<not served>'))}" for k in TIME_KEYS))
     if len(live) > TIME_SAMPLE:
         say(f"      ... {len(live) - TIME_SAMPLE} more active market(s), not printed")
@@ -203,7 +296,8 @@ def tour_report(tour: str, adapter, get, say) -> tuple[int, dict]:
     say("  NULLS")
     say(f"    FINISHED with no winner: {len(no_winner)} (must read 0)")
     say(f"    {kt.SCORES_NULL_LABEL}: every row")
-    say(f"    {kt.KICKOFF_LABEL}")
+    say(f"    START_UNREAD (the stored kickoff is the UTC+14 instant, the row never captured; 288 item 1): "
+        f"{lst.kickoff_sources.get(kt.START_UNREAD, 0)} of {len(lst.fixtures)} accepted events")
     # 7. INTEGRITY -------------------------------------------------------------------------------------------------
     names = defaultdict(set)
     for fx in lst.fixtures:
@@ -219,7 +313,10 @@ def tour_report(tour: str, adapter, get, say) -> tuple[int, dict]:
                scheduled_why=dict(why), refused=dict(lst.refused), status_words=dict(lst.status_words),
                result_words=dict(lst.result_words), finished_no_winner=len(no_winner), players=len(names),
                by_year={y: dict(c) for y, c in by_year.items()}, time_keys_served=times_out,
-               active=len(live), active_past_kickoff=len(past))
+               active=len(live), active_past_kickoff=len(past), active_ahead=len(ahead),
+               active_start_unread=len(unread), kickoff_sources=dict(src),
+               kickoff_refused=dict(ko_ref), kickoff_et_day_not_ticker=len(off_day),
+               winner_mismatch_events=n_mis, winner_mismatch_kickoff_refused=n_mis_ko, exp_shapes=len(shapes))
     return OK, out
 
 
@@ -306,12 +403,17 @@ def stored_phase(db: str, tours: list[str], say) -> tuple[int, dict]:
             for label, ids in checks.items():
                 say(f"    {label}: {len(ids)} (must read 0: TRUE ZERO)" + (f": match {', '.join(map(str, ids[:20]))}" if ids else ""))
 
+            kos = Counter(str(ext(r).get(kt.KICKOFF_EXT_KEY) or "<none stored>") for r in ss)
+            say(f"    by stored kickoff source (external_ids[{kt.KICKOFF_EXT_KEY!r}], addendum 288 item 1; START_UNREAD "
+                f"rows are never captured): {counts(kos)}")
+
             def utc(x):
                 return datetime.fromisoformat(str(x)[:19]) if x else None
             late = [r[0] for r in ss if r[2] == MatchStatus.SCHEDULED.name and utc(r[4]) and utc(r[4]) < now - timedelta(days=2)]
             say(f"    SCHEDULED with a stored kickoff more than 2 days before this run (unsettled, or settled after "
                 f"the chain's window): {len(late)}")
             rep["seasons"][season] = {"rows": len(ss), "by_status": dict(st), "late_scheduled": len(late),
+                                      "kickoff_sources": dict(kos),
                                       **{k: len(i) for k, i in checks.items()}}
         out["tours"][tour] = rep
     return OK, out

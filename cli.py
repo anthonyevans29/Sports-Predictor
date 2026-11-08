@@ -243,12 +243,16 @@ def _tennis_sync_matches(service, competition_code, season, seasons, date_from, 
       itself; a ONE-TIME read-only backfill of the 2026 season's settled markets [...] is possible on the day a model
       lane asks for it, by a block of mine, and not before — no model lane exists, so no backfill is scheduled." A
       season-wide or open-ended tennis sync would be that backfill.
-    - THE RE-READ (late settlements): after the window, every STORED SCHEDULED row of the tour whose event's ticker day
-      is in the TENNIS_MAX_WINDOW_DAYS days before --date-from is re-read from the SAME listing (no further call) and
-      written when its settlement has moved. It updates rows already stored and creates none (so it is no backfill,
-      270 item 5): an event settled after the chain's next-day run is not left SCHEDULED by the window alone (K3:
-      "result '' on the 10 ATP markets closed but not yet settled"). A row older than that stays SCHEDULED and is
-      counted by the receipt's stored phase.
+    - THE RE-READ (late settlements, retractions and re-settlements): after the window, every STORED SCHEDULED, FINISHED
+      or SETTLED_SCALAR row of the tour (addendum 294 item 7) whose event's ticker day is in the TENNIS_MAX_WINDOW_DAYS
+      days before --date-from is re-read from the SAME listing (no further call) and written as served. It updates rows
+      already stored and creates none (so it is no backfill, 270 item 5): an event settled after the chain's next-day
+      run is not left SCHEDULED by the window alone (K3: "result '' on the 10 ATP markets closed but not yet
+      settled"), and a settlement the venue retracts or re-settles after the window reaches the row (287 item 2(1)). A
+      row older than that is not re-read; a SCHEDULED one is counted by the receipt's stored phase.
+    - A REFUSED EVENT'S STORED ROW (addendum 294 item 13(b); _tennis_mark_refused): an event the listing refuses, held
+      by a stored row dated in the window or the re-read's lookback, has its refusal label written to the row's
+      external_ids["kalshi_kickoff"] and nothing else, counted with the match ids; the capture never prices it.
     - A paging refusal (a cursor left, 269 item 3(d)) writes nothing and exits 1 with its reason."""
     from datetime import date as _date
 
@@ -285,39 +289,150 @@ def _tennis_sync_matches(service, competition_code, season, seasons, date_from, 
           f"{len(lst.fixtures)} events accepted · refused {dict(lst.refused) or 'none'}", flush=True)
     console.print(f"[green]✓ Matches ({code}): {result}[/green]")
     _print_skipped_listings(result)
+    _print_scores_by_team(result)
     _tennis_reread(service, code, season, lst, date_from)
+    _tennis_mark_refused(code, lst, date_from, date_to)
     if named is not None:
-        missing = sorted(named - held)
+        refused, missing = _strict_split(result, named, sorted(named - held))
         if missing:
             print(f"✗ STRICT: {len(missing)} of {len(named)} named game(s) not in the listing ({code} "
                   f"{date_from}..{date_to}): " + ", ".join(f"match {m}" for m in missing), flush=True)
+        _print_strict_refused(refused, named)
+        if missing or refused:
             raise SystemExit(1)
 
 
+# THE RE-READ's statuses (ARCHITECT 2026-11-08, addendum 294 item 7, verbatim: "`_tennis_reread` extends to stored
+# FINISHED and SETTLED_SCALAR rows in the same 7-day lookback, served from the listing already read (no new call, no new
+# row; 270 item 5 stands)"): every status the tennis map writes (kalshi_tennis.settle).
+TENNIS_REREAD_STATUSES = (MatchStatus.SCHEDULED, MatchStatus.FINISHED, MatchStatus.SETTLED_SCALAR)
+
+
+def _tennis_rows(code, statuses=None) -> dict:
+    """{event ticker: (match id, status, full_time_result, the stored settlement receipt)} for the stored rows of
+    `code` that carry the tennis source's event ticker, `statuses` only when given. Reads; writes nothing."""
+    from src.adapters.kalshi_tennis import SOURCE as _SRC
+    from src.ingestion.service import SETTLEMENT_KEY as _SET
+    q = select(Match).join(Competition, Competition.id == Match.competition_id).where(Competition.code == code)
+    if statuses is not None:
+        q = q.where(Match.status.in_(list(statuses)))
+    with session_scope() as s:
+        return {str(ext[_SRC]): (m.id, m.status, m.full_time_result, ext.get(_SET))
+                for m in s.execute(q).scalars() for ext in [m.external_ids or {}] if ext.get(_SRC)}
+
+
 def _tennis_reread(service, code, season, lst, date_from) -> None:
-    """THE RE-READ of _tennis_sync_matches (its docstring): the stored SCHEDULED rows of `code` whose event's ticker
-    day is in [date_from - TENNIS_MAX_WINDOW_DAYS, date_from), written again from the listing already read. Rows only
-    (no new row, no new player); prints its count, always."""
+    """THE RE-READ of _tennis_sync_matches (its docstring): the stored SCHEDULED, FINISHED and SETTLED_SCALAR rows of
+    `code` (TENNIS_REREAD_STATUSES, addendum 294 item 7) whose event's ticker day is in
+    [date_from - TENNIS_MAX_WINDOW_DAYS, date_from), written again from the listing already read: each row takes its
+    served state (addendum 288 item 5(b); 287 item 2(1): a retracted settlement clears full_time_result and the stored
+    settlement receipt, a changed one replaces them). Rows only (no new row, no new player, no new call); prints its
+    count, always: the rows re-read by their stored status, the SCHEDULED rows settled since, and the FINISHED or
+    SETTLED_SCALAR rows the venue has retracted or changed (status, winner or settlement receipt not as stored). With
+    --season, a held row whose ticker year is not the season is not re-read (the adapter writes that season's events
+    only) and not counted re-read: the line names it "not re-read (outside --season)" (law 2); the next run without
+    --season (the daily chain) re-reads it. A due row the re-read's sync does NOT write (Codex on #887: its listing
+    names a player not stored, SyncResult.skipped_ids by event ticker, since the window's sync_teams adds no lookback
+    player; or a pair neither stored nor reversed, teams_mismatch_refused by match id) is not counted re-read, never
+    enters "settled since" or "retracted or changed" (its before-state never stands in for the unread row), and is
+    named with its reason: "N not re-read (player not stored / teams refused): <event> (<reason>)", printed always,
+    after the other segments (law 2)."""
+    from collections import Counter as _Counter
     from datetime import date as _date, timedelta as _td
 
-    from src.adapters.kalshi_tennis import SOURCE as _SRC
     lo = _date.fromisoformat(date_from) - _td(days=TENNIS_MAX_WINDOW_DAYS)
     hi = _date.fromisoformat(date_from)
-    with session_scope() as s:
-        stored = {str((m.external_ids or {}).get(_SRC)) for m in s.execute(
-            select(Match).join(Competition, Competition.id == Match.competition_id)
-            .where(Competition.code == code, Match.status == MatchStatus.SCHEDULED)).scalars()
-            if (m.external_ids or {}).get(_SRC)}
-    due = {fx.event for fx in lst.fixtures if fx.event in stored and lo <= fx.day < hi}
-    moved = sorted(fx.event for fx in lst.fixtures if fx.event in due and fx.settlement.status != MatchStatus.SCHEDULED)
+    from src.adapters.kalshi_tennis import in_window as _in_window
+    before = _tennis_rows(code, TENNIS_REREAD_STATUSES)
+    held = {fx.event: fx.day for fx in lst.fixtures if fx.event in before and lo <= fx.day < hi}
+    # --season: the adapter's re-read writes only the events of that ticker year (KalshiTennisAdapter.list_matches:
+    # in_window(fx.day, season, None, None)), so a held row of another year is NOT re-read and is not counted re-read;
+    # it is named on the line (law 2: a row this run does not write is never claimed re-read)
+    due = {ev for ev, day in held.items() if _in_window(day, season, None, None)}
+    off_season = sorted(set(held) - due)
+    reread = None
     if due:
         service.adapter.events = due
         try:
-            service.sync_matches(code, season=season)
+            reread = service.sync_matches(code, season=season)
         finally:
             service.adapter.events = None
-    print(f"  {code} re-read (stored SCHEDULED rows dated {lo}..{hi - _td(days=1)}, no new row): {len(due)} re-read · "
-          f"{len(moved)} settled since" + (f": {', '.join(moved[:10])}" if moved else ""), flush=True)
+    after = _tennis_rows(code) if due else {}
+    # Codex on #887 (cli.py:362): only the rows the sync WROTE are re-read. A fixture skipped for a player not stored
+    # is reported by its source id (the event ticker), a refused pair by the stored match id; neither row is written
+    skipped_ev = {str(i) for i in (getattr(reread, "skipped_ids", None) or [])}
+    refused_mid = set(getattr(reread, "teams_mismatch_refused", None) or [])
+    unwritten = {}
+    for ev in due:
+        if ev in skipped_ev:
+            unwritten[ev] = "player not stored"
+        elif before[ev][0] in refused_mid:
+            unwritten[ev] = "teams refused"
+        elif ev not in after:
+            unwritten[ev] = "row not found after the sync"       # never read from its before-state
+    written = sorted(set(due) - set(unwritten))
+    was = _Counter(before[ev][1] for ev in written)
+    settled = sorted(ev for ev in written if before[ev][1] == MatchStatus.SCHEDULED
+                     and after[ev][1] != MatchStatus.SCHEDULED)
+    changed = sorted(ev for ev in written if before[ev][1] != MatchStatus.SCHEDULED
+                     and after[ev][1:] != before[ev][1:])
+    print(f"  {code} re-read (stored SCHEDULED, FINISHED and SETTLED_SCALAR rows dated {lo}..{hi - _td(days=1)}, no new "
+          f"row): {len(written)} re-read (" + ", ".join(f"{st.name} {was.get(st, 0)}" for st in TENNIS_REREAD_STATUSES)
+          + f") · {len(settled)} settled since" + (f": {', '.join(settled[:10])}" if settled else "")
+          + f" · {len(changed)} retracted or changed" + (f": {', '.join(changed)}" if changed else "")
+          + (f" · {len(off_season)} not re-read (outside --season {season})"
+             + (f": {', '.join(off_season)}" if off_season else "") if season else "")
+          + f" · {len(unwritten)} not re-read (player not stored / teams refused)"
+          + (": " + ", ".join(f"{ev} ({why})" for ev, why in sorted(unwritten.items())) if unwritten else ""),
+          flush=True)
+
+    if hasattr(reread, "orientation_reversed") and hasattr(reread, "teams_mismatch_refused"):
+        from src.ingestion.service import scores_by_team_line    # addendum 292 item 3(c): the re-read's sync too
+        print(f"  {code} re-read: {scores_by_team_line(reread)}", flush=True)
+
+
+def _tennis_mark_refused(code, lst, date_from, date_to) -> None:
+    """A REFUSED EVENT'S STORED ROW (ARCHITECT 2026-11-08, addendum 294 item 13, verbatim: "RULED — option (b) in
+    tennis-D: a sync that refuses an event the row holds writes the refusal label into external_ids["kalshi_kickoff"]
+    and nothing else (status, winner and receipt stay — law 4), counted; the retraction-under-refusal gap is a KNOWN
+    LIMITATION on #838 (an event the venue serves inconsistently waits for the venue to serve it readably). Option (c)
+    is REFUSED: it would decide stored state from a listing the rule could not read."). Every event this listing
+    refused (Listing.refused_events, its label) and did not also accept (an event with a stray market outside the
+    series is accepted from its two markets: not refused, never labelled) whose ticker day is in the run's reach,
+    [date_from - TENNIS_MAX_WINDOW_DAYS, date_to] (the window and the re-read's lookback; --season is not applied,
+    an OPEN ITEM), and that a stored row of `code` holds:
+    the row's external_ids[KICKOFF_EXT_KEY] takes the label, NOTHING else on the row is written (utc_date, status,
+    status_raw, full_time_result and the settlement receipt stay). The capture then refuses the row
+    (tennis_kalshi.kickoff_check: KICKOFF_REFUSED_ROW) until a sync reads the event again and rewrites its source. Never
+    a new row. Prints its count with the match ids, always."""
+    from datetime import date as _date, timedelta as _td
+
+    from src.adapters import kalshi_tennis as _kt
+    lo = _date.fromisoformat(date_from) - _td(days=TENNIS_MAX_WINDOW_DAYS)
+    hi = _date.fromisoformat(date_to)
+    # an event this listing ACCEPTED is never labelled: build() keys a stray market's OUTSIDE_SERIES refusal by its
+    # event ticker when that ticker is in the series, and still accepts the event from its two markets (294 item 13(b)
+    # labels "a sync that refuses an event the row holds"; an accepted event is not refused)
+    accepted = {fx.event for fx in lst.fixtures}
+    reach = {}
+    for ev, why in lst.refused_events.items():
+        day = _kt.event_day({"event_ticker": ev})
+        if ev not in accepted and day is not None and lo <= day <= hi:
+            reach[ev] = why
+    marked = []
+    if reach:
+        with session_scope() as s:
+            for m in s.execute(select(Match).join(Competition, Competition.id == Match.competition_id)
+                               .where(Competition.code == code)).scalars():
+                ext = m.external_ids or {}
+                ev = str(ext.get(_kt.SOURCE) or "")
+                if ev in reach:
+                    m.external_ids = {**ext, _kt.KICKOFF_EXT_KEY: reach[ev]}
+                    marked.append((m.id, ev, reach[ev]))
+    marked.sort()
+    print(f"  {code} refused events held by stored rows (dated {lo}..{hi}; the refusal label written to "
+          f"external_ids[{_kt.KICKOFF_EXT_KEY!r}], nothing else on the row; addendum 294 item 13(b)): {len(marked)}"
+          + "".join(f" · match {mid} ({ev}: {why})" for mid, ev, why in marked), flush=True)
 
 
 def _print_skipped_listings(result) -> None:
@@ -331,6 +446,31 @@ def _print_skipped_listings(result) -> None:
     if ids:
         from src.ingestion.service import skipped_listings_line
         print(skipped_listings_line(ids), flush=True)
+
+
+def _print_scores_by_team(result) -> None:
+    """SCORES BY TEAM (ARCHITECT 2026-11-08, addendum 292 item 3(c), #876): "two new counts on the sync result and its
+    printed receipt, each with the match ids LISTED: `orientation_reversed` and `teams_mismatch_refused`". Printed
+    plainly on its own line (never rich-wrapped), always, zero counts included; nothing when the result carries no
+    SyncResult lists (a test's stand-in service)."""
+    if hasattr(result, "orientation_reversed") and hasattr(result, "teams_mismatch_refused"):
+        from src.ingestion.service import scores_by_team_line
+        print(scores_by_team_line(result), flush=True)
+
+
+def _strict_split(result, named, missing) -> tuple[list, list]:
+    """--match-ids (addendum 292 item 3(c)): a named row whose listing was REFUSED (the listing's pair neither the
+    stored pair nor its reverse) WAS in the provider's answer; it is split out of `missing` and printed with its own
+    label (_print_strict_refused), never as absent. (refused, still missing), both sorted."""
+    refused_ids = set(getattr(result, "teams_mismatch_refused", None) or [])
+    return sorted(m for m in missing if m in refused_ids), sorted(m for m in missing if m not in refused_ids)
+
+
+def _print_strict_refused(refused, named) -> None:
+    if refused:
+        print(f"✗ STRICT: {len(refused)} of {len(named)} named game(s) REFUSED (the listing's teams are neither the "
+              f"stored pair nor its reverse; the row untouched): " + ", ".join(f"match {m}" for m in refused),
+              flush=True)
 
 
 @cli.command("sync-matches")
@@ -389,6 +529,7 @@ def sync_matches_cmd(
             result = service.sync_matches(competition_code, season=season_str)
             console.print(f"  {result}")
             _print_skipped_listings(result)
+            _print_scores_by_team(result)
         return
 
     def _progress(msg):
@@ -401,6 +542,7 @@ def sync_matches_cmd(
     )
     console.print(f"[green]✓ Matches ({competition_code}): {result}[/green]")
     _print_skipped_listings(result)
+    _print_scores_by_team(result)
     if named is not None:
         # A1 (addendum 23): "exits non-zero unless the provider's answer held every one of them." Printed plainly
         # (never rich-wrapped) so the closing run's receipt tail has it.
@@ -408,10 +550,13 @@ def sync_matches_cmd(
         # #570 (addendum 106 item 3): where the adapter cannot send a range, the label says what was read instead
         range_note = getattr(service.adapter, "range_note", None)
         note = range_note(season, date_from, date_to) if range_note else None
+        refused, missing = _strict_split(result, named, missing)
         if missing:
             print(f"✗ STRICT: {len(missing)} of {len(named)} named game(s) not in the provider's answer "
                   f"({competition_code} {date_from or ''}..{date_to or ''}{f': {note}' if note else ''}): "
                   + ", ".join(f"match {m}" for m in missing), flush=True)
+        _print_strict_refused(refused, named)
+        if missing or refused:
             raise SystemExit(1)
         print(f"✓ the provider's answer held all {len(named)} named game(s)" + (f" ({note})" if note else ""),
               flush=True)
@@ -1646,6 +1791,8 @@ def intl_sync_cmd(since, max_calls, dry_run, save, from_dir):
                f"matches: {r['matches']}")
     if r.get("names_kept_line"):              # #764 (addendum 206 item 2(i)): a history listing keeps current names
         click.echo(f"  {r['names_kept_line']}")
+    if r.get("scores_by_team_line"):          # addendum 292 item 3(c): always, zero counts included
+        click.echo(f"  {r['scores_by_team_line']}")
     click.echo("  neutral_derived: " + " · ".join(f"{k} {v}" for k, v in sorted(r["neutral"].items())))
     click.echo(f"  RULE: {ih.NEUTRAL_RULE}")
     if not dry_run:
@@ -5317,11 +5464,36 @@ def export_nfl_results_cmd(days_back, match_ids):
 
 @cli.command("results-tally")
 @click.option("--days", default=30, type=int, help="Rolling window size.")
-def results_tally_cmd(days):
-    """Regenerate RESULTS.md — rolling per-sport record."""
+@click.option("--host-export", is_flag=True, default=False,
+              help="THE HOST'S EXPORT (addendum 289 item 3; 230 item 2(b)): write exports/RESULTS.md and "
+                   "exports/results_tally.json beside it (never the repo's RESULTS.md), every section reading the DB "
+                   "mode=ro. Host only: refused (exit 2) on any other machine, nothing read or written.")
+def results_tally_cmd(days, host_export):
+    """Regenerate RESULTS.md — rolling per-sport record.
+    --host-export (ARCHITECT 2026-11-08, addendum 289 item 3: "results-tally's RESULTS.md and its JSON written on the
+    HOST by the morning-after chain and mirrored, so the compare morning reads one tally per machine (the laptop's is
+    regenerated; the host's is the record of production) — read-only on the DB, a file under exports/, the mirror's
+    top-level rule carries it"): the last step of soccer-morning-after (deploy/hosting/chains.py). The same tally,
+    written to exports/RESULTS.md with the host's header line and exports/results_tally.json (kind results_tally_v1:
+    each section's title, its lines verbatim and the figures its computation returned), both by a temporary name and
+    a rename; the database read mode=ro by every section (database.readonly_binding), a missing file refused (exit 2),
+    never created. REFUSED (exit 2) before any read unless this machine's role is host (desk_policy.not_host_reason,
+    the shadow export's fence). Without it, unchanged: the repo's RESULTS.md, the laptop's regenerated tally."""
     from src.db.database import ReadOnlyRefused
-    from src.walters.export import results_tally
+    from src.walters.export import host_results_tally, results_tally
+    if host_export:
+        from src.walters import desk_policy as _dp
+        why = _dp.not_host_reason()
+        if why is not None:
+            click.echo(f"REFUSED: results-tally --host-export runs on the host only (ARCHITECT 2026-11-08, addendum 289 "
+                       f"item 3: the host's tally is the record of production; the laptop's is regenerated): {why}. "
+                       "Nothing was read or written.")
+            raise SystemExit(2)
     try:
+        if host_export:
+            md, js = host_results_tally(days=days, report=click.echo)
+            console.print(f"[green]✓ Wrote {md} and {js}[/green]")
+            return
         path = results_tally(days=days, report=click.echo)
     except ReadOnlyRefused as e:          # #706: the DB is read mode=ro; a missing file is refused, never created
         click.echo(str(e))
@@ -7121,7 +7293,8 @@ def export_soccer_expansion_shadow_cmd(hours):
     exists, or a write that fails, is refused (exit 2, nothing written under the name), never overwritten.
     THE SCHEDULE (ARCHITECT 2026-10-30 12:45 ET, addendum 185 D2): the LAST step of the soccer sync chains
     (deploy/hosting/chains.py: soccer-prematch, run by sp-soccer-friday and sp-soccer-saturday, and
-    soccer-morning-after), run bare: its rows are the fixtures kicking off after the run and before the next chain's
+    soccer-morning-after, where it is last but for `results-tally --host-export`, addendum 230 item 2(b); still after
+    every sync), run bare: its rows are the fixtures kicking off after the run and before the next chain's
     export (soccer_expansion.next_chain_run, from the three timers' schedules, plus EXPORT_WINDOW_MARGIN = 2 h: Code's
     reading of "before the next chain's", ruled by addendum 188 item 4). --hours is a manual run's explicit override.
     REFUSED (exit 2) before any DB read, nothing read or written, unless this machine's role
@@ -7133,7 +7306,9 @@ def export_soccer_expansion_shadow_cmd(hours):
     stands (184 item 1); the export is the chain's LAST step so the syncs before it complete; the other leagues' rows
     are written before the refusal exits; the chain's failure page is the signal and the label is placed by a receipt
     PR the same day (as the cup timer's REFUSED rows are handled). No daily failure is tolerated for more than one
-    chain run: a label unplaced on the second run is a finding Issue." A refused league (its binding, F3, or a league
+    chain run: a label unplaced on the second run is a finding Issue." (On soccer-morning-after the host's
+    `results-tally --host-export` follows it, addendum 230 item 2(b); the syncs still run before the export.) A refused
+    league (its binding, F3, or a league
     this DB does not store) exits 2 after the file is written; the closing line names the leagues that were exported,
     or says none was."""
     from src.walters import desk_policy as _dp
@@ -9571,6 +9746,20 @@ def _redated_lines(rows) -> None:
         print(f"    match {r.get('match_id')} {r.get('away_team')} @ {r.get('home_team')}: {r['redated']}")
 
 
+def _results_yesterday():
+    """export-results' default day: yesterday by this machine's clock (`date.today()`), exactly as before #883. One
+    seam, so a test can fix the clock; nothing else reads it."""
+    from datetime import date as _date, timedelta
+    return _date.today() - timedelta(days=1)
+
+
+# ARCHITECT 2026-11-08 09:55 ET, addendum 294 item D(i) (#883): "`export-results` gains `--days N`, default 1, which is
+# today's behaviour. For each slate day in the N days ending yesterday, it writes that day's
+# `<sport>_<comp>_results_<day>.json` when the day has at least one graded game. Yesterday's file is always written, as
+# today."
+RESULTS_DAYS_DEFAULT = 1
+
+
 @cli.command("export-results")
 @click.option("--sport", type=click.Choice(["mlb", "baseball", "soccer"]), default="mlb")
 @click.option("--competition", "competition_code", default="MLB")
@@ -9579,22 +9768,74 @@ def _redated_lines(rows) -> None:
                    "run just evaluated).")
 @click.option("--out", "out_path", default=None,
               help="File path. Defaults to exports/<sport>_results_<date>.json.")
-def export_results_cmd(sport, competition_code, date_str, out_path):
+@click.option("--days", "days", default=RESULTS_DAYS_DEFAULT, show_default=True, type=click.IntRange(min=1),
+              help="The N slate days ending yesterday (addendum 294 item D, #883): each earlier day's file is written "
+                   "when the day has at least one graded game; yesterday's always, as with 1. 1 = yesterday only. "
+                   "Above 1, --date and --out refuse (exit 2, nothing written).")
+def export_results_cmd(sport, competition_code, date_str, out_path, days):
     """
     Export yesterday's GRADED games (prediction + actual outcome + how it graded)
     as a JSON file for the external prediction model to consume. Backward-looking
     companion to export-predictions. Run after evaluate in the morning chain.
+
+    --days N (addendum 294 item D, #883): the N slate days ending yesterday. An
+    earlier day's file is written (its own name, <sport>_<comp>_results_<day>.json,
+    rewritten in place) when that day has at least one graded game; yesterday's is
+    always written, as today. The days are written oldest first, yesterday last.
     """
-    from datetime import datetime, timedelta, date as _date
-    from pathlib import Path
-    from src.walters.export import export_results
+    from datetime import datetime, timedelta
     from src.db.schema import Sport
+
+    if days > 1 and (date_str is not None or out_path is not None):
+        # law 4: the ruling names the N days ending YESTERDAY, one file per day; neither another anchor day nor one
+        # path for several days is ruled, so neither is guessed (an option given empty is given: refused, not dropped)
+        click.echo(f"REFUSED: --days {days} reads the {days} slate days ending yesterday, one file per day under "
+                   "exports/; it takes neither --date nor --out (addendum 294 item D; nothing written)")
+        raise SystemExit(2)
 
     sport_enum = Sport.MLB if sport in ("mlb", "baseball") else Sport.SOCCER
     if date_str:
         day = datetime.strptime(date_str, "%Y-%m-%d")
     else:
-        day = datetime.combine(_date.today() - timedelta(days=1), datetime.min.time())
+        day = datetime.combine(_results_yesterday(), datetime.min.time())
+
+    if days == 1:
+        _export_results_day(sport_enum, competition_code, day, out_path)
+        return
+
+    # 294 D(i): the earlier days, oldest first (so yesterday's file is the newest written, the mirror's latest copy of
+    # the kind), each written only when it holds at least one graded game; then yesterday's, always, exactly as --days 1
+    earlier = [day - timedelta(days=k) for k in range(days - 1, 0, -1)]
+    outcome: dict[str, list[str]] = {"written": [], "none": [], "failed": []}
+    for d in earlier:
+        try:
+            got = _export_results_day(sport_enum, competition_code, d, None, only_if_graded=True)
+        except Exception as e:                   # an earlier day never stops yesterday's file (UnknownCompetition's
+            # SystemExit is not an Exception and still refuses, exit 2); the day is named, its file may be on disk
+            console.print(f"[red]✗ Results export failed: {e}[/red] [red](slate day {d.strftime('%Y-%m-%d')}; its "
+                          "file may be on disk)[/red]")
+            got = "failed"
+        outcome[got].append(d.strftime("%Y-%m-%d"))
+    last = _export_results_day(sport_enum, competition_code, day, None)
+    stamp = day.strftime("%Y-%m-%d")
+    outcome["written" if last != "failed" else "failed"].append(stamp)
+
+    def _days(xs):
+        return f"{len(xs)} ({', '.join(xs)})" if xs else "0"
+    print(f"results window: --days {days}, slate days {earlier[0].strftime('%Y-%m-%d')} .. {stamp} (08:00 UTC each) · "
+          f"written {_days(outcome['written'])}, yesterday's always · no graded game, not written "
+          f"{_days(outcome['none'])} · failed {_days(outcome['failed'])}")
+
+
+def _export_results_day(sport_enum, competition_code, day, out_path, *, only_if_graded=False) -> str:
+    """One slate day's results file, as export-results wrote it before #883: "written" (the file is on disk, a zero-game
+    day's included), "none" (only_if_graded and no graded game: nothing written, nothing printed), or "failed" (the
+    writer raised: printed, nothing written). An unknown competition code refuses, exit 2, before anything is
+    written."""
+    from datetime import timedelta
+    from pathlib import Path
+    from src.walters.export import export_results
+
     # slate-day window: 08:00 UTC → 08:00 UTC next day (matches export-predictions)
     start = day.replace(hour=8, minute=0, second=0, microsecond=0)
     end = start + timedelta(days=1)
@@ -9609,8 +9850,14 @@ def export_results_cmd(sport, competition_code, date_str, out_path):
         click.echo(f"REFUSED: {e}")
         raise SystemExit(2)
     except Exception as e:
-        console.print(f"[red]✗ Results export failed: {e}[/red]")
-        return
+        console.print(f"[red]✗ Results export failed: {e}[/red]"
+                      + (f" [red](slate day {day.strftime('%Y-%m-%d')})[/red]" if only_if_graded else ""))
+        return "failed"
+
+    import json as _json
+    data = _json.loads(payload)
+    if only_if_graded and data["count"] == 0:    # 294 D(i): an earlier day is written only with a graded game
+        return "none"
 
     if out_path is None:
         Path("exports").mkdir(exist_ok=True)
@@ -9621,13 +9868,11 @@ def export_results_cmd(sport, competition_code, date_str, out_path):
     with open(out_path, "w") as f:
         f.write(payload)
 
-    import json as _json
-    data = _json.loads(payload)
     n = data["count"]
     if n == 0:
         console.print(f"[yellow]No graded games for {day.strftime('%Y-%m-%d')} "
                       "(not evaluated yet, or none that day).[/yellow]")
-        return
+        return "written"
     # addendum 106 item 4: a re-dated row stays in the file and out of every tally below
     tallied = [r for r in data["results"] if not r.get("redated")]
     hits = sum(1 for r in tallied if r["graded"]["top_pick_hit"])
@@ -9670,6 +9915,7 @@ def export_results_cmd(sport, competition_code, date_str, out_path):
             console.print("  [dim](centers agree — uniform lean day, no outlier "
                           "distortion; direction accrues to the --since "
                           "calibration read)[/dim]")
+    return "written"
 
 
 @cli.command("export-fixtures")

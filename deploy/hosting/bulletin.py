@@ -841,15 +841,18 @@ def secret_offence(text: str) -> str | None:
     return SECRET_PATTERN if REDACTED_MARK in text else None
 
 
-def refused_path(out: Path, rel: str) -> str:
+def refused_path(out: Path, rel: str, pattern: str | None = None) -> str:
     """A refused file's path for the receipt and the console. The file name carries the team names (slug()), so a
     value the guard refused in a team name would be named by its own path: redacted, then, where the guard still
     matches the path, the file name is WITHHELD (the folder, the match id, the suffix and the pattern's name only).
     The guard's patterns read word boundaries, and a slug sits between "_" and "/" (word characters for the regex) with
-    its own words joined by "-": the path is read as written, with "_" and "/" as spaces, and with "-" as spaces too."""
+    its own words joined by "-": the path is read as written, with "_" and "/" as spaces, and with "-" as spaces too.
+    A file refused under `secret` ALWAYS withholds its file name (Codex #894 round 3, P1): slug() turns a secret in a
+    team name ("api_key=abcdef123") into a form ("api-key-abcdef123") neither sp_common.redact nor the guard reads."""
     p = c.redact(shown(out, rel))
     spaced = re.sub(r"[_/]", " ", p)
-    hit = next((h for h in map(bulletin_offence, (p, spaced, spaced.replace("-", " "))) if h), None)
+    hit = (SECRET_PATTERN if pattern == SECRET_PATTERN else
+           next((h for h in map(bulletin_offence, (p, spaced, spaced.replace("-", " "))) if h), None))
     if not hit:
         return p
     folder, _, name = rel.rpartition("/")
@@ -892,7 +895,7 @@ def run(closing_file: str | None = None, slate_file: str | None = None, out_dir:
         rec["family"] = fam
         files, skipped = plan(doc, fam, stage, source, out, dbp)
         rec["skipped"] = [{"match_id": m, "why": w} for m, w in skipped]
-        refused = [{"pattern": name, "path": refused_path(out, rel)} for rel, _, text in files
+        refused = [{"pattern": name, "path": refused_path(out, rel, name)} for rel, _, text in files
                    for name in [bulletin_offence(text) or secret_offence(text)] if name]
         if refused:                           # item 2: nothing written, the pattern's NAME and the path, never the line
             rec.update(exit=2, bulletin_refused=refused)

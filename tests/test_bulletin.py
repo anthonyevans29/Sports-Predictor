@@ -406,12 +406,27 @@ def test_a_secret_in_the_source_refuses_the_run_never_redacted_into_a_file(repo,
     assert files_under(repo / "exports" / "bulletins") == []
     rec = receipts()[-1]
     assert rec["exit"] == 2 and {r["pattern"] for r in rec["bulletin_refused"]} == {b.SECRET_PATTERN}
-    assert {r["path"] for r in rec["bulletin_refused"]} == {
-        "exports/bulletins/SOCCER/2026-11-08/9402_delta-united_at_gamma-fc_closing.md",
-        "exports/bulletins/SOCCER/2026-11-08/9402_delta-united_at_gamma-fc_closing.png"}
+    assert {r["path"] for r in rec["bulletin_refused"]} == {                   # a secret always withholds the name
+        "exports/bulletins/SOCCER/2026-11-08/9402_….md (file name withheld: matched secret)",
+        "exports/bulletins/SOCCER/2026-11-08/9402_….png (file name withheld: matched secret)"}
     raw, out = c.receipts_path().read_text(), capsys.readouterr().out
     for leak in (key, "abcdef123", "edge below the floor"):
         assert leak not in raw and leak not in out
+
+
+@pytest.mark.parametrize("team", ["Owls api_key=abcdef123", "Owls token: abcdef123"])
+def test_a_secret_in_a_team_name_never_reaches_the_receipt_through_the_slugged_path(repo, capsys, team):
+    """Codex #894 round 3, P1: slug() turns api_key=abcdef123 into api-key-abcdef123, which neither the redaction nor
+    the guard reads; the refused path withholds the file name, so the value is in neither the receipt nor the console."""
+    doc = soccer_doc()
+    doc["predictions"][0]["home_team"] = team
+    assert b.run(closing_file=str(closing_file(repo, doc, "SOCCER"))) == 2
+    rec = receipts()[-1]
+    assert {r["pattern"] for r in rec["bulletin_refused"]} == {b.SECRET_PATTERN}
+    assert all("file name withheld: matched secret" in r["path"] for r in rec["bulletin_refused"])
+    raw, out = c.receipts_path().read_text(), capsys.readouterr().out
+    assert "abcdef123" not in raw and "abcdef123" not in out
+    assert files_under(repo / "exports" / "bulletins") == []
 
 
 # ------------------------------------------------------------------------------ 6(c): the "not stored" rule --

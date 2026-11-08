@@ -173,10 +173,12 @@ become MORE binding under an income goal, never less."
   history pot is Kalshi's own settled markets; tennis-data.co.uk is
   closed by access from the US (a geo-block) and the GitHub match
   archive by its non-commercial licence (addendum 270). The wiring
-  merged 11-07 (#868); its timer ships disabled until the kickoff instant
-  is ruled from the served receipt's THE TIMES and the retraction fix
-  lands (addenda 286 item 4(a), 287 item 2); the first PAPER record on or
-  after 12-28 depends on that step.
+  merged 11-07 (#868); the kickoff was ruled 11-08 from THE TIMES (the
+  served occurrence_datetime, addendum 288 item 1), and the timer stays
+  disabled until the kickoff follow-up PR (with the retraction fix), the
+  served receipt's re-run and the map ruling, the stored receipt, and the
+  architect's block after the tag that carries all of it (addendum 288
+  item 5); the first PAPER record on or after 12-28 depends on those steps.
 - **Basketball (NBA, NCAAMB, WNBA)**: market-only on API-Sports
   basketball (the Pro plan on the shared account; API_BASKETBALL_KEY
   falling back to API_FOOTBALL_KEY; addendum 271), no model and no call;

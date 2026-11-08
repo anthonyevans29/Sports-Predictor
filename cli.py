@@ -123,6 +123,14 @@ def _mlb_fallback_run(kind: str, season, date_from=None, date_to=None) -> None:
         for d in r["time_conflicts"]:
             print(f"    TIME CONFLICT {d['game']}: statsapi {d['statsapi'][:16]} vs api-sports "
                   f"{d['api_sports'][:16]} ({d['delta_h']:+.2f}h, match #{d['match_id']})")
+        # addendum 295 item 2 (#885): the fallback's scores-by-team counts, the sync-matches line's own text, plainly
+        # (column 0) so a chain's step receipt and summary carry it (sp_run.SCORES_BY_TEAM_LINE)
+        from src.ingestion.service import scores_by_team_text
+        print(scores_by_team_text(r.get("orientation_reversed", []), r.get("teams_mismatch_refused", [])), flush=True)
+        # addendum 297 C(iv): the updates written by position because a listed team is unknown or merged, plainly
+        if "team_missing_update" in r:
+            ids = [str(i) for i in r["team_missing_update"]]
+            print(f"team_missing_update {len(ids)}" + (f": {', '.join(ids)}" if ids else ""), flush=True)
     print("MLB-FALLBACK-RECEIPT " + _json.dumps(
         {k: v for k, v in r.items() if k not in ("teams",)}, default=str, sort_keys=True))
     print(f"  provider requests remaining: {client.requests_remaining}")
@@ -469,7 +477,8 @@ def _strict_split(result, named, missing) -> tuple[list, list]:
 def _print_strict_refused(refused, named) -> None:
     if refused:
         print(f"✗ STRICT: {len(refused)} of {len(named)} named game(s) REFUSED (the listing's teams are neither the "
-              f"stored pair nor its reverse; the row untouched): " + ", ".join(f"match {m}" for m in refused),
+              f"stored pair nor its reverse; scores, kickoff and status untouched; provider_orientation mismatch "
+              f"written): " + ", ".join(f"match {m}" for m in refused),
               flush=True)
 
 
@@ -1205,6 +1214,16 @@ def sync_odds_cmd(competition_code: str, season: str | None, limit: int, days_ah
     service = IngestionService(adapter)
     result = service.sync_odds(competition_code, season=season, limit=limit,
                                **({"match_ids": ids} if ids is not None else {}))
+    if hasattr(result, "orientation_swapped"):
+        # addendum 295 item 5(b) (#885): the rows priced into the stored orientation, plainly, zero included; before
+        # the summary, which stays the step receipt's key line (sp_receipts.key_line reads the tail's last line)
+        from src.ingestion.service import odds_by_team_line
+        print(odds_by_team_line(result.orientation_swapped), flush=True)
+    if hasattr(result, "orientation_mismatch_unpriced"):
+        # addendum 297 C(ii): the rows refused because their key reads "mismatch", next to the swapped line, plainly,
+        # zero included; still before the summary (the step receipt's key line)
+        from src.ingestion.service import odds_mismatch_line
+        print(odds_mismatch_line(result.orientation_mismatch_unpriced), flush=True)
     console.print(f"[green]✓ Odds ({competition_code}): {result}[/green]")
 
 
@@ -1795,6 +1814,10 @@ def intl_sync_cmd(since, max_calls, dry_run, save, from_dir):
         click.echo(f"  {r['scores_by_team_line']}")
     click.echo("  neutral_derived: " + " · ".join(f"{k} {v}" for k, v in sorted(r["neutral"].items())))
     click.echo(f"  RULE: {ih.NEUTRAL_RULE}")
+    # ARCHITECT 2026-11-08, addendum 295 item 6 (#885): a row the provider lists reversed is NULL under its own rule
+    n_rev = sum(c.get("orientation_reversed", 0) for c in r["per_cs"].values())
+    click.echo(f"  RULE on a row listed reversed (orientation_reversed {n_rev} this run): neutral_derived NULL, the "
+               f"rule above{ih.NEUTRAL_RULE_REVERSED[len(ih.NEUTRAL_RULE):]}")
     if not dry_run:
         click.echo("\nCOVERAGE per competition-season (after ingest, from the DB):")
         with session_scope() as s:
@@ -1810,11 +1833,16 @@ def intl_coverage_cmd():
     home / neutral / unknown (with the rule's home-and-away sanity check)."""
     from src.db.database import init_db, session_scope
     from src.ingestion import intl_history as ih
+    from src.db.schema import MatchNeutralDerived
     init_db()
     with session_scope() as s:
         lines = ih.coverage_lines(ih.coverage(s))
+        # addendum 295 item 6 (#885): the rows under the reversed rule (NULL, reason orientation_reversed), counted
+        n_rev = s.query(MatchNeutralDerived).filter(MatchNeutralDerived.rule == ih.NEUTRAL_RULE_REVERSED).count()
         s.rollback()
     click.echo("INTL COVERAGE (#220) · neutral_derived rule: " + ih.NEUTRAL_RULE)
+    click.echo("  rows the provider lists reversed (neutral_derived NULL, rule NEUTRAL_RULE_REVERSED, reason "
+               f"orientation_reversed): {n_rev}")
     for line in lines:
         click.echo(line)
 
@@ -6471,6 +6499,16 @@ def sync_odds_football_cmd(match_ids=None):
     window = r.get("window_by_competition") or {}
     # Codex on #346: every competition in the window is named, priced n of window m (0 included)
     comps = sorted(set(window) | set(by_comp))
+    if "orientation_swapped" in r:
+        # addendum 295 item 5(b) (#885): the rows priced into the stored orientation, plainly, zero included; before
+        # the summary, which stays the step receipt's key line (sp_receipts.key_line reads the tail's last line)
+        from src.ingestion.service import odds_by_team_line
+        print(odds_by_team_line(r["orientation_swapped"]), flush=True)
+    if "orientation_mismatch_unpriced" in r:
+        # addendum 297 C(ii): the rows refused because their key reads "mismatch", next to the swapped line, plainly,
+        # zero included; still before the summary (the step receipt's key line)
+        from src.ingestion.service import odds_mismatch_line
+        print(odds_mismatch_line(r["orientation_mismatch_unpriced"]), flush=True)
     console.print(f"[green]✓ Football odds: created={r['created']} "
                   f"across {r['games']} games"
                   + (" (" + " · ".join(f"{c} {by_comp.get(c, 0)}" + (f"/{window[c]}" if c in window else "")

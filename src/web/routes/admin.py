@@ -176,7 +176,10 @@ def _job_sync_odds(
         r = service.sync_odds_mlb(season=season_int, days_ahead=7)
         return f"created={r.created} games={r.updated} skipped={r.skipped}"
     r = service.sync_odds(competition_code, season=season, limit=limit)
-    return f"created={r.created} skipped={r.skipped}"
+    from src.ingestion.service import odds_by_team_line, odds_mismatch_line
+    # addendum 295 item 5(b): the swapped rows, listed; addendum 297 C(ii): the rows refused for a "mismatch" key, listed
+    return (f"created={r.created} skipped={r.skipped} · {odds_by_team_line(r.orientation_swapped)} · "
+            f"{odds_mismatch_line(r.orientation_mismatch_unpriced)}")
 
 
 def _job_sync_injuries(*, competition_code: str, season: str, **kwargs) -> str:

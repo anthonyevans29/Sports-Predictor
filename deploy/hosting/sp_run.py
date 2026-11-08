@@ -287,13 +287,40 @@ FALLBACK_TEAMS_LINE = re.compile(r"^\s*teams (?P<season>\S+): provider (?P<provi
 MATCHES_LINE = re.compile(r"^✓ Matches \((?P<code>[^)]*)\): created=(?P<created>\d+) updated=(?P<updated>\d+) "
                           r"skipped=(?P<skipped>\d+)")
 SKIPPED_LISTINGS_LINE = re.compile(r"^skipped (?P<n>\d+) listing\(s\) of clubs not in the DB: ?(?P<ids>.*)$")
-_SYNC_LINES = (TEAMS_LINE, FALLBACK_TEAMS_LINE, MATCHES_LINE, SKIPPED_LISTINGS_LINE)
+# SCORES BY TEAM (ARCHITECT 2026-11-08, addendum 295 item 4, #885), verbatim: "`sp_run.sync_counts` reads the new line
+# so chain summaries and the digest carry both counts — until then a reversed row on the host is only in the journal."
+#   sync-matches         "orientation_reversed N: <ids> · teams_mismatch_refused M: <ids>"  (service.scores_by_team_line;
+#                        printed always, zeros included, no ids after a 0; the MLB api-sports fallback prints the same
+#                        text, service.scores_by_team_text; the tennis re-read's own line, "<CODE> re-read: ...", too)
+SCORES_BY_TEAM_LINE = re.compile(r"^\s*(?:\S+ re-read: )?orientation_reversed (?P<rn>\d+)(?:: (?P<rids>.*?))? · "
+                                 r"teams_mismatch_refused (?P<mn>\d+)(?:: (?P<mids>.*))?$")
+# ODDS BY TEAM (ARCHITECT 2026-11-08 13:05 ET, addendum 297 C(iii)), verbatim: "sp_run reads `orientation_swapped` (and
+# the new `orientation_mismatch_unpriced`) into the chain receipt and summary, as it now reads the scores-by-team
+# counts."
+#   sync-odds, sync-odds-football   "orientation_swapped N: <ids>"            (service.odds_by_team_line)
+#                                   "orientation_mismatch_unpriced N: <ids>"  (service.odds_mismatch_line)
+#                                   each printed always, zeros included, no ids after a 0, before the summary line
+ODDS_SWAPPED_LINE = re.compile(r"^orientation_swapped (?P<n>\d+)(?:: (?P<ids>.*))?$")
+ODDS_MISMATCH_LINE = re.compile(r"^orientation_mismatch_unpriced (?P<n>\d+)(?:: (?P<ids>.*))?$")
+ODDS_BY_TEAM_KEYS = ("orientation_swapped", "orientation_mismatch_unpriced")
+_SYNC_LINES = (TEAMS_LINE, FALLBACK_TEAMS_LINE, MATCHES_LINE, SKIPPED_LISTINGS_LINE, SCORES_BY_TEAM_LINE,
+               ODDS_SWAPPED_LINE, ODDS_MISMATCH_LINE)
+
+
+def _ids(text) -> list:
+    return [x.strip() for x in (text or "").split(",") if x.strip()]
 
 
 def sync_counts(lines: list[str]) -> dict:
     """The counts a sync step printed (the lines above), {} when it printed none. Keys present only when printed:
     `teams` {created, updated, skipped} (or, from the MLB fallback, {created, updated: None, stamped, existing,
-    linked, via}), `matches` {created, updated, skipped}, `not_in_db` {n, ids}. The last line of each kind counts."""
+    linked, via}), `matches` {created, updated, skipped}, `not_in_db` {n, ids}, `scores_by_team`
+    {orientation_reversed: {n, ids}, teams_mismatch_refused: {n, ids}}. The last line of each kind counts, except the
+    scores-by-team line: every such line of the step ADDS (a --seasons run prints one per season, the tennis path its
+    re-read's too), so no reversed or refused row printed by the step is dropped from the receipt (addendum 295 item
+    4). `odds_by_team` (addendum 297 C(iii)): {orientation_swapped: {n, ids}, orientation_mismatch_unpriced: {n, ids}},
+    each key present only when the step printed its line, and every such line of the step ADDS, as the scores-by-team
+    line does."""
     out: dict = {}
     for s in lines:
         s = s.rstrip()
@@ -315,7 +342,62 @@ def sync_counts(lines: list[str]) -> dict:
         if m:
             out["not_in_db"] = {"n": int(m.group("n")),
                                 "ids": [x.strip() for x in m.group("ids").split(",") if x.strip()]}
+            continue
+        m = SCORES_BY_TEAM_LINE.match(s)
+        if m:
+            sbt = out.setdefault("scores_by_team", {"orientation_reversed": {"n": 0, "ids": []},
+                                                    "teams_mismatch_refused": {"n": 0, "ids": []}})
+            for key, n, ids in (("orientation_reversed", "rn", "rids"), ("teams_mismatch_refused", "mn", "mids")):
+                sbt[key]["n"] += int(m.group(n))
+                sbt[key]["ids"] += _ids(m.group(ids))
+            continue
+        for key, rx in zip(ODDS_BY_TEAM_KEYS, (ODDS_SWAPPED_LINE, ODDS_MISMATCH_LINE)):
+            m = rx.match(s)
+            if m:
+                obt = out.setdefault("odds_by_team", {}).setdefault(key, {"n": 0, "ids": []})
+                obt["n"] += int(m.group("n"))
+                obt["ids"] += _ids(m.group("ids"))
+                break
     return out
+
+
+def scores_by_team_totals(sync: list) -> dict | None:
+    """The chain's two counts (addendum 295 item 4): summed over every step that printed the scores-by-team line, with
+    the steps that printed a nonzero count ({step, argv, orientation_reversed, teams_mismatch_refused}); None when no
+    step printed the line (law 4: never a guessed 0). `sync` is run_steps' report["sync"]."""
+    seen = [(i, st, counts["scores_by_team"]) for i, st, counts, _rc in sync if counts.get("scores_by_team")]
+    if not seen:
+        return None
+    tot = {k: sum(x[k]["n"] for _, _, x in seen) for k in ("orientation_reversed", "teams_mismatch_refused")}
+    steps = [{"step": i, "argv": list(st), **x} for i, st, x in seen
+             if x["orientation_reversed"]["n"] or x["teams_mismatch_refused"]["n"]]
+    return {**tot, "steps": steps}
+
+
+def odds_by_team_totals(sync: list) -> dict | None:
+    """The chain's two odds counts (addendum 297 C(iii)), summed over every step that printed the line, with the steps
+    that printed a nonzero count ({step, argv, orientation_swapped, orientation_mismatch_unpriced}, a line the step did
+    not print None); None when no step printed either line. A count no step printed is None, never a guessed 0 (law
+    4). `sync` is run_steps' report["sync"]."""
+    seen = [(i, st, counts["odds_by_team"]) for i, st, counts, _rc in sync if counts.get("odds_by_team")]
+    if not seen:
+        return None
+    tot = {k: (sum(x[k]["n"] for _, _, x in seen if k in x) if any(k in x for _, _, x in seen) else None)
+           for k in ODDS_BY_TEAM_KEYS}
+    steps = [{"step": i, "argv": list(st), **{k: x.get(k) for k in ODDS_BY_TEAM_KEYS}} for i, st, x in seen
+             if any((x.get(k) or {}).get("n") for k in ODDS_BY_TEAM_KEYS)]
+    return {**tot, "steps": steps}
+
+
+def odds_by_team_text(x: dict) -> str:
+    """One step's two odds counts as the commands print them, joined: "orientation_swapped N: <ids> ·
+    orientation_mismatch_unpriced M: <ids>" (a line the step did not print reads "?")."""
+    def part(k):
+        v = x.get(k)
+        if v is None:
+            return f"{k} ?"
+        return f"{k} {v['n']}" + (f": {', '.join(v['ids'])}" if v["ids"] else "")
+    return " · ".join(part(k) for k in ODDS_BY_TEAM_KEYS)
 
 
 def _opt(st: list[str], flag: str) -> str | None:
@@ -807,6 +889,23 @@ def main(argv=None) -> int:
     if skipped:
         rec["listings_skipped"] = [{"step": i, "command": f"python cli.py {' '.join(st)}", "n": nid["n"],
                                     "ids": nid["ids"]} for i, st, nid in skipped]
+    # addendum 295 item 4 (#885): both scores-by-team counts, summed, with each step that printed a nonzero count and
+    # its ids; absent when no step printed the line
+    sbt = scores_by_team_totals(step_report["sync"])
+    if sbt is not None:
+        rec["scores_by_team"] = {"orientation_reversed": sbt["orientation_reversed"],
+                                 "teams_mismatch_refused": sbt["teams_mismatch_refused"],
+                                 "steps": [{"step": x["step"], "command": f"python cli.py {' '.join(x['argv'])}",
+                                            "orientation_reversed": x["orientation_reversed"],
+                                            "teams_mismatch_refused": x["teams_mismatch_refused"]}
+                                           for x in sbt["steps"]]}
+    # addendum 297 C(iii): both odds counts, summed, with each step that printed a nonzero count and its ids; absent
+    # when no step printed either line
+    obt = odds_by_team_totals(step_report["sync"])
+    if obt is not None:
+        rec["odds_by_team"] = {**{k: obt[k] for k in ODDS_BY_TEAM_KEYS},
+                               "steps": [{"step": x["step"], "command": f"python cli.py {' '.join(x['argv'])}",
+                                          **{k: x[k] for k in ODDS_BY_TEAM_KEYS}} for x in obt["steps"]]}
     if page_rec is not None:
         rec["page"] = {k: page_rec.get(k) for k in ("deltas", "paged", "digest", "suppressed")}
         rec["freshens"] = [{k: f.get(k) for k in ("chain", "ran", "exit", "skipped")}
@@ -833,13 +932,27 @@ def main(argv=None) -> int:
     teams_text = ("" if not teams_failed else " · sync-teams failed (the chain ran on, addendum 207 item 4): "
                   + ", ".join(f"step {i}/{len(steps)} {_opt(st, '--competition') or st[0]} exit {rc}"
                               for i, st, rc in teams_failed))
+    sbt_text = ("" if sbt is None else f" · orientation_reversed {sbt['orientation_reversed']} · "
+                f"teams_mismatch_refused {sbt['teams_mismatch_refused']}")
+    obt_text = ("" if obt is None else "".join(f" · {k} {_n(obt[k])}" for k in ODDS_BY_TEAM_KEYS))
     print(f"\n{'✓' if chain_exit == 0 else '✗'} {a.chain}: exit={chain_exit} "
-          f"steps {ok}/{len(steps)} in {rec['duration_s']}s{teams_text}{skipped_text} · running "
+          f"steps {ok}/{len(steps)} in {rec['duration_s']}s{teams_text}{skipped_text}{sbt_text}{obt_text} · running "
           f"{c.running_release() or 'release ?'} · writer of record {c.writer_of_record() or '?'}")
     # addendum 204 item 3(c): each step that skipped listings, with its command and ids (law 4: exit unchanged)
     for i, st, nid in skipped:
         print(f"  ⚠ step {i}/{len(steps)} python cli.py {' '.join(st)}: "
               f"skipped {nid['n']} listing(s) of clubs not in the DB: {', '.join(nid['ids'])}"[:600])
+    # addendum 295 item 4: each step whose rows were written by team (reversed) or refused, with its command and ids;
+    # cut at 600 characters as the skipped-listings line is (the full id lists are in the chain receipt)
+    for x in (sbt or {}).get("steps", []):
+        rv, mm = x["orientation_reversed"], x["teams_mismatch_refused"]
+        print((f"  ⚠ step {x['step']}/{len(steps)} python cli.py {' '.join(x['argv'])}: "
+               f"orientation_reversed {rv['n']}" + (f": {', '.join(rv['ids'])}" if rv["ids"] else "")
+               + f" · teams_mismatch_refused {mm['n']}" + (f": {', '.join(mm['ids'])}" if mm["ids"] else ""))[:600])
+    # addendum 297 C(iii): each step that priced a row swapped or refused one for a "mismatch" key, with its command and
+    # ids, cut at 600 characters as the lines above are (the full id lists are in the chain receipt)
+    for x in (obt or {}).get("steps", []):
+        print(f"  ⚠ step {x['step']}/{len(steps)} python cli.py {' '.join(x['argv'])}: {odds_by_team_text(x)}"[:600])
     # The failure page (sp_notify) carries the journal's last 30 lines; a run that went on past a failed sync step
     # has pushed that step's output out of them, so the failures are named here, at the very end.
     for i, cmd, rc, last in step_report["failed"]:

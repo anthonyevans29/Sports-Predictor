@@ -138,6 +138,17 @@ host/latest/coverage.json was the laptop's file of 2026-10-23. The Action runs t
 copies its own machine's `compare_exports.py` into `tools/`), so the rule holds there only once both writers
 run code that carries it.
 
+The host's tally (#875, ARCHITECT 2026-11-08 07:50 ET, addendum 289 item 3: "a file under exports/, the mirror's
+top-level rule carries it"): `results-tally --host-export`, the last step of `soccer-morning-after` (Sun/Mon/Tue
+09:50 UTC), writes `exports/RESULTS.md` (kind `RESULTS`) and `exports/results_tally.json` (kind `results_tally`,
+`results_tally_v1`). Both names are undated, so the top-level rule copies them as `host/<date>/RESULTS.md`,
+`host/<date>/results_tally.json` (the date of each file's mtime) and `host/latest/RESULTS.md`,
+`host/latest/results_tally.json`; this file's rules are unchanged. The compare is unchanged too: `results_tally.json` is
+one more `only on host` line, as the host's shadow and closing files are, and RESULTS.md is counted as not matched by
+`*.json`. How the compare should class the host's tally is an open item for the architect on #875. The Cockpit's "Load
+latest from host" reads every `host/latest/*.json`; the tally carries no desk block, so it is listed there among the
+files refused for lacking one.
+
 ## Operator setup (once)
 
 1. **GitHub (Anthony):** create the PRIVATE repo `anthonyevans29/Sports-Predictor-exports`, empty.

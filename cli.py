@@ -5356,11 +5356,36 @@ def export_nfl_results_cmd(days_back, match_ids):
 
 @cli.command("results-tally")
 @click.option("--days", default=30, type=int, help="Rolling window size.")
-def results_tally_cmd(days):
-    """Regenerate RESULTS.md — rolling per-sport record."""
+@click.option("--host-export", is_flag=True, default=False,
+              help="THE HOST'S EXPORT (addendum 289 item 3; 230 item 2(b)): write exports/RESULTS.md and "
+                   "exports/results_tally.json beside it (never the repo's RESULTS.md), every section reading the DB "
+                   "mode=ro. Host only: refused (exit 2) on any other machine, nothing read or written.")
+def results_tally_cmd(days, host_export):
+    """Regenerate RESULTS.md — rolling per-sport record.
+    --host-export (ARCHITECT 2026-11-08, addendum 289 item 3: "results-tally's RESULTS.md and its JSON written on the
+    HOST by the morning-after chain and mirrored, so the compare morning reads one tally per machine (the laptop's is
+    regenerated; the host's is the record of production) — read-only on the DB, a file under exports/, the mirror's
+    top-level rule carries it"): the last step of soccer-morning-after (deploy/hosting/chains.py). The same tally,
+    written to exports/RESULTS.md with the host's header line and exports/results_tally.json (kind results_tally_v1:
+    each section's title, its lines verbatim and the figures its computation returned), both by a temporary name and
+    a rename; the database read mode=ro by every section (database.readonly_binding), a missing file refused (exit 2),
+    never created. REFUSED (exit 2) before any read unless this machine's role is host (desk_policy.not_host_reason,
+    the shadow export's fence). Without it, unchanged: the repo's RESULTS.md, the laptop's regenerated tally."""
     from src.db.database import ReadOnlyRefused
-    from src.walters.export import results_tally
+    from src.walters.export import host_results_tally, results_tally
+    if host_export:
+        from src.walters import desk_policy as _dp
+        why = _dp.not_host_reason()
+        if why is not None:
+            click.echo(f"REFUSED: results-tally --host-export runs on the host only (ARCHITECT 2026-11-08, addendum 289 "
+                       f"item 3: the host's tally is the record of production; the laptop's is regenerated): {why}. "
+                       "Nothing was read or written.")
+            raise SystemExit(2)
     try:
+        if host_export:
+            md, js = host_results_tally(days=days, report=click.echo)
+            console.print(f"[green]✓ Wrote {md} and {js}[/green]")
+            return
         path = results_tally(days=days, report=click.echo)
     except ReadOnlyRefused as e:          # #706: the DB is read mode=ro; a missing file is refused, never created
         click.echo(str(e))
@@ -7160,7 +7185,8 @@ def export_soccer_expansion_shadow_cmd(hours):
     exists, or a write that fails, is refused (exit 2, nothing written under the name), never overwritten.
     THE SCHEDULE (ARCHITECT 2026-10-30 12:45 ET, addendum 185 D2): the LAST step of the soccer sync chains
     (deploy/hosting/chains.py: soccer-prematch, run by sp-soccer-friday and sp-soccer-saturday, and
-    soccer-morning-after), run bare: its rows are the fixtures kicking off after the run and before the next chain's
+    soccer-morning-after, where it is last but for `results-tally --host-export`, addendum 230 item 2(b); still after
+    every sync), run bare: its rows are the fixtures kicking off after the run and before the next chain's
     export (soccer_expansion.next_chain_run, from the three timers' schedules, plus EXPORT_WINDOW_MARGIN = 2 h: Code's
     reading of "before the next chain's", ruled by addendum 188 item 4). --hours is a manual run's explicit override.
     REFUSED (exit 2) before any DB read, nothing read or written, unless this machine's role
@@ -7172,7 +7198,9 @@ def export_soccer_expansion_shadow_cmd(hours):
     stands (184 item 1); the export is the chain's LAST step so the syncs before it complete; the other leagues' rows
     are written before the refusal exits; the chain's failure page is the signal and the label is placed by a receipt
     PR the same day (as the cup timer's REFUSED rows are handled). No daily failure is tolerated for more than one
-    chain run: a label unplaced on the second run is a finding Issue." A refused league (its binding, F3, or a league
+    chain run: a label unplaced on the second run is a finding Issue." (On soccer-morning-after the host's
+    `results-tally --host-export` follows it, addendum 230 item 2(b); the syncs still run before the export.) A refused
+    league (its binding, F3, or a league
     this DB does not store) exits 2 after the file is written; the closing line names the leagues that were exported,
     or says none was."""
     from src.walters import desk_policy as _dp

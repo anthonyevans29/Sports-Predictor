@@ -230,6 +230,11 @@ def test_a_start_unread_row_is_never_captured(monkeypatch, tennis_rows):
     out = run.invoke(cli.cli, ["sync-kalshi-atp"])
     flat = " ".join(out.output.split())
     assert "✓ Kalshi ATP: 0 prices stored" in flat and tk.START_UNREAD_ROW in flat and km.IN_PLAY not in flat, flat
+    # ARCHITECT 2026-11-08, addendum 294 item 9: a START_UNREAD row is not "due", so a run whose every placement the
+    # kickoff rule refused does not raise the zero-placement alarm; one line counts the kickoff rule's refusals
+    assert "MATCHED ZERO" not in flat and "matcher may be broken" not in flat, flat
+    assert ("kickoff rule refused 2 placement(s) (addendum 294 item 9: a row whose stored kickoff source is not a "
+            "served key is not due for the zero-placement alarm)") in flat, flat
     assert _tennis_snaps() == 0
     with session_scope() as s:                                          # a row stored before the rule: no source
         (m,) = [x for x in s.query(Match).all() if (x.external_ids or {}).get(kt.SOURCE)]
@@ -237,6 +242,7 @@ def test_a_start_unread_row_is_never_captured(monkeypatch, tennis_rows):
     out = run.invoke(cli.cli, ["sync-kalshi-atp"])
     flat = " ".join(out.output.split())
     assert "✓ Kalshi ATP: 0 prices stored" in flat and tk.KICKOFF_SOURCE_MISSING in flat, flat
+    assert "MATCHED ZERO" not in flat and "kickoff rule refused 2 placement(s)" in flat, flat     # 294 item 9
     assert _tennis_snaps() == 0
 
 
@@ -259,33 +265,103 @@ def _now_served(kind):
     return ev
 
 
-@pytest.mark.parametrize("kind,why,label", [
-    ("differ", tk.KICKOFF_REFUSED_NOW, kt.OCCURRENCE_DIFFER),
-    ("one", tk.KICKOFF_REFUSED_NOW, kt.OCCURRENCE_ONE_MARKET),
-    ("unread", tk.KICKOFF_REFUSED_NOW, kt.OCCURRENCE_UNREAD),
+@pytest.mark.parametrize("kind,label", [
+    ("differ", kt.OCCURRENCE_DIFFER),
+    ("one", kt.OCCURRENCE_ONE_MARKET),
+    ("unread", kt.OCCURRENCE_UNREAD),
 ])
-def test_a_stored_row_whose_event_the_kickoff_rule_now_refuses_is_never_captured(monkeypatch, tennis_rows, kind, why,
-                                                                                   label):
-    """288 item 1: "a difference refuses the event with its own label, counted". The row was stored from a served start (occurrence_datetime, 14:00Z); the venue now serves the event in a
-    way the rule refuses. sync-matches refuses the event (no fixture), so the stored row is NOT touched (its stored
-    state is an OPEN ITEM for the architect); the capture reads the kickoff rule over the event's markets it holds and
-    refuses every placement, counted and printed, before 10:00Z (one served start) and before the stored 14:00Z."""
+def test_a_stored_row_whose_event_the_kickoff_rule_now_refuses_is_labelled_and_never_captured(monkeypatch, tennis_rows,
+                                                                                             kind, label):
+    """288 item 1: "a difference refuses the event with its own label, counted". ARCHITECT 2026-11-08, addendum 294
+    item 13, verbatim: "a sync that refuses an event the row holds writes the refusal label into
+    external_ids["kalshi_kickoff"] and nothing else (status, winner and receipt stay — law 4), counted". The row was
+    stored from a served start (occurrence_datetime, 14:00Z); the venue now serves the event in a way the rule refuses.
+    sync-matches refuses the event (no fixture) and writes the refusal label on the stored row, nothing else (its
+    utc_date, status, status_raw, winner and settlement receipt stay), counted with the match id. The capture's kickoff
+    check then refuses the row (its stored source is a refusal label, not a served key: KICKOFF_REFUSED_ROW), counted
+    and printed with the label; the zero-placement alarm does not count the row as due (294 item 9). When the venue
+    serves the event readably again, the next sync rewrites the source and the row is captured."""
     import cli
     from src.db.database import session_scope
     from src.db.schema import Match
     fake, run = _synced(monkeypatch, {("KXATPMATCH", "open"): [OPEN_T]})
+
+    def row():
+        with session_scope() as s:
+            (m,) = [x for x in s.query(Match).all() if (x.external_ids or {}).get(kt.SOURCE)]
+            return m.id, (m.utc_date, m.status.name, m.status_raw, m.full_time_result,
+                          {k: v for k, v in (m.external_ids or {}).items() if k != kt.KICKOFF_EXT_KEY}), \
+                (m.external_ids or {}).get(kt.KICKOFF_EXT_KEY)
+    mid, kept, src = row()
+    assert src == OCC and kept[0] == Z("2026-12-29T14:00")
     fake.pages[("KXATPMATCH", "open")] = [_now_served(kind)]
     res = run.invoke(cli.cli, ["sync-matches", "--competition", "ATP", "--date-from", "2026-12-28",
                                "--date-to", "2026-12-30"])
     assert res.exit_code == 0, res.output
-    with session_scope() as s:                       # the refused event's stored row is left as it was (an OPEN ITEM)
-        (m,) = [x for x in s.query(Match).all() if (x.external_ids or {}).get(kt.SOURCE)]
-        assert (m.utc_date, (m.external_ids or {}).get(kt.KICKOFF_EXT_KEY)) == (Z("2026-12-29T14:00"), OCC)
+    flat = " ".join(res.output.split())
+    assert (f"ATP refused events held by stored rows (dated 2026-12-21..2026-12-30; the refusal label written to "
+            f"external_ids['kalshi_kickoff'], nothing else on the row; addendum 294 item 13(b)): 1 · match {mid} "
+            f"(KXATPMATCH-26DEC29EEEFFF: {label})") in flat, flat
+    assert row() == (mid, kept, label)                     # the label written, and NOTHING else on the row
     monkeypatch.setattr(tk, "utc_now_naive", lambda: Z("2026-12-29T09:00"))
     out = run.invoke(cli.cli, ["sync-kalshi-atp"])
     flat = " ".join(out.output.split())
-    assert "✓ Kalshi ATP: 0 prices stored" in flat and why in flat and label in flat, flat
+    assert "✓ Kalshi ATP: 0 prices stored" in flat and tk.KICKOFF_REFUSED_ROW in flat and label in flat, flat
+    assert "MATCHED ZERO" not in flat, flat                                     # 294 item 9: the row is not due
+    assert "kickoff rule refused 2 placement(s)" in flat, flat
     assert _tennis_snaps() == 0
+    # the venue serves the event readably again: the next sync rewrites the source; the row is captured
+    fake.pages[("KXATPMATCH", "open")] = [OPEN_T]
+    res = run.invoke(cli.cli, ["sync-matches", "--competition", "ATP", "--date-from", "2026-12-28",
+                               "--date-to", "2026-12-30"])
+    assert res.exit_code == 0, res.output
+    assert "ATP refused events held by stored rows" in res.output and row()[2] == OCC
+    out = run.invoke(cli.cli, ["sync-kalshi-atp"])
+    assert "✓ Kalshi ATP: 2 prices stored" in out.output, out.output
+
+
+def test_a_settled_row_whose_event_the_rule_now_refuses_keeps_its_status_winner_and_receipt(monkeypatch, tennis_rows):
+    """294 item 13 ("nothing else (status, winner and receipt stay — law 4)"; option (c), returning the row to
+    SCHEDULED, is REFUSED by the ruling): a FINISHED row whose event the venue now serves with two different
+    occurrence_datetime instants keeps its status, status_raw, winner, settlement receipt and utc_date; only its
+    kickoff source becomes the refusal label. Inside the window and by the late re-read's lookback alike; a refused
+    event of the same day that no stored row holds writes nothing (no new row)."""
+    import cli
+    from src.db.database import session_scope
+    from src.db.schema import Match
+    fin = dict(results=("yes", "no"), exps=("Eli Sampleton", "Eli Sampleton"), status="finalized",
+               values=("1.0000", "0.0000"))
+    ev = pair("26DEC29EEEFFF", "Eli Sampleton", "Ana Synthwood", times={OCC: "2026-12-29T14:00:00Z"}, **fin)
+    fake, run = _synced(monkeypatch, {("KXATPMATCH", "settled"): [ev]})
+
+    def rows():
+        with session_scope() as s:
+            return {(x.external_ids or {}).get(kt.SOURCE): (x.id, x.utc_date, x.status.name, x.status_raw,
+                                                           getattr(x.full_time_result, "name", None),
+                                                           dict(x.external_ids or {}))
+                    for x in s.query(Match).all() if (x.external_ids or {}).get(kt.SOURCE)}
+    (before,) = rows().values()
+    assert before[2:5] == ("FINISHED", "finalized", "AWAY") and before[5].get("kalshi_settlement")
+    bad = pair("26DEC29EEEFFF", "Eli Sampleton", "Ana Synthwood", times={OCC: "2026-12-29T14:00:00Z"}, **fin)
+    bad[0][OCC] = "2026-12-29T18:00:00Z"
+    other = pair("26DEC29TTTUUU", "Tia Unstored", "Ugo Unstored", times={OCC: "2026-12-29T15:00:00Z"}, **fin)
+    other[0][OCC] = "2026-12-29T19:00:00Z"
+    fake.pages = {("KXATPMATCH", "settled"): [bad + other]}
+    for lo, hi in (("2026-12-28", "2026-12-30"), ("2027-01-01", "2027-01-03")):      # the window, then the lookback
+        res = run.invoke(cli.cli, ["sync-matches", "--competition", "ATP", "--date-from", lo, "--date-to", hi])
+        assert res.exit_code == 0, res.output
+        assert f"1 · match {before[0]} (KXATPMATCH-26DEC29EEEFFF: {kt.OCCURRENCE_DIFFER})" in " ".join(
+            res.output.split()), res.output
+        got = rows()
+        assert set(got) == {"KXATPMATCH-26DEC29EEEFFF"}                              # no new row
+        (after,) = got.values()
+        assert after[:5] == before[:5]                                                # status, winner, utc_date stay
+        assert after[5] == {**before[5], kt.KICKOFF_EXT_KEY: kt.OCCURRENCE_DIFFER}    # the label and nothing else
+    # beyond the lookback: the row is not touched, and the receipt counts none
+    res = run.invoke(cli.cli, ["sync-matches", "--competition", "ATP", "--date-from", "2027-01-10",
+                               "--date-to", "2027-01-12"])
+    assert res.exit_code == 0 and "nothing else on the row; addendum 294 item 13(b)): 0" in " ".join(
+        res.output.split()), res.output
 
 
 @pytest.mark.parametrize("kind,at", [("earlier", "2026-12-29T11:00"), ("later", "2026-12-29T13:00")])
@@ -345,6 +421,58 @@ def test_a_start_no_longer_served_is_never_captured_before_or_after_the_sync_re_
     assert _tennis_snaps() == 0
 
 
+ALARM_TEXT = ("  ⚠ MATCHED ZERO with {n} markets read and {d} unstarted game(s) of the competition inside the run's "
+              "window — matcher may be broken (see 2026-09-13 title-format incident). Probe the payload before "
+              "trusting 'absent'.")
+
+
+def test_a_tennis_row_read_from_a_served_key_still_alarms_when_nothing_is_placed(monkeypatch, tennis_rows):
+    """294 item 9 for the tennis caller ONLY rows whose stored source is not a served key: a row stored from a served
+    start whose placements the served kickoff check refuses (KICKOFF_MOVED: its stored source IS a served key) is still
+    due, and a run that places nothing still raises the alarm, its text unchanged (an OPEN ITEM, as ruled)."""
+    import cli
+    fake, run = _synced(monkeypatch, {("KXATPMATCH", "open"): [OPEN_T]})
+    fake.pages[("KXATPMATCH", "open")] = [_now_served("later")]
+    monkeypatch.setattr(tk, "utc_now_naive", lambda: Z("2026-12-29T09:00"))
+    out = run.invoke(cli.cli, ["sync-kalshi-atp"])
+    flat = " ".join(out.output.split())
+    assert tk.KICKOFF_MOVED in flat and "kickoff rule refused 2 placement(s)" in flat, flat
+    assert " ".join(ALARM_TEXT.format(n=2, d=1).split()) in flat, flat
+
+
+def test_the_shared_alarm_is_unchanged_for_every_other_series():
+    """294 item 9: "the alarm's text and the shared code's behaviour for the other series unchanged". The shared
+    _alarm, called as every other caller calls it (no `is_due`), counts every unstarted game in the window, whatever its
+    external_ids carry (a START_UNREAD or refusal label on a non-tennis row is not read), and prints the same text; the
+    tennis predicate is applied only when a caller passes it."""
+    from src.ingestion import kalshi_sync as ks
+    from src.db.schema import MatchStatus
+
+    class Sess:
+        def __init__(self, rows):
+            self.rows = rows
+
+        def execute(self, q):
+            return NS(scalars=lambda: list(self.rows))
+    now, lo, hi = Z("2026-12-28T05:00"), Z("2026-12-27T05:00"), Z("2026-12-30T05:00")
+    rows = [NS(id=1, status=MatchStatus.SCHEDULED, utc_date=Z("2026-12-29T00:00"),
+               external_ids={"kalshi_kickoff": kt.START_UNREAD}),
+            NS(id=2, status=MatchStatus.SCHEDULED, utc_date=Z("2026-12-29T01:00"),
+               external_ids={"kalshi_kickoff": kt.OCCURRENCE_DIFFER}),
+            NS(id=3, status=MatchStatus.SCHEDULED, utc_date=Z("2026-12-29T02:00"), external_ids={})]
+    mks = [{"ticker": "KXNFLGAME-26DEC28AABB-AA"}, {"ticker": "KXNFLGAME-26DEC28AABB-BB"}]
+    lines = []
+    assert ks._alarm(Sess(rows), [7], km.Result(), mks, now, lo, hi, lines.append) is True
+    assert lines == [ALARM_TEXT.format(n=2, d=3)]
+    # the tennis caller's predicate: only the row with a served key would count; none here, so no alarm
+    lines = []
+    assert ks._alarm(Sess(rows), [7], km.Result(), mks, now, lo, hi, lines.append, is_due=tk.due_for_alarm) is False
+    assert lines == []
+    rows[2].external_ids = {"kalshi_kickoff": kt.OCCURRENCE_KEY}
+    assert ks._alarm(Sess(rows), [7], km.Result(), mks, now, lo, hi, lines.append, is_due=tk.due_for_alarm) is True
+    assert lines == [ALARM_TEXT.format(n=2, d=1)]
+
+
 def test_the_served_kickoff_check_needs_both_of_the_events_markets_in_hand():
     """The ruling reads the kickoff on BOTH markets of the event ("both markets of the event must carry the same
     value"); a capture holding one market of the event cannot read it, so the placement is refused (law 4; an OPEN
@@ -364,8 +492,16 @@ def test_the_served_kickoff_check_needs_both_of_the_events_markets_in_hand():
 
 @pytest.mark.parametrize("src,why", [(kt.START_UNREAD, tk.START_UNREAD_ROW), (None, tk.KICKOFF_SOURCE_MISSING),
                                      ("something else", tk.START_UNREAD_ROW), (kt.OCCURRENCE_KEY, None),
-                                     (kt.EXPIRATION_KEY, None)])
+                                     (kt.EXPIRATION_KEY, None)]
+                         # 294 item 13(b): a row whose stored source is a refusal label (the sync refused its event)
+                         + [(lab, "REFUSED_ROW") for lab in (
+                             kt.OCCURRENCE_DIFFER, kt.EXPIRATION_DIFFER, kt.OCCURRENCE_ONE_MARKET,
+                             kt.EXPIRATION_ONE_MARKET, kt.OCCURRENCE_UNREAD, kt.EXPIRATION_UNREAD, kt.NO_DATE,
+                             kt.NOT_TWO_MARKETS, kt.NOT_TWO_PLAYERS, kt.OUTSIDE_SERIES)])
 def test_the_kickoff_check_keeps_only_a_row_whose_kickoff_was_read_from_a_served_key(src, why):
+    if why == "REFUSED_ROW":
+        assert src in kt.REFUSAL_LABELS
+        why = tk.KICKOFF_REFUSED_ROW
     row = _row(1, "Ana Synthwood", "Bea Fakely", E1)
     if src is not None:
         row.external_ids[kt.KICKOFF_EXT_KEY] = src

@@ -687,8 +687,9 @@ def test_a_stored_scheduled_row_settled_after_the_window_is_re_read_and_no_row_i
     assert res.exit_code == 0, res.output
     assert len(fake.calls) - calls == 3                        # one listing read (open, closed, settled), no more
     flat = " ".join(res.output.split())
-    assert "ATP re-read (stored SCHEDULED rows dated 2026-12-24..2026-12-30, no new row): 1 re-read · 1 settled " \
-           "since: KXATPMATCH-26DEC28AAABBB" in flat, flat
+    assert ("ATP re-read (stored SCHEDULED, FINISHED and SETTLED_SCALAR rows dated 2026-12-24..2026-12-30, no new "
+            "row): 1 re-read (SCHEDULED 1, FINISHED 0, SETTLED_SCALAR 0) · 1 settled since: KXATPMATCH-26DEC28AAABBB · "
+            "0 retracted or changed") in flat, flat
     assert rows() == {"KXATPMATCH-26DEC28AAABBB": "FINISHED|HOME", "KXATPMATCH-26DEC10MMMNNN": "SCHEDULED|-"}
 
 
@@ -846,3 +847,92 @@ def test_another_sources_update_still_never_blanks_a_stored_result_with_an_absen
                          source="football_data", source_id="9")
     IngestionService._apply_match_updates(row, nm)
     assert (row.full_time_result, row.status_raw, row.home_score) == (Result.HOME, "FT", 2)
+
+
+# ---- addendum 294 item 7: the late re-read reaches FINISHED and SETTLED_SCALAR rows (tennis-D) ---------------------------
+
+_SC = dict(results=("scalar", "scalar"), values=("0.4000", "0.6000"), status="finalized")
+_FIN_R = dict(results=("yes", "no"), exps=("Rae Oldmatch", "Rae Oldmatch"), status="finalized",
+              values=("1.0000", "0.0000"))
+
+
+@pytest.mark.parametrize("first,then,want", [
+    # THE CASE THE RULING NAMES: a FINISHED row three days back, retracted (the venue returns it to unsettled)
+    (_FIN_A, dict(status="closed"), ("SCHEDULED", "closed", None, None)),
+    (_FIN_A, dict(status="active"), ("SCHEDULED", "active", None, None)),
+    # re-settled with the other winner, three days back
+    (_FIN_A, dict(results=("no", "yes"), exps=(_B, _B), status="finalized", values=("0.0000", "1.0000")),
+     ("FINISHED", "finalized", "AWAY", {"AAA": "no", "BBB": "yes"})),
+    # a SETTLED_SCALAR row three days back, retracted; and one re-settled yes/no
+    (_SC, dict(status="closed"), ("SCHEDULED", "closed", None, None)),
+    (_SC, _FIN_A, ("FINISHED", "finalized", "HOME", {"AAA": "yes", "BBB": "no"})),
+])
+def test_a_settled_row_three_days_back_is_re_read_to_its_served_state_from_the_same_listing(
+        monkeypatch, tennis_rows, first, then, want):
+    """ARCHITECT 2026-11-08, addendum 294 item 7, verbatim: "`_tennis_reread` extends to stored FINISHED and
+    SETTLED_SCALAR rows in the same 7-day lookback, served from the listing already read (no new call, no new row; 270
+    item 5 stands), with the test of a FINISHED row three days back being retracted." The row is stored settled by
+    the window sync of 12-27..12-29; the chain's window then moves to 12-31..01-02, so the event's ticker day (12-28)
+    is three days before --date-from and only the late re-read reaches it. It is written as served (287 item 2(1):
+    full_time_result cleared, the settlement receipt removed, the status words as served), from the one listing read;
+    an event of the same day never stored is NOT created; a settled row older than the lookback is not re-read."""
+    import cli
+    old = "26DEC20RRRSSS"
+    fake = FakeKalshi({("KXATPMATCH", "settled"): [pair(RETRACT_EV, _A, _B, **first)
+                                                   + pair(old, "Rae Oldmatch", "Sid Oldmatch", **_FIN_R)]})
+    _fake_http(monkeypatch, fake)
+    run = CliRunner()
+    assert run.invoke(cli.cli, ["sync-competitions", "--sport", "tennis"]).exit_code == 0
+    for lo, hi in (("2026-12-27", "2026-12-29"), ("2026-12-19", "2026-12-21")):
+        res = run.invoke(cli.cli, ["sync-matches", "--competition", "ATP", "--date-from", lo, "--date-to", hi])
+        assert res.exit_code == 0, res.output
+    before = _atp_rows()
+    assert sorted(r[0] for r in before) == sorted(["FINISHED", "FINISHED" if first is _FIN_A else "SETTLED_SCALAR"])
+    # the venue now serves the 12-28 event retracted or re-settled, the 12-20 event retracted too, and a 12-28 event
+    # never stored
+    key = "settled" if then.get("status") == "finalized" else "closed"
+    fake.pages = {("KXATPMATCH", key): [pair(RETRACT_EV, _A, _B, **then)
+                                        + pair("26DEC28PPPQQQ", "Pia Unstored", "Quin Unstored", **then)],
+                  ("KXATPMATCH", "closed" if key == "settled" else "settled"): [
+                      pair(old, "Rae Oldmatch", "Sid Oldmatch", status="closed")]}
+    calls = len(fake.calls)
+    res = run.invoke(cli.cli, ["sync-matches", "--competition", "ATP", "--date-from", "2026-12-31",
+                               "--date-to", "2027-01-02"])
+    assert res.exit_code == 0, res.output
+    assert len(fake.calls) - calls == 3                        # one listing read (open, closed, settled): no new call
+    from sqlalchemy import text
+    from src.db.database import session_scope
+    with session_scope() as s:
+        got = {r[0]: r[1:] for r in s.execute(text(
+            "SELECT json_extract(m.external_ids, '$.kalshi_tennis'), m.status, m.status_raw, m.full_time_result, "
+            "json_extract(m.external_ids, '$.kalshi_settlement') FROM matches m "
+            "JOIN competitions c ON c.id = m.competition_id WHERE c.code = 'ATP'"))}
+    assert set(got) == {f"KXATPMATCH-{RETRACT_EV}", f"KXATPMATCH-{old}"}                  # no new row
+    r = got[f"KXATPMATCH-{RETRACT_EV}"]
+    assert (r[0], r[1], r[2],
+            None if r[3] is None else {k.rsplit("-", 1)[1]: v["result"] for k, v in json.loads(r[3]).items()}) == want
+    assert got[f"KXATPMATCH-{old}"][:3] == ("FINISHED", "finalized", "HOME")              # outside the lookback
+    flat = " ".join(res.output.split())
+    assert ("ATP re-read (stored SCHEDULED, FINISHED and SETTLED_SCALAR rows dated 2026-12-24..2026-12-30, no new "
+            "row): 1 re-read") in flat, flat
+    assert f"1 retracted or changed: KXATPMATCH-{RETRACT_EV}" in flat, flat
+
+
+def test_the_re_read_counts_a_settled_row_re_served_unchanged_and_writes_it_as_served(monkeypatch, tennis_rows):
+    """294 item 7: a FINISHED row three days back re-served as it was is re-read (counted by its stored status) and
+    reads 0 retracted or changed; the row is unchanged."""
+    import cli
+    fake = FakeKalshi({("KXATPMATCH", "settled"): [pair(RETRACT_EV, _A, _B, **_FIN_A)]})
+    _fake_http(monkeypatch, fake)
+    run = CliRunner()
+    assert run.invoke(cli.cli, ["sync-competitions", "--sport", "tennis"]).exit_code == 0
+    assert run.invoke(cli.cli, ["sync-matches", "--competition", "ATP", "--date-from", "2026-12-27",
+                                "--date-to", "2026-12-29"]).exit_code == 0
+    before = _atp_rows()
+    res = run.invoke(cli.cli, ["sync-matches", "--competition", "ATP", "--date-from", "2026-12-31",
+                               "--date-to", "2027-01-02"])
+    assert res.exit_code == 0, res.output
+    flat = " ".join(res.output.split())
+    assert ("1 re-read (SCHEDULED 0, FINISHED 1, SETTLED_SCALAR 0) · 0 settled since · 0 retracted or changed"
+            in flat), flat
+    assert _atp_rows() == before

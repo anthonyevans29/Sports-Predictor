@@ -158,6 +158,13 @@ EXPIRATION_UNREAD = ("occurrence_datetime not served on either market and a serv
                      "not read as an ISO instant with an offset")
 KICKOFF_REFUSALS = {OCCURRENCE_KEY: (OCCURRENCE_DIFFER, OCCURRENCE_ONE_MARKET, OCCURRENCE_UNREAD),
                     EXPIRATION_KEY: (EXPIRATION_DIFFER, EXPIRATION_ONE_MARKET, EXPIRATION_UNREAD)}
+# Every label build() refuses an event under (Listing.refused_events' values). ARCHITECT 2026-11-08, addendum 294 item
+# 13, verbatim: "A refused event's stored row: RULED — option (b) in tennis-D: a sync that refuses an event the row
+# holds writes the refusal label into external_ids["kalshi_kickoff"] and nothing else (status, winner and receipt stay
+# — law 4), counted". So a stored row's KICKOFF_EXT_KEY holds one of KICKOFF_SOURCES or one of these labels; the
+# capture keeps only a row whose value is a served key (tennis_kalshi.kickoff_check: KICKOFF_REFUSED_ROW).
+REFUSAL_LABELS = (NO_DATE, NOT_TWO_MARKETS, NOT_TWO_PLAYERS, OUTSIDE_SERIES,
+                  *(r for rs in KICKOFF_REFUSALS.values() for r in rs))
 
 
 class Refused(RuntimeError):

@@ -259,12 +259,13 @@ def nfl_model_version() -> str:
 
 
 def nfl_certification(registry_path=None) -> tuple[str, str]:
-    """The NFL model's certification in the registry (registry.certification_of on nfl_predict.MODEL_VERSION), for the
-    line's head text: "uncertified", "certified" or "unread". Any failure to import or read degrades to ("unread", the
-    exception's name) (law 4: never judged certified, never the section's failure)."""
+    """The NFL model's certification in the registry (registry.certification_of on family "NFL" and
+    nfl_predict.MODEL_VERSION, addendum 299 item 3(a)), for the line's head text: "uncertified", "certified" or
+    "unread". Any failure to import or read degrades to ("unread", the exception's name) (law 4: never judged
+    certified, never the section's failure)."""
     try:
         from src.walters import registry
-        return registry.certification_of(nfl_model_version(), registry_path)
+        return registry.certification_of("NFL", nfl_model_version(), path=registry_path)
     except Exception as e:                              # noqa: BLE001
         return "unread", type(e).__name__
 

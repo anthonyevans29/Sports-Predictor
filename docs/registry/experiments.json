@@ -1,5 +1,44 @@
 [
   {
+    "id": "soccer-elo-poisson-v22",
+    "sport": "soccer",
+    "lane": "the live soccer model's record (ARCHITECT 2026-11-08 16:25 ET, addendum 299 item 3, the records PR of addendum 298 item B.6): a model live before the registry existed, entered so certification_of reads it; not a declaration",
+    "candidate": "soccer_elo_poisson v22: the model_versions row of model_family soccer_elo_poisson (src/walters/training.py MODEL_FAMILIES) at status production, whose version string the prediction rows carry as model_version (src/walters/export.py); version strings are minted at runtime (training._next_version_string), so no version constant exists in code",
+    "declaration": null,
+    "training_cutoff": null,
+    "test_set": null,
+    "gate": null,
+    "confirmation_window": null,
+    "declared_at": null,
+    "declared_at_note": "not on record: v22's promotion predates the registry (#212, ARCHITECT 2026-10-01) and was never declared, run or ruled in it; null, never reconstructed (law 4): declaration, training_cutoff, test_set, gate, confirmation_window, declared_at, run and verdict. The promotion's own record is `certification`, quoted, and its date the record's",
+    "status": "production",
+    "run": null,
+    "verdict": null,
+    "family": "SOCCER",
+    "model_version": "v22",
+    "model_family": "soccer_elo_poisson",
+    "competitions": [
+      "PL"
+    ],
+    "certification": "PROMOTED: 2026-09-21 \u2014 BACKLOG \"**REBUILD COMPLETE + v22 RE-PROMOTED 2026-09-21 (the mountain, climbed twice):** restore from 09-17 backup (integrity ok, 16,133 matches) -> Phase 2 backfills IDENTICAL to Friday's fingerprints (all created, zero skips) -> Phase 3 banked everything since Thursday (UEL league phase recreated; NFL block regenerated: 5,822 anchors, 17/17 weather, MNF prediction rewritten) -> Phase 4: spread guard 101%, Southampton drift replay (235 this time \u2014 feeders shift the fit too), documented override -> v22 PROMOTED on 16,546 matches / 376 teams \u2014 the FULL 24-competition pot, i.e. the model the mountain finale always intended; the incident merged two transitions into one. Known permanent losses logged (Thu-Sun odds snapshots + in-DB prediction/outcome rows for those days; graded record survives in exports/git). Daily-backup era begins tomorrow; packaging law in force. The system's worst day and its most disciplined recovery, same morning.\"",
+    "certification_note": "ARCHITECT 2026-11-08 16:25 ET, addendum 299 item 3(b): the promotion record that put v22 live, quoted verbatim and dated, never written by hand: the BACKLOG.md entry \"REBUILD COMPLETE + v22 RE-PROMOTED 2026-09-21\", added by commit b1746e93e841906493a6ac3b350cc5fe312161a6 (2026-09-21 11:12:12 -0400; that commit's message is `record_commit.message`). The quote is the entry with its list marker dropped and its line wraps folded to single spaces; no other character differs (a test reads it back from BACKLOG.md). `competitions` is the soccer closing family's (deploy/hosting/closing.py FAMILIES[\"SOCCER\"][\"comps\"]). production_allowed() reads this entry as no PASS verdict: the registry's doctrine starts after this promotion.",
+    "record_commit": {
+      "sha": "b1746e93e841906493a6ac3b350cc5fe312161a6",
+      "at": "2026-09-21 11:12:12 -0400",
+      "message": "Rebuild complete: v22 re-promoted on full 16,546-match / 24-competition pot; known losses logged; daily-backup and packaging laws in force"
+    },
+    "history": [
+      {
+        "on": "2026-09-19",
+        "what": "first promoted, on the 8,137-match pot (BACKLOG \"v22 PROMOTED 2026-09-19 \u2014 THE COMPRESSION SAGA CLOSES.\")"
+      },
+      {
+        "on": "2026-09-21",
+        "what": "the database destroyed and restored from the 2026-09-17 backup; v22 re-promoted on 16,546 matches / 376 teams, the full 24-competition pot: the promotion of the v22 live today, quoted in `certification`"
+      }
+    ]
+  },
+  {
     "id": "nhl-v1",
     "sport": "nhl",
     "lane": "#105",
@@ -1855,6 +1894,7 @@
       "ruling": "ARCHITECT 2026-11-04 08:20 ET, addendum 245 item 1, verbatim: \"THE 11-04 STEP'S RECORD (the laptop, main 26943179): the NFL 2024 re-sync with #775's adapter turned the 16 SCHEDULED-with-scores games FINISHED (2024: 334 FINISHED, 318 with status_raw, 0 without a status); nfl-backtest on the corrected stream (676 games; warm-up 285 of 2024, scored 285 of 2025; baseline 0.5474): log-loss 0.6366 vs 0.6913 (need \u2264 0.6813) PASS; bands 40\u201350% n=54 gap 6.2 ok, 50\u201360% n=60 4.9 ok, 60\u201370% n=45 2.2 ok, 70\u201380% n=45 stated 0.744 realized 0.667 gap 7.7pp FAIL \u2014 GATE VERDICT: FAIL. This is nfl_elo_v1's RECORDED FAIL on the corrected stream, for the registry: Code's PR writes it into nfl-elo-v1's entry beside the VOID (the console quoted; the verdict stays VOID, the certification stays withdrawn). The preflight on a fresh copy: warm-up 285 (= addendum 215's 285), scored 285, preseason excluded, the constants frozen = NFLEloConfig()'s (k 20.0, home advantage 48.0, season regression 0.25, mov base 2.2, default 1500.0), the warm-up fingerprint d11ba700990b170ced875088144ad4885506d2cb11e0bd6177ff2a6d1a29c6f0, the term undeclared (the run refuses, as designed).\"",
       "note": "the RECORDED FAIL of nfl_elo_v1 on the corrected stream (the 676-game stream, the complete 2024 warm-up), written beside the VOID: the verdict stays VOID (addendum 214 item 2) and the certification stays withdrawn (UNCERTIFIED, addendum 214 item 3); no other key of this entry moves"
     },
+    "family": "NFL",
     "model_version": "nfl_elo_v1",
     "competitions": [
       "NFL"

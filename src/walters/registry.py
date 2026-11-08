@@ -240,21 +240,36 @@ def uncertified(e: dict) -> bool:
     return isinstance(e, dict) and str(e.get("certification") or "").startswith(UNCERTIFIED)
 
 
-def uncertified_live(model_version: str, entries) -> dict | None:
+def uncertified_live(model_version: str, entries, family: str | None = None) -> dict | None:
     """The registry entry that withholds `model_version` (the id a predict path writes, e.g. nfl_predict.MODEL_VERSION),
-    or None: the first entry whose `model_version` is that id and whose certification is UNCERTIFIED."""
+    or None: the first entry whose `model_version` is that id and whose certification is UNCERTIFIED. `family` (a closing
+    family: SOCCER, MLB, NFL) also requires the entry's `family` to be it; None or empty keeps the bare match on the
+    version alone (coverage_map.model_status's read), the conservative direction: it can only find MORE withholding
+    entries, never fewer."""
     return next((e for e in entries if isinstance(e, dict) and model_version
-                 and e.get("model_version") == model_version and uncertified(e)), None)
+                 and e.get("model_version") == model_version
+                 and (not family or e.get("family") == family) and uncertified(e)), None)
 
 
-def certification_of(model_version: str, path: str | None = None) -> tuple[str, str]:
-    """A live model's certification as the registry reads it now, for a line that is printed only while the model is
-    withheld (addendum 217 item 4: #446's "would-be PLAY (uncertified, unstaked)" line): ("uncertified", the withholding
-    entry's id) when uncertified_live finds it; ("certified", the entry's id) only when an entry naming `model_version`
-    is there and none withholds it; ("unread", why) when the file is not there or cannot be read, is not a list, or
-    holds no entry for `model_version` (law 4: a certification that was not read is never judged certified, and a
-    missing entry is not a certification, as production_allowed refuses an id the registry lacks). `path` None reads
-    LEDGER at call time. Read-only."""
+# THE LOOKUP IS KEYED BY FAMILY AND VERSION (ARCHITECT 2026-11-08 16:25 ET, addendum 299 item 3(a), verbatim in part:
+# "the registry lookup is keyed by FAMILY and version, never by the bare version string: the closing file's family
+# (SOCCER, MLB, NFL) is in hand at render time; [...] `certification_of(family, model_version)` resolves them; a lookup
+# without the family stays "unread"."). A bare version names no model: soccer's v22 and an MLB v22 are different models.
+NO_FAMILY_WHY = "no family given: a bare version string is not a lookup (addendum 299 item 3(a))"
+
+
+def certification_of(family: str, model_version: str, *, path: str | None = None) -> tuple[str, str]:
+    """A live model's certification as the registry reads it now, keyed by its closing FAMILY (SOCCER, MLB, NFL: an
+    entry's `family`) AND its `model_version` (the bare id the rows carry), never by the version alone (addendum 299
+    item 3(a)): ("uncertified", the withholding entry's id) when uncertified_live finds it for that family;
+    ("certified", the entry's id) only when an entry of that family naming `model_version` is there and none withholds
+    it; ("unread", why) when no family is given (NO_FAMILY_WHY), when the file is not there or cannot be read, is not a
+    list, or holds no entry for that family and version (law 4: a certification that was not read is never judged
+    certified, and a missing entry is not a certification, as production_allowed refuses an id the registry lacks).
+    `path` (keyword only: a path passed by position can never land in a version) None reads LEDGER at call time.
+    Read-only. First used by addendum 217 item 4 (#446's "would-be PLAY (uncertified, unstaked)" line)."""
+    if not (isinstance(family, str) and family):
+        return "unread", NO_FAMILY_WHY
     p = path or LEDGER
     try:
         if not os.path.exists(p):
@@ -264,13 +279,13 @@ def certification_of(model_version: str, path: str | None = None) -> tuple[str, 
         return "unread", f"the registry cannot be read: {type(e).__name__}"
     if not isinstance(entries, list):
         return "unread", "the registry is not a list of entries"
-    held = uncertified_live(model_version, entries)
+    held = uncertified_live(model_version, entries, family=family)
     if held:
         return "uncertified", str(held.get("id") or "?")
-    named = next((e for e in entries if isinstance(e, dict) and model_version
+    named = next((e for e in entries if isinstance(e, dict) and model_version and e.get("family") == family
                   and e.get("model_version") == model_version), None)
     if named is None:
-        return "unread", f"no registry entry for {model_version}"
+        return "unread", f"no registry entry for {family} {model_version}"
     return "certified", str(named.get("id") or "?")
 
 

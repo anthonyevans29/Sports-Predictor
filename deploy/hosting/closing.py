@@ -742,15 +742,15 @@ def hold_for(d: dict, fam: str) -> str | None:
 
 
 def nfl_certification() -> tuple[str, str]:
-    """The NFL model's certification as the registry reads it now (registry.certification_of on
-    nfl_predict.MODEL_VERSION, the id predict-nfl writes): "uncertified", "certified" or "unread". The page is a
-    money-path surface and this line is the record only: any failure to import or read degrades to ("unread", the
+    """The NFL model's certification as the registry reads it now (registry.certification_of on family "NFL" and
+    nfl_predict.MODEL_VERSION, the id predict-nfl writes; addendum 299 item 3(a)): "uncertified", "certified" or
+    "unread". The page is a money-path surface and this line is the record only: any failure to import or read degrades to ("unread", the
     exception's name), so the line prints labelled "certification not read" and can never block the page (law 4)."""
     try:
         _close_contract()                              # puts the repo root on sys.path
         from src.walters import registry
         from src.walters.nfl_predict import MODEL_VERSION
-        return registry.certification_of(MODEL_VERSION)
+        return registry.certification_of("NFL", MODEL_VERSION)      # addendum 299 item 3(a): family AND version
     except Exception as e:                             # noqa: BLE001  (never the page's failure)
         return "unread", type(e).__name__
 

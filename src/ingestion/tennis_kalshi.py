@@ -48,6 +48,17 @@ EVENT_OTHER = "the row is another event's (its event ticker differs)"
 START_UNREAD_ROW = "the row's kickoff is START_UNREAD (no start served; addendum 288 item 1): never captured"
 KICKOFF_SOURCE_MISSING = "the row carries no kickoff source (stored before addendum 288 item 1): never captured"
 CAPTURED_SOURCES = (kt.OCCURRENCE_KEY, kt.EXPIRATION_KEY)        # the served kickoff sources a captured row carries
+# THE SERVED KICKOFF CHECK (served_kickoff_check): the kickoff rule read again over the event's markets this capture
+# holds, so a row is never priced against a kickoff the venue no longer serves (288 item 1). Each refusal is counted
+# and printed; the stored row is never moved from the capture path (a sync re-reads it).
+KICKOFF_REFUSED_NOW = ("the event's open markets now fail the kickoff rule (addendum 288 item 1: the event is "
+                       "refused): never captured")
+KICKOFF_UNREAD_NOW = ("the event's open markets now serve no start on any key (START_UNREAD, addendum 288 item 1): "
+                      "never captured")
+KICKOFF_MOVED = ("the served kickoff differs from the row's stored kickoff (moved since the row was synced; addendum "
+                 "288 item 1): never captured until a sync re-reads the row")
+KICKOFF_HELD_NOT_TWO = ("the capture does not hold both of the event's markets, so its kickoff cannot be read on both "
+                        "(addendum 288 item 1): never captured")
 
 
 def player_check(res: km.Result, games: list) -> km.Result:
@@ -158,3 +169,8 @@ def sync_kalshi_tennis(competition_code: str, date_from=None, date_to=None, prog
     counts = km.legacy_counts(res)
     return {"ok": True, "series": series, "markets": len(markets), **counts, "stored": stored, "alarm": alarm,
             "pages": pages}
+
+
+def served_kickoff_check(res: km.Result, games: list, markets: list) -> km.Result:
+    """NOT YET BUILT (the fail-first commit): every placement is kept."""
+    return res

@@ -611,6 +611,7 @@ class IngestionService:
                       nm.source_id, comp.code)
             result.skipped_ids.append(str(nm.source_id))
             result.skipped += 1
+            self._mismatch_on_unknown_team(s, nm, comp, result, cache)
             return None
 
         match = (cache.get(nm.source_id) if cache is not None
@@ -699,6 +700,32 @@ class IngestionService:
             cache["__pairs__"].setdefault((home.id, away.id), []).append(match)
         result.created += 1
         return match
+
+    def _mismatch_on_unknown_team(self, s: Session, nm: NormalizedMatch, comp: Competition, result: SyncResult,
+                                  cache: dict | None) -> None:
+        """A listing whose team is not in the DB, for an id a stored row already carries (ARCHITECT 2026-11-08,
+        addendum 297 C(i): "every path that reads a listing against the stored pair may write it"; C(ii): "the key
+        records what the provider's current listing says about our row"). The stored row's teams are in the DB
+        (_find_team_by_source reads merged ids too), so the listing names neither its pair nor the reverse: a
+        MISMATCH. The key reads "mismatch" and the odds writers refuse the row, which would otherwise be priced from
+        the fixture the provider re-pointed the id to. Nothing else of the row is written; the skip and its count are
+        as before; the row is listed in teams_mismatch_refused. Not for the served-state sources (tennis): addendum
+        297 B.14 rules a lookback event naming an unstored player "named, not written"."""
+        if nm.source in SERVED_STATE_SOURCES:
+            return
+        from src.ingestion.score_orientation import MISMATCH, with_orientation_key
+
+        match = (cache.get(nm.source_id) if cache is not None
+                 else self._find_match_by_source(s, nm.source, nm.source_id))
+        if match is None or match.id is None:
+            return
+        ext = with_orientation_key(match.external_ids, MISMATCH)
+        if ext is not None:
+            match.external_ids = ext
+        log.warning("sync_matches(%s): %s id %s REFUSED for match %s — the listing names a team not in the DB, so "
+                    "neither the stored pair nor its reverse; provider_orientation reads mismatch, scores, kickoff and "
+                    "status unwritten", comp.code, nm.source, nm.source_id, match.id)
+        result.teams_mismatch_refused.append(match.id)
 
     @staticmethod
     def _scores_by_team(match: Match, home_id: int, away_id: int, nm: NormalizedMatch, result: SyncResult,

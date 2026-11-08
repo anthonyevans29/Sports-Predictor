@@ -630,6 +630,35 @@ def test_the_upsert_replaces_mismatch_with_a_later_reversed_or_same_listing(made
     assert PROVIDER_ORIENTATION_KEY not in _ext(mid)
 
 
+def test_a_listing_naming_a_team_not_in_the_db_for_a_stored_id_writes_mismatch_and_is_not_priced(made, monkeypatch):
+    """297 C(i)/(ii), the team-missing skip: the provider re-points a stored id to a fixture with a club never
+    team-synced. The listing is skipped as before (skipped_ids, the M12 count), and the stored row's key reads
+    "mismatch", so sync_odds_nfl refuses it instead of storing the other fixture's price (swapped, here)."""
+    when = utc_now_naive() + timedelta(days=2)
+    mid, sid, ((_h, hp), (_a, ap)) = _world(made, Sport.NFL, AF, "O297K", when=when)
+    run = lambda *nm: IngestionService(Listing(AF, nm)).sync_matches("O297K", season="2026")   # noqa: E731
+    run(_nm("O297K", sid, ap, hp, when))                                       # reversed: the key reads reversed
+    _nfl_book(monkeypatch, NFL_BOOK)
+    svc.sync_odds_nfl(match_ids={mid})
+    priced, snaps = _odds(mid, AF)[0], _snap_count(mid, AF)
+    with session_scope() as s:
+        m = s.get(Match, mid)
+        held = (m.status, m.utc_date, m.home_score, m.away_score)
+    res = run(_nm("O297K", sid, "o297-never-synced", hp, when + timedelta(hours=3), home_score=1, away_score=0))
+    assert res.skipped_ids == [sid] and res.skipped == 1 and res.teams_mismatch_refused == [mid]
+    assert _ext(mid) == {AF: sid, PROVIDER_ORIENTATION_KEY: "mismatch"}
+    with session_scope() as s:
+        m = s.get(Match, mid)
+        assert (m.status, m.utc_date, m.home_score, m.away_score) == held      # nothing else of the row written
+    _nfl_book(monkeypatch, [_no("HOME", 9.0, source=AF), _no("AWAY", 1.05, source=AF)])
+    r = svc.sync_odds_nfl(match_ids={mid})
+    assert r["orientation_mismatch_unpriced"] == [mid] and r["orientation_swapped"] == [] and r["games"] == 0
+    assert _odds(mid, AF)[0] == priced and _snap_count(mid, AF) == snaps
+    # a listing for an id no stored row carries, naming an unknown team, writes nothing (the plain M12 skip)
+    res = run(_nm("O297K", "o297-g-unstored", "o297-never-synced", hp, when))
+    assert res.skipped_ids == ["o297-g-unstored"] and res.teams_mismatch_refused == []
+
+
 def test_sync_odds_refuses_a_mismatch_row_counts_it_and_leaves_its_stored_prices(made, monkeypatch):
     mid, _sid, _ = _world(made, Sport.SOCCER, FAKE, "O297O")
     _world(made, Sport.SOCCER, FAKE, "O297O2")
@@ -673,10 +702,8 @@ def test_both_odds_commands_print_the_mismatch_line_next_to_the_swapped_line_and
     i = lines.index("orientation_swapped 1: 41")
     assert lines[i + 1] == "orientation_mismatch_unpriced 2: 42, 43", lines
     assert _key_line(lines).startswith("✓ Football odds: created=6"), lines
-    out = CliRunner().invoke(cli.cli, ["sync-odds-football"])
-    import sys
     from pathlib import Path
-    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "deploy" / "hosting"))
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[1] / "deploy" / "hosting"))
     import sp_run
     assert sp_run.sync_counts(out.output.splitlines())["odds_by_team"] == {
         "orientation_swapped": {"n": 1, "ids": ["41"]}, "orientation_mismatch_unpriced": {"n": 2, "ids": ["42", "43"]}}
@@ -693,8 +720,8 @@ def test_the_admin_odds_job_carries_the_mismatch_count(made, monkeypatch):
 
 def test_the_mlb_fallback_counts_an_update_by_position_on_a_team_it_does_not_know(made):
     """C(iv), verbatim: "the MLB fallback's update by position on an unknown or merged team is COUNTED on its receipt
-    (`team_missing_update N`); the write stays as ruled". A merged team's other id reads unknown (team_by_ext maps the
-    primary id only): counted the same way. A known pair is not counted; a refused downgrade is not an update."""
+    (`team_missing_update N`); the write stays as ruled". (the merged-team case is #890's limitation, not built
+    here). A known pair is not counted; a refused downgrade is not an update."""
     from src.ingestion import mlb_apisports as fb
     U = datetime(2041, 9, 4, 17, 5)
     A, B, D = (297101, "Probe297 Alphas"), (297102, "Probe297 Betas"), (297199, "Probe297 Unlisted")

@@ -27,6 +27,7 @@ from click.testing import CliRunner
 from tests.test_exec_cohorts import LATE, _match, desk, row
 from tests.test_record_vs_close import iso_db  # noqa: F401  (a fixture: a throwaway SQLite, cwd = tmp_path)
 from tests.test_void_redated import _mlb_world, write_closing
+from tests.test_hosting_pack import receipts, sandbox  # noqa: E402,F401  (the sp_run sandbox: tmp receipts/lock)
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "deploy" / "hosting"))
@@ -101,6 +102,35 @@ def test_the_host_tally_is_the_last_step_of_soccer_morning_after_and_of_no_other
     # H0-9 unchanged: mlb-morning still ends on the bare tally (the repo's RESULTS.md, which sp_deploy restores)
     assert chains.CHAINS["mlb-morning"]["steps"][-1] == ["results-tally"]
     assert sum(1 for ch in chains.CHAINS.values() for s in ch.get("steps") or [] if s == ["results-tally"]) == 1
+
+
+def test_a_refused_shadow_export_does_not_stop_the_tally(sandbox):
+    """Addendum 294 item A.3: the chain's go_on names the shadow export, with its own reason; a D7 refusal (exit 2) is
+    receipted, the tally still runs, and the chain's exit stays the refusal's (OnFailure pages). Without the go_on the
+    same refusal stops the chain before the tally (the control)."""
+    ch = chains.CHAINS["soccer-morning-after"]
+    assert ch["go_on"] == ("export-soccer-expansion-shadow",) and ch["go_on_why"] == chains.SHADOW_GO_ON
+    assert chains.SHADOW_GO_ON.startswith("addendum 294 item A.3: ")
+    assert not ch.get("continue_on_sync_failure")                                  # not the wider flag
+    import datetime as _dt
+
+    import sp_common as c
+    import sp_run
+    (c.REPO / "cli.py").write_text(
+        "import sys\nprint('ran', ' '.join(sys.argv[1:]))\n"
+        "sys.exit(2 if sys.argv[1] == 'export-soccer-expansion-shadow' else 0)\n")
+    steps = [chains.SHADOW_EXPORT_STEP, chains.HOST_TALLY_STEP]
+    day = _dt.date(2026, 11, 8)
+    rep = {}
+    rc, ok = sp_run.run_steps(steps, "t", "u", "r1", day, sp_run.new_quota(), report=rep,
+                              go_on=ch["go_on"], go_on_why=ch["go_on_why"])
+    assert (rc, ok, rep["stopped_at"]) == (2, 1, None)                             # the tally ran; exit the refusal's
+    got = [r for r in receipts(sandbox) if r.get("run_id") == "r1" and r["kind"] == "step"]
+    assert [r["command"].split()[2] for r in got] == ["export-soccer-expansion-shadow", "results-tally"]
+    assert got[0]["exit"] == 2 and got[0]["continued"] == chains.SHADOW_GO_ON and got[1]["exit"] == 0
+    rep = {}                                                                       # the control: no go_on
+    rc, ok = sp_run.run_steps(steps, "t", "u", "r2", day, sp_run.new_quota(), report=rep)
+    assert (rc, ok, rep["stopped_at"]) == (2, 0, 1)
 
 
 def test_the_flag_is_a_real_option_of_the_command():

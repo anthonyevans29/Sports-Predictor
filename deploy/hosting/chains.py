@@ -75,11 +75,15 @@ AVAILABILITY_GO_ON = ("addendum 252 item 3(a): the nflverse read's failure is re
 # 248 item 2(c); ARCHITECT 2026-11-08, addendum 289 item 3: "written on the HOST by the morning-after chain and
 # mirrored [...] a file under exports/, the mirror's top-level rule carries it"): exports/RESULTS.md and
 # exports/results_tally.json, the mirror's sp_run push after the step carrying both. After the shadow export, so D2's
-# "after every sync" stands; a shadow export that exits 2 (D7) stops the chain before it, as any failed step does (no
-# tally that day; host/latest/ keeps the previous one). A `go_on` naming the shadow export would run the tally anyway,
-# the chain's exit still the refusal's and the page still fired (sp_run.run_steps); not built, an open item on #875.
+# "after every sync" stands (ARCHITECT 2026-11-08 09:55 ET, addendum 294 item A.2: "230 item 2(b) supersedes 185 D2 on
+# soccer-morning-after ONLY"). A shadow export that exits 2 (D7) no longer blacks out the tally: the chain's `go_on`
+# names it (addendum 294 item A.3, verbatim in part: "build the `go_on` naming `export-soccer-expansion-shadow` with
+# its `go_on_why` [...]; the chain's exit stays the refusal's and OnFailure still pages"), so the refusal is receipted
+# (`continued`: SHADOW_GO_ON), the tally runs, and the chain's exit is the refusal's (sp_run.run_steps).
 # UNMETERED (results-tally is). Never ./RESULTS.md: mlb-morning's H0-9 tally, and sp_deploy's restore of it, unchanged.
 HOST_TALLY_STEP = ["results-tally", "--host-export"]
+SHADOW_GO_ON = ("addendum 294 item A.3: the tally is a read-only record export; a refused shadow league must not black "
+                "out the production record")
 
 CUP_SCHEDULE = ("EFL", "CL", "UEL", "FAC")     # intl-daily's cup schedule read (#707), in this order
 COVERAGE_STEP = ["coverage", "--json"]         # intl-daily's LAST step (#805, addendum 225 item 5)
@@ -149,6 +153,8 @@ CHAINS: dict[str, dict] = {
     },
     "soccer-morning-after": {
         "backup": "daily",
+        "go_on": (SHADOW_EXPORT_STEP[0],),   # addendum 294 item A.3: a D7 refusal does not stop the tally
+        "go_on_why": SHADOW_GO_ON,
         "steps": [
             ["sync-matches", *PL],
             *[["sync-matches", *x] for x in EXPANSION],

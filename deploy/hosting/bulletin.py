@@ -29,7 +29,8 @@ construction: the renderer reads a fixed list of fields and none of those (an or
 in cents, and only an order that was written; stakes in units only). By guard: every row value is put on one line
 (one_line: no value spans two lines of either file) and every "$" of the Markdown is escaped (no row text renders as
 math on GitHub; the card draws every text with parse_math=False), sp_common.redact runs over every line (host.env read
-first, as the units read it), then src/privacy_patterns.bulletin_offence (the #817 patterns, one definition, plus the
+first, as the units read it) and a line it redacted REFUSES the run (ARCHITECT 2026-11-08, addendum 298 B item 5: "A
+secret in the source: REFUSE, do not redact"; pattern `secret`), then src/privacy_patterns.bulletin_offence (the #817 patterns, one definition, plus the
 bulletin's own) runs over the WHOLE Markdown and every string the card draws, line by line as written, line by line as
 rendered and the whole text as rendered (entities decoded, NFKC, line breaks one space), for every file of the run,
 BEFORE anything is written. A match REFUSES THE WRITE: nothing of the
@@ -828,6 +829,18 @@ def shown(out: Path, rel: str) -> str:
     return f"{OUT_DIR}/{rel}" if out.resolve() == (c.REPO / OUT_DIR).resolve() else str(out / rel)
 
 
+SECRET_PATTERN = "secret"
+REDACTED_MARK = "[REDACTED]"                       # what sp_common.redact writes in place of a key
+
+
+def secret_offence(text: str) -> str | None:
+    """ARCHITECT 2026-11-08 15:20 ET, addendum 298 B item 5, verbatim: "A secret in the source: REFUSE, do not redact —
+    a key in a Desk output is an upstream bug and a written file hides it." Every Markdown line and every card string
+    passes sp_common.redact before the guard reads it, so a key in the source reads as the redaction mark here: the
+    run is refused under `secret`, and the key itself is never in the receipt or on the console."""
+    return SECRET_PATTERN if REDACTED_MARK in text else None
+
+
 def refused_path(out: Path, rel: str) -> str:
     """A refused file's path for the receipt and the console. The file name carries the team names (slug()), so a
     value the guard refused in a team name would be named by its own path: redacted, then, where the guard still
@@ -880,7 +893,7 @@ def run(closing_file: str | None = None, slate_file: str | None = None, out_dir:
         files, skipped = plan(doc, fam, stage, source, out, dbp)
         rec["skipped"] = [{"match_id": m, "why": w} for m, w in skipped]
         refused = [{"pattern": name, "path": refused_path(out, rel)} for rel, _, text in files
-                   for name in [bulletin_offence(text)] if name]
+                   for name in [bulletin_offence(text) or secret_offence(text)] if name]
         if refused:                           # item 2: nothing written, the pattern's NAME and the path, never the line
             rec.update(exit=2, bulletin_refused=refused)
             c.append_receipt(rec)

@@ -5,7 +5,8 @@ Pinned here: the clean pair at the ruled path (exports/bulletins/<FAMILY>/<ET da
 .md + .png); the card 1080 px wide, portrait; the call-line parity of 6(a) (closing.call_text and closing
 .would_be_text, verbatim); THE WRITER-SIDE GUARD of item 2, one test per forbidden field or pattern (desk.order text,
 desk.exec.contracts, fee_order_contracts, a contract count, a dollar figure, desk_meta.unit.fraction, half_fraction,
-the pool, the account id, the #817 row and header, the API key through sp_common.redact): a refused run writes
+the pool, the account id, the #817 row and header, the API key, refused once sp_common.redact marks it, 298 B 5):
+a refused run writes
 nothing and its receipt names the pattern and the intended path, never the line; the positive control of 6(b); the
 "not stored" rule of 6(c); no JSON ever written under bulletins; the mirror URL printed with the owner/repo parsed and
 the remote's value never printed.
@@ -392,15 +393,25 @@ def test_a_refusal_in_a_desk_field_still_names_the_full_path(repo):
         "exports/bulletins/SOCCER/2026-11-08/9402_delta-united_at_gamma-fc_closing.png"}
 
 
-def test_an_api_key_is_redacted_by_sp_common_redact_on_every_line(repo, monkeypatch):
+@pytest.mark.parametrize("what", ["an env key", "a key=value"])
+def test_a_secret_in_the_source_refuses_the_run_never_redacted_into_a_file(repo, monkeypatch, capsys, what):
+    """Addendum 298 B item 5: "A secret in the source: REFUSE, do not redact". The run writes nothing, the receipt
+    names the pattern `secret` and the paths, and neither the key nor the line reaches the receipt or the console."""
     key = "kk-" + "secret-value-7f3k9q"
     monkeypatch.setenv("ODDS_API_KEY", key)
+    secret = key if what == "an env key" else "api_key=abcdef123"
     doc = soccer_doc()
-    doc["predictions"][1]["desk"]["reason"] = f"edge below the floor · {key} · api_key=abcdef123"
-    assert b.run(closing_file=str(closing_file(repo, doc, "SOCCER"))) == 0
-    md = md_of(repo, "SOCCER", 9402)
-    assert key not in md and "abcdef123" not in md and "[REDACTED]" in md
-    assert key not in c.receipts_path().read_text()
+    doc["predictions"][1]["desk"]["reason"] = f"edge below the floor · {secret}"
+    assert b.run(closing_file=str(closing_file(repo, doc, "SOCCER"))) == 2
+    assert files_under(repo / "exports" / "bulletins") == []
+    rec = receipts()[-1]
+    assert rec["exit"] == 2 and {r["pattern"] for r in rec["bulletin_refused"]} == {b.SECRET_PATTERN}
+    assert {r["path"] for r in rec["bulletin_refused"]} == {
+        "exports/bulletins/SOCCER/2026-11-08/9402_delta-united_at_gamma-fc_closing.md",
+        "exports/bulletins/SOCCER/2026-11-08/9402_delta-united_at_gamma-fc_closing.png"}
+    raw, out = c.receipts_path().read_text(), capsys.readouterr().out
+    for leak in (key, "abcdef123", "edge below the floor"):
+        assert leak not in raw and leak not in out
 
 
 # ------------------------------------------------------------------------------ 6(c): the "not stored" rule --
@@ -689,9 +700,10 @@ def test_a_by_hand_run_reads_host_env_for_the_redaction(repo, tmp_path, monkeypa
     monkeypatch.delenv("ODDS_API_KEY")                 # registered for restore, then unset: host.env is the only copy
     doc = soccer_doc()
     doc["predictions"][1]["desk"]["reason"] = f"edge below the floor · {key}"
-    assert b.run(closing_file=str(closing_file(repo, doc, "SOCCER"))) == 0
-    md = md_of(repo, "SOCCER", 9402)
-    assert key not in md and "[REDACTED]" in md
+    assert b.run(closing_file=str(closing_file(repo, doc, "SOCCER"))) == 2     # host.env's key is read: refused
+    assert {r["pattern"] for r in receipts()[-1]["bulletin_refused"]} == {b.SECRET_PATTERN}
+    assert key not in c.receipts_path().read_text()
+    assert files_under(repo / "exports" / "bulletins") == []
 
 
 def test_a_refusal_under_another_out_dir_names_that_path(repo, tmp_path):

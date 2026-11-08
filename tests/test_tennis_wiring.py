@@ -679,8 +679,10 @@ def test_a_stored_scheduled_row_settled_after_the_window_is_re_read_and_no_row_i
              exps=("Ana Synthwood", "Ana Synthwood"), status="finalized")
         + pair("26DEC10MMMNNN", "Max Oldrow", "Ned Oldrow", results=("yes", "no"),
                exps=("Max Oldrow", "Max Oldrow"), status="finalized")
-        + pair("26DEC28PPPQQQ", "Pia Unstored", "Quin Unstored", results=("yes", "no"),
-               exps=("Pia Unstored", "Pia Unstored"), status="finalized")]}
+        # never stored, between two STORED players (Codex-style review on tennis-D: so a re-read that created rows
+        # would really insert one, and the no-new-row assertion below would catch it)
+        + pair("26DEC28PPPQQQ", "Ana Synthwood", "Max Oldrow", results=("yes", "no"),
+               exps=("Ana Synthwood", "Ana Synthwood"), status="finalized")]}
     calls = len(fake.calls)
     res = run.invoke(cli.cli, ["sync-matches", "--competition", "ATP", "--date-from", "2026-12-31",
                                "--date-to", "2027-01-02"])
@@ -691,6 +693,9 @@ def test_a_stored_scheduled_row_settled_after_the_window_is_re_read_and_no_row_i
             "row): 1 re-read (SCHEDULED 1, FINISHED 0, SETTLED_SCALAR 0) · 1 settled since: KXATPMATCH-26DEC28AAABBB · "
             "0 retracted or changed") in flat, flat
     assert rows() == {"KXATPMATCH-26DEC28AAABBB": "FINISHED|HOME", "KXATPMATCH-26DEC10MMMNNN": "SCHEDULED|-"}
+    with session_scope() as s:                                 # the never-stored event's players were stored: no row
+        assert s.execute(text("SELECT COUNT(*) FROM teams WHERE sport = 'TENNIS' AND name IN "
+                              "('Ana Synthwood', 'Max Oldrow')")).scalar() == 2
 
 
 # ---- Codex on #868, round 1 -------------------------------------------------------------------------------------------
@@ -892,7 +897,9 @@ def test_a_settled_row_three_days_back_is_re_read_to_its_served_state_from_the_s
     # never stored
     key = "settled" if then.get("status") == "finalized" else "closed"
     fake.pages = {("KXATPMATCH", key): [pair(RETRACT_EV, _A, _B, **then)
-                                        + pair("26DEC28PPPQQQ", "Pia Unstored", "Quin Unstored", **then)],
+                                        # never stored, between two STORED players (so a creating re-read
+                                        # would really insert it: the no-new-row assertion below is not vacuous)
+                                        + pair("26DEC28PPPQQQ", _B, "Rae Oldmatch", **then)],
                   ("KXATPMATCH", "closed" if key == "settled" else "settled"): [
                       pair(old, "Rae Oldmatch", "Sid Oldmatch", status="closed")]}
     calls = len(fake.calls)
@@ -936,3 +943,38 @@ def test_the_re_read_counts_a_settled_row_re_served_unchanged_and_writes_it_as_s
     assert ("1 re-read (SCHEDULED 0, FINISHED 1, SETTLED_SCALAR 0) · 0 settled since · 0 retracted or changed"
             in flat), flat
     assert _atp_rows() == before
+
+
+def test_the_re_read_honours_season_and_counts_the_rows_it_does_not_write(monkeypatch, tennis_rows):
+    """tennis-D review (finding: the re-read counted rows --season keeps from being written). The hourly window chain
+    passes --season (deploy/hosting/sp_run.py window_plan), and the adapter's re-read applies it
+    (KalshiTennisAdapter.list_matches: in_window(fx.day, season, None, None)). So in the first week of January a
+    --season 2027 run's lookback holds a 2026 FINISHED row the run does not write: it is NOT counted re-read, and the
+    line names it as not re-read under --season (a retraction among them is not claimed applied: law 2). The row keeps
+    its stored state (the run does not write it); the next run without --season (the daily chain) re-reads it."""
+    import cli
+    fake = FakeKalshi({("KXATPMATCH", "settled"): [pair(RETRACT_EV, _A, _B, **_FIN_A)]})
+    _fake_http(monkeypatch, fake)
+    run = CliRunner()
+    assert run.invoke(cli.cli, ["sync-competitions", "--sport", "tennis"]).exit_code == 0
+    assert run.invoke(cli.cli, ["sync-matches", "--competition", "ATP", "--date-from", "2026-12-27",
+                                "--date-to", "2026-12-29"]).exit_code == 0
+    before = _atp_rows()
+    assert [r[0] for r in before] == ["FINISHED"]
+    fake.pages = {("KXATPMATCH", "closed"): [pair(RETRACT_EV, _A, _B, status="closed")]}     # the venue retracts it
+    res = run.invoke(cli.cli, ["sync-matches", "--competition", "ATP", "--season", "2027", "--date-from",
+                               "2027-01-02", "--date-to", "2027-01-02"])
+    assert res.exit_code == 0, res.output
+    flat = " ".join(res.output.split())
+    assert ("ATP re-read (stored SCHEDULED, FINISHED and SETTLED_SCALAR rows dated 2026-12-26..2027-01-01, no new "
+            "row): 0 re-read (SCHEDULED 0, FINISHED 0, SETTLED_SCALAR 0) · 0 settled since · 0 retracted or changed · "
+            f"1 not re-read (outside --season 2027): KXATPMATCH-{RETRACT_EV}") in flat, flat
+    assert _atp_rows() == before                                    # not written by this run, and not claimed to be
+    res = run.invoke(cli.cli, ["sync-matches", "--competition", "ATP", "--date-from", "2027-01-02",
+                               "--date-to", "2027-01-02"])
+    assert res.exit_code == 0, res.output
+    flat = " ".join(res.output.split())
+    assert f"1 re-read (SCHEDULED 0, FINISHED 1, SETTLED_SCALAR 0) · 0 settled since · 1 retracted or changed: " \
+           f"KXATPMATCH-{RETRACT_EV}" in flat, flat
+    assert "not re-read (outside --season" not in flat, flat                         # printed only with --season
+    assert [r[:3] for r in _atp_rows()] == [("SCHEDULED", "closed", None)]

@@ -421,6 +421,34 @@ def test_a_start_no_longer_served_is_never_captured_before_or_after_the_sync_re_
     assert _tennis_snaps() == 0
 
 
+def test_an_accepted_event_with_a_stray_market_outside_the_series_keeps_its_served_key_and_is_captured(
+        monkeypatch, tennis_rows):
+    """tennis-D review (finding: 13(b) labelled an ACCEPTED event). kalshi_tennis.build() refuses a market whose
+    event_ticker is in the series but whose ticker is not (OUTSIDE_SERIES, keyed by its event ticker) and still accepts
+    the event from its two markets in the series. 294 item 13(b) labels "a sync that refuses an event the row holds";
+    this listing ACCEPTED the event, so its row keeps its served kickoff source (no label written, counted 0) and the
+    capture prices it."""
+    import cli
+    stray = dict(OPEN_T[0], ticker="KXOTHER-26DEC29EEEFFF-ZZZ")
+    assert stray["event_ticker"] == "KXATPMATCH-26DEC29EEEFFF"
+    fake, run = _synced(monkeypatch, {("KXATPMATCH", "open"): [OPEN_T + [stray]]})
+    from src.db.database import session_scope
+    from src.db.schema import Match
+    res = run.invoke(cli.cli, ["sync-matches", "--competition", "ATP", "--date-from", "2026-12-28",
+                               "--date-to", "2026-12-30"])
+    assert res.exit_code == 0, res.output
+    flat = " ".join(res.output.split())
+    assert "1 events accepted · refused {'a ticker outside the series': 1}" in flat, flat
+    assert "nothing else on the row; addendum 294 item 13(b)): 0" in flat, flat
+    with session_scope() as s:
+        (m,) = [x for x in s.query(Match).all() if (x.external_ids or {}).get(kt.SOURCE)]
+        assert (m.external_ids or {}).get(kt.KICKOFF_EXT_KEY) == OCC
+    monkeypatch.setattr(tk, "utc_now_naive", lambda: Z("2026-12-29T09:00"))
+    out = run.invoke(cli.cli, ["sync-kalshi-atp"])
+    assert "✓ Kalshi ATP: 2 prices stored" in out.output, out.output
+    assert tk.KICKOFF_REFUSED_ROW not in " ".join(out.output.split())
+
+
 ALARM_TEXT = ("  ⚠ MATCHED ZERO with {n} markets read and {d} unstarted game(s) of the competition inside the run's "
               "window — matcher may be broken (see 2026-09-13 title-format incident). Probe the payload before "
               "trusting 'absent'.")

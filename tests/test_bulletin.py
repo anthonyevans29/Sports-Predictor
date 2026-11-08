@@ -353,8 +353,43 @@ def test_the_card_text_is_guarded_too(repo):
     assert b.run(closing_file=str(closing_file(repo, doc, "SOCCER"))) == 2
     refused = receipts()[-1]["bulletin_refused"]
     assert {r["pattern"] for r in refused} == {"pool"}
-    assert any(r["path"].endswith(".png") for r in refused)
+    assert any(".png (file name withheld: matched pool)" in r["path"] for r in refused)   # the name is the value
     assert files_under(repo / "exports" / "bulletins") == []
+
+
+def test_a_refused_team_name_is_not_named_by_its_own_path(repo, capsys):
+    """Codex #894 P2: the file name embeds slug(team), so a UUID in a team name would reach the receipt and the
+    console through the refused path. The path's file name is withheld; the folder, the match id and the pattern stay."""
+    doc = soccer_doc()
+    doc["predictions"][0]["home_team"] = f"Owls {_Z}"
+    assert b.run(closing_file=str(closing_file(repo, doc, "SOCCER"))) == 2
+    refused = receipts()[-1]["bulletin_refused"]
+    assert {r["pattern"] for r in refused} == {"uuid"}
+    assert {r["path"] for r in refused} == {
+        "exports/bulletins/SOCCER/2026-11-08/9401_….md (file name withheld: matched uuid)",
+        "exports/bulletins/SOCCER/2026-11-08/9401_….png (file name withheld: matched uuid)"}
+    raw, out = c.receipts_path().read_text(), capsys.readouterr().out
+    assert _Z not in raw and _Z not in out
+    assert files_under(repo / "exports" / "bulletins") == []
+
+
+def test_a_refused_team_name_joined_by_hyphens_is_withheld_too(repo):
+    """slug() joins a name's words with "-": "Pool 9 Rovers" is pool-9-rovers in the path, still withheld."""
+    doc = soccer_doc()
+    doc["predictions"][0]["home_team"] = "Pool 9 Rovers"
+    assert b.run(closing_file=str(closing_file(repo, doc, "SOCCER"))) == 2
+    paths = {r["path"] for r in receipts()[-1]["bulletin_refused"]}
+    assert paths and all("withheld" in p and "rovers" not in p for p in paths)
+
+
+def test_a_refusal_in_a_desk_field_still_names_the_full_path(repo):
+    """The withholding is only for a path the guard reads: a refused reason keeps the intended path (item 2)."""
+    doc = soccer_doc()
+    doc["predictions"][1]["desk"]["reason"] = "size 12 contracts"
+    assert b.run(closing_file=str(closing_file(repo, doc, "SOCCER"))) == 2
+    assert {r["path"] for r in receipts()[-1]["bulletin_refused"]} == {
+        "exports/bulletins/SOCCER/2026-11-08/9402_delta-united_at_gamma-fc_closing.md",
+        "exports/bulletins/SOCCER/2026-11-08/9402_delta-united_at_gamma-fc_closing.png"}
 
 
 def test_an_api_key_is_redacted_by_sp_common_redact_on_every_line(repo, monkeypatch):

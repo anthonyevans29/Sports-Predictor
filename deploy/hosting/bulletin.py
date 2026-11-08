@@ -828,6 +828,22 @@ def shown(out: Path, rel: str) -> str:
     return f"{OUT_DIR}/{rel}" if out.resolve() == (c.REPO / OUT_DIR).resolve() else str(out / rel)
 
 
+def refused_path(out: Path, rel: str) -> str:
+    """A refused file's path for the receipt and the console. The file name carries the team names (slug()), so a
+    value the guard refused in a team name would be named by its own path: redacted, then, where the guard still
+    matches the path, the file name is WITHHELD (the folder, the match id, the suffix and the pattern's name only).
+    The guard's patterns read word boundaries, and a slug sits between "_" and "/" (word characters for the regex) with
+    its own words joined by "-": the path is read as written, with "_" and "/" as spaces, and with "-" as spaces too."""
+    p = c.redact(shown(out, rel))
+    spaced = re.sub(r"[_/]", " ", p)
+    hit = next((h for h in map(bulletin_offence, (p, spaced, spaced.replace("-", " "))) if h), None)
+    if not hit:
+        return p
+    folder, _, name = rel.rpartition("/")
+    return (f"{c.redact(shown(out, folder))}/{name.split('_', 1)[0]}_…{Path(name).suffix} "
+            f"(file name withheld: matched {hit})")
+
+
 def error_text(e: BaseException, typed: bool = True) -> str:
     """A refusal's or a failure's text for the receipt and the console: redacted, on one line, and WITHHELD where the
     privacy guard matches it (an exception's message can quote a row's value: then the type and the pattern's name
@@ -863,7 +879,7 @@ def run(closing_file: str | None = None, slate_file: str | None = None, out_dir:
         rec["family"] = fam
         files, skipped = plan(doc, fam, stage, source, out, dbp)
         rec["skipped"] = [{"match_id": m, "why": w} for m, w in skipped]
-        refused = [{"pattern": name, "path": shown(out, rel)} for rel, _, text in files
+        refused = [{"pattern": name, "path": refused_path(out, rel)} for rel, _, text in files
                    for name in [bulletin_offence(text)] if name]
         if refused:                           # item 2: nothing written, the pattern's NAME and the path, never the line
             rec.update(exit=2, bulletin_refused=refused)

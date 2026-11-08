@@ -163,6 +163,11 @@ class SyncResult:
     # the sync-matches command prints scores_by_team_line on its own line.
     orientation_reversed: list = field(default_factory=list)
     teams_mismatch_refused: list = field(default_factory=list)
+    # THE PRICE BELONGS TO THE TEAM (ARCHITECT 2026-11-08, addendum 295 item 5(b), #885): the stored match id of every
+    # row sync_odds priced with its HOME and AWAY selections swapped into the stored orientation (the row carries
+    # external_ids["provider_orientation"] = "reversed"). Not printed by __str__: the sync-odds command prints
+    # odds_by_team_line on its own line.
+    orientation_swapped: list = field(default_factory=list)
 
     def __str__(self) -> str:
         out = f"created={self.created} updated={self.updated} skipped={self.skipped}"
@@ -181,10 +186,22 @@ def skipped_listings_line(ids) -> str:
 def scores_by_team_line(result) -> str:
     """Addendum 292 item 3(c): the two counts, each with its match ids listed, on one plain line, always printed:
     "orientation_reversed N: <ids> · teams_mismatch_refused M: <ids>" (a count of 0 prints no ids)."""
+    return scores_by_team_text(result.orientation_reversed, result.teams_mismatch_refused)
+
+
+def scores_by_team_text(reversed_ids, refused_ids) -> str:
+    """scores_by_team_line's text from the two id lists (the MLB api-sports fallback's receipt prints it too, addendum
+    295 item 2). sp_run.SCORES_BY_TEAM_LINE reads it back (addendum 295 item 4)."""
     def part(name, ids):
         return f"{name} {len(ids)}" + (f": {', '.join(str(i) for i in ids)}" if ids else "")
-    return (f"{part('orientation_reversed', result.orientation_reversed)} · "
-            f"{part('teams_mismatch_refused', result.teams_mismatch_refused)}")
+    return f"{part('orientation_reversed', reversed_ids)} · {part('teams_mismatch_refused', refused_ids)}"
+
+
+def odds_by_team_line(ids) -> str:
+    """Addendum 295 item 5(b): "counted on the receipt with the match ids". One plain line, always printed by the odds
+    commands: "orientation_swapped N: <ids>" (a count of 0 prints no ids)."""
+    ids = [str(i) for i in ids]
+    return f"orientation_swapped {len(ids)}" + (f": {', '.join(ids)}" if ids else "")
 
 
 def names_kept_line(n: int) -> str:
@@ -678,13 +695,15 @@ class IngestionService:
         same pair: `nm` itself (today's writes, exactly). The REVERSED pair: a copy with every score field swapped
         into the stored orientation and full_time_result H<->A, the kickoff and status as served; listed in
         result.orientation_reversed. NEITHER: None, the caller writes nothing; listed in
-        result.teams_mismatch_refused and counted in `skipped`. The stored home/away is never flipped (item 3(d))."""
+        result.teams_mismatch_refused and counted in `skipped`. The stored home/away is never flipped (item 3(d)).
+        Addendum 295 item 5(a) (#885): the verdict is also recorded on the row (REVERSED writes
+        external_ids["provider_orientation"] = "reversed", SAME removes it, NEITHER writes nothing)."""
         from dataclasses import replace
 
         from sqlalchemy.orm import object_session
 
-        from src.ingestion.score_orientation import (MISMATCH, RESULT_FIELD, REVERSED, SAME, SCORE_PAIRS,
-                                                     scores_by_team)
+        from src.ingestion.score_orientation import (MISMATCH, PROVIDER_ORIENTATION_KEY, RESULT_FIELD, REVERSED,
+                                                     SAME, SCORE_PAIRS, scores_by_team)
 
         fields = [f for pair in SCORE_PAIRS for f in pair] + [RESULT_FIELD]
         verdict, values = scores_by_team((match.home_team_id, match.away_team_id), (home_id, away_id),
@@ -701,11 +720,20 @@ class IngestionService:
             result.teams_mismatch_refused.append(match.id)
             result.skipped += 1
             return None
+        # THE PROVIDER'S ORIENTATION (ARCHITECT 2026-11-08, addendum 295 item 5(a), #885): REVERSED writes
+        # external_ids["provider_orientation"] = "reversed", SAME removes it; MISMATCH returned above, writing nothing.
+        # The odds writers read it (score_orientation.provider_reversed) to take the prices by team. Reassigned only
+        # when it changes (a same-pair row without the key is not touched here).
+        ext = match.external_ids or {}
         if verdict == REVERSED:
+            if ext.get(PROVIDER_ORIENTATION_KEY) != REVERSED:
+                match.external_ids = {**ext, PROVIDER_ORIENTATION_KEY: REVERSED}
             log.warning("sync_matches(%s): %s id %s lists match %s with home/away REVERSED; scores written by team, "
                         "the stored orientation kept", comp.code, nm.source, nm.source_id, match.id)
             result.orientation_reversed.append(match.id)
             return replace(nm, **values)
+        if PROVIDER_ORIENTATION_KEY in ext:
+            match.external_ids = {k: v for k, v in ext.items() if k != PROVIDER_ORIENTATION_KEY}
         return nm
 
     @staticmethod
@@ -1012,9 +1040,15 @@ class IngestionService:
         (source = this adapter's source) so the capture history lives where
         history belongs. Readers take the last pre-kickoff session
         (src/walters/close.py), so legacy accumulated rows grade correctly too.
+
+        THE PRICE BELONGS TO THE TEAM (ARCHITECT 2026-11-08, addendum 295 item 5(b), #885): the odds payload carries no
+        team ids, so a row whose external_ids["provider_orientation"] is "reversed" (written by the upsert, item 5(a))
+        stores the provider's HOME selection as AWAY and the mirror; DRAW / OVER / UNDER as served; the devig follows
+        the stored rows. Each such row's id is listed in result.orientation_swapped.
         """
         from datetime import datetime
         from src.db.schema import Odds, OddsSnapshot
+        from src.ingestion.score_orientation import provider_reversed, selection_by_team
         from src.walters.close import close_1x2, outcomes_for, priced
 
         result = SyncResult()
@@ -1066,13 +1100,19 @@ class IngestionService:
                     continue
                 s.query(Odds).filter(Odds.match_id == match.id,
                                      Odds.source == self.source).delete()
+                # THE PRICE BELONGS TO THE TEAM (addendum 295 item 5(b), #885): a row the upsert lists as reversed
+                # takes the provider's HOME price as OUR AWAY selection (and the mirror); the devig below reads the
+                # rows as stored, so the 1X2 snapshot follows the stored orientation (a draw price stays the draw)
+                swap = provider_reversed(match.external_ids)
+                if swap:
+                    result.orientation_swapped.append(match.id)
                 fresh = []
                 for no in odds_list:
                     o = Odds(
                         match_id=match.id,
                         bookmaker=no.bookmaker,
                         market=no.market,
-                        selection=no.selection,
+                        selection=selection_by_team(no.selection, swap),
                         price_decimal=no.price_decimal,
                         line=no.line,
                         captured_at=no.captured_at,
@@ -2362,6 +2402,11 @@ def sync_odds_nfl(progress=None, match_ids: set[int] | None = None) -> dict:
     every sync, so without this NFL kept no call-time book market to anchor
     a value side against. Same shape as the MLB capture-odds path; every
     Kalshi reader filters source == "kalshi", so these rows never mix in.
+
+    THE PRICE BELONGS TO THE TEAM (ARCHITECT 2026-11-08, addendum 295 item 5(b), #885): on a row whose
+    external_ids["provider_orientation"] is "reversed" (the upsert's record, item 5(a)) the provider's HOME selection
+    is stored as AWAY and the mirror (moneyline and spread; a spread's line travels with its price; totals as served),
+    and the 1X2 devig follows the stored selections. The ids are returned under "orientation_swapped".
     """
     from datetime import datetime, timedelta
 
@@ -2372,6 +2417,7 @@ def sync_odds_nfl(progress=None, match_ids: set[int] | None = None) -> dict:
     from src.adapters.api_american_football import APIAmericanFootballAdapter, RateLimited
     from src.db.database import session_scope
     from src.db.schema import Match, MatchStatus, Odds, OddsSnapshot, Sport
+    from src.ingestion.score_orientation import provider_reversed, selection_by_team
     from src.walters.value import MarketSnapshot
 
     def report(msg):
@@ -2395,6 +2441,7 @@ def sync_odds_nfl(progress=None, match_ids: set[int] | None = None) -> dict:
         return ad.list_odds(gid)
 
     ad = APIAmericanFootballAdapter()
+    swapped: list[int] = []         # addendum 295 item 5(b): the ids priced into the stored orientation
     created = games = snapshots = 0
     deferred_total = recovered = 0
     games_by_comp: dict[str, int] = {}
@@ -2463,10 +2510,17 @@ def sync_odds_nfl(progress=None, match_ids: set[int] | None = None) -> dict:
                 continue
             s.query(Odds).filter(Odds.match_id == m.id,
                                  Odds.source == ad.source_name).delete()
+            # THE PRICE BELONGS TO THE TEAM (addendum 295 item 5(b), #885): on a row the upsert lists as reversed the
+            # provider's HOME price is OUR AWAY selection (and the mirror); the stored selection is used for the rows
+            # AND the 1X2 devig below, so the snapshot follows the stored orientation
+            swap = provider_reversed(m.external_ids)
+            if swap:
+                swapped.append(m.id)
+            sel_of = {id(ow): selection_by_team(ow.selection, swap) for ow in rows}
             src_pairs = []          # (row, the provider's own time) — addendum 32 item 4; None = unknown
             for ow in rows:
                 o = Odds(match_id=m.id, market=ow.market,
-                         selection=ow.selection, bookmaker=ow.bookmaker,
+                         selection=sel_of[id(ow)], bookmaker=ow.bookmaker,
                          price_decimal=ow.price_decimal, line=ow.line,
                          source=ad.source_name,
                          captured_at=fetched_at)
@@ -2479,7 +2533,7 @@ def sync_odds_nfl(progress=None, match_ids: set[int] | None = None) -> dict:
             used = []
             for ow in rows:
                 if ow.market == "1X2":
-                    by_sel.setdefault(ow.selection, []).append((ow.bookmaker, ow.price_decimal))
+                    by_sel.setdefault(sel_of[id(ow)], []).append((ow.bookmaker, ow.price_decimal))
                     used.append(ow)
             implied = MarketSnapshot(market="1X2", by_selection=by_sel).average_implied() if by_sel else {}
             over = sum(implied.values())
@@ -2512,4 +2566,6 @@ def sync_odds_nfl(progress=None, match_ids: set[int] | None = None) -> dict:
             "rate_limited": deferred_total, "recovered": recovered,
             "games_by_competition": dict(sorted(games_by_comp.items())),
             # Codex on #346: the window's competitions, so a run that priced nothing still names them
-            "window_by_competition": dict(sorted(upcoming_by_comp.items()))}
+            "window_by_competition": dict(sorted(upcoming_by_comp.items())),
+            # addendum 295 item 5(b): every row priced with HOME and AWAY swapped into the stored orientation
+            "orientation_swapped": swapped}

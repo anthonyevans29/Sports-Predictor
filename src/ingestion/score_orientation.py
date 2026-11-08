@@ -56,3 +56,28 @@ def scores_by_team(stored: tuple, listed: tuple, values: dict) -> tuple[str, dic
         if out.get(RESULT_FIELD) is not None:
             out[RESULT_FIELD] = _FLIP[Result(out[RESULT_FIELD])]
     return verdict, out
+
+
+# THE PRICE BELONGS TO THE TEAM (ARCHITECT 2026-11-08, addendum 295 item 5; #885). Item 5(a), verbatim: "When the
+# listed pair is the stored row's reverse, the upsert writes `external_ids["provider_orientation"] = "reversed"`, and
+# removes the key when the listing reads same; a mismatch writes nothing (the row untouched, as now). This is the one
+# stored-state write I allow from the finding: it records what the provider's current listing says about our row, and
+# it is what a later venue-flip ruling would read." Written by src/ingestion/service.py `_scores_by_team` only.
+PROVIDER_ORIENTATION_KEY = "provider_orientation"
+# Item 5(b), verbatim: "`sync_odds`, `sync_odds_nfl` and the MLB fallback's odds path, if it has one, swap HOME and AWAY
+# selections into the stored orientation when the key is present, counted on the receipt with the match ids; the 1X2
+# devig into odds_snapshots then follows the stored orientation." Only the two team selections swap: DRAW, OVER and
+# UNDER name no team and stay as served; a SPREADS row's `line` is that selection's own handicap, so it travels with
+# the price (the team it belongs to), never re-signed.
+_SELECTION_SWAP = {"HOME": "AWAY", "AWAY": "HOME"}
+
+
+def provider_reversed(external_ids) -> bool:
+    """True when the stored row carries the upsert's record that the provider lists its pair reversed."""
+    return (external_ids or {}).get(PROVIDER_ORIENTATION_KEY) == REVERSED
+
+
+def selection_by_team(selection: str, reversed_: bool) -> str:
+    """The provider's selection in the STORED orientation: HOME <-> AWAY when the row is listed reversed, every other
+    selection (DRAW, OVER, UNDER, anything unknown) as served."""
+    return _SELECTION_SWAP.get(selection, selection) if reversed_ else selection

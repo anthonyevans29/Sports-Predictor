@@ -176,7 +176,8 @@ def _job_sync_odds(
         r = service.sync_odds_mlb(season=season_int, days_ahead=7)
         return f"created={r.created} games={r.updated} skipped={r.skipped}"
     r = service.sync_odds(competition_code, season=season, limit=limit)
-    return f"created={r.created} skipped={r.skipped}"
+    from src.ingestion.service import odds_by_team_line     # addendum 295 item 5(b): the swapped rows, listed
+    return f"created={r.created} skipped={r.skipped} · {odds_by_team_line(r.orientation_swapped)}"
 
 
 def _job_sync_injuries(*, competition_code: str, season: str, **kwargs) -> str:

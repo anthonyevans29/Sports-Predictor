@@ -123,6 +123,10 @@ def _mlb_fallback_run(kind: str, season, date_from=None, date_to=None) -> None:
         for d in r["time_conflicts"]:
             print(f"    TIME CONFLICT {d['game']}: statsapi {d['statsapi'][:16]} vs api-sports "
                   f"{d['api_sports'][:16]} ({d['delta_h']:+.2f}h, match #{d['match_id']})")
+        # addendum 295 item 2 (#885): the fallback's scores-by-team counts, the sync-matches line's own text, plainly
+        # (column 0) so a chain's step receipt and summary carry it (sp_run.SCORES_BY_TEAM_LINE)
+        from src.ingestion.service import scores_by_team_text
+        print(scores_by_team_text(r.get("orientation_reversed", []), r.get("teams_mismatch_refused", [])), flush=True)
     print("MLB-FALLBACK-RECEIPT " + _json.dumps(
         {k: v for k, v in r.items() if k not in ("teams",)}, default=str, sort_keys=True))
     print(f"  provider requests remaining: {client.requests_remaining}")
@@ -1098,6 +1102,10 @@ def sync_odds_cmd(competition_code: str, season: str | None, limit: int, days_ah
     result = service.sync_odds(competition_code, season=season, limit=limit,
                                **({"match_ids": ids} if ids is not None else {}))
     console.print(f"[green]✓ Odds ({competition_code}): {result}[/green]")
+    if hasattr(result, "orientation_swapped"):
+        # addendum 295 item 5(b) (#885): the rows priced into the stored orientation, plainly, zero included
+        from src.ingestion.service import odds_by_team_line
+        print(odds_by_team_line(result.orientation_swapped), flush=True)
 
 
 @cli.command("sync-injuries")
@@ -6369,6 +6377,10 @@ def sync_odds_football_cmd(match_ids=None):
                                        for c in comps) + " priced/in window)" if comps else "")
                   + (f" · book-consensus snapshots appended={r['snapshots']}" if "snapshots" in r else "")
                   + "[/green]")
+    if "orientation_swapped" in r:
+        # addendum 295 item 5(b) (#885): the rows priced into the stored orientation, plainly, zero included
+        from src.ingestion.service import odds_by_team_line
+        print(odds_by_team_line(r["orientation_swapped"]), flush=True)
 
 
 # Old name kept as an alias so existing chains keep working (2026-09-26).

@@ -37,9 +37,12 @@ def key_line(r: dict) -> str:
             return r.get("skipped") or f"refused: {r['refused']}"
         # addendum 204 item 3(c) (#728): a step that skipped listings of clubs not in the DB says so here too
         sk = r.get("listings_skipped") or []
+        sbt = r.get("scores_by_team")       # addendum 295 item 4 (#885): both counts, whenever a step printed them
         return (f"steps {r.get('steps_ok')}/{r.get('steps_total')}; exports {len(r.get('exports') or [])}"
                 + (f"; listings skipped (clubs not in the DB) {sum(x.get('n') or 0 for x in sk)} in "
                    f"{len(sk)} step(s)" if sk else "")
+                + (f"; orientation_reversed {sbt.get('orientation_reversed')} · teams_mismatch_refused "
+                   f"{sbt.get('teams_mismatch_refused')}" if sbt else "")
                 + (f"; {r['release']}" if r.get("release") else ""))
     if k == "backup":
         return f"{r.get('file')} integrity={r.get('integrity')}" + (

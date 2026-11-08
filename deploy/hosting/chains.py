@@ -85,6 +85,17 @@ HOST_TALLY_STEP = ["results-tally", "--host-export"]
 SHADOW_GO_ON = ("addendum 294 item A.3: the tally is a read-only record export; a refused shadow league must not black "
                 "out the production record")
 
+# soccer-morning-after's results export (ARCHITECT 2026-11-08 09:55 ET, addendum 294 item D, verbatim in part: "(i)
+# `export-results` gains `--days N`, default 1, which is today's behaviour. For each slate day in the N days ending
+# yesterday, it writes that day's `<sport>_<comp>_results_<day>.json` when the day has at least one graded game.
+# Yesterday's file is always written, as today. (ii) soccer-morning-after passes `--days 7`."). The chain's timer fires
+# Sun/Mon/Tue only, so a Friday game, or a Tuesday-Thursday one, has no next-morning run. With seven days, slate day d
+# is in the window of every run from d+1 to d+7, a span holding one Sunday, one Monday and one Tuesday: each day is
+# read by three runs (Friday 11-06 by Sunday 11-08's, Monday 11-09's and Tuesday 11-10's). THIS chain only:
+# mlb-morning's and soccer-refresh's export-results stay bare (--days 1).
+PL_RESULTS_DAYS = 7
+PL_RESULTS_STEP = ["export-results", "--sport", "soccer", "--competition", "PL", "--days", str(PL_RESULTS_DAYS)]
+
 CUP_SCHEDULE = ("EFL", "CL", "UEL", "FAC")     # intl-daily's cup schedule read (#707), in this order
 COVERAGE_STEP = ["coverage", "--json"]         # intl-daily's LAST step (#805, addendum 225 item 5)
 
@@ -159,7 +170,7 @@ CHAINS: dict[str, dict] = {
             ["sync-matches", *PL],
             *[["sync-matches", *x] for x in EXPANSION],
             ["evaluate", "--sport", "soccer"],
-            ["export-results", "--sport", "soccer", "--competition", "PL"],
+            [*PL_RESULTS_STEP],          # addendum 294 item D(ii): the seven slate days ending yesterday
             [*SHADOW_EXPORT_STEP],       # after every sync above (addendum 185 D2): reads the DB only
             [*HOST_TALLY_STEP],          # LAST (addendum 230 item 2(b), 248 item 2(c), 289 item 3): DB mode=ro
         ],

@@ -9638,6 +9638,20 @@ def _redated_lines(rows) -> None:
         print(f"    match {r.get('match_id')} {r.get('away_team')} @ {r.get('home_team')}: {r['redated']}")
 
 
+def _results_yesterday():
+    """export-results' default day: yesterday by this machine's clock (`date.today()`), exactly as before #883. One
+    seam, so a test can fix the clock; nothing else reads it."""
+    from datetime import date as _date, timedelta
+    return _date.today() - timedelta(days=1)
+
+
+# ARCHITECT 2026-11-08 09:55 ET, addendum 294 item D(i) (#883): "`export-results` gains `--days N`, default 1, which is
+# today's behaviour. For each slate day in the N days ending yesterday, it writes that day's
+# `<sport>_<comp>_results_<day>.json` when the day has at least one graded game. Yesterday's file is always written, as
+# today."
+RESULTS_DAYS_DEFAULT = 1
+
+
 @cli.command("export-results")
 @click.option("--sport", type=click.Choice(["mlb", "baseball", "soccer"]), default="mlb")
 @click.option("--competition", "competition_code", default="MLB")
@@ -9646,22 +9660,74 @@ def _redated_lines(rows) -> None:
                    "run just evaluated).")
 @click.option("--out", "out_path", default=None,
               help="File path. Defaults to exports/<sport>_results_<date>.json.")
-def export_results_cmd(sport, competition_code, date_str, out_path):
+@click.option("--days", "days", default=RESULTS_DAYS_DEFAULT, show_default=True, type=click.IntRange(min=1),
+              help="The N slate days ending yesterday (addendum 294 item D, #883): each earlier day's file is written "
+                   "when the day has at least one graded game; yesterday's always, as with 1. 1 = yesterday only. "
+                   "Above 1, --date and --out refuse (exit 2, nothing written).")
+def export_results_cmd(sport, competition_code, date_str, out_path, days):
     """
     Export yesterday's GRADED games (prediction + actual outcome + how it graded)
     as a JSON file for the external prediction model to consume. Backward-looking
     companion to export-predictions. Run after evaluate in the morning chain.
+
+    --days N (addendum 294 item D, #883): the N slate days ending yesterday. An
+    earlier day's file is written (its own name, <sport>_<comp>_results_<day>.json,
+    rewritten in place) when that day has at least one graded game; yesterday's is
+    always written, as today. The days are written oldest first, yesterday last.
     """
-    from datetime import datetime, timedelta, date as _date
-    from pathlib import Path
-    from src.walters.export import export_results
+    from datetime import datetime, timedelta
     from src.db.schema import Sport
+
+    if days > 1 and (date_str is not None or out_path is not None):
+        # law 4: the ruling names the N days ending YESTERDAY, one file per day; neither another anchor day nor one
+        # path for several days is ruled, so neither is guessed (an option given empty is given: refused, not dropped)
+        click.echo(f"REFUSED: --days {days} reads the {days} slate days ending yesterday, one file per day under "
+                   "exports/; it takes neither --date nor --out (addendum 294 item D; nothing written)")
+        raise SystemExit(2)
 
     sport_enum = Sport.MLB if sport in ("mlb", "baseball") else Sport.SOCCER
     if date_str:
         day = datetime.strptime(date_str, "%Y-%m-%d")
     else:
-        day = datetime.combine(_date.today() - timedelta(days=1), datetime.min.time())
+        day = datetime.combine(_results_yesterday(), datetime.min.time())
+
+    if days == 1:
+        _export_results_day(sport_enum, competition_code, day, out_path)
+        return
+
+    # 294 D(i): the earlier days, oldest first (so yesterday's file is the newest written, the mirror's latest copy of
+    # the kind), each written only when it holds at least one graded game; then yesterday's, always, exactly as --days 1
+    earlier = [day - timedelta(days=k) for k in range(days - 1, 0, -1)]
+    outcome: dict[str, list[str]] = {"written": [], "none": [], "failed": []}
+    for d in earlier:
+        try:
+            got = _export_results_day(sport_enum, competition_code, d, None, only_if_graded=True)
+        except Exception as e:                   # an earlier day never stops yesterday's file (UnknownCompetition's
+            # SystemExit is not an Exception and still refuses, exit 2); the day is named, its file may be on disk
+            console.print(f"[red]✗ Results export failed: {e}[/red] [red](slate day {d.strftime('%Y-%m-%d')}; its "
+                          "file may be on disk)[/red]")
+            got = "failed"
+        outcome[got].append(d.strftime("%Y-%m-%d"))
+    last = _export_results_day(sport_enum, competition_code, day, None)
+    stamp = day.strftime("%Y-%m-%d")
+    outcome["written" if last != "failed" else "failed"].append(stamp)
+
+    def _days(xs):
+        return f"{len(xs)} ({', '.join(xs)})" if xs else "0"
+    print(f"results window: --days {days}, slate days {earlier[0].strftime('%Y-%m-%d')} .. {stamp} (08:00 UTC each) · "
+          f"written {_days(outcome['written'])}, yesterday's always · no graded game, not written "
+          f"{_days(outcome['none'])} · failed {_days(outcome['failed'])}")
+
+
+def _export_results_day(sport_enum, competition_code, day, out_path, *, only_if_graded=False) -> str:
+    """One slate day's results file, as export-results wrote it before #883: "written" (the file is on disk, a zero-game
+    day's included), "none" (only_if_graded and no graded game: nothing written, nothing printed), or "failed" (the
+    writer raised: printed, nothing written). An unknown competition code refuses, exit 2, before anything is
+    written."""
+    from datetime import timedelta
+    from pathlib import Path
+    from src.walters.export import export_results
+
     # slate-day window: 08:00 UTC → 08:00 UTC next day (matches export-predictions)
     start = day.replace(hour=8, minute=0, second=0, microsecond=0)
     end = start + timedelta(days=1)
@@ -9676,8 +9742,14 @@ def export_results_cmd(sport, competition_code, date_str, out_path):
         click.echo(f"REFUSED: {e}")
         raise SystemExit(2)
     except Exception as e:
-        console.print(f"[red]✗ Results export failed: {e}[/red]")
-        return
+        console.print(f"[red]✗ Results export failed: {e}[/red]"
+                      + (f" [red](slate day {day.strftime('%Y-%m-%d')})[/red]" if only_if_graded else ""))
+        return "failed"
+
+    import json as _json
+    data = _json.loads(payload)
+    if only_if_graded and data["count"] == 0:    # 294 D(i): an earlier day is written only with a graded game
+        return "none"
 
     if out_path is None:
         Path("exports").mkdir(exist_ok=True)
@@ -9688,13 +9760,11 @@ def export_results_cmd(sport, competition_code, date_str, out_path):
     with open(out_path, "w") as f:
         f.write(payload)
 
-    import json as _json
-    data = _json.loads(payload)
     n = data["count"]
     if n == 0:
         console.print(f"[yellow]No graded games for {day.strftime('%Y-%m-%d')} "
                       "(not evaluated yet, or none that day).[/yellow]")
-        return
+        return "written"
     # addendum 106 item 4: a re-dated row stays in the file and out of every tally below
     tallied = [r for r in data["results"] if not r.get("redated")]
     hits = sum(1 for r in tallied if r["graded"]["top_pick_hit"])
@@ -9737,6 +9807,7 @@ def export_results_cmd(sport, competition_code, date_str, out_path):
             console.print("  [dim](centers agree — uniform lean day, no outlier "
                           "distortion; direction accrues to the --since "
                           "calibration read)[/dim]")
+    return "written"
 
 
 @cli.command("export-fixtures")

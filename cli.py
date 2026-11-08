@@ -5317,11 +5317,36 @@ def export_nfl_results_cmd(days_back, match_ids):
 
 @cli.command("results-tally")
 @click.option("--days", default=30, type=int, help="Rolling window size.")
-def results_tally_cmd(days):
-    """Regenerate RESULTS.md — rolling per-sport record."""
+@click.option("--host-export", is_flag=True, default=False,
+              help="THE HOST'S EXPORT (addendum 289 item 3; 230 item 2(b)): write exports/RESULTS.md and "
+                   "exports/results_tally.json beside it (never the repo's RESULTS.md), every section reading the DB "
+                   "mode=ro. Host only: refused (exit 2) on any other machine, nothing read or written.")
+def results_tally_cmd(days, host_export):
+    """Regenerate RESULTS.md — rolling per-sport record.
+    --host-export (ARCHITECT 2026-11-08, addendum 289 item 3: "results-tally's RESULTS.md and its JSON written on the
+    HOST by the morning-after chain and mirrored, so the compare morning reads one tally per machine (the laptop's is
+    regenerated; the host's is the record of production) — read-only on the DB, a file under exports/, the mirror's
+    top-level rule carries it"): the last step of soccer-morning-after (deploy/hosting/chains.py). The same tally,
+    written to exports/RESULTS.md with the host's header line and exports/results_tally.json (kind results_tally_v1:
+    each section's title, its lines verbatim and the figures its computation returned), both by a temporary name and
+    a rename; the database read mode=ro by every section (database.readonly_binding), a missing file refused (exit 2),
+    never created. REFUSED (exit 2) before any read unless this machine's role is host (desk_policy.not_host_reason,
+    the shadow export's fence). Without it, unchanged: the repo's RESULTS.md, the laptop's regenerated tally."""
     from src.db.database import ReadOnlyRefused
-    from src.walters.export import results_tally
+    from src.walters.export import host_results_tally, results_tally
+    if host_export:
+        from src.walters import desk_policy as _dp
+        why = _dp.not_host_reason()
+        if why is not None:
+            click.echo(f"REFUSED: results-tally --host-export runs on the host only (ARCHITECT 2026-11-08, addendum 289 "
+                       f"item 3: the host's tally is the record of production; the laptop's is regenerated): {why}. "
+                       "Nothing was read or written.")
+            raise SystemExit(2)
     try:
+        if host_export:
+            md, js = host_results_tally(days=days, report=click.echo)
+            console.print(f"[green]✓ Wrote {md} and {js}[/green]")
+            return
         path = results_tally(days=days, report=click.echo)
     except ReadOnlyRefused as e:          # #706: the DB is read mode=ro; a missing file is refused, never created
         click.echo(str(e))

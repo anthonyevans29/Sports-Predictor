@@ -27,8 +27,9 @@ PL = ("--competition", "PL", "--season", "2026/27")
 # addendum 185 D2, verbatim in part: "THE EXPORT RUNS AS THE LAST STEP OF EVERY EXISTING SOCCER SYNC CHAIN
 # (soccer-friday 14:00Z, soccer-saturday 10:30 London, soccer-morning-after Sun/Mon/Tue 09:50Z, and intl-daily's tail
 # only if a league sync precedes it there — it does not, so not intl-daily) [...] No new timer, no daily league
-# sync"): SHADOW_EXPORT_STEP, bare, is the last step of soccer-prematch (sp-soccer-friday and sp-soccer-saturday) and
-# soccer-morning-after. Bare: no --competition (it binds its own leagues from the registry: PD and each declared one
+# sync"): SHADOW_EXPORT_STEP, bare, is the last step of soccer-prematch (sp-soccer-friday and sp-soccer-saturday) and,
+# after every sync, of soccer-morning-after but for the host's results-tally after it (HOST_TALLY_STEP, addendum 230
+# item 2(b): "as the last step of soccer-morning-after"). Bare: no --competition (it binds its own leagues from the registry: PD and each declared one
 # of the four, R5) and no --hours (its window runs to the next of those three timers' fires plus
 # soccer_expansion.EXPORT_WINDOW_MARGIN, 2 h, so it reaches the next chain's export step: soccer_expansion.
 # next_chain_run; ARCHITECT 2026-10-30 14:50 ET, addendum 188 item 4; each run writes its own new file, never a row
@@ -68,6 +69,15 @@ CFBD_GO_ON = ("addendum 240 item 4(b): the weekly CFBD read's failure is a sync-
 AVAILABILITY_NFLVERSE_STEP = ["availability-nflverse", "--season", "2026"]
 AVAILABILITY_GO_ON = ("addendum 252 item 3(a): the nflverse read's failure is receipted and paged as a sync-step "
                       "failure, stopping nothing")
+
+# soccer-morning-after's LAST step (ARCHITECT 2026-11-03, addendum 230 item 2(b), verbatim in part: "results-tally on
+# the host (DB mode=ro) as the last step of soccer-morning-after, its RESULTS.md and a JSON beside it to the mirror";
+# 248 item 2(c); ARCHITECT 2026-11-08, addendum 289 item 3: "written on the HOST by the morning-after chain and
+# mirrored [...] a file under exports/, the mirror's top-level rule carries it"): exports/RESULTS.md and
+# exports/results_tally.json, the mirror's sp_run push after the step carrying both. After the shadow export, so D2's
+# "after every sync" stands; a shadow export that exits 2 (D7) stops the chain before it, as any failed step does.
+# UNMETERED (results-tally is). Never ./RESULTS.md: mlb-morning's H0-9 tally, and sp_deploy's restore of it, unchanged.
+HOST_TALLY_STEP = ["results-tally", "--host-export"]
 
 CUP_SCHEDULE = ("EFL", "CL", "UEL", "FAC")     # intl-daily's cup schedule read (#707), in this order
 COVERAGE_STEP = ["coverage", "--json"]         # intl-daily's LAST step (#805, addendum 225 item 5)
@@ -142,7 +152,8 @@ CHAINS: dict[str, dict] = {
             *[["sync-matches", *x] for x in EXPANSION],
             ["evaluate", "--sport", "soccer"],
             ["export-results", "--sport", "soccer", "--competition", "PL"],
-            [*SHADOW_EXPORT_STEP],       # LAST (addendum 185 D2): reads the DB only, after every sync above
+            [*SHADOW_EXPORT_STEP],       # after every sync above (addendum 185 D2): reads the DB only
+            [*HOST_TALLY_STEP],          # LAST (addendum 230 item 2(b), 248 item 2(c), 289 item 3): DB mode=ro
         ],
     },
     "soccer-refresh": {  # H0-6: OPERATOR-STARTED ONLY — no timer exists

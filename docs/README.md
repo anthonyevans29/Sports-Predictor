@@ -122,6 +122,7 @@ run's files arrive on `main` as the laptop wrote them (each one's adding commit 
 - `docs/ledger/entries/2026-11-07-280-py310-hotfix.md`: HOTFIX, main imports on Python 3.10; CI's 3.10 job. **record**. Addendum 280 item 2.
 - `docs/ledger/entries/2026-11-07-283-arm-policy-text.md`: POLICY, the early-entry arm declared. **record**. Addendum 283.
 - `docs/ledger/entries/2026-11-07-852-mirror-top-level-links.md`: BUILT, the exports mirror's top-level link refusal. **record**. Addendum 277 item 1; #852.
+- `docs/ledger/entries/2026-11-08-289-3-host-results-tally.md`: BUILT, the host's results-tally export. **record**. Addenda 289 item 3, 248 item 2(c), 230 item 2(b); #875.
 
 ## docs/discussions/
 

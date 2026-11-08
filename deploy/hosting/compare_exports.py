@@ -71,6 +71,23 @@ select the whole folder). The --since window and the header's settled count
 treat it like any dated file.
 cutover_readiness.compare_day (criterion (a)) applies the same rule.
 
+THE HOST'S TALLY (ARCHITECT 2026-11-08 07:50 ET, addendum 289 item 3,
+verbatim in part: "results-tally's RESULTS.md and its JSON written on the HOST
+by the morning-after chain and mirrored, so the compare morning reads one tally
+per machine (the laptop's is regenerated; the host's is the record of
+production)"; addendum 230 item 2(b): "a JSON beside it to the mirror as a kind
+of its own"). Kind `results_tally` (exports/results_tally.json, written by
+`results-tally --host-export` on the host alone; the mirror's host/<date>/ and
+host/latest/ copies) is MACHINE STATE by the same rule: each machine's own tally
+of its own database and its own closing files, so it can never be a
+divergence; never opened, never compared, never counted, never DIVERGENT (a
+folder holding only it is NO-COVERAGE). Its own kind (TALLY_KINDS) on its own
+line, printed only when a tally file is among the selected files on either side
+("the host's tally (machine state, never compared): results_tally laptop no /
+host yes"), so the machine-state line above and every run without a tally file
+read exactly as before. Its RESULTS.md is not *.json: counted as not matched,
+as any Markdown is.
+
 SHADOW-ARM KEYS (ARCHITECT 2026-11-01 12:05 ET, addendum 199 item 2, verbatim):
 "THE COMPARE — option (b): a NAMED, COUNTED host-only class. compare_exports
 treats every `candidate_*` key as "shadow-arm keys (host-only,
@@ -312,6 +329,9 @@ KICKOFF, HOME, AWAY = ("utc_date", "kickoff", "date"), ("home_team", "home"), ("
 # (tools/compare_exports.py has neither sp_common nor exports_mirror); tests/test_compare_exports_machine_state.py pins
 # the copy to the mirror's.
 MACHINE_STATE_KINDS = ("coverage",)
+# THE HOST'S TALLY (addendum 289 item 3; the module docstring quotes it): machine state by the same rule, its own kind on
+# its own line (tally_line), so the ruled machine-state line keeps its one kind
+TALLY_KINDS = ("results_tally",)
 _STAMP = re.compile(r"_?\d{4}-\d{2}-\d{2}(?:[T_]\d{2}:?\d{2}(?::?\d{2})?Z?)?")      # exports_mirror.STAMP
 
 
@@ -324,9 +344,21 @@ def kind_of(name: str) -> str:
 
 
 def machine_state_kind(name: str) -> str | None:
-    """The file's kind when it is machine state (addendum 128 item 3), else None."""
+    """The file's kind when it is machine state (addendum 128 item 3; the host's tally, addendum 289 item 3), else
+    None."""
     k = kind_of(name)
-    return k if k in MACHINE_STATE_KINDS else None
+    return k if k in MACHINE_STATE_KINDS or k in TALLY_KINDS else None
+
+
+def tally_line(laptop_names, host_names) -> str | None:
+    """The host's tally by presence on each side, "the host's tally (machine state, never compared): results_tally
+    laptop no / host yes"; None when neither side holds one (the line is not printed)."""
+    def yn(names, kind):
+        return "yes" if any(kind_of(n) == kind for n in names) else "no"
+    if not any(kind_of(n) in TALLY_KINDS for n in [*laptop_names, *host_names]):
+        return None
+    return "the host's tally (machine state, never compared): " + " · ".join(
+        f"{k} laptop {yn(laptop_names, k)} / host {yn(host_names, k)}" for k in TALLY_KINDS)
 
 
 def machine_state_line(laptop_names, host_names) -> str:
@@ -493,6 +525,7 @@ def _main(argv=None) -> int:
     settled = len(set(la_all) | set(ho_all)) - len(set(la) | set(ho))
     # addendum 128 item 3: a machine-state file leaves the comparison here, listed by presence and never opened
     ms_line = machine_state_line(la, ho)
+    t_line = tally_line(la, ho)                   # addendum 289 item 3: printed only when a tally file is there
     la = {n: p for n, p in la.items() if not machine_state_kind(n)}
     ho = {n: p for n, p in ho.items() if not machine_state_kind(n)}
     wor = writer_of_record()
@@ -558,6 +591,8 @@ def _main(argv=None) -> int:
              for side, d, names in (("laptop", a.laptop, la_all), ("host", a.host, ho_all))}
     one_side = len(set(la) ^ set(ho))
     print(ms_line)
+    if t_line:
+        print(t_line)
     print(f"\ncoverage: {compared} JSON file(s) compared ({a.glob}) · {one_side} on one side only · "
           f"{settled} outside the window · not matched by {a.glob}: laptop {len(other['laptop'])}, "
           f"host {len(other['host'])}" + (f" (e.g. {', '.join((other['laptop'] + other['host'])[:3])})"

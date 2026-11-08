@@ -109,9 +109,10 @@ def test_the_record_commit_is_quoted_as_git_holds_it():
         pytest.skip(f"commit {SHA[:8]} not in this checkout (shallow clone)")
     e = _by_id()[SOCCER]
     assert e["record_commit"]["message"] == got.stdout.strip()
-    at = subprocess.run(["git", "-C", str(ROOT), "show", f"{SHA}:BACKLOG.md"], capture_output=True, text=True,
-                        check=True).stdout
-    assert _backlog_entry(at) == e["certification"][len(PREFIX):-1]
+    shown = subprocess.run(["git", "-C", str(ROOT), "show", f"{SHA}:BACKLOG.md"], capture_output=True, text=True)
+    if shown.returncode != 0:                      # a partial / object-filtered clone: the commit without its tree
+        pytest.skip(f"BACKLOG.md at {SHA[:8]} not in this checkout (partial clone)")
+    assert _backlog_entry(shown.stdout) == e["certification"][len(PREFIX):-1]
 
 
 def test_nfl_elo_v1_gains_only_its_family():

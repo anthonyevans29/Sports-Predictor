@@ -26,9 +26,13 @@ system); width CARD_WIDTH_PX, the height grown to what the card holds (portrait:
 THE PRIVACY RULE (item 2), IN THE WRITER: no desk.order text, no desk.exec.contracts, no fee_order_contracts, no contract
 count, no dollar figure, no desk_meta.unit.fraction / half_fraction, no pool figure, no account id, no API key. By
 construction: the renderer reads a fixed list of fields and none of those (an order prints as side, venue and the limit
-in cents; stakes in units only). By guard: sp_common.redact runs over every line, then src/privacy_patterns
-.bulletin_offence (the #817 patterns, one definition, plus the bulletin's own) runs over the WHOLE Markdown and every
-string the card draws, for every file of the run, BEFORE anything is written. A match REFUSES THE WRITE: nothing of the
+in cents, and only an order that was written; stakes in units only). By guard: every row value is put on one line
+(one_line: no value spans two lines of either file) and every "$" of the Markdown is escaped (no row text renders as
+math on GitHub; the card draws every text with parse_math=False), sp_common.redact runs over every line (host.env read
+first, as the units read it), then src/privacy_patterns.bulletin_offence (the #817 patterns, one definition, plus the
+bulletin's own) runs over the WHOLE Markdown and every string the card draws, line by line as written, line by line as
+rendered and the whole text as rendered (entities decoded, NFKC, line breaks one space), for every file of the run,
+BEFORE anything is written. A match REFUSES THE WRITE: nothing of the
 run is written, the receipt carries `bulletin_refused` with each pattern's NAME and the file's intended path, never the
 line, and the command exits 2. The writer writes only .md and .png (exports_mirror.BULLETIN_SUFFIXES): a .json, or any
 other suffix, is refused by the writer itself (item 4: "NO JSON is ever written under it").
@@ -44,7 +48,8 @@ THE DB (item 3): only for PL's matchday, opened mode=ro (sp_common.ro_connect on
 cannot be read prints "not stored" with the reason; it never fails the render.
 
 RECEIPT: kind "bulletin" (sp_common.append_receipt): source, stage, family, exit, written (paths), skipped (match id,
-why), and bulletin_refused [{pattern, path}] or bulletin_failed (the redacted error). Exit 0 written (or nothing to
+why; a match id that is not an integer is skipped and never a path segment), and bulletin_refused [{pattern, path}]
+or bulletin_failed (the redacted error; withheld to its type and the pattern's name where the guard matches it). Exit 0 written (or nothing to
 render), 2 refused (an argument, a file that is not the stage's kind, or the guard), 1 failed.
 
 NOT HERE (addendum 289 item 4 "no timer yet"): the two closing.py hooks of item 3 (the closing run and the slate stage
@@ -117,6 +122,22 @@ def v(x) -> str:
     if isinstance(x, (list, tuple)):
         return ", ".join(str(i) for i in x) if x else "none listed"
     return str(x)
+
+
+_BREAKS = re.compile("[\x00-\x1f\x7f-\x9f\u2028\u2029]+")       # Cc, Zl and Zp: a run of them is one space
+
+
+def one_line(text) -> str:
+    """A text on ONE line: every control character (line feed, carriage return, tab, vertical tab, form feed, the C1
+    set) and the Unicode line and paragraph separators, a run of them one space, so no row value can span two lines of the Markdown
+    or of the card (the guard reads what is drawn, and what is drawn is one line per value)."""
+    return _BREAKS.sub(" ", str(text))
+
+
+def md_line(line) -> str:
+    """One Markdown line as written: on one line, redacted (sp_common.redact), and every "$" escaped so GitHub never
+    renders a row's text as math (an inline $...$ would draw something the guard never read)."""
+    return c.redact(one_line(line)).replace("$", "\\$")
 
 
 def pp(x) -> str:
@@ -250,10 +271,23 @@ def desk_row(doc: dict, row: dict, fam: str) -> dict | None:
     return rows[0] if rows else None
 
 
+def _entry_certification(eid: str) -> str | None:
+    """The registry entry's own `certification` text (docs/registry/experiments.json), read-only; None unread."""
+    try:
+        from src.walters import registry
+        e = next((x for x in registry.load(registry.LEDGER) if isinstance(x, dict) and x.get("id") == eid), None)
+    except Exception:                                   # noqa: BLE001  (a line, never the render's failure)
+        return None
+    return str(e["certification"]) if isinstance(e, dict) and e.get("certification") else None
+
+
 def certification_line(fam: str, row: dict) -> str:
     """Item 1(a): the family's certification as the code reads it now, never a hand-written state. NFL:
     closing.nfl_certification() on nfl_predict.MODEL_VERSION. SOCCER and MLB: registry.certification_of on the row's
-    own prediction.model_version (a model no registry entry withholds is live as its closing family runs it)."""
+    own prediction.model_version. An uncertified model prints the withholding entry's own certification text verbatim
+    and its id; the would-be clause only for a family closing writes a would-be line for (closing.WOULD_BE_FAMILIES).
+    A model the registry holds no entry for is "certification not read" with certification_of's reason (law 4: "a
+    missing entry is not a certification", registry.certification_of), never an inferred "live"."""
     mv = get(row, "prediction", "model_version")
     if fam == "NFL":
         try:
@@ -271,11 +305,12 @@ def certification_line(fam: str, row: dict) -> str:
     else:
         return f"model version {NOT_STORED}: certification not read"
     if state == "uncertified":
-        return (f"{mv} — UNCERTIFIED (registry {why}): market-only, the would-be call below is a record, not a pick")
+        text = _entry_certification(why) or "UNCERTIFIED"
+        tail = (": market-only, the would-be call below is a record, not a pick"
+                if fam in cl.WOULD_BE_FAMILIES else "")
+        return f"{mv} — {text} (registry {why}){tail}"
     if state == "certified":
-        return f"{mv} — live, certified (registry {why})"
-    if str(why).startswith("no registry entry"):
-        return f"{mv} — live (closing family {fam}; no registry entry withholds it)"
+        return f"{mv} — certified (registry {why})"
     return f"{mv} — certification not read ({why})"
 
 
@@ -328,11 +363,13 @@ def slate_row(exports: Path, fam: str, row: dict) -> tuple[dict | None, str | No
 # ----------------------------------------------------------------------------------------------- markdown --
 
 def _order_line(d: dict) -> str:
-    """Item 2: "orders print as side, venue and the limit in cents, never a count". The order's why is printed only
+    """Item 2: "orders print as side, venue and the limit in cents, never a count", and only an order that was WRITTEN
+    (desk_policy.order_line sets side and limit before it finds the size under one contract and writes no text: that
+    order does not exist, and closing.order_text says "no order"). The order's why is printed only
     where it is the unit-unread text (addendum 179 item 4); any other why names the unit's basis, so it stays on the
     closing page."""
     o = d.get("order") or {}
-    if o.get("side") and o.get("limit") is not None:
+    if o.get("text") and o.get("side") and o.get("limit") is not None:     # written (never the text itself)
         return f"order: {o['side']} on {VENUE}, limit {cents(o['limit'])}"
     if o.get("why") == cl.UNIT_UNREAD_TEXT:
         return f"order: {cl.UNIT_UNREAD_TEXT}"
@@ -380,7 +417,8 @@ def section_prediction(row: dict, fam: str) -> list[str]:
                 f"{row.get('away_team')} {v(pr.get('expected_away'))}",
                 f"- most likely score: {v(get(pr, 'factor_breakdown', 'most_likely_score'))}"]
     elif fam == "NFL":
-        out.append(f"- margin and total lines: {NOT_STORED} (the row carries none)")
+        out.append(f"- margin line (consensus home spread): {v(get(row, 'market', 'consensus_home_spread'))} · "
+                   f"total line: {NOT_STORED}")
     else:
         out.append(f"- expected runs: {row.get('home_team')} {v(pr.get('expected_home'))} · "
                    f"{row.get('away_team')} {v(pr.get('expected_away'))}")
@@ -413,13 +451,17 @@ def section_teams(row: dict, d: dict, fam: str) -> list[str]:
             if isinstance(inj, dict):
                 out += [f"- injuries: {v(inj.get('count'))} listed (synced {v(inj.get('synced_at'))})",
                         f"- QB listed: {v(inj.get('qb_listed'))}",
-                        f"- positions_unresolved: {v(inj.get('positions_unresolved'))}"]
+                        f"- positions_unresolved: {v(inj.get('positions_unresolved'))}",
+                        f"- injured by name: {v(inj.get('names'))}"]
             else:
                 out.append(f"- injuries: {NOT_STORED}")
         elif fam == "MLB":
             p = get(row, "pitchers", side)
             out.append(f"- starter: {v(p.get('name'))} ({v(p.get('kind'))}, ERA {v(p.get('era'))})"
                        if isinstance(p, dict) else f"- starter: {NOT_STORED}")
+            inj = row.get("injuries")
+            out.append(f"- injuries: {v(inj.get(side + '_count'))} · {v(inj.get(side + '_names'))}"
+                       if isinstance(inj, dict) else f"- injuries: {NOT_STORED}")
         else:
             inj = row.get("injuries")
             if isinstance(inj, dict):
@@ -557,11 +599,16 @@ def section_change(row: dict, d: dict, stage: str, exports: Path, fam: str) -> l
     return out + [""]
 
 
-def markdown(row: dict, d: dict, x: dict | None, *, fam: str, stage: str, doc: dict, run_id, week: str, cert: str,
-             exports: Path, books: dict | None) -> str:
+def stage_text(stage: str, doc: dict) -> str:
+    """Item 1(a)'s stage: "closing page, T-35" or "slate, <exported_at> ET" (not stored where the file has none)."""
+    if stage == "closing":
+        return CLOSING_STAGE
+    return f"slate, {cl.et(cl.parse_utc(doc['exported_at']))}" if doc.get("exported_at") else f"slate, {NOT_STORED}"
+
+
+def markdown(row: dict, d: dict, x: dict | None, *, fam: str, stage: str, stage_s: str, doc: dict, run_id, week: str,
+             cert: str, exports: Path, books: dict | None) -> str:
     ko = kickoff(row)
-    stage_s = CLOSING_STAGE if stage == "closing" else (
-        f"slate, {cl.et(cl.parse_utc(doc['exported_at']))}" if doc.get("exported_at") else f"slate, {NOT_STORED}")
     lines = [f"# {row.get('away_team')} at {row.get('home_team')}", "",
              f"- competition: {v(row.get('competition'))} (family {fam})",
              f"- matchweek: {week}",
@@ -576,7 +623,7 @@ def markdown(row: dict, d: dict, x: dict | None, *, fam: str, stage: str, doc: d
     lines += section_maths(row, d, doc.get("desk_meta") or {})
     lines += section_change(row, d, stage, exports, fam)
     lines += ["---", "", FOOTER, ""]
-    return "\n".join(c.redact(line) for line in lines)
+    return "\n".join(md_line(line) for line in lines)
 
 
 # --------------------------------------------------------------------------------------------------- card --
@@ -600,10 +647,12 @@ def card_spec(row: dict, d: dict, *, fam: str, stage_s: str, week: str, cert: st
     info = [f"edge {pp(d.get('edge_pp'))} · exec edge {pp(get(d, 'exec', 'edge_pp'))}",
             f"injuries listed: {row.get('home_team')} {v(inj[0])} · {row.get('away_team')} {v(inj[1])}",
             cert]
-    spec = {"head": [c.redact(t) for t in head], "call": c.redact(cl.call_text(row, d)),
-            "reason": c.redact(str(d.get("reason") or d.get("pass_kind") or NOT_STORED)),
-            "bars": bars, "groups": [c.redact(g) for g in groups], "values": values,
-            "legend": [n for n, _ in SERIES], "info": [c.redact(t) for t in info], "footer": FOOTER}
+    def t(x):                                    # on one line and redacted, as every Markdown line is
+        return c.redact(one_line(x))
+    spec = {"head": [t(x) for x in head], "call": t(cl.call_text(row, d)),
+            "reason": t(d.get("reason") or d.get("pass_kind") or NOT_STORED),
+            "bars": bars, "groups": [t(g) for g in groups], "values": values,
+            "legend": [n for n, _ in SERIES], "info": [t(x) for x in info], "footer": FOOTER}
     spec["texts"] = (spec["head"] + [spec["call"], spec["reason"]] + spec["groups"] + values + spec["legend"]
                      + spec["info"] + [FOOTER])
     return spec
@@ -624,7 +673,16 @@ def _fonts():
 
 
 def render_card(spec: dict) -> bytes:
-    """The PNG card (Agg, no display): CARD_WIDTH_PX wide, portrait."""
+    """The PNG card (Agg, no display): CARD_WIDTH_PX wide, portrait. Drawn under matplotlib's own defaults (an rc
+    context reset to rcdefaults, restored after): no matplotlibrc, MPLCONFIGDIR or style on the host can change the
+    width (savefig.bbox), turn text into TeX (text.usetex) or anything else the card draws."""
+    import matplotlib
+    with matplotlib.rc_context():
+        matplotlib.rcdefaults()
+        return _render_card(spec)
+
+
+def _render_card(spec: dict) -> bytes:
     from matplotlib.backends.backend_agg import FigureCanvasAgg
     from matplotlib.figure import Figure
     from matplotlib.patches import Patch
@@ -648,7 +706,7 @@ def render_card(spec: dict) -> bytes:
     chart_h = 560
     h = max(CARD_MIN_HEIGHT_PX, pad + height(top) + 30 + chart_h + 30 + height(info) + 30 + height(foot) + pad)
     fig = Figure(figsize=(w / CARD_DPI, h / CARD_DPI), dpi=CARD_DPI, facecolor=CARD_BG)
-    FigureCanvasAgg(fig)
+    canvas = FigureCanvasAgg(fig)
     y = pad
 
     def draw(bs, y):
@@ -678,7 +736,7 @@ def render_card(spec: dict) -> bytes:
     ax.set_xlim(-0.5, n - 0.5)
     ax.set_yticks([])
     ax.set_xticks(range(n))
-    ax.set_xticklabels(spec["groups"], fontproperties=font(14))
+    ax.set_xticklabels(spec["groups"], fontproperties=font(14), parse_math=False)    # a team's $...$ is text
     for side in ("top", "right", "left"):
         ax.spines[side].set_visible(False)
     ax.spines["bottom"].set_color(INK_2)
@@ -690,7 +748,7 @@ def render_card(spec: dict) -> bytes:
     y = draw(info, y) + 30
     draw(foot, y)
     buf = io.BytesIO()
-    fig.savefig(buf, format="png", dpi=CARD_DPI, facecolor=CARD_BG)
+    canvas.print_png(buf)                    # the canvas itself: no savefig.bbox crop, the figure's own dpi
     return buf.getvalue()
 
 
@@ -715,7 +773,7 @@ def mirror_url(rel: str, out_dir: Path) -> str:
     if out_dir.resolve() != (c.REPO / OUT_DIR).resolve():
         return "no mirror URL: --out-dir is not the mirror's subtree (exports/bulletins)"
     remote = c.setting(cl.MIRROR_SETTING)
-    role = c.setting(cl.ROLE_SETTING)
+    role = (c.setting(cl.ROLE_SETTING) or "").strip()          # as closing.push_mirror strips it
     if not remote:
         return f"no mirror URL: {cl.MIRROR_SETTING} unset"
     if role not in cl.ROLES:
@@ -734,23 +792,26 @@ def plan(doc: dict, fam: str, stage: str, source: Path, out_dir: Path, db: Path 
     files, skipped, cache = [], [], {}
     run_id = (doc.get("closing") or {}).get("run_id") if stage == "closing" else None
     books = {b.get("match_id"): b for b in get(doc, "closing", "books") or [] if isinstance(b, dict)}
+    stage_s = stage_text(stage, doc)
     try:
         for row in doc.get("predictions") or []:
-            if not isinstance(row, dict) or not isinstance(row.get("desk"), dict):
-                skipped.append((row.get("match_id") if isinstance(row, dict) else None, "no desk block"))
+            mid = row.get("match_id") if isinstance(row, dict) else None
+            if not isinstance(mid, int) or isinstance(mid, bool):     # the file name's first segment: never a path
+                skipped.append((None, "match_id not an integer"))
+                continue
+            if not isinstance(row.get("desk"), dict):
+                skipped.append((mid, "no desk block"))
                 continue
             ko = kickoff(row)
             if ko is None:
-                skipped.append((row.get("match_id"), "no utc_date: no ET date folder"))
+                skipped.append((mid, "no utc_date: no ET date folder"))
                 continue
             d = row["desk"]
             x = desk_row(doc, row, fam)
             week = matchday(fam, row, db, cache)
             cert = certification_line(fam, row)
-            md = markdown(row, d, x, fam=fam, stage=stage, doc=doc, run_id=run_id, week=week, cert=cert,
-                          exports=source.parent, books=books.get(row.get("match_id")) if fam == "MLB" else None)
-            stage_s = CLOSING_STAGE if stage == "closing" else (
-                f"slate, {cl.et(cl.parse_utc(doc['exported_at']))}" if doc.get("exported_at") else "slate")
+            md = markdown(row, d, x, fam=fam, stage=stage, stage_s=stage_s, doc=doc, run_id=run_id, week=week,
+                          cert=cert, exports=source.parent, books=books.get(mid) if fam == "MLB" else None)
             spec = card_spec(row, d, fam=fam, stage_s=stage_s, week=week, cert=cert, run_id=run_id)
             base = f"{fam}/{cl.ny_date(ko).isoformat()}/{file_stem(row, stage)}"
             files.append((base + ".md", md.encode("utf-8"), md))
@@ -761,8 +822,24 @@ def plan(doc: dict, fam: str, stage: str, source: Path, out_dir: Path, db: Path 
     return files, skipped
 
 
+def shown(out: Path, rel: str) -> str:
+    """A file's path as the receipt and the console name it: exports/bulletins/<rel> under the mirror's subtree,
+    else the path under --out-dir (item 2: "the file's intended path")."""
+    return f"{OUT_DIR}/{rel}" if out.resolve() == (c.REPO / OUT_DIR).resolve() else str(out / rel)
+
+
+def error_text(e: BaseException, typed: bool = True) -> str:
+    """A refusal's or a failure's text for the receipt and the console: redacted, on one line, and WITHHELD where the
+    privacy guard matches it (an exception's message can quote a row's value: then the type and the pattern's name
+    only). `typed` False: a Refused's own message, without the type in front."""
+    msg = c.redact(one_line(f"{type(e).__name__}: {e}" if typed else str(e)))
+    hit = bulletin_offence(msg)
+    return f"{type(e).__name__} (message withheld: matched {hit})" if hit else msg[:300]
+
+
 def run(closing_file: str | None = None, slate_file: str | None = None, out_dir: str | None = None,
         db: str | None = None, echo=print) -> int:
+    c.load_host_env()                         # a by-hand run redacts host.env's keys as the units do (EnvironmentFile)
     stage = "closing" if closing_file else "slate"
     source = Path(closing_file or slate_file or "")
     rec = {"kind": KIND, "stage": stage, "source": str(source), "family": None, "written": [], "skipped": []}
@@ -786,7 +863,7 @@ def run(closing_file: str | None = None, slate_file: str | None = None, out_dir:
         rec["family"] = fam
         files, skipped = plan(doc, fam, stage, source, out, dbp)
         rec["skipped"] = [{"match_id": m, "why": w} for m, w in skipped]
-        refused = [{"pattern": name, "path": f"{OUT_DIR}/{rel}"} for rel, _, text in files
+        refused = [{"pattern": name, "path": shown(out, rel)} for rel, _, text in files
                    for name in [bulletin_offence(text)] if name]
         if refused:                           # item 2: nothing written, the pattern's NAME and the path, never the line
             rec.update(exit=2, bulletin_refused=refused)
@@ -795,18 +872,21 @@ def run(closing_file: str | None = None, slate_file: str | None = None, out_dir:
             for r in refused:
                 echo(f"  {r['pattern']}: {r['path']}")
             return 2
+        root = out.resolve()
+        for rel, _, _ in files:                       # every path inside --out-dir, checked before any write
+            if not (out / rel).resolve().is_relative_to(root):
+                raise Refused(f"a bulletin path leaves {shown(out, '')}: nothing written")
         blobs = [(rel, data if isinstance(data, bytes) else render_card(data)) for rel, data, _ in files]
         for rel, data in blobs:
             write_file(out / rel, data)
-            rec["written"].append(f"{OUT_DIR}/{rel}" if out.resolve() == (c.REPO / OUT_DIR).resolve()
-                                  else str(out / rel))
+            rec["written"].append(shown(out, rel))
     except Refused as e:
-        rec.update(exit=2, error=c.redact(str(e))[:300])
+        rec.update(exit=2, error=error_text(e, typed=False))
         c.append_receipt(rec)
         echo(f"BULLETIN REFUSED: {rec['error']}")
         return 2
     except Exception as e:                    # noqa: BLE001  (receipted, never a traceback without a record)
-        rec.update(exit=1, bulletin_failed=c.redact(f"{type(e).__name__}: {e}")[:300])
+        rec.update(exit=1, bulletin_failed=error_text(e))
         c.append_receipt(rec)
         echo(f"BULLETIN FAILED: {rec['bulletin_failed']}")
         return 1

@@ -252,7 +252,7 @@ def test_an_nfl_pass_carries_the_would_be_line_verbatim_labelled_record_only(rep
     md = md_of(repo, "NFL", 9301)
     assert f"- {line}" in md and line.endswith(b.RECORD_ONLY)
     assert "- matchweek: 10" in md                                            # NFL: the row's week
-    assert "UNCERTIFIED (registry nfl-elo-v1): market-only, the would-be call below is a record" in md
+    assert "(registry nfl-elo-v1): market-only, the would-be call below is a record, not a pick" in md
 
 
 def test_a_quarantine_shadow_row_prints_summary_blocks_line(repo, nfl_market_only_off):
@@ -311,6 +311,7 @@ PLANTED = [
     ("the CSV header (#817 ii)", "a,quantity" "_fp,entry_price" "_dollars,realized_pnl_with_fees" "_dollars",
      "csv_header"),
     ("the unit label", "sized at 1u = ten", "unit_label"),
+    ("a dollar figure in words", "stake 25 USD", "usd_word"),
 ]
 
 
@@ -530,3 +531,246 @@ def test_the_817_patterns_have_one_definition():
 def test_matplotlib_is_the_one_new_dependency():
     lines = [ln.split("#")[0].strip() for ln in (ROOT / "requirements.txt").read_text().splitlines()]
     assert "matplotlib>=3.8" in lines
+
+
+# ------------------------------------------------------------- the fixer's round (verifiers' findings, pinned) --
+
+_NL_PLANTED = [
+    ("a dollar split by a newline", "stake " + _S + "\n12 and 12\ncontracts"),
+    ("a count split by a newline", "size 12\ncontracts"),
+    ("a count split by a carriage return", "size 12\rcontracts"),
+    ("a dollar split by a vertical tab", "stake " + _S + "\v12"),
+]
+
+
+@pytest.mark.parametrize("what,text", _NL_PLANTED, ids=[p[0] for p in _NL_PLANTED])
+def test_a_value_split_across_lines_is_still_refused(repo, what, text):
+    """A row value with a line break in it: the card's textwrap and GitHub's list continuation join it on one line,
+    so the guard reads it joined too."""
+    doc = soccer_doc()
+    doc["predictions"][1]["desk"]["reason"] = f"edge below the floor · {text}"
+    assert b.run(closing_file=str(closing_file(repo, doc, "SOCCER"))) == 2
+    assert files_under(repo / "exports" / "bulletins") == []
+
+
+def test_no_row_value_spans_two_lines_of_the_markdown(repo):
+    doc = soccer_doc()
+    doc["predictions"][1]["desk"]["reason"] = "edge below the floor\nsecond line\r\nthird\u2028fourth"
+    assert b.run(closing_file=str(closing_file(repo, doc, "SOCCER"))) == 0
+    md = md_of(repo, "SOCCER", 9402)
+    assert "- reason: edge below the floor second line third fourth" in md      # a run of breaks: one space
+    assert "\r" not in md and "\u2028" not in md
+
+
+def _json_forms(d=None):
+    """Built at test time (the Desk's unit pin is conftest's autouse fixture, so the order block only carries its
+    count inside a test)."""
+    d = d or {"exec": {}, "order": {}}
+    return [("the exec block as JSON", json.dumps(d["exec"])),
+            ("the order block as JSON", json.dumps(d["order"])),
+            ("the exec block as a dict", str(d["exec"])),
+            ("a JSON contracts key", '{"contracts": 5}'),
+            ("a dict contracts key", "{'contracts': 5}"),
+            ("maker_contracts", "maker_contracts 5"),
+            ("n_contracts", "n_contracts=5"),
+            ("pool_usd", "pool_usd: 250.0"),
+            ("balance_dollars", '"balance_dollars": 250'),
+            ("market_exposure_dollars", "market_exposure_dollars 40"),
+            ("unit_fraction", "unit_fraction 0.08"),
+            ("a JSON fraction key", '"fraction": 0.08')]
+
+
+@pytest.mark.parametrize("what", [p[0] for p in _json_forms()])
+def test_the_forbidden_fields_in_the_exports_own_shape_are_refused(repo, what):
+    doc = soccer_doc()
+    d = doc["predictions"][0]["desk"]
+    assert d["order"]["contracts"] and d["exec"]["contracts"]               # the counts are on the blocks planted
+    text = dict(_json_forms(d))[what]
+    doc["predictions"][1]["desk"]["reason"] = f"edge below the floor · {text}"
+    assert b.run(closing_file=str(closing_file(repo, doc, "SOCCER"))) == 2
+    assert files_under(repo / "exports" / "bulletins") == []
+
+
+_USD_FORMS = [("12 USD", "12 USD"), ("USD 12", "USD 12"), ("12 dollars", "12 dollars"), ("12$", "12" + _S),
+              ("fullwidth sign and digits", "\uff04\uff11\uff12"), ("a zero-width space", _S + "\u200b12"),
+              ("an HTML entity", "&#36;12"), ("a named HTML entity", "&dollar;12"), ("a tag between", _S + "<b></b>12"),
+              ("emphasis between", _S + "**1**2")]
+
+
+@pytest.mark.parametrize("what,text", _USD_FORMS, ids=[p[0] for p in _USD_FORMS])
+def test_dollar_figures_without_a_plain_sign_and_lookalikes_are_refused(repo, what, text):
+    doc = soccer_doc()
+    doc["predictions"][1]["desk"]["reason"] = f"edge below the floor · stake {text}"
+    assert b.run(closing_file=str(closing_file(repo, doc, "SOCCER"))) == 2
+    assert files_under(repo / "exports" / "bulletins") == []
+
+
+@pytest.mark.parametrize("text", ["@ 0.45 x 3", "x 3 at 45c", "fill x3 today", "@ 45c x 3"])
+def test_an_ascii_x_count_is_order_text(text):
+    assert pv.bulletin_offence(f"edge below the floor · {text}") == "order_text"
+
+
+def test_a_team_name_in_dollar_math_is_drawn_literally_and_escaped_in_the_markdown(repo):
+    """An unbalanced $...$ in a team name: the card draws it as text (no mathtext, no ParseException) and the
+    Markdown escapes the $, so GitHub never renders it as math."""
+    doc = soccer_doc()
+    doc["predictions"][0]["home_team"] = "Mu$\\alpha{$ Owls"
+    assert b.run(closing_file=str(closing_file(repo, doc, "SOCCER"))) == 0
+    md = md_of(repo, "SOCCER", 9401)
+    assert "Mu\\$\\alpha{\\$ Owls" in md and "Mu$" not in md
+
+
+def test_tick_labels_are_never_mathtext(repo, monkeypatch):
+    from matplotlib.axes import Axes
+    seen = []
+    real = Axes.set_xticklabels
+
+    def spy(self, labels, *a, **k):
+        seen.append(k.get("parse_math"))
+        return real(self, labels, *a, **k)
+    monkeypatch.setattr(Axes, "set_xticklabels", spy)
+    assert b.run(closing_file=str(closing_file(repo, soccer_doc(), "SOCCER"))) == 0
+    assert seen and all(x is False for x in seen)
+
+
+def test_a_failed_render_never_receipts_row_text_the_guard_would_refuse(repo, capsys):
+    doc = soccer_doc()
+    doc["predictions"][0]["prediction"]["probabilities"]["home_win"] = f"{_S}12 · 7 contracts"
+    assert b.run(closing_file=str(closing_file(repo, doc, "SOCCER"))) == 1
+    rec = receipts()[-1]
+    raw, out = c.receipts_path().read_text(), capsys.readouterr().out
+    assert rec["exit"] == 1 and rec["bulletin_failed"].startswith("ValueError (message withheld: matched ")
+    for leak in (f"{_S}12", "7 contracts"):
+        assert leak not in raw and leak not in out
+    assert files_under(repo / "exports" / "bulletins") == []
+
+
+def test_a_by_hand_run_reads_host_env_for_the_redaction(repo, tmp_path, monkeypatch):
+    key = "hk-" + "host-only-value-4r8t"
+    henv = tmp_path / "host.env"
+    henv.write_text(f"ODDS_API_KEY={key}\n")
+    monkeypatch.setattr(c, "HOST_ENV", henv)
+    monkeypatch.setenv("ODDS_API_KEY", "placeholder")
+    monkeypatch.delenv("ODDS_API_KEY")                 # registered for restore, then unset: host.env is the only copy
+    doc = soccer_doc()
+    doc["predictions"][1]["desk"]["reason"] = f"edge below the floor · {key}"
+    assert b.run(closing_file=str(closing_file(repo, doc, "SOCCER"))) == 0
+    md = md_of(repo, "SOCCER", 9402)
+    assert key not in md and "[REDACTED]" in md
+
+
+def test_a_refusal_under_another_out_dir_names_that_path(repo, tmp_path):
+    doc = soccer_doc()
+    doc["predictions"][1]["desk"]["reason"] = "size 12 contracts"
+    other = tmp_path / "elsewhere"
+    assert b.run(closing_file=str(closing_file(repo, doc, "SOCCER")), out_dir=str(other)) == 2
+    paths = {r["path"] for r in receipts()[-1]["bulletin_refused"]}
+    assert paths == {str(other / "SOCCER" / "2026-11-08" / "9402_delta-united_at_gamma-fc_closing.md"),
+                     str(other / "SOCCER" / "2026-11-08" / "9402_delta-united_at_gamma-fc_closing.png")}
+    assert not other.exists()
+
+
+@pytest.mark.parametrize("mid", ["../../escape", "9401/x", True, 94.01, None])
+def test_a_match_id_that_is_not_an_integer_is_skipped_never_a_path(repo, mid):
+    doc = soccer_doc()
+    doc["predictions"][0]["match_id"] = mid
+    src = closing_file(repo, doc, "SOCCER", ids=[9402])
+    raw = json.loads(src.read_text())
+    raw["predictions"].insert(0, doc["predictions"][0])          # the odd row rides the file as written
+    src.write_text(json.dumps(raw))
+    assert b.run(closing_file=str(src)) == 0
+    rec = receipts()[-1]
+    assert {"match_id": None, "why": "match_id not an integer"} in rec["skipped"]
+    assert all("/9402_" in p for p in rec["written"]) and len(rec["written"]) == 2
+    assert not (repo / "escape").exists() and not (repo / "exports" / "escape").exists()
+
+
+def test_an_order_under_one_contract_prints_no_side_or_limit(repo):
+    doc = soccer_doc()
+    o = doc["predictions"][0]["desk"]["order"]
+    assert o["text"] and o["side"] and o["limit"] is not None
+    o["text"], o["why"] = None, "0.5u at the unit's basis is under one contract at 0.45"
+    assert b.run(closing_file=str(closing_file(repo, doc, "SOCCER"))) == 0
+    md = md_of(repo, "SOCCER", 9401)
+    assert "- order: none written (the reason is on the closing page)" in md
+    assert "limit 45c" not in md and "YES on Kalshi" not in md
+
+
+def test_the_certification_line_never_infers_a_state(repo):
+    """SOCCER/MLB with no registry entry: "certification not read", labelled (registry.certification_of's unread
+    reason), never "live". NFL: the withholding entry's own certification text, verbatim."""
+    assert b.run(closing_file=str(closing_file(repo, soccer_doc(), "SOCCER"))) == 0
+    md = md_of(repo, "SOCCER", 9401)
+    assert ("- certification: test-model-v0 — certification not read (no registry entry for test-model-v0)" in md)
+    assert "would-be" not in md.split("## THE CALL")[0]
+    assert b.run(closing_file=str(closing_file(repo, nfl_doc(), "NFL"))) == 0
+    from src.walters import registry
+    entry = next(e for e in registry.load(registry.LEDGER) if e.get("id") == "nfl-elo-v1")
+    md = md_of(repo, "NFL", 9301)
+    assert (f"- certification: nfl_elo_v1 — {entry['certification']} (registry nfl-elo-v1): market-only, the "
+            "would-be call below is a record, not a pick") in md
+
+
+def test_a_matplotlibrc_cannot_change_the_cards_width(repo):
+    import matplotlib
+    with matplotlib.rc_context({"savefig.bbox": "tight", "figure.dpi": 50, "savefig.dpi": 300}):
+        assert b.run(closing_file=str(closing_file(repo, soccer_doc(), "SOCCER"))) == 0
+    for p in [p for p in files_under(repo / "exports" / "bulletins") if p.suffix == ".png"]:
+        w, h = png_size(p)
+        assert w == 1080 and h >= b.CARD_MIN_HEIGHT_PX
+
+
+def test_mlb_and_nfl_print_the_injury_names_line_not_stored(repo):
+    doc = mlb_doc()
+    doc["predictions"][0].pop("injuries")                       # an MLB row carries no injuries block (export.py)
+    assert b.run(closing_file=str(closing_file(repo, doc, "MLB"))) == 0
+    assert md_of(repo, "MLB", 9101).count("- injuries: not stored") == 2           # one per side
+    doc = nfl_doc()
+    doc["predictions"][0]["market"]["consensus_home_spread"] = -3.5
+    assert b.run(closing_file=str(closing_file(repo, doc, "NFL"))) == 0
+    md = md_of(repo, "NFL", 9301)
+    assert "- injured by name: not stored" in md
+    assert "- margin line (consensus home spread): -3.5 · total line: not stored" in md
+    assert "- margin line (consensus home spread): not stored · total line: not stored" in md_of(repo, "NFL", 9302)
+
+
+def test_a_slate_with_no_exported_at_says_not_stored_on_the_card_too(repo):
+    doc = soccer_doc()
+    doc.pop("exported_at")
+    files, _ = b.plan(doc, "SOCCER", "slate", repo / "exports" / "soccer_PL_x.json", repo / "exports" / "bulletins",
+                      None)
+    md = files[0][2]
+    card = files[1][1]
+    assert "- stage: slate, not stored" in md
+    assert any("slate, not stored" in t for t in card["head"])
+
+
+def test_the_role_is_stripped_as_closing_strips_it(repo, monkeypatch):
+    monkeypatch.setenv("SP_EXPORTS_MIRROR_ROLE", " host \n")
+    assert b.mirror_url("x.md", repo / "exports" / "bulletins").startswith("https://github.com/owner-x/repo-y/")
+
+
+def test_the_card_and_both_games_never_carry_the_forbidden_fields(repo):
+    doc = soccer_doc()
+    files, _ = b.plan(cl.closing_doc(doc, "SOCCER", NOW + timedelta(minutes=35), RUN_ID,
+                                     [r["match_id"] for r in doc["predictions"]], [], None), "SOCCER", "closing",
+                      repo / "exports" / "closing_x.json", repo / "exports" / "bulletins", None)
+    d = doc["predictions"][0]["desk"]
+    texts = [t for _, _, t in files]
+    assert len(texts) == 4
+    for t in texts:
+        assert pv.bulletin_offence(t) is None
+        for forbidden in (d["order"]["text"], d["order"]["unit"], "\u00d7", "BUY", "contract", "fraction",
+                          "fee_order_contracts", "pool"):
+            assert forbidden not in t
+
+
+def test_the_817_patterns_keep_their_escapes_and_their_reach():
+    src = (ROOT / "src" / "privacy_patterns.py").read_text(encoding="utf-8")
+    code = [ln for ln in src.splitlines() if "re.compile(" in ln or "re.split(" in ln or "_KEY_TAIL =" in ln
+            or ln.lstrip().startswith(('"', 'r"'))]
+    assert len(code) >= 12
+    for ch in ("\u241f", "\uff04", "\ufe69", "\u2212", "\u00a0", "\u00d7"):
+        assert not any(ch in ln for ln in code), f"U+{ord(ch):04X} must be spelled as an escape in the patterns"
+    assert pv.DOLLAR.search(_S + "\u00a012") and pv.DOLLAR.search(_S + "\u221212") and pv.DOLLAR.search("\uff0412")
+    assert pv.is_header("a\u241fquantity" "_fp\u241fentry_price" "_dollars\u241frealized_pnl_with_fees" "_dollars")

@@ -10153,8 +10153,8 @@ def bulletin_cmd(closing_file, slate_file, out_dir, db_path):
     the file, under exports/bulletins/<FAMILY>/<ET date of kickoff>/<match_id>_<away>_at_<home>_<stage>.md|.png. The
     call line is closing.call_text, verbatim; a field the row lacks prints "not stored". THE WRITER-SIDE GUARD
     (item 2): before anything is written, sp_common.redact runs over every line and the privacy patterns
-    (src/privacy_patterns.py: the #817 patterns plus the contract count, the order text, the unit label, the
-    fraction, the pool, field names and any UUID) run over the whole Markdown and the card's text; a match writes
+    (src/privacy_patterns.py: the #817 patterns plus a dollar figure in words, the contract count, the order text,
+    the unit label, the fraction, the pool, field names and any UUID) run over the whole Markdown and the card's text; a match writes
     nothing, receipts `bulletin_refused` with each pattern's name and intended path (never the line) and exits 2.
     Prints each written file's mirror URL (owner/repo parsed from SP_EXPORTS_MIRROR_REMOTE, never its value).
     Read-only: the DB only for PL's matchday, mode=ro; no row written; only .md and .png ever written; never under

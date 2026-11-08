@@ -586,8 +586,13 @@ class IngestionService:
             if match is not None:
                 from src.ingestion.match_dedupe import stamp_rekey
 
+                claimed_sid = (match.external_ids or {}).get(nm.source)
                 nm = self._scores_by_team(match, home.id, away.id, nm, result, comp)
                 if nm is None:                     # neither pair: refused, the row untouched (not re-keyed either)
+                    # #884 review (Codex round 1): _rekey_candidate claimed the row's current id; nothing was re-keyed,
+                    # so the claim is released and a later valid listing for this row in the same run can take it
+                    if claimed_sid:
+                        cache.get("__claimed__", set()).discard(claimed_sid)
                     return None
                 ext = dict(match.external_ids or {})
                 old = ext.get(nm.source)
@@ -661,11 +666,19 @@ class IngestionService:
         result.teams_mismatch_refused and counted in `skipped`. The stored home/away is never flipped (item 3(d))."""
         from dataclasses import replace
 
-        from src.ingestion.score_orientation import MISMATCH, REVERSED, SCORE_PAIRS, RESULT_FIELD, scores_by_team
+        from sqlalchemy.orm import object_session
+
+        from src.ingestion.score_orientation import (MISMATCH, RESULT_FIELD, REVERSED, SAME, SCORE_PAIRS,
+                                                     scores_by_team)
 
         fields = [f for pair in SCORE_PAIRS for f in pair] + [RESULT_FIELD]
         verdict, values = scores_by_team((match.home_team_id, match.away_team_id), (home_id, away_id),
                                          {f: getattr(nm, f) for f in fields})
+        if verdict != SAME and match.id is None:
+            # #884 review (Codex round 1): a row created earlier in this listing (the same id served twice) is cached
+            # unflushed (autoflush=False); flushed here so the receipt lists its id, never None. The create path and
+            # the same-pair path flush nothing new.
+            object_session(match).flush()
         if verdict == MISMATCH:
             log.warning("sync_matches(%s): %s id %s REFUSED for match %s — the listing's teams %s/%s are neither the "
                         "stored pair %s/%s nor its reverse; the row untouched", comp.code, nm.source, nm.source_id,

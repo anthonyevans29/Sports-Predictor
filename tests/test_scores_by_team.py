@@ -187,6 +187,29 @@ def test_a_reversed_draw_keeps_d():
         assert (m.home_score, m.away_score, m.full_time_result) == (1, 1, Result.DRAW)
 
 
+@pytest.mark.parametrize("source", [AF, SOC])
+def test_a_repeated_id_in_one_listing_lists_the_new_rows_id_not_none(source):
+    """#884 review (Codex round 1): one response carrying the same new id twice. The first creates the row (cached,
+    unflushed: SessionLocal has autoflush=False); a reversed or mismatched second must list that row's id, never None.
+    The create itself is counted as before (created 1)."""
+    sport = Sport.NFL if source == AF else Sport.SOCCER
+    (h, hp), (a, ap), (_x, xp) = _teams(sport, source, 3)
+    when = KICK + timedelta(days=9)
+    code = "SBTD" if source == AF else "SBTDS"
+    with session_scope() as s:
+        _comp(s, code, sport)
+    res = _sync(code, source, [
+        _nm(code, sport, source, f"sbt-dup-{source}", hp, ap, when=when, home_score=2, away_score=1),
+        _nm(code, sport, source, f"sbt-dup-{source}", ap, hp, when=when, home_score=1, away_score=2),   # reversed
+        _nm(code, sport, source, f"sbt-dup-{source}", xp, ap, when=when, home_score=5, away_score=5)])  # neither
+    with session_scope() as s:
+        mid = s.execute(select(Match.id).where(Match.home_team_id == h, Match.away_team_id == a)).scalar_one()
+        m = s.get(Match, mid)
+        assert (m.home_score, m.away_score) == (2, 1) and (m.home_team_id, m.away_team_id) == (h, a)
+    assert res.orientation_reversed == [mid] and res.teams_mismatch_refused == [mid]
+    assert res.created == 1 and res.updated == 1 and res.skipped == 1
+
+
 def test_the_cli_receipt_prints_both_counts_with_the_ids(monkeypatch):
     import cli
     (h, hp), (a, ap), (_x, xp) = _teams(Sport.NFL, AF, 3)
@@ -292,6 +315,26 @@ def test_a_rekey_by_history_with_neither_pair_is_refused_the_row_byte_identical(
                                  home_score=13, away_score=31)])
     assert _raw(mid) == before
     assert res.rekeyed == 0 and res.created == 0 and res.teams_mismatch_refused == [mid]
+
+
+def test_a_refused_history_rekey_releases_its_claim_so_a_valid_listing_rekeys_the_row():
+    """#884 review (Codex round 1): the history branch claims the row's current id before the team check runs. A
+    refusal there re-keys nothing, so it must leave no claim: a later valid listing for the same stored row in the same
+    sync takes it (its score and provider id written), never 'already re-keyed'."""
+    (h, hp), (a, ap), (_x, xp) = _teams(Sport.NFL, AF, 3)
+    when = KICK + timedelta(days=7)
+    mid = _stored("SBTR", Sport.NFL, AF, None, h, a, when=when,
+                  ext={AF: "sbt-cl-old", f"{AF}_prev": ["sbt-cl-reused"]})
+    res = _sync("SBTR", AF, [
+        _nm("SBTR", Sport.NFL, AF, "sbt-cl-reused", xp, ap, when=when, home_score=0, away_score=9),   # neither pair
+        _nm("SBTR", Sport.NFL, AF, "sbt-cl-new", hp, ap, when=when + timedelta(hours=1), home_score=21,
+            away_score=14)])                                                                     # the natural key
+    row = _raw(mid)
+    assert (row["home_score"], row["away_score"]) == (21, 14)
+    with session_scope() as s:
+        assert s.get(Match, mid).external_ids[AF] == "sbt-cl-new"
+    assert res.teams_mismatch_refused == [mid] and res.rekeyed == 1 and res.rekey_refused == 0
+    assert res.created == 0 and res.updated == 1
 
 
 def test_a_natural_key_rekey_takes_the_same_pair_as_today():

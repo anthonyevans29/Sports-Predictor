@@ -95,9 +95,10 @@ SETTLEMENT_KEY = "kalshi_settlement"
 KICKOFF_KEY = "kalshi_kickoff"
 # THE RETRACTION FIX (ARCHITECT 2026-11-07, addendum 287 item 2(1); 2026-11-08, addendum 288 item 5(b), verbatim: "an
 # incoming unsettled or changed result clears full_time_result and returns the row to its served state", law 4). For
-# these sources ONLY, the update path writes the row as served: full_time_result and status_raw take the incoming
-# values (None included), and the stored settlement receipt (SETTLEMENT_KEY) is replaced by the incoming one, or
-# removed when none is served. Every other source keeps "never blank a stored value with an absent one" unchanged.
+# these sources ONLY, the update path writes the row as served: full_time_result takes the incoming value (None
+# included), status_raw the incoming status words (a blank word included), and the stored settlement receipt
+# (SETTLEMENT_KEY) is replaced by the incoming one, or removed when none is served. Every other source keeps "never
+# blank a stored value with an absent one" unchanged.
 SERVED_STATE_SOURCES = frozenset({"kalshi_tennis"})
 
 

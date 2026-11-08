@@ -365,7 +365,8 @@ def test_the_contract_terms_are_quoted_verbatim_from_the_ruling_and_sit_before_t
     """269 item 3(c): the clause QUOTED "BEFORE the status map", from the venue's own text; ARCHITECT 2026-11-08,
     addendum 288 item 3 quotes it from the served receipt (rules_secondary, rules_primary, early_close_condition), and
     CONTRACT_TERMS_QUOTE "fills from this". The values are pinned verbatim; the quote comes before the map; THE MEANING
-    and the clause are on MatchStatus.SETTLED_SCALAR's comment."""
+    and the clause are in MatchStatus's docstring ("the status word's docstring carries this sentence and the
+    quote")."""
     assert kt.CONTRACT_TERMS_QUOTE == {
         "rules_secondary": "If the match does not occur (signaled by a ball being played) due to a player injury, "
                            "walkover, forfeiture, or any other cancellation (all before the match starts), the market "
@@ -380,9 +381,10 @@ def test_the_contract_terms_are_quoted_verbatim_from_the_ruling_and_sit_before_t
     assert "TODO-FOR-RECEIPT" not in src
     assert src.index("THE CLAUSE, QUOTED") < src.index("THE STATUS MAP (269 item 3(b))") < src.index("def settle(")
     assert src.index("CONTRACT_TERMS_QUOTE") < src.index("RESULT_WORDS = ")
-    schema = (ROOT / "src" / "db" / "schema.py").read_text()
-    blk = " ".join(schema[schema.index("class MatchStatus"):schema.index('SETTLED_SCALAR = "settled_scalar"')]
-                   .replace("#", " ").split())
+    import inspect
+
+    from src.db.schema import MatchStatus as MS
+    blk = " ".join((inspect.getdoc(MS) or "").split())              # the status word's DOCSTRING (288 item 3)
     assert ("SETTLED_SCALAR = the match did not occur (injury, walkover, forfeiture or cancellation before a ball was "
             "played) and the venue settled at \"a fair price\"") in blk
     assert "a retirement AFTER a ball is played produces a yes/no settlement, the advancing player the winner" in blk
@@ -787,6 +789,8 @@ _FIN_A = dict(results=("yes", "no"), exps=(_A, _A), status="finalized", values=(
     # a FINISHED row the venue returns to unsettled: no winner, no stored settlement, the served words
     (_FIN_A, dict(status="closed"), ("SCHEDULED", "closed", None, None)),
     (_FIN_A, dict(status="active"), ("SCHEDULED", "active", None, None)),
+    # re-served with a blank status word: the row takes it (the served state), never keeps 'finalized'
+    (_FIN_A, dict(status=""), ("SCHEDULED", "", None, None)),
     # a FINISHED row re-served with a result the map does not settle (WINNER_MISMATCH): no winner, the incoming served
     (_FIN_A, dict(results=("yes", "no"), exps=("", ""), status="finalized"),
      ("SCHEDULED", "finalized", None, {"AAA": "yes", "BBB": "no"})),

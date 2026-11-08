@@ -153,8 +153,8 @@ def _copy(tmp_path) -> Path:
             return Match(sport=Sport.TENNIS, competition_id=comp.id, season="2026", utc_date=when, status=st,
                          status_raw="finalized", home_team_id=ts[h].id, away_team_id=ts[a].id, full_time_result=res,
                          home_score=hs, external_ids={"kalshi_tennis": ev, **(ext or {})})
-        s.add_all([m("E1", MatchStatus.FINISHED, 0, 1, Result.HOME, sett),
-                   m("E2", MatchStatus.SETTLED_SCALAR, 2, 3, None, sett),
+        s.add_all([m("E1", MatchStatus.FINISHED, 0, 1, Result.HOME, {**sett, "kalshi_kickoff": "occurrence_datetime"}),
+                   m("E2", MatchStatus.SETTLED_SCALAR, 2, 3, None, {**sett, "kalshi_kickoff": "START_UNREAD"}),
                    m("E3", MatchStatus.FINISHED, 4, 5, None, None, hs=2),                 # planted: three defects
                    m("E4", MatchStatus.SCHEDULED, 0, 2, when=datetime(2026, 11, 1))])
         s.commit()
@@ -176,9 +176,11 @@ def test_the_stored_phase_counts_per_season_and_the_true_zero_checks(tmp_path, c
     assert "a score stored (NULL AND LABELLED by 269 item 2): 1 (must read 0" in out
     assert "more than 2 days before this run (unsettled, or settled after the chain's window): 1" in out
     assert ("by stored kickoff source (external_ids['kalshi_kickoff'], addendum 288 item 1; START_UNREAD rows are never "
-            "captured): <none stored>: 4") in out, out
+            "captured): <none stored>: 2 · START_UNREAD: 1 · occurrence_datetime: 1") in out, out
     tail = json.loads(out.strip().splitlines()[-1].split(" ", 1)[1])
     assert tail["phase"] == "stored" and tail["tours"]["ATP"]["seasons"]["2026"]["rows"] == 4
+    assert tail["tours"]["ATP"]["seasons"]["2026"]["kickoff_sources"] == {"<none stored>": 2, "START_UNREAD": 1,
+                                                                   "occurrence_datetime": 1}, tail
 
 
 def test_the_stored_phase_refuses_a_copy_with_a_sidecar_and_reads_nothing(tmp_path, capsys):
@@ -232,14 +234,17 @@ def test_the_served_phase_prints_the_time_keys_and_the_ruled_kickoff_ahead_of_th
     assert f"events REFUSED by the kickoff rule (never a fixture), by label: {kt.OCCURRENCE_DIFFER}: 1" in t
     assert f"KXATPMATCH-{day}PPPQQQ: {kt.OCCURRENCE_DIFFER}" in t
     assert "kickoff's US Eastern day is NOT the ticker's date" in t and f"KXATPMATCH-{day}MMMNNN: ticker date" in t
-    assert ("active markets: 6 · their stored kickoff ahead of this run: 6 · already past it (the capture refuses them "
-            "as in play): 0 · on a START_UNREAD row (never captured): 2") in t, t
+    # three counts that partition the active markets: a START_UNREAD row is never counted ahead, whatever its instant
+    assert ("active markets: 6 · a served kickoff ahead of this run: 4 · a served kickoff already past it (the capture "
+            "refuses them as in play): 0 · on a START_UNREAD row (never captured, its UTC+14 instant ahead or not): 2") \
+        in t, t
     assert (f"KXATPMATCH-{day}EEEFFF-AAA · ticker date {ahead.date()} · stored kickoff {ahead:%Y-%m-%d} 14:00Z "
             f"(occurrence_datetime; ahead of this run) · occurrence_datetime") in t, t
     assert "OPEN: no ruling names a tennis season" in out
     tail = json.loads(out.strip().splitlines()[-1].split(" ", 1)[1])
     atp = tail["tours"]["ATP"]
-    assert atp["time_keys_served"]["occurrence_datetime"] == 4 and atp["active"] == 6 and atp["active_ahead"] == 6
+    assert atp["time_keys_served"]["occurrence_datetime"] == 4 and atp["active"] == 6 and atp["active_ahead"] == 4
+    assert atp["active_ahead"] + atp["active_past_kickoff"] + atp["active_start_unread"] == atp["active"]
     assert atp["kickoff_sources"] == {"occurrence_datetime": 2, "expected_expiration_time": 0, "START_UNREAD": 4}
     assert atp["kickoff_refused"] == {kt.OCCURRENCE_DIFFER: 1} and atp["kickoff_et_day_not_ticker"] == 1
     assert atp["active_start_unread"] == 2
@@ -268,7 +273,9 @@ def test_the_expiration_value_shapes_of_the_winner_mismatch_events_are_printed_v
     code, out, _ = run(capsys, "--tour", "ATP", fake=provider(pages={("KXATPMATCH", "settled"): [settled]}))
     assert code == R.OK, out
     blk = out[out.index("THE expiration_value SHAPES"):out.index("SETTLED_SCALAR events:")]
-    assert f"left SCHEDULED by {kt.WINNER_MISMATCH!r}" in blk and "8 event(s) · 4 shape(s)" in blk, blk
+    assert f"left SCHEDULED by {kt.WINNER_MISMATCH!r}" in blk, blk
+    assert ("every shape printed: 8 event(s) (8 accepted · 0 refused by the kickoff rule, so not in the projection "
+            "above) · 4 shape(s)") in blk, blk
     lines = blk.splitlines()
     assert [ln.strip() for ln in lines if ln.strip().startswith("[")] == [
         "[4] yes market: 'Yes' · no market: 'Yes'",                       # one token, one shape, its count
@@ -286,6 +293,43 @@ def test_the_expiration_value_shapes_of_the_winner_mismatch_events_are_printed_v
     assert "KXATPMATCH-26DEC20KKKLLL" not in blk                       # FINISHED: not a mismatch
     tail = json.loads(out.strip().splitlines()[-1].split(" ", 1)[1])
     assert tail["tours"]["ATP"]["winner_mismatch_events"] == 8 and tail["tours"]["ATP"]["exp_shapes"] == 4
+
+
+def test_every_expiration_value_shape_prints_even_past_the_distinct_cap(capsys):
+    """288 item 2(b): "a line per distinct expiration_value SHAPE". A per-event value (a surname, say) makes each event
+    its own shape; every shape line prints, past MAX_DISTINCT, and nothing is classed beyond what is served (no
+    surname class: that would be inference before the read)."""
+    n = R.MAX_DISTINCT + 5
+    settled = []
+    for i in range(n):
+        a, b = f"Ana Synth{i:02d}", f"Bea Fake{i:02d}"
+        settled += _mismatch(f"26DEC20{chr(65 + i // 26)}{chr(65 + i % 26)}AXYZ", a, b, f"Synth{i:02d}", f"Synth{i:02d}")
+    code, out, _ = run(capsys, "--tour", "ATP", fake=provider(pages={("KXATPMATCH", "settled"): [settled]}))
+    assert code == R.OK, out
+    blk = out[out.index("THE expiration_value SHAPES"):out.index("SETTLED_SCALAR events:")]
+    shape_lines = [ln.strip() for ln in blk.splitlines() if ln.strip().startswith("[")]
+    assert len(shape_lines) == n and f"{n} event(s)" in blk and f"{n} shape(s)" in blk, blk
+    assert "more shape(s), not printed" not in blk
+    assert f"[1] yes market: 'Synth{n - 1:02d}' · no market: 'Synth{n - 1:02d}'" in shape_lines
+
+
+def test_a_winner_mismatch_event_the_kickoff_rule_refuses_is_still_read_for_its_shape(capsys):
+    """288 item 2(a)/(b): the SHAPES read every unmapped event. An event the kickoff rule refuses (two different
+    occurrence_datetime instants) is never a fixture, so it is not in THE MAP's projection; its shape is still printed
+    and counted apart, so the total reconciles with the map's count. The tail JSON carries both counts."""
+    ok = _mismatch("26DEC20AAABBB", "Ana Synthwood", "Bea Fakely", "Yes", "Yes")
+    ko = _mismatch("26DEC20CCCDDD", "Cal Mockton", "Dov Testerly", "Yes", "Yes")
+    ko[0]["occurrence_datetime"], ko[1]["occurrence_datetime"] = "2026-12-20T14:00:00Z", "2026-12-20T15:30:00Z"
+    code, out, _ = run(capsys, "--tour", "ATP", fake=provider(pages={("KXATPMATCH", "settled"): [ok + ko]}))
+    assert code == R.OK, out
+    blk = out[out.index("THE expiration_value SHAPES"):out.index("SETTLED_SCALAR events:")]
+    assert "2 event(s) (1 accepted · 1 refused by the kickoff rule, so not in the projection above) · 1 shape(s)" \
+        in blk, blk
+    assert "[2] yes market: 'Yes' · no market: 'Yes'" in blk and "sample KXATPMATCH-26DEC20CCCDDD" in blk, blk
+    assert f"left SCHEDULED, by reason: {kt.WINNER_MISMATCH}: 1" in out, out
+    tail = json.loads(out.strip().splitlines()[-1].split(" ", 1)[1])
+    atp = tail["tours"]["ATP"]
+    assert atp["winner_mismatch_events"] == 2 and atp["winner_mismatch_kickoff_refused"] == 1
 
 
 @pytest.mark.parametrize("raw,want", [("", R.EMPTY), (None, R.EMPTY), ("  ", R.EMPTY), ("ANA SYNTHWOOD", R.YES_PLAYER),

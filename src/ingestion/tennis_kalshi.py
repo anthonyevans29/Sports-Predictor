@@ -26,6 +26,14 @@ How it reads, and where it differs from the NBA's `sync-kalshi-nba` (kalshi_sync
   expected_expiration_time. A START_UNREAD row is refused (START_UNREAD_ROW); a row carrying no kickoff source at all
   (written before this rule) is refused too (KICKOFF_SOURCE_MISSING) until a sync re-reads it. Counted and printed,
   never stored.
+- THEN THE SERVED KICKOFF CHECK (288 item 1: "a difference refuses the event with its own label, counted"; "the
+  IN_PLAY refusal fires at the real start"): the stored source says how the row was read at its last sync, not what
+  the venue serves now. A sync that refuses the event writes nothing, so its stored row keeps its last kickoff and
+  source; a start moved between a sync and a capture is not on the row yet. So the kickoff rule is read again over the
+  event's two markets this capture holds, and a placement is kept only when it reads a served start equal to the row's
+  stored kickoff: the rule refusing the event (KICKOFF_REFUSED_NOW), no start served (KICKOFF_UNREAD_NOW), a served
+  start not the stored one (KICKOFF_MOVED) or the capture not holding both markets (KICKOFF_HELD_NOT_TWO) refuse it,
+  counted and printed with both instants (law 4). The capture never moves the row; the next sync does.
 """
 from __future__ import annotations
 
@@ -113,10 +121,57 @@ def kickoff_check(res: km.Result, games: list) -> km.Result:
     return res
 
 
+def served_kickoff_check(res: km.Result, games: list, markets: list) -> km.Result:
+    """THE SERVED KICKOFF CHECK over the placements left by kickoff_check (module docstring): the kickoff rule
+    (kalshi_tennis.kickoff, addendum 288 item 1) read over the event's markets in `markets` (this capture's open read,
+    the two tour series only). A placement is kept only when the capture holds exactly two markets of its event, the
+    rule reads a served start from them, and that start is the row's stored kickoff. Otherwise it is refused, counted,
+    with one line per event naming the rule's label and both instants: KICKOFF_HELD_NOT_TWO, KICKOFF_REFUSED_NOW (the
+    rule refuses the event), KICKOFF_UNREAD_NOW (no start served), KICKOFF_MOVED (a served start that is not the
+    stored one). The stored row is never moved here: the next sync re-reads it (288 item 1: "the row follows it")."""
+    held: dict[str, dict[str, dict]] = {}
+    for m in markets:
+        held.setdefault(str(m.get("event_ticker") or ""), {})[str(m.get("ticker") or "")] = m
+    by_id = {g.id: g for g in games}
+    read: dict[str, tuple] = {}
+    keep = {}
+    for (mid, side), mk in res.placed.items():
+        ev = str(mk.get("event_ticker") or "")
+        g = by_id.get(mid)
+        if ev not in read:
+            mks = list(held.get(ev, {}).values())
+            day = kt.event_day(mk)
+            read[ev] = (None, None) if len(mks) != 2 or day is None else kt.kickoff(mks, day)
+        ko, src = read[ev]
+        stored = getattr(g, "utc_date", None) if g is not None else None
+        why = None
+        if src is None:
+            why = KICKOFF_HELD_NOT_TWO
+        elif ko is None:
+            why = KICKOFF_REFUSED_NOW
+        elif src == kt.START_UNREAD:
+            why = KICKOFF_UNREAD_NOW
+        elif stored != ko:
+            why = KICKOFF_MOVED
+        if why:
+            res.refused[why] += 1
+            res.why[mk.get("ticker")] = why
+            line = (f"  ✗ {ev}: {why} · served: "
+                    + (f"{ko:%Y-%m-%d %H:%M}Z ({src})" if ko is not None and src != kt.START_UNREAD
+                       else str(src or f"{len(held.get(ev, {}))} market(s) of the event held"))
+                    + " · stored: " + (f"{stored:%Y-%m-%d %H:%M}Z" if stored is not None else "none"))
+            if line not in res.lines:
+                res.lines.append(line)
+        else:
+            keep[(mid, side)] = mk
+    res.placed = keep
+    return res
+
+
 def sync_kalshi_tennis(competition_code: str, date_from=None, date_to=None, progress=None, get=None) -> dict:
     """Pull the tour's open markets (to the last page), place them with the shared matcher on the stored rows of the
-    tour's competition, apply the player check and the kickoff check, store each placed side as
-    OddsSnapshot(source="kalshi", market="ML").
+    tour's competition, apply the player check, the kickoff check and the served kickoff check, store each placed
+    side as OddsSnapshot(source="kalshi", market="ML").
     Returns a summary dict ({"ok": False, "reason"} on a refusal). `get` is the HTTP layer (tests)."""
     def report(m):
         if progress:
@@ -159,6 +214,7 @@ def sync_kalshi_tennis(competition_code: str, date_from=None, date_to=None, prog
         res = km.place(markets, games, now=now, lo=lo, hi=hi, implied_prob=KalshiAdapter.implied_prob)
         res = player_check(res, games)
         res = kickoff_check(res, games)           # addendum 288 item 1: a START_UNREAD row is never captured
+        res = served_kickoff_check(res, games, markets)   # 288 item 1, read again on the markets in hand
         if outside:
             res.refused[kt.OUTSIDE_SERIES] += outside
         for ln in km.console_lines(res):
@@ -169,8 +225,3 @@ def sync_kalshi_tennis(competition_code: str, date_from=None, date_to=None, prog
     counts = km.legacy_counts(res)
     return {"ok": True, "series": series, "markets": len(markets), **counts, "stored": stored, "alarm": alarm,
             "pages": pages}
-
-
-def served_kickoff_check(res: km.Result, games: list, markets: list) -> km.Result:
-    """NOT YET BUILT (the fail-first commit): every placement is kept."""
-    return res

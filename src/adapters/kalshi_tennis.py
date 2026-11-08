@@ -294,8 +294,8 @@ def kickoff(markets: list[dict], day: date) -> tuple[datetime | None, str]:
 # placeholders <player>, <A>, <B> and <event> as the ruling writes them) and early_close_condition ("on every market").
 # contract_terms_url "is the venue's generic "ACHIEVEMENTS.pdf" for both series — the per-market rules are the terms
 # that bind, and they are now on the record." Each value below is copied byte for byte from addendum 288 item 3; no
-# wording is typed here. THE MEANING the ruling records from it (SETTLED_SCALAR and a retirement) is on
-# MatchStatus.SETTLED_SCALAR's comment (src/db/schema.py). The map below still reads the served result word only.
+# wording is typed here. THE MEANING the ruling records from it (SETTLED_SCALAR and a retirement) is in MatchStatus's
+# docstring (src/db/schema.py). The map below still reads the served result word only.
 CONTRACT_TERMS_QUOTE: dict[str, str] = {
     "rules_secondary": ("If the match does not occur (signaled by a ball being played) due to a player injury, walkover, "
                         "forfeiture, or any other cancellation (all before the match starts), the market will resolve "
@@ -422,6 +422,9 @@ class Listing:
     status_words: Counter = field(default_factory=Counter)
     result_words: Counter = field(default_factory=Counter)
     kickoff_sources: Counter = field(default_factory=Counter)   # KICKOFF_SOURCES word -> fixtures (288 item 1)
+    # event -> its two markets as served, for the events refused by the kickoff rule only: never a fixture, read by the
+    # certification receipt alone (288 item 2(b): the expiration_value SHAPES are read on every unmapped event)
+    kickoff_refused_markets: dict = field(default_factory=dict)
 
 
 def build(tour: str, markets: list[dict]) -> Listing:
@@ -462,6 +465,7 @@ def build(tour: str, markets: list[dict]) -> Listing:
         ko, src = kickoff(mks, day)
         if ko is None:
             refuse(src)
+            lst.kickoff_refused_markets[ev] = mks
             continue
         home, away = sorted(names, key=lambda n: (n.casefold(), n))
         lst.kickoff_sources[src] += 1

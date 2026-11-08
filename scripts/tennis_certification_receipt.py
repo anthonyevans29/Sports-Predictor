@@ -103,17 +103,18 @@ def exp_class(raw, yes: str, no: str) -> str:
     return repr(raw)
 
 
-def exp_shapes(fixtures) -> tuple[list, int]:
-    """([(shape, events, Counter of the verbatim (yes value, no value) reprs, samples)], events read) over the events
-    left SCHEDULED by kalshi_tennis.WINNER_MISMATCH: the shape is the pair (the 'yes' market's class, the 'no' market's
-    class), read from the markets as served. Most events first."""
+def exp_shapes(events) -> tuple[list, int]:
+    """([(shape, events, Counter of the verbatim (yes value, no value) reprs, samples)], events read) over the
+    (event, markets) pairs whose kalshi_tennis.settle reads WINNER_MISMATCH: the shape is the pair (the 'yes' market's
+    class, the 'no' market's class), read from the markets as served. Most events first. Every shape is returned: the
+    caller prints them all (288 item 2(b): "a line per distinct expiration_value SHAPE")."""
     by: dict = defaultdict(lambda: [0, Counter(), []])
     n = 0
-    for fx in fixtures:
-        if fx.settlement.why != kt.WINNER_MISMATCH:
+    for event, mks in events:
+        if kt.settle(mks).why != kt.WINNER_MISMATCH:
             continue
-        yes = next((m for m in fx.markets if m.get("result") == kt.RESULT_YES), None)
-        no = next((m for m in fx.markets if m.get("result") == kt.RESULT_NO), None)
+        yes = next((m for m in mks if m.get("result") == kt.RESULT_YES), None)
+        no = next((m for m in mks if m.get("result") == kt.RESULT_NO), None)
         if yes is None or no is None:
             continue
         n += 1
@@ -123,7 +124,7 @@ def exp_shapes(fixtures) -> tuple[list, int]:
         rec[0] += 1
         rec[1][f"{ry!r} / {rn!r}"] += 1
         if len(rec[2]) < SHAPE_SAMPLES:
-            rec[2].append((fx.event, py, ry, rn))
+            rec[2].append((event, py, ry, rn))
     out = sorted(((k, *r) for k, r in by.items()), key=lambda x: (-x[1], str(x[0])))
     return out, n
 
@@ -199,7 +200,7 @@ def tour_report(tour: str, adapter, get, say) -> tuple[int, dict]:
     say(f"    markets whose rules_secondary carries the quoted clause: "
         f"{sum(1 for m in markets if sec in str(m.get('rules_secondary') or ''))} of {len(markets)} · whose "
         f"early_close_condition is the quoted one: {sum(1 for m in markets if m.get('early_close_condition') == eco)} "
-        f"of {len(markets)} (the map below reads the result word only; THE MEANING is MatchStatus.SETTLED_SCALAR's)")
+        f"of {len(markets)} (the map below reads the result word only; THE MEANING is in MatchStatus's docstring)")
     # 4. THE MAP ---------------------------------------------------------------------------------------------------
     say("  THE MAP (addendum 269 item 3(b)): 'yes' / 'no' on two 'finalized' markets, expiration_value the 'yes' "
         "market's player -> FINISHED, that player the winner · 'scalar' on both, 'finalized' -> SETTLED_SCALAR, no "
@@ -212,20 +213,23 @@ def tour_report(tour: str, adapter, get, say) -> tuple[int, dict]:
         if fx.settlement.why:
             say(f"      {fx.event}: {fx.settlement.why} · status {fx.settlement.status_raw} · results "
                 f"{v([m.get('result') for m in fx.markets])}")
-    shapes, n_mis = exp_shapes(lst.fixtures)
+    # the accepted events AND the events the kickoff rule refused (never fixtures, so absent from the projection above):
+    # the SHAPES read every unmapped event (288 item 2(b)), and the total reconciles with the map's 106 (2(a))
+    shapes, n_mis = exp_shapes([(fx.event, fx.markets) for fx in lst.fixtures]
+                               + sorted(lst.kickoff_refused_markets.items()))
+    _, n_mis_ko = exp_shapes(sorted(lst.kickoff_refused_markets.items()))
     say(f"    THE expiration_value SHAPES (addendum 288 item 2(b)) of the events left SCHEDULED by "
         f"{kt.WINNER_MISMATCH!r}: each event read as the pair (the 'yes' market's value, the 'no' market's), each "
         f"value classed as served ({EMPTY} · {YES_PLAYER} · {NO_PLAYER} · else the value itself, verbatim); nothing "
-        f"is inferred: {n_mis} event(s) · {len(shapes)} shape(s)")
-    for (cy, cn), n, raw, samples in shapes[:MAX_DISTINCT]:
+        f"is inferred; every shape printed: {n_mis} event(s) ({n_mis - n_mis_ko} accepted · {n_mis_ko} refused by "
+        f"the kickoff rule, so not in the projection above) · {len(shapes)} shape(s)")
+    for (cy, cn), n, raw, samples in shapes:
         say(f"      [{n}] yes market: {cy} · no market: {cn}")
         say("        values verbatim (yes / no): " + " · ".join(f"{k} [{c}]" for k, c in
                                                              sorted(raw.items(), key=lambda kv: -kv[1])[:MAX_DISTINCT])
             + (f" · ... {len(raw) - MAX_DISTINCT} more" if len(raw) > MAX_DISTINCT else ""))
         for ev, py, ry, rn in samples:
             say(f"        sample {ev}: the 'yes' market's player {py!r} · expiration_value {ry!r} / {rn!r}")
-    if len(shapes) > MAX_DISTINCT:
-        say(f"      ... {len(shapes) - MAX_DISTINCT} more shape(s), not printed")
     scal = [fx for fx in lst.fixtures if fx.settlement.status == MatchStatus.SETTLED_SCALAR]
     vals = Counter(str(s.get("settlement_value_dollars")) for fx in scal for s in fx.settlement.served.values())
     say(f"    SETTLED_SCALAR events: {len(scal)} · their markets' settlement values: {sum(vals.values())} kept, "
@@ -273,11 +277,14 @@ def tour_report(tour: str, adapter, get, say) -> tuple[int, dict]:
         say(f"      {fx.event}: ticker date {fx.day} · kickoff {fx.kickoff:%Y-%m-%d %H:%M}Z ({fx.kickoff_source}) · "
             f"US Eastern day {et_day(fx.kickoff)}")
     live = [(fx, m) for fx in lst.fixtures for m in fx.markets if str(m.get("status")) == "active"]
-    past = [m.get("ticker") for fx, m in live if fx.kickoff <= now]
+    # three counts that partition the active markets: a served kickoff ahead of the run, a served kickoff already past,
+    # a START_UNREAD row (never captured, whatever its UTC+14 instant)
     unread = [m.get("ticker") for fx, m in live if fx.kickoff_source == kt.START_UNREAD]
-    say(f"    active markets: {len(live)} · their stored kickoff ahead of this run: {len(live) - len(past)} · already "
-        f"past it (the capture refuses them as in play): {len(past)} · on a START_UNREAD row (never captured): "
-        f"{len(unread)}")
+    past = [m.get("ticker") for fx, m in live if fx.kickoff_source != kt.START_UNREAD and fx.kickoff <= now]
+    ahead = [m.get("ticker") for fx, m in live if fx.kickoff_source != kt.START_UNREAD and fx.kickoff > now]
+    say(f"    active markets: {len(live)} · a served kickoff ahead of this run: {len(ahead)} · a served kickoff already "
+        f"past it (the capture refuses them as in play): {len(past)} · on a START_UNREAD row (never captured, its "
+        f"UTC+14 instant ahead or not): {len(unread)}")
     for fx, m in live[:TIME_SAMPLE]:
         say(f"      {m.get('ticker')} · ticker date {fx.day} · stored kickoff {fx.kickoff:%Y-%m-%d %H:%M}Z "
             f"({fx.kickoff_source}; {'ahead of' if fx.kickoff > now else 'past'} this run) · "
@@ -306,10 +313,10 @@ def tour_report(tour: str, adapter, get, say) -> tuple[int, dict]:
                scheduled_why=dict(why), refused=dict(lst.refused), status_words=dict(lst.status_words),
                result_words=dict(lst.result_words), finished_no_winner=len(no_winner), players=len(names),
                by_year={y: dict(c) for y, c in by_year.items()}, time_keys_served=times_out,
-               active=len(live), active_past_kickoff=len(past), active_ahead=len(live) - len(past),
+               active=len(live), active_past_kickoff=len(past), active_ahead=len(ahead),
                active_start_unread=len(unread), kickoff_sources=dict(src),
                kickoff_refused=dict(ko_ref), kickoff_et_day_not_ticker=len(off_day),
-               winner_mismatch_events=n_mis, exp_shapes=len(shapes))
+               winner_mismatch_events=n_mis, winner_mismatch_kickoff_refused=n_mis_ko, exp_shapes=len(shapes))
     return OK, out
 
 

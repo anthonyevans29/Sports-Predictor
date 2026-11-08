@@ -1789,10 +1789,12 @@ def host_results_tally(days: int = 30, report=None, exports_dir: str = "exports"
     # hidden temporary names (coverage_map.write_document's form): pull_exports.SAFE_NAME and the mirror skip them
     tmp_md = os.path.join(out_dir, f".{HOST_TALLY_MD}.{os.getpid()}.tmp")
     tmp_js = os.path.join(out_dir, f".{HOST_TALLY_JSON}.{os.getpid()}.tmp")
-    os.makedirs(out_dir, exist_ok=True)
     got: dict = {}
     try:
         with readonly_binding():
+            # the folder is made only once the read-only binding has accepted the database: a refused database
+            # (ReadOnlyRefused, raised on entering the binding) leaves the filesystem untouched (Codex on #880)
+            os.makedirs(out_dir, exist_ok=True)
             results_tally(days=days, out_path=tmp_md, report=report, exports_dir=exports_dir,
                           machine_line=HOST_TALLY_LINE, collect=got)
         doc = {"kind": TALLY_JSON_KIND,

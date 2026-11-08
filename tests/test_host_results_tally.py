@@ -194,6 +194,22 @@ def test_a_missing_db_is_refused_and_neither_file_is_written(tmp_path, monkeypat
     assert not (tmp_path / "exports" / "results_tally.json").exists()
 
 
+def test_a_missing_db_creates_no_export_folder(tmp_path, monkeypatch):
+    # Codex on #880 (4506541720): the refusal is checked BEFORE the export folder is made, so a missing database
+    # leaves the filesystem untouched, the folder included
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+
+    from src.db import database
+    from src.walters.export import host_results_tally
+    gone = tmp_path / "nowhere" / "absent.db"
+    monkeypatch.setattr(database, "SessionLocal", sessionmaker(bind=create_engine(f"sqlite:///{gone}")))
+    out = tmp_path / "fresh" / "exports"
+    with pytest.raises(database.ReadOnlyRefused):
+        host_results_tally(days=30, out_dir=str(out))
+    assert not out.exists() and not out.parent.exists()
+
+
 # ---- the JSON -------------------------------------------------------------------------------------------------------
 
 def test_the_json_is_the_files_sections_in_order_with_their_lines_and_figures(tmp_path):

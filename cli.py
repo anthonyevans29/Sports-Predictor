@@ -369,7 +369,8 @@ def _strict_split(result, named, missing) -> tuple[list, list]:
 def _print_strict_refused(refused, named) -> None:
     if refused:
         print(f"✗ STRICT: {len(refused)} of {len(named)} named game(s) REFUSED (the listing's teams are neither the "
-              f"stored pair nor its reverse; the row untouched): " + ", ".join(f"match {m}" for m in refused),
+              f"stored pair nor its reverse; scores, kickoff and status untouched; provider_orientation mismatch "
+              f"written): " + ", ".join(f"match {m}" for m in refused),
               flush=True)
 
 

@@ -237,7 +237,7 @@ def format_lines(r: dict) -> list[str]:
     for x in r["score_changed"]:
         out.append(f"  score: match {x['match_id']} id {x['id']} {x['game']}: "
                    f"{x['stored_score']} -> {x['provider_score']}")
-    for key, label in (("not_found", "NOT FOUND by id (untouched)"), ("refused", "REFUSED (untouched)"),
+    for key, label in (("not_found", "NOT FOUND by id (untouched)"), ("refused", "REFUSED (scores untouched; orientation key written)"),
                        ("excluded", "excluded (untouched)"), ("no_id", "no provider id (untouched)"),
                        ("unresolved", "UNRESOLVED (untouched)"),
                        ("still_rate_limited", "STILL RATE LIMITED (untouched)")):

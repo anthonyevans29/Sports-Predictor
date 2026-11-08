@@ -598,6 +598,9 @@ def test_refresh_by_id_on_a_mismatch_writes_mismatch_only_and_sync_odds_nfl_refu
                  monkeypatch)
     assert r["teams_mismatch_refused"] == [mid] and r["updated"] == 0 and r["unchanged"] == 0
     assert _ext(mid) == {AF: sid, PROVIDER_ORIENTATION_KEY: "mismatch"}
+    from src.ingestion.refresh_by_id import format_lines
+    assert any(x.startswith(f"  REFUSED (scores untouched; orientation key written): match {mid} ")   # 298 A item 3
+               for x in format_lines(r)), format_lines(r)
     with session_scope() as s:
         m = s.get(Match, mid)
         assert (m.status, m.utc_date, m.home_score, m.away_score) == held      # the scores path unchanged

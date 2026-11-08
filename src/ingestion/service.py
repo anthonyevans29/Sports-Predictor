@@ -766,9 +766,12 @@ class IngestionService:
             if ext is not None:
                 match.external_ids = ext
         if verdict == MISMATCH:
+            # addendum 298 A item 3 (law 2): the warning says what was written; the re-key branch writes no key
             log.warning("sync_matches(%s): %s id %s REFUSED for match %s — the listing's teams %s/%s are neither the "
-                        "stored pair %s/%s nor its reverse; the row untouched", comp.code, nm.source, nm.source_id,
-                        match.id, home_id, away_id, match.home_team_id, match.away_team_id)
+                        "stored pair %s/%s nor its reverse; scores, kickoff and status untouched; %s", comp.code,
+                        nm.source, nm.source_id, match.id, home_id, away_id, match.home_team_id, match.away_team_id,
+                        "provider_orientation unchanged (re-key branch)" if rekey else
+                        "provider_orientation mismatch written")
             result.teams_mismatch_refused.append(match.id)
             result.skipped += 1
             return None

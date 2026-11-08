@@ -250,7 +250,7 @@ def test_strict_names_a_refused_row_as_refused_not_as_absent_from_the_answer(mon
     assert any(x.startswith("✗ STRICT: 1 of 2 named game(s) not in the provider's answer") and x.endswith(f"match {gone}")
                for x in lines), res.output
     assert (f"✗ STRICT: 1 of 2 named game(s) REFUSED (the listing's teams are neither the stored pair nor its "
-            f"reverse; the row untouched): match {mis}") in lines, res.output
+            f"reverse; scores, kickoff and status untouched; provider_orientation mismatch written): match {mis}") in lines, res.output
 
 
 def test_the_admin_sync_job_carries_both_counts(monkeypatch):

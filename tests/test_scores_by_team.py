@@ -272,9 +272,15 @@ def test_the_tennis_re_read_prints_its_own_counts(monkeypatch, capsys):
             return done
     lst = NS(fixtures=[NS(event="sbt-tr-1", day=date(2026, 12, 29),
                           settlement=NS(status=MatchStatus.SCHEDULED))])
-    cli._tennis_reread(Svc(), "SBTT", "2026", lst, "2026-12-31")
-    out = capsys.readouterr().out.splitlines()
-    assert f"  SBTT re-read: orientation_reversed 0 · teams_mismatch_refused 1: {mid}" in out, out
+    try:
+        cli._tennis_reread(Svc(), "SBTT", "2026", lst, "2026-12-31")
+        out = capsys.readouterr().out.splitlines()
+        assert f"  SBTT re-read: orientation_reversed 0 · teams_mismatch_refused 1: {mid}" in out, out
+    finally:
+        # the row carries the tennis source key: removed, so the tennis suites (which read every kalshi_tennis row in
+        # the shared test DB) never see it, whatever the test order
+        with session_scope() as s:
+            s.delete(s.get(Match, mid))
 
 
 def test_the_cli_receipt_prints_zero_counts(monkeypatch):

@@ -303,8 +303,11 @@ winner and the stored settlement (none served, none kept). The window is require
 scheduled"); `--season`, when given, is the ticker's year. Each run also re-reads, from the same listing, the stored
 SCHEDULED, FINISHED and SETTLED_SCALAR rows dated in the 7 ticker days before `--date-from` (addendum 294 item 7: a
 settlement that came after the window, or one the venue retracted or re-settled; rows only, none created, no further
-call), each written as served and counted ("settled since", "retracted or changed"). An event the listing refuses
-that a stored row dated in the window or that lookback holds has its refusal label written to the row's
+call), each written as served and counted ("settled since", "retracted or changed"); with `--season`, a held row of
+another ticker year is not re-read (the adapter writes that season's events only) and is named on the line ("not
+re-read (outside --season)"), never counted re-read. An event the listing refuses (and does not also accept: an
+event with one stray market outside the series is accepted from its two markets and never labelled) that a stored
+row dated in the window or that lookback holds has its refusal label written to the row's
 `external_ids["kalshi_kickoff"]` and nothing else (addendum 294 item 13(b): status, winner, settlement receipt and
 `utc_date` stay), counted with the match ids; the capture never prices that row until a sync reads the event again. No coverage step: intl-daily's 07:20 UTC `coverage --json`
 is the one writer. The first load is the operator's laptop order: `sync-competitions --sport tennis`, then

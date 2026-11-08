@@ -426,8 +426,10 @@ def test_an_accepted_event_with_a_stray_market_outside_the_series_keeps_its_serv
     """tennis-D review (finding: 13(b) labelled an ACCEPTED event). kalshi_tennis.build() refuses a market whose
     event_ticker is in the series but whose ticker is not (OUTSIDE_SERIES, keyed by its event ticker) and still accepts
     the event from its two markets in the series. 294 item 13(b) labels "a sync that refuses an event the row holds";
-    this listing ACCEPTED the event, so its row keeps its served kickoff source (no label written, counted 0) and the
-    capture prices it."""
+    this listing ACCEPTED the event, so its row keeps its served kickoff source (no label written, counted 0), and a
+    capture the venue serves cleanly prices it (before the fix the label made the capture refuse it as
+    KICKOFF_REFUSED_ROW). A capture that still reads the stray market refuses by the shared matcher's own ambiguity and
+    the served kickoff check, as built in #877 (not this rule)."""
     import cli
     stray = dict(OPEN_T[0], ticker="KXOTHER-26DEC29EEEFFF-ZZZ")
     assert stray["event_ticker"] == "KXATPMATCH-26DEC29EEEFFF"
@@ -443,6 +445,7 @@ def test_an_accepted_event_with_a_stray_market_outside_the_series_keeps_its_serv
     with session_scope() as s:
         (m,) = [x for x in s.query(Match).all() if (x.external_ids or {}).get(kt.SOURCE)]
         assert (m.external_ids or {}).get(kt.KICKOFF_EXT_KEY) == OCC
+    fake.pages[("KXATPMATCH", "open")] = [OPEN_T]                          # the venue serves the event cleanly
     monkeypatch.setattr(tk, "utc_now_naive", lambda: Z("2026-12-29T09:00"))
     out = run.invoke(cli.cli, ["sync-kalshi-atp"])
     assert "✓ Kalshi ATP: 2 prices stored" in out.output, out.output

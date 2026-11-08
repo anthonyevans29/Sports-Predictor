@@ -325,14 +325,23 @@ def _tennis_reread(service, code, season, lst, date_from) -> None:
     served state (addendum 288 item 5(b); 287 item 2(1): a retracted settlement clears full_time_result and the stored
     settlement receipt, a changed one replaces them). Rows only (no new row, no new player, no new call); prints its
     count, always: the rows re-read by their stored status, the SCHEDULED rows settled since, and the FINISHED or
-    SETTLED_SCALAR rows the venue has retracted or changed (status, winner or settlement receipt not as stored)."""
+    SETTLED_SCALAR rows the venue has retracted or changed (status, winner or settlement receipt not as stored). With
+    --season, a held row whose ticker year is not the season is not re-read (the adapter writes that season's events
+    only) and not counted re-read: the line names it "not re-read (outside --season)" (law 2); the next run without
+    --season (the daily chain) re-reads it."""
     from collections import Counter as _Counter
     from datetime import date as _date, timedelta as _td
 
     lo = _date.fromisoformat(date_from) - _td(days=TENNIS_MAX_WINDOW_DAYS)
     hi = _date.fromisoformat(date_from)
+    from src.adapters.kalshi_tennis import in_window as _in_window
     before = _tennis_rows(code, TENNIS_REREAD_STATUSES)
-    due = {fx.event for fx in lst.fixtures if fx.event in before and lo <= fx.day < hi}
+    held = {fx.event: fx.day for fx in lst.fixtures if fx.event in before and lo <= fx.day < hi}
+    # --season: the adapter's re-read writes only the events of that ticker year (KalshiTennisAdapter.list_matches:
+    # in_window(fx.day, season, None, None)), so a held row of another year is NOT re-read and is not counted re-read;
+    # it is named on the line (law 2: a row this run does not write is never claimed re-read)
+    due = {ev for ev, day in held.items() if _in_window(day, season, None, None)}
+    off_season = sorted(set(held) - due)
     if due:
         service.adapter.events = due
         try:
@@ -348,7 +357,9 @@ def _tennis_reread(service, code, season, lst, date_from) -> None:
     print(f"  {code} re-read (stored SCHEDULED, FINISHED and SETTLED_SCALAR rows dated {lo}..{hi - _td(days=1)}, no new "
           f"row): {len(due)} re-read (" + ", ".join(f"{st.name} {was.get(st, 0)}" for st in TENNIS_REREAD_STATUSES)
           + f") · {len(settled)} settled since" + (f": {', '.join(settled[:10])}" if settled else "")
-          + f" · {len(changed)} retracted or changed" + (f": {', '.join(changed)}" if changed else ""), flush=True)
+          + f" · {len(changed)} retracted or changed" + (f": {', '.join(changed)}" if changed else "")
+          + (f" · {len(off_season)} not re-read (outside --season {season})"
+             + (f": {', '.join(off_season)}" if off_season else "") if season else ""), flush=True)
 
 
 def _tennis_mark_refused(code, lst, date_from, date_to) -> None:
@@ -357,8 +368,10 @@ def _tennis_mark_refused(code, lst, date_from, date_to) -> None:
     and nothing else (status, winner and receipt stay — law 4), counted; the retraction-under-refusal gap is a KNOWN
     LIMITATION on #838 (an event the venue serves inconsistently waits for the venue to serve it readably). Option (c)
     is REFUSED: it would decide stored state from a listing the rule could not read."). Every event this listing
-    refused (Listing.refused_events, its label) whose ticker day is in the run's reach, [date_from -
-    TENNIS_MAX_WINDOW_DAYS, date_to] (the window and the re-read's lookback), and that a stored row of `code` holds:
+    refused (Listing.refused_events, its label) and did not also accept (an event with a stray market outside the
+    series is accepted from its two markets: not refused, never labelled) whose ticker day is in the run's reach,
+    [date_from - TENNIS_MAX_WINDOW_DAYS, date_to] (the window and the re-read's lookback; --season is not applied,
+    an OPEN ITEM), and that a stored row of `code` holds:
     the row's external_ids[KICKOFF_EXT_KEY] takes the label, NOTHING else on the row is written (utc_date, status,
     status_raw, full_time_result and the settlement receipt stay). The capture then refuses the row
     (tennis_kalshi.kickoff_check: KICKOFF_REFUSED_ROW) until a sync reads the event again and rewrites its source. Never
@@ -368,10 +381,14 @@ def _tennis_mark_refused(code, lst, date_from, date_to) -> None:
     from src.adapters import kalshi_tennis as _kt
     lo = _date.fromisoformat(date_from) - _td(days=TENNIS_MAX_WINDOW_DAYS)
     hi = _date.fromisoformat(date_to)
+    # an event this listing ACCEPTED is never labelled: build() keys a stray market's OUTSIDE_SERIES refusal by its
+    # event ticker when that ticker is in the series, and still accepts the event from its two markets (294 item 13(b)
+    # labels "a sync that refuses an event the row holds"; an accepted event is not refused)
+    accepted = {fx.event for fx in lst.fixtures}
     reach = {}
     for ev, why in lst.refused_events.items():
         day = _kt.event_day({"event_ticker": ev})
-        if day is not None and lo <= day <= hi:
+        if ev not in accepted and day is not None and lo <= day <= hi:
             reach[ev] = why
     marked = []
     if reach:

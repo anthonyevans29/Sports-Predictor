@@ -270,8 +270,10 @@ CHAINS: dict[str, dict] = {
     #   adapter stamps each row), and a fixed one would drop January's rows after 12-31. The window is three days and
     #   never wider than cli.TENNIS_MAX_WINDOW_DAYS: addendum 270 item 5, "no backfill is scheduled". {yesterday} reads
     #   the results settled since the last run; {tomorrow} gives the window chain the rows it plans from. Each step
-    #   also RE-READS, from the same listing, the stored SCHEDULED rows dated in the TENNIS_MAX_WINDOW_DAYS days before
-    #   {yesterday} (a late settlement; rows only, none created: cli._tennis_reread).
+    #   also RE-READS, from the same listing, the stored SCHEDULED, FINISHED and SETTLED_SCALAR rows dated in the
+    #   TENNIS_MAX_WINDOW_DAYS days before {yesterday} (a late settlement, a retraction or a re-settlement; rows only,
+    #   none created: cli._tennis_reread, addendum 294 item 7), and a refused event's held row takes the refusal label
+    #   and nothing else (cli._tennis_mark_refused, 294 item 13(b)).
     # - THE KALSHI STEPS are `sync-kalshi-atp` and `sync-kalshi-wta` (the shared matcher, then tennis's player check).
     # - NO COVERAGE STEP: intl-daily's 07:20 UTC `coverage --json` is THE coverage write (addendum 274 item 2(2):
     #   "No second writer, ever."); this chain's timer (06:53 UTC) runs before it.

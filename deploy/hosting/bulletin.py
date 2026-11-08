@@ -79,7 +79,7 @@ import exports_mirror as em  # noqa: E402
 
 if str(HERE.parents[1]) not in sys.path:
     sys.path.insert(0, str(HERE.parents[1]))
-from src.privacy_patterns import bulletin_offence  # noqa: E402
+from src.privacy_patterns import bulletin_offence, rendered  # noqa: E402
 
 KIND = "bulletin"
 STAGES = ("closing", "slate")
@@ -837,24 +837,23 @@ def secret_offence(text: str) -> str | None:
     """ARCHITECT 2026-11-08 15:20 ET, addendum 298 B item 5, verbatim: "A secret in the source: REFUSE, do not redact —
     a key in a Desk output is an upstream bug and a written file hides it." Every Markdown line and every card string
     passes sp_common.redact before the guard reads it, so a key in the source reads as the redaction mark here: the
-    run is refused under `secret`, and the key itself is never in the receipt or on the console."""
-    return SECRET_PATTERN if REDACTED_MARK in text else None
+    run is refused under `secret`, and the key itself is never in the receipt or on the console.
+    Addendum 299 item 1: the key rule also reads the guard's NORMALIZED text (privacy_patterns.rendered: entities
+    decoded, NFKC, format characters dropped), so a credential written with a zero-width or a fullwidth character
+    ("api\u200b_key=...", "api_key\uff1d...") is refused too: either reading matching refuses."""
+    if REDACTED_MARK in text:
+        return SECRET_PATTERN
+    norm = rendered(text)
+    return SECRET_PATTERN if c.redact(norm) != norm else None
 
 
 def refused_path(out: Path, rel: str, pattern: str | None = None) -> str:
-    """A refused file's path for the receipt and the console. The file name carries the team names (slug()), so a
-    value the guard refused in a team name would be named by its own path: redacted, then, where the guard still
-    matches the path, the file name is WITHHELD (the folder, the match id, the suffix and the pattern's name only).
-    The guard's patterns read word boundaries, and a slug sits between "_" and "/" (word characters for the regex) with
-    its own words joined by "-": the path is read as written, with "_" and "/" as spaces, and with "-" as spaces too.
-    A file refused under `secret` ALWAYS withholds its file name (Codex #894 round 3, P1): slug() turns a secret in a
-    team name ("api_key=abcdef123") into a form ("api-key-abcdef123") neither sp_common.redact nor the guard reads."""
-    p = c.redact(shown(out, rel))
-    spaced = re.sub(r"[_/]", " ", p)
-    hit = (SECRET_PATTERN if pattern == SECRET_PATTERN else
-           next((h for h in map(bulletin_offence, (p, spaced, spaced.replace("-", " "))) if h), None))
-    if not hit:
-        return p
+    """A refused file's path for the receipt and the console: the folder (family and ET date), the match id and the
+    suffix, the FILE NAME WITHHELD with the refusing pattern's name. ARCHITECT 2026-11-08 16:25 ET, addendum 299 item 1:
+    "withhold the file name on EVERY refusal — the receipt names the pattern and the game id only". The file name
+    carries the team names through slug(), which destroys the marker of a refused value in them (api_key= becomes
+    api-key-, $25 becomes 25), so no reading of the path can be trusted to find it (Codex #894 rounds 3 and 4)."""
+    hit = pattern or "the guard"
     folder, _, name = rel.rpartition("/")
     return (f"{c.redact(shown(out, folder))}/{name.split('_', 1)[0]}_…{Path(name).suffix} "
             f"(file name withheld: matched {hit})")

@@ -328,8 +328,8 @@ def test_the_guard_refuses_each_forbidden_field_and_writes_nothing(repo, capsys,
     names = {r["pattern"] for r in rec["bulletin_refused"]}
     assert names == {pattern}
     paths = {r["path"] for r in rec["bulletin_refused"]}
-    assert paths == {"exports/bulletins/SOCCER/2026-11-08/9402_delta-united_at_gamma-fc_closing.md",
-                     "exports/bulletins/SOCCER/2026-11-08/9402_delta-united_at_gamma-fc_closing.png"}
+    assert paths == {f"exports/bulletins/SOCCER/2026-11-08/9402_….md (file name withheld: matched {pattern})",
+                     f"exports/bulletins/SOCCER/2026-11-08/9402_….png (file name withheld: matched {pattern})"}
     raw = c.receipts_path().read_text()
     out = capsys.readouterr().out
     assert text not in raw and text not in out                                # the name and path, never the line
@@ -383,14 +383,54 @@ def test_a_refused_team_name_joined_by_hyphens_is_withheld_too(repo):
     assert paths and all("withheld" in p and "rovers" not in p for p in paths)
 
 
-def test_a_refusal_in_a_desk_field_still_names_the_full_path(repo):
-    """The withholding is only for a path the guard reads: a refused reason keeps the intended path (item 2)."""
+def test_every_refusal_withholds_the_file_name_and_names_the_pattern_and_the_game(repo):
+    """Addendum 299 item 1: "withhold the file name on EVERY refusal — the receipt names the pattern and the game id
+    only". A refused reason (not a team name) withholds it too; the team slugs never reach the receipt."""
     doc = soccer_doc()
     doc["predictions"][1]["desk"]["reason"] = "size 12 contracts"
     assert b.run(closing_file=str(closing_file(repo, doc, "SOCCER"))) == 2
     assert {r["path"] for r in receipts()[-1]["bulletin_refused"]} == {
-        "exports/bulletins/SOCCER/2026-11-08/9402_delta-united_at_gamma-fc_closing.md",
-        "exports/bulletins/SOCCER/2026-11-08/9402_delta-united_at_gamma-fc_closing.png"}
+        "exports/bulletins/SOCCER/2026-11-08/9402_….md (file name withheld: matched contract_count)",
+        "exports/bulletins/SOCCER/2026-11-08/9402_….png (file name withheld: matched contract_count)"}
+    assert "delta-united" not in c.receipts_path().read_text()
+
+
+@pytest.mark.parametrize("team,pattern", [("Owls $25", "dollar"), ("Owls 12 contracts", "contract_count")])
+def test_a_refused_value_in_a_team_name_never_reaches_the_receipt_through_its_slug(repo, capsys, team, pattern):
+    """Codex #894 round 4: slug() turns "Owls $25" into owls-25, which no reading of the path finds."""
+    doc = soccer_doc()
+    doc["predictions"][0]["home_team"] = team
+    assert b.run(closing_file=str(closing_file(repo, doc, "SOCCER"))) == 2
+    rec = receipts()[-1]
+    assert {r["pattern"] for r in rec["bulletin_refused"]} == {pattern}
+    raw, out = c.receipts_path().read_text(), capsys.readouterr().out
+    for leak in (b.slug(team), "owls"):
+        assert leak not in raw and leak not in out
+
+
+@pytest.mark.parametrize("secret", ["api\u200b_key=abcdef123", "api_key\uff1dabcdef123", "to\u200dken: abcdef123"],
+                         ids=["zero-width space", "fullwidth equals", "zero-width joiner"])
+def test_a_credential_written_with_an_invisible_or_fullwidth_character_is_refused(repo, capsys, secret):
+    """Addendum 299 item 1 (Codex #894 round 4, P1): the key rule also reads the guard's normalized text."""
+    assert sp_redact_misses(secret)                                           # the raw reading alone misses it
+    doc = soccer_doc()
+    doc["predictions"][1]["desk"]["reason"] = f"edge below the floor · {secret}"
+    assert b.run(closing_file=str(closing_file(repo, doc, "SOCCER"))) == 2
+    assert {r["pattern"] for r in receipts()[-1]["bulletin_refused"]} == {b.SECRET_PATTERN}
+    raw, out = c.receipts_path().read_text(), capsys.readouterr().out
+    assert "abcdef123" not in raw and "abcdef123" not in out
+    assert files_under(repo / "exports" / "bulletins") == []
+
+
+def sp_redact_misses(text):
+    return c.redact(text) == text and pv.bulletin_offence(text) is None
+
+
+@pytest.mark.parametrize("text", ["contract count: 5", "contract count = 12", "Contracts-Count 3", "contract_count=7"])
+def test_the_contract_count_pattern_takes_the_count_label(text):
+    """Addendum 299 item 1: "the contract-count pattern accepts the `count` label" (it tightens 298 B.4's set)."""
+    assert pv.bulletin_offence(text) == "contract_count"
+
 
 
 @pytest.mark.parametrize("what", ["an env key", "a key=value"])
@@ -727,8 +767,8 @@ def test_a_refusal_under_another_out_dir_names_that_path(repo, tmp_path):
     other = tmp_path / "elsewhere"
     assert b.run(closing_file=str(closing_file(repo, doc, "SOCCER")), out_dir=str(other)) == 2
     paths = {r["path"] for r in receipts()[-1]["bulletin_refused"]}
-    assert paths == {str(other / "SOCCER" / "2026-11-08" / "9402_delta-united_at_gamma-fc_closing.md"),
-                     str(other / "SOCCER" / "2026-11-08" / "9402_delta-united_at_gamma-fc_closing.png")}
+    assert paths == {f"{other / 'SOCCER' / '2026-11-08'}/9402_….md (file name withheld: matched contract_count)",
+                     f"{other / 'SOCCER' / '2026-11-08'}/9402_….png (file name withheld: matched contract_count)"}
     assert not other.exists()
 
 

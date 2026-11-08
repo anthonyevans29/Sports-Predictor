@@ -23,7 +23,8 @@ no pool figure, no account id"), each a named pattern over every line of the who
   usd_word           a dollar figure without the sign before it: a number beside USD / dollar(s), USD before a number,
                      or a sign after a number (12 USD, USD 12, 12 dollars, 12$)
   contract_count     the ruling's own: a digit run beside "contract"/"contracts" (12 contracts, 12-contract), or
-                     "contract(s)" beside a digit (contracts 12, contracts: 12, contracts=12), the name also with a
+                     "contract(s)" beside a digit (contracts 12, contracts: 12, contracts=12), or with a "count" label
+                     between (contract count: 5, contract count = 12; addendum 299 item 1), the name also with a
                      prefix or suffix joined by "_" and in the export's own JSON / dict shape ("contracts": 5)
   order_text         the shape of desk.order.text (desk_policy.order_line: "BUY <YES|NO> <ticker> @ <limit> × <n>"):
                      the BUY YES / BUY NO lead, a "×" before a digit (the count's own sign), or an ASCII x count
@@ -90,7 +91,10 @@ def is_header(line: str) -> bool:
 # between the name and the number ("contracts": 5, 'contracts': 5, contracts=5).
 _KEY_TAIL = "[\"']?\\s*[:=#(\\u00d7x]?\\s*[\"']?\\s*"
 CONTRACT_COUNT = re.compile("(?i)\\d[\\d,.]*\\s*-?\\s*[a-z_]*contracts?(?![a-z0-9])"
-                            "|(?<![a-z0-9])[a-z_]*contracts?(?:_[a-z_]*)?" + _KEY_TAIL + "\\d")
+                            "|(?<![a-z0-9])[a-z_]*contracts?(?:_[a-z_]*)?" + _KEY_TAIL + "\\d"
+                            # addendum 299 item 1: the `count` label between the word and the number
+                            # ("contract count: 5", "contract count = 12", "contracts-count 3")
+                            "|(?<![a-z0-9])contracts?[\\s_-]*count(?![a-z0-9])\\W{0,4}\\d")
 ORDER_TEXT = re.compile("(?i)\\bBUY\\s+(?:YES|NO)\\b|\\u00d7\\s*\\d"
                         "|@\\s*[\\d.]+\\s*c?\\s*x\\s*\\d"                       # "@ 0.45 x 3", "@ 45c x 3"
                         "|(?<![A-Za-z0-9])x\\s*\\d+\\s*(?:@|\\bat\\b)"          # "x 3 at 45c", "x3 @"

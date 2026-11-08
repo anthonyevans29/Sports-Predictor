@@ -603,3 +603,80 @@ def test_a_finished_row_re_synced_as_scalar_is_settled_scalar_with_no_winner_and
     assert R.main(["--db", str(copy), "--tour", "ATP"]) == R.OK
     out = capsys.readouterr().out
     assert "SETTLED_SCALAR: 1" in out and "SETTLED_SCALAR carrying a winner: 0 (must read 0: TRUE ZERO)" in out, out
+
+
+# ---- addendum 288 item 5(b): the retraction fix (287 item 2(1)) ----------------------------------------------------------
+
+def _atp_rows():
+    from sqlalchemy import text
+    from src.db.database import session_scope
+    with session_scope() as s:
+        return s.execute(text(
+            "SELECT m.status, m.status_raw, m.full_time_result, json_extract(m.external_ids, '$.kalshi_settlement') "
+            "FROM matches m JOIN competitions c ON c.id = m.competition_id WHERE c.code = 'ATP'")).all()
+
+
+RETRACT_EV = "26DEC28AAABBB"
+_A, _B = "Ana Synthwood", "Bea Fakely"
+_FIN_A = dict(results=("yes", "no"), exps=(_A, _A), status="finalized", values=("1.0000", "0.0000"))
+
+
+@pytest.mark.parametrize("first,then,want", [
+    # a FINISHED row the venue returns to unsettled: no winner, no stored settlement, the served words
+    (_FIN_A, dict(status="closed"), ("SCHEDULED", "closed", None, None)),
+    (_FIN_A, dict(status="active"), ("SCHEDULED", "active", None, None)),
+    # a FINISHED row re-served with a result the map does not settle (WINNER_MISMATCH): no winner, the incoming served
+    (_FIN_A, dict(results=("yes", "no"), exps=("", ""), status="finalized"),
+     ("SCHEDULED", "finalized", None, {"AAA": "yes", "BBB": "no"})),
+    # a FINISHED row re-settled with the other winner: the other side, the incoming receipt
+    (_FIN_A, dict(results=("no", "yes"), exps=(_B, _B), status="finalized", values=("0.0000", "1.0000")),
+     ("FINISHED", "finalized", "AWAY", {"AAA": "no", "BBB": "yes"})),
+    # SETTLED_SCALAR re-settled yes/no: FINISHED, the incoming receipt replaces the fractions
+    (dict(results=("scalar", "scalar"), values=("0.4000", "0.6000"), status="finalized"), _FIN_A,
+     ("FINISHED", "finalized", "HOME", {"AAA": "yes", "BBB": "no"})),
+    # FINISHED -> SETTLED_SCALAR (286 item 4(c), as built): no winner, the fractions
+    (_FIN_A, dict(results=("scalar", "scalar"), values=("0.4000", "0.6000"), status="finalized"),
+     ("SETTLED_SCALAR", "finalized", None, {"AAA": "scalar", "BBB": "scalar"})),
+])
+def test_a_retracted_or_changed_settlement_returns_the_row_to_its_served_state(monkeypatch, tennis_rows, first, then,
+                                                                              want):
+    """ARCHITECT 2026-11-07, addendum 287 item 2(1), and 2026-11-08, addendum 288 item 5(b): "an incoming unsettled or
+    changed result clears full_time_result and returns the row to its served state" (law 4). A stored tennis row is
+    re-served as the venue serves it now: an unsettled pair clears the winner and the stored settlement receipt
+    (external_ids['kalshi_settlement']) and takes the served status words; a changed settlement replaces the receipt."""
+    import cli
+    fake = FakeKalshi({("KXATPMATCH", "settled"): [pair(RETRACT_EV, _A, _B, **first)]})
+    _fake_http(monkeypatch, fake)
+    run = CliRunner()
+    assert run.invoke(cli.cli, ["sync-competitions", "--sport", "tennis"]).exit_code == 0
+    window = ["sync-matches", "--competition", "ATP", "--date-from", "2026-12-27", "--date-to", "2026-12-29"]
+    res = run.invoke(cli.cli, window)
+    assert res.exit_code == 0, res.output
+    (before,) = _atp_rows()
+    assert before[0] in ("FINISHED", "SETTLED_SCALAR") and before[3] is not None, before
+    fake.pages = {("KXATPMATCH", "settled" if then.get("status") == "finalized" else "closed"):
+                  [pair(RETRACT_EV, _A, _B, **then)]}
+    res = run.invoke(cli.cli, window)
+    assert res.exit_code == 0, res.output
+    (after,) = _atp_rows()
+    got = (after[0], after[1], after[2],
+           None if after[3] is None else {k.rsplit("-", 1)[1]: v["result"] for k, v in json.loads(after[3]).items()})
+    assert got == want, (before, after)
+
+
+def test_another_sources_update_still_never_blanks_a_stored_result_with_an_absent_one():
+    """The retraction fix is keyed to the tennis source ONLY: every other source's update keeps "never blank a stored
+    value with an absent one" (a SCHEDULED re-listing of a finished soccer game keeps its result and status_raw)."""
+    from types import SimpleNamespace
+
+    from src.adapters.normalized import NormalizedMatch
+    from src.ingestion.service import IngestionService
+    row = SimpleNamespace(status=MatchStatus.FINISHED, status_raw="FT", season="2026", matchday=None, stage=None,
+                          utc_date=datetime(2026, 12, 28, 15), home_score=2, away_score=1, home_score_ht=None,
+                          away_score_ht=None, home_score_90=None, away_score_90=None, full_time_result=Result.HOME,
+                          referee=None)
+    nm = NormalizedMatch(sport=Sport.SOCCER, competition_code="PL", season="2026", utc_date=datetime(2026, 12, 28, 15),
+                         status=MatchStatus.SCHEDULED, home_team_source_id="1", away_team_source_id="2",
+                         source="football_data", source_id="9")
+    IngestionService._apply_match_updates(row, nm)
+    assert (row.full_time_result, row.status_raw, row.home_score) == (Result.HOME, "FT", 2)

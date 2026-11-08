@@ -285,6 +285,7 @@ def _tennis_sync_matches(service, competition_code, season, seasons, date_from, 
           f"{len(lst.fixtures)} events accepted · refused {dict(lst.refused) or 'none'}", flush=True)
     console.print(f"[green]✓ Matches ({code}): {result}[/green]")
     _print_skipped_listings(result)
+    _print_scores_by_team(result)
     _tennis_reread(service, code, season, lst, date_from)
     if named is not None:
         missing = sorted(named - held)
@@ -331,6 +332,16 @@ def _print_skipped_listings(result) -> None:
     if ids:
         from src.ingestion.service import skipped_listings_line
         print(skipped_listings_line(ids), flush=True)
+
+
+def _print_scores_by_team(result) -> None:
+    """SCORES BY TEAM (ARCHITECT 2026-11-08, addendum 292 item 3(c), #876): "two new counts on the sync result and its
+    printed receipt, each with the match ids LISTED: `orientation_reversed` and `teams_mismatch_refused`". Printed
+    plainly on its own line (never rich-wrapped), always, zero counts included; nothing when the result carries no
+    SyncResult lists (a test's stand-in service)."""
+    if hasattr(result, "orientation_reversed") and hasattr(result, "teams_mismatch_refused"):
+        from src.ingestion.service import scores_by_team_line
+        print(scores_by_team_line(result), flush=True)
 
 
 @cli.command("sync-matches")
@@ -389,6 +400,7 @@ def sync_matches_cmd(
             result = service.sync_matches(competition_code, season=season_str)
             console.print(f"  {result}")
             _print_skipped_listings(result)
+            _print_scores_by_team(result)
         return
 
     def _progress(msg):
@@ -401,6 +413,7 @@ def sync_matches_cmd(
     )
     console.print(f"[green]✓ Matches ({competition_code}): {result}[/green]")
     _print_skipped_listings(result)
+    _print_scores_by_team(result)
     if named is not None:
         # A1 (addendum 23): "exits non-zero unless the provider's answer held every one of them." Printed plainly
         # (never rich-wrapped) so the closing run's receipt tail has it.

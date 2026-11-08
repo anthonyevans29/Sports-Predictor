@@ -145,6 +145,14 @@ class SyncResult:
     # Never silent: sync_teams' log line, the sync-teams command (on its own line, unwrapped) and the admin job each
     # carry "names kept: N (a historical-season listing)". Not printed by __str__ (the CLI prints its own line, once).
     names_kept: list = field(default_factory=list)
+    # SCORES BY TEAM (ARCHITECT 2026-11-08, addendum 292 item 3(c), #876): "two new counts on the sync result and its
+    # printed receipt, each with the match ids LISTED: `orientation_reversed` and `teams_mismatch_refused`". The stored
+    # match id of every row a listing updated with its pair REVERSED (the scores written by team, the orientation kept,
+    # item 3(d)), and of every row whose update was REFUSED because the listing's pair is neither the stored pair nor
+    # its reverse (the row untouched; also counted in `skipped`). Not printed by __str__ (default output unchanged):
+    # the sync-matches command prints scores_by_team_line on its own line.
+    orientation_reversed: list = field(default_factory=list)
+    teams_mismatch_refused: list = field(default_factory=list)
 
     def __str__(self) -> str:
         out = f"created={self.created} updated={self.updated} skipped={self.skipped}"
@@ -158,6 +166,15 @@ def skipped_listings_line(ids) -> str:
     the DB: <ids>", the ids comma-separated in listing order. sp_run reads it back (SKIPPED_LISTINGS_LINE)."""
     ids = [str(i) for i in ids]
     return f"skipped {len(ids)} listing(s) of clubs not in the DB: {', '.join(ids)}"
+
+
+def scores_by_team_line(result) -> str:
+    """Addendum 292 item 3(c): the two counts, each with its match ids listed, on one plain line, always printed:
+    "orientation_reversed N: <ids> · teams_mismatch_refused M: <ids>" (a count of 0 prints no ids)."""
+    def part(name, ids):
+        return f"{name} {len(ids)}" + (f": {', '.join(str(i) for i in ids)}" if ids else "")
+    return (f"{part('orientation_reversed', result.orientation_reversed)} · "
+            f"{part('teams_mismatch_refused', result.teams_mismatch_refused)}")
 
 
 def names_kept_line(n: int) -> str:
@@ -569,6 +586,9 @@ class IngestionService:
             if match is not None:
                 from src.ingestion.match_dedupe import stamp_rekey
 
+                nm = self._scores_by_team(match, home.id, away.id, nm, result, comp)
+                if nm is None:                     # neither pair: refused, the row untouched (not re-keyed either)
+                    return None
                 ext = dict(match.external_ids or {})
                 old = ext.get(nm.source)
                 stamp_rekey(ext, nm.source, old, nm.source_id, "sync")
@@ -585,6 +605,9 @@ class IngestionService:
                 return match
 
         if match:
+            nm = self._scores_by_team(match, home.id, away.id, nm, result, comp)
+            if nm is None:                         # neither pair: refused, the row untouched
+                return None
             self._apply_match_updates(match, nm)
             ext = dict(match.external_ids or {})
             ext[nm.source] = nm.source_id
@@ -626,6 +649,36 @@ class IngestionService:
             cache["__pairs__"].setdefault((home.id, away.id), []).append(match)
         result.created += 1
         return match
+
+    @staticmethod
+    def _scores_by_team(match: Match, home_id: int, away_id: int, nm: NormalizedMatch, result: SyncResult,
+                        comp: Competition) -> NormalizedMatch | None:
+        """SCORES BY TEAM (ARCHITECT 2026-11-08, addendum 292 item 3(a)-(d); #876): the listing `nm` as the update
+        writes it onto the stored `match`, through the one shared helper (src/ingestion/score_orientation.py). The
+        same pair: `nm` itself (today's writes, exactly). The REVERSED pair: a copy with every score field swapped
+        into the stored orientation and full_time_result H<->A, the kickoff and status as served; listed in
+        result.orientation_reversed. NEITHER: None, the caller writes nothing; listed in
+        result.teams_mismatch_refused and counted in `skipped`. The stored home/away is never flipped (item 3(d))."""
+        from dataclasses import replace
+
+        from src.ingestion.score_orientation import MISMATCH, REVERSED, SCORE_PAIRS, RESULT_FIELD, scores_by_team
+
+        fields = [f for pair in SCORE_PAIRS for f in pair] + [RESULT_FIELD]
+        verdict, values = scores_by_team((match.home_team_id, match.away_team_id), (home_id, away_id),
+                                         {f: getattr(nm, f) for f in fields})
+        if verdict == MISMATCH:
+            log.warning("sync_matches(%s): %s id %s REFUSED for match %s — the listing's teams %s/%s are neither the "
+                        "stored pair %s/%s nor its reverse; the row untouched", comp.code, nm.source, nm.source_id,
+                        match.id, home_id, away_id, match.home_team_id, match.away_team_id)
+            result.teams_mismatch_refused.append(match.id)
+            result.skipped += 1
+            return None
+        if verdict == REVERSED:
+            log.warning("sync_matches(%s): %s id %s lists match %s with home/away REVERSED; scores written by team, "
+                        "the stored orientation kept", comp.code, nm.source, nm.source_id, match.id)
+            result.orientation_reversed.append(match.id)
+            return replace(nm, **values)
+        return nm
 
     @staticmethod
     def _apply_match_updates(match: Match, nm: NormalizedMatch) -> None:

@@ -103,12 +103,12 @@ def test_the_helper_decides_same_reversed_and_neither():
     assert orientation((1, 2), (2, 1)) == REVERSED
     assert orientation((1, 2), (1, 3)) == MISMATCH and orientation((1, 2), (3, 4)) == MISMATCH
     assert orientation((1, 2), (None, 2)) == MISMATCH and orientation((1, 1), (1, 1)) == SAME
-    v = {"home_score": 25, "away_score": 49, "home_score_ht": 7, "away_score_ht": 21, "home_score_90": None,
-         "away_score_90": None, "full_time_result": Result.AWAY}
+    v = {"home_score": 25, "away_score": 49, "home_score_ht": 7, "away_score_ht": 21, "home_score_90": 24,
+         "away_score_90": 42, "full_time_result": Result.AWAY}
     assert scores_by_team((1, 2), (1, 2), v) == (SAME, v)
     verdict, out = scores_by_team((2, 1), (1, 2), v)
     assert verdict == REVERSED and out == {"home_score": 49, "away_score": 25, "home_score_ht": 21, "away_score_ht": 7,
-                                           "home_score_90": None, "away_score_90": None,
+                                           "home_score_90": 42, "away_score_90": 24,
                                            "full_time_result": Result.HOME}
     assert scores_by_team((2, 1), (1, 2), {"full_time_result": Result.DRAW})[1] == {"full_time_result": Result.DRAW}
     assert scores_by_team((2, 1), (1, 2), {"home_score": 3})[1] == {"home_score": None, "away_score": 3}
@@ -164,13 +164,14 @@ def test_the_same_pair_keeps_todays_writes():
 def test_a_soccer_row_reversed_takes_ht_and_90_by_team():
     (h, hp), (a, ap) = _teams(Sport.SOCCER, SOC)
     mid = _stored("SBTS", Sport.SOCCER, SOC, "sbt-soc-1", h, a)
-    res = _sync("SBTS", SOC, [_nm("SBTS", Sport.SOCCER, SOC, "sbt-soc-1", ap, hp, home_score=3, away_score=2,
-                                  home_score_ht=1, away_score_ht=0, home_score_90=2, away_score_90=2,
+    # every pair asymmetric, so a pair left unswapped cannot pass (a symmetric 2-2 reads the same either way)
+    res = _sync("SBTS", SOC, [_nm("SBTS", Sport.SOCCER, SOC, "sbt-soc-1", ap, hp, home_score=4, away_score=2,
+                                  home_score_ht=1, away_score_ht=0, home_score_90=3, away_score_90=1,
                                   full_time_result=Result.HOME)])
     row = _raw(mid)
-    assert (row["home_score"], row["away_score"]) == (2, 3)
+    assert (row["home_score"], row["away_score"]) == (2, 4)
     assert (row["home_score_ht"], row["away_score_ht"]) == (0, 1)
-    assert (row["home_score_90"], row["away_score_90"]) == (2, 2)
+    assert (row["home_score_90"], row["away_score_90"]) == (1, 3)
     with session_scope() as s:
         assert s.get(Match, mid).full_time_result == Result.AWAY
     assert res.orientation_reversed == [mid]
@@ -197,8 +198,60 @@ def test_the_cli_receipt_prints_both_counts_with_the_ids(monkeypatch):
     monkeypatch.setattr(cli, "_mlb_fallback", lambda c: False)
     res = CliRunner().invoke(cli.cli, ["sync-matches", "--competition", "SBTC", "--season", "2026"])
     assert res.exit_code == 0, res.output
-    assert f"orientation_reversed 1: {rev}" in res.output
-    assert f"teams_mismatch_refused 1: {mis}" in res.output
+    assert f"orientation_reversed 1: {rev} · teams_mismatch_refused 1: {mis}" in res.output.splitlines()
+
+
+def test_strict_names_a_refused_row_as_refused_not_as_absent_from_the_answer(monkeypatch):
+    """--match-ids: a named row whose listing was REFUSED (neither pair) was in the provider's answer; the STRICT line
+    says it was refused, with its own label, and the exit stays 1."""
+    import cli
+    (h, hp), (a, ap), (_x, xp) = _teams(Sport.NFL, AF, 3)
+    mis = _stored("SBTK", Sport.NFL, AF, "sbt-strict-1", h, a)
+    gone = _stored("SBTK", Sport.NFL, AF, "sbt-strict-2", h, a, when=KICK + timedelta(days=7))
+    fake = Listing(AF, [_nm("SBTK", Sport.NFL, AF, "sbt-strict-1", xp, ap)])
+    monkeypatch.setattr(cli, "_adapter_for_competition", lambda c: fake)
+    monkeypatch.setattr(cli, "_mlb_fallback", lambda c: False)
+    res = CliRunner().invoke(cli.cli, ["sync-matches", "--competition", "SBTK", "--season", "2026",
+                                       "--match-ids", f"{mis},{gone}"])
+    assert res.exit_code == 1, res.output
+    lines = res.output.splitlines()
+    assert any(x.startswith("✗ STRICT: 1 of 2 named game(s) not in the provider's answer") and x.endswith(f"match {gone}")
+               for x in lines), res.output
+    assert (f"✗ STRICT: 1 of 2 named game(s) REFUSED (the listing's teams are neither the stored pair nor its "
+            f"reverse; the row untouched): match {mis}") in lines, res.output
+
+
+def test_the_admin_sync_job_carries_both_counts(monkeypatch):
+    from src.web.routes import admin
+    (h, hp), (a, ap) = _teams(Sport.NFL, AF)
+    rev = _stored("SBTA", Sport.NFL, AF, "sbt-adm-1", h, a)
+    fake = Listing(AF, [_nm("SBTA", Sport.NFL, AF, "sbt-adm-1", ap, hp, home_score=13, away_score=31)])
+    monkeypatch.setattr(admin, "_adapter_for_competition", lambda c: fake)
+    out = admin._job_sync_matches(competition_code="SBTA", season="2026", seasons=0)
+    assert out.endswith(f"orientation_reversed 1: {rev} · teams_mismatch_refused 0"), out
+
+
+def test_the_tennis_re_read_prints_its_own_counts(monkeypatch, capsys):
+    """cli._tennis_reread runs a second sync_matches over the listing already read; its counts are printed too."""
+    import cli
+    from types import SimpleNamespace as NS
+    from datetime import date
+    from src.adapters.kalshi_tennis import SOURCE
+    (h, _hp), (a, _ap) = _teams(Sport.NFL, SOURCE)
+    mid = _stored("SBTT", Sport.NFL, SOURCE, "sbt-tr-1", h, a)
+    done = svc.SyncResult(updated=1)
+    done.teams_mismatch_refused.append(mid)
+
+    class Svc:
+        adapter = NS(events=None)
+
+        def sync_matches(self, code, season=None):
+            return done
+    lst = NS(fixtures=[NS(event="sbt-tr-1", day=date(2026, 12, 29),
+                          settlement=NS(status=MatchStatus.SCHEDULED))])
+    cli._tennis_reread(Svc(), "SBTT", "2026", lst, "2026-12-31")
+    out = capsys.readouterr().out.splitlines()
+    assert f"  SBTT re-read: orientation_reversed 0 · teams_mismatch_refused 1: {mid}" in out, out
 
 
 def test_the_cli_receipt_prints_zero_counts(monkeypatch):
@@ -311,3 +364,35 @@ def test_refresh_by_id_writes_a_reversed_answer_by_team_refuses_neither_and_keep
     lines = "\n".join(rbi.format_lines(r))
     assert "orientation reversed 1" in lines and "teams mismatch refused 1" in lines
     assert f"orientation REVERSED (scores written by team): match {rows['rev']}" in lines
+
+
+# ---------------------------------------------------------------------------- intl-history (it calls _upsert_match)
+
+
+def test_intl_history_receipt_lists_a_reversed_row_and_writes_its_scores_by_team(tmp_path):
+    """intl_history.ingest goes through _upsert_match, so a re-listed fixture with home/away reversed is written by
+    team; its receipt (and the intl-sync console) carries the two counts with the ids (item 3(c))."""
+    import json
+    from datetime import date
+    import cli
+    from src.ingestion import intl_history as ih
+    from tests.test_intl_history import GROUNDS, fx, league
+
+    def write(d, home, away, hg, ag):
+        d.mkdir()
+        json.dump({"response": [league(5, "UEFA Nations League", 2073)]}, open(d / "leagues.json", "w"))
+        json.dump({"response": [fx(9907301, home, away, hg, ag, "Probe City", when="2073-06-07T18:45:00+00:00",
+                                   league_season=2073)]}, open(d / "fixtures_5_2073.json", "w"))
+        json.dump({"response": GROUNDS}, open(d / "teams_5_2073.json", "w"))
+    init_db()
+    write(tmp_path / "first", 880001, 880002, 2, 1)
+    write(tmp_path / "again", 880002, 880001, 1, 2)                   # the same game, the pair served reversed
+    r = ih.ingest(ih.Source(from_dir=str(tmp_path / "first")), date(2018, 1, 1))
+    assert r["orientation_reversed"] == [] and r["teams_mismatch_refused"] == []
+    with session_scope() as s:
+        mid = s.execute(select(Match.id).where(Match.external_ids["api_football"].as_string() == "9907301")).scalar_one()
+    out = CliRunner().invoke(cli.cli, ["intl-sync", "--from-dir", str(tmp_path / "again"), "--since", "2018-01-01"])
+    assert out.exit_code == 0, out.output
+    assert f"  orientation_reversed 1: {mid} · teams_mismatch_refused 0" in out.output.splitlines(), out.output
+    row = _raw(mid)
+    assert (row["home_score"], row["away_score"]) == (2, 1)                # by team: the stored home (880001) 2

@@ -243,12 +243,16 @@ def _tennis_sync_matches(service, competition_code, season, seasons, date_from, 
       itself; a ONE-TIME read-only backfill of the 2026 season's settled markets [...] is possible on the day a model
       lane asks for it, by a block of mine, and not before — no model lane exists, so no backfill is scheduled." A
       season-wide or open-ended tennis sync would be that backfill.
-    - THE RE-READ (late settlements): after the window, every STORED SCHEDULED row of the tour whose event's ticker day
-      is in the TENNIS_MAX_WINDOW_DAYS days before --date-from is re-read from the SAME listing (no further call) and
-      written when its settlement has moved. It updates rows already stored and creates none (so it is no backfill,
-      270 item 5): an event settled after the chain's next-day run is not left SCHEDULED by the window alone (K3:
-      "result '' on the 10 ATP markets closed but not yet settled"). A row older than that stays SCHEDULED and is
-      counted by the receipt's stored phase.
+    - THE RE-READ (late settlements, retractions and re-settlements): after the window, every STORED SCHEDULED, FINISHED
+      or SETTLED_SCALAR row of the tour (addendum 294 item 7) whose event's ticker day is in the TENNIS_MAX_WINDOW_DAYS
+      days before --date-from is re-read from the SAME listing (no further call) and written as served. It updates rows
+      already stored and creates none (so it is no backfill, 270 item 5): an event settled after the chain's next-day
+      run is not left SCHEDULED by the window alone (K3: "result '' on the 10 ATP markets closed but not yet
+      settled"), and a settlement the venue retracts or re-settles after the window reaches the row (287 item 2(1)). A
+      row older than that is not re-read; a SCHEDULED one is counted by the receipt's stored phase.
+    - A REFUSED EVENT'S STORED ROW (addendum 294 item 13(b); _tennis_mark_refused): an event the listing refuses, held
+      by a stored row dated in the window or the re-read's lookback, has its refusal label written to the row's
+      external_ids["kalshi_kickoff"] and nothing else, counted with the match ids; the capture never prices it.
     - A paging refusal (a cursor left, 269 item 3(d)) writes nothing and exits 1 with its reason."""
     from datetime import date as _date
 
@@ -286,6 +290,7 @@ def _tennis_sync_matches(service, competition_code, season, seasons, date_from, 
     console.print(f"[green]✓ Matches ({code}): {result}[/green]")
     _print_skipped_listings(result)
     _tennis_reread(service, code, season, lst, date_from)
+    _tennis_mark_refused(code, lst, date_from, date_to)
     if named is not None:
         missing = sorted(named - held)
         if missing:
@@ -294,30 +299,94 @@ def _tennis_sync_matches(service, competition_code, season, seasons, date_from, 
             raise SystemExit(1)
 
 
+# THE RE-READ's statuses (ARCHITECT 2026-11-08, addendum 294 item 7, verbatim: "`_tennis_reread` extends to stored
+# FINISHED and SETTLED_SCALAR rows in the same 7-day lookback, served from the listing already read (no new call, no new
+# row; 270 item 5 stands)"): every status the tennis map writes (kalshi_tennis.settle).
+TENNIS_REREAD_STATUSES = (MatchStatus.SCHEDULED, MatchStatus.FINISHED, MatchStatus.SETTLED_SCALAR)
+
+
+def _tennis_rows(code, statuses=None) -> dict:
+    """{event ticker: (match id, status, full_time_result, the stored settlement receipt)} for the stored rows of
+    `code` that carry the tennis source's event ticker, `statuses` only when given. Reads; writes nothing."""
+    from src.adapters.kalshi_tennis import SOURCE as _SRC
+    from src.ingestion.service import SETTLEMENT_KEY as _SET
+    q = select(Match).join(Competition, Competition.id == Match.competition_id).where(Competition.code == code)
+    if statuses is not None:
+        q = q.where(Match.status.in_(list(statuses)))
+    with session_scope() as s:
+        return {str(ext[_SRC]): (m.id, m.status, m.full_time_result, ext.get(_SET))
+                for m in s.execute(q).scalars() for ext in [m.external_ids or {}] if ext.get(_SRC)}
+
+
 def _tennis_reread(service, code, season, lst, date_from) -> None:
-    """THE RE-READ of _tennis_sync_matches (its docstring): the stored SCHEDULED rows of `code` whose event's ticker
-    day is in [date_from - TENNIS_MAX_WINDOW_DAYS, date_from), written again from the listing already read. Rows only
-    (no new row, no new player); prints its count, always."""
+    """THE RE-READ of _tennis_sync_matches (its docstring): the stored SCHEDULED, FINISHED and SETTLED_SCALAR rows of
+    `code` (TENNIS_REREAD_STATUSES, addendum 294 item 7) whose event's ticker day is in
+    [date_from - TENNIS_MAX_WINDOW_DAYS, date_from), written again from the listing already read: each row takes its
+    served state (addendum 288 item 5(b); 287 item 2(1): a retracted settlement clears full_time_result and the stored
+    settlement receipt, a changed one replaces them). Rows only (no new row, no new player, no new call); prints its
+    count, always: the rows re-read by their stored status, the SCHEDULED rows settled since, and the FINISHED or
+    SETTLED_SCALAR rows the venue has retracted or changed (status, winner or settlement receipt not as stored)."""
+    from collections import Counter as _Counter
     from datetime import date as _date, timedelta as _td
 
-    from src.adapters.kalshi_tennis import SOURCE as _SRC
     lo = _date.fromisoformat(date_from) - _td(days=TENNIS_MAX_WINDOW_DAYS)
     hi = _date.fromisoformat(date_from)
-    with session_scope() as s:
-        stored = {str((m.external_ids or {}).get(_SRC)) for m in s.execute(
-            select(Match).join(Competition, Competition.id == Match.competition_id)
-            .where(Competition.code == code, Match.status == MatchStatus.SCHEDULED)).scalars()
-            if (m.external_ids or {}).get(_SRC)}
-    due = {fx.event for fx in lst.fixtures if fx.event in stored and lo <= fx.day < hi}
-    moved = sorted(fx.event for fx in lst.fixtures if fx.event in due and fx.settlement.status != MatchStatus.SCHEDULED)
+    before = _tennis_rows(code, TENNIS_REREAD_STATUSES)
+    due = {fx.event for fx in lst.fixtures if fx.event in before and lo <= fx.day < hi}
     if due:
         service.adapter.events = due
         try:
             service.sync_matches(code, season=season)
         finally:
             service.adapter.events = None
-    print(f"  {code} re-read (stored SCHEDULED rows dated {lo}..{hi - _td(days=1)}, no new row): {len(due)} re-read · "
-          f"{len(moved)} settled since" + (f": {', '.join(moved[:10])}" if moved else ""), flush=True)
+    after = _tennis_rows(code) if due else {}
+    was = _Counter(before[ev][1] for ev in due)
+    settled = sorted(ev for ev in due if before[ev][1] == MatchStatus.SCHEDULED
+                     and after.get(ev, before[ev])[1] != MatchStatus.SCHEDULED)
+    changed = sorted(ev for ev in due if before[ev][1] != MatchStatus.SCHEDULED
+                     and after.get(ev, before[ev])[1:] != before[ev][1:])
+    print(f"  {code} re-read (stored SCHEDULED, FINISHED and SETTLED_SCALAR rows dated {lo}..{hi - _td(days=1)}, no new "
+          f"row): {len(due)} re-read (" + ", ".join(f"{st.name} {was.get(st, 0)}" for st in TENNIS_REREAD_STATUSES)
+          + f") · {len(settled)} settled since" + (f": {', '.join(settled[:10])}" if settled else "")
+          + f" · {len(changed)} retracted or changed" + (f": {', '.join(changed)}" if changed else ""), flush=True)
+
+
+def _tennis_mark_refused(code, lst, date_from, date_to) -> None:
+    """A REFUSED EVENT'S STORED ROW (ARCHITECT 2026-11-08, addendum 294 item 13, verbatim: "RULED — option (b) in
+    tennis-D: a sync that refuses an event the row holds writes the refusal label into external_ids["kalshi_kickoff"]
+    and nothing else (status, winner and receipt stay — law 4), counted; the retraction-under-refusal gap is a KNOWN
+    LIMITATION on #838 (an event the venue serves inconsistently waits for the venue to serve it readably). Option (c)
+    is REFUSED: it would decide stored state from a listing the rule could not read."). Every event this listing
+    refused (Listing.refused_events, its label) whose ticker day is in the run's reach, [date_from -
+    TENNIS_MAX_WINDOW_DAYS, date_to] (the window and the re-read's lookback), and that a stored row of `code` holds:
+    the row's external_ids[KICKOFF_EXT_KEY] takes the label, NOTHING else on the row is written (utc_date, status,
+    status_raw, full_time_result and the settlement receipt stay). The capture then refuses the row
+    (tennis_kalshi.kickoff_check: KICKOFF_REFUSED_ROW) until a sync reads the event again and rewrites its source. Never
+    a new row. Prints its count with the match ids, always."""
+    from datetime import date as _date, timedelta as _td
+
+    from src.adapters import kalshi_tennis as _kt
+    lo = _date.fromisoformat(date_from) - _td(days=TENNIS_MAX_WINDOW_DAYS)
+    hi = _date.fromisoformat(date_to)
+    reach = {}
+    for ev, why in lst.refused_events.items():
+        day = _kt.event_day({"event_ticker": ev})
+        if day is not None and lo <= day <= hi:
+            reach[ev] = why
+    marked = []
+    if reach:
+        with session_scope() as s:
+            for m in s.execute(select(Match).join(Competition, Competition.id == Match.competition_id)
+                               .where(Competition.code == code)).scalars():
+                ext = m.external_ids or {}
+                ev = str(ext.get(_kt.SOURCE) or "")
+                if ev in reach:
+                    m.external_ids = {**ext, _kt.KICKOFF_EXT_KEY: reach[ev]}
+                    marked.append((m.id, ev, reach[ev]))
+    marked.sort()
+    print(f"  {code} refused events held by stored rows (dated {lo}..{hi}; the refusal label written to "
+          f"external_ids[{_kt.KICKOFF_EXT_KEY!r}], nothing else on the row; addendum 294 item 13(b)): {len(marked)}"
+          + "".join(f" · match {mid} ({ev}: {why})" for mid, ev, why in marked), flush=True)
 
 
 def _print_skipped_listings(result) -> None:

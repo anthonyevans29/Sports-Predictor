@@ -45,16 +45,20 @@ def stored_games(sess, comp_ids, markets: list[dict]) -> list:
                             Match.utc_date <= span[1])).scalars() if g.utc_date]
 
 
-def _alarm(sess, comp_ids, res: km.Result, markets: list[dict], now, lo, hi, report) -> bool:
+def _alarm(sess, comp_ids, res: km.Result, markets: list[dict], now, lo, hi, report, is_due=None) -> bool:
     """The zero-placement alarm (ARCHITECT 2026-10-12, addendum 54 item 3), verbatim: "The alarm is for a run that had
     a game to price and priced none. It prints when no market is placed although markets were read and a game of the
     competition that has not started is inside the run's window. A game outside the window does not count, nor one
-    that has started, nor a row that is not a game." Started is read on our kickoff, as the in-play refusal reads it."""
+    that has started, nor a row that is not a game." Started is read on our kickoff, as the in-play refusal reads it.
+    `is_due` (optional, a predicate on a row) narrows the rows that count; None (every caller but tennis) counts every
+    game as above, unchanged. The tennis caller passes tennis_kalshi.due_for_alarm (ARCHITECT 2026-11-08, addendum 294
+    item 9: "for the tennis caller only, a row whose stored source is not a served key (START_UNREAD, no source) is
+    not "due" [...] the alarm's text and the shared code's behaviour for the other series unchanged")."""
     if res.placed or not markets or not comp_ids:
         return False
     due = [g for g in sess.execute(
         select(Match).where(Match.competition_id.in_(list(comp_ids)), Match.utc_date >= lo, Match.utc_date <= hi,
-                            Match.utc_date > now)).scalars() if km.is_game(g)]
+                            Match.utc_date > now)).scalars() if km.is_game(g) and (is_due is None or is_due(g))]
     if not due:
         return False
     report(f"  ⚠ MATCHED ZERO with {len(markets)} markets read and {len(due)} unstarted game(s) of the competition "

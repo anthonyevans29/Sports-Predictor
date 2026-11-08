@@ -120,7 +120,10 @@ run's files arrive on `main` as the laptop wrote them (each one's adding commit 
 - `docs/ledger/entries/2026-11-07-279-3a-nhl-source-probe.md`: BUILT, the NHL source probe. **record**. Addendum 279 items 3(a) and 5; lane nhl (#105).
 - `docs/ledger/entries/2026-11-07-280-281-records.md`: RECORDED, the 280 hotfix, the main ruleset, roadmap done-marks. **record**. Addenda 278, 281 item 4, 282 items 1 and 5.
 - `docs/ledger/entries/2026-11-07-280-py310-hotfix.md`: HOTFIX, main imports on Python 3.10; CI's 3.10 job. **record**. Addendum 280 item 2.
+- `docs/ledger/entries/2026-11-07-283-4-early-entry-arm-ledger.md`: BUILT, the early-entry arm's ledger attribution (#864). **record**. Addenda 283 item 4, 286 item 3; #862.
 - `docs/ledger/entries/2026-11-07-283-arm-policy-text.md`: POLICY, the early-entry arm declared. **record**. Addendum 283.
+- `docs/ledger/entries/2026-11-07-284-1b-tennis-wiring.md`: BUILT, the tennis market-only wiring (#868). **record**. Addenda 284 item 1(b), 261 items 0 and 2(c), 269 items 1-3; #838.
+- `docs/ledger/entries/2026-11-07-287-records.md`: RECORDED, the tennis wiring step done early and the undated step, the odds-payloads line, the ledger-480 records, the scripts index's re-run owed. **record**. Addenda 286 items 4(b) and 4(f), 287 items 2 and 3; #838, #871, #873.
 - `docs/ledger/entries/2026-11-07-852-mirror-top-level-links.md`: BUILT, the exports mirror's top-level link refusal. **record**. Addendum 277 item 1; #852.
 - `docs/ledger/entries/2026-11-08-289-3-host-results-tally.md`: BUILT, the host's results-tally export. **record**. Addenda 289 item 3, 248 item 2(c), 230 item 2(b); #875.
 

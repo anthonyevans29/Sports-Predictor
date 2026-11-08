@@ -34,6 +34,10 @@ Rules (ruled 2026-09-29):
     (listed under `orientation_reversed`); NEITHER refuses the whole update for that game, the row untouched (listed
     under `teams_mismatch_refused`). A listed team not in the DB keeps today's behaviour (by position). This path
     stores no odds (MLB book odds are sync_odds_mlb's, matched by team NAME, home to home).
+    ARCHITECT 2026-11-08 13:05 ET, addendum 297 C(iv), verbatim: "the MLB fallback's update by position on an unknown or
+    merged team is COUNTED on its receipt (`team_missing_update N`); the write stays as ruled". Such an update (a listed
+    team with no team_by_ext entry: unknown, or a merged team's other id, since team_by_ext maps the primary id only)
+    lists its match id under `team_missing_update`; the CLI prints "team_missing_update N: <ids>".
   - Conservative unknowns (law 4): only FT (with both run totals), POST and
     CANC are mapped. Every other provider status stays SCHEDULED, is stored
     verbatim in status_raw, and is counted in the receipt as unmapped. A
@@ -270,6 +274,8 @@ def sync_matches(client, season: str, date_from: str | None = None, date_to: str
            "dh_marked": [], "time_conflicts": [], "time_kept_statsapi": 0,
            # addendum 295 item 2 (#885): the match ids written by team (pair reversed) and refused (neither pair)
            "orientation_reversed": [], "teams_mismatch_refused": [],
+           # addendum 297 C(iv): the match ids updated by position because a listed team has no team_by_ext entry
+           "team_missing_update": [],
            "known_limitation": KNOWN_LIMITATION}
     prov = []
     for p in prov_all:
@@ -349,7 +355,7 @@ def sync_matches(client, season: str, date_from: str | None = None, date_to: str
                 if lh is not None and la is not None:
                     pairs = ((m.home_team_id, m.away_team_id), (lh.id, la.id))
                     verdict = orientation(*pairs)
-                if verdict != SAME and m.id is None:
+                if (verdict != SAME or pairs is None) and m.id is None:
                     s.flush()                      # a row created earlier in this run lists its id, never None
                 if verdict == MISMATCH:
                     rec["teams_mismatch_refused"].append(m.id)
@@ -359,6 +365,8 @@ def sync_matches(client, season: str, date_from: str | None = None, date_to: str
                     continue
                 if verdict == REVERSED:
                     rec["orientation_reversed"].append(m.id)
+                if pairs is None:                  # addendum 297 C(iv): by position (a team unknown or merged), counted
+                    rec["team_missing_update"].append(m.id)
                 m.status = MatchStatus[status]
                 if (m.external_ids or {}).get(STATSAPI):
                     # statsapi's time stands (finding 2026-10-01); a disagreement is recorded, never applied

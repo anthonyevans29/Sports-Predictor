@@ -127,6 +127,10 @@ def _mlb_fallback_run(kind: str, season, date_from=None, date_to=None) -> None:
         # (column 0) so a chain's step receipt and summary carry it (sp_run.SCORES_BY_TEAM_LINE)
         from src.ingestion.service import scores_by_team_text
         print(scores_by_team_text(r.get("orientation_reversed", []), r.get("teams_mismatch_refused", [])), flush=True)
+        # addendum 297 C(iv): the updates written by position because a listed team is unknown or merged, plainly
+        if "team_missing_update" in r:
+            ids = [str(i) for i in r["team_missing_update"]]
+            print(f"team_missing_update {len(ids)}" + (f": {', '.join(ids)}" if ids else ""), flush=True)
     print("MLB-FALLBACK-RECEIPT " + _json.dumps(
         {k: v for k, v in r.items() if k not in ("teams",)}, default=str, sort_keys=True))
     print(f"  provider requests remaining: {client.requests_remaining}")
@@ -1106,6 +1110,11 @@ def sync_odds_cmd(competition_code: str, season: str | None, limit: int, days_ah
         # the summary, which stays the step receipt's key line (sp_receipts.key_line reads the tail's last line)
         from src.ingestion.service import odds_by_team_line
         print(odds_by_team_line(result.orientation_swapped), flush=True)
+    if hasattr(result, "orientation_mismatch_unpriced"):
+        # addendum 297 C(ii): the rows refused because their key reads "mismatch", next to the swapped line, plainly,
+        # zero included; still before the summary (the step receipt's key line)
+        from src.ingestion.service import odds_mismatch_line
+        print(odds_mismatch_line(result.orientation_mismatch_unpriced), flush=True)
     console.print(f"[green]✓ Odds ({competition_code}): {result}[/green]")
 
 
@@ -6386,6 +6395,11 @@ def sync_odds_football_cmd(match_ids=None):
         # the summary, which stays the step receipt's key line (sp_receipts.key_line reads the tail's last line)
         from src.ingestion.service import odds_by_team_line
         print(odds_by_team_line(r["orientation_swapped"]), flush=True)
+    if "orientation_mismatch_unpriced" in r:
+        # addendum 297 C(ii): the rows refused because their key reads "mismatch", next to the swapped line, plainly,
+        # zero included; still before the summary (the step receipt's key line)
+        from src.ingestion.service import odds_mismatch_line
+        print(odds_mismatch_line(r["orientation_mismatch_unpriced"]), flush=True)
     console.print(f"[green]✓ Football odds: created={r['created']} "
                   f"across {r['games']} games"
                   + (" (" + " · ".join(f"{c} {by_comp.get(c, 0)}" + (f"/{window[c]}" if c in window else "")

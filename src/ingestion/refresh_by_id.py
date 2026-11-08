@@ -29,6 +29,12 @@ started, while the games still answer by id (addendum 21 receipts: 96 of 97 SCHE
   writes; the REVERSED pair = the score written swapped into the stored orientation, the kickoff and status as served,
   listed under `orientation_reversed` (until this, a reversed answer was REFUSED here); neither = REFUSED as before,
   its match id also under `teams_mismatch_refused`. The stored home/away is never flipped (item 3(d)).
+- THE PROVIDER'S ORIENTATION (ARCHITECT 2026-11-08 13:05 ET, addendum 297 C(i) and (ii)): "refresh-by-id writes the
+  key on REVERSED and removes it on SAME through the same code as _scores_by_team (score_orientation)", and "a MISMATCH
+  writes the key's third value, `mismatch`". The verdict above is recorded in external_ids["provider_orientation"]
+  through score_orientation.with_orientation_key, the upsert's own call: NCAA's upcoming rows are read by this path
+  alone before kickoff (addendum 21), so the odds writers price them by the key it writes. A key that changes is an
+  update (`updated`, as a status_raw-only write is); on a MISMATCH the key is the one write, the row still REFUSED.
 """
 from __future__ import annotations
 
@@ -57,7 +63,7 @@ def refresh(competition_code: str, adapter, days: int = 7, now=None, progress=No
     from src.db.database import session_scope
     from src.db.schema import Competition, Match, MatchStatus
     from src.ingestion import service as svc
-    from src.ingestion.score_orientation import MISMATCH, REVERSED, scores_by_team
+    from src.ingestion.score_orientation import MISMATCH, REVERSED, scores_by_team, with_orientation_key
     from src.timeutil import utc_now_naive
 
     def report(msg):
@@ -168,6 +174,10 @@ def refresh(competition_code: str, adapter, days: int = 7, now=None, progress=No
             verdict, sc = scores_by_team((m.home_team_id, m.away_team_id),
                                          (team_of(nm.home_team_source_id), team_of(nm.away_team_source_id)),
                                          {"home_score": nm.home_score, "away_score": nm.away_score})
+            # addendum 297 C(i)/(ii): the key records this answer's verdict for the row's own id (the upsert's helper)
+            ext = with_orientation_key(m.external_ids, verdict)
+            if ext is not None:
+                m.external_ids = ext
             if verdict == MISMATCH:
                 hs, as_ = tsid(m.home_team, nm.home_team_source_id), tsid(m.away_team, nm.away_team_source_id)
                 r["refused"].append(line(m, sid, why=f"the answer's teams {nm.home_team_source_id}/"
@@ -179,7 +189,7 @@ def refresh(competition_code: str, adapter, days: int = 7, now=None, progress=No
                 r["orientation_reversed"].append(line(m, sid, provider_teams=[str(nm.home_team_source_id),
                                                                                 str(nm.away_team_source_id)],
                                                       provider_score=[nm.home_score, nm.away_score]))
-            changed = False
+            changed = ext is not None           # a key written or removed is an update (297 C(i))
             if nm.utc_date is not None and nm.utc_date != m.utc_date:
                 r["kickoff_moved"].append(line(m, sid, provider_kickoff=_iso(nm.utc_date)))
                 m.utc_date = nm.utc_date

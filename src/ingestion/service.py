@@ -168,6 +168,11 @@ class SyncResult:
     # external_ids["provider_orientation"] = "reversed"). Not printed by __str__: the sync-odds command prints
     # odds_by_team_line on its own line.
     orientation_swapped: list = field(default_factory=list)
+    # ADDENDUM 297 C(ii) (ARCHITECT 2026-11-08 13:05 ET): the stored match id of every row sync_odds REFUSED to price
+    # because its external_ids["provider_orientation"] reads "mismatch" (the provider's last listing of its id named
+    # neither its pair nor the reverse): no fetch, no odds row or snapshot written, its stored prices as they were. Not
+    # printed by __str__: the sync-odds command prints odds_mismatch_line on its own line.
+    orientation_mismatch_unpriced: list = field(default_factory=list)
 
     def __str__(self) -> str:
         out = f"created={self.created} updated={self.updated} skipped={self.skipped}"
@@ -202,6 +207,14 @@ def odds_by_team_line(ids) -> str:
     commands: "orientation_swapped N: <ids>" (a count of 0 prints no ids)."""
     ids = [str(i) for i in ids]
     return f"orientation_swapped {len(ids)}" + (f": {', '.join(ids)}" if ids else "")
+
+
+def odds_mismatch_line(ids) -> str:
+    """Addendum 297 C(ii), verbatim: "counted `orientation_mismatch_unpriced N: <ids>` on the receipt". One plain line,
+    always printed by the odds commands right after odds_by_team_line: "orientation_mismatch_unpriced N: <ids>" (a
+    count of 0 prints no ids). sp_run.ODDS_MISMATCH_LINE reads it back (C(iii))."""
+    ids = [str(i) for i in ids]
+    return f"orientation_mismatch_unpriced {len(ids)}" + (f": {', '.join(ids)}" if ids else "")
 
 
 def names_kept_line(n: int) -> str:
@@ -614,7 +627,7 @@ class IngestionService:
                 from src.ingestion.match_dedupe import stamp_rekey
 
                 claimed_sid = (match.external_ids or {}).get(nm.source)
-                nm = self._scores_by_team(match, home.id, away.id, nm, result, comp)
+                nm = self._scores_by_team(match, home.id, away.id, nm, result, comp, rekey=True)
                 if nm is None:                     # neither pair: refused, the row untouched (not re-keyed either)
                     # #884 review (Codex round 1): _rekey_candidate claimed the row's current id; nothing was re-keyed,
                     # so the claim is released and a later valid listing for this row in the same run can take it
@@ -638,7 +651,7 @@ class IngestionService:
 
         if match:
             nm = self._scores_by_team(match, home.id, away.id, nm, result, comp)
-            if nm is None:                         # neither pair: refused, the row untouched
+            if nm is None:                         # neither pair: refused, only the key written ("mismatch", 297 C(ii))
                 return None
             self._apply_match_updates(match, nm)
             ext = dict(match.external_ids or {})
@@ -689,21 +702,23 @@ class IngestionService:
 
     @staticmethod
     def _scores_by_team(match: Match, home_id: int, away_id: int, nm: NormalizedMatch, result: SyncResult,
-                        comp: Competition) -> NormalizedMatch | None:
+                        comp: Competition, rekey: bool = False) -> NormalizedMatch | None:
         """SCORES BY TEAM (ARCHITECT 2026-11-08, addendum 292 item 3(a)-(d); #876): the listing `nm` as the update
         writes it onto the stored `match`, through the one shared helper (src/ingestion/score_orientation.py). The
         same pair: `nm` itself (today's writes, exactly). The REVERSED pair: a copy with every score field swapped
         into the stored orientation and full_time_result H<->A, the kickoff and status as served; listed in
         result.orientation_reversed. NEITHER: None, the caller writes nothing; listed in
         result.teams_mismatch_refused and counted in `skipped`. The stored home/away is never flipped (item 3(d)).
-        Addendum 295 item 5(a) (#885): the verdict is also recorded on the row (REVERSED writes
-        external_ids["provider_orientation"] = "reversed", SAME removes it, NEITHER writes nothing)."""
+        Addendum 295 item 5(a) (#885), amended by addendum 297 C(ii): the verdict is also recorded on the row
+        (REVERSED writes external_ids["provider_orientation"] = "reversed", SAME removes it, NEITHER writes "mismatch"
+        and nothing else), through score_orientation.with_orientation_key. `rekey`: the re-key branch, whose NEITHER
+        re-keys nothing, so the row's key, which describes the id it still carries, is left as it is."""
         from dataclasses import replace
 
         from sqlalchemy.orm import object_session
 
-        from src.ingestion.score_orientation import (MISMATCH, PROVIDER_ORIENTATION_KEY, RESULT_FIELD, REVERSED,
-                                                     SAME, SCORE_PAIRS, scores_by_team)
+        from src.ingestion.score_orientation import (MISMATCH, RESULT_FIELD, REVERSED, SAME, SCORE_PAIRS,
+                                                     scores_by_team, with_orientation_key)
 
         fields = [f for pair in SCORE_PAIRS for f in pair] + [RESULT_FIELD]
         verdict, values = scores_by_team((match.home_team_id, match.away_team_id), (home_id, away_id),
@@ -713,6 +728,16 @@ class IngestionService:
             # unflushed (autoflush=False); flushed here so the receipt lists its id, never None. The create path and
             # the same-pair path flush nothing new.
             object_session(match).flush()
+        # THE PROVIDER'S ORIENTATION (ARCHITECT 2026-11-08, addendum 295 item 5(a), #885; addendum 297 C(ii)): REVERSED
+        # writes external_ids["provider_orientation"] = "reversed", SAME removes it, MISMATCH writes "mismatch" (and no
+        # score, kickoff or status: the scores path is unchanged). The odds writers read it
+        # (score_orientation.provider_reversed / provider_mismatch). Reassigned only when it changes (a same-pair row
+        # without the key is not touched here). The re-key branch's MISMATCH re-keys nothing: the key keeps describing
+        # the id the row still carries (addendum 297 C, item 15), so it is not written there.
+        if not (rekey and verdict == MISMATCH):
+            ext = with_orientation_key(match.external_ids, verdict)
+            if ext is not None:
+                match.external_ids = ext
         if verdict == MISMATCH:
             log.warning("sync_matches(%s): %s id %s REFUSED for match %s — the listing's teams %s/%s are neither the "
                         "stored pair %s/%s nor its reverse; the row untouched", comp.code, nm.source, nm.source_id,
@@ -720,20 +745,11 @@ class IngestionService:
             result.teams_mismatch_refused.append(match.id)
             result.skipped += 1
             return None
-        # THE PROVIDER'S ORIENTATION (ARCHITECT 2026-11-08, addendum 295 item 5(a), #885): REVERSED writes
-        # external_ids["provider_orientation"] = "reversed", SAME removes it; MISMATCH returned above, writing nothing.
-        # The odds writers read it (score_orientation.provider_reversed) to take the prices by team. Reassigned only
-        # when it changes (a same-pair row without the key is not touched here).
-        ext = match.external_ids or {}
         if verdict == REVERSED:
-            if ext.get(PROVIDER_ORIENTATION_KEY) != REVERSED:
-                match.external_ids = {**ext, PROVIDER_ORIENTATION_KEY: REVERSED}
             log.warning("sync_matches(%s): %s id %s lists match %s with home/away REVERSED; scores written by team, "
                         "the stored orientation kept", comp.code, nm.source, nm.source_id, match.id)
             result.orientation_reversed.append(match.id)
             return replace(nm, **values)
-        if PROVIDER_ORIENTATION_KEY in ext:
-            match.external_ids = {k: v for k, v in ext.items() if k != PROVIDER_ORIENTATION_KEY}
         return nm
 
     @staticmethod
@@ -1045,10 +1061,14 @@ class IngestionService:
         team ids, so a row whose external_ids["provider_orientation"] is "reversed" (written by the upsert, item 5(a))
         stores the provider's HOME selection as AWAY and the mirror; DRAW / OVER / UNDER as served; the devig follows
         the stored rows. Each such row's id is listed in result.orientation_swapped.
+
+        ADDENDUM 297 C(ii): a row whose key reads "mismatch" is REFUSED: never fetched, no odds row or snapshot written,
+        its stored prices as they were (law 4); its id is listed in result.orientation_mismatch_unpriced (not counted in
+        `skipped`, which stays the failed or empty fetches).
         """
         from datetime import datetime
         from src.db.schema import Odds, OddsSnapshot
-        from src.ingestion.score_orientation import provider_reversed, selection_by_team
+        from src.ingestion.score_orientation import provider_mismatch, provider_reversed, selection_by_team
         from src.walters.close import close_1x2, outcomes_for, priced
 
         result = SyncResult()
@@ -1089,6 +1109,11 @@ class IngestionService:
 
             for match in candidates:
                 source_id = match.external_ids[self.source]
+                if provider_mismatch(match.external_ids):
+                    # ADDENDUM 297 C(ii): the provider's last listing of this id named neither our pair nor its
+                    # reverse, so no side of its price is known to be ours: not priced, the stored prices untouched
+                    result.orientation_mismatch_unpriced.append(match.id)
+                    continue
                 try:
                     odds_list = self.adapter.list_odds(source_id)
                 except Exception as e:
@@ -2407,6 +2432,10 @@ def sync_odds_nfl(progress=None, match_ids: set[int] | None = None) -> dict:
     external_ids["provider_orientation"] is "reversed" (the upsert's record, item 5(a)) the provider's HOME selection
     is stored as AWAY and the mirror (moneyline and spread; a spread's line travels with its price; totals as served),
     and the 1X2 devig follows the stored selections. The ids are returned under "orientation_swapped".
+
+    ADDENDUM 297 C(ii): a row whose key reads "mismatch" is REFUSED: never fetched, no odds row or snapshot written,
+    its stored prices as they were (law 4); the ids are returned under "orientation_mismatch_unpriced". The window
+    counts (window_by_competition) still count it: it is in the window, unpriced.
     """
     from datetime import datetime, timedelta
 
@@ -2417,7 +2446,7 @@ def sync_odds_nfl(progress=None, match_ids: set[int] | None = None) -> dict:
     from src.adapters.api_american_football import APIAmericanFootballAdapter, RateLimited
     from src.db.database import session_scope
     from src.db.schema import Match, MatchStatus, Odds, OddsSnapshot, Sport
-    from src.ingestion.score_orientation import provider_reversed, selection_by_team
+    from src.ingestion.score_orientation import provider_mismatch, provider_reversed, selection_by_team
     from src.walters.value import MarketSnapshot
 
     def report(msg):
@@ -2442,6 +2471,7 @@ def sync_odds_nfl(progress=None, match_ids: set[int] | None = None) -> dict:
 
     ad = APIAmericanFootballAdapter()
     swapped: list[int] = []         # addendum 295 item 5(b): the ids priced into the stored orientation
+    mismatch_unpriced: list[int] = []   # addendum 297 C(ii): the ids refused (key "mismatch"), never fetched
     created = games = snapshots = 0
     deferred_total = recovered = 0
     games_by_comp: dict[str, int] = {}
@@ -2471,7 +2501,9 @@ def sync_odds_nfl(progress=None, match_ids: set[int] | None = None) -> dict:
                 n[comp_of(x)] = n.get(comp_of(x), 0) + 1
             return " · ".join(f"{c} {k}" for c, k in sorted(n.items()))
         deferred_first: list = []
-        queue, rnd, fetched = list(upcoming), 0, []
+        # ADDENDUM 297 C(ii): a row whose key reads "mismatch" is refused before any fetch, its stored prices untouched
+        mismatch_unpriced.extend(m.id for m in upcoming if provider_mismatch(m.external_ids))
+        queue, rnd, fetched = [m for m in upcoming if not provider_mismatch(m.external_ids)], 0, []
         while queue:
             deferred, wait = [], 0.0
             for m in queue:
@@ -2568,4 +2600,6 @@ def sync_odds_nfl(progress=None, match_ids: set[int] | None = None) -> dict:
             # Codex on #346: the window's competitions, so a run that priced nothing still names them
             "window_by_competition": dict(sorted(upcoming_by_comp.items())),
             # addendum 295 item 5(b): every row priced with HOME and AWAY swapped into the stored orientation
-            "orientation_swapped": swapped}
+            "orientation_swapped": swapped,
+            # addendum 297 C(ii): every row refused because its key reads "mismatch" (not fetched, not priced)
+            "orientation_mismatch_unpriced": mismatch_unpriced}

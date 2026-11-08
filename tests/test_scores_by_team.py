@@ -136,14 +136,23 @@ def test_a_reversed_listing_writes_the_scores_by_team_and_the_result_h_a_and_lis
     assert res.updated == 1 and res.created == 0
 
 
-def test_a_mismatched_pair_is_refused_the_row_byte_identical_and_counted():
+def _but_ext(row):
+    return {k: v for k, v in row.items() if k != "external_ids"}
+
+
+def test_a_mismatched_pair_is_refused_every_column_but_the_key_untouched_and_counted():
+    """Addendum 297 C(ii): the scores path is unchanged (no score, kickoff or status written); the one write is the
+    key's third value, `mismatch`."""
     (h, _hp), (a, ap), (_x, xp) = _teams(Sport.NFL, AF, 3)
     mid = _stored("SBTN", Sport.NFL, AF, "sbt-mis-1", h, a, home_score=10, away_score=3,
                   full_time_result=Result.HOME, status=MatchStatus.FINISHED)
     before = _raw(mid)
     res = _sync("SBTN", AF, [_nm("SBTN", Sport.NFL, AF, "sbt-mis-1", xp, ap, when=KICK + timedelta(hours=2),
                                  home_score=0, away_score=44, full_time_result=Result.AWAY)])
-    assert _raw(mid) == before                                           # every column, untouched
+    after = _raw(mid)
+    assert _but_ext(after) == _but_ext(before)                           # every other column, untouched
+    import json
+    assert json.loads(after["external_ids"]) == {AF: "sbt-mis-1", "provider_orientation": "mismatch"}
     assert res.teams_mismatch_refused == [mid] and res.orientation_reversed == []
     assert res.updated == 0 and res.created == 0 and res.skipped == 1 and res.skipped_ids == []
 
@@ -401,7 +410,10 @@ def test_refresh_by_id_writes_a_reversed_answer_by_team_refuses_neither_and_keep
     with session_scope() as s:
         m = s.get(Match, rows["rev"])
         assert m.status == MatchStatus.FINISHED and m.utc_date == later    # the kickoff and status as served
-    assert _raw(rows["mis"]) == before                                     # refused: every column untouched
+    after = _raw(rows["mis"])
+    assert _but_ext(after) == _but_ext(before)                             # refused: every other column untouched
+    import json                                                            # 297 C(ii): the key's third value only
+    assert json.loads(after["external_ids"]) == {AF: "sbt-rbi-SBTB-2", "provider_orientation": "mismatch"}
     same = _raw(rows["same"])
     assert (same["home_score"], same["away_score"]) == (24, 17)
     assert [x["match_id"] for x in r["orientation_reversed"]] == [rows["rev"]]

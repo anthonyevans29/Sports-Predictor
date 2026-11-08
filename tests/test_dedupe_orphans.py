@@ -366,3 +366,19 @@ def test_a_merge_that_takes_the_newer_id_takes_its_reversed_key(world):
     md.orphans(CODE, prov, apply=True, now=NOW)
     ext = _row(ids["twin_old"])["ext"]
     assert ext[SRC] == "23100" and ext[POK] == "reversed"
+
+
+def test_the_keys_third_value_follows_the_id_too(world):
+    """Addendum 297 C(ii): `mismatch` is the key's third value; the merge and the relink treat it as they treat
+    `reversed` (C item 15: the key stays true of the row's current id). A merge that takes the newer id takes its
+    `mismatch`; a relink to a same-pair live id removes it."""
+    from src.ingestion.score_orientation import PROVIDER_ORIENTATION_KEY as POK
+    ids, prov = world
+    with session_scope() as s:
+        for key in ("twin_new", "relink"):
+            m = s.get(Match, ids[key])
+            m.external_ids = {**(m.external_ids or {}), POK: "mismatch"}
+    md.orphans(CODE, prov, apply=True, now=NOW)
+    ext = _row(ids["twin_old"])["ext"]
+    assert ext[SRC] == "23100" and ext[POK] == "mismatch"
+    assert POK not in _row(ids["relink"])["ext"]

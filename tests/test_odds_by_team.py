@@ -24,7 +24,8 @@ from src.db.database import init_db, session_scope
 from src.db.schema import (Competition, CompetitionTeam, Match, MatchNeutralDerived, MatchStatus, Odds, OddsSnapshot,
                            Result, Sport, Team)
 from src.ingestion import service as svc
-from src.ingestion.score_orientation import PROVIDER_ORIENTATION_KEY, provider_reversed, selection_by_team
+from src.ingestion.score_orientation import (MISMATCH, PROVIDER_ORIENTATION_KEY, REVERSED, SAME, provider_mismatch,
+                                             provider_reversed, selection_by_team, with_orientation_key)
 from src.ingestion.service import IngestionService
 from src.timeutil import utc_now_naive
 
@@ -232,22 +233,37 @@ def _ext(mid):
         return dict(s.get(Match, mid).external_ids or {})
 
 
-def test_the_upsert_records_reversed_removes_it_on_same_and_writes_nothing_on_a_mismatch(made, monkeypatch):
+def _snap_count(mid, source):
+    with session_scope() as s:
+        return s.query(OddsSnapshot).filter(OddsSnapshot.match_id == mid, OddsSnapshot.source == source).count()
+
+
+def test_the_upsert_records_reversed_then_mismatch_then_removes_it_on_same(made, monkeypatch):
+    """295 item 5(a) as amended by 297 C(ii): reversed writes "reversed"; a MISMATCH writes "mismatch" (it no longer
+    keeps the last key) and sync_odds_nfl refuses to price the row, its stored prices untouched; a SAME listing
+    removes the key and the next price is positional again."""
     when = utc_now_naive() + timedelta(days=2)
     mid, sid, ((_h, hp), (_a, ap), (_x, xp)) = _world(made, Sport.NFL, AF, "O295U", when=when, n_teams=3)
     run = lambda *nm: IngestionService(Listing(AF, nm)).sync_matches("O295U", season="2026")   # noqa: E731
     res = run(_nm("O295U", sid, ap, hp, when))                                     # reversed
     assert _ext(mid) == {AF: sid, PROVIDER_ORIENTATION_KEY: "reversed"} and res.orientation_reversed == [mid]
-    before = _ext(mid)
-    res = run(_nm("O295U", sid, xp, hp, when))                                     # neither: nothing written
-    assert _ext(mid) == before and res.teams_mismatch_refused == [mid]
     # the upsert's key, then the odds writer: the provider's HOME price lands on OUR AWAY selection
     _nfl_book(monkeypatch, NFL_BOOK)
     assert svc.sync_odds_nfl(match_ids={mid})["orientation_swapped"] == [mid]
     assert _odds(mid, AF)[0][("1X2", "AWAY", None)] == 1.4
+    priced = _odds(mid, AF)[0]
+    snaps = _snap_count(mid, AF)
+    res = run(_nm("O295U", sid, xp, hp, when))                                     # neither: the key reads mismatch
+    assert _ext(mid) == {AF: sid, PROVIDER_ORIENTATION_KEY: "mismatch"} and res.teams_mismatch_refused == [mid]
+    _nfl_book(monkeypatch, [_no("HOME", 9.0, source=AF), _no("AWAY", 1.05, source=AF)])
+    r = svc.sync_odds_nfl(match_ids={mid})
+    assert r["orientation_mismatch_unpriced"] == [mid] and r["orientation_swapped"] == [] and r["games"] == 0
+    assert _odds(mid, AF)[0] == priced and _snap_count(mid, AF) == snaps        # stored prices as they were
+    _nfl_book(monkeypatch, NFL_BOOK)
     res = run(_nm("O295U", sid, hp, ap, when))                                     # same: the key removed
     assert _ext(mid) == {AF: sid} and res.orientation_reversed == []
-    assert svc.sync_odds_nfl(match_ids={mid})["orientation_swapped"] == []
+    r = svc.sync_odds_nfl(match_ids={mid})
+    assert r["orientation_swapped"] == [] and r["orientation_mismatch_unpriced"] == []
     assert _odds(mid, AF)[0][("1X2", "HOME", None)] == 1.4
 
 
@@ -448,7 +464,7 @@ def test_the_admin_odds_job_ends_with_the_swapped_ids(made, monkeypatch):
     monkeypatch.setattr(svc, "utc_now_naive", lambda: KO - timedelta(days=3))
     monkeypatch.setattr(admin, "_adapter_for_competition", lambda c: FakeOdds(SOCCER_BOOK))
     out = admin._job_sync_odds(competition_code="O295A", season=None, limit=50)
-    assert out == f"created=1 skipped=0 · orientation_swapped 1: {mid}", out
+    assert out == f"created=1 skipped=0 · orientation_swapped 1: {mid} · orientation_mismatch_unpriced 0", out
 
 
 def test_a_rekey_with_the_pair_reversed_records_the_providers_orientation(made):
@@ -497,3 +513,242 @@ def test_the_mlb_fallback_refuses_a_mismatch_before_the_downgrade_check(made):
     with session_scope() as s:
         made["teams"] += [x.id for x in s.execute(select(Team).where(Team.name.like("Probe295b %"))).scalars()
                           if x.id not in made["teams"]]
+
+
+# ---------------------------------------------------------------------------------------------- addendum 297 C (#888)
+# C(i), verbatim: "refresh-by-id writes the key on REVERSED and removes it on SAME through the same code as
+# _scores_by_team (score_orientation), with the test named (refresh-by-id reversed, then sync_odds_nfl, the price stored
+# by team)". C(ii), verbatim: "a MISMATCH writes the key's third value, `mismatch` [...], and the two odds writers
+# REFUSE to price a row whose key reads `mismatch`, counted `orientation_mismatch_unpriced N: <ids>` on the receipt; the
+# row's stored prices stay as they were (law 4). The scores path is unchanged (a mismatch still writes no score)."
+
+def test_the_key_helper_writes_the_three_values_and_reports_no_change():
+    assert with_orientation_key({AF: "1"}, REVERSED) == {AF: "1", PROVIDER_ORIENTATION_KEY: "reversed"}
+    assert with_orientation_key({AF: "1"}, MISMATCH) == {AF: "1", PROVIDER_ORIENTATION_KEY: "mismatch"}
+    assert with_orientation_key({AF: "1", PROVIDER_ORIENTATION_KEY: "mismatch"}, SAME) == {AF: "1"}
+    assert with_orientation_key({AF: "1", PROVIDER_ORIENTATION_KEY: "mismatch"}, REVERSED)[PROVIDER_ORIENTATION_KEY] \
+        == "reversed"
+    assert with_orientation_key({AF: "1"}, SAME) is None                        # nothing to change: never reassigned
+    assert with_orientation_key({AF: "1", PROVIDER_ORIENTATION_KEY: "reversed"}, REVERSED) is None
+    assert with_orientation_key(None, SAME) is None and with_orientation_key(None, MISMATCH) == {
+        PROVIDER_ORIENTATION_KEY: "mismatch"}
+    assert provider_mismatch({PROVIDER_ORIENTATION_KEY: "mismatch"}) and not provider_mismatch(None)
+    assert not provider_reversed({PROVIDER_ORIENTATION_KEY: "mismatch"})       # a mismatch is never swapped
+
+
+class ById:
+    """refresh_by_id's adapter: get_game answers by id."""
+    source_name = AF
+
+    def __init__(self, by_id):
+        self.by_id = dict(by_id)
+
+    def get_game(self, sid, code=None):
+        return (True, self.by_id[sid]) if sid in self.by_id else (False, None)
+
+
+def _refresh(code, by_id, monkeypatch):
+    from src.ingestion import refresh_by_id as rbi
+    monkeypatch.setattr(svc, "_odds_sleep", lambda x: None)
+    return rbi.refresh(code, ById(by_id), days=7)
+
+
+def _upcoming(made, code, ext=None):
+    when = datetime.combine(utc_now_naive().date() + timedelta(days=2), datetime.min.time()) + timedelta(hours=20)
+    return (*_world(made, Sport.NFL, AF, code, when=when, n_teams=3, ext=ext), when)
+
+
+def test_refresh_by_id_on_a_reversed_answer_writes_the_key_then_sync_odds_nfl_stores_the_price_by_team(made,
+                                                                                                    monkeypatch):
+    """C(i)'s named test: NCAA's upcoming rows are read by refresh-by-id alone before kickoff (addendum 21)."""
+    mid, sid, ((_h, hp), (_a, ap), _x), when = _upcoming(made, "O297I")
+    r = _refresh("O297I", {sid: _nm("O297I", sid, ap, hp, when)}, monkeypatch)
+    assert [x["match_id"] for x in r["orientation_reversed"]] == [mid] and r["updated"] == 1
+    assert _ext(mid) == {AF: sid, PROVIDER_ORIENTATION_KEY: "reversed"}
+    _nfl_book(monkeypatch, NFL_BOOK)
+    out = svc.sync_odds_nfl(match_ids={mid})
+    rows, snaps = _odds(mid, AF)
+    assert rows[("1X2", "AWAY", None)] == 1.4 and rows[("1X2", "HOME", None)] == 3.0      # by team
+    assert rows[("SPREADS", "AWAY", -7.5)] == 1.91
+    h, a = _fair(3.0, 1.4)
+    assert snaps == {"HOME": pytest.approx(h), "AWAY": pytest.approx(a)}
+    assert out["orientation_swapped"] == [mid] and out["orientation_mismatch_unpriced"] == []
+
+
+def test_refresh_by_id_on_a_same_answer_removes_the_key_and_the_price_is_positional_again(made, monkeypatch):
+    mid, sid, ((_h, hp), (_a, ap), _x), when = _upcoming(made, "O297S", ext={PROVIDER_ORIENTATION_KEY: "reversed"})
+    r = _refresh("O297S", {sid: _nm("O297S", sid, hp, ap, when)}, monkeypatch)
+    assert _ext(mid) == {AF: sid} and r["orientation_reversed"] == []
+    assert r["updated"] == 1 and r["unchanged"] == 0                  # the key removed is the update (nothing else)
+    _nfl_book(monkeypatch, NFL_BOOK)
+    assert svc.sync_odds_nfl(match_ids={mid})["orientation_swapped"] == []
+    assert _odds(mid, AF)[0][("1X2", "HOME", None)] == 1.4
+
+
+def test_refresh_by_id_on_a_mismatch_writes_mismatch_only_and_sync_odds_nfl_refuses_leaving_its_prices(made,
+                                                                                                    monkeypatch):
+    mid, sid, ((_h, hp), (_a, ap), (_x, xp)), when = _upcoming(made, "O297M")
+    _nfl_book(monkeypatch, NFL_BOOK)
+    svc.sync_odds_nfl(match_ids={mid})                                 # a price stored before the mismatch
+    priced, snaps = _odds(mid, AF)[0], _snap_count(mid, AF)
+    with session_scope() as s:
+        m = s.get(Match, mid)
+        held = (m.status, m.utc_date, m.home_score, m.away_score)
+    r = _refresh("O297M", {sid: _nm("O297M", sid, xp, ap, when + timedelta(hours=1), home_score=3, away_score=0)},
+                 monkeypatch)
+    assert r["teams_mismatch_refused"] == [mid] and r["updated"] == 0 and r["unchanged"] == 0
+    assert _ext(mid) == {AF: sid, PROVIDER_ORIENTATION_KEY: "mismatch"}
+    with session_scope() as s:
+        m = s.get(Match, mid)
+        assert (m.status, m.utc_date, m.home_score, m.away_score) == held      # the scores path unchanged
+    calls = []
+    monkeypatch.setattr("src.adapters.api_american_football.APIAmericanFootballAdapter.list_odds",
+                        lambda self, gid: calls.append(gid) or [_no("HOME", 9.0, source=AF), _no("AWAY", 1.05,
+                                                                                                source=AF)])
+    out = svc.sync_odds_nfl(match_ids={mid})
+    assert out["orientation_mismatch_unpriced"] == [mid] and out["games"] == 0 and out["created"] == 0
+    assert calls == [] and _odds(mid, AF)[0] == priced and _snap_count(mid, AF) == snaps
+    assert out["window_by_competition"] == {"O297M": 1}                # in the window, unpriced
+
+
+def test_refresh_by_id_replaces_mismatch_with_reversed(made, monkeypatch):
+    mid, sid, ((_h, hp), (_a, ap), _x), when = _upcoming(made, "O297Q", ext={PROVIDER_ORIENTATION_KEY: "mismatch"})
+    _refresh("O297Q", {sid: _nm("O297Q", sid, ap, hp, when)}, monkeypatch)
+    assert _ext(mid) == {AF: sid, PROVIDER_ORIENTATION_KEY: "reversed"}
+
+
+def test_the_upsert_replaces_mismatch_with_a_later_reversed_or_same_listing(made):
+    when = utc_now_naive() + timedelta(days=2)
+    mid, sid, ((_h, hp), (_a, ap), (_x, xp)) = _world(made, Sport.NFL, AF, "O297U", when=when, n_teams=3,
+                                                      ext={PROVIDER_ORIENTATION_KEY: "mismatch"})
+    run = lambda *nm: IngestionService(Listing(AF, nm)).sync_matches("O297U", season="2026")   # noqa: E731
+    run(_nm("O297U", sid, ap, hp, when))
+    assert _ext(mid)[PROVIDER_ORIENTATION_KEY] == "reversed"
+    run(_nm("O297U", sid, xp, ap, when))
+    assert _ext(mid)[PROVIDER_ORIENTATION_KEY] == "mismatch"
+    run(_nm("O297U", sid, hp, ap, when))
+    assert PROVIDER_ORIENTATION_KEY not in _ext(mid)
+
+
+def test_sync_odds_refuses_a_mismatch_row_counts_it_and_leaves_its_stored_prices(made, monkeypatch):
+    mid, _sid, _ = _world(made, Sport.SOCCER, FAKE, "O297O")
+    _world(made, Sport.SOCCER, FAKE, "O297O2")
+    monkeypatch.setattr(svc, "utc_now_naive", lambda: KO - timedelta(days=3))
+    IngestionService(FakeOdds(SOCCER_BOOK)).sync_odds("O297O")                 # a price stored before the mismatch
+    priced, snaps = _odds(mid, FAKE)[0], _snap_count(mid, FAKE)
+    with session_scope() as s:
+        m = s.get(Match, mid)
+        m.external_ids = {**m.external_ids, PROVIDER_ORIENTATION_KEY: "mismatch"}
+
+    class Counting(FakeOdds):
+        calls = []
+
+        def list_odds(self, source_id):
+            self.calls.append(source_id)
+            return [_no("HOME", 9.0), _no("DRAW", 9.0), _no("AWAY", 1.05)]
+    ad = Counting([])
+    res = IngestionService(ad).sync_odds("O297O")
+    assert res.orientation_mismatch_unpriced == [mid] and res.created == 0 and res.skipped == 0
+    assert ad.calls == [] and _odds(mid, FAKE)[0] == priced and _snap_count(mid, FAKE) == snaps
+    assert IngestionService(FakeOdds(SOCCER_BOOK)).sync_odds("O297O2").orientation_mismatch_unpriced == []
+
+
+def test_both_odds_commands_print_the_mismatch_line_next_to_the_swapped_line_and_keep_the_summary_last(made,
+                                                                                                         monkeypatch):
+    import cli
+    mid, _sid, _ = _world(made, Sport.SOCCER, FAKE, "O297C", ext={PROVIDER_ORIENTATION_KEY: "mismatch"})
+    monkeypatch.setattr(svc, "utc_now_naive", lambda: KO - timedelta(days=3))
+    monkeypatch.setattr(cli, "_adapter_for_competition", lambda c: FakeOdds(SOCCER_BOOK))
+    out = CliRunner().invoke(cli.cli, ["sync-odds", "--competition", "O297C"])
+    assert out.exit_code == 0, out.output
+    lines = [x for x in out.output.splitlines() if x.strip()]
+    i = lines.index("orientation_swapped 0")
+    assert lines[i + 1] == f"orientation_mismatch_unpriced 1: {mid}", lines
+    assert _key_line(lines).startswith("✓ Odds (O297C): created=0"), lines
+    monkeypatch.setattr(svc, "sync_odds_nfl", lambda progress=None: {"created": 6, "games": 1,
+                                                                     "orientation_swapped": [41],
+                                                                     "orientation_mismatch_unpriced": [42, 43]})
+    out = CliRunner().invoke(cli.cli, ["sync-odds-football"])
+    lines = [x for x in out.output.splitlines() if x.strip()]
+    i = lines.index("orientation_swapped 1: 41")
+    assert lines[i + 1] == "orientation_mismatch_unpriced 2: 42, 43", lines
+    assert _key_line(lines).startswith("✓ Football odds: created=6"), lines
+    out = CliRunner().invoke(cli.cli, ["sync-odds-football"])
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "deploy" / "hosting"))
+    import sp_run
+    assert sp_run.sync_counts(out.output.splitlines())["odds_by_team"] == {
+        "orientation_swapped": {"n": 1, "ids": ["41"]}, "orientation_mismatch_unpriced": {"n": 2, "ids": ["42", "43"]}}
+
+
+def test_the_admin_odds_job_carries_the_mismatch_count(made, monkeypatch):
+    from src.web.routes import admin
+    mid, _sid, _ = _world(made, Sport.SOCCER, FAKE, "O297A", ext={PROVIDER_ORIENTATION_KEY: "mismatch"})
+    monkeypatch.setattr(svc, "utc_now_naive", lambda: KO - timedelta(days=3))
+    monkeypatch.setattr(admin, "_adapter_for_competition", lambda c: FakeOdds(SOCCER_BOOK))
+    out = admin._job_sync_odds(competition_code="O297A", season=None, limit=50)
+    assert out == f"created=0 skipped=0 · orientation_swapped 0 · orientation_mismatch_unpriced 1: {mid}", out
+
+
+def test_the_mlb_fallback_counts_an_update_by_position_on_a_team_it_does_not_know(made):
+    """C(iv), verbatim: "the MLB fallback's update by position on an unknown or merged team is COUNTED on its receipt
+    (`team_missing_update N`); the write stays as ruled". A merged team's other id reads unknown (team_by_ext maps the
+    primary id only): counted the same way. A known pair is not counted; a refused downgrade is not an update."""
+    from src.ingestion import mlb_apisports as fb
+    U = datetime(2041, 9, 4, 17, 5)
+    A, B, D = (297101, "Probe297 Alphas"), (297102, "Probe297 Betas"), (297199, "Probe297 Unlisted")
+    with session_scope() as s:
+        comp = s.execute(select(Competition).where(Competition.sport == Sport.MLB,
+                                                   Competition.code == "MLB")).scalars().first()
+        if comp is None:
+            comp = Competition(sport=Sport.MLB, code="MLB", name="Major League Baseball", area="USA", type="LEAGUE")
+            s.add(comp)
+            s.flush()
+            made["comps"].append(comp.id)
+        t = {tid: Team(sport=Sport.MLB, name=name, external_ids={fb.SOURCE: str(tid)}) for tid, name in (A, B)}
+        s.add_all(t.values())
+        s.flush()
+        made["teams"] += [x.id for x in t.values()]
+        ids = {}
+        for gid, day, status in (("2971", 0, MatchStatus.SCHEDULED), ("2972", 1, MatchStatus.SCHEDULED),
+                                 ("2973", 2, MatchStatus.FINISHED)):
+            m = Match(sport=Sport.MLB, competition_id=comp.id, season="2041", utc_date=U + timedelta(days=day),
+                      status=status, home_team_id=t[A[0]].id, away_team_id=t[B[0]].id,
+                      external_ids={fb.SOURCE: gid})
+            s.add(m)
+            s.flush()
+            ids[gid] = m.id
+            made["matches"].append(m.id)
+    games = [_g(2971, D, B, U, hr=3, ar=1),                                    # a listed team unknown: by position
+             _g(2972, A, B, U + timedelta(days=1), hr=4, ar=6),                # the same pair: not counted
+             _g(2973, D, B, U + timedelta(days=2), short="NS", hr=0, ar=0)]    # a refused downgrade: not an update
+    clubs = [{"id": i, "name": n, "code": None} for i, n in (A, B)]
+    r = fb.sync_matches(FakeClient(clubs, games), "2041")
+    assert r["team_missing_update"] == [ids["2971"]] and r["downgrade_refused"] == 1 and r["updated"] == 2
+    with session_scope() as s:
+        m = s.get(Match, ids["2971"])
+        assert (m.status, m.home_score, m.away_score, m.full_time_result) == (MatchStatus.FINISHED, 3, 1, Result.HOME)
+        made["teams"] += [x.id for x in s.execute(select(Team).where(Team.name.like("Probe297 %"))).scalars()
+                          if x.id not in made["teams"]]
+
+
+def test_the_mlb_fallback_receipt_prints_the_team_missing_update_line(monkeypatch):
+    import cli as climod
+    from src.adapters import api_baseball
+    from src.ingestion import mlb_apisports as fb
+    monkeypatch.setattr(api_baseball.APIBaseballClient, "from_env", classmethod(lambda cls: FakeClient([], [])))
+    base = {"season": "2041", "window": [None, None], "provider_games": 2, "created": 0, "updated": 1,
+            "linked_existing": 0, "finished": 1, "ambiguous": 0, "held_near_unkeyed": 0, "team_missing": 0,
+            "exhibition_skipped": 0, "downgrade_refused": 0, "stage_null_created": 0, "status_vocab": {},
+            "unmapped_status": {}, "known_limitation": "x", "dh_marked": [], "time_kept_statsapi": 0,
+            "time_conflicts": [], "orientation_reversed": [], "teams_mismatch_refused": []}
+    monkeypatch.setenv("SP_SKIP_FAMILIES", "MLB")
+    for tmu, line in (([11, 12], "team_missing_update 2: 11, 12"), ([], "team_missing_update 0")):
+        monkeypatch.setattr(fb, "sync_matches", lambda *a, _t=tmu, **k: {**base, "team_missing_update": _t})
+        out = CliRunner().invoke(climod.cli, ["sync-matches", "--competition", "MLB", "--season", "2041"])
+        assert out.exit_code == 0, out.output
+        lines = out.output.splitlines()
+        assert line in lines, lines
+        tail = next(x for x in lines if x.startswith("MLB-FALLBACK-RECEIPT "))
+        assert lines.index(line) < lines.index(tail) and f'"team_missing_update": {tmu}' in tail

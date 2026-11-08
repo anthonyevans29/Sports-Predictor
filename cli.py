@@ -289,13 +289,16 @@ def _tennis_sync_matches(service, competition_code, season, seasons, date_from, 
           f"{len(lst.fixtures)} events accepted · refused {dict(lst.refused) or 'none'}", flush=True)
     console.print(f"[green]✓ Matches ({code}): {result}[/green]")
     _print_skipped_listings(result)
+    _print_scores_by_team(result)
     _tennis_reread(service, code, season, lst, date_from)
     _tennis_mark_refused(code, lst, date_from, date_to)
     if named is not None:
-        missing = sorted(named - held)
+        refused, missing = _strict_split(result, named, sorted(named - held))
         if missing:
             print(f"✗ STRICT: {len(missing)} of {len(named)} named game(s) not in the listing ({code} "
                   f"{date_from}..{date_to}): " + ", ".join(f"match {m}" for m in missing), flush=True)
+        _print_strict_refused(refused, named)
+        if missing or refused:
             raise SystemExit(1)
 
 
@@ -342,10 +345,11 @@ def _tennis_reread(service, code, season, lst, date_from) -> None:
     # it is named on the line (law 2: a row this run does not write is never claimed re-read)
     due = {ev for ev, day in held.items() if _in_window(day, season, None, None)}
     off_season = sorted(set(held) - due)
+    reread = None
     if due:
         service.adapter.events = due
         try:
-            service.sync_matches(code, season=season)
+            reread = service.sync_matches(code, season=season)
         finally:
             service.adapter.events = None
     after = _tennis_rows(code) if due else {}
@@ -360,6 +364,10 @@ def _tennis_reread(service, code, season, lst, date_from) -> None:
           + f" · {len(changed)} retracted or changed" + (f": {', '.join(changed)}" if changed else "")
           + (f" · {len(off_season)} not re-read (outside --season {season})"
              + (f": {', '.join(off_season)}" if off_season else "") if season else ""), flush=True)
+
+    if hasattr(reread, "orientation_reversed") and hasattr(reread, "teams_mismatch_refused"):
+        from src.ingestion.service import scores_by_team_line    # addendum 292 item 3(c): the re-read's sync too
+        print(f"  {code} re-read: {scores_by_team_line(reread)}", flush=True)
 
 
 def _tennis_mark_refused(code, lst, date_from, date_to) -> None:
@@ -419,6 +427,31 @@ def _print_skipped_listings(result) -> None:
         print(skipped_listings_line(ids), flush=True)
 
 
+def _print_scores_by_team(result) -> None:
+    """SCORES BY TEAM (ARCHITECT 2026-11-08, addendum 292 item 3(c), #876): "two new counts on the sync result and its
+    printed receipt, each with the match ids LISTED: `orientation_reversed` and `teams_mismatch_refused`". Printed
+    plainly on its own line (never rich-wrapped), always, zero counts included; nothing when the result carries no
+    SyncResult lists (a test's stand-in service)."""
+    if hasattr(result, "orientation_reversed") and hasattr(result, "teams_mismatch_refused"):
+        from src.ingestion.service import scores_by_team_line
+        print(scores_by_team_line(result), flush=True)
+
+
+def _strict_split(result, named, missing) -> tuple[list, list]:
+    """--match-ids (addendum 292 item 3(c)): a named row whose listing was REFUSED (the listing's pair neither the
+    stored pair nor its reverse) WAS in the provider's answer; it is split out of `missing` and printed with its own
+    label (_print_strict_refused), never as absent. (refused, still missing), both sorted."""
+    refused_ids = set(getattr(result, "teams_mismatch_refused", None) or [])
+    return sorted(m for m in missing if m in refused_ids), sorted(m for m in missing if m not in refused_ids)
+
+
+def _print_strict_refused(refused, named) -> None:
+    if refused:
+        print(f"✗ STRICT: {len(refused)} of {len(named)} named game(s) REFUSED (the listing's teams are neither the "
+              f"stored pair nor its reverse; the row untouched): " + ", ".join(f"match {m}" for m in refused),
+              flush=True)
+
+
 @cli.command("sync-matches")
 @click.option("--competition", "competition_code", required=True, help="Code, e.g. PL, FAC, CL, MLB")
 @click.option("--season", default=None, help="Single season, e.g. 2024/25 (soccer), 2026 (MLB)")
@@ -475,6 +508,7 @@ def sync_matches_cmd(
             result = service.sync_matches(competition_code, season=season_str)
             console.print(f"  {result}")
             _print_skipped_listings(result)
+            _print_scores_by_team(result)
         return
 
     def _progress(msg):
@@ -487,6 +521,7 @@ def sync_matches_cmd(
     )
     console.print(f"[green]✓ Matches ({competition_code}): {result}[/green]")
     _print_skipped_listings(result)
+    _print_scores_by_team(result)
     if named is not None:
         # A1 (addendum 23): "exits non-zero unless the provider's answer held every one of them." Printed plainly
         # (never rich-wrapped) so the closing run's receipt tail has it.
@@ -494,10 +529,13 @@ def sync_matches_cmd(
         # #570 (addendum 106 item 3): where the adapter cannot send a range, the label says what was read instead
         range_note = getattr(service.adapter, "range_note", None)
         note = range_note(season, date_from, date_to) if range_note else None
+        refused, missing = _strict_split(result, named, missing)
         if missing:
             print(f"✗ STRICT: {len(missing)} of {len(named)} named game(s) not in the provider's answer "
                   f"({competition_code} {date_from or ''}..{date_to or ''}{f': {note}' if note else ''}): "
                   + ", ".join(f"match {m}" for m in missing), flush=True)
+        _print_strict_refused(refused, named)
+        if missing or refused:
             raise SystemExit(1)
         print(f"✓ the provider's answer held all {len(named)} named game(s)" + (f" ({note})" if note else ""),
               flush=True)
@@ -1732,6 +1770,8 @@ def intl_sync_cmd(since, max_calls, dry_run, save, from_dir):
                f"matches: {r['matches']}")
     if r.get("names_kept_line"):              # #764 (addendum 206 item 2(i)): a history listing keeps current names
         click.echo(f"  {r['names_kept_line']}")
+    if r.get("scores_by_team_line"):          # addendum 292 item 3(c): always, zero counts included
+        click.echo(f"  {r['scores_by_team_line']}")
     click.echo("  neutral_derived: " + " · ".join(f"{k} {v}" for k, v in sorted(r["neutral"].items())))
     click.echo(f"  RULE: {ih.NEUTRAL_RULE}")
     if not dry_run:

@@ -24,6 +24,11 @@ started, while the games still answer by id (addendum 21 receipts: 96 of 97 SCHE
 - Never guessed: no answer (an empty response) = NOT FOUND, counted and listed, the row untouched. An
   answer for different teams than the stored row = REFUSED, listed, the row untouched. A lookup error =
   UNRESOLVED (never read as absent), listed, the row untouched.
+- SCORES BY TEAM (ARCHITECT 2026-11-08, addendum 292 item 3(b), #876): the answer's teams are resolved to the stored
+  row's own team ids and the one shared helper (src/ingestion/score_orientation.py) decides: the same pair = today's
+  writes; the REVERSED pair = the score written swapped into the stored orientation, the kickoff and status as served,
+  listed under `orientation_reversed` (until this, a reversed answer was REFUSED here); neither = REFUSED as before,
+  its match id also under `teams_mismatch_refused`. The stored home/away is never flipped (item 3(d)).
 """
 from __future__ import annotations
 
@@ -52,6 +57,7 @@ def refresh(competition_code: str, adapter, days: int = 7, now=None, progress=No
     from src.db.database import session_scope
     from src.db.schema import Competition, Match, MatchStatus
     from src.ingestion import service as svc
+    from src.ingestion.score_orientation import MISMATCH, REVERSED, scores_by_team
     from src.timeutil import utc_now_naive
 
     def report(msg):
@@ -77,6 +83,7 @@ def refresh(competition_code: str, adapter, days: int = 7, now=None, progress=No
          "now": _iso(now), "window": [_iso(lo), _iso(hi)], "selected": 0, "asked": 0, "requests": 0,
          "unchanged": 0, "updated": 0, "kickoff_moved": [], "status_changed": [], "score_changed": [],
          "not_found": [], "refused": [], "excluded": [], "no_id": [], "unresolved": [],
+         "orientation_reversed": [], "teams_mismatch_refused": [],
          "rate_limited": 0, "recovered": 0, "still_rate_limited": []}
     with session_scope() as s:
         comp = s.execute(select(Competition).where(Competition.code == competition_code)).scalar_one_or_none()
@@ -150,11 +157,28 @@ def refresh(competition_code: str, adapter, days: int = 7, now=None, progress=No
                     return str(listed)
                 v = (t.external_ids or {}).get(source) if t is not None else None
                 return str(v) if v is not None else None
-            hs, as_ = tsid(m.home_team, nm.home_team_source_id), tsid(m.away_team, nm.away_team_source_id)
-            if (str(nm.home_team_source_id), str(nm.away_team_source_id)) != (hs, as_):
+            def team_of(listed):
+                # the stored row's team that answers to the listed provider id (merged rows: each recorded id), or None
+                from src.ingestion.team_merge import source_ids
+                for t, tid in ((m.home_team, m.home_team_id), (m.away_team, m.away_team_id)):
+                    if t is not None and str(listed) in source_ids(t.external_ids, source):
+                        return tid
+                return None
+            # SCORES BY TEAM (addendum 292 item 3(b)): the one shared helper, on the score fields this refresh writes
+            verdict, sc = scores_by_team((m.home_team_id, m.away_team_id),
+                                         (team_of(nm.home_team_source_id), team_of(nm.away_team_source_id)),
+                                         {"home_score": nm.home_score, "away_score": nm.away_score})
+            if verdict == MISMATCH:
+                hs, as_ = tsid(m.home_team, nm.home_team_source_id), tsid(m.away_team, nm.away_team_source_id)
                 r["refused"].append(line(m, sid, why=f"the answer's teams {nm.home_team_source_id}/"
-                                                     f"{nm.away_team_source_id} are not the stored row's {hs}/{as_}"))
+                                                     f"{nm.away_team_source_id} are neither the stored row's "
+                                                     f"{hs}/{as_} nor its reverse"))
+                r["teams_mismatch_refused"].append(m.id)
                 continue
+            if verdict == REVERSED:
+                r["orientation_reversed"].append(line(m, sid, provider_teams=[str(nm.home_team_source_id),
+                                                                                str(nm.away_team_source_id)],
+                                                      provider_score=[nm.home_score, nm.away_score]))
             changed = False
             if nm.utc_date is not None and nm.utc_date != m.utc_date:
                 r["kickoff_moved"].append(line(m, sid, provider_kickoff=_iso(nm.utc_date)))
@@ -164,8 +188,8 @@ def refresh(competition_code: str, adapter, days: int = 7, now=None, progress=No
                 r["status_changed"].append(line(m, sid, stored_status=m.status.value, provider_status=nm.status.value))
                 m.status = nm.status
                 changed = True
-            new_h = nm.home_score if nm.home_score is not None else m.home_score
-            new_a = nm.away_score if nm.away_score is not None else m.away_score
+            new_h = sc["home_score"] if sc["home_score"] is not None else m.home_score
+            new_a = sc["away_score"] if sc["away_score"] is not None else m.away_score
             if (new_h, new_a) != (m.home_score, m.away_score):
                 r["score_changed"].append(line(m, sid, stored_score=[m.home_score, m.away_score],
                                                provider_score=[new_h, new_a]))
@@ -185,7 +209,9 @@ def format_lines(r: dict) -> list[str]:
     out = [f"REFRESH-BY-ID {r['competition']} ({r['source']}) window {r['window'][0]} .. {r['window'][1]} UTC · "
            f"selected {r['selected']} · asked {r['asked']} · unchanged {r['unchanged']} · updated {r['updated']} "
            f"(kickoff moved {len(r['kickoff_moved'])}, status {len(r['status_changed'])}, "
-           f"score {len(r['score_changed'])}) · not found {len(r['not_found'])} · refused {len(r['refused'])} · "
+           f"score {len(r['score_changed'])}) · orientation reversed {len(r.get('orientation_reversed', []))} · "
+           f"teams mismatch refused {len(r.get('teams_mismatch_refused', []))} · "
+           f"not found {len(r['not_found'])} · refused {len(r['refused'])} · "
            f"no id {len(r['no_id'])} · unresolved {len(r['unresolved'])} · rate limited {r['rate_limited']} "
            f"(recovered {r['recovered']}, still {len(r['still_rate_limited'])}) · requests {r['requests']}"]
     for x in r["kickoff_moved"]:
@@ -194,6 +220,10 @@ def format_lines(r: dict) -> list[str]:
     for x in r["status_changed"]:
         out.append(f"  status: match {x['match_id']} id {x['id']} {x['game']}: "
                    f"{x['stored_status']} -> {x['provider_status']}")
+    for x in r.get("orientation_reversed", []):
+        out.append(f"  orientation REVERSED (scores written by team): match {x['match_id']} id {x['id']} {x['game']}: "
+                   f"the provider lists {x['provider_teams'][1]} @ {x['provider_teams'][0]} "
+                   f"{x['provider_score'][1]}-{x['provider_score'][0]}; the stored orientation kept")
     for x in r["score_changed"]:
         out.append(f"  score: match {x['match_id']} id {x['id']} {x['game']}: "
                    f"{x['stored_score']} -> {x['provider_score']}")

@@ -263,7 +263,7 @@ def ingest(src: Source, since: date, max_calls: int = 80, dry_run: bool = False)
     from src.adapters.normalized import NormalizedTeam
     from src.db.database import session_scope
     from src.db.schema import Competition, Match, MatchNeutralDerived, Sport
-    from src.ingestion.service import SyncResult, names_kept_line, newest_membership_years
+    from src.ingestion.service import SyncResult, names_kept_line, newest_membership_years, scores_by_team_line
 
     leagues = src.get("leagues.json", "leagues", {"country": "World"}).get("response") or []
     work = plan(leagues, since)
@@ -379,6 +379,10 @@ def ingest(src: Source, since: date, max_calls: int = 80, dry_run: bool = False)
             "teams": str(tres), "matches": str(mres), "fixture_only_teams": fixture_only_teams,
             "names_kept": list(tres.names_kept),
             "names_kept_line": names_kept_line(len(tres.names_kept)) if tres.names_kept else None,
+            # SCORES BY TEAM (ARCHITECT 2026-11-08, addendum 292 item 3(c), #876): the two lists, match ids, and the line
+            "orientation_reversed": list(mres.orientation_reversed),
+            "teams_mismatch_refused": list(mres.teams_mismatch_refused),
+            "scores_by_team_line": scores_by_team_line(mres),
             "neutral": dict(neutral), "dry_run": dry_run}
 
 

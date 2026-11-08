@@ -39,7 +39,7 @@ As built (each reading is the conservative one, law 4; the PR body lists them fo
   uncertified) whose record-only would-be call (desk.market_only_hold.would_call) is PLAY is counted on ONE line of its
   own, labelled WOULD_BE. Each row decides from what it carries, never from the registry's state today, so a closing
   file written while uncertified counts the same after a certification. The line is printed while the registry does
-  not read the NFL model certified (registry.certification_of on nfl_predict.MODEL_VERSION, the uncertified() #785
+  not read the NFL model certified (registry.certification_of on family "NFL" and nfl_predict.MODEL_VERSION, addendum 299 item 3(a), the uncertified() #785
   built; an unread registry or a missing entry is never judged certified, law 4), and after that whenever a would-be
   row or a #446 row is there (the registry's state is the head's text only): split by the QB tags the hold reads (QB_TAGS: QB-flagged or unread / QB inputs clean),
   W-L-P and notional units at would_units at desk.exec.cost (the exec block the chain sized, desk_policy

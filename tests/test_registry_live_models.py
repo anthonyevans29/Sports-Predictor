@@ -204,3 +204,17 @@ def test_the_coverage_tile_reads_as_on_main(tmp_path, monkeypatch):
     for code in ("PL", "MLB", "NFL", "NHL", "UNL", "NCAA", "PD", "CL"):
         got, was = (cm.model_status(code, lanes, x, prod, day=day) for x in (entries, main))
         assert got == was, code
+
+
+def test_an_uncertified_entry_without_a_family_still_withholds_a_family_lookup(tmp_path):
+    """Review of the records PR (law 4): an UNCERTIFIED entry naming the version whose `family` is not recorded
+    (registry.declare writes none) withholds a family lookup; it never lets another entry of that family read certified."""
+    import json as _json
+    from src.walters import registry as _reg
+    p = tmp_path / "experiments.json"
+    p.write_text(_json.dumps([
+        {"id": "nfl-elo-v1", "sport": "nfl", "status": "x", "family": "NFL", "model_version": "nfl_elo_v1",
+         "certification": "PROMOTED x"},
+        {"id": "nfl-hold", "sport": "nfl", "status": "x", "model_version": "nfl_elo_v1",
+         "certification": "UNCERTIFIED - held"}]))
+    assert _reg.certification_of("NFL", "nfl_elo_v1", path=str(p)) == ("uncertified", "nfl-hold")

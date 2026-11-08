@@ -243,12 +243,13 @@ def uncertified(e: dict) -> bool:
 def uncertified_live(model_version: str, entries, family: str | None = None) -> dict | None:
     """The registry entry that withholds `model_version` (the id a predict path writes, e.g. nfl_predict.MODEL_VERSION),
     or None: the first entry whose `model_version` is that id and whose certification is UNCERTIFIED. `family` (a closing
-    family: SOCCER, MLB, NFL) also requires the entry's `family` to be it; None or empty keeps the bare match on the
-    version alone (coverage_map.model_status's read), the conservative direction: it can only find MORE withholding
-    entries, never fewer."""
+    family: SOCCER, MLB, NFL) also requires the entry's `family` to be it, OR the entry to carry no `family` at all: an
+    UNCERTIFIED entry naming the version whose family is not recorded still withholds (law 4: an unknown never reads
+    certified; registry.declare writes no `family`). None or empty keeps the bare match on the version alone
+    (coverage_map.model_status's read). Either way the conservative direction: only MORE withholding entries."""
     return next((e for e in entries if isinstance(e, dict) and model_version
                  and e.get("model_version") == model_version
-                 and (not family or e.get("family") == family) and uncertified(e)), None)
+                 and (not family or e.get("family") in (family, None)) and uncertified(e)), None)
 
 
 # THE LOOKUP IS KEYED BY FAMILY AND VERSION (ARCHITECT 2026-11-08 16:25 ET, addendum 299 item 3(a), verbatim in part:

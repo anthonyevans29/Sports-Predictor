@@ -888,12 +888,13 @@ def main(argv=None) -> int:
     for i, st, nid in skipped:
         print(f"  ⚠ step {i}/{len(steps)} python cli.py {' '.join(st)}: "
               f"skipped {nid['n']} listing(s) of clubs not in the DB: {', '.join(nid['ids'])}"[:600])
-    # addendum 295 item 4: each step whose rows were written by team (reversed) or refused, with its command and ids
+    # addendum 295 item 4: each step whose rows were written by team (reversed) or refused, with its command and ids;
+    # cut at 600 characters as the skipped-listings line is (the full id lists are in the chain receipt)
     for x in (sbt or {}).get("steps", []):
         rv, mm = x["orientation_reversed"], x["teams_mismatch_refused"]
-        print(f"  ⚠ step {x['step']}/{len(steps)} python cli.py {' '.join(x['argv'])}: "
-              f"orientation_reversed {rv['n']}" + (f": {', '.join(rv['ids'])}" if rv["ids"] else "")
-              + f" · teams_mismatch_refused {mm['n']}" + (f": {', '.join(mm['ids'])}" if mm["ids"] else ""))
+        print((f"  ⚠ step {x['step']}/{len(steps)} python cli.py {' '.join(x['argv'])}: "
+               f"orientation_reversed {rv['n']}" + (f": {', '.join(rv['ids'])}" if rv["ids"] else "")
+               + f" · teams_mismatch_refused {mm['n']}" + (f": {', '.join(mm['ids'])}" if mm["ids"] else ""))[:600])
     # The failure page (sp_notify) carries the journal's last 30 lines; a run that went on past a failed sync step
     # has pushed that step's output out of them, so the failures are named here, at the very end.
     for i, cmd, rc, last in step_report["failed"]:

@@ -10,7 +10,8 @@ Fail-first (5(c)): a stored row with provider_orientation reversed receives the 
 selection, on both writers: soccer 1X2 with a draw (sync_odds) and the NFL two-way (sync_odds_nfl).
 
 Throwaway DB only (tests/conftest.py); fake adapters, no network. Every row a test creates is removed after it (the test
-DB is shared across the session: the NFL odds window and the MLB fallback read every row of their sport)."""
+DB is shared across the session: the NFL odds window and the MLB fallback read every row of their sport); the intl
+test removes only the competition, teams and links its ingest created, never rows test_intl_history left."""
 import itertools
 from datetime import datetime, timedelta
 
@@ -35,9 +36,10 @@ KO = datetime(2042, 3, 1, 15, 0)
 
 @pytest.fixture
 def made():
-    """Collects the ids a test creates; removes them (odds, snapshots, neutral rows, matches, links, teams, comps)."""
+    """Collects the ids a test creates; removes them (odds, snapshots, neutral rows, matches, links, teams, comps).
+    `cts`: (competition_id, team_id, season) links a test created for a team it did not create."""
     init_db()
-    got = {"matches": [], "teams": [], "comps": []}
+    got = {"matches": [], "teams": [], "comps": [], "cts": []}
     yield got
     with session_scope() as s:
         mids = got["matches"]
@@ -45,6 +47,9 @@ def made():
             for model in (Odds, OddsSnapshot, MatchNeutralDerived):
                 s.query(model).filter(model.match_id.in_(mids)).delete(synchronize_session=False)
             s.query(Match).filter(Match.id.in_(mids)).delete(synchronize_session=False)
+        for cid, tid, season in got["cts"]:
+            s.query(CompetitionTeam).filter(CompetitionTeam.competition_id == cid, CompetitionTeam.team_id == tid,
+                                            CompetitionTeam.season == season).delete(synchronize_session=False)
         if got["teams"]:
             s.query(CompetitionTeam).filter(CompetitionTeam.team_id.in_(got["teams"])).delete(
                 synchronize_session=False)
@@ -266,22 +271,40 @@ def test_intl_sync_writes_neutral_null_with_the_reason_on_a_reversed_row_and_der
     write(tmp_path / "first", 880001, 880002, 2, 1)
     write(tmp_path / "again", 880002, 880001, 1, 2)
     write(tmp_path / "third", 880001, 880002, 2, 1)
+
+    def held(s):
+        return (set(s.execute(select(Competition.id)).scalars()), set(s.execute(select(Team.id)).scalars()),
+                set(s.execute(select(CompetitionTeam.competition_id, CompetitionTeam.team_id,
+                                     CompetitionTeam.season)).all()))
+    with session_scope() as s:                 # what the shared test DB already holds (test_intl_history's rows)
+        before = held(s)
     ih.ingest(ih.Source(from_dir=str(tmp_path / "first")), date(2018, 1, 1))
-    with session_scope() as s:
+    with session_scope() as s:                 # only the rows this ingest created are removed after the test
+        after = held(s)
         mid = s.execute(select(Match.id).where(Match.external_ids["api_football"].as_string() == "9907401")).scalar_one()
     made["matches"].append(mid)
+    made["comps"] += sorted(after[0] - before[0])
+    made["teams"] += sorted(after[1] - before[1])
+    made["cts"] += sorted(after[2] - before[2])
 
     def nd():
         with session_scope() as s:
             r = s.get(MatchNeutralDerived, mid)
             return r.neutral_derived, r.rule, r.venue_city, r.home_ground_city
     assert nd()[:2] == (False, ih.NEUTRAL_RULE)
+    import cli
+    out = CliRunner().invoke(cli.cli, ["intl-sync", "--from-dir", str(tmp_path / "again"), "--dry-run"]).output
+    assert (f"  RULE on a row listed reversed (orientation_reversed 1 this run): neutral_derived NULL, the rule "
+            f"above{ih.NEUTRAL_RULE_REVERSED[len(ih.NEUTRAL_RULE):]}") in out.splitlines(), out
     r = ih.ingest(ih.Source(from_dir=str(tmp_path / "again")), date(2018, 1, 1))
     assert r["orientation_reversed"] == [mid]
     flag, rule, vcity, _g = nd()
     assert flag is None and rule == ih.NEUTRAL_RULE_REVERSED and "orientation_reversed" in rule
     assert rule.startswith(ih.NEUTRAL_RULE) and len(rule) <= 512 and vcity == "Probe City"
     assert r["per_cs"][next(iter(r["per_cs"]))]["orientation_reversed"] == 1
+    out = CliRunner().invoke(cli.cli, ["intl-coverage"]).output
+    assert ("  rows the provider lists reversed (neutral_derived NULL, rule NEUTRAL_RULE_REVERSED, reason "
+            "orientation_reversed): 1") in out.splitlines(), out
     ih.ingest(ih.Source(from_dir=str(tmp_path / "third")), date(2018, 1, 1))
     assert nd()[:2] == (False, ih.NEUTRAL_RULE)                                   # the same pair: derived again
     assert PROVIDER_ORIENTATION_KEY not in _ext(mid)
@@ -386,3 +409,91 @@ def test_the_mlb_fallback_receipt_prints_the_scores_by_team_line(monkeypatch):
     import sp_run
     assert sp_run.sync_counts(lines)["scores_by_team"] == {"orientation_reversed": {"n": 1, "ids": ["7"]},
                                                            "teams_mismatch_refused": {"n": 2, "ids": ["8", "9"]}}
+
+
+# ---------------------------------------------------------------------------------------------- review round (#885)
+
+def _key_line(lines):
+    """The step receipt's key line for a step that printed `lines` (sp_receipts.key_line reads the tail's last)."""
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "deploy" / "hosting"))
+    import sp_receipts
+    return sp_receipts.key_line({"kind": "step", "tail": [x for x in lines if x.strip()][-5:]})
+
+
+def test_the_odds_steps_keep_their_summary_as_the_step_receipts_key_line(made, monkeypatch):
+    """The swapped line prints BEFORE the summary (as _print_no_book_odds does on the MLB branch): the receipts table's
+    key line for a sync-odds / sync-odds-football step stays the created/skipped summary, the swapped ids in the tail."""
+    import cli
+    mid, _sid, _ = _world(made, Sport.SOCCER, FAKE, "O295K", ext={PROVIDER_ORIENTATION_KEY: "reversed"})
+    monkeypatch.setattr(svc, "utc_now_naive", lambda: KO - timedelta(days=3))
+    monkeypatch.setattr(cli, "_adapter_for_competition", lambda c: FakeOdds(SOCCER_BOOK))
+    out = CliRunner().invoke(cli.cli, ["sync-odds", "--competition", "O295K"])
+    assert out.exit_code == 0, out.output
+    lines = out.output.splitlines()
+    assert _key_line(lines).startswith("✓ Odds (O295K): created=1"), lines
+    assert f"orientation_swapped 1: {mid}" in lines
+    monkeypatch.setattr(svc, "sync_odds_nfl", lambda progress=None: {"created": 6, "games": 1,
+                                                                     "orientation_swapped": [41]})
+    out = CliRunner().invoke(cli.cli, ["sync-odds-football"])
+    lines = out.output.splitlines()
+    assert _key_line(lines).startswith("✓ Football odds: created=6"), lines
+    assert "orientation_swapped 1: 41" in lines
+
+
+def test_the_admin_odds_job_ends_with_the_swapped_ids(made, monkeypatch):
+    from src.web.routes import admin
+    mid, _sid, _ = _world(made, Sport.SOCCER, FAKE, "O295A", ext={PROVIDER_ORIENTATION_KEY: "reversed"})
+    monkeypatch.setattr(svc, "utc_now_naive", lambda: KO - timedelta(days=3))
+    monkeypatch.setattr(admin, "_adapter_for_competition", lambda c: FakeOdds(SOCCER_BOOK))
+    out = admin._job_sync_odds(competition_code="O295A", season=None, limit=50)
+    assert out == f"created=1 skipped=0 · orientation_swapped 1: {mid}", out
+
+
+def test_a_rekey_with_the_pair_reversed_records_the_providers_orientation(made):
+    """The re-key's history branch runs the same decision: the row takes the new id AND the key, so the next odds sync
+    prices it by team."""
+    when = utc_now_naive() + timedelta(days=2)
+    mid, _sid, ((_h, hp), (_a, ap)) = _world(made, Sport.NFL, AF, "O295R", when=when,
+                                              ext={f"{AF}_prev": ["o295-rk-new"]})
+    with session_scope() as s:                                  # the row's current id is an old one
+        m = s.get(Match, mid)
+        m.external_ids = {AF: "o295-rk-old", f"{AF}_prev": ["o295-rk-new"]}
+    res = IngestionService(Listing(AF, [_nm("O295R", "o295-rk-new", ap, hp, when)])).sync_matches("O295R",
+                                                                                                    season="2026")
+    ext = _ext(mid)
+    assert res.rekeyed == 1 and ext[AF] == "o295-rk-new" and ext[PROVIDER_ORIENTATION_KEY] == "reversed"
+
+
+def test_the_mlb_fallback_refuses_a_mismatch_before_the_downgrade_check(made):
+    """A stored FINISHED row whose id now lists another pair, not final: listed under teams_mismatch_refused (the
+    team check runs first), never counted as a refused downgrade."""
+    from src.ingestion import mlb_apisports as fb
+    U = datetime(2041, 8, 4, 17, 5)
+    A, B, C = (295201, "Probe295b Alphas"), (295202, "Probe295b Betas"), (295203, "Probe295b Gammas")
+    with session_scope() as s:
+        comp = s.execute(select(Competition).where(Competition.sport == Sport.MLB,
+                                                   Competition.code == "MLB")).scalars().first()
+        if comp is None:
+            comp = Competition(sport=Sport.MLB, code="MLB", name="Major League Baseball", area="USA", type="LEAGUE")
+            s.add(comp)
+            s.flush()
+            made["comps"].append(comp.id)
+        t = {tid: Team(sport=Sport.MLB, name=name, external_ids={fb.SOURCE: str(tid)}) for tid, name in (A, B, C)}
+        s.add_all(t.values())
+        s.flush()
+        made["teams"] += [x.id for x in t.values()]
+        m = Match(sport=Sport.MLB, competition_id=comp.id, season="2041", utc_date=U, status=MatchStatus.FINISHED,
+                  home_team_id=t[A[0]].id, away_team_id=t[B[0]].id, home_score=3, away_score=1,
+                  full_time_result=Result.HOME, external_ids={fb.SOURCE: "2961"})
+        s.add(m)
+        s.flush()
+        mid = m.id
+        made["matches"].append(mid)
+    clubs = [{"id": i, "name": n, "code": None} for i, n in (A, B, C)]
+    r = fb.sync_matches(FakeClient(clubs, [_g(2961, C, B, U, short="NS", hr=0, ar=0)]), "2041")
+    assert r["teams_mismatch_refused"] == [mid] and r["downgrade_refused"] == 0, r
+    with session_scope() as s:
+        made["teams"] += [x.id for x in s.execute(select(Team).where(Team.name.like("Probe295b %"))).scalars()
+                          if x.id not in made["teams"]]

@@ -111,3 +111,19 @@ def test_a_chain_without_the_line_says_nothing_about_it(sandbox, monkeypatch, ca
     chain = receipts(sandbox)[-1]
     assert "scores_by_team" not in chain and "orientation_reversed" not in out
     assert "orientation_reversed" not in sp_receipts.key_line(chain)
+
+
+def test_the_step_warning_line_is_cut_like_the_skipped_listings_line_and_the_receipt_keeps_every_id(
+        sandbox, monkeypatch, capsys):
+    """A mass-reversed listing (hundreds of ids) prints one ⚠ line cut at 600 characters (addendum 204 item 3(c)'s cut
+    for the skipped-listings line); the chain receipt keeps every id."""
+    ids = ", ".join(str(40000 + i) for i in range(300))
+    (c.REPO / "cli.py").write_text("print('orientation_reversed 300: %s · teams_mismatch_refused 0')\n" % ids)
+    import chains
+    monkeypatch.setitem(chains.CHAINS, "t-sbt-295w", {"steps": [["sync-matches", "--competition", "NCAA"]]})
+    capsys.readouterr()
+    assert sp_run.main(["t-sbt-295w"]) == 0
+    out = capsys.readouterr().out.split("\n")
+    warn = [x for x in out if x.startswith("  ⚠ step 1/1 python cli.py sync-matches --competition NCAA: ")]
+    assert len(warn) == 1 and len(warn[0]) == 600, [len(x) for x in warn]
+    assert len(receipts(sandbox)[-1]["scores_by_team"]["steps"][0]["orientation_reversed"]["ids"]) == 300

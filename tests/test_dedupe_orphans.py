@@ -335,3 +335,34 @@ def test_overlapping_candidate_sets_never_merge_in_any_insertion_order(states):
             s.query(Odds).filter(Odds.match_id.in_(list(ids.values()))).delete(synchronize_session=False)
             s.query(Match).filter(Match.competition_id == cid).delete(synchronize_session=False)
     assert len(plans) == 1, plans                                     # order-independent
+
+
+def test_a_rekeyed_row_carries_the_provider_orientation_of_the_id_it_keeps(world):
+    """#885 (ARCHITECT 2026-11-08, addendum 295 item 5(a)): external_ids["provider_orientation"] records what the
+    provider's listing of the row's provider id says; the odds writers swap on it. A merge that gives the keeper the
+    newer row's id gives it that row's key (or none); a merge where the keeper keeps its own id keeps its own key, never
+    the retired row's; a relink (a same-pair live id only: a swapped pair is refused) removes it, as a same listing
+    does. Otherwise a stale "reversed" would price a same-pair id swapped."""
+    from src.ingestion.score_orientation import PROVIDER_ORIENTATION_KEY as POK
+    ids, prov = world
+    with session_scope() as s:
+        # relink: its retired id read reversed; twin_old: its old id read reversed, its twin's (23100) does not;
+        # stale_new: the retired row of the live_old merge
+        for key in ("relink", "twin_old", "stale_new"):
+            m = s.get(Match, ids[key])
+            m.external_ids = {**(m.external_ids or {}), POK: "reversed"}
+    md.orphans(CODE, prov, apply=True, now=NOW)
+    assert POK not in _row(ids["relink"])["ext"]                  # relinked to a same-pair live id
+    assert POK not in _row(ids["twin_old"])["ext"]                # took twin_new's id, which carries no key
+    assert POK not in _row(ids["live_old"])["ext"]                # kept its own id: stale_new's key is not taken
+
+
+def test_a_merge_that_takes_the_newer_id_takes_its_reversed_key(world):
+    from src.ingestion.score_orientation import PROVIDER_ORIENTATION_KEY as POK
+    ids, prov = world
+    with session_scope() as s:
+        m = s.get(Match, ids["twin_new"])
+        m.external_ids = {**(m.external_ids or {}), POK: "reversed"}
+    md.orphans(CODE, prov, apply=True, now=NOW)
+    ext = _row(ids["twin_old"])["ext"]
+    assert ext[SRC] == "23100" and ext[POK] == "reversed"

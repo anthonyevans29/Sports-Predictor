@@ -33,9 +33,12 @@ nflverse's score for that same team, and the mirror. Any difference, or a score 
 orientation each pair reads (our home is nflverse's home: same; our home is nflverse's away: reversed) is counted and
 printed beside it, with nflverse's location, since a reversed pair is where a by-position write went wrong.
 
-Exit: 0 every stored row read and no mismatch; 1 at least one MISMATCH (the list printed); 2 REFUSED (a --db that is
-not a fresh copy outside data/, a --games-file that is missing or lacks a column). Last line:
-NFL-RESULTS-BY-TEAM-RECEIPT {json} (counts and match ids only). Writes nothing; no network.
+Exit: 0 every stored row COMPARED and no mismatch; 1 at least one MISMATCH (the list printed); 2 REFUSED (a --db that
+is not a fresh copy outside data/, a --games-file that is missing or lacks a column); 3 INCOMPLETE: no mismatch, but
+nothing was compared (a stale or wrong file, a wrong --season, no stored row) or some stored rows were not (unmapped,
+not in the file, ambiguous, nflverse unscored; each listed), so the run is never read as a clean pass (law 4: never
+fake completeness). Last line: NFL-RESULTS-BY-TEAM-RECEIPT {json} (counts and match ids only). Writes nothing; no
+network.
 
     python3 scripts/nfl_results_by_team_receipt.py --db /path/to/backup-copy.db --games-file /path/to/games.csv
         [--season 2026]
@@ -54,7 +57,7 @@ from zoneinfo import ZoneInfo
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-OK, MISMATCHED, REFUSED = 0, 1, 2
+OK, MISMATCHED, REFUSED, INCOMPLETE = 0, 1, 2, 3
 COMPETITION = "NFL"
 DEFAULT_SEASON = "2026"
 SIDECARS = ("-wal", "-shm", "-journal")
@@ -220,7 +223,8 @@ def report(res: dict, games: list[dict], n_ours: int, ambiguous_tla: set, season
             "unmapped": [x["match_id"] for x in res["unmapped"]],
             "not_in_file": [x["match_id"] for x in res["not_in_file"]],
             "ambiguous": [x["match_id"] for x in res["ambiguous"]],
-            "unscored": [x["match_id"] for x in res["unscored"]], "file_unpaired": len(unpaired)}
+            "unscored": [x["match_id"] for x in res["unscored"]], "file_unpaired": len(unpaired),
+            "not_compared": sum(len(res[k]) for k in ("unmapped", "not_in_file", "ambiguous", "unscored"))}
 
 
 def main(argv=None) -> int:
@@ -260,7 +264,18 @@ def main(argv=None) -> int:
             raise Refused(f"--db {path}: cannot be read as the schema the receipt needs ({type(e).__name__})") from None
         res = compare(ours, tmap, games)
         out = report(res, games, len(ours), amb, a.season, say)
-        code = MISMATCHED if out["mismatch"] else OK
+        if out["mismatch"]:
+            code = MISMATCHED
+        elif not out["compared"]:
+            say(f"\nINCOMPLETE: nothing compared ({len(ours)} stored row(s), {len(games)} game(s) of season "
+                f"{a.season} in the file): not a clean pass")
+            code = INCOMPLETE
+        elif out["not_compared"]:
+            say(f"\nINCOMPLETE: no mismatch, but {out['not_compared']} of {len(ours)} stored row(s) not compared "
+                "(unmapped, not in the file, ambiguous or nflverse unscored; listed above): not a clean pass")
+            code = INCOMPLETE
+        else:
+            code = OK
     except Refused as e:
         say(f"REFUSED: {e}; nothing compared")
         out["refused"] = str(e)

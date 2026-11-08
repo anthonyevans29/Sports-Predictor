@@ -35,7 +35,8 @@ def g(gid, day, away, as_, home, hs, location="Home", season=2026):
             "away_team": away, "away_score": as_, "home_team": home, "home_score": hs, "location": location}
 
 
-def _copy(tmp_path) -> tuple[Path, dict]:
+def _copy(tmp_path, keep=None) -> tuple[Path, dict]:
+    """The synthetic copy; `keep` (a set of row keys) stores only those rows."""
     from sqlalchemy import create_engine
     from sqlalchemy.orm import Session
     from src.db.schema import Base, Competition, CompetitionTeam, Match, MatchStatus, Sport, Team
@@ -52,6 +53,8 @@ def _copy(tmp_path) -> tuple[Path, dict]:
         s.add_all([CompetitionTeam(competition_id=comp.id, team_id=t.id, season="2026") for t in ts.values()])
 
         def m(key, home, away, when, hs, as_, st=MatchStatus.FINISHED, season="2026"):
+            if keep is not None and key not in keep:
+                return
             row = Match(sport=Sport.NFL, competition_id=comp.id, season=season, utc_date=when, status=st,
                         home_team_id=ts[home].id, away_team_id=ts[away].id, home_score=hs, away_score=as_)
             s.add(row)
@@ -103,11 +106,49 @@ def test_the_mismatch_list_compares_by_team_and_prints_both_sides(tmp_path, caps
     assert "team codes held by more than one NFL team (unmapped, never a guess): DUP" in text
 
 
-def test_no_mismatch_exits_0(tmp_path, capsys):
-    path, _ids = _copy(tmp_path)
+def test_every_stored_row_compared_and_no_mismatch_exits_0(tmp_path, capsys):
+    path, _ids = _copy(tmp_path, keep={"agree", "rev_ok", "sched", "old"})
     rows = [r for r in ROWS if r["game_id"] in ("2026_01_NE_SEA", "2026_01_SF_LA")]
-    assert R.main(["--db", str(path), "--games-file", str(_games(tmp_path, rows))]) in (R.OK,)
-    assert "MISMATCH LIST (0)" in capsys.readouterr().out
+    assert R.main(["--db", str(path), "--games-file", str(_games(tmp_path, rows))]) == R.OK
+    out = capsys.readouterr().out
+    assert "MISMATCH LIST (0)" in out and "INCOMPLETE" not in out
+
+
+def test_no_mismatch_with_rows_not_compared_is_incomplete_never_0(tmp_path, capsys):
+    """Law 4, never fake completeness: no mismatch, but stored rows unmapped / not in the file / unscored -> exit
+    INCOMPLETE, the reason printed; the clean exit 0 needs every stored row compared."""
+    path, ids = _copy(tmp_path)
+    rows = [r for r in ROWS if r["game_id"] in ("2026_01_NE_SEA", "2026_01_SF_LA")]
+    assert R.main(["--db", str(path), "--games-file", str(_games(tmp_path, rows))]) == R.INCOMPLETE
+    out = capsys.readouterr().out.splitlines()
+    tail = json.loads(out[-1].split(" ", 1)[1])
+    assert tail["exit"] == R.INCOMPLETE and tail["mismatch"] == [] and tail["compared"] == 2
+    assert tail["not_compared"] == 6
+    assert any(x.startswith("INCOMPLETE: no mismatch, but 6 of 8 stored row(s) not compared") for x in out), out
+
+
+def test_a_file_of_another_season_compares_nothing_and_is_incomplete(tmp_path, capsys):
+    """A stale or wrong file (no game of the season) compares nothing: never a clean exit."""
+    path, _ids = _copy(tmp_path)
+    rows = [r for r in ROWS if r["season"] == 2025]
+    assert R.main(["--db", str(path), "--games-file", str(_games(tmp_path, rows))]) == R.INCOMPLETE
+    out = capsys.readouterr().out.splitlines()
+    tail = json.loads(out[-1].split(" ", 1)[1])
+    assert (tail["compared"], tail["file_games"], tail["exit"]) == (0, 0, R.INCOMPLETE)
+    assert any(x.startswith("INCOMPLETE: nothing compared") for x in out), out
+
+
+def test_the_pairing_window_is_the_eastern_date_not_the_utc_date():
+    """Thu 00:20Z is Wed in US Eastern: a game nflverse dates Tue pairs (one day from Wed), though it is two days
+    from the UTC date."""
+    assert str(R.eastern_date(datetime(2026, 9, 10, 0, 20))) == "2026-09-09"
+    ours = [{"match_id": 1, "utc": datetime(2026, 9, 10, 0, 20), "home_id": 10, "away_id": 11, "home_score": 13,
+             "away_score": 10}]
+    from datetime import date
+    parsed = [{"game_id": "G", "gameday": date(2026, 9, 8), "game_type": "REG", "home": "SEA", "away": "NE",
+               "home_score": 13, "away_score": 10, "location": "Home"}]
+    res = R.compare(ours, {"SEA": 10, "NE": 11}, parsed)
+    assert [x["match_id"] for x in res["checked"]] == [1] and not res["not_in_file"]
 
 
 def test_two_games_of_the_pair_within_a_day_are_ambiguous_never_compared(tmp_path, capsys):

@@ -62,7 +62,9 @@ def scores_by_team(stored: tuple, listed: tuple, values: dict) -> tuple[str, dic
 # listed pair is the stored row's reverse, the upsert writes `external_ids["provider_orientation"] = "reversed"`, and
 # removes the key when the listing reads same; a mismatch writes nothing (the row untouched, as now). This is the one
 # stored-state write I allow from the finding: it records what the provider's current listing says about our row, and
-# it is what a later venue-flip ruling would read." Written by src/ingestion/service.py `_scores_by_team` only.
+# it is what a later venue-flip ruling would read." A verdict is written by src/ingestion/service.py `_scores_by_team`
+# only; a re-key outside the upsert keeps the key tied to the provider id it describes (src/ingestion/match_dedupe.py:
+# a merge takes the key of the id the keeper keeps, a relink to a same-pair live id removes it).
 PROVIDER_ORIENTATION_KEY = "provider_orientation"
 # Item 5(b), verbatim: "`sync_odds`, `sync_odds_nfl` and the MLB fallback's odds path, if it has one, swap HOME and AWAY
 # selections into the stored orientation when the key is present, counted on the receipt with the match ids; the 1X2

@@ -1101,11 +1101,12 @@ def sync_odds_cmd(competition_code: str, season: str | None, limit: int, days_ah
     service = IngestionService(adapter)
     result = service.sync_odds(competition_code, season=season, limit=limit,
                                **({"match_ids": ids} if ids is not None else {}))
-    console.print(f"[green]✓ Odds ({competition_code}): {result}[/green]")
     if hasattr(result, "orientation_swapped"):
-        # addendum 295 item 5(b) (#885): the rows priced into the stored orientation, plainly, zero included
+        # addendum 295 item 5(b) (#885): the rows priced into the stored orientation, plainly, zero included; before
+        # the summary, which stays the step receipt's key line (sp_receipts.key_line reads the tail's last line)
         from src.ingestion.service import odds_by_team_line
         print(odds_by_team_line(result.orientation_swapped), flush=True)
+    console.print(f"[green]✓ Odds ({competition_code}): {result}[/green]")
 
 
 @cli.command("sync-injuries")
@@ -1695,6 +1696,10 @@ def intl_sync_cmd(since, max_calls, dry_run, save, from_dir):
         click.echo(f"  {r['scores_by_team_line']}")
     click.echo("  neutral_derived: " + " · ".join(f"{k} {v}" for k, v in sorted(r["neutral"].items())))
     click.echo(f"  RULE: {ih.NEUTRAL_RULE}")
+    # ARCHITECT 2026-11-08, addendum 295 item 6 (#885): a row the provider lists reversed is NULL under its own rule
+    n_rev = sum(c.get("orientation_reversed", 0) for c in r["per_cs"].values())
+    click.echo(f"  RULE on a row listed reversed (orientation_reversed {n_rev} this run): neutral_derived NULL, the "
+               f"rule above{ih.NEUTRAL_RULE_REVERSED[len(ih.NEUTRAL_RULE):]}")
     if not dry_run:
         click.echo("\nCOVERAGE per competition-season (after ingest, from the DB):")
         with session_scope() as s:
@@ -1710,11 +1715,16 @@ def intl_coverage_cmd():
     home / neutral / unknown (with the rule's home-and-away sanity check)."""
     from src.db.database import init_db, session_scope
     from src.ingestion import intl_history as ih
+    from src.db.schema import MatchNeutralDerived
     init_db()
     with session_scope() as s:
         lines = ih.coverage_lines(ih.coverage(s))
+        # addendum 295 item 6 (#885): the rows under the reversed rule (NULL, reason orientation_reversed), counted
+        n_rev = s.query(MatchNeutralDerived).filter(MatchNeutralDerived.rule == ih.NEUTRAL_RULE_REVERSED).count()
         s.rollback()
     click.echo("INTL COVERAGE (#220) · neutral_derived rule: " + ih.NEUTRAL_RULE)
+    click.echo("  rows the provider lists reversed (neutral_derived NULL, rule NEUTRAL_RULE_REVERSED, reason "
+               f"orientation_reversed): {n_rev}")
     for line in lines:
         click.echo(line)
 
@@ -6371,16 +6381,17 @@ def sync_odds_football_cmd(match_ids=None):
     window = r.get("window_by_competition") or {}
     # Codex on #346: every competition in the window is named, priced n of window m (0 included)
     comps = sorted(set(window) | set(by_comp))
+    if "orientation_swapped" in r:
+        # addendum 295 item 5(b) (#885): the rows priced into the stored orientation, plainly, zero included; before
+        # the summary, which stays the step receipt's key line (sp_receipts.key_line reads the tail's last line)
+        from src.ingestion.service import odds_by_team_line
+        print(odds_by_team_line(r["orientation_swapped"]), flush=True)
     console.print(f"[green]✓ Football odds: created={r['created']} "
                   f"across {r['games']} games"
                   + (" (" + " · ".join(f"{c} {by_comp.get(c, 0)}" + (f"/{window[c]}" if c in window else "")
                                        for c in comps) + " priced/in window)" if comps else "")
                   + (f" · book-consensus snapshots appended={r['snapshots']}" if "snapshots" in r else "")
                   + "[/green]")
-    if "orientation_swapped" in r:
-        # addendum 295 item 5(b) (#885): the rows priced into the stored orientation, plainly, zero included
-        from src.ingestion.service import odds_by_team_line
-        print(odds_by_team_line(r["orientation_swapped"]), flush=True)
 
 
 # Old name kept as an alias so existing chains keep working (2026-09-26).

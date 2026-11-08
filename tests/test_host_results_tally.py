@@ -8,10 +8,10 @@ of its own"; #875).
 Pinned here: the chain's step (soccer-morning-after's last; mlb-morning's H0-9 tally unchanged), the two paths under
 exports/ and never ./RESULTS.md, every section's read through mode=ro (a write refused by SQLite, the bindings restored,
 a missing DB refused with nothing written), the JSON's shape (the file's sections in order, their lines verbatim, the
-figures their computation returned, the per-row lists left out, strict JSON), no forbidden content (no order text,
+figures their computation returned, the per-row lists left out or counted, strict JSON), no forbidden content (no order text,
 contract count, unit fraction, pool, account id or dollar figure, whatever the closing files carry), the command's host
 fence, the laptop's tally byte for byte, the mirror's plan copying both files under their own kinds, and the compare
-never reading the JSON as a divergence."""
+left as it is (the JSON one more `only on host` line; how the compare classes it is an open item for the architect)."""
 from __future__ import annotations
 
 import hashlib
@@ -118,11 +118,30 @@ def test_the_export_writes_its_two_files_under_exports_and_never_the_repos_resul
     assert (md, js) == ("exports/RESULTS.md", "exports/results_tally.json")
     assert (tmp_path / md).is_file() and (tmp_path / js).is_file()
     assert not (tmp_path / "RESULTS.md").exists()                      # the repo's RESULTS.md is never written
-    assert sorted(p.name for p in ex.iterdir() if ".tmp-" in p.name) == []     # no temporary name left behind
+    assert sorted(p.name for p in ex.iterdir() if p.name.startswith(".") or ".tmp" in p.name) == []   # none left
     txt = (tmp_path / md).read_text()
     assert txt.startswith("# Results — rolling 36500 days")
     assert "THE HOST'S TALLY (ARCHITECT 2026-11-08, addendum 289 item 3)" in txt
     assert "rebuilt from the laptop's DB" not in txt
+
+
+def test_the_temporary_names_are_hidden_from_the_laptops_pull_and_the_mirror(tmp_path, monkeypatch):
+    """The verifier's nit on the first build (`RESULTS.md.tmp-<pid>` matched pull_exports.SAFE_NAME): each file is
+    written under a dot-led name (coverage_map.write_document's form) and renamed into place."""
+    import os
+
+    import pull_exports
+    from src.walters.export import host_results_tally
+    _world(tmp_path)
+    moved = []
+    real = os.replace
+    monkeypatch.setattr(os, "replace", lambda a, b: (moved.append((os.path.basename(a), os.path.basename(b))),
+                                                     real(a, b))[1])
+    host_results_tally(days=36500)
+    assert [b for _, b in moved] == ["RESULTS.md", "results_tally.json"]
+    for a, _ in moved:
+        assert a.startswith(".") and a.endswith(".tmp") and not pull_exports.SAFE_NAME.match(a), a
+        assert not a.endswith(em.SUFFIXES)
 
 
 def test_every_section_reads_through_mode_ro_and_the_bindings_are_restored(tmp_path, monkeypatch):
@@ -239,6 +258,43 @@ def test_the_nhl_shadows_record_against_the_close_reaches_the_json_and_its_per_c
     assert any(ln.startswith(f"  - {sh.MODEL_VERSION}: vs close") for ln in nhl["lines"])
 
 
+ALLOWED_LISTS = {"ci95", "families", "certification"}     # a pair, the family names, the head's (status, id)
+
+
+def _lists(v, key=None):
+    if isinstance(v, dict):
+        for k, x in v.items():
+            yield from _lists(x, k)
+    elif isinstance(v, list):
+        yield key, v
+        for x in v:
+            yield from _lists(x, key)
+
+
+def test_the_figures_carry_no_per_row_list_only_its_count(tmp_path):
+    """The verifier's finding on the first build: `runs` (one stamp per PLAY row), `ladder_edges` (each LADDER row's
+    exec edge), the void labels and the close record's per-game quality rows reached the JSON as lists. Each is now its
+    count; the per-call `lines` and per-game `rows` stay left out; any other list of dicts is counted by its shape."""
+    from src.walters.export import _tally_jsonable, host_results_tally
+    _world(tmp_path)
+    _, js = host_results_tally(days=36500)
+    doc = json.loads((tmp_path / js).read_text())
+    bad = [(s["title"], k, v) for s in doc["sections"] for k, v in _lists(s["figures"]) if k not in ALLOWED_LISTS]
+    assert bad == [], bad
+    ex = [s for s in doc["sections"] if s["title"].startswith("EXEC COHORTS")][0]["figures"]
+    assert ex["runs"] == 2 and ex["unreadable"] == 0                   # two PLAY rows: their count, not their stamps
+    assert ex["left_out"]["MLB"]["ladder_edges"] == 0 and ex["left_out"]["MLB"]["void"] == 0
+    assert doc["sections"][0]["figures"]["void"] == 0                  # MLB: the void labels' count
+    got = _tally_jsonable({"runs": ["a", "b"], "ladder_edges": [1.5, 2.5, 3.5], "void": ["match 1 A @ B: x"],
+                           "redated": [], "redated_rows": ["match 2 C @ D: y"], "unreadable": ["f.json"],
+                           "quality": {"stale": [{"match_id": 1}], "superseded": [{"match_id": 2}, {"match_id": 3}]},
+                           "other": [{"match_id": 4}], "lines": ["  A @ B 0.6"], "rows": [{"match_id": 5}],
+                           "families": ["MLB", "NFL"], "ci95": (0.1, 0.2), "void_n": 3, "w": 1})
+    assert got == {"runs": 2, "ladder_edges": 3, "void": 1, "redated": 0, "redated_rows": 1, "unreadable": 1,
+                   "quality": {"stale": 1, "superseded": 2}, "other": 1, "families": ["MLB", "NFL"],
+                   "ci95": [0.1, 0.2], "void_n": 3, "w": 1}
+
+
 def test_neither_file_carries_an_order_a_contract_count_a_unit_fraction_the_pool_an_account_or_a_dollar(tmp_path):
     from src.walters.export import host_results_tally
     _world(tmp_path)
@@ -324,29 +380,21 @@ FIX = {"fixtures_NHL_2026-11-09.json": {"git_sha": "abc", "fixtures": [{"home_te
                                                                          "utc_date": "2026-11-09T23:00:00"}]}}
 
 
-def test_the_compare_never_reads_the_hosts_tally_as_a_divergence(tmp_path):
+def test_the_compare_is_unchanged_and_reads_the_hosts_tally_as_any_host_only_kind(tmp_path):
+    """Law 4 (the fixer's round, not ruled): compare_exports is untouched. The host's tally is one more `only on host`
+    line, as the host's nhl_shadow file is, and the compare day is DIVERGENT on it as on the host-only kinds the mirror
+    already holds; how the compare should class it is an open item for the architect."""
     tally = {"kind": "results_tally_v1", "sections": [{"title": "MLB", "lines": ["- Sides: **1/2**"]}]}
-    r = _cmp(tmp_path, dict(FIX), {**FIX, "results_tally.json": tally, "RESULTS.md": "# Results"})
-    assert r.returncode == 0, r.stdout
+    shadow = {"calls": []}
+    r = _cmp(tmp_path, dict(FIX), {**FIX, "results_tally.json": tally, "nhl_shadow_2026-11-09_1601.json": shadow,
+                                   "RESULTS.md": "# Results"})
     out = r.stdout.splitlines()
-    assert "VERDICT: CLEAN" in out
-    assert "the host's tally (machine state, never compared): results_tally laptop no / host yes" in out
-    assert "machine-state files: coverage laptop no / host no" in out          # the ruled line, unchanged
-    assert not any("results_tally.json" in ln and ln.startswith(("·", "✓", "✗")) for ln in out)
-    assert any(ln.startswith("coverage: 1 JSON file(s) compared") for ln in out)
-
-
-def test_a_folder_holding_only_the_tally_is_no_coverage_never_clean(tmp_path):
-    r = _cmp(tmp_path, {}, {"results_tally.json": {"kind": "results_tally_v1"}})
-    assert r.returncode == 3 and "VERDICT: NO-COVERAGE (0 compared) — not a data verdict" in r.stdout
-
-
-def test_without_a_tally_file_the_compare_prints_exactly_as_before(tmp_path):
-    r = _cmp(tmp_path, dict(FIX), dict(FIX))
-    assert r.returncode == 0 and "the host's tally" not in r.stdout
-    assert ce.MACHINE_STATE_KINDS == ("coverage",) and ce.TALLY_KINDS == ("results_tally",)
-    assert ce.machine_state_kind("results_tally.json") == "results_tally"
-    assert ce.machine_state_kind("RESULTS.md") is None and ce.tally_line(["x.json"], ["y.json"]) is None
+    assert r.returncode == 1 and "VERDICT: DIVERGENT" in out, r.stdout
+    assert "· results_tally.json: only on host" in out
+    assert "· nhl_shadow_2026-11-09_1601.json: only on host" in out
+    assert "machine-state files: coverage laptop no / host no" in out
+    assert ce.MACHINE_STATE_KINDS == ("coverage",) and ce.machine_state_kind("results_tally.json") is None
+    assert not hasattr(ce, "TALLY_KINDS") and not hasattr(ce, "tally_line")
 
 
 def test_the_window_card_never_reads_the_tally(tmp_path):

@@ -7146,7 +7146,8 @@ def export_soccer_expansion_shadow_cmd(hours):
     exists, or a write that fails, is refused (exit 2, nothing written under the name), never overwritten.
     THE SCHEDULE (ARCHITECT 2026-10-30 12:45 ET, addendum 185 D2): the LAST step of the soccer sync chains
     (deploy/hosting/chains.py: soccer-prematch, run by sp-soccer-friday and sp-soccer-saturday, and
-    soccer-morning-after), run bare: its rows are the fixtures kicking off after the run and before the next chain's
+    soccer-morning-after, where it is last but for `results-tally --host-export`, addendum 230 item 2(b); still after
+    every sync), run bare: its rows are the fixtures kicking off after the run and before the next chain's
     export (soccer_expansion.next_chain_run, from the three timers' schedules, plus EXPORT_WINDOW_MARGIN = 2 h: Code's
     reading of "before the next chain's", ruled by addendum 188 item 4). --hours is a manual run's explicit override.
     REFUSED (exit 2) before any DB read, nothing read or written, unless this machine's role
@@ -7158,7 +7159,9 @@ def export_soccer_expansion_shadow_cmd(hours):
     stands (184 item 1); the export is the chain's LAST step so the syncs before it complete; the other leagues' rows
     are written before the refusal exits; the chain's failure page is the signal and the label is placed by a receipt
     PR the same day (as the cup timer's REFUSED rows are handled). No daily failure is tolerated for more than one
-    chain run: a label unplaced on the second run is a finding Issue." A refused league (its binding, F3, or a league
+    chain run: a label unplaced on the second run is a finding Issue." (On soccer-morning-after the host's
+    `results-tally --host-export` follows it, addendum 230 item 2(b); the syncs still run before the export.) A refused
+    league (its binding, F3, or a league
     this DB does not store) exits 2 after the file is written; the closing line names the leagues that were exported,
     or says none was."""
     from src.walters import desk_policy as _dp

@@ -1717,23 +1717,32 @@ HOST_TALLY_LINE = ("_THE HOST'S TALLY (ARCHITECT 2026-11-08, addendum 289 item 3
                    "read mode=ro, with results_tally.json beside it, and mirrored: \"the laptop's is regenerated; the "
                    "host's is the record of production\". Not authoritative in git: the DB, BACKLOG.md and the graded "
                    "exports are the record._\n")
-# The per-row lists a section's computation returns beside its figures (the shadows' per-call `lines`, the per-game
-# `rows` of the UNL grade and the three-way close record): the file prints figures, not those rows, so the JSON leaves
-# them out (a list under either key, at any depth). Everything else is the computation's own return, made JSON-safe.
+# The per-row lists a section's computation returns beside its figures. Left out (a list under either key, at any
+# depth): the shadows' per-call `lines`, the per-game `rows` of the UNL grade and the three-way close record. COUNTED (a
+# list under one of these keys, at any depth, becomes its length under the same key): the exec cohorts' per-PLAY-row run
+# stamps (`runs`), the LADDER rows' exec edges (`ladder_edges`), the unreadable closing files (`unreadable`), the void
+# labels (`void`, `redated`, NFL's `redated_rows`) and the close record's per-game capture-quality rows (`stale`,
+# `superseded`). Any other list of dicts is counted too: a per-row list by its shape. What is left is the
+# computation's own counts, means and labels (`families`, `certification`, a `ci95` pair), made JSON-safe.
 TALLY_ROW_KEYS = ("lines", "rows")
+TALLY_COUNTED_KEYS = ("runs", "ladder_edges", "unreadable", "void", "redated", "redated_rows", "stale", "superseded")
 
 
 def _tally_jsonable(v):
     """A section's figures as JSON: tuple keys joined by " · ", tuples and sets as lists (a set sorted), datetimes as
-    ISO-8601 with Z (naive = UTC, as the store), a float that is not finite as null; TALLY_ROW_KEYS lists left out."""
+    ISO-8601 with Z (naive = UTC, as the store), a float that is not finite as null; TALLY_ROW_KEYS lists left out,
+    TALLY_COUNTED_KEYS lists and any list of dicts replaced by their length."""
     import math
     from datetime import date as _date, timezone as _tz
     if isinstance(v, dict):
-        return {(" · ".join(str(x) for x in k) if isinstance(k, tuple) else str(k)): _tally_jsonable(x)
+        return {(" · ".join(str(x) for x in k) if isinstance(k, tuple) else str(k)):
+                (len(x) if k in TALLY_COUNTED_KEYS and isinstance(x, (list, tuple)) else _tally_jsonable(x))
                 for k, x in v.items() if not (k in TALLY_ROW_KEYS and isinstance(x, (list, tuple)))}
     if isinstance(v, (set, frozenset)):
         return sorted((_tally_jsonable(x) for x in v), key=str)
     if isinstance(v, (list, tuple)):
+        if any(isinstance(x, dict) for x in v):
+            return len(v)
         return [_tally_jsonable(x) for x in v]
     if isinstance(v, datetime):
         return (v.astimezone(_tz.utc).replace(tzinfo=None) if v.tzinfo else v).isoformat() + "Z"
@@ -1769,15 +1778,17 @@ def host_results_tally(days: int = 30, report=None, exports_dir: str = "exports"
     a mode=ro engine (database.readonly_binding: the MLB, Soccer (PL) and NFL sections' own readonly_scope, and the exec
     cohorts, the NHL and UNL shadows and the close's record, which open their own sessions), written to
     <out_dir>/RESULTS.md and, beside it, <out_dir>/results_tally.json (kind results_tally_v1): the sections in the
-    file's order, each with its title, its lines verbatim, the figures its computation returned (never a figure the
-    file does not compute; the per-row lists left out, TALLY_ROW_KEYS) and `unavailable`; the console lines; the
+    file's order, each with its title, its lines verbatim, the figures its computation returned (no new statistic;
+    the per-row lists left out or counted, TALLY_ROW_KEYS / TALLY_COUNTED_KEYS) and `unavailable`; the console lines; the
     stamps. The repo's RESULTS.md is not written. Each file is published by a temporary name and a rename, so the
     mirror never copies half of one; a refused database (ReadOnlyRefused) writes neither. Returns (md path, json path).
     The machine is the caller's to check (the command refuses off the host)."""
     import os
     from src.db.database import readonly_binding
     md, js = os.path.join(out_dir, HOST_TALLY_MD), os.path.join(out_dir, HOST_TALLY_JSON)
-    tmp_md, tmp_js = f"{md}.tmp-{os.getpid()}", f"{js}.tmp-{os.getpid()}"
+    # hidden temporary names (coverage_map.write_document's form): pull_exports.SAFE_NAME and the mirror skip them
+    tmp_md = os.path.join(out_dir, f".{HOST_TALLY_MD}.{os.getpid()}.tmp")
+    tmp_js = os.path.join(out_dir, f".{HOST_TALLY_JSON}.{os.getpid()}.tmp")
     os.makedirs(out_dir, exist_ok=True)
     got: dict = {}
     try:
@@ -1792,12 +1803,19 @@ def host_results_tally(days: int = 30, report=None, exports_dir: str = "exports"
                "markdown": HOST_TALLY_MD,
                "database": "read-only (mode=ro), every section (database.readonly_binding)",
                "closing_files": f"{str(exports_dir).rstrip('/')}/closing_*.json on this machine",
-               "note": ("results-tally's own figures, section by section as RESULTS.md prints them (addendum 289 item 3; "
-                        "230 item 2(b)): machine state, one tally per machine, never a call, never a position."),
+               "note": ("results-tally's own figures, section by section in RESULTS.md's order (addendum 289 item 3; "
+                        "230 item 2(b)): each section's lines as the file prints them, and the counts and means its "
+                        "computation returned (a few, such as NFL's value_anchor_after_prediction_n, are printed on "
+                        "the console, not in the file; no new statistic); per-row lists left out or counted. This "
+                        "machine's own tally of its own DB and closing files, never a call, never a position."),
                "sections": got.get("sections") or [],
                "console": got.get("console") or []}
         with open(tmp_js, "w") as f:
             json.dump(doc, f, indent=2, allow_nan=False)
+            f.flush()
+            os.fsync(f.fileno())
+        with open(tmp_md, "rb") as f:
+            os.fsync(f.fileno())
         os.replace(tmp_md, md)
         os.replace(tmp_js, js)
     finally:

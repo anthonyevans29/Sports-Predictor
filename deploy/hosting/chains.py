@@ -75,7 +75,9 @@ AVAILABILITY_GO_ON = ("addendum 252 item 3(a): the nflverse read's failure is re
 # 248 item 2(c); ARCHITECT 2026-11-08, addendum 289 item 3: "written on the HOST by the morning-after chain and
 # mirrored [...] a file under exports/, the mirror's top-level rule carries it"): exports/RESULTS.md and
 # exports/results_tally.json, the mirror's sp_run push after the step carrying both. After the shadow export, so D2's
-# "after every sync" stands; a shadow export that exits 2 (D7) stops the chain before it, as any failed step does.
+# "after every sync" stands; a shadow export that exits 2 (D7) stops the chain before it, as any failed step does (no
+# tally that day; host/latest/ keeps the previous one). A `go_on` naming the shadow export would run the tally anyway,
+# the chain's exit still the refusal's and the page still fired (sp_run.run_steps); not built, an open item on #875.
 # UNMETERED (results-tally is). Never ./RESULTS.md: mlb-morning's H0-9 tally, and sp_deploy's restore of it, unchanged.
 HOST_TALLY_STEP = ["results-tally", "--host-export"]
 

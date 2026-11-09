@@ -746,6 +746,25 @@ def test_a_failed_render_never_receipts_row_text_the_guard_would_refuse(repo, ca
     assert files_under(repo / "exports" / "bulletins") == []
 
 
+def test_a_render_that_throws_on_a_secret_never_receipts_it(repo, capsys):
+    """Addendum 301 item 1 (Codex #894, P1): a probability holding a credential with a fullwidth '=' makes pct() raise;
+    the failure text passes the same guard (the secret reading too): bulletin_failed withholds it, pattern named."""
+    doc = soccer_doc()
+    doc["predictions"][0]["prediction"]["probabilities"]["home_win"] = "api_key\uff1dabcdef123"
+    assert b.run(closing_file=str(closing_file(repo, doc, "SOCCER"))) == 1
+    rec = receipts()[-1]
+    assert rec["exit"] == 1 and rec["bulletin_failed"].endswith(f"(message withheld: matched {b.SECRET_PATTERN})")
+    raw, out = c.receipts_path().read_text(), capsys.readouterr().out
+    assert "abcdef123" not in raw and "abcdef123" not in out
+    assert files_under(repo / "exports" / "bulletins") == []
+
+
+@pytest.mark.parametrize("text", ["25 remains in the pool", "1,200 left in the pool", "pool: 25"])
+def test_the_pool_pattern_takes_the_amount_before_the_label(text):
+    """Addendum 301 item 1: the amount-before-label form, a tightening."""
+    assert pv.bulletin_offence(text) == "pool"
+
+
 def test_a_by_hand_run_reads_host_env_for_the_redaction(repo, tmp_path, monkeypatch):
     key = "hk-" + "host-only-value-4r8t"
     henv = tmp_path / "host.env"

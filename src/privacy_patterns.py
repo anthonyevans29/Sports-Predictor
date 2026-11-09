@@ -33,7 +33,8 @@ no pool figure, no account id"), each a named pattern over every line of the who
                      a units figure followed by "="
   fraction           desk_meta.unit.fraction / half_fraction printed: the word fraction (or half_fraction) beside a
                      number, or the field name half_fraction anywhere
-  pool               a pool figure: the word pool beside a number
+  pool               a pool figure: the word pool beside a number, or an amount before it within three words
+                     ("25 remains in the pool"; addendum 301 item 1)
   field_name         a field name that only ever holds a count or a figure (fee_order_contracts, order_contracts,
                      unit_usd, pool_usd, balance_dollars, market_exposure_dollars, half_fraction, contracts_basis), or
                      any name ending _usd / _dollars, anywhere
@@ -101,7 +102,8 @@ ORDER_TEXT = re.compile("(?i)\\bBUY\\s+(?:YES|NO)\\b|\\u00d7\\s*\\d"
                         "|(?<![A-Za-z0-9])x\\d+\\b")                            # "x3" standing alone (lower case only)
 UNIT_LABEL = re.compile(r"\b\d+(?:\.\d+)?\s*u\s*=")
 FRACTION = re.compile("(?i)(?<![a-z0-9])[a-z_]*fraction(?![a-z0-9])[\"']?\\W{0,4}[+\\-]?\\.?\\d|\\bhalf_fraction\\b")
-POOL = re.compile(r"(?i)\bpool\b\W{0,12}[+\-]?\.?\d")
+POOL = re.compile(r"(?i)\bpool\b\W{0,12}[+\-]?\.?\d"
+                  r"|\d[\d,.]*\W{0,4}(?:[a-z]+\W+){0,3}pool\b")   # addendum 301 item 1: "25 remains in the pool"
 FIELD_NAME = re.compile(r"(?i)\b(?:fee_order_contracts|order_contracts|unit_usd|pool_usd|balance_dollars|"
                         r"market_exposure_dollars|half_fraction|contracts_basis)\b|[a-z0-9]_(?:usd|dollars)\b")
 # A dollar figure without the plain sign before it (the DOLLAR pattern is the #817 sign-then-digit one): a number

@@ -864,7 +864,9 @@ def error_text(e: BaseException, typed: bool = True) -> str:
     privacy guard matches it (an exception's message can quote a row's value: then the type and the pattern's name
     only). `typed` False: a Refused's own message, without the type in front."""
     msg = c.redact(one_line(f"{type(e).__name__}: {e}" if typed else str(e)))
-    hit = bulletin_offence(msg)
+    # addendum 301 item 1: every failure message passes the SAME guard as a rendered file, the secret reading too (a
+    # render that throws on a secret-bearing value carries it in the exception text), before it is receipted or printed
+    hit = bulletin_offence(msg) or secret_offence(msg)
     return f"{type(e).__name__} (message withheld: matched {hit})" if hit else msg[:300]
 
 

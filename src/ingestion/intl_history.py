@@ -270,7 +270,8 @@ def ingest(src: Source, since: date, max_calls: int = 80, dry_run: bool = False)
     from src.adapters.normalized import NormalizedTeam
     from src.db.database import session_scope
     from src.db.schema import Competition, Match, MatchNeutralDerived, Sport
-    from src.ingestion.service import SyncResult, names_kept_line, newest_membership_years, scores_by_team_line
+    from src.ingestion.service import (SyncResult, match_cache, names_kept_line, newest_membership_years,
+                                        provider_id_collision_line, scores_by_team_line)
     from src.ingestion.score_orientation import provider_reversed
 
     leagues = src.get("leagues.json", "leagues", {"country": "World"}).get("response") or []
@@ -353,11 +354,10 @@ def ingest(src: Source, since: date, max_calls: int = 80, dry_run: bool = False)
                                                            source=adapter.source_name, source_id=str(t["id"])), tres,
                                          season=listing_season, newest_years=newest)
                         fixture_only_teams += 1
-            cache = {}
-            for m in s.execute(select(Match).where(Match.competition_id == comp.id)).scalars():
-                sid = (m.external_ids or {}).get(adapter.source_name)
-                if sid:
-                    cache[sid] = m
+            # the upsert's prefetch, keyed as sync_matches keys it: (provider id, season) for a source that is not
+            # SPORT_WIDE (ARCHITECT 2026-11-09, addendum 310 item 3(a), #902)
+            cache = match_cache(s.execute(select(Match).where(Match.competition_id == comp.id)).scalars(),
+                                adapter.source_name)
             g = grounds(teams[key])
             n = Counter()
             for it in kept[key]:
@@ -398,6 +398,8 @@ def ingest(src: Source, since: date, max_calls: int = 80, dry_run: bool = False)
             "orientation_reversed": list(mres.orientation_reversed),
             "teams_mismatch_refused": list(mres.teams_mismatch_refused),
             "scores_by_team_line": scores_by_team_line(mres),
+            # ARCHITECT 2026-11-09, addendum 310 item 3(b) (#902): a stored row of another season carrying a listed id
+            "provider_id_collision_line": provider_id_collision_line(mres.provider_id_collision),
             "neutral": dict(neutral), "dry_run": dry_run}
 
 

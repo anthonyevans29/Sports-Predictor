@@ -213,6 +213,7 @@ board, never from chat. The pre-board queue text is history (git log).
 - Morning chains open with the backup line. 2-day sync windows daily;
   full-season weekly. The O(n^2) match-sync was fixed via a per-sync
   prefetch cache — do not regress it.
+- api_american_football reuses game ids across seasons (11-09, #902): every lookup by provider id is scoped to the season.
 - sync-competitions must run before a new sport's first team/match
   sync (the NHL bootstrap lesson).
 - sync-teams before sync-matches for EVERY new competition-season.

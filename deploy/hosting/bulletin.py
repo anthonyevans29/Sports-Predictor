@@ -793,7 +793,7 @@ def stage_file(path: Path, data: bytes) -> Path:
         tmp.unlink()                               # a stale temp of an earlier run that stopped (never a link)
     flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0)
     try:
-        fd = os.open(tmp, flags, 0o644)
+        fd = os.open(tmp, flags, 0o666)            # Path.write_bytes's mode, as before 54447764 (the umask applies)
     except FileExistsError:                        # planted between the check and the open: O_EXCL refuses it
         raise Refused("a bulletin's staging temp appeared before it was created: refused, nothing written")
     try:
@@ -908,13 +908,21 @@ REDACTED_MARK = "[REDACTED]"                       # what sp_common.redact write
 # private key players" is prose, "access token abcdef123" is a credential). "bearer" is followed by a token-shaped value
 # always ("Bearer of bad news" is prose). Token-shaped: a letter or digit first, then letters, digits and . _ ~ + / = -,
 # six or more in all with a digit among them, or twenty or more without one. sp_common.redact is unchanged (shared).
-_LABEL_WORD = r"[\s_-]*"
+# The internal review of 54447764 (forms the four ruled inputs do not cover): a label's words may also be joined by
+# U+2010..U+2015 or U+2212 (NFKC keeps them); between a label and a token-shaped value any run of whitespace, those
+# dashes, "-", ">" and the arrows U+2192/U+21D2 is the separator, an EMPTY run included (rendered() drops a tag, so
+# "api key<b>x</b>" reads "api keyx"); and the value may open with one quote or bracket ("api key (abcdef123)"). A
+# letters-only value under twenty characters stays prose ("Bearer Rovers"), as before.
+_DASHES = "\\-\u2010-\u2015\u2212"
+_LABEL_WORD = r"[\s_" + _DASHES + r"]*"
+_GAP = r"[\s" + _DASHES + "\u2192\u21d2>]*"
+_OPEN = "[\"'(\\[<{\u201c\u2018\u00ab]?"
 CREDENTIAL_LABELS = ("api key", "secret key", "access token", "private key", "client secret", "auth token")
 _TOKEN = (r"(?:(?=[A-Za-z0-9._~+/=-]*[0-9])[A-Za-z0-9][A-Za-z0-9._~+/=-]{5,}"
           r"|[A-Za-z0-9][A-Za-z0-9._~+/=-]{19,})(?![A-Za-z0-9._~+/=-])")
 _LABELS = "|".join(_LABEL_WORD.join(re.escape(w) for w in lab.split()) for lab in CREDENTIAL_LABELS)
-CREDENTIAL = re.compile(r"(?i)(?<![a-z0-9])(?:(?:" + _LABELS + r")(?:\s*[=:]\s*\S|\s+" + _TOKEN + r")"
-                        r"|bearer(?:\s*[=:]\s*|\s+)" + _TOKEN + r")")
+CREDENTIAL = re.compile(r"(?i)(?<![a-z0-9])(?:(?:" + _LABELS + r")(?:\s*[=:]\s*\S|" + _GAP + _OPEN + _TOKEN + r")"
+                        r"|bearer(?:\s*[=:]\s*|" + _GAP + r")" + _OPEN + _TOKEN + r")")
 
 
 def secret_offence(text: str) -> str | None:
@@ -926,11 +934,14 @@ def secret_offence(text: str) -> str | None:
     decoded, NFKC, format characters dropped), so a credential written with a zero-width or a fullwidth character
     ("api\u200b_key=...", "api_key\uff1d...") is refused too: either reading matching refuses.
     Addendum 309 item 2: the credential labels (CREDENTIAL: api key, secret key, access token, private key, client
-    secret, auth token, bearer) are read on the same normalized text, any case, the words joined by whitespace."""
+    secret, auth token, bearer) are read on the same normalized text, any case, the words joined by whitespace; and on
+    the raw text too (either reading matching refuses, as 299 item 1 reads the key rule), since rendered() drops a
+    value written as a tag ("Bearer <abcdef123>" renders "Bearer ") that the file itself still carries."""
     if REDACTED_MARK in text:
         return SECRET_PATTERN
     norm = rendered(text)
-    return SECRET_PATTERN if c.redact(norm) != norm or CREDENTIAL.search(norm) else None
+    hit = c.redact(norm) != norm or CREDENTIAL.search(norm) or CREDENTIAL.search(text)
+    return SECRET_PATTERN if hit else None
 
 
 def refused_path(out: Path, rel: str, pattern: str | None = None) -> str:

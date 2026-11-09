@@ -1018,6 +1018,32 @@ def test_ordinary_bulletin_prose_is_not_a_credential(text):
     assert b.secret_offence(text) is None and not b.CREDENTIAL.search(text)
 
 
+# The internal review of 54447764: the label forms the four ruled inputs do not cover (a quoted or bracketed value, a
+# dash or an arrow between label and value, a U+2010/U+2011 hyphen inside the label, a tag that rendered() drops).
+@pytest.mark.parametrize("text", ['api key "abcdef123"', "api key (abcdef123)", "auth token «abc123def»",
+                                  "api key — abcdef123", "api key – abcdef123", "api key -> abcdef123",
+                                  "api key → abcdef123", "api‐key abcdef123", "api‑key abcdef123",
+                                  "client—secret abcdef123", "api key<b>abcdef123</b>", "Bearer <abcdef123>"])
+def test_a_label_with_a_quoted_dashed_or_tag_joined_value_is_refused(text):
+    assert b.secret_offence(text) == b.SECRET_PATTERN
+
+
+@pytest.mark.parametrize("text", ["api keys are rotated", "the private keyholders", "Bearer Rovers 2-1",
+                                  "a secret key — the press", "auth token -> gone"])
+def test_the_widened_separators_leave_prose_alone(text):
+    assert b.secret_offence(text) is None and not b.CREDENTIAL.search(text)
+
+
+def test_a_written_file_keeps_write_bytes_mode(repo):
+    """The exclusive create passes 0o666 (Path.write_bytes's mode), so the umask decides the mode as it did before."""
+    old = b.os.umask(0o002)                       # a group-writable umask, where 0o644 and 0o666 differ
+    try:
+        assert b.run(closing_file=str(closing_file(repo, soccer_doc(), "SOCCER"))) == 0
+    finally:
+        b.os.umask(old)
+    assert (_first_md(repo).stat().st_mode & 0o777) == 0o664
+
+
 def test_a_team_named_bearer_and_a_key_match_reason_write_a_clean_pair(repo):
     doc = soccer_doc()
     doc["predictions"][0]["home_team"] = "Bearer Rovers"

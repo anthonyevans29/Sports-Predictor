@@ -33,7 +33,8 @@ no pool figure, no account id"), each a named pattern over every line of the who
                      a units figure followed by "="
   fraction           desk_meta.unit.fraction / half_fraction printed: the word fraction (or half_fraction) beside a
                      number, or the field name half_fraction anywhere
-  pool               a pool figure: the word pool beside a number, or an amount before it within three words
+  pool               a pool figure: the word pool beside a number or within three words of it, either side
+                     ("the pool is 25", "pool balance: 25"; addendum 304 item 1), or an amount before it within three words
                      ("25 remains in the pool"; addendum 301 item 1)
   field_name         a field name that only ever holds a count or a figure (fee_order_contracts, order_contracts,
                      unit_usd, pool_usd, balance_dollars, market_exposure_dollars, half_fraction, contracts_basis), or
@@ -102,7 +103,7 @@ ORDER_TEXT = re.compile("(?i)\\bBUY\\s+(?:YES|NO)\\b|\\u00d7\\s*\\d"
                         "|(?<![A-Za-z0-9])x\\d+\\b")                            # "x3" standing alone (lower case only)
 UNIT_LABEL = re.compile(r"\b\d+(?:\.\d+)?\s*u\s*=")
 FRACTION = re.compile("(?i)(?<![a-z0-9])[a-z_]*fraction(?![a-z0-9])[\"']?\\W{0,4}[+\\-]?\\.?\\d|\\bhalf_fraction\\b")
-POOL = re.compile(r"(?i)\bpool\b\W{0,12}[+\-]?\.?\d"
+POOL = re.compile(r"(?i)\bpool\b(?:\W+[a-z]+){0,3}\W{0,12}[+\-]?\.?\d"   # 304 item 1: "the pool is 25"
                   r"|\d[\d,.]*\W{0,4}(?:[a-z]+\W+){0,3}pool\b")   # addendum 301 item 1: "25 remains in the pool"
 FIELD_NAME = re.compile(r"(?i)\b(?:fee_order_contracts|order_contracts|unit_usd|pool_usd|balance_dollars|"
                         r"market_exposure_dollars|half_fraction|contracts_basis)\b|[a-z0-9]_(?:usd|dollars)\b")
@@ -127,15 +128,38 @@ BULLETIN_PATTERNS = (
 PATTERN_NAMES = tuple(n for n, _ in BULLETIN_PATTERNS)
 
 _TAG = re.compile(r"<[^<>\n]{0,200}>")
+# ARCHITECT 2026-11-09 09:55 ET, addendum 304 item 1: Markdown link and image syntax collapses to its visible label
+# BEFORE any pattern runs ("[label](url) → label, ![alt](url) → alt, reference-style [label][ref] → label, and
+# autolinks <url> → the url"), so a value broken by link syntax reads as GitHub shows it.
+_MD_IMAGE = re.compile(r"!\[([^\[\]\n]*)\]\([^()\n]*\)")
+_MD_LINK = re.compile(r"\[([^\[\]\n]*)\]\([^()\n]*\)")
+_MD_REF_LINK = re.compile(r"\[([^\[\]\n]*)\]\[[^\[\]\n]*\]")
+_MD_AUTOLINK = re.compile(r"<((?:[a-z][a-z0-9+.-]{1,31}:|www\.)[^<>\s]*|[^<>\s@]+@[^<>\s@]+\.[^<>\s@]+)>", re.IGNORECASE)
+
+
+def collapse_links(text: str) -> str:
+    """Markdown links and images to their visible label (addendum 304 item 1), repeated until nothing changes so a
+    link inside a label collapses too; autolinks to the url they show."""
+    t = str(text)
+    for _ in range(8):
+        before = t
+        t = _MD_IMAGE.sub(r"\1", t)
+        t = _MD_LINK.sub(r"\1", t)
+        t = _MD_REF_LINK.sub(r"\1", t)
+        t = _MD_AUTOLINK.sub(r"\1", t)
+        if t == before:
+            break
+    return t
 _MARKUP = str.maketrans("", "", "\\*`~")
 
 
 def rendered(text: str) -> str:
     """The text as a reader sees it once it is rendered: HTML entities decoded (&#36; is a $ on GitHub), tags and
-    Markdown's emphasis and escape characters removed, compatibility forms folded (NFKC: a fullwidth sign or digit is
+    Markdown's emphasis and escape characters removed, link and image syntax collapsed to its label (addendum 304
+    item 1), compatibility forms folded (NFKC: a fullwidth sign or digit is
     the plain one), format characters (zero-width spaces, joiners) dropped, and every whitespace run, line breaks
     included, one space (the card's textwrap and a Markdown list item's continuation both join a broken line)."""
-    t = unicodedata.normalize("NFKC", _TAG.sub("", html.unescape(str(text))))
+    t = unicodedata.normalize("NFKC", _TAG.sub("", collapse_links(html.unescape(str(text)))))
     t = "".join(ch for ch in t if unicodedata.category(ch) != "Cf").translate(_MARKUP)
     return re.sub(r"\s+", " ", t)
 

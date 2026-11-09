@@ -755,6 +755,45 @@ def _render_card(spec: dict) -> bytes:
 
 # ------------------------------------------------------------------------------------------------- writer --
 
+def stage_file(path: Path, data: bytes) -> Path:
+    """One file of the run's set written to a temporary name beside its path (the same refusals as write_file);
+    returns the temporary path. Nothing is visible at `path` until commit_staged moves it."""
+    if path.suffix not in em.BULLETIN_SUFFIXES:
+        what = path.suffix or "a file with no suffix"
+        raise Refused(f"the bulletin writer writes {' and '.join(em.BULLETIN_SUFFIXES)} only, never {what}")
+    c.refuse_under_data(path.parent)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.tmp")
+    tmp.write_bytes(data)
+    return tmp
+
+
+def write_set(pairs: list) -> None:
+    """ARCHITECT 2026-11-09 09:55 ET, addendum 304 item 1: "the write set is staged complete and moved into place
+    only when every file of the game's pair is written; a later write's failure leaves the earlier files out, so the
+    mirror never sees a half pair". Every file of the run is staged first; a staging failure removes every staged file
+    and raises (nothing moved); then each is moved into place with os.replace."""
+    staged = []
+    try:
+        for path, data in pairs:
+            staged.append((stage_file(path, data), path))
+    except BaseException:
+        for tmp, _ in staged:
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
+        partial = pairs[len(staged)][0] if len(staged) < len(pairs) else None
+        if partial is not None:
+            try:
+                partial.with_name(f".{partial.name}.tmp").unlink()
+            except OSError:
+                pass
+        raise
+    for tmp, path in staged:
+        os.replace(tmp, path)
+
+
 def write_file(path: Path, data: bytes) -> None:
     """The ONE writer (item 4: "NO JSON is ever written under it"): .md and .png only (exports_mirror
     .BULLETIN_SUFFIXES), atomically (a temporary name beside it, then the rename), never under data/ (law 5)."""
@@ -910,9 +949,8 @@ def run(closing_file: str | None = None, slate_file: str | None = None, out_dir:
             if not (out / rel).resolve().is_relative_to(root):
                 raise Refused(f"a bulletin path leaves {shown(out, '')}: nothing written")
         blobs = [(rel, data if isinstance(data, bytes) else render_card(data)) for rel, data, _ in files]
-        for rel, data in blobs:
-            write_file(out / rel, data)
-            rec["written"].append(shown(out, rel))
+        write_set([(out / rel, data) for rel, data in blobs])      # staged complete, then moved (304 item 1)
+        rec["written"] = [shown(out, rel) for rel, _ in blobs]
     except Refused as e:
         rec.update(exit=2, error=error_text(e, typed=False))
         c.append_receipt(rec)

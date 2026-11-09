@@ -765,6 +765,49 @@ def test_the_pool_pattern_takes_the_amount_before_the_label(text):
     assert pv.bulletin_offence(text) == "pool"
 
 
+@pytest.mark.parametrize("text,pattern", [
+    ("[api_key](https://example.test)=abcdef123", "secret"), ("\\$[25](https://example.test)", "dollar"),
+    ("[12](https://example.test) contracts", "contract_count"), ("![12](x.png) contracts", "contract_count"),
+    ("[12][ref] contracts", "contract_count")], ids=["link-secret", "link-dollar", "link-count", "image", "ref-link"])
+def test_markdown_link_syntax_is_read_as_github_shows_it(repo, capsys, text, pattern):
+    """Addendum 304 item 1 (Codex #894, P1): rendered() collapses link and image syntax to the visible label before any
+    pattern runs, so a value broken by link syntax is refused like the plain one."""
+    doc = soccer_doc()
+    doc["predictions"][1]["desk"]["reason"] = f"edge below the floor · {text}"
+    assert b.run(closing_file=str(closing_file(repo, doc, "SOCCER"))) == 2
+    assert {r["pattern"] for r in receipts()[-1]["bulletin_refused"]} == {pattern}
+    raw, out = c.receipts_path().read_text(), capsys.readouterr().out
+    assert "abcdef123" not in raw and "abcdef123" not in out
+    assert files_under(repo / "exports" / "bulletins") == []
+
+
+def test_collapse_links_keeps_plain_text_and_shows_autolinks():
+    assert pv.collapse_links("see <https://example.test/x> and [the page](u)") == "see https://example.test/x and the page"
+    assert pv.collapse_links("edge 4.1pp [a](b) [c](d)") == "edge 4.1pp a c"
+
+
+@pytest.mark.parametrize("text", ["the pool is 25", "pool balance: 25", "pool now contains 25"])
+def test_the_pool_pattern_takes_words_between_the_label_and_the_figure(text):
+    """Addendum 304 item 1: the label-first direction allows a few words before the figure (a tightening)."""
+    assert pv.bulletin_offence(text) == "pool"
+
+
+def test_a_failed_write_leaves_no_half_pair_and_nothing_staged(repo, monkeypatch):
+    """Addendum 304 item 1: the set is staged complete; a later write's failure leaves the earlier files OUT."""
+    doc = soccer_doc()
+    real = b.Path.write_bytes
+    def fail_on_png(self, data):
+        if self.name.endswith(".png.tmp"):
+            raise OSError(28, "No space left on device")
+        return real(self, data)
+    monkeypatch.setattr(b.Path, "write_bytes", fail_on_png)
+    assert b.run(closing_file=str(closing_file(repo, doc, "SOCCER"))) == 1
+    root = repo / "exports" / "bulletins"
+    left = [p for p in root.rglob("*") if p.is_file()] if root.exists() else []
+    assert left == [], left                                   # no .md without its .png, no staged leftovers
+    assert receipts()[-1]["written"] == []
+
+
 def test_a_by_hand_run_reads_host_env_for_the_redaction(repo, tmp_path, monkeypatch):
     key = "hk-" + "host-only-value-4r8t"
     henv = tmp_path / "host.env"

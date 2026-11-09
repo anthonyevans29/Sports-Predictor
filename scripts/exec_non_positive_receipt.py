@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import re
 import sys
@@ -65,7 +66,8 @@ def closing_files(root: Path, since: date | None = None, through: date | None = 
 
 
 def _num(x) -> bool:
-    return isinstance(x, (int, float)) and not isinstance(x, bool)
+    """A stored, finite number; None, a bool, NaN or an infinity is "not stored" (law 4), never a figure."""
+    return isinstance(x, (int, float)) and not isinstance(x, bool) and math.isfinite(x)
 
 
 def _f3(x) -> str:
@@ -81,20 +83,30 @@ def _pick(row: dict, pick):
 
 
 def read_rows(files: list[tuple[str, str, Path]], root: Path):
-    """(emitted PLAY rows, would-be PLAY rows, unreadable files, distinct rows read)."""
+    """(emitted PLAY rows, would-be PLAY rows, unreadable files, distinct rows read). A start re-paged into a later
+    dated folder of the mirror leaves two copies of one closing file: the NEWEST copy of each (family, match id, start
+    stamp) is the one read (by the file's exported_at, then its folder), as write_closing_file's replacement is."""
     plays, would, bad, seen = [], [], [], set()
+    docs = []
     for role, day, f in files:
         try:
             doc = json.loads(f.read_text(encoding="utf-8"))
         except (OSError, ValueError) as e:
             bad.append((f.relative_to(root), type(e).__name__))
             continue
+        if not isinstance(doc, dict):
+            bad.append((f.relative_to(root), f"top level is {type(doc).__name__}, not an object"))
+            continue
+        docs.append((str(doc.get("exported_at") or ""), f.parent.name, role, day, f, doc))
+    docs.sort(key=lambda t: (t[0], t[1], t[4].as_posix()), reverse=True)
+    for _, _, role, day, f, doc in docs:
         cl = doc.get("closing") if isinstance(doc.get("closing"), dict) else {}
         m = NAME.match(f.name)
         fam = cl.get("family") or m.group(1)
         stamp = f"{m.group(2)}T{m.group(3)}Z"
         ids = set(cl.get("match_ids") or [])
-        for r in doc.get("predictions") or []:
+        preds = doc.get("predictions") if isinstance(doc.get("predictions"), list) else []
+        for r in preds:
             d = r.get("desk") if isinstance(r, dict) else None
             if not isinstance(d, dict):
                 continue

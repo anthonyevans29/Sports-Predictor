@@ -91,3 +91,41 @@ def test_refusals_exit_2(tmp_path, argv, monkeypatch):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "exports").mkdir()
     assert rc.main(argv) == 2
+
+
+def test_a_non_object_file_is_unreadable_and_the_rest_is_still_counted(tmp_path, capsys):
+    """Codex #903 P2: valid JSON that is not an object ([] or null) is listed UNREADABLE; the run goes on."""
+    (tmp_path / "closing_NFL_2026-10-12T1700Z.json").write_text("[]")
+    (tmp_path / "closing_NFL_2026-10-13T1700Z.json").write_text("null")
+    write(tmp_path / "closing_MLB_2026-10-14T2300Z.json", "MLB", [row(5, edge=-1.0)])
+    assert rc.main(["--dir", str(tmp_path)]) == 0
+    out = capsys.readouterr().out
+    assert "UNREADABLE closing_NFL_2026-10-12T1700Z.json: top level is list, not an object" in out
+    assert "UNREADABLE closing_NFL_2026-10-13T1700Z.json: top level is NoneType, not an object" in out
+    assert "files read: 1" in out and "exec edge <= 0: 1 row(s) · by family {'MLB': 1}" in out
+
+
+def test_the_newest_copy_of_a_re_paged_start_is_the_one_read(tmp_path, capsys):
+    """Codex #903 P2: a start re-paged after a date boundary leaves a copy in each dated folder of the mirror; the
+    newest (its exported_at, then its folder) is read, never the first in path order."""
+    name = "closing_NFL_2026-10-13T0015Z.json"
+    old, new = tmp_path / "host" / "2026-10-12" / name, tmp_path / "host" / "2026-10-13" / name
+    write(old, "NFL", [row(7, edge=-0.4)])
+    write(new, "NFL", [row(7, edge=2.0)])
+    for f, at in ((old, "2026-10-12T23:40:00Z"), (new, "2026-10-13T00:05:00Z")):
+        doc = json.loads(f.read_text())
+        doc["exported_at"] = at
+        f.write_text(json.dumps(doc))
+    assert rc.main(["--dir", str(tmp_path)]) == 0
+    out = capsys.readouterr().out
+    assert "exec edge <= 0: 0 row(s)" in out.split("WOULD-BE")[0] and "exec edge > 0: 1 row(s)" in out
+
+
+@pytest.mark.parametrize("edge", [float("nan"), float("inf"), float("-inf")])
+def test_a_non_finite_edge_is_not_stored_never_a_figure(tmp_path, capsys, edge):
+    """Codex #903 P2: NaN or an infinity is "no exec edge stored" (law 4), so the block totals reconcile."""
+    (tmp_path / "closing_NFL_2026-10-12T1700Z.json").write_text(json.dumps(
+        {"predictions": [row(1, edge=edge)], "closing": {"family": "NFL", "match_ids": [1]}}))
+    assert rc.main(["--dir", str(tmp_path)]) == 0
+    first = capsys.readouterr().out.split("WOULD-BE")[0]
+    assert "no exec edge stored: 1" in first and "exec edge <= 0: 0 row(s)" in first and "exec edge > 0: 0 row(s)" in first

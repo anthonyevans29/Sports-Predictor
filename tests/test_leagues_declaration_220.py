@@ -57,13 +57,16 @@ MOVED = ("BL1's declaration moves from 2026-11-06 to 2026-11-09: the parity rece
 
 # ------------------------------------------------------------------------------------------ the registry --
 
-def test_220_the_four_entries_close_the_file_in_declared_at_order_and_the_file_keeps_its_format():
+def test_220_the_four_entries_then_bl1_close_the_file_in_declared_at_order_and_the_file_keeps_its_format():
+    """The four of addendum 220, then BL1's entry (ARCHITECT 2026-11-09 09:45 ET, addendum 303 item 1, declared_at
+    2026-11-09T14:45:00Z), appended at the end in declared-at order."""
     text = Path(reg.LEDGER).read_text()
     entries = json.loads(text)
     assert text == json.dumps(entries, indent=2) + "\n"            # json.dumps(indent=2), ensure_ascii, a newline
-    assert [e["id"] for e in entries[-4:]] == list(DECLARED_IDS)
-    before = [lw.parse_instant(e.get("declared_at")) for e in entries[:-4]]
+    assert [e["id"] for e in entries[-5:]] == [*DECLARED_IDS, "leagues-bl1-v1"]
+    before = [lw.parse_instant(e.get("declared_at")) for e in entries[:-5]]
     assert all(t is None or t <= STAMP for t in before)            # appended at the end, in declared-at order
+    assert lw.parse_instant(entries[-1]["declared_at"]) == datetime(2026, 11, 9, 14, 45) > STAMP
 
 
 @pytest.mark.parametrize("eid, code", list(zip(DECLARED_IDS, ("PD", "SA", "FL1", "ELC"))))
@@ -82,11 +85,14 @@ def test_220_each_entry_carries_items_1_to_3_verbatim_and_the_run_records_consta
     assert e["confirmation_plan"] is None and e["n"] == 60
 
 
-def test_220_bl1_has_no_entry_and_no_status_was_invented():
+def test_220_bl1_held_no_entry_until_303_and_no_status_was_invented():
     """Item 4: "BL1 NOT declared today". registry.py has no undeclared status (declared, run, confirming, closed,
-    production), and an entry under leagues-bl1-v1 would read as a declaration (leagues_window.declaration), so BL1
-    holds none: its state is the roadmap lane's BL1 step and moved line."""
-    assert "leagues-bl1-v1" not in REAL and not any(e.get("competition") == "BL1" for e in REAL.values())
+    production), and an entry under leagues-bl1-v1 reads as a declaration (leagues_window.declaration), so BL1 held
+    none until its declaration: ARCHITECT 2026-11-09 09:45 ET, addendum 303 item 1 wrote it, status declared, one
+    entry, the only one naming BL1 (tests/test_records_303.py pins its text)."""
+    assert [e["id"] for e in REAL.values() if e.get("competition") == "BL1"] == ["leagues-bl1-v1"]
+    assert REAL["leagues-bl1-v1"]["status"] == "declared" and REAL["leagues-bl1-v1"]["declared_at"] == (
+        "2026-11-09T14:45:00Z")
     assert {e["status"] for e in REAL.values()} <= {"declared", "run", "confirming", "closed", "production"}
 
 
@@ -137,6 +143,8 @@ def _leagues():
 
 
 def test_220_the_leagues_lane_the_11_06_step_done_bl1_moved_and_step_c_recounted():
+    """Addendum 220's lane; since ARCHITECT 2026-11-09 09:45 ET, addendum 303 item 3, BL1's step is done (receipt "#322
+    comment 6742654029") and a step for BL1's window follows step (c) (tests/test_records_303.py pins its text)."""
     from src import roadmap as rm
     ln = _leagues()
     assert ln["state"] == "declared" and "declared (4 of 5)" in json.dumps(ln)   # roadmap.STATES: no "(4 of 5)"
@@ -146,11 +154,12 @@ def test_220_the_leagues_lane_the_11_06_step_done_bl1_moved_and_step_c_recounted
     decl = next(st for st in ln["steps"] if st["what"].startswith("the candidate declared per league"))
     assert decl["due"] == "2026-11-06" and decl["done"] == {"date": "2026-11-02", "receipt": "addendum 220"}
     bl1 = next(st for st in ln["steps"] if st["what"].startswith("BL1's declaration"))
-    assert (bl1["owner"], bl1["due"], bl1["done"]) == ("architect", "2026-11-09", None)
+    assert (bl1["owner"], bl1["due"], bl1["done"]) == ("architect", "2026-11-09", {
+        "date": "2026-11-09", "receipt": "#322 comment 6742654029"})
     assert ln["moved"] == [{"moved_on": "2026-11-02", "which": bl1["what"], "was": "2026-11-06", "now": "2026-11-09",
                             "why": MOVED, "ruling": "ARCHITECT 2026-11-02 13:10 ET, addendum 220 item 4 (MOVED "
                                                     "LINE, verbatim in why)"}]
-    c = ln["steps"][-1]
+    c = ln["steps"][-2]                       # step (c); BL1's window step (addendum 303 item 3) follows it
     assert (c["owner"], c["due"], c["done"]) == ("calendar", "2026-12-06", None)
     # addendum 226 item 2: step (c) STANDS at 2026-12-06, no moved line; its text carries the two consoles of 11-03
     # (tests/test_records_226.py pins the text verbatim)
@@ -158,8 +167,8 @@ def test_220_the_leagues_lane_the_11_06_step_done_bl1_moved_and_step_c_recounted
                                 "off after the declarations' stamp 2026-11-02T18:10:00Z is played, ELC first; "
                                 "RECOUNTED 11-03")
     assert "A PROJECTION pending its receipt" not in c["what"]
-    assert len(ln["moved"]) == 1               # BL1's line only: the recount moved no date
-    assert rm.next_step(ln)[1] is bl1
+    assert len(ln["moved"]) == 1               # BL1's line only: the recount moved no date, a new step moves none
+    assert rm.next_step(ln)[1] is c            # BL1's declaration done (addendum 303): step (c) is next
     assert ln["earliest_live"] is None
 
 
@@ -342,6 +351,66 @@ def test_220_starts_read_each_entrys_declared_at_bl1_its_date_and_from_overrides
     assert set(st.values()) == {frm} and set(src.values()) == {"--from"}
 
 
+BL1_AT = datetime(2026, 11, 9, 14, 45)        # leagues-bl1-v1 declared_at 2026-11-09T14:45:00Z (addendum 303 item 1)
+
+
+def test_303_starts_read_bl1s_declared_at_from_the_tracked_registry_and_no_date_default_is_left():
+    """ARCHITECT 2026-11-09 09:45 ET, addendum 303 item 3: "`scripts/leagues_close_receipt.py`'s DECLARED default and
+    the "BL1 until 11-09" wording retired in favour of the registry's declared_at (the entry now exists; one small
+    code line and its test, records-class)". On the tracked registry every league of the five reads its entry's
+    declared_at, BL1 2026-11-09T14:45:00Z, with no --declared at all."""
+    assert reg.LEDGER == str(ROOT / "docs" / "registry" / "experiments.json")       # the tracked file, unpatched
+    st, src, bad = lr.starts()
+    assert not bad and list(st) == ["PD", "SA", "BL1", "FL1", "ELC"]
+    assert st["BL1"] == BL1_AT and isinstance(st["BL1"], datetime)
+    assert src["BL1"] == "leagues-bl1-v1 declared_at 2026-11-09T14:45:00Z"
+    assert all(st[c] == STAMP for c in ("PD", "SA", "FL1", "ELC"))
+    assert not hasattr(lr, "DECLARED")                                             # the default retired
+    doc = lr.__doc__ + Path(lr.__file__).read_text()
+    assert "BL1 until its declaration" not in doc and "BL1 until 11-09" not in doc.replace(
+        '"BL1 until 11-09" wording retired', "")
+    assert "(default 2026-11-09" not in doc and "default=DECLARED" not in doc
+
+
+@pytest.mark.usefixtures("iso_db")
+def test_303_a_league_with_no_entry_and_no_declared_date_is_not_declared_never_a_guessed_start(real_ledger):
+    """The fixture's registry holds the four only (as on a tag before addendum 303): with no --declared BL1 has no
+    start and no projection, named NOT DECLARED (law 4: never a guessed date); it is not a refusal of a bad entry, so
+    the others still print and the receipt is not failed for it."""
+    st, src, bad = lr.starts()
+    assert "BL1" not in st and "BL1" not in bad and set(st) == {"PD", "SA", "FL1", "ELC"}
+    assert src["BL1"] == ("NOT DECLARED (no registry entry leagues-bl1-v1): no start, no projection (--declared DATE "
+                          "projects it from a date)")
+    lines = lr.projection_lines(paper.window_projection(st, SEASON), src, bad, SEASON)
+    assert "  - BL1 · " + src["BL1"] in lines
+    assert lines[-1].endswith("no date (no league stores 60 fixtures after its start)")      # no fixture stored
+
+
+@pytest.mark.usefixtures("iso_db")
+def test_303_the_script_projects_bl1_from_its_registry_instant(tmp_path, monkeypatch, capsys):
+    """The operator's command with no --declared on a registry holding BL1's entry (the tracked one, copied): BL1's
+    60th counts strictly after 2026-11-09T14:45:00Z, so a fixture kicking off earlier that day is never counted, and
+    the header names no date for a league with no entry."""
+    path = tmp_path / "experiments.json"
+    path.write_text(json.dumps([REAL[sx.EID], *(REAL[i] for i in (*DECLARED_IDS, "leagues-bl1-v1"))]))
+    monkeypatch.setattr(reg, "LEDGER", str(path))
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{tmp_path / 'iso.db'}")
+    _comps()
+    _game(9, "BL1", datetime(2026, 11, 9, 14, 45), status=MatchStatus.SCHEDULED)   # AT the instant: never counted
+    _game(8, "BL1", datetime(2026, 11, 9, 12, 0), status=MatchStatus.SCHEDULED)    # that UTC day, before: never
+    _fixtures("BL1", datetime(2026, 11, 9, 19, 30), 60, 4000, step_h=12)
+    cp = _copy(tmp_path)
+    assert lr.main(["--db", str(cp)]) == 0
+    out = capsys.readouterr().out
+    assert out.splitlines()[1].endswith("every league --from when given; a league with no entry NOT DECLARED, no "
+                                        "projection)")
+    nth = datetime(2026, 11, 9, 19, 30) + timedelta(hours=59 * 12)
+    assert (f"  - BL1 · the 60th fixture kicking off strictly after 2026-11-09T14:45:00Z (leagues-bl1-v1 declared_at "
+            f"2026-11-09T14:45:00Z): kickoff {nth:%Y-%m-%d %H:%M}Z (UTC date {nth.date()}; match 4059) · 60 stored "
+            "after the start") in out
+    assert "  - BL1 · NOT DECLARED" not in out and "BL1 · REFUSED" not in out
+
+
 @pytest.mark.usefixtures("iso_db")
 @pytest.mark.parametrize("edit, why", [({"declared_at": "2026-11-02"}, "is not a UTC instant"),
                                        ({"competition": "PL"}, "its competition is 'PL', not 'SA'")])
@@ -388,7 +457,9 @@ def test_220_the_script_recounts_from_the_entries_on_a_db_copy_read_mode_ro_immu
         urls.append(real(f))
         return urls[-1]
     monkeypatch.setattr(lr, "copy_uri", spy)
-    assert lr.main(["--db", str(cp)]) == 0
+    # the fixture's registry holds the four only; the DECLARED default is retired (addendum 303 item 3), so the date a
+    # league with no entry is projected from is given explicitly
+    assert lr.main(["--db", str(cp), "--declared", "2026-11-09"]) == 0
     out = capsys.readouterr().out
     assert urls == [cp.resolve().as_uri() + "?mode=ro&immutable=1"]
     assert sorted(p.name for p in cp.parent.iterdir()) == ["sports_copy.db"]          # no sidecar created

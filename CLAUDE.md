@@ -123,7 +123,11 @@ become MORE binding under an income goal, never less."
 - **Soccer**: soccer_elo_poisson **v22** on the 16,546-match / 24-comp
   pot; PL predictions live; positive-edge cohort (>=+5pp vs market) is
   6/16 — big anti-market edges are ANTI-PREDICTIVE; n=30 pre-committed
-  read pending. Market-first discipline is doctrine.
+  read pending. Market-first discipline is doctrine. The five expansion
+  leagues (PD, SA, FL1, ELC declared 2026-11-02T18:10:00Z, addendum 220; BL1
+  declared 2026-11-09T14:45:00Z, addendum 303) run as shadows on
+  soccer-expansion-v1's frozen constants toward independent 60-game windows;
+  market-only on the Desk.
 - **NFL**: nfl_elo_v1 LIVE from Week 3 (2026-09-22) and UNCERTIFIED
   since 2026-11-02 (addendum 214): on the corrected 2024 warm-up it
   fails the frozen phase-2 gate's calibration band (70–80%: 7.7pp vs

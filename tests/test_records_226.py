@@ -94,7 +94,8 @@ def test_226_lane_leagues_pd_in_competitions_the_title_and_step_c_text():
     ln = _lane(_doc(), "leagues")
     assert ln["title"] == "La Liga, Serie A, Bundesliga, Ligue 1, Championship"
     assert ln["competitions"] == ["PD", "SA", "BL1", "FL1", "ELC"]
-    c = ln["steps"][-1]
+    c = next(st for st in ln["steps"] if st["what"].startswith("step (c) (addendum 156 item 1)"))   # BL1's window
+    assert ln["steps"][-1]["what"].startswith("BL1's 60th qualifying close")   # step follows it (addendum 303 item 3)
     assert (c["owner"], c["due"], c["done"]) == ("calendar", "2026-12-06", None)     # stands: no moved line
     assert c["what"].endswith(f'FL1\'s 60th corrected by 229 item 3: "{STEP_C}"; and 229 item 3\'s sentence, '
                               f'verbatim: "{CLOSE_SHARE}"')

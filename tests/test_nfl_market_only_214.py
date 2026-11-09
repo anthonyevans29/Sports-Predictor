@@ -420,8 +420,9 @@ def test_the_cockpit_summary_counts_market_only_rows_once(tmp_path):
     """The Desk summary's PASS breakdown (review nit on this PR): N market-only NFL rows read 'N market-only (NFL,
     uncertified)', never also as 'other'; the other kinds as before."""
     html = _cockpit()
-    assert "passSummary({passes,passNoRef,passFloor,passStarted,passShadow,passKoSusp,passMktOnly})" in _fn(html,
-                                                                                                           "policy")
+    # addendum 309 item 5 (305's gaps): policy passes exec <= 0's own count too (test_cockpit_exec_non_positive_305.py)
+    assert "passSummary({passes,passNoRef,passFloor,passStarted,passShadow,passKoSusp,passMktOnly,passExecNonPos})" \
+        in _fn(html, "policy")
     z = dict(passes=0, passNoRef=0, passFloor=0, passStarted=0, passShadow=0, passKoSusp=0, passMktOnly=0)
     cases = [z, {**z, "passes": 11, "passMktOnly": 11}, {**z, "passes": 5, "passNoRef": 1, "passMktOnly": 3},
              {**z, "passes": 5, "passNoRef": 3, "passFloor": 1}]

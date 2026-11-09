@@ -47,11 +47,16 @@ run in this order on the laptop:
      (kalshi_tennis.settle). DEFAULT, the daily window: tennis-daily's `sync-matches --date-from {yesterday} --date-to
      {tomorrow}` (deploy/hosting/chains.py, the chain's steps), the placeholders computed in UTC by sp_run.date_vars
      (yesterday = today - 1 day, tomorrow = today + 1 day, today the run's UTC date): the three ticker days a chain run
-     writes (its re-read of the 7 days before {yesterday} creates no row, so it is not in the default). The STORED
-     phase counts the rows by our status per season; this line is the served side of that count for the days a load
-     wrote, the comparison the first load needed (308 item 2): a stored count for the window's days is set beside
-     this line, status by status. REFUSED (exit 2) before any call: a date that is not YYYY-MM-DD, --from after
-     --through (a lone bound is checked against the other's default), and --from/--through with --db.
+     writes (its re-read of the 7 days before {yesterday} creates no row, so it is not in the default). The window is
+     worked out before any call, once per run; the header names where each bound came from (given, or the daily
+     window's) and the tail's window.default lists the bounds the daily window gave ([] when both were given).
+     THE COMPARISON: the STORED phase counts the rows by our status per SEASON, not by day, and refuses --from /
+     --through, so its counts are set beside this line, status by status, only when the window is the load's own:
+     pass the load's own `sync-matches --date-from` / `--date-to`. The comparison the first load needed (308 item 2,
+     the line on #838) ran `sync-matches --date-from 2026-11-04 --date-to 2026-11-10`, seven ticker days, so it is
+     `--from 2026-11-04 --through 2026-11-10`; the 3-day default does not match that load's stored counts. REFUSED
+     (exit 2) before any call: a date that is not YYYY-MM-DD, --from after --through (a lone bound is checked against
+     the other's default), and --from/--through with --db.
   2. STORED (--db COPY, no network): after the first syncs, on a .backup copy outside data/ opened
      mode=ro&immutable=1 (the NBA receipt's guards): counts per season by stored status, status_raw as stored, the
      settlement's truth (FINISHED with a winner and its settlement kept; SETTLED_SCALAR with no winner and its
@@ -413,8 +418,24 @@ def tour_report(tour: str, adapter, get, say, listed: dict | None = None) -> tup
     return OK, out
 
 
+def window_source(defaulted: tuple[str, ...]) -> str:
+    """The header's account of where the window's bounds came from: each bound named, given or the daily window's."""
+    if not defaulted:
+        return "--from and --through given"
+    if len(defaulted) == 2:
+        return "the daily window, tennis-daily {yesterday}..{tomorrow} in UTC"
+    given = "through" if defaulted == ("from",) else "from"
+    dflt = "{yesterday}" if defaulted == ("from",) else "{tomorrow}"
+    return f"--{given} given; --{defaulted[0]} the daily window's, tennis-daily's {dflt} in UTC"
+
+
 def served_phase(tours: list[str], adapter, say, tickers: Path | None = None,
-                 window: tuple[date, date] | None = None) -> tuple[int, dict]:
+                 window: tuple[date, date] | None = None,
+                 defaulted: tuple[str, ...] = ("from", "through")) -> tuple[int, dict]:
+    """`window` is worked out by main before any call (one UTC today per run, as sp_run computes the chain's
+    placeholders once at its start); `defaulted` names the bounds that came from the daily window."""
+    if window is None:                          # worked out here, before the reads, only for a direct caller
+        window, defaulted = daily_window(utc_today()), ("from", "through")
     say(f"TENNIS DATA CERTIFICATION RECEIPT · SERVED (addenda 261 item 2(c), 269 items 1-3, 284 item 1(b); #838) · "
         f"read-only · opens no database · no key · {datetime.now(timezone.utc).isoformat(timespec='seconds')}")
     say("  run BEFORE the first `sync-matches --competition ATP` / `WTA`: the contract terms are read before the map")
@@ -433,11 +454,10 @@ def served_phase(tours: list[str], adapter, say, tickers: Path | None = None,
             answered.append(tour)
     say(f"\nCALLS: {adapter.calls} this run (Kalshi public market data; no key)")
     out["calls"] = adapter.calls
-    lo, hi = window or daily_window(utc_today())
-    say(f"\nTHE WINDOW (addendum 309 item 6; ticker dates, both bounds inclusive; "
-        f"{'given' if window else 'the daily window, tennis-daily {yesterday}..{tomorrow} in UTC'}): the accepted events "
-        "counted by our status, the served side of the STORED phase's counts by status")
-    out["window"] = {"from": lo.isoformat(), "through": hi.isoformat(), "default": window is None, "tours": {}}
+    lo, hi = window
+    say(f"\nTHE WINDOW (addendum 309 item 6; ticker dates, both bounds inclusive; {window_source(defaulted)}): the "
+        "accepted events counted by our status, the served side of the STORED phase's counts by status")
+    out["window"] = {"from": lo.isoformat(), "through": hi.isoformat(), "default": list(defaulted), "tours": {}}
     for tour in tours:
         if tour not in answered or tour not in listed:
             say(f"{tour} WINDOW {lo}..{hi} (ticker dates): not counted (the tour's read did not answer)")
@@ -633,18 +653,20 @@ def main(argv=None, adapter=None) -> int:
         lines.append(str(line))
         print(line, flush=True)
 
-    window = None
-    if a.date_from is not None or a.date_through is not None:
-        if a.db is not None:
-            why = ("REFUSED: --from / --through are the SERVED phase's (addendum 309 item 6); not with --db (the "
-                   "STORED phase)")
-        else:
-            window, why = read_window(a.date_from, a.date_through, utc_today())
-        if why:
-            say(f"{why}; nothing read, nothing written")
-            print(f"{TAIL} " + json.dumps({"phase": "stored" if a.db is not None else "served", "exit": REFUSED,
-                                           "refused": why}, sort_keys=True), flush=True)
-            return REFUSED
+    # the window is worked out HERE, before any call, given or not: one UTC today per run (a run crossing 00:00Z
+    # keeps the window it started with, as sp_run computes {yesterday}/{tomorrow} once at the chain's start)
+    window, why = None, None
+    defaulted = tuple(b for b, raw in (("from", a.date_from), ("through", a.date_through)) if raw is None)
+    if a.db is not None and len(defaulted) < 2:
+        why = ("REFUSED: --from / --through are the SERVED phase's (addendum 309 item 6); not with --db (the STORED "
+               "phase)")
+    elif a.db is None:
+        window, why = read_window(a.date_from, a.date_through, utc_today())
+    if why:
+        say(f"{why}; nothing read, nothing written")
+        print(f"{TAIL} " + json.dumps({"phase": "stored" if a.db is not None else "served", "exit": REFUSED,
+                                       "refused": why}, sort_keys=True), flush=True)
+        return REFUSED
     if a.tickers is not None:
         why = ("REFUSED: --tickers is the SERVED phase's (addendum 308 item 1(c)); not with --db (the STORED phase)"
                if a.db is not None else refuse_tickers(a.tickers, tours))
@@ -659,7 +681,7 @@ def main(argv=None, adapter=None) -> int:
     else:
         adapter = adapter or kt.KalshiTennisAdapter()
         code, out = served_phase(tours, adapter, say, Path(a.tickers).expanduser() if a.tickers is not None else None,
-                                 window)
+                                 window, defaulted)
         phase = "served"
     print(f"{TAIL} " + json.dumps({"phase": phase, "exit": code, **out}, default=str, sort_keys=True), flush=True)
     return code

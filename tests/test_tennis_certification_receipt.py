@@ -587,7 +587,7 @@ def test_the_window_line_counts_the_accepted_events_by_status_inside_inclusive_b
     assert sum(1 for ln in lines if " WINDOW " in ln and ln.startswith(("ATP", "WTA"))) == 2      # one line per tour
     tail = _tail(out)
     assert tail["window"] == {
-        "from": "2026-12-28", "through": "2026-12-30", "default": False,
+        "from": "2026-12-28", "through": "2026-12-30", "default": [],
         "tours": {"ATP": {"FINISHED": 2, "SETTLED_SCALAR": 1, "SCHEDULED": 2, "accepted": 5},
                   "WTA": {"FINISHED": 0, "SETTLED_SCALAR": 0, "SCHEDULED": 1, "accepted": 1}}}
     assert tail["tours"]["ATP"]["events"] == 7                       # the whole listing's accepted events, 2 outside
@@ -634,10 +634,52 @@ def test_the_default_window_is_the_daily_chains_yesterday_through_tomorrow_in_ut
     assert "the daily window, tennis-daily {yesterday}..{tomorrow} in UTC" in out
     tail = _tail(out)
     assert tail["window"]["from"] == "2026-12-28" and tail["window"]["through"] == "2026-12-30"
-    assert tail["window"]["default"] is True
-    # a lone bound takes the other from the daily window
-    code, out, _ = run(capsys, "--through", "2026-12-31", fake=_edges())
-    assert "ATP WINDOW 2026-12-28..2026-12-31 (ticker dates)" in out
+    assert tail["window"]["default"] == ["from", "through"]
+    # both given: the header says so and no bound is the daily window's
+    code, out, _ = run(capsys, "--from", "2026-12-28", "--through", "2026-12-30", fake=_edges())
+    assert "both bounds inclusive; --from and --through given)" in out
+    assert _tail(out)["window"]["default"] == []
+
+
+@pytest.mark.parametrize("args, span, header, default", [
+    (["--through", "2026-12-31"], "2026-12-28..2026-12-31",
+     "--through given; --from the daily window's, tennis-daily's {yesterday} in UTC", ["from"]),
+    (["--from", "2026-12-27"], "2026-12-27..2026-12-30",
+     "--from given; --through the daily window's, tennis-daily's {tomorrow} in UTC", ["through"]),
+])
+def test_a_lone_bound_is_named_given_and_the_other_the_daily_windows(capsys, monkeypatch, args, span, header,
+                                                                      default):
+    """A lone bound takes the other from the daily window, and the header and the tail name which was given and
+    which came from the daily window (never 'given' for the pair, never default false)."""
+    from datetime import date
+    monkeypatch.setattr(R, "utc_today", lambda: date(2026, 12, 29))
+    code, out, _ = run(capsys, *args, fake=_edges())
+    assert code == R.OK, out
+    assert f"ATP WINDOW {span} (ticker dates)" in out
+    assert f"both bounds inclusive; {header})" in out
+    w = _tail(out)["window"]
+    assert f"{w['from']}..{w['through']}" == span and w["default"] == default
+
+
+def test_the_default_window_is_worked_out_before_any_call_once_per_run(capsys, monkeypatch):
+    """The default window is worked out at the start, before the first call (sp_run computes {yesterday}/{tomorrow}
+    once at the chain's start): a run that crosses 00:00Z keeps the window it started with."""
+    from datetime import date
+    fake = _edges()
+    seen = []
+
+    def today():
+        seen.append(len(fake.calls))
+        return date(2026, 12, 29) if len(seen) == 1 else date(2026, 12, 30)       # 00:00Z passes after the first
+
+    monkeypatch.setattr(R, "utc_today", today)
+    code, out, _ = run(capsys, fake=fake)
+    assert code == R.OK, out
+    assert seen == [0], seen                                 # once, with no call made yet
+    assert fake.calls                                        # the reads did run after it
+    w = _tail(out)["window"]
+    assert (w["from"], w["through"]) == ("2026-12-28", "2026-12-30")
+    assert "ATP WINDOW 2026-12-28..2026-12-30 (ticker dates)" in out
 
 
 def test_a_tour_whose_read_refused_has_no_window_counts(capsys):
@@ -679,4 +721,10 @@ def test_the_docs_name_the_window_line():
     row = next(ln for ln in doc.splitlines() if ln.startswith("| `python3 scripts/tennis_certification_receipt.py` |"))
     assert "`[--from YYYY-MM-DD --through YYYY-MM-DD]`" in row and "addendum 309 item 6" in row
     assert "<TOUR> WINDOW <from>..<through> (ticker dates)" in row and "{yesterday}" in row
-    assert "addendum 309 item 6" in R.__doc__ and "the comparison the first load needed (308 item 2)" in R.__doc__
+    assert "addendum 309 item 6" in R.__doc__ and "The comparison the first load needed (308 item 2" in R.__doc__
+    # the comparison names the load's own range, not the 3-day default (the first load wrote seven ticker days)
+    doc = " ".join(R.__doc__.split())
+    assert "pass the load's own `sync-matches --date-from` / `--date-to`" in doc
+    assert "`--from 2026-11-04 --through 2026-11-10`" in doc
+    assert "the 3-day default does not match that load's stored counts" in doc
+    assert "--from 2026-11-04 --through 2026-11-10" in row and "the load's own" in row

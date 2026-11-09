@@ -6,6 +6,8 @@ swapped into the stored orientation (home/away, _ht, _90) and full_time_result H
 status as served; NEITHER → the update REFUSED for that listing, the row untouched, counted (law 4)".
 Item 3(d): "the stored orientation is NOT flipped by the sync — the venue disagreement is a listed finding, and a flip
 of a stored row's home/away is a separate step on a ruling, never silent".
+A reversed pair on a row of the SAME season is a reversal; across seasons it is a collision and never reaches the chain
+(addendum 310 item 3(e)).
 
 Callers (item 3(b)): src/ingestion/service.py `_upsert_match` (the update-by-id and re-key branches) and
 src/ingestion/refresh_by_id.py. The create path never calls it: a new row takes the listing's own orientation.

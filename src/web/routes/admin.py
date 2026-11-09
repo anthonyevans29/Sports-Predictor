@@ -25,7 +25,8 @@ from sqlalchemy import select
 from src.adapters.registry import get_adapter
 from src.db.database import session_scope
 from src.db.schema import Competition, Sport
-from src.ingestion.service import IngestionService, SyncResult, scores_by_team_line
+from src.ingestion.service import (IngestionService, SyncResult, provider_id_collision_line, scores_by_team_line,
+                                   season_unknown_line)
 from src.web.guards import require_localhost
 from src.web.jobs import Job, runner
 from src.timeutil import utc_now_naive
@@ -97,18 +98,32 @@ def _job_sync_matches(
             totals["skipped"] += r.skipped
             both.orientation_reversed += r.orientation_reversed
             both.teams_mismatch_refused += r.teams_mismatch_refused
+            both.provider_id_collision += r.provider_id_collision
+            both.provider_id_season_unknown += r.provider_id_season_unknown
             if job:
                 job.append_log(
                     f"  created={r.created} updated={r.updated} skipped={r.skipped}"
                 )
+                if r.provider_id_collision:     # addendum 310 3(b); 312 item 2: creations only, when N > 0
+                    job.append_log(f"  {provider_id_collision_line(r.provider_id_collision)}")
                 job.append_log(f"  {scores_by_team_line(r)}")
         return (
             f"created={totals['created']} updated={totals['updated']} "
-            f"skipped={totals['skipped']} {scores_by_team_line(both)}"
+            f"skipped={totals['skipped']} {scores_by_team_line(both)}{_collisions(both)}"
         )
     r = service.sync_matches(competition_code, season=season)
     # SCORES BY TEAM (ARCHITECT 2026-11-08, addendum 292 item 3(c), #876): the two counts with their match ids
-    return f"created={r.created} updated={r.updated} skipped={r.skipped} {scores_by_team_line(r)}"
+    return f"created={r.created} updated={r.updated} skipped={r.skipped} {scores_by_team_line(r)}{_collisions(r)}"
+
+
+def _collisions(r) -> str:
+    """ARCHITECT 2026-11-09, addendum 310 item 3(b) (#902): the job summary names a new row created because the listed
+    provider id was held only by a row of another season (addendum 312 item 2), and a listing refused because a season
+    could not be compared, when there is one."""
+    out = f" · {provider_id_collision_line(r.provider_id_collision)}" if r.provider_id_collision else ""
+    if r.provider_id_season_unknown:
+        out += f" · {season_unknown_line(r.provider_id_season_unknown)}"
+    return out
 
 
 def _job_sync_stats(*, competition_code: str, season: str, limit: int, **kwargs) -> str:

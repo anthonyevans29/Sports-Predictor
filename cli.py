@@ -296,6 +296,7 @@ def _tennis_sync_matches(service, competition_code, season, seasons, date_from, 
     print(f"  {code} listing: {lst.markets} markets, pages {lst.pages} (each status to its last page) · "
           f"{len(lst.fixtures)} events accepted · refused {dict(lst.refused) or 'none'}", flush=True)
     console.print(f"[green]✓ Matches ({code}): {result}[/green]")
+    _print_provider_id_collision(result)
     _print_skipped_listings(result)
     _print_scores_by_team(result)
     _tennis_reread(service, code, season, lst, date_from)
@@ -471,6 +472,23 @@ def _print_skipped_listings(result) -> None:
         print(skipped_listings_line(ids), flush=True)
 
 
+def _print_provider_id_collision(result) -> None:
+    """THE PROVIDER ID IS THE SEASON'S (ARCHITECT 2026-11-09, addendum 310 item 3(b), #902): "a stored row of ANOTHER
+    season carrying the listed id is counted and listed on the receipt as `provider_id_collision N: <stored id (season)
+    ← listing id>`". The line counts CREATIONS (addendum 312 item 2: "once the listing's own season has a row with that
+    id, the sync finds it by (id, season_year) and updates it — nothing printed, nothing counted. After the restore,
+    steady NCAA runs print nothing"): printed plainly on its own line (never rich-wrapped) only when N > 0, right after
+    the summary line (the scores-by-team line stays the tail's last line); with it, only when N > 0, the listings
+    refused because the season cannot be compared (law 4). Nothing when the result carries no SyncResult lists (a
+    test's stand-in service)."""
+    if getattr(result, "provider_id_collision", None):
+        from src.ingestion.service import provider_id_collision_line
+        print(provider_id_collision_line(result.provider_id_collision), flush=True)
+    if getattr(result, "provider_id_season_unknown", None):
+        from src.ingestion.service import season_unknown_line
+        print(season_unknown_line(result.provider_id_season_unknown), flush=True)
+
+
 def _print_scores_by_team(result) -> None:
     """SCORES BY TEAM (ARCHITECT 2026-11-08, addendum 292 item 3(c), #876): "two new counts on the sync result and its
     printed receipt, each with the match ids LISTED: `orientation_reversed` and `teams_mismatch_refused`". Printed
@@ -552,6 +570,7 @@ def sync_matches_cmd(
             console.print(f"[cyan]→ Syncing {competition_code} season {season_str}[/cyan]")
             result = service.sync_matches(competition_code, season=season_str)
             console.print(f"  {result}")
+            _print_provider_id_collision(result)
             _print_skipped_listings(result)
             _print_scores_by_team(result)
         return
@@ -565,6 +584,7 @@ def sync_matches_cmd(
         progress=_progress, **({"held_ids": held} if held is not None else {}),
     )
     console.print(f"[green]✓ Matches ({competition_code}): {result}[/green]")
+    _print_provider_id_collision(result)
     _print_skipped_listings(result)
     _print_scores_by_team(result)
     if named is not None:
@@ -1825,6 +1845,10 @@ def intl_sync_cmd(since, max_calls, dry_run, save, from_dir):
                f"matches: {r['matches']}")
     if r.get("names_kept_line"):              # #764 (addendum 206 item 2(i)): a history listing keeps current names
         click.echo(f"  {r['names_kept_line']}")
+    if r.get("provider_id_collision_line"):   # addendum 310 item 3(b), 312 item 2: creations only, when N > 0
+        click.echo(f"  {r['provider_id_collision_line']}")
+    if r.get("season_unknown_line"):          # addendum 310 item 3(a): the no-write refusals, named (Codex on #906)
+        click.echo(f"  {r['season_unknown_line']}")
     if r.get("scores_by_team_line"):          # addendum 292 item 3(c): always, zero counts included
         click.echo(f"  {r['scores_by_team_line']}")
     click.echo("  neutral_derived: " + " · ".join(f"{k} {v}" for k, v in sorted(r["neutral"].items())))

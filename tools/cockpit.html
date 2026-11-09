@@ -3228,7 +3228,7 @@ async function ghLoadFolder(folder){
       if(e&&(e.code==="user_changed"||e.code==="needs_reauth"||e.code==="not_in_manifest"||e.code==="not_granted")){
         for(const r of files.slice(k+1)) failedNames.push(`${r.name} (not read: stopped at ${e.code})`); break; } }
   }
-  if(!got.length){ ghNote(firstErr?ghErrorText(firstErr,folder):`${folder}: none of the ${files.length} file(s) read as JSON.`); return; }
+  if(!got.length){ ghNote((firstErr?ghErrorText(firstErr,folder):`${folder}: none of the ${files.length} file(s) read as JSON.`)+` · Failed: ${failedNames.join(", ")}`); return; }
   if(failedNames.length){
     // 2(d) "keeps the current slate, claims nothing, and prints which files failed"
     ghPartial={folder,got,total:files.length,folded,failedNames};
@@ -3340,10 +3340,12 @@ function ledgerParse(text){ let L; try{ L=JSON.parse(text); }catch(e){ return nu
 // stamped one is the later change); neither stamped (two pre-addendum copies), a call goes by the page's own collapse
 // rule (better: graded beats open, then the earliest capture — graded history is never lost) and a fill keeps the
 // stored copy. One version per record survives a conflict; the record itself is never dropped, and the count of
-// conflicts is in the store note.
+// conflicts is in the store note. Equal bodies are no conflict, and the copy with the newer valid stamp is kept (a
+// stamped copy beats an unstamped one; a tie keeps the stored one): an edit reverted carries a newer stamp than the
+// stored body, and dropping it would let an older differing copy of a third tab win a later merge (review of this PR).
 function ledgerPick(s,l,kind){
-  if(ledgerRecBody(s)===ledgerRecBody(l)) return {x:s,conflict:false};
   const ts=Date.parse(s&&s.updated_at), tl=Date.parse(l&&l.updated_at); let x;
+  if(ledgerRecBody(s)===ledgerRecBody(l)) return {x:isFinite(tl)&&!(isFinite(ts)&&tl<=ts)?l:s,conflict:false};
   if(isFinite(ts)&&isFinite(tl)) x=tl>ts?l:s;
   else if(isFinite(tl)) x=l;
   else if(isFinite(ts)) x=s;
@@ -3488,7 +3490,9 @@ async function ledgerStoreSync(){
         torn=e; }
       L=loadLedger();
       if(S){ const r=ledgerMergeSave(S,L); L=r.L; merges.push(ledgerMergeText(r.m,hRev)+r.collapse); ledgerRerender(); }   // rev+1 over both sides
-      ledgerStoreSeen=hid; ledgerStoreRev=hRev;
+      // a torn header is not marked seen here: ledgerStorePut marks the header it switches to, so a replacement write
+      // that fails leaves the next save reading the torn header again (keepOld), never deleting its chunks unread
+      if(!torn) ledgerStoreSeen=hid; ledgerStoreRev=hRev;
     } else L=loadLedger();
     if(ledgerRevOf(L)<=(hRev||0)){ L.rev=hRev; ledgerSaveLocal(L,{noStamp:true}); }     // the written rev is above the header's
     const w=await ledgerStorePut(L,h,{keepOld:!!torn});

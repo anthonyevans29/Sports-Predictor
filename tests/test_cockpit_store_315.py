@@ -389,6 +389,58 @@ S.torn = async()=>{
   return {boot, setsBoot, note, first:{rev:st.head.rev, ids:ids(st.L), ok:st.ok}, legacyKept:db.docs.has("ledger_chunks/0"),
     second:{rev:st2.head.rev, ids:ids(st2.L)}, note2:T.note(), fresh:ids(R.local())};
 };
+// ---- the review of this PR (Codex, round 1) ----
+// C1: an edit reverted (same body as the store's, a newer stamp) keeps its newer stamp through the merge, so a third
+// tab's differing copy stamped between the two cannot win a later merge and bring the reverted data back
+S.revert = async()=>{
+  const db = makeDb(), clock = {now: Date.parse("2026-11-09T12:00:00Z")};
+  const t1 = "2026-11-09T11:00:00.000Z";
+  seedStore(db, {meta:{policy_version:"v1.2"}, calls:[call("x1",{market_p:0.50, updated_at:t1})], rev:3}, 3);
+  const A = makeTab(db,{clock}), B = makeTab(db,{clock}), C = makeTab(db,{clock}); await settle();
+  clock.now += 1000; A.edit(L=>{ L.calls.push(call("a2")); }); await A.fireTimers();       // the store moves on (x1 untouched, t1)
+  clock.now += 1000; const t2 = new Date(clock.now).toISOString();
+  C.edit(L=>{ L.calls.find(c=>c.id==="x1").market_p=0.70; });                               // C: a differing x1 at t2
+  clock.now += 1000; B.edit(L=>{ L.calls.find(c=>c.id==="x1").market_p=0.60; });
+  clock.now += 1000; const t3 = new Date(clock.now).toISOString();
+  B.edit(L=>{ L.calls.find(c=>c.id==="x1").market_p=0.50; });                               // B reverts: the stored body, at t3
+  const bLocal = B.local().calls.find(c=>c.id==="x1");
+  await B.fireTimers(); const afterB = (await readStore(db)).L.calls.find(c=>c.id==="x1");
+  await C.fireTimers(); const st = await readStore(db), afterC = st.L.calls.find(c=>c.id==="x1");
+  return {t1, t2, t3, bLocal:{p:bLocal.market_p, at:bLocal.updated_at}, afterB:{p:afterB.market_p, at:afterB.updated_at},
+    afterC:{p:afterC.market_p, at:afterC.updated_at}, ids:ids(st.L), Cnote:C.note()};
+};
+// C2: a listing where every read fails names each failed file in the note, and nothing is acted on
+S.allfail = async()=>{
+  const names = ["desk_01.json", "desk_02.json"];
+  const mcp = { listTools: async()=>({servers:[{server:"GitHub", tools:[{name:"get_file_contents"}]}]}),
+    callTool: async(server, tool, args)=>{
+      if (args.path==="host/latest") return JSON.stringify(names.map(n=>({name:n, path:`host/latest/${n}`, type:"file"})));
+      if (args.path.endsWith("desk_01.json")){ const e=new Error("GitHub did not answer"); e.code="upstream_error"; throw e; }
+      return "<html>not json</html>"; } };
+  const db = makeDb(); seedStore(db, {meta:{}, calls:[call("s1")], rev:1}, 1);
+  const T = makeTab(db,{mcp}); await settle();
+  const ledgerBefore = T.store.get("bd_ledger_v1"), dbWritesBefore = db.log.filter(x=>x[0]==="set").length;
+  await T.ev('ghLoadFolder("host/latest")'); await settle();
+  const firstErr = T.ev('(()=>{ const e=new Error("GitHub did not answer"); e.code="upstream_error"; return ghErrorText(e,"host/latest"); })()');
+  return { note:T.gh(), firstErr, btnHidden:T.el("ghPartialBtn").hidden, partial:T.ev("ghPartial"),
+    loadDocs:T.calls.loadDocs.length, results:T.calls.ingestResultsDocs.length, window:T.calls.ingestWindowText.length,
+    ledgerSame:T.store.get("bd_ledger_v1")===ledgerBefore, dbWrites:db.log.filter(x=>x[0]==="set").length-dbWritesBefore };
+};
+// C3: a torn v2 store whose first replacement write fails at a chunk: the next save reads the torn header again and
+// keeps its unreadable chunks (keepOld), never deleting them unread
+S.tornretry = async()=>{
+  const db = makeDb(); seedStore(db, {meta:{}, calls:[call("c1")]}, null);
+  const h = db.docs.get("cockpit/ledger"); h.length = h.length + 5;
+  const T = makeTab(db,{local:{bd_ledger_v1:JSON.stringify({meta:{}, calls:[call("c1"), call("c2")]})}}); await settle();
+  db.failSet = p => p.startsWith("ledger_chunks/") && p !== "ledger_chunks/0";
+  T.edit(L=>{ L.calls.push(call("c3")); }); await T.fireTimers();
+  const failNote = T.note(), headAfterFail = clone(db.docs.get("cockpit/ledger")), keptAfterFail = db.docs.has("ledger_chunks/0");
+  db.failSet = null;
+  T.edit(L=>{ L.calls.push(call("c4")); }); await T.fireTimers();
+  const st = await readStore(db);
+  return {failNote, headAfterFail:headAfterFail.rev===undefined, keptAfterFail, note:T.note(), legacyKept:db.docs.has("ledger_chunks/0"),
+    second:{rev:st.head.rev, ids:ids(st.L), ok:st.ok}};
+};
 (async()=>{ const out = await S[SCEN](); process.stdout.write(JSON.stringify(out)); })()
   .catch(e=>{ console.error(e&&e.stack||e); process.exit(1); });
 """
@@ -588,3 +640,35 @@ def test_review_a_torn_v2_store_is_written_over_and_its_chunks_kept(run):
     assert "did not read whole (stored length 240 ≠ header 245)" in o["note"] and "left in place, unread" in o["note"]
     assert o["second"] == {"rev": 2, "ids": ["c1", "c2", "c3", "c4"]} and "SAVE FAILED" not in o["note2"]
     assert o["fresh"] == ["c1", "c2", "c3", "c4"]
+
+
+# ---- the review of this PR (Codex, round 1): one test per finding ----
+
+def test_codex_a_reverted_edit_keeps_its_newer_stamp_through_the_merge(run):
+    """Equal bodies are no conflict, but the newer valid stamp is kept: tab B's edit-then-revert (the stored body, at
+    t3) merges over the store's t1 copy as t3, so tab C's differing copy stamped t2 loses the later merge."""
+    o = run("revert")
+    assert o["t1"] < o["t2"] < o["t3"]
+    assert o["bLocal"] == {"p": 0.5, "at": o["t3"]}
+    assert o["afterB"] == {"p": 0.5, "at": o["t3"]}
+    assert o["afterC"] == {"p": 0.5, "at": o["t3"]}           # B's reverted body, not C's 0.70 at t2
+    assert o["ids"] == ["a2", "x1"] and "1 differing version(s)" in o["Cnote"]
+
+
+def test_codex_a_listing_whose_every_read_fails_names_each_file(run):
+    """The zero-success note keeps the first error's text and names every failed file with its code; nothing acts."""
+    o = run("allfail")
+    assert o["note"].startswith(o["firstErr"])
+    assert "Failed: desk_01.json (upstream_error), desk_02.json (not a JSON document)" in o["note"]
+    assert o["loadDocs"] == 0 and o["results"] == 0 and o["window"] == 0
+    assert o["ledgerSame"] and o["dbWrites"] == 0 and o["btnHidden"] is True and o["partial"] is None
+
+
+def test_codex_a_torn_store_whose_replacement_write_fails_keeps_its_chunks(run):
+    """A torn header is not marked seen before the replacement write: when that write fails at a chunk, the next save
+    reads the torn header again and writes with keepOld, so the unreadable legacy chunks stay in place."""
+    o = run("tornretry")
+    assert "SAVE FAILED" in o["failNote"] and o["headAfterFail"] and o["keptAfterFail"]
+    assert o["second"]["ok"] and o["second"]["ids"] == ["c1", "c2", "c3", "c4"]
+    assert o["legacyKept"]
+    assert "did not read whole" in o["note"] and "left in place, unread" in o["note"]

@@ -1556,8 +1556,352 @@
       "reference": "the D4 baseline on the same games minus 0.010"
     },
     "declared_at": "2026-10-16T13:00:17Z",
-    "status": "declared",
-    "run": null,
+    "status": "run",
+    "run": {
+      "run_at": "2026-11-09T14:20:27Z",
+      "n_scored": 1096,
+      "ids_sha256": "3bed03e5e6be6ef0a90fd7780d3c3b4e3644891260db768c5f440aef1b7508f8",
+      "ids_file": "docs/registry/ids/ncaa-elo-v2.txt",
+      "result": {
+        "verdict": "FAIL \u2014 the gate: FAIL \u2014 (3) spread (D10: the lane goes live only if BOTH the gate and the second read pass; the second read: PASS)",
+        "n_scored": 562,
+        "baseline_home_rate": 0.5949105914718019,
+        "baseline_n": 1454,
+        "min_scored": 500,
+        "walked_by_season": {
+          "2024": 798,
+          "2025": 806,
+          "2026": 562
+        },
+        "not_walked_after_last_2026": 0,
+        "walked_not_scored_2026_by_season_type": {},
+        "neutral_updates": 150,
+        "neutral_unflagged": 0,
+        "teams_rated": 138,
+        "rating_min": 1189.549318306578,
+        "rating_max": 1836.3006503828465,
+        "outliers": [],
+        "ll_model": 0.5984669377918015,
+        "ll_baseline": 0.6694566863915611,
+        "bar": 0.6594566863915611,
+        "crit_margin": true,
+        "mean_p": 0.6099542679806456,
+        "realized_home_rate": 0.608540925266904,
+        "level_gap": 0.0014133427137416055,
+        "crit_level": true,
+        "slope_b": 0.6980973022421788,
+        "fit_converged": true,
+        "crit_spread": false,
+        "crit_range": true,
+        "intercept_a": 0.1072412601047017,
+        "ll_const": 0.6931471805599468,
+        "brier_model": 0.20276119228033376,
+        "brier_baseline": 0.23824436848154396,
+        "bands_79": [
+          {
+            "band": 0,
+            "n": 13,
+            "stated": 0.073568,
+            "realized": 0.230769,
+            "gap": 0.157202,
+            "gated": false,
+            "ok": null
+          },
+          {
+            "band": 1,
+            "n": 26,
+            "stated": 0.155626,
+            "realized": 0.115385,
+            "gap": -0.040242,
+            "gated": false,
+            "ok": null
+          },
+          {
+            "band": 2,
+            "n": 48,
+            "stated": 0.245844,
+            "realized": 0.395833,
+            "gap": 0.149989,
+            "gated": false,
+            "ok": null
+          },
+          {
+            "band": 3,
+            "n": 39,
+            "stated": 0.347276,
+            "realized": 0.487179,
+            "gap": 0.139903,
+            "gated": false,
+            "ok": null
+          },
+          {
+            "band": 4,
+            "n": 57,
+            "stated": 0.445042,
+            "realized": 0.438596,
+            "gap": -0.006446,
+            "gated": false,
+            "ok": null
+          },
+          {
+            "band": 5,
+            "n": 59,
+            "stated": 0.548259,
+            "realized": 0.491525,
+            "gap": -0.056734,
+            "gated": false,
+            "ok": null
+          },
+          {
+            "band": 6,
+            "n": 70,
+            "stated": 0.651669,
+            "realized": 0.628571,
+            "gap": -0.023098,
+            "gated": false,
+            "ok": null
+          },
+          {
+            "band": 7,
+            "n": 86,
+            "stated": 0.752644,
+            "realized": 0.813953,
+            "gap": 0.061309,
+            "gated": false,
+            "ok": null
+          },
+          {
+            "band": 8,
+            "n": 106,
+            "stated": 0.85002,
+            "realized": 0.783019,
+            "gap": -0.067001,
+            "gated": true,
+            "ok": false
+          },
+          {
+            "band": 9,
+            "n": 58,
+            "stated": 0.93597,
+            "realized": 0.810345,
+            "gap": -0.125625,
+            "gated": false,
+            "ok": null
+          }
+        ],
+        "cold_starts": 2,
+        "ll_neutral": 0.7111293250999446,
+        "n_neutral": 10,
+        "ll_nonneutral": 0.5964259525144798,
+        "n_nonneutral": 552,
+        "stream_fingerprint": "99a0a2394e519615c69ffd025e8a3f68473dcef1f2e3d122b29851fa10ffcc42",
+        "stream_games": 2958,
+        "census": {
+          "2024": {
+            "postseason": 46,
+            "regular": 752
+          },
+          "2025": {
+            "postseason": 46,
+            "regular": 760
+          },
+          "2026": {
+            "regular": 562
+          }
+        },
+        "level_scores_skipped": {},
+        "coverage": {
+          "2024": 1.0,
+          "2025": 0.9975247524752475,
+          "2026": 1.0
+        },
+        "logistic_scale": 279.14222651259433,
+        "second_read": {
+          "verdict": "PASS \u2014 the architect rules; PASS does not make college football a call (D8): the Desk stays market-only for NCAA",
+          "n_scored": 534,
+          "baseline_home_rate": 0.6298076923076923,
+          "baseline_n": 208,
+          "min_scored": 500,
+          "walked_by_season": {
+            "2023": 792
+          },
+          "not_walked_after_last_2023": 0,
+          "walked_not_scored_2023_by_season_type": {
+            "postseason": 42,
+            "regular, week before 5": 216
+          },
+          "neutral_updates": 62,
+          "neutral_unflagged": 0,
+          "teams_rated": 133,
+          "rating_min": 1245.4928754697285,
+          "rating_max": 1856.94925574572,
+          "outliers": [],
+          "ll_model": 0.5689781882111633,
+          "ll_baseline": 0.6932880591993545,
+          "bar": 0.6832880591993545,
+          "crit_margin": true,
+          "mean_p": 0.6004753881271252,
+          "realized_home_rate": 0.5617977528089888,
+          "level_gap": 0.038677635318136394,
+          "crit_level": true,
+          "slope_b": 1.1978259641641147,
+          "fit_converged": true,
+          "crit_spread": true,
+          "crit_range": true,
+          "intercept_a": -0.271706888843676,
+          "ll_const": 0.6931471805599468,
+          "brier_model": 0.1930086371535916,
+          "brier_baseline": 0.24987845721694,
+          "bands_79": [
+            {
+              "band": 0,
+              "n": 1,
+              "stated": 0.071891,
+              "realized": 0.0,
+              "gap": -0.071891,
+              "gated": false,
+              "ok": null
+            },
+            {
+              "band": 1,
+              "n": 19,
+              "stated": 0.162461,
+              "realized": 0.052632,
+              "gap": -0.10983,
+              "gated": false,
+              "ok": null
+            },
+            {
+              "band": 2,
+              "n": 31,
+              "stated": 0.257393,
+              "realized": 0.225806,
+              "gap": -0.031586,
+              "gated": false,
+              "ok": null
+            },
+            {
+              "band": 3,
+              "n": 52,
+              "stated": 0.359905,
+              "realized": 0.25,
+              "gap": -0.109905,
+              "gated": false,
+              "ok": null
+            },
+            {
+              "band": 4,
+              "n": 61,
+              "stated": 0.448441,
+              "realized": 0.377049,
+              "gap": -0.071392,
+              "gated": false,
+              "ok": null
+            },
+            {
+              "band": 5,
+              "n": 78,
+              "stated": 0.545342,
+              "realized": 0.474359,
+              "gap": -0.070983,
+              "gated": false,
+              "ok": null
+            },
+            {
+              "band": 6,
+              "n": 94,
+              "stated": 0.651793,
+              "realized": 0.62766,
+              "gap": -0.024134,
+              "gated": false,
+              "ok": null
+            },
+            {
+              "band": 7,
+              "n": 99,
+              "stated": 0.74786,
+              "realized": 0.767677,
+              "gap": 0.019816,
+              "gated": false,
+              "ok": null
+            },
+            {
+              "band": 8,
+              "n": 73,
+              "stated": 0.842254,
+              "realized": 0.835616,
+              "gap": -0.006637,
+              "gated": false,
+              "ok": null
+            },
+            {
+              "band": 9,
+              "n": 26,
+              "stated": 0.927619,
+              "realized": 0.884615,
+              "gap": -0.043004,
+              "gated": false,
+              "ok": null
+            }
+          ],
+          "cold_starts": 0,
+          "ll_neutral": 0.6015429527463214,
+          "n_neutral": 14,
+          "ll_nonneutral": 0.5681014445506015,
+          "n_nonneutral": 520,
+          "read": true,
+          "census": {
+            "2023": {
+              "postseason": 42,
+              "regular": 750
+            }
+          },
+          "weeks": {
+            "1": 52,
+            "2": 47,
+            "3": 54,
+            "4": 63,
+            "5": 56,
+            "6": 49,
+            "7": 55,
+            "8": 54,
+            "9": 54,
+            "10": 62,
+            "11": 64,
+            "12": 64,
+            "13": 65,
+            "14": 10,
+            "15": 1
+          },
+          "level_scores_skipped": {},
+          "coverage": {
+            "2023": 1.0
+          }
+        },
+        "verdict_gate": "FAIL \u2014 (3) spread",
+        "architect_word": "ARCHITECT 2026-11-09: ncaa-elo-v2's one run \u2014 D6 at the frozen s, the 2026 regular season as the test, addenda 290 item 6 and 291 item 1",
+        "scored_ids_by_read": {
+          "gate": {
+            "n": 562,
+            "sha256": "426dedf9d19edca39d890eceb9736bb0775ce9c2d42bb5a661fa888e19adbc2e"
+          },
+          "second read": {
+            "n": 534,
+            "sha256": "57a43526bde8b51d9969231b4c706e7c5f84cf9eac8ba7774819c52d090da657"
+          }
+        }
+      },
+      "prior_reads": [
+        {
+          "id": "ncaa-elo-v1r",
+          "candidate": "NCAAEloV1 (src/models/ncaa_elo.py) with its constants untouched: k_factor 24, home_advantage 55, mov_base 2.2, season_regression 0.25, default_rating 1500; neutral_site_rule no_home_advantage_at_neutral (D1)",
+          "run_at": "2026-10-09T16:18:32Z",
+          "why": "overlapping scored ids",
+          "overlap": 2
+        }
+      ],
+      "prior_read_count": 1
+    },
     "verdict": null,
     "neutral_site_rule": "no_home_advantage_at_neutral",
     "constants": {

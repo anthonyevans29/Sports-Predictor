@@ -79,7 +79,8 @@ def _num(x) -> bool:
 
 def _match_ids(v) -> set:
     """closing.match_ids as a set; anything but a list is none (Codex P2 on #903: a string or an object was iterated
-    into ids, a number raised); a non-scalar element of a list is skipped, never hashed."""
+    into ids, a number raised); an element of a list that is not an int or a string (a float, a bool, a list, an
+    object) is skipped, never hashed."""
     if not isinstance(v, list):
         return set()
     return {x for x in v if isinstance(x, (int, str)) and not isinstance(x, bool)}

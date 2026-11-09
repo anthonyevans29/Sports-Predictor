@@ -20,8 +20,9 @@ rule has run (the 4pp halving, INTL half, postseason), computed with the same fe
 exec_non_positive, the reason naming the figure that failed (its all-in cost and the model's price; both when both
 fail). A tightening only [...]. The exec block stays the gate's figures (h, the record), with the final order's cost
 added beside it as its own field (`exec.final_cost`, `exec.final_edge_pp`, `exec.final_units`)". Its tests are the
-section "addendum 309" below; the 305 pins at a 0.55 ask whose half order costs a cent more per contract than the full
-one (0.017 vs 0.018) read both figures, so the +0.1 pin sits at a 0.50 ask, where the two orders cost the same."""
+section "addendum 309" below; the 305 pins at a 0.55 ask whose half order costs a tenth of a cent more per contract
+than the full one (0.017 vs 0.018) read both figures, so the +0.1 pin sits at a 0.50 ask, where the two orders cost
+the same."""
 import json
 import os
 import sys

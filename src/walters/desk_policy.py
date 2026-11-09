@@ -93,10 +93,11 @@ EXEC_RULES = {"on": True}
 # sized, so no sizing tag or reason stays: #181; the later strong-tier and kalshi-status notes may follow, as on any
 # PASS, informational).
 # No order. It is NOT a NO_CALL_KIND: the row's exec block stays (the record of the cost the reason names) and a value
-# shadow is still read (unstaked, its own exec block: "they are not calls"). 0 < exec < 4 stays half units; exec >= 4
-# full; no executable quote stays half units (conservative unknowns, as v1.1 ruled). Under NFL market-only the chain's
-# own call is this PASS, so the would-be record (#446: market_only_hold.would_call) carries no would-be PLAY. Its own
-# switch; with EXEC_RULES off (base_v11, addendum_off: the frozen golden) the branch never runs.
+# shadow is still read (unstaked, its own exec block: "they are not calls"). 0 < exec < 4 stays half units unless the
+# order placed prices <= 0 (addendum 309 item 1, below); exec >= 4 full; no executable quote stays half units
+# (conservative unknowns, as v1.1 ruled). Under NFL market-only the chain's own call is this PASS, so the would-be
+# record (#446: market_only_hold.would_call) carries no would-be PLAY. Its own switch; with EXEC_RULES off (base_v11,
+# addendum_off: the frozen golden) the branch never runs.
 # TWO FIGURES (ARCHITECT 2026-11-09 12:50 ET, addendum 309 item 1, RULED): "the exec_non_positive check reads TWO figures
 # and PASSES on either: (i) the gate's exec edge as #87 (h) prices it [...]; (ii) the exec edge re-priced at the units
 # the order will actually carry after EVERY sizing rule has run (the 4pp halving, INTL half, postseason), computed with

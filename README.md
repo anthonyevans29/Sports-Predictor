@@ -32,9 +32,12 @@ Issue (addendum 276 item 2). This file describes; the rules are in
   (docs/specs/exports-mirror.md; `deploy/hosting/exports_mirror.py`).
 - **Cockpit.** The operated surface (addendum 276 item 1) is a Claude artifact
   published separately; `tools/cockpit.html` is the repo copy (CLAUDE.md,
-  opening). In the artifact the CSP blocks api.github.com: "Load latest from host"
-  works only when served locally by `scripts/cockpit_local.py`; the file picker
-  is the published path (docs/specs/exports-mirror.md, "Published artifact").
+  opening). Since Cockpit v2 (addendum 307 item 2) the published page reads the
+  mirror through the operator's own claude.ai GitHub connector, read-only: that
+  is the primary path. The F2.5 token box stays, folded, as the fallback; the
+  artifact's CSP blocks api.github.com, so the token path works only when served
+  locally by `scripts/cockpit_local.py` (docs/specs/exports-mirror.md, setup
+  step 6 and "Published artifact").
 - **Web UI.** `python main.py` serves FastAPI on `localhost:8000` (docs/CLI.md
   "Web UI"; host unit `deploy/hosting/systemd/sp-web.service`).
 - **Databases.** `data/` is gitignored (`.gitignore`). The host makes a daily

@@ -64,8 +64,10 @@ def test_257_item_3_the_500th_game_step_done_its_what_and_due_kept():
         "comment 6660320768): " + RECEIPT)}
     # "The 11-09 run stays on its date and on the LAPTOP" (257 item 3): it ran on its date. ARCHITECT 2026-11-09 09:35 ET,
     # addendum 302 item 3: the 11-09 step done (a done-mark), the two on-PASS steps (11-21, 11-23) cleared by the FAIL and
-    # earliest_live 2026-11-24 cleared, by one moved line of 2026-11-09; no date moved on 11-05
-    assert [(s["due"], s["done"]["date"]) for s in steps[4:]] == [("2026-11-09", "2026-11-09")]
+    # earliest_live 2026-11-24 cleared, by one moved line of 2026-11-09; no date moved on 11-05. ARCHITECT 2026-11-09
+    # 12:50 ET, addendum 309 item 3(1): the lane's ONE dated step (due 2027-02-01) follows it, not done
+    assert [(s["due"], (s["done"] or {}).get("date")) for s in steps[4:]] == [("2026-11-09", "2026-11-09"),
+                                                                             ("2027-02-01", None)]
     assert lanes["ncaa"]["earliest_live"] is None
     assert [(m["moved_on"], m["which"], m["was"], m["now"]) for m in lanes["ncaa"]["moved"]] == [
         ("2026-11-09", "earliest_live", "2026-11-24", None)]

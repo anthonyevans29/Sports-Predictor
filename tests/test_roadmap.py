@@ -162,10 +162,14 @@ def test_lanes_data_is_the_print_as_data_with_no_eta_for_an_undated_lane(tmp_pat
                                                                  "basketball-market-only",  # addendum 261 item 1(f)
                                                                  "tennis-market-only",    # addendum 261 item 2(e)
                                                                  "ncaa"}                  # addendum 302 item 3
-    # ncaa: every step done since ARCHITECT 2026-11-09 09:35 ET, addendum 302 item 3 (the one run's step done on the #79
-    # console, the two on-PASS steps cleared by the FAIL, the lane closed): no next step
+    # ncaa: since ARCHITECT 2026-11-09 09:35 ET, addendum 302 item 3, the one run's step done on the #79 console and the
+    # two on-PASS steps cleared by the FAIL; ARCHITECT 2026-11-09 12:50 ET, addendum 309 item 3(1): state "to declare"
+    # with ONE dated step, the 2027 candidate's declaration due 2027-02-01 (owner architect): its next step
     ncaa = next(g for g in got if g["lane"] == "ncaa")
-    assert (ncaa["next"], ncaa["state"], ncaa["next_line"]) == (None, "closed", "next: none (closed)")
+    assert ncaa["state"] == "to declare" and ncaa["eta"] == "no ETA"
+    assert ncaa["next_line"].startswith("next: the 2027 college candidate declares, with 302 item 3's spread pre-check "
+                                        "on the declared constants before any gate run (ARCHITECT 2026-11-09 12:50 ET")
+    assert ncaa["next_line"].endswith(" · architect · due 2027-02-01 · in 106 days"), ncaa["next_line"]  # day 10-18
     doc = _real()
     _lane(doc, "unl")["state"] = "live"
     for st in _lane(doc, "unl")["steps"]:

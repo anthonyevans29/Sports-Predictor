@@ -280,13 +280,21 @@ def test_spec_and_ledger_quote_d1_to_d11_and_item_1_verbatim():
     assert ITEM1 in " ".join(SPEC.read_text().split())
 
 
+NCAA_2027_STEP = ("the 2027 college candidate declares, with 302 item 3's spread pre-check on the declared "
+                  "constants before any gate run")   # ARCHITECT 2026-11-09 12:50 ET, addendum 309 item 3(1)
+
+
 def test_the_roadmap_lane_names_the_declaration_and_the_step_done():
     from src import roadmap
     doc = json.loads((ROOT / "docs" / "roadmap.json").read_text())
     assert roadmap.validate(doc) == []
     ln = next(x for x in doc["lanes"] if x["lane"] == "ncaa")
-    # ARCHITECT 2026-11-09 09:35 ET, addendum 302 item 3: "the lane's state the vocabulary's word for failed" (closed)
-    assert (ln["registry_id"], ln["state"]) == ("ncaa-elo-v2", "closed")
+    # ARCHITECT 2026-11-09 09:35 ET, addendum 302 item 3: "the lane's state the vocabulary's word for failed" (closed);
+    # ARCHITECT 2026-11-09 12:50 ET, addendum 309 item 3(1): "not `closed` while #79 is open. The lane takes state `to
+    # declare` (the vocabulary's word NHL's lane uses) with ONE dated step"
+    assert (ln["registry_id"], ln["state"]) == ("ncaa-elo-v2", "to declare")
+    nhl = next(x for x in doc["lanes"] if x["lane"] == "nhl")
+    assert "to declare" in roadmap.STATES and nhl["state"] == "to declare"
     assert ln["steps"][0]["done"]["date"] == "2026-10-16" and "addendum 81" in ln["steps"][0]["done"]["receipt"]
     done = ln["steps"][1]["done"]                     # #553 merged (ARCHITECT 2026-10-16, addendum 96 item 1)
     assert done["date"] == "2026-10-16" and "#553 merged at 81ea7c0" in done["receipt"]
@@ -301,7 +309,13 @@ def test_the_roadmap_lane_names_the_declaration_and_the_step_done():
     assert ln["steps"][4]["what"] == "the one run, on my word, and the verdict" and ln["steps"][4]["due"] == "2026-11-09"
     assert ln["steps"][4]["done"]["date"] == "2026-11-09"
     assert ln["steps"][4]["done"]["receipt"].startswith("the console on #79 (issuecomment-6742352402")
-    assert len(ln["steps"]) == 5 and roadmap.next_step(ln) is None and ln["earliest_live"] is None
+    # addendum 309 item 3(1): ONE dated step, NCAA_2027_STEP verbatim — owner architect, due 2027-02-01, the ruling
+    # cited in its text
+    assert len(ln["steps"]) == 6 and ln["earliest_live"] is None
+    st = ln["steps"][5]
+    assert roadmap.next_step(ln) == (6, st) and [s for s in ln["steps"] if s["done"] is None] == [st]
+    assert st["what"].startswith(NCAA_2027_STEP + " (ARCHITECT 2026-11-09 12:50 ET, addendum 309 item 3(1)")
+    assert (st["owner"], st["due"], st["done"]) == ("architect", "2027-02-01", None)
     (mv,) = ln["moved"]
     assert (mv["moved_on"], mv["which"], mv["was"], mv["now"]) == ("2026-11-09", "earliest_live", "2026-11-24", None)
     assert mv["ruling"].startswith("ARCHITECT 2026-11-09 09:35 ET, addendum 302 item 3, MOVED LINE: ")
@@ -311,6 +325,9 @@ def test_the_roadmap_lane_names_the_declaration_and_the_step_done():
     assert ln["vs_close"] == "not read. No college candidate has been scored against a close."
     assert ("\"the 2027 candidate's declaration in the off-season (2024–2026 training, the 2027 regular season the test, "
             "the same gate, the pre-check of item 2 declared with it)\"") in ln["live_needs"]
+    # addendum 309 item 3(1): "The undated 2027 sentence stays quoted in `live_needs` as 267 did it."
+    assert "\"The undated 2027 sentence stays quoted in `live_needs` as 267 did it.\"" in ln["live_needs"]
+    assert "the state is the vocabulary's word for failed" not in ln["live_needs"]
 
 
 # ------------------------------------------------------------------------------------------------ D1: the model --

@@ -118,8 +118,14 @@ def test_303_the_leagues_lane_bl1_done_and_its_window_step():
     # the receipt's PROJECTION line for BL1, as the operator pasted it (addendum 306 item 4), and its caveat
     assert ("kickoff 2027-01-13 19:30Z (UTC date 2027-01-13; match 18549) · 225 stored after the start" in w["what"])
     assert '"every other game assumed to get a three-way close"' in w["what"]
-    assert "BL1's close coverage this season is ~45%, so the 60th QUALIFYING game lands later than the 60th stored "\
-           "fixture" in w["what"]
+    # ARCHITECT 2026-11-09 12:50 ET, addendum 309 item 3(7), verbatim in part: "303 item 2's MEASURED figure (26 of 81,
+    # 32%) is the record"; 306 item 4's estimate is WITHDRAWN: "the step carries 32%", and the withdrawn figure nowhere
+    assert ("BL1's close coverage this season is 26 of 81 finished, 32%: addendum 303 item 2's MEASURED "
+            "figure") in w["what"]
+    assert "addendum 309 item 3(7)" in w["what"]
+    assert "45%" not in w["what"]
+    assert ("\"so the 60th QUALIFYING game lands later than the 60th stored fixture; the roadmap step takes the "
+            "projected date as written, and the lane's text names the caveat.\"") in w["what"]
     assert "the window counts from 2026-11-09T14:45:00Z" in w["what"]
     assert ln["state"] == "declared" and ln["earliest_live"] is None and len(ln["moved"]) == 1   # no date moved
     assert ln["steps"][-2]["due"] == "2026-12-06" and rm.next_step(ln)[1] is ln["steps"][-2]

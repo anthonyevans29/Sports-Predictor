@@ -17,7 +17,10 @@ kickoff, 45-14 and 20-9, provider ids kept, `provider_orientation` removed); pri
 
 Exactly one of --dry-run / --apply (else exit 2, nothing written). Exit 0 = planned (dry run) or applied; exit 2 =
 refused, nothing written. The live DB is opened read-write only on --apply (one transaction, BEGIN IMMEDIATE, every
-check read again inside it); --from always mode=ro&immutable=1 (a copy nobody writes).
+check read again inside it, the row count written checked before the commit); --from always mode=ro&immutable=1 (a
+copy nobody writes). "Writes nothing" is the database file's bytes: the live DB is a WAL file (src/db/database.py), and
+SQLite itself may leave its empty -wal/-shm sidecars beside it on a mode=ro open, as for every ro_connect reader. The
+live open is never immutable=1: that would skip WAL frames not yet written back into the main file.
 
 THE PINNED STATES (item 1, the operator's read of the 10-09 and 11-09 copies): EXPECTED below, per row id. The live
 row must read the 2026 game (season, kickoff, provider id, the team names through the teams table, status FINISHED and
@@ -41,6 +44,9 @@ src/db/schema.py's, every table printed):
   * every other table referencing the old id: rows identical in the 10-09 copy are the 2025 game's and stay with the
     restored row; a row added or changed since (or one the copy has and the live file lost) is REFUSED, named: the
     ruling does not say where it goes.
+  * availability_observations / availability_assertions carry match_id with NO foreign key and are append-only
+    (addendum 254; triggers abort an UPDATE): never moved. Each id's count is printed (zeros included, the receipt) and
+    read like every other table: rows identical in the copy stay, a row added since (a 2026 game's) is REFUSED, named.
 """
 from __future__ import annotations
 
@@ -59,6 +65,8 @@ SIDED = ("HOME", "AWAY")
 SWAP = {"HOME": "AWAY", "AWAY": "HOME"}
 KALSHI = "kalshi"
 SCORE_PAIRS = (("home_score", "away_score"), ("home_score_ht", "away_score_ht"), ("home_score_90", "away_score_90"))
+# match_id columns with no foreign key (schema.py: "match_id is a plain integer, no foreign key"); append-only, never moved
+UNKEYED = (("availability_observations", "match_id"), ("availability_assertions", "match_id"))
 
 # Item 1, the facts (stored orientation: the row's home team first). `live`: the 2026 game as the row reads today (its
 # score by team, the chain's write); `from`: the row on 2026-10-09; `new`: the listing's orientation of the 2026 game.
@@ -150,6 +158,12 @@ def match_refs(con) -> list[tuple[str, str]]:
     except Exception as e:  # noqa: BLE001 — the file's own FKs stand; the miss is printed (law 2)
         print(f"  (schema.py not read: {type(e).__name__}: {e}; the file's declared foreign keys only)")
     return sorted(out)
+
+
+def unkeyed_refs(con, refs) -> list[tuple[str, str]]:
+    """UNKEYED's (table, column) pairs the live file holds and match_refs did not already name."""
+    have = _tables(con)
+    return [(t, c) for t, c in UNKEYED if t in have and c in _columns(con, t) and (t, c) not in refs]
 
 
 def _team(con, tid) -> str | None:
@@ -314,6 +328,9 @@ def _run(live, frm, ids, apply, out, _fail_at) -> int:
     refs = match_refs(live)
     out(f"tables referencing matches.id (the live file's foreign keys and src/db/schema.py's): "
         f"{', '.join(f'{t}.{c}' for t, c in refs) or 'none'}")
+    unkeyed = unkeyed_refs(live, refs)
+    out(f"match_id columns with no foreign key (append-only, never moved; read like every other table): "
+        f"{', '.join(f'{t}.{c}' for t, c in unkeyed) or 'none in this file'}")
     live_cols = _columns(live, "matches")
     from_cols = set(_columns(frm, "matches"))
     bad, rows = [], {}
@@ -335,14 +352,18 @@ def _run(live, frm, ids, apply, out, _fail_at) -> int:
         rows[mid] = (lm, fm)
     moves, stays = {}, {}
     for mid in ids:
-        mv, st, rf = plan_refs(live, frm, refs, mid)
+        mv, st, rf = plan_refs(live, frm, refs + unkeyed, mid)
         moves[mid], stays[mid] = mv, st
         bad += [f"row {mid}: {x}" for x in rf]
+        for t, col in unkeyed:
+            n = live.execute(f'SELECT COUNT(*) FROM "{t}" WHERE "{col}" = ?', (mid,)).fetchone()[0]
+            out(f"COUNT {mid} {t}.{col}: {n} row(s) (no foreign key; append-only, addendum 254: never moved)")
     if bad:
         for b in bad:
             out(f"REFUSED: {b}")
         raise Refused(f"{len(bad)} check(s) failed; nothing written")
     created = {}
+    changes_before = live.total_changes
     for mid in ids:
         lm, fm = rows[mid]
         exp = EXPECTED[mid]
@@ -366,6 +387,10 @@ def _run(live, frm, ids, apply, out, _fail_at) -> int:
             k = by_table.get(t, {"rows": 0, "swapped": 0})
             out(f"PLAN {mid} MOVE {t}: {k['rows']} row(s) to the new id"
                 + (f" ({k['swapped']} Kalshi HOME/AWAY swapped to the new orientation)" if t == "odds_snapshots" else ""))
+        for t, col, rowid, upd, r in moves[mid]:
+            out(f"PLAN {mid} MOVE {t} row {rowid}: {col} {mid} -> the new id"
+                + (f", selection {r.get('selection')} -> {upd['selection']}" if "selection" in upd else "")
+                + (f" (source {r.get('source')!r}, market {r.get('market')!r})" if "source" in r else ""))
         for t, n in stays[mid]:
             out(f"PLAN {mid} STAY {t}: {n} row(s), identical in the 10-09 copy (the 2025 game's), kept on {mid}")
         if not apply:
@@ -399,12 +424,24 @@ def _run(live, frm, ids, apply, out, _fail_at) -> int:
                 n_old = live.execute(f'SELECT COUNT(*) FROM "{t}" WHERE "{col}" = ?', (mid,)).fetchone()[0]
                 n_new = live.execute(f'SELECT COUNT(*) FROM "{t}" WHERE "{col}" = ?', (new_id,)).fetchone()[0]
                 out(f"AFTER {t}: {n_old} row(s) on {mid} · {n_new} row(s) on {new_id}")
+        for t, col, rowid, upd, _r in moves[mid]:
+            a = live.execute(f'SELECT * FROM "{t}" WHERE rowid = ?', (rowid,)).fetchone()
+            a = {} if a is None else dict(a)
+            out(f"AFTER {t} row {rowid}: {col} {a.get(col)}"
+                + (f", selection {a.get('selection')}" if "selection" in a else ""))
         lm = _row(live, mid)
         exp = EXPECTED[mid]
         if check_state(live, lm, mid, exp, "from") or check_state(live, _row(live, new_id), new_id, {
                 **exp, "home": exp["new"]["home"], "away": exp["new"]["away"],
                 "from": {**exp["live"], "score": exp["new"]["score"]}}, "from"):
             raise Refused(f"row {mid}: the written state does not read as planned; rolled back")
+    # the rows written, counted before the commit: two inserts, the moved rows, the two rewrites; anything else rolls back
+    want = len(ids) + sum(len(moves[mid]) for mid in ids) + len(ids)
+    got = live.total_changes - changes_before
+    out(f"ROWS WRITTEN: {got} (expected {want}: {len(ids)} created, "
+        f"{sum(len(moves[mid]) for mid in ids)} moved, {len(ids)} restored)")
+    if got != want:
+        raise Refused(f"{got} row(s) written, not the {want} planned; rolled back")
     if _fail_at == "before_commit":
         raise RuntimeError("injected failure (test): before the commit")
     return 0

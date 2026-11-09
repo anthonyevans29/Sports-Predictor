@@ -13,8 +13,8 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
-from src.db.schema import (Base, Competition, GameWeather, Match, MatchStats, MatchStatus, Odds, OddsSnapshot, Result,
-                           Sport, Team)
+from src.db.schema import (AvailabilityObservation, Base, Competition, GameWeather, Match, MatchStats, MatchStatus,
+                           Odds, OddsSnapshot, Result, Sport, Team)
 
 _SPEC = importlib.util.spec_from_file_location(
     "restore_collided_rows", Path(__file__).resolve().parents[1] / "scripts" / "restore_collided_rows.py")
@@ -137,15 +137,35 @@ def test_exactly_one_of_dry_run_and_apply(pair, flags):
 # ---------------------------------------------------------------------------- the dry run
 
 
-def test_the_dry_run_prints_the_plan_and_writes_nothing(pair, capsys):
+def _wal(p: Path) -> None:
+    """Put `p` in WAL mode, as the live DB is (src/db/database.py), and close it cleanly."""
+    con = sqlite3.connect(p)
+    try:
+        assert con.execute("PRAGMA journal_mode=WAL").fetchone()[0] == "wal"
+    finally:
+        con.close()
+
+
+@pytest.mark.parametrize("journal", ["delete", "wal"])
+def test_the_dry_run_prints_the_plan_and_writes_nothing(pair, capsys, journal):
     live, frm = pair()
+    if journal == "wal":
+        _wal(live)
     raw, mtime = live.read_bytes(), os.stat(live).st_mtime_ns
     fraw, fmtime = frm.read_bytes(), os.stat(frm).st_mtime_ns
     assert _main(live, frm, "--dry-run") == 0
     out = capsys.readouterr().out
+    # the database files' bytes and mtimes: unchanged
     assert live.read_bytes() == raw and os.stat(live).st_mtime_ns == mtime
     assert frm.read_bytes() == fraw and os.stat(frm).st_mtime_ns == fmtime
-    assert sorted(p.name for p in live.parent.iterdir()) == ["from_1009.db", "live.db"]   # no journal, no -wal
+    names = sorted(p.name for p in live.parent.iterdir())
+    if journal == "delete":
+        assert names == ["from_1009.db", "live.db"]                                        # no journal, no -wal
+    else:
+        # a mode=ro open of a WAL file may leave SQLite's own sidecars; they hold no frame (nothing written)
+        assert set(names) <= {"from_1009.db", "live.db", "live.db-wal", "live.db-shm"}
+        wal = live.parent / "live.db-wal"
+        assert not wal.exists() or wal.stat().st_size == 0
     assert "DRY RUN: nothing written" in out
     assert "PLAN 36454 -> NEW 2026 row (the listing's orientation): season 2026 · 2026-10-31 19:45:00" in out
     assert "Cincinnati 25 v Utah 49 · ftr AWAY" in out and "LSU 13 v Alabama 31 · ftr AWAY" in out
@@ -153,6 +173,13 @@ def test_the_dry_run_prints_the_plan_and_writes_nothing(pair, capsys):
     assert "PLAN 36454 MOVE odds_snapshots: 3 row(s) to the new id (2 Kalshi HOME/AWAY swapped" in out
     assert "PLAN 36454 MOVE odds: 1 row(s)" in out and "PLAN 36454 MOVE match_stats: 2 row(s)" in out
     assert "PLAN 36454 STAY game_weather: 1 row(s)" in out
+    # every moved row by id (item 4: "prints before and after, every id")
+    assert "PLAN 36454 MOVE odds_snapshots row 11: match_id 36454 -> the new id, selection HOME -> AWAY" in out
+    assert "PLAN 36454 MOVE odds_snapshots row 15: match_id 36454 -> the new id (source" in out
+    assert "PLAN 36454 MOVE match_stats row 31: match_id 36454 -> the new id" in out
+    # the unkeyed append-only tables: counted, zeros included
+    assert "COUNT 36454 availability_observations.match_id: 0 row(s)" in out
+    assert "COUNT 36753 availability_assertions.match_id: 0 row(s)" in out
     print(out)                                                    # the receipt (pytest -s)
 
 
@@ -217,6 +244,60 @@ def test_a_row_added_since_in_another_table_is_refused(pair, capsys):
     assert _dump(live) == before
 
 
+def test_a_book_side_stored_home_away_in_odds_is_refused_not_guessed(pair, capsys):
+    live, frm = pair([lambda s: s.add(Odds(id=22, match_id=36753, bookmaker="B", market="1X2", selection="AWAY",
+                                           price_decimal=2.5, captured_at=datetime(2026, 11, 6), source=AF))])
+    before = _dump(live)
+    assert _main(live, frm, "--apply") == 2
+    assert "odds row 22 (source 'api_american_football', market '1X2', selection 'AWAY'" in capsys.readouterr().out
+    assert _dump(live) == before
+
+
+def test_a_row_of_the_copy_the_live_file_lost_is_refused(pair, capsys):
+    live, frm = pair([_set("DELETE FROM game_weather WHERE id = 1")])
+    before = _dump(live)
+    assert _main(live, frm, "--apply") == 2
+    assert "game_weather: 0 row(s) on 36454 added or changed since the 10-09 copy, 1 row(s) of the copy gone" in \
+        capsys.readouterr().out
+    assert _dump(live) == before
+
+
+def test_a_table_the_copy_lacks_is_refused_when_the_live_file_has_rows_on_the_id(pair, capsys):
+    live, frm = pair(None, [_set("DROP TABLE game_weather")])
+    before = _dump(live)
+    assert _main(live, frm, "--apply") == 2
+    assert "game_weather: 1 row(s) on 36454 added or changed since the 10-09 copy" in capsys.readouterr().out
+    assert _dump(live) == before
+
+
+def test_an_availability_row_added_since_the_copy_is_refused(pair, capsys):
+    live, frm = pair([lambda s: s.add(AvailabilityObservation(
+        id=1, sport=Sport.NFL, source="nflverse_depth_charts", endpoint="e", match_id=36753, status="empty",
+        fetched_at=datetime(2026, 11, 6), rows_asserted=0))])
+    before = _dump(live)
+    assert _main(live, frm, "--apply") == 2
+    out = capsys.readouterr().out
+    assert "COUNT 36753 availability_observations.match_id: 1 row(s)" in out
+    assert "availability_observations: 1 row(s) on 36753 added or changed since the 10-09 copy" in out
+    assert _dump(live) == before
+
+
+def test_a_row_count_written_other_than_planned_rolls_back(pair, capsys):
+    """The pre-commit count (two creates, the moved rows, two rewrites): a write the plan does not name (here a
+    trigger's, injected into the live file) refuses and rolls back."""
+    def trig(s):
+        s.flush()
+        s.connection().exec_driver_sql("CREATE TABLE side_effect (x INTEGER)")
+        s.connection().exec_driver_sql("CREATE TRIGGER t_side AFTER UPDATE ON match_stats BEGIN "
+                                       "INSERT INTO side_effect VALUES (NEW.id); END")
+    live, frm = pair([trig], [_set("CREATE TABLE side_effect (x INTEGER)")])
+    before = _dump(live)
+    assert _main(live, frm, "--apply") == 2
+    out = capsys.readouterr().out
+    assert "row(s) written, not the 12 planned; rolled back" in out and "ROLLED BACK" in out
+    assert _dump(live) == before
+
+
 def test_an_id_with_no_pinned_state_and_the_same_file_are_refused(pair, capsys):
     live, frm = pair()
     before = _dump(live)
@@ -264,13 +345,21 @@ def test_the_apply_writes_exactly_the_restored_state_and_moves_the_rows(pair, ca
     assert _q(live, "SELECT * FROM matches WHERE id = 100") + _q(live, "SELECT * FROM odds_snapshots WHERE id = 16") \
         == other
     assert f"AFTER odds_snapshots: 0 row(s) on 36454 · 3 row(s) on {cin['id']}" in out
-    # a second apply refuses: the live rows read the 2025 state now
+    assert f"AFTER odds_snapshots row 11: match_id {cin['id']}, selection AWAY" in out
+    assert f"AFTER match_stats row 32: match_id {cin['id']}" in out
+    assert "ROWS WRITTEN: 12 (expected 12: 2 created, 8 moved, 2 restored)" in out
+    # a second apply refuses and writes nothing: the live rows read the 2025 state now
+    after = _dump(live)
     assert _main(live, frm, "--apply") == 2
+    assert _dump(live) == after
 
 
+@pytest.mark.parametrize("journal", ["delete", "wal"])
 @pytest.mark.parametrize("where", ["after_create", "after_moves", "before_commit"])
-def test_the_apply_is_one_transaction(pair, where):
+def test_the_apply_is_one_transaction(pair, where, journal):
     live, frm = pair()
+    if journal == "wal":
+        _wal(live)
     before = _dump(live)
     with pytest.raises(RuntimeError, match="injected failure"):
         rc.run(live, frm, [36454, 36753], True, out=lambda *_: None, _fail_at=where)

@@ -131,22 +131,102 @@ _TAG = re.compile(r"<[^<>\n]{0,200}>")
 # ARCHITECT 2026-11-09 09:55 ET, addendum 304 item 1: Markdown link and image syntax collapses to its visible label
 # BEFORE any pattern runs ("[label](url) → label, ![alt](url) → alt, reference-style [label][ref] → label, and
 # autolinks <url> → the url"), so a value broken by link syntax reads as GitHub shows it.
-_MD_IMAGE = re.compile(r"!\[([^\[\]\n]*)\]\([^()\n]*\)")
-_MD_LINK = re.compile(r"\[([^\[\]\n]*)\]\([^()\n]*\)")
-_MD_REF_LINK = re.compile(r"\[([^\[\]\n]*)\]\[[^\[\]\n]*\]")
+
+
+def _balanced_end(t: str, j: int, open_: str, close_: str) -> int | None:
+    """The index just past the `close_` that balances an `open_` already read (j is the index after it), on one line,
+    a backslash-escaped character never counted; None when it never balances."""
+    depth, n = 1, len(t)
+    while j < n:
+        ch = t[j]
+        if ch == "\n":
+            return None
+        if ch == "\\":
+            j += 2
+            continue
+        if ch == open_:
+            depth += 1
+        elif ch == close_:
+            depth -= 1
+            if depth == 0:
+                return j + 1
+        j += 1
+    return None
+
+
+def _destination_end(t: str, j: int) -> int | None:
+    """The index just past an inline link's closing ')' (j is the index after its '('), read as GitHub reads it
+    (addendum 306 item 1(a)): a destination in <...> taken whole, balanced parentheses inside the destination, a quoted
+    title after whitespace taken whole, backslash escapes skipped; on one line; None when it never closes."""
+    n, k = len(t), j
+    while k < n and t[k] in " \t":
+        k += 1
+    if k < n and t[k] == "<":
+        e = k + 1
+        while e < n and t[e] not in "<>\n":
+            e += 2 if t[e] == "\\" else 1
+        if e < n and t[e] == ">":
+            j = e + 1
+    depth = 1
+    while j < n:
+        ch = t[j]
+        if ch == "\n":
+            return None
+        if ch == "\\":
+            j += 2
+            continue
+        if ch in "\"'" and t[j - 1] in " \t":
+            e = t.find(ch, j + 1)
+            if e != -1 and "\n" not in t[j + 1:e]:
+                j = e + 1
+                continue
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            if depth == 0:
+                return j + 1
+        j += 1
+    return None
+
+
+def _collapse_once(t: str) -> str:
+    """One pass of the scanner: every `[label](destination)`, `![alt](destination)` and `[label][ref]` to its label,
+    the label's own brackets balanced; text that is not a whole link is kept as written."""
+    out: list[str] = []
+    i, n = 0, len(t)
+    while i < n:
+        ch = t[i]
+        if ch == "\\":
+            out.append(t[i:i + 2])
+            i += 2
+            continue
+        if ch == "[":
+            e = _balanced_end(t, i + 1, "[", "]")
+            if e is not None and e < n and t[e] in "([":
+                end = _destination_end(t, e + 1) if t[e] == "(" else _balanced_end(t, e + 1, "[", "]")
+                if end is not None:
+                    if out and out[-1] == "!":
+                        out.pop()                      # an image: its alt text is what shows
+                    out.append(t[i + 1:e - 1])
+                    i = end
+                    continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
 _MD_AUTOLINK = re.compile(r"<((?:[a-z][a-z0-9+.-]{1,31}:|www\.)[^<>\s]*|[^<>\s@]+@[^<>\s@]+\.[^<>\s@]+)>", re.IGNORECASE)
 
 
 def collapse_links(text: str) -> str:
-    """Markdown links and images to their visible label (addendum 304 item 1), repeated until nothing changes so a
-    link inside a label collapses too; autolinks to the url they show."""
+    """Markdown links and images to their visible label (addendum 304 item 1), by a small scanner that reads a link
+    target's balanced parentheses (addendum 306 item 1(a)), repeated until nothing changes so a link inside a label
+    collapses too; autolinks to the url they show."""
     t = str(text)
     for _ in range(8):
         before = t
-        t = _MD_IMAGE.sub(r"\1", t)
-        t = _MD_LINK.sub(r"\1", t)
-        t = _MD_REF_LINK.sub(r"\1", t)
-        t = _MD_AUTOLINK.sub(r"\1", t)
+        t = _MD_AUTOLINK.sub(r"\1", _collapse_once(t))
         if t == before:
             break
     return t

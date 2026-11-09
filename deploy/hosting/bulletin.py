@@ -547,15 +547,17 @@ META_RULES = ("exec_addendum", "started_rule", "venue_quote_age_rule", "mlb_quar
 
 
 def section_maths(row: dict, d: dict, meta: dict) -> list[str]:
+    # every per-contract price in cents (addendum 306 item 1(b): "the bulletin speaks one unit for prices and that
+    # unit is cents"), as the order and Kalshi quote lines already print them
     ex = d.get("exec") if isinstance(d.get("exec"), dict) else {}
     out = ["## THE MATHS", "",
            f"- edge_pp = model_p − market_ref = {v(d.get('model_p'))} − {v(d.get('market_ref'))} → "
            f"{pp(d.get('edge_pp'))} (reference: {v(d.get('reference'))})",
-           f"- exec edge = model_p − cost = {v(d.get('model_p'))} − {v(ex.get('cost'))} → {pp(ex.get('edge_pp'))} "
+           f"- exec edge = model_p − cost = {v(d.get('model_p'))} − {cents(ex.get('cost'))} → {pp(ex.get('edge_pp'))} "
            f"(basis {v(ex.get('basis'))})",
            f"- cost: the taker ask plus the fee at the series' fee multiplier (series {v(row.get('fee_series'))}, "
-           f"taker M {v(row.get('fee_m_taker'))}) · taker cost {v(ex.get('taker_cost'))} · maker cost "
-           f"{v(ex.get('maker_cost'))} · join price {v(ex.get('join_price'))}",
+           f"taker M {v(row.get('fee_m_taker'))}) · taker cost {cents(ex.get('taker_cost'))} · maker cost "
+           f"{cents(ex.get('maker_cost'))} · join price {cents(ex.get('join_price'))}",
            f"- fee_clears: {v(ex.get('fee_clears'))} · doctrine: {v(ex.get('doctrine'))}"
            + (f" ({ex['join_note']})" if ex.get("join_note") else ""),
            f"- class: {v(d.get('cls'))} · tier: {v(d.get('tier'))} · pass_kind: {v(d.get('pass_kind'))}"]

@@ -768,7 +768,9 @@ def test_the_pool_pattern_takes_the_amount_before_the_label(text):
 @pytest.mark.parametrize("text,pattern", [
     ("[api_key](https://example.test)=abcdef123", "secret"), ("\\$[25](https://example.test)", "dollar"),
     ("[12](https://example.test) contracts", "contract_count"), ("![12](x.png) contracts", "contract_count"),
-    ("[12][ref] contracts", "contract_count")], ids=["link-secret", "link-dollar", "link-count", "image", "ref-link"])
+    ("[12][ref] contracts", "contract_count"),
+    ("[api_key](https://example.test/a(b))=abcdef123", "secret")],
+    ids=["link-secret", "link-dollar", "link-count", "image", "ref-link", "link-nested-parens"])
 def test_markdown_link_syntax_is_read_as_github_shows_it(repo, capsys, text, pattern):
     """Addendum 304 item 1 (Codex #894, P1): rendered() collapses link and image syntax to the visible label before any
     pattern runs, so a value broken by link syntax is refused like the plain one."""
@@ -784,6 +786,42 @@ def test_markdown_link_syntax_is_read_as_github_shows_it(repo, capsys, text, pat
 def test_collapse_links_keeps_plain_text_and_shows_autolinks():
     assert pv.collapse_links("see <https://example.test/x> and [the page](u)") == "see https://example.test/x and the page"
     assert pv.collapse_links("edge 4.1pp [a](b) [c](d)") == "edge 4.1pp a c"
+
+
+@pytest.mark.parametrize("text,shown", [
+    ("[api_key](https://example.test/a(b))=abcdef123", "api_key=abcdef123"),       # 306 item 1(a), the reproduced case
+    ("[x](a(b(c)d)e)y", "xy"),                                                      # nesting deeper than one level
+    ("[12](<u(>) USD", "12 USD"),                                                   # an angle-bracket destination
+    ('[12](u "t(") USD', "12 USD"),                                                 # a quoted title holding a '('
+    ("[a [b] c](u)!", "a [b] c!"),                                                  # balanced brackets in the label
+    ("[l1]([l2](u))", "l1"),                                                        # a link as the destination
+    ("[12](u((a)) USD", "[12](u((a)) USD"),                                         # never closes: not a link, kept
+    ("\\[12](u) USD", "\\[12](u) USD"),                                         # an escaped bracket: not a link
+])
+def test_collapse_links_reads_balanced_parentheses_as_github_does(text, shown):
+    """Addendum 306 item 1(a) (Codex #894, P1): a small scanner, not a longer regex, reads a link target's balanced
+    parentheses, so a link GitHub shows collapses to its label before the patterns run."""
+    assert pv.collapse_links(text) == shown
+
+
+def test_a_nested_parenthesis_link_secret_is_refused_as_secret():
+    assert b.secret_offence("[api_key](https://example.test/a(b))=abcdef123") == "secret"
+
+
+def test_the_maths_prints_per_contract_prices_in_cents(repo):
+    """Addendum 306 item 1(b): THE MATHS prints taker cost, maker cost, join price and the exec line's cost in cents,
+    as the order and quote lines do; the guard's dollar pattern is unchanged."""
+    doc = soccer_doc()
+    ex = doc["predictions"][0]["desk"]["exec"]
+    ex.update({"cost": 0.734, "taker_cost": 0.46, "maker_cost": 0.45, "join_price": 0.44})
+    assert b.run(closing_file=str(closing_file(repo, doc, "SOCCER"))) == 0
+    maths = md_of(repo, "SOCCER", doc["predictions"][0]["match_id"]).split("## THE MATHS", 1)[1].split("\n## ", 1)[0]
+    assert "− 73.4c →" in maths
+    assert "taker cost 46c · maker cost 45c · join price 44c" in maths
+    lines = [ln for ln in maths.splitlines() if ln.startswith(("- exec edge", "- cost:"))]
+    assert len(lines) == 2
+    for raw in ("0.734", "0.46", "0.45", "0.44"):                  # the prices, never as stored decimals
+        assert all(raw not in ln for ln in lines), raw
 
 
 @pytest.mark.parametrize("text", ["the pool is 25", "pool balance: 25", "pool now contains 25"])

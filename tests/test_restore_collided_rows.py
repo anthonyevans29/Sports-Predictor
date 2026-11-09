@@ -1083,6 +1083,15 @@ def test_a_changed_row_of_another_table_still_refuses_beside_the_label_handler(p
      "item 2(a): CFBD's home is the new row's home) only from 'swapped' — not re-expressed, not guessed"),
     # #910 review (Codex): the moved row's CFBD game verified positively (addendum 314 item 1's ids), not only as
     # "not the copy's"
+    # ARCHITECT 2026-11-09 16:50 ET, addendum 315 item 1(4)(b): "the moved row's source_home_team / source_away_team,
+    # after the shared normalize, must equal the NEW row's home and away team names" — the CFBD sides of the 2025 venue
+    # (Utah home) are not the new row's (Cincinnati home)
+    ({"source_home_team": "Utah", "source_away_team": "Cincinnati"},
+     "ncaa_cfbd_labels 36454: source_home_team 'Utah' is not the new row's home 'Cincinnati' after the shared normalize "
+     "(addendum 315 item 1(4)(b)) — not moved, not guessed"),
+    ({"source_away_team": "Utah State"},
+     "ncaa_cfbd_labels 36454: source_away_team 'Utah State' is not the new row's away 'Utah' after the shared normalize "
+     "(addendum 315 item 1(4)(b)) — not moved, not guessed"),
     ({"source_game_id": 401999999},
      "ncaa_cfbd_labels 36454: source_game_id 401999999 is not the 2026 game's 401856848 (addendum 314 item 1) — not "
      "shown to be the new row's game's, not moved, not guessed"),
@@ -1257,4 +1266,24 @@ def test_the_label_move_and_restore_are_in_the_one_transaction(pair, where):
     before = _dump(live)
     with pytest.raises(RuntimeError, match="injected failure"):
         rc.run(live, frm, None, True, out=lambda *_: None, _fail_at=where)
+    assert _dump(live) == before
+
+
+def test_the_shared_normalize_reads_names_as_the_cfbd_join_does(pair, capsys):
+    """315 item 1(4)(b), "after the shared normalize": case and punctuation fold as normalize_team_name folds them in
+    the CFBD join (source names as served; ours html-unescaped first), so "CINCINNATI." / "utah" pass the check."""
+    live, frm = pair([_labels("2026", only=(0,), source_home_team="CINCINNATI.", source_away_team="utah")],
+                     [_labels("2025", only=(0,))])
+    assert _main(live, frm, "--dry-run") == 0
+    out = capsys.readouterr().out
+    assert "MOVE+REORIENT ncaa_cfbd_labels 36454 → " in out and "after the shared normalize" not in out
+
+
+def test_an_added_pregame_row_of_the_wrong_sides_is_refused_under_move_added(pair, capsys):
+    """315 item 1(4)(b): "an added or --from-json row passes the same check"."""
+    live, frm = pair([_pregame("2026", source_home_team="Utah", source_away_team="Cincinnati")], [])
+    before = _dump(live)
+    assert _main(live, frm, "--apply", "--move-added") == 2
+    out = capsys.readouterr().out
+    assert "ncaa_cfbd_pregame 36454: source_home_team 'Utah' is not the new row's home 'Cincinnati'" in out
     assert _dump(live) == before

@@ -72,12 +72,35 @@ FEE_CLEAR_EPS = 1e-9
 #   (1) cost = ask + taker fee (0.07·M·P(1−P), nearest cent per fill): the spread is not the cost, the fee is.
 #   (2) default execution TAKES at the ask; join-bid only when the spread is >= 3c (join-bid of 09-30 superseded).
 #   (3) exec edge = model_p − cost; a PLAY gets full tier units only at exec edge >= 4pp, else HALF units.
+#       AMENDED BY ADDITION (ARCHITECT 2026-11-09, addendum 305 item 1, verbatim): "(3) exec edge = model_p − cost; a
+#       PLAY gets full tier units only at exec edge >= 4pp, else HALF units; an exec edge <= 0 is a PASS (pass_kind
+#       `exec_non_positive`; the reason names the all-in cost and the model's price): the Desk never buys above its own
+#       price." Its own switch, EXEC_NON_POSITIVE, below.
 #   (4) venue: the 5pp fair threshold stands AND the exec edge (book fair − cost) must clear 4pp.
 #   (5) parlay legs are priced at executable cost; the independence-estimate label stands.
 # The frozen pre-F1c golden (tests/golden/desk_js_v1_1.json.gz) predates the addendum: the battery checks it
 # with the addendum OFF (`base_v11()`), proving every other v1.1 behaviour unchanged; the addendum has its
 # own tests (tests/test_desk_exec_addendum.py).
 EXEC_RULES = {"on": True}
+# A NON-POSITIVE EXEC EDGE IS A PASS (ARCHITECT 2026-11-09 10:05 ET, addendum 305 item 1, RULED; a tightening of v1.1
+# item 3, fewer calls never more, effective from the next slate after its merge): "a PLAY gets full tier units only at
+# exec edge >= 4pp, else HALF units; an exec edge <= 0 is a PASS (pass_kind `exec_non_positive`; the reason names the
+# all-in cost and the model's price): the Desk never buys above its own price." "The 4pp line, the fee formula, the
+# ask-taking default and the venue rule are untouched." As built: inside v1.1 (3)'s branch (EXEC_RULES on, a PLAY, not
+# quarantined), an exec edge priced at the order the PLAY would place (#87 (h)) that is <= 0 (exactly 0 included; no
+# tolerance: exec_cohorts.cohort_of's "exec <= 0" boundary) turns the row PASS: units 0, class pass, pass_kind
+# EXEC_NON_POSITIVE_KIND, its reasons led by the ruled reason and its tags by EXEC_NON_POSITIVE_TAG (nothing is
+# sized, so no sizing tag or reason stays: #181; the later strong-tier and kalshi-status notes may follow, as on any
+# PASS, informational).
+# No order. It is NOT a NO_CALL_KIND: the row's exec block stays (the record of the cost the reason names) and a value
+# shadow is still read (unstaked, its own exec block: "they are not calls"). 0 < exec < 4 stays half units; exec >= 4
+# full; no executable quote stays half units (conservative unknowns, as v1.1 ruled). Under NFL market-only the chain's
+# own call is this PASS, so the would-be record (#446: market_only_hold.would_call) carries no would-be PLAY. Its own
+# switch; with EXEC_RULES off (base_v11, addendum_off: the frozen golden) the branch never runs.
+EXEC_NON_POSITIVE = {"on": True}
+EXEC_NON_POSITIVE_KIND = "exec_non_positive"
+EXEC_NON_POSITIVE_TAG = "exec ≤ 0 pass"
+EXEC_NON_POSITIVE_RULING = "the Desk never buys above its own price; addendum 305"
 # STARTED (ARCHITECT 2026-10-06, #313): "a started game is never a new call" (#49 (b)) is enforced IN THE FILE. A
 # model-sport row whose kickoff is at or before desk as_of is PASS / started: units 0, no order, no value shadow,
 # never a parlay leg. The pre-kickoff file and the ledger stay the record of the call. An unknown kickoff is
@@ -612,10 +635,11 @@ def base_v11():
     was_clock = KICKOFF_CLOCK_RULE["on"]       # addendum 72 item 1: frozen verification files stay frozen
     was_fence = HOST_FENCE_RULE["on"]          # addendum 109 item 3: the golden holds whatever the machine's role
     was_nfl_mo = NFL_MARKET_ONLY_RULE["on"]    # addendum 214: the frozen battery's NFL rows predate it
+    was_xnp = EXEC_NON_POSITIVE["on"]          # addendum 305: postdates the frozen battery (moot with EXEC_RULES off)
     EXEC_RULES["on"] = STARTED_RULE["on"] = MLB_QUARANTINE["on"] = QUOTE_AGE_RULE["on"] = False
     KALSHI_ONLY_MLB_SUSPENDED["on"] = INJURIES_ONE_SIDED_RULE["on"] = INJURY_EMPTY_RULE["on"] = False
     SKEW_TEST_VENUE_RULE["on"] = KICKOFF_CLOCK_RULE["on"] = HOST_FENCE_RULE["on"] = False
-    NFL_MARKET_ONLY_RULE["on"] = False
+    NFL_MARKET_ONLY_RULE["on"] = EXEC_NON_POSITIVE["on"] = False
     try:
         yield
     finally:
@@ -624,7 +648,7 @@ def base_v11():
         KALSHI_ONLY_MLB_SUSPENDED["on"], INJURIES_ONE_SIDED_RULE["on"] = was_kos, was_one
         INJURY_EMPTY_RULE["on"], SKEW_TEST_VENUE_RULE["on"] = was_inj, was_skew
         KICKOFF_CLOCK_RULE["on"], HOST_FENCE_RULE["on"] = was_clock, was_fence
-        NFL_MARKET_ONLY_RULE["on"] = was_nfl_mo
+        NFL_MARKET_ONLY_RULE["on"], EXEC_NON_POSITIVE["on"] = was_nfl_mo, was_xnp
 
 
 @contextmanager
@@ -638,6 +662,18 @@ def addendum_off():
         yield
     finally:
         EXEC_RULES["on"], STARTED_RULE["on"] = was, was_started
+
+
+@contextmanager
+def exec_non_positive_rule_off():
+    """The Desk without addendum 305 (a non-positive exec edge is a PASS): v1.1 item 3 as it read before it (half
+    units), for comparing a file with and without it. Never used by an export."""
+    was = EXEC_NON_POSITIVE["on"]
+    EXEC_NON_POSITIVE["on"] = False
+    try:
+        yield
+    finally:
+        EXEC_NON_POSITIVE["on"] = was
 
 
 @contextmanager
@@ -1308,6 +1344,19 @@ def _desk_call(r, now_ms: float, postseason_graded: int = 0, intl_graded: int = 
                 units = min(units, base / 2)
                 reasons.append("no executable quote for the pick (ask + taker fee) → half units")
                 tags.append("exec unknown half units")
+            elif EXEC_NON_POSITIVE["on"] and xe <= 0:
+                # addendum 305 item 1: "an exec edge <= 0 is a PASS (pass_kind `exec_non_positive`; the reason names
+                # the all-in cost and the model's price): the Desk never buys above its own price"
+                cost = desk_cost_for(r, r["pick"], gate_units)["cost"]
+                # Not a shadow: nothing is sized, so the chain's sizing reasons and tags go (#181, addendum 117 item
+                # 2(a): a PASS carries neither a caution's size nor its reason and tag; the caution tag stays only on
+                # quarantine shadows) and the row reads the ruled reason and its own tag, as a no-call does
+                call, cls, units, pass_kind = "PASS", "pass", 0, EXEC_NON_POSITIVE_KIND
+                reasons.clear()
+                reasons.append(f"exec edge {js_fixed(xe, 1)}pp ≤ 0: ask + taker fee {js_fixed(cost, 3)} at or above "
+                               f"the model's {js_fixed(r['prob'], 3)} → PASS ({EXEC_NON_POSITIVE_RULING})")
+                tags.clear()
+                tags.append(EXEC_NON_POSITIVE_TAG)
             elif not exec_clears(xe):
                 units = min(units, base / 2)
                 reasons.append(f"exec edge {js_fixed(xe, 1)}pp < {K2['feeClearsPP']}pp at ask + taker fee "
@@ -2043,6 +2092,8 @@ def annotate(doc: dict, *, now: datetime | None = None, counts: dict | None = No
                         "host_fence_rule": HOST_FENCE_RULE["on"],
                         # addendum 214 (2026-11-02): every NFL row is PASS, market-only until the confirmation read
                         "nfl_market_only_rule": NFL_MARKET_ONLY_RULE["on"],
+                        # addendum 305 (2026-11-09): a PLAY whose exec edge is <= 0 is PASS exec_non_positive
+                        "exec_non_positive_rule": EXEC_NON_POSITIVE["on"],
                         # addendum 37 item 3 (2026-10-10): legs of two events are never a pair (read in the export)
                         "kalshi_leg_guard": _kalshi_leg_guard_on(),
                         # addendum 179 (v1.2): the day's unit, its state and the fractions (the label is the order's)
@@ -2182,6 +2233,9 @@ def _rescore(doc: dict) -> list[dict]:
                                 "quarantined" if is_quarantine_shadow(c) else
                                 "kalshi-only suspended" if c.get("passKind") == KALSHI_ONLY_SUSPENDED_KIND else
                                 "host fence" if c.get("passKind") == HOST_FENCE_KIND else
+                                # addendum 305: a published PLAY the current Desk passes at exec <= 0 is its own
+                                # transition, never "halved" (0u < the v1.1 units)
+                                "exec non-positive" if c.get("passKind") == EXEC_NON_POSITIVE_KIND else
                                 "halved" if c["units"] < b["units"] else "unchanged" if c["units"] == b["units"]
                                 else "raised")})
     return out

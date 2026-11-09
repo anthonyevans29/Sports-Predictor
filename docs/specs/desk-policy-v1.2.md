@@ -131,6 +131,14 @@ The declaration, verbatim: "THE EARLY-ENTRY ARM, declared on the operator's deci
 - **What does not change.** The Desk's engine: the arm changes WHEN a PLAY may be filled, not WHAT is a PLAY (item 2(e)). `POLICY_VERSION` stays v1.2. No roadmap date, no model lane, no bar moves.
 - **No figure is written here** (items 2(f) and 4): no dollar figure, no contract count, no interest rate.
 
+## A non-positive exec edge is a PASS (ARCHITECT 2026-11-09 10:05 ET, addendum 305)
+
+#87 v1.1 item 3 (ARCHITECT-RULE 2026-10-06), as AMENDED BY ADDITION by addendum 305 item 1 (2026-11-09), verbatim: "(3) exec edge = model_p − cost; a PLAY gets full tier units only at exec edge >= 4pp, else HALF units; an exec edge <= 0 is a PASS (pass_kind `exec_non_positive`; the reason names the all-in cost and the model's price): the Desk never buys above its own price."
+
+- **Untouched:** "The 4pp line, the fee formula, the ask-taking default and the venue rule are untouched." A tightening: fewer calls, never more. Effective from the next slate after its merge, as v1.1 was.
+- **Every path:** "The same rule on every path that emits a call or a would-be call: the slate and closing pages, the would-be record (#446, the NFL market-only rows), the arm's settlement reading (a PASS at the close under 283 → exit pre-kickoff, as written). Value shadows are unstaked and keep their own exec block as a record; they are not calls."
+- **The code.** `desk_policy.EXEC_NON_POSITIVE` (on), in v1.1 (3)'s branch: a PLAY (not quarantined) whose exec edge at the order it would place is <= 0, exactly 0 included, is PASS, units 0, class pass, `pass_kind` `exec_non_positive`, its reason "exec edge <x>pp ≤ 0: ask + taker fee <cost> at or above the model's <p> → PASS (the Desk never buys above its own price; addendum 305)" first (the informational strong-tier and kalshi-status notes may follow, as on any PASS), no order; `desk.exec` stays as the record. 0 < exec < 4 stays half units; no executable quote stays half units. Every page reads it from `desk.call`; under NFL market-only the held chain call (`market_only_hold.would_call`) is the PASS, so there is no would-be PLAY. `desk_meta.exec_non_positive_rule`; the frozen golden runs with the #87 addendum off and is unchanged.
+
 ## Not changed
 
 - W-L and units stay the record.

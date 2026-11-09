@@ -40,7 +40,9 @@ def test_the_ruling_verbatim_and_the_fence_reads_only_the_registry(tmp_path):
     assert nb.v2_run_recorded(str(p)) is False
     p.write_text(json.dumps([{"id": nb.V2_EID, "run": {"run_at": "2026-11-09T00:00:00Z"}}]))
     assert nb.v2_run_recorded(str(p)) is True
-    assert nb.v2_run_recorded() is False                   # the committed registry: declared, unrun -> the fence stands
+    # the committed registry: the one run recorded since ARCHITECT 2026-11-09 09:35 ET, addendum 302 -> the fence lifted,
+    # by its own rule; the fenced branch is exercised below with v2_run_recorded patched False (the v1r precedent)
+    assert nb.v2_run_recorded() is True
 
 
 def _g(mid, season, hs, as_):
@@ -58,9 +60,11 @@ def _stream_and_v1r():
 
 
 def test_coverage_withholds_every_2026_home_rate_in_both_blocks_and_keeps_counts(monkeypatch):
+    monkeypatch.setattr(nb, "v2_run_recorded", lambda *a, **k: False)     # the fence as it stood before the run (the
+    # committed registry records ncaa-elo-v2's run since ARCHITECT 2026-11-09 09:35 ET, addendum 302)
     st, v = _stream_and_v1r()
     fenced = []
-    nb.coverage_report(st, out=fenced.append, fbs=None, v1r=v)                 # the committed registry: fenced
+    nb.coverage_report(st, out=fenced.append, fbs=None, v1r=v)                 # unrecorded: fenced
     text_ = "\n".join(fenced)
     l26 = [ln for ln in fenced if ln.startswith("  2026: walked ")]
     assert len(l26) == 1 and nb.V2_FENCED_RATE in l26[0] and "walked 5" in l26[0] and "regular" in l26[0]
@@ -89,6 +93,8 @@ def test_ncaa_audit_refuses_2026_before_reading_and_defaults_to_2025_alone(monke
     def boom(*a, **k):
         raise AssertionError("read before the fence")
     monkeypatch.setattr(na, "load", boom)
+    monkeypatch.setattr(nb, "v2_run_recorded", lambda *a, **k: False)     # the fence as it stood before the run (the
+    # committed registry records ncaa-elo-v2's run since ARCHITECT 2026-11-09 09:35 ET, addendum 302)
     for cmd in (["ncaa-audit", "--season", "2026"], ["ncaa-audit", "--season", "2025", "--season", "2026"]):
         res = CliRunner().invoke(cli, cmd)
         assert res.exit_code == 2, (cmd, res.output)
@@ -111,6 +117,8 @@ def test_resync_diff_withholds_the_ncaa_home_rate_when_the_listing_includes_2026
     from src.ingestion import resync_diff as rd
 
     monkeypatch.setattr(cli, "_adapter_for_competition", lambda code: None)
+    monkeypatch.setattr(nb, "v2_run_recorded", lambda *a, **k: False)     # the fence as it stood before the run (the
+    # committed registry records ncaa-elo-v2's run since ARCHITECT 2026-11-09 09:35 ET, addendum 302)
     monkeypatch.setattr(rd, "diff", lambda *a, **k: {
         "source": "x", "listing": 3, "counts": {}, "home_rate": {"ours": ["0.612", 3], "provider": ["0.587", 3]},
         "samples": {"scores_different": ["id 9 · A 21-14 B vs provider 21-17"]}})
@@ -135,6 +143,8 @@ def test_the_source_probe_withholds_2026s_rate_and_margin_lines(monkeypatch, tmp
     from src.db.database import init_db
     from test_ncaa_source_probe import RECS, nsp            # not its world(): that file's first join test seeds it
     init_db()                                               # the tables only (the throwaway DB); no row is added
+    monkeypatch.setattr(nb, "v2_run_recorded", lambda *a, **k: False)     # the fence as it stood before the run (the
+    # committed registry records ncaa-elo-v2's run since ARCHITECT 2026-11-09 09:35 ET, addendum 302)
     assert nsp.fenced(2026) and nsp.fenced("2026")
     assert nsp.fenced_notice(2026) == nb.V2_FENCED_RATE and nsp.fenced_notice(2025) == nb.FENCED_RATE
     assert not nsp.fenced(2025) and not nsp.fenced(2024)                       # v1r's run is recorded
@@ -167,6 +177,8 @@ def test_the_generic_walks_refuse_ncaa_with_2026_among_their_seasons(monkeypatch
     NCAA with 2026 among its seasons (no --season: every season) is refused, exit 2, naming the ruling, before the
     walk reads a game. Every other competition and season passes, and the run recorded lifts it."""
     from cli import cli
+    monkeypatch.setattr(nb, "v2_run_recorded", lambda *a, **k: False)     # the fence as it stood before the run (the
+    # committed registry records ncaa-elo-v2's run since ARCHITECT 2026-11-09 09:35 ET, addendum 302)
     assert nb.v2_fence_walk("NCAA", "2026") and nb.v2_fence_walk("ncaa", " 2026 ") and nb.v2_fence_walk("NCAA", None)
     assert nb.v2_fence_walk("NCAA", "") and nb.V2_FENCE_RULING in nb.v2_fence_walk("NCAA", None)
     assert nb.v2_fence_walk("NCAA", "2025") is None and nb.v2_fence_walk("PL", "2026") is None

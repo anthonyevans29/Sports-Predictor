@@ -1,8 +1,8 @@
 """ncaa-elo-v2: THE DECLARATION AND ITS MACHINERY (ARCHITECT 2026-10-16, addendum 81 item 2; GATE-CLASS). Synthetic
 data only: no test reads data/, runs the real gate or the real fit, or touches the real registry (every registry
 write goes to a tmp ledger). Pins:
-- the registry entry (declared, unrun; D5 and D7 verbatim; the plan; v1's constants; the neutral rule; s null until
-  the fit is frozen; D9, D10 and D11 verbatim) and the spec and ledger quoting D1-D11 verbatim; the roadmap lane;
+- the registry entry (declared, then its one run and the FAIL, addendum 302; D5 and D7 verbatim; the plan; v1's
+  constants; the neutral rule; s null until the fit is frozen; D9, D10 and D11 verbatim) and the spec and ledger quoting D1-D11 verbatim; the roadmap lane;
 - D1: NCAAEloV2 at s = 400 is v1 exactly; s is the price only, the update at /400 (addendum 86 item 3, Q1): any s
   walks v1's ratings;
 - the gate's machinery parameterised by registry id (v1r unchanged: tests/test_ncaa_v1r_gate.py): the run refuses
@@ -200,10 +200,12 @@ def _cov(ok=("2023", "2024", "2025", "2026"), present=("2023", "2024", "2025", "
 
 # ---------------------------------------------------------------------------------- the declaration (registry) --
 
-def test_registry_entry_is_declared_unrun_with_the_verbatim_gate_window_plan_and_keys():
+def test_registry_entry_holds_its_one_run_and_the_fail_with_the_verbatim_gate_window_plan_and_keys():
     e = reg.get("ncaa-elo-v2")
     assert e is not None, "ncaa-elo-v2 must be declared in docs/registry/experiments.json"
-    assert (e["status"], e["run"], e["verdict"]) == ("declared", None, None)
+    # ARCHITECT 2026-11-09 09:35 ET, addendum 302: the one run recorded as the laptop wrote it (4755b0e6) and the verdict
+    # FAIL (registry.record_verdict: status closed); the declaration below is unchanged
+    assert (e["status"], e["run"]["n_scored"], e["verdict"]["verdict"]) == ("closed", 1096, "FAIL")
     assert e["declared_at"].startswith("2026-10-16")
     assert e["sport"] == "ncaa" and e["declaration"] == "docs/specs/ncaa-elo-v2.md" and e["test_set"] == TEST_SET
     assert e["gate"] == D["D5"].removeprefix("D5. Gate: ")
@@ -231,6 +233,43 @@ def test_registry_entry_is_declared_unrun_with_the_verbatim_gate_window_plan_and
     assert reg.prior_reads(e["test_set"], None, before_id="ncaa-elo-v2") == []
 
 
+def test_the_one_run_and_the_fail_as_recorded():
+    """ARCHITECT 2026-11-09 09:35 ET, addendum 302 (item 3: "the PR merges that branch byte-identical (the ids file's sha
+    3bed03e5e6be… and the run record's figures against the console)"): the run block, the 1,096 scored ids and the
+    reservation as the laptop wrote them; the verdict FAIL with the addendum quoted; a second run refused."""
+    e = reg.get("ncaa-elo-v2")
+    run, r = e["run"], e["run"]["result"]
+    assert (run["run_at"], run["n_scored"], run["ids_file"]) == ("2026-11-09T14:20:27Z", 1096,
+                                                                 "docs/registry/ids/ncaa-elo-v2.txt")
+    assert run["ids_sha256"] == "3bed03e5e6be6ef0a90fd7780d3c3b4e3644891260db768c5f440aef1b7508f8"
+    ids = [int(x) for x in (ROOT / run["ids_file"]).read_text().split()]
+    assert len(ids) == len(set(ids)) == 1096 and reg._ids_sha(ids) == run["ids_sha256"]
+    # the figures of item 1, against the console on #79 (issuecomment-6742352402)
+    assert r["stream_fingerprint"] == "99a0a2394e519615c69ffd025e8a3f68473dcef1f2e3d122b29851fa10ffcc42"
+    assert (r["logistic_scale"], r["baseline_n"], r["n_scored"], r["teams_rated"]) == (279.14222651259433, 1454, 562,
+                                                                                        138)
+    assert (r["crit_margin"], r["crit_level"], r["crit_spread"], r["crit_range"]) == (True, True, False, True)
+    assert round(r["slope_b"], 6) == 0.698097 and round(r["ll_model"], 6) == 0.598467 and round(r["bar"], 6) == 0.659457
+    assert r["verdict_gate"] == "FAIL — (3) spread" and r["verdict"].startswith("FAIL — the gate: FAIL — (3) spread")
+    second = r["second_read"]
+    assert second["n_scored"] == 534 and round(second["slope_b"], 6) == 1.197826
+    # the verdict (registry.record_verdict; at the ruling's stamp, the #846 precedent) with the addendum quoted
+    v = e["verdict"]
+    assert (e["status"], v["verdict"], v["at"]) == ("closed", "FAIL", "2026-11-09T14:35:00Z")
+    assert v["ruling"].startswith("ARCHITECT 2026-11-09 09:35 ET, addendum 302, verbatim (its line breaks stripped): "
+                                  "\"ARCHITECT 2026-11-09 09:35 ET — addendum 302: ncaa-elo-v2's ONE RUN — VERDICT: FAIL.")
+    for said in ("(3) spread FAIL — slope 0.698097, |b − 1| = 0.302 > 0.20",
+                 "Computed verdict FAIL; RULED FAIL. Recorded: 1,096 scored ids, sha 3bed03e5e6be…",
+                 "no shadow and no ncaa-backtest until the 2027 candidate declares"):
+        assert said in v["ruling"], said
+    # the reservation kept as the record that the one run was spent (item 3); a second run is refused
+    started = json.loads((ROOT / "docs" / "registry" / "ncaa-elo-v2.started.json").read_text())
+    assert (started["id"], started["started_at"], started["stream_fingerprint"]) == (
+        "ncaa-elo-v2", "2026-11-09T14:20:26Z", r["stream_fingerprint"])
+    with pytest.raises(vg.GateRefused, match=r"must be declared and unrun in the registry \(status closed\)"):
+        vg.declared_unrun(V2)
+
+
 def test_spec_and_ledger_quote_d1_to_d11_and_item_1_verbatim():
     from ledger_text import entry_text, flat
     for name, raw in ((SPEC.name, SPEC.read_text()), (LEDGER_ENTRY[0], entry_text(*LEDGER_ENTRY))):
@@ -246,7 +285,8 @@ def test_the_roadmap_lane_names_the_declaration_and_the_step_done():
     doc = json.loads((ROOT / "docs" / "roadmap.json").read_text())
     assert roadmap.validate(doc) == []
     ln = next(x for x in doc["lanes"] if x["lane"] == "ncaa")
-    assert (ln["registry_id"], ln["state"]) == ("ncaa-elo-v2", "declared")
+    # ARCHITECT 2026-11-09 09:35 ET, addendum 302 item 3: "the lane's state the vocabulary's word for failed" (closed)
+    assert (ln["registry_id"], ln["state"]) == ("ncaa-elo-v2", "closed")
     assert ln["steps"][0]["done"]["date"] == "2026-10-16" and "addendum 81" in ln["steps"][0]["done"]["receipt"]
     done = ln["steps"][1]["done"]                     # #553 merged (ARCHITECT 2026-10-16, addendum 96 item 1)
     assert done["date"] == "2026-10-16" and "#553 merged at 81ea7c0" in done["receipt"]
@@ -255,7 +295,22 @@ def test_the_roadmap_lane_names_the_declaration_and_the_step_done():
     assert done == {"date": "2026-11-01", "receipt": "#79 comment (the census, 2026-11-01)"}
     done = ln["steps"][3]["done"]                     # the 500th game (ARCHITECT 2026-11-05, addendum 257 item 3)
     assert done["date"] == "2026-11-05" and "RECEIPT 2026: both-FBS completed 505" in done["receipt"]
-    assert ln["steps"][4]["done"] is None and ln["moved"] == []
+    # addendum 302 item 3: the 11-09 step DONE with the #79 console as its receipt (a done-mark, no moved line); the two
+    # on-PASS steps (11-21, 11-23) cleared and earliest_live 2026-11-24 cleared (now null) by one moved line quoting the
+    # item; vs_close unchanged; the undated 2027 step in live_needs (a step needs a real due date)
+    assert ln["steps"][4]["what"] == "the one run, on my word, and the verdict" and ln["steps"][4]["due"] == "2026-11-09"
+    assert ln["steps"][4]["done"]["date"] == "2026-11-09"
+    assert ln["steps"][4]["done"]["receipt"].startswith("the console on #79 (issuecomment-6742352402")
+    assert len(ln["steps"]) == 5 and roadmap.next_step(ln) is None and ln["earliest_live"] is None
+    (mv,) = ln["moved"]
+    assert (mv["moved_on"], mv["which"], mv["was"], mv["now"]) == ("2026-11-09", "earliest_live", "2026-11-24", None)
+    assert mv["ruling"].startswith("ARCHITECT 2026-11-09 09:35 ET, addendum 302 item 3, MOVED LINE: ")
+    for d, what in (("2026-11-21", "the 100th confirmation fixture is played"),
+                    ("2026-11-23", "the confirmation record and the Desk policy ruling")):
+        assert f'"{what}" due {d}' in mv["why"]
+    assert ln["vs_close"] == "not read. No college candidate has been scored against a close."
+    assert ("\"the 2027 candidate's declaration in the off-season (2024–2026 training, the 2027 regular season the test, "
+            "the same gate, the pre-check of item 2 declared with it)\"") in ln["live_needs"]
 
 
 # ------------------------------------------------------------------------------------------------ D1: the model --
@@ -416,9 +471,14 @@ def test_one_fingerprint_covers_both_streams_and_the_second_reads_week():
 
 @pytest.fixture
 def ledger(tmp_path, monkeypatch):
-    """A tmp copy of the real registry (every registry read/write goes there); the reservations in tmp."""
+    """A tmp copy of the real registry (every registry read/write goes there); the reservations in tmp. The real entry
+    holds the one run and the FAIL verdict (ARCHITECT 2026-11-09 09:35 ET, addendum 302); the copy's entry is put back to
+    declared and unrun, so the gate's mechanics stay exercised as built (the ncaa-elo-v1r precedent, #393; #846)."""
     p = tmp_path / "experiments.json"
-    p.write_text((ROOT / "docs" / "registry" / "experiments.json").read_text())
+    entries = json.loads((ROOT / "docs" / "registry" / "experiments.json").read_text())
+    e = next(x for x in entries if x["id"] == "ncaa-elo-v2")
+    e.update({"status": "declared", "run": None, "verdict": None})
+    p.write_text(json.dumps(entries, indent=2) + "\n")
     monkeypatch.setattr(reg, "LEDGER", str(p))
     monkeypatch.setattr(reg, "IDS_DIR", str(tmp_path / "ids"))
     monkeypatch.setattr(vg, "RESERVATION_DIR", str(tmp_path))

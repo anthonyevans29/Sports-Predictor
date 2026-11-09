@@ -33,7 +33,9 @@ def test_the_ruling_verbatim_the_scope_and_the_lift():
                        (("2023", "Postseason", None), True), (("2023", "bowl", 2), True)):
         assert nb.fenced_2023(*args, recorded=False) is want, args
     assert nb.fenced_2023("2023", "regular", 9, recorded=True) is False          # the recorded run lifts it
-    assert nb.fenced_2023("2023", "regular", 9) is True                         # the committed registry: unrun
+    # the committed registry: ncaa-elo-v2's run recorded since ARCHITECT 2026-11-09 09:35 ET, addendum 302 (the fence
+    # lifted, by its own rule); the fenced branch is exercised with v2_run_recorded patched False (the v1r precedent)
+    assert nb.fenced_2023("2023", "regular", 9) is False
     assert nb.mask_scores("2023-09-06 A @ B · ours 21-14, CFBD 14-21 · offset +1.0h") == \
         "2023-09-06 A @ B · ours [score withheld], CFBD [score withheld] · offset +1.0h"
     # Codex on #697: a partial pair (resync-diff prints a missing side as None) is masked too
@@ -85,6 +87,8 @@ def test_nothing_is_masked_once_the_run_is_recorded_or_for_another_season(monkey
 
 
 def test_resync_diff_reads_the_fenced_ids_from_the_labels(tmp_path, monkeypatch):
+    monkeypatch.setattr(nb, "v2_run_recorded", lambda *a, **k: False)     # the fence as it stood before the run (the
+    # committed registry records ncaa-elo-v2's run since ARCHITECT 2026-11-09 09:35 ET, addendum 302)
     from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
 
@@ -122,8 +126,10 @@ def test_resync_diff_reads_the_fenced_ids_from_the_labels(tmp_path, monkeypatch)
         s.rollback()
 
 
-def test_audit_walks_and_web_views_are_fenced_for_2023():
+def test_audit_walks_and_web_views_are_fenced_for_2023(monkeypatch):
     from cli import cli
+    monkeypatch.setattr(nb, "v2_run_recorded", lambda *a, **k: False)     # the fence as it stood before the run (the
+    # committed registry records ncaa-elo-v2's run since ARCHITECT 2026-11-09 09:35 ET, addendum 302)
     res = CliRunner().invoke(cli, ["ncaa-audit", "--season", "2023"])
     assert res.exit_code == 2 and "ncaa-audit REFUSED (exit 2): 2023 is among its seasons" in res.output
     assert "addendum 161 item 1" in res.output and RULING in res.output
@@ -134,6 +140,8 @@ def test_audit_walks_and_web_views_are_fenced_for_2023():
 
 
 def test_the_source_probe_fences_2023(monkeypatch):
+    monkeypatch.setattr(nb, "v2_run_recorded", lambda *a, **k: False)     # the fence as it stood before the run (the
+    # committed registry records ncaa-elo-v2's run since ARCHITECT 2026-11-09 09:35 ET, addendum 302)
     import importlib.util
     spec = importlib.util.spec_from_file_location("probe", "scripts/ncaa_source_probe.py")
     probe = importlib.util.module_from_spec(spec)

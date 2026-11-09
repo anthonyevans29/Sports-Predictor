@@ -153,6 +153,12 @@ become MORE binding under an income goal, never less."
   margin, level and range passed. 2025 is RETIRED as a college test season; the
   next candidate declares the 2026 regular season as it accrues. No college
   shadow and no ncaa-backtest until then. The bar did not move.
+  ncaa-elo-v2 (v1's constants at the frozen logistic scale s, the D1 neutral
+  rule) ran ONCE through the UNCHANGED gate on 11-09 and FAILED on the spread
+  test (slope 0.698 against 0.80–1.20, too confident, where v1r's 1.42 was too
+  timid); margin, level and range passed; the 2023 second read PASSED all four —
+  addendum 302. 2026 is RETIRED as a college test season; NCAA is MARKET-ONLY;
+  the 2027 candidate declares in the off-season. The bar did not move.
 - **UNL / cups (EFL, CL, UEL)**: market-only. CUP MODEL TRACK: Step A
   (CL 10-20, UEL 10-22) found the confirmed XI between T-30 and T-15 and
   nothing at T-35; Step B's live T-15 observation store runs

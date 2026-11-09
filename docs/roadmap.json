@@ -82,7 +82,7 @@
       "issue": 79,
       "registry_id": "ncaa-elo-v2",
       "competitions": ["NCAA"],
-      "state": "declared",
+      "state": "closed",
       "steps": [
         {
           "what": "the declaration of the next candidate, to Code as an addendum",
@@ -124,25 +124,25 @@
           "what": "the one run, on my word, and the verdict",
           "owner": "architect",
           "due": "2026-11-09",
-          "done": null
-        },
-        {
-          "what": "the 100th confirmation fixture is played",
-          "owner": "calendar",
-          "due": "2026-11-21",
-          "done": null
-        },
-        {
-          "what": "the confirmation record and the Desk policy ruling",
-          "owner": "architect",
-          "due": "2026-11-23",
-          "done": null
+          "done": {
+            "date": "2026-11-09",
+            "receipt": "the console on #79 (issuecomment-6742352402: the laptop, 2026-11-09T14:20Z, main 5f9cf13d, the stream fingerprint 99a0a239…, the cross-ref guard clean over 44 refs; the run recorded at 2026-11-09T14:20:27Z, 1,096 scored ids, sha 3bed03e5e6be…; its record: addendum 302 item 1); the verdict FAIL, ARCHITECT 2026-11-09 09:35 ET, addendum 302"
+          }
         }
       ],
-      "earliest_live": "2026-11-24",
-      "live_needs": "PASS, CONFIRMED on 100 fixtures, and a Desk policy ruling of its own (D8 of the v1r declaration: the neutral flag before kickoff and the shadow's record against the close).",
+      "earliest_live": null,
+      "live_needs": "FAILED 2026-11-09 (ARCHITECT 2026-11-09 09:35 ET, addendum 302): ncaa-elo-v2 ran ONCE through the UNCHANGED gate and FAILED on the spread test (slope 0.698097 against 0.80-1.20, too confident, where v1r's 1.42 was too timid); margin, level and range passed; the 2023 second read (D10) passed all four, and by D10 a PASS there cannot carry a failed gate. NCAA is MARKET-ONLY; 2026 is RETIRED as a college test season; no shadow and no ncaa-backtest until the 2027 candidate declares (302 item 4); the bar did not move. The lane's next step, undated, as 302 item 3 words it: \"the 2027 candidate's declaration in the off-season (2024–2026 training, the 2027 regular season the test, the same gate, the pre-check of item 2 declared with it)\" (a step needs a real due date, so the undated step is written here, as addendum 267 item 2(1)-(2) ruled for nfl-v2; the state is the vocabulary's word for failed, 302 item 3; Issue #79 stays open for the 2027 declaration). As declared: PASS, CONFIRMED on 100 fixtures, and a Desk policy ruling of its own (D8 of the v1r declaration: the neutral flag before kickoff and the shadow's record against the close).",
       "vs_close": "not read. No college candidate has been scored against a close.",
-      "moved": []
+      "moved": [
+        {
+          "moved_on": "2026-11-09",
+          "which": "earliest_live",
+          "was": "2026-11-24",
+          "now": null,
+          "why": "ncaa-elo-v2's one run of 2026-11-09 FAILED the gate (D5 on the 2026 regular season, 562 games) on test (3), the spread: slope b 0.698097 against 0.80-1.20 (margin 0.598467 against the bar 0.659457, level +0.14pp and range 1189.5-1836.3 over 138 teams passed); the D10 second read passed all four and cannot carry a failed gate. No PASS, so no confirmation window, no confirmation record and no Desk policy ruling, and no live date stands. The two \"on PASS\" steps are cleared with it, by the same item: \"the 100th confirmation fixture is played\" due 2026-11-21; \"the confirmation record and the Desk policy ruling\" due 2026-11-23 (a step's due is never cleared, addendum 61 item 4: the steps are removed by the quoted ruling and their dates are recorded here, as addendum 267 item 2(3) accepted for nfl-v2). The bar did not move",
+          "ruling": "ARCHITECT 2026-11-09 09:35 ET, addendum 302 item 3, MOVED LINE: \"docs/roadmap.json lane ncaa: the 11-09 step DONE with the #79 console as its receipt; the two \"on PASS\" steps (11-21 the 100th confirmation fixture, 11-23 the confirmation record and the Desk policy ruling) CLEARED by their moved lines quoting this item; earliest_live 2026-11-24 CLEARED (a move with `now` null); the lane's state the vocabulary's word for failed; `vs_close` unchanged (\"not read\"); a new undated step \"the 2027 candidate's declaration in the off-season (2024–2026 training, the 2027 regular season the test, the same gate, the pre-check of item 2 declared with it)\"\""
+        }
+      ]
     },
     {
       "lane": "leagues",

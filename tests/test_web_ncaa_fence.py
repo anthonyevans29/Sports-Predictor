@@ -46,6 +46,8 @@ def _ncaa_games():
 
 
 def test_the_view_helper_withholds_ncaa_2026_alone_until_the_run_is_recorded(monkeypatch):
+    monkeypatch.setattr(nb, "v2_run_recorded", lambda *a, **k: False)     # the fence as it stood before the run (the
+    # committed registry records ncaa-elo-v2's run since ARCHITECT 2026-11-09 09:35 ET, addendum 302)
     assert nb.v2_fence_view("NCAA", "2026") == nb.V2_FENCED_RATE
     assert "withheld until the ncaa-elo-v2 run is recorded" in nb.V2_FENCED_RATE           # the ruled words
     assert nb.v2_fence_view("ncaa", 2026) == nb.V2_FENCED_RATE
@@ -59,6 +61,8 @@ def test_the_league_ncaa_view_answers_withheld_in_place_of_the_table(client, mon
     """The league view shows the season it stores last (SEASON here, the fence's season patched to it): the table's
     wins and losses are withheld; the single games of the results list stay (the level ruling)."""
     data_before = (ROOT / "data").exists()
+    monkeypatch.setattr(nb, "v2_run_recorded", lambda *a, **k: False)     # the fence as it stood before the run (the
+    # committed registry records ncaa-elo-v2's run since ARCHITECT 2026-11-09 09:35 ET, addendum 302)
     _ncaa_games()
     with session_scope() as s:                                  # a focus team stored: the route's auto-pin fires
         s.add(Team(sport=Sport.SOCCER, name="Arsenal"))
@@ -81,6 +85,8 @@ def test_the_ncaa_2026_match_page_withholds_record_form_and_head_to_head_and_kee
     the head-to-head aggregate are replaced by the same withheld notice the league view shows; the fixture's own
     score, the two teams' names and the single-game lists stay (the level ruling)". Any other league untouched; the
     run recorded lifts it."""
+    monkeypatch.setattr(nb, "v2_run_recorded", lambda *a, **k: False)     # the fence as it stood before the run (the
+    # committed registry records ncaa-elo-v2's run since ARCHITECT 2026-11-09 09:35 ET, addendum 302)
     _ncaa_games()
     monkeypatch.setattr(nb, "V2_TEST", SEASON)
     with session_scope() as s:

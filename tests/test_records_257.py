@@ -62,8 +62,11 @@ def test_257_item_3_the_500th_game_step_done_its_what_and_due_kept():
     assert st["done"] == {"date": "2026-11-05", "receipt": (
         "the host's first CFBD read, 2026-11-05 14:17Z (ARCHITECT 2026-11-05 09:30 ET, addendum 257 items 2-3; #79 "
         "comment 6660320768): " + RECEIPT)}
-    # "The 11-09 run stays on its date and on the LAPTOP" (257 item 3): the later steps open, their dates as they were
-    assert [(s["due"], s["done"]) for s in steps[4:]] == [("2026-11-09", None), ("2026-11-21", None),
-                                                          ("2026-11-23", None)]
-    assert lanes["ncaa"]["earliest_live"] == "2026-11-24"
+    # "The 11-09 run stays on its date and on the LAPTOP" (257 item 3): it ran on its date. ARCHITECT 2026-11-09 09:35 ET,
+    # addendum 302 item 3: the 11-09 step done (a done-mark), the two on-PASS steps (11-21, 11-23) cleared by the FAIL and
+    # earliest_live 2026-11-24 cleared, by one moved line of 2026-11-09; no date moved on 11-05
+    assert [(s["due"], s["done"]["date"]) for s in steps[4:]] == [("2026-11-09", "2026-11-09")]
+    assert lanes["ncaa"]["earliest_live"] is None
+    assert [(m["moved_on"], m["which"], m["was"], m["now"]) for m in lanes["ncaa"]["moved"]] == [
+        ("2026-11-09", "earliest_live", "2026-11-24", None)]
     assert not [m for m in lanes["ncaa"].get("moved", []) if m.get("moved_on") == "2026-11-05"]

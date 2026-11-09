@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import os
+import stat
 import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
@@ -388,3 +389,294 @@ def test_the_map_counts_result_word_echo_per_tour_and_the_name_variant_stays_lis
     assert tail["tours"]["ATP"]["result_word_echo"] == 2 and tail["tours"]["WTA"]["result_word_echo"] == 1
     assert tail["tours"]["ATP"]["projected"]["FINISHED"] == 3 and tail["tours"]["WTA"]["projected"] == {"FINISHED": 1,
                                                                                                          "SCHEDULED": 1}
+
+
+# ---- --tickers: the accepted event tickers per tour (ARCHITECT 2026-11-09, addendum 308 item 1(c); #905) ----------------
+
+ATP_ACCEPTED = ["KXATPMATCH-26DEC28AAABBB", "KXATPMATCH-26DEC28CCCDDD", "KXATPMATCH-26DEC28GGGHHH",
+                "KXATPMATCH-26DEC29EEEFFF"]
+
+
+def _tail(out: str) -> dict:
+    return json.loads(out.strip().splitlines()[-1].split(" ", 1)[1])
+
+
+def test_tickers_writes_one_file_per_tour_sorted_one_per_line_the_accepted_events_only(tmp_path, capsys):
+    """308 item 1(c): "the served phase takes `--tickers PATH` and writes the accepted event tickers per tour, one per
+    line, sorted". The accepted events are the fixtures THE MAP projects (GGGHHH, left SCHEDULED by DISAGREE, is one);
+    IIIJJJ, refused as a fixture (NOT_TWO_PLAYERS), and an event the kickoff rule refuses are not in it. Nothing but
+    event tickers: no price, no name; no temporary file is left beside the dump."""
+    ko = pair("26DEC27MMMNNN", "Max Synthor", "Ned Fakeson")
+    ko[0]["occurrence_datetime"], ko[1]["occurrence_datetime"] = "2026-12-27T14:00:00Z", "2026-12-27T15:30:00Z"
+    fake = provider(pages={("KXATPMATCH", "closed"): [ko]})
+    prefix = tmp_path / "tennis_tickers_2026-11-10"
+    code, out, _ = run(capsys, "--tickers", str(prefix), fake=fake)
+    assert code == R.OK, out
+    assert "KXATPMATCH-26DEC27MMMNNN" in out and "KXATPMATCH-26DEC29IIIJJJ" in out      # both read, both refused
+    atp, wta = tmp_path / "tennis_tickers_2026-11-10.ATP.txt", tmp_path / "tennis_tickers_2026-11-10.WTA.txt"
+    assert sorted(p.name for p in tmp_path.iterdir()) == [atp.name, wta.name]           # no temporary file left
+    assert atp.read_bytes() == ("\n".join(ATP_ACCEPTED) + "\n").encode("ascii")
+    assert wta.read_bytes() == b"KXWTAMATCH-26DEC29KKKLLL\n"
+    text = atp.read_text()
+    assert "IIIJJJ" not in text and "MMMNNN" not in text
+    assert text.splitlines() == sorted(text.splitlines())
+    um = os.umask(0)
+    os.umask(um)
+    for f in (atp, wta):                                                                # the umask's default, not 0600
+        assert stat.S_IMODE(f.stat().st_mode) == 0o666 & ~um
+    for name in ("Synthwood", "Fakely", "0.4", "Gus"):                                  # no name, no price
+        assert name not in text
+    assert f"TICKERS: wrote {atp} · 4 ATP event tickers (accepted events; sorted; one per line)" in out
+    assert f"TICKERS: wrote {wta} · 1 WTA event tickers (accepted events; sorted; one per line)" in out
+    tail = _tail(out)
+    assert tail["exit"] == 0 and tail["tickers_written"] == {"ATP": 4, "WTA": 1}
+    assert "KXATPMATCH-26DEC28AAABBB" not in out.strip().splitlines()[-1]                # the tail stays counts only
+    # the dump's count is the accepted events' count the receipt prints
+    assert tail["tours"]["ATP"]["events"] == 4 and tail["tours"]["WTA"]["events"] == 1
+
+
+@pytest.mark.skipif(not __import__("shutil").which("comm"), reason="comm not installed")
+def test_two_days_dumps_diff_by_comm(tmp_path, capsys):
+    """308 item 1(c): "so a day-to-day listing diff is a `comm` of two files". Day 2's listing has lost a settled
+    event (the erosion of item 1): `comm -23 day1 day2` lists it and nothing else; `comm -13` (new on day 2) lists the
+    event that is new; the files compare as sorted (comm's --check-order passes, LC_ALL=C)."""
+    run(capsys, "--tickers", str(tmp_path / "d1"))
+    settled2 = (pair("26DEC28CCCDDD", "Cal Mockton", "Dov Testerly", results=("scalar", "scalar"),
+                     values=("0.4000", "0.6000"), status="finalized")
+                + pair("26DEC28GGGHHH", "Gus Oldfield", "Hal Pastly", results=("yes", "yes"),
+                       exps=("Gus Oldfield", "Gus Oldfield"), status="finalized"))
+    new = pair("26DEC30OOOPPP", "Oli Synthe", "Pat Fakir")
+    fake2 = provider(pages={("KXATPMATCH", "settled"): [settled2],
+                            ("KXATPMATCH", "open"): [pair("26DEC29EEEFFF", "Eli Sampleton", "Ana Synthwood") + new]})
+    code, out, _ = run(capsys, "--tickers", str(tmp_path / "d2"), fake=fake2)
+    assert code == R.OK, out
+    env = {**os.environ, "LC_ALL": "C"}
+
+    def comm(flag):
+        res = subprocess.run(["comm", "--check-order", flag, str(tmp_path / "d1.ATP.txt"), str(tmp_path / "d2.ATP.txt")],
+                             capture_output=True, text=True, env=env, timeout=30)
+        assert res.returncode == 0, res.stderr
+        return res.stdout
+    assert comm("-23") == "KXATPMATCH-26DEC28AAABBB\n"                                  # left the listing
+    assert comm("-13") == "KXATPMATCH-26DEC30OOOPPP\n"                                  # new on day 2
+    assert (tmp_path / "d1.WTA.txt").read_text() == (tmp_path / "d2.WTA.txt").read_text()
+
+
+@pytest.mark.parametrize("how", ["data", "Data", "checkout-data", "missing-parent", "directory", "dot", "dotdot",
+                                 "trailing-slash", "with-db"])
+def test_tickers_refusals_write_nothing_and_call_nothing(tmp_path, capsys, monkeypatch, how):
+    """308 item 1(c) and law 5: a PATH under a data/ directory (any part named data, case ignored; the checkout's
+    data/), a PATH whose directory does not exist (nothing is made), a directory, and --tickers outside the SERVED
+    phase (with --db) are REFUSED, exit 2, before any call; nothing is written anywhere."""
+    before = set(tmp_path.rglob("*"))
+    extra: list[str] = []
+    if how in ("data", "Data"):
+        (tmp_path / how).mkdir()
+        before = set(tmp_path.rglob("*"))
+        path = str(tmp_path / how / "t")
+    elif how == "checkout-data":
+        path = str(ROOT / "data" / "t")                                                 # refused before any write
+    elif how == "missing-parent":
+        path = str(tmp_path / "nope" / "t")
+    elif how == "directory":
+        path = str(tmp_path)
+    elif how in ("dot", "dotdot"):                                                      # '.' has no name: refused, no crash
+        (tmp_path / "w").mkdir()
+        before = set(tmp_path.rglob("*"))
+        monkeypatch.chdir(tmp_path / "w")
+        path = "." if how == "dot" else ".."
+    elif how == "trailing-slash":
+        path = str(tmp_path / "t") + "/"
+    else:
+        path = str(tmp_path / "t")
+        extra = ["--db", str(tmp_path / "copy.db")]
+    fake = provider()
+    code, out, _ = run(capsys, "--tickers", path, *extra, fake=fake)
+    assert code == R.REFUSED, out
+    assert "REFUSED: --tickers" in out and "nothing read, nothing written" in out, out
+    assert fake.calls == []                                                             # refused before any call
+    assert set(tmp_path.rglob("*")) == before
+    assert not (tmp_path / "nope").exists()
+    assert not list((ROOT / "data").glob("t.*.txt")) if (ROOT / "data").exists() else True
+    tail = _tail(out)
+    assert tail["exit"] == R.REFUSED and tail["phase"] == ("stored" if how == "with-db" else "served")
+    if how == "with-db":
+        assert "not with --db (the STORED phase)" in out
+    if how in ("data", "Data", "checkout-data"):
+        assert "under a data/ directory (law 5)" in out
+    if how == "missing-parent":
+        assert "does not exist (nothing is made)" in out
+    if how in ("directory", "dot", "dotdot"):
+        assert "is a directory; name a file prefix" in out
+
+
+def test_nothing_is_written_without_tickers(tmp_path, capsys, monkeypatch):
+    """Without --tickers the served phase writes nothing (the receipt's "Writes nothing" stands) and the tail carries
+    no tickers_written key."""
+    monkeypatch.chdir(tmp_path)
+    code, out, _ = run(capsys)
+    assert code == R.OK, out
+    assert list(tmp_path.iterdir()) == []
+    assert "TICKERS:" not in out and "tickers_written" not in _tail(out)
+
+
+def test_a_tour_whose_read_refused_writes_no_file_the_other_tour_is_written(tmp_path, capsys):
+    """A cursor left refuses ATP's listing (269 item 3(d)): no ATP file (a partial listing is never dumped), the line
+    says so; WTA's read answered and its file is written; the exit stays REFUSED."""
+    page = pair("26DEC28AAABBB", "Ana Synthwood", "Bea Fakely")
+    fake = provider(pages={("KXATPMATCH", "settled"): [page, page]},
+                    cursors={(("KXATPMATCH", "settled"), 0): "c1", (("KXATPMATCH", "settled"), 1): "c1"})
+    code, out, _ = run(capsys, "--tickers", str(tmp_path / "d"), fake=fake)
+    assert code == R.REFUSED, out
+    assert not (tmp_path / "d.ATP.txt").exists()
+    assert "TICKERS: ATP: not written (the tour's read did not answer; no partial listing is dumped)" in out
+    assert (tmp_path / "d.WTA.txt").read_text() == "KXWTAMATCH-26DEC29KKKLLL\n"
+    assert _tail(out)["tickers_written"] == {"WTA": 1}
+
+
+def test_a_failed_write_leaves_the_old_file_and_no_temporary_file(tmp_path, capsys, monkeypatch):
+    """Atomic: the dump is written beside the target and renamed. A rename that fails leaves the previous file as it
+    was and removes the temporary one; the run exits FAILED and says which file."""
+    old = tmp_path / "d.ATP.txt"
+    old.write_text("KXATPMATCH-OLD\n")
+
+    def boom(src, dst):
+        raise OSError("synthetic rename failure")
+    monkeypatch.setattr(R.os, "replace", boom)
+    code, out, _ = run(capsys, "--tour", "ATP", "--tickers", str(tmp_path / "d"))
+    assert code == R.FAILED, out
+    assert f"TICKERS: FAILED: ATP: {old}: OSError: synthetic rename failure" in out
+    assert old.read_text() == "KXATPMATCH-OLD\n"
+    assert [p.name for p in tmp_path.iterdir()] == ["d.ATP.txt"]
+
+
+def test_the_docs_name_the_tickers_flag():
+    doc = (ROOT / "docs" / "CLI.md").read_text()
+    row = next(ln for ln in doc.splitlines() if ln.startswith("| `python3 scripts/tennis_certification_receipt.py` |"))
+    assert "`[--tickers PATH]`" in row and "addendum 308 item 1(c)" in row and "#905" in row
+    assert "`PATH.ATP.txt` and `PATH.WTA.txt`" in row and "comm -23" in row
+    assert "--tickers PATH" in R.__doc__ and "addendum 308 item 1(c)" in R.__doc__
+
+
+# ---- THE WINDOW LINE: counts by our status for a ticker-date range (ARCHITECT 2026-11-09, addendum 309 item 6) -------
+
+def _edges():
+    """ATP: the provider's 26DEC28 (FINISHED, SETTLED_SCALAR, SCHEDULED by DISAGREE) and 26DEC29 (SCHEDULED; IIIJJJ
+    refused as a fixture) events, plus one FINISHED on 26DEC30 (the --through edge), one FINISHED on 26DEC27 (a day
+    before --from) and one SETTLED_SCALAR on 26DEC31 (a day after --through)."""
+    edge = (pair("26DEC30OOOPPP", "Oto Edgely", "Pia Boundson", results=("yes", "no"),
+                 exps=("Oto Edgely", "Oto Edgely"), status="finalized")
+            + pair("26DEC27QQQRRR", "Quin Earlyton", "Rex Beforely", results=("yes", "no"),
+                   exps=("Quin Earlyton", "Quin Earlyton"), status="finalized")
+            + pair("26DEC31SSSTTT", "Sol Lateman", "Tia Afterson", results=("scalar", "scalar"),
+                   values=("0.5000", "0.5000"), status="finalized"))
+    return provider(pages={("KXATPMATCH", "closed"): [edge]})
+
+
+def test_the_window_line_counts_the_accepted_events_by_status_inside_inclusive_bounds(capsys):
+    """309 item 6: "the served phase prints, per tour, the counts by our status for a ticker-date range". Both bounds
+    are inclusive (26DEC28 and 26DEC30 counted); an event one day outside either bound (26DEC27, 26DEC31) is not; the
+    refused IIIJJJ is no accepted event, so not counted."""
+    code, out, _ = run(capsys, "--from", "2026-12-28", "--through", "2026-12-30", fake=_edges())
+    assert code == R.OK, out
+    lines = out.splitlines()
+    assert ("ATP WINDOW 2026-12-28..2026-12-30 (ticker dates): FINISHED 2 · SETTLED_SCALAR 1 · SCHEDULED 2 "
+            "(of 5 accepted events in the window)") in lines
+    assert ("WTA WINDOW 2026-12-28..2026-12-30 (ticker dates): FINISHED 0 · SETTLED_SCALAR 0 · SCHEDULED 1 "
+            "(of 1 accepted events in the window)") in lines
+    assert sum(1 for ln in lines if " WINDOW " in ln and ln.startswith(("ATP", "WTA"))) == 2      # one line per tour
+    tail = _tail(out)
+    assert tail["window"] == {
+        "from": "2026-12-28", "through": "2026-12-30", "default": False,
+        "tours": {"ATP": {"FINISHED": 2, "SETTLED_SCALAR": 1, "SCHEDULED": 2, "accepted": 5},
+                  "WTA": {"FINISHED": 0, "SETTLED_SCALAR": 0, "SCHEDULED": 1, "accepted": 1}}}
+    assert tail["tours"]["ATP"]["events"] == 7                       # the whole listing's accepted events, 2 outside
+    # a one-day window on each edge: the bound itself counts
+    code, out, _ = run(capsys, "--from", "2026-12-27", "--through", "2026-12-27", fake=_edges())
+    assert ("ATP WINDOW 2026-12-27..2026-12-27 (ticker dates): FINISHED 1 · SETTLED_SCALAR 0 · SCHEDULED 0 "
+            "(of 1 accepted events in the window)") in out.splitlines()
+    code, out, _ = run(capsys, "--from", "2026-12-31", "--through", "2026-12-31", fake=_edges())
+    assert ("ATP WINDOW 2026-12-31..2026-12-31 (ticker dates): FINISHED 0 · SETTLED_SCALAR 1 · SCHEDULED 0 "
+            "(of 1 accepted events in the window)") in out.splitlines()
+
+
+def test_the_window_counts_the_same_set_as_the_tickers_dump(tmp_path, capsys):
+    """The window counts the accepted events, the set --tickers dumps: over the whole listing's days the window's
+    total is the dump's line count."""
+    code, out, _ = run(capsys, "--from", "2026-12-01", "--through", "2026-12-31", "--tickers", str(tmp_path / "d"),
+                       fake=_edges())
+    assert code == R.OK, out
+    tail = _tail(out)
+    for tour in ("ATP", "WTA"):
+        dumped = (tmp_path / f"d.{tour}.txt").read_text().splitlines()
+        assert tail["window"]["tours"][tour]["accepted"] == len(dumped) == tail["tickers_written"][tour]
+    assert "IIIJJJ" not in (tmp_path / "d.ATP.txt").read_text()
+
+
+def test_the_default_window_is_the_daily_chains_yesterday_through_tomorrow_in_utc(capsys, monkeypatch):
+    """Default, the daily window: tennis-daily's sync-matches --date-from {yesterday} --date-to {tomorrow}
+    (deploy/hosting/chains.py; sp_run.date_vars, UTC). With today 2026-12-29: 2026-12-28..2026-12-30."""
+    from datetime import date
+    monkeypatch.syspath_prepend(str(ROOT / "deploy" / "hosting"))
+    import chains
+    import sp_run
+    dv = sp_run.date_vars(date(2026, 12, 29))
+    assert R.daily_window(date(2026, 12, 29)) == (date.fromisoformat(dv["yesterday"]),
+                                                  date.fromisoformat(dv["tomorrow"]))
+    sm = [s for s in chains.CHAINS["tennis-daily"]["steps"] if s[0] == "sync-matches"]
+    assert len(sm) == 2 and all(s[s.index("--date-from") + 1] == "{yesterday}"
+                                and s[s.index("--date-to") + 1] == "{tomorrow}" for s in sm)
+    monkeypatch.setattr(R, "utc_today", lambda: date(2026, 12, 29))
+    code, out, _ = run(capsys, fake=_edges())
+    assert code == R.OK, out
+    assert ("ATP WINDOW 2026-12-28..2026-12-30 (ticker dates): FINISHED 2 · SETTLED_SCALAR 1 · SCHEDULED 2 "
+            "(of 5 accepted events in the window)") in out.splitlines()
+    assert "the daily window, tennis-daily {yesterday}..{tomorrow} in UTC" in out
+    tail = _tail(out)
+    assert tail["window"]["from"] == "2026-12-28" and tail["window"]["through"] == "2026-12-30"
+    assert tail["window"]["default"] is True
+    # a lone bound takes the other from the daily window
+    code, out, _ = run(capsys, "--through", "2026-12-31", fake=_edges())
+    assert "ATP WINDOW 2026-12-28..2026-12-31 (ticker dates)" in out
+
+
+def test_a_tour_whose_read_refused_has_no_window_counts(capsys):
+    fake = provider(cursors={(("KXATPMATCH", "settled"), 0): "c1", (("KXATPMATCH", "settled"), 1): "c1"})
+    code, out, _ = run(capsys, "--from", "2026-12-28", "--through", "2026-12-30", fake=fake)
+    assert code == R.REFUSED, out
+    assert "ATP WINDOW 2026-12-28..2026-12-30 (ticker dates): not counted (the tour's read did not answer)" in out
+    assert list(_tail(out)["window"]["tours"]) == ["WTA"]
+
+
+@pytest.mark.parametrize("args, says", [
+    (["--from", "2026-12-31", "--through", "2026-12-30"], "--from 2026-12-31 is after --through 2026-12-30"),
+    (["--from", "2026-13-01"], "REFUSED: --from '2026-13-01' is not a date YYYY-MM-DD"),
+    (["--through", "20261230"], "REFUSED: --through '20261230' is not a date YYYY-MM-DD"),
+    (["--from", "26DEC28"], "REFUSED: --from '26DEC28' is not a date YYYY-MM-DD"),
+    (["--from", "2026-12-28T00:00"], "REFUSED: --from '2026-12-28T00:00' is not a date YYYY-MM-DD"),
+    (["--from", ""], "REFUSED: --from '' is not a date YYYY-MM-DD"),
+    (["--from", "2027-01-05"], "is after --through"),                  # a lone bound past the default's other bound
+    (["--from", "2026-12-28", "--db", "copy.db"], "not with --db (the STORED phase)"),
+])
+def test_window_refusals_exit_2_before_any_call(tmp_path, capsys, monkeypatch, args, says):
+    """309 item 6: a malformed date or --from after --through is REFUSED, exit 2, before any call; nothing written."""
+    from datetime import date
+    monkeypatch.setattr(R, "utc_today", lambda: date(2026, 12, 29))
+    args = [str(tmp_path / a) if a == "copy.db" else a for a in args]
+    before = set(tmp_path.rglob("*"))
+    fake = provider()
+    code, out, _ = run(capsys, *args, "--tickers", str(tmp_path / "d"), fake=fake)
+    assert code == R.REFUSED, out
+    assert says in out and "nothing read, nothing written" in out, out
+    assert fake.calls == []
+    assert set(tmp_path.rglob("*")) == before
+    tail = _tail(out)
+    assert tail["exit"] == R.REFUSED and "window" not in tail
+
+
+def test_the_docs_name_the_window_line():
+    doc = (ROOT / "docs" / "CLI.md").read_text()
+    row = next(ln for ln in doc.splitlines() if ln.startswith("| `python3 scripts/tennis_certification_receipt.py` |"))
+    assert "`[--from YYYY-MM-DD --through YYYY-MM-DD]`" in row and "addendum 309 item 6" in row
+    assert "<TOUR> WINDOW <from>..<through> (ticker dates)" in row and "{yesterday}" in row
+    assert "addendum 309 item 6" in R.__doc__ and "the comparison the first load needed (308 item 2)" in R.__doc__

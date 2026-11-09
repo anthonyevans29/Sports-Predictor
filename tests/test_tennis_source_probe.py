@@ -449,6 +449,12 @@ def test_the_lane_is_appended_with_261s_dates_and_no_date_moved():
     assert not any(s["what"].startswith("the history pot") for s in ln["steps"])
     assert "THE HISTORY-POT STEP (due 2027-01-10) REMOVED by a quoted ruling" in ln["live_needs"]
     assert "no model lane exists, so no backfill is scheduled" in ln["live_needs"]
+    # addendum 308 item 1(b): "the lane's text names the erosion" (the limitation #905); 1(a) quoted verbatim
+    assert ("the venue's /markets listing is not a stable history, as settled markets leave it (30 events of ~1,500 "
+            "between the 11-08 and 11-09 served reads, 308 item 1)") in ln["live_needs"]
+    assert ("\"the history pot is what the DB stores from the first load on, as 270 item 5 already has it (\"no backfill "
+            "is scheduled\") — the 7-day window stands, no back-load by windows\".") in ln["live_needs"]
+    assert "addendum 308 item 1(b)" in ln["live_needs"] and "#905" in ln["live_needs"]
     assert "#838 issuecomment-6690719842" in ln["steps"][0]["done"]["receipt"]
     assert ln["steps"][0]["what"].startswith("the provider probe (addendum 261 item 2(b))")
     assert "scripts/tennis_source_probe.py" in ln["steps"][0]["what"]

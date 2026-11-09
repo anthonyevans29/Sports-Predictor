@@ -15,8 +15,9 @@ run in this order on the laptop:
        suspension — QUOTED on the PR"): contract_terms_url verbatim, and every distinct rules_secondary and
        early_close_condition the markets serve, verbatim, with one rules_primary per result word; the PR quotes the
        clause from this console (no wording is typed by Code) ·
-       THE MAP (269 item 3(b), kalshi_tennis.settle): the projection by our status, every event left SCHEDULED by
-       its reason, the events refused as fixtures by their reason ·
+       THE MAP (269 item 3(b), kalshi_tennis.settle; 296 item 2's two yes/no branches, (a) the 'yes' player named and
+       (b) RESULT_WORD_ECHO): the projection by our status, the FINISHED events by branch, every event left SCHEDULED
+       by its reason, the events refused as fixtures by their reason ·
        THE expiration_value SHAPES (ARCHITECT 2026-11-08, addendum 288 item 2(b): "a line per distinct
        expiration_value SHAPE on the unmapped events (the value verbatim, the count, the 'yes' player beside it for
        three samples)") of the events left SCHEDULED by WINNER_MISMATCH ·
@@ -29,7 +30,8 @@ run in this order on the laptop:
      mode=ro&immutable=1 (the NBA receipt's guards): counts per season by stored status, status_raw as stored, the
      settlement's truth (FINISHED with a winner and its settlement kept; SETTLED_SCALAR with no winner and its
      fraction kept), the scores null by ruling (269 item 2: "NULL AND LABELLED"), the rows by stored kickoff source
-     (START_UNREAD counted: addendum 288 item 1, "the receipt counts it"), the players stored.
+     and refusal labels (START_UNREAD counted: addendum 288 item 1, "the receipt counts it"; a refusal label written
+     by 294 item 13(b) counted under the same line, from the same key), the players stored.
 
 Exit: 0 every read answered; 1 a call failed; 2 a read REFUSED (a cursor left, a repeated cursor, a series the listing
 does not serve, a --db that is not a fresh copy outside data/). Last line: TENNIS-CERTIFICATION-RECEIPT {json}
@@ -202,12 +204,18 @@ def tour_report(tour: str, adapter, get, say) -> tuple[int, dict]:
         f"early_close_condition is the quoted one: {sum(1 for m in markets if m.get('early_close_condition') == eco)} "
         f"of {len(markets)} (the map below reads the result word only; THE MEANING is in MatchStatus's docstring)")
     # 4. THE MAP ---------------------------------------------------------------------------------------------------
-    say("  THE MAP (addendum 269 item 3(b)): 'yes' / 'no' on two 'finalized' markets, expiration_value the 'yes' "
-        "market's player -> FINISHED, that player the winner · 'scalar' on both, 'finalized' -> SETTLED_SCALAR, no "
-        "winner, the fraction kept · '' -> not settled (SCHEDULED) · anything else SCHEDULED, counted (law 4)")
+    say("  THE MAP (addendum 269 item 3(b)): 'yes' / 'no' on two 'finalized' markets -> FINISHED, the 'yes' market's "
+        "player the winner, when EITHER (a) expiration_value is the 'yes' market's player (269 item 3(b), as it "
+        "stands) OR (b) the 'yes' market's expiration_value reads 'Yes' and the 'no' market's 'No', case-insensitive "
+        "after stripping, both holding (addendum 296 item 2: RESULT_WORD_ECHO, counted below) · 'scalar' on both, "
+        "'finalized' -> SETTLED_SCALAR, no winner, the fraction kept · '' -> not settled (SCHEDULED) · anything else "
+        "SCHEDULED, counted (law 4; no name matched by spelling)")
     proj = Counter(fx.settlement.status.name for fx in lst.fixtures)
     why = Counter(fx.settlement.why for fx in lst.fixtures if fx.settlement.why)
+    echo = [fx.event for fx in lst.fixtures if fx.settlement.via == kt.RESULT_WORD_ECHO]
     say(f"    projected: {counts(proj)}")
+    say(f"    FINISHED by branch (b), {kt.RESULT_WORD_ECHO}: {len(echo)} of {proj.get(MatchStatus.FINISHED.name, 0)} "
+        f"FINISHED (the rest by branch (a))")
     say(f"    left SCHEDULED, by reason: {counts(why)}")
     for fx in lst.fixtures:
         if fx.settlement.why:
@@ -310,7 +318,8 @@ def tour_report(tour: str, adapter, get, say) -> tuple[int, dict]:
     say(f"    out-of-scope series read: none (the two tour series only, 269 item 3(f); {len(kt.OUT_OF_SCOPE)} named "
         "out of scope in kalshi_tennis.OUT_OF_SCOPE)")
     out.update(markets=lst.markets, pages=lst.pages, events=len(lst.fixtures), projected=dict(proj),
-               scheduled_why=dict(why), refused=dict(lst.refused), status_words=dict(lst.status_words),
+               scheduled_why=dict(why), result_word_echo=len(echo),
+               refused=dict(lst.refused), status_words=dict(lst.status_words),
                result_words=dict(lst.result_words), finished_no_winner=len(no_winner), players=len(names),
                by_year={y: dict(c) for y, c in by_year.items()}, time_keys_served=times_out,
                active=len(live), active_past_kickoff=len(past), active_ahead=len(ahead),
@@ -403,9 +412,14 @@ def stored_phase(db: str, tours: list[str], say) -> tuple[int, dict]:
             for label, ids in checks.items():
                 say(f"    {label}: {len(ids)} (must read 0: TRUE ZERO)" + (f": match {', '.join(map(str, ids[:20]))}" if ids else ""))
 
+            # the key holds a kickoff source (KICKOFF_SOURCES) or, on a row whose event a sync refused, the refusal
+            # label 294 item 13(b) writes there (kalshi_tennis.REFUSAL_LABELS; cli._tennis_mark_refused): one Counter
+            # counts both, verbatim, and the labelled rows are also counted on their own
             kos = Counter(str(ext(r).get(kt.KICKOFF_EXT_KEY) or "<none stored>") for r in ss)
-            say(f"    by stored kickoff source (external_ids[{kt.KICKOFF_EXT_KEY!r}], addendum 288 item 1; START_UNREAD "
-                f"rows are never captured): {counts(kos)}")
+            labelled = sum(n for k, n in kos.items() if k in kt.REFUSAL_LABELS)
+            say(f"    by stored kickoff source and refusal labels (294 item 13(b)) "
+                f"(external_ids[{kt.KICKOFF_EXT_KEY!r}], addendum 288 item 1; START_UNREAD rows are never captured): "
+                f"{counts(kos)} · rows carrying a refusal label (never captured): {labelled}")
 
             def utc(x):
                 return datetime.fromisoformat(str(x)[:19]) if x else None
@@ -413,7 +427,7 @@ def stored_phase(db: str, tours: list[str], say) -> tuple[int, dict]:
             say(f"    SCHEDULED with a stored kickoff more than 2 days before this run (unsettled, or settled after "
                 f"the chain's window): {len(late)}")
             rep["seasons"][season] = {"rows": len(ss), "by_status": dict(st), "late_scheduled": len(late),
-                                      "kickoff_sources": dict(kos),
+                                      "kickoff_sources": dict(kos), "kickoff_refusal_labelled": labelled,
                                       **{k: len(i) for k, i in checks.items()}}
         out["tours"][tour] = rep
     return OK, out

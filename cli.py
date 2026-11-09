@@ -399,6 +399,10 @@ def _tennis_reread(service, code, season, lst, date_from) -> None:
         print(f"  {code} re-read: {scores_by_team_line(reread)}", flush=True)
 
 
+# addendum 297 item B.11's line, its text verbatim (printed by _tennis_mark_refused)
+EVERY_HELD_REFUSED = "EVERY held row refused this run — the venue's serving changed"
+
+
 def _tennis_mark_refused(code, lst, date_from, date_to) -> None:
     """A REFUSED EVENT'S STORED ROW (ARCHITECT 2026-11-08, addendum 294 item 13, verbatim: "RULED — option (b) in
     tennis-D: a sync that refuses an event the row holds writes the refusal label into external_ids["kalshi_kickoff"]
@@ -412,7 +416,12 @@ def _tennis_mark_refused(code, lst, date_from, date_to) -> None:
     the row's external_ids[KICKOFF_EXT_KEY] takes the label, NOTHING else on the row is written (utc_date, status,
     status_raw, full_time_result and the settlement receipt stay). The capture then refuses the row
     (tennis_kalshi.kickoff_check: KICKOFF_REFUSED_ROW) until a sync reads the event again and rewrites its source. Never
-    a new row. Prints its count with the match ids, always."""
+    a new row. Prints its count with the match ids, always.
+    THE VENUE-WIDE LINE (ARCHITECT 2026-11-08, addendum 297 item B.11, verbatim: "when the held rows labelled this run
+    equal every held row in reach (and reach > 0), print "EVERY held row refused this run — the venue's serving
+    changed" on the sync receipt (a line, not a page)"): a held row in reach is a stored row of `code` whose event
+    ticker's day is in the same reach; when every one of them was labelled this run, and there is at least one, the
+    line EVERY_HELD_REFUSED is printed after the count. A line only: the exit and every write are unchanged."""
     from datetime import date as _date, timedelta as _td
 
     from src.adapters import kalshi_tennis as _kt
@@ -428,12 +437,16 @@ def _tennis_mark_refused(code, lst, date_from, date_to) -> None:
         if ev not in accepted and day is not None and lo <= day <= hi:
             reach[ev] = why
     marked = []
-    if reach:
+    held_in_reach = 0                  # 297 item B.11: every stored row of `code` whose event's day is in the reach
+    if reach:                          # (with no refused event in reach none is labelled, so the line cannot print)
         with session_scope() as s:
             for m in s.execute(select(Match).join(Competition, Competition.id == Match.competition_id)
                                .where(Competition.code == code)).scalars():
                 ext = m.external_ids or {}
                 ev = str(ext.get(_kt.SOURCE) or "")
+                day = _kt.event_day({"event_ticker": ev}) if ev else None
+                if day is not None and lo <= day <= hi:
+                    held_in_reach += 1
                 if ev in reach:
                     m.external_ids = {**ext, _kt.KICKOFF_EXT_KEY: reach[ev]}
                     marked.append((m.id, ev, reach[ev]))
@@ -441,6 +454,8 @@ def _tennis_mark_refused(code, lst, date_from, date_to) -> None:
     print(f"  {code} refused events held by stored rows (dated {lo}..{hi}; the refusal label written to "
           f"external_ids[{_kt.KICKOFF_EXT_KEY!r}], nothing else on the row; addendum 294 item 13(b)): {len(marked)}"
           + "".join(f" · match {mid} ({ev}: {why})" for mid, ev, why in marked), flush=True)
+    if held_in_reach > 0 and len(marked) == held_in_reach:
+        print(f"  {code} {EVERY_HELD_REFUSED}", flush=True)
 
 
 def _print_skipped_listings(result) -> None:

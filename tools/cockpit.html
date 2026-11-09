@@ -148,7 +148,7 @@ details.sig pre{max-height:220px;margin:6px 0 0}
       <input type="date" id="ghDate" style="background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:5px 6px;font-size:13px">
       <button id="ghDateBtn" class="ghost">Load host/&lt;date&gt;</button>
       <label style="display:inline-flex;align-items:center;gap:4px"><input type="checkbox" id="ghLaptop"> laptop/ instead of host/</label>
-      <span class="note" id="ghNote"></span></div>
+      <span class="note" id="ghNote"></span> <button id="ghPartialBtn" class="ghost" hidden></button></div>
   </div>
   <details class="note" style="margin-top:6px"><summary>Token fallback (F2.5) — only if the connector is unavailable in this view</summary>
   <div class="row" style="margin-top:6px">
@@ -3191,7 +3191,16 @@ function ghKind(name){
   if(/_results(_|\.|$)/.test(n)||/results_tally/.test(n)) return "results";
   return "desk";   // desk files, coverage, shadows, parlays: loadDocs sorts them and refuses what carries no desk block
 }
+// PARTIAL MIRROR LOAD (ARCHITECT 2026-11-09 16:50 ET, addendum 315 item 2(d), verbatim): "the connector loader acts
+// only when EVERY listed file read and parsed; on any failure it keeps the current slate, claims nothing, and prints
+// which files failed with a "Load the N that read" button that the operator presses knowingly (the note then says
+// "PARTIAL" in the summary line)." So a folder whose every file read and parsed goes to ghApplyLoad at once; a folder
+// with any failure stops BEFORE loadDocs / ingestResultsDocs / ingestWindowText (the slate, the claims, the ledger and
+// the window card are untouched), names each failed file, and holds the read subset for the button alone.
+let ghPartial=null;
+function ghPartialButton(n){ const b=$("ghPartialBtn"); if(!b) return; b.hidden=!n; b.textContent=n?`Load the ${n} that read`:""; }
 async function ghLoadFolder(folder){
+  ghPartial=null; ghPartialButton(0);           // a new press drops a subset held from an earlier one
   if(!(await ghReady())) return;
   ghNote(`Reading ${folder}/ through ${ghServerName}…`);
   let entries;
@@ -3208,23 +3217,46 @@ async function ghLoadFolder(folder){
     const byKind={}; for(const f of files){ const k=kindOf(f.name); if(!byKind[k]||f.name>byKind[k].name) byKind[k]=f; }
     const kept=Object.values(byKind); folded=files.length-kept.length; files=kept;
   }
-  const got=[]; let failed=0, firstErr=null;
-  for(const f of files){
-    ghNote(`Reading ${folder}/ through ${ghServerName}… ${got.length+failed+1} of ${files.length}`);
-    try{ const t=await ghCall(f.path); if(t&&t.trim().startsWith("{")) got.push({name:`${folder}/${f.name}`,text:t}); else failed++; }
-    catch(e){ failed++; if(!firstErr) firstErr=e; if(e&&(e.code==="user_changed"||e.code==="needs_reauth"||e.code==="not_in_manifest"||e.code==="not_granted")) break; }
+  // 2(d) "EVERY listed file read and parsed": a file counts as read only when its text parses as a JSON object
+  const got=[], failedNames=[]; let firstErr=null;
+  for(let k=0;k<files.length;k++){ const f=files[k];
+    ghNote(`Reading ${folder}/ through ${ghServerName}… ${k+1} of ${files.length}`);
+    try{ const t=await ghCall(f.path); let ok=false;
+      if(t&&t.trim().startsWith("{")){ try{ JSON.parse(t); ok=true; }catch(e){ ok=false; } }
+      if(ok) got.push({name:`${folder}/${f.name}`,text:t}); else failedNames.push(`${f.name} (not a JSON document)`); }
+    catch(e){ failedNames.push(`${f.name} (${e&&e.code||"error"})`); if(!firstErr) firstErr=e;
+      if(e&&(e.code==="user_changed"||e.code==="needs_reauth"||e.code==="not_in_manifest"||e.code==="not_granted")){
+        for(const r of files.slice(k+1)) failedNames.push(`${r.name} (not read: stopped at ${e.code})`); break; } }
   }
   if(!got.length){ ghNote(firstErr?ghErrorText(firstErr,folder):`${folder}: none of the ${files.length} file(s) read as JSON.`); return; }
+  if(failedNames.length){
+    // 2(d) "keeps the current slate, claims nothing, and prints which files failed"
+    ghPartial={folder,got,total:files.length,folded,failedNames};
+    ghNote(`${folder}: ${failedNames.length} of ${files.length} file(s) did not read — NOTHING LOADED: the current slate stands and nothing was claimed. `
+      +`Failed: ${failedNames.join(", ")}`+(firstErr?` · ${ghErrorText(firstErr,folder)}`:"")
+      +` · press the load button again, or "Load the ${got.length} that read" to load the subset knowingly (the note will say PARTIAL).`);
+    ghPartialButton(got.length); return;
+  }
+  await ghApplyLoad(folder,got,files.length,folded,[],false);
+}
+// the act itself: dispatch by kind (desk files to loadDocs, results to the ledger's intake, the window card to Next-24h)
+async function ghApplyLoad(folder,got,total,folded,failedNames,partial){
   const desk=got.filter(g=>ghKind(g.name.split("/").pop())==="desk"), res=got.filter(g=>ghKind(g.name.split("/").pop())==="results"),
         win=got.filter(g=>ghKind(g.name.split("/").pop())==="window");
   let did={coverage:0,refused:[]};
   if(desk.length) did=await loadDocs(desk);
   if(res.length) await ingestResultsDocs(res);
   let winOK=0; for(const w of win) if(ingestWindowText(w.text)) winOK++;
-  ghNote(`Loaded ${got.length} of ${files.length} file(s) from ${GH_REPO} ${folder} as you — desk ${desk.length}`
+  const failed=failedNames.length;
+  // 2(d) "the note then says "PARTIAL" in the summary line"
+  ghNote((partial?`PARTIAL — the operator loaded the ${got.length} that read, knowingly: `:"")
+    +`Loaded ${got.length} of ${total} file(s) from ${GH_REPO} ${folder} as you — desk ${desk.length}`
     +(did.coverage?` (${did.coverage} coverage)`:"")+(did.refused&&did.refused.length?` (${did.refused.length} without desk blocks refused)`:"")
-    +` · results ${res.length} · window card ${winOK}`+(failed?` · ${failed} unreadable`:"")+(folded?` · ${folded} older stamp(s) of the day folded (newest per kind, the mirror's latest/ rule)`:"")+` · ${new Date().toLocaleTimeString()}`);
+    +` · results ${res.length} · window card ${winOK}`+(failed?` · ${failed} unreadable, NOT loaded: ${failedNames.join(", ")}`:"")+(folded?` · ${folded} older stamp(s) of the day folded (newest per kind, the mirror's latest/ rule)`:"")+` · ${new Date().toLocaleTimeString()}`);
 }
+// the button the operator presses knowingly (2(d)): loads exactly the subset held from the last press, once
+$("ghPartialBtn").addEventListener("click",async()=>{ const p=ghPartial; if(!p) return; ghPartial=null; ghPartialButton(0);
+  await ghApplyLoad(p.folder,p.got,p.total,p.folded,p.failedNames,true); });
 $("ghLatestBtn").addEventListener("click",()=>ghLoadFolder(($("ghLaptop").checked?"laptop":"host")+"/latest"));
 $("ghDateBtn").addEventListener("click",()=>{ const d=$("ghDate").value; if(!d){ ghNote("Pick a date first."); return; }
   ghLoadFolder(($("ghLaptop").checked?"laptop":"host")+"/"+d); });
@@ -3234,65 +3266,319 @@ $("ghDateBtn").addEventListener("click",()=>{ const d=$("ghDate").value; if(!d){
 // =====================================================================
 // THE PRIVATE LEDGER STORE (ARCHITECT 2026-11-09): the ledger (bd_ledger_v1, fills included) is kept in this
 // artifact's own store, readable and writable by the OWNER only (the db rules), so it follows the operator across
-// browsers and devices; this browser's localStorage stays a cache. The store is the record: on load it overwrites
-// the cache; an existing cache with no store yet is migrated up once. Every saveLedger write reaches the store
+// browsers and devices; this browser's localStorage stays a cache. Every saveLedger write reaches the store
 // (debounced). The ledger is stored as JSON in chunks of 120,000 characters (one document is capped at 256 KiB).
+// ADDENDUM 315 ITEM 2 (ARCHITECT 2026-11-09 16:50 ET), the five fixes, each quoted where it is built: (a) stale
+// sessions (rev + id-merge before every write), (b) edits before load (queued, merged when the load lands), (c) unload
+// (pagehide / hidden flush; the load is rev-ordered), (e) chunk writes (ledger_chunks/<rev>_<i>, each write's own token
+// after the index, the header switches last). (d) is the connector loader above.
+// IDENTITY, read from this page: a call's id is `id` (upsertCalls: c.id=c.id||callKey(c)); a fill's id is `id` (the
+// CSV row joined, importKalshiCSV). A record with no id (none is written so, but an old or hand-edited ledger may hold
+// one) is matched conservatively: a call by its recomputed callKey, a fill by its whole JSON (so two different id-less
+// fills never collapse into one here; enforceLedger's own collapse rule is untouched).
 // =====================================================================
 let dbNS=null, ledgerStoreState="loading", ledgerStoreTimer=null, ledgerStoreSaving=false, ledgerStorePending=false;
-const LEDGER_CHUNK=120000;
+// 2(a) "the rev this page loaded or last wrote": null = no store header seen (an empty store); a v2 header (no rev) = 0
+let ledgerStoreRev=null;
+// ... and WHICH write of that rev. Two writers that both read rev N both write rev N+1, so a rev number alone cannot tell
+// this page's header from another's: the losing tab would see "its" rev and write over the winner's record without a
+// merge (review of this PR, the race repro). A header's identity is its rev plus the writer token every write carries
+// (ledgerHeadId); the stale check of 2(a) compares identities. undefined = this page has not read a header yet.
+let ledgerStoreSeen;
+let ledgerLocalRev=0;          // the local copy's rev (2(a): "+1 on every saveLedger")
+let ledgerQueued=0;            // 2(b): saveLedger calls while the store is loading
+let ledgerKnown=new Map();     // each record's body as this page last saved or loaded it (the updated_at stamp's base)
+const LEDGER_CHUNK=120000, LEDGER_SET_ASIDE_KEY="bd_ledger_v1_set_aside";
+// 2(e) chunk sets this browser started writing and has not seen replaced or deleted (a write that failed, or a page the
+// browser closed between the chunks and the header switch): kept in this browser, swept after a later confirmed switch
+const LEDGER_JOURNAL_KEY="bd_ledger_v1_store_journal", LEDGER_JOURNAL_AGE=10*60*1000, LEDGER_TRIES=3;
+function ledgerToken(){ return Math.random().toString(36).slice(2,8)+Date.now().toString(36).slice(-4); }
+const LEDGER_TAB=ledgerToken();   // this page load (a journal entry of another tab may still be mid-write)
 function storeNote(t){ const el=$("ledgerStoreNote"); if(el) el.textContent=t; }
-async function ledgerStoreRead(){
-  const head=await dbNS.doc("cockpit/ledger").get();
-  if(!head.exists) return null;
-  const h=head.data()||{}; const n=+h.chunks||0; let txt="";
-  for(let i=0;i<n;i++){ const c=await dbNS.doc(`ledger_chunks/${i}`).get(); if(!c.exists) throw new Error(`chunk ${i} of ${n} missing`); txt+=(c.data()||{}).data||""; }
-  if(h.length!=null&&txt.length!==+h.length) throw new Error(`stored length ${txt.length} ≠ header ${h.length}`);
-  return {text:txt,saved_at:h.saved_at||null,chunks:n};
+function ledgerRevOf(x){ const r=Math.floor(Number(x&&x.rev)); return isFinite(r)&&r>0?r:0; }
+// 2(e)/migration: a header with no rev is v2's (chunks ledger_chunks/<i>); its rev reads as 0
+function ledgerHeadRev(h){ return h?ledgerRevOf(h):null; }
+function ledgerHeadId(h){ return h?`${h.rev==null?"v2":ledgerRevOf(h)}|${h.writer||h.saved_at||""}`:null; }
+// 2(e) the chunk ids: `ledger_chunks/<rev>_<i>`, with the write's token after them (`ledger_chunks/<rev>_<i>_<writer>`).
+// Without the token two writers of the same rev write the same ids, and one that fails partway after the other switched
+// the header leaves that header naming a mix of both writes — the "mixture of old and new data" this item fixes (review
+// of this PR, the same-rev repro). With it, no write ever touches a chunk another write made.
+function ledgerChunkId(rev,i,w){ return rev==null?`ledger_chunks/${i}`:w?`ledger_chunks/${rev}_${i}_${w}`:`ledger_chunks/${rev}_${i}`; }
+function ledgerTorn(msg){ const e=new Error(msg); e.torn=true; return e; }
+function ledgerRecKey(x,kind){
+  if(x&&typeof x==="object"&&x.id!=null) return `id:${x.id}`;
+  return kind==="calls"&&x&&typeof x==="object"?`key:${callKey(x)}`:`json:${JSON.stringify(x)}`;
 }
-async function ledgerStoreWrite(L){
-  const txt=JSON.stringify(L); const n=Math.max(1,Math.ceil(txt.length/LEDGER_CHUNK)); const at=new Date().toISOString();
-  for(let i=0;i<n;i++) await dbNS.doc(`ledger_chunks/${i}`).set({i,n,saved_at:at,data:txt.slice(i*LEDGER_CHUNK,(i+1)*LEDGER_CHUNK)});
-  await dbNS.doc("cockpit/ledger").set({chunks:n,length:txt.length,saved_at:at,policy_version:POLICY_VERSION,calls:(L.calls||[]).length,fills:(L.fills||[]).length});
-  // chunks beyond n from an earlier, longer ledger are left in place and ignored by the header's count
-  return {at,n,bytes:txt.length};
+// a record's body for "did the page change it": its own fields less the stamp and the derived tz_audit mark (markAudit
+// recomputes that on every save)
+function ledgerRecBody(x){ if(!x||typeof x!=="object") return JSON.stringify(x); const {updated_at,tz_audit,...rest}=x; return JSON.stringify(rest); }
+function ledgerRemember(L){
+  ledgerKnown=new Map();
+  for(const kind of ["calls","fills"]) for(const x of ((L&&L[kind])||[])) ledgerKnown.set(kind+"|"+ledgerRecKey(x,kind),ledgerRecBody(x));
 }
-function scheduleLedgerStore(L){
-  if(!dbNS||ledgerStoreState==="unavailable") return;
+// 2(a) "the newer `updated_at` per record wins" needs a record's own updated_at: stamped here, on every saveLedger, on
+// each call and fill the page created (no known body) or changed (a different body) since it last saved or loaded the
+// ledger. One place for every mutation path (Log, auto-claims, grading, imports, Kalshi CSV, audits), none of which is
+// edited: they all reach the ledger through saveLedger.
+function ledgerStamp(L,at){
+  let n=0;
+  for(const kind of ["calls","fills"]) for(const x of ((L&&L[kind])||[])){ if(!x||typeof x!=="object") continue;
+    if(ledgerKnown.get(kind+"|"+ledgerRecKey(x,kind))!==ledgerRecBody(x)){ x.updated_at=at; n++; } }
+  return n;
+}
+// the local save: stamp, rev+1 (2(a) "+1 on every saveLedger"), the ledger's own updated_at, the page's own saveLedger
+function ledgerSaveLocal(L,opts){
+  const at=new Date().toISOString();
+  if(!(opts&&opts.noStamp)) ledgerStamp(L,at);
+  L.rev=Math.max(ledgerRevOf(L),ledgerLocalRev)+1; L.updated_at=at; ledgerLocalRev=L.rev;
+  const d=_saveLedgerLocal(L); ledgerRemember(L); return d;
+}
+function ledgerParse(text){ let L; try{ L=JSON.parse(text); }catch(e){ return null; } return L&&Array.isArray(L.calls)?L:null; }
+// 2(a) THE ID-MERGE: "calls by id, fills by id, the newer `updated_at` per record wins; never a silent drop". A record
+// present on either side survives. Where both sides hold a record and their bodies differ: both stamped, the newer
+// stamp wins (a tie keeps the stored one); one stamped, the stamped one wins (the other predates the stamp, so the
+// stamped one is the later change); neither stamped (two pre-addendum copies), a call goes by the page's own collapse
+// rule (better: graded beats open, then the earliest capture — graded history is never lost) and a fill keeps the
+// stored copy. One version per record survives a conflict; the record itself is never dropped, and the count of
+// conflicts is in the store note.
+function ledgerPick(s,l,kind){
+  if(ledgerRecBody(s)===ledgerRecBody(l)) return {x:s,conflict:false};
+  const ts=Date.parse(s&&s.updated_at), tl=Date.parse(l&&l.updated_at); let x;
+  if(isFinite(ts)&&isFinite(tl)) x=tl>ts?l:s;
+  else if(isFinite(tl)) x=l;
+  else if(isFinite(ts)) x=s;
+  else x=kind==="calls"?better(s,l):s;
+  return {x,conflict:true};
+}
+function ledgerMergeList(sa,la,kind){
+  const out=[], at=new Map(), stored=new Set(), r={fromStore:0,fromLocal:0,conflicts:0};
+  for(const s of (sa||[])){ const k=ledgerRecKey(s,kind); if(!at.has(k)) at.set(k,out.length); stored.add(k); out.push(s); }
+  const seen=new Set();
+  for(const l of (la||[])){ const k=ledgerRecKey(l,kind);
+    if(at.has(k)&&!seen.has(k)){ seen.add(k); const i=at.get(k), p=ledgerPick(out[i],l,kind); if(p.conflict) r.conflicts++; out[i]=p.x; }
+    else { out.push(l); if(!at.has(k)){ at.set(k,out.length-1); r.fromLocal++; } seen.add(k); } }   // a same-side duplicate is kept; enforceLedger decides it as always
+  for(const k of stored) if(!seen.has(k)) r.fromStore++;
+  return {out,r};
+}
+function ledgerMerge(S,Lc){
+  const L={...S,...Lc};                                    // any other top-level field: this page's over the store's
+  const sm=S.meta||{}, lm=Lc.meta||{};
+  L.meta={...sm,...lm,policy_version:POLICY_VERSION};
+  if(sm.auto_claims||lm.auto_claims) L.meta.auto_claims=[...new Set([...(sm.auto_claims||[]),...(lm.auto_claims||[])])];
+  if(sm.b_shadow||lm.b_shadow) L.meta.b_shadow={...(sm.b_shadow||{}),...(lm.b_shadow||{})};
+  const c=ledgerMergeList(S.calls,Lc.calls,"calls"); L.calls=c.out;
+  let f={r:{fromStore:0,fromLocal:0,conflicts:0}};
+  if(Array.isArray(S.fills)||Array.isArray(Lc.fills)){ f=ledgerMergeList(S.fills,Lc.fills,"fills"); L.fills=f.out; }
+  if(Array.isArray(S.system_picks)||Array.isArray(Lc.system_picks)){       // a harvest cache keyed sport|date|home|away
+    const pk=g=>[g.sport,g.date,g.home,g.away].join("|"), m=new Map();
+    for(const g of (S.system_picks||[])) m.set(pk(g),g); for(const g of (Lc.system_picks||[])) m.set(pk(g),g);
+    L.system_picks=[...m.values()]; }
+  L.rev=Math.max(ledgerRevOf(S),ledgerRevOf(Lc));
+  return {L,calls:c.r,fills:f.r};
+}
+function ledgerMergeText(m,hRev){
+  return ` · merged with the store's rev ${hRev} by id: ${m.calls.fromStore} call(s) and ${m.fills.fromStore} fill(s) came from the store, `
+    +`${m.calls.fromLocal} call(s) and ${m.fills.fromLocal} fill(s) from this page, ${m.calls.conflicts+m.fills.conflicts} differing version(s) decided by the newer updated_at`;
+}
+// records kept aside in this browser, never in the store, never silently gone: added to an earlier set-aside by record key
+// (a later copy of a record replaces its earlier one)
+function ledgerAsideStore(aside,meta){
+  const n=aside.calls.length+aside.fills.length;
+  if(n) try{ let prev=null; try{ prev=JSON.parse(localStorage.getItem(LEDGER_SET_ASIDE_KEY)||"null"); }catch(e){ prev=null; }
+    const out={};
+    for(const kind of ["calls","fills"]){ const m=new Map(); for(const x of ((prev&&Array.isArray(prev[kind]))?prev[kind]:[]).concat(aside[kind])) m.set(ledgerRecKey(x,kind),x); out[kind]=[...m.values()]; }
+    localStorage.setItem(LEDGER_SET_ASIDE_KEY,JSON.stringify({set_aside_at:new Date().toISOString(),...meta,...out})); }catch(e){}
+  return n;
+}
+// the id-merge, saved locally. The save runs the page's enforceLedger, which collapses two calls of one position (the
+// same instKey, two log dates: one logged on each device) by its own rule (better: graded first, then the earliest
+// capture). 2(a) "never a silent drop": what that collapse removed is named in the store note (dedupeNote, as every
+// other saveLedger caller reports it) and kept aside in this browser (review of this PR: the merge path dropped a
+// re-log's later execution price with no word). The collapse rule itself is the page's, unchanged.
+function ledgerMergeSave(S,local){
+  const m=ledgerMerge(S,local), before={calls:m.L.calls.slice(),fills:(m.L.fills||[]).slice()};
+  const d=ledgerSaveLocal(m.L,{noStamp:true});
+  const keep={calls:new Set(m.L.calls),fills:new Set(m.L.fills||[])};
+  const gone={calls:before.calls.filter(x=>!keep.calls.has(x)),fills:before.fills.filter(x=>!keep.fills.has(x))};
+  const n=ledgerAsideStore(gone,{reason:"collapsed by the page's enforceLedger after an id-merge with the store",store_rev:ledgerRevOf(S),local_rev:ledgerRevOf(local)});
+  const collapse=d&&d.total?dedupeNote(d)+` after the id-merge: the page's collapse rule kept one copy per position (graded first, then the earliest capture); `
+    +`the other ${n} copy(ies) set aside in this browser (${LEDGER_SET_ASIDE_KEY}), not in the store`:"";
+  return {L:m.L,m,d,collapse};
+}
+function ledgerRerender(){ try{ renderProgress(); if(typeof renderLedger==="function") renderLedger(); }catch(e){ console.log("ledger re-render",e); } }
+async function ledgerHead(){ const s=await dbNS.doc("cockpit/ledger").get(); return s.exists?(s.data()||{}):null; }
+// 2(e) the reader reads the header's rev's chunks; "a header written by v2 (no rev, chunks ledger_chunks/<i>)" still
+// reads (the migration: the legacy layout whenever the header carries no rev). A chunk counts only when it is the
+// header's own write: its writer token, rev and index match the header's (review of this PR: "have the reader refuse
+// any chunk whose token ... differs from the header's"). A header that does not read whole throws a torn error.
+async function ledgerStoreRead(h){
+  if(h===undefined) h=await ledgerHead();
+  if(!h) return null;
+  const n=+h.chunks||0, rev=h.rev==null?null:ledgerRevOf(h), w=h.writer||null; let txt="";
+  for(let i=0;i<n;i++){ const c=await dbNS.doc(ledgerChunkId(rev,i,w)).get();
+    if(!c.exists) throw ledgerTorn(`chunk ${i} of ${n} missing`);
+    const d=c.data()||{};
+    if(w&&(d.writer!==w||ledgerRevOf(d)!==rev||+d.i!==i)) throw ledgerTorn(`chunk ${i} of ${n} is not the header's write`);
+    txt+=d.data||""; }
+  if(h.length!=null&&txt.length!==+h.length) throw ledgerTorn(`stored length ${txt.length} ≠ header ${h.length}`);
+  return {text:txt,saved_at:h.saved_at||null,chunks:n,rev:ledgerHeadRev(h),legacy:h.rev==null};
+}
+// the journal of chunk sets this browser wrote (2(e)'s orphans): read, written and swept here only
+function ledgerJournal(){ try{ const j=JSON.parse(localStorage.getItem(LEDGER_JOURNAL_KEY)||"[]"); return Array.isArray(j)?j:[]; }catch(e){ return []; } }
+function ledgerJournalSet(j){ try{ if(j.length) localStorage.setItem(LEDGER_JOURNAL_KEY,JSON.stringify(j)); else localStorage.removeItem(LEDGER_JOURNAL_KEY); }catch(e){} }
+function ledgerJournalDrop(w){ ledgerJournalSet(ledgerJournal().filter(e=>e&&e.w!==w)); }
+async function ledgerDeleteSet(rev,w,n){ let left=0; for(let k=0;k<n;k++){ try{ await dbNS.doc(ledgerChunkId(rev,k,w)).delete(); }catch(e){ left++; } } return left; }
+// after a confirmed switch to the writer `liveW`, every other set in the journal is named by no header (a header only
+// ever moves to a new writer's token), so its chunks are deleted: at once when this page wrote it (its writes run one at
+// a time), else once it is LEDGER_JOURNAL_AGE old (another tab of this browser may still be writing it). This is what
+// clears the chunks of a page the browser closed between its chunk writes and its header switch (review of this PR).
+async function ledgerJournalSweep(liveW){
+  let left=0, swept=0; const now=Date.now();
+  for(const e of ledgerJournal()){ if(!e||e.w===liveW) continue;
+    if(e.tab!==LEDGER_TAB&&!(now-(+e.at||0)>LEDGER_JOURNAL_AGE)) continue;
+    const l=await ledgerDeleteSet(e.rev,e.w,+e.n||0); left+=l; if(!l){ ledgerJournalDrop(e.w); swept++; } }
+  return {left,swept};
+}
+// 2(e) CHUNK WRITES (verbatim): "chunks are written under the new rev's ids (`ledger_chunks/<rev>_<i>`), the header
+// switches to that rev only after every chunk succeeded, and the previous rev's chunks are deleted after the switch (a
+// failed write leaves the old rev intact and readable)." `old` is the header this write replaces (null: none). Before the
+// switch the header is read again: a header another write put there meanwhile is never switched over (this write's
+// chunks are deleted and the caller reads, merges and writes again); after the switch it is read once more, and a write
+// that landed over this one is merged and written over next (2(a) "never a silent drop", review of this PR).
+async function ledgerStorePut(L,old,opts){
+  const rev=ledgerRevOf(L), txt=JSON.stringify(L), n=Math.max(1,Math.ceil(txt.length/LEDGER_CHUNK)), at=new Date().toISOString(), w=ledgerToken();
+  ledgerJournalSet(ledgerJournal().concat([{rev,w,n,at:Date.now(),tab:LEDGER_TAB}]));
+  // a failed chunk write throws here: the header still names the old rev, which reads intact; the journal keeps this set
+  for(let i=0;i<n;i++) await dbNS.doc(ledgerChunkId(rev,i,w)).set({i,n,rev,writer:w,saved_at:at,data:txt.slice(i*LEDGER_CHUNK,(i+1)*LEDGER_CHUNK)});
+  const lose=async()=>{ if(!(await ledgerDeleteSet(rev,w,n))) ledgerJournalDrop(w); return {lost:true,at,rev,n}; };
+  if(ledgerHeadId(await ledgerHead())!==ledgerHeadId(old)) return lose();
+  const head={rev,writer:w,chunks:n,length:txt.length,saved_at:at,policy_version:POLICY_VERSION,calls:(L.calls||[]).length,fills:(L.fills||[]).length};
+  await dbNS.doc("cockpit/ledger").set(head);
+  const me=ledgerHeadId(head); ledgerStoreSeen=me;            // "the rev this page ... last wrote"
+  if(ledgerHeadId(await ledgerHead())!==me) return lose();
+  ledgerJournalDrop(w); ledgerStoreRev=rev;
+  let left=0;
+  // the previous rev's chunks, after the switch; a header that did not read whole keeps its chunks (opts.keepOld), unread
+  if(old&&!(opts&&opts.keepOld)) left+=await ledgerDeleteSet(old.rev==null?null:ledgerRevOf(old),old.writer||null,+old.chunks||0);
+  const sw=await ledgerJournalSweep(w); left+=sw.left;
+  return {at,n,bytes:txt.length,rev,left,swept:sw.swept};
+}
+// 2(a) STALE SESSIONS (verbatim): "a store write first reads the header: if the header's rev is not the rev this page
+// loaded or last wrote, the page RELOADS the store, MERGES by id (calls by id, fills by id, the newer `updated_at` per
+// record wins; never a silent drop), re-renders, then writes with rev+1." The header is compared by identity (rev and
+// writer token, ledgerHeadId), so a same-rev header another tab wrote is read and merged too. The local copy is re-read
+// AFTER the store's read lands, with no wait between that read and the merged local save, so an edit made during the
+// read is merged too. A header that moved under the read or the write is read again (LEDGER_TRIES in all).
+// A store whose header does not read whole twice running (a chunk missing, a chunk of another write, a length that
+// does not match: e.g. a v2 store an interrupted v2 write left torn) cannot be merged; this browser's copy is written
+// up under a new rev and the unreadable chunks are left in place, unread, so cross-device sync resumes (review of this
+// PR: the store had stopped syncing for good). A db error on the read (no answer) is not a torn store: it throws, and
+// nothing is written.
+async function ledgerStoreSync(){
+  const merges=[]; let changed=0;
+  for(let attempt=1;;attempt++){
+    const h=await ledgerHead(), hRev=ledgerHeadRev(h), hid=ledgerHeadId(h);
+    let L, torn=null;
+    if(hid!==ledgerStoreSeen){
+      let S=null;
+      try{ const got=await ledgerStoreRead(h); S=got?ledgerParse(got.text):null;
+        if(h&&!S) throw ledgerTorn(`the store's rev ${hRev} does not read as a ledger`); }
+      catch(e){ if(!(e&&e.torn)) throw e;
+        if(ledgerHeadId(await ledgerHead())!==hid){ if(attempt<LEDGER_TRIES){ changed++; continue; } throw e; }
+        torn=e; }
+      L=loadLedger();
+      if(S){ const r=ledgerMergeSave(S,L); L=r.L; merges.push(ledgerMergeText(r.m,hRev)+r.collapse); ledgerRerender(); }   // rev+1 over both sides
+      ledgerStoreSeen=hid; ledgerStoreRev=hRev;
+    } else L=loadLedger();
+    if(ledgerRevOf(L)<=(hRev||0)){ L.rev=hRev; ledgerSaveLocal(L,{noStamp:true}); }     // the written rev is above the header's
+    const w=await ledgerStorePut(L,h,{keepOld:!!torn});
+    w.merge=merges.join(""); w.changed=changed; w.torn=torn;
+    if(w.lost){ changed++; w.changed=changed; if(attempt<LEDGER_TRIES) continue; }
+    return w;
+  }
+}
+// one write at a time; an edit that lands during a write is written right after it
+async function ledgerStoreFlush(verb,extra){
+  if(!dbNS||ledgerStoreState==="unavailable"||ledgerStoreState==="loading") return;
+  if(ledgerStoreSaving){ ledgerStorePending=true; return; }
+  clearTimeout(ledgerStoreTimer); ledgerStoreTimer=null;
+  ledgerStoreSaving=true; ledgerStorePending=false;
+  try{ const w=await ledgerStoreSync(); ledgerStoreState="ready";
+    if(w.lost) storeNote(`store: NOT SAVED — the store's header changed under this write ${w.changed} time(s) (another tab or device writing); `
+      +`this browser's copy stands, and the next save reads the store and merges again`+(extra||"")+w.merge);
+    else storeNote(`store: the private store (owner only), ${verb||"saved"} ${new Date(w.at).toLocaleTimeString()} · rev ${w.rev} · ${w.n} chunk(s) · cached in this browser`
+      +(extra||"")+(w.changed?` · the store changed under this write ${w.changed} time(s) (another tab or device): read and merged again`:"")+w.merge
+      +(w.torn?` · ⚠ the store's previous header did not read whole (${w.torn.message}): nothing of it could be merged; this browser's copy was written as rev ${w.rev}, and the unreadable chunks were left in place, unread`:"")
+      +(w.swept?` · ${w.swept} chunk set(s) of an earlier unfinished write deleted (named by no header)`:"")
+      +(w.left?` · ${w.left} old chunk(s) not deleted (unread; the header names rev ${w.rev})`:"")); }
+  catch(e){ storeNote(`store: SAVE FAILED (${e&&e.code||e&&e.message||e}) — this browser's copy stands (the store keeps its last whole rev); Export the ledger to keep it`); }
+  ledgerStoreSaving=false; if(ledgerStorePending) ledgerStoreFlush();
+}
+function scheduleLedgerStore(){
+  if(!dbNS||ledgerStoreState==="unavailable"||ledgerStoreState==="loading") return;
   ledgerStorePending=true; clearTimeout(ledgerStoreTimer);
-  ledgerStoreTimer=setTimeout(async()=>{
-    if(ledgerStoreSaving){ ledgerStorePending=true; return; }
-    ledgerStoreSaving=true; ledgerStorePending=false;
-    try{ const w=await ledgerStoreWrite(loadLedger()); storeNote(`store: the private store (owner only), saved ${new Date(w.at).toLocaleTimeString()} · ${w.n} chunk(s) · cached in this browser`); }
-    catch(e){ storeNote(`store: SAVE FAILED (${e&&e.code||e&&e.message||e}) — this browser's copy stands; Export the ledger to keep it`); }
-    ledgerStoreSaving=false; if(ledgerStorePending) scheduleLedgerStore(L);
-  },1500);
+  ledgerStoreTimer=setTimeout(()=>{ ledgerStoreTimer=null; ledgerStoreFlush(); },1500);
 }
 const _saveLedgerLocal=saveLedger;
-saveLedger=function(L){ const d=_saveLedgerLocal(L); scheduleLedgerStore(L); return d; };
-(async()=>{
+(function(){ const L0=loadLedger(); ledgerLocalRev=ledgerRevOf(L0); ledgerRemember(L0); })();
+// 2(b) EDITS BEFORE LOAD (verbatim): "while the store is loading, saveLedger queues (the local copy still saves); when
+// the load lands, the queued local state is merged into the stored one by the same id-merge and written; the Ledger
+// header says "store: loading… (N edits queued)"."
+saveLedger=function(L){ const d=ledgerSaveLocal(L);
+  if(ledgerStoreState==="loading"){ ledgerQueued++; storeNote(`store: loading… (${ledgerQueued} edits queued)`); }
+  else scheduleLedgerStore();
+  return d; };
+// 2(c) UNLOAD (verbatim): "`pagehide` and `visibilitychange: hidden` flush the pending write at once (no debounce)"
+function ledgerStoreFlushNow(){ if(ledgerStoreTimer||ledgerStorePending) ledgerStoreFlush(); }
+window.addEventListener("pagehide",ledgerStoreFlushNow);
+document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==="hidden") ledgerStoreFlushNow(); });
+// records of this browser's copy the store does not hold (or holds older), kept aside when the store wins (2(c)): never
+// a silent drop
+function ledgerSetAside(S,local,sRev){
+  const sk=new Map(); for(const kind of ["calls","fills"]) for(const x of (S[kind]||[])) sk.set(kind+"|"+ledgerRecKey(x,kind),x);
+  const aside={calls:[],fills:[]};
+  for(const kind of ["calls","fills"]) for(const x of (local[kind]||[])){ const s=sk.get(kind+"|"+ledgerRecKey(x,kind));
+    if(!s||(ledgerRecBody(s)!==ledgerRecBody(x)&&ledgerPick(s,x,kind).x===x)) aside[kind].push(x); }
+  return ledgerAsideStore(aside,{store_rev:sRev,local_rev:ledgerRevOf(local)});
+}
+async function ledgerStoreBoot(){
   try{ dbNS=await claude.use("db"); }catch(e){ dbNS=null; }
-  if(!dbNS){ ledgerStoreState="unavailable"; storeNote("store: this browser only (the private store is not available in this view)"); return; }
+  if(!dbNS){ ledgerStoreState="unavailable"; storeNote("store: this browser only (the private store is not available in this view)"+(ledgerQueued?` · ${ledgerQueued} edit(s) kept in this browser`:"")); return; }
   try{
-    const got=await ledgerStoreRead();
+    const h=await ledgerHead(), got=h?await ledgerStoreRead(h):null, S=got?ledgerParse(got.text):null;
+    if(h&&!S) throw new Error("the stored text does not read as a ledger");
+    const queued=ledgerQueued, local=loadLedger();
     const localRaw=(function(){try{return localStorage.getItem(LEDGER_KEY);}catch(e){return null;}})();
-    if(got&&got.text){
-      let L; try{ L=JSON.parse(got.text); }catch(e){ L=null; }
-      if(L&&Array.isArray(L.calls)){
-        _saveLedgerLocal(L); ledgerStoreState="ready";
-        storeNote(`store: the private store (owner only), last saved ${got.saved_at?new Date(got.saved_at).toLocaleString():"—"} · ${L.calls.length} calls · ${(L.fills||[]).length} fills · cached in this browser`);
-        renderProgress(); if(typeof renderLedger==="function") renderLedger();
+    ledgerStoreRev=ledgerHeadRev(h); ledgerStoreSeen=ledgerHeadId(h);
+    if(S){
+      const sRev=ledgerStoreRev, lRev=ledgerRevOf(local);
+      // 2(c) (verbatim): "on load the store never overwrites a NEWER local copy: if local.rev > stored.rev, the local copy
+      // is written up (the id-merge first), else the store wins — the current one-way rule becomes rev-ordered."
+      // 2(b): queued edits are merged and written whatever the revs say.
+      if(queued||lRev>sRev){
+        const r=ledgerMergeSave(S,local); ledgerQueued=0; ledgerStoreState="ready"; ledgerRerender();
+        storeNote(`store: merging ${queued?`${queued} queued edit(s)`:`this browser's newer copy (rev ${lRev} > the store's ${sRev})`} into the store…`);
+        await ledgerStoreFlush(queued?`merged ${queued} queued edit(s) and saved`:"wrote this browser's newer copy up,",r.collapse);
         return;
       }
+      const aside=ledgerSetAside(S,local,sRev);
+      S.rev=sRev; _saveLedgerLocal(S); ledgerLocalRev=sRev; ledgerRemember(S); ledgerStoreState="ready";
+      storeNote(`store: the private store (owner only), rev ${sRev}${got.legacy?" (a v2 header: read from the legacy chunks; the next save writes rev 1 and up)":""}, last saved ${got.saved_at?new Date(got.saved_at).toLocaleString():"—"} · ${S.calls.length} calls · ${(S.fills||[]).length} fills · cached in this browser`
+        +(aside?` · ⚠ ${aside} record(s) of this browser's older copy (rev ${lRev} ≤ ${sRev}) the store does not hold were set aside in this browser (${LEDGER_SET_ASIDE_KEY}), not merged`:""));
+      ledgerRerender();
+      return;
     }
-    ledgerStoreState="ready";
-    if(localRaw){ storeNote("store: migrating this browser's ledger to the private store…"); const w=await ledgerStoreWrite(loadLedger());
-      storeNote(`store: the private store (owner only), migrated ${new Date(w.at).toLocaleTimeString()} · ${w.n} chunk(s)`); }
+    ledgerStoreState="ready"; ledgerQueued=0;
+    if(localRaw||queued){ storeNote("store: migrating this browser's ledger to the private store…"); await ledgerStoreFlush("migrated"); }
     else storeNote("store: the private store (owner only) — empty; the first logged call or import saves to it");
   }catch(e){
     ledgerStoreState="error";
-    storeNote(`store: could not read the private store (${e&&e.code||e&&e.message||e}); this browser's copy stands`);
+    storeNote(`store: could not read the private store (${e&&e.code||e&&e.message||e}); this browser's copy stands`
+      +(ledgerQueued?` · ${ledgerQueued} edit(s) kept in this browser`:"")
+      +" (a later save re-reads the store: a store that reads whole is merged before the write; one whose header still does not read whole is written over under a new rev, its unreadable chunks left in place)");
   }
-})();
+}
+ledgerStoreBoot();
 
 setTab("desk");
 

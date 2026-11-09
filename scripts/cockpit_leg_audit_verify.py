@@ -126,7 +126,11 @@ def main():
                      "P-T3-1": None, "P-T3-2": None, "P-T4-1": None, "P-T4-2": None}, json.dumps(lc))
         # marks, never stored fields: leg_check, tz_audit and the legacy-join label (addendum 114 item 2: every graded
         # call without a match id carries legacy_join; its result and returns are untouched)
-        strip = lambda c: {k: v for k, v in c.items() if k not in ("leg_check", "tz_audit", "legacy_join")}
+        # ARCHITECT 2026-11-09, addendum 315 item 2(a): every saveLedger stamps a changed record's updated_at (the
+        # store's merge reads it, "the newer `updated_at` per record wins"); the audit's own save stamps the calls it
+        # marks, so updated_at is a mark here too
+        strip = lambda c: {k: v for k, v in c.items()
+                           if k not in ("leg_check", "tz_audit", "legacy_join", "updated_at")}
         check("never deleted: same calls, every stored field unchanged but the marks",
               len(after) == len(before) and [strip(c) for c in after] == [strip(c) for c in before],
               f"{len(before)} → {len(after)}")

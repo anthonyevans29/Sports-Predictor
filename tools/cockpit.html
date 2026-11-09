@@ -125,7 +125,7 @@ details.sig pre{max-height:220px;margin:6px 0 0}
 </style>
 </head>
 <body>
-<h1>Cockpit <span class="chip">card + desk + ledger + next 24h + today · policy v1.2</span></h1>
+<h1>Cockpit <span class="chip">card + desk + ledger + next 24h + today · policy v1.2 · reads the mirror through your GitHub connector</span></h1>
 <div class="row" style="margin-bottom:10px">
   <button id="tabCard" class="ghost">Card</button>
   <button id="tabDesk">Desk</button>
@@ -143,12 +143,21 @@ details.sig pre{max-height:220px;margin:6px 0 0}
       <input type="file" id="gptFile" accept=".txt,.md"></div>
   </div>
   <div class="row" style="margin-top:8px">
-    <div><label>Exports mirror (F2.5): fine-grained READ-ONLY token, pasted once — kept in this browser only</label><br>
+    <div><label>Exports mirror — read through YOUR GitHub connector, as you (no token in this page; the connector asks once)</label><br>
+      <button id="ghLatestBtn">Load latest from host</button>
+      <input type="date" id="ghDate" style="background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:5px 6px;font-size:13px">
+      <button id="ghDateBtn" class="ghost">Load host/&lt;date&gt;</button>
+      <label style="display:inline-flex;align-items:center;gap:4px"><input type="checkbox" id="ghLaptop"> laptop/ instead of host/</label>
+      <span class="note" id="ghNote"></span></div>
+  </div>
+  <details class="note" style="margin-top:6px"><summary>Token fallback (F2.5) — only if the connector is unavailable in this view</summary>
+  <div class="row" style="margin-top:6px">
+    <div><label>fine-grained READ-ONLY token, pasted once — kept in this browser only</label><br>
       <input type="password" id="mirrorToken" placeholder="github_pat_…" autocomplete="off" style="width:16em">
       <input type="text" id="mirrorRepo" placeholder="owner/repo" style="width:18em">
-      <button id="mirrorBtn">Load latest from host</button>
+      <button id="mirrorBtn" class="ghost">Load latest from host (token)</button>
       <span class="note" id="mirrorNote"></span></div>
-  </div>
+  </div></details>
 </div>
 
 <div id="cardView" hidden></div>
@@ -158,7 +167,7 @@ details.sig pre{max-height:220px;margin:6px 0 0}
   <h2 style="margin-top:0">Policy v1.2 <span class="note">v1.1's rules + the day's unit (addendum 179; #753: each fill by the unit stamped on its order's row, addendum 197) · per-sport · model_edge evidence-set 2026-09-25 unchanged · venue_edge added in shadow 2026-09-26 · changes only via audit-backed version bump</span></h2>
   <div class="note" style="margin-top:4px;line-height:1.7">
     <b>SOCCER</b> — floor 4pp · pick-prob ≥ 0.50 · away/draw edges ≥ 10pp → double-chance ladder 0.5u · any edge ≥ 10pp half-units <span style="opacity:.75">(cohort 6/16: big edges anti-predictive, die by draw)</span><br>
-    <b>NFL</b> — PASS all <span style="opacity:.75">(market-only since 2026-11-02, addendum 214: nfl_elo_v1 uncertified until the confirmation read)</span> · the model's numbers, divergence and quarantine stay on the page, labelled uncertified · the rules below still size the record (quarantine and value shadows unstaked; the chain's own call shown as a hold, record only): floor 4pp · divergence ≥ 15pp quarantine = never a straight play <span style="opacity:.75">(wk 1–2 mega-edges 1-5; ATL 34-3)</span> · QB-flagged games half-units<br>
+    <b>NFL</b> — floor 4pp · divergence ≥ 15pp quarantine = never a straight play <span style="opacity:.75">(wk 1–2 mega-edges 1-5; ATL 34-3)</span> · QB-flagged games half-units<br>
     <b>MLB</b> — floor 4pp · edge &gt; 8pp vs its reference (book close or kalshi-only mid) = QUARANTINE, never a straight play, logged as a quarantine shadow <span style="opacity:.75">(ARCHITECT 2026-10-07: &gt;8pp went 7 of 34; the 15pp caution tier is superseded)</span> · road picks unrestricted <span style="opacity:.75">(380-row read: away 56% / home 60% — watch, not penalty)</span> · totals untouched (M16 caution)<br>
     <b>NHL</b> — PASS all <span style="opacity:.75">(pre-gate: no production model)</span> · Base 1u · parlays 0.25u ≤3 legs, positive edge, no shared teams (model_edge only).<br>
     <b>VALUE-SIDE</b> (v1.2 CANDIDATE, shadow 2026-09-29; model sports) — edge = model − market on EVERY side · the value side is not the model's top pick and clears the 4pp floor → value_shadow at 0.25u notional, NOT staked · graded like quarantine shadows · promotion to real sizing only via version bump after ≥ 30 graded · <b id="vsProgress">graded —/30</b> <span style="opacity:.75">(MNF wk 4: CHI +13.4pp as the dog, Desk said PASS, CHI won 27-7)</span><br>
@@ -253,7 +262,7 @@ details.sig pre{max-height:220px;margin:6px 0 0}
 
 <div id="ledgerView" hidden>
   <div class="card">
-    <h2 style="margin-top:0">Ledger <span class="note">bd_ledger_v1 · this browser only · fair-odds P&amp;L, pre-fee</span></h2>
+    <h2 style="margin-top:0">Ledger <span class="note">bd_ledger_v1 · fair-odds P&amp;L, pre-fee · <span id="ledgerStoreNote">store: this browser (the private store is loading…)</span></span></h2>
     <div class="note" id="ledgerExportsLine" style="margin-bottom:8px" title="ARCHITECT 2026-10-18, addendum 125 item 4 (#544): no --desk export reads a ledger summary; counts_source default 0 is the permanent reading. ARCHITECT 2026-11-01, addendum 197 item 2: a loaded v1.1 file keeps the pinned line (postseason rows sized at half until v1.2); a loaded v1.2 file shows the v1.2 line (the unit is a fraction of the pool, addendum 179); none loaded: the Cockpit's own policy's">exports read no ledger summary; policy v1.2: the unit is a fraction of the pool (addendum 179); v1.1's postseason half-sizing no longer applies</div>
     <div class="row">
       <div><label>Results files / finished fixtures (JSON — same intake for both)</label><br>
@@ -417,7 +426,6 @@ function normalize(doc){
           if(un.length)bits.push("position unresolved: "+un.length);}
         return bits.join(" · ");})(),
       tier:pr.tier||null,fileDesk:p.desk||null,deskMeta:doc.desk_meta||null,
-      cert:doc.certification??null,   // addendum 214: the export's additive label (NFL: "uncertified (addendum 214) ...")
       exportedAt:(doc.desk_meta&&doc.desk_meta.as_of)||doc.exported_at||null});
   }
   return out;
@@ -586,10 +594,7 @@ function passKindTag(k){
     // order, no value shadow; the reason names both clocks (desk_policy.KICKOFF_CLOCK_KIND, rendered from the file).
     // The Desk's threshold: desk_policy.DESK_CLOCK_DRIFT, 1h, inclusive (addendum 83 item 2, 2026-10-16; it was
     // more than the matcher's 2h under addendum 72). The Cockpit compares no clocks itself.
-    :k==="kickoff_clock"?'<span class="passkind">kickoff disputed</span>'
-    // addendum 214 (ARCHITECT 2026-11-02): every NFL row is PASS, "nfl_elo_v1 uncertified (addendum 214): market-only
-    // until the confirmation read" (desk_policy.NFL_MARKET_ONLY_KIND; the reason is rendered from the file)
-    :k==="market_only"?'<span class="passkind">market-only · uncertified</span>':"";
+    :k==="kickoff_clock"?'<span class="passkind">kickoff disputed</span>':"";
 }
 // Q3 K3: the file's kalshi_only_hold — what the 2026-10-01 rule would have done, FOR THE RECORD ONLY. Never a call:
 // nothing here is counted, logged or staked.
@@ -600,13 +605,6 @@ function koHoldHTML(h){
     +` (bid ${h.bid!=null?h.bid.toFixed(2):"—"} / ask ${h.ask!=null?h.ask.toFixed(2):"—"}, spread ${h.spread_c??"—"}c)`
     +` · raw edge ${pp(h.raw_edge_pp)} · on equal footing ${pp(h.equal_footing_edge_pp)}`
     +` · the 2026-10-01 rule: ${esc(String(h.would_call??"—"))} ${h.would_units||0}u</div>`;
-}
-// addendum 214: the file's market_only_hold — the call the Desk's own chain gave an NFL row before market-only turned it
-// PASS, FOR THE RECORD ONLY (the confirmation's record). Never a call: nothing here is counted, logged or staked.
-function mktOnlyHoldHTML(h){
-  if(!h) return "";
-  return `<div class="note">hold (record only, not a call; ${esc(String(h.certification??"uncertified"))}): the chain's call`
-    +` ${esc(String(h.would_call??"—"))} ${h.would_units||0}u${h.would_reason?` — ${esc(String(h.would_reason))}`:""}</div>`;
 }
 function rerunHint(r){
   const t=utcMs(r.utc); if(!isFinite(t)||t<=Date.now()) return "";
@@ -689,17 +687,9 @@ function fileVenue(r){ const v=r.fileDesk.venue||{};
     // VENUE QUOTE AGE (ARCHITECT 2026-10-07): a row the file HOLDS (no quote time stored) — a re-run cannot clear it
     held:!!v.quote_age_hold}; }
 
-// The summary's PASS breakdown: each kind counted once, "other" the rest (addendum 214 added market-only, NFL).
-function passSummary(n){
-  if(!n.passes) return "";
-  const other=n.passes-n.passNoRef-n.passFloor-n.passStarted-n.passShadow-n.passKoSusp-n.passMktOnly;
-  return ` (${n.passNoRef} no reference · ${n.passFloor} below floor${n.passStarted?` · ${n.passStarted} started`:""}`
-    +`${n.passShadow?` · ${n.passShadow} shadow league`:""}${n.passKoSusp?` · ${n.passKoSusp} kalshi-only suspended (MLB)`:""}`
-    +`${n.passMktOnly?` · ${n.passMktOnly} market-only (NFL, uncertified)`:""}${other?` · ${other} other`:""})`;
-}
 function policy(){
   renderProgress();
-  let plays=0,ladders=0,passes=0,passNoRef=0,passFloor=0,passStarted=0,passShadow=0,passKoSusp=0,passMktOnly=0;
+  let plays=0,ladders=0,passes=0,passNoRef=0,passFloor=0,passStarted=0,passShadow=0,passKoSusp=0;
   const tb=$("slate").querySelector("tbody"); tb.innerHTML="";
   deskCalls=[]; deskValue=[];
   for(const r of rows){
@@ -708,7 +698,7 @@ function policy(){
     const {call,cls,units,edge,tags,reasons,shadowUnits,passKind,mktRef,kalOnly}=fileCall(r);
     deskCalls.push({r,call,units,edge,tags:tags.slice(),reasons:reasons.slice(),cls,shadowUnits,passKind,mktRef,kalOnly});
     const vs=fileValue(r); if(vs) deskValue.push({r,v:vs});
-    if(call==="PASS"){passes++; if(passKind==="noref")passNoRef++; else if(passKind==="floor")passFloor++; else if(passKind==="started")passStarted++; else if(passKind==="shadow_league")passShadow++; else if(passKind==="kalshi_only_suspended")passKoSusp++; else if(passKind==="market_only")passMktOnly++;}
+    if(call==="PASS"){passes++; if(passKind==="noref")passNoRef++; else if(passKind==="floor")passFloor++; else if(passKind==="started")passStarted++; else if(passKind==="shadow_league")passShadow++; else if(passKind==="kalshi_only_suspended")passKoSusp++;}
     else if(call==="LADDER")ladders++; else plays++;
     const tr=document.createElement("tr");
     if(passKind==="noref"||passKind==="started"||passKind==="shadow_league"||passKind==="kalshi_only_suspended"
@@ -717,7 +707,7 @@ function policy(){
       <td>${r.prob.toFixed(3)}</td><td>${mktRef!=null?mktRef.toFixed(3)+(kalOnly?' <span class="passkind">kalshi-only</span>':""):"—"}</td>
       <td>${edge!=null?(edge>0?"+":"")+edge.toFixed(1)+"pp":"—"}${execHTMLFrom(r.fileDesk.exec,r.prob)}</td>
       <td class="${cls}">${call}${passKindTag(passKind)}${orderHTML(r.fileDesk.order)}</td><td>${units||"—"}</td>
-      <td class="reason">${esc(reasons.join(" · "))}${passKind==="noref"?rerunHint(r):""}${koHoldHTML(r.fileDesk.kalshi_only_hold)}${mktOnlyHoldHTML(r.fileDesk.market_only_hold)}</td>`;
+      <td class="reason">${esc(reasons.join(" · "))}${passKind==="noref"?rerunHint(r):""}${koHoldHTML(r.fileDesk.kalshi_only_hold)}</td>`;
     tb.appendChild(tr);
   }
   for(const {r,v} of deskValue){        // appended after the main rows: row order of the policy table is unchanged
@@ -739,7 +729,7 @@ function policy(){
     }});
   const corr=Object.entries(teamCount).filter(([t,n])=>n>1).map(([t,n])=>`${t}×${n}`);
   $("summary").textContent=`${sportLabel} · ${rows.length} rows → ${plays} play · ${ladders} ladder · ${passes} pass`
-    +passSummary({passes,passNoRef,passFloor,passStarted,passShadow,passKoSusp,passMktOnly})
+    +(passes?` (${passNoRef} no reference · ${passFloor} below floor${passStarted?` · ${passStarted} started`:""}${passShadow?` · ${passShadow} shadow league`:""}${passKoSusp?` · ${passKoSusp} kalshi-only suspended (MLB)`:""}${passes-passNoRef-passFloor-passStarted-passShadow-passKoSusp?` · ${passes-passNoRef-passFloor-passStarted-passShadow-passKoSusp} other`:""})`:"")
     +(deskValue.length?` · ${deskValue.length} value shadow (not staked)`:"")
     +(corr.length?` · ⚠ correlated exposure: ${corr.join(", ")}`:"")
     +deskSourceNote();
@@ -1455,9 +1445,13 @@ function gradeLedger(L,outs){
 }
 $("resultsFile").addEventListener("change",async e=>{
   const fs=Array.from(e.target.files); if(!fs.length)return;
+  await ingestResultsDocs(await Promise.all(fs.map(async f=>({name:f.name,text:await f.text()}))));
+});
+// The results intake, one path for picked files and for files the connector reads (the same parse, grade, harvest).
+async function ingestResultsDocs(fs){
   let outs=[], picks=[], recs=[];
   for(const f of fs){
-    try{ const doc=JSON.parse(await f.text()); outs=outs.concat(outcomesFromDoc(doc)); picks=picks.concat(picksFromDoc(doc,f.name));
+    try{ const doc=JSON.parse(f.text); outs=outs.concat(outcomesFromDoc(doc)); picks=picks.concat(picksFromDoc(doc,f.name));
       recs=recs.concat(recordLines(doc,f.name)); }
     catch(err){ $("ledgerNote").textContent=`Could not parse ${f.name}: ${err.message}`; return; }
   }
@@ -1468,7 +1462,7 @@ $("resultsFile").addEventListener("change",async e=>{
   $("ledgerNote").textContent=`${outs.length} finished results read · ${n} calls/tickets graded · ${open} still open (unmatched listed below) · void: ${voidCounts(L)} (listed below, out of every tally except an every-leg-moved ticket's push) · legacy join ${lj} (no match id: the ±1-day team join, listed below) · id mismatch ${im} (match id on another game: counted, never graded) · stored predictions: ${picks.length} read, ${np} new (fills re-matched).`
     +dedupeNote(dd)+(storageOK?"":" ⚠ browser storage unavailable — Export the ledger to keep it.");
   renderLedger();
-});
+}
 
 // ---------------------------------------------------------------------
 // REPORTS — settled bets (a parlay ticket counts once), by dimension.
@@ -2936,27 +2930,14 @@ function sideName(r,k){return k==="HOME"?r.home:k==="AWAY"?r.away:"Draw";}
 // Escape file- and model-supplied text before it goes into innerHTML: team
 // names, statuses and Claude reads are data, never markup.
 function esc(v){return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"})[c]);}
-// addendum 214 (ARCHITECT 2026-11-02): a row is an uncertified shadow when its file carries `certification` (the NFL
-// export's additive label) or its Desk call is PASS market_only (desk_policy.NFL_MARKET_ONLY_KIND). Such a sport is
-// never shown LIVE: the Card shows it as it shows NHL's, not a live model; the bars stay (the confirmation's record).
-function cardUncertified(r){
-  return !!(r.cert||(r.fileDesk&&r.fileDesk.pass_kind==="market_only"));
-}
-function cardUncertifiedWhy(r){
-  const d=r.fileDesk||{};
-  return `uncertified shadow, not placed: Desk ${d.call||"PASS"} ${d.units||0}u`
-    +(d.reason?` — ${d.reason}`:r.cert?` — ${r.cert}`:"");
-}
-function cardChip(rs){
-  return rs.some(cardUncertified)?"UNCERTIFIED · market-only":rs.some(r=>r.live)?"LIVE":"internal";
-}
 function renderCard(){
   const el=$("cardView"); el.innerHTML="";
   const bySport={};
   rows.forEach(r=>{(bySport[r.sport]=bySport[r.sport]||[]).push(r);});
   for(const [sport,rs] of Object.entries(bySport)){
+    const live=rs.some(r=>r.live);
     el.insertAdjacentHTML("beforeend",
-      `<h2 style="margin:16px 0 6px">${esc(sport)} <span class="chip">${esc(cardChip(rs))} · ${rs.length} games</span></h2>`);
+      `<h2 style="margin:16px 0 6px">${esc(sport)} <span class="chip">${live?"LIVE":"internal"} · ${rs.length} games</span></h2>`);
     for(const r of rs.slice().sort((a,b)=>a.utc.localeCompare(b.utc))){
       const keys=r.mktHasDraw||r.probsAll.DRAW!=null?["HOME","DRAW","AWAY"]:["HOME","AWAY"];
       const bars=keys.map(k=>{
@@ -2969,7 +2950,6 @@ function renderCard(){
       }).join("");
       const chips=[];
       if(r.marketOnly)chips.push(`<span class="gchip">market-only · books' fair</span>`);
-      if(cardUncertified(r))chips.push(`<span class="gchip">market-only · uncertified shadow</span>`);   // addendum 214
       if(r.tier)chips.push(`<span class="gchip ${r.tier==="strong"?"s":""}">${esc(r.tier)}</span>`);
       if(rowQuar(r)){ const qv=r.div!=null?r.div:(r.fileDesk&&r.fileDesk.edge_pp!=null?+(+r.fileDesk.edge_pp).toFixed(1):null);
         chips.push(`<span class="gchip q">QUARANTINE${qv!=null?` ${qv>=0?"+":""}${esc(qv)}pp`:""}</span>`); }
@@ -2977,8 +2957,7 @@ function renderCard(){
       if(r.qbs.length)chips.push(`<span class="gchip">QB: ${esc(r.qbs.join(", "))}</span>`);
       const why=[];
       if(r.marketOnly){ why.push(`gated competition — no predictions by doctrine; bars show the books' consensus fair (${r.books||0} books)`); }
-      else{ if(cardUncertified(r))why.push(cardUncertifiedWhy(r));   // addendum 214: first, before the shadow pick
-        why.push(`${cardUncertified(r)?"shadow ":""}pick ${sideName(r,r.pick)} (${r.pick.toLowerCase()}) at ${(r.prob*100).toFixed(1)}%`+(r.mkt!=null?` vs market ${(r.mkt*100).toFixed(1)}% (edge ${((r.prob-r.mkt)*100).toFixed(1)}pp)`:" — no market reference")); }
+      else why.push(`pick ${sideName(r,r.pick)} (${r.pick.toLowerCase()}) at ${(r.prob*100).toFixed(1)}%`+(r.mkt!=null?` vs market ${(r.mkt*100).toFixed(1)}% (edge ${((r.prob-r.mkt)*100).toFixed(1)}pp)`:" — no market reference"));
       if(r.quar)why.push(`divergence ${r.div}pp ≥ 15 → contract quarantine (weeks 1–2: big edges 1-5)`);
       else if(fileQuar(r))why.push(r.fileDesk.reason||"quarantine (file's Desk call)");   // raw: esc(why.join) below
       if(r.kal)why.push(`kalshi ${r.kal}`);
@@ -3039,12 +3018,15 @@ function renderWindow(doc){
 }
 $("windowFile").addEventListener("change",async e=>{
   const f=e.target.files[0]; if(!f) return;
-  try{ const doc=JSON.parse(await f.text());
-    if(!doc.window||!Array.isArray(doc.fixtures)) throw new Error("not a window card (needs window + fixtures)");
-    renderWindow(doc);
-  }catch(err){ $("nextSummary").textContent="Could not read window card: "+err.message; $("nextTable").hidden=true; }
+  ingestWindowText(await f.text());
   e.target.value="";
 });
+function ingestWindowText(text){
+  try{ const doc=JSON.parse(text);
+    if(!doc.window||!Array.isArray(doc.fixtures)) throw new Error("not a window card (needs window + fixtures)");
+    renderWindow(doc); return true;
+  }catch(err){ $("nextSummary").textContent="Could not read window card: "+err.message; $("nextTable").hidden=true; return false; }
+}
 
 function setTab(mode){
   if(mode===true) mode="card"; if(mode===false) mode="desk";
@@ -3065,6 +3047,212 @@ $("tabDesk").addEventListener("click",()=>setTab("desk"));
 $("tabLedger").addEventListener("click",()=>setTab("ledger"));
 $("tabNext").addEventListener("click",()=>setTab("next"));
 $("tabToday").addEventListener("click",()=>setTab("today"));
+
+// =====================================================================
+// THE GITHUB CONNECTOR (ARCHITECT 2026-11-09): the exports mirror is read through the VIEWER'S OWN claude.ai GitHub
+// connector, as the viewer — no token lives in this page or this browser. The connector asks the viewer once. The
+// files are dispatched by kind exactly as picked files are: desk files to loadDocs (coverage included), results
+// files to the ledger's intake, the window card to the Next-24h tab. Nothing is recomputed; nothing is written.
+// =====================================================================
+const GH_OWNER="anthonyevans29", GH_REPO="Sports-Predictor-exports", GH_SERVER="GitHub", GH_TOOL="get_file_contents";
+let mcpNS=null, ghServerName=null;
+function ghNote(t){ const el=$("ghNote"); if(el) el.textContent=t; }
+function b64utf8(s){ try{ return new TextDecoder().decode(Uint8Array.from(atob(String(s).replace(/\s+/g,"")),c=>c.charCodeAt(0))); }catch(e){ return ""; } }
+// The connector's answer, read as text whatever shape it comes in: a string, MCP content blocks (text or an embedded
+// resource), the GitHub API's {content, encoding} object, or a JSON value.
+// MCP content blocks → the document's text. The GitHub server answers a file read with TWO blocks (observed 2026-11-09):
+// a text block "successfully downloaded text file (SHA: …)" and a resource block carrying the file; joining them put the
+// status line in front of every JSON document, so the resource blocks come first here and a status line never leads.
+function ghBlocksText(blocks){
+  const isDoc=t=>{ const s=String(t||"").trim(); return s.startsWith("{")||s.startsWith("["); };
+  const res=blocks.filter(b=>b&&b.type==="resource"&&b.resource).map(b=>b.resource.text||(b.resource.blob?b64utf8(b.resource.blob):"")).filter(Boolean);
+  const txt=blocks.filter(b=>b&&b.type==="text").map(b=>b.text||"").filter(Boolean);
+  return res.find(isDoc)||txt.find(isDoc)||res[0]||txt.join("")||"";
+}
+function ghText(res){
+  // the runtime's `payload` is structuredContent, else the FIRST TEXT BLOCK (here the status line), so the result's
+  // content blocks are read first when they hold a document; `payload` is the fallback (a directory listing arrives there)
+  const isBlocks=a=>Array.isArray(a)&&a.length&&a.every(b=>b&&typeof b==="object"&&typeof b.type==="string");
+  if(res&&typeof res==="object"&&isBlocks(res.content)){ const t=ghBlocksText(res.content); const s=String(t||"").trim(); if(s.startsWith("{")||s.startsWith("[")) return t; }
+  let p=(res&&Object.prototype.hasOwnProperty.call(res,"payload"))?res.payload:res;
+  if(p==null) return "";
+  if(typeof p==="string") return p;
+  if(Array.isArray(p)) return isBlocks(p)?ghBlocksText(p):JSON.stringify(p);
+  if(typeof p==="object"){
+    if(isBlocks(p.content)){ const t=ghBlocksText(p.content); if(t) return t; }
+    if(typeof p.content==="string") return p.encoding==="base64"?b64utf8(p.content):p.content;
+    if(typeof p.text==="string") return p.text;
+    if(p.structuredContent) return ghText(p.structuredContent);
+    return JSON.stringify(p);
+  }
+  return String(p);
+}
+function ghEntries(text){
+  let v; try{ v=JSON.parse(text); }catch(e){ return null; }
+  if(Array.isArray(v)) return v;
+  if(v&&Array.isArray(v.entries)) return v.entries;
+  if(v&&Array.isArray(v.content)&&v.content.every(x=>x&&x.name)) return v.content;
+  if(v&&Array.isArray(v.tree)) return v.tree.map(x=>({name:(x.path||"").split("/").pop(),path:x.path,type:x.type==="blob"?"file":x.type}));
+  return null;
+}
+async function ghReady(){
+  if(mcpNS&&ghServerName) return true;
+  try{ mcpNS=await claude.use("mcp"); }catch(e){ mcpNS=null; }
+  if(!mcpNS){ ghNote("The connector capability is not available in this view (open the Cockpit in claude.ai); the token fallback below still works."); return false; }
+  let lt; try{ lt=await mcpNS.listTools(); }catch(e){ ghNote(`Connector list failed: ${e&&e.code||e}`); return false; }
+  const servers=(lt&&lt.servers)||[];
+  const hit=servers.find(x=>x.server===GH_SERVER)||servers.find(x=>/github/i.test(x.server||""));
+  if(!hit){ ghNote(`No GitHub connector is listed for this page (listed: ${servers.map(x=>x.server).join(", ")||"none"}). Connect GitHub in claude.ai → Connectors, then reload.`); return false; }
+  ghServerName=hit.server;
+  if(hit.tools&&hit.tools.length&&!hit.tools.some(t=>t.name===GH_TOOL)){
+    ghNote(`The ${hit.server} connector lists no ${GH_TOOL} tool (it lists: ${hit.tools.map(t=>t.name).join(", ")}). Tell the architect; the token fallback still works.`); return false; }
+  return true;
+}
+// one read, retried ONCE on a code stamped retryable (reads only: a listing or a file; nothing here writes)
+async function ghCall(path){
+  try{ return ghText(await mcpNS.callTool(ghServerName,GH_TOOL,{owner:GH_OWNER,repo:GH_REPO,path})); }
+  catch(e){
+    // a code the runtime stamps retryable, or GitHub's own 5xx riding inside a tool_error (a transient at GitHub, as a
+    // 502 on the repo lookup was on 2026-11-09): one retry after a short randomized wait, reads only
+    if(e&&(e.retryable||(e.code==="tool_error"&&ghStatus(e)>=500))){ await new Promise(r=>setTimeout(r,Math.min(5000,(e.retryAfterMs||1200)+Math.random()*600)));
+      return ghText(await mcpNS.callTool(ghServerName,GH_TOOL,{owner:GH_OWNER,repo:GH_REPO,path})); }
+    throw e;
+  }
+}
+// the HTTP status GitHub reported inside a tool error's message ("… 502 Server Error", "… 404 Not Found"), else 0
+function ghStatus(e){ const m=String(e&&e.message||"").match(/\b([1-5]\d\d)\b\s+(Server Error|Not Found|Forbidden|Unauthorized|Bad Gateway|Service Unavailable|Gateway Timeout|Too Many Requests|Unprocessable|Bad Request)/i); return m?+m[1]:0; }
+// the connector's failure codes, each with its own fix (never one generic banner)
+function ghErrorText(e,folder){
+  const c=e&&e.code, m=e&&e.message?` — ${String(e.message).slice(0,160)}`:"";
+  switch(c){
+    case "consent_required": case "approval_required": return `${folder}: the GitHub connector needs your permission for this page — allow it in the prompt (or in claude.ai → this artifact's connectors) and press the button again.`;
+    case "not_granted": case "not_in_manifest": return `${folder}: this view is not allowed to use the GitHub connector (declined, or turned off for the page). Re-allow it for this artifact in claude.ai, then press again.`;
+    case "needs_reauth": return `${folder}: your GitHub connector needs re-authentication in claude.ai → Connectors; nothing to retry here until then.`;
+    case "server_not_connected": case "server_not_found": return `${folder}: no GitHub connector is connected for you in claude.ai → Connectors; the token fallback below still works.`;
+    case "selection_required": return `${folder}: you have more than one GitHub connector — pick one in the prompt, then press again.`;
+    case "blocked_by_policy": return `${folder}: the GitHub tool is blocked for you by organization policy.`;
+    case "server_unavailable": case "rate_limited": case "upstream_error": return `${folder}: GitHub did not answer (${c}); retried once — try again in a moment.`;
+    case "tool_error": { const st=ghStatus(e);
+      if(st>=500) return `${folder}: GitHub itself returned ${st} (a transient at GitHub, not this page or the connector); retried once — press again in a moment.`;
+      if(st===404) return `${folder}: GitHub has no such path — no folder for that date in the mirror (14-day retention), or the repo name changed.`;
+      if(st===401||st===403) return `${folder}: GitHub refused the connector's credential (${st}) — the token behind the GitHub connector has expired or lost read access to the mirror; renew it in claude.ai → Connectors.`;
+      if(st===429) return `${folder}: GitHub rate-limited the connector (429); wait a minute and press again.`;
+      return `${folder}: GitHub answered with an error${m}`; }
+    case "capability_disabled": case "capability_removed": return `${folder}: the connector capability is not usable in this view; open the Cockpit in claude.ai.`;
+    case "cancelled": return `${folder}: the call was cancelled.`;
+    case "user_changed": return `${folder}: the signed-in account changed; reload the page.`;
+    default: return `${folder}: ${c||"error"}${m}`;
+  }
+}
+function ghKind(name){
+  const n=name.toLowerCase();
+  if(n.startsWith("window_24h")) return "window";
+  if(/_results(_|\.|$)/.test(n)||/results_tally/.test(n)) return "results";
+  return "desk";   // desk files, coverage, shadows, parlays: loadDocs sorts them and refuses what carries no desk block
+}
+async function ghLoadFolder(folder){
+  if(!(await ghReady())) return;
+  ghNote(`Reading ${folder}/ through ${ghServerName}…`);
+  let entries;
+  try{ entries=ghEntries(await ghCall(folder)); }
+  catch(e){ ghNote(ghErrorText(e,folder)); if(e&&e.code==="user_changed") mcpNS=null; return; }
+  if(!entries){ ghNote(`${folder}: the connector's answer was not a folder listing (tell the architect the shape; the first 160 chars are in the console).`); console.log("gh folder answer", folder); return; }
+  let files=entries.filter(x=>(x.type==="file"||x.type==="blob"||!x.type)&&/\.json$/i.test(x.name||x.path||"")).map(x=>({name:x.name||String(x.path).split("/").pop(),path:x.path||`${folder}/${x.name}`}));
+  if(!files.length){ ghNote(`${folder}: no .json files listed (${entries.length} entries).`); return; }
+  // a dated folder holds every file of the day (several closings per family); the mirror's own latest/ rule applies
+  // here too — one file per kind, the newest by its stamp (exports_mirror.kind_of / STAMP, mirrored)
+  let folded=0;
+  if(!/\/latest$/.test(folder)){
+    const kindOf=n=>{ let stem=n.replace(/\.[^.]+$/,""); stem=stem.replace(/_?\d{4}-\d{2}-\d{2}(?:[T_]\d{2}:?\d{2}(?::?\d{2})?Z?)?/g,"").replace(/_to/g,""); return stem.replace(/__+/g,"_").replace(/^_+|_+$/g,"")||stem; };
+    const byKind={}; for(const f of files){ const k=kindOf(f.name); if(!byKind[k]||f.name>byKind[k].name) byKind[k]=f; }
+    const kept=Object.values(byKind); folded=files.length-kept.length; files=kept;
+  }
+  const got=[]; let failed=0, firstErr=null;
+  for(const f of files){
+    ghNote(`Reading ${folder}/ through ${ghServerName}… ${got.length+failed+1} of ${files.length}`);
+    try{ const t=await ghCall(f.path); if(t&&t.trim().startsWith("{")) got.push({name:`${folder}/${f.name}`,text:t}); else failed++; }
+    catch(e){ failed++; if(!firstErr) firstErr=e; if(e&&(e.code==="user_changed"||e.code==="needs_reauth"||e.code==="not_in_manifest"||e.code==="not_granted")) break; }
+  }
+  if(!got.length){ ghNote(firstErr?ghErrorText(firstErr,folder):`${folder}: none of the ${files.length} file(s) read as JSON.`); return; }
+  const desk=got.filter(g=>ghKind(g.name.split("/").pop())==="desk"), res=got.filter(g=>ghKind(g.name.split("/").pop())==="results"),
+        win=got.filter(g=>ghKind(g.name.split("/").pop())==="window");
+  let did={coverage:0,refused:[]};
+  if(desk.length) did=await loadDocs(desk);
+  if(res.length) await ingestResultsDocs(res);
+  let winOK=0; for(const w of win) if(ingestWindowText(w.text)) winOK++;
+  ghNote(`Loaded ${got.length} of ${files.length} file(s) from ${GH_REPO} ${folder} as you — desk ${desk.length}`
+    +(did.coverage?` (${did.coverage} coverage)`:"")+(did.refused&&did.refused.length?` (${did.refused.length} without desk blocks refused)`:"")
+    +` · results ${res.length} · window card ${winOK}`+(failed?` · ${failed} unreadable`:"")+(folded?` · ${folded} older stamp(s) of the day folded (newest per kind, the mirror's latest/ rule)`:"")+` · ${new Date().toLocaleTimeString()}`);
+}
+$("ghLatestBtn").addEventListener("click",()=>ghLoadFolder(($("ghLaptop").checked?"laptop":"host")+"/latest"));
+$("ghDateBtn").addEventListener("click",()=>{ const d=$("ghDate").value; if(!d){ ghNote("Pick a date first."); return; }
+  ghLoadFolder(($("ghLaptop").checked?"laptop":"host")+"/"+d); });
+(function(){ const d=new Date(); const et=new Date(d.toLocaleString("en-US",{timeZone:"America/New_York"}));
+  $("ghDate").value=`${et.getFullYear()}-${String(et.getMonth()+1).padStart(2,"0")}-${String(et.getDate()).padStart(2,"0")}`; })();
+
+// =====================================================================
+// THE PRIVATE LEDGER STORE (ARCHITECT 2026-11-09): the ledger (bd_ledger_v1, fills included) is kept in this
+// artifact's own store, readable and writable by the OWNER only (the db rules), so it follows the operator across
+// browsers and devices; this browser's localStorage stays a cache. The store is the record: on load it overwrites
+// the cache; an existing cache with no store yet is migrated up once. Every saveLedger write reaches the store
+// (debounced). The ledger is stored as JSON in chunks of 120,000 characters (one document is capped at 256 KiB).
+// =====================================================================
+let dbNS=null, ledgerStoreState="loading", ledgerStoreTimer=null, ledgerStoreSaving=false, ledgerStorePending=false;
+const LEDGER_CHUNK=120000;
+function storeNote(t){ const el=$("ledgerStoreNote"); if(el) el.textContent=t; }
+async function ledgerStoreRead(){
+  const head=await dbNS.doc("cockpit/ledger").get();
+  if(!head.exists) return null;
+  const h=head.data()||{}; const n=+h.chunks||0; let txt="";
+  for(let i=0;i<n;i++){ const c=await dbNS.doc(`ledger_chunks/${i}`).get(); if(!c.exists) throw new Error(`chunk ${i} of ${n} missing`); txt+=(c.data()||{}).data||""; }
+  if(h.length!=null&&txt.length!==+h.length) throw new Error(`stored length ${txt.length} ≠ header ${h.length}`);
+  return {text:txt,saved_at:h.saved_at||null,chunks:n};
+}
+async function ledgerStoreWrite(L){
+  const txt=JSON.stringify(L); const n=Math.max(1,Math.ceil(txt.length/LEDGER_CHUNK)); const at=new Date().toISOString();
+  for(let i=0;i<n;i++) await dbNS.doc(`ledger_chunks/${i}`).set({i,n,saved_at:at,data:txt.slice(i*LEDGER_CHUNK,(i+1)*LEDGER_CHUNK)});
+  await dbNS.doc("cockpit/ledger").set({chunks:n,length:txt.length,saved_at:at,policy_version:POLICY_VERSION,calls:(L.calls||[]).length,fills:(L.fills||[]).length});
+  // chunks beyond n from an earlier, longer ledger are left in place and ignored by the header's count
+  return {at,n,bytes:txt.length};
+}
+function scheduleLedgerStore(L){
+  if(!dbNS||ledgerStoreState==="unavailable") return;
+  ledgerStorePending=true; clearTimeout(ledgerStoreTimer);
+  ledgerStoreTimer=setTimeout(async()=>{
+    if(ledgerStoreSaving){ ledgerStorePending=true; return; }
+    ledgerStoreSaving=true; ledgerStorePending=false;
+    try{ const w=await ledgerStoreWrite(loadLedger()); storeNote(`store: the private store (owner only), saved ${new Date(w.at).toLocaleTimeString()} · ${w.n} chunk(s) · cached in this browser`); }
+    catch(e){ storeNote(`store: SAVE FAILED (${e&&e.code||e&&e.message||e}) — this browser's copy stands; Export the ledger to keep it`); }
+    ledgerStoreSaving=false; if(ledgerStorePending) scheduleLedgerStore(L);
+  },1500);
+}
+const _saveLedgerLocal=saveLedger;
+saveLedger=function(L){ const d=_saveLedgerLocal(L); scheduleLedgerStore(L); return d; };
+(async()=>{
+  try{ dbNS=await claude.use("db"); }catch(e){ dbNS=null; }
+  if(!dbNS){ ledgerStoreState="unavailable"; storeNote("store: this browser only (the private store is not available in this view)"); return; }
+  try{
+    const got=await ledgerStoreRead();
+    const localRaw=(function(){try{return localStorage.getItem(LEDGER_KEY);}catch(e){return null;}})();
+    if(got&&got.text){
+      let L; try{ L=JSON.parse(got.text); }catch(e){ L=null; }
+      if(L&&Array.isArray(L.calls)){
+        _saveLedgerLocal(L); ledgerStoreState="ready";
+        storeNote(`store: the private store (owner only), last saved ${got.saved_at?new Date(got.saved_at).toLocaleString():"—"} · ${L.calls.length} calls · ${(L.fills||[]).length} fills · cached in this browser`);
+        renderProgress(); if(typeof renderLedger==="function") renderLedger();
+        return;
+      }
+    }
+    ledgerStoreState="ready";
+    if(localRaw){ storeNote("store: migrating this browser's ledger to the private store…"); const w=await ledgerStoreWrite(loadLedger());
+      storeNote(`store: the private store (owner only), migrated ${new Date(w.at).toLocaleTimeString()} · ${w.n} chunk(s)`); }
+    else storeNote("store: the private store (owner only) — empty; the first logged call or import saves to it");
+  }catch(e){
+    ledgerStoreState="error";
+    storeNote(`store: could not read the private store (${e&&e.code||e&&e.message||e}); this browser's copy stands`);
+  }
+})();
+
 setTab("desk");
 
 (async()=>{

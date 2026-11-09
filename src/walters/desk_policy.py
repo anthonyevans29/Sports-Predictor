@@ -97,6 +97,14 @@ EXEC_RULES = {"on": True}
 # full; no executable quote stays half units (conservative unknowns, as v1.1 ruled). Under NFL market-only the chain's
 # own call is this PASS, so the would-be record (#446: market_only_hold.would_call) carries no would-be PLAY. Its own
 # switch; with EXEC_RULES off (base_v11, addendum_off: the frozen golden) the branch never runs.
+# TWO FIGURES (ARCHITECT 2026-11-09 12:50 ET, addendum 309 item 1, RULED): "the exec_non_positive check reads TWO figures
+# and PASSES on either: (i) the gate's exec edge as #87 (h) prices it [...]; (ii) the exec edge re-priced at the units
+# the order will actually carry after EVERY sizing rule has run (the 4pp halving, INTL half, postseason), computed with
+# the same fee formula. Either ≤ 0 → PASS exec_non_positive, the reason naming the figure that failed (its all-in cost
+# and the model's price; both when both fail). A tightening only [...]. The exec block stays the gate's figures (h, the
+# record), with the final order's cost added beside it as its own field (`exec.final_cost`, `exec.final_edge_pp`,
+# `exec.final_units`)". As built: (i) in the branch, (ii) after the last sizing rule (_desk_call's final check, the
+# call's `execFinal`), exec_non_positive_reason's text, call_exec_block's three fields. The same switch holds both.
 EXEC_NON_POSITIVE = {"on": True}
 EXEC_NON_POSITIVE_KIND = "exec_non_positive"
 EXEC_NON_POSITIVE_TAG = "exec ≤ 0 pass"
@@ -1218,6 +1226,38 @@ def _desk_call_k1(r, now_ms: float, postseason_graded: int = 0, intl_graded: int
     return out
 
 
+def _pp2(x) -> str:
+    """An exec edge in the final check's reason: signed, two decimals (a 0.05pp gap reads as itself)."""
+    return "unknown" if x is None else ("+" if x > 0 else "") + js_fixed(x, 2) + "pp"
+
+
+def _px(x) -> str:
+    """A price in the final check's reason: the number itself to four decimals (0.568, 0.5675)."""
+    return js_str(float(js_fixed(x, 4)))
+
+
+def exec_non_positive_reason(model_p, gate_fail, final_fail, gate_units, gate_edge) -> str:
+    """The exec_non_positive PASS's reason (addendum 305 item 1; addendum 309 item 1: "the reason naming the figure
+    that failed (its all-in cost and the model's price; both when both fail)"). gate_fail / final_fail: (exec edge,
+    all-in cost[, units]) of the figure that is <= 0, else None. Only the gate's: the gate's order. Only the final
+    order's: the gate's edge beside it and the final order's cost. Both: both, each with its order's units and cost.
+    Every form prints the edges signed to 2 decimals and the prices to 4 (305's 1- and 3-decimal text read a -0.05pp
+    gate as "-0.0pp" and a 0.6165 model price as the 0.617 cost it sits under)."""
+    tail = f" → PASS ({EXEC_NON_POSITIVE_RULING})"
+    if gate_fail and not final_fail:
+        xe, cost = gate_fail
+        return (f"exec edge {_pp2(xe)} at the gate's order ({js_str(gate_units)}u): ask + taker fee {_px(cost)} at or "
+                f"above the model's {_px(model_p)}" + tail)
+    fe, fcost, fu = final_fail
+    if not gate_fail:
+        return (f"exec edge {_pp2(gate_edge)} at the gate's order but {_pp2(fe)} at the order placed ({js_str(fu)}u):"
+                f" ask + taker fee {_px(fcost)} at or above the model's {_px(model_p)}" + tail)
+    xe, cost = gate_fail
+    return (f"exec edge {_pp2(xe)} at the gate's order ({js_str(gate_units)}u): ask + taker fee {_px(cost)}, and "
+            f"{_pp2(fe)} at the order placed ({js_str(fu)}u): ask + taker fee {_px(fcost)}, both at or above the "
+            f"model's {_px(model_p)}" + tail)
+
+
 def _desk_call(r, now_ms: float, postseason_graded: int = 0, intl_graded: int = 0) -> dict:
     """The Cockpit's policy() body for ONE model-sport row (Desk v1.1 and its addenda, before Q3 K1)."""
     fence = host_fenced(r)                              # addendum 109 item 3 (#410): first, it overrides every call
@@ -1257,6 +1297,9 @@ def _desk_call(r, now_ms: float, postseason_graded: int = 0, intl_graded: int = 
     reasons, tags = [], []
     call, cls, units, shadow_units = "PASS", "pass", 0, 0
     exec_units = None                     # (h): the order units the exec gate priced (None = not gated)
+    gate_fail = None                      # addendum 309 item 1 (i): the gate's (exec edge, all-in cost) when <= 0
+    exec_final = None                     # addendum 309 item 1 (ii): the final order's units, cost and exec edge
+    xe = None                             # the gate's exec edge (set when the gate runs)
     mkt_ref, kal_only, ko_why = r["mkt"], False, None
     if not r["twoSided"] or r["mkt"] is None:
         ko = None if P.get("passAll") else kalshi_only_ref(r, now_ms)
@@ -1346,17 +1389,12 @@ def _desk_call(r, now_ms: float, postseason_graded: int = 0, intl_graded: int = 
                 tags.append("exec unknown half units")
             elif EXEC_NON_POSITIVE["on"] and xe <= 0:
                 # addendum 305 item 1: "an exec edge <= 0 is a PASS (pass_kind `exec_non_positive`; the reason names
-                # the all-in cost and the model's price): the Desk never buys above its own price"
-                cost = desk_cost_for(r, r["pick"], gate_units)["cost"]
-                # Not a shadow: nothing is sized, so the chain's sizing reasons and tags go (#181, addendum 117 item
-                # 2(a): a PASS carries neither a caution's size nor its reason and tag; the caution tag stays only on
-                # quarantine shadows) and the row reads the ruled reason and its own tag, as a no-call does
-                call, cls, units, pass_kind = "PASS", "pass", 0, EXEC_NON_POSITIVE_KIND
-                reasons.clear()
-                reasons.append(f"exec edge {js_fixed(xe, 1)}pp ≤ 0: ask + taker fee {js_fixed(cost, 3)} at or above "
-                               f"the model's {js_fixed(r['prob'], 3)} → PASS ({EXEC_NON_POSITIVE_RULING})")
-                tags.clear()
-                tags.append(EXEC_NON_POSITIVE_TAG)
+                # the all-in cost and the model's price): the Desk never buys above its own price". Read (i) of
+                # addendum 309 item 1: the gate's figure fails. The PASS is written at the final check below, after the
+                # chain has sized the order this PLAY would place (the 4pp halving here, as v1.1 (3) sizes it), so the
+                # reason can name read (ii) too when both fail; nothing between here and there changes the call.
+                gate_fail = (xe, desk_cost_for(r, r["pick"], gate_units)["cost"])
+                units = min(units, base / 2)
             elif not exec_clears(xe):
                 units = min(units, base / 2)
                 reasons.append(f"exec edge {js_fixed(xe, 1)}pp < {K2['feeClearsPP']}pp at ask + taker fee "
@@ -1377,6 +1415,29 @@ def _desk_call(r, now_ms: float, postseason_graded: int = 0, intl_graded: int = 
             reasons.append(f"kalshi-only → {js_str(KALSHI_ONLY['sizeMult'])} × units (provisional; review at "
                            f"{KALSHI_ONLY['reviewN']} graded)")
             tags.append("kalshi-only half units")
+        if EXEC_RULES["on"] and EXEC_NON_POSITIVE["on"] and exec_units is not None and call == "PLAY":
+            # THE FINAL ORDER'S EXEC EDGE (ARCHITECT 2026-11-09 12:50 ET, addendum 309 item 1, RULED): "the
+            # exec_non_positive check reads TWO figures and PASSES on either: (i) the gate's exec edge as #87 (h) prices
+            # it [...]; (ii) the exec edge re-priced at the units the order will actually carry after EVERY sizing rule
+            # has run (the 4pp halving, INTL half, postseason), computed with the same fee formula." `units` is the
+            # order's own here: every sizing rule has run (the postseason half before the gate, the 4pp halving in it,
+            # the INTL half and the kalshi-only multiplier after it); what follows is notes and the quarantine, which
+            # never reaches a row the gate priced. Raw values, no tolerance (exactly 0 is a PASS). A tightening only:
+            # a PLAY whose either figure is <= 0 is PASS; nothing here turns a PASS into a PLAY.
+            fc = desk_cost_for(r, r["pick"], units)
+            fe = exec_edge_pp(r, r["pick"], r["prob"], units)
+            exec_final = {"units": units, "cost": fc["cost"] if fc else None, "edge_pp": fe}
+            final_fail = (fe, fc["cost"], units) if fe is not None and fe <= 0 else None
+            if gate_fail or final_fail:
+                # Not a shadow: nothing is sized, so the chain's sizing reasons and tags go (#181, addendum 117 item
+                # 2(a): a PASS carries neither a caution's size nor its reason and tag; the caution tag stays only on
+                # quarantine shadows) and the row reads the ruled reason and its own tag, as a no-call does; the
+                # strong-tier and kalshi-status notes below may follow, informational
+                call, cls, units, pass_kind = "PASS", "pass", 0, EXEC_NON_POSITIVE_KIND
+                reasons.clear()
+                reasons.append(exec_non_positive_reason(r["prob"], gate_fail, final_fail, exec_units, xe))
+                tags.clear()
+                tags.append(EXEC_NON_POSITIVE_TAG)
         if r["tier"] == "strong":
             reasons.append("strong tier")
             tags.append("strong tier")
@@ -1408,7 +1469,8 @@ def _desk_call(r, now_ms: float, postseason_graded: int = 0, intl_graded: int = 
         units, cls = 0, "pass"
     return {"call": call, "units": units, "cls": cls, "edge": edge, "tags": tags, "reasons": reasons,
             "execUnits": exec_units,
-            "shadowUnits": shadow_units, "passKind": pass_kind, "mktRef": mkt_ref, "kalOnly": kal_only}
+            "shadowUnits": shadow_units, "passKind": pass_kind, "mktRef": mkt_ref, "kalOnly": kal_only,
+            **({"execFinal": exec_final} if exec_final is not None else {})}
 
 
 # ---------------------------------------------------------------- parlays --
@@ -1902,8 +1964,15 @@ def call_exec_block(r, c):
     call, units = h.get("call", c["call"]), h.get("units", c["units"])
     if (EXEC_RULES["on"] and call == "LADDER") or chain_kind(c) in NO_CALL_KINDS:
         return None
-    return exec_block(r, r["pick"], r["prob"], c.get("execUnits") or (c["shadowUnits"] or None),
+    out = exec_block(r, r["pick"], r["prob"], c.get("execUnits") or (c["shadowUnits"] or None),
                       units if c.get("execUnits") and units else None)
+    fin = c.get("execFinal")
+    if out is not None and fin is not None:
+        # addendum 309 item 1: "The exec block stays the gate's figures (h, the record), with the final order's cost
+        # added beside it as its own field (`exec.final_cost`, `exec.final_edge_pp`, `exec.final_units`)": written for
+        # every row that reached the final check (a PLAY, the PASS it causes, an NFL market-only row's held chain call)
+        out.update(final_cost=fin["cost"], final_edge_pp=fin["edge_pp"], final_units=fin["units"])
+    return out
 
 
 LADDER_EXEC_NOTE = ("informational (#689): the ordered NO leg's price; no call, no units and no floor read it, and "

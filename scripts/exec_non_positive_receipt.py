@@ -17,7 +17,11 @@ dated files). --from / --through bound the start stamp's UTC date, both inclusiv
 - a WOULD-BE PLAY (#446, the NFL market-only record: uncertified, unstaked, never a call) is desk.call "PASS" with
   pass_kind "market_only" and market_only_hold.would_call "PLAY", counted on its own block;
 - the exec edge is desk.exec.edge_pp (its basis desk.exec.basis), the all-in cost desk.exec.cost, the model's price
-  desk.model_p, never re-derived. A row with no exec edge stored is counted, never read as zero (law 4).
+  desk.model_p, never re-derived. A row with no exec edge stored is counted, never read as zero (law 4). That edge is
+  the GATE's (#87 (h): the order the PLAY would place at tier size); the final order's (exec.final_edge_pp, addendum 309
+  item 1) is written from the next file on and is not read here, and the header says so in one line;
+- a closing.match_ids that is not a list is read as none: every row of that file counts as outside the run's match_ids
+  (a string, a number or an object is never iterated into ids).
 A row repeated across files of the same start is counted once per (family, match id, start stamp).
 
 WHAT IT PRINTS: the files read by role and date span and family; per block the count, by family, with no exec edge,
@@ -42,6 +46,9 @@ from collections import Counter
 from datetime import date
 from pathlib import Path
 
+GATE_LINE = ("  reads the stored GATE exec edge (desk.exec.edge_pp, the order the PLAY would place at tier size) on the "
+             "files that exist; the final order's (desk.exec.final_edge_pp, addendum 309 item 1) is written from the "
+             "next file on and is not read here")
 NAME = re.compile(r"^closing_([A-Z0-9]+)_(\d{4}-\d{2}-\d{2})T(\d{4})Z\.json$")
 ROLES = ("host", "laptop")
 
@@ -68,6 +75,14 @@ def closing_files(root: Path, since: date | None = None, through: date | None = 
 def _num(x) -> bool:
     """A stored, finite number; None, a bool, NaN or an infinity is "not stored" (law 4), never a figure."""
     return isinstance(x, (int, float)) and not isinstance(x, bool) and math.isfinite(x)
+
+
+def _match_ids(v) -> set:
+    """closing.match_ids as a set; anything but a list is none (Codex P2 on #903: a string or an object was iterated
+    into ids, a number raised); a non-scalar element of a list is skipped, never hashed."""
+    if not isinstance(v, list):
+        return set()
+    return {x for x in v if isinstance(x, (int, str)) and not isinstance(x, bool)}
 
 
 def _f3(x) -> str:
@@ -104,7 +119,7 @@ def read_rows(files: list[tuple[str, str, Path]], root: Path):
         m = NAME.match(f.name)
         fam = cl.get("family") or m.group(1)
         stamp = f"{m.group(2)}T{m.group(3)}Z"
-        ids = set(cl.get("match_ids") or [])
+        ids = _match_ids(cl.get("match_ids"))
         preds = doc.get("predictions") if isinstance(doc.get("predictions"), list) else []
         for r in preds:
             d = r.get("desk") if isinstance(r, dict) else None
@@ -151,6 +166,7 @@ def run(root: Path, since: date | None, through: date | None, say=print) -> int:
     files = closing_files(root, since, through)
     say(f"ADDENDUM 305 RECEIPT · {root} (read-only) · start dates "
         f"{since.isoformat() if since else 'any'} .. {through.isoformat() if through else 'any'}")
+    say(GATE_LINE)
     for role in sorted({r for r, _, _ in files}) or ["(none)"]:
         mine = [(d, f) for r, d, f in files if r == role]
         days = [d for d, _ in mine]

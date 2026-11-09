@@ -129,3 +129,39 @@ def test_a_non_finite_edge_is_not_stored_never_a_figure(tmp_path, capsys, edge):
     assert rc.main(["--dir", str(tmp_path)]) == 0
     first = capsys.readouterr().out.split("WOULD-BE")[0]
     assert "no exec edge stored: 1" in first and "exec edge <= 0: 0 row(s)" in first and "exec edge > 0: 0 row(s)" in first
+
+
+def test_the_header_says_it_reads_the_stored_gate_edge(tmp_path, capsys):
+    """Addendum 309 item 1: "The receipt script reads the stored gate edge on the files that exist and says so in its
+    header (one line)." exec.final_edge_pp is written from the next file on and is not read."""
+    r = row(1, edge=0.05, cost=0.567, p=0.5675)
+    r["desk"]["exec"].update(final_cost=0.568, final_edge_pp=-0.05, final_units=0.5)
+    write(tmp_path / "closing_NFL_2026-11-10T1800Z.json", "NFL", [r])
+    assert rc.main(["--dir", str(tmp_path)]) == 0
+    out = capsys.readouterr().out
+    head = out.splitlines()[:2]
+    assert head[1] == rc.GATE_LINE and "GATE exec edge (desk.exec.edge_pp" in head[1]
+    assert "from the next file on" in head[1] and sum(1 for x in out.splitlines() if "GATE" in x) == 1
+    assert "exec edge <= 0: 0 row(s)" in out.split("WOULD-BE")[0]            # the gate's +0.05pp is what is read
+
+
+@pytest.mark.parametrize("ids", [5, True, 1.0, "15", {"1": 1, "5": 5}, None, [[1], {"5": 5}]])
+def test_a_match_ids_that_is_not_a_list_is_read_as_none(tmp_path, capsys, ids):
+    """Codex P2 on #903: closing.match_ids that is not a list is none, so every row counts as outside the run's
+    match_ids (a string or an object is never iterated into ids, a number never raises); a list's non-scalar elements
+    are skipped."""
+    rows = [row("1", edge=-0.5), row("5", edge=-0.6)]
+    (tmp_path / "closing_NFL_2026-10-12T1700Z.json").write_text(json.dumps(
+        {"predictions": rows, "closing": {"family": "NFL", "match_ids": ids}}))
+    assert rc.main(["--dir", str(tmp_path)]) == 0
+    out = capsys.readouterr().out
+    assert "EMITTED PLAYs (desk.call PLAY): 2 row(s) (0 on their run's page, 2 outside the run's match_ids)" in out
+    assert "exec edge <= 0: 2 row(s)" in out.split("WOULD-BE")[0]
+
+
+def test_a_list_of_match_ids_still_places_rows_on_the_page(tmp_path, capsys):
+    rows = [row(1, edge=-0.5), row(5, edge=-0.6)]
+    (tmp_path / "closing_NFL_2026-10-12T1700Z.json").write_text(json.dumps(
+        {"predictions": rows, "closing": {"family": "NFL", "match_ids": [1, [5], True]}}))
+    assert rc.main(["--dir", str(tmp_path)]) == 0
+    assert "2 row(s) (1 on their run's page, 1 outside the run's match_ids)" in capsys.readouterr().out

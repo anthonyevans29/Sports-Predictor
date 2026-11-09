@@ -11,7 +11,17 @@ Item 2(c), the pins: exec exactly 0 -> PASS; exec -0.2 -> PASS with the kind; ex
 exec +4 -> full (unchanged); the golden battery unchanged with the addendum OFF. Plus: the would-be record of an NFL
 market-only row at exec <= 0 is no would-be PLAY; the closing page's Desk row reads the PASS and carries no order; the
 current Desk's battery changes only half-unit PLAYs at exec <= 0. The kind and the reason are written out here, not
-imported, so the file runs against main and fails there."""
+imported, so the file runs against main and fails there.
+
+Addendum 309 item 1 (ARCHITECT 2026-11-09 12:50 ET, RULED), verbatim: "the exec_non_positive check reads TWO figures
+and PASSES on either: (i) the gate's exec edge as #87 (h) prices it (the order the PLAY would place at tier size),
+exactly as 890c4271 has it; (ii) the exec edge re-priced at the units the order will actually carry after EVERY sizing
+rule has run (the 4pp halving, INTL half, postseason), computed with the same fee formula. Either ≤ 0 → PASS
+exec_non_positive, the reason naming the figure that failed (its all-in cost and the model's price; both when both
+fail). A tightening only [...]. The exec block stays the gate's figures (h, the record), with the final order's cost
+added beside it as its own field (`exec.final_cost`, `exec.final_edge_pp`, `exec.final_units`)". Its tests are the
+section "addendum 309" below; the 305 pins at a 0.55 ask whose half order costs a cent more per contract than the full
+one (0.017 vs 0.018) read both figures, so the +0.1 pin sits at a 0.50 ask, where the two orders cost the same."""
 import json
 import os
 import sys
@@ -54,9 +64,14 @@ def at_exec(home, delta, comp="NFL", ask=0.55, **kw):
     return pred(home, p, round(p - 0.06, 4), comp=comp, bid=round(ask - 0.01, 2), ask=ask, **kw), p
 
 
-def calls(*rows, sport="nfl"):
-    ev = dp.evaluate({"sport": sport, "predictions": [json.loads(json.dumps(r)) for r in rows]}, MS)
+def calls(*rows, sport="nfl", counts=None):
+    ev = dp.evaluate({"sport": sport, "predictions": [json.loads(json.dumps(r)) for r in rows]}, MS, counts)
     return {r["home"]: (r, c) for r, c in ev["calls"]}
+
+
+def gate_only(c):
+    """A call without addendum 309's final-order record (execFinal), to compare with the call before 305."""
+    return {k: v for k, v in c.items() if k != "execFinal"}
 
 
 @pytest.fixture
@@ -83,20 +98,23 @@ def test_exec_minus_point_two_is_a_pass_with_the_kind_and_the_reason_naming_cost
     cost = dp.desk_cost_for(r, "HOME", 1)["cost"]
     assert abs(dp.exec_edge_pp(r, "HOME", p, 1) + 0.2) < 1e-9
     assert (c["call"], c["units"], c["cls"], c["passKind"], c["shadowUnits"]) == ("PASS", 0, "pass", KIND, 0)
-    assert c["reasons"] == [f"exec edge -0.2pp ≤ 0: ask + taker fee {cost:.3f} at or above the model's {p:.3f} → PASS "
+    # addendum 309 item 1: the half order this PLAY would place (0.5u) costs 0.568, so both figures fail and both are named
+    assert dp.desk_cost_for(r, "HOME", 0.5)["cost"] == 0.568
+    assert c["reasons"] == [f"exec edge -0.20pp at the gate's order (1u): ask + taker fee {cost:.3f}, and -0.30pp at the "
+                            f"order placed (0.5u): ask + taker fee 0.568, both at or above the model's {p:.3f} → PASS "
                             f"({RULING})"]
     assert c["tags"] == ["exec ≤ 0 pass"]                                   # nothing sized: no sizing tag stays
     assert c["execUnits"] == 1                                              # priced at the order it would have placed
 
 
 def test_exec_plus_point_one_stays_half_units(chain):
-    row, _ = at_exec("Thin", 0.001)
+    row, _ = at_exec("Thin", 0.001, ask=0.50)                               # the 0.5u order costs the 1u order's
     _, c = calls(row)["Thin"]
     assert (c["call"], c["units"], c["passKind"]) == ("PLAY", 0.5, None)
     assert "exec < 4pp half units" in c["tags"] and any("exec edge 0.1pp < 4pp" in x for x in c["reasons"])
     with _off():
         _, b = calls(row)["Thin"]
-    assert b == c                                                           # unchanged by 305
+    assert b == gate_only(c)                                                # unchanged by 305
 
 
 def test_exec_plus_four_stays_full_units(chain):
@@ -105,7 +123,7 @@ def test_exec_plus_four_stays_full_units(chain):
     assert (c["call"], c["units"], c["passKind"]) == ("PLAY", 1, None) and "exec clears" in c["tags"]
     with _off():
         _, b = calls(row)["Clear"]
-    assert b == c
+    assert b == gate_only(c)
 
 
 def test_no_executable_quote_stays_half_units(chain):
@@ -121,7 +139,7 @@ def test_mlb_reads_the_same_rule(chain):
     row, p = at_exec("Mets", -0.01, comp="MLB")
     r, c = calls(row, sport="mlb")["Mets"]
     assert (c["call"], c["units"], c["passKind"]) == ("PASS", 0, KIND)
-    assert c["reasons"][0].startswith("exec edge -1.0pp ≤ 0: ask + taker fee ")
+    assert c["reasons"][0].startswith("exec edge -1.00pp at the gate's order (1u): ask + taker fee ")
 
 
 def test_a_quarantine_shadow_and_a_value_shadow_are_untouched(chain):
@@ -161,7 +179,7 @@ def test_the_desk_block_is_a_pass_with_no_order_and_keeps_its_exec_block_as_the_
 def test_the_closing_page_row_reads_the_pass(chain):
     import deploy.hosting.closing as closing
     a, _ = at_exec("Mets", -0.002, comp="MLB", match_id=1)
-    b, _ = at_exec("Thin", 0.001, comp="MLB", match_id=2)
+    b, _ = at_exec("Thin", 0.001, comp="MLB", ask=0.50, match_id=2)
     doc = _annotate("mlb", [a, b])
     rows = {x["match_id"]: x for x in closing.desk_rows(doc, {1, 2}, NOW, fam="MLB")}
     assert (rows[1]["call"], rows[1]["call_text"], rows[1]["pass_kind"], rows[1]["order"]) == ("PASS", "PASS", KIND,
@@ -188,14 +206,14 @@ def test_the_would_be_record_reads_the_pass():
     0 < exec < 4 the would-be half-unit PLAY stands."""
     import deploy.hosting.closing as closing
     neg, _ = at_exec("Bears", -0.002, match_id=1)
-    thin, _ = at_exec("Thin", 0.001, match_id=2)
+    thin, _ = at_exec("Thin", 0.001, ask=0.50, match_id=2)
     doc = _annotate("nfl", [neg, thin])
     d = {r["home_team"]: (r, r["desk"]) for r in doc["predictions"]}
     for home in ("Bears", "Thin"):
         assert (d[home][1]["call"], d[home][1]["pass_kind"]) == ("PASS", "market_only")
     h = d["Bears"][1]["market_only_hold"]
     assert (h["would_call"], h["would_units"], h["would_pass_kind"]) == ("PASS", 0, KIND)
-    assert h["would_reason"].startswith("exec edge -0.2pp ≤ 0: ask + taker fee ")
+    assert h["would_reason"].startswith("exec edge -0.20pp at the gate's order (1u): ask + taker fee ")
     cert = ("uncertified", "fixture")
     assert closing.would_be_for(*d["Bears"], "NFL", cert) is None and xc.would_be_play(d["Bears"][1]) is None
     w = closing.would_be_for(*d["Thin"], "NFL", cert)
@@ -236,7 +254,7 @@ def test_the_current_desk_battery_changes_only_half_unit_plays_at_exec_non_posit
     for _, seed, counts, rev in b.SCENARIOS:
         docs = list(b.scenario_docs(seed, b.GOLDEN_NOW, rev).values())
         now_ms = b.now_ms(b.GOLDEN_NOW)
-        on_calls = [c for d in docs for _, c in dp.evaluate(d, now_ms, counts)["calls"]]
+        on_calls = [gate_only(c) for d in docs for _, c in dp.evaluate(d, now_ms, counts)["calls"]]
         on = b.py_extract(docs, now_ms, counts)
         with _off():
             off_calls = [c for d in docs for _, c in dp.evaluate(d, now_ms, counts)["calls"]]
@@ -273,3 +291,154 @@ def test_the_arm_reads_an_exec_non_positive_close_as_a_flip_exited_before_kickof
     a, _, _ = tea.one(tmp_path, page, f)
     assert a["arm"] == ea.ARM_FLIP and a["closing_call"]["call"] == "PASS"
     assert a["flip_exit"] == "exited before kickoff" and not a["arm_breach"]
+
+
+# ------------------------------------------------------- addendum 309 item 1: the gate's order and the order placed --
+
+FINAL = ("final_cost", "final_edge_pp", "final_units")
+
+
+def gap_row(home="Gap", ask=0.55, p=0.5675, **kw):
+    """The ruling's case: NFL at ask 0.55, model 0.5675, fair edge 6pp. The gate prices the 1u order (the fee rounded
+    once per fill: 0.017 a contract, all-in 0.567, exec +0.05pp); the 4pp halving places a 0.5u order (0.018 a
+    contract, all-in 0.568, exec -0.05pp)."""
+    return pred(home, p, round(p - 0.06, 4), bid=round(ask - 0.01, 2), ask=ask, **kw)
+
+
+def intl_row(home="Probeland", p=0.5675, ask=0.55, mid=115001):
+    """A UNL model row (sport INTL) on the laptop, a PLAY: tests/test_desk_host_fence.py's intl_unl shape, the HOME
+    pick at fair edge 6pp."""
+    from src.walters import intl_production as ip
+    from src.walters.venue import kalshi_exec
+    probs, fair = (p, 0.25, round(0.75 - p, 4)), (round(p - 0.06, 4), 0.28, round(0.78 - p, 4))
+    r = {"match_id": mid, "home_team": home, "away_team": f"{home} B", "utc_date": "2026-11-14T19:00:00",
+         "competition": "UNL", "venue_flag": "home",
+         "prediction": {"probabilities": {"home_win": probs[0], "draw": probs[1], "away_win": probs[2]}, "tier": None},
+         "market": {"bookmaker_count": 8, "fair_prob": {"HOME": fair[0], "DRAW": fair[1], "AWAY": fair[2]},
+                    "fair_source": "1X2"},
+         "market_divergence_pp": ip.divergence_pp(probs[0], {"fair_source": "1X2", "fair_prob": {"HOME": fair[0]}})}
+    r["quarantine"] = abs(r["market_divergence_pp"]) >= 15
+    r.update(kalshi_exec(round(ask - 0.01, 2), ask, "UNL", two_way=False))
+    return r
+
+
+def test_309_gate_plus_final_minus_at_ask_0_55_is_a_pass_naming_the_final_order(chain):
+    """The ruling's case: gate +0.05pp (1u), final -0.05pp (0.5u) → PASS exec_non_positive; the reason names the order
+    placed (its all-in cost and the model's price)."""
+    row = gap_row()
+    r, c = calls(row)["Gap"]
+    gate, final = dp.exec_edge_pp(r, "HOME", r["prob"], 1), dp.exec_edge_pp(r, "HOME", r["prob"], 0.5)
+    assert abs(gate - 0.05) < 1e-9 and abs(final + 0.05) < 1e-9
+    assert (dp.desk_cost_for(r, "HOME", 1)["cost"], dp.desk_cost_for(r, "HOME", 0.5)["cost"]) == (0.567, 0.568)
+    assert (c["call"], c["units"], c["cls"], c["passKind"], c["shadowUnits"]) == ("PASS", 0, "pass", KIND, 0)
+    assert c["reasons"] == [f"exec edge +0.05pp at the gate's order but -0.05pp at the order placed (0.5u): ask + "
+                            f"taker fee 0.568 at or above the model's 0.5675 → PASS ({RULING})"]
+    assert c["tags"] == ["exec ≤ 0 pass"] and c["execUnits"] == 1
+    with _off():                                                            # before 305: a half-unit PLAY
+        _, b = calls(row)["Gap"]
+    assert (b["call"], b["units"], b["passKind"]) == ("PLAY", 0.5, None)
+    d = _annotate("nfl", [row])["predictions"][0]["desk"]
+    assert (d["call"], d["units"], d["pass_kind"], d["order"]) == ("PASS", 0, KIND, None)
+    ex = d["exec"]                                                          # the gate's figures stay (h, the record)
+    assert ex["cost"] == 0.567 and abs(ex["edge_pp"] - 0.05) < 1e-9
+    assert (ex["final_cost"], ex["final_units"]) == (0.568, 0.5) and abs(ex["final_edge_pp"] + 0.05) < 1e-9
+
+
+def test_309_the_reverse_case_gate_non_positive_final_positive_is_a_pass_by_the_gate(chain):
+    """Gate <= 0, final > 0 (at ask 0.60 the 0.5u order costs a tenth of a cent less a contract: 0.616 vs 0.617): PASS
+    by read (i), the reason naming the gate's figure (its order, cost and the model's price); a negative gate edge never
+    becomes a PLAY because the half order prices cheaper."""
+    row = gap_row("Rev", ask=0.60, p=0.6165)
+    r, c = calls(row)["Rev"]
+    assert (dp.desk_cost_for(r, "HOME", 1)["cost"], dp.desk_cost_for(r, "HOME", 0.5)["cost"]) == (0.617, 0.616)
+    assert dp.exec_edge_pp(r, "HOME", r["prob"], 1) < 0 < dp.exec_edge_pp(r, "HOME", r["prob"], 0.5)
+    assert (c["call"], c["units"], c["passKind"]) == ("PASS", 0, KIND)
+    assert c["reasons"] == [f"exec edge -0.05pp at the gate's order (1u): ask + taker fee 0.617 at or above the "
+                            f"model's 0.6165 → PASS ({RULING})"]
+    ex = _annotate("nfl", [row])["predictions"][0]["desk"]["exec"]
+    assert ex["cost"] == 0.617 and ex["edge_pp"] < 0                       # the gate's figure, the one that failed
+    assert (ex["final_cost"], ex["final_units"]) == (0.616, 0.5) and ex["final_edge_pp"] > 0
+
+
+def test_309_intl_half_size(chain):
+    """INTL halves after the gate (until 30 graded): the order placed is 0.5u. A row the gate clears (exec >= 4pp) is a
+    half-unit PLAY whose final figures are the 0.5u order's; the ruling's 0.5675 row at ask 0.55 is a PASS by read
+    (ii), named at the 0.5u order."""
+    clear = intl_row("Clearland", p=0.62, mid=1)
+    gap = intl_row("Gapland", mid=2)
+    got = calls(clear, gap, sport="intl")
+    r, c = got["Clearland"]
+    assert (c["call"], c["units"], c["execUnits"]) == ("PLAY", 0.5, 1) and "intl half units" in c["tags"]
+    assert "exec clears" in c["tags"]                                       # the 4pp line read at the gate's order
+    assert c["execFinal"] == {"units": 0.5, "cost": dp.desk_cost_for(r, "HOME", 0.5)["cost"],
+                              "edge_pp": dp.exec_edge_pp(r, "HOME", r["prob"], 0.5)}
+    _, g = got["Gapland"]
+    assert (g["call"], g["units"], g["passKind"]) == ("PASS", 0, KIND)
+    assert g["reasons"] == [f"exec edge +0.05pp at the gate's order but -0.05pp at the order placed (0.5u): ask + "
+                            f"taker fee 0.568 at or above the model's 0.5675 → PASS ({RULING})"]
+    with _off():
+        _, b = calls(clear, gap, sport="intl")["Gapland"]
+    assert (b["call"], b["units"]) == ("PLAY", 0.5)
+    _, done = calls(clear, sport="intl", counts={dp.INTL_COUNT_KEY: 30})["Clearland"]
+    assert (done["call"], done["units"], done["execFinal"]["units"]) == ("PLAY", 1, 1)   # 30 graded: no INTL half
+
+
+def test_309_postseason_half_is_priced_by_the_gate_and_the_final_check_alike(chain):
+    """The postseason half runs before the gate, so the gate already prices the 0.5u order and the final order is the
+    same order: the 0.5675 row at ask 0.55 fails both figures (each -0.05pp at 0.5u) and the reason names both."""
+    row = gap_row("Post", stage="postseason")
+    r, c = calls(row)["Post"]
+    assert c["execUnits"] == 0.5 and (c["call"], c["units"], c["passKind"]) == ("PASS", 0, KIND)
+    assert c["reasons"] == [f"exec edge -0.05pp at the gate's order (0.5u): ask + taker fee 0.568, and -0.05pp at the "
+                            f"order placed (0.5u): ask + taker fee 0.568, both at or above the model's 0.5675 → PASS "
+                            f"({RULING})"]
+    ok = gap_row("PostOk", p=0.59, stage="postseason")
+    _, c2 = calls(ok)["PostOk"]
+    assert (c2["call"], c2["units"], c2["execUnits"], c2["execFinal"]["units"]) == ("PLAY", 0.5, 0.5, 0.5)
+    assert c2["execFinal"]["edge_pp"] == dp.exec_edge_pp(dp.normalize({"sport": "nfl", "predictions": [ok]})[0],
+                                                         "HOME", 0.59, 0.5)
+
+
+def test_309_the_4pp_line_and_h_are_untouched(chain):
+    """A +4pp row stays full (the 4pp line reads the gate's order); a half-unit row keeps the gate's figures at 1u and
+    its emitted order's cost (order_cost) beside them; the final figures equal the order's. Every gate field of the exec
+    block is the rule-off block's, byte for byte."""
+    full, _ = at_exec("Clear", 0.04)
+    half, _ = at_exec("Half", 0.02)
+    on = {r["home_team"]: r["desk"] for r in _annotate("nfl", [full, half])["predictions"]}
+    with _off():
+        off = {r["home_team"]: r["desk"] for r in _annotate("nfl", [full, half])["predictions"]}
+    for home in ("Clear", "Half"):
+        assert {k: v for k, v in on[home]["exec"].items() if k not in FINAL} == off[home]["exec"]
+        assert not any(k in off[home]["exec"] for k in FINAL)
+        assert (on[home]["call"], on[home]["units"]) == (off[home]["call"], off[home]["units"])
+    assert (on["Clear"]["units"], on["Clear"]["exec"]["final_units"]) == (1, 1)
+    assert on["Clear"]["exec"]["final_edge_pp"] == on["Clear"]["exec"]["edge_pp"] >= 4
+    h = on["Half"]["exec"]
+    assert (on["Half"]["units"], h["final_units"], h["final_cost"]) == (0.5, 0.5, h["order_cost"])
+
+
+def test_309_final_fields_ride_every_gated_row_and_only_those(chain):
+    """Written for every PLAY that reaches the final check and on the PASS it causes; not on a quarantine shadow (never
+    gated) nor with the rule off; the would-be record of an NFL market-only row carries them (its chain's own block)."""
+    play, _ = at_exec("Play", 0.02)
+    gap = gap_row()
+    q, _ = at_exec("Quar", -0.01, market_divergence_pp=20.0, quarantine=True)
+    d = {r["home_team"]: r["desk"] for r in _annotate("nfl", [play, gap, q])["predictions"]}
+    assert all(k in d["Play"]["exec"] for k in FINAL) and all(k in d["Gap"]["exec"] for k in FINAL)
+    assert d["Quar"]["exec"] is not None and not any(k in d["Quar"]["exec"] for k in FINAL)
+
+
+def test_309_the_would_be_record_reads_the_final_order():
+    """NFL market-only ON (production): the chain's own call at the ruling's case is PASS exec_non_positive (no would-be
+    PLAY), and its exec block carries both figures."""
+    import deploy.hosting.closing as closing
+    doc = _annotate("nfl", [gap_row(match_id=1)])
+    r = doc["predictions"][0]
+    d = r["desk"]
+    assert (d["call"], d["pass_kind"]) == ("PASS", "market_only")
+    h = d["market_only_hold"]
+    assert (h["would_call"], h["would_units"], h["would_pass_kind"]) == ("PASS", 0, KIND)
+    assert h["would_reason"].startswith("exec edge +0.05pp at the gate's order but -0.05pp at the order placed (0.5u)")
+    assert closing.would_be_for(r, d, "NFL", ("uncertified", "fixture")) is None and xc.would_be_play(d) is None
+    assert (d["exec"]["final_units"], d["exec"]["final_cost"]) == (0.5, 0.568)

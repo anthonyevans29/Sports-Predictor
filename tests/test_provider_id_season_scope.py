@@ -279,6 +279,54 @@ def test_the_same_season_rekey_still_works():
     assert _rows_with(code, new_sid)[0]["id"] == mid
 
 
+def test_an_id_listed_in_another_season_never_blocks_a_same_season_rekey():
+    """#906 review (Codex, the re-key guards): a sync without --season lists 2025 and 2026. The 2026 row is re-keyed
+    from X to Y while the provider reuses X for a 2025 game: X listed in 2025 is not "still in this listing" for the
+    2026 row."""
+    code = "PISGUARD"
+    (h, hp), (a, ap) = _pair()
+    (h2, hp2), (a2, ap2) = _pair()
+    x, y = _gid(), _gid()
+    mid = _stored(code, x, h, a, "2026", KICK_2026, status=MatchStatus.SCHEDULED)
+    r = IngestionService(Listing([
+        _nm(code, x, hp2, ap2, season="2025", when=KICK_2025, status=MatchStatus.SCHEDULED),
+        _nm(code, y, hp, ap, season="2026", status=MatchStatus.SCHEDULED),
+    ])).sync_matches(code)
+    assert (r.created, r.rekeyed, r.rekey_refused) == (1, 1, 0)
+    assert _rows_with(code, y)[0]["id"] == mid
+    assert [z["season"] for z in _rows_with(code, x)] == ["2025"]
+
+
+def test_the_same_id_listed_in_the_same_season_still_blocks_the_rekey():
+    """The guard itself stands: X still listed in the row's own season refuses the re-key to Y."""
+    code = "PISGUARD2"
+    (h, hp), (a, ap) = _pair()
+    x, y = _gid(), _gid()
+    mid = _stored(code, x, h, a, "2026", KICK_2026, status=MatchStatus.SCHEDULED)
+    r = IngestionService(Listing([
+        _nm(code, x, hp, ap, season="2026", status=MatchStatus.SCHEDULED),
+        _nm(code, y, hp, ap, season="2026", status=MatchStatus.SCHEDULED),
+    ])).sync_matches(code)
+    assert (r.created, r.updated, r.rekeyed, r.rekey_refused) == (0, 1, 0, 1)
+    assert _rows_with(code, y) == [] and _rows_with(code, x)[0]["id"] == mid
+
+
+def test_a_claim_in_one_season_never_blocks_another_seasons_rekey():
+    """Two seasons' rows both carry X (the collision shape) and each season's listing re-keys its own row: the claim
+    of X in 2025 is not a claim of X in 2026."""
+    code = "PISCLAIM"
+    (h, hp), (a, ap) = _pair()
+    x, y25, y26 = _gid(), _gid(), _gid()
+    old = _stored(code, x, h, a, "2025", KICK_2025, status=MatchStatus.SCHEDULED)
+    new = _stored(code, x, h, a, "2026", KICK_2026, status=MatchStatus.SCHEDULED)
+    r = IngestionService(Listing([
+        _nm(code, y25, hp, ap, season="2025", when=KICK_2025, status=MatchStatus.SCHEDULED),
+        _nm(code, y26, hp, ap, season="2026", status=MatchStatus.SCHEDULED),
+    ])).sync_matches(code)
+    assert (r.created, r.rekeyed, r.rekey_refused) == (0, 2, 0)
+    assert _rows_with(code, y25)[0]["id"] == old and _rows_with(code, y26)[0]["id"] == new
+
+
 # ---------------------------------------------------------------------------- an unknown season (law 4)
 
 

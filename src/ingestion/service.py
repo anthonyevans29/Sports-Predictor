@@ -639,7 +639,10 @@ class IngestionService:
                 # the natural-key index + the ids this listing carries (a stored
                 # id still listed is a different game, never a re-key target)
                 _cache["__pairs__"] = _pairs
-                _cache["__listed__"] = {str(nm.source_id) for nm in matches}
+                # #906 review (Codex, the re-key guards): the ids this listing carries are (id, season) pairs, and the
+                # run's claims below are too, so an id the provider reuses in another listed season neither blocks nor
+                # claims this season's re-key (a sync without --season lists several)
+                _cache["__listed__"] = {(str(nm.source_id), season_key(nm.season)) for nm in matches}
                 _cache["__placeholder_window__"] = comp.code in PLACEHOLDER_REKEY_COMPETITIONS
             total = len(matches)
             step = max(1, total // 10)  # report ~10 times through the loop
@@ -718,7 +721,7 @@ class IngestionService:
                     # #884 review (Codex round 1): _rekey_candidate claimed the row's current id; nothing was re-keyed,
                     # so the claim is released and a later valid listing for this row in the same run can take it
                     if claimed_sid:
-                        cache.get("__claimed__", set()).discard(claimed_sid)
+                        cache.get("__claimed__", set()).discard((str(claimed_sid), season_key(match.season)))
                     return None
                 ext = dict(match.external_ids or {})
                 old = ext.get(nm.source)
@@ -934,18 +937,21 @@ class IngestionService:
         def sid_of(m):
             return (m.external_ids or {}).get(nm.source)
 
+        # #906 review (Codex, the re-key guards): "still listed" and "already claimed" are the row's own season's
+        # (listed and claimed hold (id, season) pairs), the same scope as the indexes above them (addendum 310 3(c))
         def blocked(m):
             sid = sid_of(m)
-            if sid and str(sid) in listed:
+            key = (str(sid), season_key(m.season))
+            if sid and key in listed:
                 return f"its id {sid} is still in this listing (the provider lists both {sid} and {nm.source_id})"
-            if sid and sid in claimed:
+            if sid and key in claimed:
                 return f"it was already re-keyed from {sid} by another listing in this run"
             return None
 
         def claim(m):
             sid = sid_of(m)
             if sid:
-                claimed.add(sid)
+                claimed.add((str(sid), season_key(m.season)))
             return m, None
 
         # an id the provider used before for a stored row: that row, by its own history

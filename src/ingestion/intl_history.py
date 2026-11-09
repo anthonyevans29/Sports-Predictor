@@ -399,8 +399,10 @@ def ingest(src: Source, since: date, max_calls: int = 80, dry_run: bool = False)
             "orientation_reversed": list(mres.orientation_reversed),
             "teams_mismatch_refused": list(mres.teams_mismatch_refused),
             "scores_by_team_line": scores_by_team_line(mres),
-            # ARCHITECT 2026-11-09, addendum 310 item 3(b) (#902): a stored row of another season carrying a listed id
-            "provider_id_collision_line": provider_id_collision_line(mres.provider_id_collision),
+            # ARCHITECT 2026-11-09, addendum 310 item 3(b) (#902): a NEW row created because the listed id was held only
+            # by a row of another season (addendum 312 item 2: creations only; the line when N > 0)
+            "provider_id_collision_line": (provider_id_collision_line(mres.provider_id_collision)
+                                           if mres.provider_id_collision else None),
             # the no-write refusals of 310 item 3(a), apart from the other skips (Codex on #906)
             "provider_id_season_unknown": list(mres.provider_id_season_unknown),
             "season_unknown_line": (season_unknown_line(mres.provider_id_season_unknown)

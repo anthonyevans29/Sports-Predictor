@@ -475,11 +475,13 @@ def _print_skipped_listings(result) -> None:
 def _print_provider_id_collision(result) -> None:
     """THE PROVIDER ID IS THE SEASON'S (ARCHITECT 2026-11-09, addendum 310 item 3(b), #902): "a stored row of ANOTHER
     season carrying the listed id is counted and listed on the receipt as `provider_id_collision N: <stored id (season)
-    ← listing id>`". Printed plainly on its own line (never rich-wrapped), always, zero included, right after the
-    summary line (the scores-by-team line stays the tail's last line); with it, only when N > 0, the listings refused
-    because the season cannot be compared (law 4). Nothing when the result carries no SyncResult lists (a test's
-    stand-in service)."""
-    if hasattr(result, "provider_id_collision"):
+    ← listing id>`". The line counts CREATIONS (addendum 312 item 2: "once the listing's own season has a row with that
+    id, the sync finds it by (id, season_year) and updates it — nothing printed, nothing counted. After the restore,
+    steady NCAA runs print nothing"): printed plainly on its own line (never rich-wrapped) only when N > 0, right after
+    the summary line (the scores-by-team line stays the tail's last line); with it, only when N > 0, the listings
+    refused because the season cannot be compared (law 4). Nothing when the result carries no SyncResult lists (a
+    test's stand-in service)."""
+    if getattr(result, "provider_id_collision", None):
         from src.ingestion.service import provider_id_collision_line
         print(provider_id_collision_line(result.provider_id_collision), flush=True)
     if getattr(result, "provider_id_season_unknown", None):
@@ -1843,7 +1845,7 @@ def intl_sync_cmd(since, max_calls, dry_run, save, from_dir):
                f"matches: {r['matches']}")
     if r.get("names_kept_line"):              # #764 (addendum 206 item 2(i)): a history listing keeps current names
         click.echo(f"  {r['names_kept_line']}")
-    if r.get("provider_id_collision_line"):   # addendum 310 item 3(b): always, zero included
+    if r.get("provider_id_collision_line"):   # addendum 310 item 3(b), 312 item 2: creations only, when N > 0
         click.echo(f"  {r['provider_id_collision_line']}")
     if r.get("season_unknown_line"):          # addendum 310 item 3(a): the no-write refusals, named (Codex on #906)
         click.echo(f"  {r['season_unknown_line']}")

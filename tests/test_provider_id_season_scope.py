@@ -3,6 +3,11 @@ test on the 18216 case: a 2025 FINISHED row with id 18216, a 2026 listing with i
 row byte-identical after the sync, a new 2026 row created with the LISTING's home/away, `provider_id_collision 1`
 printed".
 
+ADDENDUM 312 items 1-2 (#906): the key is the season YEAR on both sides ("2026/27", "2026-27" and "2026" read one
+season; a season with no leading year is refused and counted, never matched, never created), and the collision line
+counts CREATIONS only (a row created because the listed id was held only by a row of another season; once the
+listing's own season has its row, nothing printed, nothing counted).
+
 Also: the same-season update path unchanged; an annual rematch (the same pair next season) is never a re-key target
 (item 3(c)); the orientation chain never fires across seasons (item 3(e)); NFL the same (the same provider). Throwaway
 DB only (tests/conftest.py); the provider is a fake adapter, no network."""
@@ -122,7 +127,7 @@ def _assert_collision_case(code):
     assert (new["home_score"], new["away_score"], new["ftr"]) == (25, 49, Result.AWAY)
     assert new["utc"] == KICK_2026 and new["ext"] == {AF: sid}                       # no provider_orientation key
     assert (r.created, r.updated, r.skipped) == (1, 0, 0)
-    assert r.provider_id_collision == [(old, "2025", sid)]
+    assert r.provider_id_collision == [(((old, "2025"),), sid)]
     assert r.orientation_reversed == [] and r.teams_mismatch_refused == []         # the chain never fired
     assert svc.provider_id_collision_line(r.provider_id_collision) == f"provider_id_collision 1: {old} (2025) ← {sid}"
     return old, sid, new["id"]
@@ -139,7 +144,9 @@ def test_the_18216_case_nfl_the_same():
     _assert_collision_case("PISNFL")
 
 
-def test_a_second_sync_updates_the_2026_row_and_still_names_the_2025_row():
+def test_a_second_sync_updates_the_2026_row_and_counts_nothing():
+    """Addendum 312 item 2: "once the listing's own season has a row with that id, the sync finds it by (id,
+    season_year) and updates it — nothing printed, nothing counted"."""
     code = "PISAGAIN"
     old, sid, new_id = _assert_collision_case(code)
     before = _raw(old)
@@ -149,7 +156,7 @@ def test_a_second_sync_updates_the_2026_row_and_still_names_the_2025_row():
     again = _nm(code, sid, home, away, home_score=25, away_score=49, full_time_result=Result.AWAY)
     r = _sync(code, [again])
     assert (r.created, r.updated) == (0, 1)
-    assert r.provider_id_collision == [(old, "2025", sid)]             # a stored row of another season carries the id
+    assert r.provider_id_collision == []                               # the 2026 row is the listing's own: no creation
     assert _raw(old) == before and len(_rows_with(code, sid)) == 2
 
 
@@ -169,8 +176,95 @@ def test_the_cli_prints_the_collision_line(monkeypatch):
     assert _raw(old) == before
 
 
-def test_the_cli_prints_zero_collisions():
+def test_the_cli_prints_no_collision_line_when_nothing_was_created(monkeypatch):
+    """Addendum 312 item 2: "After the restore, steady NCAA runs print nothing" — the line is printed only when N > 0."""
+    import cli
+
+    code = "PISCLI0"
+    (h, hp), (a, ap) = _pair()
+    sid = _gid()
+    _stored(code, sid, h, a, "2025", KICK_2025, home_score=45, away_score=14, full_time_result=Result.HOME)
+    mid = _stored(code, sid, a, h, "2026", KICK_2026, status=MatchStatus.SCHEDULED)
+    monkeypatch.setattr(cli, "_adapter_for_competition", lambda c: Listing([_nm(code, sid, ap, hp)]))
+    monkeypatch.setattr(cli, "_mlb_fallback", lambda c: False)
+    res = CliRunner().invoke(cli.cli, ["sync-matches", "--competition", code, "--season", "2026"])
+    assert res.exit_code == 0, res.output
+    assert "provider_id_collision" not in res.output and _rows_with(code, sid)[-1]["id"] == mid
     assert svc.provider_id_collision_line([]) == "provider_id_collision 0"
+
+
+def test_two_other_seasons_holding_the_id_make_one_creation():
+    """One new row, one entry: N counts creations, the entry names every other season's row holding the id."""
+    code = "PISTWO"
+    (h, hp), (a, ap) = _pair()
+    sid = _gid()
+    r24 = _stored(code, sid, h, a, "2024", datetime(2024, 11, 2, 2, 15), home_score=1, away_score=0,
+                  full_time_result=Result.HOME)
+    r25 = _stored(code, sid, h, a, "2025", KICK_2025, home_score=45, away_score=14, full_time_result=Result.HOME)
+    r = _sync(code, [_nm(code, sid, ap, hp, home_score=25, away_score=49, full_time_result=Result.AWAY)])
+    assert r.created == 1 and len(r.provider_id_collision) == 1
+    assert svc.provider_id_collision_line(r.provider_id_collision) == \
+        f"provider_id_collision 1: {r24} (2024) + {r25} (2025) ← {sid}"
+
+
+def test_a_rekey_onto_the_listing_season_is_not_a_collision():
+    """A listing re-keys its own season's row (no creation): the 2025 row holding the id is not counted."""
+    code = "PISRKC"
+    (h, hp), (a, ap) = _pair()
+    old_sid, sid = _gid(), _gid()
+    _stored(code, sid, h, a, "2025", KICK_2025, home_score=45, away_score=14, full_time_result=Result.HOME)
+    mid = _stored(code, old_sid, h, a, "2026", KICK_2026, status=MatchStatus.SCHEDULED)
+    r = _sync(code, [_nm(code, sid, hp, ap, status=MatchStatus.SCHEDULED)])
+    assert (r.created, r.rekeyed) == (0, 1) and r.provider_id_collision == []
+    assert [x["id"] for x in _rows_with(code, sid) if x["season"] == "2026"] == [mid]
+
+
+# ---------------------------------------------------------------------------- addendum 312 item 1: the season year
+
+
+def test_spellings_of_one_season_year_are_one_season():
+    """ "2026/27", "2026-27" and "2026" read one season: the stored row is found and updated, nothing created."""
+    for i, (stored, listed) in enumerate((("2026-27", "2026/27"), ("2026/27", "2026"), ("2026", "2026-27"))):
+        code = f"PISYR{i}"
+        (h, hp), (a, ap) = _pair()
+        sid = _gid()
+        mid = _stored(code, sid, h, a, stored, KICK_2026, status=MatchStatus.SCHEDULED)
+        r = _sync(code, [_nm(code, sid, hp, ap, season=listed, home_score=31, away_score=17,
+                             full_time_result=Result.HOME)], season=listed)
+        assert (r.created, r.updated, r.skipped) == (0, 1, 0), (stored, listed)
+        assert r.provider_id_collision == [] and r.provider_id_season_unknown == []
+        assert [x["id"] for x in _rows_with(code, sid)] == [mid]
+
+
+def test_a_rekey_and_its_history_read_the_season_year():
+    """The re-key index (season_year, home, away) and the `_prev` history (old id, season_year) fold spellings too."""
+    code = "PISYRK"
+    (h, hp), (a, ap) = _pair()
+    old_sid, new_sid = _gid(), _gid()
+    mid = _stored(code, old_sid, h, a, "2026-27", KICK_2026, status=MatchStatus.SCHEDULED)
+    r = _sync(code, [_nm(code, new_sid, hp, ap, season="2026/27", status=MatchStatus.SCHEDULED)], season="2026/27")
+    assert (r.created, r.rekeyed) == (0, 1) and _rows_with(code, new_sid)[0]["id"] == mid
+    code = "PISYRP"
+    (h, hp), (a, ap) = _pair()
+    cur, reused = _gid(), _gid()
+    mid = _stored(code, cur, h, a, "2026-27", KICK_2026, status=MatchStatus.SCHEDULED,
+                  ext={AF: cur, f"{AF}_prev": [reused]})
+    r = _sync(code, [_nm(code, reused, hp, ap, season="2026", status=MatchStatus.SCHEDULED)])
+    assert (r.created, r.rekeyed) == (0, 1) and _rows_with(code, reused)[0]["id"] == mid
+
+
+def test_a_season_with_no_leading_year_is_refused_and_counted():
+    """A listing or a stored row whose season_year is None: refused and counted, never matched, never created."""
+    code = "PISNOYR"
+    (h, hp), (a, ap) = _pair()
+    sid, sid2 = _gid(), _gid()
+    stored = _stored(code, sid, h, a, "26/27", KICK_2026, status=MatchStatus.SCHEDULED)
+    before = _raw(stored)
+    r = IngestionService(Listing([_nm(code, sid, hp, ap, season="2026"),
+                                  _nm(code, sid2, hp, ap, season="abc")])).sync_matches(code)
+    assert (r.created, r.updated, r.skipped) == (0, 0, 2)
+    assert r.provider_id_season_unknown == [sid, sid2] and r.provider_id_collision == []
+    assert _raw(stored) == before and _rows_with(code, sid2) == []
 
 
 # ---------------------------------------------------------------------------- the same-season update path
@@ -221,9 +315,8 @@ def test_an_unknown_team_listing_never_marks_another_seasons_row():
     before = _raw(old)
     r = _sync(code, [_nm(code, sid, "pis-not-in-db", hp)])
     assert r.teams_mismatch_refused == [] and r.skipped == 1 and _raw(old) == before
-    # Codex on #906: the unknown-team branch does the upsert's own accounting, so the cross-season collision is
-    # counted there too (the row stays untouched; the skip is counted once)
-    assert r.provider_id_collision == [(old, "2025", sid)]
+    # addendum 312 item 2: no row was created, so no collision is counted (the skip is counted once)
+    assert r.provider_id_collision == []
 
 
 def test_an_unknown_team_listing_with_no_season_is_refused_once():
@@ -327,6 +420,29 @@ def test_a_claim_in_one_season_never_blocks_another_seasons_rekey():
     assert _rows_with(code, y25)[0]["id"] == old and _rows_with(code, y26)[0]["id"] == new
 
 
+def test_a_rekey_target_of_no_season_year_refuses_and_counts_the_listing():
+    """Addendum 312 item 1 ("refused and counted ..., never matched, never created"): a stored row of no season year
+    that would be the listing's re-key target, by its `_prev` history or by the natural key, is not twinned: the
+    listing is refused and counted as provider_id_season_unknown (not as a re-key refusal), the row untouched."""
+    code = "PISNOYRK"
+    (h, hp), (a, ap) = _pair()
+    cur, reused = _gid(), _gid()
+    by_prev = _stored(code, cur, h, a, "26/27", KICK_2026, status=MatchStatus.SCHEDULED,
+                      ext={AF: cur, f"{AF}_prev": [reused]})
+    before = _raw(by_prev)
+    r = _sync(code, [_nm(code, reused, hp, ap, status=MatchStatus.SCHEDULED)])
+    assert (r.created, r.updated, r.rekeyed, r.rekey_refused, r.skipped) == (0, 0, 0, 0, 1)
+    assert r.provider_id_season_unknown == [reused] and _raw(by_prev) == before and _rows_with(code, reused) == []
+    code = "PISNOYRN"
+    (h, hp), (a, ap) = _pair()
+    old, new = _gid(), _gid()
+    by_pair = _stored(code, old, a, h, "", KICK_2026, status=MatchStatus.SCHEDULED)       # the pair swapped, no season
+    before = _raw(by_pair)
+    r = _sync(code, [_nm(code, new, hp, ap, status=MatchStatus.SCHEDULED)])
+    assert (r.created, r.rekeyed, r.rekey_refused, r.skipped) == (0, 0, 0, 1)
+    assert r.provider_id_season_unknown == [new] and _raw(by_pair) == before and _rows_with(code, new) == []
+
+
 # ---------------------------------------------------------------------------- an unknown season (law 4)
 
 
@@ -368,7 +484,7 @@ def test_a_multi_season_listing_scopes_each_row_by_its_own_season():
         _nm(code, sid, ap, hp, season="2026", home_score=25, away_score=49, full_time_result=Result.AWAY),
     ])).sync_matches(code)
     assert (r.created, r.updated) == (0, 2) and r.orientation_reversed == []
-    assert sorted(r.provider_id_collision) == sorted([(new, "2026", sid), (old, "2025", sid)])
+    assert r.provider_id_collision == []                    # each listing found its own season's row: no creation
     rows = {x["id"]: x for x in _rows_with(code, sid)}
     assert (rows[old]["home_score"], rows[old]["away_score"]) == (45, 14)
     assert (rows[new]["home_score"], rows[new]["away_score"]) == (25, 49)

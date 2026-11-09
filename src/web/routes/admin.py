@@ -104,7 +104,8 @@ def _job_sync_matches(
                 job.append_log(
                     f"  created={r.created} updated={r.updated} skipped={r.skipped}"
                 )
-                job.append_log(f"  {provider_id_collision_line(r.provider_id_collision)}")   # addendum 310 3(b)
+                if r.provider_id_collision:     # addendum 310 3(b); 312 item 2: creations only, when N > 0
+                    job.append_log(f"  {provider_id_collision_line(r.provider_id_collision)}")
                 job.append_log(f"  {scores_by_team_line(r)}")
         return (
             f"created={totals['created']} updated={totals['updated']} "
@@ -116,8 +117,9 @@ def _job_sync_matches(
 
 
 def _collisions(r) -> str:
-    """ARCHITECT 2026-11-09, addendum 310 item 3(b) (#902): the job summary names a stored row of another season
-    carrying a listed provider id (and a listing refused because a season could not be compared), when there is one."""
+    """ARCHITECT 2026-11-09, addendum 310 item 3(b) (#902): the job summary names a new row created because the listed
+    provider id was held only by a row of another season (addendum 312 item 2), and a listing refused because a season
+    could not be compared, when there is one."""
     out = f" · {provider_id_collision_line(r.provider_id_collision)}" if r.provider_id_collision else ""
     if r.provider_id_season_unknown:
         out += f" · {season_unknown_line(r.provider_id_season_unknown)}"

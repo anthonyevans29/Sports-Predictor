@@ -202,8 +202,14 @@ def projection_lines(proj: dict, src: dict, bad: dict, season: str) -> list[str]
                  f"({first[1]}, the earliest)" + (f"; the others: {rest}" if rest else "")
                  + (f"; no date for {', '.join(missing)}" if missing else ""))
     else:
-        L.append(f"STEP (c) (156 item 1; recounted from each league's start, addendum 220 item 5): no date (no league "
-                 f"stores {WINDOW_GAMES} fixtures after its start)")
+        # a league with no start (NOT DECLARED with no --declared, or REFUSED) has no projection at all: named as
+        # such, never folded into "stores fewer than 60" (law 4)
+        nostart = [c for c in window_ids() if c not in proj]
+        why = (f"no league stores {WINDOW_GAMES} fixtures after its start" if not nostart
+               else f"no league with a start stores {WINDOW_GAMES} fixtures after it"
+               if len(nostart) < len(window_ids()) else "no league has a start")
+        L.append(f"STEP (c) (156 item 1; recounted from each league's start, addendum 220 item 5): no date ({why}"
+                 + (f"; no start: {', '.join(nostart)}" if nostart else "") + ")")
     return L
 
 

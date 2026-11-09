@@ -383,7 +383,10 @@ def test_303_a_league_with_no_entry_and_no_declared_date_is_not_declared_never_a
                           "projects it from a date)")
     lines = lr.projection_lines(paper.window_projection(st, SEASON), src, bad, SEASON)
     assert "  - BL1 · " + src["BL1"] in lines
-    assert lines[-1].endswith("no date (no league stores 60 fixtures after its start)")      # no fixture stored
+    # no fixture stored; the league with no start is named apart, never folded into "stores fewer than 60" (law 4)
+    assert lines[-1].endswith("no date (no league with a start stores 60 fixtures after it; no start: BL1)")
+    none = lr.projection_lines({}, src, bad, SEASON)                  # no league with a start at all
+    assert none[-1].endswith(f"no date (no league has a start; no start: {', '.join(lr.window_ids())})")
 
 
 @pytest.mark.usefixtures("iso_db")

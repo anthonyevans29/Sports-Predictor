@@ -101,8 +101,8 @@ The ritual for every tag, v1.0.0 and hotfixes included, with no exceptions:
    - A migration with no DB file at the configured path refuses ("no database
      at <path>; a migration never creates one — law 5"), exit 1, and writes
      nothing (addendum 112 item 1, #524).
-   - A new unit file (ARCHITECT 2026-11-09 09:55 ET, addendum 304 item 2, from
-     v1.6.6 on; v1.6.5's first timer block ran `enable` before `install.sh`),
+   - A new unit file (ARCHITECT 2026-11-09 09:55 ET, addendum 304 item 2, for
+     the next tag on; v1.6.5's first timer block ran `enable` before `install.sh`),
      verbatim: "when the tag ships a new unit file, `sudo bash
      deploy/hosting/install.sh` (idempotent; enables nothing) before the
      enable".

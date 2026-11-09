@@ -833,12 +833,13 @@ def test_the_pool_pattern_takes_words_between_the_label_and_the_figure(text):
 def test_a_failed_write_leaves_no_half_pair_and_nothing_staged(repo, monkeypatch):
     """Addendum 304 item 1: the set is staged complete; a later write's failure leaves the earlier files OUT."""
     doc = soccer_doc()
-    real = b.Path.write_bytes
-    def fail_on_png(self, data):
-        if self.name.endswith(".png.tmp"):
+    real, calls = b._write_all, []
+    def fail_on_png(fd, data):                    # the run stages .md, .png per game: the second write is a .png
+        calls.append(fd)
+        if len(calls) == 2:
             raise OSError(28, "No space left on device")
-        return real(self, data)
-    monkeypatch.setattr(b.Path, "write_bytes", fail_on_png)
+        return real(fd, data)
+    monkeypatch.setattr(b, "_write_all", fail_on_png)
     assert b.run(closing_file=str(closing_file(repo, doc, "SOCCER"))) == 1
     root = repo / "exports" / "bulletins"
     left = [p for p in root.rglob("*") if p.is_file()] if root.exists() else []
@@ -976,3 +977,145 @@ def test_the_817_patterns_keep_their_escapes_and_their_reach():
         assert not any(ch in ln for ln in code), f"U+{ord(ch):04X} must be spelled as an escape in the patterns"
     assert pv.DOLLAR.search(_S + "\u00a012") and pv.DOLLAR.search(_S + "\u221212") and pv.DOLLAR.search("\uff0412")
     assert pv.is_header("a\u241fquantity" "_fp\u241fentry_price" "_dollars\u241frealized_pnl_with_fees" "_dollars")
+
+
+# ------------------------------------------------------------- addendum 309 item 2: one push on the guard --
+# ARCHITECT 2026-11-09 12:50 ET, addendum 309 item 2 (P1): "the bulletin's own secret check reads credential labels
+# with internal whitespace and mixed case on the normalized text — `api key`, `secret key`, `access token`, `private
+# key`, `client secret`, `auth token`, `bearer` — refusing as `secret`; tests on `api key = abcdef123`, `API Key:
+# abcdef123`, `secret key=abcdef123`, `access token abcdef123`; `sp_common.redact` unchanged (shared)."
+
+LABELLED = ["api key = abcdef123", "API Key: abcdef123", "secret key=abcdef123", "access token abcdef123"]
+
+
+@pytest.mark.parametrize("secret", LABELLED)
+def test_a_credential_label_with_internal_whitespace_refuses_the_run_as_secret(repo, capsys, secret):
+    """Each refuses the run under `secret`, writes nothing, and the value is in neither the receipt nor the console;
+    sp_common.redact alone misses every one (the bulletin's own check reads them)."""
+    assert c.redact(secret) == secret                                        # the shared redaction is unchanged
+    doc = soccer_doc()
+    doc["predictions"][1]["desk"]["reason"] = f"edge below the floor · {secret}"
+    assert b.run(closing_file=str(closing_file(repo, doc, "SOCCER"))) == 2
+    rec = receipts()[-1]
+    assert rec["exit"] == 2 and {r["pattern"] for r in rec["bulletin_refused"]} == {b.SECRET_PATTERN}
+    raw, out = c.receipts_path().read_text(), capsys.readouterr().out
+    assert "abcdef123" not in raw and "abcdef123" not in out
+    assert files_under(repo / "exports" / "bulletins") == []
+
+
+@pytest.mark.parametrize("text", ["private key: abcdef123", "Client Secret abcdef123", "AUTH\tTOKEN = abcdef123",
+                                  "Bearer abcdef123", "bearer: eyJhbGciOiJIUzI1NiJ9", "api_key abcdef123",
+                                  "access\u200btoken abcdef123", "Access  Token\nabcdef123", "ＡＰＩ ＫＥＹ: abcdef123"])
+def test_every_ruled_label_is_read_on_the_normalized_text(text):
+    assert b.secret_offence(text) == b.SECRET_PATTERN
+
+
+@pytest.mark.parametrize("text", ["the key match of the round", "Bearer of bad news", "Bearers 12 points",
+                                  "the private key players are out", "a secret key to the 3-0 win",
+                                  "the access token is gone", "auth tokens", "edge below the floor"])
+def test_ordinary_bulletin_prose_is_not_a_credential(text):
+    """"bearer" needs a token-shaped value after it; a label followed by a plain word is prose."""
+    assert b.secret_offence(text) is None and not b.CREDENTIAL.search(text)
+
+
+def test_a_team_named_bearer_and_a_key_match_reason_write_a_clean_pair(repo):
+    doc = soccer_doc()
+    doc["predictions"][0]["home_team"] = "Bearer Rovers"
+    doc["predictions"][1]["desk"]["reason"] = "the key match: edge below the floor"
+    assert b.run(closing_file=str(closing_file(repo, doc, "SOCCER"))) == 0
+    assert receipts()[-1]["exit"] == 0 and len(receipts()[-1]["written"]) == 4
+
+
+def test_no_fixture_family_refuses_under_the_credential_labels(repo):
+    for fam, fn in (("SOCCER", soccer_doc), ("NFL", nfl_doc), ("MLB", mlb_doc)):
+        assert b.run(closing_file=str(closing_file(repo, fn(), fam))) == 0, fam
+    for p in files_under(repo / "exports" / "bulletins"):
+        if p.suffix == ".md":
+            assert not b.CREDENTIAL.search(pv.rendered(p.read_text())), p.name
+
+
+# (P2, law 5) "the staging write: create `.<name>.tmp` with O_CREAT | O_EXCL | O_NOFOLLOW after unlinking a stale
+# non-link temp, refuse when the temp path is a link, and judge the staging parent as the resolved path; a test with a
+# planted link."
+
+def _first_md(repo) -> Path:
+    return repo / "exports" / "bulletins" / "SOCCER" / "2026-11-08" / "9401_beta-hawks_at_alpha-owls_closing.md"
+
+
+@pytest.mark.parametrize("dangling", [False, True], ids=["to a file", "dangling"])
+def test_a_planted_link_at_the_staging_temp_refuses_the_run_and_writes_nothing_through_it(repo, tmp_path, dangling):
+    target = tmp_path / "elsewhere" / "target.txt"
+    target.parent.mkdir()
+    if not dangling:
+        target.write_bytes(b"untouched")
+    md = _first_md(repo)
+    md.parent.mkdir(parents=True)
+    link = md.with_name(f".{md.name}.tmp")
+    link.symlink_to(target)
+    assert b.run(closing_file=str(closing_file(repo, soccer_doc(), "SOCCER"))) == 2
+    rec = receipts()[-1]
+    assert rec["exit"] == 2 and rec["written"] == [] and "link" in rec["error"]
+    assert link.is_symlink() and Path(b.os.readlink(link)) == target            # left as it is
+    if dangling:
+        assert not target.exists()                                            # nothing created through it
+    else:
+        assert target.read_bytes() == b"untouched"                            # nothing written through it
+    left = [p for p in (repo / "exports" / "bulletins").rglob("*") if not p.is_symlink()]
+    assert all(p.is_dir() for p in left), left                                # no file of the run, nothing staged
+
+
+def test_a_stale_regular_temp_is_unlinked_then_created_exclusively(repo):
+    md = _first_md(repo)
+    md.parent.mkdir(parents=True)
+    stale = md.with_name(f".{md.name}.tmp")
+    stale.write_bytes(b"a stopped run's leftover")
+    assert b.run(closing_file=str(closing_file(repo, soccer_doc(), "SOCCER"))) == 0
+    assert md.exists() and b"leftover" not in md.read_bytes() and not stale.exists()
+
+
+def test_a_staging_temp_that_is_a_directory_is_refused(repo):
+    md = _first_md(repo)
+    md.with_name(f".{md.name}.tmp").mkdir(parents=True)
+    with pytest.raises(b.Refused):
+        b.stage_file(md, b"x")
+    assert not md.exists()
+
+
+def test_the_staging_parent_is_judged_as_its_resolved_path(repo, tmp_path):
+    """A parent that is a link into data/ is refused (Refused, never a bare SystemExit past run's receipt)."""
+    inside = repo / "data" / "soc"
+    inside.mkdir(parents=True)
+    fam = repo / "exports" / "bulletins" / "SOCCER"
+    fam.parent.mkdir(parents=True)
+    fam.symlink_to(inside, target_is_directory=True)
+    with pytest.raises(b.Refused):
+        b.stage_file(fam / "2026-11-08" / "x.md", b"x")
+    with pytest.raises(b.Refused):
+        b.stage_file(fam / "x.md", b"x")
+    assert list(inside.rglob("*")) == []
+
+
+def test_write_file_takes_the_same_staging_path(repo, tmp_path):
+    p = repo / "exports" / "bulletins" / "SOCCER" / "x.md"
+    p.parent.mkdir(parents=True)
+    target = tmp_path / "t.txt"
+    target.write_bytes(b"untouched")
+    p.with_name(".x.md.tmp").symlink_to(target)
+    with pytest.raises(b.Refused):
+        b.write_file(p, b"x")
+    assert target.read_bytes() == b"untouched" and not p.exists()
+
+
+# (P2) "THE MATHS exec line in ONE unit: `55c − 46c → +9.0pp` (the model's price as cents of the payout beside the
+# cost in cents); a test."
+
+def test_the_maths_exec_line_speaks_one_unit(repo):
+    doc = soccer_doc()
+    d = doc["predictions"][0]["desk"]
+    d["model_p"] = 0.55
+    d["exec"].update({"cost": 0.46, "edge_pp": 9.0})
+    assert b.run(closing_file=str(closing_file(repo, doc, "SOCCER"))) == 0
+    maths = md_of(repo, "SOCCER", 9401).split("## THE MATHS", 1)[1].split("\n## ", 1)[0]
+    line = next(ln for ln in maths.splitlines() if ln.startswith("- exec edge"))
+    assert line.startswith("- exec edge = model_p − cost = 55c − 46c → +9.00pp"), line
+    assert "0.55" not in line

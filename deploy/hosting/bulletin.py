@@ -553,8 +553,10 @@ def section_maths(row: dict, d: dict, meta: dict) -> list[str]:
     out = ["## THE MATHS", "",
            f"- edge_pp = model_p − market_ref = {v(d.get('model_p'))} − {v(d.get('market_ref'))} → "
            f"{pp(d.get('edge_pp'))} (reference: {v(d.get('reference'))})",
-           f"- exec edge = model_p − cost = {v(d.get('model_p'))} − {cents(ex.get('cost'))} → {pp(ex.get('edge_pp'))} "
-           f"(basis {v(ex.get('basis'))})",
+           # addendum 309 item 2 (P2): the exec line in ONE unit, the model's price as cents of the payout beside
+           # the cost in cents ("55c − 46c → +9.0pp"); pp() formats the edge as every edge line does
+           f"- exec edge = model_p − cost = {cents(d.get('model_p'))} − {cents(ex.get('cost'))} → "
+           f"{pp(ex.get('edge_pp'))} (basis {v(ex.get('basis'))})",
            f"- cost: the taker ask plus the fee at the series' fee multiplier (series {v(row.get('fee_series'))}, "
            f"taker M {v(row.get('fee_m_taker'))}) · taker cost {cents(ex.get('taker_cost'))} · maker cost "
            f"{cents(ex.get('maker_cost'))} · join price {cents(ex.get('join_price'))}",
@@ -757,16 +759,53 @@ def _render_card(spec: dict) -> bytes:
 
 # ------------------------------------------------------------------------------------------------- writer --
 
+def _write_all(fd: int, data: bytes) -> None:
+    """Every byte of `data` to an open descriptor (os.write may write fewer than it is given)."""
+    view = memoryview(data)
+    while view:
+        view = view[os.write(fd, view):]
+
+
 def stage_file(path: Path, data: bytes) -> Path:
     """One file of the run's set written to a temporary name beside its path (the same refusals as write_file);
-    returns the temporary path. Nothing is visible at `path` until commit_staged moves it."""
+    returns the temporary path. Nothing is visible at `path` until write_set moves it.
+    ARCHITECT 2026-11-09 12:50 ET, addendum 309 item 2 (P2, law 5): "create `.<name>.tmp` with O_CREAT | O_EXCL |
+    O_NOFOLLOW after unlinking a stale non-link temp, refuse when the temp path is a link, and judge the staging parent
+    as the resolved path". A temp path that is a link (dangling or not) is REFUSED and left as it is: nothing is
+    written through it and its target is never opened; a stale regular temp is unlinked first; anything else at the
+    temp path (a directory) is refused. The parent is judged under data/ (law 5) as its resolved path, before it is
+    created and again after. A write that fails removes its own temp before it raises."""
     if path.suffix not in em.BULLETIN_SUFFIXES:
         what = path.suffix or "a file with no suffix"
         raise Refused(f"the bulletin writer writes {' and '.join(em.BULLETIN_SUFFIXES)} only, never {what}")
-    c.refuse_under_data(path.parent)
-    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        c.refuse_under_data(path.parent.resolve())
+        path.parent.mkdir(parents=True, exist_ok=True)
+        c.refuse_under_data(path.parent.resolve())
+    except SystemExit as e:                        # refuse_under_data's own exit: a refusal of the run, receipted
+        raise Refused(str(e))
     tmp = path.with_name(f".{path.name}.tmp")
-    tmp.write_bytes(data)
+    if tmp.is_symlink():
+        raise Refused("a bulletin's staging temp is a link: refused, nothing written through it")
+    if tmp.exists():
+        if not tmp.is_file():
+            raise Refused("a bulletin's staging temp is not a regular file: refused, nothing written")
+        tmp.unlink()                               # a stale temp of an earlier run that stopped (never a link)
+    flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0)
+    try:
+        fd = os.open(tmp, flags, 0o644)
+    except FileExistsError:                        # planted between the check and the open: O_EXCL refuses it
+        raise Refused("a bulletin's staging temp appeared before it was created: refused, nothing written")
+    try:
+        _write_all(fd, data)
+    except BaseException:
+        os.close(fd)
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+        raise
+    os.close(fd)
     return tmp
 
 
@@ -774,7 +813,8 @@ def write_set(pairs: list) -> None:
     """ARCHITECT 2026-11-09 09:55 ET, addendum 304 item 1: "the write set is staged complete and moved into place
     only when every file of the game's pair is written; a later write's failure leaves the earlier files out, so the
     mirror never sees a half pair". Every file of the run is staged first; a staging failure removes every staged file
-    and raises (nothing moved); then each is moved into place with os.replace."""
+    and raises (nothing moved; the failing file's own temp is removed by stage_file, and a temp path it refused, a
+    link, is left as it is); then each is moved into place with os.replace."""
     staged = []
     try:
         for path, data in pairs:
@@ -785,12 +825,6 @@ def write_set(pairs: list) -> None:
                 tmp.unlink()
             except OSError:
                 pass
-        partial = pairs[len(staged)][0] if len(staged) < len(pairs) else None
-        if partial is not None:
-            try:
-                partial.with_name(f".{partial.name}.tmp").unlink()
-            except OSError:
-                pass
         raise
     for tmp, path in staged:
         os.replace(tmp, path)
@@ -798,15 +832,9 @@ def write_set(pairs: list) -> None:
 
 def write_file(path: Path, data: bytes) -> None:
     """The ONE writer (item 4: "NO JSON is ever written under it"): .md and .png only (exports_mirror
-    .BULLETIN_SUFFIXES), atomically (a temporary name beside it, then the rename), never under data/ (law 5)."""
-    if path.suffix not in em.BULLETIN_SUFFIXES:
-        what = path.suffix or "a file with no suffix"
-        raise Refused(f"the bulletin writer writes {' and '.join(em.BULLETIN_SUFFIXES)} only, never {what}")
-    c.refuse_under_data(path.parent)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f".{path.name}.tmp")
-    tmp.write_bytes(data)
-    os.replace(tmp, path)
+    .BULLETIN_SUFFIXES), atomically (stage_file's temporary name beside it, then the rename), never under data/
+    (law 5)."""
+    os.replace(stage_file(path, data), path)
 
 
 def mirror_url(rel: str, out_dir: Path) -> str:
@@ -872,6 +900,21 @@ def shown(out: Path, rel: str) -> str:
 
 SECRET_PATTERN = "secret"
 REDACTED_MARK = "[REDACTED]"                       # what sp_common.redact writes in place of a key
+# ARCHITECT 2026-11-09 12:50 ET, addendum 309 item 2 (P1): "the bulletin's own secret check reads credential labels
+# with internal whitespace and mixed case on the normalized text — `api key`, `secret key`, `access token`, `private
+# key`, `client secret`, `auth token`, `bearer` — refusing as `secret`". The label's words may be joined by whitespace,
+# "_" or "-" or nothing (api key, API_Key, apikey), any case. After a label (bearer apart) a value follows "=" or ":"
+# (any non-blank text, as sp_common.redact reads a key=value) or whitespace alone (then a TOKEN-SHAPED value: so "the
+# private key players" is prose, "access token abcdef123" is a credential). "bearer" is followed by a token-shaped value
+# always ("Bearer of bad news" is prose). Token-shaped: a letter or digit first, then letters, digits and . _ ~ + / = -,
+# six or more in all with a digit among them, or twenty or more without one. sp_common.redact is unchanged (shared).
+_LABEL_WORD = r"[\s_-]*"
+CREDENTIAL_LABELS = ("api key", "secret key", "access token", "private key", "client secret", "auth token")
+_TOKEN = (r"(?:(?=[A-Za-z0-9._~+/=-]*[0-9])[A-Za-z0-9][A-Za-z0-9._~+/=-]{5,}"
+          r"|[A-Za-z0-9][A-Za-z0-9._~+/=-]{19,})(?![A-Za-z0-9._~+/=-])")
+_LABELS = "|".join(_LABEL_WORD.join(re.escape(w) for w in lab.split()) for lab in CREDENTIAL_LABELS)
+CREDENTIAL = re.compile(r"(?i)(?<![a-z0-9])(?:(?:" + _LABELS + r")(?:\s*[=:]\s*\S|\s+" + _TOKEN + r")"
+                        r"|bearer(?:\s*[=:]\s*|\s+)" + _TOKEN + r")")
 
 
 def secret_offence(text: str) -> str | None:
@@ -881,11 +924,13 @@ def secret_offence(text: str) -> str | None:
     run is refused under `secret`, and the key itself is never in the receipt or on the console.
     Addendum 299 item 1: the key rule also reads the guard's NORMALIZED text (privacy_patterns.rendered: entities
     decoded, NFKC, format characters dropped), so a credential written with a zero-width or a fullwidth character
-    ("api\u200b_key=...", "api_key\uff1d...") is refused too: either reading matching refuses."""
+    ("api\u200b_key=...", "api_key\uff1d...") is refused too: either reading matching refuses.
+    Addendum 309 item 2: the credential labels (CREDENTIAL: api key, secret key, access token, private key, client
+    secret, auth token, bearer) are read on the same normalized text, any case, the words joined by whitespace."""
     if REDACTED_MARK in text:
         return SECRET_PATTERN
     norm = rendered(text)
-    return SECRET_PATTERN if c.redact(norm) != norm else None
+    return SECRET_PATTERN if c.redact(norm) != norm or CREDENTIAL.search(norm) else None
 
 
 def refused_path(out: Path, rel: str, pattern: str | None = None) -> str:

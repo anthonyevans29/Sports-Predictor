@@ -189,6 +189,12 @@ _SEASON_YEAR = re.compile(r"(\d{4})(?!\d)")
 # Item 1, the facts (stored orientation: the row's home team first), keyed by PROVIDER ID (312 item 3(e): "EXPECTED
 # pins content, not ids"). `live`: the 2026 game as the row reads today (its score by team, the chain's write); `from`:
 # the 2025 game, the row on 2026-10-09; `new`: the listing's orientation of the 2026 game.
+# The CFBD games of each collided row (addendum 314 item 1, verbatim in part: "on 10-09 held the 2025 game's CFBD label
+# (source_game_id 401756942 / 401752759, season 2025 ...) and today holds the 2026 game's label written on 11-08
+# (401856848 / 401856740, season 2026, orientation 'swapped' ...)"): a moved ncaa_cfbd_labels / ncaa_cfbd_pregame row
+# must carry the 2026 game's id and a restored one the 2025 game's (#910 review: the game verified positively)
+CFBD_GAMES = {"18216": {"live": 401856848, "from": 401756942}, "18240": {"live": 401856740, "from": 401752759}}
+
 EXPECTED = {
     "18216": {"home": "Utah", "away": "Cincinnati",
               "live": {"season": "2026", "kickoff": datetime(2026, 10, 31, 19, 45), "score": (49, 25)},
@@ -587,12 +593,14 @@ def _side_swaps(r: dict, col: str) -> dict:
     return out
 
 
-def _reorient(t: str, r: dict, new_scores, new_season=None) -> tuple[dict, list[str], list[str]]:
+def _reorient(t: str, r: dict, new_scores, new_season=None, game=None) -> tuple[dict, list[str], list[str]]:
     """addendum 314 item 2(a)/(c): ({column: value written on the move}, the print's parts, refusals) for one
     ncaa_cfbd_labels / ncaa_cfbd_pregame row moved onto the new row, whose home is the old row's away. The row must be
     the new row's game's: its season's year the new row's (`new_season`, the new row as the plan builds it), else
     refused (the ruling moves "The live row (the 2026 label)"; a 2025 row re-fetched, or read as added, is not it —
-    the premise checked, not assumed). orientation flips ('swapped' <-> 'same'; any other value refused, named);
+    the premise checked, not assumed), and its source_game_id the 2026 game's (`game`, CFBD_GAMES; else refused). Its
+    orientation must read 'swapped' and is written 'same' (314 item 2(a): "orientation 'same' (CFBD's home —
+    Cincinnati, LSU — is the new row's home)"; any other value refused, named, #910 review);
     labels only: home_score / away_score swap, and correction_reason is written NULL, only when the swapped scores read
     the new row's own home_score / away_score (`new_scores`; else refused, never guessed); updated_at the apply's
     time; every other column as it is."""
@@ -603,12 +611,16 @@ def _reorient(t: str, r: dict, new_scores, new_season=None) -> tuple[dict, list[
     elif want is None or season_year(r["season"]) != want:
         bad.append(f"season {r['season']!r} is not the new row's {new_season!r}: not shown to be the new row's game's "
                    f"(addendum 314 item 2(a): \"The live row (the 2026 label) MOVES\") — not moved, not guessed")
+    if game is None or str(r.get("source_game_id")) != str(game):
+        bad.append(f"source_game_id {r.get('source_game_id')!r} is not the 2026 game's {game!r} (addendum 314 item 1) "
+                   f"— not shown to be the new row's game's, not moved, not guessed")
     o = r.get("orientation")
-    if o in FLIP:
+    if o == "swapped":
         upd["orientation"] = FLIP[o]
         parts.append(f"orientation {o}→{FLIP[o]}")
     else:
-        bad.append(f"orientation {o!r} is neither 'same' nor 'swapped' — not re-expressed, not guessed")
+        bad.append(f"orientation {o!r} is not 'swapped': the new row's orientation is 'same' (addendum 314 item 2(a): "
+                   f"CFBD's home is the new row's home) only from 'swapped' — not re-expressed, not guessed")
     if t == CFBD_SCORED:
         missing = [c for c in ("home_score", "away_score", "correction_reason") if c not in r]
         if missing:
@@ -637,7 +649,7 @@ def _cfbd_line(t: str, mid, nid, parts: list[str], tail: str) -> str:
 
 
 def _plan_cfbd(live, frm, t, col, mid, nid, new_scores, added, changed, fby, key, kname, diff, move_added,
-               out, new_season=None) -> tuple[list, list, list]:
+               out, new_season=None, games=None) -> tuple[list, list, list]:
     """addendum 314 item 2, for ncaa_cfbd_labels / ncaa_cfbd_pregame only: (moves, cfbd entries, refusals). A CHANGED
     row (the copy's key, other content) MOVES+REORIENTS to the new row and the copy's row is RESTORED onto `mid`; an
     ADDED row (no copy row on `mid`, or --from-json) MOVES+REORIENTS under --move-added, nothing restored. LOST and
@@ -648,7 +660,11 @@ def _plan_cfbd(live, frm, t, col, mid, nid, new_scores, added, changed, fby, key
     for r in changed:
         k = kname(key(r))
         fr = fby[key(r)]
-        upd, parts, rb = _reorient(t, r, new_scores, new_season)
+        upd, parts, rb = _reorient(t, r, new_scores, new_season, (games or {}).get("live"))
+        # the copy's row restored must be the 2025 game's (CFBD_GAMES; #910 review)
+        if str(fr.get("source_game_id")) != str((games or {}).get("from")):
+            rb.append(f"the copy's source_game_id {fr.get('source_game_id')!r} is not the 2025 game's "
+                      f"{(games or {}).get('from')!r} (addendum 314 item 1) — not restored, not guessed")
         # the same CFBD game as the copy's row is the 2025 game's (a re-fetch changes only its stamps): never moved
         if fr.get("source_game_id") is not None and r.get("source_game_id") == fr.get("source_game_id"):
             rb.append(f"source_game_id {r.get('source_game_id')!r} is the copy's row's (the 2025 game's): not the new "
@@ -674,7 +690,7 @@ def _plan_cfbd(live, frm, t, col, mid, nid, new_scores, added, changed, fby, key
     refused = []
     for r in added:
         k = kname(key(r))
-        upd, parts, rb = _reorient(t, r, new_scores, new_season)
+        upd, parts, rb = _reorient(t, r, new_scores, new_season, (games or {}).get("live"))
         tail = ("no 2025 row restored (--from-json: no copy)" if frm is None else
                 f"no 2025 row restored (the copy holds none on {mid})")
         if move_added:
@@ -715,7 +731,7 @@ def _who(r: dict) -> str:
 
 
 def plan_refs(live, frm, refs, unkeyed, mid, book_rows: str, move_added: bool, out, nid=None,
-              new_scores=None, new_season=None) -> tuple[list, list, list, list]:
+              new_scores=None, new_season=None, games=None) -> tuple[list, list, list, list]:
     """(moves, stays, refusals, cfbd) for every table referencing `mid`, every row printed as it is read (a refused one
     included). moves: (table, col, rowid, {col: new values}, row, kind) with kind "item4", "added" or "cfbd"; stays:
     (table, n); refusals: lines; cfbd: addendum 314 item 2's entries (the moved row, its re-expression, the copy's row
@@ -791,7 +807,7 @@ def plan_refs(live, frm, refs, unkeyed, mid, book_rows: str, move_added: bool, o
             # addendum 314 item 2: these two tables only; (d) "The script's CHANGED check stays as it is for every
             # other table". A LOST row is refused below as for every table; an identical row STAYS.
             mv, ent, rf = _plan_cfbd(live, frm, t, col, mid, nid, new_scores, added, changed, fby, key, kname, diff,
-                                     move_added, out, new_season)
+                                     move_added, out, new_season, games)
             moves += mv
             cfbd += ent
             bad += rf
@@ -1001,7 +1017,7 @@ def _run(live, frm, extract, ids, apply, book_rows, move_added, out, _fail_at, s
             nr_scores = (nr.get("home_score"), nr.get("away_score"))
             nr_season = nr.get("season")
         mv, st, rf, cf = plan_refs(live, frm, refs, unkeyed, mid, book_rows, move_added, out, nid=nids[pid],
-                                   new_scores=nr_scores, new_season=nr_season)
+                                   new_scores=nr_scores, new_season=nr_season, games=CFBD_GAMES.get(pid))
         moves[pid], stays[pid], cfbd[pid] = mv, st, cf
         bad += [f"row {mid}: {x}" for x in rf]
         for t, col in unkeyed:

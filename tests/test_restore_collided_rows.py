@@ -942,11 +942,12 @@ def _labels(which, layout=LAPTOP, only=(0, 1), **over):
     return fn
 
 
-def _pregame(which, layout=LAPTOP, i=0):
+def _pregame(which, layout=LAPTOP, i=0, **over):
     f = (dict(source_game_id=401756942, season="2025", orientation="same", source_home_team="Utah",
               source_away_team="Cincinnati", source_start=datetime(2025, 11, 2, 2, 15)) if which == "2025" else
          dict(source_game_id=401856848, season="2026", orientation="swapped", source_home_team="Cincinnati",
               source_away_team="Utah", source_start=datetime(2026, 10, 31, 19, 45)))
+    f.update(over)
     return lambda s: s.add(NCAACFBDPregame(match_id=layout["rows"][i], source="cfbd", neutral=False, join_via="exact",
                                            payload_file=f"exports/cfbd_pregame_{which}.json",
                                            **(_STAMP_2025 if which == "2025" else _STAMP_2026), **f))
@@ -1074,7 +1075,17 @@ def test_a_changed_row_of_another_table_still_refuses_beside_the_label_handler(p
      "ncaa_cfbd_labels 36454: the swapped scores 24-49 are not the new row's 25-49: correction_reason is cleared only "
      "when they agree (addendum 314 item 2(a)) — not guessed"),
     ({"orientation": "unknown"},
-     "ncaa_cfbd_labels 36454: orientation 'unknown' is neither 'same' nor 'swapped' — not re-expressed, not guessed"),
+     "ncaa_cfbd_labels 36454: orientation 'unknown' is not 'swapped': the new row's orientation is 'same' (addendum 314 "
+     "item 2(a): CFBD's home is the new row's home) only from 'swapped' — not re-expressed, not guessed"),
+    # #910 review (Codex): a 2026 label reading 'same' would be written 'swapped' by a two-way flip; refused instead
+    ({"orientation": "same"},
+     "ncaa_cfbd_labels 36454: orientation 'same' is not 'swapped': the new row's orientation is 'same' (addendum 314 "
+     "item 2(a): CFBD's home is the new row's home) only from 'swapped' — not re-expressed, not guessed"),
+    # #910 review (Codex): the moved row's CFBD game verified positively (addendum 314 item 1's ids), not only as
+    # "not the copy's"
+    ({"source_game_id": 401999999},
+     "ncaa_cfbd_labels 36454: source_game_id 401999999 is not the 2026 game's 401856848 (addendum 314 item 1) — not "
+     "shown to be the new row's game's, not moved, not guessed"),
 ])
 def test_a_label_the_rule_cannot_re_express_is_refused(pair, capsys, over, why):
     live, frm = pair([_labels("2026", only=(0,), **over)], [_labels("2025", only=(0,))])
@@ -1104,7 +1115,33 @@ def test_a_2025_pregame_row_re_fetched_is_refused_not_moved(pair, capsys):
         assert f"REFUSED: row 36454: {_NOT_2026.format(mid=36454)}" in out
         assert ("REFUSED: row 36454: ncaa_cfbd_pregame 36454: source_game_id 401756942 is the copy's row's (the 2025 "
                 "game's): not the new row's game's — not moved, not guessed") in out
-        assert "MOVE+REORIENT ncaa_cfbd_pregame 36454 → 58453: orientation same→swapped" in out and "-> REFUSED" in out
+        assert "MOVE+REORIENT ncaa_cfbd_pregame 36454 → 58453: " in out and "-> REFUSED" in out
+        assert ("ncaa_cfbd_pregame 36454: orientation 'same' is not 'swapped'" in out
+                and "ncaa_cfbd_pregame 36454: source_game_id 401756942 is not the 2026 game's 401856848" in out)
+    assert _dump(live) == before
+
+
+def test_the_copys_row_must_be_the_2025_game_to_be_restored(pair, capsys):
+    """#910 review (Codex): the restored row is verified positively too: a copy row whose CFBD game is not 314 item 1's
+    2025 id is not restored (and nothing moves)."""
+    live, frm = pair([_labels("2026", only=(0,))], [_labels("2025", only=(0,), source_game_id=401000001)])
+    before = _dump(live)
+    for flag in ("--dry-run", "--apply"):
+        assert _main(live, frm, flag) == 2
+        out = capsys.readouterr().out
+        assert ("REFUSED: row 36454: ncaa_cfbd_labels 36454: the copy's source_game_id 401000001 is not the 2025 game's "
+                "401756942 (addendum 314 item 1) — not restored, not guessed") in out
+    assert _dump(live) == before
+
+
+def test_an_added_row_of_another_cfbd_game_is_refused_under_move_added(pair, capsys):
+    """#910 review (Codex): an ADDED (no copy row) pregame row with a valid season and orientation but another CFBD game
+    is refused under --move-added: pregame rows have no score check, the game id is the positive check."""
+    live, frm = pair([_pregame("2026", source_game_id=401999998)], [])
+    before = _dump(live)
+    assert _main(live, frm, "--apply", "--move-added") == 2
+    out = capsys.readouterr().out
+    assert "ncaa_cfbd_pregame 36454: source_game_id 401999998 is not the 2026 game's 401856848" in out
     assert _dump(live) == before
 
 

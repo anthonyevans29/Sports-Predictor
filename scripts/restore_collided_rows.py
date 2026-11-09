@@ -303,6 +303,10 @@ def run(db: Path, frm_path: Path, ids: list[int], apply: bool, out=print, _fail_
     unknown = [i for i in ids if i not in EXPECTED]
     if unknown:
         raise Refused(f"ids {unknown} have no pinned state in item 1 (EXPECTED: {sorted(EXPECTED)})")
+    if sorted(set(ids)) != sorted(EXPECTED) or len(ids) != len(EXPECTED):
+        # the two rows are restored together or not at all (Codex on #906): a partial --ids would commit a
+        # successful-looking restore and leave the other collided row as it is
+        raise Refused(f"--ids must name exactly the pinned rows {sorted(EXPECTED)}, each once (given: {ids})")
     frm = open_from(frm_path)
     live = open_live(db, apply)
     try:

@@ -221,6 +221,22 @@ def test_an_unknown_team_listing_never_marks_another_seasons_row():
     before = _raw(old)
     r = _sync(code, [_nm(code, sid, "pis-not-in-db", hp)])
     assert r.teams_mismatch_refused == [] and r.skipped == 1 and _raw(old) == before
+    # Codex on #906: the unknown-team branch does the upsert's own accounting, so the cross-season collision is
+    # counted there too (the row stays untouched; the skip is counted once)
+    assert r.provider_id_collision == [(old, "2025", sid)]
+
+
+def test_an_unknown_team_listing_with_no_season_is_refused_once():
+    """The unknown-team branch counts an unknown-season refusal on the receipt, and the skip once (Codex on #906)."""
+    code = "PISUNKS"
+    (h, hp), (a, ap) = _pair()
+    sid = _gid()
+    old = _stored(code, sid, h, a, "2025", KICK_2025, home_score=45, away_score=14, full_time_result=Result.HOME)
+    before = _raw(old)
+    nm = _nm(code, sid, "pis-not-in-db-2", hp)
+    nm.season = None
+    r = IngestionService(Listing([nm])).sync_matches(code, season=None)
+    assert r.provider_id_season_unknown == [sid] and r.skipped == 1 and _raw(old) == before
 
 
 # ---------------------------------------------------------------------------- item 3(c): the re-key index

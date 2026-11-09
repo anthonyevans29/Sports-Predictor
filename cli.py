@@ -1845,6 +1845,8 @@ def intl_sync_cmd(since, max_calls, dry_run, save, from_dir):
         click.echo(f"  {r['names_kept_line']}")
     if r.get("provider_id_collision_line"):   # addendum 310 item 3(b): always, zero included
         click.echo(f"  {r['provider_id_collision_line']}")
+    if r.get("season_unknown_line"):          # addendum 310 item 3(a): the no-write refusals, named (Codex on #906)
+        click.echo(f"  {r['season_unknown_line']}")
     if r.get("scores_by_team_line"):          # addendum 292 item 3(c): always, zero counts included
         click.echo(f"  {r['scores_by_team_line']}")
     click.echo("  neutral_derived: " + " · ".join(f"{k} {v}" for k, v in sorted(r["neutral"].items())))

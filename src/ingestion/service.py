@@ -804,9 +804,11 @@ class IngestionService:
         if cache is None:
             cache = self._match_cache_for(s, comp, nm.source)
         # addendum 310 item 3(a): only a stored row of the listing's own season is read against it; a row of another
-        # season (or of an unknown one) carrying the id is another game and is never written here
-        match = self._same_season_row(nm, cache)
-        if match is None or match.id is None:
+        # season (or of an unknown one) carrying the id is another game and is never written here. The lookup is the
+        # upsert's own, so a cross-season collision or an unknown-season refusal is counted here too (Codex on #906);
+        # the skip is the caller's, counted once
+        match, refused = self._match_by_source(s, nm, comp, result, cache, count_skip=False)
+        if refused or match is None or match.id is None:
             return
         ext = with_orientation_key(match.external_ids, MISMATCH)
         if ext is not None:
@@ -1015,7 +1017,7 @@ class IngestionService:
         return cache.get(_cache_key(nm.source, nm.source_id, nm.season))
 
     def _match_by_source(self, s: Session, nm: NormalizedMatch, comp: Competition, result: SyncResult,
-                         cache: dict) -> tuple[Match | None, bool]:
+                         cache: dict, count_skip: bool = True) -> tuple[Match | None, bool]:
         """(the stored row of the listing's season carrying its provider id, or None; refused). THE PROVIDER ID IS
         THE SEASON'S (ARCHITECT 2026-11-09, addendum 310 item 3(a)-(b), #902): for every source that is not
         SPORT_WIDE the lookup is scoped to the competition (the cache's rows) AND the listing's own season. A stored
@@ -1037,7 +1039,8 @@ class IngestionService:
                         "the listing names no season" if listed is None else "a stored row's season is unknown",
                         [m.id for m in others] or "none")
             result.provider_id_season_unknown.append(str(nm.source_id))
-            result.skipped += 1
+            if count_skip:          # the unknown-team branch has counted its own skip (Codex on #906)
+                result.skipped += 1
             return None, True
         for m in others:
             if season_key(m.season) in (None, listed):

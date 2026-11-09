@@ -134,6 +134,21 @@ def test_exactly_one_of_dry_run_and_apply(pair, flags):
     assert e.value.code == 2 and _dump(live) == before
 
 
+@pytest.mark.parametrize("ids", ["36454", "36753", "36454,36454", "36454,36454,36753"])
+def test_the_ids_must_name_exactly_the_pinned_rows(pair, capsys, ids):
+    """Codex on #906 (P1): the two rows are restored together or not at all; a partial or repeated --ids refuses,
+    nothing written, on a dry run and on an apply."""
+    live, frm = pair()
+    before = _dump(live)
+    for flag in ("--dry-run", "--apply"):
+        assert _main(live, frm, flag, ids=ids) == 2
+        cap = capsys.readouterr()
+        out = cap.out + cap.err
+        # a partial set is the new refusal; a repeated id is refused earlier by --ids' own parse
+        assert ("--ids must name exactly the pinned rows" in out) if "," not in ids else ("REFUSED" in out)
+        assert _dump(live) == before
+
+
 # ---------------------------------------------------------------------------- the dry run
 
 

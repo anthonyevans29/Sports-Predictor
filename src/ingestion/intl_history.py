@@ -271,7 +271,8 @@ def ingest(src: Source, since: date, max_calls: int = 80, dry_run: bool = False)
     from src.db.database import session_scope
     from src.db.schema import Competition, Match, MatchNeutralDerived, Sport
     from src.ingestion.service import (SyncResult, match_cache, names_kept_line, newest_membership_years,
-                                        provider_id_collision_line, scores_by_team_line)
+                                        provider_id_collision_line, scores_by_team_line,
+                                        season_unknown_line)
     from src.ingestion.score_orientation import provider_reversed
 
     leagues = src.get("leagues.json", "leagues", {"country": "World"}).get("response") or []
@@ -400,6 +401,10 @@ def ingest(src: Source, since: date, max_calls: int = 80, dry_run: bool = False)
             "scores_by_team_line": scores_by_team_line(mres),
             # ARCHITECT 2026-11-09, addendum 310 item 3(b) (#902): a stored row of another season carrying a listed id
             "provider_id_collision_line": provider_id_collision_line(mres.provider_id_collision),
+            # the no-write refusals of 310 item 3(a), apart from the other skips (Codex on #906)
+            "provider_id_season_unknown": list(mres.provider_id_season_unknown),
+            "season_unknown_line": (season_unknown_line(mres.provider_id_season_unknown)
+                                    if mres.provider_id_season_unknown else None),
             "neutral": dict(neutral), "dry_run": dry_run}
 
 

@@ -156,7 +156,10 @@ def _copy(tmp_path) -> Path:
         s.add_all([m("E1", MatchStatus.FINISHED, 0, 1, Result.HOME, {**sett, "kalshi_kickoff": "occurrence_datetime"}),
                    m("E2", MatchStatus.SETTLED_SCALAR, 2, 3, None, {**sett, "kalshi_kickoff": "START_UNREAD"}),
                    m("E3", MatchStatus.FINISHED, 4, 5, None, None, hs=2),                 # planted: three defects
-                   m("E4", MatchStatus.SCHEDULED, 0, 2, when=datetime(2026, 11, 1))])
+                   m("E4", MatchStatus.SCHEDULED, 0, 2, when=datetime(2026, 11, 1)),
+                   # 294 item 13(b): a held row whose event a sync refused carries the refusal label in the same key
+                   m("E5", MatchStatus.FINISHED, 1, 3, Result.AWAY,
+                     {**sett, "kalshi_kickoff": kt.OCCURRENCE_DIFFER})])
         s.commit()
     eng.dispose()
     return path
@@ -168,19 +171,25 @@ def test_the_stored_phase_counts_per_season_and_the_true_zero_checks(tmp_path, c
     out = capsys.readouterr().out
     assert code == R.OK, out
     assert "players stored (teams of sport TENNIS): 6" in out
-    assert "ATP (stored): 4 rows · sport TENNIS: 4" in out
-    assert "2026: 4 rows · by status: FINISHED: 2 · SCHEDULED: 1 · SETTLED_SCALAR: 1" in out
+    assert "ATP (stored): 5 rows · sport TENNIS: 5" in out
+    assert "2026: 5 rows · by status: FINISHED: 3 · SCHEDULED: 1 · SETTLED_SCALAR: 1" in out
     assert "FINISHED with no winner: 1 (must read 0: TRUE ZERO)" in out
     assert "FINISHED with no settlement kept: 1 (must read 0" in out
     assert "SETTLED_SCALAR carrying a winner: 0 (must read 0" in out
     assert "a score stored (NULL AND LABELLED by 269 item 2): 1 (must read 0" in out
     assert "more than 2 days before this run (unsettled, or settled after the chain's window): 1" in out
-    assert ("by stored kickoff source (external_ids['kalshi_kickoff'], addendum 288 item 1; START_UNREAD rows are never "
-            "captured): <none stored>: 2 · START_UNREAD: 1 · occurrence_datetime: 1") in out, out
+    # 297 item B.12: the line's text "adds "and refusal labels (294 item 13(b))"", and the line counts them: the refusal
+    # label is counted verbatim beside the sources (one key, one Counter), and the labelled rows on their own
+    assert ("by stored kickoff source and refusal labels (294 item 13(b)) (external_ids['kalshi_kickoff'], addendum "
+            "288 item 1; START_UNREAD rows are never captured): <none stored>: 2 · START_UNREAD: 1 · "
+            f"occurrence_datetime: 1 · {kt.OCCURRENCE_DIFFER}: 1 · rows carrying a refusal label (never captured): "
+            "1") in out, out
     tail = json.loads(out.strip().splitlines()[-1].split(" ", 1)[1])
-    assert tail["phase"] == "stored" and tail["tours"]["ATP"]["seasons"]["2026"]["rows"] == 4
+    assert tail["phase"] == "stored" and tail["tours"]["ATP"]["seasons"]["2026"]["rows"] == 5
     assert tail["tours"]["ATP"]["seasons"]["2026"]["kickoff_sources"] == {"<none stored>": 2, "START_UNREAD": 1,
-                                                                   "occurrence_datetime": 1}, tail
+                                                                   "occurrence_datetime": 1,
+                                                                   kt.OCCURRENCE_DIFFER: 1}, tail
+    assert tail["tours"]["ATP"]["seasons"]["2026"]["kickoff_refusal_labelled"] == 1, tail
 
 
 def test_the_stored_phase_refuses_a_copy_with_a_sidecar_and_reads_nothing(tmp_path, capsys):
@@ -337,3 +346,45 @@ def test_a_winner_mismatch_event_the_kickoff_rule_refuses_is_still_read_for_its_
                                       (0, R.EMPTY), (1, "1")])
 def test_an_expiration_value_is_classed_as_served_never_interpreted(raw, want):
     assert R.exp_class(raw, "Ana Synthwood", "Bea Fakely") == want
+
+
+def test_the_map_counts_result_word_echo_per_tour_and_the_name_variant_stays_listed(capsys):
+    """ARCHITECT 2026-11-08, addendum 296 item 2: a 'Yes' / 'No' event is FINISHED by branch (b), "counted under a label
+    of its own, RESULT_WORD_ECHO, and printed by the receipt's MAP"; the name variant of SHAPE 2 (HANDAM: 'Martin
+    Damm' on both against the yes market's 'Martin Damm Jr') "stay[s] SCHEDULED, listed". The header names both
+    branches; the SHAPES keep listing what is still WINNER_MISMATCH. BAEMAC's date and both events' other player are
+    SYNTHETIC placeholders (the ruling names neither)."""
+    settled = (_mismatch("26OCT20BAEMAC", "Tomas Machac", "Bae Placeholder", "Yes", "No")
+               + _mismatch("26OCT20CCCDDD", "Cal Mockton", "Dov Testerly", " yes", "NO ")
+               + _mismatch("26OCT19HANDAM", "Martin Damm Jr", "Han Placeholder", "Martin Damm", "Martin Damm")
+               + _mismatch("26OCT20EEEFFF", "Eli Sampleton", "Fay Dummer", "Eli Sampleton", "Eli Sampleton")
+               + _mismatch("26OCT20GGGHHH", "Gus Oldfield", "Hal Pastly", "Yes", ""))
+    wta = _mismatch("26OCT20KKKLLL", "Kim Trialson", "Lea Pretendo", "Yes", "No")
+    for m in wta:
+        m["event_ticker"] = m["event_ticker"].replace("KXATPMATCH", "KXWTAMATCH")
+        m["ticker"] = m["ticker"].replace("KXATPMATCH", "KXWTAMATCH")
+    code, out, _ = run(capsys, fake=provider(pages={("KXATPMATCH", "settled"): [settled],
+                                                    ("KXWTAMATCH", "settled"): [wta]}))
+    assert code == R.OK, out
+    atp = out[out.index("\nATP · KXATPMATCH"):out.index("\nWTA · KXWTAMATCH")]
+    wtab = out[out.index("\nWTA · KXWTAMATCH"):]
+    head = atp[atp.index("THE MAP (addendum 269 item 3(b))"):atp.index("projected:")]
+    assert "(a) expiration_value is the 'yes' market's player" in head, head
+    assert ("(b) the 'yes' market's expiration_value reads 'Yes' and the 'no' market's 'No', case-insensitive after "
+            "stripping, both holding (addendum 296 item 2: RESULT_WORD_ECHO, counted below)") in " ".join(head.split())
+    # the settled page replaces the provider's: FINISHED = BAEMAC, CCCDDD (b) and EEEFFF (a); SCHEDULED = HANDAM,
+    # GGGHHH and the provider's open event
+    assert "projected: FINISHED: 3 · SCHEDULED: 3" in atp, atp
+    assert f"FINISHED by branch (b), {kt.RESULT_WORD_ECHO}: 2 of 3 FINISHED (the rest by branch (a))" in atp, atp
+    assert f"FINISHED by branch (b), {kt.RESULT_WORD_ECHO}: 1 of 1 FINISHED (the rest by branch (a))" in wtab, wtab
+    # HANDAM and the 'Yes' / '' pair stay SCHEDULED by WINNER_MISMATCH, listed, and their shapes are printed
+    assert f"KXATPMATCH-26OCT19HANDAM: {kt.WINNER_MISMATCH}" in atp and f"KXATPMATCH-26OCT20GGGHHH: " \
+        f"{kt.WINNER_MISMATCH}" in atp, atp
+    assert "KXATPMATCH-26OCT20BAEMAC:" not in atp                       # FINISHED: never in the SCHEDULED listing
+    blk = atp[atp.index("THE expiration_value SHAPES"):atp.index("SETTLED_SCALAR events:")]
+    assert "every shape printed: 2 event(s)" in blk and "'Martin Damm' / 'Martin Damm'" in blk, blk
+    assert "BAEMAC" not in blk and "CCCDDD" not in blk
+    tail = json.loads(out.strip().splitlines()[-1].split(" ", 1)[1])
+    assert tail["tours"]["ATP"]["result_word_echo"] == 2 and tail["tours"]["WTA"]["result_word_echo"] == 1
+    assert tail["tours"]["ATP"]["projected"]["FINISHED"] == 3 and tail["tours"]["WTA"]["projected"] == {"FINISHED": 1,
+                                                                                                         "SCHEDULED": 1}

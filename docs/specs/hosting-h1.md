@@ -1171,14 +1171,23 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
       `sync-matches --competition NCAA` and were not held: ncaa-schedule (`sp-ncaa-schedule.timer`) and the window
       chain (`sp-window.timer`). Both ran under v1.6.5's any-season lookup from 11-09 until the v1.6.6 deploy on 11-10.
       v1.6.6 closes them with the season-scoped key, so no entry is added for them (325 item 1(c)).
-      - **How to find every chain (the grep, then the one place it cannot see):** for a fixed chain, grep
+      - **How to find every chain (the grep, then the two places it cannot see):** for a fixed chain, grep
         `deploy/hosting/chains.py` for the step, e.g. `grep -n '"sync-matches", "--competition", "NCAA"'
-        deploy/hosting/chains.py`. On 8aa27a89 that finds ncaa-market and ncaa-schedule. The window chain's steps are
-        not in chains.py's text: `CHAINS["window"]` has `"steps": []`, and `sp_run.window_plan` builds a
-        `sync-matches --competition <code> --season <season>` step at run time for every competition with a game
-        inside its 24 hours. So the grep finds two of the three chains that carried the NCAA step; the window's is
-        read in `sp_run.window_plan`. How a hold names the window chain is open for the architect (raised with this
-        PR).
+        deploy/hosting/chains.py`. On 8aa27a89 that finds ncaa-market and ncaa-schedule. Two timer-driven chains
+        build their `sync-matches` steps at run time, so the grep cannot see them (read on 8aa27a89):
+        - **window** (`sp-window.timer`, hourly): `CHAINS["window"]` has `"steps": []`. `sp_run.window_plan` adds a
+          `sync-matches --competition <code> --season <season>` step for every competition with a game inside its
+          24 hours.
+        - **weekly-fullseason** (`sp-weekly-fullseason.timer`, Sun 06:00 UTC): `CHAINS["weekly-fullseason"]` declares
+          only the CFBD step (`"fullseason": True`). `sp_run.fullseason_resolve` adds `sync-teams` then
+          `sync-matches --competition CODE --season SEASON` for each line of the host's `SP_FULLSEASON_LIST`. T9's
+          generator writes a line for every competition with matches within ±30 days, so whether NCAA is on it is
+          read from the host's list, not assumed. Codex on #918 found this one; the grep misses it as it misses the
+          window.
+
+        No other code path builds the step on a timer: `bootstrap.py` is operator-started, and the closing freshen
+        steps (`closing.py`) carry `--match-ids` for the closing families only. How a hold names the two data-driven
+        chains is open for the architect (raised with this PR).
     - **The deploy's receipt:** 323 item 1 rules that the deploy's report of timers missing from `timers.enabled`
       reads this list. Today `sp_deploy.py` reads only T11's lists, so a held timer missing from the file still
       reads "!" under `TIMERS`. Teaching it this list is a deploy-script change, so it ships as its own PR after

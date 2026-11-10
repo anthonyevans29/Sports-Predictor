@@ -1188,10 +1188,38 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
         receipt rows, its counting lines (created, updated, `provider_id_collision`, `orientation_reversed`, Kalshi
         matched, the export), its exit, and the timer's NEXT. The next instance is `sp-tennis-daily.timer`'s enable
         (288 item 5), whose block says so.
-      - **How to find every chain (the grep, then the two places it cannot see):** for a fixed chain, grep
-        `deploy/hosting/chains.py` for the step, e.g. `grep -n '"sync-matches", "--competition", "NCAA"'
-        deploy/hosting/chains.py`. On 8aa27a89 that finds ncaa-market and ncaa-schedule. Two timer-driven chains
-        build their `sync-matches` steps at run time, so the grep cannot see them (read on 8aa27a89):
+      - **How to find every chain (search the resolved steps, not the source text):** a literal grep of
+        `deploy/hosting/chains.py` misses steps built from constants: `["sync-matches", *PL]` (chains.py:156 and 170)
+        holds no `"PL"` string for a grep to find, though three timers run it (Codex on #918). So the search reads the
+        resolved `CHAINS` and maps each chain to the timers whose `Unit=` names it. TERMINAL (laptop or host), in the
+        checkout, read-only; `C` is the competition code the hold names:
+        ```
+        C=NCAA
+        python3 - "$C" <<'PY'
+        import sys, pathlib, re
+        sys.path.insert(0, "deploy/hosting")
+        from chains import CHAINS
+        code = sys.argv[1]
+        units = {}
+        for t in sorted(pathlib.Path("deploy/hosting/systemd").glob("*.timer")):
+            m = re.search(r"^Unit=sp-chain@(.+)\.service$", t.read_text(), re.M)
+            if m:
+                units.setdefault(m.group(1), []).append(t.name)
+        for name, ch in CHAINS.items():
+            hits = [s for s in ch.get("steps", []) if s and s[0] == "sync-matches" and code in s]
+            if hits:
+                own = units.get(name) or ["no timer of its own (a closing or freshen chain: it runs inside a closing run)"]
+                print(f"{name}: {' '.join(hits[0])} ({len(hits)} step(s)) · {', '.join(own)}")
+        for name, ch in CHAINS.items():
+            if ch.get("window_plan") or ch.get("fullseason"):
+                how = "sp_run.window_plan" if ch.get("window_plan") else "sp_run.fullseason_resolve over SP_FULLSEASON_LIST"
+                print(f"{name}: built at run time by {how} · {', '.join(units.get(name, ['none']))}")
+        PY
+        ```
+        On this branch, `C=NCAA` prints ncaa-market (sp-ncaa-market.timer) and ncaa-schedule (sp-ncaa-schedule.timer),
+        then the two chains built at run time. `C=PL` prints soccer-prematch (sp-soccer-friday.timer,
+        sp-soccer-saturday.timer), soccer-morning-after (sp-soccer-morning-after.timer) and soccer-closing (inside the
+        closing run), then the same two. The two chains built at run time, read on 8aa27a89:
         - **window** (`sp-window.timer`, hourly): `CHAINS["window"]` has `"steps": []`. `sp_run.window_plan` adds a
           `sync-matches --competition <code> --season <season>` step for every competition with a game inside its
           24 hours.

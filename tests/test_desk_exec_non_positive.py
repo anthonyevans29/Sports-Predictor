@@ -199,6 +199,48 @@ def test_rescore_names_a_published_half_unit_play_as_exec_non_positive(chain):
     assert (x["verdict"], x["addendum_call"], x["addendum_units"]) == ("exec non-positive", "PASS", 0)
 
 
+def _rescore_line(tmp_path, row):
+    """desk-rescore on one published PLAY (Sunday's file: annotated before 305), its one re-scored line and the row."""
+    from click.testing import CliRunner
+
+    import cli
+    doc = {"sport": "nfl", "predictions": [json.loads(json.dumps(row))]}
+    with _off():
+        dp.annotate(doc, now=NOW)
+    assert doc["predictions"][0]["desk"]["call"] == "PLAY"
+    (x,) = dp.rescore(doc)
+    p = tmp_path / "sunday.json"
+    p.write_text(json.dumps(doc))
+    res = CliRunner().invoke(cli.cli, ["desk-rescore", str(p), "--out", str(tmp_path / "rescore.md")])
+    assert res.exit_code == 0, res.output
+    (line,) = [ln for ln in res.output.splitlines() if ln.startswith("  ")]
+    return x, line
+
+
+def test_318_desk_rescore_prints_the_failed_figure_on_the_0_5675_case(chain, tmp_path):
+    """ARCHITECT 2026-11-10 08:50 ET, addendum 318 item 3 (Codex #903 P2): "`_rescore` returns `final_edge_pp` /
+    `final_cost` / `final_units` beside the gate's, and `desk-rescore` prints the FAILED figure on an `exec
+    non-positive` row ("gate +0.05pp · final −0.05pp → EXEC NON-POSITIVE")". The ruling's case: model 0.5675 at ask
+    0.55, the gate's 1u order at +0.05pp (all-in 0.567), the 0.5u order placed at -0.05pp (all-in 0.568)."""
+    x, line = _rescore_line(tmp_path, gap_row())
+    assert (x["verdict"], x["exec_units"], x["exec_cost"], x["final_cost"], x["final_units"]) == (
+        "exec non-positive", 1, 0.567, 0.568, 0.5)
+    assert abs(x["exec_edge_pp"] - 0.05) < 1e-9 and abs(x["final_edge_pp"] + 0.05) < 1e-9
+    assert "model 0.5675 · " in line
+    assert "exec gate +0.05pp · final -0.05pp (cost 0.568 at the order placed, 0.5u)" in line
+    assert line.endswith("· EXEC NON-POSITIVE")
+    assert "+0.1pp" not in line and "+0.0pp" not in line                    # the gate's edge alone never prints
+
+
+def test_318_desk_rescore_prints_the_gates_figure_when_the_gate_failed(chain, tmp_path):
+    """"... the gate's figure when the gate failed": gate -0.05pp at the 1u order (all-in 0.617), the 0.5u order at a
+    positive edge (all-in 0.616) — the gate's edge, cost and units print, never the passing final edge."""
+    x, line = _rescore_line(tmp_path, gap_row("Rev", ask=0.60, p=0.6165))
+    assert x["verdict"] == "exec non-positive" and x["exec_edge_pp"] < 0 < x["final_edge_pp"]
+    assert "model 0.6165 · " in line and "exec gate -0.05pp (cost 0.617 at the gate's order, 1u)" in line
+    assert "final" not in line and line.endswith("· EXEC NON-POSITIVE")
+
+
 # ------------------------------------------------------------------------------ the would-be record (#446) --
 
 def test_the_would_be_record_reads_the_pass():

@@ -2286,6 +2286,12 @@ def _rescore(doc: dict) -> list[dict]:
         out.append({"game": r["game"], "pick": side_name(r, r["pick"]), "kickoff": r["utc"] or None,
                     "model_p": r["prob"], "fair_edge_pp": c["edge"],
                     "exec_cost": ex["cost"] if ex else None, "exec_edge_pp": ex["edge_pp"] if ex else None,
+                    # ARCHITECT 2026-11-10 08:50 ET, addendum 318 item 3 (Codex #903 P2 at :2308): "`_rescore` returns
+                    # `final_edge_pp` / `final_cost` / `final_units` beside the gate's", so desk-rescore can print the
+                    # figure that FAILED on an `exec non-positive` row; the gate's order's units ride along for its text
+                    "exec_units": c.get("execUnits"),
+                    "final_edge_pp": (ex or {}).get("final_edge_pp"), "final_cost": (ex or {}).get("final_cost"),
+                    "final_units": (ex or {}).get("final_units"),
                     # Codex P1 on #369: a suspended row has no live edge (None); its hold's raw edge rides along,
                     # labelled as the hold's (record only, never a live edge)
                     "hold_raw_edge_pp": (c.get("koHold") or {}).get("raw_edge_pp"),

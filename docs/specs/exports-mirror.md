@@ -20,7 +20,7 @@ only (F1c). Receipt: tonight's 16:00 nhl-daily run visible in the repo within a 
 | Host hook | `deploy/hosting/sp_run.py` `mirror_after_step` | after EVERY chain step; non-fatal, ≤ 90 s, receipted (`kind: mirror`); off until `SP_EXPORTS_MIRROR_REMOTE` is set |
 | Weekly squash | `sp-exports-squash.timer` (Sun 06:10 UTC) | one orphan commit, force-pushed; a no-op until configured |
 | Verdict Action | `deploy/exports-mirror/compare.yml` | shipped into the mirror by every push as `.github/workflows/compare.yml`, with `tools/compare_exports.py` |
-| Cockpit control | `tools/cockpit.html` "Load latest from host" | GitHub contents API → `host/latest/*.json` → the normal load path (F1c refuses files without desk blocks) |
+| Cockpit control | `tools/cockpit.html` "Load latest from host" and a date box | PRIMARY since Cockpit v2 (2026-11-09, ARCHITECT addendum 307 item 2): the operator's own claude.ai GitHub connector, read-only, `get_file_contents` on the mirror → `host/latest/` (or `host/<date>` and `laptop/<date>`, one file per kind, the newest stamp) → dispatched by kind to the normal load path (F1c refuses files without desk blocks; `*_results*` to the ledger's grading intake; `window_24h` to Next 24h). FALLBACK: the F2.5 token box (GitHub contents API), folded |
 
 Layout in the mirror: `host/<YYYY-MM-DD>/<file>` and `laptop/<YYYY-MM-DD>/<file>`, with the date
 taken from the file's UTC mtime. Only top-level `exports/*.json|*.md` are mirrored; subfolders
@@ -195,9 +195,13 @@ files refused for lacking one.
    ```
    An SSH remote whose key file does not exist is REFUSED with the path named (exit 2), never pushed
    keyless. An HTTPS remote does not use the key.
-6. **Cockpit:** create a fine-grained token: repository access = only Sports-Predictor-exports,
-   permission = Contents: Read-only. Paste it once into the Cockpit's mirror field. It is kept in
-   that browser's localStorage, never in a file.
+6. **Cockpit:** the PRIMARY path since Cockpit v2 (2026-11-09, ARCHITECT addendum 307 item 2) is the
+   operator's own claude.ai GitHub connector, as him: GitHub's hosted MCP server on its read-only endpoint,
+   one tool (`get_file_contents` on the mirror), its credential a fine-grained, one-repo, Contents: Read-only
+   token held by the connector and recorded nowhere (not the repo, not an Issue). The FALLBACK, folded on the
+   page, is the F2.5 token box: create a fine-grained token (repository access = only
+   Sports-Predictor-exports, permission = Contents: Read-only) and paste it once into the Cockpit's mirror
+   field. It is kept in that browser's localStorage, never in a file.
 
 **Receipt (ruled):** after the deploy, tonight's 16:00 `nhl-daily` steps show as commits
 `host: nhl-daily step N …` in the mirror within a minute, and the step receipts carry `kind: mirror, exit 0`.
@@ -213,6 +217,15 @@ python scripts/cockpit_local.py --html ~/Downloads/cockpit.html   # a saved copy
 It serves the page on `http://127.0.0.1:8765` (127.0.0.1 only, read-only), where the GitHub contents API is
 reachable. Without `--html` it serves the repo copy `tools/cockpit.html`, which may lag the published one, and
 says so.
+
+**Cockpit v2 (2026-11-09, ARCHITECT addendum 307 item 2).** The published page reads the mirror through the
+operator's connector, so the CSP note above applies to the token fallback only. The ledger (`bd_ledger_v1`,
+fills included) lives in the artifact's own store under owner-only read and write rules; the browser's
+localStorage is a cache the store overwrites on load. The connector's shapes, for whoever touches the page
+next: a directory read arrives as the entries array in the result's `payload`; a FILE read arrives as two
+content blocks (a status text block, then a resource block carrying the file), and the runtime's `payload`
+is the first text block, the status line, so the page reads the content blocks first and `payload` only as
+the fallback. A GitHub 5xx inside a tool error is retried once and named as GitHub's.
 
 **The ledger is per origin.** The local page has its own localStorage, so its own ledger and token. Move the
 ledger with "Export ledger (JSON)" → "Import ledger", and keep the same `--port` so the local origin stays the

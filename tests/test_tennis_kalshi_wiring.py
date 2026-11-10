@@ -364,6 +364,63 @@ def test_a_settled_row_whose_event_the_rule_now_refuses_keeps_its_status_winner_
         res.output.split()), res.output
 
 
+# ---- THE VENUE-WIDE LINE (ARCHITECT 2026-11-08, addendum 297 item B.11) ----------------------------------------------
+# "when the held rows labelled this run equal every held row in reach (and reach > 0), print "EVERY held row refused
+# this run — the venue's serving changed" on the sync receipt (a line, not a page)"
+
+def _sync(run, lo, hi):
+    import cli
+    res = run.invoke(cli.cli, ["sync-matches", "--competition", "ATP", "--date-from", lo, "--date-to", hi])
+    assert res.exit_code == 0, res.output
+    return res.output
+
+
+def test_every_held_row_refused_with_reach_prints_the_venue_wide_line(monkeypatch, tennis_rows):
+    """Two stored rows in reach, the venue now serving both events in a way the kickoff rule refuses: both labelled,
+    so the line prints once, after the count; the exit stays 0 (a line, not a page)."""
+    import cli
+    two = OPEN_T + pair("26DEC30GGGHHH", "Gus Oldfield", "Hal Pastly", times={OCC: "2026-12-30T15:00:00Z"})
+    fake, run = _synced(monkeypatch, {("KXATPMATCH", "open"): [two]})
+    bad = _now_served("differ") + pair("26DEC30GGGHHH", "Gus Oldfield", "Hal Pastly",
+                                       times={OCC: "2026-12-30T15:00:00Z"})
+    bad[2][OCC] = "2026-12-30T19:00:00Z"
+    fake.pages[("KXATPMATCH", "open")] = [bad]
+    out = _sync(run, "2026-12-28", "2026-12-30")
+    flat = " ".join(out.split())
+    assert "addendum 294 item 13(b)): 2 · match" in flat, flat
+    assert cli.EVERY_HELD_REFUSED == "EVERY held row refused this run — the venue's serving changed"
+    assert out.count(f"  ATP {cli.EVERY_HELD_REFUSED}\n") == 1, out
+    assert flat.index("addendum 294 item 13(b)): 2") < flat.index(cli.EVERY_HELD_REFUSED)
+
+
+def test_some_held_rows_refused_does_not_print_the_venue_wide_line(monkeypatch, tennis_rows):
+    """One of two held rows in reach refused (the other served readably): the count reads 1 and the line is absent."""
+    import cli
+    two = OPEN_T + pair("26DEC30GGGHHH", "Gus Oldfield", "Hal Pastly", times={OCC: "2026-12-30T15:00:00Z"})
+    fake, run = _synced(monkeypatch, {("KXATPMATCH", "open"): [two]})
+    fake.pages[("KXATPMATCH", "open")] = [_now_served("differ") + two[2:]]
+    out = _sync(run, "2026-12-28", "2026-12-30")
+    assert "addendum 294 item 13(b)): 1 · match" in " ".join(out.split()), out
+    assert cli.EVERY_HELD_REFUSED not in out, out
+
+
+def test_no_held_row_in_reach_does_not_print_the_venue_wide_line(monkeypatch, tennis_rows):
+    """reach 0: with no stored row in reach, 0 labelled equals 0 held, and the line stays absent (reach > 0 is part of
+    the ruling). Two ways: a refused event no row holds and no row stored at all; a held row beyond the reach."""
+    import cli
+    fake = FakeKalshi({("KXATPMATCH", "open"): [_now_served("differ")]})
+    _fake_http(monkeypatch, fake)
+    run = CliRunner()
+    assert run.invoke(cli.cli, ["sync-competitions", "--sport", "tennis"]).exit_code == 0
+    out = _sync(run, "2026-12-28", "2026-12-30")
+    assert "addendum 294 item 13(b)): 0" in " ".join(out.split()) and cli.EVERY_HELD_REFUSED not in out, out
+    fake.pages[("KXATPMATCH", "open")] = [OPEN_T]
+    _sync(run, "2026-12-28", "2026-12-30")                                   # the row is stored, then out of reach
+    fake.pages[("KXATPMATCH", "open")] = [_now_served("differ")]
+    out = _sync(run, "2027-01-10", "2027-01-12")
+    assert "addendum 294 item 13(b)): 0" in " ".join(out.split()) and cli.EVERY_HELD_REFUSED not in out, out
+
+
 @pytest.mark.parametrize("kind,at", [("earlier", "2026-12-29T11:00"), ("later", "2026-12-29T13:00")])
 def test_a_start_moved_since_the_rows_sync_is_never_captured_until_a_sync_re_reads_it(monkeypatch, tennis_rows, kind,
                                                                                       at):

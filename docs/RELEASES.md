@@ -319,8 +319,10 @@ its compare verdict.
     `python3 scripts/release_notes.py --to 8aa27a89b3e0018e8ad229f321cab3e02acec212` line for line (151 lines, exit 0),
     apart from one trailing blank line in the tag message, as on v1.6.4 and v1.6.5. The one AMENDED hit is a quoted
     phrase, not a section (324 item 1).
-  - **Step 1:** the day's compare verdict is not on this record. Neither 324 nor the operator's consoles quoted to
-    Code carry it (law 4: labeled, not filled).
+  - **Step 1 (ARCHITECT 2026-11-10 18:55 ET, addendum 332 item 4, verbatim):** "step 1 (the laptop-vs-host compare) on
+    11-10: compare_exports DIVERGENT — 0 compared, 11 one-side-only — which certifies nothing on a Tuesday in MLB's
+    off-season (no kind both machines export that day); the tag was ruled on the fold's green CI and the eleven PRs'
+    own receipts (324 item 1), the compare's gap recorded, not waived".
   - **No migration; one requirements change:** `git diff --stat v1.6.5 v1.6.6` reads 60 files changed, and no file
     under `migrations/` changed. requirements.txt gains `matplotlib>=3.8` (#894), which `sp_deploy` installs by its own
     rule (324 item 1).

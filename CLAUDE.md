@@ -149,7 +149,8 @@ become MORE binding under an income goal, never less."
   goalie/lineup source (lane nhl, #105, is TO DECLARE on the roadmap: the
   operator's sourcing decision 11-13, the one run 12-29, earliest_live
   2027-01-22). The bar did not move.
-- **NCAA**: data certified (9,245 games, 743 programs); market-only
+- **NCAA**: data certified (9,245 games, 743 programs; two 2025 rows overwritten by a reused provider id on
+  11-07/08 and restored 11-10 (#902); every provider-id lookup is season-scoped since #906); market-only
   doctrine; Kalshi (KXNCAAFGAME) is the PRIMARY college market source,
   books post thin and near-kickoff. NO model; own gate later.
   ncaa-elo-v1r (v1's constants on the CFBD both-FBS stream, test 2025) FAILED its

@@ -1111,7 +1111,9 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
   morning, or sooner when a kernel, libsqlite3, python3 or tailscale update is listed, ALWAYS by the architect's block:
   a .backup first; no chain or backup timer due within 45 minutes; the upgrade detached under systemd-run (tailscaled's
   restart can drop the session) with confold and NEEDRESTART_MODE=a, logged to /var/log/sp-apt-upgrade.log; a reboot
-  only when /var/run/reboot-required exists and the window still clears; the post-check (kernel, 19 sp timers active,
+  only when /var/run/reboot-required exists and the window still clears; the post-check (kernel, ~~19 sp timers active~~ [corrected in place by
+  addendum 323 item 1: the sp timer SETS compared by name, expected = timers.enabled minus THE HELD LIST, observed =
+  the active sp timers, passing only when `missing:` and `stray:` are both empty],
   held timers still disabled, tailscale up, the venv importing, `cli.py roadmap` exit 0, a read-only quick_check of the
   live DB)."
   - **The steps, in that order:**
@@ -1120,7 +1122,47 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
     3. Run the upgrade detached under `systemd-run`, with confold and `NEEDRESTART_MODE=a`, logged to
        `/var/log/sp-apt-upgrade.log`. A dropped SSH session is expected when tailscaled restarts; the job runs on.
     4. Reboot only if `/var/run/reboot-required` exists and the window still clears.
-    5. Run the post-check as quoted above.
+    5. Run the post-check as quoted above. Its timer line is the set comparison below, never a count.
+  - **The timer check (ARCHITECT 2026-11-10 13:35 ET, addendum 323 item 1, verbatim):** "the post-check and the
+    runbook's step compare SETS by name: expected = the names in /etc/sports-predictor/timers.enabled minus THE HELD
+    LIST (a list the runbook carries with each hold's addendum and its lifting condition; today: sp-ncaa-market.timer —
+    310 item 2, until v1.6.6's #902 apply; sp-tennis-daily.timer — 288 item 5, until the tag that carries the map and
+    the architect's block); observed = `systemctl
+    list-units --type=timer --state=active` filtered to sp-; the check prints `missing: <names>` and `stray: <names>`
+    and passes only when both are empty, with the counts beside them as information. The held list is also what the
+    deploy's receipt reads when it reports timers not in timers.enabled. 316 item 3's "19 sp timers active" is
+    corrected in place to this". Why: T11 names 21 timers, and a fixed count also passes a host that is missing one
+    expected timer and running one stray one (Codex on #914, confirmed).
+    TERMINAL (host), in bash, as any user (it reads, it changes nothing). `HELD` copies THE HELD LIST below, by name:
+    ```
+    f=/etc/sports-predictor/timers.enabled
+    HELD="sp-ncaa-market.timer sp-tennis-daily.timer"   # THE HELD LIST below, by name
+    expected=$(tr -s ' \t' '\n' < "$f" | sed '/^$/d' | grep -vxF -f <(printf '%s\n' $HELD) | sort -u)
+    observed=$(systemctl list-units --type=timer --state=active --no-legend --plain 'sp-*.timer' | awk '{print $1}' | sort -u)
+    missing=$(comm -23 <(printf '%s\n' "$expected") <(printf '%s\n' "$observed") | sed '/^$/d')
+    stray=$(comm -13 <(printf '%s\n' "$expected") <(printf '%s\n' "$observed") | sed '/^$/d')
+    echo "missing:" $missing; echo "stray:" $stray
+    echo "expected $(printf '%s\n' "$expected" | sed '/^$/d' | wc -l), observed $(printf '%s\n' "$observed" | sed '/^$/d' | wc -l) (information)"
+    for t in $HELD; do echo "held $t: $(systemctl is-enabled "$t" 2>&1) / $(systemctl is-active "$t" 2>&1)"; done
+    if [ ! -s "$f" ] || [ -z "$expected" ]; then echo "TIMERS: FAIL (timers.enabled unreadable, empty, or every name held)"
+    elif [ -z "$missing" ] && [ -z "$stray" ]; then echo "TIMERS: PASS"; else echo "TIMERS: FAIL"; fi
+    ```
+    - `timers.enabled` is read by name, never by line (T11, "The file's form"). A held timer that is active shows
+      under `stray:`, so "held timers still disabled" is part of the same check; the `held` lines print each one's
+      enabled and active state as the receipt.
+    - An unreadable or empty `timers.enabled` fails, never passes on two empty sets (law 4).
+  - **THE HELD LIST (addendum 323 item 1).** Each hold enters and leaves this list with its addendum. The recipe's
+    `HELD` line copies it, by name:
+
+    | Timer | Held by | Lifts when |
+    |---|---|---|
+    | `sp-ncaa-market.timer` | ARCHITECT 2026-11-09, addendum 310 item 2 (the hold on NCAA sync-matches, incident #902; 311: "the hold is sp-ncaa-market.timer only") | v1.6.6's #902 apply, by the architect's block |
+    | `sp-tennis-daily.timer` | ARCHITECT 2026-11-08, addendum 288 item 5 | the tag that carries the map, and the architect's block |
+
+    - **The deploy's receipt:** 323 item 1 rules that the deploy's report of timers missing from `timers.enabled`
+      reads this list. Today `sp_deploy.py` reads only T11's lists, so a held timer missing from the file still
+      reads "!" under `TIMERS`. Teaching it this list is a deploy-script change, so it ships as its own PR after
+      this one (addendum 7 item 2 (5): the policy first): #915.
   - **The read before the policy (addendum 316 item 3):** "Ubuntu 24.04.5, kernel 6.8.0-147 with 149 waiting, 24
     noble-updates packages, 3w4d uptime, disk 25%."
   - **First receipt (ARCHITECT 2026-11-10 12:20 ET, addendum 320 item 4, verbatim):** "THE HOST (the operator,

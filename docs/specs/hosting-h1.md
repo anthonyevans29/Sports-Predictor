@@ -1104,6 +1104,98 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
 
 ## O. Operations after cutover
 
+- **Host packages (ARCHITECT 2026-11-09 19:00 ET, addendum 316 item 3, the standing policy, verbatim):** "host
+  packages — security updates automatic via unattended-upgrades (installed, enabled, release + -security origins, ~~no
+  automatic reboot — as read 11-09 22:07Z~~ [corrected in place by addendum 322 item 1: an automatic reboot at 04:30
+  UTC when a security upgrade asks, H0-3 as shipped]); the full `apt-get upgrade --with-new-pkgs` monthly on a compare-pass
+  morning, or sooner when a kernel, libsqlite3, python3 or tailscale update is listed, ALWAYS by the architect's block:
+  a .backup first; no chain or backup timer due within 45 minutes; the upgrade detached under systemd-run (tailscaled's
+  restart can drop the session) with confold and NEEDRESTART_MODE=a, logged to /var/log/sp-apt-upgrade.log; a reboot
+  only when /var/run/reboot-required exists and the window still clears; the post-check (kernel, ~~19 sp timers active~~ [corrected in place by
+  addendum 323 item 1: the sp timer SETS compared by name, expected = timers.enabled minus THE HELD LIST, observed =
+  the active sp timers, passing only when `missing:` and `stray:` are both empty],
+  held timers still disabled, tailscale up, the venv importing, `cli.py roadmap` exit 0, a read-only quick_check of the
+  live DB)."
+  - **The steps, in that order:**
+    1. A `.backup` first, its integrity checked.
+    2. Confirm that no chain or backup timer is due within 45 minutes.
+    3. Run the upgrade detached under `systemd-run`, with confold and `NEEDRESTART_MODE=a`, logged to
+       `/var/log/sp-apt-upgrade.log`. A dropped SSH session is expected when tailscaled restarts; the job runs on.
+    4. Reboot only if `/var/run/reboot-required` exists and the window still clears.
+    5. Run the post-check as quoted above. Its timer line is the set comparison below, never a count.
+  - **The timer check (ARCHITECT 2026-11-10 13:35 ET, addendum 323 item 1, verbatim):** "the post-check and the
+    runbook's step compare SETS by name: expected = the names in /etc/sports-predictor/timers.enabled minus THE HELD
+    LIST (a list the runbook carries with each hold's addendum and its lifting condition; today: sp-ncaa-market.timer —
+    310 item 2, until v1.6.6's #902 apply; sp-tennis-daily.timer — 288 item 5, until the tag that carries the map and
+    the architect's block); observed = `systemctl
+    list-units --type=timer --state=active` filtered to sp-; the check prints `missing: <names>` and `stray: <names>`
+    and passes only when both are empty, with the counts beside them as information. The held list is also what the
+    deploy's receipt reads when it reports timers not in timers.enabled. 316 item 3's "19 sp timers active" is
+    corrected in place to this, with this addendum quoted". Why: T11 names 21 timers, and a fixed count also passes a host that is missing one
+    expected timer and running one stray one (Codex on #914, confirmed).
+    TERMINAL (host), in bash, as any user (it reads, it changes nothing). `HELD` copies THE HELD LIST below, by name:
+    ```
+    f=/etc/sports-predictor/timers.enabled
+    HELD="sp-ncaa-market.timer sp-tennis-daily.timer"   # THE HELD LIST below, by name
+    expected=$(tr -s ' \t\r' '\n' < "$f" | sed '/^$/d' | grep -vxF -f <(printf '%s\n' $HELD) | sort -u)
+    observed=$(systemctl list-units --type=timer --state=active --no-legend --plain 'sp-*.timer' | awk '{print $1}' | sort -u)
+    missing=$(comm -23 <(printf '%s\n' "$expected") <(printf '%s\n' "$observed") | sed '/^$/d')
+    stray=$(comm -13 <(printf '%s\n' "$expected") <(printf '%s\n' "$observed") | sed '/^$/d')
+    echo "missing:" $missing; echo "stray:" $stray
+    echo "expected $(printf '%s\n' "$expected" | sed '/^$/d' | wc -l), observed $(printf '%s\n' "$observed" | sed '/^$/d' | wc -l) (information)"
+    if [ ! -s "$f" ] || [ -z "$expected" ]; then echo "TIMERS: FAIL (timers.enabled unreadable, empty, or every name held)"
+    elif [ -z "$missing" ] && [ -z "$stray" ]; then echo "TIMERS: PASS"; else echo "TIMERS: FAIL"; fi
+    heldon=""; for t in $HELD; do st=$(systemctl show -p UnitFileState --value "$t" 2>&1) || st=unreadable
+      echo "held $t: ${st:-no unit file} / $(systemctl is-active "$t" 2>&1)"
+      case "$st" in disabled|masked|masked-runtime|"") ;; *) heldon="$heldon $t";; esac; done
+    [ -z "$heldon" ] && echo "HELD: PASS (every held timer disabled)" || echo "HELD: FAIL (not disabled:$heldon)"
+    ```
+    - `timers.enabled` is read by name, never by line (T11, "The file's form").
+    - `TIMERS:` is 323 item 1's verdict: the sets only. A held timer that is running shows under `stray:`.
+    - `HELD:` is the post-check's separate "held timers still disabled" item: a held timer whose unit file is
+      enabled fails it even while it is not running (it would start at the next boot). Disabled, masked, or no unit
+      file (a held timer never installed) passes; a state systemctl cannot read fails. The `held` lines print each
+      held timer's unit-file state and active state as the receipt.
+    - An unreadable or empty `timers.enabled` fails, never passes on two empty sets (law 4).
+  - **THE HELD LIST (addendum 323 item 1).** Each hold enters and leaves this list with its addendum. The recipe's
+    `HELD` line copies it, by name:
+
+    | Timer | Held by | Lifts when |
+    |---|---|---|
+    | `sp-ncaa-market.timer` | ARCHITECT 2026-11-09, addendum 310 item 2 (the hold on NCAA sync-matches, incident #902; 311: "the hold is sp-ncaa-market.timer only") | v1.6.6's #902 apply, by the architect's block |
+    | `sp-tennis-daily.timer` | ARCHITECT 2026-11-08, addendum 288 item 5 | the tag that carries the map, and the architect's block |
+
+    - **The deploy's receipt:** 323 item 1 rules that the deploy's report of timers missing from `timers.enabled`
+      reads this list. Today `sp_deploy.py` reads only T11's lists, so a held timer missing from the file still
+      reads "!" under `TIMERS`. Teaching it this list is a deploy-script change, so it ships as its own PR after
+      this one (addendum 7 item 2 (5): the policy first): #915.
+  - **The read before the policy (addendum 316 item 3):** "Ubuntu 24.04.5, kernel 6.8.0-147 with 149 waiting, 24
+    noble-updates packages, 3w4d uptime, disk 25%."
+  - **First receipt (ARCHITECT 2026-11-10 12:20 ET, addendum 320 item 4, verbatim):** "THE HOST (the operator,
+    16:26–17:06Z): a .backup first (sports_2026-11-10_162631.db, integrity ok); apt-get upgrade --with-new-pkgs
+    detached under systemd-run: 28 upgraded, 6 newly installed, rc 0; the session dropped at tailscaled's restart as
+    the block anticipated and the job finished on its own; reboot for 6.8.0-149 at 17:05:47Z with no chain due; the
+    post-check's final read follows."
+  - **The automatic reboot (ARCHITECT 2026-11-10 13:20 ET, addendum 322 item 1, verbatim):** "The 11-09 read grepped
+    `Automatic-Reboot` in /etc/apt/apt.conf.d/50unattended-upgrades ONLY — the shipped file is 52sp-…, which that grep
+    never opened — so the read did not contradict H0-3; it did not look. RULED: H0-3 STANDS as shipped:
+    unattended-upgrades installs the security pocket daily and reboots at 04:30 UTC when a security upgrade asks
+    (04:30Z is the quiet hour: the per-minute closing-watch only; no closing is ever due then; the first chain is prune
+    at 05:30Z); the manual monthly upgrade of 316 item 3 covers the -updates pocket, which never auto-installs, and its
+    reboot is the block's, in a window." 316 item 3's "no automatic reboot — as read 11-09 22:07Z" is WITHDRAWN.
+    - **Two reboots, two owners:** the security pocket installs itself daily and reboots itself at 04:30 UTC when an
+      upgrade asks (`deploy/hosting/etc/52sp-unattended-upgrades`, which `install.sh` installs into
+      `/etc/apt/apt.conf.d/`). The -updates pocket never auto-installs: it is the monthly upgrade above, and its reboot is
+      the block's, in a window.
+    - **The effective config is read, not assumed.** TERMINAL (host), in the architect's next host block:
+      `apt-config dump | grep -i -E "Automatic-Reboot|Unattended-Upgrade::Allowed|Origins-Pattern"` and
+      `ls /etc/apt/apt.conf.d/ | grep -E "^5[0-9]"`. Effective config confirmed: ____ (blank until that read).
+- **The laptop's morning code update (ARCHITECT 2026-11-10 13:05 ET, addendum 321 item 3, verbatim):** "the
+  fast-forward pulls the code and nothing installed new requirements — the first hand-render stopped on `No module
+  named 'matplotlib'`. Closed: the morning block carries `pip install -q -r requirements.txt` after the fast-forward
+  from tomorrow (idempotent)". TERMINAL (laptop), in the morning block, right after the fast-forward:
+  `venv/bin/pip install -q -r requirements.txt`. The host is already covered: `sp_deploy.py` installs requirements.txt
+  when it changed in the deployed range or the host has no install receipt for the target's file.
 - **Retention (H0-14).** 14 dailies. `sp-backup-prune` only reports
   (`kind: prune`, `applied: false`).
   - After the first time it lists files, delete those files by hand and

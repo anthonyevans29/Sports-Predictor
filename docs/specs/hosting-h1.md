@@ -1136,7 +1136,7 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
     TERMINAL (host), in bash, as any user (it reads, it changes nothing). `HELD` copies THE HELD LIST below, by name:
     ```
     f=/etc/sports-predictor/timers.enabled
-    HELD="sp-ncaa-market.timer sp-tennis-daily.timer"   # THE HELD LIST below, by name
+    HELD="sp-tennis-daily.timer"   # THE HELD LIST below, by name
     expected=$(tr -s ' \t\r' '\n' < "$f" | sed '/^$/d' | grep -vxF -f <(printf '%s\n' $HELD) | sort -u)
     observed=$(systemctl list-units --type=timer --state=active --no-legend --plain 'sp-*.timer' | awk '{print $1}' | sort -u)
     missing=$(comm -23 <(printf '%s\n' "$expected") <(printf '%s\n' "$observed") | sed '/^$/d')
@@ -1162,8 +1162,16 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
 
     | Timer | Held by | Lifts when |
     |---|---|---|
-    | `sp-ncaa-market.timer` | ARCHITECT 2026-11-09, addendum 310 item 2 (the hold on NCAA sync-matches, incident #902; 311: "the hold is sp-ncaa-market.timer only") | v1.6.6's #902 apply, by the architect's block |
     | `sp-tennis-daily.timer` | ARCHITECT 2026-11-08, addendum 288 item 5 | the tag that carries the map, and the architect's block |
+
+    - **Lifted: `sp-ncaa-market.timer`** (held by addendum 310 item 2 on 2026-11-09, incident #902). The hold's lifting
+      condition (ARCHITECT 2026-11-10, addendum 324 item 3(e), verbatim): "`systemctl enable --now
+      sp-ncaa-market.timer` — the hold lifts only after (d)'s apply is read clean; the held list in the runbook loses
+      that entry with this addendum quoted; sp-tennis-daily stays disabled (288 item 5's block is a separate ruling
+      after the laptop's daily step has run a week)." The lift (ARCHITECT 2026-11-10 16:10 ET, addendum 329 item 3,
+      verbatim): "THE HOLD LIFTS (324 item 3(e)): my block enables sp-ncaa-market.timer now (next run Wednesday
+      16:00Z), prints the set comparison with the held list reduced to sp-tennis-daily, and posts the note on #902."
+      The host's #902 apply was read clean at 20:57Z on 2026-11-10 (329 items 1 and 2).
 
     - **A hold on a sync path (ARCHITECT 2026-11-10 15:35 ET, addendum 325 item 1, verbatim, the architect's
       record):** "a hold on a sync path names EVERY chain that carries the step (grep chains.py for the step), never

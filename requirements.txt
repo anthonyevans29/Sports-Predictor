@@ -17,6 +17,9 @@ numpy>=1.26.0
 pandas>=2.1.0
 scipy>=1.11.0
 
+# --- Bulletins (ARCHITECT 2026-11-04, addendum 250 item 1: the PNG card, Agg + its bundled DejaVu Sans) ---
+matplotlib>=3.8
+
 # --- CLI ---
 click>=8.1.0
 rich>=13.7.0

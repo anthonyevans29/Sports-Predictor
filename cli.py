@@ -10485,6 +10485,38 @@ def coverage_cmd(date_s, as_json, out_path):
         raise SystemExit(rc)
 
 
+@cli.command("bulletin")
+@click.option("--closing-file", "closing_file", default=None, metavar="PATH",
+              help="A closing file (exports/closing_<FAMILY>_<start>.json): one bulletin pair per game, stage closing.")
+@click.option("--slate-file", "slate_file", default=None, metavar="PATH",
+              help="A slate file (the family's export_glob, e.g. exports/soccer_PL_<window>.json): stage slate.")
+@click.option("--out-dir", "out_dir", default=None, metavar="DIR",
+              help="Where the pairs go. Default: exports/bulletins (the exports mirror's kept subtree).")
+@click.option("--db", "db_path", default=None, metavar="PATH",
+              help="A .backup copy for PL's matchday (mode=ro + immutable=1; never under data/, never the configured "
+                   "DB). Default: the configured DB, opened mode=ro.")
+def bulletin_cmd(closing_file, slate_file, out_dir, db_path):
+    """THE BULLETIN RENDERER (ARCHITECT 2026-11-04 11:20 ET, addendum 250 items 1-4; addendum 289 item 4; lane #826,
+    step 1b): one Markdown file and one PNG card (1080 px wide, matplotlib Agg, its bundled DejaVu Sans) per game of
+    the file, under exports/bulletins/<FAMILY>/<ET date of kickoff>/<match_id>_<away>_at_<home>_<stage>.md|.png. The
+    call line is closing.call_text, verbatim; a field the row lacks prints "not stored". THE WRITER-SIDE GUARD
+    (item 2): before anything is written, sp_common.redact runs over every line and the privacy patterns
+    (src/privacy_patterns.py: the #817 patterns plus a dollar figure in words, the contract count, the order text,
+    the unit label, the fraction, the pool, field names and any UUID) run over the whole Markdown and the card's text; a match writes
+    nothing, receipts `bulletin_refused` with each pattern's name and intended path (never the line) and exits 2.
+    Prints each written file's mirror URL (owner/repo parsed from SP_EXPORTS_MIRROR_REMOTE, never its value).
+    Read-only: the DB only for PL's matchday, mode=ro; no row written; only .md and .png ever written; never under
+    data/. Exit 0 written, 2 refused, 1 failed. No hook calls it yet (addendum 289: no timer).
+    (= python deploy/hosting/bulletin.py)"""
+    import sys as _sys
+    from pathlib import Path as _P
+    _sys.path.insert(0, str(_P(__file__).resolve().parent / "deploy" / "hosting"))
+    import bulletin as _b
+    rc = _b.run(closing_file, slate_file, out_dir, db_path, echo=click.echo)
+    if rc:
+        raise SystemExit(rc)
+
+
 @cli.command("availability")
 @click.option("--sport", required=True, type=click.Choice([s.value for s in Sport]), help="The sport's facts.")
 @click.option("--as-of", "as_of_s", required=True, metavar="INSTANT",

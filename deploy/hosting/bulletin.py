@@ -26,7 +26,9 @@ system); width CARD_WIDTH_PX, the height grown to what the card holds (portrait:
 THE PRIVACY RULE (item 2), IN THE WRITER: no desk.order text, no desk.exec.contracts, no fee_order_contracts, no contract
 count, no dollar figure, no desk_meta.unit.fraction / half_fraction, no pool figure, no account id, no API key. By
 construction: the renderer reads a fixed list of fields and none of those (an order prints as side, venue and the limit
-in cents, and only an order that was written; stakes in units only). By guard: every row value is put on one line
+in cents, and only an order that was written; stakes in units only). By escaping (ARCHITECT 2026-11-10, addendum 319 item 2: "ESCAPE, DON'T NORMALIZE"): every free-text
+field the Markdown writes (FREE_TEXT_FIELDS, fv) is Markdown-escaped, so nothing in it renders as markup and the
+text GitHub displays is the text written; the guard reads each such value before escaping. By guard: every row value is put on one line
 (one_line: no value spans two lines of either file) and every "$" of the Markdown is escaped (no row text renders as
 math on GitHub; the card draws every text with parse_math=False), sp_common.redact runs over every line (host.env read
 first, as the units read it) and a line it redacted REFUSES the run (ARCHITECT 2026-11-08, addendum 298 B item 5: "A
@@ -60,6 +62,7 @@ digest, item 5) is its own PR.
 from __future__ import annotations
 
 import argparse
+import contextvars
 import fnmatch
 import io
 import json
@@ -139,6 +142,78 @@ def md_line(line) -> str:
     """One Markdown line as written: on one line, redacted (sp_common.redact), and every "$" escaped so GitHub never
     renders a row's text as math (an inline $...$ would draw something the guard never read)."""
     return c.redact(one_line(line)).replace("$", "\\$")
+
+
+# ESCAPE, DON'T NORMALIZE (ARCHITECT 2026-11-10 10:45 ET, addendum 319 item 2(a), verbatim): "Every free-text field the
+# renderer writes (reasons, names, any value not drawn from a fixed vocabulary or formatted as a number by the renderer
+# itself) is Markdown-escaped on output so that NOTHING in it can render as markup: `&` → `&amp;` and `<` → `&lt;`
+# FIRST (no tag, comment, processing instruction, declaration or CDATA can open), then a backslash before each of
+# `\ * _ ~ [ ] ( ) # > ! |` and the backtick; a line break inside a value becomes a space. Displayed text == written text,
+# character for character". Item 2(c): the set of escaped fields is enumerated here; fv() refuses a field it does not
+# name, and tests/test_bulletin.py walks the renderer's output for every string the row carries (a new string field
+# fails until it is classified). Every value the Markdown interpolates from the row goes through fv(); what does not
+# is the renderer's own text (constants, pp/cents/pct, the ET and UTC stamps of a parsed kickoff, the stage line).
+# The card (a PNG) draws plain text: it is not escaped, and the guard reads every string it draws, as before.
+FREE_TEXT_FIELDS = frozenset({
+    "home_team", "away_team", "team", "side_name", "row.competition", "matchweek", "run_id", "certification",
+    "slate_file", "books.n", "books.why", "closing.unresolved_injuries",
+    "desk.call_text", "desk.cls", "desk.hold", "desk.market_ref", "desk.model_p", "desk.order.side", "desk.pass_kind",
+    "desk.pick", "desk.qb_class", "desk.reason", "desk.reasons", "desk.reference", "desk.summary", "desk.tags",
+    "desk.tier", "desk.would_be", "desk.exec.basis", "desk.exec.doctrine", "desk.exec.fee_clears", "desk.exec.join_note",
+    "desk_meta.as_of", "desk_meta.policy_version", "desk_meta.rule",
+    "factor_breakdown.attack", "factor_breakdown.defense", "factor_breakdown.elo", "factor_breakdown.factor_notes",
+    "form.draws", "form.goals_conceded", "form.goals_scored", "form.last_5", "form.losses", "form.wins",
+    "injuries.count", "injuries.names", "injuries.positions_unresolved", "injuries.qb_listed", "injuries.synced_at",
+    "input_quality.current_season_matches", "input_quality.injuries.synced_at", "input_quality.injuries_synced_at",
+    "input_quality.rating_source", "input_quality.strengths_backfilled", "input_quality.strengths_source",
+    "kalshi.captured_at", "kalshi.leg.ticker", "kalshi.normalized", "kalshi.normalized_prob", "kalshi.raw_yes_prob",
+    "kickoff_clock.drift_h", "kickoff_clock.kalshi_clock", "kickoff_clock.max_drift_h", "kickoff_clock.stored_kickoff",
+    "line_move.flag", "line_move.threshold_pp", "line_move.window_h", "line_move.venue", "line_move.venue.alarm",
+    "line_move.venue.from", "line_move.venue.from_at", "line_move.venue.move_pp", "line_move.venue.to",
+    "line_move.venue.to_at",
+    "market.bookmaker_count", "market.bookmaker_count_quoted", "market.fair_prob", "market.fair_source",
+    "market.overround_pct", "market.selection.best_bookmaker", "market.selection.best_price",
+    "market.selection.fair_prob",
+    "pitcher.era", "pitcher.kind", "pitcher.name",
+    "prediction.computed_at", "prediction.expected_away", "prediction.expected_home",
+    "prediction.factor_breakdown.most_likely_score", "prediction.model_p", "prediction.model_version",
+    "prediction.tier", "prediction.top_pick", "prediction.top_pick_prob",
+    "row.elo", "row.elo_gap", "row.fee_m_taker", "row.fee_series", "row.home_adv_applied",
+    "row.market.consensus_home_spread", "row.venue_flag",
+})
+_MD_SPECIAL = re.compile(r"([\\*_~\[\]()#>!|`])")
+_FIELDS: contextvars.ContextVar = contextvars.ContextVar("bulletin_fields", default=None)
+
+
+def md_escape(text) -> str:
+    """Addendum 319 item 2(a): a free-text value as literal Markdown text: on one line, `&` and `<` as entities first,
+    then a backslash before each of \\ * _ ~ [ ] ( ) # > ! | and the backtick."""
+    t = one_line(text).replace("&", "&amp;").replace("<", "&lt;")
+    return _MD_SPECIAL.sub(r"\\\1", t)
+
+
+def fv(field: str, x) -> str:
+    """A free-text field's value for the Markdown (addendum 319 item 2): v(x), redacted, escaped (md_escape); the value
+    as it stands before escaping is kept for the field-level scan (item 2(b)). A field FREE_TEXT_FIELDS does not name
+    is refused (item 2(c): classified before it is written)."""
+    if field not in FREE_TEXT_FIELDS:
+        raise Refused(f"the bulletin renderer has no classification for the free-text field {field}")
+    raw = one_line(v(x))
+    seen = _FIELDS.get()
+    if seen is not None:
+        seen.append((field, raw))
+    return md_escape(c.redact(raw))
+
+
+def field_offence(fields) -> str | None:
+    """Addendum 319 item 2(b): "THE SCAN runs where the text is whole: on each free-text FIELD VALUE as it stands before
+    escaping (the real text, one reading)" -- the privacy patterns and the secret check on each value, the first match
+    naming the refusal."""
+    for _, raw in fields:
+        hit = bulletin_offence(raw) or secret_offence(raw)
+        if hit:
+            return hit
+    return None
 
 
 def pp(x) -> str:
@@ -371,7 +446,7 @@ def _order_line(d: dict) -> str:
     closing page."""
     o = d.get("order") or {}
     if o.get("text") and o.get("side") and o.get("limit") is not None:     # written (never the text itself)
-        return f"order: {o['side']} on {VENUE}, limit {cents(o['limit'])}"
+        return f"order: {fv('desk.order.side', o['side'])} on {VENUE}, limit {cents(o['limit'])}"
     if o.get("why") == cl.UNIT_UNREAD_TEXT:
         return f"order: {cl.UNIT_UNREAD_TEXT}"
     return "order: none written (the reason is on the closing page)"
@@ -379,50 +454,52 @@ def _order_line(d: dict) -> str:
 
 def section_call(row: dict, d: dict, x: dict | None, fam: str) -> list[str]:
     call = cl.call_text(row, d)
-    out = ["## THE CALL", "", f"# {call}", ""]
+    out = ["## THE CALL", "", f"# {fv('desk.call_text', call)}", ""]
     reasons = [str(r) for r in d.get("reasons") or []]
     if d.get("call") not in cl.STAKED_CALLS:
         why = d.get("reason") or d.get("pass_kind") or NOT_STORED
-        out += [f"**WHY THERE IS NO BET:** {why}", ""]
-    out.append(f"- reason: {v(d.get('reason'))}")
+        out += [f"**WHY THERE IS NO BET:** {fv('desk.reason', why)}", ""]
+    out.append(f"- reason: {fv('desk.reason', d.get('reason'))}")
     for r in reasons:
-        out.append(f"  - {r}")
-    out += [f"- pass_kind: {v(d.get('pass_kind'))}", f"- tier: {v(d.get('tier'))}",
-            f"- tags: {v(d.get('tags'))}"]
+        out.append(f"  - {fv('desk.reasons', r)}")
+    out += [f"- pass_kind: {fv('desk.pass_kind', d.get('pass_kind'))}", f"- tier: {fv('desk.tier', d.get('tier'))}",
+            f"- tags: {fv('desk.tags', d.get('tags'))}"]
     if fam == "NFL":
-        out.append(f"- QB: {cl.qb_class(d)}")
+        out.append(f"- QB: {fv('desk.qb_class', cl.qb_class(d))}")
     hold = cl.hold_for(d, fam)
     if hold:
-        out.append(f"- HOLD: {hold}")
+        out.append(f"- HOLD: {fv('desk.hold', hold)}")
     if d.get("call") in cl.STAKED_CALLS:
         out.append(f"- {_order_line(d)}")
     if x and x.get("would_be"):
-        out.append("- " + " · ".join(cl.would_be_text(x["would_be"])))
+        out.append("- " + fv('desk.would_be', " · ".join(cl.would_be_text(x["would_be"]))))
     if x:
         for line in cl.summary_block(x).split("\n"):
             s = line.strip()
             if s.startswith(("value shadow", "quarantine shadow", "kalshi-only hold")):
-                out.append(f"- {s}")
+                out.append(f"- {fv('desk.summary', s)}")
     return out + [""]
 
 
 def section_prediction(row: dict, fam: str) -> list[str]:
     pr = row.get("prediction") or {}
-    out = ["## THE PREDICTION", "", f"- model_version: {v(pr.get('model_version'))}",
-           f"- computed_at: {v(pr.get('computed_at'))}"]
+    out = ["## THE PREDICTION", "", f"- model_version: {fv('prediction.model_version', pr.get('model_version'))}",
+           f"- computed_at: {fv('prediction.computed_at', pr.get('computed_at'))}"]
     for s in sides_of(row, fam):
-        out.append(f"- {side_name(row, s)} ({s.lower()}): {v(model_p(row, s))}")
-    out += [f"- top pick: {v(pr.get('top_pick'))} at {v(pr.get('top_pick_prob'))}", f"- tier: {v(pr.get('tier'))}"]
+        out.append(f"- {fv('side_name', side_name(row, s))} ({s.lower()}): {fv('prediction.model_p', model_p(row, s))}")
+    out += [f"- top pick: {fv('prediction.top_pick', pr.get('top_pick'))} at {fv('prediction.top_pick_prob', pr.get('top_pick_prob'))}", f"- tier: {fv('prediction.tier', pr.get('tier'))}"]
     if fam == "SOCCER":
-        out += [f"- expected goals: {row.get('home_team')} {v(pr.get('expected_home'))} · "
-                f"{row.get('away_team')} {v(pr.get('expected_away'))}",
-                f"- most likely score: {v(get(pr, 'factor_breakdown', 'most_likely_score'))}"]
+        out += [f"- expected goals: {fv('home_team', row.get('home_team'))} "
+                f"{fv('prediction.expected_home', pr.get('expected_home'))} · {fv('away_team', row.get('away_team'))} "
+                f"{fv('prediction.expected_away', pr.get('expected_away'))}",
+                f"- most likely score: {fv('prediction.factor_breakdown.most_likely_score', get(pr, 'factor_breakdown', 'most_likely_score'))}"]
     elif fam == "NFL":
-        out.append(f"- margin line (consensus home spread): {v(get(row, 'market', 'consensus_home_spread'))} · "
+        out.append(f"- margin line (consensus home spread): {fv('row.market.consensus_home_spread', get(row, 'market', 'consensus_home_spread'))} · "
                    f"total line: {NOT_STORED}")
     else:
-        out.append(f"- expected runs: {row.get('home_team')} {v(pr.get('expected_home'))} · "
-                   f"{row.get('away_team')} {v(pr.get('expected_away'))}")
+        out.append(f"- expected runs: {fv('home_team', row.get('home_team'))} "
+                   f"{fv('prediction.expected_home', pr.get('expected_home'))} · {fv('away_team', row.get('away_team'))} "
+                   f"{fv('prediction.expected_away', pr.get('expected_away'))}")
     return out + [""]
 
 
@@ -432,56 +509,56 @@ def section_teams(row: dict, d: dict, fam: str) -> list[str]:
     out = ["## THE TEAMS", ""]
     for side in ("home", "away"):
         team = row.get(f"{side}_team")
-        out.append(f"### {team} ({side})")
+        out.append(f"### {fv(side + '_team', team)} ({side})")
         if fam == "NFL":
-            out.append(f"- Elo: {v(row.get('elo_' + side))} (source {NOT_STORED})")
+            out.append(f"- Elo: {fv('row.elo', row.get('elo_' + side))} (source {NOT_STORED})")
         else:
-            out.append(f"- Elo: {v(fb.get(side + '_elo'))} (source {v(get(iq, 'rating_source', side))})")
+            out.append(f"- Elo: {fv('factor_breakdown.elo', fb.get(side + '_elo'))} (source {fv('input_quality.rating_source', get(iq, 'rating_source', side))})")
         if fam == "SOCCER":
-            out.append(f"- attack {v(fb.get(side + '_attack'))} · defence {v(fb.get(side + '_defense'))} "
-                       f"(source {v(get(iq, 'strengths_source', side))})")
+            out.append(f"- attack {fv('factor_breakdown.attack', fb.get(side + '_attack'))} · defence {fv('factor_breakdown.defense', fb.get(side + '_defense'))} "
+                       f"(source {fv('input_quality.strengths_source', get(iq, 'strengths_source', side))})")
         f = row.get(f"{side}_form")
         if isinstance(f, dict):
-            out.append(f"- form (last 5): {v(f.get('last_5'))} · W-D-L {v(f.get('wins'))}-{v(f.get('draws'))}-"
-                       f"{v(f.get('losses'))} · goals for {v(f.get('goals_scored'))}, against "
-                       f"{v(f.get('goals_conceded'))}")
+            out.append(f"- form (last 5): {fv('form.last_5', f.get('last_5'))} · W-D-L {fv('form.wins', f.get('wins'))}-{fv('form.draws', f.get('draws'))}-"
+                       f"{fv('form.losses', f.get('losses'))} · goals for {fv('form.goals_scored', f.get('goals_scored'))}, against "
+                       f"{fv('form.goals_conceded', f.get('goals_conceded'))}")
         else:
             out.append(f"- form (last 5): {NOT_STORED}")
         if fam == "NFL":
             inj = get(iq, "injuries", side)
             if isinstance(inj, dict):
-                out += [f"- injuries: {v(inj.get('count'))} listed (synced {v(inj.get('synced_at'))})",
-                        f"- QB listed: {v(inj.get('qb_listed'))}",
-                        f"- positions_unresolved: {v(inj.get('positions_unresolved'))}",
-                        f"- injured by name: {v(inj.get('names'))}"]
+                out += [f"- injuries: {fv('injuries.count', inj.get('count'))} listed (synced {fv('injuries.synced_at', inj.get('synced_at'))})",
+                        f"- QB listed: {fv('injuries.qb_listed', inj.get('qb_listed'))}",
+                        f"- positions_unresolved: {fv('injuries.positions_unresolved', inj.get('positions_unresolved'))}",
+                        f"- injured by name: {fv('injuries.names', inj.get('names'))}"]
             else:
                 out.append(f"- injuries: {NOT_STORED}")
         elif fam == "MLB":
             p = get(row, "pitchers", side)
-            out.append(f"- starter: {v(p.get('name'))} ({v(p.get('kind'))}, ERA {v(p.get('era'))})"
+            out.append(f"- starter: {fv('pitcher.name', p.get('name'))} ({fv('pitcher.kind', p.get('kind'))}, ERA {fv('pitcher.era', p.get('era'))})"
                        if isinstance(p, dict) else f"- starter: {NOT_STORED}")
             inj = row.get("injuries")
-            out.append(f"- injuries: {v(inj.get(side + '_count'))} · {v(inj.get(side + '_names'))}"
+            out.append(f"- injuries: {fv('injuries.count', inj.get(side + '_count'))} · {fv('injuries.names', inj.get(side + '_names'))}"
                        if isinstance(inj, dict) else f"- injuries: {NOT_STORED}")
         else:
             inj = row.get("injuries")
             if isinstance(inj, dict):
-                out.append(f"- injuries: {v(inj.get(side + '_count'))} · {v(inj.get(side + '_names'))}")
+                out.append(f"- injuries: {fv('injuries.count', inj.get(side + '_count'))} · {fv('injuries.names', inj.get(side + '_names'))}")
             else:
                 out.append(f"- injuries: {NOT_STORED}")
-            out.append(f"- injury list synced: {v(get(iq, 'injuries', side, 'synced_at'))}")
+            out.append(f"- injury list synced: {fv('input_quality.injuries.synced_at', get(iq, 'injuries', side, 'synced_at'))}")
         out.append("")
     if fam == "SOCCER":
-        out += [f"- strengths backfilled: {v(iq.get('strengths_backfilled'))} · current-season matches: "
-                f"{v(iq.get('current_season_matches'))}",
-                f"- factor notes: {v(fb.get('factor_notes'))}",
-                f"- injuries_synced_at: {v(iq.get('injuries_synced_at'))}"]
+        out += [f"- strengths backfilled: {fv('input_quality.strengths_backfilled', iq.get('strengths_backfilled'))} · current-season matches: "
+                f"{fv('input_quality.current_season_matches', iq.get('current_season_matches'))}",
+                f"- factor notes: {fv('factor_breakdown.factor_notes', fb.get('factor_notes'))}",
+                f"- injuries_synced_at: {fv('input_quality.injuries_synced_at', iq.get('injuries_synced_at'))}"]
     if fam == "NFL":
-        out += [f"- QB class: {cl.qb_class(d)}", f"- positions_unresolved (both sides): "
-                f"{v(cl.unresolved_injuries(row))}",
-                f"- Elo gap: {v(row.get('elo_gap'))} · home advantage applied: {v(row.get('home_adv_applied'))}"]
+        out += [f"- QB class: {fv('desk.qb_class', cl.qb_class(d))}", f"- positions_unresolved (both sides): "
+                f"{fv('closing.unresolved_injuries', cl.unresolved_injuries(row))}",
+                f"- Elo gap: {fv('row.elo_gap', row.get('elo_gap'))} · home advantage applied: {fv('row.home_adv_applied', row.get('home_adv_applied'))}"]
     for team in cl.injuries_empty(row):
-        out.append(f"- WARNING {team}: an empty injury list, {EMPTY_LIST_WARNING}")
+        out.append(f"- WARNING {fv('team', team)}: an empty injury list, {EMPTY_LIST_WARNING}")
     return out + [""]
 
 
@@ -493,29 +570,29 @@ def section_market(row: dict, fam: str, books: dict | None) -> list[str]:
     for s in sides_of(row, fam):
         sel = (sels or {}).get(s) if isinstance(sels, dict) else None
         if isinstance(sel, dict):
-            out.append(f"- {side_name(row, s)}: best {v(sel.get('best_price'))} ({v(sel.get('best_bookmaker'))}) · "
-                       f"fair {v(sel.get('fair_prob'))} · model edge {pp(sel.get('edge_pp'))}")
+            out.append(f"- {fv('side_name', side_name(row, s))}: best {fv('market.selection.best_price', sel.get('best_price'))} ({fv('market.selection.best_bookmaker', sel.get('best_bookmaker'))}) · "
+                       f"fair {fv('market.selection.fair_prob', sel.get('fair_prob'))} · model edge {pp(sel.get('edge_pp'))}")
         else:
-            out.append(f"- {side_name(row, s)}: fair {v(get(m, 'fair_prob', s))} (best price {NOT_STORED})")
-    out += [f"- bookmaker_count: {v(m.get('bookmaker_count'))} (quoted {v(m.get('bookmaker_count_quoted'))}) · "
-            f"overround: {v(m.get('overround_pct'))}%" if m.get("overround_pct") is not None else
-            f"- bookmaker_count: {v(m.get('bookmaker_count'))} (quoted {v(m.get('bookmaker_count_quoted'))}) · "
+            out.append(f"- {fv('side_name', side_name(row, s))}: fair {fv('market.fair_prob', get(m, 'fair_prob', s))} (best price {NOT_STORED})")
+    out += [f"- bookmaker_count: {fv('market.bookmaker_count', m.get('bookmaker_count'))} (quoted {fv('market.bookmaker_count_quoted', m.get('bookmaker_count_quoted'))}) · "
+            f"overround: {fv('market.overround_pct', m.get('overround_pct'))}%" if m.get("overround_pct") is not None else
+            f"- bookmaker_count: {fv('market.bookmaker_count', m.get('bookmaker_count'))} (quoted {fv('market.bookmaker_count_quoted', m.get('bookmaker_count_quoted'))}) · "
             f"overround: {NOT_STORED}"]
     if fam == "NFL":
-        out.append(f"- fair source: {v(m.get('fair_source'))}")
+        out.append(f"- fair source: {fv('market.fair_source', m.get('fair_source'))}")
     if books is not None:
-        out.append(f"- books: {books['why']}" if books.get("why") else f"- books: {v(books.get('n'))} priced")
+        out.append(f"- books: {fv('books.why', books['why'])}" if books.get("why") else f"- books: {fv('books.n', books.get('n'))} priced")
     out += ["", "### Kalshi"]
     k = m.get("kalshi") if isinstance(m.get("kalshi"), dict) else {}
     legs = row.get("kalshi_legs") or {}
     for s in sides_of(row, fam):
         leg = legs.get(s) if isinstance(legs, dict) else None
         if not isinstance(leg, dict):
-            out.append(f"- {side_name(row, s)}: leg {NOT_STORED}")
+            out.append(f"- {fv('side_name', side_name(row, s))}: leg {NOT_STORED}")
             continue
-        out.append(f"- {side_name(row, s)}: {v(leg.get('ticker'))} · bid {cents(leg.get('bid'))} / ask "
-                   f"{cents(leg.get('ask'))} · raw {v(get(k, 'raw_yes_prob', s))} · normalized "
-                   f"{v(kalshi_norm(row, s))} · vs book {pp(get(k, 'vs_book_pp', s))}")
+        out.append(f"- {fv('side_name', side_name(row, s))}: {fv('kalshi.leg.ticker', leg.get('ticker'))} · bid {cents(leg.get('bid'))} / ask "
+                   f"{cents(leg.get('ask'))} · raw {fv('kalshi.raw_yes_prob', get(k, 'raw_yes_prob', s))} · normalized "
+                   f"{fv('kalshi.normalized_prob', kalshi_norm(row, s))} · vs book {pp(get(k, 'vs_book_pp', s))}")
     cap = k.get("captured_at") or row.get("kalshi_captured_at")
     age = NOT_STORED
     try:
@@ -523,20 +600,20 @@ def section_market(row: dict, fam: str, books: dict | None) -> list[str]:
             age = f"{(ko - cl.parse_utc(cap)).total_seconds() / 60:.0f} min before kickoff"
     except (TypeError, ValueError):
         pass
-    out.append(f"- captured_at: {v(cap)} ({age}) · normalized set: {v(k.get('normalized'))}")
+    out.append(f"- captured_at: {fv('kalshi.captured_at', cap)} ({age}) · normalized set: {fv('kalshi.normalized', k.get('normalized'))}")
     if fam == "NFL":
-        out.append(f"- venue gap: {pp(row.get('venue_gap_pp'))} · venue flag: {v(row.get('venue_flag'))}")
+        out.append(f"- venue gap: {pp(row.get('venue_gap_pp'))} · venue flag: {fv('row.venue_flag', row.get('venue_flag'))}")
     out += ["", "### Line move"]
     lm = row.get("line_move")
     if not isinstance(lm, dict):
         out.append(f"- line_move: {NOT_STORED} (null on the row)")
     else:
-        out.append(f"- flag: {v(lm.get('flag'))} · window {v(lm.get('window_h'))}h · threshold "
-                   f"{v(lm.get('threshold_pp'))}pp")
+        out.append(f"- flag: {fv('line_move.flag', lm.get('flag'))} · window {fv('line_move.window_h', lm.get('window_h'))}h · threshold "
+                   f"{fv('line_move.threshold_pp', lm.get('threshold_pp'))}pp")
         for venue, mv in (lm.get("venues") or {}).items():
             if isinstance(mv, dict):
-                out.append(f"- {venue}: {v(mv.get('from'))} at {v(mv.get('from_at'))} → {v(mv.get('to'))} at "
-                           f"{v(mv.get('to_at'))} · move {v(mv.get('move_pp'))}pp · alarm {v(mv.get('alarm'))}")
+                out.append(f"- {fv('line_move.venue', venue)}: {fv('line_move.venue.from', mv.get('from'))} at {fv('line_move.venue.from_at', mv.get('from_at'))} → {fv('line_move.venue.to', mv.get('to'))} at "
+                           f"{fv('line_move.venue.to_at', mv.get('to_at'))} · move {fv('line_move.venue.move_pp', mv.get('move_pp'))}pp · alarm {fv('line_move.venue.alarm', mv.get('alarm'))}")
     return out + [""]
 
 
@@ -551,30 +628,31 @@ def section_maths(row: dict, d: dict, meta: dict) -> list[str]:
     # unit is cents"), as the order and Kalshi quote lines already print them
     ex = d.get("exec") if isinstance(d.get("exec"), dict) else {}
     out = ["## THE MATHS", "",
-           f"- edge_pp = model_p − market_ref = {v(d.get('model_p'))} − {v(d.get('market_ref'))} → "
-           f"{pp(d.get('edge_pp'))} (reference: {v(d.get('reference'))})",
+           f"- edge_pp = model_p − market_ref = {fv('desk.model_p', d.get('model_p'))} − {fv('desk.market_ref', d.get('market_ref'))} → "
+           f"{pp(d.get('edge_pp'))} (reference: {fv('desk.reference', d.get('reference'))})",
            # addendum 309 item 2 (P2): the exec line in ONE unit, the model's price as cents of the payout beside
            # the cost in cents ("55c − 46c → +9.0pp"); pp() formats the edge as every edge line does
            f"- exec edge = model_p − cost = {cents(d.get('model_p'))} − {cents(ex.get('cost'))} → "
-           f"{pp(ex.get('edge_pp'))} (basis {v(ex.get('basis'))})",
-           f"- cost: the taker ask plus the fee at the series' fee multiplier (series {v(row.get('fee_series'))}, "
-           f"taker M {v(row.get('fee_m_taker'))}) · taker cost {cents(ex.get('taker_cost'))} · maker cost "
+           f"{pp(ex.get('edge_pp'))} (basis {fv('desk.exec.basis', ex.get('basis'))})",
+           f"- cost: the taker ask plus the fee at the series' fee multiplier (series {fv('row.fee_series', row.get('fee_series'))}, "
+           f"taker M {fv('row.fee_m_taker', row.get('fee_m_taker'))}) · taker cost {cents(ex.get('taker_cost'))} · maker cost "
            f"{cents(ex.get('maker_cost'))} · join price {cents(ex.get('join_price'))}",
-           f"- fee_clears: {v(ex.get('fee_clears'))} · doctrine: {v(ex.get('doctrine'))}"
-           + (f" ({ex['join_note']})" if ex.get("join_note") else ""),
-           f"- class: {v(d.get('cls'))} · tier: {v(d.get('tier'))} · pass_kind: {v(d.get('pass_kind'))}"]
+           f"- fee_clears: {fv('desk.exec.fee_clears', ex.get('fee_clears'))} · doctrine: {fv('desk.exec.doctrine', ex.get('doctrine'))}"
+           + (f" ({fv('desk.exec.join_note', ex['join_note'])})" if ex.get("join_note") else ""),
+           f"- class: {fv('desk.cls', d.get('cls'))} · tier: {fv('desk.tier', d.get('tier'))} · pass_kind: {fv('desk.pass_kind', d.get('pass_kind'))}"]
     kc = d.get("kickoff_clock")
     if isinstance(kc, dict):
-        out.append(f"- kickoff clock: stored {v(kc.get('stored_kickoff'))} vs Kalshi {v(kc.get('kalshi_clock'))} · "
-                   f"drift {v(kc.get('drift_h'))}h (max {v(kc.get('max_drift_h'))}h)")
-    out.append(f"- policy {v(meta.get('policy_version'))} as of {v(meta.get('as_of'))}; the rules in force:")
+        out.append(f"- kickoff clock: stored {fv('kickoff_clock.stored_kickoff', kc.get('stored_kickoff'))} vs Kalshi {fv('kickoff_clock.kalshi_clock', kc.get('kalshi_clock'))} · "
+                   f"drift {fv('kickoff_clock.drift_h', kc.get('drift_h'))}h (max {fv('kickoff_clock.max_drift_h', kc.get('max_drift_h'))}h)")
+    out.append(f"- policy {fv('desk_meta.policy_version', meta.get('policy_version'))} as of {fv('desk_meta.as_of', meta.get('as_of'))}; the rules in force:")
     for k in META_RULES:
-        out.append(f"  - {k}: {v(meta.get(k))}")
+        out.append(f"  - {k}: {fv('desk_meta.rule', meta.get(k))}")
     return out + [""]
 
 
-def _then_now(label: str, then, now) -> str:
-    return f"- {label}: {v(then)} → {v(now)}"
+def _then_now(label: str, then: str, now: str) -> str:
+    """A then → now line; the label and both values as the caller wrote them (escaped where they are free text)."""
+    return f"- {label}: {then} → {now}"
 
 
 def section_change(row: dict, d: dict, stage: str, exports: Path, fam: str) -> list[str]:
@@ -586,21 +664,25 @@ def section_change(row: dict, d: dict, stage: str, exports: Path, fam: str) -> l
         return out + [f"- {NO_SLATE_ROW}", ""]
     od = old.get("desk") or {}
     pick = d.get("pick") or od.get("pick")
-    out.append(f"- the slate row: exports/{name}")
-    out.append(_then_now("call", cl.call_text(old, od), cl.call_text(row, d)))
+    out.append(f"- the slate row: exports/{fv('slate_file', name)}")
+    out.append(_then_now("call", fv("desk.call_text", cl.call_text(old, od)), fv("desk.call_text", cl.call_text(row, d))))
     for s in sides_of(row, fam):
-        out.append(_then_now(f"model {side_name(row, s)}", model_p(old, s), model_p(row, s)))
-    out += [_then_now(f"books fair on the pick ({v(pick)})", books_fair(old, pick), books_fair(row, pick)),
-            _then_now(f"Kalshi mid on the pick ({v(pick)})", kalshi_mid(old, pick), kalshi_mid(row, pick)),
+        out.append(_then_now(f"model {fv('side_name', side_name(row, s))}", fv("prediction.model_p", model_p(old, s)),
+                             fv("prediction.model_p", model_p(row, s))))
+    out += [_then_now(f"books fair on the pick ({fv('desk.pick', pick)})", fv("market.fair_prob", books_fair(old, pick)),
+                      fv("market.fair_prob", books_fair(row, pick))),
+            _then_now(f"Kalshi mid on the pick ({fv('desk.pick', pick)})", fv("kalshi.raw_yes_prob", kalshi_mid(old, pick)),
+                      fv("kalshi.raw_yes_prob", kalshi_mid(row, pick))),
             _then_now("edge", pp(od.get("edge_pp")), pp(d.get("edge_pp"))),
             _then_now("exec edge", pp(get(od, "exec", "edge_pp")), pp(get(d, "exec", "edge_pp")))]
     for side in ("home", "away"):
         a, b = get(old, "injuries", side + "_names"), get(row, "injuries", side + "_names")
         if not isinstance(a, list) or not isinstance(b, list):
-            out.append(f"- injuries {row.get(side + '_team')}: added/removed {NOT_STORED}")
+            out.append(f"- injuries {fv(side + '_team', row.get(side + '_team'))}: added/removed {NOT_STORED}")
             continue
         add, rem = [n for n in b if n not in a], [n for n in a if n not in b]
-        out.append(f"- injuries {row.get(side + '_team')}: added {v(add)} · removed {v(rem)}")
+        out.append(f"- injuries {fv(side + '_team', row.get(side + '_team'))}: added {fv('injuries.names', add)} · "
+                   f"removed {fv('injuries.names', rem)}")
     return out + [""]
 
 
@@ -614,13 +696,13 @@ def stage_text(stage: str, doc: dict) -> str:
 def markdown(row: dict, d: dict, x: dict | None, *, fam: str, stage: str, stage_s: str, doc: dict, run_id, week: str,
              cert: str, exports: Path, books: dict | None) -> str:
     ko = kickoff(row)
-    lines = [f"# {row.get('away_team')} at {row.get('home_team')}", "",
-             f"- competition: {v(row.get('competition'))} (family {fam})",
-             f"- matchweek: {week}",
+    lines = [f"# {fv('away_team', row.get('away_team'))} at {fv('home_team', row.get('home_team'))}", "",
+             f"- competition: {fv('row.competition', row.get('competition'))} (family {fam})",
+             f"- matchweek: {fv('matchweek', week)}",
              f"- kickoff: {cl.et(ko)} ({cl.iso_z(ko)})",
              f"- stage: {stage_s}",
-             f"- run id: {v(run_id)}",
-             f"- certification: {cert}", ""]
+             f"- run id: {fv('run_id', run_id)}",
+             f"- certification: {fv('certification', cert)}", ""]
     lines += section_call(row, d, x, fam)
     lines += section_prediction(row, fam)
     lines += section_teams(row, d, fam)
@@ -629,6 +711,17 @@ def markdown(row: dict, d: dict, x: dict | None, *, fam: str, stage: str, stage_
     lines += section_change(row, d, stage, exports, fam)
     lines += ["---", "", FOOTER, ""]
     return "\n".join(md_line(line) for line in lines)
+
+
+def markdown_fields(*args, **kw) -> tuple[str, list]:
+    """markdown() and the free-text values it escaped, as they stood before escaping (addendum 319 item 2(b))."""
+    seen: list = []
+    token = _FIELDS.set(seen)
+    try:
+        md = markdown(*args, **kw)
+    finally:
+        _FIELDS.reset(token)
+    return md, seen
 
 
 # --------------------------------------------------------------------------------------------------- card --
@@ -858,7 +951,8 @@ def mirror_url(rel: str, out_dir: Path) -> str:
 # -------------------------------------------------------------------------------------------------- run --
 
 def plan(doc: dict, fam: str, stage: str, source: Path, out_dir: Path, db: Path | None) -> tuple[list, list]:
-    """([(rel path, bytes-or-spec, text the guard reads)], skipped) for every row the Desk saw."""
+    """([(rel path, bytes-or-spec, text the guard reads, the free-text field values before escaping)], skipped) for
+    every row the Desk saw."""
     files, skipped, cache = [], [], {}
     run_id = (doc.get("closing") or {}).get("run_id") if stage == "closing" else None
     books = {b.get("match_id"): b for b in get(doc, "closing", "books") or [] if isinstance(b, dict)}
@@ -880,12 +974,13 @@ def plan(doc: dict, fam: str, stage: str, source: Path, out_dir: Path, db: Path 
             x = desk_row(doc, row, fam)
             week = matchday(fam, row, db, cache)
             cert = certification_line(fam, row)
-            md = markdown(row, d, x, fam=fam, stage=stage, stage_s=stage_s, doc=doc, run_id=run_id, week=week,
-                          cert=cert, exports=source.parent, books=books.get(mid) if fam == "MLB" else None)
+            md, fields = markdown_fields(row, d, x, fam=fam, stage=stage, stage_s=stage_s, doc=doc, run_id=run_id,
+                                         week=week, cert=cert, exports=source.parent,
+                                         books=books.get(mid) if fam == "MLB" else None)
             spec = card_spec(row, d, fam=fam, stage_s=stage_s, week=week, cert=cert, run_id=run_id)
             base = f"{fam}/{cl.ny_date(ko).isoformat()}/{file_stem(row, stage)}"
-            files.append((base + ".md", md.encode("utf-8"), md))
-            files.append((base + ".png", spec, "\n".join(spec["texts"])))
+            files.append((base + ".md", md.encode("utf-8"), md, fields))
+            files.append((base + ".png", spec, "\n".join(spec["texts"]), fields))
     finally:
         if cache.get("con") is not None:
             cache["con"].close()
@@ -914,15 +1009,18 @@ REDACTED_MARK = "[REDACTED]"                       # what sp_common.redact write
 # "api key<b>x</b>" reads "api keyx"); and the value may open with one quote or bracket ("api key (abcdef123)"). A
 # letters-only value under twenty characters stays prose ("Bearer Rovers"), as before.
 _DASHES = "\\-\u2010-\u2015\u2212"
-_LABEL_WORD = r"[\s_" + _DASHES + r"]*"
+_LABEL_WORD = r"[\s_*~" + _DASHES + r"]*"
+# addendum 319 item 2(d): a label in emphasis ("api _key_ = …", "*api key*: …") carries a credential shape as it displays
+# (the field is written escaped, so its _ and * show): the delimiters _ * ~ may join a label's words and close it
+_EMPH = r"[_*~]*"
 _GAP = r"[\s" + _DASHES + "\u2192\u21d2>]*"
 _OPEN = "[\"'(\\[<{\u201c\u2018\u00ab]?"
 CREDENTIAL_LABELS = ("api key", "secret key", "access token", "private key", "client secret", "auth token")
 _TOKEN = (r"(?:(?=[A-Za-z0-9._~+/=-]*[0-9])[A-Za-z0-9][A-Za-z0-9._~+/=-]{5,}"
           r"|[A-Za-z0-9][A-Za-z0-9._~+/=-]{19,})(?![A-Za-z0-9._~+/=-])")
 _LABELS = "|".join(_LABEL_WORD.join(re.escape(w) for w in lab.split()) for lab in CREDENTIAL_LABELS)
-CREDENTIAL = re.compile(r"(?i)(?<![a-z0-9])(?:(?:" + _LABELS + r")(?:\s*[=:]\s*\S|" + _GAP + _OPEN + _TOKEN + r")"
-                        r"|bearer(?:\s*[=:]\s*|" + _GAP + r")" + _OPEN + _TOKEN + r")")
+CREDENTIAL = re.compile(r"(?i)(?<![a-z0-9])(?:(?:" + _LABELS + r")" + _EMPH + r"(?:\s*[=:]\s*\S|" + _GAP + _OPEN
+                        + _TOKEN + r")|bearer" + _EMPH + r"(?:\s*[=:]\s*|" + _GAP + r")" + _OPEN + _TOKEN + r")")
 
 
 def secret_offence(text: str) -> str | None:
@@ -995,8 +1093,10 @@ def run(closing_file: str | None = None, slate_file: str | None = None, out_dir:
         rec["family"] = fam
         files, skipped = plan(doc, fam, stage, source, out, dbp)
         rec["skipped"] = [{"match_id": m, "why": w} for m, w in skipped]
-        refused = [{"pattern": name, "path": refused_path(out, rel, name)} for rel, _, text in files
-                   for name in [bulletin_offence(text) or secret_offence(text)] if name]
+        # addendum 319 item 2(b): each free-text field value as it stands before escaping first (the real text), then
+        # the whole document as rendered (defense in depth: the readings as they were, never added to)
+        refused = [{"pattern": name, "path": refused_path(out, rel, name)} for rel, _, text, fields in files
+                   for name in [field_offence(fields) or bulletin_offence(text) or secret_offence(text)] if name]
         if refused:                           # item 2: nothing written, the pattern's NAME and the path, never the line
             rec.update(exit=2, bulletin_refused=refused)
             c.append_receipt(rec)
@@ -1005,10 +1105,10 @@ def run(closing_file: str | None = None, slate_file: str | None = None, out_dir:
                 echo(f"  {r['pattern']}: {r['path']}")
             return 2
         root = out.resolve()
-        for rel, _, _ in files:                       # every path inside --out-dir, checked before any write
+        for rel, _, _, _ in files:                    # every path inside --out-dir, checked before any write
             if not (out / rel).resolve().is_relative_to(root):
                 raise Refused(f"a bulletin path leaves {shown(out, '')}: nothing written")
-        blobs = [(rel, data if isinstance(data, bytes) else render_card(data)) for rel, data, _ in files]
+        blobs = [(rel, data if isinstance(data, bytes) else render_card(data)) for rel, data, _, _ in files]
         write_set([(out / rel, data) for rel, data in blobs])      # staged complete, then moved (304 item 1)
         rec["written"] = [shown(out, rel) for rel, _ in blobs]
     except Refused as e:

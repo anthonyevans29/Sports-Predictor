@@ -157,6 +157,15 @@ def png_size(p: Path) -> tuple[int, int]:
     return struct.unpack(">II", data[16:24])
 
 
+_MD_ESCAPED = __import__("re").compile(r"\\([\\*_~\[\]()#>!|`$])")
+
+
+def displayed(md: str) -> str:
+    """The Markdown as GitHub displays its text (addendum 319 item 2(a): "Displayed text == written text"): every
+    backslash escape of the escaped set (and the line's \\$) read as its character, then &lt; and &amp;."""
+    return _MD_ESCAPED.sub(r"\1", md).replace("&lt;", "<").replace("&amp;", "&")
+
+
 def md_of(repo, fam, mid, stage="closing") -> str:
     hits = [p for p in files_under(repo / "exports" / "bulletins") if p.name.startswith(f"{mid}_")
             and p.name.endswith(f"_{stage}.md") and f"/{fam}/" in p.as_posix()]
@@ -226,7 +235,7 @@ def test_the_call_line_is_closing_call_text_verbatim(repo, fam, doc_fn, mid):
     src = closing_file(repo, doc, fam, books_why={mid: "provider listed the game, no odds"} if fam == "MLB" else None)
     assert b.run(closing_file=str(src)) == 0
     r = next(x for x in doc["predictions"] if x["match_id"] == mid)
-    md = md_of(repo, fam, mid)
+    md = displayed(md_of(repo, fam, mid))
     assert _call_line(md) == cl.call_text(r, r["desk"])
     if r["desk"]["call"] == "PASS":
         assert f"**WHY THERE IS NO BET:** {r['desk']['reason']}" in md
@@ -250,7 +259,7 @@ def test_an_nfl_pass_carries_the_would_be_line_verbatim_labelled_record_only(rep
     x = cl.desk_rows({"predictions": [r]}, {r["match_id"]}, b.EPOCH, fam="NFL")[0]
     assert x.get("would_be"), "the fixture's NFL row must carry a would-be PLAY (addendum 217 item 4)"
     line = " · ".join(cl.would_be_text(x["would_be"]))
-    md = md_of(repo, "NFL", 9301)
+    md = displayed(md_of(repo, "NFL", 9301))
     assert f"- {line}" in md and line.endswith(b.RECORD_ONLY)
     assert "- matchweek: 10" in md                                            # NFL: the row's week
     assert "(registry nfl-elo-v1): market-only, the would-be call below is a record, not a pick" in md
@@ -501,7 +510,7 @@ def test_the_closing_bulletin_reads_the_days_slate_row_then_now(repo):
     slate["predictions"][0]["injuries"]["home_names"] = ["A. Keeper", "Z. Gone"]
     (repo / "exports" / "soccer_PL_2026-11-07_to_2026-11-10.json").write_text(json.dumps(slate))
     assert b.run(closing_file=str(closing_file(repo, soccer_doc(), "SOCCER"))) == 0
-    md = md_of(repo, "SOCCER", 9401)
+    md = displayed(md_of(repo, "SOCCER", 9401))
     assert "- the slate row: exports/soccer_PL_2026-11-07_to_2026-11-10.json" in md
     assert "- call: PLAY Alpha Owls 0.5u → PLAY Alpha Owls 0.5u" in md
     assert "- injuries Alpha Owls: added B. Back · removed Z. Gone" in md
@@ -605,7 +614,7 @@ def test_pl_matchday_is_read_from_a_db_copy_mode_ro(repo, tmp_path):
 
 def test_without_a_readable_db_the_matchday_is_not_stored_and_none_is_created(repo, tmp_path):
     assert b.run(closing_file=str(closing_file(repo, soccer_doc(), "SOCCER"))) == 0
-    assert "- matchweek: not stored (the DB cannot be read: FileNotFoundError)" in md_of(repo, "SOCCER", 9401)
+    assert "- matchweek: not stored (the DB cannot be read: FileNotFoundError)" in displayed(md_of(repo, "SOCCER", 9401))
     assert not (tmp_path / "no-such.db").exists()
 
 
@@ -718,7 +727,9 @@ def test_a_team_name_in_dollar_math_is_drawn_literally_and_escaped_in_the_markdo
     doc["predictions"][0]["home_team"] = "Mu$\\alpha{$ Owls"
     assert b.run(closing_file=str(closing_file(repo, doc, "SOCCER"))) == 0
     md = md_of(repo, "SOCCER", 9401)
-    assert "Mu\\$\\alpha{\\$ Owls" in md and "Mu$" not in md
+    # addendum 319 item 2(a): the backslash is escaped too, so the name displays as written
+    assert "Mu\\$\\\\alpha{\\$ Owls" in md and "Mu$" not in md
+    assert "Mu$\\alpha{$ Owls" in displayed(md)
 
 
 def test_tick_labels_are_never_mathtext(repo, monkeypatch):
@@ -903,13 +914,13 @@ def test_the_certification_line_never_infers_a_state(repo):
     """SOCCER/MLB with no registry entry: "certification not read", labelled (registry.certification_of's unread
     reason), never "live". NFL: the withholding entry's own certification text, verbatim."""
     assert b.run(closing_file=str(closing_file(repo, soccer_doc(), "SOCCER"))) == 0
-    md = md_of(repo, "SOCCER", 9401)
+    md = displayed(md_of(repo, "SOCCER", 9401))
     assert ("- certification: test-model-v0 — certification not read (no registry entry for SOCCER test-model-v0)" in md)
     assert "would-be" not in md.split("## THE CALL")[0]
     assert b.run(closing_file=str(closing_file(repo, nfl_doc(), "NFL"))) == 0
     from src.walters import registry
     entry = next(e for e in registry.load(registry.LEDGER) if e.get("id") == "nfl-elo-v1")
-    md = md_of(repo, "NFL", 9301)
+    md = displayed(md_of(repo, "NFL", 9301))
     assert (f"- certification: nfl_elo_v1 — {entry['certification']} (registry nfl-elo-v1): market-only, the "
             "would-be call below is a record, not a pick") in md
 
@@ -959,7 +970,7 @@ def test_the_card_and_both_games_never_carry_the_forbidden_fields(repo):
                                      [r["match_id"] for r in doc["predictions"]], [], None), "SOCCER", "closing",
                       repo / "exports" / "closing_x.json", repo / "exports" / "bulletins", None)
     d = doc["predictions"][0]["desk"]
-    texts = [t for _, _, t in files]
+    texts = [t for _, _, t, _ in files]
     assert len(texts) == 4
     for t in texts:
         assert pv.bulletin_offence(t) is None
@@ -1208,3 +1219,125 @@ def test_the_maths_exec_line_speaks_one_unit(repo):
     line = next(ln for ln in maths.splitlines() if ln.startswith("- exec edge"))
     assert line.startswith("- exec edge = model_p − cost = 55c − 46c → +9.00pp"), line
     assert "0.55" not in line
+
+
+# ------------------------------------------------------------------ addendum 319 item 2: ESCAPE, DON'T NORMALIZE --
+# ARCHITECT 2026-11-10 10:45 ET, addendum 319 item 2: every free-text field the renderer writes is Markdown-escaped on
+# output (2(a)); the scan reads each field value as it stands before escaping, and the whole document after rendering
+# (2(b)); the escaped set is enumerated (bulletin.FREE_TEXT_FIELDS) and a test walks every string field (2(c)); every
+# finding to date is rendered harmless (2(d)).
+
+_KEEP = {"utc_date", "call", "exported_at"}          # parsed or branched on: kept as the fixture has them
+
+
+def _maximal(doc: dict, fam: str) -> dict:
+    """Every optional string path the renderer can print, populated (line moves, kickoff clock, a written order,
+    a join note, an MLB books note) so the walk reaches each one."""
+    for r in doc["predictions"]:
+        r["line_move"] = {"flag": "moved", "window_h": 6, "threshold_pp": 3,
+                          "venues": {"bookA": {"from": 0.5, "from_at": "t0", "to": 0.55, "to_at": "t1",
+                                               "move_pp": 5, "alarm": "yes"}}}
+        d = r["desk"]
+        d["kickoff_clock"] = {"stored_kickoff": "k0", "kalshi_clock": "k1", "drift_h": 0, "max_drift_h": 2}
+        if isinstance(d.get("exec"), dict):
+            d["exec"]["join_note"] = "join note"
+    return doc
+
+
+def _sentinels(node, path, out, keep=_KEEP):
+    """Every string leaf (and every key of line_move.venues) replaced by a unique token holding markup
+    characters; returns the node."""
+    if isinstance(node, dict):
+        items = list(node.items())
+        node.clear()
+        for k, val in items:
+            if path and path[-1] == "venues":
+                k = f"q{len(out)}<_*"
+                out[k] = path + ("<key>",)
+            node[k] = val if k in keep else _sentinels(val, path + (k,), out, keep)
+        return node
+    if isinstance(node, list):
+        return [_sentinels(x, path + ("[]",), out, keep) for x in node]
+    if isinstance(node, str):
+        tok = f"q{len(out)}<_*"
+        out[tok] = path
+        return tok
+    return node
+
+
+@pytest.mark.parametrize("fam,doc_fn", [("SOCCER", soccer_doc), ("NFL", nfl_doc), ("MLB", mlb_doc)])
+def test_every_string_field_the_row_carries_is_escaped_or_never_printed(repo, fam, doc_fn):
+    """Addendum 319 item 2(c): "a test walks the renderer's output for every string field and asserts it is either in
+    that set (escaped) or from a vocabulary/number formatter (unescaped by construction); a new string field fails the
+    test until it is classified". Every string the closing document's rows carry becomes a token with `<`, `_` and `*`
+    in it; no token may appear in the written Markdown as written (only escaped), and no `<` at all."""
+    doc = _maximal(doc_fn(), fam)
+    closing = cl.closing_doc(doc, fam, NOW + timedelta(minutes=35), RUN_ID, [r["match_id"] for r in doc["predictions"]],
+                             [], {r["match_id"]: "books note" for r in doc["predictions"]} if fam == "MLB" else None)
+    toks: dict = {}
+    closing["predictions"] = _sentinels(closing["predictions"], ("predictions",), toks)
+    files, _ = b.plan(closing, fam, "closing", repo / "exports" / "closing_x.json", repo / "exports" / "bulletins", None)
+    mds = [t for rel, _, t, _ in files if rel.endswith(".md")]
+    assert mds and toks
+    raw = [(tok, p) for tok, p in toks.items() for md in mds if tok in md]
+    assert raw == [], f"printed unescaped: {sorted(set('.'.join(p) for _, p in raw))}"
+    assert all("<" not in md for md in mds)
+    escaped = {tok for tok in toks for md in mds if b.md_escape(tok) in md}
+    assert len(escaped) >= 10                                          # the walk reaches the printed fields
+
+
+def test_an_unclassified_free_text_field_is_refused():
+    with pytest.raises(b.Refused):
+        b.fv("desk.some_new_field", "text")
+    assert b.fv("desk.reason", "a_b") == "a\\_b"
+
+
+_L = "x" * 300
+# (the form, a value carrying a credential shape, a value that does not): every finding to date (addendum 319 2(d))
+_FINDINGS = [
+    ("link", "[api_key](https://x.test/a)=abcdef123", "[see](https://x.test/a) the note"),
+    ("image", "![api_key](https://x.test/a.png)=abcdef123", "![chart](https://x.test/a.png) noted"),
+    ("nested parentheses", "[api_key](https://x.test/a(b))=abcdef123", "[a](https://x.test/a(b)) c"),
+    ("long tag", "api key<span title='" + _L + "'>abcdef123", "a<span title='" + _L + "'>b</span>c"),
+    ("long comment", "api key<!--" + _L + "-->abcdef123", "a<!--" + _L + "-->b"),
+    ("processing instruction", "<?x " + _L + "?> api key: abcdef123", "a<?x " + _L + "?>b"),
+    ("declaration", "<!X " + _L + "> api key: abcdef123", "a<!X " + _L + ">b"),
+    ("CDATA", "<![CDATA[" + _L + "]]> api key: abcdef123", "a<![CDATA[" + _L + "]]>b"),
+    ("underscore emphasis", "api _key_ = abcdef123", "a _strong_ edge"),
+    ("asterisk emphasis", "*api key*: abcdef123", "a *strong* edge, **bolder**"),
+    ("spaced label", "api key = abcdef123", "the key match of the round"),
+]
+
+
+@pytest.mark.parametrize("form,secret,plain", _FINDINGS, ids=[f[0] for f in _FINDINGS])
+def test_every_finding_is_refused_at_the_field_or_written_as_literal_text(repo, form, secret, plain):
+    """Addendum 319 item 2(d): each form (i) refused at the field level as `secret` when it carries a credential shape,
+    nothing written; (ii) written as literal text when it does not: the displayed Markdown is the value, character for
+    character, and the written Markdown carries no `<`."""
+    doc = soccer_doc()
+    doc["predictions"][0]["desk"]["reason"] = secret
+    assert b.field_offence([("desk.reason", secret)]) == b.SECRET_PATTERN
+    assert b.run(closing_file=str(closing_file(repo, doc, "SOCCER"))) == 2
+    assert {r["pattern"] for r in receipts()[-1]["bulletin_refused"]} == {b.SECRET_PATTERN}
+    assert files_under(repo / "exports" / "bulletins") == []
+    doc = soccer_doc()
+    doc["predictions"][0]["desk"]["reason"] = plain
+    assert b.run(closing_file=str(closing_file(repo, doc, "SOCCER"))) == 0, receipts()[-1]
+    md = md_of(repo, "SOCCER", 9401)
+    assert f"- reason: {plain}" in displayed(md) and "<" not in md
+
+
+def test_a_golden_render_reads_back_as_its_field_values(repo):
+    """Addendum 319 item 2(d): "a golden render of one bulletin read back as text equal to its field values": every
+    free-text value the renderer escaped displays as the value itself."""
+    doc = soccer_doc()
+    r = doc["predictions"][0]
+    r["home_team"], r["away_team"] = "Alpha_Owls *FC* [1](x) #2 <b>", "Beta > Hawks | !x ~y~ `z` & \\w"
+    r["desk"]["reason"] = "edge (2.0pp) > floor_x * 2 [see] #note | done!"
+    src = closing_file(repo, doc, "SOCCER")
+    files, _ = b.plan(json.loads(src.read_text()), "SOCCER", "closing", src, repo / "exports" / "bulletins", None)
+    md, fields = files[0][2], files[0][3]
+    shown_md = displayed(md.replace("\\$", "$"))
+    assert fields and all(raw in shown_md for _, raw in fields)
+    assert "# Beta > Hawks | !x ~y~ `z` & \\w at Alpha_Owls *FC* [1](x) #2 <b>" in shown_md
+    assert "<b>" not in md and "&lt;b\\>" in md

@@ -18,7 +18,8 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from src.db.schema import (AvailabilityObservation, Base, Competition, GameWeather, KalshiSettledMarket, Match,
-                           MatchStats, MatchStatus, Odds, OddsSnapshot, Result, Sport, Team)
+                           MatchStats, MatchStatus, NCAACFBDLabel, NCAACFBDPregame, Odds, OddsSnapshot, Result, Sport,
+                           Team)
 
 _SPEC = importlib.util.spec_from_file_location(
     "restore_collided_rows", Path(__file__).resolve().parents[1] / "scripts" / "restore_collided_rows.py")
@@ -135,6 +136,12 @@ def _main(live, frm, *flags, ids=None):
 
 def _main_json(live, extract, *flags):
     return rc.main(["--db", str(live), "--from-json", str(extract), *flags])
+
+
+def _written(n, moved, added, cfbd_moved=0, cfbd_restored=0) -> str:
+    """The pre-commit count's line (two created, two restored; 314 item 2's CFBD parts named, zeros included)."""
+    return (f"ROWS WRITTEN: {n} (expected {n}: 2 created, {moved} moved, {added} added moved, {cfbd_moved} CFBD "
+            f"moved+reoriented, {cfbd_restored} CFBD restored from the copy, 2 restored)")
 
 
 def _set(sql, *args):
@@ -386,7 +393,7 @@ def test_book_rows_swap_or_keep_one_mode_for_every_row(pair, capsys, mode, want)
     assert f"PLAN 36454 MOVE odds_snapshots row 17: match_id 36454 -> the new id, selection HOME -> {want[17]}" in out
     assert _main(live, frm, "--apply", "--book-rows", mode) == 0
     out = capsys.readouterr().out
-    assert "ROWS WRITTEN: 15 (expected 15: 2 created, 11 moved, 0 added moved, 2 restored)" in out
+    assert _written(15, 11, 0) in out
     got = {r["id"]: r["selection"] for r in _q(live, "SELECT id, selection FROM odds_snapshots WHERE id = 17")}
     got.update({r["id"]: r["selection"] for r in _q(live, "SELECT id, selection FROM odds WHERE id IN (22, 23)")})
     assert got == want
@@ -422,7 +429,7 @@ def test_move_added_moves_the_added_rows_and_counts_them(pair, capsys):
     assert "PLAN 36454 STAY game_weather: 1 row(s)" in out
     assert _main(live, frm, "--apply", "--move-added") == 0
     out = capsys.readouterr().out
-    assert "ROWS WRITTEN: 13 (expected 13: 2 created, 8 moved, 1 added moved, 2 restored)" in out
+    assert _written(13, 8, 1) in out
     lsu = _q(live, "SELECT id FROM matches WHERE home_team_id = ? AND season = '2026'", (LSU,))[0]["id"]
     assert {r["id"]: r["match_id"] for r in _q(live, "SELECT id, match_id FROM game_weather")} == {1: 36454, 2: lsu}
     assert f"AFTER game_weather row 2: match_id {lsu}" in out
@@ -453,29 +460,63 @@ def test_changed_and_added_are_told_by_the_key_not_the_content(pair, capsys):
     assert "CHANGED 36454 game_weather row 1" in out and "ADDED 36454 game_weather" not in out and "LOST" not in out
 
 
-def test_an_added_row_that_reads_by_orientation_moves_as_is_under_move_added(pair, capsys):
-    """312 item 3(c) names kalshi_settled_markets among the added rows that MOVE under --move-added, and names no
-    swap outside the odds tables: the row moves with its side as it is, printed ORIENTED for the block to read;
-    without the flag it is refused, listed, like any added row."""
-    live, frm = pair([lambda s: s.add(KalshiSettledMarket(
-        id=1, ticker="KXNCAAFGAME-26OCT31UTACIN-UTA", series="KXNCAAFGAME", side="HOME", match_id=36454,
-        yes_sub_title="Utah", source="live", fetched_at=datetime(2026, 11, 1)))])
+def _ksm(i, side, mid=36454):
+    return lambda s: s.add(KalshiSettledMarket(
+        id=i, ticker=f"KXNCAAFGAME-26OCT31UTACIN-{i}", series="KXNCAAFGAME", side=side, match_id=mid,
+        yes_sub_title="Utah", source="live", fetched_at=datetime(2026, 11, 1)))
+
+
+def test_an_added_row_side_column_swaps_under_move_added(pair, capsys):
+    """ARCHITECT 2026-11-09 16:05 ET, addendum 313 item 1(1), verbatim: "kalshi_settled_markets.side on the moved 2026
+    rows: SWAP, the same rule as the snapshots (3(a)) — the side was placed against the stored home team, and the new
+    row's home is the old row's away; the dry run's ORIENTED mark becomes "swap" in the apply's print. Any other table
+    whose side column is placed against the stored home follows the same rule; a table with no side column moves as
+    is." HOME -> AWAY, a lowercase (nhl-style) 'home' -> 'away', DRAW and NULL untouched; without the flag the rows are
+    refused, listed, like any added row."""
+    live, frm = pair([_ksm(1, "HOME"), _ksm(2, "DRAW"), _ksm(3, "home"), _ksm(4, None)])
     before = _dump(live)
     assert _main(live, frm, "--apply") == 2
     out = capsys.readouterr().out
-    assert "ADDED 36454 kalshi_settled_markets row 1: " in out and "-> REFUSED (no --move-added); ORIENTED" in out
-    assert "kalshi_settled_markets: 1 row(s) on 36454 added since the copy (1); --move-added not given" in out
+    assert "ADDED 36454 kalshi_settled_markets row 1: " in out
+    assert "-> REFUSED (no --move-added); SIDE swap (addendum 313 item 1(1)): side 'HOME' -> 'AWAY'" in out
+    assert "kalshi_settled_markets: 4 row(s) on 36454 added since the copy (1, 2, 3, 4); --move-added not given" in out
     assert _dump(live) == before
     assert _main(live, frm, "--dry-run", "--move-added") == 0
     out = capsys.readouterr().out
-    assert ("-> MOVE to the new id (--move-added); ORIENTED, moved as is (no ruling swaps it; the new row's home is "
-            "the old row's away): side='HOME'") in out
+    assert "-> MOVE to the new id (--move-added); SIDE swap (addendum 313 item 1(1)): side 'HOME' -> 'AWAY'" in out
+    assert "SIDE swap (addendum 313 item 1(1)): side 'home' -> 'away'" in out
+    assert "no ruling swaps it" not in out
+    draw = next(x for x in out.splitlines() if x.startswith("ADDED 36454 kalshi_settled_markets row 2: "))
+    assert "SIDE swap" not in draw and "ORIENTED" not in draw         # DRAW names no team: moved as it is
+    null = next(x for x in out.splitlines() if x.startswith("ADDED 36454 kalshi_settled_markets row 4: "))
+    assert "SIDE swap" not in null and "ORIENTED" not in null
     assert _main(live, frm, "--apply", "--move-added") == 0
     out = capsys.readouterr().out
-    assert "ROWS WRITTEN: 13 (expected 13: 2 created, 8 moved, 1 added moved, 2 restored)" in out
+    assert _written(16, 8, 4) in out
     cin = _q(live, "SELECT id FROM matches WHERE home_team_id = ? AND season = '2026'", (CIN,))[0]["id"]
-    assert _q(live, "SELECT match_id, side, yes_sub_title FROM kalshi_settled_markets") == \
-        [{"match_id": cin, "side": "HOME", "yes_sub_title": "Utah"}]                         # moved as is
+    assert _q(live, "SELECT id, match_id, side, yes_sub_title FROM kalshi_settled_markets ORDER BY id") == [
+        {"id": 1, "match_id": cin, "side": "AWAY", "yes_sub_title": "Utah"},
+        {"id": 2, "match_id": cin, "side": "DRAW", "yes_sub_title": "Utah"},
+        {"id": 3, "match_id": cin, "side": "away", "yes_sub_title": "Utah"},
+        {"id": 4, "match_id": cin, "side": None, "yes_sub_title": "Utah"}]
+    assert f"AFTER kalshi_settled_markets row 1: match_id {cin}, side 'AWAY'" in out
+    assert f"AFTER kalshi_settled_markets row 3: match_id {cin}, side 'away'" in out
+
+
+def test_an_added_row_non_side_oriented_column_moves_as_is_printed_oriented(pair, capsys):
+    """313 item 1(1): "a table with no side column moves as is" — a home/away column that is no side column (a
+    home_score-like column of a test table) is moved as it is and printed ORIENTED for the block to read."""
+    mk = _set("CREATE TABLE side_free (id INTEGER PRIMARY KEY, match_id INTEGER REFERENCES matches(id), "
+              "home_points INTEGER, away_points INTEGER)")
+    live, frm = pair([mk, _set("INSERT INTO side_free VALUES (7, 36753, 31, 13)")])
+    assert _main(live, frm, "--dry-run", "--move-added") == 0
+    out = capsys.readouterr().out
+    assert ("ADDED 36753 side_free row 7: id=7, home_points=31, away_points=13 -> MOVE to the new id (--move-added); "
+            "ORIENTED, moved as is (no side column swaps it, 313 item 1(1)): home_points=31, away_points=13") in out
+    assert "SIDE swap" not in out
+    assert _main(live, frm, "--apply", "--move-added") == 0
+    lsu = _q(live, "SELECT id FROM matches WHERE home_team_id = ? AND season = '2026'", (LSU,))[0]["id"]
+    assert _q(live, "SELECT * FROM side_free") == [{"id": 7, "match_id": lsu, "home_points": 31, "away_points": 13}]
 
 
 def test_a_live_only_column_holding_a_value_reads_as_changed(pair, capsys):
@@ -658,7 +699,7 @@ def test_the_apply_writes_exactly_the_restored_state_and_moves_the_rows(pair, ca
     assert f"AFTER odds_snapshots: 0 row(s) on 36454 · 3 row(s) on {cin['id']}" in out
     assert f"AFTER odds_snapshots row 11: match_id {cin['id']}, selection AWAY" in out
     assert f"AFTER match_stats row 32: match_id {cin['id']}" in out
-    assert "ROWS WRITTEN: 12 (expected 12: 2 created, 8 moved, 0 added moved, 2 restored)" in out
+    assert _written(12, 8, 0) in out
     # a second apply refuses and writes nothing: the live file holds the 2025 rows now
     after = _dump(live)
     assert _main(live, frm, "--apply") == 2
@@ -785,7 +826,7 @@ def test_from_json_round_trip_onto_a_host_like_file(pair, tmp_path, capsys):
     assert "PLAN 41001 MOVE odds_snapshots row 11: match_id 41001 -> the new id, selection HOME -> AWAY" in out
     assert _main_json(hl, p, "--apply", "--move-added") == 0
     out = capsys.readouterr().out
-    assert "COMMITTED" in out and "ROWS WRITTEN: 13 (expected 13: 2 created, 8 moved, 1 added moved, 2 restored)" in out
+    assert "COMMITTED" in out and _written(13, 8, 1) in out
     for mid, pid, (h, a), (hs, as_), ko in ((41001, 18216, ("Utah", "Cincinnati"), (45, 14), "2025-11-02 02:15:00"),
                                             (41377, 18240, ("Alabama", "LSU"), (20, 9), "2025-11-09 00:30:00")):
         r = _q(hl, "SELECT * FROM matches WHERE id = ?", (mid,))[0]
@@ -867,4 +908,382 @@ def test_from_json_refuses_a_live_column_it_does_not_know(pair, tmp_path, capsys
     before = _dump(live)
     assert _main_json(live, _extract(tmp_path, _WANT_EXTRACT), "--apply", "--move-added") == 2
     assert "live row 41001: column series_description holds 'x'" in capsys.readouterr().out
+    assert _dump(live) == before
+
+
+# ---------------------------------------------------------------------------- ncaa_cfbd_labels / _pregame (314 item 2)
+
+# ARCHITECT 2026-11-09 16:25 ET, addendum 314 item 1: the copy (10-09) holds the 2025 game's CFBD label (401756942 /
+# 401752759, season 2025, orientation 'same', 45-14 / 20-9); the live file the 2026 game's written on 11-08
+# (401856848 / 401856740, season 2026, orientation 'swapped', 49-25 / 31-13 in our orientation, "score-reversed: ...",
+# season_type regular, week 9 / 10), CFBD's home Cincinnati and LSU.
+_REVERSED = "score-reversed: provider home/away scores swapped vs CFBD (provider 49-25, CFBD 25-49)"
+_LABEL_2025 = {0: dict(source_game_id=401756942, season="2025", orientation="same", neutral=False, home_score=45,
+                       away_score=14, source_home_team="Utah", source_away_team="Cincinnati", week=10),
+               1: dict(source_game_id=401752759, season="2025", orientation="same", neutral=False, home_score=20,
+                       away_score=9, source_home_team="Alabama", source_away_team="LSU", week=11)}
+_LABEL_2026 = {0: dict(source_game_id=401856848, season="2026", orientation="swapped", neutral=False, home_score=49,
+                       away_score=25, source_home_team="Cincinnati", source_away_team="Utah", week=9,
+                       correction_reason=_REVERSED),
+               1: dict(source_game_id=401856740, season="2026", orientation="swapped", neutral=False, home_score=31,
+                       away_score=13, source_home_team="LSU", source_away_team="Alabama", week=10,
+                       correction_reason=_REVERSED.replace("49-25", "31-13").replace("25-49", "13-31"))}
+_STAMP_2025 = dict(fetched_at=datetime(2025, 11, 10, 6), updated_at=datetime(2025, 11, 10, 6, 0, 1))
+_STAMP_2026 = dict(fetched_at=datetime(2026, 11, 8, 6), updated_at=datetime(2026, 11, 8, 6, 0, 1))
+
+
+def _labels(which, layout=LAPTOP, only=(0, 1), **over):
+    def fn(s):
+        for i in only:
+            fields = {**(_LABEL_2025 if which == "2025" else _LABEL_2026)[i], **over}
+            s.add(NCAACFBDLabel(match_id=layout["rows"][i], source="cfbd", join_via="exact", season_type="regular",
+                                payload_file=f"exports/cfbd_{which}.json",
+                                **(_STAMP_2025 if which == "2025" else _STAMP_2026), **fields))
+    return fn
+
+
+def _pregame(which, layout=LAPTOP, i=0, **over):
+    f = (dict(source_game_id=401756942, season="2025", orientation="same", source_home_team="Utah",
+              source_away_team="Cincinnati", source_start=datetime(2025, 11, 2, 2, 15)) if which == "2025" else
+         dict(source_game_id=401856848, season="2026", orientation="swapped", source_home_team="Cincinnati",
+              source_away_team="Utah", source_start=datetime(2026, 10, 31, 19, 45)))
+    f.update(over)
+    return lambda s: s.add(NCAACFBDPregame(match_id=layout["rows"][i], source="cfbd", neutral=False, join_via="exact",
+                                           payload_file=f"exports/cfbd_pregame_{which}.json",
+                                           **(_STAMP_2025 if which == "2025" else _STAMP_2026), **f))
+
+
+def _bump_max(s):
+    """The laptop's max(matches.id) of addendum 314 item 1: the new rows take 58453 and 58454."""
+    s.add(Match(id=58452, sport=Sport.NFL, competition_id=7, season="2026", utc_date=datetime(2026, 11, 8),
+                status=MatchStatus.SCHEDULED, home_team_id=LAPTOP["teams"]["Other"], away_team_id=CIN,
+                external_ids={AF: "998"}))
+
+
+_TS = r"\d{4}-\d\d-\d\d \d\d:\d\d:\d\d\.\d{6}"
+
+
+@pytest.mark.parametrize("copy_has_week", [True, False])
+@pytest.mark.parametrize("layout", [LAPTOP, HOST], ids=["laptop", "host"])
+def test_label_rows_move_reorient_and_the_copys_rows_are_restored(pair, capsys, layout, copy_has_week):
+    """314 item 2(a)/(b)/(e): the 2026 label MOVES to the new row re-expressed (orientation same, scores 25-49 /
+    13-31, correction_reason NULL, updated_at the apply's time, every other column as it is); the copy's 2025 label is
+    RESTORED onto the old id byte-identical (SELECT * compared), a live-only column (week, a later migration) NULL."""
+    import re
+    a, b, _ = layout["rows"]
+    from_extra = [_labels("2025", layout)] + ([] if copy_has_week else [
+        _set("ALTER TABLE ncaa_cfbd_labels DROP COLUMN week")])
+    live_extra = [_labels("2026", layout)] + ([_bump_max] if layout is LAPTOP else [])
+    live, frm = pair(live_extra, from_extra, layout)
+    T = layout["teams"]
+    nid_a, nid_b = (58453, 58454) if layout is LAPTOP else (b + 1, b + 2)
+    copy_rows = {r["match_id"]: r for r in _q(frm, "SELECT * FROM ncaa_cfbd_labels")}
+    live_rows = {r["match_id"]: r for r in _q(live, "SELECT * FROM ncaa_cfbd_labels")}
+    raw = live.read_bytes()
+    assert _main(live, frm, "--dry-run") == 0
+    out = capsys.readouterr().out
+    assert live.read_bytes() == raw
+    assert (f"MOVE+REORIENT ncaa_cfbd_labels {a} → {nid_a}: orientation swapped→same, scores 49-25→25-49, "
+            f"correction_reason cleared; RESTORE ncaa_cfbd_labels {a} ← the copy's 2025 row") in out
+    assert (f"MOVE+REORIENT ncaa_cfbd_labels {b} → {nid_b}: orientation swapped→same, scores 31-13→13-31, "
+            f"correction_reason cleared; RESTORE ncaa_cfbd_labels {b} ← the copy's 2025 row") in out
+    assert "(the moved row: updated_at the apply's time, every other column as it is)" in out
+    assert f"CHANGED {a} ncaa_cfbd_labels row {a}: " in out and "-> MOVE+REORIENT to the new id and RESTORE" in out
+    assert f"PLAN {a} MOVE+REORIENT ncaa_cfbd_labels: 1 row to the new id, the copy's row RESTORED onto {a}" in out
+    assert (f"RESTORE ncaa_cfbd_labels {a}.week: NULL (not in the copy)" in out) is (not copy_has_week)
+    assert "DRY RUN: nothing written" in out and "REFUSED" not in out
+    assert _main(live, frm, "--apply") == 0
+    out = capsys.readouterr().out
+    assert "COMMITTED" in out and _written(16, 8, 0, 2, 2) in out
+    new = {r["home_team_id"]: r["id"] for r in _q(live, "SELECT id, home_team_id FROM matches WHERE season = '2026' "
+                                                        "AND status = 'FINISHED'")}
+    assert (new[T["Cincinnati"]], new[T["LSU"]]) == (nid_a, nid_b)
+    assert (f"WRITTEN MOVE+REORIENT ncaa_cfbd_labels {a} → {nid_a}: orientation swapped→same, scores 49-25→25-49, "
+            f"correction_reason cleared; RESTORE ncaa_cfbd_labels {a} ← the copy's 2025 row") in out
+    assert f"AFTER ncaa_cfbd_labels {nid_a} (moved+reoriented): match_id={nid_a}, " in out
+    assert f"AFTER ncaa_cfbd_labels {a} (restored): match_id={a}, " in out
+    for old, nid, scores in ((a, nid_a, (25, 49)), (b, nid_b, (13, 31))):
+        moved = _q(live, "SELECT * FROM ncaa_cfbd_labels WHERE match_id = ?", (nid,))
+        was = live_rows[old]
+        assert len(moved) == 1
+        m = moved[0]
+        assert (m["orientation"], m["home_score"], m["away_score"], m["correction_reason"]) == ("same", *scores, None)
+        assert (m["home_score"], m["away_score"]) == tuple(
+            _q(live, "SELECT home_score, away_score FROM matches WHERE id = ?", (nid,))[0].values())
+        assert m["updated_at"] != was["updated_at"] and re.fullmatch(_TS, m["updated_at"])
+        for c in was:
+            if c not in ("match_id", "orientation", "home_score", "away_score", "correction_reason", "updated_at"):
+                assert m[c] == was[c], c                                    # every other column as it is
+        restored = _q(live, "SELECT * FROM ncaa_cfbd_labels WHERE match_id = ?", (old,))
+        want = {**copy_rows[old], **({} if copy_has_week else {"week": None})}
+        assert restored == [want]                                           # the copy's row, byte for byte
+        assert list(restored[0]) == list(_q(live, "SELECT * FROM ncaa_cfbd_labels LIMIT 1")[0])
+    # typed as the copy (text stays text, integers stay integers)
+    con = sqlite3.connect(live)
+    fcon = sqlite3.connect(frm)
+    try:
+        cols = [r[1] for r in fcon.execute("PRAGMA table_info(ncaa_cfbd_labels)")]
+        q = ", ".join(f"typeof({c}), quote({c})" for c in cols)
+        assert con.execute(f"SELECT {q} FROM ncaa_cfbd_labels WHERE match_id = ?", (a,)).fetchall() == \
+            fcon.execute(f"SELECT {q} FROM ncaa_cfbd_labels WHERE match_id = ?", (a,)).fetchall()
+    finally:
+        con.close()
+        fcon.close()
+
+
+def test_a_pregame_row_moves_flipped_and_the_copys_pregame_row_is_restored(pair, capsys):
+    """314 item 2(c): "a pregame row's orientation is the same relation; the same move and re-expression (there is no
+    score to swap; orientation 'same')"."""
+    live, frm = pair([_pregame("2026"), _bump_max], [_pregame("2025")])
+    copy_row = _q(frm, "SELECT * FROM ncaa_cfbd_pregame")[0]
+    was = _q(live, "SELECT * FROM ncaa_cfbd_pregame")[0]
+    assert _main(live, frm, "--dry-run") == 0
+    out = capsys.readouterr().out
+    assert ("MOVE+REORIENT ncaa_cfbd_pregame 36454 → 58453: orientation swapped→same; RESTORE ncaa_cfbd_pregame "
+            "36454 ← the copy's 2025 row") in out
+    assert "scores" not in next(x for x in out.splitlines() if x.startswith("MOVE+REORIENT ncaa_cfbd_pregame"))
+    assert _main(live, frm, "--apply") == 0
+    out = capsys.readouterr().out
+    assert _written(14, 8, 0, 1, 1) in out
+    rows = {r["match_id"]: r for r in _q(live, "SELECT * FROM ncaa_cfbd_pregame")}
+    assert set(rows) == {36454, 58453}
+    assert rows[36454] == copy_row
+    m = rows[58453]
+    assert m["orientation"] == "same" and m["updated_at"] != was["updated_at"]
+    assert {k: v for k, v in m.items() if k not in ("match_id", "orientation", "updated_at")} == \
+        {k: v for k, v in was.items() if k not in ("match_id", "orientation", "updated_at")}
+
+
+def test_a_changed_row_of_another_table_still_refuses_beside_the_label_handler(pair, capsys):
+    """314 item 2(d): "The script's CHANGED check stays as it is for every other table — a changed row elsewhere is
+    still a refusal; only these two tables get the handler"."""
+    live, frm = pair([_labels("2026"), _set("UPDATE game_weather SET venue = 'Elsewhere' WHERE id = 1")],
+                     [_labels("2025")])
+    before = _dump(live)
+    for flags in (("--dry-run",), ("--apply", "--move-added")):
+        assert _main(live, frm, *flags) == 2
+        out = capsys.readouterr().out
+        assert "MOVE+REORIENT ncaa_cfbd_labels 36454 → 36754: orientation swapped→same" in out
+        assert "CHANGED 36454 game_weather row 1: " in out and "-> REFUSED (same key as the copy's row" in out
+        assert "game_weather: 1 row(s) on 36454 changed since the copy (1)" in out
+        assert "REFUSED: row 36454: ncaa_cfbd_labels" not in out
+    assert _dump(live) == before
+
+
+@pytest.mark.parametrize("over,why", [
+    ({"home_score": 49, "away_score": 24},
+     "ncaa_cfbd_labels 36454: the swapped scores 24-49 are not the new row's 25-49: correction_reason is cleared only "
+     "when they agree (addendum 314 item 2(a)) — not guessed"),
+    ({"orientation": "unknown"},
+     "ncaa_cfbd_labels 36454: orientation 'unknown' is not 'swapped': the new row's orientation is 'same' (addendum 314 "
+     "item 2(a): CFBD's home is the new row's home) only from 'swapped' — not re-expressed, not guessed"),
+    # #910 review (Codex): a 2026 label reading 'same' would be written 'swapped' by a two-way flip; refused instead
+    ({"orientation": "same"},
+     "ncaa_cfbd_labels 36454: orientation 'same' is not 'swapped': the new row's orientation is 'same' (addendum 314 "
+     "item 2(a): CFBD's home is the new row's home) only from 'swapped' — not re-expressed, not guessed"),
+    # #910 review (Codex): the moved row's CFBD game verified positively (addendum 314 item 1's ids), not only as
+    # "not the copy's"
+    # ARCHITECT 2026-11-09 16:50 ET, addendum 315 item 1(4)(b): "the moved row's source_home_team / source_away_team,
+    # after the shared normalize, must equal the NEW row's home and away team names" — the CFBD sides of the 2025 venue
+    # (Utah home) are not the new row's (Cincinnati home)
+    ({"source_home_team": "Utah", "source_away_team": "Cincinnati"},
+     "ncaa_cfbd_labels 36454: source_home_team 'Utah' is not the new row's home 'Cincinnati' after the shared normalize "
+     "(addendum 315 item 1(4)(b)) — not moved, not guessed"),
+    ({"source_away_team": "Utah State"},
+     "ncaa_cfbd_labels 36454: source_away_team 'Utah State' is not the new row's away 'Utah' after the shared normalize "
+     "(addendum 315 item 1(4)(b)) — not moved, not guessed"),
+    ({"source_game_id": 401999999},
+     "ncaa_cfbd_labels 36454: source_game_id 401999999 is not the 2026 game's 401856848 (addendum 314 item 1) — not "
+     "shown to be the new row's game's, not moved, not guessed"),
+])
+def test_a_label_the_rule_cannot_re_express_is_refused(pair, capsys, over, why):
+    live, frm = pair([_labels("2026", only=(0,), **over)], [_labels("2025", only=(0,))])
+    before = _dump(live)
+    for flag in ("--dry-run", "--apply"):
+        assert _main(live, frm, flag) == 2
+        out = capsys.readouterr().out
+        assert f"REFUSED: row 36454: {why}" in out and "-> REFUSED" in out
+    assert _dump(live) == before
+
+
+_NOT_2026 = ("ncaa_cfbd_pregame {mid}: season '2025' is not the new row's '2026': not shown to be the new row's "
+             "game's (addendum 314 item 2(a): \"The live row (the 2026 label) MOVES\") — not moved, not guessed")
+
+
+def test_a_2025_pregame_row_re_fetched_is_refused_not_moved(pair, capsys):
+    """314 item 2(a) moves "The live row (the 2026 label)": a 2025 pregame row that only re-fetched (fetched_at differs,
+    so it reads CHANGED) is the 2025 game's, and the pregame has no score check to catch it — REFUSED by its season and
+    by its source_game_id (the copy's row's), never moved onto the 2026 row."""
+    live, frm = pair([_pregame("2025"), _bump_max,
+                      _set("UPDATE ncaa_cfbd_pregame SET fetched_at = '2025-11-20 06:00:00.000000'")],
+                     [_pregame("2025")])
+    before = _dump(live)
+    for flags in (("--dry-run",), ("--apply",), ("--apply", "--move-added")):
+        assert _main(live, frm, *flags) == 2
+        out = capsys.readouterr().out
+        assert f"REFUSED: row 36454: {_NOT_2026.format(mid=36454)}" in out
+        assert ("REFUSED: row 36454: ncaa_cfbd_pregame 36454: source_game_id 401756942 is the copy's row's (the 2025 "
+                "game's): not the new row's game's — not moved, not guessed") in out
+        assert "MOVE+REORIENT ncaa_cfbd_pregame 36454 → 58453: " in out and "-> REFUSED" in out
+        assert ("ncaa_cfbd_pregame 36454: orientation 'same' is not 'swapped'" in out
+                and "ncaa_cfbd_pregame 36454: source_game_id 401756942 is not the 2026 game's 401856848" in out)
+    assert _dump(live) == before
+
+
+def test_the_copys_row_must_be_the_2025_game_to_be_restored(pair, capsys):
+    """#910 review (Codex): the restored row is verified positively too: a copy row whose CFBD game is not 314 item 1's
+    2025 id is not restored (and nothing moves)."""
+    live, frm = pair([_labels("2026", only=(0,))], [_labels("2025", only=(0,), source_game_id=401000001)])
+    before = _dump(live)
+    for flag in ("--dry-run", "--apply"):
+        assert _main(live, frm, flag) == 2
+        out = capsys.readouterr().out
+        assert ("REFUSED: row 36454: ncaa_cfbd_labels 36454: the copy's source_game_id 401000001 is not the 2025 game's "
+                "401756942 (addendum 314 item 1) — not restored, not guessed") in out
+    assert _dump(live) == before
+
+
+def test_an_added_row_of_another_cfbd_game_is_refused_under_move_added(pair, capsys):
+    """#910 review (Codex): an ADDED (no copy row) pregame row with a valid season and orientation but another CFBD game
+    is refused under --move-added: pregame rows have no score check, the game id is the positive check."""
+    live, frm = pair([_pregame("2026", source_game_id=401999998)], [])
+    before = _dump(live)
+    assert _main(live, frm, "--apply", "--move-added") == 2
+    out = capsys.readouterr().out
+    assert "ncaa_cfbd_pregame 36454: source_game_id 401999998 is not the 2026 game's 401856848" in out
+    assert _dump(live) == before
+
+
+def test_a_2026_season_label_with_the_copys_cfbd_game_is_refused(pair, capsys):
+    """The CHANGED row's source_game_id is the copy's row's: the same CFBD game as the 2025 label, whatever its season
+    reads — REFUSED, named."""
+    live, frm = pair([_labels("2026", only=(0,), source_game_id=401756942)], [_labels("2025", only=(0,))])
+    before = _dump(live)
+    assert _main(live, frm, "--apply") == 2
+    out = capsys.readouterr().out
+    assert ("REFUSED: row 36454: ncaa_cfbd_labels 36454: source_game_id 401756942 is the copy's row's (the 2025 "
+            "game's): not the new row's game's — not moved, not guessed") in out
+    assert "season '2026' is not the new row's" not in out
+    assert _dump(live) == before
+
+
+def test_a_2025_pregame_row_read_as_added_is_refused_under_from_json(pair, tmp_path, capsys):
+    """--from-json: every row reads ADDED; a 2025 pregame row still is not the 2026 game's — REFUSED by its season even
+    under --move-added (the host layout, other row ids)."""
+    p = _emit(pair, tmp_path, capsys)
+    host_dir = tmp_path / "host"
+    host_dir.mkdir()
+    hl = _build(host_dir / "live.db", "2026", [_pregame("2025", HOST)], HOST)
+    raw = hl.read_bytes()
+    for flags in (("--dry-run", "--move-added"), ("--apply", "--move-added")):
+        assert _main_json(hl, p, *flags) == 2
+        out = capsys.readouterr().out
+        assert f"REFUSED: row 41001: {_NOT_2026.format(mid=41001)}" in out
+    assert hl.read_bytes() == raw
+
+
+def test_a_copy_column_the_live_label_table_lacks_is_refused(pair, capsys):
+    live, frm = pair([_labels("2026", only=(0,))],
+                     [_labels("2025", only=(0,)), _set("ALTER TABLE ncaa_cfbd_labels ADD COLUMN gone TEXT")])
+    before = _dump(live)
+    assert _main(live, frm, "--apply") == 2
+    assert ("REFUSED: row 36454: ncaa_cfbd_labels 36454: the copy's column gone is not in the live table — not "
+            "restored, not guessed") in capsys.readouterr().out
+    assert _dump(live) == before
+
+
+def test_an_added_label_row_moves_reoriented_only_under_move_added(pair, capsys):
+    """314 item 2 for a label the copy does not hold on the id: MOVE+REORIENT under --move-added, nothing restored;
+    without the flag REFUSED, listed."""
+    live, frm = pair([_labels("2026", only=(1,))])
+    before = _dump(live)
+    assert _main(live, frm, "--apply") == 2
+    out = capsys.readouterr().out
+    assert ("ADDED 36753 ncaa_cfbd_labels row 36753: " in out and "-> REFUSED (no --move-added); planned: "
+            "MOVE+REORIENT ncaa_cfbd_labels 36753 → 36755: orientation swapped→same, scores 31-13→13-31, "
+            "correction_reason cleared; no 2025 row restored (the copy holds none on 36753)") in out
+    assert "ncaa_cfbd_labels: 1 row(s) on 36753 added since the copy (36753); --move-added not given" in out
+    assert _dump(live) == before
+    assert _main(live, frm, "--dry-run", "--move-added") == 0
+    out = capsys.readouterr().out
+    assert ("MOVE+REORIENT ncaa_cfbd_labels 36753 → 36755: orientation swapped→same, scores 31-13→13-31, "
+            "correction_reason cleared; no 2025 row restored (the copy holds none on 36753)") in out
+    assert "PLAN 36753 MOVE+REORIENT ncaa_cfbd_labels: 1 row to the new id, nothing restored" in out
+    assert _main(live, frm, "--apply", "--move-added") == 0
+    out = capsys.readouterr().out
+    assert _written(13, 8, 0, 1, 0) in out
+    assert "AFTER ncaa_cfbd_labels 36753 (nothing restored): no row" in out
+    got = _q(live, "SELECT match_id, orientation, home_score, away_score, correction_reason FROM ncaa_cfbd_labels")
+    assert got == [{"match_id": 36755, "orientation": "same", "home_score": 13, "away_score": 31,
+                    "correction_reason": None}]
+
+
+def test_a_lost_label_row_is_refused_and_an_identical_one_stays(pair, capsys):
+    live, frm = pair(None, [_labels("2025", only=(0,))])
+    before = _dump(live)
+    assert _main(live, frm, "--apply") == 2
+    out = capsys.readouterr().out
+    assert "LOST 36454 ncaa_cfbd_labels row 36454: " in out and "ncaa_cfbd_labels: 0 row(s) on 36454 changed" in out
+    assert _dump(live) == before
+    live, frm = pair([_labels("2025", only=(0,))], [_labels("2025", only=(0,))])
+    assert _main(live, frm, "--apply") == 0
+    out = capsys.readouterr().out
+    assert "PLAN 36454 STAY ncaa_cfbd_labels: 1 row(s)" in out and _written(12, 8, 0) in out
+    assert [r["match_id"] for r in _q(live, "SELECT match_id FROM ncaa_cfbd_labels")] == [36454]
+
+
+def test_from_json_with_a_live_label_row(pair, tmp_path, capsys):
+    """--from-json (no copy): the live label reads as ADDED -> MOVE+REORIENT under --move-added; the print says no
+    2025 row is restored (no copy)."""
+    p = _emit(pair, tmp_path, capsys)
+    host_dir = tmp_path / "host"
+    host_dir.mkdir()
+    hl = _build(host_dir / "live.db", "2026", [_labels("2026", HOST)], HOST)
+    raw = hl.read_bytes()
+    assert _main_json(hl, p, "--dry-run") == 2
+    out = capsys.readouterr().out
+    assert "ADDED 41001 ncaa_cfbd_labels row 41001: " in out and "-> REFUSED (no --move-added); planned: " in out
+    assert hl.read_bytes() == raw
+    assert _main_json(hl, p, "--dry-run", "--move-added") == 0
+    out = capsys.readouterr().out
+    assert ("MOVE+REORIENT ncaa_cfbd_labels 41001 → 41378: orientation swapped→same, scores 49-25→25-49, "
+            "correction_reason cleared; no 2025 row restored (--from-json: no copy)") in out
+    assert hl.read_bytes() == raw
+    assert _main_json(hl, p, "--apply", "--move-added") == 0
+    out = capsys.readouterr().out
+    assert _written(15, 8, 1, 2, 0) in out
+    got = _q(hl, "SELECT match_id, orientation, home_score, away_score, correction_reason FROM ncaa_cfbd_labels "
+                 "ORDER BY match_id")
+    assert got == [{"match_id": 41378, "orientation": "same", "home_score": 25, "away_score": 49,
+                    "correction_reason": None},
+                   {"match_id": 41379, "orientation": "same", "home_score": 13, "away_score": 31,
+                    "correction_reason": None}]
+
+
+@pytest.mark.parametrize("where", ["after_moves", "before_commit"])
+def test_the_label_move_and_restore_are_in_the_one_transaction(pair, where):
+    live, frm = pair([_labels("2026"), _pregame("2026")], [_labels("2025"), _pregame("2025")])
+    before = _dump(live)
+    with pytest.raises(RuntimeError, match="injected failure"):
+        rc.run(live, frm, None, True, out=lambda *_: None, _fail_at=where)
+    assert _dump(live) == before
+
+
+def test_the_shared_normalize_reads_names_as_the_cfbd_join_does(pair, capsys):
+    """315 item 1(4)(b), "after the shared normalize": case and punctuation fold as normalize_team_name folds them in
+    the CFBD join (source names as served; ours html-unescaped first), so "CINCINNATI." / "utah" pass the check."""
+    live, frm = pair([_labels("2026", only=(0,), source_home_team="CINCINNATI.", source_away_team="utah")],
+                     [_labels("2025", only=(0,))])
+    assert _main(live, frm, "--dry-run") == 0
+    out = capsys.readouterr().out
+    assert "MOVE+REORIENT ncaa_cfbd_labels 36454 → " in out and "after the shared normalize" not in out
+
+
+def test_an_added_pregame_row_of_the_wrong_sides_is_refused_under_move_added(pair, capsys):
+    """315 item 1(4)(b): "an added or --from-json row passes the same check"."""
+    live, frm = pair([_pregame("2026", source_home_team="Utah", source_away_team="Cincinnati")], [])
+    before = _dump(live)
+    assert _main(live, frm, "--apply", "--move-added") == 2
+    out = capsys.readouterr().out
+    assert "ncaa_cfbd_pregame 36454: source_home_team 'Utah' is not the new row's home 'Cincinnati'" in out
     assert _dump(live) == before

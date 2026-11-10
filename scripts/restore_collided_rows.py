@@ -1,5 +1,6 @@
 """
-THE RESTORE of the two provider-id collisions (ARCHITECT 2026-11-09, addendum 310 item 4 and addendum 312 item 3; #902).
+THE RESTORE of the two provider-id collisions (ARCHITECT 2026-11-09, addendum 310 item 4, addendum 312 item 3, addendum
+313 item 1(1) and addendum 314 item 2; #902).
 
 Addendum 310 item 4, verbatim:
 
@@ -91,11 +92,46 @@ src/db/schema.py's, every table printed):
     with identical content is the 2025 game's and STAYS; a row whose key the copy does not hold on that id was ADDED
     since (the 2026 game's) and MOVES under --move-added (default: REFUSED, listed); a CHANGED row (same key, other
     content, or a value in a column only the live file holds, written since the copy) or a LOST row (in the copy, gone
-    from the live file) is always REFUSED, named. With --from-json there is no copy: every such row is treated as added.
-    An added row moves with its other columns as they are: the ruling names kalshi_settled_markets among the rows that
-    move and names no swap outside the odds tables, so a value that reads by orientation (a value HOME / AWAY, or a
-    value in a home/away column, e.g. kalshi_settled_markets.side) is moved as is and printed "ORIENTED" on the row's
-    line, for the block to read.
+    from the live file) is always REFUSED, named (ncaa_cfbd_labels / ncaa_cfbd_pregame excepted: the next item). With
+    --from-json there is no copy: every such row is treated as added.
+    An added row's SIDE COLUMN SWAPS (ARCHITECT 2026-11-09 16:05 ET, addendum 313 item 1(1), verbatim:
+    "kalshi_settled_markets.side on the moved 2026 rows: SWAP, the same rule as the snapshots (3(a)) — the side was
+    placed against the stored home team, and the new row's home is the old row's away; the dry run's ORIENTED mark
+    becomes "swap" in the apply's print. Any other table whose side column is placed against the stored home follows
+    the same rule; a table with no side column moves as is."): a column named `side` or `<x>_side` holding a home /
+    away value (HOME, home, ...; the case kept) takes the other one, printed "SIDE swap" on the row's line, before and
+    after; a side naming no team (DRAW, NULL) stays. Every other value that reads by orientation (a home/away column of
+    a table not named in the next item) moves as is and is printed "ORIENTED, moved as is", for the block to read.
+  * ncaa_cfbd_labels and ncaa_cfbd_pregame (one row per match_id, keyed by it) — ARCHITECT 2026-11-09 16:25 ET,
+    addendum 314 item 2, verbatim:
+    "THE RULING for ncaa_cfbd_labels (and ncaa_cfbd_pregame by the same rule, if a row is ever present): a label row
+    is the CFBD game's label expressed in OUR row's orientation, so it follows its game and is re-expressed for the
+    row it lands on. (a) The live row (the 2026 label) MOVES to the new 2026 row with: orientation 'same' (CFBD's
+    home — Cincinnati, LSU — is the new row's home), home_score/away_score swapped into the new orientation (25/49;
+    13/31), correction_reason NULL (the reversal it recorded no longer exists), neutral, source_game_id, season
+    2026, source_home_team/source_away_team, join_via, season_type, week, payload_file, fetched_at as they are,
+    updated_at the apply's time. (b) The copy's 2025 label row is RESTORED onto 36454/36753 byte-identical to the
+    copy. (c) ncaa_cfbd_pregame rows: a pregame row's orientation is the same relation; the same move and
+    re-expression (there is no score to swap; orientation 'same'); none exists on these rows today. (d) The script's
+    CHANGED check stays as it is for every other table — a changed row elsewhere is still a refusal; only these two
+    tables get the handler. (e) Tests: the label row before/after on both ids; a pregame row present; the refusal
+    still firing on a changed row of another table; the dry run's print naming the re-expression ("MOVE+REORIENT
+    ncaa_cfbd_labels 36454 → 58453: orientation swapped→same, scores 49-25→25-49, correction_reason cleared; RESTORE
+    ncaa_cfbd_labels 36454 ← the copy's 2025 row")."
+    As built: a live row CHANGED against the copy (the copy's key, other content) MOVES+REORIENTS to the new row and the
+    copy's row is RESTORED onto the old id (the move first: it frees the primary key). The ruling's premise, "The live
+    row (the 2026 label)", is checked, not assumed: a moved row (CHANGED or ADDED, both tables) whose season's year is
+    not the new row's, or (CHANGED) whose source_game_id is the copy's row's, is the 2025 game's (a re-fetch changes
+    only its stamps) and is REFUSED, named — for the pregame table no score check would catch it. The re-expression:
+    orientation flipped ('swapped' <-> 'same'; any other value REFUSED, named); labels only, home_score / away_score
+    swapped and correction_reason written NULL, only when the swapped scores read the new row's own home_score /
+    away_score as the plan builds it (else REFUSED, never guessed); updated_at the apply's time (naive UTC, in the
+    stored value's text shape); every other column as it is. The restore: every column the copy holds, as the copy holds it; a live-only
+    column (a later migration, e.g. week) NULL, printed "NULL (not in the copy)"; a copy column the live table lacks
+    REFUSED. An ADDED row (no copy row on the id; every row with --from-json) MOVES+REORIENTS under --move-added (else
+    REFUSED, listed), nothing restored. LOST: REFUSED; identical: STAYS, as for every table. Printed in the ruled
+    form ("MOVE+REORIENT ncaa_cfbd_labels 36454 → 58453: ...; RESTORE ncaa_cfbd_labels 36454 ← the copy's 2025 row"),
+    the expected new id on the dry run, the created id on the apply ("WRITTEN ..."), both rows as written after it.
   * the new rows' ids: matches.id is the rowid (no AUTOINCREMENT), so a new row takes max(id) + 1. A row of any table
     above already on that id (an orphan of a deleted match) would become the 2026 row's unplanned: REFUSED, named (the
     dry run checks the expected ids; the apply checks each created id again before any move).
@@ -113,7 +149,7 @@ import os
 import re
 import sqlite3
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 SOURCE = "api_american_football"
@@ -127,6 +163,12 @@ SCORE_PAIRS = (("home_score", "away_score"), ("home_score_ht", "away_score_ht"),
 # match_id columns with no foreign key (schema.py: "match_id is a plain integer, no foreign key"); append-only, never moved
 UNKEYED = (("availability_observations", "match_id"), ("availability_assertions", "match_id"))
 BOOK_MODES = ("refuse", "swap", "keep")
+# addendum 314 item 2: the two CFBD side tables, one row per match_id (the CFBD game's label in OUR row's orientation),
+# re-expressed for the row they land on; scores and correction_reason are the labels' only (the pregame has neither)
+CFBD_TABLES = ("ncaa_cfbd_labels", "ncaa_cfbd_pregame")
+CFBD_SCORED = "ncaa_cfbd_labels"
+FLIP = {"swapped": "same", "same": "swapped"}
+APPLY_TIME = object()          # a planned value: the apply's time (naive UTC), written in the stored value's text shape
 # #885 is an Issue, closed by PR #888, merged 2026-11-08T21:21:44Z (GitHub's merged_at for #888). Naive UTC, as
 # captured_at is stored (src/db/schema.py: utc_now_naive). A row captured AFTER it was written by the stored-orientation
 # writers; at or before it, by the provider's orientation.
@@ -147,15 +189,22 @@ _SEASON_YEAR = re.compile(r"(\d{4})(?!\d)")
 # Item 1, the facts (stored orientation: the row's home team first), keyed by PROVIDER ID (312 item 3(e): "EXPECTED
 # pins content, not ids"). `live`: the 2026 game as the row reads today (its score by team, the chain's write); `from`:
 # the 2025 game, the row on 2026-10-09; `new`: the listing's orientation of the 2026 game.
+# "cfbd": the CFBD games of each collided row (addendum 314 item 1, verbatim in part: "on 10-09 held the 2025 game's CFBD
+# label (source_game_id 401756942 / 401752759, season 2025 ...) and today holds the 2026 game's label written on 11-08
+# (401856848 / 401856740, season 2026, orientation 'swapped' ...)"). ARCHITECT 2026-11-09 16:50 ET, addendum 315 item
+# 1(4)(b): "the ruled source_game_ids (401856848 for 18216, 401856740 for 18240) are pinned in EXPECTED for the two
+# games": a moved ncaa_cfbd_labels / ncaa_cfbd_pregame row carries "live", a restored copy row "from".
 EXPECTED = {
     "18216": {"home": "Utah", "away": "Cincinnati",
               "live": {"season": "2026", "kickoff": datetime(2026, 10, 31, 19, 45), "score": (49, 25)},
               "from": {"season": "2025", "kickoff": datetime(2025, 11, 2, 2, 15), "score": (45, 14)},
-              "new": {"home": "Cincinnati", "away": "Utah", "score": (25, 49)}},
+              "new": {"home": "Cincinnati", "away": "Utah", "score": (25, 49)},
+              "cfbd": {"live": 401856848, "from": 401756942}},
     "18240": {"home": "Alabama", "away": "LSU",
               "live": {"season": "2026", "kickoff": datetime(2026, 11, 7, 20, 30), "score": (31, 13)},
               "from": {"season": "2025", "kickoff": datetime(2025, 11, 9, 0, 30), "score": (20, 9)},
-              "new": {"home": "LSU", "away": "Alabama", "score": (13, 31)}},
+              "new": {"home": "LSU", "away": "Alabama", "score": (13, 31)},
+              "cfbd": {"live": 401856740, "from": 401752759}},
 }
 
 
@@ -529,6 +578,166 @@ def _oriented(r: dict, col: str) -> list[str]:
             and (v in SIDED or "home" in k.lower() or "away" in k.lower())]
 
 
+def _side_swaps(r: dict, col: str) -> dict:
+    """{column: swapped value} for the row's side columns (addendum 313 item 1(1)): a column named `side` or ending
+    `_side` whose value is a home / away word, case kept ("HOME" -> "AWAY", "home" -> "away"); DRAW, NULL and any other
+    value stay."""
+    out = {}
+    for k, v in r.items():
+        if k in ("__rowid__", col) or not isinstance(v, str):
+            continue
+        if k.lower() == "side" or k.lower().endswith("_side"):
+            low = v.lower()
+            if low in ("home", "away"):
+                w = "away" if low == "home" else "home"
+                out[k] = w.upper() if v.isupper() else (w.capitalize() if v[:1].isupper() else w)
+    return out
+
+
+def _reorient(t: str, r: dict, new_scores, new_season=None, game=None,
+              new_names=None) -> tuple[dict, list[str], list[str]]:
+    """addendum 314 item 2(a)/(c): ({column: value written on the move}, the print's parts, refusals) for one
+    ncaa_cfbd_labels / ncaa_cfbd_pregame row moved onto the new row, whose home is the old row's away. The row must be
+    the new row's game's: its season's year the new row's (`new_season`, the new row as the plan builds it), else
+    refused (the ruling moves "The live row (the 2026 label)"; a 2025 row re-fetched, or read as added, is not it —
+    the premise checked, not assumed); its source_game_id the 2026 game's (`game`, EXPECTED's pin; else refused); and
+    its source_home_team / source_away_team, after the shared normalize, the NEW row's home / away names (`new_names`;
+    addendum 315 item 1(4)(b): "the moved row's source_home_team / source_away_team, after the shared normalize, must
+    equal the NEW row's home and away team names"; else refused). Its
+    orientation must read 'swapped' and is written 'same' (314 item 2(a): "orientation 'same' (CFBD's home —
+    Cincinnati, LSU — is the new row's home)"; any other value refused, named, #910 review);
+    labels only: home_score / away_score swap, and correction_reason is written NULL, only when the swapped scores read
+    the new row's own home_score / away_score (`new_scores`; else refused, never guessed); updated_at the apply's
+    time; every other column as it is."""
+    upd, parts, bad = {}, [], []
+    want = season_year(new_season)
+    if "season" not in r:
+        bad.append("no column season — not shown to be the new row's game's, not moved, not guessed")
+    elif want is None or season_year(r["season"]) != want:
+        bad.append(f"season {r['season']!r} is not the new row's {new_season!r}: not shown to be the new row's game's "
+                   f"(addendum 314 item 2(a): \"The live row (the 2026 label) MOVES\") — not moved, not guessed")
+    if new_names is None:
+        bad.append("the new row's team names are unknown — not shown to be the new row's game's, not moved")
+    else:
+        for side, col_n, ours in (("home", "source_home_team", new_names[0]), ("away", "source_away_team", new_names[1])):
+            if not _our_norm(ours) or _cfbd_norm(r.get(col_n)) != _our_norm(ours):
+                bad.append(f"{col_n} {r.get(col_n)!r} is not the new row's {side} {ours!r} after the shared normalize "
+                           f"(addendum 315 item 1(4)(b)) — not moved, not guessed")
+    if game is None or str(r.get("source_game_id")) != str(game):
+        bad.append(f"source_game_id {r.get('source_game_id')!r} is not the 2026 game's {game!r} (addendum 314 item 1) "
+                   f"— not shown to be the new row's game's, not moved, not guessed")
+    o = r.get("orientation")
+    if o == "swapped":
+        upd["orientation"] = FLIP[o]
+        parts.append(f"orientation {o}→{FLIP[o]}")
+    else:
+        bad.append(f"orientation {o!r} is not 'swapped': the new row's orientation is 'same' (addendum 314 item 2(a): "
+                   f"CFBD's home is the new row's home) only from 'swapped' — not re-expressed, not guessed")
+    if t == CFBD_SCORED:
+        missing = [c for c in ("home_score", "away_score", "correction_reason") if c not in r]
+        if missing:
+            bad.append(f"no column(s) {', '.join(missing)} — not re-expressed, not guessed")
+        else:
+            h, a = r["home_score"], r["away_score"]
+            upd["home_score"], upd["away_score"] = a, h
+            parts.append(f"scores {h}-{a}→{a}-{h}")
+            if new_scores is None or (a, h) != tuple(new_scores):
+                ns = "unknown" if new_scores is None else f"{new_scores[0]}-{new_scores[1]}"
+                bad.append(f"the swapped scores {a}-{h} are not the new row's {ns}: correction_reason is cleared only "
+                           f"when they agree (addendum 314 item 2(a)) — not guessed")
+            upd["correction_reason"] = None
+            if r["correction_reason"] is not None:
+                parts.append("correction_reason cleared")
+    if "updated_at" in r:
+        upd["updated_at"] = APPLY_TIME
+    return upd, parts, bad
+
+
+def _cfbd_norm(name) -> str:
+    """The shared normalize as the CFBD join applies it to a SOURCE name (src/ingestion/ncaa_cfbd.py build_labels:
+    normalize_team_name, as served)."""
+    from src.ingestion.match_lookup import normalize_team_name
+    return normalize_team_name(name or "")
+
+
+def _our_norm(name) -> str:
+    """The same for OUR stored name (src/ingestion/ncaa_cfbd.our_norm, J2: html.unescape, then normalize_team_name)."""
+    import html
+    from src.ingestion.match_lookup import normalize_team_name
+    return normalize_team_name(html.unescape(name or ""))
+
+
+def _cfbd_line(t: str, mid, nid, parts: list[str], tail: str) -> str:
+    """The ruled print (addendum 314 item 2(e)): "MOVE+REORIENT ncaa_cfbd_labels 36454 → 58453: orientation
+    swapped→same, scores 49-25→25-49, correction_reason cleared; RESTORE ncaa_cfbd_labels 36454 ← the copy's 2025
+    row"."""
+    return f"MOVE+REORIENT {t} {mid} → {nid}: {', '.join(parts)}; {tail}"
+
+
+def _plan_cfbd(live, frm, t, col, mid, nid, new_scores, added, changed, fby, key, kname, diff, move_added,
+               out, new_season=None, games=None, new_names=None) -> tuple[list, list, list]:
+    """addendum 314 item 2, for ncaa_cfbd_labels / ncaa_cfbd_pregame only: (moves, cfbd entries, refusals). A CHANGED
+    row (the copy's key, other content) MOVES+REORIENTS to the new row and the copy's row is RESTORED onto `mid`; an
+    ADDED row (no copy row on `mid`, or --from-json) MOVES+REORIENTS under --move-added, nothing restored. LOST and
+    identical rows are the caller's, as for every table."""
+    moves, entries, bad = [], [], []
+    lcols = _columns(live, t)
+    fcols = _columns(frm, t) if frm is not None and t in _tables(frm) else []
+    for r in changed:
+        k = kname(key(r))
+        fr = fby[key(r)]
+        upd, parts, rb = _reorient(t, r, new_scores, new_season, (games or {}).get("live"), new_names)
+        # the copy's row restored must be the 2025 game's (EXPECTED's cfbd pin; #910 review)
+        if str(fr.get("source_game_id")) != str((games or {}).get("from")):
+            rb.append(f"the copy's source_game_id {fr.get('source_game_id')!r} is not the 2025 game's "
+                      f"{(games or {}).get('from')!r} (addendum 314 item 1) — not restored, not guessed")
+        # the same CFBD game as the copy's row is the 2025 game's (a re-fetch changes only its stamps): never moved
+        if fr.get("source_game_id") is not None and r.get("source_game_id") == fr.get("source_game_id"):
+            rb.append(f"source_game_id {r.get('source_game_id')!r} is the copy's row's (the 2025 game's): not the new "
+                      f"row's game's — not moved, not guessed")
+        rb += [f"the copy's column {c} is not in the live table — not restored, not guessed" for c in fcols
+               if c not in lcols]
+        restore = {c: fr[c] for c in fcols if c in lcols}
+        nulls = [c for c in lcols if c not in fcols]
+        restore.update({c: None for c in nulls})
+        season = fr.get("season")
+        tail = f"RESTORE {t} {mid} ← the copy's {season} row"
+        out(f"CHANGED {mid} {t} row {k}: {_summary(r, col)} -> MOVE+REORIENT to the new id and RESTORE the copy's row "
+            f"(addendum 314 item 2; same key as the copy's row, other content: {'; '.join(diff[key(r)])})")
+        out(f"COPY {mid} {t} row {k}: {_summary(fr, col)} (the copy's row on {mid}: restored byte-identical)")
+        out(_cfbd_line(t, mid, nid, parts, tail) + " (the moved row: updated_at the apply's time, every other "
+            "column as it is)" + (" -> REFUSED" if rb else ""))
+        for c in nulls:
+            out(f"RESTORE {t} {mid}.{c}: NULL (not in the copy)")
+        bad += [f"{t} {mid}: {x}" for x in rb]
+        moves.append((t, col, r["__rowid__"], {col: "<new>", **upd}, r, "cfbd"))
+        entries.append({"table": t, "col": col, "rowid": r["__rowid__"], "row": r, "upd": upd, "parts": parts,
+                        "tail": tail, "restore": restore})
+    refused = []
+    for r in added:
+        k = kname(key(r))
+        upd, parts, rb = _reorient(t, r, new_scores, new_season, (games or {}).get("live"), new_names)
+        tail = ("no 2025 row restored (--from-json: no copy)" if frm is None else
+                f"no 2025 row restored (the copy holds none on {mid})")
+        if move_added:
+            out(f"ADDED {mid} {t} row {k}: {_summary(r, col)} -> MOVE+REORIENT to the new id (--move-added, "
+                f"addendum 314 item 2)")
+            out(_cfbd_line(t, mid, nid, parts, tail) + " (the moved row: updated_at the apply's time, every other "
+                "column as it is)" + (" -> REFUSED" if rb else ""))
+            bad += [f"{t} {mid}: {x}" for x in rb]
+            moves.append((t, col, r["__rowid__"], {col: "<new>", **upd}, r, "cfbd"))
+            entries.append({"table": t, "col": col, "rowid": r["__rowid__"], "row": r, "upd": upd, "parts": parts,
+                            "tail": tail, "restore": None})
+        else:
+            out(f"ADDED {mid} {t} row {k}: {_summary(r, col)} -> REFUSED (no --move-added); planned: "
+                + _cfbd_line(t, mid, nid, parts, tail))
+            refused.append(k)
+    if refused:
+        bad.append(f"{t}: {len(refused)} row(s) on {mid} added since the copy ({', '.join(refused)}); --move-added "
+                   f"not given")
+    return moves, entries, bad
+
+
 def _book_position(captured_at) -> str:
     ts = _dt(captured_at)
     if ts is None:
@@ -547,11 +756,15 @@ def _who(r: dict) -> str:
     return ", ".join(parts)
 
 
-def plan_refs(live, frm, refs, unkeyed, mid, book_rows: str, move_added: bool, out) -> tuple[list, list, list]:
-    """(moves, stays, refusals) for every table referencing `mid`, every row printed as it is read (a refused one
-    included). moves: (table, col, rowid, {col: new values}, row, kind) with kind "item4" or "added"; stays: (table, n);
-    refusals: lines. `frm` None = --from-json (no copy)."""
-    moves, stays, bad = [], [], []
+def plan_refs(live, frm, refs, unkeyed, mid, book_rows: str, move_added: bool, out, nid=None,
+              new_scores=None, new_season=None, games=None, new_names=None) -> tuple[list, list, list, list]:
+    """(moves, stays, refusals, cfbd) for every table referencing `mid`, every row printed as it is read (a refused one
+    included). moves: (table, col, rowid, {col: new values}, row, kind) with kind "item4", "added" or "cfbd"; stays:
+    (table, n); refusals: lines; cfbd: addendum 314 item 2's entries (the moved row, its re-expression, the copy's row
+    restored or None). `frm` None = --from-json (no copy). `nid`: the new row's expected id (printed); `new_scores`:
+    the new row's (home_score, away_score) as the plan builds it (314 item 2(a)'s correction_reason check);
+    `new_season`: the new row's season (a CFBD row moved must be that season's)."""
+    moves, stays, bad, cfbd = [], [], [], []
     from_tables = _tables(frm) if frm is not None else set()
     for t, col in refs + unkeyed:
         is_unkeyed = (t, col) in unkeyed
@@ -596,7 +809,7 @@ def plan_refs(live, frm, refs, unkeyed, mid, book_rows: str, move_added: bool, o
                     bad.append(f"{t}: {len(lrows)} row(s) on {mid}; with --from-json no copy shows they are the 2025 "
                                f"game's, and the table is never moved — not guessed")
                 continue
-            added, changed, lost, same = lrows, [], [], []
+            added, changed, lost, same, diff, fby = lrows, [], [], [], {}, {}
         else:
             lcols = _columns(live, t)
             fcols = [c for c in lcols if has_copy and c in _columns(frm, t)]
@@ -616,6 +829,15 @@ def plan_refs(live, frm, refs, unkeyed, mid, book_rows: str, move_added: bool, o
             changed = [r for k, r in lby.items() if k in diff]
             same = [r for k, r in lby.items() if k in fby and k not in diff]
             lost = [r for k, r in fby.items() if k not in lby]
+        if t in CFBD_TABLES:
+            # addendum 314 item 2: these two tables only; (d) "The script's CHANGED check stays as it is for every
+            # other table". A LOST row is refused below as for every table; an identical row STAYS.
+            mv, ent, rf = _plan_cfbd(live, frm, t, col, mid, nid, new_scores, added, changed, fby, key, kname, diff,
+                                     move_added, out, new_season, games, new_names)
+            moves += mv
+            cfbd += ent
+            bad += rf
+            added, changed = [], []
         for r in changed:
             out(f"CHANGED {mid} {t} row {kname(key(r))}: {_summary(r, col)} -> REFUSED (same key as the copy's row, "
                 f"other content: {'; '.join(diff[key(r)])})")
@@ -630,18 +852,21 @@ def plan_refs(live, frm, refs, unkeyed, mid, book_rows: str, move_added: bool, o
         refused_added = []
         for r in added:
             k = kname(key(r))
-            orient = _oriented(r, col)
-            # 312 item 3(c): an added row MOVES under --move-added, its other columns as they are (the ruling names
-            # kalshi_settled_markets among them and names no swap outside the odds tables). A value that reads by
-            # orientation is printed on the row's line so the block sees it; nothing is swapped.
-            note = (f"; ORIENTED, moved as is (no ruling swaps it; the new row's home is the old row's away): "
-                    f"{', '.join(orient)}" if orient else "")
+            # 312 item 3(c): an added row MOVES under --move-added. 313 item 1(1): its side column SWAPS (placed
+            # against the stored home; the new row's home is the old row's away); any other value that reads by
+            # orientation moves as is and is printed so the block sees it
+            swaps = _side_swaps(r, col)
+            orient = [x for x in _oriented(r, col) if x.split("=", 1)[0] not in swaps]
+            note = (f"; SIDE swap (addendum 313 item 1(1)): "
+                    + ", ".join(f"{k} {r[k]!r} -> {v!r}" for k, v in swaps.items()) if swaps else "")
+            note += (f"; ORIENTED, moved as is (no side column swaps it, 313 item 1(1)): {', '.join(orient)}"
+                     if orient else "")
             if is_unkeyed:
                 out(f"ADDED {mid} {t} row {k}: {_summary(r, col)} -> REFUSED (append-only, never moved)")
                 refused_added.append(k)
             elif move_added:
                 out(f"ADDED {mid} {t} row {k}: {_summary(r, col)} -> MOVE to the new id (--move-added){note}")
-                moves.append((t, col, r["__rowid__"], {col: "<new>"}, r, "added"))
+                moves.append((t, col, r["__rowid__"], {col: "<new>", **swaps}, r, "added"))
             else:
                 out(f"ADDED {mid} {t} row {k}: {_summary(r, col)} -> REFUSED (no --move-added){note}")
                 refused_added.append(k)
@@ -651,7 +876,7 @@ def plan_refs(live, frm, refs, unkeyed, mid, book_rows: str, move_added: bool, o
                        f"({', '.join(refused_added)}); {why}")
         if same and not (changed or lost):
             stays.append((t, len(same)))
-    return moves, stays, bad
+    return moves, stays, bad, cfbd
 
 
 def _plan_move(t, col, r, mid, book_rows, moves, bad, out) -> None:
@@ -687,7 +912,8 @@ def _plan_move(t, col, r, mid, book_rows, moves, bad, out) -> None:
 def run(db: Path, frm_path: Path | None = None, ids: list[int] | None = None, apply: bool = False, *,
         from_json: Path | None = None, book_rows: str = "refuse", move_added: bool = False,
         emit_json: Path | None = None, out=print, _fail_at: str | None = None) -> int:
-    out(f"restore_collided_rows (ARCHITECT 2026-11-09, addendum 310 item 4 and addendum 312 item 3; #902): "
+    out(f"restore_collided_rows (ARCHITECT 2026-11-09, addendum 310 item 4 and addendum 312 item 3; 313 item 1(1); "
+        f"314 item 2; #902): "
         f"{'APPLY' if apply else 'DRY RUN'} · --db {db} "
         f"({'read-write, ONE transaction' if apply else 'read-only, mode=ro'}) · "
         + (f"--from {frm_path} (mode=ro&immutable=1)" if frm_path is not None else f"--from-json {from_json}")
@@ -803,21 +1029,31 @@ def _run(live, frm, extract, ids, apply, book_rows, move_added, out, _fail_at, s
                         bad.append(f"live row {mid}: column {k} holds {lm.get(k)!r}; the extract does not carry it and "
                                    f"the ruling does not name it — not guessed")
             rows[pid] = {"mid": mid, "live": lm, "extract": x}
-    moves, stays = {}, {}
+    # the ids the new rows will take: matches.id is the rowid (no AUTOINCREMENT), so the next insert takes
+    # max(id) + 1 (read here so the plan's lines name them; checked below, and again on the apply)
+    top = live.execute("SELECT MAX(id) FROM matches").fetchone()[0] or 0
+    nids = {pid: top + 1 + i for i, pid in enumerate(pids)}
+    moves, stays, cfbd = {}, {}, {}
     for pid in pids:
         mid = found[pid]
-        mv, st, rf = plan_refs(live, frm, refs, unkeyed, mid, book_rows, move_added, out)
-        moves[pid], stays[pid] = mv, st
+        lm = rows[pid]["live"]
+        nr_scores = nr_season = None
+        if lm:
+            nr = new_row(lm)
+            nr_scores = (nr.get("home_score"), nr.get("away_score"))
+            nr_season = nr.get("season")
+        mv, st, rf, cf = plan_refs(live, frm, refs, unkeyed, mid, book_rows, move_added, out, nid=nids[pid],
+                                   new_scores=nr_scores, new_season=nr_season, games=EXPECTED[pid].get("cfbd"),
+                                   new_names=(_team(live, nr.get("home_team_id")), _team(live, nr.get("away_team_id"))))
+        moves[pid], stays[pid], cfbd[pid] = mv, st, cf
         bad += [f"row {mid}: {x}" for x in rf]
         for t, col in unkeyed:
             n = live.execute(f'SELECT COUNT(*) FROM {_qi(t)} WHERE {_qi(col)} = ?', (mid,)).fetchone()[0]
             out(f"COUNT {mid} {t}.{col}: {n} row(s) (no foreign key; append-only, addendum 254: never moved)")
-    # the ids the new rows will take: matches.id is the rowid (no AUTOINCREMENT), so the next insert takes
-    # max(id) + 1. A row already on that id (an orphan of a deleted match: the availability tables have no foreign
-    # key) would silently become the new row's, never planned or printed: REFUSED, named.
-    top = live.execute("SELECT MAX(id) FROM matches").fetchone()[0] or 0
+    # A row already on a new row's id (an orphan of a deleted match: the availability tables have no foreign key)
+    # would silently become the new row's, never planned or printed: REFUSED, named.
     for i, pid in enumerate(pids):
-        nid = top + 1 + i
+        nid = nids[pid]
         held = _refs_on(live, refs + unkeyed, nid)
         out(f"NEW ID {nid} (expected for {found[pid]}): "
             + (", ".join(f"{t}.{c} {n} row(s)" for t, c, n in held) if held else "no row references it"))
@@ -830,7 +1066,9 @@ def _run(live, frm, extract, ids, apply, book_rows, move_added, out, _fail_at, s
             out(f"REFUSED: {b}")
         raise Refused(f"{len(bad)} check(s) failed; nothing written")
     state["rows"] = rows
-    created = {}
+    created, written = {}, {}
+    # addendum 314 item 2(a): "updated_at the apply's time" — one instant for the run, naive UTC as stored
+    apply_time = datetime.now(timezone.utc).replace(tzinfo=None)
     changes_before = live.total_changes
     for pid in pids:
         mid, lm, exp = found[pid], rows[pid]["live"], EXPECTED[pid]
@@ -853,6 +1091,8 @@ def _run(live, frm, extract, ids, apply, book_rows, move_added, out, _fail_at, s
                 out(f"NULLED (not in the extract) {mid}.{c}: live value {v!r} -> NULL")
         by_table: dict = {}
         for t, col, rowid, upd, r, kind in moves[pid]:
+            if kind == "cfbd":
+                continue
             k = by_table.setdefault(t, {"rows": 0, "swapped": 0})
             k["rows"] += 1
             k["swapped"] += "selection" in upd and t == "odds_snapshots" and r.get("source") == KALSHI
@@ -863,6 +1103,10 @@ def _run(live, frm, extract, ids, apply, book_rows, move_added, out, _fail_at, s
         for t, k in sorted(by_table.items()):
             if t not in MOVE_TABLES:
                 out(f"PLAN {mid} MOVE {t}: {k['rows']} row(s) added since the copy to the new id (--move-added)")
+        for e in cfbd[pid]:
+            out(f"PLAN {mid} MOVE+REORIENT {e['table']}: 1 row to the new id"
+                + (f", the copy's row RESTORED onto {mid}" if e["restore"] is not None else ", nothing restored")
+                + " (addendum 314 item 2)")
         for t, n in stays[pid]:
             out(f"PLAN {mid} STAY {t}: {n} row(s), identical in the copy (the 2025 game's), kept on {mid}")
         if not apply:
@@ -879,10 +1123,19 @@ def _run(live, frm, extract, ids, apply, book_rows, move_added, out, _fail_at, s
             raise Refused(f"the new row {new_id} is already referenced ({held_s}); rolled back")
         if _fail_at == "after_create":
             raise RuntimeError("injected failure (test): after the create")
-        for t, col, rowid, upd, _r, _kind in moves[pid]:
-            sets = {**upd, col: new_id}
+        for t, col, rowid, upd, r, _kind in moves[pid]:
+            sets = {k: (_like(r.get(k), apply_time) if v is APPLY_TIME else v) for k, v in upd.items()}
+            sets[col] = new_id
+            written[(pid, t, rowid)] = sets
             live.execute(f'UPDATE {_qi(t)} SET {", ".join(f"{_qi(k)} = ?" for k in sets)} WHERE rowid = ?',
                          [*sets.values(), rowid])
+        # addendum 314 item 2(b): the copy's row restored onto the old id AFTER the live row moved off it (the move
+        # frees the primary key), every column the copy holds as the copy holds it
+        for e in cfbd[pid]:
+            if e["restore"] is not None:
+                rcols = list(e["restore"])
+                live.execute(f'INSERT INTO {_qi(e["table"])} ({", ".join(_qi(c) for c in rcols)}) '
+                             f'VALUES ({", ".join("?" * len(rcols))})', [e["restore"][c] for c in rcols])
         if _fail_at == "after_moves":
             raise RuntimeError("injected failure (test): after the moves")
         live.execute(f'UPDATE matches SET {", ".join(f"{_qi(k)} = ?" for k in rr)} WHERE id = ?',
@@ -900,14 +1153,37 @@ def _run(live, frm, extract, ids, apply, book_rows, move_added, out, _fail_at, s
                 n_old = live.execute(f'SELECT COUNT(*) FROM {_qi(t)} WHERE {_qi(col)} = ?', (mid,)).fetchone()[0]
                 n_new = live.execute(f'SELECT COUNT(*) FROM {_qi(t)} WHERE {_qi(col)} = ?', (new_id,)).fetchone()[0]
                 out(f"AFTER {t}: {n_old} row(s) on {mid} · {n_new} row(s) on {new_id}")
-        for t, col, rowid, upd, _r, _kind in moves[pid]:
+        for t, col, rowid, upd, _r, kind in moves[pid]:
+            if kind == "cfbd":
+                continue
             a = live.execute(f'SELECT * FROM {_qi(t)} WHERE rowid = ?', (rowid,)).fetchone()
             a = {} if a is None else dict(a)
             out(f"AFTER {t} row {rowid}: {col} {a.get(col)}"
-                + (f", selection {a.get('selection')}" if "selection" in a else ""))
+                + (f", selection {a.get('selection')}" if "selection" in a else "")
+                + "".join(f", {k} {a.get(k)!r}" for k in upd if k not in (col, "selection")))
+        bad_cfbd = []
+        for e in cfbd[pid]:
+            # addendum 314 item 2: both rows as written, read by the key (the move changed the row's match_id)
+            t, col, r = e["table"], e["col"], e["row"]
+            out("WRITTEN " + _cfbd_line(t, mid, new_id, e["parts"], e["tail"]))
+            want_moved = {k: v for k, v in r.items() if k != "__rowid__"}
+            want_moved.update(written[(pid, t, e["rowid"])])
+            for where, want in ((new_id, want_moved), (mid, e["restore"])):
+                got = [dict(x) for x in live.execute(f'SELECT * FROM {_qi(t)} WHERE {_qi(col)} = ?', (where,))]
+                label = ("moved+reoriented" if where == new_id else
+                         "restored" if want is not None else "nothing restored")
+                out(f"AFTER {t} {where} ({label}): "
+                    + ("; ".join(", ".join(f"{k}={v!r}" for k, v in g.items()) for g in got) or "no row"))
+                if want is None:
+                    if got:
+                        bad_cfbd.append(f"{t} {where}: {len(got)} row(s) where none was planned")
+                elif len(got) != 1 or any(got[0].get(k) != v or type(got[0].get(k)) is not type(v)
+                                          for k, v in want.items()):
+                    bad_cfbd.append(f"{t} {where}: does not read as planned")
         lm = _row(live, mid)
         exp = EXPECTED[pid]
-        bad_after = check_state(live, lm, mid, pid, exp, "from") + check_state(live, _row(live, new_id), new_id, pid, {
+        bad_after = bad_cfbd + check_state(live, lm, mid, pid, exp, "from")
+        bad_after += check_state(live, _row(live, new_id), new_id, pid, {
             **exp, "home": exp["new"]["home"], "away": exp["new"]["away"],
             "from": {**exp["live"], "score": exp["new"]["score"]}}, "from")
         if frm is None:
@@ -915,14 +1191,17 @@ def _run(live, frm, extract, ids, apply, book_rows, move_added, out, _fail_at, s
         if bad_after:
             raise Refused(f"row {mid}: the written state does not read as planned ({'; '.join(bad_after)}); "
                           f"rolled back")
-    # the rows written, counted before the commit: two inserts, the moved rows (item 4's and the added ones under
-    # --move-added), the two rewrites; anything else rolls back
+    # the rows written, counted before the commit: two inserts, the moved rows (item 4's, the added ones under
+    # --move-added, and the CFBD rows moved+reoriented, 314 item 2), the CFBD rows restored from the copy, the two
+    # rewrites; anything else rolls back
     n_item4 = sum(1 for pid in pids for m in moves[pid] if m[5] == "item4")
     n_added = sum(1 for pid in pids for m in moves[pid] if m[5] == "added")
-    want = len(pids) + n_item4 + n_added + len(pids)
+    n_cfbd = sum(1 for pid in pids for m in moves[pid] if m[5] == "cfbd")
+    n_cfbd_restored = sum(1 for pid in pids for e in cfbd[pid] if e["restore"] is not None)
+    want = len(pids) + n_item4 + n_added + n_cfbd + n_cfbd_restored + len(pids)
     got = live.total_changes - changes_before
     out(f"ROWS WRITTEN: {got} (expected {want}: {len(pids)} created, {n_item4} moved, {n_added} added moved, "
-        f"{len(pids)} restored)")
+        f"{n_cfbd} CFBD moved+reoriented, {n_cfbd_restored} CFBD restored from the copy, {len(pids)} restored)")
     if got != want:
         raise Refused(f"{got} row(s) written, not the {want} planned; rolled back")
     if _fail_at == "before_commit":

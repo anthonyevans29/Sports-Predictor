@@ -1165,6 +1165,20 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
     | `sp-ncaa-market.timer` | ARCHITECT 2026-11-09, addendum 310 item 2 (the hold on NCAA sync-matches, incident #902; 311: "the hold is sp-ncaa-market.timer only") | v1.6.6's #902 apply, by the architect's block |
     | `sp-tennis-daily.timer` | ARCHITECT 2026-11-08, addendum 288 item 5 | the tag that carries the map, and the architect's block |
 
+    - **A hold on a sync path (ARCHITECT 2026-11-10 15:35 ET, addendum 325 item 1, verbatim, the architect's
+      record):** "a hold on a sync path names EVERY chain that carries the step (grep chains.py for the step), never
+      one timer." The 11-09 hold disabled `sp-ncaa-market.timer` only. Two other chains also ran
+      `sync-matches --competition NCAA` and were not held: ncaa-schedule (`sp-ncaa-schedule.timer`) and the window
+      chain (`sp-window.timer`). Both ran under v1.6.5's any-season lookup from 11-09 until the v1.6.6 deploy on 11-10.
+      v1.6.6 closes them with the season-scoped key, so no entry is added for them (325 item 1(c)).
+      - **How to find every chain (the grep, then the one place it cannot see):** for a fixed chain, grep
+        `deploy/hosting/chains.py` for the step, e.g. `grep -n '"sync-matches", "--competition", "NCAA"'
+        deploy/hosting/chains.py`. On 8aa27a89 that finds ncaa-market and ncaa-schedule. The window chain's steps are
+        not in chains.py's text: `CHAINS["window"]` has `"steps": []`, and `sp_run.window_plan` builds a
+        `sync-matches --competition <code> --season <season>` step at run time for every competition with a game
+        inside its 24 hours. So the grep finds two of the three chains that carried the NCAA step; the window's is
+        read in `sp_run.window_plan`. How a hold names the window chain is open for the architect (raised with this
+        PR).
     - **The deploy's receipt:** 323 item 1 rules that the deploy's report of timers missing from `timers.enabled`
       reads this list. Today `sp_deploy.py` reads only T11's lists, so a held timer missing from the file still
       reads "!" under `TIMERS`. Teaching it this list is a deploy-script change, so it ships as its own PR after

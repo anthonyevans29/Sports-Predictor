@@ -87,6 +87,14 @@ which reads the pool once per ET day and keeps logs/desk_unit_<ET date>.json; th
 closing that day, size their order lines from that file. Its exit never fails the slate. The receipt keeps the state,
 never a figure (`unit`: state, et_date, new, exit). An unread day: the slate page says UNIT_UNREAD_TEXT on a line of
 its own, and every PLAY line of a closing page says it in place of its order.
+THE BULLETIN HOOKS (ARCHITECT 2026-11-04, addendum 250 item 3; ARCHITECT 2026-11-10, addendum 321 item 2, step 1c of the
+bulletins lane, #826; the section "the bulletin hooks" below): "(i) in the closing run, between write_closing_file's
+success and push_mirror(); (ii) in the slate stage, between link_slate_file's success and push_mirror("slate"); each a
+subprocess of the command under a try; a failure or refusal receipted bulletin_failed / bulletin_refused and notified
+as a closing-file failure is; rec["exit"] never changed; the push proceeds with or without the pair; the laptop's MLB
+closing takes the same hook under laptop/bulletins/". `python cli.py bulletin --closing-file|--slate-file <the kept
+file> --out-dir exports/bulletins`, bounded at BULLETIN_TIMEOUT_S; the receipt's `bulletin` {command, exit, seconds,
+tail[, error]}. No timer and no chain step of its own: the hooks ride the closing and slate runs that exist.
 """
 from __future__ import annotations
 
@@ -134,6 +142,14 @@ MAX_ATTEMPTS = 3             # C2 / A6: at most three attempts for one start tim
 MANUAL_WINDOW_MIN = 90       # #370, accepted as built: a manual run targets the next unstarted start within 90 min
 PAGE_MAX_CHARS = 100         # C5: no line over 100 characters
 MIRROR_TIMEOUT_S = 90
+# THE BULLETIN HOOKS (ARCHITECT 2026-11-04, addendum 250 item 3; ARCHITECT 2026-11-10, addendum 321 item 2): the
+# render's bound (a render still running then is killed and is a failure: bulletin_failed), where the pairs go (the
+# mirror's kept subtree, bulletin.OUT_DIR: a test pins the two; this module never imports the renderer, which imports
+# it), and the code checkout whose cli.py the hook runs (sp_common.REPO's own rule: this file's checkout).
+BULLETIN_TIMEOUT_S = 90
+BULLETIN_OUT_DIR = "exports/bulletins"
+BULLETIN_TAIL_LINES = 4                  # the receipt keeps the console's last lines, redacted, each cut at 300
+CODE_ROOT = Path(__file__).resolve().parents[2]
 # A6 (MLB only): "the MLB feed" is the statsapi base the MLB adapter uses (a test pins the two together).
 FEED_BASE = "https://statsapi.mlb.com/api/v1"
 FEED_PROBE = FEED_BASE + "/sports/1"
@@ -574,6 +590,89 @@ def push_mirror(label: str = "closing") -> dict:
         return {"exit": None, "tail": [f"timed out after {MIRROR_TIMEOUT_S}s"]}
     except OSError as e:
         return {"exit": None, "tail": [f"{type(e).__name__}: {e}"]}
+
+
+# ------------------------------------------------------------------------------------------ the bulletin hooks --
+# ARCHITECT 2026-11-04, addendum 250 item 3, verbatim: "It is called from TWO hooks in deploy/hosting/closing.py, each
+# as a subprocess under a try, AFTER the kept file exists and BEFORE the mirror push, so the push carries the
+# bulletins: the closing run between write_closing_file's success and push_mirror() (the page has gone out; rec["exit"]
+# is already 0 and is never changed by the render), and the slate stage between link_slate_file's success and
+# push_mirror("slate"). A render that fails or is refused is RECEIPTED (bulletin_failed / bulletin_refused, the
+# redacted error) and NOTIFIED as the closing-file failure is, and nothing else happens: the closing is never run again
+# for a bulletin, the page text is untouched, the push proceeds. MLB's laptop closing takes the same hook (closing-run
+# --family MLB) and pushes under laptop/bulletins/."
+# ARCHITECT 2026-11-10, addendum 321 item 2, verbatim: "THE HOOKS PR (step 1c) — OPEN IT, as #894's body item 1 shaped
+# it: (i) in the closing run, between write_closing_file's success and push_mirror(); (ii) in the slate stage, between
+# link_slate_file's success and push_mirror("slate"); each a subprocess of the command under a try; a failure or
+# refusal receipted bulletin_failed / bulletin_refused and notified as a closing-file failure is; rec["exit"] never
+# changed; the push proceeds with or without the pair; the laptop's MLB closing takes the same hook under
+# laptop/bulletins/; test 6(e) with them; the console's URL lines unchanged. No timer and no chain step of its own: the
+# hooks ride the closing and slate runs that exist."
+# As built: the pairs land under exports/bulletins/ (BULLETIN_OUT_DIR), the mirror's kept subtree, and the push that
+# follows (push_mirror: exports_mirror.py push --role <this machine's role>) carries them to <role>/bulletins/: the
+# laptop's MLB closing, role laptop, lands under laptop/bulletins/ with no code of its own.
+
+def run_bulletin(argv: list[str]) -> tuple[int, str]:
+    """The hook's subprocess boundary (tests replace it): `python cli.py <argv>` of this code's checkout, in the
+    closing's checkout (cwd sp_common.REPO, where the closing file, the slate file and exports/bulletins/ are), its
+    output captured, cut at BULLETIN_TIMEOUT_S (subprocess.TimeoutExpired: the child is killed). (exit, console)."""
+    r = subprocess.run([sys.executable, str(CODE_ROOT / "cli.py"), *argv], cwd=c.REPO, capture_output=True,
+                       text=True, timeout=BULLETIN_TIMEOUT_S)
+    return r.returncode, (r.stdout or "") + (r.stderr or "")
+
+
+def _bulletin_error(lines: list[str]) -> str | None:
+    """The render's own verdict line (bulletin.run's `BULLETIN REFUSED…` / `BULLETIN FAILED…`, already withheld by its
+    guard where it matched), else the console's last line (a traceback's exception line: a run that never reached
+    run()), redacted and cut at 300."""
+    said = [x for x in lines if x.startswith(("BULLETIN REFUSED", "BULLETIN FAILED"))]
+    pick = said[0] if said else (lines[-1] if lines else None)
+    return c.redact(pick)[:300] if pick else None
+
+
+def bulletin_hook(stage: str, path: str, fam: str, rec: dict, head: str, title: str | None = None) -> None:
+    """Addendum 250 item 3 / addendum 321 item 2: one `python cli.py bulletin --<stage>-file <path> --out-dir
+    exports/bulletins` (the kept file: the closing file just written, or the slate file just linked), a subprocess
+    under a try. Records rec["bulletin"] {command, exit (None: timed out or never ran), seconds, tail (the console's
+    last BULLETIN_TAIL_LINES, redacted)[, error]} and prints the render's console. Exit 0: nothing else. Exit 2 (the
+    guard, or an input it would not render): rec["bulletin_refused"] True. Anything else (another exit, the bound,
+    an exception): rec["bulletin_failed"] True. A refusal or a failure is notified as the closing-file failure is
+    (notify_failure: `head` names the run, "Closing <start>: PAGED" / "SLATE <FAMILY> <date>: LINKED"; `title` the
+    slate's notice title, None the closing's), receipted rec["bulletin_failure_notification"], one ✗ line printed.
+    NOTHING ELSE: rec["exit"] and rec["failed"] are never touched, nothing is run again, and the caller's push
+    proceeds whatever happened here. Never raises (the run's receipt line is written either way)."""
+    argv = ["bulletin", f"--{stage}-file", path, "--out-dir", BULLETIN_OUT_DIR]
+    b: dict = {"command": f"python cli.py {' '.join(argv)}", "exit": None}
+    try:
+        t0 = time.time()                      # the module's clock (the run's own; tests replace it)
+        try:
+            rc, out = run_bulletin(argv)
+            lines = [c.redact(x) for x in (out or "").splitlines() if x.strip()]
+            b.update(exit=rc, tail=[x[:300] for x in lines[-BULLETIN_TAIL_LINES:]])
+            for x in lines:
+                print(f"  {x}")
+            if rc != 0:
+                b["error"] = _bulletin_error(lines) or f"exit {rc}"
+        except subprocess.TimeoutExpired:
+            b.update(tail=[], error=f"timed out after {BULLETIN_TIMEOUT_S}s (killed)")
+        except BaseException as e:  # noqa: BLE001 - never into the run: its receipt line is written either way
+            b.update(tail=[], error=c.redact(f"{type(e).__name__}: {e}")[:300])
+        b["seconds"] = round(time.time() - t0, 1)
+        rec["bulletin"] = b
+        if b["exit"] == 0:
+            print(f"· bulletins ({stage}): exit 0 in {b['seconds']}s")
+            return
+        word, key = ("REFUSED", "bulletin_refused") if b["exit"] == 2 else ("FAILED", "bulletin_failed")
+        rec[key] = True
+        why = f"exit {b['exit']}" if b["exit"] is not None else b["error"]
+        rec["bulletin_failure_notification"] = notify_failure(
+            f"{head}; bulletin {word} ({why}, {path}) · not run again", fam, title=title)
+        print(f"✗ bulletin {word} ({stage}): {b['error']} — receipted and notified; not run again, the push "
+              "proceeds")
+    except BaseException as e:  # noqa: BLE001 - the hook never fails the run it rides
+        rec.setdefault("bulletin", b)
+        rec["bulletin_failed"] = True
+        rec["bulletin"].setdefault("error", c.redact(f"{type(e).__name__}: {e}")[:300])
 
 
 def run_step(argv: list[str], run_id: str) -> tuple[int, list[str], float]:
@@ -2042,6 +2141,9 @@ def _closing(rec: dict, fam: str, s: datetime, covers: list[dict], folder: Path,
             r = cf["replaced"]
             print(f"· a second page for this start time: it replaced {r['file']} of run {r['run_id']} (sha256 "
                   f"{r['sha256'][:12]}), kept as {r['kept_as']}")
+        # THE BULLETIN HOOK (addendum 250 item 3; addendum 321 item 2 (i)): "in the closing run, between
+        # write_closing_file's success and push_mirror()"; rec["exit"] stays 0, the push below proceeds either way
+        bulletin_hook("closing", cf["file"], fam, rec, f"Closing {_start_label(fam, rec.get('start'))}: PAGED")
     rec["push"] = push_mirror()
     print(f"· exports mirror ({mirror_role()}, closing): exit {rec['push']['exit']} "
           f"{' | '.join(rec['push']['tail'])}")
@@ -3067,6 +3169,10 @@ def _slate(rec: dict, fam: str, day: date, covers: list[dict], folder: Path, hel
               "was")
         return
     print(f"· slate file: {rec['file']} (linked from {rec['export']}, sha256 {rec['slate_file']['sha256'][:12]})")
+    # THE BULLETIN HOOK (addendum 250 item 3; addendum 321 item 2 (ii)): "in the slate stage, between link_slate_file's
+    # success and push_mirror("slate")"; the slate's own outcome (rec["exit"], rec["failed"]) is never touched by it
+    bulletin_hook("slate", rec["slate_file"]["file"], fam, rec, f"SLATE {fam} {day.isoformat()}: LINKED",
+                  title=f"{fam} slate")
     rec["push"] = push_mirror("slate")
     print(f"· exports mirror ({mirror_role()}, slate): exit {rec['push']['exit']} {' | '.join(rec['push']['tail'])}")
     if rec["push"].get("exit") != 0:

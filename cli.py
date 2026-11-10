@@ -10506,7 +10506,8 @@ def bulletin_cmd(closing_file, slate_file, out_dir, db_path):
     nothing, receipts `bulletin_refused` with each pattern's name and intended path (never the line) and exits 2.
     Prints each written file's mirror URL (owner/repo parsed from SP_EXPORTS_MIRROR_REMOTE, never its value).
     Read-only: the DB only for PL's matchday, mode=ro; no row written; only .md and .png ever written; never under
-    data/. Exit 0 written, 2 refused, 1 failed. No hook calls it yet (addendum 289: no timer).
+    data/. Exit 0 written, 2 refused, 1 failed. Called unattended by the closing run and the slate stage (addendum 321
+    item 2: closing.bulletin_hook, before the mirror push; no timer of its own).
     (= python deploy/hosting/bulletin.py)"""
     import sys as _sys
     from pathlib import Path as _P

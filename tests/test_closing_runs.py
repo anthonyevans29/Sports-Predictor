@@ -303,6 +303,13 @@ def box(tmp_path, monkeypatch):
     b.unit_reads = []
     monkeypatch.setattr(mc, "read_day_unit", lambda run_id: b.unit_reads.append(run_id) or {
         "state": "read", "et_date": None, "new": True, "exit": 0})
+    # THE BULLETIN HOOKS (addendum 321 item 2): the render's subprocess is faked as written (no subprocess, nothing under
+    # exports/bulletins/); tests/test_bulletin_hooks.py turns the real one on (b.bulletin_on()) and pins the hooks
+    b.bulletins = []
+    real_bulletin = mc.run_bulletin
+    monkeypatch.setattr(mc, "run_bulletin", lambda argv: b.bulletins.append(list(argv)) or (
+        0, "BULLETIN faked: 0 file(s) written"))
+    b.bulletin_on = lambda: monkeypatch.setattr(mc, "run_bulletin", real_bulletin)
     real_append = c.append_receipt
 
     def watched_append(rec):

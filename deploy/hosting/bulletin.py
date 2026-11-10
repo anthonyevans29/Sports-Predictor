@@ -284,8 +284,8 @@ def _entry_certification(eid: str) -> str | None:
 
 def certification_line(fam: str, row: dict) -> str:
     """Item 1(a): the family's certification as the code reads it now, never a hand-written state. NFL:
-    closing.nfl_certification() on nfl_predict.MODEL_VERSION. SOCCER and MLB: registry.certification_of on the row's
-    own prediction.model_version. An uncertified model prints the withholding entry's own certification text verbatim
+    closing.nfl_certification() on nfl_predict.MODEL_VERSION. SOCCER and MLB: registry.certification_of on the family
+    and the row's own prediction.model_version (addendum 299 item 3(a): keyed by family AND version). An uncertified model prints the withholding entry's own certification text verbatim
     and its id; the would-be clause only for a family closing writes a would-be line for (closing.WOULD_BE_FAMILIES).
     A model the registry holds no entry for is "certification not read" with certification_of's reason (law 4: "a
     missing entry is not a certification", registry.certification_of), never an inferred "live"."""
@@ -300,7 +300,7 @@ def certification_line(fam: str, row: dict) -> str:
     elif mv:
         try:
             from src.walters import registry
-            state, why = registry.certification_of(mv)
+            state, why = registry.certification_of(fam, mv)   # addendum 299 item 3(a): family AND version
         except Exception as e:                          # noqa: BLE001
             state, why = "unread", type(e).__name__
     else:

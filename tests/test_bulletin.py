@@ -904,7 +904,7 @@ def test_the_certification_line_never_infers_a_state(repo):
     reason), never "live". NFL: the withholding entry's own certification text, verbatim."""
     assert b.run(closing_file=str(closing_file(repo, soccer_doc(), "SOCCER"))) == 0
     md = md_of(repo, "SOCCER", 9401)
-    assert ("- certification: test-model-v0 — certification not read (no registry entry for test-model-v0)" in md)
+    assert ("- certification: test-model-v0 — certification not read (no registry entry for SOCCER test-model-v0)" in md)
     assert "would-be" not in md.split("## THE CALL")[0]
     assert b.run(closing_file=str(closing_file(repo, nfl_doc(), "NFL"))) == 0
     from src.walters import registry

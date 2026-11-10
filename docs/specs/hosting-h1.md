@@ -1105,8 +1105,9 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
 ## O. Operations after cutover
 
 - **Host packages (ARCHITECT 2026-11-09 19:00 ET, addendum 316 item 3, the standing policy, verbatim):** "host
-  packages — security updates automatic via unattended-upgrades (installed, enabled, release + -security origins, no
-  automatic reboot — as read 11-09 22:07Z); the full `apt-get upgrade --with-new-pkgs` monthly on a compare-pass
+  packages — security updates automatic via unattended-upgrades (installed, enabled, release + -security origins, ~~no
+  automatic reboot — as read 11-09 22:07Z~~ [corrected in place by addendum 322 item 1: an automatic reboot at 04:30
+  UTC when a security upgrade asks, H0-3 as shipped]); the full `apt-get upgrade --with-new-pkgs` monthly on a compare-pass
   morning, or sooner when a kernel, libsqlite3, python3 or tailscale update is listed, ALWAYS by the architect's block:
   a .backup first; no chain or backup timer due within 45 minutes; the upgrade detached under systemd-run (tailscaled's
   restart can drop the session) with confold and NEEDRESTART_MODE=a, logged to /var/log/sp-apt-upgrade.log; a reboot
@@ -1127,9 +1128,20 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
     detached under systemd-run: 28 upgraded, 6 newly installed, rc 0; the session dropped at tailscaled's restart as
     the block anticipated and the job finished on its own; reboot for 6.8.0-149 at 17:05:47Z with no chain due; the
     post-check's final read follows."
-  - **Open, for the architect:** this policy's "no automatic reboot — as read 11-09 22:07Z" and H0-3 above
-    ("Unattended-upgrades reboots at 04:30") differ. The shipped `deploy/hosting/etc/52sp-unattended-upgrades` sets
-    `Automatic-Reboot "true"` at 04:30. Neither text is changed here until that is ruled.
+  - **The automatic reboot (ARCHITECT 2026-11-10 13:20 ET, addendum 322 item 1, verbatim):** "The 11-09 read grepped
+    `Automatic-Reboot` in /etc/apt/apt.conf.d/50unattended-upgrades ONLY — the shipped file is 52sp-…, which that grep
+    never opened — so the read did not contradict H0-3; it did not look. RULED: H0-3 STANDS as shipped:
+    unattended-upgrades installs the security pocket daily and reboots at 04:30 UTC when a security upgrade asks
+    (04:30Z is the quiet hour: the per-minute closing-watch only; no closing is ever due then; the first chain is prune
+    at 05:30Z); the manual monthly upgrade of 316 item 3 covers the -updates pocket, which never auto-installs, and its
+    reboot is the block's, in a window." 316 item 3's "no automatic reboot — as read 11-09 22:07Z" is WITHDRAWN.
+    - **Two reboots, two owners:** the security pocket installs itself daily and reboots itself at 04:30 UTC when an
+      upgrade asks (`deploy/hosting/etc/52sp-unattended-upgrades`, which `install.sh` installs into
+      `/etc/apt/apt.conf.d/`). The -updates pocket never auto-installs: it is the monthly upgrade above, and its reboot is
+      the block's, in a window.
+    - **The effective config is read, not assumed.** TERMINAL (host), in the architect's next host block:
+      `apt-config dump | grep -i -E "Automatic-Reboot|Unattended-Upgrade::Allowed|Origins-Pattern"` and
+      `ls /etc/apt/apt.conf.d/ | grep -E "^5[0-9]"`. Effective config confirmed: ____ (blank until that read).
 - **The laptop's morning code update (ARCHITECT 2026-11-10 13:05 ET, addendum 321 item 3, verbatim):** "the
   fast-forward pulls the code and nothing installed new requirements — the first hand-render stopped on `No module
   named 'matplotlib'`. Closed: the morning block carries `pip install -q -r requirements.txt` after the fast-forward

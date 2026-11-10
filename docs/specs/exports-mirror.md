@@ -63,7 +63,10 @@ planned copy), so it never jams a later push, and the top-level files and the ot
 nothing happens. The compare is untouched: the Action picks the newest
 `YYYY-MM-DD` folder both writers hold (`bulletins/` never matches), and the `*.json` glob finds nothing under
 `<role>/bulletins/`. The renderer's own writer refusing a `.json` under the subtree comes with the renderer (step 1's
-second PR).
+second PR). What fills the subtree (ARCHITECT 2026-11-10, addendum 321 item 2, step 1c): the closing run and the slate
+stage render their kept file's pairs into `exports/bulletins/` just before their own push (`closing.bulletin_hook`), so
+that push carries them to `<role>/bulletins/` (the laptop's MLB closing: `laptop/bulletins/`); a render that fails or is
+refused is receipted and notified, and the push proceeds without the pair.
 
 What a push publishes (ARCHITECT 2026-11-06, addendum 277 item 1, R2-1 on #847, verbatim): "the mirror publishes ONLY
 the paths its plan copied. The whole-tree `add -A` is main's mechanism, and it means any stray file in the clone — a

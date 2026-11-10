@@ -55,9 +55,11 @@ why; a match id that is not an integer is skipped and never a path segment), and
 or bulletin_failed (the redacted error; withheld to its type and the pattern's name where the guard matches it). Exit 0 written (or nothing to
 render), 2 refused (an argument, a file that is not the stage's kind, or the guard), 1 failed.
 
-NOT HERE (addendum 289 item 4 "no timer yet"): the two closing.py hooks of item 3 (the closing run and the slate stage
-calling this command before the mirror push) are not built; nothing calls this command unattended. Step 2 (the weekly
-digest, item 5) is its own PR.
+THE HOOKS (ARCHITECT 2026-11-10, addendum 321 item 2, step 1c): the two closing.py hooks of item 3 call this command
+unattended, each a subprocess under a try (closing.bulletin_hook): the closing run between write_closing_file's
+success and push_mirror(), the slate stage between link_slate_file's success and push_mirror("slate"), with
+`--out-dir exports/bulletins` (closing.BULLETIN_OUT_DIR, this module's OUT_DIR: a test pins the two). No timer and no
+chain step of its own. Step 2 (the weekly digest, item 5) is its own PR.
 """
 from __future__ import annotations
 

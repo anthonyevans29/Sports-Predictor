@@ -198,7 +198,9 @@ def test_the_v1_verdict_stays_void_and_the_certification_withdrawn():
     assert e["verdict"]["verdict"] == "VOID"
     assert e["certification"] == "UNCERTIFIED — shadow, confirmation window (addendum 214 item 3)"
     assert reg.uncertified(e) and reg.production_allowed(V1)[0] is False
-    rest = {k: v for k, v in e.items() if k != "recorded_fail_corrected_stream"}
+    # addendum 299 item 3(a): the one key `family` (the closing family the lookup is keyed by) joined after 488b4aa6
+    assert e["family"] == "NFL"
+    rest = {k: v for k, v in e.items() if k not in ("recorded_fail_corrected_stream", "family")}
     assert _dg(rest) == V1_MAIN                                          # every other key is main's, unchanged
     assert {k: _dg(e[k]) for k in V1_MAIN_KEYS} == V1_MAIN_KEYS
     keys = list(e)

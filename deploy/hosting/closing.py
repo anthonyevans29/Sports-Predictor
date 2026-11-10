@@ -159,7 +159,7 @@ CLOSING_HOLDS = (
 # with the same QB-flag / unread-list classification, never pooled with PLAY, never a position." As built: an NFL row
 # the Desk called PASS market-only (desk_policy.NFL_MARKET_ONLY_KIND) whose desk.market_only_hold.would_call is PLAY
 # carries `would_be` (would_be_for) while the registry does not read the NFL model certified (registry.certification_of
-# on nfl_predict.MODEL_VERSION, read once per run; an unread registry, a missing entry or a failed read is never judged
+# on family "NFL" and nfl_predict.MODEL_VERSION, addendum 299 item 3(a), read once per run; an unread registry, a missing entry or a failed read is never judged
 # certified, law 4, and never blocks the page). The summary block and the run receipt carry it
 # (the label, the would-be pick and units, the exec edge, the QB classification of the QB hold of 2026-10-11, its
 # tags_any, and "record only, not placed"); the phone page's text does NOT (ARCHITECT 2026-11-02 18:05 ET, addendum 223
@@ -742,15 +742,15 @@ def hold_for(d: dict, fam: str) -> str | None:
 
 
 def nfl_certification() -> tuple[str, str]:
-    """The NFL model's certification as the registry reads it now (registry.certification_of on
-    nfl_predict.MODEL_VERSION, the id predict-nfl writes): "uncertified", "certified" or "unread". The page is a
-    money-path surface and this line is the record only: any failure to import or read degrades to ("unread", the
+    """The NFL model's certification as the registry reads it now (registry.certification_of on family "NFL" and
+    nfl_predict.MODEL_VERSION, the id predict-nfl writes; addendum 299 item 3(a)): "uncertified", "certified" or
+    "unread". The page is a money-path surface and this line is the record only: any failure to import or read degrades to ("unread", the
     exception's name), so the line prints labelled "certification not read" and can never block the page (law 4)."""
     try:
         _close_contract()                              # puts the repo root on sys.path
         from src.walters import registry
         from src.walters.nfl_predict import MODEL_VERSION
-        return registry.certification_of(MODEL_VERSION)
+        return registry.certification_of("NFL", MODEL_VERSION)      # addendum 299 item 3(a): family AND version
     except Exception as e:                             # noqa: BLE001  (never the page's failure)
         return "unread", type(e).__name__
 

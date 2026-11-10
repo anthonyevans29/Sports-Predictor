@@ -61,6 +61,28 @@ shadow, confirmation window (addendum 214 item 3)", with the window's definition
   Addendum 217 item 5: "the tile reads the registry". The Desk's own market-only rule is
   `desk_policy.NFL_MARKET_ONLY_RULE` (#778); the registry entry changes no Desk call.
 
+## The live models' records (addenda 298 and 299)
+
+**ARCHITECT 2026-11-08 16:25 ET, addendum 299 item 3** (verbatim in part): "(a) the registry lookup is keyed by FAMILY
+and version, never by the bare version string [...] `certification_of(family, model_version)` resolves them; a lookup
+without the family stays "unread". (b) The certification TEXT is never written by hand: each entry quotes, verbatim and
+dated, the promotion record that put the model live [...] If no such record exists for a model, the entry is NOT
+created".
+
+- **The key:** an entry that names a model carries `family`, the closing family string (`SOCCER`, `MLB`, `NFL`, as
+  `deploy/hosting/closing.py` FAMILIES spells it), beside `model_version`, the bare id the rows carry (`v22`).
+  `registry.certification_of(family, model_version, *, path=None)` matches both. No family reads "unread"
+  (`NO_FAMILY_WHY`). `uncertified_live(model_version, entries, family=None)` keeps its bare match when no family is
+  given (the coverage tile's read): that can only find more withholding entries, never fewer.
+- **soccer-elo-poisson-v22:** the live soccer model. Its `certification` is the BACKLOG entry of its 2026-09-21
+  re-promotion, quoted (line wraps folded, nothing else changed), with the commit that wrote it (`record_commit`).
+  It was never declared, run or ruled in the registry, which postdates it: those fields are null (law 4), its status is
+  `production`, and `production_allowed()` reads it as no PASS verdict. It sits first in the file, before every
+  declaration, because its date precedes them all.
+- **No MLB entry.** No promotion record for MLB v2 exists in BACKLOG.md or in git history (v2 was live before either
+  begins), so the MLB line keeps reading "certification not read".
+- **nfl-elo-v1** gained `family: "NFL"` and nothing else; its line reads as before.
+
 ## Run records are never rewritten
 
 **ARCHITECT 2026-10-02:** "never rewrite a run record". A run record's stored

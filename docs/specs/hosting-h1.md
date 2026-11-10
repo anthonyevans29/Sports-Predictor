@@ -1131,25 +1131,31 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
     list-units --type=timer --state=active` filtered to sp-; the check prints `missing: <names>` and `stray: <names>`
     and passes only when both are empty, with the counts beside them as information. The held list is also what the
     deploy's receipt reads when it reports timers not in timers.enabled. 316 item 3's "19 sp timers active" is
-    corrected in place to this". Why: T11 names 21 timers, and a fixed count also passes a host that is missing one
+    corrected in place to this, with this addendum quoted". Why: T11 names 21 timers, and a fixed count also passes a host that is missing one
     expected timer and running one stray one (Codex on #914, confirmed).
     TERMINAL (host), in bash, as any user (it reads, it changes nothing). `HELD` copies THE HELD LIST below, by name:
     ```
     f=/etc/sports-predictor/timers.enabled
     HELD="sp-ncaa-market.timer sp-tennis-daily.timer"   # THE HELD LIST below, by name
-    expected=$(tr -s ' \t' '\n' < "$f" | sed '/^$/d' | grep -vxF -f <(printf '%s\n' $HELD) | sort -u)
+    expected=$(tr -s ' \t\r' '\n' < "$f" | sed '/^$/d' | grep -vxF -f <(printf '%s\n' $HELD) | sort -u)
     observed=$(systemctl list-units --type=timer --state=active --no-legend --plain 'sp-*.timer' | awk '{print $1}' | sort -u)
     missing=$(comm -23 <(printf '%s\n' "$expected") <(printf '%s\n' "$observed") | sed '/^$/d')
     stray=$(comm -13 <(printf '%s\n' "$expected") <(printf '%s\n' "$observed") | sed '/^$/d')
     echo "missing:" $missing; echo "stray:" $stray
     echo "expected $(printf '%s\n' "$expected" | sed '/^$/d' | wc -l), observed $(printf '%s\n' "$observed" | sed '/^$/d' | wc -l) (information)"
-    for t in $HELD; do echo "held $t: $(systemctl is-enabled "$t" 2>&1) / $(systemctl is-active "$t" 2>&1)"; done
     if [ ! -s "$f" ] || [ -z "$expected" ]; then echo "TIMERS: FAIL (timers.enabled unreadable, empty, or every name held)"
     elif [ -z "$missing" ] && [ -z "$stray" ]; then echo "TIMERS: PASS"; else echo "TIMERS: FAIL"; fi
+    heldon=""; for t in $HELD; do st=$(systemctl show -p UnitFileState --value "$t" 2>&1) || st=unreadable
+      echo "held $t: ${st:-no unit file} / $(systemctl is-active "$t" 2>&1)"
+      case "$st" in disabled|masked|masked-runtime|"") ;; *) heldon="$heldon $t";; esac; done
+    [ -z "$heldon" ] && echo "HELD: PASS (every held timer disabled)" || echo "HELD: FAIL (not disabled:$heldon)"
     ```
-    - `timers.enabled` is read by name, never by line (T11, "The file's form"). A held timer that is active shows
-      under `stray:`, so "held timers still disabled" is part of the same check; the `held` lines print each one's
-      enabled and active state as the receipt.
+    - `timers.enabled` is read by name, never by line (T11, "The file's form").
+    - `TIMERS:` is 323 item 1's verdict: the sets only. A held timer that is running shows under `stray:`.
+    - `HELD:` is the post-check's separate "held timers still disabled" item: a held timer whose unit file is
+      enabled fails it even while it is not running (it would start at the next boot). Disabled, masked, or no unit
+      file (a held timer never installed) passes; a state systemctl cannot read fails. The `held` lines print each
+      held timer's unit-file state and active state as the receipt.
     - An unreadable or empty `timers.enabled` fails, never passes on two empty sets (law 4).
   - **THE HELD LIST (addendum 323 item 1).** Each hold enters and leaves this list with its addendum. The recipe's
     `HELD` line copies it, by name:

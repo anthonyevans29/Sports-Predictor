@@ -56,8 +56,9 @@ def check_base(base_ref: str, root: Path | None = None, pr: int | None = None, e
         echo(f"✓ COCKPIT BUILD: {COCKPIT_REL} is unchanged against {at}")
         return 0
     if head is None:
-        echo(f"✓ COCKPIT BUILD: {COCKPIT_REL} is removed on the head: no stamp to read")
-        return 0
+        echo(f"✗ COCKPIT BUILD: {COCKPIT_REL} is removed on the head: a PR that changes the page "
+             f"carries its stamp, and a removed page cannot")
+        return 1
     h = stamp(head.decode("utf-8", "replace"))
     if h is None:
         echo(f'✗ COCKPIT BUILD: {COCKPIT_REL} changed and carries no single line '

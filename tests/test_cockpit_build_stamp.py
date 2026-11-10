@@ -130,6 +130,15 @@ def test_the_first_stamp_on_a_base_without_one_passes(tmp_path):
     assert _check(root, pr=950)[0] == 0
 
 
+def test_a_removed_page_fails(tmp_path):
+    root = _repo(tmp_path, PAGE.format(n=911, d="2026-11-10", x=1))
+    subprocess.run(_g(root) + ["rm", "-q", "tools/cockpit.html"], check=True)
+    subprocess.run(_g(root) + ["commit", "-q", "-m", "head"], check=True)
+    rc, out = _check(root, pr=950)
+    assert rc == 1 and out == ["✗ COCKPIT BUILD: tools/cockpit.html is removed on the head: a PR that changes "
+                               "the page carries its stamp, and a removed page cannot"]
+
+
 def test_a_base_that_is_not_a_commit_is_exit_2(tmp_path):
     root = _repo(tmp_path, PAGE.format(n=911, d="2026-11-10", x=1))
     out = []

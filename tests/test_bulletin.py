@@ -15,6 +15,7 @@ Synthetic only (item 6: "The fixtures carry invented teams and invented tickers;
 tests/fixtures/"): every row is built here, annotated by the Desk itself (desk_policy.annotate) and wrapped by
 closing.closing_doc, in a throwaway repo under tmp_path. No DB but a scratch copy, no network, no mirror push."""
 import json
+import re
 import sqlite3
 import struct
 import sys
@@ -157,13 +158,10 @@ def png_size(p: Path) -> tuple[int, int]:
     return struct.unpack(">II", data[16:24])
 
 
-_MD_ESCAPED = __import__("re").compile(r"\\([\\*_~\[\]()#>!|`$])")
-
-
 def displayed(md: str) -> str:
-    """The Markdown as GitHub displays its text (addendum 319 item 2(a): "Displayed text == written text"): every
-    backslash escape of the escaped set (and the line's \\$) read as its character, then &lt; and &amp;."""
-    return _MD_ESCAPED.sub(r"\1", md).replace("&lt;", "<").replace("&amp;", "&")
+    """The Markdown as GitHub displays its text (addendum 319 item 2(a): "Displayed text == written text"): the
+    renderer's own exact inverse of its escaping (bulletin.display_text)."""
+    return b.display_text(md)
 
 
 def md_of(repo, fam, mid, stage="closing") -> str:
@@ -186,7 +184,7 @@ def test_a_clean_closing_file_writes_md_and_png_at_the_ruled_paths(repo, capsys)
     rec = receipts()[-1]
     assert rec["kind"] == "bulletin" and rec["exit"] == 0 and rec["stage"] == "closing" and rec["family"] == "SOCCER"
     assert rec["written"] == got and "bulletin_refused" not in rec
-    md = md_of(repo, "SOCCER", 9401)
+    md = displayed(md_of(repo, "SOCCER", 9401))
     heads = [ln for ln in md.splitlines() if ln.startswith("## ")]
     assert heads == ["## THE CALL", "## THE PREDICTION", "## THE TEAMS", "## THE MARKET", "## THE MATHS",
                      "## WHAT CHANGED SINCE THE SLATE"]                       # item 1's order, every one present
@@ -272,7 +270,7 @@ def test_a_quarantine_shadow_row_prints_summary_blocks_line(repo, nfl_market_onl
     assert b.run(closing_file=str(closing_file(repo, doc, "NFL"))) == 0
     x = cl.desk_rows({"predictions": [r]}, {r["match_id"]}, b.EPOCH, fam="NFL")[0]
     want = next(ln.strip() for ln in cl.summary_block(x).split("\n") if ln.strip().startswith("quarantine shadow"))
-    md = md_of(repo, "NFL", 9302)
+    md = displayed(md_of(repo, "NFL", 9302))
     assert f"- {want}" in md and want.endswith("shadow, not staked")
 
 
@@ -280,7 +278,7 @@ def test_an_mlb_row_carries_the_books_why_line(repo):
     doc = mlb_doc()
     src = closing_file(repo, doc, "MLB", books_why={9101: "provider listed the game, no odds"})
     assert b.run(closing_file=str(src)) == 0
-    md = md_of(repo, "MLB", 9101)
+    md = displayed(md_of(repo, "MLB", 9101))
     assert "- books: provider listed the game, no odds" in md
     assert "- starter: H. Arm (confirmed, ERA 3.1)" in md
     assert "- matchweek: not stored" in md
@@ -938,14 +936,14 @@ def test_mlb_and_nfl_print_the_injury_names_line_not_stored(repo):
     doc = mlb_doc()
     doc["predictions"][0].pop("injuries")                       # an MLB row carries no injuries block (export.py)
     assert b.run(closing_file=str(closing_file(repo, doc, "MLB"))) == 0
-    assert md_of(repo, "MLB", 9101).count("- injuries: not stored") == 2           # one per side
+    assert displayed(md_of(repo, "MLB", 9101)).count("- injuries: not stored") == 2           # one per side
     doc = nfl_doc()
     doc["predictions"][0]["market"]["consensus_home_spread"] = -3.5
     assert b.run(closing_file=str(closing_file(repo, doc, "NFL"))) == 0
-    md = md_of(repo, "NFL", 9301)
+    md = displayed(md_of(repo, "NFL", 9301))
     assert "- injured by name: not stored" in md
     assert "- margin line (consensus home spread): -3.5 · total line: not stored" in md
-    assert "- margin line (consensus home spread): not stored · total line: not stored" in md_of(repo, "NFL", 9302)
+    assert "- margin line (consensus home spread): not stored · total line: not stored" in displayed(md_of(repo, "NFL", 9302))
 
 
 def test_a_slate_with_no_exported_at_says_not_stored_on_the_card_too(repo):
@@ -1266,7 +1264,7 @@ def _sentinels(node, path, out, keep=_KEEP):
 
 
 @pytest.mark.parametrize("fam,doc_fn", [("SOCCER", soccer_doc), ("NFL", nfl_doc), ("MLB", mlb_doc)])
-def test_every_string_field_the_row_carries_is_escaped_or_never_printed(repo, fam, doc_fn):
+def test_every_string_field_the_row_carries_is_escaped_or_never_printed(repo, fam, doc_fn, monkeypatch):
     """Addendum 319 item 2(c): "a test walks the renderer's output for every string field and asserts it is either in
     that set (escaped) or from a vocabulary/number formatter (unescaped by construction); a new string field fails the
     test until it is classified". Every string the closing document's rows carry becomes a token with `<`, `_` and `*`
@@ -1275,7 +1273,18 @@ def test_every_string_field_the_row_carries_is_escaped_or_never_printed(repo, fa
     closing = cl.closing_doc(doc, fam, NOW + timedelta(minutes=35), RUN_ID, [r["match_id"] for r in doc["predictions"]],
                              [], {r["match_id"]: "books note" for r in doc["predictions"]} if fam == "MLB" else None)
     toks: dict = {}
-    closing["predictions"] = _sentinels(closing["predictions"], ("predictions",), toks)
+    # the pre-push review of a495cc5a: the walk covers the WHOLE document (rows, desk_meta, the closing block, the
+    # top level), the day's slate row (section_change) and the certification text, not the rows alone
+    slate = _sentinels(json.loads(json.dumps(doc)), ("slate",), toks)
+    slate["exported_at"] = (NOW - timedelta(hours=3)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    name_tok = f"q{len(toks)}<_*"
+    toks[name_tok] = ("slate_file",)
+    (repo / "exports" / cl.FAMILIES[fam]["export_glob"].replace("*", name_tok)).write_text(json.dumps(slate))
+    closing["desk_meta"] = {**(closing.get("desk_meta") or {}), **{k: "rule text" for k in b.META_RULES}}
+    closing = _sentinels(closing, (), toks)
+    cert_tok = f"q{len(toks)}<_*"
+    toks[cert_tok] = ("certification",)
+    monkeypatch.setattr(b, "certification_line", lambda fam_, row_: cert_tok)
     files, _ = b.plan(closing, fam, "closing", repo / "exports" / "closing_x.json", repo / "exports" / "bulletins", None)
     mds = [t for rel, _, t, _ in files if rel.endswith(".md")]
     assert mds and toks
@@ -1284,6 +1293,11 @@ def test_every_string_field_the_row_carries_is_escaped_or_never_printed(repo, fa
     assert all("<" not in md for md in mds)
     escaped = {tok for tok in toks for md in mds if b.md_escape(tok) in md}
     assert len(escaped) >= 10                                          # the walk reaches the printed fields
+    printed = {".".join(toks[t][:2]) for t in escaped}
+    assert "certification" in printed and all("- the slate row: exports/" in displayed(md) for md in mds)
+    if fam != "NFL":                                   # NFL's slate row prints the call and numbers only (no names)
+        assert any(p.startswith("slate.") for p in printed)
+    assert any(p.startswith("desk_meta") for p in printed) and any(p.startswith("closing") for p in printed)
 
 
 def test_an_unclassified_free_text_field_is_refused():
@@ -1341,3 +1355,66 @@ def test_a_golden_render_reads_back_as_its_field_values(repo):
     assert fields and all(raw in shown_md for _, raw in fields)
     assert "# Beta > Hawks | !x ~y~ `z` & \\w at Alpha_Owls *FC* [1](x) #2 <b>" in shown_md
     assert "<b>" not in md and "&lt;b\\>" in md
+
+
+# The pre-push review of a495cc5a (cmark-gfm, GitHub's renderer): block markup where a value opens a list item, GFM's
+# extended autolinks, a key wrapped so the rendered readings drop it, a credential shown across two fields.
+@pytest.mark.parametrize("value", ["1. FC Köln", "- Owls", "+ Owls", "---", "- - -", "=== x", "    code_x *y* & <z>",
+                                   "see https://x.test/a_b(c)", "www.x.test/odds_feed", "a  ", "12) list"])
+def test_a_value_that_would_open_block_markup_or_an_autolink_is_written_as_text(repo, value):
+    e = b.md_escape(value)
+    assert b.display_text(e) == value
+    assert not re.match(r"[-+=]|\\d+[.)]| ", e)                       # no list marker, rule or indent at the start
+    assert ":" not in e.replace("\\:", "") and "www." not in e     # no autolink trigger left unescaped
+    doc = soccer_doc()
+    doc["predictions"][0]["home_team"] = value
+    doc["predictions"][0]["desk"]["reasons"] = [value]
+    assert b.run(closing_file=str(closing_file(repo, doc, "SOCCER"))) == 0, receipts()[-1]
+    shown_md = displayed(md_of(repo, "SOCCER", 9401))
+    assert f"  - {value}\n" in shown_md + "\n" or f"  - {value}" in shown_md
+
+
+@pytest.mark.parametrize("wrapped", ["<{k}>", "[x]({k})", "<!--{k}-->", "a {k} b"])
+def test_a_host_env_key_in_a_field_refuses_however_it_is_wrapped(repo, monkeypatch, wrapped):
+    """Addendum 298 B item 5 ("A secret in the source: REFUSE, do not redact"): a value sp_common.redact would change
+    refuses the run as `secret` at the field, whatever the rendered readings drop."""
+    key = "0123456789abcdef"
+    monkeypatch.setenv("ODDS_API_KEY", key)
+    doc = soccer_doc()
+    doc["predictions"][0]["prediction"]["factor_breakdown"]["factor_notes"] = [wrapped.format(k=key)]
+    assert b.run(closing_file=str(closing_file(repo, doc, "SOCCER"))) == 2
+    assert {r["pattern"] for r in receipts()[-1]["bulletin_refused"]} == {b.SECRET_PATTERN}
+    assert files_under(repo / "exports" / "bulletins") == []
+
+
+@pytest.mark.parametrize("team", ["Club*api_key", "Club~api_key", "Club`api_key"])
+def test_a_credential_shown_across_two_fields_refuses(repo, team):
+    """A team name ending in a label beside a token-shaped ticker displays "…api_key: <token>"; neither field holds
+    it alone, the displayed document does (display_text)."""
+    doc = soccer_doc()
+    r = doc["predictions"][0]
+    r["home_team"] = team
+    r["kalshi_legs"]["HOME"]["ticker"] = "abcdef1234567890"
+    assert b.run(closing_file=str(closing_file(repo, doc, "SOCCER"))) == 2
+    assert {x["pattern"] for x in receipts()[-1]["bulletin_refused"]} == {b.SECRET_PATTERN}
+
+
+def test_an_emphasis_run_after_a_label_is_linear():
+    import time
+    for t in ("api key" + "_" * 50000, "bearer" + "_" * 50000):
+        t0 = time.perf_counter()
+        b.CREDENTIAL.search(t)
+        assert time.perf_counter() - t0 < 1.0
+
+
+def test_github_displays_each_escaped_value_as_written():
+    """Where cmark-gfm (GitHub's renderer) is installed: each value, written by md_escape after a list marker,
+    renders to exactly its own text (no link, no list, no rule, no code block, no backslash)."""
+    cmarkgfm = pytest.importorskip("cmarkgfm")
+    import html as _html
+    for value in [f[2] for f in _FINDINGS] + ["1. FC Köln", "---", "+ Owls", "    code_x", "see https://x.test/a_b(c)",
+                                             "www.x.test/a_b", "a | b", "~~~ x", "x <!-- y --> z", "a\\b"]:
+        out = cmarkgfm.github_flavored_markdown_to_html("- " + b.md_escape(value)).strip()
+        m = re.fullmatch(r"<ul>\n<li>(.*)</li>\n</ul>", out, re.S)
+        assert m, (value, out)
+        assert _html.unescape(m.group(1)).strip() == value.strip(), (value, out)

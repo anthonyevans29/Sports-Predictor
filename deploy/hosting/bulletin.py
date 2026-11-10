@@ -181,7 +181,13 @@ FREE_TEXT_FIELDS = frozenset({
     "row.elo", "row.elo_gap", "row.fee_m_taker", "row.fee_series", "row.home_adv_applied",
     "row.market.consensus_home_spread", "row.venue_flag",
 })
-_MD_SPECIAL = re.compile(r"([\\*_~\[\]()#>!|`])")
+_MD_SPECIAL = re.compile(r"([\\*_~\[\]()#>!|`\-+=.:])")
+_EDGE_SPACES = re.compile(r"^ +| +$")
+# Beyond the ruled list (the pre-push review of a495cc5a, rendered by cmark-gfm, GitHub's renderer): "-", "+", "=" and
+# "." open a nested list, an ordered list ("1. FC Köln"), a thematic break ("---") or a setext line where a value
+# starts a list item's content, and ":" / "." let GFM's extended autolinks take "https://…" and "www.…" as links
+# (the escapes inside them then show as backslashes); leading and trailing spaces are written as &#32; (four or more
+# open an indented code block). Each is escaped the CommonMark way, so it still displays as itself.
 _FIELDS: contextvars.ContextVar = contextvars.ContextVar("bulletin_fields", default=None)
 
 
@@ -189,7 +195,20 @@ def md_escape(text) -> str:
     """Addendum 319 item 2(a): a free-text value as literal Markdown text: on one line, `&` and `<` as entities first,
     then a backslash before each of \\ * _ ~ [ ] ( ) # > ! | and the backtick."""
     t = one_line(text).replace("&", "&amp;").replace("<", "&lt;")
-    return _MD_SPECIAL.sub(r"\\\1", t)
+    t = _MD_SPECIAL.sub(r"\\\1", t)
+    return _EDGE_SPACES.sub(lambda m: "&#32;" * len(m.group(0)), t)
+
+
+_MD_UNESCAPE = re.compile(r"\\([\\*_~\[\]()#>!|`\-+=.:$])")
+
+
+def display_text(md: str) -> str:
+    """The text GitHub displays for this renderer's Markdown: the exact inverse of md_escape and md_line's "\\$" (a
+    backslash before an escaped character read as the character; &lt;, &#32; and &amp; read as <, space and &). Read by
+    the guard as the whole document as displayed (the pre-push review of a495cc5a: two fields can show a credential
+    side by side that neither field holds alone, "Club*api_key: <token>")."""
+    t = _MD_UNESCAPE.sub(r"\1", md)
+    return t.replace("&lt;", "<").replace("&#32;", " ").replace("&amp;", "&")
 
 
 def fv(field: str, x) -> str:
@@ -210,6 +229,8 @@ def field_offence(fields) -> str | None:
     escaping (the real text, one reading)" -- the privacy patterns and the secret check on each value, the first match
     naming the refusal."""
     for _, raw in fields:
+        if c.redact(raw) != raw:                  # a host.env key or a key=value in the value, however it is wrapped
+            return SECRET_PATTERN
         hit = bulletin_offence(raw) or secret_offence(raw)
         if hit:
             return hit
@@ -1012,7 +1033,7 @@ _DASHES = "\\-\u2010-\u2015\u2212"
 _LABEL_WORD = r"[\s_*~" + _DASHES + r"]*"
 # addendum 319 item 2(d): a label in emphasis ("api _key_ = …", "*api key*: …") carries a credential shape as it displays
 # (the field is written escaped, so its _ and * show): the delimiters _ * ~ may join a label's words and close it
-_EMPH = r"[_*~]*"
+_EMPH = r"[_*~]{0,3}"                    # bounded: an unbounded run backtracks into _TOKEN's lookahead (O(n^2))
 _GAP = r"[\s" + _DASHES + "\u2192\u21d2>]*"
 _OPEN = "[\"'(\\[<{\u201c\u2018\u00ab]?"
 CREDENTIAL_LABELS = ("api key", "secret key", "access token", "private key", "client secret", "auth token")
@@ -1095,8 +1116,11 @@ def run(closing_file: str | None = None, slate_file: str | None = None, out_dir:
         rec["skipped"] = [{"match_id": m, "why": w} for m, w in skipped]
         # addendum 319 item 2(b): each free-text field value as it stands before escaping first (the real text), then
         # the whole document as rendered (defense in depth: the readings as they were, never added to)
+        # and the whole document as GitHub displays it (display_text: the exact inverse of the escaping)
         refused = [{"pattern": name, "path": refused_path(out, rel, name)} for rel, _, text, fields in files
-                   for name in [field_offence(fields) or bulletin_offence(text) or secret_offence(text)] if name]
+                   for shown_text in [display_text(text) if rel.endswith(".md") else text]
+                   for name in [field_offence(fields) or bulletin_offence(text) or secret_offence(text)
+                                or bulletin_offence(shown_text) or secret_offence(shown_text)] if name]
         if refused:                           # item 2: nothing written, the pattern's NAME and the path, never the line
             rec.update(exit=2, bulletin_refused=refused)
             c.append_receipt(rec)

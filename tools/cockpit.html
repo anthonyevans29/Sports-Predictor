@@ -125,7 +125,7 @@ details.sig pre{max-height:220px;margin:6px 0 0}
 </style>
 </head>
 <body>
-<h1>Cockpit <span class="chip">card + desk + ledger + next 24h + today · policy v1.2 · reads the mirror through your GitHub connector</span></h1>
+<h1>Cockpit <span class="chip">card + desk + ledger + next 24h + today · policy v1.2 · reads the mirror through your GitHub connector</span> <span class="chip" id="buildChip"></span></h1>
 <div class="row" style="margin-bottom:10px">
   <button id="tabCard" class="ghost">Card</button>
   <button id="tabDesk">Desk</button>
@@ -805,6 +805,11 @@ function renderVenue(){
 // #740 (ARCHITECT 2026-10-30 11:20 ET, addendum 182 item 6, as recorded on #734: "`POLICY_VERSION` v1.2;"; the
 // Issue's plan, item 1: "Set `POLICY_VERSION` to v1.2."). A v1.1 file shows the banner.
 const LEDGER_KEY="bd_ledger_v1", POLICY_VERSION="v1.2";
+// THE BUILD STAMP (ARCHITECT 2026-11-10 10:45 ET, addendum 319 item 3): "the page carries `COCKPIT_BUILD = "<PR number>
+// · <YYYY-MM-DD>"` and shows it in the header chip ("build #911 · 2026-11-10"); every Cockpit PR sets it to its own
+// number and date". `ledger.py check-cockpit-build` (CI) refuses a PR that changes this file and not this line.
+const COCKPIT_BUILD="913 · 2026-11-10";
+{ const el=document.getElementById("buildChip"); if(el) el.textContent="build #"+COCKPIT_BUILD; }
 let storageOK=true;
 // THE LEDGER CARD'S POLICY LINE (#ledgerExportsLine; ARCHITECT 2026-11-01 08:45 ET, addendum 197 item 2, verbatim):
 // "ITEM 3, the ledger card line "postseason rows are sized at half until v1.2" (addendum 125 item 4): for a loaded file

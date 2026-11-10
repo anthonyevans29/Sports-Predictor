@@ -36,8 +36,11 @@ own start (paper.window_projection), PD included (PD, SA, FL1 and ELC declared a
 item 4): a declared league from its registry entry's declared_at (R3: a kickoff strictly after the instant; the ids
 are window_ids() below, the cohort reader's DECLARATION_IDS, PD's leagues-pd-v1 among them by ARCHITECT 2026-11-02
 16:35 ET, addendum 222 item 4(b)), or every league from --from INSTANT
-when given (a UTC instant, "...Z"); a league with no entry (BL1 until its declaration, moved to 2026-11-09 by addendum
-220 item 4) from the date --declared (default 2026-11-09), its UTC day on, and labelled so. It reads the schedule only
+when given (a UTC instant, "...Z"). All five are declared: BL1 at 2026-11-09T14:45:00Z (leagues-bl1-v1; ARCHITECT
+2026-11-09 09:45 ET, addendum 303 items 1 and 3: the DECLARED default and its "BL1 until 11-09" wording retired in
+favour of the registry's declared_at), so every league reads its start from its entry. A league with no entry (a
+registry without it) prints NOT DECLARED and no projection, never a guessed start (law 4), unless --declared DATE is
+given: then it is projected from that date, its UTC day on, and labelled so. It reads the schedule only
 (a kickoff, a status, its raw code, the round label, an id; an AWD/WO row and a play-off-round row get no slot, as the
 cohort reader gives them none): no score, no capture, no price, so it reads no figure of either arm on any game. A
 projection: every other game is assumed to get a three-way close AND a stored prospective row; the window games the
@@ -90,7 +93,7 @@ ARCHITECT 2026-10-30 11:00 ET, addendum 181 item 1(b)). The cohort reader, scrip
 window's one reader.
 
 Run:  python3 scripts/leagues_close_receipt.py [--db COPY] [--from 2026-11-02T18:10:00Z] [--season 2026/27]
-                                              [--declared 2026-11-09] [--rows]
+                                              [--declared DATE] [--rows]
 Paste the whole output on #322.
 """
 from __future__ import annotations
@@ -106,9 +109,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 SEASON = "2026/27"
 # 155 item 4(b) and 156 item 1 dated it 2026-11-06; addendum 220 item 4 declared PD, SA, FL1 and ELC at
-# 2026-11-02T18:10:00Z (their entries' declared_at is their start) and moved BL1's declaration to 2026-11-09: the date
-# a league with no entry is projected from.
-DECLARED = date(2026, 11, 9)
+# 2026-11-02T18:10:00Z and addendum 303 declared BL1 at 2026-11-09T14:45:00Z: every league's start is its entry's
+# declared_at. The DECLARED default (2026-11-09, BL1's date while it had no entry) is retired (addendum 303 item 3); a
+# league with no entry is projected only from an explicit --declared DATE.
 SIDECARS = ("-wal", "-shm", "-journal")      # nfl_v2_gate.SIDECARS: a --db copy with one beside it is refused
 REFUSED = 2                                  # the exit status of a refusal, as cli.py's soccer-expansion commands
 DIVERGED = 1                                 # the exit status of a parity read that is not equal (a refusal outranks it)
@@ -122,10 +125,12 @@ def window_ids() -> dict:
     return dict(lw.DECLARATION_IDS)
 
 
-def starts(frm=None, declared: date = DECLARED) -> tuple[dict, dict, dict]:
+def starts(frm=None, declared: date | None = None) -> tuple[dict, dict, dict]:
     """(start, source, refused) per league of window_ids(): `frm` (a naive UTC instant) for every league when given;
-    else a declared league's entry declared_at (R3), a league with no entry `declared` (a date). An entry whose
-    competition is not its league, or whose declared_at is not a UTC instant, is refused for that league (law 4)."""
+    else a declared league's entry declared_at (R3); a league with no entry `declared` (a date) when given, else no
+    start: NOT DECLARED in its source and absent from the starts (no projection; law 4, never a guessed date). An
+    entry whose competition is not its league, or whose declared_at is not a UTC instant, is refused for that league
+    (law 4)."""
     from src.walters import leagues_window as lw
     st, src, bad = {}, {}, {}
     for code, eid in window_ids().items():
@@ -134,6 +139,10 @@ def starts(frm=None, declared: date = DECLARED) -> tuple[dict, dict, dict]:
             continue
         e = lw._registry_get(eid)
         if not isinstance(e, dict) or e.get("id") != eid:
+            if declared is None:
+                src[code] = (f"NOT DECLARED (no registry entry {eid}): no start, no projection (--declared DATE "
+                             "projects it from a date)")
+                continue
             st[code] = declared
             src[code] = f"not declared: no entry {eid}; the date {declared} (--declared), its UTC day on"
             continue
@@ -165,6 +174,9 @@ def projection_lines(proj: dict, src: dict, bad: dict, season: str) -> list[str]
         if code in bad:
             L.append(f"  - {code} · REFUSED: {bad[code]}")
             continue
+        if code not in proj:                 # no entry and no --declared: no start, so no projection (law 4)
+            L.append(f"  - {code} · {src[code]}")
+            continue
         p = proj[code]
         start = p["start"]
         frm = (f"kicking off strictly after {start:%Y-%m-%dT%H:%M:%SZ}" if isinstance(start, _dt)
@@ -190,8 +202,14 @@ def projection_lines(proj: dict, src: dict, bad: dict, season: str) -> list[str]
                  f"({first[1]}, the earliest)" + (f"; the others: {rest}" if rest else "")
                  + (f"; no date for {', '.join(missing)}" if missing else ""))
     else:
-        L.append(f"STEP (c) (156 item 1; recounted from each league's start, addendum 220 item 5): no date (no league "
-                 f"stores {WINDOW_GAMES} fixtures after its start)")
+        # a league with no start (NOT DECLARED with no --declared, or REFUSED) has no projection at all: named as
+        # such, never folded into "stores fewer than 60" (law 4)
+        nostart = [c for c in window_ids() if c not in proj]
+        why = (f"no league stores {WINDOW_GAMES} fixtures after its start" if not nostart
+               else f"no league with a start stores {WINDOW_GAMES} fixtures after it"
+               if len(nostart) < len(window_ids()) else "no league has a start")
+        L.append(f"STEP (c) (156 item 1; recounted from each league's start, addendum 220 item 5): no date ({why}"
+                 + (f"; no start: {', '.join(nostart)}" if nostart else "") + ")")
     return L
 
 
@@ -285,14 +303,17 @@ def come_line(code: str, c: dict) -> str:
             + (f" · not in the cohort: {apart}" if apart else ""))
 
 
-def lines(res: dict, season: str, declared: date, recount: list[str] | None = None) -> list[str]:
+def lines(res: dict, season: str, declared: date | None, recount: list[str] | None = None) -> list[str]:
     """The close part per league; then the projection: `recount` (projection_lines, addendum 220 item 5) in place of
     the date projection and its STEP (c) line when given, else the date projection from `declared` (156 item 1)."""
     from src.walters.paper import WINDOW_GAMES, close_record_line, quality_lines
-    # with the recount, `declared` is only the start of a league with no registry entry (BL1 until 11-09): the header
-    # names where each start comes from, never one declaration date for every league (addendum 220 item 4)
+    # with the recount, `declared` is only the start of a league with no registry entry when --declared is given (the
+    # DECLARED default retired, addendum 303 item 3): the header names where each start comes from, never one
+    # declaration date for every league (addendum 220 item 4)
+    no_entry = (f"a league with no entry from {declared}, --declared" if declared is not None
+                else "a league with no entry NOT DECLARED, no projection")
     starts_from = (f"each league's projection from its own start, named on its line (a declared league's registry "
-                   f"declared_at; every league --from when given; a league with no entry from {declared}, --declared)"
+                   f"declared_at; every league --from when given; {no_entry})"
                    if recount is not None else f"declaration {declared}")
     L = [f"LEAGUES CLOSE RECEIPT (ARCHITECT 2026-10-23, addendum 155 item 4(a); 156 item 1; #322) · read-only · "
          f"season {season} · {starts_from}"]
@@ -333,9 +354,9 @@ def lines(res: dict, season: str, declared: date, recount: list[str] | None = No
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--season", default=SEASON, help="the season as the DB stores it (default 2026/27)")
-    ap.add_argument("--declared", default=DECLARED.isoformat(),
-                    help="the date a league with no registry entry is projected from (default 2026-11-09, BL1's "
-                         "declaration by addendum 220 item 4's moved line)")
+    ap.add_argument("--declared", default=None,
+                    help="the date a league with no registry entry is projected from (no default: every league of "
+                         "the five holds its entry since addendum 303, and a league with none prints NOT DECLARED)")
     ap.add_argument("--from", dest="frm", default=None,
                     help="a UTC instant (YYYY-MM-DDTHH:MM:SSZ) every league's projection counts from, strictly after "
                          "it (default: each declared league's registry declared_at, addendum 220 item 5)")
@@ -344,7 +365,7 @@ def main(argv=None) -> int:
                          "default the DATABASE_URL file, mode=ro")
     ap.add_argument("--rows", action="store_true", help="print every parity row (default: the per-league lines only)")
     a = ap.parse_args(argv)
-    declared = date.fromisoformat(a.declared)
+    declared = date.fromisoformat(a.declared) if a.declared is not None else None
     frm = None
     if a.frm is not None:
         from src.walters.leagues_window import parse_instant
@@ -380,7 +401,10 @@ def _receipt(a, declared) -> int:
     from src.walters.paper import LEAGUES, leagues_season, window_projection
     st, src, bad = starts(getattr(a, "frm_instant", None), declared)
     recount = projection_lines(window_projection(st, a.season), src, bad, a.season)
-    for ln in lines(leagues_season(LEAGUES, a.season, declared), a.season, declared, recount):
+    # leagues_season's own date projection is replaced by the recount and never printed here; it takes a date, so with
+    # no --declared it is given date.max (no fixture counted from it)
+    for ln in lines(leagues_season(LEAGUES, a.season, declared if declared is not None else date.max), a.season,
+                    declared, recount):
         print(ln)
     rc0 = REFUSED if bad else 0
     from src.walters import leagues_candidate as lc

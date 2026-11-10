@@ -1556,9 +1556,357 @@
       "reference": "the D4 baseline on the same games minus 0.010"
     },
     "declared_at": "2026-10-16T13:00:17Z",
-    "status": "declared",
-    "run": null,
-    "verdict": null,
+    "status": "closed",
+    "run": {
+      "run_at": "2026-11-09T14:20:27Z",
+      "n_scored": 1096,
+      "ids_sha256": "3bed03e5e6be6ef0a90fd7780d3c3b4e3644891260db768c5f440aef1b7508f8",
+      "ids_file": "docs/registry/ids/ncaa-elo-v2.txt",
+      "result": {
+        "verdict": "FAIL \u2014 the gate: FAIL \u2014 (3) spread (D10: the lane goes live only if BOTH the gate and the second read pass; the second read: PASS)",
+        "n_scored": 562,
+        "baseline_home_rate": 0.5949105914718019,
+        "baseline_n": 1454,
+        "min_scored": 500,
+        "walked_by_season": {
+          "2024": 798,
+          "2025": 806,
+          "2026": 562
+        },
+        "not_walked_after_last_2026": 0,
+        "walked_not_scored_2026_by_season_type": {},
+        "neutral_updates": 150,
+        "neutral_unflagged": 0,
+        "teams_rated": 138,
+        "rating_min": 1189.549318306578,
+        "rating_max": 1836.3006503828465,
+        "outliers": [],
+        "ll_model": 0.5984669377918015,
+        "ll_baseline": 0.6694566863915611,
+        "bar": 0.6594566863915611,
+        "crit_margin": true,
+        "mean_p": 0.6099542679806456,
+        "realized_home_rate": 0.608540925266904,
+        "level_gap": 0.0014133427137416055,
+        "crit_level": true,
+        "slope_b": 0.6980973022421788,
+        "fit_converged": true,
+        "crit_spread": false,
+        "crit_range": true,
+        "intercept_a": 0.1072412601047017,
+        "ll_const": 0.6931471805599468,
+        "brier_model": 0.20276119228033376,
+        "brier_baseline": 0.23824436848154396,
+        "bands_79": [
+          {
+            "band": 0,
+            "n": 13,
+            "stated": 0.073568,
+            "realized": 0.230769,
+            "gap": 0.157202,
+            "gated": false,
+            "ok": null
+          },
+          {
+            "band": 1,
+            "n": 26,
+            "stated": 0.155626,
+            "realized": 0.115385,
+            "gap": -0.040242,
+            "gated": false,
+            "ok": null
+          },
+          {
+            "band": 2,
+            "n": 48,
+            "stated": 0.245844,
+            "realized": 0.395833,
+            "gap": 0.149989,
+            "gated": false,
+            "ok": null
+          },
+          {
+            "band": 3,
+            "n": 39,
+            "stated": 0.347276,
+            "realized": 0.487179,
+            "gap": 0.139903,
+            "gated": false,
+            "ok": null
+          },
+          {
+            "band": 4,
+            "n": 57,
+            "stated": 0.445042,
+            "realized": 0.438596,
+            "gap": -0.006446,
+            "gated": false,
+            "ok": null
+          },
+          {
+            "band": 5,
+            "n": 59,
+            "stated": 0.548259,
+            "realized": 0.491525,
+            "gap": -0.056734,
+            "gated": false,
+            "ok": null
+          },
+          {
+            "band": 6,
+            "n": 70,
+            "stated": 0.651669,
+            "realized": 0.628571,
+            "gap": -0.023098,
+            "gated": false,
+            "ok": null
+          },
+          {
+            "band": 7,
+            "n": 86,
+            "stated": 0.752644,
+            "realized": 0.813953,
+            "gap": 0.061309,
+            "gated": false,
+            "ok": null
+          },
+          {
+            "band": 8,
+            "n": 106,
+            "stated": 0.85002,
+            "realized": 0.783019,
+            "gap": -0.067001,
+            "gated": true,
+            "ok": false
+          },
+          {
+            "band": 9,
+            "n": 58,
+            "stated": 0.93597,
+            "realized": 0.810345,
+            "gap": -0.125625,
+            "gated": false,
+            "ok": null
+          }
+        ],
+        "cold_starts": 2,
+        "ll_neutral": 0.7111293250999446,
+        "n_neutral": 10,
+        "ll_nonneutral": 0.5964259525144798,
+        "n_nonneutral": 552,
+        "stream_fingerprint": "99a0a2394e519615c69ffd025e8a3f68473dcef1f2e3d122b29851fa10ffcc42",
+        "stream_games": 2958,
+        "census": {
+          "2024": {
+            "postseason": 46,
+            "regular": 752
+          },
+          "2025": {
+            "postseason": 46,
+            "regular": 760
+          },
+          "2026": {
+            "regular": 562
+          }
+        },
+        "level_scores_skipped": {},
+        "coverage": {
+          "2024": 1.0,
+          "2025": 0.9975247524752475,
+          "2026": 1.0
+        },
+        "logistic_scale": 279.14222651259433,
+        "second_read": {
+          "verdict": "PASS \u2014 the architect rules; PASS does not make college football a call (D8): the Desk stays market-only for NCAA",
+          "n_scored": 534,
+          "baseline_home_rate": 0.6298076923076923,
+          "baseline_n": 208,
+          "min_scored": 500,
+          "walked_by_season": {
+            "2023": 792
+          },
+          "not_walked_after_last_2023": 0,
+          "walked_not_scored_2023_by_season_type": {
+            "postseason": 42,
+            "regular, week before 5": 216
+          },
+          "neutral_updates": 62,
+          "neutral_unflagged": 0,
+          "teams_rated": 133,
+          "rating_min": 1245.4928754697285,
+          "rating_max": 1856.94925574572,
+          "outliers": [],
+          "ll_model": 0.5689781882111633,
+          "ll_baseline": 0.6932880591993545,
+          "bar": 0.6832880591993545,
+          "crit_margin": true,
+          "mean_p": 0.6004753881271252,
+          "realized_home_rate": 0.5617977528089888,
+          "level_gap": 0.038677635318136394,
+          "crit_level": true,
+          "slope_b": 1.1978259641641147,
+          "fit_converged": true,
+          "crit_spread": true,
+          "crit_range": true,
+          "intercept_a": -0.271706888843676,
+          "ll_const": 0.6931471805599468,
+          "brier_model": 0.1930086371535916,
+          "brier_baseline": 0.24987845721694,
+          "bands_79": [
+            {
+              "band": 0,
+              "n": 1,
+              "stated": 0.071891,
+              "realized": 0.0,
+              "gap": -0.071891,
+              "gated": false,
+              "ok": null
+            },
+            {
+              "band": 1,
+              "n": 19,
+              "stated": 0.162461,
+              "realized": 0.052632,
+              "gap": -0.10983,
+              "gated": false,
+              "ok": null
+            },
+            {
+              "band": 2,
+              "n": 31,
+              "stated": 0.257393,
+              "realized": 0.225806,
+              "gap": -0.031586,
+              "gated": false,
+              "ok": null
+            },
+            {
+              "band": 3,
+              "n": 52,
+              "stated": 0.359905,
+              "realized": 0.25,
+              "gap": -0.109905,
+              "gated": false,
+              "ok": null
+            },
+            {
+              "band": 4,
+              "n": 61,
+              "stated": 0.448441,
+              "realized": 0.377049,
+              "gap": -0.071392,
+              "gated": false,
+              "ok": null
+            },
+            {
+              "band": 5,
+              "n": 78,
+              "stated": 0.545342,
+              "realized": 0.474359,
+              "gap": -0.070983,
+              "gated": false,
+              "ok": null
+            },
+            {
+              "band": 6,
+              "n": 94,
+              "stated": 0.651793,
+              "realized": 0.62766,
+              "gap": -0.024134,
+              "gated": false,
+              "ok": null
+            },
+            {
+              "band": 7,
+              "n": 99,
+              "stated": 0.74786,
+              "realized": 0.767677,
+              "gap": 0.019816,
+              "gated": false,
+              "ok": null
+            },
+            {
+              "band": 8,
+              "n": 73,
+              "stated": 0.842254,
+              "realized": 0.835616,
+              "gap": -0.006637,
+              "gated": false,
+              "ok": null
+            },
+            {
+              "band": 9,
+              "n": 26,
+              "stated": 0.927619,
+              "realized": 0.884615,
+              "gap": -0.043004,
+              "gated": false,
+              "ok": null
+            }
+          ],
+          "cold_starts": 0,
+          "ll_neutral": 0.6015429527463214,
+          "n_neutral": 14,
+          "ll_nonneutral": 0.5681014445506015,
+          "n_nonneutral": 520,
+          "read": true,
+          "census": {
+            "2023": {
+              "postseason": 42,
+              "regular": 750
+            }
+          },
+          "weeks": {
+            "1": 52,
+            "2": 47,
+            "3": 54,
+            "4": 63,
+            "5": 56,
+            "6": 49,
+            "7": 55,
+            "8": 54,
+            "9": 54,
+            "10": 62,
+            "11": 64,
+            "12": 64,
+            "13": 65,
+            "14": 10,
+            "15": 1
+          },
+          "level_scores_skipped": {},
+          "coverage": {
+            "2023": 1.0
+          }
+        },
+        "verdict_gate": "FAIL \u2014 (3) spread",
+        "architect_word": "ARCHITECT 2026-11-09: ncaa-elo-v2's one run \u2014 D6 at the frozen s, the 2026 regular season as the test, addenda 290 item 6 and 291 item 1",
+        "scored_ids_by_read": {
+          "gate": {
+            "n": 562,
+            "sha256": "426dedf9d19edca39d890eceb9736bb0775ce9c2d42bb5a661fa888e19adbc2e"
+          },
+          "second read": {
+            "n": 534,
+            "sha256": "57a43526bde8b51d9969231b4c706e7c5f84cf9eac8ba7774819c52d090da657"
+          }
+        }
+      },
+      "prior_reads": [
+        {
+          "id": "ncaa-elo-v1r",
+          "candidate": "NCAAEloV1 (src/models/ncaa_elo.py) with its constants untouched: k_factor 24, home_advantage 55, mov_base 2.2, season_regression 0.25, default_rating 1500; neutral_site_rule no_home_advantage_at_neutral (D1)",
+          "run_at": "2026-10-09T16:18:32Z",
+          "why": "overlapping scored ids",
+          "overlap": 2
+        }
+      ],
+      "prior_read_count": 1
+    },
+    "verdict": {
+      "verdict": "FAIL",
+      "ruling": "ARCHITECT 2026-11-09 09:35 ET, addendum 302, verbatim (its line breaks stripped): \"ARCHITECT 2026-11-09 09:35 ET \u2014 addendum 302: ncaa-elo-v2's ONE RUN \u2014 VERDICT: FAIL. The gate (D5 on the 2026 regular season, 562 games) failed test (3), the spread: slope b 0.698097 against the declared 0.80\u20131.20 \u2014 the model is too CONFIDENT at the frozen s, where v1r's 1.42 was too timid; margin, level and range PASSED. The second read (D10, 2023 from week 5, 534 games) PASSED all four, and by D10 a PASS there cannot carry a failed gate. The bar did not move. NCAA stays MARKET-ONLY; 2026 is RETIRED as a college test season; the 2027 candidate declares in the off-season. The run is spent: the registry's reservation and run record are the record of that.\" Item 1: \"1. THE RUN, as the gate printed it (the console on #79, comment 6742352402): the word verbatim; the stream fingerprint 99a0a239\u2026 checked before the reservation and recorded beside the word; the cross-ref guard clean (44 laptop refs, none holding a cohort, record or reservation this tree lacks); s frozen 279.14222651259433; D4 0.594911 (n 1,454); walked 2024 798 \u00b7 2025 806 \u00b7 2026 562, scored 562. (1) margin PASS \u2014 log-loss 0.598467 against the bar 0.659457 (baseline 0.669457 \u2212 0.010); (2) level PASS \u2014 mean model home p 0.609954 vs realized 0.608541, gap +0.14pp; (3) spread FAIL \u2014 slope 0.698097, |b \u2212 1| = 0.302 > 0.20; (4) range PASS \u2014 1189.5 to 1836.3 over 138 teams. Reported, never gated: intercept 0.1072; Brier 0.2028 vs the baseline's 0.2382; cold starts 2 of 562; the 80\u201390% band realized 0.783 against 0.850 stated (n 106), the 90\u2013100% band 0.810 against 0.936 (n 58) \u2014 the favourites' bands are where the overconfidence sits. THE SECOND READ (2023, cold start at the frozen s, scored from week 5): D4 0.629808 (n 208); scored 534; (1) 0.568978 vs the bar 0.683288 PASS; (2) gap +3.87pp PASS; (3) slope 1.197826 PASS (by 0.002); (4) 1245.5 to 1856.9 over 133 teams PASS. Computed verdict FAIL; RULED FAIL. Recorded: 1,096 scored ids, sha 3bed03e5e6be\u2026, docs/registry/ids/ncaa-elo-v2.txt; experiments.json and ncaa-elo-v2.started.json changed in the laptop's working tree, uncommitted.\" Item 2: \"2. THE FINDING, for the next declaration and nothing else: the same frozen s gives slope 1.198 on 2023 and 0.698 on 2026 \u2014 the calibration slope of v1's constants swings by half a unit across seasons with the rating spread roughly alike (612 and 647 points), which says the season's outcomes, not the scale, are what moved; a scale fitted to pass one season's spread test fails the next's. The next candidate declares (a) its s fitted on the full training stream it will walk, and (b) a PRE-CHECK, declared before any run: the spread slope on each training season at that s, all inside 0.80\u20131.20, else the candidate is not declared. No number here is tuned to 2026: 2026 is retired as a test season by the same rule that retired 2025 after v1r (addendum of 2026-10-09; CLAUDE.md), because its results are now read.\" Item 3: \"3. THE RECORDS (Code's second records PR of 301 item 2, with the release's and BL1's): the laptop's registry writes reach Code by #329's convention \u2014 my block below commits them on `laptop/ncaa-elo-v2-run-record` and pushes it; the PR merges that branch byte-identical (the ids file's sha 3bed03e5e6be\u2026 and the run record's figures against the console) and adds: docs/registry/experiments.json \u2014 ncaa-elo-v2's `run` and `verdict` FAIL with this addendum quoted, status the vocabulary's word for a failed run; docs/registry/ids/ncaa-elo-v2.txt; docs/registry/ncaa-elo-v2.started.json (the reservation, kept as the record that the one run was spent); docs/roadmap.json lane ncaa: the 11-09 step DONE with the #79 console as its receipt; the two \"on PASS\" steps (11-21 the 100th confirmation fixture, 11-23 the confirmation record and the Desk policy ruling) CLEARED by their moved lines quoting this item; earliest_live 2026-11-24 CLEARED (a move with `now` null); the lane's state the vocabulary's word for failed; `vs_close` unchanged (\"not read\"); a new undated step \"the 2027 candidate's declaration in the off-season (2024\u20132026 training, the 2027 regular season the test, the same gate, the pre-check of item 2 declared with it)\"; CLAUDE.md's NCAA paragraph gains: \"ncaa-elo-v2 (v1's constants at the frozen logistic scale s, the D1 neutral rule) ran ONCE through the UNCHANGED gate on 11-09 and FAILED on the spread test (slope 0.698 against 0.80\u20131.20, too confident, where v1r's 1.42 was too timid); margin, level and range passed; the 2023 second read PASSED all four \u2014 addendum 302. 2026 is RETIRED as a college test season; NCAA is MARKET-ONLY; the 2027 candidate declares in the off-season. The bar did not move.\"; BACKLOG entry and CHANGELOG fragment; one #79 comment quoting items 0\u20132. \"Refs #79\" (the lane stays open for the 2027 declaration).\" Item 4: \"4. THE DESK: nothing changes \u2014 NCAA was market-only before the run and is market-only after it (D8: a PASS would not have made college football a call either); Kalshi KXNCAAFGAME stays the primary college market source; no shadow and no ncaa-backtest until the 2027 candidate declares.\" Item 5: \"5. THE OPERATOR'S NEXT BLOCK (mine, below): the registry push on `laptop/ncaa-elo-v2-run-record`; then BL1's parity read.\"",
+      "at": "2026-11-09T14:35:00Z"
+    },
     "neutral_site_rule": "no_home_advantage_at_neutral",
     "constants": {
       "k_factor": 24.0,
@@ -2189,5 +2537,33 @@
     "declarations_ruling": "THE DECLARATIONS: PD declared; SA declared; FL1 declared; ELC declared \u2014 each at 2026-11-02T18:10:00Z, each window counted from that stamp.",
     "ratified": "ARCHITECT 2026-11-02 13:10 ET, addendum 220 items 1-4 (pre-window, frozen; verbatim in docs/ledger/entries/2026-11-02-220-leagues-declaration.md)",
     "prior_reads_note": "known at the declaration: the soccer-expansion-v1 run record on the test seasons 2024/25 + 2025/26 (its verdict reports the closing market ahead of the candidate in every league), and the leagues close and parity receipts on 2026/27 games kicking off before the cut (addendum 155 item 4(a), 158 item 2(a)); the window holds no game played before 2026-11-02T18:10:00Z (addendum 220 item 2: \"Nothing already played counts.\")"
+  },
+  {
+    "id": "leagues-bl1-v1",
+    "sport": "soccer",
+    "lane": "#322 (leagues-bl1-v1 declared ARCHITECT 2026-11-09 09:45 ET, addendum 303 item 1; roadmap lane leagues, the lane's state \"declared (5 of 5)\" by addendum 303 item 3; track:model, class:lane, sport:soccer)",
+    "candidate": "THE CANDIDATE, per league, identical in form: soccer_elo_poisson's CURRENT constants, trained to 2025/26 and FROZEN (no retuning on 2026/27, no parameter of any kind moved for the league), as the export switch already runs it; the arm the export writes is the arm that is judged.",
+    "declaration": "ARCHITECT 2026-11-09 09:45 ET, addendum 303 (frozen at the declaration; on the terms of the four, addendum 220 items 3 and 5, by reference, nothing re-stated and nothing changed; verbatim in docs/ledger/entries/2026-11-09-302-records-ncaa-v2-release.md and BACKLOG.md, 2026-11-09)",
+    "training_cutoff": "trained to 2025/26 and FROZEN (addendum 220 item 1): the soccer-expansion-v1 run record's constants (frozen_constants: v22, rho -0.1, Elo goal coefficient 0.0008); no retuning on 2026/27, no parameter of any kind moved for the league; the state at each fixture is leagues_candidate.predict_as_of's walk over the league's FINISHED 2026/27 regular-round games before its kickoff (addendum 158 item 2(a))",
+    "test_set": "BL1 (Bundesliga) 2026/27, PROSPECTIVE (addendum 303 item 1, verbatim): \"the window the first 60 FINISHED 2026/27 BL1 games with a three-way close whose kickoff is after declared_at, at the bar of 220 item 3\"; \"declared_at 2026-11-09T14:45:00Z \u2014 the window's start, THIS STAMP\"; the fence's own rule as addendum 220 item 2 states it for the four, by reference, nothing re-stated (addendum 303 item 1); no game kicking off at or before 2026-11-09T14:45:00Z is a member. Addendum 303 item 1, verbatim: \"The pre-declaration fence (cut 2026-10-30T15:00:00Z, 181 item 1(b)) is REPLACED by the entry's declared_at from that instant: the 18 fenced games, finished between the cut and now, are the cohort reader's alone and never in the window (178 R8).\"",
+    "gate": "THE BAR, written before any result and the same for every league (addendum 158 item 2(c), verbatim as the roadmap carries it): the candidate's mean three-way log-loss on the window BELOW the close's on the same 60 games; a tie is a rejection; no partial read, no intermediate read, the one read by me the day after the 60th game is final, per league. PASS \u2192 that league's live_needs are met and the Desk's calls for it are ruled in by their own addendum (market-first discipline applies as in the PL); FAIL \u2192 the league stays SHADOW through 2026/27 and the successor lane (#656) carries it.",
+    "confirmation_window": "as addendum 220 item 3 states it, verbatim: \"PASS \u2192 that league's live_needs are met and the Desk's calls for it are ruled in by their own addendum (market-first discipline applies as in the PL); FAIL \u2192 the league stays SHADOW through 2026/27 and the successor lane (#656) carries it.\" No window of its own is declared here; the leagues lane's live_needs carry addendum 158 item 2(a)'s criterion (\"The confirmation criterion is declared now: 60 more qualifying games at the same bar, independently per league.\")",
+    "confirmation_plan": null,
+    "confirmation_plan_note": "registry.check_plan holds one metric against a fixed number; this bar is the close's log-loss on the same 60 games, so no executable plan is written and record_confirmation refuses this entry. The one read is the cohort reader's scoring path (leagues_window.score; addendum 178 R1, PR ORDER item 5). A PASS enters the confirmation of 60 more qualifying games at the same bar of addendum 158 item 2(a) (ARCHITECT 2026-11-02 18:05 ET, addendum 223 item 2(d), verbatim: \"220 item 3's PASS clause reads as \"the WINDOW step of the live needs is met\": the confirmation follows, and the Desk's calls are ruled in by their own addendum only after it.\").",
+    "declared_at": "2026-11-09T14:45:00Z",
+    "status": "declared",
+    "run": null,
+    "verdict": null,
+    "competition": "BL1",
+    "frozen_constants": {
+      "production_version": "v22",
+      "rho": -0.1,
+      "elo_goal_coeff": 0.0008
+    },
+    "n": 60,
+    "declarations_ruling": "1. THE DECLARATION (the fifth league, on the terms of the four \u2014 addendum 220 items 3 and 5, by reference, nothing re-stated and nothing changed): registry id `leagues-bl1-v1`; the candidate soccer_elo_poisson's current constants, trained to 2025/26, frozen (no retuning on 2026/27), the expansion gate's own walk run prospectively (soccer_expansion: a cold start per league-season, F3 regular rounds only, F5 same-kickoff batching, the production rho and Elo coefficient, nothing fitted; the one predicate of 181 item 2); declared_at 2026-11-09T14:45:00Z \u2014 the window's start, THIS STAMP; the window the first 60 FINISHED 2026/27 BL1 games with a three-way close whose kickoff is after declared_at, at the bar of 220 item 3; the confirmation criterion as declared for the four (60 more qualifying games at the same bar, independently per league). The pre-declaration fence (cut 2026-10-30T15:00:00Z, 181 item 1(b)) is REPLACED by the entry's declared_at from that instant: the 18 fenced games, finished between the cut and now, are the cohort reader's alone and never in the window (178 R8). The shadow stays a shadow: no Desk call, no stake, no page beyond the shadow export's own (D8's rule as the four have it).",
+    "ratified": "ARCHITECT 2026-11-09 09:45 ET, addendum 303 items 1 and 3 (pre-window, frozen; verbatim in docs/ledger/entries/2026-11-09-302-records-ncaa-v2-release.md); the bar, the window's rule and the confirmation criterion are addendum 220's (items 3 and 5) by reference",
+    "prior_reads_note": "known at the declaration: the soccer-expansion-v1 run record on the test seasons 2024/25 + 2025/26 (its verdict reports the closing market ahead of the candidate in every league), the leagues close and parity receipts on 2026/27 games kicking off before the cut (addendum 155 item 4(a), 158 item 2(a)), and addendum 303's parity receipt and close-coverage lines (the #322 comment 6742654029; addendum 303's opening and item 2: BL1 1.0683 is the close's own log-loss on the games it priced, the bar's denominator, nothing about the verdict read from it); the window holds no game kicking off at or before 2026-11-09T14:45:00Z, and the 18 games fenced between the pre-declaration cut 2026-10-30T15:00:00Z and the declaration are never in it (addendum 303 item 1)",
+    "parity_receipt": "the #322 comment 6742654029 (the LAPTOP on the host's pulled backup sports_2026-11-09_134946.db, mode=ro + immutable=1, main 5f9cf13d); addendum 303's opening, verbatim: \"ARCHITECT 2026-11-09 09:45 ET \u2014 addendum 303: BL1 IS DECLARED. The parity receipt with rows (the #322 comment 6742654029; the LAPTOP on the host's pulled backup sports_2026-11-09_134946.db, mode=ro + immutable=1, main 5f9cf13d, prediction stamp 2026-11-09 14:33:39Z): BL1 2026/27 \u2014 finished regular-round 63, gate scored 21, compared 21, UNEQUAL 0 (max |diff| 0, equal within 1e-12), priced by the shadow only 0, by the gate only 0, fenced 18; the retired arithmetic unequal 0 of 21. The prospective path IS the gate's walk for the Bundesliga, row for row, as 158 item 2(a) requires, and the declaration follows the same day as 220 item 4 said.\""
   }
 ]

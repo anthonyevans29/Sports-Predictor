@@ -160,11 +160,16 @@ def test_lanes_data_is_the_print_as_data_with_no_eta_for_an_undated_lane(tmp_pat
                                                                  "availability-record",   # addendum 252 item 7
                                                                  "soccer-v23",            # addendum 216 item 3
                                                                  "basketball-market-only",  # addendum 261 item 1(f)
-                                                                 "tennis-market-only"}    # addendum 261 item 2(e)
-    ncaa = next(g for g in got if g["lane"] == "ncaa")           # its first four steps are done: the fifth is next
-    assert ncaa["next"] == {"what": _lane(_real(), "ncaa")["steps"][4]["what"], "owner": "architect",  # the one run
-                            "due": "2026-11-09", "when": "in 22 days"}  # (the 2023 ingest done 11-01, addendum 201 item 5;
-    # the 500th game done 11-05 on the host's first CFBD read, addendum 257 item 3)
+                                                                 "tennis-market-only",    # addendum 261 item 2(e)
+                                                                 "ncaa"}                  # addendum 302 item 3
+    # ncaa: since ARCHITECT 2026-11-09 09:35 ET, addendum 302 item 3, the one run's step done on the #79 console and the
+    # two on-PASS steps cleared by the FAIL; ARCHITECT 2026-11-09 12:50 ET, addendum 309 item 3(1): state "to declare"
+    # with ONE dated step, the 2027 candidate's declaration due 2027-02-01 (owner architect): its next step
+    ncaa = next(g for g in got if g["lane"] == "ncaa")
+    assert ncaa["state"] == "to declare" and ncaa["eta"] == "no ETA"
+    assert ncaa["next_line"].startswith("next: the 2027 college candidate declares, with 302 item 3's spread pre-check "
+                                        "on the declared constants before any gate run (ARCHITECT 2026-11-09 12:50 ET")
+    assert ncaa["next_line"].endswith(" · architect · due 2027-02-01 · in 106 days"), ncaa["next_line"]  # day 10-18
     doc = _real()
     _lane(doc, "unl")["state"] = "live"
     for st in _lane(doc, "unl")["steps"]:
@@ -217,6 +222,8 @@ def _lane(doc, lane_id):
 
 _MOVE = {"moved_on": "2026-10-20", "which": "steps[2].due", "was": "2026-10-20", "now": "2026-10-22",
          "why": "the declaration came two days late", "ruling": "addendum 60 item 1"}
+# Lane ncaa holds one real moved line since ARCHITECT 2026-11-09 09:35 ET, addendum 302 item 3 (earliest_live 2026-11-24
+# cleared by ncaa-elo-v2's FAIL), so a moved line appended to it below is its second: "moved 2"
 
 BROKEN = [
     ("lane ids unique", lambda d: _lane(d, "pd").__setitem__("lane", "unl"), "lane 'unl': lane id not unique"),
@@ -246,11 +253,11 @@ BROKEN = [
     ("every moved line has its six parts",
      lambda d: _lane(d, "ncaa")["moved"].append({"moved_on": "2026-10-20", "which": "steps[2].due", "was": "2026-10-20",
                                                  "now": "2026-10-22", "why": "late"}),
-     "lane 'ncaa' moved 1: missing ruling"),
+     "lane 'ncaa' moved 2: missing ruling"),
     ("a moved line's dates are real",
      lambda d: _lane(d, "ncaa")["moved"].append({"moved_on": "2026-10-20", "which": "steps[2].due", "was": "2026-10-20",
                                                  "now": "soon", "why": "late", "ruling": "addendum 60 item 1"}),
-     "lane 'ncaa' moved 1: now 'soon' is not a real date"),
+     "lane 'ncaa' moved 2: now 'soon' is not a real date"),
     ("a lane keeps its keys", lambda d: _lane(d, "pd").pop("vs_close"), "lane 'pd': missing vs_close"),
     ("a lane id", lambda d: d["lanes"][1].__setitem__("lane", " "), "lane 2: no lane id"),
     ("a title", lambda d: _lane(d, "pd").__setitem__("title", ""), "lane 'pd': no title"),
@@ -279,10 +286,10 @@ BROKEN = [
      lambda d: _lane(d, "ncaa")["steps"][3].__setitem__("what", _lane(d, "ncaa")["steps"][1]["what"]),
      "lane 'ncaa' step 4: what"),
     ("a cleared now only for earliest_live (addendum 61 item 4)",
-     lambda d: _lane(d, "ncaa")["moved"].append({**_MOVE, "now": None}), "lane 'ncaa' moved 1: missing now"),
+     lambda d: _lane(d, "ncaa")["moved"].append({**_MOVE, "now": None}), "lane 'ncaa' moved 2: missing now"),
     ("was is always a real date (addendum 61 item 4)",
      lambda d: _lane(d, "ncaa")["moved"].append({**_MOVE, "which": "earliest_live", "was": None, "now": None}),
-     "lane 'ncaa' moved 1: missing was"),
+     "lane 'ncaa' moved 2: missing was"),
     ("competitions a list (addendum 111 item 2)", lambda d: _lane(d, "pd").__setitem__("competitions", "PD"),
      "lane 'pd': competitions 'PD' is not a list of competition codes"),
     ("competitions not empty", lambda d: _lane(d, "pd").__setitem__("competitions", []),
@@ -351,13 +358,13 @@ def test_the_six_parts_are_the_ruled_six():
 @pytest.mark.parametrize("part", SIX_PARTS)
 def test_every_moved_line_has_its_six_parts_each_one(part):
     doc = _broken(lambda d: _lane(d, "ncaa")["moved"].append({k: v for k, v in _MOVE.items() if k != part}))
-    assert any(e.startswith(f"lane 'ncaa' moved 1: missing {part}") for e in rm.validate(doc)), rm.validate(doc)
+    assert any(e.startswith(f"lane 'ncaa' moved 2: missing {part}") for e in rm.validate(doc)), rm.validate(doc)
 
 
 @pytest.mark.parametrize("part", ["moved_on", "was", "now"])
 def test_each_date_of_a_moved_line_is_a_real_date(part):
     doc = _broken(lambda d: _lane(d, "ncaa")["moved"].append({**_MOVE, part: "2026-13-01"}))
-    assert any(e.startswith(f"lane 'ncaa' moved 1: {part} '2026-13-01' is not a real date") for e in rm.validate(doc))
+    assert any(e.startswith(f"lane 'ncaa' moved 2: {part} '2026-13-01' is not a real date") for e in rm.validate(doc))
 
 
 @pytest.mark.parametrize("state", ["live", "closed"])
@@ -598,8 +605,10 @@ def test_a_lane_or_a_step_only_one_side_holds_needs_nothing():
     def edit(d):
         d["lanes"].append({**copy.deepcopy(_lane(d, "cups")), "lane": "new-lane"})
         d["lanes"] = [ln for ln in d["lanes"] if ln["lane"] != "pd"]
-        _lane(d, "ncaa")["steps"][5]["what"] += " (renamed)"         # a step the base does not hold, word for word
-        _lane(d, "ncaa")["steps"][5]["due"] = "2026-12-31"
+        # a step the base does not hold, word for word (lane ncaa's last step since addendum 302 item 3 removed the
+        # two on-PASS steps: the run step, its fifth)
+        _lane(d, "ncaa")["steps"][4]["what"] += " (renamed)"
+        _lane(d, "ncaa")["steps"][4]["due"] = "2026-12-31"
     base, head = _base_head(edit)
     assert rm.check_moves(base, head) == []
 

@@ -60,7 +60,12 @@ row was overwritten in place; a different id is another history: REFUSED). Row i
 optional: when given it must name exactly the live row ids found, each once. Then, as built: the live row must read the
 2026 game (season, kickoff, provider id, the team names through the teams table, status FINISHED and the 2026 score by
 team, written into the stored orientation by the chain of #884); the --from row must read the 2025 game (FINISHED and
-the 2025 score). Everything WRITTEN is read from the copies: the new row is the live row with home/away (and every score
+the 2025 score). A live row in the PRE-#885 state (the provider's scores on the stored pair, full_time_result NULL, no
+provider_orientation key: the host's 36454 and 36753 from the syncs of 11-01 and 11-08 until 11-10, ARCHITECT 2026-11-10,
+addendum 327 item 3) is REFUSED on the score, as it must be: the swap would derive the new row wrong. The remedy is the
+chain's own step under v1.6.6, never a change here: `sync-matches --competition NCAA --season 2026 --date-from D
+--date-to D` for the game's day (the season-scoped lookup of #906 finds the live 2026 row, and #885 writes its scores
+by team with provider_orientation "reversed"), a .backup first, then the dry run again (addendum 327 item 4). Everything WRITTEN is read from the copies: the new row is the live row with home/away (and every score
 pair) swapped into the listing's orientation; the old row is the --from row, column for column.
 
 --from-json PATH reads {"rows": [...]} as --emit-json wrote it: exactly the two pinned provider ids, each once, each

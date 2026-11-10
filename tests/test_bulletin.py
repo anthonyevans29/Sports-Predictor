@@ -1418,3 +1418,14 @@ def test_github_displays_each_escaped_value_as_written():
         m = re.fullmatch(r"<ul>\n<li>(.*)</li>\n</ul>", out, re.S)
         assert m, (value, out)
         assert _html.unescape(m.group(1)).strip() == value.strip(), (value, out)
+
+
+def test_an_empty_reason_is_written_as_a_space_never_a_setext_underline(repo):
+    """The second pre-push review: an empty desk.reasons entry wrote a bare "  - ", which reads as a setext underline
+    under the reason line (the line became a heading); the value is written as &#32;."""
+    assert b.md_escape("") == "&#32;" and b.display_text(b.md_escape("")) == " "
+    doc = soccer_doc()
+    doc["predictions"][0]["desk"]["reasons"] = ["", "fee clears"]
+    assert b.run(closing_file=str(closing_file(repo, doc, "SOCCER"))) == 0
+    md = md_of(repo, "SOCCER", 9401)
+    assert "\n  - &#32;\n  - fee clears" in md and "\n  - \n" not in md

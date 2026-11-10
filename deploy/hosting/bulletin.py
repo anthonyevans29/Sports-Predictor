@@ -196,7 +196,9 @@ def md_escape(text) -> str:
     then a backslash before each of \\ * _ ~ [ ] ( ) # > ! | and the backtick."""
     t = one_line(text).replace("&", "&amp;").replace("<", "&lt;")
     t = _MD_SPECIAL.sub(r"\\\1", t)
-    return _EDGE_SPACES.sub(lambda m: "&#32;" * len(m.group(0)), t)
+    # an empty value is one &#32;: a bare "  - " list item under a paragraph reads as a setext underline (the second
+    # pre-push review: an empty desk reason made the reason line a heading)
+    return _EDGE_SPACES.sub(lambda m: "&#32;" * len(m.group(0)), t) or "&#32;"
 
 
 _MD_UNESCAPE = re.compile(r"\\([\\*_~\[\]()#>!|`\-+=.:$])")

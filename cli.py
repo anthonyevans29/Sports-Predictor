@@ -5727,6 +5727,20 @@ def desk_parlays_cmd(files, now_s, summary, out_path):
               f"straights {q['straight_units']:g}u · tickets touching {q['tickets_touching']}")
 
 
+def _rescore_non_positive(dp, x) -> tuple[str, str, str]:
+    """desk-rescore's exec figures for an `exec non-positive` row (addendum 318 item 3): the gate's figure when the gate
+    failed (its edge, its all-in cost, its order's units); else the gate's edge beside the order placed's, which
+    failed, and the order placed's cost. The model's price to four decimals, beside the cost it is read against."""
+    gate, final = x.get("exec_edge_pp"), x.get("final_edge_pp")
+    if final is None or (gate is not None and gate <= 0):
+        u = "" if x.get("exec_units") is None else f", {dp.js_str(x['exec_units'])}u"
+        cost = "no executable quote" if x.get("exec_cost") is None else f"cost {dp._px(x['exec_cost'])}"
+        return f"gate {dp._pp2(gate)}", f"{cost} at the gate's order{u}", dp._px(x["model_p"])
+    u = "" if x.get("final_units") is None else f", {dp.js_str(x['final_units'])}u"
+    cost = "no executable quote" if x.get("final_cost") is None else f"cost {dp._px(x['final_cost'])}"
+    return f"gate {dp._pp2(gate)} · final {dp._pp2(final)}", f"{cost} at the order placed{u}", dp._px(x["model_p"])
+
+
 @cli.command("desk-rescore")
 @click.argument("files", nargs=-1, required=True, type=click.Path(exists=True, dir_okay=False))
 @click.option("--out", "out_path", default=None,
@@ -5756,7 +5770,7 @@ def desk_rescore_cmd(files, out_path):
         console.print(f"[red]REFUSED: {tgt} exists — a receipt is never overwritten.[/red]")
         raise SystemExit(2)
     lines = [f"DESK RESCORE (#87 v1.1 addendum, rule 3) · run {stamp}"]
-    n = halved = quarantined = suspended = fenced = 0
+    n = halved = quarantined = suspended = fenced = non_positive = 0
     for f in files:
         doc = _json.load(open(f))
         meta = doc.get("desk_meta") or {}
@@ -5772,17 +5786,25 @@ def desk_rescore_cmd(files, out_path):
             quarantined += x["verdict"] == "quarantined"     # its own transition, never "halved" (Codex on #328)
             suspended += x["verdict"] == "kalshi-only suspended"     # Q3 K1 (ARCHITECT 2026-10-08): its own too
             fenced += x["verdict"] == "host fence"                   # addendum 109 item 3 (#410): its own too
+            non_positive += x["verdict"] == "exec non-positive"      # addendum 305: its own too
             xe = "—" if x["exec_edge_pp"] is None else f"{x['exec_edge_pp']:+.1f}pp"
             xc = "no executable quote" if x["exec_cost"] is None else f"cost {x['exec_cost']:.3f}"
             if x["verdict"] == "kalshi-only suspended":     # addendum 15 item 2: a suspended row is not priced
                 xe, xc = "—", "not priced: no order under the suspension"
             if x["verdict"] == "host fence":                # nor a fenced one: the fence's reason names the role
                 xe, xc = "—", f"not priced: {x['pass_reason']}"
+            mp = f"{x['model_p']:.3f}"
+            if x["verdict"] == "exec non-positive":
+                # ARCHITECT 2026-11-10 08:50 ET, addendum 318 item 3 (Codex #903 P2): "`desk-rescore` prints the FAILED
+                # figure on an `exec non-positive` row ("gate +0.05pp · final −0.05pp → EXEC NON-POSITIVE"), the gate's
+                # figure when the gate failed" -- "a receipt that contradicts its own verdict is not a record". Edges
+                # signed to 2 decimals and prices to 4, as the PASS's own reason prints them (dp._pp2 / dp._px).
+                xe, xc, mp = _rescore_non_positive(dp, x)
             # a None edge prints as — (never a crash: Codex P1 on #369); a suspended row shows its hold's raw edge
             fe = "—" if x["fair_edge_pp"] is None else f"{x['fair_edge_pp']:+.1f}pp"
             if x.get("hold_raw_edge_pp") is not None:
                 fe += f" · hold raw edge {x['hold_raw_edge_pp']:+.1f}pp (not a live edge)"
-            lines.append(f"  {x['game']} · {x['pick']} · model {x['model_p']:.3f} · fair {fe} · "
+            lines.append(f"  {x['game']} · {x['pick']} · model {mp} · fair {fe} · "
                          f"exec {xe} ({xc}) · units published {x['published_units']} / v1.1 {x['v11_units']} → "
                          f"addendum {x['addendum_units']} · {x['verdict'].upper()}")
     lines.append(f"\n{n} PLAY(s) re-scored · {halved} would have been halved under #87 v1.1 rule 3")
@@ -5795,6 +5817,9 @@ def desk_rescore_cmd(files, out_path):
     if fenced:
         lines.append(f"{fenced} soccer / INTL PLAY(s) now PASS under the host fence (this machine's role is not laptop; "
                      f"#410) — not counted as halved")
+    if non_positive:
+        lines.append(f"{non_positive} PLAY(s) now PASS at an exec edge <= 0 (addendum 305: the Desk never buys above "
+                     f"its own price) — not counted as halved")
     print("\n".join(lines))
     tgt.parent.mkdir(parents=True, exist_ok=True)
     try:                                    # EXCLUSIVE create: two runs racing on one name never overwrite (Codex)

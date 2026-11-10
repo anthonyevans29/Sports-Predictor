@@ -774,6 +774,7 @@ class IngestionService:
                 ext[KICKOFF_KEY] = nm.kickoff_source
             match.external_ids = ext
             result.updated += 1
+            self._count_no_year_beside(nm, comp, result, cache, match)      # addendum 313 item 1(4), after the update
             return match
 
         match = Match(
@@ -1092,15 +1093,25 @@ class IngestionService:
             if count_skip:          # the unknown-team branch has counted its own skip (Codex on #906)
                 result.skipped += 1
             return None, True
-        if match is not None and unknown:
-            # ARCHITECT 2026-11-09 16:05 ET, addendum 313 item 1(4), verbatim: "the listing's own-season row is matched
-            # and updated; the no-year row is never matched and never touched; it IS counted under
-            # `provider_id_season_unknown` so the line is visible when N > 0." Not a refusal: no skip is counted
+        return match, False
+
+    @staticmethod
+    def _count_no_year_beside(nm: NormalizedMatch, comp: Competition, result: SyncResult, cache: dict,
+                              match: Match) -> None:
+        """ARCHITECT 2026-11-09 16:05 ET, addendum 313 item 1(4), verbatim: "the listing's own-season row is matched
+        and updated; the no-year row is never matched and never touched; it IS counted under
+        `provider_id_season_unknown` so the line is visible when N > 0." Called only AFTER the own-season row's update
+        succeeded (#912 review: a listing refused later, by an unknown team or a pair that is neither the stored one
+        nor its reverse, is not counted). Not a refusal: no skip is counted. A SPORT_WIDE_SOURCES id: nothing."""
+        if nm.source in SPORT_WIDE_SOURCES or not nm.source_id:
+            return
+        unknown = [m for m in cache.get("__by_sid__", {}).get(str(nm.source_id), [])
+                   if m is not match and season_year(m.season) is None]
+        if unknown:
             log.warning("sync_matches(%s): %s id %s also carried by stored row(s) %s of no season year — never matched, "
-                        "never touched; the listing's own-season row %s is updated (addendum 313 item 1(4))",
+                        "never touched; the listing's own-season row %s was updated (addendum 313 item 1(4))",
                         comp.code, nm.source, nm.source_id, [m.id for m in unknown], match.id)
             result.provider_id_season_unknown.append(str(nm.source_id))
-        return match, False
 
     @staticmethod
     def _collision_held(s: Session, nm: NormalizedMatch, cache: dict) -> list[tuple]:

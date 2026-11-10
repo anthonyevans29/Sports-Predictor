@@ -461,6 +461,21 @@ def test_a_no_year_row_beside_the_own_season_row_is_counted_never_touched():
     assert svc.season_unknown_line(r.provider_id_season_unknown) == f"provider_id_season_unknown 1: {sid}"
 
 
+def test_a_refused_listing_beside_a_no_year_row_is_not_counted():
+    """#912 review (Codex): the count follows a SUCCESSFUL update of the own-season row. A listing refused later (its
+    pair neither the stored one nor its reverse; or a team not in the DB) updates nothing and counts nothing."""
+    code = "PISBESIDEX"
+    (h, hp), (a, ap) = _pair()
+    (h2, hp2), (a2, ap2) = _pair()
+    sid = _gid()
+    _stored(code, sid, h, a, "26/27", KICK_2025, status=MatchStatus.SCHEDULED)
+    _stored(code, sid, h, a, "2026", KICK_2026, status=MatchStatus.SCHEDULED)
+    r = _sync(code, [_nm(code, sid, hp2, ap2)])                       # a pair that is neither stored one nor reverse
+    assert r.updated == 0 and r.provider_id_season_unknown == []
+    r = _sync(code, [_nm(code, sid, "pis-not-in-db-beside", ap)])        # a team not in the DB
+    assert r.updated == 0 and r.skipped == 1 and r.provider_id_season_unknown == []
+
+
 def test_no_no_year_row_counts_nothing():
     """The guard is silent when no row of no season year carries the id (both copies today, 313 item 1(4))."""
     code = "PISBESIDE0"

@@ -1179,6 +1179,15 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
       `sync-matches --competition NCAA` and were not held: ncaa-schedule (`sp-ncaa-schedule.timer`) and the window
       chain (`sp-window.timer`). Both ran under v1.6.5's any-season lookup from 11-09 until the v1.6.6 deploy on 11-10.
       v1.6.6 closes them with the season-scoped key, so no entry is added for them (325 item 1(c)).
+      - **Lifting a hold (ARCHITECT 2026-11-10 16:20 ET, addendum 330 item 2, verbatim, ruled for this procedure):**
+        "lifting a hold on a Persistent timer runs its missed firing at once — lift it when that run is welcome, off
+        the :00–:10 minutes, and read the run". Of the 24 timers the pack ships (read on this branch), 22 carry
+        `Persistent=true`; `sp-closing-watch.timer` and `sp-cup-observe.timer` carry `Persistent=false`. Read the unit
+        under `deploy/hosting/systemd/` before the lift. The 11-10 lift of `sp-ncaa-market.timer` at 21:13Z ran the
+        missed Tuesday 16:00Z firing at 21:13:38Z, under v1.6.6's season-scoped key. The read covers that run's
+        receipt rows, its counting lines (created, updated, `provider_id_collision`, `orientation_reversed`, Kalshi
+        matched, the export), its exit, and the timer's NEXT. The next instance is `sp-tennis-daily.timer`'s enable
+        (288 item 5), whose block says so.
       - **How to find every chain (the grep, then the two places it cannot see):** for a fixed chain, grep
         `deploy/hosting/chains.py` for the step, e.g. `grep -n '"sync-matches", "--competition", "NCAA"'
         deploy/hosting/chains.py`. On 8aa27a89 that finds ncaa-market and ncaa-schedule. Two timer-driven chains

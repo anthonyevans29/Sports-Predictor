@@ -1104,6 +1104,38 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
 
 ## O. Operations after cutover
 
+- **Host packages (ARCHITECT 2026-11-09 19:00 ET, addendum 316 item 3, the standing policy, verbatim):** "host
+  packages — security updates automatic via unattended-upgrades (installed, enabled, release + -security origins, no
+  automatic reboot — as read 11-09 22:07Z); the full `apt-get upgrade --with-new-pkgs` monthly on a compare-pass
+  morning, or sooner when a kernel, libsqlite3, python3 or tailscale update is listed, ALWAYS by the architect's block:
+  a .backup first; no chain or backup timer due within 45 minutes; the upgrade detached under systemd-run (tailscaled's
+  restart can drop the session) with confold and NEEDRESTART_MODE=a, logged to /var/log/sp-apt-upgrade.log; a reboot
+  only when /var/run/reboot-required exists and the window still clears; the post-check (kernel, 19 sp timers active,
+  held timers still disabled, tailscale up, the venv importing, `cli.py roadmap` exit 0, a read-only quick_check of the
+  live DB)."
+  - **The steps, in that order:**
+    1. A `.backup` first, its integrity checked.
+    2. Confirm that no chain or backup timer is due within 45 minutes.
+    3. Run the upgrade detached under `systemd-run`, with confold and `NEEDRESTART_MODE=a`, logged to
+       `/var/log/sp-apt-upgrade.log`. A dropped SSH session is expected when tailscaled restarts; the job runs on.
+    4. Reboot only if `/var/run/reboot-required` exists and the window still clears.
+    5. Run the post-check as quoted above.
+  - **The read before the policy (addendum 316 item 3):** "Ubuntu 24.04.5, kernel 6.8.0-147 with 149 waiting, 24
+    noble-updates packages, 3w4d uptime, disk 25%."
+  - **First receipt (ARCHITECT 2026-11-10 12:20 ET, addendum 320 item 4, verbatim):** "THE HOST (the operator,
+    16:26–17:06Z): a .backup first (sports_2026-11-10_162631.db, integrity ok); apt-get upgrade --with-new-pkgs
+    detached under systemd-run: 28 upgraded, 6 newly installed, rc 0; the session dropped at tailscaled's restart as
+    the block anticipated and the job finished on its own; reboot for 6.8.0-149 at 17:05:47Z with no chain due; the
+    post-check's final read follows."
+  - **Open, for the architect:** this policy's "no automatic reboot — as read 11-09 22:07Z" and H0-3 above
+    ("Unattended-upgrades reboots at 04:30") differ. The shipped `deploy/hosting/etc/52sp-unattended-upgrades` sets
+    `Automatic-Reboot "true"` at 04:30. Neither text is changed here until that is ruled.
+- **The laptop's morning code update (ARCHITECT 2026-11-10 13:05 ET, addendum 321 item 3, verbatim):** "the
+  fast-forward pulls the code and nothing installed new requirements — the first hand-render stopped on `No module
+  named 'matplotlib'`. Closed: the morning block carries `pip install -q -r requirements.txt` after the fast-forward
+  from tomorrow (idempotent)". TERMINAL (laptop), in the morning block, right after the fast-forward:
+  `venv/bin/pip install -q -r requirements.txt`. The host is already covered: `sp_deploy.py` installs requirements.txt
+  when it changed in the deployed range or the host has no install receipt for the target's file.
 - **Retention (H0-14).** 14 dailies. `sp-backup-prune` only reports
   (`kind: prune`, `applied: false`).
   - After the first time it lists files, delete those files by hand and

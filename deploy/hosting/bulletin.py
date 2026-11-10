@@ -79,7 +79,7 @@ import exports_mirror as em  # noqa: E402
 
 if str(HERE.parents[1]) not in sys.path:
     sys.path.insert(0, str(HERE.parents[1]))
-from src.privacy_patterns import bulletin_offence, rendered  # noqa: E402
+from src.privacy_patterns import bulletin_offence, renderings  # noqa: E402
 
 KIND = "bulletin"
 STAGES = ("closing", "slate")
@@ -936,11 +936,13 @@ def secret_offence(text: str) -> str | None:
     Addendum 309 item 2: the credential labels (CREDENTIAL: api key, secret key, access token, private key, client
     secret, auth token, bearer) are read on the same normalized text, any case, the words joined by whitespace; and on
     the raw text too (either reading matching refuses, as 299 item 1 reads the key rule), since rendered() drops a
-    value written as a tag ("Bearer <abcdef123>" renders "Bearer ") that the file itself still carries."""
+    value written as a tag ("Bearer <abcdef123>" renders "Bearer ") that the file itself still carries.
+    Addendum 318 item 2: the normalized readings are both of privacy_patterns.renderings(), the second with HTML
+    comments and tags of any length stripped, so a credential split by a long comment or tag refuses too."""
     if REDACTED_MARK in text:
         return SECRET_PATTERN
-    norm = rendered(text)
-    hit = c.redact(norm) != norm or CREDENTIAL.search(norm) or CREDENTIAL.search(text)
+    # addendum 318 item 2: both rendered readings (renderings(): the second strips HTML comments and tags of any length)
+    hit = CREDENTIAL.search(text) or any(c.redact(norm) != norm or CREDENTIAL.search(norm) for norm in renderings(text))
     return SECRET_PATTERN if hit else None
 
 

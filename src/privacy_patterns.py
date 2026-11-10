@@ -41,8 +41,9 @@ no pool figure, no account id"), each a named pattern over every line of the who
                      any name ending _usd / _dollars, anywhere
   uuid               an account id's shape: ANY UUID-shaped token, ticker or none (a bulletin carries no UUID at all:
                      match ids are integers, run ids are stamps; the stricter reading, law 4)
-Each pattern reads every line as written, every line as RENDERED (rendered(): HTML comments and tags of any length
-removed, HTML entities decoded, tags and Markdown emphasis removed, NFKC-folded, format characters dropped, whitespace one space) and the whole text as
+Each pattern reads every line as written, every line as RENDERED (rendered(): HTML entities decoded, tags and
+Markdown emphasis removed; read twice, the second time with HTML comments and tags of any length stripped first,
+addendum 318 item 2), NFKC-folded, format characters dropped, whitespace one space) and the whole text as
 rendered with every line break one space, so a value broken across lines, a fullwidth sign or an entity is read the
 way the card or GitHub shows it.
 The API key is the redaction's (sp_common.redact runs over every line before the guard), not a pattern here.
@@ -132,7 +133,10 @@ _TAG = re.compile(r"<[^<>\n]{0,200}>")
 # comments (`<!--` … `-->`, any length; an unterminated comment hides to the end of the text, and the raw reading — which
 # the credential check already takes — still sees it) and tags of any length with a small scanner, as the link collapse
 # is". The scanner reads the text as written, before entities are decoded (an entity-written `&lt;!--` is text GitHub
-# shows, not a comment); _TAG still runs where it did, so everything it stripped is stripped as before.
+# shows, not a comment). It is a SECOND rendered reading beside the first, never in its place (renderings()): GitHub
+# shows some of what the scanner strips (a `<!--` mid-line with no `-->`, a tag across a blank line, a backslash-escaped
+# `\<`, markup in a code span), so replacing the reading would hide text the guard read before (the pre-push review
+# of 0212ba1c). Every pattern reads both, the first match winning: a tightening only.
 _ATTRS = r"""(?:\s+[A-Za-z_:][A-Za-z0-9_.:-]*(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'=<>`]+))?)*\s*/?>"""
 _OPEN_TAG = re.compile(r"<[A-Za-z][A-Za-z0-9-]*" + _ATTRS)
 _CLOSE_TAG = re.compile(r"</[A-Za-z][A-Za-z0-9-]*\s*>")
@@ -266,16 +270,23 @@ def collapse_links(text: str) -> str:
 _MARKUP = str.maketrans("", "", "\\*`~")
 
 
-def rendered(text: str) -> str:
-    """The text as a reader sees it once it is rendered: HTML comments and tags of any length removed (strip_html,
-    addendum 318 item 2), HTML entities decoded (&#36; is a $ on GitHub), short tags and
-    Markdown's emphasis and escape characters removed, link and image syntax collapsed to its label (addendum 304
+def rendered(text: str, strip_markup: bool = False) -> str:
+    """The text as a reader sees it once it is rendered: HTML entities decoded (&#36; is a $ on GitHub), tags and
+    Markdown's emphasis and escape characters removed; with `strip_markup`, HTML comments and tags of any length removed
+    first (strip_html, addendum 318 item 2: renderings() reads both forms), link and image syntax collapsed to its label (addendum 304
     item 1), compatibility forms folded (NFKC: a fullwidth sign or digit is
     the plain one), format characters (zero-width spaces, joiners) dropped, and every whitespace run, line breaks
     included, one space (the card's textwrap and a Markdown list item's continuation both join a broken line)."""
-    t = unicodedata.normalize("NFKC", _TAG.sub("", collapse_links(html.unescape(strip_html(text)))))
+    t = strip_html(text) if strip_markup else str(text)
+    t = unicodedata.normalize("NFKC", _TAG.sub("", collapse_links(html.unescape(t))))
     t = "".join(ch for ch in t if unicodedata.category(ch) != "Cf").translate(_MARKUP)
     return re.sub(r"\s+", " ", t)
+
+
+def renderings(text: str) -> tuple[str, str]:
+    """Both rendered readings (addendum 318 item 2): rendered() as before, and rendered() with HTML comments and tags of
+    any length stripped first. A pattern matching either refuses."""
+    return rendered(text), rendered(text, strip_markup=True)
 
 
 def _first(line: str) -> str | None:
@@ -292,7 +303,7 @@ def bulletin_offence(text: str) -> str | None:
     space, so a value broken across lines is read the way the card and the Markdown show it joined."""
     lines = str(text).splitlines() or [""]
     for line in lines:
-        got = _first(line) or _first(rendered(line))
+        got = _first(line) or next((g for g in map(_first, renderings(line)) if g), None)
         if got:
             return got
-    return _first(rendered(text))
+    return next((g for g in map(_first, renderings(text)) if g), None)

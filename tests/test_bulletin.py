@@ -1029,8 +1029,9 @@ def test_a_label_with_a_quoted_dashed_or_tag_joined_value_is_refused(text):
 
 
 # ARCHITECT 2026-11-10 08:50 ET, addendum 318 item 2 (Codex #894 P1, privacy_patterns.py:130): a credential or a
-# figure split by an HTML comment or tag longer than _TAG's 200 characters renders contiguous on GitHub; the rendered
-# reading strips comments and tags of any length (strip_html), so both offence checks read it.
+# figure split by an HTML comment or tag longer than _TAG's 200 characters renders contiguous on GitHub; a second
+# rendered reading strips comments and tags of any length first (strip_html, renderings()), so both offence checks read
+# it, and the first reading stays as it was (the pre-push review of 0212ba1c: replacing it lost refusals).
 _LONG = {"a 210-character": 210, "a 4,000-character": 4000}
 
 
@@ -1044,14 +1045,42 @@ def test_a_long_comment_or_tag_splitting_a_value_is_read_as_rendered(form, size)
     assert len(split("", "")) > 200                                          # longer than _TAG's cap
     assert b.secret_offence(split("api key", "abcdef123")) == b.SECRET_PATTERN
     assert pv.bulletin_offence(split(_S, "25")) == "dollar"
-    assert pv.rendered(split("api key", "abcdef123")) == "api keyabcdef123"
+    assert pv.rendered(split("api key", "abcdef123"), strip_markup=True) == "api keyabcdef123"
+    assert pv.renderings(split("api key", "abcdef123"))[0] == pv.rendered(split("api key", "abcdef123"))
 
 
 def test_an_unterminated_comment_hides_to_the_end_of_the_text_and_the_raw_reading_still_sees_it():
     text = "edge below the floor <!-- " + _S + "25 · api key: abcdef123"
-    assert pv.rendered(text) == "edge below the floor "                      # hidden to the end, as GitHub hides it
+    assert pv.rendered(text, strip_markup=True) == "edge below the floor "   # the stripped reading: hidden to the end
     assert pv.bulletin_offence(text) == "dollar"                             # the line as written still carries it
     assert b.secret_offence("edge below the floor <!-- api key: abcdef123") == b.SECRET_PATTERN
+
+
+# The pre-push review of 0212ba1c: inputs the guard refused before 318 that a stripped-only reading let through (GitHub
+# SHOWS each value: a mid-line `<!--` with no `-->` is text, as are a tag across a blank line, a backslash-escaped `<`,
+# and markup in a code span). The first rendered reading is kept, so each still refuses.
+_LONG_X = "x" * 300
+
+
+@pytest.mark.parametrize("text,name", [
+    ("edge below <!-- &#36;25 today", "dollar"),
+    ("edge below <!-- " + _S + "\u200b25", "dollar"),
+    ("note <!-- [" + _S + "](https://x.test)25", "dollar"),
+    ("note \\<!-- &#36;25", "dollar"),
+    ("use `<!--` then &#36;25", "dollar"),
+    ("- reason: model says <!-- maybe\n- note\n- stake " + _S + "\n  25", "dollar"),
+    ("- reason: model says <!-- maybe\n- note: pool\n  is 25", "pool"),
+    ('edge <b t="' + _LONG_X + ' &#36;25"> today', "dollar"),
+    ('edge <b t="\n\n&#36;\n25\n\n"> today', "dollar"),
+    ('note \\<b t="' + _LONG_X + ' &#36;25"> x', "dollar"),
+    ("use `<!--` " + _LONG_X + " &#36;25 `-->` x", "dollar"),
+])
+def test_what_the_guard_refused_before_318_it_still_refuses(text, name):
+    assert pv.bulletin_offence(text) == name
+
+
+def test_a_credential_after_an_unterminated_mid_line_comment_still_refuses():
+    assert b.secret_offence("note <!-- api&#95;key=abcdef123") == b.SECRET_PATTERN
 
 
 def test_strip_html_keeps_text_that_is_not_markup():

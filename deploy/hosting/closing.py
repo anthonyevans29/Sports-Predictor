@@ -103,6 +103,7 @@ import hashlib
 import json
 import os
 import re
+import signal
 import sqlite3
 import subprocess
 import sys
@@ -612,13 +613,47 @@ def push_mirror(label: str = "closing") -> dict:
 # follows (push_mirror: exports_mirror.py push --role <this machine's role>) carries them to <role>/bulletins/: the
 # laptop's MLB closing, role laptop, lands under laptop/bulletins/ with no code of its own.
 
+def _kill_group(p: subprocess.Popen) -> None:
+    """SIGKILL the render's whole process group (its own session: the child and anything it started), else the child."""
+    try:
+        if hasattr(os, "killpg"):
+            os.killpg(p.pid, signal.SIGKILL)
+        else:                                   # pragma: no cover - no process groups on this platform
+            p.kill()
+    except (ProcessLookupError, PermissionError, OSError):
+        pass
+
+
 def run_bulletin(argv: list[str]) -> tuple[int, str]:
     """The hook's subprocess boundary (tests replace it): `python cli.py <argv>` of this code's checkout, in the
     closing's checkout (cwd sp_common.REPO, where the closing file, the slate file and exports/bulletins/ are), its
-    output captured, cut at BULLETIN_TIMEOUT_S (subprocess.TimeoutExpired: the child is killed). (exit, console)."""
-    r = subprocess.run([sys.executable, str(CODE_ROOT / "cli.py"), *argv], cwd=c.REPO, capture_output=True,
-                       text=True, timeout=BULLETIN_TIMEOUT_S)
-    return r.returncode, (r.stdout or "") + (r.stderr or "")
+    output captured, cut at BULLETIN_TIMEOUT_S. (exit, console).
+    The render runs in its own session, so the bound kills its whole process group, never only the child: a process
+    the render started and left holding the output pipe would otherwise outlive the hook and hold the push to the
+    bound. A child that exited by the bound keeps its own exit (whatever it left behind is killed, the output drained);
+    one still running is killed with its group and subprocess.TimeoutExpired raised. Any other exception here
+    (an interrupt included) kills the group first: nothing the hook started outlives it."""
+    p = subprocess.Popen([sys.executable, str(CODE_ROOT / "cli.py"), *argv], cwd=c.REPO, stdout=subprocess.PIPE,
+                         stderr=subprocess.PIPE, text=True, start_new_session=True)
+    try:
+        out, err = p.communicate(timeout=BULLETIN_TIMEOUT_S)
+    except subprocess.TimeoutExpired:
+        exited = p.poll() is not None           # the child is done; something it left holds the pipe
+        _kill_group(p)
+        try:
+            out, err = p.communicate(timeout=5)
+        except subprocess.TimeoutExpired:       # a leftover that left the group still holds the pipe
+            p.kill()
+            out, err = "", ""
+        if not exited:
+            raise
+    except BaseException:
+        _kill_group(p)
+        raise
+    return p.returncode, (out or "") + (err or "")
+
+
+BULLETIN_REFUSED_MARK = "BULLETIN REFUSED"   # bulletin.run's refusal verdict line (exit 2) begins so
 
 
 def _bulletin_error(lines: list[str]) -> str | None:
@@ -634,9 +669,11 @@ def bulletin_hook(stage: str, path: str, fam: str, rec: dict, head: str, title: 
     """Addendum 250 item 3 / addendum 321 item 2: one `python cli.py bulletin --<stage>-file <path> --out-dir
     exports/bulletins` (the kept file: the closing file just written, or the slate file just linked), a subprocess
     under a try. Records rec["bulletin"] {command, exit (None: timed out or never ran), seconds, tail (the console's
-    last BULLETIN_TAIL_LINES, redacted)[, error]} and prints the render's console. Exit 0: nothing else. Exit 2 (the
-    guard, or an input it would not render): rec["bulletin_refused"] True. Anything else (another exit, the bound,
-    an exception): rec["bulletin_failed"] True. A refusal or a failure is notified as the closing-file failure is
+    last BULLETIN_TAIL_LINES, redacted)[, error]} and prints the render's console. Exit 0: nothing else. Exit 2 WITH
+    the render's own `BULLETIN REFUSED` verdict line (the guard, or an input it would not render):
+    rec["bulletin_refused"] True. Anything else: rec["bulletin_failed"] True. That includes another exit, the bound,
+    an exception, and an exit 2 without that line: Python that cannot open cli.py and click's usage error also exit
+    2, and a broken checkout or command is a failure, never a guard refusal. A refusal or a failure is notified as the closing-file failure is
     (notify_failure: `head` names the run, "Closing <start>: PAGED" / "SLATE <FAMILY> <date>: LINKED"; `title` the
     slate's notice title, None the closing's), receipted rec["bulletin_failure_notification"], one ✗ line printed.
     NOTHING ELSE: rec["exit"] and rec["failed"] are never touched, nothing is run again, and the caller's push
@@ -662,7 +699,8 @@ def bulletin_hook(stage: str, path: str, fam: str, rec: dict, head: str, title: 
         if b["exit"] == 0:
             print(f"· bulletins ({stage}): exit 0 in {b['seconds']}s")
             return
-        word, key = ("REFUSED", "bulletin_refused") if b["exit"] == 2 else ("FAILED", "bulletin_failed")
+        refused = b["exit"] == 2 and str(b.get("error") or "").startswith(BULLETIN_REFUSED_MARK)
+        word, key = ("REFUSED", "bulletin_refused") if refused else ("FAILED", "bulletin_failed")
         rec[key] = True
         why = f"exit {b['exit']}" if b["exit"] is not None else b["error"]
         rec["bulletin_failure_notification"] = notify_failure(

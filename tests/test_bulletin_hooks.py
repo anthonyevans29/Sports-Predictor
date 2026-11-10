@@ -157,6 +157,87 @@ def test_an_exception_at_the_boundary_never_reaches_the_run(box, monkeypatch):
     assert box.pushes == ["closing"] and box.notes[-1].startswith(f"{HEAD} FAILED (OSError: no python here, ")
 
 
+def test_an_exit_2_without_the_renders_refusal_line_is_a_failure(real, monkeypatch, tmp_path):
+    """Exit 2 is a refusal only WITH bulletin.run's `BULLETIN REFUSED` verdict line. Python that cannot open cli.py
+    (a broken checkout) and click's usage error exit 2 too: they are failures, never the guard."""
+    monkeypatch.setattr(mc, "CODE_ROOT", tmp_path / "nowhere")              # the real subprocess: no cli.py there
+    assert mc.run("NFL", start=at(35), now=NOW) == 0
+    r = runs("NFL")[-1]
+    assert r["exit"] == 0 and r["bulletin"]["exit"] == 2 and r["bulletin_failed"] is True and "bulletin_refused" not in r
+    assert "can't open file" in r["bulletin"]["error"]
+    assert real.notes[-1] == f"{HEAD} FAILED (exit 2, {NFL_CLOSING}) · not run again\nmachine: laptop"
+    assert real.pushes == ["closing"] and r["push"]["exit"] == 0
+
+
+def test_a_usage_error_exit_2_is_a_failure_and_the_guards_line_a_refusal(box, monkeypatch):
+    out = {"usage": (2, "Usage: cli.py bulletin [OPTIONS]\nError: No such option: --x"),
+           "guard": (2, "BULLETIN REFUSED NFL closing: 1 file(s) matched the privacy guard; nothing written")}
+    for name, want in (("usage", "bulletin_failed"), ("guard", "bulletin_refused")):
+        rec = {}
+        monkeypatch.setattr(mc, "run_bulletin", lambda argv, v=out[name]: v)
+        mc.bulletin_hook("closing", NFL_CLOSING, "NFL", rec, "Closing NFL x: PAGED")
+        assert rec[want] is True and len({"bulletin_failed", "bulletin_refused"} & set(rec)) == 1, name
+
+
+def test_a_notice_that_raises_never_reaches_the_run_and_the_push_proceeds(box, monkeypatch):
+    """The hook's outer guard: anything raised after the subprocess (the notice, here) is bulletin_failed, and the run
+    still writes its receipt and pushes (without that guard the run would page and never push)."""
+    monkeypatch.setattr(mc, "run_bulletin", lambda argv: (1, "BULLETIN FAILED: x"))
+    def notice(*a, **k):
+        raise RuntimeError("notice down")
+    monkeypatch.setattr(mc, "notify_failure", notice)
+    assert mc.run("NFL", start=at(35), now=NOW) == 0
+    r = runs("NFL")[-1]
+    assert r["exit"] == 0 and r["bulletin_failed"] is True and "failed" not in r
+    assert box.pushes == ["closing"] and r["push"]["exit"] == 0
+
+
+# a stand-in cli.py: it starts a long-lived process of its own, writes that pid to its last argument, prints a verdict
+# line and exits 0 ("hang" in its arguments: it then sleeps itself as well)
+FAKE_CLI = """import pathlib, subprocess, sys, time
+p = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+pathlib.Path(sys.argv[-1]).write_text(str(p.pid))
+print("BULLETIN NFL closing: 0 file(s) written", flush=True)
+if "hang" in sys.argv:
+    time.sleep(60)
+"""
+
+
+def _alive(pid: int) -> bool:
+    import time
+    for _ in range(40):                         # SIGKILL lands asynchronously
+        try:
+            state = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0]
+        except (FileNotFoundError, ProcessLookupError):
+            return False
+        if state in ("Z", "X"):
+            return False
+        time.sleep(0.05)
+    return True
+
+
+@pytest.mark.skipif(not Path("/proc/self/stat").exists(), reason="reads process state from /proc")
+def test_a_leftover_holding_the_pipe_is_killed_and_the_childs_exit_stands(real, monkeypatch, tmp_path):
+    """A render that exits 0 but leaves a process holding its output pipe: at the bound the whole group is killed, the
+    child's exit 0 stands (not "timed out"), and nothing it started outlives the hook."""
+    (tmp_path / "cli.py").write_text(FAKE_CLI)
+    monkeypatch.setattr(mc, "CODE_ROOT", tmp_path)
+    monkeypatch.setattr(mc, "BULLETIN_TIMEOUT_S", 2)
+    rc, out = mc.run_bulletin(["bulletin", str(tmp_path / "pid")])
+    assert rc == 0 and "BULLETIN NFL closing: 0 file(s) written" in out
+    assert not _alive(int((tmp_path / "pid").read_text()))
+
+
+@pytest.mark.skipif(not Path("/proc/self/stat").exists(), reason="reads process state from /proc")
+def test_a_render_still_running_at_the_bound_is_killed_with_its_group(real, monkeypatch, tmp_path):
+    (tmp_path / "cli.py").write_text(FAKE_CLI)
+    monkeypatch.setattr(mc, "CODE_ROOT", tmp_path)
+    monkeypatch.setattr(mc, "BULLETIN_TIMEOUT_S", 2)
+    with pytest.raises(subprocess.TimeoutExpired):
+        mc.run_bulletin(["bulletin", "hang", str(tmp_path / "pid")])
+    assert not _alive(int((tmp_path / "pid").read_text()))
+
+
 def test_the_receipt_keeps_a_redacted_bounded_tail(box, monkeypatch):
     """The console's last lines, through sp_common.redact, BULLETIN_TAIL_LINES of them, each cut at 300."""
     monkeypatch.setattr(mc, "run_bulletin", lambda argv: (1, "\n".join(

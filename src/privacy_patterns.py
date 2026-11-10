@@ -41,8 +41,8 @@ no pool figure, no account id"), each a named pattern over every line of the who
                      any name ending _usd / _dollars, anywhere
   uuid               an account id's shape: ANY UUID-shaped token, ticker or none (a bulletin carries no UUID at all:
                      match ids are integers, run ids are stamps; the stricter reading, law 4)
-Each pattern reads every line as written, every line as RENDERED (rendered(): HTML entities decoded, tags and
-Markdown emphasis removed, NFKC-folded, format characters dropped, whitespace one space) and the whole text as
+Each pattern reads every line as written, every line as RENDERED (rendered(): HTML comments and tags of any length
+removed, HTML entities decoded, tags and Markdown emphasis removed, NFKC-folded, format characters dropped, whitespace one space) and the whole text as
 rendered with every line break one space, so a value broken across lines, a fullwidth sign or an entity is read the
 way the card or GitHub shows it.
 The API key is the redaction's (sp_common.redact runs over every line before the guard), not a pattern here.
@@ -128,6 +128,39 @@ BULLETIN_PATTERNS = (
 PATTERN_NAMES = tuple(n for n, _ in BULLETIN_PATTERNS)
 
 _TAG = re.compile(r"<[^<>\n]{0,200}>")
+# ARCHITECT 2026-11-10 08:50 ET, addendum 318 item 2 (Codex #894 P1 at :130): "the rendered reading strips HTML
+# comments (`<!--` … `-->`, any length; an unterminated comment hides to the end of the text, and the raw reading — which
+# the credential check already takes — still sees it) and tags of any length with a small scanner, as the link collapse
+# is". The scanner reads the text as written, before entities are decoded (an entity-written `&lt;!--` is text GitHub
+# shows, not a comment); _TAG still runs where it did, so everything it stripped is stripped as before.
+_ATTRS = r"""(?:\s+[A-Za-z_:][A-Za-z0-9_.:-]*(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'=<>`]+))?)*\s*/?>"""
+_OPEN_TAG = re.compile(r"<[A-Za-z][A-Za-z0-9-]*" + _ATTRS)
+_CLOSE_TAG = re.compile(r"</[A-Za-z][A-Za-z0-9-]*\s*>")
+
+
+def strip_html(text: str) -> str:
+    """HTML comments and tags removed, of any length, as GitHub hides them (addendum 318 item 2): a comment from `<!--`
+    to the first `-->` after it (`<!-->` and `<!--->` are empty comments), an unterminated one to the end of the text;
+    an open tag (a letter-led name, attributes whose quoted values may hold `>`, `<` or a line break) or a closing tag.
+    A `<` that starts neither is kept as written."""
+    t = str(text)
+    out: list[str] = []
+    i, n = 0, len(t)
+    while i < n:
+        if t[i] == "<":
+            if t.startswith("<!--", i):
+                e = t.find("-->", i + 2)
+                if e == -1:
+                    break                              # unterminated: hidden to the end of the text
+                i = e + 3
+                continue
+            m = _OPEN_TAG.match(t, i) or _CLOSE_TAG.match(t, i)
+            if m:
+                i = m.end()
+                continue
+        out.append(t[i])
+        i += 1
+    return "".join(out)
 # ARCHITECT 2026-11-09 09:55 ET, addendum 304 item 1: Markdown link and image syntax collapses to its visible label
 # BEFORE any pattern runs ("[label](url) → label, ![alt](url) → alt, reference-style [label][ref] → label, and
 # autolinks <url> → the url"), so a value broken by link syntax reads as GitHub shows it.
@@ -234,12 +267,13 @@ _MARKUP = str.maketrans("", "", "\\*`~")
 
 
 def rendered(text: str) -> str:
-    """The text as a reader sees it once it is rendered: HTML entities decoded (&#36; is a $ on GitHub), tags and
+    """The text as a reader sees it once it is rendered: HTML comments and tags of any length removed (strip_html,
+    addendum 318 item 2), HTML entities decoded (&#36; is a $ on GitHub), short tags and
     Markdown's emphasis and escape characters removed, link and image syntax collapsed to its label (addendum 304
     item 1), compatibility forms folded (NFKC: a fullwidth sign or digit is
     the plain one), format characters (zero-width spaces, joiners) dropped, and every whitespace run, line breaks
     included, one space (the card's textwrap and a Markdown list item's continuation both join a broken line)."""
-    t = unicodedata.normalize("NFKC", _TAG.sub("", collapse_links(html.unescape(str(text)))))
+    t = unicodedata.normalize("NFKC", _TAG.sub("", collapse_links(html.unescape(strip_html(text)))))
     t = "".join(ch for ch in t if unicodedata.category(ch) != "Cf").translate(_MARKUP)
     return re.sub(r"\s+", " ", t)
 

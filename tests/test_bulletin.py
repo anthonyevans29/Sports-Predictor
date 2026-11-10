@@ -1028,6 +1028,40 @@ def test_a_label_with_a_quoted_dashed_or_tag_joined_value_is_refused(text):
     assert b.secret_offence(text) == b.SECRET_PATTERN
 
 
+# ARCHITECT 2026-11-10 08:50 ET, addendum 318 item 2 (Codex #894 P1, privacy_patterns.py:130): a credential or a
+# figure split by an HTML comment or tag longer than _TAG's 200 characters renders contiguous on GitHub; the rendered
+# reading strips comments and tags of any length (strip_html), so both offence checks read it.
+_LONG = {"a 210-character": 210, "a 4,000-character": 4000}
+
+
+@pytest.mark.parametrize("size", list(_LONG.values()), ids=list(_LONG))
+@pytest.mark.parametrize("form", ["comment", "span title"])
+def test_a_long_comment_or_tag_splitting_a_value_is_read_as_rendered(form, size):
+    def split(left, right):
+        if form == "comment":
+            return left + "<!--" + "x" * size + "-->" + right
+        return left + "<span title='" + "x" * size + "'>" + right
+    assert len(split("", "")) > 200                                          # longer than _TAG's cap
+    assert b.secret_offence(split("api key", "abcdef123")) == b.SECRET_PATTERN
+    assert pv.bulletin_offence(split(_S, "25")) == "dollar"
+    assert pv.rendered(split("api key", "abcdef123")) == "api keyabcdef123"
+
+
+def test_an_unterminated_comment_hides_to_the_end_of_the_text_and_the_raw_reading_still_sees_it():
+    text = "edge below the floor <!-- " + _S + "25 · api key: abcdef123"
+    assert pv.rendered(text) == "edge below the floor "                      # hidden to the end, as GitHub hides it
+    assert pv.bulletin_offence(text) == "dollar"                             # the line as written still carries it
+    assert b.secret_offence("edge below the floor <!-- api key: abcdef123") == b.SECRET_PATTERN
+
+
+def test_strip_html_keeps_text_that_is_not_markup():
+    """A `<` that opens neither a comment nor a tag is text: a comparison, an autolink, an entity-written opener."""
+    assert pv.strip_html("x < 5 and y > 3") == "x < 5 and y > 3"
+    assert pv.strip_html("<https://example.com/a>") == "<https://example.com/a>"
+    assert pv.strip_html("&lt;!-- shown") == "&lt;!-- shown"
+    assert pv.strip_html("a<span\ntitle='q>r'\n>b</span>c<!-->d<!--->e") == "abcde"
+
+
 @pytest.mark.parametrize("text", ["api keys are rotated", "the private keyholders", "Bearer Rovers 2-1",
                                   "a secret key — the press", "auth token -> gone"])
 def test_the_widened_separators_leave_prose_alone(text):

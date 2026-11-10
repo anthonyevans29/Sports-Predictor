@@ -11,7 +11,6 @@ small U+FE69 form, then optional blanks, an optional sign, optional blanks, an o
 tracked .md, .txt or .json file under docs/receipts/ or docs/ledger/ only. A price in cents
 (56c, 56¢) is not a dollar amount and never matches; unit fractions (0.5u) and percentages carry no $ sign. The
 decision and change records' historical lines are outside this rule (read once by pattern for the PR body)."""
-import re
 import subprocess
 from pathlib import Path
 
@@ -20,35 +19,14 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent
 SUFFIXES = (".md", ".txt", ".json")
 EXCLUDED = ("tests/fixtures/",)
-UUID = re.compile(r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b")
-# A Kalshi market ticker: today's KX prefix, or the ticker's own shape whatever its prefix (SERIES-YYMONDD..., the date
-# segment Kalshi's game tickers carry), because prefixes change (src/adapters/kalshi.py: the KX* clearinghouse migration).
-TICKER = re.compile(r"\bKX[A-Z0-9]+-[A-Z0-9]|\b[A-Z][A-Z0-9]{2,}-[0-9]{2}(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)[0-9]{2}")
-# (ii) the CSV header row: a run of field names joined by a CSV delimiter (comma, U+241F, tab, semicolon or pipe; a name
-# may be double-quoted) holding the three names in that order. A prose sentence that names the fields (a ruling quoting
-# them, `in backticks`, a list wrapped across lines) is not a header row and is not caught: the guard is for the row.
-_FIELD = r'"?[A-Za-z_][A-Za-z0-9_]*"?'
-CSV_RUN = re.compile(_FIELD + r"(?:[ \t]*[,\u241f\t;|][ \t]*" + _FIELD + r")+")
-SEQUENCE = ("quantity_fp", "entry_price_dollars", "realized_pnl_with_fees_dollars")
-# (iii) a dollar amount: a dollar sign ($, U+FF04 or U+FE69), optional blanks (space, tab, U+00A0), an optional sign
-# (ASCII plus or minus, or U+2212), optional blanks, an optional decimal point, then a digit; in the receipt and
-# ledger-entry directories only. A $ with no digit after it ($HOME, ${var}, a bare $) never matches.
-DOLLAR = re.compile("[$\uff04\ufe69][ \t\u00a0]*[+\\-\u2212]?[ \t\u00a0]*\\.?[0-9]")
+# The patterns' ONE definition (ARCHITECT 2026-11-04, addendum 250 item 2: "The patterns are imported from the test's
+# module or a shared module the test imports: one definition"): src/privacy_patterns.py, which the bulletin renderer's
+# writer-side guard imports too. Moved there verbatim; the rules here are unchanged.
+from src.privacy_patterns import CSV_RUN, DOLLAR, SEQUENCE, TICKER, UUID  # noqa: E402,F401
+from src.privacy_patterns import is_header as _is_header  # noqa: E402
+from src.privacy_patterns import is_row as _is_row  # noqa: E402
+
 DOLLAR_SCOPE = ("docs/receipts/", "docs/ledger/")
-
-
-def _is_row(line: str) -> bool:
-    return bool(UUID.search(line) and TICKER.search(line))
-
-
-def _is_header(line: str) -> bool:
-    """A CSV-shaped run of field names on the line holds the three header names in sequence."""
-    for m in CSV_RUN.finditer(line):
-        names = [f.strip().strip('"') for f in re.split(r"[,\u241f\t;|]", m.group(0))]
-        at = [names.index(n) for n in SEQUENCE if n in names]
-        if len(at) == len(SEQUENCE) and at == sorted(at):
-            return True
-    return False
 
 
 def offenders(text: str, name: str) -> list[str]:

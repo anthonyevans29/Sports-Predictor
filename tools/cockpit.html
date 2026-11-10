@@ -125,7 +125,7 @@ details.sig pre{max-height:220px;margin:6px 0 0}
 </style>
 </head>
 <body>
-<h1>Cockpit <span class="chip">card + desk + ledger + next 24h + today · policy v1.2</span></h1>
+<h1>Cockpit <span class="chip">card + desk + ledger + next 24h + today · policy v1.2 · reads the mirror through your GitHub connector</span></h1>
 <div class="row" style="margin-bottom:10px">
   <button id="tabCard" class="ghost">Card</button>
   <button id="tabDesk">Desk</button>
@@ -143,12 +143,21 @@ details.sig pre{max-height:220px;margin:6px 0 0}
       <input type="file" id="gptFile" accept=".txt,.md"></div>
   </div>
   <div class="row" style="margin-top:8px">
-    <div><label>Exports mirror (F2.5): fine-grained READ-ONLY token, pasted once — kept in this browser only</label><br>
+    <div><label>Exports mirror — read through YOUR GitHub connector, as you (no token in this page; the connector asks once)</label><br>
+      <button id="ghLatestBtn">Load latest from host</button>
+      <input type="date" id="ghDate" style="background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:5px 6px;font-size:13px">
+      <button id="ghDateBtn" class="ghost">Load host/&lt;date&gt;</button>
+      <label style="display:inline-flex;align-items:center;gap:4px"><input type="checkbox" id="ghLaptop"> laptop/ instead of host/</label>
+      <span class="note" id="ghNote"></span> <button id="ghPartialBtn" class="ghost" hidden></button></div>
+  </div>
+  <details class="note" style="margin-top:6px"><summary>Token fallback (F2.5) — only if the connector is unavailable in this view</summary>
+  <div class="row" style="margin-top:6px">
+    <div><label>fine-grained READ-ONLY token, pasted once — kept in this browser only</label><br>
       <input type="password" id="mirrorToken" placeholder="github_pat_…" autocomplete="off" style="width:16em">
       <input type="text" id="mirrorRepo" placeholder="owner/repo" style="width:18em">
-      <button id="mirrorBtn">Load latest from host</button>
+      <button id="mirrorBtn" class="ghost">Load latest from host (token)</button>
       <span class="note" id="mirrorNote"></span></div>
-  </div>
+  </div></details>
 </div>
 
 <div id="cardView" hidden></div>
@@ -163,7 +172,7 @@ details.sig pre{max-height:220px;margin:6px 0 0}
     <b>NHL</b> — PASS all <span style="opacity:.75">(pre-gate: no production model)</span> · Base 1u · parlays 0.25u ≤3 legs, positive edge, no shared teams (model_edge only).<br>
     <b>VALUE-SIDE</b> (v1.2 CANDIDATE, shadow 2026-09-29; model sports) — edge = model − market on EVERY side · the value side is not the model's top pick and clears the 4pp floor → value_shadow at 0.25u notional, NOT staked · graded like quarantine shadows · promotion to real sizing only via version bump after ≥ 30 graded · <b id="vsProgress">graded —/30</b> <span style="opacity:.75">(MNF wk 4: CHI +13.4pp as the dog, Desk said PASS, CHI won 27-7)</span><br>
     <b>POSTSEASON</b> (sizing caution, v1.1 addendum 2026-10-01) — rows the export marks <code>stage = postseason</code> (MLB, from our gameType mapping F/D/L/W) get HALF units until 30 postseason calls are graded · <b id="psProgress">graded —/30</b> · stage unknown (null) = labelled, not halved<br>
-    <b>EXEC EDGE</b> (#87 v1.1 addendum, ARCHITECT-RULE 2026-10-06 — supersedes the 2026-09-29 informational K2 and the 2026-09-30 join-bid doctrine) — executable cost = <b>ask + taker fee</b> (0.07·M·P(1−P), nearest cent per fill of the order's OWN contract count) · default execution <b>TAKE at the ask</b>; join at bid + 1¢ only when the spread is ≥ 3¢ · a PLAY gets full tier units only at exec edge ≥ 4pp, else HALF (no executable quote = half) · VENUE needs fair ≥ 5pp AND exec ≥ 4pp, on the best side clearing both · parlay legs priced at executable cost (independence estimate) · LADDERs not resized (revisit at 30 graded) · maker cost shown for joins as reference · fees: game series M=1 (taker 0.07, maker 0.0175 = ¼ of taker — #206), MLB pre-live M=0.5 · <b>MLB is never executed live</b> · an AWAY pick on a two-way market (NFL/NHL/NCAA/MLB) with no own leg is priced on its NO side (1 − home bid/ask, the same fee per fill; #89) · soccer 1X2 away / DRAW: their own legs, never a derived NO (NO on HOME is draw-or-away) · ledger records exec cost at claim and execution.<br>
+    <b>EXEC EDGE</b> (#87 v1.1 addendum, ARCHITECT-RULE 2026-10-06 — supersedes the 2026-09-29 informational K2 and the 2026-09-30 join-bid doctrine) — executable cost = <b>ask + taker fee</b> (0.07·M·P(1−P), nearest cent per fill of the order's OWN contract count) · default execution <b>TAKE at the ask</b>; join at bid + 1¢ only when the spread is ≥ 3¢ · a PLAY gets full tier units only at exec edge ≥ 4pp, else HALF (no executable quote = half); exec ≤ 0 PASS · VENUE needs fair ≥ 5pp AND exec ≥ 4pp, on the best side clearing both · parlay legs priced at executable cost (independence estimate) · LADDERs not resized (revisit at 30 graded) · maker cost shown for joins as reference · fees: game series M=1 (taker 0.07, maker 0.0175 = ¼ of taker — #206), MLB pre-live M=0.5 · <b>MLB is never executed live</b> · an AWAY pick on a two-way market (NFL/NHL/NCAA/MLB) with no own leg is priced on its NO side (1 − home bid/ask, the same fee per fill; #89) · soccer 1X2 away / DRAW: their own legs, never a derived NO (NO on HOME is draw-or-away) · ledger records exec cost at claim and execution.<br>
     <b>VENUE-EDGE</b> (shadow; market-only family only — NHL, NCAA, cups when priced: that waits on the skew-test ruling, ARCHITECT 2026-10-13; model sports never) — <b>HELD (ARCHITECT 2026-10-07): book quote age unknown → no reference. Place NO venue order on either machine's files</b>; a file with the hold renders its venue rows PASS · no reference with the numbers kept for the record. The rule when the hold lifts (by ruling, once a quote time is stored): ≥4 books + two-sided Kalshi · |book fair − Kalshi| ≥ 5.0pp (frozen) → the side books say Kalshi underprices · fixed 0.25u · UNL / single-venue / in-play never · CL (three-way soccer) none before the skew test is read (ARCHITECT 2026-10-13, desk_policy SKEW_TEST_VENUE_COMPS; the stop's reason is rendered from the file).<br>
     <b>KALSHI-ONLY</b> (provisional reference, v1.1 addendum RULED 2026-10-01; model sports, two-way boards) — books absent at T-60 + Kalshi two-sided, spread ≤ 2c, series in the ruled fee table → the Kalshi MID is the market reference · row flagged "kalshi-only" · HALF units (0.5 × tier) · a real call, not a shadow · value-side and quarantine unchanged · ledger records reference=kalshi_only · review at 30 graded (promote or retire; NFL and PL rows only) · <b id="koProgress">graded —/30</b> · <b>MLB SUSPENDED (ARCHITECT 2026-10-08, Q3)</b>: an MLB row is never a call on a kalshi-only reference — PASS, no reference, units 0, no order, no shadow units ("kalshi-only suspended for MLB: the model number is unblended without books"); the would-be call is shown as a hold, for the record only (mid, bid/ask, spread, raw edge, edge on equal footing = half the raw edge); reopens only by ruling, on a receipt<br>
     <b>KICKOFF</b> (presentation only, 2026-10-01) — every Desk row shows its kickoff and "re-run by" = T-60 (local clock).<br>
@@ -253,7 +262,7 @@ details.sig pre{max-height:220px;margin:6px 0 0}
 
 <div id="ledgerView" hidden>
   <div class="card">
-    <h2 style="margin-top:0">Ledger <span class="note">bd_ledger_v1 · this browser only · fair-odds P&amp;L, pre-fee</span></h2>
+    <h2 style="margin-top:0">Ledger <span class="note">bd_ledger_v1 · fair-odds P&amp;L, pre-fee · <span id="ledgerStoreNote">store: this browser (the private store is loading…)</span></span></h2>
     <div class="note" id="ledgerExportsLine" style="margin-bottom:8px" title="ARCHITECT 2026-10-18, addendum 125 item 4 (#544): no --desk export reads a ledger summary; counts_source default 0 is the permanent reading. ARCHITECT 2026-11-01, addendum 197 item 2: a loaded v1.1 file keeps the pinned line (postseason rows sized at half until v1.2); a loaded v1.2 file shows the v1.2 line (the unit is a fraction of the pool, addendum 179); none loaded: the Cockpit's own policy's">exports read no ledger summary; policy v1.2: the unit is a fraction of the pool (addendum 179); v1.1's postseason half-sizing no longer applies</div>
     <div class="row">
       <div><label>Results files / finished fixtures (JSON — same intake for both)</label><br>
@@ -589,7 +598,12 @@ function passKindTag(k){
     :k==="kickoff_clock"?'<span class="passkind">kickoff disputed</span>'
     // addendum 214 (ARCHITECT 2026-11-02): every NFL row is PASS, "nfl_elo_v1 uncertified (addendum 214): market-only
     // until the confirmation read" (desk_policy.NFL_MARKET_ONLY_KIND; the reason is rendered from the file)
-    :k==="market_only"?'<span class="passkind">market-only · uncertified</span>':"";
+    :k==="market_only"?'<span class="passkind">market-only · uncertified</span>'
+    // addendum 305 (ARCHITECT 2026-11-09): a PLAY whose exec edge is <= 0 is PASS, "the Desk never buys above its own
+    // price": the gate's or the final order's exec edge (addendum 309 item 1; desk_policy pass kind exec_non_positive;
+    // the reason, naming the figure that failed, its all-in cost and the model's price, is rendered from the file).
+    // The Cockpit computes no exec PASS itself.
+    :k==="exec_non_positive"?'<span class="passkind">exec ≤ 0</span>':"";
 }
 // Q3 K3: the file's kalshi_only_hold — what the 2026-10-01 rule would have done, FOR THE RECORD ONLY. Never a call:
 // nothing here is counted, logged or staked.
@@ -689,17 +703,19 @@ function fileVenue(r){ const v=r.fileDesk.venue||{};
     // VENUE QUOTE AGE (ARCHITECT 2026-10-07): a row the file HOLDS (no quote time stored) — a re-run cannot clear it
     held:!!v.quote_age_hold}; }
 
-// The summary's PASS breakdown: each kind counted once, "other" the rest (addendum 214 added market-only, NFL).
+// The summary's PASS breakdown: each kind counted once, "other" the rest (addendum 214 added market-only, NFL;
+// addendum 305 added exec <= 0, counted on its own, never under "other").
 function passSummary(n){
   if(!n.passes) return "";
-  const other=n.passes-n.passNoRef-n.passFloor-n.passStarted-n.passShadow-n.passKoSusp-n.passMktOnly;
+  const other=n.passes-n.passNoRef-n.passFloor-n.passStarted-n.passShadow-n.passKoSusp-n.passMktOnly-(n.passExecNonPos||0);
   return ` (${n.passNoRef} no reference · ${n.passFloor} below floor${n.passStarted?` · ${n.passStarted} started`:""}`
     +`${n.passShadow?` · ${n.passShadow} shadow league`:""}${n.passKoSusp?` · ${n.passKoSusp} kalshi-only suspended (MLB)`:""}`
-    +`${n.passMktOnly?` · ${n.passMktOnly} market-only (NFL, uncertified)`:""}${other?` · ${other} other`:""})`;
+    +`${n.passMktOnly?` · ${n.passMktOnly} market-only (NFL, uncertified)`:""}`
+    +`${n.passExecNonPos?` · ${n.passExecNonPos} exec ≤ 0`:""}${other?` · ${other} other`:""})`;
 }
 function policy(){
   renderProgress();
-  let plays=0,ladders=0,passes=0,passNoRef=0,passFloor=0,passStarted=0,passShadow=0,passKoSusp=0,passMktOnly=0;
+  let plays=0,ladders=0,passes=0,passNoRef=0,passFloor=0,passStarted=0,passShadow=0,passKoSusp=0,passMktOnly=0,passExecNonPos=0;
   const tb=$("slate").querySelector("tbody"); tb.innerHTML="";
   deskCalls=[]; deskValue=[];
   for(const r of rows){
@@ -708,7 +724,7 @@ function policy(){
     const {call,cls,units,edge,tags,reasons,shadowUnits,passKind,mktRef,kalOnly}=fileCall(r);
     deskCalls.push({r,call,units,edge,tags:tags.slice(),reasons:reasons.slice(),cls,shadowUnits,passKind,mktRef,kalOnly});
     const vs=fileValue(r); if(vs) deskValue.push({r,v:vs});
-    if(call==="PASS"){passes++; if(passKind==="noref")passNoRef++; else if(passKind==="floor")passFloor++; else if(passKind==="started")passStarted++; else if(passKind==="shadow_league")passShadow++; else if(passKind==="kalshi_only_suspended")passKoSusp++; else if(passKind==="market_only")passMktOnly++;}
+    if(call==="PASS"){passes++; if(passKind==="noref")passNoRef++; else if(passKind==="floor")passFloor++; else if(passKind==="started")passStarted++; else if(passKind==="shadow_league")passShadow++; else if(passKind==="kalshi_only_suspended")passKoSusp++; else if(passKind==="market_only")passMktOnly++; else if(passKind==="exec_non_positive")passExecNonPos++;}
     else if(call==="LADDER")ladders++; else plays++;
     const tr=document.createElement("tr");
     if(passKind==="noref"||passKind==="started"||passKind==="shadow_league"||passKind==="kalshi_only_suspended"
@@ -739,7 +755,7 @@ function policy(){
     }});
   const corr=Object.entries(teamCount).filter(([t,n])=>n>1).map(([t,n])=>`${t}×${n}`);
   $("summary").textContent=`${sportLabel} · ${rows.length} rows → ${plays} play · ${ladders} ladder · ${passes} pass`
-    +passSummary({passes,passNoRef,passFloor,passStarted,passShadow,passKoSusp,passMktOnly})
+    +passSummary({passes,passNoRef,passFloor,passStarted,passShadow,passKoSusp,passMktOnly,passExecNonPos})
     +(deskValue.length?` · ${deskValue.length} value shadow (not staked)`:"")
     +(corr.length?` · ⚠ correlated exposure: ${corr.join(", ")}`:"")
     +deskSourceNote();
@@ -1455,9 +1471,13 @@ function gradeLedger(L,outs){
 }
 $("resultsFile").addEventListener("change",async e=>{
   const fs=Array.from(e.target.files); if(!fs.length)return;
+  await ingestResultsDocs(await Promise.all(fs.map(async f=>({name:f.name,text:await f.text()}))));
+});
+// The results intake, one path for picked files and for files the connector reads (the same parse, grade, harvest).
+async function ingestResultsDocs(fs){
   let outs=[], picks=[], recs=[];
   for(const f of fs){
-    try{ const doc=JSON.parse(await f.text()); outs=outs.concat(outcomesFromDoc(doc)); picks=picks.concat(picksFromDoc(doc,f.name));
+    try{ const doc=JSON.parse(f.text); outs=outs.concat(outcomesFromDoc(doc)); picks=picks.concat(picksFromDoc(doc,f.name));
       recs=recs.concat(recordLines(doc,f.name)); }
     catch(err){ $("ledgerNote").textContent=`Could not parse ${f.name}: ${err.message}`; return; }
   }
@@ -1468,7 +1488,7 @@ $("resultsFile").addEventListener("change",async e=>{
   $("ledgerNote").textContent=`${outs.length} finished results read · ${n} calls/tickets graded · ${open} still open (unmatched listed below) · void: ${voidCounts(L)} (listed below, out of every tally except an every-leg-moved ticket's push) · legacy join ${lj} (no match id: the ±1-day team join, listed below) · id mismatch ${im} (match id on another game: counted, never graded) · stored predictions: ${picks.length} read, ${np} new (fills re-matched).`
     +dedupeNote(dd)+(storageOK?"":" ⚠ browser storage unavailable — Export the ledger to keep it.");
   renderLedger();
-});
+}
 
 // ---------------------------------------------------------------------
 // REPORTS — settled bets (a parlay ticket counts once), by dimension.
@@ -3039,12 +3059,15 @@ function renderWindow(doc){
 }
 $("windowFile").addEventListener("change",async e=>{
   const f=e.target.files[0]; if(!f) return;
-  try{ const doc=JSON.parse(await f.text());
-    if(!doc.window||!Array.isArray(doc.fixtures)) throw new Error("not a window card (needs window + fixtures)");
-    renderWindow(doc);
-  }catch(err){ $("nextSummary").textContent="Could not read window card: "+err.message; $("nextTable").hidden=true; }
+  ingestWindowText(await f.text());
   e.target.value="";
 });
+function ingestWindowText(text){
+  try{ const doc=JSON.parse(text);
+    if(!doc.window||!Array.isArray(doc.fixtures)) throw new Error("not a window card (needs window + fixtures)");
+    renderWindow(doc); return true;
+  }catch(err){ $("nextSummary").textContent="Could not read window card: "+err.message; $("nextTable").hidden=true; return false; }
+}
 
 function setTab(mode){
   if(mode===true) mode="card"; if(mode===false) mode="desk";
@@ -3065,6 +3088,645 @@ $("tabDesk").addEventListener("click",()=>setTab("desk"));
 $("tabLedger").addEventListener("click",()=>setTab("ledger"));
 $("tabNext").addEventListener("click",()=>setTab("next"));
 $("tabToday").addEventListener("click",()=>setTab("today"));
+
+// =====================================================================
+// THE GITHUB CONNECTOR (ARCHITECT 2026-11-09): the exports mirror is read through the VIEWER'S OWN claude.ai GitHub
+// connector, as the viewer — no token lives in this page or this browser. The connector asks the viewer once. The
+// files are dispatched by kind exactly as picked files are: desk files to loadDocs (coverage included), results
+// files to the ledger's intake, the window card to the Next-24h tab. Nothing is recomputed; nothing is written.
+// =====================================================================
+const GH_OWNER="anthonyevans29", GH_REPO="Sports-Predictor-exports", GH_SERVER="GitHub", GH_TOOL="get_file_contents";
+let mcpNS=null, ghServerName=null;
+function ghNote(t){ const el=$("ghNote"); if(el) el.textContent=t; }
+const ghNoteSet=ghNote;   // 316 item 3: the loader's own note goes through its load's seq check (ghLoadFolder)
+function b64utf8(s){ try{ return new TextDecoder().decode(Uint8Array.from(atob(String(s).replace(/\s+/g,"")),c=>c.charCodeAt(0))); }catch(e){ return ""; } }
+// The connector's answer, read as text whatever shape it comes in: a string, MCP content blocks (text or an embedded
+// resource), the GitHub API's {content, encoding} object, or a JSON value.
+// MCP content blocks → the document's text. The GitHub server answers a file read with TWO blocks (observed 2026-11-09):
+// a text block "successfully downloaded text file (SHA: …)" and a resource block carrying the file; joining them put the
+// status line in front of every JSON document, so the resource blocks come first here and a status line never leads.
+function ghBlocksText(blocks){
+  const isDoc=t=>{ const s=String(t||"").trim(); return s.startsWith("{")||s.startsWith("["); };
+  const res=blocks.filter(b=>b&&b.type==="resource"&&b.resource).map(b=>b.resource.text||(b.resource.blob?b64utf8(b.resource.blob):"")).filter(Boolean);
+  const txt=blocks.filter(b=>b&&b.type==="text").map(b=>b.text||"").filter(Boolean);
+  return res.find(isDoc)||txt.find(isDoc)||res[0]||txt.join("")||"";
+}
+function ghText(res){
+  // the runtime's `payload` is structuredContent, else the FIRST TEXT BLOCK (here the status line), so the result's
+  // content blocks are read first when they hold a document; `payload` is the fallback (a directory listing arrives there)
+  const isBlocks=a=>Array.isArray(a)&&a.length&&a.every(b=>b&&typeof b==="object"&&typeof b.type==="string");
+  if(res&&typeof res==="object"&&isBlocks(res.content)){ const t=ghBlocksText(res.content); const s=String(t||"").trim(); if(s.startsWith("{")||s.startsWith("[")) return t; }
+  let p=(res&&Object.prototype.hasOwnProperty.call(res,"payload"))?res.payload:res;
+  if(p==null) return "";
+  if(typeof p==="string") return p;
+  if(Array.isArray(p)) return isBlocks(p)?ghBlocksText(p):JSON.stringify(p);
+  if(typeof p==="object"){
+    if(isBlocks(p.content)){ const t=ghBlocksText(p.content); if(t) return t; }
+    if(typeof p.content==="string") return p.encoding==="base64"?b64utf8(p.content):p.content;
+    if(typeof p.text==="string") return p.text;
+    if(p.structuredContent) return ghText(p.structuredContent);
+    return JSON.stringify(p);
+  }
+  return String(p);
+}
+function ghEntries(text){
+  let v; try{ v=JSON.parse(text); }catch(e){ return null; }
+  if(Array.isArray(v)) return v;
+  if(v&&Array.isArray(v.entries)) return v.entries;
+  if(v&&Array.isArray(v.content)&&v.content.every(x=>x&&x.name)) return v.content;
+  if(v&&Array.isArray(v.tree)) return v.tree.map(x=>({name:(x.path||"").split("/").pop(),path:x.path,type:x.type==="blob"?"file":x.type}));
+  return null;
+}
+async function ghReady(say){
+  const note=say||ghNote;   // 316 item 3: a load that is no longer the latest passes a note that prints nothing
+  if(mcpNS&&ghServerName) return true;
+  try{ mcpNS=await claude.use("mcp"); }catch(e){ mcpNS=null; }
+  if(!mcpNS){ note("The connector capability is not available in this view (open the Cockpit in claude.ai); the token fallback below still works."); return false; }
+  let lt; try{ lt=await mcpNS.listTools(); }catch(e){ note(`Connector list failed: ${e&&e.code||e}`); return false; }
+  const servers=(lt&&lt.servers)||[];
+  const hit=servers.find(x=>x.server===GH_SERVER)||servers.find(x=>/github/i.test(x.server||""));
+  if(!hit){ note(`No GitHub connector is listed for this page (listed: ${servers.map(x=>x.server).join(", ")||"none"}). Connect GitHub in claude.ai → Connectors, then reload.`); return false; }
+  ghServerName=hit.server;
+  if(hit.tools&&hit.tools.length&&!hit.tools.some(t=>t.name===GH_TOOL)){
+    note(`The ${hit.server} connector lists no ${GH_TOOL} tool (it lists: ${hit.tools.map(t=>t.name).join(", ")}). Tell the architect; the token fallback still works.`); return false; }
+  return true;
+}
+// one read, retried ONCE on a code stamped retryable (reads only: a listing or a file; nothing here writes)
+async function ghCall(path){
+  try{ return ghText(await mcpNS.callTool(ghServerName,GH_TOOL,{owner:GH_OWNER,repo:GH_REPO,path})); }
+  catch(e){
+    // a code the runtime stamps retryable, or GitHub's own 5xx riding inside a tool_error (a transient at GitHub, as a
+    // 502 on the repo lookup was on 2026-11-09): one retry after a short randomized wait, reads only
+    if(e&&(e.retryable||(e.code==="tool_error"&&ghStatus(e)>=500))){ await new Promise(r=>setTimeout(r,Math.min(5000,(e.retryAfterMs||1200)+Math.random()*600)));
+      return ghText(await mcpNS.callTool(ghServerName,GH_TOOL,{owner:GH_OWNER,repo:GH_REPO,path})); }
+    throw e;
+  }
+}
+// the HTTP status GitHub reported inside a tool error's message ("… 502 Server Error", "… 404 Not Found"), else 0
+function ghStatus(e){ const m=String(e&&e.message||"").match(/\b([1-5]\d\d)\b\s+(Server Error|Not Found|Forbidden|Unauthorized|Bad Gateway|Service Unavailable|Gateway Timeout|Too Many Requests|Unprocessable|Bad Request)/i); return m?+m[1]:0; }
+// the connector's failure codes, each with its own fix (never one generic banner)
+function ghErrorText(e,folder){
+  const c=e&&e.code, m=e&&e.message?` — ${String(e.message).slice(0,160)}`:"";
+  switch(c){
+    case "consent_required": case "approval_required": return `${folder}: the GitHub connector needs your permission for this page — allow it in the prompt (or in claude.ai → this artifact's connectors) and press the button again.`;
+    case "not_granted": case "not_in_manifest": return `${folder}: this view is not allowed to use the GitHub connector (declined, or turned off for the page). Re-allow it for this artifact in claude.ai, then press again.`;
+    case "needs_reauth": return `${folder}: your GitHub connector needs re-authentication in claude.ai → Connectors; nothing to retry here until then.`;
+    case "server_not_connected": case "server_not_found": return `${folder}: no GitHub connector is connected for you in claude.ai → Connectors; the token fallback below still works.`;
+    case "selection_required": return `${folder}: you have more than one GitHub connector — pick one in the prompt, then press again.`;
+    case "blocked_by_policy": return `${folder}: the GitHub tool is blocked for you by organization policy.`;
+    case "server_unavailable": case "rate_limited": case "upstream_error": return `${folder}: GitHub did not answer (${c}); retried once — try again in a moment.`;
+    case "tool_error": { const st=ghStatus(e);
+      if(st>=500) return `${folder}: GitHub itself returned ${st} (a transient at GitHub, not this page or the connector); retried once — press again in a moment.`;
+      if(st===404) return `${folder}: GitHub has no such path — no folder for that date in the mirror (14-day retention), or the repo name changed.`;
+      if(st===401||st===403) return `${folder}: GitHub refused the connector's credential (${st}) — the token behind the GitHub connector has expired or lost read access to the mirror; renew it in claude.ai → Connectors.`;
+      if(st===429) return `${folder}: GitHub rate-limited the connector (429); wait a minute and press again.`;
+      return `${folder}: GitHub answered with an error${m}`; }
+    case "capability_disabled": case "capability_removed": return `${folder}: the connector capability is not usable in this view; open the Cockpit in claude.ai.`;
+    case "cancelled": return `${folder}: the call was cancelled.`;
+    case "user_changed": return `${folder}: the signed-in account changed; reload the page.`;
+    default: return `${folder}: ${c||"error"}${m}`;
+  }
+}
+function ghKind(name){
+  const n=name.toLowerCase();
+  if(n.startsWith("window_24h")) return "window";
+  if(/_results(_|\.|$)/.test(n)||/results_tally/.test(n)) return "results";
+  return "desk";   // desk files, coverage, shadows, parlays: loadDocs sorts them and refuses what carries no desk block
+}
+// PARTIAL MIRROR LOAD (ARCHITECT 2026-11-09 16:50 ET, addendum 315 item 2(d), verbatim): "the connector loader acts
+// only when EVERY listed file read and parsed; on any failure it keeps the current slate, claims nothing, and prints
+// which files failed with a "Load the N that read" button that the operator presses knowingly (the note then says
+// "PARTIAL" in the summary line)." So a folder whose every file read and parsed goes to ghApplyLoad at once; a folder
+// with any failure stops BEFORE loadDocs / ingestResultsDocs / ingestWindowText (the slate, the claims, the ledger and
+// the window card are untouched), names each failed file, and holds the read subset for the button alone.
+// ADDENDUM 316 ITEM 3 (ARCHITECT 2026-11-09 19:00 ET, verbatim): "each mirror load takes a sequence number; only the
+// latest load may set the note, the button or the slate; an older load that finishes later prints nothing and claims
+// nothing." ghLoadSeq is the latest press; every note, ghPartial / the button and ghApplyLoad go through the load's own
+// seq check, and the button's held subset carries the seq of the load that read it.
+let ghPartial=null, ghLoadSeq=0;
+function ghPartialButton(n){ const b=$("ghPartialBtn"); if(!b) return; b.hidden=!n; b.textContent=n?`Load the ${n} that read`:""; }
+async function ghLoadFolder(folder){
+  const seq=++ghLoadSeq, live=()=>seq===ghLoadSeq, ghNote=t=>{ if(live()) ghNoteSet(t); };   // 316 item 3
+  ghPartial=null; ghPartialButton(0);           // a new press drops a subset held from an earlier one
+  if(!(await ghReady(ghNote))) return;
+  ghNote(`Reading ${folder}/ through ${ghServerName}…`);
+  let entries;
+  try{ entries=ghEntries(await ghCall(folder)); }
+  catch(e){ ghNote(ghErrorText(e,folder)); if(e&&e.code==="user_changed") mcpNS=null; return; }
+  if(!entries){ ghNote(`${folder}: the connector's answer was not a folder listing (tell the architect the shape; the first 160 chars are in the console).`); console.log("gh folder answer", folder); return; }
+  let files=entries.filter(x=>(x.type==="file"||x.type==="blob"||!x.type)&&/\.json$/i.test(x.name||x.path||"")).map(x=>({name:x.name||String(x.path).split("/").pop(),path:x.path||`${folder}/${x.name}`}));
+  if(!files.length){ ghNote(`${folder}: no .json files listed (${entries.length} entries).`); return; }
+  // a dated folder holds every file of the day (several closings per family); the mirror's own latest/ rule applies
+  // here too — one file per kind, the newest by its stamp (exports_mirror.kind_of / STAMP, mirrored)
+  let folded=0;
+  if(!/\/latest$/.test(folder)){
+    const kindOf=n=>{ let stem=n.replace(/\.[^.]+$/,""); stem=stem.replace(/_?\d{4}-\d{2}-\d{2}(?:[T_]\d{2}:?\d{2}(?::?\d{2})?Z?)?/g,"").replace(/_to/g,""); return stem.replace(/__+/g,"_").replace(/^_+|_+$/g,"")||stem; };
+    const byKind={}; for(const f of files){ const k=kindOf(f.name); if(!byKind[k]||f.name>byKind[k].name) byKind[k]=f; }
+    const kept=Object.values(byKind); folded=files.length-kept.length; files=kept;
+  }
+  // 2(d) "EVERY listed file read and parsed": a file counts as read only when its text parses as a JSON object
+  const got=[], failedNames=[]; let firstErr=null;
+  for(let k=0;k<files.length;k++){ const f=files[k];
+    if(!live()) return;                         // 316 item 3: a newer press took over; this one reads no further
+    ghNote(`Reading ${folder}/ through ${ghServerName}… ${k+1} of ${files.length}`);
+    try{ const t=await ghCall(f.path); let ok=false;
+      if(t&&t.trim().startsWith("{")){ try{ JSON.parse(t); ok=true; }catch(e){ ok=false; } }
+      if(ok) got.push({name:`${folder}/${f.name}`,text:t}); else failedNames.push(`${f.name} (not a JSON document)`); }
+    catch(e){ failedNames.push(`${f.name} (${e&&e.code||"error"})`); if(!firstErr) firstErr=e;
+      if(e&&(e.code==="user_changed"||e.code==="needs_reauth"||e.code==="not_in_manifest"||e.code==="not_granted")){
+        for(const r of files.slice(k+1)) failedNames.push(`${r.name} (not read: stopped at ${e.code})`); break; } }
+  }
+  if(!live()) return;                           // 316 item 3: "an older load that finishes later prints nothing and claims nothing"
+  if(!got.length){ ghNote((firstErr?ghErrorText(firstErr,folder):`${folder}: none of the ${files.length} file(s) read as JSON.`)+` · Failed: ${failedNames.join(", ")}`); return; }
+  if(failedNames.length){
+    // 2(d) "keeps the current slate, claims nothing, and prints which files failed"
+    ghPartial={seq,folder,got,total:files.length,folded,failedNames};
+    ghNote(`${folder}: ${failedNames.length} of ${files.length} file(s) did not read — NOTHING LOADED: the current slate stands and nothing was claimed. `
+      +`Failed: ${failedNames.join(", ")}`+(firstErr?` · ${ghErrorText(firstErr,folder)}`:"")
+      +` · press the load button again, or "Load the ${got.length} that read" to load the subset knowingly (the note will say PARTIAL).`);
+    ghPartialButton(got.length); return;
+  }
+  await ghApplyLoad(folder,got,files.length,folded,[],false,seq);
+}
+// the act itself: dispatch by kind (desk files to loadDocs, results to the ledger's intake, the window card to Next-24h)
+async function ghApplyLoad(folder,got,total,folded,failedNames,partial,seq){
+  if(seq!==ghLoadSeq) return;                   // 316 item 3: only the latest load may set the slate
+  const ghNote=t=>{ if(seq===ghLoadSeq) ghNoteSet(t); };
+  const desk=got.filter(g=>ghKind(g.name.split("/").pop())==="desk"), res=got.filter(g=>ghKind(g.name.split("/").pop())==="results"),
+        win=got.filter(g=>ghKind(g.name.split("/").pop())==="window");
+  let did={coverage:0,refused:[]};
+  if(desk.length) did=await loadDocs(desk);
+  if(res.length) await ingestResultsDocs(res);
+  let winOK=0; for(const w of win) if(ingestWindowText(w.text)) winOK++;
+  const failed=failedNames.length;
+  // 2(d) "the note then says "PARTIAL" in the summary line"
+  ghNote((partial?`PARTIAL — the operator loaded the ${got.length} that read, knowingly: `:"")
+    +`Loaded ${got.length} of ${total} file(s) from ${GH_REPO} ${folder} as you — desk ${desk.length}`
+    +(did.coverage?` (${did.coverage} coverage)`:"")+(did.refused&&did.refused.length?` (${did.refused.length} without desk blocks refused)`:"")
+    +` · results ${res.length} · window card ${winOK}`+(failed?` · ${failed} unreadable, NOT loaded: ${failedNames.join(", ")}`:"")+(folded?` · ${folded} older stamp(s) of the day folded (newest per kind, the mirror's latest/ rule)`:"")+` · ${new Date().toLocaleTimeString()}`);
+}
+// the button the operator presses knowingly (2(d)): loads exactly the subset held from the last press, once
+// 316 item 3: the held subset loads only while it belongs to the latest load
+$("ghPartialBtn").addEventListener("click",async()=>{ const p=ghPartial; if(!p||p.seq!==ghLoadSeq) return; ghPartial=null; ghPartialButton(0);
+  await ghApplyLoad(p.folder,p.got,p.total,p.folded,p.failedNames,true,p.seq); });
+$("ghLatestBtn").addEventListener("click",()=>ghLoadFolder(($("ghLaptop").checked?"laptop":"host")+"/latest"));
+$("ghDateBtn").addEventListener("click",()=>{ const d=$("ghDate").value; if(!d){ ghNote("Pick a date first."); return; }
+  ghLoadFolder(($("ghLaptop").checked?"laptop":"host")+"/"+d); });
+(function(){ const d=new Date(); const et=new Date(d.toLocaleString("en-US",{timeZone:"America/New_York"}));
+  $("ghDate").value=`${et.getFullYear()}-${String(et.getMonth()+1).padStart(2,"0")}-${String(et.getDate()).padStart(2,"0")}`; })();
+
+// =====================================================================
+// THE PRIVATE LEDGER STORE (ARCHITECT 2026-11-09): the ledger (bd_ledger_v1, fills included) is kept in this
+// artifact's own store, readable and writable by the OWNER only (the db rules), so it follows the operator across
+// browsers and devices; this browser's localStorage stays a cache. Every saveLedger write reaches the store
+// (debounced). The ledger is stored as JSON in chunks of 120,000 characters (one document is capped at 256 KiB).
+// ADDENDUM 315 ITEM 2 (ARCHITECT 2026-11-09 16:50 ET), the five fixes, each quoted where it is built: (a) stale
+// sessions (rev + id-merge before every write), (b) edits before load (queued, merged when the load lands), (c) unload
+// (pagehide / hidden flush; the load is rev-ordered), (e) chunk writes (ledger_chunks/<rev>_<i>, each write's own token
+// after the index, the header switches last). (d) is the connector loader above.
+// IDENTITY, read from this page: a call's id is `id` (upsertCalls: c.id=c.id||callKey(c)); a fill's id is `id` (the
+// CSV row joined, importKalshiCSV). A record with no id (none is written so, but an old or hand-edited ledger may hold
+// one) is matched conservatively: a call by its recomputed callKey, a fill by its whole JSON (so two different id-less
+// fills never collapse into one here; enforceLedger's own collapse rule is untouched).
+// =====================================================================
+let dbNS=null, ledgerStoreState="loading", ledgerStoreTimer=null, ledgerStoreSaving=false, ledgerStorePending=false;
+// 2(a) "the rev this page loaded or last wrote": null = no store header seen (an empty store); a v2 header (no rev) = 0
+let ledgerStoreRev=null;
+// ... and WHICH write of that rev. Two writers that both read rev N both write rev N+1, so a rev number alone cannot tell
+// this page's header from another's: the losing tab would see "its" rev and write over the winner's record without a
+// merge (review of this PR, the race repro). A header's identity is its rev plus the writer token every write carries
+// (ledgerHeadId); the stale check of 2(a) compares identities. undefined = this page has not read a header yet.
+let ledgerStoreSeen;
+let ledgerLocalRev=0;          // the local copy's rev (2(a): "+1 on every saveLedger")
+let ledgerQueued=0;            // 2(b): saveLedger calls while the store is loading
+let ledgerKnown=new Map();     // each record's body as this page last saved or loaded it (the updated_at stamp's base)
+const LEDGER_CHUNK=120000, LEDGER_SET_ASIDE_KEY="bd_ledger_v1_set_aside";
+// 2(e) chunk sets this browser started writing and has not seen replaced or deleted (a write that failed, or a page the
+// browser closed between the chunks and the header switch): kept in this browser, swept after a later confirmed switch
+const LEDGER_JOURNAL_KEY="bd_ledger_v1_store_journal", LEDGER_JOURNAL_AGE=10*60*1000, LEDGER_TRIES=3;
+function ledgerToken(){ return Math.random().toString(36).slice(2,8)+Date.now().toString(36).slice(-4); }
+const LEDGER_TAB=ledgerToken();   // this page load (a journal entry of another tab may still be mid-write)
+function storeNote(t){ const el=$("ledgerStoreNote"); if(el) el.textContent=t; }
+function ledgerRevOf(x){ const r=Math.floor(Number(x&&x.rev)); return isFinite(r)&&r>0?r:0; }
+// 2(e)/migration: a header with no rev is v2's (chunks ledger_chunks/<i>); its rev reads as 0
+function ledgerHeadRev(h){ return h?ledgerRevOf(h):null; }
+function ledgerHeadId(h){ return h?`${h.rev==null?"v2":ledgerRevOf(h)}|${h.writer||h.saved_at||""}`:null; }
+// 2(e) the chunk ids: `ledger_chunks/<rev>_<i>`, with the write's token after them (`ledger_chunks/<rev>_<i>_<writer>`).
+// Without the token two writers of the same rev write the same ids, and one that fails partway after the other switched
+// the header leaves that header naming a mix of both writes — the "mixture of old and new data" this item fixes (review
+// of this PR, the same-rev repro). With it, no write ever touches a chunk another write made.
+function ledgerChunkId(rev,i,w){ return rev==null?`ledger_chunks/${i}`:w?`ledger_chunks/${rev}_${i}_${w}`:`ledger_chunks/${rev}_${i}`; }
+function ledgerTorn(msg){ const e=new Error(msg); e.torn=true; return e; }
+function ledgerRecKey(x,kind){
+  if(x&&typeof x==="object"&&x.id!=null) return `id:${x.id}`;
+  return kind==="calls"&&x&&typeof x==="object"?`key:${callKey(x)}`:`json:${JSON.stringify(x)}`;
+}
+// a record's body for "did the page change it": its own fields less the stamp and the derived tz_audit mark (markAudit
+// recomputes that on every save)
+function ledgerRecBody(x){ if(!x||typeof x!=="object") return JSON.stringify(x); const {updated_at,tz_audit,...rest}=x; return JSON.stringify(rest); }
+function ledgerRemember(L){
+  ledgerKnown=new Map();
+  for(const kind of ["calls","fills"]) for(const x of ((L&&L[kind])||[])) ledgerKnown.set(kind+"|"+ledgerRecKey(x,kind),ledgerRecBody(x));
+}
+// 2(a) "the newer `updated_at` per record wins" needs a record's own updated_at: stamped here, on every saveLedger, on
+// each call and fill the page created (no known body) or changed (a different body) since it last saved or loaded the
+// ledger. One place for every mutation path (Log, auto-claims, grading, imports, Kalshi CSV, audits), none of which is
+// edited: they all reach the ledger through saveLedger.
+function ledgerStamp(L,at){
+  let n=0;
+  for(const kind of ["calls","fills"]) for(const x of ((L&&L[kind])||[])){ if(!x||typeof x!=="object") continue;
+    if(ledgerKnown.get(kind+"|"+ledgerRecKey(x,kind))!==ledgerRecBody(x)){ x.updated_at=at; n++; } }
+  return n;
+}
+// the local save: stamp, rev+1 (2(a) "+1 on every saveLedger"), the ledger's own updated_at, the page's own saveLedger
+function ledgerSaveLocal(L,opts){
+  const at=new Date().toISOString();
+  if(!(opts&&opts.noStamp)) ledgerStamp(L,at);
+  L.rev=Math.max(ledgerRevOf(L),ledgerLocalRev)+1; L.updated_at=at; ledgerLocalRev=L.rev;
+  const d=_saveLedgerLocal(L); ledgerRemember(L); return d;
+}
+// THE COPY A STORE WRITE SENDS (review of the 316 push, the storage-full data loss). saveLedger keeps window.__ledgerMem
+// and swallows a refused setItem (storageOK false); loadLedger falls back to __ledgerMem only when getItem itself
+// throws. With the browser's storage full, getItem still answers with the copy from BEFORE the refused save, so a store
+// write built from loadLedger() sent that older copy over the store. When the page's last local save was refused, the
+// store write takes the page's own last save (__ledgerMem, read as loadLedger reads it) instead; otherwise loadLedger.
+function ledgerLocalNow(){
+  if(storageOK||!window.__ledgerMem) return loadLedger();
+  const L=JSON.parse(JSON.stringify(window.__ledgerMem)); L.meta=L.meta||{}; L.meta.policy_version=POLICY_VERSION; return labelLegacy(L);
+}
+function ledgerParse(text){ let L; try{ L=JSON.parse(text); }catch(e){ return null; } return L&&Array.isArray(L.calls)?L:null; }
+// 2(a) THE ID-MERGE: "calls by id, fills by id, the newer `updated_at` per record wins; never a silent drop". A record
+// present on either side survives. Where both sides hold a record and their bodies differ: both stamped, the newer
+// stamp wins (a tie keeps the stored one); one stamped, the stamped one wins (the other predates the stamp, so the
+// stamped one is the later change); neither stamped (two pre-addendum copies), a call goes by the page's own collapse
+// rule (better: graded beats open, then the earliest capture — graded history is never lost) and a fill keeps the
+// stored copy. One version per record survives a conflict; the record itself is never dropped, and the count of
+// conflicts is in the store note. Equal bodies are no conflict, and the copy with the newer valid stamp is kept (a
+// stamped copy beats an unstamped one; a tie keeps the stored one): an edit reverted carries a newer stamp than the
+// stored body, and dropping it would let an older differing copy of a third tab win a later merge (review of this PR).
+function ledgerPick(s,l,kind){
+  const ts=Date.parse(s&&s.updated_at), tl=Date.parse(l&&l.updated_at); let x;
+  if(ledgerRecBody(s)===ledgerRecBody(l)) return {x:isFinite(tl)&&!(isFinite(ts)&&tl<=ts)?l:s,conflict:false};
+  if(isFinite(ts)&&isFinite(tl)) x=tl>ts?l:s;
+  else if(isFinite(tl)) x=l;
+  else if(isFinite(ts)) x=s;
+  else x=kind==="calls"?better(s,l):s;
+  return {x,conflict:true};
+}
+function ledgerMergeList(sa,la,kind){
+  const out=[], at=new Map(), stored=new Set(), r={fromStore:0,fromLocal:0,conflicts:0};
+  for(const s of (sa||[])){ const k=ledgerRecKey(s,kind); if(!at.has(k)) at.set(k,out.length); stored.add(k); out.push(s); }
+  const seen=new Set();
+  for(const l of (la||[])){ const k=ledgerRecKey(l,kind);
+    if(at.has(k)&&!seen.has(k)){ seen.add(k); const i=at.get(k), p=ledgerPick(out[i],l,kind); if(p.conflict) r.conflicts++; out[i]=p.x; }
+    else { out.push(l); if(!at.has(k)){ at.set(k,out.length-1); r.fromLocal++; } seen.add(k); } }   // a same-side duplicate is kept; enforceLedger decides it as always
+  for(const k of stored) if(!seen.has(k)) r.fromStore++;
+  return {out,r};
+}
+function ledgerMerge(S,Lc){
+  const L={...S,...Lc};                                    // any other top-level field: this page's over the store's
+  const sm=S.meta||{}, lm=Lc.meta||{};
+  L.meta={...sm,...lm,policy_version:POLICY_VERSION};
+  if(sm.auto_claims||lm.auto_claims) L.meta.auto_claims=[...new Set([...(sm.auto_claims||[]),...(lm.auto_claims||[])])];
+  if(sm.b_shadow||lm.b_shadow) L.meta.b_shadow={...(sm.b_shadow||{}),...(lm.b_shadow||{})};
+  const c=ledgerMergeList(S.calls,Lc.calls,"calls"); L.calls=c.out;
+  let f={r:{fromStore:0,fromLocal:0,conflicts:0}};
+  if(Array.isArray(S.fills)||Array.isArray(Lc.fills)){ f=ledgerMergeList(S.fills,Lc.fills,"fills"); L.fills=f.out; }
+  if(Array.isArray(S.system_picks)||Array.isArray(Lc.system_picks)){       // a harvest cache keyed sport|date|home|away
+    const pk=g=>[g.sport,g.date,g.home,g.away].join("|"), m=new Map();
+    for(const g of (S.system_picks||[])) m.set(pk(g),g); for(const g of (Lc.system_picks||[])) m.set(pk(g),g);
+    L.system_picks=[...m.values()]; }
+  L.rev=Math.max(ledgerRevOf(S),ledgerRevOf(Lc));
+  return {L,calls:c.r,fills:f.r};
+}
+function ledgerMergeText(m,hRev){
+  return ` · merged with the store's rev ${hRev} by id: ${m.calls.fromStore} call(s) and ${m.fills.fromStore} fill(s) came from the store, `
+    +`${m.calls.fromLocal} call(s) and ${m.fills.fromLocal} fill(s) from this page, ${m.calls.conflicts+m.fills.conflicts} differing version(s) decided by the newer updated_at`;
+}
+// records kept aside in this browser, never in the store, never silently gone: added to an earlier set-aside by record key
+// (a later copy of a record replaces its earlier one).
+// ADDENDUM 316 ITEM 2 (ARCHITECT 2026-11-09 19:00 ET, verbatim): "records count as set aside only after the set-aside
+// write returns; on failure they stay in the ledger and the note reads "SET-ASIDE FAILED (browser storage full) — N
+// records kept in the ledger"; nothing is reported kept that was not written." So this returns {n, failed}: failed is
+// true when the write threw (n records NOT set aside), and every caller then keeps those records in the ledger.
+function ledgerAsideStore(aside,meta){
+  const n=aside.calls.length+aside.fills.length;
+  if(!n) return {n:0,failed:false};
+  try{ let prev=null; try{ prev=JSON.parse(localStorage.getItem(LEDGER_SET_ASIDE_KEY)||"null"); }catch(e){ prev=null; }
+    const out={};
+    for(const kind of ["calls","fills"]){ const m=new Map(); for(const x of ((prev&&Array.isArray(prev[kind]))?prev[kind]:[]).concat(aside[kind])) m.set(ledgerRecKey(x,kind),x); out[kind]=[...m.values()]; }
+    localStorage.setItem(LEDGER_SET_ASIDE_KEY,JSON.stringify({set_aside_at:new Date().toISOString(),...meta,...out})); }
+  catch(e){ return {n,failed:true}; }
+  return {n,failed:false};
+}
+function ledgerAsideFailText(n){ return `SET-ASIDE FAILED (browser storage full) — ${n} records kept in the ledger`; }
+function ledgerAsideFailed(n){ const e=new Error(ledgerAsideFailText(n)); e.asideFailed=true; e.n=n; return e; }
+// the id-merge, saved locally. The save runs the page's enforceLedger, which collapses two calls of one position (the
+// same instKey, two log dates: one logged on each device) by its own rule (better: graded first, then the earliest
+// capture). 2(a) "never a silent drop": what that collapse removed is named in the store note (dedupeNote, as every
+// other saveLedger caller reports it) and kept aside in this browser (review of this PR: the merge path dropped a
+// re-log's later execution price with no word). The collapse rule itself is the page's, unchanged.
+// 316 item 2: the copies the save's collapse will remove are found first (enforceLedger run on a copy of the merged
+// lists: it only re-picks among the same objects, so the save's own run removes exactly these) and written aside
+// BEFORE the save. When that write throws, the merged ledger is NOT saved (the save would remove them): this throws a
+// set-aside failure, the local copy and the store each keep their own version (the records stay in the ledger), nothing
+// reaches the store, and the next save reads the store and merges again.
+function ledgerMergeSave(S,local){
+  const m=ledgerMerge(S,local);
+  const probe={calls:m.L.calls.slice(),fills:Array.isArray(m.L.fills)?m.L.fills.slice():m.L.fills}; enforceLedger(probe);
+  const keep={calls:new Set(probe.calls),fills:new Set(probe.fills||[])};
+  const gone={calls:m.L.calls.filter(x=>!keep.calls.has(x)),fills:(m.L.fills||[]).filter(x=>!keep.fills.has(x))};
+  const a=ledgerAsideStore(gone,{reason:"collapsed by the page's enforceLedger after an id-merge with the store",store_rev:ledgerRevOf(S),local_rev:ledgerRevOf(local)});
+  if(a.failed) throw ledgerAsideFailed(a.n);
+  const n=a.n, d=ledgerSaveLocal(m.L,{noStamp:true});
+  const collapse=d&&d.total?dedupeNote(d)+` after the id-merge: the page's collapse rule kept one copy per position (graded first, then the earliest capture); `
+    +`the other ${n} copy(ies) set aside in this browser (${LEDGER_SET_ASIDE_KEY}), not in the store`:"";
+  return {L:m.L,m,d,collapse};
+}
+function ledgerRerender(){ try{ renderProgress(); if(typeof renderLedger==="function") renderLedger(); }catch(e){ console.log("ledger re-render",e); } }
+// 316 item 1: the lease lives on this same document, and the runtime's type does not say whether a granted acquire on
+// an absent document creates it; a body with neither `chunks` nor `rev` names no chunk set, so it reads as no header
+// (an empty store), never as a torn ledger
+async function ledgerHead(){ const s=await dbNS.doc("cockpit/ledger").get(); const d=s.exists?(s.data()||{}):null;
+  return d&&(d.chunks!=null||d.rev!=null)?d:null; }
+// 2(e) the reader reads the header's rev's chunks; "a header written by v2 (no rev, chunks ledger_chunks/<i>)" still
+// reads (the migration: the legacy layout whenever the header carries no rev). A chunk counts only when it is the
+// header's own write: its writer token, rev and index match the header's (review of this PR: "have the reader refuse
+// any chunk whose token ... differs from the header's"). A header that does not read whole throws a torn error.
+async function ledgerStoreRead(h){
+  if(h===undefined) h=await ledgerHead();
+  if(!h) return null;
+  const n=+h.chunks||0, rev=h.rev==null?null:ledgerRevOf(h), w=h.writer||null; let txt="";
+  for(let i=0;i<n;i++){ const c=await dbNS.doc(ledgerChunkId(rev,i,w)).get();
+    if(!c.exists) throw ledgerTorn(`chunk ${i} of ${n} missing`);
+    const d=c.data()||{};
+    if(w&&(d.writer!==w||ledgerRevOf(d)!==rev||+d.i!==i)) throw ledgerTorn(`chunk ${i} of ${n} is not the header's write`);
+    txt+=d.data||""; }
+  if(h.length!=null&&txt.length!==+h.length) throw ledgerTorn(`stored length ${txt.length} ≠ header ${h.length}`);
+  return {text:txt,saved_at:h.saved_at||null,chunks:n,rev:ledgerHeadRev(h),legacy:h.rev==null};
+}
+// the journal of chunk sets this browser wrote (2(e)'s orphans): read, written and swept here only
+function ledgerJournal(){ try{ const j=JSON.parse(localStorage.getItem(LEDGER_JOURNAL_KEY)||"[]"); return Array.isArray(j)?j:[]; }catch(e){ return []; } }
+function ledgerJournalSet(j){ try{ if(j.length) localStorage.setItem(LEDGER_JOURNAL_KEY,JSON.stringify(j)); else localStorage.removeItem(LEDGER_JOURNAL_KEY); }catch(e){} }
+function ledgerJournalDrop(w){ ledgerJournalSet(ledgerJournal().filter(e=>e&&e.w!==w)); }
+async function ledgerDeleteSet(rev,w,n){ let left=0; for(let k=0;k<n;k++){ try{ await dbNS.doc(ledgerChunkId(rev,k,w)).delete(); }catch(e){ left++; } } return left; }
+// after a confirmed switch to the writer `liveW`, every other set in the journal is named by no header (a header only
+// ever moves to a new writer's token), so its chunks are deleted: at once when this page wrote it (its writes run one at
+// a time), else once it is LEDGER_JOURNAL_AGE old (another tab of this browser may still be writing it). This is what
+// clears the chunks of a page the browser closed between its chunk writes and its header switch (review of this PR).
+async function ledgerJournalSweep(liveW){
+  let left=0, swept=0; const now=Date.now();
+  for(const e of ledgerJournal()){ if(!e||e.w===liveW) continue;
+    if(e.tab!==LEDGER_TAB&&!(now-(+e.at||0)>LEDGER_JOURNAL_AGE)) continue;
+    const l=await ledgerDeleteSet(e.rev,e.w,+e.n||0); left+=l; if(!l){ ledgerJournalDrop(e.w); swept++; } }
+  return {left,swept};
+}
+// 2(e) CHUNK WRITES (verbatim): "chunks are written under the new rev's ids (`ledger_chunks/<rev>_<i>`), the header
+// switches to that rev only after every chunk succeeded, and the previous rev's chunks are deleted after the switch (a
+// failed write leaves the old rev intact and readable)." `old` is the header this write replaces (null: none). Before the
+// switch the header is read again: a header another write put there meanwhile is never switched over (this write's
+// chunks are deleted and the caller reads, merges and writes again); after the switch it is read once more, and a write
+// that landed over this one is merged and written over next (2(a) "never a silent drop", review of this PR).
+async function ledgerStorePut(L,old,opts){
+  const rev=ledgerRevOf(L), txt=JSON.stringify(L), n=Math.max(1,Math.ceil(txt.length/LEDGER_CHUNK)), at=new Date().toISOString(), w=ledgerToken();
+  ledgerJournalSet(ledgerJournal().concat([{rev,w,n,at:Date.now(),tab:LEDGER_TAB}]));
+  const renew=opts&&opts.renew;
+  const lose=async(leaseLost)=>{ if(!(await ledgerDeleteSet(rev,w,n))) ledgerJournalDrop(w); return {lost:true,leaseLost:!!leaseLost,at,rev,n}; };
+  // a failed chunk write throws here: the header still names the old rev, which reads intact; the journal keeps this set.
+  // 316 item 1 "renew while working": under the lease, a write past half the lease renews it before its next chunk and
+  // before the switch; a renewal refused (the lease lapsed and another tab holds it) switches nothing
+  for(let i=0;i<n;i++){
+    if(renew&&i>0&&!(await renew())) return lose(true);
+    await dbNS.doc(ledgerChunkId(rev,i,w)).set({i,n,rev,writer:w,saved_at:at,data:txt.slice(i*LEDGER_CHUNK,(i+1)*LEDGER_CHUNK)}); }
+  if(renew&&!(await renew())) return lose(true);
+  if(ledgerHeadId(await ledgerHead())!==ledgerHeadId(old)) return lose();
+  const head={rev,writer:w,chunks:n,length:txt.length,saved_at:at,policy_version:POLICY_VERSION,calls:(L.calls||[]).length,fills:(L.fills||[]).length};
+  await dbNS.doc("cockpit/ledger").set(head);
+  const me=ledgerHeadId(head); ledgerStoreSeen=me;            // "the rev this page ... last wrote"
+  // 316 item 1 "then ONE re-read of the header to confirm the switch landed (the belt to the lease's braces; if it moved
+  // anyway — a writer not using acquire — merge again on the next save, never drop)"
+  if(ledgerHeadId(await ledgerHead())!==me) return lose();
+  ledgerJournalDrop(w); ledgerStoreRev=rev;
+  let left=0;
+  // the previous rev's chunks, after the switch; a header that did not read whole keeps its chunks (opts.keepOld), unread
+  if(old&&!(opts&&opts.keepOld)) left+=await ledgerDeleteSet(old.rev==null?null:ledgerRevOf(old),old.writer||null,+old.chunks||0);
+  const sw=await ledgerJournalSweep(w); left+=sw.left;
+  return {at,n,bytes:txt.length,rev,left,swept:sw.swept};
+}
+// 2(a) STALE SESSIONS (verbatim): "a store write first reads the header: if the header's rev is not the rev this page
+// loaded or last wrote, the page RELOADS the store, MERGES by id (calls by id, fills by id, the newer `updated_at` per
+// record wins; never a silent drop), re-renders, then writes with rev+1." The header is compared by identity (rev and
+// writer token, ledgerHeadId), so a same-rev header another tab wrote is read and merged too. The local copy is re-read
+// AFTER the store's read lands, with no wait between that read and the merged local save, so an edit made during the
+// read is merged too. A header that moved under the read or the write is read again (LEDGER_TRIES in all).
+// A store whose header does not read whole twice running (a chunk missing, a chunk of another write, a length that
+// does not match: e.g. a v2 store an interrupted v2 write left torn) cannot be merged; this browser's copy is written
+// up under a new rev and the unreadable chunks are left in place, unread, so cross-device sync resumes (review of this
+// PR: the store had stopped syncing for good). A db error on the read (no answer) is not a torn store: it throws, and
+// nothing is written.
+async function ledgerStoreSync(leased){
+  const merges=[]; let changed=0;
+  for(let attempt=1;;attempt++){
+    const h=await ledgerHead(), hRev=ledgerHeadRev(h), hid=ledgerHeadId(h);
+    let L, torn=null;
+    if(hid!==ledgerStoreSeen){
+      let S=null;
+      try{ const got=await ledgerStoreRead(h); S=got?ledgerParse(got.text):null;
+        if(h&&!S) throw ledgerTorn(`the store's rev ${hRev} does not read as a ledger`); }
+      catch(e){ if(!(e&&e.torn)) throw e;
+        if(ledgerHeadId(await ledgerHead())!==hid){ if(attempt<LEDGER_TRIES){ changed++; continue; } throw e; }
+        torn=e; }
+      L=ledgerLocalNow();
+      if(S){ const r=ledgerMergeSave(S,L); L=r.L; merges.push(ledgerMergeText(r.m,hRev)+r.collapse); ledgerRerender(); }   // rev+1 over both sides
+      // a torn header is not marked seen here: ledgerStorePut marks the header it switches to, so a replacement write
+      // that fails leaves the next save reading the torn header again (keepOld), never deleting its chunks unread
+      if(!torn) ledgerStoreSeen=hid; ledgerStoreRev=hRev;
+    } else L=ledgerLocalNow();
+    if(ledgerRevOf(L)<=(hRev||0)){ L.rev=hRev; ledgerSaveLocal(L,{noStamp:true}); }     // the written rev is above the header's
+    const w=await ledgerStorePut(L,h,{keepOld:!!torn,renew:leased?ledgerLeaseRenew:null});
+    w.merge=merges.join(""); w.changed=changed; w.torn=torn;
+    // under the lease a lost write is not retried here: 316 item 1 "merge again on the next save" (the flush keeps the
+    // pending flag); without a lease (an older runtime) the pre-316 retry stands
+    if(w.lost){ changed++; w.changed=changed; if(!leased&&attempt<LEDGER_TRIES) continue; }
+    return w;
+  }
+}
+// ADDENDUM 316 ITEM 1 (ARCHITECT 2026-11-09 19:00 ET), THE STORE LEASE, verbatim: "`DocumentReference.acquire({holder,
+// ttlMs})` is a cooperative lease on a document ... The store write becomes: acquire the lease on `cockpit/ledger`
+// (holder = this tab's id, a random string made once per page load; ttlMs 10000) → on `{acquired:true}`: read the
+// header, merge by id if its rev is not the one this page holds, write the new rev's chunks, switch the header, then ONE
+// re-read of the header to confirm the switch landed (the belt to the lease's braces; if it moved anyway — a writer not
+// using acquire — merge again on the next save, never drop); on `{acquired:false}`: do not write; retry after
+// `expiresAt` or 2 s, whichever is sooner, up to 5 times, the Ledger header reading "store: busy (another tab is
+// saving), retrying…"; after the fifth, keep the local copy, say "store: NOT saved — another tab holds the store; try
+// again", and leave the pending flag set so the next edit retries. The lease is coordination, not security (the doc
+// says so), and every writer here is this page, so it is enough. The rev stays as the merge key; the lease is the
+// writer lock."
+// The runtime's db.d.ts (contract 0.2.96): acquire({holder, ttlMs?, data?}) resolves {acquired, version?, expiresAt?
+// (RFC 3339, granted or not), holder? (echoed on a grant)}; "Leases expire on their own (no release verb) ... renew while
+// working"; "Renewal requires the same holder". So: no release (the lease lapses LEDGER_LEASE_TTL after the last grant;
+// another tab saving inside that window waits, within its five retries), and renewal is acquire again with this tab's
+// holder (ledgerLeaseRenew, during a write past half the lease). LEDGER_TAB is this page load's random id. A runtime
+// without acquire (an older one) writes as before 316, header-checked, and the note says so. "retry after `expiresAt`
+// or 2 s, whichever is sooner" is built word for word: the wait is min(2 s, expiresAt − now), no margin added (review of
+// this push: an earlier draft added 25 ms). An expiresAt already past waits 0; a retry refused on the expiry instant
+// costs one of the five.
+const LEDGER_LEASE_TTL=10000, LEDGER_LEASE_RETRIES=5, LEDGER_LEASE_WAIT=2000;
+let ledgerLeaseAt=0;
+function ledgerHasLease(){ try{ return typeof dbNS.doc("cockpit/ledger").acquire==="function"; }catch(e){ return false; } }
+async function ledgerLeaseAcquire(){
+  const r=(await dbNS.doc("cockpit/ledger").acquire({holder:LEDGER_TAB,ttlMs:LEDGER_LEASE_TTL}))||{acquired:false};
+  if(r.acquired) ledgerLeaseAt=Date.now();
+  return r;
+}
+async function ledgerLeaseRenew(){ if(Date.now()-ledgerLeaseAt<LEDGER_LEASE_TTL/2) return true; return !!(await ledgerLeaseAcquire()).acquired; }
+function ledgerLeaseWaitMs(r){ const exp=Date.parse(r&&r.expiresAt); return isFinite(exp)?Math.min(LEDGER_LEASE_WAIT,Math.max(0,exp-Date.now())):LEDGER_LEASE_WAIT; }
+async function ledgerStoreLeased(){
+  if(!ledgerHasLease()){ const w=await ledgerStoreSync(false); w.noLease=true; return w; }
+  for(let k=0;;k++){
+    const r=await ledgerLeaseAcquire();
+    if(r.acquired){ const w=await ledgerStoreSync(true); w.busyRetries=k; return w; }
+    if(k>=LEDGER_LEASE_RETRIES) return {busy:true,tries:k+1};          // "after the fifth"
+    storeNote("store: busy (another tab is saving), retrying…");      // "on {acquired:false}: do not write"
+    await new Promise(res=>setTimeout(res,ledgerLeaseWaitMs(r)));
+  }
+}
+// THE PENDING FLAG, KEPT IN THIS BROWSER (review of the 316 push, the unload flush under a busy lease). 316 item 1:
+// "leave the pending flag set so the next edit retries". The lease has no release verb, so a save holds it for
+// LEDGER_LEASE_TTL; a page closed inside that window (its pagehide flush busy, its retry timer gone with the page)
+// would lose the flag with the page, and the reopened page, finding its local rev equal to the store's, would let the
+// store win and set the unsaved edit aside, out of the ledger. So the flag is also kept in this browser
+// (LEDGER_PENDING_KEY, one entry per page load): marked when a store write is wanted (an edit scheduled, a flush begun),
+// cleared only after a write lands. A page that loads and finds another page load's entry treats this browser's copy
+// as queued edits (2(b): "merged and written whatever the revs say") and, once that write lands, clears the entries it
+// read. A refused localStorage write keeps no flag (the local copy could not be saved either).
+const LEDGER_PENDING_KEY="bd_ledger_v1_store_pending";
+let ledgerPendingAdopted=[];
+function ledgerPendingRead(){ try{ const v=JSON.parse(localStorage.getItem(LEDGER_PENDING_KEY)||"null"); return v&&typeof v==="object"&&!Array.isArray(v)?v:{}; }catch(e){ return {}; } }
+function ledgerPendingWrite(v){ try{ if(Object.keys(v).length) localStorage.setItem(LEDGER_PENDING_KEY,JSON.stringify(v)); else localStorage.removeItem(LEDGER_PENDING_KEY); }catch(e){} }
+function ledgerPendingMark(){ const v=ledgerPendingRead(); if(!v[LEDGER_TAB]){ v[LEDGER_TAB]=new Date().toISOString(); ledgerPendingWrite(v); } }
+function ledgerPendingClear(tabs){ const v=ledgerPendingRead(); let n=0; for(const t of tabs) if(t in v){ delete v[t]; n++; } if(n) ledgerPendingWrite(v); }
+function ledgerPendingOthers(){ return Object.keys(ledgerPendingRead()).filter(t=>t!==LEDGER_TAB); }
+// one write at a time; an edit that lands during a write is written right after it. A write that is not saved for a
+// reason the store itself gives (316: busy past five retries, a lost lease, a header moved by a writer not using the
+// lease, a set-aside that could not be written) keeps the pending flag set and waits for the next edit (or the unload
+// flush) instead of retrying at once.
+async function ledgerStoreFlush(verb,extra){
+  if(!dbNS||ledgerStoreState==="unavailable"||ledgerStoreState==="loading") return;
+  ledgerPendingMark();
+  if(ledgerStoreSaving){ ledgerStorePending=true; return; }
+  clearTimeout(ledgerStoreTimer); ledgerStoreTimer=null;
+  ledgerStoreSaving=true; ledgerStorePending=false; let hold=false;
+  const NOLEASE=" · this runtime offers no store lease (DocumentReference.acquire): written without the writer lock, header-checked as before";
+  try{ const w=await ledgerStoreLeased(); ledgerStoreState="ready";
+    if(w.busy){ hold=true; ledgerStorePending=true;
+      storeNote(`store: NOT saved — another tab holds the store; try again · this browser's copy stands (${w.tries} tries for the store lease); the next edit retries`); }
+    else if(w.lost){ hold=true; ledgerStorePending=true;
+      storeNote((w.leaseLost?`store: NOT SAVED — the store lease lapsed during this write and another tab holds it; nothing was switched; `
+        :`store: NOT SAVED — the store's header changed under this write ${w.changed} time(s) (another tab or device writing); `)
+      +`this browser's copy stands, and the next save reads the store and merges again`+(extra||"")+w.merge+(w.noLease?NOLEASE:"")); }
+    else{ const adopted=ledgerPendingAdopted; ledgerPendingAdopted=[];
+      ledgerPendingClear(ledgerStorePending||ledgerStoreTimer?adopted:adopted.concat([LEDGER_TAB]));   // the write landed
+      storeNote(`store: the private store (owner only), ${verb||"saved"} ${new Date(w.at).toLocaleTimeString()} · rev ${w.rev} · ${w.n} chunk(s) · `
+      +(storageOK?"cached in this browser":"NOT cached in this browser (its storage refused the local save; the store holds this rev) — Export the ledger to keep a copy")
+      +(extra||"")+(w.changed?` · the store changed under this write ${w.changed} time(s) (another tab or device): read and merged again`:"")+w.merge
+      +(w.torn?` · ⚠ the store's previous header did not read whole (${w.torn.message}): nothing of it could be merged; this browser's copy was written as rev ${w.rev}, and the unreadable chunks were left in place, unread`:"")
+      +(w.swept?` · ${w.swept} chunk set(s) of an earlier unfinished write deleted (named by no header)`:"")
+      +(w.left?` · ${w.left} old chunk(s) not deleted (unread; the header names rev ${w.rev})`:"")
+      +(w.busyRetries?` · waited for another tab's store lease (${w.busyRetries} retr${w.busyRetries===1?"y":"ies"})`:"")+(w.noLease?NOLEASE:"")); } }
+  catch(e){
+    if(e&&e.asideFailed){ hold=true; ledgerStorePending=true;
+      storeNote(`store: ${e.message} · nothing was merged or written: the store and this browser's copy each keep their own version; the next save reads the store and merges again`); }
+    else storeNote(`store: SAVE FAILED (${e&&e.code||e&&e.message||e}) — this browser's copy stands (the store keeps its last whole rev); Export the ledger to keep it`); }
+  ledgerStoreSaving=false; if(ledgerStorePending&&!hold) ledgerStoreFlush();
+}
+function scheduleLedgerStore(){
+  if(!dbNS||ledgerStoreState==="unavailable"||ledgerStoreState==="loading") return;
+  ledgerStorePending=true; ledgerPendingMark(); clearTimeout(ledgerStoreTimer);
+  ledgerStoreTimer=setTimeout(()=>{ ledgerStoreTimer=null; ledgerStoreFlush(); },1500);
+}
+const _saveLedgerLocal=saveLedger;
+(function(){ const L0=loadLedger(); ledgerLocalRev=ledgerRevOf(L0); ledgerRemember(L0); })();
+// 2(b) EDITS BEFORE LOAD (verbatim): "while the store is loading, saveLedger queues (the local copy still saves); when
+// the load lands, the queued local state is merged into the stored one by the same id-merge and written; the Ledger
+// header says "store: loading… (N edits queued)"."
+saveLedger=function(L){ const d=ledgerSaveLocal(L);
+  if(ledgerStoreState==="loading"){ ledgerQueued++; storeNote(`store: loading… (${ledgerQueued} edits queued)`); }
+  else scheduleLedgerStore();
+  return d; };
+// 2(c) UNLOAD (verbatim): "`pagehide` and `visibilitychange: hidden` flush the pending write at once (no debounce)"
+function ledgerStoreFlushNow(){ if(ledgerStoreTimer||ledgerStorePending) ledgerStoreFlush(); }
+window.addEventListener("pagehide",ledgerStoreFlushNow);
+document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==="hidden") ledgerStoreFlushNow(); });
+// records of this browser's copy the store does not hold (or holds older), kept aside when the store wins (2(c)): never
+// a silent drop. Returns ledgerAsideStore's {n, failed} (316 item 2).
+function ledgerSetAside(S,local,sRev){
+  const sk=new Map(); for(const kind of ["calls","fills"]) for(const x of (S[kind]||[])) sk.set(kind+"|"+ledgerRecKey(x,kind),x);
+  const aside={calls:[],fills:[]};
+  for(const kind of ["calls","fills"]) for(const x of (local[kind]||[])){ const s=sk.get(kind+"|"+ledgerRecKey(x,kind));
+    if(!s||(ledgerRecBody(s)!==ledgerRecBody(x)&&ledgerPick(s,x,kind).x===x)) aside[kind].push(x); }
+  return ledgerAsideStore(aside,{store_rev:sRev,local_rev:ledgerRevOf(local)});
+}
+async function ledgerStoreBoot(){
+  try{ dbNS=await claude.use("db"); }catch(e){ dbNS=null; }
+  if(!dbNS){ ledgerStoreState="unavailable"; storeNote("store: this browser only (the private store is not available in this view)"+(ledgerQueued?` · ${ledgerQueued} edit(s) kept in this browser`:"")); return; }
+  try{
+    const h=await ledgerHead(), got=h?await ledgerStoreRead(h):null, S=got?ledgerParse(got.text):null;
+    if(h&&!S) throw new Error("the stored text does not read as a ledger");
+    const queued=ledgerQueued, local=ledgerLocalNow(), pend=ledgerPendingOthers();
+    const localRaw=(function(){try{return localStorage.getItem(LEDGER_KEY);}catch(e){return null;}})();
+    ledgerStoreRev=ledgerHeadRev(h); ledgerStoreSeen=ledgerHeadId(h);
+    if(S){
+      const sRev=ledgerStoreRev, lRev=ledgerRevOf(local);
+      // 2(c) (verbatim): "on load the store never overwrites a NEWER local copy: if local.rev > stored.rev, the local copy
+      // is written up (the id-merge first), else the store wins — the current one-way rule becomes rev-ordered."
+      // 2(b): queued edits are merged and written whatever the revs say.
+      // 316 item 2: a merge whose collapse could not be set aside saves nothing (ledgerMergeSave throws): both copies
+      // stand, unmerged, and the next save reads the store and merges again (ledgerStoreSeen null: no header is "seen")
+      const asideFail=e=>{ ledgerQueued=0; ledgerStoreState="ready"; ledgerStoreSeen=null; ledgerStorePending=true;
+        storeNote(`store: ${e.message} · nothing was merged or written: the store's rev ${sRev} and this browser's copy (rev ${lRev}) both stand; the next save reads the store and merges again`); };
+      // review of the 316 push: a store write another page load of this browser wanted and never landed (the kept pending
+      // flag, LEDGER_PENDING_KEY) makes this browser's copy queued edits too, whatever the revs say
+      if(queued||pend.length||lRev>sRev){
+        let r; try{ r=ledgerMergeSave(S,local); }catch(e){ if(!(e&&e.asideFailed)) throw e; asideFail(e); return; }
+        ledgerQueued=0; ledgerStoreState="ready"; ledgerPendingAdopted=pend; ledgerRerender();
+        const what=queued?`${queued} queued edit(s)`:pend.length?`this browser's unsaved edit(s) (an earlier page's store write had not landed when it closed)`
+          :`this browser's newer copy (rev ${lRev} > the store's ${sRev})`;
+        storeNote(`store: merging ${what} into the store…`);
+        await ledgerStoreFlush(queued?`merged ${queued} queued edit(s) and saved`:pend.length?"merged this browser's unsaved edit(s) and saved,":"wrote this browser's newer copy up,",r.collapse);
+        return;
+      }
+      const aside=ledgerSetAside(S,local,sRev);
+      if(aside.failed){
+        // 316 item 2 "on failure they stay in the ledger": the store does not win over records it could not set aside, and
+        // nothing is written either (review of the 316 push: an earlier draft merged and wrote up here, and with the
+        // browser's storage full the write sent the older local copy over the store, dropping the store's own records).
+        // This browser keeps its own copy, records included; the store's rev stands as it is; no header is "seen"
+        // (ledgerStoreSeen null), so the next save reads the store and merges by id (2(a)) before it writes.
+        ledgerStoreSeen=null; ledgerStoreState="ready";
+        storeNote(`store: ${ledgerAsideFailText(aside.n)} · nothing was written: the store's rev ${sRev} stands as it is and is not loaded here; `
+          +`this browser shows its own copy (rev ${lRev} ≤ ${sRev}); the next save reads the store and merges by id before it writes · free browser storage, or Export the ledger to keep it`);
+        ledgerRerender();
+        return;
+      }
+      S.rev=sRev; _saveLedgerLocal(S); ledgerLocalRev=sRev; ledgerRemember(S); ledgerStoreState="ready";
+      storeNote(`store: the private store (owner only), rev ${sRev}${got.legacy?" (a v2 header: read from the legacy chunks; the next save writes rev 1 and up)":""}, last saved ${got.saved_at?new Date(got.saved_at).toLocaleString():"—"} · ${S.calls.length} calls · ${(S.fills||[]).length} fills · cached in this browser`
+        +(aside.n?` · ⚠ ${aside.n} record(s) of this browser's older copy (rev ${lRev} ≤ ${sRev}) the store does not hold were set aside in this browser (${LEDGER_SET_ASIDE_KEY}), not merged`:""));
+      ledgerRerender();
+      return;
+    }
+    ledgerStoreState="ready"; ledgerQueued=0; ledgerPendingAdopted=pend;
+    if(localRaw||queued){ storeNote("store: migrating this browser's ledger to the private store…"); await ledgerStoreFlush("migrated"); }
+    else storeNote("store: the private store (owner only) — empty; the first logged call or import saves to it");
+  }catch(e){
+    ledgerStoreState="error";
+    storeNote(`store: could not read the private store (${e&&e.code||e&&e.message||e}); this browser's copy stands`
+      +(ledgerQueued?` · ${ledgerQueued} edit(s) kept in this browser`:"")
+      +" (a later save re-reads the store: a store that reads whole is merged before the write; one whose header still does not read whole is written over under a new rev, its unreadable chunks left in place)");
+  }
+}
+ledgerStoreBoot();
+
 setTab("desk");
 
 (async()=>{

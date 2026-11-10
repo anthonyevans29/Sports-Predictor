@@ -214,6 +214,15 @@ def merge(s, keeper, newer, source: str, take_state: bool = True, via: str = "de
         stamp_rekey(ext, source, new_ext.get(source), ext.get(source), via)
     for k, v in new_ext.items():
         ext.setdefault(k, v)
+    # THE PROVIDER'S ORIENTATION (ARCHITECT 2026-11-08, addendum 295 item 5(a), #885): the key records what the listing
+    # of the row's provider id says about it, and the odds writers price by it. The keeper's id is the newer row's
+    # (take_state) or its own, so the key is that id's row's, never the other row's (none when that row had none).
+    from src.ingestion.score_orientation import PROVIDER_ORIENTATION_KEY
+    own = new_ext if take_state else dict(keeper.external_ids or {})
+    if PROVIDER_ORIENTATION_KEY in own:
+        ext[PROVIDER_ORIENTATION_KEY] = own[PROVIDER_ORIENTATION_KEY]
+    else:
+        ext.pop(PROVIDER_ORIENTATION_KEY, None)
     moved = {}
     for t, c, _ in tables:
         n = s.execute(update(t).where(c == newer.id).values({c.name: keeper.id})).rowcount
@@ -522,6 +531,10 @@ def orphans(competition_code: str, adapter, source: str = "api_american_football
                     ext = dict(m.external_ids or {})
                     stamp_rekey(ext, source, sid_of(m), str(nm.source_id), "orphan-relink")
                     ext[source] = str(nm.source_id)
+                    # addendum 295 item 5(a) (#885): the live id lists the pair the SAME (date_search's `found`; a
+                    # swapped pair is refused above), so the old id's orientation key goes, as a same listing removes it
+                    from src.ingestion.score_orientation import PROVIDER_ORIENTATION_KEY
+                    ext.pop(PROVIDER_ORIENTATION_KEY, None)
                     m.external_ids = ext
                     IngestionService._apply_match_updates(m, nm)
                     applied["relink"] += 1

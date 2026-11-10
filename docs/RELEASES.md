@@ -101,6 +101,11 @@ The ritual for every tag, v1.0.0 and hotfixes included, with no exceptions:
    - A migration with no DB file at the configured path refuses ("no database
      at <path>; a migration never creates one — law 5"), exit 1, and writes
      nothing (addendum 112 item 1, #524).
+   - A new unit file (ARCHITECT 2026-11-09 09:55 ET, addendum 304 item 2, for
+     the next tag on; v1.6.5's first timer block ran `enable` before `install.sh`),
+     verbatim: "when the tag ships a new unit file, `sudo bash
+     deploy/hosting/install.sh` (idempotent; enables nothing) before the
+     enable".
 
 ## Release record
 One line per tag, from v1.4.0 on. Each release's Issue carries its notes and
@@ -115,6 +120,7 @@ its compare verdict.
 | `v1.6.2` | 2026-11-02 14:14:20Z | `98181976f9f4c98c2c3f6e3c8e576e8082d6477f` | `db8fde9c6680b46e77f843b0a5c2e779295bc9dd` | #776 (step 1 as it stood) |
 | `v1.6.3` | 2026-11-03 12:59:11Z | `0c88f5cc4e9332bade5efd2043def40ab37a5def` | `7312627b5b39fc5f38e71718edb9d9cbd3f7be00` | #806 (step 1 as rewritten, #782) |
 | `v1.6.4` | 2026-11-05 13:03:31Z | `284c575847379d545408bf88bb3939041e253ad8` | `fbb6e46a9348d2430b61ab475c3b5faa84b10025` | #837 (step 1 as rewritten, #782) |
+| `v1.6.5` | 2026-11-09 13:46:27Z | `5f9cf13dc935ed5fdaf220772e8e8ccfea06dfc4` | `dae246a9edf64e0ad953f75d7a0c08e145f62f62` | #898 (step 1 as rewritten, #782) |
 
 - **v1.4.0** (ARCHITECT 2026-10-16, addendum 87). The commit is the ledger
   compile over 53a0e83, the #551 merge over c546168.
@@ -249,6 +255,58 @@ its compare verdict.
   - **Release Issue:** #837 (ritual step 4), opened 2026-11-05 by ARCHITECT 2026-11-05 10:35 ET, addendum 260 item 1:
     the notes line for line, the tag, 255 item 1's verdict and receipts, the deploy and migration rows, 255 item 2
     verbatim. The deploy row of addendum 257 item 1 is the receipt this record carries.
+
+- **v1.6.5** (ARCHITECT 2026-11-09 08:45 ET, addendum 300, the tag ruling, as Release Issue #898 quotes it; the form
+  confirmed by addendum 301 item 4): a migration tag. The commit is the ledger compile 5f9cf13d (30 changelog
+  fragments, 31 ledger entries) over 2336a77a (#888's merge). The tag was cut and pushed by the operator from the
+  architect's block: tagger stamp 2026-11-09 13:46:27Z (08:46:27 ET). Verbatim (300 item 1, as #898 quotes it): "1.
+  THE TAG: `v1.6.5` on 5f9cf13dc935ed5fdaf220772e8e8ccfea06dfc4, `--cleanup=verbatim -F logs/release_notes_v1.6.5.txt`
+  (429 lines, 30 sections, 1 AMENDED line), cut and pushed by the operator from my block after CI is green on
+  5f9cf13d. Claude Code never cuts or pushes a tag." Correction (addendum 301 item 3, as #898 quotes it): "the notes
+  carry 0 AMENDED sections."
+  - **The tag message:** 430 lines; 31 lines begin with `#` (the header and all 30 `## ` section headings). It matches
+    `python3 scripts/release_notes.py --to 5f9cf13dc935ed5fdaf220772e8e8ccfea06dfc4` line for line (429 lines), apart
+    from one trailing blank line in the tag message, as on v1.6.4. No AMENDED section (301 item 3).
+  - **Step 1 (rewritten, #782):** addendum 300, as #898 quotes it: the compare, laptop/2026-11-09 vs host/2026-11-09,
+    0 JSON compared, 7 on one side only, every one a machine-specific kind by design, "VERDICT DIVERGENT by the
+    comparator's rule and REPORTED here as "nothing comparable today, nothing certified by it"" (addendum 218 item 1);
+    the host's receipts since v1.6.4, 3,994 lines with 2 failing rows, both one step of one run (nhl-daily 11-05
+    16:02Z, the exports-mirror push step refused once, the chain exit 0 steps 8/8), and 0 failing rows since 11-06.
+  - **Deploy, with its migration:** THE DEPLOY RECORD, verbatim (ARCHITECT 2026-11-09 09:55 ET, addendum 304 item 2:
+    "every figure from the operator's consoles of this morning, the host's receipts carrying them"). The deploy rows
+    are this record's receipt. git agrees: `git diff --stat v1.6.4 v1.6.5` reads 126 files changed, and the one new
+    `migrate_*.py` among them is `migrate_availability_record.py` (#831, #841).
+    - "13:47Z deploy: v1.6.4 (284c5758) → v1.6.5 (5f9cf13d), 126 files; receipt row `deploy 0 · v1.6.4 -> v1.6.5
+      (5f9cf13d)`; the deploy named one new migration and the three shipped timers not in timers.enabled."
+    - "13:49Z the migration command, verbatim as printed, one lock: `backup:daily 0 · sports_2026-11-09_134946.db
+      integrity=ok · f2c52596cf5d`; `migrations 0`; migrate_availability_record.py created availability_observations
+      and availability_assertions, 7 triggers, 10 of 10 declared indexes, and wrote the marker
+      availability_record_migration (migrated_at 2026-11-09 13:49:58Z)."
+    - "14:12Z the availability 2025 read FIRST (T11's watermark rule): AVAILABILITY-NFLVERSE observation #1 ·
+      complete · depth_charts_2025.csv · HTTP 200 · rows read 554,215 · loads 221 · rows asserted 554,215 · one
+      partial team group (LAC, 2025-12-18, 8 of 72 rows) · payload sha256 f5a4aa3fa70150e8 · exit 0."
+    - "14:14Z the NBA first load on the host (bootstrap order): sync-competitions basketball created 1; sync-teams
+      NBA 2026 created 30; sync-matches NBA 2026 created 1,266 (orientation_reversed 0 · teams_mismatch_refused 0);
+      sync-kalshi-nba KXNBAGAME 64 markets · matched 28 · 28 prices stored · unmatched 36 (outside the run's window) ·
+      ambiguous 0 · in-play 0."
+    - "14:16Z the unit files: `install.sh` installed 34 unit files (host.env untouched, nothing enabled by it); then
+      `systemctl enable --now sp-nba-daily.timer sp-availability-daily.timer` exit 0; both active, next runs Tue
+      06:47Z and Tue 08:45Z; sp-tennis-daily.timer installed, disabled, inactive; timers.enabled 20 names, no
+      duplicate. MY MISS, recorded as such: my first timer block ran `enable` before `install.sh` ("Unit file
+      sp-nba-daily.timer does not exist") and, reading the pipeline's exit from `tail`, appended the two names to
+      timers.enabled anyway; the fix block put the units in place and enabled both; the file's end state is right.
+      RELEASES.md step 5 gains one line for the next tag: "when the tag ships a new unit file, `sudo bash
+      deploy/hosting/install.sh` (idempotent; enables nothing) before the enable"."
+    - "The receipts since the deploy: 0 failing."
+    - "The compare of the day, as 300 item 0 reads it; the one failing row since v1.6.4 explained there."
+  - **Carries:** git's `v1.6.4..v1.6.5` holds twenty-nine PRs: #831, #832, #834, #836, #841, #842, #843, #846, #847,
+    #848, #854, #856, #857, #858, #861, #863, #864, #866, #867, #868, #869, #870, #874, #877, #880, #884, #886, #887,
+    #888 (207 commits with the fold commit). Counted from `git log --merges --oneline v1.6.4..v1.6.5`: 63 merge
+    commits, of which 29 are "Merge pull request #N"; thirty CHANGELOG sections, one more than the PRs, because #846
+    carries two (the nfl-elo-v2 and mlb-pitchers-v1 verdict records).
+  - **Release Issue:** #898 (ritual step 4), opened 2026-11-09 by ARCHITECT 2026-11-09 08:45 ET, addendum 300 item 3:
+    the notes line for line, the tag, the compare verdict and the receipts, addendum 300 item 1 verbatim. The deploy
+    and migration rows join it from the deploy's console (step 5).
 
 ## Hotfix path
 A hotfix gets a patch tag (`vX.Y.Z+1`) through the same ritual. There is no

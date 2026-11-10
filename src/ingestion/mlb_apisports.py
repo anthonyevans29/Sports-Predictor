@@ -28,6 +28,16 @@ Rules (ruled 2026-09-29):
     time) and the card flags the row "time unconfirmed". A time that only
     api-sports supplies (no statsapi id) is likewise unconfirmed on the card:
     api-sports may carry placeholder times for TBD postseason starts.
+  - SCORES BY TEAM (ARCHITECT 2026-11-08, addendum 295 item 2, #885): a row found by its provider id is updated
+    through the shared helper (src/ingestion/score_orientation.py) on the listed teams resolved by their provider ids:
+    the same pair as today; the REVERSED pair writes the runs and the result swapped into the stored orientation
+    (listed under `orientation_reversed`); NEITHER refuses the whole update for that game, the row untouched (listed
+    under `teams_mismatch_refused`). A listed team not in the DB keeps today's behaviour (by position). This path
+    stores no odds (MLB book odds are sync_odds_mlb's, matched by team NAME, home to home).
+    ARCHITECT 2026-11-08 13:05 ET, addendum 297 C(iv), verbatim: "the MLB fallback's update by position on an unknown or
+    merged team is COUNTED on its receipt (`team_missing_update N`); the write stays as ruled". Such an update (a listed
+    team with no team_by_ext entry: unknown, or a merged team's other id, since team_by_ext maps the primary id only)
+    lists its match id under `team_missing_update`; the CLI prints "team_missing_update N: <ids>".
   - Conservative unknowns (law 4): only FT (with both run totals), POST and
     CANC are mapped. Every other provider status stays SCHEDULED, is stored
     verbatim in status_raw, and is counted in the receipt as unmapped. A
@@ -251,6 +261,7 @@ def sync_matches(client, season: str, date_from: str | None = None, date_to: str
 
     from src.db.database import session_scope
     from src.db.schema import Competition, Match, MatchStatus, Result, Sport, Team
+    from src.ingestion.score_orientation import MISMATCH, REVERSED, SAME, orientation, scores_by_team
 
     team_rec = sync_teams(client, season)
     games = client._get("games", params={"league": _league_id(), "season": int(season)}).get("response") or []
@@ -261,6 +272,10 @@ def sync_matches(client, season: str, date_from: str | None = None, date_to: str
            "status_vocab": dict(Counter(f"{p['status_short']}|{p['status_long']}" for p in prov_all)),
            "unmapped_status": {}, "finished": 0, "stage_null_created": 0,
            "dh_marked": [], "time_conflicts": [], "time_kept_statsapi": 0,
+           # addendum 295 item 2 (#885): the match ids written by team (pair reversed) and refused (neither pair)
+           "orientation_reversed": [], "teams_mismatch_refused": [],
+           # addendum 297 C(iv): the match ids updated by position because a listed team has no team_by_ext entry
+           "team_missing_update": [],
            "known_limitation": KNOWN_LIMITATION}
     prov = []
     for p in prov_all:
@@ -314,6 +329,7 @@ def sync_matches(client, season: str, date_from: str | None = None, date_to: str
         for p in prov:
             m = by_ext.get(str(p["id"]))
             status = map_status(p)
+            verdict, pairs = SAME, None            # the create path takes the listing's own orientation
             if m is None and any(_near(o, p) for o in held):
                 rec["held_near_unkeyed"] += 1
                 continue
@@ -330,9 +346,27 @@ def sync_matches(client, season: str, date_from: str | None = None, date_to: str
                 rec["created"] += 1
                 rec["stage_null_created"] += 1
             else:
+                # SCORES BY TEAM (ARCHITECT 2026-11-08, addendum 295 item 2, #885): the listed teams resolved through
+                # team_by_ext and the one shared helper decides BEFORE any write. The same pair: today's writes. The
+                # REVERSED pair: the runs and the result written swapped into the stored orientation (status and
+                # kickoff as today). NEITHER: the whole update refused for that game, the row untouched, its match id
+                # listed. A listed team not in the DB (no team_by_ext entry): today's behaviour, by position.
+                lh, la = team_by_ext.get(str(p["home_id"])), team_by_ext.get(str(p["away_id"]))
+                if lh is not None and la is not None:
+                    pairs = ((m.home_team_id, m.away_team_id), (lh.id, la.id))
+                    verdict = orientation(*pairs)
+                if (verdict != SAME or pairs is None) and m.id is None:
+                    s.flush()                      # a row created earlier in this run lists its id, never None
+                if verdict == MISMATCH:
+                    rec["teams_mismatch_refused"].append(m.id)
+                    continue
                 if m.status == MatchStatus.FINISHED and status != "FINISHED":
                     rec["downgrade_refused"] += 1
                     continue
+                if verdict == REVERSED:
+                    rec["orientation_reversed"].append(m.id)
+                if pairs is None:                  # addendum 297 C(iv): by position (a team unknown or merged), counted
+                    rec["team_missing_update"].append(m.id)
                 m.status = MatchStatus[status]
                 if (m.external_ids or {}).get(STATSAPI):
                     # statsapi's time stands (finding 2026-10-01); a disagreement is recorded, never applied
@@ -351,9 +385,13 @@ def sync_matches(client, season: str, date_from: str | None = None, date_to: str
             if p["status_short"]:
                 m.status_raw = str(p["status_short"])[:16]
             if status == "FINISHED":
-                m.home_score, m.away_score = p["home_runs"], p["away_runs"]
-                m.full_time_result = (Result.HOME if p["home_runs"] > p["away_runs"] else
-                                      Result.AWAY if p["away_runs"] > p["home_runs"] else None)
+                listed = {"home_score": p["home_runs"], "away_score": p["away_runs"],
+                          "full_time_result": (Result.HOME if p["home_runs"] > p["away_runs"] else
+                                               Result.AWAY if p["away_runs"] > p["home_runs"] else None)}
+                if verdict == REVERSED:            # addendum 295 item 2: by team (a created row is SAME by construction)
+                    listed = scores_by_team(*pairs, listed)[1]
+                m.home_score, m.away_score = listed["home_score"], listed["away_score"]
+                m.full_time_result = listed["full_time_result"]
                 rec["finished"] += 1
     return rec
 

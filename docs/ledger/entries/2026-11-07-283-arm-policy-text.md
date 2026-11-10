@@ -1,5 +1,0 @@
-**2026-11-07 — POLICY (ARCHITECT 2026-11-07 08:55 ET, addendum 283, on the operator's decision of 08:42 ET): THE EARLY-ENTRY ARM declared. A position may be opened when a PREMATCH page shows a PLAY, at or below that page's own ask, at its units; the CLOSING page stays THE call and settles the early position; never in play; measured from the first fill, with a pre-committed read at 30 fills.**
-- **The text:** `docs/specs/desk-policy-v1.2.md` §(The early-entry arm) quotes items 2 and 3 verbatim. The Issue is #862 (`track:policy`, `class:lane`), whose one undated step is the read at n = 30.
-- **The read, pre-committed (item 3):** the arm CONTINUES only if the mean `early_clv_cents`, net of flip costs, is GREATER than zero (a tie is a rejection, law 3); otherwise it CLOSES that day. No read before 30; no re-cut of the 30. The read is the architect's, on the laptop's ledger, by a block.
-- **Order (the review stop rule's item (5)):** this policy text first, as its own small PR; then the ledger attribution PR (283 item 4) in a code slot.
-- **Unchanged:** the Desk's engine and every PASS rule (item 2(e)); `POLICY_VERSION` v1.2; no roadmap date, model lane or bar.

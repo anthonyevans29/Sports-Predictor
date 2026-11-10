@@ -163,6 +163,29 @@ class SyncResult:
     # the sync-matches command prints scores_by_team_line on its own line.
     orientation_reversed: list = field(default_factory=list)
     teams_mismatch_refused: list = field(default_factory=list)
+    # THE PRICE BELONGS TO THE TEAM (ARCHITECT 2026-11-08, addendum 295 item 5(b), #885): the stored match id of every
+    # row sync_odds priced with its HOME and AWAY selections swapped into the stored orientation (the row carries
+    # external_ids["provider_orientation"] = "reversed"). Not printed by __str__: the sync-odds command prints
+    # odds_by_team_line on its own line.
+    orientation_swapped: list = field(default_factory=list)
+    # ADDENDUM 297 C(ii) (ARCHITECT 2026-11-08 13:05 ET): the stored match id of every row sync_odds REFUSED to price
+    # because its external_ids["provider_orientation"] reads "mismatch" (the provider's last listing of its id named
+    # neither its pair nor the reverse): no fetch, no odds row or snapshot written, its stored prices as they were. Not
+    # printed by __str__: the sync-odds command prints odds_mismatch_line on its own line.
+    orientation_mismatch_unpriced: list = field(default_factory=list)
+    # THE PROVIDER ID IS THE SEASON'S (ARCHITECT 2026-11-09, addendum 310 item 3(b), #902), verbatim: "a stored row of
+    # ANOTHER season carrying the listed id is counted and listed on the receipt as `provider_id_collision N: <stored
+    # id (season) ← listing id>` — the listing creates its own row (the id is the provider's, the season is the
+    # listing's) and the older row is never touched (law 4)". Addendum 312 item 2: the line counts CREATIONS, one
+    # entry per NEW row created because the listed id was held only by rows of other seasons: (((stored id, its
+    # season), ...), the listing's id), in listing order. Not printed by __str__: the sync-matches command prints
+    # provider_id_collision_line on its own line when N > 0.
+    provider_id_collision: list = field(default_factory=list)
+    # The listing ids refused because the season cannot be compared (the listing names none, or the stored row
+    # carrying the id has none; law 4): nothing written, counted in `skipped`. Also (addendum 313 item 1(4)) a listing
+    # whose own-season row was updated while a stored row of no season year carries its id too: counted, not skipped
+    # (that row never matched, never touched). Printed by sync-matches only when N > 0.
+    provider_id_season_unknown: list = field(default_factory=list)
 
     def __str__(self) -> str:
         out = f"created={self.created} updated={self.updated} skipped={self.skipped}"
@@ -181,10 +204,30 @@ def skipped_listings_line(ids) -> str:
 def scores_by_team_line(result) -> str:
     """Addendum 292 item 3(c): the two counts, each with its match ids listed, on one plain line, always printed:
     "orientation_reversed N: <ids> · teams_mismatch_refused M: <ids>" (a count of 0 prints no ids)."""
+    return scores_by_team_text(result.orientation_reversed, result.teams_mismatch_refused)
+
+
+def scores_by_team_text(reversed_ids, refused_ids) -> str:
+    """scores_by_team_line's text from the two id lists (the MLB api-sports fallback's receipt prints it too, addendum
+    295 item 2). sp_run.SCORES_BY_TEAM_LINE reads it back (addendum 295 item 4)."""
     def part(name, ids):
         return f"{name} {len(ids)}" + (f": {', '.join(str(i) for i in ids)}" if ids else "")
-    return (f"{part('orientation_reversed', result.orientation_reversed)} · "
-            f"{part('teams_mismatch_refused', result.teams_mismatch_refused)}")
+    return f"{part('orientation_reversed', reversed_ids)} · {part('teams_mismatch_refused', refused_ids)}"
+
+
+def odds_by_team_line(ids) -> str:
+    """Addendum 295 item 5(b): "counted on the receipt with the match ids". One plain line, always printed by the odds
+    commands: "orientation_swapped N: <ids>" (a count of 0 prints no ids)."""
+    ids = [str(i) for i in ids]
+    return f"orientation_swapped {len(ids)}" + (f": {', '.join(ids)}" if ids else "")
+
+
+def odds_mismatch_line(ids) -> str:
+    """Addendum 297 C(ii), verbatim: "counted `orientation_mismatch_unpriced N: <ids>` on the receipt". One plain line,
+    always printed by the odds commands right after odds_by_team_line: "orientation_mismatch_unpriced N: <ids>" (a
+    count of 0 prints no ids). sp_run.ODDS_MISMATCH_LINE reads it back (C(iii))."""
+    ids = [str(i) for i in ids]
+    return f"orientation_mismatch_unpriced {len(ids)}" + (f": {', '.join(ids)}" if ids else "")
 
 
 def names_kept_line(n: int) -> str:
@@ -203,6 +246,89 @@ def season_year(season) -> int | None:
         return None
     m = _SEASON_YEAR.match(str(season).strip())
     return int(m.group(1)) if m else None
+
+
+# THE PROVIDER ID IS THE SEASON'S (ARCHITECT 2026-11-09, addendum 310 item 3(a)-(c), #902): "for api_american_football
+# — and for every source that is not SPORT_WIDE — the upsert's lookup is scoped to the competition AND the season of
+# the listing (`Match.season == <the sync's season>`), so a provider id reused across seasons never finds last season's
+# row". THE KEY IS THE SEASON YEAR (ARCHITECT 2026-11-09, addendum 312 item 1), verbatim: "the lookup's season key is
+# `season_year(season)` (service.py:226, addendum 204 item 2), on BOTH sides — the stored row's season and the listed
+# game's — so "2026/27", "2026-27" and "2026" read one season and two seasons never share a start year within a
+# competition; the cache key is (provider id, season_year), the re-key index (season_year, home, away), `_prev` ids
+# (old id, season_year). A row or a listing whose season_year is None is refused and counted
+# (`provider_id_season_unknown`), never matched, never created. No canonical-spelling table, no `--season` dependence."
+# The prefetch cache keys a lookup (source id, season_year) for these sources; a SPORT_WIDE_SOURCES id keeps its plain
+# source-id key (#569).
+
+
+def _cache_key(source: str, sid, season):
+    """The prefetch cache's key for a provider id: (str id, season_year) for every source that is not SPORT_WIDE
+    (addendum 310 item 3(a), addendum 312 item 1); the plain id for a SPORT_WIDE_SOURCES source (unchanged, #569)."""
+    return sid if source in SPORT_WIDE_SOURCES else (str(sid), season_year(season))
+
+
+def cache_put(cache: dict, source: str, sid, m: Match) -> None:
+    """Record row `m` under provider id `sid` in a sync's prefetch cache: its (id, season_year) key, and, for a source
+    that is not SPORT_WIDE, the id's rows of every season under "__by_sid__" (read to name a collision, item 3(b), and
+    to refuse an id an unknown-season row carries, law 4)."""
+    cache[_cache_key(source, sid, m.season)] = m
+    if source not in SPORT_WIDE_SOURCES:
+        rows = cache.setdefault("__by_sid__", {}).setdefault(str(sid), [])
+        if not any(r is m for r in rows):
+            rows.append(m)
+
+
+def cache_drop(cache: dict, source: str, sid, m: Match) -> None:
+    """Forget row `m` under provider id `sid` (a re-key moved it off that id)."""
+    key = _cache_key(source, sid, m.season)
+    if cache.get(key) is m:
+        cache.pop(key, None)
+    if source not in SPORT_WIDE_SOURCES:
+        rows = cache.get("__by_sid__", {}).get(str(sid))
+        if rows is not None:
+            rows[:] = [r for r in rows if r is not m]
+
+
+def match_cache(rows: Iterable[Match], source: str) -> dict:
+    """The prefetch cache (the 2026-09-23 O(1) fix) over `rows` for `source`: each row that carries the source's id,
+    under cache_put's key."""
+    cache: dict = {}
+    for m in rows:
+        sid = (m.external_ids or {}).get(source)
+        if sid:
+            cache_put(cache, source, sid, m)
+    return cache
+
+
+# A re-key refusal whose candidate row has no season year (addendum 312 item 1: "A row or a listing whose season_year
+# is None is refused and counted (`provider_id_season_unknown`), never matched, never created"): counted with the
+# season-unknown refusals, not the re-key refusals.
+SEASON_UNKNOWN_REKEY = "season unknown: "
+
+
+def provider_id_collision_line(entries) -> str:
+    """Addendum 310 item 3(b), verbatim: "listed on the receipt as `provider_id_collision N: <stored id (season) ←
+    listing id>`". THE LINE COUNTS CREATIONS (ARCHITECT 2026-11-09, addendum 312 item 2), verbatim:
+    "`provider_id_collision N` is the number of NEW rows this run created because the listed id was held only by a row
+    of another season; once the listing's own season has a row with that id, the sync finds it by (id, season_year)
+    and updates it — nothing printed, nothing counted. After the restore, steady NCAA runs print nothing". One entry per
+    row created: "provider_id_collision N: <stored id> (<season>) ← <listing id>, ..." (two stored rows of other seasons
+    holding one id read "<id> (<season>) + <id> (<season>) ← <listing id>"). Printed by sync-matches only when N > 0.
+    `entries`: SyncResult.provider_id_collision, each (((stored id, its season), ...), the listing's id)."""
+    entries = list(entries)
+    return f"provider_id_collision {len(entries)}" + (
+        ": " + ", ".join(" + ".join(f"{mid} ({season})" for mid, season in held) + f" ← {sid}"
+                         for held, sid in entries) if entries else "")
+
+
+def season_unknown_line(ids) -> str:
+    """The listings refused because their season, or the season of the stored row carrying their id, is unknown
+    (addendum 310 item 3(a) and law 4: the lookup is scoped to a season, and an unknown one cannot be compared), and
+    the listings whose own-season row was updated beside a stored row of no season year carrying the same id (addendum
+    313 item 1(4): "it IS counted under `provider_id_season_unknown` so the line is visible when N > 0"). One
+    plain line, printed by sync-matches only when N > 0: "provider_id_season_unknown N: <listing ids>"."""
+    ids = [str(i) for i in ids]
+    return f"provider_id_season_unknown {len(ids)}" + (f": {', '.join(ids)}" if ids else "")
 
 
 def newest_membership_years(s: Session, sport, team_ids=None) -> dict[int, int]:
@@ -509,25 +635,32 @@ class IngestionService:
             # JSON per row — O(n^2) that "fine for now" outgrew when the
             # expansion doubled the table. Prefetch this competition's
             # matches ONCE into a source_id map; lookups become O(1).
-            _cache: dict[str, Match] = {}
+            # Addendum 310 item 3(a) (#902): for every source that is not SPORT_WIDE a lookup is keyed (source id,
+            # season), each listed row by its own season (a sync without --season can list several), so a reused id
+            # never finds another season's row (match_cache / cache_put).
             _src = matches[0].source if matches else ""
-            _pairs: dict[tuple[int, int], list[Match]] = {}
+            _pairs: dict[tuple, list[Match]] = {}
             # a SPORT_WIDE_SOURCES id is looked up across the sport's rows (#569); the re-key index stays the
             # competition's own
             _scope = (Match.sport == comp.sport) if _src in SPORT_WIDE_SOURCES else (Match.competition_id == comp.id)
-            for _m in s.execute(select(Match).where(_scope)).scalars():
-                _sid = (_m.external_ids or {}).get(_src)
-                if _sid:
-                    _cache[_sid] = _m
+            _rows = list(s.execute(select(Match).where(_scope)).scalars())
+            _cache: dict = match_cache(_rows, _src)
+            for _m in _rows:
                 if _src in REKEY_SOURCES and _m.competition_id == comp.id:
-                    _pairs.setdefault((_m.home_team_id, _m.away_team_id), []).append(_m)
+                    # addendum 310 item 3(c): the re-key index (the natural-key pairs and the "<source>_prev" map) is
+                    # scoped to the season the same way, so an annual rematch is never a re-key target
+                    _pairs.setdefault((season_year(_m.season), _m.home_team_id, _m.away_team_id), []).append(_m)
                     for _old in ((_m.external_ids or {}).get(f"{_src}_prev") or []):
-                        _cache.setdefault("__prev__", {}).setdefault(str(_old), []).append(_m)
+                        _cache.setdefault("__prev__", {}).setdefault((str(_old), season_year(_m.season)),
+                                                                     []).append(_m)
             if _src in REKEY_SOURCES:
                 # the natural-key index + the ids this listing carries (a stored
                 # id still listed is a different game, never a re-key target)
                 _cache["__pairs__"] = _pairs
-                _cache["__listed__"] = {str(nm.source_id) for nm in matches}
+                # #906 review (Codex, the re-key guards): the ids this listing carries are (id, season) pairs, and the
+                # run's claims below are too, so an id the provider reuses in another listed season neither blocks nor
+                # claims this season's re-key (a sync without --season lists several)
+                _cache["__listed__"] = {(str(nm.source_id), season_year(nm.season)) for nm in matches}
                 _cache["__placeholder_window__"] = comp.code in PLACEHOLDER_REKEY_COMPETITIONS
             total = len(matches)
             step = max(1, total // 10)  # report ~10 times through the loop
@@ -581,38 +714,45 @@ class IngestionService:
                       nm.source_id, comp.code)
             result.skipped_ids.append(str(nm.source_id))
             result.skipped += 1
+            self._mismatch_on_unknown_team(s, nm, comp, result, cache)
             return None
 
-        match = (cache.get(nm.source_id) if cache is not None
-                 else self._find_match_by_source(s, nm.source, nm.source_id))
-        if match is None and nm.source in REKEY_SOURCES and cache is not None and "__pairs__" in cache:
+        if cache is None:
+            cache = self._match_cache_for(s, comp, nm.source)
+        match, refusal = self._match_by_source(s, nm, comp, result, cache)
+        if refusal:
+            return None
+        if match is None and nm.source in REKEY_SOURCES and "__pairs__" in cache:
             match, refused = self._rekey_candidate(nm, home.id, away.id, cache)
             if refused:
                 log.warning("sync_matches(%s): %s id %s NOT created — %s", comp.code, nm.source,
                             nm.source_id, refused)
                 result.skipped += 1
-                result.rekey_refused += 1
+                if refused.startswith(SEASON_UNKNOWN_REKEY):
+                    result.provider_id_season_unknown.append(str(nm.source_id))      # addendum 312 item 1
+                else:
+                    result.rekey_refused += 1
                 return None
             if match is not None:
                 from src.ingestion.match_dedupe import stamp_rekey
 
                 claimed_sid = (match.external_ids or {}).get(nm.source)
-                nm = self._scores_by_team(match, home.id, away.id, nm, result, comp)
+                nm = self._scores_by_team(match, home.id, away.id, nm, result, comp, rekey=True)
                 if nm is None:                     # neither pair: refused, the row untouched (not re-keyed either)
                     # #884 review (Codex round 1): _rekey_candidate claimed the row's current id; nothing was re-keyed,
                     # so the claim is released and a later valid listing for this row in the same run can take it
                     if claimed_sid:
-                        cache.get("__claimed__", set()).discard(claimed_sid)
+                        cache.get("__claimed__", set()).discard((str(claimed_sid), season_year(match.season)))
                     return None
                 ext = dict(match.external_ids or {})
                 old = ext.get(nm.source)
                 stamp_rekey(ext, nm.source, old, nm.source_id, "sync")
                 ext[nm.source] = nm.source_id
                 match.external_ids = ext
-                self._apply_match_updates(match, nm)
-                cache[nm.source_id] = match
                 if old:
-                    cache.pop(old, None)
+                    cache_drop(cache, nm.source, old, match)
+                self._apply_match_updates(match, nm)
+                cache_put(cache, nm.source, nm.source_id, match)
                 result.updated += 1
                 result.rekeyed += 1
                 log.info("sync_matches(%s): re-keyed match %s: %s %s -> %s", comp.code, match.id,
@@ -621,7 +761,7 @@ class IngestionService:
 
         if match:
             nm = self._scores_by_team(match, home.id, away.id, nm, result, comp)
-            if nm is None:                         # neither pair: refused, the row untouched
+            if nm is None:                         # neither pair: refused, only the key written ("mismatch", 297 C(ii))
                 return None
             self._apply_match_updates(match, nm)
             ext = dict(match.external_ids or {})
@@ -634,6 +774,7 @@ class IngestionService:
                 ext[KICKOFF_KEY] = nm.kickoff_source
             match.external_ids = ext
             result.updated += 1
+            self._count_no_year_beside(nm, comp, result, cache, match)      # addendum 313 item 1(4), after the update
             return match
 
         match = Match(
@@ -660,31 +801,75 @@ class IngestionService:
                           **({SETTLEMENT_KEY: nm.settlement} if nm.settlement is not None else {}),
                           **({KICKOFF_KEY: nm.kickoff_source} if nm.kickoff_source is not None else {})},
         )
+        held = self._collision_held(s, nm, cache)
         s.add(match)
-        if cache is not None and nm.source_id:
-            cache[nm.source_id] = match
-        if cache is not None and "__pairs__" in cache:
+        if held:
+            # addendum 312 item 2: a NEW row created because the listed id was held only by rows of other seasons
+            result.provider_id_collision.append((tuple(held), str(nm.source_id)))
+            log.warning("sync_matches(%s): %s id %s is carried by %s — another season's game, not this listing's "
+                        "(season %s): a new row created, the stored row(s) untouched (addendum 310 item 3(b), "
+                        "addendum 312 item 2)", comp.code, nm.source, nm.source_id,
+                        ", ".join(f"match {mid} of season {season}" for mid, season in held), nm.season)
+        if nm.source_id:
+            cache_put(cache, nm.source, nm.source_id, match)
+        if "__pairs__" in cache:
             # #279 review (Codex P1): a row created in THIS run holds its natural key too — a second
             # unseen id for the same fixture in the same listing must find it (and be refused), not twin it
-            cache["__pairs__"].setdefault((home.id, away.id), []).append(match)
+            # (keyed by its season, addendum 310 item 3(c))
+            cache["__pairs__"].setdefault((season_year(nm.season), home.id, away.id), []).append(match)
         result.created += 1
         return match
 
+    def _mismatch_on_unknown_team(self, s: Session, nm: NormalizedMatch, comp: Competition, result: SyncResult,
+                                  cache: dict | None) -> None:
+        """A listing whose team is not in the DB, for an id a stored row already carries (ARCHITECT 2026-11-08,
+        addendum 297 C(i): "every path that reads a listing against the stored pair may write it"; C(ii): "the key
+        records what the provider's current listing says about our row"). The stored row's teams are in the DB
+        (_find_team_by_source reads merged ids too), so the listing names neither its pair nor the reverse: a
+        MISMATCH. The key reads "mismatch" and the odds writers refuse the row, which would otherwise be priced from
+        the fixture the provider re-pointed the id to. Nothing else of the row is written; the skip and its count are
+        as before; the row is listed in teams_mismatch_refused. Not for the served-state sources (tennis): addendum
+        297 B.14 rules a lookback event naming an unstored player "named, not written"."""
+        if nm.source in SERVED_STATE_SOURCES:
+            return
+        from src.ingestion.score_orientation import MISMATCH, with_orientation_key
+
+        if cache is None:
+            cache = self._match_cache_for(s, comp, nm.source)
+        # addendum 310 item 3(a): only a stored row of the listing's own season is read against it; a row of another
+        # season (or of an unknown one) carrying the id is another game and is never written here. The lookup is the
+        # upsert's own, so a cross-season collision or an unknown-season refusal is counted here too (Codex on #906);
+        # the skip is the caller's, counted once
+        match, refused = self._match_by_source(s, nm, comp, result, cache, count_skip=False)
+        if refused or match is None or match.id is None:
+            return
+        ext = with_orientation_key(match.external_ids, MISMATCH)
+        if ext is not None:
+            match.external_ids = ext
+        log.warning("sync_matches(%s): %s id %s REFUSED for match %s — the listing names a team not in the DB, so "
+                    "neither the stored pair nor its reverse; provider_orientation reads mismatch, scores, kickoff and "
+                    "status unwritten", comp.code, nm.source, nm.source_id, match.id)
+        result.teams_mismatch_refused.append(match.id)
+
     @staticmethod
     def _scores_by_team(match: Match, home_id: int, away_id: int, nm: NormalizedMatch, result: SyncResult,
-                        comp: Competition) -> NormalizedMatch | None:
+                        comp: Competition, rekey: bool = False) -> NormalizedMatch | None:
         """SCORES BY TEAM (ARCHITECT 2026-11-08, addendum 292 item 3(a)-(d); #876): the listing `nm` as the update
         writes it onto the stored `match`, through the one shared helper (src/ingestion/score_orientation.py). The
         same pair: `nm` itself (today's writes, exactly). The REVERSED pair: a copy with every score field swapped
         into the stored orientation and full_time_result H<->A, the kickoff and status as served; listed in
         result.orientation_reversed. NEITHER: None, the caller writes nothing; listed in
-        result.teams_mismatch_refused and counted in `skipped`. The stored home/away is never flipped (item 3(d))."""
+        result.teams_mismatch_refused and counted in `skipped`. The stored home/away is never flipped (item 3(d)).
+        Addendum 295 item 5(a) (#885), amended by addendum 297 C(ii): the verdict is also recorded on the row
+        (REVERSED writes external_ids["provider_orientation"] = "reversed", SAME removes it, NEITHER writes "mismatch"
+        and nothing else), through score_orientation.with_orientation_key. `rekey`: the re-key branch, whose NEITHER
+        re-keys nothing, so the row's key, which describes the id it still carries, is left as it is."""
         from dataclasses import replace
 
         from sqlalchemy.orm import object_session
 
         from src.ingestion.score_orientation import (MISMATCH, RESULT_FIELD, REVERSED, SAME, SCORE_PAIRS,
-                                                     scores_by_team)
+                                                     scores_by_team, with_orientation_key)
 
         fields = [f for pair in SCORE_PAIRS for f in pair] + [RESULT_FIELD]
         verdict, values = scores_by_team((match.home_team_id, match.away_team_id), (home_id, away_id),
@@ -694,10 +879,23 @@ class IngestionService:
             # unflushed (autoflush=False); flushed here so the receipt lists its id, never None. The create path and
             # the same-pair path flush nothing new.
             object_session(match).flush()
+        # THE PROVIDER'S ORIENTATION (ARCHITECT 2026-11-08, addendum 295 item 5(a), #885; addendum 297 C(ii)): REVERSED
+        # writes external_ids["provider_orientation"] = "reversed", SAME removes it, MISMATCH writes "mismatch" (and no
+        # score, kickoff or status: the scores path is unchanged). The odds writers read it
+        # (score_orientation.provider_reversed / provider_mismatch). Reassigned only when it changes (a same-pair row
+        # without the key is not touched here). The re-key branch's MISMATCH re-keys nothing: the key keeps describing
+        # the id the row still carries (addendum 297 C, item 15), so it is not written there.
+        if not (rekey and verdict == MISMATCH):
+            ext = with_orientation_key(match.external_ids, verdict)
+            if ext is not None:
+                match.external_ids = ext
         if verdict == MISMATCH:
+            # addendum 298 A item 3 (law 2): the warning says what was written; the re-key branch writes no key
             log.warning("sync_matches(%s): %s id %s REFUSED for match %s — the listing's teams %s/%s are neither the "
-                        "stored pair %s/%s nor its reverse; the row untouched", comp.code, nm.source, nm.source_id,
-                        match.id, home_id, away_id, match.home_team_id, match.away_team_id)
+                        "stored pair %s/%s nor its reverse; scores, kickoff and status untouched; %s", comp.code,
+                        nm.source, nm.source_id, match.id, home_id, away_id, match.home_team_id, match.away_team_id,
+                        "provider_orientation unchanged (re-key branch)" if rekey else
+                        "provider_orientation mismatch written")
             result.teams_mismatch_refused.append(match.id)
             result.skipped += 1
             return None
@@ -769,22 +967,38 @@ class IngestionService:
         def sid_of(m):
             return (m.external_ids or {}).get(nm.source)
 
+        # #906 review (Codex, the re-key guards): "still listed" and "already claimed" are the row's own season's
+        # (listed and claimed hold (id, season) pairs), the same scope as the indexes above them (addendum 310 3(c))
         def blocked(m):
             sid = sid_of(m)
-            if sid and str(sid) in listed:
+            key = (str(sid), season_year(m.season))
+            if sid and key in listed:
                 return f"its id {sid} is still in this listing (the provider lists both {sid} and {nm.source_id})"
-            if sid and sid in claimed:
+            if sid and key in claimed:
                 return f"it was already re-keyed from {sid} by another listing in this run"
             return None
 
         def claim(m):
             sid = sid_of(m)
             if sid:
-                claimed.add(sid)
+                claimed.add((str(sid), season_year(m.season)))
             return m, None
 
         # an id the provider used before for a stored row: that row, by its own history
-        back = [m for m in cache.get("__prev__", {}).get(str(nm.source_id), []) if m.status not in retired]
+        # addendum 310 item 3(c): the history and the natural-key index are the listing's season's only
+        season = season_year(nm.season)
+        # addendum 312 item 1: a row whose season_year is None is "refused and counted, never matched, never created".
+        # A live row of no season year that would be this listing's re-key target (the id in its history, or the
+        # natural key within the windows below) cannot be told from this season's game: the listing is refused, not
+        # twinned beside it (#906 review)
+        def season_unknown(rows, what):
+            return None, (f"{SEASON_UNKNOWN_REKEY}stored row(s) {sorted(m.id for m in rows)} of no season year hold "
+                          f"{what} (addendum 312 item 1, law 4)")
+
+        unknown = [m for m in cache.get("__prev__", {}).get((str(nm.source_id), None), []) if m.status not in retired]
+        if unknown:
+            return season_unknown(unknown, f"{nm.source_id} in their history")
+        back = [m for m in cache.get("__prev__", {}).get((str(nm.source_id), season), []) if m.status not in retired]
         if len(back) == 1:
             why = blocked(back[0])
             return (None, f"row {back[0].id} carries {nm.source_id} in its history but {why}") if why \
@@ -813,8 +1027,12 @@ class IngestionService:
             return None, f"stored row(s) {[m.id for m in swapped]} hold the pair home/away SWAPPED{what}"
 
         pairs = cache["__pairs__"]
-        same = near(pairs.get((home_id, away_id), []), twelve_hours)
-        swapped = near(pairs.get((away_id, home_id), []), twelve_hours)
+        unknown = near(pairs.get((None, home_id, away_id), []) + pairs.get((None, away_id, home_id), []),
+                       lambda m: twelve_hours(m) or (placeholder_window and placeholder_row(m)))
+        if unknown:
+            return season_unknown(unknown, "its natural key")
+        same = near(pairs.get((season, home_id, away_id), []), twelve_hours)
+        swapped = near(pairs.get((season, away_id, home_id), []), twelve_hours)
         if same or swapped:
             return decide(same, swapped, "")
         # AMENDED (ARCHITECT 2026-10-09, addendum 33 item 1): "The placeholder window is consulted only where the
@@ -823,20 +1041,92 @@ class IngestionService:
         # still in the listing, a row already claimed in the run, more than one placeholder candidate, the pair
         # swapped."
         if placeholder_window:
-            same = near(pairs.get((home_id, away_id), []), placeholder_row)
-            swapped = near(pairs.get((away_id, home_id), []), placeholder_row)
+            same = near(pairs.get((season, home_id, away_id), []), placeholder_row)
+            swapped = near(pairs.get((season, away_id, home_id), []), placeholder_row)
             if same or swapped:
                 return decide(same, swapped, " (placeholder window)")
         return None, None
 
     @staticmethod
-    def _find_match_by_source(s: Session, source: str, source_id: str) -> Match | None:
-        # Same caveat as teams — full scan on JSON. Fine for now.
-        stmt = select(Match)
-        for match in s.execute(stmt).scalars():
-            if (match.external_ids or {}).get(source) == source_id:
-                return match
-        return None
+    def _match_cache_for(s: Session, comp: Competition, source: str) -> dict:
+        """The prefetch cache for a caller that passed none (sync_matches always passes its own): the competition's
+        rows (the sport's for a SPORT_WIDE_SOURCES source, #569), keyed as sync_matches keys them. Replaces the
+        source-id-only full scan (_find_match_by_source), which found a provider id in ANY season (addendum 310 item
+        3(a), #902)."""
+        scope = (Match.sport == comp.sport) if source in SPORT_WIDE_SOURCES else (Match.competition_id == comp.id)
+        return match_cache(s.execute(select(Match).where(scope)).scalars(), source)
+
+    @staticmethod
+    def _same_season_row(nm: NormalizedMatch, cache: dict) -> Match | None:
+        """The stored row carrying the listing's provider id IN THE LISTING'S SEASON (addendum 310 item 3(a)), or None.
+        A SPORT_WIDE_SOURCES id: the row carrying it, whatever its season (unchanged, #569). A listing whose season is
+        unknown finds nothing (law 4)."""
+        if nm.source in SPORT_WIDE_SOURCES:
+            return cache.get(nm.source_id)
+        if season_year(nm.season) is None:
+            return None
+        return cache.get(_cache_key(nm.source, nm.source_id, nm.season))
+
+    def _match_by_source(self, s: Session, nm: NormalizedMatch, comp: Competition, result: SyncResult,
+                         cache: dict, count_skip: bool = True) -> tuple[Match | None, bool]:
+        """(the stored row of the listing's season carrying its provider id, or None; refused). THE PROVIDER ID IS
+        THE SEASON'S (ARCHITECT 2026-11-09, addendum 310 item 3(a)-(b), #902): for every source that is not
+        SPORT_WIDE the lookup is scoped to the competition (the cache's rows) AND the listing's own season, compared by
+        season_year on both sides (addendum 312 item 1). A stored row of ANOTHER season carrying the id is never
+        touched; the listing goes on to the re-key fallback (its own season's) or creates its own row, and only that
+        creation is counted (_collision_held, addendum 312 item 2). Where the season cannot be compared nothing is
+        written (neither an update nor a new row): a listing whose season_year is None (it cannot be scoped to one), or
+        one whose season finds no row while a row whose season_year is None carries the id. Refused, counted in
+        `skipped`, listed on result.provider_id_season_unknown (law 4). A SPORT_WIDE_SOURCES id is unchanged (#569)."""
+        if nm.source in SPORT_WIDE_SOURCES:
+            return cache.get(nm.source_id), False
+        listed = season_year(nm.season)
+        match = self._same_season_row(nm, cache)
+        others = [m for m in cache.get("__by_sid__", {}).get(str(nm.source_id), []) if m is not match]
+        unknown = [m for m in others if season_year(m.season) is None]
+        if listed is None or (match is None and unknown):
+            log.warning("sync_matches(%s): %s id %s REFUSED — %s; stored row(s) carrying the id: %s; nothing written "
+                        "(addendum 310 item 3(a), law 4)", comp.code, nm.source, nm.source_id,
+                        "the listing names no season" if listed is None else "a stored row's season is unknown",
+                        [m.id for m in others] or "none")
+            result.provider_id_season_unknown.append(str(nm.source_id))
+            if count_skip:          # the unknown-team branch has counted its own skip (Codex on #906)
+                result.skipped += 1
+            return None, True
+        return match, False
+
+    @staticmethod
+    def _count_no_year_beside(nm: NormalizedMatch, comp: Competition, result: SyncResult, cache: dict,
+                              match: Match) -> None:
+        """ARCHITECT 2026-11-09 16:05 ET, addendum 313 item 1(4), verbatim: "the listing's own-season row is matched
+        and updated; the no-year row is never matched and never touched; it IS counted under
+        `provider_id_season_unknown` so the line is visible when N > 0." Called only AFTER the own-season row's update
+        succeeded (#912 review: a listing refused later, by an unknown team or a pair that is neither the stored one
+        nor its reverse, is not counted). Not a refusal: no skip is counted. A SPORT_WIDE_SOURCES id: nothing."""
+        if nm.source in SPORT_WIDE_SOURCES or not nm.source_id:
+            return
+        unknown = [m for m in cache.get("__by_sid__", {}).get(str(nm.source_id), [])
+                   if m is not match and season_year(m.season) is None]
+        if unknown:
+            log.warning("sync_matches(%s): %s id %s also carried by stored row(s) %s of no season year — never matched, "
+                        "never touched; the listing's own-season row %s was updated (addendum 313 item 1(4))",
+                        comp.code, nm.source, nm.source_id, [m.id for m in unknown], match.id)
+            result.provider_id_season_unknown.append(str(nm.source_id))
+
+    @staticmethod
+    def _collision_held(s: Session, nm: NormalizedMatch, cache: dict) -> list[tuple]:
+        """The stored rows of OTHER seasons carrying the listing's provider id, as ((stored id, its season), ...), read
+        when the listing is about to CREATE its own row (ARCHITECT 2026-11-09, addendum 312 item 2: "`provider_id_
+        collision N` is the number of NEW rows this run created because the listed id was held only by a row of
+        another season"). Empty for a SPORT_WIDE_SOURCES id (#569) and when no other season holds the id."""
+        if nm.source in SPORT_WIDE_SOURCES or not nm.source_id:
+            return []
+        listed = season_year(nm.season)
+        held = [m for m in cache.get("__by_sid__", {}).get(str(nm.source_id), [])
+                if season_year(m.season) not in (None, listed)]
+        if any(m.id is None for m in held):
+            s.flush()              # a row created earlier in this run (autoflush=False): the receipt names its id
+        return [(m.id, m.season) for m in held]
 
     # ------------------------------------------------------------------
     # Shared helpers
@@ -1012,9 +1302,19 @@ class IngestionService:
         (source = this adapter's source) so the capture history lives where
         history belongs. Readers take the last pre-kickoff session
         (src/walters/close.py), so legacy accumulated rows grade correctly too.
+
+        THE PRICE BELONGS TO THE TEAM (ARCHITECT 2026-11-08, addendum 295 item 5(b), #885): the odds payload carries no
+        team ids, so a row whose external_ids["provider_orientation"] is "reversed" (written by the upsert, item 5(a))
+        stores the provider's HOME selection as AWAY and the mirror; DRAW / OVER / UNDER as served; the devig follows
+        the stored rows. Each such row's id is listed in result.orientation_swapped.
+
+        ADDENDUM 297 C(ii): a row whose key reads "mismatch" is REFUSED: never fetched, no odds row or snapshot written,
+        its stored prices as they were (law 4); its id is listed in result.orientation_mismatch_unpriced (not counted in
+        `skipped`, which stays the failed or empty fetches).
         """
         from datetime import datetime
         from src.db.schema import Odds, OddsSnapshot
+        from src.ingestion.score_orientation import provider_mismatch, provider_reversed, selection_by_team
         from src.walters.close import close_1x2, outcomes_for, priced
 
         result = SyncResult()
@@ -1055,6 +1355,11 @@ class IngestionService:
 
             for match in candidates:
                 source_id = match.external_ids[self.source]
+                if provider_mismatch(match.external_ids):
+                    # ADDENDUM 297 C(ii): the provider's last listing of this id named neither our pair nor its
+                    # reverse, so no side of its price is known to be ours: not priced, the stored prices untouched
+                    result.orientation_mismatch_unpriced.append(match.id)
+                    continue
                 try:
                     odds_list = self.adapter.list_odds(source_id)
                 except Exception as e:
@@ -1066,13 +1371,19 @@ class IngestionService:
                     continue
                 s.query(Odds).filter(Odds.match_id == match.id,
                                      Odds.source == self.source).delete()
+                # THE PRICE BELONGS TO THE TEAM (addendum 295 item 5(b), #885): a row the upsert lists as reversed
+                # takes the provider's HOME price as OUR AWAY selection (and the mirror); the devig below reads the
+                # rows as stored, so the 1X2 snapshot follows the stored orientation (a draw price stays the draw)
+                swap = provider_reversed(match.external_ids)
+                if swap:
+                    result.orientation_swapped.append(match.id)
                 fresh = []
                 for no in odds_list:
                     o = Odds(
                         match_id=match.id,
                         bookmaker=no.bookmaker,
                         market=no.market,
-                        selection=no.selection,
+                        selection=selection_by_team(no.selection, swap),
                         price_decimal=no.price_decimal,
                         line=no.line,
                         captured_at=no.captured_at,
@@ -2362,6 +2673,15 @@ def sync_odds_nfl(progress=None, match_ids: set[int] | None = None) -> dict:
     every sync, so without this NFL kept no call-time book market to anchor
     a value side against. Same shape as the MLB capture-odds path; every
     Kalshi reader filters source == "kalshi", so these rows never mix in.
+
+    THE PRICE BELONGS TO THE TEAM (ARCHITECT 2026-11-08, addendum 295 item 5(b), #885): on a row whose
+    external_ids["provider_orientation"] is "reversed" (the upsert's record, item 5(a)) the provider's HOME selection
+    is stored as AWAY and the mirror (moneyline and spread; a spread's line travels with its price; totals as served),
+    and the 1X2 devig follows the stored selections. The ids are returned under "orientation_swapped".
+
+    ADDENDUM 297 C(ii): a row whose key reads "mismatch" is REFUSED: never fetched, no odds row or snapshot written,
+    its stored prices as they were (law 4); the ids are returned under "orientation_mismatch_unpriced". The window
+    counts (window_by_competition) still count it: it is in the window, unpriced.
     """
     from datetime import datetime, timedelta
 
@@ -2372,6 +2692,7 @@ def sync_odds_nfl(progress=None, match_ids: set[int] | None = None) -> dict:
     from src.adapters.api_american_football import APIAmericanFootballAdapter, RateLimited
     from src.db.database import session_scope
     from src.db.schema import Match, MatchStatus, Odds, OddsSnapshot, Sport
+    from src.ingestion.score_orientation import provider_mismatch, provider_reversed, selection_by_team
     from src.walters.value import MarketSnapshot
 
     def report(msg):
@@ -2395,6 +2716,8 @@ def sync_odds_nfl(progress=None, match_ids: set[int] | None = None) -> dict:
         return ad.list_odds(gid)
 
     ad = APIAmericanFootballAdapter()
+    swapped: list[int] = []         # addendum 295 item 5(b): the ids priced into the stored orientation
+    mismatch_unpriced: list[int] = []   # addendum 297 C(ii): the ids refused (key "mismatch"), never fetched
     created = games = snapshots = 0
     deferred_total = recovered = 0
     games_by_comp: dict[str, int] = {}
@@ -2424,7 +2747,9 @@ def sync_odds_nfl(progress=None, match_ids: set[int] | None = None) -> dict:
                 n[comp_of(x)] = n.get(comp_of(x), 0) + 1
             return " · ".join(f"{c} {k}" for c, k in sorted(n.items()))
         deferred_first: list = []
-        queue, rnd, fetched = list(upcoming), 0, []
+        # ADDENDUM 297 C(ii): a row whose key reads "mismatch" is refused before any fetch, its stored prices untouched
+        mismatch_unpriced.extend(m.id for m in upcoming if provider_mismatch(m.external_ids))
+        queue, rnd, fetched = [m for m in upcoming if not provider_mismatch(m.external_ids)], 0, []
         while queue:
             deferred, wait = [], 0.0
             for m in queue:
@@ -2463,10 +2788,17 @@ def sync_odds_nfl(progress=None, match_ids: set[int] | None = None) -> dict:
                 continue
             s.query(Odds).filter(Odds.match_id == m.id,
                                  Odds.source == ad.source_name).delete()
+            # THE PRICE BELONGS TO THE TEAM (addendum 295 item 5(b), #885): on a row the upsert lists as reversed the
+            # provider's HOME price is OUR AWAY selection (and the mirror); the stored selection is used for the rows
+            # AND the 1X2 devig below, so the snapshot follows the stored orientation
+            swap = provider_reversed(m.external_ids)
+            if swap:
+                swapped.append(m.id)
+            sel_of = {id(ow): selection_by_team(ow.selection, swap) for ow in rows}
             src_pairs = []          # (row, the provider's own time) — addendum 32 item 4; None = unknown
             for ow in rows:
                 o = Odds(match_id=m.id, market=ow.market,
-                         selection=ow.selection, bookmaker=ow.bookmaker,
+                         selection=sel_of[id(ow)], bookmaker=ow.bookmaker,
                          price_decimal=ow.price_decimal, line=ow.line,
                          source=ad.source_name,
                          captured_at=fetched_at)
@@ -2479,7 +2811,7 @@ def sync_odds_nfl(progress=None, match_ids: set[int] | None = None) -> dict:
             used = []
             for ow in rows:
                 if ow.market == "1X2":
-                    by_sel.setdefault(ow.selection, []).append((ow.bookmaker, ow.price_decimal))
+                    by_sel.setdefault(sel_of[id(ow)], []).append((ow.bookmaker, ow.price_decimal))
                     used.append(ow)
             implied = MarketSnapshot(market="1X2", by_selection=by_sel).average_implied() if by_sel else {}
             over = sum(implied.values())
@@ -2512,4 +2844,8 @@ def sync_odds_nfl(progress=None, match_ids: set[int] | None = None) -> dict:
             "rate_limited": deferred_total, "recovered": recovered,
             "games_by_competition": dict(sorted(games_by_comp.items())),
             # Codex on #346: the window's competitions, so a run that priced nothing still names them
-            "window_by_competition": dict(sorted(upcoming_by_comp.items()))}
+            "window_by_competition": dict(sorted(upcoming_by_comp.items())),
+            # addendum 295 item 5(b): every row priced with HOME and AWAY swapped into the stored orientation
+            "orientation_swapped": swapped,
+            # addendum 297 C(ii): every row refused because its key reads "mismatch" (not fetched, not priced)
+            "orientation_mismatch_unpriced": mismatch_unpriced}

@@ -321,8 +321,20 @@ CONTRACT_TERMS_SOURCE = ("addendum 288 item 3: the served receipt's rules_second
 # THE STATUS MAP (269 item 3(b)), by the served `result` word, EXACTLY these four and no other; the market's `status`
 # word as served must be 'finalized' (269 item 1 K3: the settlement "as served on finalized markets") for a settled
 # reading. Every other combination stays SCHEDULED, labelled by status_raw and counted (law 4): an unmapped result word,
-# a result key not served, a settled word on a market not 'finalized', the two markets disagreeing, a 'yes' whose
-# expiration_value is not its own player's name.
+# a result key not served, a settled word on a market not 'finalized', the two markets disagreeing, a 'yes' / 'no' pair
+# that neither branch below reads (WINNER_MISMATCH).
+# THE YES / NO BRANCHES (ARCHITECT 2026-11-08, addendum 296 item 2, verbatim: "an event of two 'finalized' markets whose
+# results are one 'yes' and one 'no' is FINISHED with the yes market's player the winner when EITHER (a) the yes
+# market's expiration_value is that market's player (the rule as it stands), OR (b) the yes market's expiration_value
+# reads 'Yes' and the no market's reads 'No' (compared case-insensitively after stripping whitespace; both must hold),
+# counted under a label of its own, RESULT_WORD_ECHO, and printed by the receipt's MAP. Anything else stays SCHEDULED
+# and counted as now (WINNER_MISMATCH)"; it "amends 269 item 3(b) by addition; nothing already mapped changes"):
+#   (a) every non-empty expiration_value is the 'yes' market's player (case-folded, 238 item 2(b)), as built -> via
+#       None;
+#   (b) the 'yes' market's expiration_value is 'Yes' AND the 'no' market's is 'No' (str(value or '').strip(), then
+#       case-folded) -> via RESULT_WORD_ECHO, the winner name_of(the 'yes' market);
+#   anything else -> SCHEDULED, WINNER_MISMATCH: no name is matched by spelling (law 4), so a name variant on both
+#   markets ('Martin Damm' against the yes market's 'Martin Damm Jr') stays SCHEDULED, listed by the receipt.
 RESULT_YES, RESULT_NO, RESULT_SCALAR, RESULT_NONE = "yes", "no", "scalar", ""
 RESULT_WORDS = (RESULT_YES, RESULT_NO, RESULT_SCALAR, RESULT_NONE)
 FINALIZED = "finalized"
@@ -335,6 +347,10 @@ NOT_FINALIZED = "settled word on a market not 'finalized'"
 DISAGREE = "the two markets' results disagree"
 WINNER_MISMATCH = "expiration_value is not the 'yes' market's player"
 SCALAR_VALUE_UNREAD = "a 'scalar' settlement whose settlement_value_dollars is not a fraction in [0, 1] on both markets"
+# How a FINISHED event was read when not by branch (a) (Settlement.via; counted and printed by the receipt's MAP).
+RESULT_WORD_ECHO = ("RESULT_WORD_ECHO: the 'yes' market's expiration_value reads 'Yes' and the 'no' market's reads "
+                    "'No', the venue's own result words, the 'yes' market's player the winner (addendum 296 item 2(b))")
+ECHO_YES, ECHO_NO = "yes", "no"          # the result words as the two expiration_values must read them, case-folded
 
 
 @dataclass
@@ -344,6 +360,7 @@ class Settlement:
     winner: str | None = None             # the winner's name (the 'yes' market's yes_sub_title), FINISHED only
     why: str | None = None                # why a settled-looking event stays SCHEDULED, else None
     served: dict = field(default_factory=dict)   # {ticker: {result, settlement_value_dollars, expiration_value}}
+    via: str | None = None                # FINISHED by branch (b) of 296 item 2: RESULT_WORD_ECHO; else None
 
 
 def _word(v) -> str:
@@ -366,8 +383,12 @@ def settle(markets: list[dict]) -> Settlement:
       - both '' (or not served as settled): not settled -> SCHEDULED;
       - both 'scalar', both 'finalized', each serving settlement_value_dollars as a fraction in [0, 1] -> SETTLED_SCALAR,
         NO winner, the fraction kept (served); a scalar pair without both fractions -> SCHEDULED, SCALAR_VALUE_UNREAD;
-      - one 'yes' and one 'no', both 'finalized', every non-empty expiration_value the 'yes' market's player (compared
-        case-folded, addendum 238 item 2(b)) -> FINISHED, the winner = expiration_value's player, the loser the other;
+      - one 'yes' and one 'no', both 'finalized' -> FINISHED, the winner the 'yes' market's player, the loser the other,
+        when EITHER (a) every non-empty expiration_value is the 'yes' market's player (compared case-folded, addendum
+        238 item 2(b)), the rule as it stands (via None), OR (b) the 'yes' market's expiration_value reads 'Yes' AND the
+        'no' market's reads 'No', compared case-insensitively after stripping whitespace, both holding (addendum 296
+        item 2: via RESULT_WORD_ECHO, counted by the receipt's MAP); any other 'yes' / 'no' pair -> SCHEDULED,
+        WINNER_MISMATCH (no name matched by spelling, law 4);
       - anything else -> SCHEDULED, labelled `why`, never a winner (law 4).
     status_raw is the markets' status word as served ('active', 'closed', 'finalized'), two words joined by '/' when
     they differ."""
@@ -399,7 +420,12 @@ def settle(markets: list[dict]) -> Settlement:
         winner = name_of(yes)
         exp = [str(m.get("expiration_value") or "").strip() for m in markets]
         if winner and all(e.casefold() == winner.casefold() for e in exp if e) and any(exp):
-            return Settlement(MatchStatus.FINISHED, raw, winner=winner, served=served)
+            return Settlement(MatchStatus.FINISHED, raw, winner=winner, served=served)          # (a), as it stands
+        no = next(m for m in markets if m.get("result") == RESULT_NO)
+        echo = (str(yes.get("expiration_value") or "").strip().casefold(),
+                str(no.get("expiration_value") or "").strip().casefold())
+        if winner and echo == (ECHO_YES, ECHO_NO):                                             # (b), 296 item 2
+            return Settlement(MatchStatus.FINISHED, raw, winner=winner, served=served, via=RESULT_WORD_ECHO)
         return Settlement(MatchStatus.SCHEDULED, raw, why=WINNER_MISMATCH, served=served)
     return Settlement(MatchStatus.SCHEDULED, raw, why=DISAGREE, served=served)
 

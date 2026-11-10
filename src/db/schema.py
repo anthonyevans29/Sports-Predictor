@@ -599,6 +599,7 @@ class MatchNeutralDerived(Base):
     rule: Mapped[str] = mapped_column(String(512))
     venue_city: Mapped[str | None] = mapped_column(String(128))         # fixture.venue.city, as served
     home_ground_city: Mapped[str | None] = mapped_column(String(128))   # /teams venue.city, same comp-season
+    # Both cities are the LISTING's, kept as served on a row listed reversed too; `rule` says so (addendum 297 C item 6)
     source: Mapped[str] = mapped_column(String(32), default="api_football")
     derived_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now_naive)
 

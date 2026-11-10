@@ -646,13 +646,16 @@ RULED = {   # addendum 111 item 2's examples, on the tracked roadmap and registr
     "MLB": ("LIVE", "LIVE"), "PL": ("LIVE", "LIVE"), "NFL": ("MARKET-ONLY", "MARKET-ONLY · shadow v1"),
     "NHL": ("MARKET-ONLY", "MARKET-ONLY · shadow v7"), "UNL": ("MARKET-ONLY", "MARKET-ONLY · shadow v2"),
     "NCAA": ("MARKET-ONLY", "MARKET-ONLY"),
-    **{c: ("MARKET-ONLY", "MARKET-ONLY") for c in ("CL", "EFL", "UEL", "BL1")},
+    **{c: ("MARKET-ONLY", "MARKET-ONLY") for c in ("CL", "EFL", "UEL")},
     # ARCHITECT 2026-11-02 13:10 ET, addendum 220: SA, FL1 and ELC declared (leagues-<code>-v1), so the export binds
-    # them (addendum 178 R5) and the declared leagues lane names them; BL1 is not declared (its moved line, 11-09).
+    # them (addendum 178 R5) and the declared leagues lane names them; BL1 was not declared then (moved to 11-09).
     # ARCHITECT 2026-11-03 07:55 ET, addendum 226 item 4: PD joins the leagues lane's competitions; the four are tagged
     # from the registry entry (the id and "declared 2026-11-02T18:10:00Z"), "shadow v1" goes (4(b)).
     **{c: ("MARKET-ONLY", f"MARKET-ONLY · shadow leagues-{c.lower()}-v1 · declared 2026-11-02T18:10:00Z")
        for c in ("PD", "SA", "FL1", "ELC")},
+    # ARCHITECT 2026-11-09 09:45 ET, addendum 303 item 1: BL1 declared (leagues-bl1-v1, declared_at
+    # 2026-11-09T14:45:00Z), tagged from its entry as the four are; still MARKET-ONLY on the Desk.
+    "BL1": ("MARKET-ONLY", "MARKET-ONLY · shadow leagues-bl1-v1 · declared 2026-11-09T14:45:00Z"),
     "EL1": ("UNKNOWN", "UNKNOWN"),
 }
 

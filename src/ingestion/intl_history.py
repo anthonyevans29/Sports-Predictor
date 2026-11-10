@@ -76,6 +76,13 @@ NEUTRAL_RULE = ("intl-neutral-v1 (ARCHITECT 2026-10-02): neutral_derived = norm(
                 "norm(home team's ground city from /teams of the SAME competition-season); norm = NFKD, "
                 "combining marks dropped, casefold, whitespace collapsed; either city missing -> NULL "
                 "(unknown). Derived by us from API-Football venue fields — never a provider fact.")
+# ARCHITECT 2026-11-08, addendum 295 item 6 (#885), verbatim: "on a row the upsert lists as reversed,
+# `match_neutral_derived` is written NULL with the reason `orientation_reversed` (law 4: a flag whose truth depends on
+# which team was really at home is unknown when the provider and we disagree on that)". match_neutral_derived has no
+# reason column; a row explains itself by its `rule` (the full text, schema.py), so the reason is carried there.
+ORIENTATION_REVERSED_REASON = "orientation_reversed"
+NEUTRAL_RULE_REVERSED = (NEUTRAL_RULE + " | NULL, reason " + ORIENTATION_REVERSED_REASON
+                         + " (ARCHITECT 2026-11-08, addendum 295 item 6: the provider lists the pair reversed).")
 FINISHED = ("FT", "AET", "PEN")
 
 
@@ -263,7 +270,10 @@ def ingest(src: Source, since: date, max_calls: int = 80, dry_run: bool = False)
     from src.adapters.normalized import NormalizedTeam
     from src.db.database import session_scope
     from src.db.schema import Competition, Match, MatchNeutralDerived, Sport
-    from src.ingestion.service import SyncResult, names_kept_line, newest_membership_years, scores_by_team_line
+    from src.ingestion.service import (SyncResult, match_cache, names_kept_line, newest_membership_years,
+                                        provider_id_collision_line, scores_by_team_line,
+                                        season_unknown_line)
+    from src.ingestion.score_orientation import provider_reversed
 
     leagues = src.get("leagues.json", "leagues", {"country": "World"}).get("response") or []
     work = plan(leagues, since)
@@ -345,11 +355,10 @@ def ingest(src: Source, since: date, max_calls: int = 80, dry_run: bool = False)
                                                            source=adapter.source_name, source_id=str(t["id"])), tres,
                                          season=listing_season, newest_years=newest)
                         fixture_only_teams += 1
-            cache = {}
-            for m in s.execute(select(Match).where(Match.competition_id == comp.id)).scalars():
-                sid = (m.external_ids or {}).get(adapter.source_name)
-                if sid:
-                    cache[sid] = m
+            # the upsert's prefetch, keyed as sync_matches keys it: (provider id, season) for a source that is not
+            # SPORT_WIDE (ARCHITECT 2026-11-09, addendum 310 item 3(a), #902)
+            cache = match_cache(s.execute(select(Match).where(Match.competition_id == comp.id)).scalars(),
+                                adapter.source_name)
             g = grounds(teams[key])
             n = Counter()
             for it in kept[key]:
@@ -360,11 +369,18 @@ def ingest(src: Source, since: date, max_calls: int = 80, dry_run: bool = False)
                     continue
                 s.flush()
                 flag, vcity, gcity = derive_neutral(it, g)
+                rule = NEUTRAL_RULE
+                if provider_reversed(m.external_ids):
+                    # ARCHITECT 2026-11-08, addendum 295 item 6 (#885): the listing's home is our stored AWAY team, so
+                    # the flag (derived from the LISTING's home ground) is unknown in our orientation: NULL, the
+                    # reason in the row's own rule text (the table has no reason column); the two cities as served
+                    flag, rule = None, NEUTRAL_RULE_REVERSED
+                    n["orientation_reversed"] += 1
                 row = s.get(MatchNeutralDerived, m.id)
                 if row is None:
-                    row = MatchNeutralDerived(match_id=m.id, rule=NEUTRAL_RULE)
+                    row = MatchNeutralDerived(match_id=m.id, rule=rule)
                     s.add(row)
-                row.neutral_derived, row.rule = flag, NEUTRAL_RULE
+                row.neutral_derived, row.rule = flag, rule
                 row.venue_city, row.home_ground_city = vcity, gcity
                 n["stored"] += 1
                 label = "unknown" if flag is None else ("neutral" if flag else "home")
@@ -383,6 +399,14 @@ def ingest(src: Source, since: date, max_calls: int = 80, dry_run: bool = False)
             "orientation_reversed": list(mres.orientation_reversed),
             "teams_mismatch_refused": list(mres.teams_mismatch_refused),
             "scores_by_team_line": scores_by_team_line(mres),
+            # ARCHITECT 2026-11-09, addendum 310 item 3(b) (#902): a NEW row created because the listed id was held only
+            # by a row of another season (addendum 312 item 2: creations only; the line when N > 0)
+            "provider_id_collision_line": (provider_id_collision_line(mres.provider_id_collision)
+                                           if mres.provider_id_collision else None),
+            # the no-write refusals of 310 item 3(a), apart from the other skips (Codex on #906)
+            "provider_id_season_unknown": list(mres.provider_id_season_unknown),
+            "season_unknown_line": (season_unknown_line(mres.provider_id_season_unknown)
+                                    if mres.provider_id_season_unknown else None),
             "neutral": dict(neutral), "dry_run": dry_run}
 
 

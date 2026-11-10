@@ -432,6 +432,15 @@ def test_empty_is_not_settled_and_stays_scheduled():
     (("yes", "no"), ("Bea Fakely", "Bea Fakely"), "finalized", kt.WINNER_MISMATCH),     # names the other player
     (("yes", "no"), ("Cal Mockton", "Cal Mockton"), "finalized", kt.WINNER_MISMATCH),   # names neither
     (("yes", "no"), ("", ""), "finalized", kt.WINNER_MISMATCH),                          # names nobody
+    # addendum 296 item 2 (b): 'Yes' on the yes market AND 'No' on the no market, BOTH must hold; any other word pair
+    (("yes", "no"), ("Yes", ""), "finalized", kt.WINNER_MISMATCH),                       # 296 item 2's 'Yes' / ''
+    (("yes", "no"), ("", "No"), "finalized", kt.WINNER_MISMATCH),
+    (("yes", "no"), ("Yes", "Yes"), "finalized", kt.WINNER_MISMATCH),
+    (("yes", "no"), ("No", "Yes"), "finalized", kt.WINNER_MISMATCH),                     # the words on the wrong sides
+    (("yes", "no"), ("No", "No"), "finalized", kt.WINNER_MISMATCH),
+    (("yes", "no"), ("Yes.", "No"), "finalized", kt.WINNER_MISMATCH),                    # a word, not a spelling of it
+    (("yes", "no"), ("Yes", "No"), "closed", kt.NOT_FINALIZED),                          # (b) needs 'finalized' too
+    (("yes", "yes"), ("Yes", "No"), "finalized", kt.DISAGREE),                           # and one 'yes', one 'no'
     (("yes", "no"), ("Ana Synthwood", "Ana Synthwood"), "closed", kt.NOT_FINALIZED),
     (("scalar", "scalar"), ("", ""), "settled", kt.NOT_FINALIZED),                       # a word not served
     (("void", "void"), ("", ""), "finalized", kt.UNMAPPED_RESULT),
@@ -439,6 +448,62 @@ def test_empty_is_not_settled_and_stays_scheduled():
 def test_anything_else_stays_scheduled_labelled_never_a_winner(results, exps, status, why):
     st = kt.settle(F(results, exps=exps, status=status))
     assert (st.status, st.winner, st.why) == (MatchStatus.SCHEDULED, None, why)
+
+
+# ---- THE MAP's branch (b), RESULT_WORD_ECHO (ARCHITECT 2026-11-08, addendum 296 item 2) ------------------------------
+# The samples are the ruling's: "BAEMAC ('Yes'/'No' -> FINISHED, winner Tomas Machac), HANDAM (the name variant ->
+# SCHEDULED, listed)", SHAPE 2: "KXATPMATCH-26OCT19HANDAM 'Martin Damm' on both against the yes market's 'Martin Damm
+# Jr'". The ruling names neither BAEMAC's date nor either event's other player: those are SYNTHETIC placeholders here.
+
+def test_baemac_yes_and_no_as_the_result_words_is_finished_the_yes_markets_player_the_winner():
+    """296 item 2(b): "the yes market's expiration_value reads 'Yes' and the no market's reads 'No' ... counted under a
+    label of its own, RESULT_WORD_ECHO" -> FINISHED, the yes market's player the winner (name_of(yes)), the loser the
+    other; the served values kept verbatim; via says which branch read it."""
+    mks = pair("26OCT20BAEMAC", "Bae Placeholder", "Tomas Machac", results=("no", "yes"), exps=("No", "Yes"),
+               values=("0.0000", "1.0000"), status="finalized")
+    st = kt.settle(mks)
+    assert (st.status, st.winner, st.why, st.via) == (MatchStatus.FINISHED, "Tomas Machac", None, kt.RESULT_WORD_ECHO)
+    assert st.served["KXATPMATCH-26OCT20BAEMAC-BBB"]["expiration_value"] == "Yes"
+    assert st.served["KXATPMATCH-26OCT20BAEMAC-AAA"]["expiration_value"] == "No"
+    # "compared case-insensitively after stripping whitespace"
+    for ey, en in (("YES", "no"), (" yes ", "\tNo\n"), ("yEs", "NO")):
+        st = kt.settle(pair("26OCT20BAEMAC", "Bae Placeholder", "Tomas Machac", results=("no", "yes"), exps=(en, ey),
+                            status="finalized"))
+        assert (st.status, st.winner, st.via) == (MatchStatus.FINISHED, "Tomas Machac", kt.RESULT_WORD_ECHO), (ey, en)
+    # the fixture's side: the winner is the yes market's player, as branch (a) maps it
+    a = kt.KalshiTennisAdapter(get=FakeKalshi({("KXATPMATCH", "settled"): [mks]}))
+    (m,) = a.list_matches("ATP", None, "2026-10-19", "2026-10-21")
+    assert (m.status, m.full_time_result) == (MatchStatus.FINISHED, Result.AWAY)        # Tomas Machac sorts second
+
+
+def test_branch_a_is_unchanged_and_never_labelled_result_word_echo():
+    """296 item 2: "nothing already mapped changes": the yes market's player named -> FINISHED, via None."""
+    st = kt.settle(F(("no", "yes"), exps=("Bea Fakely", "Bea Fakely")))
+    assert (st.status, st.winner, st.via) == (MatchStatus.FINISHED, "Bea Fakely", None)
+    assert kt.Settlement(MatchStatus.SCHEDULED, "active").via is None                    # the field's default
+    assert kt.RESULT_WORD_ECHO.startswith("RESULT_WORD_ECHO: ") and "addendum 296 item 2" in kt.RESULT_WORD_ECHO
+
+
+def test_handam_a_name_variant_on_both_markets_stays_scheduled_never_matched_by_spelling():
+    """296 item 2: "SHAPE 2's two events stay SCHEDULED, listed: no name matching by spelling (law 4)"."""
+    st = kt.settle(pair("26OCT19HANDAM", "Han Placeholder", "Martin Damm Jr", results=("no", "yes"),
+                        exps=("Martin Damm", "Martin Damm"), status="finalized"))
+    assert (st.status, st.winner, st.why, st.via) == (MatchStatus.SCHEDULED, None, kt.WINNER_MISMATCH, None)
+
+
+def test_a_yes_and_an_empty_value_stays_scheduled():
+    """296 item 2: "a pair 'Yes'/'' -> SCHEDULED" (both words must hold)."""
+    st = kt.settle(pair("26OCT20BAEMAC", "Bae Placeholder", "Tomas Machac", results=("no", "yes"), exps=("", "Yes"),
+                        status="finalized"))
+    assert (st.status, st.winner, st.why, st.via) == (MatchStatus.SCHEDULED, None, kt.WINNER_MISMATCH, None)
+
+
+def test_the_status_map_comment_and_settles_docstring_carry_296_item_2():
+    src = (ROOT / "src" / "adapters" / "kalshi_tennis.py").read_text()
+    blk = src[src.index("# THE STATUS MAP (269 item 3(b))"):src.index("RESULT_YES, RESULT_NO")]
+    assert "addendum 296 item 2" in blk and "RESULT_WORD_ECHO" in blk and "WINNER_MISMATCH" in blk
+    doc = " ".join((kt.settle.__doc__ or "").split())
+    assert "addendum 296 item 2" in doc and "RESULT_WORD_ECHO" in doc and "(a)" in doc and "(b)" in doc
 
 
 def test_a_result_key_not_served_is_not_read_as_empty():

@@ -182,7 +182,9 @@ class SyncResult:
     # provider_id_collision_line on its own line when N > 0.
     provider_id_collision: list = field(default_factory=list)
     # The listing ids refused because the season cannot be compared (the listing names none, or the stored row
-    # carrying the id has none; law 4): nothing written, counted in `skipped`. Printed by sync-matches only when N > 0.
+    # carrying the id has none; law 4): nothing written, counted in `skipped`. Also (addendum 313 item 1(4)) a listing
+    # whose own-season row was updated while a stored row of no season year carries its id too: counted, not skipped
+    # (that row never matched, never touched). Printed by sync-matches only when N > 0.
     provider_id_season_unknown: list = field(default_factory=list)
 
     def __str__(self) -> str:
@@ -321,7 +323,9 @@ def provider_id_collision_line(entries) -> str:
 
 def season_unknown_line(ids) -> str:
     """The listings refused because their season, or the season of the stored row carrying their id, is unknown
-    (addendum 310 item 3(a) and law 4: the lookup is scoped to a season, and an unknown one cannot be compared). One
+    (addendum 310 item 3(a) and law 4: the lookup is scoped to a season, and an unknown one cannot be compared), and
+    the listings whose own-season row was updated beside a stored row of no season year carrying the same id (addendum
+    313 item 1(4): "it IS counted under `provider_id_season_unknown` so the line is visible when N > 0"). One
     plain line, printed by sync-matches only when N > 0: "provider_id_season_unknown N: <listing ids>"."""
     ids = [str(i) for i in ids]
     return f"provider_id_season_unknown {len(ids)}" + (f": {', '.join(ids)}" if ids else "")
@@ -770,6 +774,7 @@ class IngestionService:
                 ext[KICKOFF_KEY] = nm.kickoff_source
             match.external_ids = ext
             result.updated += 1
+            self._count_no_year_beside(nm, comp, result, cache, match)      # addendum 313 item 1(4), after the update
             return match
 
         match = Match(
@@ -1089,6 +1094,24 @@ class IngestionService:
                 result.skipped += 1
             return None, True
         return match, False
+
+    @staticmethod
+    def _count_no_year_beside(nm: NormalizedMatch, comp: Competition, result: SyncResult, cache: dict,
+                              match: Match) -> None:
+        """ARCHITECT 2026-11-09 16:05 ET, addendum 313 item 1(4), verbatim: "the listing's own-season row is matched
+        and updated; the no-year row is never matched and never touched; it IS counted under
+        `provider_id_season_unknown` so the line is visible when N > 0." Called only AFTER the own-season row's update
+        succeeded (#912 review: a listing refused later, by an unknown team or a pair that is neither the stored one
+        nor its reverse, is not counted). Not a refusal: no skip is counted. A SPORT_WIDE_SOURCES id: nothing."""
+        if nm.source in SPORT_WIDE_SOURCES or not nm.source_id:
+            return
+        unknown = [m for m in cache.get("__by_sid__", {}).get(str(nm.source_id), [])
+                   if m is not match and season_year(m.season) is None]
+        if unknown:
+            log.warning("sync_matches(%s): %s id %s also carried by stored row(s) %s of no season year — never matched, "
+                        "never touched; the listing's own-season row %s was updated (addendum 313 item 1(4))",
+                        comp.code, nm.source, nm.source_id, [m.id for m in unknown], match.id)
+            result.provider_id_season_unknown.append(str(nm.source_id))
 
     @staticmethod
     def _collision_held(s: Session, nm: NormalizedMatch, cache: dict) -> list[tuple]:

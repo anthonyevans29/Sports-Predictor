@@ -443,6 +443,49 @@ def test_a_rekey_target_of_no_season_year_refuses_and_counts_the_listing():
     assert r.provider_id_season_unknown == [new] and _raw(by_pair) == before and _rows_with(code, new) == []
 
 
+def test_a_no_year_row_beside_the_own_season_row_is_counted_never_touched():
+    """Addendum 313 item 1(4), verbatim: "the listing's own-season row is matched and updated; the no-year row is never
+    matched and never touched; it IS counted under `provider_id_season_unknown` so the line is visible when N > 0"."""
+    code = "PISBESIDE"
+    (h, hp), (a, ap) = _pair()
+    sid = _gid()
+    noyear = _stored(code, sid, h, a, "26/27", KICK_2025, status=MatchStatus.SCHEDULED)
+    own = _stored(code, sid, h, a, "2026", KICK_2026, status=MatchStatus.SCHEDULED)
+    before = _raw(noyear)
+    r = _sync(code, [_nm(code, sid, hp, ap, home_score=31, away_score=17, full_time_result=Result.HOME)])
+    assert (r.created, r.updated, r.skipped) == (0, 1, 0)                # updated, not refused, no skip
+    assert r.provider_id_season_unknown == [sid] and r.provider_id_collision == []
+    assert _raw(noyear) == before                                          # never touched
+    rows = {x["id"]: x for x in _rows_with(code, sid)}
+    assert (rows[own]["home_score"], rows[own]["away_score"]) == (31, 17)
+    assert svc.season_unknown_line(r.provider_id_season_unknown) == f"provider_id_season_unknown 1: {sid}"
+
+
+def test_a_refused_listing_beside_a_no_year_row_is_not_counted():
+    """#912 review (Codex): the count follows a SUCCESSFUL update of the own-season row. A listing refused later (its
+    pair neither the stored one nor its reverse; or a team not in the DB) updates nothing and counts nothing."""
+    code = "PISBESIDEX"
+    (h, hp), (a, ap) = _pair()
+    (h2, hp2), (a2, ap2) = _pair()
+    sid = _gid()
+    _stored(code, sid, h, a, "26/27", KICK_2025, status=MatchStatus.SCHEDULED)
+    _stored(code, sid, h, a, "2026", KICK_2026, status=MatchStatus.SCHEDULED)
+    r = _sync(code, [_nm(code, sid, hp2, ap2)])                       # a pair that is neither stored one nor reverse
+    assert r.updated == 0 and r.provider_id_season_unknown == []
+    r = _sync(code, [_nm(code, sid, "pis-not-in-db-beside", ap)])        # a team not in the DB
+    assert r.updated == 0 and r.skipped == 1 and r.provider_id_season_unknown == []
+
+
+def test_no_no_year_row_counts_nothing():
+    """The guard is silent when no row of no season year carries the id (both copies today, 313 item 1(4))."""
+    code = "PISBESIDE0"
+    (h, hp), (a, ap) = _pair()
+    sid = _gid()
+    _stored(code, sid, h, a, "2026", KICK_2026, status=MatchStatus.SCHEDULED)
+    r = _sync(code, [_nm(code, sid, hp, ap)])
+    assert r.updated == 1 and r.provider_id_season_unknown == []
+
+
 # ---------------------------------------------------------------------------- an unknown season (law 4)
 
 

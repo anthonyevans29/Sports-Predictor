@@ -1,0 +1,5 @@
+## 2026-11-11 (#000: 830-graph-candidates — THE GRAPH PROJECTION'S CANDIDATE COMPARISON (ARCHITECT 2026-11-04 13:05 ET, addendum 252 item 4; lane availability-record, #830 step 5, due 11-20): one page, docs only; nothing installed before the architect's pick)
+- **docs/specs/availability-graph-candidates.md** (new): each embedded candidate's licence, maintenance state as of 2026-11-11, Python binding, Cypher dialect and file format, as 252 item 4 lists them, plus its fit against "embedded, file-based, no server, Cypher".
+  - The candidates: Kùzu (archived 2025-10-10), LadybugDB (the active fork), RyuGraph (no release since 2025-12-06), Bighorn (no package found), FalkorDBLite (a managed server process; SSPL engine; Python >= 3.12), lance-graph (partial Cypher over tables).
+  - Set aside on 252's words: Neo4j, Memgraph, DuckDB/DuckPGQ, CozoDB, grand-cypher.
+  - Each field is read from PyPI's JSON for the package or from a named source; a field not read from a primary record is marked so. No preference is stated: the pick is the architect's.

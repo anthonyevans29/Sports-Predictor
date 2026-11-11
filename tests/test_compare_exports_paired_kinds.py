@@ -3,9 +3,15 @@ utc_date falls on the file's yesterday, today or tomorrow — the days BOTH mach
 counted "outside the window", never compared (the laptop has no weekly full-season sync, so later kickoffs can
 legitimately differ). The host-only columns (market, kalshi*, exec_cost*, fee*, k_track, kalshi_legs, input_quality,
 desk, desk_meta) are masked AND COUNTED in #735's pattern, a new key in `_fixture_row` staying visible."
+And 336 item 4(1) (ARCHITECT 2026-11-11 09:35 ET), verbatim: "`away_bid`, `away_ask` and `close_unpriced` are the same
+class — columns only the market machine fills — and are masked and counted with 335 item 4(b)'s list. The rule behind
+the list, pinned by a test: every key `_fixture_row` writes is either compared or on the declared mask, so a new key
+fails the test until it is placed — never masked by a prefix, never silently."
 
 A fixtures_NHL row with the host's full key set (read from the mirror's host/2026-11-10/fixtures_NHL_2026-11-10.json),
 against the laptop's (no market, no Kalshi, no Desk)."""
+import ast
+import inspect
 import json
 import sys
 from pathlib import Path
@@ -100,25 +106,77 @@ def test_a_new_key_in_the_row_stays_visible(tmp_path, capsys):
 
 
 def test_the_host_only_mask_is_for_paired_kinds_alone(tmp_path, capsys):
-    """Another kind's market column is compared as before (no 335 mask outside the paired kinds)."""
+    """Another kind's market column is not masked (no 335 mask outside the paired kinds): its difference is printed,
+    as an unpaired kind's is, and certifies nothing (336 item 4(3))."""
     la, ho = tmp_path / "laptop", tmp_path / "host"
     la.mkdir(), ho.mkdir()
     name = f"fixtures_NCAA_{DAY}.json"
     (la / name).write_text(json.dumps({"fixtures": [row("2026-11-11T00:00:00", "A", "B", market=None)]}))
     (ho / name).write_text(json.dumps({"fixtures": [row("2026-11-11T00:00:00", "A", "B", market={"x": 1})]}))
-    rc = ce.main([str(la), str(ho), "--since", "0"])
-    assert rc == ce.EXIT_DIVERGENT and ".market" in capsys.readouterr().out
+    rc = ce.main([str(la), str(ho), "--since", "0", "--today", DAY])
+    out = capsys.readouterr().out
+    assert rc == ce.EXIT_NOTHING_TO_COMPARE and ".market: " in out and ce.UNPAIRED_DIFFERS in out, out
+    assert f"{ce.HOST_ONLY_LINE}: 0" in out
 
 
 def test_the_declared_list_and_the_mask_names():
     assert ce.PAIRED_KINDS == {"fixtures_NHL": {"rows": "fixtures", "days": (-1, 0, 1)}}
     for k in ("market", "kalshi", "kalshi_bid", "kalshi_legs", "exec_cost_taker_away", "fee_series", "k_track",
-              "input_quality", "desk", "desk_meta", "away_bid", "away_ask"):
+              "input_quality", "desk", "desk_meta", "away_bid", "away_ask", "close_unpriced"):
         assert ce.host_only_key(k), k
-    assert ce.host_only_key("close_unpriced")           # the book close's note: same class, put to the architect
+    # 336 item 4(1): "never masked by a prefix": a new key of the old prefix families stays visible until placed
     for k in ("home_team", "status", "utc_date", "home_score", "competition", "family", "stage", "matchday", "note",
-              "feed_source", "feedback", "fees", "kalshix", "exec_costs"):      # a new key stays visible (review)
+              "feed_source", "feedback", "fees", "kalshix", "exec_costs", "kalshi_new", "exec_cost_new", "fee_new"):
         assert not ce.host_only_key(k), k
+    assert not hasattr(ce, "HOST_ONLY_PREFIXES")
+    assert not ce.HOST_ONLY_KEYS & ce.FIXTURE_COMPARED_KEYS and not ce.HOST_ONLY_KEYS & ce.MASKED
+
+
+def _dict_keys(fn, target: str) -> tuple[set, list]:
+    """The string keys of `target = {...}` in `fn` and of every `target["k"] = ...`, and the `**` spreads' source."""
+    keys, spreads = set(), []
+    for node in ast.walk(ast.parse(inspect.getsource(fn).lstrip())):
+        if isinstance(node, ast.Assign) and any(isinstance(x, ast.Name) and x.id == target for x in node.targets) \
+                and isinstance(node.value, ast.Dict):
+            for k, v in zip(node.value.keys, node.value.values):
+                if k is None:
+                    spreads.append(ast.unparse(v))
+                else:
+                    keys.add(k.value)
+        if isinstance(node, ast.Assign):
+            for x in node.targets:
+                if isinstance(x, ast.Subscript) and isinstance(x.value, ast.Name) and x.value.id == target:
+                    keys.add(x.slice.value)
+    return keys, spreads
+
+
+def test_every_key_fixture_row_writes_is_compared_or_on_the_declared_mask():
+    """336 item 4(1): "every key `_fixture_row` writes is either compared or on the declared mask, so a new key fails
+    the test until it is placed". Read from the code: `_fixture_row`'s row literal and its later `row[...]` writes, the
+    K-track spread (venue.kalshi_exec's keys, two-sided, and KALSHI_EXEC_NULL's), and the Desk's per-row `desk` and
+    file `desk_meta` (desk_policy.annotate). match_id sits under the generic machine-local mask (MASKED)."""
+    from src.walters import desk_policy, export, venue
+    keys, spreads = _dict_keys(export._fixture_row, "row")
+    assert len(spreads) == 1 and "_kexec(" in spreads[0] and "_KNULL" in spreads[0], spreads  # a new spread: place it
+    keys |= set(venue.kalshi_exec(0.52, 0.55, "NHL", two_way=True)) | set(venue.KALSHI_EXEC_NULL)
+    src = inspect.getsource(desk_policy.annotate)
+    assert '["desk"] = desk_block(' in src and 'doc["desk_meta"] = ' in src
+    keys |= {"desk", "desk_meta"}
+    placed = ce.FIXTURE_COMPARED_KEYS | ce.HOST_ONLY_KEYS | ce.MASKED
+    assert keys - placed == set(), f"place these keys (compared or on the declared mask): {sorted(keys - placed)}"
+    assert (ce.FIXTURE_COMPARED_KEYS | ce.HOST_ONLY_KEYS) - keys == set()          # nothing declared that is not written
+    assert "match_id" in keys and "match_id" in ce.MASKED
+
+
+def test_every_key_of_the_fixtures_file_is_placed_too():
+    """The file around the rows (export_fixtures' payload): compared, the rows, `count` (left out for the in-window
+    counts), or the generic mask (git_sha, the exported_at timestamp)."""
+    from src.walters import export
+    keys, spreads = _dict_keys(export.export_fixtures, "payload")
+    assert not spreads
+    compared = {"competition_code", "contains_predictions", "note"}
+    assert keys == compared | {"fixtures", "count", "git_sha", "exported_at"}, sorted(keys)
+    assert "git_sha" in ce.MASKED and ce.TS_KEY.search("exported_at") and not any(ce.host_only_key(k) for k in keys)
 
 
 def test_a_paired_file_whose_rows_list_is_missing_on_one_side_is_divergent_never_an_error(tmp_path, capsys):

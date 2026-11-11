@@ -269,6 +269,31 @@ def test_the_shipped_action_posts_pending_on_files_each_on_one_side_only(tmp_pat
     assert got["state"] == "failure" and got["desc"].startswith("DIVERGENT · 2026-10-03"), got
 
 
+def test_the_shipped_action_posts_pending_awaiting_the_other_side_on_its_own_day(tmp_path):
+    """ARCHITECT 2026-11-11 09:35 ET, addendum 336 item 4(2), verbatim: "So the laptop's 12:2xZ commit reads pending,
+    the host's 16:0xZ commit reads the pair, and a day one machine never exported reads red only when someone compares
+    that finished day." The folder is the runner's own UTC date: the laptop's fixtures_NHL with the host's not yet
+    pushed posts pending, `awaiting host`; the host's push of the pair posts success."""
+    today = datetime.now(timezone.utc).date()
+    remote = _remote(tmp_path)
+    body = '{"fixtures": [{"utc_date": "%sT23:00:00", "home_team": "A", "away_team": "B", "status": "scheduled"}]}' \
+        % today.isoformat()
+    lap = _exports(tmp_path / "laptop", [(f"fixtures_NHL_{today}.json", today, body)])
+    assert em.push("laptop", lap, "12:2xZ", remote, tmp_path / "laptop_clone", today=today)["pushed"]
+    hos = _exports(tmp_path / "host", [(f"unl_shadow_{today}_0720.json", today, '{"rows": []}')])
+    assert em.push("host", hos, "07:20Z", remote, tmp_path / "host_clone", today=today)["pushed"]
+    co, _ = _tree(remote, tmp_path)
+    got = _run_action(co, tmp_path)
+    assert got == {"date": today.isoformat(), "state": "pending",
+                   "desc": f"NOTHING-TO-COMPARE · {today} — awaiting host: a paired kind not pushed yet today; "
+                           "neutral, not a data verdict"}, got
+    hos2 = _exports(tmp_path / "host2", [(f"unl_shadow_{today}_0720.json", today, '{"rows": []}'),
+                                         (f"fixtures_NHL_{today}.json", today, body)])
+    assert em.push("host", hos2, "16:0xZ", remote, tmp_path / "host_clone2", today=today)["pushed"]
+    co2, _ = _tree(remote, tmp_path / "t2")
+    assert _run_action(co2, tmp_path) == {"date": today.isoformat(), "state": "success",
+                                          "desc": f"CLEAN · {today}"}
+
 def test_the_shipped_action_lists_coverage_as_machine_state_never_divergent(tmp_path):
     """#592 RULED (ARCHITECT 2026-10-18, addendum 128 item 3): "the compare treats kind `coverage` as "machine
     state": listed by presence on each side (one side, both sides, neither), never compared for content, never

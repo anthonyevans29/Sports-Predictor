@@ -7895,11 +7895,40 @@ def soccer_refresh_cmd(max_drift):
               help="tuned = fix-v2: tune the cup elo_goal_coeff per context (same-/cross-league) "
                    "on PRIOR cup matches, exam seasons excluded, then price the exam; "
                    "base = the model's base coeff for every cup row (reproduces the prior exam).")
-def cup_exam_cmd(key_path, detail, coeff_mode):
+@click.option("--with-history-xi", "with_history_xi", is_flag=True,
+              help="THE PERFECT-XI PRICE (addendum 256 item 3; 343 item 4): after the exam as today, price the exam "
+                   "set again with each fixture's stored history XI through the existing XI/lineup multipliers, as "
+                   "`confirmed` (the figure of record) and as it stands (information only), and print the receipt. "
+                   "Report-only; requires --db.")
+@click.option("--db", "db", default=None,
+              help="A .backup copy of the database OUTSIDE data/ (law 5), opened mode=ro + immutable=1 (addendum 198 "
+                   "item 6(ii)); never created, never the configured database. Required with --with-history-xi.")
+def cup_exam_cmd(key_path, detail, coeff_mode, with_history_xi, db):
     """Cup acceptance exam (spec frozen 2026-09-25): price the answer key's
     FINISHED fixtures with production soccer pricing in REPORT-ONLY mode
     (nothing written) and score vs the books' fair: mean |Δ_HOME| <= 8.0pp,
-    <= 13 fixtures over 8pp, EFL round-2 favorite agreement >= 80%."""
+    <= 13 fixtures over 8pp, EFL round-2 favorite agreement >= 80%.
+    --with-history-xi adds the perfect-XI price receipt (addendum 256 item 3;
+    src/walters/cup_perfect_xi.py), on a --db copy; the gate is unchanged."""
+    import contextlib
+    import time
+
+    from src.walters import cup_perfect_xi as px
+    if with_history_xi and db is None:
+        click.echo("REFUSED: --with-history-xi reads a .backup copy: pass --db PATH (mode=ro + immutable=1; addendum "
+                   "343 item 5); nothing read")
+        raise SystemExit(2)
+    started = time.monotonic()
+    try:
+        with (px.copy_binding(db) if db is not None else contextlib.nullcontext()):
+            _cup_exam(key_path, detail, coeff_mode, with_history_xi, db, started)
+    except px.Refused as e:
+        click.echo(f"REFUSED: {e}")
+        raise SystemExit(2)
+
+
+def _cup_exam(key_path, detail, coeff_mode, with_history_xi, db, started):
+    """cup-exam's body (inside the --db copy's binding when one is given)."""
     from src.walters.cup_exam import (MAX_MISSING, MIN_SCORED, detail_splits, load_key,
                                       score_exam, tier_of)
     from src.walters.training import _generate_predictions_soccer
@@ -7941,6 +7970,8 @@ def cup_exam_cmd(key_path, detail, coeff_mode):
 
     priced: dict[int, dict] = {}
     versions = set()
+    from src.walters import cup_perfect_xi as px
+    priced_hx: dict[str, dict[int, dict]] = {reading: {} for reading in px.READINGS}
     for code, season in groups:
         rows = _generate_predictions_soccer(code, season, include_finished=True,
                                             cup_coeffs=cup_coeffs)
@@ -7949,6 +7980,16 @@ def cup_exam_cmd(key_path, detail, coeff_mode):
             versions.add(r["model_version"])
             if r["match_id"] in known:
                 priced[r["match_id"]] = r
+        for reading in (px.READINGS if with_history_xi else ()):
+            # the perfect-XI price (256 item 3): the same call, the same coeffs, the history XI at the reading's kind
+            hx_rows = _generate_predictions_soccer(code, season, include_finished=True,
+                                                   cup_coeffs=cup_coeffs, history_xi=reading)
+            print(f"  priced {code} {season} with the history XI ({reading}): {len(hx_rows)} fixtures "
+                  "(report-only)")
+            for r in hx_rows:
+                versions.add(r["model_version"])
+                if r["match_id"] in known:
+                    priced_hx[reading][r["match_id"]] = r
     print(f"  model version(s): {', '.join(sorted(versions)) or '—'}")
 
     res = score_exam(key, priced, known)
@@ -7992,6 +8033,11 @@ def cup_exam_cmd(key_path, detail, coeff_mode):
     print("  (exam is necessary-not-sufficient: FAIL is damning; PASS certifies "
           "no gross cup-path defect only, NOT out-of-sample accuracy — pricing "
           "sees same-season results. The sign check is the decisive organ.)")
+    if with_history_xi:
+        import time
+        rc = px.receipt(key, known, priced, priced_hx)
+        for line in px.lines(rc, db=str(db), coeff_mode=coeff_mode, seconds=time.monotonic() - started):
+            print(line)
 
 
 def _print_cup_exam_detail(res, splits, tier_of):

@@ -397,6 +397,14 @@ def generate_predictions(
 # Q9 (ARCHITECT 2026-10-15, addendum 75 item 2): the lineup kinds the pricing reads: sync-lineups' own. Rows of any
 # other kind ("history": sync-lineups-history's finished cup fixtures) never reach a prediction or the cup exam.
 LIVE_LINEUP_KINDS = ("projected", "confirmed")
+# THE PERFECT-XI PRICE (ARCHITECT 2026-11-05 08:35 ET, addendum 256 item 3; 2026-11-11 14:10 ET, addendum 343 item 4):
+# the REPORT-ONLY path alone (cup-exam --with-history-xi) may price an exam fixture with its stored `history` XI
+# (sync-lineups-history's actual starters: post hoc, a bound, never an as-of input). The reading names the kind whose
+# EXISTING confidence (team_strength.CONFIDENCE_BY_KIND) prices it: "confirmed" is the figure OF RECORD (343 item 4: "the
+# receipt's figure OF RECORD prices the history XI as `confirmed` (0.7)"); "as_it_stands" passes the kind as stored
+# ("history"), which the table does not hold, so the lookup's own fallback prices it ("information only"). Nothing is
+# fitted and nothing new is added: the same multipliers, the same lookup. Never on the default path.
+HISTORY_XI_READINGS = {"confirmed": "confirmed", "as_it_stands": "history"}
 
 
 def _generate_predictions_soccer(
@@ -407,6 +415,7 @@ def _generate_predictions_soccer(
     include_finished: bool = False,
     cup_coeffs: dict | None = None,
     cup_coeff_grid: tuple | None = None,
+    history_xi: str | None = None,
 ) -> int | list[dict]:
     """Soccer prediction pipeline (Elo + Poisson).
 
@@ -429,7 +438,18 @@ def _generate_predictions_soccer(
     poisson coeff, i.e. unchanged behavior. League competitions ignore
     both. `cup_coeff_grid` (report-only) also prices each cup row at
     every grid coeff, for tuning on the exact shipped path.
+
+    `history_xi` (report-only; HISTORY_XI_READINGS) prices each fixture
+    side that holds stored `history` starters with THAT XI through the
+    existing lineup and XI multipliers (addendum 256 item 3); a side with
+    none prices as today. Refused outside report-only.
     """
+    if history_xi is not None:
+        if not include_finished:
+            raise ValueError("history_xi is report-only (include_finished=True): the history XI is post hoc and never "
+                             "reaches a stored prediction (addendum 256 item 3)")
+        if history_xi not in HISTORY_XI_READINGS:
+            raise ValueError(f"history_xi {history_xi!r} is not one of {', '.join(HISTORY_XI_READINGS)}")
     sport = Sport.SOCCER
     written = 0
     report_rows: list[dict] = []
@@ -598,6 +618,23 @@ def _generate_predictions_soccer(
                                  Lineup.kind.in_(LIVE_LINEUP_KINDS))
         ).scalars():
             starters_by_match_team.setdefault((ln.match_id, ln.team_id), []).append(ln)
+
+        # THE PERFECT-XI PRICE (report-only; addendum 256 item 3, 343 item 4): a fixture side holding stored `history`
+        # starters is priced with that XI (it replaces any live rows of the side) at the reading's kind; a side with
+        # none is untouched (law 4: priced as today and counted by the receipt, never imputed).
+        history_sides: set[tuple[int, int]] = set()
+        if history_xi is not None and upcoming:
+            hist: dict[tuple[int, int], list] = {}
+            for ln in s.execute(
+                select(Lineup).where(Lineup.is_starter == True,  # noqa: E712
+                                     Lineup.kind == "history",
+                                     Lineup.match_id.in_([m.id for m in upcoming]))
+            ).scalars():
+                hist.setdefault((ln.match_id, ln.team_id), []).append(ln)
+            for key, rows in hist.items():
+                starters_by_match_team[key] = rows
+                lineup_kind_by_match_team[key] = HISTORY_XI_READINGS[history_xi]
+                history_sides.add(key)
 
         # Recent-XI frequency per team. For each team in the upcoming set,
         # look back at their last 10 confirmed lineups and count appearances.
@@ -922,6 +959,16 @@ def _generate_predictions_soccer(
                     "away_defense": round(away_str.defense, 3),
                     "elo_goal_coeff": poisson_cfg.elo_goal_coeff,
                     **cup_receipt,
+                    # cup-exam --with-history-xi's receipt keys (report-only; absent on every other call, so the
+                    # default report rows are unchanged): per side, whether its XI came from the history rows, and
+                    # the XI multipliers it got (1.0 / 1.0 = no effect: no starters, or no season-stats baseline)
+                    **({"home_history_xi": (m.id, m.home_team_id) in history_sides,
+                        "away_history_xi": (m.id, m.away_team_id) in history_sides,
+                        "home_xi_baseline": home_baseline is not None,
+                        "away_xi_baseline": away_baseline is not None,
+                        "home_xi_mults": (home_atk_mult, home_def_mult),
+                        "away_xi_mults": (away_atk_mult, away_def_mult)}
+                       if history_xi is not None else {}),
                     **({"grid_probs": {
                         c: (lambda q: (q.p_home, q.p_draw, q.p_away))(predict_match(
                             home_elo=home_elo, away_elo=away_elo,

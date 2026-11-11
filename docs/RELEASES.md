@@ -48,6 +48,14 @@ The ritual for every tag, v1.0.0 and hotfixes included, with no exceptions:
    becomes the release gate. Paste its verdict." Since the cutover the laptop
    writes no production page, so that compare certified only the
    machine-neutral files (one on 2026-11-02; #782).
+   A compare that compared no file reads `NOTHING-TO-COMPARE` (exit 3; the
+   mirror's status pending) and is a pass of nothing. ARCHITECT 2026-11-11,
+   addendum 334 item 3, verbatim: "since MLB's close there is no kind both
+   machines export on the same day, so the tag ritual's step 1 cannot pass or
+   fail until spring", and of the tags until the off-season comparison is
+   ruled: "Until then a tag's step 1 is recorded as 332 item 4 recorded
+   v1.6.6's: the gap named, the tag ruled on CI and the PRs' own receipts."
+
 2. **Compile the ledger fragments, then draft the release notes.** On `main`
    (Anthony's lane, or a PR whose only change is the fold):
    ```

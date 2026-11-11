@@ -127,8 +127,16 @@ every push it remains; the tracked entry is left as the mirror holds it, and the
 the bulletins still go.
 
 The Action compares the newest date that BOTH writers have pushed and posts commit status
-`compare_exports`: success = clean, failure = DIVERGENT, pending = one side has not pushed that
-date yet. The full report is in the run's step summary.
+`compare_exports`: success = clean, failure = DIVERGENT (files were compared and differ), error =
+the comparator or the runner broke (not a data verdict), pending = NOTHING-TO-COMPARE (zero JSON
+compared) or one side has not pushed that date yet. The full report is in the run's step summary.
+NOTHING-TO-COMPARE (ARCHITECT 2026-11-11, addendum 334 item 3(a), verbatim): "a red status that
+means "nothing to compare" is a false alarm — the verdict for zero compared files becomes
+NOTHING-TO-COMPARE (neutral, not failure), DIVERGENT reserved for files that were compared and
+differ". A commit status has four states (success, failure, error, pending) and no neutral one;
+pending is the one that is neither green nor red, and its description begins `NOTHING-TO-COMPARE`
+and counts the files on one side only. It is never a pass of the tag ritual's step 1
+(docs/RELEASES.md).
 
 Machine state (#592 RULED, ARCHITECT 2026-10-18, addendum 128 item 3): "the compare treats kind `coverage` as "machine state": listed by presence on each side (one side, both sides, neither), never compared for content, never DIVERGENT, never counted toward or against criterion (a). Printed as its own line ("machine-state files: coverage laptop yes / host no")." The day's coverage
 file travels as every kind does, dated and latest (`<role>/<date>/coverage_<date>.json` and

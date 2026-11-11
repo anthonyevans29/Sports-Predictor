@@ -24,12 +24,23 @@ addendum 247 item 2(2); REHEARSAL-ARM KEYS below). Files
 present on one side only are listed. Output is paste-ready. Exit 0 =
 CLEAN (every compared file identical after the timestamp mask), 1 = DIVERGENT,
 2 = ERROR (the comparison could not run: bad arguments, a side directory
-missing, a crash), 3 = NO-COVERAGE (nothing was compared: zero JSON files on
-both sides in the window — an empty folder, or Markdown-only dated folders).
-2 and 3 are never data verdicts; CLEAN needs at least one compared file. A
-"coverage:" line always counts the JSON compared and the files the glob left
-out. The last line always reads "VERDICT: CLEAN|DIVERGENT|ERROR|NO-COVERAGE".
-Read-only.
+missing, a crash), 3 = NOTHING-TO-COMPARE (no file was compared: no JSON on
+both sides in the window — an empty folder, Markdown-only dated folders, or
+files each on one side only; the --require-predictions check's own reading of
+this exit is NO-COVERAGE). 2 and 3 are never data verdicts; CLEAN needs at
+least one compared file. A "coverage:" line always counts the JSON compared
+and the files the glob left out. The last line always reads
+"VERDICT: CLEAN|DIVERGENT|ERROR|NOTHING-TO-COMPARE|NO-COVERAGE". Read-only.
+
+NOTHING-TO-COMPARE (ARCHITECT 2026-11-11, addendum 334 item 3(a), verbatim):
+"a red status that means "nothing to compare" is a false alarm — the verdict
+for zero compared files becomes NOTHING-TO-COMPARE (neutral, not failure),
+DIVERGENT reserved for files that were compared and differ". Files on one side
+only still print their `·` lines and are counted on the tally, and the verdict
+line names them; they no longer make a zero-compared run DIVERGENT. A file on
+both sides that does not parse is not "nothing to compare": it stays
+DIVERGENT. A run that compared at least one file reads as before (a file on
+one side only beside it is still DIVERGENT).
 
 --since N (architect 2026-10-01; default 3): only files whose name carries a
 YYYY-MM-DD date within the last N UTC days (today and the N-1 days before)
@@ -173,8 +184,10 @@ except ImportError:
 
 # Exit codes — a data verdict is never confused with a broken run:
 #   0 CLEAN · 1 DIVERGENT · 2 ERROR (bad arguments, a missing side, a crash) ·
-#   3 NO-COVERAGE (zero files compared: never a clean verdict; PR #261 review).
+#   3 NOTHING-TO-COMPARE (zero files compared: never a clean verdict, PR #261 review; neutral, never DIVERGENT,
+#     addendum 334 item 3(a)). The --require-predictions check reads the same exit as NO-COVERAGE (#422 item 4).
 EXIT_CLEAN, EXIT_DIVERGENT, EXIT_ERROR, EXIT_NO_COVERAGE = 0, 1, 2, 3
+EXIT_NOTHING_TO_COMPARE = EXIT_NO_COVERAGE
 
 TS_KEY = re.compile(r"(_at$|^ts$|timestamp|^generated|^captured|^as_of)", re.I)
 # machine-local or reported separately — never a field diff
@@ -437,7 +450,7 @@ def diff(a, b, path="$", out=None, limit=40, unmatched=None, ignore=None, parent
 
 
 def main(argv=None) -> int:
-    """CLEAN 0 / DIVERGENT 1 / ERROR 2; the last line printed names the verdict."""
+    """CLEAN 0 / DIVERGENT 1 / ERROR 2 / NOTHING-TO-COMPARE 3; the last line printed names the verdict."""
     try:
         return _main(argv)
     except SystemExit as e:                   # argparse: --help is 0, a usage error is 2
@@ -576,11 +589,14 @@ def _main(argv=None) -> int:
             print(f"VERDICT: NO-COVERAGE ({'0 compared' if not compared else 'no predictions compared'}) — "
                   "not a data verdict")
             return EXIT_NO_COVERAGE
-    if clean and compared == 0:
-        print(f"NO COVERAGE — no {a.glob} file was compared on both sides; nothing is verified, so this is "
-              f"not a clean verdict.")
-        print("VERDICT: NO-COVERAGE (0 compared) — not a data verdict")
-        return EXIT_NO_COVERAGE
+    if compared == 0 and not unparseable:
+        # addendum 334 item 3(a): zero compared is NOTHING-TO-COMPARE (neutral), whatever sits on one side only
+        print(f"NOTHING TO COMPARE — no {a.glob} file was compared on both sides; nothing is verified, so this is "
+              f"not a clean verdict, and nothing differed, so it is not DIVERGENT.")
+        print("VERDICT: NOTHING-TO-COMPARE (0 compared"
+              + (f"; {len(one_sided)} on one side only: {', '.join(one_sided)}" if one_sided else "")
+              + ") — not a data verdict")
+        return EXIT_NOTHING_TO_COMPARE
     classes = "capture timing | provider pagination | code-version skew (only where named above)"
     # #680 (ARCHITECT 2026-10-26, a verdict-line nit): a DIVERGENT run names each cause on this line, with its files:
     # field diffs, rows on one side within a file, unparseable, on one side only. The VERDICT line and the exit code are

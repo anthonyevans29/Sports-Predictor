@@ -1,4 +1,4 @@
-## 2026-11-11 (#000: 896-display-notes — the bulletin's three display notes from the architect's read of the hand-render (ARCHITECT 2026-11-10 13:05 ET, addendum 321 item 4).)
+## 2026-11-11 (#934: 896-display-notes — the bulletin's three display notes from the architect's read of the hand-render (ARCHITECT 2026-11-10 13:05 ET, addendum 321 item 4).)
 - **Rulings (verbatim, addendum 321 item 4; read-only class, no fix round, none touches the guard):**
   - "(a) the NFL page prints "competition: not stored (family NFL)" — for NFL the family is the competition, print NFL;"
   - "(b) "top pick: away_win at not stored" while the away probability is on the page (0.5064) — print the pick's own probability;"

@@ -109,27 +109,39 @@ def _no_effect(row: dict, side: str) -> bool:
     return tuple(row.get(f"{side}_xi_mults") or (1.0, 1.0)) == (1.0, 1.0)
 
 
+def _has_stats(row: dict, side: str) -> bool:
+    """The side's history XI met season stats: the team has a baseline AND at least one of the XI's starters resolved to
+    its stats (Codex on #935, round 1: the baseline alone says nothing of the XI priced)."""
+    return bool(row.get(f"{side}_history_xi") and row.get(f"{side}_xi_baseline") and row.get(f"{side}_xi_scored"))
+
+
 def coverage(scored_ids: list[int], hx: dict[int, dict]) -> dict:
-    """Over the fixtures scored under the figure of record: how many hold a history XI on both sides, one, none (the
-    absent: priced as today, counted, never imputed); and the history-XI sides whose XI multipliers do nothing, split by
-    why (no player-season stats baseline; a baseline but no change); the fixtures with at least one side's stats."""
-    out = {"both": 0, "one": 0, "absent": 0, "sides_with_xi": 0, "no_effect_no_stats": 0, "no_effect_other": 0,
-           "effective_sides": 0, "with_stats": []}
+    """Over the fixtures scored under the figure of record: how many hold a complete history XI (eleven starters) on both
+    sides, one, none (the absent: priced as today, counted, never imputed); the sides whose stored history is not
+    eleven starters (priced as today, counted); and the history-XI sides whose XI multipliers do nothing, split by why
+    (no player-season stats: no baseline or no starter resolved; stats but no change), the sides muted below eight
+    resolved starters (xi_adjustment_multipliers' own rule), and the fixtures with at least one side's stats."""
+    out = {"both": 0, "one": 0, "absent": 0, "incomplete_sides": 0, "sides_with_xi": 0, "no_effect_no_stats": 0,
+           "no_effect_other": 0, "effective_sides": 0, "muted_sides": 0, "with_stats": []}
     for mid in scored_ids:
         r = hx.get(mid) or {}
         n = sum(bool(r.get(f"{s}_history_xi")) for s in ("home", "away"))
         out[("absent", "one", "both")[n]] += 1
+        out["incomplete_sides"] += sum(bool(r.get(f"{s}_history_incomplete")) for s in ("home", "away"))
         for s in ("home", "away"):
             if not r.get(f"{s}_history_xi"):
                 continue
             out["sides_with_xi"] += 1
-            if not r.get(f"{s}_xi_baseline"):
+            if not _has_stats(r, s):
                 out["no_effect_no_stats"] += 1
-            elif _no_effect(r, s):
+                continue
+            if (r.get(f"{s}_xi_scored") or 0) < 8:
+                out["muted_sides"] += 1
+            if _no_effect(r, s):
                 out["no_effect_other"] += 1
             else:
                 out["effective_sides"] += 1
-        if r.get("home_xi_baseline") or r.get("away_xi_baseline"):
+        if _has_stats(r, "home") or _has_stats(r, "away"):
             out["with_stats"].append(mid)
     return out
 
@@ -159,8 +171,7 @@ def receipt(key: list[dict], known: set[int], base: dict[int, dict], hx: dict[st
                        "stand_pp": s_["delta_pp"] if s_ else None,
                        "hist": "".join(c if h.get(f"{s}_history_xi") else "-" for s, c in (("home", "H"),
                                                                                            ("away", "A"))),
-                       "stats": "".join(c if h.get(f"{s}_xi_baseline") else "-" for s, c in (("home", "H"),
-                                                                                             ("away", "A")))})
+                       "stats": "".join(c if _has_stats(h, s) else "-" for s, c in (("home", "H"), ("away", "A")))})
     return {"figures": {k: figures(v) for k, v in res.items()}, "coverage": cov, "deltas": deltas,
             "subset": {k: figures(v) for k, v in subset.items()}, "subset_n": len(sub_ids)}
 
@@ -176,9 +187,12 @@ def lines(rc: dict, *, db: str, coeff_mode: str, seconds: float | None = None) -
            f"  history XI coverage over the {sum(cov[k] for k in ('both', 'one', 'absent'))} fixtures scored: both "
            f"sides {cov['both']} · one side {cov['one']} · absent {cov['absent']} (law 4: an absent side prices as "
            "today, counted, never imputed)",
+           f"  history sides not eleven starters: {cov['incomplete_sides']} (not the actual XI: priced as today, "
+           "counted)",
            f"  history-XI sides {cov['sides_with_xi']}: XI multipliers do nothing on {cov['no_effect_no_stats']} (no "
-           f"player-season stats) + {cov['no_effect_other']} (stats, no change); effective on "
-           f"{cov['effective_sides']}"]
+           f"player-season stats: no baseline, or no starter resolved) + {cov['no_effect_other']} (stats, no change); "
+           f"effective on {cov['effective_sides']}; muted below 8 resolved starters (the multipliers' own rule) "
+           f"{cov['muted_sides']}"]
     if rc["subset"]:
         out += [f"  SUBSET, information only (not a second verdict): the {rc['subset_n']} fixtures with at least one "
                 "side's stats",

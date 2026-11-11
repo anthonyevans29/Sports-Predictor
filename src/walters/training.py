@@ -623,7 +623,9 @@ def _generate_predictions_soccer(
         # starters is priced with that XI (it replaces any live rows of the side) at the reading's kind; a side with
         # none is untouched (law 4: priced as today and counted by the receipt, never imputed).
         history_sides: set[tuple[int, int]] = set()
+        history_incomplete: set[tuple[int, int]] = set()
         if history_xi is not None and upcoming:
+            from src.ingestion.lineups_history import ELEVEN
             hist: dict[tuple[int, int], list] = {}
             for ln in s.execute(
                 select(Lineup).where(Lineup.is_starter == True,  # noqa: E712
@@ -632,6 +634,11 @@ def _generate_predictions_soccer(
             ).scalars():
                 hist.setdefault((ln.match_id, ln.team_id), []).append(ln)
             for key, rows in hist.items():
+                if len(rows) != ELEVEN:
+                    # not the actual XI (Codex on #935, round 1): the history ingest stores a short side and marks it
+                    # for retry; such a side prices as today and the receipt counts it, never as a covered side
+                    history_incomplete.add(key)
+                    continue
                 starters_by_match_team[key] = rows
                 lineup_kind_by_match_team[key] = HISTORY_XI_READINGS[history_xi]
                 history_sides.add(key)
@@ -964,8 +971,14 @@ def _generate_predictions_soccer(
                     # the XI multipliers it got (1.0 / 1.0 = no effect: no starters, or no season-stats baseline)
                     **({"home_history_xi": (m.id, m.home_team_id) in history_sides,
                         "away_history_xi": (m.id, m.away_team_id) in history_sides,
+                        "home_history_incomplete": (m.id, m.home_team_id) in history_incomplete,
+                        "away_history_incomplete": (m.id, m.away_team_id) in history_incomplete,
                         "home_xi_baseline": home_baseline is not None,
                         "away_xi_baseline": away_baseline is not None,
+                        # the starters of the XI priced that resolved to season stats (Codex on #935, round 1: the
+                        # baseline alone says nothing of the XI; 0 = the XI's multipliers had no stats to move on)
+                        "home_xi_scored": home_xi_obj.players_with_scores if home_xi_obj is not None else 0,
+                        "away_xi_scored": away_xi_obj.players_with_scores if away_xi_obj is not None else 0,
                         "home_xi_mults": (home_atk_mult, home_def_mult),
                         "away_xi_mults": (away_atk_mult, away_def_mult)}
                        if history_xi is not None else {}),

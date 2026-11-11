@@ -20,7 +20,8 @@ from src.walters.cup_exam import score_exam
 
 REPO = Path(__file__).resolve().parents[1]
 SEASON = "2026/27"
-NEW_KEYS = ("home_history_xi", "away_history_xi", "home_xi_baseline", "away_xi_baseline", "home_xi_mults",
+NEW_KEYS = ("home_history_xi", "away_history_xi", "home_history_incomplete", "away_history_incomplete",
+            "home_xi_baseline", "away_xi_baseline", "home_xi_scored", "away_xi_scored", "home_xi_mults",
             "away_xi_mults")
 
 
@@ -179,10 +180,13 @@ def _key(mid, fh, comp="EFL", date="2026-09-16"):
             "fair_home": fh, "fair_draw": 0.25, "fair_away": 0.75 - fh}
 
 
-def _row(p, hist=(False, False), stats=(False, False), mults=((1.0, 1.0), (1.0, 1.0))):
+def _row(p, hist=(False, False), stats=(False, False), mults=((1.0, 1.0), (1.0, 1.0)), scored=None,
+         incomplete=(False, False)):
+    scored = scored if scored is not None else tuple(11 if x else 0 for x in stats)
     return {"p_home": p, "p_draw": 0.25, "p_away": 0.75 - p, "home_history_xi": hist[0], "away_history_xi": hist[1],
-            "home_xi_baseline": stats[0], "away_xi_baseline": stats[1], "home_xi_mults": mults[0],
-            "away_xi_mults": mults[1]}
+            "home_history_incomplete": incomplete[0], "away_history_incomplete": incomplete[1],
+            "home_xi_baseline": stats[0], "away_xi_baseline": stats[1], "home_xi_scored": scored[0],
+            "away_xi_scored": scored[1], "home_xi_mults": mults[0], "away_xi_mults": mults[1]}
 
 
 def test_the_receipt_scores_three_readings_unchanged_counts_coverage_and_the_subset():
@@ -190,20 +194,22 @@ def test_the_receipt_scores_three_readings_unchanged_counts_coverage_and_the_sub
     known = {1, 2, 3}
     base = {1: _row(0.60), 2: _row(0.55), 3: _row(0.45)}
     conf = {1: _row(0.52, (True, True), (True, False), ((0.95, 1.02), (1.0, 1.0))),
-            2: _row(0.55, (True, False), (False, False)),
-            3: _row(0.45)}
+            2: _row(0.55, (True, False), (True, False), scored=(0, 0)),       # a baseline, but no starter resolved
+            3: _row(0.45, incomplete=(True, False))}
     stand = {1: _row(0.56, (True, True), (True, False)), 2: _row(0.55, (True, False)), 3: _row(0.45)}
     rc = px.receipt(key, known, base, {"confirmed": conf, "as_it_stands": stand})
     assert rc["figures"]["fix_v2"] == px.figures(score_exam(key, base, known))       # cup_exam's own scoring
     assert rc["figures"]["confirmed"]["mae_home_pp"] == pytest.approx((2 + 15 + 15) / 3)
-    assert rc["coverage"] == {"both": 1, "one": 1, "absent": 1, "sides_with_xi": 3, "no_effect_no_stats": 2,
-                              "no_effect_other": 0, "effective_sides": 1, "with_stats": [1]}
+    assert rc["coverage"] == {"both": 1, "one": 1, "absent": 1, "incomplete_sides": 1, "sides_with_xi": 3,
+                              "no_effect_no_stats": 2, "no_effect_other": 0, "effective_sides": 1, "muted_sides": 0,
+                              "with_stats": [1]}
     assert rc["subset_n"] == 1 and rc["subset"]["confirmed"]["mae_home_pp"] == pytest.approx(2.0)
     assert [d["hist"] for d in rc["deltas"]] == ["HA", "H-", "--"] and rc["deltas"][0]["stats"] == "H-"
     text = "\n".join(px.lines(rc, db="/copy.db", coeff_mode="tuned", seconds=12.0))
     assert "<- the figure OF RECORD" in text and "as it stands, information only" in text
     assert "SUBSET, information only (not a second verdict)" in text and "judges nothing" in text
-    assert "absent 1 (law 4" in text and "do nothing on 2 (no player-season stats)" in text
+    assert "absent 1 (law 4" in text and "do nothing on 2 (no player-season stats" in text
+    assert "history sides not eleven starters: 1" in text
     for word in ("DECLARE", "CLOSED", "PASS", "FAIL"):                   # it prints figures; it judges nothing
         assert word not in text
 
@@ -289,3 +295,24 @@ def test_the_command_prints_the_exam_then_the_receipt_on_the_copy_and_writes_not
     assert _sha(copy) == sha and not Path(str(copy) + "-wal").exists()
     refused = CliRunner().invoke(cli, ["cup-exam", "--key", str(key), "--with-history-xi"])
     assert refused.exit_code == 2 and "pass --db PATH" in refused.output
+
+
+# ---- Codex on #935, round 1 ----------------------------------------------------------------------------------------------
+
+def test_codex_r1_a_history_side_not_eleven_starters_prices_as_today_and_is_counted(world):
+    """P1: the history ingest stores a short side and marks it for retry: not the actual XI, never priced as one."""
+    mid, h, _ = _pl0_home_tie(world)
+    base = _price()
+    _history(mid, h, ROTATED[:10])                               # ten starters
+    r = _price(history_xi="confirmed")[mid]
+    assert _probs(r) == _probs(base[mid]) and not r["home_history_xi"] and r["home_history_incomplete"]
+
+
+def test_codex_r1_stats_coverage_is_the_xis_resolved_starters_not_the_baseline(world):
+    """P2: a team with a baseline whose history XI resolves no starter to its stats is a no-stats side."""
+    mid, h, _ = _pl0_home_tie(world)
+    _history(mid, h, [f"Stranger {k}" for k in range(11)])      # names the squad's stats do not hold
+    r = _price(history_xi="confirmed")[mid]
+    assert r["home_history_xi"] and r["home_xi_baseline"] and r["home_xi_scored"] == 0
+    cov = px.coverage([mid], {mid: r})
+    assert cov["no_effect_no_stats"] == 1 and cov["with_stats"] == []

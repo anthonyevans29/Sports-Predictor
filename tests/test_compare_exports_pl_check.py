@@ -100,7 +100,8 @@ def test_a_missing_host_file_is_no_coverage_not_divergent(tmp_path, capsys):
     la.mkdir()
     ho.mkdir()
     (la / F).write_text(json.dumps(doc([row("Arsenal", 0.55)])))
-    assert ce.main([str(la), str(ho), "--since", "0"]) == ce.EXIT_DIVERGENT     # without the flag: as before
+    # without the flag: zero compared reads NOTHING-TO-COMPARE (addendum 334 item 3(a); DIVERGENT until 2026-11-11)
+    assert ce.main([str(la), str(ho), "--since", "0"]) == ce.EXIT_NOTHING_TO_COMPARE
     capsys.readouterr()
     assert ce.main([str(la), str(ho), "--since", "0", "--ignore-keys", KEYS,
                     "--require-predictions"]) == ce.EXIT_NO_COVERAGE

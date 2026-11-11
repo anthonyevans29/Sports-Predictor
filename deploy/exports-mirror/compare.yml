@@ -1,10 +1,17 @@
 # EXPORTS MIRROR verdict (F2.5, ARCHITECT 2026-10-03): on every push, the
 # laptop-vs-host comparison for the newest date BOTH writers have, posted as a
 # commit status (context "compare_exports"): success = CLEAN (exit 0),
-# failure = DIVERGENT (exit 1), error = NO COVERAGE (exit 3: zero JSON
-# compared, never a clean verdict) or the comparator/runner broke (any other
-# exit, or no matching VERDICT line) — neither is a data verdict; pending =
-# the other side has not pushed that date yet. tools/compare_exports.py is standalone (stdlib only). Shipped
+# failure = DIVERGENT (exit 1: a compared file differs, a pair does not parse,
+# or a file is on one side only beside a compared file), error = the
+# comparator/runner broke (any other exit, or no matching VERDICT line) — not a
+# data verdict; pending = NOTHING-TO-COMPARE (exit 3: zero JSON compared, never
+# a clean verdict and never a failure) or the other side has not pushed that
+# date yet. NOTHING-TO-COMPARE (ARCHITECT 2026-11-11, addendum 334 item 3(a)):
+# "neutral, not failure"; a commit status has no neutral state (success,
+# failure, error, pending), and pending is the one that is neither green nor
+# red. Each writer's push ships its own copy of this file and the comparator,
+# so a writer on an older tag puts the older mapping back on its own commits.
+# tools/compare_exports.py is standalone (stdlib only). Shipped
 # into Sports-Predictor-exports by exports_mirror.py push (do not edit there).
 name: compare_exports
 on:
@@ -42,8 +49,9 @@ jobs:
             echo "state=success" >> "$GITHUB_OUTPUT"; echo "desc=CLEAN · $d" >> "$GITHUB_OUTPUT"
           elif [ "$rc" = "1" ] && [ "$v" = "VERDICT: DIVERGENT" ]; then
             echo "state=failure" >> "$GITHUB_OUTPUT"; echo "desc=DIVERGENT · $d (see the run log)" >> "$GITHUB_OUTPUT"
-          elif [ "$rc" = "3" ]; then
-            echo "state=error" >> "$GITHUB_OUTPUT"; echo "desc=NO COVERAGE · $d — 0 JSON compared; not a data verdict" >> "$GITHUB_OUTPUT"
+          elif [ "$rc" = "3" ] && [ "${v#VERDICT: NOTHING-TO-COMPARE}" != "$v" ]; then
+            n=$(grep -cE '^· ' compare.txt)
+            echo "state=pending" >> "$GITHUB_OUTPUT"; echo "desc=NOTHING-TO-COMPARE · $d — 0 JSON compared, $n on one side only; neutral, not a data verdict" >> "$GITHUB_OUTPUT"
           else
             echo "state=error" >> "$GITHUB_OUTPUT"; echo "desc=comparator ERROR (exit $rc) · $d — not a data verdict" >> "$GITHUB_OUTPUT"
           fi

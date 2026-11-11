@@ -2683,6 +2683,45 @@ def slate_steps(fam: str, day: date, covers: list[dict], run_start: datetime, ru
     return steps
 
 
+# THE HELD SLATE'S LABEL (ARCHITECT 2026-11-11 10:15 ET, addendum 337 item 1, verbatim): "What is missing is the label
+# where the reader looks (law 4): the slate file and its page say "schedule not re-read: SP_SYNC_HOLD <code> —
+# kickoffs as stored" on a held family's rows." The rows key is SCHEDULE_NOTE_KEY; the page line is the same text.
+SCHEDULE_NOT_REREAD = "schedule not re-read: SP_SYNC_HOLD {codes} — kickoffs as stored"
+SCHEDULE_NOTE_KEY = "schedule_note"
+
+
+def label_held_rows(kept: str, doc: dict, codes: list) -> dict:
+    """Addendum 337 item 1: every row of a held family's slate export carries SCHEDULE_NOTE_KEY = the declared text.
+    The labelled document is written to a file of its own beside the kept export, logs/<kept stem>.schedule-note.json
+    (created once: an existing name is an error, never written over), and link_slate_file links THAT file into
+    exports/. The export step's kept file is never opened for writing (#442; addendum 133 item 3(a): "the logs/ copy
+    stays"), so `export_written` {file, sha256} still verifies. A slate covers one family, and its schedule read was
+    held, so no row of it was re-read. {file, text, rows, sha256} or {file, text, error}."""
+    text = SCHEDULE_NOT_REREAD.format(codes="/".join(codes))
+    rows = doc.get("predictions") or []
+    for r in rows:
+        if isinstance(r, dict):
+            r[SCHEDULE_NOTE_KEY] = text
+    src = c.REPO / kept
+    dest = src.with_name(f"{src.stem}.schedule-note{src.suffix}")
+    rel = str(Path(kept).with_name(dest.name))
+    tmp = dest.with_name(f".{dest.name}.tmp")
+    try:
+        c.refuse_under_data(dest.parent)
+        if dest.exists() or dest.is_symlink():
+            raise FileExistsError(f"{rel} already exists: never written a second time")
+        tmp.write_text(json.dumps(doc, indent=2))
+        os.link(tmp, dest)            # fails if the name appeared meanwhile: nothing is replaced
+        tmp.unlink()
+        return {"file": rel, "text": text, "rows": len(rows), "sha256": _sha256(dest)}
+    except (OSError, SystemExit) as e:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+        return {"file": rel, "text": text, "error": c.redact(f"{type(e).__name__}: {e}")[:300]}
+
+
 def link_slate_file(kept: str, name: str) -> dict:
     """Addendum 133 item 3(a): once the checks pass, "the run links the kept file into `exports/<slate file>` the way
     the closing writes its closing file (a hard link, then the rename over the name; receipted `slate_file` {file,
@@ -2750,7 +2789,7 @@ def calls_text(calls: dict) -> str:
 
 
 def slate_page_text(fam: str, day: date, rows: int, calls: dict, file: str, late: dict | None,
-                    beyond: int = 0, unit_unread: bool = False) -> tuple[str, str]:
+                    beyond: int = 0, unit_unread: bool = False, schedule_note: str | None = None) -> tuple[str, str]:
     """Item 2(a)'s page, the declared text: "SLATE <FAMILY> <YYYY-MM-DD>: <N> row(s) · PLAY <p> · PASS <q> ·
     exports/<file>" (addendum 133 item 3(c): `1 row` on a one-game day, rows_text). N and the calls count the ET day's
     games (addendum 133 item 4, item 8), and the rows beyond the day follow the counts, `· +<k> beyond the day` when
@@ -2758,9 +2797,13 @@ def slate_page_text(fam: str, day: date, rows: int, calls: dict, file: str, late
     whatever held it; addendum 137 item 2(4)) says so on the next line, the declared text of addendum 133 item 4, item 3: `LATE <m> min: due
     HH:MM ET, first tick HH:MM ET, run HH:MM ET` (the first tick: the earliest queued_at of the day's slate and
     slate_miss receipts, which says whether the laptop slept); an unread day's unit says UNIT_UNREAD_TEXT on a line of
-    its own (addendum 179 item 4, `unit_unread`); the machine's line last (addendum 45).
+    its own (addendum 179 item 4, `unit_unread`); the machine's line last (addendum 45). A held family's slate
+    (addendum 337 item 1, `schedule_note`) says SCHEDULE_NOT_REREAD on the line right after the SLATE line, before
+    the LATE line: 337 places the label "where the reader looks", and no ruling fixes the LATE line's position.
     Returns (title, body)."""
     lines = [f"SLATE {fam} {day.isoformat()}: {rows_text(rows)} · {calls_text(calls)}{beyond_text(beyond)} · {file}"]
+    if schedule_note:                 # addendum 337 item 1: a held family's slate says so where the reader looks
+        lines.append(schedule_note)
     if late:
         lines.append(f"LATE {late['minutes']} min: due {et(late['due'])[11:]}, first tick {et(late['tick'])[11:]}, "
                      f"run {et(late['run'])[11:]}")
@@ -3118,6 +3161,9 @@ def _slate_what(rec: dict) -> str:
             "export carries no desk calls": f"{rec.get('export')} carries no desk calls",
             "missing from export": f"missing from export ({rec.get('export')}): match "
                                    + ", ".join(str(m["match_id"]) for m in rec.get("missing") or []),
+            "slate rows not labelled": f"{rec.get('file')} rows not labelled ("
+                                       + str((rec.get("schedule_note") or {}).get("error") or "?").split(":")[0]
+                                       + ")",
             "slate file": f"{rec.get('file')} not linked ("
                           + str((rec.get("slate_file") or {}).get("error") or "?").split(":")[0] + ")",
             "push": f"mirror push (exit {(rec.get('push') or {}).get('exit')})",
@@ -3177,6 +3223,8 @@ def _slate(rec: dict, fam: str, day: date, covers: list[dict], folder: Path, hel
     logs = c.REPO / "logs"
     c.refuse_under_data(logs)
     logs.mkdir(parents=True, exist_ok=True)
+    reads = schedule_reads(steps)     # the slate's schedule reads (slate_steps is resolve_steps)
+    held_read: list = []              # addendum 337 item 1: the codes a held schedule read named
     for i, st in enumerate(steps, 1):
         line = f"python cli.py {' '.join(st)}"
         print(f"\n=== [{fam} slate {i}/{len(steps)}] {line}", flush=True)
@@ -3190,12 +3238,15 @@ def _slate(rec: dict, fam: str, day: date, covers: list[dict], folder: Path, hel
             srec["empty_answers"] = empty
         held_codes = sp_run.sync_counts(tail).get("held")
         if held_codes:                # SP_SYNC_HOLD (332 item 3: "a receipt line counts the held steps"), as a closing
-            srec["held"] = held_codes  # records it. Addendum 336 item 1 rules the CLOSING RUN's held read; whether a
-            sh = rec.setdefault("sync_held", {"n": 0, "steps": []})          # held slate read fails the slate too is
-            sh["n"] += 1                                                       # put to the architect (#925)
+            srec["held"] = held_codes  # records it. Addendum 337 item 1: a held slate read does not fail the slate; it
+            sh = rec.setdefault("sync_held", {"n": 0, "steps": []})          # goes on, its rows and page labelled
+            sh["n"] += 1                                                       # (label_held_rows, SCHEDULE_NOT_REREAD)
             sh["steps"].append({"step": i, "command": line, "codes": held_codes})
-            print(f"· HELD (SP_SYNC_HOLD) {'/'.join(held_codes)}: step {i} wrote nothing (recorded; the slate goes on)",
-                  flush=True)
+            if i <= reads:
+                held_read += [x for x in held_codes if x not in held_read]
+            print(f"· HELD (SP_SYNC_HOLD) {'/'.join(held_codes)}: step {i} wrote nothing (recorded; the slate goes on"
+                  + ("; its rows and page say the schedule was not re-read, addendum 337 item 1" if i <= reads else "")
+                  + ")", flush=True)
         if rc != 0 or held_codes:
             srec["tail"] = tail[-3:]
         rec["steps"].append(srec)
@@ -3226,9 +3277,18 @@ def _slate(rec: dict, fam: str, day: date, covers: list[dict], folder: Path, hel
     ids = {g["match_id"] for g in games}      # item 8: the counts are the ET day's games; the rest follow as +k
     rec["rows"], rec["calls"] = slate_calls(doc, ids)
     rec["beyond_day"] = beyond_day(doc, ids, day_void_ids(fam, day))
+    if held_read:                     # addendum 337 item 1: the label on the held family's rows, before the link
+        rec["schedule_note"] = label_held_rows(rec["export"], doc, held_read)
+        if rec["schedule_note"].get("error"):
+            rec["failed"] = "slate rows not labelled"
+            print(f"✗ slate rows NOT labelled: {rec['schedule_note']['error']} — nothing linked, pushed or paged")
+            return
+        print(f"· {rec['schedule_note']['text']} (on {rec['schedule_note']['rows']} row(s): "
+              f"{rec['schedule_note']['file']}, the export step's {rec['export']} kept as written)")
     # addendum 133 item 3(a): the checks passed: the kept file is linked into exports/<slate file> (the closing file's
     # write: a hard link, then the rename over the name), THEN the push, THEN the page
-    rec["slate_file"] = link_slate_file(rec["export"], Path(rec["file"]).name)
+    rec["slate_file"] = link_slate_file((rec.get("schedule_note") or {}).get("file") or rec["export"],
+                                        Path(rec["file"]).name)
     if rec["slate_file"].get("error"):
         rec["failed"] = "slate file"
         print(f"✗ slate file NOT linked: {rec['slate_file']['error']} — nothing pushed or paged; exports/ as it "
@@ -3245,7 +3305,8 @@ def _slate(rec: dict, fam: str, day: date, covers: list[dict], folder: Path, hel
         rec["failed"] = "push"
         return
     title, body = slate_page_text(fam, day, rec["rows"], rec["calls"], rec["file"], late, rec["beyond_day"],
-                                  unit_unread=export_unit_unread(doc, rec.get("unit")))
+                                  unit_unread=export_unit_unread(doc, rec.get("unit")),
+                                  schedule_note=(rec.get("schedule_note") or {}).get("text"))
     print(f"\n--- page ---\n{body}\n---")
     tries = []
     for n in range(1, PAGE_TRIES + 1):

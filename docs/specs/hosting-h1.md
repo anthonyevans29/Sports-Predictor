@@ -1406,6 +1406,30 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
         file). A long-running process (the admin UI, sp-web) keeps the environment it started with, so after a lift
         it holds the lifted code until it restarts; the receipt's by-place line shows that as `environment` naming a
         code the file no longer names.
+      - **Lifting a hold (ARCHITECT 2026-11-11 10:15 ET, addendum 337 item 2, verbatim):** "holding longer is the
+        safe direction; the stale copy is real for a long-running process started with the code in its environment
+        (the units read host.env through EnvironmentFile). RULED for the runbook's lift step, on #928 with the rest:
+        "lifting a hold: remove the code from the machine's one place, restart every long-running service that loaded
+        it (the admin UI's unit, named), then read the by-place line on the next chain receipt — a code still listed
+        under `environment` is a process that was not restarted". 336 item 2's "no process carries a stale copy" is
+        corrected to that. Chains are short-lived and need nothing." The admin UI's unit is `sp-web.service`. On the
+        host:
+        1. Remove the code from `SP_SYNC_HOLD=` in `/etc/sports-predictor/host.env`.
+        2. `sudo systemctl restart sp-web.service`.
+        3. Read the by-place line on the next chain receipt: the last `chain` receipt's `sync_hold`. The receipts
+           table (`sp_receipts.py`) does not print it; this does:
+           `sudo -u sp venv/bin/python -c "import json,sys; sys.path.insert(0,'deploy/hosting'); import sp_common as c; r=[x for x in map(json.loads, open(c.receipts_path())) if x.get('kind') == 'chain']; print(r[-1].get('sync_hold') if r else 'no chain receipt')"`
+           (`None`: nothing held anywhere, or that run was refused before its steps: read the one before).
+           The lifted code is listed under no place.
+        4. **What step 3 cannot see (Code's review, put to the architect on #928):** a chain receipt's `environment`
+           is the chain's own process, and every chain re-reads host.env at its start (the unit's `EnvironmentFile`,
+           and sp_run's `load_host_env`). So the next chain receipt reads clean after the edit whether or not
+           sp-web was restarted. What does see sp-web: its start time after the edit
+           (`systemctl show -p ActiveEnterTimestamp sp-web.service`), or its own environment
+           (`sudo tr '\0' '\n' < /proc/$(systemctl show -p MainPID --value sp-web.service)/environ | grep SP_SYNC_HOLD`,
+           which prints nothing once the code is lifted and sp-web restarted).
+        On the laptop: remove it from the checkout's `.env`, and restart the admin UI if it is running. The chains are
+        short-lived and need nothing.
       - **What honors it.** `sync-teams` and `sync-matches` on every source (the MLB api-sports fallback and the
         tennis path included, checked before either, after the arguments are validated), `--match-ids` included: a
         held closing read exits 0 (332 item 3's contract). **THE HELD CLOSING READ (ARCHITECT 2026-11-11 09:35 ET,
@@ -1421,8 +1445,21 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
         reads as not answered (A1): the run stops here and nothing is priced on the stored schedule`. The schedule
         reads are the three closing chains' only steps that honor the hold. The closing watch's slate stage runs
         the same reads (slate_steps): a held slate read is recorded the same way (`held` on the step, `sync_held` on
-        the slate receipt) and the slate goes on; 336 item 1 names the closing run, so whether a held read fails
-        the slate too is put to the architect (#925). By the write path (333 item
+        the slate receipt) and the slate goes on. **THE HELD SLATE (ARCHITECT 2026-11-11 10:15 ET, addendum 337 item
+        1, verbatim):** "the slate GOES ON, as built, with the held read recorded on its receipt. A slate is a page of
+        the day's games, not a call: the call is the closing's, and a held family's closing now fails as unanswered
+        (336 item 1), so no bet can ride on a kickoff the slate did not re-read. What is missing is the label where
+        the reader looks (law 4): the slate file and its page say "schedule not re-read: SP_SYNC_HOLD <code> —
+        kickoffs as stored" on a held family's rows." As built (#928): every row of the held family's slate file
+        carries `schedule_note` = that text. The labelled document is written to its own file beside the kept
+        export, `logs/<run id>.<slate file stem>.schedule-note.json`, created once and never written over, and THAT
+        file is linked into exports/. The export step's kept file is never written again (#442), so `export_written`
+        {file, sha256} still verifies. The page carries the same text on its second line. The slate receipt keeps
+        `schedule_note` {file, text, rows, sha256}, and `slate_file` names the labelled file's sha256. A label that
+        cannot be written fails the slate as `slate rows not labelled`, its notice naming the cause, and nothing is
+        linked, pushed or paged. The NCAA shadow's `refresh_seen` names a held refresh-by-id step: state `none`, `held` [codes], and
+        `why` "the refresh-by-id step was HELD (SP_SYNC_HOLD <code>): it wrote nothing and no refresh_by_id
+        receipt". By the write path (333 item
         3(iii)): `refresh-by-id` (NCAA,
         NFL), `intl-sync` (it writes nothing for a held code of its plan and prints one HELD line per code), and the
         admin UI's two sync jobs. A held step builds no adapter, makes no provider call and writes nothing.

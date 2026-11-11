@@ -1,0 +1,13 @@
+## 2026-11-11 (#929: 927-window-not-read — a paired file whose window was not read is never CLEAN (ARCHITECT 2026-11-11 10:50 ET, addendum 338 item 3; Codex P1 on #927 at e52424fb).)
+- **Ruling (verbatim, addendum 338 item 3):** "Code's fix is right as designed — a paired file counts toward CLEAN only once its declared rows list and its dated window were both read; otherwise its line reads "window NOT READ" and the verdict is NOTHING-TO-COMPARE, named on the verdict line; a hand compare of the undated `latest/` reads NOTHING-TO-COMPARE, which is correct (335 item 4(f): a tag's step 1 is a hand run on the DATED D-1 folder)."
+- **The finding:** Codex's automatic review of #927 (P1 at deploy/hosting/compare_exports.py:727). A paired file whose two copies lack the declared rows list was counted as in-window through the generic row count. Identical bare arrays holding only a 2027-01-01 row read `VERDICT: CLEAN` with no row checked against the window. #927 merged with the thread open (338 item 2); this PR is the fix.
+- **Built (`deploy/hosting/compare_exports.py`):**
+  - A paired file counts toward CLEAN, or toward "empty in the window", only once `window_pair` cut both sides.
+  - Otherwise its line ends `window NOT READ (no declared rows list on both sides, or no date in the name): no row checked against the window, never CLEAN`. The summary line counts `N window not read`, and the NOTHING-TO-COMPARE verdict line names `N paired, window not read: <names>`.
+  - A file that differs still reads DIVERGENT, as before.
+  - Codex on #929 (P2): `deploy/exports-mirror/compare.yml`'s pending description names the unread window (`<n> paired file(s), window not read (338 item 3)`), never the false "no paired kind compared with rows in the window".
+  - Codex on #929 (P1): an unread window outranks CLEAN, so a valid pair beside it does not make the run CLEAN. The order is DIVERGENT, then awaiting, then window not read, then CLEAN, then NOTHING-TO-COMPARE.
+- **Tests:**
+  - tests/test_compare_exports_paired_kinds.py: identical bare arrays with a far row read NOTHING-TO-COMPARE, window not read. The test fails on main.
+  - tests/test_exports_mirror.py: the shipped-Action tests feed `fixtures_NHL` in the declared `{"fixtures": [...]}` shape. A hand compare of `latest/` reads NOTHING-TO-COMPARE (window not read), and the dated folder reads CLEAN.
+- **Docs:** the comparator's docstring, docs/specs/exports-mirror.md and docs/CLI.md quote 338 item 3.

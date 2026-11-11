@@ -207,8 +207,16 @@ the run's own UTC date or later (a later date is not a complete day either), and
 undated paired name cannot show its day, so it reads "missing on <role> (undated: completeness unknown)", DIVERGENT
 (law 4). The verdict's order: DIVERGENT (a paired
 file differs, a pair does not parse, a paired kind missing on a complete day or on both sides under different
-names), then NOTHING-TO-COMPARE awaiting <role>, then CLEAN, then NOTHING-TO-COMPARE. A pair that does not parse stays
-DIVERGENT whatever its kind (335 item 2: "CONFIRMED (law 4)"). The flag `--paired-kinds` names the list (default:
+names), then NOTHING-TO-COMPARE awaiting <role>, then NOTHING-TO-COMPARE window not read, then CLEAN, then
+NOTHING-TO-COMPARE. A pair that does not parse stays
+DIVERGENT whatever its kind (335 item 2: "CONFIRMED (law 4)"). A paired file counts toward CLEAN only once its
+declared rows list and its dated window were cut; otherwise it reads WINDOW_NOT_READ and counts nowhere but the
+verdict line's "paired, window not read". THE WINDOW MUST BE READ (ARCHITECT 2026-11-11 10:50 ET, addendum 338 item 3,
+verbatim): "Code's fix is right as designed — a paired file counts toward CLEAN only once its declared rows list and
+its dated window were both read; otherwise its line reads "window NOT READ" and the verdict is NOTHING-TO-COMPARE,
+named on the verdict line; a hand compare of the undated `latest/` reads NOTHING-TO-COMPARE, which is correct (335
+item 4(f): a tag's step 1 is a hand run on the DATED D-1 folder)."
+The flag `--paired-kinds` names the list (default:
 the declared one); `--paired-kinds '*'` is the pre-335 rule (every kind paired, no window, no host-only mask), which
 the --require-predictions check (the cutover PL check) always uses.
 """
@@ -413,6 +421,8 @@ HOST_ONLY_LINE = ("host-only columns (market, close_unpriced, kalshi, kalshi_leg
                   "exec_cost*, fee*, k_track, input_quality, desk, desk_meta; each named, no prefix)")
 
 
+WINDOW_NOT_READ = ("window NOT READ (no declared rows list on both sides, or no date in the name): no row checked "
+                   "against the window, never CLEAN")
 # addendum 336 item 4(3), verbatim: the two readings of an unpaired kind found on both sides
 UNPAIRED_SAME = "unpaired, on both sides: identical"
 UNPAIRED_DIFFERS = ("unpaired, on both sides: DIFFERS (not a verdict; pair it by ruling if both machines should make "
@@ -672,6 +682,7 @@ def _main(argv=None) -> int:
     paired_missing, expected_one_sided, paired_with_rows, paired_empty = [], [], [], []
     paired_unnamed = []          # a paired kind on both sides under different names: present, but nothing compared
     paired_awaiting = []         # addendum 336 item 4(2): (name, the side awaited) for the run's own UTC day
+    paired_unread = []           # a paired file whose window could not be cut: never counts toward CLEAN
     unpaired_same, unpaired_differs = [], []     # addendum 336 item 4(3): seen, counted, never a verdict
     # a side's kinds among the files the other side does not carry by the same name: a paired kind there is the same
     # kind under a different name (a pair matched by name on another date is not; Code's review on 336)
@@ -723,8 +734,12 @@ def _main(argv=None) -> int:
                     outside["laptop"] += win[2]
                     outside["host"] += win[3]
                 host_only_masked += host_only_count(x, y)
-            rows_in = (win[0] + win[1]) if win else ((rows_of(x) or 0) + (rows_of(y) or 0))
-            (paired_with_rows if rows_in else paired_empty).append(name)
+            if win is None:
+                # Codex on #927 (P1): no window was cut (no declared rows list on both sides, no date in the name, or a
+                # kind named with no declared rows): no row was checked against the window, so never CLEAN
+                paired_unread.append(name)
+            else:
+                (paired_with_rows if win[0] + win[1] else paired_empty).append(name)
         if a.require_predictions:
             for side, doc in (("laptop", x), ("host", y)):
                 pred_rows[side] += predicted_rows(doc)
@@ -754,7 +769,8 @@ def _main(argv=None) -> int:
               f"diffs={len(d)} · {sha}"
               + (f" · in the window (yesterday, today, tomorrow) laptop={win[0]} host={win[1]}; outside the window, "
                  f"never compared: laptop {win[2]} · host {win[3]}" if win else "")
-              + ("" if not unpaired else f" · {UNPAIRED_SAME}" if ok else f" · {UNPAIRED_DIFFERS}"))
+              + ("" if not unpaired else f" · {UNPAIRED_SAME}" if ok else f" · {UNPAIRED_DIFFERS}")
+              + (f" · {WINDOW_NOT_READ}" if kind in paired and not legacy and win is None else ""))
         for side in ("laptop", "host"):
             if only[side]:
                 print(f"    only on {side} ({len(only[side])}): " + "; ".join(only[side][:12])
@@ -780,6 +796,7 @@ def _main(argv=None) -> int:
               + (f"{len(paired_unnamed)} under different names · " if paired_unnamed else "")
               + (f"{len(paired_awaiting)} awaiting the other side (the run's own UTC day) · " if paired_awaiting
                  else "")
+              + (f"{len(paired_unread)} window not read · " if paired_unread else "")
               + f"rows outside the window laptop {outside['laptop']} · host {outside['host']} · expected one-sided "
               f"(not a paired kind): {len(expected_one_sided)} · unpaired, on both sides: {len(unpaired_same)} "
               f"identical, {len(unpaired_differs)} differ (not a verdict)")
@@ -796,7 +813,7 @@ def _main(argv=None) -> int:
     if not legacy:
         return paired_verdict(compared, field_diffs, row_diffs, unparseable, paired_missing, paired_with_rows,
                               paired_empty, expected_one_sided, skew_names, paired_unnamed, paired_awaiting,
-                              unpaired_same, unpaired_differs)
+                              unpaired_same, unpaired_differs, paired_unread)
     if compared == 0 and not unparseable:
         # addendum 334 item 3(a): zero compared is NOTHING-TO-COMPARE (neutral), whatever sits on one side only
         print(f"NOTHING TO COMPARE — no {a.glob} file was compared on both sides; nothing is verified, so this is "
@@ -821,7 +838,7 @@ def _main(argv=None) -> int:
 
 def paired_verdict(compared, field_diffs, row_diffs, unparseable, paired_missing, paired_with_rows, paired_empty,
                    expected_one_sided, skew_names, paired_unnamed=(), paired_awaiting=(), unpaired_same=(),
-                   unpaired_differs=()) -> int:
+                   unpaired_differs=(), paired_unread=()) -> int:
     """Addendum 335 item 4(c), the verdict rule, as 336 item 4(2)-(3) corrects it: DIVERGENT = a paired file differs,
     a pair does not parse, or a paired kind is missing on a side for a COMPLETE day (any date before the run's own UTC
     day); else NOTHING-TO-COMPARE when a paired kind is awaiting the other side on the run's own UTC day (posted
@@ -850,6 +867,18 @@ def paired_verdict(compared, field_diffs, row_diffs, unparseable, paired_missing
             parts.append(f"unpaired, on both sides, differ (not a verdict): {', '.join(unpaired_differs)}")
         print(f"VERDICT: NOTHING-TO-COMPARE ({'; '.join(parts)}) — not a data verdict")
         return EXIT_NOTHING_TO_COMPARE
+    if paired_unread:
+        # Codex on #929 (P1): a paired file whose window was not read keeps the run from CLEAN even beside a valid pair
+        # (addendum 338 item 3: "otherwise its line reads "window NOT READ" and the verdict is NOTHING-TO-COMPARE")
+        print("NOTHING TO COMPARE — a paired file's window was not read (no declared rows list on both sides, or no date "
+              "in the name); nothing is verified for it, so this is not a clean verdict, and no paired file differed, "
+              "so it is not DIVERGENT.")
+        parts = [f"{compared} compared", f"{len(paired_with_rows)} paired with rows in the window",
+                 f"{len(paired_unread)} paired, window not read: {', '.join(paired_unread)}"]
+        if unpaired_differs:
+            parts.append(f"unpaired, on both sides, differ (not a verdict): {', '.join(unpaired_differs)}")
+        print(f"VERDICT: NOTHING-TO-COMPARE ({'; '.join(parts)}) — not a data verdict")
+        return EXIT_NOTHING_TO_COMPARE
     if paired_with_rows:
         print(f"CLEAN ({compared} compared; {len(paired_with_rows)} paired with rows in the window: "
               f"{', '.join(paired_with_rows)}"
@@ -864,6 +893,8 @@ def paired_verdict(compared, field_diffs, row_diffs, unparseable, paired_missing
     parts = [f"{compared} compared", f"0 paired with rows in the window"]
     if paired_empty:
         parts.append(f"{len(paired_empty)} paired empty in the window: {', '.join(paired_empty)}")
+    if paired_unread:
+        parts.append(f"{len(paired_unread)} paired, window not read: {', '.join(paired_unread)}")
     if expected_one_sided:
         parts.append(f"{len(expected_one_sided)} expected one-sided: {', '.join(expected_one_sided)}")
     if unpaired_differs:

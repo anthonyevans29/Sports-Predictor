@@ -1,4 +1,4 @@
-## 2026-11-11 (#000: 928-hold-labels — a held slate says so on its rows and page; refresh_seen names a held refresh; the runbook's lift step (ARCHITECT 2026-11-11, addendum 336 item 2; 337 items 1-2).)
+## 2026-11-11 (#931: 928-hold-labels — a held slate says so on its rows and page; refresh_seen names a held refresh; the runbook's lift step (ARCHITECT 2026-11-11, addendum 336 item 2; 337 items 1-2).)
 - **Rulings (verbatim):**
   - Addendum 337 item 1: "the slate file and its page say "schedule not re-read: SP_SYNC_HOLD <code> — kickoffs as stored" on a held family's rows. That is display on a money-path file: it goes on #928 with the refresh_seen item and ships in that follow-up PR, not in #925."
   - Addendum 337 item 2: "lifting a hold: remove the code from the machine's one place, restart every long-running service that loaded it (the admin UI's unit, named), then read the by-place line on the next chain receipt — a code still listed under `environment` is a process that was not restarted".

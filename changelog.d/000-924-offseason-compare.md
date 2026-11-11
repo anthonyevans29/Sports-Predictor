@@ -1,0 +1,20 @@
+## 2026-11-11 (#000: 924-offseason-compare — the paired kinds: fixtures_NHL compared on its yesterday/today/tomorrow rows with the host-only columns masked and counted; the verdict rule completed; the laptop DB's scope corrected (ARCHITECT 2026-11-11, addendum 335 items 2-4).)
+- **Ruling (addendum 335 item 4, the parts built here):** (b) the compared rows and the host-only columns; (c) the verdict rule; (e) the laptop DB's scope; and the docs. 335 item 2 rules #922's two readings; 335 item 3 accepts #923's three widenings.
+- **Built:**
+  - `deploy/hosting/compare_exports.py`:
+    - `PAIRED_KINDS` declares `fixtures_NHL`: rows `fixtures`, window = the name's date −1, 0, +1.
+    - A paired file compares only its in-window rows. Rows outside are counted per side, never compared, and its `count` is left out.
+    - Its host-only columns (market, kalshi*, exec_cost*, fee*, k_track, kalshi_legs, input_quality, desk, desk_meta, plus away_bid / away_ask, the Kalshi away leg) are left out and counted on their own line.
+    - The verdict follows 335 item 4(c): a kind not on the list is EXPECTED ONE-SIDED, printed and counted. DIVERGENT means a compared file differs, a pair does not parse, or a paired kind is missing on a side. CLEAN means a paired file compared with rows in the window. Everything else is NOTHING-TO-COMPARE, an empty window included.
+    - `--paired-kinds` names the list; `'*'` is the pre-335 rule, which `--require-predictions` always uses.
+  - `deploy/exports-mirror/compare.yml`: the header and the NOTHING-TO-COMPARE description follow the rule.
+  - Docs:
+    - docs/specs/exports-mirror.md, the paired kinds and the push timing.
+    - docs/CLI.md.
+    - docs/RELEASES.md step 1: 335 item 4(a)'s certification sentence and (f), the hand run on D-1.
+    - hosting-h1.md and h2-cutover-runbook.md: the laptop DB's scope corrected, 4(e) quoted.
+    - hosting-h1.md: 335 item 3's three acceptances quoted where #923 put them to the architect, 333 item 3(ii)'s eight corrected.
+- **Tests:**
+  - tests/test_compare_exports_paired_kinds.py (6) and tests/test_compare_exports_nothing_to_compare.py (11, rewritten to 335; #922's as-built DIVERGENT pin replaced, as 335 item 2 says).
+  - The feature tests (masks, machine state, the PL check, #680's line) run under `--paired-kinds '*'`, their rule unchanged.
+- **Not built (335 item 4(a), the architect's block):** the laptop's NHL lines, the day after this merges.

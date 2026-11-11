@@ -56,6 +56,17 @@ The ritual for every tag, v1.0.0 and hotfixes included, with no exceptions:
    fail until spring", and of the tags until the off-season comparison is
    ruled: "Until then a tag's step 1 is recorded as 332 item 4 recorded
    v1.6.6's: the gap named, the tag ruled on CI and the PRs' own receipts."
+   **The off-season comparison (ARCHITECT 2026-11-11 08:45 ET, addendum 335 item 4, #924), verbatim:** (a)
+   "It certifies what step 1 exists for — that main on the laptop and the
+   tag on the host turn the same provider answers into the same rows through the shared ingestion and
+   `_fixture_row` path — and nothing about the market, the Desk or any model, which the release Issue says in
+   those words." (f) "WHICH COMPARE IS THE DAY'S: a tag's step 1 reads the last COMPLETE day's folder (D-1 for a
+   morning tag: the pair completes at the host's 16:0xZ push), by a hand run of the comparator pasted in the tag
+   block as v1.6.3's was; the mirror's commit status is the daily signal, not the ritual's record." The hand run
+   is `python3 deploy/hosting/compare_exports.py <mirror>/laptop/<D-1> <mirror>/host/<D-1> --since 0` from the
+   tag's checkout (the paired kinds as declared; the verdict rule is 335 item 4(c), in the comparator's
+   docstring). Until the laptop's block carries the NHL lines (from the day after #924's build merges), step 1
+   stays as 334 item 3 records it, below.
    Until the host runs the tag that carries NOTHING-TO-COMPARE, its own
    pushes ship v1.6.6's comparator back into the mirror, so a zero-compared
    day still reads red on host-pushed commits: read the laptop-pushed commit's

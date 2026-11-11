@@ -228,11 +228,12 @@ def test_zero_compared_is_nothing_to_compare_never_clean(tmp_path):
     assert r.returncode == 3, r.stdout + r.stderr
     assert "coverage: 0 JSON file(s) compared" in r.stdout and "laptop 1, host 1" in r.stdout
     assert "CLEAN" not in r.stdout.replace("not a clean verdict", "")
-    assert r.stdout.strip().endswith("VERDICT: NOTHING-TO-COMPARE (0 compared) — not a data verdict")
+    assert r.stdout.strip().endswith("VERDICT: NOTHING-TO-COMPARE (0 compared; 0 paired with rows in the window) — "
+                                     "not a data verdict")
     got = _run_action(co, tmp_path)
     assert got["state"] == "pending", got
-    assert got["desc"] == ("NOTHING-TO-COMPARE · 2026-10-03 — 0 JSON compared, 0 on one side only; neutral, "
-                           "not a data verdict"), got
+    assert got["desc"] == ("NOTHING-TO-COMPARE · 2026-10-03 — no paired kind compared with rows in the window, 0 on "
+                           "one side only; neutral, not a data verdict"), got
 
     (co / "empty_l").mkdir(), (co / "empty_h").mkdir()                   # empty side folders
     r = cli("empty_l", "empty_h", "--since", "0")
@@ -257,8 +258,8 @@ def test_the_shipped_action_posts_pending_on_files_each_on_one_side_only(tmp_pat
     co, _ = _tree(remote, tmp_path)
     got = _run_action(co, tmp_path)
     assert got == {"date": "2026-10-03", "state": "pending",
-                   "desc": "NOTHING-TO-COMPARE · 2026-10-03 — 0 JSON compared, 2 on one side only; neutral, "
-                           "not a data verdict"}, got
+                   "desc": "NOTHING-TO-COMPARE · 2026-10-03 — no paired kind compared with rows in the window, 2 "
+                           "on one side only; neutral, not a data verdict"}, got
     for role, p in (("laptop", 0.5), ("host", 0.6)):
         body = '[{"utc_date":"2026-10-03T23:00Z","home_team":"A","away_team":"B","p":%s}]' % p
         ex = _exports(tmp_path / f"{role}2", [("fixtures_NHL_2026-10-03.json", TODAY, body)])

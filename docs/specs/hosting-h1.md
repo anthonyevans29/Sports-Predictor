@@ -1091,7 +1091,8 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
    How MLB reaches the host is decided before Opening Day 2027; it no longer holds the cutover." The steps are
    h2-cutover-runbook.md section 1 step 7: once the host's closing-watch timer is enabled and its first tick has
    been read, the laptop reinstalls the CLV capture jobs (MLB only) and the closing watch with `--family MLB`;
-   with no MLB game left in the season, nothing is reinstalled. The 2027 decision is Issue #97.
+   with no MLB game left in the season, nothing is reinstalled. The 2027 decision is Issue #97. CORRECTED
+   (ARCHITECT 2026-11-11 08:45 ET, addendum 335 item 4(e), verbatim): "THE LAPTOP DB'S SCOPE: hosting-h1.md's "written by the MLB chains ... and by nothing else" (addendum 45 item 4) is corrected: the laptop's DB is written by the architect's morning block and nothing else — the MLB routine, the NCAA sync, the tennis daily step, and from this ruling NHL's three single-day syncs."
 
 **Rollback** uses the same protocol in reverse:
 1. Stop the host timers.
@@ -1283,7 +1284,8 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
           (the set-check recipe's `HELD=` line) is printed with "(on THE HELD LIST: not enabled on the host)":
           today `C=ATP` and `C=WTA` print tennis-daily that way, since sp-tennis-daily is installed and never
           enabled (288 item 5). That marking extends 333 item 3(i)'s "never a host timer that is not enabled" from
-          `MLB_LAPTOP_ONLY` to the held list; it is put to the architect on the PR. `C=MLB` prints mlb-morning and
+          `MLB_LAPTOP_ONLY` to the held list; ACCEPTED (ARCHITECT 2026-11-11 08:45 ET, addendum 335 item 3(2),
+          verbatim): "a held timer is printed marked "(on THE HELD LIST: not enabled on the host)"". `C=MLB` prints mlb-morning and
           mlb-preslate that way; mlb-history (`sp-mlb-history.timer`, on `TIMERS`: the host's api-sports fallback),
           freshen:MLB (`sp-window.timer`, skipped on the host by `SP_SKIP_FAMILIES`) and mlb-closing (the laptop's
           launchd closing watch) as before.
@@ -1297,7 +1299,9 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
           UEFA_EURO and UEFA_EURO_Q (the ruling's three), and CNL, CNL_Q and FRIENDLIES_INT (the same write path, so
           the same rule). For those thirteen codes (and `WCQ` as written in the ruling) the search prints
           `intl-daily: intl-sync (no code on the step; it writes <C> through _upsert_match) · sp-intl-daily.timer`.
-          `C=UNL` prints that line after the two chains built at run time. tests/test_hold_search_recipe.py fails if
+          ACCEPTED (ARCHITECT 2026-11-11 08:45 ET, addendum 335 item 3(1), verbatim): "every code intl-sync writes
+          through _upsert_match names sp-intl-daily.timer — all thirteen of the map's, the WCQ expansion included;
+          333(iii) named three as examples". `C=UNL` prints that line after the two chains built at run time. tests/test_hold_search_recipe.py fails if
           `CODE_BY_NAME` gains or loses a code the search does not list.
 
         The two chains built at run time, read on 8aa27a89:
@@ -1347,7 +1351,13 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
             for a mapped code new to the DB (code, name, area, type, external id; intl_history.py:319-324; an
             existing competition row is never modified). The read lists such a row as created since the copy.
           Which of those a given hold's read must cover is the hold's declaration (the fields its defect can
-          touch); this list is the code's, put to the architect on the PR.
+          touch). RULED (ARCHITECT 2026-11-11 08:45 ET, addendum 335 item 3(3), verbatim): ""every field the held
+          step writes" means every field the write path writes — the eight I listed plus status_raw, matchday,
+          stage, the HT and 90-minute scores, referee, venue on a created row, the statsapi series columns and
+          intl-sync's match_neutral_derived rows and created Competition rows (Codex's P2, fixed in 6bb4cb6c); a
+          hold's declaration names the minimum its read covers, never fewer than its defect can touch. 333 item
+          3(ii)'s list of eight is corrected to that reading with this item quoted." So 333 item 3(ii)'s eight above
+          read as that list.
         - **The durable answer, declared (332 item 3):** a per-competition sync hold that the step itself honors,
           `SP_SYNC_HOLD`. It ships as its own small PR (#921). Until it merges, the procedure above stands. (333
           item 3(iii), verbatim): "SP_SYNC_HOLD (#921) honors the same path: its design covers intl-sync, or says in

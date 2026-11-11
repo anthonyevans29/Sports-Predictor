@@ -127,8 +127,8 @@ every push it remains; the tracked entry is left as the mirror holds it, and the
 the bulletins still go.
 
 The Action compares the newest date that BOTH writers have pushed and posts commit status
-`compare_exports`: success = clean, failure = DIVERGENT (a compared file differs, a pair does not parse, or a file
-sits on one side only beside a compared file), error =
+`compare_exports`: success = clean, failure = DIVERGENT (a compared file differs, a pair does not parse, or a
+PAIRED KIND is missing on a side), error =
 the comparator or the runner broke (not a data verdict), pending = NOTHING-TO-COMPARE (zero JSON
 compared) or one side has not pushed that date yet. The full report is in the run's step summary.
 NOTHING-TO-COMPARE (ARCHITECT 2026-11-11, addendum 334 item 3(a), verbatim): "a red status that
@@ -138,6 +138,28 @@ differ". A commit status has four states (success, failure, error, pending) and 
 pending is the one that is neither green nor red, and its description begins `NOTHING-TO-COMPARE`
 and counts the files on one side only. It is neither a pass nor a fail of the tag ritual's
 step 1 (docs/RELEASES.md). Each machine's `exports_mirror.py push` ships its own copy of the comparator and the Action into the mirror, so until the host runs a tag that carries this change, a host-pushed commit runs v1.6.6's pair and a zero-compared day with a file on one side only still posts failure there; read the laptop-pushed commit's status, or run the comparator by hand, until then.
+
+THE PAIRED KINDS (ARCHITECT 2026-11-11 08:45 ET, addendum 335 item 4(c), verbatim): "the comparator carries a declared
+list of PAIRED KINDS — kinds both machines are ruled to produce every day (today: fixtures_NHL alone) — and a kind not
+on it is EXPECTED ONE-SIDED (coverage, the window card, the UNL and league shadows, closings, slates, the MLB results
+file), printed and counted, never a cause of DIVERGENT. CLEAN = at least one paired file compared with rows in the
+window, every compared file identical, no paired kind missing on a side. DIVERGENT = a compared file differs, OR a
+paired kind is present on one side and missing on the other for a date both machines pushed (a missing file is a
+finding), OR a pair does not parse. NOTHING-TO-COMPARE = everything else, including a pair whose in-window rows are
+empty on both sides (218 item 1: an empty window is reported, never a pass) — so the 12-24 gap reads neutral." As
+built (#924's build): `compare_exports.PAIRED_KINDS` declares fixtures_NHL (rows `fixtures`, the window the name's
+date -1, 0, +1). A paired file's rows outside the window are counted per side and never compared, its `count` is
+left out, and its host-only columns (market, kalshi*, exec_cost*, fee*, k_track, kalshi_legs, input_quality, desk,
+desk_meta, and away_bid / away_ask, the Kalshi away leg) are left out and counted on their own line. The file the
+laptop writes is nhl-daily's own `export-fixtures --competition NHL` after its three single-day syncs (335 item
+4(a)); the host is unchanged. The Action's status is the daily signal; a tag's step 1 is a hand run on the last
+complete day's folder (335 item 4(f); docs/RELEASES.md step 1). TIMING, as built (put to the architect on the PR):
+the Action compares the newest date both writers pushed, and the host writes its fixtures_NHL at 16:00Z. So the
+laptop's 12:2xZ push, carrying fixtures_NHL_D before the host's, reads `PAIRED KIND fixtures_NHL missing on host`
+(DIVERGENT) on that commit every day, and the host's 16:0xZ push on the same date reads the pair. Before the laptop
+carries the NHL lines, the host's 16:0xZ push reads `missing on laptop` the same way. Each host push runs the
+comparator its own tag shipped (v1.6.6 reads any one-sided file DIVERGENT) until the host runs the tag that carries
+this build.
 
 Machine state (#592 RULED, ARCHITECT 2026-10-18, addendum 128 item 3): "the compare treats kind `coverage` as "machine state": listed by presence on each side (one side, both sides, neither), never compared for content, never DIVERGENT, never counted toward or against criterion (a). Printed as its own line ("machine-state files: coverage laptop yes / host no")." The day's coverage
 file travels as every kind does, dated and latest (`<role>/<date>/coverage_<date>.json` and

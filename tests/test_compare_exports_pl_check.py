@@ -31,7 +31,7 @@ def run(tmp_path, a, b, *extra):
     ho.mkdir()
     (la / F).write_text(json.dumps(a))
     (ho / F).write_text(json.dumps(b))
-    return ce.main([str(la), str(ho), "--since", "0", *extra])
+    return ce.main([str(la), str(ho), "--since", "0", "--paired-kinds", "*", *extra])   # the pre-335 rule (the PL check is its own)
 
 
 def test_clock_read_fields_are_left_out_and_named_db_fields_still_compared(tmp_path, capsys):

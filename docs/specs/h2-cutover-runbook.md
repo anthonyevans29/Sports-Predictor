@@ -119,7 +119,8 @@ Which machine runs item 5's readout (ARCHITECT 2026-10-18, addendum 128 item 1(a
   laptop duty to the season's last game. After the flip the laptop's database is written by the MLB chains, the
   MLB capture jobs and the MLB watch, and by nothing else, and it is the record for MLB predictions and for
   nothing else. How MLB reaches the host is decided before Opening Day 2027; it no longer holds the cutover."
-  The 2027 decision is Issue #97. The steps are section 1 step 7.
+  The 2027 decision is Issue #97. The steps are section 1 step 7. CORRECTED (ARCHITECT 2026-11-11 08:45 ET,
+  addendum 335 item 4(e), verbatim): "THE LAPTOP DB'S SCOPE: hosting-h1.md's "written by the MLB chains ... and by nothing else" (addendum 45 item 4) is corrected: the laptop's DB is written by the architect's morning block and nothing else — the MLB routine, the NCAA sync, the tennis daily step, and from this ruling NHL's three single-day syncs."
 - **The laptop's role setting (addendum 45 P1), before the pull that carries it:** the laptop's `.env` holds
   `SP_EXPORTS_MIRROR_ROLE=laptop` (host.env holds `host`). A closing run on a machine without it, or with
   anything but `host` or `laptop`, is refused before any step, and the setup script's preflight says so.
@@ -450,7 +451,9 @@ Which machine runs item 5's readout (ARCHITECT 2026-10-18, addendum 128 item 1(a
 7. **TERMINAL (laptop)** (H2 step 7): keep the last `.backup` file cold for
    30 days (the rollback point). **MLB after the flip (ARCHITECT 2026-10-12, addendum 45 item 4 and P5):** the
    laptop's database is written by the MLB chains, the MLB capture jobs and the MLB watch, and by nothing else,
-   and it is the record for MLB predictions and for nothing else. "After the flip the laptop's watch covers MLB and
+   and it is the record for MLB predictions and for nothing else. (Its scope is corrected by addendum 335 item
+   4(e): the architect's morning block and nothing else, NHL's three single-day syncs included; section "MLB
+   after the flip" above quotes it.) "After the flip the laptop's watch covers MLB and
    nothing else, and only while an MLB game remains in the season: it is installed again, for MLB, once the host's
    timer is enabled and its first tick has been read." So, once step 5b's timer is enabled and its first tick read
    (`journalctl -u sp-closing-watch -n 20 --no-pager`), and only while an MLB game remains in the season:

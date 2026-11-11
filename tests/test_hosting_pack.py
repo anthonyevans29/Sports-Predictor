@@ -2132,7 +2132,7 @@ def test_comparator_keys_rows_names_unmatched_and_guards_skew(tmp_path, capsys):
         _pred(*mnf, 907, fair=0.56, inj=0)]}          # different machine-local id
     (la / "nfl_predictions_2026-09-28.json").write_text(json.dumps(lap))
     (ho / "nfl_predictions_2026-09-28.json").write_text(json.dumps(host))
-    assert compare_exports.main([str(la), str(ho), "--since", "0"]) == 1
+    assert compare_exports.main([str(la), str(ho), "--since", "0", "--paired-kinds", "*"]) == 1
     out = capsys.readouterr().out
     assert "code-version skew: laptop aaa1111 ≠ host bbb2222" in out
     assert "only on laptop (2): Buffalo Bills @ Kansas City Chiefs 2026-10-04T17:00; " \
@@ -2146,7 +2146,7 @@ def test_comparator_keys_rows_names_unmatched_and_guards_skew(tmp_path, capsys):
     # guard: a file without its SHA cannot claim the class
     host.pop("git_sha")
     (ho / "nfl_predictions_2026-09-28.json").write_text(json.dumps(host))
-    compare_exports.main([str(la), str(ho), "--since", "0"])
+    compare_exports.main([str(la), str(ho), "--since", "0", "--paired-kinds", "*"])
     out = capsys.readouterr().out
     assert "git_sha missing on host — code-version skew NOT claimable" in out
     assert "Code-version skew named for" not in out
@@ -2159,7 +2159,7 @@ def test_comparator_row_order_and_ids_do_not_matter(tmp_path, capsys):
     (la / "f.json").write_text(json.dumps({"git_sha": "s1", "predictions": rows}))
     (ho / "f.json").write_text(json.dumps({"git_sha": "s1", "predictions": [
         dict(rows[1], match_id=77), dict(rows[0], match_id=88)]}))
-    assert compare_exports.main([str(la), str(ho)]) == 0
+    assert compare_exports.main([str(la), str(ho), "--paired-kinds", "*"]) == 0
     assert "✓ f.json" in capsys.readouterr().out
 
 
@@ -2175,13 +2175,13 @@ def test_comparator_since_window_skips_settled_dated_files(tmp_path, capsys):
     # settled and DIVERGENT: outside the default window it must not re-print or fail the run
     (la / "nfl_predictions_2026-09-28.json").write_text(same)
     (ho / "nfl_predictions_2026-09-28.json").write_text(json.dumps({"git_sha": "s1", "predictions": []}))
-    assert compare_exports.main([str(la), str(ho), "--today", "2026-10-01"]) == 0
+    assert compare_exports.main([str(la), str(ho), "--today", "2026-10-01", "--paired-kinds", "*"]) == 0
     out = capsys.readouterr().out
     assert "files dated 2026-09-29 .. 2026-10-01 (UTC) + undated; 1 settled file(s)" in out
     assert "✓ window_24h.json" in out and "✓ nfl_predictions_2026-09-29.json" in out
     assert "2026-09-28" not in out.split("\n", 1)[1]
     # --since 0 = everything: the old divergence is back
-    assert compare_exports.main([str(la), str(ho), "--today", "2026-10-01", "--since", "0"]) == 1
+    assert compare_exports.main([str(la), str(ho), "--today", "2026-10-01", "--since", "0", "--paired-kinds", "*"]) == 1
     assert "✗ nfl_predictions_2026-09-28.json" in capsys.readouterr().out
     assert compare_exports.name_date("fixtures_NHL_next.json") is None
     assert compare_exports.name_date("sp_2026-13-40_x_2026-10-01.json").isoformat() == "2026-10-01"

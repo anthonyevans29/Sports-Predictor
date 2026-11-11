@@ -161,6 +161,28 @@ shows its values as "<masked>"; the count is the file pair's own walk (a key on
 either side once), printed as "rehearsal-arm keys (host-only, nfl-elo-v2): N"
 right after the shadow-arm line. The shadow-arm line and its count are
 unchanged.
+
+THE PAIRED KINDS (ARCHITECT 2026-11-11 08:45 ET, addendum 335 item 4, #924), verbatim (c): "the comparator carries a
+declared list of PAIRED KINDS — kinds both machines are ruled to produce every day (today: fixtures_NHL alone) — and a
+kind not on it is EXPECTED ONE-SIDED (coverage, the window card, the UNL and league shadows, closings, slates, the MLB
+results file), printed and counted, never a cause of DIVERGENT. CLEAN = at least one paired file compared with rows
+in the window, every compared file identical, no paired kind missing on a side. DIVERGENT = a compared file differs,
+OR a paired kind is present on one side and missing on the other for a date both machines pushed (a missing file is a
+finding), OR a pair does not parse. NOTHING-TO-COMPARE = everything else, including a pair whose in-window rows are
+empty on both sides (218 item 1: an empty window is reported, never a pass) — so the 12-24 gap reads neutral." And
+(b): "only rows whose utc_date falls on the file's yesterday, today or tomorrow — the days BOTH machines synced that
+day; rows outside are counted "outside the window", never compared (the laptop has no weekly full-season sync, so
+later kickoffs can legitimately differ). The host-only columns (market, kalshi*,
+exec_cost*, fee*, k_track, kalshi_legs, input_quality, desk, desk_meta) are masked AND COUNTED in #735's pattern, a
+new key in `_fixture_row` staying visible."
+As built: PAIRED_KINDS declares each paired kind with its rows key and its day window; a paired file's rows outside
+the window (its name's date -1, 0, +1, by utc_date's UTC day) are counted per side and never compared, and its
+`count` (all rows, the window's outside included) is left out for the in-window counts printed instead. The
+host-only columns (HOST_ONLY_KEYS / HOST_ONLY_PREFIXES; `away_bid` and `away_ask`, the Kalshi away leg, are the same
+class) are left out of a paired file at any depth and counted on their own line. A file of a kind not on the list is
+still compared when both sides carry it (a difference is DIVERGENT; an identical pair never makes CLEAN). The flag
+`--paired-kinds` names the list (default: the declared one); `--paired-kinds '*'` is the pre-335 rule (every kind
+paired, no window, no host-only mask), which the --require-predictions check (the cutover PL check) always uses.
 """
 from __future__ import annotations
 
@@ -306,6 +328,11 @@ def graded_count(a, b, parent=None) -> int:
     return _masked_count(a, b, lambda p, k, x, y: graded_export_class(k), parent, graded_keys)
 
 
+def host_only_count(a, b, parent=None) -> int:
+    """The host-only columns of one paired file pair (addendum 335 item 4(b)), a column on either side counted once."""
+    return _masked_count(a, b, lambda p, k, x, y: host_only_key(k), parent)
+
+
 def redacted(v, parent=None):
     """`v` with every unit-bearing field's value, every shadow-arm key's (addendum 199 item 2) and every graded-export
     object (addendum 206 item 1) replaced by "<masked>", for a structural mismatch printed whole (an `order` or
@@ -328,6 +355,37 @@ KICKOFF, HOME, AWAY = ("utc_date", "kickoff", "date"), ("home_team", "home"), ("
 # (tools/compare_exports.py has neither sp_common nor exports_mirror); tests/test_compare_exports_machine_state.py pins
 # the copy to the mirror's.
 MACHINE_STATE_KINDS = ("coverage",)
+
+# THE PAIRED KINDS (ARCHITECT 2026-11-11, addendum 335 item 4(b)-(c); see the module docstring): kind -> its rows key
+# and its day window around the date in the file's name. Today fixtures_NHL alone: the laptop's morning block runs
+# nhl-daily's own steps (sync-matches NHL yesterday, today, tomorrow; export-fixtures --competition NHL).
+PAIRED_KINDS = {"fixtures_NHL": {"rows": "fixtures", "days": (-1, 0, 1)}}
+# The host-only columns of a paired file (335 item 4(b)), left out at any depth and counted: the market machine's
+# books, Kalshi, exec costs, fees and Desk. away_bid / away_ask (the Kalshi away leg, venue.KALSHI_EXEC_NULL) are the
+# same class.
+HOST_ONLY_KEYS = frozenset({"market", "k_track", "kalshi_legs", "input_quality", "desk", "desk_meta",
+                            "away_bid", "away_ask"})
+HOST_ONLY_PREFIXES = ("kalshi", "exec_cost", "fee")
+HOST_ONLY_LINE = ("host-only columns (market, kalshi*, exec_cost*, fee*, k_track, kalshi_legs, input_quality, desk, "
+                  "desk_meta, away_bid, away_ask)")
+
+
+def host_only_key(key) -> bool:
+    k = str(key)
+    return k in HOST_ONLY_KEYS or k.startswith(HOST_ONLY_PREFIXES)
+
+
+def window_rows(doc, spec: dict, day: date | None):
+    """(doc with its rows cut to the window and `count` left out, in-window rows, rows outside) for a paired file;
+    (doc, None, 0) when the file carries no rows list or its name has no date (nothing is cut, law 4)."""
+    rows = doc.get(spec["rows"]) if isinstance(doc, dict) else None
+    if day is None or not isinstance(rows, list):
+        return doc, None, 0
+    days = {(day + timedelta(days=n)).isoformat() for n in spec["days"]}
+    inside = [r for r in rows if isinstance(r, dict) and str(r.get("utc_date") or "")[:10] in days]
+    out = {k: v for k, v in doc.items() if k != "count"}
+    out[spec["rows"]] = inside
+    return out, len(inside), len(rows) - len(inside)
 _STAMP = re.compile(r"_?\d{4}-\d{2}-\d{2}(?:[T_]\d{2}:?\d{2}(?::?\d{2})?Z?)?")      # exports_mirror.STAMP
 
 
@@ -411,7 +469,7 @@ def rows_of(doc) -> int | None:
     return None
 
 
-def diff(a, b, path="$", out=None, limit=40, unmatched=None, ignore=None, parent=None) -> list[str]:
+def diff(a, b, path="$", out=None, limit=40, unmatched=None, ignore=None, parent=None, host_only=False) -> list[str]:
     """`ignore`: None = the generic mask (TS_KEY + MASKED). A set (--ignore-keys; the cutover PL check only, #420)
     REPLACES that mask: only those keys and git_sha (code, never read from the database) are left out, so every
     database-read timestamp and match_id is compared (Codex on #439). In both modes the unit-bearing fields
@@ -425,7 +483,7 @@ def diff(a, b, path="$", out=None, limit=40, unmatched=None, ignore=None, parent
     if isinstance(a, dict) and isinstance(b, dict):
         for k in sorted(set(a) | set(b)):
             if (unit_bearing(parent, k) or shadow_arm(k, a.get(k), b.get(k)) or rehearsal_arm_key(k)
-                    or graded_export_class(k)):
+                    or graded_export_class(k) or (host_only and host_only_key(k))):
                 continue
             if (ignore is None and (TS_KEY.search(str(k)) or k in MASKED)) or (
                     ignore is not None and (k in ignore or k == "git_sha")):
@@ -433,7 +491,7 @@ def diff(a, b, path="$", out=None, limit=40, unmatched=None, ignore=None, parent
             if k not in a or k not in b:
                 out.append(f"{path}.{k}: only in {'host' if k not in a else 'laptop'}")
             else:
-                diff(a[k], b[k], f"{path}.{k}", out, limit, unmatched, ignore, k)
+                diff(a[k], b[k], f"{path}.{k}", out, limit, unmatched, ignore, k, host_only)
     elif is_game_rows(a) and is_game_rows(b):
         ka, kb = keyed(a), keyed(b)            # key FIRST, then compare pairs
         if unmatched is not None:
@@ -441,12 +499,12 @@ def diff(a, b, path="$", out=None, limit=40, unmatched=None, ignore=None, parent
             unmatched[path]["laptop"] += sorted(set(ka) - set(kb))
             unmatched[path]["host"] += sorted(set(kb) - set(ka))
         for k in sorted(set(ka) & set(kb)):
-            diff(ka[k], kb[k], f"{path}[{k}]", out, limit, unmatched, ignore, parent)
+            diff(ka[k], kb[k], f"{path}[{k}]", out, limit, unmatched, ignore, parent, host_only)
     elif isinstance(a, list) and isinstance(b, list):
         if len(a) != len(b):
             out.append(f"{path}: length {len(a)} vs {len(b)}")
         for i, (x, y) in enumerate(zip(a, b)):
-            diff(x, y, f"{path}[{i}]", out, limit, unmatched, ignore, parent)
+            diff(x, y, f"{path}[{i}]", out, limit, unmatched, ignore, parent, host_only)
     elif a != b:
         out.append(f"{path}: {str(redacted(a, parent))[:60]!r} vs {str(redacted(b, parent))[:60]!r}")
     return out
@@ -495,7 +553,13 @@ def _main(argv=None) -> int:
     ap.add_argument("--require-predictions", action="store_true",
                     help="Count, per side, the rows with a prediction and its probabilities; a compared file with "
                          "none on either side is NO-COVERAGE (#422 item 4). The cutover PL check only.")
+    ap.add_argument("--paired-kinds", default=",".join(PAIRED_KINDS),
+                    help="The PAIRED KINDS (addendum 335 item 4(c)), comma-separated; default the declared list "
+                         f"({', '.join(PAIRED_KINDS)}). '*' = the pre-335 rule: every kind paired, no window, no "
+                         "host-only mask (the --require-predictions check always uses it).")
     a = ap.parse_args(argv)
+    legacy = a.paired_kinds.strip() == "*" or a.require_predictions
+    paired = frozenset() if legacy else frozenset(k.strip() for k in a.paired_kinds.split(",") if k.strip())
     ignore = frozenset(k.strip() for k in a.ignore_keys.split(",") if k.strip()) or None
     today = date.fromisoformat(a.today) if a.today else datetime.now(timezone.utc).date()
     missing = [f"{side}={d}" for side, d in (("laptop", a.laptop), ("host", a.host)) if not d.is_dir()]
@@ -530,11 +594,23 @@ def _main(argv=None) -> int:
     rehearsal_masked = 0                          # addendum 247 item 2(2): the rehearsal-arm keys left out, counted
     graded_masked = 0                             # addendum 206 item 1: the graded-export keys left out, counted
     pred_rows = {"laptop": 0, "host": 0}
+    # addendum 335 item 4(c): the paired kinds' own counts (unused under the pre-335 rule, `legacy`)
+    paired_missing, expected_one_sided, paired_with_rows, paired_empty = [], [], [], []
+    host_only_masked = 0
+    outside = {"laptop": 0, "host": 0}
     for name in sorted(set(la) | set(ho)):
+        kind = kind_of(name)
         if name not in la or name not in ho:
-            print(f"· {name}: only on {'host' if name not in la else 'laptop'}")
-            clean = False
-            one_sided.append(name)
+            side = "host" if name not in la else "laptop"
+            if legacy or kind in paired:
+                print(f"· {name}: only on {side}" + ("" if legacy else
+                                                     f" — PAIRED KIND {kind} missing on "
+                                                     f"{'laptop' if side == 'host' else 'host'}"))
+                clean = False
+                (one_sided if legacy else paired_missing).append(name)
+            else:
+                print(f"· {name}: only on {side} (expected one-sided: {kind} is not a paired kind)")
+                expected_one_sided.append(name)
             continue
         try:
             x, y = json.loads(la[name].read_text()), json.loads(ho[name].read_text())
@@ -544,11 +620,25 @@ def _main(argv=None) -> int:
             unparseable.append(name)
             continue
         compared += 1
+        spec = None if legacy else PAIRED_KINDS.get(kind) if kind in paired else None
+        win = None
+        if kind in paired:
+            if spec is not None:
+                day = name_date(name)
+                x, nx, ox = window_rows(x, spec, day)
+                y, ny, oy = window_rows(y, spec, day)
+                if nx is not None:
+                    outside["laptop"] += ox
+                    outside["host"] += oy
+                    win = (nx, ny, ox, oy)
+                host_only_masked += host_only_count(x, y)
+            rows_in = (win[0] + win[1]) if win else ((rows_of(x) or 0) + (rows_of(y) or 0))
+            (paired_with_rows if rows_in else paired_empty).append(name)
         if a.require_predictions:
             for side, doc in (("laptop", x), ("host", y)):
                 pred_rows[side] += predicted_rows(doc)
         um: dict = {}
-        d = diff(x, y, unmatched=um, ignore=ignore)
+        d = diff(x, y, unmatched=um, ignore=ignore, host_only=spec is not None)
         unit_masked += unit_count(x, y)
         shadow_masked += shadow_count(x, y)
         rehearsal_masked += rehearsal_count(x, y)
@@ -563,7 +653,10 @@ def _main(argv=None) -> int:
         sha = sha_line(x, y)
         skew_names.update([name] if sha.startswith("code-version skew") else [])
         print(f"{'✓' if ok else '✗'} {name}: rows laptop={rows_of(x)} host={rows_of(y)} "
-              f"diffs={len(d)} · {sha}")
+              f"diffs={len(d)} · {sha}"
+              + (f" · in the window (yesterday, today, tomorrow) laptop={win[0]} host={win[1]}; outside the window, "
+                 f"never compared: laptop {win[2]} · host {win[3]}" if win else "")
+              + ("" if legacy or kind in paired else f" · {kind} is not a paired kind"))
         for side in ("laptop", "host"):
             if only[side]:
                 print(f"    only on {side} ({len(only[side])}): " + "; ".join(only[side][:12])
@@ -582,6 +675,12 @@ def _main(argv=None) -> int:
     print(f"{SHADOW_LINE}: {shadow_masked}")                            # addendum 199 item 2
     print(f"{REHEARSAL_LINE}: {rehearsal_masked}")                      # addendum 247 item 2(2)
     print(f"{GRADED_LINE}: {graded_masked}")                            # addendum 206 item 1
+    if not legacy:                                                      # addendum 335 item 4(b)-(c)
+        print(f"{HOST_ONLY_LINE}: {host_only_masked}")
+        print(f"paired kinds ({', '.join(sorted(paired)) or 'none'}): {len(paired_with_rows)} compared with rows in "
+              f"the window · {len(paired_empty)} empty in the window · {len(paired_missing)} missing on a side · "
+              f"rows outside the window laptop {outside['laptop']} · host {outside['host']} · expected one-sided "
+              f"(not a paired kind): {len(expected_one_sided)}")
     if a.require_predictions:
         print(f"predictions compared (rows with a prediction and its probabilities): laptop {pred_rows['laptop']} "
               f"· host {pred_rows['host']}")
@@ -592,6 +691,9 @@ def _main(argv=None) -> int:
             print(f"VERDICT: NO-COVERAGE ({'0 compared' if not compared else 'no predictions compared'}) — "
                   "not a data verdict")
             return EXIT_NO_COVERAGE
+    if not legacy:
+        return paired_verdict(compared, field_diffs, row_diffs, unparseable, paired_missing, paired_with_rows,
+                              paired_empty, expected_one_sided, skew_names)
     if compared == 0 and not unparseable:
         # addendum 334 item 3(a): zero compared is NOTHING-TO-COMPARE (neutral), whatever sits on one side only
         print(f"NOTHING TO COMPARE — no {a.glob} file was compared on both sides; nothing is verified, so this is "
@@ -612,6 +714,38 @@ def _main(argv=None) -> int:
           + (f" Code-version skew named for: {', '.join(sorted(skew_names))}." if skew_names else ""))
     print(f"VERDICT: {'CLEAN' if clean else 'DIVERGENT'}")
     return EXIT_CLEAN if clean else EXIT_DIVERGENT
+
+
+def paired_verdict(compared, field_diffs, row_diffs, unparseable, paired_missing, paired_with_rows, paired_empty,
+                   expected_one_sided, skew_names) -> int:
+    """Addendum 335 item 4(c), the verdict rule: DIVERGENT = a compared file differs, a pair does not parse, or a
+    paired kind is missing on a side; else CLEAN = at least one paired file compared with rows in the window; else
+    NOTHING-TO-COMPARE (an empty window, no paired kind, files of other kinds on one side only)."""
+    classes = "capture timing | provider pagination | code-version skew (only where named above)"
+    causes = (("with field diffs", field_diffs), ("with rows on one side", row_diffs), ("unparseable", unparseable),
+              ("paired kind missing on a side", paired_missing))
+    if any(names for _l, names in causes):
+        why = "".join(f"; {len(names)} {label}: {', '.join(names)}" for label, names in causes if names)
+        print(f"DIVERGENT ({compared} compared{why}) — each divergence needs an explanation ({classes}) or a "
+              f"BACKLOG entry." + (f" Code-version skew named for: {', '.join(sorted(skew_names))}."
+                                   if skew_names else ""))
+        print("VERDICT: DIVERGENT")
+        return EXIT_DIVERGENT
+    if paired_with_rows:
+        print(f"CLEAN ({compared} compared; {len(paired_with_rows)} paired with rows in the window: "
+              f"{', '.join(paired_with_rows)}) — every compared file identical, no paired kind missing."
+              + (f" Code-version skew named for: {', '.join(sorted(skew_names))}." if skew_names else ""))
+        print("VERDICT: CLEAN")
+        return EXIT_CLEAN
+    print("NOTHING TO COMPARE — no paired file was compared with rows in the window; nothing is verified, so this is "
+          "not a clean verdict, and nothing differed, so it is not DIVERGENT.")
+    parts = [f"{compared} compared", f"0 paired with rows in the window"]
+    if paired_empty:
+        parts.append(f"{len(paired_empty)} paired empty in the window: {', '.join(paired_empty)}")
+    if expected_one_sided:
+        parts.append(f"{len(expected_one_sided)} expected one-sided: {', '.join(expected_one_sided)}")
+    print(f"VERDICT: NOTHING-TO-COMPARE ({'; '.join(parts)}) — not a data verdict")
+    return EXIT_NOTHING_TO_COMPARE
 
 
 def predicted_rows(doc) -> int:

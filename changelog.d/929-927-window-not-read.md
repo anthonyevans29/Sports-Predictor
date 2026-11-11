@@ -5,6 +5,7 @@
   - A paired file counts toward CLEAN, or toward "empty in the window", only once `window_pair` cut both sides.
   - Otherwise its line ends `window NOT READ (no declared rows list on both sides, or no date in the name): no row checked against the window, never CLEAN`. The summary line counts `N window not read`, and the NOTHING-TO-COMPARE verdict line names `N paired, window not read: <names>`.
   - A file that differs still reads DIVERGENT, as before.
+  - Codex on #929 (P1): an unread window outranks CLEAN, so a valid pair beside it does not make the run CLEAN. The order is DIVERGENT, then awaiting, then window not read, then CLEAN, then NOTHING-TO-COMPARE.
 - **Tests:**
   - tests/test_compare_exports_paired_kinds.py: identical bare arrays with a far row read NOTHING-TO-COMPARE, window not read. The test fails on main.
   - tests/test_exports_mirror.py: the shipped-Action tests feed `fixtures_NHL` in the declared `{"fixtures": [...]}` shape. A hand compare of `latest/` reads NOTHING-TO-COMPARE (window not read), and the dated folder reads CLEAN.

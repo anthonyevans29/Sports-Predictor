@@ -290,3 +290,22 @@ def test_a_paired_file_whose_window_cannot_be_cut_is_never_clean(tmp_path, capsy
     assert out.strip().splitlines()[-1] == (
         f"VERDICT: NOTHING-TO-COMPARE (1 compared; 0 paired with rows in the window; 1 paired, window not read: "
         f"{NAME}) — not a data verdict")
+
+
+def test_a_window_not_read_beside_a_valid_pair_still_keeps_the_run_from_clean(tmp_path, capsys):
+    """Codex on #929 (P1): one valid dated pair with rows in its window beside an identical dated bare array read
+    `1 window not read` and then CLEAN. An unread window outranks CLEAN: NOTHING-TO-COMPARE, naming it."""
+    la, ho = tmp_path / "laptop", tmp_path / "host"
+    la.mkdir(), ho.mkdir()
+    good = doc([row(t, h, a) for t, h, a in IN], "laptop")
+    bare_name = "fixtures_NHL_2026-11-10.json"
+    bare = [row("2027-01-01T00:00:00", "Utah", "Dallas Stars")]
+    for d in (la, ho):
+        (d / NAME).write_text(json.dumps(good))
+        (d / bare_name).write_text(json.dumps(bare))
+    rc = ce.main([str(la), str(ho), "--since", "0", "--today", DAY])
+    out = capsys.readouterr().out
+    assert rc == ce.EXIT_NOTHING_TO_COMPARE, out
+    assert out.strip().splitlines()[-1] == (
+        f"VERDICT: NOTHING-TO-COMPARE (2 compared; 1 paired with rows in the window; 1 paired, window not read: "
+        f"{bare_name}) — not a data verdict")

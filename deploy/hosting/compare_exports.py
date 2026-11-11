@@ -207,7 +207,8 @@ the run's own UTC date or later (a later date is not a complete day either), and
 undated paired name cannot show its day, so it reads "missing on <role> (undated: completeness unknown)", DIVERGENT
 (law 4). The verdict's order: DIVERGENT (a paired
 file differs, a pair does not parse, a paired kind missing on a complete day or on both sides under different
-names), then NOTHING-TO-COMPARE awaiting <role>, then CLEAN, then NOTHING-TO-COMPARE. A pair that does not parse stays
+names), then NOTHING-TO-COMPARE awaiting <role>, then NOTHING-TO-COMPARE window not read, then CLEAN, then
+NOTHING-TO-COMPARE. A pair that does not parse stays
 DIVERGENT whatever its kind (335 item 2: "CONFIRMED (law 4)"). A paired file counts toward CLEAN only once its
 declared rows list and its dated window were cut; otherwise it reads WINDOW_NOT_READ and counts nowhere but the
 verdict line's "paired, window not read". THE WINDOW MUST BE READ (ARCHITECT 2026-11-11 10:50 ET, addendum 338 item 3,
@@ -862,6 +863,18 @@ def paired_verdict(compared, field_diffs, row_diffs, unparseable, paired_missing
               "no paired file differed, so it is not DIVERGENT.")
         parts = [f"{compared} compared"] + [f"awaiting {s}: {', '.join(n for n, w in paired_awaiting if w == s)}"
                                             for s in sides]
+        if unpaired_differs:
+            parts.append(f"unpaired, on both sides, differ (not a verdict): {', '.join(unpaired_differs)}")
+        print(f"VERDICT: NOTHING-TO-COMPARE ({'; '.join(parts)}) — not a data verdict")
+        return EXIT_NOTHING_TO_COMPARE
+    if paired_unread:
+        # Codex on #929 (P1): a paired file whose window was not read keeps the run from CLEAN even beside a valid pair
+        # (addendum 338 item 3: "otherwise its line reads "window NOT READ" and the verdict is NOTHING-TO-COMPARE")
+        print("NOTHING TO COMPARE — a paired file's window was not read (no declared rows list on both sides, or no date "
+              "in the name); nothing is verified for it, so this is not a clean verdict, and no paired file differed, "
+              "so it is not DIVERGENT.")
+        parts = [f"{compared} compared", f"{len(paired_with_rows)} paired with rows in the window",
+                 f"{len(paired_unread)} paired, window not read: {', '.join(paired_unread)}"]
         if unpaired_differs:
             parts.append(f"unpaired, on both sides, differ (not a verdict): {', '.join(unpaired_differs)}")
         print(f"VERDICT: NOTHING-TO-COMPARE ({'; '.join(parts)}) — not a data verdict")

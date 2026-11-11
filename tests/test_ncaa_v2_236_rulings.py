@@ -512,6 +512,33 @@ def test_4_a_refresh_step_that_wrote_no_receipt_is_never_stamped_with_the_earlie
     assert sh.refresh_seen(NOW + timedelta(hours=1), path=q)["state"] == "failed"
 
 
+def test_a_held_refresh_step_is_named_never_read_as_a_silent_no_receipt(tmp_path):
+    """#928 (ARCHITECT 2026-11-11 09:35 ET, addendum 336 item 2: "ncaa_shadow.refresh_seen not naming the hold: the
+    follow-up Issue"): a refresh-by-id step SP_SYNC_HOLD held (the HELD line, exit 0, no refresh_by_id receipt) is the
+    refresh this export saw, NONE, with the hold named in `why` and `held`, and in the text; by `sync.held` or by the
+    tail's HELD line alike. A step held for another code is not this competition's hold."""
+    base = {"kind": "refresh_by_id", "competition": "NCAA", "now": "x", "selected": 9, "updated": 2,
+            "not_found": [], "unresolved": [], "still_rate_limited": []}
+    cmd = "python cli.py refresh-by-id --competition NCAA --days 7"
+    step = {"kind": "step", "unit": "ncaa-schedule", "run_id": "r", "step": 9, "command": cmd, "exit": 0}
+    for i, held in enumerate(({"sync": {"held": ["NCAA"]}}, {"tail": ["HELD NCAA (SP_SYNC_HOLD)"]})):
+        (tmp_path / str(i)).mkdir()
+        p = _receipt(tmp_path / str(i), {**base, "ts": "2034-06-01T00:35:00Z"},
+                     {**step, "ts": "2034-06-01T00:35:01Z"},
+                     {**step, "step": 8, "command": "python cli.py sync-matches --competition NCAA",
+                      "ts": "2034-06-01T12:34:00Z"},
+                     {**step, **held, "ts": "2034-06-01T12:35:00Z"})
+        seen = sh.refresh_seen(NOW + timedelta(minutes=36), path=p)
+        assert (seen["state"], seen["ts"], seen["held"]) == ("none", "2034-06-01T12:35:00Z", ["NCAA"]), seen
+        assert seen["why"] == ("the refresh-by-id step was HELD (SP_SYNC_HOLD NCAA): it wrote nothing and no "
+                               "refresh_by_id receipt")
+        assert "HELD (SP_SYNC_HOLD NCAA)" in sh.refresh_seen_text(seen)
+    (tmp_path / "x").mkdir()
+    p = _receipt(tmp_path / "x", {**step, "tail": ["HELD NFL (SP_SYNC_HOLD)"], "ts": "2034-06-01T12:35:00Z"})
+    other = sh.refresh_seen(NOW + timedelta(minutes=36), path=p)
+    assert "held" not in other and "wrote no refresh_by_id receipt" in other["why"]
+
+
 def test_4_the_real_chain_a_failed_refresh_without_a_receipt_reads_failed(sandbox):
     """The real ncaa-schedule chain on a fake cli.py whose refresh-by-id exits 1 and writes no receipt, after an
     earlier OK refresh_by_id receipt: what the export would stamp (refresh_seen on the chain's own receipts log) is

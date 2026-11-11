@@ -196,18 +196,39 @@ def test_a_failed_first_attempt_then_a_success_on_the_next_tick(box, monkeypatch
 
 
 
-def test_a_held_slate_read_is_recorded_and_the_slate_goes_on_until_ruled(box, monkeypatch):
-    """SP_SYNC_HOLD (#925; 332 item 3: "a receipt line counts the held steps"): the slate's schedule read held (the
-    HELD line, exit 0) is recorded on the step and the receipt, as a closing's is. Addendum 336 item 1 rules the
-    CLOSING RUN's held read (unanswered); the slate stage is not named in it, so the slate goes on as before and the
-    question is put to the architect on #925. This pins the as-built until ruled."""
+def test_a_held_slate_read_goes_on_and_says_so_on_its_rows_and_page(box, monkeypatch):
+    """ARCHITECT 2026-11-11 10:15 ET, addendum 337 item 1, verbatim: "the slate GOES ON, as built, with the held read
+    recorded on its receipt. [...] the slate file and its page say "schedule not re-read: SP_SYNC_HOLD <code> —
+    kickoffs as stored" on a held family's rows." The held read is recorded (#925), every row of the linked slate file
+    carries the declared text under `schedule_note`, and the page says it on its own line."""
     the_day(box, monkeypatch)
     box.fail_cmd["sync-matches"] = (0, ["HELD NFL (SP_SYNC_HOLD)"])
     assert tick(et(7, 0)) == 0
     r = slates()[-1]
     assert r["exit"] == 0 and r["steps"][0]["held"] == ["NFL"] and r["steps"][0]["tail"] == ["HELD NFL (SP_SYNC_HOLD)"]
     assert r["sync_held"] == {"n": 1, "steps": [{"step": 1, "command": r["steps"][0]["command"], "codes": ["NFL"]}]}
+    text = "schedule not re-read: SP_SYNC_HOLD NFL — kickoffs as stored"
+    assert r["schedule_note"]["text"] == text and r["schedule_note"]["rows"] == 2
+    linked = json.loads((box.repo / NFL_FILE).read_text())
+    assert [row["schedule_note"] for row in linked["predictions"]] == [text, text]
+    assert r["schedule_note"]["sha256"] == r["slate_file"]["sha256"]          # the file linked is the labelled one
+    assert r["export_written"]["sha256"] != r["slate_file"]["sha256"]         # the step's own bytes, receipted as written
+    page = slate_pages(box)[-1]["body"]
+    assert page.splitlines()[:2] == [PAGE.splitlines()[0], text], page
     box.fail_cmd.clear()
+
+
+def test_a_slate_with_nothing_held_carries_no_schedule_note(box, monkeypatch):
+    """Not held: no label on any row, none on the page, no `schedule_note` on the receipt (the page is the declared
+    text, unchanged)."""
+    the_day(box, monkeypatch)
+    assert tick(et(7, 0)) == 0
+    r = slates()[-1]
+    assert "schedule_note" not in r and r["exit"] == 0
+    linked = json.loads((box.repo / NFL_FILE).read_text())
+    assert not any("schedule_note" in row for row in linked["predictions"])
+    assert slate_pages(box)[-1]["body"] == PAGE
+
 
 @pytest.mark.parametrize("first, late", [((6, 0), None), ((6, 40), 40)], ids=["at-06:00", "laptop-woke-06:40"])
 def test_a_due_time_before_06_00_is_06_00_and_a_late_first_tick_says_so(box, monkeypatch, first, late):

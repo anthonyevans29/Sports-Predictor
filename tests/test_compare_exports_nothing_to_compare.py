@@ -111,7 +111,7 @@ def test_an_unpaired_pair_that_differs_is_seen_and_never_a_verdict(tmp_path, cap
     name = f"fixtures_NCAA_{DAY}.json"
     rc, out = run(tmp_path, capsys, {name: [GAME]}, {name: [dict(GAME, p=0.2)]})
     assert rc == ce.EXIT_NOTHING_TO_COMPARE, out
-    assert (f"· {name}: rows laptop=1 host=1 diffs=1 · git_sha missing on laptop + host — code-version skew NOT "
+    assert (f"≠ {name}: rows laptop=1 host=1 diffs=1 · git_sha missing on laptop + host — code-version skew NOT "
             "claimable · unpaired, on both sides: DIFFERS (not a verdict; pair it by ruling if both machines should "
             "make it)") in out
     assert "].p: '0.17' vs '0.2'" in out                                                # the difference is seen
@@ -123,6 +123,7 @@ def test_an_unpaired_pair_that_differs_is_seen_and_never_a_verdict(tmp_path, cap
                   {name: [dict(GAME, p=0.2)], NHL: nhl([NHL_ROW])})
     assert rc == ce.EXIT_CLEAN and out.strip().splitlines()[-1] == "VERDICT: CLEAN", out
     assert "].p: '0.17' vs '0.2'" in out and "1 differ (not a verdict)" in out
+    assert not [ln for ln in out.splitlines() if ln.startswith("· ")]                # the Action's one-sided count
 
 
 def test_a_paired_kind_missing_on_a_complete_day_is_divergent(tmp_path, capsys):

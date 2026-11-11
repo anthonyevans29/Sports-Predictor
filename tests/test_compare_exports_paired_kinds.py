@@ -200,3 +200,15 @@ def test_the_same_paired_kind_under_two_names_is_named_as_such(tmp_path, capsys)
     assert "PAIRED KIND fixtures_NHL is on both sides under different names, so nothing of it was compared" in out
     assert "PAIRED KIND fixtures_NHL missing on" not in out and "0 missing on a side" in out
     assert "2 paired kind under different names" in out
+
+
+def test_a_rows_list_against_null_prints_no_host_only_value(tmp_path, capsys):
+    """Codex on #927 (P2): a structural mismatch printed whole (a rows list against null) went through redacted(),
+    which did not know the host-only columns, so a market or Kalshi value reached the log. It is masked now."""
+    hot = {"market": {"fair_prob": {"HOME": 0.987}}, "kalshi_bid": 0.876, **BASE, "utc_date": "2026-11-11T00:00:00",
+           "home_team": "Utah", "away_team": "Dallas Stars"}
+    lap = {**doc([], "laptop"), "fixtures": None}
+    hos = doc([hot], "host")
+    rc, out = run(tmp_path, capsys, lap, hos)
+    assert rc == ce.EXIT_DIVERGENT, out
+    assert "0.987" not in out and "0.876" not in out and "<masked>" in out, out

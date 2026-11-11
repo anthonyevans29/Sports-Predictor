@@ -493,9 +493,13 @@ laptop's history, produces what the laptop would have produced.
 **TERMINAL (laptop):**
 ```
 venv/bin/python deploy/hosting/pull_exports.py
-python deploy/hosting/compare_exports.py exports exports/host --since 1
+python deploy/hosting/compare_exports.py exports exports/host --since 1 --paired-kinds '*'
 ```
-`exports` holds the laptop's **last** exports: the laptop runs no chains
+`--paired-kinds '*'` keeps the cutover's every-kind rule: every file on one
+side only is a finding, as in the H2 dry run (ARCHITECT 2026-11-11 09:35 ET,
+addendum 336 item 4(3), verbatim: "The `--paired-kinds '*'` rule for the
+cutover's PL check and the H2 dry run keeps the every-kind behavior, as
+built."). `exports` holds the laptop's **last** exports: the laptop runs no chains
 after the pack. `--since 1` limits the dated files to today (UTC); undated
 files (`window_24h.json`, `fixtures_<comp>_<label>.json`) are always
 compared.

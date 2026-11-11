@@ -359,18 +359,19 @@ def host_only_count(a, b, parent=None) -> int:
     return _masked_count(a, b, lambda p, k, x, y: host_only_key(k), parent)
 
 
-def redacted(v, parent=None):
+def redacted(v, parent=None, host_only=False):
     """`v` with every unit-bearing field's value, every shadow-arm key's (addendum 199 item 2) and every graded-export
     object (addendum 206 item 1) replaced by "<masked>", for a structural mismatch printed whole (an `order` or
     `desk_meta` object against null; Codex on #735; a PL row against null; a results row against null): neither a
-    dollar figure, a candidate figure nor a graded export's file or run id reaches the output."""
+    dollar figure, a candidate figure nor a graded export's file or run id reaches the output. `host_only` (a paired
+    file, addendum 335 item 4(b)): every host-only column's value too (Codex on #927: a rows list against null)."""
     if isinstance(v, dict):
         return {k: "<masked>" if (unit_bearing(parent, k) or shadow_arm(k, x) or rehearsal_arm_key(k)
-                                  or graded_export_class(k))
-                else redacted(x, k)
+                                  or graded_export_class(k) or (host_only and host_only_key(k)))
+                else redacted(x, k, host_only)
                 for k, x in v.items()}
     if isinstance(v, list):
-        return [redacted(x, parent) for x in v]
+        return [redacted(x, parent, host_only) for x in v]
     return v
 
 
@@ -564,7 +565,8 @@ def diff(a, b, path="$", out=None, limit=40, unmatched=None, ignore=None, parent
         for i, (x, y) in enumerate(zip(a, b)):
             diff(x, y, f"{path}[{i}]", out, limit, unmatched, ignore, parent, host_only)
     elif a != b:
-        out.append(f"{path}: {str(redacted(a, parent))[:60]!r} vs {str(redacted(b, parent))[:60]!r}")
+        out.append(f"{path}: {str(redacted(a, parent, host_only))[:60]!r} vs "
+                   f"{str(redacted(b, parent, host_only))[:60]!r}")
     return out
 
 
@@ -731,7 +733,8 @@ def _main(argv=None) -> int:
             if only["laptop"] or only["host"]:
                 row_diffs.append(name)
             skew_names.update([name] if sha.startswith("code-version skew") else [])
-        print(f"{'✓' if ok else '·' if unpaired else '✗'} {name}: rows laptop={rows_of(x)} host={rows_of(y)} "
+        # an unpaired pair that differs is marked ≠, never `·` (the one-sided marker the Action counts)
+        print(f"{'✓' if ok else '≠' if unpaired else '✗'} {name}: rows laptop={rows_of(x)} host={rows_of(y)} "
               f"diffs={len(d)} · {sha}"
               + (f" · in the window (yesterday, today, tomorrow) laptop={win[0]} host={win[1]}; outside the window, "
                  f"never compared: laptop {win[2]} · host {win[3]}" if win else "")

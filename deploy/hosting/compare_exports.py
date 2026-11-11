@@ -202,8 +202,10 @@ the window (its name's date -1, 0, +1, by utc_date's UTC day) are counted per si
 host-only columns (HOST_ONLY_KEYS, every key named, no prefix) are left out of a paired file at any depth and counted
 on their own line; FIXTURE_COMPARED_KEYS names the compared columns, and the test reads `_fixture_row` (and the
 Desk's `desk` and `desk_meta`) and fails on a key in neither list nor the generic machine-local mask (match_id). A
-paired file on one side only is "awaiting <role>" when its name's date is the run's own UTC date or later (a later
-date is not a complete day either), and "missing on <role>" when earlier. The verdict's order: DIVERGENT (a paired
+paired file on one side only is "awaiting <role>" when its name's LAST date (a `<start>_to_<end>` label's end) is
+the run's own UTC date or later (a later date is not a complete day either), and "missing on <role>" when earlier; an
+undated paired name cannot show its day, so it reads "missing on <role> (undated: completeness unknown)", DIVERGENT
+(law 4). The verdict's order: DIVERGENT (a paired
 file differs, a pair does not parse, a paired kind missing on a complete day or on both sides under different
 names), then NOTHING-TO-COMPARE awaiting <role>, then CLEAN, then NOTHING-TO-COMPARE. A pair that does not parse stays
 DIVERGENT whatever its kind (335 item 2: "CONFIRMED (law 4)"). The flag `--paired-kinds` names the list (default:
@@ -483,6 +485,18 @@ def name_date(name: str) -> date | None:
     return None
 
 
+def name_last_date(name: str) -> date | None:
+    """The LAST valid YYYY-MM-DD in a file name (a `<start>_to_<end>` label's end), else None (undated): the day a
+    paired file's completeness is read by (addendum 336 item 4(2); Code's review)."""
+    last = None
+    for m in NAME_DATE.finditer(name):
+        try:
+            last = date.fromisoformat(m.group(1))
+        except ValueError:
+            continue
+    return last
+
+
 def in_window(name: str, since: int, today: date) -> bool:
     """True when the file is compared under --since: undated files always;
     dated files when today - date < since days; since <= 0 = everything."""
@@ -677,14 +691,16 @@ def _main(argv=None) -> int:
                 print(f"· {name}: only on {side} — PAIRED KIND {kind} is on both sides under different names, so "
                       f"nothing of it was compared")
                 paired_unnamed.append(name)
-            elif kind in paired and (name_date(name) or date.min) >= today:
+            elif kind in paired and (name_last_date(name) or date.min) >= today:
                 # addendum 336 item 4(2): the run's own UTC day is not complete; the other machine's export time may
                 # not have come
                 print(f"· {name}: only on {side} — PAIRED KIND {kind} awaiting {other} (the run's own UTC day, "
                       f"{today}: not a complete day)")
                 paired_awaiting.append((name, other))
             elif kind in paired:
-                print(f"· {name}: only on {side} — PAIRED KIND {kind} missing on {other} (a complete day)")
+                # an undated name cannot show its day: conservatively DIVERGENT, never called complete (law 4)
+                print(f"· {name}: only on {side} — PAIRED KIND {kind} missing on {other} "
+                      + ("(a complete day)" if name_last_date(name) else "(undated: completeness unknown)"))
                 paired_missing.append(name)
             else:
                 print(f"· {name}: only on {side} (expected one-sided: {kind} is not a paired kind)")
@@ -827,7 +843,7 @@ def paired_verdict(compared, field_diffs, row_diffs, unparseable, paired_missing
         sides = sorted({s for _n, s in paired_awaiting})
         print(f"NOTHING TO COMPARE — a paired kind is awaiting the {' and '.join(sides)} on the run's own UTC day "
               "(addendum 336 item 4(2): not a complete day); nothing is verified, so this is not a clean verdict, and "
-              "nothing differed, so it is not DIVERGENT.")
+              "no paired file differed, so it is not DIVERGENT.")
         parts = [f"{compared} compared"] + [f"awaiting {s}: {', '.join(n for n, w in paired_awaiting if w == s)}"
                                             for s in sides]
         if unpaired_differs:
@@ -836,12 +852,15 @@ def paired_verdict(compared, field_diffs, row_diffs, unparseable, paired_missing
         return EXIT_NOTHING_TO_COMPARE
     if paired_with_rows:
         print(f"CLEAN ({compared} compared; {len(paired_with_rows)} paired with rows in the window: "
-              f"{', '.join(paired_with_rows)}) — every compared file identical, no paired kind missing."
+              f"{', '.join(paired_with_rows)}"
+              + (f"; unpaired, on both sides, differ (not a verdict): {', '.join(unpaired_differs)}"
+                 if unpaired_differs else "")
+              + ") — every paired file identical, no paired kind missing."
               + (f" Code-version skew named for: {', '.join(sorted(skew_names))}." if skew_names else ""))
         print("VERDICT: CLEAN")
         return EXIT_CLEAN
     print("NOTHING TO COMPARE — no paired file was compared with rows in the window; nothing is verified, so this is "
-          "not a clean verdict, and nothing differed, so it is not DIVERGENT.")
+          "not a clean verdict, and no paired file differed, so it is not DIVERGENT.")
     parts = [f"{compared} compared", f"0 paired with rows in the window"]
     if paired_empty:
         parts.append(f"{len(paired_empty)} paired empty in the window: {', '.join(paired_empty)}")

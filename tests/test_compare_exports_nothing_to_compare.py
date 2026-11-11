@@ -196,3 +196,32 @@ def test_the_prediction_check_keeps_its_own_no_coverage_reading(tmp_path, capsys
     out = capsys.readouterr().out
     assert rc == ce.EXIT_NO_COVERAGE
     assert out.strip().splitlines()[-1] == "VERDICT: NO-COVERAGE (0 compared) — not a data verdict"
+
+
+def test_a_range_name_is_dated_by_its_end_and_an_undated_name_is_never_called_complete(tmp_path, capsys):
+    """Code's review on 336 item 4(2): a `<start>_to_<end>` name running through the run's own day is not a complete
+    day (awaiting); an undated paired name cannot show its day, so it stays DIVERGENT (law 4) but is never labelled
+    complete."""
+    rng = "fixtures_NHL_2026-11-10_to_2026-11-12.json"
+    rc, out = run(tmp_path, capsys, {rng: nhl([NHL_ROW])}, {})
+    assert rc == ce.EXIT_NOTHING_TO_COMPARE and f"PAIRED KIND fixtures_NHL awaiting host" in out, out
+    rc, out = run(tmp_path / "b", capsys, {rng: nhl([NHL_ROW])}, {}, today="2026-11-13")
+    assert rc == ce.EXIT_DIVERGENT and "missing on host (a complete day)" in out, out
+    rc, out = run(tmp_path / "c", capsys, {"fixtures_NHL.json": nhl([NHL_ROW])}, {})
+    assert rc == ce.EXIT_DIVERGENT, out
+    assert "missing on host (undated: completeness unknown)" in out and "(a complete day)" not in out
+
+
+def test_the_verdict_prose_names_an_unpaired_difference_and_never_says_nothing_differed(tmp_path, capsys):
+    """Code's review on 336 item 4(3): the CLEAN line reads "every paired file identical" and names the unpaired
+    files that differ; no NOTHING-TO-COMPARE line says "nothing differed" above a verdict naming a difference."""
+    name = f"fixtures_NCAA_{DAY}.json"
+    rc, out = run(tmp_path, capsys, {name: [GAME], NHL: nhl([NHL_ROW])}, {name: [dict(GAME, p=0.2)], NHL: nhl([NHL_ROW])})
+    assert rc == ce.EXIT_CLEAN, out
+    assert (f"CLEAN (2 compared; 1 paired with rows in the window: {NHL}; unpaired, on both sides, differ (not a "
+            f"verdict): {name}) — every paired file identical, no paired kind missing.") in out
+    for case, lap, hos in (("a", {name: [GAME], NHL: nhl([NHL_ROW])}, {name: [dict(GAME, p=0.2)]}),
+                           ("b", {name: [GAME]}, {name: [dict(GAME, p=0.2)]})):
+        rc, out = run(tmp_path / case, capsys, lap, hos)
+        assert rc == ce.EXIT_NOTHING_TO_COMPARE and "nothing differed" not in out, out
+        assert "no paired file differed" in out

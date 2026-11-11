@@ -161,8 +161,8 @@ laptop writes is nhl-daily's own `export-fixtures --competition NHL` after its t
 4(a)); the host is unchanged. The Action's status is the daily signal; a tag's step 1 is a hand run on the last
 complete day's folder (335 item 4(f); docs/RELEASES.md step 1). THE PUSH TIMING (ARCHITECT 2026-11-11 09:35 ET,
 addendum 336 item 4), verbatim: "(2) THE PUSH TIMING: a paired kind present on one side only reads DIVERGENT only for a COMPLETE day. For the comparator's own UTC date (the run's "today") the file's absence on the other side is "awaiting <role>" — NOTHING-TO-COMPARE, posted pending — because the other machine's export time may not have come; for any earlier date it is DIVERGENT ("paired kind missing on <role>"), which is what a tag's hand run on D-1 reads (335 item 4(f)). So the laptop's 12:2xZ commit reads pending, the host's 16:0xZ commit reads the pair, and a day one machine never exported reads red only when someone compares that finished day. 335 item 4(c)'s second DIVERGENT clause is corrected to this with this item quoted." As built: a paired file on one side only reads `PAIRED KIND <kind>
-awaiting <role>` when its name's date is the run's own UTC date or later, and `missing on <role> (a complete day)`
-when earlier; an awaited file outranks CLEAN (a run that also holds a clean pair reads NOTHING-TO-COMPARE) and a
+awaiting <role>` when its name's last date (a range label's end) is the run's own UTC date or later, `missing on
+<role> (a complete day)` when earlier, and `missing on <role> (undated: completeness unknown)` for an undated name; an awaited file outranks CLEAN (a run that also holds a clean pair reads NOTHING-TO-COMPARE) and a
 DIVERGENT cause outranks it. The Action's pending description then reads `awaiting <role>: a paired kind not pushed
 yet today`. Before the laptop carries the NHL lines, the host's 16:0xZ push reads `awaiting laptop` the same way, and
 a hand run of an earlier day reads `missing on laptop`. AN UNPAIRED KIND ON BOTH SIDES (addendum 336 item 4),

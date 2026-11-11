@@ -132,40 +132,105 @@ def test_the_declared_list_and_the_mask_names():
     assert not ce.HOST_ONLY_KEYS & ce.FIXTURE_COMPARED_KEYS and not ce.HOST_ONLY_KEYS & ce.MASKED
 
 
+def _str_keys(node) -> set:
+    """The top-level string keys a dict-valued expression can hold: a literal's own keys (and its `**` spreads'), both
+    branches of a conditional, and a dict(...) call's keywords; never the keys of a nested value's literal."""
+    if isinstance(node, ast.Dict):
+        out = {k.value for k in node.keys if isinstance(k, ast.Constant) and isinstance(k.value, str)}
+        for k, v in zip(node.keys, node.values):
+            if k is None:
+                out |= _str_keys(v)
+        return out
+    if isinstance(node, ast.IfExp):
+        return _str_keys(node.body) | _str_keys(node.orelse)
+    if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "dict":
+        return {kw.arg for kw in node.keywords if kw.arg} | set().union(*(_str_keys(a) for a in node.args))
+    return set()
+
+
 def _dict_keys(fn, target: str) -> tuple[set, list]:
-    """The string keys of `target = {...}` in `fn` and of every `target["k"] = ...`, and the `**` spreads' source."""
-    keys, spreads = set(), []
-    for node in ast.walk(ast.parse(inspect.getsource(fn).lstrip())):
-        if isinstance(node, ast.Assign) and any(isinstance(x, ast.Name) and x.id == target for x in node.targets) \
-                and isinstance(node.value, ast.Dict):
-            for k, v in zip(node.value.keys, node.value.values):
-                if k is None:
-                    spreads.append(ast.unparse(v))
-                else:
-                    keys.add(k.value)
-        if isinstance(node, ast.Assign):
-            for x in node.targets:
+    """Every key `fn` can write into the dict named `target`, read from the code (Code's review on 336 item 4(1): a
+    test that reads only some shapes lets a key through unplaced): the literal bound to `target` (its `**` spreads'
+    own literals in every branch too), `target[...] = / : T = / |= / +=` writes, `target |= {...}`, and
+    `target.update(...)` / `target.setdefault(...)`. Any other method call on `target` is returned in the second list
+    (a write shape the test cannot read: place it first). Returns (keys, spreads' source text + unread calls)."""
+    keys, other = set(), []
+    tree = ast.parse(inspect.getsource(fn).lstrip())
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign)):
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            for x in targets:
+                if isinstance(x, ast.Name) and x.id == target and node.value is not None:
+                    keys |= _str_keys(node.value)
+                    if isinstance(node.value, ast.Dict):
+                        other += [ast.unparse(v) for k, v in zip(node.value.keys, node.value.values) if k is None]
                 if isinstance(x, ast.Subscript) and isinstance(x.value, ast.Name) and x.value.id == target:
                     keys.add(x.slice.value)
-    return keys, spreads
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and \
+                isinstance(node.func.value, ast.Name) and node.func.value.id == target:
+            if node.func.attr == "update":
+                keys |= {kw.arg for kw in node.keywords if kw.arg} | set().union(*(_str_keys(a) for a in node.args))
+            elif node.func.attr == "setdefault" and node.args and isinstance(node.args[0], ast.Constant):
+                keys.add(node.args[0].value)
+            elif node.func.attr not in ("get",):
+                other.append(f"{target}.{node.func.attr}(...)")
+    return keys, other
+
+
+def _desk_writes() -> set:
+    """The keys desk_policy.annotate writes onto a row (`r["src"][K] = ...`) and onto the file (`doc[K] = ...`)."""
+    from src.walters import desk_policy
+    out = set()
+    for node in ast.walk(ast.parse(inspect.getsource(desk_policy.annotate).lstrip())):
+        if isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign)):
+            for x in (node.targets if isinstance(node, ast.Assign) else [node.target]):
+                if isinstance(x, ast.Subscript) and isinstance(x.slice, ast.Constant):
+                    base = x.value
+                    if (isinstance(base, ast.Name) and base.id == "doc") or (
+                            isinstance(base, ast.Subscript) and isinstance(base.slice, ast.Constant)
+                            and base.slice.value == "src"):
+                        out.add(x.slice.value)
+    return out
 
 
 def test_every_key_fixture_row_writes_is_compared_or_on_the_declared_mask():
     """336 item 4(1): "every key `_fixture_row` writes is either compared or on the declared mask, so a new key fails
-    the test until it is placed". Read from the code: `_fixture_row`'s row literal and its later `row[...]` writes, the
-    K-track spread (venue.kalshi_exec's keys, two-sided, and KALSHI_EXEC_NULL's), and the Desk's per-row `desk` and
-    file `desk_meta` (desk_policy.annotate). match_id sits under the generic machine-local mask (MASKED)."""
-    from src.walters import desk_policy, export, venue
-    keys, spreads = _dict_keys(export._fixture_row, "row")
-    assert len(spreads) == 1 and "_kexec(" in spreads[0] and "_KNULL" in spreads[0], spreads  # a new spread: place it
-    keys |= set(venue.kalshi_exec(0.52, 0.55, "NHL", two_way=True)) | set(venue.KALSHI_EXEC_NULL)
-    src = inspect.getsource(desk_policy.annotate)
-    assert '["desk"] = desk_block(' in src and 'doc["desk_meta"] = ' in src
-    keys |= {"desk", "desk_meta"}
+    the test until it is placed". Read from the code: every write to `row` in `_fixture_row` (the literal, its spread's
+    own literals, subscript writes, update / setdefault / |=; any other call on `row` fails), the K-track spread
+    (venue.kalshi_exec's keys over both market shapes and an unmapped competition, and KALSHI_EXEC_NULL's), and every
+    key desk_policy.annotate writes onto a row or the file. match_id sits under the generic machine-local mask
+    (MASKED)."""
+    from src.walters import export, venue
+    keys, other = _dict_keys(export._fixture_row, "row")
+    assert len(other) == 1 and "_kexec(" in other[0] and "_KNULL" in other[0], other   # a new spread or call: place it
+    for comp in ("NHL", None):
+        for two_way in (True, False):
+            keys |= set(venue.kalshi_exec(0.52, 0.55, comp, two_way=two_way))
+    keys |= set(venue.KALSHI_EXEC_NULL)
+    desk = _desk_writes()
+    assert {"desk", "desk_meta"} <= desk, desk
+    keys |= desk
     placed = ce.FIXTURE_COMPARED_KEYS | ce.HOST_ONLY_KEYS | ce.MASKED
     assert keys - placed == set(), f"place these keys (compared or on the declared mask): {sorted(keys - placed)}"
     assert (ce.FIXTURE_COMPARED_KEYS | ce.HOST_ONLY_KEYS) - keys == set()          # nothing declared that is not written
     assert "match_id" in keys and "match_id" in ce.MASKED
+
+
+def test_the_placement_reader_catches_every_write_shape():
+    """The reader itself, on a stand-in: each write shape is read, and an unread call is returned (Code's review)."""
+    def stand_in(kal):
+        row = {"a": 1, **({"b": 2} if kal else dict(c=None))}
+        row["d"] = 1
+        row["e"]: int = 2
+        row |= {"f": 3}
+        row.update(g=4)
+        row.update({"h": 5})
+        row.setdefault("i", 6)
+        row.pop("a")
+        return row
+    keys, other = _dict_keys(stand_in, "row")
+    assert keys == set("abcdefghi"), keys
+    assert other[-1] == "row.pop(...)" and any("**" not in o and "kal" in o for o in other[:1]), other
 
 
 def test_every_key_of_the_fixtures_file_is_placed_too():

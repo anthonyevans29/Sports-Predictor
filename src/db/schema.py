@@ -1222,6 +1222,12 @@ class AvailabilityObservation(Base):
         Index("uq_avail_obs_source_match_kickoff_poll", "source", "match_id", "kickoff_at", "poll_label",
               unique=True,
               sqlite_where=text("match_id IS NOT NULL AND kickoff_at IS NOT NULL AND poll_label IS NOT NULL")),
+        # THE POLL KEY OF AN UNMAPPED POLL (#835 item 2; ARCHITECT 2026-11-05 09:40 ET, addendum 258 item 2(2), verbatim
+        # in part: "the poll's uniqueness is keyed on (source, endpoint, scheduled_at) where scheduled_at is set (the
+        # endpoint carries the game's own id; the scheduled poll time is the poll), a partial unique index beside the
+        # existing one [...] No new column."): one poll is asked once whether or not its match maps
+        Index("uq_avail_obs_source_endpoint_scheduled", "source", "endpoint", "scheduled_at", unique=True,
+              sqlite_where=text("scheduled_at IS NOT NULL")),
         Index("ix_avail_obs_sport_source_fetched", "sport", "source", "fetched_at"),
     )
 
@@ -1303,6 +1309,13 @@ _OBS, _ASR = "availability_observations", "availability_assertions"
 # The rendered trigger SQL is byte-identical to the one it replaces (tests/test_schema_py310.py pins it).
 _ASR_SNAPSHOT_HASH_MSG = (_ASR + ": an observation of a snapshot source asserts a row and keeps no payload_sha256: "
                           "the hash is the load identity (addendum 262 item 1)")
+# THE POLL GUARD (#835 item 2; ARCHITECT 2026-11-05 09:40 ET, addendum 258 item 2(2): "the insert-guard's "already
+# observed" branch extended to it"): built as an insert guard of its own, as the snapshot hash guard is, because CREATE
+# TRIGGER IF NOT EXISTS never changes trg_availability_observations_insert_guard on a store already migrated; the
+# migration creates it there on its next run. Its message carries the insert guard's own words ("this poll is already
+# observed"), so record.write_observation reads either as "already observed" (its row stands; nothing written).
+_OBS_POLL_GUARD_MSG = (_OBS + ": this poll is already observed (its row stands; append-only): the same source, "
+                       "endpoint and scheduled time (#835 item 2, addendum 258 item 2(2))")
 AVAILABILITY_TRIGGERS = tuple(
     [(f"trg_{t}_no_{op.lower()}", t,
       f"CREATE TRIGGER IF NOT EXISTS trg_{t}_no_{op.lower()} BEFORE {op} ON {t} "
@@ -1338,7 +1351,13 @@ AVAILABILITY_TRIGGERS = tuple(
         f"CREATE TRIGGER IF NOT EXISTS trg_availability_assertions_snapshot_hash_guard BEFORE INSERT ON {_ASR} BEGIN "
         f"{_abort(_ASR_SNAPSHOT_HASH_MSG)} "
         f"WHERE EXISTS (SELECT 1 FROM {_OBS} o WHERE o.id = NEW.observation_id "
-        f"AND o.source IN ({_sql_words(AVAILABILITY_SNAPSHOT_SOURCES)}) AND o.payload_sha256 IS NULL); END")])
+        f"AND o.source IN ({_sql_words(AVAILABILITY_SNAPSHOT_SOURCES)}) AND o.payload_sha256 IS NULL); END"),
+       ("trg_availability_observations_poll_guard", _OBS,
+        f"CREATE TRIGGER IF NOT EXISTS trg_availability_observations_poll_guard BEFORE INSERT ON {_OBS} BEGIN "
+        f"{_abort(_OBS_POLL_GUARD_MSG)} "
+        f"WHERE NEW.scheduled_at IS NOT NULL "
+        f"AND EXISTS (SELECT 1 FROM {_OBS} x WHERE x.source = NEW.source AND x.endpoint = NEW.endpoint "
+        f"AND x.scheduled_at = NEW.scheduled_at); END")])
 
 for _name, _table, _sql in AVAILABILITY_TRIGGERS:
     event.listen(Base.metadata.tables[_table], "after_create", DDL(_sql).execute_if(dialect="sqlite"))

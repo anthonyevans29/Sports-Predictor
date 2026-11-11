@@ -872,9 +872,9 @@ def test_6a_counts_only_grow_across_a_replay_and_the_feed_has_no_update_or_delet
                 r"\.merge\(", r"import[^\n]*\b(update|delete)\b", r"\bUPDATE\s+\w+\s+SET\b", r"\bDELETE\s+FROM\b",
                 r"\bs\.add(_all)?\(", r"session_scope", r"\.execute\((?!select\()"):
         assert not re.search(pat, src), pat          # record.write_observation only (h.update: the sha256 hasher)
-    with _engine().connect() as c:                         # #831's triggers stand, and 262 item 1's hash guard
+    with _engine().connect() as c:     # #831's triggers stand, 262 item 1's hash guard and #835 item 2's poll guard
         assert c.execute(text("SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger' "
-                              "AND tbl_name LIKE 'availability_%'")).scalar() == len(rec.TRIGGERS) == 7
+                              "AND tbl_name LIKE 'availability_%'")).scalar() == len(rec.TRIGGERS) == 8
 
 
 # ---- #835 item 1 (258 item 2(1)): percent-encoded credential names --------------------------------------------------------

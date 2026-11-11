@@ -1,4 +1,4 @@
-## 2026-11-11 (#000: 924-offseason-compare — the paired kinds: fixtures_NHL compared on its yesterday/today/tomorrow rows with the host-only columns masked and counted; the verdict rule completed; the laptop DB's scope corrected (ARCHITECT 2026-11-11, addendum 335 items 2-4).)
+## 2026-11-11 (#927: 924-offseason-compare — the paired kinds: fixtures_NHL compared on its yesterday/today/tomorrow rows with the host-only columns masked and counted; the verdict rule completed; the laptop DB's scope corrected (ARCHITECT 2026-11-11, addendum 335 items 2-4).)
 - **Ruling (addendum 335 item 4, the parts built here):** (b) the compared rows and the host-only columns; (c) the verdict rule; (e) the laptop DB's scope; and the docs. 335 item 2 rules #922's two readings; 335 item 3 accepts #923's three widenings.
 - **Built:**
   - `deploy/hosting/compare_exports.py`:

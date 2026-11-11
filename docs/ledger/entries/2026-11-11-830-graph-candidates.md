@@ -7,4 +7,14 @@
   - Bighorn has no package.
   - FalkorDBLite runs a managed Redis/FalkorDB server process, its engine is SSPL v1, and it needs Python >= 3.12.
   - lance-graph runs partial Cypher over Lance/Arrow tables.
-- **For the architect:** the three candidates that meet "embedded, file-based, no server, Cypher" as written are one lineage and one dialect (Kùzu, LadybugDB, RyuGraph). The page states each fact and no preference.
+- **Codex round 1 and addendum 344 items 2-3 (one push):**
+  - CypherLite added (fits the words; nine releases on one day, 2026-03-15).
+  - LadybugDB's wheels corrected to cp310–cp314, and its single-file format (from 0.11.0) quoted from its documentation.
+  - lance-graph re-stated as file-backed (Lance datasets) with partial Cypher and 64 dependencies.
+  - The pick's requirements tabled per fitting candidate: identity, pin and sha256, host-only install, dependencies, licence.
+  - The look-alike `real_ladybug` named (its Repository URL returns 404).
+- **For the architect:** five candidates meet "embedded, file-based, no server, Cypher" as written:
+  - three of one lineage (Kùzu, LadybugDB, RyuGraph);
+  - CypherLite and lance-graph, each with a Cypher subset.
+
+  The page states each fact and no preference.

@@ -3,3 +3,9 @@
   - The candidates: Kùzu (archived 2025-10-10), LadybugDB (the active fork), RyuGraph (no release since 2025-12-06), Bighorn (no package found), FalkorDBLite (a managed server process; SSPL engine; Python >= 3.12), lance-graph (partial Cypher over tables).
   - Set aside on 252's words: Neo4j, Memgraph, DuckDB/DuckPGQ, CozoDB, grand-cypher.
   - Each field is read from PyPI's JSON for the package or from a named source; a field not read from a primary record is marked so. No preference is stated: the pick is the architect's.
+- **Codex on #936, round 1 (one P1, three P2), and addendum 344 items 2-3, in one push:**
+  - CypherLite added as a row (it fits the words: one `.cyl` file, in-process, an openCypher subset; nine releases on 2026-03-15, none since).
+  - LadybugDB's wheels corrected to cp310–cp314, and its single-file format from 0.11.0 quoted from its own documentation.
+  - lance-graph re-stated: it persists node and relationship tables as Lance datasets; partial Cypher and 64 transitive dependencies are its drawbacks.
+  - The second table gives every fitting candidate's identity (index URLs and what the repository names back), the version to pin with its cp312 manylinux x86_64 wheel's sha256, a host-only optional install, its transitive dependencies and its licence as the metadata states it.
+  - The look-alike `real_ladybug` (its Repository URL returns 404) is named.

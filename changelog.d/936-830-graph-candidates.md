@@ -9,3 +9,4 @@
   - lance-graph re-stated: it persists node and relationship tables as Lance datasets; partial Cypher and 64 transitive dependencies are its drawbacks.
   - The second table gives every fitting candidate's identity (index URLs and what the repository names back), the version to pin with its cp312 manylinux x86_64 wheel's sha256, a host-only optional install, its transitive dependencies and its licence as the metadata states it.
   - The look-alike `real_ladybug` (its Repository URL returns 404) is named.
+- **Codex on #936, round 2 (one P1), fixed:** sqlitegraph and GrafitoDB added on their index records, each with a row in both tables (sqlitegraph: "Cypher-inspired", one file, GPL-3.0-only; GrafitoDB: a Cypher subset over SQLite, pure Python, five dependencies, Python >= 3.11, no licence in its metadata). The page states how its candidate list was assembled and that a later find is added by its own PR.

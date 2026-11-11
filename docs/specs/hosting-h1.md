@@ -1189,7 +1189,9 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
       the block's, in a window.
     - **The effective config is read, not assumed.** TERMINAL (host), in the architect's next host block:
       `apt-config dump | grep -i -E "Automatic-Reboot|Unattended-Upgrade::Allowed|Origins-Pattern"` and
-      `ls /etc/apt/apt.conf.d/ | grep -E "^5[0-9]"`. Effective config confirmed: ____ (blank until that read).
+      `ls /etc/apt/apt.conf.d/ | grep -E "^5[0-9]"`. Effective config confirmed: 2026-11-10 (ARCHITECT 2026-11-10 16:40 ET, addendum 331 item 4,
+      verbatim: "the host OS upgraded and rebooted (17:05Z, kernel 6.8.0-149) with the effective unattended-upgrades
+      config confirmed").
 - **The laptop's morning code update (ARCHITECT 2026-11-10 13:05 ET, addendum 321 item 3, verbatim):** "the
   fast-forward pulls the code and nothing installed new requirements — the first hand-render stopped on `No module
   named 'matplotlib'`. Closed: the morning block carries `pip install -q -r requirements.txt` after the fast-forward

@@ -121,6 +121,7 @@ its compare verdict.
 | `v1.6.3` | 2026-11-03 12:59:11Z | `0c88f5cc4e9332bade5efd2043def40ab37a5def` | `7312627b5b39fc5f38e71718edb9d9cbd3f7be00` | #806 (step 1 as rewritten, #782) |
 | `v1.6.4` | 2026-11-05 13:03:31Z | `284c575847379d545408bf88bb3939041e253ad8` | `fbb6e46a9348d2430b61ab475c3b5faa84b10025` | #837 (step 1 as rewritten, #782) |
 | `v1.6.5` | 2026-11-09 13:46:27Z | `5f9cf13dc935ed5fdaf220772e8e8ccfea06dfc4` | `dae246a9edf64e0ad953f75d7a0c08e145f62f62` | #898 (step 1 as rewritten, #782) |
+| `v1.6.6` | 2026-11-10 20:11:06Z | `8aa27a89b3e0018e8ad229f321cab3e02acec212` | `0e7844aca0254cb6b17c383f0971166ef749ecab` | #917 |
 
 - **v1.4.0** (ARCHITECT 2026-10-16, addendum 87). The commit is the ledger
   compile over 53a0e83, the #551 merge over c546168.
@@ -307,6 +308,44 @@ its compare verdict.
   - **Release Issue:** #898 (ritual step 4), opened 2026-11-09 by ARCHITECT 2026-11-09 08:45 ET, addendum 300 item 3:
     the notes line for line, the tag, the compare verdict and the receipts, addendum 300 item 1 verbatim. The deploy
     and migration rows join it from the deploy's console (step 5).
+- **v1.6.6** (ARCHITECT 2026-11-10 15:00 ET, addendum 324, the tag ruling, as Release Issue #917 quotes it): not a
+  migration tag. The commit is the ledger compile 8aa27a89 (11 changelog fragments, 12 ledger entries) over 97bc8c50
+  (#914's merge). The tag was cut and pushed by the operator from the architect's block: tagger stamp 2026-11-10
+  20:11:06Z (15:11:06 ET). Verbatim (324 item 2): "THE TAG: v1.6.6 on 8aa27a89, `--cleanup=verbatim -F
+  logs/release_notes_v1.6.6.txt`, by the operator's block once CI is green on the fold commit (the block checks).
+  Code opens the release Issue "Release v1.6.6 (8aa27a89)" on a v1.6.6 milestone with the eleven PRs, the deploy
+  record appended from the operator's consoles as they come (the form of 304 item 2). Codex-free: a tag is not a PR."
+  - **The tag message:** 152 lines; 12 lines begin with `#` (the header and all 11 `## ` section headings). It matches
+    `python3 scripts/release_notes.py --to 8aa27a89b3e0018e8ad229f321cab3e02acec212` line for line (151 lines, exit 0),
+    apart from one trailing blank line in the tag message, as on v1.6.4 and v1.6.5. The one AMENDED hit is a quoted
+    phrase, not a section (324 item 1).
+  - **Step 1 (ARCHITECT 2026-11-10 18:55 ET, addendum 332 item 4, verbatim):** "step 1 (the laptop-vs-host compare) on
+    11-10: compare_exports DIVERGENT — 0 compared, 11 one-side-only — which certifies nothing on a Tuesday in MLB's
+    off-season (no kind both machines export that day); the tag was ruled on the fold's green CI and the eleven PRs'
+    own receipts (324 item 1), the compare's gap recorded, not waived".
+  - **No migration; one requirements change:** `git diff --stat v1.6.5 v1.6.6` reads 60 files changed, and no file
+    under `migrations/` changed. requirements.txt gains `matplotlib>=3.8` (#894), which `sp_deploy` installs by its own
+    rule (324 item 1).
+  - **The day, verbatim (ARCHITECT 2026-11-10 16:40 ET, addendum 331 item 4):** "v1.6.6 cut (8aa27a89, 15:11 ET) and
+    deployed (20:26Z); the host OS upgraded and rebooted (17:05Z, kernel 6.8.0-149) with the effective
+    unattended-upgrades config confirmed; #902 restored on both machines (the laptop 00:26Z, the host 20:57Z) with the
+    hold lifted (21:13Z); eleven PRs folded into the tag and two more merged after it; the Cockpit at v39." The
+    deploy's own receipt line (324 item 3(b): v1.6.5 → v1.6.6, matplotlib installed, no migration, timers untouched)
+    joins #917 from the operator's console.
+  - **After the deploy, in order (the architect's blocks, 324 item 3, each read on #917 and #902):**
+    - the exposure read and the timer SET check, both clean (327 items 1-2);
+    - the #902 remedy by the chain's own step and the dry run, clean (328 items 1-2);
+    - the apply, read clean (329 items 1-2);
+    - `sp-ncaa-market.timer` re-enabled at 21:13Z, whose `Persistent=true` catch-up run read clean (330, 331 item 3).
+  - **Carries:** git's `v1.6.5..v1.6.6` holds eleven PRs: #894, #897, #900, #903, #904, #906, #909, #910, #911, #912,
+    #914 (83 commits with the fold commit). Counted from `git log --merges v1.6.5..v1.6.6`: 15 merge commits, of
+    which 11 are "Merge pull request #N"; eleven CHANGELOG sections, one per PR.
+  - **Not in the tag:** #913 (the Cockpit's build stamp; the artifact is the deployable, republished as v39) and #916
+    (the bulletin hooks, which ride v1.6.7) merged after it (main e5c9ea41). The next tag's span opens with these two
+    (331 item 1).
+  - **Release Issue:** #917 (ritual step 4), opened 2026-11-10 by ARCHITECT 2026-11-10 15:00 ET, addendum 324 item 2:
+    the notes line for line, the tag, and 324 items 1 and 2 verbatim. The deploy rows join it from the operator's
+    consoles.
 
 ## Hotfix path
 A hotfix gets a patch tag (`vX.Y.Z+1`) through the same ritual. There is no

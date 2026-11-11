@@ -1,0 +1,8 @@
+## 2026-11-11 (#000: 920-hold-search — the hold procedure's search prints the laptop's MLB routine and the intl-sync timer, the exposure read covers every written field, and the stamp sentence reads "never been started" (ARCHITECT 2026-11-10, addendum 333 items 2(b) and 3).)
+- **Ruling (verbatim, addendum 333 item 3):** "both are fixed in ONE follow-up docs PR this week, which closes #920".
+- **Built (docs/specs/hosting-h1.md section O):**
+  - (i) the chain search reads T11's lists with `sp_common.t11_lists()`. A timer on `MLB_LAPTOP_ONLY` is never printed; mlb-morning and mlb-preslate print "the laptop's morning routine (the architect's block)" (333 item 3(i) quoted).
+  - (ii) 332 item 3's exposure read is corrected in place with 333 item 3(ii) quoted. It covers every field the held step writes, by row id against the last pre-hold copy, plus the rows created since. Each difference is explained by name or recorded as a finding.
+  - (iii) for the codes intl-sync writes through `_upsert_match`, the search prints `intl-daily: intl-sync … · sp-intl-daily.timer` (333 item 3(iii) quoted). That is the ruling's UNL, WCQ_* and UEFA_EURO / UEFA_EURO_Q, plus CNL, CNL_Q and FRIENDLIES_INT on the same write path. The SP_SYNC_HOLD line quotes 333's sentence on intl-sync.
+  - 332 item 2's stamp sentence carries 333 item 2(b)'s correction: "a timer that has never been started has no stamp".
+- **Receipt:** tests/test_hold_search_recipe.py runs the search as written, on this checkout, for MLB, NCAA, PL, NFL, UNL, WCQ, WCQ_EU, UEFA_EURO, UEFA_EURO_Q, CNL, CNL_Q, FRIENDLIES_INT, WCQ_IC and EFL. It pins that no `MLB_LAPTOP_ONLY` timer is printed, and that the search's national-team codes equal intl_history's `CODE_BY_NAME`. Python 3.10 and 3.12.

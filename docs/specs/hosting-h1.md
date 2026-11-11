@@ -1186,7 +1186,12 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
       - **Lifting a hold (ARCHITECT 2026-11-10 16:20 ET, addendum 330 item 2, as qualified by ARCHITECT 2026-11-10
         18:55 ET, addendum 332 item 2, verbatim):** "lifting a hold on a Persistent timer THAT HAS FIRED BEFORE runs
         its missed firing at once — lift it when that run is welcome, off the :00–:10 minutes, and read the run; a
-        timer that has never fired has no stamp and first runs at its next scheduled firing". And (332 item 2(b),
+        timer that has never fired has no stamp and first runs at its next scheduled firing". CORRECTED (ARCHITECT
+        2026-11-10 19:35 ET, addendum 333 item 2(b), verbatim): "the stamp: systemd writes it at a timer's first
+        START, not its first firing, so the precise rule is "a timer that has never been started has no stamp";
+        332 item 2's sentence is corrected to that wording in the follow-up PR, its conclusion for sp-tennis-daily
+        unchanged (never started)." So the sentence reads: a timer that has never been started has no stamp and
+        first runs at its next scheduled firing. And (332 item 2(b),
         verbatim): "a first enable that wants an immediate run starts the service explicitly (`systemctl start
         sp-chain@<chain>.service`) and says so in its block; sp-tennis-daily's block (288 item 5, when it comes) does
         NOT: its first run is its next 06:53Z firing, read the morning after — the laptop's daily step covers the days
@@ -1214,7 +1219,11 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
         import sys, pathlib, re
         sys.path.insert(0, "deploy/hosting")
         from chains import CHAINS, CLOSING_FAMILIES
+        from sp_common import t11_lists
         code = sys.argv[1]
+        laptop_only = set(t11_lists()["MLB_LAPTOP_ONLY"])
+        intl = code == "WCQ" or code in ("UNL", "CNL", "CNL_Q", "UEFA_EURO", "UEFA_EURO_Q", "FRIENDLIES_INT",
+                                         "WCQ_EU", "WCQ_SA", "WCQ_AF", "WCQ_AS", "WCQ_NA", "WCQ_OC", "WCQ_IC")
         units = {}
         for t in sorted(pathlib.Path("deploy/hosting/systemd").glob("*.timer")):
             m = re.search(r"^Unit=sp-chain@(.+)\.service$", t.read_text(), re.M)
@@ -1225,7 +1234,9 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
         family_of = {chain: fam for fam, chain in CLOSING_FAMILIES.items()}
         def triggers(name):
             if name in units:
-                return units[name]
+                host = [t for t in units[name] if t not in laptop_only]
+                return host + (["the laptop's morning routine (the architect's block)"]
+                               if len(host) < len(units[name]) else [])
             if name.startswith("freshen:"):
                 fam = name.split(":", 1)[1]
                 return [f"sp-window.timer (sp_run.run_freshens after the window page; skipped where SP_SKIP_FAMILIES names {fam})"]
@@ -1243,6 +1254,9 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
             if ch.get("window_plan") or ch.get("fullseason"):
                 how = "sp_run.window_plan" if ch.get("window_plan") else "sp_run.fullseason_resolve over SP_FULLSEASON_LIST"
                 print(f"{name}: built at run time by {how} · {', '.join(triggers(name))}")
+        if intl:
+            print(f"intl-daily: intl-sync (no code on the step; it writes {code} through _upsert_match) · "
+                  f"{', '.join(triggers('intl-daily'))}")
         PY
         ```
         On this branch, `C=NCAA` prints ncaa-market (sp-ncaa-market.timer) and ncaa-schedule (sp-ncaa-schedule.timer),
@@ -1254,7 +1268,28 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
         1). A freshen chain (`freshen:*`) resolves to `sp-window.timer`: `sp_run.run_freshens` (sp_run.py:678) is its
         only runner, called from the window chain's post step (sp_run.py:862), and it skips a family that
         `SP_SKIP_FAMILIES` names (MLB on the host; chains.py's FRESHEN CHAINS note). A chain the search cannot
-        resolve prints NO TRIGGER FOUND, never a clean line. The two chains built at run time, read on 8aa27a89:
+        resolve prints NO TRIGGER FOUND, never a clean line.
+        - **The laptop's MLB writers (ARCHITECT 2026-11-10 19:35 ET, addendum 333 item 3(i), verbatim):** "the
+          search reads MLB_LAPTOP_ONLY and prints "the laptop's morning routine (the architect's block)" for
+          mlb-morning and mlb-preslate, never a host timer that is not enabled". The search reads T11's lists with
+          `sp_common.t11_lists()` (the parser the deploy receipt uses), so a timer on `MLB_LAPTOP_ONLY` is never
+          printed. A chain whose timers are all on that list prints only the routine. `C=MLB` prints mlb-morning and
+          mlb-preslate that way; mlb-history (`sp-mlb-history.timer`, on `TIMERS`: the host's api-sports fallback),
+          freshen:MLB (`sp-window.timer`, skipped on the host by `SP_SKIP_FAMILIES`) and mlb-closing (the laptop's
+          launchd closing watch) as before.
+        - **National teams (ARCHITECT 2026-11-10 19:35 ET, addendum 333 item 3(iii), verbatim):** "the rule follows
+          the WRITE PATH (_upsert_match), not the step's name: a hold on UNL, WCQ or Euro names sp-intl-daily.timer
+          (intl-sync) beside whatever the search finds; the search prints it for those codes." `intl-sync` names no
+          competition on its step (`["intl-sync", "--since", "{today}", ...]`, chains.py intl-daily), so the
+          step-based search cannot find it. It writes every code of `CODE_BY_NAME` in
+          src/ingestion/intl_history.py through `IngestionService._upsert_match`: UNL, the seven `WCQ_*` codes,
+          UEFA_EURO and UEFA_EURO_Q (the ruling's three), and CNL, CNL_Q and FRIENDLIES_INT (the same write path, so
+          the same rule). For those thirteen codes (and `WCQ` as written in the ruling) the search prints
+          `intl-daily: intl-sync (no code on the step; it writes <C> through _upsert_match) · sp-intl-daily.timer`.
+          `C=UNL` prints that line after the two chains built at run time. tests/test_hold_search_recipe.py fails if
+          `CODE_BY_NAME` gains or loses a code the search does not list.
+
+        The two chains built at run time, read on 8aa27a89:
         - **window** (`sp-window.timer`, hourly): `CHAINS["window"]` has `"steps": []`. `sp_run.window_plan` adds a
           `sync-matches --competition <code> --season <season>` step for every competition with a game inside its
           24 hours.
@@ -1278,8 +1313,22 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
         sport), and says for how long; a hold that can tolerate runs under the unfixed code leaves (iii) running and
         READS THEIR EXPOSURE afterward — rows whose season or pair differ against the last pre-hold copy, as 327 item
         1 did — and the procedure names which of the two it chose."
+        - **The exposure read's fields, CORRECTED IN PLACE (ARCHITECT 2026-11-10 19:35 ET, addendum 333 item 3(ii),
+          verbatim):** "332 item 3's "rows whose season or pair differ" was #902's read, right for a defect that
+          rewrote season; the RULE is: the exposure read compares, against the last pre-hold copy and by row id,
+          EVERY field the held step writes — season, the team pair, utc_date, status, home_score, away_score,
+          full_time_result, external_ids — plus rows created since; each difference is listed and either explained (a
+          game played or rescheduled during the hold, named) or is a finding; the hold's declaration names the fields
+          its defect can touch, and the read is never narrower than those." So the words "rows whose season or pair
+          differ against the last pre-hold copy, as 327 item 1 did" in 332 item 3 above read, from 333 on: every
+          field the held step writes, by row id against the last pre-hold copy (season, home_team_id and
+          away_team_id, utc_date, status, home_score, away_score, full_time_result, external_ids), plus the rows
+          created since the copy. Each difference is listed, then explained by name (a game played or rescheduled
+          during the hold) or recorded as a finding.
         - **The durable answer, declared (332 item 3):** a per-competition sync hold that the step itself honors,
-          `SP_SYNC_HOLD`. It ships as its own small PR (#921). Until it merges, the procedure above stands.
+          `SP_SYNC_HOLD`. It ships as its own small PR (#921). Until it merges, the procedure above stands. (333
+          item 3(iii), verbatim): "SP_SYNC_HOLD (#921) honors the same path: its design covers intl-sync, or says in
+          its body why not."
     - **The deploy's receipt:** 323 item 1 rules that the deploy's report of timers missing from `timers.enabled`
       reads this list. Today `sp_deploy.py` reads only T11's lists, so a held timer missing from the file still
       reads "!" under `TIMERS`. Teaching it this list is a deploy-script change, so it ships as its own PR after

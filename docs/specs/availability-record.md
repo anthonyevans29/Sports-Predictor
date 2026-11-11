@@ -828,8 +828,11 @@ As built:
   The day's first failed read creates `schedule.notice` and makes the tick exit 1 (the unit pages once); every tick
   prints its line (a failed read, or "last read FAILED at <instant>: the next read after <instant>") and exits 0.
 - "A moved start recomputes the polls not yet written": a poll counts as WRITTEN when the store holds an observation of
-  the source at the game's endpoint (the landing or boxscore URL, carrying the gameId) with its label, whatever kickoff
-  it was scheduled against, OR at its endpoint and scheduled time under another label (#835 item 2's key: a start moved
+  the source at the game's endpoint (the landing or boxscore URL, carrying the gameId) with its label, scheduled
+  against a start within SIX HOURS of the game's current start (ARCHITECT 2026-11-11 14:10 ET, addendum 343 item 1: "a
+  label counts as written only against a start within SIX HOURS of the game's current start; a start that moves by six
+  hours or more (a postponement) gets a fresh set of polls against the new start, new rows beside the old, nothing
+  touched [...] A slip inside six hours (a delayed puck drop) schedules no second series"; `SERIES_SCOPE`), OR at its endpoint and scheduled time under another label (#835 item 2's key: a start moved
   earlier can land a recomputed poll on one already asked; it is not asked twice and never repeats "already"); an
   unwritten poll takes its time from the start this tick knows. `kickoff_at` on a row is the schedule's start as that
   tick knew it.
@@ -901,7 +904,8 @@ refuses to write (exit 2). The nflverse rows set no `scheduled_at`, so the key r
 ### The watch (340 item 3)
 
 `sp-availability-observe.service` (oneshot, `cli.py availability-nhl-observe`, OnFailure through
-`sp-notify@availability-observe`) and `.timer` (every five minutes at :00 .. :55, hours 00-03 and 06-23 UTC,
+`sp-notify@availability-observe`, at most one page in thirty minutes: `sp_notify.THROTTLED_UNITS`, addendum 343
+item 2) and `.timer` (every five minutes at :00 .. :55, hours 00-03 and 06-23 UTC,
 `Persistent=false`, `AccuracySec=1s`), on T11's `TIMERS`, shipped disabled; the architect's block enables it. Not a
 chain: no `chains.py` entry, no chain receipt per tick. A tick plans mode=ro; with no poll due it calls no game page and
 takes no lock; with a poll due it takes the chains' DB lock and plans again under it.

@@ -115,6 +115,11 @@ LATE_LIMIT = timedelta(minutes=5)                      # an answer stamped more 
 AHEAD = timedelta(minutes=PREGAME[0][1])               # the first poll, T-120
 LOOKBACK = timedelta(hours=6)                          # H0-3's 04:00-05:59Z gap and the T+20 read, with room
 SCHEDULE_TTL = timedelta(hours=1)                      # 340 item 4: "at most hourly, kept per NHL day"
+# THE SERIES' SCOPE (ARCHITECT 2026-11-11 14:10 ET, addendum 343 item 1, verbatim in part: "a label counts as written
+# only against a start within SIX HOURS of the game's current start; a start that moves by six hours or more (a
+# postponement) gets a fresh set of polls against the new start, new rows beside the old, nothing touched [...] A slip
+# inside six hours (a delayed puck drop) schedules no second series"). Declared before any host row exists.
+SERIES_SCOPE = timedelta(hours=6)
 TIMEOUT = (10, 30)                                     # (connect, read) seconds
 USER_AGENT = "sports-predictor availability-record (nhl landing)"
 CHECKED, NOTICE = "schedule.checked", "schedule.notice"
@@ -579,35 +584,48 @@ def _window_games(schedules: list, now: datetime) -> list[dict]:
     return sorted(out, key=lambda g: (g["start"], g["id"]))
 
 
-def written_polls(s, games: list[dict]) -> set:
-    """What the store holds for these games, as {(gameId, label)} and {(endpoint, scheduled_at)}: an observation of
-    this source at the game's landing or boxscore URL with a poll label. A poll is WRITTEN when its label is held,
-    whatever kickoff it was scheduled against (340 item 4: "a written poll is never touched"), or when its endpoint and
-    scheduled time are held under another label (#835 item 2's key: "the scheduled poll time is the poll"; a start
-    moved earlier can land a recomputed poll on one already asked)."""
+@dataclass
+class Written:
+    """What the store holds for the window's games: per (gameId, label) the starts it was scheduled against, and every
+    (endpoint, scheduled_at) held."""
+    labels: dict = field(default_factory=dict)           # (gameId, label) -> [kickoff_at, ...]
+    times: set = field(default_factory=set)              # {(endpoint, scheduled_at)}
+
+    def has(self, game: dict, label: str, endpoint: str, sched: datetime) -> bool:
+        """A poll is WRITTEN when the store holds its label at the game's endpoint against a start within SERIES_SCOPE
+        of the game's current start (343 item 1: a slip inside six hours moves only the polls not yet written; a move
+        of six hours or more is a fresh series), or holds its endpoint and scheduled time under any label (#835 item
+        2's key: "the scheduled poll time is the poll"; a start moved earlier can land a recomputed poll on one asked)."""
+        if (game_url(game["id"], endpoint), sched) in self.times:
+            return True
+        return any(k is not None and abs(k - game["start"]) < SERIES_SCOPE
+                   for k in self.labels.get((game["id"], label), ()))
+
+
+def written_polls(s, games: list[dict]) -> Written:
+    """The store's observations of this source at the window's games' landing or boxscore URLs with a poll label."""
     from sqlalchemy import select
 
     from src.db.schema import AvailabilityObservation as O
     by_url = {game_url(g["id"], ep): g["id"] for g in games for ep in (LANDING, BOXSCORE)}
-    labels, times = set(), set()
+    w = Written()
     if not by_url:
-        return labels | times
-    for ep, label, sched in s.execute(select(O.endpoint, O.poll_label, O.scheduled_at).where(
+        return w
+    for ep, label, kickoff, sched in s.execute(select(O.endpoint, O.poll_label, O.kickoff_at, O.scheduled_at).where(
             O.source == SOURCE, O.endpoint.in_(list(by_url)), O.poll_label.is_not(None))):
-        labels.add((by_url[ep], label))
+        w.labels.setdefault((by_url[ep], label), []).append(kickoff)
         if sched is not None:
-            times.add((ep, sched))
-    return labels | times
+            w.times.add((ep, sched))
+    return w
 
 
-def plan(games: list[dict], written: set, now: datetime) -> tuple[list[Poll], int]:
-    """The due polls (time passed, not written) and the count not yet due. `written` holds (gameId, label) and
-    (endpoint, scheduled_at) pairs (written_polls)."""
+def plan(games: list[dict], written: Written, now: datetime) -> tuple[list[Poll], int]:
+    """The due polls (time passed, not written) and the count not yet due (Written.has)."""
     due, remaining = [], 0
     for g in games:
         for label, off, ep in POLLS:
             sched = g["start"] - timedelta(minutes=off)
-            if (g["id"], label) in written or (game_url(g["id"], ep), sched) in written:
+            if written.has(g, label, ep, sched):
                 continue
             if sched > now:
                 remaining += 1
@@ -651,7 +669,7 @@ def _plan_ro(t: Tick, *, refuse_unmigrated: bool, at: datetime | None = None):
         ok = rec.migrated(s) and poll_key_migrated(s)
         if refuse_unmigrated and not ok:
             raise Refused(_UNMIGRATED)
-        written = written_polls(s, games) if ok else set()
+        written = written_polls(s, games) if ok else Written()
     t.games = len(games)
     t.due, t.remaining = plan(games, written, at)
     t.planned_at = at

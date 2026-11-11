@@ -811,3 +811,51 @@ def test_the_command_exits_1_on_the_days_first_failed_schedule_read_then_0(monke
     monkeypatch.setattr(nl, "_now", lambda: START - timedelta(minutes=115))
     second = CliRunner().invoke(cli, ["availability-nhl-observe"])
     assert second.exit_code == 0 and "last read FAILED at" in second.output
+
+
+# ---- addendum 343 item 1: the series' scope (six hours) -------------------------------------------------------------------
+
+def test_343_1_a_90_minute_slip_schedules_no_second_series_and_moves_only_the_polls_not_yet_written():
+    """343 item 1, verbatim in part: "A slip inside six hours (a delayed puck drop) schedules no second series: the
+    polls not yet written move with the start, the written ones stand"."""
+    _nhl()
+    http = FakeHTTP(_routes())
+    _tick(http, START - timedelta(minutes=120))                  # T-120 against START
+    slipped = START + timedelta(minutes=90)
+    http.routes[nl.schedule_url(DAY)] = _schedule(_game(start=slipped))
+    t = _tick(http, START - timedelta(minutes=30))               # over the hour: the slip is read; T-120 recomputed
+    assert "T-120" not in [p.label for p in t.due]               # ... at START-30 is written already (within 6 h)
+    assert [p.label for p in t.due] == []                        # T-90 of the slipped start is START+0: not yet due
+    t = _tick(http, START)                                       # the slipped T-90
+    assert [p.label for p in t.due] == ["T-90"]
+    o = _obs()
+    assert [(x["poll_label"], x["kickoff_at"]) for x in o] == [("T-120", _dt(START)), ("T-90", _dt(slipped))]
+
+
+def test_343_1_a_next_day_move_gets_a_fresh_series_beside_the_old_rows():
+    """343 item 1: "a start that moves by six hours or more (a postponement) gets a fresh set of polls against the new
+    start, new rows beside the old, nothing touched (append-only holds)"."""
+    _nhl()
+    http = FakeHTTP(_routes())
+    _tick(http, START - timedelta(minutes=120))                  # T-120 against START, on NHL day DAY
+    before = _obs()
+    moved = START + timedelta(days=1)
+    http.routes[nl.schedule_url(DAY)] = _schedule(_game(GAME + 50, start=START + timedelta(hours=1), home=MTL,
+                                                        away=UTA))
+    http.routes[nl.schedule_url(DAY + timedelta(days=1))] = _schedule(_game(start=moved))
+    t = _tick(http, moved - timedelta(minutes=120))
+    assert [(p.game["id"], p.label) for p in t.due] == [(GAME, "T-120")]
+    o = _obs()
+    assert o[:1] == before                                       # the old row stands, untouched
+    assert [(x["poll_label"], x["kickoff_at"], x["scheduled_at"]) for x in o] == [
+        ("T-120", _dt(START), _dt(START - timedelta(minutes=120))),
+        ("T-120", _dt(moved), _dt(moved - timedelta(minutes=120)))]
+
+
+def test_343_1_the_scope_is_six_hours_declared():
+    assert nl.SERIES_SCOPE == timedelta(hours=6)
+    g = {"id": GAME, "start": START}
+    w = nl.Written(labels={(GAME, "T-0"): [START - timedelta(hours=5, minutes=59)]})
+    assert w.has(g, "T-0", "landing", START)                                      # inside six hours: written
+    w = nl.Written(labels={(GAME, "T-0"): [START - timedelta(hours=6)]})
+    assert not w.has(g, "T-0", "landing", START)                                  # six hours or more: a fresh series

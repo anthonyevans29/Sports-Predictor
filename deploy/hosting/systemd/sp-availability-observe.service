@@ -6,8 +6,9 @@
 # (sp_common.sync_lock) across its plan, its calls and its writes.
 # Exit 1 is the NHL day's first failed schedule read (its one notice, 340 item 4); exit 2 a refusal (no DB file, the
 # store not migrated since #835 item 2's poll key): either fails the unit, and OnFailure pages it through
-# sp-notify@availability-observe. This unit is NOT in sp_notify.THROTTLED_UNITS (the ruling names one entry, the unit
-# map's): a refusal repeats every tick until the migration runs. A failed landing or boxscore call is a row, not a page.
+# sp-notify@availability-observe, at most once in thirty minutes for this unit, by name (sp_notify.THROTTLED_UNITS;
+# ARCHITECT 2026-11-11, addendum 343 item 2): a refusal repeats every tick until the migration runs. A failed landing
+# or boxscore call is a row, not a page.
 # Shipped DISABLED: its enablement is the architect's block (252 item 7; 340 item 3).
 [Unit]
 Description=sports-predictor availability record NHL landing tick (availability-nhl-observe)

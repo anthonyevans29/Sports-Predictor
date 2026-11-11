@@ -4158,6 +4158,34 @@ def test_availability_observe_timer_form():
     assert "availability-observe" not in chains.CHAINS and "availability-nhl-observe" not in chains.UNMETERED  # no chain
 
 
+@pytest.mark.parametrize("instance", ["availability-observe", "cup-observe"])
+def test_343_a_five_minute_watch_pages_once_in_thirty_minutes(sandbox, monkeypatch, instance):
+    """343 items 2-3: three failures of the watch's unit, three receipts, one page (47 item 7(b)'s rule, by name)."""
+    import sp_notify
+    sent = []
+    monkeypatch.setattr(sp_notify, "journal_tail", lambda unit, n=30: ["REFUSED: synthetic"])
+    monkeypatch.setattr(sp_notify, "deliver", lambda kind, title, body, extra=None, **k: sent.append(title) or
+                        c.append_receipt({"kind": kind, "title": title, "delivered": True, "channel": "ntfy",
+                                          **(extra or {})}))
+    for _ in range(3):
+        assert sp_notify.main(["failure", instance]) == 0
+    rs = [r for r in receipts(sandbox) if r["kind"] == "failure"]
+    assert len(rs) == 3 and len(sent) == 1 and rs[2]["page_held_back"] is True
+    assert rs[0]["unit"] == f"sp-{instance}.service"
+
+
+def test_343_the_throttled_units_name_the_two_five_minute_watches():
+    """ARCHITECT 2026-11-11 14:10 ET, addendum 343 items 2-3: sp-availability-observe.service added; sp-cup-observe.service
+    added as a correction found in passing (its own comment states one page in thirty minutes; the list did not carry
+    it). Nothing else in sp_notify changes."""
+    import sp_notify
+    assert sp_notify.THROTTLED_UNITS == ("sp-closing-watch.service", "sp-cup-observe.service",
+                                         "sp-availability-observe.service")
+    for unit in ("sp-cup-observe.service", "sp-availability-observe.service"):
+        assert sp_notify.unit_for(unit.removeprefix("sp-").removesuffix(".service")) == unit
+    assert sp_notify.held_behind("sp-chain@window.service") is None                # a chain unit is never held
+
+
 def test_intl_daily_reads_the_four_cup_schedules_last():
     """#707 (ARCHITECT 2026-10-27): "a daily cup schedule step (EFL, CL, UEL, FAC) on an existing daily chain [...],
     listed in the chain's steps". intl-daily runs every day (07:20 UTC); the cup reads come after the intl steps."""

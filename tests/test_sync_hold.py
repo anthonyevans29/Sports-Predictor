@@ -284,3 +284,29 @@ def test_a_freshen_and_a_chain_receipt_carry_the_hold(sandbox, monkeypatch, caps
     assert chain["sync_hold"]["environment"] == ["PL"]
     assert " · SP_SYNC_HOLD PL" in next(x for x in out.splitlines() if x.startswith("✓ weekly-fullseason"))
     assert "sync_held" in inspect.getsource(sp_run.run_freshens)                      # a freshen counts its own
+
+
+# ------------------------------------------------------------------ Codex on #925 (round 1): checks before the hold
+
+@pytest.mark.parametrize("argv,needle", [
+    (["refresh-by-id", "--competition", "PL"], "is not one of its competitions"),
+    (["sync-teams", "--competition", "MLB"], "needs --season"),
+    (["sync-matches", "--competition", "MLB", "--season", "2026", "--match-ids", "1"], "--match-ids is not supported"),
+    (["sync-matches", "--competition", "MLB", "--seasons", "2"], "takes --season"),
+    (["sync-matches", "--competition", "MLB"], "needs --season"),
+    (["sync-matches", "--competition", "ATP"], "--date-from and --date-to are required"),
+    (["sync-matches", "--competition", "ATP", "--date-from", "2026-11-01", "--date-to", "2026-11-30"], "day(s); 1 to"),
+    (["sync-matches", "--competition", "WTA", "--date-from", "2026-11-10", "--date-to", "2026-11-11",
+      "--season", "2026/27"], "--season is int-style"),
+    (["sync-matches", "--competition", "ATP", "--seasons", "2"], "--seasons is refused"),
+])
+def test_a_bad_call_fails_under_a_hold_exactly_as_without_one(argv, needle, monkeypatch, tmp_path):
+    cli = _no_adapter(monkeypatch)
+    monkeypatch.setenv("SP_LOCK", str(tmp_path / "db.lock"))
+    monkeypatch.delenv(c.HELD_ENV, raising=False)
+    monkeypatch.setenv("SP_SKIP_FAMILIES", "MLB")
+    monkeypatch.setenv("SP_HOST_ENV", str(tmp_path / "none.env"))
+    for hold in ("PL,MLB,ATP,WTA", ""):
+        monkeypatch.setenv("SP_SYNC_HOLD", hold)
+        r = CliRunner().invoke(cli.cli, argv)
+        assert r.exit_code == 2 and needle in r.output and "HELD" not in r.output, (hold, r.output)

@@ -8,5 +8,6 @@
   - `sp_run`: the chain receipt's `sync_held` {n, steps} and `sync_hold` (the setting as parsed, by place); the summary line's ` · held steps (SP_SYNC_HOLD) N: …` and ` · SP_SYNC_HOLD <codes>`; a held competition's receipt line; each freshen run's `sync_held`; and the receipts table's key line (`sp_receipts`).
   - `closing.py`: a held step in a closing run is recorded (`held` on the step, `sync_held` on the run) and the console says the schedule read was not made, so the run goes on with the STORED schedule.
   - The hosting runbook's hold procedure gains the setting as the first move; docs/CLI.md; both env examples.
+- **Codex on #925 (round 1):** every mode's argument checks run before the hold (the MLB fallback's season and its `--match-ids` / `--seasons` refusals, the tennis window and season, refresh-by-id's NCAA/NFL scope), so a bad call fails identically held or unheld.
 - **Unchanged:** every chain, timer, window plan and fullseason plan (pinned by test).
 - **Receipt:** tests/test_sync_hold.py (20): the three places the setting is read, bad arguments still failing under a hold, the closing and freshen receipts, the parsed setting on the chain receipt; every held command, a held code writes no row, an unlisted code unaffected, intl-sync, the admin jobs, the chain receipt and summary, nothing held reads 0, the plans unchanged.

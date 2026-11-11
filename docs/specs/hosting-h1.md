@@ -1343,7 +1343,9 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
           - `sync-matches` on the statsapi MLB source: the series columns through `write_match_series`
             (service.py:686-688).
           - `intl-sync`: the `match_neutral_derived` row of every match it upserts (src/ingestion/intl_history.py,
-            after `_upsert_match`), and team rows and competition memberships.
+            after `_upsert_match`), team rows and competition memberships, and the `competitions` row it creates
+            for a mapped code new to the DB (code, name, area, type, external id; intl_history.py:319-324; an
+            existing competition row is never modified). The read lists such a row as created since the copy.
           Which of those a given hold's read must cover is the hold's declaration (the fields its defect can
           touch); this list is the code's, put to the architect on the PR.
         - **The durable answer, declared (332 item 3):** a per-competition sync hold that the step itself honors,

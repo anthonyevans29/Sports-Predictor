@@ -3,8 +3,8 @@
 Spec for lane `availability-record` (ARCHITECT 2026-11-04 13:05 ET, addendum 252). Sections 1-8 cover the schema PR:
 the two tables, the migration, the writer, the one read path and the `availability` command. Section 9 covers the
 first feed, nflverse depth charts (item 3(a); addenda 258 and 259), with the snapshot closure it brings to the read
-(section 4). The NHL landing feed (3(b)) and the graph projection (item 4) are later PRs and get their own sections
-when they land.
+(section 4). Section 10 covers the second feed, the NHL landing read and its watch (item 3(b); addenda 258 item 2(2),
+340 and 341). The graph projection (item 4) is a later PR and gets its own section when it lands.
 
 Code: `src/db/schema.py` (`AvailabilityObservation`, `AvailabilityAssertion`, `AVAILABILITY_TRIGGERS`),
 `migrate_availability_record.py`, `src/availability/record.py`, `cli.py availability`; the feed:
@@ -794,4 +794,114 @@ environment value). Tests fail-first against the schema PR's `record.py`.
 - `projected_starter`: never written by this feed (a daily rank is not a game-day confirmation).
 - No player mapping (254 item 2(3)); no row in any existing table; no provider call from a closing run; nothing under
   data/; no update or delete path (the schema PR's triggers stand untouched).
-- The NHL landing feed's poll key (#835 item 2, 258 item 2(2)): the NHL feed's PR.
+- The NHL landing feed's poll key (#835 item 2, 258 item 2(2)): the NHL feed's PR (section 10).
+
+## 10. The NHL landing feed (item 3(b); addenda 258 item 2(2), 340 and 341)
+
+Verbatim (252 item 3(b)): "THE NHL LANDING READ (source `nhl_api_landing`): per game of the NHL day (the probe's
+schedule read: GET /v1/schedule/<date>, game types 2 and 3), the landing page at the probe's offsets (T-120, T-90, T-60,
+T-45, T-35, T-30, T-15, T-0) — each poll an observation with its poll_label — asserting projected_starter per side from
+matchup.goalieComparison.<side>Team.leaders[0] (playerId, name beside it) EXACTLY as scripts/nhl_leaders_order_receipt.py
+reads it, and the boxscore at T+20 asserting eventual_starter (the goalie with toi above zero; two in net = two rows,
+flagged; none = an `empty` observation) — post hoc, kind-labelled, never a pregame fact. The polls run under a watch on
+the host (an `availability-observe` timer every five minutes, the cup-observe pattern), each poll stamped by our clock;
+a poll more than five minutes past its time is a `missed` row."
+
+Code: `src/availability/nhl_landing.py`, `cli.py availability-nhl-observe`, `sp-availability-observe.service` and
+`.timer`. Tests: `tests/test_availability_nhl_landing.py`.
+
+### The schedule: support data (340 item 4)
+
+"at most hourly, kept per NHL day — YES. It is support data, not an observation: it asserts nothing about who plays, so
+it writes no row in availability_observations; its payload is kept beside the others under
+logs/availability/nhl_api_landing/<date>/ with its sha256. A moved start recomputes the polls not yet written; a
+written poll is never touched. A failed schedule read invents nothing: no missed rows for games it could not know; one
+log line per tick and one notice per NHL day."
+
+As built:
+- The NHL day is the probe's: [date 10:00Z, date+1 10:00Z), games of types 2 and 3, parsed by
+  `nhl_goalies.schedule_games` and filtered as the probe's `day_games` filters (a test pins the two equal).
+- The answer is kept as `<NHL day>/<YYYYmmddTHHMMSS>Z-<sha256, first 16 hex>-schedule.json` only when its bytes differ
+  from the newest kept for that day; `schedule.checked` ("<instant> <sha256>") beside it says when the day was last
+  read, and a day read within the hour is not read again.
+- A failed read uses the newest kept answer for the day when one exists (the games already known), else knows no game.
+  The day's first failed read creates `schedule.notice` and makes the tick exit 1 (the unit pages once); later ones
+  print their line and exit 0.
+- "A moved start recomputes the polls not yet written": a poll counts as WRITTEN when the store holds an observation of
+  the source at the game's endpoint (the landing or boxscore URL, carrying the gameId) with its label, whatever kickoff
+  it was scheduled against; an unwritten poll takes its time from the start this tick knows. `kickoff_at` on a row is
+  the schedule's start as that tick knew it.
+
+### The window, the polls, the lateness
+
+- The window: games whose scheduled start is within [now − 6 h, now + 2 h] (`LOOKBACK`, `AHEAD`), from the NHL days it
+  touches. Two hours ahead is T-120; six hours back covers H0-3's 04:00-05:59Z gap and a T+20 read with room. A host
+  down longer than six hours leaves no row for a poll older than the window (the gap shows in the boot and timer
+  receipts, not as invented rows).
+- A poll whose time has passed and is not written is DUE. More than five minutes past it is a `missed` row and no call
+  (252 item 3(b)); else it is asked once. 340 item 3: "a poll scheduled inside the 04:00–05:59Z buffer (a late
+  West-coast start's T-0 or T+20) is written as a `missed` row by the first tick after the buffer, never dropped".
+- `fetched_at` is our clock after the body has been read in full (a raise: the raise's instant). `late` is set when it
+  is more than five minutes after the poll's time (an answer delayed by the DB lock, say).
+
+### The rows
+
+| Poll | Status | Assertions |
+|---|---|---|
+| a landing with leaders[0] on both sides | `complete`, or `partial` when a team or the match is unmapped | two `projected_starter` |
+| a landing with one side's leaders[0] | the same | one; the other side's reason (the receipt's words) on the console |
+| a landing with neither (no goalieComparison, empty lists) | `empty` | none |
+| the T+20 boxscore | `complete` / `partial` | one `eventual_starter` per goalie above zero toi; `attrs.two_in_net` on a side with two or more |
+| a boxscore with no goalie above zero | `empty` | none |
+| a boxscore the ingest refuses (goalie lists not sided one home + one away) | `failed`, the reason, the payload kept | none |
+| a raised call, a non-200, an answer that is not JSON | `failed`, the error redacted (a non-JSON 200 keeps its payload) | none |
+| a poll more than five minutes past its time | `missed`, no call | none |
+
+Every assertion: `player_id` NULL (254 item 2(3)), `source_player_id` the NHL playerId, `player_name` verbatim, `team_id`
+(below) and `source_team` (the schedule's abbrev for the side, else its first name: the source's own text, stable
+across polls), `match_id` (below), `attrs.side`, `attrs.source_match_id` (the gameId, `record.SOURCE_MATCH_IDS`),
+`source_stamp` NULL (252 item 1(b): "the NHL landing gives none"). The eventual rows add `toi_seconds`, `two_in_net`
+and `toi_unread` (the side's goalies whose toi the ingest could not read). The starter slots are per kind (section 4;
+258 item 2(3)): an `eventual_starter` never closes a `projected_starter`.
+
+### The mapping (addendum 341 item 2)
+
+"the landing feed resolves team_id by THAT path, unchanged — a side maps only when its candidates resolve to exactly
+one of the NHL competition's teams; otherwise team_id NULL with source_team verbatim and the observation `partial`.
+This reuses a certified matcher; it adds no new name matching, no alias of your own, and writes no tla."
+
+As built: the side's candidates are `nhl_goalies.team_names()` of the schedule's side (the full name, then placeName +
+commonName, then `NAME_ALIASES`, accents stripped), each through `match_lookup.normalize_team_name` against the stored
+names of the teams of the NHL's matches (the rows `find_match` compares). In the matcher's order, a candidate that
+resolves to exactly one team maps the side; one that resolves to none or to several is passed over (the alias rule:
+"an alias only adds a name to try"). The match: the one match `nhl_goalie_appearances` links to the gameId (two
+distinct links: refused), else `nhl_goalies.match_game` as it stands — read for 341 item 2: `find_match` reads the
+NHL's rows within 12 hours by both names and excludes only CANCELLED and STALE_ORPHAN, so a SCHEDULED row maps before
+the game — else NULL with `attrs.source_match_id`.
+
+### The poll key (#835 item 2; addendum 258 item 2(2))
+
+"the poll's uniqueness is keyed on (source, endpoint, scheduled_at) where scheduled_at is set (the endpoint carries the
+game's own id; the scheduled poll time is the poll), a partial unique index beside the existing one and the
+insert-guard's "already observed" branch extended to it [...] No new column."
+
+As built: the index `uq_avail_obs_source_endpoint_scheduled` (unique, `WHERE scheduled_at IS NOT NULL`) and the trigger
+`trg_availability_observations_poll_guard` (its message carries the insert guard's words, "this poll is already
+observed", so `write_observation` answers "already" for it). The branch is a trigger of its own, as the snapshot hash
+guard is (262 item 1): `CREATE TRIGGER IF NOT EXISTS` never changes the installed insert guard on a store already
+migrated. `migrate_availability_record.py` creates both on its next run (additive and idempotent); until then the watch
+refuses to write (exit 2). The nflverse rows set no `scheduled_at`, so the key reads none of them.
+
+### The watch (340 item 3)
+
+`sp-availability-observe.service` (oneshot, `cli.py availability-nhl-observe`, OnFailure through
+`sp-notify@availability-observe`) and `.timer` (every five minutes at :00 .. :55, hours 00-03 and 06-23 UTC,
+`Persistent=false`, `AccuracySec=1s`), on T11's `TIMERS`, shipped disabled; the architect's block enables it. Not a
+chain: no `chains.py` entry, no chain receipt per tick. A tick plans mode=ro; with no poll due it calls no game page and
+takes no lock; with a poll due it takes the chains' DB lock and plans again under it.
+
+### What this feed does NOT do
+
+No model change, no Desk input, no row in any existing table, no call from a closing run, no backdating, no deletion, no
+payload under data/, no key (the NHL API takes none). No player mapping, no alias or tla of its own. The receipt's
+reading of leaders[0]'s reliability stands as read on #105: this feed records what the page asserted and when.

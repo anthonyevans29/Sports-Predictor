@@ -1,0 +1,32 @@
+# The availability record's NHL landing watch on the host (ARCHITECT 2026-11-04 13:05 ET, addendum 252 item 3(b): "an
+# `availability-observe` timer every five minutes, the cup-observe pattern"; 2026-11-11 11:40 ET, addendum 340 item 3:
+# "a STANDALONE unit on the cup-observe pattern [...] No chain, no chains.py change, no chain receipt per tick: a tick
+# with no poll due calls nothing and takes no lock"). One availability-nhl-observe tick. The schedule read (at most
+# hourly per NHL day, addendum 340 item 4) takes no lock; a tick with a poll due holds the chains' lock
+# (sp_common.sync_lock) across its plan, its calls and its writes.
+# Exit 1 is the NHL day's first failed schedule read (its one notice, 340 item 4); exit 2 a refusal (no DB file, the
+# store not migrated since #835 item 2's poll key): either fails the unit, and OnFailure pages it through
+# sp-notify@availability-observe. This unit is NOT in sp_notify.THROTTLED_UNITS (the ruling names one entry, the unit
+# map's): a refusal repeats every tick until the migration runs. A failed landing or boxscore call is a row, not a page.
+# Shipped DISABLED: its enablement is the architect's block (252 item 7; 340 item 3).
+[Unit]
+Description=sports-predictor availability record NHL landing tick (availability-nhl-observe)
+Wants=network-online.target
+After=network-online.target
+OnFailure=sp-notify@availability-observe.service
+
+[Service]
+Type=oneshot
+User=sp
+Group=sp
+WorkingDirectory=/opt/sports-predictor
+EnvironmentFile=-/etc/sports-predictor/host.env
+Environment=PYTHONUNBUFFERED=1
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full
+Environment=OPEN_BROWSER=false
+ExecStart=/opt/sports-predictor/venv/bin/python cli.py availability-nhl-observe
+# A tick that waits on a chain's lock outlasts the next tick's start: systemd does not start a oneshot unit that is
+# still running, so the next tick is skipped, never doubled. The bound ends a tick stuck past half an hour.
+TimeoutStartSec=30min

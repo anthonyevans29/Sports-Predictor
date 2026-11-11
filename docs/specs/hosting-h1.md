@@ -82,6 +82,7 @@ set by `SP_IMPROVE_HOLD_ON_PASS=1`, which the chain template sets.
 | sp-mlb-history | mlb-history (MLB PHASE A: the api-sports fallback's MLB history; sync only) | daily 10:30 UTC | daily |
 | sp-window | window (the next-24h card and delta pages); from the next deploy (ARCHITECT 2026-10-24, addendum 164 item 2(a)) also the capture-only Kalshi sync of PD `KXLALIGAGAME`, SA `KXSERIEAGAME`, BL1 `KXBUNDESLIGAGAME`, FL1 `KXLIGUE1GAME` and ELC `KXEFLCHAMPIONSHIPGAME` (`chains.WINDOW_KALSHI_CAPTURE_ONLY`: one `sync-kalshi-soccer --competition <code>` per league, one series per call, when the league's next kickoff is near or imminent; no export, no call, no venue line on the card) | hourly at :05, hours 00-03 and 06-23 UTC (H0-3) | — |
 | sp-cup-observe | (cli.py observe-cup-lineups, one tick, all four cups; not a chain): cups Step B's live T-15 observation store (ARCHITECT 2026-10-27, addendum 169 item 4(i)); a tick with no poll due ends without the DB lock | every 5 minutes at :00..:55, hours 00-03 and 06-23 UTC (H0-3) | — |
+| sp-availability-observe | (cli.py availability-nhl-observe, one tick; not a chain): the availability record's NHL landing watch (ARCHITECT 2026-11-04, addendum 252 item 3(b); 2026-11-11, addendum 340 item 3: "a STANDALONE unit on the cup-observe pattern"): the NHL schedule at most hourly per NHL day (no row), the landing page at T-120 .. T-0 and the boxscore at T+20 per game into the record; a poll more than five minutes past its time a `missed` row; a tick with no poll due takes no lock; needs `migrate_availability_record.py` run since #835 item 2's poll key (else it refuses, exit 2, and pages); enabled only by the architect's block (252 item 7; 340 item 3) | every 5 minutes at :00..:55, hours 00-03 and 06-23 UTC (H0-3) | — |
 | sp-closing-watch | (closing.py watch, NFL and SOCCER; not a chain) — enabled at the cutover, 2026-10-26 13:47Z (T11 `TIMERS`; ARCHITECT 2026-10-26, addendum 168 item 5; held for the cutover ruling until then, C7) | every minute (the one H0-3 exemption, by name) | — |
 | *(none)* | soccer-refresh | **operator-started** (H0-6) | fresh prerefresh |
 
@@ -768,7 +769,7 @@ TIMERS="sp-backup.timer sp-backup-prune.timer sp-soccer-friday.timer sp-soccer-s
   sp-nhl-daily.timer sp-weekly-fullseason.timer sp-ncaa-market.timer sp-window.timer
   sp-mlb-history.timer sp-intl-daily.timer sp-exports-squash.timer sp-ncaa-schedule.timer
   sp-closing-watch.timer sp-cup-observe.timer sp-availability-daily.timer sp-nba-daily.timer
-  sp-tennis-daily.timer"
+  sp-tennis-daily.timer sp-availability-observe.timer"
 MLB_LAPTOP_ONLY="sp-mlb-morning.timer sp-mlb-preslate.timer sp-clv-capture.timer"   # NOT enabled: statsapi 406 on the DO ASN (H1b note)
 echo $TIMERS | sudo tee /etc/sports-predictor/timers.enabled   # the list H2 steps 2 and 6 reuse
 systemctl enable --now sp-boot-receipt.service sp-web.service
@@ -885,6 +886,20 @@ systemctl list-timers 'sp-*' --no-pager     # receipt: next-elapse for each
     && systemctl list-timers sp-availability-daily.timer --no-pager   # receipt: next elapse at 08:45 UTC
   [ "$rc" = 0 ] && sudo -u sp venv/bin/python deploy/hosting/sp_run.py availability-daily   # first 2026 run, receipted
   ```
+- `sp-availability-observe.timer` (ARCHITECT 2026-11-04 13:05 ET, addendum 252 item 3(b); 2026-11-11 11:40 ET,
+  addendum 340 item 3; every 5 minutes, hours 00-03 and 06-23 UTC): the availability record's NHL landing watch, one
+  `availability-nhl-observe` tick (its own `sp-availability-observe.service`, not a chain; OnFailure pages through
+  `sp-notify@availability-observe`). A poll scheduled inside the 04:00-05:59Z buffer is written as a `missed` row by
+  the first tick after it (340 item 3). Its ENABLEMENT IS THE ARCHITECT'S BLOCK (252 item 7; 340 item 3: "shipped
+  disabled, enabled by my block"), after the deploy of the tag that carries it and after `migrate_availability_record.py`
+  has run on that tag (#835 item 2's poll key: without it a tick refuses, exit 2, and pages). Until then sp_deploy's
+  receipt names it as a `TIMERS` timer not enabled. The commands the block runs, as Code names them (addendum 198 item
+  6(i): the block itself is the architect's): install `sp-availability-observe.service` and `sp-availability-observe.timer`
+  under /etc/systemd/system/, `systemctl daemon-reload`, `cli.py availability-nhl-observe --dry-run` as `sp` (its
+  receipt: the window's games and the polls due), `systemctl enable --now sp-availability-observe.timer`, then
+  `echo sp-availability-observe.timer | sudo tee -a /etc/sports-predictor/timers.enabled` (addendum 168 item 2), then
+  `systemctl list-timers sp-availability-observe.timer` (next
+  elapse on a five-minute mark) and `journalctl -u sp-availability-observe` (the first tick's line).
 - `sp-nba-daily.timer` (ARCHITECT 2026-11-05, addendum 261 item 1(b): "the chain `nba-daily` [...] at a UTC minute
   off every existing timer (Code lists the timers and picks; my block enables it)"; daily 06:47 UTC): the NBA's
   market-only daily, three single-day `sync-matches` steps (`{yesterday}`, `{today}`, `{tomorrow}`, UTC; addendum

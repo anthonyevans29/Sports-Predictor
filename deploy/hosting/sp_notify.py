@@ -26,7 +26,8 @@ import sp_common as c  # noqa: E402
 def unit_for(instance: str) -> str:
     return {"backup": "sp-backup.service", "prune": "sp-backup-prune.service",
             "web": "sp-web.service", "exports-squash": "sp-exports-squash.service",
-            "closing-watch": "sp-closing-watch.service", "cup-observe": "sp-cup-observe.service"}.get(
+            "closing-watch": "sp-closing-watch.service", "cup-observe": "sp-cup-observe.service",
+            "availability-observe": "sp-availability-observe.service"}.get(
         instance, f"sp-chain@{instance}.service")
 
 

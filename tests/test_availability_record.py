@@ -148,7 +148,7 @@ def test_migration_creates_the_triggers_and_the_marker_and_is_idempotent(capsys)
     out1 = _migrate(capsys)
     assert "· availability_observations already exists." in out1          # init_db made the mapped tables
     assert "+ Wrote migration marker availability_record_migration" in out1
-    assert f"triggers on the record ({len(rec.TRIGGERS)})" in out1 and len(rec.TRIGGERS) == 7   # 262 item 1
+    assert f"triggers on the record ({len(rec.TRIGGERS)})" in out1 and len(rec.TRIGGERS) == 8   # 262 item 1; #835 item 2 (258 item 2(2))
     out2 = _migrate(capsys)
     assert "· Kept migration marker" in out2 and "+ Created trigger" not in out2
     with _engine().connect() as c:
@@ -813,11 +813,11 @@ def test_the_migration_on_a_db_from_before_the_record_says_it_created_the_trigge
     assert not any(inspect(eng).has_table(t) for t in rec.TABLES)
     monkeypatch.setattr(db, "_engine", eng)
     out1 = _migrate(capsys)
-    assert out1.count("+ Created trigger") == 7 and "· Kept trigger" not in out1
+    assert out1.count("+ Created trigger") == 8 and "· Kept trigger" not in out1
     assert "+ Creating availability_observations..." in out1 and "+ Creating availability_assertions..." in out1
     assert f"+ Created index {RECORDED_IX}" in out1 and "· Kept index" not in out1
     out2 = _migrate(capsys)
-    assert out2.count("· Kept trigger") == 7 and "+ Created trigger" not in out2
+    assert out2.count("· Kept trigger") == 8 and "+ Created trigger" not in out2
     assert f"· Kept index {RECORDED_IX}" in out2 and "+ Created index" not in out2
     eng.dispose()
 
@@ -850,7 +850,7 @@ def test_262_4_the_mapped_model_declares_the_recorded_clock_index_and_a_fresh_st
     assert RECORDED_IX in _indexes(_engine())
     out = _migrate(capsys)
     assert f"· Kept index {RECORDED_IX}" in out and "+ Created index" not in out
-    assert "indexes on the record (10 of 10 declared)" in out
+    assert "indexes on the record (11 of 11 declared)" in out   # 10 + #835 item 2's poll key (258 item 2(2))
     t = datetime(2026, 11, 5, 12)
     assert any(f"USING INDEX {RECORDED_IX} (sport=? AND recorded_at" in ln for ln in _plan(_engine(), "recorded", t))
     assert any("USING INDEX ix_avail_asr_sport_stamp (sport=? AND source_stamp" in ln
@@ -888,7 +888,7 @@ def test_262_4_a_store_migrated_before_the_index_gains_it_on_a_rerun_and_the_rer
     out1 = _migrate(capsys)
     assert f"+ Created index {RECORDED_IX}" in out1 and out1.count("+ Created index") == 1
     assert "· Kept migration marker availability_record_migration" in out1
-    assert out1.count("· Kept trigger") == 7 and "+ Created trigger" not in out1
+    assert out1.count("· Kept trigger") == 8 and "+ Created trigger" not in out1
     assert RECORDED_IX in _indexes(eng) and _counts() == counts
     with eng.connect() as c:
         assert c.execute(text(f"SELECT script, migrated_at FROM {rec.MIGRATION_MARKER}")).one() == marker

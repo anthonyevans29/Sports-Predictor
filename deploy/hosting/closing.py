@@ -2039,17 +2039,37 @@ def _closing(rec: dict, fam: str, s: datetime, covers: list[dict], folder: Path,
             srec["empty_answers"] = empty
             rec["injury_lists_empty"] = sorted(set(rec.get("injury_lists_empty", [])) | set(empty))
             print(f"· injury read answered empty (stored empty, read as unread): {'; '.join(empty)}")
-        if rc != 0:
-            srec["tail"] = tail[-3:]  # e.g. strict mode's "✗ STRICT: ..." lines (addendum 22)
+        held_codes = sp_run.sync_counts(tail).get("held")
+        held_read = None
+        if held_codes:                # SP_SYNC_HOLD (#921): the step wrote nothing, and the receipt says so
+            srec["held"] = held_codes
+            sh = rec.setdefault("sync_held", {"n": 0, "steps": []})
+            sh["n"] += 1
+            sh["steps"].append({"step": i, "command": line, "codes": held_codes})
+            if i <= reads:            # addendum 336 item 1: a held schedule read is a read that was not answered
+                held_read = f"schedule_held (SP_SYNC_HOLD {'/'.join(held_codes)})"
+            print(f"· HELD (SP_SYNC_HOLD) {'/'.join(held_codes)}: step {i} wrote nothing"
+                  + ("; the schedule read was not made, so it reads as not answered (A1): the run stops here and "
+                     "nothing is priced on the stored schedule" if held_read else ""), flush=True)
+        if rc != 0 or held_read:
+            srec["tail"] = tail[-3:]  # e.g. strict mode's "✗ STRICT: ..." lines (addendum 22), or the HELD line
         rec["steps"].append(srec)
-        if i <= reads and (i == reads or rc != 0 or said):
+        if i <= reads and (i == reads or rc != 0 or said or held_read):
             covers = leave_moved(rec, covers, s)       # Codex 4232307577: right after the schedule read
-        if rc != 0 or said:
+        # THE HELD CLOSING READ (ARCHITECT 2026-11-11 09:35 ET, addendum 336 item 1): "the CLOSING RUN, which already
+        # records the held step, treats a held A1 schedule read exactly as it treats an A1 read that was not answered
+        # today — the same path, the same receipt fields, the same notice, nothing new invented — with the cause named
+        # `schedule_held (SP_SYNC_HOLD <code>)`. It does not go on with the stored schedule to an export, a page or a
+        # push for that family." A1 is per family today (each family's closing covers one competition, and a read that
+        # did not answer fails the whole run), so a held read fails the family's run.
+        if rc != 0 or said or held_read:
             rec["failed"] = f"step {i}" + (" (reported failure, exit 0)" if said else "")
             if st[0] == "sync-injuries" and "--strict" in st and rc != 0:
                 rec["failed"] += " (strict: a read it needed failed)"
             elif i <= reads and rc != 0:
                 rec["failed"] += " (schedule read: a covered game the provider did not answer, A1)"
+            elif held_read:
+                rec["failed"] += f" (schedule read: {held_read}, A1)"
             return
         if i == reads and not covers:
             rec["failed"] = "start moved"
@@ -3168,7 +3188,15 @@ def _slate(rec: dict, fam: str, day: date, covers: list[dict], folder: Path, hel
         empty = empty_answers(st, tail)
         if empty:                     # addendum 40 item 4
             srec["empty_answers"] = empty
-        if rc != 0:
+        held_codes = sp_run.sync_counts(tail).get("held")
+        if held_codes:                # SP_SYNC_HOLD (332 item 3: "a receipt line counts the held steps"), as a closing
+            srec["held"] = held_codes  # records it. Addendum 336 item 1 rules the CLOSING RUN's held read; whether a
+            sh = rec.setdefault("sync_held", {"n": 0, "steps": []})          # held slate read fails the slate too is
+            sh["n"] += 1                                                       # put to the architect (#925)
+            sh["steps"].append({"step": i, "command": line, "codes": held_codes})
+            print(f"· HELD (SP_SYNC_HOLD) {'/'.join(held_codes)}: step {i} wrote nothing (recorded; the slate goes on)",
+                  flush=True)
+        if rc != 0 or held_codes:
             srec["tail"] = tail[-3:]
         rec["steps"].append(srec)
         if rc != 0 or said:

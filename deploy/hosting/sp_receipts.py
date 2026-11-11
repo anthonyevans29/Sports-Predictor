@@ -51,6 +51,9 @@ def key_line(r: dict) -> str:
                 # addendum 297 C(iii): both odds counts, whenever a step printed them ("?" for a line none printed)
                 + (f"; orientation_swapped {_q(obt.get('orientation_swapped'))} · orientation_mismatch_unpriced "
                    f"{_q(obt.get('orientation_mismatch_unpriced'))}" if obt else "")
+                # addendum 332 item 3 (#921): "a receipt line counts the held steps" — said whenever one was held
+                + (f"; held steps (SP_SYNC_HOLD) {(r.get('sync_held') or {}).get('n')}"
+                   if (r.get("sync_held") or {}).get("n") else "")
                 + (f"; {r['release']}" if r.get("release") else ""))
     if k == "backup":
         return f"{r.get('file')} integrity={r.get('integrity')}" + (

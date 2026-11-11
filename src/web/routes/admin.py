@@ -61,6 +61,9 @@ def _job_sync_competitions(*, sport: str = "soccer", **kwargs) -> str:
 
 
 def _job_sync_teams(*, competition_code: str, season: str, **kwargs) -> str:
+    from src.ingestion import sync_hold
+    if sync_hold.is_held(competition_code):     # #921: the admin UI's job honors SP_SYNC_HOLD as the CLI step does
+        return sync_hold.held_line(competition_code)
     service = IngestionService(_adapter_for_competition(competition_code))
     result = service.sync_teams(competition_code, season)
     out = f"created={result.created} updated={result.updated} skipped={result.skipped}"
@@ -73,6 +76,9 @@ def _job_sync_teams(*, competition_code: str, season: str, **kwargs) -> str:
 def _job_sync_matches(
     *, competition_code: str, season: str | None, seasons: int, **kwargs
 ) -> str:
+    from src.ingestion import sync_hold
+    if sync_hold.is_held(competition_code):     # #921: the admin UI's job honors SP_SYNC_HOLD as the CLI step does
+        return sync_hold.held_line(competition_code)
     service = IngestionService(_adapter_for_competition(competition_code))
     is_mlb = competition_code.upper() in _BASEBALL_COMP_CODES
     job: Job = kwargs.get("job")  # type: ignore[assignment]

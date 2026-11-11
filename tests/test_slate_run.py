@@ -195,6 +195,20 @@ def test_a_failed_first_attempt_then_a_success_on_the_next_tick(box, monkeypatch
     assert tick(et(7, 6)) == 0 and len(slates()) == 2                            # a success ends the day
 
 
+
+def test_a_held_slate_read_is_recorded_and_the_slate_goes_on_until_ruled(box, monkeypatch):
+    """SP_SYNC_HOLD (#925; 332 item 3: "a receipt line counts the held steps"): the slate's schedule read held (the
+    HELD line, exit 0) is recorded on the step and the receipt, as a closing's is. Addendum 336 item 1 rules the
+    CLOSING RUN's held read (unanswered); the slate stage is not named in it, so the slate goes on as before and the
+    question is put to the architect on #925. This pins the as-built until ruled."""
+    the_day(box, monkeypatch)
+    box.fail_cmd["sync-matches"] = (0, ["HELD NFL (SP_SYNC_HOLD)"])
+    assert tick(et(7, 0)) == 0
+    r = slates()[-1]
+    assert r["exit"] == 0 and r["steps"][0]["held"] == ["NFL"] and r["steps"][0]["tail"] == ["HELD NFL (SP_SYNC_HOLD)"]
+    assert r["sync_held"] == {"n": 1, "steps": [{"step": 1, "command": r["steps"][0]["command"], "codes": ["NFL"]}]}
+    box.fail_cmd.clear()
+
 @pytest.mark.parametrize("first, late", [((6, 0), None), ((6, 40), 40)], ids=["at-06:00", "laptop-woke-06:40"])
 def test_a_due_time_before_06_00_is_06_00_and_a_late_first_tick_says_so(box, monkeypatch, first, late):
     """A first kickoff at 08:00 ET: 08:00 - 150 minutes is 05:30, so the slate is due at the first tick after 06:00

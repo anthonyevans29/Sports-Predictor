@@ -79,6 +79,32 @@ def _sync_lock(fn):
     return run
 
 
+def _mlb_fallback_check_args(kind: str, season, named=None, seasons: int = 0, date_from=None, date_to=None):
+    """The MLB api-sports fallback's argument checks, run before the SP_SYNC_HOLD check so a bad call fails whether or
+    not MLB is held (Codex on #925). Returns the season the fallback reads."""
+    if kind == "matches":
+        if named is not None:
+            raise click.UsageError("--match-ids is not supported by the MLB api-sports fallback (no per-game "
+                                   "answer to check)")
+        if seasons > 0:
+            raise click.UsageError("the MLB api-sports fallback takes --season (one season per run)")
+        season = season or (date_from or date_to or "")[:4] or None
+    if not season:
+        raise click.UsageError("the MLB api-sports fallback needs --season (or a date window)")
+    return season
+
+
+def _sync_held(code: str) -> bool:
+    """SP_SYNC_HOLD (ARCHITECT 2026-11-10, addendum 332 item 3; #921): True, after printing the HELD line, when the
+    setting names `code`. Checked before any adapter is built, so a held step makes no provider call and writes
+    nothing."""
+    from src.ingestion import sync_hold
+    if not sync_hold.is_held(code):
+        return False
+    print(sync_hold.held_line(code), flush=True)
+    return True
+
+
 def _mlb_fallback(code: str) -> bool:
     from src.ingestion.mlb_apisports import fallback_engaged
     return fallback_engaged(code)
@@ -219,7 +245,12 @@ NAMES_KEPT_SHOWN = 25   # sync-teams lists at most this many kept/listed pairs u
 @click.option("--season", default=None, help="e.g. 2024/25 (soccer), 2026 (MLB)")
 @_sync_lock
 def sync_teams_cmd(competition_code: str, season: str | None):
-    """Pull all teams for a competition (in a given season)."""
+    """Pull all teams for a competition (in a given season). A code SP_SYNC_HOLD names is held: the step prints
+    "HELD <code> (SP_SYNC_HOLD)", writes nothing and exits 0 (addendum 332 item 3)."""
+    if _mlb_fallback(competition_code):
+        _mlb_fallback_check_args("teams", season)   # Codex on #925: before the hold, so a bad call still fails
+    if _sync_held(competition_code):
+        return
     if _mlb_fallback(competition_code):
         _mlb_fallback_run("teams", season)
         return
@@ -262,10 +293,17 @@ def _tennis_sync_matches(service, competition_code, season, seasons, date_from, 
       by a stored row dated in the window or the re-read's lookback, has its refusal label written to the row's
       external_ids["kalshi_kickoff"] and nothing else, counted with the match ids; the capture never prices it.
     - A paging refusal (a cursor left, 269 item 3(d)) writes nothing and exits 1 with its reason."""
-    from datetime import date as _date
-
     from src.adapters.kalshi_tennis import Refused as _TennisRefused
     code = competition_code.upper()
+    _tennis_check_args(code, season, seasons, date_from, date_to)
+    service.adapter.window = (date_from, date_to)
+    _tennis_sync_run(service, code, season, date_from, date_to, named, _TennisRefused)
+
+
+def _tennis_check_args(code, season, seasons, date_from, date_to) -> None:
+    """The tennis path's argument checks (addendum 270 item 5), run before any adapter is built and before the
+    SP_SYNC_HOLD check, so a bad call fails whether or not the code is held (Codex on #925)."""
+    from datetime import date as _date
     if seasons > 0:
         raise click.UsageError(f"--seasons is refused for {code}: a season-wide tennis sync is the backfill addendum "
                                "270 item 5 holds for the architect's block (no model lane exists)")
@@ -281,7 +319,10 @@ def _tennis_sync_matches(service, competition_code, season, seasons, date_from, 
                                f"{TENNIS_MAX_WINDOW_DAYS} are read (addendum 270 item 5: no backfill is scheduled)")
     if season is not None and not (season.isdigit() and len(season) == 4):
         raise click.UsageError(f"{code}: --season is int-style, the ticker's year (e.g. 2026), not {season!r}")
-    service.adapter.window = (date_from, date_to)
+
+
+def _tennis_sync_run(service, code, season, date_from, date_to, named, _TennisRefused) -> None:
+    """The tennis sync itself, its arguments already checked (_tennis_check_args)."""
     try:
         teams = service.sync_teams(code, season)
         console.print(f"[green]✓ Players ({code}, as teams): {teams}[/green]")
@@ -536,18 +577,21 @@ def sync_matches_cmd(
     match_ids: str | None = None,
 ):
     """Pull matches by season or date range. MLB on a host whose
-    SP_SKIP_FAMILIES names MLB syncs from the api-sports fallback (PHASE A)."""
+    SP_SKIP_FAMILIES names MLB syncs from the api-sports fallback (PHASE A).
+    A code SP_SYNC_HOLD names is held: the step prints "HELD <code> (SP_SYNC_HOLD)", writes nothing and exits 0,
+    --match-ids included (addendum 332 item 3)."""
     named = _match_ids_opt(match_ids)
     if named is not None and seasons > 0:
         raise click.UsageError("--match-ids names the games of one read; not with --seasons")
+    # every mode's argument checks before the hold, so a bad call fails whether or not the code is held (Codex on #925)
+    fb_season = (_mlb_fallback_check_args("matches", season, named, seasons, date_from, date_to)
+                 if _mlb_fallback(competition_code) else None)
+    if _sport_for_competition(competition_code) == "tennis":
+        _tennis_check_args(competition_code.upper(), season, seasons, date_from, date_to)
+    if _sync_held(competition_code):
+        return
     if _mlb_fallback(competition_code):
-        if named is not None:
-            raise click.UsageError("--match-ids is not supported by the MLB api-sports fallback (no per-game "
-                                   "answer to check)")
-        if seasons > 0:
-            raise click.UsageError("the MLB api-sports fallback takes --season (one season per run)")
-        _mlb_fallback_run("matches", season or (date_from or date_to or "")[:4] or None,
-                          date_from, date_to)
+        _mlb_fallback_run("matches", fb_season, date_from, date_to)
         return
     service = IngestionService(_adapter_for_competition(competition_code))
     if _sport_for_competition(competition_code) == "tennis":
@@ -1830,6 +1874,10 @@ def intl_sync_cmd(since, max_calls, dry_run, save, from_dir):
         raise SystemExit(2)
     click.echo(f"INTL-SYNC (#220){' (DRY RUN: nothing written)' if dry_run else ''} · seasons ending >= {since} · "
                f"{len(r['plan'])} competition-seasons · provider calls {r['calls']}")
+    # SP_SYNC_HOLD (addendum 333 item 3(iii), #921): one line per held code of the plan, its rows not written
+    from src.ingestion import sync_hold
+    for code in r.get("held") or []:
+        click.echo(sync_hold.held_line(code))
     click.echo(f"  senior national teams (in a UNL / WCQ_* / UEFA_EURO / UEFA_EURO_Q fixture): {r['senior_teams']}")
     click.echo(f"  {'code':<15}{'league':<44}{'year':>5}{'listed':>7}{'excl':>6}{'kept':>6}{'stored':>7}"
                f"{'home':>6}{'neutral':>8}{'unknown':>8}")
@@ -6608,6 +6656,8 @@ def refresh_by_id_cmd(competition_code: str, days: int):
     if _sport_for_competition(code) != "nfl":
         raise click.UsageError(f"refresh-by-id reads the american-football provider by id; {code} is not "
                                "one of its competitions (NCAA, NFL)")
+    if _sync_held(code):              # addendum 333 item 3(iii): the write path, not the step's name (#921); after the
+        return                        # scope check, so a held code that is not NCAA/NFL still fails (Codex on #925)
     r = rbi.refresh(code, _adapter_for_competition(code), days=days, progress=lambda m: click.echo(m))
     for ln in rbi.format_lines(r):
         click.echo(ln)

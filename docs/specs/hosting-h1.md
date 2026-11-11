@@ -1356,6 +1356,60 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
       reads this list. Today `sp_deploy.py` reads only T11's lists, so a held timer missing from the file still
       reads "!" under `TIMERS`. Teaching it this list is a deploy-script change, so it ships as its own PR after
       this one (addendum 7 item 2 (5): the policy first): #915.
+    - **SP_SYNC_HOLD, the hold's first move (ARCHITECT 2026-11-10 18:55 ET, addendum 332 item 3, verbatim):** "THE
+      DURABLE ANSWER is a per-competition sync hold the step itself honors: SP_SYNC_HOLD, a list of competition codes
+      read by sync-teams and sync-matches, which print "HELD <code> (SP_SYNC_HOLD)" and exit 0 for a listed code, every
+      chain and timer unchanged, the window and fullseason plans unchanged; a receipt line counts the held steps."
+      As built (#921):
+      - **Set it first.** On the host, add the code to `SP_SYNC_HOLD=` in `/etc/sports-predictor/host.env`; on the
+        laptop, in the checkout's `.env`. No timer is touched. The setting is read on every check from three places:
+        the process environment, host.env (`SP_HOST_ENV`) and the checkout's `.env`. A code named in any of them is
+        held, so a run by hand outside a unit and the long-running admin UI see a hold set after they started, with no
+        restart. Codes are separated by commas or blanks, any case. Lift by removing the code from every place that
+        names it; a process that inherited it in its environment at start (a unit's `EnvironmentFile`) keeps holding
+        it until that process ends, which for the chain units is the end of the run. The hold names the codes it set
+        and the time. Every chain receipt records the setting as parsed (`sync_hold`, by place) and its summary line
+        ends ` · SP_SYNC_HOLD <codes>` while one is set, so a misspelt code shows on the first run.
+      - **ONE place per machine (ARCHITECT 2026-11-11 09:35 ET, addendum 336 item 2, verbatim):** "a hold is set in
+        ONE place per machine — /etc/sports-predictor/host.env on the host, the checkout's .env on the laptop — never
+        exported in a shell or a unit, so lifting is one edit and no process carries a stale copy; the receipt's
+        by-place line is the check." The three places stay read (the union, accepted by the same item). Reading the
+        by-place line: on the host, `environment` naming the same codes as host.env is expected (every unit loads
+        host.env through its `EnvironmentFile`, and sp_run loads it into its own environment), and so is it on a
+        laptop whose process loads the checkout's .env; the finding is a code named under a place that the
+        machine's one file does not name (`environment` naming a code the file does not, or the other machine's
+        file). A long-running process (the admin UI, sp-web) keeps the environment it started with, so after a lift
+        it holds the lifted code until it restarts; the receipt's by-place line shows that as `environment` naming a
+        code the file no longer names.
+      - **What honors it.** `sync-teams` and `sync-matches` on every source (the MLB api-sports fallback and the
+        tennis path included, checked before either, after the arguments are validated), `--match-ids` included: a
+        held closing read exits 0 (332 item 3's contract). **THE HELD CLOSING READ (ARCHITECT 2026-11-11 09:35 ET,
+        addendum 336 item 1, verbatim):** "the CLOSING RUN, which already records the held step, treats a held A1
+        schedule read exactly as it treats an A1 read that was not answered today — the same path, the same receipt
+        fields, the same notice, nothing new invented — with the cause named `schedule_held (SP_SYNC_HOLD <code>)`. It
+        does not go on with the stored schedule to an export, a page or a push for that family." As built: A1 is per
+        family today (each family's closing covers one competition, and a read that did not answer fails the whole
+        run), so a held read fails the family's run at that step: `failed` reads `step i (schedule read:
+        schedule_held (SP_SYNC_HOLD <code>), A1)`, the step keeps `held` and its tail, the run keeps `sync_held`, a
+        watch-started run sends the failed-run notice and counts the attempt, and nothing is exported, paged or pushed.
+        The console prints `· HELD (SP_SYNC_HOLD) <codes>: step i wrote nothing; the schedule read was not made, so it
+        reads as not answered (A1): the run stops here and nothing is priced on the stored schedule`. The schedule
+        reads are the three closing chains' only steps that honor the hold. The closing watch's slate stage runs
+        the same reads (slate_steps): a held slate read is recorded the same way (`held` on the step, `sync_held` on
+        the slate receipt) and the slate goes on; 336 item 1 names the closing run, so whether a held read fails
+        the slate too is put to the architect (#925). By the write path (333 item
+        3(iii)): `refresh-by-id` (NCAA,
+        NFL), `intl-sync` (it writes nothing for a held code of its plan and prints one HELD line per code), and the
+        admin UI's two sync jobs. A held step builds no adapter, makes no provider call and writes nothing.
+      - **What it does not hold.** Steps that write other tables for the competition's rows: odds and Kalshi syncs,
+        `capture-odds`, predictions and exports, `ncaa-cfbd-labels`. A defect in one of those is held by its timers,
+        as above.
+      - **The receipt.** Every chain receipt, and every freshen run's, carries `sync_held` {n, steps: [{step,
+        command, codes}]}, 0 when none was held. A run that held a step adds ` · held steps (SP_SYNC_HOLD) N: step i CODE, ...` to its summary line
+        and `; held steps (SP_SYNC_HOLD) N` to the receipts table's key line, and a held competition's receipt line
+        reads `sync-teams HELD (SP_SYNC_HOLD)` and `sync-matches HELD (SP_SYNC_HOLD)`.
+      - **Where it runs.** The laptop holds from this PR's merge (main). The host holds from the tag that carries it.
+        Until then a host hold is the procedure above (timers), as 332 item 3 says.
   - **The read before the policy (addendum 316 item 3):** "Ubuntu 24.04.5, kernel 6.8.0-147 with 149 waiting, 24
     noble-updates packages, 3w4d uptime, disk 25%."
   - **First receipt (ARCHITECT 2026-11-10 12:20 ET, addendum 320 item 4, verbatim):** "THE HOST (the operator,

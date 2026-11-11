@@ -303,8 +303,13 @@ SCORES_BY_TEAM_LINE = re.compile(r"^\s*(?:\S+ re-read: )?orientation_reversed (?
 ODDS_SWAPPED_LINE = re.compile(r"^orientation_swapped (?P<n>\d+)(?:: (?P<ids>.*))?$")
 ODDS_MISMATCH_LINE = re.compile(r"^orientation_mismatch_unpriced (?P<n>\d+)(?:: (?P<ids>.*))?$")
 ODDS_BY_TEAM_KEYS = ("orientation_swapped", "orientation_mismatch_unpriced")
+# SP_SYNC_HOLD (ARCHITECT 2026-11-10 18:55 ET, addendum 332 item 3, #921), verbatim: "a receipt line counts the held
+# steps." The line a held step prints (src/ingestion/sync_hold.held_line; sync-teams, sync-matches, refresh-by-id print
+# one, intl-sync one per held code of its plan):
+#   "HELD <CODE> (SP_SYNC_HOLD)"
+HELD_LINE = re.compile(r"^HELD (?P<code>\S+) \(SP_SYNC_HOLD\)$")
 _SYNC_LINES = (TEAMS_LINE, FALLBACK_TEAMS_LINE, MATCHES_LINE, SKIPPED_LISTINGS_LINE, SCORES_BY_TEAM_LINE,
-               ODDS_SWAPPED_LINE, ODDS_MISMATCH_LINE)
+               ODDS_SWAPPED_LINE, ODDS_MISMATCH_LINE, HELD_LINE)
 
 
 def _ids(text) -> list:
@@ -320,10 +325,16 @@ def sync_counts(lines: list[str]) -> dict:
     re-read's too), so no reversed or refused row printed by the step is dropped from the receipt (addendum 295 item
     4). `odds_by_team` (addendum 297 C(iii)): {orientation_swapped: {n, ids}, orientation_mismatch_unpriced: {n, ids}},
     each key present only when the step printed its line, and every such line of the step ADDS, as the scores-by-team
-    line does."""
+    line does. `held` (addendum 332 item 3, #921): the codes the step printed a HELD line for, in order, each once."""
     out: dict = {}
     for s in lines:
         s = s.rstrip()
+        m = HELD_LINE.match(s)
+        if m:
+            held = out.setdefault("held", [])
+            if m.group("code") not in held:
+                held.append(m.group("code"))
+            continue
         m = TEAMS_LINE.match(s)
         if m:
             out["teams"] = {k: int(m.group(k)) for k in ("created", "updated", "skipped")}
@@ -400,6 +411,33 @@ def odds_by_team_text(x: dict) -> str:
     return " · ".join(part(k) for k in ODDS_BY_TEAM_KEYS)
 
 
+def _sync_hold():
+    """src/ingestion/sync_hold.py of THIS checkout, loaded by path: sp_run runs as a script (the repo root is not on
+    sys.path) and imports nothing else from src/. Stdlib only."""
+    import importlib.util
+    path = Path(__file__).resolve().parents[2] / "src" / "ingestion" / "sync_hold.py"
+    spec = importlib.util.spec_from_file_location("sp_sync_hold", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def held_totals(sync: list) -> dict:
+    """The held steps of a run (addendum 332 item 3, #921): {n, steps: [{step, command, codes}]}. A step counts once
+    however many codes it held (intl-sync prints one line per held code). `sync` is run_steps' report["sync"]."""
+    steps = [{"step": i, "command": f"python cli.py {' '.join(st)}", "codes": list(counts["held"])}
+             for i, st, counts, _rc in sync if counts.get("held")]
+    return {"n": len(steps), "steps": steps}
+
+
+def held_steps_text(h: dict) -> str:
+    """The summary line's part: " · held steps (SP_SYNC_HOLD) N: step i CODE, ..." ; "" when none was held."""
+    if not h["n"]:
+        return ""
+    return (f" · held steps (SP_SYNC_HOLD) {h['n']}: "
+            + ", ".join(f"step {x['step']} {'/'.join(x['codes'])}" for x in h["steps"]))
+
+
 def _opt(st: list[str], flag: str) -> str | None:
     i = next((i for i in range(len(st) - 1) if st[i] == flag), None)
     return None if i is None else st[i + 1]
@@ -422,12 +460,14 @@ def competition_lines(sync: list) -> list[dict]:
             t = counts.get("teams") or {}
             latest[key] = {"competition": key[0], "season": key[1], "teams_step": i, "teams_exit": rc,
                            "teams_created": t.get("created"), "teams_updated": t.get("updated"),
-                           "matches_step": None, "matches_exit": None, "matches_skipped": None, "not_in_db": None}
+                           "matches_step": None, "matches_exit": None, "matches_skipped": None, "not_in_db": None,
+                           **({"teams_held": True} if counts.get("held") else {})}
             out.append(latest[key])
         elif key in latest and latest[key]["matches_step"] is None:
             m, nid = counts.get("matches"), counts.get("not_in_db")
             latest[key].update(matches_step=i, matches_exit=rc, matches_skipped=(m or {}).get("skipped"),
-                               not_in_db=nid["n"] if nid else (0 if m else None))
+                               not_in_db=nid["n"] if nid else (0 if m else None),
+                               **({"matches_held": True} if counts.get("held") else {}))
     return out
 
 
@@ -439,10 +479,13 @@ def competition_text(r: dict) -> str:
     """One competition's printed receipt line (the journal shows it). A step that ran and failed says `failed (exit
     N)`; a count it did not print reads `?` (law 4); `did not run` is only a sync-matches step never reached."""
     out = (f"  · {r['competition']} {r['season']}: sync-teams "
-           + ("" if not r["teams_exit"] else f"failed (exit {r['teams_exit']}) ")
-           + f"created {_n(r['teams_created'])} · updated {_n(r['teams_updated'])}")
+           + ("HELD (SP_SYNC_HOLD)" if r.get("teams_held") else
+              ("" if not r["teams_exit"] else f"failed (exit {r['teams_exit']}) ")
+              + f"created {_n(r['teams_created'])} · updated {_n(r['teams_updated'])}"))
     if r["matches_step"] is None:
         return out + " · sync-matches did not run"
+    if r.get("matches_held"):
+        return out + " · sync-matches HELD (SP_SYNC_HOLD)"
     return out + (" · sync-matches "
                   + ("" if not r["matches_exit"] else f"failed (exit {r['matches_exit']}) ")
                   + f"skipped {_n(r['matches_skipped'])}"
@@ -715,14 +758,16 @@ def run_freshens(needed: list, window_run_id: str, now, today: date) -> list[dic
         with c.db_lock():                     # checked under the lock its export runs under (Codex on #692)
             taken = freshen_out_taken(rv)
             if not taken:
-                rc, ok = run_steps(steps, name, f"sp-chain@{name}.service", run_id, today, quota)
+                freport: dict = {}
+                rc, ok = run_steps(steps, name, f"sp-chain@{name}.service", run_id, today, quota, report=freport)
         if taken:
             print(f"✗ {name}: {taken}", flush=True)
             out.append(c.append_receipt({**base, "exit": 1, "ran": False, "run_id": run_id, "refused": taken}))
             continue
         state[fam] = now.isoformat()
         rec = {**base, "exit": rc, "ran": True, "run_id": run_id,
-               "steps_ok": ok, "steps_total": len(steps), "quota": quota}
+               "steps_ok": ok, "steps_total": len(steps), "quota": quota,
+               "sync_held": held_totals(freport.get("sync") or [])}     # #921: a freshen's held steps, counted
         wrote = freshen_wrote(rv)
         if wrote is not None:
             rec["wrote"] = wrote
@@ -906,6 +951,13 @@ def main(argv=None) -> int:
         rec["odds_by_team"] = {**{k: obt[k] for k in ODDS_BY_TEAM_KEYS},
                                "steps": [{"step": x["step"], "command": f"python cli.py {' '.join(x['argv'])}",
                                           **{k: x[k] for k in ODDS_BY_TEAM_KEYS}} for x in obt["steps"]]}
+    # addendum 332 item 3 (#921): "a receipt line counts the held steps" — the steps that printed a HELD line, with
+    # their codes; always present (0 when none), so a run under a hold and a run without one read alike
+    held_steps = held_totals(step_report["sync"])
+    rec["sync_held"] = held_steps
+    hold_set = {k: sorted(v) for k, v in _sync_hold().sources().items()}   # the setting as parsed, by place
+    if hold_set:
+        rec["sync_hold"] = hold_set
     if page_rec is not None:
         rec["page"] = {k: page_rec.get(k) for k in ("deltas", "paged", "digest", "suppressed")}
         rec["freshens"] = [{k: f.get(k) for k in ("chain", "ran", "exit", "skipped")}
@@ -935,8 +987,10 @@ def main(argv=None) -> int:
     sbt_text = ("" if sbt is None else f" · orientation_reversed {sbt['orientation_reversed']} · "
                 f"teams_mismatch_refused {sbt['teams_mismatch_refused']}")
     obt_text = ("" if obt is None else "".join(f" · {k} {_n(obt[k])}" for k in ODDS_BY_TEAM_KEYS))
+    held_text = held_steps_text(held_steps) + (
+        "" if not hold_set else " · SP_SYNC_HOLD " + ",".join(sorted(set().union(*hold_set.values()))))
     print(f"\n{'✓' if chain_exit == 0 else '✗'} {a.chain}: exit={chain_exit} "
-          f"steps {ok}/{len(steps)} in {rec['duration_s']}s{teams_text}{skipped_text}{sbt_text}{obt_text} · running "
+          f"steps {ok}/{len(steps)} in {rec['duration_s']}s{teams_text}{skipped_text}{sbt_text}{obt_text}{held_text} · running "
           f"{c.running_release() or 'release ?'} · writer of record {c.writer_of_record() or '?'}")
     # addendum 204 item 3(c): each step that skipped listings, with its command and ids (law 4: exit unchanged)
     for i, st, nid in skipped:

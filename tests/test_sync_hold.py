@@ -260,13 +260,14 @@ def test_bad_arguments_still_fail_under_a_hold(monkeypatch, tmp_path):
 
 
 def test_a_closing_runs_held_schedule_read_is_receipted_and_said(monkeypatch, capsys):
-    """Review (P2): a held --match-ids read exits 0 (332 item 3, as built); the closing receipt records it and the
-    console says the run went on with the stored schedule. Whether it should fail the run instead is put to the
-    architect on the PR."""
+    """A held --match-ids read exits 0 (332 item 3's contract); the closing receipt records it, and the run reads it
+    as an A1 read that was not answered (addendum 336 item 1; pinned by run in
+    tests/test_closing_runs.py::test_336_a_held_schedule_read_is_an_unanswered_read)."""
     import closing
     src = inspect.getsource(closing)
     assert 'srec["held"] = held_codes' in src and 'rec.setdefault("sync_held"' in src
-    assert "the run goes on with the STORED schedule" in src
+    assert "the run goes on with the STORED schedule" not in src
+    assert "nothing is priced on the stored schedule" in src
     assert sp_run.sync_counts(["ran x", "HELD PL (SP_SYNC_HOLD)"]) == {"held": ["PL"]}
 
 

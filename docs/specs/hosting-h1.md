@@ -1370,12 +1370,35 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
         it until that process ends, which for the chain units is the end of the run. The hold names the codes it set
         and the time. Every chain receipt records the setting as parsed (`sync_hold`, by place) and its summary line
         ends ` · SP_SYNC_HOLD <codes>` while one is set, so a misspelt code shows on the first run.
+      - **ONE place per machine (ARCHITECT 2026-11-11 09:35 ET, addendum 336 item 2, verbatim):** "a hold is set in
+        ONE place per machine — /etc/sports-predictor/host.env on the host, the checkout's .env on the laptop — never
+        exported in a shell or a unit, so lifting is one edit and no process carries a stale copy; the receipt's
+        by-place line is the check." The three places stay read (the union, accepted by the same item). Reading the
+        by-place line: on the host, `environment` naming the same codes as host.env is expected (every unit loads
+        host.env through its `EnvironmentFile`, and sp_run loads it into its own environment), and so is it on a
+        laptop whose process loads the checkout's .env; the finding is a code named under a place that the
+        machine's one file does not name (`environment` naming a code the file does not, or the other machine's
+        file). A long-running process (the admin UI, sp-web) keeps the environment it started with, so after a lift
+        it holds the lifted code until it restarts; the receipt's by-place line shows that as `environment` naming a
+        code the file no longer names.
       - **What honors it.** `sync-teams` and `sync-matches` on every source (the MLB api-sports fallback and the
         tennis path included, checked before either, after the arguments are validated), `--match-ids` included: a
-        held closing read exits 0 and the closing run goes on with the stored schedule. The closing receipt records
-        the held step (`held` on the step, `sync_held` on the run) and the console prints `· HELD (SP_SYNC_HOLD)
-        <codes>: step i wrote nothing; the schedule read was not made, so the run goes on with the STORED schedule`.
-        Whether a held schedule read should instead fail the closing run as unanswered (A1) is the architect's (#921). By the write path (333 item 3(iii)): `refresh-by-id` (NCAA,
+        held closing read exits 0 (332 item 3's contract). **THE HELD CLOSING READ (ARCHITECT 2026-11-11 09:35 ET,
+        addendum 336 item 1, verbatim):** "the CLOSING RUN, which already records the held step, treats a held A1
+        schedule read exactly as it treats an A1 read that was not answered today — the same path, the same receipt
+        fields, the same notice, nothing new invented — with the cause named `schedule_held (SP_SYNC_HOLD <code>)`. It
+        does not go on with the stored schedule to an export, a page or a push for that family." As built: A1 is per
+        family today (each family's closing covers one competition, and a read that did not answer fails the whole
+        run), so a held read fails the family's run at that step: `failed` reads `step i (schedule read:
+        schedule_held (SP_SYNC_HOLD <code>), A1)`, the step keeps `held` and its tail, the run keeps `sync_held`, a
+        watch-started run sends the failed-run notice and counts the attempt, and nothing is exported, paged or pushed.
+        The console prints `· HELD (SP_SYNC_HOLD) <codes>: step i wrote nothing; the schedule read was not made, so it
+        reads as not answered (A1): the run stops here and nothing is priced on the stored schedule`. The schedule
+        reads are the three closing chains' only steps that honor the hold. The closing watch's slate stage runs
+        the same reads (slate_steps): a held slate read is recorded the same way (`held` on the step, `sync_held` on
+        the slate receipt) and the slate goes on; 336 item 1 names the closing run, so whether a held read fails
+        the slate too is put to the architect (#925). By the write path (333 item
+        3(iii)): `refresh-by-id` (NCAA,
         NFL), `intl-sync` (it writes nothing for a held code of its plan and prints one HELD line per code), and the
         admin UI's two sync jobs. A held step builds no adapter, makes no provider call and writes nothing.
       - **What it does not hold.** Steps that write other tables for the competition's rows: odds and Kalshi syncs,

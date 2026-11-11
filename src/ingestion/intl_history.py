@@ -263,8 +263,10 @@ def _cached_service(adapter):
     return _Svc(adapter)
 
 
-def ingest(src: Source, since: date, max_calls: int = 80, dry_run: bool = False) -> dict:
-    """Run the lane. Returns the receipt (fetch side + exclusions + writes)."""
+def ingest(src: Source, since: date, max_calls: int = 80, dry_run: bool = False, held=None) -> dict:
+    """Run the lane. Returns the receipt (fetch side + exclusions + writes). `held` (default: SP_SYNC_HOLD,
+    addendum 333 item 3(iii), #921): codes whose competition, teams, memberships, matches and neutral rows are not
+    written this run. The fetch, the team filter and the plan are unchanged; the receipt names them under `held`."""
     from sqlalchemy import select
 
     from src.adapters.normalized import NormalizedTeam
@@ -275,6 +277,8 @@ def ingest(src: Source, since: date, max_calls: int = 80, dry_run: bool = False)
                                         season_unknown_line)
     from src.ingestion.score_orientation import provider_reversed
 
+    from src.ingestion import sync_hold
+    held = sync_hold.held_codes() if held is None else frozenset(c.upper() for c in held)
     leagues = src.get("leagues.json", "leagues", {"country": "World"}).get("response") or []
     work = plan(leagues, since)
     if not work:
@@ -314,7 +318,7 @@ def ingest(src: Source, since: date, max_calls: int = 80, dry_run: bool = False)
     with session_scope() as s:
         comps = {}
         for p in work:
-            if p["code"] in comps:
+            if p["code"] in comps or p["code"] in held:
                 continue
             c = s.execute(select(Competition).where(Competition.code == p["code"])).scalar_one_or_none()
             if c is None:     # a code new to the DB; existing rows are never modified
@@ -325,6 +329,10 @@ def ingest(src: Source, since: date, max_calls: int = 80, dry_run: bool = False)
             comps[p["code"]] = c
         for p in work:
             key = (p["code"], p["year"])
+            if p["code"] in held:            # SP_SYNC_HOLD: nothing written for a held code (#921)
+                per_cs[key] = {"league_id": p["league_id"], "name": p["name"], "listed": len(fixtures[key]),
+                               "excluded": excluded_by_cs[key], "kept": len(kept[key]), "skipped": "HELD"}
+                continue
             comp = comps[p["code"]]
             # #764 (ARCHITECT 2026-11-01 15:45 ET, addendum 206 item 2(i)): "intl_history PASSES ITS SEASON" — the
             # season derived from the fixtures (else the query's year), so a history listing older than a team's
@@ -407,7 +415,8 @@ def ingest(src: Source, since: date, max_calls: int = 80, dry_run: bool = False)
             "provider_id_season_unknown": list(mres.provider_id_season_unknown),
             "season_unknown_line": (season_unknown_line(mres.provider_id_season_unknown)
                                     if mres.provider_id_season_unknown else None),
-            "neutral": dict(neutral), "dry_run": dry_run}
+            "neutral": dict(neutral), "dry_run": dry_run,
+            "held": sorted({p["code"] for p in work if p["code"] in held})}
 
 
 def _season(adapter, rows: list, code: str) -> str | None:

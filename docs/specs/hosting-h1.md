@@ -1284,6 +1284,29 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
       reads this list. Today `sp_deploy.py` reads only T11's lists, so a held timer missing from the file still
       reads "!" under `TIMERS`. Teaching it this list is a deploy-script change, so it ships as its own PR after
       this one (addendum 7 item 2 (5): the policy first): #915.
+    - **SP_SYNC_HOLD, the hold's first move (ARCHITECT 2026-11-10 18:55 ET, addendum 332 item 3, verbatim):** "THE
+      DURABLE ANSWER is a per-competition sync hold the step itself honors: SP_SYNC_HOLD, a list of competition codes
+      read by sync-teams and sync-matches, which print "HELD <code> (SP_SYNC_HOLD)" and exit 0 for a listed code, every
+      chain and timer unchanged, the window and fullseason plans unchanged; a receipt line counts the held steps."
+      As built (#921):
+      - **Set it first.** On the host, add the code to `SP_SYNC_HOLD=` in `/etc/sports-predictor/host.env`. Each
+        chain run is a new start of `sp-chain@.service`, which reads that file, so the next run of every chain holds
+        it; no timer is touched. On the laptop, set it in `.env`. Codes are separated by commas or blanks, any case.
+        Lift by removing the code. The hold names the codes it set and the time.
+      - **What honors it.** `sync-teams` and `sync-matches` on every source (the MLB api-sports fallback and the
+        tennis path included, checked before either), `--match-ids` included: a held closing read exits 0 and the
+        closing run goes on with the stored schedule. By the write path (333 item 3(iii)): `refresh-by-id` (NCAA,
+        NFL), `intl-sync` (it writes nothing for a held code of its plan and prints one HELD line per code), and the
+        admin UI's two sync jobs. A held step builds no adapter, makes no provider call and writes nothing.
+      - **What it does not hold.** Steps that write other tables for the competition's rows: odds and Kalshi syncs,
+        `capture-odds`, predictions and exports, `ncaa-cfbd-labels`. A defect in one of those is held by its timers,
+        as above.
+      - **The receipt.** Every chain receipt carries `sync_held` {n, steps: [{step, command, codes}]}, 0 when none
+        was held. A run that held a step adds ` · held steps (SP_SYNC_HOLD) N: step i CODE, ...` to its summary line
+        and `; held steps (SP_SYNC_HOLD) N` to the receipts table's key line, and a held competition's receipt line
+        reads `sync-teams HELD (SP_SYNC_HOLD)` and `sync-matches HELD (SP_SYNC_HOLD)`.
+      - **Where it runs.** The laptop holds from this PR's merge (main). The host holds from the tag that carries it.
+        Until then a host hold is the procedure above (timers), as 332 item 3 says.
   - **The read before the policy (addendum 316 item 3):** "Ubuntu 24.04.5, kernel 6.8.0-147 with 149 waiting, 24
     noble-updates packages, 3w4d uptime, disk 25%."
   - **First receipt (ARCHITECT 2026-11-10 12:20 ET, addendum 320 item 4, verbatim):** "THE HOST (the operator,

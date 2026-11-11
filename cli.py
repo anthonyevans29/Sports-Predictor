@@ -79,6 +79,17 @@ def _sync_lock(fn):
     return run
 
 
+def _sync_held(code: str) -> bool:
+    """SP_SYNC_HOLD (ARCHITECT 2026-11-10, addendum 332 item 3; #921): True, after printing the HELD line, when the
+    setting names `code`. Checked before any adapter is built, so a held step makes no provider call and writes
+    nothing."""
+    from src.ingestion import sync_hold
+    if not sync_hold.is_held(code):
+        return False
+    print(sync_hold.held_line(code), flush=True)
+    return True
+
+
 def _mlb_fallback(code: str) -> bool:
     from src.ingestion.mlb_apisports import fallback_engaged
     return fallback_engaged(code)
@@ -219,7 +230,10 @@ NAMES_KEPT_SHOWN = 25   # sync-teams lists at most this many kept/listed pairs u
 @click.option("--season", default=None, help="e.g. 2024/25 (soccer), 2026 (MLB)")
 @_sync_lock
 def sync_teams_cmd(competition_code: str, season: str | None):
-    """Pull all teams for a competition (in a given season)."""
+    """Pull all teams for a competition (in a given season). A code SP_SYNC_HOLD names is held: the step prints
+    "HELD <code> (SP_SYNC_HOLD)", writes nothing and exits 0 (addendum 332 item 3)."""
+    if _sync_held(competition_code):
+        return
     if _mlb_fallback(competition_code):
         _mlb_fallback_run("teams", season)
         return
@@ -536,7 +550,11 @@ def sync_matches_cmd(
     match_ids: str | None = None,
 ):
     """Pull matches by season or date range. MLB on a host whose
-    SP_SKIP_FAMILIES names MLB syncs from the api-sports fallback (PHASE A)."""
+    SP_SKIP_FAMILIES names MLB syncs from the api-sports fallback (PHASE A).
+    A code SP_SYNC_HOLD names is held: the step prints "HELD <code> (SP_SYNC_HOLD)", writes nothing and exits 0,
+    --match-ids included (addendum 332 item 3)."""
+    if _sync_held(competition_code):
+        return
     named = _match_ids_opt(match_ids)
     if named is not None and seasons > 0:
         raise click.UsageError("--match-ids names the games of one read; not with --seasons")
@@ -1830,6 +1848,10 @@ def intl_sync_cmd(since, max_calls, dry_run, save, from_dir):
         raise SystemExit(2)
     click.echo(f"INTL-SYNC (#220){' (DRY RUN: nothing written)' if dry_run else ''} · seasons ending >= {since} · "
                f"{len(r['plan'])} competition-seasons · provider calls {r['calls']}")
+    # SP_SYNC_HOLD (addendum 333 item 3(iii), #921): one line per held code of the plan, its rows not written
+    from src.ingestion import sync_hold
+    for code in r.get("held") or []:
+        click.echo(sync_hold.held_line(code))
     click.echo(f"  senior national teams (in a UNL / WCQ_* / UEFA_EURO / UEFA_EURO_Q fixture): {r['senior_teams']}")
     click.echo(f"  {'code':<15}{'league':<44}{'year':>5}{'listed':>7}{'excl':>6}{'kept':>6}{'stored':>7}"
                f"{'home':>6}{'neutral':>8}{'unknown':>8}")
@@ -6605,6 +6627,8 @@ def refresh_by_id_cmd(competition_code: str, days: int):
     from src.ingestion import refresh_by_id as rbi
 
     code = competition_code.upper()
+    if _sync_held(code):              # addendum 333 item 3(iii): the write path, not the step's name (#921)
+        return
     if _sport_for_competition(code) != "nfl":
         raise click.UsageError(f"refresh-by-id reads the american-football provider by id; {code} is not "
                                "one of its competitions (NCAA, NFL)")

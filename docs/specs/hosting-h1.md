@@ -1136,7 +1136,7 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
     TERMINAL (host), in bash, as any user (it reads, it changes nothing). `HELD` copies THE HELD LIST below, by name:
     ```
     f=/etc/sports-predictor/timers.enabled
-    HELD="sp-ncaa-market.timer sp-tennis-daily.timer"   # THE HELD LIST below, by name
+    HELD="sp-tennis-daily.timer"   # THE HELD LIST below, by name
     expected=$(tr -s ' \t\r' '\n' < "$f" | sed '/^$/d' | grep -vxF -f <(printf '%s\n' $HELD) | sort -u)
     observed=$(systemctl list-units --type=timer --state=active --no-legend --plain 'sp-*.timer' | awk '{print $1}' | sort -u)
     missing=$(comm -23 <(printf '%s\n' "$expected") <(printf '%s\n' "$observed") | sed '/^$/d')
@@ -1162,9 +1162,124 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
 
     | Timer | Held by | Lifts when |
     |---|---|---|
-    | `sp-ncaa-market.timer` | ARCHITECT 2026-11-09, addendum 310 item 2 (the hold on NCAA sync-matches, incident #902; 311: "the hold is sp-ncaa-market.timer only") | v1.6.6's #902 apply, by the architect's block |
     | `sp-tennis-daily.timer` | ARCHITECT 2026-11-08, addendum 288 item 5 | the tag that carries the map, and the architect's block |
 
+    - **Lifted: `sp-ncaa-market.timer`** (held by addendum 310 item 2 on 2026-11-09, incident #902). The hold's lifting
+      condition (ARCHITECT 2026-11-10, addendum 324 item 3(e), verbatim): "`systemctl enable --now
+      sp-ncaa-market.timer` — the hold lifts only after (d)'s apply is read clean; the held list in the runbook loses
+      that entry with this addendum quoted; sp-tennis-daily stays disabled (288 item 5's block is a separate ruling
+      after the laptop's daily step has run a week)." The lift (ARCHITECT 2026-11-10 16:10 ET, addendum 329 item 3,
+      verbatim): "THE HOLD LIFTS (324 item 3(e)): my block enables sp-ncaa-market.timer now (next run Wednesday
+      16:00Z), prints the set comparison with the held list reduced to sp-tennis-daily, and posts the note on #902."
+      The host's #902 apply was read clean at 20:57Z on 2026-11-10 (329 items 1 and 2).
+
+    - **A hold on a sync path (ARCHITECT 2026-11-10 15:35 ET, addendum 325 item 1, verbatim, the architect's
+      record):** "a hold on a sync path names EVERY chain that carries the step (grep chains.py for the step), never
+      one timer." The 11-09 hold disabled `sp-ncaa-market.timer` only. Two other chains also ran
+      `sync-matches --competition NCAA` and were not held: ncaa-schedule (`sp-ncaa-schedule.timer`) and the window
+      chain (`sp-window.timer`). Both ran under v1.6.5's any-season lookup from 11-09 until the v1.6.6 deploy on 11-10.
+      v1.6.6 closes them with the season-scoped key, so no entry is added for them (325 item 1(c)). CORRECTION
+      (ARCHITECT 2026-11-10 18:55 ET, addendum 332 item 3, verbatim): "THREE paths beyond ncaa-market carry the step
+      (ncaa-schedule, window, weekly-fullseason), not two; TWO of them ran in the 11-09 → 11-10 gap (weekly-fullseason
+      fires Sundays 06:00Z and did not), and 327 item 1's exposure read — zero NCAA rows changed since 11-09 13:49Z —
+      covers every path that ran."
+      - **Lifting a hold (ARCHITECT 2026-11-10 16:20 ET, addendum 330 item 2, as qualified by ARCHITECT 2026-11-10
+        18:55 ET, addendum 332 item 2, verbatim):** "lifting a hold on a Persistent timer THAT HAS FIRED BEFORE runs
+        its missed firing at once — lift it when that run is welcome, off the :00–:10 minutes, and read the run; a
+        timer that has never fired has no stamp and first runs at its next scheduled firing". And (332 item 2(b),
+        verbatim): "a first enable that wants an immediate run starts the service explicitly (`systemctl start
+        sp-chain@<chain>.service`) and says so in its block; sp-tennis-daily's block (288 item 5, when it comes) does
+        NOT: its first run is its next 06:53Z firing, read the morning after — the laptop's daily step covers the days
+        before." This corrects 330 item 2's "the next instance: its block says so" (Codex on #918, #920).
+        - Of the 24 timers the pack ships (read on this branch), 22 carry `Persistent=true`;
+          `sp-closing-watch.timer` and `sp-cup-observe.timer` carry `Persistent=false`. Read the unit under
+          `deploy/hosting/systemd/` before the lift. What decides the catch-up is systemd's stamp,
+          `/var/lib/systemd/timers/stamp-<name>.timer` (`stat` it before the lift). systemd 255 (Ubuntu 24.04) writes
+          it when the timer first STARTS and again at each firing. So a timer that was enabled once and stopped
+          before its first firing also catches up; only a timer that has never been started has no stamp (the
+          runbook's 09-28 nfl-grade note is that first-enable case, and sp-tennis-daily, installed and never enabled,
+          is another).
+        - The 11-10 lift of `sp-ncaa-market.timer` at 21:13Z ran the missed Tuesday 16:00Z firing at 21:13:38Z, under
+          v1.6.6's season-scoped key. The read covers that run's receipt rows, its counting lines (created, updated,
+          `provider_id_collision`, `orientation_reversed`, Kalshi matched, the export), its exit, and the timer's
+          NEXT.
+      - **How to find every chain (search the resolved steps, not the source text):** a literal grep of
+        `deploy/hosting/chains.py` misses steps built from constants: `["sync-matches", *PL]` (chains.py:156 and 170)
+        holds no `"PL"` string for a grep to find, though three timers run it (Codex on #918). So the search reads the
+        resolved `CHAINS` and maps each chain to the timers whose `Unit=` names it. TERMINAL (laptop or host), in the
+        checkout, read-only; `C` is the competition code the hold names:
+        ```
+        C=NCAA
+        python3 - "$C" <<'PY'
+        import sys, pathlib, re
+        sys.path.insert(0, "deploy/hosting")
+        from chains import CHAINS, CLOSING_FAMILIES
+        code = sys.argv[1]
+        units = {}
+        for t in sorted(pathlib.Path("deploy/hosting/systemd").glob("*.timer")):
+            m = re.search(r"^Unit=sp-chain@(.+)\.service$", t.read_text(), re.M)
+            if m:
+                units.setdefault(m.group(1), []).append(t.name)
+        svc = pathlib.Path("deploy/hosting/systemd/sp-closing-watch.service").read_text()
+        watched = re.findall(r"--family (\S+)", re.search(r"^ExecStart=.*$", svc, re.M).group(0))
+        family_of = {chain: fam for fam, chain in CLOSING_FAMILIES.items()}
+        def triggers(name):
+            if name in units:
+                return units[name]
+            if name.startswith("freshen:"):
+                fam = name.split(":", 1)[1]
+                return [f"sp-window.timer (sp_run.run_freshens after the window page; skipped where SP_SKIP_FAMILIES names {fam})"]
+            fam = family_of.get(name)
+            if fam in watched:
+                return [f"sp-closing-watch.timer (closing.py watch --family {fam})"]
+            if fam == "MLB":
+                return ["the laptop's launchd closing watch (MLB)"]
+            return ["NO TRIGGER FOUND: read how this chain starts before the hold"]
+        for name, ch in CHAINS.items():
+            hits = [s for s in ch.get("steps", []) if s and s[0] == "sync-matches" and code in s]
+            if hits:
+                print(f"{name}: {' '.join(hits[0])} ({len(hits)} step(s)) · {', '.join(triggers(name))}")
+        for name, ch in CHAINS.items():
+            if ch.get("window_plan") or ch.get("fullseason"):
+                how = "sp_run.window_plan" if ch.get("window_plan") else "sp_run.fullseason_resolve over SP_FULLSEASON_LIST"
+                print(f"{name}: built at run time by {how} · {', '.join(triggers(name))}")
+        PY
+        ```
+        On this branch, `C=NCAA` prints ncaa-market (sp-ncaa-market.timer) and ncaa-schedule (sp-ncaa-schedule.timer),
+        then the two chains built at run time. `C=PL` prints soccer-prematch (sp-soccer-friday.timer,
+        sp-soccer-saturday.timer), soccer-morning-after (sp-soccer-morning-after.timer) and soccer-closing
+        (`sp-closing-watch.timer (closing.py watch --family SOCCER)`), then the same two. A closing chain resolves
+        through `CLOSING_FAMILIES` and the `--family` arguments of `sp-closing-watch.service`'s `ExecStart` (NFL and
+        SOCCER on the host); MLB's resolves to the laptop's launchd closing watch (Codex on #918, ruled by 332 item
+        1). A freshen chain (`freshen:*`) resolves to `sp-window.timer`: `sp_run.run_freshens` (sp_run.py:678) is its
+        only runner, called from the window chain's post step (sp_run.py:862), and it skips a family that
+        `SP_SKIP_FAMILIES` names (MLB on the host; chains.py's FRESHEN CHAINS note). A chain the search cannot
+        resolve prints NO TRIGGER FOUND, never a clean line. The two chains built at run time, read on 8aa27a89:
+        - **window** (`sp-window.timer`, hourly): `CHAINS["window"]` has `"steps": []`. `sp_run.window_plan` adds a
+          `sync-matches --competition <code> --season <season>` step for every competition with a game inside its
+          24 hours.
+        - **weekly-fullseason** (`sp-weekly-fullseason.timer`, Sun 06:00 UTC): `CHAINS["weekly-fullseason"]` declares
+          only the CFBD step (`"fullseason": True`). `sp_run.fullseason_resolve` adds `sync-teams` then
+          `sync-matches --competition CODE --season SEASON` for each line of the host's `SP_FULLSEASON_LIST`. T9's
+          generator writes a line for every competition with matches within ±30 days, so whether NCAA is on it is
+          read from the host's list, not assumed. Codex on #918 found this one; the grep misses it as it misses the
+          window.
+
+        No other code path builds the step on a timer: `bootstrap.py` is operator-started, and the closing freshen
+        steps (`closing.py`) carry `--match-ids` for the closing families only.
+      - **What a hold names (ARCHITECT 2026-11-10 18:55 ET, addendum 332 item 3, verbatim, the rule completed):** "a
+        hold on a competition's sync path names (i) every static chain the resolved-CHAINS search finds carrying the
+        step (ncaa-market and ncaa-schedule for NCAA; the PL set for PL), (ii) the closing watch when the competition
+        is a closing family (NFL, SOCCER on the host; MLB on the laptop) — item 1's hunk, and (iii) the two
+        DATA-DRIVEN chains, which carry the step for every competition in season and are not in chains.py's text:
+        window (sp_run.window_plan — every competition with a game inside its 24 hours, hourly) and weekly-fullseason
+        (sp_run.fullseason_resolve — every line of SP_FULLSEASON_LIST, Sundays 06:00Z). A hold that must stop the path
+        COLD disables (iii) too, for hours never days (the window chain is the Desk's hourly repricing for every
+        sport), and says for how long; a hold that can tolerate runs under the unfixed code leaves (iii) running and
+        READS THEIR EXPOSURE afterward — rows whose season or pair differ against the last pre-hold copy, as 327 item
+        1 did — and the procedure names which of the two it chose."
+        - **The durable answer, declared (332 item 3):** a per-competition sync hold that the step itself honors,
+          `SP_SYNC_HOLD`. It ships as its own small PR (#921). Until it merges, the procedure above stands.
     - **The deploy's receipt:** 323 item 1 rules that the deploy's report of timers missing from `timers.enabled`
       reads this list. Today `sp_deploy.py` reads only T11's lists, so a held timer missing from the file still
       reads "!" under `TIMERS`. Teaching it this list is a deploy-script change, so it ships as its own PR after

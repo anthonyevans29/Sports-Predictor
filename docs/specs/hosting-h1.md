@@ -1191,7 +1191,8 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
         START, not its first firing, so the precise rule is "a timer that has never been started has no stamp";
         332 item 2's sentence is corrected to that wording in the follow-up PR, its conclusion for sp-tennis-daily
         unchanged (never started)." So the sentence reads: a timer that has never been started has no stamp and
-        first runs at its next scheduled firing. And (332 item 2(b),
+        first runs at its next scheduled firing. A timer started once and stopped before its first firing has a
+        stamp and catches up on lift, as the first clause's case does (the sub-bullet below). And (332 item 2(b),
         verbatim): "a first enable that wants an immediate run starts the service explicitly (`systemctl start
         sp-chain@<chain>.service`) and says so in its block; sp-tennis-daily's block (288 item 5, when it comes) does
         NOT: its first run is its next 06:53Z firing, read the morning after — the laptop's daily step covers the days
@@ -1222,6 +1223,8 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
         from sp_common import t11_lists
         code = sys.argv[1]
         laptop_only = set(t11_lists()["MLB_LAPTOP_ONLY"])
+        rb = pathlib.Path("docs/specs/hosting-h1.md").read_text()
+        held = set(re.search(r'^ *HELD="([^"]*)"', rb, re.M).group(1).split())
         intl = code == "WCQ" or code in ("UNL", "CNL", "CNL_Q", "UEFA_EURO", "UEFA_EURO_Q", "FRIENDLIES_INT",
                                          "WCQ_EU", "WCQ_SA", "WCQ_AF", "WCQ_AS", "WCQ_NA", "WCQ_OC", "WCQ_IC")
         units = {}
@@ -1234,7 +1237,8 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
         family_of = {chain: fam for fam, chain in CLOSING_FAMILIES.items()}
         def triggers(name):
             if name in units:
-                host = [t for t in units[name] if t not in laptop_only]
+                host = [t + (" (on THE HELD LIST: not enabled on the host)" if t in held else "")
+                        for t in units[name] if t not in laptop_only]
                 return host + (["the laptop's morning routine (the architect's block)"]
                                if len(host) < len(units[name]) else [])
             if name.startswith("freshen:"):
@@ -1255,7 +1259,9 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
                 how = "sp_run.window_plan" if ch.get("window_plan") else "sp_run.fullseason_resolve over SP_FULLSEASON_LIST"
                 print(f"{name}: built at run time by {how} · {', '.join(triggers(name))}")
         if intl:
-            print(f"intl-daily: intl-sync (no code on the step; it writes {code} through _upsert_match) · "
+            what = ("WCQ_EU, WCQ_SA, WCQ_AF, WCQ_AS, WCQ_NA, WCQ_OC and WCQ_IC (a WCQ hold names all seven)"
+                    if code == "WCQ" else code)
+            print(f"intl-daily: intl-sync (no code on the step; it writes {what} through _upsert_match) · "
                   f"{', '.join(triggers('intl-daily'))}")
         PY
         ```
@@ -1273,7 +1279,11 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
           search reads MLB_LAPTOP_ONLY and prints "the laptop's morning routine (the architect's block)" for
           mlb-morning and mlb-preslate, never a host timer that is not enabled". The search reads T11's lists with
           `sp_common.t11_lists()` (the parser the deploy receipt uses), so a timer on `MLB_LAPTOP_ONLY` is never
-          printed. A chain whose timers are all on that list prints only the routine. `C=MLB` prints mlb-morning and
+          printed. A chain whose timers are all on that list prints only the routine. A timer on THE HELD LIST
+          (the set-check recipe's `HELD=` line) is printed with "(on THE HELD LIST: not enabled on the host)":
+          today `C=ATP` and `C=WTA` print tennis-daily that way, since sp-tennis-daily is installed and never
+          enabled (288 item 5). That marking extends 333 item 3(i)'s "never a host timer that is not enabled" from
+          `MLB_LAPTOP_ONLY` to the held list; it is put to the architect on the PR. `C=MLB` prints mlb-morning and
           mlb-preslate that way; mlb-history (`sp-mlb-history.timer`, on `TIMERS`: the host's api-sports fallback),
           freshen:MLB (`sp-window.timer`, skipped on the host by `SP_SKIP_FAMILIES`) and mlb-closing (the laptop's
           launchd closing watch) as before.
@@ -1281,7 +1291,8 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
           the WRITE PATH (_upsert_match), not the step's name: a hold on UNL, WCQ or Euro names sp-intl-daily.timer
           (intl-sync) beside whatever the search finds; the search prints it for those codes." `intl-sync` names no
           competition on its step (`["intl-sync", "--since", "{today}", ...]`, chains.py intl-daily), so the
-          step-based search cannot find it. It writes every code of `CODE_BY_NAME` in
+          step-based search cannot find it. No stored competition is coded `WCQ`; `C=WCQ`, as the ruling words it,
+          prints the seven `WCQ_*` codes the hold must name. It writes every code of `CODE_BY_NAME` in
           src/ingestion/intl_history.py through `IngestionService._upsert_match`: UNL, the seven `WCQ_*` codes,
           UEFA_EURO and UEFA_EURO_Q (the ruling's three), and CNL, CNL_Q and FRIENDLIES_INT (the same write path, so
           the same rule). For those thirteen codes (and `WCQ` as written in the ruling) the search prints
@@ -1321,10 +1332,20 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
           game played or rescheduled during the hold, named) or is a finding; the hold's declaration names the fields
           its defect can touch, and the read is never narrower than those." So the words "rows whose season or pair
           differ against the last pre-hold copy, as 327 item 1 did" in 332 item 3 above read, from 333 on: every
-          field the held step writes, by row id against the last pre-hold copy (season, home_team_id and
-          away_team_id, utc_date, status, home_score, away_score, full_time_result, external_ids), plus the rows
-          created since the copy. Each difference is listed, then explained by name (a game played or rescheduled
-          during the hold) or recorded as a finding.
+          field the held step writes, by row id against the last pre-hold copy, plus the rows created since the
+          copy. Each difference is listed, then explained by name (a game played or rescheduled during the hold) or
+          recorded as a finding. The ruling names eight: season, the team pair (home_team_id, away_team_id),
+          utc_date, status, home_score, away_score, full_time_result, external_ids. The write path writes more,
+          read on this branch, and "every field" covers them:
+          - `IngestionService._apply_match_updates` (src/ingestion/service.py:910-948): also status_raw, matchday,
+            stage, home_score_ht, away_score_ht, home_score_90, away_score_90 and referee; a created row also
+            carries venue.
+          - `sync-matches` on the statsapi MLB source: the series columns through `write_match_series`
+            (service.py:686-688).
+          - `intl-sync`: the `match_neutral_derived` row of every match it upserts (src/ingestion/intl_history.py,
+            after `_upsert_match`), and team rows and competition memberships.
+          Which of those a given hold's read must cover is the hold's declaration (the fields its defect can
+          touch); this list is the code's, put to the architect on the PR.
         - **The durable answer, declared (332 item 3):** a per-competition sync hold that the step itself honors,
           `SP_SYNC_HOLD`. It ships as its own small PR (#921). Until it merges, the procedure above stands. (333
           item 3(iii), verbatim): "SP_SYNC_HOLD (#921) honors the same path: its design covers intl-sync, or says in

@@ -64,11 +64,35 @@ def test_no_mlb_laptop_only_timer_is_ever_printed(search):
         assert not any(t in ln for ln in search(code) for t in lists), code
 
 
-@pytest.mark.parametrize("code", ["UNL", "WCQ", "WCQ_EU", "UEFA_EURO", "UEFA_EURO_Q"])
+@pytest.mark.parametrize("code", ["UNL", "WCQ_EU", "UEFA_EURO", "UEFA_EURO_Q"])
 def test_national_team_codes_name_the_intl_daily_timer(search, code):
     ln = chain(search(code), "intl-daily")
     assert ln == (f"intl-daily: intl-sync (no code on the step; it writes {code} through _upsert_match) · "
                   "sp-intl-daily.timer")
+
+
+def test_wcq_as_the_ruling_words_it_names_the_seven_stored_codes(search):
+    ln = chain(search("WCQ"), "intl-daily")
+    assert ln == ("intl-daily: intl-sync (no code on the step; it writes WCQ_EU, WCQ_SA, WCQ_AF, WCQ_AS, WCQ_NA, "
+                  "WCQ_OC and WCQ_IC (a WCQ hold names all seven) through _upsert_match) · sp-intl-daily.timer")
+
+
+@pytest.mark.parametrize("code", ["ATP", "WTA"])
+def test_a_held_timer_is_marked_never_printed_as_running(search, code):
+    """THE HELD LIST (the set-check recipe's HELD= line): sp-tennis-daily is installed and never enabled."""
+    ln = chain(search(code), "tennis-daily")
+    assert ln.endswith(" · sp-tennis-daily.timer (on THE HELD LIST: not enabled on the host)"), ln
+
+
+def test_every_held_timer_printed_is_marked(search):
+    rb = RUNBOOK.read_text(encoding="utf-8")
+    held = re.search(r'^ *HELD="([^"]*)"', rb, re.M).group(1).split()
+    assert held, "the held list is empty"
+    for code in ("ATP", "WTA", "MLB", "NCAA", "PL", "NFL", "UNL"):
+        for ln in search(code):
+            for t in held:
+                if t in ln:
+                    assert f"{t} (on THE HELD LIST: not enabled on the host)" in ln, ln
 
 
 @pytest.mark.parametrize("code", ["NCAA", "PL", "NFL", "MLB", "EFL"])

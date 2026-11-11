@@ -359,11 +359,14 @@ def schedule(day: date, now: datetime, *, http_get=None, now_fn=None, keep: bool
         known, _ = _json(newest.read_bytes())
     # AT MOST HOURLY (340 item 4): a day read within the hour, answered or not, is not read again; the tick uses the
     # newest kept answer (the games it already knew), and a day whose last read failed says so on its line
-    if checked_at is not None and now - checked_at < SCHEDULE_TTL and (checked_sha == "failed" or
+    if checked_at is not None and now - checked_at < SCHEDULE_TTL and (checked_sha in ("failed", "nogames") or
                                                                        (known is not None and checked_sha == sc.sha)):
         sc.games, sc.checked_at = (day_games(known, day) if known is not None else []), checked_at
         if checked_sha == "failed":
             sc.read = f"last read FAILED at {_z(checked_at)}: the next read after {_z(checked_at + SCHEDULE_TTL)}"
+        elif checked_sha == "nogames":
+            sc.read = (f"last read at {_z(checked_at)} named no game: the games already known stand; the next read "
+                       f"after {_z(checked_at + SCHEDULE_TTL)}")
         return sc
     a = get(schedule_url(day), http_get=http_get, now_fn=now_fn)
     payload, why = (_json(a.body) if a.error is None else (None, a.error))
@@ -381,6 +384,16 @@ def schedule(day: date, now: datetime, *, http_get=None, now_fn=None, keep: bool
                 pass
         return sc
     sha = hashlib.sha256(a.body).hexdigest()
+    if not ng.schedule_games(payload):
+        # A 200 whose JSON holds no game at all (Codex on #933, round 1: "{}" or an error object read as an empty
+        # schedule would replace the games already known and keep the hour quiet): never a schedule. The games already
+        # known stand (nothing invented, nothing dropped), the body is not kept, the hour is stamped as a read that
+        # named no game; no notice (an off-season week names none either)
+        sc.games = day_games(known, day) if known is not None else []
+        sc.read = "read: the answer names no game (not kept; the games already known stand)"
+        if keep:
+            _stamp_checked(day, a.at, "nogames")
+        return sc
     sc.games, sc.checked_at = day_games(payload, day), a.at
     if not keep:
         sc.read = "read (dry run: not kept)"
@@ -710,12 +723,16 @@ def _execute(t: Tick, *, http_get, now_fn) -> None:
     with readonly_scope() as s:
         universe = team_universe(s)
         maps = {}
-        for g in {p.game["id"]: p.game for p in t.due}.values():
+        # every game the tick's schedules know, not only the due ones (Codex on #933, round 1: a game whose poll is due
+        # later must still count against a match now, or the first game's mapping is written for good)
+        known = {g["id"]: g for sc in t.schedules for g in sc.games}
+        known.update({p.game["id"]: p.game for p in t.due})
+        for g in known.values():
             maps[g["id"]] = ({side: resolve_team(universe, g.get(f"{side}_names")) for side in SIDES},
                              resolve_match(s, g))
-        # ONE MATCH, ONE GAME (law 4): a match two gameIds resolve to, in this tick or already in the record, is
-        # refused for both (NULL with attrs.source_match_id), never shared: Step B's key (source, match_id, kickoff,
-        # label) would otherwise read the second game's poll as the first's, "already"
+        # ONE MATCH, ONE GAME (law 4): a match two gameIds resolve to, among every game the tick knows or already in
+        # the record, is refused for both (NULL with attrs.source_match_id), never shared: Step B's key (source,
+        # match_id, kickoff, label) would otherwise read the second game's poll as the first's, "already"
         claimed: dict = {}
         for gid, (_, mid) in maps.items():
             if mid is not None:
@@ -735,6 +752,12 @@ def _execute(t: Tick, *, http_get, now_fn) -> None:
         why = rec.endpoint_refusal(p.url)
         if why:
             raise Refused(why)
+        before = now_fn()                                 # the cutoff again, just before the call (Codex on #933, r1):
+        if before - p.scheduled_at > MISSED_AFTER:        # earlier slow calls can push a poll past its five minutes
+            _write(t, p, {**obs, "status": "missed"}, [], None,
+                   f"MISSED: no call ({int((before - p.scheduled_at).total_seconds() // 60)} min past its time when "
+                   "its turn came)")
+            continue
         a = get(p.url, http_get=http_get, now_fn=now_fn)
         obs.update(fetched_at=a.at, http_status=a.status, late=a.at - p.scheduled_at > LATE_LIMIT)
         if a.error is not None:

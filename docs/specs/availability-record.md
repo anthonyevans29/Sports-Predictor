@@ -824,6 +824,8 @@ As built:
 - The answer is kept as `<NHL day>/<YYYYmmddTHHMMSS>Z-<sha256, first 16 hex>-schedule.json` only when its bytes differ
   from the newest kept for that day; `schedule.checked` ("<instant> <sha256>", or "<instant> failed") beside it says
   when the day was last read, and a day read within the hour, answered or not, is not read again (at most hourly).
+- A 200 whose JSON names no game at all (`{}`, an error object; Codex on #933, round 1) is not a schedule: the games
+  already known stand, its body is not kept, and the hour is stamped ("named no game"); no notice.
 - A failed read uses the newest kept answer for the day when one exists (the games already known), else knows no game.
   The day's first failed read creates `schedule.notice` and makes the tick exit 1 (the unit pages once); every tick
   prints its line (a failed read, or "last read FAILED at <instant>: the next read after <instant>") and exits 0.
@@ -845,7 +847,9 @@ As built:
   receipts, not as invented rows).
 - A poll whose time has passed and is not written is DUE. More than five minutes past it is a `missed` row and no call
   (252 item 3(b)); else it is asked once. A tick with a poll due plans again under the DB lock on the clock as it then
-  reads, so a poll that passed its five minutes while the tick waited for the lock is `missed`, never asked late. 340 item 3: "a poll scheduled inside the 04:00–05:59Z buffer (a late
+  reads, so a poll that passed its five minutes while the tick waited for the lock is `missed`, never asked late; and
+  the cutoff is read again just before each call (Codex on #933, round 1), so slow earlier calls in one tick cannot
+  carry a later poll past its five minutes into a call. 340 item 3: "a poll scheduled inside the 04:00–05:59Z buffer (a late
   West-coast start's T-0 or T+20) is written as a `missed` row by the first tick after the buffer, never dropped".
 - `fetched_at` is our clock after the body has been read in full (a raise: the raise's instant). `late` is set when it
   is more than five minutes after the poll's time (an answer delayed by the DB lock, say).
@@ -884,8 +888,9 @@ of 341 item 2). The side maps only when the UNION of the teams its candidates na
 or more (a name held by two rows, an alias naming an older row), leaves it unmapped. The match: the one match
 `nhl_goalie_appearances` links to the gameId (two distinct links: refused), else `nhl_goalies.match_game` as it stands — read for 341 item 2: `find_match` reads the
 NHL's rows within 12 hours by both names and excludes only CANCELLED and STALE_ORPHAN, so a SCHEDULED row maps before
-the game — else NULL with `attrs.source_match_id`. One match, one game (law 4): a match two gameIds resolve to in one tick, or one
-the record already holds under another game's endpoint, is refused for both (NULL): Step B's key (source, match,
+the game — else NULL with `attrs.source_match_id`. One match, one game (law 4): a match two gameIds resolve to among every game the
+tick's schedules know (not only the due ones: Codex on #933, round 1), or one the record already holds under another
+game's endpoint, is refused for both (NULL): Step B's key (source, match,
 kickoff, label) would otherwise read the second game's poll as the first's.
 
 ### The poll key (#835 item 2; addendum 258 item 2(2))

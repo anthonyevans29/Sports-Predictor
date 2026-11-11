@@ -348,7 +348,8 @@ def test_6c_a_poll_more_than_five_minutes_past_is_missed_with_no_call_and_a_late
     assert o["status"] == "missed" and o["fetched_at"] is None and o["http_status"] is None
     # an answer stamped more than five minutes after its time (a slow call, after the plan): asked, flagged late
     at = START - timedelta(minutes=86)                        # T-90 is 4 min past at the plan
-    clock = iter([at + timedelta(seconds=1), at + timedelta(minutes=1, seconds=30)])   # the plan, the stamp
+    clock = iter([at + timedelta(seconds=1), at + timedelta(seconds=2),
+                  at + timedelta(minutes=1, seconds=30)])                         # the plan, the cutoff, the stamp
     nl.tick(at, http_get=http, now_fn=lambda: next(clock))
     o = _obs()[-1]
     assert o["poll_label"] == "T-90" and o["status"] == "complete" and o["late"]
@@ -859,3 +860,48 @@ def test_343_1_the_scope_is_six_hours_declared():
     assert w.has(g, "T-0", "landing", START)                                      # inside six hours: written
     w = nl.Written(labels={(GAME, "T-0"): [START - timedelta(hours=6)]})
     assert not w.has(g, "T-0", "landing", START)                                  # six hours or more: a fresh series
+
+
+# ---- Codex on #933, round 1 --------------------------------------------------------------------------------------------------
+
+def test_codex_r1_a_game_due_later_still_counts_against_the_match_now():
+    """P1: two gameIds resolving to one match, only the first due: neither is mapped, even though the second game's
+    first poll is hours away (the tick resolves every game its schedules know)."""
+    _nhl()
+    later = _game(GAME + 7, start=START + timedelta(hours=3))   # the same pair within 12 h: match_game finds START's row
+    http = FakeHTTP({**_routes(), nl.schedule_url(DAY): _schedule(_game(), later)})
+    t = _tick(http, START - timedelta(minutes=120))
+    assert [(p.game["id"], p.label) for p in t.due] == [(GAME, "T-120")]
+    assert _obs()[-1]["match_id"] is None and _obs()[-1]["status"] == "partial"
+
+
+def test_codex_r1_a_200_naming_no_game_never_replaces_the_known_games():
+    """P1: a 200 whose JSON names no game ("{}", an error object) is not a schedule: the games already known stand, the
+    body is not kept, and the hour is stamped."""
+    _nhl()
+    http = FakeHTTP(_routes())
+    _tick(http, START - timedelta(minutes=120))                  # the real schedule, kept
+    http.routes[nl.schedule_url(DAY)] = {"error": "synthetic"}
+    t = _tick(http, START - timedelta(minutes=55))               # over the hour: read again, names no game
+    assert "names no game" in t.schedules[0].read and t.games == 1 and t.exit_code == 0
+    assert [o["poll_label"] for o in _obs()] == ["T-120", "T-90", "T-60"]       # the known game is still polled
+    t = _tick(http, START - timedelta(minutes=45))
+    assert "named no game" in t.schedules[0].read and http.n("/schedule/") == 2   # at most hourly
+    assert len(list(nl.PAYLOAD_BASE.joinpath("logs/availability/nhl_api_landing", DAY.isoformat())
+                    .glob("*-schedule.json"))) == 1                               # the empty answer is not kept
+
+
+def test_codex_r1_the_cutoff_is_read_again_just_before_each_call():
+    """P2: slow earlier calls push a later poll past its five minutes: that poll is a `missed` row, no call."""
+    _nhl()
+    second = _game(GAME + 3, home=MTL, away=UTA)
+    http = FakeHTTP({**_routes(), nl.schedule_url(DAY): _schedule(_game(), second),
+                     nl.game_url(GAME + 3, "landing"): _landing()})
+    at = START - timedelta(minutes=120)
+    six = at + timedelta(minutes=6)
+    clock = iter([at, at, at, six, six])         # the schedule's stamp, the plan, call 1, its stamp, call 2's cutoff
+    nl.tick(at, http_get=http, now_fn=lambda: next(clock))
+    o = _obs()
+    assert [(x["endpoint"].split("/")[-2], x["status"]) for x in o] == [(str(GAME), "complete"),
+                                                                       (str(GAME + 3), "missed")]
+    assert http.n(f"{GAME + 3}/landing") == 0

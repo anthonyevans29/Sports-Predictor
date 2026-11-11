@@ -175,7 +175,7 @@ def test_shipped_tree_runs_in_a_clean_checkout_clean_divergent_and_error(tmp_pat
     and the Action read every non-zero exit as DIVERGENT. A fresh clone of the mirror, outside this repo,
     with no PYTHONPATH, must give CLEAN, DIVERGENT and ERROR as three different results."""
     remote = _remote(tmp_path)
-    body = '[{"utc_date":"2026-10-03T23:00Z","home_team":"A","away_team":"B","p":0.5}]'
+    body = '{"fixtures": [{"utc_date":"2026-10-03T23:00Z","home_team":"A","away_team":"B","p":0.5}]}'
     for role in ("host", "laptop"):
         ex = _exports(tmp_path / role, [("fixtures_NHL_2026-10-03.json", TODAY, body)])
         assert em.push(role, ex, "receipt", remote, tmp_path / f"{role}_clone", today=TODAY)["pushed"]
@@ -261,7 +261,7 @@ def test_the_shipped_action_posts_pending_on_files_each_on_one_side_only(tmp_pat
                    "desc": "NOTHING-TO-COMPARE · 2026-10-03 — no paired kind compared with rows in the window, 2 "
                            "on one side only; neutral, not a data verdict"}, got
     for role, p in (("laptop", 0.5), ("host", 0.6)):
-        body = '[{"utc_date":"2026-10-03T23:00Z","home_team":"A","away_team":"B","p":%s}]' % p
+        body = '{"fixtures": [{"utc_date":"2026-10-03T23:00Z","home_team":"A","away_team":"B","p":%s}]}' % p
         ex = _exports(tmp_path / f"{role}2", [("fixtures_NHL_2026-10-03.json", TODAY, body)])
         assert em.push(role, ex, "differ", remote, tmp_path / f"{role}_clone2", today=TODAY)["pushed"]
     co2, _ = _tree(remote, tmp_path / "t2")
@@ -294,6 +294,24 @@ def test_the_shipped_action_posts_pending_awaiting_the_other_side_on_its_own_day
     assert _run_action(co2, tmp_path) == {"date": today.isoformat(), "state": "success",
                                           "desc": f"CLEAN · {today}"}
 
+
+def test_the_shipped_action_names_an_unread_window_in_its_pending_status(tmp_path):
+    """Codex on #929 (P2): a valid pair beside a paired file whose window was not read reads NOTHING-TO-COMPARE
+    (addendum 338 item 3); the shipped Action's pending description names the unread window, never the false
+    "no paired kind compared with rows in the window"."""
+    remote = _remote(tmp_path)
+    good = '{"fixtures": [{"utc_date":"2026-10-03T23:00:00","home_team":"A","away_team":"B","p":0.5}]}'
+    bare = '[{"utc_date":"2027-01-01T00:00:00","home_team":"C","away_team":"D"}]'
+    for role in ("laptop", "host"):
+        ex = _exports(tmp_path / role, [("fixtures_NHL_2026-10-03.json", TODAY, good),
+                                        ("fixtures_NHL_2026-10-02.json", TODAY, bare)])
+        assert em.push(role, ex, "t", remote, tmp_path / f"{role}_clone", today=TODAY)["pushed"]
+    co, _ = _tree(remote, tmp_path)
+    got = _run_action(co, tmp_path)
+    assert got == {"date": "2026-10-03", "state": "pending",
+                   "desc": "NOTHING-TO-COMPARE · 2026-10-03 — 1 paired file(s), window not read (338 item 3); "
+                           "neutral, not a data verdict"}, got
+
 def test_the_shipped_action_lists_coverage_as_machine_state_never_divergent(tmp_path):
     """#592 RULED (ARCHITECT 2026-10-18, addendum 128 item 3): "the compare treats kind `coverage` as "machine
     state": listed by presence on each side (one side, both sides, neither), never compared for content, never
@@ -301,7 +319,7 @@ def test_the_shipped_action_lists_coverage_as_machine_state_never_divergent(tmp_
     alone, then both with different content, push coverage_<date>.json. Both copies travel (dated and latest), and
     the SHIPPED tool in a clean checkout of the mirror (no sp_common, no exports_mirror) posts CLEAN each time."""
     remote = _remote(tmp_path)
-    body = '[{"utc_date":"2026-10-03T23:00Z","home_team":"A","away_team":"B","p":0.5}]'
+    body = '{"fixtures": [{"utc_date":"2026-10-03T23:00Z","home_team":"A","away_team":"B","p":0.5}]}'
     lap_cov = '{"kind": "coverage_v1", "now": "2026-10-03T12:00:00Z", "competitions": [{"groups": [{"state": "ahead"}]}]}'
     host_cov = '{"kind": "coverage_v1", "now": "2026-10-03T18:40:00Z", "competitions": [{"groups": [{"state": "due"}]}]}'
     host_ex = _exports(tmp_path / "host", [("fixtures_NHL_2026-10-03.json", TODAY, body)])
@@ -329,9 +347,12 @@ def test_the_shipped_action_lists_coverage_as_machine_state_never_divergent(tmp_
     assert {"host/2026-10-03/coverage_2026-10-03.json", "host/latest/coverage.json"} <= set(files)
     for folder in ("2026-10-03", "latest"):                                              # both, content differs
         r = cli(f"laptop/{folder}", f"host/{folder}", "--since", "0")
-        assert r.returncode == 0, r.stdout + r.stderr
         assert "machine-state files: coverage laptop yes / host yes" in r.stdout.splitlines()
-        assert "✗" not in r.stdout and r.stdout.strip().endswith("VERDICT: CLEAN")
+        assert "✗" not in r.stdout and "DIVERGENT" not in r.stdout.splitlines()[-1], r.stdout
+        if folder == "latest":        # an undated paired name: no window cut, never CLEAN (Codex on #927, P1)
+            assert r.returncode == 3 and "1 paired, window not read: fixtures_NHL.json" in r.stdout, r.stdout
+        else:
+            assert r.returncode == 0 and r.stdout.strip().endswith("VERDICT: CLEAN"), r.stdout + r.stderr
     assert _run_action(co, tmp_path)["state"] == "success"
 
 
@@ -966,7 +987,7 @@ def test_the_compare_never_sees_the_subtree(tmp_path):
     assert sorted(os.listdir(co / "host")) == ["bulletins"] and sorted(os.listdir(co / "laptop")) == ["bulletins"]
     got = _run_action(co, tmp_path)
     assert got["state"] == "pending" and "date" not in got, got            # bulletins/ is never a date
-    body = '[{"utc_date":"2026-10-03T23:00Z","home_team":"A","away_team":"B","p":0.5}]'
+    body = '{"fixtures": [{"utc_date":"2026-10-03T23:00Z","home_team":"A","away_team":"B","p":0.5}]}'
     for role in ("host", "laptop"):
         ex = _exports(tmp_path / f"d_{role}", [("fixtures_NHL_2026-10-03.json", TODAY, body)])
         _three(ex)

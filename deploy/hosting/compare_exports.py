@@ -40,7 +40,10 @@ only still print their `·` lines and are counted on the tally, and the verdict
 line names them; they no longer make a zero-compared run DIVERGENT. A file on
 both sides that does not parse is not "nothing to compare": it stays
 DIVERGENT. A run that compared at least one file reads as before (a file on
-one side only beside it is still DIVERGENT).
+one side only beside it is still DIVERGENT, even when every compared file is
+identical). So exit 1 means: a compared file differs, a pair does not parse,
+or a file sits on one side only beside at least one compared file. Those last
+two readings are this build's, put to the architect (needs-ruling).
 
 --since N (architect 2026-10-01; default 3): only files whose name carries a
 YYYY-MM-DD date within the last N UTC days (today and the N-1 days before)
@@ -75,7 +78,7 @@ date/time stamp removed): the dated coverage_<date>.json and the latest copy
 coverage.json are both kind coverage. A machine-state file in the window is
 never opened: it is not a `·` or `✗` line, not in the compared or the
 one-side count, and cannot make a verdict (a folder holding only it is
-NO-COVERAGE). One line, always printed, names its presence per side among
+NOTHING-TO-COMPARE; NO-COVERAGE under --require-predictions and in cutover_readiness). One line, always printed, names its presence per side among
 the files --glob and the window select (one they leave out reads no there and
 is counted as not matched or settled; the Action's *.json and --since 0
 select the whole folder). The --since window and the header's settled count

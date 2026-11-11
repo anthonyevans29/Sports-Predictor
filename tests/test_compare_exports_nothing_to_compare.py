@@ -78,3 +78,16 @@ def test_the_prediction_check_keeps_its_own_no_coverage_reading(tmp_path, capsys
     out = capsys.readouterr().out
     assert rc == ce.EXIT_NO_COVERAGE
     assert out.strip().splitlines()[-1] == "VERDICT: NO-COVERAGE (0 compared) — not a data verdict"
+
+
+def test_as_built_one_identical_shared_file_beside_one_sided_files_is_divergent(tmp_path, capsys):
+    """Pinned AS BUILT, open for the architect (needs-ruling on the PR): the 11-11 shape plus one identical shared
+    file reads DIVERGENT, so adding a clean comparison turns NOTHING-TO-COMPARE red. Whichever way the ruling goes,
+    this test is the line that changes."""
+    lap = {"mlb_MLB_results_2026-11-10.json": {"results": []}, "window_24h.json": {"entries": []}}
+    hos = {f"unl_shadow_{DAY}_0720.json": {"rows": []}, "window_24h.json": {"entries": []}}
+    rc, out = run(tmp_path, capsys, lap, hos)
+    assert rc == ce.EXIT_DIVERGENT
+    assert "✓ window_24h.json" in out
+    assert "DIVERGENT (1 compared; 2 on one side only: " in out
+    assert out.strip().splitlines()[-1] == "VERDICT: DIVERGENT"

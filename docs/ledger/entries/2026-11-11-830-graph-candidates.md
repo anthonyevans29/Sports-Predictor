@@ -14,9 +14,11 @@
   - The pick's requirements tabled per fitting candidate: identity, pin and sha256, host-only install, dependencies, licence.
   - The look-alike `real_ladybug` named (its Repository URL returns 404).
 - **Codex round 2 (one P1), fixed:** sqlitegraph and GrafitoDB added; the list's bound stated (the searches named, the index's JSON, Codex's two reviews; a later find is added by its own PR).
-- **For the architect:** seven candidates meet "embedded, file-based, no server, Cypher" as written, or come within a word of it:
+- **Codex round 3 (the cap):** the P1 is fixed (GraphQLite and graphdblite added; the summary lists every candidate's last release). The two P2s go to one follow-up Issue (the review stop rule: docs, after the second round).
+- **For the architect:** nine candidates meet "embedded, file-based, no server, Cypher" as written, or come within a word of it:
   - three of one lineage (Kùzu, LadybugDB, RyuGraph);
   - CypherLite, lance-graph and GrafitoDB, each with a Cypher subset;
+  - GraphQLite and graphdblite, each with Cypher over SQLite;
   - sqlitegraph, whose language is "Cypher-inspired".
 
   The page states each fact and no preference.

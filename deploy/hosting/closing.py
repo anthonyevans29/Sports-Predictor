@@ -2039,6 +2039,15 @@ def _closing(rec: dict, fam: str, s: datetime, covers: list[dict], folder: Path,
             srec["empty_answers"] = empty
             rec["injury_lists_empty"] = sorted(set(rec.get("injury_lists_empty", [])) | set(empty))
             print(f"· injury read answered empty (stored empty, read as unread): {'; '.join(empty)}")
+        held_codes = sp_run.sync_counts(tail).get("held")
+        if held_codes:                # SP_SYNC_HOLD (#921): the step wrote nothing; the run goes on, and says so
+            srec["held"] = held_codes
+            sh = rec.setdefault("sync_held", {"n": 0, "steps": []})
+            sh["n"] += 1
+            sh["steps"].append({"step": i, "command": line, "codes": held_codes})
+            print(f"· HELD (SP_SYNC_HOLD) {'/'.join(held_codes)}: step {i} wrote nothing"
+                  + ("; the schedule read was not made, so the run goes on with the STORED schedule"
+                     if i <= reads else ""), flush=True)
         if rc != 0:
             srec["tail"] = tail[-3:]  # e.g. strict mode's "✗ STRICT: ..." lines (addendum 22)
         rec["steps"].append(srec)

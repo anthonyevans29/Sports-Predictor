@@ -553,11 +553,11 @@ def sync_matches_cmd(
     SP_SKIP_FAMILIES names MLB syncs from the api-sports fallback (PHASE A).
     A code SP_SYNC_HOLD names is held: the step prints "HELD <code> (SP_SYNC_HOLD)", writes nothing and exits 0,
     --match-ids included (addendum 332 item 3)."""
-    if _sync_held(competition_code):
-        return
     named = _match_ids_opt(match_ids)
     if named is not None and seasons > 0:
         raise click.UsageError("--match-ids names the games of one read; not with --seasons")
+    if _sync_held(competition_code):          # after the arguments are checked: a bad call still fails
+        return
     if _mlb_fallback(competition_code):
         if named is not None:
             raise click.UsageError("--match-ids is not supported by the MLB api-sports fallback (no per-game "

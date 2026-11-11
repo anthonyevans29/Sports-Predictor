@@ -119,10 +119,16 @@ def test_intl_sync_writes_nothing_for_a_held_code_and_says_so(tmp_path, monkeypa
                     s.execute(select(Match.id).where(Match.external_ids["api_football"].as_string() == "9907501"))
                     .scalar_one_or_none())
     before = snapshot()
+    with session_scope() as s:                       # no team of the listing is written either
+        from src.db.schema import Team
+        teams_before = s.execute(select(func.count(Team.id))).scalar()
     monkeypatch.setenv("SP_SYNC_HOLD", "unl")
     r = ih.ingest(ih.Source(from_dir=str(d)), date(2018, 1, 1))
     assert r["held"] == ["UNL"] and r["per_cs"][("UNL", 2075)]["skipped"] == "HELD"
     assert snapshot() == before and before[2] is None                               # nothing written for UNL
+    with session_scope() as s:
+        from src.db.schema import Team
+        assert s.execute(select(func.count(Team.id))).scalar() == teams_before
     import cli
     out = CliRunner().invoke(cli.cli, ["intl-sync", "--from-dir", str(d)]).output
     assert "HELD UNL (SP_SYNC_HOLD)" in out.splitlines(), out
@@ -221,3 +227,60 @@ def test_the_admin_ui_sync_jobs_honor_the_hold(monkeypatch):
     monkeypatch.setenv("SP_SYNC_HOLD", "PL")
     assert admin._job_sync_teams(competition_code="PL", season="2026/27") == "HELD PL (SP_SYNC_HOLD)"
     assert admin._job_sync_matches(competition_code="pl", season="2026/27", seasons=0) == "HELD PL (SP_SYNC_HOLD)"
+
+
+# ------------------------------------------------------------------ review round (before the push)
+
+def test_the_setting_is_read_from_host_env_and_dotenv_too_a_code_in_any_is_held(tmp_path, monkeypatch):
+    """A run by hand outside a unit, and a long-running process, see a hold set in a file after they started."""
+    host = tmp_path / "host.env"
+    monkeypatch.setenv("SP_HOST_ENV", str(host))
+    monkeypatch.delenv("SP_SYNC_HOLD", raising=False)
+    monkeypatch.setattr(sync_hold, "REPO", tmp_path)                              # the checkout's .env
+    assert sync_hold.held_codes() == frozenset()
+    host.write_text("# host\nSP_SKIP_FAMILIES=MLB\nexport SP_SYNC_HOLD=\"ncaa, PL\"\n")
+    assert sync_hold.held_codes() == {"NCAA", "PL"}                               # re-read on each check
+    (tmp_path / ".env").write_text("SP_SYNC_HOLD=unl\n")
+    monkeypatch.setenv("SP_SYNC_HOLD", "NFL")
+    assert sync_hold.held_codes() == {"NCAA", "PL", "UNL", "NFL"}                 # the union of the three
+    assert sync_hold.sources() == {"environment": {"NFL"}, str(host): {"NCAA", "PL"},
+                                   str(tmp_path / ".env"): {"UNL"}}
+    host.write_text("SP_SYNC_HOLD=\n")
+    monkeypatch.delenv("SP_SYNC_HOLD")
+    assert sync_hold.held_codes() == {"UNL"}                                       # lifted where it was removed
+
+
+def test_bad_arguments_still_fail_under_a_hold(monkeypatch, tmp_path):
+    cli = _no_adapter(monkeypatch)
+    monkeypatch.setenv("SP_LOCK", str(tmp_path / "db.lock"))
+    monkeypatch.delenv(c.HELD_ENV, raising=False)
+    monkeypatch.setenv("SP_SYNC_HOLD", "PL")
+    r = CliRunner().invoke(cli.cli, ["sync-matches", "--competition", "PL", "--seasons", "2", "--match-ids", "1"])
+    assert r.exit_code == 2 and "HELD" not in r.output, r.output
+
+
+def test_a_closing_runs_held_schedule_read_is_receipted_and_said(monkeypatch, capsys):
+    """Review (P2): a held --match-ids read exits 0 (332 item 3, as built); the closing receipt records it and the
+    console says the run went on with the stored schedule. Whether it should fail the run instead is put to the
+    architect on the PR."""
+    import closing
+    src = inspect.getsource(closing)
+    assert 'srec["held"] = held_codes' in src and 'rec.setdefault("sync_held"' in src
+    assert "the run goes on with the STORED schedule" in src
+    assert sp_run.sync_counts(["ran x", "HELD PL (SP_SYNC_HOLD)"]) == {"held": ["PL"]}
+
+
+def test_a_freshen_and_a_chain_receipt_carry_the_hold(sandbox, monkeypatch, capsys, tmp_path):
+    (c.REPO / "cli.py").write_text(FAKE_HELD_CLI)
+    lst = sandbox / "fs.list"
+    lst.write_text("PL|2026/27\n")
+    monkeypatch.setenv("SP_FULLSEASON_LIST", str(lst))
+    monkeypatch.setenv("SP_HOST_ENV", str(tmp_path / "none.env"))
+    monkeypatch.setenv("SP_SYNC_HOLD", "pl")
+    capsys.readouterr()
+    assert sp_run.main(["weekly-fullseason"]) == 0
+    out = capsys.readouterr().out
+    chain = receipts(sandbox)[-1]
+    assert chain["sync_hold"]["environment"] == ["PL"]
+    assert " · SP_SYNC_HOLD PL" in next(x for x in out.splitlines() if x.startswith("✓ weekly-fullseason"))
+    assert "sync_held" in inspect.getsource(sp_run.run_freshens)                      # a freshen counts its own

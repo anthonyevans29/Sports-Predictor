@@ -411,6 +411,17 @@ def odds_by_team_text(x: dict) -> str:
     return " · ".join(part(k) for k in ODDS_BY_TEAM_KEYS)
 
 
+def _sync_hold():
+    """src/ingestion/sync_hold.py of THIS checkout, loaded by path: sp_run runs as a script (the repo root is not on
+    sys.path) and imports nothing else from src/. Stdlib only."""
+    import importlib.util
+    path = Path(__file__).resolve().parents[2] / "src" / "ingestion" / "sync_hold.py"
+    spec = importlib.util.spec_from_file_location("sp_sync_hold", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
 def held_totals(sync: list) -> dict:
     """The held steps of a run (addendum 332 item 3, #921): {n, steps: [{step, command, codes}]}. A step counts once
     however many codes it held (intl-sync prints one line per held code). `sync` is run_steps' report["sync"]."""
@@ -747,14 +758,16 @@ def run_freshens(needed: list, window_run_id: str, now, today: date) -> list[dic
         with c.db_lock():                     # checked under the lock its export runs under (Codex on #692)
             taken = freshen_out_taken(rv)
             if not taken:
-                rc, ok = run_steps(steps, name, f"sp-chain@{name}.service", run_id, today, quota)
+                freport: dict = {}
+                rc, ok = run_steps(steps, name, f"sp-chain@{name}.service", run_id, today, quota, report=freport)
         if taken:
             print(f"✗ {name}: {taken}", flush=True)
             out.append(c.append_receipt({**base, "exit": 1, "ran": False, "run_id": run_id, "refused": taken}))
             continue
         state[fam] = now.isoformat()
         rec = {**base, "exit": rc, "ran": True, "run_id": run_id,
-               "steps_ok": ok, "steps_total": len(steps), "quota": quota}
+               "steps_ok": ok, "steps_total": len(steps), "quota": quota,
+               "sync_held": held_totals(freport.get("sync") or [])}     # #921: a freshen's held steps, counted
         wrote = freshen_wrote(rv)
         if wrote is not None:
             rec["wrote"] = wrote
@@ -942,6 +955,9 @@ def main(argv=None) -> int:
     # their codes; always present (0 when none), so a run under a hold and a run without one read alike
     held_steps = held_totals(step_report["sync"])
     rec["sync_held"] = held_steps
+    hold_set = {k: sorted(v) for k, v in _sync_hold().sources().items()}   # the setting as parsed, by place
+    if hold_set:
+        rec["sync_hold"] = hold_set
     if page_rec is not None:
         rec["page"] = {k: page_rec.get(k) for k in ("deltas", "paged", "digest", "suppressed")}
         rec["freshens"] = [{k: f.get(k) for k in ("chain", "ran", "exit", "skipped")}
@@ -971,7 +987,8 @@ def main(argv=None) -> int:
     sbt_text = ("" if sbt is None else f" · orientation_reversed {sbt['orientation_reversed']} · "
                 f"teams_mismatch_refused {sbt['teams_mismatch_refused']}")
     obt_text = ("" if obt is None else "".join(f" · {k} {_n(obt[k])}" for k in ODDS_BY_TEAM_KEYS))
-    held_text = held_steps_text(held_steps)
+    held_text = held_steps_text(held_steps) + (
+        "" if not hold_set else " · SP_SYNC_HOLD " + ",".join(sorted(set().union(*hold_set.values()))))
     print(f"\n{'✓' if chain_exit == 0 else '✗'} {a.chain}: exit={chain_exit} "
           f"steps {ok}/{len(steps)} in {rec['duration_s']}s{teams_text}{skipped_text}{sbt_text}{obt_text}{held_text} · running "
           f"{c.running_release() or 'release ?'} · writer of record {c.writer_of_record() or '?'}")

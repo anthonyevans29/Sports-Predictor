@@ -1401,8 +1401,18 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
         host:
         1. Remove the code from `SP_SYNC_HOLD=` in `/etc/sports-predictor/host.env`.
         2. `sudo systemctl restart sp-web.service`.
-        3. On the next chain receipt (`sp_receipts.py --since 24h`, or the receipt's `sync_hold`), the lifted code is
-           listed under no place. A code still listed under `environment` is a process that was not restarted.
+        3. Read the by-place line on the next chain receipt: the last `chain` receipt's `sync_hold`. The receipts
+           table (`sp_receipts.py`) does not print it; this does:
+           `sudo -u sp venv/bin/python -c "import json,sys; sys.path.insert(0,'deploy/hosting'); import sp_common as c; r=[x for x in map(json.loads, open(c.receipts_path())) if x.get('kind') == 'chain']; print(r[-1].get('sync_hold') if r else 'no chain receipt')"`
+           (`None`: nothing held anywhere, or that run was refused before its steps: read the one before).
+           The lifted code is listed under no place.
+        4. **What step 3 cannot see (Code's review, put to the architect on #928):** a chain receipt's `environment`
+           is the chain's own process, and every chain re-reads host.env at its start (the unit's `EnvironmentFile`,
+           and sp_run's `load_host_env`). So the next chain receipt reads clean after the edit whether or not
+           sp-web was restarted. What does see sp-web: its start time after the edit
+           (`systemctl show -p ActiveEnterTimestamp sp-web.service`), or its own environment
+           (`sudo tr '\0' '\n' < /proc/$(systemctl show -p MainPID --value sp-web.service)/environ | grep SP_SYNC_HOLD`,
+           which prints nothing once the code is lifted and sp-web restarted).
         On the laptop: remove it from the checkout's `.env`, and restart the admin UI if it is running. The chains are
         short-lived and need nothing.
       - **What honors it.** `sync-teams` and `sync-matches` on every source (the MLB api-sports fallback and the
@@ -1426,10 +1436,13 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
         (336 item 1), so no bet can ride on a kickoff the slate did not re-read. What is missing is the label where
         the reader looks (law 4): the slate file and its page say "schedule not re-read: SP_SYNC_HOLD <code> —
         kickoffs as stored" on a held family's rows." As built (#928): every row of the held family's slate file
-        carries `schedule_note` = that text, written into the kept export before it is linked into exports/. The
-        page carries the same text on its second line, and the slate receipt keeps `schedule_note` {text, rows,
-        sha256}. `export_written` keeps the export step's own bytes' sha256, while `slate_file` names the labelled
-        file's. The NCAA shadow's `refresh_seen` names a held refresh-by-id step: state `none`, `held` [codes], and
+        carries `schedule_note` = that text. The labelled document is written to its own file beside the kept
+        export, `logs/<run id>.<slate file stem>.schedule-note.json`, created once and never written over, and THAT
+        file is linked into exports/. The export step's kept file is never written again (#442), so `export_written`
+        {file, sha256} still verifies. The page carries the same text on its second line. The slate receipt keeps
+        `schedule_note` {file, text, rows, sha256}, and `slate_file` names the labelled file's sha256. A label that
+        cannot be written fails the slate as `slate rows not labelled`, its notice naming the cause, and nothing is
+        linked, pushed or paged. The NCAA shadow's `refresh_seen` names a held refresh-by-id step: state `none`, `held` [codes], and
         `why` "the refresh-by-id step was HELD (SP_SYNC_HOLD <code>): it wrote nothing and no refresh_by_id
         receipt". By the write path (333 item
         3(iii)): `refresh-by-id` (NCAA,

@@ -513,8 +513,8 @@ def test_4_a_refresh_step_that_wrote_no_receipt_is_never_stamped_with_the_earlie
 
 
 def test_a_held_refresh_step_is_named_never_read_as_a_silent_no_receipt(tmp_path):
-    """#928 (ARCHITECT 2026-11-11 09:35 ET, addendum 336 item 2: "ncaa_shadow.refresh_seen not naming the hold: the
-    follow-up Issue"): a refresh-by-id step SP_SYNC_HOLD held (the HELD line, exit 0, no refresh_by_id receipt) is the
+    """#928 (ARCHITECT 2026-11-11 09:35 ET, addendum 336 item 2, verbatim: "Item 4 (ncaa_shadow.refresh_seen not
+    naming the hold): the follow-up Issue, as proposed; read-only class."): a refresh-by-id step SP_SYNC_HOLD held (the HELD line, exit 0, no refresh_by_id receipt) is the
     refresh this export saw, NONE, with the hold named in `why` and `held`, and in the text; by `sync.held` or by the
     tail's HELD line alike. A step held for another code is not this competition's hold."""
     base = {"kind": "refresh_by_id", "competition": "NCAA", "now": "x", "selected": 9, "updated": 2,

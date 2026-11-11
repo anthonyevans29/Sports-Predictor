@@ -1429,3 +1429,74 @@ def test_an_empty_reason_is_written_as_a_space_never_a_setext_underline(repo):
     assert b.run(closing_file=str(closing_file(repo, doc, "SOCCER"))) == 0
     md = md_of(repo, "SOCCER", 9401)
     assert "\n  - &#32;\n  - fee clears" in md and "\n  - \n" not in md
+
+
+
+# ----------------------------------------------- addendum 321 item 4: the hand-render's three display notes (#896) --
+
+def test_321_4a_an_nfl_row_without_a_competition_prints_nfl_on_the_page_and_the_card(repo):
+    """Addendum 321 item 4(a): "for NFL the family is the competition, print NFL". An NFL row carries no competition
+    (nfl_predict.py); every other family's missing competition stays not stored (law 4)."""
+    doc = nfl_doc()
+    for r in doc["predictions"]:
+        r.pop("competition")
+    assert b.run(closing_file=str(closing_file(repo, doc, "NFL"))) == 0
+    md = displayed(md_of(repo, "NFL", 9301))
+    assert "- competition: NFL (family NFL)" in md and "competition: not stored" not in md
+    files, _ = b.plan(doc, "NFL", "slate", repo / "exports" / "nfl_x.json", repo / "exports" / "bulletins", None)
+    assert files[1][1]["head"][1].startswith("NFL · matchweek 10")
+    doc = soccer_doc()
+    doc["predictions"][0].pop("competition")
+    files, _ = b.plan(doc, "SOCCER", "slate", repo / "exports" / "soccer_PL_x.json", repo / "exports" / "bulletins",
+                      None)
+    assert "- competition: not stored (family SOCCER)" in displayed(files[0][2])
+    assert files[1][1]["head"][1].startswith("not stored · matchweek")
+
+
+def test_321_4b_the_top_pick_prints_its_own_probability(repo):
+    """Addendum 321 item 4(b): "print the pick's own probability". NFL rows carry home_win_prob / away_win_prob and no
+    top_pick_prob: the pick's own side is read; a row's own top_pick_prob is printed as it stands; a pick naming no
+    selection stays not stored."""
+    doc = nfl_doc()
+    r = doc["predictions"][0]
+    r["prediction"].update(home_win_prob=0.4936, away_win_prob=0.5064, top_pick="away_win")
+    assert "top_pick_prob" not in r["prediction"]
+    assert b.top_pick_prob(r) == 0.5064
+    assert b.run(closing_file=str(closing_file(repo, doc, "NFL"))) == 0
+    assert "- top pick: away_win at 0.5064" in displayed(md_of(repo, "NFL", 9301))
+    assert "- top pick: home_win at 0.75" in displayed(md_of(repo, "NFL", 9302))
+    assert b.top_pick_prob({"prediction": {"top_pick": None, "home_win_prob": 0.6}}) is None
+    assert b.top_pick_prob({"prediction": {"top_pick": "over", "home_win_prob": 0.6}}) is None
+    assert b.top_pick_prob({"prediction": {"top_pick": ["away_win"], "away_win_prob": 0.6}}) is None
+    assert b.top_pick_prob({}) is None
+    soccer = soccer_doc()["predictions"][0]
+    assert b.top_pick_prob(soccer) == soccer["prediction"]["top_pick_prob"] == 0.55
+    soccer["prediction"].pop("top_pick_prob")
+    soccer["prediction"]["top_pick"] = "draw"
+    assert b.top_pick_prob(soccer) == 0.25                     # prediction.probabilities.draw
+
+
+def test_321_4c_the_most_likely_score_reads_with_a_hyphen(repo):
+    """Addendum 321 item 4(c): ""most likely score: 1, 1" — a hyphen, "1-1"". Anything but a pair of whole goal counts
+    prints as the row gives it."""
+    assert b.run(closing_file=str(closing_file(repo, soccer_doc(), "SOCCER"))) == 0
+    md = displayed(md_of(repo, "SOCCER", 9401))
+    assert "- most likely score: 1-1" in md and "1, 1" not in md
+    assert b.score_text([2, 0]) == "2-0" and b.score_text((0, 3)) == "0-3"
+    assert b.score_text([1, 1, 2]) == [1, 1, 2] and b.score_text([1.5, 1]) == [1.5, 1]
+    assert b.score_text([True, 1]) == [True, 1] and b.score_text("1-1") == "1-1" and b.score_text(None) is None
+    assert b.v(b.score_text(None)) == b.NOT_STORED
+
+
+def test_321_4c_a_value_shadow_line_carries_one_space_after_its_label(repo):
+    """Addendum 321 item 4(c): "Also the double space after "value shadow"". summary_block's console aligns its labels
+    with a column gap; the bulletin prints the line with one space there and the rest verbatim."""
+    doc = nfl_doc()
+    r = doc["predictions"][0]
+    x = cl.desk_rows({"predictions": [r]}, {r["match_id"]}, b.EPOCH, fam="NFL")[0]
+    x["value_shadow"] = {"side": "HOME", "units": 0.25, "edge_pp": 10.0, "exec_edge_pp": 7.5}
+    console = next(ln.strip() for ln in cl.summary_block(x).split("\n") if ln.strip().startswith("value shadow"))
+    assert console.startswith("value shadow  HOME")                # the console is unchanged
+    out = b.display_text("\n".join(b.section_call(r, r["desk"], x, "NFL")))
+    assert "- value shadow HOME 0.25u · edge +10.0pp · exec +7.5pp · shadow, not staked" in out
+    assert "value shadow  " not in out

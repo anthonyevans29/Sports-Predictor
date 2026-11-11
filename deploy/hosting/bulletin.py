@@ -16,7 +16,8 @@ Sections, in the ruled order, every one present: (a) the headline, (b) the call,
 
 THE CALL LINE is closing.call_text(row, desk), IMPORTED and printed verbatim; the would-be line is closing.would_be_text
 on the Desk row closing.desk_rows builds (the one the summary block prints), labelled "record only, not placed"; the
-quarantine, value shadow and kalshi-only hold lines are closing.summary_block's own lines for the row, verbatim.
+quarantine, value shadow and kalshi-only hold lines are closing.summary_block's own lines for the row, verbatim, except
+the console's column gap after "value shadow", which is one space here (ARCHITECT 2026-11-10, addendum 321 item 4(c)).
 
 THE CARD (item 1): "a phone-sized portrait card (1080 px wide), matplotlib's Agg backend with its bundled DejaVu Sans
 (no display, no system font)". Drawn on a matplotlib Figure with the Agg canvas (never pyplot, never a display), every
@@ -309,6 +310,38 @@ def model_p(row, side):
     return pr.get({"HOME": "home_win_prob", "AWAY": "away_win_prob"}.get(side, "-"))
 
 
+PICK_SIDE = {"home_win": "HOME", "draw": "DRAW", "away_win": "AWAY"}     # prediction.top_pick -> its selection
+
+
+def competition_of(row, fam: str):
+    """The row's competition. ARCHITECT 2026-11-10 13:05 ET, addendum 321 item 4(a), verbatim: "the NFL page prints
+    "competition: not stored (family NFL)" — for NFL the family is the competition, print NFL". An NFL row carries no
+    competition field (nfl_predict.py); every other family's row prints its own, and a missing one stays not stored."""
+    comp = row.get("competition")
+    return fam if comp is None and fam == "NFL" else comp
+
+
+def top_pick_prob(row):
+    """The top pick's own probability. Addendum 321 item 4(b), verbatim: ""top pick: away_win at not stored" while the
+    away probability is on the page (0.5064) — print the pick's own probability". prediction.top_pick_prob where the row
+    carries it (soccer, MLB); else the model's probability of the pick's own selection as the page prints it (model_p:
+    NFL's home_win_prob / away_win_prob). A pick naming no selection stays not stored."""
+    pr = row.get("prediction") or {}
+    if pr.get("top_pick_prob") is not None:
+        return pr["top_pick_prob"]
+    side = PICK_SIDE.get(pr.get("top_pick")) if isinstance(pr.get("top_pick"), str) else None
+    return model_p(row, side) if side else None
+
+
+def score_text(score):
+    """Addendum 321 item 4(c), verbatim: ""most likely score: 1, 1" — a hyphen, "1-1"". A pair of whole goal counts
+    reads home-away; any other value prints as the row gives it (v)."""
+    if (isinstance(score, (list, tuple)) and len(score) == 2
+            and all(isinstance(g, int) and not isinstance(g, bool) for g in score)):
+        return f"{score[0]}-{score[1]}"
+    return score
+
+
 def books_fair(row, side):
     m = row.get("market") or {}
     sel = get(m, "selections", side)
@@ -477,6 +510,9 @@ def _order_line(d: dict) -> str:
     return "order: none written (the reason is on the closing page)"
 
 
+_LABEL_GAP = re.compile(r"^(value shadow) {2,}")
+
+
 def section_call(row: dict, d: dict, x: dict | None, fam: str) -> list[str]:
     call = cl.call_text(row, d)
     out = ["## THE CALL", "", f"# {fv('desk.call_text', call)}", ""]
@@ -502,6 +538,7 @@ def section_call(row: dict, d: dict, x: dict | None, fam: str) -> list[str]:
         for line in cl.summary_block(x).split("\n"):
             s = line.strip()
             if s.startswith(("value shadow", "quarantine shadow", "kalshi-only hold")):
+                s = _LABEL_GAP.sub(r"\1 ", s)      # addendum 321 item 4(c): the console's column gap, one space
                 out.append(f"- {fv('desk.summary', s)}")
     return out + [""]
 
@@ -512,12 +549,12 @@ def section_prediction(row: dict, fam: str) -> list[str]:
            f"- computed_at: {fv('prediction.computed_at', pr.get('computed_at'))}"]
     for s in sides_of(row, fam):
         out.append(f"- {fv('side_name', side_name(row, s))} ({s.lower()}): {fv('prediction.model_p', model_p(row, s))}")
-    out += [f"- top pick: {fv('prediction.top_pick', pr.get('top_pick'))} at {fv('prediction.top_pick_prob', pr.get('top_pick_prob'))}", f"- tier: {fv('prediction.tier', pr.get('tier'))}"]
+    out += [f"- top pick: {fv('prediction.top_pick', pr.get('top_pick'))} at {fv('prediction.top_pick_prob', top_pick_prob(row))}", f"- tier: {fv('prediction.tier', pr.get('tier'))}"]
     if fam == "SOCCER":
         out += [f"- expected goals: {fv('home_team', row.get('home_team'))} "
                 f"{fv('prediction.expected_home', pr.get('expected_home'))} · {fv('away_team', row.get('away_team'))} "
                 f"{fv('prediction.expected_away', pr.get('expected_away'))}",
-                f"- most likely score: {fv('prediction.factor_breakdown.most_likely_score', get(pr, 'factor_breakdown', 'most_likely_score'))}"]
+                f"- most likely score: {fv('prediction.factor_breakdown.most_likely_score', score_text(get(pr, 'factor_breakdown', 'most_likely_score')))}"]
     elif fam == "NFL":
         out.append(f"- margin line (consensus home spread): {fv('row.market.consensus_home_spread', get(row, 'market', 'consensus_home_spread'))} · "
                    f"total line: {NOT_STORED}")
@@ -722,7 +759,7 @@ def markdown(row: dict, d: dict, x: dict | None, *, fam: str, stage: str, stage_
              cert: str, exports: Path, books: dict | None) -> str:
     ko = kickoff(row)
     lines = [f"# {fv('away_team', row.get('away_team'))} at {fv('home_team', row.get('home_team'))}", "",
-             f"- competition: {fv('row.competition', row.get('competition'))} (family {fam})",
+             f"- competition: {fv('row.competition', competition_of(row, fam))} (family {fam})",
              f"- matchweek: {fv('matchweek', week)}",
              f"- kickoff: {cl.et(ko)} ({cl.iso_z(ko)})",
              f"- stage: {stage_s}",
@@ -762,7 +799,7 @@ def card_spec(row: dict, d: dict, *, fam: str, stage_s: str, week: str, cert: st
     else:
         inj = [get(row, "injuries", s + "_count") for s in ("home", "away")]
     head = [f"{row.get('away_team')} at {row.get('home_team')}",
-            f"{v(row.get('competition'))} · matchweek {week} · {stage_s}",
+            f"{v(competition_of(row, fam))} · matchweek {week} · {stage_s}",
             f"kickoff {cl.et(ko)} ({cl.iso_z(ko)}) · run {v(run_id)}"]
     bars = [[(model_p(row, s), books_fair(row, s), kalshi_norm(row, s))[i] for s in sides] for i in range(3)]
     groups = [side_name(row, s)[:18] for s in sides]

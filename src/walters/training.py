@@ -397,14 +397,6 @@ def generate_predictions(
 # Q9 (ARCHITECT 2026-10-15, addendum 75 item 2): the lineup kinds the pricing reads: sync-lineups' own. Rows of any
 # other kind ("history": sync-lineups-history's finished cup fixtures) never reach a prediction or the cup exam.
 LIVE_LINEUP_KINDS = ("projected", "confirmed")
-# THE PERFECT-XI PRICE (ARCHITECT 2026-11-05 08:35 ET, addendum 256 item 3; 2026-11-11 14:10 ET, addendum 343 item 4):
-# the REPORT-ONLY path alone (cup-exam --with-history-xi) may price an exam fixture with its stored `history` XI
-# (sync-lineups-history's actual starters: post hoc, a bound, never an as-of input). The reading names the kind whose
-# EXISTING confidence (team_strength.CONFIDENCE_BY_KIND) prices it: "confirmed" is the figure OF RECORD (343 item 4: "the
-# receipt's figure OF RECORD prices the history XI as `confirmed` (0.7)"); "as_it_stands" passes the kind as stored
-# ("history"), which the table does not hold, so the lookup's own fallback prices it ("information only"). Nothing is
-# fitted and nothing new is added: the same multipliers, the same lookup. Never on the default path.
-HISTORY_XI_READINGS = {"confirmed": "confirmed", "as_it_stands": "history"}
 
 
 def _generate_predictions_soccer(
@@ -414,8 +406,7 @@ def _generate_predictions_soccer(
     only_match_id: int | None = None,
     include_finished: bool = False,
     cup_coeffs: dict | None = None,
-    cup_coeff_grid: tuple | None = None,
-    history_xi: str | None = None,
+    cup_coeff_grid: tuple | None = None, history_xi: str | None = None,
 ) -> int | list[dict]:
     """Soccer prediction pipeline (Elo + Poisson).
 
@@ -438,18 +429,7 @@ def _generate_predictions_soccer(
     poisson coeff, i.e. unchanged behavior. League competitions ignore
     both. `cup_coeff_grid` (report-only) also prices each cup row at
     every grid coeff, for tuning on the exact shipped path.
-
-    `history_xi` (report-only; HISTORY_XI_READINGS) prices each fixture
-    side that holds stored `history` starters with THAT XI through the
-    existing lineup and XI multipliers (addendum 256 item 3); a side with
-    none prices as today. Refused outside report-only.
     """
-    if history_xi is not None:
-        if not include_finished:
-            raise ValueError("history_xi is report-only (include_finished=True): the history XI is post hoc and never "
-                             "reaches a stored prediction (addendum 256 item 3)")
-        if history_xi not in HISTORY_XI_READINGS:
-            raise ValueError(f"history_xi {history_xi!r} is not one of {', '.join(HISTORY_XI_READINGS)}")
     sport = Sport.SOCCER
     written = 0
     report_rows: list[dict] = []
@@ -619,32 +599,8 @@ def _generate_predictions_soccer(
         ).scalars():
             starters_by_match_team.setdefault((ln.match_id, ln.team_id), []).append(ln)
 
-        # THE PERFECT-XI PRICE (report-only; addendum 256 item 3, 343 item 4): a fixture side holding stored `history`
-        # starters is priced with that XI (it replaces any live rows of the side) at the reading's kind; a side with
-        # none is untouched (law 4: priced as today and counted by the receipt, never imputed).
-        history_sides: set[tuple[int, int]] = set()
-        history_incomplete: set[tuple[int, int]] = set()
-        if history_xi is not None and upcoming:
-            from src.ingestion.lineups_history import ELEVEN
-            hist: dict[tuple[int, int], list] = {}
-            for ln in s.execute(
-                select(Lineup).where(Lineup.is_starter == True,  # noqa: E712
-                                     Lineup.kind == "history",
-                                     Lineup.match_id.in_([m.id for m in upcoming]))
-            ).scalars():
-                hist.setdefault((ln.match_id, ln.team_id), []).append(ln)
-            for key, rows in hist.items():
-                if len(rows) != ELEVEN:
-                    # not the actual XI (Codex on #935, round 1): the history ingest stores a short side and marks it
-                    # for retry; such a side prices as today and the receipt counts it, never as a covered side
-                    history_incomplete.add(key)
-                    continue
-                starters_by_match_team[key] = rows
-                lineup_kind_by_match_team[key] = HISTORY_XI_READINGS[history_xi]
-                history_sides.add(key)
-
-        # Recent-XI frequency per team. For each team in the upcoming set,
-        # look back at their last 10 confirmed lineups and count appearances.
+        hx = _history_xi(s, history_xi, include_finished, upcoming, starters_by_match_team, lineup_kind_by_match_team)
+        # Recent-XI frequency per team: each upcoming team's last 10 confirmed lineups, appearances counted.
         upcoming_team_ids = {m.home_team_id for m in upcoming} | {m.away_team_id for m in upcoming}
         recent_xi_freq_by_team: dict[int, dict[str, float]] = {}
         for team_id in upcoming_team_ids:
@@ -964,24 +920,8 @@ def _generate_predictions_soccer(
                     "home_defense": round(home_str.defense, 3),
                     "away_attack": round(away_str.attack, 3),
                     "away_defense": round(away_str.defense, 3),
-                    "elo_goal_coeff": poisson_cfg.elo_goal_coeff,
-                    **cup_receipt,
-                    # cup-exam --with-history-xi's receipt keys (report-only; absent on every other call, so the
-                    # default report rows are unchanged): per side, whether its XI came from the history rows, and
-                    # the XI multipliers it got (1.0 / 1.0 = no effect: no starters, or no season-stats baseline)
-                    **({"home_history_xi": (m.id, m.home_team_id) in history_sides,
-                        "away_history_xi": (m.id, m.away_team_id) in history_sides,
-                        "home_history_incomplete": (m.id, m.home_team_id) in history_incomplete,
-                        "away_history_incomplete": (m.id, m.away_team_id) in history_incomplete,
-                        "home_xi_baseline": home_baseline is not None,
-                        "away_xi_baseline": away_baseline is not None,
-                        # the starters of the XI priced that resolved to season stats (Codex on #935, round 1: the
-                        # baseline alone says nothing of the XI; 0 = the XI's multipliers had no stats to move on)
-                        "home_xi_scored": home_xi_obj.players_with_scores if home_xi_obj is not None else 0,
-                        "away_xi_scored": away_xi_obj.players_with_scores if away_xi_obj is not None else 0,
-                        "home_xi_mults": (home_atk_mult, home_def_mult),
-                        "away_xi_mults": (away_atk_mult, away_def_mult)}
-                       if history_xi is not None else {}),
+                    "elo_goal_coeff": poisson_cfg.elo_goal_coeff, **_history_xi_keys(hx, m, (home_baseline, away_baseline),
+                    (home_xi_obj, away_xi_obj), (home_atk_mult, home_def_mult, away_atk_mult, away_def_mult)), **cup_receipt,
                     **({"grid_probs": {
                         c: (lambda q: (q.p_home, q.p_draw, q.p_away))(predict_match(
                             home_elo=home_elo, away_elo=away_elo,
@@ -2477,3 +2417,78 @@ def soccer_weekly_refresh(max_rating_drift: float = 80.0) -> dict:
         return {"promoted": True, "candidate": cand_version,
                 "previous": prod_version,
                 "reason": "all sanity checks passed", "checks": checks}
+
+
+# ---------------------------------------------------------------------------
+# THE PERFECT-XI PRICE (ARCHITECT 2026-11-05 08:35 ET, addendum 256 item 3; 2026-11-11 14:10 ET, addendum 343 item 4):
+# cup-exam --with-history-xi's REPORT-ONLY reading of each exam fixture's stored `history` XI (#538: sync-lineups-history's
+# actual starters, post hoc, a bound, never an as-of input), through the EXISTING lineup and XI multipliers. Kept here, at
+# the end of the module, and hooked into _generate_predictions_soccer by edits that replace lines in place, so every
+# `training.py:<line>` the repo's specs and tests cite still names the line it named (the soccer parity pins check them).
+# ---------------------------------------------------------------------------
+
+# The reading names the kind whose EXISTING confidence (team_strength.CONFIDENCE_BY_KIND) prices the history XI:
+# "confirmed" is the figure OF RECORD (343 item 4: "the receipt's figure OF RECORD prices the history XI as `confirmed`
+# (0.7)"); "as_it_stands" passes the kind as stored ("history"), which the table does not hold, so the lookup's own
+# fallback prices it ("as it stands, information only"). Nothing is fitted and nothing new is added.
+HISTORY_XI_READINGS = {"confirmed": "confirmed", "as_it_stands": "history"}
+
+
+@dataclass
+class _HistoryXI:
+    """What _history_xi replaced: the (match, team) sides priced with their history XI, and the sides whose stored
+    history is not eleven starters (not the actual XI: priced as today, counted)."""
+    reading: str | None = None
+    sides: set = field(default_factory=set)
+    incomplete: set = field(default_factory=set)
+
+
+def _history_xi(s, history_xi, include_finished, upcoming, starters_by_match_team, lineup_kind_by_match_team):
+    """_generate_predictions_soccer's hook (addendum 256 item 3). history_xi None: nothing read, nothing changed (the
+    default path, every caller today). Otherwise REPORT-ONLY (refused without include_finished, before any row is
+    priced, nothing written): each upcoming fixture side holding EXACTLY eleven stored `history` starters
+    (lineups_history.ELEVEN; Codex on #935, round 1: the ingest stores a short side and marks it for retry) is priced
+    with that XI (it replaces any live rows of the side) at the reading's kind; any other count is counted, never used;
+    a side with none is untouched (law 4: priced as today, counted by the receipt, never imputed)."""
+    hx = _HistoryXI(reading=history_xi)
+    if history_xi is None:
+        return hx
+    if not include_finished:
+        raise ValueError("history_xi is report-only (include_finished=True): the history XI is post hoc and never "
+                         "reaches a stored prediction (addendum 256 item 3)")
+    if history_xi not in HISTORY_XI_READINGS:
+        raise ValueError(f"history_xi {history_xi!r} is not one of {', '.join(HISTORY_XI_READINGS)}")
+    if not upcoming:
+        return hx
+    from src.db.schema import Lineup
+    from src.ingestion.lineups_history import ELEVEN
+    hist: dict[tuple[int, int], list] = {}
+    for ln in s.execute(select(Lineup).where(Lineup.is_starter == True,  # noqa: E712
+                                             Lineup.kind == "history",
+                                             Lineup.match_id.in_([m.id for m in upcoming]))).scalars():
+        hist.setdefault((ln.match_id, ln.team_id), []).append(ln)
+    for key, rows in hist.items():
+        if len(rows) != ELEVEN:
+            hx.incomplete.add(key)
+            continue
+        starters_by_match_team[key] = rows
+        lineup_kind_by_match_team[key] = HISTORY_XI_READINGS[history_xi]
+        hx.sides.add(key)
+    return hx
+
+
+def _history_xi_keys(hx: _HistoryXI, m, baselines, xi_objs, mults) -> dict:
+    """cup-exam --with-history-xi's report-row keys, {} on every other call (the default report row unchanged): per
+    side, whether its XI came from the history rows, whether its stored history was not eleven starters, whether the
+    team has a season-stats baseline, how many of the XI priced resolved to season stats (Codex on #935, round 1: the
+    baseline alone says nothing of the XI), and the XI multipliers it got (1.0 / 1.0 = no effect)."""
+    if hx.reading is None:
+        return {}
+    out = {}
+    for i, (side, team_id) in enumerate((("home", m.home_team_id), ("away", m.away_team_id))):
+        out[f"{side}_history_xi"] = (m.id, team_id) in hx.sides
+        out[f"{side}_history_incomplete"] = (m.id, team_id) in hx.incomplete
+        out[f"{side}_xi_baseline"] = baselines[i] is not None
+        out[f"{side}_xi_scored"] = xi_objs[i].players_with_scores if xi_objs[i] is not None else 0
+        out[f"{side}_xi_mults"] = (mults[2 * i], mults[2 * i + 1])
+    return out

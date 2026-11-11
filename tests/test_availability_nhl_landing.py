@@ -346,9 +346,25 @@ def test_6c_a_poll_more_than_five_minutes_past_is_missed_with_no_call_and_a_late
     assert [(p.label, p.missed) for p in t.due] == [("T-120", True)] and http.n("/landing") == 0
     (o,) = _obs()
     assert o["status"] == "missed" and o["fetched_at"] is None and o["http_status"] is None
-    t = _tick(http, START - timedelta(minutes=86), lag=timedelta(minutes=5, seconds=30))   # 4 min past; answer late
+    # an answer stamped more than five minutes after its time (a slow call, after the plan): asked, flagged late
+    at = START - timedelta(minutes=86)                        # T-90 is 4 min past at the plan
+    clock = iter([at + timedelta(seconds=1), at + timedelta(minutes=1, seconds=30)])   # the plan, the stamp
+    nl.tick(at, http_get=http, now_fn=lambda: next(clock))
     o = _obs()[-1]
     assert o["poll_label"] == "T-90" and o["status"] == "complete" and o["late"]
+
+
+def test_the_plan_under_the_lock_reads_the_clock_again_so_a_poll_past_five_minutes_while_waiting_is_missed():
+    """Review finding: the tick's `now` was frozen before the lock wait. 4 min past at the tick's start, 9 min past
+    once the lock is held: `missed`, no call (252 item 3(b))."""
+    _nhl()
+    http = FakeHTTP(_routes())
+    _seed_written({(GAME, "T-120")})
+    at = START - timedelta(minutes=86)
+    t = nl.tick(at, http_get=http, now_fn=lambda: at + timedelta(minutes=5, seconds=30))
+    o = _obs()[-1]
+    assert o["poll_label"] == "T-90" and o["status"] == "missed" and http.n("/landing") == 0
+    assert t.planned_at == at + timedelta(minutes=5, seconds=30)
 
 
 def test_340_3_polls_inside_the_reboot_buffer_are_missed_rows_written_by_the_first_tick_after_it():
@@ -387,7 +403,8 @@ def test_341_two_sides_map_onto_the_hosts_names_and_a_made_up_club_is_refused():
     assert nl.resolve_team(u, games[2]["away_names"]) == ids["Toronto Maple Leafs"]
     assert nl.resolve_team(u, games[3]["home_names"]) == ids["St. Louis Blues"]
     assert nl.resolve_team(u, games[3]["away_names"]) == ids["New York Islanders"]
-    assert len({nl.resolve_team(u, [n]) for n in HOST_NHL_TEAMS}) == 32                      # each of the 32, itself
+    got = [nl.resolve_team(u, [n]) for n in HOST_NHL_TEAMS]
+    assert None not in got and len(set(got)) == 32 and set(got) == set(ids.values())     # each of the 32, itself
 
 
 def test_341_an_unmapped_team_stays_null_with_its_text_and_the_observation_is_partial():
@@ -505,8 +522,10 @@ def test_835_2_the_poll_key_is_an_index_and_a_guard_and_a_store_migrated_before_
     from src.db.database import readonly_scope
     with readonly_scope() as s:
         assert rec.migrated(s) and not nl.poll_key_migrated(s)
+    http = FakeHTTP(_routes())
     with pytest.raises(nl.Refused, match="since #835 item 2's poll key"):
-        nl.tick(START, http_get=FakeHTTP(_routes()), now_fn=lambda: START)
+        nl.tick(START, http_get=http, now_fn=lambda: START)
+    assert http.calls == [] and not (tmp_path / "logs").exists()        # refused before any call, kept file or notice
     assert mig.main() == 0
     out1 = capsys.readouterr().out
     assert f"+ Created trigger {nl.POLL_GUARD}" in out1 and out1.count("+ Created trigger") == 1
@@ -579,7 +598,10 @@ def test_340_4_a_failed_schedule_read_invents_nothing_and_notices_once_per_day()
     t2 = _tick(http, START + timedelta(minutes=35))
     assert t1.exit_code == 1 and t2.exit_code == 0 and t1.schedules[0].notice and not t2.schedules[0].notice
     assert _counts() == (0, 0) and t1.games == 0                # no missed rows for games it could not know
-    assert "ERROR (redacted): ConnectionError: down" in t2.lines()[1]
+    assert "ERROR (redacted): ConnectionError: down" in t1.lines()[1]
+    assert "last read FAILED at" in t2.lines()[1] and http.n("/schedule/") == 1     # at most hourly: not re-read
+    t3 = _tick(http, START + timedelta(minutes=95))              # over the hour: read again (fails again, no notice)
+    assert http.n("/schedule/") == 2 and t3.exit_code == 0 and t3.schedules[0].read == "failed"
 
 
 def test_340_4_a_failed_read_uses_the_games_it_already_knew():
@@ -648,3 +670,144 @@ def test_the_command_one_tick_its_receipt_and_its_refusals(monkeypatch, tmp_path
     res = CliRunner().invoke(cli, ["availability-nhl-observe"])
     assert res.exit_code == 2 and "the record never creates one" in res.output
     assert not (tmp_path / "nope").exists()
+
+
+# ---- the review's findings (the adversarial pass before the PR) ------------------------------------------------------------
+
+def test_a_start_moved_earlier_never_re_asks_a_written_endpoint_and_time():
+    """#835 item 2's key "the scheduled poll time is the poll": START moved 30 min earlier lands the recomputed T-90 on
+    the written T-120's (endpoint, scheduled_at); it is written already, never due, never an "already" every tick."""
+    _nhl()
+    http = FakeHTTP(_routes())
+    _tick(http, START - timedelta(minutes=120))                  # T-120 at START-120
+    http.routes[nl.schedule_url(DAY)] = _schedule(_game(start=START - timedelta(minutes=30)))
+    t = _tick(http, START - timedelta(minutes=59))               # over an hour: the earlier start read
+    assert ("T-90" not in [p.label for p in t.due]) and t.already == 0
+    assert [o["poll_label"] for o in _obs()][0] == "T-120" and _obs()[0]["scheduled_at"] == _dt(START - timedelta(
+        minutes=120))
+
+
+def test_one_match_two_game_ids_maps_neither():
+    """Law 4: two gameIds that resolve to one match (here: the same pair at the same start) keep match_id NULL with
+    their own source_match_id; neither poll is swallowed by Step B's key as "already"."""
+    _nhl()
+    http = FakeHTTP({**_routes(), nl.schedule_url(DAY): _schedule(_game(), _game(GAME + 7)),
+                     nl.game_url(GAME + 7, "landing"): _landing((30,), (40,))})
+    t = _tick(http, START - timedelta(minutes=120))
+    o = _obs()
+    assert len(o) == 2 and t.already == 0 and {x["match_id"] for x in o} == {None}
+    assert {x["status"] for x in o} == {"partial"}
+
+
+def test_a_match_already_claimed_by_another_game_in_the_record_is_refused():
+    _, mid = _nhl()
+    rec.write_observation({"sport": "nhl", "source": nl.SOURCE, "endpoint": nl.game_url(GAME + 9, "landing"),
+                           "match_id": mid, "kickoff_at": START, "poll_label": "T-120", "status": "missed",
+                           "scheduled_at": START - timedelta(minutes=120)})
+    _tick(FakeHTTP(_routes()), START - timedelta(minutes=120))
+    assert _obs()[-1]["match_id"] is None and _obs()[-1]["status"] == "partial"
+
+
+def test_a_side_whose_candidates_name_two_teams_is_unmapped_union_not_first_hit():
+    """341 item 2: "a side maps only when its candidates resolve to exactly one": a Utah side's candidates (Utah
+    Mammoth, Utah Hockey Club by NAME_ALIASES) naming two stored rows maps to neither."""
+    from src.db.database import readonly_scope, session_scope
+    from src.db.schema import Match, MatchStatus, Sport, Team
+    from src.ingestion.nhl_goalies import schedule_games
+    ids, mid = _nhl()
+    with session_scope() as s:
+        old = Team(sport=Sport.NHL, name="Utah Hockey Club")
+        s.add(old)
+        s.flush()
+        m = s.get(Match, mid)
+        s.add(Match(sport=Sport.NHL, competition_id=m.competition_id, season="2024", utc_date=datetime(2025, 1, 5),
+                    status=MatchStatus.FINISHED, home_team_id=old.id, away_team_id=m.home_team_id))
+    g = schedule_games(_schedule(_game(home=UTA)))[0]
+    with readonly_scope() as s:
+        u = nl.team_universe(s)
+    assert nl.resolve_team(u, ["Utah Mammoth"]) == ids["Utah Mammoth"]        # one name alone: one team
+    assert nl.resolve_team(u, g["home_names"]) is None                           # the side's candidates: two teams
+
+
+def test_source_team_is_the_schedules_own_text_verbatim_and_a_side_with_none_asserts_nothing():
+    _nhl(match_pair=None)
+    (g,) = nl.day_games(_schedule(_game(home=MTL)), DAY)
+    assert g["home_text"] == "MTL" and g["away_text"] == "BOS"
+    raw = _game(home=MTL)
+    del raw["homeTeam"]["abbrev"]
+    (g,) = nl.day_games(_schedule(raw), DAY)
+    assert g["home_text"] == "Montréal Canadiens"                # verbatim: the accent kept
+    raw["homeTeam"] = {"id": 5}                                  # a side the schedule names no team for
+    (g,) = nl.day_games(_schedule(raw), DAY)
+    r = nl.read_landing(_landing(), g, {"home": None, "away": None}, None)
+    assert [a["attrs"]["side"] for a in r.assertions] == ["away"] and "names no team" in r.missing["home"]
+
+
+def test_a_boxscore_whose_toi_is_unread_is_empty_with_the_note_never_a_clean_none_in_net():
+    _nhl()
+    _seed_written({(GAME, lab) for lab in PREGAME_LABELS})
+    box = _box([{"playerId": 10, "toi": "n/a"}], [_goalie(20, "00:00")])
+    _tick(FakeHTTP(_routes(box=box)), START + timedelta(minutes=20))
+    o = _obs()[-1]
+    assert o["status"] == "empty" and "could not read" in o["error"] and o["rows_asserted"] == 0
+
+
+def test_a_payload_is_dropped_when_the_write_raises_anything(monkeypatch, tmp_path):
+    _nhl()
+    monkeypatch.setattr(rec, "write_observation", lambda *a, **k: (_ for _ in ()).throw(OSError("disk")))
+    with pytest.raises(OSError):
+        _tick(FakeHTTP(_routes()), START - timedelta(minutes=120))
+    assert not list((tmp_path / "logs").rglob("*_landing_*.json"))
+
+
+def test_a_due_tick_takes_the_db_lock_and_plans_again_under_it(monkeypatch):
+    import contextlib
+    _nhl()
+    taken = []
+
+    @contextlib.contextmanager
+    def lock():
+        taken.append(len(_obs()))
+        yield
+    monkeypatch.setattr(nl, "_db_lock", lock)
+    _tick(FakeHTTP(_routes()), START - timedelta(minutes=120))
+    assert taken == [0] and len(_obs()) == 1
+
+
+def test_a_store_refusal_after_the_keep_is_a_failed_row_keeping_the_payload(monkeypatch, tmp_path):
+    _nhl()
+    real = rec.write_observation
+    calls = []
+
+    def refuse_first(obs, assertions=()):
+        calls.append(obs["status"])
+        if len(calls) == 1:
+            raise rec.Refused("REFUSED: the store refused the write (a synthetic refusal); nothing written")
+        return real(obs, assertions)
+    monkeypatch.setattr(rec, "write_observation", refuse_first)
+    _tick(FakeHTTP(_routes()), START - timedelta(minutes=120))
+    (o,) = _obs()
+    assert calls == ["complete", "failed"] and o["status"] == "failed" and "synthetic refusal" in o["error"]
+    assert o["payload_path"] and (tmp_path / o["payload_path"]).is_file() and _counts() == (1, 0)
+
+
+def test_already_drops_the_payload_this_run_created(monkeypatch, tmp_path):
+    _nhl()
+    monkeypatch.setattr(rec, "write_observation",
+                        lambda obs, assertions=(): rec.Receipt(source=nl.SOURCE, status=obs["status"], already=True))
+    t = _tick(FakeHTTP(_routes()), START - timedelta(minutes=120))
+    assert t.already == 1 and not list((tmp_path / "logs").rglob("*_landing_*.json"))
+    assert "already observed 1" in t.lines()[0]
+
+
+def test_the_command_exits_1_on_the_days_first_failed_schedule_read_then_0(monkeypatch):
+    from cli import cli
+    _nhl()
+    import requests
+    monkeypatch.setattr(requests, "get", FakeHTTP({nl.schedule_url(DAY): 503}))
+    monkeypatch.setattr(nl, "_now", lambda: START - timedelta(minutes=120))
+    first = CliRunner().invoke(cli, ["availability-nhl-observe"])
+    assert first.exit_code == 1 and "NOTICE: the NHL day's first failed schedule read" in first.output
+    monkeypatch.setattr(nl, "_now", lambda: START - timedelta(minutes=115))
+    second = CliRunner().invoke(cli, ["availability-nhl-observe"])
+    assert second.exit_code == 0 and "last read FAILED at" in second.output

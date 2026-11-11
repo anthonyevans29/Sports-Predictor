@@ -288,11 +288,33 @@ class Schedule:
     notice: bool = False                                 # this tick's failure is the NHL day's first: the notice
 
 
+def _side_text(t) -> str | None:
+    """A side's own team text, VERBATIM (accents kept): its abbrev, else its full name, else placeName + commonName."""
+    if not isinstance(t, dict):
+        return None
+    for v in (t.get("abbrev"), t.get("name"), t.get("fullName")):
+        if ng._text(v):
+            return ng._text(v)
+    place, common = ng._text(t.get("placeName")), ng._text(t.get("commonName"))
+    return f"{place} {common}" if place and common else None
+
+
 def day_games(payload, day: date) -> list[dict]:
-    """The schedule's games of the NHL day, types 2/3, in start order (the probe's day_games)."""
+    """The schedule's games of the NHL day, types 2/3, in start order (the probe's day_games), each with
+    `home_text` / `away_text`: the side's own team text verbatim (_side_text), the record's source_team."""
     lo, hi = day_bounds(day)
     out = [g for g in ng.schedule_games(payload) if g["start"] is not None and lo <= g["start"] < hi
            and g["game_type"] in GAME_TYPES]
+    raw: dict = {}
+    for _, d in ng.walk(payload or {}):                  # the dicts schedule_games read, by the game's id
+        if isinstance(d.get("id"), int) and d["id"] not in raw:
+            home = next((v for k, v in d.items() if k.lower().startswith("home") and isinstance(v, dict)), None)
+            away = next((v for k, v in d.items() if k.lower().startswith("away") and isinstance(v, dict)), None)
+            if home is not None and away is not None:
+                raw[d["id"]] = (home, away)
+    for g in out:
+        home, away = raw.get(g["id"], (None, None))
+        g["home_text"], g["away_text"] = _side_text(home), _side_text(away)
     return sorted(out, key=lambda g: (g["start"], g["id"]))
 
 
@@ -302,6 +324,7 @@ def _kept_schedules(day: date) -> list[Path]:
 
 
 def _checked(day: date) -> tuple[datetime | None, str | None]:
+    """(when the day was last read, the sha256 it answered or "failed"), from `schedule.checked`."""
     p = PAYLOAD_BASE / _rel_dir(day) / CHECKED
     try:
         at, sha = p.read_text(encoding="utf-8").split()
@@ -324,22 +347,26 @@ def schedule(day: date, now: datetime, *, http_get=None, now_fn=None, keep: bool
     newest = kept[-1] if kept else None
     checked_at, checked_sha = _checked(day)
     sc = Schedule(day)
+    known = None
     if newest is not None:
         sc.sha = hashlib.sha256(newest.read_bytes()).hexdigest()
         sc.path = newest.relative_to(PAYLOAD_BASE).as_posix()
-        if checked_at is not None and checked_sha == sc.sha and now - checked_at < SCHEDULE_TTL:
-            payload, why = _json(newest.read_bytes())
-            if payload is not None:
-                sc.games, sc.checked_at = day_games(payload, day), checked_at
-                return sc
+        known, _ = _json(newest.read_bytes())
+    # AT MOST HOURLY (340 item 4): a day read within the hour, answered or not, is not read again; the tick uses the
+    # newest kept answer (the games it already knew), and a day whose last read failed says so on its line
+    if checked_at is not None and now - checked_at < SCHEDULE_TTL and (checked_sha == "failed" or
+                                                                       (known is not None and checked_sha == sc.sha)):
+        sc.games, sc.checked_at = (day_games(known, day) if known is not None else []), checked_at
+        if checked_sha == "failed":
+            sc.read = f"last read FAILED at {_z(checked_at)}: the next read after {_z(checked_at + SCHEDULE_TTL)}"
+        return sc
     a = get(schedule_url(day), http_get=http_get, now_fn=now_fn)
     payload, why = (_json(a.body) if a.error is None else (None, a.error))
     if payload is None:
         sc.read, sc.error = "failed", (why or "no answer")[:256]
-        if newest is not None:                           # the games it already knew; nothing invented (340 item 4)
-            old, _ = _json(newest.read_bytes())
-            sc.games = day_games(old, day) if old is not None else []
+        sc.games = day_games(known, day) if known is not None else []   # nothing invented (340 item 4)
         if keep:
+            _stamp_checked(day, a.at, "failed")
             n = PAYLOAD_BASE / _rel_dir(day) / NOTICE
             n.parent.mkdir(parents=True, exist_ok=True)
             try:
@@ -364,14 +391,20 @@ def schedule(day: date, now: datetime, *, http_get=None, now_fn=None, keep: bool
 
 # ---- the mapping (addendum 341 item 2) ---------------------------------------------------------------------------------
 
+NHL_COMPETITION = "NHL"
+
+
 def team_universe(s) -> dict:
-    """{normalised name: {team ids}} over the teams of the NHL's stored matches (the rows find_match compares)."""
+    """{normalised name: {team ids}} over the NHL competition's teams: the teams of its stored matches (the host's 32,
+    addendum 341 item 2, read from "the 2026 season's matches"; the rows find_match compares)."""
     from sqlalchemy import select, union
 
-    from src.db.schema import Match, Sport, Team
+    from src.db.schema import Competition, Match, Sport, Team
     from src.ingestion.match_lookup import normalize_team_name
-    ids = union(select(Match.home_team_id.label("t")).where(Match.sport == Sport.NHL),
-                select(Match.away_team_id.label("t")).where(Match.sport == Sport.NHL)).subquery()
+    nhl = select(Competition.id).where(Competition.sport == Sport.NHL, Competition.code == NHL_COMPETITION)
+    mine = (Match.sport == Sport.NHL, Match.competition_id.in_(nhl))
+    ids = union(select(Match.home_team_id.label("t")).where(*mine),
+                select(Match.away_team_id.label("t")).where(*mine)).subquery()
     out: dict = {}
     for tid, name in s.execute(select(Team.id, Team.name).where(Team.id.in_(select(ids.c.t)))).all():
         n = normalize_team_name(name or "")
@@ -381,13 +414,14 @@ def team_universe(s) -> dict:
 
 
 def resolve_team(universe: dict, candidates) -> int | None:
-    """The one team the side's candidates resolve to, in the matcher's order, or None (341 item 2)."""
+    """The team the side's candidates resolve to, or None (341 item 2, verbatim: "a side maps only when its candidates
+    resolve to exactly one of the NHL competition's teams"): the union of the teams every candidate's normalised name
+    names must be exactly one team; none, or two or more (a name held twice, an alias naming another row), is None."""
     from src.ingestion.match_lookup import normalize_team_name
+    hit: set = set()
     for c in candidates or ():
-        hit = universe.get(normalize_team_name(c or ""), set())
-        if len(hit) == 1:
-            return next(iter(hit))
-    return None
+        hit |= universe.get(normalize_team_name(c or ""), set())
+    return next(iter(hit)) if len(hit) == 1 else None
 
 
 def resolve_match(s, game: dict) -> int | None:
@@ -405,12 +439,10 @@ def resolve_match(s, game: dict) -> int | None:
     return m.id if m is not None else None
 
 
-def source_team(game: dict, side: str) -> str:
-    abbrev = ng._text(game.get(f"{side}_abbrev"))
-    if abbrev:
-        return abbrev
-    names = game.get(f"{side}_names") or []
-    return names[0] if names else f"{side} (no name in the schedule)"
+def source_team(game: dict, side: str) -> str | None:
+    """The side's own team text, verbatim (day_games' `<side>_text`), or None: a side the schedule names no team for
+    asserts nothing (law 4: never a made-up text), counted as missing."""
+    return game.get(f"{side}_text")
 
 
 # ---- reading one answer ------------------------------------------------------------------------------------------------
@@ -421,7 +453,7 @@ class Read:
     assertions: list = field(default_factory=list)
     missing: dict = field(default_factory=dict)          # side -> why (a landing side with no leaders[0])
     two_in_net: list = field(default_factory=list)       # sides with two or more goalies above zero toi
-    error: str | None = None
+    error: str | None = None                             # a `failed` read's reason, or an `empty` one's note
 
 
 def read_landing(payload, game: dict, teams: dict, match_id: int | None) -> Read:
@@ -432,6 +464,9 @@ def read_landing(payload, game: dict, teams: dict, match_id: int | None) -> Read
             r.missing[side] = why
             continue
         pid, name = got
+        if teams.get(side) is None and source_team(game, side) is None:
+            r.missing[side] = "the schedule names no team for this side (nothing asserted: law 4)"
+            continue
         r.assertions.append({"kind": "projected_starter", "player_id": None, "source_player_id": str(pid),
                              "player_name": name, "team_id": teams.get(side), "source_team": source_team(game, side),
                              "match_id": match_id,
@@ -451,6 +486,9 @@ def read_boxscore(payload, game: dict, teams: dict, match_id: int | None) -> Rea
         mine = [x for x in rows if x["side"] == side]
         on = [x for x in mine if x["toi_seconds"] is not None and x["toi_seconds"] > 0]
         unread = sum(x["toi_seconds"] is None for x in mine)
+        if on and teams.get(side) is None and source_team(game, side) is None:
+            r.missing[side] = "the schedule names no team for this side (nothing asserted: law 4)"
+            continue
         if len(on) > 1:
             r.two_in_net.append(side)
         for x in on:
@@ -462,6 +500,10 @@ def read_boxscore(payload, game: dict, teams: dict, match_id: int | None) -> Rea
                                            "toi_seconds": x["toi_seconds"], "two_in_net": len(on) > 1,
                                            "toi_unread": unread}})
     r.status = _status(r.assertions, match_id)
+    unread = sum(x["toi_seconds"] is None for x in rows)
+    if r.status == "empty" and unread:                    # "none in net" only as far as the ingest could read it
+        r.error = (f"no goalie above zero toi; {unread} goalie(s) whose toi the ingest could not read (law 4: not "
+                   f"read as none in net)")
     return r
 
 
@@ -501,6 +543,7 @@ class Tick:
     rows: list = field(default_factory=list)             # (Poll, status, line detail)
     already: int = 0
     exit_code: int = 0
+    planned_at: datetime | None = None                   # the clock the due polls were planned on (under the lock)
 
     def lines(self) -> list[str]:
         out = [f"AVAILABILITY-NHL-OBSERVE · {_z(self.now)} · games in the window {self.games} · polls due "
@@ -537,26 +580,35 @@ def _window_games(schedules: list, now: datetime) -> list[dict]:
 
 
 def written_polls(s, games: list[dict]) -> set:
-    """{(gameId, label)} the store holds for these games: an observation of this source at the game's landing or
-    boxscore URL with the poll's label, whatever kickoff it was scheduled against (340 item 4)."""
+    """What the store holds for these games, as {(gameId, label)} and {(endpoint, scheduled_at)}: an observation of
+    this source at the game's landing or boxscore URL with a poll label. A poll is WRITTEN when its label is held,
+    whatever kickoff it was scheduled against (340 item 4: "a written poll is never touched"), or when its endpoint and
+    scheduled time are held under another label (#835 item 2's key: "the scheduled poll time is the poll"; a start
+    moved earlier can land a recomputed poll on one already asked)."""
     from sqlalchemy import select
 
     from src.db.schema import AvailabilityObservation as O
     by_url = {game_url(g["id"], ep): g["id"] for g in games for ep in (LANDING, BOXSCORE)}
+    labels, times = set(), set()
     if not by_url:
-        return set()
-    return {(by_url[ep], label) for ep, label in s.execute(
-        select(O.endpoint, O.poll_label).where(O.source == SOURCE, O.endpoint.in_(list(by_url)),
-                                               O.poll_label.is_not(None)))}
+        return labels | times
+    for ep, label, sched in s.execute(select(O.endpoint, O.poll_label, O.scheduled_at).where(
+            O.source == SOURCE, O.endpoint.in_(list(by_url)), O.poll_label.is_not(None))):
+        labels.add((by_url[ep], label))
+        if sched is not None:
+            times.add((ep, sched))
+    return labels | times
 
 
 def plan(games: list[dict], written: set, now: datetime) -> tuple[list[Poll], int]:
+    """The due polls (time passed, not written) and the count not yet due. `written` holds (gameId, label) and
+    (endpoint, scheduled_at) pairs (written_polls)."""
     due, remaining = [], 0
     for g in games:
         for label, off, ep in POLLS:
-            if (g["id"], label) in written:
-                continue
             sched = g["start"] - timedelta(minutes=off)
+            if (g["id"], label) in written or (game_url(g["id"], ep), sched) in written:
+                continue
             if sched > now:
                 remaining += 1
                 continue
@@ -584,19 +636,25 @@ def _db_lock():
                                                        "it)", flush=True))
 
 
-def _plan_ro(t: Tick, *, refuse_unmigrated: bool):
-    """The window's games and their due polls, read mode=ro. Refuses an unmigrated store when it will write."""
+_UNMIGRATED = ("REFUSED: migrate_availability_record.py has not run on this store since #835 item 2's poll key "
+               f"({POLL_KEY_INDEX}, {POLL_GUARD}): run it (a .backup first); nothing asked, nothing kept, nothing "
+               "written. --dry-run reads without it.")
+
+
+def _plan_ro(t: Tick, *, refuse_unmigrated: bool, at: datetime | None = None):
+    """The window's games and their due polls at `at` (default the tick's start), read mode=ro. Refuses an unmigrated
+    store when it will write."""
     from src.db.database import readonly_scope
-    games = _window_games(t.schedules, t.now)
+    at = at or t.now
+    games = _window_games(t.schedules, at)
     with readonly_scope() as s:
         ok = rec.migrated(s) and poll_key_migrated(s)
         if refuse_unmigrated and not ok:
-            raise Refused("REFUSED: migrate_availability_record.py has not run on this store since #835 item 2's poll "
-                          f"key ({POLL_KEY_INDEX}, {POLL_GUARD}): run it (a .backup first); nothing asked, nothing "
-                          "written. --dry-run reads without it.")
+            raise Refused(_UNMIGRATED)
         written = written_polls(s, games) if ok else set()
     t.games = len(games)
-    t.due, t.remaining = plan(games, written, t.now)
+    t.due, t.remaining = plan(games, written, at)
+    t.planned_at = at
 
 
 def tick(now: datetime | None = None, *, dry_run: bool = False, http_get=None, now_fn=None) -> Tick:
@@ -607,6 +665,11 @@ def tick(now: datetime | None = None, *, dry_run: bool = False, http_get=None, n
     if path is None or not path.is_file():
         raise Refused(f"REFUSED: no DB file at {path or 'a non-file database URL'}: the record never creates one "
                       "(law 5); nothing asked, nothing written")
+    if not dry_run:                                      # refused BEFORE any call, kept file or notice
+        from src.db.database import readonly_scope
+        with readonly_scope() as s:
+            if not (rec.migrated(s) and poll_key_migrated(s)):
+                raise Refused(_UNMIGRATED)
     t = Tick(now=now, dry_run=dry_run)
     t.schedules = [schedule(d, now, http_get=http_get, now_fn=now_fn, keep=not dry_run)
                    for d in days_of(now - LOOKBACK, now + AHEAD)]
@@ -616,7 +679,9 @@ def tick(now: datetime | None = None, *, dry_run: bool = False, http_get=None, n
     if dry_run or not t.due:
         return t
     with _db_lock():
-        _plan_ro(t, refuse_unmigrated=True)               # again under the lock: what another run wrote stands
+        # again under the lock, on the clock as it reads NOW: what another run wrote stands, and a poll that passed
+        # its five minutes while the tick waited for the lock is `missed`, never asked late (252 item 3(b))
+        _plan_ro(t, refuse_unmigrated=True, at=now_fn())
         if t.due:
             _execute(t, http_get=http_get, now_fn=now_fn)
     return t
@@ -630,13 +695,24 @@ def _execute(t: Tick, *, http_get, now_fn) -> None:
         for g in {p.game["id"]: p.game for p in t.due}.values():
             maps[g["id"]] = ({side: resolve_team(universe, g.get(f"{side}_names")) for side in SIDES},
                              resolve_match(s, g))
+        # ONE MATCH, ONE GAME (law 4): a match two gameIds resolve to, in this tick or already in the record, is
+        # refused for both (NULL with attrs.source_match_id), never shared: Step B's key (source, match_id, kickoff,
+        # label) would otherwise read the second game's poll as the first's, "already"
+        claimed: dict = {}
+        for gid, (_, mid) in maps.items():
+            if mid is not None:
+                claimed.setdefault(mid, set()).add(gid)
+        for gid, (teams, mid) in list(maps.items()):
+            if mid is not None and (len(claimed[mid]) > 1 or _claimed_elsewhere(s, mid, gid)):
+                maps[gid] = (teams, None)
     for p in t.due:
         teams, match_id = maps[p.game["id"]]
         obs = {"sport": SPORT, "source": SOURCE, "endpoint": p.url, "match_id": match_id,
                "kickoff_at": p.game["start"], "poll_label": p.label, "scheduled_at": p.scheduled_at}
         if p.missed:
             _write(t, p, {**obs, "status": "missed"}, [], None,
-                   f"MISSED: no call ({int((t.now - p.scheduled_at).total_seconds() // 60)} min past its time)")
+                   f"MISSED: no call ({int(((t.planned_at or t.now) - p.scheduled_at).total_seconds() // 60)} min past "
+                   f"its time)")
             continue
         why = rec.endpoint_refusal(p.url)
         if why:
@@ -667,8 +743,21 @@ def _execute(t: Tick, *, http_get, now_fn) -> None:
             + [f"{side} missing: {why_}" for side, why_ in r.missing.items()]
             + [f"{side} TWO IN NET" for side in r.two_in_net]
             + ([] if match_id is not None or not r.assertions else ["match UNMAPPED"]))
+        if r.error:                                       # an `empty` boxscore's note (toi unread)
+            obs["error"] = r.error[:256]
+            detail = "; ".join(x for x in (detail, r.error) if x)
         _write(t, p, {**obs, "status": r.status}, r.assertions, rel if created else None,
                r.status.upper() + (" LATE" if obs["late"] else "") + (f": {detail}" if detail else ""))
+
+
+def _claimed_elsewhere(s, match_id: int, game_id: int) -> bool:
+    """True when the record holds an observation of this source mapped to `match_id` at ANOTHER game's endpoint."""
+    from sqlalchemy import select
+
+    from src.db.schema import AvailabilityObservation as O
+    mine = (game_url(game_id, LANDING), game_url(game_id, BOXSCORE))
+    return s.execute(select(O.id).where(O.source == SOURCE, O.match_id == match_id, O.endpoint.not_in(mine))
+                     .limit(1)).first() is not None
 
 
 def _write(t: Tick, p: Poll, obs: dict, assertions: list, created_rel: str | None, detail: str) -> None:
@@ -676,13 +765,17 @@ def _write(t: Tick, p: Poll, obs: dict, assertions: list, created_rel: str | Non
     created and counts it; a store refusal after a keep is written as a `failed` observation keeping the payload."""
     status = obs["status"]
     try:
-        r = rec.write_observation(obs, assertions)
-    except rec.Refused as e:
-        if status in ("failed", "missed") or not obs.get("payload_path"):
-            raise
-        why = _scrub(e)[:256]
-        status, detail = "failed", f"FAILED: {why}"
-        r = rec.write_observation({**obs, "status": status, "error": why}, [])
+        try:
+            r = rec.write_observation(obs, assertions)
+        except rec.Refused as e:
+            if status in ("failed", "missed") or not obs.get("payload_path"):
+                raise
+            why = _scrub(e)[:256]
+            status, detail = "failed", f"FAILED: {why}"
+            r = rec.write_observation({**obs, "status": status, "error": why}, [])
+    except BaseException:
+        _drop(created_rel)                                # no row names it: never an orphan payload
+        raise
     if r.already:
         t.already += 1
         _drop(created_rel)

@@ -18,8 +18,8 @@ payload_sha256 (ARCHITECT 2026-11-05 11:55 ET, addendum 262 item 1: the hash is 
 trg_availability_assertions_snapshot_hash_guard refuses it around the writer too); an assertion of a snapshot source
 with no source_player_id (262 item 5: never keyed by name); a missing DB
 file (never created, law 5); a store migrate_availability_record.py has not migrated. The error text is redacted,
-then cut to 256 characters. A poll the store already holds (the unique key: source, match, stored kickoff, poll) is
-counted "already", its row standing.
+then cut to 256 characters. A poll the store already holds (the unique keys: source, match, stored kickoff, poll;
+and, #835 item 2, source, endpoint, scheduled time) is counted "already", its row standing.
 There is no update, delete or upsert function here, and the tables' triggers abort one from anywhere else.
 
 THE MAPPING (item 1, law 4): a player or team the caller cannot map is written with player_id / team_id NULL and the

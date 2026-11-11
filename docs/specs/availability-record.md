@@ -822,15 +822,17 @@ As built:
 - The NHL day is the probe's: [date 10:00Z, date+1 10:00Z), games of types 2 and 3, parsed by
   `nhl_goalies.schedule_games` and filtered as the probe's `day_games` filters (a test pins the two equal).
 - The answer is kept as `<NHL day>/<YYYYmmddTHHMMSS>Z-<sha256, first 16 hex>-schedule.json` only when its bytes differ
-  from the newest kept for that day; `schedule.checked` ("<instant> <sha256>") beside it says when the day was last
-  read, and a day read within the hour is not read again.
+  from the newest kept for that day; `schedule.checked` ("<instant> <sha256>", or "<instant> failed") beside it says
+  when the day was last read, and a day read within the hour, answered or not, is not read again (at most hourly).
 - A failed read uses the newest kept answer for the day when one exists (the games already known), else knows no game.
-  The day's first failed read creates `schedule.notice` and makes the tick exit 1 (the unit pages once); later ones
-  print their line and exit 0.
+  The day's first failed read creates `schedule.notice` and makes the tick exit 1 (the unit pages once); every tick
+  prints its line (a failed read, or "last read FAILED at <instant>: the next read after <instant>") and exits 0.
 - "A moved start recomputes the polls not yet written": a poll counts as WRITTEN when the store holds an observation of
   the source at the game's endpoint (the landing or boxscore URL, carrying the gameId) with its label, whatever kickoff
-  it was scheduled against; an unwritten poll takes its time from the start this tick knows. `kickoff_at` on a row is
-  the schedule's start as that tick knew it.
+  it was scheduled against, OR at its endpoint and scheduled time under another label (#835 item 2's key: a start moved
+  earlier can land a recomputed poll on one already asked; it is not asked twice and never repeats "already"); an
+  unwritten poll takes its time from the start this tick knows. `kickoff_at` on a row is the schedule's start as that
+  tick knew it.
 
 ### The window, the polls, the lateness
 
@@ -839,7 +841,8 @@ As built:
   down longer than six hours leaves no row for a poll older than the window (the gap shows in the boot and timer
   receipts, not as invented rows).
 - A poll whose time has passed and is not written is DUE. More than five minutes past it is a `missed` row and no call
-  (252 item 3(b)); else it is asked once. 340 item 3: "a poll scheduled inside the 04:00–05:59Z buffer (a late
+  (252 item 3(b)); else it is asked once. A tick with a poll due plans again under the DB lock on the clock as it then
+  reads, so a poll that passed its five minutes while the tick waited for the lock is `missed`, never asked late. 340 item 3: "a poll scheduled inside the 04:00–05:59Z buffer (a late
   West-coast start's T-0 or T+20) is written as a `missed` row by the first tick after the buffer, never dropped".
 - `fetched_at` is our clock after the body has been read in full (a raise: the raise's instant). `late` is set when it
   is more than five minutes after the poll's time (an answer delayed by the DB lock, say).
@@ -852,14 +855,15 @@ As built:
 | a landing with one side's leaders[0] | the same | one; the other side's reason (the receipt's words) on the console |
 | a landing with neither (no goalieComparison, empty lists) | `empty` | none |
 | the T+20 boxscore | `complete` / `partial` | one `eventual_starter` per goalie above zero toi; `attrs.two_in_net` on a side with two or more |
-| a boxscore with no goalie above zero | `empty` | none |
+| a boxscore with no goalie above zero | `empty` (when a goalie's toi could not be read, `error` says so: not a clean "none in net") | none |
 | a boxscore the ingest refuses (goalie lists not sided one home + one away) | `failed`, the reason, the payload kept | none |
 | a raised call, a non-200, an answer that is not JSON | `failed`, the error redacted (a non-JSON 200 keeps its payload) | none |
 | a poll more than five minutes past its time | `missed`, no call | none |
 
 Every assertion: `player_id` NULL (254 item 2(3)), `source_player_id` the NHL playerId, `player_name` verbatim, `team_id`
-(below) and `source_team` (the schedule's abbrev for the side, else its first name: the source's own text, stable
-across polls), `match_id` (below), `attrs.side`, `attrs.source_match_id` (the gameId, `record.SOURCE_MATCH_IDS`),
+(below) and `source_team` (the schedule's own text for the side, verbatim: its abbrev, else its full name, else placeName +
+commonName with accents kept; stable across polls; a side the schedule names no team for asserts nothing, counted as
+missing), `match_id` (below), `attrs.side`, `attrs.source_match_id` (the gameId, `record.SOURCE_MATCH_IDS`),
 `source_stamp` NULL (252 item 1(b): "the NHL landing gives none"). The eventual rows add `toi_seconds`, `two_in_net`
 and `toi_unread` (the side's goalies whose toi the ingest could not read). The starter slots are per kind (section 4;
 258 item 2(3)): an `eventual_starter` never closes a `projected_starter`.
@@ -872,12 +876,14 @@ This reuses a certified matcher; it adds no new name matching, no alias of your 
 
 As built: the side's candidates are `nhl_goalies.team_names()` of the schedule's side (the full name, then placeName +
 commonName, then `NAME_ALIASES`, accents stripped), each through `match_lookup.normalize_team_name` against the stored
-names of the teams of the NHL's matches (the rows `find_match` compares). In the matcher's order, a candidate that
-resolves to exactly one team maps the side; one that resolves to none or to several is passed over (the alias rule:
-"an alias only adds a name to try"). The match: the one match `nhl_goalie_appearances` links to the gameId (two
-distinct links: refused), else `nhl_goalies.match_game` as it stands — read for 341 item 2: `find_match` reads the
+names of the NHL competition's teams (the teams of its stored matches: competition code NHL, sport NHL; the host's 32
+of 341 item 2). The side maps only when the UNION of the teams its candidates name is exactly one team; none, or two
+or more (a name held by two rows, an alias naming an older row), leaves it unmapped. The match: the one match
+`nhl_goalie_appearances` links to the gameId (two distinct links: refused), else `nhl_goalies.match_game` as it stands — read for 341 item 2: `find_match` reads the
 NHL's rows within 12 hours by both names and excludes only CANCELLED and STALE_ORPHAN, so a SCHEDULED row maps before
-the game — else NULL with `attrs.source_match_id`.
+the game — else NULL with `attrs.source_match_id`. One match, one game (law 4): a match two gameIds resolve to in one tick, or one
+the record already holds under another game's endpoint, is refused for both (NULL): Step B's key (source, match,
+kickoff, label) would otherwise read the second game's poll as the first's.
 
 ### The poll key (#835 item 2; addendum 258 item 2(2))
 

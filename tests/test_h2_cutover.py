@@ -309,7 +309,8 @@ def test_h2_dry_run_script_passes(tmp_path, monkeypatch, capsys):
 
 def test_runbook_names_waivers_and_is_linked():
     rb = (ROOT / "docs" / "specs" / "h2-cutover-runbook.md").read_text()
-    for needle in ("sp_cutover.py run", "compare_exports.py", "--since 1", "WAIVER W1",
+    for needle in ("sp_cutover.py run", "compare_exports.py", "--since 1", "--since 1 --paired-kinds '*'",
+                   "WAIVER W1",
                    "WAIVER W2", "doubleheader", "postponed", "Rollback", "architect ruling"):
         assert needle in rb, needle
     h1 = (ROOT / "docs" / "specs" / "hosting-h1.md").read_text()

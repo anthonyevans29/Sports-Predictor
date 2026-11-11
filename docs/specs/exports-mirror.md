@@ -127,10 +127,11 @@ every push it remains; the tracked entry is left as the mirror holds it, and the
 the bulletins still go.
 
 The Action compares the newest date that BOTH writers have pushed and posts commit status
-`compare_exports`: success = clean, failure = DIVERGENT (a compared file differs, a pair does not parse, or a file
-sits on one side only beside a compared file), error =
-the comparator or the runner broke (not a data verdict), pending = NOTHING-TO-COMPARE (zero JSON
-compared) or one side has not pushed that date yet. The full report is in the run's step summary.
+`compare_exports`: success = clean, failure = DIVERGENT (a paired file differs, a pair does not parse, or a
+PAIRED KIND is missing on a side for a complete day), error =
+the comparator or the runner broke (not a data verdict), pending = NOTHING-TO-COMPARE (a paired kind awaiting the
+other side on the runner's own UTC day, its description `awaiting <role>`; or no paired kind compared with rows in the
+window, addendum 335 item 4(c)) or one side has not pushed that date yet. The full report is in the run's step summary.
 NOTHING-TO-COMPARE (ARCHITECT 2026-11-11, addendum 334 item 3(a), verbatim): "a red status that
 means "nothing to compare" is a false alarm — the verdict for zero compared files becomes
 NOTHING-TO-COMPARE (neutral, not failure), DIVERGENT reserved for files that were compared and
@@ -138,6 +139,35 @@ differ". A commit status has four states (success, failure, error, pending) and 
 pending is the one that is neither green nor red, and its description begins `NOTHING-TO-COMPARE`
 and counts the files on one side only. It is neither a pass nor a fail of the tag ritual's
 step 1 (docs/RELEASES.md). Each machine's `exports_mirror.py push` ships its own copy of the comparator and the Action into the mirror, so until the host runs a tag that carries this change, a host-pushed commit runs v1.6.6's pair and a zero-compared day with a file on one side only still posts failure there; read the laptop-pushed commit's status, or run the comparator by hand, until then.
+
+THE PAIRED KINDS (ARCHITECT 2026-11-11 08:45 ET, addendum 335 item 4(c), verbatim): "the comparator carries a declared
+list of PAIRED KINDS — kinds both machines are ruled to produce every day (today: fixtures_NHL alone) — and a kind not
+on it is EXPECTED ONE-SIDED (coverage, the window card, the UNL and league shadows, closings, slates, the MLB results
+file), printed and counted, never a cause of DIVERGENT. CLEAN = at least one paired file compared with rows in the
+window, every compared file identical, no paired kind missing on a side. DIVERGENT = a compared file differs, OR a
+paired kind is present on one side and missing on the other for a date both machines pushed (a missing file is a
+finding), OR a pair does not parse. NOTHING-TO-COMPARE = everything else, including a pair whose in-window rows are
+empty on both sides (218 item 1: an empty window is reported, never a pass) — so the 12-24 gap reads neutral." Its
+second DIVERGENT clause is corrected by addendum 336 item 4(2), quoted below (a complete day only). As
+built (#924's build): `compare_exports.PAIRED_KINDS` declares fixtures_NHL (rows `fixtures`, the window the name's
+date -1, 0, +1). A paired file's rows outside the window are counted per side and never compared, its `count` is
+left out, and its host-only columns are left out and counted on their own line: every key named, no prefix
+(`compare_exports.HOST_ONLY_KEYS`: market, close_unpriced, kalshi, kalshi_legs, kalshi_bid, kalshi_ask, away_bid,
+away_ask, the four exec_cost columns, the four fee columns, k_track, input_quality, desk, desk_meta). THE MASK
+(ARCHITECT 2026-11-11 09:35 ET, addendum 336 item 4), verbatim: "(1) THE MASK: `away_bid`, `away_ask` and `close_unpriced` are the same class — columns only the market machine fills — and are masked and counted with 335 item 4(b)'s list. The rule behind the list, pinned by a test: every key `_fixture_row` writes is either compared or on the declared mask, so a new key fails the test until it is placed — never masked by a prefix, never silently." The test reads `_fixture_row`
+(tests/test_compare_exports_paired_kinds.py) and fails on a key that is neither compared
+(`FIXTURE_COMPARED_KEYS`) nor on the mask nor machine-local (match_id). The file the
+laptop writes is nhl-daily's own `export-fixtures --competition NHL` after its three single-day syncs (335 item
+4(a)); the host is unchanged. The Action's status is the daily signal; a tag's step 1 is a hand run on the last
+complete day's folder (335 item 4(f); docs/RELEASES.md step 1). THE PUSH TIMING (ARCHITECT 2026-11-11 09:35 ET,
+addendum 336 item 4), verbatim: "(2) THE PUSH TIMING: a paired kind present on one side only reads DIVERGENT only for a COMPLETE day. For the comparator's own UTC date (the run's "today") the file's absence on the other side is "awaiting <role>" — NOTHING-TO-COMPARE, posted pending — because the other machine's export time may not have come; for any earlier date it is DIVERGENT ("paired kind missing on <role>"), which is what a tag's hand run on D-1 reads (335 item 4(f)). So the laptop's 12:2xZ commit reads pending, the host's 16:0xZ commit reads the pair, and a day one machine never exported reads red only when someone compares that finished day. 335 item 4(c)'s second DIVERGENT clause is corrected to this with this item quoted." As built: a paired file on one side only reads `PAIRED KIND <kind>
+awaiting <role>` when its name's last date (a range label's end) is the run's own UTC date or later, `missing on
+<role> (a complete day)` when earlier, and `missing on <role> (undated: completeness unknown)` for an undated name; an awaited file outranks CLEAN (a run that also holds a clean pair reads NOTHING-TO-COMPARE) and a
+DIVERGENT cause outranks it. The Action's pending description then reads `awaiting <role>: a paired kind not pushed
+yet today`. Before the laptop carries the NHL lines, the host's 16:0xZ push reads `awaiting laptop` the same way, and
+a hand run of an earlier day reads `missing on laptop`. AN UNPAIRED KIND ON BOTH SIDES (addendum 336 item 4),
+verbatim: "(3) AN UNPAIRED KIND ON BOTH SIDES THAT DIFFERS: "never a cause of DIVERGENT" governs. A kind is compared FOR THE VERDICT only when a ruling has put it on PAIRED_KINDS — that ruling is what says both machines make it from the same inputs. An unpaired kind found on both sides is printed and counted as "unpaired, on both sides: identical" or "unpaired, on both sides: DIFFERS (not a verdict; pair it by ruling if both machines should make it)", so the difference is seen and certifies nothing. The `--paired-kinds '*'` rule for the cutover's PL check and the H2 dry run keeps the every-kind behavior, as built." Each host push runs the comparator its own tag shipped (v1.6.6 reads any one-sided file
+DIVERGENT) until the host runs the tag that carries this build.
 
 Machine state (#592 RULED, ARCHITECT 2026-10-18, addendum 128 item 3): "the compare treats kind `coverage` as "machine state": listed by presence on each side (one side, both sides, neither), never compared for content, never DIVERGENT, never counted toward or against criterion (a). Printed as its own line ("machine-state files: coverage laptop yes / host no")." The day's coverage
 file travels as every kind does, dated and latest (`<role>/<date>/coverage_<date>.json` and

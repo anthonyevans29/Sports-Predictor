@@ -13,7 +13,8 @@ No host, no systemd, no data/: runnable on the laptop as-is.
    DIR/host --pack DIR/pack (preflight, pause, install, flip, resume,
    receipt), systemctl recorded never run.
 4. FRESH-FINGERPRINT compare, as the runbook does it after the first host
-   chain: compare_exports.py <laptop exports> <host exports> --since 1.
+   chain: compare_exports.py <laptop exports> <host exports> --since 1 --paired-kinds '*' (the cutover's rule,
+   every kind paired; addendum 335 item 4(c) declared the daily paired kinds).
 
 DIR defaults to a new temp dir; it must not be under the checkout's data/
 and must be empty. Everything stays under DIR (kept for inspection).
@@ -89,7 +90,8 @@ def main(argv=None) -> int:
         print("H2 DRY RUN: FAIL")
         return 1
     print("== 4. fresh-fingerprint compare (laptop last exports vs host exports, --since 1)")
-    rc = compare_exports.main([str(laptop / "exports"), str(host / "repo" / "exports"), "--since", "1"])
+    rc = compare_exports.main([str(laptop / "exports"), str(host / "repo" / "exports"), "--since", "1",
+                               "--paired-kinds", "*"])   # the cutover's rule: every kind paired (pre-335)
     print(f"H2 DRY RUN: {'PASS' if rc == 0 else 'FAIL'} (scratch kept at {work})")
     return rc
 

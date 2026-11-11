@@ -120,8 +120,12 @@ def classify_line(line: str) -> str | None:
 
 
 def compare_day(lap: Path, host: Path) -> dict:
-    """Compare laptop/<date> with host/<date> as the mirror Action does
-    (--since 0, every *.json) and name each divergent line's class. A
+    """Compare laptop/<date> with host/<date> under the cutover's every-kind
+    rule (--since 0, every *.json, a file on one side only unnamed: the
+    mirror Action's rule before addendum 335 item 4, which `--paired-kinds
+    '*'` keeps; 336 item 4(3) keeps it for the cutover's own checks) and name
+    each divergent line's class. Whether criterion (a) should read the paired
+    kinds instead is put to the architect on #927. A
     machine-state file (kind coverage; ARCHITECT 2026-10-18, addendum 128
     item 3: "never counted toward or against criterion (a)") is listed by
     presence in `machine_state`, the compare's own line, and never opened:

@@ -50,7 +50,7 @@ def sides(tmp_path, laptop: dict, host: dict):
 
 def run(tmp_path, capsys, laptop, host, *extra):
     la, ho = sides(tmp_path, laptop, host)
-    rc = ce.main([str(la), str(ho), "--since", "0", *extra])
+    rc = ce.main([str(la), str(ho), "--since", "0", "--paired-kinds", "*", *extra])   # the pre-335 rule: every kind paired
     return rc, capsys.readouterr().out
 
 
@@ -126,7 +126,7 @@ def test_the_line_comes_before_the_tally_and_the_window_still_applies(tmp_path, 
     """Printed as its own line, after the file lines and before the coverage tally. Under --since a dated coverage
     file outside the window is settled like any dated file (counted on the header line, not listed)."""
     la, ho = sides(tmp_path, {FIX: [GAME], "coverage_2026-10-10.json": LAPTOP_COV}, {FIX: [GAME]})
-    assert ce.main([str(la), str(ho), "--today", DAY]) == ce.EXIT_CLEAN
+    assert ce.main([str(la), str(ho), "--today", DAY, "--paired-kinds", "*"]) == ce.EXIT_CLEAN
     out = capsys.readouterr().out.splitlines()
     i = out.index("machine-state files: coverage laptop no / host no")
     assert out[i - 1].startswith(f"✓ {FIX}") and out[i + 2].startswith("coverage: 1 JSON file(s) compared")
@@ -176,7 +176,7 @@ def test_presence_is_read_among_the_files_the_glob_and_the_window_select(tmp_pat
     assert rc == ce.EXIT_CLEAN and ms_lines(out) == ["machine-state files: coverage laptop no / host no"]
     assert "not matched by fixtures*: laptop 2, host 0 (e.g. coverage_2026-10-12.json, coverage_2026-10-19.json)" in out
     la, ho = sides(tmp_path / "w", lap, {FIX: [GAME]})
-    assert ce.main([str(la), str(ho), "--today", "2026-10-25"]) == ce.EXIT_NOTHING_TO_COMPARE
+    assert ce.main([str(la), str(ho), "--today", "2026-10-25", "--paired-kinds", "*"]) == ce.EXIT_NOTHING_TO_COMPARE
     out = capsys.readouterr().out
     assert ms_lines(out) == ["machine-state files: coverage laptop no / host no"] and "3 outside the window" in out
     rc, out = run(tmp_path / "a", capsys, lap, {FIX: [GAME]})

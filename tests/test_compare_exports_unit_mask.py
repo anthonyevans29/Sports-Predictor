@@ -29,7 +29,7 @@ def run(tmp_path, capsys, laptop, host, *extra):
     for d, body in ((la, laptop), (ho, host)):
         d.mkdir(parents=True)
         (d / f"closing_NFL_{DAY}.json").write_text(json.dumps(body))
-    rc = ce.main([str(la), str(ho), "--since", "0", *extra])
+    rc = ce.main([str(la), str(ho), "--since", "0", "--paired-kinds", "*", *extra])   # the pre-335 rule: every kind paired
     return rc, capsys.readouterr().out
 
 

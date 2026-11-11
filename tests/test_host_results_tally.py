@@ -426,18 +426,20 @@ FIX = {"fixtures_NHL_2026-11-09.json": {"git_sha": "abc", "fixtures": [{"home_te
                                                                          "utc_date": "2026-11-09T23:00:00"}]}}
 
 
-def test_the_compare_is_unchanged_and_reads_the_hosts_tally_as_any_host_only_kind(tmp_path):
-    """Law 4 (the fixer's round, not ruled): compare_exports is untouched. The host's tally is one more `only on host`
-    line, as the host's nhl_shadow file is, and the compare day is DIVERGENT on it as on the host-only kinds the mirror
-    already holds; how the compare should class it is an open item for the architect."""
+def test_the_compare_reads_the_hosts_tally_as_any_host_only_kind(tmp_path):
+    """The host's tally is one more `only on host` line, as the host's nhl_shadow file is. The open item this test
+    pinned is RULED (ARCHITECT 2026-11-11, addendum 335 item 4(c), verbatim): "a kind not on it is EXPECTED ONE-SIDED
+    (coverage, the window card, the UNL and league shadows, closings, slates, the MLB results file), printed and
+    counted, never a cause of DIVERGENT". So beside the paired fixtures_NHL pair (identical, rows in the window) the
+    day reads CLEAN, the tally and the shadow listed as expected one-sided."""
     tally = {"kind": "results_tally_v1", "sections": [{"title": "MLB", "lines": ["- Sides: **1/2**"]}]}
     shadow = {"calls": []}
     r = _cmp(tmp_path, dict(FIX), {**FIX, "results_tally.json": tally, "nhl_shadow_2026-11-09_1601.json": shadow,
                                    "RESULTS.md": "# Results"})
     out = r.stdout.splitlines()
-    assert r.returncode == 1 and "VERDICT: DIVERGENT" in out, r.stdout
-    assert "· results_tally.json: only on host" in out
-    assert "· nhl_shadow_2026-11-09_1601.json: only on host" in out
+    assert r.returncode == 0 and "VERDICT: CLEAN" in out, r.stdout
+    assert "· results_tally.json: only on host (expected one-sided: results_tally is not a paired kind)" in out
+    assert "· nhl_shadow_2026-11-09_1601.json: only on host (expected one-sided: nhl_shadow is not a paired kind)" in out
     assert "machine-state files: coverage laptop no / host no" in out
     assert ce.MACHINE_STATE_KINDS == ("coverage",) and ce.machine_state_kind("results_tally.json") is None
     assert not hasattr(ce, "TALLY_KINDS") and not hasattr(ce, "tally_line")

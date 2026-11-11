@@ -1,4 +1,4 @@
-## 2026-11-11 (#000: 920-hold-search — the hold procedure's search prints the laptop's MLB routine and the intl-sync timer, the exposure read covers every written field, and the stamp sentence reads "never been started" (ARCHITECT 2026-11-10, addendum 333 items 2(b) and 3).)
+## 2026-11-11 (#923: 920-hold-search — the hold procedure's search prints the laptop's MLB routine and the intl-sync timer, the exposure read covers every written field, and the stamp sentence reads "never been started" (ARCHITECT 2026-11-10, addendum 333 items 2(b) and 3).)
 - **Ruling (verbatim, addendum 333 item 3):** "both are fixed in ONE follow-up docs PR this week, which closes #920".
 - **Built (docs/specs/hosting-h1.md section O):**
   - (i) the chain search reads T11's lists with `sp_common.t11_lists()`. A timer on `MLB_LAPTOP_ONLY` is never printed; mlb-morning and mlb-preslate print "the laptop's morning routine (the architect's block)" (333 item 3(i) quoted).

@@ -436,10 +436,9 @@ def check_copy(db) -> Path:
     from src.walters import mlb_pitchers_gate as mp
     try:
         path = mp.check_db(db)
-        for sfx in COPY_SIDECARS:
-            if path.with_name(path.name + sfx).exists():
-                raise mp.GateRefused(f"--db {db} has a {sfx} sidecar ({path.name + sfx}): not a fresh .backup copy; "
-                                     "immutable=1 would ignore it and read a stale store; take a fresh .backup copy")
+        for name in copy_sidecars(path):
+            raise mp.GateRefused(f"--db {db} has a {name[len(path.name):]} sidecar ({name}): not a fresh .backup "
+                                 "copy; immutable=1 would ignore it and read a stale store; take a fresh .backup copy")
         con = mp.open_ro(path)
         try:
             for t in COPY_TABLES:
@@ -452,6 +451,13 @@ def check_copy(db) -> Path:
     except mp.GateRefused as err:
         raise ShadowRefused(f"{err}; nothing read, nothing written")
     return path
+
+
+def copy_sidecars(path: Path) -> list[str]:
+    """The -wal, -shm and -journal files beside the copy, by name (none for a fresh .backup copy). Read before the read
+    (check_copy) and again after it (the CLI): a sidecar that appears during the read can hold committed pages the
+    immutable open ignored, so the main file's unchanged sha256 alone would not show the copy changed (Codex P2, #938)."""
+    return [path.name + sfx for sfx in COPY_SIDECARS if path.with_name(path.name + sfx).exists()]
 
 
 def copy_sha256(path: Path) -> str:

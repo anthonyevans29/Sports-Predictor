@@ -6307,15 +6307,26 @@ def intl_elo_confirm_cmd(freeze_cohort, substitute, record, ruling, no_fetch, db
 
             from src.walters import mlb_pitchers_gate as _mpg
             copy = us.check_copy(db)
-            sha_before = us.copy_sha256(copy)
+            try:
+                sha_before = us.copy_sha256(copy)
+            except OSError as err:
+                raise us.ShadowRefused(f"--db {copy}: the copy could not be hashed ({err!r}); nothing read, nothing "
+                                       "written")
             click.echo(f"--db {copy} · sha256 {sha_before} · a .backup copy, opened "
                        f"{_mpg.COPY_URI_QUERY.lstrip('?')} (the app's database is not read)")
             try:
                 with _mpg.readonly_session(copy) as _s:
                     r = us.confirmation_read(s=_s)
                     sha_after = us.copy_sha256(copy)      # while the read's connection is still open
+                    sides_after = us.copy_sidecars(copy)
             except _DBAPIError as err:
                 raise us.ShadowRefused(f"--db {copy}: the copy could not be read ({err.orig!r}); nothing recorded")
+            except OSError as err:                         # deleted or unreadable mid-run (Codex P2, #938)
+                raise us.ShadowRefused(f"--db {copy}: the copy could not be re-read after the read ({err!r}); "
+                                       "nothing recorded")
+            if sides_after:                                # committed pages the immutable open ignored (Codex P2, #938)
+                raise us.ShadowRefused(f"--db {copy} changed during the read: {', '.join(sides_after)} appeared "
+                                       "beside it, which immutable=1 ignores; nothing recorded")
             if sha_after != sha_before:
                 raise us.ShadowRefused(f"--db {copy} changed during the read (sha256 {sha_before[:16]}… before, "
                                        f"{sha_after[:16]}… after): the read is not tied to the printed copy; "

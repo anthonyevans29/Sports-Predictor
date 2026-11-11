@@ -456,3 +456,31 @@ def test_346_a_copy_replaced_during_the_read_is_refused_and_nothing_recorded(wor
     assert out.exit_code == 2 and "changed during the read" in out.output and "nothing recorded" in out.output
     assert "RECORDED" not in out.output
     assert not (ids_dir / "intl-elo-v2.confirm.txt").exists() and ledger.read_text() == before_ledger
+
+
+def test_346_a_copy_deleted_or_given_a_sidecar_during_the_read_is_refused_and_nothing_recorded(world, monkeypatch,
+                                                                                                tmp_path):
+    """Codex P2s on #938: a copy that disappears mid-run is a REFUSED line, never a traceback; a -wal, -shm or -journal
+    that appears during the read (committed pages immutable=1 ignored, the main file's sha256 unchanged) is REFUSED."""
+    ids = sorted([world["after1"], world["after2"], world["after3"]])
+    ledger, ids_dir = _registry_on_tmp(monkeypatch, tmp_path, ids)
+    before_ledger = ledger.read_text()
+    read0 = us.confirmation_read
+    for i, (act, why) in enumerate([("delete", "could not be re-read after the read"),
+                                    ("-wal", "-wal appeared beside it"), ("-shm", "-shm appeared beside it"),
+                                    ("-journal", "-journal appeared beside it")]):
+        copy = _copy(tmp_path, f"c{i}.db")
+
+        def during(now=None, s=None, copy=copy, act=act):
+            r = read0(now=now, s=s)
+            if act == "delete":
+                copy.unlink()
+            else:
+                copy.with_name(copy.name + act).write_bytes(b"")
+            return r
+        monkeypatch.setattr(us, "confirmation_read", during)
+        out = _run(["--record", "--ruling", "ARCHITECT: x", "--db", str(copy)])
+        assert out.exit_code == 2 and why in out.output and "nothing recorded" in out.output, (act, out.output)
+        assert out.exception is None or isinstance(out.exception, SystemExit), out.exception
+        assert "RECORDED" not in out.output
+        assert not (ids_dir / "intl-elo-v2.confirm.txt").exists() and ledger.read_text() == before_ledger

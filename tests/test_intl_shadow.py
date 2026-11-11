@@ -234,3 +234,225 @@ def test_the_unl_shadow_file_carries_the_producing_git_sha_and_none_stays_none(w
     masks git_sha so no field difference appears across the deploy." tests/git_sha_stamp.py holds the checks."""
     from tests.git_sha_stamp import check_stamp
     check_stamp(lambda out, i: us.export(now=NOW, out_dir=out), tmp_path, monkeypatch)
+
+
+# ------------------------------------------- intl-elo-confirm --db COPY (ARCHITECT 2026-11-11, addendum 346 item 1) --
+# "NOTHING ELSE CHANGES: the computation, the frozen cohort, the plan, the bar, the refusals [...], and the behavior
+# without `--db`, which a test pins byte for byte on the console. [...] Tests: the fence's refusals; the no-flag read on
+# a copy equals the read on the same store through the app's engine; `--record --db` writes the two registry files and
+# never touches the copy (its bytes' sha256 before and after); the default path unchanged."
+
+# main's console (1ec357e4) for the no-flag read of this module's world at NOW, captured before the change. The one
+# figure taken from the store is the eligible count: other modules' rows share the throwaway DB in a full run (7 when
+# this file runs alone, 16 in the full suite); it is counted by eligible_fixtures, which this change does not touch.
+def pin_no_flag() -> str:
+    with session_scope() as s:
+        n = len(us.eligible_fixtures(s, ENTRY))
+        s.rollback()
+    return ("INTL-ELO-V2 CONFIRMATION · cohort PROVISIONAL (3/3 fixtures; " + str(n) + " eligible stored) · 2/3 "
+            "labelled · first 2096-02-01T00:00:00Z\n"
+            "  pending 1: {'scheduled': 1}\n"
+            "  so far: log-loss 1.0346 · naive 13.8155 · reference (naive − 0.010) 13.8055 · bar 1.0986 — not a "
+            "verdict until the cohort is complete\n")
+
+
+def _app_db_path() -> Path:
+    from src.db.database import get_engine
+    return Path(get_engine().url.database).resolve()
+
+
+def _copy(tmp_path, name="copy.db") -> Path:
+    """A .backup-API copy of the test store outside data/ (law 5: never a file copy, never under data/)."""
+    import sqlite3
+    dst = tmp_path / name
+    src, out = sqlite3.connect(str(_app_db_path())), sqlite3.connect(str(dst))
+    try:
+        src.backup(out)
+    finally:
+        out.close()
+        src.close()
+    assert not any(dst.with_name(dst.name + x).exists() for x in us.COPY_SIDECARS)
+    return dst
+
+
+def _run(args):
+    from click.testing import CliRunner
+    from cli import cli
+    return CliRunner().invoke(cli, ["intl-elo-confirm", *args])
+
+
+def test_346_the_no_flag_read_without_db_is_unchanged_byte_for_byte(world, frozen_ok, monkeypatch):
+    monkeypatch.setattr(us, "utc_now_naive", lambda: NOW)
+    out = _run([])
+    assert out.exit_code == 0 and out.output == pin_no_flag()
+
+
+def test_346_the_read_on_a_copy_equals_the_read_on_the_same_store(world, frozen_ok, monkeypatch, tmp_path):
+    from src.walters import mlb_pitchers_gate as mp
+    copy = _copy(tmp_path)
+    app = us.confirmation_read(now=NOW)
+    with mp.readonly_session(copy) as s:
+        assert us.confirmation_read(now=NOW, s=s) == app
+    monkeypatch.setattr(us, "utc_now_naive", lambda: NOW)
+    out = _run(["--db", str(copy)])
+    head, rest = out.output.split("\n", 1)
+    assert out.exit_code == 0 and rest == pin_no_flag()                     # the same console, after one line
+    assert head == (f"--db {copy.resolve()} · sha256 {us.copy_sha256(copy)} · a .backup copy, opened "
+                    "mode=ro&immutable=1 (the app's database is not read)")
+
+
+def test_346_the_fence_refuses_and_reads_nothing(world, frozen_ok, monkeypatch, tmp_path):
+    from src.walters import registry as _reg
+    import sqlite3
+    data_dir = Path(_reg.ROOT) / "data"
+    assert us.COPY_SIDECARS == ("-wal", "-shm", "-journal")
+    sides = []
+    for sfx in ("-wal", "-shm", "-journal"):
+        side = _copy(tmp_path, f"side{sfx}.db")
+        side.with_name(side.name + sfx).write_bytes(b"")
+        sides.append((str(side), f"{sfx} sidecar"))
+    junk = tmp_path / "junk.db"
+    junk.write_text("not a database\n")
+    bare = tmp_path / "bare.db"                                  # has matches, lacks the rest of what the read needs
+    con = sqlite3.connect(str(bare))
+    con.execute("CREATE TABLE matches (id INTEGER)")
+    con.commit()
+    con.close()
+    cases = [(str(tmp_path / "missing.db"), "no file at"),
+             (str(data_dir / "never-created.db"), "resolves under the repo's data/"),
+             (str(_app_db_path()), "the app's configured database"),
+             *sides,
+             (str(junk), "cannot be read through a mode=ro + immutable=1 URI"),
+             (str(bare), "the copy cannot be read for table competitions")]
+    for db, why in cases:
+        out = _run(["--db", db])
+        assert out.exit_code == 2 and out.output.startswith("REFUSED: ") and why in out.output, (db, out.output)
+        assert "INTL-ELO-V2 CONFIRMATION" not in out.output and "nothing read, nothing written" in out.output
+    assert not (data_dir / "never-created.db").exists()                  # never created (law 5)
+
+
+def test_346_freeze_and_substitute_are_refused_with_db(world, frozen_ok, tmp_path, monkeypatch):
+    copy = _copy(tmp_path)
+    called = []
+    monkeypatch.setattr(us, "frozen", lambda: called.append(1))
+    for flag in ("--freeze-cohort", "--substitute"):
+        out = _run([flag, "--db", str(copy)])
+        assert out.exit_code == 2 and out.output.startswith(f"REFUSED: --db reads a copy; {flag} is a registry "
+                                                            "decision made on the writer of record's own store")
+    assert called == []                                                   # nothing read
+
+
+def test_346_record_on_a_copy_writes_the_two_registry_files_and_never_touches_the_copy(world, monkeypatch, tmp_path):
+    """The read is the COPY's: the app's store is changed after the copy is taken (after3 back to SCHEDULED, so a read
+    of it would be incomplete and refused), and the record still completes on the copy. The registry files are the
+    ledger and ids/intl-elo-v2.confirm.txt (tmp paths here); the copy's bytes are the same before and after."""
+    ids = sorted([world["after1"], world["after2"], world["after3"]])
+    reg_dir = tmp_path / "registry"
+    ids_dir = reg_dir / "ids"
+    ids_dir.mkdir(parents=True)
+    (ids_dir / "intl-elo-v2.cohort.txt").write_text("\n".join(str(i) for i in ids) + "\n")
+    ledger = reg_dir / "experiments.json"
+    e = {**ENTRY, "confirmation_cohort": {"n": 3, "ids_sha256": reg._ids_sha(ids),
+                                          "ids_file": "docs/registry/ids/intl-elo-v2.cohort.txt"}}
+    ledger.write_text(json.dumps([e], indent=2) + "\n")
+    get0, record0 = reg.get, reg.record_confirmation
+    monkeypatch.setattr(reg, "get", lambda eid, path=None: get0(eid, path=str(ledger)))
+    monkeypatch.setattr(reg, "IDS_DIR", str(ids_dir))
+    monkeypatch.setattr(reg, "record_confirmation",
+                        lambda *a, **k: record0(*a, path=str(ledger), ids_dir=str(ids_dir), **k))
+    monkeypatch.setattr(us, "utc_now_naive", lambda: NOW)
+    real_confirm = Path(reg.ROOT) / "docs" / "registry" / "ids" / "intl-elo-v2.confirm.txt"
+    real_confirm_was = us.copy_sha256(real_confirm) if real_confirm.exists() else None   # committed tomorrow, or not
+    real_ledger_sha = us.copy_sha256(Path(reg.ROOT) / "docs" / "registry" / "experiments.json")
+    copy = _copy(tmp_path)
+    before = us.copy_sha256(copy)
+    with session_scope() as s:                                           # the app's store moves on after the copy
+        m = s.get(Match, world["after3"])
+        m.status, m.status_raw, m.home_score, m.away_score = MatchStatus.SCHEDULED, None, None, None
+    try:
+        out = _run(["--record", "--ruling", "ARCHITECT: test ruling", "--db", str(copy)])
+        assert out.exit_code == 0, out.output
+        assert "3/3 labelled" in out.output and "  RECORDED: " in out.output
+        assert (ids_dir / "intl-elo-v2.confirm.txt").read_text() == "\n".join(str(i) for i in ids) + "\n"
+        rec = json.loads(ledger.read_text())[0]
+        assert rec["confirmation"]["ruling"] == "ARCHITECT: test ruling" and rec["confirmation"]["n_scored"] == 3
+        assert rec["status"] == {"CONFIRMED": "production", "NOT_CONFIRMED": "closed"}[rec["confirmation"]["outcome"]]
+        assert us.copy_sha256(copy) == before                            # the copy is never touched
+        assert not any(copy.with_name(copy.name + x).exists() for x in us.COPY_SIDECARS)
+        assert (us.copy_sha256(real_confirm) if real_confirm.exists() else None) == real_confirm_was  # never written
+        assert us.copy_sha256(Path(reg.ROOT) / "docs" / "registry" / "experiments.json") == real_ledger_sha
+        assert _run(["--record", "--ruling", "ARCHITECT: x"]).exit_code == 2   # the app's store: incomplete, refused
+    finally:
+        with session_scope() as s:
+            m = s.get(Match, world["after3"])
+            m.status, m.status_raw, m.home_score, m.away_score = MatchStatus.FINISHED, "FT", 0, 1
+
+
+_REG_GET0, _REG_RECORD0 = reg.get, reg.record_confirmation     # the real functions, before any test patches them
+
+
+def _registry_on_tmp(monkeypatch, tmp_path, ids, frozen=True):
+    """The registry on tmp paths (the ledger and ids/): reg.get, IDS_DIR and record_confirmation point there."""
+    reg_dir = tmp_path / "registry"
+    ids_dir = reg_dir / "ids"
+    ids_dir.mkdir(parents=True)
+    e = dict(ENTRY)
+    if frozen:
+        (ids_dir / "intl-elo-v2.cohort.txt").write_text("\n".join(str(i) for i in ids) + "\n")
+        e["confirmation_cohort"] = {"n": len(ids), "ids_sha256": reg._ids_sha(ids),
+                                    "ids_file": "docs/registry/ids/intl-elo-v2.cohort.txt"}
+    ledger = reg_dir / "experiments.json"
+    ledger.write_text(json.dumps([e], indent=2) + "\n")
+    get0, record0 = _REG_GET0, _REG_RECORD0
+    monkeypatch.setattr(reg, "get", lambda eid, path=None: get0(eid, path=str(ledger)))
+    monkeypatch.setattr(reg, "IDS_DIR", str(ids_dir))
+    monkeypatch.setattr(reg, "record_confirmation",
+                        lambda *a, **k: record0(*a, path=str(ledger), ids_dir=str(ids_dir), **k))
+    monkeypatch.setattr(us, "utc_now_naive", lambda: NOW)
+    return ledger, ids_dir
+
+
+def test_346_record_on_a_copy_still_refuses_an_incomplete_read(world, monkeypatch, tmp_path):
+    """346 item 1: "`--record` still refuses a provisional cohort or a pending fixture" — with --db too. Nothing is
+    written to the registry and the copy is unchanged."""
+    def attempt(sub, frozen, ids, want):
+        ledger, ids_dir = _registry_on_tmp(monkeypatch, tmp_path / sub, ids, frozen=frozen)
+        before_ledger = ledger.read_text()
+        copy = _copy(tmp_path / sub)
+        sha = us.copy_sha256(copy)
+        out = _run(["--record", "--ruling", "ARCHITECT: x", "--db", str(copy)])
+        assert out.exit_code == 2 and "REFUSED: the read is incomplete — " + want in out.output, out.output
+        assert not (ids_dir / "intl-elo-v2.confirm.txt").exists() and ledger.read_text() == before_ledger
+        assert us.copy_sha256(copy) == sha
+    for sub in ("a", "b"):
+        (tmp_path / sub).mkdir()
+    attempt("a", False, [], "the cohort is not frozen")                         # provisional
+    attempt("b", True, sorted([world["after1"], world["late"], world["after2"]]), "1 cohort fixture(s) lack a label")
+
+
+def test_346_a_copy_replaced_during_the_read_is_refused_and_nothing_recorded(world, monkeypatch, tmp_path):
+    """The printed sha256 is the read's: the copy is hashed again after the read, before --record writes anything; a
+    copy replaced in between (here, swapped for another copy before the read's first query) is REFUSED."""
+    import os
+    ids = sorted([world["after1"], world["after2"], world["after3"]])
+    ledger, ids_dir = _registry_on_tmp(monkeypatch, tmp_path, ids)
+    before_ledger = ledger.read_text()
+    copy = _copy(tmp_path)
+    with session_scope() as s:                                           # a second copy with different bytes
+        m = s.get(Match, world["far"])
+        m.status_raw = "NS"
+    try:
+        other = _copy(tmp_path, "other.db")
+    finally:
+        with session_scope() as s:
+            s.get(Match, world["far"]).status_raw = None
+    read0 = us.confirmation_read
+
+    def swapped(now=None, s=None):
+        os.replace(other, copy)
+        return read0(now=now, s=s)
+    monkeypatch.setattr(us, "confirmation_read", swapped)
+    out = _run(["--record", "--ruling", "ARCHITECT: x", "--db", str(copy)])
+    assert out.exit_code == 2 and "changed during the read" in out.output and "nothing recorded" in out.output
+    assert "RECORDED" not in out.output
+    assert not (ids_dir / "intl-elo-v2.confirm.txt").exists() and ledger.read_text() == before_ledger

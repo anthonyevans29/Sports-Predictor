@@ -6213,7 +6213,12 @@ def unl_shadow_grade_cmd(days):
 @click.option("--no-fetch", "no_fetch", is_flag=True,
               help="With --freeze-cohort, cross-ref guard (#329): skip fetching origin laptop/*; only the refs this "
                    "clone knows are checked and the receipt says other clones were not checked.")
-def intl_elo_confirm_cmd(freeze_cohort, substitute, record, ruling, no_fetch):
+@click.option("--db", "db", default=None,
+              help="A .backup copy of the database OUTSIDE data/ (law 5; addendum 346): the whole read on the copy, "
+                   "opened mode=ro + immutable=1, never created, refused under data/, as the app's configured "
+                   "database, when missing, or with a -wal/-shm/-journal beside it; its path and sha256 are printed. "
+                   "Serves the no-flag read and --record only (--freeze-cohort and --substitute are refused with it).")
+def intl_elo_confirm_cmd(freeze_cohort, substitute, record, ruling, no_fetch, db):
     """intl-elo-v2 CONFIRMATION READ (doctrine #212, ARCHITECT 2026-10-02): the
     first 60 senior competitive national-team matches after the verdict,
     priced predict-then-update, scored by the plan (log-loss <= ln 3 AND <
@@ -6225,7 +6230,13 @@ def intl_elo_confirm_cmd(freeze_cohort, substitute, record, ruling, no_fetch):
     and recorded as a substitution with the raw code (--substitute; ARCHITECT
     2026-10-02).
     Without flags: progress only. --record: registry.record_confirmation
-    computes CONFIRMED / NOT_CONFIRMED on exactly the frozen cohort."""
+    computes CONFIRMED / NOT_CONFIRMED on exactly the frozen cohort.
+    --db COPY (ARCHITECT 2026-11-11, addendum 346 item 1): the read runs on a .backup copy outside data/
+    (intl_shadow.check_copy: mlb_pitchers_gate.check_db's fence, no sidecar beside it) through
+    mlb_pitchers_gate.readonly_session (mode=ro + immutable=1), the copy's path and sha256 printed first; the registry
+    write of --record lands in this checkout's docs/registry/ as before (commit it in a PR). With --db, --freeze-cohort
+    and --substitute are REFUSED: "they are registry decisions made on the writer of record's own store, not on a
+    copy". Without --db nothing changes."""
     from collections import Counter
 
     from src.db.database import session_scope
@@ -6233,6 +6244,11 @@ def intl_elo_confirm_cmd(freeze_cohort, substitute, record, ruling, no_fetch):
     from src.walters import intl_elo as ie
     from src.walters import intl_shadow as us
     from src.walters import registry as reg
+    if db is not None and (freeze_cohort or substitute):
+        click.echo(f"REFUSED: --db reads a copy; {'--freeze-cohort' if freeze_cohort else '--substitute'} is a "
+                   "registry decision made on the writer of record's own store, never on a copy (addendum 346 item "
+                   "1). Nothing was read or written.")
+        raise SystemExit(2)
     try:
         if freeze_cohort:
             e, _, _ = us.frozen()
@@ -6284,7 +6300,26 @@ def intl_elo_confirm_cmd(freeze_cohort, substitute, record, ruling, no_fetch):
                            f"({rep['code']} {iso(rep['kickoff'])})")
             click.echo("  commit docs/registry/ in a PR")
             return
-        r = us.confirmation_read()
+        if db is None:
+            r = us.confirmation_read()
+        else:
+            from sqlalchemy.exc import DBAPIError as _DBAPIError
+
+            from src.walters import mlb_pitchers_gate as _mpg
+            copy = us.check_copy(db)
+            sha_before = us.copy_sha256(copy)
+            click.echo(f"--db {copy} · sha256 {sha_before} · a .backup copy, opened "
+                       f"{_mpg.COPY_URI_QUERY.lstrip('?')} (the app's database is not read)")
+            try:
+                with _mpg.readonly_session(copy) as _s:
+                    r = us.confirmation_read(s=_s)
+                    sha_after = us.copy_sha256(copy)      # while the read's connection is still open
+            except _DBAPIError as err:
+                raise us.ShadowRefused(f"--db {copy}: the copy could not be read ({err.orig!r}); nothing recorded")
+            if sha_after != sha_before:
+                raise us.ShadowRefused(f"--db {copy} changed during the read (sha256 {sha_before[:16]}… before, "
+                                       f"{sha_after[:16]}… after): the read is not tied to the printed copy; "
+                                       "nothing recorded")
     except (us.ShadowRefused, reg.RegistryError) as e:
         click.echo(f"REFUSED: {e}")
         raise SystemExit(2)

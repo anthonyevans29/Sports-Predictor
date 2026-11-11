@@ -129,8 +129,8 @@ the bulletins still go.
 The Action compares the newest date that BOTH writers have pushed and posts commit status
 `compare_exports`: success = clean, failure = DIVERGENT (a compared file differs, a pair does not parse, or a
 PAIRED KIND is missing on a side), error =
-the comparator or the runner broke (not a data verdict), pending = NOTHING-TO-COMPARE (zero JSON
-compared) or one side has not pushed that date yet. The full report is in the run's step summary.
+the comparator or the runner broke (not a data verdict), pending = NOTHING-TO-COMPARE (no paired kind
+compared with rows in the window, addendum 335 item 4(c)) or one side has not pushed that date yet. The full report is in the run's step summary.
 NOTHING-TO-COMPARE (ARCHITECT 2026-11-11, addendum 334 item 3(a), verbatim): "a red status that
 means "nothing to compare" is a false alarm — the verdict for zero compared files becomes
 NOTHING-TO-COMPARE (neutral, not failure), DIVERGENT reserved for files that were compared and
@@ -150,7 +150,7 @@ empty on both sides (218 item 1: an empty window is reported, never a pass) — 
 built (#924's build): `compare_exports.PAIRED_KINDS` declares fixtures_NHL (rows `fixtures`, the window the name's
 date -1, 0, +1). A paired file's rows outside the window are counted per side and never compared, its `count` is
 left out, and its host-only columns (market, kalshi*, exec_cost*, fee*, k_track, kalshi_legs, input_quality, desk,
-desk_meta, and away_bid / away_ask, the Kalshi away leg) are left out and counted on their own line. The file the
+desk_meta, and away_bid / away_ask, the Kalshi away leg, and close_unpriced, the book close's note) are left out and counted on their own line. The file the
 laptop writes is nhl-daily's own `export-fixtures --competition NHL` after its three single-day syncs (335 item
 4(a)); the host is unchanged. The Action's status is the daily signal; a tag's step 1 is a hand run on the last
 complete day's folder (335 item 4(f); docs/RELEASES.md step 1). TIMING, as built (put to the architect on the PR):

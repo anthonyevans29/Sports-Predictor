@@ -48,7 +48,8 @@ The ritual for every tag, v1.0.0 and hotfixes included, with no exceptions:
    becomes the release gate. Paste its verdict." Since the cutover the laptop
    writes no production page, so that compare certified only the
    machine-neutral files (one on 2026-11-02; #782).
-   A compare that compared no file reads `NOTHING-TO-COMPARE` (exit 3; the
+   A compare that compared no paired file with rows in its window (addendum
+   335 item 4(c), below) reads `NOTHING-TO-COMPARE` (exit 3; the
    mirror's status pending) and is neither a pass nor a fail of step 1: the
    gap is named. ARCHITECT 2026-11-11,
    addendum 334 item 3, verbatim: "since MLB's close there is no kind both
@@ -66,7 +67,7 @@ The ritual for every tag, v1.0.0 and hotfixes included, with no exceptions:
    is `python3 deploy/hosting/compare_exports.py <mirror>/laptop/<D-1> <mirror>/host/<D-1> --since 0` from the
    tag's checkout (the paired kinds as declared; the verdict rule is 335 item 4(c), in the comparator's
    docstring). Until the laptop's block carries the NHL lines (from the day after #924's build merges), step 1
-   stays as 334 item 3 records it, below.
+   stays as 334 item 3 records it, above.
    Until the host runs the tag that carries NOTHING-TO-COMPARE, its own
    pushes ship v1.6.6's comparator back into the mirror, so a zero-compared
    day still reads red on host-pushed commits: read the laptop-pushed commit's

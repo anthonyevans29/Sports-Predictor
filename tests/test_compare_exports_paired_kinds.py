@@ -115,5 +115,30 @@ def test_the_declared_list_and_the_mask_names():
     for k in ("market", "kalshi", "kalshi_bid", "kalshi_legs", "exec_cost_taker_away", "fee_series", "k_track",
               "input_quality", "desk", "desk_meta", "away_bid", "away_ask"):
         assert ce.host_only_key(k), k
-    for k in ("home_team", "status", "utc_date", "home_score", "competition", "family", "stage", "matchday", "note"):
+    assert ce.host_only_key("close_unpriced")           # the book close's note: same class, put to the architect
+    for k in ("home_team", "status", "utc_date", "home_score", "competition", "family", "stage", "matchday", "note",
+              "feed_source", "feedback", "fees", "kalshix", "exec_costs"):      # a new key stays visible (review)
         assert not ce.host_only_key(k), k
+
+
+def test_a_paired_file_whose_rows_list_is_missing_on_one_side_is_divergent_never_an_error(tmp_path, capsys):
+    """Code's review: one side without its rows list crashed the comparator (host side) or cut one side only
+    (laptop side). Both orientations now read DIVERGENT, uncut."""
+    good = doc([row(t, h, a) for t, h, a in IN], "laptop")
+    for lap, hos in ((good, {**good, "fixtures": None}), ({k: v for k, v in good.items() if k != "fixtures"}, good)):
+        rc, out = run(tmp_path / str(id(lap)), capsys, lap, hos)
+        assert rc == ce.EXIT_DIVERGENT and "VERDICT: ERROR" not in out, out
+        assert "outside the window, never compared" not in out
+
+
+def test_the_same_paired_kind_under_two_names_is_named_as_such(tmp_path, capsys):
+    la, ho = tmp_path / "laptop", tmp_path / "host"
+    la.mkdir(), ho.mkdir()
+    (la / NAME).write_text(json.dumps(doc([row(t, h, a) for t, h, a in IN], "laptop")))
+    (ho / "fixtures_NHL_2026-11-10_to_2026-11-12.json").write_text(json.dumps(doc([], "host")))
+    rc = ce.main([str(la), str(ho), "--since", "0"])
+    out = capsys.readouterr().out
+    assert rc == ce.EXIT_DIVERGENT
+    assert "PAIRED KIND fixtures_NHL is on both sides under different names, so nothing of it was compared" in out
+    assert "PAIRED KIND fixtures_NHL missing on" not in out and "0 missing on a side" in out
+    assert "2 paired kind under different names" in out

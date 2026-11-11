@@ -5,8 +5,9 @@ ET, addendum 335 item 4(c), verbatim): "CLEAN = at least one paired file compare
 compared file identical, no paired kind missing on a side. DIVERGENT = a compared file differs, OR a paired kind is
 present on one side and missing on the other for a date both machines pushed (a missing file is a finding), OR a pair
 does not parse. NOTHING-TO-COMPARE = everything else, including a pair whose in-window rows are empty on both sides".
-And 335 item 2: "(1) a one-sided file beside a clean pair reading DIVERGENT — NOT the final rule [...] #922 merges
-with its test pinning today's behavior, and that PR changes the test." This is that PR (#924's build). The Action side
+And 335 item 2, verbatim: "(1) a one-sided file beside a clean pair reading DIVERGENT — NOT the final rule, and not
+fixed in #922: it is ruled in item 4(c) below and built with #924's PR; #922 merges with its test pinning today's
+behavior, and that PR changes the test." This is that PR (#924's build). The Action side
 is pinned in test_exports_mirror.py; the window and the host-only columns in test_compare_exports_paired_kinds.py."""
 import json
 import sys

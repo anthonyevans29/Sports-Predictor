@@ -17,4 +17,5 @@
 - **Tests:**
   - tests/test_compare_exports_paired_kinds.py (6) and tests/test_compare_exports_nothing_to_compare.py (11, rewritten to 335; #922's as-built DIVERGENT pin replaced, as 335 item 2 says).
   - The feature tests (masks, machine state, the PL check, #680's line) run under `--paired-kinds '*'`, their rule unchanged.
+- **Adversarial review before opening (eleven findings, ten confirmed; nine fixed, one escalated):** one side's missing rows list read ERROR or cut one side only (both sides now cut together, or neither); the kalshi/exec_cost/fee prefixes take their underscore (a new `feed_*` key stays visible); `close_unpriced` masked with the other book-close column (flagged); a paired kind under two names is named as such; the stale pre-335 wording rescoped. Escalated: an unpaired kind on both sides that differs (4(c)'s two clauses).
 - **Not built (335 item 4(a), the architect's block):** the laptop's NHL lines, the day after this merges.

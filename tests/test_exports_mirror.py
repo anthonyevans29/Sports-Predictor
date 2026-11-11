@@ -206,10 +206,11 @@ def test_shipped_tree_runs_in_a_clean_checkout_clean_divergent_and_error(tmp_pat
     assert got["state"] == "error" and "not a data verdict" in got["desc"]
 
 
-def test_zero_compared_is_no_coverage_never_clean(tmp_path):
+def test_zero_compared_is_nothing_to_compare_never_clean(tmp_path):
     """PR #261 review: a real mirror whose dated folders hold only Markdown gave "CLEAN (0 compared)" and
-    state=success. Zero compared is NO-COVERAGE (exit 3) and the Action posts error, in a clean checkout of
-    the shipped tree; an empty side folder likewise."""
+    state=success. Zero compared is exit 3, never CLEAN, in a clean checkout of the shipped tree; an empty side
+    folder likewise. Addendum 334 item 3(a): it reads NOTHING-TO-COMPARE and the Action posts pending (neutral),
+    never error or failure."""
     remote = _remote(tmp_path)
     for role in ("host", "laptop"):                                      # Markdown-only dated folders
         ex = _exports(tmp_path / role, [("morning_receipt_2026-10-03.md", TODAY, "# receipt\n")])
@@ -227,20 +228,44 @@ def test_zero_compared_is_no_coverage_never_clean(tmp_path):
     assert r.returncode == 3, r.stdout + r.stderr
     assert "coverage: 0 JSON file(s) compared" in r.stdout and "laptop 1, host 1" in r.stdout
     assert "CLEAN" not in r.stdout.replace("not a clean verdict", "")
-    assert r.stdout.strip().endswith("VERDICT: NO-COVERAGE (0 compared) — not a data verdict")
+    assert r.stdout.strip().endswith("VERDICT: NOTHING-TO-COMPARE (0 compared) — not a data verdict")
     got = _run_action(co, tmp_path)
-    assert got["state"] == "error" and got["desc"].startswith("NO COVERAGE · 2026-10-03"), got
+    assert got["state"] == "pending", got
+    assert got["desc"] == ("NOTHING-TO-COMPARE · 2026-10-03 — 0 JSON compared, 0 on one side only; neutral, "
+                           "not a data verdict"), got
 
     (co / "empty_l").mkdir(), (co / "empty_h").mkdir()                   # empty side folders
     r = cli("empty_l", "empty_h", "--since", "0")
-    assert r.returncode == 3 and "VERDICT: NO-COVERAGE" in r.stdout
+    assert r.returncode == 3 and "VERDICT: NOTHING-TO-COMPARE" in r.stdout
     assert "coverage: 0 JSON file(s) compared" in r.stdout and "laptop 0, host 0" in r.stdout
     for p in (co / "host" / "2026-10-03").iterdir():                     # the shipped workflow on empty folders
         p.unlink()
     for p in (co / "laptop" / "2026-10-03").iterdir():
         p.unlink()
     got = _run_action(co, tmp_path)
-    assert got["state"] == "error" and "NO COVERAGE" in got["desc"], got
+    assert got["state"] == "pending" and got["desc"].startswith("NOTHING-TO-COMPARE · 2026-10-03"), got
+
+
+def test_the_shipped_action_posts_pending_on_files_each_on_one_side_only(tmp_path):
+    """Addendum 334 item 3(a): the 11-11 status read DIVERGENT (failure) with 0 JSON compared and 3 on one side
+    only, "a false alarm". The shipped Action in a clean checkout posts pending, naming the one-sided count; a file
+    compared and different still posts failure."""
+    remote = _remote(tmp_path)
+    for role, name in (("laptop", "mlb_MLB_results_2026-10-02.json"), ("host", "window_24h.json")):
+        ex = _exports(tmp_path / role, [(name, TODAY, '{"rows": []}')])
+        assert em.push(role, ex, "one-sided", remote, tmp_path / f"{role}_clone", today=TODAY)["pushed"]
+    co, _ = _tree(remote, tmp_path)
+    got = _run_action(co, tmp_path)
+    assert got == {"date": "2026-10-03", "state": "pending",
+                   "desc": "NOTHING-TO-COMPARE · 2026-10-03 — 0 JSON compared, 2 on one side only; neutral, "
+                           "not a data verdict"}, got
+    for role, p in (("laptop", 0.5), ("host", 0.6)):
+        body = '[{"utc_date":"2026-10-03T23:00Z","home_team":"A","away_team":"B","p":%s}]' % p
+        ex = _exports(tmp_path / f"{role}2", [("fixtures_NHL_2026-10-03.json", TODAY, body)])
+        assert em.push(role, ex, "differ", remote, tmp_path / f"{role}_clone2", today=TODAY)["pushed"]
+    co2, _ = _tree(remote, tmp_path / "t2")
+    got = _run_action(co2, tmp_path)
+    assert got["state"] == "failure" and got["desc"].startswith("DIVERGENT · 2026-10-03"), got
 
 
 def test_the_shipped_action_lists_coverage_as_machine_state_never_divergent(tmp_path):

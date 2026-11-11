@@ -102,13 +102,14 @@ def test_a_real_divergence_beside_a_coverage_file_is_still_divergent(tmp_path, c
     assert out.strip().endswith("VERDICT: DIVERGENT")
 
 
-def test_coverage_files_alone_are_no_coverage_never_clean(tmp_path, capsys):
-    """Never counted TOWARD (a) either: a day whose only JSON is the coverage file compared nothing."""
+def test_coverage_files_alone_are_nothing_to_compare_never_clean(tmp_path, capsys):
+    """Never counted TOWARD (a) either: a day whose only JSON is the coverage file compared nothing (exit 3, read
+    NOTHING-TO-COMPARE since addendum 334 item 3(a))."""
     rc, out = run(tmp_path, capsys, {COV: LAPTOP_COV}, {COV: HOST_COV})
-    assert rc == ce.EXIT_NO_COVERAGE, out
+    assert rc == ce.EXIT_NOTHING_TO_COMPARE == ce.EXIT_NO_COVERAGE, out
     assert ms_lines(out) == ["machine-state files: coverage laptop yes / host yes"]
     assert "coverage: 0 JSON file(s) compared" in out
-    assert out.strip().endswith("VERDICT: NO-COVERAGE (0 compared) — not a data verdict")
+    assert out.strip().endswith("VERDICT: NOTHING-TO-COMPARE (0 compared) — not a data verdict")
 
 
 def test_the_latest_copy_is_kind_coverage_too_and_is_never_read(tmp_path, capsys):
@@ -175,7 +176,7 @@ def test_presence_is_read_among_the_files_the_glob_and_the_window_select(tmp_pat
     assert rc == ce.EXIT_CLEAN and ms_lines(out) == ["machine-state files: coverage laptop no / host no"]
     assert "not matched by fixtures*: laptop 2, host 0 (e.g. coverage_2026-10-12.json, coverage_2026-10-19.json)" in out
     la, ho = sides(tmp_path / "w", lap, {FIX: [GAME]})
-    assert ce.main([str(la), str(ho), "--today", "2026-10-25"]) == ce.EXIT_NO_COVERAGE
+    assert ce.main([str(la), str(ho), "--today", "2026-10-25"]) == ce.EXIT_NOTHING_TO_COMPARE
     out = capsys.readouterr().out
     assert ms_lines(out) == ["machine-state files: coverage laptop no / host no"] and "3 outside the window" in out
     rc, out = run(tmp_path / "a", capsys, lap, {FIX: [GAME]})

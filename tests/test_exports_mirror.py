@@ -294,6 +294,24 @@ def test_the_shipped_action_posts_pending_awaiting_the_other_side_on_its_own_day
     assert _run_action(co2, tmp_path) == {"date": today.isoformat(), "state": "success",
                                           "desc": f"CLEAN · {today}"}
 
+
+def test_the_shipped_action_names_an_unread_window_in_its_pending_status(tmp_path):
+    """Codex on #929 (P2): a valid pair beside a paired file whose window was not read reads NOTHING-TO-COMPARE
+    (addendum 338 item 3); the shipped Action's pending description names the unread window, never the false
+    "no paired kind compared with rows in the window"."""
+    remote = _remote(tmp_path)
+    good = '{"fixtures": [{"utc_date":"2026-10-03T23:00:00","home_team":"A","away_team":"B","p":0.5}]}'
+    bare = '[{"utc_date":"2027-01-01T00:00:00","home_team":"C","away_team":"D"}]'
+    for role in ("laptop", "host"):
+        ex = _exports(tmp_path / role, [("fixtures_NHL_2026-10-03.json", TODAY, good),
+                                        ("fixtures_NHL_2026-10-02.json", TODAY, bare)])
+        assert em.push(role, ex, "t", remote, tmp_path / f"{role}_clone", today=TODAY)["pushed"]
+    co, _ = _tree(remote, tmp_path)
+    got = _run_action(co, tmp_path)
+    assert got == {"date": "2026-10-03", "state": "pending",
+                   "desc": "NOTHING-TO-COMPARE · 2026-10-03 — 1 paired file(s), window not read (338 item 3); "
+                           "neutral, not a data verdict"}, got
+
 def test_the_shipped_action_lists_coverage_as_machine_state_never_divergent(tmp_path):
     """#592 RULED (ARCHITECT 2026-10-18, addendum 128 item 3): "the compare treats kind `coverage` as "machine
     state": listed by presence on each side (one side, both sides, neither), never compared for content, never

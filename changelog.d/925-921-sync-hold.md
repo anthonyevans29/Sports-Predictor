@@ -1,4 +1,4 @@
-## 2026-11-11 (#000: 921-sync-hold — SP_SYNC_HOLD: a per-competition sync hold the step itself honors (ARCHITECT 2026-11-10, addendum 332 item 3; 333 item 3(iii)).)
+## 2026-11-11 (#925: 921-sync-hold — SP_SYNC_HOLD: a per-competition sync hold the step itself honors (ARCHITECT 2026-11-10, addendum 332 item 3; 333 item 3(iii)).)
 - **Ruling (verbatim, addendum 332 item 3):** "THE DURABLE ANSWER is a per-competition sync hold the step itself honors: SP_SYNC_HOLD, a list of competition codes read by sync-teams and sync-matches, which print "HELD <code> (SP_SYNC_HOLD)" and exit 0 for a listed code, every chain and timer unchanged, the window and fullseason plans unchanged; a receipt line counts the held steps." And 333 item 3(iii): "SP_SYNC_HOLD (#921) honors the same path: its design covers intl-sync, or says in its body why not."
 - **Built:**
   - `src/ingestion/sync_hold.py`: the setting and the line. Read on every check from the process environment, host.env (`SP_HOST_ENV`) and the checkout's .env; a code named in any of them is held (a run by hand and the long-running admin UI see it with no restart). Codes are separated by commas or blanks, any case.

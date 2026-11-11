@@ -1101,7 +1101,7 @@ def _cmp(tmp_path, capsys, laptop, host_, name):
     for d, body in ((la, laptop), (ho, host_)):
         d.mkdir(parents=True, exist_ok=True)
         (d / name).write_text(json.dumps(body))
-    rc = ce.main([str(la), str(ho), "--since", "0"])
+    rc = ce.main([str(la), str(ho), "--since", "0", "--paired-kinds", "*"])   # the masks' test: the pre-335 rule
     return rc, capsys.readouterr().out
 
 

@@ -133,6 +133,23 @@ def test_an_nba_teams_read_that_answers_no_ids_is_a_stop_never_a_pass(capsys, se
     assert "STOP: the NBA's /teams for 2025 answered no team id" in out and "shared: 0" not in out
     assert tail["nba_collision"] == {"read": False, "season": "2025"}
 
+@pytest.mark.parametrize("empty", ["teams", "games", "both"])
+def test_a_season_that_answers_no_teams_or_no_games_certifies_nothing(capsys, empty):
+    """Codex on #957, round 2 (P2): league 116 answering 200 with an empty /teams or /games read as a season read, so
+    the stop compared what little it had and could exit 0 over a load that would store nothing. A season with no
+    team or no game is FAILED (1): nothing to certify; with no other season read, the stop is NOT RUN."""
+    f = fake()
+    if empty in ("teams", "both"):
+        f.by_league_teams[(116, "2026-2027")] = []
+    if empty in ("games", "both"):
+        f.by_league_games[(116, "2026-2027")] = []
+    code, out, tail = run(capsys, ["--competition", "NCAAMB"], f)
+    assert code == R.FAILED, out
+    assert "FAILED: the provider answered" in out and "nothing to certify" in out
+    assert "NOT RUN: no NCAAMB season was read" in out and "shared: 0" not in out
+    assert tail["seasons"]["2026"]["empty"] is True and tail["nba_collision"]["read"] is False
+    assert not [p for path, p in f.calls if p.get("league") == 12]
+
 def test_no_ncaamb_season_read_runs_no_nba_read_and_keeps_the_seasons_exit(capsys):
     """The second pre-PR review (P2): with no NCAAMB season read (league 116 serving no 2026 season, or its /teams
     failing), the stop compared nothing against three NBA reads and printed a clean "shared: 0" (and an NBA read

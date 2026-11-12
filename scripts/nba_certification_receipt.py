@@ -301,7 +301,17 @@ def served_phase(seasons: list[str], adapter, say, comp: str = COMPETITION) -> t
             worst = max(worst, FAILED)
             out["seasons"][ours] = {"failed": f"{type(e).__name__}"}
             continue
-        out["seasons"][ours] = season_report(ours, served, list(teams), list(games), say, now, comp)
+        r = season_report(ours, served, list(teams), list(games), say, now, comp)
+        # Codex on #957 (round 2): for NCAAMB, whose stop gates the load (352 item 3(v)), an answer with nothing in it
+        # certifies nothing; the NBA's certified receipt (#839, 11-07) keeps its reading of an empty season
+        if comp == "NCAAMB" and (not r["teams"] or not r["listing"]):
+            say(f"  FAILED: the provider answered {r['teams']} team(s) and {r['listing']} game(s) for {comp} {ours}: "
+                "nothing to certify (an empty answer is never a clean read)")
+            worst = max(worst, FAILED)
+            r["empty"] = True
+            r.pop("team_ids", None)
+            r.pop("side_ids", None)
+        out["seasons"][ours] = r
     ids = {k: set(r.get("team_ids") or []) for k, r in out["seasons"].items() if "team_ids" in r}
     if len(ids) > 1:
         every = set.intersection(*ids.values())

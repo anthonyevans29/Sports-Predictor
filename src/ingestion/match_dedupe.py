@@ -430,6 +430,17 @@ def orphans(competition_code: str, adapter, source: str = "api_american_football
             return {"id": x.id, "sid": sid_of(x), "utc": x.utc_date.isoformat(), "home": x.home_team_id,
                     "away": x.away_team_id, "stale": x.utc_date < stale_cut, "action": action, **kw}
 
+        def served(nm):
+            """What the provider serves for a live id, from the by-id answer already read (#945; ARCHITECT 2026-11-12,
+            addendum 348 item 2: "say what the provider serves for each"): its status as our map reads it, its status
+            code verbatim, its score and its kickoff. No further call. An id that answers with no game the adapter
+            keeps (non-competitive, or served with no date or no team ids) says so, without claiming which."""
+            if nm is None:
+                return "the id answers; the adapter kept no game (non-competitive, or no date or team ids)"
+            score = None if nm.home_score is None and nm.away_score is None else f"{nm.home_score}-{nm.away_score}"
+            return {"status": nm.status.name, "status_raw": nm.status_raw, "score": score,
+                    "utc": nm.utc_date.isoformat()}
+
         def date_search(m):
             hs, as_ = tsid.get(m.home_team_id), tsid.get(m.away_team_id)
             found, swapped, err = [], [], None
@@ -463,7 +474,7 @@ def orphans(competition_code: str, adapter, source: str = "api_american_football
                 continue
             found = [x for x in comp if st_of[x.id][0] == "found"]
             absent = [x for x in cc if st_of[x.id][0] == "absent"]
-            plan.extend(entry(x, "live_resync" if x.utc_date < stale_cut else "live")
+            plan.extend(entry(x, "live_resync" if x.utc_date < stale_cut else "live", served=served(st_of[x.id][1]))
                         for x in cc if st_of[x.id][0] == "found")
             if not absent:
                 continue

@@ -1,0 +1,4 @@
+**2026-11-12 — BUILT (#901; ARCHITECT 2026-11-09 12:50 ET, addendum 309 item 6): 2026's retirement as a college test season (addendum 302) is enforced by the registry, as 2025's was (addendum 24 item 2(b)). Refs #79.**
+- **Ruling (verbatim, addendum 309 item 6):** "#901 (2026 not in `registry.RETIRED_TEST_SETS`): a small src PR of its own, after #903 and #894 — the entry with 302 item 3's sentence quoted, a test that a 2026 college candidate is refused; Refs #79."
+- **302 item 3's sentence (verbatim):** "2026 is RETIRED as a college test season; NCAA is MARKET-ONLY; the 2027 candidate declares in the off-season."
+- **As built:** `registry.RETIRED_TEST_SETS` and `RETIRED_BY` gain ncaa-elo-v2's exact test set: last candidate ncaa-elo-v2, the 2027 regular season to declare instead, the refusal naming addendum 302. docs/REGISTRY.md's table gains both college rows. No model, gate, threshold or export changes; no date moves.

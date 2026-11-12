@@ -671,7 +671,9 @@ def test_944_in_games_side_is_the_latest_assertions(fresh_db, tmp_path):
 def test_944_a_sigterm_during_the_post_commit_cleanup_is_still_a_success(fresh_db, tmp_path, monkeypatch):
     """#944 item 4 (Codex on #943's merge commit): the handler stayed installed through the finally block, so a
     SIGTERM during the cleanup raised Killed past the except, over a graph already moved into place. The handler is
-    restored first: the signal no longer reaches the run, and its line is ok."""
+    restored first: the signal no longer reaches the run, and its line is ok. Codex on #952 (P2): restoring it BEFORE
+    the cleanup let a SIGTERM under SIG_DFL kill the process before the line was written; the cleanup now defers the
+    signal and re-delivers it after the prior disposition is back."""
     import signal
     _history_b()
     out = tmp_path / "graph"
@@ -687,13 +689,18 @@ def test_944_a_sigterm_during_the_post_commit_cleanup_is_still_a_success(fresh_d
             os.kill(os.getpid(), signal.SIGTERM)
         return real_rmtree(path, *a, **k)
     def recorder(signum, frame):                                      # the caller's own handler: it records
-        got.append(signum)
+        got.append((signum, (out / g.RECEIPTS).read_text() if (out / g.RECEIPTS).exists() else ""))
     original = signal.signal(signal.SIGTERM, recorder)
     try:
         monkeypatch.setattr(g.shutil, "rmtree", rmtree_then_term)
         r = g.rebuild(out / g.GRAPH_NAME, copy=copy, lb=object())
         assert seen and r["ok"] is True and "error" not in r and "after_commit" not in r
-        assert got == [signal.SIGTERM]                    # the caller's handler had it back: the run never saw it
+        assert [s for s, _ in got] == [signal.SIGTERM]    # the caller's handler had it back: the run never saw it
+        # Codex on #952: the signal is DEFERRED through the cleanup and re-delivered once the prior disposition is
+        # back, so the caller sees it only after the run's ok line is written (under SIG_DFL, the CLI's own case, the
+        # process then ends on the stop it was sent, its receipt already on disk)
+        last = [ln for ln in got[0][1].splitlines() if ln.strip()]
+        assert last and json.loads(last[-1])["ok"] is True, got
         assert signal.getsignal(signal.SIGTERM) is recorder
     finally:
         signal.signal(signal.SIGTERM, original)

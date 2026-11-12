@@ -518,9 +518,12 @@ def rebuild(out: Path, copy: Path | None = None, backup_dir: Path | None = None,
         raise
     finally:
         # The handler goes first (#944 item 4): a SIGTERM during this cleanup must not raise Killed past the except
-        # above, after the commit point, over a run that succeeded. The previous handler, or the default one.
+        # above, after the commit point, over a run that succeeded. Nor may it end the process before the run's line
+        # is written (Codex on #952: under SIG_DFL, restored here, it did): through the cleanup the signal is
+        # DEFERRED, and it is re-delivered once the previous disposition (or the default one) is back.
+        deferred = []
         if installed:
-            signal.signal(signal.SIGTERM, prev if prev is not None else signal.SIG_DFL)
+            signal.signal(signal.SIGTERM, lambda signum, frame: deferred.append(signum))
         shutil.rmtree(stage, ignore_errors=True)
         receipt["seconds"] = round(time.monotonic() - t0, 1)
         receipt_error = append_receipt(out, receipt)
@@ -530,4 +533,8 @@ def rebuild(out: Path, copy: Path | None = None, backup_dir: Path | None = None,
             print(f"AVAILABILITY-GRAPH: the receipt line was not written ({receipt_error})", file=sys.stderr)
         if lock is not None:
             lock.close()
+        if installed:
+            signal.signal(signal.SIGTERM, prev if prev is not None else signal.SIG_DFL)
+            if deferred:
+                os.kill(os.getpid(), signal.SIGTERM)      # the stop it was sent, after its line: the caller's to act on
     return receipt

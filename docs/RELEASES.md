@@ -121,6 +121,12 @@ The ritual for every tag, v1.0.0 and hotfixes included, with no exceptions:
    2. The migration command the deploy prints, verbatim. It runs as the
       service user with host.env loaded and holds one DB lock across the
       daily backup and every migration, in order.
+      When the deploy instead prints "src/db/schema.py changed in this
+      range and the plan lists no new migration" (ARCHITECT 2026-11-12,
+      addendum 354 item 2(b), #950), it prints no command. Read the range's
+      PRs for the migration that applies the change before the DB is used; a
+      schema change ships with its own new `migrate_<what>.py`
+      (CONTRIBUTING.md).
    - Never pass `--run-migrations` to the deploy call itself. It runs ONLY
      the migrations (it returns before the checkout) and validates the names
      against the CURRENT checkout. On the old release a new file "is not a

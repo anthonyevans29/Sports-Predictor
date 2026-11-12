@@ -46,3 +46,15 @@ This project runs on laws earned from incidents. They are not optional.
 - CI must pass (parse + import smoke) on every push.
 - Python 3.10 is the floor (the laptop); no PEP 701 f-strings (a replacement field never spans lines or reuses the
   enclosing quote); CI parses on 3.10. (ARCHITECT 2026-11-07, addendum 280 item 2(c).)
+- **A change to the stored schema ships with a NEW migration file in the same PR** (ARCHITECT 2026-11-12 10:55 ET,
+  addendum 354 item 2(a), #950, verbatim): "FROM NOW ON a change to the stored schema ships with a NEW one-shot
+  `migrate_<what>.py` in the same PR — it may do no more than call the idempotent migration that applies the change
+  — because the plan already lists, orders and prints new migration files, and a rule the deploy can see is worth
+  more than a rule a person must remember." The stored schema is a table, a column, an index or a trigger in
+  `src/db/schema.py`.
+  - **Make the file's content its own.** Name the PR and the change in its docstring. `sp_deploy` treats a new file
+    whose content equals an existing migration's as a copy that already ran, and never runs it. It treats two
+    identical new files in one range as undetermined.
+  - **What the deploy says when the rule is missed:** on a forward deploy where `src/db/schema.py` changed and the
+    plan lists no new migration, the dry run and the deploy print one `!` line, with no command (354 item 2(b)).
+    The plan cannot know which migration covers the change, so the PRs are read before the DB is used.

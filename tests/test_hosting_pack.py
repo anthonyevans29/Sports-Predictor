@@ -4218,3 +4218,130 @@ def test_725_t11_recipes_read_timers_enabled_by_name_never_by_line():
     recipe = next(ln for ln in rb.splitlines() if 'grep -vxF "$old"' in ln)    # #729: no failed read empties it
     assert recipe.lstrip().startswith('[ -s "$f" ] && ( set -o pipefail; ') and recipe.rstrip().endswith(
         ') && [ -s "$f.new" ] && sudo mv "$f.new" "$f"')
+
+
+# ---- #950: the schema warning (ARCHITECT 2026-11-12 10:55 ET, addendum 354 item 2(b)) ------------------------------
+def _schema_repo(sandbox, name):
+    """A git repo with src/db/schema.py at its base commit; returns (repo, g, base)."""
+    import subprocess
+    repo = sandbox / name
+    (repo / "src" / "db").mkdir(parents=True)
+
+    def g(*a):
+        return subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", *a],
+                              check=True, capture_output=True, text=True).stdout.strip()
+    g("init", "-q", "-b", "main")
+    (repo / "src" / "db" / "schema.py").write_text("TABLES = ['matches']\n")
+    (repo / "migrate_old.py").write_text("print('the old idempotent migration')\n")
+    g("add", "-A")
+    g("commit", "-q", "-m", "base")
+    return repo, g, g("rev-parse", "HEAD")
+
+
+def test_950_a_forward_schema_change_with_no_new_migration_sets_the_warning(sandbox, monkeypatch):
+    """354 item 2(b): v1.6.7's shape. src/db/schema.py changed, no migrate_*.py changed: the plan is empty and was
+    silent. It now sets schema_changed_no_migration (no command: run stays empty). A rollback across the same change
+    and a sideways move set nothing."""
+    import sp_deploy
+    repo, g, base = _schema_repo(sandbox, "s1")
+    (repo / "src" / "db" / "schema.py").write_text("TABLES = ['matches']\nINDEXES = ['uq_poll']\n")
+    g("add", "-A")
+    g("commit", "-q", "-m", "a poll key rides the old migration")
+    head = g("rev-parse", "HEAD")
+    monkeypatch.setattr(c, "REPO", repo)
+    fwd = sp_deploy.migration_plan(base, head, ["src/db/schema.py"])
+    assert fwd["forward"] and fwd["schema_changed_no_migration"] is True
+    assert fwd["run"] == [] and fwd["new"] == [] and fwd["skipped"] == []
+    back = sp_deploy.migration_plan(head, base, ["src/db/schema.py"])               # a rollback: nothing
+    assert not back["forward"] and back["schema_changed_no_migration"] is False and back["run"] == []
+    g("checkout", "-q", "-b", "side", base)                                           # a sideways move: nothing
+    (repo / "b.txt").write_text("x")
+    g("add", "-A")
+    g("commit", "-q", "-m", "side")
+    side = g("rev-parse", "HEAD")
+    sideways = sp_deploy.migration_plan(head, side, ["src/db/schema.py", "b.txt"])
+    assert not sideways["forward"] and sideways["schema_changed_no_migration"] is False
+
+
+def test_950_a_new_migration_in_the_range_clears_the_warning_and_a_modified_one_does_not(sandbox, monkeypatch):
+    """354 item 2(a): a schema change that ships its own new migrate_<what>.py gets the plan's ordinary line and
+    command, and no warning. A range whose only migration change is a MODIFIED one lists no new migration, so the
+    warning prints beside the modified line."""
+    import sp_deploy
+    repo, g, base = _schema_repo(sandbox, "s2")
+    (repo / "src" / "db" / "schema.py").write_text("TABLES = ['matches']\nINDEXES = ['uq_poll']\n")
+    (repo / "migrate_poll_key.py").write_text("'''#950: the poll key; calls migrate_old.'''\nimport migrate_old\n")
+    g("add", "-A")
+    g("commit", "-q", "-m", "a poll key with its own migration")
+    head = g("rev-parse", "HEAD")
+    monkeypatch.setattr(c, "REPO", repo)
+    plan = sp_deploy.migration_plan(base, head, ["migrate_poll_key.py", "src/db/schema.py"])
+    assert plan["run"] == ["migrate_poll_key.py"] and plan["schema_changed_no_migration"] is False
+    repo2, g2, base2 = _schema_repo(sandbox, "s3")
+    (repo2 / "src" / "db" / "schema.py").write_text("TABLES = ['matches']\nINDEXES = ['uq_poll']\n")
+    (repo2 / "migrate_old.py").write_text("print('the old idempotent migration, now with the poll key')\n")
+    g2("add", "-A")
+    g2("commit", "-q", "-m", "the old migration modified")
+    monkeypatch.setattr(c, "REPO", repo2)
+    mod = sp_deploy.migration_plan(base2, g2("rev-parse", "HEAD"), ["migrate_old.py", "src/db/schema.py"])
+    assert mod["modified"] == ["migrate_old.py"] and mod["run"] == [] and mod["schema_changed_no_migration"] is True
+
+
+def test_950_no_schema_change_never_runs_the_ancestry_check_on_the_empty_path(sandbox, monkeypatch):
+    """The ancestry check runs on the no-migration path ONLY when the schema changed, so a check that errors cannot
+    refuse a deploy that touches neither a migration nor the schema (as before #950). When the schema changed, an
+    erroring check refuses, as it does for any migration plan."""
+    import sp_deploy
+    calls = []
+
+    def git_rc(*a):
+        calls.append(a)
+        return 128, "", "fatal: simulated"
+    monkeypatch.setattr(sp_deploy, "_git_rc", git_rc)
+    plan = sp_deploy.migration_plan("a" * 40, "b" * 40, ["README.md", "cli.py"])
+    assert calls == [] and plan["forward"] and plan["schema_changed_no_migration"] is False
+    with pytest.raises(SystemExit, match="refusing to plan migrations"):
+        sp_deploy.migration_plan("a" * 40, "b" * 40, ["src/db/schema.py"])
+    assert calls and calls[0][0] == "merge-base"
+
+
+def test_950_the_dry_run_and_the_deploy_print_the_warning_with_no_command_and_receipt_it(sandbox, monkeypatch, capsys):
+    """354 item 2(b), verbatim in part: "sp_deploy prints one `!` line saying so, with no command (it cannot know
+    which migration covers the change, and a guessed command is worse than none); the dry run prints it too." The
+    deploy's receipt carries schema_changed_no_migration."""
+    import subprocess
+
+    import sp_deploy
+    origin, repo = sandbox / "origin", sandbox / "clone"
+    (origin / "src" / "db").mkdir(parents=True)
+
+    def g(where, *a):
+        return subprocess.run(["git", "-C", str(where), "-c", "user.email=t@t", "-c", "user.name=t", *a],
+                              check=True, capture_output=True, text=True).stdout.strip()
+    g(origin, "init", "-q", "-b", "main")
+    (origin / "src" / "db" / "schema.py").write_text("TABLES = ['matches']\n")
+    g(origin, "add", "-A")
+    g(origin, "commit", "-q", "-m", "base")
+    g(origin, "tag", "v1.0.0")
+    subprocess.run(["git", "clone", "-q", str(origin), str(repo)], check=True)
+    g(repo, "checkout", "-q", "--detach", "v1.0.0")
+    (origin / "src" / "db" / "schema.py").write_text("TABLES = ['matches']\nINDEXES = ['uq_poll']\n")
+    g(origin, "add", "-A")
+    g(origin, "commit", "-q", "-m", "schema only")
+    g(origin, "tag", "v1.0.1")
+    monkeypatch.setattr(c, "REPO", repo)
+    monkeypatch.setenv("SP_RECEIPTS", str(sandbox / "log" / "receipts.jsonl"))
+    monkeypatch.setenv("SP_LOCK", str(sandbox / "lib" / "db.lock"))
+    monkeypatch.setattr(c, "HOST_ENV", sandbox / "no-host.env")
+    capsys.readouterr()
+    assert sp_deploy.main(["--tag", "v1.0.1", "--dry-run"]) == 0
+    dry = capsys.readouterr().out
+    assert "; ! src/db/schema.py changed in this range and the plan lists no new migration" in dry
+    assert "--run-migrations" not in dry
+    assert sp_deploy.main(["--tag", "v1.0.1"]) == 0
+    out = capsys.readouterr().out
+    assert "\n  ! src/db/schema.py changed in this range and the plan lists no new migration: no command can be " \
+           "generated" in out
+    assert "--run-migrations" not in out and "new migrations" not in out
+    deploys = [r for r in receipts(sandbox) if r.get("kind") == "deploy"]
+    assert deploys[-1]["schema_changed_no_migration"] is True and deploys[-1]["new_migrations"] == []

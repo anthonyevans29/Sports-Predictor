@@ -1,7 +1,8 @@
 """ncaa-elo-v1r: FAIL (ARCHITECT 2026-10-09 12:30 ET, addendum 24 items 1 and 2; GATE-CLASS). Pins:
 - (a) the registry holds the one run (spliced from laptop/ncaa-elo-v1r-run-record at 130b481) and the FAIL verdict
   with the ruling verbatim; the spec closes with the run's figures and the ruling;
-- (b) the 2025 test set is RETIRED: ncaa-elo-v1r was its last candidate, any other refuses naming the 2026 season;
+- (b) the 2025 test set is RETIRED: ncaa-elo-v1r was its last candidate, any other refuses naming the 2027 season
+  (2026 was retired by addendum 302; addendum 358 item 6(1), 360 item 4(ii));
 - (c) ncaa-backtest refuses, exit 2, naming the ruling, with or without --baselines-only, fence lifted or not,
   before anything is read; GATE_STATUS and its line say CLOSED with the ruling's date (ncaa-cfbd-coverage prints it);
 - (d) export-ncaa-predictions refuses, exit 2, naming the ruling, once the registry records a verdict for

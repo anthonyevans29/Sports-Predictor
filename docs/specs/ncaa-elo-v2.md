@@ -49,7 +49,7 @@ own fields, so the keys below were added to the same entry afterwards, as for v1
 
 | key | value | why |
 |---|---|---|
-| `test_set` | the string above | RETIRED_TEST_SETS names "the NCAA FBS 2026 regular season as it accrues" for the next college candidate |
+| `test_set` | the string above | RETIRED_TEST_SETS names "the NCAA FBS 2026 regular season as it accrues" for the next college candidate [corrected by ARCHITECT 2026-11-12, addendum 360 item 4(i): ncaa-elo-v2's run retired 2026 (addendum 302), so RETIRED_TEST_SETS now names "the NCAA FBS 2027 regular season as it accrues (2024-2026 training; declared in the off-season with its spread pre-check)" for the next college candidate (#963)] |
 | `gate` | D5 verbatim, after "D5. Gate: " | |
 | `confirmation_window` | D7 verbatim, after "D7. Confirmation: " | |
 | `confirmation_plan` | `{n_games 100, metric log_loss, bar 0.6931, must_beat_reference true, reference "the D4 baseline on the same games minus 0.010"}` | v1r's D7 numbers ("as v1r's D7"); passes `registry.check_plan` |

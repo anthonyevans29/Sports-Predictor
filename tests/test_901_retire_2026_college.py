@@ -98,3 +98,18 @@ def test_the_sentence_is_quoted_beside_the_entry_and_in_the_doctrine():
     doc = (ROOT / "docs" / "REGISTRY.md").read_text(encoding="utf-8").replace("\n  ", " ")
     assert SENTENCE in doc
     assert f"| {TEST_SET} | `ncaa-elo-v2`, once (ARCHITECT 2026-11-09, addendum 302) | `ncaa-elo-v2` | {INSTEAD} |" in doc
+
+
+def test_360_the_gate_status_line_sends_the_next_candidate_to_2027():
+    """ARCHITECT 2026-11-12 16:00 ET, addendum 360 item 4(iii): the printed gate line keeps its ruled opening and its
+    last clause names 2027, never the retired 2026, for the next college candidate."""
+    from src.walters import ncaa_backtest as nb
+    assert nb.GATE_STATUS_LINE.startswith("NCAA GATE: CLOSED (ruling 2026-10-09, addendum 24) — #79's protocol (v1, "
+                                          "train 2025, test 2026, all divisions) is closed without a verdict of its own")
+    assert nb.GATE_STATUS_LINE.endswith("the next college candidate declares the 2027 regular season as it accrues, in "
+                                        "the off-season (2026 was retired 2026-11-09, addendum 302).")
+    assert "declares the 2026 regular season" not in nb.GATE_STATUS_LINE
+    src = (ROOT / "src" / "walters" / "ncaa_backtest.py").read_text(encoding="utf-8")
+    assert "addendum 360 item 4(iii), verbatim" in src
+    spec = (ROOT / "docs" / "specs" / "ncaa-elo-v2.md").read_text(encoding="utf-8")
+    assert "addendum 360 item 4(i)" in spec and "the NCAA FBS 2027 regular season as it accrues" in spec

@@ -414,7 +414,8 @@ its compare verdict.
     v1.6.6..v1.6.7`: 21 merge commits, of which 16 are "Merge pull request #N"; sixteen CHANGELOG sections, one per
     PR.
   - **Not in the tag:** #942 (the `check_db` fence walking data/ by device and inode): its head moved during the window
-    and it takes the next one (349 item 1).
+    and it took the next one (349 item 1). It merged after the tag, with #948 (the three `intl-elo-confirm --db`
+    nits, #940) (main 1e51c287). The next tag's span opens with these two.
   - **Release Issue:** #RELISSUE (ritual step 4), opened 2026-11-12 by ARCHITECT 2026-11-12 09:50 ET, addendum 349 item
     3: the notes line for line, the tag, 349 items 2 and 3 verbatim, and the deploy record of 350 item 1.
 

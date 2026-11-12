@@ -1,4 +1,4 @@
-## 2026-11-12 (#000: 930-awaiting-names-unread-window — #929's follow-up (Codex round 3, P2): an awaiting VERDICT line also names a paired window that was not read.)
+## 2026-11-12 (#976: 930-awaiting-names-unread-window — #929's follow-up (Codex round 3, P2): an awaiting VERDICT line also names a paired window that was not read.)
 - **deploy/hosting/compare_exports.py, `paired_verdict`:** awaiting keeps its priority, and its verdict and exit are unchanged: NOTHING-TO-COMPARE, exit 3, posted pending. Its VERDICT line now appends `<n> paired, window not read: <names>` when a paired file's window could not be read, as the other NOTHING-TO-COMPARE line already does. The file's own `window NOT READ` line and the summary count were printed before; only the verdict line left it out.
 - **The mirror Action (`deploy/exports-mirror/compare.yml`), unchanged:** it checks `awaiting` first, so its pending description stays "awaiting <role>". The new line was checked with its own `grep` pair: `w=host`, `u=1`.
 - **Test:** `test_an_awaiting_verdict_line_also_names_a_paired_window_not_read` (an awaiting file beside an identical dated bare array) fails on main and passes here.

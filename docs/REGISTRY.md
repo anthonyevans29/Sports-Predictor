@@ -102,13 +102,19 @@ its test season."
 | Test set | Reads | Last candidate allowed | Declare instead |
 |---|---|---|---|
 | NHL 2025 (2025-26 regular season; nhl_backtest TEST_SEASON, train 2024) | 7 before v8 (v1–v5 seeds, v6, v7); v8 is the 8th | `nhl-v8` | NHL 2026-27 regular season, as it accrues (≥ 600 games) |
-| NCAA FBS 2025 regular season (CFBD both-FBS labels; warm-up 2024) | `ncaa-elo-v1r`, once (ARCHITECT 2026-10-09, addendum 24) | `ncaa-elo-v1r` | the NCAA FBS 2026 regular season as it accrues (≥ 500 games) |
+| NCAA FBS 2025 regular season (CFBD both-FBS labels; warm-up 2024) | `ncaa-elo-v1r`, once (ARCHITECT 2026-10-09, addendum 24) | `ncaa-elo-v1r` | the NCAA FBS 2027 regular season as it accrues (2024-2026 training; declared in the off-season with its spread pre-check) (addendum 24 named the 2026 season, retired since by addendum 302; pointed on to 2027 by addendum 358 item 6(1)) |
 | NCAA FBS 2026 regular season as it accrues (CFBD both-FBS labels; training and warm-up 2024 and 2025) | `ncaa-elo-v2`, once (ARCHITECT 2026-11-09, addendum 302) | `ncaa-elo-v2` | the NCAA FBS 2027 regular season as it accrues (2024-2026 training; declared in the off-season with its spread pre-check) |
 
 - **The college sets.** Addendum 24 item 2(b) retired 2025 with ncaa-elo-v1r's FAIL. Addendum 302 retired 2026 with
   ncaa-elo-v2's FAIL; item 3, verbatim: "2026 is RETIRED as a college test season; NCAA is MARKET-ONLY; the 2027
   candidate declares in the off-season." The 2026 refusal went into code by addendum 309 item 6 (#901). Each set is
   keyed on its last candidate's `test_set`, exactly, and the refusal names the ruling (`registry.RETIRED_BY`).
+- **The key is exact, and a new set's wording is ruled at its declaration** (ARCHITECT 2026-11-12, addendum 358 item
+  6(2), verbatim: "The exact `test_set` string STANDS as the key: a declaration is my ruling, so a re-worded 2026
+  college set cannot be declared without passing me"). No fuzzy key.
+- **A refusal never sends a candidate to a retired season** (addendum 358 item 6(1), verbatim: "a refusal that sends
+  a candidate to a retired season is wrong on its face"): the 2025 set's "declare instead" names 2027, as the 2026
+  set's does.
 
 - **Enforced in code:** `registry.RETIRED_TEST_SETS`. `declare()` and
   `record_run()` refuse any id other than the last allowed one on a retired

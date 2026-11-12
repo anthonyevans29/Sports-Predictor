@@ -74,6 +74,24 @@ def test_the_2027_season_is_open_and_the_2025_set_still_refuses(tmp_path):
                     path=path)
 
 
+def test_358_the_2025_sets_refusal_names_2027_and_no_longer_2026(tmp_path):
+    """ARCHITECT 2026-11-12, addendum 358 item 6(1): "the 2025 set's "declare instead" points on to 2027: a refusal
+    that sends a candidate to a retired season is wrong on its face." Both college sets now send a candidate to the
+    same season, in the 2026 entry's own words; no refusal names 2026."""
+    t25 = "NCAA FBS 2025 regular season (CFBD both-FBS labels; warm-up 2024)"
+    assert reg.RETIRED_TEST_SETS[t25] == ("ncaa-elo-v1r", INSTEAD)
+    with pytest.raises(reg.RegistryError, match="addendum 24") as ex:
+        reg.declare(_decl("ncaa-elo-v4", t25), path=str(tmp_path / "x.json"))
+    assert "2027 regular season" in str(ex.value) and "2026 regular season" not in str(ex.value)
+    for ts, (_, instead) in reg.RETIRED_TEST_SETS.items():           # no refusal points to a retired set's season
+        season = instead.removeprefix("the ").split(" as it accrues")[0].split(" (")[0]   # e.g. "NCAA FBS 2027 regular season"
+        assert not any(k.startswith(season) for k in reg.RETIRED_TEST_SETS), (ts, season)
+    doc = (ROOT / "docs" / "REGISTRY.md").read_text(encoding="utf-8")
+    row = next(ln for ln in doc.splitlines() if ln.startswith(f"| {t25} |"))
+    assert INSTEAD in row and "addendum 358 item 6(1)" in row
+    assert "a new set's wording is ruled at its declaration" in doc and "No fuzzy key." in doc
+
+
 def test_the_sentence_is_quoted_beside_the_entry_and_in_the_doctrine():
     src = (ROOT / "src" / "walters" / "registry.py").read_text(encoding="utf-8")
     assert f'addendum 302 (ncaa-elo-v2 FAIL), item 3, verbatim: "{SENTENCE}"' in src.replace("\n# ", " ")

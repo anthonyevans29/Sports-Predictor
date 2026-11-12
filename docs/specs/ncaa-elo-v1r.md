@@ -354,7 +354,9 @@ The architect's word for the run, as the record holds it: "ARCHITECT, 2026-10-09
 ### What the verdict changes (addendum 24 item 2), as built
 
 - (b) `registry.RETIRED_TEST_SETS` retires this test set ("NCAA FBS 2025 regular season (CFBD both-FBS labels; warm-up 2024)"): ncaa-elo-v1r was its last candidate;
-  declare "the NCAA FBS 2026 regular season as it accrues (>= 500 games)" instead.
+  declare "the NCAA FBS 2026 regular season as it accrues (>= 500 games)" instead. [Corrected by ARCHITECT 2026-11-12,
+  addendum 358 item 6(1): 2026 was retired by addendum 302, so the refusal now names "the NCAA FBS 2027 regular season
+  as it accrues (2024-2026 training; declared in the off-season with its spread pre-check)" (#963).]
 - (c) `ncaa-backtest` refuses, exit 2, naming the ruling, with or without `--baselines-only`, for good. `GATE_STATUS`
   is `CLOSED` and its line carries the ruling's date (2026-10-09). The module `ncaa_backtest` stays.
 - (d) `export-ncaa-predictions` refuses, exit 2, naming the ruling, while the registry records a verdict other than

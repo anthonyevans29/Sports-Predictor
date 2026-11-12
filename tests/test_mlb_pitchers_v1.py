@@ -1398,3 +1398,152 @@ def test_751_a_reservation_that_cannot_be_removed_says_so(gate, monkeypatch):
         mp.reserve({"db": "x"}, no_fetch=True)
     assert "could NOT be removed" in str(ex.value) and "by hand" in str(ex.value)
     assert "not spent" not in str(ex.value)
+
+
+def test_941_a_hard_link_to_a_file_in_a_subfolder_of_data_is_refused(gate, tmp_path, monkeypatch):
+    """#941 (ARCHITECT 2026-11-11 19:50 ET, addendum 347 item 3, verbatim in part): "the fence walking data/ recursively
+    by device and inode, a test with a link under data/backups/". The identity pass read only data/'s direct children,
+    so a hard link outside data/ to data/backups/<file> passed the fence every --db has used since 11-01. data/ here is
+    a scratch DATA_DIR, never the repo's (law 5)."""
+    data = tmp_path / "scratch-data"
+    (data / "backups" / "deeper").mkdir(parents=True)
+    monkeypatch.setattr(mp, "DATA_DIR", str(data))
+    monkeypatch.setattr(mp, "_main_checkout_data", lambda: None)
+    for i, where in enumerate((data / "backups", data / "backups" / "deeper", data)):
+        f = where / f"sports_2026-11-11_{i}.db"
+        f.write_bytes(Path(gate["db"]).read_bytes())
+        link = tmp_path / f"outside_{i}.db"
+        os.link(f, link)
+        with pytest.raises(mp.GateRefused, match="hard link into the repo's data/") as e:
+            mp.check_db(link)
+        assert str(f) in str(e.value)                                     # names the file it is the same as
+    copy = tmp_path / "a_real_copy.db"
+    copy.write_bytes(Path(gate["db"]).read_bytes())                      # same bytes, another inode: passes
+    assert mp.check_db(copy) == copy.resolve()
+    loop = data / "backups" / "loop"
+    loop.symlink_to(data, target_is_directory=True)                       # a link loop cannot hold the walk
+    assert mp.check_db(copy) == copy.resolve()
+
+
+def test_941_a_folder_data_links_to_is_data_for_the_fence(gate, tmp_path, monkeypatch):
+    """Code's pre-push review of #941: with data/backups a symlink to a folder outside data/, the literal
+    data/backups/<f>, the real file it names and a hard link to it all passed (os.walk without following links, and
+    the resolved path lands outside data/). Folders are followed now, each visited once, and a path under a folder
+    data/ links to is refused as under data/."""
+    data = tmp_path / "scratch-data"
+    data.mkdir()
+    elsewhere = tmp_path / "elsewhere" / "backups"
+    elsewhere.mkdir(parents=True)
+    (data / "backups").symlink_to(elsewhere, target_is_directory=True)
+    monkeypatch.setattr(mp, "DATA_DIR", str(data))
+    monkeypatch.setattr(mp, "_main_checkout_data", lambda: None)
+    real = elsewhere / "sports_2026-11-11.db"
+    real.write_bytes(Path(gate["db"]).read_bytes())
+    hard = tmp_path / "outside_hard.db"
+    os.link(real, hard)
+    for p in (data / "backups" / real.name, real):
+        with pytest.raises(mp.GateRefused, match="a folder the repo's data/"):
+            mp.check_db(p)
+    with pytest.raises(mp.GateRefused, match="hard link into the repo's data/"):
+        mp.check_db(hard)
+    (elsewhere / "back").symlink_to(data, target_is_directory=True)      # a loop through the link: walked once
+    copy = tmp_path / "a_real_copy.db"
+    copy.write_bytes(Path(gate["db"]).read_bytes())
+    assert mp.check_db(copy) == copy.resolve()
+
+
+def test_941_what_the_walk_cannot_read_refuses_and_a_missing_data_or_a_dangling_link_does_not(gate, tmp_path,
+                                                                                                monkeypatch):
+    """Law 4 (conservative unknowns): a folder under data/ that cannot be listed REFUSES, never a silent pass; so does a
+    tree too deep to walk. A data/ that does not exist holds nothing, and a dangling symlink names no file."""
+    data = tmp_path / "scratch-data"
+    (data / "locked").mkdir(parents=True)
+    monkeypatch.setattr(mp, "DATA_DIR", str(data))
+    monkeypatch.setattr(mp, "_main_checkout_data", lambda: None)
+    copy = tmp_path / "a_real_copy.db"
+    copy.write_bytes(Path(gate["db"]).read_bytes())
+    (data / "gone.db").symlink_to(tmp_path / "never-there.db")           # dangling: nothing to compare
+    assert mp.check_db(copy) == copy.resolve()
+    scandir0 = os.scandir
+
+    def locked(path="."):
+        if Path(path) == data / "locked":
+            raise PermissionError(13, "Permission denied", str(path))
+        return scandir0(path)
+    monkeypatch.setattr(os, "scandir", locked)
+    with pytest.raises(mp.GateRefused, match="cannot read .*locked.* under data/"):
+        mp.check_db(copy)
+    monkeypatch.setattr(os, "scandir", scandir0)
+
+    walk0 = os.walk
+
+    def too_deep(*a, **k):
+        raise RecursionError("maximum recursion depth exceeded")
+    monkeypatch.setattr(os, "walk", too_deep)
+    with pytest.raises(mp.GateRefused, match="too deep to walk"):
+        mp.check_db(copy)
+    monkeypatch.setattr(os, "walk", walk0)
+    monkeypatch.setattr(mp, "DATA_DIR", str(tmp_path / "no-data-here"))       # a data/ that does not exist
+    assert mp.check_db(copy) == copy.resolve()
+
+
+def test_942_an_entry_that_vanishes_or_a_folder_listed_as_a_file_refuses(gate, tmp_path, monkeypatch):
+    """Codex P2s on #942 (law 4): an entry os.walk listed that is gone before its stat (a transient sidecar) REFUSES,
+    never a FileNotFoundError traceback; a folder os.walk listed among the files (its DirEntry.is_dir() raised, so
+    os.walk put it in names and did not descend) REFUSES, never a subtree left out of the identity check."""
+    data = tmp_path / "scratch-data"
+    (data / "sub").mkdir(parents=True)
+    (data / "x.db-wal").write_bytes(b"")
+    monkeypatch.setattr(mp, "DATA_DIR", str(data))
+    monkeypatch.setattr(mp, "_main_checkout_data", lambda: None)
+    copy = tmp_path / "a_real_copy.db"
+    copy.write_bytes(Path(gate["db"]).read_bytes())
+    stat0 = os.stat
+
+    def vanished(path, *a, **k):
+        if Path(path) == data / "x.db-wal":
+            raise FileNotFoundError(2, "No such file or directory", str(path))
+        return stat0(path, *a, **k)
+    monkeypatch.setattr(os, "stat", vanished)
+    with pytest.raises(mp.GateRefused, match="cannot read .*x.db-wal.* under data/"):
+        mp.check_db(copy)
+    monkeypatch.setattr(os, "stat", stat0)
+    walk0 = os.walk
+
+    def misfiled(top, *a, **k):
+        for root, dirs, names in walk0(top, *a, **k):
+            if Path(root) == data:
+                names = [*names, *dirs]                                  # "sub" listed as a file, not walked
+                dirs[:] = []
+            yield root, dirs, names
+    monkeypatch.setattr(os, "walk", misfiled)
+    with pytest.raises(mp.GateRefused, match="listed as a file but it is a folder"):
+        mp.check_db(copy)
+    monkeypatch.setattr(os, "walk", walk0)
+    assert mp.check_db(copy) == copy.resolve()
+
+
+def test_942_a_folder_link_that_cannot_be_resolved_refuses(gate, tmp_path, monkeypatch):
+    """Codex P2 on #942 (round 2): a folder link re-pointed into a loop, or whose readlink fails, between os.walk's
+    listing and its resolve() made Path.resolve() raise (RuntimeError before Python 3.13, OSError from 3.13) as a
+    traceback. It REFUSES now (law 4), never a traceback and never a pass."""
+    data = tmp_path / "scratch-data"
+    data.mkdir()
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    (data / "backups").symlink_to(elsewhere, target_is_directory=True)
+    monkeypatch.setattr(mp, "DATA_DIR", str(data))
+    monkeypatch.setattr(mp, "_main_checkout_data", lambda: None)
+    copy = tmp_path / "a_real_copy.db"
+    copy.write_bytes(Path(gate["db"]).read_bytes())
+    resolve0 = Path.resolve
+    for exc in (RuntimeError("Symlink loop from 'backups'"), OSError(40, "Too many levels of symbolic links")):
+        def raising(self, *a, exc=exc, **k):
+            if self == data / "backups":
+                raise exc
+            return resolve0(self, *a, **k)
+        monkeypatch.setattr(Path, "resolve", raising)
+        with pytest.raises(mp.GateRefused, match="cannot resolve .*backups.* under data/"):
+            mp.check_db(copy)
+    monkeypatch.setattr(Path, "resolve", resolve0)
+    assert mp.check_db(copy) == copy.resolve()

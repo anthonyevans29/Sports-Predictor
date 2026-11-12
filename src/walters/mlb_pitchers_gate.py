@@ -40,6 +40,7 @@ import json
 import math
 import os
 import sqlite3
+import stat
 import subprocess
 from collections import Counter
 from contextlib import contextmanager
@@ -170,6 +171,63 @@ def _data_dirs() -> list[Path]:
     return dirs
 
 
+def _data_tree(data: Path) -> tuple[list[tuple[Path, os.stat_result]], list[Path]]:
+    """Everything under `data` the fence compares a --db against (#941; ARCHITECT 2026-11-11 19:50 ET, addendum 347
+    item 3: "the fence walking data/ recursively by device and inode"): every regular file at any depth with its
+    os.stat (a symlink to a file stats as that file, as the direct-child pass always read it), and the resolved target
+    of every directory reached through a symlink (data/backups -> /elsewhere/backups: the literal data/backups/<f>
+    resolves outside data/, so the resolved-path check alone would pass it). Directories ARE followed through a link,
+    each visited once by (st_dev, st_ino), so a link loop cannot hold the walk. Conservative unknowns (law 4): a data/
+    that does not exist holds nothing (as before); a directory or an entry under it that cannot be read REFUSES
+    (GateRefused), never a silent pass; so does a tree too deep to walk (RecursionError on Python < 3.12)."""
+    files: list[tuple[Path, os.stat_result]] = []
+    linked: list[Path] = []
+    if not os.path.lexists(data):
+        return files, linked
+
+    def unreadable(err: OSError):
+        raise GateRefused(f"cannot read {err.filename} under data/ ({err.strerror or err}): the --db fence cannot "
+                          "check by identity what it cannot read (law 4); nothing read")
+    seen: set[tuple[int, int]] = set()
+    try:
+        for root, dirs, names in os.walk(data, followlinks=True, onerror=unreadable):
+            try:
+                rst = os.stat(root)
+            except OSError as e:
+                unreadable(e)
+            if (rst.st_dev, rst.st_ino) in seen:     # a loop, or a second link to a folder already walked
+                dirs[:] = []
+                continue
+            seen.add((rst.st_dev, rst.st_ino))
+            for d in dirs:
+                dp = Path(root) / d
+                if dp.is_symlink():
+                    try:
+                        linked.append(dp.resolve())
+                    except (OSError, RuntimeError) as e:     # re-pointed into a loop, or readlink failed mid-walk
+                        raise GateRefused(f"cannot resolve {dp} under data/ ({e}): the --db fence cannot check what a "
+                                          "folder link names (law 4); nothing read") from None  # Codex P2, #942
+            for n in names:
+                f = Path(root) / n
+                try:
+                    st = os.stat(f)
+                except FileNotFoundError as e:
+                    if os.path.islink(f):            # a dangling symlink names no file: nothing to compare
+                        continue
+                    unreadable(e)                    # vanished mid-walk (Codex P2, #942): refuse, never a traceback
+                except OSError as e:
+                    unreadable(e)
+                if stat.S_ISDIR(st.st_mode):         # a folder os.walk listed as a file (its is_dir() raised): its
+                    raise GateRefused(f"cannot walk {f} under data/: listed as a file but it is a folder, so what is "
+                                      "below it cannot be checked by identity (law 4); nothing read")  # Codex P2, #942
+                if stat.S_ISREG(st.st_mode):
+                    files.append((f, st))
+    except RecursionError:
+        raise GateRefused(f"the folders under {data} are too deep to walk: the --db fence cannot check them by "
+                          "identity (law 4); nothing read") from None
+    return files, linked
+
+
 def _same_file(a: Path, b: Path) -> bool:
     try:
         return os.path.samefile(a, b)
@@ -192,8 +250,10 @@ def _app_db() -> Path | None:
 def check_db(db) -> Path:
     """--db: required; refused (never created) unless an existing file outside the repo's data/ (law 5, by resolved
     path, so a symlink or a relative path cannot slip by; from a git worktree the main checkout's data/ too; and by
-    identity, so a hard link to a file directly under a data/ cannot slip by) that is not the app's configured
-    database."""
+    identity, device and inode, against every regular file anywhere under a data/, symlinked folders followed, so a
+    hard link to a file in data/ or in any folder below it (data/backups/) cannot slip by, and a path under a folder
+    data/ links to is refused as under data/; a data/ folder the walk cannot read refuses; #941, addendum 347 item 3)
+    that is not the app's configured database."""
     if db is None or not str(db).strip():
         raise GateRefused("--db PATH is required: a .backup copy of the database outside data/ (law 5); the gate never "
                           "reads the live database")
@@ -202,14 +262,21 @@ def check_db(db) -> Path:
         if tgt == data or data in tgt.parents:
             raise GateRefused(f"--db {db} resolves under the repo's data/ ({data}): law 5, the database is never "
                               "touched casually; take a .backup copy outside data/ and pass that")
-        try:                                         # by identity too: a hard link to a data/ file is that file
-            near = [data / n for n in os.listdir(data)]
+        files, linked = _data_tree(data)
+        for d in linked:                             # a folder data/ links to is data/ for the fence
+            if tgt == d or d in tgt.parents:
+                raise GateRefused(f"--db {db} resolves under {d}, a folder the repo's data/ ({data}) links to: law 5, "
+                                  "the database is never touched casually; take a .backup copy outside data/ and pass "
+                                  "that")
+        try:
+            tst = os.stat(tgt)
         except OSError:
-            near = []
-        for f in near:
-            if f.is_file() and _same_file(tgt, f):
-                raise GateRefused(f"--db {db} is the same file as {f} (a hard link into the repo's data/): law 5; "
-                                  "take a .backup copy outside data/ and pass that")
+            tst = None                               # no file: refused below as "no file at", never created
+        if tst is not None:                          # by identity too: a hard link to any file under data/ is that file
+            for f, st in files:
+                if (st.st_dev, st.st_ino) == (tst.st_dev, tst.st_ino):
+                    raise GateRefused(f"--db {db} is the same file as {f} (a hard link into the repo's data/): law 5; "
+                                      "take a .backup copy outside data/ and pass that")
     app = _app_db()
     if app is not None and (tgt == app or _same_file(tgt, app)):
         raise GateRefused(f"--db {db} is the app's configured database ({app}): the gate reads a .backup copy only")

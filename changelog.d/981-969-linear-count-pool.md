@@ -1,4 +1,4 @@
-## 2026-11-12 (#000: 969-linear-count-pool — the bulletin guard's CONTRACT_COUNT and POOL read in linear time, matching exactly what they matched before (ARCHITECT 2026-11-12 17:20 ET, addendum 362 item 4).)
+## 2026-11-12 (#981: 969-linear-count-pool — the bulletin guard's CONTRACT_COUNT and POOL read in linear time, matching exactly what they matched before (ARCHITECT 2026-11-12 17:20 ET, addendum 362 item 4).)
 - **Ruling (verbatim, addendum 362 item 4):** "#969 (the same quadratic read in CONTRACT_COUNT and POOL): RULED as #960 was — the same fix, the same proof (each pattern matches exactly what it matched, the timing pinned, mutations caught), money-path review, ONE PR, behind #926, #930 and #947."
 - **`src/privacy_patterns.py`, `CONTRACT_COUNT`:**
   - **The count arm** starts once per run of digits, commas and points, as #960's digit arm (15.6 s on 20,000 digits before). The blanks around its dash are reachable only through the dash.

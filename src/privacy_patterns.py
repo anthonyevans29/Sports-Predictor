@@ -71,7 +71,11 @@ SEQUENCE = ("quantity_fp", "entry_price_dollars", "realized_pnl_with_fees_dollar
 # (iii) a dollar amount: a dollar sign ($, U+FF04 or U+FE69), optional blanks (space, tab, U+00A0), an optional sign
 # (ASCII plus or minus, or U+2212), optional blanks, an optional decimal point, then a digit. A $ with no digit after it
 # ($HOME, ${var}, a bare $) never matches.
-DOLLAR = re.compile("[$\uff04\ufe69][ \t\u00a0]*[+\\-\u2212]?[ \t\u00a0]*\\.?[0-9]")
+# LINEAR (#960; ARCHITECT 2026-11-12 14:25 ET, addendum 358 item 4(1): "a real finding, slow and never wrong; its PR is
+# queued behind the dated work, the shared pattern's change reviewed as money-path"): the blanks after the sign are
+# reachable only through the sign, so a "$" and a long run of blanks is read once, never split two ways (it took 5 s on
+# 20,000 blanks). It matches exactly the strings it matched before (tests/test_960_linear_dollar_patterns.py).
+DOLLAR = re.compile("[$\uff04\ufe69][ \t\u00a0]*(?:[+\\-\u2212][ \t\u00a0]*)?\\.?[0-9]")
 
 
 def is_row(line: str) -> bool:
@@ -122,9 +126,13 @@ FIELD_NAME = re.compile(r"(?i)\b(?:fee_order_contracts|order_contracts|unit_usd|
 # blank, an underscore or asterisk (Markdown emphasis GitHub hides) and the typographic hyphens and dashes U+2010..2015
 # and U+2212; a word edge is a letter edge, so "_twenty_" is read as GitHub shows it. A digit beside bucks is NOT here
 # (the ruling names number words; "Celtics 112, Bucks 108" would refuse). This pattern only: the shared #817 DOLLAR (the
-# CI test's) is unchanged, and the digit arms are as before. Every run of blanks is a single star: the blanks after a
+# CI test's) matches what it matched before, and so do the digit arms. Every run of blanks is a single star: the blanks after a
 # sign are reachable only through the sign, so no two runs can split one stretch of blanks: these arms stay linear on a
-# long line (the older digit arms and the shared DOLLAR do not; #960).
+# long line. The two older arms are linear too since #960 (358 item 4(1)): the digit arm starts only where a run of
+# digits, commas and points starts (a run that ends anywhere but at its last character cannot reach the dollar word,
+# so one start per run is the same test, read once, not once per digit: 55 s on 50,000 digits before), skipping any
+# commas or points before the run's first digit (".5 dollars" still refuses); and "usd" before a number takes the
+# sign's blanks only through the sign, as DOLLAR does. Each matches exactly what it matched before.
 _L, _R = "(?<![A-Za-z])", "(?![A-Za-z])"
 _JOIN = "[\\s_*\\-\\u2010-\\u2015\\u2212]*"
 _NUM_WORD = ("(?:(?:twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)" + _JOIN + ")?"
@@ -134,7 +142,8 @@ _NUM_WORD = ("(?:(?:twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)" + _J
 _DOLLAR_WORD = "(?:usd|dollars?|bucks?)"
 _US = "(?:u\\.?" + "[ ]?" + "s\\.?" + _JOIN + ")?"                     # "twenty US dollars", "twenty U.S. dollars"
 _SIGN = "[$\\uff04\\ufe69]"
-USD_WORD = re.compile("(?i)\\d[\\d,.]*\\s*(?:usd|dollars?)\\b|\\busd\\s*[+\\-\\u2212]?\\s*\\.?\\d|\\d\\s*" + _SIGN +
+USD_WORD = re.compile("(?i)(?<![\\d,.])[,.]*\\d[\\d,.]*\\s*(?:usd|dollars?)\\b"            # 12 dollars, 1,000 USD
+                      "|\\busd\\s*(?:[+\\-\\u2212]\\s*)?\\.?\\d|\\d\\s*" + _SIGN +
                       "|" + _L + _NUM_WORD + _JOIN + _US + _DOLLAR_WORD + _R +            # twenty-five dollars
                       "|" + _L + _DOLLAR_WORD + "[\\s_*:\\-\\u2010-\\u2015\\u2212]*" + _NUM_WORD + _R +   # dollars twenty
                       "|" + _SIGN + "[\\s\\u00a0_*]*(?:[+\\-\\u2212\\u2010-\\u2015][\\s\\u00a0_*]*)?" + _NUM_WORD + _R +  # $-twenty

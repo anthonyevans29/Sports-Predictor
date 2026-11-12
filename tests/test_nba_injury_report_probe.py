@@ -661,3 +661,59 @@ def test_codex_r2_a_redirect_hop_counts_as_fetched_so_nothing_is_fetched_twice(c
     out = capsys.readouterr().out
     assert [u for u, _ in fake.asked] == [TERMS]                     # one GET in all: the redirect already read robots
     assert "this run already fetched this URL" in out
+
+
+# ---- Codex's third round on #970: the P1 under addendum 360 item 2(b) (a line altered in the receipt) ----------------
+
+CP1252_PAGE = ("<html><body><h1>Terms of Use</h1><p>Last Updated: June 1, 2026</p>"
+               "<p>You may not use any robot or scraper — the League’s café rules.</p></body></html>")
+
+
+def _page_text(rec):
+    return [ln["text"] for ln in rec["terms"]["page_lines"]]
+
+
+def test_codex_r3_the_http_charset_decodes_the_page_so_no_line_is_altered(capsys):
+    pages = terms_pages()
+    pages[TERMS] = (200, CP1252_PAGE.encode("cp1252"), {"Content-Type": "text/html; charset=windows-1252"})
+    code, out, rec, _ = run(capsys, ["--terms-url", TERMS], pages)
+    text = _page_text(rec)
+    assert "You may not use any robot or scraper — the League’s café rules." in text
+    assert not any("�" in t for t in text)
+    assert rec["terms"]["encoding"] == "windows-1252" and rec["terms"]["encoding_source"].startswith("HTTP")
+
+
+def test_codex_r3_a_meta_charset_decodes_the_page(capsys):
+    pages = terms_pages()
+    page = CP1252_PAGE.replace("<html>", '<html><head><meta charset="iso-8859-1"></head>')
+    pages[TERMS] = (200, page.encode("cp1252"), {"Content-Type": "text/html"})
+    code, out, rec, _ = run(capsys, ["--terms-url", TERMS], pages)
+    assert "You may not use any robot or scraper — the League’s café rules." in _page_text(rec)
+    assert rec["terms"]["encoding"] == "windows-1252"              # iso-8859-1 is read as windows-1252, as a browser does
+    assert rec["terms"]["encoding_source"].startswith("<meta")
+
+
+def test_codex_r3_an_undeclared_page_that_is_not_utf8_is_read_as_windows_1252_and_said(capsys):
+    pages = terms_pages()
+    pages[TERMS] = (200, CP1252_PAGE.encode("cp1252"), {"Content-Type": "text/html"})
+    code, out, rec, _ = run(capsys, ["--terms-url", TERMS], pages)
+    assert "You may not use any robot or scraper — the League’s café rules." in _page_text(rec)
+    assert rec["terms"]["encoding"] == "windows-1252" and "not valid UTF-8" in rec["terms"]["encoding_source"]
+    assert "not valid UTF-8" in out
+
+
+def test_codex_r3_a_utf8_page_stays_utf8_and_a_bom_wins(capsys):
+    pages = terms_pages()
+    pages[TERMS] = (200, b"\xef\xbb\xbf" + CP1252_PAGE.encode("utf-8"), {"Content-Type": "text/html; charset=windows-1252"})
+    code, out, rec, _ = run(capsys, ["--terms-url", TERMS], pages)
+    assert "You may not use any robot or scraper — the League’s café rules." in _page_text(rec)
+    assert rec["terms"]["encoding"] == "utf-8" and rec["terms"]["encoding_source"] == "BOM"
+
+
+def test_codex_r3_robots_txt_honours_its_charset(capsys):
+    pages = terms_pages()
+    pages["https://terms.example.invalid/robots.txt"] = (200, "# café\nDisallow: /\n".encode("cp1252"),
+                                                         {"Content-Type": "text/plain; charset=ISO-8859-1"})
+    code, out, rec, _ = run(capsys, ["--terms-url", TERMS], pages)
+    assert rec["robots"]["text_lines"][0]["text"] == "# café"
+    assert rec["robots"]["encoding"] == "windows-1252"

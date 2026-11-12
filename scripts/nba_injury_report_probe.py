@@ -168,8 +168,63 @@ def final_note(url: str, final: str) -> str:
     return f" · final URL {final}" + (f" (ANOTHER HOST: {b})" if a != b else "")
 
 
-def _text(body: bytes | None) -> str:
-    return (body or b"").decode("utf-8", errors="replace")
+# the body's encoding, in a browser's order (Codex on #970: a page decoded under the wrong encoding alters its lines in
+# the receipt, a P1 under addendum 360 item 2(b)): a BOM; the HTTP charset; for HTML, a <meta> charset in the first 1024
+# bytes; else UTF-8, and an undeclared body that is not valid UTF-8 is read as windows-1252, a browser's default. The
+# WHATWG labels iso-8859-1, latin1 and us-ascii mean windows-1252. The encoding and its source go in the receipt.
+_BOMS = ((b"\xef\xbb\xbf", "utf-8"), (b"\xff\xfe", "utf-16-le"), (b"\xfe\xff", "utf-16-be"))
+_CHARSET = re.compile(r"""charset\s*=\s*["']?\s*([A-Za-z0-9._:\-]+)""", re.I)
+_META = re.compile(rb"""<meta\b[^>]*?charset\s*=\s*["']?\s*([A-Za-z0-9._:\-]+)""", re.I)
+_AS_1252 = {"iso-8859-1", "iso8859-1", "latin1", "latin-1", "l1", "us-ascii", "ascii", "cp1252", "windows-1252",
+            "iso_8859-1", "cp819", "ibm819", "x-cp1252"}
+
+
+def _label(name: str) -> str | None:
+    """The Python codec for a charset label, None when the label is unknown."""
+    import codecs
+    name = name.strip().lower()
+    if name in _AS_1252:
+        return "windows-1252"
+    try:
+        return codecs.lookup(name).name.replace("cp1252", "windows-1252")
+    except LookupError:
+        return None
+
+
+def decode(body: bytes | None, headers: dict | None = None, html_meta: bool = True) -> tuple[str, str, str]:
+    """(text, encoding, where the encoding came from)."""
+    body = body or b""
+    for bom, enc in _BOMS:
+        if body.startswith(bom):
+            return body[len(bom):].decode(enc, errors="replace"), enc, "BOM"
+    unknown = []
+    ctype = next((str(v) for k, v in (headers or {}).items() if str(k).lower() == "content-type"), "")
+    m = _CHARSET.search(ctype)
+    if m:
+        enc = _label(m.group(1))
+        if enc:
+            return body.decode(enc, errors="replace"), enc, f"HTTP Content-Type charset {m.group(1)!r}"
+        unknown.append(f"HTTP charset {m.group(1)!r} unknown")
+    if html_meta:
+        m = _META.search(body[:1024])
+        if m:
+            label = m.group(1).decode("ascii", errors="replace")
+            enc = _label(label)
+            if enc and not enc.startswith("utf-16"):           # a <meta> naming UTF-16 means UTF-8 (the HTML rules)
+                return body.decode(enc, errors="replace"), enc, f"<meta> charset {label!r}"
+            if enc:
+                return body.decode("utf-8", errors="replace"), "utf-8", f"<meta> charset {label!r} (read as UTF-8)"
+            unknown.append(f"<meta> charset {label!r} unknown")
+    note = ("; ".join(unknown) + "; ") if unknown else ""
+    try:
+        return body.decode("utf-8"), "utf-8", note + "undeclared: UTF-8"
+    except UnicodeDecodeError:
+        return body.decode("windows-1252", errors="replace"), "windows-1252", \
+            note + "undeclared and not valid UTF-8: read as windows-1252 (a browser's default)"
+
+
+def _text(body: bytes | None, headers: dict | None = None) -> str:
+    return decode(body, headers)[0]
 
 
 # what a browser never shows inside text: the soft hyphen and the zero-width characters (the sixth pass)
@@ -356,7 +411,10 @@ def terms_phase(a, say: Out, fetch: Fetcher) -> tuple[int, dict]:
         worst = FAILED
         say("  TERMS NOT READ: the feed is not cleared (261 item 4); the report phase waits on a terms console")
     else:
-        windows, updated, dropped, lines = terms_windows(_text(body))
+        page, enc, enc_src = decode(body, hdr)
+        say(f"  ENCODING {enc} ({enc_src})" + (f" · {page.count(chr(0xFFFD))} character(s) did not decode: shown as "
+                                              "U+FFFD" if chr(0xFFFD) in page else ""))
+        windows, updated, dropped, lines = terms_windows(page)
         dated = date_lines(lines)
         say("  THE PAGE'S OWN DATE LINE(S), verbatim (the strict forms first), each with the line after it: "
             + (" | ".join(f'"{d["line"]}"' + (f' (the line after it: "{d["next"]}")' if d["next"] else "")
@@ -391,7 +449,8 @@ def terms_phase(a, say: Out, fetch: Fetcher) -> tuple[int, dict]:
                 say(f"    ... and {dropped} more reuse/licence window(s), not printed (cap {TERMS_QUOTES}); every one is "
                     "in the --out receipt")
         rec["terms"].update(bytes=len(body), sha256=hashlib.sha256(body).hexdigest(), updated=dated,
-                            windows=windows, windows_all=terms_windows(_text(body), cap=0)[0], not_printed=dropped,
+                            encoding=enc, encoding_source=enc_src,
+                            windows=windows, windows_all=terms_windows(page, cap=0)[0], not_printed=dropped,
                             page_lines=[{"line": k + 1, "heading": ln["heading"], "text": ln["text"]}
                                         for k, ln in enumerate(lines)])
     robots = a.robots_url or robots_for(a.terms_url)
@@ -402,14 +461,17 @@ def terms_phase(a, say: Out, fetch: Fetcher) -> tuple[int, dict]:
     if err:
         worst = max(worst, FAILED)
     else:
-        lines = _text(body).splitlines()
+        text, enc, enc_src = decode(body, hdr, html_meta=False)
+        say(f"  ENCODING {enc} ({enc_src})")
+        lines = text.splitlines()
         for ln in lines[:ROBOTS_LINES]:
             say(f"  | {ln}")
         if len(lines) > ROBOTS_LINES:
             say(f"  ... and {len(lines) - ROBOTS_LINES} more line(s), not printed (cap {ROBOTS_LINES}); every line is in "
                 "the --out receipt")
         # every line, as served (addendum 360 item 2(b): a line dropped from the receipt is a P1)
-        rec["robots"].update(lines=len(lines), sha256=hashlib.sha256(body).hexdigest(),
+        rec["robots"].update(lines=len(lines), sha256=hashlib.sha256(body).hexdigest(), encoding=enc,
+                             encoding_source=enc_src,
                              text_lines=[{"line": k + 1, "text": ln} for k, ln in enumerate(lines)])
     say("\nTERMS PHASE ONLY (addendum 357 item 3(a)): no index page and no report was fetched. The report phase "
         "(--report) runs only after the architect's ruling on this console.")
@@ -569,7 +631,7 @@ def report_phase(a, say: Out, fetch: Fetcher) -> tuple[int, dict]:
     rec["index"] = {"http": status, "final_url": final, "error": err}
     if err:
         return FAILED, rec
-    links = index_links(_text(body), final)
+    links = index_links(_text(body, hdr), final)
     parsed = [x for x in links if x["date"]]
     say(f"  REPORT LINKS (.pdf) on the page: {len(links)} · with a date read from the link: {len(parsed)} · "
         f"unread: {len(links) - len(parsed)}")

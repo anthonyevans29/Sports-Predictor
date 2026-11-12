@@ -1,0 +1,1 @@
+**2026-11-12 — FIXED (#907): the exec <= 0 receipt reads malformed shapes as UNREADABLE and only the newest copy of a start.** A non-scalar row `match_id` is a malformed row (the run goes on), a non-list `predictions` makes the file unreadable, and an older copy of a start is SUPERSEDED, never merged row by row with the newer one. Read-only; nothing it counted changes meaning.

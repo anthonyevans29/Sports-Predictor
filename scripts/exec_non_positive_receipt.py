@@ -23,6 +23,13 @@ dated files). --from / --through bound the start stamp's UTC date, both inclusiv
 - a closing.match_ids that is not a list is read as none: every row of that file counts as outside the run's match_ids
   (a string, a number or an object is never iterated into ids).
 A row repeated across files of the same start is counted once per (family, match id, start stamp).
+THE AUTHORITATIVE COPY (#907, Codex's third review of #903, item 3): of the files holding one (family, start stamp),
+only the NEWEST (its exported_at, then its folder) is read, whole; an older copy is listed as SUPERSEDED and none of its
+rows is counted, so a game the newer copy dropped (started, or called off) is not re-added from the stale one. If the
+newest copy is unreadable, the start is UNREADABLE: an older copy never stands in for it (law 4).
+MALFORMED SHAPES (#907 items 1 and 2) are listed UNREADABLE and the run goes on: a `predictions` that is not a list
+(an object, a scalar, null, or no key at all) makes the file unreadable, never an empty file; a row whose match_id is
+a list or an object is a malformed row, counted on its own UNREADABLE line and skipped.
 
 WHAT IT PRINTS: the files read by role and date span and family; per block the count, by family, with no exec edge,
 with a basis other than taker, with exec <= 0 (each: family, match id, date, kickoff, pick, exec edge, all-in cost,
@@ -99,10 +106,11 @@ def _pick(row: dict, pick):
 
 
 def read_rows(files: list[tuple[str, str, Path]], root: Path):
-    """(emitted PLAY rows, would-be PLAY rows, unreadable files, distinct rows read). A start re-paged into a later
-    dated folder of the mirror leaves two copies of one closing file: the NEWEST copy of each (family, match id, start
-    stamp) is the one read (by the file's exported_at, then its folder), as write_closing_file's replacement is."""
-    plays, would, bad, seen = [], [], [], set()
+    """(emitted PLAY rows, would-be PLAY rows, unreadable entries, distinct rows read, superseded copies). Per
+    (family, start stamp) only the newest copy is read (#907 item 3); the others are superseded, their rows never read.
+    A `predictions` that is not a list makes its file unreadable (#907 item 2); a row whose match_id is a list or an
+    object is malformed and listed (#907 item 1). The run always goes on."""
+    plays, would, bad, seen, superseded = [], [], [], set(), []
     docs = []
     for role, day, f in files:
         try:
@@ -115,25 +123,39 @@ def read_rows(files: list[tuple[str, str, Path]], root: Path):
             continue
         docs.append((str(doc.get("exported_at") or ""), f.parent.name, role, day, f, doc))
     docs.sort(key=lambda t: (t[0], t[1], t[4].as_posix()), reverse=True)
+    chosen = set()
     for _, _, role, day, f, doc in docs:
         cl = doc.get("closing") if isinstance(doc.get("closing"), dict) else {}
         m = NAME.match(f.name)
         fam = cl.get("family") or m.group(1)
         stamp = f"{m.group(2)}T{m.group(3)}Z"
+        if (fam, stamp) in chosen:                        # an older copy of a start already read (or unreadable)
+            superseded.append(f.relative_to(root))
+            continue
+        chosen.add((fam, stamp))
+        preds = doc.get("predictions")
+        if not isinstance(preds, list):
+            why = "no predictions key" if "predictions" not in doc else f"predictions is {type(preds).__name__}"
+            bad.append((f.relative_to(root), f"{why}, not a list"))
+            continue
         ids = _match_ids(cl.get("match_ids"))
-        preds = doc.get("predictions") if isinstance(doc.get("predictions"), list) else []
-        for r in preds:
+        for n, r in enumerate(preds):
             d = r.get("desk") if isinstance(r, dict) else None
             if not isinstance(d, dict):
                 continue
-            key = (fam, r.get("match_id"), stamp)
+            mid = r.get("match_id")
+            if isinstance(mid, (list, dict)):             # unhashable: a malformed row, never a key
+                bad.append((f.relative_to(root), f"prediction row {n}: match_id is {type(mid).__name__}, not an id "
+                                                  "(row skipped)"))
+                continue
+            key = (fam, mid, stamp)
             if key in seen:
                 continue
             seen.add(key)
             ex = d.get("exec") if isinstance(d.get("exec"), dict) else {}
-            rec = {"fam": fam, "mid": r.get("match_id"), "day": day, "ko": r.get("utc_date"),
+            rec = {"fam": fam, "mid": mid, "day": day, "ko": r.get("utc_date"),
                    "pick": _pick(r, d.get("pick")), "edge": ex.get("edge_pp"), "basis": ex.get("basis"),
-                   "cost": ex.get("cost"), "p": d.get("model_p"), "on_page": r.get("match_id") in ids,
+                   "cost": ex.get("cost"), "p": d.get("model_p"), "on_page": mid in ids,
                    "file": f.relative_to(root).as_posix()}
             if d.get("call") == "PLAY":
                 plays.append(rec)
@@ -141,7 +163,7 @@ def read_rows(files: list[tuple[str, str, Path]], root: Path):
             if (d.get("call") == "PASS" and d.get("pass_kind") == "market_only" and isinstance(h, dict)
                     and h.get("would_call") == "PLAY"):
                 would.append(rec)
-    return plays, would, bad, len(seen)
+    return plays, would, bad, len(seen), superseded
 
 
 def block(say, title: str, rows: list[dict]) -> list[dict]:
@@ -174,10 +196,14 @@ def run(root: Path, since: date | None, through: date | None, say=print) -> int:
         fams = Counter(NAME.match(f.name).group(1) for _, f in mine)
         say(f"  {role}: {len(mine)} closing file(s), dates {min(days) if days else '-'} .. "
             f"{max(days) if days else '-'}, by family {dict(sorted(fams.items()))}")
-    plays, would, bad, n = read_rows(files, root)
+    plays, would, bad, n, superseded = read_rows(files, root)
     for f, why in bad:
         say(f"  UNREADABLE {f.as_posix()}: {why}")
-    say(f"\nfiles read: {len(files) - len(bad)} · rows de-duplicated by (family, match id, start stamp): {n}")
+    for f in superseded:
+        say(f"  SUPERSEDED {f.as_posix()}: an older copy of a start a newer file holds; none of its rows read")
+    unreadable_files = len({f for f, why in bad if not why.startswith("prediction row ")})
+    say(f"\nfiles read: {len(files) - unreadable_files - len(superseded)} · superseded copies: {len(superseded)} · "
+        f"rows de-duplicated by (family, match id, start stamp): {n}")
     le0 = block(say, "EMITTED PLAYs (desk.call PLAY)", plays)
     wle0 = block(say, "WOULD-BE PLAYs (NFL market-only, #446: a record, uncertified, unstaked, never a call)", would)
     say(f"\nSUMMARY: emitted PLAYs with exec <= 0: {len(le0)} row(s), {len({(x['fam'], x['mid']) for x in le0})} "

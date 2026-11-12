@@ -207,12 +207,15 @@ def _data_tree(data: Path) -> tuple[list[tuple[Path, os.stat_result]], list[Path
                 f = Path(root) / n
                 try:
                     st = os.stat(f)
-                except FileNotFoundError:
+                except FileNotFoundError as e:
                     if os.path.islink(f):            # a dangling symlink names no file: nothing to compare
                         continue
-                    raise
+                    unreadable(e)                    # vanished mid-walk (Codex P2, #942): refuse, never a traceback
                 except OSError as e:
                     unreadable(e)
+                if stat.S_ISDIR(st.st_mode):         # a folder os.walk listed as a file (its is_dir() raised): its
+                    raise GateRefused(f"cannot walk {f} under data/: listed as a file but it is a folder, so what is "
+                                      "below it cannot be checked by identity (law 4); nothing read")  # Codex P2, #942
                 if stat.S_ISREG(st.st_mode):
                     files.append((f, st))
     except RecursionError:

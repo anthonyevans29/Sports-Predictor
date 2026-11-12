@@ -1485,3 +1485,39 @@ def test_941_what_the_walk_cannot_read_refuses_and_a_missing_data_or_a_dangling_
     monkeypatch.setattr(os, "walk", walk0)
     monkeypatch.setattr(mp, "DATA_DIR", str(tmp_path / "no-data-here"))       # a data/ that does not exist
     assert mp.check_db(copy) == copy.resolve()
+
+
+def test_942_an_entry_that_vanishes_or_a_folder_listed_as_a_file_refuses(gate, tmp_path, monkeypatch):
+    """Codex P2s on #942 (law 4): an entry os.walk listed that is gone before its stat (a transient sidecar) REFUSES,
+    never a FileNotFoundError traceback; a folder os.walk listed among the files (its DirEntry.is_dir() raised, so
+    os.walk put it in names and did not descend) REFUSES, never a subtree left out of the identity check."""
+    data = tmp_path / "scratch-data"
+    (data / "sub").mkdir(parents=True)
+    (data / "x.db-wal").write_bytes(b"")
+    monkeypatch.setattr(mp, "DATA_DIR", str(data))
+    monkeypatch.setattr(mp, "_main_checkout_data", lambda: None)
+    copy = tmp_path / "a_real_copy.db"
+    copy.write_bytes(Path(gate["db"]).read_bytes())
+    stat0 = os.stat
+
+    def vanished(path, *a, **k):
+        if Path(path) == data / "x.db-wal":
+            raise FileNotFoundError(2, "No such file or directory", str(path))
+        return stat0(path, *a, **k)
+    monkeypatch.setattr(os, "stat", vanished)
+    with pytest.raises(mp.GateRefused, match="cannot read .*x.db-wal.* under data/"):
+        mp.check_db(copy)
+    monkeypatch.setattr(os, "stat", stat0)
+    walk0 = os.walk
+
+    def misfiled(top, *a, **k):
+        for root, dirs, names in walk0(top, *a, **k):
+            if Path(root) == data:
+                names = [*names, *dirs]                                  # "sub" listed as a file, not walked
+                dirs[:] = []
+            yield root, dirs, names
+    monkeypatch.setattr(os, "walk", misfiled)
+    with pytest.raises(mp.GateRefused, match="listed as a file but it is a folder"):
+        mp.check_db(copy)
+    monkeypatch.setattr(os, "walk", walk0)
+    assert mp.check_db(copy) == copy.resolve()

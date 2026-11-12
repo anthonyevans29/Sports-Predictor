@@ -789,6 +789,9 @@ systemctl list-timers 'sp-*' --no-pager     # receipt: next-elapse for each
   keeps its own recipe below, which ends with its `timers.enabled` line; sp_deploy's receipt counts the list's timers
   not enabled as it counts `MLB_LAPTOP_ONLY`'s (held off by T11). The list replaces the ORDER note that kept
   `sp-availability-graph.timer` out of T11's enable by hand.
+  ARCHITECT 2026-11-12 12:25 ET, addendum 356 item 2, verbatim: "a `TIMERS_BY_BLOCK` timer is on THE HELD LIST from
+  the merge that ships it until my block enables it; the enabling block's addendum takes it off." The two lists stay
+  two (section O, THE HELD LIST): `TIMERS_BY_BLOCK` is a timer's class, THE HELD LIST its state today.
 - **`sp-availability-daily.timer` on a fresh host: an ORDER** (259 item 2(c): "2025 IS IN SCOPE"). After
   `migrate_availability_record.py` and BEFORE the `systemctl enable --now $TIMERS` above, run the 2025 read
   (`sudo -u sp venv/bin/python cli.py availability-nflverse --season 2025`) and go on only on exit 0 with its rows
@@ -1201,7 +1204,7 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
     TERMINAL (host), in bash, as any user (it reads, it changes nothing). `HELD` copies THE HELD LIST below, by name:
     ```
     f=/etc/sports-predictor/timers.enabled
-    HELD="sp-tennis-daily.timer"   # THE HELD LIST below, by name
+    HELD="sp-tennis-daily.timer sp-ncaamb-daily.timer sp-availability-graph.timer"   # THE HELD LIST below, by name
     expected=$(tr -s ' \t\r' '\n' < "$f" | sed '/^$/d' | grep -vxF -f <(printf '%s\n' $HELD) | sort -u)
     observed=$(systemctl list-units --type=timer --state=active --no-legend --plain 'sp-*.timer' | awk '{print $1}' | sort -u)
     missing=$(comm -23 <(printf '%s\n' "$expected") <(printf '%s\n' "$observed") | sed '/^$/d')
@@ -1228,6 +1231,23 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
     | Timer | Held by | Lifts when |
     |---|---|---|
     | `sp-tennis-daily.timer` | ARCHITECT 2026-11-08, addendum 288 item 5 | the tag that carries the map, and the architect's block |
+    | `sp-ncaamb-daily.timer` | ARCHITECT 2026-11-12, addendum 356 item 2 (entered when #957 merged, 2026-11-12 20:46Z) | the architect's enabling block after the host's NCAAMB load and stored certification |
+    | `sp-availability-graph.timer` | ARCHITECT 2026-11-12, addendum 356 item 2 | the architect's install-and-enable block after the tag that carries #943 |
+
+    - **The rule that joins THE HELD LIST and `TIMERS_BY_BLOCK` (ARCHITECT 2026-11-12 12:25 ET, addendum 356 item 2,
+      verbatim in part):** "THE HELD LIST AND `TIMERS_BY_BLOCK` STAY TWO LISTS. They say different things.
+      `TIMERS_BY_BLOCK` is a timer's CLASS — how it is ever enabled (by my block, after its named prerequisite) — and a
+      timer keeps that class after it is enabled. THE HELD LIST is a STATE — a timer that would otherwise run and is
+      being kept off today, entering and leaving with an addendum; a `TIMERS` timer can be on it (sp-ncaa-market was,
+      310 item 2). One list would make an enabled by-block timer read as held, or a held `TIMERS` timer read as
+      by-block. THE RULE THAT JOINS THEM: a `TIMERS_BY_BLOCK` timer is on THE HELD LIST from the merge that ships it
+      until my block enables it; the enabling block's addendum takes it off. So, with this addendum:
+      `sp-ncaamb-daily.timer` enters THE HELD LIST when #957 merges (lifts: my enabling block after the host's NCAAMB
+      load and stored certification) and `sp-availability-graph.timer` enters it now (lifts: my install-and-enable
+      block after the tag that carries #943); `sp-tennis-daily.timer` is already there (288 item 5). That is #956's
+      option (b), made the standing rule; the hold search is not taught to read T11."
+    - A held timer that is not installed yet (`sp-availability-graph.timer` until its block) passes the `HELD:` line
+      as "no unit file", as that line already reads it.
 
     - **Lifted: `sp-ncaa-market.timer`** (held by addendum 310 item 2 on 2026-11-09, incident #902). The hold's lifting
       condition (ARCHITECT 2026-11-10, addendum 324 item 3(e), verbatim): "`systemctl enable --now
@@ -1347,7 +1367,7 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
           printed. A chain whose timers are all on that list prints only the routine. A timer on THE HELD LIST
           (the set-check recipe's `HELD=` line) is printed with "(on THE HELD LIST: not enabled on the host)":
           today `C=ATP` and `C=WTA` print tennis-daily that way, since sp-tennis-daily is installed and never
-          enabled (288 item 5). That marking extends 333 item 3(i)'s "never a host timer that is not enabled" from
+          enabled (288 item 5), and `C=NCAAMB` prints ncaamb-daily that way (356 item 2). That marking extends 333 item 3(i)'s "never a host timer that is not enabled" from
           `MLB_LAPTOP_ONLY` to the held list; ACCEPTED (ARCHITECT 2026-11-11 08:45 ET, addendum 335 item 3(2),
           verbatim): "a held timer is printed marked "(on THE HELD LIST: not enabled on the host)"". `C=MLB` prints mlb-morning and
           mlb-preslate that way; mlb-history (`sp-mlb-history.timer`, on `TIMERS`: the host's api-sports fallback),

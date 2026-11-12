@@ -145,7 +145,7 @@ def read_rows(files: list[tuple[str, str, Path]], root: Path):
         else:                                             # a copy without a stamp (or unreadable) never ranks last
             copies.sort(key=lambda c: (c["f"].parent.name, c["f"].as_posix()), reverse=True)
         top, older = copies[0], copies[1:]
-        superseded.extend(c["f"].relative_to(root) for c in older)
+        superseded.extend((c["f"].relative_to(root), c["why"]) for c in older)
         if top["why"]:
             bad.append((top["f"].relative_to(root), top["why"]))
             continue
@@ -213,8 +213,9 @@ def run(root: Path, since: date | None, through: date | None, say=print) -> int:
     plays, would, bad, n, superseded, starts_read = read_rows(files, root)
     for f, why in bad:
         say(f"  UNREADABLE {f.as_posix()}: {why}")
-    for f in superseded:
-        say(f"  SUPERSEDED {f.as_posix()}: an older copy of a start a newer file holds; none of its rows read")
+    for f, why in superseded:                             # an older copy that is also unreadable says so
+        say(f"  SUPERSEDED {f.as_posix()}: an older copy of a start a newer file holds; none of its rows read"
+            + (f"; also unreadable: {why}" if why else ""))
     say(f"\nfiles read: {starts_read} · superseded copies: {len(superseded)} · "
         f"rows de-duplicated by (family, match id, start stamp): {n}")
     le0 = block(say, "EMITTED PLAYs (desk.call PLAY)", plays)

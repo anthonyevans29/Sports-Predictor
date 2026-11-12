@@ -302,3 +302,19 @@ def test_907_review_a_bool_float_or_none_match_id_is_malformed_never_merged(tmp_
     assert (f"UNREADABLE closing_NFL_2026-10-12T1700Z.json: prediction row 1: match_id is {type(mid).__name__}, not "
             "an id (row skipped)") in out
     assert "exec edge <= 0: 1 row(s)" in out.split("WOULD-BE")[0]
+
+
+def test_907_review_a_corrupt_older_copy_is_superseded_and_says_it_is_unreadable(tmp_path, capsys):
+    """Re-review nit: an older copy that will not parse is superseded (the newer copy is read) and its line still says
+    the mirror holds a corrupt file."""
+    name = "closing_NFL_2026-10-13T0015Z.json"
+    old, new = tmp_path / "host" / "2026-10-12" / name, tmp_path / "host" / "2026-10-13" / name
+    old.parent.mkdir(parents=True)
+    old.write_text('{"predictions": [')
+    write(new, "NFL", [row(7, edge=2.0)])
+    _stamped(new, "2026-10-13T00:05:00Z")
+    assert rc.main(["--dir", str(tmp_path)]) == 0
+    out = capsys.readouterr().out
+    assert (f"SUPERSEDED host/2026-10-12/{name}: an older copy of a start a newer file holds; none of its rows read; "
+            "also unreadable: JSONDecodeError") in out
+    assert "files read: 1 · superseded copies: 1" in out and "exec edge > 0: 1 row(s)" in out

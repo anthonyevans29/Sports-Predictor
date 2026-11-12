@@ -6213,7 +6213,12 @@ def unl_shadow_grade_cmd(days):
 @click.option("--no-fetch", "no_fetch", is_flag=True,
               help="With --freeze-cohort, cross-ref guard (#329): skip fetching origin laptop/*; only the refs this "
                    "clone knows are checked and the receipt says other clones were not checked.")
-def intl_elo_confirm_cmd(freeze_cohort, substitute, record, ruling, no_fetch):
+@click.option("--db", "db", default=None,
+              help="A .backup copy of the database OUTSIDE data/ (law 5; addendum 346): the whole read on the copy, "
+                   "opened mode=ro + immutable=1, never created, refused under data/, as the app's configured "
+                   "database, when missing, or with a -wal/-shm/-journal beside it; its path and sha256 are printed. "
+                   "Serves the no-flag read and --record only (--freeze-cohort and --substitute are refused with it).")
+def intl_elo_confirm_cmd(freeze_cohort, substitute, record, ruling, no_fetch, db):
     """intl-elo-v2 CONFIRMATION READ (doctrine #212, ARCHITECT 2026-10-02): the
     first 60 senior competitive national-team matches after the verdict,
     priced predict-then-update, scored by the plan (log-loss <= ln 3 AND <
@@ -6225,7 +6230,13 @@ def intl_elo_confirm_cmd(freeze_cohort, substitute, record, ruling, no_fetch):
     and recorded as a substitution with the raw code (--substitute; ARCHITECT
     2026-10-02).
     Without flags: progress only. --record: registry.record_confirmation
-    computes CONFIRMED / NOT_CONFIRMED on exactly the frozen cohort."""
+    computes CONFIRMED / NOT_CONFIRMED on exactly the frozen cohort.
+    --db COPY (ARCHITECT 2026-11-11, addendum 346 item 1): the read runs on a .backup copy outside data/
+    (intl_shadow.check_copy: mlb_pitchers_gate.check_db's fence, no sidecar beside it) through
+    mlb_pitchers_gate.readonly_session (mode=ro + immutable=1), the copy's path and sha256 printed first; the registry
+    write of --record lands in this checkout's docs/registry/ as before (commit it in a PR). With --db, --freeze-cohort
+    and --substitute are REFUSED: "they are registry decisions made on the writer of record's own store, not on a
+    copy". Without --db nothing changes."""
     from collections import Counter
 
     from src.db.database import session_scope
@@ -6233,6 +6244,11 @@ def intl_elo_confirm_cmd(freeze_cohort, substitute, record, ruling, no_fetch):
     from src.walters import intl_elo as ie
     from src.walters import intl_shadow as us
     from src.walters import registry as reg
+    if db is not None and (freeze_cohort or substitute):
+        click.echo(f"REFUSED: --db reads a copy; {'--freeze-cohort' if freeze_cohort else '--substitute'} is a "
+                   "registry decision made on the writer of record's own store, never on a copy (addendum 346 item "
+                   "1). Nothing was read or written.")
+        raise SystemExit(2)
     try:
         if freeze_cohort:
             e, _, _ = us.frozen()
@@ -6284,7 +6300,37 @@ def intl_elo_confirm_cmd(freeze_cohort, substitute, record, ruling, no_fetch):
                            f"({rep['code']} {iso(rep['kickoff'])})")
             click.echo("  commit docs/registry/ in a PR")
             return
-        r = us.confirmation_read()
+        if db is None:
+            r = us.confirmation_read()
+        else:
+            from sqlalchemy.exc import DBAPIError as _DBAPIError
+
+            from src.walters import mlb_pitchers_gate as _mpg
+            copy = us.check_copy(db)
+            try:
+                sha_before = us.copy_sha256(copy)
+            except OSError as err:
+                raise us.ShadowRefused(f"--db {copy}: the copy could not be hashed ({err!r}); nothing read, nothing "
+                                       "written")
+            click.echo(f"--db {copy} · sha256 {sha_before} · a .backup copy, opened "
+                       f"{_mpg.COPY_URI_QUERY.lstrip('?')} (the app's database is not read)")
+            try:
+                with _mpg.readonly_session(copy) as _s:
+                    r = us.confirmation_read(s=_s)
+                    sha_after = us.copy_sha256(copy)      # while the read's connection is still open
+                    sides_after = us.copy_sidecars(copy)
+            except _DBAPIError as err:
+                raise us.ShadowRefused(f"--db {copy}: the copy could not be read ({err.orig!r}); nothing recorded")
+            except OSError as err:                         # deleted or unreadable mid-run (Codex P2, #938)
+                raise us.ShadowRefused(f"--db {copy}: the copy could not be re-read after the read ({err!r}); "
+                                       "nothing recorded")
+            if sides_after:                                # committed pages the immutable open ignored (Codex P2, #938)
+                raise us.ShadowRefused(f"--db {copy} changed during the read: {', '.join(sides_after)} appeared "
+                                       "beside it, which immutable=1 ignores; nothing recorded")
+            if sha_after != sha_before:
+                raise us.ShadowRefused(f"--db {copy} changed during the read (sha256 {sha_before[:16]}… before, "
+                                       f"{sha_after[:16]}… after): the read is not tied to the printed copy; "
+                                       "nothing recorded")
     except (us.ShadowRefused, reg.RegistryError) as e:
         click.echo(f"REFUSED: {e}")
         raise SystemExit(2)
@@ -7895,11 +7941,40 @@ def soccer_refresh_cmd(max_drift):
               help="tuned = fix-v2: tune the cup elo_goal_coeff per context (same-/cross-league) "
                    "on PRIOR cup matches, exam seasons excluded, then price the exam; "
                    "base = the model's base coeff for every cup row (reproduces the prior exam).")
-def cup_exam_cmd(key_path, detail, coeff_mode):
+@click.option("--with-history-xi", "with_history_xi", is_flag=True,
+              help="THE PERFECT-XI PRICE (addendum 256 item 3; 343 item 4): after the exam as today, price the exam "
+                   "set again with each fixture's stored history XI through the existing XI/lineup multipliers, as "
+                   "`confirmed` (the figure of record) and as it stands (information only), and print the receipt. "
+                   "Report-only; requires --db.")
+@click.option("--db", "db", default=None,
+              help="A .backup copy of the database OUTSIDE data/ (law 5), opened mode=ro + immutable=1 (addendum 198 "
+                   "item 6(ii)); never created, never the configured database. Required with --with-history-xi.")
+def cup_exam_cmd(key_path, detail, coeff_mode, with_history_xi, db):
     """Cup acceptance exam (spec frozen 2026-09-25): price the answer key's
     FINISHED fixtures with production soccer pricing in REPORT-ONLY mode
     (nothing written) and score vs the books' fair: mean |Δ_HOME| <= 8.0pp,
-    <= 13 fixtures over 8pp, EFL round-2 favorite agreement >= 80%."""
+    <= 13 fixtures over 8pp, EFL round-2 favorite agreement >= 80%.
+    --with-history-xi adds the perfect-XI price receipt (addendum 256 item 3;
+    src/walters/cup_perfect_xi.py), on a --db copy; the gate is unchanged."""
+    import contextlib
+    import time
+
+    from src.walters import cup_perfect_xi as px
+    if with_history_xi and db is None:
+        click.echo("REFUSED: --with-history-xi reads a .backup copy: pass --db PATH (mode=ro + immutable=1; addendum "
+                   "343 item 5); nothing read")
+        raise SystemExit(2)
+    started = time.monotonic()
+    try:
+        with (px.copy_binding(db) if db is not None else contextlib.nullcontext()):
+            _cup_exam(key_path, detail, coeff_mode, with_history_xi, db, started)
+    except px.Refused as e:
+        click.echo(f"REFUSED: {e}")
+        raise SystemExit(2)
+
+
+def _cup_exam(key_path, detail, coeff_mode, with_history_xi, db, started):
+    """cup-exam's body (inside the --db copy's binding when one is given)."""
     from src.walters.cup_exam import (MAX_MISSING, MIN_SCORED, detail_splits, load_key,
                                       score_exam, tier_of)
     from src.walters.training import _generate_predictions_soccer
@@ -7941,6 +8016,8 @@ def cup_exam_cmd(key_path, detail, coeff_mode):
 
     priced: dict[int, dict] = {}
     versions = set()
+    from src.walters import cup_perfect_xi as px
+    priced_hx: dict[str, dict[int, dict]] = {reading: {} for reading in px.READINGS}
     for code, season in groups:
         rows = _generate_predictions_soccer(code, season, include_finished=True,
                                             cup_coeffs=cup_coeffs)
@@ -7949,6 +8026,16 @@ def cup_exam_cmd(key_path, detail, coeff_mode):
             versions.add(r["model_version"])
             if r["match_id"] in known:
                 priced[r["match_id"]] = r
+        for reading in (px.READINGS if with_history_xi else ()):
+            # the perfect-XI price (256 item 3): the same call, the same coeffs, the history XI at the reading's kind
+            hx_rows = _generate_predictions_soccer(code, season, include_finished=True,
+                                                   cup_coeffs=cup_coeffs, history_xi=reading)
+            print(f"  priced {code} {season} with the history XI ({reading}): {len(hx_rows)} fixtures "
+                  "(report-only)")
+            for r in hx_rows:
+                versions.add(r["model_version"])
+                if r["match_id"] in known:
+                    priced_hx[reading][r["match_id"]] = r
     print(f"  model version(s): {', '.join(sorted(versions)) or '—'}")
 
     res = score_exam(key, priced, known)
@@ -7992,6 +8079,11 @@ def cup_exam_cmd(key_path, detail, coeff_mode):
     print("  (exam is necessary-not-sufficient: FAIL is damning; PASS certifies "
           "no gross cup-path defect only, NOT out-of-sample accuracy — pricing "
           "sees same-season results. The sign check is the decisive organ.)")
+    if with_history_xi:
+        import time
+        rc = px.receipt(key, known, priced, priced_hx)
+        for line in px.lines(rc, db=str(db), coeff_mode=coeff_mode, seconds=time.monotonic() - started):
+            print(line)
 
 
 def _print_cup_exam_detail(res, splits, tier_of):

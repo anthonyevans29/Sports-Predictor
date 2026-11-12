@@ -410,21 +410,90 @@ def grade(days: int = 30, export_dir: str = "exports", now: datetime | None = No
             "buckets": {name: _agg([r for r in same if r["bucket"] == name]) for name, _, _ in DIV_BUCKETS}}
 
 
-def confirmation_read(now: datetime | None = None) -> dict:
+# THE COPY (ARCHITECT 2026-11-11 18:20 ET, addendum 346 item 1, verbatim): "`--db PATH` on `intl-elo-confirm`, fenced by
+# `mlb_pitchers_gate.check_db` (outside data/ by identity, never the configured DB, never created, refused beside a
+# -wal, -shm or -journal file), the whole read on `mlb_pitchers_gate.readonly_session(copy)` (mode=ro + immutable=1;
+# addendum 198 item 6(ii)), `confirmation_read` taking an optional session as `fit()` does, the copy's path and sha256
+# printed. NOTHING ELSE CHANGES". Why (addendum 345 item 3, 346 item 5): since the 10-26 cutover the writer of record is
+# the host, whose checkout is a tag and is never written, and the record writes the registry inside the checkout that
+# runs it; the laptop reads the host's pulled .backup copy and the registry change lands in a PR.
+COPY_SIDECARS = ("-wal", "-shm", "-journal")
+# Every table the read touches (intl_elo.load, cohort, eligible_fixtures): probed on the copy before its sha line
+# prints, so a copy without one is REFUSED (exit 2), never a traceback after the read began (Code's pre-push review).
+COPY_TABLES = ("competitions", "matches", "match_neutral_derived", "intl_match_venue")
+
+
+def check_copy(db) -> Path:
+    """--db PATH: mlb_pitchers_gate.check_db itself, unchanged (an existing file, never created; never under the repo's
+    data/ (or DATA_DIR) nor, from a worktree, the main checkout's data/, by resolved path, and never a hard link to a
+    file directly under one; never the app's configured database); then refused when a -wal, -shm or -journal file sits
+    beside it (immutable=1 would ignore it and read committed pages still in a WAL as missing; a fresh .backup copy has
+    none); then each table the read touches (COPY_TABLES) probed through the same mode=ro + immutable=1 URI. A refusal
+    reads nothing and writes nothing. The copy must not be replaced or written while the command runs: the CLI hashes it
+    before and after the read and refuses on a difference."""
+    import sqlite3
+
+    from src.walters import mlb_pitchers_gate as mp
+    try:
+        path = mp.check_db(db)
+        for name in copy_sidecars(path):
+            raise mp.GateRefused(f"--db {db} has a {name[len(path.name):]} sidecar ({name}): not a fresh .backup "
+                                 "copy; immutable=1 would ignore it and read a stale store; take a fresh .backup copy")
+        con = mp.open_ro(path)
+        try:
+            for t in COPY_TABLES:
+                try:
+                    con.execute(f"SELECT 1 FROM {t} LIMIT 1")
+                except sqlite3.Error as e:
+                    raise mp.GateRefused(f"--db {db}: the copy cannot be read for table {t} ({e})")
+        finally:
+            con.close()
+    except mp.GateRefused as err:
+        raise ShadowRefused(f"{err}; nothing read, nothing written")
+    return path
+
+
+def copy_sidecars(path: Path) -> list[str]:
+    """The -wal, -shm and -journal files beside the copy, by name (none for a fresh .backup copy). Read before the read
+    (check_copy) and again after it (the CLI): a sidecar that appears during the read can hold committed pages the
+    immutable open ignored, so the main file's unchanged sha256 alone would not show the copy changed (Codex P2, #938)."""
+    return [path.name + sfx for sfx in COPY_SIDECARS if path.with_name(path.name + sfx).exists()]
+
+
+def copy_sha256(path: Path) -> str:
+    import hashlib
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def confirmation_read(now: datetime | None = None, s=None) -> dict:
     """The plan's read so far: the first-60 set priced predict-then-update
-    (walk-forward over the whole stream), model log-loss vs naive − 0.010."""
-    from src.db.database import session_scope
+    (walk-forward over the whole stream), model log-loss vs naive − 0.010.
+    `s`: a session to read through (intl-elo-confirm --db: the copy's mode=ro + immutable=1 session, addendum 346); None
+    reads the app's database, as before."""
     from src.walters import intl_elo as ie
 
     now = now or utc_now_naive()
     e, c_mult, k_mult = frozen()
-    with session_scope() as s:
+
+    def read(s):
         games, _ = ie.load(s, rule="v3")
         co = cohort(e, s)
         elig = eligible_fixtures(s, e)
-        status = {f["id"]: f["status"] for f in elig}
-        unscoreable = {f["id"]: f["unscoreable"] for f in elig}
-        s.rollback()
+        return games, co, elig
+
+    if s is None:
+        from src.db.database import session_scope
+        with session_scope() as s2:
+            games, co, elig = read(s2)
+            s2.rollback()
+    else:
+        games, co, elig = read(s)
+    status = {f["id"]: f["status"] for f in elig}
+    unscoreable = {f["id"]: f["unscoreable"] for f in elig}
     train = [g for g in games if ie.TRAIN_FROM <= g.kickoff < ie.TRAIN_TO]
     if not train:
         raise ShadowRefused("no training-stream games stored: run intl-sync first")

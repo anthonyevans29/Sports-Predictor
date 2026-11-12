@@ -18,9 +18,10 @@ PHASE (`--report`, with `--index-url`) is a second block of mine and runs ONLY a
     robots.txt of --terms-url's own host, printed as derived). The page is read as LINES in page order (each block,
     list item, <br> and heading a line, inline markup kept in place, every line whole); every line holding a word on
     automated access prints in a WINDOW of the page's own lines around it, verbatim (back to a line ending in ":", at
-    most WINDOW_BACK lines, and WINDOW_AHEAD on; headings shown), then the reuse and licence windows (capped on the
+    most WINDOW_BACK lines, and WINDOW_AHEAD on; headings shown), then the reuse, licence and use windows (capped on the
     console, all in the receipt), beside the page's own date line; no structure is inferred; the --out receipt holds
-    every line of the page; robots.txt is printed as served; a redirect prints its final URL and names another host.
+    every line of the page; robots.txt is printed as served. NO REDIRECT IS FOLLOWED (addendum 362 item 5): a 3xx
+    answer is printed with its Location and that read ends REDIRECTED (exit 2); the architect re-issues the block.
     Then it STOPS: no index page and no report is fetched in this phase.
   REPORT (--report, --index-url, --terms-ruling): refused unless --terms-ruling names the ruling on the terms console.
     ONE index read and ONE document (357 item 3(c): "no crawl, no retry loop, a plain honest User-Agent, nothing
@@ -43,8 +44,11 @@ words below are HYPOTHESES (labelled on every line that uses them), printed foun
 carry none of the hypothesised status words are counted and the first ROW_SAMPLE printed verbatim, so an unseen word
 surfaces (law 1).
 
-Exit: 0 every read answered; 1 a fetch failed; 2 a read REFUSED (no URL, a report phase without its ruling, nothing
-to quote, no reader). The last line: NBA-INJURY-PROBE {json}.
+Exit: 0 every read answered; 1 a fetch failed; 2 a read REFUSED (no URL, a report phase without its ruling, a
+redirect not followed, nothing to quote, no reader). The last line: NBA-INJURY-PROBE {json}.
+
+THE CONSOLE (addendum 362 item 7): every line it prints has its control characters (C0 but tab, DEL, C1) shown as a
+visible \\xNN, so a fetched page's bytes never reach the operator's terminal; the --out receipt keeps the text exact.
 """
 from __future__ import annotations
 
@@ -53,6 +57,7 @@ import hashlib
 import html
 import io
 import json
+import logging
 import os
 import re
 import sys
@@ -75,11 +80,11 @@ READER = "pypdf"
 READER_FILE = "requirements-probe-pdf.txt"
 # the words an access clause is found by, case-insensitive; the probe quotes, the architect reads what they allow.
 # CORE (automated access itself: every block holding one is quoted, never capped), each matched at a word's start,
-# "bot"/"bots" as a whole word only ("both", "bottom" are not); BROAD (reuse and licence words, common in boilerplate:
-# capped at TERMS_QUOTES on the console, every one kept in the --out receipt)
+# "bot"/"bots" as a whole word only ("both", "bottom" are not); BROAD (reuse, licence and, from addendum 362 item 9(i),
+# use words; common in boilerplate: capped at TERMS_QUOTES on the console, every one kept in the --out receipt)
 CORE_WORDS = ("automat", "robot", "scrap", "crawl", "spider", "harvest", "data mining")   # as printed on the console
 BROAD_WORDS = ("extract", "reuse", "re-use", "reproduc", "redistribut", "republish", "commercial", "permission",
-               "license", "licence")
+               "license", "licence", "noncommercial", "gambl", "wager", "database", "statistic", "consent")
 # the fifth pre-PR pass: compounds ("webcrawlers", "screenscraping", "chatbots") and "data-mining" with any hyphen or
 # dash, or closed ("datamining"); "bot" only at a word's end ("both", "bottom" are not)
 CORE = re.compile(r"\b(?:automat|robot|spider|harvest)|crawl|scrap|data[\s\-\u2010-\u2015_]*mining|\w*bots?\b", re.I)
@@ -119,53 +124,91 @@ PAGE_LINE = re.compile(r"^Page\s+\d+\s+of\s+\d+$", re.I)
 FIRST_LINES, ROW_SAMPLE, LINE_CHARS = 12, 10, 200
 
 
+# the console's control characters (addendum 362 item 7): C0 but tab, DEL and C1, each shown as a visible \xNN
+_CONTROL = re.compile(r"[\x00-\x08\x0a-\x1f\x7f-\x9f]")
+
+
+def console_safe(text: str) -> str:
+    """The text with every control character but tab shown as \\xNN (the receipt keeps the text exact)."""
+    return _CONTROL.sub(lambda m: f"\\x{ord(m.group()):02x}", text)
+
+
+class _SafeStderr(logging.Handler):
+    """A library's log line on stderr, through console_safe (addendum 362 item 7): pypdf reports what it repairs in a
+    fetched document with the document's own text, and urllib3 a header it could not parse with the header's."""
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            sys.stderr.write(console_safe(f"{record.levelname} {record.name}: {record.getMessage()}") + "\n")
+        except Exception:                           # noqa: BLE001 - a log line never ends the run
+            self.handleError(record)
+
+
+def escape_library_logs() -> None:
+    """Every library logger that can carry fetched text writes only through _SafeStderr (idempotent)."""
+    for name in ("pypdf", "urllib3"):
+        lg = logging.getLogger(name)
+        if not any(isinstance(h, _SafeStderr) for h in lg.handlers):
+            lg.addHandler(_SafeStderr())
+        lg.propagate = False
+
+
 class Out:
+    """Every console line goes through here: its leading newlines are the probe's own spacing; everything after them
+    is escaped by console_safe, so no fetched byte reaches the terminal as a control."""
+
     def __init__(self):
         self.lines: list[str] = []
 
     def __call__(self, line: str = "") -> None:
-        self.lines.append(str(line))
-        print(line, flush=True)
+        line = str(line)
+        lead = len(line) - len(line.lstrip("\n"))
+        shown = "\n" * lead + console_safe(line[lead:])
+        self.lines.append(shown)
+        print(shown, flush=True)
+
+
+REDIRECTED = "REDIRECTED, not followed"
 
 
 class Fetcher:
-    """One GET per URL, never twice in a run (357 item 3(c)), no retry, the honest User-Agent. Never raises:
-    (status or None, headers, body bytes or None, final url, error text or None)."""
+    """One GET per named URL, never twice in a run (357 item 3(c)), no retry, the honest User-Agent, and NO REDIRECT
+    FOLLOWED (addendum 362 item 5): every GET is sent with redirects off, so one named URL is one GET by construction;
+    a 3xx answer is returned with its Location and that read ends. Never raises:
+    (status or None, headers, body bytes or None, error text or None)."""
 
     def __init__(self, get=None):
         self.get = get or requests.get
         self.fetched: list[str] = []
-        self.redirects: list[dict] = []           # every redirect followed: its hops are GETs of their own
-        self.seen: set[str] = set()               # every URL a GET reached, hops and final included (Codex on #970)
+        self.redirects: list[dict] = []           # every 3xx answered, NOT followed: the URL, its status, its Location
 
     def __call__(self, url: str):
-        if url in self.fetched or url in self.seen:
-            return None, {}, None, url, "REFUSED: this run already fetched this URL (nothing is fetched twice)"
+        if url in self.fetched:
+            return None, {}, None, "REFUSED: this run already fetched this URL (nothing is fetched twice)"
         self.fetched.append(url)
-        self.seen.add(url)
         try:
-            r = self.get(url, headers={"User-Agent": USER_AGENT}, timeout=TIMEOUT, allow_redirects=True)
+            r = self.get(url, headers={"User-Agent": USER_AGENT}, timeout=TIMEOUT, allow_redirects=False)
         except Exception as e:                      # noqa: BLE001 - a failed read is reported, never raised
-            return None, {}, None, url, f"{type(e).__name__}: {e}"
+            return None, {}, None, f"{type(e).__name__}: {e}"
+        hdr = dict(r.headers or {})
+        if 300 <= r.status_code < 400:
+            loc = next((str(v) for k, v in hdr.items() if str(k).lower() == "location"), None)
+            self.redirects.append({"url": url, "http": r.status_code, "location": loc})
+            return r.status_code, hdr, None, f"{REDIRECTED}: Location {loc if loc is not None else '(none sent)'}"
         body = getattr(r, "content", None)
-        final = getattr(r, "url", url) or url
-        hops = list(getattr(r, "history", None) or [])
-        if final != url or hops:
-            self.redirects.append({"from": url, "to": final, "hops": len(hops)})
-        self.seen.update(str(getattr(h, "url", "")) for h in hops if getattr(h, "url", None))
-        self.seen.add(final)
         err = None if r.status_code == 200 else f"HTTP {r.status_code}"
         if err is None and not body:
             err = "the answer is empty"
-        return r.status_code, dict(r.headers or {}), body, final, err
+        return r.status_code, hdr, body, err
 
 
-def final_note(url: str, final: str) -> str:
-    """The final URL when a redirect was followed, and the other host named when it left the requested one."""
-    if final == url:
-        return ""
-    a, b = urlsplit(url).netloc, urlsplit(final).netloc
-    return f" · final URL {final}" + (f" (ANOTHER HOST: {b})" if a != b else "")
+def read_failed(err: str) -> int:
+    """A redirect not followed ends the read REFUSED (addendum 362 item 5); any other failed read is FAILED."""
+    return REFUSED if err.startswith(REDIRECTED) else FAILED
+
+
+def _location(hdr: dict) -> str | None:
+    return next((str(v) for k, v in hdr.items() if str(k).lower() == "location"), None)
 
 
 # the body's encoding, in a browser's order (Codex on #970: a page decoded under the wrong encoding alters its lines in
@@ -352,7 +395,7 @@ def date_lines(lines: list[dict]) -> list[dict]:
 
 
 def terms_windows(page: str, cap: int | None = None) -> tuple[list[dict], list[str], int, list[dict]]:
-    """(the windows, the page's own date lines, the reuse/licence windows not printed past the cap, the page's lines).
+    """(the windows, the page's own date lines, the reuse/licence/use windows not printed past the cap, the page's lines).
     A line (a heading included) holding a CORE word (automated access) or a BROAD word (reuse, licence) is a match;
     each match prints with
     its window (_window) of the page's own lines, verbatim and whole, overlapping windows of one kind merged. CORE
@@ -403,13 +446,17 @@ def terms_phase(a, say: Out, fetch: Fetcher) -> tuple[int, dict]:
         return REFUSED, {"refused": "no --terms-url"}
     rec: dict = {"terms_url": a.terms_url}
     worst = OK
-    status, hdr, body, final, err = fetch(a.terms_url)
-    say(f"TERMS {a.terms_url} · HTTP {status}" + final_note(a.terms_url, final)
-        + (f" · FAILED: {err}" if err else f" · {len(body)} bytes"))
-    rec["terms"] = {"http": status, "final_url": final, "error": err}
+    status, hdr, body, err = fetch(a.terms_url)
+    say(f"TERMS {a.terms_url} · HTTP {status}" + (f" · {err}" if err and err.startswith(REDIRECTED) else
+                                                  f" · FAILED: {err}" if err else f" · {len(body)} bytes"))
+    rec["terms"] = {"http": status, "error": err}
     if err:
-        worst = FAILED
-        say("  TERMS NOT READ: the feed is not cleared (261 item 4); the report phase waits on a terms console")
+        worst = read_failed(err)
+        if err.startswith(REDIRECTED):
+            rec["terms"]["location"] = _location(hdr)
+        say("  TERMS NOT READ: the feed is not cleared (261 item 4); the report phase waits on a terms console"
+            + ("; the architect reads the Location and re-issues the block with the URL it names"
+               if err.startswith(REDIRECTED) else ""))
     else:
         page, enc, enc_src = decode(body, hdr)
         say(f"  ENCODING {enc} ({enc_src})" + (f" · {page.count(chr(0xFFFD))} character(s) did not decode: shown as "
@@ -435,18 +482,18 @@ def terms_phase(a, say: Out, fetch: Fetcher) -> tuple[int, dict]:
             n_core = sum(1 for w in windows if w["kind"] == "core")
             say(f"  THE PAGE'S OWN TEXT AROUND EVERY ACCESS WORD, verbatim, in page order ({len(lines)} lines on the "
                 f"page): {n_core} window(s) on automated access {list(CORE_WORDS) + ['bot(s)']} (every one), then "
-                f"{len(windows) - n_core} on reuse and licence {list(BROAD_WORDS)}. '>' marks the matched line, '#' "
+                f"{len(windows) - n_core} on reuse, licence and use {list(BROAD_WORDS)}. '>' marks the matched line, '#' "
                 "a heading, '#>' a heading that matched; each window runs back to a line ending in ':' (at most "
                 f"{WINDOW_BACK} lines; a heading on the way is shown) and {WINDOW_AHEAD} lines on. No structure is inferred; the architect reads what "
                 "they allow, and the --out receipt holds every line of the page:")
             for w in windows:
-                say(f"    --- {'automated access' if w['kind'] == 'core' else 'reuse / licence'} · page lines "
+                say(f"    --- {'automated access' if w['kind'] == 'core' else 'reuse / licence / use'} · page lines "
                     f"{w['from']}-{w['to']} · the nearest heading at or above line {w['matches'][0]}: "
                     f"{w['heading_above_first_match']!r}")
                 for ln in console_window_lines(w):
                     say(f"    {ln}")
             if dropped:
-                say(f"    ... and {dropped} more reuse/licence window(s), not printed (cap {TERMS_QUOTES}); every one is "
+                say(f"    ... and {dropped} more reuse/licence/use window(s), not printed (cap {TERMS_QUOTES}); every one is "
                     "in the --out receipt")
         rec["terms"].update(bytes=len(body), sha256=hashlib.sha256(body).hexdigest(), updated=dated,
                             encoding=enc, encoding_source=enc_src,
@@ -454,12 +501,15 @@ def terms_phase(a, say: Out, fetch: Fetcher) -> tuple[int, dict]:
                             page_lines=[{"line": k + 1, "heading": ln["heading"], "text": ln["text"]}
                                         for k, ln in enumerate(lines)])
     robots = a.robots_url or robots_for(a.terms_url)
-    status, hdr, body, final, err = fetch(robots)
+    status, hdr, body, err = fetch(robots)
     say(f"\nROBOTS {robots}" + ("" if a.robots_url else " (derived: --terms-url's own host)") + f" · HTTP {status}"
-        + final_note(robots, final) + (f" · FAILED: {err}" if err else f" · {len(body)} bytes, as served:"))
-    rec["robots"] = {"url": robots, "derived": not a.robots_url, "http": status, "final_url": final, "error": err}
+        + (f" · {err}" if err and err.startswith(REDIRECTED) else
+           f" · FAILED: {err}" if err else f" · {len(body)} bytes, as served:"))
+    rec["robots"] = {"url": robots, "derived": not a.robots_url, "http": status, "error": err}
     if err:
-        worst = max(worst, FAILED)
+        worst = max(worst, read_failed(err))
+        if err.startswith(REDIRECTED):
+            rec["robots"]["location"] = _location(hdr)
     else:
         text, enc, enc_src = decode(body, hdr, html_meta=False)
         say(f"  ENCODING {enc} ({enc_src})")
@@ -625,13 +675,15 @@ def report_phase(a, say: Out, fetch: Fetcher) -> tuple[int, dict]:
         return REFUSED, {"refused": "no --index-url"}
     say(f"REPORT PHASE, cleared by: {a.terms_ruling.strip()}")
     rec: dict = {"terms_ruling": a.terms_ruling.strip(), "index_url": a.index_url}
-    status, hdr, body, final, err = fetch(a.index_url)
-    say(f"INDEX {a.index_url} · HTTP {status}" + final_note(a.index_url, final)
-        + (f" · FAILED: {err}" if err else f" · {len(body)} bytes"))
-    rec["index"] = {"http": status, "final_url": final, "error": err}
+    status, hdr, body, err = fetch(a.index_url)
+    say(f"INDEX {a.index_url} · HTTP {status}" + (f" · {err}" if err and err.startswith(REDIRECTED) else
+                                                  f" · FAILED: {err}" if err else f" · {len(body)} bytes"))
+    rec["index"] = {"http": status, "error": err}
     if err:
-        return FAILED, rec
-    links = index_links(_text(body, hdr), final)
+        if err.startswith(REDIRECTED):
+            rec["index"]["location"] = _location(hdr)
+        return read_failed(err), rec
+    links = index_links(_text(body, hdr), a.index_url)
     parsed = [x for x in links if x["date"]]
     say(f"  REPORT LINKS (.pdf) on the page: {len(links)} · with a date read from the link: {len(parsed)} · "
         f"unread: {len(links) - len(parsed)}")
@@ -665,17 +717,18 @@ def report_phase(a, say: Out, fetch: Fetcher) -> tuple[int, dict]:
         if blind:
             why += f"; {blind} link(s) on {pick['date']} carry no readable clock, so the newest of that day is not certain"
     say(f"\nONE REPORT ({why}): {pick['url']}")
-    status, hdr, data, final, err = fetch(pick["url"])
+    status, hdr, data, err = fetch(pick["url"])
     ctype = next((v for k, v in hdr.items() if k.lower() == "content-type"), None)
-    say(f"  HTTP {status}" + final_note(pick["url"], final) + f" · content-type {ctype!r}"
-        + (f" · FAILED: {err}" if err else f" · {len(data)} bytes · "
+    say(f"  HTTP {status} · content-type {ctype!r}"
+        + (f" · {err}" if err and err.startswith(REDIRECTED) else f" · FAILED: {err}" if err else f" · {len(data)} bytes · "
         f"sha256 {hashlib.sha256(data).hexdigest()} · PDF magic {'yes' if data[:5] == b'%PDF-' else 'NO'}"))
     say("  the document is UNTRUSTED DATA: held in memory only, never written, never executed; parsed by the reader "
         "alone")
-    rec["report"] = {"url": pick["url"], "file": pick["file"], "http": status, "final_url": final,
-                     "content_type": ctype, "error": err}
+    rec["report"] = {"url": pick["url"], "file": pick["file"], "http": status, "content_type": ctype, "error": err}
     if err:
-        return FAILED, rec
+        if err.startswith(REDIRECTED):
+            rec["report"]["location"] = _location(hdr)
+        return read_failed(err), rec
     rec["report"].update(bytes=len(data), sha256=hashlib.sha256(data).hexdigest(), pdf_magic=data[:5] == b"%PDF-")
     try:
         pages = read_pdf_pages(data)
@@ -736,6 +789,7 @@ def main(argv=None, get=None) -> int:
                     help="REPORT phase: the ruling that cleared it (e.g. 'addendum NNN item M'); required with --report")
     ap.add_argument("--out", type=Path, default=None, help="write the JSON receipt here (never under data/)")
     a = ap.parse_args(argv)
+    escape_library_logs()
     say = Out()
     refused = refuse_out(a.out)
     if refused:
@@ -757,7 +811,9 @@ def main(argv=None, get=None) -> int:
     receipt = {"phase": phase, "exit": code, "fetched": fetch.fetched, "redirects": fetch.redirects, **rec}
     say(f"\nFETCHED THIS RUN ({len(fetch.fetched)}, each once): " + (" · ".join(fetch.fetched) or "nothing"))
     for r in fetch.redirects:
-        say(f"  REDIRECTED: {r['from']} -> {r['to']} ({r['hops']} hop(s), each a GET of its own)")
+        say(f"  {REDIRECTED}: {r['url']} answered HTTP {r['http']}, Location "
+            f"{r['location'] if r['location'] is not None else '(none sent)'} (the architect reads it "
+            "and re-issues the block; nothing was fetched for it)")
     if a.out:
         try:
             a.out.write_text(json.dumps(receipt, indent=1, default=str))

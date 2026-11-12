@@ -47,14 +47,17 @@ class Fake:
     """A GET that answers from a dict and records every URL asked."""
 
     def __init__(self, pages: dict):
-        self.pages, self.asked = pages, []
+        self.pages, self.asked, self.follow_flags = pages, [], []
 
     def __call__(self, url, headers=None, timeout=None, allow_redirects=True):
         self.asked.append((url, dict(headers or {})))
+        self.follow_flags.append(allow_redirects)
         ans = self.pages.get(url)
         if ans is None:
             return NS(status_code=404, headers={}, content=b"", url=url)
         status, body, hdr = ans
+        if 300 <= status < 400 and allow_redirects:         # what requests does: the target is a GET of its own
+            return self(hdr["Location"], headers, timeout, allow_redirects)
         return NS(status_code=status, headers=hdr, content=body, url=url)
 
 
@@ -198,7 +201,7 @@ def test_nothing_is_fetched_twice_in_a_run():
     fake = Fake({TERMS: (200, b"x", {})})
     f = probe.Fetcher(fake)
     f(TERMS)
-    status, _, _, _, err = f(TERMS)
+    status, _, _, err = f(TERMS)
     assert status is None and "nothing is fetched twice" in err and len(fake.asked) == 1
 
 
@@ -369,26 +372,6 @@ def test_pass4_a_repeated_item_prints_under_each_of_its_lead_ins():
 def test_pass4_a_heading_inside_an_item_does_not_hide_the_lead_in():
     ordered(win("<h2>Use</h2><p>You may not:</p><ul><li><h3>Automated</h3>use robots</li></ul>"),
             "  You may not:", "# Automated", "> use robots")
-
-
-def test_review_redirects_print_their_final_url_and_every_hop(capsys, tmp_path):
-    """P2: requests follows redirects; the robots and report lines never printed the final URL, and the hops (their
-    own GETs) were not listed in FETCHED THIS RUN."""
-    class Redirecting(Fake):
-        def __call__(self, url, headers=None, timeout=None, allow_redirects=True):
-            r = super().__call__(url, headers, timeout, allow_redirects)
-            if url.endswith("robots.txt"):
-                r.url = "https://other.example.invalid/robots.txt"
-                r.history = [NS(url=url, status_code=301)]
-            return r
-    fake = Redirecting(terms_pages())
-    code = probe.main(["--terms-url", TERMS, "--out", str(tmp_path / "r.json")], get=fake)
-    out = capsys.readouterr().out
-    tail = json.loads((tmp_path / "r.json").read_text())                # the receipt holds the evidence
-    assert "final URL https://other.example.invalid/robots.txt (ANOTHER HOST: other.example.invalid)" in out
-    assert tail["robots"]["final_url"] == "https://other.example.invalid/robots.txt"
-    assert tail["redirects"] == [{"from": "https://terms.example.invalid/robots.txt",
-                                  "to": "https://other.example.invalid/robots.txt", "hops": 1}]
 
 
 def test_review_every_dated_link_prints_its_file_name_as_written_and_unquoted_or_query_links_are_read(capsys,
@@ -643,24 +626,6 @@ def test_codex_an_anchor_with_a_greater_than_in_a_quoted_attribute_is_read():
     assert [x["file"] for x in links] == ["Injury-Report_2026-11-12_08PM.pdf"] and links[0]["text"] == "x"
 
 
-def test_codex_r2_a_redirect_hop_counts_as_fetched_so_nothing_is_fetched_twice(capsys):
-    """The P1 under addendum 360 item 2(b) in Codex's second pass on #970: requests follows a redirect with GETs of
-    its own, and the guard recorded only the URL asked; a later read of a URL the redirect reached was a second GET."""
-    robots = "https://terms.example.invalid/robots.txt"
-
-    class TermsRedirectsToRobots(Fake):            # the terms page (read first) is a redirect to robots.txt
-        def __call__(self, url, headers=None, timeout=None, allow_redirects=True):
-            self.asked.append((url, dict(headers or {})))
-            status, body, hdr = self.pages[robots if url == TERMS else url]
-            r = NS(status_code=status, headers=hdr, content=body, url=url, history=[])
-            if url == TERMS:
-                r.url, r.history = robots, [NS(url=TERMS, status_code=301)]
-            return r
-    fake = TermsRedirectsToRobots(terms_pages())
-    probe.main(["--terms-url", TERMS], get=fake)
-    out = capsys.readouterr().out
-    assert [u for u, _ in fake.asked] == [TERMS]                     # one GET in all: the redirect already read robots
-    assert "this run already fetched this URL" in out
 
 
 # ---- Codex's third round on #970: the P1 under addendum 360 item 2(b) (a line altered in the receipt) ----------------
@@ -717,3 +682,90 @@ def test_codex_r3_robots_txt_honours_its_charset(capsys):
     code, out, rec, _ = run(capsys, ["--terms-url", TERMS], pages)
     assert rec["robots"]["text_lines"][0]["text"] == "# café"
     assert rec["robots"]["encoding"] == "windows-1252"
+
+
+# ---- ARCHITECT 2026-11-12, addendum 362: no redirect is followed (item 5); the console escapes control characters
+# (item 7); the use words are indexed (item 9(i)) ----------------------------------------------------------------------
+
+ROBOTS_URL = "https://terms.example.invalid/robots.txt"
+
+
+def test_362_5_robots_redirecting_to_the_terms_url_is_printed_not_followed(capsys):
+    pages = terms_pages()
+    pages[ROBOTS_URL] = (301, b"", {"Location": TERMS})
+    code, out, rec, fake = run(capsys, ["--terms-url", TERMS], pages)
+    assert [u for u, _ in fake.asked] == [TERMS, ROBOTS_URL]           # exactly two GETs
+    assert fake.follow_flags == [False, False]                         # every GET sent with redirects off
+    assert f"HTTP 301 · REDIRECTED, not followed: Location {TERMS}" in out
+    assert code == probe.REFUSED
+    assert rec["robots"]["http"] == 301 and rec["robots"]["location"] == TERMS
+    assert rec["redirects"] == [{"url": ROBOTS_URL, "http": 301, "location": TERMS}]
+    assert "final_url" not in rec["robots"] and "final_url" not in rec["terms"]
+
+
+def test_362_5_a_redirected_terms_page_ends_that_read_and_robots_is_still_read(capsys):
+    pages = terms_pages()
+    pages[TERMS] = (302, b"<html>moved</html>", {"Location": "https://elsewhere.example.invalid/terms"})
+    code, out, rec, fake = run(capsys, ["--terms-url", TERMS], pages)
+    assert [u for u, _ in fake.asked] == [TERMS, ROBOTS_URL] and fake.follow_flags == [False, False]
+    assert "REDIRECTED, not followed: Location https://elsewhere.example.invalid/terms" in out
+    assert "TERMS NOT READ" in out and code == probe.REFUSED
+    assert "page_lines" not in rec["terms"] and rec["robots"]["lines"] == 3
+
+
+def test_362_5_a_redirected_index_ends_the_report_phase(capsys):
+    pages = {INDEX: (301, b"", {"Location": "https://reports.example.invalid/elsewhere"})}
+    code, out, rec, fake = run(capsys, ["--report", "--index-url", INDEX, "--terms-ruling", "addendum 999 item 1"],
+                               pages)
+    assert [u for u, _ in fake.asked] == [INDEX] and fake.follow_flags == [False]
+    assert code == probe.REFUSED and "links" not in rec
+
+
+def test_362_7_control_characters_from_a_fetched_page_are_escaped_on_the_console_and_exact_in_the_receipt(capsys):
+    pages = terms_pages()
+    line = "You may not use a robot \x1b[2J\x1b]52;c;ZXZpbA==\x07 here\x7f\x9b."
+    pages[TERMS] = (200, f"<html><body><h1>Terms</h1><p>{line}</p></body></html>".encode(), {"Content-Type": "text/html"})
+    pages[ROBOTS_URL] = (200, b"Disallow: /x\x1b[31m\r\n", {"Location": "x"})
+    code, out, rec, fake = run(capsys, ["--terms-url", TERMS], pages)
+    for raw in ("\x1b", "\x07", "\x7f", "\x9b", "\r"):
+        assert raw not in out
+    assert "You may not use a robot \\x1b[2J\\x1b]52;c;ZXZpbA==\\x07 here\\x7f\\x9b." in out
+    assert "  | Disallow: /x\\x1b[31m" in out
+    assert line in [ln["text"] for ln in rec["terms"]["page_lines"]]      # the receipt keeps the text exact
+    assert rec["robots"]["text_lines"][0]["text"] == "Disallow: /x\x1b[31m"
+
+
+def test_362_7_the_escape_keeps_tab_and_text_and_escapes_c0_del_c1():
+    assert probe.console_safe("a\tb") == "a\tb"
+    assert probe.console_safe("\x00\x1f\n\x7f\x80\x9f\xa0é") == "\\x00\\x1f\\x0a\\x7f\\x80\\x9f\xa0é"
+
+
+def test_362_9i_the_use_words_open_windows(capsys):
+    pages = terms_pages()
+    pages[TERMS] = (200, b"<html><body><h1>Terms</h1><p>Statistics may be used only for non-commercial purposes and "
+                         b"not in connection with gambling or any wager.</p><p>A database needs our consent.</p>"
+                         b"</body></html>", {"Content-Type": "text/html"})
+    code, out, rec, fake = run(capsys, ["--terms-url", TERMS], pages)
+    matched = {ln["text"] for w in rec["terms"]["windows_all"] for ln in w["lines"] if ln["match"]}
+    assert matched == {"Statistics may be used only for non-commercial purposes and not in connection with gambling "
+                       "or any wager.", "A database needs our consent."}
+
+
+def test_362_5_the_location_prints_verbatim_not_as_a_repr(capsys):
+    pages = terms_pages()
+    loc = "https://elsewhere.example.invalid/a\\b\tc'd"
+    pages[TERMS] = (302, b"", {"Location": loc})
+    code, out, rec, fake = run(capsys, ["--terms-url", TERMS], pages)
+    assert f"REDIRECTED, not followed: Location {loc}" in out              # one backslash, the tab kept, no quotes
+    assert f"answered HTTP 302, Location {loc} " in out
+    assert rec["terms"]["location"] == loc
+
+
+def test_362_7_a_library_warning_carrying_document_text_is_escaped_on_stderr(capsys):
+    import logging
+    probe.main(["--terms-url", TERMS], get=Fake(terms_pages()))          # the run sets the console up
+    capsys.readouterr()
+    logging.getLogger("pypdf._reader").warning("Multiple definitions for key /X\x1b]0;PWNED\x07\x1b[31m\x9b")
+    err = capsys.readouterr().err
+    assert "\x1b" not in err and "\x07" not in err and "\x9b" not in err
+    assert "/X\\x1b]0;PWNED\\x07\\x1b[31m\\x9b" in err

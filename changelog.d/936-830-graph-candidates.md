@@ -1,0 +1,13 @@
+## 2026-11-11 (#936: 830-graph-candidates — THE GRAPH PROJECTION'S CANDIDATE COMPARISON (ARCHITECT 2026-11-04 13:05 ET, addendum 252 item 4; lane availability-record, #830 step 5, due 11-20): one page, docs only; nothing installed before the architect's pick)
+- **docs/specs/availability-graph-candidates.md** (new): each embedded candidate's licence, maintenance state as of 2026-11-11, Python binding, Cypher dialect and file format, as 252 item 4 lists them, plus its fit against "embedded, file-based, no server, Cypher".
+  - The candidates: Kùzu (archived 2025-10-10), LadybugDB (the active fork), RyuGraph (no release since 2025-12-06), Bighorn (no package found), FalkorDBLite (a managed server process; SSPL engine; Python >= 3.12), lance-graph (partial Cypher over tables).
+  - Set aside on 252's words: Neo4j, Memgraph, DuckDB/DuckPGQ, CozoDB, grand-cypher.
+  - Each field is read from PyPI's JSON for the package or from a named source; a field not read from a primary record is marked so. No preference is stated: the pick is the architect's.
+- **Codex on #936, round 1 (one P1, three P2), and addendum 344 items 2-3, in one push:**
+  - CypherLite added as a row (it fits the words: one `.cyl` file, in-process, an openCypher subset; nine releases on 2026-03-15, none since).
+  - LadybugDB's wheels corrected to cp310–cp314, and its single-file format from 0.11.0 quoted from its own documentation.
+  - lance-graph re-stated: it persists node and relationship tables as Lance datasets; partial Cypher and 64 transitive dependencies are its drawbacks.
+  - The second table gives every fitting candidate's identity (index URLs and what the repository names back), the version to pin with its cp312 manylinux x86_64 wheel's sha256, a host-only optional install, its transitive dependencies and its licence as the metadata states it.
+  - The look-alike `real_ladybug` (its Repository URL returns 404) is named.
+- **Codex on #936, round 2 (one P1), fixed:** sqlitegraph and GrafitoDB added on their index records, each with a row in both tables (sqlitegraph: "Cypher-inspired", one file, GPL-3.0-only; GrafitoDB: a Cypher subset over SQLite, pure Python, five dependencies, Python >= 3.11, no licence in its metadata). The page states how its candidate list was assembled and that a later find is added by its own PR.
+- **Codex on #936, round 3 (the cap; one P1, two P2):** the P1 is fixed: GraphQLite (MIT, Cypher through a SQLite extension, Python >= 3.12, 1.0.0 on 2026-11-10) and graphdblite (MIT, Cypher, one SQLite-backed file, Alpha, 0.2.0 on 2026-10-28) each get a row in both tables. The summary now lists every candidate's last release, newest first. The two P2s go to one follow-up Issue under the review stop rule.

@@ -76,15 +76,20 @@ READER_FILE = "requirements-probe-pdf.txt"
 # CORE (automated access itself: every block holding one is quoted, never capped), each matched at a word's start,
 # "bot"/"bots" as a whole word only ("both", "bottom" are not); BROAD (reuse and licence words, common in boilerplate:
 # capped at TERMS_QUOTES on the console, every one kept in the --out receipt)
-CORE_WORDS = ("automat", "robot", "scrap", "crawl", "spider", "harvest", "data mining")
+CORE_WORDS = ("automat", "robot", "scrap", "crawl", "spider", "harvest", "data mining")   # as printed on the console
 BROAD_WORDS = ("extract", "reuse", "re-use", "reproduc", "redistribut", "republish", "commercial", "permission",
                "license", "licence")
-CORE = re.compile(r"\b(?:" + "|".join(re.escape(w) for w in CORE_WORDS) + r")|\bbots?\b", re.I)
+# the fifth pre-PR pass: compounds ("webcrawlers", "screenscraping", "chatbots") and "data-mining" with any hyphen or
+# dash, or closed ("datamining"); "bot" only at a word's end ("both", "bottom" are not)
+CORE = re.compile(r"\b(?:automat|robot|spider|harvest)|crawl|scrap|data[\s\-\u2010-\u2015_]*mining|\w*bots?\b", re.I)
 BROAD = re.compile(r"\b(?:" + "|".join(re.escape(w) for w in BROAD_WORDS) + ")", re.I)
 # the page's own date line: "Last updated / modified / revised", "Effective date / as of", or a block that opens with
 # "Updated:", "Revised:", "Effective:" or "Modified:"
-UPDATED = re.compile(r"\blast\s+(?:updated|modified|revised)\b|\beffective\s+(?:date|as\s+of)\b"
-                     r"|^\s*(?:updated|revised|effective|modified)\s*:", re.I)
+_DATE_STRICT = (r"\blast\s+(?:updated|modified|revised|revision)\b"
+                r"|\bdate\s+of\s+last\s+(?:revision|update|modification)\b"
+                r"|^\s*(?:updated|revised|effective|modified)\s*:"
+                r"|^\s*(?:last\s+)?(?:updated|revised|modified|effective)\b(?:\s+on)?\s*:?\s*(?:[A-Za-z]+\.?\s+\d|\d)")
+UPDATED = re.compile(_DATE_STRICT + r"|\beffective\s+(?:date|as\s+of)\b", re.I)
 TERMS_QUOTES, UPDATED_LINES, ROBOTS_LINES = 60, 5, 400
 # THE WINDOW (the fourth pre-PR pass: inferring which block "governs" a clause from the markup misread real pages
 # pass after pass, so the console asserts NO structure): each matched line prints with the page's own lines around
@@ -98,8 +103,7 @@ BLOCK_TAGS = ("p", "div", "li", "ul", "ol", "dl", "dt", "dd", "tr", "td", "th", 
               "article", "header", "footer", "main", "nav", "aside", "blockquote", "form", "fieldset", "br", "hr",
               "pre", "figure", "figcaption", "body", "html", "summary", "details", "legend", "caption", "address",
               "center", "dialog", "menu", "option", "tfoot", "colgroup", "dir", "button", "select", "textarea")
-UPDATED_STRICT = re.compile(r"\blast\s+(?:updated|modified|revised)\b|^\s*(?:updated|revised|effective|modified)\s*:",
-                            re.I)
+UPDATED_STRICT = re.compile(_DATE_STRICT, re.I)
 # HYPOTHESES, never confirmed here (law 1): each is printed found / not found on the run
 HEADER_WORDS = ("Game Date", "Game Time", "Matchup", "Team", "Player Name", "Current Status", "Reason")
 STATUS_WORDS = ("Out", "Doubtful", "Questionable", "Probable", "Available")
@@ -169,7 +173,8 @@ def page_lines(page: str) -> list[dict]:
     every other tag is removed in place (a clause with inline markup stays one line, as a browser shows it); a heading
     is a line of its own; entities unescaped; whitespace folded. Lines are kept WHOLE, never cut. No structure is
     inferred: a line is only the page's text between two breaks."""
-    t = re.sub(r"(?s)<!--.*?-->", " ", page or "")
+    t = re.sub(r"(?s)<!--.*?-->", "", page or "")               # a comment shows as nothing, as in a browser
+    t = re.sub(r"(?s)<!\[CDATA\[.*?\]\]>|<![^>]*>|<\?.*?\?>", "", t)  # <!DOCTYPE ...>, <?xml ...?>, CDATA: not page text
     t = re.sub(r"(?is)<(head|script|style|noscript)\b.*?</\1\s*>", " ", t)
     t = re.sub(r"\s+", " ", t)
     breaks = set(BLOCK_TAGS) | {"li", "br"}
@@ -181,7 +186,8 @@ def page_lines(page: str) -> list[dict]:
         if text:
             out.append({"text": text, "heading": heading})
 
-    for m in re.finditer(r"<(/?)([A-Za-z][A-Za-z0-9]*)\b[^>]*>|([^<]+)|(<)", t):
+    # a tag ends at its own ">", a ">" inside a quoted attribute value never ends it (the fifth pass)
+    for m in re.finditer(r"""<(/?)([A-Za-z][A-Za-z0-9]*)\b(?:[^>"']|"[^"]*"|'[^']*')*>|([^<]+)|(<)""", t):
         close, name, text, lt = m.group(1), (m.group(2) or "").lower(), m.group(3), m.group(4)
         if text is not None or lt:
             buf.append(text if text is not None else lt)
@@ -204,6 +210,24 @@ def _window(lines: list[dict], i: int) -> tuple[int, int]:
             break
         lo -= 1
     return lo, min(len(lines) - 1, i + WINDOW_AHEAD)
+
+
+def console_window_lines(w: dict) -> list[str]:
+    """A window's lines as the console prints them: '#>' a heading that matched, '#' a heading, '>' a matched line."""
+    out = []
+    for ln in w["lines"]:
+        mark = "#>" if ln["heading"] and ln["match"] else ("#" if ln["heading"] else (">" if ln["match"] else " "))
+        out.append(f"{mark} {ln['text']}")
+    return out
+
+
+def date_lines(lines: list[dict], updated: list[str]) -> list[dict]:
+    """Each date line with the page line after it (a date set in a block of its own still shows)."""
+    out = []
+    for s in updated:
+        i = next(k for k, ln in enumerate(lines) if ln["text"] == s or ln["text"].startswith(s.rstrip(" [...]")))
+        out.append({"line": s, "next": lines[i + 1]["text"] if i + 1 < len(lines) else None})
+    return out
 
 
 def terms_windows(page: str, cap: int | None = None) -> tuple[list[dict], list[str], int, list[dict]]:
@@ -233,10 +257,12 @@ def terms_windows(page: str, cap: int | None = None) -> tuple[list[dict], list[s
                 w.append({"kind": kind, "from": lo, "to": hi, "matches": [i]})
     for kind in ("core", "broad"):
         for w in windows[kind]:
-            heads = [ln["text"] for ln in lines[:w["from"]] if ln["heading"]]
-            w["section"] = heads[-1] if heads else None
-            w["lines"] = [{"n": n, "text": lines[n]["text"], "heading": lines[n]["heading"],
+            # a plain page fact, never a section claim: the last heading at or above the first matched line
+            heads = [ln["text"] for ln in lines[:w["matches"][0] + 1] if ln["heading"]]
+            w["heading_above_first_match"] = heads[-1] if heads else None
+            w["lines"] = [{"line": n + 1, "text": lines[n]["text"], "heading": lines[n]["heading"],
                            "match": n in w["matches"]} for n in range(w["from"], w["to"] + 1)]
+            w["from"], w["to"], w["matches"] = w["from"] + 1, w["to"] + 1, [m + 1 for m in w["matches"]]
     broad = windows["broad"]
     shown = broad if cap <= 0 else broad[:cap]
     strict, loose = [], []
@@ -269,9 +295,11 @@ def terms_phase(a, say: Out, fetch: Fetcher) -> tuple[int, dict]:
         say("  TERMS NOT READ: the feed is not cleared (261 item 4); the report phase waits on a terms console")
     else:
         windows, updated, dropped, lines = terms_windows(_text(body))
-        say("  THE PAGE'S OWN DATE LINE(S), verbatim (the strict forms first): "
-            + (" | ".join(f'"{u}"' for u in updated[:UPDATED_LINES]) if updated
-               else "none found (no 'last updated' / 'effective' line, in a block or a heading)")
+        dated = date_lines(lines, updated)
+        say("  THE PAGE'S OWN DATE LINE(S), verbatim (the strict forms first), each with the line after it: "
+            + (" | ".join(f'"{d["line"]}"' + (f' (the line after it: "{d["next"]}")' if d["next"] else "")
+                          for d in dated[:UPDATED_LINES]) if dated
+               else "no line matched the date patterns (the --out receipt's page_lines hold the whole page)")
             + (f" ... and {len(updated) - UPDATED_LINES} more date line(s), not printed (cap {UPDATED_LINES}); every "
                "one is in the --out receipt" if len(updated) > UPDATED_LINES else ""))
         if not windows:
@@ -284,21 +312,22 @@ def terms_phase(a, say: Out, fetch: Fetcher) -> tuple[int, dict]:
             say(f"  THE PAGE'S OWN TEXT AROUND EVERY ACCESS WORD, verbatim, in page order ({len(lines)} lines on the "
                 f"page): {n_core} window(s) on automated access {list(CORE_WORDS) + ['bot(s)']} (every one), then "
                 f"{len(windows) - n_core} on reuse and licence {list(BROAD_WORDS)}. '>' marks the matched line, '#' "
-                "a heading; each window runs back to a line ending in ':' (at most "
+                "a heading, '#>' a heading that matched; each window runs back to a line ending in ':' (at most "
                 f"{WINDOW_BACK} lines; a heading on the way is shown) and {WINDOW_AHEAD} lines on. No structure is inferred; the architect reads what "
                 "they allow, and the --out receipt holds every line of the page:")
             for w in windows:
                 say(f"    --- {'automated access' if w['kind'] == 'core' else 'reuse / licence'} · page lines "
-                    f"{w['from'] + 1}-{w['to'] + 1} · under {w['section']!r}")
-                for ln in w["lines"]:
-                    mark = "#" if ln["heading"] else (">" if ln["match"] else " ")
-                    say(f"    {mark} {ln['text']}")
+                    f"{w['from']}-{w['to']} · the nearest heading above line {w['matches'][0]}: "
+                    f"{w['heading_above_first_match']!r}")
+                for ln in console_window_lines(w):
+                    say(f"    {ln}")
             if dropped:
                 say(f"    ... and {dropped} more reuse/licence window(s), not printed (cap {TERMS_QUOTES}); every one is "
                     "in the --out receipt")
-        rec["terms"].update(bytes=len(body), sha256=hashlib.sha256(body).hexdigest(), updated=updated,
+        rec["terms"].update(bytes=len(body), sha256=hashlib.sha256(body).hexdigest(), updated=dated,
                             windows=windows, windows_all=terms_windows(_text(body), cap=0)[0], not_printed=dropped,
-                            page_lines=[("# " if ln["heading"] else "") + ln["text"] for ln in lines])
+                            page_lines=[{"line": k + 1, "heading": ln["heading"], "text": ln["text"]}
+                                        for k, ln in enumerate(lines)])
     robots = a.robots_url or robots_for(a.terms_url)
     status, hdr, body, final, err = fetch(robots)
     say(f"\nROBOTS {robots}" + ("" if a.robots_url else " (derived: --terms-url's own host)") + f" · HTTP {status}"

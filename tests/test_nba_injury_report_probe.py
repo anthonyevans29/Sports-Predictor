@@ -85,13 +85,14 @@ def test_the_default_run_is_the_terms_phase_alone_and_fetches_no_index_and_no_re
 
 def test_the_access_lines_print_verbatim_in_their_windows_with_the_pages_own_date(capsys):
     code, out, tail, _ = run(capsys, ["--terms-url", TERMS], terms_pages())
-    assert 'THE PAGE\'S OWN DATE LINE(S), verbatim (the strict forms first): "Last Updated: June 1, 2026"' in out
+    assert ('THE PAGE\'S OWN DATE LINE(S), verbatim (the strict forms first), each with the line after it: '
+            '"Last Updated: June 1, 2026" (the line after it: "4. Restrictions")') in out
     assert "    # 4. Restrictions" in out and "    # 7. Content" in out
     assert ("    > You may not use any robot, spider, scraper or other automated means to access the Services. Nothing "
             "else here.") in out
     assert "    > You may not reproduce or redistribute Content for commercial purposes without permission." in out
     assert "ignore me" not in out                                   # script text is never page text
-    assert tail["terms"]["page_lines"][0] == "# Terms of Use"     # the receipt holds every line of the page
+    assert tail["terms"]["page_lines"][0] == {"line": 1, "heading": True, "text": "Terms of Use"}   # every line kept
     assert [w["kind"] for w in tail["terms"]["windows"]] == ["core", "broad"]
 
 
@@ -437,3 +438,64 @@ def test_r2_a_report_whose_text_does_not_extract_says_so_and_certifies_nothing(c
                              report_pages())
     assert code == probe.REFUSED
     assert "the reader extracted NO TEXT" in out and tail["report"]["fields"]["lines"] == 0
+
+
+# ---- the fifth adversarial pass (on 6e43355b, the window design; each reproduced there, fail-first) -----------------
+
+@pytest.mark.parametrize("text", ["engage in data-mining of NBA content", "engage in datamining of NBA content",
+                                  "engage in data‑mining of NBA content", "text-and-data-mining is prohibited",
+                                  "no webcrawlers", "no screenscraping", "no chatbots"])
+def test_r5_the_automated_access_words_read_their_compounds_and_hyphen_forms(text):
+    windows = probe.terms_windows(f"<p>{text}.</p>")[0]
+    assert windows and windows[0]["kind"] == "core", text
+
+
+@pytest.mark.parametrize("text", ["Both parties agree.", "The bottom line.", "We may update these terms."])
+def test_r5_the_widened_words_still_skip_plain_words(text):
+    assert not [w for w in probe.terms_windows(f"<p>{text}</p>")[0] if w["kind"] == "core"]
+
+
+def test_r5_the_window_header_claims_no_section_and_names_the_nearest_heading_above_the_match(capsys):
+    page = ("<h2>1. License</h2>" + "".join(f"<p>para {i}.</p>" for i in range(9))
+            + "<h2>2. Prohibited Conduct</h2><p>You agree that you will not access the Services through bots.</p>")
+    pages = {TERMS: (200, page.encode(), {}), "https://terms.example.invalid/robots.txt": (200, ROBOTS.encode(), {})}
+    _, out, tail, _ = run(capsys, ["--terms-url", TERMS], pages)
+    assert "under '1. License'" not in out and "under " not in out.split("ROBOTS")[0].split("THE PAGE'S OWN TEXT")[1]
+    assert "the nearest heading above line 12: '2. Prohibited Conduct'" in out
+    w = tail["terms"]["windows"][0]
+    assert "section" not in w and w["heading_above_first_match"] == "2. Prohibited Conduct"
+    assert w["matches"] == [12] and tail["terms"]["page_lines"][11] == {"line": 12, "heading": False,
+                                                                         "text": "You agree that you will not access the Services through bots."}
+
+
+def test_r5_a_matched_heading_is_marked_as_both():
+    w = probe.terms_windows("<h2>Robots and Spiders</h2><p>See the policy.</p>")[0][0]
+    assert w["lines"][0]["heading"] and w["lines"][0]["match"]
+    assert "#> Robots and Spiders" in probe.console_window_lines(w)
+
+
+@pytest.mark.parametrize("page", ['<p>You may not <a href="/x" onclick="a=>b">use robots</a> on the Site.</p>',
+                                  "<p data-x='1>0'>You may not use robots on the Site.</p>"])
+def test_r5_a_greater_than_inside_a_quoted_attribute_is_not_page_text(page):
+    texts = [ln["text"] for ln in probe.page_lines(page)]
+    assert texts == ["You may not use robots on the Site."]
+
+
+@pytest.mark.parametrize("line", ["Date of Last Revision: May 1, 2025", "Last Revision: 2025", "Revised on May 1, 2025",
+                                  "Updated November 1, 2025", "Updated on: 5/1/2025"])
+def test_r5_more_date_line_forms(line):
+    assert probe.terms_windows(f"<p>{line}</p><p>No robots.</p>")[1] == [line]
+
+
+def test_r5_a_date_in_its_own_block_prints_with_its_label(capsys):
+    page = "<div>Last updated:</div><div>May 1, 2025</div><p>No robots.</p>"
+    pages = {TERMS: (200, page.encode(), {}), "https://terms.example.invalid/robots.txt": (200, ROBOTS.encode(), {})}
+    _, out, tail, _ = run(capsys, ["--terms-url", TERMS], pages)
+    assert '"Last updated:" (the line after it: "May 1, 2025")' in out
+    assert tail["terms"]["updated"] == [{"line": "Last updated:", "next": "May 1, 2025"}]
+
+
+def test_r5_comments_doctype_and_xml_declarations_add_nothing():
+    page = ("<!DOCTYPE html><?xml version='1.0'?><p>Last updated <!-- -->10<!-- -->/<!-- -->1<!-- -->/<!-- -->2025"
+            "</p>")
+    assert [ln["text"] for ln in probe.page_lines(page)] == ["Last updated 10/1/2025"]

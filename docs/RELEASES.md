@@ -413,9 +413,23 @@ its compare verdict.
     deploy 0, backup:daily 0 (203a39adbaa3), migrations 0. After: the timer set CLEAN (20 expected, 20 active), the
     checkout clean. PRODUCTION = v1.6.7." The deploy ran 2026-11-12T15:20–15:21Z on sp-vps-1 (kernel 6.8.0-149, no
     reboot pending).
-  - **After the deploy:** the nflverse feed's step done on the 08:45Z availability-daily run, read by name (350 item 2;
-    roadmap lane availability-record). `sp-availability-observe.timer` stays disabled until its own block (350 item 3).
-    The bulletin hooks (#916) run from this tag: the first hooked one is the 11-12 NFL closing (349 item 5).
+  - **After the tag** (the record follows the host the same day, ARCHITECT 2026-11-12 16:00 ET, addendum 360 item 5):
+    - The nflverse feed's step is done on the 08:45Z availability-daily run, read by name (350 item 2; roadmap lane
+      availability-record).
+    - **`sp-availability-observe.timer` was ENABLED on the host at 15:23–15:25Z.** The architect's own block enabled it,
+      not the deploy block (350 item 3). The NHL landing watch has collected since. Verbatim (ARCHITECT 2026-11-12 10:55
+      ET, addendum 354 item 1, in part): "the operator enabled sp-availability-observe at 15:23–15:25Z by my block (both
+      unit files identical to the tag; the dry run exit 0; the first tick at 15:25:02Z wrote observation #5, a MISSED
+      row for a T-120 poll that was due before the watch existed; the timer set CLEAN at 21)". The host's timer set is
+      21 from then on: the deploy's 20 plus this one.
+    - **The first fixtures_NHL pair under v1.6.7's comparator is CLEAN.** Verbatim (ARCHITECT 2026-11-12 11:25 ET,
+      addendum 355 item 2, as Release Issue #949's "After the tag" carries it): "First fixtures_NHL pair under v1.6.7's
+      comparator, 2026-11-12: CLEAN — 24 rows compared in the window on each side, 0 diffs; 37 outside the window on
+      each side, not compared; 420 host-only columns masked and counted; status `success` on the host's 16:00:38Z push
+      (bc96d6e0), `pending` (awaiting host) on the laptop's 12:55Z push before it. First real compare verdict since MLB
+      closed. It certifies the shared ingestion and fixture-row path on NHL, nothing about the market, the Desk or any
+      model (335 item 4(a))." The read itself (355 item 1) is on #949.
+    - The bulletin hooks (#916) run from this tag: the first hooked one is the 11-12 NFL closing (349 item 5).
   - **Carries:** git's `v1.6.6..v1.6.7` holds sixteen PRs: #913, #916, #918, #919, #922, #923, #925, #927, #929, #931,
     #933, #934, #935, #936, #938, #939 (89 commits with the fold commit, 68 files). Counted from `git log --merges
     v1.6.6..v1.6.7`: 21 merge commits, of which 16 are "Merge pull request #N"; sixteen CHANGELOG sections, one per

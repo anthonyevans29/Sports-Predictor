@@ -1,4 +1,4 @@
-## 2026-11-12 (#000: 960-linear-dollar-patterns — the shared #817 DOLLAR and USD_WORD's digit and usd arms read in linear time, matching exactly what they matched before (ARCHITECT 2026-11-12 14:25 ET, addendum 358 item 4(1)). Closes #960.)
+## 2026-11-12 (#974: 960-linear-dollar-patterns — the shared #817 DOLLAR and USD_WORD's digit and usd arms read in linear time, matching exactly what they matched before (ARCHITECT 2026-11-12 14:25 ET, addendum 358 item 4(1)). Closes #960.)
 - **Ruling (verbatim, addendum 358 item 4(1)):** "#960 (the quadratic digit arms and the shared DOLLAR): a real finding, slow and never wrong; its PR is queued behind the dated work, the shared pattern's change reviewed as money-path."
 - **src/privacy_patterns.py:**
   - `DOLLAR` (#817's, read by the bulletin guard and tests/test_no_raw_kalshi_rows.py): the blanks after the sign are reachable only through the sign (`[$＄﹩][ \t ]*(?:[+\-−][ \t ]*)?\.?[0-9]`).

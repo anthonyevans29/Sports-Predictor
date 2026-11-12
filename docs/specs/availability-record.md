@@ -977,8 +977,9 @@ through its mode=ro + immutable=1 session; the copy is byte-identical after a ru
 the 256 MB buffer pool the rebuild sets), loaded by COPY with `PARALLEL=FALSE` (the parallel CSV reader refuses a
 quoted newline, and the record keeps whatever text its source gave: one such name would fail every rebuild), closed, re-opened read-only and counted (a read-write open
 rewrites the file's bytes), moved onto `--out` by `os.replace` only when every count equals what was staged; the staging
-directory is removed whatever the outcome, a SIGTERM (the unit's stop or timeout) included; the run's SIGTERM handler is
-restored before that cleanup, so a signal during it never turns a committed run into a failure (#944). One run at a time (a lock
+directory is removed whatever the outcome, a SIGTERM (the unit's stop or timeout) included; through that cleanup a SIGTERM is
+deferred, so a signal during it never turns a committed run into a failure (#944), and it is re-delivered once the
+previous handler is back, after the run's line is written (Codex on #952). One run at a time (a lock
 beside the graph; a second run is refused). One line of `rebuild.jsonl` beside the graph per run: ok (the counts, the
 graph's sha256 and size, the copy and its sha256), refused or error; a refused `--out` writes nothing at all, and a
 SIGKILL (MemoryMax) writes no line and leaves its staging, which the next run removes and names on its own line. A copy

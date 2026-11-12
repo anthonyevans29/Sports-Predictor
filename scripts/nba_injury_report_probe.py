@@ -88,7 +88,10 @@ TERMS_QUOTES, QUOTE_CHARS, UPDATED_LINES, ROBOTS_LINES = 60, 1500, 5, 400
 # clause with inline markup stays whole (the pre-PR review's P1)
 BLOCK_TAGS = ("p", "div", "li", "ul", "ol", "dl", "dt", "dd", "tr", "td", "th", "table", "thead", "tbody", "section",
               "article", "header", "footer", "main", "nav", "aside", "blockquote", "form", "fieldset", "br", "hr",
-              "pre", "figure", "figcaption", "body", "html")
+              "pre", "figure", "figcaption", "body", "html", "summary", "details", "legend", "caption", "address",
+              "center", "dialog", "menu", "option", "tfoot", "colgroup", "dir", "button", "select", "textarea")
+UPDATED_STRICT = re.compile(r"\blast\s+(?:updated|modified|revised)\b|^\s*(?:updated|revised|effective|modified)\s*:",
+                            re.I)
 # HYPOTHESES, never confirmed here (law 1): each is printed found / not found on the run
 HEADER_WORDS = ("Game Date", "Game Time", "Matchup", "Team", "Player Name", "Current Status", "Reason")
 STATUS_WORDS = ("Out", "Doubtful", "Questionable", "Probable", "Available")
@@ -153,30 +156,61 @@ def _text(body: bytes | None) -> str:
 
 
 def page_blocks(page: str) -> list[dict]:
-    """The page as blocks in page order: {"heading", "text", "li"}. Comments, head, script, style and noscript are
-    dropped; every h1-h6 is a heading (its inner markup removed); a block-level tag (BLOCK_TAGS) ends a block; every
-    other tag is removed in place, so a clause with inline markup stays one block; entities unescaped; whitespace
-    folded. A block is quoted WHOLE, never cut into sentences (the pre-PR review: a sentence split broke clauses at
-    "e.g." and ";" and dropped their governing words)."""
+    """The page as blocks in page order: {"heading", "text", "li" (the list depth, 0 outside a list), "is_heading"}.
+    Comments, head, script, style and noscript are dropped. A heading (h1-h6) is its own block (is_heading), its inner
+    block tags read as spaces, and it becomes the heading of what follows. A block-level tag (BLOCK_TAGS) ends a block;
+    every other tag is removed in place, so a clause with inline markup stays one block. A list item keeps its depth
+    through any block inside it (<li><p>, <li><div>, a <br>) until </li>. Entities unescaped; whitespace folded. A block
+    is quoted WHOLE, never cut into sentences."""
     t = re.sub(r"(?s)<!--.*?-->", " ", page or "")
     t = re.sub(r"(?is)<(head|script|style|noscript)\b.*?</\1\s*>", " ", t)
     t = re.sub(r"\s+", " ", t)
-    t = re.sub(r"(?is)<h[1-6]\b[^>]*>(.*?)</h[1-6]\s*>",
-               lambda m: "\x01\x00H" + re.sub(r"<[^>]+>", "", m.group(1)) + "\x01", t)
-    t = re.sub(r"(?i)<li\b[^>]*>", "\x01\x00L", t)
-    t = re.sub(r"(?i)</?(?:" + "|".join(BLOCK_TAGS) + r")\b[^>]*>", "\x01", t)
-    t = re.sub(r"(?s)<[^>]+>", "", t)                   # inline tags: removed in place
-    t = html.unescape(t)
-    out, heading = [], None
-    for piece in t.split("\x01"):
-        li = piece.startswith("\x00L")
-        if piece.startswith("\x00H"):
-            h = re.sub(r"\s+", " ", piece[2:]).strip()
-            heading = h or heading
-            continue
-        text = re.sub(r"\s+", " ", piece[2:] if li else piece).strip()
+    blocks = set(BLOCK_TAGS)
+    out, heading, buf, depth, in_h, hbuf = [], None, [], 0, False, []
+
+    def flush():
+        text = re.sub(r"\s+", " ", html.unescape("".join(buf))).strip()
+        buf.clear()
         if text:
-            out.append({"heading": heading, "text": text, "li": li})
+            out.append({"heading": heading, "text": text, "li": depth, "is_heading": False})
+
+    def unclosed_heading():                         # a heading never closed: its text is kept as a block, never lost
+        text = re.sub(r"\s+", " ", html.unescape("".join(hbuf))).strip()
+        hbuf.clear()
+        if text:
+            out.append({"heading": heading, "text": text, "li": depth, "is_heading": False})
+
+    for m in re.finditer(r"<(/?)([A-Za-z][A-Za-z0-9]*)\b[^>]*>|([^<]+)|(<)", t):
+        close, name, text, lt = m.group(1), (m.group(2) or "").lower(), m.group(3), m.group(4)
+        if text is not None or lt:
+            (hbuf if in_h else buf).append(text if text is not None else lt)
+            continue
+        if re.fullmatch(r"h[1-6]", name):
+            if not close:
+                flush()
+                if in_h:
+                    unclosed_heading()
+                in_h = True
+                hbuf.clear()
+            elif in_h:
+                in_h = False
+                h = re.sub(r"\s+", " ", html.unescape("".join(hbuf))).strip()
+                if h:
+                    heading = h
+                    out.append({"heading": h, "text": h, "li": 0, "is_heading": True})
+            continue
+        if in_h:                                    # a block tag inside a heading reads as a space; inline: nothing
+            if name in blocks or name == "li":
+                hbuf.append(" ")
+            continue
+        if name == "li":
+            flush()
+            depth = depth + 1 if not close else max(0, depth - 1)
+        elif name in blocks:
+            flush()
+    flush()
+    if in_h:
+        unclosed_heading()
     return out
 
 
@@ -187,27 +221,43 @@ def _cut(s: str) -> str:
 def terms_quotes(page: str, cap: int | None = None) -> tuple[list[dict], list[str], int]:
     """(the access clauses, the page's own date lines, the broad clauses not printed past the cap). Each clause is a
     WHOLE block, verbatim up to QUOTE_CHARS (a cut is marked), with its heading; a list item carries its lead-in (the
-    nearest block above it that is not a list item). CORE clauses first and never capped; BROAD ones after, capped at
-    `cap` (TERMS_QUOTES when None; 0 or less: uncapped, the receipt's full list). Nothing is paraphrased."""
+    block that governs it: the nearest block above it one list level up, within the same heading; for a nested item,
+    its parent item) and the whole chain of governing blocks above it. CORE clauses first and never capped; BROAD ones
+    after, capped at `cap` (TERMS_QUOTES when None; 0 or less: uncapped, the receipt's full list). The date lines are
+    every block or heading matching UPDATED, the strict forms first, all kept (the console caps what it prints).
+    Nothing is paraphrased."""
     cap = TERMS_QUOTES if cap is None else cap
     blocks = page_blocks(page)
-    core, broad, seen, lead = [], [], set(), None
+    core, broad, seen, governing = [], [], set(), {}
     for b in blocks:
+        if b["is_heading"]:
+            governing = {}                        # a lead-in never crosses a heading
+            continue
+        d = b["li"]
         kind = "core" if CORE.search(b["text"]) else ("broad" if BROAD.search(b["text"]) else None)
         if kind and (b["heading"], b["text"]) not in seen:
             seen.add((b["heading"], b["text"]))
             q = {"heading": b["heading"], "text": _cut(b["text"]), "kind": kind}
-            if b["li"]:
-                q["lead_in"] = _cut(lead) if lead else None
+            if d:
+                chain = [governing[k] for k in sorted(governing) if k < d]
+                q["lead_in"] = _cut(governing[d - 1]) if (d - 1) in governing else None
+                q["lead_chain"] = [_cut(c) for c in chain]
             (core if kind == "core" else broad).append(q)
-        if not b["li"]:
-            lead = b["text"]
+        if d == 0:
+            governing = {0: b["text"]}
+        elif (d not in governing) or not b["text"]:
+            governing = {k: v for k, v in governing.items() if k < d}
+            governing[d] = b["text"]
+        else:                                     # the next item at this depth: it governs what nests under it
+            governing = {k: v for k, v in governing.items() if k < d}
+            governing[d] = b["text"]
     shown = broad if cap <= 0 else broad[:cap]
-    updated = []
+    strict, loose = [], []
     for b in blocks:
-        if UPDATED.search(b["text"]) and b["text"] not in updated:
-            updated.append(_cut(b["text"]))
-    return core + shown, updated[:UPDATED_LINES], len(broad) - len(shown)
+        s = _cut(b["text"])
+        if UPDATED.search(b["text"]) and s not in strict and s not in loose:
+            (strict if UPDATED_STRICT.search(b["text"]) else loose).append(s)
+    return core + shown, strict + loose, len(broad) - len(shown)
 
 
 def robots_for(terms_url: str) -> str:
@@ -232,8 +282,11 @@ def terms_phase(a, say: Out, fetch: Fetcher) -> tuple[int, dict]:
         say("  TERMS NOT READ: the feed is not cleared (261 item 4); the report phase waits on a terms console")
     else:
         quoted, updated, dropped = terms_quotes(_text(body))
-        say("  THE PAGE'S OWN DATE LINE(S), verbatim: " + (" | ".join(f'"{u}"' for u in updated) if updated
-                                                           else "none found (no 'last updated' / 'effective' line)"))
+        say("  THE PAGE'S OWN DATE LINE(S), verbatim (the strict forms first): "
+            + (" | ".join(f'"{u}"' for u in updated[:UPDATED_LINES]) if updated
+               else "none found (no 'last updated' / 'effective' line, in a block or a heading)")
+            + (f" ... and {len(updated) - UPDATED_LINES} more date line(s), not printed (cap {UPDATED_LINES}); every "
+               "one is in the --out receipt" if len(updated) > UPDATED_LINES else ""))
         if not quoted:
             worst = REFUSED
             say("  NOTHING TO QUOTE: no block holds an access word " + str(list(CORE_WORDS) + ["bot(s)"])
@@ -250,8 +303,11 @@ def terms_phase(a, say: Out, fetch: Fetcher) -> tuple[int, dict]:
                     say(f"    [{q['heading'] if q['heading'] else 'no heading above'}]")
                     last = q["heading"]
                 if "lead_in" in q:
-                    say(f'      (the list\'s lead-in) "{q["lead_in"]}"' if q["lead_in"] else
-                        "      (the list's lead-in: none above it)")
+                    if q["lead_chain"]:
+                        for c in q["lead_chain"]:
+                            say(f'      (governing it, from above) "{c}"')
+                    else:
+                        say("      (a list item; no governing block above it under this heading)")
                 say(f'      {"" if q["kind"] == "core" else "(reuse) "}"{q["text"]}"')
             if dropped:
                 say(f"    ... and {dropped} more reuse/licence block(s), not printed (cap {TERMS_QUOTES}); every one is "
@@ -465,6 +521,11 @@ def report_phase(a, say: Out, fetch: Fetcher) -> tuple[int, dict]:
         return FAILED, rec
     rec["report"]["reader"] = READER
     rec["report"]["fields"] = fields_report(pages, say)
+    if not rec["report"]["fields"]["lines"]:
+        say("  the reader extracted NO TEXT from the document (an image-only or scanned report?): its fields are NOT "
+            "READ; nothing here certifies the form")
+        say("\n" + MAPPING)
+        return REFUSED, rec
     say("\n" + MAPPING)
     return OK, rec
 

@@ -85,7 +85,7 @@ def test_the_default_run_is_the_terms_phase_alone_and_fetches_no_index_and_no_re
 
 def test_the_access_clauses_are_quoted_verbatim_with_their_headings_and_the_pages_own_date(capsys):
     code, out, tail, _ = run(capsys, ["--terms-url", TERMS], terms_pages())
-    assert 'THE PAGE\'S OWN DATE LINE(S), verbatim: "Last Updated: June 1, 2026"' in out
+    assert 'THE PAGE\'S OWN DATE LINE(S), verbatim (the strict forms first): "Last Updated: June 1, 2026"' in out
     assert "    [4. Restrictions]" in out and "    [7. Content]" in out
     # each clause is its WHOLE block, verbatim (the pre-PR review: never cut into sentences)
     assert ('"You may not use any robot, spider, scraper or other automated means to access the Services. Nothing else '
@@ -340,3 +340,61 @@ def test_review_unseen_status_words_surface_on_any_line_and_names_with_diacritic
     assert "| Dončić, Luka Suspended League" in out and "| Synthetic Alphas NOT YET SUBMITTED" in out
     f = tail["report"]["fields"]
     assert f["lines_no_status_word"] == 2 and f["name_rows_no_status_word"] == 1
+
+
+# ---- the second adversarial pass (on 91a1f65a; each reproduced there, fail-first) -----------------------------------
+
+def test_r2_a_lead_in_never_crosses_a_heading_and_a_nested_item_carries_its_parent():
+    """P1: a list right after a new heading took the PREVIOUS section's paragraph as its lead-in, and a nested item
+    skipped its parent item's governing words ("not, without permission:")."""
+    q, _, _ = probe.terms_quotes('<h2>Prohibited</h2><p>You may not do any of the following:</p><ul><li>sell '
+                                 'content</li></ul><h2>Search engines</h2><ul><li>Crawlers of licensed search engines '
+                                 'are permitted.</li></ul>')
+    crawl = [x for x in q if x["text"].startswith("Crawlers")][0]
+    assert crawl["heading"] == "Search engines" and crawl["lead_in"] is None and crawl["lead_chain"] == []
+    q, _, _ = probe.terms_quotes('<p>You agree that you will:</p><ul><li>comply with law;</li><li>not, without '
+                                 'permission:<ul><li>use any robot or scraper</li></ul></li></ul>')
+    robot = [x for x in q if x["text"] == "use any robot or scraper"][0]
+    assert robot["lead_in"] == "not, without permission:"
+    assert robot["lead_chain"] == ["You agree that you will:", "not, without permission:"]
+
+
+@pytest.mark.parametrize("item", ["<li><p>use any robot or spider</p></li>", "<li><div>use any robot or spider</div></li>",
+                                  "<li>(a) sell;<br>use any robot or spider</li>"])
+def test_r2_a_list_items_inner_block_stays_a_list_item_with_its_lead_in(item):
+    q, _, _ = probe.terms_quotes(f"<p>You agree not to:</p><ul>{item}</ul>")
+    hit = [x for x in q if x["text"] == "use any robot or spider"][0]
+    assert hit["lead_in"] == "You agree not to:"
+
+
+def test_r2_block_rendered_tags_break_blocks_and_a_br_in_a_heading_is_a_space():
+    q, _, _ = probe.terms_quotes("<details><summary>Automated access</summary>No robots may access the site.</details>")
+    assert [x["text"] for x in q] == ["Automated access", "No robots may access the site."]   # two blocks, unglued
+    q, _, _ = probe.terms_quotes("<h2>Section 9<br/>Automated Access</h2><p>No scraping.</p>")
+    assert q[0]["heading"] == "Section 9 Automated Access"
+
+
+def test_r2_a_date_line_written_as_a_heading_is_found_and_strict_forms_come_first(capsys):
+    _, updated, _ = probe.terms_quotes("<h1>Terms of Use</h1><h4>Last Updated: October 1, 2026</h4><p>No robots.</p>")
+    assert updated == ["Last Updated: October 1, 2026"]
+    page = "".join(f"<p>Changes become binding on the effective date stated in notice {i}.</p>" for i in range(6))
+    page += "<p>No robots.</p><p>Last updated: Nov 1, 2026</p>"
+    _, updated, _ = probe.terms_quotes(page)
+    assert updated[0] == "Last updated: Nov 1, 2026" and len(updated) == 7          # all kept, strict first
+    pages = {TERMS: (200, page.encode(), {}), "https://terms.example.invalid/robots.txt": (200, ROBOTS.encode(), {})}
+    _, out, _, _ = run(capsys, ["--terms-url", TERMS], pages)
+    assert '"Last updated: Nov 1, 2026"' in out and "and 2 more date line(s), not printed" in out
+
+
+def test_r2_a_report_whose_text_does_not_extract_says_so_and_certifies_nothing(capsys, monkeypatch):
+    monkeypatch.setattr(probe, "read_pdf_pages", lambda data: [""])
+    code, out, tail, _ = run(capsys, ["--report", "--index-url", INDEX, "--terms-ruling", "addendum 999 item 1"],
+                             report_pages())
+    assert code == probe.REFUSED
+    assert "the reader extracted NO TEXT" in out and tail["report"]["fields"]["lines"] == 0
+
+
+def test_r2_text_in_a_heading_never_closed_is_kept_not_lost():
+    q, _, _ = probe.terms_quotes("<h2>Terms<h2>No robots may access the site. <p>Robots again.")
+    # the unclosed heading's text is kept (its inner <p> reads as a space, as inside any heading), never dropped
+    assert [x["text"] for x in q] == ["No robots may access the site. Robots again."]

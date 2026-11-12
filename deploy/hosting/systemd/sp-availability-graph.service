@@ -22,6 +22,10 @@
 # Shipped DISABLED: its enablement is the architect's block (347 item 6(D)).
 [Unit]
 Description=sports-predictor availability record graph projection (availability-graph-rebuild)
+# Ordered after the backup whose copy it reads: when both timers catch up at once (Persistent=true after downtime),
+# the rebuild waits for the backup's job to finish instead of reading yesterday's copy. Ordering only: it never pulls
+# a backup in (no Wants=).
+After=sp-backup.service
 OnFailure=sp-notify@availability-graph.service
 
 [Service]

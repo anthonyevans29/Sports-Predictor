@@ -982,10 +982,13 @@ graph's sha256 and size, the copy and its sha256), refused or error; a refused `
 SIGKILL (MemoryMax) writes no line and leaves its staging, which the next run removes and names on its own line. A copy
 that does not read as SQLite through the mode=ro + immutable=1 URI is refused as such, before the migration check. A
 node's ids are the latest assertion's that carries one (by recorded_at), whatever order the walk yields its partitions
-in. Exit 0 built, 2 refused, 1 failed; the previous graph is untouched unless a run succeeds.
+in, and a player's name is the latest assertion's. The move onto `--out` is the commit point: the receipt's hash and
+size are computed before it, so a signal after it leaves an ok line, never an error. `--db` is never `--out` (a copy
+named `.lbug` would be overwritten). Exit 0 built, 2 refused, 1 failed; the previous graph is untouched unless a run
+succeeds.
 
 **The unit (347 item 5(b)).** `sp-availability-graph.service` and `.timer`, daily 10:20 UTC (after the 09:30 sp-backup
-whose copy it reads), its own unit and not availability-daily's last step: a chain step runs inside sp-chain@'s unit,
+whose copy it reads; `After=sp-backup.service`, so a catch-up of both timers after downtime runs the backup first), its own unit and not availability-daily's last step: a chain step runs inside sp-chain@'s unit,
 which loads host.env and has the network. No EnvironmentFile, `PrivateNetwork=yes`, `NoNewPrivileges=yes`, `ProtectSystem=strict`, the graph's directory the one writable path; because the sp user can still read what it owns, /etc/sports-predictor (host.env and an exports-mirror deploy key installed there) and data/ are inaccessible and the checkout's .env (config.py loads it on import) is /dev/null; `PrivateUsers=yes`, `ProtectProc=invisible` and `ProcSubset=pid` so another sp process's /proc/<pid>/environ and /proc/<pid>/root (its own unmasked view) are refused; `RestrictAddressFamilies=none` (PrivateNetwork leaves filesystem sockets reachable); `PrivateDevices=yes` and `PrivateIPC=yes` (no shared /dev/shm); /tmp and /var/tmp empty and read-only. `MemoryMax=1536M`, `Nice=10`.
 OnFailure pages through `sp-notify@availability-graph`. Shipped disabled; its enablement is the architect's block (347
 item 6(D)); on a fresh host T11 leaves it out until that block has installed the engine and made its directory.

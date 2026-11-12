@@ -399,6 +399,7 @@ def test_347_b_the_unit_is_its_own_sandbox():
                  "/var/backups/sports-predictor", "--out",
                  "/opt/sports-predictor/logs/availability/graph/availability.lbug"]
     assert "Wants=" not in body and "network-online" not in body
+    assert re.findall(r"^After=(.+)$", body, re.M) == ["sp-backup.service"]  # Codex #943 r1: catch-up after the backup
 
 
 def test_the_timer_follows_the_backup_and_ships_disabled():
@@ -553,3 +554,74 @@ def test_review_a_nodes_ids_are_the_latest_mapping_whatever_the_walk_order(fresh
             assert v == (want[(kind, k)][2] if (kind, k) in want else None), (kind, k)
             seen += v is not None
     assert seen                                                   # mapped nodes exist and carry the latest id
+
+
+def test_codex_r1_the_copy_is_never_the_out_path(fresh_db, tmp_path):
+    """Codex on #943, round 1: a .backup copy named *.lbug passed as both --db and --out passed both fences, and the
+    final replace overwrote the only copy. Refused before anything is read; the copy byte-identical."""
+    _history_b()
+    out = tmp_path / "graph"
+    out.mkdir()
+    both = _copy(fresh_db, out, name="availability.lbug", sidecar=False)
+    before = both.read_bytes()
+    with pytest.raises(g.Refused, match="is --out: the rebuild never writes onto the copy"):
+        g.rebuild(both, copy=both, lb=object())
+    assert both.read_bytes() == before
+
+
+def _fake_build(monkeypatch):
+    """_load writes a stand-in graph file and _counts returns what was staged: the run reaches its commit point
+    without the engine."""
+    def load(lb, path, tables):
+        path.write_bytes(b"graph")
+        for t in tables.values():
+            for f in t.files:
+                f.unlink()
+    monkeypatch.setattr(g, "_load", load)
+    monkeypatch.setattr(g, "_counts", lambda lb, path: {n: monkeypatch._staged[n] for n in monkeypatch._staged})
+    real = g._stage
+
+    def stage(*a, **k):
+        t = real(*a, **k)
+        monkeypatch._staged = {n: t[n].n for n in t}
+        return t
+    monkeypatch.setattr(g, "_stage", stage)
+
+
+def test_codex_r1_after_the_commit_point_the_run_is_a_success(fresh_db, tmp_path, monkeypatch):
+    """Codex on #943, round 1: a SIGTERM (or a failing hash) after os.replace reported a failed run with "the previous
+    graph untouched" while the graph had been replaced. The receipt's metadata is computed before the replace, which
+    is the commit point: a signal after it leaves an ok line (its note kept), never an error."""
+    _history_b()
+    out = tmp_path / "graph"
+    out.mkdir()
+    copy = _copy(fresh_db, tmp_path / "backups")
+    _fake_build(monkeypatch)
+    real_replace = os.replace
+
+    def replace_then_term(a, b):
+        real_replace(a, b)
+        raise g.Killed("signal 15 (the unit stopped or timed out)")
+    monkeypatch.setattr(g.os, "replace", replace_then_term)
+    r = g.rebuild(out / g.GRAPH_NAME, copy=copy, lb=object())
+    assert r["ok"] is True and r["sha256"] == g.sha256_file(out / g.GRAPH_NAME) and "Killed" in r["after_commit"]
+    line = json.loads((out / g.RECEIPTS).read_text().splitlines()[-1])
+    assert line["ok"] is True and "error" not in line
+
+
+@needs_engine
+def test_codex_r1_a_players_name_is_the_latest_assertions(fresh_db, tmp_path):
+    """Codex on #943, round 1: the Player node kept the name of whichever partition the walk met first; a corrected
+    name asserted later (here in a partition walked after the old one) never reached the graph."""
+    _migrate()
+    for at, kind, name in ((datetime(2026, 11, 10, 9), "injury_status", "Jon Smiht"),
+                           (datetime(2026, 11, 11, 9), "plays_for", "Jon Smith")):
+        rec.write_observation({"sport": "nfl", "source": "sportsdataio_goalies", "status": "complete",
+                               "endpoint": "https://example.invalid/goalies", "fetched_at": at},
+                              [{"kind": kind, "source_player_id": "p1", "player_name": name, "source_team": "KC",
+                                "attrs": {"status": "active"}}])
+    copy = _copy(fresh_db, tmp_path / "backups")
+    out = tmp_path / "graph"
+    out.mkdir()
+    g.rebuild(out / g.GRAPH_NAME, copy=copy)
+    assert _graph_rows(out / g.GRAPH_NAME, "MATCH (p:Player) RETURN p.name") == [["Jon Smith"]]

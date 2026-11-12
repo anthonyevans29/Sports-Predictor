@@ -292,7 +292,8 @@ def _stage(s, stage: Path, copy: Path, copy_sha: str, built_at: datetime) -> dic
             tk = _key(r.source, rec.team_key(r))
             mk = rec.match_key(r)
             gk = (f"match|{mk[1]}" if mk[0] == "id" else _key(r.source, mk)) if mk is not None else None
-            players.setdefault(pk, [pk, r.source, r.source_player_id, r.player_name])
+            players.setdefault(pk, [pk, r.source, r.source_player_id])
+            latest("name", pk, r.recorded_at, r.id, r.player_name)      # a corrected name: the latest one
             teams.setdefault(tk, [tk, r.source, r.source_team])
             latest("player", pk, r.recorded_at, r.id, r.player_id)
             latest("team", tk, r.recorded_at, r.id, r.team_id)
@@ -324,6 +325,9 @@ def _stage(s, stage: Path, copy: Path, copy_sha: str, built_at: datetime) -> dic
             games.setdefault(gk, [gk, None, None])
             latest("game", gk, datetime.min, 0, mid)
             about.add((oid, gk))
+    for k, row in players.items():                       # the player's name: the latest assertion's that gives one
+        v = ids.get(("name", k))
+        row.append(v[2] if v else None)
     for kind, table in (("player", players), ("team", teams), ("game", games)):
         for k, row in table.items():
             v = ids.get((kind, k))
@@ -439,6 +443,7 @@ def rebuild(out: Path, copy: Path | None = None, backup_dir: Path | None = None,
                "out": str(out), "engine": f"{ENGINE} {ENGINE_VERSION}"}
     stage = out.parent / f".{out.name}.build-{os.getpid()}"
     lock = None
+    done = None                                       # the finished graph's receipt, computed before the commit point
 
     def _term(signum, frame):
         raise Killed(f"signal {signum} (the unit stopped or timed out)")
@@ -464,6 +469,8 @@ def rebuild(out: Path, copy: Path | None = None, backup_dir: Path | None = None,
         except mp.GateRefused as e:
             raise Refused(str(e)) from None
         receipt["copy"] = str(copy)
+        if copy == out or (out.exists() and os.path.samefile(copy, out)):
+            raise Refused(f"--db {copy} is --out: the rebuild never writes onto the copy it reads; nothing read")
         lb = lb or engine()
         receipt["copy_sha256"] = copy_sha = sha256_file(copy)
         receipt["copy_mtime"] = _ts(datetime.fromtimestamp(copy.stat().st_mtime, timezone.utc)) + "Z"
@@ -491,12 +498,17 @@ def rebuild(out: Path, copy: Path | None = None, backup_dir: Path | None = None,
         left = sorted(p.name for p in stage.iterdir() if p.name != GRAPH_NAME)
         if left:
             raise RuntimeError(f"the staging directory holds {left} beside the graph after its close")
-        os.replace(graph, out)
-        receipt.update(ok=True, counts=got, sha256=sha256_file(out), bytes=out.stat().st_size)
+        done = dict(ok=True, counts=got, sha256=sha256_file(graph), bytes=graph.stat().st_size)
+        os.replace(graph, out)                       # the commit point: nothing after it can fail the run
+        receipt.update(done)
     except Refused as e:
         receipt["refused"] = str(e)[:500]
         raise
     except BaseException as e:  # noqa: BLE001 - the receipt first, then the failure (252 item 4: a receipt line)
+        if done is not None and not (stage / GRAPH_NAME).exists() and out.exists():
+            receipt.update(done)                     # past the commit point (a SIGTERM there): the run succeeded
+            receipt["after_commit"] = f"{type(e).__name__}: {e}"[:500]
+            return receipt
         receipt["error"] = f"{type(e).__name__}: {e}"[:500]
         raise
     finally:

@@ -47,6 +47,9 @@ status vocabulary, the true-zero nulls, the stored phase on a .backup copy)"), w
     carries its id) against the NBA's served /teams ids for the seasons the NBA stores (NBA_STORED_SEASONS; the
     provider ids the NBA's rows store). STORED: the team rows linked to both competitions (competition_teams and the matches' sides)
     on the copy. Either non-zero: "STOP", exit 3.
+  - NOTHING STORED (#965; ARCHITECT 2026-11-12, addendum 359 item 3): for NCAAMB, a stored season with 0 rows or 0
+    linked teams is FAILED, exit 1, its own line "nothing stored to certify"; the NBA's stored phase is left as
+    certified (an empty NBA season still reads 0).
 
 Exit: 0 every read answered; 1 a call failed; 2 a read REFUSED (no key, a season not served or not ruled, a league
 whose served name does not match, a --db that is not a fresh copy outside data/); 3 STOP (NCAAMB: a team id shared with
@@ -448,6 +451,7 @@ def stored_phase(db: str, seasons: list[str], say, comp: str = COMPETITION) -> t
     if others:
         say(f"  other stored seasons (not certified here): {', '.join(f'{s} ({len(by_season[s])})' for s in others)}")
     out = {"seasons": {}}
+    worst = OK
     for ours in seasons:
         rs = by_season.get(ours, [])
         st = Counter(r[2] for r in rs)
@@ -481,10 +485,17 @@ def stored_phase(db: str, seasons: list[str], say, comp: str = COMPETITION) -> t
         out["seasons"][ours] = {"rows": len(rs), "teams": teams.get(ours, 0), "by_status": dict(st),
                                 "finished_null": len(fin_null), "ft_twin_excluded": sorted(excl),
                                 "games": len(rs) - len(excl), "coverage_basis": basis}
+        # #965 (ARCHITECT 2026-11-12, addendum 359 item 3): for NCAAMB, a season with no stored row or no linked team
+        # certifies nothing: its own line and exit, never a pass; the NBA's stored phase is left as certified
+        if comp == "NCAAMB" and (not rs or not teams.get(ours, 0)):
+            say(f"  FAILED: nothing stored to certify ({comp} {ours}: {len(rs)} rows · teams linked "
+                f"{teams.get(ours, 0)}; a certification that passes on nothing is not one, addendum 359 item 1)")
+            out["seasons"][ours]["nothing_stored"] = True
+            worst = max(worst, FAILED)
     if collision is not None:
         out["nba_collision"] = collision[1]
-        return collision[0], out
-    return OK, out
+        worst = max(worst, collision[0])
+    return worst, out
 
 
 def _load_env() -> None:

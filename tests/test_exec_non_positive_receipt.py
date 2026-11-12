@@ -232,3 +232,73 @@ def test_907_an_unreadable_newest_copy_is_never_stood_in_for_by_an_older_one(tmp
     assert f"UNREADABLE host/2026-10-13/{name}: predictions is NoneType, not a list" in out
     assert f"SUPERSEDED host/2026-10-12/{name}" in out and "match 8" not in out
     assert "files read: 0 · superseded copies: 1" in out
+
+
+def _stamped(f, at):
+    doc = json.loads(f.read_text())
+    if at is None:
+        doc.pop("exported_at", None)
+    else:
+        doc["exported_at"] = at
+    f.write_text(json.dumps(doc))
+
+
+@pytest.mark.parametrize("bad_text,why", [('{"predictions": [', "JSONDecodeError"),
+                                          ("[1]", "top level is list, not an object")])
+def test_907_review_a_newest_copy_that_will_not_parse_never_lets_an_older_copy_stand_in(tmp_path, capsys, bad_text,
+                                                                                         why):
+    """Pre-push review, case A/G: invalid JSON (or a top level that is not an object) in the NEWER copy was dropped
+    before the per-start choice, so the older copy won the start and its stale row was counted."""
+    name = "closing_NFL_2026-10-13T0015Z.json"
+    old, new = tmp_path / "host" / "2026-10-12" / name, tmp_path / "host" / "2026-10-13" / name
+    write(old, "NFL", [row(8, edge=-0.5)])
+    _stamped(old, "2026-10-12T23:40:00Z")
+    new.parent.mkdir(parents=True)
+    new.write_text(bad_text)
+    assert rc.main(["--dir", str(tmp_path)]) == 0
+    out = capsys.readouterr().out
+    assert f"UNREADABLE host/2026-10-13/{name}: {why}" in out and f"SUPERSEDED host/2026-10-12/{name}" in out
+    assert "match 8" not in out and "files read: 0 · superseded copies: 1" in out
+
+
+def test_907_review_a_copy_without_exported_at_is_never_ranked_oldest_for_it(tmp_path, capsys):
+    """Case B: the newer folder's copy carries no exported_at; "" sorted lowest, so the older copy won and re-added
+    its stale game. With a stamp missing on any copy the folder decides."""
+    name = "closing_NFL_2026-10-13T0015Z.json"
+    old, new = tmp_path / "host" / "2026-10-12" / name, tmp_path / "host" / "2026-10-13" / name
+    write(old, "NFL", [row(7, edge=2.0), row(8, edge=-0.9)])
+    _stamped(old, "2026-10-12T23:40:00Z")
+    write(new, "NFL", [row(7, edge=2.0)])
+    _stamped(new, None)
+    assert rc.main(["--dir", str(tmp_path)]) == 0
+    out = capsys.readouterr().out
+    assert "match 8" not in out and f"SUPERSEDED host/2026-10-12/{name}" in out
+
+
+@pytest.mark.parametrize("old_family,new_family", [("nfl", "NFL"), (["NFL"], "NFL"), (5, 5)])
+def test_907_review_the_start_is_its_file_name_never_closing_family(tmp_path, capsys, old_family, new_family):
+    """Cases C, D, H: grouping by closing.family let mismatched copies escape supersession (a stale row counted), and a
+    list or a number there crashed the run. The start (family, stamp) is read from the file name."""
+    name = "closing_NFL_2026-10-13T0015Z.json"
+    old, new = tmp_path / "host" / "2026-10-12" / name, tmp_path / "host" / "2026-10-13" / name
+    for f, fam, rows, at in ((old, old_family, [row(8, edge=-0.9)], "2026-10-12T23:40:00Z"),
+                             (new, new_family, [row(9, edge=3.0)], "2026-10-13T00:05:00Z")):   # a row, so the family is sorted
+        f.parent.mkdir(parents=True)
+        f.write_text(json.dumps({"exported_at": at, "predictions": rows, "closing": {"family": fam, "match_ids": []}}))
+    write(tmp_path / "closing_MLB_2026-10-14T2300Z.json", "MLB", [row(5, edge=-1.0)])
+    assert rc.main(["--dir", str(tmp_path)]) == 0
+    out = capsys.readouterr().out
+    assert "match 8" not in out and "files read: 2 · superseded copies: 1" in out
+    assert "exec edge <= 0: 1 row(s) · by family {'MLB': 1}" in out
+
+
+@pytest.mark.parametrize("mid", [True, 1.0, None])
+def test_907_review_a_bool_float_or_none_match_id_is_malformed_never_merged(tmp_path, capsys, mid):
+    """Case E (pre-existing): True and 1.0 hash equal to 1 and two None rows merged, so rows were silently lost. Any
+    match_id that is not an int or a string is a malformed row, as _match_ids already reads ids."""
+    write(tmp_path / "closing_NFL_2026-10-12T1700Z.json", "NFL", [row(1, edge=-0.5), row(mid, edge=-0.5)], ids=[1])
+    assert rc.main(["--dir", str(tmp_path)]) == 0
+    out = capsys.readouterr().out
+    assert (f"UNREADABLE closing_NFL_2026-10-12T1700Z.json: prediction row 1: match_id is {type(mid).__name__}, not "
+            "an id (row skipped)") in out
+    assert "exec edge <= 0: 1 row(s)" in out.split("WOULD-BE")[0]

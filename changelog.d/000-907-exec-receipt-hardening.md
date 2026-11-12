@@ -1,7 +1,11 @@
 ## 2026-11-12 (#000: 907-exec-receipt-hardening — scripts/exec_non_positive_receipt.py: three hardening items from Codex's third review of #903 (#907; the review stop rule's follow-up Issue).)
 - **Built (read-only, no call changes):**
-  - (1) A prediction row whose `match_id` is a list or an object is a malformed row, listed on an UNREADABLE line and skipped. The run goes on; before, the unhashable key stopped the receipt.
-  - (2) A `predictions` that is not a list (an object, a scalar, null, or no key at all) makes its file UNREADABLE, never an empty file read.
-  - (3) Of the files holding one (family, start stamp), only the newest (exported_at, then folder) is read, whole. Older copies are listed SUPERSEDED and none of their rows is read, so a game the newer copy dropped is not re-added from the stale copy. An unreadable newest copy makes the start UNREADABLE; an older copy never stands in for it (law 4).
-- **Console:** `files read` counts neither unreadable nor superseded files, and a `superseded copies: N` count joins that line.
+  - (1) A prediction row whose `match_id` is not an id is a malformed row, listed on an UNREADABLE line and skipped; the run goes on. That covers a list or an object (before, the unhashable key stopped the receipt) and a bool, a float or None (before, `True` and `1.0` merged with `1`, and None rows merged).
+  - (2) Invalid JSON, a top level that is not an object, or a `predictions` that is not a list (an object, a scalar, null, or no key at all) makes the file UNREADABLE, never an empty file read.
+  - (3) A START is (family, start stamp) from the file name, never `closing.family`. Of the files holding one start, only the newest is read, whole.
+    - **Newest:** by `exported_at` when every copy carries one, else by the folder, so a copy that cannot be read or carries no stamp never ranks oldest for it.
+    - **Older copies** are listed SUPERSEDED and none of their rows is read, so a game the newer copy dropped is not re-added from the stale copy.
+    - **An unreadable newest copy** makes the start UNREADABLE; an older copy never stands in for it (law 4).
+- **Code's pre-push review** found four cases where the first cut still let an older copy stand in or rows merge, all fixed here with their tests: the newest copy being invalid JSON, a copy with no `exported_at`, a `closing.family` that differs between copies or is not a string, and a bool, float or None `match_id`.
+- **Console:** `files read` counts the starts read (one file each); a `superseded copies: N` count joins that line.
 - **Unchanged:** every count's meaning, the blocks, the SUMMARY line, the exit codes; nothing is written.

@@ -83,16 +83,16 @@ def test_the_default_run_is_the_terms_phase_alone_and_fetches_no_index_and_no_re
     assert tail["phase"] == "terms" and tail["fetched"] == [TERMS, "https://terms.example.invalid/robots.txt"]
 
 
-def test_the_access_clauses_are_quoted_verbatim_with_their_headings_and_the_pages_own_date(capsys):
+def test_the_access_lines_print_verbatim_in_their_windows_with_the_pages_own_date(capsys):
     code, out, tail, _ = run(capsys, ["--terms-url", TERMS], terms_pages())
     assert 'THE PAGE\'S OWN DATE LINE(S), verbatim (the strict forms first): "Last Updated: June 1, 2026"' in out
-    assert "    [4. Restrictions]" in out and "    [7. Content]" in out
-    # each clause is its WHOLE block, verbatim (the pre-PR review: never cut into sentences)
-    assert ('"You may not use any robot, spider, scraper or other automated means to access the Services. Nothing else '
-            'here."' in out)
-    assert '"You may not reproduce or redistribute Content for commercial purposes without permission."' in out
-    assert "Plain sentence without the words" not in out and "ignore me" not in out     # script text never quoted
-    assert [q["heading"] for q in tail["terms"]["quoted"]] == ["4. Restrictions", "7. Content"]
+    assert "    # 4. Restrictions" in out and "    # 7. Content" in out
+    assert ("    > You may not use any robot, spider, scraper or other automated means to access the Services. Nothing "
+            "else here.") in out
+    assert "    > You may not reproduce or redistribute Content for commercial purposes without permission." in out
+    assert "ignore me" not in out                                   # script text is never page text
+    assert tail["terms"]["page_lines"][0] == "# Terms of Use"     # the receipt holds every line of the page
+    assert [w["kind"] for w in tail["terms"]["windows"]] == ["core", "broad"]
 
 
 def test_robots_txt_prints_as_served_and_is_derived_from_the_terms_host_unless_named(capsys):
@@ -225,6 +225,25 @@ def test_a_receipt_under_data_is_refused(tmp_path, capsys):
 
 # ---- the pre-PR adversarial review's findings (each reproduced on 0863278f, fail-first) -----------------------------
 
+def win(page):
+    """The windows' text as the console prints them, joined (one window per block, '---' between)."""
+    windows, updated, dropped, lines = probe.terms_windows(page)
+    return "\n---\n".join("\n".join(("#" if ln["heading"] else (">" if ln["match"] else " ")) + " " + ln["text"]
+                                     for ln in w["lines"]) for w in windows)
+
+
+def ordered(hay, *needles):
+    pos = 0
+    for n in needles:
+        i = hay.find(n, pos)
+        assert i >= 0, (n, hay)
+        pos = i + len(n)
+
+
+# ---- every case the four pre-PR adversarial passes raised, on the window design (each reproduced, fail-first on the
+# earlier designs): the console prints the page's own lines around every access word, verbatim, in page order, and
+# asserts no structure; the receipt holds every line of the page
+
 INLINE_PAGE = """<html><body><!-- <p>Old text: no robots at all, and Last Updated: 1999.</p> -->
 <p><strong>Last Updated:</strong> October 1, 2025</p>
 <h2>Prohibited <span>Uses</span></h2>
@@ -236,44 +255,114 @@ access the Services; nor may you do so through U.S. intermediaries.</p>
 </body></html>"""
 
 
-def test_review_inline_markup_keeps_the_clause_whole_with_its_negation_and_the_date_with_its_label():
-    """P1 (three lenses): every tag was a block break, so "You may <strong>not</strong> use any <a>robot</a>" was cut
-    into fragments and the negation never printed; "<strong>Last Updated:</strong> October 1, 2025" lost its date.
-    A clause is now its whole block (paragraph or list item), inline tags kept in place; comments never read."""
-    quoted, updated, dropped = probe.terms_quotes(INLINE_PAGE)
-    texts = [q["text"] for q in quoted]
-    assert ("You may not use any robot, spider or other automated means (e.g. scripts) to access the Services; nor "
-            "may you do so through U.S. intermediaries.") in texts
-    assert updated == ["Last Updated: October 1, 2025"]                      # the comment's 1999 line is not read
-    assert not [t for t in texts if "1999" in t or "Old text" in t]
-    assert [q["heading"] for q in quoted if q["text"].startswith("You may not")] == ["Prohibited Uses"]
+def test_pass1_inline_markup_keeps_a_line_whole_with_its_negation_and_the_date_with_its_label():
+    w = win(INLINE_PAGE)
+    assert ("> You may not use any robot, spider or other automated means (e.g. scripts) to access the Services; nor "
+            "may you do so through U.S. intermediaries.") in w
+    _, updated, _, lines = probe.terms_windows(INLINE_PAGE)
+    assert updated == ["Last Updated: October 1, 2025"]
+    assert not [ln for ln in lines if "1999" in ln["text"] or "Old text" in ln["text"]]   # comments never read
+    assert "# Prohibited Uses" in w
 
 
-def test_review_a_list_item_prints_with_its_lead_in():
-    quoted, _, _ = probe.terms_quotes(INLINE_PAGE)
-    li = [q for q in quoted if q["text"].startswith("scrape, harvest")]
-    assert li and li[0]["lead_in"] == "You agree that you will not:"
+def test_pass1_a_list_item_prints_after_its_lead_in_and_both_is_not_bot():
+    ordered(win(INLINE_PAGE), "  You agree that you will not:", "> scrape, harvest or extract data from the Services;")
+    assert "> Both parties agree" not in win(INLINE_PAGE)
 
 
-def test_review_bot_is_a_whole_word_and_the_core_access_words_are_never_capped(monkeypatch):
-    """P2: 'bot' matched 'Both'/'bottom', and the 60-quote cap filled in page order with broad words ('license',
-    'permission') before the robots clause. Core words are quoted in full; only the broad ones are capped."""
-    quoted, _, _ = probe.terms_quotes(INLINE_PAGE)
-    assert not [q for q in quoted if q["text"].startswith("Both parties")]
-    filler = "".join(f"<p>Clause {i}: the license and permission terms apply.</p>" for i in range(80))
+def test_pass1_the_automated_access_windows_are_never_capped_and_come_first(monkeypatch):
+    filler = "".join(f"<p>Section {i}:</p><p>The license applies {i}.</p><p>a.</p><p>b.</p><p>c.</p><p>d.</p>"
+                     for i in range(30))                                     # each its own window: a ':' line opens it
     page = filler + "<h2>Access</h2><p>No robots may access the Services.</p>"
     monkeypatch.setattr(probe, "TERMS_QUOTES", 10)
-    quoted, _, dropped = probe.terms_quotes(page)
-    assert "No robots may access the Services." in [q["text"] for q in quoted]          # core: never capped
-    assert len([q for q in quoted if q["kind"] == "broad"]) == 10 and dropped == 70
-    assert quoted[0]["kind"] == "core"                                                 # core printed first
+    windows, _, dropped, _ = probe.terms_windows(page)
+    assert windows[0]["kind"] == "core" and "No robots may access the Services." in [
+        ln["text"] for ln in windows[0]["lines"]]
+    assert len([w for w in windows if w["kind"] == "broad"]) == 10 and dropped == 20
+    assert len(probe.terms_windows(page, cap=0)[0]) == 31                       # the receipt's list: every window
 
 
 @pytest.mark.parametrize("line", ["Updated: March 3, 2026", "Revised: 2026-03-03", "Effective: March 3, 2026",
                                   "Last modified 03/03/2026", "Effective as of March 3, 2026"])
-def test_review_the_date_line_forms(line):
-    _, updated, _ = probe.terms_quotes(f"<p>{line}</p><p>No robots.</p>")
-    assert updated == [line]
+def test_pass1_the_date_line_forms(line):
+    assert probe.terms_windows(f"<p>{line}</p><p>No robots.</p>")[1] == [line]
+
+
+def test_pass2_a_window_shows_a_heading_crossed_and_a_nested_items_parent_words():
+    w = win('<h2>Prohibited</h2><p>You may not do any of the following:</p><ul><li>sell content</li></ul>'
+            '<h2>Search engines</h2><ul><li>Crawlers of licensed search engines are permitted.</li></ul>')
+    ordered(w, "You may not do any of the following:", "# Search engines",
+            "> Crawlers of licensed search engines are permitted.")             # the section boundary is visible
+    ordered(win('<p>You agree that you will:</p><ul><li>comply with law;</li><li>not, without permission:<ul><li>use '
+                'any robot or scraper</li></ul></li></ul>'), "  not, without permission:", "> use any robot or scraper")
+
+
+@pytest.mark.parametrize("item", ["<li><p>use any robot or spider</p></li>", "<li><div>use any robot or spider</div></li>",
+                                  "<li>(a) sell;<br>use any robot or spider</li>"])
+def test_pass2_an_items_inner_block_prints_after_the_lead_in(item):
+    ordered(win(f"<p>You agree not to:</p><ul>{item}</ul>"), "  You agree not to:", "> use any robot or spider")
+
+
+def test_pass2_block_rendered_tags_break_lines_and_a_br_in_a_heading_is_a_space():
+    w = win("<details><summary>Automated access</summary>No robots may access the site.</details>")
+    ordered(w, "> Automated access", "> No robots may access the site.")
+    assert "# Section 9 Automated Access" in win("<h2>Section 9<br/>Automated Access</h2><p>No scraping.</p>")
+
+
+def test_pass2_a_date_line_as_a_heading_is_found_and_strict_forms_come_first(capsys):
+    assert probe.terms_windows("<h1>Terms of Use</h1><h4>Last Updated: October 1, 2026</h4><p>No robots.</p>")[1] == [
+        "Last Updated: October 1, 2026"]
+    page = "".join(f"<p>Changes become binding on the effective date stated in notice {i}.</p>" for i in range(6))
+    page += "<p>No robots.</p><p>Last updated: Nov 1, 2026</p>"
+    updated = probe.terms_windows(page)[1]
+    assert updated[0] == "Last updated: Nov 1, 2026" and len(updated) == 7
+    pages = {TERMS: (200, page.encode(), {}), "https://terms.example.invalid/robots.txt": (200, ROBOTS.encode(), {})}
+    _, out, _, _ = run(capsys, ["--terms-url", TERMS], pages)
+    assert '"Last updated: Nov 1, 2026"' in out and "and 2 more date line(s), not printed" in out
+
+
+def test_pass2_text_in_a_heading_never_closed_is_kept():
+    assert "No robots may access the site." in win("<h2>Terms<h2>No robots may access the site. <p>Robots again.")
+
+
+def test_pass3_items_without_close_tags_print_in_page_order_with_the_paragraph_after():
+    ordered(win("<h2>Use</h2><p>You may:</p><ul><li>browse the site<li>use a robot to read the injury report PDF</ul>"
+                "<p>You may not scrape the Site.</p>"),
+            "  You may:", "  browse the site", "> use a robot to read the injury report PDF",
+            "> You may not scrape the Site.")
+
+
+def test_pass3_a_br_keeps_the_negation_above_its_lines():
+    ordered(win("<h2>Restrictions</h2><p>You may not:<br>- use any robot, spider or scraper<br>- reproduce the content</p>"),
+            "  You may not:", "> - use any robot, spider or scraper", "- reproduce the content")
+    ordered(win("<p>Permitted uses:</p><ul><li><p>Prohibited. You will not:</p><p>use any robot or scraper</p></li></ul>"),
+            "  Prohibited. You will not:", "> use any robot or scraper")
+
+
+def test_pass4_a_proviso_after_a_nested_list_prints_in_the_window():
+    ordered(win("<h2>Access</h2><ul><li>You may access the Services with automated tools: <ul><li>RSS readers</li>"
+                "<li>robots that honour robots.txt</li></ul> only after NBA issues you a written API key.</li></ul>"),
+            "> You may access the Services with automated tools:", "> robots that honour robots.txt",
+            "only after NBA issues you a written API key.")
+
+
+def test_pass4_a_long_line_prints_whole_with_its_access_word():
+    page = "<ol><li><h2>4. Use</h2><p>" + ("General conduct text. " * 90) + "</p><p>You may not scrape the site.</p></li></ol>"
+    assert "> You may not scrape the site." in win(page)
+    long = "<p>" + ("ALL CAPS TERMS TEXT. " * 90) + "YOU MAY NOT USE ANY ROBOT.</p>"
+    assert win(long).endswith("YOU MAY NOT USE ANY ROBOT.")                    # never cut
+
+
+def test_pass4_a_repeated_item_prints_under_each_of_its_lead_ins():
+    ordered(win("<h2>Access</h2><p>Licensed partners may:</p><ul><li>use automated tools to access feeds</li></ul>"
+                "<p>Other users may not:</p><ul><li>use automated tools to access feeds</li></ul>"),
+            "Licensed partners may:", "> use automated tools to access feeds", "Other users may not:",
+            "> use automated tools to access feeds")
+
+
+def test_pass4_a_heading_inside_an_item_does_not_hide_the_lead_in():
+    ordered(win("<h2>Use</h2><p>You may not:</p><ul><li><h3>Automated</h3>use robots</li></ul>"),
+            "  You may not:", "# Automated", "> use robots")
 
 
 def test_review_redirects_print_their_final_url_and_every_hop(capsys):
@@ -342,94 +431,9 @@ def test_review_unseen_status_words_surface_on_any_line_and_names_with_diacritic
     assert f["lines_no_status_word"] == 2 and f["name_rows_no_status_word"] == 1
 
 
-# ---- the second adversarial pass (on 91a1f65a; each reproduced there, fail-first) -----------------------------------
-
-def test_r2_a_lead_in_never_crosses_a_heading_and_a_nested_item_carries_its_parent():
-    """P1: a list right after a new heading took the PREVIOUS section's paragraph as its lead-in, and a nested item
-    skipped its parent item's governing words ("not, without permission:")."""
-    q, _, _ = probe.terms_quotes('<h2>Prohibited</h2><p>You may not do any of the following:</p><ul><li>sell '
-                                 'content</li></ul><h2>Search engines</h2><ul><li>Crawlers of licensed search engines '
-                                 'are permitted.</li></ul>')
-    crawl = [x for x in q if x["text"].startswith("Crawlers")][0]
-    assert crawl["heading"] == "Search engines" and crawl["lead_in"] is None and crawl["lead_chain"] == []
-    q, _, _ = probe.terms_quotes('<p>You agree that you will:</p><ul><li>comply with law;</li><li>not, without '
-                                 'permission:<ul><li>use any robot or scraper</li></ul></li></ul>')
-    robot = [x for x in q if x["text"] == "use any robot or scraper"][0]
-    assert robot["lead_in"] == "not, without permission:"
-    assert robot["lead_chain"] == ["You agree that you will:", "not, without permission:"]
-
-
-@pytest.mark.parametrize("item", ["<li><p>use any robot or spider</p></li>", "<li><div>use any robot or spider</div></li>",
-                                  "<li>(a) sell;<br>use any robot or spider</li>"])
-def test_r2_a_list_items_inner_block_stays_a_list_item_with_its_lead_in(item):
-    q, _, _ = probe.terms_quotes(f"<p>You agree not to:</p><ul>{item}</ul>")
-    hit = [x for x in q if x["text"].endswith("use any robot or spider")][0]       # the whole item, quoted whole
-    assert hit["lead_in"] == "You agree not to:"
-
-
-def test_r2_block_rendered_tags_break_blocks_and_a_br_in_a_heading_is_a_space():
-    q, _, _ = probe.terms_quotes("<details><summary>Automated access</summary>No robots may access the site.</details>")
-    assert [x["text"] for x in q] == ["Automated access", "No robots may access the site."]   # two blocks, unglued
-    q, _, _ = probe.terms_quotes("<h2>Section 9<br/>Automated Access</h2><p>No scraping.</p>")
-    assert q[0]["heading"] == "Section 9 Automated Access"
-
-
-def test_r2_a_date_line_written_as_a_heading_is_found_and_strict_forms_come_first(capsys):
-    _, updated, _ = probe.terms_quotes("<h1>Terms of Use</h1><h4>Last Updated: October 1, 2026</h4><p>No robots.</p>")
-    assert updated == ["Last Updated: October 1, 2026"]
-    page = "".join(f"<p>Changes become binding on the effective date stated in notice {i}.</p>" for i in range(6))
-    page += "<p>No robots.</p><p>Last updated: Nov 1, 2026</p>"
-    _, updated, _ = probe.terms_quotes(page)
-    assert updated[0] == "Last updated: Nov 1, 2026" and len(updated) == 7          # all kept, strict first
-    pages = {TERMS: (200, page.encode(), {}), "https://terms.example.invalid/robots.txt": (200, ROBOTS.encode(), {})}
-    _, out, _, _ = run(capsys, ["--terms-url", TERMS], pages)
-    assert '"Last updated: Nov 1, 2026"' in out and "and 2 more date line(s), not printed" in out
-
-
 def test_r2_a_report_whose_text_does_not_extract_says_so_and_certifies_nothing(capsys, monkeypatch):
     monkeypatch.setattr(probe, "read_pdf_pages", lambda data: [""])
     code, out, tail, _ = run(capsys, ["--report", "--index-url", INDEX, "--terms-ruling", "addendum 999 item 1"],
                              report_pages())
     assert code == probe.REFUSED
     assert "the reader extracted NO TEXT" in out and tail["report"]["fields"]["lines"] == 0
-
-
-def test_r2_text_in_a_heading_never_closed_is_kept_not_lost():
-    q, _, _ = probe.terms_quotes("<h2>Terms<h2>No robots may access the site. <p>Robots again.")
-    # the unclosed heading's text is kept (its inner <p> reads as a space, as inside any heading), never dropped
-    assert [x["text"] for x in q] == ["No robots may access the site. Robots again."]
-
-
-# ---- the third adversarial pass (on c8035c0a; each reproduced there, fail-first) -------------------------------------
-
-def _q(page):
-    return {x["text"]: x for x in probe.terms_quotes(page)[0]}
-
-
-def test_r3_items_without_close_tags_are_siblings_and_a_paragraph_after_the_list_is_not_an_item():
-    """P1: depth counted only from <li>/</li>, so omitted </li> (valid HTML) nested each sibling one level deeper and
-    kept every later paragraph inside the list."""
-    q = _q("<h2>Use</h2><p>You may:</p><ul><li>browse the site<li>use a robot to read the injury report PDF</ul>"
-           "<p>You may not scrape the Site.</p>")
-    robot = q["use a robot to read the injury report PDF"]
-    assert robot["lead_chain"] == ["You may:"]
-    assert "lead_chain" not in q["You may not scrape the Site."]
-
-
-def test_r3_an_inner_list_without_close_tags_returns_to_the_outer_level():
-    q = _q("<h2>Use</h2><p>You may not:</p><ul><li>B<ul><li>c</ul></li><li>use automated means to access</li></ul>")
-    assert q["use automated means to access"]["lead_chain"] == ["You may not:"]
-    q = _q("<p>You agree to:</p><ul><li>these rules<ol><li>no x</li></ol><li>use a robot only with permission</li>"
-           "</ul><p>Bots are prohibited.</p>")
-    assert q["use a robot only with permission"]["lead_chain"] == ["You agree to:"]
-    assert "lead_chain" not in q["Bots are prohibited."]
-
-
-def test_r3_a_br_or_inner_paragraph_keeps_one_paragraph_or_item_whole_with_its_negation():
-    """P1: <br> and a <p> inside an <li> split one paragraph or item, so "You may not:" was never printed."""
-    q = _q("<h2>Restrictions</h2><p>You may not:<br>- use any robot, spider or scraper<br>- reproduce the content</p>")
-    assert "You may not: - use any robot, spider or scraper - reproduce the content" in q
-    q = _q("<p>You may:</p><ul><li>You may not:<br>use any robot or scraper</li></ul>")
-    assert q["You may not: use any robot or scraper"]["lead_chain"] == ["You may:"]
-    q = _q("<p>Permitted uses:</p><ul><li><p>Prohibited. You will not:</p><p>use any robot or scraper</p></li></ul>")
-    assert "Prohibited. You will not: use any robot or scraper" in q

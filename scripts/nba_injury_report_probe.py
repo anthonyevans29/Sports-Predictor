@@ -15,11 +15,13 @@ scraped. The script's DEFAULT run is the TERMS PHASE alone [...] then it stops �
 PHASE (`--report`, with `--index-url`) is a second block of mine and runs ONLY after my ruling on the terms console."):
 
   TERMS (the default): the page named by --terms-url and the host's robots.txt as served (--robots-url, else the
-    robots.txt of --terms-url's own host, printed as derived). Every block (paragraph or list item, whole, inline markup
-    kept in place, a list item with its lead-in) holding a word on automated access is quoted verbatim with its
-    heading, then the blocks on reuse and licence (capped on the console, all in the receipt), beside the page's own
-    date line; robots.txt is printed as served; a redirect prints its final URL and names another host. Then it
-    STOPS: no index page and no report is fetched in this phase.
+    robots.txt of --terms-url's own host, printed as derived). The page is read as LINES in page order (each block,
+    list item, <br> and heading a line, inline markup kept in place, every line whole); every line holding a word on
+    automated access prints in a WINDOW of the page's own lines around it, verbatim (back to a line ending in ":", at
+    most WINDOW_BACK lines, and WINDOW_AHEAD on; headings shown), then the reuse and licence windows (capped on the
+    console, all in the receipt), beside the page's own date line; no structure is inferred; the --out receipt holds
+    every line of the page; robots.txt is printed as served; a redirect prints its final URL and names another host.
+    Then it STOPS: no index page and no report is fetched in this phase.
   REPORT (--report, --index-url, --terms-ruling): refused unless --terms-ruling names the ruling on the terms console.
     ONE index read and ONE document (357 item 3(c): "no crawl, no retry loop, a plain honest User-Agent, nothing
     fetched twice"): every report link's file name as written, grouped by day with the clock read from it, the links
@@ -83,14 +85,19 @@ BROAD = re.compile(r"\b(?:" + "|".join(re.escape(w) for w in BROAD_WORDS) + ")",
 # "Updated:", "Revised:", "Effective:" or "Modified:"
 UPDATED = re.compile(r"\blast\s+(?:updated|modified|revised)\b|\beffective\s+(?:date|as\s+of)\b"
                      r"|^\s*(?:updated|revised|effective|modified)\s*:", re.I)
-TERMS_QUOTES, QUOTE_CHARS, UPDATED_LINES, ROBOTS_LINES = 60, 1500, 5, 400
+TERMS_QUOTES, UPDATED_LINES, ROBOTS_LINES = 60, 5, 400
+# THE WINDOW (the fourth pre-PR pass: inferring which block "governs" a clause from the markup misread real pages
+# pass after pass, so the console asserts NO structure): each matched line prints with the page's own lines around
+# it, in page order, verbatim: back to the nearest line ending in ":" (a heading crossed on the way is shown, never a
+# stop), at most WINDOW_BACK lines, and WINDOW_AHEAD lines after. The architect reads the context; the --out receipt
+# keeps the page's whole text.
+WINDOW_BACK, WINDOW_AHEAD = 8, 2
 # block-level tags end a block; every other tag (a, strong, em, span, b, i, time, ...) is removed in place, so a
 # clause with inline markup stays whole (the pre-PR review's P1)
 BLOCK_TAGS = ("p", "div", "li", "ul", "ol", "dl", "dt", "dd", "tr", "td", "th", "table", "thead", "tbody", "section",
               "article", "header", "footer", "main", "nav", "aside", "blockquote", "form", "fieldset", "br", "hr",
               "pre", "figure", "figcaption", "body", "html", "summary", "details", "legend", "caption", "address",
               "center", "dialog", "menu", "option", "tfoot", "colgroup", "dir", "button", "select", "textarea")
-LISTS = {"ul", "ol", "menu", "dir"}
 UPDATED_STRICT = re.compile(r"\blast\s+(?:updated|modified|revised)\b|^\s*(?:updated|revised|effective|modified)\s*:",
                             re.I)
 # HYPOTHESES, never confirmed here (law 1): each is printed found / not found on the run
@@ -156,124 +163,88 @@ def _text(body: bytes | None) -> str:
     return (body or b"").decode("utf-8", errors="replace")
 
 
-def page_blocks(page: str) -> list[dict]:
-    """The page as blocks in page order: {"heading", "text", "li" (the list depth, 0 outside a list), "is_heading"}.
-    Comments, head, script, style and noscript are dropped. A heading (h1-h6) is its own block (is_heading), its inner
-    block tags read as spaces, and it becomes the heading of what follows. A block-level tag (BLOCK_TAGS) ends a block;
-    every other tag is removed in place, so a clause with inline markup stays one block. A list item keeps its depth
-    through any block inside it (<li><p>, <li><div>, a <br>) until </li>. Entities unescaped; whitespace folded. A block
-    is quoted WHOLE, never cut into sentences."""
+def page_lines(page: str) -> list[dict]:
+    """The page's visible text as LINES in page order: {"text", "heading" (True for an h1-h6)}. Comments, head,
+    script, style and noscript are dropped; every block-level tag (BLOCK_TAGS), every <li> and every <br> ends a line;
+    every other tag is removed in place (a clause with inline markup stays one line, as a browser shows it); a heading
+    is a line of its own; entities unescaped; whitespace folded. Lines are kept WHOLE, never cut. No structure is
+    inferred: a line is only the page's text between two breaks."""
     t = re.sub(r"(?s)<!--.*?-->", " ", page or "")
     t = re.sub(r"(?is)<(head|script|style|noscript)\b.*?</\1\s*>", " ", t)
     t = re.sub(r"\s+", " ", t)
-    blocks = set(BLOCK_TAGS) - {"br", "li"} - LISTS
-    out, heading, buf, depth, in_h, hbuf = [], None, [], 0, False, []
-    lists: list[dict] = []          # the open lists, innermost last; each knows whether it has an open item
+    breaks = set(BLOCK_TAGS) | {"li", "br"}
+    out, buf, in_h = [], [], False
 
-    def flush():
+    def flush(heading=False):
         text = re.sub(r"\s+", " ", html.unescape("".join(buf))).strip()
         buf.clear()
         if text:
-            out.append({"heading": heading, "text": text, "li": depth, "is_heading": False})
-
-    def unclosed_heading():                         # a heading never closed: its text is kept as a block, never lost
-        text = re.sub(r"\s+", " ", html.unescape("".join(hbuf))).strip()
-        hbuf.clear()
-        if text:
-            out.append({"heading": heading, "text": text, "li": depth, "is_heading": False})
+            out.append({"text": text, "heading": heading})
 
     for m in re.finditer(r"<(/?)([A-Za-z][A-Za-z0-9]*)\b[^>]*>|([^<]+)|(<)", t):
         close, name, text, lt = m.group(1), (m.group(2) or "").lower(), m.group(3), m.group(4)
         if text is not None or lt:
-            (hbuf if in_h else buf).append(text if text is not None else lt)
-            continue
-        if re.fullmatch(r"h[1-6]", name):
-            if not close:
-                flush()
-                if in_h:
-                    unclosed_heading()
-                in_h = True
-                hbuf.clear()
-            elif in_h:
-                in_h = False
-                h = re.sub(r"\s+", " ", html.unescape("".join(hbuf))).strip()
-                if h:
-                    heading = h
-                    out.append({"heading": h, "text": h, "li": 0, "is_heading": True})
-            continue
-        if in_h:                                    # a block tag inside a heading reads as a space; inline: nothing
-            if name in blocks or name in LISTS or name in ("li", "br"):
-                hbuf.append(" ")
-            continue
-        if name == "br":                            # a line break inside a block: the block stays whole
-            buf.append(" ")
-        elif name in LISTS:                         # a list's end closes its items, </li> written or not
-            flush()
-            if not close:
-                lists.append({"open": False})
-            elif lists:
-                lists.pop()
-        elif name == "li":                          # an item closes its open sibling (HTML's implied </li>)
-            flush()
-            if not lists:
-                lists.append({"open": False, "implied": True})
-            lists[-1]["open"] = not close
-        elif name in blocks:
-            if depth:                               # a block inside an item: the item stays one quote, whole
-                buf.append(" ")
+            buf.append(text if text is not None else lt)
+        elif re.fullmatch(r"h[1-6]", name):
+            flush(heading=in_h)
+            in_h = not close
+        elif name in breaks:
+            if in_h:
+                buf.append(" ")                     # a break inside a heading: one heading line, words spaced
             else:
                 flush()
-        depth = sum(1 for x in lists if x["open"])
-    flush()
-    if in_h:
-        unclosed_heading()
+    flush(heading=in_h)
     return out
 
 
-def _cut(s: str) -> str:
-    return s if len(s) <= QUOTE_CHARS else s[:QUOTE_CHARS] + " [...]"
+def _window(lines: list[dict], i: int) -> tuple[int, int]:
+    lo = i
+    while lo > 0 and i - lo < WINDOW_BACK:
+        if lo < i and lines[lo]["text"].rstrip().endswith(":"):
+            break
+        lo -= 1
+    return lo, min(len(lines) - 1, i + WINDOW_AHEAD)
 
 
-def terms_quotes(page: str, cap: int | None = None) -> tuple[list[dict], list[str], int]:
-    """(the access clauses, the page's own date lines, the broad clauses not printed past the cap). Each clause is a
-    WHOLE block, verbatim up to QUOTE_CHARS (a cut is marked), with its heading; a list item carries its lead-in (the
-    block that governs it: the nearest block above it one list level up, within the same heading; for a nested item,
-    its parent item) and the whole chain of governing blocks above it. CORE clauses first and never capped; BROAD ones
-    after, capped at `cap` (TERMS_QUOTES when None; 0 or less: uncapped, the receipt's full list). The date lines are
-    every block or heading matching UPDATED, the strict forms first, all kept (the console caps what it prints).
-    Nothing is paraphrased."""
+def terms_windows(page: str, cap: int | None = None) -> tuple[list[dict], list[str], int, list[dict]]:
+    """(the windows, the page's own date lines, the reuse/licence windows not printed past the cap, the page's lines).
+    A line (a heading included) holding a CORE word (automated access) or a BROAD word (reuse, licence) is a match;
+    each match prints with
+    its window (_window) of the page's own lines, verbatim and whole, overlapping windows of one kind merged. CORE
+    windows first and never capped; BROAD ones after, capped at `cap` (TERMS_QUOTES when None; 0 or less: uncapped).
+    Date lines: every line, headings included, matching UPDATED, the strict forms first, all kept. Nothing is
+    paraphrased, cut or attributed: the window says only where the line sits on the page."""
     cap = TERMS_QUOTES if cap is None else cap
-    blocks = page_blocks(page)
-    core, broad, seen, governing = [], [], set(), {}
-    for b in blocks:
-        if b["is_heading"]:
-            governing = {}                        # a lead-in never crosses a heading
-            continue
-        d = b["li"]
-        kind = "core" if CORE.search(b["text"]) else ("broad" if BROAD.search(b["text"]) else None)
-        if kind and (b["heading"], b["text"]) not in seen:
-            seen.add((b["heading"], b["text"]))
-            q = {"heading": b["heading"], "text": _cut(b["text"]), "kind": kind}
-            if d:
-                chain = [governing[k] for k in sorted(governing) if k < d]
-                q["lead_in"] = _cut(governing[d - 1]) if (d - 1) in governing else None
-                q["lead_chain"] = [_cut(c) for c in chain]
-            (core if kind == "core" else broad).append(q)
-        if d == 0:
-            governing = {0: b["text"]}
-        elif (d not in governing) or not b["text"]:
-            governing = {k: v for k, v in governing.items() if k < d}
-            governing[d] = b["text"]
-        else:                                     # the next item at this depth: it governs what nests under it
-            governing = {k: v for k, v in governing.items() if k < d}
-            governing[d] = b["text"]
+    lines = page_lines(page)
+    hits = {"core": [], "broad": []}
+    for i, ln in enumerate(lines):                  # a heading's own words are page text too
+        kind = "core" if CORE.search(ln["text"]) else ("broad" if BROAD.search(ln["text"]) else None)
+        if kind:
+            hits[kind].append(i)
+    windows = {"core": [], "broad": []}
+    for kind in ("core", "broad"):
+        for i in hits[kind]:
+            lo, hi = _window(lines, i)
+            w = windows[kind]
+            if w and lo <= w[-1]["to"] + 1:
+                w[-1]["to"] = max(w[-1]["to"], hi)
+                w[-1]["matches"].append(i)
+            else:
+                w.append({"kind": kind, "from": lo, "to": hi, "matches": [i]})
+    for kind in ("core", "broad"):
+        for w in windows[kind]:
+            heads = [ln["text"] for ln in lines[:w["from"]] if ln["heading"]]
+            w["section"] = heads[-1] if heads else None
+            w["lines"] = [{"n": n, "text": lines[n]["text"], "heading": lines[n]["heading"],
+                           "match": n in w["matches"]} for n in range(w["from"], w["to"] + 1)]
+    broad = windows["broad"]
     shown = broad if cap <= 0 else broad[:cap]
     strict, loose = [], []
-    for b in blocks:
-        s = _cut(b["text"])
-        if UPDATED.search(b["text"]) and s not in strict and s not in loose:
-            (strict if UPDATED_STRICT.search(b["text"]) else loose).append(s)
-    return core + shown, strict + loose, len(broad) - len(shown)
+    for ln in lines:
+        s = ln["text"]
+        if UPDATED.search(s) and s not in strict and s not in loose:
+            (strict if UPDATED_STRICT.search(s) else loose).append(s)
+    return windows["core"] + shown, strict + loose, len(broad) - len(shown), lines
 
 
 def robots_for(terms_url: str) -> str:
@@ -297,39 +268,37 @@ def terms_phase(a, say: Out, fetch: Fetcher) -> tuple[int, dict]:
         worst = FAILED
         say("  TERMS NOT READ: the feed is not cleared (261 item 4); the report phase waits on a terms console")
     else:
-        quoted, updated, dropped = terms_quotes(_text(body))
+        windows, updated, dropped, lines = terms_windows(_text(body))
         say("  THE PAGE'S OWN DATE LINE(S), verbatim (the strict forms first): "
             + (" | ".join(f'"{u}"' for u in updated[:UPDATED_LINES]) if updated
                else "none found (no 'last updated' / 'effective' line, in a block or a heading)")
             + (f" ... and {len(updated) - UPDATED_LINES} more date line(s), not printed (cap {UPDATED_LINES}); every "
                "one is in the --out receipt" if len(updated) > UPDATED_LINES else ""))
-        if not quoted:
+        if not windows:
             worst = REFUSED
-            say("  NOTHING TO QUOTE: no block holds an access word " + str(list(CORE_WORDS) + ["bot(s)"])
+            say("  NOTHING TO QUOTE: no line holds an access word " + str(list(CORE_WORDS) + ["bot(s)"])
                 + " or " + str(list(BROAD_WORDS)) + "; the terms are NOT READ for this feed (the architect reads the "
                 "page itself)")
         else:
-            n_core = sum(1 for q in quoted if q["kind"] == "core")
-            say(f"  ACCESS CLAUSES QUOTED, each WHOLE block verbatim with its heading: {n_core} on automated access "
-                f"{list(CORE_WORDS) + ['bot(s)']} (every one), then {len(quoted) - n_core} on reuse and licence "
-                f"{list(BROAD_WORDS)}; the architect reads what they allow:")
-            last = object()
-            for q in quoted:
-                if q["heading"] != last:
-                    say(f"    [{q['heading'] if q['heading'] else 'no heading above'}]")
-                    last = q["heading"]
-                if "lead_in" in q:
-                    if q["lead_chain"]:
-                        for c in q["lead_chain"]:
-                            say(f'      (governing it, from above) "{c}"')
-                    else:
-                        say("      (a list item; no governing block above it under this heading)")
-                say(f'      {"" if q["kind"] == "core" else "(reuse) "}"{q["text"]}"')
+            n_core = sum(1 for w in windows if w["kind"] == "core")
+            say(f"  THE PAGE'S OWN TEXT AROUND EVERY ACCESS WORD, verbatim, in page order ({len(lines)} lines on the "
+                f"page): {n_core} window(s) on automated access {list(CORE_WORDS) + ['bot(s)']} (every one), then "
+                f"{len(windows) - n_core} on reuse and licence {list(BROAD_WORDS)}. '>' marks the matched line, '#' "
+                "a heading; each window runs back to a line ending in ':' (at most "
+                f"{WINDOW_BACK} lines; a heading on the way is shown) and {WINDOW_AHEAD} lines on. No structure is inferred; the architect reads what "
+                "they allow, and the --out receipt holds every line of the page:")
+            for w in windows:
+                say(f"    --- {'automated access' if w['kind'] == 'core' else 'reuse / licence'} · page lines "
+                    f"{w['from'] + 1}-{w['to'] + 1} · under {w['section']!r}")
+                for ln in w["lines"]:
+                    mark = "#" if ln["heading"] else (">" if ln["match"] else " ")
+                    say(f"    {mark} {ln['text']}")
             if dropped:
-                say(f"    ... and {dropped} more reuse/licence block(s), not printed (cap {TERMS_QUOTES}); every one is "
+                say(f"    ... and {dropped} more reuse/licence window(s), not printed (cap {TERMS_QUOTES}); every one is "
                     "in the --out receipt")
         rec["terms"].update(bytes=len(body), sha256=hashlib.sha256(body).hexdigest(), updated=updated,
-                            quoted=quoted, quoted_all=terms_quotes(_text(body), cap=0)[0], not_printed=dropped)
+                            windows=windows, windows_all=terms_windows(_text(body), cap=0)[0], not_printed=dropped,
+                            page_lines=[("# " if ln["heading"] else "") + ln["text"] for ln in lines])
     robots = a.robots_url or robots_for(a.terms_url)
     status, hdr, body, final, err = fetch(robots)
     say(f"\nROBOTS {robots}" + ("" if a.robots_url else " (derived: --terms-url's own host)") + f" · HTTP {status}"

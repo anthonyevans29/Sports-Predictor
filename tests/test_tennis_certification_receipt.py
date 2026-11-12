@@ -439,7 +439,8 @@ def test_tickers_writes_one_file_per_tour_sorted_one_per_line_the_accepted_event
 def test_two_days_dumps_diff_by_comm(tmp_path, capsys):
     """308 item 1(c): "so a day-to-day listing diff is a `comm` of two files". Day 2's listing has lost a settled
     event (the erosion of item 1): `comm -23 day1 day2` lists it and nothing else; `comm -13` (new on day 2) lists the
-    event that is new; the files compare as sorted (comm's --check-order passes, LC_ALL=C)."""
+    event that is new. Plain `comm` with LC_ALL=C, as the docs give it (BSD comm, on the laptop, has no
+    --check-order); each file is checked sorted by code point on its own."""
     run(capsys, "--tickers", str(tmp_path / "d1"))
     settled2 = (pair("26DEC28CCCDDD", "Cal Mockton", "Dov Testerly", results=("scalar", "scalar"),
                      values=("0.4000", "0.6000"), status="finalized")
@@ -453,17 +454,21 @@ def test_two_days_dumps_diff_by_comm(tmp_path, capsys):
     env = {**os.environ, "LC_ALL": "C"}
 
     def comm(flag):
-        res = subprocess.run(["comm", "--check-order", flag, str(tmp_path / "d1.ATP.txt"), str(tmp_path / "d2.ATP.txt")],
+        res = subprocess.run(["comm", flag, str(tmp_path / "d1.ATP.txt"), str(tmp_path / "d2.ATP.txt")],
                              capture_output=True, text=True, env=env, timeout=30)
         assert res.returncode == 0, res.stderr
         return res.stdout
+    for f in ("d1.ATP.txt", "d2.ATP.txt"):
+        lines = (tmp_path / f).read_text().splitlines()
+        assert lines == sorted(lines), f                                                # code-point order, as LC_ALL=C
     assert comm("-23") == "KXATPMATCH-26DEC28AAABBB\n"                                  # left the listing
     assert comm("-13") == "KXATPMATCH-26DEC30OOOPPP\n"                                  # new on day 2
     assert (tmp_path / "d1.WTA.txt").read_text() == (tmp_path / "d2.WTA.txt").read_text()
 
 
 @pytest.mark.parametrize("how", ["data", "Data", "checkout-data", "missing-parent", "directory", "dot", "dotdot",
-                                 "trailing-slash", "with-db"])
+                                 "trailing-slash", "with-db", "missing-dir-dot", "target-is-a-directory",
+                                 "symlink-into-data", "symlink-loop", "unknown-user"])
 def test_tickers_refusals_write_nothing_and_call_nothing(tmp_path, capsys, monkeypatch, how):
     """308 item 1(c) and law 5: a PATH under a data/ directory (any part named data, case ignored; the checkout's
     data/), a PATH whose directory does not exist (nothing is made), a directory, and --tickers outside the SERVED
@@ -487,6 +492,24 @@ def test_tickers_refusals_write_nothing_and_call_nothing(tmp_path, capsys, monke
         path = "." if how == "dot" else ".."
     elif how == "trailing-slash":
         path = str(tmp_path / "t") + "/"
+    elif how == "missing-dir-dot":                      # pathlib drops the '.': never read as the prefix 'nope'
+        path = str(tmp_path / "nope") + "/."
+    elif how == "target-is-a-directory":
+        (tmp_path / "d.ATP.txt").mkdir()
+        before = set(tmp_path.rglob("*"))
+        path = str(tmp_path / "d")
+    elif how == "symlink-into-data":                    # a data directory outside the checkout, reached by a link
+        (tmp_path / "x" / "data").mkdir(parents=True)
+        (tmp_path / "out").symlink_to(tmp_path / "x" / "data", target_is_directory=True)
+        before = set(tmp_path.rglob("*"))
+        path = str(tmp_path / "out" / "t")
+    elif how == "symlink-loop":
+        (tmp_path / "loopa").symlink_to(tmp_path / "loopb")
+        (tmp_path / "loopb").symlink_to(tmp_path / "loopa")
+        before = set(tmp_path.rglob("*"))
+        path = str(tmp_path / "loopa" / "t")
+    elif how == "unknown-user":
+        path = "~sp_no_such_user_308/t"
     else:
         path = str(tmp_path / "t")
         extra = ["--db", str(tmp_path / "copy.db")]
@@ -502,11 +525,17 @@ def test_tickers_refusals_write_nothing_and_call_nothing(tmp_path, capsys, monke
     assert tail["exit"] == R.REFUSED and tail["phase"] == ("stored" if how == "with-db" else "served")
     if how == "with-db":
         assert "not with --db (the STORED phase)" in out
-    if how in ("data", "Data", "checkout-data"):
+    if how in ("data", "Data", "checkout-data", "symlink-into-data"):
         assert "under a data/ directory (law 5)" in out
+    if how == "target-is-a-directory":
+        assert f"{tmp_path / 'd.ATP.txt'} is a directory" in out
+    if how == "unknown-user":
+        assert "cannot be resolved (RuntimeError" in out
+    if how == "symlink-loop":                           # 3.10-3.12 raise on the loop; a later resolve may not, and the
+        assert "cannot be resolved" in out or "does not exist (nothing is made)" in out   # missing directory refuses
     if how == "missing-parent":
         assert "does not exist (nothing is made)" in out
-    if how in ("directory", "dot", "dotdot"):
+    if how in ("directory", "dot", "dotdot", "missing-dir-dot"):
         assert "is a directory; name a file prefix" in out
 
 
@@ -548,6 +577,7 @@ def test_a_failed_write_leaves_the_old_file_and_no_temporary_file(tmp_path, caps
     assert f"TICKERS: FAILED: ATP: {old}: OSError: synthetic rename failure" in out
     assert old.read_text() == "KXATPMATCH-OLD\n"
     assert [p.name for p in tmp_path.iterdir()] == ["d.ATP.txt"]
+    assert _tail(out)["tickers_written"] == {}                                          # a failure is never a count
 
 
 def test_the_docs_name_the_tickers_flag():
@@ -714,6 +744,36 @@ def test_window_refusals_exit_2_before_any_call(tmp_path, capsys, monkeypatch, a
     assert set(tmp_path.rglob("*")) == before
     tail = _tail(out)
     assert tail["exit"] == R.REFUSED and "window" not in tail
+
+
+@pytest.mark.parametrize("bound", [["--from", "2026-12-28"], ["--through", "2026-12-30"],
+                                   ["--from", "2026-12-28", "--through", "2026-12-30"]])
+def test_a_window_bound_with_db_is_refused_as_the_windows_own_refusal(tmp_path, capsys, bound):
+    """309 item 6: the window is the SERVED phase's. A bound with --db (no --tickers beside it) is refused by the
+    window's own check, before anything is read."""
+    code, out, _ = run(capsys, *bound, "--db", str(tmp_path / "copy.db"), fake=provider())
+    assert code == R.REFUSED, out
+    assert "REFUSED: --from / --through are the SERVED phase's (addendum 309 item 6); not with --db" in out, out
+    assert _tail(out)["phase"] == "stored" and not (tmp_path / "copy.db").exists()
+
+
+def test_a_tour_that_fails_after_its_listing_answered_is_neither_counted_nor_dumped(tmp_path, capsys, monkeypatch):
+    """A read that raises after the listing answered (here inside THE expiration_value SHAPES) is FAILED: its window is
+    'not counted' and no file is dumped, though its listing was captured; the other tour is counted and written."""
+    real = R.exp_shapes
+
+    def boom(events):
+        if any(str(ev).startswith("KXATPMATCH") for ev, _ in events):
+            raise ValueError("synthetic failure after the listing")
+        return real(events)
+    monkeypatch.setattr(R, "exp_shapes", boom)
+    code, out, _ = run(capsys, "--from", "2026-12-28", "--through", "2026-12-30", "--tickers", str(tmp_path / "d"))
+    assert code == R.FAILED, out
+    assert "FAILED: ATP: ValueError: synthetic failure after the listing" in out
+    assert "ATP WINDOW 2026-12-28..2026-12-30 (ticker dates): not counted (the tour's read did not answer)" in out
+    assert not (tmp_path / "d.ATP.txt").exists() and (tmp_path / "d.WTA.txt").read_text() == "KXWTAMATCH-26DEC29KKKLLL\n"
+    tail = _tail(out)
+    assert list(tail["window"]["tours"]) == ["WTA"] and tail["tickers_written"] == {"WTA": 1}
 
 
 def test_the_docs_name_the_window_line():

@@ -35,8 +35,9 @@ run in this order on the laptop:
      is written to a temporary file beside it and renamed (atomic); a tour whose read refused or failed writes no
      file. REFUSED (exit 2) before any call, nothing written: a PATH under a data/ directory (law 5:
      sp_common.refuse_under_data, and any path part named data, case ignored), a PATH whose directory does not exist
-     (nothing is made), a PATH that is a directory or ends in a separator, a target that is a directory, and
-     --tickers with --db (the STORED phase).
+     (nothing is made), a PATH that is a directory or ends in a separator (or in '.' or '..'), a target that is a
+     directory, a PATH that cannot be resolved (an unknown ~user, a symlink loop), and --tickers with --db (the
+     STORED phase).
      THE WINDOW LINE (ARCHITECT 2026-11-09, addendum 309 item 6: "the served phase prints, per tour, the counts by our
      status for a ticker-date range (`--from`/`--through`, default the daily window), beside the `--tickers PATH` dump
      of 308 item 1(c); both read-only"): after the reads, one line per tour whose read answered,
@@ -483,11 +484,17 @@ def refuse_tickers(raw: str, tours: list[str]) -> str | None:
     exist (nothing is made); PATH is a file prefix, never a directory; no target is a directory."""
     if not raw or raw.endswith(("/", os.sep)):
         return f"REFUSED: --tickers {raw!r}: name a file prefix (one file per tour, <PATH>.<TOUR>.txt), not a directory"
-    p = Path(raw).expanduser()
-    if p.name in ("", ".", ".."):                                       # '.', '..': a directory, no file name
-        return f"REFUSED: --tickers {raw} is a directory; name a file prefix (one file per tour, <PATH>.<TOUR>.txt)"
-    targets = [ticker_file(p, t) for t in tours]
-    parts = list(p.parts) + list(p.resolve().parts) + [x for t in targets for x in t.resolve().parts]
+    last = raw.replace(os.sep, "/").rsplit("/", 1)[-1]     # pathlib drops a trailing '.': 'nope/.' would read as 'nope'
+    try:
+        p = Path(raw).expanduser()
+        if last in (".", "..") or p.name in ("", ".", ".."):            # '.', '..': a directory, no file name
+            return (f"REFUSED: --tickers {raw} is a directory; name a file prefix (one file per tour, "
+                    "<PATH>.<TOUR>.txt)")
+        targets = [ticker_file(p, t) for t in tours]
+        resolved = list(p.resolve().parts) + [x for t in targets for x in t.resolve().parts]
+    except (RuntimeError, OSError) as e:                    # an unknown ~user, a symlink loop: refused, never a trace
+        return f"REFUSED: --tickers {raw}: cannot be resolved ({type(e).__name__}: {e})"
+    parts = list(p.parts) + resolved
     if any(x.casefold() == "data" for x in parts):
         return f"REFUSED: --tickers {raw} is under a data/ directory (law 5); name a path outside it"
     hosting = str(ROOT / "deploy" / "hosting")

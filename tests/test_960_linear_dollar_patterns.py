@@ -65,6 +65,10 @@ def test_960_the_differential_is_not_vacuous():
     ("DOLLAR, a sign and 20,000 no-break spaces", "DOLLAR", "＄" + " " * 20000 + "x"),
     ("USD_WORD, 50,000 digits", "USD_WORD", "1" * 50000),
     ("USD_WORD, 25,000 digit-comma pairs", "USD_WORD", "1," * 25000),
+    # The lookbehind's '.' and its Unicode digits, pinned too: (?<![\d,]) or (?<![0-9,.]) matches the same and is
+    # quadratic again (4.5 s on '1.' x 10,000; 2.5 s on U+0663 x 10,000; the pre-push review's mutations M5 and M12).
+    ("USD_WORD, 25,000 digit-point pairs", "USD_WORD", "1." * 25000),
+    ("USD_WORD, 50,000 Arabic-Indic digits", "USD_WORD", "٣" * 50000),
     ("USD_WORD, usd and 50,000 blanks", "USD_WORD", "usd" + " " * 50000 + "x"),
 ])
 def test_960_the_measured_inputs_read_in_linear_time(name, pattern, text):

@@ -26,6 +26,38 @@ run in this order on the laptop:
        RULED, addendum 288 item 1: the counts by kickoff source and the kickoff refusals by label, the events whose
        kickoff's US Eastern day is not the ticker's date, and the active markets with their stored kickoff, behind or
        ahead of the run) · NULLS · INTEGRITY (out-of-scope series never read).
+     With --tickers PATH (ARCHITECT 2026-11-09, addendum 308 item 1(c): "the served phase takes `--tickers PATH` and
+     writes the accepted event tickers per tour, one per line, sorted, so a day-to-day listing diff is a `comm` of two
+     files"; #905): after the reads, one file per tour, <PATH>.ATP.txt and <PATH>.WTA.txt, each holding the event
+     tickers of that tour's ACCEPTED events (the fixtures THE MAP projects; an event refused as a fixture or by the
+     kickoff rule is not in it), one per line, sorted by code point (LC_ALL=C order: `LC_ALL=C comm -23 <day 1's
+     file> <day 2's file>` lists the events that left the listing), and nothing else (no price, no name). Each file
+     is written to a temporary file beside it and renamed (atomic); a tour whose read refused or failed writes no
+     file. REFUSED (exit 2) before any call, nothing written: a PATH under a data/ directory (law 5:
+     sp_common.refuse_under_data, and any path part named data, case ignored), a PATH whose directory does not exist
+     (nothing is made), a PATH that is a directory or ends in a separator (or in '.' or '..'), a target that is a
+     directory, a PATH that cannot be resolved (an unknown ~user, a symlink loop), and --tickers with --db (the
+     STORED phase).
+     THE WINDOW LINE (ARCHITECT 2026-11-09, addendum 309 item 6: "the served phase prints, per tour, the counts by our
+     status for a ticker-date range (`--from`/`--through`, default the daily window), beside the `--tickers PATH` dump
+     of 308 item 1(c); both read-only"): after the reads, one line per tour whose read answered,
+       <TOUR> WINDOW <from>..<through> (ticker dates): FINISHED n · SETTLED_SCALAR n · SCHEDULED n (of N accepted
+       events in the window)
+     counting the ACCEPTED events (the set THE MAP projects and --tickers dumps) whose ticker date (kalshi_tennis.
+     event_day: e.g. 26NOV09 -> 2026-11-09) is in [--from, --through], both bounds inclusive, by our status
+     (kalshi_tennis.settle). DEFAULT, the daily window: tennis-daily's `sync-matches --date-from {yesterday} --date-to
+     {tomorrow}` (deploy/hosting/chains.py, the chain's steps), the placeholders computed in UTC by sp_run.date_vars
+     (yesterday = today - 1 day, tomorrow = today + 1 day, today the run's UTC date): the three ticker days a chain run
+     writes (its re-read of the 7 days before {yesterday} creates no row, so it is not in the default). The window is
+     worked out before any call, once per run; the header names where each bound came from (given, or the daily
+     window's) and the tail's window.default lists the bounds the daily window gave ([] when both were given).
+     THE COMPARISON: the STORED phase counts the rows by our status per SEASON, not by day, and refuses --from /
+     --through, so its counts are set beside this line, status by status, only when the window is the load's own:
+     pass the load's own `sync-matches --date-from` / `--date-to`. The comparison the first load needed (308 item 2,
+     the line on #838) ran `sync-matches --date-from 2026-11-04 --date-to 2026-11-10`, seven ticker days, so it is
+     `--from 2026-11-04 --through 2026-11-10`; the 3-day default does not match that load's stored counts. REFUSED
+     (exit 2) before any call: a date that is not YYYY-MM-DD, --from after --through (a lone bound is checked against
+     the other's default), and --from/--through with --db.
   2. STORED (--db COPY, no network): after the first syncs, on a .backup copy outside data/ opened
      mode=ro&immutable=1 (the NBA receipt's guards): counts per season by stored status, status_raw as stored, the
      settlement's truth (FINISHED with a winner and its settlement kept; SETTLED_SCALAR with no winner and its
@@ -33,20 +65,26 @@ run in this order on the laptop:
      and refusal labels (START_UNREAD counted: addendum 288 item 1, "the receipt counts it"; a refusal label written
      by 294 item 13(b) counted under the same line, from the same key), the players stored.
 
-Exit: 0 every read answered; 1 a call failed; 2 a read REFUSED (a cursor left, a repeated cursor, a series the listing
-does not serve, a --db that is not a fresh copy outside data/). Last line: TENNIS-CERTIFICATION-RECEIPT {json}
-(counts only). Writes nothing (law 5: no file, no database; --db is opened read-only and immutable).
+Exit: 0 every read answered; 1 a call or a --tickers write failed (that file's previous copy kept); 2 a read REFUSED
+(a cursor left, a repeated cursor, a series the listing does not serve, a --db that is not a fresh copy outside
+data/, a --tickers or --from / --through refusal). Last line: TENNIS-CERTIFICATION-RECEIPT {json} (counts only).
+Writes nothing but the --tickers files (the umask's default mode) when that flag is given (law 5: no database
+written, nothing under data/; --db is opened read-only and immutable).
 
-    python3 scripts/tennis_certification_receipt.py [--tour ATP --tour WTA]
+    python3 scripts/tennis_certification_receipt.py [--tour ATP --tour WTA] [--tickers logs/tennis_tickers_2026-11-10]
+        [--from 2026-11-08 --through 2026-11-10]
     python3 scripts/tennis_certification_receipt.py --db /path/to/backup-copy.db
 """
 from __future__ import annotations
 
 import argparse
 import json
+import os
+import re
 import sys
+import tempfile
 from collections import Counter, defaultdict
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -69,6 +107,56 @@ TIME_KEYS = ("occurrence_datetime", "open_time", "close_time", "expected_expirat
 TIME_SAMPLE = 12                                                # open markets printed with every time key
 SHAPE_SAMPLES = 3            # addendum 288 item 2(b): "the 'yes' player beside it for three samples"
 EMPTY, YES_PLAYER, NO_PLAYER = "empty", "the 'yes' market's player", "the 'no' market's player"
+# THE WINDOW LINE (addendum 309 item 6): the statuses always printed, in this order (settle()'s three), zeros included
+WINDOW_STATUSES = (MatchStatus.FINISHED.name, MatchStatus.SETTLED_SCALAR.name, MatchStatus.SCHEDULED.name)
+ISO_DAY = re.compile(r"\d{4}-\d{2}-\d{2}")
+
+
+def utc_today() -> date:
+    """The run's UTC date, as sp_run computes the chain's placeholders (c.utc_now().date())."""
+    return datetime.now(timezone.utc).date()
+
+
+def daily_window(today: date) -> tuple[date, date]:
+    """tennis-daily's sync-matches window: {yesterday}..{tomorrow} (deploy/hosting/chains.py; sp_run.date_vars)."""
+    return today - timedelta(days=1), today + timedelta(days=1)
+
+
+def read_window(raw_from: str | None, raw_through: str | None,
+                today: date) -> tuple[tuple[date, date] | None, str | None]:
+    """((from, through), None) or (None, the REFUSED line). Strict YYYY-MM-DD (no other ISO form), a real date, and
+    from <= through; a bound not given is the daily window's."""
+    lo, hi = daily_window(today)
+    got = {}
+    for flag, raw, dflt in (("--from", raw_from, lo), ("--through", raw_through, hi)):
+        if raw is None:
+            got[flag] = dflt
+            continue
+        try:
+            if not ISO_DAY.fullmatch(raw):
+                raise ValueError("not YYYY-MM-DD")
+            got[flag] = date.fromisoformat(raw)
+        except ValueError as e:
+            return None, f"REFUSED: {flag} {raw!r} is not a date YYYY-MM-DD (the ticker's date; {e})"
+    if got["--from"] > got["--through"]:
+        return None, (f"REFUSED: --from {got['--from']} is after --through {got['--through']} (a bound not given is "
+                      f"the daily window's, {lo}..{hi})")
+    return (got["--from"], got["--through"]), None
+
+
+def window_counts(fixtures, lo: date, hi: date) -> dict:
+    """The accepted events whose ticker date is in [lo, hi] (inclusive), counted by our status (settle())."""
+    c = Counter(fx.settlement.status.name for fx in fixtures if lo <= fx.day <= hi)
+    out = {k: c.get(k, 0) for k in WINDOW_STATUSES}
+    out.update({k: n for k, n in sorted(c.items()) if k not in WINDOW_STATUSES})
+    out["accepted"] = sum(c.values())
+    return out
+
+
+def window_line(tour: str, lo: date, hi: date, wc: dict) -> str:
+    parts = [f"{k} {n}" for k, n in wc.items() if k != "accepted"]
+    return (f"{tour} WINDOW {lo}..{hi} (ticker dates): {' · '.join(parts)} "
+            f"(of {wc['accepted']} accepted events in the window)")
 
 
 def ts(x):
@@ -150,7 +238,7 @@ def series_entry(get, series: str) -> tuple[dict | None, str]:
     raise kt.Refused(f"REFUSED: the /series listing does not serve {series}")
 
 
-def tour_report(tour: str, adapter, get, say) -> tuple[int, dict]:
+def tour_report(tour: str, adapter, get, say, listed: dict | None = None) -> tuple[int, dict]:
     series = kt.SERIES[tour]
     out: dict = {"series": series}
     say(f"\n{tour} · {series}")
@@ -179,6 +267,8 @@ def tour_report(tour: str, adapter, get, say) -> tuple[int, dict]:
            f"{counts(Counter({k: n for k, n in lst.status_words.items() if k not in kt.STATUS_WORDS}))}"
            if set(lst.status_words) - set(kt.STATUS_WORDS) else ""))
     say(f"  RESULT WORDS AS SERVED: {counts(lst.result_words)}")
+    if listed is not None:                      # the accepted events: --tickers (308 1(c)) and the window (309 item 6)
+        listed[tour] = list(lst.fixtures)
     # 3. THE CONTRACT TERMS, BEFORE THE MAP -------------------------------------------------------------------------
     markets = [m for fx in lst.fixtures for m in fx.markets]
     say("  THE CONTRACT TERMS (addendum 269 item 3(c); read BEFORE the map; quoted on the PR from this console)")
@@ -329,22 +419,137 @@ def tour_report(tour: str, adapter, get, say) -> tuple[int, dict]:
     return OK, out
 
 
-def served_phase(tours: list[str], adapter, say) -> tuple[int, dict]:
+def window_source(defaulted: tuple[str, ...]) -> str:
+    """The header's account of where the window's bounds came from: each bound named, given or the daily window's."""
+    if not defaulted:
+        return "--from and --through given"
+    if len(defaulted) == 2:
+        return "the daily window, tennis-daily {yesterday}..{tomorrow} in UTC"
+    given = "through" if defaulted == ("from",) else "from"
+    dflt = "{yesterday}" if defaulted == ("from",) else "{tomorrow}"
+    return f"--{given} given; --{defaulted[0]} the daily window's, tennis-daily's {dflt} in UTC"
+
+
+def served_phase(tours: list[str], adapter, say, tickers: Path | None = None,
+                 window: tuple[date, date] | None = None,
+                 defaulted: tuple[str, ...] = ("from", "through")) -> tuple[int, dict]:
+    """`window` is worked out by main before any call (one UTC today per run, as sp_run computes the chain's
+    placeholders once at its start); `defaulted` names the bounds that came from the daily window."""
+    if window is None:                          # worked out here, before the reads, only for a direct caller
+        window, defaulted = daily_window(utc_today()), ("from", "through")
     say(f"TENNIS DATA CERTIFICATION RECEIPT · SERVED (addenda 261 item 2(c), 269 items 1-3, 284 item 1(b); #838) · "
         f"read-only · opens no database · no key · {datetime.now(timezone.utc).isoformat(timespec='seconds')}")
     say("  run BEFORE the first `sync-matches --competition ATP` / `WTA`: the contract terms are read before the map")
     worst, out = OK, {"tours": {}}
+    listed: dict = {}
+    answered: list[str] = []
     for tour in tours:
         try:
-            code, rep = tour_report(tour, adapter, adapter._get, say)
+            code, rep = tour_report(tour, adapter, adapter._get, say, listed)
         except Exception as e:                  # noqa: BLE001 - a failed read is reported, never raised
             say(f"  FAILED: {tour}: {type(e).__name__}: {e}")
             code, rep = FAILED, {"failed": type(e).__name__}
         worst = max(worst, code)
         out["tours"][tour] = rep
+        if code == OK:
+            answered.append(tour)
     say(f"\nCALLS: {adapter.calls} this run (Kalshi public market data; no key)")
     out["calls"] = adapter.calls
+    lo, hi = window
+    say(f"\nTHE WINDOW (addendum 309 item 6; ticker dates, both bounds inclusive; {window_source(defaulted)}): the "
+        "accepted events counted by our status, the served side of the STORED phase's counts by status")
+    out["window"] = {"from": lo.isoformat(), "through": hi.isoformat(), "default": list(defaulted), "tours": {}}
+    for tour in tours:
+        if tour not in answered or tour not in listed:
+            say(f"{tour} WINDOW {lo}..{hi} (ticker dates): not counted (the tour's read did not answer)")
+            continue
+        wc = window_counts(listed[tour], lo, hi)
+        say(window_line(tour, lo, hi, wc))
+        out["window"]["tours"][tour] = wc
+    if tickers is not None:
+        accepted = {t: sorted(fx.event for fx in fxs) for t, fxs in listed.items()}
+        worst = max(worst, write_tickers(tickers, tours, answered, accepted, say, out))
     return worst, out
+
+
+def ticker_file(prefix: Path, tour: str) -> Path:
+    """One tour's dump: <PATH>.<TOUR>.txt beside PATH (addendum 308 item 1(c): "per tour, one per line, sorted")."""
+    return prefix.with_name(f"{prefix.name}.{tour}.txt")
+
+
+def refuse_tickers(raw: str, tours: list[str]) -> str | None:
+    """Before any call (law 5; 308 item 1(c)): the REFUSED line, else None. Never under a data/ directory: any part
+    named data, case ignored (the laptop's filesystem ignores case), as given or resolved (a symlink into data/
+    included), and sp_common.refuse_under_data on each resolved target (the checkout's data/). The directory must
+    exist (nothing is made); PATH is a file prefix, never a directory; no target is a directory."""
+    if not raw or raw.endswith(("/", os.sep)):
+        return f"REFUSED: --tickers {raw!r}: name a file prefix (one file per tour, <PATH>.<TOUR>.txt), not a directory"
+    last = raw.replace(os.sep, "/").rsplit("/", 1)[-1]     # pathlib drops a trailing '.': 'nope/.' would read as 'nope'
+    try:
+        p = Path(raw).expanduser()
+        if last in (".", "..") or p.name in ("", ".", ".."):            # '.', '..': a directory, no file name
+            return (f"REFUSED: --tickers {raw} is a directory; name a file prefix (one file per tour, "
+                    "<PATH>.<TOUR>.txt)")
+        targets = [ticker_file(p, t) for t in tours]
+        resolved = list(p.resolve().parts) + [x for t in targets for x in t.resolve().parts]
+    except (RuntimeError, OSError) as e:                    # an unknown ~user, a symlink loop: refused, never a trace
+        return f"REFUSED: --tickers {raw}: cannot be resolved ({type(e).__name__}: {e})"
+    parts = list(p.parts) + resolved
+    if any(x.casefold() == "data" for x in parts):
+        return f"REFUSED: --tickers {raw} is under a data/ directory (law 5); name a path outside it"
+    hosting = str(ROOT / "deploy" / "hosting")
+    if hosting not in sys.path:
+        sys.path.insert(0, hosting)
+    import sp_common  # noqa: E402  (the repo's law-5 rule; importing it opens nothing)
+    for t in targets:
+        try:
+            sp_common.refuse_under_data(t)
+        except SystemExit as e:
+            return f"REFUSED: --tickers {raw}: {str(e).removeprefix('✗ ')}"
+    if p.is_dir():
+        return f"REFUSED: --tickers {raw} is a directory; name a file prefix (one file per tour, <PATH>.<TOUR>.txt)"
+    if not p.parent.is_dir():
+        return f"REFUSED: --tickers {raw}: its directory {p.parent} does not exist (nothing is made)"
+    for t in targets:
+        if t.is_dir():
+            return f"REFUSED: --tickers {raw}: {t} is a directory"
+    return None
+
+
+def write_tickers(prefix: Path, tours: list[str], answered: list[str], accepted: dict, say, out: dict) -> int:
+    """One file per tour whose read answered: its accepted event tickers, sorted, one per line, nothing else; written
+    to a temporary file beside the target and renamed over it (atomic). A tour that refused or failed: no file, so a
+    partial listing is never dumped. Returns FAILED when a write fails (its temporary file removed), else OK."""
+    worst, written = OK, {}
+    for tour in tours:
+        path = ticker_file(prefix, tour)
+        if tour not in answered or tour not in accepted:
+            say(f"TICKERS: {tour}: not written (the tour's read did not answer; no partial listing is dumped)")
+            continue
+        events = accepted[tour]
+        tmp = None
+        try:
+            fd, tmp = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent))
+            with os.fdopen(fd, "w", encoding="ascii", newline="\n") as f:
+                f.write("".join(f"{e}\n" for e in events))
+                f.flush()
+                os.fsync(f.fileno())
+            um = os.umask(0)
+            os.umask(um)
+            os.chmod(tmp, 0o666 & ~um)                                  # mkstemp's 0600 -> the umask default
+            os.replace(tmp, path)
+            tmp = None
+        except (OSError, UnicodeEncodeError) as e:
+            say(f"TICKERS: FAILED: {tour}: {path}: {type(e).__name__}: {e}")
+            worst = FAILED
+            continue
+        finally:
+            if tmp is not None:
+                Path(tmp).unlink(missing_ok=True)
+        written[tour] = len(events)
+        say(f"TICKERS: wrote {path} · {len(events)} {tour} event tickers (accepted events; sorted; one per line)")
+    out["tickers_written"] = written
+    return worst
 
 
 def stored_phase(db: str, tours: list[str], say) -> tuple[int, dict]:
@@ -438,6 +643,15 @@ def main(argv=None, adapter=None) -> int:
     ap.add_argument("--tour", action="append", default=None, choices=list(kt.SERIES),
                     help="ATP and/or WTA (repeatable; default both)")
     ap.add_argument("--db", default=None, help="STORED phase: a .backup copy outside data/ (no network)")
+    ap.add_argument("--tickers", default=None, metavar="PATH",
+                    help="SERVED phase only (addendum 308 item 1(c)): each tour's accepted event tickers, sorted, one "
+                         "per line, to <PATH>.ATP.txt / <PATH>.WTA.txt (never under data/; PATH's directory must exist)")
+    ap.add_argument("--from", dest="date_from", default=None, metavar="YYYY-MM-DD",
+                    help="SERVED phase only (addendum 309 item 6): the window line's first ticker date (inclusive; "
+                         "default the daily window's, yesterday in UTC)")
+    ap.add_argument("--through", dest="date_through", default=None, metavar="YYYY-MM-DD",
+                    help="SERVED phase only (addendum 309 item 6): the window line's last ticker date (inclusive; "
+                         "default the daily window's, tomorrow in UTC)")
     a = ap.parse_args(argv)
     tours = a.tour or list(kt.SERIES)
     lines: list[str] = []
@@ -446,12 +660,35 @@ def main(argv=None, adapter=None) -> int:
         lines.append(str(line))
         print(line, flush=True)
 
+    # the window is worked out HERE, before any call, given or not: one UTC today per run (a run crossing 00:00Z
+    # keeps the window it started with, as sp_run computes {yesterday}/{tomorrow} once at the chain's start)
+    window, why = None, None
+    defaulted = tuple(b for b, raw in (("from", a.date_from), ("through", a.date_through)) if raw is None)
+    if a.db is not None and len(defaulted) < 2:
+        why = ("REFUSED: --from / --through are the SERVED phase's (addendum 309 item 6); not with --db (the STORED "
+               "phase)")
+    elif a.db is None:
+        window, why = read_window(a.date_from, a.date_through, utc_today())
+    if why:
+        say(f"{why}; nothing read, nothing written")
+        print(f"{TAIL} " + json.dumps({"phase": "stored" if a.db is not None else "served", "exit": REFUSED,
+                                       "refused": why}, sort_keys=True), flush=True)
+        return REFUSED
+    if a.tickers is not None:
+        why = ("REFUSED: --tickers is the SERVED phase's (addendum 308 item 1(c)); not with --db (the STORED phase)"
+               if a.db is not None else refuse_tickers(a.tickers, tours))
+        if why:
+            say(f"{why}; nothing read, nothing written")
+            print(f"{TAIL} " + json.dumps({"phase": "stored" if a.db is not None else "served", "exit": REFUSED,
+                                           "refused": why}, sort_keys=True), flush=True)
+            return REFUSED
     if a.db is not None:
         code, out = stored_phase(a.db, tours, say)
         phase = "stored"
     else:
         adapter = adapter or kt.KalshiTennisAdapter()
-        code, out = served_phase(tours, adapter, say)
+        code, out = served_phase(tours, adapter, say, Path(a.tickers).expanduser() if a.tickers is not None else None,
+                                 window, defaulted)
         phase = "served"
     print(f"{TAIL} " + json.dumps({"phase": phase, "exit": code, **out}, default=str, sort_keys=True), flush=True)
     return code

@@ -59,11 +59,16 @@ class Fake:
 
 
 def run(capsys, argv, pages):
+    """(exit, console, the --out RECEIPT, the fake GET). The tail line is a summary; the evidence is the receipt."""
+    import tempfile
     fake = Fake(pages)
+    receipt = Path(tempfile.mkdtemp()) / "receipt.json"
+    if "--out" not in argv:
+        argv = [*argv, "--out", str(receipt)]
     code = probe.main(argv, get=fake)
     out = capsys.readouterr().out
-    tail = json.loads(out.strip().splitlines()[-1].split(" ", 1)[1])
-    return code, out, tail, fake
+    rec = json.loads(receipt.read_text()) if receipt.exists() else json.loads(out.strip().splitlines()[-1].split(" ", 1)[1])
+    return code, out, rec, fake
 
 
 def terms_pages():
@@ -366,7 +371,7 @@ def test_pass4_a_heading_inside_an_item_does_not_hide_the_lead_in():
             "  You may not:", "# Automated", "> use robots")
 
 
-def test_review_redirects_print_their_final_url_and_every_hop(capsys):
+def test_review_redirects_print_their_final_url_and_every_hop(capsys, tmp_path):
     """P2: requests follows redirects; the robots and report lines never printed the final URL, and the hops (their
     own GETs) were not listed in FETCHED THIS RUN."""
     class Redirecting(Fake):
@@ -377,9 +382,9 @@ def test_review_redirects_print_their_final_url_and_every_hop(capsys):
                 r.history = [NS(url=url, status_code=301)]
             return r
     fake = Redirecting(terms_pages())
-    code = probe.main(["--terms-url", TERMS], get=fake)
+    code = probe.main(["--terms-url", TERMS, "--out", str(tmp_path / "r.json")], get=fake)
     out = capsys.readouterr().out
-    tail = json.loads(out.strip().splitlines()[-1].split(" ", 1)[1])
+    tail = json.loads((tmp_path / "r.json").read_text())                # the receipt holds the evidence
     assert "final URL https://other.example.invalid/robots.txt (ANOTHER HOST: other.example.invalid)" in out
     assert tail["robots"]["final_url"] == "https://other.example.invalid/robots.txt"
     assert tail["redirects"] == [{"from": "https://terms.example.invalid/robots.txt",
@@ -592,3 +597,47 @@ def test_r8_every_robots_line_is_in_the_receipt_past_the_console_cap(capsys, tmp
     rec = json.loads(out_file.read_text())
     lines = rec["robots"]["text_lines"]
     assert len(lines) == 423 and lines[-1] == {"line": 423, "text": "Disallow: /injury-report/"}
+
+
+# ---- Codex's round on #970 (each fail-first) --------------------------------------------------------------------------
+
+def test_codex_the_tail_line_is_a_summary_never_the_whole_receipt(capsys, tmp_path):
+    out_file = tmp_path / "r.json"
+    probe.main(["--terms-url", TERMS, "--out", str(out_file)], get=Fake(terms_pages()))
+    last = capsys.readouterr().out.strip().splitlines()[-1]
+    tail = json.loads(last.split(" ", 1)[1])
+    assert "terms" not in tail and "robots" not in tail and '"text"' not in last and "You may not" not in last
+    assert tail["phase"] == "terms" and tail["exit"] == probe.OK and tail["receipt"] == str(out_file)
+    assert tail["page_lines"] == 7 and tail["robots_lines"] == 3
+    full = json.loads(out_file.read_text())                         # the evidence stays in the receipt
+    assert len(full["terms"]["page_lines"]) == 7 and len(full["robots"]["text_lines"]) == 3
+
+
+def test_codex_an_unwritable_receipt_is_refused_before_any_fetch(tmp_path, capsys, monkeypatch):
+    ro = tmp_path / "ro.json"
+    ro.write_text("{}")
+    real = probe.os.access                                             # root may write anything: the check is simulated
+    monkeypatch.setattr(probe.os, "access", lambda path, mode: False if Path(path) == ro else real(path, mode))
+    fake = Fake(terms_pages())
+    assert probe.main(["--terms-url", TERMS, "--out", str(ro)], get=fake) == probe.REFUSED
+    assert fake.asked == [] and "not writable" in capsys.readouterr().out
+    deep = tmp_path / "a" / "b" / "r.json"                           # a missing parent is made, then the run reads
+    assert probe.main(["--terms-url", TERMS, "--out", str(deep)], get=Fake(terms_pages())) == probe.OK
+    assert deep.exists()
+
+
+def test_codex_every_line_with_no_status_word_is_kept_in_the_receipt(capsys, monkeypatch):
+    text = ["Injury Report: 11/12/26 08:00 PM\n" + "".join(f"Filler line {i}\n" for i in range(30))
+            + "Doe, John Suspended League\n"]
+    monkeypatch.setattr(probe, "read_pdf_pages", lambda data: text)
+    _, out, _, _ = run(capsys, ["--report", "--index-url", INDEX, "--terms-ruling", "addendum 999 item 1"],
+                       report_pages())
+    assert "| Doe, John Suspended League" not in out                  # the console keeps its sample cap
+    f = probe.fields_report(text, probe.Out())
+    assert "Doe, John Suspended League" in f["lines_no_status_word_all"] and len(f["lines_no_status_word_all"]) == 31
+
+
+def test_codex_an_anchor_with_a_greater_than_in_a_quoted_attribute_is_read():
+    links = probe.index_links('<a title="Latest > archived" href="/f/Injury-Report_2026-11-12_08PM.pdf">x</a>',
+                              "https://reports.example.invalid/")
+    assert [x["file"] for x in links] == ["Injury-Report_2026-11-12_08PM.pdf"] and links[0]["text"] == "x"

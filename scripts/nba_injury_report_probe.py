@@ -437,23 +437,47 @@ def _sort_key(date: str, clock: str | None):
 HREF = re.compile(r"""(?<![\w-])href\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+))""", re.I)
 
 
+class _Anchors(HTMLParser):
+    """Every <a> with its href attribute (as html.parser reads attributes: quoting by the HTML rules, so a ">" inside a
+    quoted value never ends the tag; a data-href is another attribute) and its text."""
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.links, self.cur = [], None
+
+    def handle_starttag(self, tag, attrs):
+        if tag == "a":
+            href = dict(attrs).get("href")
+            self.cur = [href, []] if href is not None else None
+
+    def handle_endtag(self, tag):
+        if tag == "a" and self.cur is not None:
+            self.links.append((self.cur[0], "".join(self.cur[1])))
+            self.cur = None
+
+    def handle_data(self, data):
+        if self.cur is not None:
+            self.cur[1].append(data)
+
+
 def index_links(page: str, base: str) -> list[dict]:
     """Every link to a .pdf on the index page (its href attribute alone, quoted or not; never a data-href), absolute,
     in page order, once each: its text, its file name AS WRITTEN (the path's last segment, or a .pdf name carried in
-    the query) and the stamp read from that name, else from the whole URL, else from the link's text."""
+    the query) and the stamp read from that name, else from the whole URL, else from the link's text. Parsed by the
+    standard library's html.parser (Codex on #970: a ">" inside a quoted attribute hid a link from the regex)."""
+    a = _Anchors()
+    a.feed(page or "")
+    a.close()
     out, seen = [], set()
-    for m in re.finditer(r"(?is)<a\b([^>]*)>(.*?)</a\s*>", re.sub(r"(?s)<!--.*?-->", " ", page or "")):
-        h = HREF.search(m.group(1))
-        if not h:
-            continue
-        href = html.unescape(next(g for g in h.groups() if g is not None)).strip()
+    for href, raw_text in a.links:
+        href = href.strip()
         if not re.search(r"\.pdf(?:$|[?#&])", href, re.I):
             continue
         url = urljoin(base, href)
         if url in seen:
             continue
         seen.add(url)
-        text = re.sub(r"\s+", " ", html.unescape(re.sub(r"<[^>]+>", " ", m.group(2)))).strip()
+        text = re.sub(r"\s+", " ", raw_text).strip()
         parts = urlsplit(url)
         name = unquote(parts.path.rsplit("/", 1)[-1])
         if not name.lower().endswith(".pdf"):
@@ -512,7 +536,8 @@ def fields_report(pages: list[str], say: Out) -> dict:
         say(f"    | {ln[:LINE_CHARS]}")
     return {"pages": len(pages), "lines": len(lines), "stamp": stamp, "first_lines": first, "headers": headers,
             "status_lines": {w: counts.get(w, 0) for w in STATUS_WORDS}, "lines_no_status_word": len(bare),
-            "name_rows_no_status_word": len(named), "lines_no_status_word_sample": bare[:ROW_SAMPLE]}
+            "name_rows_no_status_word": len(named), "lines_no_status_word_sample": bare[:ROW_SAMPLE],
+            "lines_no_status_word_all": bare}           # every one, in the receipt (Codex on #970)
 
 
 MAPPING = (
@@ -619,7 +644,15 @@ def refuse_out(path: Path | None) -> str | None:
         return f"REFUSED: --out {path} is under a data/ directory (law 5); name a path outside it"
     if p.is_dir():
         return f"REFUSED: --out {path} is a directory; name a file"
-    if not os.access(p.parent if p.parent.exists() else ROOT, os.W_OK):
+    # before any fetch (Codex on #970): the receipt's real folder made and checked, an existing file checked itself,
+    # so a one-shot read is never lost to an unwritable receipt
+    try:
+        p.parent.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        return f"REFUSED: --out {path}: its folder cannot be made: {type(e).__name__}: {e}"
+    if p.exists() and not os.access(p, os.W_OK):
+        return f"REFUSED: --out {path}: the file is not writable"
+    if not os.access(p.parent, os.W_OK):
         return f"REFUSED: --out {path}: its folder is not writable"
     return None
 
@@ -667,7 +700,15 @@ def main(argv=None, get=None) -> int:
             say(f"FAILED: the receipt was not written: {type(e).__name__}: {e} (the console above is the receipt)")
             code = max(code, FAILED)
             receipt["exit"] = code
-    print(f"{TAIL} " + json.dumps(receipt, default=str, sort_keys=True), flush=True)
+    # the tail is a SUMMARY (Codex on #970): the evidence (every page line, every robots line, every window) is in the
+    # --out receipt, never on stdout
+    terms, robots, report = rec.get("terms") or {}, rec.get("robots") or {}, rec.get("report") or {}
+    summary = {"phase": phase, "exit": code, "fetched": fetch.fetched, "redirects": fetch.redirects,
+               "receipt": str(a.out) if a.out else None, "refused": rec.get("refused"),
+               "page_lines": len(terms.get("page_lines") or []), "robots_lines": robots.get("lines"),
+               "windows": len(terms.get("windows") or []),
+               "report": {k: report.get(k) for k in ("file", "bytes", "sha256", "reader")} if report else None}
+    print(f"{TAIL} " + json.dumps(summary, default=str, sort_keys=True), flush=True)
     return code
 
 

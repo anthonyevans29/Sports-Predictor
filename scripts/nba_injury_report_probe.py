@@ -15,15 +15,17 @@ scraped. The script's DEFAULT run is the TERMS PHASE alone [...] then it stops �
 PHASE (`--report`, with `--index-url`) is a second block of mine and runs ONLY after my ruling on the terms console."):
 
   TERMS (the default): the page named by --terms-url and the host's robots.txt as served (--robots-url, else the
-    robots.txt of --terms-url's own host, printed as derived). The clauses on automated access, robots, scraping and
-    reuse are quoted verbatim with their headings, beside the page's own "last updated" line; robots.txt is printed
-    as served. Then it STOPS: no index page and no report is fetched in this phase.
+    robots.txt of --terms-url's own host, printed as derived). Every block (paragraph or list item, whole, inline markup
+    kept in place, a list item with its lead-in) holding a word on automated access is quoted verbatim with its
+    heading, then the blocks on reuse and licence (capped on the console, all in the receipt), beside the page's own
+    date line; robots.txt is printed as served; a redirect prints its final URL and names another host. Then it
+    STOPS: no index page and no report is fetched in this phase.
   REPORT (--report, --index-url, --terms-ruling): refused unless --terms-ruling names the ruling on the terms console.
     ONE index read and ONE document (357 item 3(c): "no crawl, no retry loop, a plain honest User-Agent, nothing
-    fetched twice"): every report link with the publisher's own stamp as written in the link, the reports per day and
-    their times as written, then the newest report fetched for its form (content type, size, sha256, the PDF magic)
-    and, with the reader installed, its fields: the document's own header stamp, page 1's opening lines, the column
-    headers and the status words exactly as written, with counts. Then the mapping the feed PR would build, printed
+    fetched twice"): every report link's file name as written, grouped by day with the clock read from it, the links
+    whose date or clock does not read listed; then the newest report fetched for its form (content type, size, sha256,
+    the PDF magic) and, with the reader installed, its fields: the document's own header stamp, page 1's opening
+    lines, the column headers and the status words exactly as written, with counts. Then the mapping the feed PR would build, printed
     and NOT built (357 item 3(e)).
 
 THE URLS ARE THE ARCHITECT'S (357 item 3(b)): "read from a search on the day I write each block and printed in the
@@ -35,8 +37,9 @@ The fetched document is UNTRUSTED DATA: it is held in memory only, never written
 reader alone. Without the reader the report phase prints the form and stops (exit 2: the fields are not read).
 
 NOTHING HERE WAS CONFIRMED AGAINST A LIVE ANSWER: this container reaches no nba.com host. The column headers and status
-words below are HYPOTHESES (labelled on every line that uses them), printed found or not found; a row that carries
-none of the hypothesised status words is printed verbatim so an unseen word surfaces (law 1).
+words below are HYPOTHESES (labelled on every line that uses them), printed found or not found; the body lines that
+carry none of the hypothesised status words are counted and the first ROW_SAMPLE printed verbatim, so an unseen word
+surfaces (law 1).
 
 Exit: 0 every read answered; 1 a fetch failed; 2 a read REFUSED (no URL, a report phase without its ruling, nothing
 to quote, no reader). The last line: NBA-INJURY-PROBE {json}.
@@ -54,7 +57,7 @@ import sys
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import unquote, urljoin, urlsplit
 
 import requests
 
@@ -67,12 +70,25 @@ USER_AGENT = "sports-predictor-probe/1 (read-only research probe; one request pe
 TIMEOUT = 30
 READER = "pypdf"
 READER_FILE = "requirements-probe-pdf.txt"
-# the words an access clause is found by (each matched at a word's start, case-insensitive); the probe quotes, the
-# architect reads what the clauses allow
-TERMS_WORDS = ("automat", "robot", "scrap", "crawl", "spider", "bot", "harvest", "data mining", "extract", "reuse",
-               "re-use", "reproduc", "redistribut", "republish", "commercial", "permission", "license", "licence")
-UPDATED = re.compile(r"\b(last\s+(?:updated|modified|revised)|effective\s+(?:date|as\s+of))\b", re.I)
-TERMS_QUOTES, QUOTE_CHARS, UPDATED_LINES, ROBOTS_LINES = 60, 700, 5, 400
+# the words an access clause is found by, case-insensitive; the probe quotes, the architect reads what they allow.
+# CORE (automated access itself: every block holding one is quoted, never capped), each matched at a word's start,
+# "bot"/"bots" as a whole word only ("both", "bottom" are not); BROAD (reuse and licence words, common in boilerplate:
+# capped at TERMS_QUOTES on the console, every one kept in the --out receipt)
+CORE_WORDS = ("automat", "robot", "scrap", "crawl", "spider", "harvest", "data mining")
+BROAD_WORDS = ("extract", "reuse", "re-use", "reproduc", "redistribut", "republish", "commercial", "permission",
+               "license", "licence")
+CORE = re.compile(r"\b(?:" + "|".join(re.escape(w) for w in CORE_WORDS) + r")|\bbots?\b", re.I)
+BROAD = re.compile(r"\b(?:" + "|".join(re.escape(w) for w in BROAD_WORDS) + ")", re.I)
+# the page's own date line: "Last updated / modified / revised", "Effective date / as of", or a block that opens with
+# "Updated:", "Revised:", "Effective:" or "Modified:"
+UPDATED = re.compile(r"\blast\s+(?:updated|modified|revised)\b|\beffective\s+(?:date|as\s+of)\b"
+                     r"|^\s*(?:updated|revised|effective|modified)\s*:", re.I)
+TERMS_QUOTES, QUOTE_CHARS, UPDATED_LINES, ROBOTS_LINES = 60, 1500, 5, 400
+# block-level tags end a block; every other tag (a, strong, em, span, b, i, time, ...) is removed in place, so a
+# clause with inline markup stays whole (the pre-PR review's P1)
+BLOCK_TAGS = ("p", "div", "li", "ul", "ol", "dl", "dt", "dd", "tr", "td", "th", "table", "thead", "tbody", "section",
+              "article", "header", "footer", "main", "nav", "aside", "blockquote", "form", "fieldset", "br", "hr",
+              "pre", "figure", "figcaption", "body", "html")
 # HYPOTHESES, never confirmed here (law 1): each is printed found / not found on the run
 HEADER_WORDS = ("Game Date", "Game Time", "Matchup", "Team", "Player Name", "Current Status", "Reason")
 STATUS_WORDS = ("Out", "Doubtful", "Questionable", "Probable", "Available")
@@ -81,7 +97,9 @@ REPORT_HEADER = re.compile(r"Injury\s+Report\s*:\s*(.+)", re.I)
 # is counted and listed)
 LINK_DATE = re.compile(r"(\d{4})-(\d{2})-(\d{2})")
 LINK_TIME = re.compile(r"(?<!\d)(\d{1,2})(?:[_:.\-]?(\d{2}))?\s*([AaPp][Mm])(?![A-Za-z])")
-NAME_ROW = re.compile(r"\b[A-Z][A-Za-z'.\-]+(?: [A-Z][A-Za-z'.\-]+)*, [A-Z][A-Za-z'.\-]+")
+# a "Last, First" name, any script's letters (Jokić, Dončić): str patterns are Unicode
+NAME_ROW = re.compile(r"\b[^\W\d_][\w'.\-]*(?: [^\W\d_][\w'.\-]*)*, [^\W\d_][\w'.\-]*")
+PAGE_LINE = re.compile(r"^Page\s+\d+\s+of\s+\d+$", re.I)
 FIRST_LINES, ROW_SAMPLE, LINE_CHARS = 12, 10, 200
 
 
@@ -101,6 +119,7 @@ class Fetcher:
     def __init__(self, get=None):
         self.get = get or requests.get
         self.fetched: list[str] = []
+        self.redirects: list[dict] = []           # every redirect followed: its hops are GETs of their own
 
     def __call__(self, url: str):
         if url in self.fetched:
@@ -111,54 +130,84 @@ class Fetcher:
         except Exception as e:                      # noqa: BLE001 - a failed read is reported, never raised
             return None, {}, None, url, f"{type(e).__name__}: {e}"
         body = getattr(r, "content", None)
+        final = getattr(r, "url", url) or url
+        hops = list(getattr(r, "history", None) or [])
+        if final != url or hops:
+            self.redirects.append({"from": url, "to": final, "hops": len(hops)})
         err = None if r.status_code == 200 else f"HTTP {r.status_code}"
         if err is None and not body:
             err = "the answer is empty"
-        return r.status_code, dict(r.headers or {}), body, getattr(r, "url", url) or url, err
+        return r.status_code, dict(r.headers or {}), body, final, err
+
+
+def final_note(url: str, final: str) -> str:
+    """The final URL when a redirect was followed, and the other host named when it left the requested one."""
+    if final == url:
+        return ""
+    a, b = urlsplit(url).netloc, urlsplit(final).netloc
+    return f" · final URL {final}" + (f" (ANOTHER HOST: {b})" if a != b else "")
 
 
 def _text(body: bytes | None) -> str:
     return (body or b"").decode("utf-8", errors="replace")
 
 
-def page_blocks(page: str) -> list[tuple[str | None, str]]:
-    """The page as (heading, sentence) pairs: script/style dropped, every h1-h6 a heading, tags stripped, entities
-    unescaped, whitespace folded. The heading is the last one above the sentence, as the page writes it."""
-    t = re.sub(r"(?is)<(script|style|noscript)\b.*?</\1>", " ", page or "")
-    t = re.sub(r"\s+", " ", t)                       # the page's own line breaks fold: a block ends only at a tag
-    t = re.sub(r"(?is)<h[1-6]\b[^>]*>(.*?)</h[1-6]>",
-               lambda m: "\x01\x00H" + re.sub(r"<[^>]+>", " ", m.group(1)) + "\x01", t)
-    t = re.sub(r"(?s)<[^>]+>", "\x01", t)
+def page_blocks(page: str) -> list[dict]:
+    """The page as blocks in page order: {"heading", "text", "li"}. Comments, head, script, style and noscript are
+    dropped; every h1-h6 is a heading (its inner markup removed); a block-level tag (BLOCK_TAGS) ends a block; every
+    other tag is removed in place, so a clause with inline markup stays one block; entities unescaped; whitespace
+    folded. A block is quoted WHOLE, never cut into sentences (the pre-PR review: a sentence split broke clauses at
+    "e.g." and ";" and dropped their governing words)."""
+    t = re.sub(r"(?s)<!--.*?-->", " ", page or "")
+    t = re.sub(r"(?is)<(head|script|style|noscript)\b.*?</\1\s*>", " ", t)
+    t = re.sub(r"\s+", " ", t)
+    t = re.sub(r"(?is)<h[1-6]\b[^>]*>(.*?)</h[1-6]\s*>",
+               lambda m: "\x01\x00H" + re.sub(r"<[^>]+>", "", m.group(1)) + "\x01", t)
+    t = re.sub(r"(?i)<li\b[^>]*>", "\x01\x00L", t)
+    t = re.sub(r"(?i)</?(?:" + "|".join(BLOCK_TAGS) + r")\b[^>]*>", "\x01", t)
+    t = re.sub(r"(?s)<[^>]+>", "", t)                   # inline tags: removed in place
     t = html.unescape(t)
     out, heading = [], None
-    for line in t.split("\x01"):
-        if line.startswith("\x00H"):
-            h = re.sub(r"\s+", " ", line[2:]).strip()
+    for piece in t.split("\x01"):
+        li = piece.startswith("\x00L")
+        if piece.startswith("\x00H"):
+            h = re.sub(r"\s+", " ", piece[2:]).strip()
             heading = h or heading
             continue
-        for s in re.split(r"(?<=[.!?;])\s+", line):
-            s = re.sub(r"\s+", " ", s).strip()
-            if s:
-                out.append((heading, s))
+        text = re.sub(r"\s+", " ", piece[2:] if li else piece).strip()
+        if text:
+            out.append({"heading": heading, "text": text, "li": li})
     return out
 
 
-def terms_quotes(page: str) -> tuple[list[tuple[str | None, str]], list[str], int]:
-    """(the access clauses quoted with their headings, the page's own "last updated" lines, the clauses not printed
-    past the cap). A sentence is quoted whole up to QUOTE_CHARS (a cut is marked); nothing is paraphrased."""
-    word = re.compile(r"\b(?:" + "|".join(re.escape(w) for w in TERMS_WORDS) + ")", re.I)
+def _cut(s: str) -> str:
+    return s if len(s) <= QUOTE_CHARS else s[:QUOTE_CHARS] + " [...]"
+
+
+def terms_quotes(page: str, cap: int | None = None) -> tuple[list[dict], list[str], int]:
+    """(the access clauses, the page's own date lines, the broad clauses not printed past the cap). Each clause is a
+    WHOLE block, verbatim up to QUOTE_CHARS (a cut is marked), with its heading; a list item carries its lead-in (the
+    nearest block above it that is not a list item). CORE clauses first and never capped; BROAD ones after, capped at
+    `cap` (TERMS_QUOTES when None; 0 or less: uncapped, the receipt's full list). Nothing is paraphrased."""
+    cap = TERMS_QUOTES if cap is None else cap
     blocks = page_blocks(page)
-    hits = [(h, s if len(s) <= QUOTE_CHARS else s[:QUOTE_CHARS] + " [...]") for h, s in blocks if word.search(s)]
-    seen, uniq = set(), []
-    for h, s in hits:
-        if (h, s) not in seen:
-            seen.add((h, s))
-            uniq.append((h, s))
+    core, broad, seen, lead = [], [], set(), None
+    for b in blocks:
+        kind = "core" if CORE.search(b["text"]) else ("broad" if BROAD.search(b["text"]) else None)
+        if kind and (b["heading"], b["text"]) not in seen:
+            seen.add((b["heading"], b["text"]))
+            q = {"heading": b["heading"], "text": _cut(b["text"]), "kind": kind}
+            if b["li"]:
+                q["lead_in"] = _cut(lead) if lead else None
+            (core if kind == "core" else broad).append(q)
+        if not b["li"]:
+            lead = b["text"]
+    shown = broad if cap <= 0 else broad[:cap]
     updated = []
-    for _, s in blocks:
-        if UPDATED.search(s) and s not in updated:
-            updated.append(s[:QUOTE_CHARS])
-    return uniq[:TERMS_QUOTES], updated[:UPDATED_LINES], max(0, len(uniq) - TERMS_QUOTES)
+    for b in blocks:
+        if UPDATED.search(b["text"]) and b["text"] not in updated:
+            updated.append(_cut(b["text"]))
+    return core + shown, updated[:UPDATED_LINES], len(broad) - len(shown)
 
 
 def robots_for(terms_url: str) -> str:
@@ -175,7 +224,7 @@ def terms_phase(a, say: Out, fetch: Fetcher) -> tuple[int, dict]:
     rec: dict = {"terms_url": a.terms_url}
     worst = OK
     status, hdr, body, final, err = fetch(a.terms_url)
-    say(f"TERMS {a.terms_url} · HTTP {status}" + (f" · final URL {final}" if final != a.terms_url else "")
+    say(f"TERMS {a.terms_url} · HTTP {status}" + final_note(a.terms_url, final)
         + (f" · FAILED: {err}" if err else f" · {len(body)} bytes"))
     rec["terms"] = {"http": status, "final_url": final, "error": err}
     if err:
@@ -187,26 +236,33 @@ def terms_phase(a, say: Out, fetch: Fetcher) -> tuple[int, dict]:
                                                            else "none found (no 'last updated' / 'effective' line)"))
         if not quoted:
             worst = REFUSED
-            say("  NOTHING TO QUOTE: no sentence holds an access word " + str(list(TERMS_WORDS))
-                + "; the terms are NOT READ for this feed (the architect reads the page itself)")
+            say("  NOTHING TO QUOTE: no block holds an access word " + str(list(CORE_WORDS) + ["bot(s)"])
+                + " or " + str(list(BROAD_WORDS)) + "; the terms are NOT READ for this feed (the architect reads the "
+                "page itself)")
         else:
-            say(f"  ACCESS CLAUSES QUOTED, verbatim with their headings ({len(quoted)} sentence(s) holding an access "
-                f"word {list(TERMS_WORDS)}; the architect reads what they allow):")
+            n_core = sum(1 for q in quoted if q["kind"] == "core")
+            say(f"  ACCESS CLAUSES QUOTED, each WHOLE block verbatim with its heading: {n_core} on automated access "
+                f"{list(CORE_WORDS) + ['bot(s)']} (every one), then {len(quoted) - n_core} on reuse and licence "
+                f"{list(BROAD_WORDS)}; the architect reads what they allow:")
             last = object()
-            for h, s in quoted:
-                if h != last:
-                    say(f"    [{h if h else 'no heading above'}]")
-                    last = h
-                say(f'      "{s}"')
+            for q in quoted:
+                if q["heading"] != last:
+                    say(f"    [{q['heading'] if q['heading'] else 'no heading above'}]")
+                    last = q["heading"]
+                if "lead_in" in q:
+                    say(f'      (the list\'s lead-in) "{q["lead_in"]}"' if q["lead_in"] else
+                        "      (the list's lead-in: none above it)")
+                say(f'      {"" if q["kind"] == "core" else "(reuse) "}"{q["text"]}"')
             if dropped:
-                say(f"    ... and {dropped} more sentence(s) holding an access word, not printed (cap {TERMS_QUOTES})")
+                say(f"    ... and {dropped} more reuse/licence block(s), not printed (cap {TERMS_QUOTES}); every one is "
+                    "in the --out receipt")
         rec["terms"].update(bytes=len(body), sha256=hashlib.sha256(body).hexdigest(), updated=updated,
-                            quoted=[{"heading": h, "text": s} for h, s in quoted], not_printed=dropped)
+                            quoted=quoted, quoted_all=terms_quotes(_text(body), cap=0)[0], not_printed=dropped)
     robots = a.robots_url or robots_for(a.terms_url)
     status, hdr, body, final, err = fetch(robots)
     say(f"\nROBOTS {robots}" + ("" if a.robots_url else " (derived: --terms-url's own host)") + f" · HTTP {status}"
-        + (f" · FAILED: {err}" if err else f" · {len(body)} bytes, as served:"))
-    rec["robots"] = {"url": robots, "derived": not a.robots_url, "http": status, "error": err}
+        + final_note(robots, final) + (f" · FAILED: {err}" if err else f" · {len(body)} bytes, as served:"))
+    rec["robots"] = {"url": robots, "derived": not a.robots_url, "http": status, "final_url": final, "error": err}
     if err:
         worst = max(worst, FAILED)
     else:
@@ -243,20 +299,34 @@ def _sort_key(date: str, clock: str | None):
     return (date, (int(hh) % 12 + (12 if ap == "PM" else 0)) * 60 + int(mm))
 
 
+HREF = re.compile(r"""(?<![\w-])href\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+))""", re.I)
+
+
 def index_links(page: str, base: str) -> list[dict]:
-    """Every link to a .pdf on the index page, absolute, in page order, once each: its text, file name and stamp."""
+    """Every link to a .pdf on the index page (its href attribute alone, quoted or not; never a data-href), absolute,
+    in page order, once each: its text, its file name AS WRITTEN (the path's last segment, or a .pdf name carried in
+    the query) and the stamp read from that name, else from the whole URL, else from the link's text."""
     out, seen = [], set()
-    for m in re.finditer(r"""(?is)<a\b[^>]*?href\s*=\s*["']([^"']+)["'][^>]*>(.*?)</a>""", page or ""):
-        href = html.unescape(m.group(1)).strip()
-        if not re.search(r"\.pdf(?:$|[?#])", href, re.I):
+    for m in re.finditer(r"(?is)<a\b([^>]*)>(.*?)</a\s*>", re.sub(r"(?s)<!--.*?-->", " ", page or "")):
+        h = HREF.search(m.group(1))
+        if not h:
+            continue
+        href = html.unescape(next(g for g in h.groups() if g is not None)).strip()
+        if not re.search(r"\.pdf(?:$|[?#&])", href, re.I):
             continue
         url = urljoin(base, href)
         if url in seen:
             continue
         seen.add(url)
         text = re.sub(r"\s+", " ", html.unescape(re.sub(r"<[^>]+>", " ", m.group(2)))).strip()
-        name = urlsplit(url).path.rsplit("/", 1)[-1]
+        parts = urlsplit(url)
+        name = unquote(parts.path.rsplit("/", 1)[-1])
+        if not name.lower().endswith(".pdf"):
+            q = re.search(r"([^/=&?]+\.pdf)", unquote(parts.query), re.I)
+            name = q.group(1) if q else name
         date, clock = link_stamp(name)
+        if date is None:
+            date, clock = link_stamp(unquote(parts.path + "?" + parts.query))
         if date is None:
             date, clock = link_stamp(text)
         out.append({"url": url, "text": text, "file": name, "date": date, "clock": clock})
@@ -292,14 +362,22 @@ def fields_report(pages: list[str], say: Out) -> dict:
                 counts[w] += 1
     say("  STATUS WORDS (HYPOTHESES; lines holding each, case as written): "
         + " · ".join(f"{w}: {counts.get(w, 0)}" for w in STATUS_WORDS))
-    bare = [ln for ln in lines if NAME_ROW.search(ln)
+    # every body line (not the document's stamp, a header row or a "Page N of M" line) holding none of the hypothesised
+    # status words, whatever it holds (a team-level line, a name in any script): so an unseen word surfaces. Counted by
+    # TEXT LINE, as the reader extracts them (a cell-per-line extraction splits one row over several lines).
+    def is_body(ln):
+        return not (REPORT_HEADER.search(ln) or PAGE_LINE.search(ln) or sum(w in ln for w in HEADER_WORDS) >= 3)
+    bare = [ln for ln in lines if is_body(ln)
             and not any(re.search(rf"(?<![A-Za-z]){re.escape(w)}(?![A-Za-z])", ln) for w in STATUS_WORDS)]
-    say(f"  ROWS WITH A 'Last, First' NAME AND NONE OF THE HYPOTHESISED STATUS WORDS: {len(bare)}"
-        + (" (the first, verbatim, so an unseen word surfaces):" if bare else ""))
+    named = [ln for ln in bare if NAME_ROW.search(ln)]
+    say(f"  BODY LINES WITH NONE OF THE HYPOTHESISED STATUS WORDS: {len(bare)} (of them, with a 'Last, First' name: "
+        f"{len(named)}; counted by text line as extracted)"
+        + (f"; the first {min(len(bare), ROW_SAMPLE)}, verbatim, so an unseen word surfaces:" if bare else ""))
     for ln in bare[:ROW_SAMPLE]:
         say(f"    | {ln[:LINE_CHARS]}")
     return {"pages": len(pages), "lines": len(lines), "stamp": stamp, "first_lines": first, "headers": headers,
-            "status_lines": {w: counts.get(w, 0) for w in STATUS_WORDS}, "rows_no_status_word": len(bare)}
+            "status_lines": {w: counts.get(w, 0) for w in STATUS_WORDS}, "lines_no_status_word": len(bare),
+            "name_rows_no_status_word": len(named), "lines_no_status_word_sample": bare[:ROW_SAMPLE]}
 
 
 MAPPING = (
@@ -322,7 +400,7 @@ def report_phase(a, say: Out, fetch: Fetcher) -> tuple[int, dict]:
     say(f"REPORT PHASE, cleared by: {a.terms_ruling.strip()}")
     rec: dict = {"terms_ruling": a.terms_ruling.strip(), "index_url": a.index_url}
     status, hdr, body, final, err = fetch(a.index_url)
-    say(f"INDEX {a.index_url} · HTTP {status}" + (f" · final URL {final}" if final != a.index_url else "")
+    say(f"INDEX {a.index_url} · HTTP {status}" + final_note(a.index_url, final)
         + (f" · FAILED: {err}" if err else f" · {len(body)} bytes"))
     rec["index"] = {"http": status, "final_url": final, "error": err}
     if err:
@@ -331,31 +409,45 @@ def report_phase(a, say: Out, fetch: Fetcher) -> tuple[int, dict]:
     parsed = [x for x in links if x["date"]]
     say(f"  REPORT LINKS (.pdf) on the page: {len(links)} · with a date read from the link: {len(parsed)} · "
         f"unread: {len(links) - len(parsed)}")
-    for x in [x for x in links if not x["date"]][:ROW_SAMPLE]:
+    unread = [x for x in links if not x["date"]]
+    for x in unread:
         say(f"    unread stamp: {x['file']!r} (text {x['text'][:80]!r})")
+    for x in [x for x in parsed if not x["clock"]]:
+        say(f"    no readable clock: {x['file']!r}")
     by_day: dict[str, list] = defaultdict(list)
     for x in parsed:
-        by_day[x["date"]].append(x["clock"] or "no clock")
-    say("  REPORTS PER DAY and their times, AS WRITTEN in the links (the zone is the document's own, read below):")
+        by_day[x["date"]].append(x)
+    say("  REPORTS PER DAY: each link's FILE NAME AS WRITTEN, with the clock read from it in brackets (normalized; "
+        "the zone is the document's own, read below):")
     for d in sorted(by_day):
-        times = sorted(by_day[d], key=lambda c: _sort_key(d, None if c == "no clock" else c))
-        say(f"    {d}: {len(times)} · {', '.join(times)}")
-    rec["links"] = {"total": len(links), "dated": len(parsed),
-                    "per_day": {d: sorted(v, key=lambda c: _sort_key(d, None if c == "no clock" else c))
+        xs = sorted(by_day[d], key=lambda x: _sort_key(d, x["clock"]))
+        say(f"    {d}: {len(xs)} · {', '.join(x['clock'] or 'no clock' for x in xs)}")
+        for x in xs:
+            say(f"      {x['file']} ({x['clock'] or 'no readable clock'})")
+    rec["links"] = {"total": len(links), "dated": len(parsed), "files": [x["file"] for x in links],
+                    "unread": [x["file"] for x in unread],
+                    "per_day": {d: [{"file": x["file"], "clock": x["clock"]}
+                                    for x in sorted(v, key=lambda x: _sort_key(d, x["clock"]))]
                                 for d, v in sorted(by_day.items())}}
     if not links:
         say("  NO REPORT LINK on the page: nothing to fetch")
         return FAILED, rec
     pick = max(parsed, key=lambda x: _sort_key(x["date"], x["clock"])) if parsed else links[0]
     why = "the newest by its link's stamp" if parsed else "the first listed (no link carries a readable stamp)"
+    if parsed:
+        blind = sum(1 for x in by_day[pick["date"]] if not x["clock"])
+        if blind:
+            why += f"; {blind} link(s) on {pick['date']} carry no readable clock, so the newest of that day is not certain"
     say(f"\nONE REPORT ({why}): {pick['url']}")
     status, hdr, data, final, err = fetch(pick["url"])
     ctype = next((v for k, v in hdr.items() if k.lower() == "content-type"), None)
-    say(f"  HTTP {status} · content-type {ctype!r}" + (f" · FAILED: {err}" if err else f" · {len(data)} bytes · "
+    say(f"  HTTP {status}" + final_note(pick["url"], final) + f" · content-type {ctype!r}"
+        + (f" · FAILED: {err}" if err else f" · {len(data)} bytes · "
         f"sha256 {hashlib.sha256(data).hexdigest()} · PDF magic {'yes' if data[:5] == b'%PDF-' else 'NO'}"))
     say("  the document is UNTRUSTED DATA: held in memory only, never written, never executed; parsed by the reader "
         "alone")
-    rec["report"] = {"url": pick["url"], "file": pick["file"], "http": status, "content_type": ctype, "error": err}
+    rec["report"] = {"url": pick["url"], "file": pick["file"], "http": status, "final_url": final,
+                     "content_type": ctype, "error": err}
     if err:
         return FAILED, rec
     rec["report"].update(bytes=len(data), sha256=hashlib.sha256(data).hexdigest(), pdf_magic=data[:5] == b"%PDF-")
@@ -423,8 +515,10 @@ def main(argv=None, get=None) -> int:
             code, rec = REFUSED, {"refused": "report arguments without --report"}
         else:
             code, rec = terms_phase(a, say, fetch)
-    receipt = {"phase": phase, "exit": code, "fetched": fetch.fetched, **rec}
+    receipt = {"phase": phase, "exit": code, "fetched": fetch.fetched, "redirects": fetch.redirects, **rec}
     say(f"\nFETCHED THIS RUN ({len(fetch.fetched)}, each once): " + (" · ".join(fetch.fetched) or "nothing"))
+    for r in fetch.redirects:
+        say(f"  REDIRECTED: {r['from']} -> {r['to']} ({r['hops']} hop(s), each a GET of its own)")
     if a.out:
         try:
             a.out.write_text(json.dumps(receipt, indent=1, default=str))

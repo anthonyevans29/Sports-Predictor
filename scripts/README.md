@@ -14,7 +14,7 @@ has no record found: the line says what was searched, for the same later ruling.
 
 - `scripts/README.md` — this index. Addendum 276 item 3 (PR C). Not a script, so no kind.
 
-Counts: 113 scripts; LIVE 10, TOOL 62, ONE-OFF 29, UNDETERMINED 12. A script a test runs (imported, or as a subprocess) is TESTED, not LIVE: CI runs its tests, never its job; a script another kept script loads is a TOOL (a dependency), never ONE-OFF.
+Counts: 114 scripts indexed; LIVE 10, TOOL 63, ONE-OFF 29, UNDETERMINED 12 (counted from the sections below, #830's probe PR; `git ls-files scripts` holds 115: `scripts/cockpit_build.py` is not yet indexed). A script a test runs (imported, or as a subprocess) is TESTED, not LIVE: CI runs its tests, never its job; a script another kept script loads is a TOOL (a dependency), never ONE-OFF.
 
 ## LIVE (called by a chain, a block or CI)
 

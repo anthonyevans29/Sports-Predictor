@@ -87,7 +87,9 @@ def test_the_access_clauses_are_quoted_verbatim_with_their_headings_and_the_page
     code, out, tail, _ = run(capsys, ["--terms-url", TERMS], terms_pages())
     assert 'THE PAGE\'S OWN DATE LINE(S), verbatim: "Last Updated: June 1, 2026"' in out
     assert "    [4. Restrictions]" in out and "    [7. Content]" in out
-    assert ('"You may not use any robot, spider, scraper or other automated means to access the Services."' in out)
+    # each clause is its WHOLE block, verbatim (the pre-PR review: never cut into sentences)
+    assert ('"You may not use any robot, spider, scraper or other automated means to access the Services. Nothing else '
+            'here."' in out)
     assert '"You may not reproduce or redistribute Content for commercial purposes without permission."' in out
     assert "Plain sentence without the words" not in out and "ignore me" not in out     # script text never quoted
     assert [q["heading"] for q in tail["terms"]["quoted"]] == ["4. Restrictions", "7. Content"]
@@ -170,7 +172,8 @@ def test_the_fields_print_as_written_with_the_hypotheses_labelled_and_unseen_wor
     assert "STATUS WORDS (HYPOTHESES" in out and "Out: 1" in out and "Questionable: 1" in out and "Probable: 0" in out
     assert "| Poe, Edgar Day-To-Day Synthetic" in out          # a status word no hypothesis names, printed verbatim
     f = tail["report"]["fields"]
-    assert f["status_lines"]["Out"] == 1 and f["rows_no_status_word"] == 1
+    assert f["status_lines"]["Out"] == 1 and f["lines_no_status_word"] == 2 and f["name_rows_no_status_word"] == 1
+    assert "| NOT YET SUBMITTED" in out                          # a team-level line surfaces too
     assert "THE MAPPING, printed and NOT built" in out and "`injury_status`" in out
 
 
@@ -218,3 +221,122 @@ def test_the_reader_is_optional_pinned_by_hash_and_never_in_requirements_txt():
 def test_a_receipt_under_data_is_refused(tmp_path, capsys):
     assert probe.main(["--terms-url", TERMS, "--out", str(tmp_path / "data" / "r.json")], get=Fake({})) == probe.REFUSED
     assert "law 5" in capsys.readouterr().out
+
+
+# ---- the pre-PR adversarial review's findings (each reproduced on 0863278f, fail-first) -----------------------------
+
+INLINE_PAGE = """<html><body><!-- <p>Old text: no robots at all, and Last Updated: 1999.</p> -->
+<p><strong>Last Updated:</strong> October 1, 2025</p>
+<h2>Prohibited <span>Uses</span></h2>
+<p>You may <strong>not</strong> use any <a href="/x">robot</a>, spider or other automated means (e.g. scripts) to
+access the Services; nor may you do so through U.S. intermediaries.</p>
+<p>You agree that you will not:</p><ul><li>scrape, harvest or extract data from the Services;</li>
+<li>frame the Services.</li></ul>
+<p>Both parties agree. The bottom line is simple.</p>
+</body></html>"""
+
+
+def test_review_inline_markup_keeps_the_clause_whole_with_its_negation_and_the_date_with_its_label():
+    """P1 (three lenses): every tag was a block break, so "You may <strong>not</strong> use any <a>robot</a>" was cut
+    into fragments and the negation never printed; "<strong>Last Updated:</strong> October 1, 2025" lost its date.
+    A clause is now its whole block (paragraph or list item), inline tags kept in place; comments never read."""
+    quoted, updated, dropped = probe.terms_quotes(INLINE_PAGE)
+    texts = [q["text"] for q in quoted]
+    assert ("You may not use any robot, spider or other automated means (e.g. scripts) to access the Services; nor "
+            "may you do so through U.S. intermediaries.") in texts
+    assert updated == ["Last Updated: October 1, 2025"]                      # the comment's 1999 line is not read
+    assert not [t for t in texts if "1999" in t or "Old text" in t]
+    assert [q["heading"] for q in quoted if q["text"].startswith("You may not")] == ["Prohibited Uses"]
+
+
+def test_review_a_list_item_prints_with_its_lead_in():
+    quoted, _, _ = probe.terms_quotes(INLINE_PAGE)
+    li = [q for q in quoted if q["text"].startswith("scrape, harvest")]
+    assert li and li[0]["lead_in"] == "You agree that you will not:"
+
+
+def test_review_bot_is_a_whole_word_and_the_core_access_words_are_never_capped(monkeypatch):
+    """P2: 'bot' matched 'Both'/'bottom', and the 60-quote cap filled in page order with broad words ('license',
+    'permission') before the robots clause. Core words are quoted in full; only the broad ones are capped."""
+    quoted, _, _ = probe.terms_quotes(INLINE_PAGE)
+    assert not [q for q in quoted if q["text"].startswith("Both parties")]
+    filler = "".join(f"<p>Clause {i}: the license and permission terms apply.</p>" for i in range(80))
+    page = filler + "<h2>Access</h2><p>No robots may access the Services.</p>"
+    monkeypatch.setattr(probe, "TERMS_QUOTES", 10)
+    quoted, _, dropped = probe.terms_quotes(page)
+    assert "No robots may access the Services." in [q["text"] for q in quoted]          # core: never capped
+    assert len([q for q in quoted if q["kind"] == "broad"]) == 10 and dropped == 70
+    assert quoted[0]["kind"] == "core"                                                 # core printed first
+
+
+@pytest.mark.parametrize("line", ["Updated: March 3, 2026", "Revised: 2026-03-03", "Effective: March 3, 2026",
+                                  "Last modified 03/03/2026", "Effective as of March 3, 2026"])
+def test_review_the_date_line_forms(line):
+    _, updated, _ = probe.terms_quotes(f"<p>{line}</p><p>No robots.</p>")
+    assert updated == [line]
+
+
+def test_review_redirects_print_their_final_url_and_every_hop(capsys):
+    """P2: requests follows redirects; the robots and report lines never printed the final URL, and the hops (their
+    own GETs) were not listed in FETCHED THIS RUN."""
+    class Redirecting(Fake):
+        def __call__(self, url, headers=None, timeout=None, allow_redirects=True):
+            r = super().__call__(url, headers, timeout, allow_redirects)
+            if url.endswith("robots.txt"):
+                r.url = "https://other.example.invalid/robots.txt"
+                r.history = [NS(url=url, status_code=301)]
+            return r
+    fake = Redirecting(terms_pages())
+    code = probe.main(["--terms-url", TERMS], get=fake)
+    out = capsys.readouterr().out
+    tail = json.loads(out.strip().splitlines()[-1].split(" ", 1)[1])
+    assert "final URL https://other.example.invalid/robots.txt (ANOTHER HOST: other.example.invalid)" in out
+    assert tail["robots"]["final_url"] == "https://other.example.invalid/robots.txt"
+    assert tail["redirects"] == [{"from": "https://terms.example.invalid/robots.txt",
+                                  "to": "https://other.example.invalid/robots.txt", "hops": 1}]
+
+
+def test_review_every_dated_link_prints_its_file_name_as_written_and_unquoted_or_query_links_are_read(capsys,
+                                                                                                   monkeypatch):
+    """P1/P2: the per-day line printed normalized clocks under "AS WRITTEN" and no dated file name; an unquoted href was
+    dropped silently and a data-href was taken for the link; a stamp in the query string was never read."""
+    page = ('<a data-href="/x/nope.pdf" href="/files/Injury-Report_2026-11-12_05PM.pdf">a</a>'
+            '<a href=/files/Injury-Report_2026-11-12_01_30PM.pdf>b</a>'
+            '<a href="/download?file=Injury-Report_2026-11-11_08PM.pdf">c</a>')
+    pages = {INDEX: (200, page.encode(), {}),
+             "https://reports.example.invalid/files/Injury-Report_2026-11-12_05PM.pdf": (200, PDF, {})}
+    monkeypatch.setattr(probe, "read_pdf_pages", lambda data: PAGE_TEXT)
+    code, out, tail, fake = run(capsys, ["--report", "--index-url", INDEX, "--terms-ruling", "addendum 999 item 1"],
+                                pages)
+    assert "REPORT LINKS (.pdf) on the page: 3 · with a date read from the link: 3 · unread: 0" in out
+    assert "      Injury-Report_2026-11-12_01_30PM.pdf (01:30 PM)" in out
+    assert "      Injury-Report_2026-11-12_05PM.pdf (05:00 PM)" in out
+    assert "      Injury-Report_2026-11-11_08PM.pdf (08:00 PM)" in out
+    assert "nope.pdf" not in out
+    assert "ONE REPORT (the newest by its link's stamp): https://reports.example.invalid/files/Injury-Report_2026-11-12_05PM.pdf" in out
+    assert sorted(tail["links"]["files"]) == sorted(["Injury-Report_2026-11-12_05PM.pdf",
+                                                     "Injury-Report_2026-11-12_01_30PM.pdf",
+                                                     "Injury-Report_2026-11-11_08PM.pdf"])
+
+
+def test_review_a_newest_date_link_with_no_readable_clock_makes_the_pick_say_so(capsys, monkeypatch):
+    page = ('<a href="/f/Injury-Report_2026-11-12_05PM.pdf">a</a><a href="/f/Injury-Report_2026-11-12_late.pdf">b</a>')
+    pages = {INDEX: (200, page.encode(), {}),
+             "https://reports.example.invalid/f/Injury-Report_2026-11-12_05PM.pdf": (200, PDF, {})}
+    monkeypatch.setattr(probe, "read_pdf_pages", lambda data: PAGE_TEXT)
+    code, out, _, _ = run(capsys, ["--report", "--index-url", INDEX, "--terms-ruling", "addendum 999 item 1"], pages)
+    assert "no readable clock: 'Injury-Report_2026-11-12_late.pdf'" in out
+    assert "the newest by its link's stamp; 1 link(s) on 2026-11-12 carry no readable clock" in out
+
+
+def test_review_unseen_status_words_surface_on_any_line_and_names_with_diacritics_read(capsys, monkeypatch):
+    """P2: only ASCII 'Last, First' lines surfaced; a team-level line ('NOT YET SUBMITTED') or a name with a
+    diacritic never did, so an unseen status word there was never printed."""
+    text = ["Injury Report: 11/12/26 08:00 PM\nGame Date Game Time Matchup Team Player Name Current Status Reason\n"
+            "Jokić, Nikola Out Injury\nDončić, Luka Suspended League\nSynthetic Alphas NOT YET SUBMITTED\n"]
+    monkeypatch.setattr(probe, "read_pdf_pages", lambda data: text)
+    code, out, tail, _ = run(capsys, ["--report", "--index-url", INDEX, "--terms-ruling", "addendum 999 item 1"],
+                             report_pages())
+    assert "| Dončić, Luka Suspended League" in out and "| Synthetic Alphas NOT YET SUBMITTED" in out
+    f = tail["report"]["fields"]
+    assert f["lines_no_status_word"] == 2 and f["name_rows_no_status_word"] == 1

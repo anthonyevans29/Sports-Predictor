@@ -1,0 +1,3 @@
+**2026-11-12 — BUILT (#908; ARCHITECT 2026-11-12 14:25 ET, addendum 358 item 7): RULED (b), with a tripwire. #908's write path is latent while api_american_football's get_match_stats is a stub; the fix rides the PR that wires those stats. A test now fails, naming #908 and 312 item 4, the day the stub returns anything else. #908 stays open as a limitation.**
+- **The interim rule stands** (312 item 4): no `sync-match-stats` on NCAA or NFL rows of a season the provider has reused an id in. The two read paths stay listed on #908: `resync-diff` without `--season`, and `sync_odds(upcoming_only=False)` without a season.
+- **Not ruled on a guess** (358 item 7): whether the other sources reuse ids; it is read when one of them shows it.

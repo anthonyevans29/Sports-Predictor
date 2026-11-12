@@ -263,3 +263,59 @@ def test_the_nba_stored_phase_runs_no_collision_check(tmp_path, capsys):
     out = capsys.readouterr().out
     assert code == R.OK, out
     assert "TEAM ROWS vs THE NBA" not in out and out.strip().splitlines()[-1].startswith("NBA-CERTIFICATION-RECEIPT ")
+
+
+# ---- #965 (Codex on #957's push; ARCHITECT 2026-11-12, addendum 359 item 3): an empty stored season certifies nothing
+
+def _bare_copy(tmp_path: Path, teams: bool) -> Path:
+    """A copy with the schema, the NCAAMB competition and, with `teams`, two linked NCAAMB teams but NO game: the two
+    shapes 359 item 3 names ("an empty copy", "a copy with teams and no games"). Built under tmp_path, never data/."""
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import Session
+    from src.db.schema import Base, Competition, CompetitionTeam, Sport, Team
+    path = tmp_path / "bare.db"
+    eng = create_engine(f"sqlite:///{path}")
+    Base.metadata.create_all(eng)
+    if teams:
+        with Session(eng) as s:
+            col = Competition(sport=Sport.BASKETBALL, code="NCAAMB", name="y", area="y", type="LEAGUE")
+            ts = [Team(sport=Sport.BASKETBALL, name=f"Synthetic College {i}", external_ids={"api_basketball": str(i)})
+                  for i in (2001, 2002)]
+            s.add_all([col, *ts])
+            s.flush()
+            s.add_all([CompetitionTeam(competition_id=col.id, team_id=t.id, season="2026") for t in ts])
+            s.commit()
+    eng.dispose()
+    return path
+
+
+@pytest.mark.parametrize("teams", [False, True], ids=["empty-copy", "teams-no-games"])
+def test_965_an_ncaamb_stored_season_with_no_rows_or_no_linked_teams_fails(tmp_path, capsys, teams):
+    """359 item 3, verbatim: "for NCAAMB, the stored phase FAILS (its own exit and line, "nothing stored to certify")
+    when the season's rows or its linked teams read 0, fail-first on an empty copy and on a copy with teams and no
+    games". Before the fix both copies exited 0 ("0 rows · teams linked 0 · shared: 0" read as a pass)."""
+    path = _bare_copy(tmp_path, teams)
+    code = R.main(["--competition", "NCAAMB", "--db", str(path)])
+    out = capsys.readouterr().out
+    assert code == R.FAILED, out
+    linked = 2 if teams else 0
+    assert f"NCAAMB 2026 (stored): 0 rows · teams linked {linked}" in out
+    assert (f"FAILED: nothing stored to certify (NCAAMB 2026: 0 rows · teams linked {linked}; a certification that "
+            "passes on nothing is not one, addendum 359 item 1)") in out
+    tail = json.loads(out.strip().splitlines()[-1].split(" ", 1)[1])
+    assert tail["exit"] == R.FAILED and tail["seasons"]["2026"]["nothing_stored"] is True
+
+
+def test_965_the_nba_stored_phase_is_left_as_certified_on_an_empty_season(tmp_path, capsys):
+    """359 item 3: "the NBA's stored phase is left as certified": an empty NBA season still exits 0."""
+    path = _bare_copy(tmp_path, False)
+    assert R.main(["--db", str(path), "--season", "2026"]) == R.OK
+    out = capsys.readouterr().out
+    assert "NBA 2026 (stored): 0 rows" in out and "nothing stored to certify" not in out
+
+
+def test_965_a_stop_outranks_the_empty_failure(tmp_path, capsys):
+    """A shared NBA row is a STOP (3) whatever else the copy shows; the clean loaded copy still exits 0."""
+    path, _ = _copy(tmp_path, shared=True)
+    assert R.main(["--competition", "NCAAMB", "--db", str(path)]) == R.STOP
+    capsys.readouterr()

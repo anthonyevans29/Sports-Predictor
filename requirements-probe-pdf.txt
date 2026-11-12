@@ -1,0 +1,10 @@
+# The NBA injury-report probe's PDF reader: LAPTOP-ONLY and optional (ARCHITECT 2026-11-12 13:50 ET, addendum 357
+# item 3(d): "a pure-Python one, optional, laptop-only, pinned by version and hash in its own requirements file (the
+# graph engine's pattern; never requirements.txt), installed by my block"). Read by scripts/nba_injury_report_probe.py
+# only (read_pdf_pages); CI and the host do not install it, and its tests never need it (synthetic page text).
+# pypdf 6.21.4, BSD-3-Clause, the py3-none-any wheel (pure Python: no compiled file, no .pth, no entry point; 64 files),
+# uploaded to PyPI 2026-10-28T17:00:53Z; its sha256 read from PyPI's JSON and re-computed on the downloaded wheel
+# (equal). Requires-Python >=3.9; its one runtime dependency, typing_extensions, applies only below Python 3.11, so
+# --no-deps holds on 3.11 and later. A version bump is a PR that re-reads identity and hash, never a range.
+# Installed by the architect's block into the laptop's venv: --require-hashes --only-binary :all: --no-deps.
+pypdf==6.21.4 --hash=sha256:33e4fb41ca352810eb4e9838aa0d82d6888a5f8bf682f43e99cce5faa666255c

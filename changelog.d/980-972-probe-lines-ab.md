@@ -1,4 +1,4 @@
-## 2026-11-12 (#PR: 972-probe-lines-ab — the NBA injury-report probe keeps a line's characters: #972 items A and B (ARCHITECT 2026-11-12, addendum 363 item 6))
+## 2026-11-12 (#980: 972-probe-lines-ab — the NBA injury-report probe keeps a line's characters: #972 items A and B (ARCHITECT 2026-11-12, addendum 363 item 6))
 - **scripts/nba_injury_report_probe.py:** robots.txt and the report's text now break into lines only at CR, LF and CRLF (`text_lines`). `str.splitlines` also broke at VT, FF, FS/GS/RS, NEL and U+2028, and those characters were lost from the receipt's lines.
 - **Whitespace:** the page's whitespace folding, the report's line trimming and the index's link text now leave in place the control characters that Python's `\s` also took: VT, \x1c-\x1f and NEL (`fold_ws`, `trim_ws`). Every space, NBSP and the other Unicode spaces included, still folds and trims exactly as before: no mismatch with main in 200,000 random strings without those characters.
 - **Page footers:** `PAGE_LINE` allows edge whitespace, so a kept control at a "Page N of M" line's edge does not make it a body line. The console still shows every control character as `\xNN` (362 item 7).

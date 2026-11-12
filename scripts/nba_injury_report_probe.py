@@ -120,13 +120,13 @@ LINK_DATE = re.compile(r"(\d{4})-(\d{2})-(\d{2})")
 LINK_TIME = re.compile(r"(?<!\d)(\d{1,2})(?:[_:.\-]?(\d{2}))?\s*([AaPp][Mm])(?![A-Za-z])")
 # a "Last, First" name, any script's letters (Jokić, Dončić): str patterns are Unicode
 NAME_ROW = re.compile(r"\b[^\W\d_][\w'.\-]*(?: [^\W\d_][\w'.\-]*)*, [^\W\d_][\w'.\-]*")
-PAGE_LINE = re.compile(r"^Page\s+\d+\s+of\s+\d+$", re.I)
+PAGE_LINE = re.compile(r"^\s*Page\s+\d+\s+of\s+\d+\s*$", re.I)    # edge whitespace a kept control may leave (#972)
 # a line's characters are kept (#972 items A and B, addendum 363 item 6): text breaks into lines only at CR, LF and
 # CRLF (str.splitlines also breaks at VT, FF, FS/GS/RS, NEL and U+2028, and those characters were lost from the
-# receipt), and a page folds only the HTML whitespace (space, tab, LF, FF, CR; Python's \s also takes the control
-# characters \x1c-\x1f, NEL and NBSP, which a browser keeps)
-HTML_WS = " \t\n\x0c\r"
-_HTML_WS_RUN = re.compile(r"[ \t\n\x0c\r]+")
+# receipt), and the whitespace folding and trimming leave the control characters Python's \s also takes (VT,
+# \x1c-\x1f, NEL) in place; every space, NBSP and the other Unicode spaces included, folds and trims as before
+_WS_RUN = re.compile(r"[^\S\x0b\x1c-\x1f\x85]+")
+_WS_EDGES = re.compile(r"^[^\S\x0b\x1c-\x1f\x85]+|[^\S\x0b\x1c-\x1f\x85]+$")
 _LINE_BREAK = re.compile(r"\r\n|\r|\n")
 
 
@@ -138,9 +138,14 @@ def text_lines(text: str) -> list[str]:
     return lines[:-1] if lines[-1] == "" else lines
 
 
-def fold_html_ws(text: str) -> str:
-    """Each run of HTML whitespace as one space, the ends trimmed of it; every other character kept."""
-    return _HTML_WS_RUN.sub(" ", text).strip(HTML_WS)
+def trim_ws(text: str) -> str:
+    """The text with its edge whitespace trimmed, the kept control characters left in place."""
+    return _WS_EDGES.sub("", text)
+
+
+def fold_ws(text: str) -> str:
+    """Each whitespace run as one space and the ends trimmed, the kept control characters left in place."""
+    return trim_ws(_WS_RUN.sub(" ", text))
 FIRST_LINES, ROW_SAMPLE, LINE_CHARS = 12, 10, 200
 
 
@@ -311,7 +316,7 @@ class _Lines(HTMLParser):
         self.foreign = 0                                          # inside <svg>/<math>: a <title> there is content
 
     def flush(self, heading=False):
-        text = fold_html_ws(INVISIBLE.sub("", "".join(self.buf)))
+        text = fold_ws(INVISIBLE.sub("", "".join(self.buf)))
         self.buf.clear()
         if text:
             self.out.append({"text": text, "heading": heading})
@@ -613,7 +618,7 @@ def index_links(page: str, base: str) -> list[dict]:
         if url in seen:
             continue
         seen.add(url)
-        text = fold_html_ws(raw_text)
+        text = fold_ws(raw_text)
         parts = urlsplit(url)
         name = unquote(parts.path.rsplit("/", 1)[-1])
         if not name.lower().endswith(".pdf"):
@@ -637,8 +642,8 @@ def read_pdf_pages(data: bytes) -> list[str]:
 
 
 def fields_report(pages: list[str], say: Out) -> dict:
-    lines = [ln.strip(HTML_WS) for p in pages for ln in text_lines(p) if ln.strip(HTML_WS)]
-    first = [ln.strip(HTML_WS) for ln in text_lines(pages[0] if pages else "") if ln.strip(HTML_WS)][:FIRST_LINES]
+    lines = [trim_ws(ln) for p in pages for ln in text_lines(p) if trim_ws(ln)]
+    first = [trim_ws(ln) for ln in text_lines(pages[0] if pages else "") if trim_ws(ln)][:FIRST_LINES]
     say(f"  PAGES {len(pages)} · text lines {len(lines)}")
     stamp = next((REPORT_HEADER.search(ln).group(0) for ln in lines if REPORT_HEADER.search(ln)), None)
     say("  THE DOCUMENT'S OWN STAMP (hypothesis: a line 'Injury Report: ...'): "

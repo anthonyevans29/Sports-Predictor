@@ -792,4 +792,39 @@ def test_972_a_pdf_text_lines_break_only_at_cr_lf_and_crlf():
 def test_972_b_the_page_folds_only_html_whitespace():
     lines = [ln["text"] for ln in probe.page_lines(
         "<p>No scraping\x01 of\x1fthe\x85site.</p><p>a \n\t\r\x0c  b</p><p>c\xa0\xa0d e</p>")]
-    assert lines == ["No scraping\x01 of\x1fthe\x85site.", "a b", "c\xa0\xa0d e"]
+    assert lines == ["No scraping\x01 of\x1fthe\x85site.", "a b", "c d e"]       # spaces fold as on main; controls kept
+
+
+# ---- the first adversarial pass on the #972 A/B change: only the control characters are kept; every space (NBSP and
+# the other Unicode spaces) folds and trims exactly as on main ----------------------------------------------------------
+
+def test_972_pass1_an_nbsp_spacer_is_no_line_and_the_window_and_date_line_are_unchanged():
+    page = ("<p>Last Updated:</p><p>&nbsp;</p><p>October 1, 2026</p><p>No robots or scrapers may access.</p>"
+            "<p>&nbsp;</p><p>&nbsp;</p><p>Violators will be prosecuted.</p>")
+    windows, updated, dropped, lines = probe.terms_windows(page)
+    assert [ln["text"] for ln in lines] == ["Last Updated:", "October 1, 2026", "No robots or scrapers may access.",
+                                            "Violators will be prosecuted."]
+    assert probe.date_lines(lines)[0]["next"] == "October 1, 2026"
+    assert windows[0]["lines"][-1]["text"] == "Violators will be prosecuted."
+
+
+def test_972_pass1_a_page_of_only_nbsp_is_not_read(capsys):
+    pages = terms_pages()
+    pages[TERMS] = (200, "<html><body><p>&nbsp;</p><p>\xa0　</p></body></html>".encode(),
+                    {"Content-Type": "text/html"})
+    code, out, rec, fake = run(capsys, ["--terms-url", TERMS], pages)
+    assert "the page parsed to 0 lines: NOT READ" in out and code == probe.FAILED
+
+
+def test_972_pass1_pdf_lines_of_only_spaces_are_dropped_and_a_page_footer_is_not_a_body_line():
+    f = probe.fields_report(["Injury Report: 11/12/26\n\xa0\n　\nJames, LeBron Out\nPage 1 of 2\xa0\n"
+                             "\x85Page 2 of 2\x0b\n"], probe.Out())
+    assert f["lines"] == 4 and f["first_lines"][:2] == ["Injury Report: 11/12/26", "James, LeBron Out"]
+    assert f["lines_no_status_word_all"] == []
+    assert probe.fields_report(["\xa0\n　\n"], probe.Out())["lines"] == 0
+
+
+def test_972_pass1_index_link_text_folds_spaces_as_on_main():
+    links = probe.index_links('<a href="/f/Injury-Report_2026-11-12_08PM.pdf">\xa0 Report\xa0\xa0 8 PM　</a>',
+                              "https://reports.example.invalid/")
+    assert links[0]["text"] == "Report 8 PM"

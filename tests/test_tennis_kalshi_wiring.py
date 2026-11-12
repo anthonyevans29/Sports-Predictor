@@ -54,7 +54,8 @@ def test_the_two_series_are_mapped_and_priced_at_the_m_read_from_the_schedule():
     assert series_competition("KXATPMATCH") == "ATP" and shared_series()["KXWTAMATCH"] == "WTA"
     assert venue.KALSHI_FEE_M == {"KXNFLGAME": (1.0, 1.0), "KXNHLGAME": (1.0, 1.0), "KXNCAAFGAME": (1.0, 1.0),
                                   "KXEPLGAME": (1.0, 1.0), "KXMLBGAME": (0.5, 0.5), "KXUCLGAME": (1.0, 1.0),
-                                  "KXNBAGAME": (1.0, 1.0), "KXATPMATCH": (1.0, 1.0), "KXWTAMATCH": (1.0, 1.0)}
+                                  "KXNBAGAME": (1.0, 1.0), "KXNCAAMBGAME": (1.0, 1.0),     # NCAAMB: 353 item 2
+                                  "KXATPMATCH": (1.0, 1.0), "KXWTAMATCH": (1.0, 1.0)}
     src = (ROOT / "src" / "walters" / "venue.py").read_text()
     blk = src[src.index("# KXATPMATCH and KXWTAMATCH"):src.index('"KXATPMATCH": (1.0, 1.0)')]
     assert "addendum 274 item 1(b)" in blk and "read" in blk and "from the schedule" in blk

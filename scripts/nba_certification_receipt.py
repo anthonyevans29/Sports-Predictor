@@ -33,12 +33,28 @@ listing of the SAME two provider team ids (either order: "same two teams"; the o
 the SAME UTC day of the served kickoff (271 item 3(d): the timestamp, never the provider's date string) whose served
 short code is 'FT'. An AOT twin and any other same-day twin are counted on their own lines and NOT excluded.
 
-Exit: 0 every read answered; 1 a call failed; 2 a read REFUSED (no key, a season not served, a league whose served
-name does not match, a --db that is not a fresh copy outside data/). Last line: NBA-CERTIFICATION-RECEIPT {json} (counts
-and provider ids only). Writes nothing.
+NCAA MEN'S BASKETBALL (--competition NCAAMB; ARCHITECT 2026-11-12 11:05 ET, addendum 352 items 2-3): the same two
+phases for league 116 ("the certification receipt taking the competition as a parameter (the CANC breakdown first, the
+status vocabulary, the true-zero nulls, the stored phase on a .backup copy)"), with:
+  - THE SEASON (352 item 3(iv), verbatim): "HISTORY: the 2026-27 season ONLY. No model reads college basketball and none
+    is declared; a past season is loaded when a lane's declaration asks for it, with its own certification, never on
+    spec." Its default is 2026 alone, and any other --season is REFUSED for NCAAMB.
+  - THE TEAM-ID STOP (352 item 3(v), verbatim): "the receipt's check is enough AND it is a stop, in both phases: zero
+    NCAAMB team ids equal to a stored NBA team id, printed as a count with the ids if any; a non-zero count stops the
+    load and comes to me". Team lookup is by sport, source and provider id (src/ingestion/service.py), not by
+    competition, so a shared id would link an NCAAMB game to an NBA team row. SERVED (no database): the served NCAAMB
+    /teams ids against the NBA's served /teams ids for the seasons the NBA stores (NBA_STORED_SEASONS; the provider ids
+    the NBA's rows store). STORED: the team rows linked to both competitions (competition_teams and the matches' sides)
+    on the copy. Either non-zero: "STOP", exit 3.
+
+Exit: 0 every read answered; 1 a call failed; 2 a read REFUSED (no key, a season not served or not ruled, a league
+whose served name does not match, a --db that is not a fresh copy outside data/); 3 STOP (NCAAMB: a team id shared with
+the NBA, 352 item 3(v)). Last line: <COMP>-CERTIFICATION-RECEIPT {json} (counts and provider ids only). Writes nothing.
 
     python3 scripts/nba_certification_receipt.py [--season 2026 --season 2025 ...]
     python3 scripts/nba_certification_receipt.py --db /path/to/backup-copy.db
+    python3 scripts/nba_certification_receipt.py --competition NCAAMB
+    python3 scripts/nba_certification_receipt.py --competition NCAAMB --db /path/to/backup-copy.db
 """
 from __future__ import annotations
 
@@ -59,13 +75,22 @@ from src.adapters.api_basketball import (  # noqa: E402
 )
 from src.db.schema import MatchStatus  # noqa: E402
 
-OK, FAILED, REFUSED = 0, 1, 2
+OK, FAILED, REFUSED, STOP = 0, 1, 2, 3
 COMPETITION = "NBA"
 DEFAULT_SEASONS = ("2026", "2025", "2024")
+# NCAAMB (352 item 3(iv)): the 2026-27 season only; the NBA seasons its team ids are checked against (352 item 3(v)):
+# the three the NBA's certification loaded and stores (#839, comment 6707434869: 2026, 2025, 2024).
+SEASONS_BY_COMPETITION = {"NBA": DEFAULT_SEASONS, "NCAAMB": ("2026",)}
+RULED_SEASONS = {"NCAAMB": ("2026",)}
+NBA_STORED_SEASONS = ("2026", "2025", "2024")
 TWIN_SHORT = "FT"                  # 272 item 3: "an FT twin"
 COVERAGE_BASIS = ("SCHEDULED", "FINISHED", "POSTPONED")     # 272 item 3: "not CANCELLED"
 SIDECARS = ("-wal", "-shm", "-journal")
 TAIL = "NBA-CERTIFICATION-RECEIPT"
+
+
+def tail(comp: str) -> str:
+    return f"{comp}-CERTIFICATION-RECEIPT"
 
 
 def v(x) -> str:
@@ -113,12 +138,13 @@ def twin_class(r: dict, by_day: dict) -> tuple[str, list[dict]]:
     return ("other same-day twin", tw) if tw else ("no same-day twin", [])
 
 
-def season_report(ours: str, served, team_items: list, game_items: list, say, now: datetime) -> dict:
+def season_report(ours: str, served, team_items: list, game_items: list, say, now: datetime,
+                  comp: str = COMPETITION) -> dict:
     rows = [game_row(g) for g in game_items if isinstance(g, dict)]
     not_objects = sum(1 for g in game_items if not isinstance(g, dict))
     team_ids = {t.get("id") for t in (x.get("team") if isinstance(x.get("team"), dict) else x
                                       for x in team_items if isinstance(x, dict)) if t.get("id") is not None}
-    say(f"\nNBA {ours} = provider {v(served)} · /games {len(game_items)} items · /teams {len(team_items)} items")
+    say(f"\n{comp} {ours} = provider {v(served)} · /games {len(game_items)} items · /teams {len(team_items)} items")
 
     # 1. STATUS AS SERVED -----------------------------------------------------------------------------------------
     say("  STATUS AS SERVED (short | long: n; the map keys on the short code)")
@@ -229,10 +255,12 @@ def season_report(ours: str, served, team_items: list, game_items: list, say, no
         "off_teams": len(off_list), "team_ids": sorted(team_ids, key=str)}
 
 
-def served_phase(seasons: list[str], adapter, say) -> tuple[int, dict]:
-    say(f"NBA DATA CERTIFICATION RECEIPT · SERVED (addendum 271 item 3(e)-(f), 272 item 3; #839) · read-only · "
+def served_phase(seasons: list[str], adapter, say, comp: str = COMPETITION) -> tuple[int, dict]:
+    say(f"{comp} DATA CERTIFICATION RECEIPT · SERVED (addendum 271 item 3(e)-(f), 272 item 3"
+        + ("; 352 items 2-3" if comp != "NBA" else "") + f"; #839) · read-only · "
         f"opens no database · {datetime.now(timezone.utc).isoformat(timespec='seconds')}")
-    say("  run BEFORE the first `sync-matches --competition NBA`: the CANC breakdown is read before the map writes a row")
+    say(f"  run BEFORE the first `sync-matches --competition {comp}`: the CANC breakdown is read before the map writes "
+        "a row")
     if adapter.key_name is None:
         say(f"REFUSED: no key: {' and '.join(KEY_NAMES)} are both unset; no call made")
         return REFUSED, {"refused": "no key"}
@@ -240,11 +268,11 @@ def served_phase(seasons: list[str], adapter, say) -> tuple[int, dict]:
     # the provider's requests, counted by the adapter's own _get (a 429 and its retry are two), never the reads here
     calls_before = adapter.calls
     worst, out = OK, {"seasons": {}}
-    lid = LEAGUES[COMPETITION][0]
+    lid = LEAGUES[comp][0]
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     try:
-        served_list = adapter.served_seasons(COMPETITION)
-        say(f"  /leagues: league {lid} {LEAGUES[COMPETITION][1]!r}, every season as served: "
+        served_list = adapter.served_seasons(comp)
+        say(f"  /leagues: league {lid} {LEAGUES[comp][1]!r}, every season as served: "
             + ", ".join(v(s) for s in served_list))
     except Refused as e:
         say(str(e))
@@ -254,9 +282,9 @@ def served_phase(seasons: list[str], adapter, say) -> tuple[int, dict]:
         return FAILED, {"failed": "/leagues"}
     for ours in seasons:
         try:
-            served = adapter.provider_season(COMPETITION, ours)
+            served = adapter.provider_season(comp, ours)
         except Refused as e:
-            say(f"\nNBA {ours}: {e}")
+            say(f"\n{comp} {ours}: {e}")
             worst = max(worst, REFUSED)
             out["seasons"][ours] = {"refused": str(e)}
             continue
@@ -264,16 +292,18 @@ def served_phase(seasons: list[str], adapter, say) -> tuple[int, dict]:
             teams = adapter._get("teams", {"league": lid, "season": served}).get("response") or []
             games = adapter._get("games", {"league": lid, "season": served}).get("response") or []
         except Exception as e:                   # noqa: BLE001
-            say(f"\nNBA {ours} = provider {v(served)}: FAILED: {type(e).__name__}: {e}")
+            say(f"\n{comp} {ours} = provider {v(served)}: FAILED: {type(e).__name__}: {e}")
             worst = max(worst, FAILED)
             out["seasons"][ours] = {"failed": f"{type(e).__name__}"}
             continue
-        out["seasons"][ours] = season_report(ours, served, list(teams), list(games), say, now)
+        out["seasons"][ours] = season_report(ours, served, list(teams), list(games), say, now, comp)
     ids = {k: set(r.get("team_ids") or []) for k, r in out["seasons"].items() if "team_ids" in r}
     if len(ids) > 1:
         every = set.intersection(*ids.values())
         say("\nTEAM IDS ACROSS SEASONS: " + " · ".join(f"{k}: {len(s)} ({len(s - every)} not in every season)"
                                                     for k, s in ids.items()))
+    if comp == "NCAAMB":
+        worst = max(worst, served_collision(adapter, out, say))
     rem = adapter.requests_remaining
     n_calls = adapter.calls - calls_before
     say(f"\nCALLS: {n_calls} this run · {REMAINING_HEADER} {rem if rem is not None else 'not served'} (last served)")
@@ -281,7 +311,65 @@ def served_phase(seasons: list[str], adapter, say) -> tuple[int, dict]:
     return worst, out
 
 
-def stored_phase(db: str, seasons: list[str], say) -> tuple[int, dict]:
+def served_collision(adapter, out: dict, say) -> int:
+    """352 item 3(v), the SERVED half of the stop: the NCAAMB /teams ids this run read, against the NBA's served /teams
+    ids for NBA_STORED_SEASONS (the provider ids the NBA's stored rows carry). Prints the count, and the ids if any.
+    STOP (3) on a shared id or on a NBA read that could not be made (the check is read, never assumed: #902)."""
+    ours = set()
+    for r in (out.get("seasons") or {}).values():
+        ours |= set(r.get("team_ids") or [])
+    nba: dict = {}
+    lid = LEAGUES["NBA"][0]
+    for season in NBA_STORED_SEASONS:
+        try:
+            served = adapter.provider_season("NBA", season)
+            items = adapter._get("teams", {"league": lid, "season": served}).get("response") or []
+        except Exception as e:                   # noqa: BLE001 - an unread side is a stop, never a pass
+            say(f"\nTEAM IDS vs THE NBA (352 item 3(v)): STOP: the NBA's /teams for {season} could not be read "
+                f"({type(e).__name__}: {e}); the check is read, never assumed")
+            out["nba_collision"] = {"read": False, "season": season}
+            return STOP
+        for x in items:
+            t = x.get("team") if isinstance(x, dict) and isinstance(x.get("team"), dict) else x
+            if isinstance(t, dict) and t.get("id") is not None:
+                nba[t["id"]] = t.get("name")
+    shared = sorted(ours & set(nba), key=str)
+    say(f"\nTEAM IDS vs THE NBA (352 item 3(v), a stop): {len(ours)} NCAAMB team ids served · {len(nba)} NBA team ids "
+        f"served for {', '.join(NBA_STORED_SEASONS)} · shared: {len(shared)}"
+        + (": " + ", ".join(f"{i} (NBA {nba[i]!r})" for i in shared) if shared else ""))
+    out["nba_collision"] = {"read": True, "ncaamb_ids": len(ours), "nba_ids": len(nba), "shared": shared}
+    if shared:
+        say("STOP: an NCAAMB team id equals an NBA team id; the load stops here and comes to the architect "
+            "(352 item 3(v)): team lookup is by sport, source and provider id, so the sync would link the two")
+        return STOP
+    return OK
+
+
+def stored_collision(con, say) -> tuple[int, dict]:
+    """352 item 3(v), the STORED half: the team rows (our ids) linked to NCAAMB (its competition_teams and its
+    matches' sides) that are also linked to the NBA. A shared provider id would have made the NCAAMB sync link the
+    NBA's row, so a shared row IS the collision, read on the copy. Prints the count, and the ids with their names."""
+    q = ("SELECT t.team_id FROM competition_teams t JOIN competitions c ON c.id = t.competition_id WHERE c.code = ? "
+         "UNION SELECT m.home_team_id FROM matches m JOIN competitions c ON c.id = m.competition_id WHERE c.code = ? "
+         "UNION SELECT m.away_team_id FROM matches m JOIN competitions c ON c.id = m.competition_id WHERE c.code = ?")
+    sets = {}
+    for code in ("NCAAMB", "NBA"):
+        sets[code] = {r[0] for r in con.execute(q, (code, code, code)) if r[0] is not None}
+    shared = sorted(sets["NCAAMB"] & sets["NBA"])
+    names = {}
+    if shared:
+        marks = ",".join("?" * len(shared))
+        names = dict(con.execute(f"SELECT id, name FROM teams WHERE id IN ({marks})", shared).fetchall())
+    say(f"\nTEAM ROWS vs THE NBA (352 item 3(v), a stop): NCAAMB {len(sets['NCAAMB'])} team rows · NBA "
+        f"{len(sets['NBA'])} · shared: {len(shared)}"
+        + (": " + ", ".join(f"team {i} ({names.get(i)!r})" for i in shared) if shared else ""))
+    if shared:
+        say("STOP: an NCAAMB game is linked to an NBA team row; this comes to the architect (352 item 3(v))")
+        return STOP, {"ncaamb_rows": len(sets["NCAAMB"]), "nba_rows": len(sets["NBA"]), "shared": shared}
+    return OK, {"ncaamb_rows": len(sets["NCAAMB"]), "nba_rows": len(sets["NBA"]), "shared": []}
+
+
+def stored_phase(db: str, seasons: list[str], say, comp: str = COMPETITION) -> tuple[int, dict]:
     import sqlite3
 
     from src.walters import mlb_pitchers_gate as mp
@@ -295,7 +383,7 @@ def stored_phase(db: str, seasons: list[str], say) -> tuple[int, dict]:
     except mp.GateRefused as e:
         say(f"REFUSED: {e}; nothing read")
         return REFUSED, {"refused": str(e)}
-    say(f"NBA DATA CERTIFICATION RECEIPT · STORED (addendum 261 item 0: counts per season, status mapping, true-zero "
+    say(f"{comp} DATA CERTIFICATION RECEIPT · STORED (addendum 261 item 0: counts per season, status mapping, true-zero "
         f"nulls) · --db {path} (a .backup copy, opened {mp.COPY_URI_QUERY.lstrip('?')}) · no network")
     names = {s.name for s in MatchStatus}
     now = datetime.now(timezone.utc).replace(tzinfo=None)
@@ -303,17 +391,18 @@ def stored_phase(db: str, seasons: list[str], say) -> tuple[int, dict]:
         rows = con.execute(
             "SELECT m.id, m.season, m.status, m.status_raw, m.utc_date, m.home_team_id, m.away_team_id, "
             "m.home_score, m.away_score, m.external_ids, c.sport FROM matches m JOIN competitions c "
-            "ON c.id = m.competition_id WHERE c.code = ?", (COMPETITION,)).fetchall()
+            "ON c.id = m.competition_id WHERE c.code = ?", (comp,)).fetchall()
         team_rows = con.execute(
             "SELECT ct.season, COUNT(*) FROM competition_teams ct JOIN competitions c ON c.id = ct.competition_id "
-            "WHERE c.code = ? GROUP BY ct.season", (COMPETITION,)).fetchall()
+            "WHERE c.code = ? GROUP BY ct.season", (comp,)).fetchall()
+        collision = stored_collision(con, say) if comp == "NCAAMB" else None
     except sqlite3.Error as e:
         say(f"REFUSED: --db {path}: cannot be read as the schema the receipt needs ({type(e).__name__}: {e})")
         return REFUSED, {"refused": "schema"}
     finally:
         con.close()
     teams = {str(s): n for s, n in team_rows}
-    say(f"  stored sport values for {COMPETITION}: {counts(Counter(r[10] for r in rows))} · stored status values are "
+    say(f"  stored sport values for {comp}: {counts(Counter(r[10] for r in rows))} · stored status values are "
         f"the MatchStatus NAMES ({', '.join(sorted(names))}); any other spelling is printed, never counted as one")
     by_season: dict[str, list] = defaultdict(list)
     for r in rows:
@@ -326,7 +415,7 @@ def stored_phase(db: str, seasons: list[str], say) -> tuple[int, dict]:
         rs = by_season.get(ours, [])
         st = Counter(r[2] for r in rs)
         odd = {k: n for k, n in st.items() if k not in names}
-        say(f"\nNBA {ours} (stored): {len(rs)} rows · teams linked {teams.get(ours, 0)}")
+        say(f"\n{comp} {ours} (stored): {len(rs)} rows · teams linked {teams.get(ours, 0)}")
         say(f"  by status: {counts(Counter({k: n for k, n in st.items() if k in names}))}"
             + (f" · UNRECOGNISED stored values: {counts(Counter(odd))}" if odd else ""))
         say(f"  status_raw (the served code kept): {counts(Counter(r[3] if r[3] is not None else '<none>' for r in rs))}")
@@ -355,6 +444,9 @@ def stored_phase(db: str, seasons: list[str], say) -> tuple[int, dict]:
         out["seasons"][ours] = {"rows": len(rs), "teams": teams.get(ours, 0), "by_status": dict(st),
                                 "finished_null": len(fin_null), "ft_twin_excluded": sorted(excl),
                                 "games": len(rs) - len(excl), "coverage_basis": basis}
+    if collision is not None:
+        out["nba_collision"] = collision[1]
+        return collision[0], out
     return OK, out
 
 
@@ -367,30 +459,42 @@ def _load_env() -> None:
 
 
 def main(argv=None, adapter=None) -> int:
-    ap = argparse.ArgumentParser(description="NBA data certification receipt (addenda 271 item 3, 272 item 3)")
+    ap = argparse.ArgumentParser(description="Basketball data certification receipt (addenda 271 item 3, 272 item 3; "
+                                             "NCAAMB: 352 items 2-3)")
+    ap.add_argument("--competition", default=COMPETITION, choices=sorted(SEASONS_BY_COMPETITION),
+                    help="NBA (the default) or NCAAMB (NCAA men's basketball, 352 item 2)")
     ap.add_argument("--season", action="append", default=None,
-                    help="our int-style season (repeatable; default 2026, 2025, 2024)")
+                    help="our int-style season (repeatable; default: NBA 2026, 2025, 2024; NCAAMB 2026 only)")
     ap.add_argument("--db", default=None, help="STORED phase: a .backup copy outside data/ (no network)")
     a = ap.parse_args(argv)
-    seasons = a.season or list(DEFAULT_SEASONS)
+    comp = a.competition
+    seasons = a.season or list(SEASONS_BY_COMPETITION[comp])
     lines: list[str] = []
 
     def say(line: str = "") -> None:
         lines.append(str(line))
         print(line, flush=True)
 
-    if a.db is not None:
-        code, out = stored_phase(a.db, seasons, say)
+    ruled = RULED_SEASONS.get(comp)
+    off = [x for x in seasons if ruled is not None and x not in ruled]
+    if off:
+        say(f"REFUSED: {comp} season(s) {', '.join(off)}: the {', '.join(ruled)} season only (addendum 352 item 3(iv): "
+            "\"a past season is loaded when a lane's declaration asks for it, with its own certification, never on "
+            "spec\"); nothing read")
+        code, out, phase = REFUSED, {"refused": "season not ruled"}, "stored" if a.db is not None else "served"
+    elif a.db is not None:
+        code, out = stored_phase(a.db, seasons, say, comp)
         phase = "stored"
     else:
         if adapter is None:
             _load_env()
             adapter = APIBasketballAdapter()
-        code, out = served_phase(seasons, adapter, say)
+        code, out = served_phase(seasons, adapter, say, comp)
         phase = "served"
     for r in (out.get("seasons") or {}).values():
         r.pop("team_ids", None)
-    print(f"{TAIL} " + json.dumps({"phase": phase, "exit": code, **out}, default=str, sort_keys=True), flush=True)
+    print(f"{tail(comp)} " + json.dumps({"phase": phase, "exit": code, **out}, default=str, sort_keys=True),
+          flush=True)
     return code
 
 

@@ -244,14 +244,14 @@ def test_another_market_only_three_way_competition_appears_only_with_kalshi_1x2_
     _game(803, "PL", 1, 0, hs90=1, aw90=0, raw="FT")
     _legs(803, A)
     rec = paper.close_record(30, now=NOW)
-    assert list(rec) == ["NHL", "NCAA", "NBA", "ATP", "WTA", "CL", "ELC"]
+    assert list(rec) == ["NHL", "NCAA", "NBA", "NCAAMB", "ATP", "WTA", "CL", "ELC"]
     txt = paper.close_record_section(rec, 30)
     assert (f"- ELC · {KIND3} · close log-loss {-math.log(0.4527):.4f} · favourite 1/1 (100.0%) · draw favourite 0 · "
             "n=1 · overround mean 1.0050 · finished 1; left out: none\n"
             f"{unpriced_line('ELC', 0, 0)}") in txt
     assert "- UEL" not in txt and "- PL" not in txt
     assert paper.close_record_console(rec, 30) == (
-        "the close's record (PAPER; 30 days): kalshi_only two-way: NHL n=0 · NCAA n=0 · NBA n=0 · ATP n=0 · WTA n=0; "
+        "the close's record (PAPER; 30 days): kalshi_only two-way: NHL n=0 · NCAA n=0 · NBA n=0 · NCAAMB n=0 · ATP n=0 · WTA n=0; "
         "kalshi three-way (one "
         "capture, normalized): CL n=0 (unpriced 0) · ELC n=1 (unpriced 0)")
 
@@ -261,7 +261,7 @@ def test_the_market_only_set_is_the_codes_own():
     from src.walters.desk_policy import SHADOW_VENUE_COMPS
     from src.walters.export import _MARKET_ONLY_REASON
     assert set(paper.three_way_comps()) == (set(SHADOW_VENUE_COMPS) | EXAM_COMPS | set(_MARKET_ONLY_REASON)) - {
-        "NHL", "NCAA", "NBA", "ATP", "WTA", "CL"}
+        "NHL", "NCAA", "NBA", "NCAAMB", "ATP", "WTA", "CL"}
     assert "PL" not in paper.three_way_comps()
 
 

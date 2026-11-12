@@ -89,6 +89,13 @@ KALSHI_FEE_M = {                       # series -> (taker M, maker M), pre-live
     # doctrine is take), is the receipt that settles it, as #88's fills settled rounding." NBA rows price both costs,
     # both sides (274 item 2(1)); the record is PAPER and no NBA call exists to price (no model, no Desk family).
     "KXNBAGAME": (1.0, 1.0),
+    # KXNCAAMBGAME (NCAA men's basketball, NCAAMB): ARCHITECT 2026-11-12 10:45 ET, addendum 353 item 2, RULED on THIS
+    # read (352 item 3(i): "READ FIRST, never by precedent"). The operator's console, 2026-11-12T15:36Z, the laptop at
+    # 203373ad, read-only, by the architect's block, verbatim: "KXNCAAMBGAME · Men's College Basketball Game · category
+    # Sports · tags ['Basketball'] · fee_type quadratic_with_maker_fees · fee_multiplier 1 · frequency custom". "the
+    # listing serves exactly the two fee fields it served for KXNBAGAME (fee_type quadratic_with_maker_fees,
+    # fee_multiplier 1), so 274 item 1(a)'s reading applies to what was read here".
+    "KXNCAAMBGAME": (1.0, 1.0),
     # KXATPMATCH and KXWTAMATCH (lane tennis-market-only, #838): ARCHITECT 2026-11-06, addendum 274 item 1(b), "read
     # from the schedule" on 11-06 (the schedule above, "Last updated and effective: July 7, 2026"), as the repo records
     # the ruling: the roadmap's tennis lane, "the fee M for the two series READ from the schedule, KXATPMATCH and
@@ -119,6 +126,15 @@ KALSHI_SERIES_BY_COMPETITION = {
     # fee M is KALSHI_FEE_M's entry above, (1.0, 1.0) as RULED in addendum 274 item 1(a). Two-way (the shared path,
     # kalshi_sync.sync_kalshi_mlb with series_override, cli `sync-kalshi-nba`); market-only, PAPER, no call.
     "NBA": "KXNBAGAME",
+    # ARCHITECT 2026-11-12 10:45 ET, addendum 353 item 2: "KALSHI_SERIES_BY_COMPETITION["NCAAMB"] = "KXNCAAMBGAME"". READ
+    # from Kalshi's own series listing (find_series) by the operator, 2026-11-12T15:36Z: KXNCAAMBGAME, "Men's College
+    # Basketball Game", 350 open markets across 175 events at the read. The other candidate, KXNCAABGAME ("College
+    # Basketball Game", fee_type quadratic, 0 open markets, 0 events), is a dormant series and is NOT mapped; nor are
+    # KXNCAAMBD3GAME (Division III), KXNCAAWBGAME (women's; no lane) or KXNCAABBGAME (college BASEBALL: its prefix
+    # collides with "NCAAB", so nothing reads a series by prefix; every sync fetches one exact ticker). Two-way (the
+    # shared path, kalshi_sync.sync_kalshi_mlb with series_override, cli `sync-kalshi-ncaamb`); market-only, PAPER,
+    # no call.
+    "NCAAMB": "KXNCAAMBGAME",
     # ARCHITECT 2026-11-06, addendum 269 item 1 K1 (lane tennis-market-only, #838): "the two tour series READ as served:
     # KXATPMATCH 'ATP Tennis Match' and KXWTAMATCH 'WTA Tennis Match' (category Sports, tags Tennis, frequency custom)
     # [...] the market-only record is the two tour series and nothing else" (the stage-1 digest, #838

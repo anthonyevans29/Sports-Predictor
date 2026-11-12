@@ -1173,6 +1173,10 @@ _MARKET_ONLY_REASON = {
     # one of the code's market-only sets, which gives coverage its MARKET-ONLY status and PAPER lines
     # (coverage_map.market_only_sets) and export-fixtures its note.
     "NBA": "NBA basketball is market-only (addendum 261 item 1): no model declared, no call; the record is PAPER.",
+    # NCAAMB (ARCHITECT 2026-11-05, addendum 261 item 1(c); 2026-11-12, addendum 352 item 3(iv): "No model reads college
+    # basketball and none is declared").
+    "NCAAMB": ("NCAA men's basketball is market-only (addendum 261 item 1(c)): no model declared, no call; the record "
+               "is PAPER."),
     # ARCHITECT 2026-11-05, addendum 261 item 4 (lane tennis-market-only, #838): no model and no call; 2(e): "A MODEL:
     # NONE DECLARED". As NBA's line above: coverage's MARKET-ONLY status and PAPER lines, export-fixtures' note.
     "ATP": "ATP tennis is market-only (addendum 261 item 4): no model declared, no call; the record is PAPER.",

@@ -309,6 +309,17 @@ def test_intl_sync_writes_neutral_null_with_the_reason_on_a_reversed_row_and_der
             return r.neutral_derived, r.rule, r.venue_city, r.home_ground_city
     assert nd()[:2] == (False, ih.NEUTRAL_RULE)
     import cli
+    rev_line = ("  rows the provider lists reversed (neutral_derived NULL, rule NEUTRAL_RULE_REVERSED, reason "
+                "orientation_reversed): ")
+
+    def reversed_rows():
+        """intl-coverage's count, read whole-DB: the shared test DB may already hold another test's reversed row (#926:
+        test_scores_by_team's UNL 2073 row), so this test pins its own row as the count before plus one."""
+        out = CliRunner().invoke(cli.cli, ["intl-coverage"]).output
+        got = [ln for ln in out.splitlines() if ln.startswith(rev_line)]
+        assert len(got) == 1, got
+        return int(got[0][len(rev_line):])
+    n_before = reversed_rows()                       # this test's row is stored, not yet reversed
     out = CliRunner().invoke(cli.cli, ["intl-sync", "--from-dir", str(tmp_path / "again"), "--dry-run"]).output
     assert (f"  RULE on a row listed reversed (orientation_reversed 1 this run): neutral_derived NULL, the rule "
             f"above{ih.NEUTRAL_RULE_REVERSED[len(ih.NEUTRAL_RULE):]}") in out.splitlines(), out
@@ -318,9 +329,7 @@ def test_intl_sync_writes_neutral_null_with_the_reason_on_a_reversed_row_and_der
     assert flag is None and rule == ih.NEUTRAL_RULE_REVERSED and "orientation_reversed" in rule
     assert rule.startswith(ih.NEUTRAL_RULE) and len(rule) <= 512 and vcity == "Probe City"
     assert r["per_cs"][next(iter(r["per_cs"]))]["orientation_reversed"] == 1
-    out = CliRunner().invoke(cli.cli, ["intl-coverage"]).output
-    assert ("  rows the provider lists reversed (neutral_derived NULL, rule NEUTRAL_RULE_REVERSED, reason "
-            "orientation_reversed): 1") in out.splitlines(), out
+    assert reversed_rows() == n_before + 1                                       # this row, and only it, added
     ih.ingest(ih.Source(from_dir=str(tmp_path / "third")), date(2018, 1, 1))
     assert nd()[:2] == (False, ih.NEUTRAL_RULE)                                   # the same pair: derived again
     assert PROVIDER_ORIENTATION_KEY not in _ext(mid)

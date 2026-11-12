@@ -6317,13 +6317,14 @@ def intl_elo_confirm_cmd(freeze_cohort, substitute, record, ruling, no_fetch, db
             try:
                 with _mpg.readonly_session(copy) as _s:
                     r = us.confirmation_read(s=_s)
-                    sha_after = us.copy_sha256(copy)      # while the read's connection is still open
-                    sides_after = us.copy_sidecars(copy)
+                    try:                                   # only the two checks after the read (#940 item 2): a
+                        sha_after = us.copy_sha256(copy)   # registry read error inside confirmation_read is not the
+                        sides_after = us.copy_sidecars(copy)   # copy's, and surfaces as it does without --db
+                    except OSError as err:                 # deleted or unreadable mid-run (Codex P2, #938)
+                        raise us.ShadowRefused(f"--db {copy}: the copy could not be re-read after the read ({err!r}); "
+                                               "nothing recorded") from None
             except _DBAPIError as err:
                 raise us.ShadowRefused(f"--db {copy}: the copy could not be read ({err.orig!r}); nothing recorded")
-            except OSError as err:                         # deleted or unreadable mid-run (Codex P2, #938)
-                raise us.ShadowRefused(f"--db {copy}: the copy could not be re-read after the read ({err!r}); "
-                                       "nothing recorded")
             if sides_after:                                # committed pages the immutable open ignored (Codex P2, #938)
                 raise us.ShadowRefused(f"--db {copy} changed during the read: {', '.join(sides_after)} appeared "
                                        "beside it, which immutable=1 ignores; nothing recorded")

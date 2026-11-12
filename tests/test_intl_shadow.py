@@ -484,3 +484,106 @@ def test_346_a_copy_deleted_or_given_a_sidecar_during_the_read_is_refused_and_no
         assert out.exception is None or isinstance(out.exception, SystemExit), out.exception
         assert "RECORDED" not in out.output
         assert not (ids_dir / "intl-elo-v2.confirm.txt").exists() and ledger.read_text() == before_ledger
+
+
+# ---------------------------------------------- #940: three fail-safe nits on --db (ARCHITECT addendum 347 item 3) --
+
+def test_940_a_copy_name_too_long_for_its_sidecar_names_refuses_never_a_traceback(world, frozen_ok, tmp_path):
+    """#940 item 1: a copy named 248 to 255 bytes makes "<name>-journal" longer than the filesystem allows; the sidecar
+    probe raised ENAMETOOLONG out of check_copy (exit 1, a traceback). It REFUSES now (exit 2), with the shorter-name
+    advice. The probe is os.stat, which raises it on every Python (Path.exists() stopped raising it in 3.14)."""
+    import os
+    short = _copy(tmp_path, "short.db")             # SQLite's own backup would need the over-long -journal name too
+    copy = tmp_path / ("x" * 250 + ".db")
+    os.rename(short, copy)
+    out = _run(["--db", str(copy)])
+    assert out.exit_code == 2 and out.output.startswith("REFUSED: ")
+    assert "a sidecar beside it cannot be checked" in out.output
+    assert "take the copy under a shorter name" in out.output and "nothing read, nothing written" in out.output
+    assert "INTL-ELO-V2 CONFIRMATION" not in out.output and "sha256" not in out.output
+
+
+def test_940_a_registry_read_error_during_the_read_is_not_blamed_on_the_copy(world, frozen_ok, tmp_path, monkeypatch):
+    """#940 item 2: the OSError catch covers the two checks after the read only (copy_sha256, copy_sidecars). An
+    OSError from the registry inside confirmation_read surfaces as it does without --db, never as "the copy could not
+    be re-read"."""
+    copy = _copy(tmp_path)
+
+    def registry_fault(now=None, s=None):
+        raise PermissionError(13, "Permission denied", "docs/registry/experiments.json")
+    monkeypatch.setattr(us, "confirmation_read", registry_fault)
+    for args in ([], ["--db", str(copy)]):
+        out = _run(args)
+        assert isinstance(out.exception, PermissionError), (args, out.output)
+        assert "could not be re-read" not in out.output and "REFUSED" not in out.output
+
+
+def test_940_the_hash_before_the_read_failing_refuses_and_reads_nothing(world, tmp_path, monkeypatch):
+    """#940 item 3: the first copy_sha256 failing (the copy unreadable between the fence and the hash) is a REFUSED line
+    (exit 2) before the sha line prints and before anything is read; the registry is unchanged."""
+    ids = sorted([world["after1"], world["after2"], world["after3"]])
+    ledger, ids_dir = _registry_on_tmp(monkeypatch, tmp_path, ids)
+    before_ledger = ledger.read_text()
+    copy = _copy(tmp_path)
+    read = []
+    monkeypatch.setattr(us, "confirmation_read", lambda now=None, s=None: read.append(1))
+
+    def unreadable(path):
+        raise PermissionError(13, "Permission denied", str(path))
+    monkeypatch.setattr(us, "copy_sha256", unreadable)
+    out = _run(["--record", "--ruling", "ARCHITECT: x", "--db", str(copy)])
+    assert out.exit_code == 2 and out.output.startswith("REFUSED: ") and "could not be hashed" in out.output
+    assert read == []                              # startswith above: no sha line printed before the refusal
+    assert not (ids_dir / "intl-elo-v2.confirm.txt").exists() and ledger.read_text() == before_ledger
+
+
+def _sidecar_stat_fault(monkeypatch, when):
+    """us.os.stat raising EACCES on the copy's -wal probe once `when()` is true; every other stat is the real one.
+    Only copy_sidecars uses os in intl_shadow, so the fence (mlb_pitchers_gate.check_db) is untouched."""
+    import os
+    import types
+
+    def stat(path, *a, **k):
+        if str(path).endswith("-wal") and when():
+            raise PermissionError(13, "Permission denied", str(path))
+        return os.stat(path, *a, **k)
+    monkeypatch.setattr(us, "os", types.SimpleNamespace(stat=stat))
+
+
+def test_940_a_sidecar_that_cannot_be_checked_before_the_read_refuses_without_the_shorter_name_advice(
+        world, frozen_ok, tmp_path, monkeypatch):
+    """#940 item 1 (pre-push review): an error other than ENAMETOOLONG on the sidecar probe before the read REFUSES
+    (exit 2, nothing read, nothing written) and does not give the shorter-name advice, which fits only a name too
+    long."""
+    copy = _copy(tmp_path)
+    read = []
+    monkeypatch.setattr(us, "confirmation_read", lambda now=None, s=None: read.append(1))
+    _sidecar_stat_fault(monkeypatch, lambda: True)
+    out = _run(["--db", str(copy)])
+    assert out.exit_code == 2 and out.output.startswith("REFUSED: ")
+    assert "a sidecar beside it cannot be checked" in out.output
+    assert "PermissionError" in out.output and "nothing read, nothing written" in out.output
+    assert "shorter name" not in out.output and read == []
+
+
+def test_940_a_sidecar_that_cannot_be_checked_after_the_read_refuses_and_records_nothing(world, tmp_path, monkeypatch):
+    """#940 item 2 (pre-push review): the sidecar probe failing AFTER the read reaches the CLI's post-read catch: "the
+    copy could not be re-read after the read ... nothing recorded" (exit 2), never "nothing read" or the shorter-name
+    advice; the registry is unchanged."""
+    ids = sorted([world["after1"], world["after2"], world["after3"]])
+    ledger, ids_dir = _registry_on_tmp(monkeypatch, tmp_path, ids)
+    before_ledger = ledger.read_text()
+    copy = _copy(tmp_path)
+    read0, done = us.confirmation_read, []
+
+    def read(now=None, s=None):
+        r = read0(now=now, s=s)
+        done.append(1)
+        return r
+    monkeypatch.setattr(us, "confirmation_read", read)
+    _sidecar_stat_fault(monkeypatch, lambda: bool(done))
+    out = _run(["--record", "--ruling", "ARCHITECT: x", "--db", str(copy)])
+    assert out.exit_code == 2 and done == [1] and "the copy could not be re-read after the read" in out.output
+    assert "PermissionError" in out.output and "nothing recorded" in out.output
+    assert "nothing read" not in out.output and "shorter name" not in out.output
+    assert not (ids_dir / "intl-elo-v2.confirm.txt").exists() and ledger.read_text() == before_ledger

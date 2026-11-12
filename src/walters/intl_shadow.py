@@ -36,8 +36,10 @@ export-unl-predictions writes intl-elo-v2 rows labelled "PASS — confirmation
 """
 from __future__ import annotations
 
+import errno
 import json
 import math
+import os
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -436,7 +438,12 @@ def check_copy(db) -> Path:
     from src.walters import mlb_pitchers_gate as mp
     try:
         path = mp.check_db(db)
-        for name in copy_sidecars(path):
+        try:
+            sides = copy_sidecars(path)
+        except OSError as err:                     # #940 item 1: refused, never a traceback; never read as absent
+            hint = "; take the copy under a shorter name" if err.errno == errno.ENAMETOOLONG else ""
+            raise mp.GateRefused(f"--db {db}: a sidecar beside it cannot be checked ({err!r}){hint}") from None
+        for name in sides:
             raise mp.GateRefused(f"--db {db} has a {name[len(path.name):]} sidecar ({name}): not a fresh .backup "
                                  "copy; immutable=1 would ignore it and read a stale store; take a fresh .backup copy")
         con = mp.open_ro(path)
@@ -456,8 +463,21 @@ def check_copy(db) -> Path:
 def copy_sidecars(path: Path) -> list[str]:
     """The -wal, -shm and -journal files beside the copy, by name (none for a fresh .backup copy). Read before the read
     (check_copy) and again after it (the CLI): a sidecar that appears during the read can hold committed pages the
-    immutable open ignored, so the main file's unchanged sha256 alone would not show the copy changed (Codex P2, #938)."""
-    return [path.name + sfx for sfx in COPY_SIDECARS if path.with_name(path.name + sfx).exists()]
+    immutable open ignored, so the main file's unchanged sha256 alone would not show the copy changed (Codex P2, #938).
+    Probed with os.stat: only "no such file" (FileNotFoundError, NotADirectoryError) reads as absent; any other OSError
+    is raised to the caller, never read as absent (law 4, #940 item 1). One case: a copy name of 248 to 255 bytes makes
+    "<name>-journal" longer than the filesystem allows (ENAMETOOLONG), which os.stat raises on every Python and
+    Path.exists() stopped raising in 3.14. Each caller words its own refusal: check_copy before the read ("nothing
+    read, nothing written"), the CLI after it ("nothing recorded")."""
+    out = []
+    for sfx in COPY_SIDECARS:
+        side = path.with_name(path.name + sfx)
+        try:
+            os.stat(side)
+        except (FileNotFoundError, NotADirectoryError):
+            continue
+        out.append(side.name)
+    return out
 
 
 def copy_sha256(path: Path) -> str:

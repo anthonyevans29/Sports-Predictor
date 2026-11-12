@@ -81,15 +81,32 @@ PLAN_METRICS = ("log_loss",)
 # retired as a college test season with this run: its figures now show how to correct the candidate, and a second
 # candidate scored on it would be fitted to it. A later college candidate may train on 2024 and 2025, and declares
 # the 2026 regular season, as it accrues, as its test."
+# ARCHITECT 2026-11-09 09:35 ET, addendum 302 (ncaa-elo-v2 FAIL), item 3, verbatim: "2026 is RETIRED as a college test
+# season; NCAA is MARKET-ONLY; the 2027 candidate declares in the off-season." Put in code by addendum 309 item 6 (#901):
+# "a small src PR of its own ... the entry with 302 item 3's sentence quoted, a test that a 2026 college candidate is
+# refused". The key is ncaa-elo-v2's test_set exactly, as the 2025 set's is v1r's; what to declare instead is 302 item
+# 3's undated step: "(2024–2026 training, the 2027 regular season the test, the same gate, the pre-check of item 2
+# declared with it)".
+# The 2025 set's "declare instead" pointed to 2026 (addendum 24's sentence above, kept as the history it is). ARCHITECT
+# 2026-11-12 14:25 ET, addendum 358 item 6(1), verbatim: "YES — the 2025 set's "declare instead" points on to 2027: a
+# refusal that sends a candidate to a retired season is wrong on its face. Change the tuple's text to the 2026 entry's
+# own words for 2027". (2), verbatim: "The exact `test_set` string STANDS as the key: a declaration is my ruling, so a
+# re-worded 2026 college set cannot be declared without passing me". No fuzzy key.
 RETIRED_TEST_SETS = {
     "NHL 2025 (2025-26 regular season; nhl_backtest TEST_SEASON, train 2024)":
         ("nhl-v8", "NHL 2026-27 regular season as it accrues (>= 600 games)"),
     "NCAA FBS 2025 regular season (CFBD both-FBS labels; warm-up 2024)":
-        ("ncaa-elo-v1r", "the NCAA FBS 2026 regular season as it accrues (>= 500 games)"),
+        ("ncaa-elo-v1r", "the NCAA FBS 2027 regular season as it accrues (2024-2026 training; declared in the off-season "
+                         "with its spread pre-check)"),                          # 358 item 6(1): on to 2027
+    "NCAA FBS 2026 regular season as it accrues (CFBD both-FBS labels; training and warm-up 2024 and 2025)":
+        ("ncaa-elo-v2", "the NCAA FBS 2027 regular season as it accrues (2024-2026 training; declared in the off-season "
+                        "with its spread pre-check)"),
 }
 # The ruling that retired each set, named in the refusal (the NHL set's is the 2026-10-02 doctrine).
 RETIRED_BY = {
     "NCAA FBS 2025 regular season (CFBD both-FBS labels; warm-up 2024)": "ARCHITECT 2026-10-09, addendum 24",
+    "NCAA FBS 2026 regular season as it accrues (CFBD both-FBS labels; training and warm-up 2024 and 2025)":
+        "ARCHITECT 2026-11-09, addendum 302",
 }
 
 

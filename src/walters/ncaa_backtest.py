@@ -78,10 +78,15 @@ TEST_SEASON = "2026"
 # train 2025, test 2026, all divisions) is closed without a verdict of its own. GATE_STATUS and its line say CLOSED,
 # with this ruling's date, wherever they are printed. The 2026-10-01 suspension above is history.
 GATE_STATUS = "CLOSED"
+# ARCHITECT 2026-11-12 16:00 ET, addendum 360 item 4(iii), verbatim: "GATE_STATUS_LINE keeps its ruled opening exactly
+# (the test pins it) and its last clause becomes "the next college candidate declares the 2027 regular season as it
+# accrues, in the off-season (2026 was retired 2026-11-09, addendum 302)", with this item quoted above it. A printed
+# line that sends a candidate to a retired season is the same fault as the registry's."
 GATE_STATUS_LINE = ("NCAA GATE: CLOSED (ruling 2026-10-09, addendum 24) — #79's protocol (v1, train 2025, test "
                     "2026, all divisions) is closed without a verdict of its own: its candidate is the model "
                     "ncaa-elo-v1r ran, and v1r FAILED its gate (spread); NCAA stays market-only; the next college "
-                    "candidate declares the 2026 regular season as it accrues.")
+                    "candidate declares the 2027 regular season as it accrues, in the off-season (2026 was retired "
+                    "2026-11-09, addendum 302).")
 # ARCHITECT 2026-10-09, addendum 24 item 2(c), verbatim. ncaa-backtest refuses for good (not tied to the #368 fence).
 # The module stays: the v1r gate, the confirmation code and the shadow import from it.
 CLOSED_RULING = "ARCHITECT 2026-10-09, addendum 24 item 2(c)"

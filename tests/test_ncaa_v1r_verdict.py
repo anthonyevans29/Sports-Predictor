@@ -1,7 +1,8 @@
 """ncaa-elo-v1r: FAIL (ARCHITECT 2026-10-09 12:30 ET, addendum 24 items 1 and 2; GATE-CLASS). Pins:
 - (a) the registry holds the one run (spliced from laptop/ncaa-elo-v1r-run-record at 130b481) and the FAIL verdict
   with the ruling verbatim; the spec closes with the run's figures and the ruling;
-- (b) the 2025 test set is RETIRED: ncaa-elo-v1r was its last candidate, any other refuses naming the 2026 season;
+- (b) the 2025 test set is RETIRED: ncaa-elo-v1r was its last candidate, any other refuses naming the 2027 season
+  (2026 was retired by addendum 302; addendum 358 item 6(1), 360 item 4(ii));
 - (c) ncaa-backtest refuses, exit 2, naming the ruling, with or without --baselines-only, fence lifted or not,
   before anything is read; GATE_STATUS and its line say CLOSED with the ruling's date (ncaa-cfbd-coverage prints it);
 - (d) export-ncaa-predictions refuses, exit 2, naming the ruling, once the registry records a verdict for
@@ -45,7 +46,9 @@ RULING_D = ("Addendum 6 item 1 put the verdict on every shadow row once there wa
             "this ruling, once the registry records a verdict for ncaa-elo-v1r other than PASS. The shadow's terms for "
             "the next candidate are part of its declaration.")
 TEST_SET = "NCAA FBS 2025 regular season (CFBD both-FBS labels; warm-up 2024)"
-INSTEAD = "the NCAA FBS 2026 regular season as it accrues (>= 500 games)"
+# ARCHITECT 2026-11-12, addendum 358 item 6(1): the 2025 set's "declare instead" points on to 2027 (2026 is retired).
+INSTEAD = ("the NCAA FBS 2027 regular season as it accrues (2024-2026 training; declared in the off-season with its "
+           "spread pre-check)")
 
 
 def _boom(*a, **k):
@@ -102,7 +105,7 @@ def test_the_2025_college_test_set_is_retired_after_v1r(tmp_path):
     assert "addendum 24" in str(ex.value)
     reg.declare(_decl("ncaa-elo-v1r", TEST_SET), **kw)                  # the last one allowed
     reg.record_run("ncaa-elo-v1r", [1, 2], {"log_loss": 0.6}, ids_dir=str(tmp_path / "ids"), **kw)
-    reg.declare(_decl("ncaa-elo-v2", INSTEAD), **kw)                    # the 2026 season is open
+    reg.declare(_decl("ncaa-elo-v2", INSTEAD), **kw)                    # the season it names is open
 
 
 # --- (c) ncaa-backtest is closed ---------------------------------------------------------------------------------

@@ -10661,8 +10661,9 @@ def availability_graph_rebuild_cmd(out_path, backup_dir, db_path, max_age_hours)
     assertion carrying its kind, both stamps and its derived interval under each clock (src/availability/graph.py;
     the read is record.walk, the record's own derivation). The file is written beside --out and moved onto it whole;
     nothing reads it for a call, a price or a page (347 item 5(c)). One line of rebuild.jsonl beside the graph per
-    run. Exit 0 built; 2 refused (no engine, no fresh verified copy, the --db fence, the store not migrated, a bad
-    --out), nothing written; 1 a failed build, the previous graph untouched."""
+    run (a refused --out writes nothing at all). Exit 0 built; 2 refused (no engine, no fresh verified copy, the
+    --db fence, the store not migrated, a bad --out, another rebuild running), nothing written but that line; 1 a
+    failed build, the previous graph untouched."""
     from pathlib import Path as _P
 
     from src.availability import graph as g
@@ -10682,6 +10683,10 @@ def availability_graph_rebuild_cmd(out_path, backup_dir, db_path, max_age_hours)
     click.echo("  nodes: " + " · ".join(f"{n} {c[n]}" for n in g.NODE_TABLES)
                + " | edges: " + " · ".join(f"{n} {c[n]}" for n in g.REL_TABLES))
     click.echo(f"  graph sha256 {r['sha256'][:12]} · {r['bytes']} bytes · read by nothing (addendum 347 item 5(c))")
+    if r.get("removed_stale_staging"):
+        click.echo(f"  removed a killed run's staging: {', '.join(r['removed_stale_staging'])}")
+    if r.get("receipt_error"):
+        click.echo(f"  ! the receipt line was not written: {r['receipt_error']}")
 
 
 @cli.command("availability-nflverse")

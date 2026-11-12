@@ -778,6 +778,10 @@ systemctl enable --now $TIMERS
 systemctl list-timers 'sp-*' --no-pager     # receipt: next-elapse for each
 ```
 - Every shipped timer is on `TIMERS` or `MLB_LAPTOP_ONLY`; CI checks it.
+- **`sp-availability-graph.timer` on a fresh host: an ORDER** (347 item 6(D): "the unit ships disabled, enabled by my
+  block"). Leave it out of the `systemctl enable --now $TIMERS` above and out of `timers.enabled` until the
+  architect's block below has installed `requirements-graph.txt` and made `logs/availability/graph`: without them its
+  unit cannot start (its one writable directory is missing) or refuses (no engine), and pages every day.
 - **`sp-availability-daily.timer` on a fresh host: an ORDER** (259 item 2(c): "2025 IS IN SCOPE"). After
   `migrate_availability_record.py` and BEFORE the `systemctl enable --now $TIMERS` above, run the 2025 read
   (`sudo -u sp venv/bin/python cli.py availability-nflverse --season 2025`) and go on only on exit 0 with its rows
@@ -905,10 +909,7 @@ systemctl list-timers 'sp-*' --no-pager     # receipt: next-elapse for each
   item 5; daily 10:20 UTC, after the 09:30 sp-backup whose copy it reads): the availability record's graph projection,
   `availability-graph-rebuild --backup-dir /var/backups/sports-predictor --out
   /opt/sports-predictor/logs/availability/graph/availability.lbug` (its own `sp-availability-graph.service`, not a chain;
-  OnFailure pages through `sp-notify@availability-graph`). The unit carries 347 item 5(b) as written: NO
-  EnvironmentFile, `PrivateNetwork=yes`, `NoNewPrivileges=yes`, `ProtectSystem=strict` with the graph's directory its one
-  writable path; and, because the sp user can read both files, `BindReadOnlyPaths=/dev/null` over host.env and the
-  checkout's .env (config.py loads .env on import) and `InaccessiblePaths=` over data/. The engine is HOST-ONLY (347 item
+  OnFailure pages through `sp-notify@availability-graph`). The unit carries 347 item 5(b): no EnvironmentFile, `PrivateNetwork=yes`, `NoNewPrivileges=yes`, `ProtectSystem=strict`, the graph's directory the one writable path; because the sp user can still read what it owns, /etc/sports-predictor (host.env and an exports-mirror deploy key installed there) and data/ are inaccessible and the checkout's .env (config.py loads it on import) is /dev/null; `PrivateUsers=yes`, `ProtectProc=invisible` and `ProcSubset=pid` so another sp process's /proc/<pid>/environ and /proc/<pid>/root (its own unmasked view) are refused; `RestrictAddressFamilies=none` (PrivateNetwork leaves filesystem sockets reachable); `PrivateDevices=yes` and `PrivateIPC=yes` (no shared /dev/shm); /tmp and /var/tmp empty and read-only. The engine is HOST-ONLY (347 item
   5(a)): `requirements-graph.txt`, never requirements.txt; the laptop and CI do not install it. Its ENABLEMENT IS THE
   ARCHITECT'S BLOCK (347 item 6(D): "the unit ships disabled, enabled by my block"), after the deploy of the tag that
   carries it; until then sp_deploy's receipt names it as a `TIMERS` timer not enabled. The commands the block runs, as

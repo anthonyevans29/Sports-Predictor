@@ -6,11 +6,16 @@
 # reading a `.backup` COPY of the database opened mode=ro + immutable=1, never the live file — a young native
 # dependency gets no keys, no network and no write path to anything but its own output").
 # Its own unit, not a chain step: a chain step runs inside sp-chain@'s unit and inherits host.env and its network.
-# NO EnvironmentFile. The sp user can still READ host.env (root:sp 0640) and the checkout's .env (the API keys, which
-# config.py loads on import of any app code): both are masked with /dev/null below, so the process holds no key.
-# data/ is inaccessible (never the live file); the one writable directory is the graph's; the copy is read from the
-# backup folder (read-only under ProtectSystem=strict). /tmp and /var/tmp are empty and read-only; SQLite's and
-# Python's temporary files go to the graph's directory (SQLITE_TMPDIR, TMPDIR), so nothing else is written.
+# NO EnvironmentFile. The sp user can still READ what it owns, so the unit takes it away: /etc/sports-predictor
+# (host.env, root:sp 0640, and an exports-mirror deploy key installed there) and data/ are inaccessible; the
+# checkout's .env (the API keys, which config.py loads on import of any app code) is /dev/null. Another sp process's
+# view is out of reach too: PrivateUsers=yes puts the unit in its own user namespace, so /proc/<pid>/environ and
+# /proc/<pid>/root of sp-web or a chain (the same uid, their own mounts: .env and data/ unmasked) are refused, and
+# ProtectProc=invisible / ProcSubset=pid hide them. No socket at all (RestrictAddressFamilies=none: PrivateNetwork
+# leaves filesystem AF_UNIX sockets reachable). The one writable directory is the graph's: /tmp and /var/tmp are
+# empty and read-only, /dev and IPC are private (PrivateDevices, PrivateIPC: no shared /dev/shm or queue), and
+# SQLite's and Python's temporary files go to the graph's directory (SQLITE_TMPDIR, TMPDIR). The copy is read from
+# the backup folder (read-only under ProtectSystem=strict).
 # Exit 2 a refusal (the engine absent or not the pinned version, no fresh verified copy, the store not migrated);
 # exit 1 a failed build; both fail the unit and OnFailure pages through sp-notify@availability-graph (its own unit,
 # with its own environment). Every run is one line of logs/availability/graph/rebuild.jsonl.
@@ -32,10 +37,16 @@ PrivateNetwork=yes
 NoNewPrivileges=yes
 ProtectSystem=strict
 ReadWritePaths=/opt/sports-predictor/logs/availability/graph
-InaccessiblePaths=/opt/sports-predictor/data
-BindReadOnlyPaths=/dev/null:/etc/sports-predictor/host.env /dev/null:/opt/sports-predictor/.env
+InaccessiblePaths=/opt/sports-predictor/data /etc/sports-predictor
+BindReadOnlyPaths=/dev/null:/opt/sports-predictor/.env
 ProtectHome=yes
 TemporaryFileSystem=/tmp:ro /var/tmp:ro
+PrivateDevices=yes
+PrivateIPC=yes
+PrivateUsers=yes
+ProtectProc=invisible
+ProcSubset=pid
+RestrictAddressFamilies=none
 CapabilityBoundingSet=
 RestrictSUIDSGID=yes
 MemoryMax=1536M

@@ -152,26 +152,48 @@ def check_out(out: Path) -> Path:
                       "never by the rebuild)")
     if "'" in str(out):
         raise Refused(f"--out {out}: a quote in the path is refused")
+    if not os.access(out.parent, os.W_OK):
+        raise Refused(f"--out {out}: its directory is not writable by this user (nothing written, no receipt line)")
     return out
 
 
 # ---- the engine (347 item 5(a)) -------------------------------------------------------------------------------------
 
+def _dist_version() -> str | None:
+    """The installed distribution's version, from its metadata (never `ladybug.__version__`: that attribute asks the
+    native library, and the package falls back to a ctypes load of a liblbug.so found by path when its own native
+    module does not import)."""
+    from importlib import metadata
+    try:
+        return metadata.version(ENGINE)
+    except metadata.PackageNotFoundError:
+        return None
+
+
 def engine():
     """The picked engine, imported here and nowhere else. Refused (exit 2, nothing read) when it is absent (the
-    laptop and CI never install it) or is not exactly the pinned version. The package's environment overrides are
-    dropped first, and every open passes backend="pybind", so its ctypes fallback (a liblbug.so found by path, the
-    working directory included) is never taken: a missing native module is an error, not a different library."""
+    laptop and CI never install it), is not exactly the pinned version, or its own native module (`ladybug._lbug`,
+    the pybind backend) does not import. The package's environment overrides are dropped first; the native module is
+    imported through the package's own loader before anything else is asked of it, and every open passes
+    backend="pybind", so the package's ctypes fallback (`ladybug._lbug_capi`: a liblbug.so found by path, the working
+    directory included) is never imported: a missing native module is a refusal, not a different library."""
     for k in _LBUG_ENV:
         os.environ.pop(k, None)
+    have = _dist_version()
+    if have is None:
+        raise Refused(f"the graph engine is not installed (no {ENGINE} distribution); it is host-only: "
+                      f"{REQUIREMENTS}, installed with --require-hashes (addendum 347 item 5(a)); nothing read")
+    if have != ENGINE_VERSION:
+        raise Refused(f"the graph engine is {ENGINE} {have}, not the pinned {ENGINE_VERSION} (347 item 5(d): a bump "
+                      "is a PR); nothing read")
     try:
         import ladybug as lb
+        from ladybug import _backend
     except ImportError as e:
-        raise Refused(f"the graph engine is not installed ({e}); it is host-only: {REQUIREMENTS}, installed with "
-                      "--require-hashes (addendum 347 item 5(a)); nothing read")
-    if getattr(lb, "__version__", None) != ENGINE_VERSION:
-        raise Refused(f"the graph engine is {ENGINE} {getattr(lb, '__version__', '?')}, not the pinned "
-                      f"{ENGINE_VERSION} (347 item 5(d): a bump is a PR); nothing read")
+        raise Refused(f"the graph engine does not import ({e}); nothing read")
+    if _backend.get_pybind_module() is None:
+        raise Refused(f"the graph engine's native module does not import ({_backend._PYBIND_IMPORT_ERROR}; it links "
+                      "the system OpenSSL 3); its ctypes fallback is never taken; nothing read")
     return lb
 
 
@@ -245,9 +267,19 @@ def _stage(s, stage: Path, copy: Path, copy_sha: str, built_at: datetime) -> dic
     from src.db.schema import Competition, Match, Team
     from src.walters import provenance
     t = {n: _Table(stage, n) for n in (*NODE_TABLES, *REL_TABLES)}
-    players: dict[str, tuple] = {}
+    players: dict[str, list] = {}
     teams: dict[str, list] = {}
     games: dict[str, list] = {}
+    ids: dict[tuple, tuple] = {}            # (node kind, key) -> (recorded_at, assertion id, our id): the latest mapping
+
+    def latest(kind: str, key: str, at, aid: int, v):
+        """Our id for a node: the one the LATEST assertion carrying an id gives (by recorded_at, then assertion id),
+        whatever order the walk yields its partitions in (mapped_now's rule, across every interval of the key)."""
+        if v is None:
+            return
+        cur = ids.get((kind, key))
+        if cur is None or (at, aid) > cur[:2]:
+            ids[(kind, key)] = (at, aid, v)
     in_game: dict[tuple, str] = {}
     about: set[tuple] = set()
     obs_named_game: set[int] = set()
@@ -256,17 +288,17 @@ def _stage(s, stage: Path, copy: Path, copy_sha: str, built_at: datetime) -> dic
     for sport in sports:
         for r, riv, siv in rec.walk(s, sport):
             assertions += 1
-            now_ = rec.mapped_now(riv)
             pk = _key(r.source, rec.player_key(r))
             tk = _key(r.source, rec.team_key(r))
             mk = rec.match_key(r)
             gk = (f"match|{mk[1]}" if mk[0] == "id" else _key(r.source, mk)) if mk is not None else None
-            players[pk] = (pk, r.source, r.source_player_id, r.player_name, now_.player_id)
-            teams[tk] = [tk, r.source, r.source_team, now_.team_id, None]
+            players.setdefault(pk, [pk, r.source, r.source_player_id, r.player_name])
+            teams.setdefault(tk, [tk, r.source, r.source_team])
+            latest("player", pk, r.recorded_at, r.id, r.player_id)
+            latest("team", tk, r.recorded_at, r.id, r.team_id)
             if gk is not None:
-                prev = games.get(gk)
-                games[gk] = [gk, r.source if mk[0] == "src" else None, mk[1] if mk[0] == "src" else None,
-                             now_.match_id if now_.match_id is not None else (prev[3] if prev else None)]
+                games.setdefault(gk, [gk, r.source if mk[0] == "src" else None, mk[1] if mk[0] == "src" else None])
+                latest("game", gk, r.recorded_at, r.id, r.match_id if mk[0] == "src" else mk[1])
                 side = (r.attrs or {}).get("side")
                 in_game.setdefault((tk, gk), "" if side is None else str(side))
                 about.add((r.observation_id, gk))
@@ -289,14 +321,19 @@ def _stage(s, stage: Path, copy: Path, copy_sha: str, built_at: datetime) -> dic
                               _i(http), st, _b(late), _i(n), _s(sha)])
         if mid is not None and oid not in obs_named_game:
             gk = f"match|{mid}"
-            games.setdefault(gk, [gk, None, None, mid])
+            games.setdefault(gk, [gk, None, None])
+            latest("game", gk, datetime.min, 0, mid)
             about.add((oid, gk))
-    ids = sorted({g[3] for g in games.values() if g[3] is not None})
+    for kind, table in (("player", players), ("team", teams), ("game", games)):
+        for k, row in table.items():
+            v = ids.get((kind, k))
+            row.append(v[2] if v else None)
+    ids_ = sorted({g[3] for g in games.values() if g[3] is not None})
     info: dict[int, tuple] = {}
-    for k in range(0, len(ids), 500):
+    for k in range(0, len(ids_), 500):
         q = (select(Match.id, Competition.code, Match.season, Match.utc_date, Match.status, Match.home_team_id,
                     Match.away_team_id).outerjoin(Competition, Competition.id == Match.competition_id)
-             .where(Match.id.in_(ids[k:k + 500])))
+             .where(Match.id.in_(ids_[k:k + 500])))
         for (mid, code, season, ko, st, h, a) in s.execute(q):
             info[mid] = (code, season, ko, getattr(st, "value", st), h, a)
     for g in games.values():
@@ -329,7 +366,9 @@ def _load(lb, path: Path, tables: dict[str, _Table]) -> None:
             con.execute(ddl)
         for name in (*NODE_TABLES, *REL_TABLES):
             for f in tables[name].files:
-                con.execute(f"COPY {name} FROM '{f}' (HEADER=true, QUOTE='\"', ESCAPE='\"')")
+                # PARALLEL=FALSE: the parallel CSV reader refuses a quoted newline, and the record keeps any text
+                # its source gave (a name with a newline would fail every rebuild for good: append-only)
+                con.execute(f"COPY {name} FROM '{f}' (HEADER=true, QUOTE='\"', ESCAPE='\"', PARALLEL=FALSE)")
                 f.unlink()
     finally:
         con.close()
@@ -352,9 +391,30 @@ def _counts(lb, path: Path) -> dict[str, int]:
         db.close()
 
 
-def append_receipt(out: Path, rec: dict) -> None:
-    with open(out.parent / RECEIPTS, "a", encoding="utf-8") as f:
-        f.write(json.dumps(rec, sort_keys=True, default=str) + "\n")
+def append_receipt(out: Path, rec: dict) -> str | None:
+    """One line of rebuild.jsonl beside the graph. Never raises: a receipt that cannot be written is returned as its
+    error (printed by the command), so it never replaces the run's own outcome."""
+    try:
+        with open(out.parent / RECEIPTS, "a", encoding="utf-8") as f:
+            f.write(json.dumps(rec, sort_keys=True, default=str) + "\n")
+    except OSError as e:
+        return f"{type(e).__name__}: {e}"
+    return None
+
+
+class Killed(Exception):
+    """SIGTERM (systemd's stop, TimeoutStartSec): raised in the run so its staging is removed and its line written."""
+
+
+def _stale_stages(out: Path) -> list[str]:
+    """Staging directories a killed run left beside the graph (SIGKILL, MemoryMax: no finally runs). Removed by the
+    next run, under the lock, and named on its receipt line."""
+    gone = []
+    for p in sorted(out.parent.glob(f".{out.name}.build-*")):
+        if p.is_dir():
+            shutil.rmtree(p, ignore_errors=True)
+            gone.append(p.name)
+    return gone
 
 
 def rebuild(out: Path, copy: Path | None = None, backup_dir: Path | None = None, lb=None,
@@ -362,18 +422,39 @@ def rebuild(out: Path, copy: Path | None = None, backup_dir: Path | None = None,
     """Rebuild the graph whole from a .backup copy: `copy` as given, or the newest verified daily copy in
     `backup_dir` (pick_copy). The copy passes mlb_pitchers_gate's --db fence and is read through its mode=ro +
     immutable=1 session; the graph is written into a staging directory beside `out`, then moved onto `out` after the
-    finished file's own counts equal what was staged. Every outcome once `out` is accepted is one line of
-    rebuild.jsonl beside the graph (252 item 4: "a failed rebuild is a receipt line"): ok, refused or error. A refusal
-    raises Refused (exit 2) and a failure re-raises (exit 1); the previous graph is untouched in either case."""
+    finished file's own counts equal what was staged. Every run whose `out` is accepted (check_out: a refused --out
+    writes nothing at all) is one line of rebuild.jsonl beside the graph (252 item 4: "a failed rebuild is a receipt
+    line"): ok, refused or error, a SIGTERM (the unit's stop or timeout) included. A SIGKILL (MemoryMax) writes no
+    line and leaves its staging directory; the next run removes it, under the lock, and names it on its own line. A
+    refusal raises Refused (exit 2) and a failure re-raises (exit 1); the previous graph is untouched in either
+    case. One run at a time: a second run while one holds the lock is refused."""
     from src.availability import record as rec
     from src.walters import mlb_pitchers_gate as mp
     t0 = time.monotonic()
     now = now or datetime.now(timezone.utc)
+    import fcntl
+    import signal
     out = check_out(out)
     receipt = {"kind": "availability-graph-rebuild", "at": _ts(now) + "Z", "ok": False, "copy": None,
                "out": str(out), "engine": f"{ENGINE} {ENGINE_VERSION}"}
     stage = out.parent / f".{out.name}.build-{os.getpid()}"
+    lock = None
+
+    def _term(signum, frame):
+        raise Killed(f"signal {signum} (the unit stopped or timed out)")
     try:
+        prev = signal.signal(signal.SIGTERM, _term)
+    except ValueError:                          # not the main thread: no handler (a test runner's worker)
+        prev = None
+    try:
+        lock = open(out.parent / f".{out.name}.lock", "w")
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            raise Refused(f"another rebuild holds {out.parent / ('.' + out.name + '.lock')}; nothing read") from None
+        left_by_killed = _stale_stages(out)
+        if left_by_killed:
+            receipt["removed_stale_staging"] = left_by_killed
         if (copy is None) == (backup_dir is None):
             raise Refused("one of --db (a .backup copy) or --backup-dir (the newest verified daily copy in it)")
         if copy is None:
@@ -387,10 +468,11 @@ def rebuild(out: Path, copy: Path | None = None, backup_dir: Path | None = None,
         receipt["copy_sha256"] = copy_sha = sha256_file(copy)
         receipt["copy_mtime"] = _ts(datetime.fromtimestamp(copy.stat().st_mtime, timezone.utc)) + "Z"
         try:
-            ctx = mp.readonly_session(copy)
-            s = ctx.__enter__()
+            mp.open_ro(copy).close()                 # the copy reads as SQLite, mode=ro + immutable=1, or a refusal
         except mp.GateRefused as e:
             raise Refused(str(e)) from None
+        ctx = mp.readonly_session(copy)
+        s = ctx.__enter__()
         try:
             if not rec.migrated(s):
                 raise Refused(f"{copy}: migrate_availability_record.py has not run on this copy (the record's tables "
@@ -414,11 +496,19 @@ def rebuild(out: Path, copy: Path | None = None, backup_dir: Path | None = None,
     except Refused as e:
         receipt["refused"] = str(e)[:500]
         raise
-    except Exception as e:  # noqa: BLE001 - the receipt first, then the failure (252 item 4: a receipt line)
+    except BaseException as e:  # noqa: BLE001 - the receipt first, then the failure (252 item 4: a receipt line)
         receipt["error"] = f"{type(e).__name__}: {e}"[:500]
         raise
     finally:
         shutil.rmtree(stage, ignore_errors=True)
         receipt["seconds"] = round(time.monotonic() - t0, 1)
-        append_receipt(out, receipt)
+        receipt_error = append_receipt(out, receipt)
+        if receipt_error:
+            receipt["receipt_error"] = receipt_error
+            import sys
+            print(f"AVAILABILITY-GRAPH: the receipt line was not written ({receipt_error})", file=sys.stderr)
+        if lock is not None:
+            lock.close()
+        if prev is not None:
+            signal.signal(signal.SIGTERM, prev)
     return receipt

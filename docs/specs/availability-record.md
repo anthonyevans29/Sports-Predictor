@@ -939,9 +939,12 @@ library's name, `ladybug/_lbug.cpython-312-x86_64-linux-gnu.so`).
 requirements.txt does not name it and CI installs requirements.txt alone. The wheel holds `ladybug/` and its dist-info
 only: no `.pth` file, no console script, no runtime dependency (every Requires-Dist is extra `dev`). Its native library
 links the system OpenSSL 3 (`libssl.so.3`, `libcrypto.so.3`). `src/availability/graph.py` imports it inside `engine()`,
-the one place in the app (pinned), refuses any other version, drops the package's environment overrides
-(`LBUG_PYTHON_BACKEND`, `LBUG_C_API_LIB_PATH`) and opens every database with `backend="pybind"`, so the package's ctypes
-fallback (a `liblbug.so` found by path, the working directory included) is never taken.
+the one place in the app (pinned). It reads the installed version from the distribution's metadata and refuses any
+other (never `ladybug.__version__`, which asks the native library), drops the package's environment overrides
+(`LBUG_PYTHON_BACKEND`, `LBUG_C_API_LIB_PATH`), imports the native module (`ladybug._lbug`) through the package's own
+loader before anything else is asked of it, refuses when it does not import, and opens every database with
+`backend="pybind"`: the package's ctypes fallback (`ladybug._lbug_capi`, a `liblbug.so` found by path, the working
+directory included) is never imported.
 
 **The read.** `record.walk(s, sport)`: every assertion with the interval it opened or restated under the recorded clock
 and, where it carries a source stamp, under the source clock: the same partitions and the same `_derive` as
@@ -970,23 +973,26 @@ or `--db PATH`. Either passes `mlb_pitchers_gate.check_db` (never under data/, n
 through its mode=ro + immutable=1 session; the copy is byte-identical after a run (pinned).
 
 **The build.** Staged as CSV in a directory beside `--out` (100,000 rows a file: one COPY of a million edges overflows
-the 256 MB buffer pool the rebuild sets), loaded by COPY, closed, re-opened read-only and counted (a read-write open
+the 256 MB buffer pool the rebuild sets), loaded by COPY with `PARALLEL=FALSE` (the parallel CSV reader refuses a
+quoted newline, and the record keeps whatever text its source gave: one such name would fail every rebuild), closed, re-opened read-only and counted (a read-write open
 rewrites the file's bytes), moved onto `--out` by `os.replace` only when every count equals what was staged; the staging
-directory is removed in every case. One line of `rebuild.jsonl` beside the graph per run: ok (the counts, the graph's
-sha256 and size, the copy and its sha256), refused or error. Exit 0 built, 2 refused, 1 failed; the previous graph is
-untouched unless a run succeeds.
+directory is removed whatever the outcome, a SIGTERM (the unit's stop or timeout) included. One run at a time (a lock
+beside the graph; a second run is refused). One line of `rebuild.jsonl` beside the graph per run: ok (the counts, the
+graph's sha256 and size, the copy and its sha256), refused or error; a refused `--out` writes nothing at all, and a
+SIGKILL (MemoryMax) writes no line and leaves its staging, which the next run removes and names on its own line. A copy
+that does not read as SQLite through the mode=ro + immutable=1 URI is refused as such, before the migration check. A
+node's ids are the latest assertion's that carries one (by recorded_at), whatever order the walk yields its partitions
+in. Exit 0 built, 2 refused, 1 failed; the previous graph is untouched unless a run succeeds.
 
 **The unit (347 item 5(b)).** `sp-availability-graph.service` and `.timer`, daily 10:20 UTC (after the 09:30 sp-backup
 whose copy it reads), its own unit and not availability-daily's last step: a chain step runs inside sp-chain@'s unit,
-which loads host.env and has the network. No EnvironmentFile; `PrivateNetwork=yes`, `NoNewPrivileges=yes`,
-`ProtectSystem=strict` with `ReadWritePaths=` the graph's directory alone (SQLite's and Python's temporary files sent
-there; /tmp and /var/tmp empty and read-only). Because the sp user can still read host.env (root:sp 0640) and the
-checkout's .env (the API keys, loaded by config.py on import), both are masked with `/dev/null`, and data/ is
-inaccessible. `MemoryMax=1536M`, `Nice=10`. OnFailure pages through `sp-notify@availability-graph`. Shipped disabled;
-its enablement is the architect's block (347 item 6(D)).
+which loads host.env and has the network. No EnvironmentFile, `PrivateNetwork=yes`, `NoNewPrivileges=yes`, `ProtectSystem=strict`, the graph's directory the one writable path; because the sp user can still read what it owns, /etc/sports-predictor (host.env and an exports-mirror deploy key installed there) and data/ are inaccessible and the checkout's .env (config.py loads it on import) is /dev/null; `PrivateUsers=yes`, `ProtectProc=invisible` and `ProcSubset=pid` so another sp process's /proc/<pid>/environ and /proc/<pid>/root (its own unmasked view) are refused; `RestrictAddressFamilies=none` (PrivateNetwork leaves filesystem sockets reachable); `PrivateDevices=yes` and `PrivateIPC=yes` (no shared /dev/shm); /tmp and /var/tmp empty and read-only. `MemoryMax=1536M`, `Nice=10`.
+OnFailure pages through `sp-notify@availability-graph`. Shipped disabled; its enablement is the architect's block (347
+item 6(D)); on a fresh host T11 leaves it out until that block has installed the engine and made its directory.
 
-**Nothing reads it (347 item 5(c)).** No module but `src/availability/graph.py` imports the engine, and none but it and
-the command's default names the graph's path (pinned).
+**Nothing reads it (347 item 5(c)).** Read on every Python file's syntax tree (pinned): no module but
+`src/availability/graph.py` imports the engine (an `import`, `from`, `__import__` or `import_module` of it), no module
+but `cli.py`'s command imports graph.py, and none but those two names the graph's path.
 
 **At scale, on this PR's container (a receipt, not the host):** a SYNTHETIC history of 931,335 depth assertions (32 teams,
 590 daily full charts) on a 460 MB `.backup` copy, rebuilt by `cli.py availability-graph-rebuild` inside a mount and

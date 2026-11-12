@@ -139,8 +139,12 @@ def test_the_out_path_is_fenced(tmp_path):
         g.check_out(q / "a.lbug")
 
 
+LOCK = f".{g.GRAPH_NAME}.lock"                                # the one-run-at-a-time lock beside the graph
+
+
 def _no_engine(monkeypatch):
-    monkeypatch.setitem(sys.modules, "ladybug", None)        # `import ladybug` raises ImportError
+    monkeypatch.setattr(g, "_dist_version", lambda: None)    # no distribution installed
+    monkeypatch.setitem(sys.modules, "ladybug", None)        # and `import ladybug` raises ImportError
 
 
 def test_without_the_engine_the_rebuild_refuses_reads_nothing_and_writes_one_receipt_line(fresh_db, tmp_path,
@@ -153,23 +157,53 @@ def test_without_the_engine_the_rebuild_refuses_reads_nothing_and_writes_one_rec
     out.mkdir()
     with pytest.raises(g.Refused, match=r"not installed .*host-only: requirements-graph\.txt"):
         g.rebuild(out / g.GRAPH_NAME, copy=copy)
-    assert copy.read_bytes() == before and sorted(p.name for p in out.iterdir()) == [g.RECEIPTS]
+    assert copy.read_bytes() == before and sorted(p.name for p in out.iterdir()) == [LOCK, g.RECEIPTS]
     line = json.loads((out / g.RECEIPTS).read_text())
     assert line["ok"] is False and "not installed" in line["refused"] and line["copy"] == str(copy.resolve())
 
 
-def test_the_engine_must_be_the_pinned_version_and_its_overrides_are_dropped(monkeypatch):
+def _fake_engine(monkeypatch, version="0.22.3", native=True):
+    """A stand-in package: its version is the distribution's metadata (never ladybug.__version__, which asks the
+    native library), its native module present or not."""
     import types
     fake = types.ModuleType("ladybug")
-    fake.__version__ = "0.22.4"
+    backend = types.ModuleType("ladybug._backend")
+    backend.get_pybind_module = lambda: object() if native else None
+    backend._PYBIND_IMPORT_ERROR = None if native else ImportError("libssl.so.3: cannot open shared object file")
+    fake._backend = backend
+
+    def no_version(name):
+        if name in ("__version__", "version", "storage_version"):
+            raise AssertionError("ladybug.__version__ asks the native library: never read")
+        raise AttributeError(name)
+    fake.__getattr__ = no_version
+    monkeypatch.setattr(g, "_dist_version", lambda: version)
     monkeypatch.setitem(sys.modules, "ladybug", fake)
+    monkeypatch.setitem(sys.modules, "ladybug._backend", backend)
+    return fake
+
+
+def test_the_engine_must_be_the_pinned_version_and_its_overrides_are_dropped(monkeypatch):
+    _fake_engine(monkeypatch, version="0.22.4")
     monkeypatch.setenv("LBUG_PYTHON_BACKEND", "capi")
     monkeypatch.setenv("LBUG_C_API_LIB_PATH", "/tmp/liblbug.so")
     with pytest.raises(g.Refused, match=r"0\.22\.4, not the pinned 0\.22\.3"):
         g.engine()
     assert "LBUG_PYTHON_BACKEND" not in os.environ and "LBUG_C_API_LIB_PATH" not in os.environ
-    fake.__version__ = "0.22.3"
+    fake = _fake_engine(monkeypatch)
     assert g.engine() is fake
+
+
+def test_review_a_missing_native_module_is_a_refusal_and_the_ctypes_fallback_is_never_imported(monkeypatch):
+    """The pre-PR review: `ladybug.__version__` asked the native library and, with `ladybug._lbug` absent, the
+    package's ctypes fallback (a liblbug.so by path, the working directory included). engine() now reads the version
+    from the metadata and imports the native module through the package's loader first: absent, a refusal (exit 2),
+    and `ladybug._lbug_capi` never imported."""
+    monkeypatch.delitem(sys.modules, "ladybug._lbug_capi", raising=False)
+    _fake_engine(monkeypatch, native=False)
+    with pytest.raises(g.Refused, match=r"native module does not import \(libssl\.so\.3.*never taken"):
+        g.engine()
+    assert "ladybug._lbug_capi" not in sys.modules
 
 
 def test_the_rebuild_refuses_a_copy_under_data_and_an_unmigrated_copy(fresh_db, tmp_path, monkeypatch):
@@ -180,14 +214,85 @@ def test_the_rebuild_refuses_a_copy_under_data_and_an_unmigrated_copy(fresh_db, 
     with pytest.raises(g.Refused, match="under the repo's data/"):
         g.rebuild(out / g.GRAPH_NAME, copy=REPO / "data" / "sports.db")
     copy = _copy(fresh_db, tmp_path / "backups")                     # not migrated: the record's tables absent
-    import types
-    fake = types.ModuleType("ladybug")
-    fake.__version__ = g.ENGINE_VERSION
+    fake = object()
     with pytest.raises(g.Refused, match="migrate_availability_record.py has not run"):
         g.rebuild(out / g.GRAPH_NAME, copy=copy, lb=fake)
     lines = [json.loads(x) for x in (out / g.RECEIPTS).read_text().splitlines()]
     assert [bool(x.get("refused")) for x in lines] == [True, True, True]
-    assert sorted(p.name for p in out.iterdir()) == [g.RECEIPTS]                 # no staging left
+    assert sorted(p.name for p in out.iterdir()) == [LOCK, g.RECEIPTS]           # no staging left
+
+
+def test_review_a_copy_that_is_not_sqlite_is_refused_as_unreadable_not_as_unmigrated(tmp_path):
+    out = tmp_path / "graph"
+    out.mkdir()
+    bad = tmp_path / "backups" / "sports_2026-11-12.db"
+    bad.parent.mkdir()
+    bad.write_bytes(b"not a database" * 100)
+    with pytest.raises(g.Refused, match="cannot be read through a mode=ro \\+ immutable=1 URI"):
+        g.rebuild(out / g.GRAPH_NAME, copy=bad, lb=object())
+
+
+def test_review_a_receipt_that_cannot_be_written_never_replaces_the_outcome(fresh_db, tmp_path, monkeypatch):
+    out = tmp_path / "graph"
+    out.mkdir()
+    (out / g.RECEIPTS).mkdir()                                     # the line cannot be appended
+    copy = _copy(fresh_db, tmp_path / "backups")
+    with pytest.raises(g.Refused, match="has not run"):            # still the refusal (exit 2), never an OSError
+        g.rebuild(out / g.GRAPH_NAME, copy=copy, lb=object())
+    with pytest.raises(g.Refused, match="not writable"):
+        os.chmod(out, 0o500)
+        try:
+            if os.access(out, os.W_OK):                            # root writes anyway: the check is moot here
+                raise g.Refused("not writable (root: skipped)")
+            g.check_out(out / g.GRAPH_NAME)
+        finally:
+            os.chmod(out, 0o700)
+
+
+def test_review_one_run_at_a_time_and_a_killed_runs_staging_is_removed(fresh_db, tmp_path):
+    import fcntl
+    _history_b()
+    out = tmp_path / "graph"
+    out.mkdir()
+    left = out / f".{g.GRAPH_NAME}.build-99999"                    # a SIGKILLed run's (MemoryMax)
+    left.mkdir()
+    (left / "Player.0000.csv").write_text("x")
+    copy = _copy(fresh_db, tmp_path / "backups")
+    with open(out / LOCK, "w") as held:
+        fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        with pytest.raises(g.Refused, match="another rebuild holds"):
+            g.rebuild(out / g.GRAPH_NAME, copy=copy, lb=object())
+    assert left.exists()                                          # nothing touched while another run holds the lock
+
+    def no_build(*a, **k):
+        raise RuntimeError("synthetic")
+    import pytest as _p
+    mp = _p.MonkeyPatch()
+    mp.setattr(g, "_load", no_build)
+    try:
+        with pytest.raises(RuntimeError):
+            g.rebuild(out / g.GRAPH_NAME, copy=copy, lb=object())
+    finally:
+        mp.undo()
+    assert not left.exists()
+    line = json.loads((out / g.RECEIPTS).read_text().splitlines()[-1])
+    assert line["removed_stale_staging"] == [left.name] and "synthetic" in line["error"]
+
+
+def test_review_a_sigterm_removes_the_staging_and_writes_its_line(fresh_db, tmp_path, monkeypatch):
+    import signal
+    _history_b()
+    out = tmp_path / "graph"
+    out.mkdir()
+    copy = _copy(fresh_db, tmp_path / "backups")
+    monkeypatch.setattr(g, "_load", lambda *a, **k: os.kill(os.getpid(), signal.SIGTERM))
+    before = signal.getsignal(signal.SIGTERM)
+    with pytest.raises(g.Killed):
+        g.rebuild(out / g.GRAPH_NAME, copy=copy, lb=object())
+    assert signal.getsignal(signal.SIGTERM) is before                # the handler restored
+    assert sorted(p.name for p in out.iterdir()) == [LOCK, g.RECEIPTS]
+    line = json.loads((out / g.RECEIPTS).read_text().splitlines()[-1])
+    assert line["ok"] is False and line["error"].startswith("Killed: signal 15")
 
 
 def test_the_cli_refusal_exits_2(fresh_db, tmp_path, monkeypatch):
@@ -211,23 +316,51 @@ def _python_files():
     yield from REPO.glob("*.py")
 
 
+def _imports(tree):
+    """Every module a file's syntax tree imports or loads by name: import, from-import (with each name it takes),
+    __import__ and import_module calls on a constant."""
+    import ast
+    out = set()
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Import):
+            out |= {a.name for a in n.names}
+        elif isinstance(n, ast.ImportFrom) and n.module:
+            out.add(n.module)
+            out |= {f"{n.module}.{a.name}" for a in n.names}
+        elif isinstance(n, ast.Call):
+            f = n.func
+            name = f.id if isinstance(f, ast.Name) else f.attr if isinstance(f, ast.Attribute) else None
+            if name in ("__import__", "import_module") and n.args and isinstance(n.args[0], ast.Constant):
+                out.add(str(n.args[0].value))
+    return out
+
+
 def test_347_c_nothing_but_the_rebuild_imports_the_engine_or_names_the_graph():
-    """347 item 5(c): "nothing reads the graph for a call, a price or a page until a later ruling". The engine is
-    imported in src/availability/graph.py alone; the graph's file is named there and by the CLI's help (its default)
-    alone; no export, chain, Desk or page module names either."""
-    importers, namers = [], []
+    """347 item 5(c): "nothing reads the graph for a call, a price or a page until a later ruling". Read on every
+    Python file's syntax tree (the pre-PR review: a regex missed `import os, ladybug`, `__import__` and a module
+    reaching the engine through graph.py): the engine is loaded in src/availability/graph.py alone; graph.py is
+    imported by cli.py alone (its command); and only those two name the graph's file or directory. The web pages
+    (src/web) are Python too, and are read here."""
+    import ast
+    engine_users, graph_users, namers = [], [], []
     for p in _python_files():
         t = p.read_text(encoding="utf-8", errors="replace")
         rel = p.relative_to(REPO).as_posix()
-        if re.search(r"^\s*(import ladybug|from ladybug)|import_module\(\s*['\"]ladybug", t, re.M):
-            importers.append(rel)
-        if re.search(r"availability\.lbug|\.lbug['\"]|logs/availability/graph", t):
+        mods = _imports(ast.parse(t))
+        if any(m == "ladybug" or m.startswith("ladybug.") for m in mods):
+            engine_users.append(rel)
+        if rel != "src/availability/graph.py" and ("src.availability.graph" in mods):
+            graph_users.append(rel)
+        if re.search(r"\.lbug\b|logs/availability/graph|availability-graph-rebuild|requirements-graph", t):
             namers.append(rel)
-    assert importers == ["src/availability/graph.py"]
+    assert engine_users == ["src/availability/graph.py"]
+    assert graph_users == ["cli.py"]
     assert sorted(namers) == ["cli.py", "src/availability/graph.py"]
     import cli
-    cmds = [n for n in cli.cli.commands if "graph" in n]
-    assert cmds == ["availability-graph-rebuild"]
+    assert [n for n in cli.cli.commands if "graph" in n] == ["availability-graph-rebuild"]
+    for p in (REPO / "src" / "web").rglob("*") if (REPO / "src" / "web").is_dir() else ():
+        if p.is_file() and p.suffix in (".html", ".js", ".css", ".jinja", ".j2"):
+            assert ".lbug" not in p.read_text(encoding="utf-8", errors="replace"), p
 
 
 def test_347_d_the_pin_is_exact_by_hash_and_never_in_requirements_txt():
@@ -248,12 +381,15 @@ def test_347_b_the_unit_is_its_own_sandbox():
     body = "\n".join(x for x in u.splitlines() if not x.startswith("#"))
     assert "EnvironmentFile" not in body                                           # never host.env
     for line in ("PrivateNetwork=yes", "NoNewPrivileges=yes", "ProtectSystem=strict", "User=sp", "Type=oneshot",
-                 "InaccessiblePaths=/opt/sports-predictor/data", "ProtectHome=yes", "CapabilityBoundingSet=",
-                 "OnFailure=sp-notify@availability-graph.service"):
+                 "InaccessiblePaths=/opt/sports-predictor/data /etc/sports-predictor", "ProtectHome=yes",
+                 "CapabilityBoundingSet=", "OnFailure=sp-notify@availability-graph.service",
+                 # the pre-PR review: another sp process's /proc view, filesystem sockets, the shared /dev/shm
+                 "PrivateUsers=yes", "ProtectProc=invisible", "ProcSubset=pid", "RestrictAddressFamilies=none",
+                 "PrivateDevices=yes", "PrivateIPC=yes"):
         assert re.search(rf"^{re.escape(line)}$", body, re.M), line
     assert re.findall(r"^ReadWritePaths=(.+)$", body, re.M) == ["/opt/sports-predictor/logs/availability/graph"]
     masks = re.findall(r"^BindReadOnlyPaths=(.+)$", body, re.M)
-    assert masks == ["/dev/null:/etc/sports-predictor/host.env /dev/null:/opt/sports-predictor/.env"]
+    assert masks == ["/dev/null:/opt/sports-predictor/.env"]          # host.env: its whole directory inaccessible
     assert re.findall(r"^TemporaryFileSystem=(.+)$", body, re.M) == ["/tmp:ro /var/tmp:ro"]
     assert "PrivateTmp" not in body                                               # one writable directory
     for k in ("SQLITE_TMPDIR", "TMPDIR"):
@@ -305,7 +441,7 @@ def test_the_rebuild_projects_every_assertion_with_both_intervals(fresh_db, tmp_
     r = g.rebuild(out / g.GRAPH_NAME, backup_dir=tmp_path / "backups", now=datetime.now(timezone.utc))
     assert r["ok"] and copy.read_bytes() == before                                 # the copy byte-identical
     assert not (copy.parent / (copy.name + "-wal")).exists() and not (copy.parent / (copy.name + "-shm")).exists()
-    assert sorted(p.name for p in out.iterdir()) == [g.GRAPH_NAME, g.RECEIPTS]      # one file, no sidecar, no staging
+    assert sorted(p.name for p in out.iterdir()) == [LOCK, g.GRAPH_NAME, g.RECEIPTS]  # one file, no sidecar, no stage
     with _ro() as s:
         walked = list(rec.walk(s, "nfl"))
         n_obs = s.execute(__import__("sqlalchemy").text("SELECT COUNT(*) FROM availability_observations")).scalar()
@@ -342,7 +478,7 @@ def test_a_failed_rebuild_leaves_the_previous_graph_and_writes_its_line(fresh_db
     with pytest.raises(RuntimeError, match="synthetic"):
         g.rebuild(out / g.GRAPH_NAME, copy=copy)
     assert (out / g.GRAPH_NAME).read_bytes() == first
-    assert sorted(p.name for p in out.iterdir()) == [g.GRAPH_NAME, g.RECEIPTS]
+    assert sorted(p.name for p in out.iterdir()) == [LOCK, g.GRAPH_NAME, g.RECEIPTS]
     lines = [json.loads(x) for x in (out / g.RECEIPTS).read_text().splitlines()]
     assert [x["ok"] for x in lines] == [True, False] and "synthetic COPY failure" in lines[1]["error"]
 
@@ -359,3 +495,61 @@ def test_the_cli_builds_and_prints_its_counts(fresh_db, tmp_path):
                                      str(tmp_path / "graph" / g.GRAPH_NAME)])
     assert r.exit_code == 0, r.output
     assert "AVAILABILITY-GRAPH" in r.output and "mode=ro + immutable=1" in r.output and "FACT 21" in r.output
+
+
+@needs_engine
+def test_review_any_text_the_record_keeps_survives_the_copy(fresh_db, tmp_path):
+    """The pre-PR review: the engine's parallel CSV reader refuses a quoted newline, and the record keeps whatever
+    text its source gave (the writer refuses only blank or over-long text): one such name failed every rebuild for
+    good (append-only). COPY runs with PARALLEL=FALSE; every awkward text reads back exactly."""
+    _migrate()
+    names = ["line1\nline2", "x\r\ny", 'a "q", b', "back\\slash", "#lead", " pad ", "tab\tbed", "it's", '""']
+    rows = [{"kind": "injury_status", "source_player_id": f"p{i}", "player_name": n, "source_team": f"T\n{i}",
+             "attrs": {"status": n}} for i, n in enumerate(names)]
+    rec.write_observation({"sport": "nfl", "source": "sportsdataio_goalies", "status": "complete",
+                           "endpoint": "https://example.invalid/goalies", "fetched_at": datetime(2026, 11, 12, 9)},
+                          rows)
+    copy = _copy(fresh_db, tmp_path / "backups")
+    out = tmp_path / "graph"
+    out.mkdir()
+    assert g.rebuild(out / g.GRAPH_NAME, copy=copy)["ok"]
+    got = dict(_graph_rows(out / g.GRAPH_NAME, "MATCH (p:Player) RETURN p.source_player_id, p.name"))
+    assert got == {f"p{i}": n for i, n in enumerate(names)}
+    teams = {k for (k,) in _graph_rows(out / g.GRAPH_NAME, "MATCH (t:Team) RETURN t.source_team")}
+    assert teams == {f"T\n{i}" for i in range(len(names))}
+    attrs = [json.loads(a)["status"] for (a,) in _graph_rows(out / g.GRAPH_NAME, "MATCH ()-[f:FACT]->() RETURN f.attrs")]
+    assert sorted(attrs) == sorted(names)
+
+
+@needs_engine
+@pytest.mark.parametrize("seed", [1, 2, 3])
+def test_review_a_nodes_ids_are_the_latest_mapping_whatever_the_walk_order(fresh_db, tmp_path, seed):
+    """The pre-PR review: each node took the ids of whichever partition the walk yielded last (partition order, not
+    time), so a team mapped by its later assertions came out NULL, and a re-mapped game kept its old match. A node's
+    id is now the LATEST assertion's that carries one (recorded_at, then id): mapped_now's rule across the key."""
+    _random_history(seed)
+    copy = _copy(fresh_db, tmp_path / "backups")
+    out = tmp_path / "graph"
+    out.mkdir()
+    g.rebuild(out / g.GRAPH_NAME, copy=copy)
+    want: dict = {}
+    with _ro() as s_:
+        for r, _, _ in rec.walk(s_, "nfl"):
+            mk = rec.match_key(r)
+            keys = [("Player", g._key(r.source, rec.player_key(r)), r.player_id),
+                    ("Team", g._key(r.source, rec.team_key(r)), r.team_id)]
+            if mk is not None:
+                gk = f"match|{mk[1]}" if mk[0] == "id" else g._key(r.source, mk)
+                keys.append(("Game", gk, r.match_id if mk[0] == "src" else mk[1]))
+            for kind, k, v in keys:
+                if v is not None and (want.get((kind, k)) is None or (r.recorded_at, r.id) > want[(kind, k)][:2]):
+                    want[(kind, k)] = (r.recorded_at, r.id, v)
+    col = {"Player": "player_id", "Team": "team_id", "Game": "match_id"}
+    seen = 0
+    for kind in col:
+        for k, v in _graph_rows(out / g.GRAPH_NAME, f"MATCH (n:{kind}) RETURN n.key, n.{col[kind]}"):
+            if k.startswith("match|"):
+                continue                                          # an observation's own match: its id is its key
+            assert v == (want[(kind, k)][2] if (kind, k) in want else None), (kind, k)
+            seen += v is not None
+    assert seen                                                   # mapped nodes exist and carry the latest id

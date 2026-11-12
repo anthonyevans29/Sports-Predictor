@@ -1,4 +1,4 @@
-## 2026-11-12 (#000: 941-check-db-recursive — the shared `--db` fence refuses a hard link to a file anywhere under data/, not only directly in it (#941; ARCHITECT 2026-11-11 19:50 ET, addendum 347 item 3).)
+## 2026-11-12 (#942: 941-check-db-recursive — the shared `--db` fence refuses a hard link to a file anywhere under data/, not only directly in it (#941; ARCHITECT 2026-11-11 19:50 ET, addendum 347 item 3).)
 - **Ruling (verbatim, in part):** "The `check_db` gap you found (a hard link to a file in a SUBFOLDER of data/ passes the fence that every `--db` since 11-01 uses) is a finding in its own right: its own Issue and small PR (class finding), the fence walking data/ recursively by device and inode, a test with a link under data/backups/; before 11-17 as well."
 - **Built (`mlb_pitchers_gate._data_tree`, read by `check_db`):**
   - The identity pass walks each data/ recursively and compares the target's `(st_dev, st_ino)` against every regular file found. A symlink to a file stats as that file, as the direct-child pass read it. A match is refused, naming the file, with the same "hard link into the repo's data/" refusal as before.

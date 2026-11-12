@@ -19,10 +19,13 @@ the rows; `dedupe-matches --competition NCAA --orphans --sample 30` prints, for 
 PER ROW: the match id, the provider id, our season, the stored kickoff, our status_raw as stored, and the row's CFBD
 side-table label if any: its CFBD season, season type, score in our orientation, fetched_at, and whether it is CURRENT
 (L3, ARCHITECT 2026-10-08, addendum 11: "A label is current when its fetched_at equals that of its season's latest
-ingest record"; ncaa_cfbd.latest_record_stamps). The D2 stream (ncaa_backtest.load_v1r_games) walks every stored NCAA
-match with a CURRENT label "whatever our local status or scores", with the label's scores; a row without one is never
-walked. So the counts by label season below answer "how many fall in the seasons the candidates trained and tested on":
-a row with a current label of a candidate's season was walked with CFBD's score; a row without one was not.
+ingest record"; ncaa_cfbd.latest_record_stamps). The D2 stream (ncaa_backtest.load_v1r_games, then v1r_stream) reads
+every stored NCAA match with a CURRENT label "whatever our local status or scores", with the label's scores, and walks
+those whose label season is one of the candidate's own seasons, except a level score, which it lists and does not
+walk. A stale label or none is never walked. So the counts by label season below answer "how many fall in the seasons
+the candidates trained and tested on": a current label of a candidate's season, not level, was walked with CFBD's
+score. A level score is marked on its row. Labels are read with ncaa_cfbd.label_load_options, so a copy that predates
+the season_type (J4) or week (D10) migration is read, not refused (an unloaded season_type prints as none).
 
 --db: a .backup copy outside the repo's data/ (mlb_pitchers_gate.check_db), refused with a -wal / -shm / -journal beside
 it (immutable=1 would ignore it), opened mode=ro&immutable=1. Refusals exit 2, nothing read. Exit 0 otherwise. The last
@@ -54,16 +57,18 @@ def collect(s, now: datetime) -> list[dict]:
 
     from src.db.schema import Competition, Match, MatchStatus, NCAACFBDLabel
     from src.ingestion.match_dedupe import STALE_H
+    from src.ingestion.ncaa_cfbd import label_load_options
 
     cut = now - timedelta(hours=STALE_H)
     comp = s.execute(select(Competition).where(Competition.code == "NCAA")).scalar_one_or_none()
     if comp is None:
         return []
     has_labels = inspect(s.connection()).has_table(NCAACFBDLabel.__tablename__)
-    stamps = {}
+    stamps, opts = {}, []
     if has_labels:
         from src.ingestion.ncaa_cfbd import latest_record_stamps
         stamps = latest_record_stamps(s)
+        opts = label_load_options(s)      # a copy without the J4 / D10 column: never selected, never refused
     rows = s.execute(select(Match).where(Match.competition_id == comp.id, Match.status == MatchStatus.SCHEDULED,
                                          Match.home_score.is_(None), Match.away_score.is_(None),
                                          Match.utc_date.is_not(None), Match.utc_date < cut)
@@ -73,13 +78,14 @@ def collect(s, now: datetime) -> list[dict]:
         sid = (m.external_ids or {}).get(SOURCE)
         if not sid:
             continue
-        lab = s.get(NCAACFBDLabel, m.id) if has_labels else None
+        lab = (s.execute(select(NCAACFBDLabel).where(NCAACFBDLabel.match_id == m.id).options(*opts))
+               .scalar_one_or_none() if has_labels else None)
         label = None
         if lab is not None:
             at = stamps.get(lab.season or "")
-            label = {"season": lab.season, "season_type": lab.season_type,
+            label = {"season": lab.season, "season_type": lab.__dict__.get("season_type"),
                      "score": f"{lab.home_score}-{lab.away_score}", "fetched_at": lab.fetched_at.isoformat(),
-                     "current": at is not None and lab.fetched_at == at}
+                     "current": at is not None and lab.fetched_at == at, "level": lab.home_score == lab.away_score}
         out.append({"id": m.id, "sid": str(sid), "season": m.season, "utc": m.utc_date.isoformat(),
                     "status_raw": m.status_raw, "label": label})
     s.rollback()
@@ -95,19 +101,23 @@ def report(rows: list[dict], db_text: str, now: datetime, echo=print) -> dict:
         lab = r["label"]
         lt = ("no CFBD label (never walked)" if lab is None else
               f"CFBD label season {lab['season']} {lab['season_type'] or '(no type)'} {lab['score']} fetched "
-              f"{lab['fetched_at']} {'CURRENT (walked)' if lab['current'] else 'STALE (kept, never walked)'}")
+              f"{lab['fetched_at']} {'CURRENT (L3)' if lab['current'] else 'STALE (kept, never walked)'}"
+              f"{' · level score: listed by v1r_stream, not walked' if lab['current'] and lab['level'] else ''}")
         echo(f"  id {r['id']} sid {r['sid']} season {r['season']} {r['utc']} status_raw {r['status_raw']!r} · {lt}")
     by_year = Counter(r["utc"][:4] for r in rows)
     current = Counter(r["label"]["season"] for r in rows if r["label"] and r["label"]["current"])
+    level = Counter(r["label"]["season"] for r in rows if r["label"] and r["label"]["current"] and r["label"]["level"])
     stale = Counter(r["label"]["season"] for r in rows if r["label"] and not r["label"]["current"])
     none = sum(1 for r in rows if r["label"] is None)
     echo(f"  rows {len(rows)} · by kickoff year {dict(sorted(by_year.items()))}")
-    echo(f"  current CFBD labels by label season (walked, with CFBD's score) {dict(sorted(current.items()))} · stale "
-         f"labels {dict(sorted(stale.items()))} · no label (never walked) {none}")
+    echo(f"  current CFBD labels (L3) by label season {dict(sorted(current.items()))}, of which level scores (listed, "
+         f"not walked) {dict(sorted(level.items()))}: each candidate's D2 stream walks the rest of its own seasons, with "
+         f"CFBD's score · stale labels {dict(sorted(stale.items()))} · no label (never walked) {none}")
     echo("  which of these the provider still serves, and what it serves: `dedupe-matches --competition NCAA "
          "--orphans --sample 30` (its [live_resync] lines, #945); this listing calls no provider")
     tail = {"rows": len(rows), "by_kickoff_year": dict(sorted(by_year.items())),
             "current_labels_by_season": dict(sorted(current.items())),
+            "current_level_by_season": dict(sorted(level.items())),
             "stale_labels_by_season": dict(sorted(stale.items())), "no_label": none,
             "ids": [r["id"] for r in rows]}
     echo(f"{TAIL} {json.dumps(tail, sort_keys=True)}")

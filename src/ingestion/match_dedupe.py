@@ -433,10 +433,10 @@ def orphans(competition_code: str, adapter, source: str = "api_american_football
         def served(nm):
             """What the provider serves for a live id, from the by-id answer already read (#945; ARCHITECT 2026-11-12,
             addendum 348 item 2: "say what the provider serves for each"): its status as our map reads it, its status
-            code verbatim, its score and its kickoff. No further call. A game the adapter filters (exists, not
-            competitive) says so."""
+            code verbatim, its score and its kickoff. No further call. An id that answers with no game the adapter
+            keeps (non-competitive, or served with no date or no team ids) says so, without claiming which."""
             if nm is None:
-                return "filtered by the adapter (the id answers; not a competitive game)"
+                return "the id answers; the adapter kept no game (non-competitive, or no date or team ids)"
             score = None if nm.home_score is None and nm.away_score is None else f"{nm.home_score}-{nm.away_score}"
             return {"status": nm.status.name, "status_raw": nm.status_raw, "score": score,
                     "utc": nm.utc_date.isoformat()}

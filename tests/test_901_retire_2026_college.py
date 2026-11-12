@@ -76,7 +76,7 @@ def test_the_2027_season_is_open_and_the_2025_set_still_refuses(tmp_path):
 
 def test_the_sentence_is_quoted_beside_the_entry_and_in_the_doctrine():
     src = (ROOT / "src" / "walters" / "registry.py").read_text(encoding="utf-8")
-    assert f'addendum 302 (ncaa-elo-v2 FAIL), item 3, verbatim: "{SENTENCE[:47]}' in src.replace("\n# ", " ")
+    assert f'addendum 302 (ncaa-elo-v2 FAIL), item 3, verbatim: "{SENTENCE}"' in src.replace("\n# ", " ")
     doc = (ROOT / "docs" / "REGISTRY.md").read_text(encoding="utf-8").replace("\n  ", " ")
     assert SENTENCE in doc
     assert f"| {TEST_SET} | `ncaa-elo-v2`, once (ARCHITECT 2026-11-09, addendum 302) | `ncaa-elo-v2` | {INSTEAD} |" in doc

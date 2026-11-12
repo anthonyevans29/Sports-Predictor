@@ -719,6 +719,21 @@ def test_the_t11_lists_the_shipped_timers_and_the_schedule_table_agree():
 
 
 
+
+def test_a_timers_by_block_timers_schedule_row_names_its_list_and_never_timers():
+    """#953 (Codex on #952, round 3): #952 moved sp-tennis-daily.timer to TIMERS_BY_BLOCK and its Schedule row still
+    said "Shipped on `TIMERS`; the architect's TERMINAL (host) block enables it (T11, below)", the opposite of T11's
+    executable block. Every TIMERS_BY_BLOCK timer's row names that list and says nothing of being on `TIMERS`."""
+    lists = c.t11_lists()
+    rb = (ROOT / "docs" / "specs" / "hosting-h1.md").read_text()
+    table = rb[rb.index("### Schedule"):]
+    table = table[:table.index("\n\n", table.index("| Timer |"))]
+    rows = {m.group(1): m.group(0) for m in re.finditer(r"^\| (sp-[\w-]+) \|.*$", table, re.M)}
+    for timer in lists["TIMERS_BY_BLOCK"]:
+        row = rows[timer[:-len(".timer")]]
+        assert "TIMERS_BY_BLOCK" in row, timer
+        assert not re.search(r"on `?TIMERS`?(?!_)", row), (timer, row)
+
 # ------------------------------- the prediction timers, retired (ARCHITECT 2026-10-25, addendum 166 item 6(B)) ----
 # "(B) THE TIMERS RETIREMENT PR [...] addendum 126 item 2(d) rules the host's fixed-time PREDICTION timers retired by
 # the cutover. Law 1 first: enumerate from deploy/hosting/chains.py what each of sp-nfl-predict, sp-soccer-friday and

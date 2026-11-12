@@ -363,7 +363,7 @@ def test_r2_a_lead_in_never_crosses_a_heading_and_a_nested_item_carries_its_pare
                                   "<li>(a) sell;<br>use any robot or spider</li>"])
 def test_r2_a_list_items_inner_block_stays_a_list_item_with_its_lead_in(item):
     q, _, _ = probe.terms_quotes(f"<p>You agree not to:</p><ul>{item}</ul>")
-    hit = [x for x in q if x["text"] == "use any robot or spider"][0]
+    hit = [x for x in q if x["text"].endswith("use any robot or spider")][0]       # the whole item, quoted whole
     assert hit["lead_in"] == "You agree not to:"
 
 
@@ -398,3 +398,38 @@ def test_r2_text_in_a_heading_never_closed_is_kept_not_lost():
     q, _, _ = probe.terms_quotes("<h2>Terms<h2>No robots may access the site. <p>Robots again.")
     # the unclosed heading's text is kept (its inner <p> reads as a space, as inside any heading), never dropped
     assert [x["text"] for x in q] == ["No robots may access the site. Robots again."]
+
+
+# ---- the third adversarial pass (on c8035c0a; each reproduced there, fail-first) -------------------------------------
+
+def _q(page):
+    return {x["text"]: x for x in probe.terms_quotes(page)[0]}
+
+
+def test_r3_items_without_close_tags_are_siblings_and_a_paragraph_after_the_list_is_not_an_item():
+    """P1: depth counted only from <li>/</li>, so omitted </li> (valid HTML) nested each sibling one level deeper and
+    kept every later paragraph inside the list."""
+    q = _q("<h2>Use</h2><p>You may:</p><ul><li>browse the site<li>use a robot to read the injury report PDF</ul>"
+           "<p>You may not scrape the Site.</p>")
+    robot = q["use a robot to read the injury report PDF"]
+    assert robot["lead_chain"] == ["You may:"]
+    assert "lead_chain" not in q["You may not scrape the Site."]
+
+
+def test_r3_an_inner_list_without_close_tags_returns_to_the_outer_level():
+    q = _q("<h2>Use</h2><p>You may not:</p><ul><li>B<ul><li>c</ul></li><li>use automated means to access</li></ul>")
+    assert q["use automated means to access"]["lead_chain"] == ["You may not:"]
+    q = _q("<p>You agree to:</p><ul><li>these rules<ol><li>no x</li></ol><li>use a robot only with permission</li>"
+           "</ul><p>Bots are prohibited.</p>")
+    assert q["use a robot only with permission"]["lead_chain"] == ["You agree to:"]
+    assert "lead_chain" not in q["Bots are prohibited."]
+
+
+def test_r3_a_br_or_inner_paragraph_keeps_one_paragraph_or_item_whole_with_its_negation():
+    """P1: <br> and a <p> inside an <li> split one paragraph or item, so "You may not:" was never printed."""
+    q = _q("<h2>Restrictions</h2><p>You may not:<br>- use any robot, spider or scraper<br>- reproduce the content</p>")
+    assert "You may not: - use any robot, spider or scraper - reproduce the content" in q
+    q = _q("<p>You may:</p><ul><li>You may not:<br>use any robot or scraper</li></ul>")
+    assert q["You may not: use any robot or scraper"]["lead_chain"] == ["You may:"]
+    q = _q("<p>Permitted uses:</p><ul><li><p>Prohibited. You will not:</p><p>use any robot or scraper</p></li></ul>")
+    assert "Prohibited. You will not: use any robot or scraper" in q

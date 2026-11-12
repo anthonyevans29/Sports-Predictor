@@ -90,6 +90,7 @@ BLOCK_TAGS = ("p", "div", "li", "ul", "ol", "dl", "dt", "dd", "tr", "td", "th", 
               "article", "header", "footer", "main", "nav", "aside", "blockquote", "form", "fieldset", "br", "hr",
               "pre", "figure", "figcaption", "body", "html", "summary", "details", "legend", "caption", "address",
               "center", "dialog", "menu", "option", "tfoot", "colgroup", "dir", "button", "select", "textarea")
+LISTS = {"ul", "ol", "menu", "dir"}
 UPDATED_STRICT = re.compile(r"\blast\s+(?:updated|modified|revised)\b|^\s*(?:updated|revised|effective|modified)\s*:",
                             re.I)
 # HYPOTHESES, never confirmed here (law 1): each is printed found / not found on the run
@@ -165,8 +166,9 @@ def page_blocks(page: str) -> list[dict]:
     t = re.sub(r"(?s)<!--.*?-->", " ", page or "")
     t = re.sub(r"(?is)<(head|script|style|noscript)\b.*?</\1\s*>", " ", t)
     t = re.sub(r"\s+", " ", t)
-    blocks = set(BLOCK_TAGS)
+    blocks = set(BLOCK_TAGS) - {"br", "li"} - LISTS
     out, heading, buf, depth, in_h, hbuf = [], None, [], 0, False, []
+    lists: list[dict] = []          # the open lists, innermost last; each knows whether it has an open item
 
     def flush():
         text = re.sub(r"\s+", " ", html.unescape("".join(buf))).strip()
@@ -200,14 +202,28 @@ def page_blocks(page: str) -> list[dict]:
                     out.append({"heading": h, "text": h, "li": 0, "is_heading": True})
             continue
         if in_h:                                    # a block tag inside a heading reads as a space; inline: nothing
-            if name in blocks or name == "li":
+            if name in blocks or name in LISTS or name in ("li", "br"):
                 hbuf.append(" ")
             continue
-        if name == "li":
+        if name == "br":                            # a line break inside a block: the block stays whole
+            buf.append(" ")
+        elif name in LISTS:                         # a list's end closes its items, </li> written or not
             flush()
-            depth = depth + 1 if not close else max(0, depth - 1)
+            if not close:
+                lists.append({"open": False})
+            elif lists:
+                lists.pop()
+        elif name == "li":                          # an item closes its open sibling (HTML's implied </li>)
+            flush()
+            if not lists:
+                lists.append({"open": False, "implied": True})
+            lists[-1]["open"] = not close
         elif name in blocks:
-            flush()
+            if depth:                               # a block inside an item: the item stays one quote, whole
+                buf.append(" ")
+            else:
+                flush()
+        depth = sum(1 for x in lists if x["open"])
     flush()
     if in_h:
         unclosed_heading()

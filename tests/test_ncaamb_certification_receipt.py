@@ -315,7 +315,31 @@ def test_965_the_nba_stored_phase_is_left_as_certified_on_an_empty_season(tmp_pa
 
 
 def test_965_a_stop_outranks_the_empty_failure(tmp_path, capsys):
-    """A shared NBA row is a STOP (3) whatever else the copy shows; the clean loaded copy still exits 0."""
-    path, _ = _copy(tmp_path, shared=True)
-    assert R.main(["--competition", "NCAAMB", "--db", str(path)]) == R.STOP
+    """Both at once: an NBA team row linked to NCAAMB 2026 (a shared row: STOP) and no NCAAMB game (nothing stored:
+    FAILED). The STOP (3) outranks the FAILED (1), and both lines print; the clean loaded copy still exits 0."""
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import Session
+    from src.db.schema import Base, Competition, CompetitionTeam, Sport, Team
+    path = tmp_path / "both.db"
+    eng = create_engine(f"sqlite:///{path}")
+    Base.metadata.create_all(eng)
+    with Session(eng) as s:
+        nba = Competition(sport=Sport.BASKETBALL, code="NBA", name="x", area="x", type="LEAGUE")
+        col = Competition(sport=Sport.BASKETBALL, code="NCAAMB", name="y", area="y", type="LEAGUE")
+        pro = Team(sport=Sport.BASKETBALL, name="Synthetic Pro 101", external_ids={"api_basketball": "101"})
+        s.add_all([nba, col, pro])
+        s.flush()
+        s.add_all([CompetitionTeam(competition_id=nba.id, team_id=pro.id, season="2026"),
+                   CompetitionTeam(competition_id=col.id, team_id=pro.id, season="2026")])
+        s.commit()
+    eng.dispose()
+    code = R.main(["--competition", "NCAAMB", "--db", str(path)])
+    out = capsys.readouterr().out
+    assert code == R.STOP, out
+    assert "shared: 1" in out and "FAILED: nothing stored to certify (NCAAMB 2026: 0 rows · teams linked 1" in out
+    tail = json.loads(out.strip().splitlines()[-1].split(" ", 1)[1])
+    assert tail["exit"] == R.STOP and tail["seasons"]["2026"]["nothing_stored"] is True
+    (tmp_path / "clean").mkdir()
+    clean, _ = _copy(tmp_path / "clean", shared=False)
+    assert R.main(["--competition", "NCAAMB", "--db", str(clean)]) == R.OK
     capsys.readouterr()

@@ -202,13 +202,95 @@ def test_ci_runs_the_check_on_every_pull_request():
     assert 'python scripts/schema_ddl_check.py --base "origin/${{ github.base_ref }}"' in ci
 
 
-def test_this_repositorys_schema_compiles_and_main_passes_itself():
-    """The real schema compiles through the same path (no file DB): the check of a tree against itself passes."""
+def test_this_repositorys_schema_compiles_the_same_twice_and_passes_itself():
+    """The real schema compiles through the same path (no file DB), to the same objects each time (a compile that
+    varied would refuse every PR), and the check of this checkout's HEAD against itself runs end to end and passes."""
     objs = ddl.compile_objects(ROOT)
     assert len(objs) > 100 and any(k.startswith("trigger:") for k in objs), len(objs)
+    assert ddl.compile_objects(ROOT) == objs
+    lines = []
+    assert ddl.run("HEAD", "HEAD", say=lines.append, cwd=ROOT) == ddl.OK, lines
+    assert lines[-1].startswith("SCHEMA: PASS (the compiled DDL is unchanged"), lines
+
+
+def test_review_a_pr_behind_its_base_is_not_asked_for_the_bases_own_schema_changes(repo):
+    """Pre-push review P1: the base is compiled at the MERGE BASE. The base branch later adds a column and its own
+    migration; a PR forked before that, changing no schema, passes (it would be refused if the base tip were compiled:
+    the base's migration is outside the PR's range)."""
+    _git(repo, "checkout", "-q", "-b", "feature")
+    _commit(repo, files={"docs.txt": "a doc\n"}, msg="feature: docs only")
+    _git(repo, "checkout", "-q", "main")
+    _commit(repo, ADD_COLUMN, MIG, msg="main: a column and its migration")
+    _git(repo, "tag", "-f", "base")
+    code, out = _check(repo, head="feature")
+    assert code == ddl.OK and "the compiled DDL is unchanged" in out and "(merge base " in out, out
+    _git(repo, "checkout", "-q", "feature")                         # the working-tree mode reads the same way
+    lines = []
+    assert ddl.run("base", None, say=lines.append, cwd=repo) == ddl.OK, lines
+
+
+@pytest.mark.parametrize("how", ["copy", "rename"])
+def test_review_a_copied_or_renamed_migration_is_not_new(repo, how):
+    """Pre-push review P2: sp_deploy's plan treats a new file whose content equals a migration already on the base,
+    and a renamed migration, as a copy that already ran, and never runs it. The check does not count it either."""
+    _commit(repo, files={"migrate_old.py": '"""an older migration"""\nprint("old")\n'}, msg="an older migration")
+    _git(repo, "tag", "-f", "base")
+    if how == "copy":
+        _commit(repo, ADD_COLUMN, {"migrate_teams_city.py": '"""an older migration"""\nprint("old")\n'})
+        why = "a byte copy of migrate_old.py, already on the base: sp_deploy never runs it"
+    else:
+        (repo / "src" / "db" / "schema.py").write_text(ADD_COLUMN)
+        _git(repo, "mv", "migrate_old.py", "migrate_teams_city.py")
+        with (repo / "migrate_teams_city.py").open("a") as fh:          # a rename with an edit, not a byte copy
+            fh.write("# the PR's note\n")
+        _commit(repo)
+        why = "renamed from migrate_old.py: sp_deploy treats it as already run"
+    code, out = _check(repo)
+    assert code == ddl.REFUSED, out
+    assert f"  NOT NEW  migrate_teams_city.py: {why}" in out and "new migrate_*.py in this PR: none" in out
+
+
+def test_review_editing_an_existing_migration_does_not_count(repo):
+    """Pre-push review P2: the #950 case itself, a schema change that rides an existing migration, refuses."""
+    _commit(repo, files={"migrate_old.py": '"""an older migration"""\n'}, msg="an older migration")
+    _git(repo, "tag", "-f", "base")
+    _commit(repo, ADD_COLUMN, {"migrate_old.py": '"""an older migration, now also adding city"""\n'})
+    code, out = _check(repo)
+    assert code == ddl.REFUSED and "new migrate_*.py in this PR: none" in out, out
+
+
+def test_review_the_working_tree_mode_compiles_uncommitted_edits_and_writes_no_pyc(repo):
+    """The working tree as it stands is what is compiled (an uncommitted column refuses while HEAD has none), and
+    `python -I -B` keeps even a .pyc out of the checkout."""
+    (repo / "src" / "db" / "schema.py").write_text(ADD_COLUMN)        # not committed
+    lines = []
+    assert ddl.run("base", None, say=lines.append, cwd=repo) == ddl.REFUSED, lines
+    assert any(ln.startswith("  CHANGED  table:teams") for ln in lines), lines
+    assert not list(repo.rglob("__pycache__")) and not list(repo.rglob("*.pyc"))
+
+
+def test_review_a_schema_import_from_outside_src_compiles_at_both_ends(repo):
+    """Pre-push review P2: the whole tree is exported, so a schema.py that imports a top-level module compiles at the
+    base as at the head (src/ alone would fail every later PR with exit 2)."""
+    _commit(repo, BASE_SCHEMA.replace('from sqlalchemy.orm import DeclarativeBase',
+                                      'from sqlalchemy.orm import DeclarativeBase\nimport helper  # noqa: F401'),
+            {"helper.py": "X = 1\n"}, msg="schema imports a top-level module")
+    _git(repo, "tag", "-f", "base")
+    _commit(repo, files={"notes.txt": "x\n"})
+    code, out = _check(repo)
+    assert code == ddl.OK and "unchanged" in out, out
+
+
+def test_every_table_is_declared_in_schema_py():
+    """The check compiles what src.db.schema's import registers on Base. That covers every table only while no other
+    module declares one: no tracked .py outside src/db/schema.py (tests aside) assigns __tablename__."""
+    out = subprocess.run(["git", "grep", "-l", "-E", r"^\s*__tablename__\s*=", "--", "*.py"], cwd=ROOT,
+                         capture_output=True, text=True).stdout.split()
+    assert [p for p in out if not p.startswith("tests/")] == ["src/db/schema.py"], out
 
 
 def test_contributing_states_the_limits():
     text = " ".join((ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8").split())
     assert "scripts/schema_ddl_check.py" in text and "addendum 358 item 2" in text
     assert "DDL outside `Base.metadata`" in text and "a backfill with no DDL change" in text
+    assert "the merge base" in text and "byte copy" in text

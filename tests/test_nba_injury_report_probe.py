@@ -769,3 +769,27 @@ def test_362_7_a_library_warning_carrying_document_text_is_escaped_on_stderr(cap
     err = capsys.readouterr().err
     assert "\x1b" not in err and "\x07" not in err and "\x9b" not in err
     assert "/X\\x1b]0;PWNED\\x07\\x1b[31m\\x9b" in err
+
+
+# ---- #972 items A and B (ARCHITECT 2026-11-12, addendum 363 item 6): the receipt keeps a line's characters ------------
+
+def test_972_a_robots_lines_break_only_at_cr_lf_and_crlf(capsys):
+    pages = terms_pages()
+    served = "User-agent: *\r\nDisallow: /a\x1cb\x1d\x1e\x0bc\x0cd\x85e f\nAllow: /\r"
+    pages[ROBOTS_URL] = (200, served.encode(), {})
+    code, out, rec, fake = run(capsys, ["--terms-url", TERMS], pages)
+    assert [ln["text"] for ln in rec["robots"]["text_lines"]] == [
+        "User-agent: *", "Disallow: /a\x1cb\x1d\x1e\x0bc\x0cd\x85e f", "Allow: /"]
+    assert rec["robots"]["lines"] == 3
+    assert "  | Disallow: /a\\x1cb\\x1d\\x1e\\x0bc\\x0cd\\x85e f" in out    # the console shows them escaped
+
+
+def test_972_a_pdf_text_lines_break_only_at_cr_lf_and_crlf():
+    f = probe.fields_report(["Injury Report: 11/12/26 08:00 PM\r\nLast, First\x1cOut\x85 Injury\x0b\n"], probe.Out())
+    assert f["lines"] == 2 and f["first_lines"] == ["Injury Report: 11/12/26 08:00 PM", "Last, First\x1cOut\x85 Injury\x0b"]
+
+
+def test_972_b_the_page_folds_only_html_whitespace():
+    lines = [ln["text"] for ln in probe.page_lines(
+        "<p>No scraping\x01 of\x1fthe\x85site.</p><p>a \n\t\r\x0c  b</p><p>c\xa0\xa0d e</p>")]
+    assert lines == ["No scraping\x01 of\x1fthe\x85site.", "a b", "c\xa0\xa0d e"]

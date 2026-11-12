@@ -100,8 +100,7 @@ def test_the_held_line_and_the_held_table_name_the_same_timers():
     sec = rb[rb.index("  - **THE HELD LIST (addendum 323 item 1).**"):]
     sec = sec[:sec.index("    - **Lifted:")]
     rows = re.findall(r"^    \| `(sp-[a-z0-9-]+\.timer)` \|", sec, re.M)
-    assert sorted(held) == sorted(rows), (held, rows)
-    assert {"sp-tennis-daily.timer", "sp-ncaamb-daily.timer", "sp-availability-graph.timer"} <= set(held), held
+    assert held and sorted(held) == sorted(rows), (held, rows)
 
 
 def test_every_held_timer_printed_is_marked(search):

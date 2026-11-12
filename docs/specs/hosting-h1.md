@@ -1367,7 +1367,8 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
           printed. A chain whose timers are all on that list prints only the routine. A timer on THE HELD LIST
           (the set-check recipe's `HELD=` line) is printed with "(on THE HELD LIST: not enabled on the host)":
           today `C=ATP` and `C=WTA` print tennis-daily that way, since sp-tennis-daily is installed and never
-          enabled (288 item 5), and `C=NCAAMB` prints ncaamb-daily that way (356 item 2). That marking extends 333 item 3(i)'s "never a host timer that is not enabled" from
+          enabled (288 item 5), and `C=NCAAMB` prints ncaamb-daily that way (356 item 2).
+          That marking extends 333 item 3(i)'s "never a host timer that is not enabled" from
           `MLB_LAPTOP_ONLY` to the held list; ACCEPTED (ARCHITECT 2026-11-11 08:45 ET, addendum 335 item 3(2),
           verbatim): "a held timer is printed marked "(on THE HELD LIST: not enabled on the host)"". `C=MLB` prints mlb-morning and
           mlb-preslate that way; mlb-history (`sp-mlb-history.timer`, on `TIMERS`: the host's api-sports fallback),

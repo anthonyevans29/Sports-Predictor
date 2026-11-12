@@ -170,7 +170,9 @@ def _text(body: bytes | None) -> str:
 
 # what a browser never shows inside text: the soft hyphen and the zero-width characters (the sixth pass)
 INVISIBLE = re.compile("[\u00ad\u200b\u200c\u200d\u2060\ufeff]")
-SKIP = {"head", "script", "style", "noscript", "template", "title"}
+# raw-text and inert elements whose contents are never page text; <head> is NOT one (its </head> is optional, the
+# seventh pass), and <title> is skipped only before the body starts (a <title> in an <svg> is body content)
+SKIP = {"script", "style", "noscript", "template"}
 
 
 class _Lines(HTMLParser):
@@ -183,6 +185,8 @@ class _Lines(HTMLParser):
         super().__init__(convert_charrefs=True)
         self.out, self.buf, self.in_h, self.skip = [], [], False, 0
         self.breaks = set(BLOCK_TAGS) | {"li", "br"}
+        self.body, self.title, self.h_open = False, False, 0     # body started; in the head's <title>; blocks in a heading
+        self.foreign = 0                                          # inside <svg>/<math>: a <title> there is content
 
     def flush(self, heading=False):
         text = re.sub(r"\s+", " ", INVISIBLE.sub("", "".join(self.buf))).strip()
@@ -191,35 +195,57 @@ class _Lines(HTMLParser):
             self.out.append({"text": text, "heading": heading})
 
     def handle_starttag(self, tag, attrs):
+        if tag in ("svg", "math"):                  # foreign content: its <title> is an element, not raw text (newer
+            self.foreign += 1                       # parsers read <title> as raw text to </title>, as a browser does
+            self.RCDATA_CONTENT_ELEMENTS = ()       # in HTML, never inside <svg>/<math>)
         if tag in SKIP:
             self.skip += 1
-        elif re.fullmatch(r"h[1-6]", tag):
+            return
+        if tag == "title" and not self.body and not self.foreign:
+            self.title = True
+            return
+        if tag == "body" or (tag in self.breaks and tag != "html") or re.fullmatch(r"h[1-6]", tag):
+            self.body, self.title = True, False
+        if re.fullmatch(r"h[1-6]", tag):
             self.flush(heading=self.in_h)
-            self.in_h = True
+            self.in_h, self.h_open = True, 0
         elif tag in self.breaks:
-            if self.in_h:
-                self.buf.append(" ")                # a break inside a heading: one heading line, words spaced
+            if self.in_h and tag in ("br", "hr"):
+                self.buf.append(" ")                # a line break inside a heading: one heading line, words spaced
+            elif self.in_h:                         # a block opened inside a heading: its own line, inside the heading
+                self.flush(heading=True)
+                self.h_open += 1
             else:
                 self.flush()
 
     def handle_startendtag(self, tag, attrs):
-        if tag not in SKIP:
+        if tag not in SKIP and tag != "title":
             self.handle_starttag(tag, attrs)
 
     def handle_endtag(self, tag):
+        if tag in ("svg", "math") and self.foreign:
+            self.foreign -= 1
+            if not self.foreign:
+                self.__dict__.pop("RCDATA_CONTENT_ELEMENTS", None)
         if tag in SKIP:
             self.skip = max(0, self.skip - 1)
+        elif tag in ("title", "head"):
+            self.title = False
         elif re.fullmatch(r"h[1-6]", tag):
             self.flush(heading=self.in_h)
-            self.in_h = False
+            self.in_h, self.h_open = False, 0
         elif tag in self.breaks:
-            if self.in_h:
-                self.buf.append(" ")
+            if self.in_h and self.h_open:           # the end of a block opened inside the heading
+                self.h_open -= 1
+                self.flush(heading=True)
+            elif self.in_h:                         # the end of a container opened before the heading: the browser
+                self.flush(heading=True)            # closes the heading here
+                self.in_h = False
             else:
                 self.flush()
 
     def handle_data(self, data):
-        if not self.skip:
+        if not self.skip and not self.title:
             self.buf.append(data)
 
 
@@ -334,9 +360,13 @@ def terms_phase(a, say: Out, fetch: Fetcher) -> tuple[int, dict]:
                else "no line matched the date patterns (the --out receipt's page_lines hold the whole page)")
             + (f" ... and {len(updated) - UPDATED_LINES} more date line(s), not printed (cap {UPDATED_LINES}); every "
                "one is in the --out receipt" if len(updated) > UPDATED_LINES else ""))
-        if not windows:
+        if not lines:
+            worst = FAILED
+            say(f"  the page parsed to 0 lines: NOT READ ({len(body)} bytes answered and no visible text read from "
+                "them); the architect reads the page itself")
+        elif not windows:
             worst = REFUSED
-            say("  NOTHING TO QUOTE: no line holds an access word " + str(list(CORE_WORDS) + ["bot(s)"])
+            say(f"  NOTHING TO QUOTE ({len(lines)} lines read): no line holds an access word " + str(list(CORE_WORDS) + ["bot(s)"])
                 + " or " + str(list(BROAD_WORDS)) + "; the terms are NOT READ for this feed (the architect reads the "
                 "page itself)")
         else:

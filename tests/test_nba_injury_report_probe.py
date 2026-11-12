@@ -544,3 +544,37 @@ def test_r6_the_header_says_at_or_above_when_the_match_is_the_heading(capsys):
     pages = {TERMS: (200, page.encode(), {}), "https://terms.example.invalid/robots.txt": (200, ROBOTS.encode(), {})}
     _, out, _, _ = run(capsys, ["--terms-url", TERMS], pages)
     assert "the nearest heading at or above line 1: 'Robots'" in out
+
+
+# ---- the seventh adversarial pass (on 41d52c8c; each reproduced there, fail-first) -----------------------------------
+
+@pytest.mark.parametrize("page", [
+    "<!doctype html><html><head><meta charset=utf-8><title>Terms</title><body><h2>Use</h2>"
+    "<p>You may not use robots or scrapers.</p></body></html>",
+    "<html><head><link rel=stylesheet href=x.css>\n<body><p>You may not use robots or scrapers.</p>",
+    "<html><body><p>A</p><head><p>You may not use robots or scrapers.</p></body></html>",
+    "<p>A</p><svg><title>icon</svg><p>You may not use robots or scrapers.</p>"])
+def test_r7_an_omitted_head_close_or_a_stray_head_or_title_never_drops_the_page(page):
+    """P1: 'head' was a skip ended only by </head>, which HTML lets a page omit: the whole page parsed to nothing and
+    the console said NOTHING TO QUOTE on a page that forbids robots."""
+    assert "You may not use robots or scrapers." in [ln["text"] for ln in probe.page_lines(page)]
+    assert "Terms" not in [ln["text"] for ln in probe.page_lines(page)]               # the head's <title> is not text
+
+
+def test_r7_a_heading_the_browser_closes_does_not_swallow_the_blocks_after_it():
+    lines = probe.page_lines("<section><h2>7. Automated access</section><section><p>You may not use robots or "
+                             "scrapers.</p><p>Last updated: Oct 1, 2026</p></section>")
+    assert [(ln["text"], ln["heading"]) for ln in lines] == [("7. Automated access", True),
+                                                             ("You may not use robots or scrapers.", False),
+                                                             ("Last updated: Oct 1, 2026", False)]
+    lines = probe.page_lines("<h2>7. Prohibited Uses<h2><p>You may not:</p><ul><li>use bots;</li><li>copy content."
+                             "</li></ul><p>Other text.</p>")
+    assert [ln["text"] for ln in lines] == ["7. Prohibited Uses", "You may not:", "use bots;", "copy content.",
+                                            "Other text."]
+
+
+def test_r7_a_page_that_parses_to_no_line_says_so_never_nothing_to_quote(capsys, monkeypatch):
+    monkeypatch.setattr(probe, "page_lines", lambda page: [])
+    _, out, tail, _ = run(capsys, ["--terms-url", TERMS], terms_pages())
+    assert "the page parsed to 0 lines: NOT READ" in out and "NOTHING TO QUOTE" not in out
+    assert tail["exit"] == probe.FAILED

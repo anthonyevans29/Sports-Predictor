@@ -320,6 +320,7 @@ PLANTED = [
      "csv_header"),
     ("the unit label", "sized at 1u = ten", "unit_label"),
     ("a dollar figure in words", "stake 25 USD", "usd_word"),
+    ("a dollar figure spelled out (addendum 320 item 1)", "stake twenty-five dollars", "usd_word"),
 ]
 
 
@@ -340,6 +341,52 @@ def test_the_guard_refuses_each_forbidden_field_and_writes_nothing(repo, capsys,
     raw = c.receipts_path().read_text()
     out = capsys.readouterr().out
     assert text not in raw and text not in out                                # the name and path, never the line
+
+
+# ARCHITECT 2026-11-10 12:20 ET, addendum 320 item 1, verbatim: "the BULLETIN guard's own dollar pattern widens to
+# number words beside a dollar word (one..ninety-nine, hundred, thousand, million; dollars, USD, bucks; `$` followed by
+# a number word), refusing; `sp_common.redact` is UNCHANGED"
+SPELLED_DOLLARS = ["twenty-five dollars", "one hundred USD", "ninety nine dollars", "a thousand dollars",
+                   "one million USD", "five bucks", "nineteen bucks", "one buck", "USD twenty", "usd-forty",
+                   "$ twenty-five", "$twenty", "\uff04 ten", "\ufe69 eleven", "fifty-dollar stake", "twenty$",
+                   "Twenty-Five Dollars", "the net was ninety-nine\ndollars",
+                   # the money-path review's forms (each slipped the first cut)
+                   "$-twenty", "$ - twenty", "$\u2212twenty", "$+twenty", "five\u2011dollar bet", "five\u2013dollar bet",
+                   "USD\u2013twenty", "the stake was _twenty_ dollars", "__twenty__ dollars", "$_twenty_",
+                   "_twenty dollars_", "twentyfive dollars", "thirtyfive bucks", "$fiftyfive", "dollars twenty",
+                   "a buck twenty", "dollars: twenty", "twenty US dollars", "twenty U.S. dollars"]
+NOT_DOLLARS = ["twenty-five yards", "one hundred", "ten minutes", "seventh-day", "one hundred and ten yards", "$HOME",
+               "the Bucks lead the division", "often", "dollarless", "a million fans", "someone dollars",
+               "Bills won by twenty-five", "Ninety minutes", "twentyfive", "the usual one",
+               "Celtics 112, Bucks 108"]                    # a digit beside bucks is not the ruling's (an NBA score)
+
+
+@pytest.mark.parametrize("text", SPELLED_DOLLARS)
+def test_320_a_spelled_out_dollar_figure_is_refused_as_usd_word(text):
+    assert pv.bulletin_offence(text) == "usd_word"
+
+
+@pytest.mark.parametrize("text", NOT_DOLLARS)
+def test_320_a_number_word_or_a_dollar_word_alone_is_not_a_figure(text):
+    assert pv.bulletin_offence(text) is None
+
+
+def test_320_a_long_run_of_blanks_after_a_sign_reads_in_linear_time():
+    """Money-path review: the first cut's sign arm had two runs of blanks around an optional sign, so "$" and 20,000
+    blanks took over a minute (each split of the blanks tried). The blanks after a sign are now reachable only through
+    the sign."""
+    import time
+    t0 = time.perf_counter()
+    assert pv.USD_WORD.search("$" + " " * 20000 + "x") is None
+    assert pv.USD_WORD.search("twenty" + "-" * 20000 + "x") is None
+    assert time.perf_counter() - t0 < 2.0
+
+
+def test_320_the_shared_817_pattern_and_the_exports_redaction_are_unchanged():
+    """320 item 1: only the BULLETIN guard's own pattern widens. The #817 DOLLAR pattern (tests/test_no_raw_kalshi_rows
+    reads it) still needs a digit, and sp_common.redact leaves a spelled-out figure as written."""
+    assert pv.DOLLAR.search("$ twenty-five") is None and pv.DOLLAR.search("$25")
+    assert c.redact("stake twenty-five dollars") == "stake twenty-five dollars"
 
 
 def test_every_bulletin_pattern_has_a_planted_test():

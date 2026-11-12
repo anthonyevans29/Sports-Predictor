@@ -120,6 +120,19 @@ def test_an_nba_read_that_fails_is_a_stop_never_a_pass(capsys):
     assert tail["nba_collision"] == {"read": False, "season": "2025"}
 
 
+@pytest.mark.parametrize("served", [[], None, {"not": "a list"}, [{"team": {"name": "no id"}}, "junk"]],
+                         ids=["empty", "null", "object", "no-id"])
+def test_an_nba_teams_read_that_answers_no_ids_is_a_stop_never_a_pass(capsys, served):
+    """Codex on #957 (P2): an NBA /teams answer of 200 with an empty, null or non-list response (or one with no
+    readable id) read as "no NBA teams" and the stop could print shared: 0 over an NBA side it never had. An answer
+    that yields no NBA team id is a STOP, as a failed read is (the check is read, never assumed: #902)."""
+    f = fake()
+    f.by_league_teams[(12, "2025-2026")] = served
+    code, out, tail = run(capsys, ["--competition", "NCAAMB"], f)
+    assert code == R.STOP, out
+    assert "STOP: the NBA's /teams for 2025 answered no team id" in out and "shared: 0" not in out
+    assert tail["nba_collision"] == {"read": False, "season": "2025"}
+
 def test_no_ncaamb_season_read_runs_no_nba_read_and_keeps_the_seasons_exit(capsys):
     """The second pre-PR review (P2): with no NCAAMB season read (league 116 serving no 2026 season, or its /teams
     failing), the stop compared nothing against three NBA reads and printed a clean "shared: 0" (and an NBA read

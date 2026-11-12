@@ -340,16 +340,25 @@ def served_collision(adapter, out: dict, say) -> int:
     for season in NBA_STORED_SEASONS:
         try:
             served = adapter.provider_season("NBA", season)
-            items = adapter._get("teams", {"league": lid, "season": served}).get("response") or []
+            items = adapter._get("teams", {"league": lid, "season": served}).get("response")
         except Exception as e:                   # noqa: BLE001 - an unread side is a stop, never a pass
             say(f"\nTEAM IDS vs THE NBA (352 item 3(v)): STOP: the NBA's /teams for {season} could not be read "
                 f"({type(e).__name__}: {e}); the check is read, never assumed")
             out["nba_collision"] = {"read": False, "season": season}
             return STOP
-        for x in items:
+        got = {}
+        for x in items if isinstance(items, list) else []:
             t = x.get("team") if isinstance(x, dict) and isinstance(x.get("team"), dict) else x
             if isinstance(t, dict) and t.get("id") is not None:
-                nba[str(t["id"])] = t.get("name")
+                got[str(t["id"])] = t.get("name")
+        if not got:                              # Codex on #957: an answer with no NBA id is no read of the NBA side
+            say(f"\nTEAM IDS vs THE NBA (352 item 3(v)): STOP: the NBA's /teams for {season} answered no team id "
+                f"(response {type(items).__name__}"
+                + (f", {len(items)} item(s)" if isinstance(items, list) else "")
+                + "); the check is read, never assumed")
+            out["nba_collision"] = {"read": False, "season": season}
+            return STOP
+        nba.update(got)
     shared = sorted(ours & set(nba), key=str)
     say(f"\nTEAM IDS vs THE NBA (352 item 3(v), a stop): {len(ours)} NCAAMB team ids served (/teams {len(listed)} · "
         f"/games sides not on /teams {len(sides - listed)}) · {len(nba)} NBA team ids "

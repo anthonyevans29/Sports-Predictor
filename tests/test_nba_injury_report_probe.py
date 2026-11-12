@@ -461,7 +461,7 @@ def test_r5_the_window_header_claims_no_section_and_names_the_nearest_heading_ab
     pages = {TERMS: (200, page.encode(), {}), "https://terms.example.invalid/robots.txt": (200, ROBOTS.encode(), {})}
     _, out, tail, _ = run(capsys, ["--terms-url", TERMS], pages)
     assert "under '1. License'" not in out and "under " not in out.split("ROBOTS")[0].split("THE PAGE'S OWN TEXT")[1]
-    assert "the nearest heading above line 12: '2. Prohibited Conduct'" in out
+    assert "the nearest heading at or above line 12: '2. Prohibited Conduct'" in out
     w = tail["terms"]["windows"][0]
     assert "section" not in w and w["heading_above_first_match"] == "2. Prohibited Conduct"
     assert w["matches"] == [12] and tail["terms"]["page_lines"][11] == {"line": 12, "heading": False,
@@ -499,3 +499,48 @@ def test_r5_comments_doctype_and_xml_declarations_add_nothing():
     page = ("<!DOCTYPE html><?xml version='1.0'?><p>Last updated <!-- -->10<!-- -->/<!-- -->1<!-- -->/<!-- -->2025"
             "</p>")
     assert [ln["text"] for ln in probe.page_lines(page)] == ["Last updated 10/1/2025"]
+
+
+# ---- the sixth adversarial pass (on d120d7c6; each reproduced there, fail-first): the page is now parsed by the
+# standard library's html.parser, which reads script/style contents, comments, declarations and attribute quoting
+# by the HTML rules, not by a hand-written regex
+
+def test_r6_a_comment_opener_inside_a_script_drops_no_page_text():
+    page = ("<h2>1. Access</h2><p>You may not use any robot or spider to access the Site.</p>"
+            "<script>function strip(h){return h.split('<!--')[0]}</script><h2>2. Data</h2>"
+            "<p>You may not scrape, crawl or data-mine the Site.</p><p>No bots.</p><!-- /main -->"
+            "<footer><p>Last updated: January 1, 2026</p></footer>")
+    texts = [ln["text"] for ln in probe.page_lines(page)]
+    assert texts == ["1. Access", "You may not use any robot or spider to access the Site.", "2. Data",
+                     "You may not scrape, crawl or data-mine the Site.", "No bots.", "Last updated: January 1, 2026"]
+
+
+@pytest.mark.parametrize("link", ["<a href='/help' title='NBA's Help Center'>Help Center</a>",
+                                  "<a href=/fan's-guide>Help Center</a>", '<a href="/privacy"">Help Center</a>'])
+def test_r6_a_stray_quote_in_a_tag_never_swallows_the_page(link):
+    page = (f"<p>Questions? See the {link}.</p><h2>Prohibited Conduct</h2>"
+            "<p>You may not use any robot, spider, scraper or other automated means to access the Services.</p>")
+    texts = [ln["text"] for ln in probe.page_lines(page)]
+    assert texts == ["Questions? See the Help Center.", "Prohibited Conduct",
+                     "You may not use any robot, spider, scraper or other automated means to access the Services."]
+
+
+def test_r6_a_date_line_is_paired_with_its_own_next_line():
+    page = ("<p>Last Updated: October 1, 2025</p><p>Intro</p><p>No robots.</p><h3>Last Updated</h3>"
+            "<p>November 3, 2026</p>")
+    d = probe.date_lines(probe.page_lines(page))
+    assert {"line": "Last Updated", "next": "November 3, 2026"} in d
+    assert {"line": "Last Updated: October 1, 2025", "next": "Intro"} in d
+
+
+def test_r6_soft_hyphens_and_zero_width_characters_the_browser_hides_are_dropped():
+    page = "<p>No auto­mated access and no data​-mining.</p>"
+    assert probe.page_lines(page)[0]["text"] == "No automated access and no data-mining."
+    assert probe.terms_windows(page)[0][0]["kind"] == "core"
+
+
+def test_r6_the_header_says_at_or_above_when_the_match_is_the_heading(capsys):
+    page = "<h2>Robots</h2><p>See the policy.</p>"
+    pages = {TERMS: (200, page.encode(), {}), "https://terms.example.invalid/robots.txt": (200, ROBOTS.encode(), {})}
+    _, out, _, _ = run(capsys, ["--terms-url", TERMS], pages)
+    assert "the nearest heading at or above line 1: 'Robots'" in out

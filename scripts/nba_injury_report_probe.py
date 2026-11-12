@@ -58,6 +58,7 @@ import re
 import sys
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
+from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import unquote, urljoin, urlsplit
 
@@ -167,40 +168,73 @@ def _text(body: bytes | None) -> str:
     return (body or b"").decode("utf-8", errors="replace")
 
 
-def page_lines(page: str) -> list[dict]:
-    """The page's visible text as LINES in page order: {"text", "heading" (True for an h1-h6)}. Comments, head,
-    script, style and noscript are dropped; every block-level tag (BLOCK_TAGS), every <li> and every <br> ends a line;
-    every other tag is removed in place (a clause with inline markup stays one line, as a browser shows it); a heading
-    is a line of its own; entities unescaped; whitespace folded. Lines are kept WHOLE, never cut. No structure is
-    inferred: a line is only the page's text between two breaks."""
-    t = re.sub(r"(?s)<!--.*?-->", "", page or "")               # a comment shows as nothing, as in a browser
-    t = re.sub(r"(?s)<!\[CDATA\[.*?\]\]>|<![^>]*>|<\?.*?\?>", "", t)  # <!DOCTYPE ...>, <?xml ...?>, CDATA: not page text
-    t = re.sub(r"(?is)<(head|script|style|noscript)\b.*?</\1\s*>", " ", t)
-    t = re.sub(r"\s+", " ", t)
-    breaks = set(BLOCK_TAGS) | {"li", "br"}
-    out, buf, in_h = [], [], False
+# what a browser never shows inside text: the soft hyphen and the zero-width characters (the sixth pass)
+INVISIBLE = re.compile("[\u00ad\u200b\u200c\u200d\u2060\ufeff]")
+SKIP = {"head", "script", "style", "noscript", "template", "title"}
 
-    def flush(heading=False):
-        text = re.sub(r"\s+", " ", html.unescape("".join(buf))).strip()
-        buf.clear()
+
+class _Lines(HTMLParser):
+    """The standard library's HTML tokenizer (script/style contents, comments, declarations and attribute quoting by
+    the HTML rules: the sixth pre-PR pass found the hand-written regex losing page text to a "<!--" inside a script and
+    to a stray quote in a tag). Text is gathered into lines: every block-level tag, <li> and <br> ends one, a heading
+    is a line of its own, every other tag adds nothing."""
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.out, self.buf, self.in_h, self.skip = [], [], False, 0
+        self.breaks = set(BLOCK_TAGS) | {"li", "br"}
+
+    def flush(self, heading=False):
+        text = re.sub(r"\s+", " ", INVISIBLE.sub("", "".join(self.buf))).strip()
+        self.buf.clear()
         if text:
-            out.append({"text": text, "heading": heading})
+            self.out.append({"text": text, "heading": heading})
 
-    # a tag ends at its own ">", a ">" inside a quoted attribute value never ends it (the fifth pass)
-    for m in re.finditer(r"""<(/?)([A-Za-z][A-Za-z0-9]*)\b(?:[^>"']|"[^"]*"|'[^']*')*>|([^<]+)|(<)""", t):
-        close, name, text, lt = m.group(1), (m.group(2) or "").lower(), m.group(3), m.group(4)
-        if text is not None or lt:
-            buf.append(text if text is not None else lt)
-        elif re.fullmatch(r"h[1-6]", name):
-            flush(heading=in_h)
-            in_h = not close
-        elif name in breaks:
-            if in_h:
-                buf.append(" ")                     # a break inside a heading: one heading line, words spaced
+    def handle_starttag(self, tag, attrs):
+        if tag in SKIP:
+            self.skip += 1
+        elif re.fullmatch(r"h[1-6]", tag):
+            self.flush(heading=self.in_h)
+            self.in_h = True
+        elif tag in self.breaks:
+            if self.in_h:
+                self.buf.append(" ")                # a break inside a heading: one heading line, words spaced
             else:
-                flush()
-    flush(heading=in_h)
-    return out
+                self.flush()
+
+    def handle_startendtag(self, tag, attrs):
+        if tag not in SKIP:
+            self.handle_starttag(tag, attrs)
+
+    def handle_endtag(self, tag):
+        if tag in SKIP:
+            self.skip = max(0, self.skip - 1)
+        elif re.fullmatch(r"h[1-6]", tag):
+            self.flush(heading=self.in_h)
+            self.in_h = False
+        elif tag in self.breaks:
+            if self.in_h:
+                self.buf.append(" ")
+            else:
+                self.flush()
+
+    def handle_data(self, data):
+        if not self.skip:
+            self.buf.append(data)
+
+
+def page_lines(page: str) -> list[dict]:
+    """The page's visible text as LINES in page order: {"text", "heading" (True for an h1-h6)}. Parsed by the standard
+    library's html.parser (_Lines): head, title, script, style, noscript and template contents, comments and
+    declarations are never page text; every block-level tag (BLOCK_TAGS), every <li> and every <br> ends a line;
+    every other tag adds nothing (a clause with inline markup stays one line, as a browser shows it); a heading is a
+    line of its own; entities unescaped; soft hyphens and zero-width characters dropped; whitespace folded. Lines are
+    kept WHOLE, never cut. No structure is inferred: a line is only the page's text between two breaks."""
+    p = _Lines()
+    p.feed(page or "")
+    p.close()
+    p.flush(heading=p.in_h)
+    return p.out
 
 
 def _window(lines: list[dict], i: int) -> tuple[int, int]:
@@ -221,13 +255,15 @@ def console_window_lines(w: dict) -> list[str]:
     return out
 
 
-def date_lines(lines: list[dict], updated: list[str]) -> list[dict]:
-    """Each date line with the page line after it (a date set in a block of its own still shows)."""
-    out = []
-    for s in updated:
-        i = next(k for k, ln in enumerate(lines) if ln["text"] == s or ln["text"].startswith(s.rstrip(" [...]")))
-        out.append({"line": s, "next": lines[i + 1]["text"] if i + 1 < len(lines) else None})
-    return out
+def date_lines(lines: list[dict]) -> list[dict]:
+    """Every line (a heading included) matching UPDATED, the strict forms first, each with the page line after it (a
+    date set in a block of its own still shows); paired by the line's own position, never by searching its text."""
+    strict, loose = [], []
+    for i, ln in enumerate(lines):
+        if UPDATED.search(ln["text"]):
+            d = {"line": ln["text"], "next": lines[i + 1]["text"] if i + 1 < len(lines) else None}
+            (strict if UPDATED_STRICT.search(ln["text"]) else loose).append(d)
+    return strict + loose
 
 
 def terms_windows(page: str, cap: int | None = None) -> tuple[list[dict], list[str], int, list[dict]]:
@@ -260,17 +296,13 @@ def terms_windows(page: str, cap: int | None = None) -> tuple[list[dict], list[s
             # a plain page fact, never a section claim: the last heading at or above the first matched line
             heads = [ln["text"] for ln in lines[:w["matches"][0] + 1] if ln["heading"]]
             w["heading_above_first_match"] = heads[-1] if heads else None
+            hit = set(w["matches"])
             w["lines"] = [{"line": n + 1, "text": lines[n]["text"], "heading": lines[n]["heading"],
-                           "match": n in w["matches"]} for n in range(w["from"], w["to"] + 1)]
+                           "match": n in hit} for n in range(w["from"], w["to"] + 1)]
             w["from"], w["to"], w["matches"] = w["from"] + 1, w["to"] + 1, [m + 1 for m in w["matches"]]
     broad = windows["broad"]
     shown = broad if cap <= 0 else broad[:cap]
-    strict, loose = [], []
-    for ln in lines:
-        s = ln["text"]
-        if UPDATED.search(s) and s not in strict and s not in loose:
-            (strict if UPDATED_STRICT.search(s) else loose).append(s)
-    return windows["core"] + shown, strict + loose, len(broad) - len(shown), lines
+    return windows["core"] + shown, [d["line"] for d in date_lines(lines)], len(broad) - len(shown), lines
 
 
 def robots_for(terms_url: str) -> str:
@@ -295,7 +327,7 @@ def terms_phase(a, say: Out, fetch: Fetcher) -> tuple[int, dict]:
         say("  TERMS NOT READ: the feed is not cleared (261 item 4); the report phase waits on a terms console")
     else:
         windows, updated, dropped, lines = terms_windows(_text(body))
-        dated = date_lines(lines, updated)
+        dated = date_lines(lines)
         say("  THE PAGE'S OWN DATE LINE(S), verbatim (the strict forms first), each with the line after it: "
             + (" | ".join(f'"{d["line"]}"' + (f' (the line after it: "{d["next"]}")' if d["next"] else "")
                           for d in dated[:UPDATED_LINES]) if dated
@@ -317,7 +349,7 @@ def terms_phase(a, say: Out, fetch: Fetcher) -> tuple[int, dict]:
                 "they allow, and the --out receipt holds every line of the page:")
             for w in windows:
                 say(f"    --- {'automated access' if w['kind'] == 'core' else 'reuse / licence'} · page lines "
-                    f"{w['from']}-{w['to']} · the nearest heading above line {w['matches'][0]}: "
+                    f"{w['from']}-{w['to']} · the nearest heading at or above line {w['matches'][0]}: "
                     f"{w['heading_above_first_match']!r}")
                 for ln in console_window_lines(w):
                     say(f"    {ln}")

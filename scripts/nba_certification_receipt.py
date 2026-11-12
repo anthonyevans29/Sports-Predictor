@@ -308,7 +308,12 @@ def served_phase(seasons: list[str], adapter, say, comp: str = COMPETITION) -> t
         say("\nTEAM IDS ACROSS SEASONS: " + " · ".join(f"{k}: {len(s)} ({len(s - every)} not in every season)"
                                                     for k, s in ids.items()))
     if comp == "NCAAMB":
-        worst = max(worst, served_collision(adapter, out, say))
+        if any("team_ids" in r for r in out["seasons"].values()):
+            worst = max(worst, served_collision(adapter, out, say))
+        else:                                    # nothing of ours was read: compared against nothing, it reads nothing
+            say("\nTEAM IDS vs THE NBA (352 item 3(v), a stop): NOT RUN: no NCAAMB season was read (the season's "
+                "own line above says why); no NBA read made; the stop is not passed")
+            out["nba_collision"] = {"read": False, "reason": "no NCAAMB season read"}
     rem = adapter.requests_remaining
     n_calls = adapter.calls - calls_before
     say(f"\nCALLS: {n_calls} this run · {REMAINING_HEADER} {rem if rem is not None else 'not served'} (last served)")
@@ -327,6 +332,8 @@ def served_collision(adapter, out: dict, say) -> int:
         sides |= set(r.get("side_ids") or [])
     # the /games side ids too (the pre-PR review's P1): sync-matches looks every side up by sport, source and provider
     # id, so a side /teams does not list but an NBA row carries would be linked to the NBA's row, never skipped
+    # compared as the sync compares them: str(provider id) (api_basketball's source ids; _find_team_by_source)
+    listed, sides = {str(i) for i in listed}, {str(i) for i in sides}
     ours = listed | sides
     nba: dict = {}
     lid = LEAGUES["NBA"][0]
@@ -342,7 +349,7 @@ def served_collision(adapter, out: dict, say) -> int:
         for x in items:
             t = x.get("team") if isinstance(x, dict) and isinstance(x.get("team"), dict) else x
             if isinstance(t, dict) and t.get("id") is not None:
-                nba[t["id"]] = t.get("name")
+                nba[str(t["id"])] = t.get("name")
     shared = sorted(ours & set(nba), key=str)
     say(f"\nTEAM IDS vs THE NBA (352 item 3(v), a stop): {len(ours)} NCAAMB team ids served (/teams {len(listed)} · "
         f"/games sides not on /teams {len(sides - listed)}) · {len(nba)} NBA team ids "

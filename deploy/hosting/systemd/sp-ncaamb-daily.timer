@@ -1,7 +1,8 @@
 # NCAA men's basketball market-only daily (ARCHITECT 2026-11-12, addendum 352 item 3(iii): "A NEW CHAIN,
 # `ncaamb-daily`, with its own timer at a UTC minute off every existing one [...]; its timer goes on T11's
 # TIMERS_BY_BLOCK (351 item 2)"): shipped, enabled only by the architect's own block after the laptop's first load
-# and certification (hosting-h1.md). 07:07 UTC: off every timer's minute and off the five-minute marks of sp-window,
+# and certification, the deploy of the tag that carries it, and the host's first load and certification (352 item
+# 4; hosting-h1.md). 07:07 UTC: off every timer's minute and off the five-minute marks of sp-window,
 # sp-cup-observe and sp-availability-observe; after nba-daily (06:47) and tennis-daily (06:53), the lock waiting if
 # either still runs; before intl-daily's 07:20 UTC coverage write. H0-3: no timer fires inside the 04:15-05:15 UTC
 # reboot buffer (tests/test_hosting_pack.py).

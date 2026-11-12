@@ -41,6 +41,8 @@ class LeagueFake(FakeProvider):
                 self.adapter.calls += 1
             if path == "teams" and p.get("league") == 12 and p.get("season") == self.fail_nba_teams:
                 raise RuntimeError("synthetic: the NBA's /teams read failed")
+            if p.get("league") == 116 and getattr(self, "fail_ncaa", False):
+                raise RuntimeError("synthetic: league 116's read failed")
             src = self.by_league_teams if path == "teams" else self.by_league_games
             return {"errors": [], "response": src.get((p.get("league"), p.get("season")), [])}
         return super().__call__(path, params)
@@ -91,7 +93,7 @@ def test_a_shared_team_id_is_a_stop_with_the_ids_printed(capsys):
     assert code == R.STOP == 3, out
     assert "· shared: 1: 102 (NBA 'Synthetic Team 102')" in out
     assert "STOP: an NCAAMB team id equals an NBA team id; the load stops here and comes to the architect" in out
-    assert tail["exit"] == R.STOP and tail["nba_collision"]["shared"] == [102]
+    assert tail["exit"] == R.STOP and tail["nba_collision"]["shared"] == ["102"]
 
 
 def test_a_games_side_id_off_teams_that_equals_an_nba_id_is_a_stop(capsys):
@@ -108,7 +110,7 @@ def test_a_games_side_id_off_teams_that_equals_an_nba_id_is_a_stop(capsys):
     assert "sync-matches would skip it" not in out
     assert ("a side not in this season's /teams (sync-matches links it to any stored basketball team carrying its "
             "provider id, else skips it): 1: 3") in out
-    assert tail["nba_collision"]["shared"] == [102] and tail["nba_collision"]["ncaamb_ids"] == 4
+    assert tail["nba_collision"]["shared"] == ["102"] and tail["nba_collision"]["ncaamb_ids"] == 4
 
 def test_an_nba_read_that_fails_is_a_stop_never_a_pass(capsys):
     """The check is read, never assumed (#902): the NBA side unread is a stop, not a zero."""
@@ -117,6 +119,35 @@ def test_an_nba_read_that_fails_is_a_stop_never_a_pass(capsys):
     assert "STOP: the NBA's /teams for 2025 could not be read" in out and "shared: 0" not in out
     assert tail["nba_collision"] == {"read": False, "season": "2025"}
 
+
+def test_no_ncaamb_season_read_runs_no_nba_read_and_keeps_the_seasons_exit(capsys):
+    """The second pre-PR review (P2): with no NCAAMB season read (league 116 serving no 2026 season, or its /teams
+    failing), the stop compared nothing against three NBA reads and printed a clean "shared: 0" (and an NBA read
+    failing too turned a FAILED into a STOP). Now the check is NOT RUN: no league-12 call, its line says why, the
+    tail records it unread, and the exit is the season's own (REFUSED 2, FAILED 1)."""
+    f = fake(leagues=[league(12, "NBA", NBA_SEASONS), league(116, "NCAA", ("2025-2026",))])
+    code, out, tail = run(capsys, ["--competition", "NCAAMB"], f)
+    assert code == R.REFUSED, out
+    assert "TEAM IDS vs THE NBA (352 item 3(v), a stop): NOT RUN: no NCAAMB season was read" in out
+    assert "shared: 0" not in out and not [p for path, p in f.calls if p.get("league") == 12]
+    assert tail["nba_collision"] == {"read": False, "reason": "no NCAAMB season read"}
+    f = fake(fail_nba_teams="2026-2027")
+    f.by_league_teams.pop((116, "2026-2027"))
+    f.fail_ncaa = True
+    code, out, tail = run(capsys, ["--competition", "NCAAMB"], f)
+    assert code == R.FAILED, out
+    assert "NOT RUN: no NCAAMB season was read" in out and "STOP" not in out
+
+
+def test_the_stop_compares_ids_as_the_sync_does_as_strings(capsys):
+    """The sync keys a side by str(provider id) (api_basketball; service._find_team_by_source), so an id served as
+    102 in one listing and "102" in another is one team to the sync, and one shared id to the stop."""
+    f = fake()
+    g = ncaa_game(3, 2001, "102")
+    f.by_league_games[(116, "2026-2027")].append(g)
+    code, out, tail = run(capsys, ["--competition", "NCAAMB"], f)
+    assert code == R.STOP, out
+    assert "shared: 1: 102 (NBA 'Synthetic Team 102')" in out and tail["nba_collision"]["shared"] == ["102"]
 
 def test_a_season_other_than_2026_is_refused_before_any_call(capsys):
     """352 item 3(iv): "HISTORY: the 2026-27 season ONLY". --season 2025 (alone or beside 2026) is refused, nothing

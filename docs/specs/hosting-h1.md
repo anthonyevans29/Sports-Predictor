@@ -83,6 +83,7 @@ set by `SP_IMPROVE_HOLD_ON_PASS=1`, which the chain template sets.
 | sp-window | window (the next-24h card and delta pages); from the next deploy (ARCHITECT 2026-10-24, addendum 164 item 2(a)) also the capture-only Kalshi sync of PD `KXLALIGAGAME`, SA `KXSERIEAGAME`, BL1 `KXBUNDESLIGAGAME`, FL1 `KXLIGUE1GAME` and ELC `KXEFLCHAMPIONSHIPGAME` (`chains.WINDOW_KALSHI_CAPTURE_ONLY`: one `sync-kalshi-soccer --competition <code>` per league, one series per call, when the league's next kickoff is near or imminent; no export, no call, no venue line on the card) | hourly at :05, hours 00-03 and 06-23 UTC (H0-3) | — |
 | sp-cup-observe | (cli.py observe-cup-lineups, one tick, all four cups; not a chain): cups Step B's live T-15 observation store (ARCHITECT 2026-10-27, addendum 169 item 4(i)); a tick with no poll due ends without the DB lock | every 5 minutes at :00..:55, hours 00-03 and 06-23 UTC (H0-3) | — |
 | sp-availability-observe | (cli.py availability-nhl-observe, one tick; not a chain): the availability record's NHL landing watch (ARCHITECT 2026-11-04, addendum 252 item 3(b); 2026-11-11, addendum 340 item 3: "a STANDALONE unit on the cup-observe pattern"): the NHL schedule at most hourly per NHL day (no row), the landing page at T-120 .. T-0 and the boxscore at T+20 per game into the record; a poll more than five minutes past its time a `missed` row; a tick with no poll due takes no lock; needs `migrate_availability_record.py` run since #835 item 2's poll key (else it refuses, exit 2, and pages); enabled only by the architect's block (252 item 7; 340 item 3) | every 5 minutes at :00..:55, hours 00-03 and 06-23 UTC (H0-3) | — |
+| sp-availability-graph | (cli.py availability-graph-rebuild; not a chain): the availability record's graph projection (ARCHITECT 2026-11-04, addendum 252 item 4; 2026-11-11, addendum 347 item 5: LadybugDB `ladybug` 0.22.3, host-only, requirements-graph.txt): rebuilt whole from the newest daily `.backup` copy in /var/backups/sports-predictor whose `.sha256` sidecar matches (refused when older than 26 h), opened mode=ro + immutable=1, into logs/availability/graph/availability.lbug, one line of rebuild.jsonl beside it per run; its own unit with no EnvironmentFile, PrivateNetwork, ProtectSystem=strict, one writable directory (347 item 5(b)); read by nothing (347 item 5(c)); enabled only by the architect's block | daily 10:20 UTC (after sp-backup 09:30) | — |
 | sp-closing-watch | (closing.py watch, NFL and SOCCER; not a chain) — enabled at the cutover, 2026-10-26 13:47Z (T11 `TIMERS`; ARCHITECT 2026-10-26, addendum 168 item 5; held for the cutover ruling until then, C7) | every minute (the one H0-3 exemption, by name) | — |
 | *(none)* | soccer-refresh | **operator-started** (H0-6) | fresh prerefresh |
 
@@ -769,7 +770,7 @@ TIMERS="sp-backup.timer sp-backup-prune.timer sp-soccer-friday.timer sp-soccer-s
   sp-nhl-daily.timer sp-weekly-fullseason.timer sp-ncaa-market.timer sp-window.timer
   sp-mlb-history.timer sp-intl-daily.timer sp-exports-squash.timer sp-ncaa-schedule.timer
   sp-closing-watch.timer sp-cup-observe.timer sp-availability-daily.timer sp-nba-daily.timer
-  sp-tennis-daily.timer sp-availability-observe.timer"
+  sp-tennis-daily.timer sp-availability-observe.timer sp-availability-graph.timer"
 MLB_LAPTOP_ONLY="sp-mlb-morning.timer sp-mlb-preslate.timer sp-clv-capture.timer"   # NOT enabled: statsapi 406 on the DO ASN (H1b note)
 echo $TIMERS | sudo tee /etc/sports-predictor/timers.enabled   # the list H2 steps 2 and 6 reuse
 systemctl enable --now sp-boot-receipt.service sp-web.service
@@ -900,6 +901,27 @@ systemctl list-timers 'sp-*' --no-pager     # receipt: next-elapse for each
   `echo sp-availability-observe.timer | sudo tee -a /etc/sports-predictor/timers.enabled` (addendum 168 item 2), then
   `systemctl list-timers sp-availability-observe.timer` (next
   elapse on a five-minute mark) and `journalctl -u sp-availability-observe` (the first tick's line).
+- `sp-availability-graph.timer` (ARCHITECT 2026-11-04 13:05 ET, addendum 252 item 4; 2026-11-11 19:50 ET, addendum 347
+  item 5; daily 10:20 UTC, after the 09:30 sp-backup whose copy it reads): the availability record's graph projection,
+  `availability-graph-rebuild --backup-dir /var/backups/sports-predictor --out
+  /opt/sports-predictor/logs/availability/graph/availability.lbug` (its own `sp-availability-graph.service`, not a chain;
+  OnFailure pages through `sp-notify@availability-graph`). The unit carries 347 item 5(b) as written: NO
+  EnvironmentFile, `PrivateNetwork=yes`, `NoNewPrivileges=yes`, `ProtectSystem=strict` with the graph's directory its one
+  writable path; and, because the sp user can read both files, `BindReadOnlyPaths=/dev/null` over host.env and the
+  checkout's .env (config.py loads .env on import) and `InaccessiblePaths=` over data/. The engine is HOST-ONLY (347 item
+  5(a)): `requirements-graph.txt`, never requirements.txt; the laptop and CI do not install it. Its ENABLEMENT IS THE
+  ARCHITECT'S BLOCK (347 item 6(D): "the unit ships disabled, enabled by my block"), after the deploy of the tag that
+  carries it; until then sp_deploy's receipt names it as a `TIMERS` timer not enabled. The commands the block runs, as
+  Code names them (addendum 198 item 6(i): the block itself is the architect's): as `sp`, `venv/bin/pip install
+  --require-hashes --only-binary :all: --no-deps -r requirements-graph.txt` (its line: `Successfully installed
+  ladybug-0.22.3`; the wheel `ladybug-0.22.3-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl`, the hash in the
+  file) and `mkdir -p logs/availability/graph` (the unit's one writable directory, made at install and never by the
+  rebuild); install `sp-availability-graph.service` and `sp-availability-graph.timer` under /etc/systemd/system/,
+  `systemctl daemon-reload`, `systemctl start sp-availability-graph.service` (the first run, in the unit's own sandbox;
+  its receipt: `journalctl -u sp-availability-graph` and the last line of logs/availability/graph/rebuild.jsonl),
+  `systemctl enable --now sp-availability-graph.timer`, then `echo sp-availability-graph.timer | sudo tee -a
+  /etc/sports-predictor/timers.enabled` (addendum 168 item 2), then `systemctl list-timers sp-availability-graph.timer`
+  (next elapse at 10:20 UTC). The graph file is deletable without loss (252 item 4): the next run rebuilds it whole.
 - `sp-nba-daily.timer` (ARCHITECT 2026-11-05, addendum 261 item 1(b): "the chain `nba-daily` [...] at a UTC minute
   off every existing timer (Code lists the timers and picks; my block enables it)"; daily 06:47 UTC): the NBA's
   market-only daily, three single-day `sync-matches` steps (`{yesterday}`, `{today}`, `{tomorrow}`, UTC; addendum

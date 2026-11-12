@@ -1,0 +1,18 @@
+# The availability record's graph projection, nightly (ARCHITECT 2026-11-04, addendum 252 item 4; 2026-11-11,
+# addendum 347 item 5): after the 09:30 UTC daily backup (sp-backup.timer), whose copy it reads, and so after the
+# 08:45 UTC availability-daily read the copy carries. Its own timer, not availability-daily's last step: a chain step
+# would run inside the chain's unit (host.env, the network). The copy is chosen by evidence (the newest daily copy with
+# a matching sidecar, refused when older than 26 hours), so a late backup is read the next night, never a stale one.
+# H0-3: no timer fires inside the 04:15-05:15 UTC reboot buffer (tests/test_hosting_pack.py).
+# Shipped DISABLED: its enablement is the architect's block (347 item 6(D)).
+[Unit]
+Description=sports-predictor timer: sp-availability-graph
+
+[Timer]
+OnCalendar=*-*-* 10:20:00 UTC
+Unit=sp-availability-graph.service
+Persistent=true
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target

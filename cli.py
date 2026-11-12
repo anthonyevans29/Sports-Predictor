@@ -10643,6 +10643,47 @@ def availability_cmd(sport, as_of_s, clock, match_id, team, kind, show_history, 
         click.echo(line)
 
 
+@cli.command("availability-graph-rebuild")
+@click.option("--out", "out_path", default=None, metavar="PATH",
+              help="The graph's file (a .lbug file in an existing directory, never under data/). Default: "
+                   "logs/availability/graph/availability.lbug.")
+@click.option("--backup-dir", "backup_dir", default=None, metavar="DIR",
+              help="Rebuild from the newest daily .backup copy in DIR whose .sha256 sidecar matches (the host's "
+                   "unit: /var/backups/sports-predictor).")
+@click.option("--db", "db_path", default=None, metavar="PATH",
+              help="Rebuild from this .backup copy (never under data/, never the configured DB).")
+@click.option("--max-age-hours", type=float, default=None, metavar="H",
+              help="With --backup-dir: refuse a newest verified copy older than H hours (default 26).")
+def availability_graph_rebuild_cmd(out_path, backup_dir, db_path, max_age_hours):
+    """THE AVAILABILITY RECORD'S GRAPH PROJECTION (ARCHITECT 2026-11-04 13:05 ET, addendum 252 item 4; 2026-11-11
+    19:50 ET, addendum 347 item 5, the pick: LadybugDB 0.22.3, host-only). Rebuilds the graph whole from a .backup
+    copy opened mode=ro + immutable=1 (never the live file): nodes Player, Team, Game, Observation; an edge per
+    assertion carrying its kind, both stamps and its derived interval under each clock (src/availability/graph.py;
+    the read is record.walk, the record's own derivation). The file is written beside --out and moved onto it whole;
+    nothing reads it for a call, a price or a page (347 item 5(c)). One line of rebuild.jsonl beside the graph per
+    run. Exit 0 built; 2 refused (no engine, no fresh verified copy, the --db fence, the store not migrated, a bad
+    --out), nothing written; 1 a failed build, the previous graph untouched."""
+    from pathlib import Path as _P
+
+    from src.availability import graph as g
+    out = _P(out_path) if out_path else g.DEFAULT_OUT
+    try:
+        r = g.rebuild(out, copy=_P(db_path) if db_path else None, backup_dir=_P(backup_dir) if backup_dir else None,
+                      max_age_hours=g.MAX_AGE_HOURS if max_age_hours is None else max_age_hours)
+    except g.Refused as e:
+        click.echo(f"AVAILABILITY-GRAPH REFUSED: {e}")
+        raise SystemExit(2)
+    except Exception as e:  # noqa: BLE001 - its receipt line is written; the unit fails and pages
+        click.echo(f"AVAILABILITY-GRAPH FAILED: {type(e).__name__}: {e} (the previous graph is untouched)")
+        raise SystemExit(1)
+    c = r["counts"]
+    click.echo(f"AVAILABILITY-GRAPH · {r['out']} · from {r['copy']} (sha256 {r['copy_sha256'][:12]}, mode=ro + "
+               f"immutable=1) · {r['engine']} · {r['seconds']} s")
+    click.echo("  nodes: " + " · ".join(f"{n} {c[n]}" for n in g.NODE_TABLES)
+               + " | edges: " + " · ".join(f"{n} {c[n]}" for n in g.REL_TABLES))
+    click.echo(f"  graph sha256 {r['sha256'][:12]} · {r['bytes']} bytes · read by nothing (addendum 347 item 5(c))")
+
+
 @cli.command("availability-nflverse")
 @click.option("--season", type=int, default=None, metavar="YEAR",
               help="The release file's season (2025 or later; the 2023-2024 weekly files are another shape and are "

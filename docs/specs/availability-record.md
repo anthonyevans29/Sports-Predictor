@@ -4,7 +4,7 @@ Spec for lane `availability-record` (ARCHITECT 2026-11-04 13:05 ET, addendum 252
 the two tables, the migration, the writer, the one read path and the `availability` command. Section 9 covers the
 first feed, nflverse depth charts (item 3(a); addenda 258 and 259), with the snapshot closure it brings to the read
 (section 4). Section 10 covers the second feed, the NHL landing read and its watch (item 3(b); addenda 258 item 2(2),
-340 and 341). The graph projection (item 4) is a later PR and gets its own section when it lands.
+340 and 341). Section 11 covers the graph projection (item 4; addendum 347 item 5, the pick).
 
 Code: `src/db/schema.py` (`AvailabilityObservation`, `AvailabilityAssertion`, `AVAILABILITY_TRIGGERS`),
 `migrate_availability_record.py`, `src/availability/record.py`, `cli.py availability`; the feed:
@@ -920,3 +920,75 @@ takes no lock; with a poll due it takes the chains' DB lock and plans again unde
 No model change, no Desk input, no row in any existing table, no call from a closing run, no backdating, no deletion, no
 payload under data/, no key (the NHL API takes none). No player mapping, no alias or tla of its own. The receipt's
 reading of leaders[0]'s reliability stands as read on #105: this feed records what the page asserted and when.
+
+## 11. The graph projection (item 4; addendum 347 item 5)
+
+252 item 4, verbatim: "a nightly rebuild of the record into an EMBEDDED graph engine on the host — file-based, no
+server, Cypher — nodes Player, Team, Game, Observation; edges from the assertions carrying kind, recorded_at,
+source_stamp and the derived interval; rebuilt whole from SQLite (mode=ro) by one command, `availability-graph-rebuild`,
+as the last step of availability-daily; its file under logs/, never under data/, never backed up, never mirrored,
+deletable without loss. NEVER written by a chain other than its rebuild, NEVER read by the Desk, a prediction, an
+export or a gate; a failed rebuild is a receipt line and stops nothing."
+
+347 item 5 (ARCHITECT 2026-11-11 19:50 ET) picked LadybugDB on the candidates page (`docs/specs/availability-graph-candidates.md`,
+#936): the package `ladybug`, version 0.22.3 exactly, the cp312 manylinux x86_64 wheel by its sha256. The package
+imports as `ladybug`: its wheel's `top_level.txt` names `ladybug`, and there is no `lbug` module (`lbug` is the native
+library's name, `ladybug/_lbug.cpython-312-x86_64-linux-gnu.so`).
+
+**The engine, host-only (347 item 5(a) and (d)).** `requirements-graph.txt` holds one line, the exact pin with its hash;
+requirements.txt does not name it and CI installs requirements.txt alone. The wheel holds `ladybug/` and its dist-info
+only: no `.pth` file, no console script, no runtime dependency (every Requires-Dist is extra `dev`). Its native library
+links the system OpenSSL 3 (`libssl.so.3`, `libcrypto.so.3`). `src/availability/graph.py` imports it inside `engine()`,
+the one place in the app (pinned), refuses any other version, drops the package's environment overrides
+(`LBUG_PYTHON_BACKEND`, `LBUG_C_API_LIB_PATH`) and opens every database with `backend="pybind"`, so the package's ctypes
+fallback (a `liblbug.so` found by path, the working directory included) is never taken.
+
+**The read.** `record.walk(s, sport)`: every assertion with the interval it opened or restated under the recorded clock
+and, where it carries a source stamp, under the source clock: the same partitions and the same `_derive` as
+`history` (item 2: "there is no second path"), one partition at a time, both clocks from one read (a partition's rows
+under the source clock are exactly its stamped rows). Pinned equal, row by row, to `history(s, sport, datetime.max,
+clock)` for each clock on the randomized histories.
+
+**The graph.** Node keys are the record's own identities (`player_key`, `team_key`, `match_key`: the source's id or text,
+ours only where the source gave none), per source; our ids ride along as columns from `mapped_now`.
+- `Player(key, source, source_player_id, name, player_id)`, `Team(key, source, source_team, team_id, name)` (the name from
+  our teams table where the team maps), `Game(key, source, source_match_id, match_id, competition, season, kickoff,
+  status, home_team_id, away_team_id)` (the columns from our matches where the game maps; a source-keyed game carries its
+  `match_id` when it maps), `Observation(...)` (every observation, missed and failed ones included), and one
+  `Build(built_at, copy, copy_sha256, git_sha, engine, assertions, observations)`.
+- `FACT` (Player to Team), one per assertion: `assertion_id`, `observation_id`, `sport`, `kind`, `recorded_at`,
+  `source_stamp`, `game` (the game's key, where the assertion names one), `attrs` (JSON text), the recorded clock's
+  interval (`rec_interval` = its opening assertion, `rec_start`, `rec_end`, `rec_closed_by`, `rec_why`), the source
+  clock's (`src_*`, NULL where the row carries no source stamp), `backfilled`, `post_hoc`.
+- `ASSERTED` (Observation to Player), one per assertion; `IN_GAME` (Team to Game, the side's text), one per pair an
+  assertion names; `ABOUT` (Observation to Game), the games an observation's assertions name, else its own match.
+- Timestamps are naive UTC (the engine drops an offset without converting it, so the rebuild converts first).
+
+**The copy (347 item 5(b)).** `--backup-dir DIR`: the newest daily `.backup` copy (`sports_YYYY-MM-DD[_HHMMSS].db`,
+pull_backup's pattern) whose `.sha256` sidecar matches its bytes, refused when it is older than 26 hours by its file time;
+or `--db PATH`. Either passes `mlb_pitchers_gate.check_db` (never under data/, never the configured DB) and is read
+through its mode=ro + immutable=1 session; the copy is byte-identical after a run (pinned).
+
+**The build.** Staged as CSV in a directory beside `--out` (100,000 rows a file: one COPY of a million edges overflows
+the 256 MB buffer pool the rebuild sets), loaded by COPY, closed, re-opened read-only and counted (a read-write open
+rewrites the file's bytes), moved onto `--out` by `os.replace` only when every count equals what was staged; the staging
+directory is removed in every case. One line of `rebuild.jsonl` beside the graph per run: ok (the counts, the graph's
+sha256 and size, the copy and its sha256), refused or error. Exit 0 built, 2 refused, 1 failed; the previous graph is
+untouched unless a run succeeds.
+
+**The unit (347 item 5(b)).** `sp-availability-graph.service` and `.timer`, daily 10:20 UTC (after the 09:30 sp-backup
+whose copy it reads), its own unit and not availability-daily's last step: a chain step runs inside sp-chain@'s unit,
+which loads host.env and has the network. No EnvironmentFile; `PrivateNetwork=yes`, `NoNewPrivileges=yes`,
+`ProtectSystem=strict` with `ReadWritePaths=` the graph's directory alone (SQLite's and Python's temporary files sent
+there; /tmp and /var/tmp empty and read-only). Because the sp user can still read host.env (root:sp 0640) and the
+checkout's .env (the API keys, loaded by config.py on import), both are masked with `/dev/null`, and data/ is
+inaccessible. `MemoryMax=1536M`, `Nice=10`. OnFailure pages through `sp-notify@availability-graph`. Shipped disabled;
+its enablement is the architect's block (347 item 6(D)).
+
+**Nothing reads it (347 item 5(c)).** No module but `src/availability/graph.py` imports the engine, and none but it and
+the command's default names the graph's path (pinned).
+
+**At scale, on this PR's container (a receipt, not the host):** a SYNTHETIC history of 931,335 depth assertions (32 teams,
+590 daily full charts) on a 460 MB `.backup` copy, rebuilt by `cli.py availability-graph-rebuild` inside a mount and
+network namespace (no network, the root filesystem read-only, the graph's directory the one writable path, an empty
+environment): 81 s, peak RSS 614 MB, one 253 MB file and no sidecar, the copy's sha256 unchanged.

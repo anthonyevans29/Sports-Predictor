@@ -318,3 +318,18 @@ def test_907_review_a_corrupt_older_copy_is_superseded_and_says_it_is_unreadable
     assert (f"SUPERSEDED host/2026-10-12/{name}: an older copy of a start a newer file holds; none of its rows read; "
             "also unreadable: JSONDecodeError") in out
     assert "files read: 1 · superseded copies: 1" in out and "exec edge > 0: 1 row(s)" in out
+
+
+def test_907_codex_a_desk_less_row_and_a_non_object_row_are_still_checked(tmp_path, capsys):
+    """Codex on #962 (P2): the desk filter ran before the id check, so `{"match_id": [], "desk": null}` and a row that
+    is not an object were dropped with no UNREADABLE line. Every row is checked now; a well-formed row with no desk
+    block is still not counted (it carries no call)."""
+    write(tmp_path / "closing_NFL_2026-10-12T1700Z.json", "NFL",
+          [{"match_id": [], "desk": None}, "not a row", {"match_id": 9, "desk": None}, row(2, edge=-0.4)], ids=[2])
+    assert rc.main(["--dir", str(tmp_path)]) == 0
+    out = capsys.readouterr().out
+    assert ("UNREADABLE closing_NFL_2026-10-12T1700Z.json: prediction row 0: match_id is list, not an id "
+            "(row skipped)") in out
+    assert "UNREADABLE closing_NFL_2026-10-12T1700Z.json: prediction row 1 is str, not an object (row skipped)" in out
+    assert "row 2" not in out                                        # a well-formed desk-less row is not malformed
+    assert "files read: 1" in out and "exec edge <= 0: 1 row(s) · by family {'NFL': 1}" in out

@@ -154,13 +154,17 @@ def read_rows(files: list[tuple[str, str, Path]], root: Path):
         cl = doc.get("closing") if isinstance(doc.get("closing"), dict) else {}
         ids = _match_ids(cl.get("match_ids"))
         for n, r in enumerate(doc["predictions"]):
-            d = r.get("desk") if isinstance(r, dict) else None
-            if not isinstance(d, dict):
+            if not isinstance(r, dict):                   # every row is checked, desk block or not (Codex on #962)
+                bad.append((f.relative_to(root), f"prediction row {n} is {type(r).__name__}, not an object "
+                                                  "(row skipped)"))
                 continue
             mid = r.get("match_id")
             if not _is_id(mid):                           # a bool, float, None, list or object is never a key
                 bad.append((f.relative_to(root), f"prediction row {n}: match_id is {type(mid).__name__}, not an id "
                                                   "(row skipped)"))
+                continue
+            d = r.get("desk")
+            if not isinstance(d, dict):                   # a row with no desk block carries no call to count
                 continue
             key = (fam, mid, stamp)
             if key in seen:

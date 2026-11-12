@@ -10725,5 +10725,34 @@ def availability_nflverse_cmd(season, file_path):
         raise SystemExit(1)
 
 
+@cli.command("availability-nhl-observe")
+@click.option("--dry-run", is_flag=True,
+              help="Print the window's games and the polls due; no landing or boxscore call, nothing written or kept "
+                   "(a stale schedule is read, not kept).")
+def availability_nhl_observe_cmd(dry_run):
+    """THE NHL LANDING FEED'S WATCH (ARCHITECT 2026-11-04 13:05 ET, addendum 252 item 3(b); addenda 258 item 2(2), 340
+    and 341 item 2; lane availability-record): ONE TICK. Reads the NHL schedule (at most hourly per NHL day, kept under
+    logs/availability/nhl_api_landing/<day>/, no row), then per game in the window each poll not yet written whose time
+    has passed: T-120 .. T-0 the landing page (projected_starter per side, leaders[0] as
+    scripts/nhl_leaders_order_receipt.py reads it), T+20 the boxscore (eventual_starter, post hoc: each goalie with toi
+    above zero; two in net flagged); a poll more than five minutes past its time is a `missed` row, no call. Players
+    unmapped (counted); teams by nhl_goalies' ruled name path; match by its link or match_game, else NULL with the
+    gameId (the observation `partial`). A tick with no poll due takes no lock; one with a poll due holds the chains'
+    DB lock. Writes the live DB only (no --db). Exit 0; 1 on the NHL day's first failed schedule read (one notice a
+    day); 2 refused (no DB file, the store not migrated since #835 item 2's poll key), nothing written.
+    src/availability/nhl_landing.py; docs/specs/availability-record.md section 10."""
+    from src.availability import nhl_landing as nl
+    from src.availability import record as rec
+    try:
+        t = nl.tick(dry_run=dry_run)
+    except (nl.Refused, rec.Refused) as e:
+        click.echo(f"AVAILABILITY-NHL-OBSERVE {e}")
+        raise SystemExit(2)
+    for line in t.lines():
+        click.echo(line)
+    if t.exit_code:
+        raise SystemExit(t.exit_code)
+
+
 if __name__ == "__main__":
     cli()

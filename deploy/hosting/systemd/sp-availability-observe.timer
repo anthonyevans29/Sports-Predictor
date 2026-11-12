@@ -1,0 +1,27 @@
+# The availability record's NHL landing watch (ARCHITECT 2026-11-04 13:05 ET, addendum 252 item 3(b); 2026-11-11 11:40
+# ET, addendum 340 item 3, verbatim in part: "sp-availability-observe.service and .timer, every five minutes, hours
+# 00–03 and 06–23 UTC (H0-3's buffer stands), Persistent=false, shipped disabled, enabled by my block"). At :00, :05
+# ... :55. A poll scheduled inside the 04:00-05:59Z buffer is written as a `missed` row by the first tick after it
+# (06:00Z), never dropped (340 item 3; the first host read counts them).
+[Unit]
+Description=sports-predictor timer: sp-availability-observe
+
+[Timer]
+OnCalendar=*-*-* 00..03,06..23:00:00 UTC
+OnCalendar=*-*-* 00..03,06..23:05:00 UTC
+OnCalendar=*-*-* 00..03,06..23:10:00 UTC
+OnCalendar=*-*-* 00..03,06..23:15:00 UTC
+OnCalendar=*-*-* 00..03,06..23:20:00 UTC
+OnCalendar=*-*-* 00..03,06..23:25:00 UTC
+OnCalendar=*-*-* 00..03,06..23:30:00 UTC
+OnCalendar=*-*-* 00..03,06..23:35:00 UTC
+OnCalendar=*-*-* 00..03,06..23:40:00 UTC
+OnCalendar=*-*-* 00..03,06..23:45:00 UTC
+OnCalendar=*-*-* 00..03,06..23:50:00 UTC
+OnCalendar=*-*-* 00..03,06..23:55:00 UTC
+Unit=sp-availability-observe.service
+Persistent=false
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target

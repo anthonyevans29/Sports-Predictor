@@ -912,6 +912,10 @@ systemctl list-timers 'sp-*' --no-pager     # receipt: next-elapse for each
   `echo sp-availability-observe.timer | sudo tee -a /etc/sports-predictor/timers.enabled` (addendum 168 item 2), then
   `systemctl list-timers sp-availability-observe.timer` (next
   elapse on a five-minute mark) and `journalctl -u sp-availability-observe` (the first tick's line).
+  **ENABLED on the host 2026-11-12 at 15:23–15:25Z** by that block, on v1.6.7 (ARCHITECT 2026-11-12 10:55 ET, addendum
+  354 item 1). The first tick, at 15:25:02Z, wrote observation #5. The timer set read CLEAN at 21. The block is quoted
+  in docs/RELEASES.md, v1.6.7, "After the tag" (addendum 360 item 5). The recipe above stays as the block's shape for
+  a fresh host.
 - `sp-availability-graph.timer` (ARCHITECT 2026-11-04 13:05 ET, addendum 252 item 4; 2026-11-11 19:50 ET, addendum 347
   item 5; daily 10:20 UTC, after the 09:30 sp-backup whose copy it reads): the availability record's graph projection,
   `availability-graph-rebuild --backup-dir /var/backups/sports-predictor --out

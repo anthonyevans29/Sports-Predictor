@@ -202,7 +202,11 @@ def _data_tree(data: Path) -> tuple[list[tuple[Path, os.stat_result]], list[Path
             for d in dirs:
                 dp = Path(root) / d
                 if dp.is_symlink():
-                    linked.append(dp.resolve())
+                    try:
+                        linked.append(dp.resolve())
+                    except (OSError, RuntimeError) as e:     # re-pointed into a loop, or readlink failed mid-walk
+                        raise GateRefused(f"cannot resolve {dp} under data/ ({e}): the --db fence cannot check what a "
+                                          "folder link names (law 4); nothing read") from None  # Codex P2, #942
             for n in names:
                 f = Path(root) / n
                 try:

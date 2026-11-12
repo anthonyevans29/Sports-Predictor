@@ -1521,3 +1521,29 @@ def test_942_an_entry_that_vanishes_or_a_folder_listed_as_a_file_refuses(gate, t
         mp.check_db(copy)
     monkeypatch.setattr(os, "walk", walk0)
     assert mp.check_db(copy) == copy.resolve()
+
+
+def test_942_a_folder_link_that_cannot_be_resolved_refuses(gate, tmp_path, monkeypatch):
+    """Codex P2 on #942 (round 2): a folder link re-pointed into a loop, or whose readlink fails, between os.walk's
+    listing and its resolve() made Path.resolve() raise (RuntimeError before Python 3.13, OSError from 3.13) as a
+    traceback. It REFUSES now (law 4), never a traceback and never a pass."""
+    data = tmp_path / "scratch-data"
+    data.mkdir()
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    (data / "backups").symlink_to(elsewhere, target_is_directory=True)
+    monkeypatch.setattr(mp, "DATA_DIR", str(data))
+    monkeypatch.setattr(mp, "_main_checkout_data", lambda: None)
+    copy = tmp_path / "a_real_copy.db"
+    copy.write_bytes(Path(gate["db"]).read_bytes())
+    resolve0 = Path.resolve
+    for exc in (RuntimeError("Symlink loop from 'backups'"), OSError(40, "Too many levels of symbolic links")):
+        def raising(self, *a, exc=exc, **k):
+            if self == data / "backups":
+                raise exc
+            return resolve0(self, *a, **k)
+        monkeypatch.setattr(Path, "resolve", raising)
+        with pytest.raises(mp.GateRefused, match="cannot resolve .*backups.* under data/"):
+            mp.check_db(copy)
+    monkeypatch.setattr(Path, "resolve", resolve0)
+    assert mp.check_db(copy) == copy.resolve()

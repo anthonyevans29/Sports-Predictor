@@ -320,6 +320,7 @@ PLANTED = [
      "csv_header"),
     ("the unit label", "sized at 1u = ten", "unit_label"),
     ("a dollar figure in words", "stake 25 USD", "usd_word"),
+    ("a dollar figure spelled out (addendum 320 item 1)", "stake twenty-five dollars", "usd_word"),
 ]
 
 
@@ -340,6 +341,34 @@ def test_the_guard_refuses_each_forbidden_field_and_writes_nothing(repo, capsys,
     raw = c.receipts_path().read_text()
     out = capsys.readouterr().out
     assert text not in raw and text not in out                                # the name and path, never the line
+
+
+# ARCHITECT 2026-11-10 12:20 ET, addendum 320 item 1, verbatim: "the BULLETIN guard's own dollar pattern widens to
+# number words beside a dollar word (one..ninety-nine, hundred, thousand, million; dollars, USD, bucks; `$` followed by
+# a number word), refusing; `sp_common.redact` is UNCHANGED"
+SPELLED_DOLLARS = ["twenty-five dollars", "one hundred USD", "ninety nine dollars", "a thousand dollars",
+                   "one million USD", "five bucks", "nineteen bucks", "25 bucks", "USD twenty", "usd-forty",
+                   "$ twenty-five", "$twenty", "\uff04 ten", "\ufe69 eleven", "fifty-dollar stake", "twenty$",
+                   "Twenty-Five Dollars", "the net was ninety-nine\ndollars"]
+NOT_DOLLARS = ["twenty-five yards", "one hundred", "ten minutes", "seventh-day", "one hundred and ten yards", "$HOME",
+               "the Bucks lead the division", "often", "dollarless", "a million fans"]
+
+
+@pytest.mark.parametrize("text", SPELLED_DOLLARS)
+def test_320_a_spelled_out_dollar_figure_is_refused_as_usd_word(text):
+    assert pv.bulletin_offence(text) == "usd_word"
+
+
+@pytest.mark.parametrize("text", NOT_DOLLARS)
+def test_320_a_number_word_or_a_dollar_word_alone_is_not_a_figure(text):
+    assert pv.bulletin_offence(text) is None
+
+
+def test_320_the_shared_817_pattern_and_the_exports_redaction_are_unchanged():
+    """320 item 1: only the BULLETIN guard's own pattern widens. The #817 DOLLAR pattern (tests/test_no_raw_kalshi_rows
+    reads it) still needs a digit, and sp_common.redact leaves a spelled-out figure as written."""
+    assert pv.DOLLAR.search("$ twenty-five") is None and pv.DOLLAR.search("$25")
+    assert c.redact("stake twenty-five dollars") == "stake twenty-five dollars"
 
 
 def test_every_bulletin_pattern_has_a_planted_test():

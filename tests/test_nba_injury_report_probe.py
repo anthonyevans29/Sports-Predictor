@@ -641,3 +641,23 @@ def test_codex_an_anchor_with_a_greater_than_in_a_quoted_attribute_is_read():
     links = probe.index_links('<a title="Latest > archived" href="/f/Injury-Report_2026-11-12_08PM.pdf">x</a>',
                               "https://reports.example.invalid/")
     assert [x["file"] for x in links] == ["Injury-Report_2026-11-12_08PM.pdf"] and links[0]["text"] == "x"
+
+
+def test_codex_r2_a_redirect_hop_counts_as_fetched_so_nothing_is_fetched_twice(capsys):
+    """The P1 under addendum 360 item 2(b) in Codex's second pass on #970: requests follows a redirect with GETs of
+    its own, and the guard recorded only the URL asked; a later read of a URL the redirect reached was a second GET."""
+    robots = "https://terms.example.invalid/robots.txt"
+
+    class TermsRedirectsToRobots(Fake):            # the terms page (read first) is a redirect to robots.txt
+        def __call__(self, url, headers=None, timeout=None, allow_redirects=True):
+            self.asked.append((url, dict(headers or {})))
+            status, body, hdr = self.pages[robots if url == TERMS else url]
+            r = NS(status_code=status, headers=hdr, content=body, url=url, history=[])
+            if url == TERMS:
+                r.url, r.history = robots, [NS(url=TERMS, status_code=301)]
+            return r
+    fake = TermsRedirectsToRobots(terms_pages())
+    probe.main(["--terms-url", TERMS], get=fake)
+    out = capsys.readouterr().out
+    assert [u for u, _ in fake.asked] == [TERMS]                     # one GET in all: the redirect already read robots
+    assert "this run already fetched this URL" in out

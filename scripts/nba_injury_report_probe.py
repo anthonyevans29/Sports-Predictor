@@ -136,11 +136,13 @@ class Fetcher:
         self.get = get or requests.get
         self.fetched: list[str] = []
         self.redirects: list[dict] = []           # every redirect followed: its hops are GETs of their own
+        self.seen: set[str] = set()               # every URL a GET reached, hops and final included (Codex on #970)
 
     def __call__(self, url: str):
-        if url in self.fetched:
+        if url in self.fetched or url in self.seen:
             return None, {}, None, url, "REFUSED: this run already fetched this URL (nothing is fetched twice)"
         self.fetched.append(url)
+        self.seen.add(url)
         try:
             r = self.get(url, headers={"User-Agent": USER_AGENT}, timeout=TIMEOUT, allow_redirects=True)
         except Exception as e:                      # noqa: BLE001 - a failed read is reported, never raised
@@ -150,6 +152,8 @@ class Fetcher:
         hops = list(getattr(r, "history", None) or [])
         if final != url or hops:
             self.redirects.append({"from": url, "to": final, "hops": len(hops)})
+        self.seen.update(str(getattr(h, "url", "")) for h in hops if getattr(h, "url", None))
+        self.seen.add(final)
         err = None if r.status_code == 200 else f"HTTP {r.status_code}"
         if err is None and not body:
             err = "the answer is empty"

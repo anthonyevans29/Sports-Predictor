@@ -867,7 +867,7 @@ def test_the_market_only_sets_are_the_codes_own():
     # NBA: export._MARKET_ONLY_REASON (ARCHITECT 2026-11-05, addendum 261 item 1, lane basketball-market-only); ATP, WTA:
     # the same (addendum 261 item 4, lane tennis-market-only)
     assert frozenset().union(*sets.values()) == {"NHL", "NCAA", "UNL", "CL", "EFL", "UEL", "EL", "PD", "SA", "BL1",
-                                                 "FL1", "ELC", "NBA", "ATP", "WTA"}
+                                                 "FL1", "ELC", "NBA", "NCAAMB", "ATP", "WTA"}   # NCAAMB: 352 item 2
     src = inspect.getsource(cm)
     assert not re.search(r'"(NHL|NCAA|UNL|CL|EFL|UEL|PD|SA|BL1|FL1|ELC|MLB|NFL|PL|NBA|ATP|WTA)"', src)   # no competition named
 

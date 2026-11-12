@@ -306,8 +306,13 @@ def plan(ref: dict) -> list[list[str]]:
     # other two-way sport the bootstrap routes gets; UNMETERED, and it exits 0
     # with a printed reason when it refuses. A reference without basketball
     # plans exactly the block above (no existing bootstrap changes).
+    # NCAAMB (ARCHITECT 2026-11-12, addendum 352 item 2): its own series' capture, planned only for a reference that
+    # holds NCAAMB rows; the NBA's step only for one that holds NBA rows (a basketball reference of either alone plans
+    # its own sync, never the other's).
     if "BASKETBALL" in sports:
-        steps.append(["sync-kalshi-nba"])
+        comps = {g["comp"] for g in ref["games"] if g["sport"] == "BASKETBALL"}
+        steps += [[step] for comp, step in (("NBA", "sync-kalshi-nba"), ("NCAAMB", "sync-kalshi-ncaamb"))
+                  if comp in comps]
     # TENNIS (addendum 261 item 2(c), 269 item 3(a)): the two tour series' capture, as NBA's; a reference without
     # tennis plans exactly the block above
     if "TENNIS" in sports:

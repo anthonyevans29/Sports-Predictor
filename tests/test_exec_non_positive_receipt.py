@@ -165,3 +165,171 @@ def test_a_list_of_match_ids_still_places_rows_on_the_page(tmp_path, capsys):
         {"predictions": rows, "closing": {"family": "NFL", "match_ids": [1, [5], True]}}))
     assert rc.main(["--dir", str(tmp_path)]) == 0
     assert "2 row(s) (1 on their run's page, 1 outside the run's match_ids)" in capsys.readouterr().out
+
+
+# ---- #907 (Codex's third review of #903): three hardening items ------------------------------------------------------
+@pytest.mark.parametrize("mid", [[1, 2], {"id": 7}])
+def test_907_a_non_scalar_match_id_is_a_malformed_row_and_the_run_goes_on(tmp_path, capsys, mid):
+    """Item 1: a list or object match_id made the dedupe key unhashable and stopped the receipt. It is now a malformed
+    row on an UNREADABLE line; the file's other rows and every other file are still counted."""
+    write(tmp_path / "closing_NFL_2026-10-12T1700Z.json", "NFL", [row(mid, edge=-0.3), row(2, edge=-0.4)], ids=[2])
+    write(tmp_path / "closing_MLB_2026-10-13T2300Z.json", "MLB", [row(5, edge=-1.0)])
+    assert rc.main(["--dir", str(tmp_path)]) == 0
+    out = capsys.readouterr().out
+    assert (f"UNREADABLE closing_NFL_2026-10-12T1700Z.json: prediction row 0: match_id is {type(mid).__name__}, not "
+            "an id (row skipped)") in out
+    assert "files read: 2" in out                                    # a malformed row does not unread its file
+    assert "exec edge <= 0: 2 row(s) · by family {'MLB': 1, 'NFL': 1}" in out
+
+
+@pytest.mark.parametrize("preds,why", [({"a": 1}, "predictions is dict"), (7, "predictions is int"),
+                                       (None, "predictions is NoneType"), ("absent", "no predictions key")])
+def test_907_a_predictions_that_is_not_a_list_makes_the_file_unreadable(tmp_path, capsys, preds, why):
+    """Item 2: an object, scalar or null under predictions (or no key) read as zero rows and the file counted as read.
+    It is now UNREADABLE, so an archived file cannot drop out of the count silently."""
+    f = tmp_path / "closing_NFL_2026-10-12T1700Z.json"
+    doc = {"closing": {"family": "NFL", "match_ids": [1]}}
+    if preds != "absent":
+        doc["predictions"] = preds
+    f.write_text(json.dumps(doc))
+    write(tmp_path / "closing_MLB_2026-10-13T2300Z.json", "MLB", [row(5, edge=-1.0)])
+    assert rc.main(["--dir", str(tmp_path)]) == 0
+    out = capsys.readouterr().out
+    assert f"UNREADABLE closing_NFL_2026-10-12T1700Z.json: {why}, not a list" in out
+    assert "files read: 1" in out
+
+
+def test_907_a_superseded_copy_never_re_adds_a_game_the_newer_copy_dropped(tmp_path, capsys):
+    """Item 3: a later copy of one start that omits a game (started or called off) left the older copy free to re-add
+    its stale row. Only the newest copy per (family, start stamp) is read; the older is listed SUPERSEDED."""
+    name = "closing_NFL_2026-10-13T0015Z.json"
+    old, new = tmp_path / "host" / "2026-10-12" / name, tmp_path / "host" / "2026-10-13" / name
+    write(old, "NFL", [row(7, edge=2.0), row(8, edge=-0.9)])        # game 8 later dropped from the start
+    write(new, "NFL", [row(7, edge=2.0)])
+    for f, at in ((old, "2026-10-12T23:40:00Z"), (new, "2026-10-13T00:05:00Z")):
+        doc = json.loads(f.read_text())
+        doc["exported_at"] = at
+        f.write_text(json.dumps(doc))
+    assert rc.main(["--dir", str(tmp_path)]) == 0
+    out = capsys.readouterr().out
+    assert "match 8" not in out and "exec edge <= 0: 0 row(s)" in out.split("WOULD-BE")[0]
+    assert f"SUPERSEDED host/2026-10-12/{name}: an older copy of a start a newer file holds; none of its rows read" in out
+    assert "files read: 1 · superseded copies: 1" in out
+
+
+def test_907_an_unreadable_newest_copy_is_never_stood_in_for_by_an_older_one(tmp_path, capsys):
+    """Law 4: when the newest copy of a start is unreadable, the start is UNREADABLE; the older copy is superseded,
+    not read in its place (it would be the stale record)."""
+    name = "closing_NFL_2026-10-13T0015Z.json"
+    old, new = tmp_path / "host" / "2026-10-12" / name, tmp_path / "host" / "2026-10-13" / name
+    write(old, "NFL", [row(8, edge=-0.9)])
+    old.write_text(json.dumps({**json.loads(old.read_text()), "exported_at": "2026-10-12T23:40:00Z"}))
+    new.parent.mkdir(parents=True)
+    new.write_text(json.dumps({"exported_at": "2026-10-13T00:05:00Z", "predictions": None,
+                               "closing": {"family": "NFL", "match_ids": []}}))
+    assert rc.main(["--dir", str(tmp_path)]) == 0
+    out = capsys.readouterr().out
+    assert f"UNREADABLE host/2026-10-13/{name}: predictions is NoneType, not a list" in out
+    assert f"SUPERSEDED host/2026-10-12/{name}" in out and "match 8" not in out
+    assert "files read: 0 · superseded copies: 1" in out
+
+
+def _stamped(f, at):
+    doc = json.loads(f.read_text())
+    if at is None:
+        doc.pop("exported_at", None)
+    else:
+        doc["exported_at"] = at
+    f.write_text(json.dumps(doc))
+
+
+@pytest.mark.parametrize("bad_text,why", [('{"predictions": [', "JSONDecodeError"),
+                                          ("[1]", "top level is list, not an object")])
+def test_907_review_a_newest_copy_that_will_not_parse_never_lets_an_older_copy_stand_in(tmp_path, capsys, bad_text,
+                                                                                         why):
+    """Pre-push review, case A/G: invalid JSON (or a top level that is not an object) in the NEWER copy was dropped
+    before the per-start choice, so the older copy won the start and its stale row was counted."""
+    name = "closing_NFL_2026-10-13T0015Z.json"
+    old, new = tmp_path / "host" / "2026-10-12" / name, tmp_path / "host" / "2026-10-13" / name
+    write(old, "NFL", [row(8, edge=-0.5)])
+    _stamped(old, "2026-10-12T23:40:00Z")
+    new.parent.mkdir(parents=True)
+    new.write_text(bad_text)
+    assert rc.main(["--dir", str(tmp_path)]) == 0
+    out = capsys.readouterr().out
+    assert f"UNREADABLE host/2026-10-13/{name}: {why}" in out and f"SUPERSEDED host/2026-10-12/{name}" in out
+    assert "match 8" not in out and "files read: 0 · superseded copies: 1" in out
+
+
+def test_907_review_a_copy_without_exported_at_is_never_ranked_oldest_for_it(tmp_path, capsys):
+    """Case B: the newer folder's copy carries no exported_at; "" sorted lowest, so the older copy won and re-added
+    its stale game. With a stamp missing on any copy the folder decides."""
+    name = "closing_NFL_2026-10-13T0015Z.json"
+    old, new = tmp_path / "host" / "2026-10-12" / name, tmp_path / "host" / "2026-10-13" / name
+    write(old, "NFL", [row(7, edge=2.0), row(8, edge=-0.9)])
+    _stamped(old, "2026-10-12T23:40:00Z")
+    write(new, "NFL", [row(7, edge=2.0)])
+    _stamped(new, None)
+    assert rc.main(["--dir", str(tmp_path)]) == 0
+    out = capsys.readouterr().out
+    assert "match 8" not in out and f"SUPERSEDED host/2026-10-12/{name}" in out
+
+
+@pytest.mark.parametrize("old_family,new_family", [("nfl", "NFL"), (["NFL"], "NFL"), (5, 5)])
+def test_907_review_the_start_is_its_file_name_never_closing_family(tmp_path, capsys, old_family, new_family):
+    """Cases C, D, H: grouping by closing.family let mismatched copies escape supersession (a stale row counted), and a
+    list or a number there crashed the run. The start (family, stamp) is read from the file name."""
+    name = "closing_NFL_2026-10-13T0015Z.json"
+    old, new = tmp_path / "host" / "2026-10-12" / name, tmp_path / "host" / "2026-10-13" / name
+    for f, fam, rows, at in ((old, old_family, [row(8, edge=-0.9)], "2026-10-12T23:40:00Z"),
+                             (new, new_family, [row(9, edge=3.0)], "2026-10-13T00:05:00Z")):   # a row, so the family is sorted
+        f.parent.mkdir(parents=True)
+        f.write_text(json.dumps({"exported_at": at, "predictions": rows, "closing": {"family": fam, "match_ids": []}}))
+    write(tmp_path / "closing_MLB_2026-10-14T2300Z.json", "MLB", [row(5, edge=-1.0)])
+    assert rc.main(["--dir", str(tmp_path)]) == 0
+    out = capsys.readouterr().out
+    assert "match 8" not in out and "files read: 2 · superseded copies: 1" in out
+    assert "exec edge <= 0: 1 row(s) · by family {'MLB': 1}" in out
+
+
+@pytest.mark.parametrize("mid", [True, 1.0, None])
+def test_907_review_a_bool_float_or_none_match_id_is_malformed_never_merged(tmp_path, capsys, mid):
+    """Case E (pre-existing): True and 1.0 hash equal to 1 and two None rows merged, so rows were silently lost. Any
+    match_id that is not an int or a string is a malformed row, as _match_ids already reads ids."""
+    write(tmp_path / "closing_NFL_2026-10-12T1700Z.json", "NFL", [row(1, edge=-0.5), row(mid, edge=-0.5)], ids=[1])
+    assert rc.main(["--dir", str(tmp_path)]) == 0
+    out = capsys.readouterr().out
+    assert (f"UNREADABLE closing_NFL_2026-10-12T1700Z.json: prediction row 1: match_id is {type(mid).__name__}, not "
+            "an id (row skipped)") in out
+    assert "exec edge <= 0: 1 row(s)" in out.split("WOULD-BE")[0]
+
+
+def test_907_review_a_corrupt_older_copy_is_superseded_and_says_it_is_unreadable(tmp_path, capsys):
+    """Re-review nit: an older copy that will not parse is superseded (the newer copy is read) and its line still says
+    the mirror holds a corrupt file."""
+    name = "closing_NFL_2026-10-13T0015Z.json"
+    old, new = tmp_path / "host" / "2026-10-12" / name, tmp_path / "host" / "2026-10-13" / name
+    old.parent.mkdir(parents=True)
+    old.write_text('{"predictions": [')
+    write(new, "NFL", [row(7, edge=2.0)])
+    _stamped(new, "2026-10-13T00:05:00Z")
+    assert rc.main(["--dir", str(tmp_path)]) == 0
+    out = capsys.readouterr().out
+    assert (f"SUPERSEDED host/2026-10-12/{name}: an older copy of a start a newer file holds; none of its rows read; "
+            "also unreadable: JSONDecodeError") in out
+    assert "files read: 1 · superseded copies: 1" in out and "exec edge > 0: 1 row(s)" in out
+
+
+def test_907_codex_a_desk_less_row_and_a_non_object_row_are_still_checked(tmp_path, capsys):
+    """Codex on #962 (P2): the desk filter ran before the id check, so `{"match_id": [], "desk": null}` and a row that
+    is not an object were dropped with no UNREADABLE line. Every row is checked now; a well-formed row with no desk
+    block is still not counted (it carries no call)."""
+    write(tmp_path / "closing_NFL_2026-10-12T1700Z.json", "NFL",
+          [{"match_id": [], "desk": None}, "not a row", {"match_id": 9, "desk": None}, row(2, edge=-0.4)], ids=[2])
+    assert rc.main(["--dir", str(tmp_path)]) == 0
+    out = capsys.readouterr().out
+    assert ("UNREADABLE closing_NFL_2026-10-12T1700Z.json: prediction row 0: match_id is list, not an id "
+            "(row skipped)") in out
+    assert "UNREADABLE closing_NFL_2026-10-12T1700Z.json: prediction row 1 is str, not an object (row skipped)" in out
+    assert "row 2" not in out                                        # a well-formed desk-less row is not malformed
+    assert "files read: 1" in out and "exec edge <= 0: 1 row(s) · by family {'NFL': 1}" in out

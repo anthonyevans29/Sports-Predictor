@@ -1,16 +1,18 @@
 """
 api-basketball adapter (ARCHITECT 2026-11-06 12:35 ET, addendum 271 item 3; lane basketball-market-only, #839) —
 cloned from api_hockey's proven shape (itself cloned from the american-football adapter), with the receipt's
-differences ruled in 271 item 3(a)-(g). NBA ONLY in this PR (addendum 272 item 5: "The wiring PR of 11-19 is NBA-only
-[...]; NCAA men's follows it at 12-05 on the same adapter").
+differences ruled in 271 item 3(a)-(g). The NBA (#848; addendum 272 item 5: "The wiring PR of 11-19 is NBA-only
+[...]; NCAA men's follows it at 12-05 on the same adapter") and NCAA men's, NCAAMB (ARCHITECT 2026-11-12, addendum 352
+item 2, the plan approved; the same adapter, nothing else in it changes).
 
   (a) source_name 'api_basketball', Sport.BASKETBALL, base v1.basketball.api-sports.io, the x-apisports-key header.
       THE KEY (271 item 2): "API_BASKETBALL_KEY first, API_FOOTBALL_KEY as the fallback — exactly the hockey adapter's
       pattern and exactly what the probe did". `key_name` says which NAME was read; the value is never printed.
-  THE LEAGUE: the code -> provider league id map holds the NBA only, id 12, READ by exact name 'NBA' on #839's
-      receipt (2026-11-06 17:14Z: "NBA: id 12 read by exact name 'NBA'"). Every /leagues read re-checks that the
-      served league with that id is named exactly 'NBA'; any other competition code is REFUSED (never served the
-      NBA's games under another code, which api_hockey's ignored competition_code would do).
+  THE LEAGUE: the code -> provider league id map, each READ by exact name on #839's receipt: NBA, id 12 (2026-11-06
+      17:14Z: "NBA: id 12 read by exact name 'NBA'"); NCAAMB, id 116 (17:18Z: "NCAA men's Division I: id 116 read by
+      exact name 'NCAA'"). Every /leagues read re-checks that the served league with that id carries exactly the
+      map's name; any other competition code is REFUSED (never served one league's games under another code, which
+      api_hockey's ignored competition_code would do).
   (b) THE SEASON: "the provider serves NBA and NCAA seasons as STRINGS '2026-2027' [...] the hockey adapter's
       int(season) does NOT carry over. Our season string stays int-style "2026" [...]; the adapter picks the
       provider's season by reading /leagues for the league and taking the served season that STARTS with our year
@@ -62,8 +64,16 @@ KEY_HEADER = "x-apisports-key"
 REMAINING_HEADER = "x-ratelimit-requests-remaining"
 
 #: Our competition code -> (the provider's league id, its served name). READ on #839's receipt by exact name
-#: (2026-11-06 17:14Z, "NBA: id 12 read by exact name 'NBA'"), re-checked on every /leagues read. NBA only (272 item 5).
-LEAGUES: dict[str, tuple[int, str]] = {"NBA": (12, "NBA")}
+#: (2026-11-06 17:14Z, "NBA: id 12 read by exact name 'NBA'"), re-checked on every /leagues read.
+#: NCAAMB (ARCHITECT 2026-11-05, addendum 261 item 1(c): "competition code NCAAMB (never "NCAA", which is football),
+#: the same adapter"; 2026-11-12, addendum 352 item 2, the plan approved): league 116, READ on #839's receipt by exact
+#: served name (2026-11-06 17:18Z, "NCAA men's Division I: id 116 read by exact name 'NCAA'"; 'NCAA Women' is league
+#: 423 and not ours). The served name is 'NCAA'; our code is NCAAMB, so nothing keyed on the football code "NCAA"
+#: reads it (every check on that code is an exact match).
+LEAGUES: dict[str, tuple[int, str]] = {"NBA": (12, "NBA"), "NCAAMB": (116, "NCAA")}
+#: The competition rows list_competitions emits, by our code: (name, area), the area as /leagues serves it.
+_COMPETITIONS = {"NBA": ("National Basketball Association", "USA"),
+                 "NCAAMB": ("NCAA Men's Basketball (Division I)", "USA")}
 
 #: THE STATUS MAP (271 item 3(c)), by the served SHORT code. Conservative: every other code stays SCHEDULED (law 4);
 #: no live code is mapped until a live-day receipt names them.
@@ -217,7 +227,7 @@ class APIBasketballAdapter(DataAdapter):
         hit = LEAGUES.get(str(competition_code or "").upper())
         if hit is None:
             raise Refused(f"REFUSED: competition {competition_code!r} is not served by api_basketball (the map holds "
-                          f"{', '.join(LEAGUES)} only; NCAA men's is the 12-05 step, addendum 272 item 5)")
+                          f"{', '.join(LEAGUES)} only; NCAA men's basketball is NCAAMB, never NCAA)")
         return hit[0]
 
     def leagues(self) -> list:
@@ -265,12 +275,11 @@ class APIBasketballAdapter(DataAdapter):
     def list_competitions(self, sport: Sport) -> list[NormalizedCompetition]:
         if sport != Sport.BASKETBALL:
             return []
-        lid, _name = LEAGUES["NBA"]
-        # area: /leagues serves the NBA's country as 'USA' (#839's receipt)
+        # area: /leagues serves the country as 'USA' (#839's receipt), for the NBA and for NCAA men's
         return [NormalizedCompetition(
-            sport=Sport.BASKETBALL, code="NBA", name="National Basketball Association",
-            area="USA", type="LEAGUE", source=self.source_name, source_id=str(lid),
-        )]
+            sport=Sport.BASKETBALL, code=code, name=_COMPETITIONS[code][0], area=_COMPETITIONS[code][1],
+            type="LEAGUE", source=self.source_name, source_id=str(LEAGUES[code][0]),
+        ) for code in LEAGUES]
 
     def list_teams(self, competition_code: str,
                    season: str | None = None) -> list[NormalizedTeam]:

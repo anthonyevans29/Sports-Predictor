@@ -272,6 +272,22 @@ CHAINS: dict[str, dict] = {
             ["sync-kalshi-nba"],
         ],
     },
+    # --- NCAA men's basketball, market-only (ARCHITECT 2026-11-12 11:05 ET, addendum 352 item 3(iii), verbatim: "A NEW
+    # CHAIN, `ncaamb-daily`, with its own timer at a UTC minute off every existing one (you list and pick), on
+    # nba-daily's three single-day shape: college basketball is its own competition, its own failure and its own hold;
+    # its timer goes on T11's TIMERS_BY_BLOCK (351 item 2)"; (iv): "HISTORY: the 2026-27 season ONLY"). As built:
+    # nba-daily's three single-day UTC steps for NCAAMB 2026 and the series' own Kalshi sync (KXNCAAMBGAME, addendum
+    # 353 item 2). No coverage write (intl-daily's 07:20 write is the one; this chain's 07:07 runs before it, the
+    # ordering 274 item 2(2) ruled for nba-daily), no export, no predict: no model is declared. backup "daily", as
+    # nba-daily (the day's first chain takes it; a later one finds it taken).
+    "ncaamb-daily": {
+        "backup": "daily",
+        "steps": [
+            *[["sync-matches", "--competition", "NCAAMB", "--season", "2026", "--date-from", d, "--date-to", d]
+              for d in ("{yesterday}", "{today}", "{tomorrow}")],
+            ["sync-kalshi-ncaamb"],
+        ],
+    },
     # --- TENNIS, market-only (ARCHITECT 2026-11-05, addendum 261 item 2(c): "the chain tennis-daily"; 2026-11-06,
     # addendum 269 items 1-3: Kalshi's two tour series are the fixture source AND the results source; lane
     # tennis-market-only, #838). As built, on the NBA's pattern where tennis does not differ:
@@ -465,6 +481,9 @@ WINDOW_KALSHI: dict[str, list[list[str]]] = {
     # precedent, tiered as every entry (near / imminent only). Like NHL's, its line moves page (sp_window_page reads
     # this live list); the soccer capture-only table is pinned to the expansion leagues and is not the NBA's.
     "NBA": [["sync-kalshi-nba"]],
+    # NCAAMB (ARCHITECT 2026-11-12, addendum 352 item 2: "the PAPER pins and the capture"): the NBA's entry, its own
+    # series (KXNCAAMBGAME, addendum 353 item 2).
+    "NCAAMB": [["sync-kalshi-ncaamb"]],
     # ATP / WTA (ARCHITECT 2026-11-05, addendum 261 item 0: "the hourly capture tier"; 269 item 3(a)): the NBA's
     # precedent, tiered as every entry (near / imminent only).
     "ATP": [["sync-kalshi-atp"]],
@@ -653,7 +672,7 @@ FRESHEN_MIN_INTERVAL_S = 3600
 # in H0-16(b) designated-days mode. tests/test_hosting_pack.py re-checks it.
 UNMETERED = frozenset({
     "sync-kalshi", "sync-kalshi-soccer", "sync-kalshi-nfl", "sync-kalshi-nhl",
-    "sync-kalshi-ncaa", "sync-kalshi-nba", "sync-kalshi-atp", "sync-kalshi-wta", "evaluate", "nfl-grade", "predict", "predict-nfl",
+    "sync-kalshi-ncaa", "sync-kalshi-nba", "sync-kalshi-ncaamb", "sync-kalshi-atp", "sync-kalshi-wta", "evaluate", "nfl-grade", "predict", "predict-nfl",
     "improve", "results-tally", "export-results", "export-predictions", "window-card",
     "export-nfl-predictions", "export-nfl-results", "export-fixtures",
     "export-nhl-predictions",

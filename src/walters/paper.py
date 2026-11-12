@@ -77,15 +77,17 @@ PAPER_RULING = "ARCHITECT 2026-10-20, addendum 146 item 5(a)"
 # market says exactly that: the winner by name on yes/no, the fraction on a scalar." A tennis row has no score (NULL
 # AND LABELLED, 269 item 2), so its result is the settlement's winner (matches.full_time_result, TENNIS_RECORD in
 # _result); a SETTLED_SCALAR row is never FINISHED, so it is never read here: no winner, never scored.
-CLOSE_RECORD_COMPS = ("NHL", "NCAA", "NBA", "ATP", "WTA", "CL")   # 5(b)'s list, NBA and tennis (261 item 0)
-TWO_WAY_RECORD = ("NHL", "NCAA", "NBA", "ATP", "WTA")  # scored by the kalshi_only two-way close, as built
+# NCAA men's basketball (NCAAMB; ARCHITECT 2026-11-12, addendum 352 item 2: "the PAPER pins and the capture") joins on
+# the same words of 261 item 0, beside the NBA: always printed, two-way, its FINISHED games only.
+CLOSE_RECORD_COMPS = ("NHL", "NCAA", "NBA", "NCAAMB", "ATP", "WTA", "CL")   # 5(b)'s list, basketball and tennis
+TWO_WAY_RECORD = ("NHL", "NCAA", "NBA", "NCAAMB", "ATP", "WTA")  # scored by the kalshi_only two-way close, as built
 TENNIS_RECORD = ("ATP", "WTA")                         # result = the settlement's winner (269 items 2-3(b))
 # THE COVERAGE BASIS (ARCHITECT 2026-11-06 12:50 ET, addendum 272 item 3, verbatim in part): "a CANC row with an FT
 # twin is kept as served and EXCLUDED from the game counts by the provider's own ids (never deduplicated by guess,
 # never deleted); the coverage page's totals count SCHEDULED + FINISHED + POSTPONED, not CANCELLED." Read by
 # coverage_map.read_day: a POSTPONED game of a competition here counts in its line's games, not among its void; every
 # other competition keeps closing.VOID as it stands (no existing sport's coverage changes). CANCELLED stays void.
-COVERAGE_COUNTS_POSTPONED = ("NBA",)
+COVERAGE_COUNTS_POSTPONED = ("NBA", "NCAAMB")       # NCAAMB: the same provider's POST, 272 item 3's basis
 KIND_TWO = "kalshi_only two-way"                       # every line names its close kind (addendum 150 item 1)
 KIND_THREE_NAME = "kalshi three-way"                   # the kind's name, on the unpriced line
 KIND_THREE = f"{KIND_THREE_NAME} (one capture, normalized)"
@@ -665,7 +667,7 @@ def guarded_two_way_close(m, rows, mism: dict, tickers: dict, current: dict | No
 def close_record(days: int, now: datetime | None = None) -> dict:
     """{code: record}, each record naming its close kind (`kind`); the two kinds never pool. The FINISHED games of
     the last `days` days on the kickoff in this machine's DB.
-    NHL, NCAA, NBA, ATP and WTA (TWO_WAY_RECORD; NBA and tennis by addendum 261 item 0), as built: each game scored against close.close_from_kalshi (the kalshi_only close,
+    NHL, NCAA, NBA, NCAAMB, ATP and WTA (TWO_WAY_RECORD; basketball and tennis by addendum 261 item 0), as built: each game scored against close.close_from_kalshi (the kalshi_only close,
     called directly: books are not read) after the mismatched-legs guard (kalshi_legs.mismatched, each side's newest
     leg), then the HOME row the close reads judged with those newest legs (close_row_mismatched: Codex round 2 P1 on
     #640, R47; close.py unchanged), in this order of exclusion: a three-way board (the rule is two-way only), no
@@ -1026,7 +1028,7 @@ def close_record_section(rec: dict, days: int) -> str:
     intro = (f"_The bar a college or cup candidate is scored against (roadmap: \"no college candidate has been scored "
              f"against a close\"). Per competition, the FINISHED games of the last {days} days on the kickoff in this "
              "machine's DB that have a decided result and a close; every line names its close kind, and the two "
-             f"kinds never pool. close: {KIND_TWO} (NHL, NCAA, NBA, ATP, WTA; tennis decided by Kalshi's settlement): "
+             f"kinds never pool. close: {KIND_TWO} (NHL, NCAA, NBA, NCAAMB, ATP, WTA; tennis decided by Kalshi's settlement): "
              "the mid of the last two-sided Kalshi HOME quote "
              "before kickoff within the 2c spread cap (src/walters/close.py close_from_kalshi); the favourite is the "
              "side the close prices above the other. close: "

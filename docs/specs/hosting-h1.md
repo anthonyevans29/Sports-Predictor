@@ -70,7 +70,8 @@ set by `SP_IMPROVE_HOLD_ON_PASS=1`, which the chain template sets.
 | sp-nfl-lines | nfl-lines | daily 15:00 UTC | — |
 | sp-nhl-daily | nhl-daily (inactive before 2026-09-29; override `SP_NHL_ACTIVE_FROM`) | daily 16:00 UTC | daily |
 | sp-nba-daily | nba-daily (ARCHITECT 2026-11-05, addendum 261 item 1(b); 271 item 3(d), (h): market-only, no model, no call): `sync-matches --competition NBA --season 2026` as three single-day UTC steps, `{yesterday}`, `{today}` and `{tomorrow}` (ARCHITECT 2026-11-06, addendum 274 item 2(3): "THE WINDOW — THREE UTC DAYS", nhl-daily's own; api_basketball sends a date only when from == to; 274 item 2(9): "6 calls a day"), then `sync-kalshi-nba` (KXNBAGAME, the shared matcher); no coverage step: it runs before intl-daily's 07:20 UTC `coverage --json` (#805, addendum 225 item 5: one writer), so that write reads the fresh NBA rows. Shipped on `TIMERS`; the architect's TERMINAL (host) block enables it (T11, below) | daily 06:47 UTC | daily |
-| sp-tennis-daily | tennis-daily (ARCHITECT 2026-11-05, addendum 261 item 2(c); 2026-11-06, addendum 269 items 1-3: market-only, no model, no call; Kalshi's two tour series are the fixture source and the results source): `sync-matches --competition ATP` and `--competition WTA` over the ticker days `{yesterday}` .. `{tomorrow}` (the adapter `kalshi_tennis` reads each series to its last page, 269 item 3(d); the players first, from the same read; no `--season`: the ticker's year; never wider than 7 days, addendum 270 item 5: no backfill), then `sync-kalshi-atp` and `sync-kalshi-wta` (the shared matcher, then the player check); no coverage step: it runs before intl-daily's 07:20 UTC `coverage --json` (addendum 274 item 2(2): one writer). Shipped on `TIMERS`; the architect's TERMINAL (host) block enables it (T11, below) | daily 06:53 UTC | daily |
+| sp-ncaamb-daily | ncaamb-daily (ARCHITECT 2026-11-12, addendum 352 items 2-3; 353 item 2: NCAA men's basketball, market-only, no model, no call): `sync-matches --competition NCAAMB --season 2026` as three single-day UTC steps, `{yesterday}`, `{today}` and `{tomorrow}` (nba-daily's shape, 352 item 3(iii)), then `sync-kalshi-ncaamb` (KXNCAAMBGAME); the 2026-27 season only (352 item 3(iv)); no coverage write (intl-daily's 07:20 is the one); on T11's TIMERS_BY_BLOCK, enabled only by the architect's block after the laptop's first load and certification, the deploy of the tag that carries it, and the host's first load and certification (352 item 4) | daily 07:07 UTC | daily |
+| sp-tennis-daily | tennis-daily (ARCHITECT 2026-11-05, addendum 261 item 2(c); 2026-11-06, addendum 269 items 1-3: market-only, no model, no call; Kalshi's two tour series are the fixture source and the results source): `sync-matches --competition ATP` and `--competition WTA` over the ticker days `{yesterday}` .. `{tomorrow}` (the adapter `kalshi_tennis` reads each series to its last page, 269 item 3(d); the players first, from the same read; no `--season`: the ticker's year; never wider than 7 days, addendum 270 item 5: no backfill), then `sync-kalshi-atp` and `sync-kalshi-wta` (the shared matcher, then the player check); no coverage step: it runs before intl-daily's 07:20 UTC `coverage --json` (addendum 274 item 2(2): one writer). Shipped on T11's `TIMERS_BY_BLOCK` (addendum 351 item 2; #953): never enabled by T11's fresh-host line; the architect's own block enables it once 288 item 5's prerequisites are met | daily 06:53 UTC | daily |
 | sp-ncaa-market | ncaa-market (H0-11: enabled with the rest); from 2026-10-02 `sync-matches` NCAA yesterday + today runs first (#254), plus tomorrow from 2026-10-07 | Tue + Wed 16:00 (midweek FBS games, added 2026-10-07), Thu 16:00 (Thursday-night slates, added 2026-09-28), Fri 16:00, Sat 13:00 UTC | — |
 | sp-ncaa-schedule | ncaa-schedule (ARCHITECT 2026-10-09, addendum 19 item 3: "the stored kickoff of every NCAA game in the next seven days is at most one day old"): `sync-matches` NCAA, single-day calls today..today+7, then `refresh-by-id --competition NCAA --days 7` (addendum 21 item 1: every stored SCHEDULED game in those days refreshed by its own id; the listing no longer carries games that have not started); then, last, `export-ncaa-predictions --id ncaa-elo-v2 --dormant-ok` (ARCHITECT 2026-11-03, addendum 230 item 1(b): the college shadow, dormant, exit 0 and nothing written, while the verdict is null or FAIL); the export runs whether or not `refresh-by-id` succeeded (`go_on`, ARCHITECT 2026-11-03, addendum 236 item 3(4): the chain's exit stays the refresh's, so it pages) | daily 10:35 + 22:35 UTC | — |
 | sp-nfl-prematch | nfl-prematch (was sp-nfl-predict / nfl-predict; ARCHITECT 2026-10-25, addendum 166 item 6(B): `predict-nfl` and `export-nfl-predictions` are retired, the closing watch's slate stage writes `nfl_predictions_<date>.json`): `sync-injuries` NFL, `capture-weather-nfl` | Thu 18:00, Sun 14:00 UTC | — |
@@ -83,7 +84,7 @@ set by `SP_IMPROVE_HOLD_ON_PASS=1`, which the chain template sets.
 | sp-window | window (the next-24h card and delta pages); from the next deploy (ARCHITECT 2026-10-24, addendum 164 item 2(a)) also the capture-only Kalshi sync of PD `KXLALIGAGAME`, SA `KXSERIEAGAME`, BL1 `KXBUNDESLIGAGAME`, FL1 `KXLIGUE1GAME` and ELC `KXEFLCHAMPIONSHIPGAME` (`chains.WINDOW_KALSHI_CAPTURE_ONLY`: one `sync-kalshi-soccer --competition <code>` per league, one series per call, when the league's next kickoff is near or imminent; no export, no call, no venue line on the card) | hourly at :05, hours 00-03 and 06-23 UTC (H0-3) | — |
 | sp-cup-observe | (cli.py observe-cup-lineups, one tick, all four cups; not a chain): cups Step B's live T-15 observation store (ARCHITECT 2026-10-27, addendum 169 item 4(i)); a tick with no poll due ends without the DB lock | every 5 minutes at :00..:55, hours 00-03 and 06-23 UTC (H0-3) | — |
 | sp-availability-observe | (cli.py availability-nhl-observe, one tick; not a chain): the availability record's NHL landing watch (ARCHITECT 2026-11-04, addendum 252 item 3(b); 2026-11-11, addendum 340 item 3: "a STANDALONE unit on the cup-observe pattern"): the NHL schedule at most hourly per NHL day (no row), the landing page at T-120 .. T-0 and the boxscore at T+20 per game into the record; a poll more than five minutes past its time a `missed` row; a tick with no poll due takes no lock; needs `migrate_availability_record.py` run since #835 item 2's poll key (else it refuses, exit 2, and pages); enabled only by the architect's block (252 item 7; 340 item 3) | every 5 minutes at :00..:55, hours 00-03 and 06-23 UTC (H0-3) | — |
-| sp-availability-graph | (cli.py availability-graph-rebuild; not a chain): the availability record's graph projection (ARCHITECT 2026-11-04, addendum 252 item 4; 2026-11-11, addendum 347 item 5: LadybugDB `ladybug` 0.22.3, host-only, requirements-graph.txt): rebuilt whole from the newest daily `.backup` copy in /var/backups/sports-predictor whose `.sha256` sidecar matches (refused when older than 26 h), opened mode=ro + immutable=1, into logs/availability/graph/availability.lbug, one line of rebuild.jsonl beside it per run; its own unit with no EnvironmentFile, PrivateNetwork, ProtectSystem=strict, one writable directory (347 item 5(b)); read by nothing (347 item 5(c)); enabled only by the architect's block | daily 10:20 UTC (after sp-backup 09:30) | — |
+| sp-availability-graph | (cli.py availability-graph-rebuild; not a chain): the availability record's graph projection (ARCHITECT 2026-11-04, addendum 252 item 4; 2026-11-11, addendum 347 item 5: LadybugDB `ladybug` 0.22.3, host-only, requirements-graph.txt): rebuilt whole from the newest daily `.backup` copy in /var/backups/sports-predictor whose `.sha256` sidecar matches (refused when older than 26 h), opened mode=ro + immutable=1, into logs/availability/graph/availability.lbug, one line of rebuild.jsonl beside it per run; its own unit with no EnvironmentFile, PrivateNetwork, ProtectSystem=strict, one writable directory (347 item 5(b)); read by nothing (347 item 5(c)); on T11's `TIMERS_BY_BLOCK` (addendum 351 item 2), enabled only by the architect's block once the engine is installed and its directory made | daily 10:20 UTC (after sp-backup 09:30) | — |
 | sp-closing-watch | (closing.py watch, NFL and SOCCER; not a chain) — enabled at the cutover, 2026-10-26 13:47Z (T11 `TIMERS`; ARCHITECT 2026-10-26, addendum 168 item 5; held for the cutover ruling until then, C7) | every minute (the one H0-3 exemption, by name) | — |
 | *(none)* | soccer-refresh | **operator-started** (H0-6) | fresh prerefresh |
 
@@ -772,7 +773,7 @@ TIMERS="sp-backup.timer sp-backup-prune.timer sp-soccer-friday.timer sp-soccer-s
   sp-closing-watch.timer sp-cup-observe.timer sp-availability-daily.timer sp-nba-daily.timer
   sp-availability-observe.timer"
 MLB_LAPTOP_ONLY="sp-mlb-morning.timer sp-mlb-preslate.timer sp-clv-capture.timer"   # NOT enabled: statsapi 406 on the DO ASN (H1b note)
-TIMERS_BY_BLOCK="sp-availability-graph.timer sp-tennis-daily.timer"   # NOT enabled by T11: each by the architect's own block once its prerequisite is met (addendum 351 item 2)
+TIMERS_BY_BLOCK="sp-availability-graph.timer sp-tennis-daily.timer sp-ncaamb-daily.timer"   # NOT enabled by T11: each by the architect's own block once its prerequisite is met (addendum 351 item 2)
 echo $TIMERS | sudo tee /etc/sports-predictor/timers.enabled   # the list H2 steps 2 and 6 reuse
 systemctl enable --now sp-boot-receipt.service sp-web.service
 systemctl enable --now $TIMERS
@@ -782,7 +783,9 @@ systemctl list-timers 'sp-*' --no-pager     # receipt: next-elapse for each
 - **`TIMERS_BY_BLOCK`** (ARCHITECT 2026-11-12 10:50 ET, addendum 351 item 2, verbatim in part): "shipped, never
   enabled by T11's fresh-host line, enabled only by the architect's own block once its named prerequisite is met
   (today: sp-availability-graph.timer — the engine installed and its directory made; sp-tennis-daily.timer — 288
-  item 5). T11's `systemctl enable --now` line and its timers.enabled write take `TIMERS` alone". Each timer on it
+  item 5). T11's `systemctl enable --now` line and its timers.enabled write take `TIMERS` alone". sp-ncaamb-daily.timer
+  joins it by addendum 352 item 3(iii) (its prerequisite: the laptop's first NCAAMB load and certification, then the
+  host's, read by the architect). Each timer on it
   keeps its own recipe below, which ends with its `timers.enabled` line; sp_deploy's receipt counts the list's timers
   not enabled as it counts `MLB_LAPTOP_ONLY`'s (held off by T11). The list replaces the ORDER note that kept
   `sp-availability-graph.timer` out of T11's enable by hand.
@@ -944,6 +947,23 @@ systemctl list-timers 'sp-*' --no-pager     # receipt: next-elapse for each
   sudo systemctl enable --now sp-nba-daily.timer
   echo sp-nba-daily.timer | sudo tee -a /etc/sports-predictor/timers.enabled
   systemctl list-timers sp-nba-daily.timer --no-pager   # receipt: next elapse at 06:47 UTC
+  ```
+- `sp-ncaamb-daily.timer` (ARCHITECT 2026-11-12 11:05 ET, addendum 352 items 2-4; 10:45 ET, addendum 353 item 2; daily
+  07:07 UTC): NCAA men's basketball, market-only, the chain `ncaamb-daily` (three single-day `sync-matches --competition
+  NCAAMB --season 2026` steps and `sync-kalshi-ncaamb`). 07:07 is off every timer's minute and off the five-minute marks
+  of sp-window, sp-cup-observe and sp-availability-observe (sp-closing-watch ticks every minute, its exemption by
+  name), outside H0-3's buffer, after nba-daily (06:47) and tennis-daily (06:53; the lock waits if either still runs)
+  and before intl-daily's 07:20 coverage write. It is on T11's `TIMERS_BY_BLOCK` (352 item 3(iii)): ENABLING IT IS THE
+  ARCHITECT'S BLOCK (352 item 4: "THE LOAD AND THE ENABLEMENT are mine"), after the deploy of the tag that carries it
+  and the host's first load and certification (the PR body names that order); until then sp_deploy's receipt counts
+  it on `TIMERS_BY_BLOCK`, held off by T11. The block's shape (the recipe ends with the timers.enabled line, addendum
+  168 item 2):
+  ```
+  sudo install -m 0644 deploy/hosting/systemd/sp-ncaamb-daily.timer /etc/systemd/system/
+  sudo systemctl daemon-reload
+  sudo systemctl enable --now sp-ncaamb-daily.timer
+  echo sp-ncaamb-daily.timer | sudo tee -a /etc/sports-predictor/timers.enabled
+  systemctl list-timers sp-ncaamb-daily.timer --no-pager   # receipt: next elapse at 07:07 UTC
   ```
 - `sp-tennis-daily.timer` (ARCHITECT 2026-11-05, addendum 261 item 2(c): "the chain tennis-daily"; 2026-11-06,
   addendum 269 items 1-3; daily 06:53 UTC): the tennis market-only daily, `sync-matches` for ATP and WTA over the
@@ -1562,7 +1582,12 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
   lock, so a timer could interleave (ARCHITECT 2026-10-22, addendum 154 item 2;
   docs/RELEASES.md step 5: the dry run first, then the deploy, then the printed
   command). Never pass `--run-migrations` to the deploy call itself. Every
-  receipt line names the running tag.
+  receipt line names the running tag. When `src/db/schema.py` changed in a
+  forward range and no new migration is listed, the dry run and the deploy
+  print one `!` line and no command, and the receipt sets
+  `schema_changed_no_migration` (ARCHITECT 2026-11-12, addendum 354 item 2(b),
+  #950): read the range's PRs for the migration that applies the change. A
+  schema change ships with its own new `migrate_<what>.py` (CONTRIBUTING.md).
   - When `requirements.txt`, or a file it includes with `-r`/`-c`, changed in
     the range, or this host's last successful install (recorded in
     the venv, which survives log rotation) was not of exactly the target's

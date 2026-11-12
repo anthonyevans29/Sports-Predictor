@@ -1,0 +1,3 @@
+## 2026-11-12 (#966: 965-ncaamb-stored-empty — the NCAAMB stored certification fails on a season with nothing stored (#965; ARCHITECT 2026-11-12, addendum 359 item 3); read-only receipt code, no model, no date moves)
+- **scripts/nba_certification_receipt.py:** for NCAAMB, a stored season with 0 rows or 0 linked teams is FAILED (exit 1) with its own line, "nothing stored to certify"; before, "0 rows · teams linked 0 · shared: 0" exited 0. A STOP (a shared NBA row) still outranks it. The NBA's stored phase is left as certified.
+- **Tests:** tests/test_ncaamb_certification_receipt.py: an empty copy and a copy with teams and no games, each failing on the head before the fix (exit 0); the NBA's empty season still exits 0; a STOP still exits 3.

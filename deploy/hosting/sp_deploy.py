@@ -363,6 +363,12 @@ def _blob(rev: str, path: str):
     return out.strip() if rc == 0 and out.strip() else None
 
 
+SCHEMA_FILE = "src/db/schema.py"
+SCHEMA_WARNING = ("src/db/schema.py changed in this range and the plan lists no new migration: no command can "
+                  "be generated (which migration covers the change is unknown); read the range's PRs before the DB is "
+                  "used. A schema change ships with its own new migrate_<what>.py (CONTRIBUTING.md; #950)")
+
+
 def migration_plan(before: str, after: str, changed: list[str]) -> dict:
     """Which migrations to run by hand, in which order (Codex on #296).
     - Only a FORWARD deploy (before is an ancestor of after) runs migrations. A
@@ -374,17 +380,34 @@ def migration_plan(before: str, after: str, changed: list[str]) -> dict:
       merges included (-m), oldest first; never git's alphabetical path order
       (migrate_score_90.py needs migrate_status_raw.py first). A new migration
       the history does not place is appended and flagged. Migrations that were
-      only modified are listed separately, never as runnable."""
+      only modified are listed separately, never as runnable.
+    - THE SCHEMA WARNING (ARCHITECT 2026-11-12 10:55 ET, addendum 354 item 2(b), #950): on a FORWARD deploy where
+      src/db/schema.py changed and the plan lists no new migration, `schema_changed_no_migration` is True and the
+      dry run and the deploy print one `!` line, with NO command: the plan cannot know which migration covers the
+      change, and a guessed command is worse than none. v1.6.7's poll key rode an existing idempotent migration
+      whose file did not change, so the plan was silent (#950); from 354 item 2(a) such a change ships with a new
+      one-shot migrate_<what>.py, which the plan lists, orders and prints as it does every new migration."""
     found = [p for p in changed if p.startswith("migrate_") and p.endswith(".py")]
+    schema_changed = SCHEMA_FILE in changed
     if not found:
-        return {"forward": True, "run": [], "modified": [], "skipped": [], "unordered": [], "undetermined": [],
+        if schema_changed:
+            # the ancestry check runs on this path ONLY when the schema changed, so a check that errors refuses
+            # no deploy that touches neither a migration nor the schema (as before #950)
+            rc, _, err = _git_rc("merge-base", "--is-ancestor", before, after)
+            if rc not in (0, 1):
+                raise SystemExit(f"✗ ancestry check {before}..{after} failed ({err or f'git exit {rc}'}) — "
+                                 "refusing to plan migrations.")
+            forward = rc == 0
+        else:
+            forward = True
+        return {"forward": forward, "run": [], "modified": [], "skipped": [], "unordered": [], "undetermined": [],
                 "new": [], "renamed": {}, "lineage_unknown": False,
-                "deleted_migrations": []}
+                "deleted_migrations": [], "schema_changed_no_migration": schema_changed and forward}
     rc, _, err = _git_rc("merge-base", "--is-ancestor", before, after)
     if rc == 1:
         return {"forward": False, "run": [], "modified": [], "skipped": found, "unordered": [], "undetermined": [],
                 "new": [], "renamed": {}, "lineage_unknown": False,
-                "deleted_migrations": []}
+                "deleted_migrations": [], "schema_changed_no_migration": False}
     if rc != 0:
         raise SystemExit(f"✗ ancestry check {before}..{after} failed ({err or f'git exit {rc}'}) — "
                          "refusing to plan migrations.")
@@ -489,11 +512,13 @@ def migration_plan(before: str, after: str, changed: list[str]) -> dict:
                              "refusing to plan migrations.")
     unplaced = sorted(new - set(ordered) - ambiguous)
     undetermined = sorted(together | unchained | ambiguous | set(unplaced))
+    listed = ordered + sorted(ambiguous) + unplaced
     return {"forward": True, "run": [] if undetermined else ordered, "undetermined": undetermined,
-            "new": ordered + sorted(ambiguous) + unplaced, "renamed": renamed,
+            "new": listed, "renamed": renamed,
             "modified": [m for m in found if m not in new and m not in renamed] + sorted(renamed),
             "skipped": [], "unordered": unplaced, "lineage_unknown": lineage_unknown,
-            "deleted_migrations": deleted_migrations}
+            "deleted_migrations": deleted_migrations,
+            "schema_changed_no_migration": schema_changed and not listed}
 
 
 def timers_state(repo: Path | None = None, enabled_path: Path | None = None) -> dict:
@@ -642,6 +667,7 @@ def main(argv=None) -> int:
                   + (f"; this range DELETES migration(s) {plan['deleted_migrations']} (lineage unknown)"
                      if plan.get("lineage_unknown") else "")
                   + (f"; rollback skips {plan['skipped']}" if plan["skipped"] else "")
+                  + (f"; ! {SCHEMA_WARNING}" if plan.get("schema_changed_no_migration") else "")
                   + (f"; requirements.txt {req_reason}: would be RECORDED as installed by hand (no pip run)"
                      if by_hand else "")
                   + (f"; requirements.txt {req_reason}: would run `{' '.join(pip_command())} install -r "
@@ -766,6 +792,7 @@ def main(argv=None) -> int:
                       "migration_order_undetermined": plan["undetermined"], "renamed_migrations": plan["renamed"],
                       "deleted_migrations": plan.get("deleted_migrations", []),
                       "modified_migrations": plan["modified"], "rollback_migrations_skipped": plan["skipped"],
+                      "schema_changed_no_migration": bool(plan.get("schema_changed_no_migration")),
                       "requirements_installed": installed,
                       **({"checkout_warning": checkout_warning} if checkout_warning else {}),
                       "ledger_fragments_pending": len(pending),
@@ -798,6 +825,7 @@ def main(argv=None) -> int:
              if plan["modified"] else "")
           + (f"\n  ! rollback / non-forward deploy: migrations in the diff are NOT run (the target predates "
              f"them; the DB keeps its additive columns): {plan['skipped']}" if plan["skipped"] else "")
+          + (f"\n  ! {SCHEMA_WARNING}" if plan.get("schema_changed_no_migration") else "")
           + (f"\n  ! {len(pending)} ledger fragment(s) uncompiled in {target} — the tag was cut without "
              "`ledger.py compile` (docs/RELEASES.md step 2)" if pending else "")
           + timers_line(timers) + active_timers_line(active))

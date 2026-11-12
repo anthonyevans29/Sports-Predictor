@@ -1562,7 +1562,12 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
   lock, so a timer could interleave (ARCHITECT 2026-10-22, addendum 154 item 2;
   docs/RELEASES.md step 5: the dry run first, then the deploy, then the printed
   command). Never pass `--run-migrations` to the deploy call itself. Every
-  receipt line names the running tag.
+  receipt line names the running tag. When `src/db/schema.py` changed in a
+  forward range and no new migration is listed, the dry run and the deploy
+  print one `!` line and no command, and the receipt sets
+  `schema_changed_no_migration` (ARCHITECT 2026-11-12, addendum 354 item 2(b),
+  #950): read the range's PRs for the migration that applies the change. A
+  schema change ships with its own new `migrate_<what>.py` (CONTRIBUTING.md).
   - When `requirements.txt`, or a file it includes with `-r`/`-c`, changed in
     the range, or this host's last successful install (recorded in
     the venv, which survives log rotation) was not of exactly the target's

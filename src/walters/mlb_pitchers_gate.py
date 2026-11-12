@@ -182,12 +182,18 @@ def _data_tree(data: Path) -> tuple[list[tuple[Path, os.stat_result]], list[Path
     (GateRefused), never a silent pass; so does a tree too deep to walk (RecursionError on Python < 3.12)."""
     files: list[tuple[Path, os.stat_result]] = []
     linked: list[Path] = []
-    if not os.path.lexists(data):
-        return files, linked
 
     def unreadable(err: OSError):
         raise GateRefused(f"cannot read {err.filename} under data/ ({err.strerror or err}): the --db fence cannot "
                           "check by identity what it cannot read (law 4); nothing read")
+    try:                                             # #947 (law 4): only "nothing is there" reads as absent; lexists
+        os.lstat(data)                               # swallowed every OSError, so an unreadable data/ read as absent
+    except (FileNotFoundError, NotADirectoryError):
+        return files, linked
+    except OSError as e:
+        if e.filename is None:
+            e.filename = str(data)
+        unreadable(e)
     seen: set[tuple[int, int]] = set()
     try:
         for root, dirs, names in os.walk(data, followlinks=True, onerror=unreadable):
@@ -270,8 +276,11 @@ def check_db(db) -> Path:
                                   "that")
         try:
             tst = os.stat(tgt)
-        except OSError:
+        except (FileNotFoundError, NotADirectoryError):
             tst = None                               # no file: refused below as "no file at", never created
+        except OSError as e:                         # #947 (law 4): an unreadable --db is never "no file", and never
+            raise GateRefused(f"cannot stat --db {db} ({e.strerror or e}): the fence cannot check by identity what "
+                              "it cannot read (law 4); nothing read") from None   # skips the identity comparison
         if tst is not None:                          # by identity too: a hard link to any file under data/ is that file
             for f, st in files:
                 if (st.st_dev, st.st_ino) == (tst.st_dev, tst.st_ino):

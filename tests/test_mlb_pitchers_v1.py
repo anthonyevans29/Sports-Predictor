@@ -1547,3 +1547,44 @@ def test_942_a_folder_link_that_cannot_be_resolved_refuses(gate, tmp_path, monke
             mp.check_db(copy)
     monkeypatch.setattr(Path, "resolve", resolve0)
     assert mp.check_db(copy) == copy.resolve()
+
+
+def test_947_an_unreadable_data_root_or_db_stat_refuses_and_only_absence_reads_as_absent(gate, tmp_path, monkeypatch):
+    """#947 (Codex round 3 on #942, two P2s, law 4): `os.path.lexists(data)` swallowed every OSError, so a data/ (or a
+    parent) that could not be read read as absent and the identity pass never ran; and `os.stat(--db)` mapped every
+    OSError to "no file", so a transient failure skipped the identity comparison. Now only FileNotFoundError and
+    NotADirectoryError read as absent; any other OSError refuses, naming what could not be read."""
+    data = tmp_path / "scratch-data"
+    data.mkdir()
+    monkeypatch.setattr(mp, "DATA_DIR", str(data))
+    monkeypatch.setattr(mp, "_main_checkout_data", lambda: None)
+    copy = tmp_path / "a_real_copy.db"
+    copy.write_bytes(Path(gate["db"]).read_bytes())
+    lstat0, stat0 = os.lstat, os.stat
+    data_s, copy_s = str(data), str(copy.resolve())     # resolved before the patch: resolve() itself stats on 3.12
+
+    def root_denied(p, *a, **k):
+        if os.fspath(p) == data_s:
+            raise PermissionError(13, "Permission denied", str(p))
+        return lstat0(p, *a, **k)
+    monkeypatch.setattr(os, "lstat", root_denied)
+    with pytest.raises(mp.GateRefused, match="cannot read .*scratch-data.* under data/"):
+        mp.check_db(copy)
+    monkeypatch.setattr(os, "lstat", lstat0)
+
+    def db_denied(p, *a, **k):
+        if os.fspath(p) == copy_s:
+            raise PermissionError(13, "Permission denied", str(p))
+        return stat0(p, *a, **k)
+    monkeypatch.setattr(os, "stat", db_denied)
+    with pytest.raises(mp.GateRefused, match="cannot stat --db"):
+        mp.check_db(copy)
+    monkeypatch.setattr(os, "stat", stat0)
+
+    assert mp.check_db(copy) == copy.resolve()                                # readable: passes, as before
+    monkeypatch.setattr(mp, "DATA_DIR", str(tmp_path / "no-data-here"))       # a data/ that does not exist: absent
+    assert mp.check_db(copy) == copy.resolve()
+    monkeypatch.setattr(mp, "DATA_DIR", str(copy / "data"))                   # a parent that is a file: absent
+    assert mp.check_db(copy) == copy.resolve()
+    with pytest.raises(mp.GateRefused, match="no file at"):                   # a missing --db: still "no file at"
+        mp.check_db(tmp_path / "missing.db")

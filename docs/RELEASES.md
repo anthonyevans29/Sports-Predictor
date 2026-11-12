@@ -150,7 +150,7 @@ its compare verdict.
 | `v1.6.4` | 2026-11-05 13:03:31Z | `284c575847379d545408bf88bb3939041e253ad8` | `fbb6e46a9348d2430b61ab475c3b5faa84b10025` | #837 (step 1 as rewritten, #782) |
 | `v1.6.5` | 2026-11-09 13:46:27Z | `5f9cf13dc935ed5fdaf220772e8e8ccfea06dfc4` | `dae246a9edf64e0ad953f75d7a0c08e145f62f62` | #898 (step 1 as rewritten, #782) |
 | `v1.6.6` | 2026-11-10 20:11:06Z | `8aa27a89b3e0018e8ad229f321cab3e02acec212` | `0e7844aca0254cb6b17c383f0971166ef749ecab` | #917 |
-| `v1.6.7` | 2026-11-12 15:19:06Z | `6792cefec6acc3f9254a97e2ba10fc530ce1f6eb` | `577e444a9d16f9d4979faa7d587a1ce2a1d15255` | #RELISSUE |
+| `v1.6.7` | 2026-11-12 15:19:06Z | `6792cefec6acc3f9254a97e2ba10fc530ce1f6eb` | `577e444a9d16f9d4979faa7d587a1ce2a1d15255` | #949 |
 
 - **v1.4.0** (ARCHITECT 2026-10-16, addendum 87). The commit is the ledger
   compile over 53a0e83, the #551 merge over c546168.
@@ -375,15 +375,16 @@ its compare verdict.
   - **Release Issue:** #917 (ritual step 4), opened 2026-11-10 by ARCHITECT 2026-11-10 15:00 ET, addendum 324 item 2:
     the notes line for line, the tag, and 324 items 1 and 2 verbatim. The deploy rows join it from the operator's
     consoles.
-- **v1.6.7** (ARCHITECT 2026-11-12 09:50 ET, addendum 349, the tag ruling, as Release Issue #RELISSUE quotes it): a
+- **v1.6.7** (ARCHITECT 2026-11-12 09:50 ET, addendum 349, the tag ruling, as Release Issue #949 quotes it): a
   migration tag whose migration the deploy's plan did not list (below). The commit is the ledger compile 6792cefe (16
   changelog fragments, 17 ledger entries) over 09259889 (#936's merge). The tag was cut and pushed by the operator from
   the architect's block once CI was green on the fold (smoke 14:45:35Z, smoke-py310 14:51:43Z): tagger stamp
   2026-11-12 15:19:06Z (10:19:06 ET). Verbatim (349 item 3, in part): "v1.6.7 IS RULED on 6792cefe: the tag by the
   operator's block once CI is green on the fold commit, `--cleanup=verbatim -F` the notes."
-  - **The tag message:** 198 lines; 17 lines begin with `#` (the header and all 16 `## ` section headings). It matches
-    `python3 scripts/release_notes.py --to 6792cefec6acc3f9254a97e2ba10fc530ce1f6eb` line for line (197 lines, exit
-    0), apart from one trailing blank line in the tag message, as on v1.6.4 through v1.6.6. No AMENDED line.
+  - **The tag message:** 197 lines and 51,699 bytes as stored (`git cat-file -p v1.6.7`); 17 lines begin with `#` (the
+    header and all 16 `## ` section headings). It is byte-identical to `python3 scripts/release_notes.py --to
+    6792cefec6acc3f9254a97e2ba10fc530ce1f6eb` (197 lines, exit 0). `git for-each-ref --format='%(contents)'` prints
+    one more newline, which is the trailing blank line the earlier entries name. No AMENDED line.
   - **Step 1 (349 item 3, verbatim):** "STEP 1 (the compare), recorded as 334 item 3 says: no paired file existed
     before today — the first fixtures_NHL pair is today's (the laptop's file is on the mirror at 90afdb5a, reading
     pending, awaiting host), so the tag is ruled on the fold's CI and the sixteen PRs' own receipts, the gap named;
@@ -393,7 +394,7 @@ its compare verdict.
     `trg_availability_observations_poll_guard`). `migrate_availability_record.py`, unchanged in the range, applies
     both, because it reads its triggers and indexes from `schema.py`. No `migrate_*.py` file was new or modified in
     `v1.6.6..v1.6.7`, so `sp_deploy`'s plan listed none and printed no command; the architect's deploy block named it
-    (349 item 4). The plan's blind spot is #FINDINGISSUE. requirements.txt unchanged; two unit files added
+    (349 item 4). The plan's blind spot is #950. requirements.txt unchanged; two unit files added
     (`sp-availability-observe.service` and `.timer`, shipped disabled).
   - **The deploy record, verbatim (ARCHITECT 2026-11-12 10:35 ET, addendum 350 item 1, in part):** "`DRY RUN: would
     deploy v1.6.6 -> v1.6.7 (6792cefe)`, exit 0; `✓ deploy v1.6.6 -> v1.6.7 (6792cefe, 68 files)`, exit 0,
@@ -416,7 +417,7 @@ its compare verdict.
   - **Not in the tag:** #942 (the `check_db` fence walking data/ by device and inode): its head moved during the window
     and it took the next one (349 item 1). It merged after the tag, with #948 (the three `intl-elo-confirm --db`
     nits, #940) (main 1e51c287). The next tag's span opens with these two.
-  - **Release Issue:** #RELISSUE (ritual step 4), opened 2026-11-12 by ARCHITECT 2026-11-12 09:50 ET, addendum 349 item
+  - **Release Issue:** #949 (ritual step 4), opened 2026-11-12 by ARCHITECT 2026-11-12 09:50 ET, addendum 349 item
     3: the notes line for line, the tag, 349 items 2 and 3 verbatim, and the deploy record of 350 item 1.
 
 ## Hotfix path

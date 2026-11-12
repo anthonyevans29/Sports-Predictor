@@ -414,7 +414,8 @@ def test_the_timer_follows_the_backup_and_ships_disabled():
     assert re.search(r"^Unit=sp-availability-graph\.service$", t, re.M)
     assert sp_notify.unit_for("availability-graph") == "sp-availability-graph.service"
     assert "sp-availability-graph.service" not in sp_notify.THROTTLED_UNITS          # daily: every failure pages
-    assert "sp-availability-graph.timer" in c.t11_lists()["TIMERS"]
+    lists = c.t11_lists()                             # addendum 351 item 2: enabled only by the architect's block
+    assert "sp-availability-graph.timer" in lists["TIMERS_BY_BLOCK"] and "sp-availability-graph.timer" not in lists["TIMERS"]
     assert "availability-graph" not in chains.CHAINS                                # not a chain step (347 item 5(b))
     assert all("availability-graph-rebuild" not in json.dumps(v) for v in chains.CHAINS.values())
 
@@ -457,7 +458,7 @@ def test_the_rebuild_projects_every_assertion_with_both_intervals(fresh_db, tmp_
                 siv.start if siv else None, siv.end if siv else None, row.kind, row.recorded_at, row.source_stamp)
         assert got[row.id] == want, row.id
     keys = {k for (k,) in _graph_rows(graph, "MATCH (p:Player) RETURN p.key")}
-    assert {f"{r.source}|{rec.player_key(r)[0]}|{rec.player_key(r)[1]}" for r, _, _ in walked} == keys
+    assert {f"nfl|{r.source}|{rec.player_key(r)[0]}|{rec.player_key(r)[1]}" for r, _, _ in walked} == keys
     b = _graph_rows(graph, "MATCH (b:Build) RETURN b.copy, b.copy_sha256, b.engine, b.assertions")
     assert b == [[copy.name, g.sha256_file(copy), "ladybug 0.22.3", len(walked)]]
     line = json.loads((out / g.RECEIPTS).read_text().splitlines()[-1])
@@ -537,10 +538,10 @@ def test_review_a_nodes_ids_are_the_latest_mapping_whatever_the_walk_order(fresh
     with _ro() as s_:
         for r, _, _ in rec.walk(s_, "nfl"):
             mk = rec.match_key(r)
-            keys = [("Player", g._key(r.source, rec.player_key(r)), r.player_id),
-                    ("Team", g._key(r.source, rec.team_key(r)), r.team_id)]
+            keys = [("Player", g._key("nfl", r.source, rec.player_key(r)), r.player_id),
+                    ("Team", g._key("nfl", r.source, rec.team_key(r)), r.team_id)]
             if mk is not None:
-                gk = f"match|{mk[1]}" if mk[0] == "id" else g._key(r.source, mk)
+                gk = f"match|{mk[1]}" if mk[0] == "id" else g._key("nfl", r.source, mk)
                 keys.append(("Game", gk, r.match_id if mk[0] == "src" else mk[1]))
             for kind, k, v in keys:
                 if v is not None and (want.get((kind, k)) is None or (r.recorded_at, r.id) > want[(kind, k)][:2]):
@@ -625,3 +626,76 @@ def test_codex_r1_a_players_name_is_the_latest_assertions(fresh_db, tmp_path):
     out.mkdir()
     g.rebuild(out / g.GRAPH_NAME, copy=copy)
     assert _graph_rows(out / g.GRAPH_NAME, "MATCH (p:Player) RETURN p.name") == [["Jon Smith"]]
+
+
+# ---- #944 (Codex on #943 after its second round; the review stop rule's follow-up) --------------------------------------
+
+@needs_engine
+def test_944_one_source_in_two_sports_is_two_nodes(fresh_db, tmp_path):
+    """#944 item 2: the record derives per sport, so a source's player id and team text asserted in two sports are two
+    nodes, each with its own sport's id; before, they merged and the later sport's ids overwrote the other's."""
+    _migrate()
+    for sport, tid in (("nfl", 1), ("nhl", 2)):
+        rec.write_observation({"sport": sport, "source": "sportsdataio_goalies", "status": "complete",
+                               "endpoint": f"https://example.invalid/{sport}", "fetched_at": datetime(2026, 11, 12, 9)},
+                              [{"kind": "injury_status", "source_player_id": "p1", "player_name": "Same Id",
+                                "source_team": "KC", "team_id": tid, "attrs": {"status": "out"}}])
+    copy = _copy(fresh_db, tmp_path / "backups")
+    out = tmp_path / "graph"
+    out.mkdir()
+    g.rebuild(out / g.GRAPH_NAME, copy=copy)
+    teams = dict(_graph_rows(out / g.GRAPH_NAME, "MATCH (t:Team) RETURN t.key, t.team_id"))
+    assert teams == {"nfl|sportsdataio_goalies|src|KC": 1, "nhl|sportsdataio_goalies|src|KC": 2}
+    players = {k for (k,) in _graph_rows(out / g.GRAPH_NAME, "MATCH (p:Player) RETURN p.key")}
+    assert players == {"nfl|sportsdataio_goalies|src|p1", "nhl|sportsdataio_goalies|src|p1"}
+
+
+@needs_engine
+def test_944_in_games_side_is_the_latest_assertions(fresh_db, tmp_path):
+    """#944 item 3: IN_GAME's side was the first the walk met (partition order: confirmed_starter before
+    projected_starter); a later assertion's corrected side never reached the edge. It is now the latest one's."""
+    _migrate()
+    for at, kind, side in ((datetime(2026, 11, 12, 18), "projected_starter", "home"),
+                           (datetime(2026, 11, 12, 16), "confirmed_starter", "away")):
+        rec.write_observation({"sport": "nhl", "source": "sportsdataio_goalies", "status": "complete",
+                               "endpoint": f"https://example.invalid/{kind}", "fetched_at": at},
+                              [{"kind": kind, "source_player_id": "g1", "player_name": "Goalie", "source_team": "BOS",
+                                "attrs": {"source_match_id": "2026020309", "side": side}}])
+    copy = _copy(fresh_db, tmp_path / "backups")
+    out = tmp_path / "graph"
+    out.mkdir()
+    g.rebuild(out / g.GRAPH_NAME, copy=copy)
+    assert _graph_rows(out / g.GRAPH_NAME, "MATCH ()-[e:IN_GAME]->() RETURN e.side") == [["home"]]
+
+
+def test_944_a_sigterm_during_the_post_commit_cleanup_is_still_a_success(fresh_db, tmp_path, monkeypatch):
+    """#944 item 4 (Codex on #943's merge commit): the handler stayed installed through the finally block, so a
+    SIGTERM during the cleanup raised Killed past the except, over a graph already moved into place. The handler is
+    restored first: the signal no longer reaches the run, and its line is ok."""
+    import signal
+    _history_b()
+    out = tmp_path / "graph"
+    out.mkdir()
+    copy = _copy(fresh_db, tmp_path / "backups")
+    _fake_build(monkeypatch)
+    seen, got = [], []
+    real_rmtree = g.shutil.rmtree
+
+    def rmtree_then_term(path, *a, **k):
+        if str(path).endswith(f"build-{os.getpid()}") and (out / g.GRAPH_NAME).exists() and not seen:
+            seen.append(path)
+            os.kill(os.getpid(), signal.SIGTERM)
+        return real_rmtree(path, *a, **k)
+    def recorder(signum, frame):                                      # the caller's own handler: it records
+        got.append(signum)
+    original = signal.signal(signal.SIGTERM, recorder)
+    try:
+        monkeypatch.setattr(g.shutil, "rmtree", rmtree_then_term)
+        r = g.rebuild(out / g.GRAPH_NAME, copy=copy, lb=object())
+        assert seen and r["ok"] is True and "error" not in r and "after_commit" not in r
+        assert got == [signal.SIGTERM]                    # the caller's handler had it back: the run never saw it
+        assert signal.getsignal(signal.SIGTERM) is recorder
+    finally:
+        signal.signal(signal.SIGTERM, original)
+    line = json.loads((out / g.RECEIPTS).read_text().splitlines()[-1])
+    assert line["ok"] is True

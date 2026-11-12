@@ -219,12 +219,13 @@ def _s(v) -> str:
     return "" if v is None else str(v)
 
 
-def _key(source: str, k: tuple | None) -> str:
+def _key(sport: str, source: str, k: tuple | None) -> str:
     """A node's key: the record's own identity (record.player_key / team_key / match_key: the source's id or text,
-    ours only where the source gave none), per source."""
+    ours only where the source gave none), per sport and source: the record derives per sport, so one source's id
+    or text in two sports is two nodes, never one (#944 item 2)."""
     if k is None or k[1] is None:
-        return f"{source}|none"
-    return f"{source}|{k[0]}|{k[1]}"
+        return f"{sport}|{source}|none"
+    return f"{sport}|{source}|{k[0]}|{k[1]}"
 
 
 class _Table:
@@ -288,10 +289,10 @@ def _stage(s, stage: Path, copy: Path, copy_sha: str, built_at: datetime) -> dic
     for sport in sports:
         for r, riv, siv in rec.walk(s, sport):
             assertions += 1
-            pk = _key(r.source, rec.player_key(r))
-            tk = _key(r.source, rec.team_key(r))
+            pk = _key(sport, r.source, rec.player_key(r))
+            tk = _key(sport, r.source, rec.team_key(r))
             mk = rec.match_key(r)
-            gk = (f"match|{mk[1]}" if mk[0] == "id" else _key(r.source, mk)) if mk is not None else None
+            gk = (f"match|{mk[1]}" if mk[0] == "id" else _key(sport, r.source, mk)) if mk is not None else None
             players.setdefault(pk, [pk, r.source, r.source_player_id])
             latest("name", pk, r.recorded_at, r.id, r.player_name)      # a corrected name: the latest one
             teams.setdefault(tk, [tk, r.source, r.source_team])
@@ -300,8 +301,9 @@ def _stage(s, stage: Path, copy: Path, copy_sha: str, built_at: datetime) -> dic
             if gk is not None:
                 games.setdefault(gk, [gk, r.source if mk[0] == "src" else None, mk[1] if mk[0] == "src" else None])
                 latest("game", gk, r.recorded_at, r.id, r.match_id if mk[0] == "src" else mk[1])
-                side = (r.attrs or {}).get("side")
-                in_game.setdefault((tk, gk), "" if side is None else str(side))
+                in_game.setdefault((tk, gk), "")
+                side = (r.attrs or {}).get("side")                 # the latest assertion's side (#944 item 3)
+                latest("side", (tk, gk), r.recorded_at, r.id, None if side is None else str(side))
                 about.add((r.observation_id, gk))
                 obs_named_game.add(r.observation_id)
             t["FACT"].add([pk, tk, r.id, r.observation_id, sport, r.kind, _ts(r.recorded_at), _ts(r.source_stamp),
@@ -351,8 +353,9 @@ def _stage(s, stage: Path, copy: Path, copy_sha: str, built_at: datetime) -> dic
         t["Team"].add([x[0], x[1], _s(x[2]), _i(x[3]), _s(names.get(x[3]))])
     for p in players.values():
         t["Player"].add([p[0], p[1], _s(p[2]), _s(p[3]), _i(p[4])])
-    for (tk, gk), side in in_game.items():
-        t["IN_GAME"].add([tk, gk, side])
+    for (tk, gk) in in_game:
+        v = ids.get(("side", (tk, gk)))
+        t["IN_GAME"].add([tk, gk, v[2] if v else ""])
     for (oid, gk) in sorted(about):
         t["ABOUT"].add([oid, gk])
     t["Build"].add(["build", _ts(built_at), copy.name, copy_sha, _s(provenance.git_sha()), f"{ENGINE} {ENGINE_VERSION}",
@@ -447,8 +450,10 @@ def rebuild(out: Path, copy: Path | None = None, backup_dir: Path | None = None,
 
     def _term(signum, frame):
         raise Killed(f"signal {signum} (the unit stopped or timed out)")
+    installed = False
     try:
         prev = signal.signal(signal.SIGTERM, _term)
+        installed = True
     except ValueError:                          # not the main thread: no handler (a test runner's worker)
         prev = None
     try:
@@ -512,6 +517,10 @@ def rebuild(out: Path, copy: Path | None = None, backup_dir: Path | None = None,
         receipt["error"] = f"{type(e).__name__}: {e}"[:500]
         raise
     finally:
+        # The handler goes first (#944 item 4): a SIGTERM during this cleanup must not raise Killed past the except
+        # above, after the commit point, over a run that succeeded. The previous handler, or the default one.
+        if installed:
+            signal.signal(signal.SIGTERM, prev if prev is not None else signal.SIG_DFL)
         shutil.rmtree(stage, ignore_errors=True)
         receipt["seconds"] = round(time.monotonic() - t0, 1)
         receipt_error = append_receipt(out, receipt)
@@ -521,6 +530,4 @@ def rebuild(out: Path, copy: Path | None = None, backup_dir: Path | None = None,
             print(f"AVAILABILITY-GRAPH: the receipt line was not written ({receipt_error})", file=sys.stderr)
         if lock is not None:
             lock.close()
-        if prev is not None:
-            signal.signal(signal.SIGTERM, prev)
     return receipt

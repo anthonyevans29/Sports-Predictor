@@ -195,6 +195,67 @@ def test_a_failed_first_attempt_then_a_success_on_the_next_tick(box, monkeypatch
     assert tick(et(7, 6)) == 0 and len(slates()) == 2                            # a success ends the day
 
 
+
+def test_a_held_slate_read_goes_on_and_says_so_on_its_rows_and_page(box, monkeypatch):
+    """ARCHITECT 2026-11-11 10:15 ET, addendum 337 item 1, verbatim: "#925's SLATE STAGE: RULED — the slate GOES ON,
+    as built, with the held read recorded on its receipt." And: "What is missing is the label where the reader looks
+    (law 4): the slate file and its page say "schedule not re-read: SP_SYNC_HOLD <code> — kickoffs as stored" on a
+    held family's rows." The held read is recorded (#925); every row of the linked slate file carries the declared
+    text under `schedule_note`; the page says it on its own line; the export step's kept file is never written again
+    (#442), so `export_written` still verifies."""
+    the_day(box, monkeypatch)
+    box.fail_cmd["sync-matches"] = (0, ["HELD NFL (SP_SYNC_HOLD)"])
+    assert tick(et(7, 0)) == 0
+    r = slates()[-1]
+    assert r["exit"] == 0 and r["steps"][0]["held"] == ["NFL"] and r["steps"][0]["tail"] == ["HELD NFL (SP_SYNC_HOLD)"]
+    assert r["sync_held"] == {"n": 1, "steps": [{"step": 1, "command": r["steps"][0]["command"], "codes": ["NFL"]}]}
+    text = "schedule not re-read: SP_SYNC_HOLD NFL — kickoffs as stored"
+    assert r["schedule_note"]["text"] == text and r["schedule_note"]["rows"] == 2
+    linked = json.loads((box.repo / NFL_FILE).read_text())
+    assert [row["schedule_note"] for row in linked["predictions"]] == [text, text]
+    assert r["schedule_note"]["sha256"] == r["slate_file"]["sha256"]          # the file linked is the labelled one
+    assert r["schedule_note"]["file"] == r["export"].replace(".json", ".schedule-note.json")
+    kept = box.repo / r["export_written"]["file"]                                # the step's own bytes, untouched
+    assert hashlib.sha256(kept.read_bytes()).hexdigest() == r["export_written"]["sha256"] != r["slate_file"]["sha256"]
+    assert not any("schedule_note" in row for row in json.loads(kept.read_text())["predictions"])
+    page = slate_pages(box)[-1]["body"]
+    assert page.splitlines()[:2] == [PAGE.splitlines()[0], text], page
+    box.fail_cmd.clear()
+
+
+def test_a_held_slate_whose_label_cannot_be_written_fails_naming_it_and_links_nothing(box, monkeypatch):
+    """Code's review: a label write that fails fails the slate as `slate rows not labelled`, its notice naming the
+    cause (never "not linked (?)"); nothing is linked, pushed or paged."""
+    the_day(box, monkeypatch)
+    box.fail_cmd["sync-matches"] = (0, ["HELD NFL (SP_SYNC_HOLD)"])
+    real_link = mc.os.link
+
+    def no_link(src, dst, *a, **k):
+        if str(dst).endswith(".schedule-note.json"):
+            raise OSError(28, "No space left on device")
+        return real_link(src, dst, *a, **k)
+    monkeypatch.setattr(mc.os, "link", no_link)
+    assert tick(et(7, 0)) == mc.NOTIFIED
+    r = slates()[-1]
+    assert r["failed"] == "slate rows not labelled" and "No space left" in r["schedule_note"]["error"]
+    assert "slate_file" not in r and box.pushes == [] and slate_pages(box) == []
+    assert not (box.repo / NFL_FILE).exists()
+    assert f"{NFL_FILE} rows not labelled (OSError)" in box.notes[-1], box.notes[-1]
+    box.fail_cmd.clear()
+
+
+def test_a_slate_with_nothing_held_carries_no_schedule_note(box, monkeypatch):
+    """Not held: no label on any row, none on the page, no `schedule_note` on the receipt (the page is the declared
+    text, unchanged)."""
+    the_day(box, monkeypatch)
+    assert tick(et(7, 0)) == 0
+    r = slates()[-1]
+    assert "schedule_note" not in r and r["exit"] == 0
+    linked = json.loads((box.repo / NFL_FILE).read_text())
+    assert not any("schedule_note" in row for row in linked["predictions"])
+    assert slate_pages(box)[-1]["body"] == PAGE
+
+
 @pytest.mark.parametrize("first, late", [((6, 0), None), ((6, 40), 40)], ids=["at-06:00", "laptop-woke-06:40"])
 def test_a_due_time_before_06_00_is_06_00_and_a_late_first_tick_says_so(box, monkeypatch, first, late):
     """A first kickoff at 08:00 ET: 08:00 - 150 minutes is 05:30, so the slate is due at the first tick after 06:00

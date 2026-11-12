@@ -303,6 +303,13 @@ def box(tmp_path, monkeypatch):
     b.unit_reads = []
     monkeypatch.setattr(mc, "read_day_unit", lambda run_id: b.unit_reads.append(run_id) or {
         "state": "read", "et_date": None, "new": True, "exit": 0})
+    # THE BULLETIN HOOKS (addendum 321 item 2): the render's subprocess is faked as written (no subprocess, nothing under
+    # exports/bulletins/); tests/test_bulletin_hooks.py turns the real one on (b.bulletin_on()) and pins the hooks
+    b.bulletins = []
+    real_bulletin = mc.run_bulletin
+    monkeypatch.setattr(mc, "run_bulletin", lambda argv: b.bulletins.append(list(argv)) or (
+        0, "BULLETIN faked: 0 file(s) written"))
+    b.bulletin_on = lambda: monkeypatch.setattr(mc, "run_bulletin", real_bulletin)
     real_append = c.append_receipt
 
     def watched_append(rec):
@@ -1542,6 +1549,60 @@ def test_a1_a_schedule_read_that_did_not_answer_fails_the_run_at_that_step(box, 
     assert r["failed"] == "step 1 (schedule read: a covered game the provider did not answer, A1)"
     assert len(box.steps) == 1 and len(call_pages(box)) == 1                          # the earlier run's page only
 
+
+
+HOLD_CODE = {"MLB": "MLB", "NFL": "NFL", "SOCCER": "PL"}
+
+
+@pytest.mark.parametrize("fam,start", [("NFL", 35), ("SOCCER", 35), ("MLB", 30)])
+def test_336_a_held_schedule_read_is_an_unanswered_read(box, fam, start):
+    """THE HELD CLOSING READ (ARCHITECT 2026-11-11 09:35 ET, addendum 336 item 1): "the CLOSING RUN, which already
+    records the held step, treats a held A1 schedule read exactly as it treats an A1 read that was not answered today —
+    the same path, the same receipt fields, the same notice, nothing new invented — with the cause named
+    `schedule_held (SP_SYNC_HOLD <code>)`. It does not go on with the stored schedule to an export, a page or a push
+    for that family." The step keeps 332 item 3's contract (the HELD line, exit 0). A1 is per family today: each
+    family's closing covers one competition (FAMILIES comps), and an unanswered read fails the whole run."""
+    code = HOLD_CODE[fam]
+    assert mc.FAMILIES[fam]["comps"] == (code,)
+    # not held: the run goes through (the export, the page, the push), and the receipt carries no held step
+    assert mc.run(fam, start=at(start), now=NOW) == 0
+    ok = runs(fam)[-1]
+    assert ok["exit"] == 0 and "sync_held" not in ok and not any("held" in s for s in ok["steps"])
+    assert len(call_pages(box)) == 1 and len(box.pushes) == 1
+    # an A1 read the provider did not answer, then a held one: the same path and the same fields
+    box.steps.clear()
+    box.fail_cmd["sync-matches"] = (1, ["✗ STRICT: 1 of 4 named game(s) not in the provider's answer"])
+    assert mc.run(fam, start=at(start), now=NOW + timedelta(minutes=1)) == 1
+    unanswered = runs(fam)[-1]
+    box.steps.clear()
+    box.fail_cmd["sync-matches"] = (0, [f"HELD {code} (SP_SYNC_HOLD)"])
+    assert mc.run(fam, start=at(start), now=NOW + timedelta(minutes=2)) == 1
+    held = runs(fam)[-1]
+    assert held["failed"] == f"step 1 (schedule read: schedule_held (SP_SYNC_HOLD {code}), A1)"
+    assert held["exit"] == unanswered["exit"] == 1
+    assert set(held) == set(unanswered) | {"sync_held"}                               # nothing new but the hold's own
+    assert set(held["steps"][0]) == set(unanswered["steps"][0]) | {"held"}
+    assert held["steps"][0]["exit"] == 0 and held["steps"][0]["held"] == [code]
+    assert held["steps"][0]["tail"] == [f"HELD {code} (SP_SYNC_HOLD)"]
+    assert held["sync_held"] == {"n": 1, "steps": [{"step": 1, "command": held["steps"][0]["command"],
+                                                     "codes": [code]}]}
+    assert held["export"] is None and held["push"] is None and held["desk_rows"] == []
+    assert len(box.steps) == 1                                                         # no step after the read
+    assert len(call_pages(box)) == 1 and len(box.pushes) == 1                         # the first run's only
+    assert held["attempt"] == unanswered["attempt"] + 1                                # an attempt, as unanswered
+
+
+def test_336_a_watch_started_held_read_sends_the_unanswered_notice(box):
+    """"the same notice": a watch-started run whose read was held sends the failed-run notice an unanswered read sends,
+    the cause named, and exits NOTIFIED; nothing is paged as a call."""
+    box.fail_cmd["sync-matches"] = (0, ["HELD PL (SP_SYNC_HOLD)"])
+    assert mc.watch(now=NOW, families=("SOCCER",)) == mc.NOTIFIED
+    r = runs("SOCCER")[-1]
+    assert r["failed"] == "step 1 (schedule read: schedule_held (SP_SYNC_HOLD PL), A1)" and r["attempt"] == 1
+    assert r["failure_notification"]["text"].startswith(
+        f"Closing SOCCER {mc.et(mc.parse_utc(at(35)))}: FAILED: step 1 (schedule read: schedule_held "
+        "(SP_SYNC_HOLD PL), A1) · attempt 1/3")
+    assert call_pages(box) == [] and box.pushes == [] and len(box.steps) == 1
 
 def _stale_draw_leg(box):
     """PL: the Kalshi sync re-captures HOME and AWAY but skips the DRAW leg as wide: DRAW keeps its morning

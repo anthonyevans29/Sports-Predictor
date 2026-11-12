@@ -3,8 +3,8 @@
 Spec for lane `availability-record` (ARCHITECT 2026-11-04 13:05 ET, addendum 252). Sections 1-8 cover the schema PR:
 the two tables, the migration, the writer, the one read path and the `availability` command. Section 9 covers the
 first feed, nflverse depth charts (item 3(a); addenda 258 and 259), with the snapshot closure it brings to the read
-(section 4). The NHL landing feed (3(b)) and the graph projection (item 4) are later PRs and get their own sections
-when they land.
+(section 4). Section 10 covers the second feed, the NHL landing read and its watch (item 3(b); addenda 258 item 2(2),
+340 and 341). Section 11 covers the graph projection (item 4; addendum 347 item 5, the pick).
 
 Code: `src/db/schema.py` (`AvailabilityObservation`, `AvailabilityAssertion`, `AVAILABILITY_TRIGGERS`),
 `migrate_availability_record.py`, `src/availability/record.py`, `cli.py availability`; the feed:
@@ -794,4 +794,213 @@ environment value). Tests fail-first against the schema PR's `record.py`.
 - `projected_starter`: never written by this feed (a daily rank is not a game-day confirmation).
 - No player mapping (254 item 2(3)); no row in any existing table; no provider call from a closing run; nothing under
   data/; no update or delete path (the schema PR's triggers stand untouched).
-- The NHL landing feed's poll key (#835 item 2, 258 item 2(2)): the NHL feed's PR.
+- The NHL landing feed's poll key (#835 item 2, 258 item 2(2)): the NHL feed's PR (section 10).
+
+## 10. The NHL landing feed (item 3(b); addenda 258 item 2(2), 340 and 341)
+
+Verbatim (252 item 3(b)): "THE NHL LANDING READ (source `nhl_api_landing`): per game of the NHL day (the probe's
+schedule read: GET /v1/schedule/<date>, game types 2 and 3), the landing page at the probe's offsets (T-120, T-90, T-60,
+T-45, T-35, T-30, T-15, T-0) — each poll an observation with its poll_label — asserting projected_starter per side from
+matchup.goalieComparison.<side>Team.leaders[0] (playerId, name beside it) EXACTLY as scripts/nhl_leaders_order_receipt.py
+reads it, and the boxscore at T+20 asserting eventual_starter (the goalie with toi above zero; two in net = two rows,
+flagged; none = an `empty` observation) — post hoc, kind-labelled, never a pregame fact. The polls run under a watch on
+the host (an `availability-observe` timer every five minutes, the cup-observe pattern), each poll stamped by our clock;
+a poll more than five minutes past its time is a `missed` row."
+
+Code: `src/availability/nhl_landing.py`, `cli.py availability-nhl-observe`, `sp-availability-observe.service` and
+`.timer`. Tests: `tests/test_availability_nhl_landing.py`.
+
+### The schedule: support data (340 item 4)
+
+"at most hourly, kept per NHL day — YES. It is support data, not an observation: it asserts nothing about who plays, so
+it writes no row in availability_observations; its payload is kept beside the others under
+logs/availability/nhl_api_landing/<date>/ with its sha256. A moved start recomputes the polls not yet written; a
+written poll is never touched. A failed schedule read invents nothing: no missed rows for games it could not know; one
+log line per tick and one notice per NHL day."
+
+As built:
+- The NHL day is the probe's: [date 10:00Z, date+1 10:00Z), games of types 2 and 3, parsed by
+  `nhl_goalies.schedule_games` and filtered as the probe's `day_games` filters (a test pins the two equal).
+- The answer is kept as `<NHL day>/<YYYYmmddTHHMMSS>Z-<sha256, first 16 hex>-schedule.json` only when its bytes differ
+  from the newest kept for that day; `schedule.checked` ("<instant> <sha256>", or "<instant> failed") beside it says
+  when the day was last read, and a day read within the hour, answered or not, is not read again (at most hourly).
+- A 200 whose JSON names no game at all (`{}`, an error object; Codex on #933, round 1) is not a schedule: the games
+  already known stand, its body is not kept, and the hour is stamped ("named no game"); no notice.
+- A failed read uses the newest kept answer for the day when one exists (the games already known), else knows no game.
+  The day's first failed read creates `schedule.notice` and makes the tick exit 1 (the unit pages once); every tick
+  prints its line (a failed read, or "last read FAILED at <instant>: the next read after <instant>") and exits 0.
+- "A moved start recomputes the polls not yet written": a poll counts as WRITTEN when the store holds an observation of
+  the source at the game's endpoint (the landing or boxscore URL, carrying the gameId) with its label, scheduled
+  against a start within SIX HOURS of the game's current start (ARCHITECT 2026-11-11 14:10 ET, addendum 343 item 1: "a
+  label counts as written only against a start within SIX HOURS of the game's current start; a start that moves by six
+  hours or more (a postponement) gets a fresh set of polls against the new start, new rows beside the old, nothing
+  touched [...] A slip inside six hours (a delayed puck drop) schedules no second series"; `SERIES_SCOPE`), OR at its endpoint and scheduled time under another label (#835 item 2's key: a start moved
+  earlier can land a recomputed poll on one already asked; it is not asked twice and never repeats "already"); an
+  unwritten poll takes its time from the start this tick knows. `kickoff_at` on a row is the schedule's start as that
+  tick knew it.
+
+### The window, the polls, the lateness
+
+- The window: games whose scheduled start is within [now − 6 h, now + 2 h] (`LOOKBACK`, `AHEAD`), from the NHL days it
+  touches. Two hours ahead is T-120; six hours back covers H0-3's 04:00-05:59Z gap and a T+20 read with room. A host
+  down longer than six hours leaves no row for a poll older than the window (the gap shows in the boot and timer
+  receipts, not as invented rows).
+- A poll whose time has passed and is not written is DUE. More than five minutes past it is a `missed` row and no call
+  (252 item 3(b)); else it is asked once. A tick with a poll due plans again under the DB lock on the clock as it then
+  reads, so a poll that passed its five minutes while the tick waited for the lock is `missed`, never asked late; and
+  the cutoff is read again just before each call (Codex on #933, round 1), so slow earlier calls in one tick cannot
+  carry a later poll past its five minutes into a call. 340 item 3: "a poll scheduled inside the 04:00–05:59Z buffer (a late
+  West-coast start's T-0 or T+20) is written as a `missed` row by the first tick after the buffer, never dropped".
+- `fetched_at` is our clock after the body has been read in full (a raise: the raise's instant). `late` is set when it
+  is more than five minutes after the poll's time (an answer delayed by the DB lock, say).
+
+### The rows
+
+| Poll | Status | Assertions |
+|---|---|---|
+| a landing with leaders[0] on both sides | `complete`, or `partial` when a team or the match is unmapped | two `projected_starter` |
+| a landing with one side's leaders[0] | the same | one; the other side's reason (the receipt's words) on the console |
+| a landing with neither (no goalieComparison, empty lists) | `empty` | none |
+| the T+20 boxscore | `complete` / `partial` | one `eventual_starter` per goalie above zero toi; `attrs.two_in_net` on a side with two or more |
+| a boxscore with no goalie above zero | `empty` (when a goalie's toi could not be read, `error` says so: not a clean "none in net") | none |
+| a boxscore the ingest refuses (goalie lists not sided one home + one away) | `failed`, the reason, the payload kept | none |
+| a raised call, a non-200, an answer that is not JSON | `failed`, the error redacted (a non-JSON 200 keeps its payload) | none |
+| a poll more than five minutes past its time | `missed`, no call | none |
+
+Every assertion: `player_id` NULL (254 item 2(3)), `source_player_id` the NHL playerId, `player_name` verbatim, `team_id`
+(below) and `source_team` (the schedule's own text for the side, verbatim: its abbrev, else its full name, else placeName +
+commonName with accents kept; stable across polls; a side the schedule names no team for asserts nothing, counted as
+missing), `match_id` (below), `attrs.side`, `attrs.source_match_id` (the gameId, `record.SOURCE_MATCH_IDS`),
+`source_stamp` NULL (252 item 1(b): "the NHL landing gives none"). The eventual rows add `toi_seconds`, `two_in_net`
+and `toi_unread` (the side's goalies whose toi the ingest could not read). The starter slots are per kind (section 4;
+258 item 2(3)): an `eventual_starter` never closes a `projected_starter`.
+
+### The mapping (addendum 341 item 2)
+
+"the landing feed resolves team_id by THAT path, unchanged — a side maps only when its candidates resolve to exactly
+one of the NHL competition's teams; otherwise team_id NULL with source_team verbatim and the observation `partial`.
+This reuses a certified matcher; it adds no new name matching, no alias of your own, and writes no tla."
+
+As built: the side's candidates are `nhl_goalies.team_names()` of the schedule's side (the full name, then placeName +
+commonName, then `NAME_ALIASES`, accents stripped), each through `match_lookup.normalize_team_name` against the stored
+names of the NHL competition's teams (the teams of its stored matches: competition code NHL, sport NHL; the host's 32
+of 341 item 2). The side maps only when the UNION of the teams its candidates name is exactly one team; none, or two
+or more (a name held by two rows, an alias naming an older row), leaves it unmapped. The match: the one match
+`nhl_goalie_appearances` links to the gameId (two distinct links: refused), else `nhl_goalies.match_game` as it stands — read for 341 item 2: `find_match` reads the
+NHL's rows within 12 hours by both names and excludes only CANCELLED and STALE_ORPHAN, so a SCHEDULED row maps before
+the game — else NULL with `attrs.source_match_id`. One match, one game (law 4): a match two gameIds resolve to among every game the
+tick's schedules know (not only the due ones: Codex on #933, round 1), or one the record already holds under another
+game's endpoint, is refused for both (NULL): Step B's key (source, match,
+kickoff, label) would otherwise read the second game's poll as the first's.
+
+### The poll key (#835 item 2; addendum 258 item 2(2))
+
+"the poll's uniqueness is keyed on (source, endpoint, scheduled_at) where scheduled_at is set (the endpoint carries the
+game's own id; the scheduled poll time is the poll), a partial unique index beside the existing one and the
+insert-guard's "already observed" branch extended to it [...] No new column."
+
+As built: the index `uq_avail_obs_source_endpoint_scheduled` (unique, `WHERE scheduled_at IS NOT NULL`) and the trigger
+`trg_availability_observations_poll_guard` (its message carries the insert guard's words, "this poll is already
+observed", so `write_observation` answers "already" for it). The branch is a trigger of its own, as the snapshot hash
+guard is (262 item 1): `CREATE TRIGGER IF NOT EXISTS` never changes the installed insert guard on a store already
+migrated. `migrate_availability_record.py` creates both on its next run (additive and idempotent); until then the watch
+refuses to write (exit 2). The nflverse rows set no `scheduled_at`, so the key reads none of them.
+
+### The watch (340 item 3)
+
+`sp-availability-observe.service` (oneshot, `cli.py availability-nhl-observe`, OnFailure through
+`sp-notify@availability-observe`, at most one page in thirty minutes: `sp_notify.THROTTLED_UNITS`, addendum 343
+item 2) and `.timer` (every five minutes at :00 .. :55, hours 00-03 and 06-23 UTC,
+`Persistent=false`, `AccuracySec=1s`), on T11's `TIMERS`, shipped disabled; the architect's block enables it. Not a
+chain: no `chains.py` entry, no chain receipt per tick. A tick plans mode=ro; with no poll due it calls no game page and
+takes no lock; with a poll due it takes the chains' DB lock and plans again under it.
+
+### What this feed does NOT do
+
+No model change, no Desk input, no row in any existing table, no call from a closing run, no backdating, no deletion, no
+payload under data/, no key (the NHL API takes none). No player mapping, no alias or tla of its own. The receipt's
+reading of leaders[0]'s reliability stands as read on #105: this feed records what the page asserted and when.
+
+## 11. The graph projection (item 4; addendum 347 item 5)
+
+252 item 4, verbatim: "a nightly rebuild of the record into an EMBEDDED graph engine on the host — file-based, no
+server, Cypher — nodes Player, Team, Game, Observation; edges from the assertions carrying kind, recorded_at,
+source_stamp and the derived interval; rebuilt whole from SQLite (mode=ro) by one command, `availability-graph-rebuild`,
+as the last step of availability-daily; its file under logs/, never under data/, never backed up, never mirrored,
+deletable without loss. NEVER written by a chain other than its rebuild, NEVER read by the Desk, a prediction, an
+export or a gate; a failed rebuild is a receipt line and stops nothing."
+
+347 item 5 (ARCHITECT 2026-11-11 19:50 ET) picked LadybugDB on the candidates page (`docs/specs/availability-graph-candidates.md`,
+#936): the package `ladybug`, version 0.22.3 exactly, the cp312 manylinux x86_64 wheel by its sha256. The package
+imports as `ladybug`: its wheel's `top_level.txt` names `ladybug`, and there is no `lbug` module (`lbug` is the native
+library's name, `ladybug/_lbug.cpython-312-x86_64-linux-gnu.so`).
+
+**The engine, host-only (347 item 5(a) and (d)).** `requirements-graph.txt` holds one line, the exact pin with its hash;
+requirements.txt does not name it and CI installs requirements.txt alone. The wheel holds `ladybug/` and its dist-info
+only: no `.pth` file, no console script, no runtime dependency (every Requires-Dist is extra `dev`). Its native library
+links the system OpenSSL 3 (`libssl.so.3`, `libcrypto.so.3`). `src/availability/graph.py` imports it inside `engine()`,
+the one place in the app (pinned). It reads the installed version from the distribution's metadata and refuses any
+other (never `ladybug.__version__`, which asks the native library), drops the package's environment overrides
+(`LBUG_PYTHON_BACKEND`, `LBUG_C_API_LIB_PATH`), imports the native module (`ladybug._lbug`) through the package's own
+loader before anything else is asked of it, refuses when it does not import, and opens every database with
+`backend="pybind"`: the package's ctypes fallback (`ladybug._lbug_capi`, a `liblbug.so` found by path, the working
+directory included) is never imported.
+
+**The read.** `record.walk(s, sport)`: every assertion with the interval it opened or restated under the recorded clock
+and, where it carries a source stamp, under the source clock: the same partitions and the same `_derive` as
+`history` (item 2: "there is no second path"), one partition at a time, both clocks from one read (a partition's rows
+under the source clock are exactly its stamped rows). Pinned equal, row by row, to `history(s, sport, datetime.max,
+clock)` for each clock on the randomized histories.
+
+**The graph.** Node keys are the record's own identities (`player_key`, `team_key`, `match_key`: the source's id or text,
+ours only where the source gave none), per sport and source (one source's id in two sports is two nodes, #944); our
+ids ride along as columns, each from the latest assertion that carries one.
+- `Player(key, source, source_player_id, name, player_id)`, `Team(key, source, source_team, team_id, name)` (the name from
+  our teams table where the team maps), `Game(key, source, source_match_id, match_id, competition, season, kickoff,
+  status, home_team_id, away_team_id)` (the columns from our matches where the game maps; a source-keyed game carries its
+  `match_id` when it maps), `Observation(...)` (every observation, missed and failed ones included), and one
+  `Build(built_at, copy, copy_sha256, git_sha, engine, assertions, observations)`.
+- `FACT` (Player to Team), one per assertion: `assertion_id`, `observation_id`, `sport`, `kind`, `recorded_at`,
+  `source_stamp`, `game` (the game's key, where the assertion names one), `attrs` (JSON text), the recorded clock's
+  interval (`rec_interval` = its opening assertion, `rec_start`, `rec_end`, `rec_closed_by`, `rec_why`), the source
+  clock's (`src_*`, NULL where the row carries no source stamp), `backfilled`, `post_hoc`.
+- `ASSERTED` (Observation to Player), one per assertion; `IN_GAME` (Team to Game, the side's text from the latest assertion that gives one, #944), one per pair an
+  assertion names; `ABOUT` (Observation to Game), the games an observation's assertions name, else its own match.
+- Timestamps are naive UTC (the engine drops an offset without converting it, so the rebuild converts first).
+
+**The copy (347 item 5(b)).** `--backup-dir DIR`: the newest daily `.backup` copy (`sports_YYYY-MM-DD[_HHMMSS].db`,
+pull_backup's pattern) whose `.sha256` sidecar matches its bytes, refused when it is older than 26 hours by its file time;
+or `--db PATH`. Either passes `mlb_pitchers_gate.check_db` (never under data/, never the configured DB) and is read
+through its mode=ro + immutable=1 session; the copy is byte-identical after a run (pinned).
+
+**The build.** Staged as CSV in a directory beside `--out` (100,000 rows a file: one COPY of a million edges overflows
+the 256 MB buffer pool the rebuild sets), loaded by COPY with `PARALLEL=FALSE` (the parallel CSV reader refuses a
+quoted newline, and the record keeps whatever text its source gave: one such name would fail every rebuild), closed, re-opened read-only and counted (a read-write open
+rewrites the file's bytes), moved onto `--out` by `os.replace` only when every count equals what was staged; the staging
+directory is removed whatever the outcome, a SIGTERM (the unit's stop or timeout) included; through that cleanup a SIGTERM is
+deferred, so a signal during it never turns a committed run into a failure (#944), and it is re-delivered once the
+previous handler is back, after the run's line is written (Codex on #952). One run at a time (a lock
+beside the graph; a second run is refused). One line of `rebuild.jsonl` beside the graph per run: ok (the counts, the
+graph's sha256 and size, the copy and its sha256), refused or error; a refused `--out` writes nothing at all, and a
+SIGKILL (MemoryMax) writes no line and leaves its staging, which the next run removes and names on its own line. A copy
+that does not read as SQLite through the mode=ro + immutable=1 URI is refused as such, before the migration check. A
+node's ids are the latest assertion's that carries one (by recorded_at), whatever order the walk yields its partitions
+in, and a player's name is the latest assertion's. The move onto `--out` is the commit point: the receipt's hash and
+size are computed before it, so a signal after it leaves an ok line, never an error. `--db` is never `--out` (a copy
+named `.lbug` would be overwritten). Exit 0 built, 2 refused, 1 failed; the previous graph is untouched unless a run
+succeeds.
+
+**The unit (347 item 5(b)).** `sp-availability-graph.service` and `.timer`, daily 10:20 UTC (after the 09:30 sp-backup
+whose copy it reads; `After=sp-backup.service`, so a catch-up of both timers after downtime runs the backup first), its own unit and not availability-daily's last step: a chain step runs inside sp-chain@'s unit,
+which loads host.env and has the network. No EnvironmentFile, `PrivateNetwork=yes`, `NoNewPrivileges=yes`, `ProtectSystem=strict`, the graph's directory the one writable path; because the sp user can still read what it owns, /etc/sports-predictor (host.env and an exports-mirror deploy key installed there) and data/ are inaccessible and the checkout's .env (config.py loads it on import) is /dev/null; `PrivateUsers=yes`, `ProtectProc=invisible` and `ProcSubset=pid` so another sp process's /proc/<pid>/environ and /proc/<pid>/root (its own unmasked view) are refused; `RestrictAddressFamilies=none` (PrivateNetwork leaves filesystem sockets reachable); `PrivateDevices=yes` and `PrivateIPC=yes` (no shared /dev/shm); /tmp and /var/tmp empty and read-only. `MemoryMax=1536M`, `Nice=10`.
+OnFailure pages through `sp-notify@availability-graph`. Shipped disabled; its enablement is the architect's block (347
+item 6(D)); on a fresh host T11 leaves it out until that block has installed the engine and made its directory.
+
+**Nothing reads it (347 item 5(c)).** Read on every Python file's syntax tree (pinned): no module but
+`src/availability/graph.py` imports the engine (an `import`, `from`, `__import__` or `import_module` of it), no module
+but `cli.py`'s command imports graph.py, and none but those two names the graph's path.
+
+**At scale, on this PR's container (a receipt, not the host):** a SYNTHETIC history of 931,335 depth assertions (32 teams,
+590 daily full charts) on a 460 MB `.backup` copy, rebuilt by `cli.py availability-graph-rebuild` inside a mount and
+network namespace (no network, the root filesystem read-only, the graph's directory the one writable path, an empty
+environment): 81 s, peak RSS 614 MB, one 253 MB file and no sidecar, the copy's sha256 unchanged.

@@ -20,7 +20,7 @@ def run(tmp_path, capsys, laptop: dict, host: dict):
         d.mkdir(parents=True)
         for name, body in files.items():
             (d / name).write_text(body if isinstance(body, str) else json.dumps(body))
-    rc = ce.main([str(la), str(ho), "--since", "0"])
+    rc = ce.main([str(la), str(ho), "--since", "0", "--paired-kinds", "*"])   # the pre-335 rule (#680)
     out = capsys.readouterr().out
     summary = [ln for ln in out.splitlines() if ln.startswith(("CLEAN (", "DIVERGENT ("))]
     assert len(summary) == 1, out

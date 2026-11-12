@@ -29,6 +29,22 @@ def test_the_snapshot_hash_guard_renders_byte_identical_to_the_base():
 
 
 def test_all_seven_availability_triggers_render_byte_identical_to_the_base():
-    assert len(schema.AVAILABILITY_TRIGGERS) == 7
-    rendered = "\n".join(f"{name}\t{table}\t{text}" for name, table, text in schema.AVAILABILITY_TRIGGERS)
+    """The seven of 231d81f5, unchanged and first; #835 item 2 (addendum 258 item 2(2)) appends an eighth, its own
+    trigger (CREATE TRIGGER IF NOT EXISTS never changes an installed one), pinned below."""
+    assert len(schema.AVAILABILITY_TRIGGERS) == 8
+    rendered = "\n".join(f"{name}\t{table}\t{text}" for name, table, text in schema.AVAILABILITY_TRIGGERS[:7])
     assert hashlib.sha256(rendered.encode()).hexdigest() == ALL_SEVEN_SHA256_231D81F5
+
+
+POLL_GUARD_835 = (
+    "CREATE TRIGGER IF NOT EXISTS trg_availability_observations_poll_guard BEFORE INSERT ON availability_observations "
+    "BEGIN SELECT RAISE(ABORT, 'availability_observations: this poll is already observed (its row stands; "
+    "append-only): the same source, endpoint and scheduled time (#835 item 2, addendum 258 item 2(2))') WHERE "
+    "NEW.scheduled_at IS NOT NULL AND EXISTS (SELECT 1 FROM availability_observations x WHERE x.source = NEW.source "
+    "AND x.endpoint = NEW.endpoint AND x.scheduled_at = NEW.scheduled_at); END")
+
+
+def test_the_835_poll_guard_is_the_eighth_trigger_and_renders_as_pinned():
+    name, table, text = schema.AVAILABILITY_TRIGGERS[7]
+    assert (name, table) == ("trg_availability_observations_poll_guard", "availability_observations")
+    assert text == POLL_GUARD_835

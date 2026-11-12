@@ -123,7 +123,11 @@ become MORE binding under an income goal, never less."
 - **Soccer**: soccer_elo_poisson **v22** on the 16,546-match / 24-comp
   pot; PL predictions live; positive-edge cohort (>=+5pp vs market) is
   6/16 — big anti-market edges are ANTI-PREDICTIVE; n=30 pre-committed
-  read pending. Market-first discipline is doctrine.
+  read pending. Market-first discipline is doctrine. The five expansion
+  leagues (PD, SA, FL1, ELC declared 2026-11-02T18:10:00Z, addendum 220; BL1
+  declared 2026-11-09T14:45:00Z, addendum 303) run as shadows on
+  soccer-expansion-v1's frozen constants toward independent 60-game windows;
+  market-only on the Desk.
 - **NFL**: nfl_elo_v1 LIVE from Week 3 (2026-09-22) and UNCERTIFIED
   since 2026-11-02 (addendum 214): on the corrected 2024 warm-up it
   fails the frozen phase-2 gate's calibration band (70–80%: 7.7pp vs
@@ -145,7 +149,8 @@ become MORE binding under an income goal, never less."
   goalie/lineup source (lane nhl, #105, is TO DECLARE on the roadmap: the
   operator's sourcing decision 11-13, the one run 12-29, earliest_live
   2027-01-22). The bar did not move.
-- **NCAA**: data certified (9,245 games, 743 programs); market-only
+- **NCAA**: data certified (9,245 games, 743 programs; two 2025 rows overwritten by a reused provider id on
+  11-07/08 and restored 11-10 (#902); every provider-id lookup is season-scoped since #906); market-only
   doctrine; Kalshi (KXNCAAFGAME) is the PRIMARY college market source,
   books post thin and near-kickoff. NO model; own gate later.
   ncaa-elo-v1r (v1's constants on the CFBD both-FBS stream, test 2025) FAILED its
@@ -153,6 +158,12 @@ become MORE binding under an income goal, never less."
   margin, level and range passed. 2025 is RETIRED as a college test season; the
   next candidate declares the 2026 regular season as it accrues. No college
   shadow and no ncaa-backtest until then. The bar did not move.
+  ncaa-elo-v2 (v1's constants at the frozen logistic scale s, the D1 neutral
+  rule) ran ONCE through the UNCHANGED gate on 11-09 and FAILED on the spread
+  test (slope 0.698 against 0.80–1.20, too confident, where v1r's 1.42 was too
+  timid); margin, level and range passed; the 2023 second read PASSED all four —
+  addendum 302. 2026 is RETIRED as a college test season; NCAA is MARKET-ONLY;
+  the 2027 candidate declares in the off-season. The bar did not move.
 - **UNL / cups (EFL, CL, UEL)**: market-only. CUP MODEL TRACK: Step A
   (CL 10-20, UEL 10-22) found the confirmed XI between T-30 and T-15 and
   nothing at T-35; Step B's live T-15 observation store runs
@@ -213,6 +224,7 @@ board, never from chat. The pre-board queue text is history (git log).
 - Morning chains open with the backup line. 2-day sync windows daily;
   full-season weekly. The O(n^2) match-sync was fixed via a per-sync
   prefetch cache — do not regress it.
+- api_american_football reuses game ids across seasons (11-09, #902): every lookup by provider id is scoped to the season.
 - sync-competitions must run before a new sport's first team/match
   sync (the NHL bootstrap lesson).
 - sync-teams before sync-matches for EVERY new competition-season.

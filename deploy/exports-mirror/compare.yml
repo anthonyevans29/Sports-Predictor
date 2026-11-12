@@ -1,10 +1,23 @@
 # EXPORTS MIRROR verdict (F2.5, ARCHITECT 2026-10-03): on every push, the
 # laptop-vs-host comparison for the newest date BOTH writers have, posted as a
 # commit status (context "compare_exports"): success = CLEAN (exit 0),
-# failure = DIVERGENT (exit 1), error = NO COVERAGE (exit 3: zero JSON
-# compared, never a clean verdict) or the comparator/runner broke (any other
-# exit, or no matching VERDICT line) — neither is a data verdict; pending =
-# the other side has not pushed that date yet. tools/compare_exports.py is standalone (stdlib only). Shipped
+# failure = DIVERGENT (exit 1: a paired file differs, a pair does not parse,
+# or a PAIRED KIND is missing on a side for a COMPLETE day, addendum 335 item
+# 4(c) as 336 item 4(2) corrects it), error = the comparator/runner broke (any
+# other exit, or no matching VERDICT line) — not a data verdict; pending =
+# NOTHING-TO-COMPARE (exit 3: a paired kind awaiting the other side on the
+# runner's own UTC day, 336 item 4(2): "the laptop's 12:2xZ commit reads
+# pending, the host's 16:0xZ commit reads the pair"; or no paired kind
+# compared with rows in the window, 335 item 4(c); never a clean verdict and
+# never a failure; or a paired file whose window was not read, 338 item 3) or
+# the other side has not pushed that date yet. An
+# unpaired kind on both sides is printed and counted, never a verdict (336
+# item 4(3)). NOTHING-TO-COMPARE (ARCHITECT 2026-11-11, addendum 334 item 3(a)):
+# "neutral, not failure"; a commit status has no neutral state (success,
+# failure, error, pending), and pending is the one that is neither green nor
+# red. Each writer's push ships its own copy of this file and the comparator,
+# so a writer on an older tag puts the older mapping back on its own commits.
+# tools/compare_exports.py is standalone (stdlib only). Shipped
 # into Sports-Predictor-exports by exports_mirror.py push (do not edit there).
 name: compare_exports
 on:
@@ -42,8 +55,17 @@ jobs:
             echo "state=success" >> "$GITHUB_OUTPUT"; echo "desc=CLEAN · $d" >> "$GITHUB_OUTPUT"
           elif [ "$rc" = "1" ] && [ "$v" = "VERDICT: DIVERGENT" ]; then
             echo "state=failure" >> "$GITHUB_OUTPUT"; echo "desc=DIVERGENT · $d (see the run log)" >> "$GITHUB_OUTPUT"
-          elif [ "$rc" = "3" ]; then
-            echo "state=error" >> "$GITHUB_OUTPUT"; echo "desc=NO COVERAGE · $d — 0 JSON compared; not a data verdict" >> "$GITHUB_OUTPUT"
+          elif [ "$rc" = "3" ] && [ "${v#VERDICT: NOTHING-TO-COMPARE}" != "$v" ]; then
+            n=$(grep -cE '^· ' compare.txt)
+            w=$(printf '%s\n' "$v" | grep -oE 'awaiting (host|laptop)' | sed 's/^awaiting //' | sort -u | paste -sd' ' -)
+            u=$(printf '%s\n' "$v" | grep -oE '[0-9]+ paired, window not read' | head -1 | cut -d' ' -f1)
+            if [ -n "$w" ]; then
+              echo "state=pending" >> "$GITHUB_OUTPUT"; echo "desc=NOTHING-TO-COMPARE · $d — awaiting $w: a paired kind not pushed yet today; neutral, not a data verdict" >> "$GITHUB_OUTPUT"
+            elif [ -n "$u" ]; then
+              echo "state=pending" >> "$GITHUB_OUTPUT"; echo "desc=NOTHING-TO-COMPARE · $d — $u paired file(s), window not read (338 item 3); neutral, not a data verdict" >> "$GITHUB_OUTPUT"
+            else
+              echo "state=pending" >> "$GITHUB_OUTPUT"; echo "desc=NOTHING-TO-COMPARE · $d — no paired kind compared with rows in the window, $n on one side only; neutral, not a data verdict" >> "$GITHUB_OUTPUT"
+            fi
           else
             echo "state=error" >> "$GITHUB_OUTPUT"; echo "desc=comparator ERROR (exit $rc) · $d — not a data verdict" >> "$GITHUB_OUTPUT"
           fi

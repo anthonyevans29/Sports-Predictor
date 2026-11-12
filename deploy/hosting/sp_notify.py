@@ -26,7 +26,9 @@ import sp_common as c  # noqa: E402
 def unit_for(instance: str) -> str:
     return {"backup": "sp-backup.service", "prune": "sp-backup-prune.service",
             "web": "sp-web.service", "exports-squash": "sp-exports-squash.service",
-            "closing-watch": "sp-closing-watch.service", "cup-observe": "sp-cup-observe.service"}.get(
+            "closing-watch": "sp-closing-watch.service", "cup-observe": "sp-cup-observe.service",
+            "availability-observe": "sp-availability-observe.service",
+            "availability-graph": "sp-availability-graph.service"}.get(
         instance, f"sp-chain@{instance}.service")
 
 
@@ -42,7 +44,11 @@ def journal_tail(unit: str, n: int = 30) -> list[str]:
 # ARCHITECT 2026-10-12, addendum 47 item 7(b): "For sp-closing-watch.service, by name, the unit's failure page goes
 # out at most once in thirty minutes. Every failure still writes its receipt, and a receipt whose page was held back
 # says so and names the page it stands behind." (A unit that ticks every minute would page 1,440 times a day.)
-THROTTLED_UNITS = ("sp-closing-watch.service",)
+# ARCHITECT 2026-11-11 14:10 ET, addendum 343 item 2: "add sp-availability-observe.service to THROTTLED_UNITS" (its
+# five-minute tick refuses every tick on an unmigrated store); item 3: "sp-cup-observe.service is ALSO added [...] its
+# own comment states the intent (one page in thirty minutes) and the list does not carry it; that is a defect against
+# a written rule, the fix is the list".
+THROTTLED_UNITS = ("sp-closing-watch.service", "sp-cup-observe.service", "sp-availability-observe.service")
 THROTTLE_MIN = 30
 
 

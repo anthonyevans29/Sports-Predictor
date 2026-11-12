@@ -1,0 +1,9 @@
+# The availability record's graph engine: HOST-ONLY and optional (ARCHITECT 2026-11-11 19:50 ET, addendum 347 item 5).
+# "(a) HOST-ONLY and optional — its own requirements file installed with `--require-hashes`, never requirements.txt;
+# the laptop and CI do not install it and its tests skip when it is absent"; "(d) a version bump is a PR that re-reads
+# identity and hash, never a range". LadybugDB, the package `ladybug` (it imports as `ladybug`), version 0.22.3, the
+# cp312 manylinux x86_64 wheel by the sha256 the candidates page records (docs/specs/availability-graph-candidates.md):
+# ladybug-0.22.3-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl. No runtime dependency (every
+# Requires-Dist is extra "dev"); no .pth file, no console script (the wheel's listing, read on the PR).
+# Installed on the host only, into its venv: --require-hashes --only-binary :all: --no-deps (docs/specs/hosting-h1.md).
+ladybug==0.22.3 --hash=sha256:d58f4457ce6fd0bc36656426cd663972429b94c8a9e49e153dd37d04f256b9c4

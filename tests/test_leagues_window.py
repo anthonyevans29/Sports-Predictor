@@ -179,12 +179,13 @@ def test_no_entry_reads_not_declared_and_prints_only_that(ledger):
     assert lw.READ_CODES == ("PD", "SA", "BL1", "FL1", "ELC")
 
 
-def test_220_the_real_registry_declares_sa_fl1_elc_at_the_stamp_and_bl1_stays_behind_the_pre_declaration_fence():
+def test_220_the_real_registry_declares_sa_fl1_elc_at_the_stamp_and_bl1_at_its_own_303_stamp():
     """ARCHITECT 2026-11-02 13:10 ET, addendum 220 item 5: "The cohort reader's fail-closed fence for SA/FL1/ELC lifts
     with the entries; BL1's stays closed until 11-09." On the real registry: SA, FL1 and ELC hold their entries, which
     checked() accepts as written (their league, their instant 2026-11-02T18:10:00Z, the run record's constants), so
-    their cut moves from PRE_DECLARATION_CUT to the stamp; BL1 holds none, so its pre-declaration fence stands at its
-    constant cut (addendum 181 item 1(b)). PD (ARCHITECT 2026-11-02 16:35 ET, addendum 222 item 4(b)): leagues-pd-v1
+    their cut moves from PRE_DECLARATION_CUT to the stamp; BL1 held none until addendum 303 (its pre-declaration fence
+    at its constant cut, addendum 181 item 1(b)) and now holds leagues-bl1-v1, its cut that entry's instant. PD
+    (ARCHITECT 2026-11-02 16:35 ET, addendum 222 item 4(b)): leagues-pd-v1
     is in DECLARATION_IDS, checked() reads it though PD is the surviving set, and its cut is the same stamp. Every
     other competition and season is never fenced."""
     stamp = datetime(2026, 11, 2, 18, 10)
@@ -197,8 +198,15 @@ def test_220_the_real_registry_declares_sa_fl1_elc_at_the_stamp_and_bl1_stays_be
         assert not lw.verdict_recorded(e)
         assert lw.fence_cutoff(code, SEASON) == stamp and lw.fence_cutoff(code, None) == stamp
         assert lw.fence_cutoff(code, "2025/26") is None
-    assert reg.get(lw.DECLARATION_IDS["BL1"]) is None and lw.declaration("BL1") is None
-    assert lw.fence_cutoff("BL1", SEASON) == lw.PRE_DECLARATION_CUT == lw.fence_cutoff("BL1", None)
+    # ARCHITECT 2026-11-09 09:45 ET, addendum 303 item 1: BL1 declared (leagues-bl1-v1, declared_at
+    # 2026-11-09T14:45:00Z): "The pre-declaration fence (cut 2026-10-30T15:00:00Z, 181 item 1(b)) is REPLACED by the
+    # entry's declared_at from that instant". The pre-declaration branch itself is pinned on a registry without the
+    # entry (tests/test_leagues_declaration_220.py, real_ledger).
+    bl1, at = lw.declaration("BL1"), datetime(2026, 11, 9, 14, 45)
+    assert bl1 is not None and bl1["id"] == lw.DECLARATION_IDS["BL1"] == "leagues-bl1-v1"
+    assert bl1["status"] == "declared"
+    assert lw.checked("BL1", bl1) == (at, FROZEN) and not lw.verdict_recorded(bl1)
+    assert lw.fence_cutoff("BL1", SEASON) == at == lw.fence_cutoff("BL1", None) != lw.PRE_DECLARATION_CUT
     assert lw.fence_cutoff("BL1", "2025/26") is None
     assert reg.get("leagues-pd-v1")["competition"] == "PD" and lw.DECLARATION_IDS["PD"] == "leagues-pd-v1"
     for code in ("PL", "NFL", "CL", "UNL", None):

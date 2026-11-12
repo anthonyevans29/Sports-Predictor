@@ -48,6 +48,34 @@ The ritual for every tag, v1.0.0 and hotfixes included, with no exceptions:
    becomes the release gate. Paste its verdict." Since the cutover the laptop
    writes no production page, so that compare certified only the
    machine-neutral files (one on 2026-11-02; #782).
+   A compare that compared no paired file with rows in its window (addendum
+   335 item 4(c), below) reads `NOTHING-TO-COMPARE` (exit 3; the
+   mirror's status pending) and is neither a pass nor a fail of step 1: the
+   gap is named. ARCHITECT 2026-11-11,
+   addendum 334 item 3, verbatim: "since MLB's close there is no kind both
+   machines export on the same day, so the tag ritual's step 1 cannot pass or
+   fail until spring", and of the tags until the off-season comparison is
+   ruled: "Until then a tag's step 1 is recorded as 332 item 4 recorded
+   v1.6.6's: the gap named, the tag ruled on CI and the PRs' own receipts."
+   **The off-season comparison (ARCHITECT 2026-11-11 08:45 ET, addendum 335 item 4, #924), verbatim:** (a)
+   "It certifies what step 1 exists for — that main on the laptop and the
+   tag on the host turn the same provider answers into the same rows through the shared ingestion and
+   `_fixture_row` path — and nothing about the market, the Desk or any model, which the release Issue says in
+   those words." (f) "WHICH COMPARE IS THE DAY'S: a tag's step 1 reads the last COMPLETE day's folder (D-1 for a
+   morning tag: the pair completes at the host's 16:0xZ push), by a hand run of the comparator pasted in the tag
+   block as v1.6.3's was; the mirror's commit status is the daily signal, not the ritual's record." The hand run
+   is `python3 deploy/hosting/compare_exports.py <mirror>/laptop/<D-1> <mirror>/host/<D-1> --since 0` from the
+   tag's checkout (the paired kinds as declared; the verdict rule is 335 item 4(c) as 336 item 4 corrects it, in
+   the comparator's docstring). D-1 is a complete day on the run's own UTC date, so a paired kind missing on a
+   side reads DIVERGENT there (ARCHITECT 2026-11-11 09:35 ET, addendum 336 item 4(2), verbatim: "for any earlier
+   date it is DIVERGENT ("paired kind missing on <role>"), which is what a tag's hand run on D-1 reads (335 item
+   4(f))."); a run on D itself reads `awaiting <role>` until both machines have pushed. Until the laptop's block carries the NHL lines (from the day after #924's build merges), step 1
+   stays as 334 item 3 records it, above.
+   Until the host runs the tag that carries NOTHING-TO-COMPARE, its own
+   pushes ship v1.6.6's comparator back into the mirror, so a zero-compared
+   day still reads red on host-pushed commits: read the laptop-pushed commit's
+   status, or run the comparator by hand.
+
 2. **Compile the ledger fragments, then draft the release notes.** On `main`
    (Anthony's lane, or a PR whose only change is the fold):
    ```
@@ -101,6 +129,11 @@ The ritual for every tag, v1.0.0 and hotfixes included, with no exceptions:
    - A migration with no DB file at the configured path refuses ("no database
      at <path>; a migration never creates one — law 5"), exit 1, and writes
      nothing (addendum 112 item 1, #524).
+   - A new unit file (ARCHITECT 2026-11-09 09:55 ET, addendum 304 item 2, for
+     the next tag on; v1.6.5's first timer block ran `enable` before `install.sh`),
+     verbatim: "when the tag ships a new unit file, `sudo bash
+     deploy/hosting/install.sh` (idempotent; enables nothing) before the
+     enable".
 
 ## Release record
 One line per tag, from v1.4.0 on. Each release's Issue carries its notes and
@@ -115,6 +148,9 @@ its compare verdict.
 | `v1.6.2` | 2026-11-02 14:14:20Z | `98181976f9f4c98c2c3f6e3c8e576e8082d6477f` | `db8fde9c6680b46e77f843b0a5c2e779295bc9dd` | #776 (step 1 as it stood) |
 | `v1.6.3` | 2026-11-03 12:59:11Z | `0c88f5cc4e9332bade5efd2043def40ab37a5def` | `7312627b5b39fc5f38e71718edb9d9cbd3f7be00` | #806 (step 1 as rewritten, #782) |
 | `v1.6.4` | 2026-11-05 13:03:31Z | `284c575847379d545408bf88bb3939041e253ad8` | `fbb6e46a9348d2430b61ab475c3b5faa84b10025` | #837 (step 1 as rewritten, #782) |
+| `v1.6.5` | 2026-11-09 13:46:27Z | `5f9cf13dc935ed5fdaf220772e8e8ccfea06dfc4` | `dae246a9edf64e0ad953f75d7a0c08e145f62f62` | #898 (step 1 as rewritten, #782) |
+| `v1.6.6` | 2026-11-10 20:11:06Z | `8aa27a89b3e0018e8ad229f321cab3e02acec212` | `0e7844aca0254cb6b17c383f0971166ef749ecab` | #917 |
+| `v1.6.7` | 2026-11-12 15:19:06Z | `6792cefec6acc3f9254a97e2ba10fc530ce1f6eb` | `577e444a9d16f9d4979faa7d587a1ce2a1d15255` | #949 |
 
 - **v1.4.0** (ARCHITECT 2026-10-16, addendum 87). The commit is the ledger
   compile over 53a0e83, the #551 merge over c546168.
@@ -249,6 +285,140 @@ its compare verdict.
   - **Release Issue:** #837 (ritual step 4), opened 2026-11-05 by ARCHITECT 2026-11-05 10:35 ET, addendum 260 item 1:
     the notes line for line, the tag, 255 item 1's verdict and receipts, the deploy and migration rows, 255 item 2
     verbatim. The deploy row of addendum 257 item 1 is the receipt this record carries.
+
+- **v1.6.5** (ARCHITECT 2026-11-09 08:45 ET, addendum 300, the tag ruling, as Release Issue #898 quotes it; the form
+  confirmed by addendum 301 item 4): a migration tag. The commit is the ledger compile 5f9cf13d (30 changelog
+  fragments, 31 ledger entries) over 2336a77a (#888's merge). The tag was cut and pushed by the operator from the
+  architect's block: tagger stamp 2026-11-09 13:46:27Z (08:46:27 ET). Verbatim (300 item 1, as #898 quotes it): "1.
+  THE TAG: `v1.6.5` on 5f9cf13dc935ed5fdaf220772e8e8ccfea06dfc4, `--cleanup=verbatim -F logs/release_notes_v1.6.5.txt`
+  (429 lines, 30 sections, 1 AMENDED line), cut and pushed by the operator from my block after CI is green on
+  5f9cf13d. Claude Code never cuts or pushes a tag." Correction (addendum 301 item 3, as #898 quotes it): "the notes
+  carry 0 AMENDED sections."
+  - **The tag message:** 430 lines; 31 lines begin with `#` (the header and all 30 `## ` section headings). It matches
+    `python3 scripts/release_notes.py --to 5f9cf13dc935ed5fdaf220772e8e8ccfea06dfc4` line for line (429 lines), apart
+    from one trailing blank line in the tag message, as on v1.6.4. No AMENDED section (301 item 3).
+  - **Step 1 (rewritten, #782):** addendum 300, as #898 quotes it: the compare, laptop/2026-11-09 vs host/2026-11-09,
+    0 JSON compared, 7 on one side only, every one a machine-specific kind by design, "VERDICT DIVERGENT by the
+    comparator's rule and REPORTED here as "nothing comparable today, nothing certified by it"" (addendum 218 item 1);
+    the host's receipts since v1.6.4, 3,994 lines with 2 failing rows, both one step of one run (nhl-daily 11-05
+    16:02Z, the exports-mirror push step refused once, the chain exit 0 steps 8/8), and 0 failing rows since 11-06.
+  - **Deploy, with its migration:** THE DEPLOY RECORD, verbatim (ARCHITECT 2026-11-09 09:55 ET, addendum 304 item 2:
+    "every figure from the operator's consoles of this morning, the host's receipts carrying them"). The deploy rows
+    are this record's receipt. git agrees: `git diff --stat v1.6.4 v1.6.5` reads 126 files changed, and the one new
+    `migrate_*.py` among them is `migrate_availability_record.py` (#831, #841).
+    - "13:47Z deploy: v1.6.4 (284c5758) → v1.6.5 (5f9cf13d), 126 files; receipt row `deploy 0 · v1.6.4 -> v1.6.5
+      (5f9cf13d)`; the deploy named one new migration and the three shipped timers not in timers.enabled."
+    - "13:49Z the migration command, verbatim as printed, one lock: `backup:daily 0 · sports_2026-11-09_134946.db
+      integrity=ok · f2c52596cf5d`; `migrations 0`; migrate_availability_record.py created availability_observations
+      and availability_assertions, 7 triggers, 10 of 10 declared indexes, and wrote the marker
+      availability_record_migration (migrated_at 2026-11-09 13:49:58Z)."
+    - "14:12Z the availability 2025 read FIRST (T11's watermark rule): AVAILABILITY-NFLVERSE observation #1 ·
+      complete · depth_charts_2025.csv · HTTP 200 · rows read 554,215 · loads 221 · rows asserted 554,215 · one
+      partial team group (LAC, 2025-12-18, 8 of 72 rows) · payload sha256 f5a4aa3fa70150e8 · exit 0."
+    - "14:14Z the NBA first load on the host (bootstrap order): sync-competitions basketball created 1; sync-teams
+      NBA 2026 created 30; sync-matches NBA 2026 created 1,266 (orientation_reversed 0 · teams_mismatch_refused 0);
+      sync-kalshi-nba KXNBAGAME 64 markets · matched 28 · 28 prices stored · unmatched 36 (outside the run's window) ·
+      ambiguous 0 · in-play 0."
+    - "14:16Z the unit files: `install.sh` installed 34 unit files (host.env untouched, nothing enabled by it); then
+      `systemctl enable --now sp-nba-daily.timer sp-availability-daily.timer` exit 0; both active, next runs Tue
+      06:47Z and Tue 08:45Z; sp-tennis-daily.timer installed, disabled, inactive; timers.enabled 20 names, no
+      duplicate. MY MISS, recorded as such: my first timer block ran `enable` before `install.sh` ("Unit file
+      sp-nba-daily.timer does not exist") and, reading the pipeline's exit from `tail`, appended the two names to
+      timers.enabled anyway; the fix block put the units in place and enabled both; the file's end state is right.
+      RELEASES.md step 5 gains one line for the next tag: "when the tag ships a new unit file, `sudo bash
+      deploy/hosting/install.sh` (idempotent; enables nothing) before the enable"."
+    - "The receipts since the deploy: 0 failing."
+    - "The compare of the day, as 300 item 0 reads it; the one failing row since v1.6.4 explained there."
+  - **Carries:** git's `v1.6.4..v1.6.5` holds twenty-nine PRs: #831, #832, #834, #836, #841, #842, #843, #846, #847,
+    #848, #854, #856, #857, #858, #861, #863, #864, #866, #867, #868, #869, #870, #874, #877, #880, #884, #886, #887,
+    #888 (207 commits with the fold commit). Counted from `git log --merges --oneline v1.6.4..v1.6.5`: 63 merge
+    commits, of which 29 are "Merge pull request #N"; thirty CHANGELOG sections, one more than the PRs, because #846
+    carries two (the nfl-elo-v2 and mlb-pitchers-v1 verdict records).
+  - **Release Issue:** #898 (ritual step 4), opened 2026-11-09 by ARCHITECT 2026-11-09 08:45 ET, addendum 300 item 3:
+    the notes line for line, the tag, the compare verdict and the receipts, addendum 300 item 1 verbatim. The deploy
+    and migration rows join it from the deploy's console (step 5).
+- **v1.6.6** (ARCHITECT 2026-11-10 15:00 ET, addendum 324, the tag ruling, as Release Issue #917 quotes it): not a
+  migration tag. The commit is the ledger compile 8aa27a89 (11 changelog fragments, 12 ledger entries) over 97bc8c50
+  (#914's merge). The tag was cut and pushed by the operator from the architect's block: tagger stamp 2026-11-10
+  20:11:06Z (15:11:06 ET). Verbatim (324 item 2): "THE TAG: v1.6.6 on 8aa27a89, `--cleanup=verbatim -F
+  logs/release_notes_v1.6.6.txt`, by the operator's block once CI is green on the fold commit (the block checks).
+  Code opens the release Issue "Release v1.6.6 (8aa27a89)" on a v1.6.6 milestone with the eleven PRs, the deploy
+  record appended from the operator's consoles as they come (the form of 304 item 2). Codex-free: a tag is not a PR."
+  - **The tag message:** 152 lines; 12 lines begin with `#` (the header and all 11 `## ` section headings). It matches
+    `python3 scripts/release_notes.py --to 8aa27a89b3e0018e8ad229f321cab3e02acec212` line for line (151 lines, exit 0),
+    apart from one trailing blank line in the tag message, as on v1.6.4 and v1.6.5. The one AMENDED hit is a quoted
+    phrase, not a section (324 item 1).
+  - **Step 1 (ARCHITECT 2026-11-10 18:55 ET, addendum 332 item 4, verbatim):** "step 1 (the laptop-vs-host compare) on
+    11-10: compare_exports DIVERGENT — 0 compared, 11 one-side-only — which certifies nothing on a Tuesday in MLB's
+    off-season (no kind both machines export that day); the tag was ruled on the fold's green CI and the eleven PRs'
+    own receipts (324 item 1), the compare's gap recorded, not waived".
+  - **No migration; one requirements change:** `git diff --stat v1.6.5 v1.6.6` reads 60 files changed, and no file
+    under `migrations/` changed. requirements.txt gains `matplotlib>=3.8` (#894), which `sp_deploy` installs by its own
+    rule (324 item 1).
+  - **The day, verbatim (ARCHITECT 2026-11-10 16:40 ET, addendum 331 item 4):** "v1.6.6 cut (8aa27a89, 15:11 ET) and
+    deployed (20:26Z); the host OS upgraded and rebooted (17:05Z, kernel 6.8.0-149) with the effective
+    unattended-upgrades config confirmed; #902 restored on both machines (the laptop 00:26Z, the host 20:57Z) with the
+    hold lifted (21:13Z); eleven PRs folded into the tag and two more merged after it; the Cockpit at v39." The
+    deploy's own receipt line (324 item 3(b): v1.6.5 → v1.6.6, matplotlib installed, no migration, timers untouched)
+    joins #917 from the operator's console.
+  - **After the deploy, in order (the architect's blocks, 324 item 3, each read on #917 and #902):**
+    - the exposure read and the timer SET check, both clean (327 items 1-2);
+    - the #902 remedy by the chain's own step and the dry run, clean (328 items 1-2);
+    - the apply, read clean (329 items 1-2);
+    - `sp-ncaa-market.timer` re-enabled at 21:13Z, whose `Persistent=true` catch-up run read clean (330, 331 item 3).
+  - **Carries:** git's `v1.6.5..v1.6.6` holds eleven PRs: #894, #897, #900, #903, #904, #906, #909, #910, #911, #912,
+    #914 (83 commits with the fold commit). Counted from `git log --merges v1.6.5..v1.6.6`: 15 merge commits, of
+    which 11 are "Merge pull request #N"; eleven CHANGELOG sections, one per PR.
+  - **Not in the tag:** #913 (the Cockpit's build stamp; the artifact is the deployable, republished as v39) and #916
+    (the bulletin hooks, which ride v1.6.7) merged after it (main e5c9ea41). The next tag's span opens with these two
+    (331 item 1).
+  - **Release Issue:** #917 (ritual step 4), opened 2026-11-10 by ARCHITECT 2026-11-10 15:00 ET, addendum 324 item 2:
+    the notes line for line, the tag, and 324 items 1 and 2 verbatim. The deploy rows join it from the operator's
+    consoles.
+- **v1.6.7** (ARCHITECT 2026-11-12 09:50 ET, addendum 349, the tag ruling, as Release Issue #949 quotes it): a
+  migration tag whose migration the deploy's plan did not list (below). The commit is the ledger compile 6792cefe (16
+  changelog fragments, 17 ledger entries) over 09259889 (#936's merge). The tag was cut and pushed by the operator from
+  the architect's block once CI was green on the fold (smoke 14:45:35Z, smoke-py310 14:51:43Z): tagger stamp
+  2026-11-12 15:19:06Z (10:19:06 ET). Verbatim (349 item 3, in part): "v1.6.7 IS RULED on 6792cefe: the tag by the
+  operator's block once CI is green on the fold commit, `--cleanup=verbatim -F` the notes."
+  - **The tag message:** 197 lines and 51,699 bytes as stored (`git cat-file -p v1.6.7`); 17 lines begin with `#` (the
+    header and all 16 `## ` section headings). It is byte-identical to `python3 scripts/release_notes.py --to
+    6792cefec6acc3f9254a97e2ba10fc530ce1f6eb` (197 lines, exit 0). `git for-each-ref --format='%(contents)'` prints
+    one more newline, which is the trailing blank line the earlier entries name. No AMENDED line.
+  - **Step 1 (349 item 3, verbatim):** "STEP 1 (the compare), recorded as 334 item 3 says: no paired file existed
+    before today — the first fixtures_NHL pair is today's (the laptop's file is on the mirror at 90afdb5a, reading
+    pending, awaiting host), so the tag is ruled on the fold's CI and the sixteen PRs' own receipts, the gap named;
+    from the NEXT tag step 1 is a hand run on the last complete day's folder (335 item 4(f))."
+  - **The migration, named by the block, not printed by the plan:** #933's poll key changes `src/db/schema.py` (the
+    partial unique index `uq_avail_obs_source_endpoint_scheduled` and the insert trigger
+    `trg_availability_observations_poll_guard`). `migrate_availability_record.py`, unchanged in the range, applies
+    both, because it reads its triggers and indexes from `schema.py`. No `migrate_*.py` file was new or modified in
+    `v1.6.6..v1.6.7`, so `sp_deploy`'s plan listed none and printed no command; the architect's deploy block named it
+    (349 item 4). The plan's blind spot is #950. requirements.txt unchanged; two unit files added
+    (`sp-availability-observe.service` and `.timer`, shipped disabled).
+  - **The deploy record, verbatim (ARCHITECT 2026-11-12 10:35 ET, addendum 350 item 1, in part):** "`DRY RUN: would
+    deploy v1.6.6 -> v1.6.7 (6792cefe)`, exit 0; `✓ deploy v1.6.6 -> v1.6.7 (6792cefe, 68 files)`, exit 0,
+    requirements unchanged; its timers line names sp-availability-observe.timer and sp-tennis-daily.timer as shipped
+    and not enabled (as ruled) and the three MLB_LAPTOP_ONLY. THE MIGRATION, by `sp_deploy.py --expect 6792cefe…
+    --run-migrations migrate_availability_record.py` under one DB lock: `✓ backup sports_2026-11-12_152050.db
+    integrity=ok`; exactly two created lines — `+ Created trigger trg_availability_observations_poll_guard`, `+
+    Created index uq_avail_obs_source_endpoint_scheduled` — and 18 kept; 8 triggers, 11 of 11 declared indexes; the
+    marker kept (migrated_at 2026-11-09 13:49:58); 4 observations and 1,332,030 assertions stored; exit 0. Receipts:
+    deploy 0, backup:daily 0 (203a39adbaa3), migrations 0. After: the timer set CLEAN (20 expected, 20 active), the
+    checkout clean. PRODUCTION = v1.6.7." The deploy ran 2026-11-12T15:20–15:21Z on sp-vps-1 (kernel 6.8.0-149, no
+    reboot pending).
+  - **After the deploy:** the nflverse feed's step done on the 08:45Z availability-daily run, read by name (350 item 2;
+    roadmap lane availability-record). `sp-availability-observe.timer` stays disabled until its own block (350 item 3).
+    The bulletin hooks (#916) run from this tag: the first hooked one is the 11-12 NFL closing (349 item 5).
+  - **Carries:** git's `v1.6.6..v1.6.7` holds sixteen PRs: #913, #916, #918, #919, #922, #923, #925, #927, #929, #931,
+    #933, #934, #935, #936, #938, #939 (89 commits with the fold commit, 68 files). Counted from `git log --merges
+    v1.6.6..v1.6.7`: 21 merge commits, of which 16 are "Merge pull request #N"; sixteen CHANGELOG sections, one per
+    PR.
+  - **Not in the tag:** #942 (the `check_db` fence walking data/ by device and inode): its head moved during the window
+    and it took the next one (349 item 1). It merged after the tag, with #948 (the three `intl-elo-confirm --db`
+    nits, #940) (main 1e51c287). The next tag's span opens with these two.
+  - **Release Issue:** #949 (ritual step 4), opened 2026-11-12 by ARCHITECT 2026-11-12 09:50 ET, addendum 349 item
+    3: the notes line for line, the tag, 349 items 2 and 3 verbatim, and the deploy record of 350 item 1.
 
 ## Hotfix path
 A hotfix gets a patch tag (`vX.Y.Z+1`) through the same ritual. There is no

@@ -173,7 +173,7 @@ def test_rows_written_while_uncertified_count_the_same_after_a_certification(tmp
     p = tmp_path / "experiments_certified.json"
     p.write_text(json.dumps(entries))
     monkeypatch.setattr(reg, "LEDGER", str(p))
-    assert reg.certification_of("nfl_elo_v1") == ("certified", "nfl-elo-v1")
+    assert reg.certification_of("NFL", "nfl_elo_v1") == ("certified", "nfl-elo-v1")
     after = xc.tally(ex)
     assert after["certification"] == ("certified", "nfl-elo-v1")
     for k in ("cells", "left_out", "floor_blocked", "cohort_graded", "cohort_before", "cohort_undated", "families",
@@ -211,10 +211,10 @@ def test_certified_with_no_would_be_row_and_no_446_row_there_is_no_line(tmp_path
 
 
 def test_the_tracked_registry_reads_nfl_uncertified_and_an_unread_one_is_never_certified(tmp_path, monkeypatch):
-    assert reg.certification_of("nfl_elo_v1") == ("uncertified", "nfl-elo-v1")
-    assert reg.certification_of("nfl_elo_v1", str(tmp_path / "nope.json"))[0] == "unread"
+    assert reg.certification_of("NFL", "nfl_elo_v1") == ("uncertified", "nfl-elo-v1")
+    assert reg.certification_of("NFL", "nfl_elo_v1", path=str(tmp_path / "nope.json"))[0] == "unread"
     (tmp_path / "bad.json").write_text("{not json")
-    assert reg.certification_of("nfl_elo_v1", str(tmp_path / "bad.json")) == \
+    assert reg.certification_of("NFL", "nfl_elo_v1", path=str(tmp_path / "bad.json")) == \
         ("unread", "the registry cannot be read: JSONDecodeError")
     monkeypatch.setattr(reg, "LEDGER", str(tmp_path / "nope.json"))
     ex, _ = _world(tmp_path)
@@ -226,13 +226,13 @@ def test_the_tracked_registry_reads_nfl_uncertified_and_an_unread_one_is_never_c
 def test_a_missing_entry_or_an_empty_registry_never_reads_certified(tmp_path):
     """Law 4 (and production_allowed's own rule: an id the registry lacks is not allowed): a model_version with no
     entry, and a registry that is an empty list, read "unread", never "certified"."""
-    assert reg.certification_of("nfl_elo_v2") == ("unread", "no registry entry for nfl_elo_v2")
+    assert reg.certification_of("NFL", "nfl_elo_v2") == ("unread", "no registry entry for NFL nfl_elo_v2")
     (tmp_path / "empty.json").write_text("[]")
-    assert reg.certification_of("nfl_elo_v1", str(tmp_path / "empty.json")) == \
-        ("unread", "no registry entry for nfl_elo_v1")
+    assert reg.certification_of("NFL", "nfl_elo_v1", path=str(tmp_path / "empty.json")) == \
+        ("unread", "no registry entry for NFL nfl_elo_v1")
     (tmp_path / "obj.json").write_text("{}")
-    assert reg.certification_of("nfl_elo_v1", str(tmp_path / "obj.json"))[0] == "unread"
-    assert reg.certification_of("", str(tmp_path / "empty.json"))[0] == "unread"
+    assert reg.certification_of("NFL", "nfl_elo_v1", path=str(tmp_path / "obj.json"))[0] == "unread"
+    assert reg.certification_of("NFL", "", path=str(tmp_path / "empty.json"))[0] == "unread"
 
 
 def test_the_line_names_the_model_the_registry_is_read_on(tmp_path, monkeypatch):
@@ -244,13 +244,14 @@ def test_the_line_names_the_model_the_registry_is_read_on(tmp_path, monkeypatch)
     base = xc.tally(ex)
     monkeypatch.setattr(nfl_predict, "MODEL_VERSION", "nfl_elo_v2")
     t = xc.tally(ex)
-    assert (t["certification"], t["model_version"]) == (("unread", "no registry entry for nfl_elo_v2"), "nfl_elo_v2")
+    assert (t["certification"], t["model_version"]) == (("unread", "no registry entry for NFL nfl_elo_v2"), "nfl_elo_v2")
     assert (t["would_be"], t["count_446"]) == (base["would_be"], base["count_446"])
     (line,) = _lines(_section(ex), f"- NFL · {LABEL}")
     assert line.startswith(HEAD.format(state="certification not read for nfl_elo_v2: no registry entry for "
-                                             "nfl_elo_v2") + "3 · ")
+                                             "NFL nfl_elo_v2") + "3 · ")
     assert "nfl_elo_v1" not in line
-    entries = json.loads(Path(reg.LEDGER).read_text()) + [{"id": "nfl-elo-v2", "model_version": "nfl_elo_v2",
+    entries = json.loads(Path(reg.LEDGER).read_text()) + [{"id": "nfl-elo-v2", "family": "NFL",
+                                                      "model_version": "nfl_elo_v2",
                                                       "certification": "UNCERTIFIED — fixture"}]
     p = tmp_path / "v2.json"
     p.write_text(json.dumps(entries))
@@ -606,6 +607,6 @@ def test_no_nfl_line_when_nfl_is_certified(tmp_path, certified, other):
     if other:
         _match(1101, "MLB", "H1", "A1", hs=5, aw=1)
         write_closing(ex, LATE, [row(1101, "H1", "A1", desk(edge=2.0, cost=0.55))], fam="MLB")
-    assert reg.certification_of("nfl_elo_v1")[0] == "certified"
+    assert reg.certification_of("NFL", "nfl_elo_v1")[0] == "certified"
     txt = _section(ex)
     assert LABEL not in txt and "#446" not in txt and "no NFL closing file" not in txt

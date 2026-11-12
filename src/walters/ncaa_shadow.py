@@ -146,6 +146,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -677,6 +678,14 @@ def refresh_seen(now: datetime, competition: str = COMPETITION, path: str | Path
                 **({"step_exit": step[0].get("exit")} if step is not None else {})}
     if step is not None:                               # the latest refresh step wrote no refresh_by_id receipt
         x, ts = step
+        held = step_held_codes(x)
+        if competition in held:                        # SP_SYNC_HOLD (#928; ARCHITECT 2026-11-11, addendum 336 item 2)
+            why = (f"the refresh-by-id step was HELD (SP_SYNC_HOLD {competition}): it wrote nothing and no "
+                   "refresh_by_id receipt")
+            return {**base, "state": "none", "ts": x.get("ts"), "now": None,
+                    "age_hours": round((now - ts).total_seconds() / 3600, 2), "selected": None, "updated": None,
+                    "not_found": 0, "unresolved": 0, "still_rate_limited": 0, "error": why, "why": why,
+                    "step_exit": x.get("exit"), "held": held}
         why = f"the refresh-by-id step exited {x.get('exit')} and wrote no refresh_by_id receipt"
         return {**base, "state": "failed" if x.get("exit") != 0 else "none", "ts": x.get("ts"), "now": None,
                 "age_hours": round((now - ts).total_seconds() / 3600, 2), "selected": None, "updated": None,
@@ -684,6 +693,20 @@ def refresh_seen(now: datetime, competition: str = COMPETITION, path: str | Path
                 "step_exit": x.get("exit")}
     return {**base, "state": "none", "why": f"no {competition} refresh_by_id receipt at or before "
                                             f"{now.isoformat()} in {p}"}
+
+
+_HELD_LINE = re.compile(r"^HELD (?P<code>[A-Za-z0-9_]+) \(SP_SYNC_HOLD\)$")    # src/ingestion/sync_hold.held_line
+
+
+def step_held_codes(x: dict) -> list:
+    """The codes a chain step receipt says it held (#928): sp_run's `sync.held`, else the HELD lines in its tail
+    (sync_hold.held_line: "HELD <CODE> (SP_SYNC_HOLD)"). Read-only; [] when none."""
+    codes = list(((x.get("sync") or {}).get("held")) or [])
+    for ln in x.get("tail") or []:
+        m = _HELD_LINE.match(str(ln).strip())
+        if m and m.group("code").upper() not in codes:
+            codes.append(m.group("code").upper())
+    return codes
 
 
 def refresh_seen_text(x: dict) -> str:

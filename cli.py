@@ -79,6 +79,32 @@ def _sync_lock(fn):
     return run
 
 
+def _mlb_fallback_check_args(kind: str, season, named=None, seasons: int = 0, date_from=None, date_to=None):
+    """The MLB api-sports fallback's argument checks, run before the SP_SYNC_HOLD check so a bad call fails whether or
+    not MLB is held (Codex on #925). Returns the season the fallback reads."""
+    if kind == "matches":
+        if named is not None:
+            raise click.UsageError("--match-ids is not supported by the MLB api-sports fallback (no per-game "
+                                   "answer to check)")
+        if seasons > 0:
+            raise click.UsageError("the MLB api-sports fallback takes --season (one season per run)")
+        season = season or (date_from or date_to or "")[:4] or None
+    if not season:
+        raise click.UsageError("the MLB api-sports fallback needs --season (or a date window)")
+    return season
+
+
+def _sync_held(code: str) -> bool:
+    """SP_SYNC_HOLD (ARCHITECT 2026-11-10, addendum 332 item 3; #921): True, after printing the HELD line, when the
+    setting names `code`. Checked before any adapter is built, so a held step makes no provider call and writes
+    nothing."""
+    from src.ingestion import sync_hold
+    if not sync_hold.is_held(code):
+        return False
+    print(sync_hold.held_line(code), flush=True)
+    return True
+
+
 def _mlb_fallback(code: str) -> bool:
     from src.ingestion.mlb_apisports import fallback_engaged
     return fallback_engaged(code)
@@ -219,7 +245,12 @@ NAMES_KEPT_SHOWN = 25   # sync-teams lists at most this many kept/listed pairs u
 @click.option("--season", default=None, help="e.g. 2024/25 (soccer), 2026 (MLB)")
 @_sync_lock
 def sync_teams_cmd(competition_code: str, season: str | None):
-    """Pull all teams for a competition (in a given season)."""
+    """Pull all teams for a competition (in a given season). A code SP_SYNC_HOLD names is held: the step prints
+    "HELD <code> (SP_SYNC_HOLD)", writes nothing and exits 0 (addendum 332 item 3)."""
+    if _mlb_fallback(competition_code):
+        _mlb_fallback_check_args("teams", season)   # Codex on #925: before the hold, so a bad call still fails
+    if _sync_held(competition_code):
+        return
     if _mlb_fallback(competition_code):
         _mlb_fallback_run("teams", season)
         return
@@ -262,10 +293,17 @@ def _tennis_sync_matches(service, competition_code, season, seasons, date_from, 
       by a stored row dated in the window or the re-read's lookback, has its refusal label written to the row's
       external_ids["kalshi_kickoff"] and nothing else, counted with the match ids; the capture never prices it.
     - A paging refusal (a cursor left, 269 item 3(d)) writes nothing and exits 1 with its reason."""
-    from datetime import date as _date
-
     from src.adapters.kalshi_tennis import Refused as _TennisRefused
     code = competition_code.upper()
+    _tennis_check_args(code, season, seasons, date_from, date_to)
+    service.adapter.window = (date_from, date_to)
+    _tennis_sync_run(service, code, season, date_from, date_to, named, _TennisRefused)
+
+
+def _tennis_check_args(code, season, seasons, date_from, date_to) -> None:
+    """The tennis path's argument checks (addendum 270 item 5), run before any adapter is built and before the
+    SP_SYNC_HOLD check, so a bad call fails whether or not the code is held (Codex on #925)."""
+    from datetime import date as _date
     if seasons > 0:
         raise click.UsageError(f"--seasons is refused for {code}: a season-wide tennis sync is the backfill addendum "
                                "270 item 5 holds for the architect's block (no model lane exists)")
@@ -281,7 +319,10 @@ def _tennis_sync_matches(service, competition_code, season, seasons, date_from, 
                                f"{TENNIS_MAX_WINDOW_DAYS} are read (addendum 270 item 5: no backfill is scheduled)")
     if season is not None and not (season.isdigit() and len(season) == 4):
         raise click.UsageError(f"{code}: --season is int-style, the ticker's year (e.g. 2026), not {season!r}")
-    service.adapter.window = (date_from, date_to)
+
+
+def _tennis_sync_run(service, code, season, date_from, date_to, named, _TennisRefused) -> None:
+    """The tennis sync itself, its arguments already checked (_tennis_check_args)."""
     try:
         teams = service.sync_teams(code, season)
         console.print(f"[green]✓ Players ({code}, as teams): {teams}[/green]")
@@ -296,6 +337,7 @@ def _tennis_sync_matches(service, competition_code, season, seasons, date_from, 
     print(f"  {code} listing: {lst.markets} markets, pages {lst.pages} (each status to its last page) · "
           f"{len(lst.fixtures)} events accepted · refused {dict(lst.refused) or 'none'}", flush=True)
     console.print(f"[green]✓ Matches ({code}): {result}[/green]")
+    _print_provider_id_collision(result)
     _print_skipped_listings(result)
     _print_scores_by_team(result)
     _tennis_reread(service, code, season, lst, date_from)
@@ -471,6 +513,23 @@ def _print_skipped_listings(result) -> None:
         print(skipped_listings_line(ids), flush=True)
 
 
+def _print_provider_id_collision(result) -> None:
+    """THE PROVIDER ID IS THE SEASON'S (ARCHITECT 2026-11-09, addendum 310 item 3(b), #902): "a stored row of ANOTHER
+    season carrying the listed id is counted and listed on the receipt as `provider_id_collision N: <stored id (season)
+    ← listing id>`". The line counts CREATIONS (addendum 312 item 2: "once the listing's own season has a row with that
+    id, the sync finds it by (id, season_year) and updates it — nothing printed, nothing counted. After the restore,
+    steady NCAA runs print nothing"): printed plainly on its own line (never rich-wrapped) only when N > 0, right after
+    the summary line (the scores-by-team line stays the tail's last line); with it, only when N > 0, the listings
+    refused because the season cannot be compared (law 4). Nothing when the result carries no SyncResult lists (a
+    test's stand-in service)."""
+    if getattr(result, "provider_id_collision", None):
+        from src.ingestion.service import provider_id_collision_line
+        print(provider_id_collision_line(result.provider_id_collision), flush=True)
+    if getattr(result, "provider_id_season_unknown", None):
+        from src.ingestion.service import season_unknown_line
+        print(season_unknown_line(result.provider_id_season_unknown), flush=True)
+
+
 def _print_scores_by_team(result) -> None:
     """SCORES BY TEAM (ARCHITECT 2026-11-08, addendum 292 item 3(c), #876): "two new counts on the sync result and its
     printed receipt, each with the match ids LISTED: `orientation_reversed` and `teams_mismatch_refused`". Printed
@@ -518,18 +577,21 @@ def sync_matches_cmd(
     match_ids: str | None = None,
 ):
     """Pull matches by season or date range. MLB on a host whose
-    SP_SKIP_FAMILIES names MLB syncs from the api-sports fallback (PHASE A)."""
+    SP_SKIP_FAMILIES names MLB syncs from the api-sports fallback (PHASE A).
+    A code SP_SYNC_HOLD names is held: the step prints "HELD <code> (SP_SYNC_HOLD)", writes nothing and exits 0,
+    --match-ids included (addendum 332 item 3)."""
     named = _match_ids_opt(match_ids)
     if named is not None and seasons > 0:
         raise click.UsageError("--match-ids names the games of one read; not with --seasons")
+    # every mode's argument checks before the hold, so a bad call fails whether or not the code is held (Codex on #925)
+    fb_season = (_mlb_fallback_check_args("matches", season, named, seasons, date_from, date_to)
+                 if _mlb_fallback(competition_code) else None)
+    if _sport_for_competition(competition_code) == "tennis":
+        _tennis_check_args(competition_code.upper(), season, seasons, date_from, date_to)
+    if _sync_held(competition_code):
+        return
     if _mlb_fallback(competition_code):
-        if named is not None:
-            raise click.UsageError("--match-ids is not supported by the MLB api-sports fallback (no per-game "
-                                   "answer to check)")
-        if seasons > 0:
-            raise click.UsageError("the MLB api-sports fallback takes --season (one season per run)")
-        _mlb_fallback_run("matches", season or (date_from or date_to or "")[:4] or None,
-                          date_from, date_to)
+        _mlb_fallback_run("matches", fb_season, date_from, date_to)
         return
     service = IngestionService(_adapter_for_competition(competition_code))
     if _sport_for_competition(competition_code) == "tennis":
@@ -552,6 +614,7 @@ def sync_matches_cmd(
             console.print(f"[cyan]→ Syncing {competition_code} season {season_str}[/cyan]")
             result = service.sync_matches(competition_code, season=season_str)
             console.print(f"  {result}")
+            _print_provider_id_collision(result)
             _print_skipped_listings(result)
             _print_scores_by_team(result)
         return
@@ -565,6 +628,7 @@ def sync_matches_cmd(
         progress=_progress, **({"held_ids": held} if held is not None else {}),
     )
     console.print(f"[green]✓ Matches ({competition_code}): {result}[/green]")
+    _print_provider_id_collision(result)
     _print_skipped_listings(result)
     _print_scores_by_team(result)
     if named is not None:
@@ -1810,6 +1874,10 @@ def intl_sync_cmd(since, max_calls, dry_run, save, from_dir):
         raise SystemExit(2)
     click.echo(f"INTL-SYNC (#220){' (DRY RUN: nothing written)' if dry_run else ''} · seasons ending >= {since} · "
                f"{len(r['plan'])} competition-seasons · provider calls {r['calls']}")
+    # SP_SYNC_HOLD (addendum 333 item 3(iii), #921): one line per held code of the plan, its rows not written
+    from src.ingestion import sync_hold
+    for code in r.get("held") or []:
+        click.echo(sync_hold.held_line(code))
     click.echo(f"  senior national teams (in a UNL / WCQ_* / UEFA_EURO / UEFA_EURO_Q fixture): {r['senior_teams']}")
     click.echo(f"  {'code':<15}{'league':<44}{'year':>5}{'listed':>7}{'excl':>6}{'kept':>6}{'stored':>7}"
                f"{'home':>6}{'neutral':>8}{'unknown':>8}")
@@ -1825,6 +1893,10 @@ def intl_sync_cmd(since, max_calls, dry_run, save, from_dir):
                f"matches: {r['matches']}")
     if r.get("names_kept_line"):              # #764 (addendum 206 item 2(i)): a history listing keeps current names
         click.echo(f"  {r['names_kept_line']}")
+    if r.get("provider_id_collision_line"):   # addendum 310 item 3(b), 312 item 2: creations only, when N > 0
+        click.echo(f"  {r['provider_id_collision_line']}")
+    if r.get("season_unknown_line"):          # addendum 310 item 3(a): the no-write refusals, named (Codex on #906)
+        click.echo(f"  {r['season_unknown_line']}")
     if r.get("scores_by_team_line"):          # addendum 292 item 3(c): always, zero counts included
         click.echo(f"  {r['scores_by_team_line']}")
     click.echo("  neutral_derived: " + " · ".join(f"{k} {v}" for k, v in sorted(r["neutral"].items())))
@@ -5703,6 +5775,20 @@ def desk_parlays_cmd(files, now_s, summary, out_path):
               f"straights {q['straight_units']:g}u · tickets touching {q['tickets_touching']}")
 
 
+def _rescore_non_positive(dp, x) -> tuple[str, str, str]:
+    """desk-rescore's exec figures for an `exec non-positive` row (addendum 318 item 3): the gate's figure when the gate
+    failed (its edge, its all-in cost, its order's units); else the gate's edge beside the order placed's, which
+    failed, and the order placed's cost. The model's price to four decimals, beside the cost it is read against."""
+    gate, final = x.get("exec_edge_pp"), x.get("final_edge_pp")
+    if final is None or (gate is not None and gate <= 0):
+        u = "" if x.get("exec_units") is None else f", {dp.js_str(x['exec_units'])}u"
+        cost = "no executable quote" if x.get("exec_cost") is None else f"cost {dp._px(x['exec_cost'])}"
+        return f"gate {dp._pp2(gate)}", f"{cost} at the gate's order{u}", dp._px(x["model_p"])
+    u = "" if x.get("final_units") is None else f", {dp.js_str(x['final_units'])}u"
+    cost = "no executable quote" if x.get("final_cost") is None else f"cost {dp._px(x['final_cost'])}"
+    return f"gate {dp._pp2(gate)} · final {dp._pp2(final)}", f"{cost} at the order placed{u}", dp._px(x["model_p"])
+
+
 @cli.command("desk-rescore")
 @click.argument("files", nargs=-1, required=True, type=click.Path(exists=True, dir_okay=False))
 @click.option("--out", "out_path", default=None,
@@ -5732,7 +5818,7 @@ def desk_rescore_cmd(files, out_path):
         console.print(f"[red]REFUSED: {tgt} exists — a receipt is never overwritten.[/red]")
         raise SystemExit(2)
     lines = [f"DESK RESCORE (#87 v1.1 addendum, rule 3) · run {stamp}"]
-    n = halved = quarantined = suspended = fenced = 0
+    n = halved = quarantined = suspended = fenced = non_positive = 0
     for f in files:
         doc = _json.load(open(f))
         meta = doc.get("desk_meta") or {}
@@ -5748,17 +5834,25 @@ def desk_rescore_cmd(files, out_path):
             quarantined += x["verdict"] == "quarantined"     # its own transition, never "halved" (Codex on #328)
             suspended += x["verdict"] == "kalshi-only suspended"     # Q3 K1 (ARCHITECT 2026-10-08): its own too
             fenced += x["verdict"] == "host fence"                   # addendum 109 item 3 (#410): its own too
+            non_positive += x["verdict"] == "exec non-positive"      # addendum 305: its own too
             xe = "—" if x["exec_edge_pp"] is None else f"{x['exec_edge_pp']:+.1f}pp"
             xc = "no executable quote" if x["exec_cost"] is None else f"cost {x['exec_cost']:.3f}"
             if x["verdict"] == "kalshi-only suspended":     # addendum 15 item 2: a suspended row is not priced
                 xe, xc = "—", "not priced: no order under the suspension"
             if x["verdict"] == "host fence":                # nor a fenced one: the fence's reason names the role
                 xe, xc = "—", f"not priced: {x['pass_reason']}"
+            mp = f"{x['model_p']:.3f}"
+            if x["verdict"] == "exec non-positive":
+                # ARCHITECT 2026-11-10 08:50 ET, addendum 318 item 3 (Codex #903 P2): "`desk-rescore` prints the FAILED
+                # figure on an `exec non-positive` row ("gate +0.05pp · final −0.05pp → EXEC NON-POSITIVE"), the gate's
+                # figure when the gate failed" -- "a receipt that contradicts its own verdict is not a record". Edges
+                # signed to 2 decimals and prices to 4, as the PASS's own reason prints them (dp._pp2 / dp._px).
+                xe, xc, mp = _rescore_non_positive(dp, x)
             # a None edge prints as — (never a crash: Codex P1 on #369); a suspended row shows its hold's raw edge
             fe = "—" if x["fair_edge_pp"] is None else f"{x['fair_edge_pp']:+.1f}pp"
             if x.get("hold_raw_edge_pp") is not None:
                 fe += f" · hold raw edge {x['hold_raw_edge_pp']:+.1f}pp (not a live edge)"
-            lines.append(f"  {x['game']} · {x['pick']} · model {x['model_p']:.3f} · fair {fe} · "
+            lines.append(f"  {x['game']} · {x['pick']} · model {mp} · fair {fe} · "
                          f"exec {xe} ({xc}) · units published {x['published_units']} / v1.1 {x['v11_units']} → "
                          f"addendum {x['addendum_units']} · {x['verdict'].upper()}")
     lines.append(f"\n{n} PLAY(s) re-scored · {halved} would have been halved under #87 v1.1 rule 3")
@@ -5771,6 +5865,9 @@ def desk_rescore_cmd(files, out_path):
     if fenced:
         lines.append(f"{fenced} soccer / INTL PLAY(s) now PASS under the host fence (this machine's role is not laptop; "
                      f"#410) — not counted as halved")
+    if non_positive:
+        lines.append(f"{non_positive} PLAY(s) now PASS at an exec edge <= 0 (addendum 305: the Desk never buys above "
+                     f"its own price) — not counted as halved")
     print("\n".join(lines))
     tgt.parent.mkdir(parents=True, exist_ok=True)
     try:                                    # EXCLUSIVE create: two runs racing on one name never overwrite (Codex)
@@ -6116,7 +6213,12 @@ def unl_shadow_grade_cmd(days):
 @click.option("--no-fetch", "no_fetch", is_flag=True,
               help="With --freeze-cohort, cross-ref guard (#329): skip fetching origin laptop/*; only the refs this "
                    "clone knows are checked and the receipt says other clones were not checked.")
-def intl_elo_confirm_cmd(freeze_cohort, substitute, record, ruling, no_fetch):
+@click.option("--db", "db", default=None,
+              help="A .backup copy of the database OUTSIDE data/ (law 5; addendum 346): the whole read on the copy, "
+                   "opened mode=ro + immutable=1, never created, refused under data/, as the app's configured "
+                   "database, when missing, or with a -wal/-shm/-journal beside it; its path and sha256 are printed. "
+                   "Serves the no-flag read and --record only (--freeze-cohort and --substitute are refused with it).")
+def intl_elo_confirm_cmd(freeze_cohort, substitute, record, ruling, no_fetch, db):
     """intl-elo-v2 CONFIRMATION READ (doctrine #212, ARCHITECT 2026-10-02): the
     first 60 senior competitive national-team matches after the verdict,
     priced predict-then-update, scored by the plan (log-loss <= ln 3 AND <
@@ -6128,7 +6230,13 @@ def intl_elo_confirm_cmd(freeze_cohort, substitute, record, ruling, no_fetch):
     and recorded as a substitution with the raw code (--substitute; ARCHITECT
     2026-10-02).
     Without flags: progress only. --record: registry.record_confirmation
-    computes CONFIRMED / NOT_CONFIRMED on exactly the frozen cohort."""
+    computes CONFIRMED / NOT_CONFIRMED on exactly the frozen cohort.
+    --db COPY (ARCHITECT 2026-11-11, addendum 346 item 1): the read runs on a .backup copy outside data/
+    (intl_shadow.check_copy: mlb_pitchers_gate.check_db's fence, no sidecar beside it) through
+    mlb_pitchers_gate.readonly_session (mode=ro + immutable=1), the copy's path and sha256 printed first; the registry
+    write of --record lands in this checkout's docs/registry/ as before (commit it in a PR). With --db, --freeze-cohort
+    and --substitute are REFUSED: "they are registry decisions made on the writer of record's own store, not on a
+    copy". Without --db nothing changes."""
     from collections import Counter
 
     from src.db.database import session_scope
@@ -6136,6 +6244,11 @@ def intl_elo_confirm_cmd(freeze_cohort, substitute, record, ruling, no_fetch):
     from src.walters import intl_elo as ie
     from src.walters import intl_shadow as us
     from src.walters import registry as reg
+    if db is not None and (freeze_cohort or substitute):
+        click.echo(f"REFUSED: --db reads a copy; {'--freeze-cohort' if freeze_cohort else '--substitute'} is a "
+                   "registry decision made on the writer of record's own store, never on a copy (addendum 346 item "
+                   "1). Nothing was read or written.")
+        raise SystemExit(2)
     try:
         if freeze_cohort:
             e, _, _ = us.frozen()
@@ -6187,7 +6300,38 @@ def intl_elo_confirm_cmd(freeze_cohort, substitute, record, ruling, no_fetch):
                            f"({rep['code']} {iso(rep['kickoff'])})")
             click.echo("  commit docs/registry/ in a PR")
             return
-        r = us.confirmation_read()
+        if db is None:
+            r = us.confirmation_read()
+        else:
+            from sqlalchemy.exc import DBAPIError as _DBAPIError
+
+            from src.walters import mlb_pitchers_gate as _mpg
+            copy = us.check_copy(db)
+            try:
+                sha_before = us.copy_sha256(copy)
+            except OSError as err:
+                raise us.ShadowRefused(f"--db {copy}: the copy could not be hashed ({err!r}); nothing read, nothing "
+                                       "written")
+            click.echo(f"--db {copy} · sha256 {sha_before} · a .backup copy, opened "
+                       f"{_mpg.COPY_URI_QUERY.lstrip('?')} (the app's database is not read)")
+            try:
+                with _mpg.readonly_session(copy) as _s:
+                    r = us.confirmation_read(s=_s)
+                    try:                                   # only the two checks after the read (#940 item 2): a
+                        sha_after = us.copy_sha256(copy)   # registry read error inside confirmation_read is not the
+                        sides_after = us.copy_sidecars(copy)   # copy's, and surfaces as it does without --db
+                    except OSError as err:                 # deleted or unreadable mid-run (Codex P2, #938)
+                        raise us.ShadowRefused(f"--db {copy}: the copy could not be re-read after the read ({err!r}); "
+                                               "nothing recorded") from None
+            except _DBAPIError as err:
+                raise us.ShadowRefused(f"--db {copy}: the copy could not be read ({err.orig!r}); nothing recorded")
+            if sides_after:                                # committed pages the immutable open ignored (Codex P2, #938)
+                raise us.ShadowRefused(f"--db {copy} changed during the read: {', '.join(sides_after)} appeared "
+                                       "beside it, which immutable=1 ignores; nothing recorded")
+            if sha_after != sha_before:
+                raise us.ShadowRefused(f"--db {copy} changed during the read (sha256 {sha_before[:16]}… before, "
+                                       f"{sha_after[:16]}… after): the read is not tied to the printed copy; "
+                                       "nothing recorded")
     except (us.ShadowRefused, reg.RegistryError) as e:
         click.echo(f"REFUSED: {e}")
         raise SystemExit(2)
@@ -6559,6 +6703,8 @@ def refresh_by_id_cmd(competition_code: str, days: int):
     if _sport_for_competition(code) != "nfl":
         raise click.UsageError(f"refresh-by-id reads the american-football provider by id; {code} is not "
                                "one of its competitions (NCAA, NFL)")
+    if _sync_held(code):              # addendum 333 item 3(iii): the write path, not the step's name (#921); after the
+        return                        # scope check, so a held code that is not NCAA/NFL still fails (Codex on #925)
     r = rbi.refresh(code, _adapter_for_competition(code), days=days, progress=lambda m: click.echo(m))
     for ln in rbi.format_lines(r):
         click.echo(ln)
@@ -7796,11 +7942,40 @@ def soccer_refresh_cmd(max_drift):
               help="tuned = fix-v2: tune the cup elo_goal_coeff per context (same-/cross-league) "
                    "on PRIOR cup matches, exam seasons excluded, then price the exam; "
                    "base = the model's base coeff for every cup row (reproduces the prior exam).")
-def cup_exam_cmd(key_path, detail, coeff_mode):
+@click.option("--with-history-xi", "with_history_xi", is_flag=True,
+              help="THE PERFECT-XI PRICE (addendum 256 item 3; 343 item 4): after the exam as today, price the exam "
+                   "set again with each fixture's stored history XI through the existing XI/lineup multipliers, as "
+                   "`confirmed` (the figure of record) and as it stands (information only), and print the receipt. "
+                   "Report-only; requires --db.")
+@click.option("--db", "db", default=None,
+              help="A .backup copy of the database OUTSIDE data/ (law 5), opened mode=ro + immutable=1 (addendum 198 "
+                   "item 6(ii)); never created, never the configured database. Required with --with-history-xi.")
+def cup_exam_cmd(key_path, detail, coeff_mode, with_history_xi, db):
     """Cup acceptance exam (spec frozen 2026-09-25): price the answer key's
     FINISHED fixtures with production soccer pricing in REPORT-ONLY mode
     (nothing written) and score vs the books' fair: mean |Δ_HOME| <= 8.0pp,
-    <= 13 fixtures over 8pp, EFL round-2 favorite agreement >= 80%."""
+    <= 13 fixtures over 8pp, EFL round-2 favorite agreement >= 80%.
+    --with-history-xi adds the perfect-XI price receipt (addendum 256 item 3;
+    src/walters/cup_perfect_xi.py), on a --db copy; the gate is unchanged."""
+    import contextlib
+    import time
+
+    from src.walters import cup_perfect_xi as px
+    if with_history_xi and db is None:
+        click.echo("REFUSED: --with-history-xi reads a .backup copy: pass --db PATH (mode=ro + immutable=1; addendum "
+                   "343 item 5); nothing read")
+        raise SystemExit(2)
+    started = time.monotonic()
+    try:
+        with (px.copy_binding(db) if db is not None else contextlib.nullcontext()):
+            _cup_exam(key_path, detail, coeff_mode, with_history_xi, db, started)
+    except px.Refused as e:
+        click.echo(f"REFUSED: {e}")
+        raise SystemExit(2)
+
+
+def _cup_exam(key_path, detail, coeff_mode, with_history_xi, db, started):
+    """cup-exam's body (inside the --db copy's binding when one is given)."""
     from src.walters.cup_exam import (MAX_MISSING, MIN_SCORED, detail_splits, load_key,
                                       score_exam, tier_of)
     from src.walters.training import _generate_predictions_soccer
@@ -7842,6 +8017,8 @@ def cup_exam_cmd(key_path, detail, coeff_mode):
 
     priced: dict[int, dict] = {}
     versions = set()
+    from src.walters import cup_perfect_xi as px
+    priced_hx: dict[str, dict[int, dict]] = {reading: {} for reading in px.READINGS}
     for code, season in groups:
         rows = _generate_predictions_soccer(code, season, include_finished=True,
                                             cup_coeffs=cup_coeffs)
@@ -7850,6 +8027,16 @@ def cup_exam_cmd(key_path, detail, coeff_mode):
             versions.add(r["model_version"])
             if r["match_id"] in known:
                 priced[r["match_id"]] = r
+        for reading in (px.READINGS if with_history_xi else ()):
+            # the perfect-XI price (256 item 3): the same call, the same coeffs, the history XI at the reading's kind
+            hx_rows = _generate_predictions_soccer(code, season, include_finished=True,
+                                                   cup_coeffs=cup_coeffs, history_xi=reading)
+            print(f"  priced {code} {season} with the history XI ({reading}): {len(hx_rows)} fixtures "
+                  "(report-only)")
+            for r in hx_rows:
+                versions.add(r["model_version"])
+                if r["match_id"] in known:
+                    priced_hx[reading][r["match_id"]] = r
     print(f"  model version(s): {', '.join(sorted(versions)) or '—'}")
 
     res = score_exam(key, priced, known)
@@ -7893,6 +8080,11 @@ def cup_exam_cmd(key_path, detail, coeff_mode):
     print("  (exam is necessary-not-sufficient: FAIL is damning; PASS certifies "
           "no gross cup-path defect only, NOT out-of-sample accuracy — pricing "
           "sees same-season results. The sign check is the decisive organ.)")
+    if with_history_xi:
+        import time
+        rc = px.receipt(key, known, priced, priced_hx)
+        for line in px.lines(rc, db=str(db), coeff_mode=coeff_mode, seconds=time.monotonic() - started):
+            print(line)
 
 
 def _print_cup_exam_detail(res, splits, tier_of):
@@ -10436,6 +10628,39 @@ def coverage_cmd(date_s, as_json, out_path):
         raise SystemExit(rc)
 
 
+@cli.command("bulletin")
+@click.option("--closing-file", "closing_file", default=None, metavar="PATH",
+              help="A closing file (exports/closing_<FAMILY>_<start>.json): one bulletin pair per game, stage closing.")
+@click.option("--slate-file", "slate_file", default=None, metavar="PATH",
+              help="A slate file (the family's export_glob, e.g. exports/soccer_PL_<window>.json): stage slate.")
+@click.option("--out-dir", "out_dir", default=None, metavar="DIR",
+              help="Where the pairs go. Default: exports/bulletins (the exports mirror's kept subtree).")
+@click.option("--db", "db_path", default=None, metavar="PATH",
+              help="A .backup copy for PL's matchday (mode=ro + immutable=1; never under data/, never the configured "
+                   "DB). Default: the configured DB, opened mode=ro.")
+def bulletin_cmd(closing_file, slate_file, out_dir, db_path):
+    """THE BULLETIN RENDERER (ARCHITECT 2026-11-04 11:20 ET, addendum 250 items 1-4; addendum 289 item 4; lane #826,
+    step 1b): one Markdown file and one PNG card (1080 px wide, matplotlib Agg, its bundled DejaVu Sans) per game of
+    the file, under exports/bulletins/<FAMILY>/<ET date of kickoff>/<match_id>_<away>_at_<home>_<stage>.md|.png. The
+    call line is closing.call_text, verbatim; a field the row lacks prints "not stored". THE WRITER-SIDE GUARD
+    (item 2): before anything is written, sp_common.redact runs over every line and the privacy patterns
+    (src/privacy_patterns.py: the #817 patterns plus a dollar figure in words, the contract count, the order text,
+    the unit label, the fraction, the pool, field names and any UUID) run over the whole Markdown and the card's text; a match writes
+    nothing, receipts `bulletin_refused` with each pattern's name and intended path (never the line) and exits 2.
+    Prints each written file's mirror URL (owner/repo parsed from SP_EXPORTS_MIRROR_REMOTE, never its value).
+    Read-only: the DB only for PL's matchday, mode=ro; no row written; only .md and .png ever written; never under
+    data/. Exit 0 written, 2 refused, 1 failed. Called unattended by the closing run and the slate stage (addendum 321
+    item 2: closing.bulletin_hook, before the mirror push; no timer of its own).
+    (= python deploy/hosting/bulletin.py)"""
+    import sys as _sys
+    from pathlib import Path as _P
+    _sys.path.insert(0, str(_P(__file__).resolve().parent / "deploy" / "hosting"))
+    import bulletin as _b
+    rc = _b.run(closing_file, slate_file, out_dir, db_path, echo=click.echo)
+    if rc:
+        raise SystemExit(rc)
+
+
 @cli.command("availability")
 @click.option("--sport", required=True, type=click.Choice([s.value for s in Sport]), help="The sport's facts.")
 @click.option("--as-of", "as_of_s", required=True, metavar="INSTANT",
@@ -10511,6 +10736,52 @@ def availability_cmd(sport, as_of_s, clock, match_id, team, kind, show_history, 
         click.echo(line)
 
 
+@cli.command("availability-graph-rebuild")
+@click.option("--out", "out_path", default=None, metavar="PATH",
+              help="The graph's file (a .lbug file in an existing directory, never under data/). Default: "
+                   "logs/availability/graph/availability.lbug.")
+@click.option("--backup-dir", "backup_dir", default=None, metavar="DIR",
+              help="Rebuild from the newest daily .backup copy in DIR whose .sha256 sidecar matches (the host's "
+                   "unit: /var/backups/sports-predictor).")
+@click.option("--db", "db_path", default=None, metavar="PATH",
+              help="Rebuild from this .backup copy (never under data/, never the configured DB).")
+@click.option("--max-age-hours", type=float, default=None, metavar="H",
+              help="With --backup-dir: refuse a newest verified copy older than H hours (default 26).")
+def availability_graph_rebuild_cmd(out_path, backup_dir, db_path, max_age_hours):
+    """THE AVAILABILITY RECORD'S GRAPH PROJECTION (ARCHITECT 2026-11-04 13:05 ET, addendum 252 item 4; 2026-11-11
+    19:50 ET, addendum 347 item 5, the pick: LadybugDB 0.22.3, host-only). Rebuilds the graph whole from a .backup
+    copy opened mode=ro + immutable=1 (never the live file): nodes Player, Team, Game, Observation; an edge per
+    assertion carrying its kind, both stamps and its derived interval under each clock (src/availability/graph.py;
+    the read is record.walk, the record's own derivation). The file is written beside --out and moved onto it whole;
+    nothing reads it for a call, a price or a page (347 item 5(c)). One line of rebuild.jsonl beside the graph per
+    run (a refused --out writes nothing at all). Exit 0 built; 2 refused (no engine, no fresh verified copy, the
+    --db fence, the store not migrated, a bad --out, another rebuild running), nothing written but that line; 1 a
+    failed build, the previous graph untouched."""
+    from pathlib import Path as _P
+
+    from src.availability import graph as g
+    out = _P(out_path) if out_path else g.DEFAULT_OUT
+    try:
+        r = g.rebuild(out, copy=_P(db_path) if db_path else None, backup_dir=_P(backup_dir) if backup_dir else None,
+                      max_age_hours=g.MAX_AGE_HOURS if max_age_hours is None else max_age_hours)
+    except g.Refused as e:
+        click.echo(f"AVAILABILITY-GRAPH REFUSED: {e}")
+        raise SystemExit(2)
+    except Exception as e:  # noqa: BLE001 - its receipt line is written; the unit fails and pages
+        click.echo(f"AVAILABILITY-GRAPH FAILED: {type(e).__name__}: {e} (the previous graph is untouched)")
+        raise SystemExit(1)
+    c = r["counts"]
+    click.echo(f"AVAILABILITY-GRAPH · {r['out']} · from {r['copy']} (sha256 {r['copy_sha256'][:12]}, mode=ro + "
+               f"immutable=1) · {r['engine']} · {r['seconds']} s")
+    click.echo("  nodes: " + " · ".join(f"{n} {c[n]}" for n in g.NODE_TABLES)
+               + " | edges: " + " · ".join(f"{n} {c[n]}" for n in g.REL_TABLES))
+    click.echo(f"  graph sha256 {r['sha256'][:12]} · {r['bytes']} bytes · read by nothing (addendum 347 item 5(c))")
+    if r.get("removed_stale_staging"):
+        click.echo(f"  removed a killed run's staging: {', '.join(r['removed_stale_staging'])}")
+    if r.get("receipt_error"):
+        click.echo(f"  ! the receipt line was not written: {r['receipt_error']}")
+
+
 @cli.command("availability-nflverse")
 @click.option("--season", type=int, default=None, metavar="YEAR",
               help="The release file's season (2025 or later; the 2023-2024 weekly files are another shape and are "
@@ -10545,6 +10816,35 @@ def availability_nflverse_cmd(season, file_path):
         click.echo(line)
     if ing.status == "failed":
         raise SystemExit(1)
+
+
+@cli.command("availability-nhl-observe")
+@click.option("--dry-run", is_flag=True,
+              help="Print the window's games and the polls due; no landing or boxscore call, nothing written or kept "
+                   "(a stale schedule is read, not kept).")
+def availability_nhl_observe_cmd(dry_run):
+    """THE NHL LANDING FEED'S WATCH (ARCHITECT 2026-11-04 13:05 ET, addendum 252 item 3(b); addenda 258 item 2(2), 340
+    and 341 item 2; lane availability-record): ONE TICK. Reads the NHL schedule (at most hourly per NHL day, kept under
+    logs/availability/nhl_api_landing/<day>/, no row), then per game in the window each poll not yet written whose time
+    has passed: T-120 .. T-0 the landing page (projected_starter per side, leaders[0] as
+    scripts/nhl_leaders_order_receipt.py reads it), T+20 the boxscore (eventual_starter, post hoc: each goalie with toi
+    above zero; two in net flagged); a poll more than five minutes past its time is a `missed` row, no call. Players
+    unmapped (counted); teams by nhl_goalies' ruled name path; match by its link or match_game, else NULL with the
+    gameId (the observation `partial`). A tick with no poll due takes no lock; one with a poll due holds the chains'
+    DB lock. Writes the live DB only (no --db). Exit 0; 1 on the NHL day's first failed schedule read (one notice a
+    day); 2 refused (no DB file, the store not migrated since #835 item 2's poll key), nothing written.
+    src/availability/nhl_landing.py; docs/specs/availability-record.md section 10."""
+    from src.availability import nhl_landing as nl
+    from src.availability import record as rec
+    try:
+        t = nl.tick(dry_run=dry_run)
+    except (nl.Refused, rec.Refused) as e:
+        click.echo(f"AVAILABILITY-NHL-OBSERVE {e}")
+        raise SystemExit(2)
+    for line in t.lines():
+        click.echo(line)
+    if t.exit_code:
+        raise SystemExit(t.exit_code)
 
 
 if __name__ == "__main__":

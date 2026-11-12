@@ -20,7 +20,7 @@ only (F1c). Receipt: tonight's 16:00 nhl-daily run visible in the repo within a 
 | Host hook | `deploy/hosting/sp_run.py` `mirror_after_step` | after EVERY chain step; non-fatal, ≤ 90 s, receipted (`kind: mirror`); off until `SP_EXPORTS_MIRROR_REMOTE` is set |
 | Weekly squash | `sp-exports-squash.timer` (Sun 06:10 UTC) | one orphan commit, force-pushed; a no-op until configured |
 | Verdict Action | `deploy/exports-mirror/compare.yml` | shipped into the mirror by every push as `.github/workflows/compare.yml`, with `tools/compare_exports.py` |
-| Cockpit control | `tools/cockpit.html` "Load latest from host" | GitHub contents API → `host/latest/*.json` → the normal load path (F1c refuses files without desk blocks) |
+| Cockpit control | `tools/cockpit.html` "Load latest from host" and a date box | PRIMARY since Cockpit v2 (2026-11-09, ARCHITECT addendum 307 item 2): the operator's own claude.ai GitHub connector, read-only, `get_file_contents` on the mirror → `host/latest/` (or `host/<date>` and `laptop/<date>`, one file per kind, the newest stamp) → dispatched by kind to the normal load path (F1c refuses files without desk blocks; `*_results*` to the ledger's grading intake; `window_24h` to Next 24h). FALLBACK: the F2.5 token box (GitHub contents API), folded |
 
 Layout in the mirror: `host/<YYYY-MM-DD>/<file>` and `laptop/<YYYY-MM-DD>/<file>`, with the date
 taken from the file's UTC mtime. Only top-level `exports/*.json|*.md` are mirrored; subfolders
@@ -63,7 +63,10 @@ planned copy), so it never jams a later push, and the top-level files and the ot
 nothing happens. The compare is untouched: the Action picks the newest
 `YYYY-MM-DD` folder both writers hold (`bulletins/` never matches), and the `*.json` glob finds nothing under
 `<role>/bulletins/`. The renderer's own writer refusing a `.json` under the subtree comes with the renderer (step 1's
-second PR).
+second PR). What fills the subtree (ARCHITECT 2026-11-10, addendum 321 item 2, step 1c): the closing run and the slate
+stage render their kept file's pairs into `exports/bulletins/` just before their own push (`closing.bulletin_hook`), so
+that push carries them to `<role>/bulletins/` (the laptop's MLB closing: `laptop/bulletins/`); a render that fails or is
+refused is receipted and notified, and the push proceeds without the pair.
 
 What a push publishes (ARCHITECT 2026-11-06, addendum 277 item 1, R2-1 on #847, verbatim): "the mirror publishes ONLY
 the paths its plan copied. The whole-tree `add -A` is main's mechanism, and it means any stray file in the clone — a
@@ -124,8 +127,47 @@ every push it remains; the tracked entry is left as the mirror holds it, and the
 the bulletins still go.
 
 The Action compares the newest date that BOTH writers have pushed and posts commit status
-`compare_exports`: success = clean, failure = DIVERGENT, pending = one side has not pushed that
-date yet. The full report is in the run's step summary.
+`compare_exports`: success = clean, failure = DIVERGENT (a paired file differs, a pair does not parse, or a
+PAIRED KIND is missing on a side for a complete day), error =
+the comparator or the runner broke (not a data verdict), pending = NOTHING-TO-COMPARE (a paired kind awaiting the
+other side on the runner's own UTC day, its description `awaiting <role>`; or no paired kind compared with rows in the
+window, addendum 335 item 4(c)) or one side has not pushed that date yet. The full report is in the run's step summary.
+NOTHING-TO-COMPARE (ARCHITECT 2026-11-11, addendum 334 item 3(a), verbatim): "a red status that
+means "nothing to compare" is a false alarm — the verdict for zero compared files becomes
+NOTHING-TO-COMPARE (neutral, not failure), DIVERGENT reserved for files that were compared and
+differ". A commit status has four states (success, failure, error, pending) and no neutral one;
+pending is the one that is neither green nor red, and its description begins `NOTHING-TO-COMPARE`
+and counts the files on one side only. It is neither a pass nor a fail of the tag ritual's
+step 1 (docs/RELEASES.md). Each machine's `exports_mirror.py push` ships its own copy of the comparator and the Action into the mirror, so until the host runs a tag that carries this change, a host-pushed commit runs v1.6.6's pair and a zero-compared day with a file on one side only still posts failure there; read the laptop-pushed commit's status, or run the comparator by hand, until then.
+
+THE PAIRED KINDS (ARCHITECT 2026-11-11 08:45 ET, addendum 335 item 4(c), verbatim): "the comparator carries a declared
+list of PAIRED KINDS — kinds both machines are ruled to produce every day (today: fixtures_NHL alone) — and a kind not
+on it is EXPECTED ONE-SIDED (coverage, the window card, the UNL and league shadows, closings, slates, the MLB results
+file), printed and counted, never a cause of DIVERGENT. CLEAN = at least one paired file compared with rows in the
+window, every compared file identical, no paired kind missing on a side. DIVERGENT = a compared file differs, OR a
+paired kind is present on one side and missing on the other for a date both machines pushed (a missing file is a
+finding), OR a pair does not parse. NOTHING-TO-COMPARE = everything else, including a pair whose in-window rows are
+empty on both sides (218 item 1: an empty window is reported, never a pass) — so the 12-24 gap reads neutral." Its
+second DIVERGENT clause is corrected by addendum 336 item 4(2), quoted below (a complete day only). As
+built (#924's build): `compare_exports.PAIRED_KINDS` declares fixtures_NHL (rows `fixtures`, the window the name's
+date -1, 0, +1). A paired file's rows outside the window are counted per side and never compared, its `count` is
+left out, and its host-only columns are left out and counted on their own line: every key named, no prefix
+(`compare_exports.HOST_ONLY_KEYS`: market, close_unpriced, kalshi, kalshi_legs, kalshi_bid, kalshi_ask, away_bid,
+away_ask, the four exec_cost columns, the four fee columns, k_track, input_quality, desk, desk_meta). THE MASK
+(ARCHITECT 2026-11-11 09:35 ET, addendum 336 item 4), verbatim: "(1) THE MASK: `away_bid`, `away_ask` and `close_unpriced` are the same class — columns only the market machine fills — and are masked and counted with 335 item 4(b)'s list. The rule behind the list, pinned by a test: every key `_fixture_row` writes is either compared or on the declared mask, so a new key fails the test until it is placed — never masked by a prefix, never silently." The test reads `_fixture_row`
+(tests/test_compare_exports_paired_kinds.py) and fails on a key that is neither compared
+(`FIXTURE_COMPARED_KEYS`) nor on the mask nor machine-local (match_id). The file the
+laptop writes is nhl-daily's own `export-fixtures --competition NHL` after its three single-day syncs (335 item
+4(a)); the host is unchanged. The Action's status is the daily signal; a tag's step 1 is a hand run on the last
+complete day's folder (335 item 4(f); docs/RELEASES.md step 1). THE PUSH TIMING (ARCHITECT 2026-11-11 09:35 ET,
+addendum 336 item 4), verbatim: "(2) THE PUSH TIMING: a paired kind present on one side only reads DIVERGENT only for a COMPLETE day. For the comparator's own UTC date (the run's "today") the file's absence on the other side is "awaiting <role>" — NOTHING-TO-COMPARE, posted pending — because the other machine's export time may not have come; for any earlier date it is DIVERGENT ("paired kind missing on <role>"), which is what a tag's hand run on D-1 reads (335 item 4(f)). So the laptop's 12:2xZ commit reads pending, the host's 16:0xZ commit reads the pair, and a day one machine never exported reads red only when someone compares that finished day. 335 item 4(c)'s second DIVERGENT clause is corrected to this with this item quoted." THE WINDOW MUST BE READ (ARCHITECT 2026-11-11 10:50 ET, addendum 338 item 3, verbatim): "Code's fix is right as designed — a paired file counts toward CLEAN only once its declared rows list and its dated window were both read; otherwise its line reads "window NOT READ" and the verdict is NOTHING-TO-COMPARE, named on the verdict line; a hand compare of the undated `latest/` reads NOTHING-TO-COMPARE, which is correct (335 item 4(f): a tag's step 1 is a hand run on the DATED D-1 folder)." As built: a paired file on one side only reads `PAIRED KIND <kind>
+awaiting <role>` when its name's last date (a range label's end) is the run's own UTC date or later, `missing on
+<role> (a complete day)` when earlier, and `missing on <role> (undated: completeness unknown)` for an undated name; an awaited file outranks CLEAN (a run that also holds a clean pair reads NOTHING-TO-COMPARE) and a
+DIVERGENT cause outranks it. The Action's pending description then reads `awaiting <role>: a paired kind not pushed
+yet today`. Before the laptop carries the NHL lines, the host's 16:0xZ push reads `awaiting laptop` the same way, and
+a hand run of an earlier day reads `missing on laptop`. AN UNPAIRED KIND ON BOTH SIDES (addendum 336 item 4),
+verbatim: "(3) AN UNPAIRED KIND ON BOTH SIDES THAT DIFFERS: "never a cause of DIVERGENT" governs. A kind is compared FOR THE VERDICT only when a ruling has put it on PAIRED_KINDS — that ruling is what says both machines make it from the same inputs. An unpaired kind found on both sides is printed and counted as "unpaired, on both sides: identical" or "unpaired, on both sides: DIFFERS (not a verdict; pair it by ruling if both machines should make it)", so the difference is seen and certifies nothing. The `--paired-kinds '*'` rule for the cutover's PL check and the H2 dry run keeps the every-kind behavior, as built." Each host push runs the comparator its own tag shipped (v1.6.6 reads any one-sided file
+DIVERGENT) until the host runs the tag that carries this build.
 
 Machine state (#592 RULED, ARCHITECT 2026-10-18, addendum 128 item 3): "the compare treats kind `coverage` as "machine state": listed by presence on each side (one side, both sides, neither), never compared for content, never DIVERGENT, never counted toward or against criterion (a). Printed as its own line ("machine-state files: coverage laptop yes / host no")." The day's coverage
 file travels as every kind does, dated and latest (`<role>/<date>/coverage_<date>.json` and
@@ -195,9 +237,13 @@ files refused for lacking one.
    ```
    An SSH remote whose key file does not exist is REFUSED with the path named (exit 2), never pushed
    keyless. An HTTPS remote does not use the key.
-6. **Cockpit:** create a fine-grained token: repository access = only Sports-Predictor-exports,
-   permission = Contents: Read-only. Paste it once into the Cockpit's mirror field. It is kept in
-   that browser's localStorage, never in a file.
+6. **Cockpit:** the PRIMARY path since Cockpit v2 (2026-11-09, ARCHITECT addendum 307 item 2) is the
+   operator's own claude.ai GitHub connector, as him: GitHub's hosted MCP server on its read-only endpoint,
+   one tool (`get_file_contents` on the mirror), its credential a fine-grained, one-repo, Contents: Read-only
+   token held by the connector and recorded nowhere (not the repo, not an Issue). The FALLBACK, folded on the
+   page, is the F2.5 token box: create a fine-grained token (repository access = only
+   Sports-Predictor-exports, permission = Contents: Read-only) and paste it once into the Cockpit's mirror
+   field. It is kept in that browser's localStorage, never in a file.
 
 **Receipt (ruled):** after the deploy, tonight's 16:00 `nhl-daily` steps show as commits
 `host: nhl-daily step N …` in the mirror within a minute, and the step receipts carry `kind: mirror, exit 0`.
@@ -213,6 +259,15 @@ python scripts/cockpit_local.py --html ~/Downloads/cockpit.html   # a saved copy
 It serves the page on `http://127.0.0.1:8765` (127.0.0.1 only, read-only), where the GitHub contents API is
 reachable. Without `--html` it serves the repo copy `tools/cockpit.html`, which may lag the published one, and
 says so.
+
+**Cockpit v2 (2026-11-09, ARCHITECT addendum 307 item 2).** The published page reads the mirror through the
+operator's connector, so the CSP note above applies to the token fallback only. The ledger (`bd_ledger_v1`,
+fills included) lives in the artifact's own store under owner-only read and write rules; the browser's
+localStorage is a cache the store overwrites on load. The connector's shapes, for whoever touches the page
+next: a directory read arrives as the entries array in the result's `payload`; a FILE read arrives as two
+content blocks (a status text block, then a resource block carrying the file), and the runtime's `payload`
+is the first text block, the status line, so the page reads the content blocks first and `payload` only as
+the fallback. A GitHub 5xx inside a tool error is retried once and named as GitHub's.
 
 **The ledger is per origin.** The local page has its own localStorage, so its own ledger and token. Move the
 ledger with "Export ledger (JSON)" → "Import ledger", and keep the same `--port` so the local origin stays the

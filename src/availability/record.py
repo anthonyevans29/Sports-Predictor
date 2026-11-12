@@ -18,8 +18,8 @@ payload_sha256 (ARCHITECT 2026-11-05 11:55 ET, addendum 262 item 1: the hash is 
 trg_availability_assertions_snapshot_hash_guard refuses it around the writer too); an assertion of a snapshot source
 with no source_player_id (262 item 5: never keyed by name); a missing DB
 file (never created, law 5); a store migrate_availability_record.py has not migrated. The error text is redacted,
-then cut to 256 characters. A poll the store already holds (the unique key: source, match, stored kickoff, poll) is
-counted "already", its row standing.
+then cut to 256 characters. A poll the store already holds (the unique keys: source, match, stored kickoff, poll;
+and, #835 item 2, source, endpoint, scheduled time) is counted "already", its row standing.
 There is no update, delete or upsert function here, and the tables' triggers abort one from anywhere else.
 
 THE MAPPING (item 1, law 4): a player or team the caller cannot map is written with player_id / team_id NULL and the
@@ -60,7 +60,7 @@ from dataclasses import replace as _with   # private: the module exposes no name
 from datetime import date, datetime, timedelta, timezone
 from pathlib import PurePosixPath
 from types import MappingProxyType
-from typing import Iterable, Sequence
+from typing import Iterable, Iterator, Sequence
 from urllib.parse import unquote, urlsplit
 
 from src.db.schema import (APPEND_ONLY, AVAILABILITY_KINDS, AVAILABILITY_SNAPSHOT_SOURCES, AVAILABILITY_SOURCES,
@@ -1241,6 +1241,27 @@ def history(s, sport, instant: datetime, clock: str = "recorded", match_id: int 
     return out
 
 
+def walk(s, sport) -> Iterator[tuple[Row, Interval, Interval | None]]:
+    """THE PROJECTION'S READ (ARCHITECT 2026-11-04 13:05 ET, addendum 252 item 4: "edges from the assertions carrying
+    kind, recorded_at, source_stamp and the derived interval; rebuilt whole from SQLite"; 2026-11-11, addendum 347
+    item 5): every assertion of the sport, each with the interval it opened or restated under the recorded clock and,
+    where the row carries a source stamp, under the source clock (else None: the source clock does not read it). The
+    same partitions and the same _derive as history (item 2: "there is no second path"), one partition at a time, so a
+    walk holds one partition's rows, never the store's. A partition is (source, kind, team or player) under either
+    clock, and its rows under the source clock are exactly its stamped rows, so one read serves both clocks. Pinned:
+    for each clock, the walk's intervals equal history(s, sport, datetime.max, clock)'s, row by row
+    (tests/test_availability_graph.py). Rows come in partition order, not time order."""
+    t = _checked("recorded", None, datetime.max)
+    not_loads = {c: _mixed_groups(s, sport, c, t, None) for c in CLOCKS}
+    for part in _partitions(s, sport, "recorded", t):
+        by_rec = {r.id: iv for iv in _derive(part, "recorded", not_loads["recorded"]) for r in iv.members}
+        stamped = [r for r in part if r.source_stamp is not None]
+        by_src = ({r.id: iv for iv in _derive(stamped, "source", not_loads["source"]) for r in iv.members}
+                  if stamped else {})
+        for r in part:
+            yield r, by_rec[r.id], by_src.get(r.id)
+
+
 def unread_under_source_clock(s, sport, kind: str | None = None) -> int:
     """How many assertions carry no source stamp (law 4: counted where the source clock does not read them). A COUNT in
     SQL over the same join load_rows reads."""
@@ -1336,6 +1357,6 @@ def attributions(sources: Iterable[str]) -> list[str]:
 __all__ = ["SOURCES", "STATUSES", "KINDS", "CLOCKS", "SOURCE_CADENCE_HOURS", "TABLES", "TRIGGERS", "MIGRATION_MARKER", "APPEND_ONLY",
            "Refused", "Receipt", "write_observation", "migrated", "redact", "payload_path_refusal", "endpoint_refusal",
            "assertion_refusal", "ENDPOINT_LIMIT", "ROWS_REFUSED_ATTR", "Row", "Interval",
-           "Fact", "load_rows", "derive", "as_of", "history", "backfilled", "interval_backfilled", "live_since",
+           "Fact", "load_rows", "derive", "as_of", "history", "walk", "backfilled", "interval_backfilled", "live_since",
            "post_hoc", "kickoff_of", "mapped_now", "match_key", "SOURCE_MATCH_IDS", "attributions", "SNAPSHOT_SOURCES",
            "PARTIAL_GROUP_FRACTION", "snapshot_load", "partial_group", "guard_load"]

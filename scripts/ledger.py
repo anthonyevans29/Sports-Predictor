@@ -631,6 +631,25 @@ def main(argv=None) -> int:
                 return 2
             base = argv[i + 1]
         return roadmap.check_base(base, ROOT)
+    if mode == "check-cockpit-build":            # ARCHITECT 2026-11-10, addendum 319 item 3: offline, the head's
+        sys.path.insert(0, str(Path(__file__).resolve().parent))   # tools/cockpit.html against its base
+        import cockpit_build
+        base, pr = "origin/main", None
+        for flag in ("--base", "--pr"):
+            if flag in argv:
+                i = argv.index(flag)
+                if i + 1 >= len(argv) or not argv[i + 1] or argv[i + 1].startswith("-"):
+                    print(f"✗ COCKPIT BUILD: {flag} needs a value")
+                    return 2
+                if flag == "--base":
+                    base = argv[i + 1]
+                else:
+                    try:
+                        pr = int(argv[i + 1])
+                    except ValueError:
+                        print(f"✗ COCKPIT BUILD: --pr {argv[i + 1]!r} is not a number")
+                        return 2
+        return cockpit_build.check_base(base, ROOT, pr)
     if mode == "check-body":                     # LEDGER rule 5, enforced: offline, body via env
         stray = stray_closing_refs(os.environ.get("PR_BODY", ""))
         if stray:

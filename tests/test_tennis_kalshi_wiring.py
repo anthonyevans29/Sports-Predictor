@@ -750,7 +750,9 @@ def test_the_timer_minute_is_off_every_existing_timer_and_before_the_coverage_wr
 def test_the_timer_ships_on_t11_timers_and_the_schedule_table_and_nothing_enables_it():
     import sp_common as c
     lists = c.t11_lists()
-    assert "sp-tennis-daily.timer" in lists["TIMERS"] and "sp-tennis-daily.timer" not in lists["MLB_LAPTOP_ONLY"]
+    # ARCHITECT 2026-11-12, addendum 351 item 2: shipped on TIMERS_BY_BLOCK, enabled only by the architect's block
+    assert "sp-tennis-daily.timer" in lists["TIMERS_BY_BLOCK"]
+    assert "sp-tennis-daily.timer" not in lists["TIMERS"] and "sp-tennis-daily.timer" not in lists["MLB_LAPTOP_ONLY"]
     h1 = (ROOT / "docs" / "specs" / "hosting-h1.md").read_text()
     assert len(re.findall(r"^\| sp-tennis-daily \|", h1, re.M)) == 1
     assert "echo sp-tennis-daily.timer | sudo tee -a /etc/sports-predictor/timers.enabled" in h1

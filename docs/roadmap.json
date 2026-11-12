@@ -18,20 +18,45 @@
         {
           "what": "the 60th cohort fixture (41643, kickoff 2026-11-11T21:00Z) is played",
           "owner": "calendar",
-          "due": "2026-11-11",
+          "due": "2026-11-16",
           "done": null
         },
         {
-          "what": "the confirmation record step, in the morning block",
+          "what": "the confirmation record, by the architect's block on the laptop from the host's pulled copy (addendum 346)",
           "owner": "operator",
-          "due": "2026-11-12",
+          "due": "2026-11-17",
           "done": null
         }
       ],
-      "earliest_live": "2026-11-12",
+      "earliest_live": "2026-11-17",
       "live_needs": "CONFIRMED, computed by the registry on the cohort of record. Then the INTL Desk policy v0 as built (#325): half units until 30 INTL calls are graded, UNL only.",
       "vs_close": "not read",
-      "moved": []
+      "moved": [
+        {
+          "moved_on": "2026-11-11",
+          "which": "the 60th cohort fixture (41643, kickoff 2026-11-11T21:00Z) is played",
+          "was": "2026-11-11",
+          "now": "2026-11-16",
+          "why": "the provider moved cohort fixture 41643 (CNL, Cuba v Grenada) from 2026-11-11T21:00Z to 2026-11-16T20:00Z, read on the host 2026-11-12T00:27Z (59 of 60 labelled, 1 scheduled); a pending cohort fixture leaves the confirmation read incomplete and a rescheduled one is not unscoreable, so nothing is substituted and the frozen cohort is untouched (addendum 347 item 1)",
+          "ruling": "ARCHITECT 2026-11-11 19:50 ET, addendum 347 item 2 (MOVED LINE, lane unl, verbatim in why; one line per moved date: the fixture step, the record step and earliest_live; the record step's wording changes with it, as ruled, and this line names the step by its wording on the base; 346 item 5's one-day move is superseded)"
+        },
+        {
+          "moved_on": "2026-11-11",
+          "which": "the confirmation record step, in the morning block",
+          "was": "2026-11-12",
+          "now": "2026-11-17",
+          "why": "the provider moved cohort fixture 41643 (CNL, Cuba v Grenada) from 2026-11-11T21:00Z to 2026-11-16T20:00Z, read on the host 2026-11-12T00:27Z (59 of 60 labelled, 1 scheduled); a pending cohort fixture leaves the confirmation read incomplete and a rescheduled one is not unscoreable, so nothing is substituted and the frozen cohort is untouched (addendum 347 item 1)",
+          "ruling": "ARCHITECT 2026-11-11 19:50 ET, addendum 347 item 2 (MOVED LINE, lane unl, verbatim in why; one line per moved date: the fixture step, the record step and earliest_live; the record step's wording changes with it, as ruled, and this line names the step by its wording on the base; 346 item 5's one-day move is superseded)"
+        },
+        {
+          "moved_on": "2026-11-11",
+          "which": "earliest_live",
+          "was": "2026-11-12",
+          "now": "2026-11-17",
+          "why": "the provider moved cohort fixture 41643 (CNL, Cuba v Grenada) from 2026-11-11T21:00Z to 2026-11-16T20:00Z, read on the host 2026-11-12T00:27Z (59 of 60 labelled, 1 scheduled); a pending cohort fixture leaves the confirmation read incomplete and a rescheduled one is not unscoreable, so nothing is substituted and the frozen cohort is untouched (addendum 347 item 1)",
+          "ruling": "ARCHITECT 2026-11-11 19:50 ET, addendum 347 item 2 (MOVED LINE, lane unl, verbatim in why; one line per moved date: the fixture step, the record step and earliest_live; the record step's wording changes with it, as ruled, and this line names the step by its wording on the base; 346 item 5's one-day move is superseded)"
+        }
+      ]
     },
     {
       "lane": "pd",
@@ -82,7 +107,7 @@
       "issue": 79,
       "registry_id": "ncaa-elo-v2",
       "competitions": ["NCAA"],
-      "state": "declared",
+      "state": "to declare",
       "steps": [
         {
           "what": "the declaration of the next candidate, to Code as an addendum",
@@ -124,25 +149,31 @@
           "what": "the one run, on my word, and the verdict",
           "owner": "architect",
           "due": "2026-11-09",
-          "done": null
+          "done": {
+            "date": "2026-11-09",
+            "receipt": "the console on #79 (issuecomment-6742352402: the laptop, 2026-11-09T14:20Z, main 5f9cf13d, the stream fingerprint 99a0a239…, the cross-ref guard clean over 44 refs; the run recorded at 2026-11-09T14:20:27Z, 1,096 scored ids, sha 3bed03e5e6be…; its record: addendum 302 item 1); the verdict FAIL, ARCHITECT 2026-11-09 09:35 ET, addendum 302"
+          }
         },
         {
-          "what": "the 100th confirmation fixture is played",
-          "owner": "calendar",
-          "due": "2026-11-21",
-          "done": null
-        },
-        {
-          "what": "the confirmation record and the Desk policy ruling",
+          "what": "the 2027 college candidate declares, with 302 item 3's spread pre-check on the declared constants before any gate run (ARCHITECT 2026-11-09 12:50 ET, addendum 309 item 3(1): \"not `closed` while #79 is open. The lane takes state `to declare` (the vocabulary's word NHL's lane uses) with ONE dated step\"; owner architect, due 2027-02-01, \"a commitment to do the step, 59 item 5(c)\")",
           "owner": "architect",
-          "due": "2026-11-23",
+          "due": "2027-02-01",
           "done": null
         }
       ],
-      "earliest_live": "2026-11-24",
-      "live_needs": "PASS, CONFIRMED on 100 fixtures, and a Desk policy ruling of its own (D8 of the v1r declaration: the neutral flag before kickoff and the shadow's record against the close).",
+      "earliest_live": null,
+      "live_needs": "FAILED 2026-11-09 (ARCHITECT 2026-11-09 09:35 ET, addendum 302): ncaa-elo-v2 ran ONCE through the UNCHANGED gate and FAILED on the spread test (slope 0.698097 against 0.80-1.20, too confident, where v1r's 1.42 was too timid); margin, level and range passed; the 2023 second read (D10) passed all four, and by D10 a PASS there cannot carry a failed gate. NCAA is MARKET-ONLY; 2026 is RETIRED as a college test season; no shadow and no ncaa-backtest until the 2027 candidate declares (302 item 4); the bar did not move. The lane's next step, undated, as 302 item 3 words it: \"the 2027 candidate's declaration in the off-season (2024–2026 training, the 2027 regular season the test, the same gate, the pre-check of item 2 declared with it)\" (a step needs a real due date, so the undated step is written here, as addendum 267 item 2(1)-(2) ruled for nfl-v2; Issue #79 stays open for the 2027 declaration). The lane's state and its one dated step, ARCHITECT 2026-11-09 12:50 ET, addendum 309 item 3(1), verbatim in part: \"not `closed` while #79 is open. The lane takes state `to declare` (the vocabulary's word NHL's lane uses) with ONE dated step\" (the lane's last step, owner architect, due 2027-02-01); \"The undated 2027 sentence stays quoted in `live_needs` as 267 did it.\". As declared: PASS, CONFIRMED on 100 fixtures, and a Desk policy ruling of its own (D8 of the v1r declaration: the neutral flag before kickoff and the shadow's record against the close).",
       "vs_close": "not read. No college candidate has been scored against a close.",
-      "moved": []
+      "moved": [
+        {
+          "moved_on": "2026-11-09",
+          "which": "earliest_live",
+          "was": "2026-11-24",
+          "now": null,
+          "why": "ncaa-elo-v2's one run of 2026-11-09 FAILED the gate (D5 on the 2026 regular season, 562 games) on test (3), the spread: slope b 0.698097 against 0.80-1.20 (margin 0.598467 against the bar 0.659457, level +0.14pp and range 1189.5-1836.3 over 138 teams passed); the D10 second read passed all four and cannot carry a failed gate. No PASS, so no confirmation window, no confirmation record and no Desk policy ruling, and no live date stands. The two \"on PASS\" steps are cleared with it, by the same item: \"the 100th confirmation fixture is played\" due 2026-11-21; \"the confirmation record and the Desk policy ruling\" due 2026-11-23 (a step's due is never cleared, addendum 61 item 4: the steps are removed by the quoted ruling and their dates are recorded here, as addendum 267 item 2(3) accepted for nfl-v2). The bar did not move",
+          "ruling": "ARCHITECT 2026-11-09 09:35 ET, addendum 302 item 3, MOVED LINE: \"docs/roadmap.json lane ncaa: the 11-09 step DONE with the #79 console as its receipt; the two \"on PASS\" steps (11-21 the 100th confirmation fixture, 11-23 the confirmation record and the Desk policy ruling) CLEARED by their moved lines quoting this item; earliest_live 2026-11-24 CLEARED (a move with `now` null); the lane's state the vocabulary's word for failed; `vs_close` unchanged (\"not read\"); a new undated step \"the 2027 candidate's declaration in the off-season (2024–2026 training, the 2027 regular season the test, the same gate, the pre-check of item 2 declared with it)\"\""
+        }
+      ]
     },
     {
       "lane": "leagues",
@@ -183,12 +214,21 @@
           "what": "BL1's declaration (ARCHITECT 2026-11-02 13:10 ET, addendum 220 item 4): its parity receipt with rows, read after the Bundesliga round of 11-06/07 (the architect's laptop block, Monday 11-09 morning), and the declaration the same day, its window counted from its own stamp at the bar of addendum 220 item 3; until then BL1 has no registry entry (leagues-bl1-v1) and its pre-declaration fence stands, cut at 2026-10-30T15:00:00Z (addendum 181 item 1(b)); the lane reads \"declared (4 of 5)\" (addendum 220 item 5: PD, SA, FL1 and ELC declared at 2026-11-02T18:10:00Z; the state field holds declared, the nearest of roadmap.STATES, which has no such value)",
           "owner": "architect",
           "due": "2026-11-09",
-          "done": null
+          "done": {
+            "date": "2026-11-09",
+            "receipt": "#322 comment 6742654029"
+          }
         },
         {
           "what": "step (c) (addendum 156 item 1): the 60th 2026/27 fixture per declared league kicking off after the declarations' stamp 2026-11-02T18:10:00Z is played, ELC first; RECOUNTED 11-03 with the exclusions by cause on the HOST's copy (#322 host-copy consoles of 11-03: issuecomment-6604829516, the recount and the exclusions, and issuecomment-6605077150, the close share; the laptop at main 0c88f5cc reading the host's .backup of 2026-11-03 09:30Z, mode=ro + immutable=1; the two earlier consoles of 11-03 read the laptop's database, addendum 229 item 1; ARCHITECT 2026-11-03 07:55 ET, addendum 226 items 1 and 2, and 08:40 ET, addendum 229 items 1 and 3: the step stands at 2026-12-06, no moved line), the step's text verbatim as 226 item 2 wrote it, FL1's 60th corrected by 229 item 3: \"ELC 2026-12-06 (match 9834; 12 of the 11-03/04 round excluded by cause); then PD 2026-12-20 (match 16303; one game excluded), SA 2026-12-20 (match 17433; one excluded), BL1 2027-01-12 (match 18554, from an 11-09 declaration, pending it), FL1 2027-01-16 (match 19478; one excluded); PD's and SA's December rounds are stored at placeholder kickoffs and run to Monday 12-21; the reader's count is the count, and every game assumed to get a three-way close\"; and 229 item 3's sentence, verbatim: \"the close share since the hourly capture tier of 10-24 is 100% in each league on the host's copy (the 11-03 read), which is what makes the 'every game gets a close' assumption honest; the reader's count is the count\"",
           "owner": "calendar",
           "due": "2026-12-06",
+          "done": null
+        },
+        {
+          "what": "BL1's 60th qualifying close (ARCHITECT 2026-11-09 09:45 ET, addendum 303 items 1-3; the lane reads \"declared (5 of 5)\": PD, SA, FL1 and ELC declared at 2026-11-02T18:10:00Z, addendum 220; BL1 declared at 2026-11-09T14:45:00Z, leagues-bl1-v1, addendum 303; the state field holds declared, the nearest of roadmap.STATES): the 60th FINISHED 2026/27 BL1 game with a three-way close kicking off after 2026-11-09T14:45:00Z is final, at the bar of addendum 220 item 3, the one read the day after it; the due date is the laptop receipt's PROJECTION line for BL1 as written (logs/leagues_receipt_2026-11-09.txt, pasted by the operator, ARCHITECT 2026-11-09 10:15 ET, addendum 306 item 4), verbatim: \"BL1 \u00b7 the 60th fixture kicking off on or after 2026-11-09 (its UTC day on) (not declared: no entry leagues-bl1-v1; the date 2026-11-09 (--declared), its UTC day on): kickoff 2027-01-13 19:30Z (UTC date 2027-01-13; match 18549) \u00b7 225 stored after the start\". The receipt's caveat stands with the date, verbatim: \"every other game assumed to get a three-way close\" (BL1's close coverage this season is 26 of 81 finished, 32%: addendum 303 item 2's MEASURED figure, verbatim in part: \"BL1's close coverage 26 of 81 finished\", the record, ARCHITECT 2026-11-09 12:50 ET, addendum 309 item 3(7), whose \"the step carries 32%\" withdraws 306 item 4's estimate; addendum 306 item 4, verbatim in part: \"so the 60th QUALIFYING game lands later than the 60th stored fixture; the roadmap step takes the projected date as written, and the lane's text names the caveat.\"). The projection counted from the UTC day 2026-11-09 (the receipt ran before the entry existed: --declared 2026-11-09); the window counts from 2026-11-09T14:45:00Z (a kickoff strictly after it)",
+          "owner": "calendar",
+          "due": "2027-01-13",
           "done": null
         }
       ],
@@ -729,7 +769,10 @@
           "what": "the nflverse depth-charts feed (addendum 252 item 3(a)): its ingest command and adapter, the chain availability-daily and its timer at 08:45 UTC, so the first host observations precede the 11-13 decision",
           "owner": "code",
           "due": "2026-11-12",
-          "done": null
+          "done": {
+            "date": "2026-11-12",
+            "receipt": "ARCHITECT 2026-11-12 10:35 ET, addendum 350 item 2, verbatim: \"THE NFLVERSE FEED \u2014 DONE (FOR DEV 1: the done-mark in the records PR, roadmap lane availability-record, the step due 2026-11-12, this item quoted): today's 08:45:00\u201308:45:27Z availability-daily run, read by name: exit 0, steps 1/1 in 26.2 s; `AVAILABILITY-NFLVERSE \u00b7 observation #4 \u00b7 complete \u00b7 HTTP 200`; rows read 777,815, loads 291 (new 1), new rows 2,325, rows asserted 2,325, older rows not asserted again 775,490 (watermark 2026-11-11T07:02:21Z); partial team groups 0; rows with no espn_id 0; backfilled 0; the payload kept with its sha256. Four daily observations stand (11-09 through 11-12), which is what the 11-13 decision wanted before it.\" The run on the host's v1.6.6 checkout; v1.6.7 deployed after it (15:20Z, addendum 350 item 1)."
+          }
         },
         {
           "what": "the paid feed's adapter specified, if the operator names one on 11-13 (addendum 252 item 3(c): \"its adapter is specified with the decision, not before\")",

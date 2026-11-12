@@ -87,6 +87,14 @@ which reads the pool once per ET day and keeps logs/desk_unit_<ET date>.json; th
 closing that day, size their order lines from that file. Its exit never fails the slate. The receipt keeps the state,
 never a figure (`unit`: state, et_date, new, exit). An unread day: the slate page says UNIT_UNREAD_TEXT on a line of
 its own, and every PLAY line of a closing page says it in place of its order.
+THE BULLETIN HOOKS (ARCHITECT 2026-11-04, addendum 250 item 3; ARCHITECT 2026-11-10, addendum 321 item 2, step 1c of the
+bulletins lane, #826; the section "the bulletin hooks" below): "(i) in the closing run, between write_closing_file's
+success and push_mirror(); (ii) in the slate stage, between link_slate_file's success and push_mirror("slate"); each a
+subprocess of the command under a try; a failure or refusal receipted bulletin_failed / bulletin_refused and notified
+as a closing-file failure is; rec["exit"] never changed; the push proceeds with or without the pair; the laptop's MLB
+closing takes the same hook under laptop/bulletins/". `python cli.py bulletin --closing-file|--slate-file <the kept
+file> --out-dir exports/bulletins`, bounded at BULLETIN_TIMEOUT_S; the receipt's `bulletin` {command, exit, seconds,
+tail[, error]}. No timer and no chain step of its own: the hooks ride the closing and slate runs that exist.
 """
 from __future__ import annotations
 
@@ -95,6 +103,7 @@ import hashlib
 import json
 import os
 import re
+import signal
 import sqlite3
 import subprocess
 import sys
@@ -134,6 +143,14 @@ MAX_ATTEMPTS = 3             # C2 / A6: at most three attempts for one start tim
 MANUAL_WINDOW_MIN = 90       # #370, accepted as built: a manual run targets the next unstarted start within 90 min
 PAGE_MAX_CHARS = 100         # C5: no line over 100 characters
 MIRROR_TIMEOUT_S = 90
+# THE BULLETIN HOOKS (ARCHITECT 2026-11-04, addendum 250 item 3; ARCHITECT 2026-11-10, addendum 321 item 2): the
+# render's bound (a render still running then is killed and is a failure: bulletin_failed), where the pairs go (the
+# mirror's kept subtree, bulletin.OUT_DIR: a test pins the two; this module never imports the renderer, which imports
+# it), and the code checkout whose cli.py the hook runs (sp_common.REPO's own rule: this file's checkout).
+BULLETIN_TIMEOUT_S = 90
+BULLETIN_OUT_DIR = "exports/bulletins"
+BULLETIN_TAIL_LINES = 4                  # the receipt keeps the console's last lines, redacted, each cut at 300
+CODE_ROOT = Path(__file__).resolve().parents[2]
 # A6 (MLB only): "the MLB feed" is the statsapi base the MLB adapter uses (a test pins the two together).
 FEED_BASE = "https://statsapi.mlb.com/api/v1"
 FEED_PROBE = FEED_BASE + "/sports/1"
@@ -159,7 +176,7 @@ CLOSING_HOLDS = (
 # with the same QB-flag / unread-list classification, never pooled with PLAY, never a position." As built: an NFL row
 # the Desk called PASS market-only (desk_policy.NFL_MARKET_ONLY_KIND) whose desk.market_only_hold.would_call is PLAY
 # carries `would_be` (would_be_for) while the registry does not read the NFL model certified (registry.certification_of
-# on nfl_predict.MODEL_VERSION, read once per run; an unread registry, a missing entry or a failed read is never judged
+# on family "NFL" and nfl_predict.MODEL_VERSION, addendum 299 item 3(a), read once per run; an unread registry, a missing entry or a failed read is never judged
 # certified, law 4, and never blocks the page). The summary block and the run receipt carry it
 # (the label, the would-be pick and units, the exec edge, the QB classification of the QB hold of 2026-10-11, its
 # tags_any, and "record only, not placed"); the phone page's text does NOT (ARCHITECT 2026-11-02 18:05 ET, addendum 223
@@ -576,6 +593,126 @@ def push_mirror(label: str = "closing") -> dict:
         return {"exit": None, "tail": [f"{type(e).__name__}: {e}"]}
 
 
+# ------------------------------------------------------------------------------------------ the bulletin hooks --
+# ARCHITECT 2026-11-04, addendum 250 item 3, verbatim: "It is called from TWO hooks in deploy/hosting/closing.py, each
+# as a subprocess under a try, AFTER the kept file exists and BEFORE the mirror push, so the push carries the
+# bulletins: the closing run between write_closing_file's success and push_mirror() (the page has gone out; rec["exit"]
+# is already 0 and is never changed by the render), and the slate stage between link_slate_file's success and
+# push_mirror("slate"). A render that fails or is refused is RECEIPTED (bulletin_failed / bulletin_refused, the
+# redacted error) and NOTIFIED as the closing-file failure is, and nothing else happens: the closing is never run again
+# for a bulletin, the page text is untouched, the push proceeds. MLB's laptop closing takes the same hook (closing-run
+# --family MLB) and pushes under laptop/bulletins/."
+# ARCHITECT 2026-11-10, addendum 321 item 2, verbatim: "THE HOOKS PR (step 1c) — OPEN IT, as #894's body item 1 shaped
+# it: (i) in the closing run, between write_closing_file's success and push_mirror(); (ii) in the slate stage, between
+# link_slate_file's success and push_mirror("slate"); each a subprocess of the command under a try; a failure or
+# refusal receipted bulletin_failed / bulletin_refused and notified as a closing-file failure is; rec["exit"] never
+# changed; the push proceeds with or without the pair; the laptop's MLB closing takes the same hook under
+# laptop/bulletins/; test 6(e) with them; the console's URL lines unchanged. No timer and no chain step of its own: the
+# hooks ride the closing and slate runs that exist."
+# As built: the pairs land under exports/bulletins/ (BULLETIN_OUT_DIR), the mirror's kept subtree, and the push that
+# follows (push_mirror: exports_mirror.py push --role <this machine's role>) carries them to <role>/bulletins/: the
+# laptop's MLB closing, role laptop, lands under laptop/bulletins/ with no code of its own.
+
+def _kill_group(p: subprocess.Popen) -> None:
+    """SIGKILL the render's whole process group (its own session: the child and anything it started), else the child."""
+    try:
+        if hasattr(os, "killpg"):
+            os.killpg(p.pid, signal.SIGKILL)
+        else:                                   # pragma: no cover - no process groups on this platform
+            p.kill()
+    except (ProcessLookupError, PermissionError, OSError):
+        pass
+
+
+def run_bulletin(argv: list[str]) -> tuple[int, str]:
+    """The hook's subprocess boundary (tests replace it): `python cli.py <argv>` of this code's checkout, in the
+    closing's checkout (cwd sp_common.REPO, where the closing file, the slate file and exports/bulletins/ are), its
+    output captured, cut at BULLETIN_TIMEOUT_S. (exit, console).
+    The render runs in its own session, so the bound kills its whole process group, never only the child: a process
+    the render started and left holding the output pipe would otherwise outlive the hook and hold the push to the
+    bound. A child that exited by the bound keeps its own exit (whatever it left behind is killed, the output drained);
+    one still running is killed with its group and subprocess.TimeoutExpired raised. Any other exception here
+    (an interrupt included) kills the group first: nothing the hook started outlives it."""
+    p = subprocess.Popen([sys.executable, str(CODE_ROOT / "cli.py"), *argv], cwd=c.REPO, stdout=subprocess.PIPE,
+                         stderr=subprocess.PIPE, text=True, start_new_session=True)
+    try:
+        out, err = p.communicate(timeout=BULLETIN_TIMEOUT_S)
+    except subprocess.TimeoutExpired:
+        exited = p.poll() is not None           # the child is done; something it left holds the pipe
+        _kill_group(p)
+        try:
+            out, err = p.communicate(timeout=5)
+        except subprocess.TimeoutExpired:       # a leftover that left the group still holds the pipe
+            p.kill()
+            out, err = "", ""
+        if not exited:
+            raise
+    except BaseException:
+        _kill_group(p)
+        raise
+    return p.returncode, (out or "") + (err or "")
+
+
+BULLETIN_REFUSED_MARK = "BULLETIN REFUSED"   # bulletin.run's refusal verdict line (exit 2) begins so
+
+
+def _bulletin_error(lines: list[str]) -> str | None:
+    """The render's own verdict line (bulletin.run's `BULLETIN REFUSED…` / `BULLETIN FAILED…`, already withheld by its
+    guard where it matched), else the console's last line (a traceback's exception line: a run that never reached
+    run()), redacted and cut at 300."""
+    said = [x for x in lines if x.startswith(("BULLETIN REFUSED", "BULLETIN FAILED"))]
+    pick = said[0] if said else (lines[-1] if lines else None)
+    return c.redact(pick)[:300] if pick else None
+
+
+def bulletin_hook(stage: str, path: str, fam: str, rec: dict, head: str, title: str | None = None) -> None:
+    """Addendum 250 item 3 / addendum 321 item 2: one `python cli.py bulletin --<stage>-file <path> --out-dir
+    exports/bulletins` (the kept file: the closing file just written, or the slate file just linked), a subprocess
+    under a try. Records rec["bulletin"] {command, exit (None: timed out or never ran), seconds, tail (the console's
+    last BULLETIN_TAIL_LINES, redacted)[, error]} and prints the render's console. Exit 0: nothing else. Exit 2 WITH
+    the render's own `BULLETIN REFUSED` verdict line (the guard, or an input it would not render):
+    rec["bulletin_refused"] True. Anything else: rec["bulletin_failed"] True. That includes another exit, the bound,
+    an exception, and an exit 2 without that line: Python that cannot open cli.py and click's usage error also exit
+    2, and a broken checkout or command is a failure, never a guard refusal. A refusal or a failure is notified as the closing-file failure is
+    (notify_failure: `head` names the run, "Closing <start>: PAGED" / "SLATE <FAMILY> <date>: LINKED"; `title` the
+    slate's notice title, None the closing's), receipted rec["bulletin_failure_notification"], one ✗ line printed.
+    NOTHING ELSE: rec["exit"] and rec["failed"] are never touched, nothing is run again, and the caller's push
+    proceeds whatever happened here. Never raises (the run's receipt line is written either way)."""
+    argv = ["bulletin", f"--{stage}-file", path, "--out-dir", BULLETIN_OUT_DIR]
+    b: dict = {"command": f"python cli.py {' '.join(argv)}", "exit": None}
+    try:
+        t0 = time.time()                      # the module's clock (the run's own; tests replace it)
+        try:
+            rc, out = run_bulletin(argv)
+            lines = [c.redact(x) for x in (out or "").splitlines() if x.strip()]
+            b.update(exit=rc, tail=[x[:300] for x in lines[-BULLETIN_TAIL_LINES:]])
+            for x in lines:
+                print(f"  {x}")
+            if rc != 0:
+                b["error"] = _bulletin_error(lines) or f"exit {rc}"
+        except subprocess.TimeoutExpired:
+            b.update(tail=[], error=f"timed out after {BULLETIN_TIMEOUT_S}s (killed)")
+        except BaseException as e:  # noqa: BLE001 - never into the run: its receipt line is written either way
+            b.update(tail=[], error=c.redact(f"{type(e).__name__}: {e}")[:300])
+        b["seconds"] = round(time.time() - t0, 1)
+        rec["bulletin"] = b
+        if b["exit"] == 0:
+            print(f"· bulletins ({stage}): exit 0 in {b['seconds']}s")
+            return
+        refused = b["exit"] == 2 and str(b.get("error") or "").startswith(BULLETIN_REFUSED_MARK)
+        word, key = ("REFUSED", "bulletin_refused") if refused else ("FAILED", "bulletin_failed")
+        rec[key] = True
+        why = f"exit {b['exit']}" if b["exit"] is not None else b["error"]
+        rec["bulletin_failure_notification"] = notify_failure(
+            f"{head}; bulletin {word} ({why}, {path}) · not run again", fam, title=title)
+        print(f"✗ bulletin {word} ({stage}): {b['error']} — receipted and notified; not run again, the push "
+              "proceeds")
+    except BaseException as e:  # noqa: BLE001 - the hook never fails the run it rides
+        rec.setdefault("bulletin", b)
+        rec["bulletin_failed"] = True
+        rec["bulletin"].setdefault("error", c.redact(f"{type(e).__name__}: {e}")[:300])
+
+
 def run_step(argv: list[str], run_id: str) -> tuple[int, list[str], float]:
     """(exit, the last console lines, seconds): sp_run's own step runner (`python cli.py <argv>` in the checkout)."""
     return sp_run.run_step(argv, run_id)
@@ -742,15 +879,15 @@ def hold_for(d: dict, fam: str) -> str | None:
 
 
 def nfl_certification() -> tuple[str, str]:
-    """The NFL model's certification as the registry reads it now (registry.certification_of on
-    nfl_predict.MODEL_VERSION, the id predict-nfl writes): "uncertified", "certified" or "unread". The page is a
-    money-path surface and this line is the record only: any failure to import or read degrades to ("unread", the
+    """The NFL model's certification as the registry reads it now (registry.certification_of on family "NFL" and
+    nfl_predict.MODEL_VERSION, the id predict-nfl writes; addendum 299 item 3(a)): "uncertified", "certified" or
+    "unread". The page is a money-path surface and this line is the record only: any failure to import or read degrades to ("unread", the
     exception's name), so the line prints labelled "certification not read" and can never block the page (law 4)."""
     try:
         _close_contract()                              # puts the repo root on sys.path
         from src.walters import registry
         from src.walters.nfl_predict import MODEL_VERSION
-        return registry.certification_of(MODEL_VERSION)
+        return registry.certification_of("NFL", MODEL_VERSION)      # addendum 299 item 3(a): family AND version
     except Exception as e:                             # noqa: BLE001  (never the page's failure)
         return "unread", type(e).__name__
 
@@ -1902,17 +2039,37 @@ def _closing(rec: dict, fam: str, s: datetime, covers: list[dict], folder: Path,
             srec["empty_answers"] = empty
             rec["injury_lists_empty"] = sorted(set(rec.get("injury_lists_empty", [])) | set(empty))
             print(f"· injury read answered empty (stored empty, read as unread): {'; '.join(empty)}")
-        if rc != 0:
-            srec["tail"] = tail[-3:]  # e.g. strict mode's "✗ STRICT: ..." lines (addendum 22)
+        held_codes = sp_run.sync_counts(tail).get("held")
+        held_read = None
+        if held_codes:                # SP_SYNC_HOLD (#921): the step wrote nothing, and the receipt says so
+            srec["held"] = held_codes
+            sh = rec.setdefault("sync_held", {"n": 0, "steps": []})
+            sh["n"] += 1
+            sh["steps"].append({"step": i, "command": line, "codes": held_codes})
+            if i <= reads:            # addendum 336 item 1: a held schedule read is a read that was not answered
+                held_read = f"schedule_held (SP_SYNC_HOLD {'/'.join(held_codes)})"
+            print(f"· HELD (SP_SYNC_HOLD) {'/'.join(held_codes)}: step {i} wrote nothing"
+                  + ("; the schedule read was not made, so it reads as not answered (A1): the run stops here and "
+                     "nothing is priced on the stored schedule" if held_read else ""), flush=True)
+        if rc != 0 or held_read:
+            srec["tail"] = tail[-3:]  # e.g. strict mode's "✗ STRICT: ..." lines (addendum 22), or the HELD line
         rec["steps"].append(srec)
-        if i <= reads and (i == reads or rc != 0 or said):
+        if i <= reads and (i == reads or rc != 0 or said or held_read):
             covers = leave_moved(rec, covers, s)       # Codex 4232307577: right after the schedule read
-        if rc != 0 or said:
+        # THE HELD CLOSING READ (ARCHITECT 2026-11-11 09:35 ET, addendum 336 item 1): "the CLOSING RUN, which already
+        # records the held step, treats a held A1 schedule read exactly as it treats an A1 read that was not answered
+        # today — the same path, the same receipt fields, the same notice, nothing new invented — with the cause named
+        # `schedule_held (SP_SYNC_HOLD <code>)`. It does not go on with the stored schedule to an export, a page or a
+        # push for that family." A1 is per family today (each family's closing covers one competition, and a read that
+        # did not answer fails the whole run), so a held read fails the family's run.
+        if rc != 0 or said or held_read:
             rec["failed"] = f"step {i}" + (" (reported failure, exit 0)" if said else "")
             if st[0] == "sync-injuries" and "--strict" in st and rc != 0:
                 rec["failed"] += " (strict: a read it needed failed)"
             elif i <= reads and rc != 0:
                 rec["failed"] += " (schedule read: a covered game the provider did not answer, A1)"
+            elif held_read:
+                rec["failed"] += f" (schedule read: {held_read}, A1)"
             return
         if i == reads and not covers:
             rec["failed"] = "start moved"
@@ -2042,6 +2199,9 @@ def _closing(rec: dict, fam: str, s: datetime, covers: list[dict], folder: Path,
             r = cf["replaced"]
             print(f"· a second page for this start time: it replaced {r['file']} of run {r['run_id']} (sha256 "
                   f"{r['sha256'][:12]}), kept as {r['kept_as']}")
+        # THE BULLETIN HOOK (addendum 250 item 3; addendum 321 item 2 (i)): "in the closing run, between
+        # write_closing_file's success and push_mirror()"; rec["exit"] stays 0, the push below proceeds either way
+        bulletin_hook("closing", cf["file"], fam, rec, f"Closing {_start_label(fam, rec.get('start'))}: PAGED")
     rec["push"] = push_mirror()
     print(f"· exports mirror ({mirror_role()}, closing): exit {rec['push']['exit']} "
           f"{' | '.join(rec['push']['tail'])}")
@@ -2523,6 +2683,45 @@ def slate_steps(fam: str, day: date, covers: list[dict], run_start: datetime, ru
     return steps
 
 
+# THE HELD SLATE'S LABEL (ARCHITECT 2026-11-11 10:15 ET, addendum 337 item 1, verbatim): "What is missing is the label
+# where the reader looks (law 4): the slate file and its page say "schedule not re-read: SP_SYNC_HOLD <code> —
+# kickoffs as stored" on a held family's rows." The rows key is SCHEDULE_NOTE_KEY; the page line is the same text.
+SCHEDULE_NOT_REREAD = "schedule not re-read: SP_SYNC_HOLD {codes} — kickoffs as stored"
+SCHEDULE_NOTE_KEY = "schedule_note"
+
+
+def label_held_rows(kept: str, doc: dict, codes: list) -> dict:
+    """Addendum 337 item 1: every row of a held family's slate export carries SCHEDULE_NOTE_KEY = the declared text.
+    The labelled document is written to a file of its own beside the kept export, logs/<kept stem>.schedule-note.json
+    (created once: an existing name is an error, never written over), and link_slate_file links THAT file into
+    exports/. The export step's kept file is never opened for writing (#442; addendum 133 item 3(a): "the logs/ copy
+    stays"), so `export_written` {file, sha256} still verifies. A slate covers one family, and its schedule read was
+    held, so no row of it was re-read. {file, text, rows, sha256} or {file, text, error}."""
+    text = SCHEDULE_NOT_REREAD.format(codes="/".join(codes))
+    rows = doc.get("predictions") or []
+    for r in rows:
+        if isinstance(r, dict):
+            r[SCHEDULE_NOTE_KEY] = text
+    src = c.REPO / kept
+    dest = src.with_name(f"{src.stem}.schedule-note{src.suffix}")
+    rel = str(Path(kept).with_name(dest.name))
+    tmp = dest.with_name(f".{dest.name}.tmp")
+    try:
+        c.refuse_under_data(dest.parent)
+        if dest.exists() or dest.is_symlink():
+            raise FileExistsError(f"{rel} already exists: never written a second time")
+        tmp.write_text(json.dumps(doc, indent=2))
+        os.link(tmp, dest)            # fails if the name appeared meanwhile: nothing is replaced
+        tmp.unlink()
+        return {"file": rel, "text": text, "rows": len(rows), "sha256": _sha256(dest)}
+    except (OSError, SystemExit) as e:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+        return {"file": rel, "text": text, "error": c.redact(f"{type(e).__name__}: {e}")[:300]}
+
+
 def link_slate_file(kept: str, name: str) -> dict:
     """Addendum 133 item 3(a): once the checks pass, "the run links the kept file into `exports/<slate file>` the way
     the closing writes its closing file (a hard link, then the rename over the name; receipted `slate_file` {file,
@@ -2590,7 +2789,7 @@ def calls_text(calls: dict) -> str:
 
 
 def slate_page_text(fam: str, day: date, rows: int, calls: dict, file: str, late: dict | None,
-                    beyond: int = 0, unit_unread: bool = False) -> tuple[str, str]:
+                    beyond: int = 0, unit_unread: bool = False, schedule_note: str | None = None) -> tuple[str, str]:
     """Item 2(a)'s page, the declared text: "SLATE <FAMILY> <YYYY-MM-DD>: <N> row(s) · PLAY <p> · PASS <q> ·
     exports/<file>" (addendum 133 item 3(c): `1 row` on a one-game day, rows_text). N and the calls count the ET day's
     games (addendum 133 item 4, item 8), and the rows beyond the day follow the counts, `· +<k> beyond the day` when
@@ -2598,9 +2797,13 @@ def slate_page_text(fam: str, day: date, rows: int, calls: dict, file: str, late
     whatever held it; addendum 137 item 2(4)) says so on the next line, the declared text of addendum 133 item 4, item 3: `LATE <m> min: due
     HH:MM ET, first tick HH:MM ET, run HH:MM ET` (the first tick: the earliest queued_at of the day's slate and
     slate_miss receipts, which says whether the laptop slept); an unread day's unit says UNIT_UNREAD_TEXT on a line of
-    its own (addendum 179 item 4, `unit_unread`); the machine's line last (addendum 45).
+    its own (addendum 179 item 4, `unit_unread`); the machine's line last (addendum 45). A held family's slate
+    (addendum 337 item 1, `schedule_note`) says SCHEDULE_NOT_REREAD on the line right after the SLATE line, before
+    the LATE line: 337 places the label "where the reader looks", and no ruling fixes the LATE line's position.
     Returns (title, body)."""
     lines = [f"SLATE {fam} {day.isoformat()}: {rows_text(rows)} · {calls_text(calls)}{beyond_text(beyond)} · {file}"]
+    if schedule_note:                 # addendum 337 item 1: a held family's slate says so where the reader looks
+        lines.append(schedule_note)
     if late:
         lines.append(f"LATE {late['minutes']} min: due {et(late['due'])[11:]}, first tick {et(late['tick'])[11:]}, "
                      f"run {et(late['run'])[11:]}")
@@ -2958,6 +3161,9 @@ def _slate_what(rec: dict) -> str:
             "export carries no desk calls": f"{rec.get('export')} carries no desk calls",
             "missing from export": f"missing from export ({rec.get('export')}): match "
                                    + ", ".join(str(m["match_id"]) for m in rec.get("missing") or []),
+            "slate rows not labelled": f"{rec.get('file')} rows not labelled ("
+                                       + str((rec.get("schedule_note") or {}).get("error") or "?").split(":")[0]
+                                       + ")",
             "slate file": f"{rec.get('file')} not linked ("
                           + str((rec.get("slate_file") or {}).get("error") or "?").split(":")[0] + ")",
             "push": f"mirror push (exit {(rec.get('push') or {}).get('exit')})",
@@ -3017,6 +3223,8 @@ def _slate(rec: dict, fam: str, day: date, covers: list[dict], folder: Path, hel
     logs = c.REPO / "logs"
     c.refuse_under_data(logs)
     logs.mkdir(parents=True, exist_ok=True)
+    reads = schedule_reads(steps)     # the slate's schedule reads (slate_steps is resolve_steps)
+    held_read: list = []              # addendum 337 item 1: the codes a held schedule read named
     for i, st in enumerate(steps, 1):
         line = f"python cli.py {' '.join(st)}"
         print(f"\n=== [{fam} slate {i}/{len(steps)}] {line}", flush=True)
@@ -3028,7 +3236,18 @@ def _slate(rec: dict, fam: str, day: date, covers: list[dict], folder: Path, hel
         empty = empty_answers(st, tail)
         if empty:                     # addendum 40 item 4
             srec["empty_answers"] = empty
-        if rc != 0:
+        held_codes = sp_run.sync_counts(tail).get("held")
+        if held_codes:                # SP_SYNC_HOLD (332 item 3: "a receipt line counts the held steps"), as a closing
+            srec["held"] = held_codes  # records it. Addendum 337 item 1: a held slate read does not fail the slate; it
+            sh = rec.setdefault("sync_held", {"n": 0, "steps": []})          # goes on, its rows and page labelled
+            sh["n"] += 1                                                       # (label_held_rows, SCHEDULE_NOT_REREAD)
+            sh["steps"].append({"step": i, "command": line, "codes": held_codes})
+            if i <= reads:
+                held_read += [x for x in held_codes if x not in held_read]
+            print(f"· HELD (SP_SYNC_HOLD) {'/'.join(held_codes)}: step {i} wrote nothing (recorded; the slate goes on"
+                  + ("; its rows and page say the schedule was not re-read, addendum 337 item 1" if i <= reads else "")
+                  + ")", flush=True)
+        if rc != 0 or held_codes:
             srec["tail"] = tail[-3:]
         rec["steps"].append(srec)
         if rc != 0 or said:
@@ -3058,22 +3277,36 @@ def _slate(rec: dict, fam: str, day: date, covers: list[dict], folder: Path, hel
     ids = {g["match_id"] for g in games}      # item 8: the counts are the ET day's games; the rest follow as +k
     rec["rows"], rec["calls"] = slate_calls(doc, ids)
     rec["beyond_day"] = beyond_day(doc, ids, day_void_ids(fam, day))
+    if held_read:                     # addendum 337 item 1: the label on the held family's rows, before the link
+        rec["schedule_note"] = label_held_rows(rec["export"], doc, held_read)
+        if rec["schedule_note"].get("error"):
+            rec["failed"] = "slate rows not labelled"
+            print(f"✗ slate rows NOT labelled: {rec['schedule_note']['error']} — nothing linked, pushed or paged")
+            return
+        print(f"· {rec['schedule_note']['text']} (on {rec['schedule_note']['rows']} row(s): "
+              f"{rec['schedule_note']['file']}, the export step's {rec['export']} kept as written)")
     # addendum 133 item 3(a): the checks passed: the kept file is linked into exports/<slate file> (the closing file's
     # write: a hard link, then the rename over the name), THEN the push, THEN the page
-    rec["slate_file"] = link_slate_file(rec["export"], Path(rec["file"]).name)
+    rec["slate_file"] = link_slate_file((rec.get("schedule_note") or {}).get("file") or rec["export"],
+                                        Path(rec["file"]).name)
     if rec["slate_file"].get("error"):
         rec["failed"] = "slate file"
         print(f"✗ slate file NOT linked: {rec['slate_file']['error']} — nothing pushed or paged; exports/ as it "
               "was")
         return
     print(f"· slate file: {rec['file']} (linked from {rec['export']}, sha256 {rec['slate_file']['sha256'][:12]})")
+    # THE BULLETIN HOOK (addendum 250 item 3; addendum 321 item 2 (ii)): "in the slate stage, between link_slate_file's
+    # success and push_mirror("slate")"; the slate's own outcome (rec["exit"], rec["failed"]) is never touched by it
+    bulletin_hook("slate", rec["slate_file"]["file"], fam, rec, f"SLATE {fam} {day.isoformat()}: LINKED",
+                  title=f"{fam} slate")
     rec["push"] = push_mirror("slate")
     print(f"· exports mirror ({mirror_role()}, slate): exit {rec['push']['exit']} {' | '.join(rec['push']['tail'])}")
     if rec["push"].get("exit") != 0:
         rec["failed"] = "push"
         return
     title, body = slate_page_text(fam, day, rec["rows"], rec["calls"], rec["file"], late, rec["beyond_day"],
-                                  unit_unread=export_unit_unread(doc, rec.get("unit")))
+                                  unit_unread=export_unit_unread(doc, rec.get("unit")),
+                                  schedule_note=(rec.get("schedule_note") or {}).get("text"))
     print(f"\n--- page ---\n{body}\n---")
     tries = []
     for n in range(1, PAGE_TRIES + 1):

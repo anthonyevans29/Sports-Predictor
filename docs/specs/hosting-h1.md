@@ -919,9 +919,9 @@ systemctl list-timers 'sp-*' --no-pager     # receipt: next-elapse for each
   rebuild); install `sp-availability-graph.service` and `sp-availability-graph.timer` under /etc/systemd/system/,
   `systemctl daemon-reload`, `systemctl start sp-availability-graph.service` (the first run, in the unit's own sandbox;
   its receipt: `journalctl -u sp-availability-graph` and the last line of logs/availability/graph/rebuild.jsonl),
-  `systemctl enable --now sp-availability-graph.timer`, then `echo sp-availability-graph.timer | sudo tee -a
-  /etc/sports-predictor/timers.enabled` (addendum 168 item 2), then `systemctl list-timers sp-availability-graph.timer`
-  (next elapse at 10:20 UTC). The graph file is deletable without loss (252 item 4): the next run rebuilds it whole.
+  `systemctl enable --now sp-availability-graph.timer`, then
+  `echo sp-availability-graph.timer | sudo tee -a /etc/sports-predictor/timers.enabled` (addendum 168 item 2), then
+  `systemctl list-timers sp-availability-graph.timer` (next elapse at 10:20 UTC). The graph file is deletable without loss (252 item 4): the next run rebuilds it whole.
 - `sp-nba-daily.timer` (ARCHITECT 2026-11-05, addendum 261 item 1(b): "the chain `nba-daily` [...] at a UTC minute
   off every existing timer (Code lists the timers and picks; my block enables it)"; daily 06:47 UTC): the NBA's
   market-only daily, three single-day `sync-matches` steps (`{yesterday}`, `{today}`, `{tomorrow}`, UTC; addendum

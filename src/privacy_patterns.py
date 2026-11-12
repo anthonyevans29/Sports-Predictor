@@ -110,7 +110,8 @@ _KEY_TAIL = "[\"']?\\s*(?:[:=#(\\u00d7x]\\s*)?(?:[\"']\\s*)?"
 # after its first underscore (the earliest start the old lookbehind allowed), never once per underscore. Its
 # underscore tail is found once per run by a lookahead: the key tail can follow a run of letters only at the run's end
 # (or one letter before it, an "x" separator), so a tail through the run's end is the same test as one through an
-# underscore after the word, read once, not once per "contract_" (18 s on 40,000 characters before).
+# underscore after the word, read once, not once per "contract_" (it was cubic: 15.8 s on 4,000 characters of
+# "contract_", 186 s on 9,000).
 CONTRACT_COUNT = re.compile("(?i)(?<![\\d,.])[,.]*\\d[\\d,.]*\\s*(?:-\\s*)?[a-z_]*contracts?(?![a-z0-9])"
                             "|(?<![a-z_])(?:(?<![0-9])|[a-z]*_)(?:[a-z_]*contracts?|(?=[a-z_]*?contracts?_)[a-z_]*)"
                             + _KEY_TAIL + "\\d"

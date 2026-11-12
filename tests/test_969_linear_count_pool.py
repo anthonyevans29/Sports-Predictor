@@ -88,6 +88,10 @@ def test_969_sixty_thousand_random_lines_read_as_before():
     ("CONTRACT_COUNT, 25,000 digit-comma pairs", "CONTRACT_COUNT", "1," * 25000),
     ("CONTRACT_COUNT, 25,000 digit-point pairs", "CONTRACT_COUNT", "1." * 25000),
     ("CONTRACT_COUNT, 50,000 Arabic-Indic digits", "CONTRACT_COUNT", "٣" * 50000),
+    # Two more digit scripts (the money-path review): a lookbehind listing ASCII and Arabic-Indic digits only, in place of
+    # \d, matches the same and is quadratic again on any other script (14 s on 20,000 fullwidth or Devanagari digits).
+    ("CONTRACT_COUNT, 50,000 fullwidth digits", "CONTRACT_COUNT", "\uff11" * 50000),
+    ("CONTRACT_COUNT, 50,000 Devanagari digits", "CONTRACT_COUNT", "\u0967" * 50000),
     # The dash's two runs of blanks (2.3 s on 20,000 before) and one run (6.7 s on 20,000 before).
     ("CONTRACT_COUNT, a digit, blanks, a dash, blanks", "CONTRACT_COUNT", "1" + " " * 25000 + "-" + " " * 25000 + "x"),
     ("CONTRACT_COUNT, a digit and 50,000 blanks", "CONTRACT_COUNT", "1" + " " * 50000 + "x"),
@@ -101,13 +105,15 @@ def test_969_sixty_thousand_random_lines_read_as_before():
     ("CONTRACT_COUNT, 50,000 underscores", "CONTRACT_COUNT", "_" * 50000),
     ("CONTRACT_COUNT, 50,000 underscores and a partial word", "CONTRACT_COUNT", "_" * 50000 + "contrac"),
     ("CONTRACT_COUNT, a digit and 50,000 underscores", "CONTRACT_COUNT", "1" + "_" * 50000),
-    # The key arm's underscore tail, once per run (18 s on 40,000 characters before).
+    # The key arm's underscore tail, once per run (cubic before: 15.8 s on 4,000 characters, 186 s on 9,000).
     ("CONTRACT_COUNT, contract_ 5,000 times", "CONTRACT_COUNT", "contract_" * 5000),
     ("CONTRACT_COUNT, contract_x 5,000 times", "CONTRACT_COUNT", "contract_x" * 5000),
     ("POOL, 50,000 digits", "POOL", "1" * 50000),
     ("POOL, 25,000 digit-comma pairs", "POOL", "1," * 25000),
     ("POOL, 25,000 digit-point pairs", "POOL", "1." * 25000),
     ("POOL, 50,000 Arabic-Indic digits", "POOL", "٣" * 50000),
+    ("POOL, 50,000 fullwidth digits", "POOL", "\uff11" * 50000),
+    ("POOL, 50,000 Devanagari digits", "POOL", "\u0967" * 50000),
 ])
 def test_969_the_measured_inputs_read_in_linear_time(name, pattern, text):
     t0 = time.perf_counter()

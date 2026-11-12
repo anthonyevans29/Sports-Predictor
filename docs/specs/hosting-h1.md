@@ -770,18 +770,22 @@ TIMERS="sp-backup.timer sp-backup-prune.timer sp-soccer-friday.timer sp-soccer-s
   sp-nhl-daily.timer sp-weekly-fullseason.timer sp-ncaa-market.timer sp-window.timer
   sp-mlb-history.timer sp-intl-daily.timer sp-exports-squash.timer sp-ncaa-schedule.timer
   sp-closing-watch.timer sp-cup-observe.timer sp-availability-daily.timer sp-nba-daily.timer
-  sp-tennis-daily.timer sp-availability-observe.timer sp-availability-graph.timer"
+  sp-availability-observe.timer"
 MLB_LAPTOP_ONLY="sp-mlb-morning.timer sp-mlb-preslate.timer sp-clv-capture.timer"   # NOT enabled: statsapi 406 on the DO ASN (H1b note)
+TIMERS_BY_BLOCK="sp-availability-graph.timer sp-tennis-daily.timer"   # NOT enabled by T11: each by the architect's own block once its prerequisite is met (addendum 351 item 2)
 echo $TIMERS | sudo tee /etc/sports-predictor/timers.enabled   # the list H2 steps 2 and 6 reuse
 systemctl enable --now sp-boot-receipt.service sp-web.service
 systemctl enable --now $TIMERS
 systemctl list-timers 'sp-*' --no-pager     # receipt: next-elapse for each
 ```
-- Every shipped timer is on `TIMERS` or `MLB_LAPTOP_ONLY`; CI checks it.
-- **`sp-availability-graph.timer` on a fresh host: an ORDER** (347 item 6(D): "the unit ships disabled, enabled by my
-  block"). Leave it out of the `systemctl enable --now $TIMERS` above and out of `timers.enabled` until the
-  architect's block below has installed `requirements-graph.txt` and made `logs/availability/graph`: without them its
-  unit cannot start (its one writable directory is missing) or refuses (no engine), and pages every day.
+- Every shipped timer is on exactly one of `TIMERS`, `MLB_LAPTOP_ONLY` and `TIMERS_BY_BLOCK`; CI checks it.
+- **`TIMERS_BY_BLOCK`** (ARCHITECT 2026-11-12 10:50 ET, addendum 351 item 2, verbatim in part): "shipped, never
+  enabled by T11's fresh-host line, enabled only by the architect's own block once its named prerequisite is met
+  (today: sp-availability-graph.timer — the engine installed and its directory made; sp-tennis-daily.timer — 288
+  item 5). T11's `systemctl enable --now` line and its timers.enabled write take `TIMERS` alone". Each timer on it
+  keeps its own recipe below, which ends with its `timers.enabled` line; sp_deploy's receipt counts the list's timers
+  not enabled as it counts `MLB_LAPTOP_ONLY`'s (held off by T11). The list replaces the ORDER note that kept
+  `sp-availability-graph.timer` out of T11's enable by hand.
 - **`sp-availability-daily.timer` on a fresh host: an ORDER** (259 item 2(c): "2025 IS IN SCOPE"). After
   `migrate_availability_record.py` and BEFORE the `systemctl enable --now $TIMERS` above, run the 2025 read
   (`sudo -u sp venv/bin/python cli.py availability-nflverse --season 2025`) and go on only on exit 0 with its rows
@@ -912,7 +916,8 @@ systemctl list-timers 'sp-*' --no-pager     # receipt: next-elapse for each
   OnFailure pages through `sp-notify@availability-graph`). The unit carries 347 item 5(b): no EnvironmentFile, `PrivateNetwork=yes`, `NoNewPrivileges=yes`, `ProtectSystem=strict`, the graph's directory the one writable path; because the sp user can still read what it owns, /etc/sports-predictor (host.env and an exports-mirror deploy key installed there) and data/ are inaccessible and the checkout's .env (config.py loads it on import) is /dev/null; `PrivateUsers=yes`, `ProtectProc=invisible` and `ProcSubset=pid` so another sp process's /proc/<pid>/environ and /proc/<pid>/root (its own unmasked view) are refused; `RestrictAddressFamilies=none` (PrivateNetwork leaves filesystem sockets reachable); `PrivateDevices=yes` and `PrivateIPC=yes` (no shared /dev/shm); /tmp and /var/tmp empty and read-only. The engine is HOST-ONLY (347 item
   5(a)): `requirements-graph.txt`, never requirements.txt; the laptop and CI do not install it. Its ENABLEMENT IS THE
   ARCHITECT'S BLOCK (347 item 6(D): "the unit ships disabled, enabled by my block"), after the deploy of the tag that
-  carries it; until then sp_deploy's receipt names it as a `TIMERS` timer not enabled. The commands the block runs, as
+  carries it; it is on T11's `TIMERS_BY_BLOCK` (351 item 2), so until then sp_deploy's receipt counts it there, held off by
+  T11. The commands the block runs, as
   Code names them (addendum 198 item 6(i): the block itself is the architect's): as `sp`, `venv/bin/pip install
   --require-hashes --only-binary :all: --no-deps -r requirements-graph.txt` (its line: `Successfully installed
   ladybug-0.22.3`; the wheel `ladybug-0.22.3-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl`, the hash in the
@@ -946,8 +951,9 @@ systemctl list-timers 'sp-*' --no-pager     # receipt: next-elapse for each
   timer's minute and off the five-minute marks of sp-window and sp-cup-observe (sp-closing-watch ticks every minute,
   its exemption by name), outside H0-3's buffer, after nba-daily (06:47; the lock waits if it still runs) and before
   intl-daily's 07:20 coverage write. Enabling it is the architect's TERMINAL (host) block, after the deploy of the tag
-  that carries it (the roadmap's 12-28 step: "the chain's timer enabled by the architect's block"); until then
-  sp_deploy's receipt names it as a `TIMERS` timer not enabled. The block's shape (the recipe ends with the
+  that carries it (the roadmap's 12-28 step: "the chain's timer enabled by the architect's block"); it is on T11's
+  `TIMERS_BY_BLOCK` (351 item 2), so until then sp_deploy's receipt counts it there, held off by T11. The block's
+  shape (the recipe ends with the
   timers.enabled line, addendum 168 item 2):
   ```
   sudo install -m 0644 deploy/hosting/systemd/sp-tennis-daily.timer /etc/systemd/system/

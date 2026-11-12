@@ -873,16 +873,18 @@ def test_the_deploy_receipt_names_the_shipped_timers_the_host_has_not_enabled(tm
     lists = c.t11_lists()
     st = sp_deploy.timers_state(enabled_path=_enabled(tmp_path, [t for t in lists["TIMERS"]
                                                                  if t != "sp-ncaa-schedule.timer"]))
-    assert st["not_enabled"] == sorted(["sp-ncaa-schedule.timer", *lists["MLB_LAPTOP_ONLY"]])
-    assert st["by_list"] == {"TIMERS": ["sp-ncaa-schedule.timer"], "MLB_LAPTOP_ONLY": sorted(lists["MLB_LAPTOP_ONLY"])}
+    assert st["not_enabled"] == sorted(["sp-ncaa-schedule.timer", *lists["MLB_LAPTOP_ONLY"], *lists["TIMERS_BY_BLOCK"]])
+    assert st["by_list"] == {"TIMERS": ["sp-ncaa-schedule.timer"], "MLB_LAPTOP_ONLY": sorted(lists["MLB_LAPTOP_ONLY"]),
+                             "TIMERS_BY_BLOCK": sorted(lists["TIMERS_BY_BLOCK"])}
     line = sp_deploy.timers_line(st)
     assert line.startswith("\n  ! shipped timers not in ") and "sp-ncaa-schedule.timer (TIMERS)" in line
     assert "install and enable it" in line
     # the host as T11 leaves it: only the list T11 holds off is not enabled -> a plain line, no "!", counted not named
     # (ARCHITECT 2026-10-28, #725: "the deploy's timers line must name only the TIMERS timers missing")
     ok = sp_deploy.timers_state(enabled_path=_enabled(tmp_path, lists["TIMERS"]))
-    assert ok["by_list"].keys() == {"MLB_LAPTOP_ONLY"}
-    assert sp_deploy.timers_line(ok) == f"\n  · shipped timers not in {c.TIMERS_ENABLED}: 3 on MLB_LAPTOP_ONLY (held off by T11)"
+    assert ok["by_list"].keys() == {"MLB_LAPTOP_ONLY", "TIMERS_BY_BLOCK"}      # 351 item 2: counted as MLB's are
+    assert sp_deploy.timers_line(ok) == (f"\n  · shipped timers not in {c.TIMERS_ENABLED}: 3 on MLB_LAPTOP_ONLY (held off "
+                                         "by T11) · 2 on TIMERS_BY_BLOCK (held off by T11)")
     every = sp_deploy.timers_state(enabled_path=_enabled(tmp_path, c.shipped_timers()))
     assert every["not_enabled"] == [] and "every shipped timer is in" in sp_deploy.timers_line(every)
 
@@ -931,17 +933,20 @@ V160_T11_LISTS = ("TIMERS", "MLB_LAPTOP_ONLY", "HELD_FOR_CUTOVER")
 
 
 def test_the_t11_lists_are_read_from_the_real_runbook_as_it_holds_them():
-    """Pinned to docs/specs/hosting-h1.md as it is now: two lists, in this order, and nothing else."""
+    """Pinned to docs/specs/hosting-h1.md as it is now: three lists, in this order, and nothing else (ARCHITECT
+    2026-11-12, addendum 351 item 2: TIMERS_BY_BLOCK, shipped and enabled only by the architect's own block)."""
     lists = c.t11_lists()
-    assert list(lists) == ["TIMERS", "MLB_LAPTOP_ONLY"] == list(c.T11_LISTS)
+    assert list(lists) == ["TIMERS", "MLB_LAPTOP_ONLY", "TIMERS_BY_BLOCK"] == list(c.T11_LISTS)
     assert {"sp-nfl-prematch.timer", "sp-cup-observe.timer", "sp-closing-watch.timer"} <= set(lists["TIMERS"])
     # 18 + sp-availability-daily.timer (252 item 3(a)) + sp-nba-daily.timer (261 item 1(b)) + sp-tennis-daily.timer
     # (261 item 2(c), lane tennis-market-only) + sp-availability-observe.timer (252 item 3(b); addendum 340 item 3)
-    # + sp-availability-graph.timer (252 item 4; addendum 347 items 5 and 6(D))
-    assert len(lists["TIMERS"]) == 23
-    assert lists["TIMERS"][-5:] == ["sp-availability-daily.timer", "sp-nba-daily.timer", "sp-tennis-daily.timer",
-                                    "sp-availability-observe.timer", "sp-availability-graph.timer"]
+    # + sp-availability-graph.timer (252 item 4; addendum 347 items 5 and 6(D)); addendum 351 item 2 moves
+    # sp-tennis-daily.timer and sp-availability-graph.timer to TIMERS_BY_BLOCK
+    assert len(lists["TIMERS"]) == 21
+    assert lists["TIMERS"][-3:] == ["sp-availability-daily.timer", "sp-nba-daily.timer",
+                                    "sp-availability-observe.timer"]
     assert lists["MLB_LAPTOP_ONLY"] == ["sp-mlb-morning.timer", "sp-mlb-preslate.timer", "sp-clv-capture.timer"]
+    assert lists["TIMERS_BY_BLOCK"] == ["sp-availability-graph.timer", "sp-tennis-daily.timer"]
     assert sp_cutover.runbook_timers() == lists["TIMERS"]
 
 
@@ -950,7 +955,7 @@ def test_a_runbook_without_a_list_the_code_once_named_or_with_an_extra_one_reads
     file holds is still read; a list the code never named (v1.6.0's HELD_FOR_CUTOVER, read by today's code) too."""
     monkeypatch.setattr(c, "T11_LISTS", V160_T11_LISTS)
     lists = c.t11_lists()
-    assert list(lists) == ["TIMERS", "MLB_LAPTOP_ONLY"] and "sp-cup-observe.timer" in lists["TIMERS"]
+    assert list(lists) == ["TIMERS", "MLB_LAPTOP_ONLY", "TIMERS_BY_BLOCK"] and "sp-cup-observe.timer" in lists["TIMERS"]
     monkeypatch.undo()
     v160 = _t11_repo(tmp_path, 'TIMERS="sp-a.timer\n  sp-c.timer"\n'
                                'MLB_LAPTOP_ONLY="sp-b.timer"   # NOT enabled: statsapi 406 on the DO ASN (H1b note)\n'
@@ -961,7 +966,8 @@ def test_a_runbook_without_a_list_the_code_once_named_or_with_an_extra_one_reads
     st = sp_deploy.timers_state(repo=v160, enabled_path=_enabled(tmp_path, ["sp-a.timer", "sp-c.timer"]))
     assert st["by_list"] == {"MLB_LAPTOP_ONLY": ["sp-b.timer"], "HELD_FOR_CUTOVER": ["sp-new.timer"]}
     assert sp_deploy.timers_line(st) == (f"\n  · shipped timers not in {c.TIMERS_ENABLED}: 1 on MLB_LAPTOP_ONLY "
-                                         "(held off by T11) · 1 on HELD_FOR_CUTOVER (held off by T11)")
+                                         "(held off by T11) · 1 on HELD_FOR_CUTOVER (held off by T11) "
+                                         "(hosting-h1.md T11 holds no TIMERS_BY_BLOCK list)")   # 351 item 2's list
 
 
 def test_the_timers_line_for_the_v1_6_1_host_names_only_the_two_timers_timers(tmp_path, monkeypatch):
@@ -974,27 +980,27 @@ def test_the_timers_line_for_the_v1_6_1_host_names_only_the_two_timers_timers(tm
     # tag carrying them would print
     # and sp-availability-observe.timer (252 item 3(b), addendum 340 item 3), shipped on TIMERS after them, and
     # sp-availability-graph.timer (252 item 4; addendum 347 items 5 and 6(D)), after it
+    # (addendum 351 item 2 then moves sp-tennis-daily.timer and sp-availability-graph.timer to TIMERS_BY_BLOCK: counted,
+    # held off by T11, never named)
     host = [t for t in lists["TIMERS"] if t not in ("sp-nfl-prematch.timer", "sp-cup-observe.timer",
-                                                     "sp-nba-daily.timer", "sp-tennis-daily.timer",
-                                                     "sp-availability-observe.timer", "sp-availability-graph.timer")]
+                                                     "sp-nba-daily.timer", "sp-availability-observe.timer")]
     path = _enabled(tmp_path, [*host, "sp-nfl-predict.timer"])
     # v1.6.1's 17, plus sp-availability-daily.timer: shipped after v1.6.1 (addendum 252 item 3(a)), on TIMERS, and
     # enabled in this reconstruction so the line reads v1.6.1's two missing timers, sp-nba-daily.timer and
     # sp-tennis-daily.timer alone
     assert len(path.read_text().split()) == 18 and "sp-availability-daily.timer" in host
-    want = (f"\n  ! shipped timers not in {c.TIMERS_ENABLED}: sp-availability-graph.timer, "
-            "sp-availability-observe.timer, sp-cup-observe.timer, "
-            "sp-nba-daily.timer, "
-            "sp-nfl-prematch.timer, sp-tennis-daily.timer (TIMERS) · 3 on MLB_LAPTOP_ONLY (held off by T11) — a TIMERS timer not enabled: "
-            "install and enable it by hosting-h1.md T11's recipe for a live host")
+    want = (f"\n  ! shipped timers not in {c.TIMERS_ENABLED}: "
+            "sp-availability-observe.timer, sp-cup-observe.timer, sp-nba-daily.timer, "
+            "sp-nfl-prematch.timer (TIMERS) · 3 on MLB_LAPTOP_ONLY (held off by T11) · 2 on TIMERS_BY_BLOCK (held off "
+            "by T11) — a TIMERS timer not enabled: install and enable it by hosting-h1.md T11's recipe for a live host")
     st = sp_deploy.timers_state(enabled_path=path)
-    assert st["by_list"] == {"TIMERS": ["sp-availability-graph.timer", "sp-availability-observe.timer",
-                                        "sp-cup-observe.timer", "sp-nba-daily.timer",
-                                        "sp-nfl-prematch.timer",
-                                        "sp-tennis-daily.timer"],
-                             "MLB_LAPTOP_ONLY": sorted(lists["MLB_LAPTOP_ONLY"])} and "error" not in st
+    assert st["by_list"] == {"TIMERS": ["sp-availability-observe.timer", "sp-cup-observe.timer", "sp-nba-daily.timer",
+                                        "sp-nfl-prematch.timer"],
+                             "MLB_LAPTOP_ONLY": sorted(lists["MLB_LAPTOP_ONLY"]),
+                             "TIMERS_BY_BLOCK": sorted(lists["TIMERS_BY_BLOCK"])} and "error" not in st
     line = sp_deploy.timers_line(st)
-    assert line == want and not any(t in line for t in lists["MLB_LAPTOP_ONLY"]) and "unlisted" not in line
+    assert line == want and not any(t in line for t in [*lists["MLB_LAPTOP_ONLY"], *lists["TIMERS_BY_BLOCK"]])
+    assert "unlisted" not in line
     monkeypatch.setattr(c, "T11_LISTS", V160_T11_LISTS)
     old = sp_deploy.timers_state(enabled_path=path)
     assert old["by_list"] == st["by_list"] and old["lists_absent"] == ["HELD_FOR_CUTOVER"]
@@ -1055,19 +1061,20 @@ def test_a_runbook_whose_t11_block_holds_no_timers_list_is_loud(tmp_path):
     repo = _t11_repo(tmp_path, 'ENABLE="sp-a.timer sp-c.timer sp-new.timer"\nMLB_LAPTOP_ONLY="sp-b.timer"\n')
     st = sp_deploy.timers_state(repo=repo, enabled_path=_enabled(tmp_path, []))
     assert st["by_list"] == {"ENABLE": ["sp-a.timer", "sp-c.timer", "sp-new.timer"], "MLB_LAPTOP_ONLY": ["sp-b.timer"]}
-    assert st["lists_absent"] == ["TIMERS"] and "error" not in st
+    assert st["lists_absent"] == ["TIMERS", "TIMERS_BY_BLOCK"] and "error" not in st
     assert sp_deploy.timers_line(st) == (f"\n  ! shipped timers not in {c.TIMERS_ENABLED}: 3 on ENABLE (held off by "
                                          "T11) · 1 on MLB_LAPTOP_ONLY (held off by T11) (hosting-h1.md T11 holds no "
-                                         "TIMERS list)")
+                                         "TIMERS list) (hosting-h1.md T11 holds no TIMERS_BY_BLOCK list)")
     every = sp_deploy.timers_state(repo=repo, enabled_path=_enabled(tmp_path, [f"sp-{n}.timer" for n in
                                                                               ("a", "b", "c", "new")]))
     assert sp_deploy.timers_line(every) == (f"\n  ! timers: every shipped timer is in {c.TIMERS_ENABLED} "
-                                            "(hosting-h1.md T11 holds no TIMERS list)")
+                                            "(hosting-h1.md T11 holds no TIMERS list) (hosting-h1.md T11 holds no "
+                                            "TIMERS_BY_BLOCK list)")
     # a retired list that is not TIMERS leaves the line as it was: "✓" with nothing missing, the list noted
     held = _t11_repo(tmp_path / "held", 'TIMERS="sp-a.timer sp-b.timer sp-c.timer sp-new.timer"\n')
     assert sp_deploy.timers_line(sp_deploy.timers_state(repo=held, enabled_path=tmp_path / "timers.enabled")) == (
         f"\n  ✓ timers: every shipped timer is in {c.TIMERS_ENABLED}"
-        " (hosting-h1.md T11 holds no MLB_LAPTOP_ONLY list)")
+        " (hosting-h1.md T11 holds no MLB_LAPTOP_ONLY list) (hosting-h1.md T11 holds no TIMERS_BY_BLOCK list)")
 
 
 def test_the_cutover_still_refuses_a_runbook_without_timers(tmp_path, monkeypatch):

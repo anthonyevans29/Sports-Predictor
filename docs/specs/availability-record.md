@@ -953,7 +953,8 @@ under the source clock are exactly its stamped rows). Pinned equal, row by row, 
 clock)` for each clock on the randomized histories.
 
 **The graph.** Node keys are the record's own identities (`player_key`, `team_key`, `match_key`: the source's id or text,
-ours only where the source gave none), per source; our ids ride along as columns from `mapped_now`.
+ours only where the source gave none), per sport and source (one source's id in two sports is two nodes, #944); our
+ids ride along as columns, each from the latest assertion that carries one.
 - `Player(key, source, source_player_id, name, player_id)`, `Team(key, source, source_team, team_id, name)` (the name from
   our teams table where the team maps), `Game(key, source, source_match_id, match_id, competition, season, kickoff,
   status, home_team_id, away_team_id)` (the columns from our matches where the game maps; a source-keyed game carries its
@@ -963,7 +964,7 @@ ours only where the source gave none), per source; our ids ride along as columns
   `source_stamp`, `game` (the game's key, where the assertion names one), `attrs` (JSON text), the recorded clock's
   interval (`rec_interval` = its opening assertion, `rec_start`, `rec_end`, `rec_closed_by`, `rec_why`), the source
   clock's (`src_*`, NULL where the row carries no source stamp), `backfilled`, `post_hoc`.
-- `ASSERTED` (Observation to Player), one per assertion; `IN_GAME` (Team to Game, the side's text), one per pair an
+- `ASSERTED` (Observation to Player), one per assertion; `IN_GAME` (Team to Game, the side's text from the latest assertion that gives one, #944), one per pair an
   assertion names; `ABOUT` (Observation to Game), the games an observation's assertions name, else its own match.
 - Timestamps are naive UTC (the engine drops an offset without converting it, so the rebuild converts first).
 
@@ -976,7 +977,9 @@ through its mode=ro + immutable=1 session; the copy is byte-identical after a ru
 the 256 MB buffer pool the rebuild sets), loaded by COPY with `PARALLEL=FALSE` (the parallel CSV reader refuses a
 quoted newline, and the record keeps whatever text its source gave: one such name would fail every rebuild), closed, re-opened read-only and counted (a read-write open
 rewrites the file's bytes), moved onto `--out` by `os.replace` only when every count equals what was staged; the staging
-directory is removed whatever the outcome, a SIGTERM (the unit's stop or timeout) included. One run at a time (a lock
+directory is removed whatever the outcome, a SIGTERM (the unit's stop or timeout) included; through that cleanup a SIGTERM is
+deferred, so a signal during it never turns a committed run into a failure (#944), and it is re-delivered once the
+previous handler is back, after the run's line is written (Codex on #952). One run at a time (a lock
 beside the graph; a second run is refused). One line of `rebuild.jsonl` beside the graph per run: ok (the counts, the
 graph's sha256 and size, the copy and its sha256), refused or error; a refused `--out` writes nothing at all, and a
 SIGKILL (MemoryMax) writes no line and leaves its staging, which the next run removes and names on its own line. A copy

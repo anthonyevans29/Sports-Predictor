@@ -182,7 +182,9 @@ def writer_of_record() -> str | None:
 # sp_deploy's receipt names the shipped timers the host has not enabled. The third list, HELD_FOR_CUTOVER
 # (sp-closing-watch.timer, addendum 45 P3), is retired: the timer moved to TIMERS at the cutover (ARCHITECT 2026-10-26,
 # addendum 168 item 5). T11_LISTS is the lists this code expects; t11_lists reads the lists the file holds (#725).
-T11_LISTS = ("TIMERS", "MLB_LAPTOP_ONLY")
+# ARCHITECT 2026-11-12 10:50 ET, addendum 351 item 2: TIMERS_BY_BLOCK, shipped and never enabled by T11's fresh-host
+# line, each enabled only by the architect's own block once its named prerequisite is met.
+T11_LISTS = ("TIMERS", "MLB_LAPTOP_ONLY", "TIMERS_BY_BLOCK")
 TIMERS_ENABLED = Path("/etc/sports-predictor/timers.enabled")
 _T11_HEAD = re.compile(r"^\*\*T11\.", re.M)
 _RUNBOOK_STEP = re.compile(r"^\*\*T\d+[a-z]?\.", re.M)            # T10b, T12b are steps too

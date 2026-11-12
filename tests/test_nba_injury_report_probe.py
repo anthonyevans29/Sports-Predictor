@@ -578,3 +578,17 @@ def test_r7_a_page_that_parses_to_no_line_says_so_never_nothing_to_quote(capsys,
     _, out, tail, _ = run(capsys, ["--terms-url", TERMS], terms_pages())
     assert "the page parsed to 0 lines: NOT READ" in out and "NOTHING TO QUOTE" not in out
     assert tail["exit"] == probe.FAILED
+
+
+# ---- the eighth pass (on ccd70940), the one P1 under addendum 360 item 2(b): a line dropped from the RECEIPT -----------
+
+def test_r8_every_robots_line_is_in_the_receipt_past_the_console_cap(capsys, tmp_path):
+    robots = "User-agent: *\n" + "".join(f"Allow: /p{i}\n" for i in range(420)) + "User-agent: *\nDisallow: /injury-report/\n"
+    pages = {**terms_pages(), "https://terms.example.invalid/robots.txt": (200, robots.encode(), {})}
+    out_file = tmp_path / "r.json"
+    code = probe.main(["--terms-url", TERMS, "--out", str(out_file)], get=Fake(pages))
+    out = capsys.readouterr().out
+    assert "not printed (cap 400); every line is in the --out receipt" in out
+    rec = json.loads(out_file.read_text())
+    lines = rec["robots"]["text_lines"]
+    assert len(lines) == 423 and lines[-1] == {"line": 423, "text": "Disallow: /injury-report/"}

@@ -402,8 +402,11 @@ def terms_phase(a, say: Out, fetch: Fetcher) -> tuple[int, dict]:
         for ln in lines[:ROBOTS_LINES]:
             say(f"  | {ln}")
         if len(lines) > ROBOTS_LINES:
-            say(f"  ... and {len(lines) - ROBOTS_LINES} more line(s), not printed (cap {ROBOTS_LINES})")
-        rec["robots"].update(lines=len(lines), sha256=hashlib.sha256(body).hexdigest())
+            say(f"  ... and {len(lines) - ROBOTS_LINES} more line(s), not printed (cap {ROBOTS_LINES}); every line is in "
+                "the --out receipt")
+        # every line, as served (addendum 360 item 2(b): a line dropped from the receipt is a P1)
+        rec["robots"].update(lines=len(lines), sha256=hashlib.sha256(body).hexdigest(),
+                             text_lines=[{"line": k + 1, "text": ln} for k, ln in enumerate(lines)])
     say("\nTERMS PHASE ONLY (addendum 357 item 3(a)): no index page and no report was fetched. The report phase "
         "(--report) runs only after the architect's ruling on this console.")
     return worst, rec

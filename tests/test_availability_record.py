@@ -734,7 +734,9 @@ def test_the_lane_is_in_the_roadmap_with_no_competitions_and_no_moved_date():
     assert "competitions" not in ln and ln["moved"] == [] and ln["earliest_live"] is None
     assert [(st["owner"], st["due"]) for st in ln["steps"]] == [
         ("code", "2026-11-10"), ("code", "2026-11-12"), ("architect", "2026-11-14"), ("code", "2026-11-17"),
-        ("code", "2026-11-20"), ("code", "2026-11-21"), ("code", "2026-11-25")]
+        ("code", "2026-11-20"), ("code", "2026-11-21"),
+        ("code", "2026-11-24"),          # the NBA injury-report probe, an added step (ARCHITECT 2026-11-12, 357 item 4)
+        ("code", "2026-11-25")]
     assert rm.validate(doc) == []
 
 

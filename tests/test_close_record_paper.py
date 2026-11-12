@@ -222,7 +222,7 @@ def test_the_whole_section_and_the_console():
         "_The bar a college or cup candidate is scored against (roadmap: \"no college candidate has been scored against "
         "a close\"). Per competition, the FINISHED games of the last 30 days on the kickoff in this machine's DB that "
         "have a decided result and a close; every line names its close kind, and the two kinds never pool. close: "
-        "kalshi_only two-way (NHL, NCAA, NBA, ATP, WTA; tennis decided by Kalshi's settlement): the mid of the last "
+        "kalshi_only two-way (NHL, NCAA, NBA, NCAAMB, ATP, WTA; tennis decided by Kalshi's settlement): the mid of the last "
         "two-sided Kalshi HOME quote before kickoff within the 2c "
         "spread cap (src/walters/close.py close_from_kalshi); the favourite is the side the close prices above the "
         "other. close: kalshi three-way (one capture, normalized) (CL, and each other market-only three-way "
@@ -240,6 +240,7 @@ def test_the_whole_section_and_the_console():
         "- NHL · close: kalshi_only two-way · close log-loss — · favourite — · n=0 · finished 0; left out: none\n"
         "- NCAA · close: kalshi_only two-way · close log-loss — · favourite — · n=0 · finished 0; left out: none\n"
         "- NBA · close: kalshi_only two-way · close log-loss — · favourite — · n=0 · finished 0; left out: none\n"
+        "- NCAAMB · close: kalshi_only two-way · close log-loss — · favourite — · n=0 · finished 0; left out: none\n"
         "- ATP · close: kalshi_only two-way · close log-loss — · favourite — · n=0 · finished 0; left out: none\n"
         "- WTA · close: kalshi_only two-way · close log-loss — · favourite — · n=0 · finished 0; left out: none\n"
         "- CL · close: kalshi three-way (one capture, normalized) · close log-loss — · favourite — · n=0 · finished 0; "
@@ -247,7 +248,7 @@ def test_the_whole_section_and_the_console():
         "  - CL · close: kalshi three-way · unpriced 0: last capture incomplete 0 (a leg missing or one-sided; no older "
         "capture substituted); last capture over the cap 0 (no older capture substituted); no capture 0\n")
     assert paper.close_record_console(rec, 30) == ("the close's record (PAPER; 30 days): kalshi_only two-way: NHL n=0 · "
-                                                   "NCAA n=0 · NBA n=0 · ATP n=0 · WTA n=0; kalshi three-way (one capture, "
+                                                   "NCAA n=0 · NBA n=0 · NCAAMB n=0 · ATP n=0 · WTA n=0; kalshi three-way (one capture, "
                                                    "normalized): CL n=0 "
                                                    "(unpriced 0)")
 
@@ -270,7 +271,7 @@ def test_results_tally_places_it_after_unl_before_the_footer_and_reports_it(tmp_
             "is its own)") in txt
     assert f"- NHL · {TWO_KIND} · close log-loss {-math.log(0.605):.4f} · favourite 1/1 (100.0%) · n=1 · finished 1" \
         in txt
-    assert ("the close's record (PAPER; 30 days): kalshi_only two-way: NHL n=1 · NCAA n=0 · NBA n=0 · ATP n=0 · WTA n=0; "
+    assert ("the close's record (PAPER; 30 days): kalshi_only two-way: NHL n=1 · NCAA n=0 · NBA n=0 · NCAAMB n=0 · ATP n=0 · WTA n=0; "
             "kalshi three-way "
             "(one capture, normalized): CL n=0 (unpriced 0)") in said
 
@@ -287,7 +288,7 @@ def test_results_tally_scores_the_close_over_its_own_days(tmp_path):
     results_tally(days=40, out_path=str(out), report=said.append, exports_dir=str(tmp_path / "none"))
     assert f"- NHL · {TWO_KIND} · close log-loss {-math.log(0.605):.4f} · favourite 1/1 (100.0%) · n=1 · finished 1" \
         in out.read_text()
-    assert ("the close's record (PAPER; 40 days): kalshi_only two-way: NHL n=1 · NCAA n=0 · NBA n=0 · ATP n=0 · WTA n=0; "
+    assert ("the close's record (PAPER; 40 days): kalshi_only two-way: NHL n=1 · NCAA n=0 · NBA n=0 · NCAAMB n=0 · ATP n=0 · WTA n=0; "
             "kalshi three-way "
             "(one capture, normalized): CL n=0 (unpriced 0)") in said
 
@@ -303,7 +304,7 @@ def test_read_only_and_never_a_call(tmp_path):
     txt = paper.close_record_section(rec, 30)
     assert (hashlib.sha256(db.read_bytes()).hexdigest(), db.stat().st_mtime_ns) == before
     body = [x for x in txt.splitlines() if x.startswith("- ")]
-    assert len(body) == 6                              # NHL, NCAA, NBA, ATP, WTA (addendum 261 item 0), CL
+    assert len(body) == 7                              # NHL, NCAA, NBA, NCAAMB, ATP, WTA (261 item 0; 352 item 2), CL
     for word in ("call", "units", "PLAY", "order"):
         assert not any(word in x for x in body), word
     for word in ("units", "PLAY", "order"):

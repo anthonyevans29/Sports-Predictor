@@ -138,9 +138,11 @@ def test_a_missing_or_non_int_style_season_refuses_before_any_call(season):
 
 
 def test_only_the_nba_is_served_and_league_12_must_be_named_exactly_nba():
+    """NCAAMB is served since addendum 352 item 2 (its own test below); "NCAA" (football's code), NHL and WNBA are
+    refused before any call."""
     fake = FakeProvider()
     a = adapter_with(fake)
-    for code in ("NCAAMB", "NCAA", "NHL", "WNBA"):
+    for code in ("NCAA", "NHL", "WNBA"):
         with pytest.raises(Refused, match=f"competition '{code}' is not served by api_basketball"):
             a.list_matches(code, season="2026")
     assert fake.calls == []
@@ -366,8 +368,10 @@ def test_registry_competition_and_cli_routing():
     assert isinstance(get_adapter(source="api_basketball"), APIBasketballAdapter)
     assert cli._sport_for_competition("NBA") == "basketball" and cli._sport_for_competition("nba") == "basketball"
     assert cli._sport_for_competition("NHL") == "nhl" and cli._sport_for_competition("PL") == "soccer"
-    (c,) = APIBasketballAdapter().list_competitions(Sport.BASKETBALL)
-    assert (c.code, c.source, c.source_id, c.sport) == ("NBA", "api_basketball", "12", Sport.BASKETBALL)
+    assert cli._sport_for_competition("NCAAMB") == "basketball" and cli._sport_for_competition("NCAA") == "nfl"
+    comps = APIBasketballAdapter().list_competitions(Sport.BASKETBALL)              # NCAAMB beside it (352 item 2)
+    assert [(c.code, c.source, c.source_id, c.sport) for c in comps] == [
+        ("NBA", "api_basketball", "12", Sport.BASKETBALL), ("NCAAMB", "api_basketball", "116", Sport.BASKETBALL)]
     assert APIBasketballAdapter().list_competitions(Sport.NHL) == []
 
 
@@ -395,9 +399,15 @@ def test_the_bootstrap_plans_the_nba_kalshi_sync_only_when_the_reference_holds_b
     without = bootstrap.plan({"games": nhl})
     assert without[-5:] == block and ["sync-kalshi-nba"] not in without
     with_nba = bootstrap.plan({"games": nhl + nba})
-    assert with_nba[-6:] == block + [["sync-kalshi-nba"]]
+    assert with_nba[-6:] == block + [["sync-kalshi-nba"]] and ["sync-kalshi-ncaamb"] not in with_nba
     assert with_nba.index(["sync-matches", "--competition", "NBA", "--season", "2026"]) < with_nba.index(
         ["sync-kalshi-nba"])
+    # NCAAMB (352 item 2): its own sync, only for a reference that holds NCAAMB rows; never the other's
+    ncaamb = [{"sport": "BASKETBALL", "comp": "NCAAMB", "season": "2026", "status": "SCHEDULED"}]
+    only = bootstrap.plan({"games": nhl + ncaamb})
+    assert only[-6:] == block + [["sync-kalshi-ncaamb"]] and ["sync-kalshi-nba"] not in only
+    both = bootstrap.plan({"games": nhl + nba + ncaamb})
+    assert both[-7:] == block + [["sync-kalshi-nba"], ["sync-kalshi-ncaamb"]]
 
 
 # ---- the three syncs, end to end through the CLI (throwaway DB) -----------------------------------------------------
@@ -471,3 +481,24 @@ def test_a_refused_season_stores_nothing(monkeypatch, nba_rows):
     with session_scope() as s:
         assert s.query(Match).filter(Match.sport == Sport.BASKETBALL).count() == 0
     assert [c[0] for c in fake.calls] == ["leagues"]
+
+
+# ---- NCAA men's basketball (ARCHITECT 2026-11-12, addendum 352 items 2-3) ------------------------------------------------
+
+def test_352_ncaamb_is_league_116_by_its_exact_served_name_and_never_ncaa():
+    """352 item 2: "the adapter's `"NCAAMB": (116, "NCAA")` with the football paths untouched and every check on that
+    code an exact match". The served name is 'NCAA' (#839's receipt); our code is NCAAMB. League 116 served under any
+    other name, or twice, refuses; 'NCAA Women' (423) is not ours."""
+    from src.adapters.api_basketball import LEAGUES
+    assert LEAGUES == {"NBA": (12, "NBA"), "NCAAMB": (116, "NCAA")}
+    served = FakeProvider(leagues=[league(), league(lid=116, name="NCAA"), league(lid=423, name="NCAA Women")],
+                          teams={"2026-2027": [team(5001), team(5002)]})
+    a = adapter_with(served)
+    assert a.provider_season("NCAAMB", "2026") == "2026-2027"
+    assert len(a.list_teams("NCAAMB", "2026")) == 2
+    assert served.calls[-1] == ("teams", {"league": 116, "season": "2026-2027"})
+    women = adapter_with(FakeProvider(leagues=[league(lid=116, name="NCAA Women")]))
+    with pytest.raises(Refused, match="names league 116 'NCAA Women', not 'NCAA'"):
+        women.provider_season("NCAAMB", "2026")
+    with pytest.raises(Refused, match="competition 'NCAA' is not served by api_basketball"):
+        a.provider_season("NCAA", "2026")

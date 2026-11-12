@@ -719,6 +719,21 @@ def test_the_t11_lists_the_shipped_timers_and_the_schedule_table_agree():
 
 
 
+
+def test_a_timers_by_block_timers_schedule_row_names_its_list_and_never_timers():
+    """#953 (Codex on #952, round 3): #952 moved sp-tennis-daily.timer to TIMERS_BY_BLOCK and its Schedule row still
+    said "Shipped on `TIMERS`; the architect's TERMINAL (host) block enables it (T11, below)", the opposite of T11's
+    executable block. Every TIMERS_BY_BLOCK timer's row names that list and says nothing of being on `TIMERS`."""
+    lists = c.t11_lists()
+    rb = (ROOT / "docs" / "specs" / "hosting-h1.md").read_text()
+    table = rb[rb.index("### Schedule"):]
+    table = table[:table.index("\n\n", table.index("| Timer |"))]
+    rows = {m.group(1): m.group(0) for m in re.finditer(r"^\| (sp-[\w-]+) \|.*$", table, re.M)}
+    for timer in lists["TIMERS_BY_BLOCK"]:
+        row = rows[timer[:-len(".timer")]]
+        assert "TIMERS_BY_BLOCK" in row, timer
+        assert not re.search(r"on `?TIMERS`?(?!_)", row), (timer, row)
+
 # ------------------------------- the prediction timers, retired (ARCHITECT 2026-10-25, addendum 166 item 6(B)) ----
 # "(B) THE TIMERS RETIREMENT PR [...] addendum 126 item 2(d) rules the host's fixed-time PREDICTION timers retired by
 # the cutover. Law 1 first: enumerate from deploy/hosting/chains.py what each of sp-nfl-predict, sp-soccer-friday and
@@ -884,7 +899,7 @@ def test_the_deploy_receipt_names_the_shipped_timers_the_host_has_not_enabled(tm
     ok = sp_deploy.timers_state(enabled_path=_enabled(tmp_path, lists["TIMERS"]))
     assert ok["by_list"].keys() == {"MLB_LAPTOP_ONLY", "TIMERS_BY_BLOCK"}      # 351 item 2: counted as MLB's are
     assert sp_deploy.timers_line(ok) == (f"\n  · shipped timers not in {c.TIMERS_ENABLED}: 3 on MLB_LAPTOP_ONLY (held off "
-                                         "by T11) · 2 on TIMERS_BY_BLOCK (held off by T11)")
+                                         "by T11) · 3 on TIMERS_BY_BLOCK (held off by T11)")
     every = sp_deploy.timers_state(enabled_path=_enabled(tmp_path, c.shipped_timers()))
     assert every["not_enabled"] == [] and "every shipped timer is in" in sp_deploy.timers_line(every)
 
@@ -946,7 +961,8 @@ def test_the_t11_lists_are_read_from_the_real_runbook_as_it_holds_them():
     assert lists["TIMERS"][-3:] == ["sp-availability-daily.timer", "sp-nba-daily.timer",
                                     "sp-availability-observe.timer"]
     assert lists["MLB_LAPTOP_ONLY"] == ["sp-mlb-morning.timer", "sp-mlb-preslate.timer", "sp-clv-capture.timer"]
-    assert lists["TIMERS_BY_BLOCK"] == ["sp-availability-graph.timer", "sp-tennis-daily.timer"]
+    assert lists["TIMERS_BY_BLOCK"] == ["sp-availability-graph.timer", "sp-tennis-daily.timer",
+                                        "sp-ncaamb-daily.timer"]       # addendum 352 item 3(iii)
     assert sp_cutover.runbook_timers() == lists["TIMERS"]
 
 
@@ -991,7 +1007,7 @@ def test_the_timers_line_for_the_v1_6_1_host_names_only_the_two_timers_timers(tm
     assert len(path.read_text().split()) == 18 and "sp-availability-daily.timer" in host
     want = (f"\n  ! shipped timers not in {c.TIMERS_ENABLED}: "
             "sp-availability-observe.timer, sp-cup-observe.timer, sp-nba-daily.timer, "
-            "sp-nfl-prematch.timer (TIMERS) · 3 on MLB_LAPTOP_ONLY (held off by T11) · 2 on TIMERS_BY_BLOCK (held off "
+            "sp-nfl-prematch.timer (TIMERS) · 3 on MLB_LAPTOP_ONLY (held off by T11) · 3 on TIMERS_BY_BLOCK (held off "
             "by T11) — a TIMERS timer not enabled: install and enable it by hosting-h1.md T11's recipe for a live host")
     st = sp_deploy.timers_state(enabled_path=path)
     assert st["by_list"] == {"TIMERS": ["sp-availability-observe.timer", "sp-cup-observe.timer", "sp-nba-daily.timer",

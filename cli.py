@@ -44,7 +44,7 @@ def _sport_for_competition(code: str) -> str:
         return "nfl"
     if code.upper() == "NHL":  # NHL phase 1, 2026-09-23
         return "nhl"
-    if code.upper() == "NBA":  # addendum 271 item 3 (lane basketball-market-only): the api_basketball adapter
+    if code.upper() in ("NBA", "NCAAMB"):  # addendum 271 item 3; NCAAMB, 352 item 2: the api_basketball adapter
         return "basketball"
     if code.upper() in ("ATP", "WTA"):  # addendum 261 item 2(c), 269 items 1-3 (lane tennis-market-only): kalshi_tennis
         return "tennis"
@@ -6786,6 +6786,34 @@ def sync_kalshi_nba_cmd():
                       f"(ambiguous {r.get('ambiguous')}) · in-play {r.get('in_play')} ")
     else:                                   # the sync answers with a reason, as for NHL (addendum 54 item 4(a))
         console.print(f"[yellow]✗ Kalshi NBA: {r.get('reason')}[/yellow]")
+        if r.get("sports_available"):
+            console.print(f"  Kalshi sports: {', '.join(r['sports_available'][:12])}")
+
+
+@cli.command("sync-kalshi-ncaamb")
+def sync_kalshi_ncaamb_cmd():
+    """Pull open Kalshi NCAA men's basketball game markets (KXNCAAMBGAME) and store snapshots.
+
+    ARCHITECT 2026-11-12, addendum 352 item 2 (lane basketball-market-only, #839; 261 item 1(c)) and addendum 353 item
+    2: the series READ from Kalshi's own listing by the operator (2026-11-12T15:36Z; venue.KALSHI_SERIES_BY_COMPETITION),
+    the shared two-sided matcher, as sync-kalshi-nba: the event's two names fit one stored NCAAMB game one each; the
+    event's day is the date in its ticker read as a US Eastern day, and a game is on it when our stored kickoff (the
+    served timestamp, never the provider's date string), read in US Eastern, falls on that date or a day either side;
+    occurrence_datetime places nothing and refuses nothing (addendum 44 item 1; addendum 52 item 4). A game with a
+    non-Division-I side has no market and is never paired; ambiguity is refused by its sentinel and counted.
+    Market-only: no model, no call; the prices feed the PAPER record and the close's record. Its fee M is
+    KALSHI_FEE_M's (1.0, 1.0), RULED in addendum 353 item 2 on that listing's read."""
+    from src.ingestion.kalshi_sync import sync_kalshi_mlb
+    from src.db.schema import Sport
+    r = sync_kalshi_mlb(progress=lambda m: console.print(m),
+                        sport=Sport.BASKETBALL, series_override="KXNCAAMBGAME")
+    if r.get("ok"):
+        console.print(f"[green]✓ Kalshi NCAAMB: {r.get('stored', 0)} prices stored[/green]")
+        console.print(f"  series {r.get('series')} · {r.get('markets')} markets · "
+                      f"matched {r.get('matched')} · unmatched {r.get('unmatched')} "
+                      f"(ambiguous {r.get('ambiguous')}) · in-play {r.get('in_play')} ")
+    else:                                   # the sync answers with a reason, as for NBA and NHL (addendum 54 item 4(a))
+        console.print(f"[yellow]✗ Kalshi NCAAMB: {r.get('reason')}[/yellow]")
         if r.get("sports_available"):
             console.print(f"  Kalshi sports: {', '.join(r['sports_available'][:12])}")
 

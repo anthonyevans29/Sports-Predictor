@@ -66,7 +66,8 @@ def test_the_print_on_the_ruled_day_lists_each_lane_in_order_with_its_next_step(
     assert lines[i] == (f"{first['title']} · #{first['issue']} · {first['state']} · earliest live "
                         f"{first['earliest_live'] or 'not set'} · vs close: {first['vs_close']}")
     nxt = first["steps"][0]
-    assert lines[i + 1] == f"  next: {nxt['what']} · {nxt['owner']} · due {nxt['due']} · in 29 days"
+    days = (date.fromisoformat(nxt["due"]) - date(2026, 10, 13)).days     # read from the file: its dates move by ruling
+    assert lines[i + 1] == f"  next: {nxt['what']} · {nxt['owner']} · due {nxt['due']} · in {days} days"
     # done since addendum 168 item 5 (the H2 cutover, 2026-10-26 13:45:11Z): the line says done whatever the day
     assert "  Cutover ~Oct 8 · 2026-10-30 · done 2026-10-26" in lines
     # done since addendum 154 item 3 (ruled 2026-10-20, addendum 146): the line says done whatever the day
@@ -504,7 +505,8 @@ def test_a_cleared_earliest_live_has_its_moved_line_with_now_null():
 def test_a_moved_line_must_carry_now_even_when_it_is_null():
     doc = _broken(lambda d: _lane(d, "unl")["moved"].append(
         {"moved_on": "2026-11-12", "which": "earliest_live", "was": "2026-11-12", "why": "w", "ruling": "r"}))
-    assert any(e.startswith("lane 'unl' moved 1: missing now") for e in rm.validate(doc))
+    k = len(_lane(_real(), "unl")["moved"]) + 1                         # the appended line, after the real file's own
+    assert any(e.startswith(f"lane 'unl' moved {k}: missing now") for e in rm.validate(doc))
 
 
 def test_the_real_taxonomy_writes_every_due_on_key():

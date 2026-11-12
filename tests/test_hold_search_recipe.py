@@ -84,11 +84,30 @@ def test_a_held_timer_is_marked_never_printed_as_running(search, code):
     assert ln.endswith(" · sp-tennis-daily.timer (on THE HELD LIST: not enabled on the host)"), ln
 
 
+def test_ncaamb_prints_its_held_timer_marked_never_as_a_live_trigger(search):
+    """#956, ruled (b) by ARCHITECT 2026-11-12 12:25 ET, addendum 356 item 2: "a `TIMERS_BY_BLOCK` timer is on THE HELD
+    LIST from the merge that ships it until my block enables it; the enabling block's addendum takes it off."
+    sp-ncaamb-daily entered when #957 merged, so a hold on NCAAMB never names it as running."""
+    ln = chain(search("NCAAMB"), "ncaamb-daily")
+    assert ln.startswith("ncaamb-daily: sync-matches --competition NCAAMB "), ln
+    assert ln.endswith(" · sp-ncaamb-daily.timer (on THE HELD LIST: not enabled on the host)"), ln
+
+
+def test_the_held_line_and_the_held_table_name_the_same_timers():
+    """The recipe's HELD= line copies THE HELD LIST's table by name (addendum 323 item 1), so neither drifts."""
+    rb = RUNBOOK.read_text(encoding="utf-8")
+    held = re.search(r'^ *HELD="([^"]*)"', rb, re.M).group(1).split()
+    sec = rb[rb.index("  - **THE HELD LIST (addendum 323 item 1).**"):]
+    sec = sec[:sec.index("    - **Lifted:")]
+    rows = re.findall(r"^    \| `(sp-[a-z0-9-]+\.timer)` \|", sec, re.M)
+    assert held and sorted(held) == sorted(rows), (held, rows)
+
+
 def test_every_held_timer_printed_is_marked(search):
     rb = RUNBOOK.read_text(encoding="utf-8")
     held = re.search(r'^ *HELD="([^"]*)"', rb, re.M).group(1).split()
     assert held, "the held list is empty"
-    for code in ("ATP", "WTA", "MLB", "NCAA", "PL", "NFL", "UNL"):
+    for code in ("ATP", "WTA", "NCAAMB", "MLB", "NCAA", "PL", "NFL", "UNL"):
         for ln in search(code):
             for t in held:
                 if t in ln:

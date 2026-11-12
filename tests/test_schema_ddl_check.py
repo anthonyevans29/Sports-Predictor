@@ -244,7 +244,8 @@ def test_review_a_copied_or_renamed_migration_is_not_new(repo, how):
         with (repo / "migrate_teams_city.py").open("a") as fh:          # a rename with an edit, not a byte copy
             fh.write("# the PR's note\n")
         _commit(repo)
-        why = "renamed from migrate_old.py: sp_deploy treats it as already run"
+        why = ("migration history unknown: migrate_old.py deleted in the PR's range, so sp_deploy's plan runs none "
+               "of the new migrations")                             # a move is a delete + add: the lineage rule
     code, out = _check(repo)
     assert code == ddl.REFUSED, out
     assert f"  NOT NEW  migrate_teams_city.py: {why}" in out and "new migrate_*.py in this PR: none" in out
@@ -294,3 +295,49 @@ def test_contributing_states_the_limits():
     assert "scripts/schema_ddl_check.py" in text and "addendum 358 item 2" in text
     assert "DDL outside `Base.metadata`" in text and "a backfill with no DDL change" in text
     assert "the merge base" in text and "byte copy" in text
+
+
+def test_codex_968_a_migration_added_then_renamed_inside_the_pr_is_not_new(repo):
+    """Codex on #968: added as migrate_a.py in one commit, renamed to migrate_b.py in the next. The endpoint diff
+    shows only migrate_b.py added; sp_deploy's plan sees migrate_a.py deleted in the range, so lineage is unknown and it
+    runs nothing. The check reads the range's history the same way."""
+    _commit(repo, ADD_COLUMN, {"migrate_a.py": '"""#950 test: a."""\n'}, msg="add migrate_a")
+    _git(repo, "mv", "migrate_a.py", "migrate_b.py")
+    _commit(repo, msg="rename to migrate_b")
+    code, out = _check(repo)
+    assert code == ddl.REFUSED, out
+    assert ("  NOT NEW  migrate_b.py: migration history unknown: migrate_a.py deleted in the PR's range, so "
+            "sp_deploy's plan runs none of the new migrations") in out
+
+
+def test_two_new_migrations_with_the_same_content_are_not_new(repo):
+    """sp_deploy leaves two identical new migrations undetermined (one one-shot would run twice)."""
+    _commit(repo, ADD_COLUMN, {"migrate_x.py": '"""same"""\n', "migrate_y.py": '"""same"""\n'})
+    code, out = _check(repo)
+    assert code == ddl.REFUSED and "the same content as another new migration" in out, out
+
+
+@pytest.mark.parametrize("how", ["untracked", "staged"])
+def test_codex_968_the_working_tree_mode_counts_an_uncommitted_migration(repo, how):
+    """Codex on #968: without --head the working tree is compiled, so its uncommitted migration counts too, untracked
+    or staged (the documented local run before a commit)."""
+    (repo / "src" / "db" / "schema.py").write_text(ADD_COLUMN)
+    (repo / "migrate_teams_city.py").write_text('"""#950 test: calls the idempotent migration."""\n')
+    if how == "staged":
+        _git(repo, "add", "migrate_teams_city.py")
+    lines = []
+    assert ddl.run("base", None, say=lines.append, cwd=repo) == ddl.OK, lines
+    assert lines[-1] == "SCHEMA: PASS (1 changed, 0 added; the PR ships migrate_teams_city.py)", lines
+    lines = []                                                      # --head HEAD still reads only the commits
+    assert ddl.run("base", "HEAD", say=lines.append, cwd=repo) == ddl.OK, lines   # (nothing committed: unchanged)
+
+
+def test_codex_968_an_uncommitted_deletion_of_a_migration_makes_lineage_unknown(repo):
+    _commit(repo, files={"migrate_old.py": '"""old"""\n'}, msg="an older migration")
+    _git(repo, "tag", "-f", "base")
+    (repo / "src" / "db" / "schema.py").write_text(ADD_COLUMN)
+    (repo / "migrate_old.py").unlink()
+    (repo / "migrate_new.py").write_text('"""new"""\n')
+    lines = []
+    assert ddl.run("base", None, say=lines.append, cwd=repo) == ddl.REFUSED, lines
+    assert any("migrate_old.py deleted in the PR's range" in ln for ln in lines), lines

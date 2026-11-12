@@ -64,10 +64,12 @@ This project runs on laws earned from incidents. They are not optional.
     lengths dropped). An object changed or added, on an existing table or a new one, with no new top-level
     `migrate_*.py` in the PR, refuses. A comment-only edit, or a change SQLite compiles the same, never trips it. An
     object removed from the metadata is printed as information (the live DB keeps it). The base is compiled at the
-    merge base, so a PR behind its base is not asked for the base's own later changes. A new file that is a byte copy
-    of a migration already on the base, or a renamed migration, does not count: the deploy's plan never runs it.
-    Editing an existing migration does not count either. Run it locally with
-    `python scripts/schema_ddl_check.py --base origin/main`.
+    merge base, so a PR behind its base is not asked for the base's own later changes. "New" is read as the deploy's
+    plan reads it: a byte copy of a migration already on the base, a renamed migration, two new files with the same
+    content, and every new file when any migration is deleted anywhere in the PR's history (lineage unknown) do not
+    count, since the plan runs none of them. Editing an existing migration does not count either. Run it locally with
+    `python scripts/schema_ddl_check.py --base origin/main`: the working tree is compiled, and its uncommitted
+    migration files (staged, unstaged or untracked) count.
   - **Its stated limits** (358 item 2): it sees only what `Base.metadata` compiles, so **DDL outside
     `Base.metadata`** (raw SQL in a migration or anywhere else) is not seen; and **a data change that needs a backfill
     with no DDL change** is not seen. Both stay the author's to name in the PR, with the deploy's `!` line behind them.

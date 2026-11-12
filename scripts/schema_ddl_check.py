@@ -132,12 +132,31 @@ def compare(base: dict, head: dict) -> dict[str, list[str]]:
             "removed": sorted(base.keys() - head.keys())}
 
 
-def new_migrations(merge_base: str, head: str, cwd: Path = ROOT) -> tuple[list[str], dict[str, str]]:
+def _names(text: str) -> set[str]:
+    return {p.strip() for p in text.splitlines() if MIGRATION_NAME.match(p.strip())}
+
+
+def new_migrations(merge_base: str, head: str, cwd: Path = ROOT, worktree: bool = False
+                   ) -> tuple[list[str], dict[str, str]]:
     """(the top-level migrate_*.py files the PR adds, {added name: why it does not count}), merge base .. head, as
-    sp_deploy's plan reads them: a byte copy of a migration on the merge base, or a renamed one, is a copy that already
-    ran (the plan never runs it), so it is not new. An edited existing migration is not added, so not new."""
-    out = git("diff", "--name-only", "--no-renames", "--diff-filter=A", merge_base, head, cwd=cwd)
-    added = sorted(p for p in out.splitlines() if MIGRATION_NAME.match(p))
+    sp_deploy.migration_plan reads them:
+      - a byte copy of a migration on the merge base, or a renamed one, already ran: the plan never runs it;
+      - two new files with the same content: the plan leaves both undetermined (one one-shot would run twice);
+      - ANY migration deleted anywhere in the range's history (a move shows as delete + add): the plan's lineage is
+        unknown and it runs none of the new ones, so none counts here (Codex on #968: an add-then-rename inside the
+        PR leaves only the new name in the endpoint diff);
+      - an edited existing migration is not added, so not new.
+    worktree=True (no --head): the working tree is what was compiled, so its uncommitted files count too: staged or
+    unstaged additions and deletions against HEAD, and untracked files (Codex on #968)."""
+    added = _names(git("diff", "--name-only", "--no-renames", "--diff-filter=A", merge_base, head, cwd=cwd))
+    deleted = _names(git("log", "-m", "--no-renames", "--diff-filter=D", "--name-only", "--format=",
+                         f"{merge_base}..{head}", cwd=cwd))
+    if worktree:
+        added |= _names(git("diff", "--name-only", "--no-renames", "--diff-filter=A", head, cwd=cwd))
+        added |= _names(git("ls-files", "--others", "--exclude-standard", cwd=cwd))
+        deleted |= _names(git("diff", "--name-only", "--no-renames", "--diff-filter=D", head, cwd=cwd))
+        added = {n for n in added if (cwd / n).is_file()}
+    added = sorted(added)
     if not added:
         return [], {}
     old = {}                                                        # blob -> name, the merge base's own migrations
@@ -147,17 +166,28 @@ def new_migrations(merge_base: str, head: str, cwd: Path = ROOT) -> tuple[list[s
         if len(parts) == 3 and parts[1] == "blob" and MIGRATION_NAME.match(name):
             old[parts[2]] = name
     renamed = {}
-    for ln in git("diff", "--name-status", "-M", "--diff-filter=R", merge_base, head, cwd=cwd).splitlines():
+    rename_args = ["diff", "--name-status", "-M", "--diff-filter=R", merge_base] + ([] if worktree else [head])
+    for ln in git(*rename_args, cwd=cwd).splitlines():
         f = ln.split("\t")
         if len(f) == 3 and MIGRATION_NAME.match(f[1]) and MIGRATION_NAME.match(f[2]):
             renamed[f[2]] = f[1]
+
+    def blob(name: str) -> str:
+        if worktree:
+            return git("hash-object", "--", name, cwd=cwd).strip()
+        return git("rev-parse", f"{head}:{name}", cwd=cwd).strip()
+    blobs = {name: blob(name) for name in added}
     excluded = {}
     for name in added:
-        blob = git("rev-parse", f"{head}:{name}", cwd=cwd).strip()
-        if blob in old:
-            excluded[name] = f"a byte copy of {old[blob]}, already on the base: sp_deploy never runs it"
+        if deleted:
+            excluded[name] = (f"migration history unknown: {', '.join(sorted(deleted))} deleted in the PR's range, so "
+                              "sp_deploy's plan runs none of the new migrations")
+        elif blobs[name] in old:
+            excluded[name] = f"a byte copy of {old[blobs[name]]}, already on the base: sp_deploy never runs it"
         elif name in renamed:
             excluded[name] = f"renamed from {renamed[name]}: sp_deploy treats it as already run"
+        elif sum(1 for b in blobs.values() if b == blobs[name]) > 1:
+            excluded[name] = "the same content as another new migration: sp_deploy leaves both undetermined"
     return [n for n in added if n not in excluded], excluded
 
 
@@ -179,7 +209,7 @@ def run(base: str, head: str | None, say=print, cwd: Path | None = None) -> int:
             export_tree(head_sha, h, cwd)
         a, z = compile_objects(b), compile_objects(h)
     d = compare(a, z)
-    migs, not_new = new_migrations(mb, head_sha, cwd)
+    migs, not_new = new_migrations(mb, head_sha, cwd, worktree=head is None)
     say(f"SCHEMA DDL CHECK (#950; addendum 358 item 2, scope B) · base {base} {base_sha[:8]} (merge base {mb[:8]}) · "
         f"head {head or 'this working tree'} {head_sha[:8]} · objects: base {len(a)}, head {len(z)}")
     for k in d["changed"]:

@@ -1,4 +1,4 @@
-## 2026-11-12 (#000: 947-check-db-unreadable — #942's follow-up (Codex round 3, two P2s): the `--db` fence refuses a data/ root or a `--db` it cannot stat, instead of reading either as absent.)
+## 2026-11-12 (#977: 947-check-db-unreadable — #942's follow-up (Codex round 3, two P2s): the `--db` fence refuses a data/ root or a `--db` it cannot stat, instead of reading either as absent.)
 - **`src/walters/mlb_pitchers_gate.py`, `_data_tree`:** `os.path.lexists(data)` swallowed every `OSError`, so a data/ (or a parent of it) that could not be read read as absent, and no identity check ran. The fix is `os.lstat(data)`:
   - `FileNotFoundError` and `NotADirectoryError` mean nothing is there, as before.
   - Any other `OSError` refuses through the walk's own `unreadable`, naming the path.

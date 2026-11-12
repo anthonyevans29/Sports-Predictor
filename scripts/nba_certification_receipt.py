@@ -43,8 +43,9 @@ status vocabulary, the true-zero nulls, the stored phase on a .backup copy)"), w
     NCAAMB team ids equal to a stored NBA team id, printed as a count with the ids if any; a non-zero count stops the
     load and comes to me". Team lookup is by sport, source and provider id (src/ingestion/service.py), not by
     competition, so a shared id would link an NCAAMB game to an NBA team row. SERVED (no database): the served NCAAMB
-    /teams ids against the NBA's served /teams ids for the seasons the NBA stores (NBA_STORED_SEASONS; the provider ids
-    the NBA's rows store). STORED: the team rows linked to both competitions (competition_teams and the matches' sides)
+    /teams ids AND every /games side id (a side /teams does not list is still looked up, and linked where a stored row
+    carries its id) against the NBA's served /teams ids for the seasons the NBA stores (NBA_STORED_SEASONS; the
+    provider ids the NBA's rows store). STORED: the team rows linked to both competitions (competition_teams and the matches' sides)
     on the copy. Either non-zero: "STOP", exit 3.
 
 Exit: 0 every read answered; 1 a call failed; 2 a read REFUSED (no key, a season not served or not ruled, a league
@@ -243,7 +244,10 @@ def season_report(ours: str, served, team_items: list, game_items: list, say, no
     say(f"    league.season other than {v(served)}: {counts(season_off)}")
     say(f"    timestamp and date string name different instants: {len(ts_off)}"
         + (f": {', '.join(map(str, ts_off))}" if ts_off else ""))
-    say(f"    a side not in this season's /teams (sync-matches would skip it): {len(off_list)}"
+    # service._find_team_by_source reads sport, source and provider id, no competition (352 item 3(v)): a side
+    # /teams does not list is LINKED to any stored basketball row carrying its id, and skipped only when none does
+    say(f"    a side not in this season's /teams (sync-matches links it to any stored basketball team carrying its "
+        f"provider id, else skips it): {len(off_list)}"
         + (f": {', '.join(map(str, off_list))}" if off_list else ""))
     say(f"    not read by the adapter: not an object {not_objects} · no id {no_id} · no team id {len(no_team)} · "
         f"no readable kickoff {len(no_kick)}")
@@ -252,7 +256,8 @@ def season_report(ours: str, served, team_items: list, game_items: list, say, no
         "canc": len(canc), "canc_twins": dict(classes), "ft_twin_excluded": sorted(excluded, key=str),
         "games": len(keep), "games_by_status": dict(by_status), "coverage_basis": basis,
         "unmapped": dict(unmapped), "status_absent": absent, "finished_null_totals": len(fin_null),
-        "off_teams": len(off_list), "team_ids": sorted(team_ids, key=str)}
+        "off_teams": len(off_list), "team_ids": sorted(team_ids, key=str),
+        "side_ids": sorted({i for r in rows for i in (r["home_id"], r["away_id"]) if i is not None}, key=str)}
 
 
 def served_phase(seasons: list[str], adapter, say, comp: str = COMPETITION) -> tuple[int, dict]:
@@ -312,12 +317,17 @@ def served_phase(seasons: list[str], adapter, say, comp: str = COMPETITION) -> t
 
 
 def served_collision(adapter, out: dict, say) -> int:
-    """352 item 3(v), the SERVED half of the stop: the NCAAMB /teams ids this run read, against the NBA's served /teams
+    """352 item 3(v), the SERVED half of the stop: the NCAAMB /teams ids this run read and every /games side id
+    (sync-matches looks each side up by provider id with no competition scope), against the NBA's served /teams
     ids for NBA_STORED_SEASONS (the provider ids the NBA's stored rows carry). Prints the count, and the ids if any.
     STOP (3) on a shared id or on a NBA read that could not be made (the check is read, never assumed: #902)."""
-    ours = set()
+    listed, sides = set(), set()
     for r in (out.get("seasons") or {}).values():
-        ours |= set(r.get("team_ids") or [])
+        listed |= set(r.get("team_ids") or [])
+        sides |= set(r.get("side_ids") or [])
+    # the /games side ids too (the pre-PR review's P1): sync-matches looks every side up by sport, source and provider
+    # id, so a side /teams does not list but an NBA row carries would be linked to the NBA's row, never skipped
+    ours = listed | sides
     nba: dict = {}
     lid = LEAGUES["NBA"][0]
     for season in NBA_STORED_SEASONS:
@@ -334,7 +344,8 @@ def served_collision(adapter, out: dict, say) -> int:
             if isinstance(t, dict) and t.get("id") is not None:
                 nba[t["id"]] = t.get("name")
     shared = sorted(ours & set(nba), key=str)
-    say(f"\nTEAM IDS vs THE NBA (352 item 3(v), a stop): {len(ours)} NCAAMB team ids served · {len(nba)} NBA team ids "
+    say(f"\nTEAM IDS vs THE NBA (352 item 3(v), a stop): {len(ours)} NCAAMB team ids served (/teams {len(listed)} · "
+        f"/games sides not on /teams {len(sides - listed)}) · {len(nba)} NBA team ids "
         f"served for {', '.join(NBA_STORED_SEASONS)} · shared: {len(shared)}"
         + (": " + ", ".join(f"{i} (NBA {nba[i]!r})" for i in shared) if shared else ""))
     out["nba_collision"] = {"read": True, "ncaamb_ids": len(ours), "nba_ids": len(nba), "shared": shared}
@@ -493,6 +504,7 @@ def main(argv=None, adapter=None) -> int:
         phase = "served"
     for r in (out.get("seasons") or {}).values():
         r.pop("team_ids", None)
+        r.pop("side_ids", None)
     print(f"{tail(comp)} " + json.dumps({"phase": phase, "exit": code, **out}, default=str, sort_keys=True),
           flush=True)
     return code

@@ -98,7 +98,10 @@ def test_the_map_projection_counts_every_unmapped_code_and_infers_nothing_from_s
     assert "UNMAPPED (stay SCHEDULED, counted): SYNTH: 1 · status absent: 1" in s
     assert "status absent carrying both totals: 1" in s                     # counted, left SCHEDULED
     assert "FT/AOT with a null total: 0 (must read 0: TRUE ZERO)" in s
-    assert "a side not in this season's /teams (sync-matches would skip it): 1: 13" in s
+    # the pre-PR review of item E: lookup is by sport, source and provider id, so the side is linked, not skipped,
+    # wherever a stored basketball row carries its id (an NCAAMB row once NCAAMB is loaded)
+    assert ("a side not in this season's /teams (sync-matches links it to any stored basketball team carrying its "
+            "provider id, else skips it): 1: 13") in s
 
 
 def test_metering_seven_calls_and_the_remaining_requests(capsys):

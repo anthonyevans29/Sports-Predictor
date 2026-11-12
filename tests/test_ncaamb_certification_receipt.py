@@ -73,8 +73,8 @@ def test_the_served_phase_reads_league_116_and_prints_a_zero_collision_count(cap
     assert code == R.OK, out
     assert out.startswith("NCAAMB DATA CERTIFICATION RECEIPT · SERVED")
     assert "/leagues: league 116 'NCAA'" in out and '\nNCAAMB 2026 = provider "2026-2027"' in out
-    assert ("TEAM IDS vs THE NBA (352 item 3(v), a stop): 3 NCAAMB team ids served · 3 NBA team ids served for "
-            "2026, 2025, 2024 · shared: 0") in out
+    assert ("TEAM IDS vs THE NBA (352 item 3(v), a stop): 3 NCAAMB team ids served (/teams 3 · /games sides not on "
+            "/teams 0) · 3 NBA team ids served for 2026, 2025, 2024 · shared: 0") in out
     assert "STOP" not in out
     assert out.strip().splitlines()[-1].startswith("NCAAMB-CERTIFICATION-RECEIPT ")
     assert tail["exit"] == R.OK and tail["nba_collision"] == {"read": True, "ncaamb_ids": 3, "nba_ids": 3,
@@ -93,6 +93,22 @@ def test_a_shared_team_id_is_a_stop_with_the_ids_printed(capsys):
     assert "STOP: an NCAAMB team id equals an NBA team id; the load stops here and comes to the architect" in out
     assert tail["exit"] == R.STOP and tail["nba_collision"]["shared"] == [102]
 
+
+def test_a_games_side_id_off_teams_that_equals_an_nba_id_is_a_stop(capsys):
+    """The pre-PR review (P1): sync-matches looks a side up by sport, source and provider id with no competition
+    scope (service._find_team_by_source, 352 item 3(v): not re-scoped), so a /games side that league 116's /teams
+    does not list but that carries a stored NBA id would be LINKED to the NBA's row, not skipped. The served stop
+    reads the /games side ids as well as the /teams ids; the INTEGRITY line no longer says such a side is skipped."""
+    f = fake()
+    f.by_league_games[(116, "2026-2027")].append(ncaa_game(3, 2001, 102))     # 102: an NBA id, not on 116's /teams
+    code, out, tail = run(capsys, ["--competition", "NCAAMB"], f)
+    assert code == R.STOP, out
+    assert ("TEAM IDS vs THE NBA (352 item 3(v), a stop): 4 NCAAMB team ids served (/teams 3 · /games sides not on "
+            "/teams 1) · 3 NBA team ids served for 2026, 2025, 2024 · shared: 1: 102 (NBA 'Synthetic Team 102')") in out
+    assert "sync-matches would skip it" not in out
+    assert ("a side not in this season's /teams (sync-matches links it to any stored basketball team carrying its "
+            "provider id, else skips it): 1: 3") in out
+    assert tail["nba_collision"]["shared"] == [102] and tail["nba_collision"]["ncaamb_ids"] == 4
 
 def test_an_nba_read_that_fails_is_a_stop_never_a_pass(capsys):
     """The check is read, never assumed (#902): the NBA side unread is a stop, not a zero."""

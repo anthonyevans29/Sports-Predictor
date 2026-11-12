@@ -216,7 +216,7 @@ def kalshi_exec(bid: float | None, ask: float | None, competition: str | None = 
     with exactly the home rules mirrored: same M, same per-fill fee, maker null
     when there is no NO bid (no home ask), when the join reaches the NO ask (a
     1c spread: joining = taking), or when the maker M is unknown.
-    TWO-WAY ONLY (two_way=True: NFL / NHL / NCAA / MLB / NBA / ATP / WTA). On a three-way 1X2
+    TWO-WAY ONLY (two_way=True: NFL / NHL / NCAA / MLB / NBA / NCAAMB / ATP / WTA). On a three-way 1X2
     market (soccer HOME/DRAW/AWAY) NO on HOME is DRAW-OR-AWAY, not an away bet,
     so every away field stays null. The caller states two_way from the row's
     own sport; the default False keeps the away fields null when the caller

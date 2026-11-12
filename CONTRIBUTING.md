@@ -58,3 +58,20 @@ This project runs on laws earned from incidents. They are not optional.
   - **What the deploy says when the rule is missed:** on a forward deploy where `src/db/schema.py` changed and the
     plan lists no new migration, the dry run and the deploy print one `!` line, with no command (354 item 2(b)).
     The plan cannot know which migration covers the change, so the PRs are read before the DB is used.
+  - **CI refuses a PR that misses it** (ARCHITECT 2026-11-12 14:25 ET, addendum 358 item 2, scope B: "a NEW TABLE
+    ships with its migrate file too"): `scripts/schema_ddl_check.py` compiles `src/db/schema.py` at the PR's base and
+    head into an in-memory SQLite and compares every table, index and trigger (whitespace collapsed, `VARCHAR(n)`
+    lengths dropped). An object changed or added, on an existing table or a new one, with no new top-level
+    `migrate_*.py` in the PR, refuses. A comment-only edit, or a change SQLite compiles the same, never trips it. An
+    object removed from the metadata is printed as information (the live DB keeps it). The base is compiled at the
+    merge base, so a PR behind its base is not asked for the base's own later changes. "New" is read as the deploy's
+    plan reads it: a byte copy of a migration already on the base, a renamed migration, two new files with the same
+    content, and every new file when any migration is deleted anywhere in the PR's history (lineage unknown) do not
+    count, since the plan runs none of them. Editing an existing migration does not count either. Run it locally with
+    `python scripts/schema_ddl_check.py --base origin/main`: the working tree is compiled, and its uncommitted
+    migration files (staged, unstaged or untracked) count.
+  - **Its stated limits** (358 item 2): it sees only what `Base.metadata` compiles, so **DDL outside
+    `Base.metadata`** (raw SQL in a migration or anywhere else) is not seen; and **a data change that needs a backfill
+    with no DDL change** is not seen. Both stay the author's to name in the PR, with the deploy's `!` line behind them.
+    Every table is declared in `src/db/schema.py` (a test pins it), since the check compiles only what that module
+    registers; a difference only in whitespace or a `VARCHAR(n)` inside a SQL string literal is normalised away.

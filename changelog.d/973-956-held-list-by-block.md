@@ -1,4 +1,4 @@
-## 2026-11-12 (#000: 956-held-list-by-block — ARCHITECT 2026-11-12 12:25 ET, addendum 356 item 2: THE HELD LIST and `TIMERS_BY_BLOCK` stay two lists, and a by-block timer is held from the merge that ships it until the architect's block enables it.)
+## 2026-11-12 (#973: 956-held-list-by-block — ARCHITECT 2026-11-12 12:25 ET, addendum 356 item 2: THE HELD LIST and `TIMERS_BY_BLOCK` stay two lists, and a by-block timer is held from the merge that ships it until the architect's block enables it.)
 - **docs/specs/hosting-h1.md, section O, THE HELD LIST:**
   - Two rows added:
     - `sp-ncaamb-daily.timer`, which entered when #957 merged (2026-11-12 20:46Z). It lifts with the architect's enabling block, after the host's NCAAMB load and stored certification.

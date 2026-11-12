@@ -347,11 +347,18 @@ def test_the_guard_refuses_each_forbidden_field_and_writes_nothing(repo, capsys,
 # number words beside a dollar word (one..ninety-nine, hundred, thousand, million; dollars, USD, bucks; `$` followed by
 # a number word), refusing; `sp_common.redact` is UNCHANGED"
 SPELLED_DOLLARS = ["twenty-five dollars", "one hundred USD", "ninety nine dollars", "a thousand dollars",
-                   "one million USD", "five bucks", "nineteen bucks", "25 bucks", "USD twenty", "usd-forty",
+                   "one million USD", "five bucks", "nineteen bucks", "one buck", "USD twenty", "usd-forty",
                    "$ twenty-five", "$twenty", "\uff04 ten", "\ufe69 eleven", "fifty-dollar stake", "twenty$",
-                   "Twenty-Five Dollars", "the net was ninety-nine\ndollars"]
+                   "Twenty-Five Dollars", "the net was ninety-nine\ndollars",
+                   # the money-path review's forms (each slipped the first cut)
+                   "$-twenty", "$ - twenty", "$\u2212twenty", "$+twenty", "five\u2011dollar bet", "five\u2013dollar bet",
+                   "USD\u2013twenty", "the stake was _twenty_ dollars", "__twenty__ dollars", "$_twenty_",
+                   "_twenty dollars_", "twentyfive dollars", "thirtyfive bucks", "$fiftyfive", "dollars twenty",
+                   "a buck twenty", "dollars: twenty", "twenty US dollars", "twenty U.S. dollars"]
 NOT_DOLLARS = ["twenty-five yards", "one hundred", "ten minutes", "seventh-day", "one hundred and ten yards", "$HOME",
-               "the Bucks lead the division", "often", "dollarless", "a million fans"]
+               "the Bucks lead the division", "often", "dollarless", "a million fans", "someone dollars",
+               "Bills won by twenty-five", "Ninety minutes", "twentyfive", "the usual one",
+               "Celtics 112, Bucks 108"]                    # a digit beside bucks is not the ruling's (an NBA score)
 
 
 @pytest.mark.parametrize("text", SPELLED_DOLLARS)
@@ -362,6 +369,17 @@ def test_320_a_spelled_out_dollar_figure_is_refused_as_usd_word(text):
 @pytest.mark.parametrize("text", NOT_DOLLARS)
 def test_320_a_number_word_or_a_dollar_word_alone_is_not_a_figure(text):
     assert pv.bulletin_offence(text) is None
+
+
+def test_320_a_long_run_of_blanks_after_a_sign_reads_in_linear_time():
+    """Money-path review: the first cut's sign arm had two runs of blanks around an optional sign, so "$" and 20,000
+    blanks took over a minute (each split of the blanks tried). The blanks after a sign are now reachable only through
+    the sign."""
+    import time
+    t0 = time.perf_counter()
+    assert pv.USD_WORD.search("$" + " " * 20000 + "x") is None
+    assert pv.USD_WORD.search("twenty" + "-" * 20000 + "x") is None
+    assert time.perf_counter() - t0 < 2.0
 
 
 def test_320_the_shared_817_pattern_and_the_exports_redaction_are_unchanged():

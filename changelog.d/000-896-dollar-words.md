@@ -1,10 +1,11 @@
 ## 2026-11-12 (#000: 896-dollar-words — the bulletin guard's own dollar pattern widens to spelled-out figures (#896; ARCHITECT 2026-11-10 12:20 ET, addendum 320 item 1).)
 - **Ruling (verbatim):** "the BULLETIN guard's own dollar pattern widens to number words beside a dollar word (one..ninety-nine, hundred, thousand, million; dollars, USD, bucks; `$` followed by a number word), refusing; `sp_common.redact` is UNCHANGED (its contract is the exports' unit redaction and every writer shares it); a small follow-up from #896, not blocking."
-- **Built:** `src/privacy_patterns.USD_WORD` (the guard's `usd_word`) now also matches:
-  - a number word (one … nineteen, twenty … ninety, hundred, thousand, million; a compound ends in one of them) beside USD, dollar(s) or bucks;
-  - USD before a number word;
-  - a dollar sign (ASCII, fullwidth or small) before or after a number word;
-  - "bucks" beside a digit.
-
-  A match refuses the write, as every guard pattern does.
+- **Built:** `src/privacy_patterns.USD_WORD` (the guard's `usd_word`) now also matches a number word beside a dollar word, and a dollar sign beside a number word. A match refuses the write, as every guard pattern does.
+  - **A number word:** one … nineteen, twenty … ninety, hundred, thousand or million, optionally after a tens word with any joiner or none ("twenty-five", "twenty five", "twentyfive").
+  - **Beside a dollar word:** USD, dollar(s) or buck(s), on either side ("twenty-five dollars", "dollars twenty", "a buck twenty"). "US" or "U.S." may stand between ("twenty US dollars").
+  - **With a dollar sign:** a dollar sign (ASCII, fullwidth or small) before a number word, with an optional sign between ("$ twenty-five", "$-twenty"), or after one ("twenty$").
+  - **Joiners:** blanks, Markdown emphasis characters, and the typographic hyphens and dashes. Word edges are letter edges, so "_twenty_ dollars" is read as GitHub shows it.
+  - **Linear time:** every run of blanks is a single star, so a long line stays linear.
+  - **Not covered:** a digit beside bucks (beyond the ruling's number words; "Celtics 112, Bucks 108" would refuse).
+- **Code's money-path pre-push review** found five forms that slipped the first cut, all fixed here: a sign after `$`, typographic hyphens, underscore emphasis, unseparated compounds, and the dollar word first. It also found a quadratic sign arm, which is fixed and has a timing test.
 - **Unchanged:** the shared #817 `DOLLAR` pattern (tests/test_no_raw_kalshi_rows.py reads it), `sp_common.redact`, and every other pattern.

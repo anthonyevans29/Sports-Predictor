@@ -22,8 +22,8 @@ The bulletin's own patterns (addendum 250 item 2: "no `desk.order` text, no `des
 no pool figure, no account id"), each a named pattern over every line of the whole text:
   usd_word           a dollar figure without the sign before it: a number beside USD / dollar(s), USD before a number,
                      or a sign after a number (12 USD, USD 12, 12 dollars, 12$); and, spelled out (addendum 320 item 1),
-                     a number word beside USD / dollar(s) / bucks, USD before one, or a sign before or after one
-                     (twenty-five dollars, one hundred USD, $ twenty-five, five bucks; 25 bucks too)
+                     a number word beside USD / dollar(s) / buck(s) on either side, or a sign before or after one
+                     (twenty-five dollars, one hundred USD, dollars twenty, a buck twenty, $ twenty-five, $-twenty)
   contract_count     the ruling's own: a digit run beside "contract"/"contracts" (12 contracts, 12-contract), or
                      "contract(s)" beside a digit (contracts 12, contracts: 12, contracts=12), or with a "count" label
                      between (contract count: 5, contract count = 12; addendum 299 item 1), the name also with a
@@ -114,20 +114,30 @@ FIELD_NAME = re.compile(r"(?i)\b(?:fee_order_contracts|order_contracts|unit_usd|
 # beside USD / dollar(s), USD before a number, or a sign AFTER a number ("12$").
 # SPELLED-OUT DOLLARS (ARCHITECT 2026-11-10 12:20 ET, addendum 320 item 1, verbatim: "the BULLETIN guard's own dollar
 # pattern widens to number words beside a dollar word (one..ninety-nine, hundred, thousand, million; dollars, USD,
-# bucks; `$` followed by a number word), refusing; `sp_common.redact` is UNCHANGED"): a number word (one .. nineteen,
-# the tens twenty .. ninety, hundred, thousand, million; a compound such as twenty-five ends in one of them) beside
-# USD / dollar(s) / bucks, USD before a number word, a sign before a number word ("$ twenty-five") or after one
-# ("twenty$"); "bucks" beside a digit too. This pattern only: the shared #817 DOLLAR (the CI test's) is unchanged.
-_NUM_WORD = ("(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen"
+# bucks; `$` followed by a number word), refusing; `sp_common.redact` is UNCHANGED"). A number word is one .. nineteen,
+# the tens twenty .. ninety, hundred, thousand or million, optionally after a tens word with any joiner or none
+# ("twenty-five", "twenty five", "twentyfive"). It is refused beside a dollar word (USD, dollar(s), buck(s); "US" or
+# "U.S." may stand between), on either side ("twenty-five dollars", "dollars twenty", "a buck twenty"), and after a
+# dollar sign with an optional sign between ("$ twenty-five", "$-twenty"), or before one ("twenty$"). Joiners take any
+# blank, an underscore or asterisk (Markdown emphasis GitHub hides) and the typographic hyphens and dashes U+2010..2015
+# and U+2212; a word edge is a letter edge, so "_twenty_" is read as GitHub shows it. A digit beside bucks is NOT here
+# (the ruling names number words; "Celtics 112, Bucks 108" would refuse). This pattern only: the shared #817 DOLLAR (the
+# CI test's) is unchanged, and the digit arms are as before. Every run of blanks is a single star: the blanks after a
+# sign are reachable only through the sign, so no two runs can split one stretch of blanks (a long line stays linear).
+_L, _R = "(?<![A-Za-z])", "(?![A-Za-z])"
+_JOIN = "[\\s_*\\-\\u2010-\\u2015\\u2212]*"
+_NUM_WORD = ("(?:(?:twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)" + _JOIN + ")?"
+             "(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen"
              "|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand"
              "|million)")
+_DOLLAR_WORD = "(?:usd|dollars?|bucks?)"
+_US = "(?:u\\.?" + "[ ]?" + "s\\.?" + _JOIN + ")?"                     # "twenty US dollars", "twenty U.S. dollars"
 _SIGN = "[$\\uff04\\ufe69]"
-USD_WORD = re.compile("(?i)\\d[\\d,.]*\\s*(?:usd|dollars?|bucks)\\b|\\busd\\s*[+\\-\\u2212]?\\s*\\.?\\d"
-                      "|\\d\\s*" + _SIGN +
-                      "|\\b" + _NUM_WORD + "[\\s-]*(?:usd|dollars?|bucks)\\b"       # twenty-five dollars, one hundred USD
-                      "|\\busd[\\s-]*" + _NUM_WORD + "\\b"                          # USD twenty
-                      "|" + _SIGN + "[\\s\\u00a0]*" + _NUM_WORD + "\\b"            # $ twenty-five
-                      "|\\b" + _NUM_WORD + "\\s*" + _SIGN)                           # twenty$
+USD_WORD = re.compile("(?i)\\d[\\d,.]*\\s*(?:usd|dollars?)\\b|\\busd\\s*[+\\-\\u2212]?\\s*\\.?\\d|\\d\\s*" + _SIGN +
+                      "|" + _L + _NUM_WORD + _JOIN + _US + _DOLLAR_WORD + _R +            # twenty-five dollars
+                      "|" + _L + _DOLLAR_WORD + "[\\s_*:\\-\\u2010-\\u2015\\u2212]*" + _NUM_WORD + _R +   # dollars twenty
+                      "|" + _SIGN + "[\\s\\u00a0_*]*(?:[+\\-\\u2212\\u2010-\\u2015][\\s\\u00a0_*]*)?" + _NUM_WORD + _R +  # $-twenty
+                      "|" + _L + _NUM_WORD + "[\\s_*]*" + _SIGN)                          # twenty$
 
 # (name, test) in the order a line is judged; the first that matches names the refusal.
 BULLETIN_PATTERNS = (

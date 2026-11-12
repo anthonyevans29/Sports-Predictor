@@ -123,7 +123,8 @@ FIELD_NAME = re.compile(r"(?i)\b(?:fee_order_contracts|order_contracts|unit_usd|
 # and U+2212; a word edge is a letter edge, so "_twenty_" is read as GitHub shows it. A digit beside bucks is NOT here
 # (the ruling names number words; "Celtics 112, Bucks 108" would refuse). This pattern only: the shared #817 DOLLAR (the
 # CI test's) is unchanged, and the digit arms are as before. Every run of blanks is a single star: the blanks after a
-# sign are reachable only through the sign, so no two runs can split one stretch of blanks (a long line stays linear).
+# sign are reachable only through the sign, so no two runs can split one stretch of blanks: these arms stay linear on a
+# long line (the older digit arms and the shared DOLLAR do not; #960).
 _L, _R = "(?<![A-Za-z])", "(?![A-Za-z])"
 _JOIN = "[\\s_*\\-\\u2010-\\u2015\\u2212]*"
 _NUM_WORD = ("(?:(?:twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)" + _JOIN + ")?"

@@ -769,7 +769,10 @@
           "what": "the nflverse depth-charts feed (addendum 252 item 3(a)): its ingest command and adapter, the chain availability-daily and its timer at 08:45 UTC, so the first host observations precede the 11-13 decision",
           "owner": "code",
           "due": "2026-11-12",
-          "done": null
+          "done": {
+            "date": "2026-11-12",
+            "receipt": "ARCHITECT 2026-11-12 10:35 ET, addendum 350 item 2, verbatim: \"THE NFLVERSE FEED \u2014 DONE (FOR DEV 1: the done-mark in the records PR, roadmap lane availability-record, the step due 2026-11-12, this item quoted): today's 08:45:00\u201308:45:27Z availability-daily run, read by name: exit 0, steps 1/1 in 26.2 s; `AVAILABILITY-NFLVERSE \u00b7 observation #4 \u00b7 complete \u00b7 HTTP 200`; rows read 777,815, loads 291 (new 1), new rows 2,325, rows asserted 2,325, older rows not asserted again 775,490 (watermark 2026-11-11T07:02:21Z); partial team groups 0; rows with no espn_id 0; backfilled 0; the payload kept with its sha256. Four daily observations stand (11-09 through 11-12), which is what the 11-13 decision wanted before it.\" The run on the host's v1.6.6 checkout; v1.6.7 deployed after it (15:20Z, addendum 350 item 1)."
+          }
         },
         {
           "what": "the paid feed's adapter specified, if the operator names one on 11-13 (addendum 252 item 3(c): \"its adapter is specified with the decision, not before\")",

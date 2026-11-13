@@ -781,7 +781,7 @@ def test_972_a_robots_lines_break_only_at_cr_lf_and_crlf(capsys):
     assert [ln["text"] for ln in rec["robots"]["text_lines"]] == [
         "User-agent: *", "Disallow: /a\x1cb\x1d\x1e\x0bc\x0cd\x85e f", "Allow: /"]
     assert rec["robots"]["lines"] == 3
-    assert "  | Disallow: /a\\x1cb\\x1d\\x1e\\x0bc\\x0cd\\x85e f" in out    # the console shows them escaped
+    assert "  | Disallow: /a\\x1cb\\x1d\\x1e\\x0bc\\x0cd\\x85e\\u2028f" in out   # the console shows them escaped (364 item 5)
 
 
 def test_972_a_pdf_text_lines_break_only_at_cr_lf_and_crlf():
@@ -828,3 +828,47 @@ def test_972_pass1_index_link_text_folds_spaces_as_on_main():
     links = probe.index_links('<a href="/f/Injury-Report_2026-11-12_08PM.pdf">\xa0 Report\xa0\xa0 8 PM　</a>',
                               "https://reports.example.invalid/")
     assert links[0]["text"] == "Report 8 PM"
+
+
+# ---- ARCHITECT 2026-11-13, addendum 364 item 5: #980's design question ruled; the linear strip; U+2028/U+2029 --------
+
+def test_364_5_a_block_of_whitespace_and_controls_alone_is_no_line_and_the_date_and_window_are_unchanged():
+    page = ("<p>Last Updated:</p><p>\x0b</p><p>October 1, 2026</p><p>No robots or scrapers may access.</p>"
+            "<p>\x1f \x85</p><p>\x01</p><p>Violators will be prosecuted.</p>")
+    windows, updated, dropped, lines = probe.terms_windows(page)
+    assert [ln["text"] for ln in lines] == ["Last Updated:", "October 1, 2026", "No robots or scrapers may access.",
+                                            "Violators will be prosecuted."]
+    assert probe.date_lines(lines)[0]["next"] == "October 1, 2026"
+    assert windows[0]["lines"][-1]["text"] == "Violators will be prosecuted."
+    assert [ln["text"] for ln in probe.page_lines("<p>No\x0b scraping\x1f here.</p>")] == ["No\x0b scraping\x1f here."]
+
+
+def test_364_5_a_page_of_controls_alone_is_not_read(capsys):
+    pages = terms_pages()
+    pages[TERMS] = (200, "<html><body><p>\x0b</p><p>\x1c\x85</p></body></html>".encode(), {"Content-Type": "text/html"})
+    code, out, rec, fake = run(capsys, ["--terms-url", TERMS], pages)
+    assert "the page parsed to 0 lines: NOT READ" in out and code == probe.FAILED
+
+
+def test_364_5_a_report_of_controls_alone_has_no_text_and_a_line_with_a_word_keeps_its_controls():
+    assert probe.fields_report(["\x0b\n\x1c\x85\n \x01 \n"], probe.Out())["lines"] == 0
+    f = probe.fields_report(["Injury Report: 11/12/26\n\x1c\nLast, First\x1cOut\x85\n"], probe.Out())
+    assert f["lines"] == 2 and f["first_lines"] == ["Injury Report: 11/12/26", "Last, First\x1cOut\x85"]
+
+
+def test_364_5_the_strip_is_linear_and_matches_str_strip_without_the_kept_controls():
+    import time
+    s = "x" + " " * 20000 + "\xa0" * 20000 + "y"
+    t0 = time.perf_counter()
+    assert probe.trim_ws(s) == s
+    assert time.perf_counter() - t0 < 0.5                              # quadratic: seconds; linear: microseconds
+    every_ws = [c for c in map(chr, range(0x110000)) if c.isspace()]
+    kept = set("\x0b\x1c\x1d\x1e\x1f\x85")
+    for c in every_ws:
+        expect = (c + "a" + c) if c in kept else "a"
+        assert probe.trim_ws(c + "a" + c) == expect, hex(ord(c))
+
+
+def test_364_5_line_and_paragraph_separators_are_escaped_on_the_console():
+    assert probe.console_safe("a b c") == "a\\u2028b\\u2029c"
+    assert probe.console_safe("\x1b ") == "\\x1b\\u2028"

@@ -48,7 +48,8 @@ Exit: 0 every read answered; 1 a fetch failed; 2 a read REFUSED (no URL, a repor
 redirect not followed, nothing to quote, no reader). The last line: NBA-INJURY-PROBE {json}.
 
 THE CONSOLE (addendum 362 item 7): every line it prints has its control characters (C0 but tab, DEL, C1) shown as a
-visible \\xNN, so a fetched page's bytes never reach the operator's terminal; the --out receipt keeps the text exact.
+visible \\xNN (U+2028/U+2029 as \\u2028/\\u2029, 364 item 5), so a fetched page's bytes never reach the operator's
+terminal; the --out receipt keeps the text exact.
 """
 from __future__ import annotations
 
@@ -125,8 +126,11 @@ PAGE_LINE = re.compile(r"^\s*Page\s+\d+\s+of\s+\d+\s*$", re.I)    # edge whitesp
 # CRLF (str.splitlines also breaks at VT, FF, FS/GS/RS, NEL and U+2028, and those characters were lost from the
 # receipt), and the whitespace folding and trimming leave the control characters Python's \s also takes (VT,
 # \x1c-\x1f, NEL) in place; every space, NBSP and the other Unicode spaces included, folds and trims as before
+_KEPT_CONTROLS = "\x0b\x1c\x1d\x1e\x1f\x85"
 _WS_RUN = re.compile(r"[^\S\x0b\x1c-\x1f\x85]+")
-_WS_EDGES = re.compile(r"^[^\S\x0b\x1c-\x1f\x85]+|[^\S\x0b\x1c-\x1f\x85]+$")
+# the strip's explicit character set (addendum 364 item 5: linear, no regex): every character str.isspace() takes
+# (none lies above U+3000) but the kept controls
+_WS_CHARS = "".join(c for c in map(chr, range(0x3001)) if c.isspace() and c not in _KEPT_CONTROLS)
 _LINE_BREAK = re.compile(r"\r\n|\r|\n")
 
 
@@ -139,8 +143,15 @@ def text_lines(text: str) -> list[str]:
 
 
 def trim_ws(text: str) -> str:
-    """The text with its edge whitespace trimmed, the kept control characters left in place."""
-    return _WS_EDGES.sub("", text)
+    """The text with its edge whitespace trimmed, the kept control characters left in place (linear: str.strip)."""
+    return text.strip(_WS_CHARS)
+
+
+def has_word(text: str) -> bool:
+    """A line counts only if it holds a character that is neither whitespace nor a control (addendum 364 item 5):
+    a block or line of whitespace and controls alone carries no word and is dropped, as on main; a line that counts
+    keeps its controls."""
+    return any(not c.isspace() and not (c < "\x20" or "\x7f" <= c <= "\x9f") for c in text)
 
 
 def fold_ws(text: str) -> str:
@@ -150,12 +161,14 @@ FIRST_LINES, ROW_SAMPLE, LINE_CHARS = 12, 10, 200
 
 
 # the console's control characters (addendum 362 item 7): C0 but tab, DEL and C1, each shown as a visible \xNN
-_CONTROL = re.compile(r"[\x00-\x08\x0a-\x1f\x7f-\x9f]")
+_CONTROL = re.compile(r"[\x00-\x08\x0a-\x1f\x7f-\x9f\u2028\u2029]")       # U+2028/U+2029: 364 item 5
 
 
 def console_safe(text: str) -> str:
-    """The text with every control character but tab shown as \\xNN (the receipt keeps the text exact)."""
-    return _CONTROL.sub(lambda m: f"\\x{ord(m.group()):02x}", text)
+    """The text with every control character but tab shown as \\xNN, and U+2028/U+2029 as \\u2028/\\u2029 (the
+    receipt keeps the text exact)."""
+    return _CONTROL.sub(lambda m: f"\\x{ord(m.group()):02x}" if ord(m.group()) < 0x100 else f"\\u{ord(m.group()):04x}",
+                        text)
 
 
 class _SafeStderr(logging.Handler):
@@ -318,7 +331,7 @@ class _Lines(HTMLParser):
     def flush(self, heading=False):
         text = fold_ws(INVISIBLE.sub("", "".join(self.buf)))
         self.buf.clear()
-        if text:
+        if has_word(text):
             self.out.append({"text": text, "heading": heading})
 
     def handle_starttag(self, tag, attrs):
@@ -642,8 +655,8 @@ def read_pdf_pages(data: bytes) -> list[str]:
 
 
 def fields_report(pages: list[str], say: Out) -> dict:
-    lines = [trim_ws(ln) for p in pages for ln in text_lines(p) if trim_ws(ln)]
-    first = [trim_ws(ln) for ln in text_lines(pages[0] if pages else "") if trim_ws(ln)][:FIRST_LINES]
+    lines = [trim_ws(ln) for p in pages for ln in text_lines(p) if has_word(ln)]
+    first = [trim_ws(ln) for ln in text_lines(pages[0] if pages else "") if has_word(ln)][:FIRST_LINES]
     say(f"  PAGES {len(pages)} · text lines {len(lines)}")
     stamp = next((REPORT_HEADER.search(ln).group(0) for ln in lines if REPORT_HEADER.search(ln)), None)
     say("  THE DOCUMENT'S OWN STAMP (hypothesis: a line 'Injury Report: ...'): "

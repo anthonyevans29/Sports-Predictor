@@ -65,7 +65,7 @@ def run(capsys, argv, pages):
     """(exit, console, the --out RECEIPT, the fake GET). The tail line is a summary; the evidence is the receipt."""
     import tempfile
     fake = Fake(pages)
-    receipt = Path(tempfile.mkdtemp()) / "receipt.json"
+    receipt = Path(tempfile.mkdtemp()) / "logs" / "availability" / "receipt.json"   # 368 item 4(ii): the host's place
     if "--out" not in argv:
         argv = [*argv, "--out", str(receipt)]
     code = probe.main(argv, get=fake)
@@ -175,14 +175,15 @@ def test_the_fields_print_as_written_with_the_hypotheses_labelled_and_unseen_wor
     monkeypatch.setattr(probe, "read_pdf_pages", lambda data: PAGE_TEXT)
     code, out, tail, _ = run(capsys, ["--report", "--index-url", INDEX, "--terms-ruling", "addendum 999 item 1"],
                              report_pages())
-    assert 'THE DOCUMENT\'S OWN STAMP (hypothesis: a line \'Injury Report: ...\'): "Injury Report: 11/12/26 08:00 PM"' \
-        in out
+    assert ('THE DOCUMENT\'S OWN STAMP (hypothesis: a line \'Injury Report: <date> <clock>\'): '
+            '"Injury Report: 11/12/26 08:00 PM"') in out
     assert "COLUMN HEADERS (HYPOTHESES" in out and "Player Name: found" in out
     assert "STATUS WORDS (HYPOTHESES" in out and "Out: 1" in out and "Questionable: 1" in out and "Probable: 0" in out
-    assert "| Poe, Edgar Day-To-Day Synthetic" in out          # a status word no hypothesis names, printed verbatim
+    assert "Poe, Edgar" not in out                              # 368 item 4(ii): no row on the console ...
     f = tail["report"]["fields"]
     assert f["status_lines"]["Out"] == 1 and f["lines_no_status_word"] == 2 and f["name_rows_no_status_word"] == 1
-    assert "| NOT YET SUBMITTED" in out                          # a team-level line surfaces too
+    assert "Poe, Edgar Day-To-Day Synthetic" in f["lines_no_status_word_all"]     # ... every one in the receipt
+    assert "NOT YET SUBMITTED" not in out and any("NOT YET SUBMITTED" in x for x in f["lines_no_status_word_all"])
     assert "THE MAPPING, printed and NOT built" in out and "`injury_status`" in out
 
 
@@ -214,7 +215,10 @@ def test_the_script_holds_no_url_and_writes_nothing_but_its_receipt():
     tree = ast.parse(src)
     literals = [n.value for n in ast.walk(tree) if isinstance(n, ast.Constant) and isinstance(n.value, str)]
     assert not [s for s in literals if "http://" in s or "https://" in s]
-    assert src.count("write_text(") == 1 and "write_bytes(" not in src and "open(" not in src.replace("urlopen(", "")
+    # one write in the file: the receipt, mode 0600, by write_private's os.open (368 item 4(ii))
+    assert "write_text(" not in src and "write_bytes(" not in src
+    assert src.count("os.open(") == 1 and src.count("os.write(") == 1
+    assert "open(" not in src.replace("os.open(", "").replace("urlopen(", "")
 
 
 def test_the_reader_is_optional_pinned_by_hash_and_never_in_requirements_txt():
@@ -415,8 +419,9 @@ def test_review_unseen_status_words_surface_on_any_line_and_names_with_diacritic
     monkeypatch.setattr(probe, "read_pdf_pages", lambda data: text)
     code, out, tail, _ = run(capsys, ["--report", "--index-url", INDEX, "--terms-ruling", "addendum 999 item 1"],
                              report_pages())
-    assert "| Dončić, Luka Suspended League" in out and "| Synthetic Alphas NOT YET SUBMITTED" in out
+    assert "Dončić" not in out and "Synthetic Alphas" not in out        # 368 item 4(ii): structure only on the console
     f = tail["report"]["fields"]
+    assert {"Dončić, Luka Suspended League", "Synthetic Alphas NOT YET SUBMITTED"} <= set(f["lines_no_status_word_all"])
     assert f["lines_no_status_word"] == 2 and f["name_rows_no_status_word"] == 1
 
 
@@ -769,3 +774,71 @@ def test_362_7_a_library_warning_carrying_document_text_is_escaped_on_stderr(cap
     err = capsys.readouterr().err
     assert "\x1b" not in err and "\x07" not in err and "\x9b" not in err
     assert "/X\\x1b]0;PWNED\\x07\\x1b[31m\\x9b" in err
+
+
+# ---- ARCHITECT 2026-11-13, addendum 368 item 4: the report phase on the host; its console structure only ------------
+
+REPORT_ARGS = ["--report", "--index-url", INDEX, "--terms-ruling", "addendum 999 item 1"]
+NAMED_PAGES = ["Injury Report: 11/12/26 08:00 PM ET Synthetic Rowname, Zed Out Ankle\n"
+               "Game Date Game Time Matchup Team Player Name Current Status Reason\n"
+               "Synthetic Rowname, Abe Out Knee\nSynthetic Rowname, Bea Questionable Rest\nUnseenword Rowname, Cy\n"]
+
+
+def test_368_4_the_report_phase_needs_its_receipt_under_logs_availability_before_any_fetch(tmp_path, capsys):
+    fake = Fake(report_pages())
+    assert probe.main(REPORT_ARGS, get=fake) == probe.REFUSED
+    assert "--report needs --out under logs/availability/" in capsys.readouterr().out and fake.asked == []
+    assert probe.main([*REPORT_ARGS, "--out", str(tmp_path / "logs" / "r.json")], get=fake) == probe.REFUSED
+    assert "is not under logs/availability/" in capsys.readouterr().out and fake.asked == []
+    assert probe.main(["--terms-url", TERMS, "--out", str(tmp_path / "t.json")], get=Fake(terms_pages())) == probe.OK
+
+
+def test_368_4_the_receipt_is_written_mode_0600(tmp_path, capsys, monkeypatch):
+    monkeypatch.setattr(probe, "read_pdf_pages", lambda data: NAMED_PAGES)
+    out = tmp_path / "logs" / "availability" / "r.json"
+    out.parent.mkdir(parents=True)
+    out.write_text("{}")
+    out.chmod(0o644)                                            # an existing, wider file is narrowed too
+    probe.main([*REPORT_ARGS, "--out", str(out)], get=Fake(report_pages()))
+    assert (out.stat().st_mode & 0o777) == 0o600
+
+
+def test_368_4_no_row_reaches_the_console_and_every_row_is_in_the_receipt(capsys, monkeypatch):
+    monkeypatch.setattr(probe, "read_pdf_pages", lambda data: NAMED_PAGES)
+    code, out, rec, _ = run(capsys, REPORT_ARGS, report_pages())
+    assert "Rowname" not in out and "Unseenword" not in out and "Ankle" not in out
+    assert '"Injury Report: 11/12/26 08:00 PM ET"' in out       # the stamp in its strict form only
+    f = rec["report"]["fields"]
+    assert "Synthetic Rowname, Abe Out Knee" in f["first_lines"] and "Unseenword Rowname, Cy" in f["lines_no_status_word_all"]
+    assert "Out: 2" in out and "Questionable: 1" in out          # the status words exactly as written, counted
+
+
+def test_368_4_a_stamp_line_not_of_the_strict_form_is_counted_not_printed(capsys, monkeypatch):
+    monkeypatch.setattr(probe, "read_pdf_pages", lambda data: ["Injury Report: Synthetic Rowname, Abe\nx Out y\n"])
+    code, out, rec, _ = run(capsys, REPORT_ARGS, report_pages())
+    assert "Rowname" not in out and "found, NOT of the date-and-clock form" in out
+
+
+def test_368_4_the_readers_log_lines_and_error_text_stay_in_the_receipt(capsys, monkeypatch):
+    import logging
+
+    def noisy(data):
+        logging.getLogger("pypdf._reader").warning("repaired an object near Synthetic Rowname, Abe")
+        return NAMED_PAGES
+    monkeypatch.setattr(probe, "read_pdf_pages", noisy)
+    code, out, rec, _ = run(capsys, REPORT_ARGS, report_pages())
+    err = capsys.readouterr().err
+    assert "Rowname" not in out and "Rowname" not in err and "the reader logged 1 line(s)" in out
+    assert rec["report"]["reader_log"] == ["WARNING pypdf._reader: repaired an object near Synthetic Rowname, Abe"]
+
+    def broken(data):
+        raise ValueError("bad object holding Synthetic Rowname, Abe")
+    monkeypatch.setattr(probe, "read_pdf_pages", broken)
+    code, out, rec, _ = run(capsys, REPORT_ARGS, report_pages())
+    assert code == probe.FAILED and "Rowname" not in out and "ValueError" in out
+    assert rec["report"]["reader_error"] == "ValueError: bad object holding Synthetic Rowname, Abe"
+
+
+def test_368_4_the_reader_is_host_only():
+    req = (ROOT / "requirements-probe-pdf.txt").read_text()
+    assert "HOST-ONLY" in req and "never installed on the laptop" in req and "Python 3.12" in req

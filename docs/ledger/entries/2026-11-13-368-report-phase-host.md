@@ -1,0 +1,13 @@
+**2026-11-13 — BUILT (ARCHITECT 2026-11-13 10:45 ET, addendum 368 item 4): the NBA injury-report probe's report phase runs ON THE HOST ONLY, never on the laptop, and its console is structure only. This corrects 357 item 3(d).**
+- **The decision (368 item 2, the operator's, 2026-11-13 10:27 ET, verbatim):** "we stick to option 1, but I don't want any of that data on my laptop, and we make it so that we can decouple the connector and replace it with another source if the vendor comes back to me. Meanwhile, I'll also extend our search for other vendors".
+- **The conditions (368 item 3), standing for this source:**
+  - (a) one machine, the host. Nothing of a report is ever on the laptop, the repo, the mirror, a bulletin, the Cockpit, an Issue or a PR; tests hold synthetic shapes only.
+  - (b) no NBA statistics from nba.com, ever.
+  - (c) one fetch per published report.
+  - (d) the timer stops the same day on any objection, and everything obtained is destroyed.
+  - (e) the terms phase is re-run before the feed is enabled and at each season's start.
+- **As built (368 item 4(i)–(ii)):**
+  - The reader is host-only; the report console prints structure only.
+  - The rows, the reader's log lines and its error text stay in a mode-0600 receipt under logs/availability/, required with `--report` and checked before any fetch.
+  - The roadmap step's text names the host. Its due date, 11-24, is unchanged.
+- **Next:** the report phase runs on the host by the architect's block, after the tag that carries this. Separately, the feed's proposal (368 item 5) goes to the architect.

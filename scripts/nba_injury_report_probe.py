@@ -34,7 +34,15 @@ PHASE (`--report`, with `--index-url`) is a second block of mine and runs ONLY a
 THE URLS ARE THE ARCHITECT'S (357 item 3(b)): "read from a search on the day I write each block and printed in the
 block; none typed from memory, by either of us". This file holds no URL default.
 
-THE READER (357 item 3(d)): pypdf, pure Python, optional, laptop-only, pinned by version and hash in
+THE REPORT PHASE RUNS ON THE HOST, NEVER ON THE LAPTOP (ARCHITECT 2026-11-13, addendum 368 item 4, correcting 357
+item 3(d)): nothing of a report (the document, a parsed row, a player's name, a status) is ever on the laptop, the
+public repo, the exports mirror, a bulletin, the Cockpit, an Issue or a PR (368 item 3(a)). Its CONSOLE, which reaches
+the architect through the operator's terminal, is STRUCTURE ONLY: the report links' stamps by day, counts, the
+document's form, the column headers, the status words exactly as written with their counts, the counts of lines that
+did not read; no player name and no row's text. The rows stay in the receipt on the host: --report requires --out
+under logs/availability/, and the receipt is written mode 0600, never mirrored (368 item 4(ii)).
+
+THE READER (357 item 3(d); 368 item 4(i)): pypdf, pure Python, optional, HOST-ONLY, pinned by version and hash in
 requirements-probe-pdf.txt (the graph engine's pattern; never requirements.txt), installed by the architect's block.
 The fetched document is UNTRUSTED DATA: it is held in memory only, never written, never executed, and parsed by the
 reader alone. Without the reader the report phase prints the form and stops (exit 2: the fields are not read).
@@ -133,12 +141,21 @@ def console_safe(text: str) -> str:
     return _CONTROL.sub(lambda m: f"\\x{ord(m.group()):02x}", text)
 
 
+# while the report is read, pypdf's log lines are kept here for the receipt and only counted on the console: they can
+# carry the document's own text (addendum 368 item 4(ii): no row's text on the console)
+_READER_LOG: list[str] | None = None
+
+
 class _SafeStderr(logging.Handler):
     """A library's log line on stderr, through console_safe (addendum 362 item 7): pypdf reports what it repairs in a
-    fetched document with the document's own text, and urllib3 a header it could not parse with the header's."""
+    fetched document with the document's own text, and urllib3 a header it could not parse with the header's. While a
+    report is read (_READER_LOG set), pypdf's lines go to the receipt instead (368 item 4(ii))."""
 
     def emit(self, record: logging.LogRecord) -> None:
         try:
+            if _READER_LOG is not None and record.name.split(".")[0] == "pypdf":
+                _READER_LOG.append(f"{record.levelname} {record.name}: {record.getMessage()}")
+                return
             sys.stderr.write(console_safe(f"{record.levelname} {record.name}: {record.getMessage()}") + "\n")
         except Exception:                           # noqa: BLE001 - a log line never ends the run
             self.handleError(record)
@@ -616,16 +633,38 @@ def read_pdf_pages(data: bytes) -> list[str]:
     return [(p.extract_text() or "") for p in reader.pages]
 
 
+_LAST_READER_LOG: list[str] = []
+
+
+def _read_quietly(data: bytes) -> list[str]:
+    """read_pdf_pages with pypdf's log lines kept for the receipt (_LAST_READER_LOG), never printed (368 item 4(ii))."""
+    global _READER_LOG
+    _LAST_READER_LOG.clear()
+    _READER_LOG = _LAST_READER_LOG
+    try:
+        return read_pdf_pages(data)
+    finally:
+        _READER_LOG = None
+
+
+# the document's own stamp, printed only in its strict form ("Injury Report: 11/12/26 08:00 PM", the zone if written):
+# anything else on that line can be a row (368 item 4(ii)); the whole line stays in the receipt
+STAMP_STRICT = re.compile(r"Injury\s+Report\s*:\s*\d{1,2}/\d{1,2}/\d{2,4}(?:\s+\d{1,2}:\d{2}\s*(?:[AP]\.?M\.?)?)?"
+                          r"(?:\s*(?:ET|EST|EDT))?", re.I)
+
+
 def fields_report(pages: list[str], say: Out) -> dict:
     lines = [ln.strip() for p in pages for ln in p.splitlines() if ln.strip()]
     first = [ln.strip() for ln in (pages[0] if pages else "").splitlines() if ln.strip()][:FIRST_LINES]
     say(f"  PAGES {len(pages)} · text lines {len(lines)}")
     stamp = next((REPORT_HEADER.search(ln).group(0) for ln in lines if REPORT_HEADER.search(ln)), None)
-    say("  THE DOCUMENT'S OWN STAMP (hypothesis: a line 'Injury Report: ...'): "
-        + (f'"{stamp[:LINE_CHARS]}"' if stamp else "NOT FOUND under that form (page 1's opening lines below)"))
-    say(f"  PAGE 1, the first {len(first)} text line(s), verbatim:")
-    for ln in first:
-        say(f"    | {ln[:LINE_CHARS]}")
+    strict = STAMP_STRICT.search(stamp or "")
+    say("  THE DOCUMENT'S OWN STAMP (hypothesis: a line 'Injury Report: <date> <clock>'): "
+        + (f'"{strict.group(0)}"' if strict else
+           "found, NOT of the date-and-clock form: its line is in the receipt only" if stamp else
+           "NOT FOUND under that form"))
+    say(f"  PAGE 1's first {len(first)} text line(s): in the receipt only (no row's text on the console, addendum 368 "
+        "item 4(ii))")
     p1 = pages[0] if pages else ""
     headers = {w: (w in p1) for w in HEADER_WORDS}
     say("  COLUMN HEADERS (HYPOTHESES, never confirmed here; found on page 1 as written?): "
@@ -646,10 +685,8 @@ def fields_report(pages: list[str], say: Out) -> dict:
             and not any(re.search(rf"(?<![A-Za-z]){re.escape(w)}(?![A-Za-z])", ln) for w in STATUS_WORDS)]
     named = [ln for ln in bare if NAME_ROW.search(ln)]
     say(f"  BODY LINES WITH NONE OF THE HYPOTHESISED STATUS WORDS: {len(bare)} (of them, with a 'Last, First' name: "
-        f"{len(named)}; counted by text line as extracted)"
-        + (f"; the first {min(len(bare), ROW_SAMPLE)}, verbatim, so an unseen word surfaces:" if bare else ""))
-    for ln in bare[:ROW_SAMPLE]:
-        say(f"    | {ln[:LINE_CHARS]}")
+        f"{len(named)}; counted by text line as extracted); every one is in the receipt only, so an unseen word "
+        "surfaces there and no row reaches the console (368 item 4(ii))")
     return {"pages": len(pages), "lines": len(lines), "stamp": stamp, "first_lines": first, "headers": headers,
             "status_lines": {w: counts.get(w, 0) for w in STATUS_WORDS}, "lines_no_status_word": len(bare),
             "name_rows_no_status_word": len(named), "lines_no_status_word_sample": bare[:ROW_SAMPLE],
@@ -731,7 +768,7 @@ def report_phase(a, say: Out, fetch: Fetcher) -> tuple[int, dict]:
         return read_failed(err), rec
     rec["report"].update(bytes=len(data), sha256=hashlib.sha256(data).hexdigest(), pdf_magic=data[:5] == b"%PDF-")
     try:
-        pages = read_pdf_pages(data)
+        pages = _read_quietly(data)
     except ImportError:
         say(f"  READER NOT INSTALLED ({READER}, {READER_FILE}, installed by the architect's block): the form only; "
             "the fields are NOT READ")
@@ -739,9 +776,14 @@ def report_phase(a, say: Out, fetch: Fetcher) -> tuple[int, dict]:
         say("\n" + MAPPING)
         return REFUSED, rec
     except Exception as e:                           # noqa: BLE001 - an unreadable document is reported, never raised
-        say(f"  FAILED: the reader could not read the document: {type(e).__name__}: {e}")
+        say(f"  FAILED: the reader could not read the document: {type(e).__name__} (its message is in the receipt: it "
+            "can carry the document's text)")
         rec["report"]["reader_error"] = f"{type(e).__name__}: {e}"
+        rec["report"]["reader_log"] = list(_LAST_READER_LOG)
         return FAILED, rec
+    rec["report"]["reader_log"] = list(_LAST_READER_LOG)
+    if _LAST_READER_LOG:
+        say(f"  the reader logged {len(_LAST_READER_LOG)} line(s) while reading (repairs; in the receipt only)")
     rec["report"]["reader"] = READER
     rec["report"]["fields"] = fields_report(pages, say)
     if not rec["report"]["fields"]["lines"]:
@@ -751,6 +793,29 @@ def report_phase(a, say: Out, fetch: Fetcher) -> tuple[int, dict]:
         return REFUSED, rec
     say("\n" + MAPPING)
     return OK, rec
+
+
+def refuse_report_out(path: Path | None) -> str | None:
+    """The report phase's receipt holds the report's rows: it is required, and it lives under logs/availability/ on the
+    host (ARCHITECT 2026-11-13, addendum 368 item 4(ii)), checked before any fetch."""
+    if path is None:
+        return ("REFUSED: --report needs --out under logs/availability/ (the receipt holds the report's rows; the "
+                "console holds structure only, addendum 368 item 4(ii)); nothing fetched")
+    parts = [x.casefold() for x in path.expanduser().resolve().parts]
+    if not any(parts[i] == "logs" and parts[i + 1] == "availability" for i in range(len(parts) - 1)):
+        return (f"REFUSED: --out {path} is not under logs/availability/ (the report phase's receipt lives there on the "
+                "host, mode 0600, never mirrored, addendum 368 item 4(ii)); nothing fetched")
+    return None
+
+
+def write_private(path: Path, text: str) -> None:
+    """The receipt, written mode 0600 whether the file is new or not (368 item 4(ii))."""
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        os.fchmod(fd, 0o600)
+        os.write(fd, text.encode("utf-8"))
+    finally:
+        os.close(fd)
 
 
 def refuse_out(path: Path | None) -> str | None:
@@ -791,7 +856,7 @@ def main(argv=None, get=None) -> int:
     a = ap.parse_args(argv)
     escape_library_logs()
     say = Out()
-    refused = refuse_out(a.out)
+    refused = refuse_out(a.out) or (refuse_report_out(a.out) if a.report else None)
     if refused:
         say(refused)
         return REFUSED
@@ -816,7 +881,7 @@ def main(argv=None, get=None) -> int:
             "and re-issues the block; nothing was fetched for it)")
     if a.out:
         try:
-            a.out.write_text(json.dumps(receipt, indent=1, default=str))
+            write_private(a.out, json.dumps(receipt, indent=1, default=str))
             say(f"receipt written to {a.out}")
         except OSError as e:
             say(f"FAILED: the receipt was not written: {type(e).__name__}: {e} (the console above is the receipt)")

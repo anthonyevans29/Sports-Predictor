@@ -1,0 +1,11 @@
+## 2026-11-13 (#PR: 368-report-phase-host — the NBA injury-report probe's report phase on the host only, its console structure only (ARCHITECT 2026-11-13, addendum 368 item 4))
+- **scripts/nba_injury_report_probe.py, the console (368 item 4(ii)):** the report phase's console is STRUCTURE ONLY, with no player name and no row's text.
+  - What prints: the link stamps by day, counts, the document's form, the column headers, the status words as written with their counts, and the counts of lines that did not read.
+  - The document's stamp prints only in its strict date-and-clock form, and page 1's lines and the body-line sample are now counts.
+  - A reader error prints its type only. pypdf's log lines during the read go to the receipt and are counted on the console.
+- **The receipt (368 item 4(ii)):**
+  - `--report` requires `--out` under `logs/availability/`, refused before any fetch otherwise.
+  - Every row, the reader's log lines and the reader's error text are kept there, and the receipt is written mode 0600, new or existing.
+- **requirements-probe-pdf.txt (368 item 4(i)):** the reader is HOST-ONLY (Python 3.12, where --no-deps holds) and never installed on the laptop. The pin and hash are unchanged.
+- **docs/CLI.md, scripts/README.md, docs/roadmap.json:** lane availability-record's probe step text names the report phase on the host. The due date 11-24 is unchanged, and no date moves.
+- **Tests:** six new, failing first on main 91ec1e86. Three existing tests are inverted: rows are now absent from the console and present in the receipt.

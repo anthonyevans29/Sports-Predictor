@@ -98,9 +98,23 @@ def is_header(line: str) -> bool:
 # A count's or a figure's field name, as the export's JSON or a dict's str() writes it: the name may carry a prefix or a
 # suffix joined by "_" (maker_contracts, n_contracts, unit_fraction), and its closing quote and separator may sit
 # between the name and the number ("contracts": 5, 'contracts': 5, contracts=5).
-_KEY_TAIL = "[\"']?\\s*[:=#(\\u00d7x]?\\s*[\"']?\\s*"
-CONTRACT_COUNT = re.compile("(?i)\\d[\\d,.]*\\s*-?\\s*[a-z_]*contracts?(?![a-z0-9])"
-                            "|(?<![a-z0-9])[a-z_]*contracts?(?:_[a-z_]*)?" + _KEY_TAIL + "\\d"
+# LINEAR (#969; ARCHITECT 2026-11-12 17:20 ET, addendum 362 item 4: "RULED as #960 was — the same fix, the same proof
+# (each pattern matches exactly what it matched, the timing pinned, mutations caught), money-path review, ONE PR"):
+# each pattern below matches exactly the strings it matched before (tests/test_969_linear_count_pool.py) and reads a
+# long run once. Every run of blanks is reachable only through the token before it, so no two runs split one stretch
+# of blanks (the tail took 2.4 s on "contracts" and 1,000 blanks before, cubic).
+_KEY_TAIL = "[\"']?\\s*(?:[:=#(\\u00d7x]\\s*)?(?:[\"']\\s*)?"
+# The count arm starts once per run of digits, commas and points (skipping commas or points before its first digit): a
+# later start in the run can only match where the run's first digit does (15.6 s on 20,000 digits before). The key
+# arm starts once per run of letters and underscores: at the run's start, or, when a digit precedes the run, just
+# after its first underscore (the earliest start the old lookbehind allowed), never once per underscore. Its
+# underscore tail is found once per run by a lookahead: the key tail can follow a run of letters only at the run's end
+# (or one letter before it, an "x" separator), so a tail through the run's end is the same test as one through an
+# underscore after the word, read once, not once per "contract_" (it was cubic: 15.8 s on 4,000 characters of
+# "contract_", 186 s on 9,000).
+CONTRACT_COUNT = re.compile("(?i)(?<![\\d,.])[,.]*\\d[\\d,.]*\\s*(?:-\\s*)?[a-z_]*contracts?(?![a-z0-9])"
+                            "|(?<![a-z_])(?:(?<![0-9])|[a-z]*_)(?:[a-z_]*contracts?|(?=[a-z_]*?contracts?_)[a-z_]*)"
+                            + _KEY_TAIL + "\\d"
                             # addendum 299 item 1: the `count` label between the word and the number
                             # ("contract count: 5", "contract count = 12", "contracts-count 3")
                             "|(?<![a-z0-9])contracts?[\\s_-]*count(?![a-z0-9])\\W{0,4}\\d")
@@ -111,7 +125,9 @@ ORDER_TEXT = re.compile("(?i)\\bBUY\\s+(?:YES|NO)\\b|\\u00d7\\s*\\d"
 UNIT_LABEL = re.compile(r"\b\d+(?:\.\d+)?\s*u\s*=")
 FRACTION = re.compile("(?i)(?<![a-z0-9])[a-z_]*fraction(?![a-z0-9])[\"']?\\W{0,4}[+\\-]?\\.?\\d|\\bhalf_fraction\\b")
 POOL = re.compile(r"(?i)\bpool\b(?:\W+[a-z]+){0,3}\W{0,12}[+\-]?\.?\d"   # 304 item 1: "the pool is 25"
-                  r"|\d[\d,.]*\W{0,4}(?:[a-z]+\W+){0,3}pool\b")   # addendum 301 item 1: "25 remains in the pool"
+                  # addendum 301 item 1: "25 remains in the pool"; LINEAR (#969, 362 item 4): one start per run of
+                  # digits, commas and points, as CONTRACT_COUNT's count arm (3.4 s on 10,000 digits before)
+                  r"|(?<![\d,.])[,.]*\d[\d,.]*\W{0,4}(?:[a-z]+\W+){0,3}pool\b")
 FIELD_NAME = re.compile(r"(?i)\b(?:fee_order_contracts|order_contracts|unit_usd|pool_usd|balance_dollars|"
                         r"market_exposure_dollars|half_fraction|contracts_basis)\b|[a-z0-9]_(?:usd|dollars)\b")
 # A dollar figure without the plain sign before it (the DOLLAR pattern is the #817 sign-then-digit one): a number

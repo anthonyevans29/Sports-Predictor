@@ -1,0 +1,9 @@
+## 2026-11-12 (#981: 969-linear-count-pool — the bulletin guard's CONTRACT_COUNT and POOL read in linear time, matching exactly what they matched before (ARCHITECT 2026-11-12 17:20 ET, addendum 362 item 4).)
+- **Ruling (verbatim, addendum 362 item 4):** "#969 (the same quadratic read in CONTRACT_COUNT and POOL): RULED as #960 was — the same fix, the same proof (each pattern matches exactly what it matched, the timing pinned, mutations caught), money-path review, ONE PR, behind #926, #930 and #947."
+- **`src/privacy_patterns.py`, `CONTRACT_COUNT`:**
+  - **The count arm** starts once per run of digits, commas and points, as #960's digit arm (15.6 s on 20,000 digits before). The blanks around its dash are reachable only through the dash.
+  - **The key arm** starts once per run of letters and underscores: at the run's start, or, when a digit precedes the run, just after its first underscore (never once per underscore). Its underscore tail is found once per run by a lookahead (cubic before: 15.8 s on 4,000 characters of `contract_`, 186 s on 9,000).
+  - **`_KEY_TAIL`'s** three runs of blanks are each reachable only through the token before them. It was cubic: 2.4 s on `contracts` and 1,000 blanks.
+- **`POOL`'s** number-first arm starts once per run of digits, commas and points (3.4 s on 10,000 digits before).
+- **The same strings:** every caller reads `bool(search)`. `tests/test_969_linear_count_pool.py` checks each pattern against main's, verbatim, on 59 curated lines and 60,000 seeded random lines. While building, 300,000 lines on 3.12 and 100,000 on 3.10 read the same. Timing pins cover 22 measured inputs, including the lookbehind-member inputs #960's review asked for and three digit scripts beyond ASCII, plus a long digit run through `bulletin_offence`.
+- **Found while building, filed as #979 (needs-ruling), not in this PR:** `CSV_RUN` (54.6 s through the guard on one 20,000-letter word) and `FRACTION` (underscore runs).

@@ -784,7 +784,10 @@
           "what": "the NHL landing feed (addendum 252 item 3(b)): its ingest command and adapter, and its watch (the availability-observe timer, every five minutes)",
           "owner": "code",
           "due": "2026-11-17",
-          "done": null
+          "done": {
+            "date": "2026-11-13",
+            "receipt": "ARCHITECT 2026-11-13 11:05 ET, addendum 369 item 1, verbatim: \"THE NHL LANDING WATCH, read on the host's live DB (mode=ro) at 15:41Z, v1.6.7: 99 observations on 11 games since the enable. Every poll of every game COMPLETE at HTTP 200 \u2014 T-120 on 10 of 11, T-90 through T-0 and T+20 on 11 of 11 \u2014 and the one row that is not is the T-120 of the 17:00Z game, due at 15:00Z before the watch existed (MISSED, as recorded on the day). No late row, none partial, none failed. Facts: projected_starter 174 (87 landing polls, two sides each), eventual_starter 22 (11 of 11 games); team unmapped 0 on all 196 \u2014 the ruled name matcher holds on the host's NHL teams; rows_asserted 2 on all 98 complete polls. THE LANE'S STEP (the NHL landing feed, 252 item 3(b)) IS DONE on this read.\" The read on the host's v1.6.7 checkout; done-marked by addendum 369 item 4."
+          }
         },
         {
           "what": "the graph projection's candidate comparison (addendum 252 item 4): a one-page comparison of the embedded candidates, the architect picks on it; nothing installed before the pick",

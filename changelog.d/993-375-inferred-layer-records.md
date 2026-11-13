@@ -1,4 +1,4 @@
-## 2026-11-13 (#000: 375-inferred-layer-records — the inferred data layer recorded: the two sourcing steps closed, the NHL lane's dates cleared, the lane inferred-layer opened (ARCHITECT, addenda 375 and 376).)
+## 2026-11-13 (#993: 375-inferred-layer-records — the inferred data layer recorded: the two sourcing steps closed, the NHL lane's dates cleared, the lane inferred-layer opened (ARCHITECT, addenda 375 and 376).)
 - **docs/roadmap.json, lane `nhl` (375 item 3(a)):**
   - **The 11-13 sourcing step is done.** Its receipt is 375 item 1(vi) ("NHL — none bought; we build and measure our own") with the operator's words.
   - **earliest_live 2027-01-22 is cleared** with a moved line (`now` null) quoting 375 item 3(a).

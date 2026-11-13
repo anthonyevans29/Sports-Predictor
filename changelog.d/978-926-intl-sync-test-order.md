@@ -1,4 +1,0 @@
-## 2026-11-12 (#978: 926-intl-sync-test-order — the test-order failure of addendum 335 item 5: `test_intl_sync_writes_neutral_null…` no longer depends on the shared test DB's other reversed rows.)
-- **The cause, named by pair bisection:** `tests/test_scores_by_team.py::test_intl_history_receipt_lists_a_reversed_row_and_writes_its_scores_by_team` leaves a reversed UNL 2073 row in the shared test DB. `intl-coverage` counts reversed rows across the whole DB. The failing test asserted a count of exactly 1, so after that module the count read 2.
-- **The fix:** the test reads `intl-coverage`'s count after its own first ingest, before the reversal, and asserts that count plus one. It still pins that its row, and only its row, is added. The line is still printed, and the console still reads it.
-- **Unchanged:** no code; no other test touched; nothing skipped or quarantined.

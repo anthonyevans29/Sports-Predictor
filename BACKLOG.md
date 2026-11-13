@@ -22,6 +22,240 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+**2026-11-13 — FIXED (#979; ARCHITECT 2026-11-13 09:00 ET, addendum 364 item 2): CSV_RUN (the shared #817 header-row pattern) and the bulletin guard's FRACTION backtracked quadratically (slow, never wrong). Both now read in linear time and match exactly what they matched before. THE CLASS IS CLOSED: one test holds every pattern in src/privacy_patterns.py to one bound.**
+- **The quadratic reads:**
+  - a long word (CSV_RUN: 11.6 s on 20,000 letters; 54.6 s through the guard);
+  - a field and a run of tabs (CSV_RUN, found while building: 4.7 s on 20,000 tabs);
+  - underscore runs (FRACTION: 3.5 s on 20,000).
+- **Proof of the same strings:** CSV_RUN's runs are matched span for span against main's pattern, with `is_header`'s answer and FRACTION's match. The checks are exhaustive over every short line, seeded random lines, and curated lines.
+- **The class:** `tests/test_privacy_patterns_linear.py` reads the module for its patterns, so a pattern added later is held to the bound without being named. Aliases of `re` fail it, and an exponential pattern fails at a per-read deadline instead of hanging. The scan after the fix found no pattern in the module super-linear on the 40 shapes. A wider scan (1,444 one- and two-character units under 16 prefixes) found none either.
+
+**2026-11-13 — RULED (addendum 371 items 1 and 2): the addenda's header times before 371 are the architect's estimates, up to about 70 minutes ahead of the clock; from 371 on they are clock-read. Addenda are cited by number and ordered by number.**
+- **The rule:** docs/LEDGER.md rule 7 carries item 2's line verbatim.
+- **Code's practice from now on (item 1):**
+  - It cites an addendum by its number, and quotes a header verbatim where it quotes one. It never rewrites, corrects or annotates a header's time.
+  - Where the moment of a ruling matters to a record, it gives the moment the addendum reached the session, by the session's own clock, in those words.
+- **Merged records stand as written.** The P1 on #982 is RULED, not fixed.
+
+**2026-11-13 — BUILT (ARCHITECT 2026-11-13 11:20 ET, addendum 370 item 1; lane nhl, #105): the NHL landing agreement receipt, read-only. It answers from the store how often, and how early, the league's landing page names the eventual starter. It judges nothing.**
+- **What it prints:** `scripts/nhl_landing_agreement_receipt.py --db COPY`:
+  - per poll label T-120 .. T-0, the sides with both a projection at the label and a T+20 eventual, and how many name the same `source_player_id`;
+  - the same per NHL day;
+  - the sides left out, by reason;
+  - the first label from which a side's projection never changed again, as a distribution.
+- **Run:** by the architect's block on the host's own backup copy. Its console goes on #105 for the operator's sourcing decision. No threshold exists and none is suggested.
+
+**2026-11-13 — DONE (ARCHITECT 2026-11-13 11:05 ET, addendum 369 items 1 and 4): the availability record's NHL landing feed (252 item 3(b); lane availability-record, #830), read clean on the host's first evening of the watch.**
+- **The read (369 item 1):** the host's live DB, mode=ro, at 15:41Z on v1.6.7. 99 observations on 11 games, every poll COMPLETE at HTTP 200: T-120 on 10 of 11, T-90 through T-0 and T+20 on 11 of 11. The one row that is not is the 17:00Z game's T-120, due at 15:00Z before the watch existed (MISSED). No late, partial or failed row. Team unmapped 0 on all 196 facts; rows_asserted 2 on all 98 complete polls.
+- **The mark:** docs/roadmap.json's step done 2026-11-13, due 2026-11-17, item 1 quoted in the receipt. No date moved.
+- **Open from the same read, for Dev 2 (369 item 2):** player id unmapped on all 196 facts, read as by design; and the one failed tick (03:25:02Z, a ReadTimeout on the schedule read, no poll lost). Nothing is built here for either.
+- **Addendum 370 item 2 (the same PR):**
+  - **The graph comparison:** done 2026-11-12, on #936 merged at 09259889; the pick is addendum 347 item 5.
+  - **The graph rebuild's text made true:** its own unit and timer, not availability-daily; merged #943, #952 and #973. What remains is v1.6.8, then the architect's install-and-enable block. The due date is unchanged.
+  - **The rest of the open steps:** read against main. nfl-qb's 11-13 sourcing step is listed for the architect, unmarked: 279 item 2 names its receipt, but the step pairs it with the NHL decision, still pending.
+
+**2026-11-13 — BUILT (ARCHITECT 2026-11-13 10:45 ET, addendum 368 item 4): the NBA injury-report probe's report phase runs ON THE HOST ONLY, never on the laptop, and its console is structure only. This corrects 357 item 3(d).**
+- **The decision (368 item 2, the operator's, 2026-11-13 10:27 ET, verbatim):** "we stick to option 1, but I don't want any of that data on my laptop, and we make it so that we can decouple the connector and replace it with another source if the vendor comes back to me. Meanwhile, I'll also extend our search for other vendors".
+- **The conditions (368 item 3), standing for this source:**
+  - (a) one machine, the host. Nothing of a report is ever on the laptop, the repo, the mirror, a bulletin, the Cockpit, an Issue or a PR; tests hold synthetic shapes only.
+  - (b) no NBA statistics from nba.com, ever.
+  - (c) one fetch per published report.
+  - (d) the timer stops the same day on any objection, and everything obtained is destroyed.
+  - (e) the terms phase is re-run before the feed is enabled and at each season's start.
+- **As built (368 item 4(i)–(ii)):**
+  - The reader is host-only; the report console prints structure only.
+  - The rows, the reader's log lines and its error text stay in a mode-0600 receipt under logs/availability/, required with `--report` and checked before any fetch.
+  - The roadmap step's text names the host. Its due date, 11-24, is unchanged.
+- **Next:** the report phase runs on the host by the architect's block, after the tag that carries this. Separately, the feed's proposal (368 item 5) goes to the architect.
+
+**2026-11-13 — RECORDED (ARCHITECT 2026-11-13 10:20 ET, addendum 367): THE PERFECT-XI RECEIPT, read and ruled. The threshold is missed on all three figures; no context candidate is declared; the cups' R-track is CLOSED for the 2026/27 season. The bar did not move.**
+- **The run (367 item 1):**
+  - `cup-exam --with-history-xi --db COPY`, the architect's block on the laptop at 91ec1e86, 14:03Z, read-only on a fresh .backup copy opened mode=ro + immutable=1; 11 s; exit 0; no REFUSED line.
+  - The key exports/cup_answer_key.csv (56 lines, sha256 3eb1d22858b4), model v22, cup coefficients tuned.
+  - History lineups on the copy: 31,245 rows, 731 fixtures, 1,462 sides. Scored 50 (floor 45), missing 0, market-only by ruling B 5.
+- **The figures (367 item 2):**
+
+  | Pricing | mean \|Δ_HOME\| | rows over 8pp | sign | |
+  |---|---|---|---|---|
+  | fix-v2 as today | 15.32pp | 32 | 3/5 = 60% | |
+  | PERFECT-XI, history XI as `confirmed` (0.7) | 16.43pp | 34 | 3/5 = 60% | OF RECORD |
+  | history XI as it stands (0.3) | 16.11pp | 33 | 3/5 = 60% | information only |
+
+  - **Coverage:** both sides' XI on all 50 fixtures. Of the 100 sides, the multipliers do nothing on 63 (no player-season stats), are effective on 37, and are muted below eight resolved starters on 27.
+  - **The subset of 28 fixtures with at least one side's stats** (information, not a second verdict): fix-v2 18.91pp, PERFECT-XI 20.89pp.
+- **The ruling (367 item 3, verbatim):** "mean |Δ_HOME| 16.43pp against <= 6.0pp — MISSED; rows over 8pp 34 against <= 13 — MISSED; sign share 60% against >= 80% — MISSED. NO CONTEXT CANDIDATE IS DECLARED. THE R-TRACK IS CLOSED FOR THE SEASON, as 256 item 3 said it would be on a miss."
+  - Knowing every eleven exactly moved the exam AWAY from the market: by 1.11pp overall, and by 1.98pp on the subset.
+  - The failure is the cross-league price (Tottenham v Charlton at -51.8pp, Bournemouth v Lincoln at -45.7pp), not rotation.
+  - Reopening path (a) is spent. Path (b) alone remains: soccer-v23's harness after v23 passes, at cup_exam's UNCHANGED gate.
+  - The cups stay market-only. Step B's T-15 store keeps running; EFL Step A on 12-15 gates nothing.
+- **Why today and not 11-21 (367 item 4):** both steps are marked DONE 2026-11-13 with this addendum. These are done-marks, not moved dates.
+- **Not the verdict, recorded so it is not lost (367 item 5):**
+  - (a) fix-v2 reads 15.32pp today against 14.76pp on 11-05: the same key and model version, with later same-season results in the ratings.
+  - (b) The probe could bite on only 37 of 100 sides. It bounds the EXISTING multipliers given a perfect XI and says nothing for or against a differently built rotation term. That is a note for a 2027 candidate's declaration, never a reason to reopen this season.
+- **As built:**
+  - docs/roadmap.json, lane cups: both steps done 2026-11-13; `live_needs` names path (b) alone; earliest_live stays cleared; no date moves.
+  - CLAUDE.md's cups paragraph in the ruled words.
+  - No registry entry: 256 gave the probe none.
+  - The receipt's summary block and per-fixture table go on #106 as the console has them, relayed by the architect.
+
+**2026-11-12 — FIXED (#972 items A and B; ARCHITECT 2026-11-12 18:15 ET, addendum 363 items 2 and 6): the NBA injury-report probe's receipt keeps a line's characters.**
+- **Ruling (363 item 2):** A, B and C go to #972 unpatched, and none blocks #970. Per 363 item 6, A and B may be taken as ONE small PR (one review round, no adversarial pass beyond the standing two) only when Lane B has nothing else.
+- **As built:** text breaks only at CR, LF and CRLF. The control characters VT, \x1c-\x1f and NEL are kept by the folding and trimming; every space still folds as before.
+- **The first pass:** the first version folded only HTML whitespace, so NBSP spacers became lines. The first adversarial pass caught it, and it was narrowed to the control characters.
+- **Still on #972:** C (the `<meta>` prescan) and the P2 list, to be worked, if at all, after the terms are ruled (363 item 3).
+- **The design question, ruled as recommended (ARCHITECT 2026-11-13, addendum 364 item 5):** a line counts only if it holds a character that is neither whitespace nor a control, and a counted line keeps its controls. The same push carries the linear strip (no regex) and U+2028/U+2029 escaped on the console.
+
+**2026-11-12 — FIXED (#969; ARCHITECT 2026-11-12 17:20 ET, addendum 362 item 4): the bulletin guard's CONTRACT_COUNT and POOL backtracked quadratically on long digit runs and cubically on blanks after `contracts` and on repeated `contract_` (slow, never wrong). Each now reads in linear time and matches exactly what it matched before.**
+- **The shapes:**
+  - digit runs (CONTRACT_COUNT 15.6 s, POOL 3.4 s);
+  - blanks after `contracts` (cubic);
+  - underscore runs;
+  - repeated `contract_`.
+- **Proof of the same strings:** a seeded differential against main's patterns, and curated lines. Every caller reads only whether a pattern matches.
+- **Found while building:** CSV_RUN and FRACTION have the same class of defect; filed as #979 (needs-ruling), not in this PR.
+
+**2026-11-12 — FIXED (#965; ARCHITECT 2026-11-12 14:40 ET, addendum 359 items 1-3): the NCAAMB stored certification no longer passes on nothing. Codex's finding on #957's merge-from-main push (71df8c8a), after #957's cap: it did not block #957 and went to that PR's one follow-up Issue.**
+- **Ruling (verbatim, 359 item 3):** "for NCAAMB, the stored phase FAILS (its own exit and line, "nothing stored to certify") when the season's rows or its linked teams read 0, fail-first on an empty copy and on a copy with teams and no games; the NBA's stored phase is left as certified. One small PR against the follow-up Issue, one review round."
+- **As built:** the stored phase's per-season check, NCAAMB only; exit 1 with the line; a STOP still exits 3; the NBA unchanged. Until this is on main, the architect's Friday block reads the stored line itself and treats 0 rows or 0 linked teams as a stop (359 item 3).
+
+**2026-11-12 — FIXED (#960; ARCHITECT 2026-11-12 14:25 ET, addendum 358 item 4(1)): the shared #817 `DOLLAR` and `USD_WORD`'s digit and usd arms backtracked quadratically on a long run (slow, never wrong). Each now reads in linear time and matches exactly what it matched before.**
+- **Proof of the same strings:** a seeded differential against main's patterns (60,000 random lines and 39 curated ones); every caller reads only whether a pattern matches.
+- **Found while building:** CONTRACT_COUNT and POOL have the same class of defect; filed as #969 (needs-ruling), not in this PR.
+
+**2026-11-12 — RULED (ARCHITECT 2026-11-12 12:25 ET, addendum 356 item 2): #956 closed by option (b). THE HELD LIST and `TIMERS_BY_BLOCK` stay two lists.**
+- **The ruling:**
+  - `TIMERS_BY_BLOCK` is a timer's class: how it is ever enabled. THE HELD LIST is a state: off today, entering and leaving with an addendum.
+  - The rule that joins them, verbatim: "a `TIMERS_BY_BLOCK` timer is on THE HELD LIST from the merge that ships it until my block enables it; the enabling block's addendum takes it off."
+- **The held list now:**
+  - `sp-tennis-daily.timer` (288 item 5);
+  - `sp-ncaamb-daily.timer` (entered when #957 merged);
+  - `sp-availability-graph.timer` (entered with 356).
+- **The hold search:** `C=NCAAMB` now prints ncaamb-daily marked "(on THE HELD LIST: not enabled on the host)", never as a live trigger. The search still does not read T11.
+- **The finding:** Lane B (Dev 2) found it in the NCAAMB wiring PR's review; section O is Dev 1's.
+
+**2026-11-12 — FIXED (#950; ARCHITECT 2026-11-12 10:55 ET, addendum 354 item 2): the deploy's plan was silent when a schema change rode an existing idempotent migration (v1.6.7's poll key; also v1.1.0..v1.2.0 and v1.2.1..v1.2.2).**
+- **The rule (354 item 2(a)):** a change to the stored schema ships with a NEW one-shot `migrate_<what>.py` in the same PR, which the plan already lists, orders and prints. It is in CONTRIBUTING.md.
+- **The warning (354 item 2(b)):** on a forward deploy where `src/db/schema.py` changed and no new migration is listed, the dry run and the deploy print one `!` line with no command, and the receipt sets `schema_changed_no_migration`.
+- **Open (354 item 2(c)):** whether CI refuses such a PR. The feasibility read is in the PR, and the architect rules on it.
+
+**2026-11-12 — BUILT (#950; ARCHITECT 2026-11-12 14:25 ET, addendum 358 item 2): the schema check, scope B. CI compiles the stored schema at a PR's base and head in memory and refuses a changed or added table, index or trigger with no new top-level migrate_*.py. A new table ships with its migrate file too.**
+- **Why scope B (358 item 2):** "A table that appears on the live DB because whichever chain ran first called init_db is a schema change nobody ordered, taken with no .backup before it and written on no deploy receipt; the migrate file puts it in the plan, under the deploy's one lock, after the backup, on the record (laws 5 and 6)."
+- **Replay:** on the 35 first-parent schema.py changes, it refuses #933, #841, #275, #242, #231, #221 and #137 and passes the rest.
+- **Stated limits (CONTRIBUTING.md):** DDL outside `Base.metadata`; a backfill with no DDL change. The deploy's `!` line (#954) stays behind it.
+- **Pre-push review, fixed:** the base is the merge base (a PR behind main is never refused for main's own changes); a copied or renamed migration is not new (sp_deploy never runs it); the whole tree is compiled; every table stays in src/db/schema.py (pinned).
+
+**2026-11-12 — FIXED (#947, #942's follow-up Issue under the review stop rule): the `--db` fence's two silent "absent" reads.**
+- **The defect:** an unreadable data/ root and an unreadable `--db` stat were each treated as absent, so the identity check (a hard link into data/) did not run on either.
+- **The fix:** only `FileNotFoundError` and `NotADirectoryError` read as absent. Any other `OSError` refuses (law 4).
+- **Classification (#947's, the architect's to overrule):** read-only. `check_db` is the fence that receipts, probes and gates call before they open a `.backup` copy read-only.
+
+**2026-11-12 — BUILT (#945; ARCHITECT 2026-11-12, addendum 348 item 2 and addendum 354 item 4): the read-only tools to answer what the twenty NCAA "live, resync needed" rows are.**
+- **The provider's answer per row:** `dedupe-matches --competition NCAA --orphans --sample 30` prints, on each `[live_resync]` line, what the provider serves (status, code, score, kickoff), from the read it already makes.
+- **The rows and their labels:** `scripts/ncaa_live_resync_rows.py --db <copy>` lists them with their CFBD labels and whether each label is current (L3; a level score marked), on a .backup copy, read-only.
+- **No write:** both are reads. The certified count stands; the architect reads both consoles before any resync is ruled.
+
+**2026-11-12 — BUILT (#944; ARCHITECT 2026-11-12 10:50 ET, addendum 351 item 2): the graph rebuild's follow-up from Codex's reviews of #943 after its second round (the review stop rule), and T11's third list `TIMERS_BY_BLOCK`. Lane availability-record, #830. No model change; nothing reads the graph; no date moves.**
+- **Ruling (verbatim, addendum 351 item 2):** "#943's T11 THREAD (Codex P2: a fresh host following T11's executable block would enable a timer its own note says to leave out): Codex is right about the trap and you were right not to change how every host comes up without a ruling. RULED: T11 gains a THIRD list, `TIMERS_BY_BLOCK` — shipped, never enabled by T11's fresh-host line, enabled only by the architect's own block once its named prerequisite is met (today: sp-availability-graph.timer — the engine installed and its directory made; sp-tennis-daily.timer — 288 item 5). T11's `systemctl enable --now` line and its timers.enabled write take `TIMERS` alone; the test becomes "every shipped timer is on exactly one of the three lists"; sp_deploy's receipt line names the third list as it names MLB_LAPTOP_ONLY. That is a change to a runbook block and its pin, so it goes to #944 (the follow-up this PR already has), one small PR, not a fourth round here; until it merges the ORDER note stands."
+- **As built:** graph.py (#944 items 2-4: the sport in node keys, IN_GAME's latest side, the SIGTERM deferred through the cleanup and re-delivered after the run's line, Codex on #952); hosting-h1.md T11 (`TIMERS_BY_BLOCK`), its bullet and two recipes; `sp_common.T11_LISTS`; the pins. #944 item 1 was resolved by #936's merge.
+- **Not touched:** section O's HELD LIST (it carries sp-tennis-daily.timer for the post-check's set comparison; Dev 1's section). Whether it and `TIMERS_BY_BLOCK` should become one list is the architect's call.
+
+**2026-11-12 — FIXED (#941; ARCHITECT 2026-11-11 19:50 ET, addendum 347 item 3): the shared `--db` fence (`mlb_pitchers_gate.check_db`) missed a hard link to a file in a subfolder of data/.**
+- **Finding:** the identity pass (law 5's "by identity") listed only data/'s direct children, so a hard link outside data/ to `data/backups/<file>` passed the fence every copy-reading `--db` has used since 11-01. Found by Code's money-path review of #938.
+- **As built:** the identity pass walks data/ recursively by device and inode, following folder symlinks with each folder visited once. A path under a folder data/ links to is refused as under data/. A folder under data/ that cannot be read refuses (law 4). Tests put a link under `data/backups/` and a linked `data/backups` in a scratch `DATA_DIR`. The resolved-path, configured-database and never-created checks are unchanged.
+
+**2026-11-12 — FIXED (#940; ARCHITECT 2026-11-11 19:50 ET, addendum 347 item 3): three fail-safe nits in `intl-elo-confirm --db`, carried by one follow-up Issue instead of a third review round on #938.**
+- **As built:**
+  - A sidecar that cannot be checked refuses (exit 2), never a traceback, and is never read as absent. A copy name too long for its sidecar names is one such case, and only it gets the shorter-name advice. After the read, the refusal says "nothing recorded".
+  - The post-read `OSError` catch covers only the two post-read checks, so a registry read error is not blamed on the copy.
+  - The pre-read hash failure has its test.
+- **Nothing in the record changes:** the computation, the cohort, the plan and the bar are untouched. The UNL record block (11-17) runs on main with these in.
+
+**2026-11-12 — BUILT (ARCHITECT 2026-11-11 19:50 ET, addendum 347 item 4): #937's follow-up on the graph candidates page, one docs PR: GQLite and ArcadeDB compared on their primary records, LadybugDB's import name corrected to `ladybug`, lance-graph's description-level repository link, RyuGraph's full wheel range, the venv install line; the stray empty `tests/_probe_tmp_should_not_exist.py` removed. Lane availability-record, #830. No code, no dependency, no date moves.**
+- **Ruling (verbatim, addendum 347 item 4):** "#936's OPEN P1 (gqlitedb, arcadedb-embedded; round cap reached): RULED — it does not block. The page says in its own words that it is not a census of the package index; two more names go to #937 with any later find, read the same way, and #936 merges as it stands at a9538fba. [...] The stray empty `tests/_probe_tmp_should_not_exist.py` that #933 put on main: fold its removal into #937 (one PR), and add to your pre-push routine a `git status --porcelain` read of untracked files before the commit — an empty file is harmless, the same slip with a payload file would not be."
+- **Found in the reading:** `arcadedb-embedded` is deprecated by its owner (26.11.1, "7 - Inactive", a shim installing `arcadedb`, the GraalVM native build; the JVM build continues as `arcadedb-jvm`); GQLite's description says development "has now slowed down"; GQLite's Bug Tracker repository on github.com returns 404 (its home is GitLab). Neither changes the pick (347 item 5).
+- **As built:** docs/specs/availability-graph-candidates.md; tests/_probe_tmp_should_not_exist.py deleted.
+
+**2026-11-12 — FIXED (#930, #929's follow-up Issue under the review stop rule): the awaiting VERDICT line names an unread paired window.**
+- **The defect:** `paired_verdict` returned at its awaiting branch before the window-not-read branch. The verdict was right (NOTHING-TO-COMPARE, pending), but its line named only the awaiting file, and the mirror Action parses that line.
+- **The fix:** the awaiting line appends the unread files, as the other NOTHING-TO-COMPARE line does. No verdict, exit code or pending state changes.
+
+**2026-11-12 — FIXED (#926; ARCHITECT 2026-11-11 08:45 ET, addendum 335 item 5): the intl test's test-order dependency.**
+- **Found by pair bisection on main 981734a4:** each earlier module was run with the failing test alone. Only `test_scores_by_team.py` fails it: its intl-history test leaves a reversed UNL 2073 row, and `intl-coverage`'s whole-DB count then reads 2 where the test asserted 1.
+- **The fix:** the test asserts its own row as the count before plus one. It passes alone, after `test_scores_by_team.py`, before it, and in the Issue's five-module order, on 3.12 and 3.10.
+- **Not a code defect:** the command counts the database it is given, as built.
+
+**2026-11-12 — BUILT (#908; ARCHITECT 2026-11-12 14:25 ET, addendum 358 item 7): RULED (b), with a tripwire. #908's write path is latent while api_american_football's get_match_stats is a stub; the fix rides the PR that wires those stats. A test now fails, naming #908 and 312 item 4, the day the stub returns anything else. #908 stays open as a limitation.**
+- **The interim rule stands** (312 item 4): no `sync-match-stats` on NCAA or NFL rows of a season the provider has reused an id in. The two read paths stay listed on #908: `resync-diff` without `--season`, and `sync_odds(upcoming_only=False)` without a season.
+- **Not ruled on a guess** (358 item 7): whether the other sources reuse ids; it is read when one of them shows it.
+
+**2026-11-12 — FIXED (#907): the exec <= 0 receipt reads malformed shapes as UNREADABLE and only the newest copy of a start.** A row `match_id` that is not an int or a string is a malformed row (the run goes on), and a file that cannot be read is unreadable. A start is its file name's (family, stamp), and only its newest copy is read: by `exported_at` when every copy carries one, else by folder. An unreadable newest copy makes the start unreadable. Older copies are SUPERSEDED, never merged with the newer one. Read-only; nothing it counted changes meaning.
+
+**2026-11-12 — BUILT (#901; ARCHITECT 2026-11-09 12:50 ET, addendum 309 item 6): 2026's retirement as a college test season (addendum 302) is enforced by the registry, as 2025's was (addendum 24 item 2(b)). Refs #79.**
+- **Ruling (verbatim, addendum 309 item 6):** "#901 (2026 not in `registry.RETIRED_TEST_SETS`): a small src PR of its own, after #903 and #894 — the entry with 302 item 3's sentence quoted, a test that a 2026 college candidate is refused; Refs #79."
+- **302 item 3's sentence (verbatim):** "2026 is RETIRED as a college test season; NCAA is MARKET-ONLY; the 2027 candidate declares in the off-season."
+- **As built:** `registry.RETIRED_TEST_SETS` and `RETIRED_BY` gain ncaa-elo-v2's exact test set: last candidate ncaa-elo-v2, the 2027 regular season to declare instead, the refusal naming addendum 302. docs/REGISTRY.md's table gains both college rows. No model, gate, threshold or export changes; no date moves.
+- **Ruled on the PR (ARCHITECT 2026-11-12 14:25 ET, addendum 358 item 6):** (1) the 2025 set's "declare instead" points on to 2027 ("a refusal that sends a candidate to a retired season is wrong on its face"), in the 2026 entry's own words, with a test; (2) "The exact `test_set` string STANDS as the key ... No fuzzy key": REGISTRY.md adds that a new set's wording is ruled at its declaration.
+
+**2026-11-12 — BUILT (#896; ARCHITECT 2026-11-10 12:20 ET, addendum 320 item 1): the bulletin guard refuses a spelled-out dollar figure** ("twenty-five dollars", "dollars twenty", "a buck twenty", "one hundred USD", "$ twenty-five", "$-twenty", "twenty US dollars"). Only the guard's own `usd_word` pattern widens; the shared #817 pattern and `sp_common.redact` are unchanged. The shared #817 `DOLLAR` pattern's quadratic backtracking on a long run of blanks after a `$` (pre-existing; out of this ruling's scope) and the same in two of `usd_word`'s older digit arms are their own finding, #960.
+
+**2026-11-12 — BUILT (#839; ARCHITECT 2026-11-12 11:05 ET, addendum 352 items 2-4; 10:45 ET, addendum 353 item 2): NCAA men's basketball's market-only wiring, the plan approved as five lines; the load and the enablement are the architect's blocks. No model, no call; no date moves.**
+- **Ruling (verbatim, 352 item 2):** "THE PLAN IS APPROVED as five lines." 353 item 2: "KALSHI_SERIES_BY_COMPETITION["NCAAMB"] = "KXNCAAMBGAME"" with fee M (1.0, 1.0), "the comment in venue.py quotes THIS console's line and date".
+- **As built:** league 116 ("NCAA", exact served name) in the adapter; the certification receipt's NCAAMB phases, the 2026 season only (352 item 3(iv)) and the team-id STOP in both phases (352 item 3(v)); KXNCAAMBGAME and its fee M; `sync-kalshi-ncaamb`; the PAPER pins and the capture tier; the chain `ncaamb-daily` and `sp-ncaamb-daily.timer` (07:07 UTC) on T11's `TIMERS_BY_BLOCK` (352 item 3(iii)), shipped not enabled.
+- **Team lookup** is NOT re-scoped by competition (352 item 3(v)); the receipt's stop stands in its place.
+- **Findings for the architect (on the PR):** (1) the shared matcher keys on the ticker's date read as a US Eastern day, a day either side (addendum 44 item 1), and `occurrence_datetime` places nothing (addendum 52 item 4); 353's sample (26NOV15, occurrence 2026-11-16T05:00Z = 00:00 ET 11-16) places under that rule, a day off the ticker's date; nothing was changed to key on the occurrence. (2) The shared matcher's word-overlap fit lets "Alabama St." place on an "Alabama" (or "Alabama A&M") game when Alabama State's own game is not stored that day (best fit among the stored; a tie between two half-fits is refused); with Alabama State's game stored, the whole-name fit takes the market. Not changed (a shared, money-path matcher); it goes to the architect: #955. (3) Section O's hold search (Dev 1's section) does not read `TIMERS_BY_BLOCK`, so `sp-ncaamb-daily.timer` prints there as a live host trigger before its block: #956.
+- **#953 closed here:** Codex's round-3 P2 on #952 (the cap; the stop rule's follow-up Issue): the tennis timer's Schedule row still said "Shipped on `TIMERS`" after #952 moved it to `TIMERS_BY_BLOCK`. The tennis and graph rows now name the list; a pin covers every `TIMERS_BY_BLOCK` row. (4) A league-116 game whose side `/teams` omits is not stored (`sync-teams` reads `/teams` only; `sync-matches` skips a side with no row), where 272 item 2 says "the sync still stores every served game"; the served phase counts it: #959.
+
+**2026-11-12 — RECORDED (ARCHITECT 2026-11-12 17:20 ET, addendum 362 item 3): four timer descriptions now carry the host's enabled line.**
+- **The rule, verbatim (362 item 3):** "360 item 5's rule is the general one: wherever the repo says a timer is disabled and the host says otherwise, the repo is corrected the same day."
+- **The lines:**
+  - `sp-availability-daily.timer`, in availability-record.md and hosting-h1.md: enabled 2026-11-09 at 14:16Z (304 item 2).
+  - `sp-nba-daily.timer`, in hosting-h1.md: enabled 2026-11-09 at 14:16Z (304 item 2).
+  - `sp-availability-observe.timer`, in availability-record.md: enabled 2026-11-12 at 15:23–15:25Z (354 item 1).
+- **A correction of my own listing:** #971's body listed availability-record.md line 770 as the observe watch's. That line describes the daily timer, so it carries the daily timer's date, not the watch's.
+
+**2026-11-12 — RECORDED (ARCHITECT 2026-11-12 16:00 ET, addendum 360 item 5): the release record now follows the host the same day.**
+- **The finding:** docs/RELEASES.md said `sp-availability-observe.timer` "stays disabled until its own block", and hosting-h1.md gave only the block's recipe. A reader of the public repo concluded the NHL watch was not collecting.
+- **The facts now recorded:**
+  - The timer has been enabled on the host since 15:23–15:25Z, by the architect's block (354 item 1). The first tick, at 15:25:02Z, wrote observation #5. The timer set read CLEAN at 21.
+  - The first fixtures_NHL pair under v1.6.7's comparator read CLEAN on the host's 16:00:38Z push (355).
+- **Where:** v1.6.7's "After the tag" in docs/RELEASES.md, and a line under the recipe in hosting-h1.md.
+- **The rule, verbatim (360 item 5):** "The record follows the host the same day, not at the next tag."
+
+**2026-11-12 — RECORDED (ARCHITECT 2026-11-12 09:50 ET and 10:35 ET, addenda 349 and 350): v1.6.7 cut on 6792cefe (15:19:06Z) and deployed to the host (15:20–15:21Z) with its migration; PRODUCTION = v1.6.7. The nflverse feed's step is done.**
+- **The release:**
+  - The tag carries sixteen PRs (#913 … #939).
+  - Its one migration, `migrate_availability_record.py` for #933's poll key, was named by the architect's deploy block, because the deploy's plan does not see a schema change that rides an existing idempotent migration. The finding is #950.
+  - The release Issue is #949.
+- **The record:** docs/RELEASES.md row and entry; roadmap lane availability-record, the nflverse feed's step done on the 08:45Z availability-daily run read by name (350 item 2).
+
+**2026-11-12 — BUILT (ARCHITECT 2026-11-12 13:50 ET, addendum 357 items 3-4; ARCHITECT 2026-11-05, addendum 261 item 1(e)): the NBA injury-report probe, read-only, in two phases; the terms are read and ruled BEFORE any report is fetched. Lane availability-record, #830 (#839 names it). No adapter, no source word, nothing ingested; no date moves.**
+- **Ruling (verbatim, 357 item 3(a)):** "TWO PHASES, and this is the one change: 261 item 4 reads "no scraping of a source whose terms forbid it (the probe quotes the terms)", so a report fetched "marked NOT CLEARED" is a report already scraped. The script's DEFAULT run is the TERMS PHASE alone [...] then it stops — no index page, no report. The REPORT PHASE (`--report`, with `--index-url`) is a second block of mine and runs ONLY after my ruling on the terms console. If the terms forbid it, the probe's step is done on the terms console and the feed is closed by that ruling, as the tennis archive and the NBA's public JSON were."
+- **As built:** scripts/nba_injury_report_probe.py (the two phases; the report phase refuses without `--terms-ruling`); requirements-probe-pdf.txt (pypdf 6.21.4 by hash, optional, laptop-only); the roadmap step; the tests on synthetic shapes.
+- **BACKLOG's open question answered (where 1(e)'s 11-24 probe lands):** on lane availability-record, as 261 item 1(e) places it ("THE AVAILABILITY RECORD'S NBA FEED (lane availability-record, after the NHL landing feed)"); the lane gains the step by 357 item 4, an added step and not a moved date.
+- **The step is DONE** on the architect's block's consoles on #839 (the terms console; the report console if the terms allow it), not on the merge (357 item 4).
+
+**2026-11-12 — BUILT (ARCHITECT 2026-11-04 13:05 ET, addendum 252 item 4; 2026-11-11 19:50 ET, addendum 347 items 5 and 6(D)): THE GRAPH PROJECTION'S REBUILD, `availability-graph-rebuild`, on the pick (LadybugDB, `ladybug` 0.22.3, host-only) and its four conditions, with its own sandboxed unit `sp-availability-graph`, shipped and not enabled. Lane availability-record, #830 (step 7, due 11-25). No model change, no Desk input, nothing reads the graph, no date moves.**
+- **Ruling (verbatim, addendum 347 item 5, the conditions):** "(a) HOST-ONLY and optional — its own requirements file installed with `--require-hashes`, never requirements.txt; the laptop and CI do not install it and its tests skip when it is absent; (b) the rebuild NEVER runs inside the Desk's trust boundary: its own systemd unit with NO EnvironmentFile (it never sees host.env), `PrivateNetwork=yes`, `NoNewPrivileges=yes`, `ProtectSystem=strict` with one writable directory for the graph file, reading a `.backup` COPY of the database opened mode=ro + immutable=1, never the live file — a young native dependency gets no keys, no network and no write path to anything but its own output; (c) nothing reads the graph for a call, a price or a page until a later ruling (252 item 5: the record feeds no model and no Desk input); (d) a version bump is a PR that re-reads identity and hash, never a range."
+- **As built:** `record.walk` (history's partitions and `_derive`, both clocks); `src/availability/graph.py`; `cli.py availability-graph-rebuild`; `requirements-graph.txt`; `sp-availability-graph.service` and `.timer`; `sp_notify.unit_for`; hosting-h1.md (T11, the Schedule row, the block's commands); docs/CLI.md; spec section 11; tests/test_availability_graph.py.
+- **Found and stated before building (Dev 2's report on 347):** the package imports as `ladybug`, not `lbug` (the wheel's top_level.txt; the candidates page's row carries the same slip, corrected by #937's PR); no EnvironmentFile alone leaves the keys readable (host.env is root:sp 0640; config.py loads the checkout's .env on import), so the unit takes them away (/etc/sports-predictor and data/ inaccessible, .env /dev/null); 252 item 4's "the last step of availability-daily" cannot coexist with 347 item 5(b) (a chain step runs inside the chain's unit), so the rebuild has its own timer after the 09:30 backup; the droplet's weekly whole-disk backup (H0-14) images logs/ too, so "never backed up" holds for our .backup, pull and mirror only.
+- **The adversarial review before the PR (four lenses, 17 findings, 16 confirmed by an independent check, each fixed with a fail-first test):** COPY with `PARALLEL=FALSE` (a stored newline failed every rebuild for good); a node's ids are the latest assertion's that carries one, whatever the walk's order; the unit also hides /etc/sports-predictor (an exports-mirror deploy key installed there), runs `PrivateUsers=yes` with `ProtectProc=invisible` and `ProcSubset=pid` (another sp process's /proc/<pid>/root and environ gave its unmasked .env and data/), `RestrictAddressFamilies=none` (filesystem sockets), `PrivateDevices=yes` and `PrivateIPC=yes` (the shared /dev/shm); the engine's version from its metadata and its native module imported first (`ladybug.__version__` could reach the ctypes fallback); a copy not readable as SQLite refused as such; a receipt that cannot be written never replaces the outcome; one run at a time; a SIGTERM writes its line and removes its staging, and a SIGKILLed run's staging is removed by the next; T11's fresh-host ORDER note; the condition (c) pin read on the syntax tree; the hosting pack's T11 pins.
+- **Codex on #943, round 1 (five P2s):** four fixed with fail-first tests (`After=sp-backup.service` for a catch-up after downtime; `--db` refused when it is `--out`; the receipt's hash computed before the replace, the commit point; a player's name the latest assertion's); one answered with the architect's call (T11's fresh-host `$TIMERS` carries the timer, as sp-availability-observe's does; the ORDER note stands until a ruling).
+- **Decided by Code (stated on the PR, for the architect to correct):** 10:20 UTC; 26 hours of copy age; `MemoryMax=1536M` and a 256 MB buffer pool (the receipt: 614 MB peak on 931,335 synthetic assertions); an edge per assertion carrying both clocks' intervals; node keys on the record's own identities; a refusal or a failure fails the unit and pages.
+- **Not done:** the host install and the first run, the timer's enablement (the architect's blocks, 347 item 6(D)).
+
+**2026-11-09 — BUILT (ARCHITECT 2026-11-09 12:25 ET, addendum 308 item 1(b) and 1(c)): TENNIS-F (lane tennis-market-only, #838; the limitation #905). The venue's /markets listing is not a stable history: settled markets leave it. The tennis lane's live_needs names the erosion and quotes 308 item 1(a). The certification receipt's SERVED phase takes `--tickers PATH` and writes one file per tour, `<PATH>.ATP.txt` and `<PATH>.WTA.txt`, of the accepted event tickers, sorted, one per line, so a day-to-day listing diff is a `comm` of two files; the first dump is the next served run's. Beside it (ARCHITECT 2026-11-09 12:50 ET, addendum 309 item 6), the served phase prints one WINDOW line per tour: the accepted events of a ticker-date range (`--from`/`--through`, default the daily window) counted by our status. No bar, no date. Refs #838, Refs #905.**
+- **Ruling (verbatim, addendum 308 item 1, the finding and its consequences):** "Thirty settled events left Kalshi's /markets listing between the two reads. I checked the other cause: between 030d1bb8 (the 11-08 run) and 93cdc011 the adapter's listing and acceptance code did not change (tennis-D and tennis-E touched labels, the map and the receipt's lines; `git diff 030d1bb8..93cdc011 -- src/adapters/kalshi_tennis.py` shows no change to build/accept), and the pager still refuses a cursor left. FINDING, on #838 (Code files it from this paste; a limitation line): the venue's /markets listing is not a stable history — settled markets leave it (30 events of ~1,500 in one day; which ones is not knowable, the tickers were not dumped). Consequences, RULED: (a) the history pot is what the DB stores from the first load on, as 270 item 5 already has it ("no backfill is scheduled") — the 7-day window stands, no back-load by windows; (b) the lane's text names the erosion; (c) TENNIS-F gains one small read-only item: the served phase takes `--tickers PATH` and writes the accepted event tickers per tour, one per line, sorted, so a day-to-day listing diff is a `comm` of two files; the first dump is the next served run's. Nothing else changes; no bar, no date."
+- **Built (b):** `docs/roadmap.json`, lane `tennis-market-only`, one sentence appended to `live_needs` ("THE LISTING'S EROSION, a records note ...", citing 308 item 1(b), #905, the 30 of ~1,500 between the 11-08 and 11-09 served reads, and 308 item 1(a) verbatim). (a) needs no change: the 7-day window and 270 item 5's "no backfill is scheduled" already stand.
+- **Built (c):** `scripts/tennis_certification_receipt.py --tickers PATH` (SERVED phase only): per tour whose read answered, the accepted events' tickers, code-point sorted, one per line, nothing else, written beside the target and renamed; one console line per file with its path and count; the tail JSON's `tickers_written`. REFUSED before any call, nothing written: a PATH under data/, a missing directory, a directory, `--tickers` with `--db`.
+- **Ruling (verbatim, addendum 309 item 6):** "TENNIS-F (building): YES to the window line — the served phase prints, per tour, the counts by our status for a ticker-date range (`--from`/`--through`, default the daily window), beside the `--tickers PATH` dump of 308 item 1(c); both read-only."
+- **Built (309 item 6):** `--from` / `--through` (YYYY-MM-DD, the ticker's date: kalshi_tennis.event_day, 26NOV09 → 2026-11-09), served phase only. After the reads, one line per tour whose read answered, `<TOUR> WINDOW <from>..<through> (ticker dates): FINISHED n · SETTLED_SCALAR n · SCHEDULED n (of N accepted events in the window)`, counting the accepted events (the set THE MAP projects and `--tickers` dumps), both bounds inclusive, by our status (kalshi_tennis.settle; all three printed, zeros included). DEFAULT the daily window: tennis-daily's `sync-matches --date-from {yesterday} --date-to {tomorrow}` (deploy/hosting/chains.py, the tennis-daily steps), the placeholders in UTC as sp_run.date_vars computes them: the three ticker days a chain run writes. The window is worked out once, before any call (as `sp_run` computes the placeholders once at the chain's start). The header names which bound was given and which is the daily window's; the tail JSON gains `window` (`from`, `through`, `default` listing the bounds the daily window gave, `[]` when both were given, per tour the three counts and `accepted`). It is the served side of the STORED phase's counts by status per season, set beside them when the window is the load's own range: for 308 item 2's first load, `--from 2026-11-04 --through 2026-11-10`. REFUSED (exit 2, before any call, nothing written): a date that is not YYYY-MM-DD (strict; `20261230` and `26DEC28` refused), `--from` after `--through` (a lone bound is checked against the other's default), `--from`/`--through` with `--db`. A tour whose read did not answer prints `not counted`.
+- **Decided conservatively, put to the architect (PR body):**
+  - The file shape: PATH is a prefix and each tour gets `<PATH>.<TOUR>.txt`, so `comm` reads two days' files for one tour directly.
+  - A tour whose read refused or failed writes no file (a partial listing is never dumped); the other tour's file is still written.
+  - The order is code-point (`LC_ALL=C`); the docs name `LC_ALL=C comm`.
+  - The default window is the chain's WRITE window, {yesterday}..{tomorrow} (three ticker days, what a daily chain run creates rows for; its re-read's 7-day lookback before {yesterday} creates no row), not the seven days of TENNIS_MAX_WINDOW_DAYS. It is NOT the first load's comparison: the stored phase counts by season, not by day, and refuses `--from`/`--through`, so a stored count is set beside the window line only when the window is the load's own range; pass the load's own `--date-from`/`--date-to`. The 308 item 2 line on #838 compares the load of `sync-matches --date-from 2026-11-04 --date-to 2026-11-10` (seven ticker days), so its served run is `--from 2026-11-04 --through 2026-11-10`. The 3-day default is still put to the architect.
+- **Open:** the first dump is the next served run's (308 item 1(c)); the one line on #838 comparing the stored receipt's counts with the served window's (308 item 2) after the operator's two posts.
+
 **2026-11-12 — MOVED (ARCHITECT 2026-11-11 19:50 ET, addendum 347 items 1-2): the UNL confirmation record moves to 2026-11-17; the 60th cohort fixture (41643, CNL Cuba v Grenada) was rescheduled by the provider to 2026-11-16T20:00Z.**
 - **Decision record:** the host's read-only read at 2026-11-12T00:27Z found the cohort FROZEN, 60 of 60 fixtures, 59 of 60 labelled, 1 scheduled (so far log-loss 0.8361 vs reference 1.0264, bar 1.0986: not a verdict). By doctrine #212 and the cohort's own rule, a pending fixture leaves the read incomplete, and a rescheduled one is not unscoreable. There is no substitution, the cohort is untouched, and the record waits.
 - **The roadmap:** lane unl's fixture step moves 11-11 → 11-16, the record step 11-12 → 11-17 (now "by the architect's block on the laptop from the host's pulled copy (addendum 346)"), and earliest_live 11-12 → 11-17, one moved line each. If the fixture moves again, another line follows the same day.

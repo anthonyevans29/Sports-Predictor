@@ -1,8 +1,0 @@
-**2026-11-13 — DONE (ARCHITECT 2026-11-13 11:05 ET, addendum 369 items 1 and 4): the availability record's NHL landing feed (252 item 3(b); lane availability-record, #830), read clean on the host's first evening of the watch.**
-- **The read (369 item 1):** the host's live DB, mode=ro, at 15:41Z on v1.6.7. 99 observations on 11 games, every poll COMPLETE at HTTP 200: T-120 on 10 of 11, T-90 through T-0 and T+20 on 11 of 11. The one row that is not is the 17:00Z game's T-120, due at 15:00Z before the watch existed (MISSED). No late, partial or failed row. Team unmapped 0 on all 196 facts; rows_asserted 2 on all 98 complete polls.
-- **The mark:** docs/roadmap.json's step done 2026-11-13, due 2026-11-17, item 1 quoted in the receipt. No date moved.
-- **Open from the same read, for Dev 2 (369 item 2):** player id unmapped on all 196 facts, read as by design; and the one failed tick (03:25:02Z, a ReadTimeout on the schedule read, no poll lost). Nothing is built here for either.
-- **Addendum 370 item 2 (the same PR):**
-  - **The graph comparison:** done 2026-11-12, on #936 merged at 09259889; the pick is addendum 347 item 5.
-  - **The graph rebuild's text made true:** its own unit and timer, not availability-daily; merged #943, #952 and #973. What remains is v1.6.8, then the architect's install-and-enable block. The due date is unchanged.
-  - **The rest of the open steps:** read against main. nfl-qb's 11-13 sourcing step is listed for the architect, unmarked: 279 item 2 names its receipt, but the step pairs it with the NHL decision, still pending.

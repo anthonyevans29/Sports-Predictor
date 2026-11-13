@@ -899,3 +899,106 @@ def test_368_pass1_the_receipt_is_written_where_it_was_checked(tmp_path, monkeyp
     finally:
         import shutil
         shutil.rmtree(target.parent, ignore_errors=True)
+
+
+# ---- #972 items A and B (ARCHITECT 2026-11-12, addendum 363 item 6): the receipt keeps a line's characters ------------
+
+def test_972_a_robots_lines_break_only_at_cr_lf_and_crlf(capsys):
+    pages = terms_pages()
+    served = "User-agent: *\r\nDisallow: /a\x1cb\x1d\x1e\x0bc\x0cd\x85e f\nAllow: /\r"
+    pages[ROBOTS_URL] = (200, served.encode(), {})
+    code, out, rec, fake = run(capsys, ["--terms-url", TERMS], pages)
+    assert [ln["text"] for ln in rec["robots"]["text_lines"]] == [
+        "User-agent: *", "Disallow: /a\x1cb\x1d\x1e\x0bc\x0cd\x85e f", "Allow: /"]
+    assert rec["robots"]["lines"] == 3
+    assert "  | Disallow: /a\\x1cb\\x1d\\x1e\\x0bc\\x0cd\\x85e\\u2028f" in out   # the console shows them escaped (364 item 5)
+
+
+def test_972_a_pdf_text_lines_break_only_at_cr_lf_and_crlf():
+    f = probe.fields_report(["Injury Report: 11/12/26 08:00 PM\r\nLast, First\x1cOut\x85 Injury\x0b\n"], probe.Out())
+    assert f["lines"] == 2 and f["first_lines"] == ["Injury Report: 11/12/26 08:00 PM", "Last, First\x1cOut\x85 Injury\x0b"]
+
+
+def test_972_b_the_page_folds_only_html_whitespace():
+    lines = [ln["text"] for ln in probe.page_lines(
+        "<p>No scraping\x01 of\x1fthe\x85site.</p><p>a \n\t\r\x0c  b</p><p>c\xa0\xa0d e</p>")]
+    assert lines == ["No scraping\x01 of\x1fthe\x85site.", "a b", "c d e"]       # spaces fold as on main; controls kept
+
+
+# ---- the first adversarial pass on the #972 A/B change: only the control characters are kept; every space (NBSP and
+# the other Unicode spaces) folds and trims exactly as on main ----------------------------------------------------------
+
+def test_972_pass1_an_nbsp_spacer_is_no_line_and_the_window_and_date_line_are_unchanged():
+    page = ("<p>Last Updated:</p><p>&nbsp;</p><p>October 1, 2026</p><p>No robots or scrapers may access.</p>"
+            "<p>&nbsp;</p><p>&nbsp;</p><p>Violators will be prosecuted.</p>")
+    windows, updated, dropped, lines = probe.terms_windows(page)
+    assert [ln["text"] for ln in lines] == ["Last Updated:", "October 1, 2026", "No robots or scrapers may access.",
+                                            "Violators will be prosecuted."]
+    assert probe.date_lines(lines)[0]["next"] == "October 1, 2026"
+    assert windows[0]["lines"][-1]["text"] == "Violators will be prosecuted."
+
+
+def test_972_pass1_a_page_of_only_nbsp_is_not_read(capsys):
+    pages = terms_pages()
+    pages[TERMS] = (200, "<html><body><p>&nbsp;</p><p>\xa0　</p></body></html>".encode(),
+                    {"Content-Type": "text/html"})
+    code, out, rec, fake = run(capsys, ["--terms-url", TERMS], pages)
+    assert "the page parsed to 0 lines: NOT READ" in out and code == probe.FAILED
+
+
+def test_972_pass1_pdf_lines_of_only_spaces_are_dropped_and_a_page_footer_is_not_a_body_line():
+    f = probe.fields_report(["Injury Report: 11/12/26\n\xa0\n　\nJames, LeBron Out\nPage 1 of 2\xa0\n"
+                             "\x85Page 2 of 2\x0b\n"], probe.Out())
+    assert f["lines"] == 4 and f["first_lines"][:2] == ["Injury Report: 11/12/26", "James, LeBron Out"]
+    assert f["lines_no_status_word_all"] == []
+    assert probe.fields_report(["\xa0\n　\n"], probe.Out())["lines"] == 0
+
+
+def test_972_pass1_index_link_text_folds_spaces_as_on_main():
+    links = probe.index_links('<a href="/f/Injury-Report_2026-11-12_08PM.pdf">\xa0 Report\xa0\xa0 8 PM　</a>',
+                              "https://reports.example.invalid/")
+    assert links[0]["text"] == "Report 8 PM"
+
+
+# ---- ARCHITECT 2026-11-13, addendum 364 item 5: #980's design question ruled; the linear strip; U+2028/U+2029 --------
+
+def test_364_5_a_block_of_whitespace_and_controls_alone_is_no_line_and_the_date_and_window_are_unchanged():
+    page = ("<p>Last Updated:</p><p>\x0b</p><p>October 1, 2026</p><p>No robots or scrapers may access.</p>"
+            "<p>\x1f \x85</p><p>\x01</p><p>Violators will be prosecuted.</p>")
+    windows, updated, dropped, lines = probe.terms_windows(page)
+    assert [ln["text"] for ln in lines] == ["Last Updated:", "October 1, 2026", "No robots or scrapers may access.",
+                                            "Violators will be prosecuted."]
+    assert probe.date_lines(lines)[0]["next"] == "October 1, 2026"
+    assert windows[0]["lines"][-1]["text"] == "Violators will be prosecuted."
+    assert [ln["text"] for ln in probe.page_lines("<p>No\x0b scraping\x1f here.</p>")] == ["No\x0b scraping\x1f here."]
+
+
+def test_364_5_a_page_of_controls_alone_is_not_read(capsys):
+    pages = terms_pages()
+    pages[TERMS] = (200, "<html><body><p>\x0b</p><p>\x1c\x85</p></body></html>".encode(), {"Content-Type": "text/html"})
+    code, out, rec, fake = run(capsys, ["--terms-url", TERMS], pages)
+    assert "the page parsed to 0 lines: NOT READ" in out and code == probe.FAILED
+
+
+def test_364_5_a_report_of_controls_alone_has_no_text_and_a_line_with_a_word_keeps_its_controls():
+    assert probe.fields_report(["\x0b\n\x1c\x85\n \x01 \n"], probe.Out())["lines"] == 0
+    f = probe.fields_report(["Injury Report: 11/12/26\n\x1c\nLast, First\x1cOut\x85\n"], probe.Out())
+    assert f["lines"] == 2 and f["first_lines"] == ["Injury Report: 11/12/26", "Last, First\x1cOut\x85"]
+
+
+def test_364_5_the_strip_is_linear_and_matches_str_strip_without_the_kept_controls():
+    import time
+    s = "x" + " " * 20000 + "\xa0" * 20000 + "y"
+    t0 = time.perf_counter()
+    assert probe.trim_ws(s) == s
+    assert time.perf_counter() - t0 < 0.5                              # quadratic: seconds; linear: microseconds
+    every_ws = [c for c in map(chr, range(0x110000)) if c.isspace()]
+    kept = set("\x0b\x1c\x1d\x1e\x1f\x85")
+    for c in every_ws:
+        expect = (c + "a" + c) if c in kept else "a"
+        assert probe.trim_ws(c + "a" + c) == expect, hex(ord(c))
+
+
+def test_364_5_line_and_paragraph_separators_are_escaped_on_the_console():
+    assert probe.console_safe("a b c") == "a\\u2028b\\u2029c"
+    assert probe.console_safe("\x1b ") == "\\x1b\\u2028"

@@ -1,4 +1,4 @@
-## 2026-11-13 (#PR: 368-report-phase-host — the NBA injury-report probe's report phase on the host only, its console structure only (ARCHITECT 2026-11-13, addendum 368 item 4))
+## 2026-11-13 (#985: 368-report-phase-host — the NBA injury-report probe's report phase on the host only, its console structure only (ARCHITECT 2026-11-13, addendum 368 item 4))
 - **scripts/nba_injury_report_probe.py, the console (368 item 4(ii)):** the report phase's console is STRUCTURE ONLY, with no player name and no row's text.
   - What prints: the link stamps by day, counts, the document's form, the column headers, the status words as written with their counts, and the counts of lines that did not read.
   - The document's stamp prints only in its strict date-and-clock form, and page 1's lines and the body-line sample are now counts.

@@ -65,8 +65,18 @@ TICKER = re.compile(r"\bKX[A-Z0-9]+-[A-Z0-9]|\b[A-Z][A-Z0-9]{2,}-[0-9]{2}(?:JAN|
 # (ii) the CSV header row: a run of field names joined by a CSV delimiter (comma, U+241F, tab, semicolon or pipe; a name
 # may be double-quoted) holding the three names in that order. A prose sentence that names the fields (a ruling quoting
 # them, `in backticks`, a list wrapped across lines) is not a header row and is not caught: the guard is for the row.
+# LINEAR (#979; ARCHITECT 2026-11-13 09:00 ET, addendum 364 item 2: "RULED as #960 and #969 were: the same fix, the
+# same proof, money-path review, ONE PR"): the run of field names is the group "run", and it is exactly the run the
+# pattern matched before, at the same place, one for one (tests/test_979_linear_csv_fraction.py). Before it, a match
+# starts once per run of letters, digits and underscores, never once per letter: at a quote, or at the run's start,
+# taking the digits that lead the run outside the group, since a field name cannot start with a digit. A later start
+# in the run matches only where the earliest does, so it is never tried (11.6 s on one 20,000-letter word before).
+# The delimiter's blanks are read once: blanks then a comma, U+241F, a semicolon or a pipe; or spaces up to a tab (a
+# tab is itself a delimiter); then blanks. The same strings as before, never split two ways (4.7 s on a field and
+# 20,000 tabs before).
 _FIELD = r'"?[A-Za-z_][A-Za-z0-9_]*"?'
-CSV_RUN = re.compile(_FIELD + r"(?:[ \t]*[,\u241f\t;|][ \t]*" + _FIELD + r")+")
+_DELIM = r"(?:[ \t]*[,\u241f;|]|[ ]*\t)[ \t]*"
+CSV_RUN = re.compile(r'(?:(?=")|(?<![A-Za-z0-9_])[0-9]*)(?P<run>' + _FIELD + r"(?:" + _DELIM + _FIELD + r")+)")
 SEQUENCE = ("quantity_fp", "entry_price_dollars", "realized_pnl_with_fees_dollars")
 # (iii) a dollar amount: a dollar sign ($, U+FF04 or U+FE69), optional blanks (space, tab, U+00A0), an optional sign
 # (ASCII plus or minus, or U+2212), optional blanks, an optional decimal point, then a digit. A $ with no digit after it
@@ -86,7 +96,7 @@ def is_row(line: str) -> bool:
 def is_header(line: str) -> bool:
     """(ii): a CSV-shaped run of field names on the line holds the three header names in sequence."""
     for m in CSV_RUN.finditer(line):
-        names = [f.strip().strip('"') for f in re.split(r"[,\u241f\t;|]", m.group(0))]
+        names = [f.strip().strip('"') for f in re.split(r"[,\u241f\t;|]", m.group("run"))]
         at = [names.index(n) for n in SEQUENCE if n in names]
         if len(at) == len(SEQUENCE) and at == sorted(at):
             return True
@@ -123,7 +133,12 @@ ORDER_TEXT = re.compile("(?i)\\bBUY\\s+(?:YES|NO)\\b|\\u00d7\\s*\\d"
                         "|(?<![A-Za-z0-9])x\\s*\\d+\\s*(?:@|\\bat\\b)"          # "x 3 at 45c", "x3 @"
                         "|(?<![A-Za-z0-9])x\\d+\\b")                            # "x3" standing alone (lower case only)
 UNIT_LABEL = re.compile(r"\b\d+(?:\.\d+)?\s*u\s*=")
-FRACTION = re.compile("(?i)(?<![a-z0-9])[a-z_]*fraction(?![a-z0-9])[\"']?\\W{0,4}[+\\-]?\\.?\\d|\\bhalf_fraction\\b")
+# LINEAR (#979, addendum 364 item 2): the word's arm starts once per run of letters and underscores, as CONTRACT_COUNT's
+# key arm (#969): at the run's start, or, when a digit precedes the run, just after its first underscore (the earliest
+# start the old lookbehind allowed), never once per underscore (3.5 s on 20,000 underscores before). It matches exactly
+# the strings it matched before (tests/test_979_linear_csv_fraction.py).
+FRACTION = re.compile("(?i)(?<![a-z_])(?:(?<![0-9])|[a-z]*_)[a-z_]*fraction(?![a-z0-9])[\"']?\\W{0,4}[+\\-]?\\.?\\d"
+                      "|\\bhalf_fraction\\b")
 POOL = re.compile(r"(?i)\bpool\b(?:\W+[a-z]+){0,3}\W{0,12}[+\-]?\.?\d"   # 304 item 1: "the pool is 25"
                   # addendum 301 item 1: "25 remains in the pool"; LINEAR (#969, 362 item 4): one start per run of
                   # digits, commas and points, as CONTRACT_COUNT's count arm (3.4 s on 10,000 digits before)

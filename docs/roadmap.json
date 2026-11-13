@@ -418,13 +418,19 @@
           "what": "the perfect-XI price receipt on #106 (addendum 256 item 3: the exam set priced exactly as cup-exam prices it, with each fixture's stored history XI (#538) through production's existing XI/lineup multipliers in factor_adjustment, nothing fitted, nothing new; read-only, no table written; cup-exam --with-history-xi on the report-only path)",
           "owner": "code",
           "due": "2026-11-20",
-          "done": null
+          "done": {
+            "date": "2026-11-13",
+            "receipt": "ARCHITECT 2026-11-13 10:20 ET, addendum 367 items 1-2: cup-exam --with-history-xi --db COPY, the architect's block on the laptop at 91ec1e86, 14:03Z, read-only on a fresh .backup copy (mode=ro + immutable=1), exit 0, no REFUSED line; the key exports/cup_answer_key.csv (56 lines, sha256 3eb1d22858b4), model v22; scored 50 (floor 45), missing 0; PERFECT-XI (history XI as confirmed, 0.7) mean |Δ_HOME| 16.43pp, 34 rows over 8pp, sign 3/5 = 60%, beside fix-v2's 15.32pp, 32, 60%; the summary block and per-fixture table on #106"
+          }
         },
         {
           "what": "the R-track's declaration-or-close on the probe's figures, the threshold of 256 item 3 (it declares a context candidate only if the perfect-XI mean |Δ_HOME| is <= 6.0pp with <= 13 rows over 8pp and the sign share >= 80%; above 6.0pp the R-track is CLOSED for the season)",
           "owner": "architect",
           "due": "2026-11-21",
-          "done": null
+          "done": {
+            "date": "2026-11-13",
+            "receipt": "ARCHITECT 2026-11-13 10:20 ET, addendum 367 item 3: \"mean |Δ_HOME| 16.43pp against <= 6.0pp — MISSED; rows over 8pp 34 against <= 13 — MISSED; sign share 60% against >= 80% — MISSED. NO CONTEXT CANDIDATE IS DECLARED. THE R-TRACK IS CLOSED FOR THE SEASON\"; done ahead of its due, a done-mark and not a moved date (item 4)"
+          }
         },
         {
           "what": "Step A, EFL: the timing probe run on the next EFL round with stored rows (--competition EFL, the same polls; its date named by the operator), the laptop awake from T-130 of the first kickoff, its receipt to me the same evening",
@@ -434,7 +440,7 @@
         }
       ],
       "earliest_live": null,
-      "live_needs": "Step C closed 2026-11-05 as a written no (addendum 256): no T-35 rotation term is declared on the evidence. Two ways back, both at cup_exam's UNCHANGED gate (mean |Δ_HOME| <= 8.0pp, <= 13 rows over 8pp, sign >= 80% on EFL round 2; the same exam set, split and metric): (a) the perfect-XI probe (read-only, due 11-20) reads <= 6.0pp mean |Δ_HOME| with <= 13 rows over 8pp and the sign share >= 80% — then a context candidate is declared on a dated plan and examined once; above 6.0pp the R-track is closed for the season on evidence; (b) a cup candidate on soccer-v23's harness after v23 passes its own bar (addenda 251 item 2, 254 item 3), examined at the same gate. Then the forward confirmation every lane carries. Until then CL, UEL and EFL stay market-only (the PAPER record continues); Step B's T-15 store keeps running; no venue call on CL (#505).",
+      "live_needs": "Step C closed 2026-11-05 as a written no (addendum 256): no T-35 rotation term is declared on the evidence. The perfect-XI probe ran once on 2026-11-13 and MISSED its declaration threshold on all three figures (mean |Δ_HOME| 16.43pp against <= 6.0pp, 34 rows over 8pp against <= 13, sign share 60% against >= 80%; addendum 367): no context candidate is declared, and the R-track is CLOSED for the 2026/27 season. The ONE way back: a cup candidate on soccer-v23's harness after v23 passes its own bar (addenda 251 item 2, 254 item 3), examined at cup_exam's UNCHANGED gate (mean |Δ_HOME| <= 8.0pp, <= 13 rows over 8pp, sign >= 80% on EFL round 2; the same exam set, split and metric). Then the forward confirmation every lane carries. Until then CL, UEL and EFL stay market-only (the PAPER record continues); Step B's T-15 store keeps running; EFL Step A (12-15) gates nothing; no venue call on CL (#505).",
       "vs_close": "not read",
       "moved": [
         {

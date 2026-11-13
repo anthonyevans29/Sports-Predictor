@@ -47,6 +47,10 @@ the milestones and the board shape. #74 is the sole ledger mechanism
    `ARCHITECT`.** The bot matches `\bARCHITECT\b` case-sensitively; a
    lowercase "architect" gets reopened (the #150 / #155 incident,
    2026-10-01).
+7. **The header times of the architect's addenda before 371 are the
+   architect's estimates and run up to about 70 minutes ahead of the
+   clock; from 371 on they are clock-read. Addenda are cited by number and
+   ordered by number (ARCHITECT, addendum 371 item 1).**
 
 ## Discussions — the INPUT channel (ruled 2026-10-01)
 GitHub Discussions is where input arrives: questions to the outside world,
